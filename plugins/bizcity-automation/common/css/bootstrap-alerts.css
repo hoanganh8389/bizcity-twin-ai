@@ -1,0 +1,48 @@
+.alert i.fa {
+	color: #28282a;
+}
+.alert, .alert td {
+	padding: 15px;
+	margin-bottom: 20px;
+
+	background-color: transparent;
+	font-size: 15px;
+}
+.alert h4 {
+	margin-top: 0;
+	color: inherit;
+}
+.alert .alert-link, .alert td .alert-link {
+	font-weight: bold;
+}
+.alert > p,
+.alert > ul {
+	margin-bottom: 0;
+}
+.alert > p + p {
+	margin-top: 5px;
+}
+.alert-dismissable,
+.alert-dismissible {
+	padding-right: 35px;
+}
+.alert-dismissable .close,
+.alert-dismissible .close {
+	position: relative;
+	top: -2px;
+	right: -21px;
+	color: inherit;
+}
+.alert-success, .alert-success td {
+	color: #4ae8ea;
+}
+
+.alert-info, .alert-info td {
+	color: #54b1ff;
+}
+.alert-warning, .alert-warning td {
+	color: #e89b07;
+}
+.alert-danger, .alert-danger td {
+	color: #fa4e7f;
+}

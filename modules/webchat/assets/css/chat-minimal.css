@@ -1,0 +1,302 @@
+/**!
+ * Bizcity Twin AI — Personalized AI Companion Platform
+ * Chat Minimal Theme Override
+ * (c) 2024-2026 BizCity by Johnny Chu (Chu Hoàng Anh) — Made in Vietnam 🇻🇳
+ * @package    Bizcity_Twin_AI
+ * @subpackage Module\Webchat\Assets
+ * @license    GPL-2.0-or-later | https://bizcity.vn
+ * 
+ * CSS override layer cho theme minimal.
+ * Target: .bizc-dash.bizc-theme-minimal
+ * 
+ * Dựa trên bố cục legacy, chỉ thay đổi:
+ * - Màu sắc: đơn giản hơn, ít gradient
+ * - Padding/margin: compact hơn
+ * - Ẩn bớt elements: border-radius, shadow
+ * - Mobile: sidebar behavior khác
+ * 
+ * @package BizCity_WebChat_Bot
+ * @since 2.1.0
+ */
+
+/* ═══════════════════════════════════════════
+   MINIMAL THEME OVERRIDES
+   ═══════════════════════════════════════════ */
+
+/* Main container - cleaner background */
+.bizc-dash.bizc-theme-minimal {
+    background: #ffffff;
+    padding: 0;
+    gap: 0;
+}
+
+/* ═══════════════════════════════════════════
+   HIDE AVATARS — Maximize chat area (ChatGPT style)
+   ═══════════════════════════════════════════ */
+.bizc-theme-minimal .bizc-msg-av {
+    display: none !important;
+}
+
+/* Adjust message bubble width when avatars hidden */
+.bizc-theme-minimal .bizc-msg {
+    gap: 0;
+}
+
+/* User messages: align right edge = 0 */
+.bizc-theme-minimal .bizc-msg.user {
+    flex-direction: row;  /* Override row-reverse since avatar is hidden */
+    justify-content: flex-end;
+    margin-right: 0;
+    padding-right: 8px;
+}
+
+.bizc-theme-minimal .bizc-msg.user .bizc-msg-bubble {
+    margin-right: 0;
+    box-shadow: none;
+}
+
+/* Bot bubble: max 85% width */
+.bizc-theme-minimal .bizc-msg.bot .bizc-msg-bubble {
+    max-width: 85%;
+}
+
+/* User bubble: fit content, no max-width constraint */
+.bizc-theme-minimal .bizc-msg.user .bizc-msg-bubble {
+    max-width: fit-content;
+}
+
+/* ═══════════════════════════════════════════
+   SIDEBAR — Keep original light theme, minimal adjustments
+   ═══════════════════════════════════════════ */
+.bizc-theme-minimal .bizc-sidebar {
+    border-radius: 0;
+    box-shadow: none;
+    border-right: 1px solid #e5e7eb;
+}
+
+.bizc-theme-minimal .bizc-new-chat-btn {
+    border-radius: 8px;
+    box-shadow: none;
+}
+.bizc-theme-minimal .bizc-new-chat-btn:hover {
+    transform: none;
+    box-shadow: none;
+}
+
+/* Projects section */
+.bizc-theme-minimal .bizc-section-hdr {
+    font-size: 12px;
+}
+
+.bizc-theme-minimal .bizc-proj-header {
+    border-radius: 6px;
+}
+.bizc-theme-minimal .bizc-proj-header:hover {
+    background: rgba(0,0,0,0.04);
+}
+.bizc-theme-minimal .bizc-proj-header.active {
+    background: rgba(0,0,0,0.06);
+}
+
+/* Conversations */
+.bizc-theme-minimal .bizc-conv {
+    border-radius: 6px;
+}
+.bizc-theme-minimal .bizc-conv:hover {
+    background: rgba(0,0,0,0.04);
+    transform: none;
+}
+.bizc-theme-minimal .bizc-conv.active {
+    background: rgba(0,0,0,0.08);
+}
+
+/* Sidebar footer */
+.bizc-theme-minimal .bizc-settings-link:hover {
+    background: rgba(0,0,0,0.04);
+}
+
+/* ═══════════════════════════════════════════
+   MAIN AREA — Cleaner, minimal design
+   ═══════════════════════════════════════════ */
+.bizc-theme-minimal .bizc-main {
+    background: #ffffff;
+    border-radius: 0;
+    box-shadow: none;
+}
+
+/* Header - simpler */
+.bizc-theme-minimal .bizc-header {
+    background: #ffffff;
+    border-bottom: 1px solid #e5e7eb;
+    padding: 12px 16px;
+}
+
+.bizc-theme-minimal .bizc-hdr-av {
+    border: none;
+    box-shadow: none;
+    background: #f3f4f6;
+}
+
+.bizc-theme-minimal .bizc-hdr-info h2 {
+    color: #111827;
+    font-size: 16px;
+}
+
+/* ═══════════════════════════════════════════
+   MESSAGES — Keep original theme, just cleaner
+   ═══════════════════════════════════════════ */
+.bizc-theme-minimal .bizc-messages {
+    padding: 16px;
+}
+
+/* Bot message - keep original, remove shadows */
+.bizc-theme-minimal .bizc-msg.bot .bizc-msg-bubble {
+    box-shadow: none;
+}
+
+/* User message - keep original, remove shadows */
+.bizc-theme-minimal .bizc-msg.user .bizc-msg-bubble {
+    box-shadow: none;
+}
+
+/* Typing indicator */
+.bizc-theme-minimal .bizc-typing-dots {
+    box-shadow: none;
+}
+
+/* ═══════════════════════════════════════════
+   INPUT AREA — Keep original, simplify slightly
+   ═══════════════════════════════════════════ */
+.bizc-theme-minimal .bizc-input-area {
+    border-top: none;
+}
+
+.bizc-theme-minimal .bizc-input:focus {
+    box-shadow: none;
+}
+
+.bizc-theme-minimal .bizc-send-btn {
+    box-shadow: none;
+}
+.bizc-theme-minimal .bizc-send-btn:hover {
+    transform: none;
+    box-shadow: none;
+}
+
+/* ═══════════════════════════════════════════
+   TOUCHBAR — Keep original, just remove shadows
+   ═══════════════════════════════════════════ */
+.bizc-theme-minimal .bizc-touchbar-wrap {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+
+.bizc-theme-minimal .bizc-tb-btn,
+.bizc-theme-minimal .bizc-tb-agent,
+.bizc-theme-minimal .bizc-tb-link {
+    border-radius: 8px;
+}
+.bizc-theme-minimal .bizc-tb-btn:hover,
+.bizc-theme-minimal .bizc-tb-agent:hover,
+.bizc-theme-minimal .bizc-tb-link:hover {
+    transform: none;
+}
+
+/* ═══════════════════════════════════════════
+   CODE BLOCKS — Cleaner
+   ═══════════════════════════════════════════ */
+.bizc-theme-minimal .bizc-msg-bubble pre {
+    background: #1e1e1e;
+    border-radius: 8px;
+}
+
+.bizc-theme-minimal .bizc-msg-bubble code {
+    background: #e5e7eb;
+    color: #111827;
+}
+
+/* ═══════════════════════════════════════════
+   CONTEXT MENU — Cleaner
+   ═══════════════════════════════════════════ */
+.bizc-theme-minimal .bizc-ctx-menu {
+    border-color: #e5e7eb;
+    border-radius: 8px;
+}
+.bizc-theme-minimal .bizc-ctx-menu-item:hover {
+    background: rgba(0,0,0,0.04);
+}
+
+/* ═══════════════════════════════════════════
+   SCROLLBAR — Subtle
+   ═══════════════════════════════════════════ */
+.bizc-theme-minimal ::-webkit-scrollbar {
+    width: 6px;
+}
+.bizc-theme-minimal ::-webkit-scrollbar-track {
+    background: transparent;
+}
+.bizc-theme-minimal ::-webkit-scrollbar-thumb {
+    background: rgba(0,0,0,0.1);
+    border-radius: 3px;
+}
+.bizc-theme-minimal ::-webkit-scrollbar-thumb:hover {
+    background: rgba(0,0,0,0.2);
+}
+
+/* ═══════════════════════════════════════════
+   DESKTOP — Sidebar toggle behavior
+   ═══════════════════════════════════════════ */
+@media (min-width: 769px) {
+    /* Desktop: sidebar visible by default, can be hidden */
+    .bizc-theme-minimal .bizc-sidebar {
+        transition: transform 0.3s ease, width 0.3s ease, min-width 0.3s ease, margin 0.3s ease, padding 0.3s ease;
+    }
+    /* When sidebar is hidden on desktop - collapse width to 0 */
+    .bizc-theme-minimal .bizc-sidebar.desktop-hidden {
+        width: 0 !important;
+        min-width: 0 !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        overflow: hidden;
+        opacity: 0;
+        pointer-events: none;
+    }
+}
+
+/* ═══════════════════════════════════════════
+   MOBILE — Sidebar overlay behavior
+   ═══════════════════════════════════════════ */
+@media (max-width: 768px) {
+    /* Sidebar uses .mobile-open class (set by hamburger JS) */
+    .bizc-theme-minimal .bizc-sidebar {
+        position: fixed;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        z-index: 10001; /* Above overlay z-index:9998 */
+        width: 280px;
+        transform: translateX(-110%);
+        transition: transform 0.3s ease;
+    }
+    
+    .bizc-theme-minimal .bizc-sidebar.mobile-open {
+        transform: translateX(0);
+        box-shadow: 4px 0 24px rgba(0,0,0,0.2);
+    }
+    
+    /* User message - wider on mobile (85%) */
+    .bizc-theme-minimal .bizc-msg.user {
+        padding-left: 15%;
+    }
+    .bizc-theme-minimal .bizc-msg.user .bizc-msg-bubble {
+        max-width: 100%;
+    }
+}
+
+/* ═══════════════════════════════════════════
+   AGENT PANEL — Cleaner
+   ═══════════════════════════════════════════ */
+.bizc-theme-minimal #bizc-agent-panel {
+    border-radius: 0;
+    background: #ffffff;
+}

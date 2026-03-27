@@ -1,0 +1,229 @@
+/* ============================================================
+   BizCity Tarot – Landing Page CSS
+   ============================================================ */
+
+/* Page wrapper */
+.bct-lp-page {
+  min-height: 100vh;
+  background: linear-gradient(160deg, #0d0820 0%, #1a0a3d 60%, #0d0820 100%);
+  position: relative;
+  overflow-x: hidden;
+}
+
+/* Animated starfield */
+.bct-lp-starfield {
+  position: fixed;
+  inset: 0;
+  background-image:
+    radial-gradient(circle, rgba(201,162,39,.6) 1px, transparent 1px),
+    radial-gradient(circle, rgba(255,255,255,.3) 1px, transparent 1px);
+  background-size: 80px 80px, 40px 40px;
+  background-position: 0 0, 20px 20px;
+  opacity: .25;
+  pointer-events: none;
+  animation: bct-lp-stars 60s linear infinite;
+  z-index: 0;
+}
+@keyframes bct-lp-stars { to { background-position: 80px 80px, 100px 100px; } }
+
+.bct-lp-container {
+  position: relative;
+  z-index: 1;
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 48px 20px 60px;
+}
+
+/* ── Hero ── */
+.bct-lp-hero {
+  text-align: center;
+  margin-bottom: 36px;
+}
+.bct-lp-hero-icon {
+  font-size: 56px;
+  margin-bottom: 12px;
+  filter: drop-shadow(0 0 20px rgba(201,162,39,.5));
+}
+.bct-lp-title {
+  font-size: 32px;
+  font-weight: 900;
+  color: #f5d98b;
+  margin: 0 0 8px;
+  text-shadow: 0 0 30px rgba(201,162,39,.4);
+}
+.bct-lp-subtitle {
+  font-size: 16px;
+  color: #c4b5fd;
+  margin: 0 0 16px;
+}
+.bct-lp-logged-badge {
+  display: inline-block;
+  padding: 7px 16px;
+  background: rgba(16,185,129,.15);
+  border: 1px solid rgba(16,185,129,.35);
+  border-radius: 50px;
+  color: #6ee7b7;
+  font-size: 13px;
+}
+.bct-lp-guest-badge {
+  display: inline-block;
+  padding: 7px 16px;
+  background: rgba(139,92,246,.12);
+  border: 1px solid rgba(139,92,246,.3);
+  border-radius: 50px;
+  color: #c4b5fd;
+  font-size: 13px;
+}
+.bct-lp-guest-badge a {
+  color: #a78bfa;
+  text-decoration: underline;
+}
+
+/* ── Steps ── */
+.bct-lp-steps {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 28px;
+}
+.bct-lp-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  background: rgba(43,16,85,.6);
+  border: 1px solid rgba(201,162,39,.2);
+  border-radius: 12px;
+  padding: 12px 16px;
+  min-width: 120px;
+  text-align: center;
+}
+.bct-lp-step-icon { font-size: 24px; }
+.bct-lp-step-text { display: flex; flex-direction: column; gap: 2px; }
+.bct-lp-step-text strong { font-size: 12px; color: #f5d98b; line-height: 1.3; }
+.bct-lp-step-text span { font-size: 11px; color: #b8a9d0; }
+.bct-lp-step-arrow { color: rgba(201,162,39,.5); font-size: 20px; }
+
+/* ── Tarot app wrapper ── */
+.bct-lp-tarot-wrap {
+  margin-bottom: 36px;
+}
+
+/* ── Growth CTA ── */
+.bct-lp-growth-cta {
+  background: linear-gradient(135deg, #1e1b4b 0%, #312e81 60%, #4c1d95 100%);
+  border-radius: 20px;
+  padding: 36px 28px;
+  text-align: center;
+  margin-bottom: 28px;
+}
+.bct-lp-cta-icon { font-size: 44px; margin-bottom: 8px; }
+.bct-lp-cta-title {
+  color: #fff;
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0 0 10px;
+}
+.bct-lp-cta-sub {
+  color: #c4b5fd;
+  font-size: 14px;
+  line-height: 1.7;
+  max-width: 600px;
+  margin: 0 auto 20px;
+}
+.bct-lp-cta-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+  margin-bottom: 24px;
+}
+.bct-lp-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 13px 24px;
+  border-radius: 50px;
+  background: #10b981;
+  color: #fff;
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 700;
+  box-shadow: 0 4px 16px rgba(16,185,129,.4);
+  transition: transform .2s, box-shadow .2s;
+}
+.bct-lp-btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 22px rgba(16,185,129,.55);
+  color: #fff;
+  text-decoration: none;
+}
+.bct-lp-btn-badge {
+  font-size: 11px;
+  background: rgba(255,255,255,.2);
+  padding: 2px 8px;
+  border-radius: 20px;
+}
+.bct-lp-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 13px 24px;
+  border-radius: 50px;
+  background: linear-gradient(135deg,#6366f1,#8b5cf6);
+  color: #fff;
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 700;
+  box-shadow: 0 4px 16px rgba(99,102,241,.4);
+  transition: transform .2s, box-shadow .2s;
+}
+.bct-lp-btn-secondary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(99,102,241,.55);
+  color: #fff;
+  text-decoration: none;
+}
+
+/* features grid */
+.bct-lp-features {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+  max-width: 700px;
+  margin: 0 auto;
+}
+.bct-lp-feature {
+  background: rgba(255,255,255,.06);
+  border-radius: 12px;
+  padding: 14px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+.bct-lp-feature-icon { font-size: 26px; }
+.bct-lp-feature strong { font-size: 12px; color: #f5d98b; }
+.bct-lp-feature span   { font-size: 11px; color: #c4b5fd; }
+
+/* ── Footer ── */
+.bct-lp-footer {
+  text-align: center;
+  font-size: 12px;
+  color: #818cf8;
+  padding-top: 16px;
+  border-top: 1px solid rgba(201,162,39,.1);
+}
+
+/* ── Responsive ── */
+@media (max-width: 600px) {
+  .bct-lp-title     { font-size: 24px; }
+  .bct-lp-hero-icon { font-size: 40px; }
+  .bct-lp-steps     { flex-direction: column; align-items: stretch; }
+  .bct-lp-step-arrow{ display: none; }
+  .bct-lp-cta-title { font-size: 18px; }
+  .bct-lp-growth-cta{ padding: 24px 16px; }
+}

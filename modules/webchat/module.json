@@ -1,0 +1,20 @@
+{
+    "_copyright":    "(c) 2024-2026 BizCity by Johnny Chu — Made in Vietnam",
+    "_license":      "GPL-2.0-or-later",
+    "_author_email": "Hoanganh.itm@gmail.com",
+    "name":        "webchat",
+    "label":       "BizCity Webchat",
+    "description": "Chat widget + Admin Dashboard + Session management",
+    "version":     "3.0.16",
+    "license":     "lite",
+    "bundled":     true,
+    "requires":    ["knowledge", "intent"],
+    "priority":    20,
+    "bootstrap":   "bootstrap.php",
+    "provides":    [
+        "BizCity_WebChat_Database",
+        "BizCity_WebChat_Widget",
+        "BizCity_Admin_Dashboard"
+    ],
+    "db_tables":   ["bizcity_webchat_sessions", "bizcity_webchat_messages"]
+}

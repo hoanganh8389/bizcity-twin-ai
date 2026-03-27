@@ -1,0 +1,40 @@
+.bc-market-grid{
+  display:grid;
+  grid-template-columns:repeat(4, minmax(0, 1fr));
+  gap:16px;
+}
+@media (max-width: 1024px){ .bc-market-grid{ grid-template-columns:repeat(2,1fr);} }
+@media (max-width: 560px){ .bc-market-grid{ grid-template-columns:1fr;} }
+
+.bc-market-card{
+  background:#fff;
+  border:1px solid #e5e7eb;
+  border-radius:16px;
+  overflow:hidden;
+  box-shadow:0 1px 2px rgba(0,0,0,.04);
+}
+.bc-market-thumb{
+  height:140px;
+  background:#f3f4f6;
+}
+.bc-market-thumb img{
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  display:block;
+}
+.bc-market-body{ padding:14px; }
+.bc-market-title{ font-weight:800; font-size:15px; line-height:1.25; margin-bottom:6px; }
+.bc-market-meta{ font-size:12px; opacity:.7; display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
+.bc-market-desc{ font-size:13px; opacity:.85; min-height:34px; margin-bottom:10px; }
+.bc-market-price{ display:flex; align-items:baseline; gap:8px; margin-bottom:12px; }
+.bc-market-vnd{ opacity:.7; font-size:12px; }
+.bc-market-actions{ display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
+.bc-btn{
+  display:inline-flex; align-items:center; justify-content:center;
+  padding:8px 10px; border-radius:12px;
+  border:1px solid #e5e7eb; background:#fff; text-decoration:none;
+  font-size:12px;
+}
+.bc-btn-primary{ border-color:#111827; }
+.bc-market-code code{ font-size:11px; opacity:.75; }

@@ -1,0 +1,922 @@
+/* ═══════════════════════════════════════════════
+   BizCity Calo — Public CSS (Mobile First)
+   ═══════════════════════════════════════════════ */
+
+:root {
+    --bzcalo-primary: #6366f1;
+    --bzcalo-primary-light: #e0e7ff;
+    --bzcalo-success: #22c55e;
+    --bzcalo-success-light: #f0fdf4;
+    --bzcalo-warning: #f59e0b;
+    --bzcalo-danger: #ef4444;
+    --bzcalo-text: #1f2937;
+    --bzcalo-muted: #6b7280;
+    --bzcalo-bg: #f9fafb;
+    --bzcalo-card-bg: #ffffff;
+    --bzcalo-border: #e5e7eb;
+    --bzcalo-radius: 12px;
+    --bzcalo-shadow: 0 1px 3px rgba(0,0,0,.1);
+}
+
+/* App Container */
+.bzcalo-app {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    max-width: 480px;
+    margin: 0 auto;
+    background: var(--bzcalo-bg);
+    min-height: 100vh;
+    color: var(--bzcalo-text);
+    font-size: 14px;
+    padding-bottom: 72px; /* space for bottom nav */
+    position: relative;
+}
+
+/* ── Bottom Navigation ── */
+.bzcalo-nav {
+    position: fixed;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 100%;
+    max-width: 480px;
+    display: flex;
+    background: var(--bzcalo-card-bg);
+    border-top: 1px solid var(--bzcalo-border);
+    z-index: 100;
+    box-shadow: 0 -2px 10px rgba(0,0,0,.06);
+}
+
+.bzcalo-nav-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 8px 4px;
+    text-decoration: none;
+    color: var(--bzcalo-muted);
+    font-size: 11px;
+    transition: color .2s;
+}
+
+.bzcalo-nav-item.active {
+    color: var(--bzcalo-primary);
+}
+
+.bzcalo-nav-icon {
+    font-size: 20px;
+    line-height: 1;
+    margin-bottom: 2px;
+}
+
+/* ── Ring Chart Card ── */
+.bzcalo-ring-card {
+    background: linear-gradient(135deg, var(--bzcalo-primary) 0%, #818cf8 100%);
+    color: #fff;
+    padding: 24px 16px;
+    text-align: center;
+    border-radius: 0 0 var(--bzcalo-radius) var(--bzcalo-radius);
+}
+
+.bzcalo-ring-wrap {
+    position: relative;
+    width: 140px;
+    height: 140px;
+    margin: 0 auto 16px;
+}
+
+.bzcalo-ring-svg {
+    width: 100%;
+    height: 100%;
+    transform: rotate(-90deg);
+}
+
+.bzcalo-ring-bg {
+    fill: none;
+    stroke: rgba(255,255,255,.2);
+    stroke-width: 3;
+}
+
+.bzcalo-ring-fg {
+    fill: none;
+    stroke: #fff;
+    stroke-width: 3;
+    stroke-linecap: round;
+    transition: stroke-dasharray .8s ease;
+}
+
+.bzcalo-ring-center {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+}
+
+.bzcalo-ring-cal {
+    display: block;
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1.1;
+}
+
+.bzcalo-ring-label {
+    font-size: 12px;
+    opacity: .8;
+}
+
+.bzcalo-macro-row {
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+}
+
+.bzcalo-macro {
+    text-align: center;
+    font-size: 12px;
+    opacity: .9;
+}
+
+.bzcalo-macro-val {
+    font-weight: 700;
+    font-size: 18px;
+}
+
+/* ── Section ── */
+.bzcalo-section {
+    padding: 16px;
+}
+
+.bzcalo-section-title {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0 0 12px;
+}
+
+/* ── Meal List ── */
+.bzcalo-meal-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.bzcalo-meal-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--bzcalo-card-bg);
+    border-radius: var(--bzcalo-radius);
+    padding: 12px;
+    box-shadow: var(--bzcalo-shadow);
+}
+
+.bzcalo-meal-photo {
+    width: 48px;
+    height: 48px;
+    border-radius: 8px;
+    object-fit: cover;
+    flex-shrink: 0;
+}
+
+.bzcalo-meal-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 8px;
+    background: var(--bzcalo-primary-light);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    flex-shrink: 0;
+}
+
+.bzcalo-meal-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.bzcalo-meal-desc {
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.bzcalo-meal-meta {
+    font-size: 12px;
+    color: var(--bzcalo-muted);
+    margin-top: 2px;
+}
+
+.bzcalo-meal-cal {
+    font-weight: 700;
+    font-size: 16px;
+    color: var(--bzcalo-primary);
+    white-space: nowrap;
+}
+
+.bzcalo-meal-del,
+.bzcalo-w-del {
+    background: none;
+    border: none;
+    color: var(--bzcalo-danger);
+    cursor: pointer;
+    font-size: 16px;
+    padding: 4px;
+    opacity: .5;
+    transition: opacity .2s;
+}
+
+.bzcalo-meal-del:hover,
+.bzcalo-w-del:hover {
+    opacity: 1;
+}
+
+.bzcalo-empty {
+    text-align: center;
+    color: var(--bzcalo-muted);
+    padding: 24px 16px;
+}
+
+/* ── Card ── */
+.bzcalo-card {
+    background: var(--bzcalo-card-bg);
+    border-radius: var(--bzcalo-radius);
+    padding: 20px 16px;
+    margin: 16px;
+    box-shadow: var(--bzcalo-shadow);
+}
+
+.bzcalo-card h3 {
+    margin: 0 0 16px;
+    font-size: 18px;
+}
+
+/* ── Photo Zone ── */
+.bzcalo-photo-zone {
+    display: block; /* label needs block */
+    border: 2px dashed var(--bzcalo-border);
+    border-radius: var(--bzcalo-radius);
+    padding: 24px;
+    text-align: center;
+    cursor: pointer;
+    background: var(--bzcalo-bg);
+    margin-bottom: 16px;
+    transition: border-color .2s;
+}
+
+.bzcalo-photo-zone:hover,
+.bzcalo-photo-zone.has-photo {
+    border-color: var(--bzcalo-primary);
+}
+
+.bzcalo-photo-placeholder p {
+    margin: 8px 0 0;
+    font-size: 14px;
+    color: var(--bzcalo-muted);
+}
+
+.bzcalo-photo-placeholder small {
+    color: #9ca3af;
+}
+
+#bzcalo-pub-photo-img {
+    max-width: 100%;
+    max-height: 200px;
+    border-radius: 8px;
+}
+
+/* ── Fields ── */
+.bzcalo-field {
+    margin-bottom: 12px;
+}
+
+.bzcalo-field label {
+    display: block;
+    font-weight: 600;
+    font-size: 13px;
+    margin-bottom: 4px;
+    color: var(--bzcalo-text);
+}
+
+.bzcalo-field input,
+.bzcalo-field textarea,
+.bzcalo-field select {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--bzcalo-border);
+    border-radius: 8px;
+    font-size: 14px;
+    box-sizing: border-box;
+    background: var(--bzcalo-card-bg);
+}
+
+.bzcalo-field input:focus,
+.bzcalo-field textarea:focus,
+.bzcalo-field select:focus {
+    outline: none;
+    border-color: var(--bzcalo-primary);
+    box-shadow: 0 0 0 3px var(--bzcalo-primary-light);
+}
+
+.bzcalo-field-row {
+    display: flex;
+    gap: 12px;
+}
+
+.bzcalo-field-row .bzcalo-field {
+    flex: 1;
+}
+
+/* ── Meal Type Pills ── */
+.bzcalo-meal-type-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.bzcalo-pill {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 4px;
+    border: 2px solid var(--bzcalo-border);
+    border-radius: 8px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all .2s;
+    text-align: center;
+}
+
+.bzcalo-pill input {
+    display: none;
+}
+
+.bzcalo-pill.active,
+.bzcalo-pill:has(input:checked) {
+    border-color: var(--bzcalo-primary);
+    background: var(--bzcalo-primary-light);
+    color: var(--bzcalo-primary);
+    font-weight: 600;
+}
+
+/* ── AI Result ── */
+.bzcalo-ai-result {
+    background: var(--bzcalo-success-light);
+    border: 1px solid #86efac;
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 16px;
+}
+
+.bzcalo-ai-result h4 {
+    margin: 0 0 8px;
+    font-size: 14px;
+}
+
+.bzcalo-ai-total {
+    font-weight: 700;
+    margin-top: 8px;
+}
+
+.bzcalo-ai-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+    font-size: 13px;
+}
+
+.bzcalo-ai-item span:last-child {
+    font-weight: 600;
+}
+
+/* ── Buttons ── */
+.bzcalo-btn-row {
+    display: flex;
+    gap: 8px;
+}
+
+.bzcalo-btn {
+    flex: 1;
+    padding: 12px 16px;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all .2s;
+}
+
+.bzcalo-btn-primary {
+    background: var(--bzcalo-primary);
+    color: #fff;
+}
+
+.bzcalo-btn-primary:hover {
+    background: #4f46e5;
+}
+
+.bzcalo-btn-secondary {
+    background: var(--bzcalo-bg);
+    color: var(--bzcalo-text);
+    border: 1px solid var(--bzcalo-border);
+}
+
+.bzcalo-btn-secondary:hover {
+    background: #f3f4f6;
+}
+
+.bzcalo-btn:disabled {
+    opacity: .5;
+    cursor: not-allowed;
+}
+
+/* ── FAB ── */
+.bzcalo-fab-wrap {
+    padding: 0 16px 16px;
+}
+
+.bzcalo-fab {
+    display: block;
+    width: 100%;
+    padding: 14px;
+    background: var(--bzcalo-primary);
+    color: #fff;
+    border: none;
+    border-radius: var(--bzcalo-radius);
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(99,102,241,.3);
+    transition: all .2s;
+}
+
+.bzcalo-fab:hover {
+    background: #4f46e5;
+    transform: translateY(-1px);
+}
+
+/* ── Bar Chart ── */
+.bzcalo-bar-chart {
+    display: flex;
+    align-items: flex-end;
+    gap: 6px;
+    height: 160px;
+    padding: 10px 0;
+}
+
+.bzcalo-bar-col {
+    flex: 1;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    height: 100%;
+}
+
+.bzcalo-bar {
+    width: 100%;
+    max-width: 32px;
+    border-radius: 4px 4px 0 0;
+    transition: height .5s ease;
+    min-height: 4px;
+}
+
+.bzcalo-bar-date {
+    font-size: 10px;
+    color: var(--bzcalo-muted);
+    margin-top: 4px;
+}
+
+.bzcalo-bar-val {
+    font-size: 10px;
+    font-weight: 600;
+    margin-top: 2px;
+}
+
+/* ── Status ── */
+.bzcalo-status {
+    text-align: center;
+    padding: 8px;
+    border-radius: 8px;
+    font-size: 13px;
+    margin-top: 12px;
+}
+
+.bzcalo-status.success {
+    background: var(--bzcalo-success-light);
+    color: #15803d;
+}
+
+.bzcalo-status.error {
+    background: #fef2f2;
+    color: var(--bzcalo-danger);
+}
+
+.bzcalo-hint {
+    text-align: center;
+    font-size: 12px;
+    color: var(--bzcalo-muted);
+    margin-top: 8px;
+}
+
+/* ── Loading Spinner ── */
+.bzcalo-loading {
+    display: inline-block;
+    width: 18px;
+    height: 18px;
+    border: 2px solid rgba(99,102,241,.2);
+    border-top-color: var(--bzcalo-primary);
+    border-radius: 50%;
+    animation: bzcalo-spin .6s linear infinite;
+    vertical-align: middle;
+    margin-right: 6px;
+}
+
+@keyframes bzcalo-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* ── Login Message ── */
+.bzcalo-login-msg {
+    background: var(--bzcalo-card-bg);
+    border-radius: var(--bzcalo-radius);
+    padding: 40px 20px;
+    text-align: center;
+    box-shadow: var(--bzcalo-shadow);
+    max-width: 400px;
+    margin: 40px auto;
+}
+
+.bzcalo-login-msg .button {
+    display: inline-block;
+    padding: 10px 28px;
+    background: var(--bzcalo-primary);
+    color: #fff;
+    text-decoration: none;
+    border-radius: 8px;
+    font-weight: 600;
+    margin-top: 12px;
+}
+
+/* ── Success Dialog ── */
+.bzcalo-dialog-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,.5);
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    backdrop-filter: blur(4px);
+}
+
+.bzcalo-dialog {
+    background: var(--bzcalo-card-bg);
+    border-radius: 16px;
+    padding: 28px 24px;
+    max-width: 380px;
+    width: 100%;
+    text-align: center;
+    box-shadow: 0 20px 60px rgba(0,0,0,.2);
+    animation: bzcalo-dialog-in .3s ease;
+}
+
+@keyframes bzcalo-dialog-in {
+    from { opacity: 0; transform: scale(.9) translateY(20px); }
+    to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.bzcalo-dialog-icon {
+    font-size: 48px;
+    margin-bottom: 8px;
+}
+
+.bzcalo-dialog-title {
+    font-size: 20px;
+    font-weight: 700;
+    margin: 0 0 8px;
+    color: var(--bzcalo-text);
+}
+
+.bzcalo-dialog-msg {
+    font-size: 14px;
+    color: var(--bzcalo-muted);
+    margin: 0 0 12px;
+}
+
+.bzcalo-dialog-list {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 16px;
+    text-align: left;
+}
+
+.bzcalo-dialog-list li {
+    padding: 6px 0;
+    font-size: 13px;
+    color: var(--bzcalo-text);
+    border-bottom: 1px solid var(--bzcalo-border);
+}
+
+.bzcalo-dialog-list li:last-child {
+    border-bottom: none;
+}
+
+.bzcalo-dialog-target {
+    background: var(--bzcalo-primary-light);
+    color: var(--bzcalo-primary);
+    padding: 10px 16px;
+    border-radius: 8px;
+    font-size: 14px;
+    margin: 0 0 16px;
+}
+
+/* ── Responsive ── */
+@media (min-width: 481px) {
+    .bzcalo-app {
+        border-left: 1px solid var(--bzcalo-border);
+        border-right: 1px solid var(--bzcalo-border);
+    }
+}
+
+/* ── Mascot Area ── */
+.bzcalo-mascot-area {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    margin: 12px 16px 0;
+    background: linear-gradient(135deg, #ede9fe 0%, #e0e7ff 100%);
+    border-radius: var(--bzcalo-radius);
+}
+
+.bzcalo-mascot-avatar {
+    font-size: 44px;
+    line-height: 1;
+    flex-shrink: 0;
+    animation: bzcalo-mascot-bounce 2s ease-in-out infinite;
+}
+
+@keyframes bzcalo-mascot-bounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-5px); }
+}
+
+.bzcalo-mascot-bubble {
+    background: #fff;
+    border-radius: 12px;
+    padding: 10px 14px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--bzcalo-text);
+    position: relative;
+    box-shadow: 0 2px 8px rgba(0,0,0,.06);
+    flex: 1;
+}
+
+.bzcalo-mascot-bubble::before {
+    content: '';
+    position: absolute;
+    left: -6px;
+    top: 50%;
+    transform: translateY(-50%);
+    border: 6px solid transparent;
+    border-right-color: #fff;
+}
+
+/* ── Week Strip ── */
+.bzcalo-week-strip {
+    display: flex;
+    justify-content: space-around;
+    padding: 10px 12px;
+    margin: 8px 16px;
+    background: var(--bzcalo-card-bg);
+    border-radius: var(--bzcalo-radius);
+    box-shadow: var(--bzcalo-shadow);
+}
+
+.bzcalo-week-day {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+}
+
+.bzcalo-week-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--bzcalo-muted);
+}
+
+.bzcalo-week-dot {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+    background: var(--bzcalo-bg);
+    color: var(--bzcalo-muted);
+    transition: all .2s;
+}
+
+.bzcalo-week-day.has-data .bzcalo-week-dot {
+    background: var(--bzcalo-primary-light);
+    color: var(--bzcalo-primary);
+}
+
+.bzcalo-week-day.today .bzcalo-week-dot {
+    background: var(--bzcalo-primary);
+    color: #fff;
+    box-shadow: 0 2px 8px rgba(99,102,241,.3);
+}
+
+.bzcalo-week-cal {
+    font-size: 9px;
+    color: var(--bzcalo-muted);
+    min-height: 12px;
+}
+
+/* ── Macro Progress Bars ── */
+.bzcalo-macro-bars {
+    padding: 0 16px;
+    margin: 12px 0;
+}
+
+.bzcalo-macro-bar-item {
+    margin-bottom: 10px;
+}
+
+.bzcalo-macro-bar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 5px;
+}
+
+.bzcalo-macro-bar-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--bzcalo-text);
+}
+
+.bzcalo-macro-bar-value {
+    font-size: 13px;
+    color: var(--bzcalo-muted);
+    font-weight: 500;
+}
+
+.bzcalo-macro-bar-track {
+    height: 10px;
+    background: var(--bzcalo-bg);
+    border-radius: 5px;
+    overflow: hidden;
+}
+
+.bzcalo-macro-bar-fill {
+    height: 100%;
+    border-radius: 5px;
+    transition: width .8s cubic-bezier(.4, 0, .2, 1);
+    min-width: 0;
+}
+
+.bzcalo-macro-bar-fill.carbs {
+    background: linear-gradient(90deg, #3b82f6, #60a5fa);
+}
+
+.bzcalo-macro-bar-fill.protein {
+    background: linear-gradient(90deg, #ec4899, #f472b6);
+}
+
+.bzcalo-macro-bar-fill.fat {
+    background: linear-gradient(90deg, #f59e0b, #fbbf24);
+}
+
+/* ── BMI Card ── */
+.bzcalo-bmi-card {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 20px;
+    margin: 16px;
+    background: linear-gradient(135deg, #e0e7ff 0%, #ede9fe 100%);
+    border-radius: var(--bzcalo-radius);
+    box-shadow: var(--bzcalo-shadow);
+}
+
+.bzcalo-bmi-circle {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    background: #fff;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px rgba(99,102,241,.15);
+    flex-shrink: 0;
+    transition: border-color .3s;
+}
+
+.bzcalo-bmi-val {
+    font-size: 24px;
+    font-weight: 800;
+    color: var(--bzcalo-primary);
+    line-height: 1;
+}
+
+.bzcalo-bmi-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--bzcalo-muted);
+    text-transform: uppercase;
+    margin-top: 2px;
+}
+
+.bzcalo-bmi-info {
+    flex: 1;
+}
+
+.bzcalo-bmi-status {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--bzcalo-text);
+    margin-bottom: 6px;
+}
+
+.bzcalo-bmi-detail {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 13px;
+    color: var(--bzcalo-muted);
+}
+
+/* ── BMI Scale ── */
+.bzcalo-bmi-scale {
+    position: relative;
+    display: flex;
+    height: 22px;
+    margin: 0 16px 16px;
+    border-radius: 11px;
+    overflow: visible;
+}
+
+.bzcalo-bmi-range {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    font-weight: 600;
+    color: #fff;
+}
+
+.bzcalo-bmi-range.under { background: #60a5fa; flex: 18.5; border-radius: 11px 0 0 11px; }
+.bzcalo-bmi-range.normal { background: #34d399; flex: 6.5; }
+.bzcalo-bmi-range.over { background: #fbbf24; flex: 5; }
+.bzcalo-bmi-range.obese { background: #f87171; flex: 10; border-radius: 0 11px 11px 0; }
+
+.bzcalo-bmi-pointer {
+    position: absolute;
+    top: -3px;
+    width: 4px;
+    height: 28px;
+    background: var(--bzcalo-text);
+    border-radius: 2px;
+    transition: left .5s ease;
+    z-index: 1;
+}
+
+/* ── Weight Line Chart ── */
+.bzcalo-weight-chart {
+    padding: 8px 0;
+    min-height: 160px;
+}
+
+.bzcalo-chart-svg {
+    width: 100%;
+    height: 130px;
+}
+
+.bzcalo-chart-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    color: var(--bzcalo-muted);
+    padding: 4px 10px 0;
+}
+
+/* ── Nav 5-tab fit ── */
+.bzcalo-nav-item {
+    font-size: 10px;
+    padding: 7px 2px;
+}
+
+.bzcalo-nav-icon {
+    font-size: 18px;
+}

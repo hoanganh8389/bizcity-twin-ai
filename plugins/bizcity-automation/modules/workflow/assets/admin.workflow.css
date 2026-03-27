@@ -1,0 +1,235 @@
+/*.wbw-body-workspace .wbw-ws-block {
+	padding: 24px;
+	min-height: 100px;
+}*/
+a.waic-maim-link {
+	font-size: 14px;
+	font-weight: 600;
+}
+.wbw-body-intagrations {
+	max-width: 900px;
+}
+.waic-tab-header {
+	background: #fff;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
+.waic-row-coltrols {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	flex-wrap: wrap;
+}
+.waic-row-coltrols.waic-wide {
+	margin: 0 -24px;
+}
+.waic-row-coltrol {
+	padding: 8px 24px;
+	display: flex;
+	gap: 16px;
+	align-items: center;
+	flex-wrap: nowrap;
+	margin: 0 !important;
+}
+.waic-row-coltrol button {
+	margin: 0 !important;
+}
+.waic-section-integrations {
+	padding: 15px 24px;
+}
+.waic-section {
+	margin-bottom: 10px;
+	border: 1px solid #CBD6E2;
+	width: 100%;
+	padding: 0;
+	display: inline-block;
+	border-radius: 8px;
+	box-sizing: border-box;
+	background-color: #ffffff;
+}
+.waic-section-header {
+	overflow: hidden;
+	padding: 5px 0;
+	background: #fff;
+	border-radius: 8px;
+	
+}
+.waic-section-header .waic-tab-coltrols {
+	padding: 8px 10px;
+}
+.waic-integ-logo {
+	background-color: #007C91;
+	width: 40px;
+	height: 40px;
+	border-radius: 5PX;
+	color: #fff;
+	align-content: center;
+	text-align: center;
+	font-size: 14px;
+}
+.waic-integ-text {
+	height: 35px;
+	display: flex;
+	flex-direction: column;
+	justify-content: space-between;
+}
+.waic-integ-name {
+	font-size: 14px;
+	font-weight: 600;
+}
+.waic-integ-desc {
+	font-size: 10px;
+}
+.waic-section-options {
+	padding: 10px 50px;
+	border-top: 1px solid #CBD6E2;
+}
+.waic-no-accounts {
+	width: 100%;
+	text-align: center;
+}
+.waic-dialog-form select, .waic-dialog-form input {
+	width: 100%;
+	max-width: 100%;
+}
+.waic-accounts-list {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	padding: 5px 0;
+}
+.waic-integ-account {
+	border: 1px solid #CBD6E2;
+	border-radius: 5px;
+	padding: 10px;
+}
+.waic-integ-account .waic-row-coltrol {
+	flex-wrap: wrap;
+}
+.waic-account-status {
+	border-radius: 25px;
+	padding: 2px 10px;
+	width: 100px;
+	font-size: 12px;
+	text-align: center;
+}
+.waic-account-status1 {
+	color: #2F6C3D;
+	background-color: #D4EDDA;
+}
+.waic-account-status7 {
+	color: #813139;
+	background-color: #F8D7DA;
+}
+.waic-account-coltrol {
+	font-size: 12px;
+}
+.waic-account-status-error {
+	font-size: 10px;
+	margin-top: -15px;
+}
+.waic-button-form {
+	margin: 0;
+}
+.waic-table-actions {
+	font-size: 16px;
+	padding: 0 2px;
+	display: flex;
+}
+.waic-table-action {
+	color: #333333;
+	margin: 0 5px;
+	-webkit-text-stroke: 2px white;
+}
+.waic-delete-template {
+	position: absolute;
+	top: 10px;
+	right: 10px;
+	font-size: 16px;
+}
+.waic-bindings-repeater{
+  margin-top: 6px;
+}
+.waic-bindings-help{
+  font-size: 12px;
+  color: #5f6b7a;
+  margin-bottom: 8px;
+}
+.waic-bindings-table input{
+  width: 100% !important;
+}
+.waic-bindings-col-drag,
+.waic-bindings-th-drag{
+  width: 26px;
+}
+.waic-bindings-col-actions,
+.waic-bindings-th-actions{
+  width: 70px;
+  text-align: right;
+}
+.waic-bindings-drag{
+  cursor: grab;
+  user-select: none;
+  display: inline-block;
+  padding: 4px 6px;
+  color: #6b7280;
+}
+.waic-bindings-row.is-dragging{
+  opacity: 0.6;
+}
+.waic-bindings-actions{
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.waic-bindings-dnd {
+  margin-top: 8px;
+}
+
+.waic-bindings-palette {
+  margin: 0 0 10px;
+  padding: 10px;
+  border: 1px dashed #ccd0d4;
+  background: #fff;
+}
+
+.waic-bindings-palette-title {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.waic-bindings-palette-item {
+  display: inline-block;
+  padding: 4px 8px;
+  margin: 0 6px 6px 0;
+  background: #f6f7f7;
+  border: 1px solid #dcdcde;
+  border-radius: 4px;
+  cursor: grab;
+  user-select: none;
+}
+
+.waic-bindings-table input.waic-bindings-target,
+.waic-bindings-table input.waic-bindings-source {
+  width: 100%;
+}
+
+.waic-bindings-col-drag {
+  width: 26px;
+}
+
+.waic-bindings-drag {
+  cursor: grab;
+  color: #646970;
+}
+
+.waic-bindings-row.is-dragging {
+  opacity: 0.6;
+}
+
+.waic-bindings-actions {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+}

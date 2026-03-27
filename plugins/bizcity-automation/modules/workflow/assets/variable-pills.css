@@ -1,0 +1,198 @@
+/* Variable Pills Input Container */
+.waic-variable-input-container {
+  position: relative;
+  border: 2px solid #e0e0e0;
+  border-radius: 6px;
+  background: white;
+  transition: all 0.2s;
+  min-height: 42px;
+}
+
+.waic-variable-input-container:focus-within {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.waic-variable-input-container.drag-over {
+  border-color: #10b981;
+  background: #f0fdf4;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
+}
+
+/* Simple Input Mode */
+.waic-variable-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  outline: none;
+  font-size: 14px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: transparent;
+}
+
+.waic-variable-input:focus {
+  outline: none;
+}
+
+textarea.waic-variable-input {
+  resize: vertical;
+  font-family: 'Consolas', 'Monaco', monospace;
+  line-height: 1.5;
+}
+
+.waic-drag-hint {
+  position: absolute;
+  bottom: 6px;
+  right: 10px;
+  font-size: 11px;
+  color: #999;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Pills Editor Mode */
+.waic-pills-editor {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  min-height: 42px;
+}
+
+/* Text Input in Pills Mode */
+.pill-text-input {
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 14px;
+  padding: 4px 2px;
+  min-width: 100px;
+  flex: 1;
+}
+
+.pill-text-input:focus {
+  outline: none;
+}
+
+/* Variable Pill */
+.waic-variable-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 6px 8px 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: default;
+  transition: all 0.2s;
+  box-shadow: 0 2px 4px rgba(102, 126, 234, 0.2);
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.waic-variable-pill:hover {
+  box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
+  transform: translateY(-1px);
+}
+
+.waic-variable-pill .pill-icon {
+  font-size: 10px;
+  opacity: 0.9;
+}
+
+.waic-variable-pill .pill-content {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+
+.waic-variable-pill .pill-remove {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  color: white;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.waic-variable-pill .pill-remove:hover {
+  background: rgba(255, 255, 255, 0.3);
+  transform: scale(1.1);
+}
+
+.waic-variable-pill .pill-remove i {
+  font-size: 10px;
+}
+
+/* Pills Footer */
+.waic-pills-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-top: 1px solid #f0f0f0;
+  background: #f8f9fa;
+}
+
+.waic-add-text,
+.waic-view-raw {
+  background: white;
+  border: 1px solid #e0e0e0;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  color: #666;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.waic-add-text:hover,
+.waic-view-raw:hover {
+  background: #f8f9fa;
+  border-color: #3b82f6;
+  color: #3b82f6;
+}
+
+.waic-add-text i,
+.waic-view-raw i {
+  font-size: 10px;
+}
+
+/* Different pill colors for different node types */
+.waic-variable-pill[data-node-type="trigger"] {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);
+}
+
+.waic-variable-pill[data-node-type="action"] {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
+}
+
+.waic-variable-pill[data-node-type="logic"] {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  box-shadow: 0 2px 4px rgba(245, 158, 11, 0.2);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .waic-variable-pill .pill-content {
+    max-width: 120px;
+  }
+}

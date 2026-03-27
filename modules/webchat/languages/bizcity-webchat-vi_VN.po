@@ -1,0 +1,198 @@
+# BizCity WebChat — Vietnamese Translation
+# Bản dịch tiếng Việt cho BizCity WebChat
+#
+# Copyright (C) 2024-2026 BizCity — Made in Vietnam 🇻🇳
+# Author: Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+# Language-Team: BizCity <info@bizcity.vn>
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: BizCity WebChat 3.0.16\n"
+"Report-Msgid-Bugs-To: Hoanganh.itm@gmail.com\n"
+"POT-Creation-Date: 2026-03-23T00:00+07:00\n"
+"PO-Revision-Date: 2026-03-23T00:00+07:00\n"
+"Last-Translator: Johnny Chu <Hoanganh.itm@gmail.com>\n"
+"Language-Team: BizCity <info@bizcity.vn>\n"
+"Language: vi_VN\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"X-Generator: GitHub Copilot\n"
+"X-Domain: bizcity-webchat\n"
+
+# ── Sidebar navigation ────────────────────────────────────────────────────────
+
+#: includes/class-admin-dashboard.php
+msgid "Explore"
+msgstr "Khám phá"
+
+#: includes/class-admin-dashboard.php
+msgid "Tools"
+msgstr "Công cụ"
+
+#: includes/class-admin-dashboard.php
+msgid "Training"
+msgstr "Đào tạo"
+
+#: includes/class-admin-dashboard.php
+msgid "LLM Hub Settings"
+msgstr "Cài đặt LLM Hub"
+
+#: includes/class-admin-dashboard.php
+msgid "Multi-Agent Coordination"
+msgstr "Phối hợp nhiều Agents"
+
+# ── Welcome screen tool shortcuts ─────────────────────────────────────────────
+
+#: includes/class-admin-dashboard.php
+msgid "Write Article"
+msgstr "Viết bài"
+
+#: includes/class-admin-dashboard.php
+msgid "/write_article Write an article for me"
+msgstr "/write_article Viết bài giúp tôi"
+
+#: includes/class-admin-dashboard.php
+msgid "Generate Image"
+msgstr "Tạo ảnh"
+
+#: includes/class-admin-dashboard.php
+msgid "/generate_image Generate an image for me"
+msgstr "/generate_image Tạo ảnh giúp tôi"
+
+#: includes/class-admin-dashboard.php
+msgid "Summarize"
+msgstr "Tóm tắt nội dung"
+
+#: includes/class-admin-dashboard.php
+msgid "Summarize this content for me"
+msgstr "Tóm tắt nội dung giúp tôi"
+
+#: includes/class-admin-dashboard.php
+msgid "Consult"
+msgstr "Tư vấn"
+
+#: includes/class-admin-dashboard.php
+msgid "Give me advice on"
+msgstr "Tư vấn giúp tôi về"
+
+#: includes/class-admin-dashboard.php
+msgid "View Orders"
+msgstr "Xem đơn hàng"
+
+#: includes/class-admin-dashboard.php
+msgid "Reports"
+msgstr "Báo cáo"
+
+#: includes/class-admin-dashboard.php
+msgid "/business_report Generate a report"
+msgstr "/business_report Tạo báo cáo"
+
+#: includes/class-admin-dashboard.php
+msgid "Create Mindmap"
+msgstr "Tạo mindmap"
+
+#: includes/class-admin-dashboard.php
+msgid "Create Reminder"
+msgstr "Tạo nhắc việc"
+
+# ── Touchbar / core items ─────────────────────────────────────────────────────
+
+#: includes/class-admin-dashboard.php
+msgid "Chat"
+msgstr "Chat"
+
+#: includes/class-admin-dashboard.php
+msgid "Back to Chat"
+msgstr "Quay lại Chat"
+
+#: includes/class-admin-dashboard.php
+msgid "AI Tools"
+msgstr "Công cụ AI"
+
+#: includes/class-admin-dashboard.php
+msgid "AI Tools List"
+msgstr "Danh sách Công cụ AI"
+
+#: includes/class-admin-dashboard.php
+msgid "Control Panel"
+msgstr "Control Panel"
+
+#: includes/class-admin-dashboard.php
+msgid "Configure Tool Routing"
+msgstr "Cấu hình Tool Routing"
+
+#: includes/class-admin-dashboard.php
+msgid "Profile"
+msgstr "Hồ sơ"
+
+#: includes/class-admin-dashboard.php
+msgid "Set Profile"
+msgstr "Cài Hồ sơ"
+
+#: includes/class-admin-dashboard.php
+msgid "Knowledge"
+msgstr "Kiến thức"
+
+#: includes/class-admin-dashboard.php
+msgid "Set Knowledge"
+msgstr "Cài Kiến thức"
+
+#: includes/class-admin-dashboard.php
+msgid "AI Market"
+msgstr "Chợ AI"
+
+#: includes/class-admin-dashboard.php
+msgid "AI Agent Market"
+msgstr "Chợ AI Agent"
+
+# ── Admin Menu (class-admin-menu.php) ─────────────────────────────────────────
+
+#: includes/class-admin-dashboard.php
+msgid "Chat with Assistant"
+msgstr "Nói chuyện với trợ lý"
+
+#: includes/class-admin-menu.php
+msgid "Bots - Web Chat"
+msgstr "Bots - Web Chat"
+
+#: includes/class-admin-menu.php
+msgid "WebChat Settings"
+msgstr "Cấu hình"
+
+#: includes/class-admin-menu.php
+msgid "Trigger Guide"
+msgstr "Hướng dẫn Trigger"
+
+#: includes/class-admin-menu.php
+msgid "Shortcode Guide"
+msgstr "Hướng dẫn Shortcode"
+
+#: includes/class-admin-menu.php
+msgid "Chat Logs"
+msgstr "Nhật ký"
+
+#: includes/class-admin-menu.php
+msgid "Logs"
+msgstr "Nhật ký"
+
+#: includes/class-admin-menu.php
+msgid "Chat Timeline"
+msgstr "Dòng thời gian"
+
+#: includes/class-admin-menu.php
+msgid "Timeline"
+msgstr "Dòng thời gian"
+
+#: includes/class-admin-menu.php
+msgid "Session Memory"
+msgstr "Bộ nhớ"
+
+#: includes/class-admin-menu.php
+msgid "Widget Appearance"
+msgstr "Giao diện"
+
+#: includes/class-admin-menu.php
+msgid "Appearance"
+msgstr "Giao diện"

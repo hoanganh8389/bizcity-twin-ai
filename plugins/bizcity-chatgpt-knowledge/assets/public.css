@@ -1,0 +1,123 @@
+/* ChatGPT Knowledge — Public CSS */
+
+.bzck-app {
+    max-width: 700px;
+    margin: 0 auto;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.bzck-header {
+    text-align: center;
+    padding: 24px 16px 12px;
+}
+.bzck-header-icon { font-size: 48px; }
+.bzck-header h2 { margin: 8px 0 4px; font-size: 22px; }
+.bzck-header p { color: #6b7280; margin: 0; font-size: 14px; }
+
+/* Topics */
+.bzck-topics {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 12px 16px;
+    justify-content: center;
+}
+.bzck-topic-chip {
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    border-radius: 20px;
+    padding: 6px 14px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.bzck-topic-chip:hover {
+    background: #dcfce7;
+    border-color: #10a37f;
+}
+.bzck-chip-icon { margin-right: 4px; }
+
+/* Answer */
+.bzck-answer-area {
+    padding: 16px;
+    margin: 12px 16px;
+    background: #f9fafb;
+    border-radius: 12px;
+    border: 1px solid #e5e7eb;
+}
+.bzck-answer-content {
+    font-size: 14px;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+.bzck-answer-meta {
+    margin-top: 8px;
+    font-size: 11px;
+    color: #9ca3af;
+}
+
+/* Input */
+.bzck-input-area {
+    display: flex;
+    gap: 8px;
+    padding: 12px 16px;
+    align-items: flex-end;
+}
+.bzck-input-area textarea {
+    flex: 1;
+    resize: none;
+    border: 1px solid #d1d5db;
+    border-radius: 12px;
+    padding: 10px 14px;
+    font-size: 14px;
+    font-family: inherit;
+}
+.bzck-send-btn {
+    background: #10a37f;
+    color: #fff;
+    border: none;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.bzck-send-btn:hover { background: #0d8c6b; }
+
+/* Loading */
+.bzck-loading {
+    text-align: center;
+    padding: 16px;
+    color: #9ca3af;
+    font-size: 13px;
+}
+.bzck-spinner {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 2px solid #e5e7eb;
+    border-top-color: #10a37f;
+    border-radius: 50%;
+    animation: bzck-spin 0.8s linear infinite;
+    margin-right: 8px;
+    vertical-align: middle;
+}
+@keyframes bzck-spin { to { transform: rotate(360deg); } }
+
+/* Theme */
+.bzck-theme-dark {
+    background: #1a1a2e;
+    color: #e5e7eb;
+}
+.bzck-theme-dark .bzck-answer-area {
+    background: #16213e;
+    border-color: #374151;
+}
+.bzck-theme-dark .bzck-input-area textarea {
+    background: #16213e;
+    color: #e5e7eb;
+    border-color: #374151;
+}

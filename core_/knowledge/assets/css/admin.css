@@ -1,0 +1,688 @@
+/**!
+ * Bizcity Twin AI — Personalized AI Companion Platform
+ * Core\Knowledge — Admin Styles
+ * (c) 2024-2026 BizCity by Johnny Chu (Chu Hoàng Anh) — Made in Vietnam 🇻🇳
+ * @license GPL-2.0-or-later | https://bizcity.vn
+ */
+
+/* Dashboard */
+.bizcity-knowledge-dashboard {
+    max-width: 1400px;
+    margin: 20px auto;
+}
+
+.bizcity-knowledge-dashboard h1 {
+    font-size: 28px;
+    margin-bottom: 20px;
+}
+
+/* Stats Cards */
+.bizcity-stats-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 20px;
+    margin-bottom: 30px;
+}
+
+.bizcity-stat-card {
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 20px;
+    text-align: center;
+    transition: box-shadow 0.2s;
+}
+
+.bizcity-stat-card:hover {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.bizcity-stat-card .stat-icon {
+    font-size: 32px;
+    margin-bottom: 10px;
+}
+
+.bizcity-stat-card .stat-number {
+    font-size: 36px;
+    font-weight: bold;
+    color: #2271b1;
+    margin-bottom: 5px;
+}
+
+.bizcity-stat-card .stat-label {
+    color: #666;
+    font-size: 14px;
+}
+
+/* Guide Section */
+.bizcity-guide-section {
+    background: linear-gradient(135deg, #f0f7ff 0%, #e8f3ff 100%);
+    border: 1px solid #c3d9ff;
+    border-radius: 12px;
+    padding: 30px;
+    margin-bottom: 30px;
+}
+
+.bizcity-guide-section h2 {
+    margin-top: 0;
+    color: #1d4ed8;
+}
+
+.bizcity-guide-steps {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    margin-top: 20px;
+}
+
+.bizcity-guide-step {
+    flex: 1;
+    min-width: 200px;
+    background: #fff;
+    border-radius: 8px;
+    padding: 20px;
+    border: 1px solid #e5e7eb;
+    position: relative;
+}
+
+.bizcity-guide-step .step-number {
+    position: absolute;
+    top: -12px;
+    left: 20px;
+    background: #2271b1;
+    color: #fff;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    font-size: 14px;
+}
+
+.bizcity-guide-step h4 {
+    margin: 10px 0;
+    color: #1e3a5f;
+}
+
+.bizcity-guide-step p {
+    color: #666;
+    font-size: 13px;
+    margin: 0;
+}
+
+/* Quick Actions */
+.bizcity-quick-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 20px;
+}
+
+.bizcity-quick-actions .button {
+    flex: 1;
+    text-align: center;
+    padding: 12px 20px;
+    height: auto;
+}
+
+/* Characters Table */
+.bizcity-characters-list {
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 20px;
+}
+
+.bizcity-characters-list h2 {
+    margin-top: 0;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 15px;
+}
+
+.bizcity-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.bizcity-table th,
+.bizcity-table td {
+    padding: 12px;
+    text-align: left;
+    border-bottom: 1px solid #eee;
+}
+
+.bizcity-table th {
+    background: #f9fafb;
+    font-weight: 600;
+    color: #374151;
+}
+
+.bizcity-table tr:hover {
+    background: #f9fafb;
+}
+
+.bizcity-table .character-name {
+    font-weight: 600;
+    color: #1e3a5f;
+}
+
+.bizcity-table .character-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+/* Status Badges */
+.bizcity-status {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.bizcity-status.active {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.bizcity-status.draft {
+    background: #f3f4f6;
+    color: #6b7280;
+}
+
+.bizcity-status.published {
+    background: #dbeafe;
+    color: #1e40af;
+}
+
+/* Character Edit Form */
+.bizcity-character-form {
+    max-width: 900px;
+}
+
+.bizcity-form-section {
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+}
+
+.bizcity-form-section h3 {
+    margin-top: 0;
+    padding-bottom: 15px;
+    border-bottom: 1px solid #eee;
+}
+
+.bizcity-form-row {
+    margin-bottom: 20px;
+}
+
+.bizcity-form-row label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: #374151;
+}
+
+.bizcity-form-row input[type="text"],
+.bizcity-form-row input[type="url"],
+.bizcity-form-row textarea,
+.bizcity-form-row select {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    font-size: 14px;
+}
+
+.bizcity-form-row textarea {
+    min-height: 120px;
+    resize: vertical;
+}
+
+.bizcity-form-row .description {
+    color: #6b7280;
+    font-size: 13px;
+    margin-top: 6px;
+}
+
+/* Knowledge Sources */
+.bizcity-knowledge-sources {
+    margin-top: 20px;
+}
+
+.bizcity-source-item {
+    display: flex;
+    align-items: center;
+    padding: 15px;
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    margin-bottom: 10px;
+}
+
+.bizcity-source-item .source-icon {
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #e5e7eb;
+    border-radius: 8px;
+    margin-right: 15px;
+    font-size: 18px;
+}
+
+.bizcity-source-item .source-info {
+    flex: 1;
+}
+
+.bizcity-source-item .source-name {
+    font-weight: 600;
+    color: #1e3a5f;
+    margin-bottom: 4px;
+}
+
+.bizcity-source-item .source-meta {
+    font-size: 12px;
+    color: #6b7280;
+}
+
+.bizcity-source-item .source-actions {
+    display: flex;
+    gap: 8px;
+}
+
+/* Add Knowledge Panel */
+.bizcity-add-knowledge {
+    border: 2px dashed #d1d5db;
+    border-radius: 8px;
+    padding: 30px;
+    text-align: center;
+    margin-top: 20px;
+    transition: border-color 0.2s, background 0.2s;
+}
+
+.bizcity-add-knowledge:hover {
+    border-color: #2271b1;
+    background: #f0f7ff;
+}
+
+.bizcity-add-knowledge .add-options {
+    display: flex;
+    justify-content: center;
+    gap: 15px;
+    margin-top: 15px;
+}
+
+.bizcity-add-knowledge .add-option {
+    padding: 15px 20px;
+    background: #fff;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.bizcity-add-knowledge .add-option:hover {
+    border-color: #2271b1;
+    box-shadow: 0 2px 8px rgba(34, 113, 177, 0.2);
+}
+
+.bizcity-add-knowledge .add-option .dashicons {
+    font-size: 24px;
+    display: block;
+    margin-bottom: 8px;
+    color: #2271b1;
+}
+
+/* Intent Configuration */
+.bizcity-intents-list {
+    margin-top: 20px;
+}
+
+.bizcity-intent-item {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    margin-bottom: 15px;
+    overflow: hidden;
+}
+
+.bizcity-intent-header {
+    display: flex;
+    align-items: center;
+    padding: 15px;
+    background: #f9fafb;
+    cursor: pointer;
+}
+
+.bizcity-intent-header .intent-name {
+    flex: 1;
+    font-weight: 600;
+}
+
+.bizcity-intent-header .intent-action {
+    background: #dbeafe;
+    color: #1e40af;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+.bizcity-intent-content {
+    padding: 15px;
+    display: none;
+}
+
+.bizcity-intent-content.active {
+    display: block;
+}
+
+.bizcity-intent-keywords {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.bizcity-intent-keywords .keyword {
+    background: #f3f4f6;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 13px;
+}
+
+/* Modal */
+.bizcity-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 100000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+}
+
+.bizcity-modal-overlay.active {
+    display: flex;
+}
+
+.bizcity-modal {
+    background: #fff;
+    border-radius: 12px;
+    width: 90%;
+    max-width: 600px;
+    max-height: 90vh;
+    overflow: auto;
+}
+
+.bizcity-modal-header {
+    padding: 20px;
+    border-bottom: 1px solid #eee;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.bizcity-modal-header h3 {
+    margin: 0;
+}
+
+.bizcity-modal-close {
+    background: none;
+    border: none;
+    font-size: 20px;
+    cursor: pointer;
+    color: #666;
+}
+
+.bizcity-modal-body {
+    padding: 20px;
+}
+
+.bizcity-modal-footer {
+    padding: 20px;
+    border-top: 1px solid #eee;
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+/* Tabs */
+.bizcity-tabs {
+    display: flex;
+    border-bottom: 1px solid #ddd;
+    margin-bottom: 20px;
+}
+
+.bizcity-tab {
+    padding: 12px 20px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    color: #666;
+    font-weight: 500;
+    transition: all 0.2s;
+}
+
+.bizcity-tab:hover {
+    color: #2271b1;
+}
+
+.bizcity-tab.active {
+    color: #2271b1;
+    border-bottom-color: #2271b1;
+}
+
+.bizcity-tab-content {
+    display: none;
+}
+
+.bizcity-tab-content.active {
+    display: block;
+}
+
+/* Chat Preview */
+.bizcity-chat-preview {
+    max-width: 400px;
+    border: 1px solid #ddd;
+    border-radius: 12px;
+    overflow: hidden;
+    margin: 20px auto;
+}
+
+.bizcity-chat-header {
+    background: #2271b1;
+    color: #fff;
+    padding: 15px;
+    display: flex;
+    align-items: center;
+}
+
+.bizcity-chat-header .avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    margin-right: 12px;
+    background: rgba(255,255,255,0.2);
+}
+
+.bizcity-chat-header .name {
+    font-weight: 600;
+}
+
+.bizcity-chat-messages {
+    padding: 15px;
+    background: #f9fafb;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.bizcity-chat-message {
+    margin-bottom: 15px;
+}
+
+.bizcity-chat-message.bot .message-content {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    padding: 12px 15px;
+    border-radius: 12px 12px 12px 0;
+    max-width: 85%;
+}
+
+.bizcity-chat-message.user .message-content {
+    background: #2271b1;
+    color: #fff;
+    padding: 12px 15px;
+    border-radius: 12px 12px 0 12px;
+    max-width: 85%;
+    margin-left: auto;
+}
+
+.bizcity-chat-input {
+    display: flex;
+    padding: 15px;
+    background: #fff;
+    border-top: 1px solid #eee;
+}
+
+.bizcity-chat-input input {
+    flex: 1;
+    padding: 10px 15px;
+    border: 1px solid #d1d5db;
+    border-radius: 20px;
+    margin-right: 10px;
+}
+
+.bizcity-chat-input button {
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+}
+
+/* Responsive */
+@media (max-width: 782px) {
+    .bizcity-guide-steps {
+        flex-direction: column;
+    }
+    
+    .bizcity-stats-row {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .bizcity-quick-actions {
+        flex-direction: column;
+    }
+}
+
+/* Loading */
+.bizcity-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px;
+}
+
+.bizcity-spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid #e5e7eb;
+    border-top-color: #2271b1;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Notices */
+.bizcity-notice {
+    padding: 12px 15px;
+    border-radius: 6px;
+    margin-bottom: 15px;
+}
+
+.bizcity-notice.success {
+    background: #dcfce7;
+    color: #166534;
+    border: 1px solid #86efac;
+}
+
+.bizcity-notice.error {
+    background: #fee2e2;
+    color: #991b1b;
+    border: 1px solid #fca5a5;
+}
+
+.bizcity-notice.warning {
+    background: #fef3c7;
+    color: #92400e;
+    border: 1px solid #fcd34d;
+}
+
+.bizcity-notice.info {
+    background: #dbeafe;
+    color: #1e40af;
+    border: 1px solid #93c5fd;
+}
+/* Import JSON Button */
+.bk-import-json-btn {
+    cursor: pointer;
+}
+
+.bk-import-json-btn:hover {
+    background: #2563eb !important;
+    border-color: #1d4ed8 !important;
+}
+
+.bk-import-json-btn .dashicons {
+    vertical-align: middle;
+    margin-top: -2px;
+}
+
+/* Duplicate Character Link */
+a.duplicate-character {
+    color: #059669;
+    text-decoration: none;
+}
+
+a.duplicate-character:hover {
+    color: #047857;
+    text-decoration: underline;
+}
+
+/* ── Knowledge Fabric v3.0 — Scope badges ── */
+.bk-scope-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+    line-height: 1.6;
+}
+.bk-scope-agent   { background: #e3f2fd; color: #1565c0; }
+.bk-scope-user    { background: #e8f5e9; color: #2e7d32; }
+.bk-scope-project { background: #fff3e0; color: #e65100; }
+.bk-scope-session { background: #f3e5f5; color: #7b1fa2; }
+
+.bk-scope-filter-bar .button {
+    font-size: 13px;
+}
+.bk-scope-filter-bar .button-primary {
+    pointer-events: none;
+}
+
+.promote-source {
+    color: #2e7d32;
+    font-weight: 500;
+}

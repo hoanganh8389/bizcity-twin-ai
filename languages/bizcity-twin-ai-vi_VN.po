@@ -1,0 +1,1428 @@
+# BizCity Twin AI — Vietnamese Translation
+# Bản dịch tiếng Việt cho BizCity Twin AI
+#
+# Copyright (C) 2024-2026 BizCity — Made in Vietnam 🇻🇳
+# Author: Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+# Language-Team: BizCity <info@bizcity.vn>
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: BizCity Twin AI 1.0.0\n"
+"Report-Msgid-Bugs-To: Hoanganh.itm@gmail.com\n"
+"POT-Creation-Date: 2026-03-23T00:00+07:00\n"
+"PO-Revision-Date: 2026-03-23T00:00+07:00\n"
+"Last-Translator: Johnny Chu <Hoanganh.itm@gmail.com>\n"
+"Language-Team: BizCity <info@bizcity.vn>\n"
+"Language: vi_VN\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"X-Generator: GitHub Copilot\n"
+"X-Domain: bizcity-twin-ai\n"
+
+# ── Automation Category Labels (class-automation-provider.php) ────────────────
+
+#: modules/webchat/includes/class-automation-provider.php
+msgid "BizCity Chat Agent"
+msgstr "BizCity Chat Agent"
+
+#: modules/webchat/includes/class-automation-provider.php
+msgid "Trigger from Admin Chat / WebChat — receive messages, commands, images"
+msgstr "Trigger từ Admin Chat / WebChat — nhận tin nhắn, lệnh, ảnh"
+
+#: modules/webchat/includes/class-automation-provider.php
+msgid "Send reply messages to Admin Chat / WebChat"
+msgstr "Gửi tin nhắn phản hồi về Admin Chat / WebChat"
+
+#: modules/webchat/includes/class-automation-provider.php
+msgid "Agent & AI Tools"
+msgstr "Agent & Công cụ AI"
+
+#: modules/webchat/includes/class-automation-provider.php
+msgid "Call any AI tool registered in BizCity Intent Engine"
+msgstr "Gọi bất kỳ công cụ AI nào từ BizCity Intent Engine"
+
+# ── Trigger Block: Admin Chat Message (bc_adminchat_message.php) ──────────────
+
+#: modules/webchat/blocks/triggers/bc_adminchat_message.php
+msgid "💬 Admin Chat — Receive Message"
+msgstr "💬 Admin Chat — Nhận tin nhắn"
+
+#: modules/webchat/blocks/triggers/bc_adminchat_message.php
+msgid "Triggered when admin/user sends a message in Admin Chat dashboard"
+msgstr "Kích hoạt khi admin/user gửi tin nhắn trong Admin Chat dashboard"
+
+#: modules/webchat/blocks/triggers/bc_adminchat_message.php
+msgid "Contains keyword (optional)"
+msgstr "Chứa từ khóa (tùy chọn)"
+
+#: modules/webchat/blocks/triggers/bc_adminchat_message.php
+msgid "Only trigger if message contains this word. Leave empty for all messages."
+msgstr "Chỉ trigger nếu tin nhắn chứa từ này. Để trống = mọi tin nhắn."
+
+#: modules/webchat/blocks/triggers/bc_adminchat_message.php
+msgid "Regex filter (optional)"
+msgstr "Regex filter (tùy chọn)"
+
+#: modules/webchat/blocks/triggers/bc_adminchat_message.php
+msgid "Example: ^/pipeline or (create post|add product)"
+msgstr "Ví dụ: ^/pipeline hoặc (viết bài|tạo sản phẩm)"
+
+#: modules/webchat/blocks/triggers/bc_adminchat_message.php
+msgid "Session ID (adminchat_xxx)"
+msgstr "Session ID (adminchat_xxx)"
+
+#: modules/webchat/blocks/triggers/bc_adminchat_message.php
+msgid "WordPress User ID"
+msgstr "WordPress User ID"
+
+#: modules/webchat/blocks/triggers/bc_adminchat_message.php
+msgid "Sender display name"
+msgstr "Tên hiển thị người gửi"
+
+#: modules/webchat/blocks/triggers/bc_adminchat_message.php
+msgid "Message content"
+msgstr "Nội dung tin nhắn"
+
+#: modules/webchat/blocks/triggers/bc_adminchat_message.php
+msgid "Message ID"
+msgstr "Message ID"
+
+#: modules/webchat/blocks/triggers/bc_adminchat_message.php
+msgid "Image URL (if any)"
+msgstr "Image URL (nếu có)"
+
+#: modules/webchat/blocks/triggers/bc_adminchat_message.php
+msgid "Platform (adminchat)"
+msgstr "Platform (adminchat)"
+
+#: modules/webchat/blocks/triggers/bc_adminchat_message.php
+msgid "Reply To — Session ID to send reply"
+msgstr "Reply To — Session ID để gửi phản hồi"
+
+# ── Action Block: Send Admin Chat Message (bc_send_adminchat.php) ─────────────
+
+#: modules/webchat/blocks/actions/bc_send_adminchat.php
+msgid "💬 Admin Chat — Send Message"
+msgstr "💬 Admin Chat — Gửi tin nhắn"
+
+#: modules/webchat/blocks/actions/bc_send_adminchat.php
+msgid "Send a reply message to Admin Chat session. Frontend receives it automatically via poll."
+msgstr "Gửi tin nhắn phản hồi về Admin Chat session. Frontend tự động nhận qua poll."
+
+#: modules/webchat/blocks/actions/bc_send_adminchat.php
+msgid "Message content *"
+msgstr "Nội dung tin nhắn *"
+
+#: modules/webchat/blocks/actions/bc_send_adminchat.php
+msgid "Sender name"
+msgstr "Tên người gửi"
+
+#: modules/webchat/blocks/actions/bc_send_adminchat.php
+msgid "Message type"
+msgstr "Loại tin nhắn"
+
+#: modules/webchat/blocks/actions/bc_send_adminchat.php
+msgid "Text"
+msgstr "Text"
+
+#: modules/webchat/blocks/actions/bc_send_adminchat.php
+msgid "Status update (dimmed)"
+msgstr "Status update (mờ)"
+
+#: modules/webchat/blocks/actions/bc_send_adminchat.php
+msgid "Message ID (just created)"
+msgstr "Message ID (vừa tạo)"
+
+#: modules/webchat/blocks/actions/bc_send_adminchat.php
+msgid "Session ID"
+msgstr "Session ID"
+
+#: modules/webchat/blocks/actions/bc_send_adminchat.php
+msgid "Successfully sent (1/0)"
+msgstr "Đã gửi thành công (1/0)"
+
+#: modules/webchat/blocks/actions/bc_send_adminchat.php
+msgid "Session not found (both user_id and session_id are empty)."
+msgstr "Không tìm được session (user_id và session_id đều trống)."
+
+#: modules/webchat/blocks/actions/bc_send_adminchat.php
+msgid "Message content is empty."
+msgstr "Nội dung tin nhắn trống."
+
+# ── Action Block: Call AI Tool (it_call_tool.php) ─────────────────────────────
+
+#: modules/webchat/blocks/actions/it_call_tool.php
+msgid "🤖 Agent — Call AI Tool"
+msgstr "🤖 Agent — Gọi công cụ AI"
+
+#: modules/webchat/blocks/actions/it_call_tool.php
+msgid "Call any AI tool registered in BizCity Intent Engine (write post, create product, post to social media...)"
+msgstr "Gọi bất kỳ công cụ AI nào từ BizCity Intent Engine (viết bài, tạo sản phẩm, đăng Facebook...)"
+
+#: modules/webchat/blocks/actions/it_call_tool.php
+msgid "— Select Tool —"
+msgstr "— Chọn Tool —"
+
+#: modules/webchat/blocks/actions/it_call_tool.php
+msgid "Tool *"
+msgstr "Tool *"
+
+#: modules/webchat/blocks/actions/it_call_tool.php
+msgid "Select the AI tool to call. List is auto-populated from Intent Engine."
+msgstr "Chọn AI Tool cần gọi. Danh sách tự động từ Intent Engine."
+
+#: modules/webchat/blocks/actions/it_call_tool.php
+msgid "Input Parameters (JSON)"
+msgstr "Tham số đầu vào (JSON)"
+
+#: modules/webchat/blocks/actions/it_call_tool.php
+msgid "JSON object with key=param, value=value. Supports {{node#X.var}} variables."
+msgstr "JSON object với key=param, value=giá trị. Hỗ trợ {{node#X.var}} variables."
+
+#: modules/webchat/blocks/actions/it_call_tool.php
+msgid "User context"
+msgstr "Ngữ cảnh người dùng"
+
+#: modules/webchat/blocks/actions/it_call_tool.php
+msgid "From trigger ({{node#1.user_id}})"
+msgstr "Từ trigger ({{node#1.user_id}})"
+
+#: modules/webchat/blocks/actions/it_call_tool.php
+msgid "Admin (user_id = 1)"
+msgstr "Admin (user_id = 1)"
+
+#: modules/webchat/blocks/actions/it_call_tool.php
+msgid "No user context"
+msgstr "Không set user context"
+
+#: modules/webchat/blocks/actions/it_call_tool.php
+msgid "User ID for tool callback context (API keys, permissions)."
+msgstr "User ID cho tool callback context (API keys, permissions)."
+
+#: modules/webchat/blocks/actions/it_call_tool.php
+msgid "Success (true/false)"
+msgstr "Thành công (true/false)"
+
+#: modules/webchat/blocks/actions/it_call_tool.php
+msgid "Called tool name"
+msgstr "Tên tool đã gọi"
+
+#: modules/webchat/blocks/actions/it_call_tool.php
+msgid "Full JSON result"
+msgstr "Kết quả JSON đầy đủ"
+
+#: modules/webchat/blocks/actions/it_call_tool.php
+msgid "Response message (AI generated)"
+msgstr "Tin nhắn phản hồi (AI generated)"
+
+#: modules/webchat/blocks/actions/it_call_tool.php
+msgid "Created resource ID (post_id / product_id / ...)"
+msgstr "ID resource được tạo (post_id / product_id / ...)"
+
+#: modules/webchat/blocks/actions/it_call_tool.php
+msgid "Resource URL"
+msgstr "URL resource"
+
+#: modules/webchat/blocks/actions/it_call_tool.php
+msgid "Resource title"
+msgstr "Tiêu đề resource"
+
+#: modules/webchat/blocks/actions/it_call_tool.php
+msgid "No tool selected."
+msgstr "Chưa chọn Tool."
+
+#: modules/webchat/blocks/actions/it_call_tool.php
+msgid "BizCity Intent Engine is not active."
+msgstr "BizCity Intent Engine chưa active."
+
+#: modules/webchat/blocks/actions/it_call_tool.php
+msgid "Invalid input JSON: %s"
+msgstr "Input JSON không hợp lệ: %s"
+
+#: modules/webchat/blocks/actions/it_call_tool.php
+msgid "Tool \"%s\" not found."
+msgstr "Tool \"%s\" không tìm thấy."
+
+#: modules/webchat/blocks/actions/it_call_tool.php
+msgid "Tool returned an error."
+msgstr "Tool trả về lỗi."
+
+# ── Admin Notice (bizcity-twin-ai.php) ────────────────────────────────────────
+
+#: bizcity-twin-ai.php
+msgid "⚠ BizCity Twin AI:"
+msgstr "⚠ BizCity Twin AI:"
+
+#: bizcity-twin-ai.php
+msgid "Copy automatically to mu-plugins/"
+msgstr "Copy tự động vào mu-plugins/"
+
+# ── Knowledge Module — Admin Menu (class-admin-menu.php) ─────────────────────
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Build AI Assistants"
+msgstr "Xây dựng trợ lý AI"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Build Assistants"
+msgstr "Xây dựng trợ lý"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Assistants List"
+msgstr "DS trợ lý"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Assistants"
+msgstr "Trợ lý"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Create AI Assistant"
+msgstr "Tạo trợ lý AI"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Create AI"
+msgstr "Tạo mới"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "User Memory"
+msgstr "Ký ức người dùng"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Memory"
+msgstr "Ký ức"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Memory Requests"
+msgstr "Yêu cầu ghi nhớ"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Requests"
+msgstr "Yêu cầu"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Knowledge Settings"
+msgstr "Cài đặt"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Settings"
+msgstr "Cài đặt"
+
+# ── Knowledge Dashboard — render_dashboard() (class-admin-menu.php) ───────────
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "AI Assistant Team"
+msgstr "Đội ngũ trợ lý AI"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Build a smart AI assistant team with custom knowledge, serving your work and earning on marketplace."
+msgstr "Xây dựng đội ngũ trợ lý AI thông minh với kiến thức riêng, phục vụ công việc và kiếm tiền trên marketplace."
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "AI Assistants"
+msgstr "Các trợ lý AI"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Knowledge Sources"
+msgstr "Nguồn Kiến Thức"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Conversations"
+msgstr "Cuộc Hội Thoại"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Published"
+msgstr "Đã Public"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Quick Start"
+msgstr "Bắt Đầu Nhanh"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Create New AI Assistant"
+msgstr "Tạo trợ lý AI mới"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Set name, description, avatar and system prompt. Define capabilities and industry."
+msgstr "Đặt tên, mô tả, avatar và system prompt cho trợ lý. Định nghĩa khả năng và ngành nghề hoạt động."
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Feed Knowledge"
+msgstr "Nạp Kiến Thức"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Import knowledge from multiple sources: Quick FAQ, upload files (CSV, PDF, Excel), crawl website, or sync from Fanpage."
+msgstr "Import kiến thức từ nhiều nguồn: Quick FAQ, upload files (CSV, PDF, Excel), crawl website, hoặc sync từ Fanpage."
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Configure Intents"
+msgstr "Cấu hình Intent & Variables"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Set up intents the assistant can recognize, along with variables to extract as output."
+msgstr "Thiết lập các intent mà trợ lý có thể nhận diện, cùng với các variables sẽ được trích xuất làm output."
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Integrate with Workflow"
+msgstr "Tích hợp vào Workflow"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Connect assistant with bizcity-automation to automate tasks based on AI analysis."
+msgstr "Kết nối trợ lý với bizcity-automation để tự động hóa các tác vụ dựa trên phân tích của AI."
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Publish & Earn"
+msgstr "Public lên Chợ & Kiếm tiền"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "When ready, publish to bizcity-agent-market to get work, chat and earn income."
+msgstr "Khi trợ lý sẵn sàng, publish lên bizcity-agent-market để nhận việc, nói chuyện và tạo thu nhập."
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Create First Assistant"
+msgstr "Tạo Trợ lý Đầu Tiên"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Import from JSON"
+msgstr "Import từ JSON"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Assistants can learn from various data sources:"
+msgstr "Trợ lý có thể học từ nhiều nguồn dữ liệu khác nhau:"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Use the built-in quick_faq post type to create Q&A sets for character reference."
+msgstr "Sử dụng post type quick_faq có sẵn trong WordPress để tạo bộ câu hỏi-đáp cho character tham chiếu."
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Upload Files"
+msgstr "Upload Files"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Upload CSV, Excel, PDF, JSON to Media Library (R2). System will parse and chunk for context."
+msgstr "Upload CSV, Excel, PDF, JSON vào Media Library (R2). Hệ thống sẽ parse và chunking để làm context."
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "From Website"
+msgstr "Import từ Website"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Crawl content from other websites, supports Simple HTML or Text-only mode."
+msgstr "Crawl nội dung từ website khác, hỗ trợ Simple HTML hoặc Text-only mode."
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Sync Fanpage"
+msgstr "Sync Fanpage"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Connect with Facebook Fanpage to auto-import posts and comments as knowledge."
+msgstr "Kết nối với Facebook Fanpage để tự động import bài viết, comments làm nguồn kiến thức."
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Workflow Integration"
+msgstr "Tích Hợp Workflow"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Assistants work as \"AI Agents\" in bizcity-automation:"
+msgstr "Các trợ lý hoạt động như các \"AI Agents\" trong bizcity-automation:"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Trigger"
+msgstr "Trigger"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "AI Character"
+msgstr "AI Character"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Parse Intent"
+msgstr "Phân tích Intent"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Output Variables"
+msgstr "Xuất Variables"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Actions"
+msgstr "Hành động"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Example:"
+msgstr "Ví dụ:"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "User sends \"I want to order 2 shirts size M\" → Assistant parses intent = \"order\" and extracts variables:"
+msgstr "User gửi \"Tôi muốn đặt 2 áo size M\" → Trợ lý phân tích intent = \"order\" và trích xuất variables:"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Workflow automatically creates the order."
+msgstr "Workflow tự động tạo đơn hàng."
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Earn with AI Assistants"
+msgstr "Kiếm Tiền với Trợ lý AI"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "When your character is ready, you can:"
+msgstr "Khi character của bạn đủ \"giỏi\", bạn có thể:"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Publish:"
+msgstr "Public lên Chợ:"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Appear on marketplace with profile & ratings"
+msgstr "Character xuất hiện trên marketplace với profile và đánh giá"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Auto-accept jobs:"
+msgstr "Nhận việc tự động:"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Clients hire character for work"
+msgstr "Khách hàng thuê character để hỗ trợ công việc"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Chat & Consult:"
+msgstr "Nói chuyện & Tư vấn:"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Integrate webchat widget for direct interaction"
+msgstr "Tích hợp webchat widget để khách tương tác trực tiếp"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Per-use/package pricing:"
+msgstr "Tính phí theo lượt/gói:"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Set pricing for character services"
+msgstr "Thiết lập pricing cho services của character"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Open Agent Market"
+msgstr "Mở Agent Market"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Recent Assistants"
+msgstr "Các trợ lý Gần Đây"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Avatar"
+msgstr "Avatar"
+
+#: core/knowledge/includes/class-admin-menu.php
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "Name"
+msgstr "Tên"
+
+#: core/knowledge/includes/class-admin-menu.php
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "Status"
+msgstr "Trạng thái"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Edit"
+msgstr "Sửa"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Clone"
+msgstr "Nhân bản"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Delete"
+msgstr "Xóa"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Database update needed to version %s."
+msgstr "Cần cập nhật database lên phiên bản %s."
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Update Now"
+msgstr "Cập nhật ngay"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Updated successfully! Reloading..."
+msgstr "Cập nhật thành công! Đang tải lại..."
+
+#: core/knowledge/includes/class-admin-menu.php
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "Error"
+msgstr "Lỗi"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Connection error"
+msgstr "Lỗi kết nối"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Database updated successfully"
+msgstr "Đã cập nhật database thành công"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Create New"
+msgstr "Tạo mới"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Description"
+msgstr "Mô tả"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Web Visibility"
+msgstr "Hiển thị web"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Sources"
+msgstr "Nguồn"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Rating"
+msgstr "Đánh giá"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "No assistants yet."
+msgstr "Chưa có trợ lý nào."
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Visible"
+msgstr "Hiển thị"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Hidden"
+msgstr "Ẩn"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Show on website"
+msgstr "Hiển thị trên website"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Add Quick FAQ"
+msgstr "Thêm FAQ nhanh"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Upload File"
+msgstr "Tải lên file"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Import URL"
+msgstr "Nhập từ URL"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Type"
+msgstr "Loại"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Name/URL"
+msgstr "Tên/URL"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Scope"
+msgstr "Phạm vi"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Chunks"
+msgstr "Đoạn văn"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Last Sync"
+msgstr "Đồng bộ lần cuối"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "No knowledge sources yet."
+msgstr "Chưa có nguồn kiến thức nào."
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Promote"
+msgstr "Thăng hạng"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Save permanently → Personal"
+msgstr "Lưu vĩnh viễn → Cá nhân"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Add Intent"
+msgstr "Thêm Intent"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "No intents yet. Add intents to enable user intent analysis."
+msgstr "Chưa có intent nào. Thêm intents để bật phân tích ý định người dùng."
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Knowledge Fabric"
+msgstr "Kho Kiến Thức"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Manage knowledge by 4 scopes: Agent (system), User (personal), Project, Session (temporary)."
+msgstr "Quản lý kiến thức theo 4 phạm vi: Agent (hệ thống), User (cá nhân), Project, Session (tạm thời)."
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "All"
+msgstr "Tất cả"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Personal"
+msgstr "Cá nhân"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Project"
+msgstr "Dự án"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Owner"
+msgstr "Người sở hữu"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Created"
+msgstr "Đã tạo"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "No knowledge sources"
+msgstr "Không có nguồn kiến thức"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "for scope \"%s\""
+msgstr "cho phạm vi \"%s\""
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Manage long-term memory — 2-tier system:"
+msgstr "Quản lý bộ nhớ dài hạn — 2 tầng:"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "AI-analyzed from conversation"
+msgstr "AI phân tích từ cuộc hội thoại"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "user-requested"
+msgstr "người dùng yêu cầu"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Total"
+msgstr "Tổng"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Filter"
+msgstr "Lọc"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Distribution by Type"
+msgstr "Phân bổ theo loại"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Memories of User #%s"
+msgstr "Bộ nhớ của Người dùng #%s"
+
+# ── BizCity LLM Settings (class-llm-settings.php) ────────────────────────────
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "AI Gateway Configuration"
+msgstr "Cấu hình AI Gateway"
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "Configure LLM connection for the BizCity Twin AI platform."
+msgstr "Cấu hình kết nối LLM cho toàn bộ hệ thống BizCity Twin AI."
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "Want to use your own OpenRouter, OpenAI, or other API keys? Upgrade to Pro for direct API integration."
+msgstr "Bạn muốn dùng API key riêng (OpenRouter, OpenAI…)? Nâng cấp bản Pro để tích hợp trực tiếp."
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "✅ API key configured (BizCity Gateway)."
+msgstr "✅ API key đã được cấu hình (BizCity Gateway)."
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Test Connection"
+msgstr "Kiểm tra kết nối"
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "⚠️ No API key configured. Enter one below to activate AI."
+msgstr "⚠️ Chưa có API key. Nhập bên dưới để kích hoạt AI."
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "BizCity Gateway Settings"
+msgstr "Cài đặt BizCity Gateway"
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "VN: bizcity.vn — International: bizcity.ai"
+msgstr "VN: bizcity.vn — Quốc tế: bizcity.ai"
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "Create an API key at My Account on bizcity.vn or bizcity.ai"
+msgstr "Tạo API key tại trang My Account trên bizcity.vn hoặc bizcity.ai"
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "Auto-register API Key"
+msgstr "Đăng ký API Key tự động"
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "Or register manually at %s"
+msgstr "Hoặc đăng ký thủ công tại %s"
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+#: core/knowledge/includes/class-admin-menu.php
+msgid "General Settings"
+msgstr "Cài đặt chung"
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "Timeout (seconds)"
+msgstr "Timeout (giây)"
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "1,000 requests/month free."
+msgstr "1.000 lượt/tháng miễn phí."
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "For Deep Research — real-time web search."
+msgstr "Dùng cho Deep Research — tìm kiếm web thời gian thực."
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "✅ Tavily configured."
+msgstr "✅ Tavily đã cấu hình."
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "Test"
+msgstr "Kiểm tra"
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "⚠️ No Tavily key configured."
+msgstr "⚠️ Chưa có Tavily key."
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "Models by Purpose — Primary & Fallback"
+msgstr "Model theo Mục Đích — Primary & Fallback"
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "Each purpose has a Primary (used first) and Fallback (auto-triggered on error)."
+msgstr "Mỗi mục đích có Primary (dùng trước) và Fallback (tự kích khi lỗi)."
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "Load Models"
+msgstr "Tải model"
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "Purpose"
+msgstr "Mục đích"
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "Disable fallback"
+msgstr "Tắt fallback"
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "Model List"
+msgstr "Danh sách model"
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "Filter by name…"
+msgstr "Lọc theo tên…"
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "Enter custom model ID…"
+msgstr "Nhập model ID tuỳ chỉnh…"
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "Custom"
+msgstr "Tuỳ chỉnh"
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "Curated Models"
+msgstr "Model được chọn lọc"
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Save Settings"
+msgstr "Lưu cài đặt"
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "You do not have permission to access this page."
+msgstr "Không có quyền truy cập."
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "You do not have permission."
+msgstr "Không có quyền."
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "✅ BizCity LLM settings saved."
+msgstr "✅ Cài đặt BizCity LLM đã được lưu."
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "Permission denied."
+msgstr "Không có quyền."
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "No API key entered."
+msgstr "Chưa nhập API key."
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "Connection OK — %d models available."
+msgstr "Kết nối OK — %d model khả dụng."
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "No Tavily API key entered."
+msgstr "Chưa nhập Tavily API key."
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "Tavily connection OK."
+msgstr "Kết nối Tavily OK."
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "API key created and saved automatically!"
+msgstr "API key đã được tạo và lưu tự động!"
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "HTTP %d — Registration failed."
+msgstr "HTTP %d — Đăng ký thất bại."
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "Usage log not installed."
+msgstr "Usage log chưa được cài đặt."
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "Deleted %1$d records older than %2$d days."
+msgstr "Đã xoá %1$d bản ghi cũ hơn %2$d ngày."
+
+# ── Usage Dashboard ──
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "Total Calls"
+msgstr "Tổng gọi"
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "Success"
+msgstr "Thành công"
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "Errors"
+msgstr "Lỗi"
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "Token (in/out)"
+msgstr "Token (in/out)"
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "Avg latency"
+msgstr "Avg latency"
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "Fallback"
+msgstr "Fallback"
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "7-day: %1$d calls — Token %2$s"
+msgstr "7-ngày: %1$d calls — Token %2$s"
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "Success / Errors"
+msgstr "Thành công / Lỗi"
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "Max latency"
+msgstr "Max latency"
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "No usage data yet."
+msgstr "Chưa có dữ liệu sử dụng."
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "Time"
+msgstr "Thời gian"
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "Tokens"
+msgstr "Token"
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "Load more…"
+msgstr "Tải thêm…"
+
+#: core/bizcity-llm/includes/class-llm-settings.php
+msgid "Purge old logs (90 days)"
+msgstr "Xoá log cũ (90 ngày)"
+
+# ── LLM JS i18n (admin.js via wp_localize_script) ────────────────────────────
+
+#: core/bizcity-llm/includes/class-llm-settings.php (wp_localize_script)
+msgid "Testing…"
+msgstr "Đang kiểm tra…"
+
+#: core/bizcity-llm/includes/class-llm-settings.php (wp_localize_script)
+msgid "Loading model list…"
+msgstr "Đang tải danh sách model…"
+
+#: core/bizcity-llm/includes/class-llm-settings.php (wp_localize_script)
+msgid "✅ Connection successful!"
+msgstr "✅ Kết nối thành công!"
+
+#: core/bizcity-llm/includes/class-llm-settings.php (wp_localize_script)
+msgid "❌ Connection failed: "
+msgstr "❌ Kết nối thất bại: "
+
+#: core/bizcity-llm/includes/class-llm-settings.php (wp_localize_script)
+msgid "✅ Loaded {n} models."
+msgstr "✅ Đã tải {n} model."
+
+#: core/bizcity-llm/includes/class-llm-settings.php (wp_localize_script)
+msgid "Copied!"
+msgstr "Đã sao chép!"
+
+#: core/bizcity-llm/includes/class-llm-settings.php (wp_localize_script)
+msgid "Error: "
+msgstr "Lỗi: "
+
+#: core/bizcity-llm/includes/class-llm-settings.php (wp_localize_script)
+msgid "Failed to load model list."
+msgstr "Không tải được danh sách model."
+
+#: core/bizcity-llm/includes/class-llm-settings.php (wp_localize_script)
+msgid "Select from list"
+msgstr "Chọn từ danh sách"
+
+#: core/bizcity-llm/includes/class-llm-settings.php (wp_localize_script)
+msgid "Auto-register API key from bizcity.vn?\\nThe key will be created and saved to settings."
+msgstr "Đăng ký API key tự động từ bizcity.vn?\\nKey sẽ được tạo và lưu vào cài đặt."
+
+#: core/bizcity-llm/includes/class-llm-settings.php (wp_localize_script)
+msgid "Registering…"
+msgstr "Đang đăng ký…"
+
+#: core/bizcity-llm/includes/class-llm-settings.php (wp_localize_script)
+msgid "Loading…"
+msgstr "Đang tải…"
+
+#: core/bizcity-llm/includes/class-llm-settings.php (wp_localize_script)
+msgid "No more data"
+msgstr "Hết dữ liệu"
+
+#: core/bizcity-llm/includes/class-llm-settings.php (wp_localize_script)
+msgid "Error loading data"
+msgstr "Lỗi tải dữ liệu"
+
+#: core/bizcity-llm/includes/class-llm-settings.php (wp_localize_script)
+msgid "Delete all logs older than 90 days?"
+msgstr "Xoá tất cả log cũ hơn 90 ngày?"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Delete this memory?"
+msgstr "Xóa bộ nhớ này?"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Error:"
+msgstr "Lỗi:"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "No memories found for this user/session."
+msgstr "Không tìm thấy bộ nhớ nào cho người dùng/phiên này."
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Add Memory Manually"
+msgstr "Thêm bộ nhớ thủ công"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Content"
+msgstr "Nội dung"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Add Memory"
+msgstr "Thêm bộ nhớ"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Added"
+msgstr "Đã thêm"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Manage Global Memory (%1$d sources, %2$d chunks)"
+msgstr "Quản lý Bộ nhớ toàn cục (%1$d nguồn, %2$d đoạn)"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Track memory requests, files, links from users. Files &amp; links are auto-ingested for"
+msgstr "Theo dõi yêu cầu bộ nhớ, file, link từ người dùng. File và link được tự động nạp cho"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Global Sources"
+msgstr "Nguồn toàn cục"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Source"
+msgstr "Nguồn"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Search..."
+msgstr "Tìm kiếm..."
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Clear filters"
+msgstr "Xóa bộ lọc"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "No data available."
+msgstr "Chưa có dữ liệu."
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Settings saved!"
+msgstr "Đã lưu cài đặt!"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Knowledge Base Settings"
+msgstr "Cài đặt Cơ sở Kiến thức"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Default"
+msgstr "Mặc định"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Default API used for all characters when no specific model is selected."
+msgstr "API mặc định dùng cho tất cả characters khi không chọn model cụ thể."
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Model:"
+msgstr "Model:"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Configured"
+msgstr "Đã cấu hình"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Not configured. Please set"
+msgstr "Chưa cấu hình. Vui lòng đặt"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "in database options."
+msgstr "trong tùy chọn database."
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Optional"
+msgstr "Tùy chọn"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "OpenRouter allows using various AI models (Claude, Gemini, Llama, etc.)."
+msgstr "OpenRouter cho phép sử dụng nhiều model AI (Claude, Gemini, Llama, v.v.)."
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Note:"
+msgstr "Lưu ý:"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Only needed for non-OpenAI models."
+msgstr "Chỉ cần cho các model không phải OpenAI."
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Get API key at"
+msgstr "Lấy API key tại"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Not configured (optional)"
+msgstr "Chưa cấu hình (tùy chọn)"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Testing..."
+msgstr "Đang kiểm tra..."
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Connected!"
+msgstr "Đã kết nối!"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "models available."
+msgstr "model khả dụng."
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Connection error!"
+msgstr "Lỗi kết nối!"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "None"
+msgstr "Không có"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Default character for webchat when not specified."
+msgstr "Character mặc định cho webchat khi không chỉ định."
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "API key for Knowledge module (embedding). Falls back to system key if empty."
+msgstr "API key cho module Knowledge (embedding). Dùng key hệ thống nếu để trống."
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Save"
+msgstr "Lưu"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Back"
+msgstr "Quay lại"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Select"
+msgstr "Chọn"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "This prompt is sent to AI each time the character processes a message. Define personality, behavior, response style."
+msgstr "Prompt này được gửi cho AI mỗi khi character xử lý tin nhắn. Định nghĩa tính cách, hành vi, phong cách trả lời."
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Capabilities"
+msgstr "Khả năng"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Press Enter to add new capability"
+msgstr "Nhấn Enter để thêm khả năng mới"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Industries"
+msgstr "Ngành nghề"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Press Enter to add new industry"
+msgstr "Nhấn Enter để thêm ngành nghề mới"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Define variables extracted from AI response"
+msgstr "Định nghĩa các biến được trích xuất từ phản hồi AI"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Variable Name"
+msgstr "Tên biến"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Data Type"
+msgstr "Kiểu dữ liệu"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Add Variable"
+msgstr "Thêm biến"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Quick Add:"
+msgstr "Thêm nhanh:"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Article"
+msgstr "Bài viết"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Order"
+msgstr "Đơn hàng"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Customer"
+msgstr "Khách hàng"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Create"
+msgstr "Tạo mới"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Cancel"
+msgstr "Hủy"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Saving..."
+msgstr "Đang lưu..."
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Saved!"
+msgstr "Đã lưu!"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Connection error. Please try again."
+msgstr "Lỗi kết nối. Vui lòng thử lại."
+
+# ─── §30 v2 — Admin Menu ───
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Teach AI"
+msgstr "Nuôi AI"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Training"
+msgstr "Đào tạo"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Dashboard"
+msgstr "Tổng quan"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Memory Hub"
+msgstr "Memory"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Chat Monitor"
+msgstr "Giám sát Chat"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "Learn with AI"
+msgstr "Học cùng AI"
+
+# ─── §30 v2 — Maturity Dashboard ───
+
+#: core/twin-core/templates/maturity-dashboard.php
+msgid "Overview"
+msgstr "Tổng quan"
+
+#: core/twin-core/templates/maturity-dashboard.php
+msgid "Documents"
+msgstr "Tài liệu"
+
+#: core/twin-core/templates/maturity-dashboard.php
+msgid "Knowledge"
+msgstr "Tri thức"
+
+#: core/twin-core/templates/maturity-dashboard.php
+msgid "Sessions"
+msgstr "Phiên chat"
+
+#: core/twin-core/templates/maturity-dashboard.php
+msgid "Goals"
+msgstr "Mục tiêu"
+
+#: core/twin-core/templates/maturity-dashboard.php
+msgid "Messages"
+msgstr "Tin nhắn"
+
+#: core/twin-core/templates/maturity-dashboard.php
+msgid "Trend"
+msgstr "Xu hướng"
+
+#: core/twin-core/templates/maturity-dashboard.php
+msgid "Active Training"
+msgstr "Đào tạo chủ động"
+
+#: core/twin-core/templates/maturity-dashboard.php
+msgid "Auto-analyzed"
+msgstr "Tự động phân tích"
+
+#: core/twin-core/templates/maturity-dashboard.php
+msgid "Resources"
+msgstr "Tài nguyên"
+
+# ─── §30 v2 — Admin Training ───
+
+#: core/twin-core/templates/admin-training.php
+msgid "AI Training"
+msgstr "Đào tạo AI"
+
+#: core/twin-core/templates/admin-training.php
+msgid "Active training data"
+msgstr "Dữ liệu huấn luyện chủ động"
+
+#: core/twin-core/templates/admin-training.php
+msgid "Loading data..."
+msgstr "Đang tải dữ liệu..."
+
+#: core/twin-core/templates/admin-training.php
+msgid "Q&A Training"
+msgstr "Huấn luyện Hỏi & Đáp"
+
+#: core/twin-core/templates/admin-training.php
+msgid "Add"
+msgstr "Thêm"
+
+#: core/twin-core/templates/admin-training.php
+msgid "Loading..."
+msgstr "Đang tải..."
+
+#: core/twin-core/templates/admin-training.php
+msgid "Training Documents"
+msgstr "Nguồn tài liệu đào tạo"
+
+#: core/twin-core/templates/admin-training.php
+msgid "Files, text, and URLs uploaded to train the AI"
+msgstr "Tệp, văn bản, URL đã upload để huấn luyện AI"
+
+#: core/twin-core/templates/admin-training.php
+msgid "Knowledge Characters"
+msgstr "Nhân vật Tri thức"
+
+#: core/twin-core/templates/admin-training.php
+msgid "AI characters with specialized knowledge"
+msgstr "Các nhân vật AI mang kiến thức chuyên sâu"
+
+# ─── §30 v2 — Admin Memory ───
+
+#: core/twin-core/templates/admin-memory.php
+msgid "Long-term memory & auto-analysis"
+msgstr "Bộ nhớ dài hạn & phân tích tự động"
+
+#: core/twin-core/templates/admin-memory.php
+msgid "Long-term Memory"
+msgstr "Ký ức dài hạn"
+
+#: core/twin-core/templates/admin-memory.php
+msgid "Events"
+msgstr "Sự kiện"
+
+#: core/twin-core/templates/admin-memory.php
+msgid "Auto-summarized every 5 conversation turns. You can add, edit, or delete."
+msgstr "Tự động tóm tắt mỗi 5 lượt trao đổi. Có thể thêm, sửa, hoặc xoá."
+
+#: core/twin-core/templates/admin-memory.php
+msgid "Research & Notes"
+msgstr "Research & Ghi nhớ"
+
+# ─── §30 v2 — Admin Monitor ───
+
+#: core/twin-core/templates/admin-monitor.php
+msgid "Session tracking & trends"
+msgstr "Theo dõi phiên chat & xu hướng"
+
+#: core/twin-core/templates/admin-monitor.php
+msgid "Sessions by platform"
+msgstr "Phiên chat theo nền tảng"
+
+#: core/twin-core/templates/admin-monitor.php
+msgid "Session list"
+msgstr "Danh sách phiên chat"
+
+#: core/twin-core/templates/admin-monitor.php
+msgid "Goal status"
+msgstr "Trạng thái mục tiêu"
+
+#: core/twin-core/templates/admin-monitor.php
+msgid "Goal list"
+msgstr "Danh sách mục tiêu"
+
+#: core/twin-core/templates/admin-monitor.php
+msgid "Messages by type"
+msgstr "Tin nhắn theo loại"
+
+#: core/twin-core/templates/admin-monitor.php
+msgid "Recent messages (Monitor)"
+msgstr "Tin nhắn gần đây (Monitor)"
+
+#: core/twin-core/templates/admin-monitor.php
+msgid "Maturity trend — Snapshot Timeline"
+msgstr "Xu hướng trưởng thành — Snapshot Timeline"
+
+#: core/twin-core/templates/admin-monitor.php
+msgid "Compare 5 dimensions day-by-day (automatic snapshot data)"
+msgstr "Biểu đồ so sánh 5 chiều qua từng ngày (dữ liệu snapshot tự động)"
+
+# ─── §30 v2 — Maturity Dashboard (charts) ───
+
+#: core/twin-core/templates/maturity-dashboard.php
+msgid "Knowledge Score"
+msgstr "Chỉ số hiểu biết"
+
+#: core/twin-core/templates/maturity-dashboard.php
+msgid "Analyzing data from 29 tables..."
+msgstr "Đang phân tích dữ liệu từ 29 bảng..."
+
+#: core/twin-core/templates/maturity-dashboard.php
+msgid "Knowledge flow"
+msgstr "Dòng chảy tri thức"
+
+#: core/twin-core/templates/maturity-dashboard.php
+msgid "Resources absorbed (file, web, text…) → memories created"
+msgstr "Nguồn liệu đã được hấp thụ (file, web, text…) → tạo ra bao nhiêu ghi nhớ"
+
+#: core/twin-core/templates/maturity-dashboard.php
+msgid "5 Maturity Dimensions"
+msgstr "5 Chiều trưởng thành"
+
+#: core/twin-core/templates/maturity-dashboard.php
+msgid "Knowledge growth (30 days)"
+msgstr "Tăng trưởng tri thức (30 ngày)"
+
+#: core/twin-core/templates/maturity-dashboard.php
+msgid "Knowledge score over time"
+msgstr "Chỉ số hiểu biết theo thời gian"
+
+#: core/twin-core/templates/maturity-dashboard.php
+msgid "Daily goal execution"
+msgstr "Thực thi mục tiêu hàng ngày"

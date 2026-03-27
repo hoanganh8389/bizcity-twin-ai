@@ -1,0 +1,68 @@
+/**
+ * BizCity Tool Image — Admin Dashboard CSS
+ * @since 2.0.0
+ */
+.bztimg-wrap {
+    max-width: 720px;
+    margin: 20px auto;
+    font-family: system-ui, -apple-system, sans-serif;
+}
+.bztimg-wrap h1 {
+    font-size: 22px;
+    font-weight: 800;
+    margin-bottom: 16px;
+}
+.bztimg-stats {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+}
+.bztimg-stat-card {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 16px 20px;
+    flex: 1;
+    min-width: 140px;
+}
+.bztimg-stat-card .number {
+    font-size: 28px;
+    font-weight: 800;
+    color: #7c3aed;
+}
+.bztimg-stat-card .label {
+    font-size: 12px;
+    color: #6b7280;
+    font-weight: 600;
+}
+.bztimg-info {
+    background: #f5f3ff;
+    border: 1px solid #e9e5f5;
+    border-radius: 12px;
+    padding: 16px;
+    font-size: 13px;
+    color: #374151;
+    line-height: 1.7;
+}
+.bztimg-info code {
+    background: #ede9fe;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 12px;
+}
+.bztimg-link {
+    display: inline-block;
+    margin-top: 12px;
+    padding: 10px 20px;
+    background: linear-gradient(135deg, #7c3aed, #8b5cf6);
+    color: #fff;
+    text-decoration: none;
+    border-radius: 8px;
+    font-weight: 700;
+    font-size: 13px;
+}
+.bztimg-link:hover {
+    opacity: 0.9;
+    color: #fff;
+}

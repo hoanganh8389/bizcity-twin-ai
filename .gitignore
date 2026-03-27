@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+vendor/
+
+# Ignore specific plugin
+/plugins/bizcity-zalo-bot/
+
+# Env
+.env
+.env.*
+
+# Logs
+*.log
+
+# Build
+dist/
+build/
+
+# Mac
+.DS_Store

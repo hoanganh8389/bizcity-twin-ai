@@ -1,0 +1,84 @@
+/* ═══════════════════════════════════════════
+ * Gemini Knowledge — Admin Styles
+ * ═══════════════════════════════════════════ */
+
+.bzgk-wrap {
+    max-width: 1100px;
+}
+
+.bzgk-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 16px;
+    margin: 20px 0;
+}
+.bzgk-stat-card {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 20px;
+    text-align: center;
+}
+.bzgk-stat-card h3 {
+    margin: 0 0 4px;
+    font-size: 22px;
+}
+.bzgk-stat-card p {
+    margin: 0;
+    color: #6b7280;
+    font-size: 13px;
+}
+.bzgk-stat-primary {
+    background: linear-gradient(135deg, #eef2ff, #e0e7ff);
+    border-color: #818cf8;
+}
+
+.bzgk-topics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 14px;
+}
+.bzgk-topic-card {
+    padding: 14px;
+    border-radius: 8px;
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+}
+.bzgk-topic-icon {
+    font-size: 20px;
+    margin-right: 6px;
+}
+.bzgk-topic-card strong {
+    font-size: 14px;
+}
+.bzgk-topic-card ul {
+    list-style: none;
+    padding: 0;
+    margin: 6px 0 0;
+}
+.bzgk-topic-card ul li {
+    margin: 3px 0;
+}
+.bzgk-topic-card ul li a {
+    font-size: 12px;
+    color: #4f46e5;
+    text-decoration: none;
+}
+.bzgk-topic-card ul li a:hover {
+    text-decoration: underline;
+}
+
+/* Ask page */
+.bzgk-ask-container {
+    max-width: 800px;
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+    .bzgk-stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    .bzgk-topics-grid {
+        grid-template-columns: 1fr;
+    }
+}

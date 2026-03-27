@@ -1,0 +1,85 @@
+{
+  "name": "Tạo Video Từ Ảnh Sản Phẩm",
+  "description": "Workflow mẫu: Tạo video 9:16 từ ảnh sản phẩm cho social media",
+  "version": "1.0",
+  "nodes": [
+    {
+      "id": "create_job",
+      "type": "action",
+      "action": "kl_create_job",
+      "settings": {
+        "name": "Tạo Video Kling",
+        "api_key": "{{global.kling_api_key}}",
+        "endpoint": "https://api.piapi.ai/api/v1",
+        "model": "kling-v1",
+        "task_type": "image_to_video",
+        "image_url": "{{payload.image_url}}",
+        "prompt": "{{payload.prompt}}",
+        "duration": 30,
+        "aspect_ratio": "9:16",
+        "job_id": "product_{{timestamp}}_{{random}}",
+        "ttl": 7200
+      },
+      "position": { "x": 100, "y": 100 }
+    },
+    {
+      "id": "poll_status",
+      "type": "action",
+      "action": "kl_poll_status",
+      "settings": {
+        "name": "Kiểm Tra Trạng Thái",
+        "job_id": "{{node#create_job.job_id}}",
+        "task_id": "{{node#create_job.task_id}}",
+        "api_key": "{{global.kling_api_key}}",
+        "endpoint": "https://api.piapi.ai/api/v1",
+        "poll_delay_seconds": 10,
+        "max_wait_seconds": 600
+      },
+      "position": { "x": 300, "y": 100 }
+    },
+    {
+      "id": "fetch_video",
+      "type": "action",
+      "action": "kl_fetch_video",
+      "settings": {
+        "name": "Tải Video",
+        "job_id": "{{node#create_job.job_id}}",
+        "mode": "media",
+        "filename": "product-video-{{timestamp}}.mp4",
+        "timeout": 300
+      },
+      "position": { "x": 500, "y": 100 }
+    }
+  ],
+  "connections": [
+    {
+      "from": "create_job",
+      "to": "poll_status"
+    },
+    {
+      "from": "poll_status",
+      "to": "fetch_video"
+    }
+  ],
+  "global_variables": {
+    "kling_api_key": "sk-your-api-key-here"
+  },
+  "payload_example": {
+    "image_url": "https://example.com/product.jpg",
+    "prompt": "Zoom slowly into the product, rotate 360 degrees, show product details, professional lighting, 4K quality"
+  },
+  "expected_output": {
+    "job_id": "product_1737800000_abc123",
+    "task_id": "kling_task_xyz789",
+    "attachment_id": 123,
+    "media_url": "https://example.com/wp-content/uploads/2025/01/product-video-1737800000.mp4",
+    "video_url": "https://piapi-cdn.com/videos/original-url.mp4"
+  },
+  "notes": [
+    "Đảm bảo đã cấu hình API Key trong Tools → Video Kling",
+    "Image URL phải public và accessible",
+    "Video sẽ tự động tải về Media Library sau khoảng 2-5 phút",
+    "Aspect ratio 9:16 phù hợp cho TikTok, Instagram Reels, YouTube Shorts",
+    "Duration 30s là tối ưu cho social media engagement"
+  ]
+}

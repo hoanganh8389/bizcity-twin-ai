@@ -1,0 +1,51 @@
+/* Channel Gateway — Admin Styles */
+.bizchat-gw-wrap { max-width: 900px; }
+.bizchat-gw-wrap h2 { margin-top: 28px; }
+
+/* ── Channel Grid ── */
+.bizchat-gw-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+	gap: 14px;
+	margin-top: 12px;
+}
+.bizchat-gw-card {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 16px;
+	background: #fff;
+	border: 1px solid #dcdcde;
+	border-radius: 8px;
+	transition: box-shadow .15s;
+}
+.bizchat-gw-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+.bizchat-gw-card.is-inactive { opacity: .55; }
+.bizchat-gw-card-icon { font-size: 28px; line-height: 1; flex-shrink: 0; }
+.bizchat-gw-card-body { display: flex; flex-direction: column; gap: 4px; }
+.bizchat-gw-card-body strong { font-size: 14px; }
+
+/* ── Badges ── */
+.bizchat-gw-badge {
+	display: inline-block;
+	font-size: 11px;
+	padding: 2px 8px;
+	border-radius: 10px;
+	line-height: 1.4;
+	width: fit-content;
+}
+.bizchat-gw-badge.gw-on { background: #e6f9ee; color: #0a6e31; }
+.bizchat-gw-badge.gw-off { background: #f0f0f1; color: #787c82; }
+.bizchat-gw-badge.gw-adapter { background: #e8f0fe; color: #1a56db; }
+.bizchat-gw-on { color: #0a6e31; font-weight: 500; }
+
+/* ── Adapter Table ── */
+.bizchat-gw-table { margin-top: 8px; }
+.bizchat-gw-table code { background: #f0f0f1; padding: 2px 6px; border-radius: 3px; }
+
+/* ── Test Form ── */
+.bizchat-gw-test-form { max-width: 500px; }
+.bizchat-gw-test-form label { display: block; margin-bottom: 12px; font-weight: 500; }
+.bizchat-gw-test-form input,
+.bizchat-gw-test-form textarea { display: block; margin-top: 4px; width: 100%; }
+#bizchat-gw-test-result { margin-top: 12px; font-size: 13px; }

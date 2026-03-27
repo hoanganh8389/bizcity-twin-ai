@@ -1,0 +1,288 @@
+/**
+ * BizCity Market — Remote Marketplace CSS
+ * Lightweight styles for JSON-driven marketplace UI.
+ * @since 1.2.0
+ */
+
+/* ── Header ── */
+.bcr-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.bcr-header h2 { margin: 0; font-size: 1.4em; }
+.bcr-search {
+  display: flex;
+  gap: 6px;
+}
+.bcr-search input[type="text"] {
+  width: 240px;
+  padding: 6px 10px;
+}
+
+/* ── Categories ── */
+.bcr-cats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+.bcr-cat-btn {
+  background: #f0f0f1;
+  border: 1px solid #ddd;
+  border-radius: 16px;
+  padding: 4px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all .15s;
+}
+.bcr-cat-btn:hover { background: #e0e0e1; }
+.bcr-cat-btn.is-active {
+  background: #2271b1;
+  color: #fff;
+  border-color: #2271b1;
+}
+
+/* ── Grid ── */
+.bcr-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+/* ── Card ── */
+.bcr-card {
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  overflow: hidden;
+  transition: box-shadow .15s;
+}
+.bcr-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,.1); }
+
+.bcr-card-thumb {
+  height: 140px;
+  background: #f5f5f5 center / cover no-repeat;
+  position: relative;
+  cursor: pointer;
+}
+.bcr-thumb-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  background: rgba(0,0,0,.6);
+  color: #fff;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.bcr-card-body { padding: 12px; }
+.bcr-card-title a {
+  color: #1d2327;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 14px;
+}
+.bcr-card-title a:hover { color: #2271b1; }
+.bcr-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 3px 0 4px;
+}
+.bcr-card-author {
+  color: #787c82;
+  font-size: 12px;
+}
+.bcr-ver {
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 8px;
+  background: #f0f0f1;
+  color: #50575e;
+  white-space: nowrap;
+}
+.bcr-ver-update {
+  background: #fff3cd;
+  color: #7a5800;
+  font-weight: 600;
+}
+.bcr-ver-latest {
+  background: #d4edda;
+  color: #155724;
+}
+
+/* Active card highlight */
+.bcr-card-active {
+  border-color: #00a32a;
+}
+
+/* Status overlays on thumb */
+.bcr-thumb-status {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+}
+.bcr-thumb-active { background: #00a32a; color: #fff; }
+.bcr-thumb-update  { background: #dba617; color: #fff; }
+
+/* Disabled button style */
+.bcr-btn-disabled {
+  opacity: .55;
+  cursor: default !important;
+  pointer-events: none;
+}
+.bcr-card-price {
+  font-size: 12px;
+  color: #50575e;
+  margin-bottom: 8px;
+}
+.bcr-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* ── Badges ── */
+.bcr-badge {
+  display: inline-block;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+.bcr-badge-active { background: #d4edda; color: #155724; }
+.bcr-badge-installed { background: #e8f0fe; color: #174ea6; }
+.bcr-badge-locked { background: #fff3cd; color: #856404; }
+
+/* ── Pagination ── */
+.bcr-pagination {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+  margin: 16px 0;
+}
+.bcr-page-btn {
+  min-width: 32px;
+  padding: 4px 10px;
+  border: 1px solid #ddd;
+  background: #fff;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.bcr-page-btn.is-active {
+  background: #2271b1;
+  color: #fff;
+  border-color: #2271b1;
+}
+
+/* ── Loading / Empty ── */
+.bcr-loading {
+  text-align: center;
+  padding: 40px;
+  color: #787c82;
+}
+.bcr-loading .spinner {
+  float: none;
+  margin: 0 8px 0 0;
+  vertical-align: middle;
+}
+.bcr-empty {
+  text-align: center;
+  padding: 40px;
+  color: #787c82;
+  grid-column: 1 / -1;
+}
+
+/* ── Modal ── */
+.bcr-modal { display: none; }
+.bcr-modal.is-open {
+  display: block;
+  position: fixed;
+  inset: 0;
+  z-index: 100100;
+}
+.bcr-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.5);
+}
+.bcr-modal-dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 90%;
+  max-width: 640px;
+  max-height: 80vh;
+  background: #fff;
+  border-radius: 12px;
+  overflow-y: auto;
+  z-index: 100101;
+  box-shadow: 0 8px 32px rgba(0,0,0,.2);
+}
+.bcr-modal-close {
+  position: absolute;
+  top: 10px;
+  right: 14px;
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: #787c82;
+  z-index: 1;
+}
+.bcr-modal-content { padding: 24px; }
+.bcr-modal-header {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 16px;
+  align-items: flex-start;
+}
+.bcr-modal-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 8px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.bcr-modal-meta h3 { margin: 0 0 4px; }
+.bcr-modal-sub {
+  color: #787c82;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+.bcr-modal-actions { margin-top: 8px; }
+.bcr-modal-desc {
+  font-size: 14px;
+  line-height: 1.6;
+  color: #3c434a;
+}
+.bcr-modal-changelog {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #eee;
+}
+.bcr-modal-changelog h4 { margin: 0 0 8px; }
+
+/* ── Responsive ── */
+@media (max-width: 600px) {
+  .bcr-grid { grid-template-columns: 1fr; }
+  .bcr-header { flex-direction: column; align-items: stretch; }
+  .bcr-search input[type="text"] { width: 100%; }
+}

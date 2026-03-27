@@ -1,0 +1,404 @@
+{
+  "templates": [
+    {
+      "id": "template-1",
+      "title": "Tự động trả lời tin nhắn Zalo",
+      "description": "Workflow tự động nhận tin nhắn từ Zalo, xử lý qua AI và trả lời tự động",
+      "category": "zalo",
+      "difficulty": "easy",
+      "tags": ["zalo", "ai", "chatbot"],
+      "nodes": [
+        {
+          "id": "node-1",
+          "type": "trigger",
+          "blockId": "zalo_message",
+          "label": "Nhận tin nhắn Zalo",
+          "position": { "x": 100, "y": 100 },
+          "settings": {}
+        },
+        {
+          "id": "node-2",
+          "type": "action",
+          "blockId": "ai_router_hil",
+          "label": "AI xử lý tin nhắn",
+          "position": { "x": 350, "y": 100 },
+          "settings": {
+            "prompt": "Bạn là trợ lý AI thân thiện. Hãy trả lời câu hỏi của khách hàng một cách lịch sự và hữu ích."
+          }
+        },
+        {
+          "id": "node-3",
+          "type": "action",
+          "blockId": "zalo_message",
+          "label": "Gửi tin nhắn phản hồi",
+          "position": { "x": 600, "y": 100 },
+          "settings": {
+            "message": "{{node-2.response}}"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "edge-1",
+          "source": "node-1",
+          "target": "node-2"
+        },
+        {
+          "id": "edge-2",
+          "source": "node-2",
+          "target": "node-3"
+        }
+      ]
+    },
+    {
+      "id": "template-2",
+      "title": "Lưu thông tin khách hàng",
+      "description": "Workflow lưu thông tin khách hàng vào bộ nhớ và gửi thông báo qua Telegram",
+      "category": "crm",
+      "difficulty": "easy",
+      "tags": ["crm", "memory", "telegram"],
+      "nodes": [
+        {
+          "id": "node-1",
+          "type": "trigger",
+          "blockId": "webhook",
+          "label": "Nhận thông tin khách hàng",
+          "position": { "x": 100, "y": 100 },
+          "settings": {}
+        },
+        {
+          "id": "node-2",
+          "type": "logic",
+          "blockId": "un_fill_memory",
+          "label": "Lưu vào bộ nhớ",
+          "position": { "x": 350, "y": 100 },
+          "settings": {
+            "memory_key": "customers",
+            "mode": "append",
+            "scope": "global",
+            "max_items": 100
+          }
+        },
+        {
+          "id": "node-3",
+          "type": "action",
+          "blockId": "telegram",
+          "label": "Thông báo Telegram",
+          "position": { "x": 600, "y": 100 },
+          "settings": {
+            "message": "Khách hàng mới: {{node-1.name}} - {{node-1.email}}"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "edge-1",
+          "source": "node-1",
+          "target": "node-2"
+        },
+        {
+          "id": "edge-2",
+          "source": "node-2",
+          "target": "node-3"
+        }
+      ]
+    },
+    {
+      "id": "template-3",
+      "title": "Phân luồng theo ý định người dùng",
+      "description": "Workflow phân tích ý định người dùng và phân luồng xử lý khác nhau",
+      "category": "logic",
+      "difficulty": "medium",
+      "tags": ["intent", "ai", "routing"],
+      "nodes": [
+        {
+          "id": "node-1",
+          "type": "trigger",
+          "blockId": "zalo_message",
+          "label": "Nhận tin nhắn",
+          "position": { "x": 100, "y": 100 },
+          "settings": {}
+        },
+        {
+          "id": "node-2",
+          "type": "logic",
+          "blockId": "tf_intent_matcher",
+          "label": "Phân tích ý định",
+          "position": { "x": 350, "y": 100 },
+          "settings": {
+            "intents": [
+              {
+                "name": "pricing",
+                "keywords": ["giá", "bao nhiêu", "cost", "price"]
+              },
+              {
+                "name": "support",
+                "keywords": ["hỗ trợ", "help", "giúp"]
+              }
+            ]
+          }
+        },
+        {
+          "id": "node-3",
+          "type": "action",
+          "blockId": "zalo_message",
+          "label": "Trả lời về giá",
+          "position": { "x": 600, "y": 50 },
+          "settings": {
+            "message": "Bảng giá của chúng tôi: https://example.com/pricing"
+          }
+        },
+        {
+          "id": "node-4",
+          "type": "action",
+          "blockId": "zalo_message",
+          "label": "Hướng dẫn hỗ trợ",
+          "position": { "x": 600, "y": 150 },
+          "settings": {
+            "message": "Vui lòng liên hệ hotline: 1900xxxx để được hỗ trợ"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "edge-1",
+          "source": "node-1",
+          "target": "node-2"
+        },
+        {
+          "id": "edge-2",
+          "source": "node-2",
+          "target": "node-3",
+          "condition": "pricing"
+        },
+        {
+          "id": "edge-3",
+          "source": "node-2",
+          "target": "node-4",
+          "condition": "support"
+        }
+      ]
+    },
+    {
+      "id": "template-4",
+      "title": "Xử lý song song nhiều tác vụ",
+      "description": "Workflow thực hiện nhiều tác vụ đồng thời và gộp kết quả",
+      "category": "advanced",
+      "difficulty": "medium",
+      "tags": ["parallel", "split", "merge"],
+      "nodes": [
+        {
+          "id": "node-1",
+          "type": "trigger",
+          "blockId": "webhook",
+          "label": "Nhận dữ liệu",
+          "position": { "x": 100, "y": 100 },
+          "settings": {}
+        },
+        {
+          "id": "node-2",
+          "type": "logic",
+          "blockId": "un_split_flow",
+          "label": "Chia luồng xử lý",
+          "position": { "x": 350, "y": 100 },
+          "settings": {
+            "execution_mode": "parallel",
+            "branch_count": 3,
+            "merge_results": true
+          }
+        },
+        {
+          "id": "node-3",
+          "type": "action",
+          "blockId": "http_request",
+          "label": "Gọi API 1",
+          "position": { "x": 600, "y": 50 },
+          "settings": {
+            "url": "https://api1.example.com/data"
+          }
+        },
+        {
+          "id": "node-4",
+          "type": "action",
+          "blockId": "http_request",
+          "label": "Gọi API 2",
+          "position": { "x": 600, "y": 150 },
+          "settings": {
+            "url": "https://api2.example.com/data"
+          }
+        },
+        {
+          "id": "node-5",
+          "type": "action",
+          "blockId": "http_request",
+          "label": "Gọi API 3",
+          "position": { "x": 600, "y": 250 },
+          "settings": {
+            "url": "https://api3.example.com/data"
+          }
+        },
+        {
+          "id": "node-6",
+          "type": "logic",
+          "blockId": "un_merge_array",
+          "label": "Gộp kết quả",
+          "position": { "x": 850, "y": 150 },
+          "settings": {
+            "arrays": [
+              "{{node-3.data}}",
+              "{{node-4.data}}",
+              "{{node-5.data}}"
+            ]
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "edge-1",
+          "source": "node-1",
+          "target": "node-2"
+        },
+        {
+          "id": "edge-2",
+          "source": "node-2",
+          "target": "node-3"
+        },
+        {
+          "id": "edge-3",
+          "source": "node-2",
+          "target": "node-4"
+        },
+        {
+          "id": "edge-4",
+          "source": "node-2",
+          "target": "node-5"
+        },
+        {
+          "id": "edge-5",
+          "source": "node-3",
+          "target": "node-6"
+        },
+        {
+          "id": "edge-6",
+          "source": "node-4",
+          "target": "node-6"
+        },
+        {
+          "id": "edge-7",
+          "source": "node-5",
+          "target": "node-6"
+        }
+      ]
+    },
+    {
+      "id": "template-5",
+      "title": "Tự động đăng bài lên WordPress",
+      "description": "Workflow nhận nội dung từ AI và tự động tạo bài viết WordPress",
+      "category": "wordpress",
+      "difficulty": "easy",
+      "tags": ["wordpress", "ai", "content"],
+      "nodes": [
+        {
+          "id": "node-1",
+          "type": "trigger",
+          "blockId": "schedule",
+          "label": "Chạy theo lịch",
+          "position": { "x": 100, "y": 100 },
+          "settings": {
+            "schedule": "daily"
+          }
+        },
+        {
+          "id": "node-2",
+          "type": "action",
+          "blockId": "ai_router_hil",
+          "label": "AI tạo nội dung",
+          "position": { "x": 350, "y": 100 },
+          "settings": {
+            "prompt": "Viết một bài blog về {{topic}} với độ dài khoảng 500 từ, phong cách chuyên nghiệp và thân thiện."
+          }
+        },
+        {
+          "id": "node-3",
+          "type": "action",
+          "blockId": "wp_post",
+          "label": "Tạo bài viết",
+          "position": { "x": 600, "y": 100 },
+          "settings": {
+            "title": "{{node-2.title}}",
+            "content": "{{node-2.content}}",
+            "status": "draft"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "edge-1",
+          "source": "node-1",
+          "target": "node-2"
+        },
+        {
+          "id": "edge-2",
+          "source": "node-2",
+          "target": "node-3"
+        }
+      ]
+    },
+    {
+      "id": "template-6",
+      "title": "Gửi email marketing tự động",
+      "description": "Workflow gửi email cho danh sách khách hàng từ bộ nhớ",
+      "category": "marketing",
+      "difficulty": "medium",
+      "tags": ["email", "marketing", "automation"],
+      "nodes": [
+        {
+          "id": "node-1",
+          "type": "trigger",
+          "blockId": "schedule",
+          "label": "Chạy hàng tuần",
+          "position": { "x": 100, "y": 100 },
+          "settings": {
+            "schedule": "weekly"
+          }
+        },
+        {
+          "id": "node-2",
+          "type": "logic",
+          "blockId": "un_fill_memory",
+          "label": "Lấy danh sách email",
+          "position": { "x": 350, "y": 100 },
+          "settings": {
+            "memory_key": "email_list",
+            "mode": "overwrite",
+            "scope": "global"
+          }
+        },
+        {
+          "id": "node-3",
+          "type": "action",
+          "blockId": "email",
+          "label": "Gửi email",
+          "position": { "x": 600, "y": 100 },
+          "settings": {
+            "subject": "Bản tin tuần này",
+            "body": "Xin chào {{name}},\n\nĐây là bản tin tuần này...",
+            "to": "{{node-2.stored_data}}"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "edge-1",
+          "source": "node-1",
+          "target": "node-2"
+        },
+        {
+          "id": "edge-2",
+          "source": "node-2",
+          "target": "node-3"
+        }
+      ]
+    }
+  ]
+}

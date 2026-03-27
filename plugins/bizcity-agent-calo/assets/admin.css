@@ -1,0 +1,132 @@
+/* ═══════════════════════════════════════════════
+   BizCity Calo — Admin CSS
+   ═══════════════════════════════════════════════ */
+
+.bzcalo-wrap {
+    max-width: 1100px;
+}
+
+/* ── Stats Grid ── */
+.bzcalo-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 16px;
+    margin-top: 20px;
+}
+
+.bzcalo-stat-card {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 20px;
+    text-align: center;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06);
+}
+
+.bzcalo-stat-card h3 {
+    margin: 0;
+    font-size: 22px;
+}
+
+.bzcalo-stat-card p {
+    margin: 4px 0 0;
+    color: #6b7280;
+    font-size: 13px;
+}
+
+.bzcalo-stat-primary {
+    background: linear-gradient(135deg, #6366f1, #818cf8);
+    color: #fff;
+    border: none;
+}
+
+.bzcalo-stat-primary p {
+    color: rgba(255,255,255,.8);
+}
+
+/* ── Ring (admin) ── */
+.bzcalo-stat-ring {
+    width: 100px;
+    height: 100px;
+    margin: 0 auto 12px;
+    position: relative;
+}
+
+.bzcalo-stat-ring svg {
+    width: 100%;
+    height: 100%;
+    transform: rotate(-90deg);
+}
+
+.bzcalo-stat-ring path {
+    fill: none;
+}
+
+.bzcalo-ring-text {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 20px;
+    font-weight: 700;
+}
+
+/* ── Meal Type Buttons (admin) ── */
+.bzcalo-meal-type-btn {
+    display: inline-flex;
+    align-items: center;
+    padding: 8px 14px;
+    border: 2px solid #e5e7eb;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all .2s;
+    font-size: 13px;
+    text-align: center;
+    justify-content: center;
+}
+
+.bzcalo-meal-type-btn input {
+    display: none;
+}
+
+.bzcalo-meal-type-btn:has(input:checked) {
+    border-color: #6366f1;
+    background: #e0e7ff;
+    color: #4338ca;
+    font-weight: 600;
+}
+
+/* ── Photo upload zone (admin) ── */
+#bzcalo-photo-zone {
+    transition: border-color .2s, background .2s;
+}
+
+#bzcalo-photo-zone:hover {
+    border-color: #6366f1;
+    background: #f0f0ff;
+}
+
+/* ── AI Result (admin) ── */
+#bzcalo-ai-result .bzcalo-ai-item-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+    font-size: 13px;
+    border-bottom: 1px solid #d1fae5;
+}
+
+/* ── Delete button ── */
+.bzcalo-del-meal {
+    color: #ef4444 !important;
+    border-color: #fca5a5 !important;
+}
+
+.bzcalo-del-meal:hover {
+    background: #fef2f2 !important;
+}
+
+/* ── Table tweaks ── */
+.bzcalo-wrap .widefat td,
+.bzcalo-wrap .widefat th {
+    vertical-align: middle;
+}

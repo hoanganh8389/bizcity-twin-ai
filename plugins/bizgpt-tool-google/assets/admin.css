@@ -1,0 +1,91 @@
+.bzgoogle-wrap {
+    max-width: 900px;
+}
+
+.bzgoogle-card {
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 20px 24px;
+    margin: 20px 0;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06);
+}
+
+.bzgoogle-card h2 {
+    margin-top: 0;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #eee;
+}
+
+.bzgoogle-table {
+    margin-top: 12px;
+}
+
+.bzgoogle-table .bzgoogle-scopes {
+    max-width: 200px;
+    font-size: 11px;
+    color: #666;
+    word-break: break-all;
+}
+
+.bzgoogle-badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.bzgoogle-active {
+    background: #e8f5e9;
+    color: #2e7d32;
+}
+
+.bzgoogle-inactive {
+    background: #fce4ec;
+    color: #c62828;
+}
+
+.bzgoogle-connect-btn {
+    display: inline-flex !important;
+    align-items: center;
+    gap: 8px;
+}
+
+.bzgoogle-empty {
+    color: #888;
+    font-style: italic;
+    padding: 16px 0;
+}
+
+.bzgoogle-hub-config {
+    border-left: 4px solid #4285f4;
+}
+
+/* Hub stats grid */
+.bzgoogle-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+    margin-top: 12px;
+}
+
+.bzgoogle-stat-box {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 16px;
+    text-align: center;
+}
+
+.bzgoogle-stat-box .num {
+    font-size: 28px;
+    font-weight: 700;
+    color: #4285f4;
+    display: block;
+}
+
+.bzgoogle-stat-box .label {
+    font-size: 12px;
+    color: #666;
+    margin-top: 4px;
+}

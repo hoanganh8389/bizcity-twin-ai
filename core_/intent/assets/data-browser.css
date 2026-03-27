@@ -1,0 +1,188 @@
+/**
+ * BizCity Intent – Data Browser Styles
+ * Reuses the same design system as Executor Data Browser.
+ */
+
+/* ── Layout ─────────────────────────────────────────── */
+.bdb-wrap { max-width:100%; padding-right:20px }
+.bdb-header { display:flex; align-items:center; gap:12px; margin:12px 0 16px; font-size:22px }
+.bdb-icon { font-size:24px }
+.bdb-badge { background:#0073aa; color:#fff; border-radius:12px; padding:2px 10px; font-size:13px; font-weight:600 }
+
+.bdb-breadcrumb { font-size:13px; color:#666; margin-bottom:14px }
+.bdb-breadcrumb a { text-decoration:none; color:#0073aa }
+.bdb-breadcrumb a:hover { text-decoration:underline }
+.bdb-sep { margin:0 4px; color:#999 }
+
+/* ── Filter bar ─────────────────────────────────────── */
+.bdb-filters { background:#f6f7f7; border:1px solid #ddd; border-radius:8px; padding:12px 14px; margin-bottom:14px }
+.bdb-filter-group { display:flex; flex-wrap:wrap; align-items:flex-end; gap:10px; margin-bottom:10px }
+.bdb-filter-label { display:flex; flex-direction:column; font-size:11px; color:#555; text-transform:uppercase; letter-spacing:.4px; gap:3px }
+.bdb-filter-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px }
+.bdb-input { width:140px; padding:5px 8px; border:1px solid #bbb; border-radius:4px; font-size:13px }
+.bdb-input:focus { border-color:#0073aa; outline:none; box-shadow:0 0 0 1px #0073aa }
+#bdb-search { width:200px }
+.bdb-separator { color:#ccc; margin:0 2px; user-select:none }
+
+/* ── Data table ─────────────────────────────────────── */
+.bdb-table-wrap { overflow-x:auto; margin-bottom:12px }
+.bdb-table, #bdb-table { width:100%; border-collapse:collapse; font-size:13px; background:#fff; border:1px solid #e5e5e5 }
+.bdb-table th, #bdb-table th { background:#f1f1f1; border-bottom:2px solid #ccc; padding:8px 10px; text-align:left; white-space:nowrap; cursor:pointer; user-select:none }
+.bdb-table th:hover, #bdb-table th:hover { background:#e4e4e4 }
+.bdb-table td, #bdb-table td { padding:7px 10px; border-bottom:1px solid #eee; max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+.bdb-table tr:hover td, #bdb-table tr:hover td { background:#f9f9ff }
+.bdb-table tr.bdb-row-selected td { background:#e8f0fe }
+
+.bdb-sort-arrow { font-size:11px; color:#666 }
+
+/* ── Cell content ───────────────────────────────────── */
+.bdb-null   { color:#bbb; font-style:italic }
+.bdb-json-preview { color:#7b5e00; font-family:monospace; font-size:12px; cursor:help }
+
+.bdb-cross-link { text-decoration:none; color:#0073aa; border-bottom:1px dashed #0073aa }
+.bdb-cross-link:hover { color:#005a87; border-bottom-style:solid }
+
+/* ── Status badges ──────────────────────────────────── */
+.bdb-status { display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.3px }
+.bdb-status-running  { background:#fff3cd; color:#856404 }
+.bdb-status-active   { background:#d4edda; color:#155724 }
+.bdb-status-done,
+.bdb-status-complete,
+.bdb-status-completed { background:#d4edda; color:#155724 }
+.bdb-status-failed,
+.bdb-status-error    { background:#f8d7da; color:#721c24 }
+.bdb-status-pending,
+.bdb-status-queued   { background:#d1ecf1; color:#0c5460 }
+.bdb-status-processing { background:#e2d5f1; color:#4e2a84 }
+.bdb-status-cancelled,
+.bdb-status-canceled { background:#e2e3e5; color:#383d41 }
+.bdb-status-archived { background:#e2e3e5; color:#383d41 }
+.bdb-status-disabled { background:#f5e0e0; color:#721c24 }
+.bdb-status-draft    { background:#fff3cd; color:#856404 }
+.bdb-status-paused   { background:#fce4ec; color:#880e4f }
+.bdb-status-ended    { background:#e2e3e5; color:#383d41 }
+.bdb-status-proposed { background:#d1ecf1; color:#0c5460 }
+.bdb-status-approved { background:#d4edda; color:#155724 }
+.bdb-status-applied  { background:#c8e6c9; color:#1b5e20 }
+.bdb-status-rejected { background:#f8d7da; color:#721c24 }
+
+/* Intent-specific statuses */
+.bdb-status-WAITING_HUMAN,
+.bdb-status-WAITINGHUMAN,
+.bdb-status-waiting_human { background:#fce4ec; color:#880e4f }
+.bdb-status-in_progress   { background:#fff3cd; color:#856404 }
+.bdb-status-closed        { background:#e2e3e5; color:#383d41 }
+
+/* Planner outcome badges */
+.bdb-status-partial { background:#fff3cd; color:#856404 }
+
+/* Log level badges */
+.bdb-level-info  { background:#d1ecf1; color:#0c5460 }
+.bdb-level-warn  { background:#fff3cd; color:#856404 }
+.bdb-level-error { background:#f8d7da; color:#721c24 }
+.bdb-level-debug { background:#e2e3e5; color:#383d41 }
+
+.bdb-badge-ok   { color:#155724; font-size:12px }
+.bdb-badge-fail { color:#721c24; font-size:12px }
+
+/* ── Checkbox / bulk actions ────────────────────────── */
+.bdb-cb-col { width:32px; text-align:center!important; cursor:default }
+.bdb-cb-col input[type=checkbox] { margin:0; cursor:pointer; width:16px; height:16px }
+.bdb-bulk-bar { display:flex; align-items:center; gap:10px; margin-bottom:10px; padding:8px 12px; background:#fff3cd; border:1px solid #ffc107; border-radius:6px }
+.bdb-bulk-bar.bdb-hidden { display:none }
+.bdb-bulk-count { font-weight:600; font-size:13px }
+.bdb-btn-danger { background:#dc3545!important; border-color:#dc3545!important; color:#fff!important }
+.bdb-btn-danger:hover { background:#c82333!important; border-color:#bd2130!important }
+
+/* ── Pagination ─────────────────────────────────────── */
+.bdb-pagination { display:flex; align-items:center; gap:12px; margin-bottom:20px }
+#bdb-page-info { font-size:13px; color:#555 }
+
+/* ── Loading / empty ────────────────────────────────── */
+.bdb-loading { text-align:center; padding:30px; color:#888 }
+.bdb-empty   { text-align:center; padding:30px; color:#999 }
+.bdb-error   { text-align:center; padding:20px; color:#a00 }
+
+/* ── Modal overlay ──────────────────────────────────── */
+#bdb-modal-backdrop, .bdb-modal-backdrop { display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:100000 }
+#bdb-modal, .bdb-modal { display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:100001; background:#fff; border-radius:10px; box-shadow:0 8px 32px rgba(0,0,0,.25); width:80vw; max-width:960px; max-height:80vh; overflow-y:auto }
+.bdb-modal-header { display:flex; align-items:center; justify-content:space-between; padding:14px 20px; border-bottom:1px solid #ddd; position:sticky; top:0; background:#fff; border-radius:10px 10px 0 0; z-index:1 }
+.bdb-modal-header h3 { margin:0; font-size:16px }
+#bdb-modal-close, .bdb-modal-close { font-size:22px; cursor:pointer; background:none; border:none; color:#666; line-height:1 }
+#bdb-modal-close:hover, .bdb-modal-close:hover { color:#000 }
+#bdb-modal-body, .bdb-modal-body { padding:20px }
+
+/* ── Detail table ───────────────────────────────────── */
+.bdb-detail-table { width:100%; border-collapse:collapse; margin-bottom:16px; font-size:13px }
+.bdb-detail-table th { background:#f6f7f7; padding:6px 10px; text-align:right; white-space:nowrap; width:160px; border:1px solid #eee; font-weight:600 }
+.bdb-detail-table td { padding:6px 10px; border:1px solid #eee; word-break:break-all }
+
+/* ── JSON block (detail modal) ──────────────────────── */
+.bdb-json-block { background:#1e1e1e; color:#d4d4d4; padding:12px 14px; border-radius:6px; font-size:12px; line-height:1.5; overflow-x:auto; white-space:pre-wrap; word-break:break-all; max-height:300px; overflow-y:auto }
+
+/* ── Related mini table ─────────────────────────────── */
+.bdb-mini-table { width:100%; border-collapse:collapse; margin-bottom:12px; font-size:12px }
+.bdb-mini-table th { background:#f1f1f1; padding:5px 8px; border-bottom:1px solid #ccc; text-align:left }
+.bdb-mini-table td { padding:4px 8px; border-bottom:1px solid #eee }
+
+/* ── Link chips ─────────────────────────────────────── */
+.bdb-detail-links { margin:16px 0 }
+.bdb-link-chips { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px }
+.bdb-link-chip { display:inline-flex; align-items:center; gap:6px; padding:5px 12px; border:1px solid #0073aa; border-radius:20px; text-decoration:none; color:#0073aa; font-size:12px; transition:background .15s }
+.bdb-link-chip:hover { background:#0073aa; color:#fff }
+.bdb-link-chip code { font-size:11px; background:rgba(0,0,0,.06); padding:1px 5px; border-radius:3px }
+.bdb-link-chip:hover code { background:rgba(255,255,255,.2) }
+
+/* ── Responsive ─────────────────────────────────────── */
+@media ( max-width:960px ) {
+    #bdb-modal, .bdb-modal { width:95vw }
+    .bdb-input  { width:110px }
+    .bdb-filter-group { gap:6px }
+}
+
+/* ══════════════════════════════════════════════════════
+   Inline Expand Panel
+   ══════════════════════════════════════════════════════ */
+
+/* Expand button in actions column */
+.bdb-expand-btn { min-width:28px; padding:2px 6px!important; font-size:11px!important; line-height:1.4!important; vertical-align:middle }
+.bdb-expand-btn.bdb-expand-active { background:#0073aa; color:#fff; border-color:#0073aa }
+
+/* Expanded row container */
+.bdb-expand-row td { padding:0!important; border-bottom:2px solid #0073aa }
+.bdb-expand-cell { background:#f9fbff; border-top:1px solid #d8e5f2 }
+
+.bdb-expand-panel { padding:12px 16px }
+
+.bdb-expand-loading { padding:20px; text-align:center; color:#888; font-size:13px }
+.bdb-expand-empty   { padding:12px; text-align:center; color:#999; font-size:13px; font-style:italic }
+.bdb-expand-error   { padding:12px; text-align:center; color:#a00; font-size:13px }
+
+/* Tab navigation */
+.bdb-expand-tabs { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:10px; border-bottom:2px solid #e0e0e0; padding-bottom:0 }
+.bdb-expand-tab {
+    padding:6px 14px; border:1px solid #ccc; border-bottom:none; border-radius:6px 6px 0 0;
+    background:#f1f1f1; color:#444; font-size:12px; font-weight:500; cursor:pointer;
+    transition:background .15s, color .15s; position:relative; top:2px
+}
+.bdb-expand-tab:hover { background:#e4e4e4 }
+.bdb-expand-tab.bdb-tab-active { background:#fff; color:#0073aa; border-color:#0073aa #0073aa #fff; font-weight:600 }
+.bdb-tab-count {
+    display:inline-block; min-width:18px; text-align:center;
+    padding:1px 5px; border-radius:10px; font-size:10px; font-weight:700;
+    background:#0073aa; color:#fff; margin-left:4px
+}
+.bdb-expand-tab.bdb-tab-active .bdb-tab-count { background:#0073aa }
+
+/* Tab panel */
+.bdb-expand-tab-panel { padding:8px 0 }
+.bdb-expand-view-all { text-align:right; margin-bottom:6px }
+.bdb-expand-view-all .button { font-size:11px }
+
+/* Expand mini table */
+.bdb-expand-table-wrap { overflow-x:auto; max-height:320px; overflow-y:auto; border:1px solid #dde5ed; border-radius:6px }
+.bdb-expand-table { width:100%; border-collapse:collapse; font-size:12px; background:#fff }
+.bdb-expand-table th { position:sticky; top:0; background:#eaf1f8; padding:5px 8px; border-bottom:1px solid #c8d8e8; text-align:left; font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.3px; white-space:nowrap; z-index:1 }
+.bdb-expand-table td { padding:4px 8px; border-bottom:1px solid #eee; max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+.bdb-expand-table tr:hover td { background:#f0f6ff }
+.bdb-expand-table .bdb-cross-link { font-size:12px }

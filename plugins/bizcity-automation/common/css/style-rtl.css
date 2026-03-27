@@ -1,0 +1,34 @@
+.wbw-wrap{
+	margin-right: -20px;
+	margin-left: 0;
+}
+.wbw-plugin .wbw-content .wbw-navigation {
+	left: 0;
+}
+.wbw-plugin .wbw-content .wbw-navigation.wbw-sticky-active {
+	left: 6px;
+}
+.wbw-tour-btns .wbw-tour-next-btn {
+	float: right;
+}
+.chosen-container-single.chosen-container-single-nosearch .chosen-search,
+.chosen-container .chosen-drop {
+	left: 9999px;
+}
+.wbw-plugin select {
+	background: #fff url(images/down.png) no-repeat left 5px top 55%;
+	padding-left: 24px !important;
+}
+.sub-block-values {
+	direction: ltr;
+}
+.sub-block-values input, .sub-block-values select, .sub-block-values .wbw-color-picker {
+	direction: rtl;
+}
+.wbw-plugin .wp-color-result {
+	border-left-style: none !important;
+	border-right: #d8dfe3 solid 1px !important;
+}
+.wbw-plugin .settings-value-label {
+	margin-left: 5px;
+}

@@ -1,0 +1,101 @@
+{
+  "nodes": [
+    {
+      "id": "1",
+      "type": "trigger",
+      "position": { "x": 100, "y": 250 },
+      "data": {
+        "code": "bc_adminchat_message",
+        "category": "bc",
+        "settings": {
+          "text_contains": "",
+          "text_regex": ""
+        }
+      }
+    },
+    {
+      "id": "2",
+      "type": "action",
+      "position": { "x": 450, "y": 150 },
+      "data": {
+        "code": "it_call_tool",
+        "category": "it",
+        "settings": {
+          "tool_id": "write_article",
+          "input_json": "{\n  \"topic\": \"{{node#1.text}}\",\n  \"image_url\": \"{{node#1.image_url}}\"\n}",
+          "user_id_source": "trigger"
+        }
+      }
+    },
+    {
+      "id": "3",
+      "type": "action",
+      "position": { "x": 800, "y": 150 },
+      "data": {
+        "code": "it_call_tool",
+        "category": "it",
+        "settings": {
+          "tool_id": "create_product",
+          "input_json": "{\n  \"title\": \"{{node#2.title}}\",\n  \"price\": 0,\n  \"description\": \"{{node#1.text}}\",\n  \"image_url\": \"{{node#1.image_url}}\"\n}",
+          "user_id_source": "trigger"
+        }
+      }
+    },
+    {
+      "id": "4",
+      "type": "action",
+      "position": { "x": 1150, "y": 150 },
+      "data": {
+        "code": "it_call_tool",
+        "category": "it",
+        "settings": {
+          "tool_id": "post_facebook",
+          "input_json": "{\n  \"content\": \"{{node#2.title}}\\n\\n{{node#1.text}}\\n\\n👉 Xem chi tiết: {{node#2.resource_url}}\",\n  \"image_url\": \"{{node#1.image_url}}\"\n}",
+          "user_id_source": "trigger"
+        }
+      }
+    },
+    {
+      "id": "5",
+      "type": "action",
+      "position": { "x": 1500, "y": 250 },
+      "data": {
+        "code": "bc_send_adminchat",
+        "category": "bc",
+        "settings": {
+          "session_id": "{{node#1.reply_to}}",
+          "message": "✅ Pipeline hoàn tất!\n\n📝 Bài viết: {{node#2.title}}\n🔗 URL: {{node#2.resource_url}}\n\n🛒 Sản phẩm: {{node#3.title}}\n🔗 URL: {{node#3.resource_url}}\n\n📘 Facebook: {{node#4.message}}",
+          "sender_name": "Pipeline Bot",
+          "message_type": "text"
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1-2",
+      "source": "1",
+      "target": "2",
+      "sourceHandle": "output-right"
+    },
+    {
+      "id": "e2-3",
+      "source": "2",
+      "target": "3",
+      "sourceHandle": "output-right"
+    },
+    {
+      "id": "e3-4",
+      "source": "3",
+      "target": "4",
+      "sourceHandle": "output-right"
+    },
+    {
+      "id": "e4-5",
+      "source": "4",
+      "target": "5",
+      "sourceHandle": "output-right"
+    }
+  ],
+  "task_title": "Content Suite Pipeline — Ảnh + Chủ đề → Blog + Sản phẩm + Facebook"
+}

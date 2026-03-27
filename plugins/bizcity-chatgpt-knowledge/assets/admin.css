@@ -1,0 +1,19 @@
+/* ChatGPT Knowledge — Admin CSS */
+.bzck-wrap { max-width: 1200px; }
+.bzck-wrap h1 { font-size: 24px; font-weight: 600; }
+
+/* Stat cards */
+.bzck-stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin: 20px 0; }
+.bzck-stat-card { background: #fff; padding: 20px; border-radius: 12px; text-align: center; border: 1px solid #e5e7eb; }
+.bzck-stat-card h3 { margin: 0; font-size: 28px; }
+.bzck-stat-card p { margin: 5px 0 0; color: #6b7280; font-size: 13px; }
+.bzck-stat-primary { background: #10a37f !important; color: #fff !important; border: none !important; }
+.bzck-stat-primary p { color: rgba(255,255,255,0.85) !important; }
+
+/* Ask page */
+.bzck-ask-container { max-width: 800px; }
+#bzck-answer-content { white-space: pre-wrap; word-wrap: break-word; }
+#bzck-answer-content h1, #bzck-answer-content h2, #bzck-answer-content h3 { margin: 16px 0 8px; }
+#bzck-answer-content ul, #bzck-answer-content ol { margin: 8px 0; padding-left: 24px; }
+#bzck-answer-content code { background: #f3f4f6; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+#bzck-answer-content pre { background: #1e1e2e; color: #cdd6f4; padding: 16px; border-radius: 8px; overflow-x: auto; }

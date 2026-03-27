@@ -1,0 +1,663 @@
+/* ============================================================
+   BizCity Tarot – Public CSS
+   ============================================================ */
+
+:root {
+  --bct-gold:     #c9a227;
+  --bct-gold-l:   #f5d98b;
+  --bct-dark:     #0d0820;
+  --bct-purple:   #2b1055;
+  --bct-card-w:   120px;
+  --bct-card-h:   200px;
+  --bct-radius:   12px;
+}
+
+/* ---- Wrapper ---- */
+.bct-tarot-wrap {
+  font-family: 'Segoe UI', sans-serif;
+  background: linear-gradient(160deg, #0d0820 0%, #1a0a3d 60%, #0d0820 100%);
+  border-radius: 20px;
+  padding: 32px 20px 40px;
+  color: #f2e9d0;
+  overflow: hidden;
+  position: relative;
+}
+.bct-tarot-wrap::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23c9a227' fill-opacity='0.04'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E") repeat;
+  pointer-events: none;
+}
+
+/* ---- Chat mode banner (khi mở từ link bot) ---- */
+.bct-chat-mode-banner {
+  background: linear-gradient(135deg, rgba(20, 80, 160, 0.7) 0%, rgba(60, 20, 120, 0.7) 100%);
+  border: 1px solid rgba(100, 150, 255, 0.35);
+  border-radius: 10px;
+  padding: 10px 18px;
+  margin-bottom: 20px;
+  font-size: 13px;
+  color: #c8d8ff;
+  text-align: center;
+  line-height: 1.5;
+}
+
+/* ---- Header ---- */
+.bct-header {
+  text-align: center;
+  margin-bottom: 28px;
+}
+.bct-header-sub {
+  font-size: 14px;
+  color: #b8a9d0;
+  margin: 0;
+  letter-spacing: 0.5px;
+}
+.bct-header-count {
+  font-size: 72px;
+  font-weight: 900;
+  color: var(--bct-gold);
+  line-height: 1;
+  margin: 4px 0;
+  text-shadow: 0 0 30px rgba(201, 162, 39, 0.5);
+}
+.bct-header-label {
+  font-size: 22px;
+  color: var(--bct-gold-l);
+  font-style: italic;
+  margin: 0;
+}
+/* Quote block: câu hỏi user gửi qua bot */
+.bct-header-quote {
+  margin: 8px auto 6px;
+  max-width: 480px;
+  padding: 10px 18px;
+  background: rgba(201, 162, 39, 0.08);
+  border-left: 3px solid var(--bct-gold);
+  border-radius: 0 8px 8px 0;
+  font-size: 14px;
+  color: #e8d9a0;
+  font-style: italic;
+  line-height: 1.5;
+  text-align: left;
+  word-break: break-word;
+}
+.bct-header-sub--small {
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+/* ---- Controls ---- */
+.bct-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+  margin-bottom: 20px;
+}
+.bct-control-box {
+  flex: 1;
+  min-width: 180px;
+  max-width: 280px;
+}
+.bct-select-wrap {
+  position: relative;
+}
+.bct-select-wrap select {
+  width: 100%;
+  padding: 12px 16px;
+  border: 2px solid rgba(201, 162, 39, 0.4);
+  border-radius: 10px;
+  background: rgba(255,255,255,0.06);
+  color: #f2e9d0;
+  font-size: 14px;
+  appearance: none;
+  cursor: pointer;
+  transition: border-color .2s;
+  height: unset;
+}
+.bct-select-wrap select:focus {
+  outline: none;
+  border-color: var(--bct-gold);
+}
+.bct-select-wrap select option {
+  background: #1a0a3d;
+  color: #f2e9d0;
+}
+.bct-select-wrap select optgroup {
+  background: #0d0820;
+  color: var(--bct-gold);
+  font-weight: 700;
+}
+
+/* ---- Card count picker ---- */
+.bct-count-picker-box {
+  flex: none;
+  min-width: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.bct-count-label {
+  font-size: 12px;
+  color: #b8a9d0;
+  margin: 0;
+  text-align: center;
+  letter-spacing: 0.4px;
+}
+.bct-count-picker {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.bct-count-btn {
+  width: 34px;
+  height: 34px;
+  border: 2px solid rgba(201, 162, 39, 0.35);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #f2e9d0;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all .2s;
+  line-height: 1;
+  padding: 0;
+}
+.bct-count-btn:hover:not(:disabled) {
+  border-color: var(--bct-gold);
+  background: rgba(201, 162, 39, 0.15);
+  transform: translateY(-1px);
+}
+.bct-count-btn.is-active {
+  background: var(--bct-gold);
+  border-color: var(--bct-gold);
+  color: #0d0820;
+  box-shadow: 0 2px 10px rgba(201, 162, 39, 0.4);
+}
+.bct-count-btn:disabled,
+.bct-count-btn.is-disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ---- Shuffle button ---- */
+.bct-btn-shuffle {
+  width: 100%;
+  padding: 13px 20px;
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--bct-gold) 0%, #e8b423 100%);
+  color: #0d0820;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all .2s;
+  letter-spacing: 0.5px;
+  box-shadow: 0 4px 20px rgba(201, 162, 39, 0.35);
+}
+.bct-btn-shuffle:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 25px rgba(201, 162, 39, 0.55);
+}
+.bct-btn-shuffle:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ---- Tutorial ---- */
+.bct-tutorial {
+  text-align: center;
+  margin-bottom: 16px;
+}
+.bct-tutorial-inner {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #b8a9d0;
+  background: rgba(255,255,255,0.06);
+  padding: 6px 16px;
+  border-radius: 20px;
+}
+.bct-tutorial-step {
+  display: inline-block;
+  width: 22px;
+  height: 22px;
+  background: var(--bct-gold);
+  color: #0d0820;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 22px;
+  text-align: center;
+}
+.bct-tutorial-text {
+  font-size: 14px;
+  color: #e0d5f0;
+}
+
+/* ============================================================
+   CARD DECK
+   ============================================================ */
+.bct-pack {
+  position: relative;
+  height: calc(var(--bct-card-h) + 40px);
+  margin: 0 auto;
+  max-width: 440px;
+  perspective: 1000px;
+}
+
+/* ---- Individual card base ---- */
+.bct-card {
+  position: absolute;
+  width: var(--bct-card-w);
+  height: var(--bct-card-h);
+  left: 50%;
+  top: 0;
+  transform: translateX(-50%) translateY(var(--card-offset, 0px));
+  cursor: pointer;
+  transition: transform .35s cubic-bezier(.4,2,.6,1), opacity .3s;
+  transform-style: preserve-3d;
+}
+.bct-card.no-pointer { pointer-events: none; }
+.bct-card.is-selected { opacity: 0; pointer-events: none; }
+
+/* Spread fan after shuffle */
+.bct-pack.is-spread .bct-card {
+  transition: transform .5s cubic-bezier(.4,2,.6,1);
+}
+.bct-pack.is-spread .bct-card:hover {
+  transform: translateX(var(--fan-x, -50%)) translateY(calc(var(--fan-y, 0px) - 20px)) rotate(var(--fan-r, 0deg));
+  z-index: 999 !important;
+}
+
+/* Card inner flip container */
+.bct-card-inner {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  transform-style: preserve-3d;
+  transition: transform .6s;
+  border-radius: var(--bct-radius);
+}
+.bct-card.is-flipped .bct-card-inner {
+  transform: rotateY(180deg);
+}
+
+/* Card faces */
+.bct-card-back,
+.bct-card-front {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--bct-radius);
+  backface-visibility: hidden;
+  overflow: hidden;
+}
+
+/* Card back – ornate pattern */
+.bct-card-back {
+  background:
+    radial-gradient(circle at 50% 50%, #2b1055 0%, #0d0820 100%);
+  border: 2px solid rgba(201, 162, 39, 0.6);
+  box-shadow: inset 0 0 20px rgba(201, 162, 39, 0.15), 0 4px 16px rgba(0,0,0,.6);
+}
+.bct-card-back::before {
+  content: '';
+  position: absolute;
+  inset: 8px;
+  border: 1px solid rgba(201, 162, 39, 0.4);
+  border-radius: 6px;
+}
+.bct-card-back::after {
+  content: '✦';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 32px;
+  color: rgba(201, 162, 39, 0.5);
+}
+
+/* Card front */
+.bct-card-front {
+  transform: rotateY(180deg);
+  background: #1a0a3d;
+  border: 2px solid var(--bct-gold);
+  box-shadow: 0 4px 20px rgba(201, 162, 39, 0.3);
+}
+.bct-card-front img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: calc(var(--bct-radius) - 2px);
+}
+.bct-card.is-reversed .bct-card-front img {
+  transform: rotate(180deg);
+}
+
+/* ============================================================
+   SELECTED ZONE
+   ============================================================ */
+.bct-selected-zone {
+  margin-top: 24px;
+  text-align: center;
+}
+.bct-selected-title {
+  font-size: 16px;
+  color: var(--bct-gold-l);
+  margin-bottom: 16px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+.bct-selected-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  justify-content: center;
+}
+.bct-sel-card {
+  text-align: center;
+  animation: bct-pop-in .4s cubic-bezier(.4,2,.6,1);
+}
+.bct-sel-card img {
+  width: 90px;
+  height: 150px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 2px solid var(--bct-gold);
+  box-shadow: 0 4px 16px rgba(201, 162, 39, 0.3);
+}
+.bct-sel-card.is-reversed img { transform: rotate(180deg); }
+.bct-sel-card-pos {
+  font-size: 11px;
+  color: var(--bct-gold);
+  margin-top: 6px;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+}
+.bct-sel-card-name {
+  font-size: 12px;
+  color: #e0d5f0;
+  margin-top: 2px;
+}
+
+@keyframes bct-pop-in {
+  0%   { opacity: 0; transform: scale(.6) translateY(20px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+/* ---- Reveal button ---- */
+.bct-reveal-wrap {
+  text-align: center;
+  margin-top: 24px;
+}
+.bct-btn-reveal {
+  padding: 14px 40px;
+  border: 2px solid var(--bct-gold);
+  border-radius: 50px;
+  background: transparent;
+  color: var(--bct-gold-l);
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all .25s;
+  letter-spacing: 1px;
+}
+.bct-btn-reveal:hover {
+  background: var(--bct-gold);
+  color: #0d0820;
+  box-shadow: 0 4px 24px rgba(201, 162, 39, 0.5);
+}
+
+/* ============================================================
+   MEANING PANEL
+   ============================================================ */
+.bct-meaning-panel {
+  margin-top: 32px;
+  border-top: 1px solid rgba(201, 162, 39, 0.2);
+  padding-top: 28px;
+  animation: bct-fade-in .5s ease;
+}
+@keyframes bct-fade-in {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.bct-meaning-header {
+  text-align: center;
+  margin-bottom: 24px;
+}
+.bct-meaning-header h3 {
+  color: var(--bct-gold-l);
+  font-size: 18px;
+  margin: 0 0 6px;
+}
+.bct-meaning-header p {
+  color: #b8a9d0;
+  font-size: 15px;
+  margin: 0;
+  font-style: italic;
+}
+
+.bct-meaning-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+.bct-meaning-card {
+  display: flex;
+  gap: 20px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(201, 162, 39, 0.2);
+  border-radius: 14px;
+  padding: 20px;
+  animation: bct-fade-in .5s ease both;
+}
+.bct-meaning-card:nth-child(2) { animation-delay: .15s; }
+.bct-meaning-card:nth-child(3) { animation-delay: .3s; }
+
+.bct-meaning-img {
+  flex-shrink: 0;
+  text-align: center;
+}
+.bct-meaning-img img {
+  width: 80px;
+  height: 133px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 2px solid var(--bct-gold);
+  box-shadow: 0 4px 14px rgba(201, 162, 39, 0.25);
+}
+.bct-meaning-img.is-reversed img { transform: rotate(180deg); }
+.bct-meaning-img-label {
+  font-size: 11px;
+  color: var(--bct-gold);
+  margin-top: 6px;
+  text-transform: uppercase;
+}
+
+.bct-meaning-text { flex: 1; }
+.bct-meaning-pos {
+  font-size: 12px;
+  color: var(--bct-gold);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 4px;
+}
+.bct-meaning-card-name {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--bct-gold-l);
+  margin-bottom: 6px;
+}
+.bct-meaning-keywords {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.bct-kw-tag {
+  padding: 3px 10px;
+  border-radius: 20px;
+  background: rgba(201, 162, 39, 0.15);
+  border: 1px solid rgba(201, 162, 39, 0.3);
+  color: var(--bct-gold-l);
+  font-size: 12px;
+}
+.bct-meaning-body {
+  font-size: 14px;
+  line-height: 1.8;
+  color: #d4c8e8;
+}
+.bct-meaning-body p { margin: 0 0 8px; }
+
+.bct-reversed-badge {
+  display: inline-block;
+  background: rgba(200, 60, 60, 0.25);
+  border: 1px solid rgba(200, 60, 60, 0.4);
+  color: #ff9999;
+  padding: 2px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+/* Reset button */
+.bct-meaning-footer {
+  text-align: center;
+  margin-top: 32px;
+}
+.bct-btn-reset {
+  padding: 12px 32px;
+  border: 2px solid rgba(201, 162, 39, 0.4);
+  border-radius: 50px;
+  background: transparent;
+  color: #b8a9d0;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all .25s;
+}
+.bct-btn-reset:hover {
+  border-color: var(--bct-gold);
+  color: var(--bct-gold-l);
+}
+
+/* ---- Loading spinner ---- */
+.bct-spinner {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 2px solid rgba(201, 162, 39, 0.2);
+  border-top-color: var(--bct-gold);
+  border-radius: 50%;
+  animation: bct-spin .7s linear infinite;
+  vertical-align: middle;
+}
+@keyframes bct-spin { to { transform: rotate(360deg); } }
+
+/* ============================================================
+   AI INTERPRETATION PANEL
+   ============================================================ */
+.bct-ai-panel {
+  margin: 32px 0 8px;
+  background: linear-gradient(135deg, rgba(43,16,85,.7) 0%, rgba(13,8,32,.85) 100%);
+  border: 1px solid rgba(201,162,39,.3);
+  border-radius: 16px;
+  overflow: hidden;
+}
+.bct-ai-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 20px;
+  background: rgba(201,162,39,.08);
+  border-bottom: 1px solid rgba(201,162,39,.15);
+}
+.bct-ai-icon { font-size: 22px; }
+.bct-ai-header h4 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--bct-gold-l);
+  letter-spacing: .4px;
+}
+.bct-ai-loading {
+  padding: 28px 20px;
+  text-align: center;
+  color: #b8a9d0;
+  font-style: italic;
+}
+.bct-ai-content {
+  padding: 20px;
+}
+.bct-ai-reply {
+  font-size: 15px;
+  line-height: 1.75;
+  color: #f2e9d0;
+}
+.bct-ai-error {
+  color: #f59e0b;
+  font-size: 14px;
+}
+/* CTA for guest users */
+.bct-ai-cta {
+  padding: 16px 20px;
+  border-top: 1px solid rgba(201,162,39,.12);
+}
+.bct-ai-upgrade {
+  background: linear-gradient(135deg,#1e1b4b,#312e81 60%,#4c1d95);
+  border-radius: 12px;
+  padding: 18px 20px;
+  text-align: center;
+}
+.bct-ai-upgrade-note {
+  margin: 0 0 12px;
+  font-size: 14px;
+  color: #c4b5fd;
+  line-height: 1.6;
+}
+.bct-ai-upgrade-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 22px;
+  border-radius: 50px;
+  background: linear-gradient(135deg,#6366f1,#8b5cf6);
+  color: #fff;
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 4px 14px rgba(99,102,241,.4);
+  transition: transform .2s, box-shadow .2s;
+}
+.bct-ai-upgrade-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(99,102,241,.55);
+  color: #fff;
+  text-decoration: none;
+}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+@media (max-width: 600px) {
+  :root {
+    --bct-card-w: 72px;
+    --bct-card-h: 120px;
+  }
+  .bct-controls { flex-direction: column; align-items: stretch; }
+  .bct-control-box { max-width: none; }
+  .bct-meaning-card { flex-direction: column; }
+  .bct-meaning-img { display: flex; gap: 12px; align-items: center; }
+  .bct-sel-card img { width: 70px; height: 116px; }
+  .bct-header-count { font-size: 52px; }
+}

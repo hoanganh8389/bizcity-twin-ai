@@ -1,0 +1,125 @@
+/* BizCity {Name} — Public Styles */
+
+.bz{prefix}-app {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+/* ── Topics ── */
+.bz{prefix}-topics { margin-bottom: 30px; }
+.bz{prefix}-topic-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 10px;
+}
+.bz{prefix}-topic-btn {
+    padding: 12px 16px;
+    border: 2px solid #e0e0e0;
+    border-radius: 12px;
+    background: #fff;
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.2s;
+    font-size: 14px;
+}
+.bz{prefix}-topic-btn:hover { border-color: #7c3aed; background: #f5f3ff; }
+.bz{prefix}-topic-btn.active { border-color: #7c3aed; background: #ede9fe; }
+
+/* ── Items grid ── */
+.bz{prefix}-items { margin-bottom: 30px; }
+.bz{prefix}-item-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 12px;
+}
+.bz{prefix}-item {
+    border: 2px solid #e0e0e0;
+    border-radius: 12px;
+    padding: 10px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s;
+    position: relative;
+}
+.bz{prefix}-item:hover { transform: translateY(-4px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+.bz{prefix}-item.selected { border-color: #7c3aed; background: #ede9fe; }
+.bz{prefix}-item img {
+    width: 80px;
+    height: auto;
+    border-radius: 8px;
+    margin-bottom: 6px;
+}
+.bz{prefix}-item span { font-size: 12px; display: block; }
+
+/* ── Result panel ── */
+.bz{prefix}-result {
+    background: linear-gradient(135deg, #f8f7ff, #ede9fe);
+    border-radius: 16px;
+    padding: 24px;
+    margin-bottom: 20px;
+}
+
+/* ── AI panel ── */
+.bz{prefix}-ai {
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 16px;
+    padding: 24px;
+}
+.bz{prefix}-btn {
+    display: inline-block;
+    padding: 12px 24px;
+    background: linear-gradient(135deg, #7c3aed, #a78bfa);
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    font-size: 15px;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-top: 12px;
+}
+.bz{prefix}-btn:hover { opacity: 0.9; transform: translateY(-1px); }
+.bz{prefix}-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── Questions ── */
+.bz{prefix}-questions { margin-bottom: 20px; }
+.bz{prefix}-question-btn {
+    display: inline-block;
+    padding: 8px 16px;
+    margin: 4px;
+    background: #fff;
+    border: 1px solid #d1d5db;
+    border-radius: 20px;
+    font-size: 13px;
+    cursor: pointer;
+}
+.bz{prefix}-question-btn:hover { background: #f3f4f6; }
+
+/* ── Loading ── */
+.bz{prefix}-loading {
+    text-align: center;
+    padding: 20px;
+    color: #6b7280;
+}
+.bz{prefix}-loading::after {
+    content: '';
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 2px solid #e5e7eb;
+    border-top-color: #7c3aed;
+    border-radius: 50%;
+    animation: bz{prefix}-spin 0.6s linear infinite;
+    margin-left: 8px;
+    vertical-align: middle;
+}
+@keyframes bz{prefix}-spin { to { transform: rotate(360deg); } }
+
+/* ── Responsive ── */
+@media (max-width: 600px) {
+    .bz{prefix}-topic-grid { grid-template-columns: repeat(2, 1fr); }
+    .bz{prefix}-item-grid { grid-template-columns: repeat(3, 1fr); }
+    .bz{prefix}-item img { width: 60px; }
+}

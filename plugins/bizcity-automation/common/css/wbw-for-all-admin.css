@@ -1,0 +1,99 @@
+.waic-button.waic-active-button {
+	font-weight: 500;
+	text-align: center;
+	color: #ffffff;
+	margin-top: 0;
+	margin-bottom: 1px;
+	text-wrap: nowrap;
+	border-radius: 5px;
+	margin-right: 15px;
+	outline: none !important;
+	box-shadow: none !important;
+}
+.postbox-container .waic-button.waic-active-button {
+	width: 100%;
+	margin-bottom: 5px;
+}
+.waic-button.waic-main-button {
+	background-color: #FF5C35;
+	border: 1px solid #FF5C35;
+}
+.waic-button.waic-minor-button {
+	background-color: #A1A9C4;
+	border-color: #A1A9C4;
+}
+.waic-button.waic-main-button:hover, .waic-button.waic-main-button:focus {
+	background-color: #d92b02;
+	border: 1px solid #d92b02;
+	color: #ffffff;
+}
+.waic-button.waic-minor-button:hover, .waic-button.waic-minor-button:focus {
+	background-color: #9197B3;
+	border-color: #9197B3;
+	color: #ffffff;
+}
+/* Fallback variables (nếu theme/admin chưa define) */
+    :root{
+        --bc-card:#ffffff;
+        --bc-border:#e6e8ee;
+        --bc-radius:16px;
+        --bc-shadow:0 10px 30px rgba(0,0,0,.06);
+		font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif !important;
+        
+    }
+	.wbw-plugin .wbw-content, .wbw-plugin {font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif !important;}
+
+
+    /* FIX: thiếu dấu chấm ở selector */
+    .wbw-wrap{
+        font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif !important;
+        background:#f6f7fb;
+    }
+
+    /* Main card */
+    .wbw-wrap .wbw-plugin.wbw-main{
+        background:var(--bc-card) !important;
+        border:1px solid var(--bc-border) !important;
+        border-radius:var(--bc-radius) !important;
+        box-shadow:var(--bc-shadow) !important;
+        overflow:hidden;
+        padding:0 !important;
+        margin:10px !important;
+    }
+
+    /* Header (dark) */
+    .wbw-wrap .wbw-header{
+        background:#010a14 !important;
+        border-bottom:1px solid #0c151e !important;
+    }
+
+    .wbw-wrap .wbw-head{padding:14px 18px; background: #0c151e !important}
+    .wbw-wrap .wbw-logo img{border-radius:10px}
+
+    /* Nav pills */
+	.wbw-plugin .wbw-navigation {background: #0c151e !important}
+    .wbw-wrap .wbw-navigation a{border-radius:12px}
+	.wbw-plugin .wbw-content .wbw-head { padding:0px !important}
+
+    /* Content */
+    .wbw-wrap .wbw-container{padding:18px}
+
+    /* Footer */
+    .wbw-wrap .wbw-footer{
+        background:#fff;
+        border-top:1px solid #e6e8ee;
+        padding:12px 18px;
+        color:#646970;
+    }
+    .wbw-wrap .wbw-footer a{color:#2271b1;text-decoration:none}
+    .wbw-wrap .wbw-footer a:hover{text-decoration:underline}
+	.wbw-body-workspace .wbw-ws-block-create { border: 2px solid #3582c4cc !important; }
+	.wbw-ws-block {min-height:40px !important;}
+	.waic-flow-sidebar { right:0 !important; left:auto !important; width: 280px; box-shadow:var(--bc-shadow) !important;}
+	
+	.wbw-button-small {background-color: #0f208a !important;color: #ffffff !important; }
+	.wbw-button-small:hover {background-color: #4355cf !important; cursor: pointer;color: #ffffff !important; }
+    .wbw-button-main {background-color: #ff5c35 !important; }
+	.waic-button-icon {background-color: #000000 !important; }
+	/* Keep alignment */
+    .wbw-wrap .wbw-plugin .wbw-navigation{margin-left:0 !important}

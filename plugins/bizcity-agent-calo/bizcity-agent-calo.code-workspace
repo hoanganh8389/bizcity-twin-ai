@@ -1,0 +1,26 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../bizcity-tool-content"
+		},
+		{
+			"path": "../bizcity-tool-woo"
+		},
+		{
+			"path": "../../mu-plugins/bizcity-intent"
+		},
+		{
+			"path": "../../mu-plugins/bizcity-openrouter"
+		},
+		{
+			"path": "../bizcoach-map"
+		},
+		{
+			"path": "../bizcity-tarot"
+		}
+	],
+	"settings": {}
+}
