@@ -3,6 +3,16 @@
 > **Turn WordPress into an AI-native operating system.**  
 > Every plugin becomes a tool. Every website becomes an agent.
 
+## Latest Release
+
+### v1.3.1 (2026-03-28)
+
+- Refactored Intent includes into role-based modules: classification, orchestration, routing, conversation, tools, providers, infrastructure.
+- Added/kept backward-compatible shim layer for legacy include paths during migration.
+- Fixed bootstrap class load order to guarantee base pipeline classes load before dependent router classes.
+- Hardened clarify and plan-confirm flows in Intent Engine (including plan-builder confirm state handling).
+- Updated architecture roadmap with today's execution log and a 3-phase priority plan.
+
 ---
 
 ## What Is This?

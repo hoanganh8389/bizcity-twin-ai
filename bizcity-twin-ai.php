@@ -17,7 +17,7 @@
  * Plugin Name:       Bizcity Twin AI
  * Plugin URI:        https://bizcity.vn
  * Description:       AI Companion Platform — Personalized AI with Identity, Memory, and Intent. Nền tảng AI đồng hành cá nhân hóa.
- * Version:           1.3.0
+ * Version:           1.3.1
  * Author:            Johnny Chu (Chu Hoàng Anh)
  * Author URI:        https://bizcity.vn
  * License:           GPL-2.0-or-later
@@ -36,7 +36,7 @@ define( 'BIZCITY_TWIN_AI_MAIN_LOADED', true );
 
 // Constants — guarded because compat mu-plugin may have defined them early
 if ( ! defined( 'BIZCITY_TWIN_AI_VERSION' ) ) {
-    define( 'BIZCITY_TWIN_AI_VERSION', '1.3.0' );
+    define( 'BIZCITY_TWIN_AI_VERSION', '1.3.1' );
 }
 if ( ! defined( 'BIZCITY_TWIN_AI_DIR' ) ) {
     define( 'BIZCITY_TWIN_AI_DIR', plugin_dir_path( __FILE__ ) );

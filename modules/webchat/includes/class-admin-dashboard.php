@@ -599,16 +599,19 @@ class BizCity_WebChat_Admin_Dashboard {
             .tc-search-input {padding: 10px 14px 10px 38px !important}
             .bizc-msg-slash { color: var(--color-n30) !important; font-size: 12px !important; font-style: italic !important; }
             /* ── Working indicator — force display on multisite hub ── */
-            #root .bizc-working { display: block !important; visibility: visible !important; opacity: 1 !important; margin-bottom: 16px !important; }
-            #root .bizc-working-bubble { display: flex !important; flex-direction: column !important; gap: 1px !important; padding: 12px 16px !important; background: #f3f4f6 !important; border-radius: 12px !important; max-width: 380px !important; font-size: 13px !important; line-height: 1.5 !important; }
+            #root .bizc-working[data-bizc-working="1"] { display: block !important; visibility: visible !important; opacity: 1 !important; margin-bottom: 16px !important; width: min(560px,100%) !important; max-width: 100% !important; z-index: 6 !important; isolation: isolate !important; }
+            #root .bizc-working[data-bizc-working="1"] .bizc-working-bubble { display: flex !important; flex-direction: column !important; gap: 4px !important; padding: 12px 16px !important; background: #f3f4f6 !important; border-radius: 12px !important; max-width: 100% !important; width: 100% !important; font-size: 13px !important; line-height: 1.5 !important; border: 1px solid #e5e7eb !important; }
             #root .bizc-working-bubble.compact { padding: 8px 14px !important; opacity: .7 !important; font-size: 12px !important; }
-            #root .bizc-ws { display: flex !important; align-items: center !important; gap: 6px !important; padding: 2px 0 !important; color: #6b7280 !important; }
+            #root .bizc-working[data-bizc-working="1"] .bizc-ws { display: flex !important; align-items: flex-start !important; gap: 8px !important; padding: 4px 0 !important; color: #6b7280 !important; }
             #root .bizc-ws.done { opacity: 0.5 !important; }
             #root .bizc-ws.active { color: #4f46e5 !important; font-weight: 500 !important; }
             #root .bizc-ws-icon { width: 16px !important; height: 16px !important; display: flex !important; align-items: center !important; justify-content: center !important; font-size: 11px !important; flex-shrink: 0 !important; }
             #root .bizc-ws.done .bizc-ws-icon { color: #22c55e !important; }
             #root .bizc-ws.active .bizc-ws-icon::after { content: '' !important; width: 6px !important; height: 6px !important; border-radius: 50% !important; background: #6366f1 !important; display: block !important; }
-            #root .bizc-ws-text { flex: 1 !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; }
+            #root .bizc-working[data-bizc-working="1"] .bizc-ws-main { flex: 1 !important; min-width: 0 !important; display: flex !important; flex-direction: column !important; gap: 1px !important; }
+            #root .bizc-ws-text { flex: 1 !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; font-weight: 600 !important; }
+            #root .bizc-ws-detail { display: block !important; font-size: 11px !important; color: #6b7280 !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; }
+            #root .bizc-ws-stage { display: inline-flex !important; align-self: flex-start !important; font-size: 10px !important; line-height: 1.3 !important; color: #4f46e5 !important; background: #eef2ff !important; border: 1px solid #c7d2fe !important; border-radius: 10px !important; padding: 1px 7px !important; }
             #root .bizc-ws-ms { font-size: 10px !important; color: #9ca3af !important; flex-shrink: 0 !important; }
         </style>    
         <!-- TouchBar data for React -->
