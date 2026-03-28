@@ -41,36 +41,63 @@ if ( class_exists( 'BizCity_Intent_Database' ) ) {
 }
 
 /* ── Data layer + Infrastructure (always loaded) ── */
-require_once BIZCITY_INTENT_DIR . '/includes/class-intent-database.php';
-require_once BIZCITY_INTENT_DIR . '/includes/class-intent-conversation.php';
-require_once BIZCITY_INTENT_DIR . '/includes/class-intent-router.php';
-require_once BIZCITY_INTENT_DIR . '/includes/class-intent-planner.php';
-require_once BIZCITY_INTENT_DIR . '/includes/class-intent-tools.php';
-require_once BIZCITY_INTENT_DIR . '/includes/class-intent-stream.php';
-require_once BIZCITY_INTENT_DIR . '/includes/class-intent-logger.php';
-require_once BIZCITY_INTENT_DIR . '/includes/class-execution-logger.php';
-require_once BIZCITY_INTENT_DIR . '/includes/class-intent-monitor.php';
-require_once BIZCITY_INTENT_DIR . '/includes/class-intent-provider.php';
-require_once BIZCITY_INTENT_DIR . '/includes/class-intent-simple-provider.php';
-require_once BIZCITY_INTENT_DIR . '/includes/class-intent-provider-registry.php';
-require_once BIZCITY_INTENT_DIR . '/includes/class-mode-classifier.php';
-require_once BIZCITY_INTENT_DIR . '/includes/class-prompt-context-logger.php';
-require_once BIZCITY_INTENT_DIR . '/includes/class-mode-pipeline.php';
-require_once BIZCITY_INTENT_DIR . '/includes/class-knowledge-router.php';
-require_once BIZCITY_INTENT_DIR . '/includes/class-rolling-memory.php';
-require_once BIZCITY_INTENT_DIR . '/includes/class-episodic-memory.php';
-require_once BIZCITY_INTENT_DIR . '/includes/class-context-builder.php';
-require_once BIZCITY_INTENT_DIR . '/includes/class-intent-engine.php';
-require_once BIZCITY_INTENT_DIR . '/includes/class-intent-data-browser.php';
-require_once BIZCITY_INTENT_DIR . '/includes/class-job-trace.php';
-require_once BIZCITY_INTENT_DIR . '/includes/class-intent-tool-index.php';
-require_once BIZCITY_INTENT_DIR . '/includes/class-intent-classify-cache.php';
-require_once BIZCITY_INTENT_DIR . '/includes/class-slot-analysis.php';
-require_once BIZCITY_INTENT_DIR . '/includes/class-confirm-analyzer.php';
-require_once BIZCITY_INTENT_DIR . '/includes/class-tool-control-panel.php';
-require_once BIZCITY_INTENT_DIR . '/includes/class-intent-settings-api.php';
-require_once BIZCITY_INTENT_DIR . '/includes/class-intent-rest-api.php';
-require_once BIZCITY_INTENT_DIR . '/includes/class-unified-rest-api.php';
+
+/* -- infrastructure/ -- */
+require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-intent-database.php';
+require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-intent-logger.php';
+require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-execution-logger.php';
+require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-intent-stream.php';
+require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-intent-monitor.php';
+require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-prompt-context-logger.php';
+require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-job-trace.php';
+require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-intent-data-browser.php';
+require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-intent-settings-api.php';
+require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-intent-rest-api.php';
+require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-unified-rest-api.php';
+
+/* -- conversation/ -- */
+require_once BIZCITY_INTENT_DIR . '/includes/conversation/class-intent-conversation.php';
+require_once BIZCITY_INTENT_DIR . '/includes/conversation/class-rolling-memory.php';
+require_once BIZCITY_INTENT_DIR . '/includes/conversation/class-episodic-memory.php';
+require_once BIZCITY_INTENT_DIR . '/includes/conversation/class-context-builder.php';
+
+/* -- providers/ -- */
+require_once BIZCITY_INTENT_DIR . '/includes/providers/class-intent-provider.php';
+require_once BIZCITY_INTENT_DIR . '/includes/providers/class-intent-simple-provider.php';
+require_once BIZCITY_INTENT_DIR . '/includes/providers/class-intent-provider-registry.php';
+
+/* -- routing/ -- */
+require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-mode-pipeline.php';  // parent class for knowledge-router
+require_once BIZCITY_INTENT_DIR . '/includes/routing/class-intent-router.php';
+require_once BIZCITY_INTENT_DIR . '/includes/routing/class-knowledge-router.php';
+
+/* -- classification/ -- */
+require_once BIZCITY_INTENT_DIR . '/includes/classification/class-mode-classifier.php';
+require_once BIZCITY_INTENT_DIR . '/includes/classification/class-intent-clarify-gate.php';
+require_once BIZCITY_INTENT_DIR . '/includes/classification/class-intent-classify-cache.php';
+require_once BIZCITY_INTENT_DIR . '/includes/classification/class-slot-analysis.php';
+require_once BIZCITY_INTENT_DIR . '/includes/classification/class-confirm-analyzer.php';
+
+/* -- tools/ -- */
+require_once BIZCITY_INTENT_DIR . '/includes/tools/class-intent-tools.php';
+require_once BIZCITY_INTENT_DIR . '/includes/tools/class-intent-tool-index.php';
+require_once BIZCITY_INTENT_DIR . '/includes/tools/class-tool-control-panel.php';
+
+/* -- orchestration/ -- */
+require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-intent-planner.php';
+require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-priority-functions.php';
+require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-intent-engine.php';
+
+/* -- Phase 1 — Unified Pipeline (Evidence, IO Mapper, Core Planner, Scenario) -- */
+require_once BIZCITY_INTENT_DIR . '/includes/tools/class-tool-evidence.php';
+require_once BIZCITY_INTENT_DIR . '/includes/tools/class-tool-io-mapper.php';
+require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-core-planner.php';
+require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-scenario-generator.php';
+require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-objective-parser.php';
+
+/* ── Init CPT registrations ── */
+BizCity_Tool_Evidence::init();
+
 require_once BIZCITY_INTENT_DIR . '/services/class-task-service.php';
 require_once BIZCITY_INTENT_DIR . '/services/class-session-list-service.php';
 

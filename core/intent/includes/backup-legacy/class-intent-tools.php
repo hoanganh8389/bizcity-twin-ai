@@ -450,6 +450,20 @@ class BizCity_Intent_Tools {
                 }
             }
 
+            // ── Phase 1: Auto-save evidence CPT after successful execution ──
+            if ( ! empty( $result['success'] ) && class_exists( 'BizCity_Tool_Evidence' ) ) {
+                $evidence_context = [
+                    'session_id'  => $slots['session_id'] ?? ( $slots['_meta']['session_id'] ?? '' ),
+                    'pipeline_id' => $slots['_pipeline_id'] ?? '',
+                    'step_index'  => $slots['_step_index'] ?? null,
+                    'user_id'     => $slots['user_id'] ?? get_current_user_id(),
+                ];
+                $evidence_id = BizCity_Tool_Evidence::save( $name, $result, $evidence_context );
+                if ( $evidence_id && is_array( $result['data'] ?? null ) ) {
+                    $result['data']['evidence_id'] = $evidence_id;
+                }
+            }
+
             return $result;
 
         } catch ( \Exception $e ) {
@@ -468,6 +482,99 @@ class BizCity_Intent_Tools {
                 'missing_fields' => [],
             ];
         }
+    }
+
+    /* ================================================================
+     *  Execute with Preconfirm (Phase 1)
+     * ================================================================ */
+
+    /**
+     * Execute a tool with preconfirm flow.
+     *
+     * Returns a preconfirm request if the tool requires user confirmation,
+     * or executes directly if auto_execute is set or _confirmed is present.
+     *
+     * @param string $name           Tool name.
+     * @param array  $slots          Input parameters.
+     * @param array  $session_context Pipeline context.
+     * @return array
+     */
+    public function execute_with_preconfirm( $name, array $slots, $session_context = [] ) {
+        if ( ! $this->has( $name ) ) {
+            return [
+                'success' => false,
+                'message' => "Tool '{$name}' không được tìm thấy.",
+                'data'    => [],
+            ];
+        }
+
+        // 1. Validate required fields
+        $missing = $this->validate_inputs( $name, $slots );
+        if ( ! empty( $missing ) ) {
+            return [
+                'success'        => false,
+                'action'         => 'ask_user',
+                'message'        => 'Cần bổ sung: ' . implode( ', ', $missing ),
+                'missing_fields' => $missing,
+                'current_slots'  => $slots,
+            ];
+        }
+
+        // 2. Check auto_execute or already confirmed
+        $auto = $this->is_auto_execute( $name );
+        if ( ! $auto && empty( $slots['_confirmed'] ) ) {
+            // 3. Return preconfirm request
+            return [
+                'success' => false,
+                'action'  => 'preconfirm',
+                'message' => $this->build_preconfirm_message( $name, $slots ),
+                'tool'    => $name,
+                'slots'   => $slots,
+            ];
+        }
+
+        // 4. Execute (remove internal flag before passing to callback)
+        unset( $slots['_confirmed'] );
+
+        // Inject pipeline context
+        if ( ! empty( $session_context['pipeline_id'] ) ) {
+            $slots['_pipeline_id'] = $session_context['pipeline_id'];
+        }
+        if ( isset( $session_context['step_index'] ) ) {
+            $slots['_step_index'] = $session_context['step_index'];
+        }
+
+        return $this->execute( $name, $slots );
+    }
+
+    /**
+     * Build a human-readable preconfirm message showing planned input.
+     *
+     * @param string $name  Tool name.
+     * @param array  $slots Input slots.
+     * @return string
+     */
+    private function build_preconfirm_message( $name, array $slots ) {
+        $schema  = $this->get_schema( $name );
+        $desc    = $schema['description'] ?? $name;
+        $lines   = [ "✅ Sắp thực hiện: **{$desc}**", '' ];
+
+        foreach ( $slots as $field => $value ) {
+            if ( str_starts_with( $field, '_' ) ) continue;
+            if ( in_array( $field, [ 'session_id', 'user_id', 'platform' ], true ) ) continue;
+            if ( $value === '' || $value === null ) continue;
+
+            $display = is_array( $value ) ? wp_json_encode( $value, JSON_UNESCAPED_UNICODE ) : (string) $value;
+            if ( mb_strlen( $display, 'UTF-8' ) > 80 ) {
+                $display = mb_substr( $display, 0, 77, 'UTF-8' ) . '...';
+            }
+            $lines[] = "• **{$field}**: {$display}";
+        }
+
+        $lines[] = '';
+        $lines[] = 'Xác nhận? ✅ OK | ❌ Hủy | ✏️ Sửa';
+
+        return implode( "\n", $lines );
     }
 
     /**

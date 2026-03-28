@@ -44,7 +44,7 @@ class BizCity_Intent_Tool_Index {
      * Schema version — bump this number when adding new migrations.
      * Stored in wp_options as `bizcity_tool_registry_schema_ver`.
      */
-    const SCHEMA_VERSION = 4;
+    const SCHEMA_VERSION = 5;
 
     /** @var string wp_options key for stored schema version */
     const SCHEMA_VERSION_KEY = 'bizcity_tool_registry_schema_ver';
@@ -131,7 +131,10 @@ class BizCity_Intent_Tool_Index {
             $this->migrate_to_4();
         }
 
-        // Future: if ( $from_version < 5 ) { $this->migrate_to_5(); }
+        // Migration 5: Add trust_tier + tool_type for Phase 1 Unified Pipeline
+        if ( $from_version < 5 ) {
+            $this->migrate_to_5();
+        }
     }
 
     /**
@@ -304,6 +307,40 @@ class BizCity_Intent_Tool_Index {
 
         if ( ! in_array( 'auto_execute', $existing, true ) ) {
             $wpdb->query( "ALTER TABLE {$this->table} ADD COLUMN `auto_execute` TINYINT(1) NOT NULL DEFAULT 0 AFTER custom_description" );
+        }
+    }
+
+    /**
+     * Migration 5: Add trust_tier + tool_type columns for Phase 1 Unified Pipeline.
+     *
+     *   trust_tier  — TIER 0 (auto) → 4 (block). Controls pre-confirm behaviour.
+     *   tool_type   — 'atomic' (single action) or 'package' (multi-step composite).
+     */
+    private function migrate_to_5() {
+        global $wpdb;
+
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$this->table}'" ) !== $this->table ) {
+            return;
+        }
+
+        $existing = $wpdb->get_col( "SHOW COLUMNS FROM {$this->table}", 0 );
+        if ( empty( $existing ) ) {
+            return;
+        }
+        $existing = array_map( 'strtolower', $existing );
+
+        if ( ! in_array( 'trust_tier', $existing, true ) ) {
+            $wpdb->query( "ALTER TABLE {$this->table} ADD COLUMN `trust_tier` INT NOT NULL DEFAULT 4 AFTER `auto_execute`" );
+        }
+
+        if ( ! in_array( 'tool_type', $existing, true ) ) {
+            $wpdb->query( "ALTER TABLE {$this->table} ADD COLUMN `tool_type` VARCHAR(20) NOT NULL DEFAULT 'atomic' AFTER `trust_tier`" );
+        }
+
+        // Index for trust_tier queries (Planner filters by tier)
+        $indexes = $wpdb->get_results( "SHOW INDEX FROM {$this->table} WHERE Key_name = 'idx_trust_tier'", ARRAY_A );
+        if ( empty( $indexes ) ) {
+            $wpdb->query( "ALTER TABLE {$this->table} ADD INDEX `idx_trust_tier` (`trust_tier`)" );
         }
     }
 
@@ -541,6 +578,9 @@ class BizCity_Intent_Tool_Index {
                 'input_schema'    => wp_json_encode( $input_schema, JSON_UNESCAPED_UNICODE ),
                 'intent_tags'     => wp_json_encode( array_keys( $pattern_map ), JSON_UNESCAPED_UNICODE ),
                 'domain_tags'     => wp_json_encode( [ $provider_id ], JSON_UNESCAPED_UNICODE ),
+                'trust_tier'      => (int) ( $schema['trust_tier'] ?? 4 ),
+                'tool_type'       => in_array( $schema['tool_type'] ?? '', [ 'atomic', 'package' ], true )
+                                         ? $schema['tool_type'] : 'atomic',
             ];
 
             // Check existing
@@ -900,6 +940,48 @@ class BizCity_Intent_Tool_Index {
      */
     public function get_table(): string {
         return $this->table;
+    }
+
+    /**
+     * Get a single tool row by tool_key.
+     *
+     * Used by Core Planner to read trust_tier, tool_type, etc.
+     *
+     * @param string $key  tool_key (e.g. 'provider_id:tool_name' or 'builtin:tool_name').
+     * @return object|null  DB row or null.
+     */
+    public function get_tool_by_key( string $key ) {
+        global $wpdb;
+
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$this->table}'" ) !== $this->table ) {
+            return null;
+        }
+
+        return $wpdb->get_row( $wpdb->prepare(
+            "SELECT * FROM {$this->table} WHERE tool_key = %s AND active = 1 LIMIT 1",
+            $key
+        ) );
+    }
+
+    /**
+     * Find a tool by tool_name (any provider prefix).
+     *
+     * Falls back to searching by tool_name when tool_key is unknown.
+     *
+     * @param string $name  Tool name (e.g. 'create_product').
+     * @return object|null  DB row or null.
+     */
+    public function get_tool_by_name( string $name ) {
+        global $wpdb;
+
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$this->table}'" ) !== $this->table ) {
+            return null;
+        }
+
+        return $wpdb->get_row( $wpdb->prepare(
+            "SELECT * FROM {$this->table} WHERE tool_name = %s AND active = 1 ORDER BY priority ASC LIMIT 1",
+            $name
+        ) );
     }
 
     /* ================================================================

@@ -304,6 +304,9 @@ class BizCity_Chat_Gateway {
             $kci_ratio = 100;
         }
         error_log( "[KCI-TRACE] load: session={$session_id}, kci={$kci_ratio}, platform={$platform_type}" );
+        
+        // Store for later trace emission
+        $this->current_kci_ratio = $kci_ratio;
 
         /* ── @/ Mention Override: allow execution even when KCI=100 ── */
         $mention_override = false;
@@ -637,7 +640,7 @@ class BizCity_Chat_Gateway {
         $effective_platform = $platform_type ?: $this->detect_platform_type();
         if ( defined( 'BIZCITY_TWIN_RESOLVER_ENABLED' ) && BIZCITY_TWIN_RESOLVER_ENABLED
              && class_exists( 'BizCity_Twin_Context_Resolver' ) ) {
-            return BizCity_Twin_Context_Resolver::build_system_prompt( 'chat', [
+            return BizCity_Twin_Context_Resolver::build_prompt_bundle( 'chat', [
                 'user_id'       => $user_id,
                 'session_id'    => $session_id,
                 'message'       => $message,
@@ -1908,6 +1911,11 @@ class BizCity_Chat_Gateway {
         $message      = sanitize_textarea_field($_POST['message'] ?? '');
         $character_id = intval($_POST['character_id'] ?? 0);
         $session_id   = sanitize_text_field($_POST['session_id'] ?? '');
+        $plugin_slug  = sanitize_text_field($_POST['plugin_slug'] ?? '');
+        $routing_mode = sanitize_text_field($_POST['routing_mode'] ?? 'automatic');
+        $provider_hint = sanitize_text_field($_POST['provider_hint'] ?? '');
+        $tool_goal     = sanitize_text_field($_POST['tool_goal'] ?? '');
+        $tool_name     = sanitize_text_field($_POST['tool_name'] ?? '');
         $images       = [];
         if (!empty($_POST['images'])) {
             $raw_images = json_decode(stripslashes($_POST['images'] ?? '[]'), true) ?: [];
@@ -1930,6 +1938,17 @@ class BizCity_Chat_Gateway {
                 $images[] = $single_img;
             }
         }
+
+        // Accept /slash command even when frontend does not send explicit tool_goal.
+        if ( ! $tool_goal && preg_match( '/^\/([a-z0-9_]+)(?:\s+(.*))?$/si', $message, $slash_match ) ) {
+            $tool_goal = strtolower( $slash_match[1] );
+            $message   = trim( $slash_match[2] ?? '' );
+            error_log( '[chat-gateway-stream] slash_detected | tool_goal=' . $tool_goal . ' | message_len=' . mb_strlen( $message, 'UTF-8' ) );
+        }
+
+        if ( ! $provider_hint && $plugin_slug && class_exists( 'BizCity_Intent_Provider_Registry' ) ) {
+            $provider_hint = BizCity_Intent_Provider_Registry::instance()->resolve_slug( $plugin_slug );
+        }
         $history_json = stripslashes($_POST['history'] ?? '[]');
         if (!$character_id) {
             $character_id = $this->get_default_character_id();
@@ -1945,6 +1964,19 @@ class BizCity_Chat_Gateway {
         $user_id     = get_current_user_id();
         $user        = wp_get_current_user();
         $client_name = $user->ID ? ($user->display_name ?: $user->user_login) : 'Guest';
+        
+        // Store KCI for trace emission
+        $kci_ratio = 80;
+        if ( $session_id && class_exists( 'BizCity_WebChat_Database' ) ) {
+            $session_obj = BizCity_WebChat_Database::instance()->get_session_v3_by_session_id( $session_id );
+            if ( $session_obj && isset( $session_obj->kci_ratio ) ) {
+                $kci_ratio = (int) $session_obj->kci_ratio;
+            }
+        }
+        if ( $platform_type === 'WEBCHAT' ) {
+            $kci_ratio = 100;
+        }
+        $this->current_kci_ratio = $kci_ratio;
 
         // ── Log user message ──
         $this->log_message([
@@ -1969,6 +2001,17 @@ class BizCity_Chat_Gateway {
                 'character_id'  => (int) $character_id,
                 'has_images'    => ! empty( $images ),
                 'message_len'   => mb_strlen( (string) $message, 'UTF-8' ),
+                'tool_goal'     => $tool_goal,
+                'provider_hint' => $provider_hint,
+                'routing_mode'  => $routing_mode,
+            ] );
+            
+            // ── Emit KCI application trace ──
+            $this->emit_trace( 'kci_ratio_applied', [
+                'kci_ratio'     => (int) $this->current_kci_ratio,
+                'exec_ratio'    => 100 - (int) $this->current_kci_ratio,
+                'platform_type' => $platform_type,
+                'session_id'    => $session_id,
             ] );
 
             $smart  = new BizCity_Smart_Gateway();
@@ -1980,6 +2023,11 @@ class BizCity_Chat_Gateway {
                 'platform_type' => $platform_type,
                 'images'        => $images,
                 'kci_ratio'     => $this->current_kci_ratio ?? 80,
+                'plugin_slug'   => $plugin_slug,
+                'provider_hint' => $provider_hint,
+                'routing_mode'  => $routing_mode,
+                'tool_goal'     => $tool_goal,
+                'tool_name'     => $tool_name,
             ];
 
             // ── Local Intent Engine: classify locally before sending to server ──
@@ -1988,6 +2036,8 @@ class BizCity_Chat_Gateway {
                     'branch'   => 'local_intent',
                     'session'  => $session_id,
                     'platform' => $platform_type,
+                    'tool_goal' => $tool_goal,
+                    'provider_hint' => $provider_hint,
                 ] );
 
                 $channel_map_sg = [ 'WEBCHAT' => 'webchat', 'ADMINCHAT' => 'adminchat' ];
@@ -1998,9 +2048,44 @@ class BizCity_Chat_Gateway {
                     'channel'       => $channel_map_sg[ $platform_type ] ?? 'webchat',
                     'character_id'  => $character_id,
                     'images'        => $images,
+                    'plugin_slug'   => $plugin_slug,
+                    'provider_hint' => $provider_hint,
+                    'routing_mode'  => $routing_mode,
+                    'tool_goal'     => $tool_goal,
+                    'tool_name'     => $tool_name,
                 ] );
                 $intent_action = $intent_result['action'] ?? 'passthrough';
                 $slot_progress = $this->summarize_intent_slot_progress( $intent_result );
+                
+                // Emit mode classification trace
+                $mode_classifier = $intent_result['meta']['mode'] ?? '';
+                $confidence = $intent_result['meta']['confidence'] ?? 0;
+                $objectives = $intent_result['meta']['objectives'] ?? [];
+                if ( is_string( $objectives ) ) {
+                    $objectives = json_decode( $objectives, true ) ?: [];
+                }
+                $this->emit_trace( 'mode_classified', [
+                    'mode'       => $mode_classifier,
+                    'confidence' => (float) $confidence,
+                    'objectives_count' => count( (array) $objectives ),
+                    'primary_objective' => $objectives[0] ?? '',
+                    'multi_goal_detected' => count( (array) $objectives ) > 1,
+                ] );
+
+                $this->emit_trace( 'objectives_detected', [
+                    'objectives_count'  => count( (array) $objectives ),
+                    'primary_objective' => $objectives[0] ?? '',
+                    'objectives'        => array_slice( (array) $objectives, 0, 5 ),
+                ] );
+
+                $this->emit_trace( 'multi_goal_decision', [
+                    'decision'         => count( (array) $objectives ) > 1 ? 'multi' : 'single',
+                    'objectives_count' => count( (array) $objectives ),
+                ] );
+
+                $this->emit_trace( 'slot_progress', [
+                    'slot_progress' => $slot_progress,
+                ] );
 
                 $this->emit_trace( 'local_intent_result', [
                     'branch'        => 'local_intent',
@@ -2066,6 +2151,10 @@ class BizCity_Chat_Gateway {
 
                 // Passthrough / compose_answer → send client engine result to server
                 $params['client_engine_result'] = $this->build_client_engine_result( $intent_result );
+
+                if ( $tool_goal && empty( $params['client_engine_result']['goal'] ) ) {
+                    $params['client_engine_result']['goal'] = $tool_goal;
+                }
 
                 $this->emit_trace( 'local_intent_handoff', [
                     'branch'        => 'smart_gateway',

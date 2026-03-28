@@ -50,6 +50,11 @@ class BizCity_Smart_Gateway {
             'kci_ratio'        => $kci_ratio,
             'mention_override' => ! empty( $params['mention_override'] ),
             'site_name'        => get_bloginfo( 'name' ),
+            'plugin_slug'      => sanitize_text_field( (string) ( $params['plugin_slug'] ?? '' ) ),
+            'provider_hint'    => sanitize_text_field( (string) ( $params['provider_hint'] ?? '' ) ),
+            'routing_mode'     => sanitize_text_field( (string) ( $params['routing_mode'] ?? '' ) ),
+            'tool_goal'        => sanitize_text_field( (string) ( $params['tool_goal'] ?? '' ) ),
+            'tool_name'        => sanitize_text_field( (string) ( $params['tool_name'] ?? '' ) ),
         ];
 
         // ── Character Prompt ──
@@ -347,6 +352,8 @@ class BizCity_Smart_Gateway {
             ],
             CURLOPT_RETURNTRANSFER => false,
             CURLOPT_TIMEOUT        => 120,
+            CURLOPT_BUFFERSIZE     => 1024,
+            CURLOPT_TCP_NODELAY    => true,
             CURLOPT_WRITEFUNCTION  => function ( $ch, $data ) use (
                 &$engine_data, &$done_data, &$tool_call, &$full_text, &$event_type, &$trace, &$event_count, &$raw_preview, &$sse_buffer, $on_chunk, $on_event
             ) {

@@ -91,6 +91,24 @@ abstract class BizCity_Intent_Provider {
      *       'label'    => 'Human label',
      *       'callback' => callable,        // fn(array $slots) => array
      *       'slots'    => [ ... ],         // Optional: slot schema
+     *
+     *       // ── Phase 1 Unified Pipeline (optional, recommended) ──
+     *       'trust_tier'   => 0-4,         // TIER 0=auto, 1=quick-confirm, 2=preview,
+     *                                      //       3=default, 4=block. Default: 4
+     *       'tool_type'    => 'atomic'|'package',  // 'package' = multi-step composite
+     *       'sub_tools'    => ['tool_a','tool_b'],  // Only when tool_type='package'
+     *       'input_fields' => [             // Typed I/O — enables deterministic mapping
+     *           'field_name' => [
+     *               'type'     => 'string|int|url|html|json|array|file_url|image_url',
+     *               'required' => true|false,
+     *               'prompt'   => 'Ask-text khi thiếu field',
+     *           ],
+     *       ],
+     *       'output_fields' => [            // Declared outputs — enables tool chaining
+     *           'field_name' => [
+     *               'type' => 'string|int|url|html|json|array|file_url|image_url',
+     *           ],
+     *       ],
      *   ]
      *
      * Each callback MUST return:
