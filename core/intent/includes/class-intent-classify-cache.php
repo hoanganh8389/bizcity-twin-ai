@@ -43,8 +43,8 @@ class BizCity_Intent_Classify_Cache {
     const CLEANUP_AGE_DAYS  = 30;       // Auto-delete after 30 days
     const CLEANUP_IDLE_DAYS = 7;        // Delete 0-hit after 7 days
 
-    /** Minimum confidence to cache */
-    const MIN_CACHE_CONFIDENCE = 0.60;
+    /** Minimum confidence to cache — raised from 0.60 to avoid caching borderline results */
+    const MIN_CACHE_CONFIDENCE = 0.70;
 
     /** In-memory cache for current request (avoid repeated SQL queries) */
     private $request_cache = [];
@@ -213,6 +213,12 @@ class BizCity_Intent_Classify_Cache {
         );
 
         if ( ! $row || empty( $row['mode'] ) ) {
+            return null;
+        }
+
+        // Skip entries below MIN_CACHE_CONFIDENCE — entries stored before
+        // the threshold was raised are treated as cache MISS (fresh LLM call).
+        if ( floatval( $row['mode_confidence'] ) < self::MIN_CACHE_CONFIDENCE ) {
             return null;
         }
 

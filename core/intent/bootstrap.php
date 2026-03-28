@@ -43,6 +43,8 @@ if ( class_exists( 'BizCity_Intent_Database' ) ) {
 /* ── Data layer + Infrastructure (always loaded) ── */
 require_once BIZCITY_INTENT_DIR . '/includes/class-intent-database.php';
 require_once BIZCITY_INTENT_DIR . '/includes/class-intent-conversation.php';
+require_once BIZCITY_INTENT_DIR . '/includes/class-intent-router.php';
+require_once BIZCITY_INTENT_DIR . '/includes/class-intent-planner.php';
 require_once BIZCITY_INTENT_DIR . '/includes/class-intent-tools.php';
 require_once BIZCITY_INTENT_DIR . '/includes/class-intent-stream.php';
 require_once BIZCITY_INTENT_DIR . '/includes/class-intent-logger.php';
@@ -51,13 +53,20 @@ require_once BIZCITY_INTENT_DIR . '/includes/class-intent-monitor.php';
 require_once BIZCITY_INTENT_DIR . '/includes/class-intent-provider.php';
 require_once BIZCITY_INTENT_DIR . '/includes/class-intent-simple-provider.php';
 require_once BIZCITY_INTENT_DIR . '/includes/class-intent-provider-registry.php';
+require_once BIZCITY_INTENT_DIR . '/includes/class-mode-classifier.php';
 require_once BIZCITY_INTENT_DIR . '/includes/class-prompt-context-logger.php';
+require_once BIZCITY_INTENT_DIR . '/includes/class-mode-pipeline.php';
+require_once BIZCITY_INTENT_DIR . '/includes/class-knowledge-router.php';
 require_once BIZCITY_INTENT_DIR . '/includes/class-rolling-memory.php';
 require_once BIZCITY_INTENT_DIR . '/includes/class-episodic-memory.php';
+require_once BIZCITY_INTENT_DIR . '/includes/class-context-builder.php';
+require_once BIZCITY_INTENT_DIR . '/includes/class-intent-engine.php';
 require_once BIZCITY_INTENT_DIR . '/includes/class-intent-data-browser.php';
 require_once BIZCITY_INTENT_DIR . '/includes/class-job-trace.php';
 require_once BIZCITY_INTENT_DIR . '/includes/class-intent-tool-index.php';
 require_once BIZCITY_INTENT_DIR . '/includes/class-intent-classify-cache.php';
+require_once BIZCITY_INTENT_DIR . '/includes/class-slot-analysis.php';
+require_once BIZCITY_INTENT_DIR . '/includes/class-confirm-analyzer.php';
 require_once BIZCITY_INTENT_DIR . '/includes/class-tool-control-panel.php';
 require_once BIZCITY_INTENT_DIR . '/includes/class-intent-settings-api.php';
 require_once BIZCITY_INTENT_DIR . '/includes/class-intent-rest-api.php';
@@ -127,9 +136,15 @@ add_action( 'plugins_loaded', function () {
     // Database table check / creation
     BizCity_Intent_Database::instance()->maybe_create_tables();
 
+    // Context builder (5-layer priority chain)
+    BizCity_Context_Builder::instance();
+
     // Memory services (Rolling + Episodic) — always needed (Smart Gateway uses them)
     BizCity_Rolling_Memory::instance();
     BizCity_Episodic_Memory::instance();
+
+    // Main intent engine orchestrator
+    BizCity_Intent_Engine::instance();
 
     // ── O10: WP-Cron for reliable stale conversation cleanup (v3.6.1) ──
     add_action( 'bizcity_intent_stale_cleanup', function () {

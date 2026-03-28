@@ -480,7 +480,7 @@ class BizCity_WebChat_Admin_Dashboard {
             ['slug' => 'explore',    'label' => __( 'Explore',                   'bizcity-webchat' ), 'icon' => '🔍', 'type' => 'link', 'src' => admin_url('admin.php?page=bizcity-marketplace')],
             ['slug' => 'tools',      'label' => __( 'Tools',                     'bizcity-webchat' ), 'icon' => '🛠️', 'type' => 'link', 'src' => home_url('tools-map/')],
             ['slug' => 'training',   'label' => __( 'Teach AI',                  'bizcity-webchat' ), 'icon' => '📖', 'type' => 'link', 'src' => home_url('note/')],
-            ['slug' => 'maturity',   'label' => __( 'Maturity',                    'bizcity-webchat' ), 'icon' => '🧬', 'type' => 'link', 'src' => home_url('maturity/?bizcity_iframe=1')],
+            ['slug' => 'maturity',   'label' => __( 'Maturity',                    'bizcity-webchat' ), 'icon' => '🧬', 'type' => 'link', 'src' => home_url('maturity/')],
 
             ['slug' => 'settings',   'label' => __( 'API Settings',          'bizcity-webchat' ), 'icon' => '⚙️', 'panel' => 'settings'],
             ['slug' => 'automation', 'label' => __( 'Automation Planner',  'bizcity-webchat' ), 'icon' => '⚡', 'type' => 'link', 'src' => admin_url('admin.php?page=bizcity-workspace&tab=workflow')],

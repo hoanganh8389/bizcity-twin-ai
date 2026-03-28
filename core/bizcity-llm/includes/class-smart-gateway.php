@@ -103,8 +103,16 @@ class BizCity_Smart_Gateway {
             $context['provider_profile_context'] = trim( $provider_ctx );
         }
 
-        // ── Knowledge RAG ──
-        if ( class_exists( 'BizCity_Knowledge_Context_API' ) ) {
+        // ── Knowledge RAG (skip for short casual messages) ──
+        $skip_knowledge = false;
+        $trimmed_msg = trim( $message );
+        if ( mb_strlen( $trimmed_msg, 'UTF-8' ) <= 20 ) {
+            $casual = '/^(h[ie]|hello|xin chào|chào|hey|ok|thanks?|cảm ơn|vâng|ừm?|dạ|bye|tạm biệt|good|tốt|được|oke?y?|ơi|vui|alo|đi)/iu';
+            if ( preg_match( $casual, $trimmed_msg ) ) {
+                $skip_knowledge = true;
+            }
+        }
+        if ( ! $skip_knowledge && class_exists( 'BizCity_Knowledge_Context_API' ) ) {
             $kca    = BizCity_Knowledge_Context_API::instance();
             $result = $kca->build_context( $character_id, $message, [
                 'max_tokens'     => 3000,
@@ -152,15 +160,26 @@ class BizCity_Smart_Gateway {
             $idb = BizCity_Intent_Database::instance();
 
             // Active conversation
-            if ( method_exists( $idb, 'get_active_conversation' ) ) {
-                $active_conv = $idb->get_active_conversation( $user_id, $session_id );
+            if ( method_exists( $idb, 'find_active_conversation' ) ) {
+                $active_conv = $idb->find_active_conversation( $user_id, 'webchat', $session_id );
                 if ( $active_conv ) {
                     $context['active_goal']       = $active_conv->goal ?? '';
                     $context['active_goal_label'] = $active_conv->goal_label ?? '';
-                    $context['conversation_id']   = $active_conv->id ?? '';
-                    $context['active_slots']      = ! empty( $active_conv->slots )
-                        ? json_decode( $active_conv->slots, true ) ?: []
+                    $context['conversation_id']   = $active_conv->conversation_id ?? '';
+                    $context['active_slots']      = ! empty( $active_conv->slots_json )
+                        ? json_decode( $active_conv->slots_json, true ) ?: []
                         : [];
+                    // Full conversation object for server Intent Router / Planner
+                    $context['active_conversation'] = [
+                        'id'            => $active_conv->id ?? '',
+                        'conversation_id' => $active_conv->conversation_id ?? '',
+                        'goal'          => $active_conv->goal ?? '',
+                        'goal_label'    => $active_conv->goal_label ?? '',
+                        'status'        => $active_conv->status ?? '',
+                        'slots'         => $context['active_slots'],
+                        'waiting_for'   => $active_conv->waiting_for ?? '',
+                        'waiting_field' => $active_conv->waiting_field ?? '',
+                    ];
                 }
             }
 
@@ -219,6 +238,11 @@ class BizCity_Smart_Gateway {
                 ] );
         }
 
+        // ── Client Engine Result (if local Intent Engine already classified) ──
+        if ( ! empty( $params['client_engine_result'] ) && is_array( $params['client_engine_result'] ) ) {
+            $context['client_engine_result'] = $params['client_engine_result'];
+        }
+
         return $context;
     }
 
@@ -264,7 +288,7 @@ class BizCity_Smart_Gateway {
 
         // Apply mutations locally
         if ( ! empty( $result['mutations'] ) ) {
-            $this->apply_mutations( $result['mutations'] );
+            $this->apply_mutations( $result['mutations'], $params );
         }
 
         return $result;
@@ -299,6 +323,7 @@ class BizCity_Smart_Gateway {
         $trace       = [];
         $event_count = 0;
         $raw_preview = '';
+        $sse_buffer  = '';
 
         if ( $on_event ) {
             $client_trace = [
@@ -323,13 +348,18 @@ class BizCity_Smart_Gateway {
             CURLOPT_RETURNTRANSFER => false,
             CURLOPT_TIMEOUT        => 120,
             CURLOPT_WRITEFUNCTION  => function ( $ch, $data ) use (
-                &$engine_data, &$done_data, &$tool_call, &$full_text, &$event_type, &$trace, &$event_count, &$raw_preview, $on_chunk, $on_event
+                &$engine_data, &$done_data, &$tool_call, &$full_text, &$event_type, &$trace, &$event_count, &$raw_preview, &$sse_buffer, $on_chunk, $on_event
             ) {
                 if ( strlen( $raw_preview ) < 2000 ) {
                     $raw_preview .= substr( $data, 0, 2000 - strlen( $raw_preview ) );
                 }
-                foreach ( explode( "\n", $data ) as $line ) {
-                    $line = trim( $line );
+
+                // Buffer-based line parsing: accumulate data and process complete lines
+                $sse_buffer .= $data;
+                while ( ( $nl = strpos( $sse_buffer, "\n" ) ) !== false ) {
+                    $line       = substr( $sse_buffer, 0, $nl );
+                    $sse_buffer = substr( $sse_buffer, $nl + 1 );
+                    $line       = trim( $line );
                     if ( $line === '' ) {
                         continue;
                     }
@@ -410,7 +440,7 @@ class BizCity_Smart_Gateway {
 
         // Apply mutations from done event
         if ( ! empty( $done_data['mutations'] ) ) {
-            $this->apply_mutations( $done_data['mutations'] );
+            $this->apply_mutations( $done_data['mutations'], $params );
         }
 
         if ( $curl_errno ) {
@@ -475,7 +505,13 @@ class BizCity_Smart_Gateway {
      *
      * @param array $mutations Mutation instructions from server
      */
-    private function apply_mutations( array $mutations ): void {
+    /**
+     * Apply mutations returned by server back to local DB.
+     *
+     * @param array $mutations  Mutation instructions from server
+     * @param array $params     Original request params (user_id, session_id, etc.) for enrichment
+     */
+    private function apply_mutations( array $mutations, array $params = [] ): void {
         // Rolling memory
         if ( ! empty( $mutations['rolling_memory']['data'] ) ) {
             $op   = $mutations['rolling_memory']['op'] ?? '';
@@ -497,12 +533,26 @@ class BizCity_Smart_Gateway {
         if ( ! empty( $mutations['conversation']['data'] ) ) {
             $op   = $mutations['conversation']['op'] ?? '';
             $data = $mutations['conversation']['data'];
+
+            // Enrich with local context — server only sends goal/slots/status
+            if ( ! empty( $params ) ) {
+                $data = array_merge( [
+                    'user_id'      => (int) ( $params['user_id'] ?? get_current_user_id() ),
+                    'session_id'   => $params['session_id'] ?? '',
+                    'channel'      => strtolower( $params['platform_type'] ?? 'webchat' ),
+                    'character_id' => (int) ( $params['character_id'] ?? 0 ),
+                    'goal_label'   => $data['goal'] ?? '',
+                ], $data );
+            }
+
             if ( class_exists( 'BizCity_Intent_Database' ) ) {
                 $idb = BizCity_Intent_Database::instance();
                 if ( $op === 'create' ) {
-                    $idb->create_conversation( $data );
-                } elseif ( $op === 'update' ) {
+                    $result = $idb->insert_conversation( $data );
+                    error_log( '[SmartGateway] mutation conversation CREATE | goal=' . ( $data['goal'] ?? '' ) . ' | status=' . ( $data['status'] ?? '' ) . ' | result=' . ( $result ?: 'FAILED' ) );
+                } elseif ( $op === 'update' && ! empty( $data['id'] ) ) {
                     $idb->update_conversation( $data['id'], $data );
+                    error_log( '[SmartGateway] mutation conversation UPDATE | id=' . $data['id'] . ' | status=' . ( $data['status'] ?? '' ) );
                 }
             }
         }

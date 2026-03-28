@@ -22,6 +22,15 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 
 class BizCity_Intent_Stream {
 
+    /**
+     * Legacy SSE endpoint toggle.
+     *
+     * To keep a single stream entry via Chat Gateway, this stays disabled by default.
+     * Set `BIZCITY_INTENT_STREAM_SSE_ENABLED` to true (or use filter)
+     * only when explicitly restoring legacy intent-stream SSE handling.
+     */
+    const SSE_ENDPOINT_ENABLED_DEFAULT = false;
+
     /** @var self|null */
     private static $instance = null;
 
@@ -36,9 +45,17 @@ class BizCity_Intent_Stream {
     }
 
     public function __construct() {
-        // SSE endpoint for webchat / admin
-        add_action( 'wp_ajax_bizcity_chat_stream',        [ $this, 'handle_sse' ] );
-        add_action( 'wp_ajax_nopriv_bizcity_chat_stream', [ $this, 'handle_sse' ] );
+        // SSE endpoint registration is disabled by default.
+        // Chat Gateway is the single stream entrypoint in the To-Be architecture.
+        $enable_sse = defined( 'BIZCITY_INTENT_STREAM_SSE_ENABLED' )
+            ? (bool) BIZCITY_INTENT_STREAM_SSE_ENABLED
+            : self::SSE_ENDPOINT_ENABLED_DEFAULT;
+
+        $enable_sse = apply_filters( 'bizcity_intent_stream_enable_sse_endpoint', $enable_sse );
+        if ( $enable_sse ) {
+            add_action( 'wp_ajax_bizcity_chat_stream',        [ $this, 'handle_sse' ] );
+            add_action( 'wp_ajax_nopriv_bizcity_chat_stream', [ $this, 'handle_sse' ] );
+        }
     }
 
     /* ================================================================
@@ -345,18 +362,64 @@ class BizCity_Intent_Stream {
         flush();
 
         $intent_conv_id_hint = sanitize_text_field( $_REQUEST['intent_conversation_id'] ?? '' );
-        $engine_result = bizcity_intent_process( [
-            'message'                 => $message,
-            'session_id'              => $session_id,
-            'user_id'                 => $user_id,
-            'channel'                 => $this->platform_to_channel( $platform_type ),
-            'character_id'            => $character_id,
-            'images'                  => $images,
-            'message_id'              => $prompt_message_id,
-            'provider_hint'           => $provider_hint,
-            'tool_goal'               => $tool_goal, // Slash command: skip classification, use this goal directly
-            'intent_conversation_id'  => $intent_conv_id_hint, // Frontend hint: active intent conversation
-        ] );
+
+        // ── KCI Ratio: load per-session and set for Mode Classifier ──
+        // Chat Gateway (priority 20) normally handles this, but Intent Stream
+        // handles at priority 10 and exits first, so KCI is never set.
+        // Without this, default KCI=80 → exec_ratio=20 → strong knowledge bias.
+        if ( class_exists( 'BizCity_Mode_Classifier' ) ) {
+            $kci_ratio = 80; // default
+            if ( $session_id && class_exists( 'BizCity_WebChat_Database' ) ) {
+                $session_obj = BizCity_WebChat_Database::instance()->get_session_v3_by_session_id( $session_id );
+                if ( $session_obj && isset( $session_obj->kci_ratio ) ) {
+                    $kci_ratio = (int) $session_obj->kci_ratio;
+                }
+            }
+            // WEBCHAT always knowledge-only
+            if ( $platform_type === 'WEBCHAT' ) {
+                $kci_ratio = 100;
+            }
+            // @/ mention override: allow execution when KCI=100
+            $mention_override = false;
+            if ( $kci_ratio === 100 && $platform_type !== 'WEBCHAT' ) {
+                if ( ! empty( $tool_goal ) || ! empty( $provider_hint ) ) {
+                    $mention_override = true;
+                    $kci_ratio = 50;
+                }
+            }
+            BizCity_Mode_Classifier::set_kci_ratio( $kci_ratio );
+            if ( $mention_override ) {
+                BizCity_Mode_Classifier::set_mention_override( true );
+            }
+        }
+
+        // bizcity_intent_process() was a legacy wrapper — call Intent Engine directly
+        if ( class_exists( 'BizCity_Intent_Engine' ) ) {
+            $engine_result = BizCity_Intent_Engine::instance()->process( [
+                'message'                 => $message,
+                'session_id'              => $session_id,
+                'user_id'                 => $user_id,
+                'channel'                 => $this->platform_to_channel( $platform_type ),
+                'character_id'            => $character_id,
+                'images'                  => $images,
+                'message_id'              => $prompt_message_id,
+                'provider_hint'           => $provider_hint,
+                'tool_goal'               => $tool_goal,
+                'intent_conversation_id'  => $intent_conv_id_hint,
+            ] );
+        } else {
+            // Intent Engine not loaded — return passthrough so Chat Gateway handles it
+            $engine_result = [
+                'reply'           => '',
+                'action'          => 'passthrough',
+                'conversation_id' => '',
+                'goal'            => '',
+                'goal_label'      => '',
+                'status'          => '',
+                'slots'           => [],
+                'meta'            => [],
+            ];
+        }
 
         // ═══ EXTRACT UNIFIED TRACKING FIELDS FROM ENGINE RESULT ═══
         // These are propagated to every SSE done event + log_webchat_message call

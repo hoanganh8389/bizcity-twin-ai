@@ -1402,7 +1402,10 @@ class BizCity_WebChat_Ajax_Handlers {
      * List active intent conversations for current user.
      */
     public function ajax_intent_conversations(): void {
-        check_ajax_referer( 'bizcity_nonce', '_wpnonce' );
+        if ( ! check_ajax_referer( 'bizcity_webchat', '_wpnonce', false ) ) {
+            wp_send_json_error( 'Invalid nonce.', 403 );
+            return;
+        }
 
         $user_id = get_current_user_id();
         if ( ! $user_id ) {
@@ -1429,7 +1432,10 @@ class BizCity_WebChat_Ajax_Handlers {
      * Cancel an intent conversation.
      */
     public function ajax_intent_cancel(): void {
-        check_ajax_referer( 'bizcity_nonce', '_wpnonce' );
+        if ( ! check_ajax_referer( 'bizcity_webchat', '_wpnonce', false ) ) {
+            wp_send_json_error( 'Invalid nonce.', 403 );
+            return;
+        }
 
         $user_id = get_current_user_id();
         if ( ! $user_id ) {
@@ -1456,7 +1462,10 @@ class BizCity_WebChat_Ajax_Handlers {
      * Mark an intent conversation as completed.
      */
     public function ajax_intent_complete(): void {
-        check_ajax_referer( 'bizcity_nonce', '_wpnonce' );
+        if ( ! check_ajax_referer( 'bizcity_webchat', '_wpnonce', false ) ) {
+            wp_send_json_error( 'Invalid nonce.', 403 );
+            return;
+        }
 
         $user_id = get_current_user_id();
         if ( ! $user_id ) {

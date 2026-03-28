@@ -57,7 +57,7 @@ class BizCity_Chat_Gateway {
         add_action('wp_ajax_bizcity_chat_clear',   [$this, 'ajax_clear']);
         add_action('wp_ajax_bizcity_chat_set_kci_ratio', [$this, 'ajax_set_kci_ratio']);
 
-        // ── SSE stream endpoint (priority 20 — bizcity-intent at 10 takes precedence) ──
+        // ── SSE stream endpoint (single stream entrypoint) ──
         add_action('wp_ajax_bizcity_chat_stream',        [$this, 'ajax_stream'], 20);
         add_action('wp_ajax_nopriv_bizcity_chat_stream', [$this, 'ajax_stream'], 20);
 
@@ -1783,16 +1783,50 @@ class BizCity_Chat_Gateway {
     public function get_ai_response($character_id, $message, $images = [], $session_id = '', $history_json = '[]', $wp_user_id = 0, $platform_type_hint = '') {
         // ── Smart Gateway: delegate to server if enabled ──
         if ( defined( 'BIZCITY_SMART_GATEWAY_ENABLED' ) && BIZCITY_SMART_GATEWAY_ENABLED && class_exists( 'BizCity_Smart_Gateway' ) ) {
+            $platform_type = $platform_type_hint ?: $this->detect_platform_type();
+            $runtime_user_id = $wp_user_id ?: get_current_user_id();
+
             $smart  = new BizCity_Smart_Gateway();
-            $result = $smart->resolve( [
+            $params = [
                 'message'       => $message,
-                'user_id'       => $wp_user_id ?: get_current_user_id(),
+                'user_id'       => $runtime_user_id,
                 'session_id'    => $session_id,
                 'character_id'  => $character_id,
-                'platform_type' => $platform_type_hint ?: $this->detect_platform_type(),
+                'platform_type' => $platform_type,
                 'images'        => $images,
                 'kci_ratio'     => $this->current_kci_ratio ?? 80,
-            ] );
+            ];
+
+            // ── Local Intent first (same policy as stream path) ──
+            // Keep HIL/slot/pre-confirm/tool execution local. Only compose branches
+            // are handed off to Smart Gateway with client_engine_result.
+            if ( class_exists( 'BizCity_Intent_Engine' ) ) {
+                $channel_map = [ 'WEBCHAT' => 'webchat', 'ADMINCHAT' => 'adminchat' ];
+                $intent_result = BizCity_Intent_Engine::instance()->process( [
+                    'message'       => $message,
+                    'session_id'    => $session_id,
+                    'user_id'       => $runtime_user_id,
+                    'channel'       => $channel_map[ $platform_type ] ?? 'webchat',
+                    'character_id'  => $character_id,
+                    'images'        => $images,
+                ] );
+
+                $intent_action = $intent_result['action'] ?? 'passthrough';
+                if ( ! empty( $intent_result['reply'] ) && ! in_array( $intent_action, [ 'passthrough', 'compose_answer' ], true ) ) {
+                    return [
+                        'message'       => $intent_result['reply'],
+                        'provider'      => 'local-intent',
+                        'model'         => '',
+                        'usage'         => [],
+                        'engine_result' => $intent_result,
+                        'suggestions'   => [],
+                    ];
+                }
+
+                $params['client_engine_result'] = $this->build_client_engine_result( $intent_result );
+            }
+
+            $result = $smart->resolve( $params );
             if ( ! empty( $result['success'] ) ) {
                 return [
                     'message'       => $result['response'] ?? '',
@@ -1927,6 +1961,16 @@ class BizCity_Chat_Gateway {
 
         // ── Smart Gateway: stream from server if enabled ──
         if ( defined( 'BIZCITY_SMART_GATEWAY_ENABLED' ) && BIZCITY_SMART_GATEWAY_ENABLED && class_exists( 'BizCity_Smart_Gateway' ) ) {
+            $this->ensure_stream_headers();
+            $this->emit_trace( 'gateway_entry', [
+                'branch'        => 'smart_gateway',
+                'platform_type' => $platform_type,
+                'session_id'    => $session_id,
+                'character_id'  => (int) $character_id,
+                'has_images'    => ! empty( $images ),
+                'message_len'   => mb_strlen( (string) $message, 'UTF-8' ),
+            ] );
+
             $smart  = new BizCity_Smart_Gateway();
             $params = [
                 'message'       => $message,
@@ -1938,8 +1982,112 @@ class BizCity_Chat_Gateway {
                 'kci_ratio'     => $this->current_kci_ratio ?? 80,
             ];
 
-            $this->ensure_stream_headers();
+            // ── Local Intent Engine: classify locally before sending to server ──
+            if ( class_exists( 'BizCity_Intent_Engine' ) ) {
+                $this->emit_trace( 'local_intent_start', [
+                    'branch'   => 'local_intent',
+                    'session'  => $session_id,
+                    'platform' => $platform_type,
+                ] );
+
+                $channel_map_sg = [ 'WEBCHAT' => 'webchat', 'ADMINCHAT' => 'adminchat' ];
+                $intent_result  = BizCity_Intent_Engine::instance()->process( [
+                    'message'       => $message,
+                    'session_id'    => $session_id,
+                    'user_id'       => $user_id,
+                    'channel'       => $channel_map_sg[ $platform_type ] ?? 'webchat',
+                    'character_id'  => $character_id,
+                    'images'        => $images,
+                ] );
+                $intent_action = $intent_result['action'] ?? 'passthrough';
+                $slot_progress = $this->summarize_intent_slot_progress( $intent_result );
+
+                $this->emit_trace( 'local_intent_result', [
+                    'branch'        => 'local_intent',
+                    'mode'          => $intent_result['meta']['mode'] ?? '',
+                    'intent'        => $intent_result['meta']['intent'] ?? '',
+                    'action'        => $intent_action,
+                    'goal'          => $intent_result['goal'] ?? '',
+                    'status'        => $intent_result['status'] ?? '',
+                    'method'        => $intent_result['meta']['method'] ?? '',
+                    'slot_progress' => $slot_progress,
+                ] );
+
+                // If Intent Engine handled fully (ask_user, call_tool, complete) → stream reply directly
+                if ( ! empty( $intent_result['reply'] ) && ! in_array( $intent_action, [ 'passthrough', 'compose_answer' ], true ) ) {
+                    $this->send_stream_event( 'engine', [
+                        'mode'          => $intent_result['meta']['mode'] ?? '',
+                        'intent'        => $intent_result['meta']['intent'] ?? '',
+                        'action'        => $intent_action,
+                        'goal'          => $intent_result['goal'] ?? '',
+                        'status'        => $intent_result['status'] ?? '',
+                        'method'        => $intent_result['meta']['method'] ?? '',
+                        'slot_progress' => $slot_progress,
+                        'via'           => 'local_intent_engine',
+                    ] );
+
+                    $this->emit_trace( 'local_intent_terminal', [
+                        'branch'        => 'local_intent',
+                        'action'        => $intent_action,
+                        'goal'          => $intent_result['goal'] ?? '',
+                        'status'        => $intent_result['status'] ?? '',
+                        'slot_progress' => $slot_progress,
+                    ] );
+
+                    $this->send_stream_event( 'chunk', [
+                        'delta' => $intent_result['reply'],
+                        'full'  => $intent_result['reply'],
+                    ] );
+                    $this->send_stream_event( 'done', [
+                        'message'       => $intent_result['reply'],
+                        'provider'      => 'local-intent',
+                        'engine_result' => $intent_result,
+                    ] );
+                    $this->send_stream_close();
+
+                    $this->log_message( [
+                        'session_id'    => $session_id,
+                        'user_id'       => 0,
+                        'client_name'   => 'AI',
+                        'message_id'    => uniqid( 'chat_bot_' ),
+                        'message_text'  => $intent_result['reply'],
+                        'message_from'  => 'bot',
+                        'message_type'  => 'text',
+                        'platform_type' => $platform_type,
+                        'meta'          => [
+                            'provider'     => 'local-intent',
+                            'character_id' => $character_id,
+                            'action'       => $intent_action,
+                            'goal'         => $intent_result['goal'] ?? '',
+                        ],
+                    ] );
+                    exit;
+                }
+
+                // Passthrough / compose_answer → send client engine result to server
+                $params['client_engine_result'] = $this->build_client_engine_result( $intent_result );
+
+                $this->emit_trace( 'local_intent_handoff', [
+                    'branch'        => 'smart_gateway',
+                    'reason'        => 'compose_required',
+                    'action'        => $intent_action,
+                    'goal'          => $intent_result['goal'] ?? '',
+                    'status'        => $intent_result['status'] ?? '',
+                    'slot_progress' => $slot_progress,
+                ] );
+            } else {
+                $this->emit_trace( 'local_intent_unavailable', [
+                    'branch' => 'smart_gateway',
+                    'reason' => 'BizCity_Intent_Engine class missing',
+                ], 'warn' );
+            }
+
             $this->send_stream_event( 'status', [ 'text' => 'Dang ket noi Smart Gateway...' ] );
+            $this->emit_trace( 'smart_gateway_connect', [
+                'branch'     => 'smart_gateway',
+                'session_id' => $session_id,
+                'has_client_engine_result' => ! empty( $params['client_engine_result'] ),
+            ] );
 
             $self = $this;
             $sg_result = $smart->resolve_stream( $params, function ( $delta, $full ) use ( $self ) {
@@ -1947,6 +2095,11 @@ class BizCity_Chat_Gateway {
             }, function ( $event, $payload ) use ( $self ) {
                 if ( ! is_array( $payload ) ) {
                     $payload = [ 'value' => $payload ];
+                }
+
+                // Add unified branch marker for frontend realtime console.
+                if ( ! isset( $payload['branch'] ) ) {
+                    $payload['branch'] = 'smart_gateway';
                 }
 
                 switch ( $event ) {
@@ -1962,6 +2115,11 @@ class BizCity_Chat_Gateway {
             } );
 
             if ( empty( $sg_result['success'] ) ) {
+                $this->emit_trace( 'smart_gateway_error', [
+                    'branch' => 'smart_gateway',
+                    'error'  => $sg_result['error'] ?? 'unknown',
+                    'debug'  => $sg_result['debug'] ?? [],
+                ], 'error' );
                 error_log( '[chat-gateway-stream] Smart Gateway failed | error=' . ( $sg_result['error'] ?? '(unknown)' ) . ' | debug=' . wp_json_encode( $sg_result['debug'] ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) );
                 $this->send_stream_event( 'error', [
                     'message' => $sg_result['error'] ?? 'Smart Gateway stream failed',
@@ -1972,6 +2130,14 @@ class BizCity_Chat_Gateway {
             }
 
             $bot_reply = $sg_result['response'] ?? '';
+            $this->emit_trace( 'smart_gateway_done', [
+                'branch'   => 'smart_gateway',
+                'provider' => 'smart-gateway',
+                'model'    => $sg_result['usage']['model'] ?? '',
+                'action'   => $sg_result['engine_result']['action'] ?? '',
+                'goal'     => $sg_result['engine_result']['goal'] ?? '',
+                'reply_len'=> mb_strlen( (string) $bot_reply, 'UTF-8' ),
+            ] );
             $this->send_stream_event( 'done', [
                 'message'  => $bot_reply,
                 'provider' => 'smart-gateway',
@@ -2194,6 +2360,64 @@ class BizCity_Chat_Gateway {
         if (ob_get_level() > 0) ob_flush();
         flush();
     }
+
+    /**
+     * Emit unified trace marker for realtime frontend console + debugging.
+     */
+    private function emit_trace( string $stage, array $data = [], string $level = 'info' ): void {
+        $payload = [
+            'stage' => $stage,
+            'level' => $level,
+            'ts'    => gmdate( 'c' ),
+            'data'  => $data,
+        ];
+        $this->send_stream_event( 'trace', $payload );
+
+        if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+            error_log( '[CHAT-GATEWAY-TRACE] ' . $stage . ' | ' . wp_json_encode( $data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) );
+        }
+    }
+
+    /**
+     * Normalize local intent result into slot/HIL progress for trace + UI console.
+     */
+    private function summarize_intent_slot_progress( array $intent_result ): array {
+        $meta          = $intent_result['meta'] ?? [];
+        $slot_analysis = is_array( $meta['slot_analysis'] ?? null ) ? $meta['slot_analysis'] : [];
+
+        $filled = $slot_analysis['filled_slots'] ?? [];
+        $missing = $slot_analysis['missing_slots'] ?? ( $meta['missing_fields'] ?? [] );
+        $fill_ratio = isset( $slot_analysis['fill_ratio'] ) ? (float) $slot_analysis['fill_ratio'] : null;
+
+        return [
+            'filled_slots'   => is_array( $filled ) ? array_values( $filled ) : [],
+            'missing_slots'  => is_array( $missing ) ? array_values( $missing ) : [],
+            'fill_ratio'     => $fill_ratio,
+            'status'         => $slot_analysis['status'] ?? ( $intent_result['status'] ?? '' ),
+            'total_required' => isset( $slot_analysis['total_required'] ) ? (int) $slot_analysis['total_required'] : null,
+        ];
+    }
+
+    /**
+     * Build normalized client_engine_result for Smart Gateway passthrough.
+     */
+    private function build_client_engine_result( array $intent_result ): array {
+        return [
+            'mode'            => $intent_result['meta']['mode'] ?? '',
+            'intent'          => $intent_result['meta']['intent'] ?? '',
+            'action'          => $intent_result['action'] ?? 'passthrough',
+            'goal'            => $intent_result['goal'] ?? '',
+            'goal_label'      => $intent_result['goal_label'] ?? '',
+            'slots'           => $intent_result['slots'] ?? [],
+            'conversation_id' => $intent_result['conversation_id'] ?? '',
+            'status'          => $intent_result['status'] ?? '',
+            'method'          => $intent_result['meta']['method'] ?? '',
+            'missing_fields'  => $intent_result['meta']['missing_fields'] ?? [],
+            'slot_analysis'   => $intent_result['meta']['slot_analysis'] ?? [],
+            'slot_progress'   => $this->summarize_intent_slot_progress( $intent_result ),
+        ];
+    }
+
     private function send_stream_close() {
         echo "event: close\ndata: {}\n\n";
         if (ob_get_level() > 0) ob_flush();
