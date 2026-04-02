@@ -107,6 +107,10 @@ class BizCity_Skill_Context {
 		] );
 
 		if ( empty( $matches ) ) {
+			error_log( '[SKILL_CONTEXT] inject_skill_context: mode=' . $mode . ' goal=' . $goal . ' tool=' . $tool . ' slash=' . $slash_command . ' → NO MATCH' );
+			if ( class_exists( 'BizCity_Twin_Trace' ) ) {
+				BizCity_Twin_Trace::gate( 'skill', false, 'no match for mode=' . $mode . ' goal=' . $goal . ' tool=' . $tool );
+			}
 			return $prompt;
 		}
 
@@ -144,7 +148,8 @@ class BizCity_Skill_Context {
 
 		// Build skill context block
 		$block = "\n\n## 📘 Skill Instructions\n";
-		$block .= "Dưới đây là hướng dẫn kỹ năng phù hợp với ngữ cảnh hiện tại. Hãy tuân thủ các bước và guardrails.\n\n";
+		$block .= "Dưới đây là hướng dẫn kỹ năng phù hợp với ngữ cảnh hiện tại. Hãy tuân thủ các bước và guardrails.\n";
+		$block .= "**QUAN TRỌNG**: Khi trả lời, hãy nêu rõ bạn đang áp dụng skill nào (VD: \"Tôi đang dùng skill [tên skill] để thực hiện...\").\n\n";
 
 		foreach ( $inject_matches as $m ) {
 			$content = trim( $m['content'] ?? '' );
@@ -163,6 +168,7 @@ class BizCity_Skill_Context {
 				return $m['path'] . ' [' . $a . '] (score:' . $m['score'] . ' ' . implode( '+', $m['reasons'] ) . ')';
 			}, $all );
 			BizCity_Twin_Trace::gate( 'skill', true, 'matched: ' . implode( ', ', $info ) );
+			error_log( '[SKILL_CONTEXT] inject_skill_context: mode=' . $mode . ' goal=' . $goal . ' tool=' . $tool . ' matched=' . count( $all ) . ' → ' . implode( ', ', $info ) );
 		}
 
 		return $prompt . $block;

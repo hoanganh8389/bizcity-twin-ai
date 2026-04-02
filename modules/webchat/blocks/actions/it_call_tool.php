@@ -173,6 +173,9 @@ class WaicAction_it_call_tool extends WaicAction {
 		}
 
 		$result_data = [];
+		$execution_state = $this->getExecutionState( $variables );
+		$pipeline_id     = $execution_state['pipeline_id'] ?? '';
+		$node_id_str     = (string) ( $this->getId() ?? '' );
 
 		if ( empty( $error ) ) {
 			$tools = BizCity_Intent_Tools::instance();
@@ -183,8 +186,13 @@ class WaicAction_it_call_tool extends WaicAction {
 					$tool_id
 				);
 			} else {
-				// Auto-fill missing required fields from params aliases / trigger variables
 				$schema = $tools->get_schema( $tool_id );
+
+				// ── Phase 1.1: Skill Context Injection ──
+				// Read matching skill BEFORE execution, log trace, inject into LLM context
+				$skill_info = $this->resolve_skill_for_tool( $tool_id );
+				error_log( '[IT_CALL_TOOL] skill_lookup tool=' . $tool_id . ' found=' . ( $skill_info ? $skill_info['title'] : 'NONE' ) );
+
 				if ( ! empty( $schema['input_fields'] ) ) {
 					// Common text-field aliases for auto-mapping
 					$text_aliases = [ 'message', 'text', 'user_message', 'question', 'prompt', 'content', 'query' ];
@@ -229,11 +237,84 @@ class WaicAction_it_call_tool extends WaicAction {
 						}
 					}
 
-					// LLM-based smart input preparation: fill remaining empty required fields
-					$params = $this->prepare_input_with_llm( $tool_id, $params, $variables, $schema );
+					// ── Phase 1.1 G1: HIL Slot Gathering (un_confirm pattern) ──
+					$hil_state = $this->get_hil_state( $tool_id, $variables );
+
+					// If user previously responded with slot data, merge it
+					if ( $hil_state && ! empty( $hil_state['filled_slots'] ) ) {
+						foreach ( $hil_state['filled_slots'] as $k => $v ) {
+							if ( $v !== '' && $v !== null ) {
+								$params[ $k ] = $v;
+							}
+						}
+						error_log( '[IT_CALL_TOOL] HIL slots merged: ' . implode( ',', array_keys( $hil_state['filled_slots'] ) ) );
+					}
+
+					// Check if required fields are still missing (AFTER merge)
+					$missing_required = [];
+					foreach ( $schema['input_fields'] as $field => $cfg ) {
+						if ( ! empty( $cfg['required'] ) && ( ! isset( $params[ $field ] ) || $params[ $field ] === '' || $params[ $field ] === null ) ) {
+							$missing_required[] = $field;
+						}
+					}
+
+					if ( ! empty( $missing_required ) ) {
+						// Check if we already asked and user responded — try LLM fill first
+						$params = $this->prepare_input_with_llm( $tool_id, $params, $variables, $schema );
+
+						// Re-check after LLM fill
+						$still_missing = [];
+						foreach ( $schema['input_fields'] as $field => $cfg ) {
+							if ( ! empty( $cfg['required'] ) && ( ! isset( $params[ $field ] ) || $params[ $field ] === '' || $params[ $field ] === null ) ) {
+								$still_missing[] = $field;
+							}
+						}
+
+						if ( ! empty( $still_missing ) ) {
+							// ── HIL WAITING: Send prompt to user and pause workflow ──
+							error_log( '[IT_CALL_TOOL] HIL_WAIT: tool=' . $tool_id . ' missing=' . implode( ',', $still_missing ) );
+
+							// Update todo status to WAITING_USER
+							if ( $pipeline_id && class_exists( 'BizCity_Intent_Todos' ) ) {
+								BizCity_Intent_Todos::update_status( $pipeline_id, $tool_id, 'WAITING_USER', [
+									'node_id' => $node_id_str,
+								] );
+							}
+
+							// Send HIL prompt message to user
+							$this->send_hil_slot_prompt( $variables, $tool_id, $still_missing, $schema, $params, $skill_info );
+
+							// Save current params so we can merge on resume
+							$this->set_hil_state( $tool_id, $variables, $params, $still_missing );
+
+							$blog_id     = get_current_blog_id();
+							$session_id  = $this->resolve_var( $variables, 'session_id' );
+							$hil_key     = 'waic_hil_' . $blog_id . '_' . md5( $tool_id . '_' . $session_id );
+							$timeout_at  = time() + 86400; // 24h timeout for slot gathering
+							set_transient( $hil_key . '_timeout', $timeout_at, 86400 + 300 );
+
+							return [
+								'result'  => [ 'success' => 'false', 'tool_name' => $tool_id, 'message' => 'Waiting for user input' ],
+								'error'   => '',
+								'status'  => 0, // waiting
+								'waiting' => $timeout_at,
+							];
+						}
+					} else {
+						// LLM-based smart input preparation: fill remaining empty optional fields
+						$params = $this->prepare_input_with_llm( $tool_id, $params, $variables, $schema );
+					}
 				}
 
-				// Execute via Intent Tools registry (handles validation + callback)
+				// ── Phase 1.1: Update todo to IN_PROGRESS ──
+				if ( $pipeline_id && class_exists( 'BizCity_Intent_Todos' ) ) {
+					BizCity_Intent_Todos::update_status( $pipeline_id, $tool_id, 'IN_PROGRESS', [
+						'node_id'         => $node_id_str,
+						'node_input_json' => $params,
+					] );
+				}
+
+				// ── Execute via Intent Tools registry ──
 				$result_data = $tools->execute( $tool_id, $params );
 			}
 		}
@@ -253,6 +334,28 @@ class WaicAction_it_call_tool extends WaicAction {
 		if ( ! $success && empty( $error ) ) {
 			$error = $msg ?: __( 'Tool returned an error.', 'bizcity-twin-ai' );
 		}
+
+		// ── Phase 1.1 G3: Save evidence to intent_conversations ──
+		$this->save_pipeline_evidence( $tool_id, $params, $result_data, $variables, $execution_state );
+
+		// ── Phase 1.1 G2: Update ToDos checkpoint ──
+		if ( $pipeline_id && class_exists( 'BizCity_Intent_Todos' ) ) {
+			$todo_status = $success ? 'COMPLETED' : 'FAILED';
+			$todo_extra  = [
+				'node_id'          => $node_id_str,
+				'node_output_json' => $result_data,
+				'output_summary'   => mb_substr( $msg ?: ( $title ?: '' ), 0, 200 ),
+				'score'            => $success ? 80 : 0,
+			];
+			if ( ! $success ) {
+				$todo_extra['error_message'] = mb_substr( $error, 0, 500 );
+			}
+			BizCity_Intent_Todos::update_status( $pipeline_id, $tool_id, $todo_status, $todo_extra );
+			error_log( '[IT_CALL_TOOL] todo_update pipeline=' . $pipeline_id . ' tool=' . $tool_id . ' status=' . $todo_status );
+		}
+
+		// Clear HIL state on completion
+		$this->clear_hil_state( $tool_id, $variables );
 
 		// Auto-send result to admin chat session if platform is adminchat
 		$this->maybe_send_to_adminchat( $variables, $tool_id, $success, $msg, $error, $resource_url, $title );
@@ -274,6 +377,236 @@ class WaicAction_it_call_tool extends WaicAction {
 		];
 
 		return $this->_results;
+	}
+
+	/* ================================================================
+	 *  Phase 1.1: HIL State Management (un_confirm pattern)
+	 * ================================================================ */
+
+	/**
+	 * Get HIL state for this tool from transient.
+	 *
+	 * @param string $tool_id   Tool identifier.
+	 * @param array  $variables Workflow variables.
+	 * @return array|null HIL state or null if not waiting.
+	 */
+	private function get_hil_state( $tool_id, $variables ) {
+		$blog_id    = get_current_blog_id();
+		$session_id = $this->resolve_var( $variables, 'session_id' );
+		$key        = 'waic_hil_' . $blog_id . '_' . md5( $tool_id . '_' . $session_id );
+		$state      = get_transient( $key );
+		return is_array( $state ) ? $state : null;
+	}
+
+	/**
+	 * Save HIL state with current params and missing fields.
+	 */
+	private function set_hil_state( $tool_id, $variables, $current_params, $missing_fields ) {
+		$blog_id    = get_current_blog_id();
+		$session_id = $this->resolve_var( $variables, 'session_id' );
+		$key        = 'waic_hil_' . $blog_id . '_' . md5( $tool_id . '_' . $session_id );
+		$state      = [
+			'tool_id'        => $tool_id,
+			'current_params' => $current_params,
+			'missing_fields' => $missing_fields,
+			'filled_slots'   => [],
+			'created_at'     => time(),
+			'run_id'         => isset( $this->_runId ) ? $this->_runId : 0,
+		];
+		set_transient( $key, $state, 86400 + 300 );
+	}
+
+	/**
+	 * Clear HIL state after tool execution completes.
+	 */
+	private function clear_hil_state( $tool_id, $variables ) {
+		$blog_id    = get_current_blog_id();
+		$session_id = $this->resolve_var( $variables, 'session_id' );
+		$key        = 'waic_hil_' . $blog_id . '_' . md5( $tool_id . '_' . $session_id );
+		delete_transient( $key );
+		delete_transient( $key . '_timeout' );
+	}
+
+	/**
+	 * Send HIL slot prompt message to user via chat.
+	 *
+	 * @param array       $variables Workflow variables.
+	 * @param string      $tool_id   Tool identifier.
+	 * @param array       $missing   Missing required field names.
+	 * @param array       $schema    Tool schema.
+	 * @param array       $params    Current resolved params.
+	 * @param array|null  $skill     Matched skill info or null.
+	 */
+	private function send_hil_slot_prompt( $variables, $tool_id, $missing, $schema, $params, $skill ) {
+		$session_id = $this->resolve_var( $variables, 'session_id' );
+		if ( empty( $session_id ) || ! class_exists( 'BizCity_WebChat_Database' ) ) {
+			return;
+		}
+
+		$input_fields = $schema['input_fields'] ?? [];
+
+		// Build human-friendly prompt
+		$lines = [];
+		$lines[] = '📝 **' . ( $schema['description'] ?? $tool_id ) . '** — cần thêm thông tin:';
+		$lines[] = '';
+
+		// Show what we already have
+		$filled = [];
+		foreach ( $params as $k => $v ) {
+			if ( $v !== '' && $v !== null ) {
+				$label = $input_fields[ $k ]['description'] ?? $k;
+				$filled[] = '✅ ' . $label . ': ' . mb_substr( (string) $v, 0, 80 );
+			}
+		}
+		if ( $filled ) {
+			$lines[] = implode( "\n", $filled );
+			$lines[] = '';
+		}
+
+		// Show what's missing
+		foreach ( $missing as $field ) {
+			$desc = $input_fields[ $field ]['description'] ?? $field;
+			$type = $input_fields[ $field ]['type'] ?? 'text';
+			$lines[] = '❓ **' . $desc . '** (' . $type . ')';
+		}
+
+		$lines[] = '';
+
+		// Skill context note
+		if ( $skill ) {
+			$lines[] = '💡 Tôi tìm thấy skill "' . $skill['title'] . '" liên quan đến tool này. Sẽ làm theo hướng dẫn skill.';
+		} else {
+			$lines[] = '💡 Không có skill cụ thể cho tool này. Tôi sẽ dùng kinh nghiệm để thực hiện.';
+		}
+
+		$lines[] = '';
+		$lines[] = 'Vui lòng cung cấp thông tin còn thiếu, hoặc gõ "bỏ qua" để skip bước này.';
+
+		$text = implode( "\n", $lines );
+
+		BizCity_WebChat_Database::instance()->log_message( [
+			'session_id'    => $session_id,
+			'user_id'       => 0,
+			'client_name'   => 'Pipeline Bot',
+			'message_id'    => uniqid( 'hil_' ),
+			'message_text'  => $text,
+			'message_from'  => 'bot',
+			'message_type'  => 'text',
+			'platform_type' => 'ADMINCHAT',
+			'tool_name'     => $tool_id,
+		] );
+	}
+
+	/* ================================================================
+	 *  Phase 1.1: Skill Resolution
+	 * ================================================================ */
+
+	/**
+	 * Find matching skill for a tool before execution.
+	 * Logs trace for transparency.
+	 *
+	 * @param string $tool_id Tool name.
+	 * @return array|null { title, content, path } or null.
+	 */
+	private function resolve_skill_for_tool( $tool_id ) {
+		if ( ! class_exists( 'BizCity_Skill_Manager' ) ) {
+			error_log( '[IT_CALL_TOOL] skill_resolve: BizCity_Skill_Manager not available' );
+			return null;
+		}
+		$mgr     = BizCity_Skill_Manager::instance();
+		$matches = $mgr->find_matching( [
+			'tool'          => $tool_id,
+			'slash_command' => '/' . $tool_id,
+			'limit'         => 1,
+		] );
+
+		if ( empty( $matches ) ) {
+			error_log( '[IT_CALL_TOOL] skill_resolve: no skill found for tool=' . $tool_id );
+			return null;
+		}
+
+		$m = $matches[0];
+		$title = $m['frontmatter']['title'] ?? basename( $m['path'] ?? '', '.md' );
+		error_log( '[IT_CALL_TOOL] skill_resolve: FOUND skill="' . $title . '" path=' . ( $m['path'] ?? '' ) . ' score=' . ( $m['score'] ?? 0 ) );
+		return [
+			'title'   => $title,
+			'content' => $m['content'] ?? '',
+			'path'    => $m['path'] ?? '',
+		];
+	}
+
+	/* ================================================================
+	 *  Phase 1.1: Evidence — Save to intent_conversations
+	 * ================================================================ */
+
+	/**
+	 * Save tool execution evidence to intent_conversations table.
+	 *
+	 * @param string $tool_id         Tool name.
+	 * @param array  $params          Input params used.
+	 * @param array  $result_data     Tool execution result.
+	 * @param array  $variables       Workflow variables.
+	 * @param array  $execution_state Pipeline execution state.
+	 */
+	private function save_pipeline_evidence( $tool_id, $params, $result_data, $variables, $execution_state ) {
+		if ( ! class_exists( 'BizCity_Intent_Database' ) ) {
+			return;
+		}
+		$pipeline_id = $execution_state['pipeline_id'] ?? '';
+		if ( empty( $pipeline_id ) ) {
+			return; // Not in a pipeline context
+		}
+
+		$db = BizCity_Intent_Database::instance();
+
+		$success    = ! empty( $result_data['success'] );
+		$node_id    = (string) ( $this->getId() ?? '' );
+		$session_id = $execution_state['session_id'] ?? '';
+		$user_id    = $execution_state['user_id'] ?? get_current_user_id();
+
+		$conv_id = 'tool_' . $tool_id . '_' . $pipeline_id . '_n' . $node_id;
+
+		$conv_data = [
+			'conversation_id'    => $conv_id,
+			'user_id'            => (int) $user_id,
+			'session_id'         => $session_id,
+			'channel'            => 'pipeline',
+			'goal'               => $tool_id,
+			'goal_label'         => isset( $result_data['data']['title'] ) ? $result_data['data']['title'] : $tool_id,
+			'status'             => $success ? 'COMPLETED' : 'FAILED',
+			'parent_pipeline_id' => $pipeline_id,
+			'step_index'         => (int) str_replace( 'node_', '', $node_id ),
+			'slots_json'         => wp_json_encode( $params, JSON_UNESCAPED_UNICODE ),
+			'context_snapshot'   => wp_json_encode( [
+				'result'   => $result_data,
+				'verified' => $success && ! empty( $result_data['data']['id'] ),
+			], JSON_UNESCAPED_UNICODE ),
+		];
+
+		// Use insert_conversation (upsert-safe — it will update if conversation_id already exists)
+		if ( method_exists( $db, 'insert_conversation' ) ) {
+			$db->insert_conversation( $conv_data );
+		} elseif ( method_exists( $db, 'update_conversation' ) ) {
+			$db->update_conversation( $conv_id, $conv_data );
+		} else {
+			error_log( '[IT_CALL_TOOL] evidence_save FAILED: no insert/update method on BizCity_Intent_Database' );
+			return;
+		}
+
+		error_log( '[IT_CALL_TOOL] evidence_saved conv_id=' . $conv_id . ' status=' . ( $success ? 'COMPLETED' : 'FAILED' ) );
+	}
+
+	/**
+	 * Extract execution state from variables (passed through by execute-api.php).
+	 */
+	private function getExecutionState( $variables ) {
+		return [
+			'pipeline_id'            => $variables['_pipeline_id'] ?? '',
+			'session_id'             => $variables['_session_id'] ?? '',
+			'user_id'                => $variables['_user_id'] ?? 0,
+			'channel'                => $variables['_channel'] ?? 'adminchat',
+			'intent_conversation_id' => $variables['_intent_conversation_id'] ?? '',
+		];
 	}
 
 	/**
