@@ -27,6 +27,14 @@ abstract class WaicBuilderBlock extends WaicBaseObject {
 	protected $_commentVars = false;
 	protected $_mediaVars = false;
 	protected $_flowVars = false;
+
+	/**
+	 * MCP metadata — blocks can override in constructor.
+	 * trust_tier: null = auto-derive from category prefix.
+	 * mcp_tool:   null = auto-derive from $_code.
+	 */
+	protected $_trust_tier = null;
+	protected $_mcp_tool   = null;
 	
 	protected $_runId = 0;
 	protected $_flowId = 0;
@@ -58,6 +66,101 @@ abstract class WaicBuilderBlock extends WaicBaseObject {
 	}
 	public function getVariables() {
 		return $this->_variables;
+	}
+	/**
+	 * Get MCP trust tier (0-4). Auto-derived from category prefix if not set.
+	 *
+	 * TIER 0 Core Intelligence  — it_call_tool, bc_instant_run, sy_manual
+	 * TIER 1 Production         — ai_*, wp_create_*, wc_create_*, kling_*
+	 * TIER 2 Distribution       — te_*, di_*, sl_*, em_*, ca_*, bc_send_*
+	 * TIER 3 Analytics          — triggers (wp_*, wc_*, wu_*)
+	 * TIER 4 Utility            — wp_update_*, wp_delete_*, lp_*, un_*, tf_*
+	 */
+	public function getTrustTier() {
+		if ( ! is_null( $this->_trust_tier ) ) {
+			return $this->_trust_tier;
+		}
+		return self::deriveTrustTier( $this->_code, $this->_type, $this->_subtype );
+	}
+	public function getMcpTool() {
+		return $this->_mcp_tool;
+	}
+	/**
+	 * Auto-derive trust tier from block code + type + subtype.
+	 */
+	public static function deriveTrustTier( $code, $type, $subtype = 0 ) {
+		// Logics are always utility
+		if ( 'logic' === $type ) {
+			return 4;
+		}
+
+		// Manual/instant triggers = core
+		if ( 'trigger' === $type && 0 === (int) $subtype ) {
+			return 0;
+		}
+
+		$prefix = '';
+		$pos = strpos( $code, '_' );
+		if ( $pos ) {
+			$prefix = substr( $code, 0, $pos );
+		}
+
+		// TIER 0 — Core Intelligence
+		if ( 'it' === $prefix ) {
+			return 0;
+		}
+
+		// Triggers: messaging inbound = TIER 2, hook-based = TIER 3
+		if ( 'trigger' === $type ) {
+			if ( in_array( $prefix, [ 'wu', 'bc' ], true ) ) {
+				return 2;
+			}
+			return 3;
+		}
+
+		// Actions: derive from prefix + code patterns
+		$create_keywords = [ 'create', 'generate', 'upload' ];
+		$send_keywords   = [ 'send', 'reply', 'cancel', 'update_event', 'update_meeting', 'create_event', 'create_meeting' ];
+		$update_keywords = [ 'update', 'delete' ];
+
+		if ( 'ai' === $prefix || 'kling' === $prefix ) {
+			// ai_report_stats, ai_gap_analyze = analytics
+			if ( strpos( $code, 'report' ) !== false || strpos( $code, 'gap' ) !== false ) {
+				return 3;
+			}
+			return 1; // Production
+		}
+
+		// Distribution prefixes
+		if ( in_array( $prefix, [ 'te', 'di', 'sl', 'em', 'ca' ], true ) ) {
+			return 2;
+		}
+
+		// wp_ and wc_ — check keyword in code
+		if ( in_array( $prefix, [ 'wp', 'wc' ], true ) ) {
+			foreach ( $create_keywords as $kw ) {
+				if ( strpos( $code, $kw ) !== false ) {
+					return 1;
+				}
+			}
+			foreach ( $send_keywords as $kw ) {
+				if ( strpos( $code, $kw ) !== false ) {
+					return 2;
+				}
+			}
+			foreach ( $update_keywords as $kw ) {
+				if ( strpos( $code, $kw ) !== false ) {
+					return 4;
+				}
+			}
+		}
+
+		// bc_send_* = distribution
+		if ( 'bc' === $prefix && strpos( $code, 'send' ) !== false ) {
+			return 2;
+		}
+
+		return 4; // Default = utility
 	}
 	public function getResults( $t, $v, $s = 0 ) {
 		return $this->_results;

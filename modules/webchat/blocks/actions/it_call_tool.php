@@ -114,6 +114,7 @@ class WaicAction_it_call_tool extends WaicAction {
 			'tool_name'   => __( 'Called tool name', 'bizcity-twin-ai' ),
 			'result_json' => __( 'Full JSON result', 'bizcity-twin-ai' ),
 			'message'     => __( 'Response message (AI generated)', 'bizcity-twin-ai' ),
+			'content'     => __( 'Content body (article / post body)', 'bizcity-twin-ai' ),
 			'resource_id' => __( 'Created resource ID (post_id / product_id / ...)', 'bizcity-twin-ai' ),
 			'resource_url'=> __( 'Resource URL', 'bizcity-twin-ai' ),
 			'title'       => __( 'Resource title', 'bizcity-twin-ai' ),
@@ -124,12 +125,8 @@ class WaicAction_it_call_tool extends WaicAction {
 	public function getResults( $taskId, $variables, $step = 0 ) {
 		error_log('[IT_CALL_TOOL] getResults ENTRY: taskId=' . $taskId . ' nodeId=' . $this->getId());
 		$tool_id        = (string) $this->getParam( 'tool_id' );
-		$input_json_raw = (string) $this->replaceVariables( $this->getParam( 'input_json' ), $variables );
+		$input_json_raw = $this->replaceVariablesJsonSafe( $this->getParam( 'input_json' ), $variables );
 		$user_source    = (string) $this->getParam( 'user_id_source' );
-
-		// Sanitize: replaceVariables may inject raw control chars (newlines, tabs)
-		// into JSON string values, causing json_decode to fail.
-		$input_json_raw = $this->sanitize_json_string( $input_json_raw );
 
 		error_log('[IT_CALL_TOOL] tool_id=' . $tool_id . ' input_json_raw=' . mb_substr( $input_json_raw, 0, 500 ) . ' user_source=' . $user_source);
 
@@ -249,6 +246,7 @@ class WaicAction_it_call_tool extends WaicAction {
 		$resource_id  = isset( $data['id'] ) ? $data['id'] : '';
 		$resource_url = isset( $data['url'] ) ? $data['url'] : '';
 		$title        = isset( $data['title'] ) ? $data['title'] : '';
+		$content      = isset( $data['content'] ) ? $data['content'] : '';
 		$image_url    = isset( $data['image_url'] ) ? $data['image_url'] : '';
 
 		// If tool returned error
@@ -265,6 +263,7 @@ class WaicAction_it_call_tool extends WaicAction {
 				'tool_name'    => $tool_id,
 				'result_json'  => wp_json_encode( $result_data, JSON_UNESCAPED_UNICODE ),
 				'message'      => $msg,
+				'content'      => $content,
 				'resource_id'  => (string) $resource_id,
 				'resource_url' => $resource_url,
 				'title'        => $title,
@@ -526,6 +525,54 @@ class WaicAction_it_call_tool extends WaicAction {
 			return $variables['node#1'][ $key ];
 		}
 		return '';
+	}
+
+	/**
+	 * JSON-safe variable replacement.
+	 *
+	 * Unlike replaceVariables() which does raw str_replace, this method
+	 * properly escapes variable values for JSON context using json_encode().
+	 * This prevents breakage when values contain quotes, backslashes,
+	 * newlines, or other JSON-special characters.
+	 *
+	 * @param string $template  JSON template with {{node#X.field}} placeholders.
+	 * @param array  $variables Variables from previous workflow nodes.
+	 * @return string Valid JSON string with all placeholders replaced.
+	 */
+	private function replaceVariablesJsonSafe( $template, $variables ) {
+		$template = (string) $template;
+		preg_match_all( '/\{\{(.*?)\}\}/', $template, $matches );
+
+		if ( empty( $matches[1] ) ) {
+			return $template;
+		}
+
+		foreach ( $matches[1] as $var ) {
+			$replace = '';
+			$parts   = explode( '.', $var );
+
+			if ( count( $parts ) == 2 ) {
+				$node     = $parts[0];
+				$variable = $parts[1];
+
+				if ( isset( $variables[ $node ] ) && isset( $variables[ $node ][ $variable ] ) ) {
+					$replace = $variables[ $node ][ $variable ];
+					if ( is_array( $replace ) ) {
+						$replace = implode( ',', $replace );
+					}
+				}
+			}
+
+			// json_encode() properly escapes ", \, \n, \r, \t, control chars.
+			// Strip the surrounding quotes since the value is inserted INTO
+			// an existing JSON string literal in the template.
+			$encoded = json_encode( (string) $replace, JSON_UNESCAPED_UNICODE );
+			$safe    = substr( $encoded, 1, -1 );
+
+			$template = str_replace( '{{' . $var . '}}', $safe, $template );
+		}
+
+		return $template;
 	}
 
 	/**

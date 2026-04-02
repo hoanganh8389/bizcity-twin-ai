@@ -539,6 +539,17 @@ PROMPT;
         $results = array();
         $caption = "{$title}\n\n{$content}";
 
+        // ── Diagnostic: log when no pages resolved (silent failure root cause) ──
+        if ( empty( $pages ) ) {
+            self::log( 'FB page resolution: NO PAGES FOUND', array(
+                'single_page_id' => $single_page_id ?? '',
+                'page_ids'       => $page_ids ?? [],
+                'user_id'        => $user_id ?: get_current_user_id(),
+                'fb_pages_connected' => get_option( 'fb_pages_connected', [] ),
+                'user_page_meta'     => get_user_meta( $user_id ?: get_current_user_id(), 'bztfb_user_page', true ),
+            ) );
+        }
+
         foreach ( $pages as $page ) {
             $page_access_token = $page['access_token'] ?? '';
             $pid               = $page['id'] ?? '';

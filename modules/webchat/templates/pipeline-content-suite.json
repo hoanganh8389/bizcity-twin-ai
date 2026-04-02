@@ -5,11 +5,11 @@
       "type": "trigger",
       "position": { "x": 100, "y": 250 },
       "data": {
-        "code": "bc_adminchat_message",
+        "code": "bc_instant_run",
         "category": "bc",
         "settings": {
-          "text_contains": "",
-          "text_regex": ""
+          "default_text": "",
+          "default_image_url": ""
         }
       }
     },

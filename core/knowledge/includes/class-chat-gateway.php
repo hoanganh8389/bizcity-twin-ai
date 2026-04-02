@@ -42,6 +42,18 @@ class BizCity_Chat_Gateway {
     /** @var int  KCI Ratio for current request (0-100, default 80). */
     private $current_kci_ratio = 80;
 
+    /** @var array  Channel role definition for current request. */
+    public $current_channel_role = [];
+
+    /** @var float Trace request start timestamp (microtime). */
+    private $trace_started_at = 0.0;
+
+    /** @var float Last emitted trace timestamp (microtime). */
+    private $trace_last_at = 0.0;
+
+    /** @var bool Whether SSE anti-buffer prelude has been sent. */
+    private $stream_prelude_sent = false;
+
     public static function instance() {
         if (is_null(self::$instance)) {
             self::$instance = new self();
@@ -216,14 +228,16 @@ class BizCity_Chat_Gateway {
         $session_id   = sanitize_text_field($_POST['session_id'] ?? '');
 
         // ── Concurrent request lock (per session + message) ──
-        // Prevents duplicate processing when user clicks send rapidly.
+        // If stream already logged this user message, skip re-logging.
+        $skip_user_log = false;
         if ( $session_id && $message ) {
             $lock_key = 'bizc_send_lock_' . md5( $session_id . '|' . $message );
             if ( get_transient( $lock_key ) ) {
-                wp_send_json_error( [ 'message' => 'Tin nhắn đang được xử lý, vui lòng đợi.' ] );
-                exit;
+                $skip_user_log = true;
+                error_log( '[chat-gateway-send] Duplicate detected (stream already logged), skipping user log | session=' . $session_id );
+            } else {
+                set_transient( $lock_key, true, 15 );
             }
-            set_transient( $lock_key, true, 15 );
         }
 
         $images       = [];
@@ -299,18 +313,40 @@ class BizCity_Chat_Gateway {
                 $kci_ratio = (int) $session_obj->kci_ratio;
             }
         }
-        // WEBCHAT always locked at 100 (knowledge-only)
-        if ( $platform_type === 'WEBCHAT' ) {
-            $kci_ratio = 100;
+
+        /* ── Channel Role: resolve role for this platform/bot ── */
+        $channel_role_data = [];
+        if ( class_exists( 'BizCity_Channel_Role' ) ) {
+            $bot_id = null;
+            // Extract bot_id from session_id prefix (zalobot_{bot_id}_xxx)
+            if ( preg_match( '/^zalobot_(\d+)_/', $session_id, $m ) ) {
+                $bot_id = (int) $m[1];
+            }
+            $channel_role_data = BizCity_Channel_Role::resolve( $platform_type, $bot_id, $user_id );
+            $role_def = $channel_role_data['definition'] ?? [];
+
+            // Override KCI if role has it locked
+            if ( ! empty( $role_def['kci_locked'] ) ) {
+                $kci_ratio = (int) ( $role_def['kci_ratio'] ?? 100 );
+            }
+        } else {
+            // Legacy fallback: WEBCHAT always locked at 100
+            if ( $platform_type === 'WEBCHAT' ) {
+                $kci_ratio = 100;
+            }
         }
-        error_log( "[KCI-TRACE] load: session={$session_id}, kci={$kci_ratio}, platform={$platform_type}" );
+        error_log( "[KCI-TRACE] load: session={$session_id}, kci={$kci_ratio}, platform={$platform_type}, role=" . ( $channel_role_data['slug'] ?? 'none' ) );
         
         // Store for later trace emission
         $this->current_kci_ratio = $kci_ratio;
+        $this->current_channel_role = $channel_role_data['definition'] ?? [];
 
         /* ── @/ Mention Override: allow execution even when KCI=100 ── */
         $mention_override = false;
-        if ( $kci_ratio === 100 && $platform_type !== 'WEBCHAT' ) {
+        $tools_allowed = ! empty( $channel_role_data )
+            ? ! empty( $channel_role_data['definition']['tools_enabled'] ?? false )
+            : ( $platform_type !== 'WEBCHAT' );
+        if ( $kci_ratio === 100 && $tools_allowed ) {
             if ( ! empty( $plugin_slug ) ) {
                 $mention_override = true;
             }
@@ -336,34 +372,39 @@ class BizCity_Chat_Gateway {
         }
         $this->current_kci_ratio = $kci_ratio;
 
-        /* ── Log user message (with plugin_slug if @ mentioned) ── */
-        $this->log_message([
-            'session_id'    => $session_id,
-            'user_id'       => $user_id,
-            'client_name'   => $client_name,
-            'message_id'    => uniqid('chat_'),
-            'message_text'  => $message ?: '[Image]',
-            'message_from'  => 'user',
-            'message_type'  => !empty($images) ? 'image' : 'text',
-            'attachments'   => $images,
-            'platform_type' => $platform_type,
-            'plugin_slug'   => $plugin_slug, // @ mention plugin routing
-        ]);
+        /* ── Log user message (skip if stream already logged it) ── */
+        if ( ! $skip_user_log ) {
+            $this->log_message([
+                'session_id'    => $session_id,
+                'user_id'       => $user_id,
+                'client_name'   => $client_name,
+                'message_id'    => uniqid('chat_'),
+                'message_text'  => $message ?: '[Image]',
+                'message_from'  => 'user',
+                'message_type'  => !empty($images) ? 'image' : 'text',
+                'attachments'   => $images,
+                'platform_type' => $platform_type,
+                'plugin_slug'   => $plugin_slug, // @ mention plugin routing
+            ]);
+        }
 
         /* ── Get AI response (single pipeline) ── */
 
-        /* ── WEBCHAT frontend widget: knowledge-only mode ──
+        /* u2500─ CSKH role / WEBCHAT frontend: knowledge-only mode ──
            Skip intent engine / plugin gathering / execution interceptors.
            Limit output tokens to 500 (customer support, not deep analysis). */
-        if ( $platform_type === 'WEBCHAT' ) {
+        $is_cskh_mode = ! empty( $channel_role_data )
+            ? ( ! ( $channel_role_data['definition']['role_block'] ?? true ) )
+            : ( $platform_type === 'WEBCHAT' );
+        if ( $is_cskh_mode ) {
             $this->max_tokens_override = 500;
         }
 
         /* ── Pre-AI filter: allow plugins to intercept and return a custom reply ──
            Return an array ['message' => '...'] to short-circuit AI call.
-           SKIPPED for WEBCHAT — frontend widget must not trigger execution. */
+           SKIPPED for CSKH roles — customer support must not trigger execution. */
         $pre_reply = null;
-        if ( $platform_type !== 'WEBCHAT' ) {
+        if ( ! $is_cskh_mode ) {
             $pre_reply = apply_filters('bizcity_chat_pre_ai_response', null, [
                 'message'       => $message,
                 'character_id'  => $character_id,
@@ -636,10 +677,10 @@ class BizCity_Chat_Gateway {
         $engine_result  = $args['engine_result'];
         $build_start    = microtime( true );
 
-        // ── TWIN CONTEXT RESOLVER: single-call delegation ──
+        // ── TWIN CONTEXT RESOLVER: default prompt builder (Focus Gate + KCI + mode context) ──
         $effective_platform = $platform_type ?: $this->detect_platform_type();
-        if ( defined( 'BIZCITY_TWIN_RESOLVER_ENABLED' ) && BIZCITY_TWIN_RESOLVER_ENABLED
-             && class_exists( 'BizCity_Twin_Context_Resolver' ) ) {
+        $__resolver_disabled_b = defined( 'BIZCITY_TWIN_RESOLVER_ENABLED' ) && ! BIZCITY_TWIN_RESOLVER_ENABLED;
+        if ( class_exists( 'BizCity_Twin_Context_Resolver' ) && ! $__resolver_disabled_b ) {
             return BizCity_Twin_Context_Resolver::build_prompt_bundle( 'chat', [
                 'user_id'       => $user_id,
                 'session_id'    => $session_id,
@@ -1157,18 +1198,19 @@ class BizCity_Chat_Gateway {
         $transit_context = '';
         $effective_platform = $platform_type_hint ?: $this->detect_platform_type();
 
-        // ── TWIN CONTEXT RESOLVER: full system prompt delegation ──
-        $__resolver_defined = defined( 'BIZCITY_TWIN_RESOLVER_ENABLED' );
-        $__resolver_flag    = $__resolver_defined ? BIZCITY_TWIN_RESOLVER_ENABLED : false;
-        $__resolver_class   = class_exists( 'BizCity_Twin_Context_Resolver' );
+        // ── TWIN CONTEXT RESOLVER: default prompt builder (Focus Gate + KCI + mode context) ──
+        // Always use Resolver when class exists — no feature flag required.
+        // Legacy character-based path only activates when Resolver class is missing.
+        $__resolver_class = class_exists( 'BizCity_Twin_Context_Resolver' );
+        $__resolver_disabled = defined( 'BIZCITY_TWIN_RESOLVER_ENABLED' ) && ! BIZCITY_TWIN_RESOLVER_ENABLED;
         error_log( sprintf(
-            '[WEBCHAT-TRACE] prepare_llm_call: platform=%s | RESOLVER_ENABLED=%s | class_exists=%s | session=%s',
+            '[WEBCHAT-TRACE] prepare_llm_call: platform=%s | resolver_class=%s | disabled=%s | session=%s',
             $effective_platform,
-            $__resolver_defined ? ( $__resolver_flag ? 'true' : 'false' ) : 'UNDEFINED',
             $__resolver_class ? 'yes' : 'no',
+            $__resolver_disabled ? 'yes' : 'no',
             $session_id
         ) );
-        if ( $__resolver_defined && $__resolver_flag && $__resolver_class ) {
+        if ( $__resolver_class && ! $__resolver_disabled ) {
 
             $system_content = BizCity_Twin_Context_Resolver::build_system_prompt( 'chat', [
                 'user_id'       => $wp_user_id ?: get_current_user_id(),
@@ -1180,6 +1222,7 @@ class BizCity_Chat_Gateway {
                 'via'           => 'prepare_llm_call',
                 'kci_ratio'        => $this->current_kci_ratio ?? 80,
                 'mention_override'  => $mention_override ?? false,
+                'channel_role'     => $this->current_channel_role ?? [],
             ] );
 
             // Detect model + vision support
@@ -1249,7 +1292,7 @@ class BizCity_Chat_Gateway {
         }
         $system_content = ( $character && ! empty( $character->system_prompt ) )
             ? $character->system_prompt
-            : ( $effective_platform === 'WEBCHAT'
+            : ( ( $effective_platform === 'WEBCHAT' || ! ( $this->current_channel_role['role_block'] ?? true ) )
                 ? 'Bạn là Trợ lý AI hỗ trợ khách hàng của ' . get_bloginfo( 'name' ) . '. Trả lời thân thiện, ngắn gọn bằng tiếng Việt.'
                 : 'Bạn là Trợ lý Team Leader AI cá nhân của BizCity. Trả lời bằng tiếng Việt.' );
         $system_content = apply_filters( 'bizcity_chat_system_prompt', $system_content, [
@@ -1784,72 +1827,6 @@ class BizCity_Chat_Gateway {
      * Public method so external plugins can call it directly.
      * ================================================================ */
     public function get_ai_response($character_id, $message, $images = [], $session_id = '', $history_json = '[]', $wp_user_id = 0, $platform_type_hint = '') {
-        // ── Smart Gateway: delegate to server if enabled ──
-        if ( defined( 'BIZCITY_SMART_GATEWAY_ENABLED' ) && BIZCITY_SMART_GATEWAY_ENABLED && class_exists( 'BizCity_Smart_Gateway' ) ) {
-            $platform_type = $platform_type_hint ?: $this->detect_platform_type();
-            $runtime_user_id = $wp_user_id ?: get_current_user_id();
-
-            $smart  = new BizCity_Smart_Gateway();
-            $params = [
-                'message'       => $message,
-                'user_id'       => $runtime_user_id,
-                'session_id'    => $session_id,
-                'character_id'  => $character_id,
-                'platform_type' => $platform_type,
-                'images'        => $images,
-                'kci_ratio'     => $this->current_kci_ratio ?? 80,
-            ];
-
-            // ── Local Intent first (same policy as stream path) ──
-            // Keep HIL/slot/pre-confirm/tool execution local. Only compose branches
-            // are handed off to Smart Gateway with client_engine_result.
-            if ( class_exists( 'BizCity_Intent_Engine' ) ) {
-                $channel_map = [ 'WEBCHAT' => 'webchat', 'ADMINCHAT' => 'adminchat' ];
-                $intent_result = BizCity_Intent_Engine::instance()->process( [
-                    'message'       => $message,
-                    'session_id'    => $session_id,
-                    'user_id'       => $runtime_user_id,
-                    'channel'       => $channel_map[ $platform_type ] ?? 'webchat',
-                    'character_id'  => $character_id,
-                    'images'        => $images,
-                ] );
-
-                $intent_action = $intent_result['action'] ?? 'passthrough';
-                if ( ! empty( $intent_result['reply'] ) && ! in_array( $intent_action, [ 'passthrough', 'compose_answer' ], true ) ) {
-                    return [
-                        'message'       => $intent_result['reply'],
-                        'provider'      => 'local-intent',
-                        'model'         => '',
-                        'usage'         => [],
-                        'engine_result' => $intent_result,
-                        'suggestions'   => [],
-                    ];
-                }
-
-                $params['client_engine_result'] = $this->build_client_engine_result( $intent_result );
-            }
-
-            $result = $smart->resolve( $params );
-            if ( ! empty( $result['success'] ) ) {
-                return [
-                    'message'       => $result['response'] ?? '',
-                    'provider'      => 'smart-gateway',
-                    'model'         => $result['usage']['model'] ?? '',
-                    'usage'         => $result['usage'] ?? [],
-                    'engine_result' => $result['engine_result'] ?? [],
-                    'suggestions'   => $result['suggestions'] ?? [],
-                ];
-            }
-            // Server failed — return error (no local fallback)
-            error_log( '[SmartGateway] Server failed: ' . ( $result['error'] ?? 'unknown' ) );
-            return [
-                'message'  => 'Xin lỗi, hệ thống AI tạm thời không khả dụng. Vui lòng thử lại sau.',
-                'provider' => 'smart-gateway',
-                'model'    => '',
-                'usage'    => [],
-            ];
-        }
-
         $prepared = $this->prepare_llm_call($character_id, $message, $images, $session_id, $history_json, $wp_user_id, $platform_type_hint);
 
         // Early error (e.g. Knowledge DB not ready)
@@ -1889,10 +1866,29 @@ class BizCity_Chat_Gateway {
         // ── Platform detection + permission check ──
         $platform_type = $this->detect_platform_type();
 
-        // WEBCHAT frontend widget: limit output tokens
-        if ( $platform_type === 'WEBCHAT' ) {
-            $this->max_tokens_override = 500;
+        // Channel role resolution (same logic as ajax_send)
+        $channel_role_data = [];
+        if ( class_exists( 'BizCity_Channel_Role' ) ) {
+            $bot_id = null;
+            $sess_hint = sanitize_text_field( $_POST['session_id'] ?? '' );
+            if ( preg_match( '/^zalobot_(\d+)_/', $sess_hint, $m ) ) {
+                $bot_id = (int) $m[1];
+            }
+            $channel_role_data = BizCity_Channel_Role::resolve( $platform_type, $bot_id, get_current_user_id() );
+            $role_def = $channel_role_data['definition'] ?? [];
+
+            // CSKH-mode: cap output tokens
+            $is_cskh = ( $role_def['kci_locked'] ?? false ) && ( ( $role_def['kci_ratio'] ?? 80 ) >= 100 );
+            if ( $is_cskh ) {
+                $this->max_tokens_override = (int) ( $role_def['max_tokens'] ?? 500 );
+            }
+        } else {
+            // Legacy fallback
+            if ( $platform_type === 'WEBCHAT' ) {
+                $this->max_tokens_override = 500;
+            }
         }
+        $this->current_channel_role = $channel_role_data['definition'] ?? [];
 
         if ($platform_type === 'ADMINCHAT') {
             if (!$this->verify_nonce()) {
@@ -1961,6 +1957,18 @@ class BizCity_Chat_Gateway {
             $session_id = $this->get_session_id($platform_type);
         }
 
+        // ── Concurrent request lock (prevents duplicate stream requests) ──
+        $skip_user_log = false;
+        if ( $session_id && $message ) {
+            $lock_key = 'bizc_send_lock_' . md5( $session_id . '|' . $message );
+            if ( get_transient( $lock_key ) ) {
+                $skip_user_log = true;
+                error_log( '[chat-gateway-stream] Duplicate request detected, skipping user log | session=' . $session_id );
+            } else {
+                set_transient( $lock_key, true, 15 );
+            }
+        }
+
         $user_id     = get_current_user_id();
         $user        = wp_get_current_user();
         $client_name = $user->ID ? ($user->display_name ?: $user->user_login) : 'Guest';
@@ -1973,122 +1981,125 @@ class BizCity_Chat_Gateway {
                 $kci_ratio = (int) $session_obj->kci_ratio;
             }
         }
-        if ( $platform_type === 'WEBCHAT' ) {
+        // Channel role KCI override
+        if ( ! empty( $channel_role_data['definition']['kci_locked'] ) ) {
+            $kci_ratio = (int) ( $channel_role_data['definition']['kci_ratio'] ?? 100 );
+        } elseif ( $platform_type === 'WEBCHAT' && empty( $channel_role_data ) ) {
+            // Legacy fallback when no role class
             $kci_ratio = 100;
         }
         $this->current_kci_ratio = $kci_ratio;
 
-        // ── Log user message ──
-        $this->log_message([
-            'session_id'    => $session_id,
-            'user_id'       => $user_id,
-            'client_name'   => $client_name,
-            'message_id'    => uniqid('chat_'),
-            'message_text'  => $message ?: '[Image]',
-            'message_from'  => 'user',
-            'message_type'  => !empty($images) ? 'image' : 'text',
-            'attachments'   => $images,
-            'platform_type' => $platform_type,
-        ]);
-
-        // ── Smart Gateway: stream from server if enabled ──
-        if ( defined( 'BIZCITY_SMART_GATEWAY_ENABLED' ) && BIZCITY_SMART_GATEWAY_ENABLED && class_exists( 'BizCity_Smart_Gateway' ) ) {
-            $this->ensure_stream_headers();
-            $this->emit_trace( 'gateway_entry', [
-                'branch'        => 'smart_gateway',
-                'platform_type' => $platform_type,
+        // ── Log user message (skip if duplicate request already logged it) ──
+        if ( ! $skip_user_log ) {
+            $this->log_message([
                 'session_id'    => $session_id,
-                'character_id'  => (int) $character_id,
-                'has_images'    => ! empty( $images ),
-                'message_len'   => mb_strlen( (string) $message, 'UTF-8' ),
+                'user_id'       => $user_id,
+                'client_name'   => $client_name,
+                'message_id'    => uniqid('chat_'),
+                'message_text'  => $message ?: '[Image]',
+                'message_from'  => 'user',
+                'message_type'  => !empty($images) ? 'image' : 'text',
+                'attachments'   => $images,
+                'platform_type' => $platform_type,
+            ]);
+        }
+
+        // ── Always ensure SSE headers + emit entry traces ──
+        $this->ensure_stream_headers();
+        $this->emit_trace( 'gateway_entry', [
+            'branch'        => 'direct_llm',
+            'platform_type' => $platform_type,
+            'session_id'    => $session_id,
+            'character_id'  => (int) $character_id,
+            'has_images'    => ! empty( $images ),
+            'message_len'   => mb_strlen( (string) $message, 'UTF-8' ),
+            'tool_goal'     => $tool_goal,
+            'provider_hint' => $provider_hint,
+            'routing_mode'  => $routing_mode,
+        ] );
+        $this->emit_trace( 'kci_ratio_applied', [
+            'kci_ratio'     => (int) $this->current_kci_ratio,
+            'exec_ratio'    => 100 - (int) $this->current_kci_ratio,
+            'platform_type' => $platform_type,
+            'session_id'    => $session_id,
+        ] );
+
+        // ── Local Intent Engine: always run if available ──
+        $intent_result = null;
+        $intent_action = 'passthrough';
+        $slot_progress = '';
+        if ( class_exists( 'BizCity_Intent_Engine' ) ) {
+            $this->emit_trace( 'local_intent_start', [
+                'branch'        => 'local_intent',
+                'session'       => $session_id,
+                'platform'      => $platform_type,
                 'tool_goal'     => $tool_goal,
                 'provider_hint' => $provider_hint,
-                'routing_mode'  => $routing_mode,
-            ] );
-            
-            // ── Emit KCI application trace ──
-            $this->emit_trace( 'kci_ratio_applied', [
-                'kci_ratio'     => (int) $this->current_kci_ratio,
-                'exec_ratio'    => 100 - (int) $this->current_kci_ratio,
-                'platform_type' => $platform_type,
-                'session_id'    => $session_id,
             ] );
 
-            $smart  = new BizCity_Smart_Gateway();
-            $params = [
+            $channel_map_ie = [ 'WEBCHAT' => 'webchat', 'ADMINCHAT' => 'adminchat' ];
+            $intent_result  = BizCity_Intent_Engine::instance()->process( [
                 'message'       => $message,
-                'user_id'       => $user_id,
                 'session_id'    => $session_id,
+                'user_id'       => $user_id,
+                'channel'       => $channel_map_ie[ $platform_type ] ?? 'webchat',
                 'character_id'  => $character_id,
-                'platform_type' => $platform_type,
                 'images'        => $images,
-                'kci_ratio'     => $this->current_kci_ratio ?? 80,
                 'plugin_slug'   => $plugin_slug,
                 'provider_hint' => $provider_hint,
                 'routing_mode'  => $routing_mode,
                 'tool_goal'     => $tool_goal,
                 'tool_name'     => $tool_name,
-            ];
+            ] );
+            $intent_action = $intent_result['action'] ?? 'passthrough';
+            $slot_progress = $this->summarize_intent_slot_progress( $intent_result );
 
-            // ── Local Intent Engine: classify locally before sending to server ──
-            if ( class_exists( 'BizCity_Intent_Engine' ) ) {
-                $this->emit_trace( 'local_intent_start', [
-                    'branch'   => 'local_intent',
-                    'session'  => $session_id,
-                    'platform' => $platform_type,
-                    'tool_goal' => $tool_goal,
-                    'provider_hint' => $provider_hint,
-                ] );
+            // Emit mode classification trace
+            // v3.0.17: Read mode_confidence (intent engine key), fallback to confidence for compat
+            $mode_classifier = $intent_result['meta']['mode'] ?? '';
+            $confidence = $intent_result['meta']['mode_confidence'] ?? ( $intent_result['meta']['confidence'] ?? 0 );
+            $objectives = $intent_result['meta']['objectives'] ?? [];
+            if ( is_string( $objectives ) ) {
+                $objectives = json_decode( $objectives, true ) ?: [];
+            }
+            $this->emit_trace( 'mode_classified', [
+                'mode'       => $mode_classifier,
+                'confidence' => (float) $confidence,
+                'objectives_count' => count( (array) $objectives ),
+                'primary_objective' => $objectives[0] ?? '',
+                'multi_goal_detected' => count( (array) $objectives ) > 1,
+            ] );
 
-                $channel_map_sg = [ 'WEBCHAT' => 'webchat', 'ADMINCHAT' => 'adminchat' ];
-                $intent_result  = BizCity_Intent_Engine::instance()->process( [
-                    'message'       => $message,
-                    'session_id'    => $session_id,
-                    'user_id'       => $user_id,
-                    'channel'       => $channel_map_sg[ $platform_type ] ?? 'webchat',
-                    'character_id'  => $character_id,
-                    'images'        => $images,
-                    'plugin_slug'   => $plugin_slug,
-                    'provider_hint' => $provider_hint,
-                    'routing_mode'  => $routing_mode,
-                    'tool_goal'     => $tool_goal,
-                    'tool_name'     => $tool_name,
-                ] );
-                $intent_action = $intent_result['action'] ?? 'passthrough';
-                $slot_progress = $this->summarize_intent_slot_progress( $intent_result );
-                
-                // Emit mode classification trace
-                $mode_classifier = $intent_result['meta']['mode'] ?? '';
-                $confidence = $intent_result['meta']['confidence'] ?? 0;
-                $objectives = $intent_result['meta']['objectives'] ?? [];
-                if ( is_string( $objectives ) ) {
-                    $objectives = json_decode( $objectives, true ) ?: [];
-                }
-                $this->emit_trace( 'mode_classified', [
-                    'mode'       => $mode_classifier,
-                    'confidence' => (float) $confidence,
-                    'objectives_count' => count( (array) $objectives ),
-                    'primary_objective' => $objectives[0] ?? '',
-                    'multi_goal_detected' => count( (array) $objectives ) > 1,
-                ] );
+            $this->emit_trace( 'objectives_detected', [
+                'objectives_count'  => count( (array) $objectives ),
+                'primary_objective' => $objectives[0] ?? '',
+                'objectives'        => array_slice( (array) $objectives, 0, 5 ),
+            ] );
 
-                $this->emit_trace( 'objectives_detected', [
-                    'objectives_count'  => count( (array) $objectives ),
-                    'primary_objective' => $objectives[0] ?? '',
-                    'objectives'        => array_slice( (array) $objectives, 0, 5 ),
-                ] );
+            $this->emit_trace( 'multi_goal_decision', [
+                'decision'         => count( (array) $objectives ) > 1 ? 'multi' : 'single',
+                'objectives_count' => count( (array) $objectives ),
+            ] );
 
-                $this->emit_trace( 'multi_goal_decision', [
-                    'decision'         => count( (array) $objectives ) > 1 ? 'multi' : 'single',
-                    'objectives_count' => count( (array) $objectives ),
-                ] );
+            $this->emit_trace( 'slot_progress', [
+                'slot_progress' => $slot_progress,
+            ] );
 
-                $this->emit_trace( 'slot_progress', [
-                    'slot_progress' => $slot_progress,
-                ] );
+            $this->emit_trace( 'local_intent_result', [
+                'branch'        => 'local_intent',
+                'mode'          => $intent_result['meta']['mode'] ?? '',
+                'intent'        => $intent_result['meta']['intent'] ?? '',
+                'action'        => $intent_action,
+                'goal'          => $intent_result['goal'] ?? '',
+                'status'        => $intent_result['status'] ?? '',
+                'method'        => $intent_result['meta']['method'] ?? '',
+                'slot_progress' => $slot_progress,
+            ] );
 
-                $this->emit_trace( 'local_intent_result', [
-                    'branch'        => 'local_intent',
+            // If Intent Engine handled fully (ask_user, call_tool, complete) → stream reply directly
+            if ( ! empty( $intent_result['reply'] ) && ! in_array( $intent_action, [ 'passthrough', 'compose_answer' ], true ) ) {
+                $this->send_stream_event( 'engine', [
                     'mode'          => $intent_result['meta']['mode'] ?? '',
                     'intent'        => $intent_result['meta']['intent'] ?? '',
                     'action'        => $intent_action,
@@ -2096,182 +2107,53 @@ class BizCity_Chat_Gateway {
                     'status'        => $intent_result['status'] ?? '',
                     'method'        => $intent_result['meta']['method'] ?? '',
                     'slot_progress' => $slot_progress,
+                    'via'           => 'local_intent_engine',
                 ] );
 
-                // If Intent Engine handled fully (ask_user, call_tool, complete) → stream reply directly
-                if ( ! empty( $intent_result['reply'] ) && ! in_array( $intent_action, [ 'passthrough', 'compose_answer' ], true ) ) {
-                    $this->send_stream_event( 'engine', [
-                        'mode'          => $intent_result['meta']['mode'] ?? '',
-                        'intent'        => $intent_result['meta']['intent'] ?? '',
-                        'action'        => $intent_action,
-                        'goal'          => $intent_result['goal'] ?? '',
-                        'status'        => $intent_result['status'] ?? '',
-                        'method'        => $intent_result['meta']['method'] ?? '',
-                        'slot_progress' => $slot_progress,
-                        'via'           => 'local_intent_engine',
-                    ] );
-
-                    $this->emit_trace( 'local_intent_terminal', [
-                        'branch'        => 'local_intent',
-                        'action'        => $intent_action,
-                        'goal'          => $intent_result['goal'] ?? '',
-                        'status'        => $intent_result['status'] ?? '',
-                        'slot_progress' => $slot_progress,
-                    ] );
-
-                    $this->send_stream_event( 'chunk', [
-                        'delta' => $intent_result['reply'],
-                        'full'  => $intent_result['reply'],
-                    ] );
-                    $this->send_stream_event( 'done', [
-                        'message'       => $intent_result['reply'],
-                        'provider'      => 'local-intent',
-                        'engine_result' => $intent_result,
-                    ] );
-                    $this->send_stream_close();
-
-                    $this->log_message( [
-                        'session_id'    => $session_id,
-                        'user_id'       => 0,
-                        'client_name'   => 'AI',
-                        'message_id'    => uniqid( 'chat_bot_' ),
-                        'message_text'  => $intent_result['reply'],
-                        'message_from'  => 'bot',
-                        'message_type'  => 'text',
-                        'platform_type' => $platform_type,
-                        'meta'          => [
-                            'provider'     => 'local-intent',
-                            'character_id' => $character_id,
-                            'action'       => $intent_action,
-                            'goal'         => $intent_result['goal'] ?? '',
-                        ],
-                    ] );
-                    exit;
-                }
-
-                // Passthrough / compose_answer → send client engine result to server
-                $params['client_engine_result'] = $this->build_client_engine_result( $intent_result );
-
-                if ( $tool_goal && empty( $params['client_engine_result']['goal'] ) ) {
-                    $params['client_engine_result']['goal'] = $tool_goal;
-                }
-
-                $this->emit_trace( 'local_intent_handoff', [
-                    'branch'        => 'smart_gateway',
-                    'reason'        => 'compose_required',
+                $this->emit_trace( 'local_intent_terminal', [
+                    'branch'        => 'local_intent',
                     'action'        => $intent_action,
                     'goal'          => $intent_result['goal'] ?? '',
                     'status'        => $intent_result['status'] ?? '',
                     'slot_progress' => $slot_progress,
                 ] );
-            } else {
-                $this->emit_trace( 'local_intent_unavailable', [
-                    'branch' => 'smart_gateway',
-                    'reason' => 'BizCity_Intent_Engine class missing',
-                ], 'warn' );
-            }
 
-            $this->send_stream_event( 'status', [ 'text' => 'Dang ket noi Smart Gateway...' ] );
-            $this->emit_trace( 'smart_gateway_connect', [
-                'branch'     => 'smart_gateway',
-                'session_id' => $session_id,
-                'has_client_engine_result' => ! empty( $params['client_engine_result'] ),
-            ] );
-
-            $self = $this;
-            $sg_result = $smart->resolve_stream( $params, function ( $delta, $full ) use ( $self ) {
-                $self->send_stream_event( 'chunk', [ 'delta' => $delta, 'full' => $full ] );
-            }, function ( $event, $payload ) use ( $self ) {
-                if ( ! is_array( $payload ) ) {
-                    $payload = [ 'value' => $payload ];
-                }
-
-                // Add unified branch marker for frontend realtime console.
-                if ( ! isset( $payload['branch'] ) ) {
-                    $payload['branch'] = 'smart_gateway';
-                }
-
-                switch ( $event ) {
-                    case 'status':
-                    case 'trace':
-                    case 'engine':
-                    case 'tool_call':
-                    case 'error':
-                    case 'done_meta':
-                        $self->send_stream_event( $event, $payload );
-                        break;
-                }
-            } );
-
-            if ( empty( $sg_result['success'] ) ) {
-                $this->emit_trace( 'smart_gateway_error', [
-                    'branch' => 'smart_gateway',
-                    'error'  => $sg_result['error'] ?? 'unknown',
-                    'debug'  => $sg_result['debug'] ?? [],
-                ], 'error' );
-                error_log( '[chat-gateway-stream] Smart Gateway failed | error=' . ( $sg_result['error'] ?? '(unknown)' ) . ' | debug=' . wp_json_encode( $sg_result['debug'] ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) );
-                $this->send_stream_event( 'error', [
-                    'message' => $sg_result['error'] ?? 'Smart Gateway stream failed',
-                    'debug'   => $sg_result['debug'] ?? [],
+                $this->send_stream_event( 'chunk', [
+                    'delta' => $intent_result['reply'],
+                    'full'  => $intent_result['reply'],
+                ] );
+                $this->send_stream_event( 'done', [
+                    'message'       => $intent_result['reply'],
+                    'provider'      => 'local-intent',
+                    'engine_result' => $intent_result,
                 ] );
                 $this->send_stream_close();
-                return;
+
+                $this->log_message( [
+                    'session_id'    => $session_id,
+                    'user_id'       => 0,
+                    'client_name'   => 'AI',
+                    'message_id'    => uniqid( 'chat_bot_' ),
+                    'message_text'  => $intent_result['reply'],
+                    'message_from'  => 'bot',
+                    'message_type'  => 'text',
+                    'platform_type' => $platform_type,
+                    'meta'          => [
+                        'provider'     => 'local-intent',
+                        'character_id' => $character_id,
+                        'action'       => $intent_action,
+                        'goal'         => $intent_result['goal'] ?? '',
+                    ],
+                ] );
+                exit;
             }
-
-            $bot_reply = $sg_result['response'] ?? '';
-            $this->emit_trace( 'smart_gateway_done', [
-                'branch'   => 'smart_gateway',
-                'provider' => 'smart-gateway',
-                'model'    => $sg_result['usage']['model'] ?? '',
-                'action'   => $sg_result['engine_result']['action'] ?? '',
-                'goal'     => $sg_result['engine_result']['goal'] ?? '',
-                'reply_len'=> mb_strlen( (string) $bot_reply, 'UTF-8' ),
-            ] );
-            $this->send_stream_event( 'done', [
-                'message'  => $bot_reply,
-                'provider' => 'smart-gateway',
-                'model'    => $sg_result['usage']['model'] ?? '',
-                'engine_result' => $sg_result['engine_result'] ?? [],
-                'focus_profile' => $sg_result['focus_profile'] ?? [],
-                'tool_call'     => $sg_result['tool_call'] ?? [],
-                'debug'         => $sg_result['debug'] ?? [],
-            ] );
-            $this->send_stream_close();
-
-            // Log bot reply
-            $this->log_message( [
-                'session_id'    => $session_id,
-                'user_id'       => 0,
-                'client_name'   => 'AI',
-                'message_id'    => uniqid( 'chat_bot_' ),
-                'message_text'  => $bot_reply,
-                'message_from'  => 'bot',
-                'message_type'  => 'text',
-                'platform_type' => $platform_type,
-                'meta'          => [
-                    'provider'     => 'smart-gateway',
-                    'model'        => $sg_result['usage']['model'] ?? '',
-                    'character_id' => $character_id,
-                    'via'          => 'smart_gateway_stream',
-                ],
-            ] );
-
-            do_action( 'bizcity_chat_message_processed', [
-                'platform_type' => $platform_type,
-                'session_id'    => $session_id,
-                'character_id'  => $character_id,
-                'user_id'       => $user_id,
-                'user_message'  => $message,
-                'bot_reply'     => $bot_reply,
-                'images'        => $images,
-                'provider'      => 'smart-gateway',
-                'model'         => $sg_result['usage']['model'] ?? '',
-            ] );
-
-            exit;
         }
 
-        // ── Prepare LLM messages (context + history + system prompt) ──
+        // ── Direct LLM: Intent Engine → Focus Gate → Resolver → bizcity_llm_chat() ──
+        $this->emit_trace( 'focus_gate', [
+            'character_id'  => $character_id,
+            'intent_action' => isset( $intent_action ) ? $intent_action : 'direct',
+        ] );
         $prepared = $this->prepare_llm_call($character_id, $message, $images, $session_id, $history_json, $user_id, $platform_type);
 
         if (isset($prepared['error'])) {
@@ -2284,17 +2166,10 @@ class BizCity_Chat_Gateway {
         $character       = $prepared['character'];
         $result_base     = $prepared['result_base'];
 
-        // ── Set SSE headers ──
-        while (ob_get_level() > 0) {
-            ob_end_flush();
-        }
-        header('Content-Type: text/event-stream; charset=UTF-8');
-        header('Cache-Control: no-cache, no-store, must-revalidate');
-        header('Connection: keep-alive');
-        header('X-Accel-Buffering: no');
-        header('Access-Control-Allow-Origin: *');
-        set_time_limit(120);
-        ignore_user_abort(false);
+        $this->emit_trace( 'context_resolver', [
+            'messages_count' => count( $openai_messages ),
+            'character_id'   => $character_id,
+        ] );
 
         // ── Check streaming availability ──
         $stream_fn = function_exists( 'bizcity_llm_chat_stream' ) ? 'bizcity_llm_chat_stream'
@@ -2357,16 +2232,32 @@ class BizCity_Chat_Gateway {
             'temperature' => ($character && isset($character->creativity_level))
                 ? floatval($character->creativity_level)
                 : 0.7,
+            // Keepalive ping: prevents web server (LiteSpeed/NGINX) from killing
+            // the browser→PHP connection during LLM thinking time (no data for 8-10s).
+            'on_keepalive' => function () {
+                echo ": ping\n\n";
+                @flush();
+            },
         ];
         if ($character && !empty($character->model_id)) {
             $model_options['model'] = $character->model_id;
         }
 
+        $this->emit_trace( 'llm_request', [
+            'model'          => $model_options['model'] ?? '',
+            'messages_count' => count( $openai_messages ),
+        ] );
+
         $self = $this;
+        $first_chunk_emitted = false;
         $stream_result = $stream_fn(
             $openai_messages,
             $model_options,
-            function ($delta, $full_text) use ($self) {
+            function ($delta, $full_text) use ($self, &$first_chunk_emitted) {
+                if ( ! $first_chunk_emitted ) {
+                    $self->emit_trace( 'llm_first_chunk', [ 'chars' => strlen( $full_text ) ] );
+                    $first_chunk_emitted = true;
+                }
                 $self->send_stream_event('chunk', [
                     'delta' => $delta,
                     'full'  => $full_text,
@@ -2376,10 +2267,29 @@ class BizCity_Chat_Gateway {
 
         $bot_reply = $stream_result['message'] ?? '';
         if (empty($stream_result['success'])) {
-            error_log('[chat-gateway-stream] Stream error: ' . ($stream_result['error'] ?? 'unknown'));
+            error_log('[chat-gateway-stream] Stream error: ' . ($stream_result['error'] ?? 'unknown') . ' | reply_len=' . strlen($bot_reply));
+            // If the stream failed (e.g. CURLE_WRITE_ERROR=23 from client disconnect)
+            // but the LLM client recovered partial/full text, push it as a single chunk
+            // so the reply is not silently lost.
+            if ( $bot_reply !== '' && ! connection_aborted() ) {
+                $this->send_stream_event('chunk', [
+                    'delta' => $bot_reply,
+                    'full'  => $bot_reply,
+                ]);
+            }
         } else {
             error_log('[chat-gateway-stream] Stream OK | reply_len=' . strlen($bot_reply) . ' | model=' . ($stream_result['model'] ?? ''));
         }
+
+        $this->emit_trace( 'llm_stream_result', [
+            'success'         => ! empty( $stream_result['success'] ),
+            'stream_fallback' => ! empty( $stream_result['stream_fallback'] ),
+            'stream_ms'       => (int) ( $stream_result['stream_ms'] ?? 0 ),
+            'reply_len'       => strlen( (string) $bot_reply ),
+            'model'           => $stream_result['model'] ?? '',
+            'provider'        => $stream_result['provider'] ?? '',
+            'error'           => $stream_result['error'] ?? '',
+        ] );
 
         // ── Send done event ──
         $this->send_stream_event('done', [
@@ -2425,28 +2335,54 @@ class BizCity_Chat_Gateway {
 
     /* ─── SSE helpers ─── */
     private function ensure_stream_headers() {
+        // Kill ALL output buffers — including those from WP, plugins, or php.ini output_buffering.
         while ( ob_get_level() > 0 ) {
             ob_end_clean();
         }
+
+        // Prevent PHP from re-creating an output buffer.
+        @ini_set( 'output_buffering', 'Off' );
+        @ini_set( 'zlib.output_compression', 0 );
+
+        // Auto-flush after every echo — no need to call flush() manually.
+        ob_implicit_flush( 1 );
 
         if ( ! headers_sent() ) {
             header( 'Content-Type: text/event-stream; charset=UTF-8' );
             header( 'Cache-Control: no-cache, no-store, must-revalidate' );
             header( 'Connection: keep-alive' );
-            header( 'X-Accel-Buffering: no' );
+            header( 'X-Accel-Buffering: no' );        // Nginx
             header( 'Access-Control-Allow-Origin: *' );
+            // Disable Apache mod_deflate compression for this response.
+            // mod_deflate buffers output for compression, killing SSE real-time delivery.
+            if ( function_exists( 'apache_setenv' ) ) {
+                @apache_setenv( 'no-gzip', '1' );
+            }
+            header( 'Content-Encoding: none' );
         } else {
             error_log( '[chat-gateway-stream] Headers already sent before SSE stream.' );
         }
 
         set_time_limit( 120 );
-        ignore_user_abort( false );
+        // Must be TRUE during SSE: if PHP aborts mid-cURL-callback (echo fails),
+        // the WRITEFUNCTION never returns $raw_len → CURLE_WRITE_ERROR (23) → empty reply.
+        ignore_user_abort( true );
+
+        // 4 KB prelude: forces Apache/Nginx/FastCGI to start chunked transfer
+        // immediately instead of buffering small frames.
+        if ( ! $this->stream_prelude_sent ) {
+            echo ": stream-open\n" . str_repeat( ' ', 4096 ) . "\n\n";
+            flush();
+            $this->stream_prelude_sent = true;
+        }
     }
 
     private function send_stream_event($event, $data) {
+        $payload = 'data: ' . wp_json_encode($data, JSON_UNESCAPED_UNICODE) . "\n\n";
         echo "event: {$event}\n";
-        echo 'data: ' . wp_json_encode($data, JSON_UNESCAPED_UNICODE) . "\n\n";
-        if (ob_get_level() > 0) ob_flush();
+        echo $payload;
+        // ob_implicit_flush(1) handles auto-flush, but call flush() explicitly
+        // as safety net in case output_buffering got re-enabled.
         flush();
     }
 
@@ -2454,6 +2390,20 @@ class BizCity_Chat_Gateway {
      * Emit unified trace marker for realtime frontend console + debugging.
      */
     private function emit_trace( string $stage, array $data = [], string $level = 'info' ): void {
+        $now = microtime( true );
+        if ( $this->trace_started_at <= 0 ) {
+            $this->trace_started_at = $now;
+            $this->trace_last_at    = $now;
+        }
+
+        $elapsed_ms = (int) round( ( $now - $this->trace_started_at ) * 1000 );
+        $delta_ms   = (int) round( ( $now - $this->trace_last_at ) * 1000 );
+        $this->trace_last_at = $now;
+
+        // Embed timing directly in event data so frontend can debug even if packets are buffered.
+        $data['elapsed_ms'] = $elapsed_ms;
+        $data['delta_ms']   = $delta_ms;
+
         $payload = [
             'stage' => $stage,
             'level' => $level,
@@ -2591,6 +2541,11 @@ class BizCity_Chat_Gateway {
      * Detect platform type from request context
      */
     private function detect_platform_type() {
+        // Guest users are always WEBCHAT — even if client sends ADMINCHAT
+        if ( ! is_user_logged_in() ) {
+            return 'WEBCHAT';
+        }
+
         // Explicit from POST
         if (!empty($_POST['platform_type'])) {
             $pt = strtoupper(sanitize_text_field($_POST['platform_type']));
@@ -2624,7 +2579,7 @@ class BizCity_Chat_Gateway {
      * Verify nonce — accepts multiple nonce field names for backward compat
      */
     private function verify_nonce() {
-        $nonce = $_POST['nonce'] ?? $_POST['_wpnonce'] ?? '';
+        $nonce = ! empty( $_POST['nonce'] ) ? $_POST['nonce'] : ( $_POST['_wpnonce'] ?? '' );
         if (!$nonce) return false;
 
         // Accept any of the known nonce actions

@@ -3,6 +3,9 @@
 > Tài liệu chuẩn để xây dựng plugin tích hợp BizCity Intent Engine.
 > Lấy `bizcity-tool-content` làm plugin mẫu.
 
+> Chuẩn hợp nhất mới: xem `PLUGIN-TWIN-STANDARD.md` ở root `bizcity-twin-ai/`.
+> Tài liệu này tập trung vào plugin-level implementation. Các quy chuẩn cross-module (slash/mention payload, studio/automation capability, SSE contract, gateway contract) phải tuân theo chuẩn hợp nhất.
+
 ---
 
 ## 1. Kiến trúc tổng quan
@@ -539,16 +542,26 @@ document.querySelectorAll('[data-msg]').forEach(function(el) {
         e.preventDefault();
         var msg = this.getAttribute('data-msg');
         if (!msg) return;
+        var tool = this.getAttribute('data-tool') || '';
+        if (tool && msg.indexOf('/') !== 0) msg = '/' + tool + ' ' + msg;
         if (window.parent && window.parent !== window) {
             window.parent.postMessage({
                 type:   'bizcity_agent_command',
                 source: 'bizcity-tool-{name}',
+                plugin_slug: 'bizcity-tool-{name}',
+                tool_name: tool,
                 text:   msg
             }, '*');
         }
     });
 });
 ```
+
+Quy tắc bắt buộc:
+
+- Tất cả shortcut click phải tạo prompt có slash.
+- Card/tip nên khai báo `data-tool` để receiver set đúng tool badge.
+- Payload phải có `plugin_slug` và `tool_name`.
 
 ---
 

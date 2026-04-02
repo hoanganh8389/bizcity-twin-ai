@@ -506,6 +506,7 @@ function bccm_admin_my_profile() {
     echo '<h3 style="margin-top:0;color:#7c3aed">🕉️ Natal Wheel Astrology <small style="font-weight:400;color:#888">(Sidereal — Indian)</small></h3>';
     #if ($has_vedic) {
       // Generate Vedic chart SVG from positions data (API doesn't provide chart images)
+      $birth_data = is_array( $birth_data ?? null ) ? $birth_data : [];
       $astroviet_wheel_url = bccm_build_astroviet_wheel_url($positions, $houses_raw, $coachee_name, array_merge($birth_data, [
         'birth_place' => $astro_row['birth_place'] ?? '',
         'latitude'    => $astro_row['latitude'] ?? ($birth_data['latitude'] ?? 0),

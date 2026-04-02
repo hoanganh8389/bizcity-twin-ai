@@ -54,10 +54,25 @@ abstract class BizCity_Intent_Provider {
      *
      * Return an associative array:
      *   regex_pattern => [
-     *       'goal'    => 'goal_id',
-     *       'label'   => 'Human label',
-     *       'extract' => [ 'slot1', 'slot2' ],
+     *       'goal'            => 'goal_id',
+     *       'label'           => 'Human label',
+     *       'description'     => 'What this goal does',
+     *       'extract'         => [ 'slot1', 'slot2' ],
+     *
+     *       // ── Fair Competition fields (v5.0) ──
+     *       'specificity'     => 'narrow',           // 'exact' | 'narrow' | 'broad' (default)
+     *                                                //   exact  = 0.95 conf (slash-level precision)
+     *                                                //   narrow = 0.90 conf (domain keywords only)
+     *                                                //   broad  = 0.65 conf (generic question words)
+     *       'negative'        => '/regex/ui',         // Optional: skip if message matches this
+     *       'domain_keywords' => [ 'kw1', 'kw2' ],   // Optional: require ≥1 keyword present,
+     *                                                 //   otherwise cap confidence at 0.50
      *   ]
+     *
+     * Specificity tiers ensure narrow/exact patterns always win over broad
+     * ones when multiple providers match the same message. Providers with
+     * broad patterns should declare 'domain_keywords' to avoid hijacking
+     * unrelated intents.
      *
      * @return array
      */

@@ -37,6 +37,9 @@ defined('ABSPATH') or die('OOPS...');
 
 class BizCity_Profile_Context {
 
+    private const CACHE_GROUP       = 'bizcity_profile_context';
+    private const PROFILE_CACHE_TTL = 30000;
+
     /* ─── Singleton ─── */
     private static $instance = null;
 
@@ -53,9 +56,183 @@ class BizCity_Profile_Context {
     /** @var array In-memory cache keyed by user_id */
     private $cache = [];
 
+    /** @var bool|null Cached schema state for bccm_coachees.user_id */
+    private $has_coachees_user_id = null;
+
     public function __construct() {
         global $wpdb;
         $this->wpdb = $wpdb;
+
+        // Invalidate profile cache when core WP user data changes.
+        add_action( 'profile_update', [ $this, 'invalidate_profile_cache' ], 10, 1 );
+        add_action( 'user_register',  [ $this, 'invalidate_profile_cache' ], 10, 1 );
+        add_action( 'deleted_user',   [ $this, 'invalidate_profile_cache' ], 10, 1 );
+        add_action( 'updated_user_meta', [ $this, 'on_user_meta_changed' ], 10, 4 );
+        add_action( 'added_user_meta',   [ $this, 'on_user_meta_changed' ], 10, 4 );
+        add_action( 'deleted_user_meta', [ $this, 'on_user_meta_changed' ], 10, 4 );
+
+        // Optional custom hooks from BizCoach Map (safe if never fired).
+        add_action( 'bccm_profile_updated', [ $this, 'on_bccm_profile_updated' ], 10, 2 );
+        add_action( 'bccm_coachee_updated', [ $this, 'on_bccm_profile_updated' ], 10, 2 );
+    }
+
+    private function profile_cache_version_key(int $user_id): string {
+        return 'bccm_profile_v_' . $user_id;
+    }
+
+    private function profile_cache_data_key(string $kind, int $user_id, string $coach_type, int $version): string {
+        return 'bccm_' . $kind . '_' . md5( $user_id . '|' . $coach_type . '|' . $version );
+    }
+
+    private function get_profile_cache_version(int $user_id): int {
+        if ($user_id <= 0) return 1;
+
+        $ver_key = $this->profile_cache_version_key($user_id);
+        $cached  = wp_cache_get( $ver_key, self::CACHE_GROUP );
+        if ( $cached !== false ) {
+            $ver = (int) $cached;
+            return $ver > 0 ? $ver : 1;
+        }
+
+        $stored = (int) get_transient( $ver_key );
+        $ver    = $stored > 0 ? $stored : 1;
+        wp_cache_set( $ver_key, $ver, self::CACHE_GROUP, DAY_IN_SECONDS );
+        return $ver;
+    }
+
+    private function bump_profile_cache_version(int $user_id): void {
+        if ($user_id <= 0) return;
+
+        $ver_key = $this->profile_cache_version_key($user_id);
+        $next    = $this->get_profile_cache_version($user_id) + 1;
+        wp_cache_set( $ver_key, $next, self::CACHE_GROUP, DAY_IN_SECONDS );
+        set_transient( $ver_key, $next, DAY_IN_SECONDS );
+    }
+
+    private function get_cached_profile_row(int $user_id, string $coach_type = '') {
+        if ($user_id <= 0) return null;
+
+        $version = $this->get_profile_cache_version($user_id);
+        $key     = $this->profile_cache_data_key('row', $user_id, $coach_type, $version);
+
+        $cached = wp_cache_get( $key, self::CACHE_GROUP );
+        if ( $cached !== false ) {
+            return $cached ?: null;
+        }
+
+        $stored = get_transient( $key );
+        if ( $stored !== false ) {
+            wp_cache_set( $key, $stored, self::CACHE_GROUP, self::PROFILE_CACHE_TTL );
+            return $stored ?: null;
+        }
+
+        return null;
+    }
+
+    private function set_cached_profile_row(int $user_id, string $coach_type, $profile): void {
+        if ($user_id <= 0) return;
+
+        $version = $this->get_profile_cache_version($user_id);
+        $key     = $this->profile_cache_data_key('row', $user_id, $coach_type, $version);
+        $value   = $profile ?: '';
+
+        wp_cache_set( $key, $value, self::CACHE_GROUP, self::PROFILE_CACHE_TTL );
+        set_transient( $key, $value, self::PROFILE_CACHE_TTL );
+    }
+
+    private function get_cached_profile_list(int $user_id, string $coach_type = ''): ?array {
+        if ($user_id <= 0) return null;
+
+        $version = $this->get_profile_cache_version($user_id);
+        $key     = $this->profile_cache_data_key('list', $user_id, $coach_type, $version);
+
+        $cached = wp_cache_get( $key, self::CACHE_GROUP );
+        if ( $cached !== false ) {
+            return is_array( $cached ) ? $cached : [];
+        }
+
+        $stored = get_transient( $key );
+        if ( $stored !== false ) {
+            wp_cache_set( $key, $stored, self::CACHE_GROUP, self::PROFILE_CACHE_TTL );
+            return is_array( $stored ) ? $stored : [];
+        }
+
+        return null;
+    }
+
+    private function set_cached_profile_list(int $user_id, string $coach_type, array $rows): void {
+        if ($user_id <= 0) return;
+
+        $version = $this->get_profile_cache_version($user_id);
+        $key     = $this->profile_cache_data_key('list', $user_id, $coach_type, $version);
+
+        wp_cache_set( $key, $rows, self::CACHE_GROUP, self::PROFILE_CACHE_TTL );
+        set_transient( $key, $rows, self::PROFILE_CACHE_TTL );
+    }
+
+    public function on_user_meta_changed($meta_id, $user_id, $meta_key, $meta_value): void {
+        $this->invalidate_profile_cache( (int) $user_id );
+    }
+
+    public function on_bccm_profile_updated($arg1 = 0, $arg2 = 0): void {
+        $user_id = 0;
+
+        if ( is_numeric( $arg2 ) && (int) $arg2 > 0 ) {
+            $user_id = (int) $arg2;
+        } elseif ( is_numeric( $arg1 ) && (int) $arg1 > 0 ) {
+            $user_id = (int) $arg1;
+        } elseif ( is_array( $arg1 ) && ! empty( $arg1['user_id'] ) ) {
+            $user_id = (int) $arg1['user_id'];
+        } elseif ( is_object( $arg1 ) && ! empty( $arg1->user_id ) ) {
+            $user_id = (int) $arg1->user_id;
+        }
+
+        if ( $user_id > 0 ) {
+            $this->invalidate_profile_cache( $user_id );
+        }
+    }
+
+    /**
+     * Ensure bccm_coachees has user_id column.
+     *
+     * Auto-heals legacy schemas by adding user_id at runtime the first time
+     * profile context is built, so downstream queries never crash.
+     */
+    private function ensure_coachees_user_id_column(string $table): bool {
+        if ($this->has_coachees_user_id !== null) {
+            return $this->has_coachees_user_id;
+        }
+
+        $exists = (bool) $this->wpdb->get_var(
+            $this->wpdb->prepare("SHOW COLUMNS FROM {$table} LIKE %s", 'user_id')
+        );
+
+        if ($exists) {
+            $this->has_coachees_user_id = true;
+            return true;
+        }
+
+        // Legacy schema fix: add missing user_id column.
+        $alter_ok = $this->wpdb->query(
+            "ALTER TABLE {$table} ADD COLUMN user_id BIGINT(20) UNSIGNED NOT NULL DEFAULT 0"
+        );
+
+        if ($alter_ok !== false) {
+            // Best effort index for faster lookups; ignore if it already exists.
+            $this->wpdb->query("ALTER TABLE {$table} ADD INDEX idx_user_id (user_id)");
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('[ProfileContext] Added missing column user_id to ' . $table);
+            }
+        } elseif (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('[ProfileContext] Failed adding user_id to ' . $table . ' | db_error=' . $this->wpdb->last_error);
+        }
+
+        $exists_after = (bool) $this->wpdb->get_var(
+            $this->wpdb->prepare("SHOW COLUMNS FROM {$table} LIKE %s", 'user_id')
+        );
+
+        $this->has_coachees_user_id = $exists_after;
+        return $exists_after;
     }
 
     /* ================================================================
@@ -235,8 +412,14 @@ class BizCity_Profile_Context {
             return null;
         }
 
-        // Strategy 1: by user_id (most reliable)
-        if ($user_id) {
+        // Strategy 1: by user_id (most reliable) — auto-heal legacy schema first.
+        $has_user_id_column = $this->ensure_coachees_user_id_column($table);
+        if ($user_id && $has_user_id_column) {
+            $cached_profile = $this->get_cached_profile_row( (int) $user_id, (string) $coach_type );
+            if ( $cached_profile !== null ) {
+                return $cached_profile;
+            }
+
             $where = "user_id = %d";
             $params = [$user_id];
 
@@ -251,6 +434,7 @@ class BizCity_Profile_Context {
                 ...$params
             );
             $profile = $this->wpdb->get_row($sql);
+            $this->set_cached_profile_row( (int) $user_id, (string) $coach_type, $profile );
             if ($profile) return $profile;
         }
 
@@ -776,10 +960,20 @@ class BizCity_Profile_Context {
      * @return array  Array of profile objects
      * ================================================================ */
     public function get_user_profiles($user_id, $coach_type = '') {
+        $user_id = (int) $user_id;
         $table = $this->wpdb->prefix . 'bccm_coachees';
 
         if ($this->wpdb->get_var("SHOW TABLES LIKE '{$table}'") !== $table) {
             return [];
+        }
+
+        if (!$this->ensure_coachees_user_id_column($table)) {
+            return [];
+        }
+
+        $cached_rows = $this->get_cached_profile_list( $user_id, (string) $coach_type );
+        if ( $cached_rows !== null ) {
+            return $cached_rows;
         }
 
         $where = "user_id = %d";
@@ -790,10 +984,13 @@ class BizCity_Profile_Context {
             $params[] = $coach_type;
         }
 
-        return $this->wpdb->get_results($this->wpdb->prepare(
+        $rows = $this->wpdb->get_results($this->wpdb->prepare(
             "SELECT * FROM {$table} WHERE {$where} ORDER BY updated_at DESC",
             ...$params
         ));
+
+        $this->set_cached_profile_list( $user_id, (string) $coach_type, is_array( $rows ) ? $rows : [] );
+        return $rows;
     }
 
     /* ================================================================
@@ -801,6 +998,8 @@ class BizCity_Profile_Context {
      * ================================================================ */
     public function clear_cache($user_id = 0) {
         if ($user_id) {
+            $this->invalidate_profile_cache( (int) $user_id );
+
             // Clear specific user
             foreach ($this->cache as $key => $val) {
                 if (strpos($key, $user_id . '_') === 0) {
@@ -809,6 +1008,27 @@ class BizCity_Profile_Context {
             }
         } else {
             $this->cache = [];
+        }
+    }
+
+    /**
+     * Invalidate profile caches for one user (or current user when omitted).
+     */
+    public function invalidate_profile_cache($user_id = 0): void {
+        $uid = (int) $user_id;
+        if ( $uid <= 0 ) {
+            $uid = get_current_user_id();
+        }
+        if ( $uid <= 0 ) {
+            return;
+        }
+
+        $this->bump_profile_cache_version( $uid );
+
+        foreach ( $this->cache as $key => $val ) {
+            if ( strpos( (string) $key, $uid . '_' ) === 0 ) {
+                unset( $this->cache[ $key ] );
+            }
         }
     }
 

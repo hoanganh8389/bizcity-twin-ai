@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="BizCity Tool Sheet">
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#0f9d7a"/>
+      <stop offset="100%" stop-color="#2f6fed"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="url(#bg)"/>
+  <rect x="24" y="24" width="80" height="80" rx="14" fill="#ffffff" opacity="0.96"/>
+  <path d="M24 48h80M24 72h80M48 24v80M72 24v80" stroke="#d7e3f2" stroke-width="4"/>
+  <rect x="48" y="48" width="24" height="24" rx="6" fill="#0f9d7a"/>
+  <path d="M83 37h9M83 45h13M83 53h9" stroke="#2f6fed" stroke-width="4" stroke-linecap="round"/>
+  <path d="M37 83h18M37 91h26" stroke="#607087" stroke-width="4" stroke-linecap="round"/>
+</svg>

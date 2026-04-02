@@ -58,7 +58,7 @@ define('WAIC_MAIN_FILE', 'bootstrap.php');
 
 define('WAIC_DEFAULT', 'default');
 
-define('WAIC_VERSION', '1.3.7.3.26'); // Fix REST nonce for workflow history
+define('WAIC_VERSION', '1.3.7.3.27'); // Fix REST nonce for workflow history
 
 define('WAIC_CLASS_PREFIX', 'waicc');
 define('WAIC_TEST_MODE', true);

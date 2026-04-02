@@ -54,6 +54,41 @@ class BizCity_Intent_Tool_Index {
     /** @var string Autoloaded option — fingerprint of last synced in-memory tools */
     const MEMORY_SYNC_KEY = 'bizcity_tool_registry_memory_hash';
 
+    /**
+     * Check whether the tool_registry table exists using the autoloaded
+     * schema-version option — zero extra DB queries on the hot path.
+     * Result is statically cached per request.
+     *
+     * @return bool
+     */
+    private function table_ready(): bool {
+        static $ready = null;
+        if ( $ready !== null ) {
+            return $ready;
+        }
+        $ready = ( (int) get_option( self::SCHEMA_VERSION_KEY, 0 ) ) >= 1;
+        return $ready;
+    }
+
+    /**
+     * Real table-existence check — used ONLY inside migrations (runs once per version bump).
+     * Cached per request so multiple migrate_to_N() calls share one query.
+     *
+     * @return bool
+     */
+    private function table_exists_raw(): bool {
+        static $exists = null;
+        if ( $exists !== null ) {
+            return $exists;
+        }
+        global $wpdb;
+        $exists = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(1) FROM information_schema.TABLES WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s",
+            DB_NAME, $this->table
+        ) ) > 0;
+        return $exists;
+    }
+
     public static function instance() {
         if ( is_null( self::$instance ) ) {
             self::$instance = new self();
@@ -197,9 +232,8 @@ class BizCity_Intent_Tool_Index {
     private function migrate_to_2() {
         global $wpdb;
 
-        // Check table exists first
-        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$this->table}'" ) !== $this->table ) {
-            // Table doesn't exist yet — migrate_to_1's dbDelta will create it fully
+        // Table doesn't exist yet — migrate_to_1's dbDelta will create it fully
+        if ( ! $this->table_exists_raw() ) {
             return;
         }
 
@@ -255,7 +289,7 @@ class BizCity_Intent_Tool_Index {
     private function migrate_to_3() {
         global $wpdb;
 
-        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$this->table}'" ) !== $this->table ) {
+        if ( ! $this->table_exists_raw() ) {
             return;
         }
 
@@ -295,7 +329,7 @@ class BizCity_Intent_Tool_Index {
     private function migrate_to_4() {
         global $wpdb;
 
-        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$this->table}'" ) !== $this->table ) {
+        if ( ! $this->table_exists_raw() ) {
             return;
         }
 
@@ -319,7 +353,7 @@ class BizCity_Intent_Tool_Index {
     private function migrate_to_5() {
         global $wpdb;
 
-        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$this->table}'" ) !== $this->table ) {
+        if ( ! $this->table_exists_raw() ) {
             return;
         }
 
@@ -736,8 +770,7 @@ class BizCity_Intent_Tool_Index {
 
         global $wpdb;
 
-        // Check table exists
-        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$this->table}'" ) !== $this->table ) {
+        if ( ! $this->table_ready() ) {
             return '';
         }
 
@@ -817,7 +850,7 @@ class BizCity_Intent_Tool_Index {
 
         global $wpdb;
 
-        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$this->table}'" ) !== $this->table ) {
+        if ( ! $this->table_ready() ) {
             $cache = [];
             return $cache;
         }
@@ -838,7 +871,7 @@ class BizCity_Intent_Tool_Index {
     public function get_counts_by_plugin(): array {
         global $wpdb;
 
-        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$this->table}'" ) !== $this->table ) {
+        if ( ! $this->table_ready() ) {
             return [];
         }
 
@@ -953,7 +986,7 @@ class BizCity_Intent_Tool_Index {
     public function get_tool_by_key( string $key ) {
         global $wpdb;
 
-        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$this->table}'" ) !== $this->table ) {
+        if ( ! $this->table_ready() ) {
             return null;
         }
 
@@ -974,7 +1007,7 @@ class BizCity_Intent_Tool_Index {
     public function get_tool_by_name( string $name ) {
         global $wpdb;
 
-        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$this->table}'" ) !== $this->table ) {
+        if ( ! $this->table_ready() ) {
             return null;
         }
 
@@ -1078,7 +1111,7 @@ class BizCity_Intent_Tool_Index {
     public function get_all_for_control_panel(): array {
         global $wpdb;
 
-        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$this->table}'" ) !== $this->table ) {
+        if ( ! $this->table_ready() ) {
             return [];
         }
 

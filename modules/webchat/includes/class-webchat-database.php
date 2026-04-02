@@ -18,7 +18,7 @@ if (!class_exists('BizCity_WebChat_Database')) {
 class BizCity_WebChat_Database {
 
     /** Schema version — bump to trigger migration */
-    const SCHEMA_VERSION = '3.7.0';
+    const SCHEMA_VERSION = '3.9.1';
     
     private static $instance = null;
     
@@ -123,6 +123,7 @@ class BizCity_WebChat_Database {
             session_id VARCHAR(128) NOT NULL,
             user_id BIGINT UNSIGNED DEFAULT 0,
             client_name VARCHAR(255),
+            coachee_id BIGINT UNSIGNED DEFAULT NULL,
             title VARCHAR(255) DEFAULT '',
             platform_type VARCHAR(32) DEFAULT 'WEBCHAT',
             status VARCHAR(32) DEFAULT 'active',
@@ -160,6 +161,7 @@ class BizCity_WebChat_Database {
             platform_type VARCHAR(32) DEFAULT 'WEBCHAT',
             project_id VARCHAR(50) DEFAULT '',
             status VARCHAR(20) DEFAULT 'visible',
+            todo_id BIGINT UNSIGNED DEFAULT NULL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             meta LONGTEXT,
             INDEX idx_session (session_id),
@@ -327,6 +329,18 @@ class BizCity_WebChat_Database {
             $wpdb->query( "ALTER TABLE {$table_messages} ADD COLUMN project_id VARCHAR(50) DEFAULT '' AFTER platform_type" );
             $wpdb->query( "ALTER TABLE {$table_messages} ADD INDEX idx_project_id (project_id)" );
         }
+
+        // Migration 7 (v3.8.0): Add coachee_id to conversations table for BizCoach profile linking
+        if ( ! in_array( 'coachee_id', $cols_conv, true ) ) {
+            $wpdb->query( "ALTER TABLE {$table_conversations} ADD COLUMN coachee_id BIGINT UNSIGNED DEFAULT NULL AFTER user_id" );
+            $wpdb->query( "ALTER TABLE {$table_conversations} ADD INDEX idx_coachee (coachee_id)" );
+        }
+
+        // Migration 8 (v3.9.1): Add todo_id to messages table for pipeline todo tracking
+        if ( ! in_array( 'todo_id', $cols_msg, true ) ) {
+            $wpdb->query( "ALTER TABLE {$table_messages} ADD COLUMN todo_id BIGINT UNSIGNED DEFAULT NULL AFTER status" );
+            $wpdb->query( "ALTER TABLE {$table_messages} ADD INDEX idx_todo_id (todo_id)" );
+        }
     }
 
     /**
@@ -409,7 +423,7 @@ class BizCity_WebChat_Database {
         // Get or create conversation
         $conversation_id = $this->get_or_create_conversation($session_id, $data);
         
-        $wpdb->insert($table, [
+        $insert_data = [
             'conversation_id' => $conversation_id,
             'session_id' => $session_id,
             'user_id' => $data['user_id'] ?? 0,
@@ -425,7 +439,22 @@ class BizCity_WebChat_Database {
             'platform_type' => $data['platform_type'] ?? 'WEBCHAT',
             'project_id' => $data['project_id'] ?? '',
             'meta' => isset($data['meta']) ? wp_json_encode($data['meta']) : '',
-        ]);
+        ];
+        // Insert message first (without todo_id to avoid column-missing failures)
+        $inserted = $wpdb->insert($table, $insert_data);
+        
+        if ( $inserted === false ) {
+            error_log( '[WebChat DB] log_message INSERT FAILED: ' . $wpdb->last_error );
+            error_log( '[WebChat DB] Table: ' . $table . ' | session_id: ' . $session_id . ' | blog_id: ' . get_current_blog_id() );
+            return false; // Signal failure to callers
+        }
+        
+        $msg_row_id = $wpdb->insert_id;
+        
+        // Update todo_id separately (safe — only if column exists and value provided)
+        if ( ! empty( $data['todo_id'] ) && $msg_row_id > 0 ) {
+            $wpdb->update( $table, [ 'todo_id' => intval( $data['todo_id'] ) ], [ 'id' => $msg_row_id ] );
+        }
 
         // Fire hook for global logger (bizcity-bot-agent)
         do_action('bizcity_webchat_message_saved', array_merge($data, [

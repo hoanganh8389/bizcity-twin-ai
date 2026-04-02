@@ -30,6 +30,7 @@ require_once $gateway_dir . 'class-gateway-bridge.php';
 require_once $gateway_dir . 'class-gateway-sender.php';
 require_once $gateway_dir . 'class-user-resolver.php';
 require_once $gateway_dir . 'class-blog-resolver.php';
+require_once $gateway_dir . 'class-channel-role.php';
 require_once $gateway_dir . 'class-admin-menu.php';
 
 // Boot admin UI (hooks into bizchat_register_menus).

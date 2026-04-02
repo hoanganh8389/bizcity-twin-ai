@@ -56,8 +56,18 @@ class BizCity_Intent_Clarify_Gate {
         $mode       = $mode_result['mode'] ?? 'ambiguous';
         $confidence = (float) ( $mode_result['confidence'] ?? 0.0 );
 
-        // Explicitly ambiguous or very low confidence -> ask clarify first.
-        if ( $mode === 'ambiguous' || $confidence < 0.62 ) {
+        // v4.3.7: Messages >5 chars should go to the main LLM, not get trapped
+        // in a clarify loop. The Chat Gateway LLM handles real messages far better
+        // than a binary "1 or 2" choice prompt. Only clarify very short fragments.
+        if ( $msg_length > 5 ) {
+            return [ 'should_clarify' => false, 'prompt' => '', 'reason' => 'substantive_msg', 'score' => max( 0.3, $confidence ) ];
+        }
+
+        // Only clarify when BOTH ambiguous AND low confidence.
+        // High-confidence ambiguous (e.g. "hello bạn" → conf=1.0) means the LLM
+        // is SURE it's casual/social — let the ambiguous pipeline handle it naturally.
+        // Previously used OR which trapped ALL ambiguous messages including greetings.
+        if ( $mode === 'ambiguous' && $confidence < 0.62 ) {
             $prompt = "Mình cần làm rõ trước khi xử lý để tránh sai ý.\n\n"
                 . "Bạn muốn:\n"
                 . "1) Tìm hiểu/tham khảo thông tin\n"

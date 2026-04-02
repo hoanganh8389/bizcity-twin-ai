@@ -114,6 +114,7 @@ class BizCoach_Intent_Provider extends BizCity_Intent_Provider {
                 'label'       => 'Tạo bản đồ sao',
                 'description' => 'User muốn tạo bản đồ sao cá nhân (natal chart). Ví dụ: "tạo bản đồ sao cho tôi", "làm natal chart".',
                 'extract'     => [],
+                'specificity' => 'narrow',
             ],
 
             // ── SECONDARY: Tạo bản đồ vận hạn transit (narrow) ──
@@ -122,14 +123,21 @@ class BizCoach_Intent_Provider extends BizCity_Intent_Provider {
                 'label'       => 'Tạo bản đồ vận hạn',
                 'description' => 'User muốn tạo bản đồ vận hạn (transit chart). Ví dụ: "tạo bản đồ vận hạn", "làm transit cho tôi".',
                 'extract'     => [],
+                'specificity' => 'narrow',
             ],
 
-            // ── MAIN: Tư vấn chiêm tinh (broad catch-all) ──
-            '/chiêm tinh|tử vi|bói|hoa tinh|natal|transit|phong thủy|vận mệnh|vận hạn|bản đồ sao|sao hôm nay|hôm nay (?:tôi )?thế nào|thế nào hôm nay|dự báo vận|xem vận|ngày mai|tuần (?:này|sau|tới)|tháng (?:này|sau|tới)|năm (?:nay|tới|sau)|(?:thế nào|ra sao|như thế nào)/ui' => [
-                'goal'        => 'bizcoach_consult',
-                'label'       => 'Tư vấn chiêm tinh',
-                'description' => 'User hỏi bất kỳ câu nào liên quan đến chiêm tinh, tử vi, vận mệnh, bản đồ sao, dự báo hàng ngày/tuần/tháng/năm, phong thủy. MAIN tool — catch-all.',
-                'extract'     => [ 'prompt' ],
+            // ── MAIN: Tư vấn chiêm tinh ──
+            // Chỉ match khi có ÍT NHẤT 1 domain keyword chiêm tinh.
+            // KHÔNG dùng standalone generic fragments (thế nào, ra sao, ngày mai, tuần này...)
+            // vì chúng match MỌI câu hỏi tiếng Việt → hijack intent của các provider khác.
+            '/chiêm tinh|tử vi|bói (?:toán|bài|quẻ)|hoa tinh|natal|transit|phong thủy|vận mệnh|vận hạn|bản đồ sao|sao hôm nay|dự báo vận|xem vận|cung hoàng đạo|thần số học|tarot|horoscope|lá số/ui' => [
+                'goal'            => 'bizcoach_consult',
+                'label'           => 'Tư vấn chiêm tinh',
+                'description'     => 'User hỏi liên quan đến chiêm tinh, tử vi, vận mệnh, bản đồ sao, phong thủy, tarot, thần số học. Cần có ít nhất 1 từ khóa domain chiêm tinh rõ ràng.',
+                'extract'         => [ 'prompt' ],
+                'specificity'     => 'narrow',
+                'domain_keywords' => [ 'chiêm tinh', 'tử vi', 'bói', 'vận mệnh', 'phong thủy', 'tarot', 'thần số học', 'natal', 'transit', 'horoscope', 'cung hoàng đạo', 'lá số', 'bản đồ sao', 'hoa tinh', 'vận hạn' ],
+                'negative'        => '/ăn|nấu|công thức|code|lập trình|kế toán|thuế|sản phẩm|đơn hàng|tạo video/ui',
             ],
         ];
     }

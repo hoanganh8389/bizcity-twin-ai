@@ -43,6 +43,9 @@ class WaicWorkflowExecuteAPI {
             // Create execution ID (allow task_id = 0 for testing unsaved workflows)
             $executionId = 'waic_exec_' . ($taskId > 0 ? $taskId : 'temp') . '_' . time();
             
+            // Phase 1.1: Extract pipeline context (from Step Executor or frontend)
+            $pipeline_id = sanitize_text_field( $_POST['pipeline_id'] ?? '' );
+
             // Initialize execution state
             $executionState = [
                 'execution_id' => $executionId,
@@ -57,6 +60,13 @@ class WaicWorkflowExecuteAPI {
                 'variables' => [], // Store output variables from each node
                 'logs' => [],
                 'error' => null,
+                // Phase 1.1 — Pipeline context (empty = manual workflow, hooks won't fire)
+                'pipeline_id'              => $pipeline_id,
+                'user_id'                  => get_current_user_id(),
+                'session_id'               => sanitize_text_field( $_POST['session_id'] ?? '' ),
+                'channel'                  => sanitize_text_field( $_POST['channel'] ?? 'adminchat' ),
+                'intent_conversation_id'   => sanitize_text_field( $_POST['intent_conversation_id'] ?? '' ),
+                'node_step_map'            => $this->buildNodeStepMap( $nodes, $edges ),
             ];
             
             // Store in transient (expire after 1 hour)
@@ -203,6 +213,45 @@ class WaicWorkflowExecuteAPI {
                 // For triggers, check listener first for real data, fallback to test data
                 $testData = $this->getListenerData($nodeId, $executionState);
                 
+                // Load base classes for trigger (same pattern as action nodes)
+                $baseClasses = [
+                    dirname(__FILE__) . '/../../../classes/baseObject.php' => 'WaicBaseObject',
+                    dirname(__FILE__) . '/../../../classes/builderBlock.php' => 'WaicBuilderBlock',
+                    dirname(__FILE__) . '/../blocks/trigger.php' => 'WaicTrigger',
+                ];
+                foreach ($baseClasses as $path => $className) {
+                    if (file_exists($path) && !class_exists($className)) {
+                        require_once $path;
+                    }
+                }
+                
+                // For subtype 0 (manual/instant) triggers: run controlRun() for full output
+                if (!empty($nodeCode)) {
+                    $triggerClassName = 'WaicTrigger_' . $nodeCode;
+                    if (!class_exists($triggerClassName)) {
+                        $triggerFilePath = dirname(__FILE__) . '/../blocks/triggers/' . $nodeCode . '.php';
+                        if (file_exists($triggerFilePath)) {
+                            require_once $triggerFilePath;
+                        }
+                    }
+                    if (!class_exists($triggerClassName)) {
+                        $extPaths = WaicDispatcher::applyFilters('getExternalBlocksPaths', []);
+                        foreach ($extPaths as $extPath) {
+                            $extFile = rtrim($extPath, '/\\') . '/triggers/' . $nodeCode . '.php';
+                            if (file_exists($extFile)) {
+                                require_once $extFile;
+                                break;
+                            }
+                        }
+                    }
+                    if (class_exists($triggerClassName)) {
+                        $triggerBlock = new $triggerClassName($node);
+                        if ($triggerBlock->getSubtype() === 0) {
+                            $testData = $triggerBlock->controlRun($testData);
+                        }
+                    }
+                }
+                
                 return [
                     'success' => true,
                     'data' => $testData,
@@ -268,6 +317,71 @@ class WaicWorkflowExecuteAPI {
                 // Set run_id để block có thể trigger resume (HIL, delay, etc.)
                 $actionBlock->setRunId($executionId);
                 
+                // ════════════════════════════════════════════════════════════
+                // Phase 1.1 — PRE-EXECUTE MIDDLEWARE (only when pipeline_id)
+                // Handles: HIL slot gathering, variable injection, confirm
+                // Protected: middleware crash → block runs normally
+                // Skip when _direct_pipeline is set (BFS loop handles it directly)
+                // ════════════════════════════════════════════════════════════
+                $pipeline_id = $executionState['pipeline_id'] ?? '';
+                $skip_filter_mw = ! empty( $executionState['_direct_pipeline'] );
+                if ( ! empty( $pipeline_id ) && ! $skip_filter_mw ) {
+                    try {
+                        $pre_context = apply_filters( 'waic_pipeline_pre_execute', [
+                            'proceed'   => true,
+                            'node'      => $node,
+                            'variables' => $variables,
+                            'block'     => $actionBlock,
+                        ], $pipeline_id, $nodeCode, $executionState );
+                    } catch ( \Throwable $mw_ex ) {
+                        error_log( '[Pipeline MW] pre_execute filter CRASHED: ' . $mw_ex->getMessage() );
+                        $pre_context = [
+                            'proceed'   => true,
+                            'node'      => $node,
+                            'variables' => $variables,
+                            'block'     => $actionBlock,
+                        ];
+                    }
+
+                    // HIL waiting → pause pipeline (un_confirm pattern)
+                    if ( ! empty( $pre_context['waiting'] ) ) {
+                        // Persist waiting state into transient so resumeExecution() can find it
+                        $executionState['status']        = 'waiting';
+                        $executionState['waiting_until']  = $pre_context['waiting'];
+                        $executionState['current_node']   = $node['id'];
+                        $executionState['waiting_status']  = 0;
+                        set_transient( $executionId, $executionState, 3600 );
+
+                        return [
+                            'success' => true,
+                            'data'    => [
+                                'status'  => 0,
+                                'waiting' => $pre_context['waiting'],
+                                'result'  => $pre_context['result'] ?? [],
+                            ],
+                        ];
+                    }
+
+                    // User rejected this step → skip block execution entirely
+                    if ( isset( $pre_context['proceed'] ) && $pre_context['proceed'] === false ) {
+                        return [
+                            'success' => true,
+                            'data'    => [
+                                'status'       => 3,
+                                'result'       => [ 'skipped' => true, 'reason' => 'user_rejected' ],
+                                'sourceHandle' => 'output-right',
+                            ],
+                        ];
+                    }
+
+                    // Middleware injected data into node settings → re-instantiate
+                    if ( ! empty( $pre_context['injected_node'] ) ) {
+                        $node        = $pre_context['injected_node'];
+                        $actionBlock = new $actionClassName( $node );
+                        $actionBlock->setRunId( $executionId );
+                    }
+                }
+
                 error_log('[WAIC Execute] About to call getResults() for: ' . $nodeCode);
                 error_log('[WAIC Execute] TaskId: ' . $taskId);
                 error_log('[WAIC Execute] Variables count: ' . count($variables));
@@ -276,6 +390,23 @@ class WaicWorkflowExecuteAPI {
                 
                 error_log('[WAIC Execute] getResults() returned for: ' . $nodeCode);
                 error_log('[WAIC Execute] Result keys: ' . json_encode(array_keys($result)));
+                
+                // ════════════════════════════════════════════════════════════
+                // Phase 1.1 — POST-EXECUTE MIDDLEWARE (only when pipeline_id)
+                // Handles: evidence save, verify, todos checkpoint, notify
+                // Protected: middleware crash → original result preserved
+                // Skip when _direct_pipeline is set (BFS loop handles it)
+                // ════════════════════════════════════════════════════════════
+                if ( ! empty( $pipeline_id ) && ! $skip_filter_mw ) {
+                    try {
+                        $result = apply_filters( 'waic_pipeline_post_execute',
+                            $result, $pipeline_id, $nodeCode, $node, $executionState
+                        );
+                    } catch ( \Throwable $mw_ex ) {
+                        error_log( '[Pipeline MW] post_execute filter CRASHED: ' . $mw_ex->getMessage() );
+                        // $result remains untouched — block output preserved
+                    }
+                }
                 
                 $this->addLog($executionId, 'NOTICE', "Action result for {$nodeCode}", [
                     'raw_result' => $result,
@@ -380,6 +511,12 @@ class WaicWorkflowExecuteAPI {
             throw new Exception("Unknown node type: {$nodeType}");
             
         } catch (Exception $e) {
+            // Fire failure hook so middleware can update todos + save error evidence
+            // Skip when _direct_pipeline is set (BFS loop handles errors)
+            if ( ! empty( $pipeline_id ) && ! $skip_filter_mw ) {
+                do_action( 'waic_pipeline_node_failed', $pipeline_id, $nodeCode, $node, $e->getMessage(), $executionState );
+            }
+            
             return [
                 'success' => false,
                 'message' => $e->getMessage(),
@@ -574,6 +711,58 @@ class WaicWorkflowExecuteAPI {
     }
     
     /**
+     * Build node → step_index map using BFS traversal order.
+     * Used by Phase 1.1 pipeline middleware for evidence step tracking.
+     *
+     * @param array $nodes Workflow nodes.
+     * @param array $edges Workflow edges.
+     * @return array [ node_id => step_index ]
+     */
+    private function buildNodeStepMap( array $nodes, array $edges ) {
+        $map = [];
+
+        // Find trigger node (BFS root)
+        $triggerId = null;
+        foreach ( $nodes as $n ) {
+            if ( ( $n['type'] ?? '' ) === 'trigger' ) {
+                $triggerId = $n['id'];
+                break;
+            }
+        }
+        if ( ! $triggerId ) {
+            // Fallback: assign by array order
+            foreach ( $nodes as $i => $n ) {
+                $map[ $n['id'] ] = $i;
+            }
+            return $map;
+        }
+
+        // Build adjacency from edges
+        $adj = [];
+        foreach ( $edges as $edge ) {
+            $adj[ $edge['source'] ][] = $edge['target'];
+        }
+
+        // BFS
+        $queue   = [ $triggerId ];
+        $visited = [];
+        $step    = 0;
+        while ( ! empty( $queue ) ) {
+            $id = array_shift( $queue );
+            if ( in_array( $id, $visited, true ) ) {
+                continue;
+            }
+            $visited[]  = $id;
+            $map[ $id ] = $step++;
+            foreach ( $adj[ $id ] ?? [] as $child ) {
+                $queue[] = $child;
+            }
+        }
+
+        return $map;
+    }
+
+    /**
      * Build variables array from previous nodes
      */
     private function buildVariablesArray($executionState, $currentNodeId) {
@@ -660,12 +849,15 @@ class WaicWorkflowExecuteAPI {
             }
         }
         
+        // Inject execution state meta so blocks (planner, verifier) can access them
+        $variables['_pipeline_id']            = $executionState['pipeline_id'] ?? '';
+        $variables['_session_id']             = $executionState['session_id'] ?? '';
+        $variables['_user_id']                = $executionState['user_id'] ?? 0;
+        $variables['_channel']                = $executionState['channel'] ?? 'adminchat';
+        $variables['_intent_conversation_id'] = $executionState['intent_conversation_id'] ?? '';
+        
         return $variables;
     }
-    
-    /**
-     * Replace variables in string
-     */
     private function replaceVariablesInString($string, $variables) {
         foreach ($variables as $key => $value) {
             $string = str_replace("{{" . $key . "}}", $value, $string);
@@ -997,11 +1189,32 @@ class WaicWorkflowExecuteAPI {
             error_log('[WAIC Test] Still waiting for trigger data: ' . $executionId);
             return false;
         }
+
+        // ⭐ Guard against duplicate execution (race condition).
+        // If another thread is already executing (has visited nodes),
+        // don't start a second execution.
+        if ( $executionState['status'] === 'running'
+             && ! empty( $executionState['visited_nodes'] )
+             && empty( $executionState['pending_delay_node'] ) ) {
+            error_log('[WAIC Test] Execution already in progress, skipping duplicate: ' . $executionId);
+            return false;
+        }
+
+        // Mark as running (idempotent if already set by ajaxTestWorkflow)
+        $executionState['status'] = 'running';
+        set_transient($executionId, $executionState, 3600);
         
         error_log('[WAIC Test] Starting background execution: ' . $executionId);
         
         $nodes = $executionState['nodes'] ?? [];
         $edges = $executionState['edges'] ?? [];
+        
+        // Lazy-build node_step_map if not set (ajaxTestWorkflowExecute doesn't have buildNodeStepMap)
+        if ( empty( $executionState['node_step_map'] ) && ! empty( $nodes ) && ! empty( $edges ) ) {
+            $executionState['node_step_map'] = $this->buildNodeStepMap( $nodes, $edges );
+            $this->updateExecutionState( $executionId, [ 'node_step_map' => $executionState['node_step_map'] ], true );
+            error_log( '[WAIC Test] Lazy-built node_step_map: ' . count( $executionState['node_step_map'] ) . ' nodes' );
+        }
         
         // Find trigger node
         $triggerNode = null;
@@ -1093,6 +1306,8 @@ class WaicWorkflowExecuteAPI {
         }
         
         $executionOrder = [];
+        $actionStepCounter = 0; // Tracks action-only step index (matches planner todo step_index)
+        $originalBlogId = get_current_blog_id(); // Save for multisite safety
         
         while (!empty($queue)) {
             // Check if stopped
@@ -1199,6 +1414,188 @@ class WaicWorkflowExecuteAPI {
                     'completed_nodes' => [$currentNodeId],
                 ], true);
                 
+                // Capture pipeline_id from planner output → enable middleware for subsequent nodes
+                $pipeline_from_result = $nodeResults['pipeline_id']
+                    ?? ($nodeResults['result']['pipeline_id'] ?? '');
+                if ( ! empty( $pipeline_from_result ) && empty( $executionState['pipeline_id'] ) ) {
+                    $this->updateExecutionState( $executionId, [
+                        'pipeline_id' => $pipeline_from_result,
+                    ], true );
+                    $executionState['pipeline_id'] = $pipeline_from_result;
+                    error_log( '[WAIC Test] Captured pipeline_id from node output: ' . $pipeline_from_result );
+                }
+                
+                // ════════════════════════════════════════════════════════════
+                // DIRECT PIPELINE INTEGRATION — Evidence, Todos, Messenger
+                // Runs inline in BFS loop for immediate feedback, bypassing
+                // the filter-based middleware (which requires pipeline_id
+                // at executeNodeAction call time).
+                // ════════════════════════════════════════════════════════════
+                $node_code = $currentNode['data']['code'] ?? '';
+                $active_pipeline_id = $executionState['pipeline_id'] ?? '';
+                $is_pipeline_node = in_array( $node_code, [ 'it_todos_planner', 'it_summary_verifier' ], true );
+                
+                if ( ! empty( $active_pipeline_id ) && ! $is_pipeline_node && ! empty( $node_code ) ) {
+                    // Refresh execution state but PRESERVE critical keys set during this run
+                    $local_session_id = $executionState['session_id'] ?? '';
+                    $local_user_id    = $executionState['user_id'] ?? 0;
+                    $local_channel    = $executionState['channel'] ?? 'adminchat';
+                    $freshState = get_transient( $executionId );
+                    if ( $freshState ) {
+                        $executionState = array_merge( $executionState, $freshState );
+                    }
+                    // Restore critical keys (transient merge may have lost them)
+                    if ( empty( $executionState['session_id'] ) && ! empty( $local_session_id ) ) {
+                        $executionState['session_id'] = $local_session_id;
+                    }
+                    if ( empty( $executionState['user_id'] ) && ! empty( $local_user_id ) ) {
+                        $executionState['user_id'] = $local_user_id;
+                    }
+                    if ( empty( $executionState['channel'] ) && ! empty( $local_channel ) ) {
+                        $executionState['channel'] = $local_channel;
+                    }
+                    
+                    error_log( '[WAIC Test] Direct integration for ' . $node_code . ' | pipeline=' . $active_pipeline_id . ' | session=' . ( $executionState['session_id'] ?? 'EMPTY' ) . ' | user=' . ( $executionState['user_id'] ?? 0 ) );
+                    
+                    $result_data = $nodeResults['result'] ?? $nodeResults;
+                    // If result_data is empty but nodeResults has direct data, use nodeResults itself
+                    if ( empty( $result_data ) && ! empty( $nodeResults ) ) {
+                        $result_data = $nodeResults;
+                    }
+                    $step_index  = $actionStepCounter++;  // Action-only index matching planner todos
+                    $node_success = empty( $nodeResults['error'] ) && ( ( $nodeResults['status'] ?? 3 ) === 3 );
+                    $verified = false;
+                    
+                    // Resolve effective tool name for todos matching:
+                    // it_call_tool returns actual tool (e.g. write_article) in result
+                    $effective_tool = $nodeResults['tool_name']
+                        ?? ( $nodeResults['result']['tool_name'] ?? $node_code );
+                    
+                    // --- Evidence Save ---
+                    $matched_todo_id = 0;
+                    try {
+                        if ( class_exists( 'BizCity_Intent_Pipeline_Evidence' ) ) {
+                            $ev_id = BizCity_Intent_Pipeline_Evidence::save( [
+                                'pipeline_id' => $active_pipeline_id,
+                                'step_index'  => $step_index,
+                                'tool_name'   => $effective_tool,
+                                'user_id'     => $executionState['user_id'] ?? 0,
+                                'session_id'  => $executionState['session_id'] ?? '',
+                                'result'      => is_array( $result_data ) ? $result_data : [],
+                                'verified'    => $verified,
+                            ] );
+                            error_log( '[WAIC Test] Evidence saved: ' . ( $ev_id ?: 'failed' ) . ' for ' . $effective_tool );
+
+                            // Link todo_id ↔ evidence conversation
+                            if ( $ev_id && class_exists( 'BizCity_Intent_Todos' ) ) {
+                                global $wpdb;
+                                $todos_table = BizCity_Intent_Database::instance()->todos_table();
+                                $conv_table  = BizCity_Intent_Database::instance()->conversations_table();
+                                // Find matching todo by pipeline_id + step_index
+                                $matched_todo_id = (int) $wpdb->get_var( $wpdb->prepare(
+                                    "SELECT id FROM {$todos_table} WHERE pipeline_id = %s AND step_index = %d LIMIT 1",
+                                    $active_pipeline_id, $step_index
+                                ) );
+                                if ( $matched_todo_id > 0 ) {
+                                    $wpdb->update( $conv_table, [ 'todo_id' => $matched_todo_id ], [ 'conversation_id' => $ev_id ] );
+                                }
+                            }
+                        }
+                    } catch ( \Throwable $e ) {
+                        error_log( '[WAIC Test] Evidence save error: ' . $e->getMessage() );
+                    }
+                    
+                    // --- Todos Update ---
+                    try {
+                        if ( class_exists( 'BizCity_Intent_Todos' ) ) {
+                            $todo_status = $node_success ? 'COMPLETED' : 'FAILED';
+                            $todo_score  = $node_success ? 75 : 0;
+                            $output_parts = [];
+                            if ( is_array( $result_data ) ) {
+                                if ( ! empty( $result_data['post_id'] ) )  $output_parts[] = 'post #' . $result_data['post_id'];
+                                if ( ! empty( $result_data['post_url'] ) ) $output_parts[] = $result_data['post_url'];
+                                if ( ! empty( $result_data['url'] ) )      $output_parts[] = $result_data['url'];
+                                if ( ! empty( $result_data['message'] ) )  $output_parts[] = mb_substr( $result_data['message'], 0, 100 );
+                            }
+                            BizCity_Intent_Todos::update_status(
+                                $active_pipeline_id,
+                                $effective_tool,
+                                $todo_status,
+                                [
+                                    'score'          => $todo_score,
+                                    'output_summary' => implode( ' | ', $output_parts ),
+                                    'error_message'  => $nodeResults['error'] ?? '',
+                                    'step_index'     => $step_index,
+                                ]
+                            );
+                            error_log( '[WAIC Test] Todo updated: ' . $effective_tool . ' → ' . $todo_status );
+                        }
+                    } catch ( \Throwable $e ) {
+                        error_log( '[WAIC Test] Todo update error: ' . $e->getMessage() );
+                    }
+                    
+                    // --- Messenger: Send node result to chat ---
+                    try {
+                        // Ensure correct blog context (it_call_tool may have switched blogs)
+                        if ( is_multisite() && get_current_blog_id() !== $originalBlogId ) {
+                            error_log( '[WAIC Test] Blog switch detected! Current=' . get_current_blog_id() . ' Expected=' . $originalBlogId . ' — restoring' );
+                            switch_to_blog( $originalBlogId );
+                        }
+                        
+                        // Set intent_conversation_id to evidence conv_id for HIL scoping
+                        if ( ! empty( $ev_id ) ) {
+                            $executionState['intent_conversation_id'] = $ev_id;
+                        }
+                        
+                        $msg_session = $executionState['session_id'] ?? '';
+                        if ( empty( $msg_session ) ) {
+                            error_log( '[WAIC Test] Messenger SKIPPED — session_id EMPTY for ' . $effective_tool );
+                        }
+                        
+                        if ( class_exists( 'BizCity_Pipeline_Messenger' ) && ! empty( $msg_session ) ) {
+                            $total_steps = 0;
+                            // Count non-planner/verifier action nodes
+                            foreach ( $executionState['nodes'] ?? [] as $n ) {
+                                $nc = $n['data']['code'] ?? '';
+                                if ( ( $n['type'] ?? '' ) === 'action' && ! in_array( $nc, [ 'it_todos_planner', 'it_summary_verifier' ], true ) ) {
+                                    $total_steps++;
+                                }
+                            }
+                            if ( $total_steps < 1 ) $total_steps = $actionStepCounter; // fallback
+                            
+                            $msg_result = false;
+                            if ( $node_success ) {
+                                $msg_result = BizCity_Pipeline_Messenger::send_node_result(
+                                    $executionState,
+                                    $effective_tool,
+                                    is_array( $result_data ) ? $result_data : [],
+                                    $step_index,
+                                    $total_steps,
+                                    $matched_todo_id
+                                );
+                            } else {
+                                $msg_result = BizCity_Pipeline_Messenger::send_error(
+                                    $executionState,
+                                    $effective_tool,
+                                    $nodeResults['error'] ?? 'Unknown error',
+                                    $step_index,
+                                    $total_steps,
+                                    $matched_todo_id
+                                );
+                            }
+                            error_log( '[WAIC Test] Messenger sent for ' . $effective_tool . ' | result=' . var_export( $msg_result, true ) . ' | blog=' . get_current_blog_id() );
+                            
+                            // Check for DB error (send returns false or log_message returns false)
+                            if ( $msg_result === false ) {
+                                global $wpdb;
+                                error_log( '[WAIC Test] Messenger FAILED for ' . $effective_tool . ' | wpdb_error: ' . ( $wpdb->last_error ?: 'none' ) . ' | table_prefix: ' . $wpdb->prefix );
+                            }
+                        }
+                    } catch ( \Throwable $e ) {
+                        error_log( '[WAIC Test] Messenger error: ' . $e->getMessage() );
+                    }
+                }
+                
                 $executionOrder[] = $currentNodeId;
                 $executionState['last_sourceHandle'] = $nodeResults['sourceHandle'] ?? 'output-right';
                 
@@ -1266,8 +1663,8 @@ class WaicWorkflowExecuteAPI {
                     // Use array union (+) to preserve numeric keys (node IDs)
                     $state[$key] = $value + $old; // New values override old
                     error_log('[WAIC Test] Merged ' . $key . ': ' . json_encode($state[$key]));
-                } elseif ($key === 'visited_nodes' && is_array($value)) {
-                    // Merge visited nodes array (simple array, not associative)
+                } elseif (in_array($key, ['visited_nodes', 'completed_nodes']) && is_array($value)) {
+                    // Merge array lists (append, deduplicate)
                     $state[$key] = array_unique(array_merge($state[$key] ?? [], $value));
                 } else {
                     $state[$key] = $value;

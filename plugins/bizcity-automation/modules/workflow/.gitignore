@@ -1,0 +1,27 @@
+# Node modules (rất nặng, không cần deploy)
+node_modules/
+
+# npm lock file
+package-lock.json
+
+# Build artifacts (rebuild trên local)
+# Nếu muốn commit file đã build, comment dòng dưới
+# assets/workflow.editor.js
+# assets/main.jsx.css
+# assets/workflow.editor.asset.php
+
+# Backup folders
+src_20260128/
+src_orgin/
+assets-new/
+assets chuẩn/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo

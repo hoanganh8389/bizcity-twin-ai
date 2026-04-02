@@ -305,6 +305,16 @@ class BizCity_Intent_Tools {
     }
 
     /**
+     * Get tool callback.
+     *
+     * @param string $name Tool name.
+     * @return callable|null
+     */
+    public function get_callback( $name ) {
+        return $this->tools[ $name ]['callback'] ?? null;
+    }
+
+    /**
      * Check if a tool declares auto_execute (skip confirm for read-only tools).
      *
      * @param string $name Tool name.

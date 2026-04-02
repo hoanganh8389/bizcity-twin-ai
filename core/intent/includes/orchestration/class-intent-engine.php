@@ -507,7 +507,10 @@ class BizCity_Intent_Engine {
                     $result['status'] = 'ACTIVE';
                     $result['goal']   = 'followup:' . $base_goal;
                     $result['rolling_summary'] = $completed_summary;
-                    $result['meta']['post_tool']          = 'followup';
+                    $result['meta']['mode']               = 'knowledge';
+                    $result['meta']['confidence']          = 0.85;
+                    $result['meta']['objectives']          = [ mb_substr( $message, 0, 120, 'UTF-8' ) ];
+                    $result['meta']['post_tool']           = 'followup';
                     $result['meta']['completed_goal']      = $completed_goal;
                     $result['meta']['method']              = 'post_tool_followup';
                     $result['meta']['completed_conv_id']   = $completed_conv_id;
@@ -592,19 +595,38 @@ class BizCity_Intent_Engine {
             $clarify_reply = $this->clarify_gate->resolve_reply( $message );
 
             if ( empty( $clarify_reply['resolved'] ) ) {
-                $this->conversation_mgr->set_waiting( $conv_id, 'clarify', '_clarify_intent' );
-                $result['reply']  = $clarify_reply['retry_prompt'];
-                $result['action'] = 'ask_user';
-                $result['status'] = 'WAITING_USER';
-                $result['meta']['clarify_reason'] = 'clarify_reply_unknown';
+                // ── v4.3.7: Escape hatch — substantive messages bypass clarify loop ──
+                // If user sends anything beyond a numeric/short choice answer,
+                // they're ignoring the clarify prompt and typing a real question.
+                // Abandon clarify state and let Mode Classifier handle it normally.
+                // Threshold >3: "1","2","1.","2)","ok" (≤3) stay in loop;
+                // "một","hai" (=3) stay; everything else escapes.
+                $trimmed_msg = trim( $message );
+                $msg_len     = mb_strlen( $trimmed_msg, 'UTF-8' );
+                if ( $msg_len > 3 ) {
+                    $this->conversation_mgr->resume( $conv_id );
+                    if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+                        error_log( '[INTENT-ENGINE] Step 1.9: Clarify escape — substantive message ('
+                                 . $msg_len . ' chars), abandoning clarify loop.' );
+                    }
+                    // Fall through to Step 2 (Mode Classification)
+                } else {
+                    $this->conversation_mgr->set_waiting( $conv_id, 'clarify', '_clarify_intent' );
+                    $result['reply']  = $clarify_reply['retry_prompt'];
+                    $result['action'] = 'ask_user';
+                    $result['status'] = 'WAITING_USER';
+                    $result['meta']['clarify_reason']  = 'clarify_reply_unknown';
+                    $result['meta']['mode']            = 'clarify_pending';
+                    $result['meta']['mode_confidence'] = 0;
 
-                $this->conversation_mgr->add_turn( $conv_id, 'assistant', $result['reply'], [
-                    'meta' => [ 'ask_field' => '_clarify_intent', 'ask_type' => 'clarify' ],
-                ] );
+                    $this->conversation_mgr->add_turn( $conv_id, 'assistant', $result['reply'], [
+                        'meta' => [ 'ask_field' => '_clarify_intent', 'ask_type' => 'clarify' ],
+                    ] );
 
-                $this->logger->end_trace( $result );
-                do_action( 'bizcity_intent_processed', $result, $params );
-                return $result;
+                    $this->logger->end_trace( $result );
+                    do_action( 'bizcity_intent_processed', $result, $params );
+                    return $result;
+                }
             }
 
             // Clarify resolved -> resume and store selected direction.
@@ -615,6 +637,82 @@ class BizCity_Intent_Engine {
 
             $params['_clarify_forced_mode'] = $clarify_reply['forced_mode'] ?? '';
             $conversation = $this->conversation_mgr->get_active( $user_id, $channel, $session_id ) ?: $conversation;
+        }
+
+        // ── Step 1.9c: MULTI-OBJECTIVE PRE-CONFIRM RESOLUTION ── (Phase 1.1 v1.5)
+        // When engine asked for missing slots before generating workflow (Step 4.4 pre-confirm),
+        // user's reply fills the missing fields → mark confirmed → re-enter Step 4.4.
+        if ( ( $conversation['status'] ?? '' ) === 'WAITING_USER'
+             && ( $conversation['waiting_field'] ?? '' ) === '_multi_preconfirm'
+        ) {
+            $current_slots_pc   = json_decode( $conversation['slots_json'] ?? '{}', true ) ?: [];
+            $preconfirm_state   = $current_slots_pc['_multi_preconfirm_state'] ?? '';
+            $trimmed_msg_pc     = mb_strtolower( trim( $message ), 'UTF-8' );
+
+            // Check for cancel
+            $is_cancel = (bool) preg_match(
+                '/^(hủy|huỷ|không|ko|thôi|bỏ|cancel|no|hủy đi|thôi đi|bỏ đi|dừng)$/u',
+                $trimmed_msg_pc
+            );
+
+            if ( $is_cancel ) {
+                $this->conversation_mgr->resume( $conv_id );
+                $this->conversation_mgr->update_slots( $conv_id, [
+                    '_multi_preconfirm_state'    => '',
+                    '_multi_preconfirm_analysis' => '',
+                    '_preconfirm_content'        => '',
+                ] );
+                $this->conversation_mgr->complete( $conv_id, 'User cancelled multi-preconfirm.' );
+
+                $result['reply']  = '👌 Đã hủy. Bạn cần gì khác thì nói mình nhé!';
+                $result['action'] = 'complete';
+                $result['status'] = 'COMPLETED';
+                $result['meta']['preconfirm_cancelled'] = true;
+
+                $this->conversation_mgr->add_turn( $conv_id, 'user', $message );
+                $this->conversation_mgr->add_turn( $conv_id, 'assistant', $result['reply'] );
+                $this->logger->end_trace( $result );
+                do_action( 'bizcity_intent_processed', $result, $params );
+                return $result;
+            }
+
+            // ── Content-First Resume (Phase 1.1 v1.6) ──
+            // When state = asking_content → user's reply IS the content.
+            // Save as _preconfirm_content, mark content_provided, re-enter pipeline.
+            if ( $preconfirm_state === 'asking_content' ) {
+                $this->conversation_mgr->add_turn( $conv_id, 'user', $message );
+                $this->conversation_mgr->resume( $conv_id );
+                $this->conversation_mgr->update_slots( $conv_id, [
+                    '_preconfirm_content'       => trim( $message ),
+                    '_multi_preconfirm_state'   => 'content_provided',
+                ] );
+                $conversation = $this->conversation_mgr->get_active( $user_id, $channel, $session_id ) ?: $conversation;
+                // Fall through to normal pipeline → Step 4.4 content gate sees content_provided
+            } else {
+                // Legacy: "chạy ngay" accept or other text
+                $is_run_now = (bool) preg_match(
+                    '/^(ok|oke|okie|được|chạy|chạy ngay|chạy đi|làm đi|go|yes|1|✅)$/u',
+                    $trimmed_msg_pc
+                );
+
+                if ( $is_run_now ) {
+                    $this->conversation_mgr->resume( $conv_id );
+                    $this->conversation_mgr->update_slots( $conv_id, [
+                        '_multi_preconfirm_state' => 'confirmed',
+                    ] );
+                    $this->conversation_mgr->add_turn( $conv_id, 'user', $message );
+                    $conversation = $this->conversation_mgr->get_active( $user_id, $channel, $session_id ) ?: $conversation;
+                } else {
+                    // General text reply → treat as content
+                    $this->conversation_mgr->add_turn( $conv_id, 'user', $message );
+                    $this->conversation_mgr->resume( $conv_id );
+                    $this->conversation_mgr->update_slots( $conv_id, [
+                        '_preconfirm_content'     => trim( $message ),
+                        '_multi_preconfirm_state' => 'content_provided',
+                    ] );
+                    $conversation = $this->conversation_mgr->get_active( $user_id, $channel, $session_id ) ?: $conversation;
+                }
+            }
         }
 
         // ── Step 1.9b: PLAN BUILDER CONFIRM RESOLUTION ──
@@ -648,23 +746,36 @@ class BizCity_Intent_Engine {
             ] );
 
             if ( $is_accept ) {
-                // User accepted plan — remind builder link, complete conversation
-                $reply = "✅ Tuyệt! Bạn mở link bên dưới để xem và chỉnh sửa kế hoạch trước khi chạy:\n\n"
-                       . "👉 [{$plan_link}]({$plan_link})";
+                // User accepted plan → auto-execute pipeline (Phase 1.1 G10)
+                $auto_exec_result = $this->auto_execute_plan_task( (int) $plan_task_id, $user_id, $session_id, $channel, (int) $conv_id );
+
+                if ( $auto_exec_result['success'] ) {
+                    $reply = "✅ Đang chạy kế hoạch tự động!\n"
+                           . "📋 Pipeline đã bắt đầu — bạn sẽ nhận tin nhắn cập nhật cho mỗi bước.\n\n"
+                           . "👉 Xem chi tiết: [{$plan_link}]({$plan_link})";
+                } else {
+                    // Fallback: auto-execute failed → user opens builder manually
+                    $reply = "⚠️ Không tự động chạy được — " . ( $auto_exec_result['error'] ?? 'lỗi hệ thống' ) . "\n\n"
+                           . "👉 Bạn mở link bên dưới để chạy thủ công:\n[{$plan_link}]({$plan_link})";
+                }
 
                 $this->conversation_mgr->add_turn( $conv_id, 'user', $message );
                 $this->conversation_mgr->add_turn( $conv_id, 'assistant', $reply );
-                $this->conversation_mgr->complete( $conv_id, 'User accepted multi-plan → builder.' );
+                $this->conversation_mgr->complete( $conv_id, 'User accepted multi-plan → auto-execute.' );
 
                 $result['reply']  = $reply;
                 $result['action'] = 'complete';
                 $result['status'] = 'COMPLETED';
-                $result['meta']['plan_confirmed'] = true;
-                $result['meta']['plan_link']      = $plan_link;
+                $result['meta']['plan_confirmed']    = true;
+                $result['meta']['plan_link']         = $plan_link;
+                $result['meta']['auto_executed']      = $auto_exec_result['success'];
+                $result['meta']['execution_id']       = $auto_exec_result['execution_id'] ?? '';
 
                 $this->logger->log( 'plan_confirm_accept', [
-                    'task_id'   => $plan_task_id,
-                    'plan_link' => $plan_link,
+                    'task_id'       => $plan_task_id,
+                    'plan_link'     => $plan_link,
+                    'auto_executed' => $auto_exec_result['success'],
+                    'execution_id'  => $auto_exec_result['execution_id'] ?? '',
                 ], $conv_id, $conversation['turn_count'] ?? 0, $user_id, $channel );
 
                 $this->logger->end_trace( $result );
@@ -904,6 +1015,24 @@ class BizCity_Intent_Engine {
         // Previously: regex-based provider goal pre-check that scanned all registered
         // goal patterns to override mode → execution. Removed because LLM mode classifier
         // now handles this natively with better accuracy and no keyword confusion.
+
+        // ── Step 1.9c override: force execution when returning from content pre-confirm ──
+        // Step 1.9c set _multi_preconfirm_state = 'content_provided' after user provided
+        // content. resume() changed WAITING_USER → ACTIVE, so Mode Classifier ran full LLM
+        // and may misclassify the content text as knowledge/emotion. Force execution so
+        // pipeline reaches Step 4.4 Content Gate which handles content_provided state.
+        $preconfirm_override_state = ( json_decode( $conversation['slots_json'] ?? '{}', true ) ?: [] )['_multi_preconfirm_state'] ?? '';
+        if ( in_array( $preconfirm_override_state, [ 'content_provided', 'confirmed' ], true )
+             && $mode_result['mode'] !== BizCity_Mode_Classifier::MODE_EXECUTION
+        ) {
+            if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+                error_log( '[INTENT-ENGINE] Step 1.9c override: preconfirm_state=' . $preconfirm_override_state
+                         . ' → forced execution (was: ' . $mode_result['mode'] . ')' );
+            }
+            $mode_result['mode']       = BizCity_Mode_Classifier::MODE_EXECUTION;
+            $mode_result['confidence'] = 0.95;
+            $mode_result['method']     = $mode_result['method'] . '+preconfirm_execution_override';
+        }
 
         $this->logger->log( 'mode_classify', [
             'mode'       => $mode_result['mode'],
@@ -1317,7 +1446,11 @@ class BizCity_Intent_Engine {
         // ── Step 2.4.5: CLARIFY GATE (mode-level) ──
         // If prompt is not clear enough yet, ask clarification BEFORE deciding
         // knowledge/execution path. This prevents premature routing.
-        if ( $this->clarify_gate ) {
+        // v4.3.7: Skip clarify when classifier used fallback (LLM unavailable) —
+        // better to let the main Chat Gateway LLM handle it than trap user in
+        // a clarification loop when the ROUTER LLM is temporarily down.
+        $is_classifier_fallback = ( $mode_result['method'] ?? '' ) === 'fallback';
+        if ( $this->clarify_gate && ! $is_classifier_fallback ) {
             $clarify = $this->clarify_gate->assess_mode( $message, $mode_result, $conversation );
             if ( ! empty( $clarify['should_clarify'] ) ) {
                 $this->conversation_mgr->set_waiting( $conv_id, 'clarify', '_clarify_intent' );
@@ -1436,6 +1569,56 @@ class BizCity_Intent_Engine {
             }
         }
 
+        // ── Step 2.9: SKIP ROUTER for content pre-confirm resume (v4.9.1) ──
+        // When HIL Content-First flow is active (state=content_provided or confirmed),
+        // the user's message is CONTENT for the existing multi-objective workflow, NOT
+        // a new command. Running Router on content text causes misclassification
+        // (e.g. "Xây dựng bản sao song sinh..." → mindmap instead of write_article content).
+        // Construct synthetic intent to re-enter Step 4.4 with existing goal.
+        $preconfirm_skip_router = false;
+        $preconfirm_slots_29    = json_decode( $conversation['slots_json'] ?? '{}', true ) ?: [];
+        $preconfirm_state_29    = $preconfirm_slots_29['_multi_preconfirm_state'] ?? '';
+
+        if ( in_array( $preconfirm_state_29, [ 'content_provided', 'confirmed' ], true )
+             && ! empty( $conversation['goal'] )
+        ) {
+            $preconfirm_skip_router = true;
+            $intent = [
+                'intent'          => 'new_goal',
+                'goal'            => $conversation['goal'],
+                'goal_label'      => $conversation['goal_label'] ?? $conversation['goal'],
+                'confidence'      => 0.99,
+                'method'          => 'preconfirm_resume_synthetic',
+                'entities'        => $conversation['slots'] ?? [],
+                'suggested_tools' => [],
+                'missing_fields'  => [],
+                'goal_objective'  => '',
+            ];
+
+            $this->logger->log( 'classify', [
+                'intent'          => $intent['intent'],
+                'goal'            => $intent['goal'],
+                'confidence'      => $intent['confidence'],
+                'method'          => $intent['method'],
+                'preconfirm_state' => $preconfirm_state_29,
+                'skipped_router'  => true,
+            ], $conv_id, $conversation['turn_count'] ?? 0, $user_id, $channel );
+
+            if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+                error_log( '[INTENT-ENGINE] Step 2.9: Skipped Router — preconfirm_state='
+                    . $preconfirm_state_29 . ' → synthetic new_goal:' . $conversation['goal'] );
+            }
+
+            // Set result meta so downstream steps see intent metadata
+            $result['meta']['intent']          = $intent['intent'];
+            $result['meta']['confidence']      = $intent['confidence'];
+            $result['meta']['method']          = $intent['method'];
+            $result['meta']['suggested_tools'] = [];
+            $result['meta']['missing_fields']  = [];
+            $result['meta']['goal_objective']  = '';
+        }
+
+        if ( ! $preconfirm_skip_router ) {
         // ── Step 3: INTENT CLASSIFICATION (Tầng 2 — Only for Execution mode) ──
         // Pass mode_result so Router can use unified LLM result (v3.5 — skip Router LLM when mode classifier already identified goal)
         do_action( 'bizcity_intent_status', '⚡ Đang nhận diện hành động...' );
@@ -1586,45 +1769,36 @@ class BizCity_Intent_Engine {
             $result['meta']['_router_registry_search'] = $router_debug['registry_search'];
         }
 
-        // ── Step 3.5: SLOT CROSS-VALIDATION — filter dubious Tier 2 entities (v3.6.3) ──
-        // The unified LLM (Mode Classifier) is more reliable for slot presence detection
-        // because it has full context. Tier 2 (extraction-only prompt) may hallucinate
-        // slot values from command text (e.g. "đăng bài viết nhé" → topic="bài viết").
+        // ── Step 3.5: SLOT CROSS-VALIDATION — Tier 1 LLM priority over Tier 2 (v4.8.0) ──
+        // v4.8.0 REDESIGN: The root cause of entity hallucination was Tier 2 (extraction-only LLM)
+        // overriding Tier 1 (unified LLM with full context). This is now fixed at the source:
+        //   - Router Step 0.5 only triggers Tier 2 when entities are empty due to regex_goal
+        //     (regex can't extract entities, so LLM extraction is justified).
+        //   - When unified LLM explicitly concluded "no entities", Tier 2 is SKIPPED.
         //
-        // If slot_analysis says a required slot is MISSING (unified LLM didn't find it)
-        // AND Tier 2 extracted it, validate by checking if the value is just command words.
-        // Common hallucination: extracted value is a substring of the message composed
-        // entirely of Vietnamese action/filler words with no real content.
+        // The regex filler-word heuristic (v3.6.3→v4.7.1) is REMOVED — it was a brittle
+        // workaround that required maintaining a growing word list and could never match
+        // the LLM's contextual understanding.
+        //
+        // Remaining safety: If Slot Analysis (Tier 1) flagged ALL required slots as missing
+        // AND Router still has entities (from regex_goal Tier 2), log for monitoring.
+        // This should be rare after the Router fix.
         if ( ! empty( $slot_analysis['has_analysis'] )
              && $slot_analysis['status'] === 'empty'
              && ! empty( $slot_analysis['missing_slots'] )
              && ! empty( $intent['entities'] )
              && in_array( $intent['intent'] ?? '', [ 'new_goal', 'continue_goal' ], true )
         ) {
-            $msg_lower = mb_strtolower( trim( $message ), 'UTF-8' );
-            foreach ( $slot_analysis['missing_slots'] as $missing_slot ) {
-                if ( ! empty( $intent['entities'][ $missing_slot ] )
-                     && is_string( $intent['entities'][ $missing_slot ] )
-                ) {
-                    $val_lower = mb_strtolower( trim( $intent['entities'][ $missing_slot ] ), 'UTF-8' );
-
-                    // Check 1: Is the extracted value a substring of the original message?
-                    if ( mb_strpos( $msg_lower, $val_lower ) !== false ) {
-                        // Check 2: After removing common action/filler words, is it empty?
-                        $cleaned = preg_replace(
-                            '/\b(viết|bài|đăng|tạo|xem|tra|cứu|post|facebook|fb|web|nhé|nha|đi|giúp|cho|mình|tôi|hộ|giùm|lên|về|với|cái|một|và|hay|hoặc|thử|xin|ơi|ạ|vậy|nào|làm|ra|được)\b/ui',
-                            '',
-                            $val_lower
-                        );
-                        $cleaned = trim( preg_replace( '/\s+/', '', $cleaned ) );
-
-                        if ( mb_strlen( $cleaned, 'UTF-8' ) < 2 ) {
-                            unset( $intent['entities'][ $missing_slot ] );
-                            if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-                                error_log( "[INTENT-ENGINE] Step 3.5 slot-cross-validate: removed tier2 entity '{$missing_slot}'='{$val_lower}' — command text, not real content (unified LLM flagged missing)" );
-                            }
-                        }
-                    }
+            // Log conflict for monitoring — Tier 2 extracted entities that Tier 1 didn't see.
+            // This should only happen for regex_goal paths (legitimate Tier 2 extraction).
+            if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+                $tier2_keys = array_keys( array_filter( $intent['entities'], function( $v, $k ) {
+                    return $k !== '_images' && $k !== '_raw_message' && $k !== 'message' && ! empty( $v );
+                }, ARRAY_FILTER_USE_BOTH ) );
+                if ( ! empty( $tier2_keys ) ) {
+                    error_log( '[INTENT-ENGINE] Step 3.5 monitoring: Tier 1 says empty, Router has entities ['
+                             . implode( ',', $tier2_keys ) . '] — method=' . ( $intent['method'] ?? '?' )
+                             . ' | msg="' . mb_substr( $message, 0, 80, 'UTF-8' ) . '"' );
                 }
             }
         }
@@ -1869,6 +2043,7 @@ class BizCity_Intent_Engine {
                 }
             }
         }
+        } // End: if ( ! $preconfirm_skip_router ) — Steps 3 → 3.6
 
         // ── Step 4: Handle intent ──
 
@@ -1902,10 +2077,21 @@ class BizCity_Intent_Engine {
             $goal_label = $intent['goal_label'] ?? $intent['goal'];
             do_action( 'bizcity_intent_status', '🎯 Cần thực hiện: ' . $goal_label );
 
-            // ── Auto-fill 'message' from user's raw input (v3.5.1) ──
+            // ── Auto-fill 'message' from user's raw input (v3.5.1, v4.7.1 fix) ──
             // Many tool plans use {{slots.message}} as the primary instruction.
             // The user's natural language text IS the message.
-            if ( empty( $intent['entities']['message'] ) && ! empty( $message ) ) {
+            // v4.7.1: BUT only if the classifier actually extracted meaningful entities.
+            // If entities are empty (classifier found no real content), don't fill 'message'
+            // with the raw command — it would poison the Content Confidence Gate.
+            // Example: "đăng bài lên web rồi đăng facebook" has NO content, only a command.
+            $has_classifier_entities = false;
+            foreach ( [ 'topic', 'content', 'description', 'subject', 'query', 'question' ] as $_ck ) {
+                if ( ! empty( $intent['entities'][ $_ck ] ) ) {
+                    $has_classifier_entities = true;
+                    break;
+                }
+            }
+            if ( empty( $intent['entities']['message'] ) && ! empty( $message ) && $has_classifier_entities ) {
                 $intent['entities']['message'] = $message;
             }
 
@@ -1954,7 +2140,16 @@ class BizCity_Intent_Engine {
             // Rationale: new_goal means the user is issuing a new request — stale slots from
             // a previous conversation of the same goal must NOT bleed into the new one.
             // (e.g. user posts article A → then says "đăng bài" again → should NOT inherit topic A)
-            if ( ! empty( $conversation['goal'] ) ) {
+            //
+            // ── v4.9.1 Fix 2: Guard against closing conversation during pre-confirm resume ──
+            // When _multi_preconfirm_state is content_provided/confirmed, the conversation
+            // holds critical state (_preconfirm_content, _multi_preconfirm_analysis).
+            // Do NOT close+create — keep the same conversation to preserve preconfirm slots.
+            $preconfirm_state_4b = ( $conversation['slots'] ?? [] )['_multi_preconfirm_state'] ?? '';
+            $is_preconfirm_resume = in_array( $preconfirm_state_4b, [ 'content_provided', 'confirmed' ], true )
+                                 && $conversation['goal'] === $intent['goal'];
+
+            if ( ! empty( $conversation['goal'] ) && ! $is_preconfirm_resume ) {
                 // ── O6: Cross-goal slot inheritance (v3.6.2) ──
                 // When switching from goal A → goal B, check for overlapping slot names
                 // in the new plan schema. Inherit values that exist in old slots AND are
@@ -2318,65 +2513,308 @@ class BizCity_Intent_Engine {
             $conversation['slots'] = array_merge( $conversation['slots'], $intent['entities'] );
         }
 
-        // ── Step 4.4: Option A — auto detect multi-objective and generate plan link ──
-        // Applies only for execution + new_goal. Existing slash/single-tool flow remains unchanged.
+        // ── Step 4.4: Unified Pipeline — Objective Understanding → Variant Resolution → Execution Planning ──
+        // Two clear layers: (1) understand WHAT the user wants, (2) decide HOW to execute it.
+        // When confidence < threshold → clarify first. Supports provider-specific planner adapters.
         if ( $intent['intent'] === 'new_goal'
              && ! empty( $intent['goal'] )
-             && $this->objective_parser
+             && class_exists( 'BizCity_Objective_Understanding' )
              && class_exists( 'BizCity_Core_Planner' )
         ) {
-            $parsed_objectives = $this->objective_parser->parse( $message, $intent );
+            $understanding = BizCity_Objective_Understanding::instance();
+            $plan_context  = [
+                'user_id'            => $user_id,
+                'session_id'         => $session_id,
+                'conversation_id'    => $conv_id,
+                'conversation_slots' => $conversation['slots'] ?? [],
+                'channel'            => $channel,
+                'message'            => $message,
+            ];
 
-            if ( ! empty( $parsed_objectives['is_multi'] ) ) {
-                $core_planner = BizCity_Core_Planner::instance();
-                $pipeline_plan = $core_planner->build_plan( $parsed_objectives['objectives'], [
-                    'user_id'            => $user_id,
-                    'session_id'         => $session_id,
-                    'conversation_slots' => $conversation['slots'] ?? [],
-                    'channel'            => $channel,
-                    'message'            => $message,
-                ] );
+            // Layer 1: Objective Understanding — structured analysis.
+            // ── v4.9.1 Fix 3: Use cached analysis during pre-confirm resume ──
+            // When returning from content pre-confirm (content_provided/confirmed),
+            // the ORIGINAL multi-objective analysis is stored in _multi_preconfirm_analysis.
+            // Re-analyzing the content text ("Xây dựng bản sao...") would produce wrong
+            // single-goal analysis. Load cached version instead.
+            $preconfirm_state_44 = ( $conversation['slots'] ?? [] )['_multi_preconfirm_state'] ?? '';
+            $cached_analysis_json = $conversation['slots']['_multi_preconfirm_analysis'] ?? '';
 
-                $plan_result = $core_planner->execute_plan( $pipeline_plan, [
-                    'user_id'    => $user_id,
-                    'session_id' => $session_id,
-                    'channel'    => $channel,
-                    'message'    => $message,
-                ] );
+            if ( in_array( $preconfirm_state_44, [ 'content_provided', 'confirmed' ], true )
+                 && $cached_analysis_json !== ''
+            ) {
+                $analysis = json_decode( $cached_analysis_json, true );
+                if ( ! $analysis || empty( $analysis['intents'] ) ) {
+                    // Fallback: corrupted cache → re-analyze
+                    $analysis = $understanding->analyze( $message, $intent, $plan_context );
+                } else {
+                    if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+                        error_log( '[INTENT-ENGINE] Step 4.4 Fix 3: Loaded cached analysis — '
+                            . count( $analysis['intents'] ) . ' intents, is_multi=' . ( $analysis['is_multi'] ? 'true' : 'false' ) );
+                    }
+                }
+            } else {
+                $analysis = $understanding->analyze( $message, $intent, $plan_context );
+            }
 
-                if ( ! empty( $plan_result['success'] ) && ! empty( $plan_result['plan_link'] ) ) {
-                    $summary = $core_planner->format_plan_summary( $pipeline_plan, $plan_result['plan_link'] );
-                    $reply = $summary . "\n\n" . ( $plan_result['message'] ?? '' );
+            // Only build workflow for multi-objective requests (2+ intents).
+            // Single-goal requests fall through to the normal Planner → slot-fill → confirm → execute path.
+            if ( ! empty( $analysis['is_multi'] ) && count( $analysis['intents'] ?? [] ) >= 2 ) {
 
-                    $this->conversation_mgr->set_waiting( $conv_id, 'confirm', '_confirm_plan_builder' );
+                // Gate: if confidence too low, force clarification before building any plan.
+                if ( ! empty( $analysis['needs_clarify'] ) ) {
+                    $clarify_msg = $analysis['clarify_reason'] ?: 'Bạn có thể mô tả rõ hơn mong muốn?';
+                    $this->conversation_mgr->set_waiting( $conv_id, 'confirm', '_clarify_objective' );
                     $this->conversation_mgr->update_slots( $conv_id, [
-                        '_awaiting_plan_confirm' => '1',
-                        '_plan_task_id'          => (string) ( $plan_result['task_id'] ?? 0 ),
-                        '_plan_link'             => $plan_result['plan_link'],
+                        '_awaiting_clarify' => '1',
+                        '_analysis_cache'   => wp_json_encode( $analysis, JSON_UNESCAPED_UNICODE ),
                     ] );
 
-                    $result['reply']   = $reply;
-                    $result['action']  = 'ask_user';
-                    $result['status']  = 'WAITING_USER';
-                    $result['meta']['multi_objective'] = true;
-                    $result['meta']['plan_task_id']    = (int) ( $plan_result['task_id'] ?? 0 );
-                    $result['meta']['plan_link']       = $plan_result['plan_link'];
+                    $result['reply']  = "❓ " . $clarify_msg;
+                    $result['action'] = 'ask_user';
+                    $result['status'] = 'WAITING_USER';
+                    $result['meta']['needs_clarify']  = true;
+                    $result['meta']['analysis']       = $analysis;
 
-                    $this->conversation_mgr->add_turn( $conv_id, 'assistant', $reply, [
-                        'meta' => [ 'ask_field' => '_confirm_plan_builder', 'ask_type' => 'confirm' ],
+                    $this->conversation_mgr->add_turn( $conv_id, 'assistant', $result['reply'], [
+                        'meta' => [ 'ask_field' => '_clarify_objective', 'ask_type' => 'text' ],
                     ] );
-
-                    $this->logger->log( 'multi_plan_generated', [
-                        'goal'       => $intent['goal'],
-                        'task_id'    => $plan_result['task_id'] ?? 0,
-                        'plan_link'  => $plan_result['plan_link'],
-                        'mode'       => $pipeline_plan['mode'] ?? '',
-                        'step_count' => $pipeline_plan['step_count'] ?? 0,
-                    ], $conv_id, $conversation['turn_count'] ?? 0, $user_id, $channel );
-
                     $this->logger->end_trace( $result );
                     do_action( 'bizcity_intent_processed', $result, $params );
                     return $result;
+                }
+
+                // Layer 1.5: Variant Resolution — decide which planner handles execution.
+                $variant_info = [ 'variant' => 'core_planner', 'reason' => 'default', 'method' => 'auto' ];
+                if ( class_exists( 'BizCity_Planner_Variant_Resolver' ) ) {
+                    $resolver     = BizCity_Planner_Variant_Resolver::instance();
+                    $variant_info = $resolver->resolve( $analysis, $plan_context );
+                }
+
+                // Layer 2: Execution Planning — build the plan using selected variant.
+                // But first: Content-First Pre-Confirm (Phase 1.1 v1.6 §17.5)
+                // RULE: When multi-goal detected, check if meaningful CONTENT exists
+                // from classifier entities. If only goals without content (low confidence)
+                // → ALWAYS fallback to ask for specific content before generating workflow.
+                // When re-prompted with good content → prompt carries content desires + goal objectives.
+                $preconfirm_state = $conversation['slots']['_multi_preconfirm_state'] ?? '';
+
+                if ( $preconfirm_state !== 'confirmed' ) {
+
+                    // ── Content Confidence Gate ──
+                    // Classifier entities contain extracted topic/content from the message.
+                    // If entities are empty or only have generic values → content is insufficient.
+                    // v4.7.1: REMOVED 'message' from content_keys — 'message' is auto-filled
+                    // with raw command text at Step 4b, so it always has a value even when
+                    // there is NO real content (e.g. "đăng bài lên web rồi đăng facebook").
+                    // Only check keys that are explicitly extracted by the classifier LLM.
+                    $classifier_entities = $intent['entities'] ?? [];
+                    $content_keys        = [ 'topic', 'content', 'description', 'subject' ];
+                    $has_content         = false;
+                    $content_value       = '';
+
+                    foreach ( $content_keys as $ck ) {
+                        $val = trim( $classifier_entities[ $ck ] ?? '' );
+                        if ( $val !== '' ) {
+                            $has_content   = true;
+                            $content_value = $val;
+                            break;
+                        }
+                    }
+
+                    // Also check pre-confirm slot from previous ask round
+                    $preconfirm_content = trim( $conversation['slots']['_preconfirm_content'] ?? '' );
+                    if ( $preconfirm_content !== '' ) {
+                        $has_content   = true;
+                        $content_value = $preconfirm_content;
+                    }
+
+                    // If no meaningful content → ask user for specific content FIRST
+                    if ( ! $has_content && $preconfirm_state !== 'content_provided' ) {
+                        $goal_list = [];
+                        foreach ( $analysis['intents'] as $idx => $obj ) {
+                            $step_num    = $idx + 1;
+                            $tool_label  = BizCity_Scenario_Generator::get_tool_labels()[ $obj['tool_hint'] ?? '' ] ?? $obj['tool_hint'];
+                            $goal_list[] = "{$step_num}. 🔧 {$tool_label}";
+                        }
+
+                        $lines   = [];
+                        $lines[] = '📋 **Mình hiểu bạn muốn:**';
+                        $lines   = array_merge( $lines, $goal_list );
+                        $lines[] = '';
+                        $lines[] = '❓ **Nội dung cụ thể là gì?**';
+                        $lines[] = 'Bạn mô tả càng chi tiết càng tốt — ví dụ: chủ đề, ý chính, đối tượng, giọng văn...';
+                        $lines[] = 'Mình sẽ dùng nội dung này để viết và đăng tự động cho bạn.';
+                        $reply   = implode( "\n", $lines );
+
+                        $this->conversation_mgr->set_waiting( $conv_id, 'text', '_multi_preconfirm' );
+                        $this->conversation_mgr->update_slots( $conv_id, [
+                            '_multi_preconfirm_state'    => 'asking_content',
+                            '_multi_preconfirm_analysis' => wp_json_encode( $analysis, JSON_UNESCAPED_UNICODE ),
+                        ] );
+
+                        $result['reply']  = $reply;
+                        $result['action'] = 'ask_user';
+                        $result['status'] = 'WAITING_USER';
+                        $result['meta']['multi_preconfirm']  = true;
+                        $result['meta']['asking_content']    = true;
+                        $result['meta']['intent_count']      = count( $analysis['intents'] );
+
+                        $this->conversation_mgr->add_turn( $conv_id, 'assistant', $reply, [
+                            'meta' => [ 'ask_field' => '_multi_preconfirm', 'ask_type' => 'text' ],
+                        ] );
+
+                        $this->logger->log( 'multi_preconfirm_asking_content', [
+                            'goal'         => $intent['goal'],
+                            'entities'     => $classifier_entities,
+                            'has_content'  => false,
+                            'intent_count' => count( $analysis['intents'] ),
+                        ], $conv_id, $conversation['turn_count'] ?? 0, $user_id, $channel );
+
+                        $this->logger->end_trace( $result );
+                        do_action( 'bizcity_intent_processed', $result, $params );
+                        return $result;
+                    }
+
+                    // ── Content available → inject into analysis for plan builder ──
+                    if ( $has_content ) {
+                        // Store content in analysis so Scenario Generator can reference it
+                        $analysis['_content_value'] = $content_value;
+                        $analysis['_content_source'] = $preconfirm_content ? 'user_reply' : 'classifier_entity';
+                    }
+
+                    // All checks passed → mark confirmed, continue to build_plan
+                    $this->conversation_mgr->update_slots( $conv_id, [
+                        '_multi_preconfirm_state' => 'confirmed',
+                    ] );
+                }
+
+                // Inject content and classifier entities into analysis for plan builder
+                $preconfirm_content_final = trim( $conversation['slots']['_preconfirm_content'] ?? '' );
+                $classifier_entities_final = $intent['entities'] ?? [];
+                $content_for_plan = $preconfirm_content_final ?: ( $classifier_entities_final['topic'] ?? '' );
+
+                if ( $content_for_plan ) {
+                    $analysis['_content_value']  = $content_for_plan;
+                    $analysis['_content_source'] = $preconfirm_content_final ? 'user_reply' : 'classifier_entity';
+                    $analysis['_entities']       = $classifier_entities_final;
+                }
+
+                foreach ( $analysis['intents'] as $idx => &$obj_ref ) {
+                    $tool_hint = $obj_ref['tool_hint'] ?? '';
+                    // Inject content as topic/message for each intent's filled_slots
+                    if ( $content_for_plan ) {
+                        $primary_keys = [ 'topic', 'message', 'content', 'description' ];
+                        foreach ( $primary_keys as $pk ) {
+                            if ( isset( $obj_ref['input_fields'][ $pk ] ) && empty( $obj_ref['filled_slots'][ $pk ] ) ) {
+                                $obj_ref['filled_slots'][ $pk ] = $content_for_plan;
+                                break;
+                            }
+                        }
+                    }
+                }
+                unset( $obj_ref );
+
+                $pipeline_plan = null;
+                if ( class_exists( 'BizCity_Execution_Planner' ) ) {
+                    $exec_planner  = BizCity_Execution_Planner::instance();
+                    $pipeline_plan = $exec_planner->build_plan( $analysis, $plan_context );
+                } else {
+                    // Fallback to legacy Core Planner.
+                    $core_planner  = BizCity_Core_Planner::instance();
+                    $objectives    = array_map( function ( $obj ) {
+                        return [
+                            'text'       => $obj['text'],
+                            'tool_hint'  => $obj['tool_hint'],
+                            'confidence' => $obj['confidence'],
+                        ];
+                    }, $analysis['intents'] );
+                    $pipeline_plan = $core_planner->build_plan( $objectives, $plan_context );
+                }
+
+                if ( $pipeline_plan && ! empty( $pipeline_plan['steps'] ) ) {
+                    // Inject content value into plan for Scenario Generator verify-content node
+                    if ( ! empty( $analysis['_content_value'] ) ) {
+                        $pipeline_plan['_content_value'] = $analysis['_content_value'];
+                    }
+
+                    // Generate scenario → save draft task → get builder link.
+                    $core_planner = BizCity_Core_Planner::instance();
+                    $plan_result  = $core_planner->execute_plan( $pipeline_plan, [
+                        'user_id'    => $user_id,
+                        'session_id' => $session_id,
+                        'channel'    => $channel,
+                        'message'    => $message,
+                    ] );
+
+                    if ( ! empty( $plan_result['success'] ) && ! empty( $plan_result['plan_link'] ) ) {
+                        $summary = $core_planner->format_plan_summary( $pipeline_plan, $plan_result['plan_link'] );
+                        $reply = $summary;
+
+                        // Create one-shot trigger for this task.
+                        $task_id = (int) ( $plan_result['task_id'] ?? 0 );
+                        if ( class_exists( 'BizCity_One_Shot_Trigger' ) && $task_id > 0 ) {
+                            BizCity_One_Shot_Trigger::instance()->create( $task_id, $pipeline_plan['pipeline_id'] ?? '', [
+                                'user_id'    => $user_id,
+                                'session_id' => $session_id,
+                                'message'    => $message,
+                                'channel'    => $channel,
+                            ] );
+                        }
+
+                        // ── Phase 1.1 G10: Auto-execute DISABLED ──
+                        // Always show builder link + iframe so user can review and click "Chạy" manually.
+                        // The auto_execute_plan_task path is preserved at L731 (WAITING_USER confirm).
+                        // $current_preconfirm check removed — user always sees the builder first.
+
+                        $this->conversation_mgr->set_waiting( $conv_id, 'confirm', '_confirm_plan_builder' );
+                        $this->conversation_mgr->update_slots( $conv_id, [
+                            '_awaiting_plan_confirm' => '1',
+                            '_plan_task_id'          => (string) $task_id,
+                            '_plan_link'             => $plan_result['plan_link'],
+                        ] );
+
+                        // Trace variant selection.
+                        if ( class_exists( 'BizCity_Planner_Variant_Resolver' ) ) {
+                            BizCity_Planner_Variant_Resolver::instance()->trace_variant(
+                                $conv_id, $variant_info, $plan_result, $this->conversation_mgr
+                            );
+                        }
+
+                        $result['reply']   = $reply;
+                        $result['action']  = 'ask_user';
+                        $result['status']  = 'WAITING_USER';
+                        $result['meta']['multi_objective']  = true;
+                        $result['meta']['plan_task_id']     = $task_id;
+                        $result['meta']['plan_link']        = $plan_result['plan_link'];
+                        $result['meta']['variant']          = $variant_info['variant'];
+                        $result['meta']['analysis']         = [
+                            'intents_count'  => count( $analysis['intents'] ),
+                            'dependencies'   => count( $analysis['dependencies'] ),
+                            'confidence'     => $analysis['confidence'],
+                            'adapter_used'   => $pipeline_plan['adapter_used'] ?? 'core',
+                        ];
+
+                        $this->conversation_mgr->add_turn( $conv_id, 'assistant', $reply, [
+                            'meta' => [ 'ask_field' => '_confirm_plan_builder', 'ask_type' => 'confirm' ],
+                        ] );
+
+                        $this->logger->log( 'multi_plan_generated', [
+                            'goal'        => $intent['goal'],
+                            'task_id'     => $task_id,
+                            'plan_link'   => $plan_result['plan_link'],
+                            'mode'        => $pipeline_plan['mode'] ?? '',
+                            'step_count'  => $pipeline_plan['step_count'] ?? 0,
+                            'variant'     => $variant_info['variant'],
+                            'adapter'     => $pipeline_plan['adapter_used'] ?? 'core',
+                            'confidence'  => $analysis['confidence'],
+                            'deps_count'  => count( $analysis['dependencies'] ),
+                        ], $conv_id, $conversation['turn_count'] ?? 0, $user_id, $channel );
+
+                        $this->logger->end_trace( $result );
+                        do_action( 'bizcity_intent_processed', $result, $params );
+                        return $result;
+                    }
                 }
             }
         }
@@ -3891,15 +4329,18 @@ PROMPT;
             return '';
         }
 
-        // Remove common Vietnamese filler/transition words
+        // Remove common Vietnamese filler/transition/action words
+        // v4.7.1: Added action words (lên, rồi, web, facebook, sang, qua, xong)
+        // to prevent command text "lên web rồi đăng facebook" from surviving as content
         $stripped = preg_replace(
-            '/\b(nhé|nha|đi|ạ|nhá|ha|hé|hen|nào|với|hãy|giúp|hộ|luôn|liền)\b/ui',
+            '/\b(nhé|nha|đi|ạ|nhá|ha|hé|hen|nào|với|hãy|giúp|hộ|luôn|liền|lên|rồi|xong|sang|qua|cho|từ|vào|ra|thêm|web|website|facebook|fb|zalo|tiktok|instagram|email|đăng|viết|tạo|gửi|chạy|làm|bài|bản)\b/ui',
             '', $stripped
         );
         $stripped = trim( preg_replace( '/\s+/u', ' ', $stripped ) );
 
-        // Minimum 3 chars to be considered substantive content
-        if ( mb_strlen( $stripped, 'UTF-8' ) < 3 ) {
+        // Minimum 4 chars to be considered substantive content
+        // (prevents single leftover words like "rồi" from passing)
+        if ( mb_strlen( $stripped, 'UTF-8' ) < 4 ) {
             return '';
         }
 
@@ -5039,5 +5480,111 @@ PROMPT;
             'urls'           => $urls,
             'remaining_text' => $remaining,
         ];
+    }
+
+    /**
+     * Auto-execute a plan task without requiring user to open builder.
+     *
+     * Loads the saved scenario from bizcity_tasks, creates an execution state,
+     * and runs all nodes via the workflow executor.
+     *
+     * Phase 1.1 — G10: Auto-execute after plan confirm.
+     *
+     * @param int    $task_id    Row ID in bizcity_tasks.
+     * @param int    $user_id    Owner user ID.
+     * @param string $session_id Chat session ID.
+     * @param string $channel    Channel (adminchat, webchat, etc.).
+     * @param int    $conv_id    Intent conversation ID.
+     * @return array { success: bool, execution_id: string, error: string }
+     */
+    private function auto_execute_plan_task( int $task_id, int $user_id, string $session_id, string $channel, int $conv_id ): array {
+        if ( $task_id <= 0 ) {
+            return [ 'success' => false, 'execution_id' => '', 'error' => 'Invalid task ID' ];
+        }
+
+        global $wpdb;
+        $table = $wpdb->prefix . ( defined( 'WAIC_DB_PREF' ) ? WAIC_DB_PREF : 'bizcity_' ) . 'tasks';
+        $task  = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE id = %d", $task_id ) );
+
+        if ( ! $task || empty( $task->params ) ) {
+            return [ 'success' => false, 'execution_id' => '', 'error' => 'Task not found or empty' ];
+        }
+
+        $params = json_decode( $task->params, true );
+        if ( ! is_array( $params ) || empty( $params['nodes'] ) ) {
+            return [ 'success' => false, 'execution_id' => '', 'error' => 'Invalid scenario JSON' ];
+        }
+
+        $nodes    = $params['nodes'];
+        $edges    = $params['edges'] ?? [];
+        $settings = $params['settings'] ?? [];
+
+        $pipeline_id  = $settings['pipeline_id'] ?? ( 'pipe_' . $task_id . '_' . time() );
+        $execution_id = 'waic_exec_' . $task_id . '_' . time();
+
+        // Build node_step_map (node_id → step_index for action nodes)
+        $node_step_map = [];
+        $step_idx = 0;
+        foreach ( $nodes as $node ) {
+            if ( ( $node['type'] ?? '' ) !== 'trigger' ) {
+                $node_step_map[ $node['id'] ] = $step_idx;
+                $step_idx++;
+            }
+        }
+
+        // Create execution state (same structure as WaicWorkflowExecuteAPI)
+        $execution_state = [
+            'execution_id'             => $execution_id,
+            'task_id'                  => $task_id,
+            'status'                   => 'running',
+            'mode'                     => 'test',
+            'started_at'               => current_time( 'mysql' ),
+            'current_node'             => null,
+            'nodes'                    => $nodes,
+            'edges'                    => $edges,
+            'test_data'                => [],
+            'node_status'              => [],
+            'variables'                => [],
+            'logs'                     => [],
+            'error'                    => null,
+            'visited_nodes'            => [],
+            'pipeline_id'              => $pipeline_id,
+            'user_id'                  => $user_id,
+            'session_id'               => $session_id,
+            'channel'                  => $channel,
+            'intent_conversation_id'   => (string) $conv_id,
+            'node_step_map'            => $node_step_map,
+        ];
+
+        set_transient( $execution_id, $execution_state, 3600 );
+        update_option( 'waic_active_execution_' . $task_id, $execution_id );
+
+        // Start one-shot trigger if available
+        if ( class_exists( 'BizCity_One_Shot_Trigger' ) ) {
+            $oneshot = BizCity_One_Shot_Trigger::instance();
+            global $wpdb;
+            $os_table = $wpdb->prefix . 'bizcity_pipeline_oneshot';
+            $os_row   = $wpdb->get_row( $wpdb->prepare(
+                "SELECT id FROM {$os_table} WHERE task_id = %d AND state = 'ready' ORDER BY id DESC LIMIT 1",
+                $task_id
+            ) );
+            if ( $os_row ) {
+                $oneshot->start( (int) $os_row->id, $execution_id );
+            }
+        }
+
+        // Execute via WaicWorkflowExecuteAPI background method
+        if ( class_exists( 'WaicWorkflowExecuteAPI' ) ) {
+            $api = WaicWorkflowExecuteAPI::getInstance();
+            $api->executeWorkflowBackground( $execution_id );
+
+            return [
+                'success'      => true,
+                'execution_id' => $execution_id,
+                'error'        => '',
+            ];
+        }
+
+        return [ 'success' => false, 'execution_id' => $execution_id, 'error' => 'Workflow executor not available' ];
     }
 }

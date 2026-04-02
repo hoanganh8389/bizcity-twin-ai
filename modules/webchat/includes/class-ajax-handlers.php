@@ -49,6 +49,11 @@ class BizCity_WebChat_Ajax_Handlers {
         add_action( 'wp_ajax_nopriv_bizcity_webchat_session_messages', [ $this, 'ajax_session_messages' ] );
         add_action( 'wp_ajax_nopriv_bizcity_webchat_session_poll',     [ $this, 'ajax_session_poll' ] );
 
+        // Guest (nopriv) — return empty lists so React app doesn't 400
+        add_action( 'wp_ajax_nopriv_bizcity_webchat_sessions',       [ $this, 'ajax_session_list' ] );
+        add_action( 'wp_ajax_nopriv_bizcity_project_list',           [ $this, 'ajax_project_list' ] );
+        add_action( 'wp_ajax_nopriv_bizcity_intent_conversations',   [ $this, 'ajax_intent_conversations' ] );
+
         // Pin / Archive
         add_action( 'wp_ajax_bizcity_webchat_session_pin',        [ $this, 'ajax_session_pin' ] );
         add_action( 'wp_ajax_bizcity_webchat_session_archive',    [ $this, 'ajax_session_archive' ] );
@@ -148,6 +153,12 @@ class BizCity_WebChat_Ajax_Handlers {
      * List projects for current user.
      */
     public function ajax_project_list() {
+        // Guests have no projects — return empty immediately
+        if ( ! get_current_user_id() ) {
+            wp_send_json_success( [] );
+            return;
+        }
+
         $db = $this->verify_and_get_db();
         if ( ! $db ) return;
 
@@ -507,6 +518,12 @@ class BizCity_WebChat_Ajax_Handlers {
      * Supports search parameter for filtering by title.
      */
     public function ajax_session_list() {
+        // Guests have no saved sessions — return empty immediately
+        if ( ! get_current_user_id() ) {
+            wp_send_json_success( [] );
+            return;
+        }
+
         $db = $this->verify_and_get_db();
         if ( ! $db ) return;
 
@@ -1402,14 +1419,15 @@ class BizCity_WebChat_Ajax_Handlers {
      * List active intent conversations for current user.
      */
     public function ajax_intent_conversations(): void {
-        if ( ! check_ajax_referer( 'bizcity_webchat', '_wpnonce', false ) ) {
-            wp_send_json_error( 'Invalid nonce.', 403 );
+        // Guests have no intent conversations — return empty immediately
+        $user_id = get_current_user_id();
+        if ( ! $user_id ) {
+            wp_send_json_success( [] );
             return;
         }
 
-        $user_id = get_current_user_id();
-        if ( ! $user_id ) {
-            wp_send_json_error( 'Not logged in.', 403 );
+        if ( ! check_ajax_referer( 'bizcity_webchat', '_wpnonce', false ) ) {
+            wp_send_json_error( 'Invalid nonce.', 403 );
             return;
         }
 

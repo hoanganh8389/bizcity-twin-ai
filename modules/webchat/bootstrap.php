@@ -38,7 +38,7 @@ if ( ! defined( 'BIZCITY_WEBCHAT_URL' ) ) {
 
 // Constants — guarded to allow coexistence with legacy mu-plugin
 if ( ! defined( 'BIZCITY_WEBCHAT_VERSION' ) ) {
-    define('BIZCITY_WEBCHAT_VERSION', '3.0.16');
+    define('BIZCITY_WEBCHAT_VERSION', '3.0.17');
 }
 if ( ! defined( 'BIZCITY_WEBCHAT_INCLUDES' ) ) {
     define('BIZCITY_WEBCHAT_INCLUDES', BIZCITY_WEBCHAT_DIR . 'includes/');

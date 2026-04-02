@@ -17,7 +17,7 @@
  * Plugin Name:       Bizcity Twin AI
  * Plugin URI:        https://bizcity.vn
  * Description:       AI Companion Platform — Personalized AI with Identity, Memory, and Intent. Nền tảng AI đồng hành cá nhân hóa.
- * Version:           1.3.1
+ * Version:           1.3.2
  * Author:            Johnny Chu (Chu Hoàng Anh)
  * Author URI:        https://bizcity.vn
  * License:           GPL-2.0-or-later
@@ -36,7 +36,7 @@ define( 'BIZCITY_TWIN_AI_MAIN_LOADED', true );
 
 // Constants — guarded because compat mu-plugin may have defined them early
 if ( ! defined( 'BIZCITY_TWIN_AI_VERSION' ) ) {
-    define( 'BIZCITY_TWIN_AI_VERSION', '1.3.1' );
+    define( 'BIZCITY_TWIN_AI_VERSION', '1.3.2' );
 }
 if ( ! defined( 'BIZCITY_TWIN_AI_DIR' ) ) {
     define( 'BIZCITY_TWIN_AI_DIR', plugin_dir_path( __FILE__ ) );
@@ -48,6 +48,7 @@ if ( ! defined( 'BIZCITY_DB_PREFIX' ) ) {
     define( 'BIZCITY_DB_PREFIX', 'bizcity_' );
 }
 
+
 // Feature flags — Twin Core (có thể override trong wp-config.php)
 if ( ! defined( 'BIZCITY_TWIN_FOCUS_ENABLED' ) )    define( 'BIZCITY_TWIN_FOCUS_ENABLED', true );
 if ( ! defined( 'BIZCITY_TWIN_RESOLVER_ENABLED' ) ) define( 'BIZCITY_TWIN_RESOLVER_ENABLED', true );
@@ -55,6 +56,10 @@ if ( ! defined( 'BIZCITY_TWIN_SNAPSHOT_ENABLED' ) )  define( 'BIZCITY_TWIN_SNAPS
 
 // Smart Gateway — offload Intent Engine + Twin Core to bizcity-llm-router server
 if ( ! defined( 'BIZCITY_SMART_GATEWAY_ENABLED' ) )  define( 'BIZCITY_SMART_GATEWAY_ENABLED', true );
+
+if ( ! defined( 'BIZCITY_INTENT_LOG_PROMPTS' ) )  define( 'BIZCITY_INTENT_LOG_PROMPTS', true );
+
+
 
 // Infrastructure
 require_once __DIR__ . '/includes/class-module-loader.php';
@@ -72,6 +77,17 @@ if ( file_exists( __DIR__ . '/core/twin-core/bootstrap.php' ) ) {
 }
 require_once __DIR__ . '/core/bizcity-market/bootstrap.php';
 require_once __DIR__ . '/core/channel-gateway/bootstrap.php';
+if ( file_exists( __DIR__ . '/core/skills/bootstrap.php' ) ) {
+    require_once __DIR__ . '/core/skills/bootstrap.php';
+}
+if ( file_exists( __DIR__ . '/core/scheduler/bootstrap.php' ) ) {
+    require_once __DIR__ . '/core/scheduler/bootstrap.php';
+}
+
+// ── Legacy helpers — flow functions that automation blocks depend on ──────────
+// Loaded here so bizcity-twin-ai works standalone (without mu-plugin).
+// function_exists() guards inside prevent double-loading when mu-plugin is also active.
+require_once __DIR__ . '/core/helper-legacy/bootstrap.php';
 
 // Translations — load Vietnamese (and other) .po files from /languages/
 add_action( 'init', function() {

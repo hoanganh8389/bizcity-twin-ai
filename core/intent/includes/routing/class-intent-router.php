@@ -74,6 +74,7 @@ class BizCity_Intent_Router {
                 'goal' => 'create_product', 'label' => 'Tạo sản phẩm',
                 'description' => 'Tạo sản phẩm WooCommerce MỚI (áo, quần, giày, đồ ăn, dịch vụ...) với tên, giá, mô tả, ảnh',
                 'extract' => [ 'title', 'price', 'description', 'image_url' ],
+                'specificity' => 'narrow',
             ],
 
             // Reports & statistics
@@ -81,11 +82,13 @@ class BizCity_Intent_Router {
                 'goal' => 'report', 'label' => 'Báo cáo thống kê',
                 'description' => 'Báo cáo doanh thu, thống kê bán hàng tổng quan',
                 'extract' => [ 'report_type', 'date_range', 'metric' ],
+                'specificity' => 'narrow',
             ],
             '/xuất nhập tồn|xnt|tồn kho|inventory/ui' => [
                 'goal' => 'inventory_report', 'label' => 'Báo cáo xuất nhập tồn',
                 'description' => 'Xem báo cáo xuất nhập tồn kho, số lượng hàng còn, hàng đã bán',
                 'extract' => [ 'from_date', 'to_date', 'so_ngay' ],
+                'specificity' => 'narrow',
             ],
 
             // Orders
@@ -93,6 +96,7 @@ class BizCity_Intent_Router {
                 'goal' => 'list_orders', 'label' => 'Xem đơn hàng',
                 'description' => 'Xem danh sách đơn hàng, tra cứu đơn hàng theo trạng thái/ngày',
                 'extract' => [ 'date_range', 'status_filter' ],
+                'specificity' => 'narrow',
             ],
 
             // FB / Social
@@ -100,6 +104,7 @@ class BizCity_Intent_Router {
                 'goal' => 'post_facebook', 'label' => 'Đăng bài Facebook',
                 'description' => 'Đăng bài lên trang Facebook (nội dung, ảnh, link)',
                 'extract' => [ 'content', 'image_url', 'page_id' ],
+                'specificity' => 'narrow',
             ],
             // write_article: use \b boundaries + negative lookahead to avoid
             // false positives like "giải bài tarot", "xem bài tarot", etc.
@@ -107,6 +112,7 @@ class BizCity_Intent_Router {
                 'goal' => 'write_article', 'label' => 'Viết bài',
                 'description' => 'Viết bài blog/content MỚI và đăng lên WordPress',
                 'extract' => [ 'topic', 'tone', 'length' ],
+                'specificity' => 'narrow',
             ],
 
             // Tarot / Astrology
@@ -114,11 +120,15 @@ class BizCity_Intent_Router {
                 'goal' => 'astro_forecast', 'label' => 'Dự báo chiêm tinh',
                 'description' => 'Xem tử vi, chiêm tinh, phong thủy, natal chart, transit',
                 'extract' => [ 'forecast_type', 'time_range', 'focus_area' ],
+                'specificity' => 'narrow',
+                'domain_keywords' => [ 'chiêm tinh', 'tử vi', 'bói', 'hoa tinh', 'natal', 'transit', 'phong thủy' ],
             ],
             '/hôm nay thế nào|thế nào hôm nay|dự báo vận|xem vận|vận mệnh hôm nay|(?:ngày mai|tuần này|tuần sau|tháng này|tháng sau|năm tới|năm nay)\s*(?:thế nào|ra sao|như thế nào|vận thế nào)/ui' => [
                 'goal' => 'daily_outlook', 'label' => 'Dự báo vận mệnh',
                 'description' => 'Dự báo vận mệnh hôm nay/ngày mai/tuần này/tháng này',
                 'extract' => [ 'time_range', 'focus_area' ],
+                'specificity' => 'broad',
+                'domain_keywords' => [ 'vận mệnh', 'vận', 'dự báo', 'chiêm tinh', 'tử vi' ],
             ],
 
             // Customer
@@ -126,6 +136,7 @@ class BizCity_Intent_Router {
                 'goal' => 'find_customer', 'label' => 'Tìm khách hàng',
                 'description' => 'Tìm kiếm/tra cứu khách hàng theo SĐT, tên, email',
                 'extract' => [ 'search_term', 'phone', 'name' ],
+                'specificity' => 'narrow',
             ],
 
             // Schedule
@@ -133,6 +144,7 @@ class BizCity_Intent_Router {
                 'goal' => 'set_reminder', 'label' => 'Nhắc việc',
                 'description' => 'Đặt nhắc việc, hẹn lịch, reminder vào thời gian cụ thể',
                 'extract' => [ 'what', 'when', 'repeat' ],
+                'specificity' => 'narrow',
             ],
 
             // Video creation (Kling)
@@ -140,6 +152,7 @@ class BizCity_Intent_Router {
                 'goal' => 'create_video', 'label' => 'Tạo video',
                 'description' => 'Tạo video sản phẩm, video quảng cáo, video clip từ ảnh/mô tả',
                 'extract' => [ 'title', 'content', 'duration', 'image_url' ],
+                'specificity' => 'narrow',
             ],
 
             // Edit product
@@ -147,6 +160,7 @@ class BizCity_Intent_Router {
                 'goal' => 'edit_product', 'label' => 'Sửa sản phẩm',
                 'description' => 'Sửa/cập nhật thông tin sản phẩm WooCommerce đã có (tên, giá, mô tả, ảnh)',
                 'extract' => [ 'product_id', 'field', 'new_value' ],
+                'specificity' => 'narrow',
             ],
 
             // Customer stats
@@ -154,6 +168,7 @@ class BizCity_Intent_Router {
                 'goal' => 'customer_stats', 'label' => 'Thống kê khách hàng',
                 'description' => 'Thống kê top khách hàng mua nhiều nhất, khách VIP',
                 'extract' => [ 'so_ngay', 'from_date', 'to_date' ],
+                'specificity' => 'narrow',
             ],
 
             // Product stats
@@ -161,6 +176,7 @@ class BizCity_Intent_Router {
                 'goal' => 'product_stats', 'label' => 'Thống kê hàng hóa',
                 'description' => 'Top sản phẩm bán chạy nhất, thống kê hàng hóa theo thời gian',
                 'extract' => [ 'so_ngay', 'from_date', 'to_date' ],
+                'specificity' => 'narrow',
             ],
 
             // Inventory journal
@@ -168,6 +184,7 @@ class BizCity_Intent_Router {
                 'goal' => 'inventory_journal', 'label' => 'Nhật ký xuất nhập',
                 'description' => 'Xem nhật ký xuất nhập kho theo thời gian',
                 'extract' => [ 'from_date', 'to_date', 'so_ngay' ],
+                'specificity' => 'narrow',
             ],
 
             // Warehouse receipt
@@ -175,6 +192,7 @@ class BizCity_Intent_Router {
                 'goal' => 'warehouse_receipt', 'label' => 'Nhập kho',
                 'description' => 'Tạo phiếu nhập kho hàng hóa (tên SP, số lượng, giá mua)',
                 'extract' => [ 'content' ],
+                'specificity' => 'narrow',
             ],
 
             // Create order
@@ -182,6 +200,7 @@ class BizCity_Intent_Router {
                 'goal' => 'create_order', 'label' => 'Tạo đơn hàng',
                 'description' => 'Tạo đơn hàng WooCommerce mới (khách hàng, SĐT, sản phẩm, địa chỉ)',
                 'extract' => [ 'customer_name', 'products', 'phone' ],
+                'specificity' => 'narrow',
             ],
 
             // Help / Guide
@@ -598,15 +617,29 @@ class BizCity_Intent_Router {
                     $debug['cancelled_goal'] = $conversation['goal'];
                 }
 
-                // ── Tier 2: Entity extraction for new_goal with empty entities ──
-                // When classification comes from regex_goal (Mode Classifier),
-                // entities are always empty because regex only matches intent,
-                // not slot values. Trigger LLM entity extraction so the
-                // user's topic/params aren't lost (e.g. "Tạo mindmap về X"
-                // should extract topic="X" instead of re-asking).
+                // ── Tier 2: Entity extraction — ONLY when regex_goal cleared entities ──
+                // v4.8.0: Respect Tier 1 LLM decision when entities are empty.
+                //
+                // Two scenarios for empty entities at this point:
+                //   A) regex_goal / regex_override → regex matched the goal but CANNOT
+                //      extract slot values. Tier 2 LLM extraction IS needed.
+                //      (e.g. "Tạo mindmap về X" → regex sees 'tạo mindmap', but
+                //       topic="X" needs LLM to extract)
+                //
+                //   B) Unified LLM explicitly concluded no entities → the message
+                //      is a pure command with no content. Tier 2 would hallucinate
+                //      (e.g. "đăng bài lên web rồi đăng facebook" → no topic exists,
+                //       but extraction LLM fills topic="bài lên web rồi đăng facebook").
+                //      Trust Tier 1 → skip Tier 2.
+                //
+                // Signal: _regex_override flag or 'regex_goal' method = path A.
+                $is_regex_source = ! empty( $pre['_regex_override'] )
+                    || strpos( $result['method'] ?? '', 'regex' ) !== false;
+
                 $needs_tier2 = in_array( $result['intent'], [ 'new_goal', 'continue_goal' ], true )
                     && ! empty( $result['goal'] )
                     && ! empty( trim( $message ) )
+                    && $is_regex_source
                     && empty( array_filter( $result['entities'], function( $v, $k ) {
                            return $k !== '_images' && $k !== '_raw_message';
                        }, ARRAY_FILTER_USE_BOTH ) );
@@ -629,6 +662,17 @@ class BizCity_Intent_Router {
                                     . $tier2['_llm_model'];
                             }
                         }
+                    }
+                } elseif ( ! $is_regex_source
+                    && empty( array_filter( $result['entities'], function( $v, $k ) {
+                           return $k !== '_images' && $k !== '_raw_message';
+                       }, ARRAY_FILTER_USE_BOTH ) )
+                ) {
+                    // v4.8.0: Unified LLM found goal but no entities → trust it.
+                    // Tier 2 extraction skipped to prevent hallucination.
+                    $debug['tier2_skipped'] = 'unified_llm_no_entities';
+                    if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+                        error_log( '[bizcity-router] Step 0.5: Tier 2 SKIPPED — unified LLM found no entities, trusting Tier 1 (goal=' . $result['goal'] . ')' );
                     }
                 }
 
@@ -837,10 +881,26 @@ class BizCity_Intent_Router {
         if ( $has_active_goal && $conversation['status'] === 'WAITING_USER' ) {
 
             // Check if message matches a DIFFERENT goal pattern
+            // v5.0: Respect negative patterns and domain_keywords gates
             $switch_goal    = null;
             $switch_pattern = '';
             foreach ( $this->goal_patterns as $pat => $cfg ) {
                 if ( @preg_match( $pat, $message_lower ) && $cfg['goal'] !== $conversation['goal'] ) {
+                    // Gate: negative pattern
+                    if ( ! empty( $cfg['negative'] ) && @preg_match( $cfg['negative'], $message_lower ) ) {
+                        continue;
+                    }
+                    // Gate: domain_keywords — skip if declared but none found
+                    if ( ! empty( $cfg['domain_keywords'] ) && is_array( $cfg['domain_keywords'] ) ) {
+                        $has_kw = false;
+                        foreach ( $cfg['domain_keywords'] as $kw ) {
+                            if ( mb_stripos( $message_lower, $kw ) !== false ) {
+                                $has_kw = true;
+                                break;
+                            }
+                        }
+                        if ( ! $has_kw ) continue;
+                    }
                     $switch_goal    = $cfg;
                     $switch_pattern = $pat;
                     break;
@@ -1050,12 +1110,33 @@ class BizCity_Intent_Router {
             return $result;
         }
 
-        // ── Step 3c: Pattern-match for known goals ──
+        // ══════════════════════════════════════════════════════════════════════
+        //  Step 3c: Pattern-match with MULTI-MATCH RANKING (v5.0)
+        //
+        //  Instead of FIRST-MATCH-WINS, collect ALL matching patterns,
+        //  score them by specificity tier, apply negative/domain_keywords
+        //  gates, then pick the highest-scoring candidate.
+        //
+        //  Specificity tiers (provider declares in get_goal_patterns()):
+        //    'exact'  → confidence 0.95 (slash-like precision)
+        //    'narrow' → confidence 0.90 (domain keywords only)
+        //    'broad'  → confidence 0.65 (generic question words) ← DEFAULT
+        //
+        //  Additional gates:
+        //    'negative'        → regex; if matched, skip candidate entirely
+        //    'domain_keywords' → array; if none found in message, cap at 0.50
+        // ══════════════════════════════════════════════════════════════════════
+        $specificity_conf = [
+            'exact'  => 0.95,
+            'narrow' => 0.90,
+            'broad'  => 0.65,
+        ];
+
         $candidates = [];
-        $matched_idx = -1;
+        $matched_candidates = [];
         $idx = 0;
         foreach ( $this->goal_patterns as $pattern => $config ) {
-            $is_match = (bool) @preg_match( $pattern, $message_lower );
+            $is_match = (bool) @preg_match( $pattern, $message_lower, $m );
             $source   = $this->detect_pattern_source( $pattern );
             $candidates[] = [
                 'goal'    => $config['goal'] ?? '?',
@@ -1063,39 +1144,91 @@ class BizCity_Intent_Router {
                 'matched' => $is_match,
                 'pattern' => $pattern,
             ];
-            if ( $is_match && $matched_idx === -1 ) {
-                $matched_idx = $idx;
+
+            if ( $is_match ) {
+                // ── Gate 1: Negative pattern — skip if message contains exclusion terms ──
+                if ( ! empty( $config['negative'] ) && @preg_match( $config['negative'], $message_lower ) ) {
+                    $idx++;
+                    continue;
+                }
+
+                // ── Specificity scoring ──
+                $tier       = $config['specificity'] ?? 'broad';
+                $base_conf  = $specificity_conf[ $tier ] ?? 0.65;
+
+                // Bonus: matched-length ratio (longer match = more specific)
+                $match_len  = isset( $m[0] ) ? mb_strlen( $m[0], 'UTF-8' ) : 0;
+                $msg_len    = max( 1, mb_strlen( $message_lower, 'UTF-8' ) );
+                $ratio_bonus = ( $match_len / $msg_len ) * 0.05;
+                $score       = $base_conf + $ratio_bonus;
+
+                // ── Gate 2: Domain keywords — if declared but none found, cap score ──
+                if ( ! empty( $config['domain_keywords'] ) && is_array( $config['domain_keywords'] ) ) {
+                    $has_anchor = false;
+                    foreach ( $config['domain_keywords'] as $kw ) {
+                        if ( mb_stripos( $message_lower, $kw ) !== false ) {
+                            $has_anchor = true;
+                            break;
+                        }
+                    }
+                    if ( ! $has_anchor ) {
+                        $score = min( $score, 0.50 ); // Below LLM threshold
+                    }
+                }
+
+                $matched_candidates[] = [
+                    'goal'        => $config['goal'] ?? '?',
+                    'label'       => $config['label'] ?? '',
+                    'source'      => $source,
+                    'pattern'     => $pattern,
+                    'score'       => round( $score, 4 ),
+                    'specificity' => $tier,
+                    'idx'         => $idx,
+                ];
             }
             $idx++;
         }
+
+        // Sort matched candidates by score DESC (highest specificity wins)
+        usort( $matched_candidates, function( $a, $b ) {
+            if ( abs( $b['score'] - $a['score'] ) > 0.001 ) {
+                return $b['score'] <=> $a['score'];
+            }
+            return $a['idx'] <=> $b['idx']; // tie-break: registration order
+        } );
+
         $debug['all_goal_candidates'] = $candidates;
         $debug['pattern_count'] = count( $this->goal_patterns );
         $debug['provider_pattern_count'] = count( array_filter( $candidates, function( $c ) {
             return $c['source'] !== 'built-in';
         } ) );
+        $debug['matched_ranked'] = array_slice( $matched_candidates, 0, 5 );
 
-        if ( $matched_idx >= 0 ) {
-            $matched_candidate = $candidates[ $matched_idx ];
-            $matched_pattern   = $matched_candidate['pattern'];
-            $config            = $this->goal_patterns[ $matched_pattern ];
+        if ( ! empty( $matched_candidates ) ) {
+            $best           = $matched_candidates[0];
+            $best_pattern   = $best['pattern'];
+            $config         = $this->goal_patterns[ $best_pattern ];
+            $best_score     = $best['score'];
 
             if ( $has_active_goal && $conversation['goal'] === $config['goal'] ) {
                 $result['intent']     = 'continue_goal';
                 $result['goal']       = $config['goal'];
                 $result['goal_label'] = $config['label'];
-                $result['confidence'] = 0.85;
+                $result['confidence'] = min( $best_score, 0.85 );
                 $result['method']     = 'pattern';
             } else {
                 $result['intent']     = 'new_goal';
                 $result['goal']       = $config['goal'];
                 $result['goal_label'] = $config['label'];
-                $result['confidence'] = 0.9;
+                $result['confidence'] = $best_score;
                 $result['method']     = 'pattern';
             }
 
-            $debug['classify_step']   = 'step3c_fallback_pattern';
-            $debug['matched_pattern'] = $matched_pattern;
-            $debug['pattern_source']  = $matched_candidate['source'];
+            $debug['classify_step']      = 'step3c_fallback_pattern';
+            $debug['matched_pattern']    = $best_pattern;
+            $debug['pattern_source']     = $best['source'];
+            $debug['pattern_specificity'] = $best['specificity'];
+            $debug['pattern_score']      = $best_score;
             $result['entities'] = $this->extract_entities( $message, $config['extract'] ?? [] );
             $result['_debug'] = $debug;
             return $result;

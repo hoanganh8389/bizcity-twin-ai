@@ -325,6 +325,7 @@ class BizCity_LLM_Client {
     }
 
     private function chat_stream_gateway( array $messages, array $options, $on_chunk = null ): array {
+        $stream_t0 = microtime( true );
         $base = $this->empty_result();
         $api_key = $this->get_api_key();
         if ( empty( $api_key ) ) {
@@ -358,14 +359,35 @@ class BizCity_LLM_Client {
         }
 
         $timeout  = isset( $options['timeout'] ) ? intval( $options['timeout'] ) : $this->get_timeout();
-        // [2026-03-25] Unified API namespace: migrate llm/router/v1/chat/stream → bizcity/v1/llm/chat/stream
-        // $endpoint = $this->get_gateway_url() . '/wp-json/llm/router/v1/chat/stream';
-        $endpoint = $this->get_gateway_url() . '/wp-json/bizcity/v1/llm/chat/stream';
+        // SSE streaming MUST use the direct llm/router/v1/chat/stream endpoint.
+        // bizcity/v1/llm/chat/stream is handled by Hub REST which internally dispatches
+        // into handle_chat_stream() — the ob_end_flush() calls inside it cannot escape
+        // Hub REST's own WP_REST_Server output-buffer layer, so all SSE chunks arrive
+        // buffered in one burst at the end (cURL sees HTTP 200 + empty stream, then falls
+        // back to blocking). The legacy llm/router/v1 route goes directly to the SSE
+        // handler with no intermediate wrapper, so real-time streaming works correctly.
+        // DO NOT migrate this URL to bizcity/v1 until Hub REST supports SSE pass-through.
+        $endpoint = $this->get_gateway_url() . '/wp-json/llm/router/v1/chat/stream';
 
         $full_text    = '';
         $usage        = [];
         $buffer       = '';
+        $raw_response = '';
         $actual_model = '';
+
+        error_log( '[LLM-Client] v2-curl_multi | mode=gateway | endpoint=' . $endpoint . ' | model=' . $model );
+
+        // Chunk queue: WRITEFUNCTION pushes parsed deltas here.
+        // The curl_multi polling loop reads from the queue and calls on_chunk
+        // *outside* the cURL callback context.
+        //
+        // Why curl_multi instead of curl_exec:
+        // On LiteSpeed / shared hosting, curl_exec blocks the PHP process inside
+        // the C library. The web server sees zero PHP output for 8-10s, interprets
+        // it as an idle LSAPI connection, and kills the process → CURLE_WRITE_ERROR 23.
+        // curl_multi keeps PHP's execution loop active, preventing the kill.
+        $chunk_queue  = [];
+        $on_keepalive = $options['on_keepalive'] ?? null;
 
         $ch = curl_init( $endpoint );
         curl_setopt_array( $ch, [
@@ -378,21 +400,33 @@ class BizCity_LLM_Client {
             CURLOPT_POSTFIELDS     => wp_json_encode( $body ),
             CURLOPT_RETURNTRANSFER => false,
             CURLOPT_TIMEOUT        => $timeout,
-            CURLOPT_WRITEFUNCTION  => function ( $ch, $data ) use ( &$full_text, &$usage, &$buffer, &$actual_model, $on_chunk ) {
+            CURLOPT_ENCODING       => '',
+            CURLOPT_TCP_NODELAY    => true,
+            CURLOPT_BUFFERSIZE     => 1024,
+            CURLOPT_WRITEFUNCTION  => function ( $ch, $data ) use ( &$full_text, &$usage, &$buffer, &$raw_response, &$actual_model, &$chunk_queue ) {
                 $raw_len = strlen( $data );
-                // Strip BOM from first chunk — must return $raw_len (not stripped len) to curl
+                if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+                    static $write_t0;
+                    if ( ! $write_t0 ) { $write_t0 = microtime( true ); }
+                    $w_ms = (int) round( ( microtime( true ) - $write_t0 ) * 1000 );
+                    error_log( '[llm-stream-write] +' . $w_ms . 'ms | recv ' . $raw_len . 'B | queue=' . count( $chunk_queue ) . ' | full_len=' . strlen( $full_text ) );
+                }
                 if ( $buffer === '' && $raw_len >= 3 && substr( $data, 0, 3 ) === "\xEF\xBB\xBF" ) {
                     $data = substr( $data, 3 );
                 }
+                $raw_response .= $data;
+
+                $data = str_replace( [ "\r\n", "\r" ], "\n", $data );
                 $buffer .= $data;
+
                 while ( ( $nl = strpos( $buffer, "\n" ) ) !== false ) {
                     $line   = trim( substr( $buffer, 0, $nl ) );
                     $buffer = substr( $buffer, $nl + 1 );
 
-                    if ( $line === '' || strpos( $line, 'data: ' ) !== 0 ) {
+                    if ( $line === '' || stripos( $line, 'data:' ) !== 0 ) {
                         continue;
                     }
-                    $json_str = substr( $line, 6 );
+                    $json_str = ltrim( substr( $line, 5 ) );
                     if ( $json_str === '[DONE]' ) {
                         continue;
                     }
@@ -401,7 +435,6 @@ class BizCity_LLM_Client {
                         continue;
                     }
 
-                    // Router final event: {"done":true,"model":"...","usage":[],"success":true}
                     if ( ! empty( $chunk['done'] ) ) {
                         if ( isset( $chunk['usage'] ) ) {
                             $usage = $chunk['usage'];
@@ -412,8 +445,127 @@ class BizCity_LLM_Client {
                         continue;
                     }
 
-                    // Support both OpenAI format (choices[].delta.content)
-                    // and Router's simpler format (delta)
+                    $delta = $chunk['choices'][0]['delta']['content']
+                          ?? $chunk['delta']
+                          ?? '';
+                    if ( $delta !== '' ) {
+                        $full_text .= $delta;
+                        $chunk_queue[] = [ $delta, $full_text ];
+                    }
+                    if ( isset( $chunk['usage'] ) ) {
+                        $usage = $chunk['usage'];
+                    }
+                }
+                return $raw_len;
+            },
+        ] );
+
+        // ── curl_multi polling loop ──
+        $mh = curl_multi_init();
+        curl_multi_add_handle( $mh, $ch );
+        $last_ping = microtime( true );
+
+        do {
+            $status = curl_multi_exec( $mh, $still_running );
+
+            // Drain chunk queue → deliver to browser immediately
+            if ( ! empty( $chunk_queue ) && is_callable( $on_chunk ) ) {
+                foreach ( $chunk_queue as $qc ) {
+                    call_user_func( $on_chunk, $qc[0], $qc[1] );
+                }
+                if ( defined( 'WP_DEBUG' ) && WP_DEBUG && count( $chunk_queue ) > 0 ) {
+                    $p_ms = (int) round( ( microtime( true ) - $stream_t0 ) * 1000 );
+                    error_log( '[llm-stream-poll] +' . $p_ms . 'ms | drained ' . count( $chunk_queue ) . ' chunks | full_len=' . strlen( $full_text ) );
+                }
+                $chunk_queue = [];
+                $last_ping = microtime( true );
+            }
+
+            // Send SSE keepalive ping every 3 seconds to prevent web server
+            // from killing the browser→PHP connection during LLM thinking time.
+            $now = microtime( true );
+            if ( is_callable( $on_keepalive ) && ( $now - $last_ping ) >= 3.0 ) {
+                call_user_func( $on_keepalive );
+                $last_ping = $now;
+            }
+
+            if ( $still_running > 0 ) {
+                curl_multi_select( $mh, 0.05 );
+            }
+        } while ( $still_running > 0 && $status === CURLM_OK );
+
+        // Flush remaining queued chunks
+        if ( ! empty( $chunk_queue ) && is_callable( $on_chunk ) ) {
+            foreach ( $chunk_queue as $qc ) {
+                call_user_func( $on_chunk, $qc[0], $qc[1] );
+            }
+            $chunk_queue = [];
+        }
+
+        $http_code = (int) curl_getinfo( $ch, CURLINFO_HTTP_CODE );
+        $curl_err  = curl_error( $ch );
+        $ok        = ( $curl_err === '' && $http_code >= 200 && $http_code < 300 );
+        curl_multi_remove_handle( $mh, $ch );
+        curl_close( $ch );
+        curl_multi_close( $mh );
+
+        $stream_ms = (int) round( ( microtime( true ) - $stream_t0 ) * 1000 );
+
+        if ( ! $ok || $http_code < 200 || $http_code >= 300 ) {
+            $err_detail = $buffer ? mb_substr( trim( $buffer ), 0, 500 ) : '';
+            $base['error'] = $curl_err ?: "HTTP {$http_code}";
+            if ( $err_detail ) {
+                $base['error'] .= ' | ' . $err_detail;
+            }
+            $base['stream_ms']       = $stream_ms;
+            $base['stream_fallback'] = false;
+            if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+                error_log( "[bizcity-llm] chat_stream_gateway error: HTTP {$http_code} curl={$curl_err} model={$model} stream_ms={$stream_ms} full_text_len=" . strlen( $full_text ) . " body={$err_detail}" );
+            }
+            // CURLE_WRITE_ERROR (23) often means the client SSE connection dropped
+            // while cURL was still receiving data. If we managed to collect text
+            // before the abort, recover it so the reply can still be logged/saved.
+            if ( ! empty( $full_text ) ) {
+                $base['success'] = true;
+                $base['message'] = $full_text;
+                $base['model']   = $actual_model ?: $model;
+                $base['usage']   = $usage;
+            }
+            return $base;
+        }
+
+        $base['success'] = true;
+        $base['message'] = $full_text;
+        $base['model']   = $actual_model ?: $model;
+        $base['usage']   = $usage;
+        $base['stream_ms'] = $stream_ms;
+        $base['stream_fallback'] = false;
+
+        // If upstream/proxy buffered SSE into a single payload, recover chunks from raw body.
+        if ( $full_text === '' && $raw_response !== '' ) {
+            $normalized = str_replace( [ "\r\n", "\r" ], "\n", $raw_response );
+            if ( preg_match_all( '/(?:^|\n)\s*data:\s*(.+?)(?=\n\s*data:\s*|\z)/s', $normalized, $matches ) ) {
+                foreach ( $matches[1] as $json_str ) {
+                    $json_str = trim( $json_str );
+                    if ( $json_str === '' || $json_str === '[DONE]' ) {
+                        continue;
+                    }
+
+                    $chunk = json_decode( $json_str, true );
+                    if ( ! is_array( $chunk ) ) {
+                        continue;
+                    }
+
+                    if ( ! empty( $chunk['done'] ) ) {
+                        if ( isset( $chunk['usage'] ) ) {
+                            $usage = $chunk['usage'];
+                        }
+                        if ( isset( $chunk['model'] ) ) {
+                            $actual_model = $chunk['model'];
+                        }
+                        continue;
+                    }
+
                     $delta = $chunk['choices'][0]['delta']['content']
                           ?? $chunk['delta']
                           ?? '';
@@ -427,42 +579,51 @@ class BizCity_LLM_Client {
                         $usage = $chunk['usage'];
                     }
                 }
-                return $raw_len;
-            },
-        ] );
 
-        $ok        = curl_exec( $ch );
-        $http_code = (int) curl_getinfo( $ch, CURLINFO_HTTP_CODE );
-        $curl_err  = curl_error( $ch );
-        curl_close( $ch );
-
-        if ( ! $ok || $http_code < 200 || $http_code >= 300 ) {
-            $err_detail = $buffer ? mb_substr( trim( $buffer ), 0, 500 ) : '';
-            $base['error'] = $curl_err ?: "HTTP {$http_code}";
-            if ( $err_detail ) {
-                $base['error'] .= ' | ' . $err_detail;
-            }
-            if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-                error_log( "[bizcity-llm] chat_stream_gateway error: HTTP {$http_code} model={$model} body={$err_detail}" );
-            }
-            if ( ! empty( $full_text ) ) {
-                $base['success'] = true;
                 $base['message'] = $full_text;
+                $base['model']   = $actual_model ?: $model;
                 $base['usage']   = $usage;
             }
-            return $base;
-        }
 
-        $base['success'] = true;
-        $base['message'] = $full_text;
-        $base['model']   = $actual_model ?: $model;
-        $base['usage']   = $usage;
+            // Some gateways/proxies may downgrade stream endpoint to blocking JSON.
+            // Recover here to avoid a second blocking retry call (saves ~10-20s).
+            if ( $full_text === '' ) {
+                $trimmed = trim( $raw_response );
+                $decoded_raw = json_decode( $trimmed, true );
+                if ( is_array( $decoded_raw ) ) {
+                    $msg = $decoded_raw['message']
+                        ?? $decoded_raw['choices'][0]['message']['content']
+                        ?? '';
+                    if ( is_string( $msg ) && $msg !== '' ) {
+                        $full_text = $msg;
+                        if ( is_callable( $on_chunk ) ) {
+                            call_user_func( $on_chunk, $msg, $msg );
+                        }
+                        $usage = is_array( $decoded_raw['usage'] ?? null ) ? $decoded_raw['usage'] : $usage;
+                        $actual_model = (string) ( $decoded_raw['model'] ?? $actual_model ?: $model );
+                        $base['message'] = $full_text;
+                        $base['model']   = $actual_model ?: $model;
+                        $base['usage']   = $usage;
+                        $base['stream_fallback'] = false;
+                        if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+                            error_log( '[bizcity-llm] chat_stream_gateway recovered from non-SSE JSON body | model=' . $base['model'] . ' | stream_ms=' . $stream_ms . ' | msg_len=' . strlen( $msg ) );
+                        }
+                    }
+                }
+            }
+        }
 
         // Gateway returned 200 but no content was streamed — likely gateway-side error (BOM-only, silent crash, etc.)
         // Retry as non-streaming call so user gets a response
         if ( $full_text === '' && is_callable( $on_chunk ) ) {
+            if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+                $preview = mb_substr( trim( str_replace( [ "\r", "\n" ], ' ', $raw_response ) ), 0, 240 );
+                error_log( '[bizcity-llm] chat_stream_gateway empty-stream diagnostics | model=' . $model . ' | http=' . $http_code . ' | stream_ms=' . $stream_ms . ' | raw_len=' . strlen( $raw_response ) . ' | buf_len=' . strlen( $buffer ) . ' | preview=' . $preview );
+            }
             error_log( '[bizcity-llm] chat_stream_gateway: 200 OK but empty stream — retrying as blocking call' );
             $blocking = $this->chat_gateway( $messages, $options );
+            $blocking['stream_fallback'] = true;
+            $blocking['stream_ms'] = $stream_ms;
             if ( ! empty( $blocking['message'] ) ) {
                 // Send the full reply as a single SSE chunk so the frontend receives it
                 call_user_func( $on_chunk, $blocking['message'], $blocking['message'] );

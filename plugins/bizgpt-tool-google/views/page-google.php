@@ -45,13 +45,13 @@ $accounts = $is_logged_in ? BZGoogle_Token_Store::get_accounts( $blog_id, $user_
 
 /* ── Workflows — 7 goals ── */
 $workflows = [
-    [ 'icon' => '📨', 'label' => 'Đọc email',      'desc' => 'Xem email mới nhất trong Gmail',            'msg' => 'Đọc email mới nhất',                          'tags' => ['Gmail','Inbox'] ],
-    [ 'icon' => '✉️', 'label' => 'Gửi email',       'desc' => 'Soạn và gửi email qua Gmail',               'msg' => 'Gửi email cho support@example.com tiêu đề Xin chào', 'tags' => ['Gmail','Send'] ],
-    [ 'icon' => '📋', 'label' => 'Tóm tắt inbox',   'desc' => 'AI đọc và tóm tắt hộp thư Gmail',          'msg' => 'Tóm tắt email của tôi',                       'tags' => ['Gmail','AI'] ],
-    [ 'icon' => '📅', 'label' => 'Xem lịch',        'desc' => 'Xem sự kiện sắp tới trong Calendar',       'msg' => 'Xem lịch hôm nay',                            'tags' => ['Calendar'] ],
-    [ 'icon' => '🗓️', 'label' => 'Tạo sự kiện',     'desc' => 'Tạo sự kiện mới trong Calendar',           'msg' => 'Tạo sự kiện họp team lúc 10h sáng mai',       'tags' => ['Calendar'] ],
-    [ 'icon' => '📁', 'label' => 'Xem file Drive',   'desc' => 'Xem danh sách file trong Google Drive',    'msg' => 'Xem file trong Drive',                         'tags' => ['Drive'] ],
-    [ 'icon' => '👥', 'label' => 'Xem danh bạ',      'desc' => 'Xem liên hệ trong Google Contacts',        'msg' => 'Xem danh bạ Google',                           'tags' => ['Contacts'] ],
+    [ 'icon' => '📨', 'label' => 'Đọc email',      'desc' => 'Xem email mới nhất trong Gmail',            'msg' => 'Đọc email mới nhất',                          'tool' => 'gmail_list_messages',   'tags' => ['Gmail','Inbox'] ],
+    [ 'icon' => '✉️', 'label' => 'Gửi email',       'desc' => 'Soạn và gửi email qua Gmail',               'msg' => 'Gửi email cho support@example.com tiêu đề Xin chào', 'tool' => 'gmail_send_message',    'tags' => ['Gmail','Send'] ],
+    [ 'icon' => '📋', 'label' => 'Tóm tắt inbox',   'desc' => 'AI đọc và tóm tắt hộp thư Gmail',          'msg' => 'Tóm tắt email của tôi',                       'tool' => 'gmail_summarize_inbox', 'tags' => ['Gmail','AI'] ],
+    [ 'icon' => '📅', 'label' => 'Xem lịch',        'desc' => 'Xem sự kiện sắp tới trong Calendar',       'msg' => 'Xem lịch hôm nay',                            'tool' => 'calendar_list_events',  'tags' => ['Calendar'] ],
+    [ 'icon' => '🗓️', 'label' => 'Tạo sự kiện',     'desc' => 'Tạo sự kiện mới trong Calendar',           'msg' => 'Tạo sự kiện họp team lúc 10h sáng mai',       'tool' => 'calendar_create_event', 'tags' => ['Calendar'] ],
+    [ 'icon' => '📁', 'label' => 'Xem file Drive',   'desc' => 'Xem danh sách file trong Google Drive',    'msg' => 'Xem file trong Drive',                         'tool' => 'drive_list_files',      'tags' => ['Drive'] ],
+    [ 'icon' => '👥', 'label' => 'Xem danh bạ',      'desc' => 'Xem liên hệ trong Google Contacts',        'msg' => 'Xem danh bạ Google',                           'tool' => 'contacts_list',         'tags' => ['Contacts'] ],
 ];
 
 /* ── Prompt presets ── */
@@ -322,7 +322,7 @@ body{
     <div class="tg-sec-sub">Bấm để gửi lệnh vào chat</div>
     <div class="tg-cmds" style="margin-top:10px">
         <?php foreach ( $workflows as $w ) : ?>
-        <a class="tg-cmd" href="#" data-msg="<?php echo esc_attr( $w['msg'] ); ?>">
+        <a class="tg-cmd" href="#" data-msg="<?php echo esc_attr( $w['msg'] ); ?>" data-tool="<?php echo esc_attr( $w['tool'] ); ?>">
             <div class="tg-cmd-icon"><?php echo $w['icon']; ?></div>
             <div class="tg-cmd-body">
                 <div class="tg-cmd-label"><?php echo esc_html( $w['label'] ); ?></div>
@@ -438,17 +438,36 @@ body{
     'use strict';
     var isIframe = window.parent && window.parent !== window;
 
+    function buildSlashMessage(msg, toolName) {
+        var base = (msg || '').trim();
+        var tool = (toolName || '').trim();
+        if (!base || !tool) return base;
+        if (base.indexOf('/') === 0) return base;
+        return '/' + tool + ' ' + base;
+    }
+
+    function inferToolFromMessage(msg) {
+        var text = (msg || '').trim();
+        if (text.indexOf('/') !== 0) return '';
+        var firstToken = text.split(/\s+/)[0] || '';
+        return firstToken.replace(/^\//, '');
+    }
+
     /* ── Send message to parent chat ── */
-    function sendMsg(msg) {
+    function sendMsg(msg, toolName) {
         if (!msg) return;
+        var slashMsg = buildSlashMessage(msg, toolName);
+        var resolvedTool = (toolName || '').trim() || inferToolFromMessage(slashMsg || msg);
         if (isIframe) {
             window.parent.postMessage({
                 type:   'bizcity_agent_command',
                 source: 'bizgpt-tool-google',
-                text:   msg
+                plugin_slug: 'bizgpt-tool-google',
+                tool_name: resolvedTool,
+                text:   slashMsg || msg
             }, '*');
         } else {
-            window.location.href = <?php echo wp_json_encode( home_url( '/' ) ); ?> + '?bizcity_chat_msg=' + encodeURIComponent(msg);
+            window.location.href = <?php echo wp_json_encode( home_url( '/' ) ); ?> + '?bizcity_chat_msg=' + encodeURIComponent(slashMsg || msg);
         }
     }
 
@@ -464,7 +483,7 @@ body{
         el.addEventListener('click', function(e) {
             e.preventDefault();
             flash(this);
-            sendMsg(this.getAttribute('data-msg'));
+            sendMsg(this.getAttribute('data-msg'), this.getAttribute('data-tool') || '');
         });
     });
 

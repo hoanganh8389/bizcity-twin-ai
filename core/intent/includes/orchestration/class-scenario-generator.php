@@ -81,7 +81,42 @@ class BizCity_Scenario_Generator {
     }
 
     /**
+     * Friendly tool label map for known tools.
+     * Used to build human-readable node labels in the builder UI.
+     *
+     * @var array tool_id => Vietnamese label
+     */
+    private static $tool_labels = [
+        'write_article'         => 'Viết bài blog',
+        'write_seo_article'     => 'Viết bài SEO',
+        'rewrite_article'       => 'Viết lại bài viết',
+        'translate_and_publish' => 'Dịch & đăng bài',
+        'generate_image'        => 'Tạo ảnh minh họa',
+        'create_facebook_post'  => 'Đăng Facebook',
+        'post_facebook'         => 'Đăng Facebook',
+        'create_video'          => 'Tạo video',
+        'schedule_post'         => 'Hẹn giờ đăng bài',
+        'send_email'            => 'Gửi email',
+        'send_zalo_message'     => 'Gửi tin Zalo',
+        'knowledge_search'      => 'Tìm kiến thức',
+    ];
+
+    /**
+     * Get the tool labels map (for use by other classes like Core Planner).
+     *
+     * @return array tool_id => Vietnamese label
+     */
+    public static function get_tool_labels(): array {
+        return self::$tool_labels;
+    }
+
+    /**
      * Convert a pipeline plan into a workflow scenario (nodes + edges).
+     *
+     * Generates the exact same JSON structure as manually-built workflows
+     * (workflow-17 reference format): numeric string IDs, full data envelope
+     * with type/category/label/code/settings, {{node#N.var}} variable syntax,
+     * and edges with sourceHandle + targetHandle.
      *
      * @param array $plan            From BizCity_Core_Planner::build_plan().
      * @param array $trigger_context { user_id, session_id, message, channel }
@@ -91,74 +126,322 @@ class BizCity_Scenario_Generator {
         $nodes = [];
         $edges = [];
 
-        // Trigger node (virtual — represents the user's message)
-        $trigger_id = 'node-trigger';
+        $channel = $trigger_context['channel'] ?? 'webchat';
+
+        // ── Use bc_instant_run trigger so workflow can execute immediately without waiting for event ──
+        $trigger_code  = 'bc_instant_run';
+        $trigger_label = '⚡ Instant Run — Chạy ngay';
+
+        // ── Node ID layout: "1"=trigger, "2"=planner, "3"=verify-content, "4"+=actions, last=verifier ──
+        $trigger_node_id = '1';
+        $planner_node_id = '2';
+        $verify_node_id  = '3';
+
+        // Trigger node — matches builder's real trigger format
         $nodes[] = [
-            'id'   => $trigger_id,
-            'type' => 'trigger',
-            'data' => [
-                'code'     => 'pipeline_trigger',
-                'settings' => [
-                    'pipeline_id' => $plan['pipeline_id'],
-                    'message'     => $trigger_context['message'] ?? '',
-                    'user_id'     => $trigger_context['user_id'] ?? 0,
-                    'session_id'  => $trigger_context['session_id'] ?? '',
-                    'channel'     => $trigger_context['channel'] ?? 'webchat',
-                ],
+            'id'       => $trigger_node_id,
+            'type'     => 'trigger',
+            'position' => [ 'x' => 350, 'y' => 200 ],
+            'data'     => [
+                'type'            => 'trigger',
+                'category'        => 'bc',
+                'code'            => $trigger_code,
+                'label'           => $trigger_label,
+                'settings'        => [],
+                'executionStatus' => null,
+                'dragged'         => true,
             ],
-            'position' => [ 'x' => 100, 'y' => 200 ],
         ];
 
-        $prev_node_id = $trigger_id;
-        $x_offset     = 350;
+        // ── TODOs Planner Node (id="2") ──
+        // Creates TODO tracking rows and sends plan-start message to user.
+        // B1 fix: include node_id + node_code mapping, filter out skip-list tools
+        $skip_tools = [ 'write_article', 'write_seo_article' ];
+        $steps_for_planner = [];
+        foreach ( $plan['steps'] ?? [] as $s ) {
+            $tool_name = $s['tool'] ?? 'unknown';
+            // Skip tools handled by verify-content node (no runtime node)
+            if ( in_array( $tool_name, $skip_tools, true ) ) {
+                continue;
+            }
+            $step_node_id = (string) ( ( $s['step_index'] ?? 0 ) + 4 );
+            $steps_for_planner[] = [
+                'tool_name' => $tool_name,
+                'label'     => self::$tool_labels[ $tool_name ] ?? $tool_name,
+                'node_id'   => $step_node_id,
+                'node_code' => '', // filled at runtime by block execution
+            ];
+        }
+        $pipeline_label = self::build_title( $plan );
+
+        $nodes[] = [
+            'id'       => $planner_node_id,
+            'type'     => 'action',
+            'position' => [ 'x' => 560, 'y' => 200 ],
+            'data'     => [
+                'type'            => 'action',
+                'category'        => 'it',
+                'code'            => 'it_todos_planner',
+                'label'           => '📋 Khởi tạo kế hoạch',
+                'settings'        => [
+                    'steps_json'     => wp_json_encode( $steps_for_planner, JSON_UNESCAPED_UNICODE ),
+                    'pipeline_label' => $pipeline_label,
+                ],
+                'executionStatus' => null,
+                'dragged'         => true,
+            ],
+        ];
+
+        // Edge: trigger → planner
+        $edges[] = [
+            'id'           => 'e' . $trigger_node_id . '-' . $planner_node_id,
+            'source'       => $trigger_node_id,
+            'target'       => $planner_node_id,
+            'sourceHandle' => 'output-right',
+            'targetHandle' => 'input-left',
+            'type'         => 'default',
+        ];
+
+        // ── Verify-Content Node (id="3") ──
+        // AI clarifies, supplements, and structures the user's content requirements.
+        // Exposes {{node#3.title}} and {{node#3.content}} for ALL subsequent nodes.
+        $content_value = $plan['_content_value'] ?? ( $trigger_context['message'] ?? '' );
+        $plan_summary  = [];
+        foreach ( $plan['steps'] ?? [] as $s ) {
+            $plan_summary[] = self::$tool_labels[ $s['tool'] ?? '' ] ?? $s['tool'];
+        }
+
+        $verify_prompt = "Bạn là trợ lý biên tập nội dung. Dựa trên yêu cầu sau, hãy:\n"
+            . "1. Làm rõ nội dung chính (clarify)\n"
+            . "2. Bổ sung chi tiết nếu còn thiếu (supplement)\n"
+            . "3. Viết hoàn chỉnh title và content\n\n"
+            . "YÊU CẦU: " . $content_value . "\n"
+            . "MỤC TIÊU: " . implode( ' → ', $plan_summary ) . "\n\n"
+            . "Trả về JSON: {\"title\": \"...\", \"content\": \"...\"}";
+
+        $nodes[] = [
+            'id'       => $verify_node_id,
+            'type'     => 'action',
+            'position' => [ 'x' => 770, 'y' => 200 ],
+            'data'     => [
+                'type'            => 'action',
+                'category'        => 'it',
+                'code'            => 'it_call_tool',
+                'label'           => '📝 Xác minh & Biên tập nội dung',
+                'settings'        => [
+                    'tool_id'        => 'write_article',
+                    'input_json'     => wp_json_encode( [
+                        'topic'   => $content_value,
+                        'message' => $verify_prompt,
+                    ], JSON_UNESCAPED_UNICODE ),
+                    'user_id_source' => 'trigger',
+                ],
+                'executionStatus' => null,
+                'dragged'         => true,
+            ],
+        ];
+
+        // Edge: planner → verify-content
+        $edges[] = [
+            'id'           => 'e' . $planner_node_id . '-' . $verify_node_id,
+            'source'       => $planner_node_id,
+            'target'       => $verify_node_id,
+            'sourceHandle' => 'output-right',
+            'targetHandle' => 'input-left',
+            'type'         => 'default',
+        ];
+
+        $prev_node_id = $verify_node_id;
+        $x_pos        = 980;
+
+        // ── Native block mapping: tool_id → { category, code, settings_builder } ──
+        // Tools with native blocks use them directly instead of it_call_tool wrapper.
+        $native_block_map = [
+            'write_article' => [
+                'category' => 'wp',
+                'code'     => 'wp_create_post',
+                'label'    => '📄 Tạo bài viết WordPress',
+                'settings' => function( $verify_nid ) {
+                    return [
+                        'title'  => '{{node#' . $verify_nid . '.title}}',
+                        'body'   => '{{node#' . $verify_nid . '.content}}',
+                        'status' => 'publish',
+                    ];
+                },
+            ],
+            'write_seo_article' => [
+                'category' => 'wp',
+                'code'     => 'wp_create_post',
+                'label'    => '📄 Tạo bài SEO WordPress',
+                'settings' => function( $verify_nid ) {
+                    return [
+                        'title'  => '{{node#' . $verify_nid . '.title}}',
+                        'body'   => '{{node#' . $verify_nid . '.content}}',
+                        'status' => 'publish',
+                    ];
+                },
+            ],
+            'create_facebook_post' => [
+                'category' => 'bc',
+                'code'     => 'ai_generate_facebook',
+                'label'    => '📘 Đăng Facebook',
+                'settings' => function( $verify_nid ) {
+                    return [
+                        'message'   => '{{node#' . $verify_nid . '.content}}',
+                        'image_url' => '',
+                    ];
+                },
+            ],
+            'post_facebook' => [
+                'category' => 'bc',
+                'code'     => 'ai_generate_facebook',
+                'label'    => '📘 Đăng Facebook',
+                'settings' => function( $verify_nid ) {
+                    return [
+                        'message'   => '{{node#' . $verify_nid . '.content}}',
+                        'image_url' => '',
+                    ];
+                },
+            ],
+        ];
 
         foreach ( $plan['steps'] as $step ) {
-            $node_id = 'node-step-' . $step['step_index'];
+            // Node ID = step_index + 4 (trigger="1", planner="2", verify="3", first action="4")
+            $node_id   = (string) ( $step['step_index'] + 4 );
+            $tool_name = $step['tool'];
 
-            // Build input_json from step slots + input_map
-            $input_json = $step['slots'] ?? [];
-
-            // Convert input_map references to workflow variable syntax
-            // $step[N].data.field → {{node-step-N.data_field}}
-            foreach ( $step['input_map'] ?? [] as $target_field => $ref ) {
-                if ( preg_match( '/^\$step\[(\d+)\]\.data\.(.+)$/', $ref, $m ) ) {
-                    $source_node = 'node-step-' . $m[1];
-                    $source_field = $m[2];
-                    $input_json[ $target_field ] = '{{' . $source_node . '.' . $source_field . '}}';
-                } elseif ( preg_match( '/^\$slots\.(.+)$/', $ref, $m ) ) {
-                    $input_json[ $target_field ] = '{{' . $trigger_id . '.' . $m[1] . '}}';
-                }
+            // Skip tools already handled by the verify-content node (#3).
+            // The verify node calls write_article which creates the WP post;
+            // generating a separate wp_create_post node would double-publish.
+            if ( in_array( $tool_name, [ 'write_article', 'write_seo_article' ], true ) ) {
+                continue;
             }
 
-            // Action node: it_call_tool
-            $nodes[] = [
-                'id'   => $node_id,
-                'type' => 'action',
-                'data' => [
-                    'code'     => 'it_call_tool',
-                    'settings' => [
-                        'tool_id'        => $step['tool'],
-                        'input_json'     => wp_json_encode( $input_json, JSON_UNESCAPED_UNICODE ),
-                        'user_id_source' => 'trigger',
-                        'pipeline_step'  => $step['step_index'],
-                    ],
-                ],
-                'position' => [
-                    'x' => $x_offset + ( $step['step_index'] * 250 ),
-                    'y' => 200,
-                ],
-            ];
+            // Check if this tool has a native block
+            $native = $native_block_map[ $tool_name ] ?? null;
 
-            // Edge from previous node → current node
+            if ( $native ) {
+                // ── Native block node ──
+                $settings_fn = $native['settings'];
+                $block_settings = $settings_fn( $verify_node_id );
+
+                $nodes[] = [
+                    'id'       => $node_id,
+                    'type'     => 'action',
+                    'position' => [ 'x' => $x_pos, 'y' => 200 ],
+                    'data'     => [
+                        'type'            => 'action',
+                        'category'        => $native['category'],
+                        'code'            => $native['code'],
+                        'label'           => $native['label'],
+                        'settings'        => $block_settings,
+                        'executionStatus' => null,
+                        'dragged'         => true,
+                    ],
+                ];
+            } else {
+                // ── Fallback: it_call_tool wrapper ──
+                $raw_slots   = $step['slots'] ?? [];
+                $tool_inputs = $step['input_fields'] ?? [];
+                $input_json  = [];
+
+                if ( ! empty( $tool_inputs ) ) {
+                    foreach ( $tool_inputs as $field => $cfg ) {
+                        if ( isset( $raw_slots[ $field ] ) && $raw_slots[ $field ] !== '' ) {
+                            $input_json[ $field ] = $raw_slots[ $field ];
+                        }
+                    }
+                }
+
+                // Convert input_map references → {{node#N.field}} with offset +2 for planner+verify nodes.
+                foreach ( $step['input_map'] ?? [] as $target_field => $ref ) {
+                    if ( preg_match( '/^\$step\[(\d+)\]\.data\.(.+)$/', $ref, $m ) ) {
+                        $source_node_id = (string) ( (int) $m[1] + 4 );
+                        $source_field   = $m[2];
+                        $input_json[ $target_field ] = '{{node#' . $source_node_id . '.' . $source_field . '}}';
+                    } elseif ( preg_match( '/^\$slots\.(.+)$/', $ref, $m ) ) {
+                        $input_json[ $target_field ] = '{{node#' . $trigger_node_id . '.' . $m[1] . '}}';
+                    }
+                }
+
+                // Auto-reference verify-content node for primary input fields
+                $primary_keys = [ 'message', 'content', 'description', 'topic' ];
+                foreach ( $primary_keys as $pk ) {
+                    if ( isset( $tool_inputs[ $pk ] ) && empty( $input_json[ $pk ] ) ) {
+                        $input_json[ $pk ] = '{{node#' . $verify_node_id . '.content}}';
+                        break;
+                    }
+                }
+                if ( isset( $tool_inputs['title'] ) && empty( $input_json['title'] ) ) {
+                    $input_json['title'] = '{{node#' . $verify_node_id . '.title}}';
+                }
+
+                $label = '🤖 Agent — ' . ( self::$tool_labels[ $tool_name ] ?? $tool_name );
+
+                $nodes[] = [
+                    'id'       => $node_id,
+                    'type'     => 'action',
+                    'position' => [ 'x' => $x_pos, 'y' => 200 ],
+                    'data'     => [
+                        'type'            => 'action',
+                        'category'        => 'it',
+                        'code'            => 'it_call_tool',
+                        'label'           => $label,
+                        'settings'        => [
+                            'tool_id'        => $tool_name,
+                            'input_json'     => wp_json_encode( $input_json, JSON_UNESCAPED_UNICODE ),
+                            'user_id_source' => 'trigger',
+                        ],
+                        'executionStatus' => null,
+                        'dragged'         => true,
+                    ],
+                ];
+            }
+
+            // Edge from previous node
             $edges[] = [
-                'id'           => 'edge-' . $prev_node_id . '-' . $node_id,
+                'id'           => 'e' . $prev_node_id . '-' . $node_id,
                 'source'       => $prev_node_id,
                 'target'       => $node_id,
                 'sourceHandle' => 'output-right',
+                'targetHandle' => 'input-left',
+                'type'         => 'default',
             ];
 
             $prev_node_id = $node_id;
+            $x_pos       += 210;
         }
+
+        // ── Summary Verifier Node (last node) ──
+        // Aggregates results, calculates pipeline score, sends final summary.
+        $verifier_node_id = (string) ( count( $plan['steps'] ) + 4 ); // after all action nodes
+
+        $nodes[] = [
+            'id'       => $verifier_node_id,
+            'type'     => 'action',
+            'position' => [ 'x' => $x_pos, 'y' => 200 ],
+            'data'     => [
+                'type'            => 'action',
+                'category'        => 'it',
+                'code'            => 'it_summary_verifier',
+                'label'           => '✅ Tổng kết Pipeline',
+                'settings'        => [
+                    'pipeline_label' => $pipeline_label,
+                ],
+                'executionStatus' => null,
+                'dragged'         => true,
+            ],
+        ];
+
+        // Edge: last action → verifier
+        $edges[] = [
+            'id'           => 'e' . $prev_node_id . '-' . $verifier_node_id,
+            'source'       => $prev_node_id,
+            'target'       => $verifier_node_id,
+            'sourceHandle' => 'output-right',
+            'targetHandle' => 'input-left',
+            'type'         => 'default',
+        ];
 
         return [
             'nodes'    => $nodes,
@@ -166,6 +449,10 @@ class BizCity_Scenario_Generator {
             'settings' => [
                 'timeout'     => 300,
                 'mode'        => 'execute_once',
+                'multiple'    => 0,
+                'skip'        => 0,
+                'cooldown'    => 0,
+                'stop'        => 'yes',
                 'pipeline_id' => $plan['pipeline_id'],
             ],
             'version'  => '1.0.0',
@@ -201,10 +488,11 @@ class BizCity_Scenario_Generator {
             'settings' => $scenario['settings'],
             'version'  => $scenario['version'] ?? '1.0.0',
             'meta'     => [
-                'pipeline_id' => $scenario['settings']['pipeline_id'] ?? '',
-                'session_id'  => $context['session_id'] ?? '',
-                'channel'     => $context['channel'] ?? 'webchat',
-                'generated_by'=> 'scenario_generator',
+                'pipeline_id'      => $scenario['settings']['pipeline_id'] ?? '',
+                'pipeline_version' => 1,
+                'session_id'       => $context['session_id'] ?? '',
+                'channel'          => $context['channel'] ?? 'webchat',
+                'generated_by'     => 'scenario_generator',
             ],
         ], JSON_UNESCAPED_UNICODE );
 

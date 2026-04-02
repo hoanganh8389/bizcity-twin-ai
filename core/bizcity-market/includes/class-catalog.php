@@ -390,6 +390,13 @@ class BizCity_Market_Catalog {
    * @return array [ ['slug'=>..., 'name'=>..., 'icon_url'=>..., 'template_url'=>..., ...], ... ]
    */
   public static function get_agent_plugins_with_headers() {
+    // ── Transient cache — disk I/O heavy, invalidated by bizcity_tool_registry_changed ──
+    $cache_key = 'bizcity_agent_plugins_headers';
+    $cached    = get_transient( $cache_key );
+    if ( $cached !== false ) {
+        return $cached;
+    }
+
     if ( ! function_exists( 'get_plugins' ) ) {
         require_once ABSPATH . 'wp-admin/includes/plugin.php';
     }
@@ -460,6 +467,9 @@ class BizCity_Market_Catalog {
             'category'       => sanitize_text_field( trim( $custom['Category'] ?? '' ) ),
         ];
     }
+
+    // Persist for 12 hours — explicit invalidation via activated_plugin / deactivated_plugin
+    set_transient( $cache_key, $agents, 12 * HOUR_IN_SECONDS );
 
     return $agents;
   }

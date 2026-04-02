@@ -193,6 +193,28 @@ class BizCity_Knowledge_Admin_Menu {
             [$this, 'render_monitor_page']
         );
 
+        /*
+
+        // Submenu: Trợ lý AI — Character list
+        add_submenu_page(
+            'bizcity-knowledge',
+            __( 'Trợ lý AI', $td ),
+            '🤖 ' . __( 'Trợ lý AI', $td ),
+            'manage_options',
+            'bizcity-knowledge-characters',
+            [$this, 'render_characters_page']
+        );
+
+        // Hidden submenu: Character Edit (no sidebar link, accessed via list page)
+        add_submenu_page(
+            null,
+            __( 'Chỉnh sửa Trợ lý AI', $td ),
+            __( 'Chỉnh sửa Trợ lý AI', $td ),
+            'manage_options',
+            'bizcity-knowledge-character-edit',
+            [$this, 'render_character_edit_page']
+        );*/
+
         // Submenu: Learn with AI (Notebook companion)
         add_submenu_page(
             'bizcity-knowledge',
@@ -209,6 +231,32 @@ class BizCity_Knowledge_Admin_Menu {
             return;
         }
         
+        // Load character-edit specific assets
+        $is_character_edit = strpos($hook, 'bizcity-knowledge-character-edit') !== false
+            || strpos($hook, 'knowledge-character-edit') !== false;
+
+        if ($is_character_edit) {
+            wp_enqueue_style(
+                'bizcity-knowledge-character-edit',
+                plugins_url('assets/css/character-edit.css', dirname(__FILE__)),
+                [],
+                BIZCITY_KNOWLEDGE_VERSION
+            );
+            wp_enqueue_script(
+                'bizcity-knowledge-character-edit',
+                plugins_url('assets/js/character-edit.js', dirname(__FILE__)),
+                ['jquery', 'wp-util'],
+                BIZCITY_KNOWLEDGE_VERSION,
+                true
+            );
+            wp_localize_script('bizcity-knowledge-character-edit', 'bizcity_knowledge_vars', [
+                'ajaxurl' => admin_url('admin-ajax.php'),
+                'nonce'   => wp_create_nonce('bizcity_knowledge'),
+            ]);
+            wp_enqueue_media();
+            return;
+        }
+
         // Load maturity dashboard assets for Training, Memory Hub, Monitor, and Dashboard pages
         $maturity_pages = ['bizcity-knowledge-training', 'bizcity-knowledge-memory-hub', 'bizcity-knowledge-monitor'];
         $is_maturity_page = false;
@@ -241,24 +289,6 @@ class BizCity_Knowledge_Admin_Menu {
             BIZCITY_KNOWLEDGE_VERSION,
             true
         );
-        
-        // Character edit page specific assets
-        if (strpos($hook, 'character-edit') !== false) {
-            wp_enqueue_style(
-                'bizcity-knowledge-character-edit',
-                plugins_url('assets/css/character-edit.css', dirname(__FILE__)),
-                [],
-                BIZCITY_KNOWLEDGE_VERSION
-            );
-            
-            wp_enqueue_script(
-                'bizcity-knowledge-character-edit',
-                plugins_url('assets/js/character-edit.js', dirname(__FILE__)),
-                ['jquery', 'wp-util'],
-                BIZCITY_KNOWLEDGE_VERSION,
-                true
-            );
-        }
         
         wp_localize_script('bizcity-knowledge-admin', 'bizcity_knowledge_vars', [
             'ajaxurl' => admin_url('admin-ajax.php'),

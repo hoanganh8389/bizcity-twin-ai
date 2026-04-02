@@ -46,6 +46,7 @@ class BizCity_Twin_Context_Resolver {
         $images         = is_array( $ctx['images'] ?? null ) ? $ctx['images'] : [];
         $engine_result  = is_array( $ctx['engine_result'] ?? null ) ? $ctx['engine_result'] : [];
         $effective_platform = $platform_type !== '' ? $platform_type : 'WEBCHAT';
+        $channel_role = $ctx['channel_role'] ?? [];
 
         if ( class_exists( 'BizCity_Focus_Gate' ) ) {
             BizCity_Focus_Gate::ensure_resolved( $message, [
@@ -56,6 +57,7 @@ class BizCity_Twin_Context_Resolver {
                 'user_id'        => $user_id,
                 'session_id'     => $session_id,
                 'images'         => $images,
+                'channel_role'   => $channel_role,
                 'context'        => $ctx,
             ] );
             BizCity_Focus_Gate::amend_for_goal( $engine_result['goal'] ?? '' );
@@ -108,17 +110,18 @@ class BizCity_Twin_Context_Resolver {
         }
 
         $system_content = (string) apply_filters( 'bizcity_chat_system_prompt', $system_content, [
-            'mode'           => $mode,
-            'character_id'   => $character_id,
-            'message'        => $message,
-            'user_id'        => $user_id,
-            'session_id'     => $session_id,
-            'platform_type'  => $effective_platform,
-            'images'         => $images,
-            'engine_result'  => $engine_result,
-            'kci_ratio'      => (int) ( $ctx['kci_ratio'] ?? 80 ),
+            'mode'             => $mode,
+            'character_id'     => $character_id,
+            'message'          => $message,
+            'user_id'          => $user_id,
+            'session_id'       => $session_id,
+            'platform_type'    => $effective_platform,
+            'images'           => $images,
+            'engine_result'    => $engine_result,
+            'kci_ratio'        => (int) ( $ctx['kci_ratio'] ?? 80 ),
             'mention_override' => ! empty( $ctx['mention_override'] ),
-            'via'            => $ctx['via'] ?? 'twin_resolver',
+            'channel_role'     => $channel_role,
+            'via'              => $ctx['via'] ?? 'twin_resolver',
         ] );
 
         return [

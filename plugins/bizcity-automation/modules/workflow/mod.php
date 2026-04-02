@@ -398,16 +398,64 @@ class WaicWorkflow extends WaicModule {
 		
 		$triggerNodeId = $triggerNode['id'];
 		
-		// Check if listener already has data
-		$listenerId = get_option('waic_active_listener_' . $triggerNodeId);
+		// Check if trigger is subtype 0 (manual/instant) — runs immediately, no listener needed
 		$hasListenerData = false;
 		$testData = [];
+		$triggerCode = $triggerNode['data']['code'] ?? '';
 		
-		if ($listenerId) {
-			$listenerData = get_transient($listenerId);
-			if ($listenerData && !empty($listenerData['captured_data'])) {
-				$testData = $listenerData['captured_data'];
-				$hasListenerData = true;
+		$isInstantTrigger = false;
+		if (!empty($triggerCode)) {
+			$triggerClassName = 'WaicTrigger_' . $triggerCode;
+			
+			// Load base classes if needed
+			$baseClasses = [
+				dirname(__FILE__) . '/../../classes/baseObject.php' => 'WaicBaseObject',
+				dirname(__FILE__) . '/../../classes/builderBlock.php' => 'WaicBuilderBlock',
+				dirname(__FILE__) . '/blocks/trigger.php' => 'WaicTrigger',
+			];
+			foreach ($baseClasses as $path => $className) {
+				if (file_exists($path) && !class_exists($className)) {
+					require_once $path;
+				}
+			}
+			
+			// Try to load trigger block class
+			if (!class_exists($triggerClassName)) {
+				$triggerFilePath = dirname(__FILE__) . '/blocks/triggers/' . $triggerCode . '.php';
+				if (file_exists($triggerFilePath)) {
+					require_once $triggerFilePath;
+				}
+			}
+			if (!class_exists($triggerClassName)) {
+				$extPaths = WaicDispatcher::applyFilters('getExternalBlocksPaths', []);
+				foreach ($extPaths as $extPath) {
+					$extFile = rtrim($extPath, '/\\') . '/triggers/' . $triggerCode . '.php';
+					if (file_exists($extFile)) {
+						require_once $extFile;
+						break;
+					}
+				}
+			}
+			
+			if (class_exists($triggerClassName)) {
+				$triggerBlock = new $triggerClassName($triggerNode);
+				if ($triggerBlock->getSubtype() === 0) {
+					$isInstantTrigger = true;
+					$testData = $triggerBlock->controlRun([]);
+					$hasListenerData = true;
+				}
+			}
+		}
+		
+		// For non-instant triggers, check if listener already has data
+		if (!$isInstantTrigger) {
+			$listenerId = get_option('waic_active_listener_' . $triggerNodeId);
+			if ($listenerId) {
+				$listenerData = get_transient($listenerId);
+				if ($listenerData && !empty($listenerData['captured_data'])) {
+					$testData = $listenerData['captured_data'];
+					$hasListenerData = true;
+				}
 			}
 		}
 		
@@ -430,6 +478,14 @@ class WaicWorkflow extends WaicModule {
 			'logs' => [],
 			'error' => null,
 			'completed_nodes' => [],
+			// Phase 1.1 — Pipeline context for middleware/messenger/evidence/todos
+			'pipeline_id'              => '',
+			'user_id'                  => get_current_user_id(),
+			'session_id'               => $this->resolve_session_id(),
+			'channel'                  => sanitize_text_field( $_POST['channel'] ?? 'adminchat' ),
+			'intent_conversation_id'   => '',
+			'node_step_map'            => [], // built lazily in executeWorkflowBackground
+			'_direct_pipeline'         => true, // BFS loop handles evidence/todos/messenger directly
 		];
 		
 		set_transient($executionId, $executionState, 3600);
@@ -437,28 +493,37 @@ class WaicWorkflow extends WaicModule {
 		
 		// If we have listener data, start execution immediately
 		if ($hasListenerData) {
-			// Return success response first
-			wp_send_json_success([
-				'execution_id' => $executionId,
-				'status' => 'ready_to_run',
-				'message' => 'Test execution starting with captured data...',
+			// ⭐ FIX RACE CONDITION: Set status to 'running' BEFORE sending response.
+			// This prevents the poll handler from seeing 'ready_to_run' and
+			// triggering a duplicate executeWorkflowBackground() call.
+			$executionState['status'] = 'running';
+			set_transient($executionId, $executionState, 3600);
+
+			// Send JSON response manually (wp_send_json_success calls wp_die → kills script)
+			@header( 'Content-Type: application/json; charset=' . get_option( 'blog_charset' ) );
+			echo wp_json_encode([
+				'success' => true,
+				'data'    => [
+					'execution_id' => $executionId,
+					'status'       => 'running',
+					'message'      => 'Test execution starting with captured data...',
+				],
 			]);
-			
-			// Close connection và tiếp tục xử lý
-			if (function_exists('fastcgi_finish_request')) {
+
+			// Close connection and continue processing in background
+			if ( function_exists( 'fastcgi_finish_request' ) ) {
 				fastcgi_finish_request();
 			} else {
-				// Fallback: flush output
-				if (ob_get_level() > 0) {
+				if ( ob_get_level() > 0 ) {
 					ob_end_flush();
 				}
 				flush();
 			}
-            
-            // Execute workflow ngay sau khi response đã được gửi
-            $executeAPI = WaicWorkflowExecuteAPI::getInstance();
-            $executeAPI->executeWorkflowBackground($executionId);
-            exit;
+
+			// Execute workflow after response has been sent to browser
+			$executeAPI = WaicWorkflowExecuteAPI::getInstance();
+			$executeAPI->executeWorkflowBackground( $executionId );
+			exit;
 		} else {
 			// Need to wait for trigger data
 			wp_send_json_success([
@@ -470,6 +535,48 @@ class WaicWorkflow extends WaicModule {
 		}
 	}
 	
+	/**
+	 * Resolve session_id for pipeline messaging.
+	 * Priority: 1) POST param, 2) HTTP_REFERER, 3) user's most recent ADMINCHAT session.
+	 */
+	private function resolve_session_id() {
+		// 1) Explicitly passed from frontend (when React is rebuilt)
+		$session_id = sanitize_text_field( $_POST['session_id'] ?? '' );
+		if ( ! empty( $session_id ) ) {
+			return $session_id;
+		}
+
+		// 2) Extract from HTTP_REFERER (?chat=wcs_xxx)
+		$referer = wp_get_raw_referer();
+		if ( $referer && preg_match( '/[?&]chat=([a-zA-Z0-9_-]+)/', $referer, $m ) ) {
+			$session_id = sanitize_text_field( $m[1] );
+			if ( ! empty( $session_id ) ) {
+				error_log( '[WAIC Test] session_id from referer: ' . $session_id );
+				return $session_id;
+			}
+		}
+
+		// 3) Fallback: user's most recent active ADMINCHAT session
+		$user_id = get_current_user_id();
+		if ( $user_id > 0 && class_exists( 'BizCity_WebChat_Database' ) ) {
+			global $wpdb;
+			$table = $wpdb->prefix . 'bizcity_webchat_messages';
+			$session_id = $wpdb->get_var( $wpdb->prepare(
+				"SELECT session_id FROM {$table}
+				 WHERE user_id = %d AND session_id != '' AND platform_type = 'ADMINCHAT'
+				 ORDER BY id DESC LIMIT 1",
+				$user_id
+			) );
+			if ( $session_id ) {
+				error_log( '[WAIC Test] session_id from recent messages: ' . $session_id );
+				return $session_id;
+			}
+		}
+
+		error_log( '[WAIC Test] WARNING: No session_id resolved for pipeline messaging' );
+		return '';
+	}
+
 	/**
 	 * Admin AJAX: Poll test execution status (realtime updates)
 	 */
@@ -530,6 +637,18 @@ class WaicWorkflow extends WaicModule {
 			}
 		}
 		
+		// Fallback: if status is still ready_to_run, execution never started (e.g. fastcgi unavailable)
+		if ($executionState['status'] === 'ready_to_run') {
+			error_log('[WAIC Test] Poll detected ready_to_run — starting execution inline...');
+			$executionState['status'] = 'running';
+			set_transient($executionId, $executionState, 3600);
+
+			$executeAPI = WaicWorkflowExecuteAPI::getInstance();
+			$executeAPI->executeWorkflowBackground($executionId);
+
+			$executionState = get_transient($executionId);
+		}
+
 		// If waiting for delay, check if time has passed
 		if ($executionState['status'] === 'waiting') {
 			$waitingUntil = $executionState['waiting_until'] ?? 0;

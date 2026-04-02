@@ -33,6 +33,9 @@ class BizCity_Intent_Database {
     /** @var string */
     private $table_prompt_logs;
 
+    /** @var string */
+    private $table_todos;
+
     public static function instance() {
         if ( is_null( self::$instance ) ) {
             self::$instance = new self();
@@ -46,6 +49,7 @@ class BizCity_Intent_Database {
         $this->table_conversations = $wpdb->prefix . 'bizcity_intent_conversations';
         $this->table_turns         = $wpdb->prefix . 'bizcity_intent_turns';
         $this->table_prompt_logs   = $wpdb->prefix . 'bizcity_intent_prompt_logs';
+        $this->table_todos         = $wpdb->prefix . 'bizcity_intent_todos';
     }
 
     /**
@@ -73,6 +77,15 @@ class BizCity_Intent_Database {
      */
     public function prompt_logs_table() {
         return $this->table_prompt_logs;
+    }
+
+    /**
+     * Get table name for todos.
+     *
+     * @return string
+     */
+    public function todos_table() {
+        return $this->table_todos;
     }
 
     /**
@@ -204,6 +217,39 @@ class BizCity_Intent_Database {
 
         $this->wpdb->query( $sql_prompt_logs );
 
+        // ── ToDos table (pipeline step tracking) ──
+        $sql_todos = "CREATE TABLE IF NOT EXISTS {$this->table_todos} (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            pipeline_id VARCHAR(64) NOT NULL,
+            step_index INT UNSIGNED DEFAULT 0,
+            tool_name VARCHAR(100) DEFAULT '',
+            label VARCHAR(255) DEFAULT '',
+            status VARCHAR(20) DEFAULT 'PENDING',
+            score TINYINT UNSIGNED DEFAULT 0,
+            output_summary TEXT,
+            error_message TEXT,
+            user_id BIGINT UNSIGNED DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+            KEY idx_pipeline (pipeline_id),
+            KEY idx_pipeline_status (pipeline_id, status),
+            KEY idx_tool (tool_name),
+            KEY idx_user_pipeline (user_id, pipeline_id)
+        ) {$charset};";
+
+        $this->wpdb->query( $sql_todos );
+
+        // ── v3.9.0: Add pipeline columns to conversations ──
+        if ( version_compare( $current, '3.9.0', '<' ) ) {
+            $conv_cols = $this->wpdb->get_col( "SHOW COLUMNS FROM {$this->table_conversations}" );
+            if ( is_array( $conv_cols ) && ! in_array( 'parent_pipeline_id', $conv_cols, true ) ) {
+                $this->wpdb->query( "ALTER TABLE {$this->table_conversations} ADD COLUMN parent_pipeline_id VARCHAR(64) DEFAULT '' AFTER project_id" );
+                $this->wpdb->query( "ALTER TABLE {$this->table_conversations} ADD COLUMN step_index INT UNSIGNED DEFAULT 0 AFTER parent_pipeline_id" );
+                $this->wpdb->query( "ALTER TABLE {$this->table_conversations} ADD KEY idx_pipeline (parent_pipeline_id)" );
+            }
+        }
+
         // ── Migrate: add project_id column if missing ──
         $cols = $this->wpdb->get_col( "SHOW COLUMNS FROM {$this->table_conversations}" );
         if ( is_array( $cols ) && ! in_array( 'project_id', $cols, true ) ) {
@@ -214,6 +260,56 @@ class BizCity_Intent_Database {
         // ── v3.8.0: Widen mode_method VARCHAR(100) → VARCHAR(255) for composite method strings ──
         if ( version_compare( $current, '3.8.0', '<' ) ) {
             $this->wpdb->query( "ALTER TABLE {$this->table_prompt_logs} MODIFY COLUMN mode_method VARCHAR(255) DEFAULT ''" );
+        }
+
+        // ── v3.9.1: Add todo_id to conversations + skeleton columns to todos ──
+        if ( version_compare( $current, '3.9.1', '<' ) ) {
+            $conv_cols_v391 = $this->wpdb->get_col( "SHOW COLUMNS FROM {$this->table_conversations}" );
+            if ( is_array( $conv_cols_v391 ) && ! in_array( 'todo_id', $conv_cols_v391, true ) ) {
+                $this->wpdb->query( "ALTER TABLE {$this->table_conversations} ADD COLUMN todo_id BIGINT UNSIGNED DEFAULT NULL AFTER step_index" );
+                $this->wpdb->query( "ALTER TABLE {$this->table_conversations} ADD KEY idx_todo (todo_id)" );
+            }
+
+            $todo_cols = $this->wpdb->get_col( "SHOW COLUMNS FROM {$this->table_todos}" );
+            if ( is_array( $todo_cols ) && ! in_array( 'slots_skeleton_json', $todo_cols, true ) ) {
+                $this->wpdb->query( "ALTER TABLE {$this->table_todos} ADD COLUMN slots_skeleton_json LONGTEXT AFTER error_message" );
+                $this->wpdb->query( "ALTER TABLE {$this->table_todos} ADD COLUMN depends_on_steps TEXT AFTER slots_skeleton_json" );
+                $this->wpdb->query( "ALTER TABLE {$this->table_todos} ADD COLUMN pipeline_timeout INT UNSIGNED DEFAULT 300 AFTER depends_on_steps" );
+            }
+        }
+
+        // ── v4.0.0: Add pipeline ↔ graph mapping columns to todos ──
+        if ( version_compare( $current, '4.0.0', '<' ) ) {
+            $todo_cols_v4 = $this->wpdb->get_col( "SHOW COLUMNS FROM {$this->table_todos}" );
+            if ( is_array( $todo_cols_v4 ) ) {
+                // B5 fix: per-column idempotent checks — partial migration won't skip remaining columns
+                if ( ! in_array( 'task_id', $todo_cols_v4, true ) ) {
+                    $this->wpdb->query( "ALTER TABLE {$this->table_todos} ADD COLUMN task_id BIGINT UNSIGNED DEFAULT NULL AFTER pipeline_id" );
+                }
+                if ( ! in_array( 'pipeline_version', $todo_cols_v4, true ) ) {
+                    $this->wpdb->query( "ALTER TABLE {$this->table_todos} ADD COLUMN pipeline_version SMALLINT UNSIGNED DEFAULT 1 AFTER task_id" );
+                }
+                if ( ! in_array( 'node_id', $todo_cols_v4, true ) ) {
+                    $this->wpdb->query( "ALTER TABLE {$this->table_todos} ADD COLUMN node_id VARCHAR(32) DEFAULT NULL AFTER step_index" );
+                }
+                if ( ! in_array( 'node_code', $todo_cols_v4, true ) ) {
+                    $this->wpdb->query( "ALTER TABLE {$this->table_todos} ADD COLUMN node_code VARCHAR(64) DEFAULT NULL AFTER tool_name" );
+                }
+                if ( ! in_array( 'node_input_json', $todo_cols_v4, true ) ) {
+                    $this->wpdb->query( "ALTER TABLE {$this->table_todos} ADD COLUMN node_input_json LONGTEXT DEFAULT NULL AFTER slots_skeleton_json" );
+                }
+                if ( ! in_array( 'node_output_json', $todo_cols_v4, true ) ) {
+                    $this->wpdb->query( "ALTER TABLE {$this->table_todos} ADD COLUMN node_output_json LONGTEXT DEFAULT NULL AFTER node_input_json" );
+                }
+                // Indexes — check via SHOW INDEX to avoid duplicate key error
+                $existing_indexes = $this->wpdb->get_col( "SHOW INDEX FROM {$this->table_todos}", 2 );
+                if ( is_array( $existing_indexes ) && ! in_array( 'idx_task', $existing_indexes, true ) ) {
+                    $this->wpdb->query( "ALTER TABLE {$this->table_todos} ADD KEY idx_task (task_id)" );
+                }
+                if ( is_array( $existing_indexes ) && ! in_array( 'idx_node', $existing_indexes, true ) ) {
+                    $this->wpdb->query( "ALTER TABLE {$this->table_todos} ADD KEY idx_node (pipeline_id, node_id)" );
+                }
+            }
         }
 
         // ── Classification Cache table ──

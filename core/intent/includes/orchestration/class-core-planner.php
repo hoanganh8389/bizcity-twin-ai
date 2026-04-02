@@ -22,6 +22,9 @@ class BizCity_Core_Planner {
     /** @var self|null */
     private static $instance = null;
 
+    /** Orchestration tools that must NEVER appear as pipeline action steps. */
+    private static $orchestration_tools = [ 'build_workflow', 'publish_workflow', 'list_workflows' ];
+
     public static function instance() {
         if ( is_null( self::$instance ) ) {
             self::$instance = new self();
@@ -69,6 +72,10 @@ class BizCity_Core_Planner {
         if ( count( $objectives ) <= 1 ) {
             $obj  = $objectives[0] ?? [];
             $tool = $obj['tool_hint'] ?? '';
+            // Filter orchestration tools from single-objective path.
+            if ( in_array( $tool, self::$orchestration_tools, true ) ) {
+                $tool = '';
+            }
             return [
                 'pipeline_id'  => $pipeline_id,
                 'mode'         => 'single',
@@ -78,11 +85,11 @@ class BizCity_Core_Planner {
             ];
         }
 
-        // Resolve tool names from objectives
+        // Resolve tool names from objectives (filter orchestration tools)
         $tool_names = [];
         foreach ( $objectives as $obj ) {
             $tool = $this->resolve_tool_for_objective( $obj, $tools );
-            if ( $tool ) {
+            if ( $tool && ! in_array( $tool, self::$orchestration_tools, true ) ) {
                 $tool_names[] = $tool;
             }
         }
@@ -146,6 +153,10 @@ class BizCity_Core_Planner {
         $text      = mb_strtolower( $objective['text'] ?? '', 'UTF-8' );
         $all_tools = $tools->list_all();
         foreach ( $all_tools as $name => $schema ) {
+            // Skip orchestration tools.
+            if ( in_array( $name, self::$orchestration_tools, true ) ) {
+                continue;
+            }
             $desc = mb_strtolower( $schema['description'] ?? '', 'UTF-8' );
             // Simple keyword overlap
             $words = array_filter( explode( ' ', $text ) );
@@ -374,17 +385,25 @@ class BizCity_Core_Planner {
             $lines = [ "📋 Kế hoạch thực hiện ({$plan['step_count']} bước):" ];
             $icons = [ 0 => '🎯', 1 => '📝', 2 => '📱', 3 => '📊', 4 => '🔧' ];
 
+            // Use friendly labels from Scenario Generator when available.
+            $labels = class_exists( 'BizCity_Scenario_Generator' )
+                ? BizCity_Scenario_Generator::get_tool_labels()
+                : [];
+
             foreach ( $plan['steps'] as $step ) {
-                $icon = $icons[ $step['trust_tier'] ] ?? '▶️';
-                $deps = '';
+                $icon  = $icons[ $step['trust_tier'] ] ?? '▶️';
+                $tool  = $step['tool'];
+                $label = ! empty( $labels[ $tool ] ) ? $labels[ $tool ] : $tool;
+                $deps  = '';
                 if ( ! empty( $step['depends_on'] ) ) {
                     $dep_names = [];
                     foreach ( $step['depends_on'] as $dep_idx ) {
-                        $dep_names[] = $plan['steps'][ $dep_idx ]['tool'] ?? "step {$dep_idx}";
+                        $dep_tool = $plan['steps'][ $dep_idx ]['tool'] ?? "step {$dep_idx}";
+                        $dep_names[] = ! empty( $labels[ $dep_tool ] ) ? $labels[ $dep_tool ] : $dep_tool;
                     }
                     $deps = ' (dùng kết quả từ: ' . implode( ', ', $dep_names ) . ')';
                 }
-                $lines[] = sprintf( '%d. %s %s%s', $step['step_index'] + 1, $icon, $step['tool'], $deps );
+                $lines[] = sprintf( '%d. %s %s%s', $step['step_index'] + 1, $icon, $label, $deps );
             }
             $summary = implode( "\n", $lines );
         }

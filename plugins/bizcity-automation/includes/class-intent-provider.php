@@ -23,6 +23,14 @@ class BizCity_Automation_Intent_Provider extends BizCity_Intent_Provider {
 	 */
 	private $chainable_blocks = array();
 
+	/**
+	 * Tools used to manage workflows themselves.
+	 * These must never appear as action steps inside generated workflows.
+	 *
+	 * @var array
+	 */
+	private $orchestration_tools = array( 'build_workflow', 'publish_workflow', 'list_workflows' );
+
 	/* ================================================================
 	 *  Identity
 	 * ================================================================ */
@@ -245,11 +253,14 @@ class BizCity_Automation_Intent_Provider extends BizCity_Intent_Provider {
 			);
 		}
 
-		// 1. Build system prompt with trigger info + available tools
-		$system_prompt = $this->build_gen_system_prompt( $trigger_type, $trigger_filter );
+		// 1. Fast deterministic path for common chained prompts (write -> image -> post)
+		$scenario_json = $this->build_rule_based_scenario( $description, $trigger_type, $trigger_filter );
 
-		// 2. LLM call: generate workflow JSON
-		$scenario_json = $this->call_llm_generate( $system_prompt, $description );
+		// 2. Fallback to LLM for complex scenarios
+		if ( ! $scenario_json ) {
+			$system_prompt = $this->build_gen_system_prompt( $trigger_type, $trigger_filter );
+			$scenario_json = $this->call_llm_generate( $system_prompt, $description );
+		}
 
 		if ( ! $scenario_json || empty( $scenario_json['nodes'] ) ) {
 			return array(
@@ -259,7 +270,7 @@ class BizCity_Automation_Intent_Provider extends BizCity_Intent_Provider {
 		}
 
 		// 3. Validate scenario
-		$validation = $this->validate_scenario( $scenario_json );
+		$validation = $this->validate_scenario( $scenario_json, $description );
 		if ( ! $validation['valid'] ) {
 			return array(
 				'success' => false,
@@ -296,6 +307,154 @@ class BizCity_Automation_Intent_Provider extends BizCity_Intent_Provider {
 				'steps' => count( $scenario_json['nodes'] ) - 1, // minus trigger
 			),
 		);
+	}
+
+	/**
+	 * Build a deterministic scenario for common linear chains.
+	 *
+	 * This bypasses LLM for high-confidence prompts like:
+	 * "viết bài ... rồi tạo ảnh ... rồi đăng Facebook".
+	 *
+	 * @return array|null Scenario JSON or null if not matched.
+	 */
+	private function build_rule_based_scenario( $description, $trigger_type = 'adminchat', $trigger_filter = '' ) {
+		$text = mb_strtolower( (string) $description, 'UTF-8' );
+
+		$want_article  = (bool) preg_match( '/(viết\s*bài|write\s*article|blog|content)/u', $text );
+		$want_image    = (bool) preg_match( '/(tạo\s*ảnh|ảnh\s*minh\s*họa|generate\s*image|image)/u', $text );
+		$want_facebook = (bool) preg_match( '/(đăng\s*facebook|post\s*facebook|facebook)/u', $text );
+
+		$steps = array();
+		if ( $want_article ) {
+			$steps[] = 'write_article';
+		}
+		if ( $want_image ) {
+			$steps[] = 'generate_image';
+		}
+		if ( $want_facebook ) {
+			$steps[] = 'post_facebook';
+		}
+
+		if ( count( $steps ) < 2 ) {
+			return null;
+		}
+
+		$trigger = $this->build_trigger_node( $trigger_type, $trigger_filter );
+		$nodes   = array( $trigger );
+
+		$x = 560;
+		$node_idx = 2;
+		foreach ( $steps as $tool_id ) {
+			$nodes[] = array(
+				'id'       => (string) $node_idx,
+				'type'     => 'action',
+				'position' => array( 'x' => $x, 'y' => 200 ),
+				'data'     => array(
+					'type'     => 'action',
+					'category' => 'it',
+					'code'     => 'it_call_tool',
+					'label'    => '🤖 Agent — ' . $tool_id,
+					'settings' => array(
+						'tool_id'        => $tool_id,
+						'input_json'     => $this->default_input_json_for_tool( $tool_id, $node_idx ),
+						'user_id_source' => 'trigger',
+					),
+				),
+			);
+			$x += 210;
+			$node_idx++;
+		}
+
+		return array(
+			'task_title' => 'Workflow: ' . mb_substr( $description, 0, 100, 'UTF-8' ),
+			'nodes'      => $nodes,
+			'edges'      => $this->build_linear_edges( $nodes ),
+			'settings'   => array( 'timeout' => 300, 'multiple' => 0, 'skip' => 0, 'cooldown' => 0, 'stop' => 'yes' ),
+			'version'    => '1.0.0',
+		);
+	}
+
+	/**
+	 * Build trigger node based on trigger type and filter.
+	 */
+	private function build_trigger_node( $trigger_type, $trigger_filter = '' ) {
+		$trigger_map = array(
+			'adminchat' => array( 'code' => 'bc_adminchat_message',    'category' => 'bc', 'label' => '💬 Admin Chat — Nhận tin nhắn' ),
+			'zalo'      => array( 'code' => 'wu_zalobot_text_received', 'category' => 'wu', 'label' => '📱 Zalo Bot — Nhận tin nhắn Zalo' ),
+			'schedule'  => array( 'code' => 'sy_schedule',              'category' => 'sy', 'label' => '⏰ Schedule — Lên lịch tự động' ),
+			'webhook'   => array( 'code' => 'sy_webhook',               'category' => 'sy', 'label' => '🔗 Webhook (URL)' ),
+			'manual'    => array( 'code' => 'sy_manual',                'category' => 'sy', 'label' => '▶️ Manual Trigger' ),
+		);
+
+		$trigger_info = isset( $trigger_map[ $trigger_type ] ) ? $trigger_map[ $trigger_type ] : $trigger_map['adminchat'];
+		$settings = array();
+		if ( in_array( $trigger_type, array( 'adminchat', 'zalo' ), true ) && ! empty( $trigger_filter ) ) {
+			$settings['text_contains'] = $trigger_filter;
+			$settings['text_regex']    = '';
+		}
+
+		return array(
+			'id'       => '1',
+			'type'     => 'trigger',
+			'position' => array( 'x' => 350, 'y' => 200 ),
+			'data'     => array(
+				'type'     => 'trigger',
+				'category' => $trigger_info['category'],
+				'code'     => $trigger_info['code'],
+				'label'    => $trigger_info['label'],
+				'settings' => $settings,
+			),
+		);
+	}
+
+	/**
+	 * Build linear edges for node list.
+	 */
+	private function build_linear_edges( $nodes ) {
+		$edges = array();
+		for ( $i = 0; $i < count( $nodes ) - 1; $i++ ) {
+			$src = $nodes[ $i ]['id'];
+			$tgt = $nodes[ $i + 1 ]['id'];
+			$edges[] = array(
+				'id'           => "e{$src}-{$tgt}",
+				'source'       => $src,
+				'target'       => $tgt,
+				'sourceHandle' => 'output-right',
+				'targetHandle' => 'input-left',
+				'type'         => 'default',
+			);
+		}
+		return $edges;
+	}
+
+	/**
+	 * Default input_json template per tool to keep chaining predictable.
+	 */
+	private function default_input_json_for_tool( $tool_id, $node_idx ) {
+		$prev = max( 1, (int) $node_idx - 1 );
+
+		switch ( $tool_id ) {
+			case 'write_article':
+				return '{"topic": "{{node#1.text}}"}';
+
+			case 'generate_image':
+				if ( $prev <= 1 ) {
+					return '{"message": "{{node#1.text}}"}';
+				}
+				return '{"message": "{{node#' . $prev . '.message}}"}';
+
+			case 'post_facebook':
+				if ( $prev <= 1 ) {
+					return '{"content": "{{node#1.text}}", "image_url": "{{node#1.image_url}}"}';
+				}
+				return '{"content": "{{node#' . $prev . '.message}}", "image_url": "{{node#' . $prev . '.image_url}}"}';
+
+			default:
+				if ( $prev <= 1 ) {
+					return '{"message": "{{node#1.text}}"}';
+				}
+				return '{"message": "{{node#' . $prev . '.message}}"}';
+		}
 	}
 
 	/* ================================================================
@@ -516,7 +675,10 @@ class BizCity_Automation_Intent_Provider extends BizCity_Intent_Provider {
 		global $wpdb;
 		$table = $wpdb->prefix . 'bizcity_tool_registry';
 		$rows  = $wpdb->get_results(
-			"SELECT tool_name, title FROM {$table} WHERE active = 1 ORDER BY priority ASC, tool_name ASC",
+			"SELECT tool_name, title, description, required_slots, optional_slots, trust_tier, tool_type, priority
+			 FROM {$table}
+			 WHERE active = 1
+			 ORDER BY trust_tier ASC, priority ASC, tool_name ASC",
 			ARRAY_A
 		);
 
@@ -526,7 +688,30 @@ class BizCity_Automation_Intent_Provider extends BizCity_Intent_Provider {
 
 		$lines = array();
 		foreach ( $rows as $row ) {
-			$lines[] = "- {$row['tool_name']}: {$row['title']}";
+			$tool_name = (string) ( $row['tool_name'] ?? '' );
+			if ( ! $tool_name || in_array( $tool_name, $this->orchestration_tools, true ) ) {
+				continue;
+			}
+
+			$required = json_decode( $row['required_slots'] ?? '{}', true );
+			$optional = json_decode( $row['optional_slots'] ?? '{}', true );
+
+			$required_names = is_array( $required ) ? array_keys( $required ) : array();
+			$optional_names = is_array( $optional ) ? array_keys( $optional ) : array();
+
+			$required_text = empty( $required_names ) ? 'none' : implode( ', ', $required_names );
+			$optional_text = empty( $optional_names ) ? 'none' : implode( ', ', array_slice( $optional_names, 0, 6 ) );
+
+			$lines[] = sprintf(
+				'- %s [tier:%d|type:%s|p:%d] — %s | required: %s | optional: %s',
+				$tool_name,
+				(int) ( $row['trust_tier'] ?? 4 ),
+				(string) ( $row['tool_type'] ?? 'atomic' ),
+				(int) ( $row['priority'] ?? 50 ),
+				(string) ( $row['title'] ?? $row['description'] ?? $tool_name ),
+				$required_text,
+				$optional_text
+			);
 		}
 		return implode( "\n", $lines );
 	}
@@ -621,6 +806,17 @@ QUY TẮC BẮT BUỘC:
 
 DANH SÁCH CÔNG CỤ AI CÓ SẴN (dùng cho tool_id):
 {$tools_list}
+
+10. TUYỆT ĐỐI KHÔNG dùng các tool điều phối workflow làm action step:
+	- build_workflow
+	- publish_workflow
+	- list_workflows
+	Các tool này chỉ dùng ở lớp điều phối chat, không phải bước thực thi trong pipeline.
+
+11. Với mô tả kiểu "viết bài ... rồi tạo ảnh ... rồi đăng Facebook", ưu tiên chain chuẩn:
+	- node#2: write_article (topic={{node#1.text}})
+	- node#3: generate_image (message={{node#2.message}})
+	- node#4: post_facebook (content={{node#2.message}}, image_url={{node#3.image_url}})
 
 OUTPUT FORMAT — Trả về DUY NHẤT JSON, KHÔNG markdown:
 {
@@ -734,7 +930,7 @@ PROMPT;
 	/**
 	 * Validate scenario structure: linear pipeline, all actions use it_call_tool.
 	 */
-	private function validate_scenario( $scenario ) {
+	private function validate_scenario( $scenario, $description = '' ) {
 		$nodes   = isset( $scenario['nodes'] ) ? $scenario['nodes'] : array();
 		$invalid = array();
 
@@ -761,6 +957,8 @@ PROMPT;
 			$tool_id = isset( $node['data']['settings']['tool_id'] ) ? $node['data']['settings']['tool_id'] : '';
 			if ( empty( $tool_id ) ) {
 				$invalid[] = "Node #{$node['id']}: missing tool_id in settings";
+			} elseif ( in_array( $tool_id, $this->orchestration_tools, true ) ) {
+				$invalid[] = "Node #{$node['id']}: orchestration tool '{$tool_id}' is not allowed in action chain";
 			}
 		}
 
@@ -774,7 +972,82 @@ PROMPT;
 		// Ensure linear edges (fix if LLM made branching)
 		$scenario = $this->enforce_linear_edges( $scenario );
 
+		// Enforce deterministic ordering for common VN marketing chain.
+		$scenario = $this->enforce_common_chain_pattern( $scenario, $description );
+
 		return array( 'valid' => true, 'scenario' => $scenario );
+	}
+
+	/**
+	 * Enforce expected order for common prompt pattern:
+	 * write article -> generate image -> post Facebook.
+	 */
+	private function enforce_common_chain_pattern( $scenario, $description ) {
+		$text = mb_strtolower( (string) $description, 'UTF-8' );
+		$match = preg_match( '/viết\s*bài/u', $text )
+			&& preg_match( '/(tạo\s*ảnh|minh\s*họa|image)/u', $text )
+			&& preg_match( '/facebook/u', $text );
+
+		if ( ! $match || empty( $scenario['nodes'] ) ) {
+			return $scenario;
+		}
+
+		$trigger = $scenario['nodes'][0];
+		$new_nodes = array( $trigger );
+
+		$wanted = array( 'write_article', 'generate_image', 'post_facebook' );
+		$existing_by_tool = array();
+		for ( $i = 1; $i < count( $scenario['nodes'] ); $i++ ) {
+			$n = $scenario['nodes'][ $i ];
+			$t = $n['data']['settings']['tool_id'] ?? '';
+			if ( $t ) {
+				$existing_by_tool[ $t ] = $n;
+			}
+		}
+
+		$x = 560;
+		$idx = 2;
+		foreach ( $wanted as $tool_id ) {
+			$node = $existing_by_tool[ $tool_id ] ?? array(
+				'id'       => (string) $idx,
+				'type'     => 'action',
+				'position' => array( 'x' => $x, 'y' => 200 ),
+				'data'     => array(
+					'type'     => 'action',
+					'category' => 'it',
+					'code'     => 'it_call_tool',
+					'label'    => '🤖 Agent — ' . $tool_id,
+					'settings' => array(
+						'tool_id'        => $tool_id,
+						'input_json'     => $this->default_input_json_for_tool( $tool_id, $idx ),
+						'user_id_source' => 'trigger',
+					),
+				),
+			);
+
+			$node['id'] = (string) $idx;
+			$node['position'] = array( 'x' => $x, 'y' => 200 );
+			$node['type'] = 'action';
+			$node['data']['type'] = 'action';
+			$node['data']['category'] = 'it';
+			$node['data']['code'] = 'it_call_tool';
+			$node['data']['settings']['tool_id'] = $tool_id;
+			$node['data']['settings']['input_json'] = $this->default_input_json_for_tool( $tool_id, $idx );
+			$node['data']['settings']['user_id_source'] = 'trigger';
+
+			$new_nodes[] = $node;
+			$x += 210;
+			$idx++;
+		}
+
+		$scenario['nodes'] = $new_nodes;
+		$scenario['edges'] = $this->build_linear_edges( $new_nodes );
+
+		if ( empty( $scenario['task_title'] ) ) {
+			$scenario['task_title'] = 'Workflow: viết bài -> tạo ảnh -> đăng Facebook';
+		}
+
+		return $scenario;
 	}
 
 	/**
@@ -782,20 +1055,7 @@ PROMPT;
 	 */
 	private function enforce_linear_edges( $scenario ) {
 		$nodes = $scenario['nodes'];
-		$edges = array();
-		for ( $i = 0; $i < count( $nodes ) - 1; $i++ ) {
-			$src = $nodes[ $i ]['id'];
-			$tgt = $nodes[ $i + 1 ]['id'];
-			$edges[] = array(
-				'id'           => "e{$src}-{$tgt}",
-				'source'       => $src,
-				'target'       => $tgt,
-				'sourceHandle' => 'output-right',
-				'targetHandle' => 'input-left',
-				'type'         => 'default',
-			);
-		}
-		$scenario['edges'] = $edges;
+		$scenario['edges'] = $this->build_linear_edges( $nodes );
 		return $scenario;
 	}
 

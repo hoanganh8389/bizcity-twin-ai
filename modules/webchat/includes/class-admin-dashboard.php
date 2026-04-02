@@ -39,6 +39,44 @@ class BizCity_WebChat_Admin_Dashboard {
         
         // Enqueue assets
         add_action('admin_enqueue_scripts', [$this, 'enqueue_assets']);
+
+        // Cache invalidation — tools catalog
+        add_action('bizcity_tool_registry_changed', [__CLASS__, 'invalidate_tools_catalog_cache']);
+        add_action('activated_plugin',              [__CLASS__, 'invalidate_tools_catalog_cache']);
+        add_action('deactivated_plugin',            [__CLASS__, 'invalidate_tools_catalog_cache']);
+
+        // Skip wp_user_settings DB writes on React dashboard (no WP screen options used)
+        add_filter('update_user_metadata', [$this, 'skip_user_settings_on_dashboard'], 10, 4);
+    }
+
+    /**
+     * Short-circuit user-settings meta updates on BizCity dashboard.
+     *
+     * wp_user_settings() in admin-header.php always updates user-settings-time
+     * with time(), causing 2 SELECT + 2 UPDATE queries per admin page load.
+     * The React SPA dashboard never uses WP screen options, so skip them.
+     *
+     * @param null|bool $check  Return non-null to short-circuit.
+     * @param int       $object_id  User ID.
+     * @param string    $meta_key   Meta key being updated.
+     * @param mixed     $meta_value Meta value.
+     * @return null|bool
+     */
+    public function skip_user_settings_on_dashboard($check, $object_id, $meta_key, $meta_value) {
+        if (isset($_GET['page']) && $_GET['page'] === 'bizcity-webchat-dashboard') {
+            if (preg_match('/^wp_\d+_user-settings/', $meta_key)) {
+                return true; // pretend update succeeded — skips SELECT + UPDATE
+            }
+        }
+        return $check;
+    }
+
+    /**
+     * Invalidate transient caches for tools catalog + agent plugins headers.
+     */
+    public static function invalidate_tools_catalog_cache() {
+        delete_transient('bizcity_tools_catalog');
+        delete_transient('bizcity_agent_plugins_headers');
     }
     
     /**
@@ -175,6 +213,34 @@ class BizCity_WebChat_Admin_Dashboard {
             $app_ver,
             true
         );
+
+        // Pipeline Working Panel (step-by-step execution UI for chat)
+        $pipeline_js = defined( 'BIZCITY_INTENT_DIR' )
+            ? BIZCITY_INTENT_DIR . '/assets/js/pipeline-working-panel.js' : '';
+        if ( $pipeline_js && file_exists( $pipeline_js ) ) {
+            $pipeline_url = defined( 'BIZCITY_INTENT_URL' )
+                ? BIZCITY_INTENT_URL . 'assets/js/pipeline-working-panel.js' : '';
+            wp_enqueue_script(
+                'bizc-pipeline-working-panel',
+                $pipeline_url,
+                [ 'jquery', 'bizcity-admin-dashboard-app' ],
+                filemtime( $pipeline_js ),
+                true
+            );
+            wp_localize_script( 'bizc-pipeline-working-panel', 'BIZC_PIPELINE', [
+                'nonce' => wp_create_nonce( 'bizc_pipeline_nonce' ),
+            ] );
+
+            $pipeline_css = BIZCITY_INTENT_DIR . '/assets/css/pipeline-working-panel.css';
+            if ( file_exists( $pipeline_css ) ) {
+                wp_enqueue_style(
+                    'bizc-pipeline-working-panel',
+                    BIZCITY_INTENT_URL . 'assets/css/pipeline-working-panel.css',
+                    [],
+                    filemtime( $pipeline_css )
+                );
+            }
+        }
     }
     
     /**
@@ -196,6 +262,13 @@ class BizCity_WebChat_Admin_Dashboard {
      * Replicates the logic from page-tools-map.php.
      */
     private function build_tools_catalog() {
+        // ── Transient cache (invalidated by bizcity_tool_registry_changed) ──
+        $cache_key = 'bizcity_tools_catalog';
+        $cached    = get_transient($cache_key);
+        if ($cached !== false) {
+            return $cached;
+        }
+
         // Gradient palette (same as page-tools-map.php)
         $palette = [
             ['#059669','#34D399'], ['#4F46E5','#818CF8'],
@@ -325,10 +398,15 @@ class BizCity_WebChat_Admin_Dashboard {
             ];
         }
 
-        return [
+        $result = [
             'totalTools' => count($all_tools),
             'groups'     => $groups_out,
         ];
+
+        // Persist for 1 hour — explicit invalidation via bizcity_tool_registry_changed
+        set_transient($cache_key, $result, HOUR_IN_SECONDS);
+
+        return $result;
     }
 
     /**
@@ -599,15 +677,17 @@ class BizCity_WebChat_Admin_Dashboard {
             .tc-search-input {padding: 10px 14px 10px 38px !important}
             .bizc-msg-slash { color: var(--color-n30) !important; font-size: 12px !important; font-style: italic !important; }
             /* ── Working indicator — force display on multisite hub ── */
-            #root .bizc-working[data-bizc-working="1"] { display: block !important; visibility: visible !important; opacity: 1 !important; margin-bottom: 16px !important; width: min(560px,100%) !important; max-width: 100% !important; z-index: 6 !important; isolation: isolate !important; }
-            #root .bizc-working[data-bizc-working="1"] .bizc-working-bubble { display: flex !important; flex-direction: column !important; gap: 4px !important; padding: 12px 16px !important; background: #f3f4f6 !important; border-radius: 12px !important; max-width: 100% !important; width: 100% !important; font-size: 13px !important; line-height: 1.5 !important; border: 1px solid #e5e7eb !important; }
-            #root .bizc-working-bubble.compact { padding: 8px 14px !important; opacity: .7 !important; font-size: 12px !important; }
-            #root .bizc-working[data-bizc-working="1"] .bizc-ws { display: flex !important; align-items: flex-start !important; gap: 8px !important; padding: 4px 0 !important; color: #6b7280 !important; }
+            @keyframes bizc-ws-in { from { opacity: 0; transform: translateX(-4px); } to { opacity: 1; transform: translateX(0); } }
+            @keyframes bizc-dot-in { 0%,80%,100% { opacity: .3; transform: scale(.9); } 40% { opacity: 1; transform: scale(1.1); } }
+            #root .bizc-working[data-bizc-working="1"] { display: block !important; visibility: visible !important; opacity: 1 !important; margin-bottom: 16px !important; width: min(560px,100%) !important; max-width: 100% !important; z-index: 6 !important; isolation: isolate !important; position: relative !important; }
+            #root .bizc-working[data-bizc-working="1"] .bizc-working-bubble { display: flex !important; flex-direction: column !important; gap: 4px !important; padding: 12px 16px !important; background: #f3f4f6 !important; border-radius: 12px !important; box-shadow: 0 1px 4px #0000000a !important; max-width: 100% !important; width: 100% !important; font-size: 13px !important; line-height: 1.5 !important; border: 1px solid #e5e7eb !important; }
+            #root .bizc-working-bubble.compact { padding: 8px 14px !important; gap: 0 !important; opacity: .7 !important; font-size: 12px !important; }
+            #root .bizc-working[data-bizc-working="1"] .bizc-ws { display: flex !important; align-items: flex-start !important; gap: 8px !important; padding: 4px 0 !important; color: #6b7280 !important; animation: bizc-ws-in .15s ease !important; }
             #root .bizc-ws.done { opacity: 0.5 !important; }
             #root .bizc-ws.active { color: #4f46e5 !important; font-weight: 500 !important; }
             #root .bizc-ws-icon { width: 16px !important; height: 16px !important; display: flex !important; align-items: center !important; justify-content: center !important; font-size: 11px !important; flex-shrink: 0 !important; }
             #root .bizc-ws.done .bizc-ws-icon { color: #22c55e !important; }
-            #root .bizc-ws.active .bizc-ws-icon::after { content: '' !important; width: 6px !important; height: 6px !important; border-radius: 50% !important; background: #6366f1 !important; display: block !important; }
+            #root .bizc-ws.active .bizc-ws-icon::after { content: '' !important; width: 6px !important; height: 6px !important; border-radius: 50% !important; background: #6366f1 !important; animation: bizc-dot-in 1.4s infinite ease-in-out !important; display: block !important; }
             #root .bizc-working[data-bizc-working="1"] .bizc-ws-main { flex: 1 !important; min-width: 0 !important; display: flex !important; flex-direction: column !important; gap: 1px !important; }
             #root .bizc-ws-text { flex: 1 !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; font-weight: 600 !important; }
             #root .bizc-ws-detail { display: block !important; font-size: 11px !important; color: #6b7280 !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; }

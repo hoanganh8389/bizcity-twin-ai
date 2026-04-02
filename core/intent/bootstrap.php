@@ -26,7 +26,7 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 
 // Constants — guarded to allow coexistence with legacy mu-plugin during migration
 if ( ! defined( 'BIZCITY_INTENT_VERSION' ) ) {
-    define( 'BIZCITY_INTENT_VERSION', '3.8.0' );
+    define( 'BIZCITY_INTENT_VERSION', '4.0.0' );
 }
 if ( ! defined( 'BIZCITY_INTENT_DIR' ) ) {
     define( 'BIZCITY_INTENT_DIR', __DIR__ );
@@ -95,8 +95,29 @@ require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-core-planner.ph
 require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-scenario-generator.php';
 require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-objective-parser.php';
 
+/* -- Phase 1 Addendum — Objective Understanding, Execution Planner, Variant, One-Shot, Step Executor -- */
+require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-objective-understanding.php';
+require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-execution-planner.php';
+require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-planner-variant-resolver.php';
+require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-one-shot-trigger.php';
+require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-step-executor.php';
+
+/* -- Phase 1.1 — Pipeline Middleware (HIL, Evidence, ToDos, Schema Adapter, Messenger) -- */
+require_once BIZCITY_INTENT_DIR . '/includes/workflow/class-block-schema-adapter.php';
+require_once BIZCITY_INTENT_DIR . '/includes/workflow/class-pipeline-messenger.php';
+require_once BIZCITY_INTENT_DIR . '/includes/workflow/class-pipeline-middleware.php';
+require_once BIZCITY_INTENT_DIR . '/includes/workflow/class-intent-todos.php';
+require_once BIZCITY_INTENT_DIR . '/includes/workflow/class-pipeline-resume.php';
+require_once BIZCITY_INTENT_DIR . '/includes/workflow/class-intent-pipeline-evidence.php';
+
 /* ── Init CPT registrations ── */
 BizCity_Tool_Evidence::init();
+
+/* ── Init Step Executor AJAX endpoints ── */
+BizCity_Step_Executor::instance();
+
+/* ── Init Pipeline Middleware (Phase 1.1 — executor hooks) ── */
+BizCity_Pipeline_Middleware::instance()->boot();
 
 require_once BIZCITY_INTENT_DIR . '/services/class-task-service.php';
 require_once BIZCITY_INTENT_DIR . '/services/class-session-list-service.php';

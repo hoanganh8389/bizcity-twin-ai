@@ -445,6 +445,8 @@ class WaicWorkflowModel extends WaicModel {
 									'variables' => $block->getVariables(),
 									'sublabel' => $block->getSublabel(),
 									'order' => $block->getOrder(),
+									'trust_tier' => $block->getTrustTier(),
+									'mcp_tool' => $block->getMcpTool(),
 								);
 							}
 						}

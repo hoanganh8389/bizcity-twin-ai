@@ -1135,6 +1135,7 @@ class BizCity_Intent_Stream {
             'user_id' => $user_id, 'session_id' => $session_id,
             'platform_type' => $platform_type, 'via' => 'intent_stream',
             'mode' => $pre_mode, 'routing_branch' => $routing_branch,
+            'engine_result' => $engine_result, // B11 fix: pass engine_result for skill matching
         ] );
         $openai_messages = [ [ 'role' => 'system', 'content' => $system_content ] ];
         if ( ! empty( $engine_result['conversation_id'] ) ) {
@@ -1504,6 +1505,7 @@ class BizCity_Intent_Stream {
             'empathy_level'  => $pre_empathy_level,
             'empathy_flag'   => $pre_empathy,
             'routing_branch' => $routing_branch,
+            'engine_result'  => $engine_result, // B11 fix: pass engine_result for skill matching
         ] );
 
         // ── Log final system prompt for debugging ──

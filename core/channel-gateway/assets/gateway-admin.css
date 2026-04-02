@@ -1,29 +1,57 @@
 /* Channel Gateway — Admin Styles */
-.bizchat-gw-wrap { max-width: 900px; }
+.bizchat-gw-wrap { max-width: 960px; }
 .bizchat-gw-wrap h2 { margin-top: 28px; }
+
+/* ── Tab Navigation ── */
+.bizchat-gw-tabs { margin-bottom: 0; border-bottom: 1px solid #c3c4c7; }
+.bizchat-gw-tab-content { background: #fff; border: 1px solid #c3c4c7; border-top: none; padding: 24px; border-radius: 0 0 8px 8px; }
 
 /* ── Channel Grid ── */
 .bizchat-gw-grid {
 	display: grid;
-	grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-	gap: 14px;
-	margin-top: 12px;
+	grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+	gap: 16px;
+	margin-top: 4px;
 }
 .bizchat-gw-card {
+	position: relative;
 	display: flex;
-	align-items: center;
-	gap: 12px;
-	padding: 16px;
+	align-items: flex-start;
+	gap: 14px;
+	padding: 20px;
 	background: #fff;
 	border: 1px solid #dcdcde;
-	border-radius: 8px;
-	transition: box-shadow .15s;
+	border-radius: 10px;
+	transition: box-shadow .2s, border-color .2s, transform .15s;
 }
-.bizchat-gw-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,.08); }
-.bizchat-gw-card.is-inactive { opacity: .55; }
-.bizchat-gw-card-icon { font-size: 28px; line-height: 1; flex-shrink: 0; }
-.bizchat-gw-card-body { display: flex; flex-direction: column; gap: 4px; }
-.bizchat-gw-card-body strong { font-size: 14px; }
+.bizchat-gw-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,.1); border-color: #b0b5ba; }
+.bizchat-gw-card.has-link { cursor: pointer; }
+.bizchat-gw-card.has-link:hover { border-color: #2271b1; transform: translateY(-2px); }
+.bizchat-gw-card.is-inactive { opacity: .6; }
+.bizchat-gw-card.is-inactive:hover { opacity: .8; }
+.bizchat-gw-card-link {
+	position: absolute;
+	inset: 0;
+	z-index: 1;
+	border-radius: 10px;
+}
+.bizchat-gw-card-icon { font-size: 36px; line-height: 1; flex-shrink: 0; margin-top: 2px; }
+.bizchat-gw-card-body { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
+.bizchat-gw-card-body strong { font-size: 15px; color: #1d2327; }
+.bizchat-gw-card-desc { font-size: 12px; color: #787c82; line-height: 1.4; }
+.bizchat-gw-card-badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.bizchat-gw-card-action { position: relative; z-index: 2; flex-shrink: 0; align-self: center; }
+.bizchat-gw-card-action .button { white-space: nowrap; }
+.bizchat-gw-coming-soon {
+	display: inline-block;
+	font-size: 11px;
+	color: #9ca3af;
+	font-style: italic;
+	padding: 4px 10px;
+	background: #f9fafb;
+	border-radius: 12px;
+	border: 1px dashed #d1d5db;
+}
 
 /* ── Badges ── */
 .bizchat-gw-badge {
@@ -43,9 +71,65 @@
 .bizchat-gw-table { margin-top: 8px; }
 .bizchat-gw-table code { background: #f0f0f1; padding: 2px 6px; border-radius: 3px; }
 
+/* ── Empty state ── */
+.bizchat-gw-empty { padding: 32px; text-align: center; color: #787c82; }
+
 /* ── Test Form ── */
 .bizchat-gw-test-form { max-width: 500px; }
 .bizchat-gw-test-form label { display: block; margin-bottom: 12px; font-weight: 500; }
 .bizchat-gw-test-form input,
 .bizchat-gw-test-form textarea { display: block; margin-top: 4px; width: 100%; }
 #bizchat-gw-test-result { margin-top: 12px; font-size: 13px; }
+
+/* ═══ Role Management ═══ */
+.bizchat-roles-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+	gap: 20px;
+	margin-top: 16px;
+}
+.bizchat-role-card {
+	background: #fff;
+	border: 1px solid #c3c4c7;
+	border-radius: 8px;
+	overflow: hidden;
+}
+.bizchat-role-card.is-builtin { border-left: 3px solid #2271b1; }
+.bizchat-role-header {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 12px 16px;
+	background: #f6f7f7;
+	border-bottom: 1px solid #e0e0e0;
+}
+.bizchat-role-header strong { font-size: 14px; }
+.bizchat-role-slug {
+	font-size: 11px;
+	color: #787c82;
+	margin-left: auto;
+}
+.bizchat-role-meta {
+	display: flex;
+	gap: 16px;
+	padding: 8px 16px;
+	font-size: 12px;
+	color: #50575e;
+	border-bottom: 1px solid #f0f0f1;
+}
+.bizchat-role-layers { margin: 0; border: 0; }
+.bizchat-role-layers thead th {
+	font-size: 11px;
+	text-transform: uppercase;
+	letter-spacing: 0.5px;
+	color: #787c82;
+	padding: 6px 12px;
+}
+.bizchat-role-layers tbody td { padding: 4px 12px; vertical-align: middle; }
+.bizchat-role-layers tbody tr:nth-child(odd) { background: #fafafa; }
+.bizchat-role-select { font-size: 12px; padding: 2px 4px; max-width: 160px; }
+
+/* Assign table */
+.bizchat-assign-table { max-width: 700px; margin-top: 12px; }
+.bizchat-assign-table td,
+.bizchat-assign-table th { vertical-align: middle; }

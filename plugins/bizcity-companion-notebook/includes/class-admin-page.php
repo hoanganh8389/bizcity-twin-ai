@@ -89,63 +89,10 @@ class BCN_Admin_Page {
         }
 
         wp_localize_script( 'bcn-react-app', 'bizcNotebookConfig', self::get_full_config() );
-        $keep_styles  = [ 'bcn-react-styles', 'bizcity-webchat-react-css' ];
-        $keep_scripts = [ 'jquery', 'jquery-core', 'jquery-migrate', 'bcn-react-app' ];
-
-        if ( $wp_styles instanceof WP_Styles ) {
-            foreach ( $wp_styles->registered as $handle => $obj ) {
-                if ( ! in_array( $handle, $keep_styles, true ) ) {
-                    wp_dequeue_style( $handle );
-                    wp_deregister_style( $handle );
-                }
-            }
-        }
-        if ( $wp_scripts instanceof WP_Scripts ) {
-            foreach ( $wp_scripts->registered as $handle => $obj ) {
-                if ( ! in_array( $handle, $keep_scripts, true ) ) {
-                    wp_dequeue_script( $handle );
-                    wp_deregister_script( $handle );
-                }
-            }
-        }
 
         // Remove admin notices on notebook page for clean SPA.
         remove_all_actions( 'admin_notices' );
-        remove_all_actions( 'all_admin_notices' );
-        remove_action( 'wp_head', 'wp_custom_css_cb', 101 );
-        remove_action( 'wp_enqueue_scripts', 'wp_enqueue_global_styles' );
-        remove_action( 'wp_footer', 'wp_enqueue_global_styles', 1 );
-
-        // ── Strip all WP admin CSS/JS right before print — whitelist approach (like page-note.php) ──
-        // admin_print_styles/scripts fire immediately before output, so NOTHING can re-enqueue after this.
-        add_action( 'admin_print_styles',  [ __CLASS__, 'isolate_admin_styles'  ], 99999 );
-        add_action( 'admin_print_scripts', [ __CLASS__, 'isolate_admin_scripts' ], 99999 );
-    }
-
-    /**
-     * Filter the print queue to only our SPA styles — runs right before WP outputs <link> tags.
-     */
-    public static function isolate_admin_styles() {
-        global $wp_styles;
-        if ( ! $wp_styles instanceof WP_Styles ) return;
-
-        $keep = [ 'bcn-react-styles', 'bizcity-webchat-react-css' ];
-        $wp_styles->queue = array_values(
-            array_filter( $wp_styles->queue, fn( $h ) => in_array( $h, $keep, true ) )
-        );
-    }
-
-    /**
-     * Filter the print queue to only our SPA scripts — runs right before WP outputs <script> tags.
-     */
-    public static function isolate_admin_scripts() {
-        global $wp_scripts;
-        if ( ! $wp_scripts instanceof WP_Scripts ) return;
-
-        $keep = [ 'jquery', 'jquery-core', 'jquery-migrate', 'bcn-react-app', 'wp-api-fetch' ];
-        $wp_scripts->queue = array_values(
-            array_filter( $wp_scripts->queue, fn( $h ) => in_array( $h, $keep, true ) )
-        );
+        
     }
 
     /**
@@ -167,41 +114,7 @@ class BCN_Admin_Page {
     }
 
     public function render_page() {
-        ?>
-        <style>
-        /* Hide WP admin chrome so the SPA fills the viewport without conflicts */
-        #adminmenuwrap, #adminmenuback, #adminmenumain,
-        #wpadminbar, #wpfooter, #screen-meta, #screen-meta-links,
-        .update-nag, .notice, .updated, .error,
-        #wpbody-content > .wrap > h1 { display: none !important; }
-        #wpcontent { margin-left: 0 !important; padding-left: 0 !important; }
-        #wpbody-content { padding-bottom: 0 !important; }
-        html.wp-toolbar { padding-top: 0 !important; }
-        body.bcn-admin-body > *:not(.bcn-wrap):not(script):not(style):not(link):not(noscript) { }
-        .bcn-wrap { position: fixed; inset: 0; z-index: 99999; background: #fff; }
-        #bcn-app { width: 100%; height: 100%; }
-        .bcn-markdown p, #bcn-app p { line-height: 2.2 !important; }
-        .text-lg { margin-bottom: 0; }
-        .border { border: 1px solid #eee !important; }
-        .absolute button { text-align: left !important; }
-        #bcn-app button { font: inherit !important; }
-        .border-t { border-top: 1px solid #eee !important; }
-        /* Restore borders overridden by bizcity-notebook-app.css reset rule */
-        #bcn-app input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=range]),
-        #bcn-app textarea, 
-        #bcn-app input[type=text], #bcn-app input[type=url], #bcn-app input[type=search], #bcn-app input[type=email]
-        #bcn-app select { border: 1px solid #e2e8f0 !important; }
-        /* Restore borders overridden by WP admin forms.css */
-        #bcn-app input[type=text],
-        #bcn-app input[type=search],
-        #bcn-app input[type=email],
-        #bcn-app input[type=password],
-        #bcn-app input[type=number],
-        #bcn-app input[type=url] { padding: revert; line-height: revert; min-height: revert; }
-        </style>
-        <div id="bcn-app" class="bcn-wrap" style="min-height:100vh;"></div>
-        <script>document.body.classList.add('bcn-admin-body');</script>
-        <?php
+        echo '<div id="bcn-app" class="bcn-wrap" style="min-height:100vh;"></div>';
     }
 
     /* ─── Agent profile ─── */
