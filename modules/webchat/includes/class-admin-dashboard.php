@@ -555,14 +555,16 @@ class BizCity_WebChat_Admin_Dashboard {
 
         // ── Sidebar navigation items (configurable via filter) ──
         $sidebar_nav = apply_filters('bizcity_sidebar_nav', [
-            ['slug' => 'explore',    'label' => __( 'Explore',                   'bizcity-webchat' ), 'icon' => '🔍', 'type' => 'link', 'src' => admin_url('admin.php?page=bizcity-marketplace')],
-            ['slug' => 'tools',      'label' => __( 'Tools',                     'bizcity-webchat' ), 'icon' => '🛠️', 'type' => 'link', 'src' => home_url('tools-map/')],
-            ['slug' => 'training',   'label' => __( 'Teach AI',                  'bizcity-webchat' ), 'icon' => '📖', 'type' => 'link', 'src' => home_url('note/')],
-            ['slug' => 'maturity',   'label' => __( 'Maturity',                    'bizcity-webchat' ), 'icon' => '🧬', 'type' => 'link', 'src' => home_url('maturity/')],
+            ['slug' => 'explore',    'label' => __( 'Explore',             'bizcity-webchat' ), 'icon' => '🔍', 'type' => 'link', 'src' => admin_url('admin.php?page=bizcity-marketplace')],
+            ['slug' => 'tools',      'label' => __( 'Tools',              'bizcity-webchat' ), 'icon' => '🛠️', 'type' => 'link', 'src' => home_url('tools-map/')],
+            ['slug' => 'scheduler',  'label' => __( 'Scheduler',          'bizcity-webchat' ), 'icon' => '📅', 'type' => 'link', 'src' => home_url('scheduler/')],
+            ['slug' => 'skills',     'label' => __( 'Skills',             'bizcity-webchat' ), 'icon' => '⚡', 'type' => 'link', 'src' => home_url('skills/')],
+            ['slug' => 'training',   'label' => __( 'Teach AI',           'bizcity-webchat' ), 'icon' => '📖', 'type' => 'link', 'src' => home_url('note/')],
+            ['slug' => 'maturity',   'label' => __( 'Maturity',           'bizcity-webchat' ), 'icon' => '🧬', 'type' => 'link', 'src' => home_url('maturity/')],
 
-            ['slug' => 'settings',   'label' => __( 'API Settings',          'bizcity-webchat' ), 'icon' => '⚙️', 'panel' => 'settings'],
-            ['slug' => 'automation', 'label' => __( 'Automation Planner',  'bizcity-webchat' ), 'icon' => '⚡', 'type' => 'link', 'src' => admin_url('admin.php?page=bizcity-workspace&tab=workflow')],
-            ['slug' => 'gateway',    'label' => __( 'Gateway',             'bizcity-webchat' ), 'icon' => '🔌', 'type' => 'link', 'src' => admin_url('admin.php?page=bizchat-gateway')],
+            ['slug' => 'settings',   'label' => __( 'API Settings',       'bizcity-webchat' ), 'icon' => '⚙️', 'panel' => 'settings'],
+            ['slug' => 'automation', 'label' => __( 'Automation Planner', 'bizcity-webchat' ), 'icon' => '🔄', 'type' => 'link', 'src' => admin_url('admin.php?page=bizcity-workspace&tab=workflow')],
+            ['slug' => 'gateway',    'label' => __( 'Gateway',            'bizcity-webchat' ), 'icon' => '🔌', 'type' => 'link', 'src' => admin_url('admin.php?page=bizchat-gateway')],
         ]);
 
         // ── Welcome screen tool shortcuts (configurable via filter) ──

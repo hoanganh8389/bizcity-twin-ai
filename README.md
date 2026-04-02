@@ -5,13 +5,15 @@
 
 ## Latest Release
 
-### v1.3.1 (2026-03-28)
+### v1.4.0 (2026-04-02)
 
-- Refactored Intent includes into role-based modules: classification, orchestration, routing, conversation, tools, providers, infrastructure.
-- Added/kept backward-compatible shim layer for legacy include paths during migration.
-- Fixed bootstrap class load order to guarantee base pipeline classes load before dependent router classes.
-- Hardened clarify and plan-confirm flows in Intent Engine (including plan-builder confirm state handling).
-- Updated architecture roadmap with today's execution log and a 3-phase priority plan.
+- **Skill Library**: File-based skill archetype (A/B/C) auto-discovery, YAML/Markdown skill definition, triggers, slash commands, priority, status, and process documentation. See `/core/skills/` and `GUIDE-00-COMPANION-TWIN.md`.
+- **Automation Pipeline**: WaicFrame engine with resumable execution, todos ledger, ready contract, mismatch detection, and E2E test suite. See `PHASE-1.2-SKILL-PIPELINE-INTEGRATION.md`, `test-e2e-skill-pipeline.php`.
+- **Scheduler Core**: Timeline backbone for both user and AI, event CRUD, atomic tool family, dual-context (user/AI), and Google Calendar sync. See `PHASE-1.3-SCHEDULER-CORE.md`.
+- **E2E Test Infra**: Full pipeline E2E test runner, resume contract, variable rebuild, mismatch detection, todos CRUD, bridge payload, middleware checkpoint. See `test-e2e-skill-pipeline.php`.
+- **Docs & Guides**: Added comprehensive guides for Twin Engine, Plugin Ecosystem, Automation Pipeline, Expert Twin. See Documentation & Guides section below.
+- **Demo & Marketplace**: Public demo at [bizgpt.vn](https://bizgpt.vn). Try for free, browse plugin marketplace, register API key, request custom agent, explore 500+ AI models.
+- **MIT License**: Now officially MIT licensed. See LICENSE file.
 
 ---
 
@@ -237,6 +239,28 @@ Every time you re-activate the plugin (e.g. after an update), the mu-plugin file
 
 ---
 
+## Documentation & Guides
+
+| # | Guide | Link |
+|---|-------|------|
+| 1 | AI Song Sinh — Bản Sao Số | [GUIDE-00-COMPANION-TWIN.md](GUIDE-00-COMPANION-TWIN.md) |
+| 2 | Hệ Sinh Thái Plugin AI | [GUIDE-01-AGENTIC-ECOSYSTEM.md](GUIDE-01-AGENTIC-ECOSYSTEM.md) |
+| 3 | Automation Pipeline | [GUIDE-02-AUTOMATION-PIPELINE.md](GUIDE-02-AUTOMATION-PIPELINE.md) |
+| 4 | Đào Tạo Bản Sao Số Chuyên Gia | [GUIDE-03-EXPERT-TWIN.md](GUIDE-03-EXPERT-TWIN.md) |
+| 5 | PHASE 1.2 — Skill ↔ Pipeline | [PHASE-1.2-SKILL-PIPELINE-INTEGRATION.md](PHASE-1.2-SKILL-PIPELINE-INTEGRATION.md) |
+| 6 | PHASE 1.1 — Agentic Tool Execution | [PHASE-1.1-AGENTIC-TOOL-EXECUTION.md](PHASE-1.1-AGENTIC-TOOL-EXECUTION.md) |
+| 7 | PHASE 1.3 — Scheduler Core | [PHASE-1.3-SCHEDULER-CORE.md](PHASE-1.3-SCHEDULER-CORE.md) |
+
+### Demo & Marketplace
+
+- [Dùng thử miễn phí](https://bizgpt.vn)
+- [Chợ Plugin AI](https://bizcity.vn/marketplace/)
+- [Đăng ký API key](https://bizcity.vn/my-account/)
+- [Đặt hàng Agent](https://bizcity.vn/request-agent/)
+- [500+ AI Models](https://bizcity.vn/ai-models/)
+
+---
+
 ## Hướng dẫn cài đặt (Tiếng Việt)
 
 ### Yêu cầu
@@ -383,6 +407,19 @@ rm wp-content/mu-plugins/bizcity-twin-compat.php
 ---
 
 ### Changelog
+
+### 1.3.2 (2026-03-29)
+- **§35 SSE Streaming Infrastructure**: Apache `mod_deflate` anti-buffer fix — `apache_setenv('no-gzip','1')` + `Content-Encoding: none` + `ob_implicit_flush(1)` + `ini_set output_buffering + zlib`. Applied to `class-chat-gateway.php` and `class-router-rest.php`. curl_multi + chunk_queue on both `class-llm-client.php` and `class-router-proxy.php`. Streaming confirmed real-time on Apache cPanel.
+- **§36 WorkingIndicator**: `ChatPanel.jsx` — `WorkingIndicator({ steps, statusText, isStreaming })` component. `.bizc-working-bubble` CSS. Stage label map + detail renderer (`getStepLabel`, `getStepDetail`). Up to 12 recent pipeline steps with spinner/✓ indicators.
+- **Multi-Goal Pipeline spec**: `PHASE-1-UNIFIED-PIPELINE.md` v1.4 — Trust Tier 0-4, I/O Independence Contract (input_fields/output_fields), Evidence CPT `bizcity-auto-tool`, canonical I/O canonical naming, dependency graph + topological execution order, HIL preconfirm pattern. Spec complete; `BizCity_Core_Planner` implementation in P2.1.
+- **Docs**: `ARCHITECTURE-NARRATIVE.md` v1.2 (§8 SSE Infra, §9 WorkingIndicator, §10 Principles), `ACTION-PLAN-2026-03-28.md` session summary, `ARCHITECTURE.md` §30 + v1.3.2 changelog.
+
+### 1.3.1 (2026-03-28)
+- Refactored Intent includes into role-based modules: classification, orchestration, routing, conversation, tools, providers, infrastructure.
+- Added/kept backward-compatible shim layer for legacy include paths during migration.
+- Fixed bootstrap class load order to guarantee base pipeline classes load before dependent router classes.
+- Hardened clarify and plan-confirm flows in Intent Engine (including plan-builder confirm state handling).
+- Updated architecture roadmap with today's execution log and a 3-phase priority plan.
 
 ### 1.3.0 (2026-03-27)
 - **§31 React Slash Commands**: `SlashDialog.jsx` — full-screen tool browser with search, tabs, and category grouping. `PromptForm.jsx` — type `/` to trigger slash overlay, select tool to fill prompt (not auto-send). Tool chip buttons on welcome screen tool cards. `ChatContext` slash state management. Built with Vite.

@@ -95,6 +95,13 @@ class BizCity_Skill_REST_API {
 			'callback'            => [ $this, 'test_matching' ],
 			'permission_callback' => [ $this, 'check_admin' ],
 		] );
+
+		// GET /catalog — public skills catalog (frontmatter only, no raw content)
+		register_rest_route( self::API_NAMESPACE, '/catalog', [
+			'methods'             => 'GET',
+			'callback'            => [ $this, 'get_catalog' ],
+			'permission_callback' => function () { return is_user_logged_in(); },
+		] );
 	}
 
 	/* ── Permission ────────────────────────────────────────────── */
@@ -214,5 +221,36 @@ class BizCity_Skill_REST_API {
 		}
 
 		return new \WP_REST_Response( $result, 200 );
+	}
+
+	/**
+	 * GET /catalog — Public skills catalog (frontmatter only).
+	 */
+	public function get_catalog(): \WP_REST_Response {
+		$mgr    = BizCity_Skill_Manager::instance();
+		$skills = $mgr->get_all_skills();
+
+		$catalog = [];
+		foreach ( $skills as $s ) {
+			$fm = $s['frontmatter'] ?? [];
+			$catalog[] = [
+				'path'        => $s['path'],
+				'title'       => $fm['title'] ?? basename( $s['path'], '.md' ),
+				'description' => $fm['description'] ?? '',
+				'category'    => dirname( $s['path'] ),
+				'modes'       => $fm['modes'] ?? [],
+				'tools'       => $fm['tools'] ?? $fm['related_tools'] ?? [],
+				'triggers'    => $fm['triggers'] ?? [],
+				'priority'    => $fm['priority'] ?? 5,
+			];
+		}
+
+		// Sort by category then title
+		usort( $catalog, function ( $a, $b ) {
+			$c = strcmp( $a['category'], $b['category'] );
+			return $c !== 0 ? $c : strcmp( $a['title'], $b['title'] );
+		} );
+
+		return new \WP_REST_Response( [ 'skills' => $catalog, 'total' => count( $catalog ) ], 200 );
 	}
 }

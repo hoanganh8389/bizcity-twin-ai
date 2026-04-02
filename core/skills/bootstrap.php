@@ -52,3 +52,22 @@ BizCity_Skill_Pipeline_Bridge::instance();
 if ( is_admin() ) {
     BizCity_Skill_Admin_Page::instance();
 }
+
+/* ══════════════════════════════════════════════════════════════
+ *  PUBLIC PAGE — /skills/
+ * ══════════════════════════════════════════════════════════════ */
+add_action( 'init', function () {
+    add_rewrite_rule( '^skills/?$', 'index.php?bizcity_agent_page=skills', 'top' );
+} );
+add_filter( 'query_vars', function ( $vars ) {
+    if ( ! in_array( 'bizcity_agent_page', $vars, true ) ) {
+        $vars[] = 'bizcity_agent_page';
+    }
+    return $vars;
+} );
+add_action( 'template_redirect', function () {
+    if ( get_query_var( 'bizcity_agent_page' ) === 'skills' ) {
+        include BIZCITY_SKILLS_DIR . 'views/page-skills.php';
+        exit;
+    }
+} );
