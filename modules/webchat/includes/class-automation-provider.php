@@ -48,6 +48,95 @@ class BizCity_WebChat_Automation_Provider {
 
         WaicDispatcher::addFilter( 'getExternalBlocksPaths', [ $this, 'register_blocks_path' ] );
         WaicDispatcher::addFilter( 'getBlocksCategories', [ $this, 'register_categories' ] );
+
+        // ── Scheduler Workflow cron hook ──
+        add_action( 'bizcity_scheduler_workflow_fire', [ $this, 'handle_scheduler_cron' ], 10, 3 );
+
+        // ── Publish/Unpublish hooks → scheduler event sync ──
+        add_action( 'waic_workflow_published', [ $this, 'on_workflow_published' ], 10, 2 );
+        add_action( 'waic_workflow_unpublished', [ $this, 'on_workflow_unpublished' ], 10, 2 );
+    }
+
+    /**
+     * When workflow is published: if trigger is bc_scheduler_run,
+     * save event to bizcity_scheduler_events + register WP cron.
+     *
+     * @param int   $task_id  Workflow task ID.
+     * @param array $task     Task row data.
+     */
+    public function on_workflow_published( int $task_id, array $task ): void {
+        $params = ! empty( $task['params'] ) ? json_decode( $task['params'], true ) : [];
+        $nodes  = $params['nodes'] ?? [];
+
+        foreach ( $nodes as $node ) {
+            if ( ( $node['type'] ?? '' ) !== 'trigger' ) {
+                continue;
+            }
+            $code = $node['data']['code'] ?? '';
+            if ( $code !== 'bc_scheduler_run' ) {
+                continue;
+            }
+
+            // Load trigger class + instantiate with block data
+            $trigger_file = BIZCITY_WEBCHAT_DIR . 'blocks/triggers/bc_scheduler_run.php';
+            if ( file_exists( $trigger_file ) ) {
+                require_once $trigger_file;
+            }
+            if ( ! class_exists( 'WaicTrigger_bc_scheduler_run' ) ) {
+                return;
+            }
+
+            $trigger = new \WaicTrigger_bc_scheduler_run( $node );
+            $title   = $task['title'] ?? sprintf( 'Workflow #%d', $task_id );
+            $result  = $trigger->publish_schedule( $task_id, $title );
+
+            if ( ! is_wp_error( $result ) ) {
+                // Store event ID in task meta for unpublish
+                update_option( "_bizcity_wf_sched_event_{$task_id}", (int) $result, false );
+            }
+            return; // Only first trigger
+        }
+    }
+
+    /**
+     * When workflow is unpublished: cancel scheduler event + WP cron.
+     *
+     * @param int   $task_id  Workflow task ID.
+     * @param array $task     Task row data.
+     */
+    public function on_workflow_unpublished( int $task_id, array $task ): void {
+        $event_id = (int) get_option( "_bizcity_wf_sched_event_{$task_id}", 0 );
+        if ( ! $event_id ) {
+            return;
+        }
+
+        $trigger_file = BIZCITY_WEBCHAT_DIR . 'blocks/triggers/bc_scheduler_run.php';
+        if ( file_exists( $trigger_file ) ) {
+            require_once $trigger_file;
+        }
+        if ( class_exists( 'WaicTrigger_bc_scheduler_run' ) ) {
+            $trigger = new \WaicTrigger_bc_scheduler_run();
+            $trigger->unpublish_schedule( $task_id, $event_id );
+        }
+
+        delete_option( "_bizcity_wf_sched_event_{$task_id}" );
+    }
+
+    /**
+     * WP Cron callback: fire scheduled workflow via bc_scheduler_run trigger.
+     *
+     * @param int $task_id   Workflow task ID.
+     * @param int $event_id  Scheduler event ID.
+     * @param int $user_id   Owner user ID.
+     */
+    public function handle_scheduler_cron( int $task_id, int $event_id, int $user_id ): void {
+        $trigger_file = BIZCITY_WEBCHAT_DIR . 'blocks/triggers/bc_scheduler_run.php';
+        if ( file_exists( $trigger_file ) ) {
+            require_once $trigger_file;
+        }
+        if ( class_exists( 'WaicTrigger_bc_scheduler_run' ) ) {
+            WaicTrigger_bc_scheduler_run::cron_fire( $task_id, $event_id, $user_id );
+        }
     }
 
     /**

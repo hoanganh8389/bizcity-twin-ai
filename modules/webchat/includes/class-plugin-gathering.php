@@ -1,5 +1,14 @@
 <?php
 /**
+ * @package    Bizcity_Twin_AI
+ * @subpackage Modules\Webchat
+ * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+ * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
+ * @license    GPL-2.0-or-later
+ * @link       https://bizcity.vn
+ */
+
+/**
  * Bizcity Twin AI — Plugin Gathering
  * Thu thập dữ liệu plugin qua @ mention / Collect plugin data via @ mention slot filling
  *

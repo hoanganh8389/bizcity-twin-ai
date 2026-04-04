@@ -1,4 +1,13 @@
 <?php
+/**
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\BizCity_Market
+ * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+ * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
+ * @license    GPL-2.0-or-later
+ * @link       https://bizcity.vn
+ */
+
 if (!defined('ABSPATH')) exit;
 
 /**
@@ -53,9 +62,9 @@ class BizCity_Market_Credit {
         $plugin_slug = sanitize_key($plugin_slug);
 
         // Validate cơ bản đầu vào
-        if ($user_id <= 0) return new WP_Error('not_logged_in', 'Bạn chưa đăng nhập.');
-        if ($blog_id <= 0) return new WP_Error('invalid_blog', 'Blog không hợp lệ.');
-        if (!$plugin_slug) return new WP_Error('invalid_slug', 'Thiếu plugin_slug.');
+        if ($user_id <= 0) return new WP_Error('not_logged_in', __( 'Bạn chưa đăng nhập.', 'bizcity-twin-ai' ));
+        if ($blog_id <= 0) return new WP_Error('invalid_blog', __( 'Blog không hợp lệ.', 'bizcity-twin-ai' ));
+        if (!$plugin_slug) return new WP_Error('invalid_slug', __( 'Thiếu plugin_slug.', 'bizcity-twin-ai' ));
 
         // Lấy handle DB toàn cục (cấu hình shard/remote đã được BizCity_Market_DB xử lý)
         $db = BizCity_Market_DB::globaldb();
@@ -74,11 +83,11 @@ class BizCity_Market_Credit {
 
         // 1) Kiểm tra plugin có tồn tại & đang active không
         $plugin = $db->get_row($db->prepare("SELECT * FROM {$tP} WHERE plugin_slug=%s AND is_active=1 LIMIT 1", $plugin_slug));
-        if (!$plugin) return new WP_Error('not_found', 'Plugin không tồn tại hoặc đang tắt.');
+        if (!$plugin) return new WP_Error('not_found', __( 'Plugin không tồn tại hoặc đang tắt.', 'bizcity-twin-ai' ));
 
         // 2) Kiểm tra có giá credit hợp lệ không
         $cost = (int)$plugin->credit_price;
-        if ($cost <= 0) return new WP_Error('no_price', 'Plugin này chưa có giá credit.');
+        if ($cost <= 0) return new WP_Error('no_price', __( 'Plugin này chưa có giá credit.', 'bizcity-twin-ai' ));
 
         // 3) Kiểm tra đã sở hữu plugin chưa (tránh mua trùng)
         $owned = (int)$db->get_var($db->prepare("
@@ -86,7 +95,7 @@ class BizCity_Market_Credit {
             WHERE blog_id=%d AND product_type='plugin' AND product_slug=%s AND status IN ('active','paused')
             ORDER BY id DESC LIMIT 1
         ", $blog_id, $plugin_slug));
-        if ($owned) return ['ok'=>true, 'msg'=>'Bạn đã sở hữu plugin này.'];
+        if ($owned) return ['ok'=>true, 'msg'=> __( 'Bạn đã sở hữu plugin này.', 'bizcity-twin-ai' )];
 
         // 4) Transaction để đảm bảo atomicity
         $db->query('START TRANSACTION');
@@ -97,7 +106,7 @@ class BizCity_Market_Credit {
             if ($bal < $cost) {
                 // Không đủ tiền -> rollback và trả lỗi
                 $db->query('ROLLBACK');
-                return new WP_Error('insufficient_credit', 'Không đủ credit.');
+                return new WP_Error('insufficient_credit', __( 'Không đủ credit.', 'bizcity-twin-ai' ));
             }
 
             // 5) Cập nhật ví (balance)
@@ -219,7 +228,7 @@ class BizCity_Market_Credit {
             }
 
 
-            return ['ok'=>true, 'msg'=>'Mua plugin bằng credit thành công.'];
+            return ['ok'=>true, 'msg'=> __( 'Mua plugin bằng credit thành công.', 'bizcity-twin-ai' )];
 
         } catch (Exception $e) {
             // Rollback on error để tránh trạng thái nửa chừng

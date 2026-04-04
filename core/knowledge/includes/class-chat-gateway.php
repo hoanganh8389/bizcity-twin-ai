@@ -249,6 +249,13 @@ class BizCity_Chat_Gateway {
         $provider_hint = sanitize_text_field($_POST['provider_hint'] ?? '');
         $tool_goal     = sanitize_text_field($_POST['tool_goal'] ?? '');
         $tool_name     = sanitize_text_field($_POST['tool_name'] ?? '');
+        $selected_source_ids = [];
+        if ( ! empty( $_POST['selected_source_ids'] ) ) {
+            $raw = json_decode( stripslashes( $_POST['selected_source_ids'] ), true );
+            if ( is_array( $raw ) ) {
+                $selected_source_ids = array_map( 'absint', $raw );
+            }
+        }
         
         // Debug log for plugin routing
         if ($plugin_slug) {
@@ -703,6 +710,7 @@ class BizCity_Chat_Gateway {
             'character_id'  => $character_id, 'message' => $message,
             'user_id'       => $user_id, 'session_id' => $session_id,
             'platform_type' => $effective_platform, 'via' => $via,
+            'selected_source_ids' => $selected_source_ids ?? [],
         ] );
         return [
             'system_content'     => $base,
@@ -767,6 +775,17 @@ class BizCity_Chat_Gateway {
         $timing['1:Memory'] = round( ( microtime( true ) - $t0 ) * 1000, 2 );
         if ( ! empty( $memory_context ) ) {
             $system_content .= $memory_context;
+        }
+
+        // ── 1.5 📋 MEMORY SPEC — pipeline working brief (Phase 1.2 §17) ──
+        $t0 = microtime( true );
+        $memory_spec_block = '';
+        if ( class_exists( 'BizCity_Memory_Spec' ) ) {
+            $memory_spec_block = BizCity_Memory_Spec::inject_if_active( $user_id, $session_id );
+        }
+        $timing['1.5:MemorySpec'] = round( ( microtime( true ) - $t0 ) * 1000, 2 );
+        if ( ! empty( $memory_spec_block ) ) {
+            $system_content .= "\n\n" . $memory_spec_block;
         }
 
         // ── 2. 👤 PROFILE CONTEXT  +  3. ⭐ TRANSIT CONTEXT ──
@@ -1299,6 +1318,7 @@ class BizCity_Chat_Gateway {
             'character_id'  => $character_id, 'message' => $message,
             'user_id'       => $wp_user_id, 'session_id' => $session_id,
             'platform_type' => $effective_platform,
+            'selected_source_ids' => $selected_source_ids ?? [],
         ] );
         $openai_messages = [ [ 'role' => 'system', 'content' => $system_content ] ];
         $hist_platform = $effective_platform ?: $this->detect_platform_type();
@@ -1910,8 +1930,17 @@ class BizCity_Chat_Gateway {
         $plugin_slug  = sanitize_text_field($_POST['plugin_slug'] ?? '');
         $routing_mode = sanitize_text_field($_POST['routing_mode'] ?? 'automatic');
         $provider_hint = sanitize_text_field($_POST['provider_hint'] ?? '');
-        $tool_goal     = sanitize_text_field($_POST['tool_goal'] ?? '');
-        $tool_name     = sanitize_text_field($_POST['tool_name'] ?? '');
+        $tool_goal       = sanitize_text_field($_POST['tool_goal'] ?? '');
+        $tool_name       = sanitize_text_field($_POST['tool_name'] ?? '');
+        $selected_skill  = sanitize_text_field($_POST['selected_skill'] ?? '');
+        $skill_path      = sanitize_text_field($_POST['skill_path'] ?? '');
+        $selected_source_ids = [];
+        if ( ! empty( $_POST['selected_source_ids'] ) ) {
+            $raw_src = json_decode( stripslashes( $_POST['selected_source_ids'] ), true );
+            if ( is_array( $raw_src ) ) {
+                $selected_source_ids = array_map( 'absint', $raw_src );
+            }
+        }
         $images       = [];
         if (!empty($_POST['images'])) {
             $raw_images = json_decode(stripslashes($_POST['images'] ?? '[]'), true) ?: [];
@@ -1935,11 +1964,40 @@ class BizCity_Chat_Gateway {
             }
         }
 
-        // Accept /slash command even when frontend does not send explicit tool_goal.
-        if ( ! $tool_goal && preg_match( '/^\/([a-z0-9_]+)(?:\s+(.*))?$/si', $message, $slash_match ) ) {
-            $tool_goal = strtolower( $slash_match[1] );
-            $message   = trim( $slash_match[2] ?? '' );
-            error_log( '[chat-gateway-stream] slash_detected | tool_goal=' . $tool_goal . ' | message_len=' . mb_strlen( $message, 'UTF-8' ) );
+        // ── /slash command: skill-first detection, fallback to tool_goal ──
+        // When frontend sends selected_skill (from / dropdown), use it directly.
+        // When user types /command manually, try skill lookup first; if no skill found, treat as tool_goal.
+        $slash_command = '';
+        if ( $selected_skill ) {
+            // Frontend already resolved the skill via / dropdown
+            $slash_command = $selected_skill;
+            error_log( '[chat-gateway-stream] skill_from_frontend | skill=' . $selected_skill . ' | path=' . $skill_path );
+        } elseif ( ! $tool_goal && preg_match( '/^\/([a-z0-9_-]+)(?:\s+(.*))?$/si', $message, $slash_match ) ) {
+            $detected_slug = strtolower( $slash_match[1] );
+            $remaining_msg = trim( $slash_match[2] ?? '' );
+
+            // Try skill lookup first — /skill_slug has priority over /tool_goal
+            $is_skill = false;
+            if ( class_exists( 'BizCity_Skill_Manager' ) ) {
+                $skill_check = \BizCity_Skill_Manager::instance()->find_matching( [
+                    'slash_command' => $detected_slug,
+                    'message'       => '',
+                    'limit'         => 1,
+                ] );
+                if ( ! empty( $skill_check ) && ( $skill_check[0]['score'] ?? 0 ) >= 30 ) {
+                    $is_skill      = true;
+                    $slash_command  = $detected_slug;
+                    $message        = $remaining_msg;
+                    error_log( '[chat-gateway-stream] slash_skill_detected | skill=' . $detected_slug . ' | message_len=' . mb_strlen( $message, 'UTF-8' ) );
+                }
+            }
+
+            // Fallback: treat as tool_goal (legacy behavior)
+            if ( ! $is_skill ) {
+                $tool_goal = $detected_slug;
+                $message   = $remaining_msg;
+                error_log( '[chat-gateway-stream] slash_tool_detected | tool_goal=' . $tool_goal . ' | message_len=' . mb_strlen( $message, 'UTF-8' ) );
+            }
         }
 
         if ( ! $provider_hint && $plugin_slug && class_exists( 'BizCity_Intent_Provider_Registry' ) ) {
@@ -2007,16 +2065,30 @@ class BizCity_Chat_Gateway {
 
         // ── Always ensure SSE headers + emit entry traces ──
         $this->ensure_stream_headers();
+
+        // ── Begin persistent trace (DB) ──
+        if ( class_exists( 'BizCity_Trace_Store' ) ) {
+            BizCity_Trace_Store::instance()->begin_trace( [
+                'session_id' => $session_id,
+                'user_id'    => get_current_user_id(),
+                'title'      => mb_substr( (string) $message, 0, 120 ),
+                'skill_key'  => $selected_skill ?: $slash_command,
+                'tool_name'  => $tool_goal ?: $tool_name,
+            ] );
+        }
+
         $this->emit_trace( 'gateway_entry', [
-            'branch'        => 'direct_llm',
-            'platform_type' => $platform_type,
-            'session_id'    => $session_id,
-            'character_id'  => (int) $character_id,
-            'has_images'    => ! empty( $images ),
-            'message_len'   => mb_strlen( (string) $message, 'UTF-8' ),
-            'tool_goal'     => $tool_goal,
-            'provider_hint' => $provider_hint,
-            'routing_mode'  => $routing_mode,
+            'branch'         => 'direct_llm',
+            'platform_type'  => $platform_type,
+            'session_id'     => $session_id,
+            'character_id'   => (int) $character_id,
+            'has_images'     => ! empty( $images ),
+            'message_len'    => mb_strlen( (string) $message, 'UTF-8' ),
+            'tool_goal'      => $tool_goal,
+            'provider_hint'  => $provider_hint,
+            'routing_mode'   => $routing_mode,
+            'selected_skill' => $selected_skill ?: $slash_command,
+            'skill_path'     => $skill_path,
         ] );
         $this->emit_trace( 'kci_ratio_applied', [
             'kci_ratio'     => (int) $this->current_kci_ratio,
@@ -2040,17 +2112,20 @@ class BizCity_Chat_Gateway {
 
             $channel_map_ie = [ 'WEBCHAT' => 'webchat', 'ADMINCHAT' => 'adminchat' ];
             $intent_result  = BizCity_Intent_Engine::instance()->process( [
-                'message'       => $message,
-                'session_id'    => $session_id,
-                'user_id'       => $user_id,
-                'channel'       => $channel_map_ie[ $platform_type ] ?? 'webchat',
-                'character_id'  => $character_id,
-                'images'        => $images,
-                'plugin_slug'   => $plugin_slug,
-                'provider_hint' => $provider_hint,
-                'routing_mode'  => $routing_mode,
-                'tool_goal'     => $tool_goal,
-                'tool_name'     => $tool_name,
+                'message'        => $message,
+                'session_id'     => $session_id,
+                'user_id'        => $user_id,
+                'channel'        => $channel_map_ie[ $platform_type ] ?? 'webchat',
+                'character_id'   => $character_id,
+                'images'         => $images,
+                'plugin_slug'    => $plugin_slug,
+                'provider_hint'  => $provider_hint,
+                'routing_mode'   => $routing_mode,
+                'tool_goal'      => $tool_goal,
+                'tool_name'      => $tool_name,
+                'selected_skill' => $selected_skill ?: $slash_command,
+                'skill_path'     => $skill_path,
+                'slash_command'  => $slash_command,
             ] );
             $intent_action = $intent_result['action'] ?? 'passthrough';
             $slot_progress = $this->summarize_intent_slot_progress( $intent_result );
@@ -2165,6 +2240,38 @@ class BizCity_Chat_Gateway {
         $openai_messages = $prepared['messages'];
         $character       = $prepared['character'];
         $result_base     = $prepared['result_base'];
+
+        // ── Phase 1.7: Inject skill context into LLM messages when /skill selected ──
+        if ( $intent_result && ! empty( $intent_result['meta']['_injected_skill_context'] ) ) {
+            $skill_ctx  = $intent_result['meta']['_injected_skill_context'];
+            $skill_name = $intent_result['meta']['selected_skill'] ?? 'unknown';
+            $skill_sys  = "\n\n[SKILL CONTEXT — /{$skill_name}]\n"
+                        . "Dưới đây là hướng dẫn/context từ skill đã chọn. "
+                        . "Hãy tuân theo hướng dẫn này khi trả lời:\n\n"
+                        . $skill_ctx;
+
+            // Append to the first system message (or add new one)
+            $injected = false;
+            foreach ( $openai_messages as &$msg ) {
+                if ( ( $msg['role'] ?? '' ) === 'system' ) {
+                    $msg['content'] .= $skill_sys;
+                    $injected = true;
+                    break;
+                }
+            }
+            unset( $msg );
+            if ( ! $injected ) {
+                array_unshift( $openai_messages, [
+                    'role'    => 'system',
+                    'content' => $skill_sys,
+                ] );
+            }
+
+            $this->emit_trace( 'skill_context_injected', [
+                'skill'       => $skill_name,
+                'context_len' => mb_strlen( $skill_ctx, 'UTF-8' ),
+            ] );
+        }
 
         $this->emit_trace( 'context_resolver', [
             'messages_count' => count( $openai_messages ),
@@ -2330,6 +2437,21 @@ class BizCity_Chat_Gateway {
             'model'         => $stream_result['model'] ?? '',
         ]);
 
+        // ── Close trace (DB persistence) ──
+        if ( class_exists( 'BizCity_Trace_Store' ) && BizCity_Trace_Store::current_trace_id() ) {
+            $total_ms = $this->trace_started_at > 0
+                ? (int) round( ( microtime( true ) - $this->trace_started_at ) * 1000 )
+                : 0;
+            $status   = ! empty( $stream_result['success'] ) ? 'success' : 'error';
+            BizCity_Trace_Store::instance()->end_trace( $status, [
+                'model'        => $stream_result['model'] ?? '',
+                'provider'     => $stream_result['provider'] ?? '',
+                'reply_len'    => strlen( (string) $bot_reply ),
+                'input_tokens' => $stream_result['usage']['prompt_tokens'] ?? 0,
+                'output_tokens'=> $stream_result['usage']['completion_tokens'] ?? 0,
+            ], $total_ms );
+        }
+
         exit;
     }
 
@@ -2388,6 +2510,7 @@ class BizCity_Chat_Gateway {
 
     /**
      * Emit unified trace marker for realtime frontend console + debugging.
+     * Also persists to BizCity_Trace_Store (DB) with inner-monologue thinking text.
      */
     private function emit_trace( string $stage, array $data = [], string $level = 'info' ): void {
         $now = microtime( true );
@@ -2404,6 +2527,12 @@ class BizCity_Chat_Gateway {
         $data['elapsed_ms'] = $elapsed_ms;
         $data['delta_ms']   = $delta_ms;
 
+        // Inner-monologue text — sent to frontend for WorkingPanel display.
+        $thinking = $this->trace_to_thinking( $stage, $data );
+        if ( $thinking ) {
+            $data['thinking'] = $thinking;
+        }
+
         $payload = [
             'stage' => $stage,
             'level' => $level,
@@ -2412,8 +2541,194 @@ class BizCity_Chat_Gateway {
         ];
         $this->send_stream_event( 'trace', $payload );
 
+        // ── Persist to Trace Store (DB) with inner-monologue text ──
+        if ( class_exists( 'BizCity_Trace_Store' ) && BizCity_Trace_Store::current_trace_id() ) {
+            if ( $thinking ) {
+                // Build rich metadata for context layer display
+                $step_meta = [
+                    'tool_name'     => $data['tool_name'] ?? $data['tool_goal'] ?? $data['model'] ?? '',
+                    'duration_ms'   => $delta_ms,
+                    'skill_resolve' => $data['skill_key'] ?? $data['selected_skill'] ?? '',
+                ];
+
+                // Stage-specific enrichment for context layer visibility
+                switch ( $stage ) {
+                    case 'mode_classified':
+                        $step_meta['context_summary'] = wp_json_encode( [
+                            'mode'       => $data['mode'] ?? '',
+                            'confidence' => $data['confidence'] ?? '',
+                        ], JSON_UNESCAPED_UNICODE );
+                        break;
+
+                    case 'objectives_detected':
+                        $step_meta['context_summary'] = wp_json_encode( [
+                            'count'   => $data['objectives_count'] ?? 0,
+                            'primary' => $data['primary_objective'] ?? '',
+                        ], JSON_UNESCAPED_UNICODE );
+                        break;
+
+                    case 'slot_progress':
+                        $sp = $data['slot_progress'] ?? [];
+                        $step_meta['context_summary'] = wp_json_encode( [
+                            'filled'  => $sp['filled_slots']  ?? [],
+                            'missing' => $sp['missing_slots'] ?? [],
+                            'status'  => $sp['status'] ?? '',
+                        ], JSON_UNESCAPED_UNICODE );
+                        break;
+
+                    case 'skill_context_injected':
+                        $step_meta['skill_resolve'] = $data['skill'] ?? $data['skill_key'] ?? '';
+                        $step_meta['context_summary'] = wp_json_encode( [
+                            'skill'       => $data['skill'] ?? '',
+                            'context_len' => $data['context_len'] ?? 0,
+                        ], JSON_UNESCAPED_UNICODE );
+                        break;
+
+                    case 'context_resolver':
+                        $step_meta['context_summary'] = wp_json_encode( [
+                            'messages_count' => $data['messages_count'] ?? 0,
+                            'character_id'   => $data['character_id'] ?? 0,
+                        ], JSON_UNESCAPED_UNICODE );
+                        break;
+
+                    case 'llm_request':
+                        $step_meta['tool_name'] = $data['model'] ?? '';
+                        $step_meta['context_summary'] = wp_json_encode( [
+                            'model'          => $data['model'] ?? '',
+                            'messages_count' => $data['messages_count'] ?? 0,
+                        ], JSON_UNESCAPED_UNICODE );
+                        break;
+
+                    case 'llm_stream_result':
+                        $step_meta['tool_name']   = $data['model'] ?? '';
+                        $step_meta['token_usage'] = wp_json_encode( [
+                            'model'    => $data['model'] ?? '',
+                            'provider' => $data['provider'] ?? '',
+                            'reply_len'=> $data['reply_len'] ?? 0,
+                        ], JSON_UNESCAPED_UNICODE );
+                        break;
+
+                    case 'focus_gate':
+                        $step_meta['context_summary'] = wp_json_encode( [
+                            'mode'      => $data['mode'] ?? '',
+                            'knowledge' => $data['knowledge'] ?? false,
+                            'budget'    => $data['budget'] ?? 0,
+                        ], JSON_UNESCAPED_UNICODE );
+                        break;
+
+                    case 'kci_ratio_applied':
+                        $step_meta['context_summary'] = wp_json_encode( [
+                            'kci_ratio'  => $data['kci_ratio'] ?? 80,
+                            'exec_ratio' => $data['exec_ratio'] ?? 20,
+                            'platform'   => $data['platform_type'] ?? '',
+                        ], JSON_UNESCAPED_UNICODE );
+                        break;
+                }
+
+                BizCity_Trace_Store::instance()->record_step( $stage, $thinking, $step_meta );
+            }
+        }
+
         if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
             error_log( '[CHAT-GATEWAY-TRACE] ' . $stage . ' | ' . wp_json_encode( $data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) );
+        }
+    }
+
+    /**
+     * Map trace stage to inner-monologue thinking text.
+     * This is the "voice in my head" — what the AI is thinking/doing at each step.
+     */
+    private function trace_to_thinking( string $stage, array $data ): string {
+        switch ( $stage ) {
+            case 'gateway_entry':
+                $skill = $data['selected_skill'] ?? '';
+                $tool  = $data['tool_goal'] ?? '';
+                if ( $skill ) {
+                    return "Nhận được yêu cầu với kỹ năng /{$skill}. Bắt đầu xử lý...";
+                }
+                if ( $tool ) {
+                    return "Nhận được yêu cầu gọi công cụ @{$tool}. Bắt đầu xử lý...";
+                }
+                return 'Nhận được tin nhắn mới. Đang phân tích...';
+
+            case 'kci_ratio_applied':
+                $k = $data['kci_ratio'] ?? 80;
+                $e = 100 - $k;
+                return "Cân bằng: {$k}% kiến thức, {$e}% thực thi.";
+
+            case 'local_intent_start':
+                return 'Đang suy nghĩ... Phân tích ý định của bạn.';
+
+            case 'mode_classified':
+                $mode = $data['mode'] ?? 'tự động';
+                $conf = isset( $data['confidence'] ) ? round( (float) $data['confidence'] * 100 ) . '%' : '';
+                return "Tôi hiểu rồi — chế độ: {$mode}" . ( $conf ? " (chắc chắn {$conf})" : '' ) . '.';
+
+            case 'objectives_detected':
+                $count = $data['objectives_count'] ?? 0;
+                $primary = $data['primary_objective'] ?? '';
+                if ( $count > 1 ) {
+                    return "Nhận ra {$count} mục tiêu trong yêu cầu." . ( $primary ? " Ưu tiên: {$primary}" : '' );
+                }
+                return 'Đã nhận diện mục tiêu chính.' . ( $primary ? " → {$primary}" : '' );
+
+            case 'multi_goal_decision':
+                $decision = $data['decision'] ?? 'single';
+                return $decision === 'multi'
+                    ? 'Đây là yêu cầu đa mục tiêu — cần xử lý từng phần.'
+                    : 'Một mục tiêu rõ ràng — xử lý trực tiếp.';
+
+            case 'slot_progress':
+                $sp = $data['slot_progress'] ?? $data;
+                $missing = is_array( $sp['missing_slots'] ?? null ) ? $sp['missing_slots'] : [];
+                if ( $missing ) {
+                    return 'Còn thiếu thông tin: ' . implode( ', ', array_slice( $missing, 0, 3 ) ) . '.';
+                }
+                return 'Đã đủ dữ liệu để tiến hành.';
+
+            case 'local_intent_result':
+                $action = $data['action'] ?? '';
+                $goal   = $data['goal'] ?? '';
+                if ( $action === 'ask_user' ) {
+                    return 'Tôi cần hỏi thêm thông tin trước khi làm.';
+                }
+                if ( $action === 'call_tool' ) {
+                    return 'Đã có kế hoạch — sẽ gọi' . ( $goal ? " {$goal}" : ' công cụ' ) . '.';
+                }
+                return 'Đã phân tích xong ý định.';
+
+            case 'local_intent_terminal':
+                return 'Sẵn sàng trả lời — đủ thông tin để phản hồi ngay.';
+
+            case 'skill_context_injected':
+                $key = $data['skill_key'] ?? '';
+                return "Đã nạp kỹ năng /{$key} vào ngữ cảnh.";
+
+            case 'focus_gate':
+                return 'Kiểm tra Focus Gate — lọc nội dung không liên quan.';
+
+            case 'context_resolver':
+                $layers = $data['layers_count'] ?? $data['context_layers'] ?? '';
+                return "Đang xây dựng prompt" . ( $layers ? " ({$layers} layers)" : '' ) . '...';
+
+            case 'llm_request':
+                $model = $data['model'] ?? '';
+                return 'Đang gửi cho AI' . ( $model ? " ({$model})" : '' ) . '...';
+
+            case 'llm_first_chunk':
+                return 'AI bắt đầu phản hồi...';
+
+            case 'llm_stream_result':
+                $tokens = ( $data['input_tokens'] ?? 0 ) + ( $data['output_tokens'] ?? 0 );
+                return 'Đã nhận phản hồi hoàn chỉnh.' . ( $tokens ? " ({$tokens} tokens)" : '' );
+
+            default:
+                // Pipeline / middleware steps
+                if ( strpos( $stage, 'mw:' ) === 0 ) {
+                    $op = str_replace( 'mw:', '', $stage );
+                    return "Đang thực thi bước: {$op}";
+                }
+                return '';
         }
     }
 

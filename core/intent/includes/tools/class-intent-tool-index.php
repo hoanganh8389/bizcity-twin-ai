@@ -1,4 +1,13 @@
-<?php
+﻿<?php
+/**
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\Intent
+ * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+ * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
+ * @license    GPL-2.0-or-later
+ * @link       https://bizcity.vn
+ */
+
 /**
  * BizCity Intent — Tool Index (DB-persisted Tool Registry)
  *
@@ -44,7 +53,7 @@ class BizCity_Intent_Tool_Index {
      * Schema version — bump this number when adding new migrations.
      * Stored in wp_options as `bizcity_tool_registry_schema_ver`.
      */
-    const SCHEMA_VERSION = 5;
+    const SCHEMA_VERSION = 7;
 
     /** @var string wp_options key for stored schema version */
     const SCHEMA_VERSION_KEY = 'bizcity_tool_registry_schema_ver';
@@ -82,9 +91,11 @@ class BizCity_Intent_Tool_Index {
             return $exists;
         }
         global $wpdb;
+        // Use DATABASE() (runtime current DB on shard) instead of DB_NAME
+        // constant (always the global DB in sharded multisite).
         $exists = $wpdb->get_var( $wpdb->prepare(
-            "SELECT COUNT(1) FROM information_schema.TABLES WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s",
-            DB_NAME, $this->table
+            "SELECT COUNT(1) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s",
+            $this->table
         ) ) > 0;
         return $exists;
     }
@@ -169,6 +180,21 @@ class BizCity_Intent_Tool_Index {
         // Migration 5: Add trust_tier + tool_type for Phase 1 Unified Pipeline
         if ( $from_version < 5 ) {
             $this->migrate_to_5();
+        }
+
+        // Migration 6: Add accepts_skill + content_tier for Phase 1.4 Content Tool Core
+        if ( $from_version < 6 ) {
+            $this->migrate_to_6();
+        }
+
+        // Migration 7: Repair — re-run migrations 3-6 for shards where
+        // table_exists_raw() previously returned false due to checking
+        // DB_NAME (global DB) instead of DATABASE() (runtime shard DB).
+        if ( $from_version < 7 ) {
+            $this->migrate_to_3();
+            $this->migrate_to_4();
+            $this->migrate_to_5();
+            $this->migrate_to_6();
         }
     }
 
@@ -375,6 +401,40 @@ class BizCity_Intent_Tool_Index {
         $indexes = $wpdb->get_results( "SHOW INDEX FROM {$this->table} WHERE Key_name = 'idx_trust_tier'", ARRAY_A );
         if ( empty( $indexes ) ) {
             $wpdb->query( "ALTER TABLE {$this->table} ADD INDEX `idx_trust_tier` (`trust_tier`)" );
+        }
+    }
+
+    /**
+     * Migration 6: Add accepts_skill + content_tier for Phase 1.4 Content Tool Core.
+     *
+     * - `accepts_skill`  TINYINT(1) — Whether tool can receive skill injection (atomic content tools).
+     * - `content_tier`   TINYINT    — NULL=not content, 1=produce, 2=distribute, 3=utility.
+     */
+    private function migrate_to_6() {
+        global $wpdb;
+
+        if ( ! $this->table_exists_raw() ) {
+            return;
+        }
+
+        $existing = $wpdb->get_col( "SHOW COLUMNS FROM {$this->table}", 0 );
+        if ( empty( $existing ) ) {
+            return;
+        }
+        $existing = array_map( 'strtolower', $existing );
+
+        if ( ! in_array( 'accepts_skill', $existing, true ) ) {
+            $wpdb->query( "ALTER TABLE {$this->table} ADD COLUMN `accepts_skill` TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'Can receive skill injection' AFTER `tool_type`" );
+        }
+
+        if ( ! in_array( 'content_tier', $existing, true ) ) {
+            $wpdb->query( "ALTER TABLE {$this->table} ADD COLUMN `content_tier` TINYINT DEFAULT NULL COMMENT 'NULL=not content, 1=produce, 2=distribute, 3=utility' AFTER `accepts_skill`" );
+        }
+
+        // Index for accepts_skill queries
+        $indexes = $wpdb->get_results( "SHOW INDEX FROM {$this->table} WHERE Key_name = 'idx_accepts_skill'", ARRAY_A );
+        if ( empty( $indexes ) ) {
+            $wpdb->query( "ALTER TABLE {$this->table} ADD INDEX `idx_accepts_skill` (`accepts_skill`)" );
         }
     }
 
@@ -690,6 +750,10 @@ class BizCity_Intent_Tool_Index {
                 'required_slots' => wp_json_encode( $required, JSON_UNESCAPED_UNICODE ),
                 'optional_slots' => wp_json_encode( $optional, JSON_UNESCAPED_UNICODE ),
                 'input_schema'   => wp_json_encode( $this->build_input_schema( $required, $optional ), JSON_UNESCAPED_UNICODE ),
+                'accepts_skill'  => ! empty( $schema['accepts_skill'] ) ? 1 : 0,
+                'content_tier'   => isset( $schema['content_tier'] ) ? (int) $schema['content_tier'] : null,
+                'tool_type'      => in_array( $schema['tool_type'] ?? '', [ 'atomic', 'package' ], true )
+                                        ? $schema['tool_type'] : 'atomic',
             ];
 
             // Check by tool_key OR (tool_name + version) to avoid duplicate key on uk_tool_version
@@ -721,7 +785,9 @@ class BizCity_Intent_Tool_Index {
         if ( class_exists( 'BizCity_Intent_Tools' ) ) {
             $all_names = array_keys( BizCity_Intent_Tools::instance()->list_all() );
             sort( $all_names );
-            $current_hash = md5( implode( '|', $all_names ) . '|' . ( defined( 'BIZCITY_INTENT_VERSION' ) ? BIZCITY_INTENT_VERSION : '' ) );
+            // sync_rev: bump when sync_builtin_tools() $row schema changes (e.g. new columns)
+            $sync_rev = 2; // v2: added accepts_skill, content_tier, tool_type
+            $current_hash = md5( implode( '|', $all_names ) . '|' . ( defined( 'BIZCITY_INTENT_VERSION' ) ? BIZCITY_INTENT_VERSION : '' ) . '|rev' . $sync_rev );
         } else {
             $current_hash = 'empty';
         }

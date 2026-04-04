@@ -1,5 +1,14 @@
 <?php
 /**
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\Helper_Legacy
+ * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+ * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
+ * @license    GPL-2.0-or-later
+ * @link       https://bizcity.vn
+ */
+
+/**
  * Legacy Flow Router — twf_process_flow_from_params().
  *
  * The main AI switch/case router that processes Telegram/Zalo messages

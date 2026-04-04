@@ -18,7 +18,7 @@ if (!class_exists('BizCity_WebChat_Database')) {
 class BizCity_WebChat_Database {
 
     /** Schema version — bump to trigger migration */
-    const SCHEMA_VERSION = '3.9.1';
+    const SCHEMA_VERSION = '3.10.0';
     
     private static $instance = null;
     
@@ -100,6 +100,14 @@ class BizCity_WebChat_Database {
             meta LONGTEXT,
 
             kci_ratio TINYINT UNSIGNED DEFAULT 80,
+
+            session_memory_mode VARCHAR(20) DEFAULT 'off',
+            session_memory_spec LONGTEXT,
+            session_focus_summary TEXT,
+            session_open_loops TEXT,
+            session_next_actions TEXT,
+            session_memory_updated_at DATETIME NULL,
+            context_layers_snapshot LONGTEXT,
             
             started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             ended_at DATETIME NULL,
@@ -341,6 +349,49 @@ class BizCity_WebChat_Database {
             $wpdb->query( "ALTER TABLE {$table_messages} ADD COLUMN todo_id BIGINT UNSIGNED DEFAULT NULL AFTER status" );
             $wpdb->query( "ALTER TABLE {$table_messages} ADD INDEX idx_todo_id (todo_id)" );
         }
+
+        // Migration 9 (v4.0.0 — Phase 1.8): Add rating + is_pinned columns to messages
+        if ( ! in_array( 'rating', $cols_msg, true ) ) {
+            $wpdb->query( "ALTER TABLE {$table_messages} ADD COLUMN rating VARCHAR(10) DEFAULT '' AFTER meta" );
+        }
+        if ( ! in_array( 'is_pinned', $cols_msg, true ) ) {
+            $wpdb->query( "ALTER TABLE {$table_messages} ADD COLUMN is_pinned TINYINT(1) DEFAULT 0 AFTER rating" );
+        }
+
+        // Migration 10 (v4.0.0 — Phase 1.8): Create webchat_notes table
+        $table_notes = $wpdb->prefix . 'bizcity_webchat_notes';
+        $wpdb->query( "CREATE TABLE IF NOT EXISTS {$table_notes} (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            session_id VARCHAR(128) NOT NULL,
+            user_id BIGINT UNSIGNED DEFAULT 0,
+            note_type VARCHAR(32) DEFAULT 'quick_note',
+            title VARCHAR(500) DEFAULT '',
+            content LONGTEXT,
+            source_message_id BIGINT UNSIGNED DEFAULT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_session (session_id),
+            INDEX idx_user (user_id),
+            INDEX idx_type (note_type)
+        ) {$charset_collate};" );
+
+        // Migration 11 (v4.0.0 — Phase 1.8): Create webchat_sources table
+        $table_sources = $wpdb->prefix . 'bizcity_webchat_sources';
+        $wpdb->query( "CREATE TABLE IF NOT EXISTS {$table_sources} (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            session_id VARCHAR(128) DEFAULT '',
+            user_id BIGINT UNSIGNED DEFAULT 0,
+            source_type VARCHAR(32) DEFAULT 'url',
+            title VARCHAR(500) DEFAULT '',
+            url TEXT,
+            content LONGTEXT,
+            embedding_status VARCHAR(20) DEFAULT 'pending',
+            chunk_count INT UNSIGNED DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_session (session_id),
+            INDEX idx_user (user_id),
+            INDEX idx_status (embedding_status)
+        ) {$charset_collate};" );
     }
 
     /**
@@ -354,6 +405,22 @@ class BizCity_WebChat_Database {
         $cols = $wpdb->get_col( "DESCRIBE {$table_sessions}", 0 );
         if ( ! in_array( 'kci_ratio', $cols, true ) ) {
             $wpdb->query( "ALTER TABLE {$table_sessions} ADD COLUMN kci_ratio TINYINT UNSIGNED DEFAULT 80 AFTER meta" );
+        }
+
+        // v3.10.0 — Session Memory Spec columns
+        $new_cols = [
+            'session_memory_mode'       => "VARCHAR(20) DEFAULT 'off' AFTER kci_ratio",
+            'session_memory_spec'       => 'LONGTEXT AFTER session_memory_mode',
+            'session_focus_summary'     => 'TEXT AFTER session_memory_spec',
+            'session_open_loops'        => 'TEXT AFTER session_focus_summary',
+            'session_next_actions'      => 'TEXT AFTER session_open_loops',
+            'session_memory_updated_at' => 'DATETIME NULL AFTER session_next_actions',
+            'context_layers_snapshot'   => 'LONGTEXT AFTER session_memory_updated_at',
+        ];
+        foreach ( $new_cols as $col_name => $col_def ) {
+            if ( ! in_array( $col_name, $cols, true ) ) {
+                $wpdb->query( "ALTER TABLE {$table_sessions} ADD COLUMN {$col_name} {$col_def}" );
+            }
         }
     }
 
@@ -1691,11 +1758,12 @@ class BizCity_WebChat_Database {
         global $wpdb;
         $table = $wpdb->prefix . 'bizcity_webchat_sessions';
 
-        $allowed = ['title', 'title_generated', 'project_id', 'character_id', 'status', 'rolling_summary', 'summary_updated_at', 'context_tokens', 'message_count', 'last_message_at', 'last_message_preview', 'ended_at', 'meta'];
+        $allowed = ['title', 'title_generated', 'project_id', 'character_id', 'status', 'rolling_summary', 'summary_updated_at', 'context_tokens', 'message_count', 'last_message_at', 'last_message_preview', 'ended_at', 'meta', 'session_memory_mode', 'session_memory_spec', 'session_focus_summary', 'session_open_loops', 'session_next_actions', 'session_memory_updated_at', 'context_layers_snapshot'];
+        $json_fields = ['meta', 'session_memory_spec', 'session_open_loops', 'session_next_actions', 'context_layers_snapshot'];
         $update = [];
         foreach ( $allowed as $key ) {
             if ( isset($data[$key]) ) {
-                if ( $key === 'meta' && is_array($data[$key]) ) {
+                if ( in_array( $key, $json_fields, true ) && is_array($data[$key]) ) {
                     $update[$key] = wp_json_encode($data[$key]);
                 } else {
                     $update[$key] = $data[$key];

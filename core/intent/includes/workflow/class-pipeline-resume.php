@@ -1,4 +1,13 @@
-<?php
+﻿<?php
+/**
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\Intent
+ * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+ * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
+ * @license    GPL-2.0-or-later
+ * @link       https://bizcity.vn
+ */
+
 /**
  * BizCity Pipeline Resume — Rebuild Execution State from DB
  *
@@ -67,6 +76,11 @@ class BizCity_Pipeline_Resume {
 		// ── 2. Rebuild variables from completed todos ──
 		$variables = self::rebuild_variables( $todos );
 		error_log( self::LOG . ' Rebuilt variables from ' . count( $variables ) . ' completed nodes' );
+
+		// ── 2.5 Rebuild Memory Spec from todos (Phase 1.2 §17) ──
+		if ( class_exists( 'BizCity_Memory_Spec' ) ) {
+			BizCity_Memory_Spec::build_from_todos( $pipeline_id );
+		}
 
 		// ── 3. Determine visited nodes + next pending node ──
 		$visited_nodes = [];

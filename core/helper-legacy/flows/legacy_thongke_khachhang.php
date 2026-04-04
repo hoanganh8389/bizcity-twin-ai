@@ -1,4 +1,12 @@
-<?php
+﻿<?php
+/**
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\Helper_Legacy
+ * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+ * @license    GPL-2.0-or-later
+ * @link       https://bizcity.vn
+ */
+
 
 //Hàm thống kê khách hàng theo doanh số/ngày
 function twf_bao_cao_top_customers($chat_id, $date = '', $days = 3) {

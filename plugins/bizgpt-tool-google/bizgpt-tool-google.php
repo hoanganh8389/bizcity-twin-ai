@@ -58,7 +58,7 @@ if ( ! defined( 'BIZCITY_TWIN_AI_VERSION' ) ) {
 }
 
 /* ── Constants ─────────────────────────────────────────────── */
-define( 'BZGOOGLE_VERSION',  '1.0.0' );
+define( 'BZGOOGLE_VERSION',  '1.0.1' );
 define( 'BZGOOGLE_DIR',      plugin_dir_path( __FILE__ ) );
 define( 'BZGOOGLE_URL',      plugin_dir_url( __FILE__ ) );
 define( 'BZGOOGLE_SLUG',     'bizgpt-tool-google' );
@@ -80,6 +80,9 @@ register_activation_hook( __FILE__, function() { flush_rewrite_rules(); } );
 register_deactivation_hook( __FILE__, [ 'BZGoogle_Cron', 'deactivate' ] );
 register_deactivation_hook( __FILE__, function() { flush_rewrite_rules(); } );
 
+/* ── Self-healing: create tables if activation hook was skipped ── */
+BZGoogle_Installer::maybe_create_tables();
+
 /* ── Init ──────────────────────────────────────────────────── */
 add_action( 'init', [ 'BZGoogle_Google_OAuth', 'register_rewrite_rules' ] );
 add_action( 'init', [ 'BZGoogle_Admin',        'init' ] );
@@ -89,14 +92,27 @@ add_action( 'rest_api_init', [ 'BZGoogle_REST_API', 'register_routes' ] );
 add_action( 'init', [ 'BZGoogle_Cron', 'schedule' ] );
 add_action( 'bzgoogle_refresh_tokens', [ 'BZGoogle_Cron', 'refresh_expiring_tokens' ] );
 
-/* ── Query vars ────────────────────────────────────────────── */
+/* ── Early route: handle /google-auth/* at init level ──────── *
+ * Bypasses WP_Query entirely so it works even when rewrite     *
+ * rules haven't been flushed (404 → canonical redirect → 500). */
+add_action( 'init', function () {
+    if ( empty( $_SERVER['REQUEST_URI'] ) ) return;
+    $path = trim( parse_url( $_SERVER['REQUEST_URI'], PHP_URL_PATH ), '/' );
+    if ( preg_match( '/^google-auth\/([a-z]+)$/', $path, $m ) ) {
+        BZGoogle_Google_OAuth::handle_request_direct( $m[1] );
+        // handle_request_direct exits internally — should never reach here
+        exit;
+    }
+}, 20 );
+
+/* ── Query vars (kept for when rewrite rules ARE flushed) ──── */
 add_filter( 'query_vars', function ( $vars ) {
     $vars[] = 'bzgoogle_action';
     return $vars;
 } );
 
-/* ── Template redirect (OAuth flow) ────────────────────────── */
-add_action( 'template_redirect', [ 'BZGoogle_Google_OAuth', 'handle_request' ] );
+/* ── Template redirect fallback (only if init handler missed it) ── */
+add_action( 'template_redirect', [ 'BZGoogle_Google_OAuth', 'handle_request' ], 1 );
 
 /* ══════════════════════════════════════════════════════════════
  *  TEMPLATE PAGE — /tool-google/
@@ -108,6 +124,19 @@ add_filter( 'query_vars', function( $vars ) {
     if ( ! in_array( 'bizcity_agent_page', $vars, true ) ) $vars[] = 'bizcity_agent_page';
     return $vars;
 } );
+/* ── Early route: handle /tool-google/ at init level ──────── */
+add_action( 'init', function () {
+    if ( empty( $_SERVER['REQUEST_URI'] ) ) return;
+    $path = trim( parse_url( $_SERVER['REQUEST_URI'], PHP_URL_PATH ), '/' );
+    if ( preg_match( '/^tool-google\/?$/', $path ) ) {
+        // Let WordPress finish init, then render at template_redirect
+        // We set a flag so the template_redirect handler can pick it up
+        add_action( 'template_redirect', function () {
+            include BZGOOGLE_DIR . 'views/page-google.php';
+            exit;
+        }, 0 ); // Priority 0 = before canonical redirect
+    }
+}, 20 );
 add_action( 'template_redirect', function() {
     if ( get_query_var( 'bizcity_agent_page' ) === 'tool-google' ) {
         include BZGOOGLE_DIR . 'views/page-google.php';

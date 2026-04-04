@@ -1,0 +1,1910 @@
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: bizcity-twin-ai 4.9\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-04-02 00:00+0700\n"
+"PO-Revision-Date: 2026-04-02 00:00+0700\n"
+"Last-Translator: BizCity Copilot\n"
+"Language-Team: English\n"
+"Language: en_US\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "/business_report Tạo báo cáo"
+msgstr "/business_report Generate a report"
+
+msgid "/consult Tư vấn giúp tôi về"
+msgstr "/consult Give me advice on"
+
+msgid "/generate_image Tạo hình ảnh giúp tôi"
+msgstr "/generate_image Generate an image for me"
+
+msgid "/summarize Tóm tắt nội dung này giúp tôi"
+msgstr "/summarize Summarize this content for me"
+
+msgid "/write_article Viết bài giúp tôi"
+msgstr "/write_article Write an article for me"
+
+msgid "1,000 requests/month free."
+msgstr "1,000 requests/month free."
+
+msgid "7-day: %1$d calls — Token %2$s"
+msgstr "7-day: %1$d calls — Token %2$s"
+
+msgid "7-day: %1$d calls — Token %2$s"
+msgstr "7-day: %1$d calls — Token %2$s"
+
+msgid "AI Assistant Team"
+msgstr "AI Assistant Team"
+
+msgid "AI Assistants"
+msgstr "AI Assistants"
+
+msgid "AI Character"
+msgstr "AI Character"
+
+msgid "AI Gateway Configuration"
+msgstr "AI Gateway Configuration"
+
+msgid "AI-analyzed from conversation"
+msgstr "AI-analyzed from conversation"
+
+msgid "API key created and saved automatically!"
+msgstr "API key created and saved automatically!"
+
+msgid "API key created and saved automatically!"
+msgstr "API key created and saved automatically!"
+
+msgid "Actions"
+msgstr "Actions"
+
+msgid "Add Intent"
+msgstr "Add Intent"
+
+msgid "Add Memory"
+msgstr "Add Memory"
+
+msgid "Add Memory"
+msgstr "Add Memory"
+
+msgid "Add Memory Manually"
+msgstr "Add Memory Manually"
+
+msgid "Add Memory Manually"
+msgstr "Add Memory Manually"
+
+msgid "Add Quick FAQ"
+msgstr "Add Quick FAQ"
+
+msgid "Added"
+msgstr "Added"
+
+msgid "Added"
+msgstr "Added"
+
+msgid "Admin (user_id = 1)"
+msgstr "Admin (user_id = 1)"
+
+msgid "Agent & AI Tools"
+msgstr "Agent & AI Tools"
+
+msgid "All"
+msgstr "All"
+
+msgid "Appear on marketplace with profile & ratings"
+msgstr "Appear on marketplace with profile & ratings"
+
+msgid "Assistants"
+msgstr "Assistants"
+
+msgid "Assistants List"
+msgstr "Assistants List"
+
+msgid "Assistants can learn from various data sources:"
+msgstr "Assistants can learn from various data sources:"
+
+msgid "Assistants work as \"AI Agents\" in bizcity-automation:"
+msgstr "Assistants work as \"AI Agents\" in bizcity-automation:"
+
+msgid "Auto-accept jobs:"
+msgstr "Auto-accept jobs:"
+
+msgid "Auto-register API Key"
+msgstr "Auto-register API Key"
+
+msgid ""
+"Auto-register API key from bizcity.vn?\\nThe key will be created and saved "
+"to settings."
+msgstr ""
+"Auto-register API key from bizcity.vn?\\nThe key will be created and saved "
+"to settings."
+
+msgid ""
+"Auto-register API key from bizcity.vn?\\nThe key will be created and saved "
+"to settings."
+msgstr ""
+"Auto-register API key from bizcity.vn?\\nThe key will be created and saved "
+"to settings."
+
+msgid "Avatar"
+msgstr "Avatar"
+
+msgid "Avg latency"
+msgstr "Avg latency"
+
+msgid "Avg latency"
+msgstr "Avg latency"
+
+msgid "BizCity Chat Agent"
+msgstr "BizCity Chat Agent"
+
+msgid "BizCity Gateway Settings"
+msgstr "BizCity Gateway Settings"
+
+msgid "BizCity Intent Engine is not active."
+msgstr "BizCity Intent Engine is not active."
+
+msgid "Build AI Assistants"
+msgstr "Build AI Assistants"
+
+msgid "Build Assistants"
+msgstr "Build Assistants"
+
+msgid ""
+"Build a smart AI assistant team with custom knowledge, serving your work and"
+" earning on marketplace."
+msgstr ""
+"Build a smart AI assistant team with custom knowledge, serving your work and"
+" earning on marketplace."
+
+msgid "Báo cáo"
+msgstr "Reports"
+
+msgid "Bảng điều khiển"
+msgstr "Control Panel"
+
+msgid "Call any AI tool registered in BizCity Intent Engine"
+msgstr "Call any AI tool registered in BizCity Intent Engine"
+
+msgid ""
+"Call any AI tool registered in BizCity Intent Engine (write post, create "
+"product, post to social media...)"
+msgstr ""
+"Call any AI tool registered in BizCity Intent Engine (write post, create "
+"product, post to social media...)"
+
+msgid "Called tool name"
+msgstr "Called tool name"
+
+msgid "Chat & Consult:"
+msgstr "Chat & Consult:"
+
+msgid "Chat với Trợ lý"
+msgstr "Chat with Assistant"
+
+msgid "Chunks"
+msgstr "Chunks"
+
+msgid "Chợ AI"
+msgstr "AI Market"
+
+msgid "Chợ AI Agent"
+msgstr "AI Agent Market"
+
+msgid "Clear filters"
+msgstr "Clear filters"
+
+msgid "Clear filters"
+msgstr "Clear filters"
+
+msgid "Clients hire character for work"
+msgstr "Clients hire character for work"
+
+msgid "Clone"
+msgstr "Clone"
+
+msgid "Configure Intents"
+msgstr "Configure Intents"
+
+msgid "Configure LLM connection for the BizCity Twin AI platform."
+msgstr "Configure LLM connection for the BizCity Twin AI platform."
+
+msgid ""
+"Connect assistant with bizcity-automation to automate tasks based on AI "
+"analysis."
+msgstr ""
+"Connect assistant with bizcity-automation to automate tasks based on AI "
+"analysis."
+
+msgid ""
+"Connect with Facebook Fanpage to auto-import posts and comments as "
+"knowledge."
+msgstr ""
+"Connect with Facebook Fanpage to auto-import posts and comments as "
+"knowledge."
+
+msgid "Connection OK — %d models available."
+msgstr "Connection OK — %d models available."
+
+msgid "Connection OK — %d models available."
+msgstr "Connection OK — %d models available."
+
+msgid "Connection error"
+msgstr "Connection error"
+
+msgid "Contains keyword (optional)"
+msgstr "Contains keyword (optional)"
+
+msgid "Content"
+msgstr "Content"
+
+msgid "Content"
+msgstr "Content"
+
+msgid "Conversations"
+msgstr "Conversations"
+
+msgid "Copied!"
+msgstr "Copied!"
+
+msgid "Copied!"
+msgstr "Copied!"
+
+msgid "Copy automatically to mu-plugins/"
+msgstr "Copy automatically to mu-plugins/"
+
+msgid ""
+"Crawl content from other websites, supports Simple HTML or Text-only mode."
+msgstr ""
+"Crawl content from other websites, supports Simple HTML or Text-only mode."
+
+msgid "Create AI"
+msgstr "Create AI"
+
+msgid "Create AI Assistant"
+msgstr "Create AI Assistant"
+
+msgid "Create First Assistant"
+msgstr "Create First Assistant"
+
+msgid "Create New"
+msgstr "Create New"
+
+msgid "Create New AI Assistant"
+msgstr "Create New AI Assistant"
+
+msgid "Create an API key at My Account on bizcity.vn or bizcity.ai"
+msgstr "Create an API key at My Account on bizcity.vn or bizcity.ai"
+
+msgid "Created"
+msgstr "Created"
+
+msgid "Created resource ID (post_id / product_id / ...)"
+msgstr "Created resource ID (post_id / product_id / ...)"
+
+msgid "Curated Models"
+msgstr "Curated Models"
+
+msgid "Curated Models"
+msgstr "Curated Models"
+
+msgid "Custom"
+msgstr "Custom"
+
+msgid "Custom"
+msgstr "Custom"
+
+msgid "Cài hồ sơ"
+msgstr "Set Profile"
+
+msgid "Cài kiến thức"
+msgstr "Set Knowledge"
+
+msgid "Cài đặt API"
+msgstr "API Settings"
+
+msgid "Có lỗi xảy ra"
+msgstr "An error occurred"
+
+msgid "Công cụ"
+msgstr "Tools"
+
+msgid "Công cụ AI"
+msgstr "AI Tools"
+
+msgid "Cấu hình điều hướng Tool"
+msgstr "Configure Tool Routing"
+
+msgid "Cổng kết nối"
+msgstr "Gateway"
+
+msgid "Danh sách công cụ AI"
+msgstr "AI Tools List"
+
+msgid "Database update needed to version %s."
+msgstr "Database update needed to version %s."
+
+msgid "Database updated successfully"
+msgstr "Database updated successfully"
+
+msgid "Default"
+msgstr "Default"
+
+msgid "Default"
+msgstr "Default"
+
+msgid "Delete"
+msgstr "Delete"
+
+msgid "Delete all logs older than 90 days?"
+msgstr "Delete all logs older than 90 days?"
+
+msgid "Delete all logs older than 90 days?"
+msgstr "Delete all logs older than 90 days?"
+
+msgid "Delete this memory?"
+msgstr "Delete this memory?"
+
+msgid "Delete this memory?"
+msgstr "Delete this memory?"
+
+msgid "Deleted %1$d records older than %2$d days."
+msgstr "Deleted %1$d records older than %2$d days."
+
+msgid "Deleted %1$d records older than %2$d days."
+msgstr "Deleted %1$d records older than %2$d days."
+
+msgid "Description"
+msgstr "Description"
+
+msgid "Disable fallback"
+msgstr "Disable fallback"
+
+msgid "Disable fallback"
+msgstr "Disable fallback"
+
+msgid "Distribution by Type"
+msgstr "Distribution by Type"
+
+msgid "Dạy AI bằng tài liệu"
+msgstr "Teach AI with Documents"
+
+msgid "Dạy AI kỹ năng"
+msgstr "Teach AI Skills"
+
+msgid "Dậy AI bằng FAQs"
+msgstr "Train AI with FAQs"
+
+msgid ""
+"Each purpose has a Primary (used first) and Fallback (auto-triggered on "
+"error)."
+msgstr ""
+"Each purpose has a Primary (used first) and Fallback (auto-triggered on "
+"error)."
+
+msgid "Earn with AI Assistants"
+msgstr "Earn with AI Assistants"
+
+msgid "Edit"
+msgstr "Edit"
+
+msgid "Email hoặc số điện thoại này đã được sử dụng. Hãy đăng nhập."
+msgstr "This email or phone number is already in use. Please log in."
+
+msgid "Enter custom model ID…"
+msgstr "Enter custom model ID…"
+
+msgid "Enter custom model ID…"
+msgstr "Enter custom model ID…"
+
+msgid "Error"
+msgstr "Error"
+
+msgid "Error loading data"
+msgstr "Error loading data"
+
+msgid "Error loading data"
+msgstr "Error loading data"
+
+msgid "Error:"
+msgstr "Error:"
+
+msgid "Error:"
+msgstr "Error:"
+
+msgid "Error: "
+msgstr "Error: "
+
+msgid "Error: "
+msgstr "Error: "
+
+msgid "Errors"
+msgstr "Errors"
+
+msgid "Errors"
+msgstr "Errors"
+
+msgid "Example:"
+msgstr "Example:"
+
+msgid "Example: ^/pipeline or (create post|add product)"
+msgstr "Example: ^/pipeline or (create post|add product)"
+
+msgid "Failed to load model list."
+msgstr "Failed to load model list."
+
+msgid "Failed to load model list."
+msgstr "Failed to load model list."
+
+msgid "Fallback"
+msgstr "Fallback"
+
+msgid "Fallback"
+msgstr "Fallback"
+
+msgid "Feed Knowledge"
+msgstr "Feed Knowledge"
+
+msgid "File đã được upload"
+msgstr "File uploaded successfully"
+
+msgid "Filter"
+msgstr "Filter"
+
+msgid "Filter by name…"
+msgstr "Filter by name…"
+
+msgid "Filter by name…"
+msgstr "Filter by name…"
+
+msgid "For Deep Research — real-time web search."
+msgstr "For Deep Research — real-time web search."
+
+msgid "From Website"
+msgstr "From Website"
+
+msgid "From trigger ({{node#1.user_id}})"
+msgstr "From trigger ({{node#1.user_id}})"
+
+msgid "Full JSON result"
+msgstr "Full JSON result"
+
+msgid "General Settings"
+msgstr "General Settings"
+
+msgid "Global Sources"
+msgstr "Global Sources"
+
+msgid "Global Sources"
+msgstr "Global Sources"
+
+msgid "HTTP %d — Registration failed."
+msgstr "HTTP %d — Registration failed."
+
+msgid "HTTP %d — Registration failed."
+msgstr "HTTP %d — Registration failed."
+
+msgid "Hidden"
+msgstr "Hidden"
+
+msgid "Hệ thống chat chưa sẵn sàng. Vui lòng liên hệ quản trị viên."
+msgstr "Chat system is not ready. Please contact the administrator."
+
+msgid "Hồ sơ"
+msgstr "Profile"
+
+msgid "Image URL (if any)"
+msgstr "Image URL (if any)"
+
+msgid "Import URL"
+msgstr "Import URL"
+
+msgid "Import from JSON"
+msgstr "Import from JSON"
+
+msgid ""
+"Import knowledge from multiple sources: Quick FAQ, upload files (CSV, PDF, "
+"Excel), crawl website, or sync from Fanpage."
+msgstr ""
+"Import knowledge from multiple sources: Quick FAQ, upload files (CSV, PDF, "
+"Excel), crawl website, or sync from Fanpage."
+
+msgid "Input Parameters (JSON)"
+msgstr "Input Parameters (JSON)"
+
+msgid "Integrate webchat widget for direct interaction"
+msgstr "Integrate webchat widget for direct interaction"
+
+msgid "Integrate with Workflow"
+msgstr "Integrate with Workflow"
+
+msgid "Invalid input JSON: %s"
+msgstr "Invalid input JSON: %s"
+
+msgid ""
+"JSON object with key=param, value=value. Supports {{node#X.var}} variables."
+msgstr ""
+"JSON object with key=param, value=value. Supports {{node#X.var}} variables."
+
+msgid "Khám phá"
+msgstr "Explore"
+
+msgid "Không nhận diện được nội dung voice!"
+msgstr "Could not recognize voice content!"
+
+msgid "Không nhận được file!"
+msgstr "No file received!"
+
+msgid "Kiến thức"
+msgstr "Knowledge"
+
+msgid "Knowledge Base Settings"
+msgstr "Knowledge Base Settings"
+
+msgid "Knowledge Base Settings"
+msgstr "Knowledge Base Settings"
+
+msgid "Knowledge Fabric"
+msgstr "Knowledge Fabric"
+
+msgid "Knowledge Settings"
+msgstr "Knowledge Settings"
+
+msgid "Knowledge Sources"
+msgstr "Knowledge Sources"
+
+msgid "Kế hoạch tự động"
+msgstr "Automation Planner"
+
+msgid "Last Sync"
+msgstr "Last Sync"
+
+msgid "Load Models"
+msgstr "Load Models"
+
+msgid "Load more…"
+msgstr "Load more…"
+
+msgid "Load more…"
+msgstr "Load more…"
+
+msgid "Loading model list…"
+msgstr "Loading model list…"
+
+msgid "Loading model list…"
+msgstr "Loading model list…"
+
+msgid "Loading…"
+msgstr "Loading…"
+
+msgid "Loading…"
+msgstr "Loading…"
+
+msgid "Lịch biểu"
+msgstr "Scheduler"
+
+msgid "Lỗi upload"
+msgstr "Upload error"
+
+msgid "Manage Global Memory (%1$d sources, %2$d chunks)"
+msgstr "Manage Global Memory (%1$d sources, %2$d chunks)"
+
+msgid "Manage Global Memory (%1$d sources, %2$d chunks)"
+msgstr "Manage Global Memory (%1$d sources, %2$d chunks)"
+
+msgid ""
+"Manage knowledge by 4 scopes: Agent (system), User (personal), Project, "
+"Session (temporary)."
+msgstr ""
+"Manage knowledge by 4 scopes: Agent (system), User (personal), Project, "
+"Session (temporary)."
+
+msgid "Manage long-term memory — 2-tier system:"
+msgstr "Manage long-term memory — 2-tier system:"
+
+msgid "Max latency"
+msgstr "Max latency"
+
+msgid "Max latency"
+msgstr "Max latency"
+
+msgid "Memories of User #%s"
+msgstr "Memories of User #%s"
+
+msgid "Memory"
+msgstr "Memory"
+
+msgid "Memory Requests"
+msgstr "Memory Requests"
+
+msgid "Message ID"
+msgstr "Message ID"
+
+msgid "Message ID (just created)"
+msgstr "Message ID (just created)"
+
+msgid "Message content"
+msgstr "Message content"
+
+msgid "Message content *"
+msgstr "Message content *"
+
+msgid "Message content is empty."
+msgstr "Message content is empty."
+
+msgid "Message type"
+msgstr "Message type"
+
+msgid "Model List"
+msgstr "Model List"
+
+msgid "Model List"
+msgstr "Model List"
+
+msgid "Models by Purpose — Primary & Fallback"
+msgstr "Models by Purpose — Primary & Fallback"
+
+msgid "Name"
+msgstr "Name"
+
+msgid "Name/URL"
+msgstr "Name/URL"
+
+msgid "No API key entered."
+msgstr "No API key entered."
+
+msgid "No API key entered."
+msgstr "No API key entered."
+
+msgid "No Tavily API key entered."
+msgstr "No Tavily API key entered."
+
+msgid "No Tavily API key entered."
+msgstr "No Tavily API key entered."
+
+msgid "No assistants yet."
+msgstr "No assistants yet."
+
+msgid "No data available."
+msgstr "No data available."
+
+msgid "No data available."
+msgstr "No data available."
+
+msgid "No intents yet. Add intents to enable user intent analysis."
+msgstr "No intents yet. Add intents to enable user intent analysis."
+
+msgid "No knowledge sources"
+msgstr "No knowledge sources"
+
+msgid "No knowledge sources yet."
+msgstr "No knowledge sources yet."
+
+msgid "No memories found for this user/session."
+msgstr "No memories found for this user/session."
+
+msgid "No memories found for this user/session."
+msgstr "No memories found for this user/session."
+
+msgid "No more data"
+msgstr "No more data"
+
+msgid "No more data"
+msgstr "No more data"
+
+msgid "No tool selected."
+msgstr "No tool selected."
+
+msgid "No usage data yet."
+msgstr "No usage data yet."
+
+msgid "No usage data yet."
+msgstr "No usage data yet."
+
+msgid "No user context"
+msgstr "No user context"
+
+msgid ""
+"Only trigger if message contains this word. Leave empty for all messages."
+msgstr ""
+"Only trigger if message contains this word. Leave empty for all messages."
+
+msgid "Open Agent Market"
+msgstr "Open Agent Market"
+
+msgid "Or register manually at %s"
+msgstr "Or register manually at %s"
+
+msgid "Output Variables"
+msgstr "Output Variables"
+
+msgid "Owner"
+msgstr "Owner"
+
+msgid "Parse Intent"
+msgstr "Parse Intent"
+
+msgid "Per-use/package pricing:"
+msgstr "Per-use/package pricing:"
+
+msgid "Permission denied."
+msgstr "Permission denied."
+
+msgid "Permission denied."
+msgstr "Permission denied."
+
+msgid "Personal"
+msgstr "Personal"
+
+msgid "Phiên làm việc hết hạn, vui lòng tải lại trang."
+msgstr "Session expired, please reload the page."
+
+msgid "Platform (adminchat)"
+msgstr "Platform (adminchat)"
+
+msgid "Project"
+msgstr "Project"
+
+msgid "Promote"
+msgstr "Promote"
+
+msgid "Publish & Earn"
+msgstr "Publish & Earn"
+
+msgid "Publish:"
+msgstr "Publish:"
+
+msgid "Published"
+msgstr "Published"
+
+msgid "Purge old logs (90 days)"
+msgstr "Purge old logs (90 days)"
+
+msgid "Purge old logs (90 days)"
+msgstr "Purge old logs (90 days)"
+
+msgid "Purpose"
+msgstr "Purpose"
+
+msgid "Quay về Chat"
+msgstr "Back to Chat"
+
+msgid "Quick Start"
+msgstr "Quick Start"
+
+msgid "Rating"
+msgstr "Rating"
+
+msgid "Recent Assistants"
+msgstr "Recent Assistants"
+
+msgid "Regex filter (optional)"
+msgstr "Regex filter (optional)"
+
+msgid "Registering…"
+msgstr "Registering…"
+
+msgid "Registering…"
+msgstr "Registering…"
+
+msgid "Reply To — Session ID to send reply"
+msgstr "Reply To — Session ID to send reply"
+
+msgid "Requests"
+msgstr "Requests"
+
+msgid "Resource URL"
+msgstr "Resource URL"
+
+msgid "Resource title"
+msgstr "Resource title"
+
+msgid "Response message (AI generated)"
+msgstr "Response message (AI generated)"
+
+msgid "Save Settings"
+msgstr "Save Settings"
+
+msgid "Save Settings"
+msgstr "Save Settings"
+
+msgid "Save permanently → Personal"
+msgstr "Save permanently → Personal"
+
+msgid "Scope"
+msgstr "Scope"
+
+msgid "Search..."
+msgstr "Search..."
+
+msgid "Search..."
+msgstr "Search..."
+
+msgid "Select from list"
+msgstr "Select from list"
+
+msgid "Select from list"
+msgstr "Select from list"
+
+msgid "Select the AI tool to call. List is auto-populated from Intent Engine."
+msgstr ""
+"Select the AI tool to call. List is auto-populated from Intent Engine."
+
+msgid ""
+"Send a reply message to Admin Chat session. Frontend receives it "
+"automatically via poll."
+msgstr ""
+"Send a reply message to Admin Chat session. Frontend receives it "
+"automatically via poll."
+
+msgid "Send reply messages to Admin Chat / WebChat"
+msgstr "Send reply messages to Admin Chat / WebChat"
+
+msgid "Sender display name"
+msgstr "Sender display name"
+
+msgid "Sender name"
+msgstr "Sender name"
+
+msgid "Session ID"
+msgstr "Session ID"
+
+msgid "Session ID (adminchat_xxx)"
+msgstr "Session ID (adminchat_xxx)"
+
+msgid "Session not found (both user_id and session_id are empty)."
+msgstr "Session not found (both user_id and session_id are empty)."
+
+msgid ""
+"Set name, description, avatar and system prompt. Define capabilities and "
+"industry."
+msgstr ""
+"Set name, description, avatar and system prompt. Define capabilities and "
+"industry."
+
+msgid "Set pricing for character services"
+msgstr "Set pricing for character services"
+
+msgid ""
+"Set up intents the assistant can recognize, along with variables to extract "
+"as output."
+msgstr ""
+"Set up intents the assistant can recognize, along with variables to extract "
+"as output."
+
+msgid "Settings"
+msgstr "Settings"
+
+msgid "Settings saved!"
+msgstr "Settings saved!"
+
+msgid "Settings saved!"
+msgstr "Settings saved!"
+
+msgid "Show on website"
+msgstr "Show on website"
+
+msgid "Source"
+msgstr "Source"
+
+msgid "Source"
+msgstr "Source"
+
+msgid "Sources"
+msgstr "Sources"
+
+msgid "Status"
+msgstr "Status"
+
+msgid "Status update (dimmed)"
+msgstr "Status update (dimmed)"
+
+msgid "Success"
+msgstr "Success"
+
+msgid "Success"
+msgstr "Success"
+
+msgid "Success (true/false)"
+msgstr "Success (true/false)"
+
+msgid "Success / Errors"
+msgstr "Success / Errors"
+
+msgid "Success / Errors"
+msgstr "Success / Errors"
+
+msgid "Successfully sent (1/0)"
+msgstr "Successfully sent (1/0)"
+
+msgid "Sync Fanpage"
+msgstr "Sync Fanpage"
+
+msgid "Số điện thoại này đã được đăng ký. Hãy đăng nhập."
+msgstr "This phone number is already registered. Please log in."
+
+msgid "Tavily connection OK."
+msgstr "Tavily connection OK."
+
+msgid "Tavily connection OK."
+msgstr "Tavily connection OK."
+
+msgid "Team leader điều hành công việc, điều phối các AI Agents khác"
+msgstr "Team leader managing work, coordinating other AI Agents"
+
+msgid "Test"
+msgstr "Test"
+
+msgid "Test Connection"
+msgstr "Test Connection"
+
+msgid "Testing…"
+msgstr "Testing…"
+
+msgid "Testing…"
+msgstr "Testing…"
+
+msgid "Text"
+msgstr "Text"
+
+msgid "Time"
+msgstr "Time"
+
+msgid "Time"
+msgstr "Time"
+
+msgid "Timeout (seconds)"
+msgstr "Timeout (seconds)"
+
+msgid "Token (in/out)"
+msgstr "Token (in/out)"
+
+msgid "Token (in/out)"
+msgstr "Token (in/out)"
+
+msgid "Tokens"
+msgstr "Tokens"
+
+msgid "Tokens"
+msgstr "Tokens"
+
+msgid "Tool \"%s\" not found."
+msgstr "Tool \"%s\" not found."
+
+msgid "Tool *"
+msgstr "Tool *"
+
+msgid "Tool returned an error."
+msgstr "Tool returned an error."
+
+msgid "Total"
+msgstr "Total"
+
+msgid "Total Calls"
+msgstr "Total Calls"
+
+msgid "Total Calls"
+msgstr "Total Calls"
+
+msgid ""
+"Track memory requests, files, links from users. Files &amp; links are auto-"
+"ingested for"
+msgstr ""
+"Track memory requests, files, links from users. Files &amp; links are auto-"
+"ingested for"
+
+msgid ""
+"Track memory requests, files, links from users. Files &amp; links are auto-"
+"ingested for"
+msgstr ""
+"Track memory requests, files, links from users. Files &amp; links are auto-"
+"ingested for"
+
+msgid "Trang chủ AI Agent (BizCity)"
+msgstr "AI Agent Home (BizCity)"
+
+msgid "Trigger"
+msgstr "Trigger"
+
+msgid "Trigger from Admin Chat / WebChat — receive messages, commands, images"
+msgstr ""
+"Trigger from Admin Chat / WebChat — receive messages, commands, images"
+
+msgid "Triggered when admin/user sends a message in Admin Chat dashboard"
+msgstr "Triggered when admin/user sends a message in Admin Chat dashboard"
+
+msgid "Trợ lý"
+msgstr "Assistant"
+
+msgid "Trợ lý AI thông minh của bạn"
+msgstr "Your smart AI Assistant"
+
+msgid "Type"
+msgstr "Type"
+
+msgid "Tài khoản không tồn tại."
+msgstr "Account does not exist."
+
+msgid "Tên đăng nhập hoặc mật khẩu không đúng."
+msgstr "Incorrect username or password."
+
+msgid "Tóm tắt"
+msgstr "Summarize"
+
+msgid "Tư vấn"
+msgstr "Consult"
+
+msgid "Tạo Mindmap"
+msgstr "Create Mindmap"
+
+msgid "Tạo hình ảnh"
+msgstr "Generate Image"
+
+msgid "Tạo nhắc nhở"
+msgstr "Create Reminder"
+
+msgid "Update Now"
+msgstr "Update Now"
+
+msgid "Updated successfully! Reloading..."
+msgstr "Updated successfully! Reloading..."
+
+msgid ""
+"Upload CSV, Excel, PDF, JSON to Media Library (R2). System will parse and "
+"chunk for context."
+msgstr ""
+"Upload CSV, Excel, PDF, JSON to Media Library (R2). System will parse and "
+"chunk for context."
+
+msgid "Upload File"
+msgstr "Upload File"
+
+msgid "Upload Files"
+msgstr "Upload Files"
+
+msgid "Usage log not installed."
+msgstr "Usage log not installed."
+
+msgid "Usage log not installed."
+msgstr "Usage log not installed."
+
+msgid ""
+"Use the built-in quick_faq post type to create Q&A sets for character "
+"reference."
+msgstr ""
+"Use the built-in quick_faq post type to create Q&A sets for character "
+"reference."
+
+msgid "User ID for tool callback context (API keys, permissions)."
+msgstr "User ID for tool callback context (API keys, permissions)."
+
+msgid "User Memory"
+msgstr "User Memory"
+
+msgid "User context"
+msgstr "User context"
+
+msgid ""
+"User sends \"I want to order 2 shirts size M\" → Assistant parses intent = "
+"\"order\" and extracts variables:"
+msgstr ""
+"User sends \"I want to order 2 shirts size M\" → Assistant parses intent = "
+"\"order\" and extracts variables:"
+
+msgid "VN: bizcity.vn — International: bizcity.ai"
+msgstr "VN: bizcity.vn — International: bizcity.ai"
+
+msgid "Visible"
+msgstr "Visible"
+
+msgid "Viết bài"
+msgstr "Write Article"
+
+msgid "Vui lòng nhập email hoặc số điện thoại hợp lệ."
+msgstr "Please enter a valid email or phone number."
+
+msgid "Vui lòng nhập số điện thoại."
+msgstr "Please enter your phone number."
+
+msgid "Vui lòng nhập tên đăng nhập và mật khẩu."
+msgstr "Please enter your username and password."
+
+msgid ""
+"Want to use your own OpenRouter, OpenAI, or other API keys? Upgrade to Pro "
+"for direct API integration."
+msgstr ""
+"Want to use your own OpenRouter, OpenAI, or other API keys? Upgrade to Pro "
+"for direct API integration."
+
+msgid "Web Visibility"
+msgstr "Web Visibility"
+
+msgid ""
+"When ready, publish to bizcity-agent-market to get work, chat and earn "
+"income."
+msgstr ""
+"When ready, publish to bizcity-agent-market to get work, chat and earn "
+"income."
+
+msgid "When your character is ready, you can:"
+msgstr "When your character is ready, you can:"
+
+msgid "WordPress User ID"
+msgstr "WordPress User ID"
+
+msgid "Workflow Integration"
+msgstr "Workflow Integration"
+
+msgid "Workflow automatically creates the order."
+msgstr "Workflow automatically creates the order."
+
+msgid "Xem đơn hàng"
+msgstr "View Orders"
+
+msgid "Xin chào! Tôi có thể giúp gì cho bạn?"
+msgstr "Hello! How can I help you?"
+
+msgid "You do not have permission to access this page."
+msgstr "You do not have permission to access this page."
+
+msgid "You do not have permission to access this page."
+msgstr "You do not have permission to access this page."
+
+msgid "You do not have permission."
+msgstr "You do not have permission."
+
+msgid "You do not have permission."
+msgstr "You do not have permission."
+
+msgid "for scope \"%s\""
+msgstr "for scope \"%s\""
+
+msgid "user-requested"
+msgstr "user-requested"
+
+msgid "Đã nhận được ảnh của bạn. Xin chờ trong giây lát..."
+msgstr "Your image has been received. Please wait a moment..."
+
+msgid "Đăng ký thành công! Đang đăng nhập..."
+msgstr "Registration successful! Logging in..."
+
+msgid "Đăng ký tài khoản hiện đang bị tắt."
+msgstr "Account registration is currently disabled."
+
+msgid "Đăng nhập thành công!"
+msgstr "Login successful!"
+
+msgid "— Select Tool —"
+msgstr "— Select Tool —"
+
+msgid "⚠ BizCity Twin AI:"
+msgstr "⚠ BizCity Twin AI:"
+
+msgid "⚠️ No API key configured. Enter one below to activate AI."
+msgstr "⚠️ No API key configured. Enter one below to activate AI."
+
+msgid "⚠️ No Tavily key configured."
+msgstr "⚠️ No Tavily key configured."
+
+msgid "✅ API key configured (BizCity Gateway)."
+msgstr "✅ API key configured (BizCity Gateway)."
+
+msgid "✅ BizCity LLM settings saved."
+msgstr "✅ BizCity LLM settings saved."
+
+msgid "✅ BizCity LLM settings saved."
+msgstr "✅ BizCity LLM settings saved."
+
+msgid "✅ Connection successful!"
+msgstr "✅ Connection successful!"
+
+msgid "✅ Connection successful!"
+msgstr "✅ Connection successful!"
+
+msgid "✅ Loaded {n} models."
+msgstr "✅ Loaded {n} models."
+
+msgid "✅ Loaded {n} models."
+msgstr "✅ Loaded {n} models."
+
+msgid "✅ Tavily configured."
+msgstr "✅ Tavily configured."
+
+msgid "❌ Connection failed: "
+msgstr "❌ Connection failed: "
+
+msgid "❌ Connection failed: "
+msgstr "❌ Connection failed: "
+
+msgid "💬 Admin Chat — Receive Message"
+msgstr "💬 Admin Chat — Receive Message"
+
+msgid "💬 Admin Chat — Send Message"
+msgstr "💬 Admin Chat — Send Message"
+
+msgid "🤖 Agent — Call AI Tool"
+msgstr "🤖 Agent — Call AI Tool"
+
+msgid "Tạo lịch"
+msgstr "Create Schedule"
+
+msgid "Họp team lúc 3h chiều mai"
+msgstr "Team meeting at 3pm tomorrow"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Tạo kỹ năng"
+msgstr "Create Skills"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Dạy AI bằng sổ tay"
+msgstr "Teach AI with Notebook"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Dạy AI bằng hỏi đáp"
+msgstr "Teach AI with FAQs"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Quy trình"
+msgstr "Workflow"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "📊 Lõi đôi"
+msgstr "📊 Twin Core"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Tri thức"
+msgstr "Knowledge"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Thực thi"
+msgstr "Execution"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Dạy AI (Nuôi dạy AI)"
+msgstr "Teach AI (Raise AI)"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "🌱 Dạy AI"
+msgstr "🌱 Teach AI"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Ưu tiên"
+msgstr "Priority"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Chat mới"
+msgstr "New chat"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Trợ lý AI"
+msgstr "AI Assistant"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Trưởng nhóm điều hành công việc, điều phối các trợ lý AI khác"
+msgstr "Team leader managing work and coordinating other AI assistants"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Thu gọn thanh bên"
+msgstr "Collapse sidebar"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Đăng nhập/Đăng ký"
+msgstr "Login/Register"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Tìm kiếm chat..."
+msgstr "Search chats..."
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "CHAT MỚI"
+msgstr "NEW CHAT"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Thêm dự án"
+msgstr "Add project"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Xem chi tiết →"
+msgstr "View details →"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Xem toàn bộ phiên chat"
+msgstr "View all chat sessions"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Xem toàn bộ nhiệm vụ"
+msgstr "View all tasks"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Cấu hình & Cài đặt"
+msgstr "Configuration & Settings"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Đóng"
+msgstr "Close"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Cài hồ sơ & chiêm tinh"
+msgstr "Set profile & astrology"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Hồ sơ"
+msgstr "Profile"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Bật/tắt theo dõi"
+msgstr "Start/Stop polling"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Dừng"
+msgstr "Stop"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Xuất log router"
+msgstr "Export router logs"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Xuất JSON"
+msgstr "Export JSON"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Xóa log"
+msgstr "Clear logs"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Xóa"
+msgstr "Clear"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Mở rộng"
+msgstr "Expand"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Nhấn Theo dõi hoặc gửi tin nhắn để xem log nhận diện..."
+msgstr "Press Poll or send a message to view routing logs..."
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "🎭 Trợ lý:"
+msgstr "🎭 Agent:"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "+ Chat mới trong dự án này"
+msgstr "+ New chat in this project"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Trò chuyện"
+msgstr "Chats"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Nguồn"
+msgstr "Sources"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "👁️ Mô hình thị giác sẽ phân tích hình ảnh"
+msgstr "👁️ Vision model will analyze the image"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Bạn có <strong id=\"bizc-guest-remaining\">3</strong> tin nhắn thử nghiệm. <a href=\"#\" id=\"bizc-guest-signup-link\">Đăng ký</a> để dùng không giới hạn!"
+msgstr "You have <strong id=\"bizc-guest-remaining\">3</strong> trial messages. <a href=\"#\" id=\"bizc-guest-signup-link\">Sign up</a> for unlimited use!"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Đang tải trợ lý..."
+msgstr "Loading assistants..."
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Thoát khỏi chế độ plugin"
+msgstr "Exit plugin mode"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Thoát"
+msgstr "Exit"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Đính kèm ảnh"
+msgstr "Attach image"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Nhập tin nhắn... (@ chọn trợ lý · / tìm công cụ)"
+msgstr "Type a message... (@ choose assistant · / find tool)"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Quay lại chat"
+msgstr "Back to chat"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Mở tab mới"
+msgstr "Open new tab"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Mở Dấu vết Biz"
+msgstr "Open Biz Trace"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Dấu vết Biz"
+msgstr "Biz Trace"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "TRỰC TIẾP"
+msgstr "LIVE"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Chưa có log nào"
+msgstr "No logs yet"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Gửi tin nhắn để xem quá trình AI xử lý"
+msgstr "Send a message to see the AI processing flow"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "{count} bước"
+msgstr "{count} steps"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Dự án"
+msgstr "Projects"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Tên dự án..."
+msgstr "Project name..."
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Tài khoản của tôi"
+msgstr "My Account"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Chat lưu trữ"
+msgstr "Archived chats"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Nâng cấp gói"
+msgstr "Upgrade plan"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Đăng xuất"
+msgstr "Log out"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Chưa đặt tên"
+msgstr "Untitled"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Không có chat đã lưu trữ."
+msgstr "No archived chats."
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Chuyển giao diện sáng tối"
+msgstr "Toggle light and dark theme"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Nhập tin nhắn... @ chọn trợ lý · / tìm công cụ"
+msgstr "Type a message... @ choose assistant · / find tool"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Chọn trợ lý"
+msgstr "Choose assistant"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Chọn công cụ"
+msgstr "Choose tool"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Đính kèm ảnh"
+msgstr "Attach image"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Lõi đôi: T{k}% H{e}%"
+msgstr "Twin Core: K{k}% E{e}%"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Chế độ: {mode}"
+msgstr "Mode: {mode}"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "tự động"
+msgstr "auto"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "công cụ"
+msgstr "tool"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Công cụ"
+msgstr "Tool"
+
+#: modules/webchat/includes/class-admin-dashboard.php
+msgid "Trợ lý: {name}"
+msgstr "Agent: {name}"
+
+msgid "Gọi điện khách hàng 10h sáng thứ 2"
+msgstr "Call customer at 10am Monday"
+
+msgid "Deadline báo cáo thứ 6 tuần này"
+msgstr "Report deadline this Friday"
+
+msgid "Nhắc uống thuốc 8h sáng mỗi ngày"
+msgstr "Reminder to take medicine 8am daily"
+
+msgid "Xem lịch"
+msgstr "View Calendar"
+
+msgid "Xem lịch hôm nay"
+msgstr "View today's schedule"
+
+msgid "Lịch tuần này có gì?"
+msgstr "What's on this week?"
+
+msgid "Tìm thời gian trống chiều mai"
+msgstr "Find free time tomorrow afternoon"
+
+msgid "Tóm tắt agenda hôm nay"
+msgstr "Summarize today's agenda"
+
+msgid "Quản lý"
+msgstr "Manage"
+
+msgid "Đánh dấu xong cuộc họp sáng"
+msgstr "Mark morning meeting as done"
+
+msgid "Hủy lịch họp ngày mai"
+msgstr "Cancel tomorrow's meeting"
+
+msgid "Dời lịch họp sang 4h chiều"
+msgstr "Reschedule meeting to 4pm"
+
+msgid "Sync Google Calendar"
+msgstr "Sync Google Calendar"
+
+msgid "Xem tất cả sự kiện và nhắc nhở hôm nay"
+msgstr "View all events and reminders today"
+
+msgid "Tạo sự kiện"
+msgstr "Create Event"
+
+msgid "Thêm sự kiện mới vào lịch"
+msgstr "Add new event to calendar"
+
+msgid "Tạo sự kiện họp team lúc 10h sáng mai"
+msgstr "Create team meeting at 10am tomorrow"
+
+msgid "Tìm thời gian trống"
+msgstr "Find Free Time"
+
+msgid "Tìm slot trống để hẹn lịch"
+msgstr "Find free slot to schedule"
+
+msgid "Đánh dấu hoàn thành"
+msgstr "Mark as Done"
+
+msgid "Đánh dấu sự kiện đã xong"
+msgstr "Mark event as done"
+
+msgid "Dời lịch"
+msgstr "Reschedule"
+
+msgid "Thay đổi thời gian sự kiện"
+msgstr "Change event time"
+
+msgid "Sync Google"
+msgstr "Sync Google"
+
+msgid "Đồng bộ 2 chiều với Google Calendar"
+msgstr "Two-way sync with Google Calendar"
+
+msgid "Lịch"
+msgstr "Calendar"
+
+msgid "Hôm nay"
+msgstr "Today"
+
+msgid "Tạo"
+msgstr "Create"
+
+msgid "Trống"
+msgstr "Free"
+
+msgid "Sửa"
+msgstr "Edit"
+
+msgid "Scheduler – Lịch & Nhắc việc"
+msgstr "Scheduler – Calendar & Reminders"
+
+msgid "🎯 Nhiệm vụ — BizCity"
+msgstr "🎯 Tasks — BizCity"
+
+msgid "Quay lại Admin"
+msgstr "Back to Admin"
+
+msgid "🎯 Nhiệm vụ"
+msgstr "🎯 Tasks"
+
+msgid ""
+"Toàn bộ nhiệm vụ đã thực hiện — nhấn vào từng nhiệm vụ để xem chi tiết hội "
+"thoại"
+msgstr "All tasks performed — click each task to view conversation details"
+
+msgid "Tìm kiếm nhiệm vụ..."
+msgstr "Search tasks..."
+
+msgid "Tất cả trạng thái"
+msgstr "All statuses"
+
+msgid "Đang thực hiện"
+msgstr "In Progress"
+
+msgid "Chờ người dùng"
+msgstr "Waiting for User"
+
+msgid "Hoàn thành"
+msgstr "Completed"
+
+msgid "Đã hủy"
+msgstr "Cancelled"
+
+msgid "Hết hạn"
+msgstr "Expired"
+
+msgid "Đang tải..."
+msgstr "Loading..."
+
+msgid "vừa xong"
+msgstr "just now"
+
+msgid " phút trước"
+msgstr " minutes ago"
+
+msgid " giờ trước"
+msgstr " hours ago"
+
+msgid " ngày trước"
+msgstr " days ago"
+
+msgid "Tất cả"
+msgstr "All"
+
+msgid "🔄 Đang chạy"
+msgstr "🔄 Running"
+
+msgid "✅ Hoàn thành"
+msgstr "✅ Completed"
+
+msgid "❌ Đã hủy"
+msgstr "❌ Cancelled"
+
+msgid "⏳ Chờ"
+msgstr "⏳ Waiting"
+
+msgid "⌛ Hết hạn"
+msgstr "⌛ Expired"
+
+msgid "🔒 Đóng"
+msgstr "🔒 Closed"
+
+msgid "Chưa có nhiệm vụ nào"
+msgstr "No tasks yet"
+
+msgid " phù hợp"
+msgstr " matching"
+
+msgid "← Trước"
+msgstr "← Previous"
+
+msgid "Trang"
+msgstr "Page"
+
+msgid "Sau →"
+msgstr "Next →"
+
+msgid " lượt"
+msgstr " turns"
+
+msgid " nhiệm vụ"
+msgstr " tasks"
+
+msgid "Không nhận diện được mục tiêu cụ thể từ tin nhắn."
+msgstr "Could not identify a specific objective from the message."
+
+msgid "Độ tin cậy thấp cho: "
+msgstr "Low confidence for: "
+
+msgid ". Bạn có thể mô tả rõ hơn không?"
+msgstr ". Can you describe more clearly?"
+
+msgid "Không xác định được tool cho: "
+msgstr "Could not determine tool for: "
+
+msgid "Nhắc việc gì? 🔔"
+msgstr "What to remind? 🔔"
+
+msgid "Khi nào? (ví dụ: 3 giờ chiều, ngày mai, ...)"
+msgstr "When? (e.g. 3pm, tomorrow, ...)"
+
+msgid "Lặp lại?"
+msgstr "Repeat?"
+
+msgid "Một lần"
+msgstr "Once"
+
+msgid "Hàng ngày"
+msgstr "Daily"
+
+msgid "Hàng tuần"
+msgstr "Weekly"
+
+msgid "Viết bài blog"
+msgstr "Write Blog Post"
+
+msgid "Tạo bài blog chuẩn SEO với outline + nội dung"
+msgstr "Create SEO-optimized blog post with outline + content"
+
+msgid "Tóm tắt cuộc họp"
+msgstr "Summarize Meeting"
+
+msgid "Tóm tắt nhanh nội dung cuộc họp quan trọng"
+msgstr "Quickly summarize important meeting content"
+
+msgid "Phân tích dữ liệu"
+msgstr "Analyze Data"
+
+msgid "Phân tích số liệu, báo cáo, thống kê nhanh"
+msgstr "Analyze data, reports, quick statistics"
+
+msgid "Soạn email chuyên nghiệp"
+msgstr "Compose Professional Email"
+
+msgid "Viết email chuẩn mực cho công việc"
+msgstr "Write professional emails for work"
+
+msgid "Lên kế hoạch dự án"
+msgstr "Plan Project"
+
+msgid "Tạo project plan với timeline và milestones"
+msgstr "Create project plan with timeline and milestones"
+
+msgid "Viết nhật ký hôm nay"
+msgstr "Write Today's Journal"
+
+msgid "Ghi lại ngày hôm nay: công việc, suy nghĩ, cảm xúc"
+msgstr "Record today: work, thoughts, feelings"
+
+msgid "Nhật ký"
+msgstr "Journal"
+
+msgid "Quy trình tự động hoá nhiều bước, có trigger & tool call"
+msgstr "Multi-step automation workflow with trigger & tool call"
+
+msgid "Skill gọi 1 tool cụ thể: tạo sản phẩm, gửi email, tra cứu..."
+msgstr "Skill calling a specific tool: create product, send email, lookup..."
+
+msgid "Viết nội dung"
+msgstr "Write Content"
+
+msgid "Viết bài bán hàng, blog, email marketing, social post..."
+msgstr "Write sales copy, blog, email marketing, social post..."
+
+msgid "Phân tích / Báo cáo"
+msgstr "Analysis / Report"
+
+msgid "Phân tích dữ liệu, tạo báo cáo, đánh giá hiệu suất..."
+msgstr "Analyze data, create reports, evaluate performance..."
+
+msgid "Skill trống"
+msgstr "Blank Skill"
+
+msgid "Bắt đầu từ đầu với cấu trúc cơ bản"
+msgstr "Start from scratch with basic structure"
+
+msgid "Skills – Kỹ năng AI"
+msgstr "Skills – AI Skills"
+
+msgid "Chợ ứng dụng BizCity"
+msgstr "BizCity App Marketplace"
+
+msgid "Tìm plugin..."
+msgstr "Search plugins..."
+
+msgid "Bạn không có quyền kích hoạt plugin."
+msgstr "You do not have permission to activate plugins."
+
+msgid ""
+"Bạn cần đăng ký API Key với BizCity để kích hoạt plugin. Truy cập "
+"https://bizcity.vn/my-account/api-keys/ để tạo API Key, sau đó vào Cài đặt "
+"API để cấu hình."
+msgstr ""
+"You need to register an API Key with BizCity to activate plugins. Visit "
+"https://bizcity.vn/my-account/api-keys/ to create an API Key, then go to API"
+" Settings to configure."
+
+msgid "Thiếu plugin_slug."
+msgstr "Missing plugin_slug."
+
+msgid "Không tìm thấy plugin \"%s\" trong catalog hoặc trên server."
+msgstr "Plugin \"%s\" not found in catalog or on server."
+
+msgid "File plugin không tồn tại trên server. Liên hệ admin."
+msgstr "Plugin file does not exist on server. Contact admin."
+
+msgid "Plugin đã được kích hoạt."
+msgstr "Plugin is already activated."
+
+msgid "Kích hoạt thất bại: %s"
+msgstr "Activation failed: %s"
+
+msgid "Kích hoạt thành công! Plugin đã sẵn sàng sử dụng."
+msgstr "Activated successfully! Plugin is ready to use."
+
+msgid "Bạn không có quyền ngừng kích hoạt plugin."
+msgstr "You do not have permission to deactivate plugins."
+
+msgid ""
+"Bạn cần đăng ký API Key với BizCity để quản lý plugin. Truy cập "
+"https://bizcity.vn/my-account/api-keys/ để tạo API Key."
+msgstr ""
+"You need to register an API Key with BizCity to manage plugins. Visit "
+"https://bizcity.vn/my-account/api-keys/ to create an API Key."
+
+msgid "Không tìm thấy plugin \"%s\"."
+msgstr "Plugin \"%s\" not found."
+
+msgid "Plugin đã được ngừng kích hoạt."
+msgstr "Plugin has been deactivated."
+
+msgid "Đã ngừng kích hoạt plugin thành công."
+msgstr "Plugin deactivated successfully."
+
+msgid "Bạn chưa đăng nhập."
+msgstr "You are not logged in."
+
+msgid "Blog không hợp lệ."
+msgstr "Invalid blog."
+
+msgid "Plugin không tồn tại hoặc đang tắt."
+msgstr "Plugin does not exist or is disabled."
+
+msgid "Plugin này chưa có giá credit."
+msgstr "This plugin does not have a credit price."
+
+msgid "Bạn đã sở hữu plugin này."
+msgstr "You already own this plugin."
+
+msgid "Không đủ credit."
+msgstr "Insufficient credit."
+
+msgid "Mua plugin bằng credit thành công."
+msgstr "Plugin purchased with credit successfully."
+
+msgid "API key chưa được cấu hình."
+msgstr "API key has not been configured."
+
+msgid "Bạn không có quyền cài đặt plugin."
+msgstr "You do not have permission to install plugins."
+
+msgid ""
+"Bạn cần đăng ký API Key với BizCity để cài đặt plugin. Truy cập "
+"https://bizcity.vn/my-account/api-keys/ để tạo API Key, sau đó vào Cài đặt "
+"API để cấu hình."
+msgstr ""
+"You need to register an API Key with BizCity to install plugins. Visit "
+"https://bizcity.vn/my-account/api-keys/ to create an API Key, then go to API"
+" Settings to configure."
+
+msgid "Download URL không hợp lệ."
+msgstr "Invalid download URL."
+
+msgid "Plugin đã được cài đặt thành công!"
+msgstr "Plugin installed successfully!"
+
+msgid "Bạn không có quyền cập nhật plugin."
+msgstr "You do not have permission to update plugins."
+
+msgid ""
+"Bạn cần đăng ký API Key với BizCity để cập nhật plugin. Truy cập "
+"https://bizcity.vn/my-account/api-keys/ để tạo API Key."
+msgstr ""
+"You need to register an API Key with BizCity to update plugins. Visit "
+"https://bizcity.vn/my-account/api-keys/ to create an API Key."
+
+msgid "Plugin đã được cập nhật thành công!"
+msgstr "Plugin updated successfully!"

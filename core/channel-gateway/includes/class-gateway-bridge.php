@@ -62,12 +62,6 @@ class BizCity_Gateway_Bridge {
 			$this->endpoint_map[ $ep ] = $platform;
 		}
 
-		error_log( sprintf(
-			'[Channel Gateway] ✅ Adapter registered: %s (prefix=%s, endpoints=%s)',
-			$platform,
-			$prefix ?: '(numeric)',
-			implode( ', ', $adapter->get_endpoints() )
-		) );
 	}
 
 	/**
@@ -229,6 +223,10 @@ class BizCity_Gateway_Bridge {
 	 * Delegates to bizcity_aiwu_fire_twf_process_flow() if available,
 	 * else fires waic_twf_process_flow directly.
 	 *
+	 * Automatically resolves Channel Role if not already set in trigger,
+	 * and injects it so downstream handlers (Chat Gateway, Focus Router)
+	 * receive the correct context configuration.
+	 *
 	 * @param array $trigger  Normalized trigger payload.
 	 * @param array $raw      Original raw data.
 	 * @return bool
@@ -244,8 +242,25 @@ class BizCity_Gateway_Bridge {
 			mb_substr( $text, 0, 60 )
 		) );
 
+		// ── Resolve Channel Role if not already set ──
+		if ( empty( $trigger['channel_role'] ) && class_exists( 'BizCity_Channel_Role' ) ) {
+			$trigger['channel_role'] = BizCity_Channel_Role::resolve(
+				strtoupper( $platform ),
+				$trigger['bot_id'] ?? null,
+				(int) ( $trigger['wp_user_id'] ?? 0 )
+			);
+		}
+
 		// Build legacy-compat trigger format
 		$compat_trigger = $this->build_legacy_trigger( $trigger );
+
+		// Carry channel_role through to legacy trigger (consumed by Chat Gateway / Focus Router)
+		if ( ! empty( $trigger['channel_role'] ) ) {
+			$compat_trigger['channel_role'] = $trigger['channel_role'];
+		}
+		if ( ! empty( $trigger['wp_user_id'] ) ) {
+			$compat_trigger['wp_user_id'] = (int) $trigger['wp_user_id'];
+		}
 
 		if ( function_exists( 'bizcity_aiwu_fire_twf_process_flow' ) ) {
 			return bizcity_aiwu_fire_twf_process_flow( $compat_trigger, $raw, 'waic_twf_process_flow' );

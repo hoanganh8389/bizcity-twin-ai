@@ -54,6 +54,9 @@ if ( ! defined( 'BIZCITY_TWIN_FOCUS_ENABLED' ) )    define( 'BIZCITY_TWIN_FOCUS_
 if ( ! defined( 'BIZCITY_TWIN_RESOLVER_ENABLED' ) ) define( 'BIZCITY_TWIN_RESOLVER_ENABLED', true );
 if ( ! defined( 'BIZCITY_TWIN_SNAPSHOT_ENABLED' ) )  define( 'BIZCITY_TWIN_SNAPSHOT_ENABLED', false );
 
+// Phase 1.6 — Session Memory Spec (off by default, enable via wp-config.php)
+if ( ! defined( 'BIZCITY_SESSION_SPEC_ENABLED' ) )  define( 'BIZCITY_SESSION_SPEC_ENABLED', false );
+
 // Smart Gateway — offload Intent Engine + Twin Core to bizcity-llm-router server
 if ( ! defined( 'BIZCITY_SMART_GATEWAY_ENABLED' ) )  define( 'BIZCITY_SMART_GATEWAY_ENABLED', true );
 
@@ -65,6 +68,38 @@ if ( ! defined( 'BIZCITY_INTENT_LOG_PROMPTS' ) )  define( 'BIZCITY_INTENT_LOG_PR
 require_once __DIR__ . '/includes/class-module-loader.php';
 require_once __DIR__ . '/includes/class-connection-gate.php';
 require_once __DIR__ . '/includes/class-twin-ai.php';
+
+/**
+ * Safe charset+collate for CREATE TABLE — fixes shard mismatch.
+ *
+ * On multisite shards $wpdb->get_charset_collate() may return an impossible
+ * combination like "DEFAULT CHARACTER SET latin1 COLLATE utf8_general_ci"
+ * because charset is inherited from the shard database default while collation
+ * comes from the WP config. This helper detects the mismatch and corrects it.
+ *
+ * @since 1.3.3
+ * @return string  e.g. "DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+ */
+if ( ! function_exists( 'bizcity_get_charset_collate' ) ) {
+    function bizcity_get_charset_collate(): string {
+        global $wpdb;
+        $charset_collate = $wpdb->get_charset_collate();
+
+        // Detect charset/collation mismatch (e.g. latin1 + utf8_general_ci)
+        if ( preg_match( '/CHARACTER\s+SET\s+(\S+)/i', $charset_collate, $cs )
+            && preg_match( '/COLLATE\s+(\S+)/i', $charset_collate, $co )
+        ) {
+            $charset   = strtolower( $cs[1] );
+            $collation = strtolower( $co[1] );
+            // Mismatch: charset is latin1 but collation expects utf8/utf8mb3/utf8mb4
+            if ( $charset === 'latin1' && strpos( $collation, 'utf8' ) !== false ) {
+                $charset_collate = 'DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci';
+            }
+        }
+
+        return $charset_collate;
+    }
+}
 
 // ── Core components — load at file scope (trước khi regular plugins load) ────
 // Tool plugins extend BizCity_Intent_Provider ở file scope → class phải tồn tại sớm.
@@ -80,6 +115,9 @@ require_once __DIR__ . '/core/channel-gateway/bootstrap.php';
 if ( file_exists( __DIR__ . '/core/skills/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/skills/bootstrap.php';
 }
+if ( file_exists( __DIR__ . '/core/tools/bootstrap.php' ) ) {
+    require_once __DIR__ . '/core/tools/bootstrap.php';
+}
 if ( file_exists( __DIR__ . '/core/scheduler/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/scheduler/bootstrap.php';
 }
@@ -88,6 +126,26 @@ if ( file_exists( __DIR__ . '/core/scheduler/bootstrap.php' ) ) {
 // Loaded here so bizcity-twin-ai works standalone (without mu-plugin).
 // function_exists() guards inside prevent double-loading when mu-plugin is also active.
 require_once __DIR__ . '/core/helper-legacy/bootstrap.php';
+
+// ── Must-load bundled plugins (hoạt động như mu-plugins) ─────────────────────
+// Các plugin trong plugins/ được load trực tiếp, KHÔNG cần activate thủ công.
+// Tương tự cơ chế must-use: luôn chạy khi bizcity-twin-ai active.
+// Guard bằng constant riêng của mỗi plugin để tránh load trùng khi đã activate bình thường.
+$_bizcity_bundled_must_load = [
+    'bizgpt-tool-google'       => 'BZGOOGLE_VERSION',      // Google Workspace tools
+    'bizcity-tool-facebook'    => 'BZTOOL_FB_VERSION',     // Facebook standalone — /bizfbhook/, OAuth, Messenger
+    'bizcity-zalo-bot'         => 'BIZCITY_ZALO_BOT_VERSION', // Zalo Bot — webhook, user linker, gateway bridge
+];
+foreach ( $_bizcity_bundled_must_load as $_slug => $_guard_const ) {
+    if ( defined( $_guard_const ) ) {
+        continue; // Already loaded (activated as regular plugin or by mu-plugin)
+    }
+    $_bundled_file = __DIR__ . '/plugins/' . $_slug . '/' . $_slug . '.php';
+    if ( file_exists( $_bundled_file ) ) {
+        require_once $_bundled_file;
+    }
+}
+unset( $_bizcity_bundled_must_load, $_slug, $_guard_const, $_bundled_file );
 
 // Translations — load Vietnamese (and other) .po files from /languages/
 add_action( 'init', function() {
@@ -105,6 +163,14 @@ register_activation_hook( __FILE__, [ 'BizCity_Twin_AI', 'activate' ] );
 // Không có file này → Intent providers, Market Catalog, và TouchBar sẽ lỗi.
 add_action( 'admin_notices', 'bizcity_twin_ai_notice_compat_loader' );
 add_action( 'admin_init',    'bizcity_twin_ai_maybe_copy_compat_loader' );
+
+// ── Integration tests — admin only, hidden page ─────────────────────────────
+if ( is_admin() && file_exists( __DIR__ . '/tests/test-sprint3-integration.php' ) ) {
+    require_once __DIR__ . '/tests/test-sprint3-integration.php';
+}
+if ( is_admin() && file_exists( __DIR__ . '/tests/test-phase16-audit.php' ) ) {
+    require_once __DIR__ . '/tests/test-phase16-audit.php';
+}
 
 function bizcity_twin_ai_notice_compat_loader(): void {
     if ( ! current_user_can( 'manage_options' ) ) {

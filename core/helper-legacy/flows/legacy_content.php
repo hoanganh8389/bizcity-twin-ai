@@ -1,4 +1,12 @@
-<?php
+﻿<?php
+/**
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\Helper_Legacy
+ * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+ * @license    GPL-2.0-or-later
+ * @link       https://bizcity.vn
+ */
+
 if (!defined('ABSPATH')) exit;
 // file content
 function biz_create_content($message, $chat_id, $title='', $image_url='', $arr= array()) {

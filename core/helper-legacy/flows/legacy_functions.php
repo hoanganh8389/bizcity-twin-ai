@@ -1,4 +1,12 @@
-<?php
+﻿<?php
+/**
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\Helper_Legacy
+ * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+ * @license    GPL-2.0-or-later
+ * @link       https://bizcity.vn
+ */
+
 
 
 function twf_telegram_get_file_url($file_id) {
@@ -131,48 +139,36 @@ function biz_generate_image($prompt) {
     return twf_generate_image_url($prompt);
 }
 function twf_generate_image_url($prompt) {
-    $api_key = get_option('twf_openai_api_key');
-    if (!$api_key) return false;
-
-    $endpoint = "https://api.openai.com/v1/images/generations";
-    $data = [
-        "model"  => "gpt-image-1",
-        "prompt" => $prompt,
-        "n"      => 1,
-        "size"   => "1024x1024"
-        // Không gửi response_format/style/quality để tránh 400
-    ];
-    $args = [
-        'headers' => [
-            'Authorization' => 'Bearer '.$api_key,
-            'Content-Type'  => 'application/json'
-        ],
-        'body'    => wp_json_encode($data),
-        'timeout' => 80
-    ];
-
-    $res  = wp_remote_post($endpoint, $args);
-    $code = wp_remote_retrieve_response_code($res);
-    $body = wp_remote_retrieve_body($res);
-    back_trace('NOTICE', 'twf_generate_image_url: HTTP '.$code.' | body='.substr($body,0,200));
-
-    if (is_wp_error($res) || $code !== 200) return false;
-
-    $json = json_decode($body, true);
-    if (empty($json['data'][0])) return false;
-
-    // 1) Nếu API trả URL (một số cấu hình có thể như vậy)
-    if (!empty($json['data'][0]['url'])) {
-        return $json['data'][0]['url'];
+    if ( ! function_exists( 'bizcity_llm_generate_image' ) ) {
+        back_trace( 'ERROR', 'twf_generate_image_url: bizcity_llm_generate_image() not available.' );
+        return false;
     }
 
-    // 2) Mặc định hiện tại đang trả b64_json → lưu vào Media rồi trả URL
-    if (!empty($json['data'][0]['b64_json'])) {
+    $result = bizcity_llm_generate_image( $prompt, [
+        'model'   => 'gpt-image-1',
+        'size'    => '1024x1024',
+        'timeout' => 80,
+    ] );
+
+    back_trace( 'NOTICE', 'twf_generate_image_url via gateway: success=' . ( $result['success'] ? '1' : '0' )
+        . ' | error=' . ( $result['error'] ?? '' ) );
+
+    if ( empty( $result['success'] ) ) {
+        return false;
+    }
+
+    // 1) URL trả trực tiếp
+    if ( ! empty( $result['image_url'] ) ) {
+        return $result['image_url'];
+    }
+
+    // 2) b64_json → lưu vào Media rồi trả URL
+    if ( ! empty( $result['b64_json'] ) ) {
         $saved = twf_save_base64_image_to_media(
-            $json['data'][0]['b64_json'],
-            'ai-image-'.time().'.png'
+            $result['b64_json'],
+            'ai-image-' . time() . '.png'
         );
-        if (!is_wp_error($saved)) {
+        if ( ! is_wp_error( $saved ) ) {
             return $saved['url'];
         }
     }

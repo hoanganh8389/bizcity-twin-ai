@@ -85,10 +85,21 @@ class WaicAction_it_todos_planner extends WaicAction {
 		$pipeline_id     = $execution_state['pipeline_id'] ?: ( 'pipe_' . $taskId . '_' . time() );
 		$user_id         = $execution_state['user_id'] ?: get_current_user_id();
 
-		// Create TODO rows
-		$todo_count = 0;
+		// B1 fix: check if todos already exist for this pipeline_id (bridge may have pre-created)
+		$existing_count = 0;
 		if ( class_exists( 'BizCity_Intent_Todos' ) ) {
-			$todo_count = BizCity_Intent_Todos::create_from_plan( $pipeline_id, $steps, $user_id );
+			$existing = BizCity_Intent_Todos::get_pipeline_todos( $pipeline_id );
+			$existing_count = is_array( $existing ) ? count( $existing ) : 0;
+		}
+
+		// Create TODO rows only if not pre-created by bridge
+		$todo_count = $existing_count;
+		if ( $existing_count === 0 && class_exists( 'BizCity_Intent_Todos' ) ) {
+			// B1 fix: pass task_id + pipeline_version as pipeline_meta for rich mapping
+			$todo_count = BizCity_Intent_Todos::create_from_plan( $pipeline_id, $steps, $user_id, [
+				'task_id'          => (int) $taskId,
+				'pipeline_version' => 1,
+			] );
 		}
 
 		// Send plan start message to user's chat session

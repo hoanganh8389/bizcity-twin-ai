@@ -84,6 +84,19 @@ CREATE TABLE {$t_logs} (
     }
 
     /**
+     * Self-healing: ensure tables exist at runtime.
+     * Called on plugins_loaded — handles cases where register_activation_hook
+     * didn't fire (e.g. plugin activated via marketplace AJAX).
+     */
+    public static function maybe_create_tables() {
+        // Quick check: if version option matches, tables are already created
+        if ( get_site_option( 'bzgoogle_db_version' ) === BZGOOGLE_VERSION ) {
+            return;
+        }
+        self::create_tables();
+    }
+
+    /**
      * Flush rewrite rules once.
      */
     private static function maybe_flush_rewrite() {

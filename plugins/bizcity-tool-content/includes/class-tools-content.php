@@ -23,6 +23,34 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 class BizCity_Tool_Content {
 
     /**
+     * Resolve skill content from _meta or fallback BizCity_Tool_Run.
+     *
+     * Phase 1.1h: Composite tools now consume skill context (R3 compliance).
+     *
+     * @param array  $meta     _meta from slots.
+     * @param string $tool_id  Tool name for fallback resolve.
+     * @param int    $user_id  User ID (0 = global).
+     * @return string Skill content to inject into system prompt (empty if none).
+     */
+    private static function resolve_skill_content( array $meta, string $tool_id, int $user_id = 0 ): string {
+        // Primary: skill already resolved by BizCity_Tool_Run::execute()
+        $skill = $meta['_skill'] ?? null;
+        if ( $skill && ! empty( $skill['content'] ) ) {
+            return $skill['content'];
+        }
+
+        // Fallback: direct call (AJAX, CLI) — resolve ourselves
+        if ( class_exists( 'BizCity_Tool_Run' ) ) {
+            $resolved = BizCity_Tool_Run::resolve_skill( $tool_id, $user_id ?: get_current_user_id() );
+            if ( $resolved && ! empty( $resolved['content'] ) ) {
+                return $resolved['content'];
+            }
+        }
+
+        return '';
+    }
+
+    /**
      * write_article — Self-contained 3-step pipeline.
      *
      * Flow:
@@ -121,6 +149,12 @@ class BizCity_Tool_Content {
         $sys_prompt = 'Bạn là nhà sáng tạo nội dung blog chuyên nghiệp. Viết bài sinh động, giàu cảm xúc, thân thiện người đọc. Chỉ trả JSON, không giải thích.';
         if ( $ai_context ) {
             $sys_prompt .= "\n\n" . $ai_context;
+        }
+
+        // ── Phase 1.1h: Inject skill context (R3 compliance) ──
+        $skill_content = self::resolve_skill_content( $meta, 'write_article' );
+        if ( $skill_content ) {
+            $sys_prompt .= "\n\n[Skill Context — Hướng dẫn chuyên môn]\n" . $skill_content;
         }
 
         // ── Prefer bizcity_openrouter_chat for structured output ──
@@ -370,6 +404,13 @@ class BizCity_Tool_Content {
         if ( $ai_context ) {
             $sys_seo .= "\n\n" . $ai_context;
         }
+
+        // ── Phase 1.1h: Inject skill context (R3 compliance) ──
+        $skill_content = self::resolve_skill_content( $meta, 'write_seo_article' );
+        if ( $skill_content ) {
+            $sys_seo .= "\n\n[Skill Context — Hướng dẫn chuyên môn]\n" . $skill_content;
+        }
+
         $ai_result = bizcity_openrouter_chat( [
             [ 'role' => 'system', 'content' => $sys_seo ],
             [ 'role' => 'user',   'content' => $seo_prompt ],
@@ -533,6 +574,13 @@ class BizCity_Tool_Content {
         if ( $ai_context ) {
             $sys_rewrite .= "\n\n" . $ai_context;
         }
+
+        // ── Phase 1.1h: Inject skill context (R3 compliance) ──
+        $skill_content = self::resolve_skill_content( $meta, 'rewrite_article' );
+        if ( $skill_content ) {
+            $sys_rewrite .= "\n\n[Skill Context — Hướng dẫn chuyên môn]\n" . $skill_content;
+        }
+
         $ai_result = bizcity_openrouter_chat( [
             [ 'role' => 'system', 'content' => $sys_rewrite ],
             [ 'role' => 'user',   'content' => $rewrite_prompt ],
@@ -675,6 +723,13 @@ class BizCity_Tool_Content {
         if ( $ai_context ) {
             $sys_translate .= "\n\n" . $ai_context;
         }
+
+        // ── Phase 1.1h: Inject skill context (R3 compliance) ──
+        $skill_content = self::resolve_skill_content( $meta, 'translate_and_publish' );
+        if ( $skill_content ) {
+            $sys_translate .= "\n\n[Skill Context — Hướng dẫn chuyên môn]\n" . $skill_content;
+        }
+
         $ai_result = bizcity_openrouter_chat( [
             [ 'role' => 'system', 'content' => $sys_translate ],
             [ 'role' => 'user',   'content' => $translate_prompt ],

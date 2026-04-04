@@ -1,11 +1,11 @@
 <?php
 /**
- * Plugin Name:       Facebook tool by BizCity — AI đăng bài Page
+ * Plugin Name:       Facebook tool by BizCity — AI đăng bài & Quản lý Page
  * Plugin URI:        https://bizcity.vn/marketplace/bizcity-tool-facebook
- * Description:       Bộ công cụ AI đăng bài tự động lên Facebook Page. Kết nối Page, AI tạo nội dung, đăng kèm ảnh — hỗ trợ multisite dùng chung Central Webhook (/facehook/) không cần tạo app riêng.
- * Short Description: Chat → AI tạo & đăng bài Facebook Page. Central Webhook cho multisite.
- * Quick View:        📣 Chat → AI viết & đăng Facebook — Central Webhook multisite
- * Version:           2.0.0
+ * Description:       Bộ công cụ AI đăng bài tự động lên Facebook Page. Standalone — Facebook App riêng, OAuth riêng, webhook /bizfbhook/ riêng. Hỗ trợ Messenger chatbot, theo dõi comment, đăng ảnh/video, Instagram Reels, Groups.
+ * Short Description: Chat → AI viết & đăng Facebook. Standalone OAuth, /bizfbhook/, Messenger, Comments, IG.
+ * Quick View:        📣 AI viết & đăng Facebook — Standalone App, Messenger, Comments, IG Reels
+ * Version:           2.1.0
  * Requires at least: 6.3
  * Requires PHP:      7.4
  * Author:            BizCity
@@ -63,7 +63,7 @@ if ( ! defined( 'BIZCITY_TWIN_AI_VERSION' ) ) {
    ═══════════════════════════════════════════════ */
 define( 'BZTOOL_FB_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'BZTOOL_FB_URL',     plugin_dir_url( __FILE__ ) );
-define( 'BZTOOL_FB_VERSION', '2.0.0' );
+define( 'BZTOOL_FB_VERSION', '2.1.0' );
 define( 'BZTOOL_FB_SLUG',    'tool-facebook' );
 
 /* ═══════════════════════════════════════════════
@@ -71,12 +71,33 @@ define( 'BZTOOL_FB_SLUG',    'tool-facebook' );
    ═══════════════════════════════════════════════ */
 require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 
+/* ── Standalone infrastructure (no bizcity-facebook-bot dependency) ── */
+require_once BZTOOL_FB_DIR . 'includes/class-fb-graph-api.php';
+require_once BZTOOL_FB_DIR . 'includes/class-fb-database.php';
+require_once BZTOOL_FB_DIR . 'includes/class-fb-webhook.php';
+require_once BZTOOL_FB_DIR . 'includes/class-fb-oauth.php';
+
 require_once BZTOOL_FB_DIR . 'includes/install.php';
 require_once BZTOOL_FB_DIR . 'includes/class-tools-facebook.php';
 require_once BZTOOL_FB_DIR . 'includes/class-ajax-facebook.php';
 require_once BZTOOL_FB_DIR . 'includes/admin-menu.php';
 require_once BZTOOL_FB_DIR . 'includes/integration-chat.php';
+require_once BZTOOL_FB_DIR . 'includes/class-channel-adapter.php';
 require_once BZTOOL_FB_DIR . 'includes/class-intent-provider.php';
+
+/* ── Boot standalone services ── */
+add_action( 'plugins_loaded', function() {
+    BizCity_FB_Database::install();
+    BizCity_FB_Webhook::instance();
+    BizCity_FB_OAuth::instance();
+}, 5 );
+
+/* ── Register Channel Adapter with twin-ai Gateway Bridge ── */
+add_action( 'bizcity_register_channel', function( $bridge ) {
+    if ( class_exists( 'BizCity_Facebook_Channel_Adapter' ) ) {
+        $bridge->register_adapter( new BizCity_Facebook_Channel_Adapter() );
+    }
+} );
 
 /* ═══════════════════════════════════════════════
    POST TYPE: biz_facebook (AI-generated FB posts)

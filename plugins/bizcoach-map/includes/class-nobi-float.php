@@ -52,7 +52,7 @@ function bccm_nobi_get_default_coachee() {
     }
     if ( $has_user_id_col ) {
       $row = $wpdb->get_row($wpdb->prepare(
-        "SELECT * FROM {$t['profiles']} WHERE user_id=%d ORDER BY FIELD(platform_type,'ADMINCHAT','WEBCHAT') LIMIT 1",
+        "SELECT * FROM {$t['profiles']} WHERE user_id=%d ORDER BY id DESC LIMIT 1",
         $uid
       ), ARRAY_A);
     }

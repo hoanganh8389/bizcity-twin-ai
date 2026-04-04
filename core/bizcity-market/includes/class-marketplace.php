@@ -1,4 +1,13 @@
 <?php
+/**
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\BizCity_Market
+ * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+ * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
+ * @license    GPL-2.0-or-later
+ * @link       https://bizcity.vn
+ */
+
 if (!defined('ABSPATH')) exit;
 
 class BizCity_Market_Marketplace {
@@ -9,6 +18,10 @@ class BizCity_Market_Marketplace {
 
         // Handle sync BEFORE output (wp_redirect needs headers not sent yet)
         add_action('admin_init', [__CLASS__, 'handle_sync_early']);
+
+        // Deferred flush: on NEXT request after plugin activate/deactivate,
+        // all init hooks have fired so rewrite rules are properly registered.
+        add_action( 'init', [ __CLASS__, 'maybe_flush_rewrite_rules' ], 999 );
 
         // ajax load plugin detail
         add_action('wp_ajax_bizcity_market_plugin_detail', [__CLASS__, 'ajax_plugin_detail']);
@@ -41,6 +54,18 @@ class BizCity_Market_Marketplace {
         $redirect = add_query_arg( $base_args, admin_url( 'index.php' ) );
         wp_safe_redirect( $redirect );
         exit;
+    }
+
+    /**
+     * Deferred flush: runs on the FIRST request after a plugin was activated/deactivated
+     * via marketplace AJAX. By this point, init has fired with the new plugin loaded,
+     * so all add_rewrite_rule() calls are registered before flushing.
+     */
+    public static function maybe_flush_rewrite_rules(): void {
+        if ( get_option( 'bizcity_flush_rewrite_pending' ) ) {
+            delete_option( 'bizcity_flush_rewrite_pending' );
+            flush_rewrite_rules();
+        }
     }
 
     public static function menu() {
@@ -94,8 +119,8 @@ class BizCity_Market_Marketplace {
                 'ajax'              => admin_url( 'admin-ajax.php' ),
                 'nonce'             => wp_create_nonce( 'bizcity_remote_market_nonce' ),
                 'localNonce'        => wp_create_nonce( 'bizcity_market_nonce' ),
-                'title'             => 'Chợ ứng dụng BizCity',
-                'searchPlaceholder' => 'Tìm plugin...',
+                'title'             => __( 'Chợ ứng dụng BizCity', 'bizcity-twin-ai' ),
+                'searchPlaceholder' => __( 'Tìm plugin...', 'bizcity-twin-ai' ),
                 'hasApiKey'         => class_exists('BizCity_Connection_Gate') ? (bool) BizCity_Connection_Gate::instance()->get_api_key() : false,
                 'settingsUrl'       => admin_url( 'admin.php?page=bizcity-llm-router' ),
                 'registerUrl'       => 'https://bizcity.vn/my-account/api-keys/',
@@ -147,7 +172,7 @@ JS;
         check_ajax_referer('bizcity_market_nonce', 'nonce');
 
         if (!current_user_can('activate_plugins')) {
-            wp_send_json(['ok'=>false, 'msg'=>'Bạn không có quyền kích hoạt plugin.']);
+            wp_send_json(['ok'=>false, 'msg'=> __( 'Bạn không có quyền kích hoạt plugin.', 'bizcity-twin-ai' )]);
         }
 
         // API key required to activate agent plugins
@@ -155,7 +180,7 @@ JS;
             wp_send_json([
                 'ok'          => false,
                 'need_api_key'=> true,
-                'msg'         => 'Bạn cần đăng ký API Key với BizCity để kích hoạt plugin. Truy cập https://bizcity.vn/my-account/api-keys/ để tạo API Key, sau đó vào Cài đặt API để cấu hình.',
+                'msg'         => __( 'Bạn cần đăng ký API Key với BizCity để kích hoạt plugin. Truy cập https://bizcity.vn/my-account/api-keys/ để tạo API Key, sau đó vào Cài đặt API để cấu hình.', 'bizcity-twin-ai' ),
             ]);
         }
 
@@ -187,18 +212,18 @@ JS;
         }
 
         if (!$plugin_file) {
-            wp_send_json(['ok'=>false, 'msg'=>'Không tìm thấy plugin "' . $slug . '" trong catalog hoặc trên server.']);
+            wp_send_json(['ok'=>false, 'msg'=> sprintf( __( 'Không tìm thấy plugin "%s" trong catalog hoặc trên server.', 'bizcity-twin-ai' ), $slug )]);
         }
 
         // Check if file exists on disk
         $full_path = WP_PLUGIN_DIR . '/' . $plugin_file;
         if (!file_exists($full_path)) {
-            wp_send_json(['ok'=>false, 'msg'=>'File plugin không tồn tại trên server. Liên hệ admin.']);
+            wp_send_json(['ok'=>false, 'msg'=> __( 'File plugin không tồn tại trên server. Liên hệ admin.', 'bizcity-twin-ai' )]);
         }
 
         // Check if already active
         if (is_plugin_active($plugin_file)) {
-            wp_send_json(['ok'=>true, 'msg'=>'Plugin đã được kích hoạt.', 'status'=>'active']);
+            wp_send_json(['ok'=>true, 'msg'=> __( 'Plugin đã được kích hoạt.', 'bizcity-twin-ai' ), 'status'=>'active']);
         }
 
         // Activate the plugin
@@ -209,8 +234,13 @@ JS;
         $result = activate_plugin($plugin_file);
 
         if (is_wp_error($result)) {
-            wp_send_json(['ok'=>false, 'msg'=>'Kích hoạt thất bại: ' . $result->get_error_message()]);
+            wp_send_json(['ok'=>false, 'msg'=> sprintf( __( 'Kích hoạt thất bại: %s', 'bizcity-twin-ai' ), $result->get_error_message() )]);
         }
+
+        // ✅ Schedule deferred rewrite flush on NEXT request.
+        // During AJAX, init has already fired — the new plugin's add_rewrite_rule()
+        // hooks don't run in this request. Flushing now would miss them.
+        update_option( 'bizcity_flush_rewrite_pending', 1 );
 
         // ✅ Notify system — Tool Registry + other listeners
         do_action( 'bizcity_market_plugin_activated', $slug, $plugin_file, (int) get_current_blog_id() );
@@ -226,7 +256,7 @@ JS;
 
         wp_send_json([
             'ok'     => true,
-            'msg'    => 'Kích hoạt thành công! Plugin đã sẵn sàng sử dụng.',
+            'msg'    => __( 'Kích hoạt thành công! Plugin đã sẵn sàng sử dụng.', 'bizcity-twin-ai' ),
             'status' => 'active',
         ]);
     }
@@ -240,7 +270,7 @@ JS;
         check_ajax_referer('bizcity_market_nonce', 'nonce');
 
         if (!current_user_can('activate_plugins')) {
-            wp_send_json(['ok'=>false, 'msg'=>'Bạn không có quyền ngừng kích hoạt plugin.']);
+            wp_send_json(['ok'=>false, 'msg'=> __( 'Bạn không có quyền ngừng kích hoạt plugin.', 'bizcity-twin-ai' )]);
         }
 
         // API key required to manage agent plugins
@@ -248,7 +278,7 @@ JS;
             wp_send_json([
                 'ok'          => false,
                 'need_api_key'=> true,
-                'msg'         => 'Bạn cần đăng ký API Key với BizCity để quản lý plugin. Truy cập https://bizcity.vn/my-account/api-keys/ để tạo API Key.',
+                'msg'         => __( 'Bạn cần đăng ký API Key với BizCity để quản lý plugin. Truy cập https://bizcity.vn/my-account/api-keys/ để tạo API Key.', 'bizcity-twin-ai' ),
             ]);
         }
 
@@ -278,7 +308,7 @@ JS;
         }
 
         if (!$plugin_file) {
-            wp_send_json(['ok'=>false, 'msg'=>'Không tìm thấy plugin "' . $slug . '".']);
+            wp_send_json(['ok'=>false, 'msg'=> sprintf( __( 'Không tìm thấy plugin "%s".', 'bizcity-twin-ai' ), $slug )]);
         }
 
         if (!function_exists('is_plugin_active')) {
@@ -286,10 +316,13 @@ JS;
         }
 
         if (!is_plugin_active($plugin_file)) {
-            wp_send_json(['ok'=>true, 'msg'=>'Plugin đã được ngừng kích hoạt.', 'status'=>'inactive']);
+            wp_send_json(['ok'=>true, 'msg'=> __( 'Plugin đã được ngừng kích hoạt.', 'bizcity-twin-ai' ), 'status'=>'inactive']);
         }
 
         deactivate_plugins($plugin_file);
+
+        // ✅ Schedule deferred rewrite flush on NEXT request
+        update_option( 'bizcity_flush_rewrite_pending', 1 );
 
         // ✅ Notify system — Tool Registry + other listeners
         do_action( 'bizcity_market_plugin_deactivated', $slug, $plugin_file, (int) get_current_blog_id() );
@@ -305,7 +338,7 @@ JS;
 
         wp_send_json([
             'ok'     => true,
-            'msg'    => 'Đã ngừng kích hoạt plugin thành công.',
+            'msg'    => __( 'Đã ngừng kích hoạt plugin thành công.', 'bizcity-twin-ai' ),
             'status' => 'inactive',
         ]);
     }

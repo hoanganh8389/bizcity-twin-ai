@@ -1,4 +1,13 @@
-<?php
+﻿<?php
+/**
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\Intent
+ * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+ * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
+ * @license    GPL-2.0-or-later
+ * @link       https://bizcity.vn
+ */
+
 /**
  * BizCity Intent — Meta Mode Classifier (Tầng 1) — LLM-First v3
  *
@@ -326,6 +335,28 @@ class BizCity_Mode_Classifier {
                 }
             }
 
+            // ── v4.9.2: Multi-goal escape from WAITING_USER ──
+            // When the message contains sequential separators ("sau đó", "rồi", "xong",
+            // "tiếp theo") sandwiched between action verbs, it's a multi-goal command,
+            // NOT a slot-filling answer. Fall through to LLM so it can classify as
+            // new_goal and Step 4.4 (Objective Understanding) will detect multiple objectives.
+            if ( ! $skip_provide_input && $msg_length > 15 ) {
+                $has_multi_goal_structure = preg_match(
+                    '/\b(?:đăng|viết|tạo|gửi|ghi|làm|post|publish|log|check|tra|tìm|xem|mở)\b'
+                    . '.*(?:sau\s*đó|rồi|xong|tiếp\s*theo|tiếp\s*tục)\s*,?\s*'
+                    . '(?:đăng|viết|tạo|gửi|ghi|làm|post|publish|log|check|tra|tìm|xem|mở)\b/ui',
+                    $message_lower
+                );
+                if ( $has_multi_goal_structure ) {
+                    $skip_provide_input = true;
+                    if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+                        error_log( '[MODE-CLASSIFIER] WAITING_USER multi-goal-escape: "'
+                                 . mb_substr( $message, 0, 80, 'UTF-8' )
+                                 . '" → sequential separator + action verbs → fall through to LLM' );
+                    }
+                }
+            }
+
             if ( ! $skip_provide_input ) {
                 if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
                     error_log( '[MODE-CLASSIFIER] → EXECUTION (WAITING_USER override)' );
@@ -397,31 +428,37 @@ class BizCity_Mode_Classifier {
                     }
 
                     // ── v3.8.2: Regex override for cached non-execution results ──
-                    // Stale cache entries (from before schema/pattern fixes) may have
-                    // stored mode=knowledge for messages that regex now matches as
-                    // execution goals. Apply the same regex-authoritative override.
+                    // REMOVED v4.6.4: Regex overrides suppressed multi-goal detection.
+                    // Trust LLM/cache result — if mode is wrong, OU will handle it.
                     if ( $regex_likely_goal && $result['mode'] !== self::MODE_EXECUTION ) {
                         if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-                            error_log( '[MODE-CLASSIFIER] v3.8.2 cache-override: cached mode='
-                                     . $result['mode'] . ' → execution, goal=' . $regex_likely_goal['goal'] );
+                            error_log( '[MODE-CLASSIFIER] v4.6.4 cache: regex match='
+                                     . $regex_likely_goal['goal'] . ' but cached mode='
+                                     . $result['mode'] . ' → respecting cache (no override)' );
                         }
-                        $result['mode']       = self::MODE_EXECUTION;
-                        $result['confidence'] = max( $result['confidence'], 0.90 );
-                        $result['method']     = 'cache+regex_override';
-                        $result['meta']['intent_result'] = [
-                            'intent'        => 'new_goal',
-                            'goal'          => $regex_likely_goal['goal'],
-                            'goal_label'    => $regex_likely_goal['label'],
-                            'entities'      => [],
-                            'filled_slots'  => [],
-                            'missing_slots' => $regex_likely_goal['extract'] ?? [],
-                            'confidence'    => 0.93,
-                            '_regex_override' => true,
-                            '_cache_override' => true,
-                        ];
                     }
 
-                    return $result;
+                    // ── v4.9.3: Multi-goal cache invalidation ──
+                    // When cached mode is NOT execution but the message has
+                    // multi-goal structure → invalidate cache, re-classify via LLM.
+                    if ( $result['mode'] !== self::MODE_EXECUTION && $msg_length > 15 ) {
+                        $msg_lower_cache = mb_strtolower( trim( $message ), 'UTF-8' );
+                        $cache_multi = preg_match(
+                            '/\b(?:đăng|viết|tạo|gửi|ghi|làm|post|publish|log|check|tra|tìm|xem|mở)\b'
+                            . '.*(?:sau\s*đó|rồi|xong|tiếp\s*theo|tiếp\s*tục|và)\s*,?\s*'
+                            . '(?:đăng|viết|tạo|gửi|ghi|làm|post|publish|log|check|tra|tìm|xem|mở)\b/ui',
+                            $msg_lower_cache
+                        );
+                        if ( $cache_multi ) {
+                            error_log( '[CLASSIFY-CACHE] multi-goal invalidation: cached mode='
+                                     . $result['mode'] . ' → re-classify via LLM' );
+                            // Fall through — do NOT return; let LLM re-classify
+                        } else {
+                            return $result;
+                        }
+                    } else {
+                        return $result;
+                    }
                 }
             }
 
@@ -453,88 +490,34 @@ class BizCity_Mode_Classifier {
                     $result['meta']['intent_result'] = $llm_result['intent_result'];
                 }
 
-                // ── v3.8.1: Regex-authoritative override (post-LLM correction) ──
-                // Regex patterns are developer-curated for specific phrases.
-                // If a regex pattern deterministically matched a goal and the LLM
-                // returned a DIFFERENT goal, cross-validate: does the message also
-                // match the LLM goal's pattern? If YES → ambiguous, let LLM decide.
-                // If NO → LLM hallucinated (e.g. "bốc bài nhé" → check_synastry),
-                // override with the regex match.
+                // ── v3.8.1: Regex-authoritative override — REMOVED v4.6.4 ──
+                // Regex overrides were suppressing multi-goal detection by forcing
+                // a single goal. LLM classification is now authoritative.
+                // Regex pre-match is kept only for debug logging.
                 if ( $regex_likely_goal
                      && $result['mode'] === self::MODE_EXECUTION
                      && ! empty( $result['meta']['intent_result']['goal'] )
                      && $result['meta']['intent_result']['goal'] !== $regex_likely_goal['goal']
                 ) {
-                    $llm_goal = $result['meta']['intent_result']['goal'];
-                    // Tri-state check: 'match' | 'no_match' | 'no_patterns'
-                    $llm_pattern_status = $this->check_goal_pattern_match( $message_lower, $llm_goal );
-
-                    if ( $llm_pattern_status === 'no_match' ) {
-                        // LLM goal has registered patterns but NONE match this message
-                        // → LLM hallucinated → override with regex match
-                        if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-                            error_log( '[MODE-CLASSIFIER] regex-override: LLM goal='
-                                     . $llm_goal . ' (has patterns, none match)'
-                                     . ' → regex goal=' . $regex_likely_goal['goal']
-                                     . ' | msg="' . mb_substr( $message, 0, 60, 'UTF-8' ) . '"' );
-                        }
-                        $result['meta']['intent_result']['goal']            = $regex_likely_goal['goal'];
-                        $result['meta']['intent_result']['goal_label']      = $regex_likely_goal['label'];
-                        $result['meta']['intent_result']['intent']          = 'new_goal';
-                        $result['meta']['intent_result']['confidence']      = max(
-                            $result['meta']['intent_result']['confidence'] ?? 0,
-                            0.93
-                        );
-                        // Reset entities/slots — they were extracted for the wrong goal
-                        $result['meta']['intent_result']['entities']        = [];
-                        $result['meta']['intent_result']['filled_slots']    = [];
-                        $result['meta']['intent_result']['missing_slots']   = $regex_likely_goal['extract'] ?? [];
-                        $result['meta']['intent_result']['_regex_override'] = true;
-                    } elseif ( $llm_pattern_status === 'no_patterns' ) {
-                        // LLM goal is DB-only (no regex patterns registered)
-                        // → could be a valid admin-defined tool, don't override blindly
-                        if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-                            error_log( '[MODE-CLASSIFIER] regex vs LLM: regex='
-                                     . $regex_likely_goal['goal'] . ' LLM=' . $llm_goal
-                                     . ' (DB-only goal, no patterns) → trust LLM' );
-                        }
-                    } else {
-                        // 'match' — LLM goal also has a matching pattern for this message
-                        // → ambiguous, trust LLM's contextual understanding
-                        if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-                            error_log( '[MODE-CLASSIFIER] regex vs LLM ambiguous: regex='
-                                     . $regex_likely_goal['goal'] . ' LLM=' . $llm_goal
-                                     . ' (both have pattern match) → trust LLM' );
-                        }
+                    if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+                        error_log( '[MODE-CLASSIFIER] v4.6.4: regex='
+                                 . $regex_likely_goal['goal'] . ' vs LLM='
+                                 . $result['meta']['intent_result']['goal']
+                                 . ' → trusting LLM (no regex override)' );
                     }
                 }
 
-                // ── v3.8.2: Regex-authoritative MODE-level override ──
-                // If regex pre-match identified an execution goal but LLM classified
-                // as non-execution mode (knowledge/emotion/reflection), the LLM missed
-                // the execution intent (e.g. pattern-only goal wasn't in focused schema,
-                // or LLM didn't recognise the Vietnamese phrasing as a tool action).
-                // Override mode to execution + create intent_result from regex.
+                // ── v3.8.2: Regex-authoritative MODE-level override — REMOVED v4.6.4 ──
+                // Regex mode overrides were suppressing multi-goal detection by forcing
+                // a single goal into intent_result. LLM now handles mode classification.
+                // If LLM says knowledge for an execution message, OU can still catch it
+                // via the normal execution path when Router LLM runs.
                 if ( $regex_likely_goal && $result['mode'] !== self::MODE_EXECUTION ) {
                     if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-                        error_log( '[MODE-CLASSIFIER] v3.8.2 mode-override: LLM mode='
-                                 . $result['mode'] . ' → execution, goal=' . $regex_likely_goal['goal']
-                                 . ' | msg="' . mb_substr( $message, 0, 60, 'UTF-8' ) . '"' );
+                        error_log( '[MODE-CLASSIFIER] v4.6.4: regex match='
+                                 . $regex_likely_goal['goal'] . ' but LLM mode='
+                                 . $result['mode'] . ' → respecting LLM (no mode override)' );
                     }
-                    $result['mode']       = self::MODE_EXECUTION;
-                    $result['confidence'] = max( $result['confidence'], 0.90 );
-                    $result['meta']['intent_result'] = [
-                        'intent'        => 'new_goal',
-                        'goal'          => $regex_likely_goal['goal'],
-                        'goal_label'    => $regex_likely_goal['label'],
-                        'entities'      => [],
-                        'filled_slots'  => [],
-                        'missing_slots' => $regex_likely_goal['extract'] ?? [],
-                        'confidence'    => 0.93,
-                        '_llm_model'    => $result['meta']['llm_model'] ?? '',
-                        '_regex_override' => true,
-                    ];
-                    $result['meta']['original_llm_mode'] = $llm_result['mode'] ?? 'unknown';
                 }
 
                 // ── v3.9.0: Prompt Context File Logger ──
@@ -703,8 +686,36 @@ class BizCity_Mode_Classifier {
                 . "\n- Đang chờ field: " . ( $conversation['waiting_field'] ?? 'none' );
         }
 
+        // ── v4.8.0: Recent message history for follow-up context ──
+        // When user sends a follow-up message (e.g. "đúng rồi, làm đi" after
+        // a knowledge-mode clarifying question), the LLM needs conversation
+        // history to understand what the confirmation refers to.
+        // Without history, short messages get misrouted to wrong tools.
+        if ( $conversation && ! empty( $conversation['session_id'] ) ) {
+            $recent_history = self::get_recent_chat_history(
+                $conversation['session_id'],
+                strtoupper( $conversation['channel'] ?? 'adminchat' ),
+                4
+            );
+            if ( $recent_history ) {
+                $conv_context .= $recent_history;
+            }
+        }
+
+        // ── v4.8.1: Compact User Memory — persona/preference awareness ──
+        // Without this, classifier doesn't know user's identity or preferences.
+        // e.g. "tôi là marketer" stored in memory → helps classify intent correctly.
+        if ( $conversation && class_exists( 'BizCity_User_Memory' ) ) {
+            $user_id_mem = (int) ( $conversation['user_id'] ?? 0 );
+            $sess_id_mem = $conversation['session_id'] ?? '';
+            $compact_mem = BizCity_User_Memory::build_compact_memory( $user_id_mem, $sess_id_mem );
+            if ( $compact_mem ) {
+                $conv_context .= $compact_mem;
+            }
+        }
+
         // ── Build FOCUSED goal+tool schema (v3.8.0) ──
-        // Uses regex pre-match as bias: matched goal appears first with ★ marker.
+        // Uses regex pre-match as debug metadata only (v4.6.4 — removed bias markers).
         // Only top N tools included (configurable) → shorter prompt, better accuracy.
         // Slot type hints included → LLM can extract entities in same call.
         $likely_goal_id = $regex_likely_goal['goal'] ?? null;
@@ -718,12 +729,11 @@ class BizCity_Mode_Classifier {
             $focused_schema = '';
         }
 
-        // ── Regex bias hint for LLM ──
+        // ── Regex bias hint for LLM — REMOVED v4.6.4 ──
+        // Regex hints were biasing LLM toward a single goal and suppressing
+        // multi-goal detection. LLM now classifies independently.
+        // $regex_likely_goal is kept as metadata only (for debug logging).
         $regex_hint = '';
-        if ( $regex_likely_goal ) {
-            $regex_hint = "\n\n⚡ REGEX PRE-MATCH: Tin nhắn khớp pattern của \"{$regex_likely_goal['goal']}\" "
-                . "({$regex_likely_goal['label']}). Ưu tiên goal này nếu phù hợp (★ trong danh sách).";
-        }
 
         // ── Routing Priority bias (from Control Panel + KCI Ratio) ──
         $routing_priority = get_option( 'bizcity_tcp_routing_priority', 'balanced' );
@@ -763,6 +773,28 @@ class BizCity_Mode_Classifier {
                 . "\n- Ví dụ: 'viết gì đó cho marketing' → execution, 'cho tôi ý tưởng' → execution (nếu có tool phù hợp).";
         }
         // balanced + kci 50 → no bias, LLM decides naturally
+
+        // ── v4.9.3: Multi-goal command override ──
+        // Messages with "action + separator + action" structure are ALWAYS
+        // execution commands (e.g. "đăng bài lên web rồi sau đó đăng lên facebook").
+        // Without this, KCI ≤ 20 bias blocks multi-goal classification.
+        if ( $exec_ratio > 0 && $exec_ratio < 50 ) {
+            $msg_lower_kci = mb_strtolower( trim( $message ), 'UTF-8' );
+            $is_multi_goal_cmd = ( mb_strlen( $msg_lower_kci, 'UTF-8' ) > 15 ) && preg_match(
+                '/\b(?:đăng|viết|tạo|gửi|ghi|làm|post|publish|log|check|tra|tìm|xem|mở)\b'
+                . '.*(?:sau\s*đó|rồi|xong|tiếp\s*theo|tiếp\s*tục|và)\s*,?\s*'
+                . '(?:đăng|viết|tạo|gửi|ghi|làm|post|publish|log|check|tra|tìm|xem|mở)\b/ui',
+                $msg_lower_kci
+            );
+            if ( $is_multi_goal_cmd ) {
+                $routing_bias = "\n\n🎯 MULTI-GOAL: Tin nhắn chứa NHIỀU hành động nối tiếp (action → separator → action)."
+                    . "\n- Đây LUÔN là execution mode — KCI bias không áp dụng."
+                    . "\n- Chọn mode=execution, goal=tool tương ứng hành động ĐẦU TIÊN."
+                    . "\n- confidence ≥ 0.85";
+                error_log( '[KCI-TRACE] multi-goal override: was exec_ratio=' . $exec_ratio . ' → forced execution bias' );
+            }
+        }
+
         error_log( '[KCI-TRACE] bias: kci=' . $kci . ', exec_ratio=' . $exec_ratio
             . ', mention_override=' . ( self::$mention_override ? 'true' : 'false' )
             . ', routing_priority=' . $routing_priority
@@ -826,7 +858,7 @@ QUY TẮC:
 2. WAITING_USER + tin nhắn = câu trả lời → provide_input (giữ goal cũ)
 3. WAITING_USER + yêu cầu MỚI khác hẳn → new_goal
 4. confidence: 0.0-1.0, ≥ 0.8 khi chắc chắn
-5. ★ marked goal = regex pre-matched → ưu tiên cao nếu ngữ cảnh phù hợp
+5. confidence: 0.0-1.0, ≥ 0.8 khi chắc chắn
 
 ## BƯỚC 2b — ENTITY/SLOT EXTRACTION (CHỈ khi mode=execution):
 Dựa vào "cần" và "tùy chọn" của goal đã chọn (chú ý type: text, number, choice, image...):
@@ -1119,5 +1151,69 @@ PROMPT;
             }
         }
         return $has_any_pattern ? 'no_match' : 'no_patterns';
+    }
+
+    /* ================================================================
+     * v4.8.0: Get recent chat history from webchat_messages table.
+     *
+     * Provides conversation context for the LLM classifier so it can
+     * understand follow-up messages (e.g. "đúng rồi, làm đi" after
+     * a knowledge-mode clarifying question).
+     *
+     * @param string $session_id
+     * @param string $platform_type  ADMINCHAT | WEBCHAT
+     * @param int    $limit          Max messages to retrieve (excluding current)
+     * @return string  Formatted history block, or '' if unavailable.
+     * ================================================================ */
+    public static function get_recent_chat_history( $session_id, $platform_type, $limit = 4 ) {
+        global $wpdb;
+        $table = $wpdb->prefix . 'bizcity_webchat_messages';
+
+        // Static cache: avoid SHOW TABLES on every call
+        static $table_exists = null;
+        if ( $table_exists === null ) {
+            $table_exists = ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) === $table );
+        }
+        if ( ! $table_exists ) {
+            return '';
+        }
+
+        // Get recent messages (most recent first), +1 to exclude the current message
+        $rows = $wpdb->get_results( $wpdb->prepare(
+            "SELECT message_from, message_text
+             FROM {$table}
+             WHERE session_id = %s AND platform_type = %s
+             ORDER BY id DESC
+             LIMIT %d",
+            $session_id,
+            $platform_type,
+            $limit + 1
+        ) );
+
+        if ( empty( $rows ) || count( $rows ) < 2 ) {
+            return ''; // No history yet or only the current message
+        }
+
+        // Remove the most recent row (current user message — already in prompt)
+        array_shift( $rows );
+
+        // Reverse to chronological order (oldest first)
+        $rows = array_reverse( $rows );
+
+        $lines = [];
+        foreach ( $rows as $row ) {
+            $role = ( $row->message_from === 'user' ) ? 'Chủ nhân' : 'AI';
+            $text = mb_substr( $row->message_text ?? '', 0, 150, 'UTF-8' );
+            if ( ! empty( $text ) ) {
+                $lines[] = "  • {$role}: {$text}";
+            }
+        }
+
+        if ( empty( $lines ) ) {
+            return '';
+        }
+
+        return "\n\nLỊCH SỬ HỘI THOẠI GẦN ĐÂY (để hiểu ngữ cảnh tin nhắn hiện tại):\n"
+             . implode( "\n", $lines );
     }
 }

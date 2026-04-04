@@ -38,6 +38,8 @@ if ( ! defined( 'BIZCITY_SKILLS_LIBRARY' ) ) {
 
 /* ── Includes ─────────────────────────────────────────────────────── */
 require_once BIZCITY_SKILLS_DIR . 'includes/class-skill-manager.php';
+require_once BIZCITY_SKILLS_DIR . 'includes/class-skill-database.php';
+require_once BIZCITY_SKILLS_DIR . 'includes/class-skill-tool-map.php';
 require_once BIZCITY_SKILLS_DIR . 'includes/class-skill-rest-api.php';
 require_once BIZCITY_SKILLS_DIR . 'includes/class-skill-context.php';
 require_once BIZCITY_SKILLS_DIR . 'includes/class-skill-pipeline-bridge.php';
@@ -45,6 +47,10 @@ require_once BIZCITY_SKILLS_DIR . 'includes/class-admin-page.php';
 
 /* ── Initialize ───────────────────────────────────────────────────── */
 BizCity_Skill_Manager::instance();
+if ( class_exists( 'BizCity_Skill_Database' ) ) {
+    BizCity_Skill_Database::instance();
+}
+BizCity_Skill_Tool_Map::instance();
 BizCity_Skill_REST_API::instance();
 BizCity_Skill_Context::instance();
 BizCity_Skill_Pipeline_Bridge::instance();

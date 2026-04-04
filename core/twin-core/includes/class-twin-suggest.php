@@ -1,5 +1,14 @@
 <?php
 /**
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\Twin_Core
+ * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+ * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
+ * @license    GPL-2.0-or-later
+ * @link       https://bizcity.vn
+ */
+
+/**
  * BizCity Twin Suggest — Conversation Summary + Follow-up Question Suggestions
  *
  * Builds 2 follow-up question suggestions based on:

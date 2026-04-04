@@ -1,5 +1,14 @@
 <?php
 /**
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\Skills
+ * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+ * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
+ * @license    GPL-2.0-or-later
+ * @link       https://bizcity.vn
+ */
+
+/**
  * BizCity Skill Pipeline Bridge — Archetype C Skill → Pipeline Generator
  *
  * Listens to `bizcity_skill_trigger_pipeline` action (fired by class-skill-context.php

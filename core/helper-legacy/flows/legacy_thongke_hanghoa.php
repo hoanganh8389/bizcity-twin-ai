@@ -1,4 +1,12 @@
-<?php
+﻿<?php
+/**
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\Helper_Legacy
+ * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+ * @license    GPL-2.0-or-later
+ * @link       https://bizcity.vn
+ */
+
 /**
  * Báo cáo Top Product (Telegram) - Clean UTF-8 / tránh BOM lỗi header
  *

@@ -26,10 +26,17 @@ function _bccm_ajax_resolve_coachee_id() {
   if ($user_id > 0) {
     global $wpdb;
     $t = bccm_tables();
-    $coachee_id = (int)$wpdb->get_var($wpdb->prepare(
-      "SELECT id FROM {$t['profiles']} WHERE user_id=%d AND platform_type='ADMINCHAT' ORDER BY id DESC LIMIT 1",
-      $user_id
-    ));
+    if ( bccm_profiles_support_platform_type() ) {
+      $coachee_id = (int)$wpdb->get_var($wpdb->prepare(
+        "SELECT id FROM {$t['profiles']} WHERE user_id=%d AND platform_type='ADMINCHAT' ORDER BY id DESC LIMIT 1",
+        $user_id
+      ));
+    } else {
+      $coachee_id = (int)$wpdb->get_var($wpdb->prepare(
+        "SELECT id FROM {$t['profiles']} WHERE user_id=%d ORDER BY id DESC LIMIT 1",
+        $user_id
+      ));
+    }
   }
   return $coachee_id;
 }

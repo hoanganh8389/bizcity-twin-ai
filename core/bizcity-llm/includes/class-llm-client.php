@@ -1,5 +1,14 @@
 <?php
 /**
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\BizCity_LLM
+ * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+ * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
+ * @license    GPL-2.0-or-later
+ * @link       https://bizcity.vn
+ */
+
+/**
  * BizCity LLM — Core Client Class
  *
  * Two modes:
@@ -1156,5 +1165,175 @@ class BizCity_LLM_Client {
             'latency_ms'      => $ms,
             'error'           => $result['error'] ?? '',
         ] );
+    }
+
+    /* ================================================================
+     *  Image Generation (via gateway or direct OpenAI)
+     * ================================================================ */
+
+    /**
+     * Generate an image via the LLM gateway (or direct OpenAI in direct mode).
+     *
+     * @param string $prompt  Image prompt.
+     * @param array  $options { model, size, n, timeout, site_url }
+     * @return array { success, image_url, b64_json, model, error }
+     */
+    public function generate_image( string $prompt, array $options = [] ): array {
+        $start = microtime( true );
+
+        $this->debug_log( 'generate_image() START', [
+            'mode' => $this->get_mode(), 'model' => $options['model'] ?? 'gpt-image-1',
+        ] );
+
+        if ( $this->get_mode() === 'direct' ) {
+            $result = $this->generate_image_direct( $prompt, $options );
+        } else {
+            $result = $this->generate_image_gateway( $prompt, $options );
+        }
+
+        $ms = intval( ( microtime( true ) - $start ) * 1000 );
+        $this->debug_log( 'generate_image() END', [
+            'success' => $result['success'], 'ms' => $ms,
+        ] );
+
+        $this->log_usage( [
+            'success' => $result['success'],
+            'model'   => $result['model'] ?? 'gpt-image-1',
+            'usage'   => [],
+            'error'   => $result['error'] ?? '',
+        ], array_merge( $options, [ 'purpose' => 'image' ] ), 'image', $options['model'] ?? 'gpt-image-1', $ms );
+
+        return $result;
+    }
+
+    /**
+     * Image generation via gateway REST endpoint.
+     */
+    private function generate_image_gateway( string $prompt, array $options ): array {
+        $base = [
+            'success'   => false,
+            'image_url' => '',
+            'b64_json'  => '',
+            'model'     => $options['model'] ?? 'gpt-image-1',
+            'error'     => '',
+        ];
+
+        $api_key = $this->get_api_key();
+        if ( empty( $api_key ) ) {
+            $base['error'] = 'BizCity LLM API key chưa được cấu hình.';
+            return $base;
+        }
+
+        $body = [
+            'prompt'  => $prompt,
+            'model'   => $options['model'] ?? 'gpt-image-1',
+            'size'    => $options['size'] ?? '1024x1024',
+            'n'       => intval( $options['n'] ?? 1 ),
+            'timeout' => intval( $options['timeout'] ?? 120 ),
+            'site_url' => home_url(),
+        ];
+
+        $endpoint = $this->get_gateway_url() . '/wp-json/bizcity/v1/llm/images/generations';
+
+        $response = wp_remote_post( $endpoint, [
+            'timeout'     => intval( $options['timeout'] ?? 120 ) + 10,
+            'redirection' => 0,
+            'headers'     => [
+                'Content-Type'  => 'application/json',
+                'Authorization' => 'Bearer ' . $api_key,
+                'X-Site-URL'    => home_url(),
+            ],
+            'body' => wp_json_encode( $body ),
+        ] );
+
+        if ( is_wp_error( $response ) ) {
+            $base['error'] = $response->get_error_message();
+            return $base;
+        }
+
+        $code    = wp_remote_retrieve_response_code( $response );
+        $decoded = json_decode( wp_remote_retrieve_body( $response ), true );
+
+        if ( $code === 402 ) {
+            $base['error'] = $decoded['error'] ?? 'Hết credit. Vui lòng nạp thêm tại bizcity.vn';
+            return $base;
+        }
+
+        if ( ! empty( $decoded['success'] ) ) {
+            return array_merge( $base, [
+                'success'   => true,
+                'image_url' => $decoded['image_url'] ?? '',
+                'b64_json'  => $decoded['b64_json'] ?? '',
+                'model'     => $decoded['model'] ?? $base['model'],
+            ] );
+        }
+
+        $base['error'] = $decoded['error'] ?? 'Image generation failed. HTTP ' . $code;
+        return $base;
+    }
+
+    /**
+     * Image generation direct to OpenAI (fallback when in direct mode).
+     */
+    private function generate_image_direct( string $prompt, array $options ): array {
+        $base = [
+            'success'   => false,
+            'image_url' => '',
+            'b64_json'  => '',
+            'model'     => $options['model'] ?? 'gpt-image-1',
+            'error'     => '',
+        ];
+
+        // In direct mode, use local OpenAI key
+        $api_key = get_option( 'twf_openai_api_key', '' );
+        if ( empty( $api_key ) ) {
+            $api_key = get_option( 'bztimg_openai_key', '' );
+        }
+        if ( empty( $api_key ) ) {
+            $base['error'] = 'OpenAI API key chưa được cấu hình.';
+            return $base;
+        }
+
+        $model   = $options['model'] ?? 'gpt-image-1';
+        $size    = $options['size'] ?? '1024x1024';
+        $timeout = intval( $options['timeout'] ?? 120 );
+
+        $body = [
+            'model'  => $model,
+            'prompt' => $prompt,
+            'n'      => 1,
+            'size'   => $size,
+        ];
+
+        $response = wp_remote_post( 'https://api.openai.com/v1/images/generations', [
+            'timeout' => $timeout,
+            'headers' => [
+                'Content-Type'  => 'application/json',
+                'Authorization' => 'Bearer ' . $api_key,
+            ],
+            'body' => wp_json_encode( $body ),
+        ] );
+
+        if ( is_wp_error( $response ) ) {
+            $base['error'] = $response->get_error_message();
+            return $base;
+        }
+
+        $decoded = json_decode( wp_remote_retrieve_body( $response ), true );
+
+        if ( ! empty( $decoded['data'][0]['url'] ) ) {
+            $base['success']   = true;
+            $base['image_url'] = $decoded['data'][0]['url'];
+            return $base;
+        }
+
+        if ( ! empty( $decoded['data'][0]['b64_json'] ) ) {
+            $base['success']  = true;
+            $base['b64_json'] = $decoded['data'][0]['b64_json'];
+            return $base;
+        }
+
+        $base['error'] = $decoded['error']['message'] ?? 'OpenAI image generation failed.';
+        return $base;
     }
 }

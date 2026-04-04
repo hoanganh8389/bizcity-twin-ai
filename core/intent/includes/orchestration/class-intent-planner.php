@@ -1,4 +1,13 @@
-<?php
+﻿<?php
+/**
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\Intent
+ * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+ * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
+ * @license    GPL-2.0-or-later
+ * @link       https://bizcity.vn
+ */
+
 /**
  * BizCity Intent — Flow Planner
  *
@@ -180,21 +189,21 @@ class BizCity_Intent_Planner {
                 'required_slots' => [
                     'what' => [
                         'type'   => 'text',
-                        'prompt' => 'Nhắc việc gì? 🔔',
+                        'prompt' => __( 'Nhắc việc gì? 🔔', 'bizcity-twin-ai' ),
                     ],
                     'when' => [
                         'type'   => 'text',
-                        'prompt' => 'Khi nào? (ví dụ: 3 giờ chiều, ngày mai, ...)',
+                        'prompt' => __( 'Khi nào? (ví dụ: 3 giờ chiều, ngày mai, ...)', 'bizcity-twin-ai' ),
                     ],
                 ],
                 'optional_slots' => [
                     'repeat' => [
                         'type'    => 'choice',
-                        'prompt'  => 'Lặp lại?',
+                        'prompt'  => __( 'Lặp lại?', 'bizcity-twin-ai' ),
                         'choices' => [
-                            'once'  => 'Một lần',
-                            'daily' => 'Hàng ngày',
-                            'weekly'=> 'Hàng tuần',
+                            'once'  => __( 'Một lần', 'bizcity-twin-ai' ),
+                            'daily' => __( 'Hàng ngày', 'bizcity-twin-ai' ),
+                            'weekly'=> __( 'Hàng tuần', 'bizcity-twin-ai' ),
                         ],
                         'default' => 'once',
                     ],
@@ -385,6 +394,40 @@ class BizCity_Intent_Planner {
             $result['action']     = 'compose_answer';
             $result['ai_compose'] = true;
             return $result;
+        }
+
+        // ── Phase 1.2: Skill required_inputs merge ──
+        // Promote skill's required_inputs to top of slot_order,
+        // elevate optional→required if skill declares them.
+        if ( ! empty( $intent['skill_match'] ) && ( $intent['skill_match']['archetype'] ?? 'A' ) !== 'A' ) {
+            $sm = $intent['skill_match'];
+
+            // Promote skill required_inputs to top of slot_order
+            if ( ! empty( $sm['required_inputs'] ) && is_array( $sm['required_inputs'] ) ) {
+                $plan['slot_order'] = array_unique(
+                    array_merge( $sm['required_inputs'], $plan['slot_order'] ?? [] )
+                );
+
+                // Elevate optional→required if skill says so
+                foreach ( $sm['required_inputs'] as $field ) {
+                    if ( isset( $plan['optional_slots'][ $field ] ) ) {
+                        $plan['required_slots'][ $field ] = $plan['optional_slots'][ $field ];
+                        unset( $plan['optional_slots'][ $field ] );
+                    }
+                }
+            }
+
+            // Archetype C: set workflow execution mode + attach skill instructions
+            if ( ( $sm['archetype'] ?? '' ) === 'C' ) {
+                $plan['execution_mode']     = 'workflow';
+                $plan['skill_instructions'] = $sm['skill']['content'] ?? '';
+            }
+
+            if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+                error_log( '[INTENT-PLANNER] Phase 1.2: Skill merge applied'
+                    . ' | archetype=' . ( $sm['archetype'] ?? '?' )
+                    . ' | required_inputs=' . wp_json_encode( $sm['required_inputs'] ?? [] ) );
+            }
         }
 
         // ── Merge current slots + newly extracted entities ──

@@ -1,5 +1,14 @@
 <?php
 /**
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\Scheduler
+ * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+ * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
+ * @license    GPL-2.0-or-later
+ * @link       https://bizcity.vn
+ */
+
+/**
  * BizCity Scheduler - Atomic tool callbacks for Intent Provider.
  *
  * @package BizCity_Scheduler
@@ -264,17 +273,27 @@ class BizCity_Scheduler_Tools {
 
 		$events = BizCity_Scheduler_Manager::instance()->get_today_events( $user_id );
 		$items  = array_map( [ __CLASS__, 'serialize_event' ], $events );
-		$agenda = BizCity_Scheduler_Manager::instance()->build_today_context( $user_id );
+
+		if ( empty( $items ) ) {
+			$msg = 'Hôm nay không có sự kiện nào.';
+		} else {
+			$lines = [ 'Lịch hôm nay (' . current_time( 'd/m' ) . ') — ' . count( $items ) . ' sự kiện:' ];
+			foreach ( $events as $e ) {
+				$time  = ! empty( $e['all_day'] ) ? 'Cả ngày' : date( 'H:i', strtotime( $e['start_at'] ) );
+				$st    = ( $e['status'] === 'done' ) ? ' ✅' : '';
+				$lines[] = "• {$time} — {$e['title']}{$st}";
+			}
+			$msg = implode( "\n", $lines );
+		}
 
 		return [
 			'success'        => true,
 			'complete'       => true,
-			'message'        => empty( $items ) ? 'Khong co su kien nao trong hom nay.' : 'Da tong hop agenda hom nay.',
+			'message'        => $msg,
 			'data'           => [
 				'type'        => 'scheduler_agenda',
 				'events'       => array_values( $items ),
 				'events_count' => count( $items ),
-				'agenda_text'  => $agenda,
 			],
 			'missing_fields' => [],
 		];
@@ -291,18 +310,30 @@ class BizCity_Scheduler_Tools {
 		$max_results = max( 1, min( 100, absint( $slots['max_results'] ?? 20 ) ) );
 		$events      = BizCity_Scheduler_Manager::instance()->get_events( $user_id, $range['from'], $range['to'], $status );
 		$events      = array_slice( $events, 0, $max_results );
+		$items       = array_values( array_map( [ __CLASS__, 'serialize_event' ], $events ) );
+
+		if ( empty( $items ) ) {
+			$msg = 'Khong tim thay su kien nao trong khoang thoi gian nay.';
+		} else {
+			$lines = [ count( $items ) . ' su kien tu ' . $range['from'] . ' den ' . $range['to'] . ':' ];
+			foreach ( $events as $e ) {
+				$time    = ! empty( $e['all_day'] ) ? 'Ca ngay' : date( 'Y-m-d H:i', strtotime( $e['start_at'] ) );
+				$lines[] = "- {$time} {$e['title']}";
+			}
+			$msg = implode( "\n", $lines );
+		}
 
 		return [
 			'success'        => true,
 			'complete'       => true,
-			'message'        => empty( $events ) ? 'Khong tim thay su kien nao trong khoang thoi gian nay.' : 'Da lay danh sach su kien.',
+			'message'        => $msg,
 			'data'           => [
 				'type'        => 'scheduler_event_list',
 				'date_from'   => $range['from'],
 				'date_to'     => $range['to'],
 				'status'      => $status,
-				'events'       => array_values( array_map( [ __CLASS__, 'serialize_event' ], $events ) ),
-				'events_count' => count( $events ),
+				'events'       => $items,
+				'events_count' => count( $items ),
 			],
 			'missing_fields' => [],
 		];

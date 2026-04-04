@@ -43,6 +43,7 @@ class BizCity_Tool_Facebook {
         $page_id   = sanitize_text_field( $slots['page_id'] ?? '' );
         $page_ids  = $slots['page_ids'] ?? array();
         $session_id = $slots['session_id'] ?? $slots['chat_id'] ?? '';
+        $meta      = $slots['_meta'] ?? [];
 
         if ( empty( $topic ) ) {
             return [
@@ -88,7 +89,7 @@ class BizCity_Tool_Facebook {
 
         // ── T1: AI generate title + content ──
         if ( $trace ) $trace->step( 'T1', 'running' );
-        $ai_result = self::ai_generate_content( $topic, $tone );
+        $ai_result = self::ai_generate_content( $topic, $tone, $meta );
         $ai_title   = $ai_result['title'] ?? 'Bài Facebook mới';
         $ai_content = $ai_result['content'] ?? $topic;
 
@@ -374,8 +375,18 @@ class BizCity_Tool_Facebook {
     /**
      * AI generate Facebook title + content from topic.
      */
-    private static function ai_generate_content( string $topic, string $tone = 'engaging' ): array {
+    private static function ai_generate_content( string $topic, string $tone = 'engaging', array $meta = [] ): array {
         $tone_instruction = self::TONE_MAP[ $tone ] ?? self::TONE_MAP['engaging'];
+
+        // ── Phase 1.1h: Resolve skill context (R3 compliance) ──
+        $skill_hint = '';
+        $skill = $meta['_skill'] ?? null;
+        if ( ! $skill && class_exists( 'BizCity_Tool_Run' ) ) {
+            $skill = BizCity_Tool_Run::resolve_skill( 'create_facebook_post', get_current_user_id() );
+        }
+        if ( $skill && ! empty( $skill['content'] ) ) {
+            $skill_hint = "\n\n[Skill Context — Hướng dẫn thương hiệu]\n" . $skill['content'];
+        }
 
         $ai_prompt = <<<PROMPT
 Bạn là chuyên gia nội dung Facebook Marketing. Viết một bài post Facebook tiếng Việt, hấp dẫn, không quá 300 chữ, chủ đề:
@@ -393,10 +404,17 @@ Yêu cầu:
 }
 PROMPT;
 
+        // Build messages array — system message carries skill context
+        $sys_msg = 'Bạn là chuyên gia Facebook Marketing. Chỉ trả JSON, không giải thích.';
+        if ( $skill_hint ) {
+            $sys_msg .= $skill_hint;
+        }
+
         // Unified wrapper — routes through gateway on client sites, direct on hub
         if ( function_exists( 'bizcity_openrouter_chat' ) ) {
             $ai_result = bizcity_openrouter_chat( [
-                [ 'role' => 'user', 'content' => $ai_prompt ],
+                [ 'role' => 'system', 'content' => $sys_msg ],
+                [ 'role' => 'user',   'content' => $ai_prompt ],
             ], [ 'temperature' => 0.75, 'max_tokens' => 2000 ] );
 
             $json_str = $ai_result['message'] ?? '';
@@ -447,8 +465,8 @@ PROMPT;
 
     /**
      * Get the assigned page data for a user.
-     * Checks: 1) user_meta → site pages, 2) user's own bots (Plan B)
-     * Returns the page array { id, name, access_token, category } or null.
+     * Uses own bztfb_pages table (standalone — no bizcity-facebook-bot dependency).
+     * Returns { page_id, page_name, page_access_token, ig_account_id, category } or null.
      */
     public static function get_user_page( int $user_id = 0 ): ?array {
         if ( ! $user_id ) $user_id = get_current_user_id();
@@ -457,153 +475,93 @@ PROMPT;
         $page_id = get_user_meta( $user_id, 'bztfb_user_page', true );
         if ( empty( $page_id ) ) return null;
 
-        // First: check site-connected pages (admin flow)
-        $pages = get_option( 'fb_pages_connected', array() );
-        if ( is_array( $pages ) ) {
-            foreach ( $pages as $page ) {
-                if ( ( $page['id'] ?? '' ) === $page_id ) {
-                    return $page;
-                }
-            }
-        }
-
-        // Second: check user's own bots (Plan B - Developer App)
-        if ( class_exists( 'BizCity_Facebook_Bot_Database' ) ) {
-            $bot = BizCity_Facebook_Bot_Database::instance()->get_bot_by_user_page( $user_id, $page_id );
-            if ( $bot ) {
-                return array(
-                    'id'           => $bot->page_id,
-                    'name'         => $bot->bot_name,
-                    'access_token' => $bot->page_access_token,
-                    'category'     => '',
-                );
-            }
+        if ( class_exists( 'BizCity_FB_Database' ) ) {
+            return BizCity_FB_Database::get_page( $page_id );
         }
 
         return null;
     }
 
     /**
-     * Post content to Facebook Page(s) via Graph API.
+     * Post content to Facebook Page(s) via BizCity_FB_Graph_API.
      *
      * Resolution order:
      *   1. Explicit $single_page_id or $page_ids from caller
      *   2. User's assigned page (user_meta: bztfb_user_page)
-     *   3. All site-connected pages (fallback)
+     *   3. All active site pages (bztfb_pages table)
      *
-     * @return array Array of { page_id, post_id, link } for each successful post.
+     * @return array  Array of { page_id, post_id, link } for each successful post.
      */
     private static function post_to_facebook_pages( string $title, string $content, string $image_url = '', string $single_page_id = '', array $page_ids = array(), int $user_id = 0 ): array {
-        $pages = get_option( 'fb_pages_connected', array() );
-        if ( ! is_array( $pages ) ) $pages = array();
 
-        // Merge user's own bots (Plan B) into available pages
-        $effective_user = $user_id ?: get_current_user_id();
-        if ( $effective_user && class_exists( 'BizCity_Facebook_Bot_Database' ) ) {
-            $user_bots = BizCity_Facebook_Bot_Database::instance()->get_bots_by_user( $effective_user );
-            $existing_ids = array_column( $pages, 'id' );
-            foreach ( $user_bots as $bot ) {
-                if ( ! in_array( $bot->page_id, $existing_ids, true ) ) {
-                    $pages[] = array(
-                        'id'           => $bot->page_id,
-                        'name'         => $bot->bot_name,
-                        'access_token' => $bot->page_access_token,
-                        'category'     => '',
-                    );
-                }
-            }
-        }
-
-        if ( empty( $pages ) ) {
-            self::log( 'No connected pages' );
+        if ( ! class_exists( 'BizCity_FB_Database' ) || ! class_exists( 'BizCity_FB_Graph_API' ) ) {
+            self::log( 'BizCity_FB_Database or BizCity_FB_Graph_API not available' );
             return array();
         }
 
-        // Filter pages if specific page_id requested
+        // Get all active pages from own DB
+        $all_pages = BizCity_FB_Database::get_active_pages();
+        if ( ! is_array( $all_pages ) ) $all_pages = array();
+
+        // Filter to requested page(s)
         if ( ! empty( $single_page_id ) ) {
-            $pages = array_filter( $pages, function( $p ) use ( $single_page_id ) {
-                return ( $p['id'] ?? '' ) === $single_page_id;
-            } );
+            $all_pages = array_filter( $all_pages, fn( $p ) => ( $p['page_id'] ?? '' ) === $single_page_id );
         } elseif ( ! empty( $page_ids ) ) {
-            $pages = array_filter( $pages, function( $p ) use ( $page_ids ) {
-                return in_array( $p['id'] ?? '', $page_ids, true );
-            } );
+            $all_pages = array_filter( $all_pages, fn( $p ) => in_array( $p['page_id'] ?? '', $page_ids, true ) );
         } else {
-            // No explicit page requested — try user's assigned page
+            // No explicit page requested — use user's assigned page if set
             $user_page = self::get_user_page( $user_id ?: get_current_user_id() );
             if ( $user_page ) {
-                $pages = array( $user_page );
+                $all_pages = array( $user_page );
             }
+        }
+
+        if ( empty( $all_pages ) ) {
+            self::log( 'FB page resolution: NO PAGES FOUND', array(
+                'single_page_id' => $single_page_id,
+                'page_ids'       => $page_ids,
+                'user_id'        => $user_id ?: get_current_user_id(),
+            ) );
+            return array();
         }
 
         $results = array();
         $caption = "{$title}\n\n{$content}";
 
-        // ── Diagnostic: log when no pages resolved (silent failure root cause) ──
-        if ( empty( $pages ) ) {
-            self::log( 'FB page resolution: NO PAGES FOUND', array(
-                'single_page_id' => $single_page_id ?? '',
-                'page_ids'       => $page_ids ?? [],
-                'user_id'        => $user_id ?: get_current_user_id(),
-                'fb_pages_connected' => get_option( 'fb_pages_connected', [] ),
-                'user_page_meta'     => get_user_meta( $user_id ?: get_current_user_id(), 'bztfb_user_page', true ),
-            ) );
-        }
+        foreach ( $all_pages as $page ) {
+            $page_id    = $page['page_id']           ?? ( $page['id'] ?? '' );
+            $page_token = $page['page_access_token'] ?? ( $page['access_token'] ?? '' );
 
-        foreach ( $pages as $page ) {
-            $page_access_token = $page['access_token'] ?? '';
-            $pid               = $page['id'] ?? '';
+            if ( empty( $page_id ) || empty( $page_token ) ) continue;
 
-            if ( empty( $page_access_token ) || empty( $pid ) ) {
-                continue;
-            }
+            $api    = new BizCity_FB_Graph_API( $page_token, $page_id );
+            $result = ! empty( $image_url )
+                ? $api->post_photo( $image_url, $caption )
+                : $api->post_text( $caption );
 
-            // Use photos endpoint if image, feed otherwise
-            if ( ! empty( $image_url ) ) {
-                $endpoint = "https://graph.facebook.com/v18.0/{$pid}/photos";
-                $body = array(
-                    'caption'      => $caption,
-                    'url'          => $image_url,
-                    'access_token' => $page_access_token,
-                );
-            } else {
-                $endpoint = "https://graph.facebook.com/v18.0/{$pid}/feed";
-                $body = array(
-                    'message'      => $caption,
-                    'access_token' => $page_access_token,
-                );
-            }
+            if ( $result['success'] ?? false ) {
+                $fb_post_id = $result['post_id'] ?? '';
+                $link       = $fb_post_id ? "https://www.facebook.com/{$page_id}/posts/{$fb_post_id}" : '';
 
-            $response = wp_remote_post( $endpoint, array( 'body' => $body, 'timeout' => 30 ) );
-
-            if ( is_wp_error( $response ) ) {
-                self::log( "FB post failed for page {$pid}", $response->get_error_message() );
-                continue;
-            }
-
-            $data = json_decode( wp_remote_retrieve_body( $response ), true );
-            $fb_post_id = $data['post_id'] ?? $data['id'] ?? '';
-
-            if ( $fb_post_id ) {
-                $link = "https://www.facebook.com/{$pid}/posts/{$fb_post_id}";
                 $results[] = array(
-                    'page_id' => $pid,
+                    'page_id' => $page_id,
                     'post_id' => $fb_post_id,
                     'link'    => $link,
                 );
-                self::log( "Posted to page {$pid}", $fb_post_id );
-            } else {
-                self::log( "FB post returned no ID for page {$pid}", $data );
-            }
-        }
 
-        // Legacy compat: also try fb_send_post if available
-        if ( empty( $results ) && function_exists( 'fb_send_post' ) ) {
-            $legacy_links = fb_send_post( $title, $content, $image_url );
-            if ( is_array( $legacy_links ) ) {
-                foreach ( $legacy_links as $link ) {
-                    $results[] = array( 'page_id' => '', 'post_id' => '', 'link' => $link );
-                }
+                // Log to own DB
+                BizCity_FB_Database::log_post( [
+                    'page_id'    => $page_id,
+                    'fb_post_id' => $fb_post_id,
+                    'content'    => $caption,
+                    'image_url'  => $image_url,
+                    'post_url'   => $link,
+                    'status'     => 'published',
+                ] );
+
+                self::log( "Posted to page {$page_id}", $fb_post_id );
+            } else {
+                self::log( "FB post failed for page {$page_id}", $result['error'] ?? 'unknown error' );
             }
         }
 

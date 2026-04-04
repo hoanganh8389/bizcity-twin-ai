@@ -71,6 +71,25 @@ class BizCity_WebChat_Ajax_Handlers {
         add_action( 'wp_ajax_bizcity_llm_test_connection',  [ $this, 'ajax_llm_test_connection' ] );
         add_action( 'wp_ajax_bizcity_llm_register_api_key', [ $this, 'ajax_llm_register_api_key' ] );
         add_action( 'wp_ajax_bizcity_llm_get_usage',        [ $this, 'ajax_llm_get_usage' ] );
+
+        // Trace History (Working Panel — Sprint 1.7)
+        add_action( 'wp_ajax_bizcity_fetch_trace_history', [ $this, 'ajax_fetch_trace_history' ] );
+
+        // Phase 1.8 — Message Actions + Notes + Sources
+        add_action( 'wp_ajax_bizcity_webchat_pin_message',   [ $this, 'ajax_pin_message' ] );
+        add_action( 'wp_ajax_bizcity_webchat_rate_message',  [ $this, 'ajax_rate_message' ] );
+        add_action( 'wp_ajax_bizcity_webchat_notes',         [ $this, 'ajax_get_notes' ] );
+        add_action( 'wp_ajax_bizcity_webchat_create_note',   [ $this, 'ajax_create_note' ] );
+        add_action( 'wp_ajax_bizcity_webchat_delete_note',   [ $this, 'ajax_delete_note' ] );
+        add_action( 'wp_ajax_bizcity_webchat_sources',       [ $this, 'ajax_get_sources' ] );
+        add_action( 'wp_ajax_bizcity_webchat_add_source',    [ $this, 'ajax_add_source' ] );
+        add_action( 'wp_ajax_bizcity_webchat_delete_source', [ $this, 'ajax_delete_source' ] );
+
+        // Web Search (Tavily)
+        add_action( 'wp_ajax_bizcity_webchat_web_search_start',  [ $this, 'ajax_web_search_start' ] );
+        add_action( 'wp_ajax_bizcity_webchat_web_search_status', [ $this, 'ajax_web_search_status' ] );
+        add_action( 'wp_ajax_bizcity_webchat_web_search_import', [ $this, 'ajax_web_search_import' ] );
+        add_action( 'wp_ajax_bizcity_webchat_web_search_cancel', [ $this, 'ajax_web_search_cancel' ] );
     }
 
     /**
@@ -796,6 +815,8 @@ class BizCity_WebChat_Ajax_Handlers {
                 'created_ts'  => isset( $m->created_ts ) ? (int) $m->created_ts : 0,
                 'attachments' => $m->attachments ? json_decode( $m->attachments, true ) : [],
                 'plugin_slug' => $m->plugin_slug ?? '',
+                'rating'      => $m->rating ?? '',
+                'is_pinned'   => (int) ( $m->is_pinned ?? 0 ),
             ];
         }
 
@@ -843,6 +864,8 @@ class BizCity_WebChat_Ajax_Handlers {
                 'created_ts'  => (int) $m->created_ts,
                 'attachments' => ! empty( $m->attachments ) ? json_decode( $m->attachments, true ) : [],
                 'plugin_slug' => $m->plugin_slug ?? '',
+                'rating'      => $m->rating ?? '',
+                'is_pinned'   => (int) ( $m->is_pinned ?? 0 ),
             ];
         }
 
@@ -1504,5 +1527,672 @@ class BizCity_WebChat_Ajax_Handlers {
 
         BizCity_Intent_Conversation::instance()->complete( $conv_id );
         wp_send_json_success( [ 'completed' => true ] );
+    }
+
+    /* ================================================================
+     * TRACE HISTORY — Working Panel reads from trace tables
+     * Sprint 1.7 — replaces transient-only source with DB persistence
+     * ================================================================ */
+
+    /**
+     * Fetch trace history for session or user (Working Panel).
+     *
+     * Super admins (`manage_network`) can query any user's traces via `user_id` param.
+     * Regular users only see their own traces.
+     *
+     * POST params:
+     *   session_id  (string) — fetch traces for this session
+     *   user_id     (int)    — optional, super admin only: fetch another user's traces
+     *   limit       (int)    — max traces to return (default 10, max 50)
+     */
+    public function ajax_fetch_trace_history(): void {
+        if ( ! check_ajax_referer( 'bizcity_webchat', '_wpnonce', false ) ) {
+            wp_send_json_error( [ 'message' => 'Invalid security token' ], 403 );
+            return;
+        }
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( [ 'message' => 'Login required' ], 401 );
+            return;
+        }
+
+        if ( ! class_exists( 'BizCity_Trace_Store' ) ) {
+            wp_send_json_error( [ 'message' => 'Trace store not available' ], 500 );
+            return;
+        }
+
+        $session_id     = sanitize_text_field( $_POST['session_id'] ?? '' );
+        $requested_uid  = absint( $_POST['user_id'] ?? 0 );
+        $limit          = min( absint( $_POST['limit'] ?? 10 ), 50 );
+        $current_uid    = get_current_user_id();
+        $is_super_admin = current_user_can( 'manage_network' );
+
+        // Determine target user_id
+        $target_uid = $current_uid;
+        if ( $requested_uid && $requested_uid !== $current_uid ) {
+            if ( ! $is_super_admin ) {
+                wp_send_json_error( [ 'message' => 'Insufficient permissions' ], 403 );
+                return;
+            }
+            $target_uid = $requested_uid;
+        }
+
+        $store  = BizCity_Trace_Store::instance();
+        $traces = [];
+
+        if ( $session_id ) {
+            $traces = $store->get_session_traces( $session_id, $limit );
+        } else {
+            $traces = $store->get_user_traces( $target_uid, $limit );
+        }
+
+        // For each trace, fetch its tasks (steps/thinking)
+        $result = [];
+        foreach ( $traces as $trace ) {
+            $tasks = $store->get_tasks( $trace['trace_id'] );
+
+            // Convert tasks to WorkingPanel-compatible format
+            $steps = [];
+            foreach ( $tasks as $task ) {
+                $step_data = [
+                    'thinking'        => $task['thinking'] ?: '',
+                    'tool_name'       => $task['tool_name'] ?: '',
+                    'skill_resolve'   => $task['skill_resolve'] ?: '',
+                    'status'          => $task['status'],
+                    'elapsed_ms'      => (int) $task['duration_ms'],
+                ];
+
+                // Decode context layers for rich display
+                if ( ! empty( $task['context_summary'] ) ) {
+                    $ctx = json_decode( $task['context_summary'], true );
+                    if ( is_array( $ctx ) ) {
+                        $step_data['context_layers'] = $ctx;
+                    }
+                }
+                if ( ! empty( $task['token_usage'] ) ) {
+                    $tok = json_decode( $task['token_usage'], true );
+                    if ( is_array( $tok ) ) {
+                        $step_data['token_usage'] = $tok;
+                    }
+                }
+                if ( ! empty( $task['error_message'] ) ) {
+                    $step_data['error'] = $task['error_message'];
+                }
+
+                $steps[] = [
+                    'step'     => $task['step'],
+                    'thinking' => $task['thinking'] ?: '',
+                    'ts'       => strtotime( $task['created_at'] ) * 1000,
+                    'ms'       => (int) $task['duration_ms'],
+                    'data'     => $step_data,
+                ];
+            }
+
+            $result[] = [
+                'trace_id'   => $trace['trace_id'],
+                'session_id' => $trace['session_id'],
+                'title'      => $trace['title'],
+                'status'     => $trace['status'],
+                'mode'       => $trace['mode'],
+                'skill_key'  => $trace['skill_key'],
+                'total_ms'   => (int) $trace['total_ms'],
+                'tokens'     => (int) $trace['input_tokens'] + (int) $trace['output_tokens'],
+                'created_at' => $trace['created_at'],
+                'user_id'    => (int) $trace['user_id'],
+                'steps'      => $steps,
+            ];
+        }
+
+        wp_send_json_success( [
+            'traces'         => $result,
+            'is_super_admin' => $is_super_admin,
+            'target_user_id' => $target_uid,
+        ] );
+    }
+
+    /* ══════════════════════════════════════════════════════
+     *  Phase 1.8 — Message Actions (Pin / Rate)
+     * ══════════════════════════════════════════════════════ */
+
+    /**
+     * Pin a bot message → create a note in webchat_notes.
+     */
+    public function ajax_pin_message(): void {
+        if ( ! check_ajax_referer( 'bizcity_webchat', '_wpnonce', false ) ) {
+            wp_send_json_error( [ 'message' => 'Invalid security token' ], 403 );
+            return;
+        }
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( [ 'message' => 'Login required' ], 401 );
+            return;
+        }
+
+        global $wpdb;
+        $message_id = absint( $_POST['message_id'] ?? 0 );
+        $session_id = sanitize_text_field( $_POST['session_id'] ?? '' );
+        $user_id    = get_current_user_id();
+
+        if ( ! $message_id ) {
+            wp_send_json_error( [ 'message' => 'Missing message_id' ] );
+            return;
+        }
+
+        $table_msg   = $wpdb->prefix . 'bizcity_webchat_messages';
+        $table_notes = $wpdb->prefix . 'bizcity_webchat_notes';
+
+        // Get message content
+        $msg = $wpdb->get_row( $wpdb->prepare(
+            "SELECT message_text, session_id FROM {$table_msg} WHERE id = %d",
+            $message_id
+        ) );
+
+        if ( ! $msg ) {
+            wp_send_json_error( [ 'message' => 'Message not found' ] );
+            return;
+        }
+
+        $sid = $session_id ?: $msg->session_id;
+        $title = mb_substr( wp_strip_all_tags( $msg->message_text ), 0, 100, 'UTF-8' );
+
+        // Create note
+        $wpdb->insert( $table_notes, [
+            'session_id'        => $sid,
+            'user_id'           => $user_id,
+            'note_type'         => 'chat_pinned',
+            'title'             => $title,
+            'content'           => $msg->message_text,
+            'source_message_id' => $message_id,
+            'created_at'        => current_time( 'mysql' ),
+        ] );
+
+        $note_id = $wpdb->insert_id;
+
+        // Mark message as pinned
+        $wpdb->update( $table_msg, [ 'is_pinned' => 1 ], [ 'id' => $message_id ] );
+
+        wp_send_json_success( [
+            'note_id'    => $note_id,
+            'title'      => $title,
+            'content'    => $msg->message_text,
+            'note_type'  => 'chat_pinned',
+            'created_at' => current_time( 'mysql' ),
+        ] );
+    }
+
+    /**
+     * Rate a message (good / bad).
+     */
+    public function ajax_rate_message(): void {
+        if ( ! check_ajax_referer( 'bizcity_webchat', '_wpnonce', false ) ) {
+            wp_send_json_error( [ 'message' => 'Invalid security token' ], 403 );
+            return;
+        }
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( [ 'message' => 'Login required' ], 401 );
+            return;
+        }
+
+        global $wpdb;
+        $message_id = absint( $_POST['message_id'] ?? 0 );
+        $rating     = sanitize_text_field( $_POST['rating'] ?? '' );
+
+        if ( ! $message_id || ! in_array( $rating, [ 'good', 'bad', '' ], true ) ) {
+            wp_send_json_error( [ 'message' => 'Invalid params' ] );
+            return;
+        }
+
+        $wpdb->update(
+            $wpdb->prefix . 'bizcity_webchat_messages',
+            [ 'rating' => $rating ],
+            [ 'id' => $message_id ]
+        );
+
+        wp_send_json_success( true );
+    }
+
+    /* ══════════════════════════════════════════════════════
+     *  Phase 1.8 — Notes CRUD
+     * ══════════════════════════════════════════════════════ */
+
+    /**
+     * Get notes for a session.
+     */
+    public function ajax_get_notes(): void {
+        if ( ! check_ajax_referer( 'bizcity_webchat', '_wpnonce', false ) ) {
+            wp_send_json_error( [ 'message' => 'Invalid security token' ], 403 );
+            return;
+        }
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( [ 'message' => 'Login required' ], 401 );
+            return;
+        }
+
+        global $wpdb;
+        $session_id = sanitize_text_field( $_POST['session_id'] ?? '' );
+        $user_id    = get_current_user_id();
+        $search     = sanitize_text_field( $_POST['search'] ?? '' );
+        $table      = $wpdb->prefix . 'bizcity_webchat_notes';
+
+        $where = $wpdb->prepare( "WHERE user_id = %d", $user_id );
+        if ( $session_id ) {
+            $where .= $wpdb->prepare( " AND session_id = %s", $session_id );
+        }
+        if ( $search ) {
+            $like = '%' . $wpdb->esc_like( $search ) . '%';
+            $where .= $wpdb->prepare( " AND (title LIKE %s OR content LIKE %s)", $like, $like );
+        }
+
+        $notes = $wpdb->get_results(
+            "SELECT id, session_id, note_type, title, LEFT(content, 500) AS content, source_message_id, created_at, updated_at
+             FROM {$table} {$where} ORDER BY created_at DESC LIMIT 100",
+            ARRAY_A
+        );
+
+        wp_send_json_success( [ 'notes' => $notes ?: [] ] );
+    }
+
+    /**
+     * Create a note manually.
+     */
+    public function ajax_create_note(): void {
+        if ( ! check_ajax_referer( 'bizcity_webchat', '_wpnonce', false ) ) {
+            wp_send_json_error( [ 'message' => 'Invalid security token' ], 403 );
+            return;
+        }
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( [ 'message' => 'Login required' ], 401 );
+            return;
+        }
+
+        global $wpdb;
+        $session_id = sanitize_text_field( $_POST['session_id'] ?? '' );
+        $title      = sanitize_text_field( $_POST['title'] ?? '' );
+        $content    = wp_kses_post( $_POST['content'] ?? '' );
+        $note_type  = sanitize_text_field( $_POST['note_type'] ?? 'quick_note' );
+        $user_id    = get_current_user_id();
+
+        if ( ! $title && ! $content ) {
+            wp_send_json_error( [ 'message' => 'Title or content required' ] );
+            return;
+        }
+
+        $table = $wpdb->prefix . 'bizcity_webchat_notes';
+        $wpdb->insert( $table, [
+            'session_id' => $session_id,
+            'user_id'    => $user_id,
+            'note_type'  => $note_type,
+            'title'      => $title ?: mb_substr( wp_strip_all_tags( $content ), 0, 100, 'UTF-8' ),
+            'content'    => $content,
+            'created_at' => current_time( 'mysql' ),
+        ] );
+
+        wp_send_json_success( [
+            'id'         => $wpdb->insert_id,
+            'title'      => $title,
+            'content'    => $content,
+            'note_type'  => $note_type,
+            'created_at' => current_time( 'mysql' ),
+        ] );
+    }
+
+    /**
+     * Delete a note.
+     */
+    public function ajax_delete_note(): void {
+        if ( ! check_ajax_referer( 'bizcity_webchat', '_wpnonce', false ) ) {
+            wp_send_json_error( [ 'message' => 'Invalid security token' ], 403 );
+            return;
+        }
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( [ 'message' => 'Login required' ], 401 );
+            return;
+        }
+
+        global $wpdb;
+        $note_id = absint( $_POST['note_id'] ?? 0 );
+        $user_id = get_current_user_id();
+
+        if ( ! $note_id ) {
+            wp_send_json_error( [ 'message' => 'Missing note_id' ] );
+            return;
+        }
+
+        $table   = $wpdb->prefix . 'bizcity_webchat_notes';
+        $deleted = $wpdb->delete( $table, [ 'id' => $note_id, 'user_id' => $user_id ] );
+
+        if ( $deleted ) {
+            wp_send_json_success( true );
+        } else {
+            wp_send_json_error( [ 'message' => 'Note not found or access denied' ] );
+        }
+    }
+
+    /* ══════════════════════════════════════════════════════
+     *  Phase 1.8 — Sources CRUD
+     * ══════════════════════════════════════════════════════ */
+
+    /**
+     * Get sources for a session or user.
+     */
+    public function ajax_get_sources(): void {
+        if ( ! check_ajax_referer( 'bizcity_webchat', '_wpnonce', false ) ) {
+            wp_send_json_error( [ 'message' => 'Invalid security token' ], 403 );
+            return;
+        }
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( [ 'message' => 'Login required' ], 401 );
+            return;
+        }
+
+        global $wpdb;
+        $session_id = sanitize_text_field( $_POST['session_id'] ?? '' );
+        $user_id    = get_current_user_id();
+        $table      = $wpdb->prefix . 'bizcity_webchat_sources';
+
+        $where = $wpdb->prepare( "WHERE user_id = %d", $user_id );
+        if ( $session_id ) {
+            $where .= $wpdb->prepare( " AND (session_id = %s OR session_id = '')", $session_id );
+        }
+
+        $sources = $wpdb->get_results(
+            "SELECT id, session_id, source_type, title, url, embedding_status, chunk_count, created_at
+             FROM {$table} {$where} ORDER BY created_at DESC LIMIT 50",
+            ARRAY_A
+        );
+
+        wp_send_json_success( [ 'sources' => $sources ?: [] ] );
+    }
+
+    /**
+     * Add a source (URL, text, or file reference).
+     */
+    public function ajax_add_source(): void {
+        if ( ! check_ajax_referer( 'bizcity_webchat', '_wpnonce', false ) ) {
+            wp_send_json_error( [ 'message' => 'Invalid security token' ], 403 );
+            return;
+        }
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( [ 'message' => 'Login required' ], 401 );
+            return;
+        }
+
+        global $wpdb;
+        $session_id  = sanitize_text_field( $_POST['session_id'] ?? '' );
+        $source_type = sanitize_text_field( $_POST['source_type'] ?? 'url' );
+        $title       = sanitize_text_field( $_POST['title'] ?? '' );
+        $url         = esc_url_raw( $_POST['url'] ?? '' );
+        $content     = wp_kses_post( $_POST['content'] ?? '' );
+        $user_id     = get_current_user_id();
+
+        if ( ! in_array( $source_type, [ 'url', 'text', 'file' ], true ) ) {
+            wp_send_json_error( [ 'message' => 'Invalid source_type' ] );
+            return;
+        }
+
+        if ( $source_type === 'url' && ! $url ) {
+            wp_send_json_error( [ 'message' => 'URL required' ] );
+            return;
+        }
+        if ( $source_type === 'text' && ! $content ) {
+            wp_send_json_error( [ 'message' => 'Content required' ] );
+            return;
+        }
+
+        // Auto-generate title from URL if missing
+        if ( ! $title ) {
+            if ( $url ) {
+                $title = wp_parse_url( $url, PHP_URL_HOST ) . wp_parse_url( $url, PHP_URL_PATH );
+                $title = mb_substr( $title, 0, 200, 'UTF-8' );
+            } else {
+                $title = mb_substr( wp_strip_all_tags( $content ), 0, 100, 'UTF-8' );
+            }
+        }
+
+        $table = $wpdb->prefix . 'bizcity_webchat_sources';
+        $wpdb->insert( $table, [
+            'session_id'       => $session_id,
+            'user_id'          => $user_id,
+            'source_type'      => $source_type,
+            'title'            => $title,
+            'url'              => $url,
+            'content'          => $content,
+            'embedding_status' => 'pending',
+            'created_at'       => current_time( 'mysql' ),
+        ] );
+
+        wp_send_json_success( [
+            'id'               => $wpdb->insert_id,
+            'source_type'      => $source_type,
+            'title'            => $title,
+            'url'              => $url,
+            'embedding_status' => 'pending',
+            'chunk_count'      => 0,
+            'created_at'       => current_time( 'mysql' ),
+        ] );
+    }
+
+    /**
+     * Delete a source.
+     */
+    public function ajax_delete_source(): void {
+        if ( ! check_ajax_referer( 'bizcity_webchat', '_wpnonce', false ) ) {
+            wp_send_json_error( [ 'message' => 'Invalid security token' ], 403 );
+            return;
+        }
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( [ 'message' => 'Login required' ], 401 );
+            return;
+        }
+
+        global $wpdb;
+        $source_id = absint( $_POST['source_id'] ?? 0 );
+        $user_id   = get_current_user_id();
+
+        if ( ! $source_id ) {
+            wp_send_json_error( [ 'message' => 'Missing source_id' ] );
+            return;
+        }
+
+        $table   = $wpdb->prefix . 'bizcity_webchat_sources';
+        $deleted = $wpdb->delete( $table, [ 'id' => $source_id, 'user_id' => $user_id ] );
+
+        if ( $deleted ) {
+            wp_send_json_success( true );
+        } else {
+            wp_send_json_error( [ 'message' => 'Source not found or access denied' ] );
+        }
+    }
+
+    // ── Web Search (Tavily) — synchronous mode ──────────────────────────
+
+    /**
+     * Start a web search via Tavily. Since Tavily is fast (<10s),
+     * this returns results directly (synchronous, no polling required).
+     * The frontend polls for compatibility with the notebook UI pattern.
+     */
+    public function ajax_web_search_start(): void {
+        if ( ! check_ajax_referer( 'bizcity_webchat', '_wpnonce', false ) ) {
+            wp_send_json_error( [ 'message' => 'Invalid security token' ], 403 );
+            return;
+        }
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( [ 'message' => 'Login required' ], 401 );
+            return;
+        }
+
+        $query       = sanitize_text_field( $_POST['query'] ?? '' );
+        $max_results = absint( $_POST['max_results'] ?? 5 );
+        $session_id  = sanitize_text_field( $_POST['session_id'] ?? '' );
+
+        if ( empty( $query ) ) {
+            wp_send_json_error( [ 'message' => 'Query required' ] );
+            return;
+        }
+
+        // Load Tavily client from companion-notebook or core
+        if ( ! class_exists( 'BCN_Tavily_Client' ) ) {
+            $tavily_path = WP_PLUGIN_DIR . '/bizcity-twin-ai/plugins/bizcity-companion-notebook/includes/class-tavily-client.php';
+            if ( file_exists( $tavily_path ) ) {
+                require_once $tavily_path;
+            }
+        }
+
+        if ( ! class_exists( 'BCN_Tavily_Client' ) ) {
+            wp_send_json_error( [ 'message' => 'Tavily client not available. Install companion-notebook plugin.' ] );
+            return;
+        }
+
+        $results = BCN_Tavily_Client::search( $query, min( $max_results, 10 ) );
+
+        if ( is_wp_error( $results ) ) {
+            wp_send_json_error( [ 'message' => $results->get_error_message() ] );
+            return;
+        }
+
+        // Generate a simple job_id for frontend compatibility
+        $job_id = 'ws_' . wp_generate_uuid4();
+
+        // Normalize scores to 0-5 star scale (Tavily returns 0-1)
+        $candidates = [];
+        foreach ( $results as $item ) {
+            $candidates[] = [
+                'url'     => $item['url'],
+                'title'   => $item['title'],
+                'excerpt' => $item['excerpt'] ?? '',
+                'content' => $item['content'] ?? '',
+                'domain'  => $item['domain'] ?? '',
+                'score'   => round( ( $item['score'] ?? 0 ) * 5, 1 ),
+            ];
+        }
+
+        // Store results transiently for import step
+        set_transient( 'bizc_ws_' . $job_id, [
+            'session_id' => $session_id,
+            'query'      => $query,
+            'candidates' => $candidates,
+            'user_id'    => get_current_user_id(),
+        ], 600 ); // 10 min TTL
+
+        wp_send_json_success( [
+            'job_id'     => $job_id,
+            'status'     => 'completed',
+            'candidates' => $candidates,
+        ] );
+    }
+
+    /**
+     * Check web search status (for polling compatibility).
+     * Since we do synchronous search, this just returns the cached results.
+     */
+    public function ajax_web_search_status(): void {
+        if ( ! check_ajax_referer( 'bizcity_webchat', '_wpnonce', false ) ) {
+            wp_send_json_error( [ 'message' => 'Invalid security token' ], 403 );
+            return;
+        }
+
+        $job_id = sanitize_text_field( $_POST['job_id'] ?? '' );
+        $data   = get_transient( 'bizc_ws_' . $job_id );
+
+        if ( ! $data ) {
+            wp_send_json_success( [ 'status' => 'not_found' ] );
+            return;
+        }
+
+        wp_send_json_success( [
+            'job_id'     => $job_id,
+            'status'     => 'completed',
+            'candidates' => $data['candidates'] ?? [],
+        ] );
+    }
+
+    /**
+     * Import selected web search results as sources.
+     */
+    public function ajax_web_search_import(): void {
+        if ( ! check_ajax_referer( 'bizcity_webchat', '_wpnonce', false ) ) {
+            wp_send_json_error( [ 'message' => 'Invalid security token' ], 403 );
+            return;
+        }
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( [ 'message' => 'Login required' ], 401 );
+            return;
+        }
+
+        $job_id       = sanitize_text_field( $_POST['job_id'] ?? '' );
+        $selected_raw = $_POST['selected_urls'] ?? '';
+        $selected     = is_array( $selected_raw ) ? $selected_raw : json_decode( stripslashes( $selected_raw ), true );
+
+        if ( empty( $job_id ) || empty( $selected ) || ! is_array( $selected ) ) {
+            wp_send_json_error( [ 'message' => 'Missing job_id or selected_urls' ] );
+            return;
+        }
+
+        $data = get_transient( 'bizc_ws_' . $job_id );
+        if ( ! $data ) {
+            wp_send_json_error( [ 'message' => 'Search results expired. Please search again.' ] );
+            return;
+        }
+
+        if ( (int) $data['user_id'] !== get_current_user_id() ) {
+            wp_send_json_error( [ 'message' => 'Access denied' ] );
+            return;
+        }
+
+        global $wpdb;
+        $table      = $wpdb->prefix . 'bizcity_webchat_sources';
+        $user_id    = get_current_user_id();
+        $session_id = $data['session_id'] ?? '';
+        $sources    = [];
+        $selected_set = array_flip( array_map( 'esc_url_raw', $selected ) );
+
+        foreach ( $data['candidates'] as $candidate ) {
+            if ( ! isset( $selected_set[ $candidate['url'] ] ) ) continue;
+
+            $title   = sanitize_text_field( $candidate['title'] ?: $candidate['url'] );
+            $url     = esc_url_raw( $candidate['url'] );
+            $content = wp_kses_post( $candidate['content'] ?? $candidate['excerpt'] ?? '' );
+
+            $wpdb->insert( $table, [
+                'session_id'       => $session_id,
+                'user_id'          => $user_id,
+                'source_type'      => 'url',
+                'title'            => $title,
+                'url'              => $url,
+                'content'          => $content,
+                'embedding_status' => 'pending',
+                'created_at'       => current_time( 'mysql' ),
+            ] );
+
+            $sources[] = [
+                'id'               => $wpdb->insert_id,
+                'source_type'      => 'url',
+                'title'            => $title,
+                'url'              => $url,
+                'embedding_status' => 'pending',
+                'chunk_count'      => 0,
+                'created_at'       => current_time( 'mysql' ),
+            ];
+        }
+
+        // Clean up transient
+        delete_transient( 'bizc_ws_' . $job_id );
+
+        wp_send_json_success( [ 'sources' => $sources ] );
+    }
+
+    /**
+     * Cancel a web search (cleanup transient).
+     */
+    public function ajax_web_search_cancel(): void {
+        if ( ! check_ajax_referer( 'bizcity_webchat', '_wpnonce', false ) ) {
+            wp_send_json_error( [ 'message' => 'Invalid security token' ], 403 );
+            return;
+        }
+
+        $job_id = sanitize_text_field( $_POST['job_id'] ?? '' );
+        if ( $job_id ) {
+            delete_transient( 'bizc_ws_' . $job_id );
+        }
+        wp_send_json_success( true );
     }
 }

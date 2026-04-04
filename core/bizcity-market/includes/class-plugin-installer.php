@@ -128,6 +128,7 @@ class BizCity_Plugin_Installer {
 
         if ( $was_active ) {
             activate_plugin( $plugin_file );
+            update_option( 'bizcity_flush_rewrite_pending', 1 );
         }
 
         self::register_in_catalog( $slug );
@@ -158,6 +159,7 @@ class BizCity_Plugin_Installer {
         $plugin_file = self::plugin_file( $slug );
         if ( is_plugin_active( $plugin_file ) ) {
             deactivate_plugins( $plugin_file, true );
+            update_option( 'bizcity_flush_rewrite_pending', 1 );
         }
 
         // Remove directory

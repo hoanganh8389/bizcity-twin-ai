@@ -1,4 +1,13 @@
-<?php
+﻿<?php
+/**
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\Intent
+ * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+ * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
+ * @license    GPL-2.0-or-later
+ * @link       https://bizcity.vn
+ */
+
 /**
  * BizCity Scenario Generator — Pipeline Plan → Workspace Builder Task
  *
@@ -37,6 +46,14 @@ class BizCity_Scenario_Generator {
         $scenario = self::from_pipeline_plan( $plan, $trigger_context );
         $title    = sanitize_text_field( $description ?: self::build_title( $plan ) );
         $task_id  = self::save_draft_task( $scenario, $title, $trigger_context );
+
+        if ( $task_id ) {
+            self::build_memory_spec_for_task( $task_id, $scenario, $trigger_context );
+
+            // ── Phase 1.6 B2: Fire pipeline_created for session memory spec ──
+            // Escalates session mode: goal → pipeline
+            do_action( 'bizcity_pipeline_created', $task_id, $trigger_context, $scenario );
+        }
 
         if ( ! $task_id ) {
             return [
@@ -87,27 +104,130 @@ class BizCity_Scenario_Generator {
      * @var array tool_id => Vietnamese label
      */
     private static $tool_labels = [
-        'write_article'         => 'Viết bài blog',
-        'write_seo_article'     => 'Viết bài SEO',
-        'rewrite_article'       => 'Viết lại bài viết',
-        'translate_and_publish' => 'Dịch & đăng bài',
-        'generate_image'        => 'Tạo ảnh minh họa',
-        'create_facebook_post'  => 'Đăng Facebook',
-        'post_facebook'         => 'Đăng Facebook',
-        'create_video'          => 'Tạo video',
-        'schedule_post'         => 'Hẹn giờ đăng bài',
-        'send_email'            => 'Gửi email',
-        'send_zalo_message'     => 'Gửi tin Zalo',
-        'knowledge_search'      => 'Tìm kiến thức',
+        'write_article'            => 'Viết bài blog',
+        'generate_blog_content'    => 'Viết bài blog',
+        'write_seo_article'        => 'Viết bài SEO',
+        'generate_seo_content'     => 'Viết nội dung SEO',
+        'rewrite_article'          => 'Viết lại bài viết',
+        'rewrite_content'          => 'Viết lại nội dung',
+        'translate_and_publish'    => 'Dịch & đăng bài',
+        'generate_image'           => 'Tạo ảnh minh họa',
+        'create_facebook_post'     => 'Đăng Facebook',
+        'post_facebook'            => 'Đăng Facebook',
+        'generate_fb_post'         => 'Đăng Facebook',
+        'create_video'             => 'Tạo video',
+        'generate_video_script'    => 'Tạo kịch bản video',
+        'schedule_post'            => 'Hẹn giờ đăng bài',
+        'send_email'               => 'Gửi email',
+        'generate_email_sales'     => 'Tạo email bán hàng',
+        'generate_email_reply'     => 'Tạo email trả lời',
+        'send_zalo_message'        => 'Gửi tin Zalo',
+        'send_zalo'                => 'Gửi tin Zalo',
+        'knowledge_search'         => 'Tìm kiến thức',
+        'publish_wp_post'          => 'Đăng bài WordPress',
+        'generate_ig_caption'      => 'Tạo caption Instagram',
+        'generate_linkedin_post'   => 'Tạo bài LinkedIn',
+        'generate_proposal'        => 'Tạo đề xuất',
     ];
 
     /**
-     * Get the tool labels map (for use by other classes like Core Planner).
+     * Tool taxonomy map — classifies tools for proper workflow node generation.
      *
-     * @return array tool_id => Vietnamese label
+     * Rules:
+     *   - atomic content (accepts_skill=true) → it_call_content node, skip if same family as Node #3
+     *   - distribution → it_call_tool node (delivers content, never generates)
+     *   - composite → it_call_tool node (internal pipeline, NOT for workflow automation)
+     *   - mutation → it_call_tool node (creates/modifies real objects)
+     *
+     * @var array tool_id => { family, tool_type, execution_path }
+     */
+    private static $tool_taxonomy = [
+        // ── Atomic Content Tools (accepts_skill=true, use it_call_content) ──
+        'generate_blog_content'    => [ 'family' => 'content_production', 'tool_type' => 'atomic', 'execution_path' => 'it_call_content' ],
+        'generate_seo_content'     => [ 'family' => 'content_production', 'tool_type' => 'atomic', 'execution_path' => 'it_call_content' ],
+        'rewrite_content'          => [ 'family' => 'content_production', 'tool_type' => 'atomic', 'execution_path' => 'it_call_content' ],
+        'generate_fb_post'         => [ 'family' => 'content_production', 'tool_type' => 'atomic', 'execution_path' => 'it_call_content' ],
+        'generate_ad_copy'         => [ 'family' => 'content_production', 'tool_type' => 'atomic', 'execution_path' => 'it_call_content' ],
+        'generate_ig_caption'      => [ 'family' => 'content_production', 'tool_type' => 'atomic', 'execution_path' => 'it_call_content' ],
+        'generate_linkedin_post'   => [ 'family' => 'content_production', 'tool_type' => 'atomic', 'execution_path' => 'it_call_content' ],
+        'generate_threads_post'    => [ 'family' => 'content_production', 'tool_type' => 'atomic', 'execution_path' => 'it_call_content' ],
+        'generate_youtube_desc'    => [ 'family' => 'content_production', 'tool_type' => 'atomic', 'execution_path' => 'it_call_content' ],
+        'generate_tiktok_script'   => [ 'family' => 'content_production', 'tool_type' => 'atomic', 'execution_path' => 'it_call_content' ],
+        'generate_zalo_message'    => [ 'family' => 'content_production', 'tool_type' => 'atomic', 'execution_path' => 'it_call_content' ],
+        'generate_email_sales'     => [ 'family' => 'content_production', 'tool_type' => 'atomic', 'execution_path' => 'it_call_content' ],
+        'generate_email_reply'     => [ 'family' => 'content_production', 'tool_type' => 'atomic', 'execution_path' => 'it_call_content' ],
+        'generate_email_quote'     => [ 'family' => 'content_production', 'tool_type' => 'atomic', 'execution_path' => 'it_call_content' ],
+        'generate_email_contract'  => [ 'family' => 'content_production', 'tool_type' => 'atomic', 'execution_path' => 'it_call_content' ],
+        'generate_email_announce'  => [ 'family' => 'content_production', 'tool_type' => 'atomic', 'execution_path' => 'it_call_content' ],
+        'generate_email_newsletter' => [ 'family' => 'content_production', 'tool_type' => 'atomic', 'execution_path' => 'it_call_content' ],
+        'generate_email_followup'  => [ 'family' => 'content_production', 'tool_type' => 'atomic', 'execution_path' => 'it_call_content' ],
+        'generate_proposal'        => [ 'family' => 'content_production', 'tool_type' => 'atomic', 'execution_path' => 'it_call_content' ],
+        'generate_report_content'  => [ 'family' => 'content_production', 'tool_type' => 'atomic', 'execution_path' => 'it_call_content' ],
+        'generate_product_desc'    => [ 'family' => 'content_production', 'tool_type' => 'atomic', 'execution_path' => 'it_call_content' ],
+        'generate_landing_page'    => [ 'family' => 'content_production', 'tool_type' => 'atomic', 'execution_path' => 'it_call_content' ],
+        'generate_faq'             => [ 'family' => 'content_production', 'tool_type' => 'atomic', 'execution_path' => 'it_call_content' ],
+        'generate_video_script'    => [ 'family' => 'content_production', 'tool_type' => 'atomic', 'execution_path' => 'it_call_content' ],
+        'generate_shorts_script'   => [ 'family' => 'content_production', 'tool_type' => 'atomic', 'execution_path' => 'it_call_content' ],
+        'generate_podcast_outline' => [ 'family' => 'content_production', 'tool_type' => 'atomic', 'execution_path' => 'it_call_content' ],
+        'generate_presentation'    => [ 'family' => 'content_production', 'tool_type' => 'atomic', 'execution_path' => 'it_call_content' ],
+        'generate_policy'          => [ 'family' => 'content_production', 'tool_type' => 'atomic', 'execution_path' => 'it_call_content' ],
+        'generate_sop'             => [ 'family' => 'content_production', 'tool_type' => 'atomic', 'execution_path' => 'it_call_content' ],
+        'generate_job_description' => [ 'family' => 'content_production', 'tool_type' => 'atomic', 'execution_path' => 'it_call_content' ],
+        'generate_meeting_notes'   => [ 'family' => 'content_production', 'tool_type' => 'atomic', 'execution_path' => 'it_call_content' ],
+        'generate_comparison'      => [ 'family' => 'content_production', 'tool_type' => 'atomic', 'execution_path' => 'it_call_content' ],
+        'generate_testimonial_request' => [ 'family' => 'content_production', 'tool_type' => 'atomic', 'execution_path' => 'it_call_content' ],
+        'generate_campaign_brief'  => [ 'family' => 'content_production', 'tool_type' => 'atomic', 'execution_path' => 'it_call_content' ],
+        'generate_support_reply'   => [ 'family' => 'content_production', 'tool_type' => 'atomic', 'execution_path' => 'it_call_content' ],
+        'generate_chatbot_response' => [ 'family' => 'content_production', 'tool_type' => 'atomic', 'execution_path' => 'it_call_content' ],
+        'generate_announcement'    => [ 'family' => 'content_production', 'tool_type' => 'atomic', 'execution_path' => 'it_call_content' ],
+        'generate_image'           => [ 'family' => 'image_production', 'tool_type' => 'atomic', 'execution_path' => 'it_call_tool' ],
+
+        // ── Distribution Tools (accepts_skill=false, use it_call_tool) ──
+        'post_facebook'            => [ 'family' => 'distribution', 'tool_type' => 'distribution', 'execution_path' => 'it_call_tool' ],
+        'send_email'               => [ 'family' => 'distribution', 'tool_type' => 'distribution', 'execution_path' => 'it_call_tool' ],
+        'send_zalo'                => [ 'family' => 'distribution', 'tool_type' => 'distribution', 'execution_path' => 'it_call_tool' ],
+        'publish_wp_post'          => [ 'family' => 'distribution', 'tool_type' => 'distribution', 'execution_path' => 'it_call_tool' ],
+        'schedule_post'            => [ 'family' => 'distribution', 'tool_type' => 'distribution', 'execution_path' => 'it_call_tool' ],
+
+        // ── Composite Tools (multi-step internal, NOT for workflow automation) ──
+        'write_article'            => [ 'family' => 'content_production', 'tool_type' => 'composite', 'execution_path' => 'provider_direct' ],
+        'write_seo_article'        => [ 'family' => 'content_production', 'tool_type' => 'composite', 'execution_path' => 'provider_direct' ],
+        'rewrite_article'          => [ 'family' => 'content_production', 'tool_type' => 'composite', 'execution_path' => 'provider_direct' ],
+        'create_facebook_post'     => [ 'family' => 'distribution',       'tool_type' => 'composite', 'execution_path' => 'provider_direct' ],
+        'translate_and_publish'    => [ 'family' => 'content_production', 'tool_type' => 'composite', 'execution_path' => 'provider_direct' ],
+        'create_video'             => [ 'family' => 'content_production', 'tool_type' => 'composite', 'execution_path' => 'provider_direct' ],
+    ];
+
+    /**
+     * Resolve a composite/provider tool to its atomic equivalents for workflow.
+     *
+     * e.g. write_article (composite) → [ generate_blog_content, publish_wp_post ]
+     *      create_facebook_post (composite) → [ generate_fb_post, post_facebook ]
+     *
+     * @param string $tool_name Original tool from plan
+     * @return array|null [ content_atomic, distribution_atomic ] or null if not composite
+     */
+    private static function resolve_composite( string $tool_name ): ?array {
+        $map = [
+            'write_article'        => [ 'generate_blog_content', 'publish_wp_post' ],
+            'write_seo_article'    => [ 'generate_seo_content',  'publish_wp_post' ],
+            'create_facebook_post' => [ 'generate_fb_post',      'post_facebook' ],
+        ];
+        return $map[ $tool_name ] ?? null;
+    }
+
+    /**
+     * Get the tool labels map (for use by other classes like Core Planner).
      */
     public static function get_tool_labels(): array {
         return self::$tool_labels;
+    }
+
+    /**
+     * Get the tool taxonomy map.
+     */
+    public static function get_tool_taxonomy(): array {
+        return self::$tool_taxonomy;
     }
 
     /**
@@ -128,9 +248,28 @@ class BizCity_Scenario_Generator {
 
         $channel = $trigger_context['channel'] ?? 'webchat';
 
-        // ── Use bc_instant_run trigger so workflow can execute immediately without waiting for event ──
-        $trigger_code  = 'bc_instant_run';
-        $trigger_label = '⚡ Instant Run — Chạy ngay';
+        // ── Trigger selection: scheduler if plan has schedule_at, otherwise instant ──
+        $schedule_at = $trigger_context['schedule_at'] ?? '';
+        if ( $schedule_at ) {
+            $trigger_code  = 'bc_scheduler_run';
+            $trigger_label = '📅 Scheduler Run — Lên lịch';
+            // Parse schedule_at into date + time for trigger settings
+            $sched_date = substr( $schedule_at, 0, 10 ); // Y-m-d
+            $sched_time = strlen( $schedule_at ) >= 16 ? substr( $schedule_at, 11, 5 ) : '20:00';
+            $trigger_settings = [
+                'mode'         => 'one',
+                'date'         => $sched_date,
+                'time'         => $sched_time,
+                'default_text' => $trigger_context['message'] ?? '',
+            ];
+        } else {
+            $trigger_code  = 'bc_instant_run';
+            $trigger_label = '⚡ Instant Run — Chạy ngay';
+            $trigger_settings = [
+                'default_text'      => $trigger_context['message'] ?? '',
+                'default_image_url' => '',
+            ];
+        }
 
         // ── Node ID layout: "1"=trigger, "2"=planner, "3"=verify-content, "4"+=actions, last=verifier ──
         $trigger_node_id = '1';
@@ -147,29 +286,109 @@ class BizCity_Scenario_Generator {
                 'category'        => 'bc',
                 'code'            => $trigger_code,
                 'label'           => $trigger_label,
-                'settings'        => [],
+                'settings'        => $trigger_settings,
                 'executionStatus' => null,
                 'dragged'         => true,
             ],
         ];
 
-        // ── TODOs Planner Node (id="2") ──
-        // Creates TODO tracking rows and sends plan-start message to user.
-        // B1 fix: include node_id + node_code mapping, filter out skip-list tools
-        $skip_tools = [ 'write_article', 'write_seo_article' ];
-        $steps_for_planner = [];
-        foreach ( $plan['steps'] ?? [] as $s ) {
-            $tool_name = $s['tool'] ?? 'unknown';
-            // Skip tools handled by verify-content node (no runtime node)
-            if ( in_array( $tool_name, $skip_tools, true ) ) {
+        // ═══════════════════════════════════════════════════════════
+        //  STEP A: Expand plan — resolve composite tools to atomic
+        // ═══════════════════════════════════════════════════════════
+        $expanded_steps = [];
+        foreach ( $plan['steps'] ?? [] as $step ) {
+            $tool_name = $step['tool'] ?? 'unknown';
+            $taxonomy  = self::$tool_taxonomy[ $tool_name ] ?? null;
+
+            // Composite tools get expanded into atomic equivalents
+            if ( $taxonomy && $taxonomy['tool_type'] === 'composite' ) {
+                $atomics = self::resolve_composite( $tool_name );
+                if ( $atomics ) {
+                    foreach ( $atomics as $atomic_tool ) {
+                        $expanded_steps[] = [
+                            'tool'         => $atomic_tool,
+                            'step_index'   => count( $expanded_steps ),
+                            'slots'        => $step['slots'] ?? [],
+                            'input_fields' => $step['input_fields'] ?? [],
+                            'input_map'    => $step['input_map'] ?? [],
+                            'depends_on'   => $step['depends_on'] ?? [],
+                            'trust_tier'   => $step['trust_tier'] ?? 2,
+                            '_expanded_from' => $tool_name,
+                        ];
+                    }
+                    continue;
+                }
+            }
+
+            // Already atomic/distribution — keep as-is
+            $step['step_index'] = count( $expanded_steps );
+            $expanded_steps[] = $step;
+        }
+
+        // ═══════════════════════════════════════════════════════════
+        //  STEP B: Identify primary content tool AND image tool
+        // ═══════════════════════════════════════════════════════════
+        // First atomic content_production tool → becomes it_call_content Node #3 (content).
+        // First image_production tool → becomes separate it_call_tool Node (image).
+        $primary_content_tool = null;
+        $content_step_indices = []; // indices consumed by content Node #3
+
+        $image_tool = null;
+        $image_step_indices = [];   // indices consumed by image Node
+
+        foreach ( $expanded_steps as $idx => $step ) {
+            $tool_name = $step['tool'];
+            $taxonomy  = self::$tool_taxonomy[ $tool_name ] ?? null;
+
+            if ( ! $taxonomy ) {
                 continue;
             }
-            $step_node_id = (string) ( ( $s['step_index'] ?? 0 ) + 4 );
+
+            // Content production → Node #3
+            if ( $taxonomy['family'] === 'content_production'
+                 && $taxonomy['tool_type'] === 'atomic'
+                 && $taxonomy['execution_path'] === 'it_call_content'
+            ) {
+                if ( $primary_content_tool === null ) {
+                    $primary_content_tool = $tool_name;
+                }
+                if ( $primary_content_tool === $tool_name ) {
+                    $content_step_indices[] = $idx;
+                }
+            }
+
+            // Image production → separate image node
+            if ( $taxonomy['family'] === 'image_production' && $taxonomy['tool_type'] === 'atomic' ) {
+                if ( $image_tool === null ) {
+                    $image_tool = $tool_name;
+                }
+                if ( $image_tool === $tool_name ) {
+                    $image_step_indices[] = $idx;
+                }
+            }
+        }
+
+        // Fallback: if no atomic content tool found, use generate_blog_content
+        if ( ! $primary_content_tool ) {
+            $primary_content_tool = 'generate_blog_content';
+        }
+
+        // ═══════════════════════════════════════════════════════════
+        //  STEP C: Build planner node steps (exclude content + image steps)
+        // ═══════════════════════════════════════════════════════════
+        $consumed_indices = array_merge( $content_step_indices, $image_step_indices );
+        $steps_for_planner = [];
+        foreach ( $expanded_steps as $idx => $s ) {
+            if ( in_array( $idx, $consumed_indices, true ) ) {
+                continue; // handled by dedicated nodes
+            }
+            $tool_name = $s['tool'];
+            $step_node_id = (string) ( $idx + 4 );
             $steps_for_planner[] = [
                 'tool_name' => $tool_name,
                 'label'     => self::$tool_labels[ $tool_name ] ?? $tool_name,
                 'node_id'   => $step_node_id,
-                'node_code' => '', // filled at runtime by block execution
+                'node_code' => '',
             ];
         }
         $pipeline_label = self::build_title( $plan );
@@ -202,9 +421,9 @@ class BizCity_Scenario_Generator {
             'type'         => 'default',
         ];
 
-        // ── Verify-Content Node (id="3") ──
-        // AI clarifies, supplements, and structures the user's content requirements.
-        // Exposes {{node#3.title}} and {{node#3.content}} for ALL subsequent nodes.
+        // ═══════════════════════════════════════════════════════════
+        //  STEP D: Verify-Content Node #3 (atomic content tool)
+        // ═══════════════════════════════════════════════════════════
         $content_value = $plan['_content_value'] ?? ( $trigger_context['message'] ?? '' );
         $plan_summary  = [];
         foreach ( $plan['steps'] ?? [] as $s ) {
@@ -226,15 +445,16 @@ class BizCity_Scenario_Generator {
             'data'     => [
                 'type'            => 'action',
                 'category'        => 'it',
-                'code'            => 'it_call_tool',
+                'code'            => 'it_call_content',
                 'label'           => '📝 Xác minh & Biên tập nội dung',
                 'settings'        => [
-                    'tool_id'        => 'write_article',
-                    'input_json'     => wp_json_encode( [
+                    'content_tool'      => $primary_content_tool,
+                    'input_json'        => wp_json_encode( [
                         'topic'   => $content_value,
                         'message' => $verify_prompt,
                     ], JSON_UNESCAPED_UNICODE ),
-                    'user_id_source' => 'trigger',
+                    'require_confirm'   => '0',
+                    'max_refine_rounds' => '2',
                 ],
                 'executionStatus' => null,
                 'dragged'         => true,
@@ -254,129 +474,166 @@ class BizCity_Scenario_Generator {
         $prev_node_id = $verify_node_id;
         $x_pos        = 980;
 
-        // ── Native block mapping: tool_id → { category, code, settings_builder } ──
-        // Tools with native blocks use them directly instead of it_call_tool wrapper.
-        $native_block_map = [
-            'write_article' => [
-                'category' => 'wp',
-                'code'     => 'wp_create_post',
-                'label'    => '📄 Tạo bài viết WordPress',
-                'settings' => function( $verify_nid ) {
-                    return [
-                        'title'  => '{{node#' . $verify_nid . '.title}}',
-                        'body'   => '{{node#' . $verify_nid . '.content}}',
-                        'status' => 'publish',
-                    ];
-                },
-            ],
-            'write_seo_article' => [
-                'category' => 'wp',
-                'code'     => 'wp_create_post',
-                'label'    => '📄 Tạo bài SEO WordPress',
-                'settings' => function( $verify_nid ) {
-                    return [
-                        'title'  => '{{node#' . $verify_nid . '.title}}',
-                        'body'   => '{{node#' . $verify_nid . '.content}}',
-                        'status' => 'publish',
-                    ];
-                },
-            ],
-            'create_facebook_post' => [
-                'category' => 'bc',
-                'code'     => 'ai_generate_facebook',
-                'label'    => '📘 Đăng Facebook',
-                'settings' => function( $verify_nid ) {
-                    return [
-                        'message'   => '{{node#' . $verify_nid . '.content}}',
-                        'image_url' => '',
-                    ];
-                },
-            ],
-            'post_facebook' => [
-                'category' => 'bc',
-                'code'     => 'ai_generate_facebook',
-                'label'    => '📘 Đăng Facebook',
-                'settings' => function( $verify_nid ) {
-                    return [
-                        'message'   => '{{node#' . $verify_nid . '.content}}',
-                        'image_url' => '',
-                    ];
-                },
-            ],
-        ];
+        // Track publish_wp_post node ID so downstream facebook tool can wire post_url → link
+        $publish_node_id = null;
 
-        foreach ( $plan['steps'] as $step ) {
-            // Node ID = step_index + 4 (trigger="1", planner="2", verify="3", first action="4")
-            $node_id   = (string) ( $step['step_index'] + 4 );
-            $tool_name = $step['tool'];
+        // ═══════════════════════════════════════════════════════════
+        //  STEP D2: Image Generation Node (if plan includes generate_image)
+        // ═══════════════════════════════════════════════════════════
+        $image_node_id = null;
+        if ( $image_tool ) {
+            // Image node ID: use a fixed offset to avoid collision with action nodes
+            $image_node_id = (string) ( count( $expanded_steps ) + 5 );
 
-            // Skip tools already handled by the verify-content node (#3).
-            // The verify node calls write_article which creates the WP post;
-            // generating a separate wp_create_post node would double-publish.
-            if ( in_array( $tool_name, [ 'write_article', 'write_seo_article' ], true ) ) {
+            $image_prompt = "Tạo ảnh minh họa chuyên nghiệp cho bài viết.\n"
+                . "Chủ đề: " . $content_value . "\n"
+                . "Tiêu đề bài: {{node#" . $verify_node_id . ".title}}\n"
+                . "Phong cách: hiện đại, chuyên nghiệp, phù hợp nội dung bài viết\n"
+                . "Yêu cầu: ảnh rõ ràng, bố cục cân đối, màu sắc hài hòa, không chứa text trên ảnh";
+
+            // Phase 1.1h: Inject skill/brand context into image prompt if available
+            if ( class_exists( 'BizCity_Tool_Run' ) ) {
+                $image_skill = BizCity_Tool_Run::resolve_skill( 'generate_image', $options['user_id'] ?? 0 );
+                if ( $image_skill && ! empty( $image_skill['content'] ) ) {
+                    $image_prompt .= "\n[Brand/Style]\n" . mb_substr( $image_skill['content'], 0, 500 );
+                }
+            }
+
+            $nodes[] = [
+                'id'       => $image_node_id,
+                'type'     => 'action',
+                'position' => [ 'x' => $x_pos, 'y' => 350 ], // offset Y to show parallel
+                'data'     => [
+                    'type'            => 'action',
+                    'category'        => 'it',
+                    'code'            => 'it_call_tool',
+                    'label'           => '🖼️ Tạo ảnh minh họa',
+                    'settings'        => [
+                        'tool_id'        => $image_tool,
+                        'input_json'     => wp_json_encode( [
+                            'prompt'  => $image_prompt,
+                            'topic'   => '{{node#' . $verify_node_id . '.title}}',
+                        ], JSON_UNESCAPED_UNICODE ),
+                        'user_id_source' => 'trigger',
+                    ],
+                    'executionStatus' => null,
+                    'dragged'         => true,
+                ],
+            ];
+
+            // Edge: content node → image node (image depends on content for title)
+            $edges[] = [
+                'id'           => 'e' . $verify_node_id . '-' . $image_node_id,
+                'source'       => $verify_node_id,
+                'target'       => $image_node_id,
+                'sourceHandle' => 'output-right',
+                'targetHandle' => 'input-left',
+                'type'         => 'default',
+            ];
+
+            $prev_node_id = $image_node_id;
+            $x_pos       += 210;
+        }
+
+        // ═══════════════════════════════════════════════════════════
+        //  STEP E: Build action nodes (distribution + remaining tools)
+        // ═══════════════════════════════════════════════════════════
+        foreach ( $expanded_steps as $idx => $step ) {
+            // Skip content + image steps already consumed by dedicated nodes
+            if ( in_array( $idx, $consumed_indices, true ) ) {
                 continue;
             }
 
-            // Check if this tool has a native block
-            $native = $native_block_map[ $tool_name ] ?? null;
+            $node_id   = (string) ( $idx + 4 );
+            $tool_name = $step['tool'];
+            $taxonomy  = self::$tool_taxonomy[ $tool_name ] ?? null;
 
-            if ( $native ) {
-                // ── Native block node ──
-                $settings_fn = $native['settings'];
-                $block_settings = $settings_fn( $verify_node_id );
+            // Build input_json — auto-wire upstream content from Node #3
+            $input_json = [];
+            $tool_inputs = $step['input_fields'] ?? [];
 
+            // For distribution tools: wire content/title from Node #3 + image from image node
+            if ( $taxonomy && $taxonomy['tool_type'] === 'distribution' ) {
+                $content_fields = [ 'content', 'message', 'description' ];
+                foreach ( $content_fields as $cf ) {
+                    if ( isset( $tool_inputs[ $cf ] ) ) {
+                        $input_json[ $cf ] = '{{node#' . $verify_node_id . '.content}}';
+                    }
+                }
+                if ( isset( $tool_inputs['title'] ) ) {
+                    $input_json['title'] = '{{node#' . $verify_node_id . '.title}}';
+                }
+                // Wire image_url from image node if available, otherwise leave empty
+                if ( isset( $tool_inputs['image_url'] ) ) {
+                    $input_json['image_url'] = $image_node_id
+                        ? '{{node#' . $image_node_id . '.image_url}}'
+                        : '';
+                }
+                // Wire post URL from publish_wp_post into facebook tool's 'link' field
+                if ( isset( $tool_inputs['link'] ) && $publish_node_id ) {
+                    $input_json['link'] = '{{node#' . $publish_node_id . '.post_url}}';
+                }
+            }
+
+            // Track publish_wp_post node so subsequent facebook tools can reference post_url
+            if ( $tool_name === 'publish_wp_post' ) {
+                $publish_node_id = $node_id;
+            }
+
+            // Fill from existing slots
+            $raw_slots = $step['slots'] ?? [];
+            foreach ( $tool_inputs as $field => $cfg ) {
+                if ( ! isset( $input_json[ $field ] ) && isset( $raw_slots[ $field ] ) && $raw_slots[ $field ] !== '' ) {
+                    $input_json[ $field ] = $raw_slots[ $field ];
+                }
+            }
+
+            // Convert input_map references → {{node#N.field}}
+            foreach ( $step['input_map'] ?? [] as $target_field => $ref ) {
+                if ( preg_match( '/^\$step\[(\d+)\]\.data\.(.+)$/', $ref, $m ) ) {
+                    $source_node_id = (string) ( (int) $m[1] + 4 );
+                    $source_field   = $m[2];
+                    $input_json[ $target_field ] = '{{node#' . $source_node_id . '.' . $source_field . '}}';
+                }
+            }
+
+            // Determine execution path based on taxonomy
+            $exec_path = $taxonomy['execution_path'] ?? 'it_call_tool';
+            $label = ( self::$tool_labels[ $tool_name ] ?? $tool_name );
+
+            if ( $exec_path === 'it_call_content' ) {
+                // Atomic content tool that's NOT the primary (e.g. second content step)
+                $node_label = '📝 ' . $label;
                 $nodes[] = [
                     'id'       => $node_id,
                     'type'     => 'action',
                     'position' => [ 'x' => $x_pos, 'y' => 200 ],
                     'data'     => [
                         'type'            => 'action',
-                        'category'        => $native['category'],
-                        'code'            => $native['code'],
-                        'label'           => $native['label'],
-                        'settings'        => $block_settings,
+                        'category'        => 'it',
+                        'code'            => 'it_call_content',
+                        'label'           => $node_label,
+                        'settings'        => [
+                            'content_tool'      => $tool_name,
+                            'input_json'        => wp_json_encode( $input_json, JSON_UNESCAPED_UNICODE ),
+                            'require_confirm'   => '0',
+                            'max_refine_rounds' => '2',
+                        ],
                         'executionStatus' => null,
                         'dragged'         => true,
                     ],
                 ];
             } else {
-                // ── Fallback: it_call_tool wrapper ──
-                $raw_slots   = $step['slots'] ?? [];
-                $tool_inputs = $step['input_fields'] ?? [];
-                $input_json  = [];
-
-                if ( ! empty( $tool_inputs ) ) {
-                    foreach ( $tool_inputs as $field => $cfg ) {
-                        if ( isset( $raw_slots[ $field ] ) && $raw_slots[ $field ] !== '' ) {
-                            $input_json[ $field ] = $raw_slots[ $field ];
-                        }
+                // Distribution / mutation / fallback → it_call_tool
+                $family_icon = '🤖';
+                if ( $taxonomy ) {
+                    switch ( $taxonomy['family'] ) {
+                        case 'distribution': $family_icon = '📤'; break;
+                        case 'mutation':     $family_icon = '🔧'; break;
+                        case 'scheduler':    $family_icon = '📅'; break;
                     }
                 }
-
-                // Convert input_map references → {{node#N.field}} with offset +2 for planner+verify nodes.
-                foreach ( $step['input_map'] ?? [] as $target_field => $ref ) {
-                    if ( preg_match( '/^\$step\[(\d+)\]\.data\.(.+)$/', $ref, $m ) ) {
-                        $source_node_id = (string) ( (int) $m[1] + 4 );
-                        $source_field   = $m[2];
-                        $input_json[ $target_field ] = '{{node#' . $source_node_id . '.' . $source_field . '}}';
-                    } elseif ( preg_match( '/^\$slots\.(.+)$/', $ref, $m ) ) {
-                        $input_json[ $target_field ] = '{{node#' . $trigger_node_id . '.' . $m[1] . '}}';
-                    }
-                }
-
-                // Auto-reference verify-content node for primary input fields
-                $primary_keys = [ 'message', 'content', 'description', 'topic' ];
-                foreach ( $primary_keys as $pk ) {
-                    if ( isset( $tool_inputs[ $pk ] ) && empty( $input_json[ $pk ] ) ) {
-                        $input_json[ $pk ] = '{{node#' . $verify_node_id . '.content}}';
-                        break;
-                    }
-                }
-                if ( isset( $tool_inputs['title'] ) && empty( $input_json['title'] ) ) {
-                    $input_json['title'] = '{{node#' . $verify_node_id . '.title}}';
-                }
-
-                $label = '🤖 Agent — ' . ( self::$tool_labels[ $tool_name ] ?? $tool_name );
+                $node_label = $family_icon . ' ' . $label;
 
                 $nodes[] = [
                     'id'       => $node_id,
@@ -386,7 +643,7 @@ class BizCity_Scenario_Generator {
                         'type'            => 'action',
                         'category'        => 'it',
                         'code'            => 'it_call_tool',
-                        'label'           => $label,
+                        'label'           => $node_label,
                         'settings'        => [
                             'tool_id'        => $tool_name,
                             'input_json'     => wp_json_encode( $input_json, JSON_UNESCAPED_UNICODE ),
@@ -414,7 +671,7 @@ class BizCity_Scenario_Generator {
 
         // ── Summary Verifier Node (last node) ──
         // Aggregates results, calculates pipeline score, sends final summary.
-        $verifier_node_id = (string) ( count( $plan['steps'] ) + 4 ); // after all action nodes
+        $verifier_node_id = (string) ( count( $expanded_steps ) + 6 ); // +6 to avoid collision with image node (+5)
 
         $nodes[] = [
             'id'       => $verifier_node_id,
@@ -512,8 +769,19 @@ class BizCity_Scenario_Generator {
     }
 
     /**
-     * Build a descriptive title from the plan.
+     * Build Memory Spec after task is saved.
      *
+     * @param int   $task_id  Task row ID.
+     * @param array $scenario { nodes, edges, settings }.
+     * @param array $context  { user_id, session_id, channel }.
+     */
+    private static function build_memory_spec_for_task( int $task_id, array $scenario, array $context ) {
+        if ( class_exists( 'BizCity_Memory_Spec' ) ) {
+            BizCity_Memory_Spec::build_from_pipeline( $task_id, $scenario, $context );
+        }
+    }
+
+    /**
      * @param array $plan From Core Planner.
      * @return string
      */

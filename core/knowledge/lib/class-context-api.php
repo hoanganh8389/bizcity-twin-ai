@@ -313,51 +313,77 @@ class BizCity_Knowledge_Context_API {
      * @return array Quick knowledge result
      */
     private function build_quick_knowledge_context($character_id, $config, $query = '', $max_tokens = 0) {
-        $db = BizCity_Knowledge_Database::instance();
-        $sources = $db->get_knowledge_sources($character_id, 'ready');
-        
-        $entries = [];  // [ ['text' => ..., 'source_id' => ..., 'score' => ...] ]
+        global $wpdb;
+        $table = $wpdb->prefix . 'bizcity_knowledge_sources';
+
+        // Explode query into keywords (≥2 chars) for SQL LIKE + in-memory scoring
         $query_lower = mb_strtolower( $query, 'UTF-8' );
-        $query_words = $query_lower ? array_filter( preg_split( '/\s+/', $query_lower ) ) : [];
-        
-        foreach ($sources as $source) {
-            if (in_array($source->source_type, ['quick_faq', 'manual'])) {
-                $content = json_decode($source->content, true);
-                $text = '';
-                
-                if (is_array($content)) {
-                    if (isset($content['question']) && isset($content['answer'])) {
-                        $text = "Q: {$content['question']}\nA: {$content['answer']}";
-                    } elseif (isset($content['title']) && isset($content['content'])) {
-                        $text = "### {$content['title']}\n{$content['content']}";
-                    }
-                } elseif (!empty($source->content)) {
-                    $text = $source->content;
-                }
-                
-                if ( empty( $text ) ) {
-                    continue;
-                }
-                
-                // Score by keyword overlap with query
-                $score = 0;
-                if ( ! empty( $query_words ) ) {
-                    $text_lower = mb_strtolower( $text, 'UTF-8' );
-                    foreach ( $query_words as $w ) {
-                        if ( mb_strlen( $w, 'UTF-8' ) >= 2 && mb_strpos( $text_lower, $w ) !== false ) {
-                            $score++;
-                        }
-                    }
-                }
-                
-                $entries[] = [
-                    'text'      => $text,
-                    'source_id' => $source->id,
-                    'score'     => $score,
-                ];
+        $query_words = $query_lower ? array_filter( preg_split( '/\s+/', $query_lower ), function( $w ) {
+            return mb_strlen( $w, 'UTF-8' ) >= 2;
+        } ) : [];
+
+        // SQL: character-specific + global (character_id=0) + keyword LIKE on content/source_name
+        $where = $wpdb->prepare(
+            "source_type IN ('quick_faq','manual') AND status = 'ready' AND (character_id = %d OR character_id = 0)",
+            $character_id
+        );
+
+        if ( ! empty( $query_words ) ) {
+            $like_clauses = [];
+            foreach ( $query_words as $word ) {
+                $esc = '%' . $wpdb->esc_like( $word ) . '%';
+                $like_clauses[] = $wpdb->prepare( '(LOWER(content) LIKE %s OR LOWER(source_name) LIKE %s)', $esc, $esc );
             }
+            $where .= ' AND (' . implode( ' OR ', $like_clauses ) . ')';
         }
-        
+
+        $sources = $wpdb->get_results( "SELECT * FROM {$table} WHERE {$where} ORDER BY updated_at DESC LIMIT 100" );
+
+        error_log( sprintf(
+            '[ContextAPI] build_quick_knowledge SQL | char_id=%d | keywords=%s | sql_rows=%d',
+            $character_id,
+            implode( ',', $query_words ),
+            count( $sources ?: [] )
+        ) );
+
+        // Parse content + compute relevance score
+        $entries = [];
+        foreach ( ( $sources ?: [] ) as $source ) {
+            $content = json_decode( $source->content, true );
+            $text = '';
+
+            if ( is_array( $content ) ) {
+                if ( isset( $content['question'] ) && isset( $content['answer'] ) ) {
+                    $text = "Q: {$content['question']}\nA: {$content['answer']}";
+                } elseif ( isset( $content['title'] ) && isset( $content['content'] ) ) {
+                    $text = "### {$content['title']}\n{$content['content']}";
+                }
+            } elseif ( ! empty( $source->content ) ) {
+                $text = $source->content;
+            }
+
+            if ( empty( $text ) ) {
+                continue;
+            }
+
+            // Score by keyword overlap with query
+            $score = 0;
+            if ( ! empty( $query_words ) ) {
+                $text_lower = mb_strtolower( $text, 'UTF-8' );
+                foreach ( $query_words as $w ) {
+                    if ( mb_strpos( $text_lower, $w ) !== false ) {
+                        $score++;
+                    }
+                }
+            }
+
+            $entries[] = [
+                'text'      => $text,
+                'source_id' => $source->id,
+                'score'     => $score,
+            ];
+        }
+
         error_log( sprintf(
             '[ContextAPI] build_quick_knowledge | char_id=%d | total_entries=%d | budget=%s | query=%s',
             $character_id, count( $entries ),

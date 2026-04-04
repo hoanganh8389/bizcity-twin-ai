@@ -1,4 +1,13 @@
-<?php
+﻿<?php
+/**
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\Intent
+ * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+ * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
+ * @license    GPL-2.0-or-later
+ * @link       https://bizcity.vn
+ */
+
 /**
  * BizCity Intent — Intent Router
  *
@@ -100,7 +109,7 @@ class BizCity_Intent_Router {
             ],
 
             // FB / Social
-            '/đăng facebook|đăng fb|post facebook|đăng bài facebook/ui' => [
+            '/đăng(?:\s+(?:lên|bài))?\s*(?:facebook|fb)|post facebook/ui' => [
                 'goal' => 'post_facebook', 'label' => 'Đăng bài Facebook',
                 'description' => 'Đăng bài lên trang Facebook (nội dung, ảnh, link)',
                 'extract' => [ 'content', 'image_url', 'page_id' ],
@@ -397,6 +406,104 @@ class BizCity_Intent_Router {
             }
         }
 
+        // ── Step -0.5: SKILL MATCH ROUTING (Phase 1.2) ──
+        // If Intent Engine performed early_skill_lookup and found a high-confidence
+        // skill match (archetype B = single-tool, C = multi-tool), route directly
+        // to the skill's primary tool — skip LLM classification.
+        $skill_match = $context['skill_match'] ?? null;
+        if ( $skill_match && ! empty( $skill_match['confidence'] ) ) {
+            $sm_archetype  = $skill_match['archetype'] ?? 'A';
+            $sm_confidence = $skill_match['confidence'];
+            $sm_tool       = $skill_match['primary_tool'] ?? '';
+
+            // HIGH confidence + archetype B → route directly to primary tool
+            if ( $sm_confidence === 'high' && $sm_archetype === 'B' && $sm_tool ) {
+                // Verify tool exists in registered patterns
+                $tool_exists = false;
+                foreach ( $this->goal_patterns as $cfg ) {
+                    if ( ( $cfg['goal'] ?? '' ) === $sm_tool ) {
+                        $tool_exists = true;
+                        break;
+                    }
+                }
+
+                if ( $tool_exists ) {
+                    $result['intent']     = 'new_goal';
+                    $result['goal']       = $sm_tool;
+                    $result['goal_label'] = $skill_match['skill']['frontmatter']['title'] ?? '';
+                    $result['entities']   = [ '_raw_message' => $message ];
+                    $result['confidence'] = 0.95;
+                    $result['method']     = 'skill_match_B';
+
+                    $debug['classify_step'] = 'step_skill_match_B';
+                    $result['_debug']       = $debug;
+
+                    if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+                        error_log( '[bizcity-router] Step -0.5: Skill B direct route → goal=' . $sm_tool
+                            . ' | skill=' . ( $skill_match['skill']['frontmatter']['title'] ?? '?' )
+                            . ' | score=' . ( $skill_match['score'] ?? 0 ) );
+                    }
+
+                    // Phase 1.2 trace
+                    if ( class_exists( 'BizCity_Twin_Trace' ) ) {
+                        BizCity_Twin_Trace::log( 'skill_route', [
+                            'method'    => 'skill_match_B',
+                            'goal'      => $sm_tool,
+                            'score'     => $skill_match['score'] ?? 0,
+                            'skill'     => $skill_match['skill']['frontmatter']['title'] ?? '',
+                        ] );
+                    }
+
+                    return $result;
+                }
+            }
+
+            // HIGH confidence + archetype C → route to build_workflow
+            if ( $sm_confidence === 'high' && $sm_archetype === 'C' ) {
+                $result['intent']     = 'new_goal';
+                $result['goal']       = 'build_workflow';
+                $result['goal_label'] = $skill_match['skill']['frontmatter']['title'] ?? '';
+                $result['entities']   = [ '_raw_message' => $message ];
+                $result['confidence'] = 0.90;
+                $result['method']     = 'skill_match_C';
+                $result['meta']       = [
+                    'skill_tools'   => $skill_match['related_tools'] ?? [],
+                    'skill_inputs'  => $skill_match['required_inputs'] ?? [],
+                    'output_format' => $skill_match['output_format'] ?? '',
+                ];
+
+                $debug['classify_step'] = 'step_skill_match_C';
+                $result['_debug']       = $debug;
+
+                if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+                    error_log( '[bizcity-router] Step -0.5: Skill C workflow route'
+                        . ' | tools=' . implode( ',', $skill_match['related_tools'] ?? [] )
+                        . ' | skill=' . ( $skill_match['skill']['frontmatter']['title'] ?? '?' ) );
+                }
+
+                // Phase 1.2 trace
+                if ( class_exists( 'BizCity_Twin_Trace' ) ) {
+                    BizCity_Twin_Trace::log( 'skill_route', [
+                        'method' => 'skill_match_C',
+                        'goal'   => 'build_workflow',
+                        'tools'  => $skill_match['related_tools'] ?? [],
+                        'skill'  => $skill_match['skill']['frontmatter']['title'] ?? '',
+                    ] );
+                }
+
+                return $result;
+            }
+
+            // MEDIUM confidence → store as hint for downstream classification steps
+            if ( $sm_confidence === 'medium' && in_array( $sm_archetype, [ 'B', 'C' ], true ) ) {
+                $debug['skill_hint'] = [
+                    'tool'      => $sm_tool,
+                    'archetype' => $sm_archetype,
+                    'score'     => $skill_match['score'] ?? 0,
+                ];
+            }
+        }
+
         // ── Step -1: / SLASH COMMAND — Direct tool targeting (skip all classification) ──
         // When user selects a tool via / command, tool_goal is set directly.
         // No LLM needed — 0 cost, instant routing to the exact goal.
@@ -651,7 +758,8 @@ class BizCity_Intent_Router {
                             $message,
                             $result['goal'],
                             $result['goal_label'],
-                            $slot_schema
+                            $slot_schema,
+                            $conversation
                         );
                         if ( $tier2 && ! empty( $tier2['entities'] ) ) {
                             $result['entities'] = array_merge( $result['entities'], $tier2['entities'] );
@@ -1592,8 +1700,7 @@ class BizCity_Intent_Router {
             $req = $this->parse_tool_slot_names_with_types( $row['required_slots'] ?? '' );
             $opt = $this->parse_tool_slot_names_with_types( $row['optional_slots'] ?? '' );
 
-            $star = ( $likely_goal && $goal === $likely_goal ) ? '★ ' : '';
-            $line = "{$star}{$idx}. {$goal}: {$label}";
+            $line = "{$idx}. {$goal}: {$label}";
             if ( $desc ) {
                 $line .= ' — ' . mb_substr( $desc, 0, 80, 'UTF-8' );
             }
@@ -1615,8 +1722,7 @@ class BizCity_Intent_Router {
             $idx++;
             $goal = $po['goal'];
             $meta = $po['meta'];
-            $star = ( $likely_goal && $goal === $likely_goal ) ? '★ ' : '';
-            $line = "{$star}{$idx}. {$goal}: {$meta['label']}";
+            $line = "{$idx}. {$goal}: {$meta['label']}";
             if ( $meta['desc'] ) {
                 $line .= ' — ' . mb_substr( $meta['desc'], 0, 80, 'UTF-8' );
             }
@@ -1629,7 +1735,7 @@ class BizCity_Intent_Router {
         if ( empty( $lines ) ) return '';
 
         $note = ( $total_tools > $top_n )
-            ? " — hiển thị top {$top_n}/{$total_tools}, ★=likely"
+            ? " — hiển thị top {$top_n}/{$total_tools}"
             : '';
         $header = "## GOALS & TOOLS ({$idx} mục{$note})\n";
         $text   = $header . implode( "\n", $lines );
@@ -1895,7 +2001,7 @@ class BizCity_Intent_Router {
             $slot_schema = $this->get_goal_slot_schema( $tier1['goal'] );
             if ( $slot_schema ) {
                 $tier2_result = $this->extract_entities_with_llm(
-                    $message, $tier1['goal'], $tier1['goal_label'], $slot_schema
+                    $message, $tier1['goal'], $tier1['goal_label'], $slot_schema, $conversation
                 );
                 if ( $tier2_result && ! empty( $tier2_result['entities'] ) ) {
                     $tier2_entities = $tier2_result['entities'];
@@ -1976,6 +2082,31 @@ class BizCity_Intent_Router {
         }
 
         $has_images = ! empty( $attachments ) ? "\n[có ảnh đính kèm]" : '';
+
+        // ── v4.8.1: Recent chat history for follow-up context ──
+        // Router needs conversation history to correctly classify follow-up
+        // messages like "đúng rồi, làm đi" after a clarifying question.
+        if ( $conversation && ! empty( $conversation['session_id'] ) ) {
+            $recent_history = BizCity_Mode_Classifier::get_recent_chat_history(
+                $conversation['session_id'],
+                strtoupper( $conversation['channel'] ?? 'adminchat' ),
+                4
+            );
+            if ( $recent_history ) {
+                $conv_context .= $recent_history;
+            }
+        }
+
+        // ── v4.8.1: Compact User Memory — persona/preference awareness ──
+        if ( $conversation && class_exists( 'BizCity_User_Memory' ) ) {
+            $compact_mem = BizCity_User_Memory::build_compact_memory(
+                (int) ( $conversation['user_id'] ?? 0 ),
+                $conversation['session_id'] ?? ''
+            );
+            if ( $compact_mem ) {
+                $conv_context .= $compact_mem;
+            }
+        }
 
         // ── @mention provider hint ──
         $provider_hint_context = '';
@@ -2082,13 +2213,14 @@ PROMPT;
      * Called ONLY when Tier 1 returns new_goal AND regex extraction
      * didn't find enough entities. Focused prompt with single-goal slot schema.
      *
-     * @param string $message    User's message.
-     * @param string $goal       Goal ID.
-     * @param string $goal_label Goal label.
-     * @param string $slot_schema Slot description string.
+     * @param string     $message      User's message.
+     * @param string     $goal         Goal ID.
+     * @param string     $goal_label   Goal label.
+     * @param string     $slot_schema  Slot description string.
+     * @param array|null $conversation Conversation context (v4.8.1).
      * @return array|null  ['entities' => [...], '_llm_ms' => float, ...] or null.
      */
-    private function extract_entities_with_llm( string $message, string $goal, string $goal_label, string $slot_schema ) {
+    private function extract_entities_with_llm( string $message, string $goal, string $goal_label, string $slot_schema, $conversation = null ) {
         if ( ! function_exists( 'bizcity_openrouter_chat' ) ) {
             return null;
         }
@@ -2118,12 +2250,37 @@ Ví dụ:
 Trả JSON entities duy nhất.
 PROMPT;
 
+        // ── v4.8.1: Enrich user prompt with chat history + user memory ──
+        // Helps LLM resolve references like "dùng chủ đề hôm qua" or user-specific terms.
+        $extra_context = '';
+        if ( $conversation && ! empty( $conversation['session_id'] ) ) {
+            $hist = BizCity_Mode_Classifier::get_recent_chat_history(
+                $conversation['session_id'],
+                strtoupper( $conversation['channel'] ?? 'adminchat' ),
+                3
+            );
+            if ( $hist ) {
+                $extra_context .= $hist;
+            }
+        }
+        if ( $conversation && class_exists( 'BizCity_User_Memory' ) ) {
+            $mem = BizCity_User_Memory::build_compact_memory(
+                (int) ( $conversation['user_id'] ?? 0 ),
+                $conversation['session_id'] ?? ''
+            );
+            if ( $mem ) {
+                $extra_context .= $mem;
+            }
+        }
+
+        $user_prompt = $message . $extra_context;
+
         $t_start = microtime( true );
 
         $result = bizcity_openrouter_chat(
             [
                 [ 'role' => 'system', 'content' => $system ],
-                [ 'role' => 'user',   'content' => $message ],
+                [ 'role' => 'user',   'content' => $user_prompt ],
             ],
             [
                 'model'       => 'openai/gpt-5.2-codex',  // tool registry context

@@ -36,6 +36,9 @@ class BizCity_Plugin_Suggestion_API {
         // Slash command — tool-level search in bizcity_tool_registry
         add_action( 'wp_ajax_bizcity_search_tools', [ $this, 'ajax_search_tools' ] );
         add_action( 'wp_ajax_nopriv_bizcity_search_tools', [ $this, 'ajax_search_tools' ] );
+        // Slash command — skill search in bizcity_skills DB + file system
+        add_action( 'wp_ajax_bizcity_search_skills', [ $this, 'ajax_search_skills' ] );
+        add_action( 'wp_ajax_nopriv_bizcity_search_skills', [ $this, 'ajax_search_skills' ] );
     }
 
     /* ================================================================
@@ -942,6 +945,127 @@ class BizCity_Plugin_Suggestion_API {
             'score'            => $score,
             'reason'           => $reason,
         );
+    }
+
+    /* ================================================================
+     * Skill Search (for / slash command)
+     * ================================================================ */
+
+    /**
+     * AJAX handler: bizcity_search_skills
+     *
+     * Searches skill catalog (file-based + DB) for slash command dropdown.
+     */
+    public function ajax_search_skills() {
+        $nonce = $_REQUEST['_wpnonce'] ?? $_REQUEST['nonce'] ?? '';
+        if ( ! wp_verify_nonce( $nonce, 'bizcity_webchat_nonce' ) && ! wp_verify_nonce( $nonce, 'bizcity_webchat' ) && ! wp_verify_nonce( $nonce, 'bizcity_chat' ) ) {
+            wp_send_json_error( [ 'message' => 'Invalid nonce' ], 403 );
+        }
+
+        $query = sanitize_text_field( $_REQUEST['query'] ?? '' );
+        $limit = absint( $_REQUEST['limit'] ?? 8 );
+
+        if ( ! class_exists( 'BizCity_Skill_Manager' ) ) {
+            wp_send_json_success( [ 'skills' => [], 'query' => $query ] );
+            return;
+        }
+
+        $mgr    = \BizCity_Skill_Manager::instance();
+        $skills = $mgr->get_all_skills();
+        $query_lower = mb_strtolower( trim( $query ), 'UTF-8' );
+
+        $scored = [];
+        foreach ( $skills as $s ) {
+            $fm    = $s['frontmatter'] ?? [];
+            $title = $fm['title'] ?? basename( $s['path'] ?? '', '.md' );
+            $desc  = $fm['description'] ?? '';
+            $name  = $fm['name'] ?? sanitize_title( $title );
+            $triggers = $fm['triggers'] ?? [];
+            $slash_cmds = $fm['slash_commands'] ?? [];
+            $modes = $fm['modes'] ?? [];
+            $tools = array_merge( (array) ( $fm['related_tools'] ?? [] ), (array) ( $fm['tools'] ?? [] ) );
+
+            $score = 0;
+            $reason = '';
+
+            if ( empty( $query_lower ) ) {
+                $score = 1; // show all when empty query
+            } else {
+                // Name / slug exact match
+                if ( mb_strtolower( $name ) === $query_lower ) {
+                    $score += 20;
+                    $reason = 'name: ' . $name;
+                } elseif ( mb_strpos( mb_strtolower( $name ), $query_lower ) !== false ) {
+                    $score += 15;
+                    $reason = 'name: ' . $name;
+                }
+
+                // Title match
+                if ( mb_strpos( mb_strtolower( $title ), $query_lower ) !== false ) {
+                    $score += 15;
+                    $reason = $reason ?: $title;
+                }
+
+                // Description match
+                if ( $desc && mb_strpos( mb_strtolower( $desc ), $query_lower ) !== false ) {
+                    $score += 8;
+                    $reason = $reason ?: 'description match';
+                }
+
+                // Trigger match
+                foreach ( $triggers as $t ) {
+                    if ( is_string( $t ) && mb_strpos( mb_strtolower( $t ), $query_lower ) !== false ) {
+                        $score += 10;
+                        $reason = $reason ?: 'trigger: ' . $t;
+                        break;
+                    }
+                }
+
+                // Slash command match
+                foreach ( $slash_cmds as $cmd ) {
+                    if ( is_string( $cmd ) && mb_strpos( mb_strtolower( $cmd ), $query_lower ) !== false ) {
+                        $score += 12;
+                        $reason = $reason ?: 'slash: ' . $cmd;
+                        break;
+                    }
+                }
+
+                // Tool match
+                foreach ( $tools as $tool ) {
+                    if ( is_string( $tool ) && mb_strpos( mb_strtolower( $tool ), $query_lower ) !== false ) {
+                        $score += 5;
+                        break;
+                    }
+                }
+            }
+
+            if ( $score > 0 ) {
+                $scored[] = [
+                    'skill_key'   => $name,
+                    'title'       => $title,
+                    'description' => mb_substr( $desc, 0, 120 ),
+                    'category'    => dirname( $s['path'] ?? '' ),
+                    'path'        => $s['path'] ?? '',
+                    'modes'       => $modes,
+                    'tools'       => $tools,
+                    'triggers'    => $triggers,
+                    'priority'    => (int) ( $fm['priority'] ?? 50 ),
+                    'score'       => $score,
+                    'reason'      => $reason,
+                ];
+            }
+        }
+
+        // Sort by score desc, then priority asc
+        usort( $scored, function ( $a, $b ) {
+            $s = $b['score'] - $a['score'];
+            return $s !== 0 ? $s : $a['priority'] - $b['priority'];
+        } );
+
+        wp_send_json_success( [
+            'skills' => array_slice( $scored, 0, $limit ),
+            'query'  => $query,
+        ] );
     }
 
     /* ================================================================

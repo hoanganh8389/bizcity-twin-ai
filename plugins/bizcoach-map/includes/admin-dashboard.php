@@ -192,7 +192,10 @@ function bccm_admin_dashboard() {
   $total_logs     = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$t['logs']}");
 
   // Active reminders
-  $all_coachees = $wpdb->get_results("SELECT id, full_name, coach_type, user_id, platform_type FROM {$t['profiles']} ORDER BY id DESC", ARRAY_A);
+  $select_fields = bccm_profiles_support_platform_type()
+    ? 'id, full_name, coach_type, user_id, platform_type'
+    : 'id, full_name, coach_type, user_id';
+  $all_coachees = $wpdb->get_results("SELECT {$select_fields} FROM {$t['profiles']} ORDER BY id DESC", ARRAY_A);
   $active_reminders = 0;
   foreach ($all_coachees as $c) {
     $cfg = get_option("bccm_reminders_config_{$c['id']}", []);

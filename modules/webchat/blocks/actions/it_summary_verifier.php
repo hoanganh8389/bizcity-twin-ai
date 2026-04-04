@@ -115,6 +115,48 @@ class WaicAction_it_summary_verifier extends WaicAction {
 			}
 		}
 
+		// ── Phase 1.1h: LLM quality assessment ──
+		$llm_assessment = '';
+		if ( function_exists( 'bizcity_openrouter_chat' ) && $evidence_text && $total > 0 ) {
+			$assess_prompt = "Đánh giá chất lượng kết quả pipeline tự động:\n"
+				. "Tiến độ: {$completed}/{$total} bước thành công"
+				. ( $progress['failed'] > 0 ? ", {$progress['failed']} bước lỗi" : '' ) . "\n"
+				. $evidence_text . "\n\n"
+				. "Trả về JSON (không giải thích thêm):\n"
+				. "{\"score\": <0-100>, \"assessment\": \"<nhận xét ngắn 1-2 câu>\"}";
+
+			$ai = bizcity_openrouter_chat( [
+				[ 'role' => 'system', 'content' => 'Bạn đánh giá chất lượng pipeline. Chỉ trả JSON.' ],
+				[ 'role' => 'user',   'content' => $assess_prompt ],
+			], [ 'temperature' => 0.3, 'max_tokens' => 200 ] );
+
+			$raw_json = $ai['message'] ?? '';
+			// Extract JSON from response
+			if ( ( $pos = strpos( $raw_json, '{' ) ) !== false ) {
+				$raw_json = substr( $raw_json, $pos );
+			}
+			if ( ( $pos = strrpos( $raw_json, '}' ) ) !== false ) {
+				$raw_json = substr( $raw_json, 0, $pos + 1 );
+			}
+			$parsed = json_decode( $raw_json, true );
+
+			if ( $parsed ) {
+				$llm_score = min( 100, max( 0, (int) ( $parsed['score'] ?? 0 ) ) );
+				$llm_assessment = sanitize_text_field( $parsed['assessment'] ?? '' );
+
+				// Hybrid score: weight 60% math + 40% LLM
+				if ( $llm_score > 0 ) {
+					$pipeline_score = (int) round( $pipeline_score * 0.6 + $llm_score * 0.4 );
+				}
+
+				if ( $llm_assessment ) {
+					$reflection_parts[] = "🤖 AI: {$llm_assessment}";
+				}
+			}
+		}
+
+		$reflection_parts[] = "💯 Pipeline Score: {$pipeline_score}/100";
+
 		$reflection = implode( "\n", $reflection_parts ) . $evidence_text;
 
 		// Mark one-shot trigger as completed (if applicable)

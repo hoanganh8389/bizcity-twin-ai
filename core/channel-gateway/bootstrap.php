@@ -94,10 +94,6 @@ add_action( 'plugins_loaded', function () {
 	 */
 	do_action( 'bizcity_register_channel', $bridge );
 
-	$count = count( $bridge->get_adapters() );
-	if ( $count > 0 ) {
-		error_log( sprintf( '[Channel Gateway] 📡 %d channel adapter(s) registered', $count ) );
-	}
 }, 5 );
 
 /* ─── REST API Routes ─── */

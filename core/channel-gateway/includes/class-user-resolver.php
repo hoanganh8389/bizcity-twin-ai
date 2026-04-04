@@ -54,11 +54,16 @@ class BizCity_User_Resolver {
 
 		$blog_id = $blog_id ?: get_current_blog_id();
 
-		// Strip platform prefix to get raw client_id
-		$client_id = $this->extract_client_id( $chat_id );
+		// Priority 0: Zalo Bot User Linker (BUG-4 fix)
+		$user_id = $this->resolve_from_zalo_linker( $chat_id, $blog_id );
 
-		// Priority 1+2: global_user_admin
-		$user_id = $this->resolve_from_global_table( $client_id, $blog_id );
+		if ( ! $user_id ) {
+			// Strip platform prefix to get raw client_id
+			$client_id = $this->extract_client_id( $chat_id );
+
+			// Priority 1+2: global_user_admin
+			$user_id = $this->resolve_from_global_table( $client_id, $blog_id );
+		}
 
 		// Priority 3: Legacy helper
 		if ( ! $user_id && function_exists( 'twf_get_user_id_by_chat_id' ) ) {
@@ -119,6 +124,53 @@ class BizCity_User_Resolver {
 		}
 
 		return 0;
+	}
+
+	/**
+	 * Resolve Zalo Bot chat_id via bizcity_zalobot_user_links table.
+	 *
+	 * chat_id format: "zalobot_{bot_id}_{zalo_user_id}"
+	 * Delegates to BizCity_Zalobot_User_Linker::resolve_wp_user() when available.
+	 * If resolved, also syncs the mapping into global_user_admin for faster future lookups.
+	 *
+	 * @param string $chat_id Full chat_id with platform prefix.
+	 * @param int    $blog_id
+	 * @return int WP user_id or 0.
+	 */
+	private function resolve_from_zalo_linker( string $chat_id, int $blog_id ): int {
+		// Only handle zalobot_ prefix
+		if ( strpos( $chat_id, 'zalobot_' ) !== 0 ) {
+			return 0;
+		}
+
+		if ( ! class_exists( 'BizCity_Zalobot_User_Linker' ) ) {
+			return 0;
+		}
+
+		// Parse "zalobot_{bot_id}_{zalo_user_id}"
+		$without_prefix = substr( $chat_id, strlen( 'zalobot_' ) ); // "1_abc" or "1_abc123"
+		$sep_pos        = strpos( $without_prefix, '_' );
+		if ( false === $sep_pos ) {
+			return 0;
+		}
+
+		$bot_id       = (int) substr( $without_prefix, 0, $sep_pos );
+		$zalo_user_id = substr( $without_prefix, $sep_pos + 1 );
+
+		if ( ! $bot_id || $zalo_user_id === '' ) {
+			return 0;
+		}
+
+		$user_id = BizCity_Zalobot_User_Linker::resolve_wp_user( $zalo_user_id, $bot_id );
+
+		// Sync to global_user_admin for faster future lookups
+		if ( $user_id ) {
+			$client_id = $this->extract_client_id( $chat_id );
+			$this->save_mapping( $client_id, $blog_id, $user_id );
+			error_log( sprintf( '[User Resolver] 🔗 Zalo Linker resolved: %s → user_id=%d (bot=%d)', $chat_id, $user_id, $bot_id ) );
+		}
+
+		return $user_id;
 	}
 
 	/**

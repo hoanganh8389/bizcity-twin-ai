@@ -26,6 +26,9 @@ class BZGoogle_Google_OAuth {
         'drive_read'     => 'https://www.googleapis.com/auth/drive.readonly',
         'drive_write'    => 'https://www.googleapis.com/auth/drive.file',
         'contacts_read'  => 'https://www.googleapis.com/auth/contacts.readonly',
+        'docs_write'     => 'https://www.googleapis.com/auth/documents',
+        'sheets_write'   => 'https://www.googleapis.com/auth/spreadsheets',
+        'slides_write'   => 'https://www.googleapis.com/auth/presentations',
         'profile'        => 'https://www.googleapis.com/auth/userinfo.email',
     ];
 
@@ -43,8 +46,11 @@ class BZGoogle_Google_OAuth {
     const SCOPE_GROUPS = [
         'gmail'    => [ 'gmail_read', 'gmail_send' ],
         'calendar' => [ 'calendar_read', 'calendar_write' ],
-        'drive'    => [ 'drive_read' ],
+        'drive'    => [ 'drive_read', 'drive_write' ],
         'contacts' => [ 'contacts_read' ],
+        'docs'     => [ 'docs_write', 'drive_write' ],
+        'sheets'   => [ 'sheets_write', 'drive_write' ],
+        'slides'   => [ 'slides_write', 'drive_write' ],
     ];
 
     /**
@@ -115,12 +121,44 @@ class BZGoogle_Google_OAuth {
     }
 
     /**
-     * Handle /google-auth/* requests.
+     * Handle /google-auth/* requests (template_redirect fallback).
+     *
+     * Uses query_var from rewrite rule when available.
+     * Falls back to parsing REQUEST_URI directly when rewrite rules
+     * haven't been flushed yet (e.g. plugin just activated via marketplace).
      */
     public static function handle_request() {
         $action = get_query_var( 'bzgoogle_action' );
+
+        // Fallback: parse URI directly if rewrite rules not flushed
+        if ( empty( $action ) && ! empty( $_SERVER['REQUEST_URI'] ) ) {
+            $path = trim( parse_url( $_SERVER['REQUEST_URI'], PHP_URL_PATH ), '/' );
+            if ( preg_match( '/^google-auth\/([a-z]+)$/', $path, $m ) ) {
+                $action = $m[1];
+            }
+        }
+
         if ( empty( $action ) ) return;
 
+        self::dispatch_action( $action );
+    }
+
+    /**
+     * Handle /google-auth/* directly from init hook — bypasses WP_Query entirely.
+     * Called before the main WordPress query runs, so no 404/canonical redirect issues.
+     *
+     * @param string $action  connect|callback|disconnect
+     */
+    public static function handle_request_direct( string $action ) {
+        self::dispatch_action( $action );
+    }
+
+    /**
+     * Dispatch to the correct handler based on action.
+     *
+     * @param string $action  connect|callback|disconnect
+     */
+    private static function dispatch_action( string $action ) {
         switch ( $action ) {
             case 'connect':
                 self::handle_connect();
@@ -186,7 +224,13 @@ class BZGoogle_Google_OAuth {
         // Get credentials
         $creds = BZGoogle_Token_Store::get_google_credentials( $mode );
         if ( ! $creds ) {
-            wp_die( 'Google OAuth chưa được cấu hình trên hub site. Vui lòng liên hệ admin.', 'Lỗi cấu hình', [ 'response' => 500 ] );
+            wp_die(
+                '<h1>Lỗi cấu hình Google OAuth</h1>'
+                . '<p>Google OAuth chưa được cấu hình trên hub site. Vui lòng liên hệ admin.</p>'
+                . '<p><a href="' . esc_url( $return_url ?: home_url() ) . '">← Quay lại</a></p>',
+                'Lỗi cấu hình — Google OAuth',
+                [ 'response' => 200 ]
+            );
         }
 
         // Build state (signed) — carries user identity through Google OAuth
@@ -302,7 +346,7 @@ class BZGoogle_Google_OAuth {
         $granted_scope = $token_body['scope'] ?? '';
 
         // Store tokens
-        BZGoogle_Token_Store::save( [
+        $save_result = BZGoogle_Token_Store::save( [
             'blog_id'         => $blog_id,
             'user_id'         => $user_id,
             'google_email'    => $google_email,
@@ -313,6 +357,14 @@ class BZGoogle_Google_OAuth {
             'expires_at'      => gmdate( 'Y-m-d H:i:s', time() + ( $token_body['expires_in'] ?? 3600 ) ),
             'connection_mode' => $mode,
         ] );
+
+        // Debug: log save result (remove after fixing)
+        error_log( sprintf(
+            '[BZGoogle callback] save_result=%s, blog_id=%d, user_id=%d, email=%s, table=%s, last_error=%s',
+            var_export( $save_result, true ), $blog_id, $user_id, $google_email,
+            BZGoogle_Installer::table_accounts(),
+            $GLOBALS['wpdb']->last_error ?? 'none'
+        ) );
 
         // Log
         BZGoogle_REST_API::log_usage( $blog_id, $user_id, 'oauth', 'connect', $google_email, 'success' );

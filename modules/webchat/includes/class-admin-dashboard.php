@@ -104,9 +104,9 @@ class BizCity_WebChat_Admin_Dashboard {
      * Add dashboard menu page
      */
     public function add_dashboard_page() {
-        $td = 'bizcity-webchat';
+        $td = 'bizcity-twin-ai';
         add_menu_page(
-            __( 'Chat with Assistant', $td ),
+            __( 'Chat với Trợ lý', $td ),
             __( 'Chat', $td ),
             'read', // All logged-in users can access
             'bizcity-webchat-dashboard',
@@ -241,6 +241,33 @@ class BizCity_WebChat_Admin_Dashboard {
                 );
             }
         }
+
+        /* ── Pipeline Monitor Sidebar (Phase 1.2 — SSE-based real-time) ── */
+        $monitor_js = defined( 'BIZCITY_INTENT_DIR' )
+            ? BIZCITY_INTENT_DIR . '/assets/js/pipeline-monitor-sidebar.js' : '';
+        if ( $monitor_js && file_exists( $monitor_js ) ) {
+            $monitor_url = BIZCITY_INTENT_URL . 'assets/js/pipeline-monitor-sidebar.js';
+            wp_enqueue_script(
+                'bizc-pipeline-monitor-sidebar',
+                $monitor_url,
+                [ 'jquery', 'bizcity-admin-dashboard-app' ],
+                filemtime( $monitor_js ),
+                true
+            );
+            wp_localize_script( 'bizc-pipeline-monitor-sidebar', 'BIZC_PIPELINE_MONITOR', [
+                'nonce' => wp_create_nonce( 'bizc_pipeline_nonce' ),
+            ] );
+
+            $monitor_css = BIZCITY_INTENT_DIR . '/assets/css/pipeline-monitor-sidebar.css';
+            if ( file_exists( $monitor_css ) ) {
+                wp_enqueue_style(
+                    'bizc-pipeline-monitor-sidebar',
+                    BIZCITY_INTENT_URL . 'assets/css/pipeline-monitor-sidebar.css',
+                    [],
+                    filemtime( $monitor_css )
+                );
+            }
+        }
     }
     
     /**
@@ -255,6 +282,150 @@ class BizCity_WebChat_Admin_Dashboard {
      */
     private function localize_react_scripts($data) {
         wp_localize_script('bizcity-dashboard-react', 'bizcDashConfig', $data);
+    }
+
+    /**
+     * Detect current frontend language code from Transposh URL structure.
+     * Falls back to the site default language when no language slug is present.
+     */
+    private function get_current_frontend_lang_code() {
+        $default_lang = 'vi';
+
+        if ( defined( 'TRANSPOSH_OPTIONS' ) ) {
+            $tp_options = get_option( TRANSPOSH_OPTIONS, [] );
+            if ( ! empty( $tp_options['default_language'] ) ) {
+                $default_lang = (string) $tp_options['default_language'];
+            }
+        }
+
+        $tp_utils = WP_PLUGIN_DIR . '/transposh-translation-filter-for-wordpress/core/utils.php';
+        $tp_const = WP_PLUGIN_DIR . '/transposh-translation-filter-for-wordpress/core/constants.php';
+        if ( file_exists( $tp_utils ) && file_exists( $tp_const ) && ! class_exists( 'transposh_consts' ) ) {
+            include_once $tp_utils;
+            include_once $tp_const;
+        }
+
+        if ( class_exists( 'transposh_utils' ) && isset( $_SERVER['REQUEST_URI'] ) ) {
+            $proto = ( ! empty( $_SERVER['HTTPS'] ) && $_SERVER['HTTPS'] !== 'off' ) ? 'https://' : 'http://';
+            $lang  = transposh_utils::get_language_from_url(
+                sanitize_text_field( wp_unslash( $_SERVER['REQUEST_URI'] ) ),
+                $proto . ( $_SERVER['SERVER_NAME'] ?? '' )
+            );
+            if ( ! empty( $lang ) ) {
+                return (string) $lang;
+            }
+        }
+
+        return $default_lang;
+    }
+
+    /**
+     * Map a short language code from the URL to a WordPress locale.
+     */
+    private function map_lang_code_to_locale( $lang_code ) {
+        $lang_code = strtolower( (string) $lang_code );
+
+        $known = [
+            'vi' => 'vi_VN',
+            'en' => 'en_US',
+            'ja' => 'ja',
+            'ko' => 'ko_KR',
+            'fr' => 'fr_FR',
+            'de' => 'de_DE',
+            'es' => 'es_ES',
+            'it' => 'it_IT',
+            'pt' => 'pt_PT',
+            'ru' => 'ru_RU',
+            'zh' => 'zh_CN',
+        ];
+
+        if ( isset( $known[ $lang_code ] ) ) {
+            return $known[ $lang_code ];
+        }
+
+        if ( preg_match( '/^[a-z]{2}$/', $lang_code ) ) {
+            return $lang_code . '_' . strtoupper( $lang_code );
+        }
+
+        return function_exists( 'determine_locale' ) ? determine_locale() : get_locale();
+    }
+
+    /**
+     * Load a specific MO file into the BizCity Twin AI text domain.
+     */
+    private function load_bizcity_textdomain_locale( $locale ) {
+        $locale = (string) $locale;
+        if ( $locale === '' ) {
+            return false;
+        }
+
+        $mofile = BIZCITY_TWIN_AI_DIR . 'languages/bizcity-twin-ai-' . $locale . '.mo';
+        if ( ! file_exists( $mofile ) ) {
+            return false;
+        }
+
+        unload_textdomain( 'bizcity-twin-ai' );
+        return load_textdomain( 'bizcity-twin-ai', $mofile );
+    }
+
+    /**
+     * Build a runtime translation map for React using Vietnamese source strings.
+     * This lets /en/chat/ and future /xx/chat/ routes reuse WordPress .po/.mo files.
+     */
+    private function build_react_i18n_map() {
+        $source_strings = [
+            'Mở Dấu vết Biz',
+            'Dấu vết Biz',
+            'TRỰC TIẾP',
+            'Chưa có log nào',
+            'Gửi tin nhắn để xem quá trình AI xử lý',
+            '{count} bước',
+            'Chat mới',
+            'Dự án',
+            'Tên dự án...',
+            'Đăng nhập',
+            'Tài khoản của tôi',
+            'Cài đặt',
+            'Chat lưu trữ',
+            'Nâng cấp gói',
+            'Đăng xuất',
+            'Chưa đặt tên',
+            'Không có chat đã lưu trữ.',
+            'Chuyển giao diện sáng tối',
+            'Nhập tin nhắn... @ chọn trợ lý · / tìm công cụ',
+            'Chọn trợ lý',
+            'Chọn công cụ',
+            'Đính kèm ảnh',
+            'Lõi đôi: T{k}% H{e}%',
+            'Chế độ: {mode}',
+            'tự động',
+            'công cụ',
+            'Công cụ',
+            'Trợ lý: {name}',
+        ];
+
+        $original_locale = function_exists( 'determine_locale' ) ? determine_locale() : get_locale();
+        $current_lang    = $this->get_current_frontend_lang_code();
+        $target_locale   = $this->map_lang_code_to_locale( $current_lang );
+
+        if ( $target_locale && $target_locale !== $original_locale ) {
+            $this->load_bizcity_textdomain_locale( $target_locale );
+        }
+
+        $translations = [];
+        foreach ( $source_strings as $string ) {
+            $translations[ $string ] = __( $string, 'bizcity-twin-ai' );
+        }
+
+        if ( $target_locale && $target_locale !== $original_locale ) {
+            $this->load_bizcity_textdomain_locale( $original_locale );
+        }
+
+        return [
+            'lang'         => $current_lang,
+            'locale'       => $target_locale,
+            'translations' => $translations,
+        ];
     }
 
     /**
@@ -347,7 +518,7 @@ class BizCity_WebChat_Admin_Dashboard {
                         else $label = ucfirst(str_replace('_', ' ', $t['tool_name'] ?? 'Tool'));
                     }
                 }
-                // Prompt — always includes /tool_name prefix for quick intent detection
+                // Prompt — always includes @tool_name prefix for quick intent detection
                 $prompt = $t['goal_label'] ?? '';
                 if (!$prompt || preg_match('/^[a-z0-9_]+$/i', $prompt)) {
                     $prompt = $t['goal_description'] ?? '';
@@ -355,8 +526,8 @@ class BizCity_WebChat_Admin_Dashboard {
                     else $prompt = mb_strimwidth($prompt, 0, 100, '', 'UTF-8');
                 }
                 $tool_name = $t['tool_name'] ?? '';
-                if ($tool_name && strpos($prompt, '/' . $tool_name) !== 0) {
-                    $prompt = '/' . $tool_name . ' ' . $prompt;
+                if ($tool_name && strpos($prompt, '@' . $tool_name) !== 0) {
+                    $prompt = '@' . $tool_name . ' ' . $prompt;
                 }
                 // Slots
                 $slots = [];
@@ -393,6 +564,7 @@ class BizCity_WebChat_Admin_Dashboard {
                 'iconIsUrl' => $meta['iconIsUrl'],
                 'gradient'  => $meta['gradient'],
                 'category'  => $meta['category'],
+                'type'      => $plugin_id === 'builtin' ? 'atomic' : 'composite',
                 'toolCount' => count($tools),
                 'tools'     => $tools_out,
             ];
@@ -463,6 +635,103 @@ class BizCity_WebChat_Admin_Dashboard {
             ];
         }
         return $products;
+    }
+
+    /**
+     * Build language flags data by reading Transposh options directly.
+     *
+     * Avoids do_shortcode('[lsft_horizontal_flags]') which conflicts with React.
+     * Returns array of { code, flag, name, url } for each viewable language.
+     *
+     * @return array
+     */
+    private function build_language_flags_data() {
+        // Require Transposh constants
+        $tp_utils = WP_PLUGIN_DIR . '/transposh-translation-filter-for-wordpress/core/utils.php';
+        $tp_const = WP_PLUGIN_DIR . '/transposh-translation-filter-for-wordpress/core/constants.php';
+        if ( ! file_exists( $tp_utils ) || ! file_exists( $tp_const ) ) {
+            return [];
+        }
+        if ( ! class_exists( 'transposh_consts' ) ) {
+            include_once $tp_utils;
+            include_once $tp_const;
+        }
+        if ( ! defined( 'TRANSPOSH_OPTIONS' ) || ! class_exists( 'transposh_consts' ) ) {
+            return [];
+        }
+
+        $tp_options = get_option( TRANSPOSH_OPTIONS );
+        if ( empty( $tp_options['viewable_languages'] ) ) {
+            return [];
+        }
+
+        $default_lang = $tp_options['default_language'] ?? 'en';
+        $languages    = explode( ',', $tp_options['viewable_languages'] );
+        if ( ! in_array( $default_lang, $languages, true ) ) {
+            array_unshift( $languages, $default_lang );
+        }
+        if ( count( $languages ) < 2 ) {
+            return [];
+        }
+
+        // LSFT options
+        $lsft_opts = get_option( 'cfxlsft_options', [] );
+        $use_orig  = ( $lsft_opts['original_lang_names'] ?? '' ) === 'on';
+
+        // Flag path
+        $flag_base = plugins_url( 'language-switcher-for-transposh/assets/flags' );
+        if ( ( $lsft_opts['flag_type'] ?? '' ) === 'tp' && defined( 'TRANSPOSH_DIR_IMG' ) ) {
+            $flag_base = plugins_url( 'transposh-translation-filter-for-wordpress/' . TRANSPOSH_DIR_IMG . '/flags' );
+        }
+
+        // English flag override
+        $en_flag = 'gb';
+        if ( ( $lsft_opts['usa_flag'] ?? '' ) === 'on' ) {
+            $en_flag = 'us';
+        }
+
+        // Current lang from URL
+        $current_lang = '';
+        if ( class_exists( 'transposh_utils' ) && isset( $_SERVER['REQUEST_URI'] ) ) {
+            $proto = ( ! empty( $_SERVER['HTTPS'] ) && $_SERVER['HTTPS'] !== 'off' ) ? 'https://' : 'http://';
+            $current_lang = transposh_utils::get_language_from_url(
+                sanitize_text_field( wp_unslash( $_SERVER['REQUEST_URI'] ) ),
+                $proto . ( $_SERVER['SERVER_NAME'] ?? '' )
+            );
+        }
+        if ( empty( $current_lang ) ) {
+            $current_lang = $default_lang;
+        }
+
+        $site_url = get_site_url();
+        $flags    = [];
+
+        foreach ( $languages as $lang ) {
+            $name = $use_orig
+                ? ucfirst( transposh_consts::get_language_orig_name( $lang ) )
+                : ucfirst( transposh_consts::get_language_name( $lang ) );
+
+            $flag_code = transposh_consts::get_language_flag( $lang );
+            if ( $lang === 'en' && ( $lsft_opts['flag_type'] ?? '' ) !== 'tp' ) {
+                $flag_code = $en_flag;
+            }
+
+            // Build target URL
+            $url = $site_url;
+            if ( $lang !== $default_lang ) {
+                $url = $site_url . '/' . $lang;
+            }
+
+            $flags[] = [
+                'code'    => $lang,
+                'flag'    => $flag_base . '/' . $flag_code . '.png',
+                'name'    => $name,
+                'url'     => $url,
+                'active'  => $lang === $current_lang,
+            ];
+        }
+
+        return $flags;
     }
 
     /**
@@ -554,29 +823,31 @@ class BizCity_WebChat_Admin_Dashboard {
         $logout_url  = wp_logout_url(get_permalink());
 
         // ── Sidebar navigation items (configurable via filter) ──
+        $td = 'bizcity-twin-ai';
         $sidebar_nav = apply_filters('bizcity_sidebar_nav', [
-            ['slug' => 'explore',    'label' => __( 'Explore',             'bizcity-webchat' ), 'icon' => '🔍', 'type' => 'link', 'src' => admin_url('admin.php?page=bizcity-marketplace')],
-            ['slug' => 'tools',      'label' => __( 'Tools',              'bizcity-webchat' ), 'icon' => '🛠️', 'type' => 'link', 'src' => home_url('tools-map/')],
-            ['slug' => 'scheduler',  'label' => __( 'Scheduler',          'bizcity-webchat' ), 'icon' => '📅', 'type' => 'link', 'src' => home_url('scheduler/')],
-            ['slug' => 'skills',     'label' => __( 'Skills',             'bizcity-webchat' ), 'icon' => '⚡', 'type' => 'link', 'src' => home_url('skills/')],
-            ['slug' => 'training',   'label' => __( 'Teach AI',           'bizcity-webchat' ), 'icon' => '📖', 'type' => 'link', 'src' => home_url('note/')],
-            ['slug' => 'maturity',   'label' => __( 'Maturity',           'bizcity-webchat' ), 'icon' => '🧬', 'type' => 'link', 'src' => home_url('maturity/')],
-
-            ['slug' => 'settings',   'label' => __( 'API Settings',       'bizcity-webchat' ), 'icon' => '⚙️', 'panel' => 'settings'],
-            ['slug' => 'automation', 'label' => __( 'Automation Planner', 'bizcity-webchat' ), 'icon' => '🔄', 'type' => 'link', 'src' => admin_url('admin.php?page=bizcity-workspace&tab=workflow')],
-            ['slug' => 'gateway',    'label' => __( 'Gateway',            'bizcity-webchat' ), 'icon' => '🔌', 'type' => 'link', 'src' => admin_url('admin.php?page=bizchat-gateway')],
+            ['slug' => 'explore',    'label' => __( 'Khám phá',            $td ), 'icon' => '🔍', 'type' => 'link', 'src' => admin_url('admin.php?page=bizcity-marketplace')],
+            ['slug' => 'tools',      'label' => __( 'Công cụ',             $td ), 'icon' => '🛠️', 'type' => 'link', 'src' => home_url('tools-map/')],
+            ['slug' => 'skills',     'label' => __( 'Tạo kỹ năng',            $td ), 'icon' => '⚡', 'type' => 'link', 'src' => home_url('skills/')],
+            ['slug' => 'training',   'label' => __( 'Dạy AI bằng sổ tay',     $td ), 'icon' => '📖', 'type' => 'link', 'src' => home_url('note/')],
+            ['slug' => 'maturity',   'label' => __( 'Dạy AI bằng hỏi đáp',    $td ), 'icon' => '🧬', 'type' => 'link', 'src' => admin_url('admin.php?page=bizcity-knowledge-training')],
+            ['slug' => 'automation', 'label' => __( 'Quy trình',              $td ), 'icon' => '🔄', 'type' => 'link', 'src' => admin_url('admin.php?page=bizcity-workspace&tab=workflow')],
+            
+            ['slug' => 'settings',   'label' => __( 'Cài đặt API',         $td ), 'icon' => '⚙️', 'panel' => 'settings'],
+            ['slug' => 'gateway',    'label' => __( 'Cổng kết nối',        $td ), 'icon' => '🔌', 'type' => 'link', 'src' => admin_url('admin.php?page=bizchat-gateway')],
+            ['slug' => 'scheduler',  'label' => __( 'Lịch biểu',           $td ), 'icon' => '📅', 'type' => 'link', 'src' => home_url('scheduler/')],
+            
         ]);
 
         // ── Welcome screen tool shortcuts (configurable via filter) ──
         $welcome_tools = apply_filters('bizcity_welcome_tools', [
-            ['slug' => 'write_article',  'label' => __( 'Write Article',    'bizcity-webchat' ), 'icon' => '✍️',  'color' => '#4D6BFE', 'pluginSlug' => 'bizcity-tool-content', 'toolName' => 'write_article',    'prompt' => __( '/write_article Write an article for me', 'bizcity-webchat' )],
-            ['slug' => 'gen_image',      'label' => __( 'Generate Image',   'bizcity-webchat' ), 'icon' => '🖼️',  'color' => '#FF5630', 'pluginSlug' => 'bizcity-tool-image',   'toolName' => 'generate_image',   'prompt' => __( '/generate_image Generate an image for me', 'bizcity-webchat' )],
-            ['slug' => 'summarize',      'label' => __( 'Summarize',        'bizcity-webchat' ), 'icon' => '📝',  'color' => '#8E33FF', 'pluginSlug' => 'bizcity-tool-content', 'toolName' => 'summarize',        'prompt' => __( '/summarize Summarize this content for me', 'bizcity-webchat' )],
-            ['slug' => 'consult',        'label' => __( 'Consult',          'bizcity-webchat' ), 'icon' => '💡',  'color' => '#FFAB00', 'pluginSlug' => 'bizcity-agent-calo',   'toolName' => 'consult',          'prompt' => __( '/consult Give me advice on', 'bizcity-webchat' )],
-            ['slug' => 'order_list',     'label' => __( 'View Orders',      'bizcity-webchat' ), 'icon' => '🛒',  'color' => '#22C55E', 'pluginSlug' => 'bizcity-tool-woo',     'toolName' => 'order_list',       'prompt' => '/order_list'],
-            ['slug' => 'report',         'label' => __( 'Reports',          'bizcity-webchat' ), 'icon' => '📊',  'color' => '#00B8D9', 'pluginSlug' => 'bizcity-tool-woo',     'toolName' => 'business_report',  'prompt' => __( '/business_report Generate a report', 'bizcity-webchat' )],
-            ['slug' => 'mindmap',        'label' => __( 'Create Mindmap',   'bizcity-webchat' ), 'icon' => '🧠',  'color' => '#FF5630', 'pluginSlug' => 'bizcity-tool-mindmap', 'toolName' => 'create_mindmap',   'prompt' => '/create_mindmap'],
-            ['slug' => 'task',           'label' => __( 'Create Reminder',  'bizcity-webchat' ), 'icon' => '📋',  'color' => '#8E33FF', 'pluginSlug' => 'bizcity-tool-slide',   'toolName' => 'create_task',      'prompt' => '/create_task'],
+            ['slug' => 'write_article',  'label' => __( 'Viết bài',            $td ), 'icon' => '✍️',  'color' => '#4D6BFE', 'pluginSlug' => 'bizcity-tool-content', 'toolName' => 'write_article',    'prompt' => __( '/write_article Viết bài giúp tôi', $td )],
+            ['slug' => 'gen_image',      'label' => __( 'Tạo hình ảnh',        $td ), 'icon' => '🖼️',  'color' => '#FF5630', 'pluginSlug' => 'bizcity-tool-image',   'toolName' => 'generate_image',   'prompt' => __( '/generate_image Tạo hình ảnh giúp tôi', $td )],
+            ['slug' => 'summarize',      'label' => __( 'Tóm tắt',             $td ), 'icon' => '📝',  'color' => '#8E33FF', 'pluginSlug' => 'bizcity-tool-content', 'toolName' => 'summarize',        'prompt' => __( '/summarize Tóm tắt nội dung này giúp tôi', $td )],
+            ['slug' => 'consult',        'label' => __( 'Tư vấn',              $td ), 'icon' => '💡',  'color' => '#FFAB00', 'pluginSlug' => 'bizcity-agent-calo',   'toolName' => 'consult',          'prompt' => __( '/consult Tư vấn giúp tôi về', $td )],
+            ['slug' => 'order_list',     'label' => __( 'Xem đơn hàng',        $td ), 'icon' => '🛒',  'color' => '#22C55E', 'pluginSlug' => 'bizcity-tool-woo',     'toolName' => 'order_list',       'prompt' => '/order_list'],
+            ['slug' => 'report',         'label' => __( 'Báo cáo',             $td ), 'icon' => '📊',  'color' => '#00B8D9', 'pluginSlug' => 'bizcity-tool-woo',     'toolName' => 'business_report',  'prompt' => __( '/business_report Tạo báo cáo', $td )],
+            ['slug' => 'mindmap',        'label' => __( 'Tạo Mindmap',         $td ), 'icon' => '🧠',  'color' => '#FF5630', 'pluginSlug' => 'bizcity-tool-mindmap', 'toolName' => 'create_mindmap',   'prompt' => '/create_mindmap'],
+            ['slug' => 'task',           'label' => __( 'Tạo nhắc nhở',        $td ), 'icon' => '📋',  'color' => '#8E33FF', 'pluginSlug' => 'bizcity-tool-slide',   'toolName' => 'create_task',      'prompt' => '/create_task'],
         ]);
 
         // ── Tools Catalog (full list for welcome screen) ──
@@ -610,6 +881,8 @@ class BizCity_WebChat_Admin_Dashboard {
             }
         }
 
+        $react_i18n = $this->build_react_i18n_map();
+
         $this->localize_react_scripts([
             'ajaxurl'      => admin_url('admin-ajax.php'),
             'sessionId'    => $session_id,
@@ -639,8 +912,13 @@ class BizCity_WebChat_Admin_Dashboard {
             'shopProducts'       => $shop_products,
             'ssoGoogleUrl'       => site_url('?auth=sso'),
             'ssoBizcityUrl'      => site_url('?auth=sso&provider=bizcity'),
-            'locale'             => get_locale(),
+            'locale'             => $react_i18n['locale'] ?: get_locale(),
+            'currentLang'        => $react_i18n['lang'],
+            'currentLocale'      => $react_i18n['locale'],
+            'reactI18n'          => $react_i18n['translations'],
             'kciRatio'           => $kci_ratio_val,
+            'isSuperAdmin'       => current_user_can( 'manage_network' ),
+            'languageFlags'      => $this->build_language_flags_data(),
         ]);
 
         // TouchBar agent data (same as legacy)
@@ -786,19 +1064,29 @@ class BizCity_WebChat_Admin_Dashboard {
             color: #4ade80;
         }
         </style>
+       
         <script>
         (function() {
             var _cfg = null;
             function cfg() { if (!_cfg) _cfg = typeof bizcDashConfig !== 'undefined' ? bizcDashConfig : {}; return _cfg; }
             var kci = <?php echo intval($kci_ratio_val); ?>;
+            var kciI18n = <?php echo wp_json_encode([
+                'twin_core' => __( '📊 Lõi đôi', $td ),
+                'knowledge' => __( 'Tri thức', $td ),
+                'execution' => __( 'Thực thi', $td ),
+                'teach_ai_title' => __( 'Dạy AI (Nuôi dạy AI)', $td ),
+                'teach_ai' => __( '🌱 Dạy AI', $td ),
+                'priority' => __( 'Ưu tiên', $td ),
+                'new_chat' => __( 'Chat mới', $td ),
+            ]); ?>;
             var timer = null;
 
             function buildKciHtml(val) {
                 var exec = 100 - val;
                 return '<div class="bizc-kci-sidebar">' +
                     '<div class="bizc-kci-head">' +
-                        '<span>📊 Twin Core</span>' +
-                        '<span class="bizc-kci-vals">Knowledge:<b id="bizc-kci-k">' + val + '</b>% Execution:<b id="bizc-kci-e">' + exec + '</b>%</span>' +
+                        '<span>' + kciI18n.twin_core + '</span>' +
+                        '<span class="bizc-kci-vals">' + kciI18n.knowledge + ':<b id="bizc-kci-k">' + val + '</b>% ' + kciI18n.execution + ':<b id="bizc-kci-e">' + exec + '</b>%</span>' +
                     '</div>' +
                     '<input type="range" id="bizc-kci-range" min="0" max="100" step="10" value="' + val + '">' +
                     '' +
@@ -807,7 +1095,7 @@ class BizCity_WebChat_Admin_Dashboard {
                         '<button class="bizc-kci-pre' + (val===80?' active':'') + '" data-v="80">🧠80</button>' +
                         '<button class="bizc-kci-pre' + (val===50?' active':'') + '" data-v="50">⚖️50</button>' +
                         '<button class="bizc-kci-pre' + (val===20?' active':'') + '" data-v="20">🚀20</button>' +
-                        '<button class="bizc-kci-pre bizc-kci-nuoi" title="Teach AI (Nuôi dậy AI)">🌱 Teach AI</button>' +
+                        '<button class="bizc-kci-pre bizc-kci-nuoi" title="' + kciI18n.teach_ai_title + '">' + kciI18n.teach_ai + '</button>' +
                     '</div>' +
                 '</div>';
             }
@@ -830,7 +1118,7 @@ class BizCity_WebChat_Admin_Dashboard {
                 if (kEl) kEl.textContent = val;
                 if (eEl) eEl.textContent = exec;
                 var sEl = document.getElementById('bizc-kci-status');
-                if (sEl) sEl.textContent = 'Priority: Knowledge: ' + val + '%, Execution: ' + exec + '%';
+                if (sEl) sEl.textContent = kciI18n.priority + ': ' + kciI18n.knowledge + ': ' + val + '%, ' + kciI18n.execution + ': ' + exec + '%';
                 var btns = document.querySelectorAll('.bizc-kci-pre[data-v]');
                 btns.forEach(function(b) {
                     b.classList.toggle('active', parseInt(b.getAttribute('data-v')) === val);
@@ -863,12 +1151,12 @@ class BizCity_WebChat_Admin_Dashboard {
 
             function inject(sidebarCol) {
                 if (document.getElementById('bizc-kci-range')) return; // already injected
-                var navDiv = sidebarCol.querySelector('.flex.flex-col.pt-5, .flex.flex-col.pt-8');
+                var navDiv = sidebarCol.querySelector('.flex.flex-col.pt-5');
                 if (!navDiv) {
-                    // Fallback: find the flex-col with New chat text
+                    // Fallback: find the flex-col with localized new chat text.
                     var allDivs = sidebarCol.querySelectorAll('.flex.flex-col');
                     for (var i = 0; i < allDivs.length; i++) {
-                        if (allDivs[i].textContent.indexOf('New chat') !== -1) {
+                        if (allDivs[i].textContent.indexOf(kciI18n.new_chat) !== -1) {
                             navDiv = allDivs[i]; break;
                         }
                     }
@@ -882,10 +1170,10 @@ class BizCity_WebChat_Admin_Dashboard {
 
             // Observe DOM for React sidebar render
             var obs = new MutationObserver(function(mutations) {
-                var sidebar = document.querySelector('[class*="flex"][class*="flex-col"][class*="pt-5"], [class*="flex"][class*="flex-col"][class*="pt-8"]');
+                var sidebar = document.querySelector('[class*="flex"][class*="flex-col"][class*="pt-5"]');
                 if (!sidebar) return;
-                // Look for "New chat" text to confirm this is the nav sidebar
-                if (sidebar.textContent.indexOf('New chat') === -1) return;
+                // Look for localized new chat text to confirm this is the nav sidebar.
+                if (sidebar.textContent.indexOf(kciI18n.new_chat) === -1) return;
                 inject(sidebar.parentElement || sidebar);
             });
             var root = document.getElementById('root');
@@ -893,8 +1181,8 @@ class BizCity_WebChat_Admin_Dashboard {
                 obs.observe(root, { childList: true, subtree: true });
                 // Also try immediate inject (in case React already rendered)
                 setTimeout(function() {
-                    var sidebar = document.querySelector('[class*="flex"][class*="flex-col"][class*="pt-5"], [class*="flex"][class*="flex-col"][class*="pt-8"]');
-                    if (sidebar && sidebar.textContent.indexOf('New chat') !== -1) {
+                    var sidebar = document.querySelector('[class*="flex"][class*="flex-col"][class*="pt-5"]');
+                    if (sidebar && sidebar.textContent.indexOf(kciI18n.new_chat) !== -1) {
                         inject(sidebar.parentElement || sidebar);
                     }
                 }, 1500);
@@ -939,16 +1227,17 @@ class BizCity_WebChat_Admin_Dashboard {
             $greeting_messages = json_decode($character->greeting_messages, true) ?: [];
         }
         $random_greeting = !empty($greeting_messages) ? $greeting_messages[array_rand($greeting_messages)] : 'Xin chào! Tôi có thể giúp gì cho bạn?';
+        $td = 'bizcity-twin-ai';
         
-        $char_name = $character ? $character->name : 'AI Assistant';
+        $char_name = $character ? $character->name : __( 'Trợ lý AI', $td );
         $char_model = ($character && !empty($character->model_id)) ? $character->model_id : 'GPT-4o-mini';
-        $char_desc = ($character && !empty($character->description)) ? $character->description : 'Trợ lý AI thông minh của bạn';
+        $char_desc = ($character && !empty($character->description)) ? $character->description : __( 'Trợ lý AI thông minh của bạn', $td );
         $char_avatar = ($character && !empty($character->avatar)) ? $character->avatar : '';
         
         // Blog name for header display
-        $blog_name = get_bloginfo('name') ?: 'AI Assistant';
-        $header_name = 'Trợ lý ' . $blog_name;
-        $header_desc = 'Team leader điều hành công việc, điều phối các AI Agents khác';
+        $blog_name = get_bloginfo('name') ?: __( 'Trợ lý AI', $td );
+        $header_name = __( 'Trợ lý', $td ) . ' ' . $blog_name;
+        $header_desc = __( 'Trưởng nhóm điều hành công việc, điều phối các trợ lý AI khác', $td );
         
         $current_uid = get_current_user_id();
         $session_id = 'adminchat_' . get_current_blog_id() . '_' . ( $current_uid ? $current_uid : 'guest_' . md5( $_SERVER['REMOTE_ADDR'] ?? '' ) );
@@ -991,7 +1280,7 @@ class BizCity_WebChat_Admin_Dashboard {
                 <!-- Header with logo and collapse -->
                 <div class="bizc-sidebar-header">
                     <span class="bizc-sidebar-logo"><?php echo esc_html($blog_name); ?></span>
-                    <button class="bizc-sidebar-collapse" id="bizc-sidebar-collapse" title="Thu gọn sidebar">
+                    <button class="bizc-sidebar-collapse" id="bizc-sidebar-collapse" title="<?php echo esc_attr__( 'Thu gọn thanh bên', $td ); ?>">
                         <span class="dashicons dashicons-menu-alt3"></span>
                     </button>
                 </div>
@@ -1005,7 +1294,7 @@ class BizCity_WebChat_Admin_Dashboard {
                             <polyline points="10 17 15 12 10 7"></polyline>
                             <line x1="15" y1="12" x2="3" y2="12"></line>
                         </svg>
-                        Đăng nhập/Đăng ký
+                        <?php echo esc_html__( 'Đăng nhập/Đăng ký', $td ); ?>
                     </button>
                 </div>
                 <?php endif; ?>
@@ -1017,7 +1306,7 @@ class BizCity_WebChat_Admin_Dashboard {
                             <circle cx="11" cy="11" r="8"/>
                             <path d="m21 21-4.35-4.35"/>
                         </svg>
-                        <span>Tìm kiếm chat...</span>
+                        <span><?php echo esc_html__( 'Tìm kiếm chat...', $td ); ?></span>
                     </button>
                 </div>
                 
@@ -1026,14 +1315,14 @@ class BizCity_WebChat_Admin_Dashboard {
                         <line x1="12" y1="5" x2="12" y2="19"></line>
                         <line x1="5" y1="12" x2="19" y2="12"></line>
                     </svg>
-                    NEW CHAT
+                    <?php echo esc_html__( 'CHAT MỚI', $td ); ?>
                 </button>
                 
                 <!-- Projects (ChatGPT-style) -->
                 <div class="bizc-section">
                     <div class="bizc-section-hdr">
-                        <span>📁 DỰ ÁN</span>
-                        <span class="bizc-proj-add-btn" id="bizc-add-project" title="Thêm dự án">＋</span>
+                        <span><?php echo esc_html__( '📁 DỰ ÁN', $td ); ?></span>
+                        <span class="bizc-proj-add-btn" id="bizc-add-project" title="<?php echo esc_attr__( 'Thêm dự án', $td ); ?>">＋</span>
                     </div>
                     <div class="bizc-proj-list" id="bizc-proj-list">
                         <!-- Loaded by JS -->
@@ -1043,8 +1332,8 @@ class BizCity_WebChat_Admin_Dashboard {
                 <!-- Recent Conversations (not in any project) -->
                 <div class="bizc-section">
                     <div class="bizc-section-hdr">
-                        <span>💬 Gần đây</span>
-                        <span id="bizc-sessions-view-all" style="color:#3b82f6;cursor:pointer;font-size:11px;" data-url="<?php echo esc_url( home_url( '/chat-sessions/' ) ); ?>" title="Xem toàn bộ phiên chat">Xem chi tiết →</span>
+                        <span><?php echo esc_html__( '💬 Gần đây', $td ); ?></span>
+                        <span id="bizc-sessions-view-all" style="color:#3b82f6;cursor:pointer;font-size:11px;" data-url="<?php echo esc_url( home_url( '/chat-sessions/' ) ); ?>" title="<?php echo esc_attr__( 'Xem toàn bộ phiên chat', $td ); ?>"><?php echo esc_html__( 'Xem chi tiết →', $td ); ?></span>
                     </div>
                 </div>
                 <div class="bizc-convs" id="bizc-convs-list">
@@ -1054,9 +1343,9 @@ class BizCity_WebChat_Admin_Dashboard {
                 <!-- Intent Conversations (Tasks) -->
                 <div class="bizc-section">
                     <div class="bizc-section-hdr">
-                        <span>🎯 Nhiệm vụ</span>
+                        <span><?php echo esc_html__( '🎯 Nhiệm vụ', $td ); ?></span>
                         <span style="color:#9ca3af;font-size:10px;margin-right:auto;margin-left:4px;" id="bizc-intent-count">0</span>
-                        <span id="bizc-intent-view-all" style="color:#3b82f6;cursor:pointer;font-size:11px;" data-url="<?php echo esc_url( home_url( '/tasks/' ) ); ?>" title="Xem toàn bộ nhiệm vụ">Xem chi tiết →</span>
+                        <span id="bizc-intent-view-all" style="color:#3b82f6;cursor:pointer;font-size:11px;" data-url="<?php echo esc_url( home_url( '/tasks/' ) ); ?>" title="<?php echo esc_attr__( 'Xem toàn bộ nhiệm vụ', $td ); ?>"><?php echo esc_html__( 'Xem chi tiết →', $td ); ?></span>
                     </div>
                 </div>
                 <div class="bizc-convs" id="bizc-intent-list" style="max-height:150px;">
@@ -1070,7 +1359,7 @@ class BizCity_WebChat_Admin_Dashboard {
                             <circle cx="12" cy="12" r="3"></circle>
                             <path d="M12 1v6m0 6v6m8.66-10l-5.2 3m-5.92 3.4l-5.2 3M20.66 19l-5.2-3m-5.92-3.4l-5.2-3"></path>
                         </svg>
-                        Cấu hình & Settings
+                        <?php echo esc_html__( 'Cấu hình & Cài đặt', $td ); ?>
                     </a>
                 </div>
             </div>
@@ -1079,8 +1368,8 @@ class BizCity_WebChat_Admin_Dashboard {
             <div class="bizc-search-modal" id="bizc-search-modal">
                 <div class="bizc-search-modal-content">
                     <div class="bizc-search-modal-header">
-                        <input type="text" placeholder="Search chats..." id="bizc-search-input" autocomplete="off">
-                        <button class="bizc-search-close" id="bizc-search-close" aria-label="Close">
+                        <input type="text" placeholder="<?php echo esc_attr__( 'Tìm kiếm chat...', $td ); ?>" id="bizc-search-input" autocomplete="off">
+                        <button class="bizc-search-close" id="bizc-search-close" aria-label="<?php echo esc_attr__( 'Đóng', $td ); ?>">
                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                         </button>
                     </div>
@@ -1104,16 +1393,16 @@ class BizCity_WebChat_Admin_Dashboard {
                                     <button onclick="bizcSwitchLogTab('router')" id="bizc-tab-router" class="bizc-log-tab bizc-log-tab-active" style="background:#45475a;color:#89b4fa;border:none;padding:3px 10px;border-radius:4px 4px 0 0;cursor:pointer;font-size:10px;font-weight:600;">🧠 Tư duy</button>
                                 </span>
                                 <span style="display:flex;gap:4px;align-items:center;">
-                                    <a href="<?php echo admin_url('admin.php?page=bccm_my_profile'); ?>" style="background:#45475a;color:#f9e2af;border:none;padding:3px 8px;border-radius:4px;font-size:10px;text-decoration:none;white-space:nowrap;" title="Cài hồ sơ & chiêm tinh">🌟 Hồ sơ</a>
-                                    <button id="bizc-router-poll-btn" onclick="bizcRouterPoll(event)" style="background:#45475a;color:#cdd6f4;border:none;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:10px;" title="Start/Stop polling">‖ Stop</button>
-                                    <button id="bizc-export-router-btn" onclick="bizcExportJSON('router', event)" style="background:#45475a;color:#89b4fa;border:none;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:10px;" title="Export router logs">📋 Export JSON</button>
-                                    <button onclick="bizcRouterClear(event)" style="background:#45475a;color:#cdd6f4;border:none;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:10px;" title="Clear logs">🗑 Clear</button>
-                                    <button onclick="bizcRouterFullscreen(event)" id="bizc-fs-btn" style="background:#45475a;color:#cdd6f4;border:none;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:10px;" title="Phóng to / Thu nhỏ">⛶ Expand</button>
+                                    <a href="<?php echo admin_url('admin.php?page=bccm_my_profile'); ?>" style="background:#45475a;color:#f9e2af;border:none;padding:3px 8px;border-radius:4px;font-size:10px;text-decoration:none;white-space:nowrap;" title="<?php echo esc_attr__( 'Cài hồ sơ & chiêm tinh', $td ); ?>">🌟 <?php echo esc_html__( 'Hồ sơ', $td ); ?></a>
+                                    <button id="bizc-router-poll-btn" onclick="bizcRouterPoll(event)" style="background:#45475a;color:#cdd6f4;border:none;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:10px;" title="<?php echo esc_attr__( 'Bật/tắt theo dõi', $td ); ?>">‖ <?php echo esc_html__( 'Dừng', $td ); ?></button>
+                                    <button id="bizc-export-router-btn" onclick="bizcExportJSON('router', event)" style="background:#45475a;color:#89b4fa;border:none;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:10px;" title="<?php echo esc_attr__( 'Xuất log router', $td ); ?>">📋 <?php echo esc_html__( 'Xuất JSON', $td ); ?></button>
+                                    <button onclick="bizcRouterClear(event)" style="background:#45475a;color:#cdd6f4;border:none;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:10px;" title="<?php echo esc_attr__( 'Xóa log', $td ); ?>">🗑 <?php echo esc_html__( 'Xóa', $td ); ?></button>
+                                    <button onclick="bizcRouterFullscreen(event)" id="bizc-fs-btn" style="background:#45475a;color:#cdd6f4;border:none;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:10px;" title="<?php echo esc_attr__( 'Phóng to / Thu nhỏ', $td ); ?>">⛶ <?php echo esc_html__( 'Mở rộng', $td ); ?></button>
                                 </span>
                             </div>
                             <!-- Router Log Panel -->
                             <div id="bizc-router-logs" style="padding:8px 10px;overflow-y:auto;flex:1;min-height:40px;">
-                                <div style="color:#6c7086;">Nhấn Poll hoặc gửi tin nhắn để xem log nhận diện...</div>
+                                <div style="color:#6c7086;"><?php echo esc_html__( 'Nhấn Theo dõi hoặc gửi tin nhắn để xem log nhận diện...', $td ); ?></div>
                             </div>
 
 
@@ -1132,14 +1421,14 @@ class BizCity_WebChat_Admin_Dashboard {
                 <?php
                 // Core items (always rendered)
                 $core_items = [];
-                $core_items[] = ['type' => 'chat', 'slug' => 'chat', 'icon' => '💬', 'label' => __( 'Chat', 'bizcity-webchat' ), 'src' => '', 'title' => __( 'Back to Chat', 'bizcity-webchat' )];
-                $core_items[] = ['type' => 'link', 'slug' => 'tools-map', 'icon' => '🧰', 'label' => __( 'AI Tools', 'bizcity-webchat' ), 'src' => home_url('/tools-map/'), 'title' => __( 'AI Tools List', 'bizcity-webchat' )];
+                $core_items[] = ['type' => 'chat', 'slug' => 'chat', 'icon' => '💬', 'label' => __( 'Chat', 'bizcity-twin-ai' ), 'src' => '', 'title' => __( 'Quay về Chat', 'bizcity-twin-ai' )];
+                $core_items[] = ['type' => 'link', 'slug' => 'tools-map', 'icon' => '🧰', 'label' => __( 'Công cụ AI', 'bizcity-twin-ai' ), 'src' => home_url('/tools-map/'), 'title' => __( 'Danh sách công cụ AI', 'bizcity-twin-ai' )];
                 
                 if (current_user_can('manage_options')) {
-                    $core_items[] = ['type' => 'link', 'slug' => 'control-panel', 'icon' => '🎛️', 'label' => __( 'Control Panel', 'bizcity-webchat' ), 'src' => home_url('/tool-control-panel/'), 'title' => __( 'Configure Tool Routing', 'bizcity-webchat' )];
-                    $core_items[] = ['type' => 'link', 'slug' => 'profile', 'icon' => '🌟', 'label' => __( 'Profile', 'bizcity-webchat' ), 'src' => admin_url('admin.php?page=bccm_my_profile'), 'title' => __( 'Set Profile', 'bizcity-webchat' )];
-                    $core_items[] = ['type' => 'link', 'slug' => 'knowledge', 'icon' => '📚', 'label' => __( 'Knowledge', 'bizcity-webchat' ), 'src' => admin_url('admin.php?page=bizcity-knowledge-characters'), 'title' => __( 'Set Knowledge', 'bizcity-webchat' )];
-                    $core_items[] = ['type' => 'link', 'slug' => 'marketplace', 'icon' => '🏪', 'label' => __( 'AI Market', 'bizcity-webchat' ), 'src' => admin_url('index.php?page=bizcity-marketplace'), 'title' => __( 'AI Agent Market', 'bizcity-webchat' )];
+                    $core_items[] = ['type' => 'link', 'slug' => 'control-panel', 'icon' => '🎛️', 'label' => __( 'Bảng điều khiển', 'bizcity-twin-ai' ), 'src' => home_url('/tool-control-panel/'), 'title' => __( 'Cấu hình điều hướng Tool', 'bizcity-twin-ai' )];
+                    $core_items[] = ['type' => 'link', 'slug' => 'profile', 'icon' => '🌟', 'label' => __( 'Hồ sơ', 'bizcity-twin-ai' ), 'src' => admin_url('admin.php?page=bccm_my_profile'), 'title' => __( 'Cài hồ sơ', 'bizcity-twin-ai' )];
+                    $core_items[] = ['type' => 'link', 'slug' => 'knowledge', 'icon' => '📚', 'label' => __( 'Kiến thức', 'bizcity-twin-ai' ), 'src' => admin_url('admin.php?page=bizcity-knowledge-characters'), 'title' => __( 'Cài kiến thức', 'bizcity-twin-ai' )];
+                    $core_items[] = ['type' => 'link', 'slug' => 'marketplace', 'icon' => '🏪', 'label' => __( 'Chợ AI', 'bizcity-twin-ai' ), 'src' => admin_url('index.php?page=bizcity-marketplace'), 'title' => __( 'Chợ AI Agent', 'bizcity-twin-ai' )];
                     
                 }
                 // Agent plugins (lazy rendered)
@@ -1184,15 +1473,15 @@ class BizCity_WebChat_Admin_Dashboard {
                 <div id="bizc-project-detail" style="display:none;flex:1;flex-direction:column;overflow:hidden;">
                     <div style="padding:20px 28px 12px;border-bottom:1px solid #e5e7eb;">
                         <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
-                            <button id="bizc-proj-back" style="background:none;border:none;cursor:pointer;font-size:18px;color:#6366f1;padding:4px;" title="Quay lại chat">←</button>
+                            <button id="bizc-proj-back" style="background:none;border:none;cursor:pointer;font-size:18px;color:#6366f1;padding:4px;" title="<?php echo esc_attr__( 'Quay lại chat', $td ); ?>">←</button>
                             <span id="bizc-proj-detail-icon" style="font-size:24px;">📁</span>
                             <h2 id="bizc-proj-detail-name" style="margin:0;font-size:18px;font-weight:700;color:#1a1a2e;flex:1;"></h2>
                         </div>
                         <!-- Character Binding -->
                         <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;padding:8px 12px;background:#f3f4f6;border-radius:8px;">
-                            <label style="font-size:12px;color:#6b7280;white-space:nowrap;">🎭 Agent:</label>
+                            <label style="font-size:12px;color:#6b7280;white-space:nowrap;"><?php echo esc_html__( '🎭 Trợ lý:', $td ); ?></label>
                             <select id="bizc-proj-character-select" style="flex:1;padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;background:#fff;outline:none;">
-                                <option value="0">— Mặc định —</option>
+                                <option value="0"><?php echo esc_html__( '— Mặc định —', $td ); ?></option>
                                 <?php foreach ($characters as $ch): ?>
                                 <option value="<?php echo esc_attr($ch->id); ?>"><?php echo esc_html($ch->name); ?></option>
                                 <?php endforeach; ?>
@@ -1200,11 +1489,11 @@ class BizCity_WebChat_Admin_Dashboard {
                             <span id="bizc-proj-char-status" style="font-size:11px;color:#9ca3af;"></span>
                         </div>
                         <div style="display:flex;gap:12px;align-items:center;">
-                            <input type="text" id="bizc-proj-new-chat-input" placeholder="+ New chat in this project" style="flex:1;padding:8px 14px;border:1px solid #d1d5db;border-radius:10px;font-size:13px;outline:none;background:#f9fafb;">
+                            <input type="text" id="bizc-proj-new-chat-input" placeholder="<?php echo esc_attr__( '+ Chat mới trong dự án này', $td ); ?>" style="flex:1;padding:8px 14px;border:1px solid #d1d5db;border-radius:10px;font-size:13px;outline:none;background:#f9fafb;">
                         </div>
                         <div style="display:flex;gap:16px;margin-top:12px;border-bottom:2px solid transparent;">
-                            <span class="bizc-proj-tab active" data-tab="chats" style="padding:6px 0;font-size:13px;font-weight:600;color:#6366f1;border-bottom:2px solid #6366f1;cursor:pointer;">Chats</span>
-                            <span class="bizc-proj-tab" data-tab="sources" style="padding:6px 0;font-size:13px;color:#9ca3af;cursor:pointer;">Sources</span>
+                            <span class="bizc-proj-tab active" data-tab="chats" style="padding:6px 0;font-size:13px;font-weight:600;color:#6366f1;border-bottom:2px solid #6366f1;cursor:pointer;"><?php echo esc_html__( 'Trò chuyện', $td ); ?></span>
+                            <span class="bizc-proj-tab" data-tab="sources" style="padding:6px 0;font-size:13px;color:#9ca3af;cursor:pointer;"><?php echo esc_html__( 'Nguồn', $td ); ?></span>
                         </div>
                     </div>
                     <div id="bizc-proj-detail-list" style="flex:1;overflow-y:auto;padding:8px 16px;"></div>
@@ -1252,14 +1541,14 @@ class BizCity_WebChat_Admin_Dashboard {
                 
                 <!-- Vision hint -->
                 <div class="bizc-vision-hint" id="bizc-vision-hint" style="display:none;">
-                    👁️ Vision model sẽ phân tích hình ảnh
+                    <?php echo esc_html__( '👁️ Mô hình thị giác sẽ phân tích hình ảnh', $td ); ?>
                 </div>
                 
                 <?php if ( ! $current_uid ) : ?>
                 <!-- Guest trial hint -->
                 <div class="bizc-guest-hint" id="bizc-guest-hint">
                     <span class="bizc-guest-hint-icon">🌟</span>
-                    <span class="bizc-guest-hint-text">Bạn có <strong id="bizc-guest-remaining">3</strong> tin nhắn thử nghiệm. <a href="#" id="bizc-guest-signup-link">Đăng ký</a> để dùng không giới hạn!</span>
+                    <span class="bizc-guest-hint-text"><?php echo wp_kses_post( __( 'Bạn có <strong id="bizc-guest-remaining">3</strong> tin nhắn thử nghiệm. <a href="#" id="bizc-guest-signup-link">Đăng ký</a> để dùng không giới hạn!', $td ) ); ?></span>
                 </div>
                 <?php endif; ?>
                 
@@ -1270,7 +1559,7 @@ class BizCity_WebChat_Admin_Dashboard {
                     <!-- ═══ Pre-Intent Plugin Chips Bar ═══ -->
                     <div class="bizc-plugin-chips-bar" id="bizc-plugin-chips">
                         <div class="bizc-chips-scroll" id="bizc-chips-scroll">
-                            <div class="bizc-chips-loading">Đang tải agents...</div>
+                            <div class="bizc-chips-loading"><?php echo esc_html__( 'Đang tải trợ lý...', $td ); ?></div>
                         </div>
                     </div>
                     
@@ -1278,7 +1567,7 @@ class BizCity_WebChat_Admin_Dashboard {
                     <div class="bizc-plugin-context-header" id="bizc-context-header">
                         <span class="bizc-context-plugin-icon" id="bizc-context-icon">🤖</span>
                         <div class="bizc-context-tools-row" id="bizc-context-tools"></div>
-                        <button class="bizc-context-close-btn" id="bizc-context-close" title="Thoát khỏi plugin mode">✕ Thoát</button>
+                        <button class="bizc-context-close-btn" id="bizc-context-close" title="<?php echo esc_attr__( 'Thoát khỏi chế độ plugin', $td ); ?>">✕ <?php echo esc_html__( 'Thoát', $td ); ?></button>
                     </div>
                     
                     <!-- @mention autocomplete dropdown (ChatGPT style) -->
@@ -1286,12 +1575,12 @@ class BizCity_WebChat_Admin_Dashboard {
                     
                     <!-- Simple input container (like ChatGPT) -->
                     <div class="bizc-input-container">
-                        <label for="bizc-file-input" class="bizc-attach-btn" id="bizc-attach" title="Đính kèm ảnh">📎</label>
+                        <label for="bizc-file-input" class="bizc-attach-btn" id="bizc-attach" title="<?php echo esc_attr__( 'Đính kèm ảnh', $td ); ?>">📎</label>
                         <!-- Agent / Tool badge (positioned above input) -->
                         <span class="bizc-mention-tag" id="bizc-mention-tag" style="display:none;"></span>
                         <!-- Tool pill inside input row -->
                         <span class="bizc-tool-pill" id="bizc-tool-pill" style="display:none;"></span>
-                        <textarea class="bizc-input" id="bizc-input" placeholder="Nhập tin nhắn... (@ chọn agent · / tìm tool)" rows="1"></textarea>
+                        <textarea class="bizc-input" id="bizc-input" placeholder="<?php echo esc_attr__( 'Nhập tin nhắn... (@ chọn trợ lý · / tìm công cụ)', $td ); ?>" rows="1"></textarea>
                         <button class="bizc-send-btn" id="bizc-send" type="button">
                             <span class="dashicons dashicons-arrow-right-alt"></span>
                         </button>
@@ -1303,16 +1592,20 @@ class BizCity_WebChat_Admin_Dashboard {
                 <!-- Agent Template Panel (hidden, shown when Touch Bar agent clicked) -->
                 <div id="bizc-agent-panel" style="display:none;flex:1;flex-direction:column;overflow:hidden;border-radius:18px;background:#fff;">
                     <div style="padding:0px;display:flex;align-items:center;gap:10px;border-bottom:1px solid #e5e7eb;flex-shrink:0;">
-                        <button id="bizc-agent-back" style="margin:5px !important; margin-left: 10px;width:36px;height:36px;border-radius:50%;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.3);cursor:pointer;font-size:15px;color:#6366f1;display:flex;align-items:center;justify-content:center;transition:all 0.2s;flex-shrink:0;" title="Quay lại chat" onmouseover="this.style.background='rgba(99,102,241,0.2)'; this.style.borderColor='rgba(99,102,241,0.5)';" onmouseout="this.style.background='rgba(99,102,241,0.1)'; this.style.borderColor='rgba(99,102,241,0.3)';">←</button>
+                        <button id="bizc-agent-back" style="margin:5px !important; margin-left: 10px;width:36px;height:36px;border-radius:50%;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.3);cursor:pointer;font-size:15px;color:#6366f1;display:flex;align-items:center;justify-content:center;transition:all 0.2s;flex-shrink:0;" title="<?php echo esc_attr__( 'Quay lại chat', $td ); ?>" onmouseover="this.style.background='rgba(99,102,241,0.2)'; this.style.borderColor='rgba(99,102,241,0.5)';" onmouseout="this.style.background='rgba(99,102,241,0.1)'; this.style.borderColor='rgba(99,102,241,0.3)';">←</button>
                         <img id="bizc-agent-icon" src="" alt="" style="width:24px;height:24px;border-radius:6px;object-fit:cover;display:none;">
                         <span id="bizc-agent-title" style="font-weight:600;font-size:14px;color:#1a1a2e;flex:1;"></span>
-                        <button id="bizc-agent-external" style="margin:5px !important;margin-right:10px;width:36px;height:36px;border-radius:50%;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.3);cursor:pointer;font-size:15px;color:#6366f1;display:flex;align-items:center;justify-content:center;transition:all 0.2s;flex-shrink:0;" title="Mở tab mới" onmouseover="this.style.background='rgba(99,102,241,0.2)'; this.style.borderColor='rgba(99,102,241,0.5)';" onmouseout="this.style.background='rgba(99,102,241,0.1)'; this.style.borderColor='rgba(99,102,241,0.3)';">↗</button>
+                        <button id="bizc-agent-external" style="margin:5px !important;margin-right:10px;width:36px;height:36px;border-radius:50%;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.3);cursor:pointer;font-size:15px;color:#6366f1;display:flex;align-items:center;justify-content:center;transition:all 0.2s;flex-shrink:0;" title="<?php echo esc_attr__( 'Mở tab mới', $td ); ?>" onmouseover="this.style.background='rgba(99,102,241,0.2)'; this.style.borderColor='rgba(99,102,241,0.5)';" onmouseout="this.style.background='rgba(99,102,241,0.1)'; this.style.borderColor='rgba(99,102,241,0.3)';">↗</button>
                     </div>
                     <iframe id="bizc-agent-iframe" src="about:blank" style="flex:1;border:none;width:100%;"></iframe>
                 </div>
                 
             </div>
         </div>
+
+        <!-- Pipeline Monitor Sidebar (Phase 1.2 — SSE-based, positioned fixed right) -->
+        <div id="bc-pipeline-sidebar"></div>
+
         <?php
     }
 

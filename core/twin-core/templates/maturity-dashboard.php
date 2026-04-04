@@ -1,5 +1,14 @@
 <?php
 /**
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\Twin_Core
+ * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+ * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
+ * @license    GPL-2.0-or-later
+ * @link       https://bizcity.vn
+ */
+
+/**
  * Maturity Dashboard Template v4 — Knowledge Dashboard Overview
  *
  * Shows 3 grouped stat rows + overview charts.
@@ -9,6 +18,7 @@
  */
 defined( 'ABSPATH' ) or die();
 $td = 'bizcity-twin-ai';
+$iframe_param = ! empty( $_GET['bizcity_iframe'] ) ? '&bizcity_iframe=1' : '';
 ?>
 <div class="wrap bizcity-maturity-wrap">
 
@@ -43,17 +53,17 @@ $td = 'bizcity-twin-ai';
 					<span class="stat-value" id="stat-overall">0</span>
 					<span class="stat-label"><?php esc_html_e( 'Overview', $td ); ?></span>
 				</button>
-				<a class="stat-card" href="<?php echo esc_url( admin_url( 'admin.php?page=bizcity-knowledge-training' ) ); ?>" data-stat="quickfaq">
+				<a class="stat-card" href="<?php echo esc_url( admin_url( 'admin.php?page=bizcity-knowledge-training' . $iframe_param ) ); ?>" data-stat="quickfaq">
 					<span class="stat-icon">❓</span>
 					<span class="stat-value" id="stat-quickfaq">0</span>
 					<span class="stat-label">Quick FAQ</span>
 				</a>
-				<a class="stat-card" href="<?php echo esc_url( admin_url( 'admin.php?page=bizcity-knowledge-training' ) ); ?>" data-stat="sources">
+				<a class="stat-card" href="<?php echo esc_url( admin_url( 'admin.php?page=bizcity-knowledge-training' . $iframe_param ) ); ?>" data-stat="sources">
 					<span class="stat-icon">📄</span>
 					<span class="stat-value" id="stat-sources">0</span>
 					<span class="stat-label"><?php esc_html_e( 'Documents', $td ); ?></span>
 				</a>
-				<a class="stat-card" href="<?php echo esc_url( admin_url( 'admin.php?page=bizcity-knowledge-training' ) ); ?>" data-stat="knowledge">
+				<a class="stat-card" href="<?php echo esc_url( admin_url( 'admin.php?page=bizcity-knowledge-training' . $iframe_param ) ); ?>" data-stat="knowledge">
 					<span class="stat-icon">🎭</span>
 					<span class="stat-value" id="stat-knowledge">0</span>
 					<span class="stat-label"><?php esc_html_e( 'Knowledge', $td ); ?></span>
@@ -65,22 +75,22 @@ $td = 'bizcity-twin-ai';
 		<div class="stats-group">
 			<div class="stats-group__label">🧠 <?php esc_html_e( 'Auto-analyzed', $td ); ?></div>
 			<div class="maturity-stats">
-				<a class="stat-card" href="<?php echo esc_url( admin_url( 'admin.php?page=bizcity-knowledge-memory-hub' ) ); ?>" data-stat="memories">
+				<a class="stat-card" href="<?php echo esc_url( admin_url( 'admin.php?page=bizcity-knowledge-memory-hub' . $iframe_param ) ); ?>" data-stat="memories">
 					<span class="stat-icon">🧠</span>
 					<span class="stat-value" id="stat-memories">0</span>
 					<span class="stat-label">User Memory</span>
 				</a>
-				<a class="stat-card" href="<?php echo esc_url( admin_url( 'admin.php?page=bizcity-knowledge-memory-hub' ) ); ?>" data-stat="episodic">
+				<a class="stat-card" href="<?php echo esc_url( admin_url( 'admin.php?page=bizcity-knowledge-memory-hub' . $iframe_param ) ); ?>" data-stat="episodic">
 					<span class="stat-icon">🔮</span>
 					<span class="stat-value" id="stat-episodic">0</span>
 					<span class="stat-label">Episodic</span>
 				</a>
-				<a class="stat-card" href="<?php echo esc_url( admin_url( 'admin.php?page=bizcity-knowledge-memory-hub' ) ); ?>" data-stat="rolling">
+				<a class="stat-card" href="<?php echo esc_url( admin_url( 'admin.php?page=bizcity-knowledge-memory-hub' . $iframe_param ) ); ?>" data-stat="rolling">
 					<span class="stat-icon">🔄</span>
 					<span class="stat-value" id="stat-rolling">0</span>
 					<span class="stat-label">Rolling</span>
 				</a>
-				<a class="stat-card" href="<?php echo esc_url( admin_url( 'admin.php?page=bizcity-knowledge-memory-hub' ) ); ?>" data-stat="notes">
+				<a class="stat-card" href="<?php echo esc_url( admin_url( 'admin.php?page=bizcity-knowledge-memory-hub' . $iframe_param ) ); ?>" data-stat="notes">
 					<span class="stat-icon">📝</span>
 					<span class="stat-value" id="stat-notes">0</span>
 					<span class="stat-label">Research</span>
@@ -92,22 +102,22 @@ $td = 'bizcity-twin-ai';
 		<div class="stats-group">
 			<div class="stats-group__label">💬 <?php esc_html_e( 'Resources', $td ); ?></div>
 			<div class="maturity-stats">
-				<a class="stat-card" href="<?php echo esc_url( admin_url( 'admin.php?page=bizcity-knowledge-monitor' ) ); ?>" data-stat="sessions">
+				<a class="stat-card" href="<?php echo esc_url( admin_url( 'admin.php?page=bizcity-knowledge-monitor' . $iframe_param ) ); ?>" data-stat="sessions">
 					<span class="stat-icon">💬</span>
 					<span class="stat-value" id="stat-sessions">0</span>
 					<span class="stat-label"><?php esc_html_e( 'Sessions', $td ); ?></span>
 				</a>
-				<a class="stat-card" href="<?php echo esc_url( admin_url( 'admin.php?page=bizcity-knowledge-monitor' ) ); ?>" data-stat="goals">
+				<a class="stat-card" href="<?php echo esc_url( admin_url( 'admin.php?page=bizcity-knowledge-monitor' . $iframe_param ) ); ?>" data-stat="goals">
 					<span class="stat-icon">🎯</span>
 					<span class="stat-value" id="stat-goals">0</span>
 					<span class="stat-label"><?php esc_html_e( 'Goals', $td ); ?></span>
 				</a>
-				<a class="stat-card" href="<?php echo esc_url( admin_url( 'admin.php?page=bizcity-knowledge-monitor' ) ); ?>" data-stat="messages">
+				<a class="stat-card" href="<?php echo esc_url( admin_url( 'admin.php?page=bizcity-knowledge-monitor' . $iframe_param ) ); ?>" data-stat="messages">
 					<span class="stat-icon">📨</span>
 					<span class="stat-value" id="stat-messages">0</span>
 					<span class="stat-label"><?php esc_html_e( 'Messages', $td ); ?></span>
 				</a>
-				<a class="stat-card" href="<?php echo esc_url( admin_url( 'admin.php?page=bizcity-knowledge-monitor' ) ); ?>" data-stat="trend">
+				<a class="stat-card" href="<?php echo esc_url( admin_url( 'admin.php?page=bizcity-knowledge-monitor' . $iframe_param ) ); ?>" data-stat="trend">
 					<span class="stat-icon">📈</span>
 					<span class="stat-value" id="stat-trend">0</span>
 					<span class="stat-label"><?php esc_html_e( 'Trend', $td ); ?></span>

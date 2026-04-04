@@ -81,9 +81,7 @@ class BizCity_WebChat_Auth_Ajax {
         if (email_exists($email)) {
             wp_send_json_error(['message' => 'Email này đã được sử dụng.']);
         }
-        if (empty($phone)) {
-            wp_send_json_error(['message' => 'Vui lòng nhập số điện thoại.']);
-        }
+        // Phone là tùy chọn — email là định danh chính
         if (empty($password) || strlen($password) < 6) {
             wp_send_json_error(['message' => 'Mật khẩu phải có ít nhất 6 ký tự.']);
         }

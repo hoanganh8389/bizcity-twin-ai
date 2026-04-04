@@ -624,7 +624,10 @@ class WaicWorkflowExecuteAPI {
                 $executionState['waiting_until'] = $waiting_timestamp;
                 $executionState['waiting_status'] = $status; // 0=waiting, 3=completed
                 $executionState['current_node'] = $currentNodeId;
+                $executionState['pending_delay_node'] = $currentNodeId;
                 $executionState['last_sourceHandle'] = $nodeResults['sourceHandle'] ?? 'output-right';
+                $executionState['reexecute_on_resume'] = ! empty( $nodeResults['reexecute_on_resume'] );
+                $executionState['visited_nodes'] = $visited;
                 set_transient($executionId, $executionState, 3600);
                 
                 return [
@@ -1271,33 +1274,46 @@ class WaicWorkflowExecuteAPI {
         
         // Determine starting queue
         if ($pendingDelayNode) {
-            // Resuming from delay/HIL - start from next nodes
-            error_log('[WAIC Test] Resuming from node: ' . $pendingDelayNode);
-            
-            $queue = [];
-            // ⭐ FIX: Get sourceHandle from state (set by delay/HIL node when it returned result)
-            // - Delay node: always 'output-right'
-            // - HIL confirm: 'output-then' or 'output-else' based on user response
-            $currentSourceHandle = $executionState['last_sourceHandle'] ?? 'output-right';
-            error_log('[WAIC Test] Using sourceHandle from state: ' . $currentSourceHandle);
-            
-            foreach ($edges as $edge) {
-                $edgeSourceHandle = $edge['sourceHandle'] ?? 'output-right';
-                
-                if ($edge['source'] === $pendingDelayNode 
-                    && $edgeSourceHandle === $currentSourceHandle) {
-                    $queue[] = $edge['target'];
-                    error_log('[WAIC Test] Starting from next node via ' . $currentSourceHandle . ': ' . $edge['target']);
+            $reexecute = ! empty( $executionState['reexecute_on_resume'] );
+
+            if ( $reexecute ) {
+                // Phase 1.1: Action block (it_call_tool) needs re-execution after HIL slot gathering.
+                // Remove from visited so getResults() is called again with user-provided slots.
+                error_log('[WAIC Test] Resuming — re-executing pending action node: ' . $pendingDelayNode);
+                $visited = array_diff( $visited, [ $pendingDelayNode ] );
+                $queue   = [ $pendingDelayNode ];
+
+                $executionState['pending_delay_node']   = null;
+                $executionState['reexecute_on_resume']  = false;
+                $executionState['status']               = 'running';
+                $executionState['visited_nodes']        = $visited;
+                set_transient( $executionId, $executionState, 3600 );
+            } else {
+                // Logic block (un_confirm, delay) — skip to next nodes via sourceHandle.
+                error_log('[WAIC Test] Resuming from node: ' . $pendingDelayNode);
+
+                $queue = [];
+                $currentSourceHandle = $executionState['last_sourceHandle'] ?? 'output-right';
+                error_log('[WAIC Test] Using sourceHandle from state: ' . $currentSourceHandle);
+
+                foreach ($edges as $edge) {
+                    $edgeSourceHandle = $edge['sourceHandle'] ?? 'output-right';
+
+                    if ($edge['source'] === $pendingDelayNode
+                        && $edgeSourceHandle === $currentSourceHandle) {
+                        $queue[] = $edge['target'];
+                        error_log('[WAIC Test] Starting from next node via ' . $currentSourceHandle . ': ' . $edge['target']);
+                    }
                 }
-            }
-            
-            if (empty($queue)) {
-                error_log('[WAIC Test] No next nodes after delay, workflow complete');
-                $this->updateExecutionState($executionId, [
-                    'status' => 'completed',
-                    'completed_at' => current_time('mysql'),
-                ], true);
-                return true;
+
+                if (empty($queue)) {
+                    error_log('[WAIC Test] No next nodes after delay, workflow complete');
+                    $this->updateExecutionState($executionId, [
+                        'status' => 'completed',
+                        'completed_at' => current_time('mysql'),
+                    ], true);
+                    return true;
+                }
             }
         } else {
             // Normal execution from trigger

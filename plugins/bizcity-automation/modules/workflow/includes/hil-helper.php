@@ -30,6 +30,32 @@ function waic_hil_update_response($chat_id, $user_response, $blog_id = null) {
     // Normalize response để so sánh
     $response_lower = mb_strtolower(trim($user_response), 'UTF-8');
     
+    // ── Slot-fill HIL (from it_call_tool Phase 1.1) ──
+    // For slot-fill type, we don't do YES/NO keyword matching.
+    // Instead, check for skip/cancel keywords and store raw response.
+    if ( isset( $hil_state['type'] ) && $hil_state['type'] === 'slot_fill' ) {
+        $skip_keywords = array( 'bỏ qua', 'skip', 'cancel', 'huỷ', 'hủy', 'thôi', 'dừng', 'từ chối' );
+        $is_skip = false;
+        foreach ( $skip_keywords as $keyword ) {
+            if ( strpos( $response_lower, $keyword ) !== false ) {
+                $is_skip = true;
+                break;
+            }
+        }
+
+        $hil_state['status']       = $is_skip ? 'rejected' : 'responded';
+        $hil_state['response']     = $user_response;
+        $hil_state['responded_at'] = WaicUtils::getTimestamp();
+
+        set_transient( $hil_state_key, $hil_state, 300 );
+        error_log( '[HIL] Slot-fill response for chat_id ' . $chat_id . ': ' . ( $is_skip ? 'SKIP' : 'RESPONDED' ) );
+
+        // Trigger resume — action block uses 'output-right' (single output, not branching)
+        $is_confirmed   = ! $is_skip;
+        $sourceHandle   = 'output-right'; // Action blocks always use output-right
+        goto trigger_resume;
+    }
+
     // Danh sách từ khóa YES
     $yes_keywords = array('yes', 'có', 'đúng', 'ok', 'được', 'oke', 'đồng ý', 'confirm', 'xác nhận');
     
@@ -63,7 +89,11 @@ function waic_hil_update_response($chat_id, $user_response, $blog_id = null) {
     
     error_log('[HIL] Updated state for chat_id ' . $chat_id . ': ' . ($is_confirmed ? 'CONFIRMED' : 'REJECTED'));
     
+    // Default sourceHandle for confirm/reject (logic blocks)
+    $sourceHandle = $is_confirmed ? 'output-then' : 'output-else';
+
     // ⭐ Trigger workflow resume NGAY LẬP TỨC
+    trigger_resume:
     if (!empty($hil_state['run_id'])) {
         $run_id = $hil_state['run_id'];
         error_log('[HIL] Triggering immediate resume for run_id: ' . $run_id);
@@ -76,7 +106,7 @@ function waic_hil_update_response($chat_id, $user_response, $blog_id = null) {
             error_log('[HIL] Test mode detected, using execute API');
             
             // ⭐ Update last_sourceHandle và node_status vào execution state
-            $sourceHandle = $is_confirmed ? 'output-then' : 'output-else';
+            // $sourceHandle is set above: 'output-right' for slot-fill, 'output-then'/'output-else' for confirm
             $exec_state['last_sourceHandle'] = $sourceHandle;
             
             // Update confirm node status to success
@@ -119,7 +149,7 @@ function waic_hil_update_response($chat_id, $user_response, $blog_id = null) {
                 error_log('[HIL] Found waiting production run, clearing waiting flag');
                 
                 // ⭐ CRITICAL: Lưu sourceHandle vào flowrun để doFlowRun() biết nhánh nào
-                $sourceHandle = $is_confirmed ? 'output-then' : 'output-else';
+                // $sourceHandle is set above: 'output-right' for slot-fill, 'output-then'/'output-else' for confirm
                 
                 // Get current flowdata
                 $flowdata = json_decode($run['flowdata'], true);

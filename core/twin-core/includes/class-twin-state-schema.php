@@ -1,5 +1,14 @@
 <?php
 /**
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\Twin_Core
+ * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+ * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
+ * @license    GPL-2.0-or-later
+ * @link       https://bizcity.vn
+ */
+
+/**
  * BizCity Twin State Schema — DDL for 4 core + 3 support state tables.
  *
  * Phase 2 Priority 3 + 4 + 5: Create the Twin state backbone.
@@ -54,7 +63,7 @@ class BizCity_Twin_State_Schema {
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 
 		global $wpdb;
-		$charset = $wpdb->get_charset_collate();
+		$charset = function_exists( 'bizcity_get_charset_collate' ) ? bizcity_get_charset_collate() : $wpdb->get_charset_collate();
 
 		self::create_identity_table( $charset );
 		self::create_focus_table( $charset );

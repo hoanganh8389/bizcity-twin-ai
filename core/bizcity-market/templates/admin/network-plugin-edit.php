@@ -1,4 +1,13 @@
-<?php if (!defined('ABSPATH')) exit;
+<?php
+/**
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\BizCity_Market
+ * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+ * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
+ * @license    GPL-2.0-or-later
+ * @link       https://bizcity.vn
+ */
+ if (!defined('ABSPATH')) exit;
 if (!current_user_can('manage_network_options')) wp_die('No permission');
 
 $id = isset($_GET['id']) ? (int)$_GET['id'] : 0;

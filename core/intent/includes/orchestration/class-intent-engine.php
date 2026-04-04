@@ -1,4 +1,13 @@
-<?php
+﻿<?php
+/**
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\Intent
+ * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+ * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
+ * @license    GPL-2.0-or-later
+ * @link       https://bizcity.vn
+ */
+
 /**
  * BizCity Intent — Main Engine (Orchestrator)
  *
@@ -130,6 +139,9 @@ class BizCity_Intent_Engine {
         $images       = $params['images']       ?? [];
         $message_id   = $params['message_id']   ?? '';
         $provider_hint = $params['provider_hint'] ?? '';
+        $selected_skill = $params['selected_skill'] ?? '';
+        $skill_path     = $params['skill_path']     ?? '';
+        $slash_command  = $params['slash_command']  ?? '';
 
         // ── Resolve market slug → provider ID (e.g. 'bizcity-tarot' → 'tarot') ──
         if ( $provider_hint && class_exists( 'BizCity_Intent_Provider_Registry' ) ) {
@@ -431,7 +443,17 @@ class BizCity_Intent_Engine {
                 // @since v4.4.0 — Post-tool follow-up routing
                 if ( $satisfaction === null ) {
 
-                    // ── Escape hatch: if the message matches ANY goal's
+                    // ── Escape hatch 0: slash command / tool_goal always wins ──
+                    // If gateway already parsed a slash command (tool_goal_hint),
+                    // skip followup entirely — let Step 1.8+ handle execution.
+                    // @since v4.6.3 — Slash commands must bypass post-tool followup
+                    if ( ! empty( $tool_goal_hint ) ) {
+                        error_log( '[INTENT-ENGINE] Step 1.6C: slash tool_goal="' . $tool_goal_hint
+                            . '" → skip followup, normal classification' );
+                        // Fall through — do NOT return
+                    } else {
+
+                    // ── Escape hatch 1: if the message matches ANY goal's
                     //    trigger patterns (same or different), let normal classification
                     //    handle it instead of forcing knowledge mode.
                     //    User saying "đăng bài viết" after a completed write_article
@@ -532,6 +554,7 @@ class BizCity_Intent_Engine {
                     return $result;
 
                     } // end else (no new-goal escape)
+                    } // end else (no slash tool_goal escape)
                 }
             }
         }
@@ -712,6 +735,137 @@ class BizCity_Intent_Engine {
                     ] );
                     $conversation = $this->conversation_mgr->get_active( $user_id, $channel, $session_id ) ?: $conversation;
                 }
+            }
+        }
+
+        // ── Step 1.9d: PIPELINE RESUME / CANCEL / RETRY DETECTION ──
+        // Phase 1.1d: Detect commands to resume a paused pipeline, retry a failed step,
+        // skip/cancel a step, or cancel the entire pipeline.
+        // Must run BEFORE Step 1.9b (Plan Confirm) and Step 2 (Mode Classification).
+        // Guard: skip if user is in plan-confirm conversation (prevent conflict with 1.9b).
+        $in_plan_confirm = ( ( $conversation['status'] ?? '' ) === 'WAITING_USER'
+            && ! empty( $conversation['mode'] )
+            && strpos( $conversation['mode'], '_confirm_plan_builder' ) !== false );
+
+        if ( class_exists( 'BizCity_Intent_Todos' ) && ! $in_plan_confirm ) {
+            $trimmed_msg_1d = mb_strtolower( trim( $message ), 'UTF-8' );
+
+            // Pattern: resume pipeline — "tiếp tục", "tiếp tục kế hoạch", "resume", "chạy tiếp"
+            $is_resume = (bool) preg_match(
+                '/^(tiếp tục|tiep tuc|tiếp tục kế hoạch|chạy tiếp|resume|continue|làm tiếp|tiếp)(\s+(kế hoạch|pipeline|plan))?$/u',
+                $trimmed_msg_1d
+            );
+            // Pattern: retry failed — "thử lại", "retry", "chạy lại"
+            $is_retry = (bool) preg_match(
+                '/^(thử lại|thu lai|retry|chạy lại|làm lại|thử lại bước)(\s+\d+)?$/u',
+                $trimmed_msg_1d
+            );
+            // Pattern: skip step — "bỏ qua", "skip", "bỏ qua bước"
+            $is_skip = (bool) preg_match(
+                '/^(bỏ qua|bo qua|skip|bỏ qua bước|skip step)(\s+\d+)?$/u',
+                $trimmed_msg_1d
+            );
+            // Pattern: cancel entire pipeline — "hủy kế hoạch", "dừng pipeline", "cancel pipeline"
+            $is_cancel_pipeline = (bool) preg_match(
+                '/^(hủy kế hoạch|hủy pipeline|dừng kế hoạch|dừng pipeline|cancel pipeline|cancel plan|hủy toàn bộ)$/u',
+                $trimmed_msg_1d
+            );
+
+            if ( $is_resume || $is_retry || $is_skip || $is_cancel_pipeline ) {
+                $active_pipe = BizCity_Intent_Todos::find_active_pipeline( $user_id );
+
+                if ( $active_pipe ) {
+                    $pipe_id    = $active_pipe['pipeline_id'];
+                    $pipe_reply = '';
+                    $pipe_done  = false;
+
+                    if ( $is_resume ) {
+                        // ── Resume: find execution_id → call waic_execute_workflow_resume ──
+                        $pipe_reply = $this->handle_pipeline_resume( $active_pipe, $user_id, $session_id, $channel );
+                        $pipe_done  = true;
+
+                    } elseif ( $is_retry ) {
+                        // ── Retry: find FAILED step → reset → resume ──
+                        $failed = BizCity_Intent_Todos::find_failed_step( $pipe_id );
+                        if ( $failed ) {
+                            BizCity_Intent_Todos::reset_step_for_retry( $pipe_id, (int) $failed['step_index'] );
+                            // Also reset any SKIPPED downstream steps
+                            BizCity_Intent_Todos::reset_skipped_from( $pipe_id, (int) $failed['step_index'] + 1 );
+                            error_log( '[INTENT-ENGINE] Step 1.9d: Retry step ' . $failed['step_index'] . ' (' . $failed['tool_name'] . ') in pipeline=' . $pipe_id );
+
+                            // Resume the pipeline to re-execute the reset step
+                            $pipe_reply = "🔄 Đang thử lại bước **" . ( $failed['label'] ?: $failed['tool_name'] ) . "**...\n\n";
+                            $resume_reply = $this->handle_pipeline_resume( $active_pipe, $user_id, $session_id, $channel );
+                            $pipe_reply .= $resume_reply;
+                        } else {
+                            $pipe_reply = "✅ Không có bước nào thất bại trong kế hoạch hiện tại.\n\n"
+                                        . BizCity_Intent_Todos::get_formatted_message( $pipe_id );
+                        }
+                        $pipe_done = true;
+
+                    } elseif ( $is_skip ) {
+                        // ── Skip: cancel current waiting/active step + skip dependents ──
+                        $step_idx = (int) $active_pipe['next_step_index'];
+                        $skip_result = BizCity_Intent_Todos::cancel_step( $pipe_id, $step_idx, true );
+                        error_log( '[INTENT-ENGINE] Step 1.9d: Skip step ' . $step_idx . ' in pipeline=' . $pipe_id
+                                 . ' → cancelled=' . $skip_result['cancelled'] . ' skipped=' . $skip_result['skipped'] );
+
+                        $pipe_reply = "⏭️ Đã bỏ qua bước **" . ( $active_pipe['next_label'] ?: $active_pipe['next_tool'] ) . "**";
+                        if ( $skip_result['skipped'] > 0 ) {
+                            $pipe_reply .= " (+{$skip_result['skipped']} bước phụ thuộc)";
+                        }
+                        $pipe_reply .= "\n\n";
+
+                        // Check if pipeline has more steps → auto-resume
+                        $progress = BizCity_Intent_Todos::get_progress( $pipe_id );
+                        if ( $progress['pending'] > 0 ) {
+                            $pipe_reply .= "▶️ Tiếp tục với bước tiếp theo...\n\n";
+                            $resume_reply = $this->handle_pipeline_resume( $active_pipe, $user_id, $session_id, $channel );
+                            $pipe_reply .= $resume_reply;
+                        } else {
+                            $pipe_reply .= BizCity_Intent_Todos::get_formatted_message( $pipe_id );
+                        }
+                        $pipe_done = true;
+
+                    } elseif ( $is_cancel_pipeline ) {
+                        // ── Cancel entire pipeline ──
+                        $all_todos = BizCity_Intent_Todos::get_pipeline_todos( $pipe_id );
+                        $cancelled_count = 0;
+                        global $wpdb;
+                        $todo_table = BizCity_Intent_Database::instance()->todos_table();
+                        foreach ( $all_todos as $todo ) {
+                            if ( in_array( $todo['status'], [ 'PENDING', 'WAITING_USER', 'ACTIVE', 'IN_PROGRESS' ], true ) ) {
+                                $wpdb->update( $todo_table, [ 'status' => 'CANCELLED' ], [ 'id' => $todo['id'] ] );
+                                $cancelled_count++;
+                            }
+                        }
+                        error_log( '[INTENT-ENGINE] Step 1.9d: Cancel pipeline=' . $pipe_id . ' cancelled_steps=' . $cancelled_count );
+
+                        $pipe_reply = "❌ Đã hủy kế hoạch ({$cancelled_count} bước).\n\n"
+                                    . BizCity_Intent_Todos::get_formatted_message( $pipe_id )
+                                    . "\n\nBạn cần gì khác thì nói mình nhé!";
+                        $pipe_done = true;
+                    }
+
+                    if ( $pipe_done && $pipe_reply ) {
+                        // Complete any active conversation
+                        if ( $conv_id ) {
+                            $this->conversation_mgr->add_turn( $conv_id, 'user', $message );
+                            $this->conversation_mgr->add_turn( $conv_id, 'assistant', $pipe_reply );
+                        }
+
+                        $result['reply']  = $pipe_reply;
+                        $result['action'] = 'pipeline_command';
+                        $result['status'] = 'COMPLETED';
+                        $result['meta']['pipeline_id']      = $pipe_id;
+                        $result['meta']['pipeline_command']  = $is_resume ? 'resume' : ( $is_retry ? 'retry' : ( $is_skip ? 'skip' : 'cancel' ) );
+
+                        $this->logger->end_trace( $result );
+                        do_action( 'bizcity_intent_processed', $result, $params );
+                        return $result;
+                    }
+                }
+                // No active pipeline found → fall through to normal flow
             }
         }
 
@@ -923,6 +1077,24 @@ class BizCity_Intent_Engine {
             $mode_result['mode']       = BizCity_Mode_Classifier::MODE_EXECUTION;
             $mode_result['confidence'] = 0.95;
             $mode_result['method']     = $mode_result['method'] . '+tool_goal_override(' . $tool_goal_hint . ')';
+        }
+
+        // ── Step 1.8b: force execution when /skill is explicitly selected ──
+        // Phase 1.7: When user selects a skill via / dropdown or types /skill_slug,
+        // force execution mode so the pipeline reaches Step 2.4.8 (Early Skill Lookup)
+        // and Step 3 (Router) where skill context is injected.
+        if ( ! empty( $selected_skill )
+             && empty( $tool_goal_hint )
+             && $mode_result['mode'] !== BizCity_Mode_Classifier::MODE_EXECUTION
+        ) {
+            if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+                error_log( '[INTENT-ENGINE] Step 1.8b: /skill override → execution'
+                         . ' | selected_skill=' . $selected_skill
+                         . ' | original_mode=' . $mode_result['mode'] );
+            }
+            $mode_result['mode']       = BizCity_Mode_Classifier::MODE_EXECUTION;
+            $mode_result['confidence'] = 0.90;
+            $mode_result['method']     = $mode_result['method'] . '+skill_override(/' . $selected_skill . ')';
         }
 
         // ── Step 2.0: @MENTION PROVIDER HINT — Conditional execution mode ──
@@ -1467,6 +1639,105 @@ class BizCity_Intent_Engine {
             }
         }
 
+        // ── Step 2.4.8: EARLY SKILL LOOKUP (Phase 1.2 + Phase 1.7) ──
+        // When /skill_slug or selected_skill is provided, do a direct skill lookup.
+        // Otherwise, check if a skill with archetype B/C matches with HIGH confidence.
+        // If so, override mode to execution so the Intent Router can handle it.
+        $effective_slash = $slash_command ?: $selected_skill;
+        $skill_match = $this->early_skill_lookup( $message, $mode_result, $effective_slash );
+
+        // Phase 1.7: When /skill explicitly selected → force HIGH confidence + execution mode
+        if ( ! $skill_match && $effective_slash ) {
+            // Slash command didn't match via scoring — try direct name/key lookup
+            if ( class_exists( 'BizCity_Skill_Manager' ) ) {
+                $direct_match = \BizCity_Skill_Manager::instance()->find_matching( [
+                    'slash_command' => $effective_slash,
+                    'message'       => $message,
+                    'limit'         => 1,
+                ] );
+                if ( ! empty( $direct_match ) ) {
+                    $skill_match = \BizCity_Skill_Manager::instance()->find_matching_enriched( [
+                        'slash_command' => $effective_slash,
+                        'message'       => $message,
+                        'limit'         => 1,
+                    ] );
+                }
+            }
+        }
+
+        // When skill is explicitly selected via / UI, boost confidence to 'high'
+        if ( $skill_match && $effective_slash ) {
+            $skill_match['confidence'] = 'high';
+            $skill_match['reasons'][]  = 'explicit_slash:/' . $effective_slash;
+        }
+
+        // Inject skill content into context for LLM (Phase 1.7 FIX-D6)
+        if ( $skill_match ) {
+            $skill_content = $skill_match['skill']['content'] ?? '';
+            if ( $skill_content ) {
+                $result['meta']['_injected_skill_context'] = mb_substr( $skill_content, 0, 4000, 'UTF-8' );
+            }
+            $result['meta']['selected_skill'] = $effective_slash;
+            $result['meta']['skill_path']     = $skill_path;
+        }
+
+        if ( $skill_match ) {
+            $result['meta']['skill_match'] = [
+                'archetype'    => $skill_match['archetype'],
+                'confidence'   => $skill_match['confidence'],
+                'score'        => $skill_match['score'],
+                'primary_tool' => $skill_match['primary_tool'],
+                'reasons'      => $skill_match['reasons'],
+            ];
+
+            // HIGH confidence skill with tools → force execution mode
+            if ( $skill_match['confidence'] === 'high'
+                 && in_array( $skill_match['archetype'], [ 'B', 'C' ], true )
+                 && $mode_result['mode'] !== BizCity_Mode_Classifier::MODE_EXECUTION
+            ) {
+                $mode_result['mode']   = BizCity_Mode_Classifier::MODE_EXECUTION;
+                $mode_result['method'] = ( $mode_result['method'] ?? '' ) . '+skill_override';
+                $result['meta']['mode']        = $mode_result['mode'];
+                $result['meta']['mode_method'] = $mode_result['method'];
+
+                if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+                    error_log( '[INTENT-ENGINE] Step 2.4.8: Skill override → execution'
+                        . ' | archetype=' . $skill_match['archetype']
+                        . ' | skill=' . ( $skill_match['skill']['frontmatter']['title'] ?? '?' )
+                        . ' | score=' . $skill_match['score'] );
+                }
+
+                // Phase 1.2 trace
+                if ( class_exists( 'BizCity_Twin_Trace' ) ) {
+                    BizCity_Twin_Trace::log( 'skill_override', [
+                        'archetype'    => $skill_match['archetype'],
+                        'confidence'   => $skill_match['confidence'],
+                        'score'        => $skill_match['score'],
+                        'primary_tool' => $skill_match['primary_tool'],
+                        'skill_title'  => $skill_match['skill']['frontmatter']['title'] ?? '',
+                        'original_mode'=> ( $mode_result['method'] ?? '' ),
+                    ] );
+                }
+            }
+
+            // Log for admin console
+            if ( class_exists( 'BizCity_User_Memory' ) ) {
+                BizCity_User_Memory::log_router_event( [
+                    'step'             => 'early_skill_lookup',
+                    'message'          => mb_substr( $message, 0, 200, 'UTF-8' ),
+                    'mode'             => $mode_result['mode'],
+                    'archetype'        => $skill_match['archetype'],
+                    'confidence'       => $skill_match['confidence'],
+                    'score'            => $skill_match['score'],
+                    'primary_tool'     => $skill_match['primary_tool'],
+                    'reasons'          => $skill_match['reasons'],
+                    'functions_called' => 'SkillManager->find_matching_enriched()',
+                    'pipeline'         => [ 'skill_scan', 'archetype_detect', 'confidence_tier' ],
+                    'skill_title'      => $skill_match['skill']['frontmatter']['title'] ?? '',
+                ], $session_id );
+            }
+        }
+
         // ── Step 2.5: NON-EXECUTION MODE PIPELINE ──
         // If mode is NOT execution → delegate to the appropriate pipeline
         // These pipelines handle emotion, reflection, knowledge, ambiguous without intent extraction
@@ -1624,7 +1895,8 @@ class BizCity_Intent_Engine {
         do_action( 'bizcity_intent_status', '⚡ Đang nhận diện hành động...' );
         $classify_start = microtime( true );
         $intent = $this->router->classify( $message, $conversation, $images, $provider_hint, $mode_result, [
-            'tool_goal' => $params['tool_goal'] ?? '',
+            'tool_goal'   => $params['tool_goal'] ?? '',
+            'skill_match' => $skill_match,
         ] );
         $this->logger->log( 'classify', [
             'intent'          => $intent['intent'],
@@ -2293,6 +2565,15 @@ class BizCity_Intent_Engine {
                     '_session_pending_images' => null,
                 ] );
             }
+
+            // ── Phase 1.6 B1: Fire goal_detected for session memory spec ──
+            // Escalates session mode: chat → goal
+            do_action( 'bizcity_goal_detected', $session_id, $intent['goal'], [
+                'label'    => $intent['goal_label'] ?? $intent['goal'],
+                'method'   => $intent['method'] ?? '',
+                'entities' => $intent['entities'] ?? [],
+                'conv_id'  => $conv_id,
+            ] );
         }
 
         // 4c. Provide input → fill slots
@@ -2529,6 +2810,8 @@ class BizCity_Intent_Engine {
                 'conversation_slots' => $conversation['slots'] ?? [],
                 'channel'            => $channel,
                 'message'            => $message,
+                'rolling_summary'    => $conversation['rolling_summary'] ?? '',
+                'goal'               => $intent['goal'] ?? '',
             ];
 
             // Layer 1: Objective Understanding — structured analysis.
@@ -2556,6 +2839,14 @@ class BizCity_Intent_Engine {
             } else {
                 $analysis = $understanding->analyze( $message, $intent, $plan_context );
             }
+
+            // ── Populate meta.objectives from OU analysis for trace visibility ──
+            // @since v4.6.3 — Gateway trace reads meta.objectives to display objectives_detected + multi_goal_decision.
+            $result['meta']['objectives'] = array_map( function ( $obj ) {
+                return $obj['text'] ?? '';
+            }, $analysis['intents'] ?? [] );
+            $result['meta']['is_multi_objective']     = ! empty( $analysis['is_multi'] );
+            $result['meta']['objectives_confidence']  = $analysis['confidence'] ?? 0;
 
             // Only build workflow for multi-objective requests (2+ intents).
             // Single-goal requests fall through to the normal Planner → slot-fill → confirm → execute path.
@@ -2629,47 +2920,54 @@ class BizCity_Intent_Engine {
                         $content_value = $preconfirm_content;
                     }
 
-                    // If no meaningful content → ask user for specific content FIRST
+                    // ── v4.9.4: Topic-Confirm Gate ──
+                    // When no explicit topic/content detected → show parsed objectives
+                    // and ask user for topic details before generating workflow.
+                    // User can confirm, modify topic, or cancel.
+                    // Step 1.9c handles the resume when user replies.
                     if ( ! $has_content && $preconfirm_state !== 'content_provided' ) {
-                        $goal_list = [];
-                        foreach ( $analysis['intents'] as $idx => $obj ) {
-                            $step_num    = $idx + 1;
-                            $tool_label  = BizCity_Scenario_Generator::get_tool_labels()[ $obj['tool_hint'] ?? '' ] ?? $obj['tool_hint'];
-                            $goal_list[] = "{$step_num}. 🔧 {$tool_label}";
+                        // Build objective labels for the ask message
+                        $obj_labels = [];
+                        $labels_map = class_exists( 'BizCity_Scenario_Generator' )
+                            ? BizCity_Scenario_Generator::get_tool_labels()
+                            : [];
+                        foreach ( $analysis['intents'] as $obj_item ) {
+                            $tool = $obj_item['tool_hint'] ?? '';
+                            $label = ! empty( $labels_map[ $tool ] ) ? $labels_map[ $tool ] : $tool;
+                            $obj_labels[] = '🔧 ' . $label;
                         }
 
-                        $lines   = [];
-                        $lines[] = '📋 **Mình hiểu bạn muốn:**';
-                        $lines   = array_merge( $lines, $goal_list );
-                        $lines[] = '';
-                        $lines[] = '❓ **Nội dung cụ thể là gì?**';
-                        $lines[] = 'Bạn mô tả càng chi tiết càng tốt — ví dụ: chủ đề, ý chính, đối tượng, giọng văn...';
-                        $lines[] = 'Mình sẽ dùng nội dung này để viết và đăng tự động cho bạn.';
-                        $reply   = implode( "\n", $lines );
+                        $obj_count = count( $obj_labels );
+                        $ask_reply  = "📋 Mình hiểu bạn muốn thực hiện {$obj_count} bước chính:\n\n";
+                        $ask_reply .= implode( "\n", $obj_labels );
+                        $ask_reply .= "\n\n❓ **Nội dung cụ thể là gì?** Bạn mô tả càng chi tiết càng tốt"
+                                    . " — ví dụ: chủ đề, ý chính, đối tượng, giọng văn..."
+                                    . " Mình sẽ dùng nội dung này để viết và đăng tự động cho bạn.";
 
-                        $this->conversation_mgr->set_waiting( $conv_id, 'text', '_multi_preconfirm' );
+                        // Save analysis for resume (Step 1.9c)
+                        $this->conversation_mgr->set_waiting( $conv_id, 'confirm', '_multi_preconfirm' );
                         $this->conversation_mgr->update_slots( $conv_id, [
                             '_multi_preconfirm_state'    => 'asking_content',
                             '_multi_preconfirm_analysis' => wp_json_encode( $analysis, JSON_UNESCAPED_UNICODE ),
                         ] );
 
-                        $result['reply']  = $reply;
+                        $result['reply']  = $ask_reply;
                         $result['action'] = 'ask_user';
                         $result['status'] = 'WAITING_USER';
-                        $result['meta']['multi_preconfirm']  = true;
-                        $result['meta']['asking_content']    = true;
-                        $result['meta']['intent_count']      = count( $analysis['intents'] );
+                        $result['meta']['ask_field']      = '_multi_preconfirm';
+                        $result['meta']['ask_type']       = 'content';
+                        $result['meta']['multi_objective'] = true;
+                        $result['meta']['objectives']     = array_map( function ( $o ) {
+                            return [ 'text' => $o['text'], 'tool' => $o['tool_hint'] ?? '' ];
+                        }, $analysis['intents'] );
 
-                        $this->conversation_mgr->add_turn( $conv_id, 'assistant', $reply, [
-                            'meta' => [ 'ask_field' => '_multi_preconfirm', 'ask_type' => 'text' ],
+                        $this->conversation_mgr->add_turn( $conv_id, 'assistant', $ask_reply, [
+                            'meta' => [ 'ask_field' => '_multi_preconfirm', 'ask_type' => 'content' ],
                         ] );
 
-                        $this->logger->log( 'multi_preconfirm_asking_content', [
-                            'goal'         => $intent['goal'],
-                            'entities'     => $classifier_entities,
-                            'has_content'  => false,
-                            'intent_count' => count( $analysis['intents'] ),
-                        ], $conv_id, $conversation['turn_count'] ?? 0, $user_id, $channel );
+                        error_log( '[INTENT-ENGINE] Step 4.4: multi-goal no content → asking user for topic'
+                            . ' | objectives=' . $obj_count
+                            . ' | tools=' . implode( ',', array_column( $analysis['intents'], 'tool_hint' ) ) );
 
                         $this->logger->end_trace( $result );
                         do_action( 'bizcity_intent_processed', $result, $params );
@@ -2814,7 +3112,23 @@ class BizCity_Intent_Engine {
                         $this->logger->end_trace( $result );
                         do_action( 'bizcity_intent_processed', $result, $params );
                         return $result;
+                    } else {
+                        // Plan execution failed (no plan_link) → log and fall through to single-tool
+                        error_log( '[INTENT-ENGINE] Step 4.4: Multi-goal plan EXECUTE failed'
+                            . ' | intents=' . count( $analysis['intents'] )
+                            . ' | plan_mode=' . ( $pipeline_plan['mode'] ?? '' )
+                            . ' | plan_steps=' . ( $pipeline_plan['step_count'] ?? 0 )
+                            . ' | error=' . wp_json_encode( $plan_result['error'] ?? 'no plan_link', JSON_UNESCAPED_UNICODE ) );
                     }
+                } else {
+                    // Multi-goal detected but plan building returned empty steps
+                    $intent_tools = array_map( function ( $obj ) {
+                        return $obj['tool_hint'] ?? '?';
+                    }, $analysis['intents'] );
+                    error_log( '[INTENT-ENGINE] Step 4.4: Multi-goal detected ('
+                        . count( $analysis['intents'] ) . ' intents) but plan has NO steps → fallback single-tool'
+                        . ' | tools=' . implode( ',', $intent_tools )
+                        . ' | plan_mode=' . ( $pipeline_plan['mode'] ?? 'null' ) );
                 }
             }
         }
@@ -2912,6 +3226,11 @@ class BizCity_Intent_Engine {
         }
         // ── O4: Pass raw message to planner for multi-slot scan (v3.6.1) ──
         $intent['raw_message'] = $message;
+
+        // ── Phase 1.2: Pass skill_match to planner for required_inputs merge ──
+        if ( ! empty( $skill_match ) ) {
+            $intent['skill_match'] = $skill_match;
+        }
 
         $plan_result = $this->planner->plan( $conversation, $intent );
         if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
@@ -3130,56 +3449,8 @@ class BizCity_Intent_Engine {
 
                 // ── User confirmed — proceed with execution ──
                 do_action( 'bizcity_intent_status', '🚀 Xác nhận thành công, đang thực thi...' );
-                // Execute tool — inject context that tools may need
-                $tool_slots = $plan_result['tool_slots'];
-                if ( ! isset( $tool_slots['session_id'] ) && $session_id ) {
-                    $tool_slots['session_id'] = $session_id;
-                }
-                if ( ! isset( $tool_slots['user_id'] ) && $user_id ) {
-                    $tool_slots['user_id'] = $user_id;
-                }
-                if ( ! isset( $tool_slots['platform'] ) && $channel ) {
-                    $tool_slots['platform'] = strtoupper( $channel );
-                }
-
-                // ── Inject _meta — structured execution context for tool callbacks ──
-                // Tools receive _meta with:
-                //   _context       — 6-layer dual context string (for LLM system prompts)
-                //   conv_id        — intent conversation UUID
-                //   goal           — current goal identifier (e.g. 'create_product')
-                //   goal_label     — human label (e.g. 'Tạo sản phẩm')
-                //   character_id   — AI character binding
-                //   channel        — webchat | adminchat | telegram | zalo
-                //   message_id     — original user message ID
-                //   user_display   — user display name
-                //   blog_id        — multisite blog ID
-                $tool_context_str = '';
-                if ( class_exists( 'BizCity_Context_Builder' ) ) {
-                    $tool_context_str = BizCity_Context_Builder::instance()->build_tool_context();
-                }
-                // Append tool manifest from Tool Index (DB-persisted registry)
-                $tool_manifest_str = '';
-                if ( class_exists( 'BizCity_Intent_Tool_Index' ) ) {
-                    $tool_manifest_str = BizCity_Intent_Tool_Index::instance()->build_tools_context( 800 );
-                }
-                $tool_user = wp_get_current_user();
-                $tool_slots['_meta'] = [
-                    '_context'        => $tool_context_str,
-                    '_tools_manifest' => $tool_manifest_str,
-                    'conv_id'         => $conv_id,
-                    'goal'            => $conversation['goal'] ?? '',
-                    'goal_label'      => $conversation['goal_label'] ?? '',
-                    'character_id'    => $character_id,
-                    'channel'         => $channel,
-                    'message_id'      => $message_id,
-                    'user_display'    => $tool_user->ID ? ( $tool_user->display_name ?: $tool_user->user_login ) : 'Guest',
-                    'blog_id'         => get_current_blog_id(),
-                ];
 
                 // ── Slot fill rate tracking (v3.6.2) ──
-                // Log slot completeness at call_tool time for analytics.
-                // Helps identify goals that need better entity extraction
-                // (high turn_count + low fill rate = poor UX).
                 $fill_plan = $this->planner->get_plan( $conversation['goal'] );
                 if ( $fill_plan ) {
                     $all_plan_fields = array_merge(
@@ -3205,6 +3476,7 @@ class BizCity_Intent_Engine {
                 }
 
                 // ── Fire execution detected hook — bizcity-executor may intercept async ──
+                $tool_slots = $plan_result['tool_slots'];
                 unset( $GLOBALS['bizcity_executor_claimed'] ); // reset before dispatch
                 $exec_context = [
                     'conv_id'       => $conv_id,
@@ -3230,7 +3502,6 @@ class BizCity_Intent_Engine {
 
                     unset( $GLOBALS['bizcity_executor_claimed'] );
 
-                    // ── Executor claimed — async workflow dispatch ──
                     $result['reply']  = "⏳ Đã nhận nhiệm vụ: **{$wf_title}** ({$task_count} bước). Em đang xử lý, bạn chờ chút nhé!";
                     $result['action'] = 'complete';
                     $result['status'] = 'COMPLETED';
@@ -3244,33 +3515,31 @@ class BizCity_Intent_Engine {
 
                 do_action( 'bizcity_intent_status', '⚙️ Đang thực thi: ' . ( $conversation['goal_label'] ?? $plan_result['tool_name'] ) );
 
-                // ── Execution Logger: tool_invoke ──
-                $invoke_id = BizCity_Execution_Logger::tool_invoke(
+                // ── Phase 1.1e: Unified execution via BizCity_Tool_Run ──
+                $tool_result = BizCity_Tool_Run::execute(
                     $plan_result['tool_name'],
                     $tool_slots,
-                    $this->tools->get_tool_source( $plan_result['tool_name'] )
+                    [
+                        'session_id'   => $session_id,
+                        'user_id'      => $user_id,
+                        'channel'      => $channel,
+                        'conv_id'      => $conv_id,
+                        'goal'         => $conversation['goal'] ?? '',
+                        'goal_label'   => $conversation['goal_label'] ?? '',
+                        'character_id' => $character_id,
+                        'message_id'   => $message_id,
+                        'caller'       => 'intent_engine',
+                    ]
                 );
-
-                $tool_start  = microtime( true );
-                $tool_result = $this->tools->execute(
-                    $plan_result['tool_name'],
-                    $tool_slots
-                );
-                $tool_duration = round( ( microtime( true ) - $tool_start ) * 1000, 2 );
-
-                // ── Execution Logger: tool_result ──
-                BizCity_Execution_Logger::tool_result(
-                    $invoke_id,
-                    $plan_result['tool_name'],
-                    $tool_result,
-                    $tool_duration
-                );
+                $tool_duration = $tool_result['duration_ms'] ?? 0;
 
                 $this->logger->log( 'execute_tool', [
                     'tool_name' => $plan_result['tool_name'],
                     'success'   => ! empty( $tool_result['success'] ),
                     'has_msg'   => ! empty( $tool_result['message'] ),
                     'missing'   => $tool_result['missing_fields'] ?? [],
+                    'verified'  => $tool_result['verified'] ?? false,
+                    'skill'     => ! empty( $tool_result['skill'] ) ? $tool_result['skill']['title'] : null,
                     'tool_ms'   => $tool_duration,
                 ], $conv_id, $conversation['turn_count'] ?? 0, $user_id, $channel );
 
@@ -5586,5 +5855,125 @@ PROMPT;
         }
 
         return [ 'success' => false, 'execution_id' => $execution_id, 'error' => 'Workflow executor not available' ];
+    }
+
+    /**
+     * Handle pipeline resume — find execution state and trigger workflow continuation.
+     *
+     * Phase 1.1d: Resume mechanism. Works in 3 strategies:
+     *  1. Transient still alive → call waic_execute_workflow_resume() directly
+     *  2. Transient expired but task_id known → rebuild execution state from task + todos → re-execute
+     *  3. No task_id → report status only
+     *
+     * @param array  $active_pipe Result from BizCity_Intent_Todos::find_active_pipeline().
+     * @param int    $user_id     Current user.
+     * @param string $session_id  Chat session.
+     * @param string $channel     Channel.
+     * @return string Reply message to send to user.
+     */
+    private function handle_pipeline_resume( array $active_pipe, int $user_id, string $session_id, string $channel ): string {
+        $pipe_id = $active_pipe['pipeline_id'];
+        $task_id = ! empty( $active_pipe['task_id'] ) ? (int) $active_pipe['task_id'] : 0;
+
+        error_log( '[INTENT-ENGINE] handle_pipeline_resume: pipeline=' . $pipe_id . ' task_id=' . $task_id );
+
+        // Strategy 1: Find active execution_id from option and check transient
+        if ( $task_id > 0 ) {
+            $execution_id = get_option( 'waic_active_execution_' . $task_id, '' );
+
+            if ( $execution_id ) {
+                $exec_state = get_transient( $execution_id );
+
+                if ( is_array( $exec_state ) ) {
+                    if ( ( $exec_state['status'] ?? '' ) === 'waiting' ) {
+                        // Transient alive, pipeline is WAITING → resume directly
+                        error_log( '[INTENT-ENGINE] Resume: transient alive, status=waiting, calling waic_execute_workflow_resume' );
+
+                        if ( function_exists( 'waic_execute_workflow_resume' ) ) {
+                            $resumed = waic_execute_workflow_resume( $execution_id );
+                            if ( $resumed ) {
+                                return "▶️ Đang tiếp tục kế hoạch từ bước **"
+                                     . ( $active_pipe['next_label'] ?: $active_pipe['next_tool'] ) . "**...\n\n"
+                                     . "📋 " . BizCity_Intent_Todos::get_formatted_message( $pipe_id );
+                            }
+                        }
+                        return "⚠️ Không thể resume workflow — executor không sẵn sàng.\n\n"
+                             . BizCity_Intent_Todos::get_formatted_message( $pipe_id );
+
+                    } elseif ( ( $exec_state['status'] ?? '' ) === 'running' ) {
+                        // Already running
+                        return "⏳ Pipeline đang chạy — vui lòng chờ...\n\n"
+                             . BizCity_Intent_Todos::get_formatted_message( $pipe_id );
+                    }
+                    // Status = completed/error but todos say otherwise → fall through to strategy 2
+                }
+
+                // Transient expired → try strategy 2
+                error_log( '[INTENT-ENGINE] Resume: transient expired for execution_id=' . $execution_id );
+            }
+        }
+
+        // Strategy 2: Transient expired — cannot blindly re-execute entire workflow
+        // (would duplicate already-completed steps). Reset the stuck step and advise user.
+        if ( $task_id > 0 ) {
+            error_log( '[INTENT-ENGINE] Resume: transient expired for task_id=' . $task_id . ' — resetting stuck step' );
+
+            // Reset the next pending/waiting step so it can be picked up by a new plan execution
+            $next_step = (int) ( $active_pipe['next_step_index'] ?? 0 );
+            $next_status = $active_pipe['next_status'] ?? '';
+
+            if ( in_array( $next_status, [ 'WAITING_USER', 'IN_PROGRESS', 'ACTIVE' ], true ) ) {
+                BizCity_Intent_Todos::update_status(
+                    $pipe_id,
+                    $active_pipe['next_tool'] ?? '',
+                    'PENDING',
+                    [ 'node_id' => $active_pipe['next_node_id'] ?? '' ]
+                );
+            }
+
+            // Clean up stale execution reference
+            delete_option( 'waic_active_execution_' . $task_id );
+
+            return "⏰ Phiên thực thi trước đã hết hạn. Bước **"
+                 . ( $active_pipe['next_label'] ?: $active_pipe['next_tool'] )
+                 . "** đã được đặt lại.\n\n"
+                 . "💡 Hãy ra lệnh lại để hệ thống thực hiện bước này (VD: _\"viết bài ...\"_)\n\n"
+                 . BizCity_Intent_Todos::get_formatted_message( $pipe_id );
+        }
+
+        // Strategy 3: No task_id — report status only
+        return "📋 Tìm thấy kế hoạch đang dở nhưng không có task_id để resume tự động.\n\n"
+             . BizCity_Intent_Todos::get_formatted_message( $pipe_id )
+             . "\n\nBạn có thể tạo kế hoạch mới nếu cần.";
+    }
+
+    /* ================================================================
+     *  Early Skill Lookup (Phase 1.2 — Archetype Detection)
+     * ================================================================ */
+
+    /**
+     * Perform early skill lookup before intent routing.
+     *
+     * Finds matching skill, detects archetype (A/B/C), assigns confidence tier.
+     * HIGH confidence + archetype B/C can override mode to execution.
+     *
+     * @param string $message      User message.
+     * @param array  $mode_result  Mode classification result.
+     * @param string $slash_command Detected slash command (if any).
+     * @return array|null  Enriched skill match or null if no match.
+     */
+    private function early_skill_lookup( string $message, array $mode_result, string $slash_command = '' ): ?array {
+        if ( ! class_exists( 'BizCity_Skill_Manager' ) ) {
+            return null;
+        }
+
+        $mgr = BizCity_Skill_Manager::instance();
+
+        return $mgr->find_matching_enriched( [
+            'mode'          => $mode_result['mode'] ?? '',
+            'message'       => $message,
+            'slash_command' => $slash_command,
+            'limit'         => 1,
+        ] );
     }
 }

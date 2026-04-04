@@ -1,4 +1,13 @@
-<?php
+﻿<?php
+/**
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\Intent
+ * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+ * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
+ * @license    GPL-2.0-or-later
+ * @link       https://bizcity.vn
+ */
+
 /**
  * BizCity Tool Evidence — CPT 'bizcity-auto-tool'
  *
@@ -81,7 +90,9 @@ class BizCity_Tool_Evidence {
 
         // Resource references
         if ( ! empty( $data['id'] ) ) {
-            update_post_meta( $post_id, '_resource_id', (int) $data['id'] );
+            update_post_meta( $post_id, '_resource_id',
+                is_numeric( $data['id'] ) ? (int) $data['id'] : sanitize_text_field( $data['id'] )
+            );
         }
         if ( ! empty( $data['url'] ) ) {
             update_post_meta( $post_id, '_resource_url', esc_url_raw( $data['url'] ) );

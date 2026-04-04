@@ -124,7 +124,8 @@ class BizCity_Chat_REST_API {
             'callback'            => array( $this, 'rest_register' ),
             'permission_callback' => '__return_true',
             'args'                => array(
-                'phone'        => array( 'type' => 'string', 'required' => true, 'sanitize_callback' => 'sanitize_text_field' ),
+                'phone'        => array( 'type' => 'string', 'required' => false, 'default' => '', 'sanitize_callback' => 'sanitize_text_field' ),
+                'email'        => array( 'type' => 'string', 'required' => false, 'default' => '', 'sanitize_callback' => 'sanitize_email' ),
                 'display_name' => array( 'type' => 'string', 'default' => '', 'sanitize_callback' => 'sanitize_text_field' ),
                 'password'     => array( 'type' => 'string', 'required' => true ),
             ),
@@ -421,20 +422,38 @@ class BizCity_Chat_REST_API {
      */
     public function rest_register( $request ) {
         $phone        = $request->get_param( 'phone' );
+        $email        = $request->get_param( 'email' );
         $display_name = $request->get_param( 'display_name' );
         $password     = $request->get_param( 'password' );
 
-        // Generate username from phone
-        $username = 'user_' . preg_replace( '/[^0-9]/', '', $phone );
-
-        if ( username_exists( $username ) ) {
+        // Cho phép đăng ký bằng email hoặc phone
+        if ( empty( $phone ) && empty( $email ) ) {
             return new WP_REST_Response( array(
                 'success' => false,
-                'message' => 'Số điện thoại đã được đăng ký',
+                'message' => 'Vui lòng nhập email hoặc số điện thoại',
+            ), 400 );
+        }
+
+        if ( ! empty( $phone ) ) {
+            $username = 'user_' . preg_replace( '/[^0-9]/', '', $phone );
+        } else {
+            $username = sanitize_user( strstr( $email, '@', true ), true );
+        }
+
+        if ( username_exists( $username ) ) {
+            $username = $username . '_' . wp_rand( 100, 999 );
+        }
+
+        $user_email = ! empty( $email ) && is_email( $email ) ? $email : $username . '@phone.local';
+
+        if ( email_exists( $user_email ) ) {
+            return new WP_REST_Response( array(
+                'success' => false,
+                'message' => 'Email hoặc số điện thoại đã được đăng ký',
             ), 409 );
         }
 
-        $user_id = wp_create_user( $username, $password, $username . '@phone.local' );
+        $user_id = wp_create_user( $username, $password, $user_email );
         if ( is_wp_error( $user_id ) ) {
             return new WP_REST_Response( array(
                 'success' => false,
@@ -445,9 +464,11 @@ class BizCity_Chat_REST_API {
         // Update display name and meta
         wp_update_user( array(
             'ID'           => $user_id,
-            'display_name' => $display_name ?: $phone,
+            'display_name' => $display_name ?: ( $phone ?: $username ),
         ) );
-        update_user_meta( $user_id, 'phone', $phone );
+        if ( $phone ) {
+            update_user_meta( $user_id, 'phone', $phone );
+        }
 
         // Auto-login
         wp_set_auth_cookie( $user_id, true );
@@ -457,7 +478,7 @@ class BizCity_Chat_REST_API {
             'success' => true,
             'data'    => array(
                 'user_id'      => $user_id,
-                'display_name' => $display_name ?: $phone,
+                'display_name' => $display_name ?: ( $phone ?: $username ),
                 'nonce'        => wp_create_nonce( 'wp_rest' ),
             ),
         ), 201 );

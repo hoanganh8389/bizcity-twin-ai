@@ -1,5 +1,14 @@
 <?php
 /**
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\Intent
+ * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+ * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
+ * @license    GPL-2.0-or-later
+ * @link       https://bizcity.vn
+ */
+
+/**
  * BizCity Intent — 2-Tier Mode Router + Conversation State Machine
  *
  * Unified conversation management layer that sits between all chat channels
@@ -37,6 +46,13 @@ if ( ! defined( 'BIZCITY_INTENT_URL' ) ) {
 
 /* ── Load sub-classes (skip if already loaded by legacy mu-plugin) ── */
 if ( class_exists( 'BizCity_Intent_Database' ) ) {
+    // Legacy mu-plugin loaded core classes — still load newer infra that mu-plugin doesn't have
+    if ( ! class_exists( 'BizCity_Trace_Store' ) ) {
+        require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-trace-store.php';
+    }
+    if ( ! class_exists( 'BizCity_Execution_Logger' ) ) {
+        require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-execution-logger.php';
+    }
     return;
 }
 
@@ -46,6 +62,7 @@ if ( class_exists( 'BizCity_Intent_Database' ) ) {
 require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-intent-database.php';
 require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-intent-logger.php';
 require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-execution-logger.php';
+require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-trace-store.php';
 require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-intent-stream.php';
 require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-intent-monitor.php';
 require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-prompt-context-logger.php';
@@ -82,6 +99,7 @@ require_once BIZCITY_INTENT_DIR . '/includes/classification/class-confirm-analyz
 require_once BIZCITY_INTENT_DIR . '/includes/tools/class-intent-tools.php';
 require_once BIZCITY_INTENT_DIR . '/includes/tools/class-intent-tool-index.php';
 require_once BIZCITY_INTENT_DIR . '/includes/tools/class-tool-control-panel.php';
+require_once BIZCITY_INTENT_DIR . '/includes/tools/class-tool-run.php';
 
 /* -- orchestration/ -- */
 require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-intent-planner.php';
@@ -101,6 +119,7 @@ require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-execution-plann
 require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-planner-variant-resolver.php';
 require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-one-shot-trigger.php';
 require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-step-executor.php';
+require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-pipeline-sse.php';
 
 /* -- Phase 1.1 — Pipeline Middleware (HIL, Evidence, ToDos, Schema Adapter, Messenger) -- */
 require_once BIZCITY_INTENT_DIR . '/includes/workflow/class-block-schema-adapter.php';
@@ -108,7 +127,11 @@ require_once BIZCITY_INTENT_DIR . '/includes/workflow/class-pipeline-messenger.p
 require_once BIZCITY_INTENT_DIR . '/includes/workflow/class-pipeline-middleware.php';
 require_once BIZCITY_INTENT_DIR . '/includes/workflow/class-intent-todos.php';
 require_once BIZCITY_INTENT_DIR . '/includes/workflow/class-pipeline-resume.php';
+require_once BIZCITY_INTENT_DIR . '/includes/workflow/class-memory-spec.php';
 require_once BIZCITY_INTENT_DIR . '/includes/workflow/class-intent-pipeline-evidence.php';
+
+/* -- observability/ -- */
+require_once BIZCITY_INTENT_DIR . '/includes/observability/class-context-layers-capture.php';
 
 /* ── Init CPT registrations ── */
 BizCity_Tool_Evidence::init();
@@ -116,8 +139,22 @@ BizCity_Tool_Evidence::init();
 /* ── Init Step Executor AJAX endpoints ── */
 BizCity_Step_Executor::instance();
 
+/* ── Init Pipeline SSE (Phase 1.2 — real-time sidebar monitor) ── */
+BizCity_Pipeline_SSE::init();
+
 /* ── Init Pipeline Middleware (Phase 1.1 — executor hooks) ── */
 BizCity_Pipeline_Middleware::instance()->boot();
+
+/* ── Init Memory Spec (Phase 1.2 §17 — pipeline working brief) ── */
+add_action( 'bizcity_pipeline_node_event', [ 'BizCity_Memory_Spec', 'refresh_on_checkpoint' ], 20 );
+
+/* ── Phase 1.6: Context Layers Capture — 100% prompt observability ── */
+// Listener for bizcity_system_prompt_built (fired by twin_resolver)
+add_action( 'bizcity_system_prompt_built', [ 'BizCity_Context_Layers_Capture', 'on_prompt_built' ], 10, 3 );
+// Universal capture: ensure started @0, capture final @99, persist on message @15
+add_filter( 'bizcity_chat_system_prompt', [ 'BizCity_Context_Layers_Capture', 'ensure_started' ], 0, 2 );
+add_filter( 'bizcity_chat_system_prompt', [ 'BizCity_Context_Layers_Capture', 'capture_final_prompt' ], 99, 2 );
+add_action( 'bizcity_chat_message_processed', [ 'BizCity_Context_Layers_Capture', 'persist_on_message' ], 15, 1 );
 
 require_once BIZCITY_INTENT_DIR . '/services/class-task-service.php';
 require_once BIZCITY_INTENT_DIR . '/services/class-session-list-service.php';

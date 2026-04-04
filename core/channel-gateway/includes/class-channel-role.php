@@ -25,10 +25,10 @@ class BizCity_Channel_Role {
 	const PLATFORM_DEFAULTS = [
 		'WEBCHAT'        => 'cskh',
 		'ADMINCHAT'      => 'auto',
-		'ZALO_BOT'       => 'cskh',
+		'ZALO_BOT'       => 'zalo_bot',  // dedicated: full context (via user_id link) + knowledge + skill
 		'ZALO_PERSONAL'  => 'user',
 		'TELEGRAM'       => 'user',
-		'FACEBOOK'       => 'cskh',
+		'FACEBOOK'       => 'facebook',  // dedicated role: knowledge + skill, no memory
 		'NOTEBOOK'       => 'admin',
 	];
 
@@ -206,6 +206,62 @@ class BizCity_Channel_Role {
 				'role_block'     => false,
 				'builtin'        => true,
 			],
+			'facebook' => [
+				'label'          => 'Facebook',
+				'kci_ratio'      => 100,
+				'kci_locked'     => true,
+				'max_tokens'     => 600,
+				'focus_override' => [
+					// ✅ Knowledge RAG + Skills — đọc KB và skill instructions
+					'knowledge'         => true,
+					'skill'             => true,
+					// ❌ Memory — tắt hoàn toàn (Messenger/comment không cần user memory)
+					'memory'            => false,
+					// ❌ Tắt các layer cá nhân hóa không liên quan kênh public
+					'notes'             => false,
+					'astro'             => false,
+					'transit'           => false,
+					'coaching'          => false,
+					'companion'         => false,
+					'relationship'      => false,
+					'emotional_threads' => false,
+					'cross_session'     => false,
+					'project'           => false,
+					'open_loops'        => false,
+					'journeys'          => false,
+					'token_budget'      => 2000,
+				],
+				'tools_enabled'  => false,
+				'role_block'     => false,
+				'builtin'        => true,
+			],
+			'zalo_bot' => [
+				'label'          => 'Zalo Bot',
+				'kci_ratio'      => 80,
+				'kci_locked'     => false,
+				'focus_override' => [
+					// ✅ Full context cho user đã link WP account
+					'knowledge'         => true,           // Kiến thức KB
+					'skill'             => true,           // Skill instructions
+					'memory'            => 'relevant',     // User memory theo wp_user_id
+					'notes'             => true,           // Ghi chú cá nhân
+					'companion'         => 'light',        // Companion nhẹ
+					// ❌ Tắt layer nặng không phù hợp kênh chat bot
+					'astro'             => false,
+					'transit'           => false,
+					'coaching'          => false,
+					'relationship'      => false,
+					'emotional_threads' => false,
+					'cross_session'     => false,
+					'project'           => false,
+					'open_loops'        => false,
+					'journeys'          => false,
+					'token_budget'      => 4000,
+				],
+				'tools_enabled'  => 'limited',
+				'role_block'     => false,
+				'builtin'        => true,
+			],
 		];
 	}
 
@@ -222,6 +278,7 @@ class BizCity_Channel_Role {
 			'transit'           => [ 'label' => 'Transit chiêm tinh',              'values' => [ true, 'topic', false ] ],
 			'coaching'          => [ 'label' => 'Coaching',                        'values' => [ true, 'topic', false ] ],
 			'memory'            => [ 'label' => 'Bộ nhớ (Memory)',                 'values' => [ 'relevant', 'explicit', false ] ],
+			'skill'             => [ 'label' => 'Skills (hướng dẫn kỹ năng)',      'values' => [ true, false ] ],
 			'companion'         => [ 'label' => 'Companion',                       'values' => [ true, 'light', false ] ],
 			'knowledge'         => [ 'label' => 'Kiến thức (Knowledge RAG)',       'values' => [ true, 'if_needed', 'sources', false ] ],
 			'session'           => [ 'label' => 'Session context',                 'values' => [ true, 'compact', false ] ],

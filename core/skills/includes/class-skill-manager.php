@@ -1,5 +1,14 @@
 <?php
 /**
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\Skills
+ * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+ * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
+ * @license    GPL-2.0-or-later
+ * @link       https://bizcity.vn
+ */
+
+/**
  * BizCity Skill Manager — File-based Skill CRUD
  *
  * Skills are Markdown files stored in core/skills/library/
@@ -270,6 +279,9 @@ class BizCity_Skill_Manager {
 	/**
 	 * Find matching skills for a given context.
 	 *
+	 * Delegates to SQL-based BizCity_Skill_Database when available (Phase 1.4a).
+	 * Falls back to file-based scanning if DB class not loaded.
+	 *
 	 * Scoring:
 	 *   slash_commands exact match  → +30
 	 *   mode match                  → +30
@@ -284,6 +296,48 @@ class BizCity_Skill_Manager {
 	 * @return array [{path, frontmatter, content, score, reasons}]
 	 */
 	public function find_matching( array $criteria ): array {
+		// ── Phase 1.4a: Delegate to SQL database if available ──
+		if ( class_exists( 'BizCity_Skill_Database' ) ) {
+			$db    = BizCity_Skill_Database::instance();
+			$match = $db->find_matching( $criteria );
+
+			if ( $match ) {
+				// Normalize SQL result to match file-based format
+				$rows = isset( $match['id'] ) ? [ $match ] : $match;
+				$results = [];
+				foreach ( $rows as $row ) {
+					$results[] = [
+						'path'        => 'sql://' . $row['skill_key'],
+						'frontmatter' => [
+							'title'          => $row['title'],
+							'category'       => $row['category'] ?? 'general',
+							'triggers'       => json_decode( $row['triggers_json'] ?? '[]', true ) ?: [],
+							'slash_commands' => array_filter( explode( ',', $row['slash_commands'] ?? '' ) ),
+							'modes'          => array_filter( explode( ',', $row['modes'] ?? '' ) ),
+							'tools'          => json_decode( $row['tools_json'] ?? '[]', true ) ?: [],
+							'priority'       => (int) ( $row['priority'] ?? 50 ),
+							'status'         => $row['status'] ?? 'active',
+						],
+						'content'     => $row['content'],
+						'score'       => $row['_score'] ?? 0,
+						'reasons'     => [ 'source:sql' ],
+						'skill_id'    => $row['id'] ?? null,
+					];
+				}
+				if ( ! empty( $results ) ) {
+					return $results;
+				}
+			}
+		}
+
+		// ── Fallback: File-based scanning (legacy) ──
+		return $this->find_matching_files( $criteria );
+	}
+
+	/**
+	 * File-based skill matching (legacy path).
+	 */
+	private function find_matching_files( array $criteria ): array {
 		$mode          = $criteria['mode'] ?? '';
 		$goal          = $criteria['goal'] ?? '';
 		$tool          = $criteria['tool'] ?? '';
@@ -418,6 +472,7 @@ class BizCity_Skill_Manager {
 					'path'        => $rel,
 					'frontmatter' => $parsed['frontmatter'],
 					'content'     => $parsed['content'],
+					'raw'         => $raw,
 				];
 			}
 		}
@@ -543,6 +598,85 @@ class BizCity_Skill_Manager {
 		}
 
 		return [ 'frontmatter' => $fm, 'content' => $content ];
+	}
+
+	/**
+	 * Detect skill archetype from frontmatter.
+	 *
+	 * Archetype A — Knowledge-only: no related_tools, no required_inputs.
+	 * Archetype B — Single-tool:    exactly 1 related_tool.
+	 * Archetype C — Multi-tool:     2+ related_tools OR output_format == json_workflow.
+	 *
+	 * @param array $skill  Skill array with 'frontmatter' key.
+	 * @return string 'A', 'B', or 'C'
+	 */
+	public function detect_archetype( array $skill ): string {
+		$fm = $skill['frontmatter'] ?? [];
+
+		$related_tools = array_merge(
+			(array) ( $fm['related_tools'] ?? [] ),
+			(array) ( $fm['tools'] ?? [] )
+		);
+		$related_tools = array_filter( array_unique( $related_tools ) );
+
+		$output_format = $fm['output_format'] ?? '';
+
+		// C: Multi-tool workflow
+		if ( count( $related_tools ) >= 2 || $output_format === 'json_workflow' ) {
+			return 'C';
+		}
+
+		// B: Single-tool
+		if ( count( $related_tools ) === 1 ) {
+			return 'B';
+		}
+
+		// A: Knowledge-only
+		return 'A';
+	}
+
+	/**
+	 * Find matching skill with archetype + confidence tier (Phase 1.2).
+	 *
+	 * @param array $criteria Same as find_matching().
+	 * @return array|null  Enriched result with archetype, confidence, primary_tool, etc. or null.
+	 */
+	public function find_matching_enriched( array $criteria ): ?array {
+		$matches = $this->find_matching( $criteria );
+
+		if ( empty( $matches ) ) {
+			return null;
+		}
+
+		$best      = $matches[0];
+		$archetype = $this->detect_archetype( $best );
+		$score     = $best['score'] ?? 0;
+
+		// Confidence tier
+		$confidence = 'low';
+		if ( $score >= 60 ) {
+			$confidence = 'high';
+		} elseif ( $score >= 30 ) {
+			$confidence = 'medium';
+		}
+
+		$fm = $best['frontmatter'] ?? [];
+		$related_tools = array_filter( array_unique( array_merge(
+			(array) ( $fm['related_tools'] ?? [] ),
+			(array) ( $fm['tools'] ?? [] )
+		) ) );
+
+		return [
+			'skill'           => $best,
+			'archetype'       => $archetype,
+			'confidence'      => $confidence,
+			'score'           => $score,
+			'primary_tool'    => reset( $related_tools ) ?: '',
+			'related_tools'   => array_values( $related_tools ),
+			'required_inputs' => (array) ( $fm['required_inputs'] ?? [] ),
+			'output_format'   => $fm['output_format'] ?? '',
+			'reasons'         => $best['reasons'] ?? [],
+		];
 	}
 
 	/**

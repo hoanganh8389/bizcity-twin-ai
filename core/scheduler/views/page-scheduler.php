@@ -286,6 +286,85 @@ textarea.sch-form-input{min-height:60px;resize:vertical}
 /* ══ Login ══ */
 .sch-login{text-align:center;padding:60px 20px;color:#6b7280;font-size:14px;line-height:1.6}
 .sch-login a{color:#4d6bfe;text-decoration:underline}
+
+/* ══ Month Calendar ══ */
+.sch-cal-toolbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.sch-cal-nav{display:flex;align-items:center;gap:6px}
+.sch-cal-nav-btn{
+    width:32px;height:32px;border-radius:8px;border:1px solid #e5e7eb;
+    background:#fff;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;
+    transition:all .12s;color:#374151;
+}
+.sch-cal-nav-btn:hover{background:#eef2ff;border-color:#a5b4fc}
+.sch-cal-month-label{font-size:14px;font-weight:700;color:#1f2937;min-width:120px;text-align:center}
+.sch-cal-today-btn{
+    padding:5px 12px;border-radius:8px;border:1px solid #e5e7eb;
+    background:#fff;font-size:12px;font-weight:500;cursor:pointer;color:#4d6bfe;
+    transition:all .12s;
+}
+.sch-cal-today-btn:hover{background:#eef2ff;border-color:#a5b4fc}
+
+.sch-cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:1px;background:#e5e7eb;border-radius:10px;overflow:hidden}
+.sch-cal-hd{
+    background:#f3f4f6;padding:6px 0;text-align:center;
+    font-size:11px;font-weight:600;color:#6b7280;
+}
+.sch-cal-cell{
+    background:#fff;min-height:80px;padding:4px;
+    cursor:pointer;transition:background .12s;position:relative;
+    display:flex;flex-direction:column;
+}
+.sch-cal-cell:hover{background:#f8fafc}
+.sch-cal-cell--other{background:#fafafa}
+.sch-cal-cell--other .sch-cal-day{color:#d1d5db}
+.sch-cal-cell--today{background:#eef2ff}
+.sch-cal-cell--today .sch-cal-day{
+    background:#4d6bfe;color:#fff;border-radius:50%;
+    width:24px;height:24px;display:flex;align-items:center;justify-content:center;
+}
+.sch-cal-day{font-size:12px;font-weight:600;color:#374151;margin-bottom:2px}
+.sch-cal-events{flex:1;overflow:hidden;display:flex;flex-direction:column;gap:1px}
+.sch-cal-bar{
+    display:flex;align-items:center;gap:2px;
+    padding:1px 4px;border-radius:3px;
+    font-size:9px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    background:#dbeafe;color:#1e40af;
+}
+.sch-cal-bar--ai{background:#ede9fe;color:#6d28d9}
+.sch-cal-bar--done{background:#dcfce7;color:#166534;text-decoration:line-through}
+.sch-cal-bar--allday{background:#4d6bfe;color:#fff}
+.sch-cal-bar-time{font-weight:600;flex-shrink:0}
+.sch-cal-bar-title{overflow:hidden;text-overflow:ellipsis}
+.sch-cal-more{font-size:9px;color:#6b7280;padding:1px 4px;font-weight:500}
+
+/* ══ Day Detail View ══ */
+.sch-day-view{display:none}
+.sch-day-view.active{display:block}
+.sch-month-view.active{display:block}
+.sch-month-view{display:none}
+.sch-day-header{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.sch-back-btn{
+    padding:6px 12px;border-radius:8px;border:1px solid #e5e7eb;
+    background:#fff;font-size:12px;font-weight:500;cursor:pointer;color:#4d6bfe;
+    transition:all .12s;display:flex;align-items:center;gap:4px;
+}
+.sch-back-btn:hover{background:#eef2ff;border-color:#a5b4fc}
+.sch-day-title{font-size:14px;font-weight:700;color:#1f2937;flex:1}
+.sch-day-nav{display:flex;gap:4px}
+.sch-day-nav-btn{
+    width:28px;height:28px;border-radius:6px;border:1px solid #e5e7eb;
+    background:#fff;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;
+    transition:all .12s;color:#374151;
+}
+.sch-day-nav-btn:hover{background:#eef2ff;border-color:#a5b4fc}
+
+@media(max-width:480px){
+    .sch-cal-cell{min-height:60px;padding:2px}
+    .sch-cal-bar-time{display:none}
+    .sch-cal-bar{font-size:8px;padding:1px 2px}
+    .sch-cal-day{font-size:10px}
+    .sch-cal-month-label{font-size:12px;min-width:90px}
+}
 </style>
 </head>
 <body>
@@ -316,23 +395,44 @@ textarea.sch-form-input{min-height:60px;resize:vertical}
 <?php else : ?>
 
 <!-- ═══════════════════════════════════════════════════════════
-     TAB 1: Lịch hôm nay
+     TAB 1: Lịch (Tháng → Ngày)
      ═══════════════════════════════════════════════════════════ -->
 <div class="sch-tab active" id="tab-today">
-    <div class="sch-sec">
-        <span class="sch-sec-t">📋 Lịch hôm nay</span>
-    </div>
-    <div class="sch-sec-sub" id="sch-today-date"></div>
 
-    <!-- Quick Add -->
-    <div class="sch-quick-form" style="margin-top:10px;">
-        <input class="sch-quick-input" id="sch-quick-input" type="text" placeholder='Thêm nhanh: "Họp team lúc 3h chiều"'>
-        <button class="sch-quick-btn" id="sch-quick-btn">⚡ Thêm</button>
+    <!-- ── Month View ── -->
+    <div class="sch-month-view active" id="sch-month-view">
+        <div class="sch-cal-toolbar">
+            <div class="sch-cal-nav">
+                <button class="sch-cal-nav-btn" id="sch-prev-month">‹</button>
+                <span class="sch-cal-month-label" id="sch-month-label"></span>
+                <button class="sch-cal-nav-btn" id="sch-next-month">›</button>
+            </div>
+            <button class="sch-cal-today-btn" id="sch-goto-today">Hôm nay</button>
+        </div>
+        <div class="sch-cal-grid" id="sch-cal-grid"></div>
     </div>
 
-    <!-- Events list -->
-    <div id="sch-today-events">
-        <div class="sch-event-loading">⏳ Đang tải...</div>
+    <!-- ── Day View ── -->
+    <div class="sch-day-view" id="sch-day-view">
+        <div class="sch-day-header">
+            <button class="sch-back-btn" id="sch-back-month">← Tháng</button>
+            <span class="sch-day-title" id="sch-day-title"></span>
+            <div class="sch-day-nav">
+                <button class="sch-day-nav-btn" id="sch-prev-day">‹</button>
+                <button class="sch-day-nav-btn" id="sch-next-day">›</button>
+            </div>
+        </div>
+
+        <!-- Quick Add -->
+        <div class="sch-quick-form" style="margin-top:10px;">
+            <input class="sch-quick-input" id="sch-quick-input" type="text" placeholder='Thêm nhanh: "Họp team lúc 3h chiều"'>
+            <button class="sch-quick-btn" id="sch-quick-btn">⚡ Thêm</button>
+        </div>
+
+        <!-- Events list -->
+        <div id="sch-today-events">
+            <div class="sch-event-loading">⏳ Đang tải...</div>
+        </div>
     </div>
 </div>
 
@@ -491,8 +591,8 @@ textarea.sch-form-input{min-height:60px;resize:vertical}
 <?php if ( $is_logged_in ) : ?>
 <nav class="sch-bottom-nav">
     <button class="sch-nav-item active" data-tab="tab-today">
-        <span class="sch-nav-icon">📋</span>
-        <span>Hôm nay</span>
+        <span class="sch-nav-icon">�</span>
+        <span>Lịch</span>
     </button>
     <button class="sch-nav-item" data-tab="tab-features">
         <span class="sch-nav-icon">⚡</span>
@@ -526,10 +626,12 @@ textarea.sch-form-input{min-height:60px;resize:vertical}
         var slashMsg = toolName ? ('/' + toolName + ' ' + msg) : msg;
         if (isIframe) {
             window.parent.postMessage({
-                type: 'bizcity-chat-command',
-                action: 'send_message',
-                tool: toolName || '',
-                text: slashMsg
+                type: 'bizcity_agent_command',
+                source: 'bizcity-scheduler',
+                plugin_slug: 'bizcity-scheduler',
+                tool_name: toolName || '',
+                text: slashMsg,
+                auto_send: false
             }, '*');
         } else {
             window.location.href = <?php echo wp_json_encode( home_url( '/' ) ); ?> + '?bizcity_chat_msg=' + encodeURIComponent(slashMsg);
@@ -554,6 +656,17 @@ textarea.sch-form-input{min-height:60px;resize:vertical}
         return d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
     }
 
+    function pad2(n) { return n < 10 ? '0' + n : '' + n; }
+
+    function dateKey(d) {
+        return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+    }
+
+    var VIET_MONTHS = ['Tháng 1','Tháng 2','Tháng 3','Tháng 4','Tháng 5','Tháng 6',
+                       'Tháng 7','Tháng 8','Tháng 9','Tháng 10','Tháng 11','Tháng 12'];
+    var VIET_DAYS_SHORT = ['CN','T2','T3','T4','T5','T6','T7'];
+    var VIET_DAYS_FULL = ['Chủ nhật','Thứ 2','Thứ 3','Thứ 4','Thứ 5','Thứ 6','Thứ 7'];
+
     /* ── Tab switching ── */
     var navItems = document.querySelectorAll('.sch-nav-item');
     var tabs = document.querySelectorAll('.sch-tab');
@@ -567,7 +680,7 @@ textarea.sch-form-input{min-height:60px;resize:vertical}
             var tabEl = document.getElementById(target);
             if (tabEl) tabEl.classList.add('active');
 
-            if (target === 'tab-today' && !todayLoaded) loadToday();
+            if (target === 'tab-today' && !monthLoaded) loadMonth();
         });
     });
 
@@ -580,19 +693,11 @@ textarea.sch-form-input{min-height:60px;resize:vertical}
         });
     });
 
-    /* ── Today date label ── */
-    var todayLabel = document.getElementById('sch-today-date');
-    if (todayLabel) {
-        var now = new Date();
-        var days = ['Chủ nhật','Thứ 2','Thứ 3','Thứ 4','Thứ 5','Thứ 6','Thứ 7'];
-        todayLabel.textContent = days[now.getDay()] + ', ' + now.getDate() + '/' + (now.getMonth()+1) + '/' + now.getFullYear();
-    }
-
     /* ── Default date for create form ── */
     var dateInput = document.getElementById('sch-evt-date');
     if (dateInput) {
         var today = new Date();
-        dateInput.value = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2,'0') + '-' + String(today.getDate()).padStart(2,'0');
+        dateInput.value = today.getFullYear() + '-' + pad2(today.getMonth()+1) + '-' + pad2(today.getDate());
     }
 
     /* ── All-day toggle ── */
@@ -604,21 +709,210 @@ textarea.sch-form-input{min-height:60px;resize:vertical}
         });
     }
 
-    /* ── Load today's events ── */
-    var todayLoaded = false;
+    /* ═══════════════════════════════════════════════
+       MONTH CALENDAR
+       ═══════════════════════════════════════════════ */
+    var currentMonth = new Date();
+    currentMonth.setDate(1);
+    var currentDayView = new Date(); // selected day for day view
+    var monthLoaded = false;
+    var monthEventsCache = {}; // { 'YYYY-MM-DD': [events] }
 
-    function loadToday() {
+    var monthViewEl = document.getElementById('sch-month-view');
+    var dayViewEl   = document.getElementById('sch-day-view');
+    var gridEl      = document.getElementById('sch-cal-grid');
+    var monthLabel  = document.getElementById('sch-month-label');
+
+    function showMonthView() {
+        if (monthViewEl) { monthViewEl.classList.add('active'); }
+        if (dayViewEl)   { dayViewEl.classList.remove('active'); }
+    }
+
+    function showDayView() {
+        if (monthViewEl) { monthViewEl.classList.remove('active'); }
+        if (dayViewEl)   { dayViewEl.classList.add('active'); }
+    }
+
+    function loadMonth() {
+        if (!gridEl) return;
+        var year = currentMonth.getFullYear();
+        var month = currentMonth.getMonth();
+
+        // Update label
+        if (monthLabel) monthLabel.textContent = VIET_MONTHS[month] + ' ' + year;
+
+        // Calculate grid range (first Monday before month start, or Sunday based on locale)
+        var firstDay = new Date(year, month, 1);
+        var lastDay = new Date(year, month + 1, 0);
+
+        // Start from Monday (1) — adjust so week starts on Monday
+        var startIdx = firstDay.getDay(); // 0=Sun..6=Sat
+        var gridStart = new Date(firstDay);
+        gridStart.setDate(1 - (startIdx === 0 ? 6 : startIdx - 1));
+
+        var endIdx = lastDay.getDay();
+        var gridEnd = new Date(lastDay);
+        gridEnd.setDate(lastDay.getDate() + (endIdx === 0 ? 0 : 7 - endIdx));
+
+        var fromStr = dateKey(gridStart);
+        var toStr = dateKey(gridEnd);
+
+        // Render skeleton first
+        renderCalendarSkeleton(gridStart, gridEnd, year, month);
+
+        // Fetch events
+        fetch(REST_URL + '/events?from=' + encodeURIComponent(fromStr) + '&to=' + encodeURIComponent(toStr), {
+            headers: headers()
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            monthLoaded = true;
+            monthEventsCache = {};
+            var events = data.events || [];
+            events.forEach(function(ev) {
+                var key = ev.start_at ? ev.start_at.substring(0, 10) : '';
+                if (key) {
+                    if (!monthEventsCache[key]) monthEventsCache[key] = [];
+                    monthEventsCache[key].push(ev);
+                }
+            });
+            renderCalendarEvents(gridStart, gridEnd, year, month);
+        })
+        .catch(function() {
+            monthLoaded = true;
+        });
+    }
+
+    function renderCalendarSkeleton(gridStart, gridEnd, year, month) {
+        if (!gridEl) return;
+        var html = '';
+        // Header row (Mon-Sun)
+        var hdDays = ['T2','T3','T4','T5','T6','T7','CN'];
+        for (var h = 0; h < 7; h++) {
+            html += '<div class="sch-cal-hd">' + hdDays[h] + '</div>';
+        }
+
+        var todayKey = dateKey(new Date());
+        var d = new Date(gridStart);
+        while (d <= gridEnd) {
+            var dk = dateKey(d);
+            var isOther = d.getMonth() !== month;
+            var isToday = dk === todayKey;
+            var cls = 'sch-cal-cell';
+            if (isOther) cls += ' sch-cal-cell--other';
+            if (isToday) cls += ' sch-cal-cell--today';
+
+            html += '<div class="' + cls + '" data-date="' + dk + '">';
+            html += '<div class="sch-cal-day">' + d.getDate() + '</div>';
+            html += '<div class="sch-cal-events" id="cal-ev-' + dk + '"></div>';
+            html += '</div>';
+
+            d.setDate(d.getDate() + 1);
+        }
+        gridEl.innerHTML = html;
+
+        // Attach click handlers
+        gridEl.querySelectorAll('.sch-cal-cell').forEach(function(cell) {
+            cell.addEventListener('click', function() {
+                var dt = this.getAttribute('data-date');
+                if (dt) {
+                    var parts = dt.split('-');
+                    currentDayView = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+                    openDayView();
+                }
+            });
+        });
+    }
+
+    function renderCalendarEvents(gridStart, gridEnd, year, month) {
+        var MAX_BARS = 3;
+        var d = new Date(gridStart);
+        while (d <= gridEnd) {
+            var dk = dateKey(d);
+            var evContainer = document.getElementById('cal-ev-' + dk);
+            if (evContainer) {
+                var evts = monthEventsCache[dk] || [];
+                var html = '';
+                for (var i = 0; i < Math.min(evts.length, MAX_BARS); i++) {
+                    var ev = evts[i];
+                    var isDone = ev.status === 'done';
+                    var isAI = (ev.source || '').indexOf('ai_') === 0;
+                    var isAllDay = ev.all_day == 1;
+                    var barCls = 'sch-cal-bar';
+                    if (isDone) barCls += ' sch-cal-bar--done';
+                    else if (isAllDay) barCls += ' sch-cal-bar--allday';
+                    else if (isAI) barCls += ' sch-cal-bar--ai';
+
+                    var time = isAllDay ? '' : formatTime(ev.start_at);
+                    html += '<div class="' + barCls + '">';
+                    if (time) html += '<span class="sch-cal-bar-time">' + escHtml(time) + '</span>';
+                    html += '<span class="sch-cal-bar-title">' + escHtml(ev.title) + '</span>';
+                    html += '</div>';
+                }
+                if (evts.length > MAX_BARS) {
+                    html += '<div class="sch-cal-more">+' + (evts.length - MAX_BARS) + ' khác</div>';
+                }
+                evContainer.innerHTML = html;
+            }
+            d.setDate(d.getDate() + 1);
+        }
+    }
+
+    /* ── Month navigation ── */
+    var prevMonthBtn = document.getElementById('sch-prev-month');
+    var nextMonthBtn = document.getElementById('sch-next-month');
+    var gotoTodayBtn = document.getElementById('sch-goto-today');
+
+    if (prevMonthBtn) prevMonthBtn.addEventListener('click', function() {
+        currentMonth.setMonth(currentMonth.getMonth() - 1);
+        loadMonth();
+    });
+    if (nextMonthBtn) nextMonthBtn.addEventListener('click', function() {
+        currentMonth.setMonth(currentMonth.getMonth() + 1);
+        loadMonth();
+    });
+    if (gotoTodayBtn) gotoTodayBtn.addEventListener('click', function() {
+        currentMonth = new Date();
+        currentMonth.setDate(1);
+        loadMonth();
+    });
+
+    /* ═══════════════════════════════════════════════
+       DAY VIEW
+       ═══════════════════════════════════════════════ */
+    var dayTitleEl = document.getElementById('sch-day-title');
+    var backMonthBtn = document.getElementById('sch-back-month');
+    var prevDayBtn = document.getElementById('sch-prev-day');
+    var nextDayBtn = document.getElementById('sch-next-day');
+
+    function openDayView() {
+        showDayView();
+        if (dayTitleEl) {
+            dayTitleEl.textContent = VIET_DAYS_FULL[currentDayView.getDay()] + ', ' +
+                currentDayView.getDate() + '/' + (currentDayView.getMonth() + 1) + '/' + currentDayView.getFullYear();
+        }
+        loadDayEvents();
+    }
+
+    function loadDayEvents() {
         var container = document.getElementById('sch-today-events');
         if (!container) return;
         container.innerHTML = '<div class="sch-event-loading">⏳ Đang tải...</div>';
 
-        fetch(REST_URL + '/today', { headers: headers() })
+        var dk = dateKey(currentDayView);
+        var nextDay = new Date(currentDayView);
+        nextDay.setDate(nextDay.getDate() + 1);
+        var toStr = dateKey(nextDay);
+
+        fetch(REST_URL + '/events?from=' + encodeURIComponent(dk) + '&to=' + encodeURIComponent(toStr), {
+            headers: headers()
+        })
         .then(function(r) { return r.json(); })
         .then(function(data) {
-            todayLoaded = true;
             var events = data.events || [];
             if (events.length === 0) {
-                container.innerHTML = '<div class="sch-event-empty">🎉 Hôm nay không có sự kiện nào.<br>Dùng Quick Add để thêm nhanh!</div>';
+                container.innerHTML = '<div class="sch-event-empty">🎉 Không có sự kiện nào trong ngày này.<br>Dùng Quick Add để thêm nhanh!</div>';
+                loadStats(events);
                 return;
             }
             var html = '<div class="sch-events">';
@@ -657,17 +951,31 @@ textarea.sch-form-input{min-height:60px;resize:vertical}
                         method: 'PATCH',
                         headers: headers(),
                         body: JSON.stringify({ status: newSt })
-                    }).then(function() { loadToday(); });
+                    }).then(function() { loadDayEvents(); });
                 });
             });
 
-            // Load stats
             loadStats(events);
         })
         .catch(function() {
             container.innerHTML = '<div class="sch-event-empty" style="color:#dc2626">Không thể tải sự kiện.</div>';
         });
     }
+
+    if (backMonthBtn) backMonthBtn.addEventListener('click', function() {
+        // Ensure month view shows the month of the day we were viewing
+        currentMonth = new Date(currentDayView.getFullYear(), currentDayView.getMonth(), 1);
+        showMonthView();
+        loadMonth();
+    });
+    if (prevDayBtn) prevDayBtn.addEventListener('click', function() {
+        currentDayView.setDate(currentDayView.getDate() - 1);
+        openDayView();
+    });
+    if (nextDayBtn) nextDayBtn.addEventListener('click', function() {
+        currentDayView.setDate(currentDayView.getDate() + 1);
+        openDayView();
+    });
 
     function loadStats(events) {
         var container = document.getElementById('sch-stats');
@@ -679,7 +987,7 @@ textarea.sch-form-input{min-height:60px;resize:vertical}
             '<div style="display:flex;gap:12px;flex-wrap:wrap;">' +
             '<div style="flex:1;min-width:80px;background:#eef2ff;border-radius:8px;padding:10px;text-align:center;">' +
                 '<div style="font-size:20px;font-weight:700;color:#4d6bfe;">' + total + '</div>' +
-                '<div style="font-size:10px;color:#6b7280;">Hôm nay</div>' +
+                '<div style="font-size:10px;color:#6b7280;">Sự kiện</div>' +
             '</div>' +
             '<div style="flex:1;min-width:80px;background:#dcfce7;border-radius:8px;padding:10px;text-align:center;">' +
                 '<div style="font-size:20px;font-weight:700;color:#16a34a;">' + done + '</div>' +
@@ -692,8 +1000,8 @@ textarea.sch-form-input{min-height:60px;resize:vertical}
             '</div>';
     }
 
-    // Load on init
-    loadToday();
+    // Init: load month view
+    loadMonth();
 
     /* ── Quick Add ── */
     var quickInput = document.getElementById('sch-quick-input');
@@ -715,7 +1023,7 @@ textarea.sch-form-input{min-height:60px;resize:vertical}
                 quickBtn.textContent = '⚡ Thêm';
                 if (data.error) { alert('Lỗi: ' + data.error); return; }
                 quickInput.value = '';
-                loadToday();
+                loadDayEvents();
             })
             .catch(function() {
                 quickBtn.disabled = false;
@@ -778,7 +1086,7 @@ textarea.sch-form-input{min-height:60px;resize:vertical}
                 // Reset form
                 document.getElementById('sch-evt-title').value = '';
                 document.getElementById('sch-evt-desc').value = '';
-                todayLoaded = false; // reload next time
+                monthLoaded = false; // reload calendar
             })
             .catch(function() {
                 submitBtn.disabled = false;

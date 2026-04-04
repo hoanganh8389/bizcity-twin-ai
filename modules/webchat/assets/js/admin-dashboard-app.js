@@ -2421,6 +2421,20 @@ jQuery(function($) {
                                 scrollBottom();
                                 console.log('🔧 [SuggestTool] Card rendered:', st.goal, st.plugin_slug);
                             }
+
+                            // ═══ Phase 1.2: Pipeline Monitor Sidebar (SSE) ═══
+                            if (data.pipeline_id && data.pipeline_nodes && window.BizCityPipelineMonitor) {
+                                var sidebar = document.getElementById('bc-pipeline-sidebar');
+                                if (sidebar) {
+                                    var monitor = new window.BizCityPipelineMonitor(sidebar, data.pipeline_id, {
+                                        nonce: (window.BIZC_PIPELINE_MONITOR || {}).nonce || ''
+                                    });
+                                    monitor.init(data.pipeline_nodes);
+                                    sidebar.classList.add('active');
+                                    document.body.classList.add('bc-sidebar-open');
+                                    console.log('📊 [PipelineMonitor] Sidebar opened for:', data.pipeline_id);
+                                }
+                            }
                         }
                     }
                     

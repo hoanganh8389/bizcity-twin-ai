@@ -36,10 +36,17 @@ function bccm_get_or_create_user_coachee($user_id, $platform = 'WEBCHAT', $coach
   global $wpdb;
   $t = bccm_tables();
 
-  $row = $wpdb->get_row($wpdb->prepare(
-    "SELECT * FROM {$t['profiles']} WHERE user_id = %d AND platform_type = %s ORDER BY id DESC LIMIT 1",
-    $user_id, $platform
-  ), ARRAY_A);
+  if ( bccm_profiles_support_platform_type() ) {
+    $row = $wpdb->get_row($wpdb->prepare(
+      "SELECT * FROM {$t['profiles']} WHERE user_id = %d AND platform_type = %s ORDER BY id DESC LIMIT 1",
+      $user_id, $platform
+    ), ARRAY_A);
+  } else {
+    $row = $wpdb->get_row($wpdb->prepare(
+      "SELECT * FROM {$t['profiles']} WHERE user_id = %d ORDER BY id DESC LIMIT 1",
+      $user_id
+    ), ARRAY_A);
+  }
 
   if ($row) return $row;
 
@@ -47,15 +54,19 @@ function bccm_get_or_create_user_coachee($user_id, $platform = 'WEBCHAT', $coach
   $user = get_userdata($user_id);
   if (!$user) return null;
 
-  $wpdb->insert($t['profiles'], [
-    'user_id'       => $user_id,
-    'platform_type' => $platform,
-    'coach_type'    => $coach_type,
-    'full_name'     => $user->display_name ?: $user->user_login,
-    'phone'         => get_user_meta($user_id, 'billing_phone', true) ?: '',
-    'created_at'    => current_time('mysql'),
-    'updated_at'    => current_time('mysql'),
-  ]);
+  $insert_data = [
+    'user_id'    => $user_id,
+    'coach_type' => $coach_type,
+    'full_name'  => $user->display_name ?: $user->user_login,
+    'phone'      => get_user_meta($user_id, 'billing_phone', true) ?: '',
+    'created_at' => current_time('mysql'),
+    'updated_at' => current_time('mysql'),
+  ];
+  if ( bccm_profiles_support_platform_type() ) {
+    $insert_data['platform_type'] = $platform;
+  }
+
+  $wpdb->insert($t['profiles'], $insert_data);
 
   $new_id = $wpdb->insert_id;
   return $wpdb->get_row($wpdb->prepare(
@@ -94,13 +105,15 @@ function bccm_admin_my_profile() {
   if (!empty($_POST['bccm_action']) && check_admin_referer('bccm_step1_profile')) {
 
     $data = [
-      'full_name'     => sanitize_text_field($_POST['full_name'] ?? ''),
-      'phone'         => sanitize_text_field($_POST['phone'] ?? ''),
-      'address'       => sanitize_text_field($_POST['address'] ?? ''),
-      'dob'           => sanitize_text_field($_POST['dob'] ?? ''),
-      'user_id'       => $user_id,
-      'platform_type' => 'ADMINCHAT',
+      'full_name' => sanitize_text_field($_POST['full_name'] ?? ''),
+      'phone'     => sanitize_text_field($_POST['phone'] ?? ''),
+      'address'   => sanitize_text_field($_POST['address'] ?? ''),
+      'dob'       => sanitize_text_field($_POST['dob'] ?? ''),
+      'user_id'   => $user_id,
     ];
+    if ( bccm_profiles_support_platform_type() ) {
+      $data['platform_type'] = 'ADMINCHAT';
+    }
 
     $coachee_id = bccm_upsert_profile($data, $coachee_id);
 

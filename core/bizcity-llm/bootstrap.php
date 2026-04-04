@@ -1,5 +1,14 @@
 <?php
 /**
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\BizCity_LLM
+ * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+ * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
+ * @license    GPL-2.0-or-later
+ * @link       https://bizcity.vn
+ */
+
+/**
  * BizCity LLM — Unified AI Gateway Client
  *
  * Thin client for all LLM calls across the BizCity Twin AI platform.
@@ -109,6 +118,17 @@ function bizcity_llm_is_ready(): bool {
  */
 function bizcity_llm_embeddings( $input, array $options = [] ): array {
     return BizCity_LLM_Client::instance()->embeddings( $input, $options );
+}
+
+/**
+ * Generate an image via the BizCity LLM gateway (or direct OpenAI).
+ *
+ * @param string $prompt  Image prompt.
+ * @param array  $options { model, size, n, timeout }
+ * @return array { success, image_url, b64_json, model, error }
+ */
+function bizcity_llm_generate_image( string $prompt, array $options = [] ): array {
+    return BizCity_LLM_Client::instance()->generate_image( $prompt, $options );
 }
 
 /**

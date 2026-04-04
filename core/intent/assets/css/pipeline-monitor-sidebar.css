@@ -1,0 +1,260 @@
+/**
+ * Pipeline Monitor Sidebar — Styles
+ * Phase 1.2 — Pipeline Visualization Sidebar (v2.4)
+ */
+
+/* ── Sidebar Container ── */
+#bc-pipeline-sidebar {
+    position: fixed;
+    top: 32px; /* below WP admin bar */
+    right: -360px;
+    width: 360px;
+    height: calc(100vh - 32px);
+    background: #fff;
+    border-left: 1px solid #ddd;
+    z-index: 99990;
+    transition: right 0.3s ease;
+    display: flex;
+    flex-direction: column;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 13px;
+    box-shadow: -2px 0 8px rgba(0,0,0,0.08);
+    overflow: hidden;
+}
+
+#bc-pipeline-sidebar.active {
+    right: 0;
+}
+
+/* When sidebar is active, shift the admin chat area */
+body.bc-sidebar-open .bizc-admin-main {
+    margin-right: 360px;
+    transition: margin-right 0.3s ease;
+}
+
+/* ── Monitor wrapper ── */
+.bc-pipeline-monitor {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+/* ── Header ── */
+.bc-pm-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    background: #f8f9fa;
+    border-bottom: 1px solid #e0e0e0;
+    flex-shrink: 0;
+}
+
+.bc-pm-title {
+    font-weight: 600;
+    font-size: 14px;
+    flex: 1;
+    color: #1d2327;
+}
+
+.bc-pm-close {
+    background: none;
+    border: none;
+    font-size: 18px;
+    cursor: pointer;
+    color: #888;
+    padding: 2px 6px;
+    border-radius: 3px;
+    line-height: 1;
+}
+
+.bc-pm-close:hover {
+    background: #e0e0e0;
+    color: #333;
+}
+
+/* ── Status badges ── */
+.bc-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.bc-badge-green { background: #d4edda; color: #155724; }
+.bc-badge-red   { background: #f8d7da; color: #721c24; }
+.bc-badge-blue  { background: #cce5ff; color: #004085; }
+.bc-badge-gray  { background: #e9ecef; color: #6c757d; }
+
+/* ── Nodes list ── */
+.bc-pm-nodes {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 12px;
+}
+
+/* ── Individual node card ── */
+.bc-pipeline-node {
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    margin-bottom: 6px;
+    overflow: hidden;
+    transition: border-color 0.2s;
+}
+
+.bc-pipeline-node[data-status="running"],
+.bc-pipeline-node[data-status="started"] {
+    border-color: #007cba;
+    box-shadow: 0 0 0 1px rgba(0,124,186,0.2);
+}
+
+.bc-pipeline-node[data-status="completed"] {
+    border-color: #28a745;
+}
+
+.bc-pipeline-node[data-status="failed"] {
+    border-color: #dc3545;
+}
+
+.bc-pipeline-node[data-status="waiting"] {
+    border-color: #ffc107;
+}
+
+/* ── Node header ── */
+.bc-node-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    background: #fafafa;
+    border-bottom: 1px solid rgba(0,0,0,0.06);
+}
+
+.bc-pipeline-node[data-status="running"] .bc-node-header {
+    background: #f0f8ff;
+}
+
+.bc-pipeline-node[data-status="failed"] .bc-node-header {
+    background: #fff5f5;
+}
+
+.bc-node-icon {
+    flex-shrink: 0;
+    font-size: 14px;
+    line-height: 1;
+}
+
+.bc-node-title {
+    flex: 1;
+    font-weight: 500;
+    font-size: 12px;
+    color: #1d2327;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.bc-node-duration {
+    font-size: 11px;
+    color: #888;
+    flex-shrink: 0;
+}
+
+/* ── Node body ── */
+.bc-node-body {
+    padding: 4px 10px 6px;
+}
+
+.bc-node-body:empty {
+    display: none;
+}
+
+/* ── Progress bar ── */
+.bc-progress-track {
+    height: 4px;
+    background: #e9ecef;
+    border-radius: 2px;
+    overflow: hidden;
+    margin-bottom: 4px;
+}
+
+.bc-progress-bar {
+    height: 100%;
+    background: #007cba;
+    border-radius: 2px;
+    transition: width 0.3s;
+}
+
+/* ── Node content ── */
+.bc-node-skill {
+    font-size: 11px;
+    color: #666;
+}
+
+.bc-node-preview {
+    font-size: 11px;
+    color: #555;
+    max-height: 40px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.bc-node-error {
+    font-size: 11px;
+    color: #dc3545;
+    background: #fff5f5;
+    padding: 3px 6px;
+    border-radius: 3px;
+}
+
+.bc-node-waiting {
+    font-size: 11px;
+    color: #856404;
+    font-style: italic;
+}
+
+/* ── Console log ── */
+.bc-pm-console {
+    flex-shrink: 0;
+    height: 140px;
+    border-top: 1px solid #ddd;
+    display: flex;
+    flex-direction: column;
+}
+
+.bc-pm-console-header {
+    padding: 4px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    background: #2d2d2d;
+    color: #ccc;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.bc-pm-console-log {
+    flex: 1;
+    overflow-y: auto;
+    background: #1e1e1e;
+    padding: 6px 10px;
+    font-family: "Cascadia Code", "Fira Code", Consolas, monospace;
+    font-size: 11px;
+    line-height: 1.6;
+}
+
+.bc-console-line {
+    display: flex;
+    gap: 6px;
+}
+
+.bc-log-time {
+    color: #888;
+    flex-shrink: 0;
+}
+
+.bc-log-text {
+    color: #ddd;
+    word-break: break-all;
+}

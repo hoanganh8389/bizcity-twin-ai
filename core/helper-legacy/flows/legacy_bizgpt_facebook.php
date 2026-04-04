@@ -1,4 +1,12 @@
-<?php
+﻿<?php
+/**
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\Helper_Legacy
+ * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+ * @license    GPL-2.0-or-later
+ * @link       https://bizcity.vn
+ */
+
 /**
  * @deprecated 2025-07 Use plugin bizcity-tool-facebook instead.
  * This file is kept for backward compatibility and will be removed in a future release.
@@ -114,8 +122,7 @@ function twf_handle_facebook_request($chat_id, $message, $data = array()) {
         $image_url = twf_generate_image_url($prompt);
     }
 
-    // 3. Sinh title, content bằng AI
-    $api_key = get_option('twf_openai_api_key');
+    // 3. Sinh title, content bằng AI (via LLM Router)
     $text = $caption ?: ($message['text'] ?? '');
 
     // Yêu cầu AI sinh title ngắn, nội dung max 300 chữ (HTML, văn phong thu hút)
@@ -130,23 +137,13 @@ Bạn là chuyên gia nội dung Facebook Marketing. Viết một bài post Face
   \"content\": \"...\" // HTML hoặc plain text đều được
 }
 ";
-    $args = [
-        'headers' => [
-            'Authorization' => 'Bearer ' . $api_key,
-            'Content-Type'  => 'application/json'
-        ],
-        'body' => json_encode([
-            'model' => 'gpt-4o',
-            'messages' => [[
-                'role' => 'user',
-                'content' => $ai_prompt
-            ]]
-        ]),
-        'timeout' => 80,
-    ];
-    $response = wp_remote_post('https://api.openai.com/v1/chat/completions', $args);
-    $body = json_decode(wp_remote_retrieve_body($response), true);
-    $json = $body['choices'][0]['message']['content'] ?? '';
+    $llm_result = function_exists( 'bizcity_llm_chat' )
+        ? bizcity_llm_chat(
+            [ [ 'role' => 'user', 'content' => $ai_prompt ] ],
+            [ 'purpose' => 'executor', 'timeout' => 80 ]
+        )
+        : [ 'success' => false, 'message' => '' ];
+    $json = $llm_result['message'] ?? '';
     if (($pos = strpos($json, '{')) !== false) $json = substr($json, $pos);
     if (($pos = strrpos($json, '}')) !== false) $json = substr($json, 0, $pos + 1);
     $parsed = json_decode($json, true);
@@ -305,8 +302,7 @@ function twf_handle_facebook_multi_page_post($chat_id, $message, $data = array()
         $image_url = twf_generate_image_url($prompt);
     }
 
-    // 3. Gọi AI tạo title + content dạng JSON
-    $api_key = get_option('twf_openai_api_key');
+    // 3. Gọi AI tạo title + content dạng JSON (via LLM Router)
     $text    = $caption ?: ($message['text'] ?? '');
 
     $ai_prompt = "
@@ -321,24 +317,13 @@ Bạn là chuyên gia nội dung Facebook Marketing. Viết một bài post Face
 }
 ";
 
-    $args = [
-        'headers' => [
-            'Authorization' => 'Bearer ' . $api_key,
-            'Content-Type'  => 'application/json'
-        ],
-        'body' => json_encode([
-            'model' => 'gpt-4o',
-            'messages' => [[
-                'role' => 'user',
-                'content' => $ai_prompt
-            ]]
-        ]),
-        'timeout' => 80,
-    ];
-
-    $response = wp_remote_post('https://api.openai.com/v1/chat/completions', $args);
-    $body     = json_decode(wp_remote_retrieve_body($response), true);
-    $json     = $body['choices'][0]['message']['content'] ?? '';
+    $llm_result = function_exists( 'bizcity_llm_chat' )
+        ? bizcity_llm_chat(
+            [ [ 'role' => 'user', 'content' => $ai_prompt ] ],
+            [ 'purpose' => 'executor', 'timeout' => 80 ]
+        )
+        : [ 'success' => false, 'message' => '' ];
+    $json     = $llm_result['message'] ?? '';
     if (($pos = strpos($json, '{')) !== false) $json = substr($json, $pos);
     if (($pos = strrpos($json, '}')) !== false) $json = substr($json, 0, $pos + 1);
     $parsed   = json_decode($json, true);

@@ -26,6 +26,14 @@ $connect_url  = $is_logged_in ? BZGoogle_Google_OAuth::get_connect_url( [ 'retur
 $hub_domain   = BZGoogle_Google_OAuth::get_hub_domain();
 $is_hub       = BZGoogle_Google_OAuth::is_hub();
 
+// Debug: log connection check (remove after fixing)
+error_log( sprintf(
+    '[BZGoogle page-google] is_logged_in=%s, user_id=%d, blog_id=%d, has_token=%s, is_hub=%s, table=%s',
+    $is_logged_in ? 'YES' : 'NO', $user_id, $blog_id,
+    $has_token ? 'YES' : 'NO', $is_hub ? 'YES' : 'NO',
+    BZGoogle_Installer::table_accounts()
+) );
+
 /* ── Scope status per service ── */
 $services = [
     'gmail'    => [ 'label' => 'Gmail',    'icon' => '📧' ],
@@ -464,7 +472,8 @@ body{
                 source: 'bizgpt-tool-google',
                 plugin_slug: 'bizgpt-tool-google',
                 tool_name: resolvedTool,
-                text:   slashMsg || msg
+                text:   slashMsg || msg,
+                auto_send: false
             }, '*');
         } else {
             window.location.href = <?php echo wp_json_encode( home_url( '/' ) ); ?> + '?bizcity_chat_msg=' + encodeURIComponent(slashMsg || msg);

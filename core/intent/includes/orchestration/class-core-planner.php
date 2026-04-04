@@ -1,4 +1,13 @@
-<?php
+﻿<?php
+/**
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\Intent
+ * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+ * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
+ * @license    GPL-2.0-or-later
+ * @link       https://bizcity.vn
+ */
+
 /**
  * BizCity Core Planner — Multi-Goal Orchestrator + Package Tool Matcher
  *
@@ -408,9 +417,19 @@ class BizCity_Core_Planner {
             $summary = implode( "\n", $lines );
         }
 
-        // Always append the plan link for user to review & confirm
+        // Embed workflow builder placeholder (rendered as WorkflowEmbed by React frontend).
+        // Use markdown link format — MediaPreview component detects builder URLs
+        // and renders them as interactive iframe with View / Run buttons.
         if ( $plan_link ) {
-            $summary .= "\n\n👉 [Xem & xác nhận kế hoạch]({$plan_link})";
+            $task_id = 0;
+            if ( preg_match( '/task_id=(\d+)/', $plan_link, $m ) ) {
+                $task_id = (int) $m[1];
+            }
+            $clean_url = $plan_link;
+            if ( strpos( $clean_url, 'bizcity_iframe=1' ) === false ) {
+                $clean_url .= ( strpos( $clean_url, '?' ) !== false ? '&' : '?' ) . 'bizcity_iframe=1';
+            }
+            $summary .= "\n\n[👁 Xem & Chạy Workflow #{$task_id}]({$clean_url})";
         }
 
         return $summary;

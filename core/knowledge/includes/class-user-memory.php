@@ -122,7 +122,7 @@ class BizCity_User_Memory {
         // Table missing — create it now
         error_log( "[BizCity_User_Memory] Table {$table} not found — creating..." );
 
-        $charset_collate = $wpdb->get_charset_collate();
+        $charset_collate = function_exists( 'bizcity_get_charset_collate' ) ? bizcity_get_charset_collate() : $wpdb->get_charset_collate();
 
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 
@@ -425,6 +425,51 @@ class BizCity_User_Memory {
         $params[] = (int) $args['limit'];
 
         return $wpdb->get_results( $wpdb->prepare( $sql, ...$params ) );
+    }
+
+    /* ================================================================
+     * BUILD COMPACT MEMORY — lightweight summary for Classifier / Router
+     *
+     * Returns top memories in a single-line format (~60-80 tokens max).
+     * Used by Mode Classifier and Intent Router where full memory is too heavy.
+     *
+     * @since 4.8.1
+     * @param int    $user_id
+     * @param string $session_id
+     * @return string  Compact memory line, or '' if no memories.
+     * ================================================================ */
+    public static function build_compact_memory( $user_id, $session_id = '' ) {
+        $instance = self::instance();
+
+        // Query by user_id for logged-in users, session_id for anonymous.
+        $query_user_id    = (int) $user_id > 0 ? (int) $user_id : 0;
+        $query_session_id = (int) $user_id > 0 ? ''              : $session_id;
+
+        $memories = $instance->get_memories( [
+            'user_id'    => $query_user_id,
+            'session_id' => $query_session_id,
+            'limit'      => 5,
+            'order_by'   => 'score',
+        ] );
+
+        if ( empty( $memories ) ) {
+            return '';
+        }
+
+        $items = [];
+        foreach ( $memories as $mem ) {
+            $type = $mem->memory_type ?? 'fact';
+            $text = mb_substr( trim( $mem->memory_text ?? '' ), 0, 80 );
+            if ( $text ) {
+                $items[] = "[{$type}] {$text}";
+            }
+        }
+
+        if ( empty( $items ) ) {
+            return '';
+        }
+
+        return "\nUSER MEMORY: " . implode( ' | ', $items );
     }
 
     /* ================================================================

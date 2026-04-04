@@ -38,13 +38,21 @@ class BZGoogle_Google_Service {
      * Make an authenticated POST request to Google API.
      */
     private static function api_post( $url, $blog_id, $user_id, $body = [], $content_type = 'application/json' ) {
+        return self::api_request( 'POST', $url, $blog_id, $user_id, $body, $content_type );
+    }
+
+    /**
+     * Generic authenticated HTTP request (POST, PATCH, PUT, DELETE).
+     */
+    private static function api_request( $method, $url, $blog_id, $user_id, $body = [], $content_type = 'application/json' ) {
         $token_data = BZGoogle_Token_Store::get_token( $blog_id, $user_id );
         if ( ! $token_data ) {
             return new WP_Error( 'no_token', 'Google chưa kết nối. Vui lòng kết nối Google trước.' );
         }
 
         $args = [
-            'timeout' => 20,
+            'method'  => strtoupper( $method ),
+            'timeout' => 30,
             'headers' => [
                 'Authorization' => 'Bearer ' . $token_data['access_token'],
                 'Content-Type'  => $content_type,
@@ -52,13 +60,13 @@ class BZGoogle_Google_Service {
             ],
         ];
 
-        if ( $content_type === 'application/json' ) {
+        if ( $body && $content_type === 'application/json' ) {
             $args['body'] = wp_json_encode( $body );
-        } else {
+        } elseif ( $body ) {
             $args['body'] = $body;
         }
 
-        $response = wp_remote_post( $url, $args );
+        $response = wp_remote_request( $url, $args );
         return self::parse_response( $response );
     }
 
@@ -341,6 +349,284 @@ class BZGoogle_Google_Service {
         }
 
         return [ 'contacts' => $contacts ];
+    }
+
+    /* ══════════════════════════════════════════════════════════
+     *  GOOGLE DOCS
+     * ══════════════════════════════════════════════════════════ */
+
+    /**
+     * Create a new Google Doc (blank or with title).
+     *
+     * @return array|WP_Error  { documentId, title, revisionId }
+     */
+    public static function docs_create( $blog_id, $user_id, $args = [] ) {
+        $body = [ 'title' => sanitize_text_field( $args['title'] ?? 'Untitled' ) ];
+        return self::api_post(
+            'https://docs.googleapis.com/v1/documents',
+            $blog_id, $user_id, $body
+        );
+    }
+
+    /**
+     * Read a Google Doc (full structured content).
+     *
+     * @return array|WP_Error  Document resource
+     */
+    public static function docs_get( $blog_id, $user_id, $document_id ) {
+        return self::api_get(
+            'https://docs.googleapis.com/v1/documents/' . urlencode( $document_id ),
+            $blog_id, $user_id
+        );
+    }
+
+    /**
+     * Batch update a Google Doc (insert, replace, delete text, etc.).
+     *
+     * @param array $requests  Array of batchUpdate request objects
+     * @return array|WP_Error
+     */
+    public static function docs_batch_update( $blog_id, $user_id, $document_id, $requests ) {
+        return self::api_post(
+            'https://docs.googleapis.com/v1/documents/' . urlencode( $document_id ) . ':batchUpdate',
+            $blog_id, $user_id,
+            [ 'requests' => $requests ]
+        );
+    }
+
+    /* ══════════════════════════════════════════════════════════
+     *  GOOGLE SHEETS
+     * ══════════════════════════════════════════════════════════ */
+
+    /**
+     * Create a new Google Spreadsheet.
+     *
+     * @return array|WP_Error  { spreadsheetId, spreadsheetUrl, sheets[] }
+     */
+    public static function sheets_create( $blog_id, $user_id, $args = [] ) {
+        $body = [
+            'properties' => [ 'title' => sanitize_text_field( $args['title'] ?? 'Untitled' ) ],
+        ];
+        if ( ! empty( $args['sheet_titles'] ) && is_array( $args['sheet_titles'] ) ) {
+            $body['sheets'] = [];
+            foreach ( $args['sheet_titles'] as $i => $st ) {
+                $body['sheets'][] = [
+                    'properties' => [
+                        'sheetId' => $i,
+                        'title'   => sanitize_text_field( $st ),
+                    ],
+                ];
+            }
+        }
+        return self::api_post(
+            'https://sheets.googleapis.com/v4/spreadsheets',
+            $blog_id, $user_id, $body
+        );
+    }
+
+    /**
+     * Get spreadsheet metadata (sheets list, properties).
+     */
+    public static function sheets_get( $blog_id, $user_id, $spreadsheet_id ) {
+        return self::api_get(
+            'https://sheets.googleapis.com/v4/spreadsheets/' . urlencode( $spreadsheet_id ),
+            $blog_id, $user_id,
+            [ 'fields' => 'spreadsheetId,spreadsheetUrl,properties.title,sheets.properties' ]
+        );
+    }
+
+    /**
+     * Read cell values from a range (e.g. "Sheet1!A1:D10").
+     *
+     * @return array|WP_Error  { range, values[][] }
+     */
+    public static function sheets_read( $blog_id, $user_id, $spreadsheet_id, $range ) {
+        return self::api_get(
+            'https://sheets.googleapis.com/v4/spreadsheets/' . urlencode( $spreadsheet_id )
+                . '/values/' . urlencode( $range ),
+            $blog_id, $user_id
+        );
+    }
+
+    /**
+     * Append rows to a sheet.
+     *
+     * @param array $values  2D array of row values
+     * @return array|WP_Error
+     */
+    public static function sheets_append( $blog_id, $user_id, $spreadsheet_id, $range, $values ) {
+        $url = 'https://sheets.googleapis.com/v4/spreadsheets/' . urlencode( $spreadsheet_id )
+             . '/values/' . urlencode( $range ) . ':append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS';
+        return self::api_post( $url, $blog_id, $user_id, [
+            'range'          => $range,
+            'majorDimension' => 'ROWS',
+            'values'         => $values,
+        ] );
+    }
+
+    /**
+     * Update cells in a range (overwrite).
+     *
+     * @param array $values  2D array of row values
+     * @return array|WP_Error
+     */
+    public static function sheets_update( $blog_id, $user_id, $spreadsheet_id, $range, $values ) {
+        $url = 'https://sheets.googleapis.com/v4/spreadsheets/' . urlencode( $spreadsheet_id )
+             . '/values/' . urlencode( $range ) . '?valueInputOption=USER_ENTERED';
+        return self::api_request( 'PUT', $url, $blog_id, $user_id, [
+            'range'          => $range,
+            'majorDimension' => 'ROWS',
+            'values'         => $values,
+        ] );
+    }
+
+    /**
+     * Batch update a spreadsheet (add/delete sheets, formatting, etc.).
+     */
+    public static function sheets_batch_update( $blog_id, $user_id, $spreadsheet_id, $requests ) {
+        return self::api_post(
+            'https://sheets.googleapis.com/v4/spreadsheets/' . urlencode( $spreadsheet_id ) . ':batchUpdate',
+            $blog_id, $user_id,
+            [ 'requests' => $requests ]
+        );
+    }
+
+    /* ══════════════════════════════════════════════════════════
+     *  GOOGLE SLIDES
+     * ══════════════════════════════════════════════════════════ */
+
+    /**
+     * Create a new Google Slides presentation.
+     *
+     * @return array|WP_Error  { presentationId, title, slides[] }
+     */
+    public static function slides_create( $blog_id, $user_id, $args = [] ) {
+        return self::api_post(
+            'https://slides.googleapis.com/v1/presentations',
+            $blog_id, $user_id,
+            [ 'title' => sanitize_text_field( $args['title'] ?? 'Untitled' ) ]
+        );
+    }
+
+    /**
+     * Get presentation metadata.
+     */
+    public static function slides_get( $blog_id, $user_id, $presentation_id ) {
+        return self::api_get(
+            'https://slides.googleapis.com/v1/presentations/' . urlencode( $presentation_id ),
+            $blog_id, $user_id
+        );
+    }
+
+    /**
+     * Batch update a presentation (add slides, insert text/images/shapes, etc.).
+     */
+    public static function slides_batch_update( $blog_id, $user_id, $presentation_id, $requests ) {
+        return self::api_post(
+            'https://slides.googleapis.com/v1/presentations/' . urlencode( $presentation_id ) . ':batchUpdate',
+            $blog_id, $user_id,
+            [ 'requests' => $requests ]
+        );
+    }
+
+    /* ══════════════════════════════════════════════════════════
+     *  GOOGLE DRIVE — Extended
+     * ══════════════════════════════════════════════════════════ */
+
+    /**
+     * Get file metadata.
+     */
+    public static function drive_get( $blog_id, $user_id, $file_id ) {
+        return self::api_get(
+            'https://www.googleapis.com/drive/v3/files/' . urlencode( $file_id ),
+            $blog_id, $user_id,
+            [ 'fields' => 'id,name,mimeType,size,modifiedTime,webViewLink,webContentLink,parents' ]
+        );
+    }
+
+    /**
+     * Delete a file from Drive.
+     */
+    public static function drive_delete( $blog_id, $user_id, $file_id ) {
+        return self::api_request(
+            'DELETE',
+            'https://www.googleapis.com/drive/v3/files/' . urlencode( $file_id ),
+            $blog_id, $user_id
+        );
+    }
+
+    /**
+     * Export a Google Workspace file (Doc/Sheet/Slide) to a given MIME type.
+     *
+     * @param string $mime_type  e.g. application/pdf, text/plain, text/csv
+     * @return string|WP_Error   Raw file content
+     */
+    public static function drive_export( $blog_id, $user_id, $file_id, $mime_type = 'application/pdf' ) {
+        $token_data = BZGoogle_Token_Store::get_token( $blog_id, $user_id );
+        if ( ! $token_data ) {
+            return new WP_Error( 'no_token', 'Google chưa kết nối.' );
+        }
+
+        $url = 'https://www.googleapis.com/drive/v3/files/' . urlencode( $file_id )
+             . '/export?' . http_build_query( [ 'mimeType' => $mime_type ] );
+
+        $response = wp_remote_get( $url, [
+            'timeout' => 30,
+            'headers' => [ 'Authorization' => 'Bearer ' . $token_data['access_token'] ],
+        ] );
+
+        if ( is_wp_error( $response ) ) return $response;
+
+        $code = wp_remote_retrieve_response_code( $response );
+        if ( $code >= 400 ) {
+            return new WP_Error( 'export_failed', "Export failed: HTTP {$code}" );
+        }
+
+        return wp_remote_retrieve_body( $response );
+    }
+
+    /**
+     * Download a non-Workspace file (binary) from Drive.
+     *
+     * @return string|WP_Error  Raw binary content
+     */
+    public static function drive_download( $blog_id, $user_id, $file_id ) {
+        $token_data = BZGoogle_Token_Store::get_token( $blog_id, $user_id );
+        if ( ! $token_data ) {
+            return new WP_Error( 'no_token', 'Google chưa kết nối.' );
+        }
+
+        $url = 'https://www.googleapis.com/drive/v3/files/' . urlencode( $file_id ) . '?alt=media';
+
+        $response = wp_remote_get( $url, [
+            'timeout' => 60,
+            'headers' => [ 'Authorization' => 'Bearer ' . $token_data['access_token'] ],
+        ] );
+
+        if ( is_wp_error( $response ) ) return $response;
+
+        $code = wp_remote_retrieve_response_code( $response );
+        if ( $code >= 400 ) {
+            return new WP_Error( 'download_failed', "Download failed: HTTP {$code}" );
+        }
+
+        return wp_remote_retrieve_body( $response );
+    }
+
+    /**
+     * Search Drive with a full query string (Drive API v3 q parameter).
+     */
+    public static function drive_search( $blog_id, $user_id, $query, $max_results = 20 ) {
+        return self::api_get(
+            'https://www.googleapis.com/drive/v3/files',
+            $blog_id, $user_id,
+            [
+                'q'        => $query,
+                'pageSize' => min( absint( $max_results ), 100 ),
+                'fields'   => 'files(id,name,mimeType,size,modifiedTime,webViewLink)',
+                'orderBy'  => 'modifiedTime desc',
+            ]
+        );
     }
 
     /* ── Helpers ───────────────────────────────────────────── */

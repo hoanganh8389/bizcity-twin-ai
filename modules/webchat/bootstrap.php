@@ -61,9 +61,9 @@ if ( class_exists( 'BizCity_WebChat_Database' ) ) {
     return;
 }
 
-// Translations — load .po files from /languages/ (text domain: bizcity-webchat)
+// Translations — load .po files from /languages/ (text domain: bizcity-twin-ai)
 add_action( 'init', function() {
-    load_plugin_textdomain( 'bizcity-webchat', false, plugin_basename( BIZCITY_WEBCHAT_DIR ) . '/languages' );
+    load_plugin_textdomain( 'bizcity-twin-ai', false, plugin_basename( BIZCITY_WEBCHAT_DIR ) . '/languages' );
 }, 5 );
 
 /* ═══════════════════════════════════════════════════════════════
@@ -193,7 +193,8 @@ require_once BIZCITY_WEBCHAT_INCLUDES . 'class-webchat-memory.php';
 require_once BIZCITY_WEBCHAT_INCLUDES . 'class-webchat-api.php';
 require_once BIZCITY_WEBCHAT_INCLUDES . 'class-admin-menu.php';
 require_once BIZCITY_WEBCHAT_INCLUDES . 'class-admin-dashboard.php'; // Admin dashboard with chat
-// require_once BIZCITY_WEBCHAT_INCLUDES . 'class-working-panel.php'; // REMOVED — floating execution monitor disabled
+require_once BIZCITY_WEBCHAT_INCLUDES . 'class-working-panel.php'; // Re-enabled — reads from Execution Logger transient
+require_once BIZCITY_WEBCHAT_INCLUDES . 'class-working-panel-context.php'; // Phase 1.6 Context Layers tab for Working Panel
 require_once BIZCITY_WEBCHAT_INCLUDES . 'class-chatbot-shortcode.php'; // New chatbot shortcode
 require_once BIZCITY_WEBCHAT_INCLUDES . 'class-ajax-handlers.php'; // V3 Project/Session AJAX handlers
 require_once BIZCITY_WEBCHAT_INCLUDES . 'class-plugin-suggestion-api.php'; // v3.1.0 Plugin @mention suggestions
@@ -201,6 +202,7 @@ require_once BIZCITY_WEBCHAT_INCLUDES . 'class-plugin-gathering.php';     // v3.
 require_once BIZCITY_WEBCHAT_INCLUDES . 'class-automation-provider.php';   // v3.3.0 Automation Bridge (bc_ blocks + it_ intent tools)
 require_once BIZCITY_WEBCHAT_INCLUDES . 'class-auth-ajax.php';              // AJAX Login/Register for React modal
 require_once BIZCITY_WEBCHAT_INCLUDES . 'class-login-page.php';             // AIQuill-style wp-login.php
+require_once BIZCITY_WEBCHAT_INCLUDES . 'class-session-memory-spec.php';    // Phase 1.6 Session Memory Spec
 require_once BIZCITY_WEBCHAT_INCLUDES . 'functions.php';
 
 // Load lib
@@ -225,6 +227,29 @@ BizCity_Login_Page::boot();
 
 // Initialize Plugin Gathering (v3.2.0 — hooks into bizcity_chat_pre_ai_response @2)
 BizCity_Plugin_Gathering::instance();
+
+// ── Phase 1.6: Session Memory Spec hooks ──
+// Inject session context into system prompt @priority 12 (after Focus Gate @1, before Task Spec @15)
+add_filter( 'bizcity_chat_system_prompt', array( 'BizCity_Session_Memory_Spec', 'inject_if_active' ), 12, 2 );
+// Refresh session spec after message processed @priority 12
+add_action( 'bizcity_chat_message_processed', array( 'BizCity_Session_Memory_Spec', 'refresh_on_message' ), 12, 1 );
+
+// ── Phase 1.6 Sprint 2: Mode transition hooks ──
+// B1: Goal detected → escalate session mode chat→goal
+add_action( 'bizcity_goal_detected', array( 'BizCity_Session_Memory_Spec', 'on_goal_detected' ), 12, 3 );
+
+// B2: Pipeline created → escalate session mode goal→pipeline
+add_action( 'bizcity_pipeline_created', function( $task_id, $trigger_context, $scenario ) {
+    $session_id  = isset( $trigger_context['session_id'] ) ? $trigger_context['session_id'] : '';
+    $pipeline_id = isset( $scenario['settings']['pipeline_id'] ) ? $scenario['settings']['pipeline_id'] : '';
+    BizCity_Session_Memory_Spec::on_task_created( $session_id, $task_id, $pipeline_id );
+}, 12, 3 );
+
+// B3: Pipeline completed → de-escalate session mode pipeline→chat
+add_action( 'bizcity_pipeline_completed', function( $task_id, $state ) {
+    $session_id = isset( $state['session_id'] ) ? $state['session_id'] : '';
+    BizCity_Session_Memory_Spec::on_task_completed( $session_id, $task_id, $state );
+}, 12, 2 );
 
 /* =====================================================================
  * Auth cookie lifetime: 1 year (365 days)
@@ -264,14 +289,14 @@ if ( ! function_exists( 'bizcity_aiagent_ajax_login' ) ) {
 function bizcity_aiagent_ajax_login() {
     // Verify nonce
     if ( ! wp_verify_nonce( $_POST['_wpnonce'] ?? '', 'bizcity_aiagent_auth' ) ) {
-        wp_send_json_error( [ 'message' => 'Phiên làm việc hết hạn, vui lòng tải lại trang.' ] );
+        wp_send_json_error( [ 'message' => __( 'Phiên làm việc hết hạn, vui lòng tải lại trang.', 'bizcity-twin-ai' ) ] );
     }
 
     $username = sanitize_user( $_POST['username'] ?? '' );
     $password = $_POST['password'] ?? '';
 
     if ( empty( $username ) || empty( $password ) ) {
-        wp_send_json_error( [ 'message' => 'Vui lòng nhập tên đăng nhập và mật khẩu.' ] );
+        wp_send_json_error( [ 'message' => __( 'Vui lòng nhập tên đăng nhập và mật khẩu.', 'bizcity-twin-ai' ) ] );
     }
 
     $user = wp_signon( [
@@ -282,9 +307,9 @@ function bizcity_aiagent_ajax_login() {
 
     if ( is_wp_error( $user ) ) {
         $code = $user->get_error_code();
-        $msg  = 'Tên đăng nhập hoặc mật khẩu không đúng.';
+        $msg  = __( 'Tên đăng nhập hoặc mật khẩu không đúng.', 'bizcity-twin-ai' );
         if ( $code === 'invalid_username' || $code === 'invalid_email' ) {
-            $msg = 'Tài khoản không tồn tại.';
+            $msg = __( 'Tài khoản không tồn tại.', 'bizcity-twin-ai' );
         }
         wp_send_json_error( [ 'message' => $msg ] );
     }
@@ -292,7 +317,7 @@ function bizcity_aiagent_ajax_login() {
     wp_set_current_user( $user->ID );
 
     wp_send_json_success( [
-        'message'      => 'Đăng nhập thành công!',
+        'message'      => __( 'Đăng nhập thành công!', 'bizcity-twin-ai' ),
         'display_name' => $user->display_name,
         'user_id'      => $user->ID,
         'redirect'     => '',
@@ -308,11 +333,11 @@ if ( ! function_exists( 'bizcity_aiagent_ajax_register' ) ) {
 function bizcity_aiagent_ajax_register() {
     // Verify nonce
     if ( ! wp_verify_nonce( $_POST['_wpnonce'] ?? '', 'bizcity_aiagent_auth' ) ) {
-        wp_send_json_error( [ 'message' => 'Phiên làm việc hết hạn, vui lòng tải lại trang.' ] );
+        wp_send_json_error( [ 'message' => __( 'Phiên làm việc hết hạn, vui lòng tải lại trang.', 'bizcity-twin-ai' ) ] );
     }
 
     if ( ! get_option( 'users_can_register' ) ) {
-        wp_send_json_error( [ 'message' => 'Đăng ký tài khoản hiện đang bị tắt.' ] );
+        wp_send_json_error( [ 'message' => __( 'Đăng ký tài khoản hiện đang bị tắt.', 'bizcity-twin-ai' ) ] );
     }
 
     $phone    = preg_replace( '/\D/', '', $_POST['phone'] ?? '' );
@@ -348,16 +373,16 @@ function bizcity_aiagent_ajax_register() {
     }
 
     if ( empty( $email ) || ! is_email( $email ) ) {
-        wp_send_json_error( [ 'message' => 'Vui lòng nhập email hoặc số điện thoại hợp lệ.' ] );
+        wp_send_json_error( [ 'message' => __( 'Vui lòng nhập email hoặc số điện thoại hợp lệ.', 'bizcity-twin-ai' ) ] );
     }
     if ( email_exists( $email ) ) {
-        wp_send_json_error( [ 'message' => 'Email hoặc số điện thoại này đã được sử dụng. Hãy đăng nhập.' ] );
+        wp_send_json_error( [ 'message' => __( 'Email hoặc số điện thoại này đã được sử dụng. Hãy đăng nhập.', 'bizcity-twin-ai' ) ] );
     }
     if ( empty( $username ) ) {
-        wp_send_json_error( [ 'message' => 'Vui lòng nhập số điện thoại.' ] );
+        wp_send_json_error( [ 'message' => __( 'Vui lòng nhập số điện thoại.', 'bizcity-twin-ai' ) ] );
     }
     if ( username_exists( $username ) ) {
-        wp_send_json_error( [ 'message' => 'Số điện thoại này đã được đăng ký. Hãy đăng nhập.' ] );
+        wp_send_json_error( [ 'message' => __( 'Số điện thoại này đã được đăng ký. Hãy đăng nhập.', 'bizcity-twin-ai' ) ] );
     }
 
     // Auto-generate password if empty
@@ -383,7 +408,7 @@ function bizcity_aiagent_ajax_register() {
     wp_new_user_notification( $user_id, null, 'both' );
 
     wp_send_json_success( [
-        'message'      => 'Đăng ký thành công! Đang đăng nhập...',
+        'message'      => __( 'Đăng ký thành công! Đang đăng nhập...', 'bizcity-twin-ai' ),
         'display_name' => $user->display_name,
         'user_id'      => $user_id,
         'redirect'     => '',
@@ -511,7 +536,7 @@ class BizCity_WebChat_Bot {
      * Register AI Agent page template in the page template dropdown.
      */
     public function register_aiagent_template( $templates ) {
-        $templates['bizcity-aiagent-home'] = 'Trang chủ AI Agent (BizCity)';
+        $templates['bizcity-aiagent-home'] = __( 'Trang chủ AI Agent (BizCity)', 'bizcity-twin-ai' );
         return $templates;
     }
 
@@ -805,7 +830,7 @@ class BizCity_WebChat_Bot {
                 exit;
             } catch (Exception $e) {
                 error_log('BizCity WebChat Error (unified path): ' . $e->getMessage());
-                wp_send_json_error(['message' => 'Có lỗi xảy ra: ' . $e->getMessage()]);
+                wp_send_json_error(['message' => __( 'Có lỗi xảy ra', 'bizcity-twin-ai' ) . ': ' . $e->getMessage()]);
                 exit;
             }
         }
@@ -828,12 +853,12 @@ class BizCity_WebChat_Bot {
                 exit;
             } catch (Exception $e) {
                 error_log('BizCity WebChat Error (legacy): ' . $e->getMessage());
-                wp_send_json_error(['message' => 'Có lỗi xảy ra: ' . $e->getMessage()]);
+                wp_send_json_error(['message' => __( 'Có lỗi xảy ra', 'bizcity-twin-ai' ) . ': ' . $e->getMessage()]);
                 exit;
             }
         }
         
-        wp_send_json_error(['message' => 'Hệ thống chat chưa sẵn sàng. Vui lòng liên hệ quản trị viên.']);
+        wp_send_json_error(['message' => __( 'Hệ thống chat chưa sẵn sàng. Vui lòng liên hệ quản trị viên.', 'bizcity-twin-ai' )]);
     }
 
     
@@ -1049,7 +1074,7 @@ class BizCity_WebChat_Bot {
     }
     
     private function get_welcome_message() {
-        return get_option('bizcity_webchat_welcome', 'Xin chào! Tôi có thể giúp gì cho bạn?');
+        return get_option('bizcity_webchat_welcome', __( 'Xin chào! Tôi có thể giúp gì cho bạn?', 'bizcity-twin-ai' ));
     }
 }
 
@@ -1358,7 +1383,7 @@ function bizcity_webchat_ajax_upload() {
     
     $file = $_FILES['file'] ?? null;
     if (!$file || $file['error'] != 0) {
-        wp_send_json_error(['message' => 'Không nhận được file!']);
+        wp_send_json_error(['message' => __( 'Không nhận được file!', 'bizcity-twin-ai' )]);
         return;
     }
     
@@ -1366,7 +1391,7 @@ function bizcity_webchat_ajax_upload() {
     $media = bizcity_upload_to_media_library( $file );
     
     if ( is_wp_error( $media ) ) {
-        wp_send_json_error(['message' => 'Lỗi upload: ' . $media->get_error_message()]);
+        wp_send_json_error(['message' => __( 'Lỗi upload', 'bizcity-twin-ai' ) . ': ' . $media->get_error_message()]);
         return;
     }
     
@@ -1418,14 +1443,14 @@ function bizcity_webchat_ajax_upload() {
             ]);
             return;
         } else {
-            wp_send_json_error(['message' => 'Không nhận diện được nội dung voice!']);
+            wp_send_json_error(['message' => __( 'Không nhận diện được nội dung voice!', 'bizcity-twin-ai' )]);
             return;
         }
     }
     
     // Process image file (optional: vision AI)
     if ($mime && strpos($mime, 'image/') === 0) {
-        $reply = 'Đã nhận được ảnh của bạn. Xin chờ trong giây lát...';
+        $reply = __( 'Đã nhận được ảnh của bạn. Xin chờ trong giây lát...', 'bizcity-twin-ai' );
         
         // Log the upload with attachment_id
         $db = BizCity_WebChat_Database::instance();
@@ -1446,7 +1471,7 @@ function bizcity_webchat_ajax_upload() {
     }
     
     wp_send_json_success([
-        'message' => 'File đã được upload',
+        'message' => __( 'File đã được upload', 'bizcity-twin-ai' ),
         'file_url' => $file_url,
         'attachment_id' => $attachment_id,
     ]);

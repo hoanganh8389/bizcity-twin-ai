@@ -1,4 +1,13 @@
-<?php
+﻿<?php
+/**
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\Intent
+ * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+ * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
+ * @license    GPL-2.0-or-later
+ * @link       https://bizcity.vn
+ */
+
 /**
  * BizCity Intent — ToDos CRUD
  *
@@ -265,5 +274,209 @@ class BizCity_Intent_Todos {
 		global $wpdb;
 		$table = BizCity_Intent_Database::instance()->todos_table();
 		return (int) $wpdb->delete( $table, [ 'pipeline_id' => $pipeline_id ] );
+	}
+
+	/* ================================================================
+	 *  Phase 1.1d: Resume + Cancel + Retry
+	 * ================================================================ */
+
+	/**
+	 * Find the most recent active/waiting pipeline for a user.
+	 *
+	 * Searches for pipelines that have at least 1 step in ACTIVE/WAITING_USER/PENDING status
+	 * AND at least 1 step already COMPLETED (i.e., pipeline started but didn't finish).
+	 *
+	 * @param int    $user_id  User ID.
+	 * @param string $channel  Optional channel filter.
+	 * @return array|null { pipeline_id, task_id, total, completed, pending, waiting, failed, last_tool } or null.
+	 */
+	public static function find_active_pipeline( $user_id, $channel = '' ) {
+		global $wpdb;
+		$table = BizCity_Intent_Database::instance()->todos_table();
+
+		// Find the most recent pipeline_id with incomplete steps
+		$sql = $wpdb->prepare(
+			"SELECT pipeline_id, MAX(task_id) AS task_id,
+			        COUNT(*) AS total,
+			        SUM( CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END ) AS completed,
+			        SUM( CASE WHEN status = 'PENDING' THEN 1 ELSE 0 END ) AS pending,
+			        SUM( CASE WHEN status = 'WAITING_USER' THEN 1 ELSE 0 END ) AS waiting,
+			        SUM( CASE WHEN status IN ('ACTIVE','IN_PROGRESS') THEN 1 ELSE 0 END ) AS active,
+			        SUM( CASE WHEN status IN ('FAILED','CANCELLED','SKIPPED') THEN 1 ELSE 0 END ) AS failed,
+			        MAX(updated_at) AS last_update
+			 FROM {$table}
+			 WHERE user_id = %d
+			 GROUP BY pipeline_id
+			 HAVING (pending > 0 OR waiting > 0 OR active > 0)
+			 ORDER BY last_update DESC
+			 LIMIT 1",
+			$user_id
+		);
+		$row = $wpdb->get_row( $sql, ARRAY_A );
+
+		if ( ! $row ) {
+			return null;
+		}
+
+		// Get the next pending/waiting/active step
+		$next = $wpdb->get_row( $wpdb->prepare(
+			"SELECT tool_name, label, status, step_index, node_id
+			 FROM {$table}
+			 WHERE pipeline_id = %s AND status IN ('PENDING','WAITING_USER','ACTIVE','IN_PROGRESS')
+			 ORDER BY step_index ASC LIMIT 1",
+			$row['pipeline_id']
+		), ARRAY_A );
+
+		$row['next_tool']       = $next['tool_name'] ?? '';
+		$row['next_label']      = $next['label'] ?? '';
+		$row['next_status']     = $next['status'] ?? '';
+		$row['next_step_index'] = $next['step_index'] ?? 0;
+		$row['next_node_id']    = $next['node_id'] ?? '';
+
+		return $row;
+	}
+
+	/**
+	 * Find the most recent FAILED step in a pipeline for retry.
+	 *
+	 * @param string $pipeline_id Pipeline identifier.
+	 * @return array|null { id, step_index, tool_name, label, node_id, error_message } or null.
+	 */
+	public static function find_failed_step( $pipeline_id ) {
+		global $wpdb;
+		$table = BizCity_Intent_Database::instance()->todos_table();
+
+		return $wpdb->get_row( $wpdb->prepare(
+			"SELECT id, step_index, tool_name, label, node_id, node_code, error_message
+			 FROM {$table}
+			 WHERE pipeline_id = %s AND status = 'FAILED'
+			 ORDER BY step_index ASC LIMIT 1",
+			$pipeline_id
+		), ARRAY_A );
+	}
+
+	/**
+	 * Cancel a step and auto-skip all steps that depend on it.
+	 *
+	 * Dependency is tracked via `depends_on_steps` column (JSON array of step_indexes)
+	 * OR via simple sequential order: all steps after the cancelled one that are still PENDING.
+	 *
+	 * @param string $pipeline_id Pipeline identifier.
+	 * @param int    $step_index  Step to cancel.
+	 * @param bool   $skip_downstream If true, SKIP all downstream PENDING steps.
+	 * @return array { cancelled => int, skipped => int }
+	 */
+	public static function cancel_step( $pipeline_id, $step_index, $skip_downstream = true ) {
+		global $wpdb;
+		$table  = BizCity_Intent_Database::instance()->todos_table();
+		$result = [ 'cancelled' => 0, 'skipped' => 0 ];
+
+		// Cancel the target step
+		$updated = $wpdb->update(
+			$table,
+			[ 'status' => 'CANCELLED' ],
+			[ 'pipeline_id' => $pipeline_id, 'step_index' => (int) $step_index ],
+			[ '%s' ],
+			[ '%s', '%d' ]
+		);
+		if ( $updated ) {
+			$result['cancelled'] = 1;
+		}
+
+		if ( ! $skip_downstream ) {
+			return $result;
+		}
+
+		// Find steps that depend on the cancelled step
+		$all_todos = self::get_pipeline_todos( $pipeline_id );
+		foreach ( $all_todos as $todo ) {
+			if ( (int) $todo['step_index'] <= (int) $step_index ) {
+				continue;
+			}
+			if ( $todo['status'] !== 'PENDING' ) {
+				continue;
+			}
+
+			// Check explicit dependency via depends_on_steps JSON
+			$depends = json_decode( $todo['depends_on_steps'] ?? '[]', true );
+			$has_dep = is_array( $depends ) && in_array( (int) $step_index, $depends, true );
+
+			// For sequential pipelines without explicit deps, skip only the immediate next?
+			// Conservative: skip ALL downstream PENDING to prevent cascade errors.
+			// (User can retry/resume to re-queue them.)
+			if ( $has_dep || empty( $depends ) ) {
+				$wpdb->update(
+					$table,
+					[ 'status' => 'SKIPPED', 'error_message' => 'Auto-skipped: step ' . $step_index . ' was cancelled' ],
+					[ 'id' => $todo['id'] ]
+				);
+				$result['skipped']++;
+			}
+		}
+
+		return $result;
+	}
+
+	/**
+	 * Reset a FAILED step back to PENDING for retry.
+	 *
+	 * @param string $pipeline_id Pipeline identifier.
+	 * @param int    $step_index  Step to retry.
+	 * @return bool Whether reset succeeded.
+	 */
+	public static function reset_step_for_retry( $pipeline_id, $step_index ) {
+		global $wpdb;
+		$table = BizCity_Intent_Database::instance()->todos_table();
+
+		$updated = (bool) $wpdb->update(
+			$table,
+			[
+				'status'        => 'PENDING',
+				'error_message' => '',
+				'score'         => 0,
+			],
+			[
+				'pipeline_id' => $pipeline_id,
+				'step_index'  => (int) $step_index,
+				'status'      => 'FAILED',
+			]
+		);
+
+		if ( ! $updated ) {
+			// Also allow retry of CANCELLED steps (user skipped then wants to retry)
+			$updated = (bool) $wpdb->update(
+				$table,
+				[
+					'status'        => 'PENDING',
+					'error_message' => '',
+					'score'         => 0,
+				],
+				[
+					'pipeline_id' => $pipeline_id,
+					'step_index'  => (int) $step_index,
+					'status'      => 'CANCELLED',
+				]
+			);
+		}
+
+		return $updated;
+	}
+
+	/**
+	 * Reset all SKIPPED steps after a cancelled step back to PENDING (for re-queue after retry).
+	 *
+	 * @param string $pipeline_id Pipeline identifier.
+	 * @param int    $from_step   Reset steps with step_index >= this value.
+	 * @return int Number of rows reset.
+	 */
+	public static function reset_skipped_from( $pipeline_id, $from_step ) {
+		global $wpdb;
+		$table = BizCity_Intent_Database::instance()->todos_table();
+
+		return (int) $wpdb->query( $wpdb->prepare(
+			"UPDATE {$table} SET status = 'PENDING', error_message = ''
+			 WHERE pipeline_id = %s AND step_index >= %d AND status IN ('SKIPPED','CANCELLED')",
+			$pipeline_id, (int) $from_step
+		) );
 	}
 }

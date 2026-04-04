@@ -1,4 +1,13 @@
-<?php
+﻿<?php
+/**
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\Intent
+ * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+ * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
+ * @license    GPL-2.0-or-later
+ * @link       https://bizcity.vn
+ */
+
 /**
  * BizCity Step Executor — Admin-AJAX Step-by-Step Pipeline Runner
  *
@@ -296,6 +305,15 @@ class BizCity_Step_Executor {
             $step['started_at'] = current_time( 'mysql' );
             $state['logs'][]    = sprintf( '[%s] Step %d: %s — started', current_time( 'H:i:s' ), $i, $step['tool'] );
 
+            // Phase 1.2: Fire SSE event — node started
+            do_action( 'bizcity_pipeline_node_event', [
+                'pipeline_id' => $state['execution_id'] ?? '',
+                'node_id'     => $step['node_id'] ?? $i,
+                'event'       => 'started',
+                'tool'        => $step['tool'] ?? '',
+                'log_line'    => sprintf( 'Step %d: %s — started', $i, $step['tool'] ),
+            ] );
+
             $result = $this->execute_step( $step, $state );
 
             if ( ! empty( $result['waiting'] ) ) {
@@ -305,6 +323,16 @@ class BizCity_Step_Executor {
                 $step['missing_fields'] = $result['missing_fields'] ?? [];
                 $state['status']        = self::STATUS_WAITING;
                 $state['logs'][]        = sprintf( '[%s] Step %d: WAITING — %s', current_time( 'H:i:s' ), $i, $step['error'] );
+
+                // Phase 1.2: Fire SSE event — node waiting
+                do_action( 'bizcity_pipeline_node_event', [
+                    'pipeline_id' => $state['execution_id'] ?? '',
+                    'node_id'     => $step['node_id'] ?? $i,
+                    'event'       => 'waiting',
+                    'tool'        => $step['tool'] ?? '',
+                    'log_line'    => sprintf( 'Step %d: WAITING — %s', $i, $step['error'] ),
+                ] );
+
                 break;
             }
 
@@ -315,6 +343,17 @@ class BizCity_Step_Executor {
                 $step['completed_at'] = current_time( 'mysql' );
                 $state['status']     = self::STATUS_WAITING;
                 $state['logs'][]     = sprintf( '[%s] Step %d: FAILED — %s', current_time( 'H:i:s' ), $i, $step['error'] );
+
+                // Phase 1.2: Fire SSE event — node failed
+                do_action( 'bizcity_pipeline_node_event', [
+                    'pipeline_id'   => $state['execution_id'] ?? '',
+                    'node_id'       => $step['node_id'] ?? $i,
+                    'event'         => 'failed',
+                    'tool'          => $step['tool'] ?? '',
+                    'error_message' => $step['error'],
+                    'log_line'      => sprintf( 'Step %d: FAILED — %s', $i, $step['error'] ),
+                ] );
+
                 break;
             }
 
@@ -324,6 +363,28 @@ class BizCity_Step_Executor {
             $step['completed_at'] = current_time( 'mysql' );
             $state['variables'][ $step['node_id'] ] = $step['result'];
             $state['logs'][] = sprintf( '[%s] Step %d: %s — completed', current_time( 'H:i:s' ), $i, $step['tool'] );
+
+            // Phase 1.2: Fire SSE event — node completed
+            $duration_ms = 0;
+            if ( ! empty( $step['started_at'] ) ) {
+                $duration_ms = (int) ( ( microtime( true ) - strtotime( $step['started_at'] ) ) * 1000 );
+            }
+            $preview = '';
+            if ( is_array( $step['result'] ) ) {
+                $preview = wp_json_encode( $step['result'] );
+                if ( strlen( $preview ) > 120 ) {
+                    $preview = mb_substr( $preview, 0, 117 ) . '...';
+                }
+            }
+            do_action( 'bizcity_pipeline_node_event', [
+                'pipeline_id'    => $state['execution_id'] ?? '',
+                'node_id'        => $step['node_id'] ?? $i,
+                'event'          => 'completed',
+                'tool'           => $step['tool'] ?? '',
+                'duration_ms'    => $duration_ms,
+                'output_preview' => $preview,
+                'log_line'       => sprintf( 'Step %d: %s — completed', $i, $step['tool'] ),
+            ] );
 
             // Continue with the next step (don't break — advance immediately).
             // But save intermediate state for poll visibility.
@@ -350,6 +411,18 @@ class BizCity_Step_Executor {
             }
             $state['status']       = $has_failure ? self::STATUS_FAILED : self::STATUS_COMPLETED;
             $state['completed_at'] = current_time( 'mysql' );
+
+            // Phase 1.2: Fire SSE event — pipeline done
+            do_action( 'bizcity_pipeline_node_event', [
+                'pipeline_id' => $state['execution_id'] ?? '',
+                'node_id'     => '_pipeline',
+                'event'       => 'pipeline_done',
+                'log_line'    => 'Pipeline ' . ( $has_failure ? 'failed' : 'completed' ),
+            ] );
+
+            // ── Phase 1.6 B3: Fire pipeline_completed for session memory spec ──
+            // De-escalates session mode: pipeline → chat
+            do_action( 'bizcity_pipeline_completed', (int) $state['task_id'], $state );
         }
 
         return $state;

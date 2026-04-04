@@ -45,8 +45,11 @@ class BZGoogle_Tools {
             $labels = [
                 'gmail'    => 'Gmail (đọc & gửi email)',
                 'calendar' => 'Google Calendar (đọc & tạo sự kiện)',
-                'drive'    => 'Google Drive (xem file)',
+                'drive'    => 'Google Drive (xem & quản lý file)',
                 'contacts' => 'Google Contacts (xem danh bạ)',
+                'docs'     => 'Google Docs (tạo & chỉnh sửa tài liệu)',
+                'sheets'   => 'Google Sheets (tạo & chỉnh sửa bảng tính)',
+                'slides'   => 'Google Slides (tạo & chỉnh sửa bài thuyết trình)',
             ];
             $label       = $labels[ $service ] ?? $service;
             $upgrade_url = BZGoogle_Google_OAuth::get_scope_upgrade_url( $service, home_url() );

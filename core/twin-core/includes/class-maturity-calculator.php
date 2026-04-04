@@ -1,5 +1,14 @@
 <?php
 /**
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\Twin_Core
+ * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+ * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
+ * @license    GPL-2.0-or-later
+ * @link       https://bizcity.vn
+ */
+
+/**
  * BizCity Maturity Calculator — 5-Dimension Twin AI Growth Score
  *
  * Reads from 29 EXISTING tables to compute 5 maturity scores + 1 overall.
@@ -55,7 +64,7 @@ class BizCity_Maturity_Calculator {
 		}
 
 		$table   = self::table_name();
-		$charset = $wpdb->get_charset_collate();
+		$charset = function_exists( 'bizcity_get_charset_collate' ) ? bizcity_get_charset_collate() : $wpdb->get_charset_collate();
 
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 
@@ -1666,8 +1675,8 @@ class BizCity_Maturity_Calculator {
 			$content = json_decode( $existing ?: '{}', true ) ?: [];
 			$content[ $field ] = $value;
 			$wpdb->update( $table, [
-				'content' => wp_json_encode( $content, JSON_UNESCAPED_UNICODE ),
-				'title'   => $content['question'] ?? mb_substr( $content['answer'] ?? '', 0, 80, 'UTF-8' ),
+				'content'     => wp_json_encode( $content, JSON_UNESCAPED_UNICODE ),
+				'source_name' => $content['question'] ?? mb_substr( $content['answer'] ?? '', 0, 80, 'UTF-8' ),
 			], [ 'id' => $item_id, 'user_id' => $user_id ] );
 		} else {
 			$wpdb->update( $table, [ $db_field => $value ], [ 'id' => $item_id, 'user_id' => $user_id ] );

@@ -59,7 +59,7 @@ function bccm_admin_user_profiles_page() {
         $like   = '%' . $wpdb->esc_like( $search ) . '%';
         $where .= $wpdb->prepare( " AND (p.full_name LIKE %s OR p.phone LIKE %s)", $like, $like );
     }
-    if ( $platform ) {
+    if ( $platform && bccm_profiles_support_platform_type() ) {
         $where .= $wpdb->prepare( " AND p.platform_type = %s", $platform );
     }
 
@@ -93,7 +93,9 @@ function bccm_admin_user_profiles_page() {
     ", ARRAY_A );
 
     // Distinct platform values for filter
-    $platforms = $wpdb->get_col( "SELECT DISTINCT platform_type FROM {$t['profiles']} WHERE platform_type IS NOT NULL AND platform_type != '' ORDER BY platform_type" );
+    $platforms = bccm_profiles_support_platform_type()
+        ? $wpdb->get_col( "SELECT DISTINCT platform_type FROM {$t['profiles']} WHERE platform_type IS NOT NULL AND platform_type != '' ORDER BY platform_type" )
+        : [];
 
     ?>
     <div class="wrap">

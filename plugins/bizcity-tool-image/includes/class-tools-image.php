@@ -536,67 +536,51 @@ class BizCity_Tool_Image {
     }
 
     /**
-     * OpenAI GPT-Image / DALL-E (direct, not via OpenRouter).
+     * OpenAI GPT-Image / DALL-E (via BizCity LLM gateway).
      */
     private static function call_openai( string $prompt, string $size ): array {
-        $api_key = get_option( 'bztimg_openai_key', '' );
-        if ( empty( $api_key ) ) {
-            $api_key = get_option( 'twf_openai_api_key', '' );
-        }
-        if ( empty( $api_key ) ) {
-            self::log( 'call_openai: No API key configured' );
-            return [ 'success' => false, 'error' => 'Chưa cấu hình OpenAI API Key.' ];
-        }
-
         // Map sizes to OpenAI supported
         $openai_sizes = [ '1024x1024', '1024x1792', '1792x1024' ];
         if ( ! in_array( $size, $openai_sizes, true ) ) {
             $size = '1024x1024';
         }
 
-        $body = [
-            'model'  => 'gpt-image-1',
-            'prompt' => $prompt,
-            'n'      => 1,
-            'size'   => $size,
-        ];
+        self::log( 'call_openai REQUEST (via gateway)', [ 'model' => 'gpt-image-1', 'size' => $size ] );
 
-        self::log( 'call_openai REQUEST', [ 'model' => 'gpt-image-1', 'size' => $size ] );
+        if ( ! function_exists( 'bizcity_llm_generate_image' ) ) {
+            self::log( 'call_openai: bizcity_llm_generate_image() not available' );
+            return [ 'success' => false, 'error' => 'BizCity LLM gateway chưa sẵn sàng.' ];
+        }
 
-        $response = wp_remote_post( 'https://api.openai.com/v1/images/generations', [
-            'headers' => [
-                'Authorization' => 'Bearer ' . $api_key,
-                'Content-Type'  => 'application/json',
-            ],
-            'body'    => wp_json_encode( $body ),
+        $result = bizcity_llm_generate_image( $prompt, [
+            'model'   => 'gpt-image-1',
+            'size'    => $size,
             'timeout' => 120,
         ] );
 
-        if ( is_wp_error( $response ) ) {
-            self::log( 'call_openai WP_ERROR', $response->get_error_message() );
-            return [ 'success' => false, 'error' => 'Lỗi kết nối: ' . $response->get_error_message() ];
+        self::log( 'call_openai RESPONSE (via gateway)', [
+            'success' => $result['success'] ?? false,
+            'error'   => $result['error'] ?? '',
+        ] );
+
+        if ( empty( $result['success'] ) ) {
+            return [ 'success' => false, 'error' => $result['error'] ?? 'Image generation failed.' ];
         }
 
-        $http_code = wp_remote_retrieve_response_code( $response );
-        $data      = json_decode( wp_remote_retrieve_body( $response ), true );
-
-        self::log( 'call_openai RESPONSE', [ 'http_code' => $http_code ] );
-
-        if ( ! empty( $data['data'][0]['url'] ) ) {
-            return [ 'success' => true, 'image_url' => $data['data'][0]['url'] ];
+        // URL trả trực tiếp
+        if ( ! empty( $result['image_url'] ) ) {
+            return [ 'success' => true, 'image_url' => $result['image_url'] ];
         }
 
-        // Base64 response
-        if ( ! empty( $data['data'][0]['b64_json'] ) ) {
-            $url = self::save_base64_data_url_to_media( 'data:image/png;base64,' . $data['data'][0]['b64_json'] );
+        // Base64 response → save to Media Library
+        if ( ! empty( $result['b64_json'] ) ) {
+            $url = self::save_base64_data_url_to_media( 'data:image/png;base64,' . $result['b64_json'] );
             if ( $url ) {
                 return [ 'success' => true, 'image_url' => $url ];
             }
         }
 
-        $err = $data['error']['message'] ?? 'OpenAI không phản hồi. HTTP ' . $http_code;
-        self::log( 'call_openai ERROR', $err );
-        return [ 'success' => false, 'error' => $err ];
+        return [ 'success' => false, 'error' => 'Không nhận được ảnh từ gateway.' ];
     }
 
     /* ══════════════════════════════════════════════════════

@@ -1,4 +1,13 @@
-<?php
+﻿<?php
+/**
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\Intent
+ * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+ * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
+ * @license    GPL-2.0-or-later
+ * @link       https://bizcity.vn
+ */
+
 /**
  * BizCity Context Builder — 6-Layer Context Priority Chain (Dual Context)
  *
@@ -539,6 +548,37 @@ class BizCity_Context_Builder {
             );
         }
 
+        // ── Selected Sources injection (Sprint 3 — user-selected sources) ──
+        $selected_sources_ctx = '';
+        $selected_source_ids = $args['selected_source_ids'] ?? [];
+        if ( ! empty( $selected_source_ids ) && $this->user_id ) {
+            global $wpdb;
+            $table    = $wpdb->prefix . 'bizcity_webchat_sources';
+            $safe_ids = array_map( 'absint', array_slice( $selected_source_ids, 0, 10 ) );
+            $placeholders = implode( ',', array_fill( 0, count( $safe_ids ), '%d' ) );
+            $sources  = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT id, source_type, title, url, content FROM {$table} WHERE id IN ({$placeholders}) AND user_id = %d",
+                    array_merge( $safe_ids, [ $this->user_id ] )
+                )
+            );
+            if ( $sources ) {
+                $parts = [ '📎 Nguồn tài liệu người dùng đã chọn (ưu tiên sử dụng):' ];
+                foreach ( $sources as $src ) {
+                    $label = $src->title ?: ( $src->url ?: "Source #{$src->id}" );
+                    $snippet = '';
+                    if ( ! empty( $src->content ) ) {
+                        $snippet = mb_substr( $src->content, 0, 600, 'UTF-8' );
+                        if ( mb_strlen( $src->content, 'UTF-8' ) > 600 ) {
+                            $snippet .= '…';
+                        }
+                    }
+                    $parts[] = "- [{$src->source_type}] {$label}" . ( $snippet ? "\n  " . $snippet : '' );
+                }
+                $selected_sources_ctx = implode( "\n", $parts );
+            }
+        }
+
         // Assemble: Layer 7 (Notebook Skeleton) → Layer 5 (Project) → Layer 4 (Cross-Session) → Layer 3 (Session) → Layer 2 (Intent)
         // Lower number = higher priority = appended LAST (closest to user message)
         $injection = '';
@@ -554,6 +594,11 @@ class BizCity_Context_Builder {
             if ( ! empty( $this->layers[ $layer ] ) ) {
                 $injection .= "\n\n" . $this->layers[ $layer ];
             }
+        }
+
+        // Inject Selected Sources (high priority — before Episodic/Rolling)
+        if ( ! empty( $selected_sources_ctx ) ) {
+            $injection .= "\n\n" . $selected_sources_ctx;
         }
 
         // Inject Episodic Memory (between Cross-Session and Intent)

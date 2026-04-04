@@ -193,7 +193,7 @@ class BizCity_Knowledge_Admin_Menu {
             [$this, 'render_monitor_page']
         );
 
-        /*
+        
 
         // Submenu: Trợ lý AI — Character list
         add_submenu_page(
@@ -213,13 +213,13 @@ class BizCity_Knowledge_Admin_Menu {
             'manage_options',
             'bizcity-knowledge-character-edit',
             [$this, 'render_character_edit_page']
-        );*/
+        );
 
         // Submenu: Learn with AI (Notebook companion)
         add_submenu_page(
             'bizcity-knowledge',
-            __( 'Learn with AI', $td ),
-            '📖 ' . __( 'Learn with AI', $td ),
+            __( 'Dạy AI bằng sổ tay', $td ),
+            '📖 ' . __( 'Dạy AI bằng sổ tay', $td ),
             'read',
             'bizcity-knowledge-notebook',
             [$this, 'render_notebook_page']
@@ -230,7 +230,7 @@ class BizCity_Knowledge_Admin_Menu {
         if (strpos($hook, 'bizcity-knowledge') === false) {
             return;
         }
-        
+
         // Load character-edit specific assets
         $is_character_edit = strpos($hook, 'bizcity-knowledge-character-edit') !== false
             || strpos($hook, 'knowledge-character-edit') !== false;

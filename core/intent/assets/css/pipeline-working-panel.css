@@ -1,0 +1,287 @@
+/**
+ * BizCity Pipeline Working Panel — Styles
+ *
+ * Step-by-step execution UI for chat working panel (.bizc-working).
+ * Mirrors the existing .bizc-working design from webchat React app.
+ *
+ * @since 4.2.0
+ */
+
+/* ── Panel Container ── */
+.bizc-working-panel {
+    background: #f8f9fb;
+    border: 1px solid #e2e6ea;
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin: 8px 0;
+    font-size: 13px;
+    line-height: 1.5;
+    max-width: 480px;
+}
+
+.bizc-working-panel.bizc-working-completed {
+    border-color: #4caf50;
+    background: #f1f8f1;
+}
+
+.bizc-working-panel.bizc-working-failed {
+    border-color: #f44336;
+    background: #fef5f5;
+}
+
+.bizc-working-panel.bizc-working-waiting {
+    border-color: #ff9800;
+    background: #fffbf0;
+}
+
+/* ── Header ── */
+.bizc-working-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.bizc-working-icon {
+    font-size: 16px;
+}
+
+.bizc-working-title {
+    font-weight: 600;
+    flex: 1;
+    color: #333;
+}
+
+.bizc-working-progress {
+    font-size: 11px;
+    color: #888;
+    font-weight: 500;
+}
+
+/* ── Progress Bar ── */
+.bizc-working-bar {
+    height: 4px;
+    background: #e2e6ea;
+    border-radius: 2px;
+    overflow: hidden;
+    margin-bottom: 12px;
+}
+
+.bizc-working-bar-fill {
+    height: 100%;
+    background: #4caf50;
+    border-radius: 2px;
+    transition: width 0.4s ease;
+}
+
+.bizc-working-running .bizc-working-bar-fill {
+    background: linear-gradient(90deg, #2196f3, #42a5f5, #2196f3);
+    background-size: 200% 100%;
+    animation: bizc-bar-pulse 1.5s ease infinite;
+}
+
+@keyframes bizc-bar-pulse {
+    0% { background-position: 0% 0%; }
+    100% { background-position: 200% 0%; }
+}
+
+/* ── Steps List ── */
+.bizc-working-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.bizc-step {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    border-radius: 8px;
+    background: #fff;
+    border: 1px solid transparent;
+}
+
+.bizc-step-running {
+    border-color: #2196f3;
+    background: #f0f7ff;
+}
+
+.bizc-step-completed {
+    opacity: 0.85;
+}
+
+.bizc-step-failed {
+    border-color: #f44336;
+    background: #fff5f5;
+}
+
+.bizc-step-waiting {
+    border-color: #ff9800;
+    background: #fffbf0;
+}
+
+.bizc-step-icon {
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
+.bizc-step-name {
+    flex: 1;
+    font-weight: 500;
+    color: #444;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.bizc-step-result {
+    width: 100%;
+    font-size: 11px;
+    color: #666;
+    padding-left: 22px;
+    word-break: break-word;
+}
+
+.bizc-step-error {
+    width: 100%;
+    font-size: 11px;
+    color: #d32f2f;
+    padding-left: 22px;
+    word-break: break-word;
+}
+
+/* ── Action Buttons ── */
+.bizc-step-actions {
+    width: 100%;
+    display: flex;
+    gap: 6px;
+    padding-left: 22px;
+    margin-top: 4px;
+}
+
+.bizc-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    background: #fff;
+    font-size: 11px;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.bizc-btn:hover {
+    background: #f5f5f5;
+    border-color: #bbb;
+}
+
+.bizc-btn-retry:hover { border-color: #2196f3; color: #1976d2; }
+.bizc-btn-skip:hover  { border-color: #ff9800; color: #e65100; }
+.bizc-btn-cancel:hover { border-color: #f44336; color: #c62828; }
+.bizc-btn-resume {
+    background: #e3f2fd;
+    border-color: #90caf9;
+    color: #1565c0;
+}
+.bizc-btn-resume:hover {
+    background: #bbdefb;
+}
+
+/* ── HIL Input Fields ── */
+.bizc-step-hil {
+    width: 100%;
+    padding-left: 22px;
+    margin-top: 6px;
+}
+
+.bizc-hil-label {
+    font-size: 11px;
+    color: #666;
+    margin: 0 0 4px 0;
+}
+
+.bizc-hil-field {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.bizc-hil-field label {
+    font-size: 11px;
+    font-weight: 500;
+    color: #555;
+    min-width: 80px;
+}
+
+.bizc-hil-input {
+    flex: 1;
+    padding: 4px 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 12px;
+    outline: none;
+}
+
+.bizc-hil-input:focus {
+    border-color: #2196f3;
+    box-shadow: 0 0 0 2px rgba(33, 150, 243, 0.12);
+}
+
+/* ── Logs ── */
+.bizc-working-logs {
+    margin-top: 10px;
+}
+
+.bizc-working-logs summary {
+    font-size: 11px;
+    color: #999;
+    cursor: pointer;
+    user-select: none;
+}
+
+.bizc-logs-content {
+    max-height: 120px;
+    overflow-y: auto;
+    margin-top: 4px;
+    padding: 6px 8px;
+    background: #f0f0f0;
+    border-radius: 6px;
+    font-family: monospace;
+    font-size: 10px;
+    line-height: 1.4;
+}
+
+.bizc-log-line {
+    color: #555;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+/* ── Responsive ── */
+@media (max-width: 520px) {
+    .bizc-working-panel {
+        max-width: 100%;
+        padding: 10px 12px;
+        border-radius: 8px;
+    }
+
+    .bizc-hil-field {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 4px;
+    }
+
+    .bizc-hil-field label {
+        min-width: unset;
+    }
+
+    .bizc-step-actions {
+        flex-wrap: wrap;
+    }
+}

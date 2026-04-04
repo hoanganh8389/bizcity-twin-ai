@@ -1,5 +1,14 @@
 <?php
 /**
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\Skills
+ * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+ * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
+ * @license    GPL-2.0-or-later
+ * @link       https://bizcity.vn
+ */
+
+/**
  * BizCity Skills — Admin Page
  *
  * Registers submenu under Knowledge + enqueues the Vite-built React SPA.
@@ -103,6 +112,14 @@ class BizCity_Skill_Admin_Page {
 		}
 
 		$all_tools = BizCity_Intent_Tool_Index::instance()->get_all_active();
+		if ( empty( $all_tools ) ) {
+			return [ 'totalTools' => 0, 'groups' => [] ];
+		}
+
+		// Only show content atomic tools (accepts_skill = 1) in the Skill editor
+		$all_tools = array_filter( $all_tools, static function ( $tool ) {
+			return ! empty( $tool['accepts_skill'] );
+		} );
 		if ( empty( $all_tools ) ) {
 			return [ 'totalTools' => 0, 'groups' => [] ];
 		}

@@ -234,6 +234,12 @@ if (!function_exists('bccm_profile_db_columns')) {
   }
 }
 
+if (!function_exists('bccm_profiles_support_platform_type')) {
+  function bccm_profiles_support_platform_type() {
+    return in_array('platform_type', bccm_profile_db_columns(), true);
+  }
+}
+
 /**
  * Tách $data thành [db_data, extra_data].
  * - db_data: chỉ chứa key là cột DB thật → safe cho $wpdb->update/insert

@@ -1,5 +1,14 @@
 <?php
 /**
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\Twin_Core
+ * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+ * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
+ * @license    GPL-2.0-or-later
+ * @link       https://bizcity.vn
+ */
+
+/**
  * BizCity Focus Gate — Static Context Gate on Filter Chain
  *
  * Hooks at priority 1 on bizcity_chat_system_prompt.
@@ -17,6 +26,21 @@ class BizCity_Focus_Gate {
 
     /** @var array|null Resolved focus profile for current request */
     private static $focus_profile = null;
+
+    /** @var array Astrology strong patterns (high confidence) */
+    private static $astro_strong = array(
+        '/vận mệnh|tử vi|lá số|chiêm tinh|horoscope|natal chart/ui',
+        '/transit.*hành tinh|hành tinh.*transit/ui',
+        '/xem sao|giải đoán|luận giải/ui',
+        '/nhà (?:1[0-2]|[1-9])(?:\s|$)/ui',
+    );
+
+    /** @var array Astrology weak patterns (need context) */
+    private static $astro_weak = array(
+        '/bạch dương|kim ngưu|song tử|cự giải|sư tử|xử nữ/ui',
+        '/thiên bình|bọ cạp|nhân mã|ma kết|bảo bình|song ngư/ui',
+        '/cung [a-zA-ZÀ-ỹ]+/ui',
+    );
 
     /**
      * Ensure focus profile is resolved BEFORE inline gate checks.
@@ -198,6 +222,43 @@ class BizCity_Focus_Gate {
                 ] );
             }
         }
+    }
+
+    /**
+     * Detect astrology content in user message.
+     *
+     * @param string $message User message text.
+     * @return array { is_astrology: bool, confidence: float, method: string }
+     */
+    public static function detect_astrology( $message ) {
+        if ( empty( $message ) ) {
+            return array( 'is_astrology' => false, 'confidence' => 0.0, 'method' => 'empty' );
+        }
+
+        // Strong match → high confidence
+        foreach ( self::$astro_strong as $p ) {
+            if ( preg_match( $p, $message ) ) {
+                return array( 'is_astrology' => true, 'confidence' => 0.95, 'method' => 'strong_pattern' );
+            }
+        }
+
+        // Weak matches — count how many hit
+        $weak_count = 0;
+        foreach ( self::$astro_weak as $p ) {
+            if ( preg_match( $p, $message ) ) {
+                $weak_count++;
+            }
+        }
+
+        if ( $weak_count >= 2 ) {
+            return array( 'is_astrology' => true, 'confidence' => 0.75, 'method' => 'multi_weak' );
+        }
+
+        if ( $weak_count === 1 ) {
+            return array( 'is_astrology' => false, 'confidence' => 0.40, 'method' => 'single_weak_defer' );
+        }
+
+        return array( 'is_astrology' => false, 'confidence' => 0.05, 'method' => 'no_match' );
     }
 
     /**

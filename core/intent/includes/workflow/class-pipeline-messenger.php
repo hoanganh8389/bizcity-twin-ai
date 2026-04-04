@@ -1,4 +1,13 @@
-<?php
+﻿<?php
+/**
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\Intent
+ * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+ * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
+ * @license    GPL-2.0-or-later
+ * @link       https://bizcity.vn
+ */
+
 /**
  * BizCity Pipeline Messenger
  *
@@ -29,10 +38,28 @@ class BizCity_Pipeline_Messenger {
 		$session_id = $execution_state['session_id'] ?? '';
 		$user_id    = $execution_state['user_id'] ?? 0;
 		$channel    = $execution_state['channel'] ?? 'adminchat';
+		$to_chat    = $meta['_to_chat'] ?? true;
 
 		if ( empty( $session_id ) ) {
 			error_log( '[Pipeline Messenger] Cannot send — missing session_id' );
 			return false;
+		}
+
+		// Always log to Execution Logger (transient-based, for Working Panel)
+		if ( class_exists( 'BizCity_Execution_Logger' ) ) {
+			BizCity_Execution_Logger::instance()->log( [
+				'type'       => 'pipeline_step',
+				'step'       => $meta['tool_name'] ?? $type,
+				'label'      => wp_strip_all_tags( $message ),
+				'session_id' => $session_id,
+				'user_id'    => $user_id,
+				'meta'       => $meta,
+			] );
+		}
+
+		// Skip chat insertion when _to_chat is false (micro-steps, progress)
+		if ( ! $to_chat ) {
+			return true;
 		}
 
 		if ( ! class_exists( 'BizCity_WebChat_Database' ) ) {
@@ -91,20 +118,56 @@ class BizCity_Pipeline_Messenger {
 		return self::send( $execution_state, $msg, 'progress', [
 			'completed' => $completed,
 			'total'     => $total,
+			'_to_chat'  => false,
+		] );
+	}
+
+	/**
+	 * Gửi micro-step message (granular progress cho từng bước nhỏ).
+	 *
+	 * @param array  $execution_state ExecutionState.
+	 * @param string $icon            Emoji icon (🔍, ⏳, ✅, etc.).
+	 * @param string $label           Step label (e.g. "Tìm skill cho generate_blog_content").
+	 * @param string $step_code       Step code (e.g. "resolve_skill").
+	 * @param int    $duration_ms     Duration in ms (0 = in-progress).
+	 * @return int|false
+	 */
+	public static function send_micro_step( array $execution_state, string $icon, string $label, string $step_code = '', int $duration_ms = 0 ) {
+		$ms_html = $duration_ms > 0
+			? '<span class="bizc-wp-entry-ms">' . esc_html( $duration_ms . 'ms' ) . '</span>'
+			: '';
+
+		$html = '<div class="bizc-wp-entry done">'
+		      . '<span class="bizc-wp-entry-icon">' . $icon . '</span>'
+		      . '<div class="bizc-wp-entry-main">'
+		      . '<span class="bizc-wp-entry-label">' . esc_html( $label ) . '</span>'
+		      . ( $step_code ? '<span class="bizc-wp-entry-step">' . esc_html( $step_code ) . '</span>' : '' )
+		      . '</div>'
+		      . $ms_html
+		      . '</div>';
+
+		return self::send( $execution_state, $html, 'progress', [
+			'tool_name'   => $step_code,
+			'duration_ms' => $duration_ms,
+			'format'      => 'html',
+			'_to_chat'    => false,
 		] );
 	}
 
 	/**
 	 * Gửi node result ngay sau execution thành công.
+	 * Renders as bizc-wp-entry.result with link + timing.
 	 *
 	 * @param array  $execution_state ExecutionState.
 	 * @param string $tool_name       Block/tool code.
 	 * @param array  $result_data     Result data from block.
 	 * @param int    $step            Current step index.
 	 * @param int    $total           Total steps.
+	 * @param int    $todo_id         Todo ID.
+	 * @param int    $duration_ms     Execution duration in ms.
 	 * @return int|false
 	 */
-	public static function send_node_result( array $execution_state, string $tool_name, array $result_data, int $step, int $total, int $todo_id = 0 ) {
+	public static function send_node_result( array $execution_state, string $tool_name, array $result_data, int $step, int $total, int $todo_id = 0, int $duration_ms = 0 ) {
 		$summary_parts = [];
 		$has_url = false;
 		if ( ! empty( $result_data['title'] ) )         $summary_parts[] = $result_data['title'];
@@ -123,12 +186,36 @@ class BizCity_Pipeline_Messenger {
 		}
 
 		$summary = implode( ' — ', $summary_parts ) ?: 'Xong';
-		$msg = "✅ **{$tool_name}**: {$summary}\n📋 Tiến độ: {$step}/{$total}";
 
-		return self::send( $execution_state, $msg, 'success', [
-			'tool_name'  => $tool_name,
-			'step_index' => $step,
-			'todo_id'    => $todo_id,
+		// Build HTML result entry (distinct from progress entries)
+		$ms_html = $duration_ms > 0
+			? '<span class="bizc-wp-entry-ms">' . esc_html( $duration_ms . 'ms' ) . '</span>'
+			: '';
+
+		$link_html = '';
+		if ( ! empty( $url ) ) {
+			$link_html = '<a href="' . esc_url( $url ) . '" target="_blank" class="bizc-wp-entry-link">🔗 '
+			           . ( ! empty( $post_id ) && is_numeric( $post_id ) ? 'post #' . intval( $post_id ) : esc_html( mb_substr( $url, 0, 60 ) ) )
+			           . '</a>';
+		}
+
+		$html = '<div class="bizc-wp-entry done result">'
+		      . '<span class="bizc-wp-entry-icon">✅</span>'
+		      . '<div class="bizc-wp-entry-main">'
+		      . '<span class="bizc-wp-entry-label">' . esc_html( $summary ) . '</span>'
+		      . '<span class="bizc-wp-entry-step">' . esc_html( $tool_name ) . '</span>'
+		      . $link_html
+		      . '</div>'
+		      . $ms_html
+		      . '</div>'
+		      . '<div style="font-size:11px;color:#94a3b8;margin:2px 0 8px 26px;">📋 ' . $step . '/' . $total . '</div>';
+
+		return self::send( $execution_state, $html, 'success', [
+			'tool_name'   => $tool_name,
+			'step_index'  => $step,
+			'todo_id'     => $todo_id,
+			'duration_ms' => $duration_ms,
+			'format'      => 'html',
 		] );
 	}
 

@@ -1,0 +1,208 @@
+{
+  "name": "Viết bài + Tạo ảnh + Đăng WordPress + Facebook",
+  "description": "Pipeline tự động: AI viết bài blog → tạo ảnh minh họa → xuất bản WordPress → đăng Facebook Page",
+  "version": "1.1",
+  "pipeline_id": "pipe_article_image_web_fb",
+  "_note": "Node IDs follow class-scenario-generator.php convention: 1=trigger, 2=planner, 3=content, 9=image, 6=publish, 7=facebook, 10=verifier",
+
+  "nodes": [
+    {
+      "id": "1",
+      "type": "trigger",
+      "position": { "x": 350, "y": 200 },
+      "data": {
+        "type": "trigger",
+        "category": "bc",
+        "code": "bc_instant_run",
+        "label": "⚡ Instant Run — Chạy ngay",
+        "settings": {
+          "default_text": "Viết bài về [chủ đề của bạn]",
+          "default_image_url": ""
+        },
+        "executionStatus": null,
+        "dragged": true
+      }
+    },
+
+    {
+      "id": "2",
+      "type": "action",
+      "position": { "x": 560, "y": 200 },
+      "data": {
+        "type": "action",
+        "category": "it",
+        "code": "it_todos_planner",
+        "label": "📋 Khởi tạo kế hoạch",
+        "settings": {
+          "steps_json": "[{\"tool_name\":\"publish_wp_post\",\"label\":\"Đăng bài WordPress\",\"node_id\":\"6\",\"node_code\":\"\"},{\"tool_name\":\"post_facebook\",\"label\":\"Đăng Facebook\",\"node_id\":\"7\",\"node_code\":\"\"}]",
+          "pipeline_label": "Viết bài + Tạo ảnh + Đăng WordPress + Facebook"
+        },
+        "executionStatus": null,
+        "dragged": true
+      }
+    },
+
+    {
+      "id": "3",
+      "type": "action",
+      "position": { "x": 770, "y": 200 },
+      "data": {
+        "type": "action",
+        "category": "it",
+        "code": "it_call_content",
+        "label": "📝 Viết bài blog",
+        "settings": {
+          "content_tool": "generate_blog_content",
+          "input_json": "{\"topic\": \"{{node#1.text}}\", \"tone\": \"engaging\", \"length\": \"700-1000\"}",
+          "require_confirm": "1",
+          "max_refine_rounds": "2"
+        },
+        "executionStatus": null,
+        "dragged": true
+      }
+    },
+
+    {
+      "id": "9",
+      "type": "action",
+      "position": { "x": 980, "y": 350 },
+      "data": {
+        "type": "action",
+        "category": "it",
+        "code": "it_call_tool",
+        "label": "🖼️ Tạo ảnh minh họa",
+        "settings": {
+          "tool_id": "generate_image",
+          "input_json": "{\"prompt\": \"Tạo ảnh minh họa chuyên nghiệp cho bài viết.\\nChủ đề bài: {{node#3.title}}\\nPhong cách: hiện đại, sáng sủa, phù hợp blog doanh nghiệp\\nYêu cầu: ảnh rõ ràng, bố cục cân đối, màu sắc hài hòa, không có chữ trên ảnh\", \"topic\": \"{{node#3.title}}\"}",
+          "user_id_source": "trigger"
+        },
+        "executionStatus": null,
+        "dragged": true
+      }
+    },
+
+    {
+      "id": "6",
+      "type": "action",
+      "position": { "x": 1190, "y": 200 },
+      "data": {
+        "type": "action",
+        "category": "it",
+        "code": "it_call_tool",
+        "label": "📤 Đăng bài WordPress",
+        "settings": {
+          "tool_id": "publish_wp_post",
+          "input_json": "{\"title\": \"{{node#3.title}}\", \"content\": \"{{node#3.content}}\", \"image_url\": \"{{node#9.image_url}}\", \"status\": \"publish\"}",
+          "user_id_source": "trigger"
+        },
+        "executionStatus": null,
+        "dragged": true
+      }
+    },
+
+    {
+      "id": "7",
+      "type": "action",
+      "position": { "x": 1400, "y": 200 },
+      "data": {
+        "type": "action",
+        "category": "it",
+        "code": "it_call_tool",
+        "label": "📤 Đăng Facebook",
+        "settings": {
+          "tool_id": "post_facebook",
+          "input_json": "{\"content\": \"{{node#3.content}}\", \"image_url\": \"{{node#9.image_url}}\", \"link\": \"{{node#6.post_url}}\"}",
+          "user_id_source": "trigger"
+        },
+        "executionStatus": null,
+        "dragged": true
+      }
+    },
+
+    {
+      "id": "10",
+      "type": "action",
+      "position": { "x": 1610, "y": 200 },
+      "data": {
+        "type": "action",
+        "category": "it",
+        "code": "it_summary_verifier",
+        "label": "✅ Tổng kết Pipeline",
+        "settings": {
+          "pipeline_label": "Viết bài + Tạo ảnh + Đăng WordPress + Facebook"
+        },
+        "executionStatus": null,
+        "dragged": true
+      }
+    }
+  ],
+
+  "edges": [
+    {
+      "id": "e1-2",
+      "source": "1",
+      "target": "2",
+      "sourceHandle": "output-right",
+      "targetHandle": "input-left",
+      "type": "default"
+    },
+    {
+      "id": "e2-3",
+      "source": "2",
+      "target": "3",
+      "sourceHandle": "output-right",
+      "targetHandle": "input-left",
+      "type": "default"
+    },
+    {
+      "id": "e3-9",
+      "source": "3",
+      "target": "9",
+      "sourceHandle": "output-right",
+      "targetHandle": "input-left",
+      "type": "default"
+    },
+    {
+      "id": "e9-6",
+      "source": "9",
+      "target": "6",
+      "sourceHandle": "output-right",
+      "targetHandle": "input-left",
+      "type": "default"
+    },
+    {
+      "id": "e6-7",
+      "source": "6",
+      "target": "7",
+      "sourceHandle": "output-right",
+      "targetHandle": "input-left",
+      "type": "default"
+    },
+    {
+      "id": "e7-10",
+      "source": "7",
+      "target": "10",
+      "sourceHandle": "output-right",
+      "targetHandle": "input-left",
+      "type": "default"
+    }
+  ],
+
+  "settings": {
+    "timeout": 300,
+    "mode": "execute_once",
+    "multiple": 0,
+    "skip": 0,
+    "cooldown": 0,
+    "stop": "yes",
+    "pipeline_id": "pipe_article_image_web_fb"
+  },
+
+  "_variable_map": {
+    "{{node#1.text}}":      "Trigger input text (chủ đề từ user)",
+    "{{node#3.title}}":     "Tiêu đề bài viết (từ generate_blog_content)",
+    "{{node#3.content}}":   "Nội dung bài viết HTML (từ generate_blog_content)",
+    "{{node#9.image_url}}": "URL ảnh thumbnail (từ generate_image)",
+    "{{node#6.post_url}}":  "URL bài viết WordPress đã đăng (từ publish_wp_post)"
+  }
+}

@@ -1,4 +1,13 @@
-<?php
+﻿<?php
+/**
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\Intent
+ * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+ * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
+ * @license    GPL-2.0-or-later
+ * @link       https://bizcity.vn
+ */
+
 /**
  * BizCity Rolling Memory — Real-time Conversation Goal Tracker
  *
@@ -77,7 +86,7 @@ class BizCity_Rolling_Memory {
         global $wpdb;
         $table   = $wpdb->prefix . 'bizcity_memory_rolling';
 
-        $charset = $wpdb->get_charset_collate();
+        $charset = function_exists( 'bizcity_get_charset_collate' ) ? bizcity_get_charset_collate() : $wpdb->get_charset_collate();
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 
         $sql = "CREATE TABLE IF NOT EXISTS {$table} (

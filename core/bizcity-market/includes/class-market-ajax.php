@@ -59,7 +59,7 @@ class BizCity_Market_Ajax {
         check_ajax_referer( self::NONCE_ACTION, 'nonce' );
 
         if ( ! BizCity_Remote_Catalog::is_available() ) {
-            wp_send_json( [ 'ok' => false, 'msg' => 'API key chưa được cấu hình.' ] );
+            wp_send_json( [ 'ok' => false, 'msg' => __( 'API key chưa được cấu hình.', 'bizcity-twin-ai' ) ] );
         }
 
         $params = [];
@@ -142,7 +142,7 @@ class BizCity_Market_Ajax {
         // Bundled plugins land in bizcity-twin-ai/plugins/ (not WP plugins/),
         // so activate_plugins is the appropriate gating capability.
         if ( ! current_user_can( 'activate_plugins' ) ) {
-            wp_send_json( [ 'ok' => false, 'msg' => 'Bạn không có quyền cài đặt plugin.' ] );
+            wp_send_json( [ 'ok' => false, 'msg' => __( 'Bạn không có quyền cài đặt plugin.', 'bizcity-twin-ai' ) ] );
         }
 
         // API key required to install plugins from marketplace
@@ -151,7 +151,7 @@ class BizCity_Market_Ajax {
             wp_send_json( [
                 'ok'          => false,
                 'need_api_key'=> true,
-                'msg'         => 'Bạn cần đăng ký API Key với BizCity để cài đặt plugin. Truy cập https://bizcity.vn/my-account/api-keys/ để tạo API Key, sau đó vào Cài đặt API để cấu hình.',
+                'msg'         => __( 'Bạn cần đăng ký API Key với BizCity để cài đặt plugin. Truy cập https://bizcity.vn/my-account/api-keys/ để tạo API Key, sau đó vào Cài đặt API để cấu hình.', 'bizcity-twin-ai' ),
             ] );
         }
 
@@ -164,7 +164,7 @@ class BizCity_Market_Ajax {
 
         // Validate download URL domain matches gateway
         if ( ! self::validate_download_url( $download_url ) ) {
-            wp_send_json( [ 'ok' => false, 'msg' => 'Download URL không hợp lệ.' ] );
+            wp_send_json( [ 'ok' => false, 'msg' => __( 'Download URL không hợp lệ.', 'bizcity-twin-ai' ) ] );
         }
 
         // Download ZIP via signed URL
@@ -186,7 +186,7 @@ class BizCity_Market_Ajax {
 
         wp_send_json( [
             'ok'      => true,
-            'msg'     => 'Plugin đã được cài đặt thành công!',
+            'msg'     => __( 'Plugin đã được cài đặt thành công!', 'bizcity-twin-ai' ),
             'status'  => 'installed',
             'version' => $download['version'],
         ] );
@@ -200,7 +200,7 @@ class BizCity_Market_Ajax {
         check_ajax_referer( self::NONCE_ACTION, 'nonce' );
 
         if ( ! current_user_can( 'activate_plugins' ) ) {
-            wp_send_json( [ 'ok' => false, 'msg' => 'Bạn không có quyền cập nhật plugin.' ] );
+            wp_send_json( [ 'ok' => false, 'msg' => __( 'Bạn không có quyền cập nhật plugin.', 'bizcity-twin-ai' ) ] );
         }
 
         // API key required to update plugins from marketplace
@@ -209,7 +209,7 @@ class BizCity_Market_Ajax {
             wp_send_json( [
                 'ok'          => false,
                 'need_api_key'=> true,
-                'msg'         => 'Bạn cần đăng ký API Key với BizCity để cập nhật plugin. Truy cập https://bizcity.vn/my-account/api-keys/ để tạo API Key.',
+                'msg'         => __( 'Bạn cần đăng ký API Key với BizCity để cập nhật plugin. Truy cập https://bizcity.vn/my-account/api-keys/ để tạo API Key.', 'bizcity-twin-ai' ),
             ] );
         }
 
@@ -221,7 +221,7 @@ class BizCity_Market_Ajax {
         }
 
         if ( ! self::validate_download_url( $download_url ) ) {
-            wp_send_json( [ 'ok' => false, 'msg' => 'Download URL không hợp lệ.' ] );
+            wp_send_json( [ 'ok' => false, 'msg' => __( 'Download URL không hợp lệ.', 'bizcity-twin-ai' ) ] );
         }
 
         $download = BizCity_Remote_Catalog::download( $download_url );
@@ -241,7 +241,7 @@ class BizCity_Market_Ajax {
 
         wp_send_json( [
             'ok'      => true,
-            'msg'     => 'Plugin đã được cập nhật thành công!',
+            'msg'     => __( 'Plugin đã được cập nhật thành công!', 'bizcity-twin-ai' ),
             'status'  => 'updated',
             'version' => $download['version'],
         ] );

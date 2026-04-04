@@ -188,9 +188,8 @@ class WaicAction_it_call_tool extends WaicAction {
 			} else {
 				$schema = $tools->get_schema( $tool_id );
 
-				// ── Phase 1.1: Skill Context Injection ──
-				// Read matching skill BEFORE execution, log trace, inject into LLM context
-				$skill_info = $this->resolve_skill_for_tool( $tool_id );
+				// ── Phase 1.1e: Skill Resolution via unified BizCity_Tool_Run ──
+				$skill_info = BizCity_Tool_Run::resolve_skill( $tool_id );
 				error_log( '[IT_CALL_TOOL] skill_lookup tool=' . $tool_id . ' found=' . ( $skill_info ? $skill_info['title'] : 'NONE' ) );
 
 				if ( ! empty( $schema['input_fields'] ) ) {
@@ -237,20 +236,58 @@ class WaicAction_it_call_tool extends WaicAction {
 						}
 					}
 
-					// ── Phase 1.1 G1: HIL Slot Gathering (un_confirm pattern) ──
+					// ── Phase 1.1 G1: HIL Resume Detection ──
+					// Check if we're resuming from a previous HIL wait (2nd getResults call)
 					$hil_state = $this->get_hil_state( $tool_id, $variables );
 
-					// If user previously responded with slot data, merge it
-					if ( $hil_state && ! empty( $hil_state['filled_slots'] ) ) {
-						foreach ( $hil_state['filled_slots'] as $k => $v ) {
-							if ( $v !== '' && $v !== null ) {
-								$params[ $k ] = $v;
+					if ( $hil_state ) {
+						$hil_status = $hil_state['status'] ?? '';
+
+						if ( $hil_status === 'rejected' ) {
+							// User cancelled/skipped this tool
+							error_log( '[IT_CALL_TOOL] HIL_REJECTED: tool=' . $tool_id );
+							if ( $pipeline_id && class_exists( 'BizCity_Intent_Todos' ) ) {
+								BizCity_Intent_Todos::update_status( $pipeline_id, $tool_id, 'CANCELLED', [
+									'node_id' => $node_id_str,
+								] );
 							}
+							$this->clear_hil_state( $tool_id, $variables );
+							return [
+								'result' => [ 'success' => 'false', 'tool_name' => $tool_id, 'message' => 'Skipped by user' ],
+								'error'  => '',
+								'status' => 3, // completed (skipped)
+							];
 						}
-						error_log( '[IT_CALL_TOOL] HIL slots merged: ' . implode( ',', array_keys( $hil_state['filled_slots'] ) ) );
+
+						if ( in_array( $hil_status, [ 'responded', 'confirmed' ], true ) ) {
+							// User provided slot data — parse and merge
+							$response_text  = $hil_state['response'] ?? '';
+							$stored_params  = $hil_state['current_params'] ?? [];
+							$missing_fields = $hil_state['missing_fields'] ?? [];
+
+							// Merge stored params first (params already resolved before 1st HIL wait)
+							foreach ( $stored_params as $k => $v ) {
+								if ( $v !== '' && $v !== null && ( ! isset( $params[ $k ] ) || $params[ $k ] === '' ) ) {
+									$params[ $k ] = $v;
+								}
+							}
+
+							// Parse user response into slot values
+							if ( ! empty( $response_text ) && ! empty( $missing_fields ) ) {
+								$parsed = $this->parse_slot_response( $response_text, $missing_fields, $schema );
+								foreach ( $parsed as $k => $v ) {
+									if ( $v !== '' && $v !== null ) {
+										$params[ $k ] = $v;
+									}
+								}
+								error_log( '[IT_CALL_TOOL] HIL_MERGED: tool=' . $tool_id . ' parsed=' . implode( ',', array_keys( $parsed ) ) );
+							}
+
+							$this->clear_hil_state( $tool_id, $variables );
+						}
 					}
 
-					// Check if required fields are still missing (AFTER merge)
+					// Check if required fields are still missing (after alias+variable+HIL merge)
 					$missing_required = [];
 					foreach ( $schema['input_fields'] as $field => $cfg ) {
 						if ( ! empty( $cfg['required'] ) && ( ! isset( $params[ $field ] ) || $params[ $field ] === '' || $params[ $field ] === null ) ) {
@@ -259,7 +296,7 @@ class WaicAction_it_call_tool extends WaicAction {
 					}
 
 					if ( ! empty( $missing_required ) ) {
-						// Check if we already asked and user responded — try LLM fill first
+						// Try LLM fill as intermediate step (works for both pipeline and legacy)
 						$params = $this->prepare_input_with_llm( $tool_id, $params, $variables, $schema );
 
 						// Re-check after LLM fill
@@ -271,34 +308,36 @@ class WaicAction_it_call_tool extends WaicAction {
 						}
 
 						if ( ! empty( $still_missing ) ) {
-							// ── HIL WAITING: Send prompt to user and pause workflow ──
-							error_log( '[IT_CALL_TOOL] HIL_WAIT: tool=' . $tool_id . ' missing=' . implode( ',', $still_missing ) );
+							if ( $pipeline_id ) {
+								// ── Pipeline context → HIL WAITING (un_confirm pattern) ──
+								error_log( '[IT_CALL_TOOL] HIL_WAIT: tool=' . $tool_id . ' missing=' . implode( ',', $still_missing ) );
 
-							// Update todo status to WAITING_USER
-							if ( $pipeline_id && class_exists( 'BizCity_Intent_Todos' ) ) {
-								BizCity_Intent_Todos::update_status( $pipeline_id, $tool_id, 'WAITING_USER', [
-									'node_id' => $node_id_str,
-								] );
+								// Update todo status to WAITING_USER
+								if ( class_exists( 'BizCity_Intent_Todos' ) ) {
+									BizCity_Intent_Todos::update_status( $pipeline_id, $tool_id, 'WAITING_USER', [
+										'node_id' => $node_id_str,
+									] );
+								}
+
+								// Send HIL prompt message to user
+								$this->send_hil_slot_prompt( $variables, $tool_id, $still_missing, $schema, $params, $skill_info );
+
+								// Save HIL state for resume
+								$this->set_hil_state( $tool_id, $variables, $params, $still_missing );
+
+								$timeout_at = time() + 86400; // 24h timeout
+								return [
+									'result'               => [ 'success' => 'false', 'tool_name' => $tool_id, 'message' => 'Waiting for user input' ],
+									'error'                => '',
+									'status'               => 0, // waiting
+									'waiting'              => $timeout_at,
+									'reexecute_on_resume'  => true, // Phase 1.1: re-call getResults() on resume
+								];
+							} else {
+								// ── Legacy workflow → LLM-fill only, NO HIL pause ──
+								// Proceed with what we have; tool callback handles validation
+								error_log( '[IT_CALL_TOOL] LEGACY_FALLBACK: tool=' . $tool_id . ' missing=' . implode( ',', $still_missing ) . ' → proceeding without' );
 							}
-
-							// Send HIL prompt message to user
-							$this->send_hil_slot_prompt( $variables, $tool_id, $still_missing, $schema, $params, $skill_info );
-
-							// Save current params so we can merge on resume
-							$this->set_hil_state( $tool_id, $variables, $params, $still_missing );
-
-							$blog_id     = get_current_blog_id();
-							$session_id  = $this->resolve_var( $variables, 'session_id' );
-							$hil_key     = 'waic_hil_' . $blog_id . '_' . md5( $tool_id . '_' . $session_id );
-							$timeout_at  = time() + 86400; // 24h timeout for slot gathering
-							set_transient( $hil_key . '_timeout', $timeout_at, 86400 + 300 );
-
-							return [
-								'result'  => [ 'success' => 'false', 'tool_name' => $tool_id, 'message' => 'Waiting for user input' ],
-								'error'   => '',
-								'status'  => 0, // waiting
-								'waiting' => $timeout_at,
-							];
 						}
 					} else {
 						// LLM-based smart input preparation: fill remaining empty optional fields
@@ -314,8 +353,82 @@ class WaicAction_it_call_tool extends WaicAction {
 					] );
 				}
 
-				// ── Execute via Intent Tools registry ──
-				$result_data = $tools->execute( $tool_id, $params );
+				// ── Phase 1.1e: Execute via unified BizCity_Tool_Run ──
+				$has_messenger = class_exists( 'BizCity_Pipeline_Messenger' ) && ! empty( $execution_state['session_id'] );
+
+				if ( $has_messenger ) {
+					BizCity_Pipeline_Messenger::send_micro_step( $execution_state, '⏳', "Đang thực thi {$tool_id}...", $tool_id );
+				}
+
+				$t_start = microtime( true );
+				$run_result = BizCity_Tool_Run::execute( $tool_id, $params, [
+					'session_id'   => $execution_state['session_id'] ?? '',
+					'user_id'      => $execution_state['user_id'] ?? get_current_user_id(),
+					'channel'      => $execution_state['channel'] ?? 'pipeline',
+					'conv_id'      => $execution_state['intent_conversation_id'] ?? '',
+					'goal'         => $tool_id,
+					'goal_label'   => $tool_id,
+					'character_id' => '',
+					'message_id'   => '',
+					'caller'       => 'it_call_tool',
+				] );
+				$tool_duration_ms = (int) ( ( microtime( true ) - $t_start ) * 1000 );
+
+				$result_data = [
+					'success'        => $run_result['success'],
+					'message'        => $run_result['message'],
+					'data'           => $run_result['data'],
+					'missing_fields' => $run_result['missing_fields'],
+					'duration_ms'    => $tool_duration_ms,
+				];
+
+				if ( $has_messenger ) {
+					// ── Micro-step 2: Skill resolution detail ──
+					$skill_used = $run_result['skill_used'] ?? 'none';
+					$skill_resolve = $run_result['skill_resolve'] ?? '';
+					if ( $skill_used && $skill_used !== 'none' ) {
+						$method = '';
+						if ( strpos( $skill_resolve, 'skill_tool_map' ) !== false ) {
+							$method = ' (via tool-map)';
+						} elseif ( strpos( $skill_resolve, 'text_matching' ) !== false ) {
+							$method = ' (via text matching)';
+						}
+						BizCity_Pipeline_Messenger::send_micro_step(
+							$execution_state, '📋',
+							"Skill: {$skill_used}{$method}",
+							'skill_found'
+						);
+					} else {
+						BizCity_Pipeline_Messenger::send_micro_step(
+							$execution_state, '⚠️',
+							"Không tìm thấy skill cho {$tool_id}",
+							'skill_not_found'
+						);
+					}
+
+					// ── Micro-step 3: Knowledge context status ──
+					$has_knowledge = ! empty( $params['_meta']['_context'] ?? '' );
+					if ( $has_knowledge ) {
+						BizCity_Pipeline_Messenger::send_micro_step(
+							$execution_state, '📚',
+							'Context knowledge đã inject vào prompt',
+							'knowledge_inject'
+						);
+					} else {
+						BizCity_Pipeline_Messenger::send_micro_step(
+							$execution_state, '📭',
+							'Không có context knowledge — chỉ dùng prompt gốc',
+							'knowledge_none'
+						);
+					}
+
+					// ── Micro-step 4: Execution result ──
+					$t_icon  = ! empty( $run_result['success'] ) ? '✅' : '❌';
+					$t_label = ! empty( $run_result['success'] )
+						? "Hoàn tất {$tool_id}"
+						: "Lỗi {$tool_id}: " . mb_substr( $run_result['message'] ?? '', 0, 80 );
+					BizCity_Pipeline_Messenger::send_micro_step( $execution_state, $t_icon, $t_label, $tool_id, $tool_duration_ms );
+				}
 			}
 		}
 
@@ -334,6 +447,9 @@ class WaicAction_it_call_tool extends WaicAction {
 		if ( ! $success && empty( $error ) ) {
 			$error = $msg ?: __( 'Tool returned an error.', 'bizcity-twin-ai' );
 		}
+
+		// ── Phase 1.1e: Verification already done inside BizCity_Tool_Run::execute() ──
+		// No separate verify_result call needed.
 
 		// ── Phase 1.1 G3: Save evidence to intent_conversations ──
 		$this->save_pipeline_evidence( $tool_id, $params, $result_data, $variables, $execution_state );
@@ -381,50 +497,87 @@ class WaicAction_it_call_tool extends WaicAction {
 
 	/* ================================================================
 	 *  Phase 1.1: HIL State Management (un_confirm pattern)
+	 *  Key aligned with existing infrastructure: waic_hil_{blog_id}_{chat_id}
 	 * ================================================================ */
 
 	/**
+	 * Resolve chat_id from workflow variables (same source as un_confirm).
+	 */
+	private function resolve_chat_id( $variables ) {
+		$chat_id = $this->resolve_var( $variables, 'chat_id' );
+		if ( empty( $chat_id ) ) {
+			$chat_id = $this->resolve_var( $variables, 'session_id' );
+		}
+		return $chat_id;
+	}
+
+	/**
 	 * Get HIL state for this tool from transient.
-	 *
-	 * @param string $tool_id   Tool identifier.
-	 * @param array  $variables Workflow variables.
-	 * @return array|null HIL state or null if not waiting.
+	 * Uses same key pattern as un_confirm: waic_hil_{blog_id}_{chat_id}
+	 * Validates tool_id to prevent collision with other HIL blocks.
 	 */
 	private function get_hil_state( $tool_id, $variables ) {
-		$blog_id    = get_current_blog_id();
-		$session_id = $this->resolve_var( $variables, 'session_id' );
-		$key        = 'waic_hil_' . $blog_id . '_' . md5( $tool_id . '_' . $session_id );
-		$state      = get_transient( $key );
-		return is_array( $state ) ? $state : null;
+		$blog_id = get_current_blog_id();
+		$chat_id = $this->resolve_chat_id( $variables );
+		if ( empty( $chat_id ) ) {
+			return null;
+		}
+		$key   = 'waic_hil_' . $blog_id . '_' . $chat_id;
+		$state = get_transient( $key );
+		if ( ! is_array( $state ) ) {
+			return null;
+		}
+		// Validate this HIL state belongs to this tool (prevent collision with un_confirm)
+		if ( ( $state['type'] ?? '' ) !== 'slot_fill' || ( $state['tool_id'] ?? '' ) !== $tool_id ) {
+			return null;
+		}
+		return $state;
 	}
 
 	/**
 	 * Save HIL state with current params and missing fields.
+	 * Uses same key pattern as un_confirm for resume infrastructure compatibility.
 	 */
 	private function set_hil_state( $tool_id, $variables, $current_params, $missing_fields ) {
-		$blog_id    = get_current_blog_id();
-		$session_id = $this->resolve_var( $variables, 'session_id' );
-		$key        = 'waic_hil_' . $blog_id . '_' . md5( $tool_id . '_' . $session_id );
-		$state      = [
+		$blog_id = get_current_blog_id();
+		$chat_id = $this->resolve_chat_id( $variables );
+		if ( empty( $chat_id ) ) {
+			return;
+		}
+		$key   = 'waic_hil_' . $blog_id . '_' . $chat_id;
+		$state = [
+			'type'           => 'slot_fill',
+			'status'         => 'waiting',
 			'tool_id'        => $tool_id,
 			'current_params' => $current_params,
 			'missing_fields' => $missing_fields,
 			'filled_slots'   => [],
+			'timeout_at'     => time() + 86400,
 			'created_at'     => time(),
+			'chat_id'        => $chat_id,
+			'node_id'        => (string) ( $this->getId() ?? '' ),
 			'run_id'         => isset( $this->_runId ) ? $this->_runId : 0,
 		];
-		set_transient( $key, $state, 86400 + 300 );
+		// TTL aligned with execution state (3600s) + buffer (300s) to prevent orphaned HIL states
+		set_transient( $key, $state, 3600 + 300 );
+		// run_id already stored inline in $state — no need for separate waic_hil_set_run_id call
 	}
 
 	/**
 	 * Clear HIL state after tool execution completes.
 	 */
 	private function clear_hil_state( $tool_id, $variables ) {
-		$blog_id    = get_current_blog_id();
-		$session_id = $this->resolve_var( $variables, 'session_id' );
-		$key        = 'waic_hil_' . $blog_id . '_' . md5( $tool_id . '_' . $session_id );
-		delete_transient( $key );
-		delete_transient( $key . '_timeout' );
+		$blog_id = get_current_blog_id();
+		$chat_id = $this->resolve_chat_id( $variables );
+		if ( empty( $chat_id ) ) {
+			return;
+		}
+		$key   = 'waic_hil_' . $blog_id . '_' . $chat_id;
+		$state = get_transient( $key );
+		// Only delete if this state belongs to this tool (prevent clearing un_confirm state)
+		if ( is_array( $state ) && ( $state['tool_id'] ?? '' ) === $tool_id ) {
+			delete_transient( $key );
+		}
 	}
 
 	/**
@@ -974,5 +1127,142 @@ class WaicAction_it_call_tool extends WaicAction {
 		}
 
 		return $result;
+	}
+
+	/* ================================================================
+	 *  Phase 1.1: Parse Slot Response from user HIL reply
+	 * ================================================================ */
+
+	/**
+	 * Parse user's free-text response into slot values.
+	 *
+	 * Strategies (in order):
+	 *  1. JSON object   → {"field": "value"}
+	 *  2. key:value lines → "field: value\nfield2: value2"
+	 *  3. Single missing field → entire text = that field's value
+	 *  4. Multiple fields → LLM parse (fast model)
+	 *
+	 * @param string $response_text  User's raw reply text.
+	 * @param array  $missing_fields List of field names that were missing.
+	 * @param array  $schema         Tool schema with input_fields.
+	 * @return array Parsed field => value pairs.
+	 */
+	private function parse_slot_response( $response_text, $missing_fields, $schema ) {
+		$response_text = trim( $response_text );
+		if ( $response_text === '' || empty( $missing_fields ) ) {
+			return [];
+		}
+
+		// 1. Try JSON: {"field": "value", ...}
+		$json = json_decode( $response_text, true );
+		if ( is_array( $json ) && ! empty( $json ) ) {
+			error_log( '[IT_CALL_TOOL] parse_slot: JSON format detected' );
+			return $json;
+		}
+
+		// 2. Try key:value format
+		$parsed = [];
+		foreach ( explode( "\n", $response_text ) as $line ) {
+			$line = trim( $line );
+			if ( $line === '' ) {
+				continue;
+			}
+			if ( preg_match( '/^(\w+)\s*[:=]\s*(.+)$/u', $line, $m ) ) {
+				$parsed[ $m[1] ] = trim( $m[2] );
+			}
+		}
+		if ( ! empty( $parsed ) ) {
+			error_log( '[IT_CALL_TOOL] parse_slot: key:value format detected' );
+			return $parsed;
+		}
+
+		// 3. Single missing field → entire response is that field's value
+		if ( count( $missing_fields ) === 1 ) {
+			error_log( '[IT_CALL_TOOL] parse_slot: single field "' . $missing_fields[0] . '"' );
+			return [ $missing_fields[0] => $response_text ];
+		}
+
+		// 4. Multiple fields → use LLM to parse
+		if ( function_exists( 'bizcity_openrouter_chat' ) ) {
+			$input_fields = $schema['input_fields'] ?? [];
+			$field_desc   = [];
+			foreach ( $missing_fields as $f ) {
+				$desc = $input_fields[ $f ]['description'] ?? $f;
+				$type = $input_fields[ $f ]['type'] ?? 'text';
+				$field_desc[] = "- {$f} ({$type}): {$desc}";
+			}
+
+			$escaped_response = wp_json_encode( $response_text );
+			$system = "Parse user response into JSON object with these fields:\n"
+				. implode( "\n", $field_desc ) . "\n\n"
+				. "User responded: {$escaped_response}\n\n"
+				. "Return ONLY a JSON object. No explanation.";
+
+			$resp = bizcity_openrouter_chat(
+				[
+					[ 'role' => 'system', 'content' => $system ],
+					[ 'role' => 'user', 'content' => 'Parse to JSON.' ],
+				],
+				[ 'temperature' => 0.1, 'max_tokens' => 500, 'purpose' => 'fast' ]
+			);
+
+			if ( ! empty( $resp['success'] ) && ! empty( $resp['message'] ) ) {
+				$raw = $resp['message'];
+				$raw = preg_replace( '/^```(?:json)?\s*/m', '', $raw );
+				$raw = preg_replace( '/```\s*$/m', '', $raw );
+				if ( preg_match( '/\{[\s\S]*\}/u', $raw, $m ) ) {
+					$result = json_decode( $m[0], true );
+					if ( is_array( $result ) ) {
+						error_log( '[IT_CALL_TOOL] parse_slot: LLM parsed ' . count( $result ) . ' fields' );
+						return $result;
+					}
+				}
+			}
+			error_log( '[IT_CALL_TOOL] parse_slot: LLM parse failed, returning empty' );
+		}
+
+		return [];
+	}
+
+	/* ================================================================
+	 *  Phase 1.1: Post-execution Verification
+	 * ================================================================ */
+
+	/**
+	 * Verify tool execution result for basic data integrity.
+	 *
+	 * Checks:
+	 *  - Resource ID exists (get_post)
+	 *  - URL format valid (wp_parse_url)
+	 *
+	 * @param string $tool_id     Tool name.
+	 * @param array  $result_data Tool execution result array.
+	 * @return bool True if result passes verification.
+	 */
+	private function verify_result( $tool_id, $result_data ) {
+		if ( empty( $result_data['success'] ) ) {
+			return false;
+		}
+
+		$data = $result_data['data'] ?? [];
+
+		// Verify resource exists if numeric ID is provided
+		if ( ! empty( $data['id'] ) && is_numeric( $data['id'] ) ) {
+			$post = get_post( (int) $data['id'] );
+			if ( ! $post || $post->post_status === 'trash' ) {
+				error_log( '[IT_CALL_TOOL] verify_FAIL: tool=' . $tool_id . ' resource id=' . $data['id'] . ' not found or trashed' );
+				return false;
+			}
+		}
+
+		// Verify URL format if provided
+		if ( ! empty( $data['url'] ) && is_string( $data['url'] ) ) {
+			if ( ! filter_var( $data['url'], FILTER_VALIDATE_URL ) ) {
+				error_log( '[IT_CALL_TOOL] verify_FAIL: tool=' . $tool_id . ' invalid URL=' . $data['url'] );
+				return false;
+			}
+		}
+
+		return true;
 	}
 }
