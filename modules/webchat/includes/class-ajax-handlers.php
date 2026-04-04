@@ -90,6 +90,12 @@ class BizCity_WebChat_Ajax_Handlers {
         add_action( 'wp_ajax_bizcity_webchat_web_search_status', [ $this, 'ajax_web_search_status' ] );
         add_action( 'wp_ajax_bizcity_webchat_web_search_import', [ $this, 'ajax_web_search_import' ] );
         add_action( 'wp_ajax_bizcity_webchat_web_search_cancel', [ $this, 'ajax_web_search_cancel' ] );
+
+        // Studio Outputs (delegated to companion-notebook BCN_Studio)
+        add_action( 'wp_ajax_bizcity_webchat_studio_outputs',       [ $this, 'ajax_studio_outputs' ] );
+        add_action( 'wp_ajax_bizcity_webchat_studio_generate',      [ $this, 'ajax_studio_generate' ] );
+        add_action( 'wp_ajax_bizcity_webchat_studio_delete_output', [ $this, 'ajax_studio_delete_output' ] );
+        add_action( 'wp_ajax_bizcity_webchat_studio_skeleton',      [ $this, 'ajax_studio_skeleton' ] );
     }
 
     /**
@@ -2194,5 +2200,126 @@ class BizCity_WebChat_Ajax_Handlers {
             delete_transient( 'bizc_ws_' . $job_id );
         }
         wp_send_json_success( true );
+    }
+
+    // ── Studio Outputs (Phase 1.8) — delegates to BCN_Studio ──
+
+    /**
+     * List studio outputs for a session (uses session_id as project_id).
+     */
+    public function ajax_studio_outputs(): void {
+        if ( ! check_ajax_referer( 'bizcity_webchat', '_wpnonce', false ) ) {
+            wp_send_json_error( [ 'message' => 'Invalid security token' ], 403 );
+            return;
+        }
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( [ 'message' => 'Not authenticated' ], 401 );
+            return;
+        }
+        if ( ! class_exists( 'BCN_Studio' ) ) {
+            wp_send_json_success( [] );
+            return;
+        }
+
+        $session_id = sanitize_text_field( $_POST['session_id'] ?? '' );
+        if ( ! $session_id ) {
+            wp_send_json_success( [] );
+            return;
+        }
+
+        $studio  = new BCN_Studio();
+        $outputs = $studio->get_outputs( $session_id );
+        wp_send_json_success( $outputs ?: [] );
+    }
+
+    /**
+     * Generate a studio output for a session.
+     */
+    public function ajax_studio_generate(): void {
+        if ( ! check_ajax_referer( 'bizcity_webchat', '_wpnonce', false ) ) {
+            wp_send_json_error( [ 'message' => 'Invalid security token' ], 403 );
+            return;
+        }
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( [ 'message' => 'Not authenticated' ], 401 );
+            return;
+        }
+        if ( ! class_exists( 'BCN_Studio' ) ) {
+            wp_send_json_error( [ 'message' => 'Companion Notebook plugin chưa kích hoạt' ], 400 );
+            return;
+        }
+
+        $session_id = sanitize_text_field( $_POST['session_id'] ?? '' );
+        $tool_type  = sanitize_key( $_POST['tool_type'] ?? '' );
+        if ( ! $session_id || ! $tool_type ) {
+            wp_send_json_error( [ 'message' => 'Missing session_id or tool_type' ], 400 );
+            return;
+        }
+
+        $studio    = new BCN_Studio();
+        $output_id = $studio->generate( $session_id, $tool_type, get_current_user_id() );
+
+        if ( is_wp_error( $output_id ) ) {
+            wp_send_json_error( [ 'message' => $output_id->get_error_message() ], 400 );
+            return;
+        }
+
+        $output = $studio->get_output( $output_id );
+        wp_send_json_success( $output );
+    }
+
+    /**
+     * Delete a studio output.
+     */
+    public function ajax_studio_delete_output(): void {
+        if ( ! check_ajax_referer( 'bizcity_webchat', '_wpnonce', false ) ) {
+            wp_send_json_error( [ 'message' => 'Invalid security token' ], 403 );
+            return;
+        }
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( [ 'message' => 'Not authenticated' ], 401 );
+            return;
+        }
+        if ( ! class_exists( 'BCN_Studio' ) ) {
+            wp_send_json_error( [ 'message' => 'Companion Notebook plugin chưa kích hoạt' ], 400 );
+            return;
+        }
+
+        $output_id = absint( $_POST['output_id'] ?? 0 );
+        if ( ! $output_id ) {
+            wp_send_json_error( [ 'message' => 'Missing output_id' ], 400 );
+            return;
+        }
+
+        $studio = new BCN_Studio();
+        $result = $studio->delete_output( $output_id );
+        wp_send_json_success( $result );
+    }
+
+    /**
+     * Get skeleton JSON for a session.
+     */
+    public function ajax_studio_skeleton(): void {
+        if ( ! check_ajax_referer( 'bizcity_webchat', '_wpnonce', false ) ) {
+            wp_send_json_error( [ 'message' => 'Invalid security token' ], 403 );
+            return;
+        }
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( [ 'message' => 'Not authenticated' ], 401 );
+            return;
+        }
+        if ( ! class_exists( 'BCN_Studio_Input_Builder' ) ) {
+            wp_send_json_error( [ 'message' => 'Companion Notebook plugin chưa kích hoạt' ], 400 );
+            return;
+        }
+
+        $session_id = sanitize_text_field( $_POST['session_id'] ?? '' );
+        if ( ! $session_id ) {
+            wp_send_json_error( [ 'message' => 'Missing session_id' ], 400 );
+            return;
+        }
+
+        $skeleton = BCN_Studio_Input_Builder::build( $session_id );
+        wp_send_json_success( $skeleton );
     }
 }

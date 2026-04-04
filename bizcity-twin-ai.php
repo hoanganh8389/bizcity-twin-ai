@@ -67,6 +67,7 @@ if ( ! defined( 'BIZCITY_INTENT_LOG_PROMPTS' ) )  define( 'BIZCITY_INTENT_LOG_PR
 // Infrastructure
 require_once __DIR__ . '/includes/class-module-loader.php';
 require_once __DIR__ . '/includes/class-connection-gate.php';
+require_once __DIR__ . '/includes/class-admin-support-link.php';
 require_once __DIR__ . '/includes/class-twin-ai.php';
 
 /**
@@ -132,9 +133,10 @@ require_once __DIR__ . '/core/helper-legacy/bootstrap.php';
 // Tương tự cơ chế must-use: luôn chạy khi bizcity-twin-ai active.
 // Guard bằng constant riêng của mỗi plugin để tránh load trùng khi đã activate bình thường.
 $_bizcity_bundled_must_load = [
-    'bizgpt-tool-google'       => 'BZGOOGLE_VERSION',      // Google Workspace tools
-    'bizcity-tool-facebook'    => 'BZTOOL_FB_VERSION',     // Facebook standalone — /bizfbhook/, OAuth, Messenger
-    'bizcity-zalo-bot'         => 'BIZCITY_ZALO_BOT_VERSION', // Zalo Bot — webhook, user linker, gateway bridge
+    'bizgpt-tool-google'          => 'BZGOOGLE_VERSION',           // Google Workspace tools
+    'bizcity-tool-facebook'       => 'BZTOOL_FB_VERSION',          // Facebook standalone — /bizfbhook/, OAuth, Messenger
+    'bizcity-zalo-bot'            => 'BIZCITY_ZALO_BOT_VERSION',   // Zalo Bot — webhook, user linker, gateway bridge
+    'bizcity-companion-notebook'  => 'BCN_VERSION',                // Companion Notebook — Studio, tool registry, research memory
 ];
 foreach ( $_bizcity_bundled_must_load as $_slug => $_guard_const ) {
     if ( defined( $_guard_const ) ) {
@@ -152,6 +154,8 @@ add_action( 'init', function() {
     load_plugin_textdomain( 'bizcity-twin-ai', false, dirname( plugin_basename( __FILE__ ) ) . '/languages' );
 } );
 
+BizCity_Admin_Support_Link::init();
+
 // Boot at plugins_loaded priority 0 — load modules + fire loaded action
 add_action( 'plugins_loaded', [ 'BizCity_Twin_AI', 'boot' ], 0 );
 
@@ -164,12 +168,12 @@ register_activation_hook( __FILE__, [ 'BizCity_Twin_AI', 'activate' ] );
 add_action( 'admin_notices', 'bizcity_twin_ai_notice_compat_loader' );
 add_action( 'admin_init',    'bizcity_twin_ai_maybe_copy_compat_loader' );
 
-// ── Integration tests — admin only, hidden page ─────────────────────────────
-if ( is_admin() && file_exists( __DIR__ . '/tests/test-sprint3-integration.php' ) ) {
-    require_once __DIR__ . '/tests/test-sprint3-integration.php';
-}
-if ( is_admin() && file_exists( __DIR__ . '/tests/test-phase16-audit.php' ) ) {
-    require_once __DIR__ . '/tests/test-phase16-audit.php';
+// ── Changelog Dashboard — admin only ─────────────────────────────────────────
+// URL: wp-admin/admin.php?page=bizcity-changelog
+// Per-phase: wp-admin/admin.php?page=bizcity-changelog-1.4 (etc.)
+// WP-CLI: wp bizcity changelog [phase_id]
+if ( is_admin() && file_exists( __DIR__ . '/changelog/bootstrap.php' ) ) {
+    require_once __DIR__ . '/changelog/bootstrap.php';
 }
 
 function bizcity_twin_ai_notice_compat_loader(): void {

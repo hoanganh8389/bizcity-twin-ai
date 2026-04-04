@@ -919,6 +919,7 @@ class BizCity_WebChat_Admin_Dashboard {
             'kciRatio'           => $kci_ratio_val,
             'isSuperAdmin'       => current_user_can( 'manage_network' ),
             'languageFlags'      => $this->build_language_flags_data(),
+            'studioTools'        => class_exists( 'BCN_Notebook_Tool_Registry' ) ? BCN_Notebook_Tool_Registry::get_all() : [],
         ]);
 
         // TouchBar agent data (same as legacy)
