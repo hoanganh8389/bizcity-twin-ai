@@ -5,6 +5,7 @@ vendor/
 # Ignore specific plugin
 /plugins/bizcity-zalo-bot/
 /core/intent/includes/backup-legacy
+/core/intent/logs/
 # Env
 .env
 .env.*
@@ -18,3 +19,6 @@ build/
 
 # Mac
 .DS_Store
+
+# Skill library — user-generated content, must NOT be in git
+/core/skills/library/
