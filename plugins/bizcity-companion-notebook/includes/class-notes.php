@@ -110,8 +110,10 @@ class BCN_Notes {
 
     public function get_by_project( $project_id ) {
         global $wpdb;
+        // Webchat sessions use session_id (wcs_ prefix), not project_id.
+        $col = str_starts_with( $project_id, 'wcs_' ) ? 'session_id' : 'project_id';
         return $wpdb->get_results( $wpdb->prepare(
-            "SELECT * FROM {$this->table()} WHERE project_id = %s ORDER BY created_at DESC",
+            "SELECT * FROM {$this->table()} WHERE {$col} = %s ORDER BY created_at DESC",
             $project_id
         ) );
     }

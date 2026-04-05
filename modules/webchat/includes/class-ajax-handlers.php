@@ -96,6 +96,10 @@ class BizCity_WebChat_Ajax_Handlers {
         add_action( 'wp_ajax_bizcity_webchat_studio_generate',      [ $this, 'ajax_studio_generate' ] );
         add_action( 'wp_ajax_bizcity_webchat_studio_delete_output', [ $this, 'ajax_studio_delete_output' ] );
         add_action( 'wp_ajax_bizcity_webchat_studio_skeleton',      [ $this, 'ajax_studio_skeleton' ] );
+        add_action( 'wp_ajax_bizcity_webchat_studio_distribute',    [ $this, 'ajax_studio_distribute' ] );
+
+        // Tool Registry (Sprint 2)
+        add_action( 'wp_ajax_bizcity_tool_registry_list', [ $this, 'ajax_tool_registry_list' ] );
     }
 
     /**
@@ -1684,7 +1688,9 @@ class BizCity_WebChat_Ajax_Handlers {
         }
 
         $table_msg   = $wpdb->prefix . 'bizcity_webchat_messages';
-        $table_notes = $wpdb->prefix . 'bizcity_webchat_notes';
+        $table_notes = class_exists( 'BCN_Schema_Extend' )
+            ? BCN_Schema_Extend::table_notes()
+            : $wpdb->prefix . 'bizcity_memory_notes';
 
         // Get message content
         $msg = $wpdb->get_row( $wpdb->prepare(
@@ -1700,21 +1706,18 @@ class BizCity_WebChat_Ajax_Handlers {
         $sid = $session_id ?: $msg->session_id;
         $title = mb_substr( wp_strip_all_tags( $msg->message_text ), 0, 100, 'UTF-8' );
 
-        // Create note
+        // Create note in BCN memory_notes table
         $wpdb->insert( $table_notes, [
-            'session_id'        => $sid,
-            'user_id'           => $user_id,
-            'note_type'         => 'chat_pinned',
-            'title'             => $title,
-            'content'           => $msg->message_text,
-            'source_message_id' => $message_id,
-            'created_at'        => current_time( 'mysql' ),
+            'session_id'  => $sid,
+            'user_id'     => $user_id,
+            'note_type'   => 'chat_pinned',
+            'title'       => $title,
+            'content'     => $msg->message_text,
+            'message_id'  => $message_id,
+            'created_at'  => current_time( 'mysql' ),
         ] );
 
         $note_id = $wpdb->insert_id;
-
-        // Mark message as pinned
-        $wpdb->update( $table_msg, [ 'is_pinned' => 1 ], [ 'id' => $message_id ] );
 
         wp_send_json_success( [
             'note_id'    => $note_id,
@@ -1777,7 +1780,9 @@ class BizCity_WebChat_Ajax_Handlers {
         $session_id = sanitize_text_field( $_POST['session_id'] ?? '' );
         $user_id    = get_current_user_id();
         $search     = sanitize_text_field( $_POST['search'] ?? '' );
-        $table      = $wpdb->prefix . 'bizcity_webchat_notes';
+        $table      = class_exists( 'BCN_Schema_Extend' )
+            ? BCN_Schema_Extend::table_notes()
+            : $wpdb->prefix . 'bizcity_memory_notes';
 
         $where = $wpdb->prepare( "WHERE user_id = %d", $user_id );
         if ( $session_id ) {
@@ -1789,7 +1794,7 @@ class BizCity_WebChat_Ajax_Handlers {
         }
 
         $notes = $wpdb->get_results(
-            "SELECT id, session_id, note_type, title, LEFT(content, 500) AS content, source_message_id, created_at, updated_at
+            "SELECT id, session_id, note_type, title, LEFT(content, 500) AS content, message_id AS source_message_id, created_at, updated_at
              FROM {$table} {$where} ORDER BY created_at DESC LIMIT 100",
             ARRAY_A
         );
@@ -1822,7 +1827,9 @@ class BizCity_WebChat_Ajax_Handlers {
             return;
         }
 
-        $table = $wpdb->prefix . 'bizcity_webchat_notes';
+        $table = class_exists( 'BCN_Schema_Extend' )
+            ? BCN_Schema_Extend::table_notes()
+            : $wpdb->prefix . 'bizcity_memory_notes';
         $wpdb->insert( $table, [
             'session_id' => $session_id,
             'user_id'    => $user_id,
@@ -1863,7 +1870,9 @@ class BizCity_WebChat_Ajax_Handlers {
             return;
         }
 
-        $table   = $wpdb->prefix . 'bizcity_webchat_notes';
+        $table   = class_exists( 'BCN_Schema_Extend' )
+            ? BCN_Schema_Extend::table_notes()
+            : $wpdb->prefix . 'bizcity_memory_notes';
         $deleted = $wpdb->delete( $table, [ 'id' => $note_id, 'user_id' => $user_id ] );
 
         if ( $deleted ) {
@@ -1901,7 +1910,7 @@ class BizCity_WebChat_Ajax_Handlers {
         }
 
         $sources = $wpdb->get_results(
-            "SELECT id, session_id, source_type, title, url, embedding_status, chunk_count, created_at
+            "SELECT id, session_id, source_type, title, source_url AS url, embedding_status, chunk_count, created_at
              FROM {$table} {$where} ORDER BY created_at DESC LIMIT 50",
             ARRAY_A
         );
@@ -1960,8 +1969,8 @@ class BizCity_WebChat_Ajax_Handlers {
             'user_id'          => $user_id,
             'source_type'      => $source_type,
             'title'            => $title,
-            'url'              => $url,
-            'content'          => $content,
+            'source_url'       => $url,
+            'content_text'     => $content,
             'embedding_status' => 'pending',
             'created_at'       => current_time( 'mysql' ),
         ] );
@@ -2227,8 +2236,15 @@ class BizCity_WebChat_Ajax_Handlers {
             return;
         }
 
+        // S1.4: Optional caller filter (all | intent | pipeline | studio)
+        $caller = sanitize_key( $_POST['caller'] ?? 'all' );
+        $allowed_callers = [ 'all', 'intent', 'pipeline', 'studio', 'schedule' ];
+        if ( ! in_array( $caller, $allowed_callers, true ) ) {
+            $caller = 'all';
+        }
+
         $studio  = new BCN_Studio();
-        $outputs = $studio->get_outputs( $session_id );
+        $outputs = $studio->get_outputs( $session_id, '', $caller === 'all' ? '' : $caller );
         wp_send_json_success( $outputs ?: [] );
     }
 
@@ -2321,5 +2337,261 @@ class BizCity_WebChat_Ajax_Handlers {
 
         $skeleton = BCN_Studio_Input_Builder::build( $session_id );
         wp_send_json_success( $skeleton );
+    }
+
+    /**
+     * Distribute a studio output via one or more distribution tools.
+     *
+     * Accepts:
+     *   output_id   (int)          — Studio output to distribute.
+     *   dist_tool   (string)       — Single tool key (legacy compat).
+     *   dist_tools  (string[])     — Multi-channel: array of tool keys (S3.3).
+     *   slots       (array)        — Extra slots merged into content.
+     *
+     * S1.7 — Sprint 1 distribution.  S3.2+S3.3 — Multi-channel extension.
+     */
+    public function ajax_studio_distribute(): void {
+        if ( ! check_ajax_referer( 'bizcity_webchat', '_wpnonce', false ) ) {
+            wp_send_json_error( array( 'message' => 'Invalid security token' ), 403 );
+            return;
+        }
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( [ 'message' => 'Not authenticated' ], 401 );
+            return;
+        }
+        if ( ! class_exists( 'BCN_Studio' ) ) {
+            wp_send_json_error( array( 'message' => 'Companion Notebook plugin chưa kích hoạt' ), 400 );
+            return;
+        }
+
+        $output_id = absint( isset( $_POST['output_id'] ) ? $_POST['output_id'] : 0 );
+
+        // S3.3 — Accept dist_tools[] (multi-channel) OR dist_tool (single — legacy compat).
+        $dist_tools = array();
+        if ( ! empty( $_POST['dist_tools'] ) && is_array( $_POST['dist_tools'] ) ) {
+            foreach ( $_POST['dist_tools'] as $t ) {
+                $dist_tools[] = sanitize_key( $t );
+            }
+        } elseif ( ! empty( $_POST['dist_tool'] ) ) {
+            $dist_tools[] = sanitize_key( $_POST['dist_tool'] );
+        }
+
+        if ( ! $output_id || empty( $dist_tools ) ) {
+            wp_send_json_error( array( 'message' => 'Missing output_id or dist_tool(s)' ), 400 );
+            return;
+        }
+
+        // Whitelist of allowed distribution tools.
+        $allowed_tools = array( 'publish_wp_post', 'post_facebook', 'send_email', 'send_zalo', 'schedule_post' );
+        foreach ( $dist_tools as $dt ) {
+            if ( ! in_array( $dt, $allowed_tools, true ) ) {
+                wp_send_json_error( array( 'message' => "Invalid distribution tool: {$dt}" ), 400 );
+                return;
+            }
+        }
+
+        // Load the output.
+        $studio = new BCN_Studio();
+        $output = $studio->get_output( $output_id );
+        if ( ! $output || (int) $output->user_id !== get_current_user_id() ) {
+            wp_send_json_error( array( 'message' => 'Output not found or unauthorized' ), 403 );
+            return;
+        }
+
+        // Build slots — content from stored output, merge user-supplied extras.
+        $extra_slots = array();
+        if ( ! empty( $_POST['slots'] ) && is_array( $_POST['slots'] ) ) {
+            foreach ( $_POST['slots'] as $k => $v ) {
+                $extra_slots[ sanitize_key( $k ) ] = sanitize_textarea_field( $v );
+            }
+        }
+
+        // Extract plain text content from JSON if needed.
+        $raw_content = $output->content;
+        if ( $output->content_format === 'json' ) {
+            $decoded = json_decode( $raw_content, true );
+            if ( is_array( $decoded ) ) {
+                $raw_content = isset( $decoded['content'] ) ? $decoded['content']
+                    : ( isset( $decoded['html'] ) ? $decoded['html']
+                    : ( isset( $decoded['body'] ) ? $decoded['body']
+                    : wp_json_encode( $decoded, JSON_UNESCAPED_UNICODE ) ) );
+            }
+        }
+
+        $base_slots = array_merge(
+            array(
+                'content'   => $raw_content,
+                'title'     => $output->title,
+                'image_url' => '',
+            ),
+            $extra_slots
+        );
+
+        // ── Execute each distribution tool sequentially (S3.2 + S3.3) ──
+        $start_ms       = microtime( true );
+        $results        = array();
+        $first_url      = '';
+        $first_post_id  = 0;
+        $all_ok         = true;
+
+        foreach ( $dist_tools as $dt ) {
+            $tool_start = microtime( true );
+            $slots      = $base_slots;
+
+            // Cross-link: if publish_wp_post succeeded, inject post_url into Facebook slots
+            if ( $dt === 'post_facebook' && ! empty( $first_url ) ) {
+                $slots['link'] = $first_url;
+            }
+
+            $callback_name = 'bizcity_dist_' . $dt;
+            if ( ! function_exists( $callback_name ) ) {
+                $tool_result = array( 'success' => false, 'error' => "Function '{$callback_name}' not found" );
+            } else {
+                $tool_result = call_user_func( $callback_name, $slots );
+            }
+
+            $tool_ms = round( ( microtime( true ) - $tool_start ) * 1000, 2 );
+
+            // Extract URLs.
+            $ext_url   = '';
+            $ext_pid   = 0;
+            if ( ! empty( $tool_result['success'] ) ) {
+                $ext_url = isset( $tool_result['post_url'] ) ? $tool_result['post_url'] : '';
+                if ( empty( $ext_url ) && isset( $tool_result['data'] ) && is_array( $tool_result['data'] ) ) {
+                    $first_data = reset( $tool_result['data'] );
+                    $ext_url = isset( $first_data['url'] ) ? $first_data['url'] : '';
+                }
+                $ext_pid = isset( $tool_result['post_id'] ) ? (int) $tool_result['post_id'] : 0;
+
+                // Remember first successful URL for cross-linking.
+                if ( empty( $first_url ) && ! empty( $ext_url ) ) {
+                    $first_url = $ext_url;
+                }
+                if ( empty( $first_post_id ) && $ext_pid ) {
+                    $first_post_id = $ext_pid;
+                }
+            } else {
+                $all_ok = false;
+            }
+
+            // S3.4 — Trace each distribution step.
+            if ( class_exists( 'BizCity_Twin_Trace' ) ) {
+                BizCity_Twin_Trace::distribution(
+                    $dt,
+                    ! empty( $tool_result['success'] ) ? 'ok' : 'error',
+                    array(
+                        'url'     => $ext_url,
+                        'post_id' => $ext_pid,
+                        'ms'      => $tool_ms,
+                        'error'   => isset( $tool_result['error'] ) ? $tool_result['error'] : '',
+                    )
+                );
+            }
+
+            $results[] = array(
+                'tool'        => $dt,
+                'success'     => ! empty( $tool_result['success'] ),
+                'message'     => isset( $tool_result['message'] ) ? $tool_result['message'] : '',
+                'error'       => isset( $tool_result['error'] ) ? $tool_result['error'] : '',
+                'url'         => $ext_url,
+                'post_id'     => $ext_pid,
+                'ms'          => $tool_ms,
+                'data'        => isset( $tool_result['data'] ) ? $tool_result['data'] : null,
+            );
+        }
+
+        $total_ms = round( ( microtime( true ) - $start_ms ) * 1000, 2 );
+
+        // S3.4 — Trace summary.
+        if ( class_exists( 'BizCity_Twin_Trace' ) ) {
+            BizCity_Twin_Trace::distribution_summary( $output_id, $results, $total_ms );
+        }
+
+        // Update external_url / external_post_id with first successful result.
+        if ( ! empty( $first_url ) || ! empty( $first_post_id ) ) {
+            if ( class_exists( 'BizCity_Output_Store' ) ) {
+                BizCity_Output_Store::update_distribution_result( $output_id, (string) $first_url, (int) $first_post_id );
+            } else {
+                global $wpdb;
+                $table = BCN_Schema_Extend::table_studio_outputs();
+                $wpdb->update( $table, array(
+                    'external_url'     => esc_url_raw( $first_url ),
+                    'external_post_id' => $first_post_id ? $first_post_id : null,
+                    'updated_at'       => current_time( 'mysql' ),
+                ), array( 'id' => $output_id ) );
+            }
+        }
+
+        // Build response — multi vs single.
+        $is_multi = count( $dist_tools ) > 1;
+        if ( $is_multi ) {
+            $ok_count = 0;
+            foreach ( $results as $r ) {
+                if ( ! empty( $r['success'] ) ) {
+                    $ok_count++;
+                }
+            }
+            wp_send_json_success( array(
+                'multi'            => true,
+                'message'          => sprintf( 'Đã phân phối %d/%d kênh thành công.', $ok_count, count( $results ) ),
+                'results'          => $results,
+                'external_url'     => $first_url,
+                'external_post_id' => $first_post_id,
+                'total_ms'         => $total_ms,
+            ) );
+        } else {
+            // Legacy single-tool response shape.
+            $r = $results[0];
+            if ( ! $r['success'] ) {
+                wp_send_json_error( array( 'message' => $r['error'] ? $r['error'] : 'Distribution failed' ), 500 );
+                return;
+            }
+            wp_send_json_success( array(
+                'message'          => $r['message'] ? $r['message'] : 'Đã phân phối thành công.',
+                'external_url'     => $r['url'],
+                'external_post_id' => $r['post_id'],
+                'dist_data'        => $r['data'],
+            ) );
+        }
+    }
+
+    // ── Tool Registry (Sprint 2) ───────────────────────────────────────
+
+    /**
+     * Return the unified tool registry as JSON.
+     *
+     * POST params (optional):
+     *   filter  string  'studio' | 'at' | 'distribution' | 'all' (default)
+     *
+     * @wp_ajax bizcity_tool_registry_list
+     */
+    public function ajax_tool_registry_list(): void {
+        check_ajax_referer( 'bizcity_webchat_nonce', 'nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( [ 'message' => 'Unauthorized' ], 401 );
+        }
+
+        if ( ! class_exists( 'BizCity_Tool_Registry' ) ) {
+            wp_send_json_error( [ 'message' => 'Tool registry not available' ], 503 );
+        }
+
+        $filter = sanitize_key( $_POST['filter'] ?? 'all' );
+
+        if ( $filter === 'studio' ) {
+            $tools = BizCity_Tool_Registry::get_studio_tools();
+        } elseif ( $filter === 'at' ) {
+            $tools = BizCity_Tool_Registry::get_at_tools();
+        } elseif ( $filter === 'distribution' ) {
+            $tools = BizCity_Tool_Registry::get_distribution_tools();
+        } else {
+            $tools = BizCity_Tool_Registry::get_for_js();
+        }
+
+        wp_send_json_success( [
+            'filter' => $filter,
+            'count'  => count( $tools ),
+            'tools'  => array_values( $tools ),
+        ] );
     }
 }

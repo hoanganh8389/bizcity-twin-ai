@@ -188,11 +188,13 @@ class BCN_Sources {
 
     public function get_by_project( $project_id ) {
         global $wpdb;
+        // Webchat sessions use session_id (wcs_ prefix), not project_id.
+        $col = str_starts_with( $project_id, 'wcs_' ) ? 'session_id' : 'project_id';
         return $wpdb->get_results( $wpdb->prepare(
             "SELECT id, user_id, project_id, title, source_type, source_url, char_count,
                     token_estimate, status, embedding_status, chunk_count, created_at
              FROM {$this->table()}
-             WHERE project_id = %s ORDER BY created_at DESC",
+             WHERE {$col} = %s ORDER BY created_at DESC",
             $project_id
         ) );
     }
@@ -204,9 +206,10 @@ class BCN_Sources {
         global $wpdb;
 
         $table = $this->table();
-        $rows = $wpdb->get_results( $wpdb->prepare(
+        $col   = str_starts_with( $project_id, 'wcs_' ) ? 'session_id' : 'project_id';
+        $rows  = $wpdb->get_results( $wpdb->prepare(
             "SELECT title, content_text FROM {$table}
-             WHERE project_id = %s AND status = 'ready'
+             WHERE {$col} = %s AND status = 'ready'
              ORDER BY created_at ASC",
             $project_id
         ) );
@@ -233,8 +236,9 @@ class BCN_Sources {
 
     public function get_total_tokens( $project_id ) {
         global $wpdb;
+        $col = str_starts_with( $project_id, 'wcs_' ) ? 'session_id' : 'project_id';
         return (int) $wpdb->get_var( $wpdb->prepare(
-            "SELECT SUM(token_estimate) FROM {$this->table()} WHERE project_id = %s AND status = 'ready'",
+            "SELECT SUM(token_estimate) FROM {$this->table()} WHERE {$col} = %s AND status = 'ready'",
             $project_id
         ) );
     }

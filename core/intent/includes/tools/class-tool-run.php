@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 /**
  * @package    Bizcity_Twin_AI
  * @subpackage Core\Intent
@@ -88,11 +88,30 @@ class BizCity_Tool_Run {
 			return self::make_result( false, "Tool '{$tool_id}' không được tìm thấy.", [], $tool_id, $run_start );
 		}
 
-		// ── 1. Skill Resolution ──
-		$skill_info = self::resolve_skill( $tool_id, $user_id );
-		error_log( '[TOOL-RUN] E1_skill tool=' . $tool_id . ' found=' . ( $skill_info ? $skill_info['title'] : 'NONE' ) );
+		// ── 1. Skill Resolution (via Resource Resolver if available) ──
+		// ── 2. Context Assembly (_meta) — Phase 1.9: Resource Resolver injects full bundle ──
 
-		// ── 2. Context Assembly (_meta) ──
+		$resource_bundle = null;
+		$skill_info      = null;
+
+		if ( class_exists( 'BizCity_Resource_Resolver' ) ) {
+			// Phase 1.9: Unified resource resolution.
+			$resource_bundle = BizCity_Resource_Resolver::resolve( $tool_id, [
+				'session_id'   => $session_id,
+				'user_id'      => $user_id,
+				'message'      => $params['topic'] ?? $params['message'] ?? '',
+				'project_id'   => $context['project_id'] ?? '',
+				'character_id' => $char_id,
+			] );
+			$skill_info = $resource_bundle['skill'];
+		} else {
+			// Fallback: legacy skill resolution.
+			$skill_info = self::resolve_skill( $tool_id, $user_id );
+		}
+
+		error_log( '[TOOL-RUN] E1_skill tool=' . $tool_id . ' found=' . ( $skill_info ? $skill_info['title'] : 'NONE' )
+			. ( $resource_bundle ? ' profile=' . $resource_bundle['profile'] : ' (legacy)' ) );
+
 		$tool_context_str = '';
 		if ( class_exists( 'BizCity_Context_Builder' ) ) {
 			$tool_context_str = BizCity_Context_Builder::instance()->build_tool_context();
@@ -117,13 +136,22 @@ class BizCity_Tool_Run {
 			'blog_id'         => get_current_blog_id(),
 		];
 
-		// Inject skill content into _meta so tool callbacks and LLM can use it
+		// Inject skill content into _meta so tool callbacks and LLM can use it.
 		if ( $skill_info ) {
 			$meta['_skill'] = [
 				'title'   => $skill_info['title'],
 				'content' => $skill_info['content'],
-				'path'    => $skill_info['path'],
+				'path'    => $skill_info['path'] ?? '',
 			];
+		}
+
+		// Phase 1.9: Inject resource bundle layers into _meta.
+		if ( $resource_bundle ) {
+			$meta['_session_spec'] = $resource_bundle['session_spec'];
+			$meta['_notes']        = $resource_bundle['notes'];
+			$meta['_sources']      = $resource_bundle['sources'];
+			$meta['_knowledge']    = $resource_bundle['knowledge'];
+			$meta['_resource_profile'] = $resource_bundle['profile'];
 		}
 
 		$params['_meta'] = $meta;
@@ -182,11 +210,28 @@ class BizCity_Tool_Run {
 			}
 		}
 
-		// ── 5. Summary log ──
+		// ── 5. Summary log + execution event ──
 		$total_ms = round( ( microtime( true ) - $run_start ) * 1000, 2 );
 		error_log( "[TOOL-RUN] ═══ END tool={$tool_id} success=" . ( $success ? 'YES' : 'NO' )
 			. " verified=" . ( $verified ? 'YES' : 'NO' )
 			. " total={$total_ms}ms caller={$caller}" );
+
+		// Phase 1.9: Emit domain event for listeners (evidence, artifact, trace).
+		do_action( 'bizcity_tool_execution_completed', [
+			'tool_id'     => $tool_id,
+			'success'     => $success,
+			'verified'    => $verified,
+			'data'        => $data,
+			'message'     => $message,
+			'skill'       => $skill_info,
+			'caller'      => $caller,
+			'session_id'  => $session_id,
+			'user_id'     => $user_id,
+			'channel'     => $channel,
+			'duration_ms' => $total_ms,
+			'invoke_id'   => $invoke_id,
+			'resource_bundle' => $resource_bundle,
+		] );
 
 		// Build result — merge raw tool result keys (e.g. switch_goal, complete)
 		// so callers can access tool-specific response fields transparently.

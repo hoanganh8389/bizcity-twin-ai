@@ -114,15 +114,18 @@ class BCN_Studio {
 
     // ── CRUD ──
 
-    public function get_outputs( $project_id, $tool_type = '' ) {
+    public function get_outputs( $project_id, $tool_type = '', $caller = '' ) {
         global $wpdb;
         $where = $wpdb->prepare( "WHERE project_id = %s", $project_id );
         if ( $tool_type ) {
             $where .= $wpdb->prepare( " AND tool_type = %s", $tool_type );
         }
+        if ( $caller ) {
+            $where .= $wpdb->prepare( " AND caller = %s", $caller );
+        }
         return $wpdb->get_results(
             "SELECT id, project_id, tool_type, title, content, content_format, source_count, note_count,
-                    external_url, external_post_id, status, created_at
+                    caller, tool_id, invoke_id, external_url, external_post_id, status, created_at
              FROM {$this->table()} {$where} ORDER BY created_at DESC"
         );
     }

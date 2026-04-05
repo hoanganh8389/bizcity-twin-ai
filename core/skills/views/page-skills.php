@@ -1,5 +1,14 @@
 <?php
 /**
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\Skills
+ * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+ * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
+ * @license    GPL-2.0-or-later
+ * @link       https://bizcity.vn
+ */
+
+/**
  * BizCity Skills — Public Agent Page (v2: Tree View)
  *
  * Route: /skills/
@@ -15,26 +24,27 @@ $is_logged_in = is_user_logged_in();
 $user_id      = get_current_user_id();
 $is_admin     = current_user_can( 'manage_options' );
 
-$rest_url   = esc_url_raw( rest_url( 'bizcity-skill/v1' ) );
+$rest_url   = esc_url_raw( rest_url( 'bizcity/skill/v1' ) );
 $rest_nonce = wp_create_nonce( 'wp_rest' );
+$td = 'bizcity-twin-ai';
 
 /* ── Workflows (feature cards) ── */
 $workflows = [
-    [ 'icon' => '📝', 'label' => 'Viết bài blog',       'desc' => 'Tạo bài blog chuẩn SEO với outline + nội dung',     'msg' => 'Viết bài blog',            'tags' => ['Content','Blog'] ],
-    [ 'icon' => '💬', 'label' => 'Tóm tắt cuộc họp',    'desc' => 'Tóm tắt nhanh nội dung cuộc họp quan trọng',        'msg' => 'Tóm tắt cuộc họp',         'tags' => ['Note','Meeting'] ],
-    [ 'icon' => '🔧', 'label' => 'Phân tích dữ liệu',   'desc' => 'Phân tích số liệu, báo cáo, thống kê nhanh',        'msg' => 'Phân tích dữ liệu',        'tags' => ['Tools','Data'] ],
-    [ 'icon' => '📧', 'label' => 'Soạn email chuyên nghiệp','desc' => 'Viết email chuẩn mực cho công việc',              'msg' => 'Soạn email chuyên nghiệp', 'tags' => ['Content','Email'] ],
-    [ 'icon' => '📋', 'label' => 'Lên kế hoạch dự án',   'desc' => 'Tạo project plan với timeline và milestones',        'msg' => 'Lên kế hoạch dự án',       'tags' => ['Tools','Planning'] ],
-    [ 'icon' => '📖', 'label' => 'Viết nhật ký hôm nay', 'desc' => 'Ghi lại ngày hôm nay: công việc, suy nghĩ, cảm xúc','msg' => 'Viết nhật ký hôm nay',     'tags' => ['Nhật ký','Daily'] ],
+    [ 'icon' => '📝', 'label' => __( 'Viết bài blog', $td ),       'desc' => __( 'Tạo bài blog chuẩn SEO với outline + nội dung', $td ),     'msg' => __( 'Viết bài blog', $td ),            'tags' => ['Content','Blog'] ],
+    [ 'icon' => '💬', 'label' => __( 'Tóm tắt cuộc họp', $td ),    'desc' => __( 'Tóm tắt nhanh nội dung cuộc họp quan trọng', $td ),        'msg' => __( 'Tóm tắt cuộc họp', $td ),         'tags' => ['Note','Meeting'] ],
+    [ 'icon' => '🔧', 'label' => __( 'Phân tích dữ liệu', $td ),   'desc' => __( 'Phân tích số liệu, báo cáo, thống kê nhanh', $td ),        'msg' => __( 'Phân tích dữ liệu', $td ),        'tags' => ['Tools','Data'] ],
+    [ 'icon' => '📧', 'label' => __( 'Soạn email chuyên nghiệp', $td ),'desc' => __( 'Viết email chuẩn mực cho công việc', $td ),              'msg' => __( 'Soạn email chuyên nghiệp', $td ), 'tags' => ['Content','Email'] ],
+    [ 'icon' => '📋', 'label' => __( 'Lên kế hoạch dự án', $td ),   'desc' => __( 'Tạo project plan với timeline và milestones', $td ),        'msg' => __( 'Lên kế hoạch dự án', $td ),       'tags' => ['Tools','Planning'] ],
+    [ 'icon' => '📖', 'label' => __( 'Viết nhật ký hôm nay', $td ), 'desc' => __( 'Ghi lại ngày hôm nay: công việc, suy nghĩ, cảm xúc', $td ),'msg' => __( 'Viết nhật ký hôm nay', $td ),     'tags' => [__('Nhật ký',$td),'Daily'] ],
 ];
 
 /* ── Templates (for New Skill modal) ── */
 $templates = [
-    [ 'id' => 'automation', 'icon' => '🔄', 'name' => 'Automation / Workflow',  'desc' => 'Quy trình tự động hoá nhiều bước, có trigger & tool call' ],
-    [ 'id' => 'tool',       'icon' => '🛠️', 'name' => 'Tool Integration',       'desc' => 'Skill gọi 1 tool cụ thể: tạo sản phẩm, gửi email, tra cứu...' ],
-    [ 'id' => 'content',    'icon' => '✍️',  'name' => 'Viết nội dung',          'desc' => 'Viết bài bán hàng, blog, email marketing, social post...' ],
-    [ 'id' => 'analysis',   'icon' => '📊', 'name' => 'Phân tích / Báo cáo',   'desc' => 'Phân tích dữ liệu, tạo báo cáo, đánh giá hiệu suất...' ],
-    [ 'id' => 'blank',      'icon' => '📝', 'name' => 'Skill trống',            'desc' => 'Bắt đầu từ đầu với cấu trúc cơ bản' ],
+    [ 'id' => 'automation', 'icon' => '🔄', 'name' => 'Automation / Workflow',  'desc' => __( 'Quy trình tự động hoá nhiều bước, có trigger & tool call', $td ) ],
+    [ 'id' => 'tool',       'icon' => '🛠️', 'name' => 'Tool Integration',       'desc' => __( 'Skill gọi 1 tool cụ thể: tạo sản phẩm, gửi email, tra cứu...', $td ) ],
+    [ 'id' => 'content',    'icon' => '✍️',  'name' => __( 'Viết nội dung', $td ),          'desc' => __( 'Viết bài bán hàng, blog, email marketing, social post...', $td ) ],
+    [ 'id' => 'analysis',   'icon' => '📊', 'name' => __( 'Phân tích / Báo cáo', $td ),   'desc' => __( 'Phân tích dữ liệu, tạo báo cáo, đánh giá hiệu suất...', $td ) ],
+    [ 'id' => 'blank',      'icon' => '📝', 'name' => __( 'Skill trống', $td ),            'desc' => __( 'Bắt đầu từ đầu với cấu trúc cơ bản', $td ) ],
 ];
 ?>
 <!DOCTYPE html>
@@ -42,7 +52,7 @@ $templates = [
 <head>
 <meta charset="<?php bloginfo( 'charset' ); ?>">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Skills – Kỹ năng AI</title>
+<title><?php echo esc_html__( 'Skills – Kỹ năng AI', 'bizcity-twin-ai' ); ?></title>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -163,6 +173,7 @@ body{
 .sk-save-msg{font-size:12px;padding:6px 12px;border-radius:6px;margin-top:8px;display:none}
 .sk-save-msg.ok{display:block;background:#dcfce7;color:#166534}
 .sk-save-msg.err{display:block;background:#fef2f2;color:#b91c1c}
+.sk-save-msg.warn{display:block;background:#fefce8;color:#a16207}
 
 /* ══ Template Gallery (home) ══ */
 .sk-home{padding:20px}
@@ -736,9 +747,14 @@ if (saveBtn) {
     .then(function(d){
       saveBtn.disabled=false; saveBtn.textContent='💾 Lưu';
       if (d.error) { m.className='sk-save-msg err'; m.textContent='❌ '+d.error; m.style.display=''; return; }
-      m.className='sk-save-msg ok'; m.textContent='✅ Đã lưu!'; m.style.display='';
-      setTimeout(function(){ m.style.display='none'; },2000);
-      toast('Đã lưu ' + currentFilePath);
+      if (d.db_synced === false) {
+        m.className='sk-save-msg warn'; m.textContent='⚠️ File đã lưu nhưng chưa sync vào DB (skill_id=0)'; m.style.display='';
+        toast('⚠️ Skill chưa sync DB — kiểm tra frontmatter', true);
+      } else {
+        m.className='sk-save-msg ok'; m.textContent='✅ Đã lưu! (skill #' + (d.skill_id||'?') + ')'; m.style.display='';
+        setTimeout(function(){ m.style.display='none'; },2000);
+        toast('Đã lưu ' + currentFilePath);
+      }
     })
     .catch(function(){ saveBtn.disabled=false; saveBtn.textContent='💾 Lưu'; m.className='sk-save-msg err'; m.textContent='❌ Lỗi'; m.style.display=''; });
   };

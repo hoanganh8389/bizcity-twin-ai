@@ -86,8 +86,10 @@ class BizCity_Skill_Admin_Page {
 		}
 
 		// Pass config to React app
+		// Use relative REST path to avoid cross-origin cookie issues on multisite domain-mapping
+		$rest_path = wp_parse_url( rest_url( 'bizcity/skill/v1' ), PHP_URL_PATH ) ?: '/wp-json/bizcity/skill/v1';
 		$config = [
-			'restBase'     => esc_url_raw( rest_url( 'bizcity-skill/v1' ) ),
+			'restBase'     => $rest_path,
 			'nonce'        => wp_create_nonce( 'wp_rest' ),
 			'toolsCatalog' => $this->build_tools_catalog(),
 		];

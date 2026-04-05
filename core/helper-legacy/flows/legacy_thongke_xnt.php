@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 /**
  * @package    Bizcity_Twin_AI
  * @subpackage Core\Helper_Legacy

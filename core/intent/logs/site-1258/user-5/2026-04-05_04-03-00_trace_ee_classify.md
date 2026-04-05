@@ -2,8 +2,8 @@
 
 | Field | Value |
 |-------|-------|
-| Timestamp | 2026-03-29 07:54:27 UTC |
-| Trace ID | trace_cc3688c8e6405e9f |
+| Timestamp | 2026-04-05 04:03:02 UTC |
+| Trace ID | trace_ee995db8127966cd |
 | Site ID | 1258 |
 | User ID | 5 |
 | Model | google/gemini-2.5-flash |
@@ -11,7 +11,7 @@
 ## 1. User Message
 
 ```
-đăng bài viết nhé
+tạo ảnh cho tao
 ```
 
 ## 2. Conversation Context
@@ -24,15 +24,14 @@ _No active conversation/goal._
 
 ```json
 {
-    "regex": "\/viết bài|đăng bài|viet bai|soạn bài|tạo bài viết|tạo post|write article\/ui",
-    "goal": "write_article",
-    "label": "Viết bài đăng web",
+    "regex": "\/tạo ảnh|vẽ ảnh|tạo hình|generate image|tạo hình ảnh|vẽ|minh họa|sinh ảnh|image.*ai|ảnh.*ai|flux.*ảnh|dall.?e|gpt.*image|render.*ảnh|tao anh|ve anh|ảnh.*flux|ảnh.*gemini|seedream|ảnh sản phẩm|product.*image|ảnh.*bán hàng|chân dung|portrait\/ui",
+    "goal": "generate_image",
+    "label": "Tạo ảnh AI",
     "extract": [
-        "message",
-        "topic",
-        "tone",
-        "length",
-        "image_url"
+        "prompt",
+        "purpose",
+        "size",
+        "style"
     ]
 }
 ```
@@ -45,23 +44,23 @@ _No active conversation/goal._
 ## 4. Focused Tool Schema (sent to LLM)
 
 ```
-## GOALS & TOOLS (10 mục — hiển thị top 10/137, ★=likely)
-★ 1. write_article: Viết bài đăng web — Viết bài blog/content MỚI và đăng lên WordPress. Chủ đề tự do, không yêu cầu SEO | cần: topic(text) | tùy chọn: tone(choice), length(choice), title(text), image_url(image)
-★ 2. write_article: Viết bài đăng web — Viết bài blog/content MỚI và đăng lên WordPress. Chủ đề tự do, không yêu cầu SEO | cần: topic(text) | tùy chọn: tone(choice:0,1,2,3), length(choice:0,1,2), title(text), image_url(image)
-3. ask_chatgpt: Hỏi ChatGPT — Dùng ChatGPT (OpenAI) để hỏi, tìm hiểu, nghiên cứu, học tập, tổng hợp, phân tích | cần: question(text)
-4. schedule_post: Lên lịch đăng bài — Hẹn giờ / lên lịch đăng bài vào thời điểm cụ thể trong tương lai | cần: topic(text), datetime(text)
-5. contacts_list: Xem danh bạ Google — Xem danh sách liên hệ trong Google Contacts | tùy chọn: max_results(number), query(text)
-6. calendar_list_events: Xem lịch Google Calendar — Xem danh sách sự kiện trong Google Calendar | tùy chọn: time_min(text), time_max(text), max_results(number)
-7. calendar_create_event: Tạo sự kiện Calendar — Tạo sự kiện mới trong Google Calendar | cần: title(text), start_time(text), end_time(text) | tùy chọn: description(text), attendees(text)
-8. post_facebook: Đăng bài Facebook — Đăng bài lên trang Facebook (nội dung, ảnh, link) | cần: message(text), image_url(url), content(text), title(text), url(url)
-9. list_facebook_posts: Xem danh sách bài FB đã đăng — Liệt kê các bài Facebook AI đã tạo gần đây | tùy chọn: limit(choice:5,10,20)
-10. create_facebook_post: Tạo & đăng bài Facebook — AI tạo nội dung hấp dẫn từ chủ đề, kèm ảnh, đăng lên một hoặc nhiều Facebook Pag | cần: topic(text) | tùy chọn: image_url(image), tone(choice:engaging,professional,friendly,promotional,storytelling), page_id(text)
+## GOALS & TOOLS (10 mục — hiển thị top 10/212)
+1. generate_image: Tạo ảnh AI — Tạo ảnh AI — tự nhận diện mục đích (sản phẩm / chân dung / phong cảnh / social / | cần: prompt(text) | tùy chọn: purpose(choice), image_url(image), size(choice), style(choice)
+2. generate_image: Tạo ảnh AI — Tạo ảnh AI — tự nhận diện mục đích (sản phẩm / chân dung / phong cảnh / social / | cần: prompt(text) | tùy chọn: image_url(image), purpose(choice:product,portrait,landscape,social,food), size(choice:1024x1024,1024x1536,1536x1024,768x1344,1344x768), style(choice:auto,photorealistic,artistic,anime,illustration)
+3. analyze_sheet_data: Phân tích bảng tính — Đọc dữ liệu bảng tính, tóm tắt cấu trúc, gợi ý insight và cột số liệu | cần: sheet_data(text) | tùy chọn: analysis_goal(choice)
+4. send_link_tarot: Tool phụ — Gửi/tạo link bốc bài Tarot online để user bốc bài khi không có bài trong tay | cần: question_focus(text) | tùy chọn: spread(number), user_id(number), session_id(text), platform(text)
+5. scheduler_list_events: Liet ke su kien lich — Liet ke su kien theo khoang thoi gian va trang thai. | tùy chọn: date_from(text), date_to(text), status(choice), max_results(number)
+6. scheduler_mark_done: Danh dau su kien da xong — Danh dau su kien da hoan thanh. | cần: event_ref(text)
+7. scheduler_next_actions: Gợi ý hành động tiếp theo dựa trên lịch trình và deadline | tùy chọn: context(text)
+8. scheduler_sync_google: Dong bo Google Calendar — Keo su kien tu Google Calendar ve local scheduler.
+9. scheduler_today_context: Lấy agenda / lịch trình hôm nay (cho LLM context)
+10. scheduler_update_event: Cap nhat su kien lich — Sua thoi gian, noi dung, reminder hoac trang thai cua su kien. | cần: event_id(number) | tùy chọn: title(text), start_at(text), end_at(text), description(text), all_day(boolean), reminder_min(number)
 ```
 
 ## 5. Full LLM Prompt
 
 <details>
-<summary>Click to expand full prompt (8316 chars)</summary>
+<summary>Click to expand full prompt (8651 chars)</summary>
 
 ```
 Bạn là AI Team Leader & Thư ký công việc cho hệ thống BizCity. Phân tích tin nhắn → trả JSON.
@@ -110,17 +109,17 @@ NẾU mode=knowledge → xác định knowledge_type (chọn 1):
 
 NẾU mode=knowledge VÀ confidence 0.5-0.7 (gần ranh giới execution) → điền suggested_tool = tên tool gợi ý (nếu có).
 
-## GOALS & TOOLS (10 mục — hiển thị top 10/137, ★=likely)
-★ 1. write_article: Viết bài đăng web — Viết bài blog/content MỚI và đăng lên WordPress. Chủ đề tự do, không yêu cầu SEO | cần: topic(text) | tùy chọn: tone(choice), length(choice), title(text), image_url(image)
-★ 2. write_article: Viết bài đăng web — Viết bài blog/content MỚI và đăng lên WordPress. Chủ đề tự do, không yêu cầu SEO | cần: topic(text) | tùy chọn: tone(choice:0,1,2,3), length(choice:0,1,2), title(text), image_url(image)
-3. ask_chatgpt: Hỏi ChatGPT — Dùng ChatGPT (OpenAI) để hỏi, tìm hiểu, nghiên cứu, học tập, tổng hợp, phân tích | cần: question(text)
-4. schedule_post: Lên lịch đăng bài — Hẹn giờ / lên lịch đăng bài vào thời điểm cụ thể trong tương lai | cần: topic(text), datetime(text)
-5. contacts_list: Xem danh bạ Google — Xem danh sách liên hệ trong Google Contacts | tùy chọn: max_results(number), query(text)
-6. calendar_list_events: Xem lịch Google Calendar — Xem danh sách sự kiện trong Google Calendar | tùy chọn: time_min(text), time_max(text), max_results(number)
-7. calendar_create_event: Tạo sự kiện Calendar — Tạo sự kiện mới trong Google Calendar | cần: title(text), start_time(text), end_time(text) | tùy chọn: description(text), attendees(text)
-8. post_facebook: Đăng bài Facebook — Đăng bài lên trang Facebook (nội dung, ảnh, link) | cần: message(text), image_url(url), content(text), title(text), url(url)
-9. list_facebook_posts: Xem danh sách bài FB đã đăng — Liệt kê các bài Facebook AI đã tạo gần đây | tùy chọn: limit(choice:5,10,20)
-10. create_facebook_post: Tạo & đăng bài Facebook — AI tạo nội dung hấp dẫn từ chủ đề, kèm ảnh, đăng lên một hoặc nhiều Facebook Pag | cần: topic(text) | tùy chọn: image_url(image), tone(choice:engaging,professional,friendly,promotional,storytelling), page_id(text)
+## GOALS & TOOLS (10 mục — hiển thị top 10/212)
+1. generate_image: Tạo ảnh AI — Tạo ảnh AI — tự nhận diện mục đích (sản phẩm / chân dung / phong cảnh / social / | cần: prompt(text) | tùy chọn: purpose(choice), image_url(image), size(choice), style(choice)
+2. generate_image: Tạo ảnh AI — Tạo ảnh AI — tự nhận diện mục đích (sản phẩm / chân dung / phong cảnh / social / | cần: prompt(text) | tùy chọn: image_url(image), purpose(choice:product,portrait,landscape,social,food), size(choice:1024x1024,1024x1536,1536x1024,768x1344,1344x768), style(choice:auto,photorealistic,artistic,anime,illustration)
+3. analyze_sheet_data: Phân tích bảng tính — Đọc dữ liệu bảng tính, tóm tắt cấu trúc, gợi ý insight và cột số liệu | cần: sheet_data(text) | tùy chọn: analysis_goal(choice)
+4. send_link_tarot: Tool phụ — Gửi/tạo link bốc bài Tarot online để user bốc bài khi không có bài trong tay | cần: question_focus(text) | tùy chọn: spread(number), user_id(number), session_id(text), platform(text)
+5. scheduler_list_events: Liet ke su kien lich — Liet ke su kien theo khoang thoi gian va trang thai. | tùy chọn: date_from(text), date_to(text), status(choice), max_results(number)
+6. scheduler_mark_done: Danh dau su kien da xong — Danh dau su kien da hoan thanh. | cần: event_ref(text)
+7. scheduler_next_actions: Gợi ý hành động tiếp theo dựa trên lịch trình và deadline | tùy chọn: context(text)
+8. scheduler_sync_google: Dong bo Google Calendar — Keo su kien tu Google Calendar ve local scheduler.
+9. scheduler_today_context: Lấy agenda / lịch trình hôm nay (cho LLM context)
+10. scheduler_update_event: Cap nhat su kien lich — Sua thoi gian, noi dung, reminder hoac trang thai cua su kien. | cần: event_id(number) | tùy chọn: title(text), start_at(text), end_at(text), description(text), all_day(boolean), reminder_min(number)
 
 ## BƯỚC 2 — NẾU mode=execution → XÁC ĐỊNH INTENT + GOAL + ENTITY EXTRACTION:
 
@@ -135,7 +134,7 @@ QUY TẮC:
 2. WAITING_USER + tin nhắn = câu trả lời → provide_input (giữ goal cũ)
 3. WAITING_USER + yêu cầu MỚI khác hẳn → new_goal
 4. confidence: 0.0-1.0, ≥ 0.8 khi chắc chắn
-5. ★ marked goal = regex pre-matched → ưu tiên cao nếu ngữ cảnh phù hợp
+5. confidence: 0.0-1.0, ≥ 0.8 khi chắc chắn
 
 ## BƯỚC 2b — ENTITY/SLOT EXTRACTION (CHỈ khi mode=execution):
 Dựa vào "cần" và "tùy chọn" của goal đã chọn (chú ý type: text, number, choice, image...):
@@ -173,9 +172,19 @@ VD: "bạn nhớ gì về tôi?" → is_memory=false, memory_type="", built_in_f
 VD: "tạm biệt" → is_memory=false, memory_type="", built_in_function="end_conversation"
 
 
-⚡ REGEX PRE-MATCH: Tin nhắn khớp pattern của "write_article" (Viết bài đăng web). Ưu tiên goal này nếu phù hợp (★ trong danh sách).
+LỊCH SỬ HỘI THOẠI GẦN ĐÂY (để hiểu ngữ cảnh tin nhắn hiện tại):
+  • Chủ nhân: [Image]
+  • AI: 📋 ****
 
-Tin nhắn: "đăng bài viết nhé"
+Mình đã ghi nhận các thông tin sau:
+1. **topic**: Plugin wordpress nhưng đã có thể làm mọi việc tương tự th...
+2. **image_url**: https://media
+  • Chủ nhân: ok
+  • AI: ✅ Đã đăng bài: **BizCity Twin AI: Plugin WordPress "All-in-One", Thay Thế Openclaw Hoàn Hảo?**
+🔗 https://bizcity.vn/2026/04/04/bizcity-twin-ai-plugin-
+USER MEMORY: [habit] yêu thỏ | [constraint] lập trình, dự án
+
+Tin nhắn: "tạo ảnh cho tao"
 
 Trả lời CHÍNH XÁC 1 JSON, KHÔNG giải thích:
 {"mode":"...","confidence":0.0,"is_memory":false,"memory_type":"","built_in_function":"","knowledge_type":"","suggested_tool":"","intent":"","goal":"","goal_label":"","entities":{},"filled_slots":[],"missing_slots":[]}
@@ -196,12 +205,12 @@ Trả lời CHÍNH XÁC 1 JSON, KHÔNG giải thích:
   "knowledge_type": "",
   "suggested_tool": "",
   "intent": "new_goal",
-  "goal": "write_article",
-  "goal_label": "Viết bài đăng web",
+  "goal": "generate_image",
+  "goal_label": "Tạo ảnh AI",
   "entities": {},
   "filled_slots": [],
   "missing_slots": [
-    "topic"
+    "prompt"
   ]
 }
 ```
@@ -219,12 +228,12 @@ Trả lời CHÍNH XÁC 1 JSON, KHÔNG giải thích:
     "knowledge_type": "",
     "suggested_tool": "",
     "intent": "new_goal",
-    "goal": "write_article",
-    "goal_label": "Viết bài đăng web",
+    "goal": "generate_image",
+    "goal_label": "Tạo ảnh AI",
     "entities": [],
     "filled_slots": [],
     "missing_slots": [
-        "topic"
+        "prompt"
     ]
 }
 ```
@@ -239,10 +248,10 @@ Trả lời CHÍNH XÁC 1 JSON, KHÔNG giải thích:
     "is_memory": false,
     "meta": {
         "llm_tokens": {
-            "prompt_tokens": 2760,
-            "completion_tokens": 134,
-            "total_tokens": 2894,
-            "cost": 0.001162999999999999971300734813439703430049121379852294921875,
+            "prompt_tokens": 2934,
+            "completion_tokens": 133,
+            "total_tokens": 3067,
+            "cost": 0.00121269999999999993252342012084454836440272629261016845703125,
             "is_byok": false,
             "prompt_tokens_details": {
                 "cached_tokens": 0,
@@ -251,9 +260,9 @@ Trả lời CHÍNH XÁC 1 JSON, KHÔNG giải thích:
                 "video_tokens": 0
             },
             "cost_details": {
-                "upstream_inference_cost": 0.001162999999999999971300734813439703430049121379852294921875,
-                "upstream_inference_prompt_cost": 0.00082799999999999995999033775007092117448337376117706298828125,
-                "upstream_inference_completions_cost": 0.00033500000000000001131039706336878225556574761867523193359375
+                "upstream_inference_cost": 0.00121269999999999993252342012084454836440272629261016845703125,
+                "upstream_inference_prompt_cost": 0.00088020000000000003619049504521854032645933330059051513671875,
+                "upstream_inference_completions_cost": 0.000332500000000000004753142324176451438688673079013824462890625
             },
             "completion_tokens_details": {
                 "reasoning_tokens": 0,
@@ -268,12 +277,12 @@ Trả lời CHÍNH XÁC 1 JSON, KHÔNG giải thích:
         "built_in_function": "",
         "intent_result": {
             "intent": "new_goal",
-            "goal": "write_article",
-            "goal_label": "Viết bài đăng web",
+            "goal": "generate_image",
+            "goal_label": "Tạo ảnh AI",
             "entities": [],
             "filled_slots": [],
             "missing_slots": [
-                "topic"
+                "prompt"
             ],
             "confidence": 0.8000000000000000444089209850062616169452667236328125,
             "_llm_model": "google\/gemini-2.5-flash"

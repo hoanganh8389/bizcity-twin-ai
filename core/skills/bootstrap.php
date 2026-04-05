@@ -51,6 +51,7 @@ if ( class_exists( 'BizCity_Skill_Database' ) ) {
     BizCity_Skill_Database::instance();
 }
 BizCity_Skill_Tool_Map::instance();
+BizCity_Skill_Tool_Map::register_hooks(); // Phase 1.9 S2.7: auto-extract @mentions on skill save
 BizCity_Skill_REST_API::instance();
 BizCity_Skill_Context::instance();
 BizCity_Skill_Pipeline_Bridge::instance();

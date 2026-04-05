@@ -12,26 +12,26 @@ defined( 'ABSPATH' ) || exit;
 
 /**
  * Schema Extend — Adds 5 tables to webchat schema.
- * webchat_sources, webchat_source_extractor, webchat_source_chunks,
+ * rces, rce_extractor, rce_chunks,
  * memory_notes, webchat_studio_outputs
  */
 class BCN_Schema_Extend {
-    const SCHEMA_VERSION = '5.1.0';
+    const SCHEMA_VERSION = '5.3.0';
     const OPTION_KEY     = 'bcn_schema_version';
 
     public static function table_sources() {
         global $wpdb;
-        return $wpdb->prefix . 'bizcity_webchat_sources';
+        return $wpdb->prefix . 'bizcity_rces';
     }
 
     public static function table_source_extractor() {
         global $wpdb;
-        return $wpdb->prefix . 'bizcity_webchat_source_extractor';
+        return $wpdb->prefix . 'bizcity_rce_extractor';
     }
 
     public static function table_source_chunks() {
         global $wpdb;   
-        return $wpdb->prefix . 'bizcity_webchat_source_chunks';
+        return $wpdb->prefix . 'bizcity_rce_chunks';
     }
 
     public static function table_notes() {
@@ -62,7 +62,51 @@ class BCN_Schema_Extend {
             self::migrate_v3();
             self::migrate_v4();
             self::migrate_v5();
+            self::migrate_v52();
+            self::migrate_v53();
             update_option( self::OPTION_KEY, self::SCHEMA_VERSION );
+        }
+    }
+
+    /**
+     * Migration for v5.2.0 — Add caller, tool_id, task_id to studio_outputs.
+     */
+    private static function migrate_v52() {
+        global $wpdb;
+        $t = self::table_studio_outputs();
+        if ( ! $wpdb->get_var( "SHOW TABLES LIKE '{$t}'" ) ) return;
+
+        $cols = $wpdb->get_col( "DESCRIBE `{$t}`" );
+
+        if ( ! in_array( 'caller', $cols, true ) ) {
+            $wpdb->query( "ALTER TABLE `{$t}` ADD COLUMN `caller` VARCHAR(20) NOT NULL DEFAULT 'studio' AFTER `user_id`" );
+        }
+        if ( ! in_array( 'tool_id', $cols, true ) ) {
+            $wpdb->query( "ALTER TABLE `{$t}` ADD COLUMN `tool_id` VARCHAR(60) NOT NULL DEFAULT '' AFTER `caller`" );
+        }
+        if ( ! in_array( 'task_id', $cols, true ) ) {
+            $wpdb->query( "ALTER TABLE `{$t}` ADD COLUMN `task_id` BIGINT(20) DEFAULT NULL AFTER `tool_id`" );
+        }
+
+        // Add idx_caller index if missing
+        $indexes = $wpdb->get_results( "SHOW INDEX FROM `{$t}` WHERE Key_name = 'idx_caller'" );
+        if ( empty( $indexes ) ) {
+            $wpdb->query( "ALTER TABLE `{$t}` ADD INDEX `idx_caller` (`caller`)" );
+        }
+    }
+
+    /**
+     * Migration for v5.3.0 — Add invoke_id to studio_outputs (S1.8 cross-link).
+     */
+    private static function migrate_v53() {
+        global $wpdb;
+        $t = self::table_studio_outputs();
+        if ( ! $wpdb->get_var( "SHOW TABLES LIKE '{$t}'" ) ) return;
+
+        $cols = $wpdb->get_col( "DESCRIBE `{$t}`" );
+
+        if ( ! in_array( 'invoke_id', $cols, true ) ) {
+            $wpdb->query( "ALTER TABLE `{$t}` ADD COLUMN `invoke_id` VARCHAR(36) NOT NULL DEFAULT '' AFTER `task_id`" );
         }
     }
 
@@ -172,7 +216,7 @@ class BCN_Schema_Extend {
 
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 
-        // ── webchat_sources ──
+        // ── rces ──
         $t1 = self::table_sources();
         $sql1 = "CREATE TABLE {$t1} (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -206,7 +250,7 @@ class BCN_Schema_Extend {
             KEY idx_embed_status (embedding_status)
         ) {$charset};";
 
-        // ── webchat_source_extractor ──
+        // ── rce_extractor ──
         $t2 = self::table_source_extractor();
         $sql2 = "CREATE TABLE {$t2} (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -227,7 +271,7 @@ class BCN_Schema_Extend {
             KEY idx_retry (status, attempt_count)
         ) {$charset};";
 
-        // ── webchat_source_chunks (NEW v2.0) ──
+        // ── rce_chunks (NEW v2.0) ──
         $t2b = self::table_source_chunks();
         $sql2b = "CREATE TABLE {$t2b} (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -276,6 +320,10 @@ class BCN_Schema_Extend {
         $sql4 = "CREATE TABLE {$t4} (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             user_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+            caller VARCHAR(20) NOT NULL DEFAULT 'studio',
+            tool_id VARCHAR(60) NOT NULL DEFAULT '',
+            task_id BIGINT(20) DEFAULT NULL,
+            invoke_id VARCHAR(36) NOT NULL DEFAULT '',
             project_id VARCHAR(50) NOT NULL DEFAULT '',
             tool_type VARCHAR(30) NOT NULL DEFAULT '',
             title VARCHAR(255) NOT NULL DEFAULT '',
@@ -295,7 +343,8 @@ class BCN_Schema_Extend {
             PRIMARY KEY (id),
             KEY idx_project_tool (project_id, tool_type),
             KEY idx_user (user_id),
-            KEY idx_post (external_post_id)
+            KEY idx_post (external_post_id),
+            KEY idx_caller (caller)
         ) {$charset};";
 
         // ── webchat_project_skeletons ──

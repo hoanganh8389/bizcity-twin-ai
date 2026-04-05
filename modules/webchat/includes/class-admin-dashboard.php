@@ -570,8 +570,62 @@ class BizCity_WebChat_Admin_Dashboard {
             ];
         }
 
+        // ── S2.7: Supplement with BizCity_Tool_Registry at_enabled tools ──
+        // Any tool registered in the unified registry with at_enabled=true that is
+        // NOT already represented in the Intent_Tool_Index catalog gets its own
+        // "BizCity Built-in" group so it appears in the @ mention dialog.
+        if ( class_exists('BizCity_Tool_Registry') ) {
+            // Collect tool names already in the catalog
+            $catalog_tool_names = [];
+            foreach ($groups_out as $g) {
+                foreach ($g['tools'] as $t) {
+                    $catalog_tool_names[] = $t['toolName'];
+                }
+            }
+            $at_tools = BizCity_Tool_Registry::get_at_tools();
+            $registry_extras = [];
+            foreach ($at_tools as $slug => $tool) {
+                if (in_array($slug, $catalog_tool_names, true)) continue;
+                if (empty($tool['available'])) continue;
+                $label  = $tool['label'] ?? ucwords(str_replace('_', ' ', $slug));
+                $prompt = '@' . $slug . ' ' . ($tool['description'] ?? '');
+                // input_fields → slots
+                $slots = [];
+                if (!empty($tool['input_fields']) && is_array($tool['input_fields'])) {
+                    foreach ($tool['input_fields'] as $fk => $fv) {
+                        if (!is_numeric($fk)) $slots[] = str_replace('_', ' ', $fk);
+                    }
+                }
+                $registry_extras[] = [
+                    'toolName' => $slug,
+                    'label'    => $label,
+                    'desc'     => $tool['description'] ?? '',
+                    'prompt'   => trim($prompt),
+                    'slots'    => $slots,
+                    'examples' => [],
+                ];
+            }
+            if (!empty($registry_extras)) {
+                $idx = abs(crc32('bizcity-registry')) % $palette_count;
+                $groups_out[] = [
+                    'plugin'    => 'bizcity-registry',
+                    'name'      => 'BizCity Registry',
+                    'icon'      => '🔧',
+                    'iconIsUrl' => false,
+                    'gradient'  => "linear-gradient(135deg, {$palette[$idx][0]}, {$palette[$idx][1]})",
+                    'category'  => 'builtin',
+                    'type'      => 'atomic',
+                    'toolCount' => count($registry_extras),
+                    'tools'     => $registry_extras,
+                ];
+            }
+        }
+
+        $total = 0;
+        foreach ($groups_out as $g) { $total += count($g['tools']); }
+
         $result = [
-            'totalTools' => count($all_tools),
+            'totalTools' => $total,
             'groups'     => $groups_out,
         ];
 
@@ -919,7 +973,9 @@ class BizCity_WebChat_Admin_Dashboard {
             'kciRatio'           => $kci_ratio_val,
             'isSuperAdmin'       => current_user_can( 'manage_network' ),
             'languageFlags'      => $this->build_language_flags_data(),
-            'studioTools'        => class_exists( 'BCN_Notebook_Tool_Registry' ) ? BCN_Notebook_Tool_Registry::get_all() : [],
+            'studioTools'        => class_exists( 'BizCity_Tool_Registry' )
+                                        ? BizCity_Tool_Registry::get_studio_tools()
+                                        : ( class_exists( 'BCN_Notebook_Tool_Registry' ) ? BCN_Notebook_Tool_Registry::get_all() : [] ),
         ]);
 
         // TouchBar agent data (same as legacy)
@@ -974,6 +1030,7 @@ class BizCity_WebChat_Admin_Dashboard {
             #root .bizc-ws-detail { display: block !important; font-size: 11px !important; color: #6b7280 !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; }
             #root .bizc-ws-stage { display: inline-flex !important; align-self: flex-start !important; font-size: 10px !important; line-height: 1.3 !important; color: #4f46e5 !important; background: #eef2ff !important; border: 1px solid #c7d2fe !important; border-radius: 10px !important; padding: 1px 7px !important; }
             #root .bizc-ws-ms { font-size: 10px !important; color: #9ca3af !important; flex-shrink: 0 !important; }
+            .flex-shrink-0 p { line-height:0.5px !important; }
         </style>    
         <!-- TouchBar data for React -->
         <script id="bizc-tb-data" type="application/json"><?php echo $tb_data; ?></script>

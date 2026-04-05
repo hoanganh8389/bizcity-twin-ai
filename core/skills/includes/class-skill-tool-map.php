@@ -235,4 +235,101 @@ class BizCity_Skill_Tool_Map {
 		error_log( "[SKILL-TOOL-MAP] Seeded {$count} mappings from tools_json." );
 		return $count;
 	}
+
+	/* ================================================================
+	 *  Auto-extraction — @mention → skill_tool_map
+	 *
+	 *  When skill content contains markdown @tool_name mentions they are
+	 *  automatically linked (binding = 'suggested') so the AI can find
+	 *  which tools a skill expects to route through.
+	 *
+	 *  Format recognised: @generate_blog_content  @write_article  etc.
+	 *  (alphanumeric + underscore, starting with a letter, 2-128 chars)
+	 *
+	 *  Validation: the tool must be registered in BizCity_Tool_Registry
+	 *  (if the class exists) OR in BizCity_Intent_Tools to be linked.
+	 *  Unrecognised @mentions are ignored so skill authors cannot inject
+	 *  arbitrary strings into the map.
+	 * ================================================================ */
+
+	/**
+	 * Extract all @tool_name mentions from skill content and link them.
+	 *
+	 * Call this whenever a skill's content is saved/updated.
+	 * Pattern: `@tool_name` — only alphanumeric + underscore tokens.
+	 *
+	 * @param int    $skill_id Skill row ID.
+	 * @param string $content  Skill content (markdown or plain text).
+	 * @param string $binding  Binding type for extracted tools ('suggested').
+	 * @return int  Number of new map entries created.
+	 */
+	public function extract_and_link_from_content( int $skill_id, string $content, string $binding = 'suggested' ): int {
+		if ( $skill_id <= 0 || $content === '' ) {
+			return 0;
+		}
+
+		// Match @tool_name patterns — must start with a letter, 2–128 chars
+		preg_match_all( '/@([a-zA-Z][a-zA-Z0-9_]{1,127})\b/', $content, $matches );
+		$raw_keys = array_unique( $matches[1] ?? [] );
+
+		if ( empty( $raw_keys ) ) {
+			return 0;
+		}
+
+		$count = 0;
+		foreach ( $raw_keys as $tool_key ) {
+			$tool_key = sanitize_key( $tool_key );
+			if ( $tool_key === '' ) {
+				continue;
+			}
+
+			// Validate: tool must exist in a known registry
+			if ( ! $this->is_known_tool( $tool_key ) ) {
+				continue;
+			}
+
+			if ( $this->link( $skill_id, $tool_key, $binding ) ) {
+				$count++;
+			}
+		}
+
+		if ( $count > 0 ) {
+			error_log( "[SKILL-TOOL-MAP] Extracted {$count} @mention links for skill #{$skill_id}." );
+		}
+
+		return $count;
+	}
+
+	/**
+	 * Check whether a tool key is recognised in any live registry.
+	 *
+	 * Priority: BizCity_Tool_Registry → BizCity_Intent_Tools → fallback false.
+	 *
+	 * @param string $tool_key
+	 * @return bool
+	 */
+	private function is_known_tool( string $tool_key ): bool {
+		if ( class_exists( 'BizCity_Tool_Registry' ) && BizCity_Tool_Registry::has( $tool_key ) ) {
+			return true;
+		}
+		if ( class_exists( 'BizCity_Intent_Tools' ) && BizCity_Intent_Tools::instance()->has( $tool_key ) ) {
+			return true;
+		}
+		return false;
+	}
+
+	/**
+	 * Bootstrap: listen for the skill-saved action and auto-extract @mentions.
+	 *
+	 * Expected action signature:
+	 *   do_action( 'bizcity_skill_saved', int $skill_id, string $content, string $title );
+	 *
+	 * Any skill save handler (AJAX, REST, WP admin) should fire this action
+	 * so the tool map stays up to date automatically.
+	 */
+	public static function register_hooks(): void {
+		add_action( 'bizcity_skill_saved', static function ( $skill_id, $content, $title = '' ) {
+			self::instance()->extract_and_link_from_content( (int) $skill_id, (string) $content );
+		}, 10, 3 );
+	}
 }

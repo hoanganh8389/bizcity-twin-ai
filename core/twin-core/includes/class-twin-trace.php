@@ -168,6 +168,48 @@ class BizCity_Twin_Trace {
         ] );
     }
 
+    /* ── Sprint 3 — Distribution trace ─────────────────────────────── */
+
+    /**
+     * Log a distribution step (per-tool result).
+     *
+     * @param string $tool    Distribution tool key (e.g. 'publish_wp_post').
+     * @param string $status  'ok' | 'error'
+     * @param array  $details Extra data: url, post_id, error, ms…
+     */
+    public static function distribution( $tool, $status, array $details = array() ) {
+        self::log( 'twin:distribution', array_merge( array(
+            'tool'   => $tool,
+            'status' => $status,
+        ), $details ) );
+    }
+
+    /**
+     * Log multi-channel distribution summary.
+     *
+     * @param int   $output_id   Studio output ID.
+     * @param array $results     Array of per-tool results.
+     * @param float $total_ms    Total elapsed milliseconds.
+     */
+    public static function distribution_summary( $output_id, array $results, $total_ms = 0 ) {
+        $ok_count  = 0;
+        $err_count = 0;
+        foreach ( $results as $r ) {
+            if ( ! empty( $r['success'] ) ) {
+                $ok_count++;
+            } else {
+                $err_count++;
+            }
+        }
+        self::log( 'twin:distribution_summary', array(
+            'output_id' => $output_id,
+            'total'     => count( $results ),
+            'ok'        => $ok_count,
+            'errors'    => $err_count,
+            'total_ms'  => round( $total_ms, 2 ),
+        ) );
+    }
+
     /**
      * Get all trace entries for the current request.
      *
@@ -195,6 +237,27 @@ class BizCity_Twin_Trace {
     public static function reset(): void {
         self::$entries    = [];
         self::$start_time = microtime( true );
+    }
+
+    /* ================================================================
+     * Phase 1.9 — Resource Resolve trace
+     * ================================================================ */
+
+    /**
+     * Log a resource resolve step (Phase 1.9 unified resource bundle).
+     *
+     * @param array $data {
+     *   @type string $profile       Resource profile used.
+     *   @type array  $skill         { found, method, title, ms }
+     *   @type array  $session_spec  { found, topic, facts, ms }
+     *   @type array  $notes         { count, matched, ms }
+     *   @type array  $sources       { count, method, titles, ms }
+     *   @type array  $knowledge     { count, skipped, ms }
+     *   @type float  $resolve_ms    Total resolve time.
+     * }
+     */
+    public static function resource_resolve( array $data ): void {
+        self::log( 'resource_resolve', $data );
     }
 
     /* ================================================================

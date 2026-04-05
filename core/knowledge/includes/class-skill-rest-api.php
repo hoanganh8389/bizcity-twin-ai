@@ -11,7 +11,7 @@
 /**
  * BizCity Skill Library — REST API
  *
- * Namespace: bizcity-skill/v1
+ * Namespace: bizcity/skill/v1
  *
  * Endpoints:
  *   GET    /skills          — List all skills (filter by mode, status, category, search)
@@ -30,7 +30,7 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 
 class BizCity_Skill_REST_API {
 
-	const NAMESPACE = 'bizcity-skill/v1';
+	const NAMESPACE = 'bizcity/skill/v1';
 
 	private static $instance = null;
 

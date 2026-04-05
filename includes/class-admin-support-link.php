@@ -36,17 +36,44 @@ class BizCity_Admin_Support_Link {
 		'bzcalo',
 	];
 
+	/** @var string User meta key storing the dismiss timestamp. */
+	private const DISMISS_META = 'bizcity_support_link_dismissed';
+
+	/** @var int Seconds before the widget reappears after dismiss (3 days). */
+	private const DISMISS_TTL = 3 * DAY_IN_SECONDS;
+
 	public static function init(): void {
 		if ( ! is_admin() ) {
 			return;
 		}
 
+		add_action( 'wp_ajax_bizcity_dismiss_support_link', [ __CLASS__, 'ajax_dismiss' ] );
 		add_action( 'admin_enqueue_scripts', [ __CLASS__, 'enqueue_assets' ] );
 		add_action( 'admin_footer', [ __CLASS__, 'render' ], 100 );
 	}
 
+	/**
+	 * AJAX handler — store dismiss timestamp in user meta.
+	 */
+	public static function ajax_dismiss(): void {
+		check_ajax_referer( 'bizcity_dismiss_support', '_nonce' );
+		update_user_meta( get_current_user_id(), self::DISMISS_META, time() );
+		wp_send_json_success();
+	}
+
+	/**
+	 * Whether the current user dismissed the widget and it's still within the cooldown window.
+	 */
+	private static function is_dismissed(): bool {
+		$dismissed_at = (int) get_user_meta( get_current_user_id(), self::DISMISS_META, true );
+		if ( ! $dismissed_at ) {
+			return false;
+		}
+		return ( time() - $dismissed_at ) < self::DISMISS_TTL;
+	}
+
 	public static function enqueue_assets( string $hook ): void {
-		if ( ! self::should_render( $hook ) ) {
+		if ( ! self::should_render( $hook ) || self::is_dismissed() ) {
 			return;
 		}
 
@@ -56,11 +83,14 @@ class BizCity_Admin_Support_Link {
 	}
 
 	public static function render(): void {
-		if ( ! self::should_render() ) {
+		if ( ! self::should_render() || self::is_dismissed() ) {
 			return;
 		}
 
-		echo '<div class="bizcity-admin-support-link">';
+		$nonce = wp_create_nonce( 'bizcity_dismiss_support' );
+
+		echo '<div class="bizcity-admin-support-link" id="bizcity-support-link">';
+		echo '<button class="bizcity-admin-support-link__close" id="bizcity-support-close" type="button" aria-label="Dismiss">&times;</button>';
 		echo '<a class="bizcity-admin-support-link__anchor" href="' . esc_url( self::SUPPORT_URL ) . '" target="_blank" rel="noopener noreferrer">';
 		echo '<span class="bizcity-admin-support-link__icon" aria-hidden="true">☕</span>';
 		echo '<span class="bizcity-admin-support-link__text">';
@@ -69,6 +99,13 @@ class BizCity_Admin_Support_Link {
 		echo '</span>';
 		echo '</a>';
 		echo '</div>';
+		echo '<script>';
+		echo 'document.getElementById("bizcity-support-close").addEventListener("click",function(e){';
+		echo 'e.preventDefault();';
+		echo 'document.getElementById("bizcity-support-link").style.display="none";';
+		echo 'fetch(ajaxurl+"?action=bizcity_dismiss_support_link&_nonce=' . esc_js( $nonce ) . '");';
+		echo '});';
+		echo '</script>';
 	}
 
 	private static function should_render( string $hook = '' ): bool {
@@ -100,10 +137,36 @@ class BizCity_Admin_Support_Link {
 		return <<<'CSS'
 .bizcity-admin-support-link {
 	position: fixed;
-	top: 92px;
+	bottom: 32px;
 	right: 0;
 	z-index: 9999;
 	pointer-events: none;
+}
+
+.bizcity-admin-support-link__close {
+	position: absolute;
+	top: -8px;
+	left: -8px;
+	width: 22px;
+	height: 22px;
+	border-radius: 50%;
+	border: 2px solid #fff;
+	background: #1d2327;
+	color: #fff;
+	font-size: 14px;
+	line-height: 1;
+	cursor: pointer;
+	pointer-events: auto;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 0;
+	transition: background 0.15s;
+	z-index: 1;
+}
+
+.bizcity-admin-support-link__close:hover {
+	background: #d63638;
 }
 
 .bizcity-admin-support-link__anchor {
@@ -156,7 +219,6 @@ class BizCity_Admin_Support_Link {
 
 @media screen and (max-width: 960px) {
 	.bizcity-admin-support-link {
-		top: auto;
 		bottom: 20px;
 	}
 
