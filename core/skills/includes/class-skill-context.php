@@ -41,15 +41,21 @@ class BizCity_Skill_Context {
 	 * A = Knowledge-only (no tools)
 	 * B = Single-tool
 	 * C = Multi-tool workflow
+	 * D = Agentic execution_plan (5-step pipeline with it_call_* blocks)
 	 *
 	 * @param array $frontmatter Parsed YAML frontmatter.
-	 * @return string 'A'|'B'|'C'
+	 * @return string 'A'|'B'|'C'|'D'
 	 */
 	public static function detect_archetype( array $frontmatter ): string {
 		// Explicit frontmatter declaration takes priority
 		$explicit = strtoupper( trim( $frontmatter['archetype'] ?? '' ) );
-		if ( in_array( $explicit, [ 'A', 'B', 'C' ], true ) ) {
+		if ( in_array( $explicit, [ 'A', 'B', 'C', 'D' ], true ) ) {
 			return $explicit;
+		}
+
+		// Auto-detect: steps[] in frontmatter → archetype D (multi-step agentic pipeline)
+		if ( ! empty( $frontmatter['steps'] ) && is_array( $frontmatter['steps'] ) ) {
+			return 'D';
 		}
 
 		// Auto-detect from tools[]
@@ -125,13 +131,13 @@ class BizCity_Skill_Context {
 
 		// Separate matches by archetype
 		$inject_matches   = []; // A + B → inject into prompt
-		$pipeline_matches = []; // C → fire pipeline action
+		$pipeline_matches = []; // C + D → fire pipeline action
 
 		foreach ( $matches as $m ) {
 			$archetype = self::detect_archetype( $m['frontmatter'] );
 			$m['archetype'] = $archetype;
 
-			if ( $archetype === 'C' ) {
+			if ( $archetype === 'C' || $archetype === 'D' ) {
 				$pipeline_matches[] = $m;
 			} else {
 				$inject_matches[] = $m;

@@ -50,7 +50,7 @@ class BizCity_Connection_Gate {
     private function resolve(): void {
         // Read LLM mode and gateway URL from site options
         $mode        = get_site_option( 'bizcity_llm_mode', 'gateway' );
-        $gateway_url = get_site_option( 'bizcity_llm_gateway_url', '' );
+        $gateway_url = get_site_option( 'bizcity_llm_gateway_url', 'https://bizcity.vn' );
         $api_key     = get_site_option( 'bizcity_llm_api_key', '' );
 
         $this->api_key = $api_key ?: null;

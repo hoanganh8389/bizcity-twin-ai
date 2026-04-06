@@ -117,7 +117,16 @@ class WaicAction_it_call_content extends WaicAction {
 	}
 
 	public function getResults( $taskId, $variables, $step = 0 ) {
+		$start_time = microtime( true );
 		error_log( '[IT_CALL_CONTENT] getResults ENTRY: taskId=' . $taskId . ' nodeId=' . $this->getId() );
+
+		// ── Trace: execute_start ──
+		$session_id_trace = $variables['_session_id'] ?? '';
+		do_action( 'bizcity_intent_pipeline_log', 'mw:execute_start', [
+			'node_code'  => 'it_call_content',
+			'label'      => 'Đang tạo nội dung...',
+			'session_id' => $session_id_trace,
+		], 'info', 0 );
 
 		$tool_id         = (string) $this->getParam( 'content_tool' );
 		$input_json_raw  = $this->replaceVariablesJsonSafe( $this->getParam( 'input_json' ), $variables );
@@ -140,6 +149,14 @@ class WaicAction_it_call_content extends WaicAction {
 			$params = json_decode( $input_json_raw, true );
 			if ( json_last_error() !== JSON_ERROR_NONE ) {
 				$error = sprintf( __( 'Invalid input JSON: %s', 'bizcity-twin-ai' ), json_last_error_msg() );
+			}
+		}
+
+		// ── Auto-inherit context from previous nodes when params is empty ──
+		if ( empty( $error ) && empty( $params ) ) {
+			$params = $this->inherit_from_previous_nodes( $variables );
+			if ( ! empty( $params ) ) {
+				error_log( '[IT_CALL_CONTENT] Auto-inherited ' . count( $params ) . ' params from previous nodes: ' . implode( ', ', array_keys( $params ) ) );
 			}
 		}
 
@@ -247,12 +264,71 @@ class WaicAction_it_call_content extends WaicAction {
 			'channel'    => 'pipeline',
 		];
 
+		// ── Micro-step: send granular progress messages ──
+		$exec_state = $this->getExecutionState( $variables );
+		$has_messenger = class_exists( 'BizCity_Pipeline_Messenger' ) && ! empty( $exec_state['session_id'] );
+
+		if ( $has_messenger ) {
+			BizCity_Pipeline_Messenger::send_micro_step( $exec_state, '🔍', "Tìm skill cho {$tool_id}...", 'resolve_skill' );
+		}
+
+		$t_start = microtime( true );
 		$result = BizCity_Tool_Run::execute( $tool_id, $params, $context );
+		$duration_ms = (int) ( ( microtime( true ) - $t_start ) * 1000 );
 
 		$success    = ! empty( $result['success'] );
 		$content    = $result['content']    ?? $result['data']['content'] ?? '';
 		$title      = $result['title']      ?? $result['data']['title'] ?? '';
 		$skill_used = $result['skill_used'] ?? $result['skill']['title'] ?? 'none';
+
+		if ( $has_messenger ) {
+			// ── Tin nhắn 1: Skill resolution detail ──
+			$skill_resolve = $result['skill_resolve'] ?? '';
+			if ( $skill_used && $skill_used !== 'none' ) {
+				$method = '';
+				if ( strpos( $skill_resolve, 'skill_tool_map' ) !== false ) {
+					$method = ' (via tool-map binding)';
+				} elseif ( strpos( $skill_resolve, 'text_matching' ) !== false ) {
+					$method = ' (via text matching)';
+				}
+				BizCity_Pipeline_Messenger::send_micro_step(
+					$exec_state, '📋',
+					"Skill tìm thấy: {$skill_used}{$method}",
+					'skill_found'
+				);
+			} else {
+				$reason = "tool={$tool_id}, user={$uid}";
+				BizCity_Pipeline_Messenger::send_micro_step(
+					$exec_state, '⚠️',
+					"Chưa tìm thấy skill cho {$tool_id} — truy vấn: {$reason}",
+					'skill_not_found'
+				);
+			}
+
+			// ── Tin nhắn 2: Knowledge/FAQ context ──
+			$has_knowledge = ! empty( $result['_meta']['_context'] ?? '' )
+			              || ! empty( $params['_meta']['_context'] ?? '' );
+			if ( $has_knowledge ) {
+				BizCity_Pipeline_Messenger::send_micro_step(
+					$exec_state, '📚',
+					'Context knowledge đã inject vào prompt',
+					'knowledge_inject'
+				);
+			} else {
+				BizCity_Pipeline_Messenger::send_micro_step(
+					$exec_state, '📭',
+					'Không có context knowledge — chỉ sử dụng skill + prompt gốc',
+					'knowledge_none'
+				);
+			}
+
+			// ── Tin nhắn 3: Kết quả tạo nội dung ──
+			$icon  = $success ? '✅' : '❌';
+			$label = $success
+				? "Nội dung đã tạo — " . mb_substr( $title ?: $tool_id, 0, 60 )
+				: "Lỗi tạo nội dung: " . mb_substr( $result['message'] ?? 'unknown', 0, 80 );
+			BizCity_Pipeline_Messenger::send_micro_step( $exec_state, $icon, $label, $tool_id, $duration_ms );
+		}
 
 		// Collect metadata (everything except standard keys)
 		$standard_keys = [ 'success', 'content', 'title', 'message', 'data', 'skill', 'duration_ms', 'verified', 'invoke_id', 'missing_fields', 'skill_used', 'tokens_used' ];
@@ -304,6 +380,23 @@ class WaicAction_it_call_content extends WaicAction {
 		}
 
 		// ── Auto-approve (no HIL) ──
+
+		// ── Studio outputs entry (content artifact) ──
+		if ( $success ) {
+			$this->save_content_studio_output( $session_id_trace, $uid, $taskId, $tool_id, $title, $content, $skill_used );
+		}
+
+		// ── Trace: execute_done ──
+		$elapsed_ms_trace = round( ( microtime( true ) - $start_time ) * 1000, 1 );
+		do_action( 'bizcity_intent_pipeline_log', 'mw:execute_done', [
+			'node_code'  => 'it_call_content',
+			'label'      => $success
+				? 'Content — ' . mb_substr( $title ?: $tool_id, 0, 60 )
+				: 'Content — lỗi: ' . mb_substr( $result['message'] ?? 'unknown', 0, 60 ),
+			'has_error'  => $success ? 'false' : 'true',
+			'session_id' => $session_id_trace,
+		], $success ? 'info' : 'error', (int) $elapsed_ms_trace );
+
 		return [
 			'result' => [
 				'success'    => $success ? 'true' : 'false',
@@ -316,6 +409,29 @@ class WaicAction_it_call_content extends WaicAction {
 			'error'  => $success ? '' : ( $result['message'] ?? 'Content generation failed' ),
 			'status' => 3,
 		];
+	}
+
+	/**
+	 * Save content artifact to studio_outputs.
+	 * Called directly to ensure pipeline-generated content appears in Studio tab
+	 * regardless of the bizcity_tool_execution_completed event's verified gate.
+	 */
+	private function save_content_studio_output( $session_id, $user_id, $task_id, $tool_id, $title, $content, $skill_used ) {
+		if ( ! class_exists( 'BizCity_Output_Store' ) ) {
+			return;
+		}
+
+		BizCity_Output_Store::save_artifact( [
+			'tool_id'    => $tool_id ?: 'it_call_content',
+			'caller'     => 'pipeline',
+			'session_id' => $session_id,
+			'user_id'    => (int) $user_id,
+			'task_id'    => $task_id ?: null,
+			'data'       => [
+				'title'   => $title ?: 'Content — ' . $tool_id,
+				'content' => $content,
+			],
+		], 'content' );
 	}
 
 	/* ================================================================
@@ -370,8 +486,74 @@ class WaicAction_it_call_content extends WaicAction {
 	 */
 	private function getExecutionState( array $variables ): array {
 		return [
-			'pipeline_id' => $variables['_pipeline_id'] ?? '',
-			'task_id'     => $variables['_task_id'] ?? '',
+			'pipeline_id'            => $variables['_pipeline_id'] ?? '',
+			'task_id'                => $variables['_task_id'] ?? '',
+			'session_id'             => $variables['_session_id'] ?? '',
+			'user_id'                => $variables['_user_id'] ?? 0,
+			'channel'                => $variables['_channel'] ?? 'adminchat',
+			'intent_conversation_id' => $variables['_intent_conversation_id'] ?? '',
 		];
+	}
+
+	/**
+	 * Auto-inherit context fields from previous completed nodes.
+	 *
+	 * Scans $variables['node#X'] in reverse order (latest first)
+	 * and collects non-empty values for common content fields.
+	 *
+	 * @param array $variables Pipeline variables.
+	 * @return array Inherited params (may be empty if nothing found).
+	 */
+	private function inherit_from_previous_nodes( array $variables ): array {
+		$inherit_fields = [ 'topic', 'title', 'content', 'message', 'keyword', 'subject', 'summary' ];
+		$inherited      = [];
+
+		// Collect all node# keys, sort descending so latest node wins
+		$node_keys = [];
+		foreach ( array_keys( $variables ) as $key ) {
+			if ( preg_match( '/^node#(\d+)$/', $key, $m ) ) {
+				$node_keys[ (int) $m[1] ] = $key;
+			}
+		}
+		krsort( $node_keys );
+
+		foreach ( $node_keys as $node_key ) {
+			$node_data = $variables[ $node_key ];
+			if ( ! is_array( $node_data ) ) {
+				continue;
+			}
+
+			// ── Phase 1.10: Recognize it_call_research outputs ──
+			if ( ! empty( $node_data['research_summary'] ) ) {
+				if ( ! isset( $inherited['_research_summary'] ) ) {
+					$inherited['_research_summary'] = $node_data['research_summary'];
+					$inherited['_source_count']     = $node_data['source_count'] ?? '0';
+					$inherited['_source_ids']       = $node_data['source_ids'] ?? '';
+				}
+			}
+
+			// ── Phase 1.10: Recognize it_call_memory outputs ──
+			if ( ! empty( $node_data['memory_spec'] ) ) {
+				if ( ! isset( $inherited['_memory_spec'] ) ) {
+					$inherited['_memory_spec'] = $node_data['memory_spec'];
+				}
+			}
+
+			foreach ( $inherit_fields as $field ) {
+				if ( isset( $inherited[ $field ] ) ) {
+					continue; // already found from a later node
+				}
+				if ( ! empty( $node_data[ $field ] ) && is_string( $node_data[ $field ] ) ) {
+					$inherited[ $field ] = $node_data[ $field ];
+				}
+			}
+		}
+
+		// Also check trigger text from node#1
+		if ( empty( $inherited['topic'] ) && ! empty( $variables['node#1']['text'] ) ) {
+			$inherited['topic'] = $variables['node#1']['text'];
+		}
+
+		return $inherited;
 	}
 }

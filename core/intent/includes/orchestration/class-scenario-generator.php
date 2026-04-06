@@ -83,6 +83,125 @@ class BizCity_Scenario_Generator {
     }
 
     /**
+     * Generate a workflow task from pre-built Archetype D pipeline nodes.
+     *
+     * Unlike generate() which rebuilds nodes from Core Planner steps via
+     * from_pipeline_plan(), this method takes already-assembled nodes from
+     * Skill Pipeline Bridge and wraps them in the proper WAIC builder format.
+     *
+     * Used by: BizCity_Skill_Pipeline_Bridge::save_d_pipeline_as_task()
+     *
+     * @param array  $nodes           Simplified nodes [{ type, code, label, settings }, ...]
+     * @param array  $trigger_context { user_id, session_id, message, channel, pipeline_id }
+     * @param string $description     Task title.
+     * @return array Same format as generate(): { success, task_id, plan_link, message, scenario }
+     */
+    public static function generate_from_agentic( array $nodes, array $trigger_context = [], string $description = '' ) {
+        $builder_nodes = [];
+        $builder_edges = [];
+        $x_pos = 350;
+
+        foreach ( $nodes as $i => $node ) {
+            $node_id  = (string) ( $i + 1 );
+            $code     = $node['code'] ?? 'unknown';
+            $type     = $node['type'] ?? 'action';
+
+            // Derive category from code prefix
+            if ( strpos( $code, 'it_' ) === 0 ) {
+                $category = 'it';
+            } elseif ( strpos( $code, 'bc_' ) === 0 ) {
+                $category = 'bc';
+            } else {
+                $category = 'bc'; // triggers + generic WAIC blocks
+            }
+
+            // Use tool_labels for display, fall back to node's own label
+            $label = isset( self::$tool_labels[ $code ] ) ? self::$tool_labels[ $code ] : ( $node['label'] ?? $code );
+
+            $builder_nodes[] = [
+                'id'       => $node_id,
+                'type'     => $type,
+                'position' => [ 'x' => $x_pos, 'y' => 200 ],
+                'data'     => [
+                    'type'            => $type,
+                    'category'        => $category,
+                    'code'            => $code,
+                    'label'           => $label,
+                    'settings'        => $node['settings'] ?? [],
+                    'executionStatus' => null,
+                    'dragged'         => true,
+                ],
+            ];
+
+            // Sequential edge from previous node
+            if ( $i > 0 ) {
+                $prev_id = (string) $i;
+                $builder_edges[] = [
+                    'id'           => 'e' . $prev_id . '-' . $node_id,
+                    'source'       => $prev_id,
+                    'target'       => $node_id,
+                    'sourceHandle' => 'output-right',
+                    'targetHandle' => 'input-left',
+                    'type'         => 'default',
+                ];
+            }
+
+            $x_pos += 210;
+        }
+
+        $pipeline_id = $trigger_context['pipeline_id'] ?? ( 'skill_d_' . wp_generate_password( 8, false ) );
+
+        $scenario = [
+            'nodes'    => $builder_nodes,
+            'edges'    => $builder_edges,
+            'settings' => [
+                'timeout'     => 600,
+                'mode'        => 'execute_once',
+                'multiple'    => 0,
+                'skip'        => 0,
+                'cooldown'    => 0,
+                'stop'        => 'yes',
+                'pipeline_id' => $pipeline_id,
+            ],
+            'version' => '1.0.0',
+        ];
+
+        $title   = sanitize_text_field( $description ?: 'Agentic Pipeline' );
+        $task_id = self::save_draft_task( $scenario, $title, $trigger_context );
+
+        if ( $task_id ) {
+            self::build_memory_spec_for_task( $task_id, $scenario, $trigger_context );
+            do_action( 'bizcity_pipeline_created', $task_id, $trigger_context, $scenario );
+        }
+
+        if ( ! $task_id ) {
+            return [
+                'success'  => false,
+                'task_id'  => 0,
+                'plan_link' => '',
+                'message'  => 'Không thể lưu Agentic Pipeline. Vui lòng thử lại.',
+                'scenario' => $scenario,
+            ];
+        }
+
+        $plan_link  = self::get_builder_url( $task_id );
+        $step_count = count( $nodes ) - 1; // exclude trigger
+
+        return [
+            'success'   => true,
+            'task_id'   => $task_id,
+            'plan_link' => $plan_link,
+            'message'   => sprintf(
+                "📋 Đã tạo Agentic Pipeline %d bước: **%s**\n\n👉 [Xem & xác nhận](%s)",
+                $step_count,
+                $title,
+                $plan_link
+            ),
+            'scenario' => $scenario,
+        ];
+    }
+
+    /**
      * Build the builder URL for a task.
      *
      * @param int  $task_id  Row ID in bizcity_tasks.
@@ -128,6 +247,13 @@ class BizCity_Scenario_Generator {
         'generate_ig_caption'      => 'Tạo caption Instagram',
         'generate_linkedin_post'   => 'Tạo bài LinkedIn',
         'generate_proposal'        => 'Tạo đề xuất',
+
+        // ── Phase 1.10: Agentic Pipeline Blocks ──
+        'it_call_research'         => '🔍 Nghiên cứu & Thu thập nguồn',
+        'it_call_memory'           => '🧠 Lưu context pipeline',
+        'it_call_content'          => '📝 Tạo nội dung',
+        'it_call_reflection'       => '🎯 Kiểm tra & Tổng kết',
+        'it_todos_planner'         => '📋 Khởi tạo kế hoạch',
     ];
 
     /**
@@ -196,6 +322,12 @@ class BizCity_Scenario_Generator {
         'create_facebook_post'     => [ 'family' => 'distribution',       'tool_type' => 'composite', 'execution_path' => 'provider_direct' ],
         'translate_and_publish'    => [ 'family' => 'content_production', 'tool_type' => 'composite', 'execution_path' => 'provider_direct' ],
         'create_video'             => [ 'family' => 'content_production', 'tool_type' => 'composite', 'execution_path' => 'provider_direct' ],
+
+        // ── Phase 1.10: Agentic Pipeline Blocks (self-contained execution) ──
+        'it_call_research'         => [ 'family' => 'pipeline_infra', 'tool_type' => 'pipeline_block', 'execution_path' => 'it_call_research' ],
+        'it_call_memory'           => [ 'family' => 'pipeline_infra', 'tool_type' => 'pipeline_block', 'execution_path' => 'it_call_memory' ],
+        'it_call_reflection'       => [ 'family' => 'pipeline_infra', 'tool_type' => 'pipeline_block', 'execution_path' => 'it_call_reflection' ],
+        'it_todos_planner'         => [ 'family' => 'pipeline_infra', 'tool_type' => 'pipeline_block', 'execution_path' => 'it_todos_planner' ],
     ];
 
     /**

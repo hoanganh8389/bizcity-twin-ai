@@ -29,6 +29,7 @@ require_once __DIR__ . '/changelog-phase15.php';
 require_once __DIR__ . '/changelog-phase16.php';
 require_once __DIR__ . '/changelog-phase17.php';
 require_once __DIR__ . '/changelog-phase19.php';
+require_once __DIR__ . '/changelog-phase110.php';
 
 // ── Register changelogs ──
 BizCity_Changelog_Dashboard::register( new BizCity_Changelog_Phase0() );
@@ -41,6 +42,7 @@ BizCity_Changelog_Dashboard::register( new BizCity_Changelog_Phase15() );
 BizCity_Changelog_Dashboard::register( new BizCity_Changelog_Phase16() );
 BizCity_Changelog_Dashboard::register( new BizCity_Changelog_Phase17() );
 BizCity_Changelog_Dashboard::register( new BizCity_Changelog_Phase19() );
+BizCity_Changelog_Dashboard::register( new BizCity_Changelog_Phase110() );
 
 // ── Register admin pages ──
 add_action( 'admin_menu', [ 'BizCity_Changelog_Dashboard', 'register_admin_pages' ] );

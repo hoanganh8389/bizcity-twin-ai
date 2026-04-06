@@ -443,12 +443,15 @@ class BizCity_Intent_Engine {
                 // @since v4.4.0 — Post-tool follow-up routing
                 if ( $satisfaction === null ) {
 
-                    // ── Escape hatch 0: slash command / tool_goal always wins ──
-                    // If gateway already parsed a slash command (tool_goal_hint),
+                    // ── Escape hatch 0: slash command / tool_goal / selected_skill always wins ──
+                    // If gateway already parsed a slash command (tool_goal_hint) OR
+                    // the user explicitly selected a /skill from the UI (selected_skill),
                     // skip followup entirely — let Step 1.8+ handle execution.
                     // @since v4.6.3 — Slash commands must bypass post-tool followup
-                    if ( ! empty( $tool_goal_hint ) ) {
+                    // @since v4.6.5 — selected_skill also bypasses (fix: /contentagentic stuck in 1.6C)
+                    if ( ! empty( $tool_goal_hint ) || ! empty( $selected_skill ) ) {
                         error_log( '[INTENT-ENGINE] Step 1.6C: slash tool_goal="' . $tool_goal_hint
+                            . '" selected_skill="' . $selected_skill
                             . '" → skip followup, normal classification' );
                         // Fall through — do NOT return
                     } else {
@@ -557,6 +560,110 @@ class BizCity_Intent_Engine {
                     } // end else (no slash tool_goal escape)
                 }
             }
+        }
+
+        // ── Step 1.6D: SKILL CONTINUATION — re-inject skill context on follow-up turns ──
+        // When conversation has an active skill:* goal (set by Step 2.4.10),
+        // subsequent messages ("ok", "triển khai", "làm đi") should keep the skill
+        // context injected into the LLM prompt. Without this, turn 2+ loses skill context
+        // and the LLM responds generically ("bạn muốn tìm hiểu hay thực thi?").
+        // Self-sufficient: extracts slug from goal, re-fetches from SkillManager.
+        // @since v4.6.5 — Multi-turn skill persistence
+        $conv_goal_s16d = $conversation['goal'] ?? '';
+        if ( strpos( $conv_goal_s16d, 'skill:' ) === 0
+             && empty( $selected_skill )       // Not a NEW /skill selection
+             && empty( $slash_command )         // Not a NEW /command
+             && empty( $tool_goal_hint )        // Not a NEW /tool_goal
+             && class_exists( 'BizCity_Skill_Manager' )
+        ) {
+            $skill_slug_s16d = substr( $conv_goal_s16d, 6 ); // strip "skill:"
+
+            // Try stored slots first, fallback to fresh SkillManager lookup
+            $conv_slots_s16d = json_decode( $conversation['slots_json'] ?? '{}', true ) ?: [];
+            $skill_title_s16d   = $conv_slots_s16d['_active_skill_title'] ?? '';
+            $skill_content_s16d = $conv_slots_s16d['_active_skill_content'] ?? '';
+
+            if ( empty( $skill_content_s16d ) ) {
+                $fresh_match = \BizCity_Skill_Manager::instance()->find_matching( [
+                    'slash_command' => $skill_slug_s16d,
+                    'message'       => '',
+                    'limit'         => 1,
+                ] );
+                if ( ! empty( $fresh_match ) ) {
+                    $skill_content_s16d = $fresh_match[0]['content'] ?? '';
+                    $skill_title_s16d   = $fresh_match[0]['frontmatter']['title'] ?? $skill_slug_s16d;
+
+                    // Backfill slots for future turns
+                    $this->conversation_mgr->update_slots( $conv_id, [
+                        '_active_skill_slug'    => $skill_slug_s16d,
+                        '_active_skill_title'   => $skill_title_s16d,
+                        '_active_skill_content' => mb_substr( $skill_content_s16d, 0, 4000, 'UTF-8' ),
+                    ] );
+                }
+            }
+
+            if ( ! empty( $skill_content_s16d ) ) {
+                if ( ! $skill_title_s16d ) {
+                    $skill_title_s16d = $skill_slug_s16d;
+                }
+
+                // Count previous user turns in this conversation to determine phase
+                $turn_count = 0;
+                $turns_raw  = $conversation['turns_json'] ?? '[]';
+                $turns_arr  = json_decode( $turns_raw, true ) ?: [];
+                foreach ( $turns_arr as $t ) {
+                    if ( ( $t['role'] ?? '' ) === 'user' ) {
+                        $turn_count++;
+                    }
+                }
+
+                // Build prompt: skill content FIRST, then STRONG directive AFTER
+                // (LLMs tend to follow the LAST instruction — put directives at bottom)
+                $skill_prompt_s16d = "\n\n## 📘 KỸ NĂNG: " . $skill_title_s16d . "\n"
+                    . mb_substr( $skill_content_s16d, 0, 4000, 'UTF-8' ) . "\n\n"
+                    . "---\n"
+                    . "### ⚠️ PHASE THỰC HIỆN (turn " . ( $turn_count + 1 ) . ")\n"
+                    . "Đây là TURN TIẾP THEO trong skill /" . $skill_slug_s16d . ". "
+                    . "User đã cung cấp thông tin ở các lượt trước (xem conversation history).\n"
+                    . "**BẮT BUỘC**:\n"
+                    . "1. Đọc lại TOÀN BỘ conversation history để tổng hợp thông tin user đã cung cấp\n"
+                    . "2. Nếu user cung cấp thông tin mới → ghi nhận và tiếp tục\n"
+                    . "3. Nếu ĐÃ ĐỦ thông tin hoặc user xác nhận (ok, làm đi, triển, v.v.) → BẮT ĐẦU THỰC HIỆN NGAY, KHÔNG hỏi thêm\n"
+                    . "4. **TUYỆT ĐỐI KHÔNG lặp lại câu hỏi mà user đã trả lời**\n"
+                    . "User vừa nói: \"" . mb_substr( $message, 0, 120, 'UTF-8' ) . "\"\n";
+
+                add_filter( 'bizcity_chat_system_prompt', function ( $prompt ) use ( $skill_prompt_s16d ) {
+                    return $prompt . $skill_prompt_s16d;
+                }, 44 );
+
+                $result['meta']['_injected_skill_context'] = mb_substr( $skill_content_s16d, 0, 4000, 'UTF-8' );
+                $result['meta']['selected_skill']          = $skill_slug_s16d;
+                // Pass slash_command so inject_skill_context (priority 93) can also match
+                $result['meta']['slash_command']            = '/' . $skill_slug_s16d;
+
+                $this->conversation_mgr->add_turn( $conv_id, 'user', $message );
+
+                $result['action'] = 'compose_answer';
+                $result['status'] = 'ACTIVE';
+                $result['goal']   = $conv_goal_s16d;
+                $result['meta']['mode']        = 'knowledge';
+                $result['meta']['method']      = 'skill_cont/' . mb_substr( $skill_slug_s16d, 0, 15, 'UTF-8' );
+                $result['meta']['archetype']   = 'A';
+                $result['meta']['skill_title'] = $skill_title_s16d;
+
+                error_log( '[INTENT-ENGINE] Step 1.6D: Skill continuation | skill=' . $skill_slug_s16d
+                    . ' | turn=' . ( $turn_count + 1 )
+                    . ' | user_msg=' . mb_substr( $message, 0, 50, 'UTF-8' )
+                    . ' | source=' . ( ! empty( $conv_slots_s16d['_active_skill_content'] ) ? 'slots' : 'manager' ) );
+
+                $this->logger->end_trace( $result );
+                do_action( 'bizcity_intent_processed', $result, $params );
+                return $result;
+            }
+
+            // Skill not found in manager either — fall through to normal pipeline
+            error_log( '[INTENT-ENGINE] Step 1.6D: goal=' . $conv_goal_s16d
+                . ' but skill "' . $skill_slug_s16d . '" not found — falling through' );
         }
 
         // ── Step 1.7: TOOL SUGGEST CONFIRMATION ──
@@ -1643,6 +1750,9 @@ class BizCity_Intent_Engine {
         // When /skill_slug or selected_skill is provided, do a direct skill lookup.
         // Otherwise, check if a skill with archetype B/C matches with HIGH confidence.
         // If so, override mode to execution so the Intent Router can handle it.
+        // @since v4.6.5 — Also try tool_goal_hint as skill slug when it doesn't match
+        //   any goal_pattern (e.g. user typed /contentagentic manually, gateway failed
+        //   skill score check → became tool_goal, but Intent Router also doesn't know it).
         $effective_slash = $slash_command ?: $selected_skill;
         $skill_match = $this->early_skill_lookup( $message, $mode_result, $effective_slash );
 
@@ -1661,6 +1771,36 @@ class BizCity_Intent_Engine {
                         'message'       => $message,
                         'limit'         => 1,
                     ] );
+                }
+            }
+        }
+
+        // Phase 1.10: Fallback — tool_goal_hint that doesn't match any goal_pattern
+        // may actually be a skill slug (gateway's skill score check was < 30).
+        // Try skill lookup with tool_goal_hint before letting it reach the Router.
+        if ( ! $skill_match && ! $effective_slash && ! empty( $tool_goal_hint ) ) {
+            $goal_patterns = $this->router->get_goal_patterns();
+            $tool_goal_lower = mb_strtolower( $tool_goal_hint, 'UTF-8' );
+            $is_known_goal = false;
+            foreach ( $goal_patterns as $regex => $pcfg ) {
+                if ( ( $pcfg['goal'] ?? '' ) === $tool_goal_lower || @preg_match( $regex, $tool_goal_lower ) ) {
+                    $is_known_goal = true;
+                    break;
+                }
+            }
+
+            if ( ! $is_known_goal && class_exists( 'BizCity_Skill_Manager' ) ) {
+                $skill_match = \BizCity_Skill_Manager::instance()->find_matching_enriched( [
+                    'slash_command' => $tool_goal_hint,
+                    'message'       => $message,
+                    'limit'         => 1,
+                ] );
+
+                if ( $skill_match ) {
+                    $effective_slash = $tool_goal_hint;
+                    error_log( '[INTENT-ENGINE] Step 2.4.8: tool_goal "' . $tool_goal_hint
+                        . '" not in goal_patterns → found as skill (archetype='
+                        . $skill_match['archetype'] . ' score=' . $skill_match['score'] . ')' );
                 }
             }
         }
@@ -1692,7 +1832,7 @@ class BizCity_Intent_Engine {
 
             // HIGH confidence skill with tools → force execution mode
             if ( $skill_match['confidence'] === 'high'
-                 && in_array( $skill_match['archetype'], [ 'B', 'C' ], true )
+                 && in_array( $skill_match['archetype'], [ 'B', 'C', 'D' ], true )
                  && $mode_result['mode'] !== BizCity_Mode_Classifier::MODE_EXECUTION
             ) {
                 $mode_result['mode']   = BizCity_Mode_Classifier::MODE_EXECUTION;
@@ -1720,6 +1860,66 @@ class BizCity_Intent_Engine {
                 }
             }
 
+            // ── Step 2.4.9: ARCHETYPE D — pipeline short-circuit ──
+            // Archetype D (agentic pipeline) has explicit steps[]. Instead of
+            // falling through to the LLM compose path, we:
+            // 1. Fire bizcity_skill_trigger_pipeline → Bridge queues transient
+            // 2. Return pipeline_queued reply so Gateway streams it and exits
+            // 3. Pipeline processes on shutdown → Messenger sends builder link
+            // @since v4.6.5 — Archetype D pipeline early return
+            if ( $skill_match['archetype'] === 'D' && $skill_match['confidence'] === 'high' ) {
+                $skill_data = $skill_match['skill'] ?? [];
+                $skill_data['archetype'] = 'D';
+                $skill_data['score']     = $skill_match['score'];
+                $skill_data['reasons']   = $skill_match['reasons'];
+
+                // Fire pipeline action → Bridge queues immediately
+                do_action( 'bizcity_skill_trigger_pipeline', $skill_data, [
+                    'mode'          => $mode_result['mode'],
+                    'message'       => $message,
+                    'session_id'    => $session_id,
+                    'channel'       => $channel,
+                    'engine_result' => $result,
+                ] );
+
+                $skill_title_d = $skill_match['skill']['frontmatter']['title']
+                    ?? $effective_slash ?? 'Unnamed Skill';
+
+                $result['reply']  = '📋 Đã nhận yêu cầu! Đang tạo kịch bản cho kỹ năng **'
+                    . esc_html( $skill_title_d ) . '**...\n\n'
+                    . '⏳ Pipeline sẽ được tạo trong giây lát. Bạn sẽ nhận được link xem kế hoạch ngay sau đó.';
+                $result['action'] = 'pipeline_queued';
+                $result['status'] = 'PIPELINE_QUEUED';
+                $result['goal']   = 'skill_pipeline:' . ( $effective_slash ?: 'D' );
+                $result['meta']['mode']       = $mode_result['mode'];
+                $result['meta']['method']     = ( $mode_result['method'] ?? '' ) . '+archetype_D_pipeline';
+                $result['meta']['archetype']  = 'D';
+                $result['meta']['skill_title'] = $skill_title_d;
+
+                $this->conversation_mgr->add_turn( $conv_id, 'user', $message );
+                $this->conversation_mgr->add_turn( $conv_id, 'assistant', $result['reply'] );
+                if ( empty( $conversation['goal'] ) ) {
+                    $this->conversation_mgr->set_goal( $conv_id, $result['goal'], '📋 ' . $skill_title_d );
+                }
+
+                error_log( '[INTENT-ENGINE] Step 2.4.9: Archetype D → pipeline_queued'
+                    . ' | skill=' . $skill_title_d
+                    . ' | score=' . $skill_match['score'] );
+
+                if ( class_exists( 'BizCity_Twin_Trace' ) ) {
+                    BizCity_Twin_Trace::log( 'archetype_d_pipeline', [
+                        'skill_title' => $skill_title_d,
+                        'archetype'   => 'D',
+                        'score'       => $skill_match['score'],
+                        'reasons'     => $skill_match['reasons'],
+                    ] );
+                }
+
+                $this->logger->end_trace( $result );
+                do_action( 'bizcity_intent_processed', $result, $params );
+                return $result;
+            }
+
             // Log for admin console
             if ( class_exists( 'BizCity_User_Memory' ) ) {
                 BizCity_User_Memory::log_router_event( [
@@ -1736,6 +1936,73 @@ class BizCity_Intent_Engine {
                     'skill_title'      => $skill_match['skill']['frontmatter']['title'] ?? '',
                 ], $session_id );
             }
+        }
+
+        // ── Step 2.4.10: ARCHETYPE A/B SKILL — compose with skill prompt ──
+        // When user explicitly selects a /skill that is archetype A (knowledge-only)
+        // or B (single-tool), DON'T enter execution pipeline (zero objectives → clarify loop).
+        // Instead, inject skill content into system prompt and return passthrough
+        // so the LLM uses the skill instructions as context.
+        // @since v4.6.5 — Skill-as-prompt for non-pipeline archetypes
+        if ( $skill_match
+             && $effective_slash
+             && in_array( $skill_match['archetype'], [ 'A', 'B' ], true )
+        ) {
+            $skill_content_raw = $skill_match['skill']['content'] ?? '';
+            $skill_title_ab    = $skill_match['skill']['frontmatter']['title']
+                ?? $effective_slash ?? 'Unnamed Skill';
+
+            if ( $skill_content_raw ) {
+                $skill_prompt = "\n\n## 📘 KỸ NĂNG: " . $skill_title_ab . "\n"
+                    . "Người dùng đã chọn kỹ năng /" . $effective_slash . ". "
+                    . "Hãy tuân thủ các hướng dẫn bên dưới và trả lời dựa trên nội dung này.\n"
+                    . "**GHI NHỚ**: Không hỏi lại \"bạn muốn tìm hiểu hay thực thi\" — hãy THỰC HIỆN theo skill.\n\n"
+                    . mb_substr( $skill_content_raw, 0, 4000, 'UTF-8' );
+
+                add_filter( 'bizcity_chat_system_prompt', function ( $prompt ) use ( $skill_prompt ) {
+                    return $prompt . $skill_prompt;
+                }, 44 );
+            }
+
+            // Revert mode to knowledge so Gateway goes to LLM compose
+            $mode_result['mode']   = BizCity_Mode_Classifier::MODE_KNOWLEDGE;
+            $mode_result['method'] = ( $mode_result['method'] ?? '' ) . '+skill_compose(/' . $effective_slash . ')';
+
+            $result['action'] = 'compose_answer';
+            $result['status'] = 'ACTIVE';
+            $result['goal']   = 'skill:' . $effective_slash;
+            $result['meta']['mode']        = $mode_result['mode'];
+            $result['meta']['mode_method'] = $mode_result['method'];
+            $result['meta']['archetype']   = $skill_match['archetype'];
+            $result['meta']['skill_title'] = $skill_title_ab;
+
+            $this->conversation_mgr->add_turn( $conv_id, 'user', $message );
+            if ( empty( $conversation['goal'] ) ) {
+                $this->conversation_mgr->set_goal( $conv_id, 'skill:' . $effective_slash, '📘 ' . $skill_title_ab );
+            }
+
+            // Persist skill data in slots so Step 1.6D can re-inject on subsequent turns
+            $this->conversation_mgr->update_slots( $conv_id, [
+                '_active_skill_slug'    => $effective_slash,
+                '_active_skill_title'   => $skill_title_ab,
+                '_active_skill_content' => mb_substr( $skill_content_raw, 0, 4000, 'UTF-8' ),
+            ] );
+
+            error_log( '[INTENT-ENGINE] Step 2.4.10: Archetype ' . $skill_match['archetype']
+                . ' skill → compose_answer | skill=' . $skill_title_ab
+                . ' | content_len=' . strlen( $skill_content_raw ) );
+
+            if ( class_exists( 'BizCity_Twin_Trace' ) ) {
+                BizCity_Twin_Trace::log( 'skill_compose', [
+                    'archetype'    => $skill_match['archetype'],
+                    'skill_title'  => $skill_title_ab,
+                    'content_len'  => strlen( $skill_content_raw ),
+                ] );
+            }
+
+            $this->logger->end_trace( $result );
+            do_action( 'bizcity_intent_processed', $result, $params );
+            return $result;
         }
 
         // ── Step 2.5: NON-EXECUTION MODE PIPELINE ──

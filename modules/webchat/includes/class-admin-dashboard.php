@@ -960,6 +960,7 @@ class BizCity_WebChat_Admin_Dashboard {
             'toolsCatalog'  => $tools_catalog,
             'userPlan'      => $user_plan,
             'blogName'      => get_bloginfo('name') ?: 'AI Chat',
+            'walletRestUrl'      => rest_url('bizcity/v1/'),
             'paypalClientId'     => get_site_option('bizcity_paypal_client_id', ''),
             'fxUsdVnd'           => (int) get_site_option('bizcity_wallet_fx_usd_vnd', 25000),
             'shopBlogId'         => $shop_blog_id,
@@ -1012,7 +1013,7 @@ class BizCity_WebChat_Admin_Dashboard {
             #adminmenu .wp-menu-image img {padding: 9px 12px 0 !important;     opacity: .9 !important; max-width: inherit !important;}
             .tc-tab.active {color: var(--color-n30) !important; border-color: var(--color-primary) !important;  }
             .tc-search-input {padding: 10px 14px 10px 38px !important}
-            .bizc-msg-slash { color: var(--color-n30) !important; font-size: 12px !important; font-style: italic !important; }
+            .bizc-msg-slash { font-size: 12px !important; font-style: italic !important; }
             /* ── Working indicator — force display on multisite hub ── */
             @keyframes bizc-ws-in { from { opacity: 0; transform: translateX(-4px); } to { opacity: 1; transform: translateX(0); } }
             @keyframes bizc-dot-in { 0%,80%,100% { opacity: .3; transform: scale(.9); } 40% { opacity: 1; transform: scale(1.1); } }
@@ -1030,7 +1031,8 @@ class BizCity_WebChat_Admin_Dashboard {
             #root .bizc-ws-detail { display: block !important; font-size: 11px !important; color: #6b7280 !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; }
             #root .bizc-ws-stage { display: inline-flex !important; align-self: flex-start !important; font-size: 10px !important; line-height: 1.3 !important; color: #4f46e5 !important; background: #eef2ff !important; border: 1px solid #c7d2fe !important; border-radius: 10px !important; padding: 1px 7px !important; }
             #root .bizc-ws-ms { font-size: 10px !important; color: #9ca3af !important; flex-shrink: 0 !important; }
-            .flex-shrink-0 p { line-height:0.5px !important; }
+            .flex-shrink-0 p { line-height:0.5em !important; font-size:13px}
+            .text-n700  { font-size:13px}
         </style>    
         <!-- TouchBar data for React -->
         <script id="bizc-tb-data" type="application/json"><?php echo $tb_data; ?></script>
@@ -1320,6 +1322,7 @@ class BizCity_WebChat_Admin_Dashboard {
             'isGuest'     => ! $current_uid,
             'botAvatar'   => $char_avatar ?: '',
             'restUrl'     => rest_url('bizcity-chat/v1/'),
+            'walletRestUrl' => rest_url('bizcity/v1/'),
             'wpRestNonce' => wp_create_nonce('wp_rest'),
             'greeting'    => $random_greeting,
             'tasksUrl'    => home_url('/tasks/'),

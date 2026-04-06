@@ -592,8 +592,8 @@ class BizCity_Skill_REST_API {
 			return new \WP_REST_Response( [ 'error' => 'Prompt is required' ], 400 );
 		}
 
-		// Build system instruction
-		$tools_list = '';
+		// Build tools list from catalog
+		$tools_list = '(chưa có tool nào)';
 		$mgr        = BizCity_Skill_Manager::instance();
 		if ( method_exists( $mgr, 'get_tools_catalog' ) ) {
 			$catalog = $mgr->get_tools_catalog();
@@ -603,34 +603,85 @@ class BizCity_Skill_REST_API {
 					$all[] = '@' . $t['toolName'];
 				}
 			}
-			$tools_list = implode( ', ', array_slice( $all, 0, 30 ) );
+			if ( ! empty( $all ) ) {
+				$tools_list = implode( "\n  - ", array_slice( $all, 0, 20 ) );
+			}
 		}
 
-		$system = 'Bạn là AI chuyên tạo skill file cho hệ thống BizCity Twin AI.' . "\n"
-			. 'Hãy tạo một file skill hoàn chỉnh ở định dạng Markdown với YAML frontmatter.' . "\n\n"
-			. "Cấu trúc bắt buộc:\n"
-			. "---\n"
-			. "name: [tên ngắn, snake_case]\n"
-			. "title: [tiêu đề đầy đủ]\n"
-			. 'description: "[mô tả 1-2 câu]"' . "\n"
-			. "version: \"1.0\"\n"
-			. "status: active\n"
-			. "category: [nhóm phù hợp]\n"
-			. "triggers:\n  - \"[từ khoá kích hoạt skill]\"\n"
-			. "slash_commands: []\n"
-			. "modes: [chat, assistant]\n"
-			. "related_tools: []\n"
-			. "required_inputs: []\n"
-			. "priority: 50\n"
-			. "---\n\n"
-			. "# [Tiêu đề Skill]\n\n"
-			. "## Mục tiêu\n[Mô tả rõ mục tiêu của skill]\n\n"
-			. "## Ngữ cảnh\n[Khi nào dùng skill này]\n\n"
-			. "## Hướng dẫn thực thi\n[Các bước hoặc hướng dẫn chi tiết]\n\n"
-			. "## Ví dụ\n[Ví dụ cụ thể]\n\n"
-			. "Nếu cần gọi tool, dùng cú pháp @tool_name trong nội dung.\n"
-			. 'Danh sách tools hiện có: ' . $tools_list . "\n\n"
-			. 'Chỉ trả về nội dung file Markdown, không giải thích thêm.';
+		// Build system instruction using the low-tech skill format (ai_expert_research.md style)
+		$system = <<<SYSTEM
+Bạn là AI chuyên soạn thảo "kịch bản skill" cho hệ thống BizCity Twin AI.
+Người viết kịch bản là người KHÔNG rành công nghệ — họ chỉ cần mô tả bằng ngôn ngữ đời thường.
+Vì vậy, hãy dùng định dạng đơn giản, dễ đọc như mẫu dưới đây.
+
+━━━ QUY TẮC QUAN TRỌNG ━━━
+1. Mỗi @tool phải nằm trên một dòng riêng trong danh sách tools:
+   tools:
+     - @ten_tool_1
+     - @ten_tool_2
+   (KHÔNG viết nhiều tool trên cùng một dòng)
+
+2. steps: là các bước bằng TIẾNG VIỆT TỰ NHIÊN, KHÔNG dùng từ kỹ thuật như "block", "node", "Tavily", "class", "execution_plan".
+   Ví dụ đúng:
+     - Tìm kiếm tài liệu từ internet về chủ đề user hỏi
+     - Viết bài chuyên gia dựa trên tài liệu tìm được
+   Ví dụ sai:
+     - Call BCN_Tavily_Client::search() to fetch results
+     - Execute it_call_research block
+
+3. KHÔNG dùng các field: execution_plan, slash_commands, required_inputs, priority, status, name, category.
+
+4. Chỉ dùng các field được phép trong frontmatter:
+   title, description, archetype, version, modes, triggers, keywords, tools, steps
+
+5. archetype: D — dùng khi skill có steps (quy trình tự động).
+   archetype: A — dùng khi skill chỉ định nghĩa ngữ cảnh/phong cách trả lời.
+
+━━━ MẪU THAM KHẢO (archetype D) ━━━
+---
+title: "AI Expert Research"
+description: "Nghiên cứu chuyên sâu: tìm kiếm web → thu thập sources → tổng hợp → viết nội dung chuyên gia"
+archetype: D
+version: "1.0.0"
+modes:
+  - webchat
+  - adminchat
+triggers:
+  - /research
+  - /nghien_cuu
+  - /expert_write
+keywords:
+  - nghiên cứu
+  - research
+  - viết bài chuyên môn
+tools:
+  - @generate_blog_content
+  - @generate_fb_post
+steps:
+  - Tìm kiếm tài liệu từ internet về chủ đề user hỏi
+  - Viết bài chuyên gia dựa trên tài liệu tìm được
+---
+
+# AI Expert Research — Quy trình nghiên cứu & viết chuyên sâu
+
+## Mục tiêu
+Khi user yêu cầu nghiên cứu một chủ đề, skill này tự động tìm kiếm tài liệu trên internet, thu thập nguồn uy tín, và viết bài chuyên gia.
+
+## Quy tắc
+- Luôn ghi rõ nguồn trong bài viết
+- Không bịa thông tin
+
+## Ví dụ sử dụng
+- `/research AI trong y tế 2025`
+- `/expert_write phân tích thị trường Q2 2025`
+━━━ HẾT MẪU ━━━
+
+Danh sách @tools hiện có (chỉ dùng tool có trong danh sách này):
+  - {$tools_list}
+
+Bây giờ hãy tạo một skill file theo đúng định dạng mẫu trên, phù hợp với yêu cầu của người dùng.
+Chỉ trả về nội dung file Markdown (bắt đầu bằng ---), không giải thích thêm.
+SYSTEM;
 
 		// Call BizCity LLM Client directly (same PHP process — no internal HTTP)
 		if ( ! class_exists( 'BizCity_LLM_Client' ) ) {

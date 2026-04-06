@@ -68,6 +68,8 @@ class WaicAction_it_todos_planner extends WaicAction {
 	}
 
 	public function getResults( $taskId, $variables, $step = 0 ) {
+		$start_time = microtime( true );
+
 		$steps_raw = $this->replaceVariables( $this->getParam( 'steps_json', '[]' ), $variables );
 		$label     = $this->replaceVariables( $this->getParam( 'pipeline_label', '' ), $variables );
 
@@ -78,6 +80,14 @@ class WaicAction_it_todos_planner extends WaicAction {
 				'todo_count' => 0,
 			];
 		}
+
+		// ── Trace: execute_start ──
+		$session_id = $variables['_session_id'] ?? '';
+		do_action( 'bizcity_intent_pipeline_log', 'mw:execute_start', [
+			'node_code'  => 'it_todos_planner',
+			'label'      => 'Đang lập kế hoạch ' . count( $steps ) . ' bước...',
+			'session_id' => $session_id,
+		], 'info', 0 );
 
 		// Get pipeline_id from execution state
 		$execution_state = $this->getExecutionState( $variables );
@@ -110,6 +120,18 @@ class WaicAction_it_todos_planner extends WaicAction {
 
 		$plan_text = $label ?: ( 'Kế hoạch ' . count( $steps ) . ' bước' );
 
+		// ── Studio output entry ──
+		$this->save_plan_studio_output( $session_id, $execution_state['user_id'], $taskId, $todo_count, $steps, $plan_text );
+
+		// ── Trace: execute_done ──
+		$elapsed_ms = round( ( microtime( true ) - $start_time ) * 1000, 1 );
+		do_action( 'bizcity_intent_pipeline_log', 'mw:execute_done', [
+			'node_code'  => 'it_todos_planner',
+			'label'      => sprintf( 'Plan — %d bước', $todo_count ),
+			'has_error'  => 'false',
+			'session_id' => $session_id,
+		], 'info', (int) $elapsed_ms );
+
 		return [
 			'result' => [
 				'todo_count'   => $todo_count,
@@ -120,6 +142,33 @@ class WaicAction_it_todos_planner extends WaicAction {
 			'pipeline_id'  => $pipeline_id,
 			'plan_summary' => $plan_text,
 		];
+	}
+
+	/**
+	 * Save plan overview to studio_outputs.
+	 */
+	private function save_plan_studio_output( $session_id, $user_id, $task_id, $todo_count, array $steps, $plan_text ) {
+		if ( ! class_exists( 'BizCity_Output_Store' ) ) {
+			return;
+		}
+
+		$content = "**{$plan_text}**\n\n";
+		foreach ( $steps as $i => $s ) {
+			$lbl      = $s['label'] ?? $s['tool_name'] ?? ( 'Step ' . ( $i + 1 ) );
+			$content .= ( $i + 1 ) . '. ' . $lbl . "\n";
+		}
+
+		BizCity_Output_Store::save_artifact( [
+			'tool_id'    => 'it_todos_planner',
+			'caller'     => 'pipeline',
+			'session_id' => $session_id,
+			'user_id'    => (int) $user_id,
+			'task_id'    => $task_id ?: null,
+			'data'       => [
+				'title'   => sprintf( 'Plan — %d steps', $todo_count ),
+				'content' => $content,
+			],
+		], 'plan' );
 	}
 
 	/**

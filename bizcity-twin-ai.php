@@ -3,7 +3,7 @@
  * Bizcity Twin AI — Nền tảng AI Companion cá nhân hóa
  * Bizcity Twin AI — Personalized AI Companion Platform
  *
- * @package    Bizcity_Twin_AI
+ * @package    Bizcity_Twin_Claw
  * @subpackage Core
  * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
  * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
@@ -63,6 +63,11 @@ if ( ! defined( 'BIZCITY_SMART_GATEWAY_ENABLED' ) )  define( 'BIZCITY_SMART_GATE
 if ( ! defined( 'BIZCITY_INTENT_LOG_PROMPTS' ) )  define( 'BIZCITY_INTENT_LOG_PROMPTS', true );
 
 
+
+// PHP 7.4 polyfills — str_starts_with, str_contains, str_ends_with, array_is_list
+if ( ! function_exists( 'str_starts_with' ) ) {
+    require_once __DIR__ . '/includes/compat-php74.php';
+}
 
 // Infrastructure
 require_once __DIR__ . '/includes/class-module-loader.php';

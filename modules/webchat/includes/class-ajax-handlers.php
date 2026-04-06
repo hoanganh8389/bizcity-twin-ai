@@ -72,6 +72,14 @@ class BizCity_WebChat_Ajax_Handlers {
         add_action( 'wp_ajax_bizcity_llm_register_api_key', [ $this, 'ajax_llm_register_api_key' ] );
         add_action( 'wp_ajax_bizcity_llm_get_usage',        [ $this, 'ajax_llm_get_usage' ] );
 
+        // Billing / Account Dashboard (Phase 1.11)
+        add_action( 'wp_ajax_bizcity_llm_account_info',   [ $this, 'ajax_llm_account_info' ] );
+        add_action( 'wp_ajax_bizcity_llm_topup_presets',  [ $this, 'ajax_llm_topup_presets' ] );
+        add_action( 'wp_ajax_bizcity_llm_topup_create',   [ $this, 'ajax_llm_topup_create' ] );
+        add_action( 'wp_ajax_bizcity_llm_topup_capture',  [ $this, 'ajax_llm_topup_capture' ] );
+        add_action( 'wp_ajax_bizcity_llm_auto_topup_get',  [ $this, 'ajax_llm_auto_topup_get' ] );
+        add_action( 'wp_ajax_bizcity_llm_auto_topup_save', [ $this, 'ajax_llm_auto_topup_save' ] );
+
         // Trace History (Working Panel — Sprint 1.7)
         add_action( 'wp_ajax_bizcity_fetch_trace_history', [ $this, 'ajax_fetch_trace_history' ] );
 
@@ -1229,9 +1237,8 @@ class BizCity_WebChat_Ajax_Handlers {
     public function ajax_llm_save_settings(): void {
         if ( ! $this->verify_llm_admin() ) return;
 
-        $mode = sanitize_text_field( $_POST['mode'] ?? 'gateway' );
-        if ( ! in_array( $mode, [ 'gateway', 'direct' ], true ) ) $mode = 'gateway';
-        update_site_option( 'bizcity_llm_mode', $mode );
+        // Direct mode removed — always force gateway for IP protection
+        update_site_option( 'bizcity_llm_mode', 'gateway' );
 
         if ( ! empty( $_POST['gateway_url'] ) ) {
             update_site_option( 'bizcity_llm_gateway_url', esc_url_raw( $_POST['gateway_url'] ) );
@@ -1409,6 +1416,7 @@ class BizCity_WebChat_Ajax_Handlers {
         if ( $code === 200 && ! empty( $body['api_key'] ) ) {
             update_site_option( 'bizcity_llm_api_key', sanitize_text_field( $body['api_key'] ) );
             update_site_option( 'bizcity_llm_mode', 'gateway' );
+            update_site_option( 'bizcity_llm_gateway_url', esc_url_raw( $gateway ) );
             wp_send_json_success( [
                 'message'    => 'API key đã được tạo và lưu tự động!',
                 'keyPreview' => substr( $body['api_key'], 0, 12 ) . '…',
@@ -1434,14 +1442,203 @@ class BizCity_WebChat_Ajax_Handlers {
         $page  = max( 1, intval( $_POST['page'] ?? 1 ) );
         $limit = 30;
 
+        $stats_day  = BizCity_LLM_Usage_Log::get_stats( '24h' );
+        $stats_week = BizCity_LLM_Usage_Log::get_stats( '7d' );
+
+        // Compute derived fields for the frontend
+        $stats_day['success_rate']  = $stats_day['total_calls'] > 0
+            ? round( $stats_day['success_count'] / $stats_day['total_calls'] * 100 )
+            : 0;
+        $stats_day['total_tokens']  = (int) $stats_day['total_prompt_tokens'] + (int) $stats_day['total_completion_tokens'];
+        $stats_week['success_rate'] = $stats_week['total_calls'] > 0
+            ? round( $stats_week['success_count'] / $stats_week['total_calls'] * 100 )
+            : 0;
+        $stats_week['total_tokens'] = (int) $stats_week['total_prompt_tokens'] + (int) $stats_week['total_completion_tokens'];
+
         wp_send_json_success( [
             'available'  => true,
-            'statsDay'   => BizCity_LLM_Usage_Log::get_stats( 1 ),
-            'statsWeek'  => BizCity_LLM_Usage_Log::get_stats( 7 ),
+            'statsDay'   => $stats_day,
+            'statsWeek'  => $stats_week,
             'topModels'  => BizCity_LLM_Usage_Log::get_top_models( 5 ),
             'recent'     => BizCity_LLM_Usage_Log::get_recent( $limit, ( $page - 1 ) * $limit ),
             'page'       => $page,
         ] );
+    }
+
+    /* ================================================================
+     * Billing / Account Dashboard (Phase 1.11)
+     * Proxies calls to bizcity/v1/account/* + billing/topup/* on the
+     * gateway server using the stored API key.
+     * ================================================================ */
+
+    /**
+     * Shared helper: make an authenticated GET/POST request to the gateway.
+     *
+     * @param string $endpoint  Path relative to gateway URL, e.g. '/wp-json/bizcity/v1/account/info'
+     * @param string $method    'GET' or 'POST'
+     * @param array  $body      JSON body for POST requests.
+     * @return array            Decoded JSON response or WP_Error-like array.
+     */
+    private function gateway_request( string $endpoint, string $method = 'GET', array $body = [] ): array {
+        $api_key     = get_site_option( 'bizcity_llm_api_key', '' );
+        $gateway_url = rtrim( get_site_option( 'bizcity_llm_gateway_url', 'https://bizcity.vn' ), '/' );
+
+        if ( ! $api_key ) {
+            return [ 'success' => false, 'error' => 'API key not configured.' ];
+        }
+
+        $url     = $gateway_url . $endpoint;
+        $args    = [
+            'method'  => $method,
+            'timeout' => 20,
+            'headers' => [
+                'Authorization' => 'Bearer ' . $api_key,
+                'Content-Type'  => 'application/json',
+                'Accept'        => 'application/json',
+            ],
+        ];
+
+        if ( $method === 'POST' && ! empty( $body ) ) {
+            $args['body'] = wp_json_encode( $body );
+        }
+
+        $response = wp_remote_request( $url, $args );
+
+        if ( is_wp_error( $response ) ) {
+            return [ 'success' => false, 'error' => $response->get_error_message() ];
+        }
+
+        $decoded = json_decode( wp_remote_retrieve_body( $response ), true );
+        return is_array( $decoded ) ? $decoded : [ 'success' => false, 'error' => 'Invalid JSON from gateway.' ];
+    }
+
+    /**
+     * Account info dashboard — proxies GET /bizcity/v1/account/info
+     */
+    public function ajax_llm_account_info(): void {
+        if ( ! $this->verify_llm_admin() ) return;
+
+        $result = $this->gateway_request( '/wp-json/bizcity/v1/account/info' );
+        if ( ! empty( $result['success'] ) ) {
+            wp_send_json_success( $result['data'] ?? $result );
+        } else {
+            wp_send_json_error( $result['error'] ?? 'Failed to fetch account info.' );
+        }
+    }
+
+    /**
+     * Top-up presets — proxies GET /bizcity/v1/billing/topup/presets
+     */
+    public function ajax_llm_topup_presets(): void {
+        if ( ! $this->verify_llm_admin() ) return;
+
+        $result = $this->gateway_request( '/wp-json/bizcity/v1/billing/topup/presets' );
+        if ( ! empty( $result['success'] ) ) {
+            wp_send_json_success( $result['presets'] ?? [] );
+        } else {
+            wp_send_json_error( $result['error'] ?? 'Failed to fetch presets.' );
+        }
+    }
+
+    /**
+     * Create PayPal order — proxies POST /bizcity/v1/billing/topup/create
+     */
+    public function ajax_llm_topup_create(): void {
+        if ( ! $this->verify_llm_admin() ) return;
+
+        $amount_usd = floatval( $_POST['amount_usd'] ?? 0 );
+        if ( $amount_usd <= 0 ) {
+            wp_send_json_error( 'amount_usd is required.' );
+            return;
+        }
+
+        $result = $this->gateway_request(
+            '/wp-json/bizcity/v1/billing/topup/create',
+            'POST',
+            [ 'amount_usd' => $amount_usd ]
+        );
+
+        if ( ! empty( $result['success'] ) ) {
+            wp_send_json_success( [
+                'order_id'   => $result['order_id'] ?? '',
+                'status'     => $result['status'] ?? '',
+                'amount_usd' => $amount_usd,
+            ] );
+        } else {
+            wp_send_json_error( $result['error'] ?? 'Failed to create PayPal order.' );
+        }
+    }
+
+    /**
+     * Capture PayPal order — proxies POST /bizcity/v1/billing/topup/capture
+     */
+    public function ajax_llm_topup_capture(): void {
+        if ( ! $this->verify_llm_admin() ) return;
+
+        $order_id   = sanitize_text_field( $_POST['order_id'] ?? '' );
+        $amount_usd = floatval( $_POST['amount_usd'] ?? 0 );
+
+        if ( ! $order_id || $amount_usd <= 0 ) {
+            wp_send_json_error( 'order_id and amount_usd are required.' );
+            return;
+        }
+
+        $result = $this->gateway_request(
+            '/wp-json/bizcity/v1/billing/topup/capture',
+            'POST',
+            [ 'order_id' => $order_id, 'amount_usd' => $amount_usd ]
+        );
+
+        if ( ! empty( $result['success'] ) ) {
+            wp_send_json_success( [
+                'credit_added' => $result['credit_added'] ?? 0,
+                'bonus_pct'    => $result['bonus_pct'] ?? 0,
+                'new_balance'  => $result['new_balance'] ?? 0,
+            ] );
+        } else {
+            wp_send_json_error( $result['error'] ?? 'Failed to capture PayPal order.' );
+        }
+    }
+
+    /**
+     * Get auto-topup settings — proxies GET /bizcity/v1/account/auto-topup
+     */
+    public function ajax_llm_auto_topup_get(): void {
+        if ( ! $this->verify_llm_admin() ) return;
+
+        $result = $this->gateway_request( '/wp-json/bizcity/v1/account/auto-topup' );
+        if ( ! empty( $result['success'] ) ) {
+            wp_send_json_success( $result['data'] ?? $result );
+        } else {
+            wp_send_json_error( $result['error'] ?? 'Failed to fetch auto-topup settings.' );
+        }
+    }
+
+    /**
+     * Save auto-topup settings — proxies POST /bizcity/v1/account/auto-topup
+     */
+    public function ajax_llm_auto_topup_save(): void {
+        if ( ! $this->verify_llm_admin() ) return;
+
+        $enabled       = ! empty( $_POST['enabled'] ) && $_POST['enabled'] !== '0' && $_POST['enabled'] !== 'false';
+        $threshold_usd = floatval( $_POST['threshold_usd'] ?? 5 );
+        $amount_usd    = floatval( $_POST['amount_usd'] ?? 10 );
+
+        $result = $this->gateway_request(
+            '/wp-json/bizcity/v1/account/auto-topup',
+            'POST',
+            [
+                'enabled'       => $enabled,
+                'threshold_usd' => $threshold_usd,
+                'amount_usd'    => $amount_usd,
+            ]
+        );
+
+        if ( ! empty( $result['success'] ) ) {
+            wp_send_json_success( $result['data'] ?? $result );
+        } else {
+            wp_send_json_error( $result['error'] ?? 'Failed to save auto-topup settings.' );
+        }
     }
 
     /* ================================================================
