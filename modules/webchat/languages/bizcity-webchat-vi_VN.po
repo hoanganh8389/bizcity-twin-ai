@@ -50,16 +50,16 @@ msgid "Write Article"
 msgstr "Viết bài"
 
 #: includes/class-admin-dashboard.php
-msgid "/write_article Write an article for me"
-msgstr "/write_article Viết bài giúp tôi"
+msgid "@write_article Write an article for me"
+msgstr "@write_article Viết bài giúp tôi"
 
 #: includes/class-admin-dashboard.php
 msgid "Generate Image"
 msgstr "Tạo ảnh"
 
 #: includes/class-admin-dashboard.php
-msgid "/generate_image Generate an image for me"
-msgstr "/generate_image Tạo ảnh giúp tôi"
+msgid "@generate_image Generate an image for me"
+msgstr "@generate_image Tạo ảnh giúp tôi"
 
 #: includes/class-admin-dashboard.php
 msgid "Summarize"
@@ -86,8 +86,8 @@ msgid "Reports"
 msgstr "Báo cáo"
 
 #: includes/class-admin-dashboard.php
-msgid "/business_report Generate a report"
-msgstr "/business_report Tạo báo cáo"
+msgid "@business_report Generate a report"
+msgstr "@business_report Tạo báo cáo"
 
 #: includes/class-admin-dashboard.php
 msgid "Create Mindmap"

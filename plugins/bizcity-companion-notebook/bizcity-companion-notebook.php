@@ -1,5 +1,14 @@
 <?php
 /**
+ * @package    Bizcity_Twin_AI
+ * @subpackage Plugins\Companion_Notebook
+ * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+ * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
+ * @license    GPL-2.0-or-later
+ * @link       https://bizcity.vn
+ */
+
+/**
  * Plugin Name:       BizCity Companion Notebook
  * Plugin URI:        https://bizcity.vn/marketplace/bizcity-companion-notebook
  * Description:       NotebookLM-style Knowledge Companion — tải tài liệu, chat AI, ghi chú thông minh, tạo nội dung Studio (mindmap, slide, bài viết, quiz…).
@@ -83,7 +92,7 @@ $bcn_classes = [
     'class-notebook-tool-registry.php',
     'class-studio-input-builder.php',
     'class-studio.php',
-    'class-tavily-client.php',
+    'class-studio-tools-content.php',
     'class-research-ranker.php',
     'class-deep-research.php',
     'class-rest-api.php',

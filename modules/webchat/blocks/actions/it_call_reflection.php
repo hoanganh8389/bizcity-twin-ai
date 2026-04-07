@@ -111,8 +111,8 @@ class WaicAction_it_call_reflection extends WaicAction {
 		$create_cpt  = (int) $this->getParam( 'create_cpt', '0' );
 		$max_retries = (int) $this->getParam( 'max_retries', '2' );
 
-		// Override from block instance settings
-		$block_settings = $this->getBlock() ? ( $this->getBlock()->getSettings() ?? [] ) : [];
+		// Override from block instance settings (getParams() reads $this->_block['data']['settings'])
+		$block_settings = $this->getParams();
 		if ( isset( $block_settings['create_cpt'] ) ) {
 			$create_cpt = (int) $block_settings['create_cpt'];
 		}

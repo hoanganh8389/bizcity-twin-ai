@@ -94,7 +94,11 @@ class BizCity_Tool_Run {
 		$resource_bundle = null;
 		$skill_info      = null;
 
-		if ( class_exists( 'BizCity_Resource_Resolver' ) ) {
+		// Check for skill override from upstream pipeline node (e.g. it_todos_planner → it_call_content)
+		if ( ! empty( $context['skill_override'] ) && is_array( $context['skill_override'] ) ) {
+			$skill_info = $context['skill_override'];
+			error_log( '[TOOL-RUN] E1_skill tool=' . $tool_id . ' found=' . ( $skill_info['title'] ?? 'override' ) . ' (upstream override)' );
+		} elseif ( class_exists( 'BizCity_Resource_Resolver' ) ) {
 			// Phase 1.9: Unified resource resolution.
 			$resource_bundle = BizCity_Resource_Resolver::resolve( $tool_id, [
 				'session_id'   => $session_id,

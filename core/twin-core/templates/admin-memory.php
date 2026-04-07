@@ -37,7 +37,7 @@ $_mem_types = [ 'fact', 'preference', 'identity', 'goal', 'pain', 'constraint', 
 // Pre-load counts for Episodic, Rolling, and Research zones
 $_ep_tbl   = $wpdb->prefix . 'bizcity_memory_episodic';
 $_rl_tbl   = $wpdb->prefix . 'bizcity_memory_rolling';
-$_nt_tbl   = $wpdb->prefix . 'memory_notes';
+$_nt_tbl   = $wpdb->prefix . 'bizcity_memory_notes';
 $_ep_count = 0;
 $_rl_count = 0;
 $_nt_count = 0;

@@ -135,11 +135,23 @@ class BCN_Projects {
         ) );
         if ( ! $row ) return null;
 
-        // Enrich with counts.
-        $row->source_count = (int) $wpdb->get_var( $wpdb->prepare(
+        // Enrich with counts — check both BCN table (bizcity_rces) and webchat_sources.
+        $bcn_count = (int) $wpdb->get_var( $wpdb->prepare(
             "SELECT COUNT(*) FROM " . BCN_Schema_Extend::table_sources() . " WHERE project_id = %s",
             $project_id
         ) );
+        $wcs_table = $wpdb->prefix . 'bizcity_webchat_sources';
+        $wcs_count = 0;
+        if ( $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = 'project_id'",
+            $wpdb->prefix . 'bizcity_webchat_sources'
+        ) ) ) {
+            $wcs_count = (int) $wpdb->get_var( $wpdb->prepare(
+                "SELECT COUNT(*) FROM {$wcs_table} WHERE project_id = %s AND (session_id = '' OR session_id IS NULL)",
+                $project_id
+            ) );
+        }
+        $row->source_count = $bcn_count + $wcs_count;
         $row->note_count = (int) $wpdb->get_var( $wpdb->prepare(
             "SELECT COUNT(*) FROM " . BCN_Schema_Extend::table_notes() . " WHERE project_id = %s",
             $project_id
@@ -174,12 +186,26 @@ class BCN_Projects {
         );
 
         // Enrich with source counts and normalize for JS.
+        // Counts from both BCN (bizcity_rces) and webchat_sources (project-scoped rows).
         $source_table = BCN_Schema_Extend::table_sources();
+        $wcs_table    = $wpdb->prefix . 'bizcity_webchat_sources';
+        $has_project_col = (bool) $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = 'project_id'",
+            $wcs_table
+        ) );
         foreach ( $rows as &$row ) {
-            $row->source_count = (int) $wpdb->get_var( $wpdb->prepare(
+            $bcn_count = (int) $wpdb->get_var( $wpdb->prepare(
                 "SELECT COUNT(*) FROM {$source_table} WHERE project_id = %s",
                 $row->project_id
             ) );
+            $wcs_count = 0;
+            if ( $has_project_col ) {
+                $wcs_count = (int) $wpdb->get_var( $wpdb->prepare(
+                    "SELECT COUNT(*) FROM {$wcs_table} WHERE project_id = %s AND (session_id = '' OR session_id IS NULL)",
+                    $row->project_id
+                ) );
+            }
+            $row->source_count = $bcn_count + $wcs_count;
             $this->format_row( $row );
         }
 

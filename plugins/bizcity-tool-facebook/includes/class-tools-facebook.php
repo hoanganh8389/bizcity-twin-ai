@@ -150,6 +150,28 @@ class BizCity_Tool_Facebook {
         if ( $trace ) $trace->complete( [ 'post_id' => $post_id, 'fb_count' => count( $fb_results ) ] );
 
         // Build response message
+        if ( empty( $fb_results ) ) {
+            $msg  = "⚠️ **Bài viết đã được tạo trên WordPress nhưng chưa đăng được lên Facebook.**\n\n";
+            $msg .= "📝 **Tiêu đề:** {$plain_title}\n";
+            $msg .= "🔗 **WordPress:** " . get_permalink( $post_id ) . "\n";
+            $msg .= "❌ Không tìm thấy Facebook Page nào được kết nối. Vui lòng kiểm tra cấu hình Facebook.\n";
+
+            return [
+                'success'  => false,
+                'complete' => true,
+                'message'  => $msg,
+                'data'     => [
+                    'wp_post_id'  => $post_id,
+                    'title'       => $plain_title,
+                    'content'     => $plain_content,
+                    'image_url'   => $image_url,
+                    'url'         => get_permalink( $post_id ),
+                    'fb_post_ids' => [],
+                    'platform'    => 'facebook',
+                ],
+            ];
+        }
+
         $msg  = "✅ **Đã đăng bài Facebook thành công!**\n\n";
         $msg .= "📝 **Tiêu đề:** {$plain_title}\n";
         $msg .= "🔗 **WordPress:** " . get_permalink( $post_id ) . "\n";
@@ -280,6 +302,30 @@ class BizCity_Tool_Facebook {
         if ( $trace ) $trace->complete( [ 'post_id' => $post_id ?: null, 'fb_count' => count( $fb_results ) ] );
 
         // Build response message
+        if ( empty( $fb_results ) ) {
+            $msg = "⚠️ Chưa đăng được lên Facebook Page.\n";
+            $msg .= "❌ Không tìm thấy Facebook Page nào được kết nối.\n";
+            if ( $post_id && ! is_wp_error( $post_id ) ) {
+                $msg .= "🔗 WordPress: " . get_permalink( $post_id ) . "\n";
+            }
+
+            return [
+                'success'  => false,
+                'complete' => true,
+                'message'  => $msg,
+                'data'     => [
+                    'type'        => 'post',
+                    'title'       => $plain_title,
+                    'content'     => $plain_content,
+                    'wp_post_id'  => $post_id ?: null,
+                    'image_url'   => $image_url,
+                    'platform'    => 'facebook',
+                    'fb_post_ids' => [],
+                    'meta'        => [ 'page_id' => $page_id, 'source_url' => $pipeline_url ],
+                ],
+            ];
+        }
+
         $msg = "✅ Đã đăng bài lên Facebook Page.\n";
         if ( $post_id && ! is_wp_error( $post_id ) ) {
             $msg .= "🔗 WordPress: " . get_permalink( $post_id ) . "\n";

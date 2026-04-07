@@ -17,6 +17,11 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+// Guard: interface may not be loaded yet if channel-gateway bootstrap runs after this file.
+if ( ! interface_exists( 'BizCity_Channel_Adapter' ) ) {
+	return;
+}
+
 class BizCity_Facebook_Channel_Adapter implements BizCity_Channel_Adapter {
 
 	public function get_platform(): string {

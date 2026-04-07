@@ -88,9 +88,16 @@ class BCN_Studio {
     private function save_output( $project_id, $tool_type, $result, $user_id, $studio_input = null ) {
         global $wpdb;
 
+        // Webchat sessions use wcs_ prefix — store in session_id, clear project_id.
+        $is_webchat = str_starts_with( $project_id, 'wcs_' );
+        $session_id = $is_webchat ? $project_id : '';
+        $real_project_id = $is_webchat ? '' : $project_id;
+
         $data = [
             'user_id'          => $user_id,
-            'project_id'       => $project_id,
+            'project_id'       => $real_project_id,
+            'session_id'       => $session_id,
+            'caller'           => 'studio',
             'tool_type'        => $tool_type,
             'title'            => sanitize_text_field( $result['title'] ?? '' ),
             'content'          => $result['content'] ?? '',
@@ -114,17 +121,42 @@ class BCN_Studio {
 
     // ── CRUD ──
 
-    public function get_outputs( $project_id, $tool_type = '', $caller = '' ) {
+    /**
+     * Get studio outputs.
+     *
+     * Architecture:
+     *   - Webchat (sidebar): query by session_id
+     *   - Notebook companion: query by project_id
+     *
+     * @param string $project_id  Notebook project UUID, or empty string.
+     * @param string $tool_type   Optional tool_type filter.
+     * @param string $caller      Optional caller filter.
+     * @param string $session_id  Webchat session ID (takes priority over project_id when set).
+     */
+    public function get_outputs( $project_id, $tool_type = '', $caller = '', $session_id = '' ) {
         global $wpdb;
-        $where = $wpdb->prepare( "WHERE project_id = %s", $project_id );
+
+        $cols = $wpdb->get_col( "DESCRIBE {$this->table()}", 0 ) ?: [];
+        $has_session_col = in_array( 'session_id', $cols, true );
+
+        if ( $session_id && $has_session_col ) {
+            // Webchat path: strict session_id lookup.
+            $where = $wpdb->prepare( "WHERE session_id = %s", $session_id );
+        } else {
+            // Notebook path: project_id lookup.
+            $where = $wpdb->prepare( "WHERE project_id = %s", $project_id );
+        }
+
         if ( $tool_type ) {
             $where .= $wpdb->prepare( " AND tool_type = %s", $tool_type );
         }
         if ( $caller ) {
             $where .= $wpdb->prepare( " AND caller = %s", $caller );
         }
+
+        $session_col = $has_session_col ? 'session_id,' : '';
         return $wpdb->get_results(
-            "SELECT id, project_id, tool_type, title, content, content_format, source_count, note_count,
+            "SELECT id, project_id, {$session_col} tool_type, title, content, content_format, source_count, note_count,
                     caller, tool_id, invoke_id, external_url, external_post_id, status, created_at
              FROM {$this->table()} {$where} ORDER BY created_at DESC"
         );
@@ -151,6 +183,8 @@ class BCN_Studio {
         if ( ! $output ) return new WP_Error( 'not_found', 'Output not found' );
 
         $this->delete_output( $id );
-        return $this->generate( $output->project_id, $output->tool_type, get_current_user_id() );
+        // Webchat outputs store the ID in session_id, notebook in project_id.
+        $scope_id = ! empty( $output->session_id ) ? $output->session_id : $output->project_id;
+        return $this->generate( $scope_id, $output->tool_type, get_current_user_id() );
     }
 }

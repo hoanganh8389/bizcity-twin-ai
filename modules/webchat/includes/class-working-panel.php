@@ -1305,5 +1305,5 @@ class BizCity_Working_Panel {
     }
 }
 
-// Initialize
+// DEPRECATED v4.9.3 — old floating bwp-wrap panel, replaced by React bizc-working-panel
 BizCity_Working_Panel::instance();

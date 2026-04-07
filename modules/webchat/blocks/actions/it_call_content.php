@@ -264,6 +264,18 @@ class WaicAction_it_call_content extends WaicAction {
 			'channel'    => 'pipeline',
 		];
 
+		// ── Propagate skill from upstream node (e.g. it_todos_planner) ──
+		$upstream_skill_key     = $variables['skill_key']     ?? '';
+		$upstream_skill_title   = $variables['skill_title']   ?? '';
+		$upstream_skill_content = $variables['skill_content'] ?? '';
+		if ( $upstream_skill_key && $upstream_skill_content ) {
+			$context['skill_override'] = [
+				'title'   => $upstream_skill_title ?: $upstream_skill_key,
+				'content' => $upstream_skill_content,
+				'path'    => $upstream_skill_key,
+			];
+		}
+
 		// ── Micro-step: send granular progress messages ──
 		$exec_state = $this->getExecutionState( $variables );
 		$has_messenger = class_exists( 'BizCity_Pipeline_Messenger' ) && ! empty( $exec_state['session_id'] );
@@ -397,11 +409,17 @@ class WaicAction_it_call_content extends WaicAction {
 			'session_id' => $session_id_trace,
 		], $success ? 'info' : 'error', (int) $elapsed_ms_trace );
 
+		// Build link to builder page for this task
+		$content_url = $taskId
+			? admin_url( 'admin.php?page=bizcity-workspace&tab=builder&task_id=' . intval( $taskId ) . '&bizcity_iframe=1' )
+			: '';
+
 		return [
 			'result' => [
 				'success'    => $success ? 'true' : 'false',
 				'content'    => $content,
 				'title'      => $title,
+				'url'        => $content_url,
 				'metadata'   => wp_json_encode( $metadata ),
 				'skill_used' => $skill_used,
 				'refined'    => 'false',
@@ -473,11 +491,20 @@ class WaicAction_it_call_content extends WaicAction {
 			$field    = $m[2];
 
 			// Try node result first
+			$value = '';
 			if ( isset( $variables[ $node_key ] ) && is_array( $variables[ $node_key ] ) ) {
-				return $variables[ $node_key ][ $field ] ?? '';
+				$value = $variables[ $node_key ][ $field ] ?? '';
+			} else {
+				// Try flat variable
+				$value = $variables[ $field ] ?? '';
 			}
-			// Try flat variable
-			return $variables[ $field ] ?? '';
+
+			// JSON-escape the value so it doesn't break the surrounding JSON structure.
+			// trim() removes the wrapping quotes added by json_encode for strings.
+			if ( is_string( $value ) ) {
+				return trim( wp_json_encode( $value ), '"' );
+			}
+			return (string) $value;
 		}, $json );
 	}
 

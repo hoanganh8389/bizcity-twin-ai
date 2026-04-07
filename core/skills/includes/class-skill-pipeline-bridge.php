@@ -86,11 +86,14 @@ class BizCity_Skill_Pipeline_Bridge {
 			'skill_title'   => $skill_title,
 			'skill_tools'   => array_merge(
 				(array) ( $skill['frontmatter']['tools'] ?? [] ),
-				(array) ( $skill['frontmatter']['related_tools'] ?? [] )
+				(array) ( $skill['frontmatter']['related_tools'] ?? [] ),
+				(array) ( $skill['body_tool_refs'] ?? [] )
 			),
 			'skill_content'    => $skill['content'] ?? '',
 			'archetype'        => $skill['archetype'] ?? 'C',
-			'steps'            => (array) ( $skill['frontmatter']['steps'] ?? [] ),
+			'steps'            => ! empty( $skill['frontmatter']['steps'] )
+				? (array) $skill['frontmatter']['steps']
+				: (array) ( $skill['body_steps'] ?? [] ),
 			'mode'          => $args['mode'] ?? '',
 			'message'       => $args['message'] ?? '',
 			'goal'          => $engine['meta']['goal'] ?? $engine['goal'] ?? '',
@@ -322,10 +325,11 @@ class BizCity_Skill_Pipeline_Bridge {
 	private static function get_step_inference_map(): array {
 		return [
 			// Research / search / tìm kiếm → it_call_research
-			'tìm kiếm|tìm tài liệu|nghiên cứu|research|search|thu thập nguồn|collect source|web search|tìm trên mạng|tìm trên internet|tra cứu' => 'it_call_research',
+			// @tool_name patterns: if step text mentions @deep_research etc., infer directly
+			'@deep_research|@web_search|@search_web|@tavily|tìm kiếm|tìm tài liệu|nghiên cứu|research|search|thu thập nguồn|collect source|web search|tìm trên mạng|tìm trên internet|tra cứu' => 'it_call_research',
 
 			// Write / create content → it_call_content
-			'viết|tạo nội dung|tạo bài|write|generate|soạn|biên soạn|create content|tổng hợp.*bài|content' => 'it_call_content',
+			'@generate_blog_content|@generate_fb_post|@write_article|@write_fb_post|@write_post|viết|tạo nội dung|tạo bài|write|generate|soạn|biên soạn|create content|tổng hợp.*bài|content' => 'it_call_content',
 
 			// Memory / save context → it_call_memory
 			'lưu|ghi nhớ|memory|save context|persist|snapshot|lưu trữ|context' => 'it_call_memory',
@@ -399,9 +403,9 @@ class BizCity_Skill_Pipeline_Bridge {
 		// Node 0: Trigger
 		$nodes[] = [
 			'type'     => 'trigger',
-			'code'     => 'waic_trigger',
+			'code'     => 'bc_instant_run',
 			'label'    => 'Trigger: ' . $skill_title,
-			'settings' => [ 'message' => $message ],
+			'settings' => [ 'default_text' => $message ],
 		];
 
 		// Node 1: Planner (creates todos)

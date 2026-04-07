@@ -100,10 +100,16 @@ require_once BIZCITY_INTENT_DIR . '/includes/tools/class-intent-tools.php';
 require_once BIZCITY_INTENT_DIR . '/includes/tools/class-intent-tool-index.php';
 require_once BIZCITY_INTENT_DIR . '/includes/tools/class-tool-control-panel.php';
 require_once BIZCITY_INTENT_DIR . '/includes/tools/class-tool-run.php';
+require_once BIZCITY_INTENT_DIR . '/includes/tools/class-tool-registry-map.php';
+require_once BIZCITY_INTENT_DIR . '/includes/tools/class-context-collector.php';
+require_once BIZCITY_INTENT_DIR . '/includes/tools/class-composite-executor.php';
 
 /* -- orchestration/ -- */
 require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-intent-planner.php';
 require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-priority-functions.php';
+require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-pre-rules.php';
+require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-local-fallback.php';
+require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-intent-engine-shell.php';
 require_once BIZCITY_INTENT_DIR . '/includes/orchestration/class-intent-engine.php';
 
 /* -- Phase 1 — Unified Pipeline (Evidence, IO Mapper, Core Planner, Scenario) -- */
@@ -230,6 +236,101 @@ add_action( 'plugins_loaded', function () {
 
     // Main intent engine orchestrator
     BizCity_Intent_Engine::instance();
+
+    // ── S3: Register seed composite tools ──
+    if ( class_exists( 'BizCity_Tool_Registry_Map' ) ) {
+        $registry_map = BizCity_Tool_Registry_Map::instance();
+
+        $registry_map->register_composite( 'write_and_post_article', [
+            'tool_id'     => 'write_and_post_article',
+            'capability'  => [
+                'summary'  => 'Viết bài và đăng lên website',
+                'actions'  => [ 'write', 'post', 'publish' ],
+                'domains'  => [ 'content', 'website' ],
+                'triggers' => [ 'viết bài đăng web', 'viết và đăng bài', 'write and post' ],
+            ],
+            'composition' => [
+                'steps'          => [
+                    [
+                        'tool'          => 'write_article',
+                        'label'         => 'Viết bài viết',
+                        'input_mapping' => [ 'topic' => '$user.topic', 'style' => '$user.style' ],
+                    ],
+                    [
+                        'tool'          => 'post_website',
+                        'label'         => 'Đăng lên website',
+                        'input_mapping' => [ 'content' => '$step_0.output.article_text', 'title' => '$step_0.output.title' ],
+                    ],
+                ],
+                'error_strategy' => 'stop_on_fail',
+            ],
+        ] );
+
+        $registry_map->register_composite( 'publish_cross_platform', [
+            'tool_id'     => 'publish_cross_platform',
+            'capability'  => [
+                'summary'  => 'Viết bài và đăng lên website + Facebook',
+                'actions'  => [ 'write', 'post', 'publish', 'share' ],
+                'domains'  => [ 'content', 'website', 'social_media' ],
+                'triggers' => [ 'đăng web và facebook', 'publish cross platform', 'viết bài đăng khắp nơi' ],
+            ],
+            'composition' => [
+                'steps'          => [
+                    [
+                        'tool'          => 'write_article',
+                        'label'         => 'Viết bài viết',
+                        'input_mapping' => [ 'topic' => '$user.topic', 'style' => '$user.style' ],
+                    ],
+                    [
+                        'tool'          => 'post_website',
+                        'label'         => 'Đăng lên website',
+                        'input_mapping' => [ 'content' => '$step_0.output.article_text', 'title' => '$step_0.output.title' ],
+                    ],
+                    [
+                        'tool'          => 'post_facebook',
+                        'label'         => 'Đăng lên Facebook',
+                        'input_mapping' => [ 'content' => '$step_0.output.article_text', 'title' => '$step_0.output.title' ],
+                    ],
+                ],
+                'error_strategy' => 'continue',
+            ],
+        ] );
+
+        $registry_map->register_composite( 'product_launch', [
+            'tool_id'     => 'product_launch',
+            'capability'  => [
+                'summary'  => 'Tạo sản phẩm, viết bài giới thiệu, đăng web + Facebook',
+                'actions'  => [ 'create', 'write', 'post', 'publish', 'launch' ],
+                'domains'  => [ 'product', 'content', 'website', 'social_media' ],
+                'triggers' => [ 'launch sản phẩm', 'ra mắt sản phẩm', 'product launch' ],
+            ],
+            'composition' => [
+                'steps'          => [
+                    [
+                        'tool'          => 'create_product',
+                        'label'         => 'Tạo sản phẩm',
+                        'input_mapping' => [ 'name' => '$user.product_name', 'description' => '$user.description', 'price' => '$user.price' ],
+                    ],
+                    [
+                        'tool'          => 'write_article',
+                        'label'         => 'Viết bài giới thiệu',
+                        'input_mapping' => [ 'topic' => '$step_0.output.product_name', 'style' => 'product_review' ],
+                    ],
+                    [
+                        'tool'          => 'post_website',
+                        'label'         => 'Đăng lên website',
+                        'input_mapping' => [ 'content' => '$step_1.output.article_text', 'title' => '$step_1.output.title' ],
+                    ],
+                    [
+                        'tool'          => 'post_facebook',
+                        'label'         => 'Đăng lên Facebook',
+                        'input_mapping' => [ 'content' => '$step_1.output.article_text', 'title' => '$step_1.output.title' ],
+                    ],
+                ],
+                'error_strategy' => 'continue',
+            ],
+        ] );
+    }
 
     // ── O10: WP-Cron for reliable stale conversation cleanup (v3.6.1) ──
     add_action( 'bizcity_intent_stale_cleanup', function () {

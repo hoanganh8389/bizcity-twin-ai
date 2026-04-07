@@ -480,10 +480,27 @@ class BizCity_Admin_Chat {
     }
 
     /* ================================================================
-     * Call OpenRouter API
+     * Call OpenRouter API — via BizCity LLM Gateway (unified billing)
      * ================================================================ */
     private function call_openrouter($character, $messages) {
-        $api_key = get_option('bizcity_openrouter_api_key', '');
+        // Use BizCity LLM Client (gateway mode) — unified auth, billing, logging
+        if ( function_exists( 'bizcity_llm_chat' ) ) {
+            $result = bizcity_llm_chat( $messages, [
+                'model'       => $character->model_id,
+                'purpose'     => 'chat',
+                'temperature' => floatval( $character->creativity_level ?? 0.7 ),
+                'max_tokens'  => 3000,
+            ] );
+            return [
+                'message'  => $result['message'] ?? 'Xin lỗi, không nhận được phản hồi.',
+                'provider' => 'gateway',
+                'model'    => $result['model'] ?? $character->model_id,
+                'usage'    => $result['usage'] ?? [],
+            ];
+        }
+
+        // Legacy fallback: direct OpenRouter call (only if bizcity_llm not loaded)
+        $api_key = get_site_option( 'bizcity_openrouter_api_key', '' );
 
         if (empty($api_key)) {
             // Fallback to OpenAI

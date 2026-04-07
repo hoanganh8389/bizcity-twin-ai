@@ -378,6 +378,18 @@ class WaicWorkflow extends WaicModule {
 			wp_send_json_error(['message' => 'No nodes to execute']);
 			return;
 		}
+
+		// Resolve slash_command: prefer POST, fallback to saved task meta
+		$slash_command = sanitize_text_field( $_POST['slash_command'] ?? '' );
+		if ( empty( $slash_command ) && $taskId > 0 ) {
+			global $wpdb;
+			$table = $wpdb->prefix . ( defined( 'WAIC_DB_PREF' ) ? WAIC_DB_PREF : 'bizcity_' ) . 'tasks';
+			$raw   = $wpdb->get_var( $wpdb->prepare( "SELECT params FROM {$table} WHERE id = %d", $taskId ) );
+			if ( $raw ) {
+				$saved = json_decode( $raw, true );
+				$slash_command = $saved['meta']['slash_command'] ?? '';
+			}
+		}
 		
 		// Create execution state
 		$executionId = 'waic_test_' . $taskId . '_' . time();
@@ -484,6 +496,7 @@ class WaicWorkflow extends WaicModule {
 			'session_id'               => $this->resolve_session_id(),
 			'channel'                  => sanitize_text_field( $_POST['channel'] ?? 'adminchat' ),
 			'intent_conversation_id'   => '',
+			'slash_command'            => $slash_command,
 			'node_step_map'            => [], // built lazily in executeWorkflowBackground
 			'_direct_pipeline'         => true, // BFS loop handles evidence/todos/messenger directly
 		];

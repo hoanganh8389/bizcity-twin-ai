@@ -2138,17 +2138,21 @@ class BizCity_Chat_Gateway {
             if ( is_string( $objectives ) ) {
                 $objectives = json_decode( $objectives, true ) ?: [];
             }
+            // v4.9.3: Ensure primary_objective is always a string (may be array from intent engine)
+            $primary_obj_raw = $objectives[0] ?? '';
+            $primary_obj_str = is_array( $primary_obj_raw ) ? ( $primary_obj_raw['text'] ?? '' ) : (string) $primary_obj_raw;
+
             $this->emit_trace( 'mode_classified', [
                 'mode'       => $mode_classifier,
                 'confidence' => (float) $confidence,
                 'objectives_count' => count( (array) $objectives ),
-                'primary_objective' => $objectives[0] ?? '',
+                'primary_objective' => $primary_obj_str,
                 'multi_goal_detected' => count( (array) $objectives ) > 1,
             ] );
 
             $this->emit_trace( 'objectives_detected', [
                 'objectives_count'  => count( (array) $objectives ),
-                'primary_objective' => $objectives[0] ?? '',
+                'primary_objective' => $primary_obj_str,
                 'objectives'        => array_slice( (array) $objectives, 0, 5 ),
             ] );
 
@@ -2197,11 +2201,20 @@ class BizCity_Chat_Gateway {
                     'delta' => $intent_result['reply'],
                     'full'  => $intent_result['reply'],
                 ] );
-                $this->send_stream_event( 'done', [
+
+                // S8: Pipeline metadata at top level for frontend (ChatPanel.jsx checks data.action + data.task_id)
+                $done_data = [
                     'message'       => $intent_result['reply'],
                     'provider'      => 'local-intent',
+                    'action'        => $intent_action,
                     'engine_result' => $intent_result,
-                ] );
+                ];
+                if ( $intent_action === 'execute_pipeline' && ! empty( $intent_result['meta']['task_id'] ) ) {
+                    $done_data['task_id']         = $intent_result['meta']['task_id'];
+                    $done_data['pipeline_id']     = $intent_result['meta']['pipeline_id'] ?? '';
+                    $done_data['pipeline_active'] = true;
+                }
+                $this->send_stream_event( 'done', $done_data );
                 $this->send_stream_close();
 
                 $this->log_message( [

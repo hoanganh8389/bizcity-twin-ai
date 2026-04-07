@@ -44,6 +44,7 @@ if ( class_exists( 'BizCity_LLM_Client' ) ) {
 }
 require_once BIZCITY_LLM_DIR . '/includes/class-llm-models.php';
 require_once BIZCITY_LLM_DIR . '/includes/class-llm-client.php';
+require_once BIZCITY_LLM_DIR . '/includes/class-search-client.php';
 require_once BIZCITY_LLM_DIR . '/includes/class-llm-usage-log.php';
 require_once BIZCITY_LLM_DIR . '/includes/class-llm-settings.php';
 require_once BIZCITY_LLM_DIR . '/includes/class-smart-gateway.php';
@@ -51,6 +52,7 @@ require_once BIZCITY_LLM_DIR . '/includes/class-smart-gateway.php';
 /* ── Boot ── */
 add_action( 'plugins_loaded', function () {
     BizCity_LLM_Client::instance();
+    BizCity_Search_Client::instance();
     BizCity_LLM_Settings::instance();
     BizCity_LLM_Usage_Log::maybe_install();
 }, 1 );
@@ -216,5 +218,45 @@ if ( ! function_exists( 'bizcity_tavily_api_key' ) ) {
 if ( ! function_exists( 'bizcity_tavily_is_ready' ) ) {
     function bizcity_tavily_is_ready(): bool {
         return ! empty( bizcity_tavily_api_key() );
+    }
+}
+
+/* ======================================================================
+ * SEARCH HELPER FUNCTIONS — Canonical API for web search
+ * All plugins should use these instead of BCN_Tavily_Client directly.
+ * ====================================================================== */
+
+/**
+ * Search the web via BizCity Search Router.
+ *
+ * @param string $query        Search query.
+ * @param int    $max_results  1–20, default 10.
+ * @param array  $options      { search_depth, topic, include_domains, exclude_domains, ... }
+ * @return array|WP_Error  Normalized results array or WP_Error.
+ */
+if ( ! function_exists( 'bizcity_search' ) ) {
+    function bizcity_search( string $query, int $max_results = 10, array $options = [] ) {
+        return BizCity_Search_Client::instance()->search( $query, $max_results, $options );
+    }
+}
+
+/**
+ * Extract full-text content from URLs via BizCity Search Router.
+ *
+ * @param string[] $urls  Up to 20 URLs.
+ * @return array|WP_Error
+ */
+if ( ! function_exists( 'bizcity_search_extract' ) ) {
+    function bizcity_search_extract( array $urls ) {
+        return BizCity_Search_Client::instance()->extract( $urls );
+    }
+}
+
+/**
+ * Check whether BizCity Search is configured and ready.
+ */
+if ( ! function_exists( 'bizcity_search_is_ready' ) ) {
+    function bizcity_search_is_ready(): bool {
+        return BizCity_Search_Client::instance()->is_ready();
     }
 }

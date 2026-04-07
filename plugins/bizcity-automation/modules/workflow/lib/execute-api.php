@@ -66,6 +66,7 @@ class WaicWorkflowExecuteAPI {
                 'session_id'               => sanitize_text_field( $_POST['session_id'] ?? '' ),
                 'channel'                  => sanitize_text_field( $_POST['channel'] ?? 'adminchat' ),
                 'intent_conversation_id'   => sanitize_text_field( $_POST['intent_conversation_id'] ?? '' ),
+                'slash_command'            => sanitize_text_field( $_POST['slash_command'] ?? '' ),
                 'node_step_map'            => $this->buildNodeStepMap( $nodes, $edges ),
             ];
             
@@ -858,6 +859,7 @@ class WaicWorkflowExecuteAPI {
         $variables['_user_id']                = $executionState['user_id'] ?? 0;
         $variables['_channel']                = $executionState['channel'] ?? 'adminchat';
         $variables['_intent_conversation_id'] = $executionState['intent_conversation_id'] ?? '';
+        $variables['_slash_command']           = $executionState['slash_command'] ?? '';
         
         return $variables;
     }
@@ -1373,7 +1375,9 @@ class WaicWorkflowExecuteAPI {
             
             // Execute node
             $executionState = get_transient($executionId); // Refresh state
+            $node_t_start = microtime( true );
             $result = $this->executeNodeAction($executionId, $currentNode, $executionState);
+            $node_duration_ms = (int) ( ( microtime( true ) - $node_t_start ) * 1000 );
             
             $nodeResults = $result['data'] ?? [];
             
@@ -1587,7 +1591,8 @@ class WaicWorkflowExecuteAPI {
                                     is_array( $result_data ) ? $result_data : [],
                                     $step_index,
                                     $total_steps,
-                                    $matched_todo_id
+                                    $matched_todo_id,
+                                    $node_duration_ms ?? 0
                                 );
                             } else {
                                 $msg_result = BizCity_Pipeline_Messenger::send_error(

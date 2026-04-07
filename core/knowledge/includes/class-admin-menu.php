@@ -361,7 +361,7 @@ class BizCity_Knowledge_Admin_Menu {
     public function render_notebook_page() {
         if ( class_exists( 'BCN_Admin_Page' ) ) {
             BCN_Admin_Page::enqueue_note_assets();
-            echo '<div id="bcn-app" class="bcn-wrap" style="min-height:80vh;margin:-8px -20px 0"></div>';
+            echo '<div id="bcn-app" class="bcn-wrap" style="min-height:100vh;margin:0;"></div>';
             return;
         }
         echo '<div class="wrap"><h1>' . esc_html__( 'Learn with AI', 'bizcity-twin-ai' ) . '</h1>';

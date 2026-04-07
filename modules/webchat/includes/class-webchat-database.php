@@ -392,6 +392,24 @@ class BizCity_WebChat_Database {
             INDEX idx_user (user_id),
             INDEX idx_status (embedding_status)
         ) {$charset_collate};" );
+
+        // Migration 12 (v5.0 — Notebook/Chat split): Add project_id + normalise column names.
+        // Architecture: chat sources use session_id; notebook sources use project_id.
+        // source_url / content_text replace legacy url / content for new rows.
+        $cols_sources = $wpdb->get_col( "DESCRIBE {$table_sources}", 0 ) ?: [];
+        if ( ! in_array( 'project_id', $cols_sources, true ) ) {
+            $wpdb->query( "ALTER TABLE {$table_sources} ADD COLUMN project_id VARCHAR(50) DEFAULT '' AFTER user_id" );
+            $wpdb->query( "ALTER TABLE {$table_sources} ADD INDEX idx_project (project_id)" );
+        }
+        if ( ! in_array( 'source_url', $cols_sources, true ) ) {
+            $wpdb->query( "ALTER TABLE {$table_sources} ADD COLUMN source_url VARCHAR(1000) DEFAULT '' AFTER title" );
+        }
+        if ( ! in_array( 'content_text', $cols_sources, true ) ) {
+            $wpdb->query( "ALTER TABLE {$table_sources} ADD COLUMN content_text LONGTEXT AFTER source_url" );
+        }
+        if ( ! in_array( 'attachment_id', $cols_sources, true ) ) {
+            $wpdb->query( "ALTER TABLE {$table_sources} ADD COLUMN attachment_id BIGINT UNSIGNED DEFAULT NULL AFTER content_text" );
+        }
     }
 
     /**

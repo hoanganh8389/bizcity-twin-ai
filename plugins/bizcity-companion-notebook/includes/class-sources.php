@@ -11,7 +11,7 @@
 defined( 'ABSPATH' ) || exit;
 
 /**
- * Sources — CRUD for webchat_sources.
+ * Sources — CRUD for rces.
  */
 class BCN_Sources {
 
@@ -58,9 +58,15 @@ class BCN_Sources {
 
         $hash = hash( 'sha256', $content_text );
 
+        // For webchat sessions (wcs_ prefix), use the session_id column.
+        $is_wcs     = str_starts_with( $project_id, 'wcs_' );
+        $col_project = $is_wcs ? '' : $project_id;
+        $col_session = $is_wcs ? $project_id : ( $data['session_id'] ?? '' );
+
         $wpdb->insert( $this->table(), [
             'user_id'       => $user_id,
-            'project_id'    => $project_id,
+            'project_id'    => $col_project,
+            'session_id'    => $col_session,
             'title'         => $title,
             'source_type'   => $type,
             'source_url'    => sanitize_url( $data['source_url'] ?? '' ),
@@ -188,15 +194,106 @@ class BCN_Sources {
 
     public function get_by_project( $project_id ) {
         global $wpdb;
-        // Webchat sessions use session_id (wcs_ prefix), not project_id.
-        $col = str_starts_with( $project_id, 'wcs_' ) ? 'session_id' : 'project_id';
-        return $wpdb->get_results( $wpdb->prepare(
+        $table = $this->table();
+
+        if ( str_starts_with( $project_id, 'wcs_' ) ) {
+            // Webchat sessions: stored in session_id column of bizcity_rces.
+            $bcn_sources = $wpdb->get_results( $wpdb->prepare(
+                "SELECT id, user_id, project_id, title, source_type, source_url, char_count,
+                        token_estimate, status, embedding_status, chunk_count, created_at
+                 FROM {$table}
+                 WHERE session_id = %s ORDER BY created_at DESC",
+                $project_id
+            ) ) ?: [];
+
+            // Also check bizcity_webchat_sources for research-imported rows.
+            $wcs_table = $wpdb->prefix . 'bizcity_webchat_sources';
+            $wcs_rows = $wpdb->get_results( $wpdb->prepare(
+                "SELECT id, user_id, project_id, title, source_type,
+                        source_url,
+                        0           AS char_count,
+                        0           AS token_estimate,
+                        'ready'     AS status,
+                        IFNULL(embedding_status, 'pending') AS embedding_status,
+                        IFNULL(chunk_count, 0)              AS chunk_count,
+                        created_at
+                 FROM {$wcs_table}
+                 WHERE session_id = %s
+                 ORDER BY created_at DESC",
+                $project_id
+            ) ) ?: [];
+
+            if ( $wcs_rows ) {
+                $seen = [];
+                foreach ( $bcn_sources as $r ) {
+                    $seen[ ( $r->source_type ?? '' ) . '|' . ( $r->source_url ?? '' ) ] = true;
+                }
+                foreach ( $wcs_rows as $r ) {
+                    $key = ( $r->source_type ?? '' ) . '|' . ( $r->source_url ?? '' );
+                    if ( ! isset( $seen[ $key ] ) ) {
+                        $bcn_sources[] = $r;
+                        $seen[ $key ]  = true;
+                    }
+                }
+                usort( $bcn_sources, static fn( $a, $b ) => strcmp( $b->created_at ?? '', $a->created_at ?? '' ) );
+            }
+
+            return $bcn_sources;
+        }
+
+        // Notebook projects: canonical column is project_id.
+        // Fallback to session_id covers legacy rows written before project_id existed.
+        $bcn_sources = $wpdb->get_results( $wpdb->prepare(
             "SELECT id, user_id, project_id, title, source_type, source_url, char_count,
                     token_estimate, status, embedding_status, chunk_count, created_at
-             FROM {$this->table()}
-             WHERE {$col} = %s ORDER BY created_at DESC",
+             FROM {$table}
+             WHERE project_id = %s
+                OR (project_id = '' AND session_id = %s)
+             ORDER BY created_at DESC",
+            $project_id,
             $project_id
-        ) );
+        ) ) ?: [];
+
+        // Also check bizcity_webchat_sources, which can hold project-scoped rows
+        // written by the research tool (project_id set, session_id empty).
+        $wcs_table = $wpdb->prefix . 'bizcity_webchat_sources';
+        $wcs_cols  = $wpdb->get_col( "SHOW COLUMNS FROM {$wcs_table}", 0 ) ?: [];
+
+        if ( in_array( 'project_id', $wcs_cols, true ) ) {
+            $url_col = in_array( 'source_url', $wcs_cols, true ) ? 'source_url' : 'url';
+            $wcs_rows = $wpdb->get_results( $wpdb->prepare(
+                "SELECT id, user_id, project_id, title, source_type,
+                        {$url_col} AS source_url,
+                        0           AS char_count,
+                        0           AS token_estimate,
+                        'ready'     AS status,
+                        IFNULL(embedding_status, 'pending') AS embedding_status,
+                        IFNULL(chunk_count, 0)              AS chunk_count,
+                        created_at
+                 FROM {$wcs_table}
+                 WHERE project_id = %s
+                 ORDER BY created_at DESC",
+                $project_id
+            ) ) ?: [];
+
+            if ( $wcs_rows ) {
+                // Deduplicate by source_url+type, preferring BCN rows (richer data).
+                $seen = [];
+                foreach ( $bcn_sources as $r ) {
+                    $seen[ ( $r->source_type ?? '' ) . '|' . ( $r->source_url ?? '' ) ] = true;
+                }
+                foreach ( $wcs_rows as $r ) {
+                    $key = ( $r->source_type ?? '' ) . '|' . ( $r->source_url ?? '' );
+                    if ( ! isset( $seen[ $key ] ) ) {
+                        $bcn_sources[] = $r;
+                        $seen[ $key ]  = true;
+                    }
+                }
+                usort( $bcn_sources, static fn( $a, $b ) => strcmp( $b->created_at ?? '', $a->created_at ?? '' ) );
+            }
+        }
+
+        return $bcn_sources;
     }
 
     /**
@@ -206,13 +303,24 @@ class BCN_Sources {
         global $wpdb;
 
         $table = $this->table();
-        $col   = str_starts_with( $project_id, 'wcs_' ) ? 'session_id' : 'project_id';
-        $rows  = $wpdb->get_results( $wpdb->prepare(
-            "SELECT title, content_text FROM {$table}
-             WHERE {$col} = %s AND status = 'ready'
-             ORDER BY created_at ASC",
-            $project_id
-        ) );
+
+        if ( str_starts_with( $project_id, 'wcs_' ) ) {
+            $rows = $wpdb->get_results( $wpdb->prepare(
+                "SELECT title, content_text FROM {$table}
+                 WHERE session_id = %s AND status = 'ready'
+                 ORDER BY created_at ASC",
+                $project_id
+            ) );
+        } else {
+            $rows = $wpdb->get_results( $wpdb->prepare(
+                "SELECT title, content_text FROM {$table}
+                 WHERE (project_id = %s OR (project_id = '' AND session_id = %s))
+                   AND status = 'ready'
+                 ORDER BY created_at ASC",
+                $project_id,
+                $project_id
+            ) );
+        }
 
         error_log( "[BCN] get_all_content: project={$project_id}, table={$table}, rows=" . count( $rows ) );
         if ( $wpdb->last_error ) {
@@ -236,9 +344,20 @@ class BCN_Sources {
 
     public function get_total_tokens( $project_id ) {
         global $wpdb;
-        $col = str_starts_with( $project_id, 'wcs_' ) ? 'session_id' : 'project_id';
+        $table = $this->table();
+
+        if ( str_starts_with( $project_id, 'wcs_' ) ) {
+            return (int) $wpdb->get_var( $wpdb->prepare(
+                "SELECT SUM(token_estimate) FROM {$table} WHERE session_id = %s AND status = 'ready'",
+                $project_id
+            ) );
+        }
+
         return (int) $wpdb->get_var( $wpdb->prepare(
-            "SELECT SUM(token_estimate) FROM {$this->table()} WHERE {$col} = %s AND status = 'ready'",
+            "SELECT SUM(token_estimate) FROM {$table}
+             WHERE (project_id = %s OR (project_id = '' AND session_id = %s))
+               AND status = 'ready'",
+            $project_id,
             $project_id
         ) );
     }

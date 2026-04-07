@@ -168,6 +168,13 @@ class BizCity_Skill_REST_API {
 			'permission_callback' => [ $this, 'check_admin' ],
 		] );
 
+		// POST /import-md — import a skill from raw .md content, save to bizcity_skills + skill_tool_map
+		register_rest_route( self::API_NAMESPACE, '/import-md', [
+			'methods'             => 'POST',
+			'callback'            => [ $this, 'import_md' ],
+			'permission_callback' => [ $this, 'check_admin' ],
+		] );
+
 		// POST /generate — AI-generate skill markdown from a natural language prompt
 		register_rest_route( self::API_NAMESPACE, '/generate', [
 			'methods'             => 'POST',
@@ -580,6 +587,59 @@ class BizCity_Skill_REST_API {
 			'synced' => $synced,
 			'failed' => $failed,
 			'errors' => $errors,
+		], 200 );
+	}
+
+	/**
+	 * POST /import-md — Import a skill from raw .md content (client reads file, sends text).
+	 *
+	 * Body: { raw: string, filename?: string }
+	 * Returns: { saved: true, skill_id: int, title: string, skill_key: string }
+	 */
+	public function import_md( \WP_REST_Request $req ): \WP_REST_Response {
+		$body     = $req->get_json_params();
+		$raw      = (string) ( $body['raw'] ?? '' );
+		$filename = sanitize_file_name( $body['filename'] ?? '' );
+
+		if ( ! $raw ) {
+			return new \WP_REST_Response( [ 'error' => 'Nội dung file không được để trống.' ], 400 );
+		}
+
+		// Only allow valid markdown (security: strip server-side scripts)
+		$raw = preg_replace( '/<script\b[^>]*>.*?<\/script>/is', '', $raw );
+
+		$mgr    = BizCity_Skill_Manager::instance();
+		$parsed = $mgr->parse_frontmatter( $raw );
+		$fm     = $parsed['frontmatter'] ?? [];
+		$body_content = $parsed['content'] ?? '';
+
+		// Derive category + skill_key from frontmatter or filename
+		$skill_key = $fm['name'] ?? '';
+		if ( ! $skill_key && $filename ) {
+			$skill_key = sanitize_title( basename( $filename, '.md' ) );
+		}
+		if ( ! $skill_key ) {
+			$skill_key = sanitize_title( $fm['title'] ?? 'imported-skill' );
+		}
+		$fm['name'] = $skill_key;
+
+		$category = $fm['category'] ?? 'general';
+
+		// Build virtual path so sync_skill_to_db() can derive category correctly
+		$virtual_path = "/{$category}/{$skill_key}.md";
+
+		$skill_id = $this->sync_skill_to_db( $virtual_path, $fm, $body_content, $raw );
+
+		if ( ! $skill_id ) {
+			return new \WP_REST_Response( [ 'error' => 'Không thể lưu skill vào cơ sở dữ liệu.' ], 500 );
+		}
+
+		return new \WP_REST_Response( [
+			'saved'     => true,
+			'skill_id'  => $skill_id,
+			'title'     => $fm['title'] ?? $skill_key,
+			'skill_key' => $skill_key,
+			'category'  => $category,
 		], 200 );
 	}
 

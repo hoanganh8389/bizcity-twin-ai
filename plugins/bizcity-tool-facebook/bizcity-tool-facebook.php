@@ -82,7 +82,6 @@ require_once BZTOOL_FB_DIR . 'includes/class-tools-facebook.php';
 require_once BZTOOL_FB_DIR . 'includes/class-ajax-facebook.php';
 require_once BZTOOL_FB_DIR . 'includes/admin-menu.php';
 require_once BZTOOL_FB_DIR . 'includes/integration-chat.php';
-require_once BZTOOL_FB_DIR . 'includes/class-channel-adapter.php';
 require_once BZTOOL_FB_DIR . 'includes/class-intent-provider.php';
 
 /* ── Boot standalone services ── */
@@ -94,6 +93,7 @@ add_action( 'plugins_loaded', function() {
 
 /* ── Register Channel Adapter with twin-ai Gateway Bridge ── */
 add_action( 'bizcity_register_channel', function( $bridge ) {
+    require_once BZTOOL_FB_DIR . 'includes/class-channel-adapter.php';
     if ( class_exists( 'BizCity_Facebook_Channel_Adapter' ) ) {
         $bridge->register_adapter( new BizCity_Facebook_Channel_Adapter() );
     }

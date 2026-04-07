@@ -108,6 +108,10 @@ class BizCity_WebChat_Ajax_Handlers {
 
         // Tool Registry (Sprint 2)
         add_action( 'wp_ajax_bizcity_tool_registry_list', [ $this, 'ajax_tool_registry_list' ] );
+
+        // Detail fetch (ContentDetailModal — Phase 1.11)
+        add_action( 'wp_ajax_bizcity_webchat_fetch_skill',   [ $this, 'ajax_fetch_skill_detail' ] );
+        add_action( 'wp_ajax_bizcity_webchat_fetch_memspec', [ $this, 'ajax_fetch_memspec_detail' ] );
     }
 
     /**
@@ -1885,9 +1889,20 @@ class BizCity_WebChat_Ajax_Handlers {
         }
 
         $table_msg   = $wpdb->prefix . 'bizcity_webchat_messages';
-        $table_notes = class_exists( 'BCN_Schema_Extend' )
-            ? BCN_Schema_Extend::table_notes()
-            : $wpdb->prefix . 'bizcity_memory_notes';
+
+        // Use BCN memory_notes if available, else fallback to memory_notes directly
+        if ( class_exists( 'BCN_Schema_Extend' ) ) {
+            $table_notes  = BCN_Schema_Extend::table_notes();
+        } else {
+            $table_notes  = $wpdb->prefix . 'bizcity_memory_notes';
+        }
+        $msg_id_col = 'message_id';
+
+        // Ensure notes table exists
+        if ( ! $wpdb->get_var( $wpdb->prepare( "SHOW TABLES LIKE %s", $table_notes ) ) ) {
+            wp_send_json_error( [ 'message' => 'Notes table not found. Please refresh to trigger schema migration.' ] );
+            return;
+        }
 
         // Get message content
         $msg = $wpdb->get_row( $wpdb->prepare(
@@ -1903,24 +1918,38 @@ class BizCity_WebChat_Ajax_Handlers {
         $sid = $session_id ?: $msg->session_id;
         $title = mb_substr( wp_strip_all_tags( $msg->message_text ), 0, 100, 'UTF-8' );
 
-        // Create note in BCN memory_notes table
-        $wpdb->insert( $table_notes, [
+        // Create note
+        $inserted = $wpdb->insert( $table_notes, [
             'session_id'  => $sid,
             'user_id'     => $user_id,
             'note_type'   => 'chat_pinned',
             'title'       => $title,
             'content'     => $msg->message_text,
-            'message_id'  => $message_id,
+            $msg_id_col   => $message_id,
             'created_at'  => current_time( 'mysql' ),
         ] );
 
+        if ( ! $inserted ) {
+            error_log( '[bizcity-pin] Insert failed: ' . $wpdb->last_error . ' | table=' . $table_notes );
+            wp_send_json_error( [ 'message' => 'Failed to save note: ' . $wpdb->last_error ] );
+            return;
+        }
+
         $note_id = $wpdb->insert_id;
+
+        // Mark message as pinned in messages table
+        $wpdb->update(
+            $table_msg,
+            [ 'is_pinned' => 1 ],
+            [ 'id' => $message_id ]
+        );
 
         wp_send_json_success( [
             'note_id'    => $note_id,
             'title'      => $title,
             'content'    => $msg->message_text,
             'note_type'  => 'chat_pinned',
+            'session_id' => $sid,
             'created_at' => current_time( 'mysql' ),
         ] );
     }
@@ -1977,9 +2006,13 @@ class BizCity_WebChat_Ajax_Handlers {
         $session_id = sanitize_text_field( $_POST['session_id'] ?? '' );
         $user_id    = get_current_user_id();
         $search     = sanitize_text_field( $_POST['search'] ?? '' );
-        $table      = class_exists( 'BCN_Schema_Extend' )
-            ? BCN_Schema_Extend::table_notes()
-            : $wpdb->prefix . 'bizcity_memory_notes';
+
+        if ( class_exists( 'BCN_Schema_Extend' ) ) {
+            $table = BCN_Schema_Extend::table_notes();
+        } else {
+            $table = $wpdb->prefix . 'bizcity_memory_notes';
+        }
+        $msg_id_sel = 'message_id';
 
         $where = $wpdb->prepare( "WHERE user_id = %d", $user_id );
         if ( $session_id ) {
@@ -1991,7 +2024,7 @@ class BizCity_WebChat_Ajax_Handlers {
         }
 
         $notes = $wpdb->get_results(
-            "SELECT id, session_id, note_type, title, LEFT(content, 500) AS content, message_id AS source_message_id, created_at, updated_at
+            "SELECT id, session_id, note_type, title, LEFT(content, 500) AS content, {$msg_id_sel}, created_at, updated_at
              FROM {$table} {$where} ORDER BY created_at DESC LIMIT 100",
             ARRAY_A
         );
@@ -2103,11 +2136,13 @@ class BizCity_WebChat_Ajax_Handlers {
 
         $where = $wpdb->prepare( "WHERE user_id = %d", $user_id );
         if ( $session_id ) {
-            $where .= $wpdb->prepare( " AND (session_id = %s OR session_id = '')", $session_id );
+            // Filter strictly by session_id — project-scoped sources (session_id='')
+            // belong to the Notebook and must NOT bleed into chat sessions.
+            $where .= $wpdb->prepare( " AND session_id = %s", $session_id );
         }
 
         $sources = $wpdb->get_results(
-            "SELECT id, session_id, source_type, title, source_url AS url, embedding_status, chunk_count, created_at
+            "SELECT id, session_id, source_type, title, source_url, source_url AS url, content_text, embedding_status, chunk_count, created_at
              FROM {$table} {$where} ORDER BY created_at DESC LIMIT 50",
             ARRAY_A
         );
@@ -2241,20 +2276,12 @@ class BizCity_WebChat_Ajax_Handlers {
             return;
         }
 
-        // Load Tavily client from companion-notebook or core
-        if ( ! class_exists( 'BCN_Tavily_Client' ) ) {
-            $tavily_path = WP_PLUGIN_DIR . '/bizcity-twin-ai/plugins/bizcity-companion-notebook/includes/class-tavily-client.php';
-            if ( file_exists( $tavily_path ) ) {
-                require_once $tavily_path;
-            }
-        }
-
-        if ( ! class_exists( 'BCN_Tavily_Client' ) ) {
-            wp_send_json_error( [ 'message' => 'Tavily client not available. Install companion-notebook plugin.' ] );
+        // Use BizCity Search Client (gateway-only)
+        if ( ! function_exists( 'bizcity_search' ) ) {
+            wp_send_json_error( [ 'message' => 'Search client not available.' ] );
             return;
         }
-
-        $results = BCN_Tavily_Client::search( $query, min( $max_results, 10 ) );
+        $results = bizcity_search( $query, min( $max_results, 10 ) );
 
         if ( is_wp_error( $results ) ) {
             wp_send_json_error( [ 'message' => $results->get_error_message() ] );
@@ -2441,7 +2468,8 @@ class BizCity_WebChat_Ajax_Handlers {
         }
 
         $studio  = new BCN_Studio();
-        $outputs = $studio->get_outputs( $session_id, '', $caller === 'all' ? '' : $caller );
+        // Pass session_id so webchat queries by session_id (not project_id).
+        $outputs = $studio->get_outputs( '', '', $caller === 'all' ? '' : $caller, $session_id );
         wp_send_json_success( $outputs ?: [] );
     }
 
@@ -2789,6 +2817,63 @@ class BizCity_WebChat_Ajax_Handlers {
             'filter' => $filter,
             'count'  => count( $tools ),
             'tools'  => array_values( $tools ),
+        ] );
+    }
+
+    /* ================================================================
+     *  Detail Fetch — Skill & Memory Spec (Phase 1.11)
+     * ================================================================ */
+
+    public function ajax_fetch_skill_detail() {
+        check_ajax_referer( 'bizcity_webchat', '_wpnonce' );
+
+        $skill_key = sanitize_text_field( wp_unslash( $_POST['skill_key'] ?? '' ) );
+        if ( empty( $skill_key ) ) {
+            wp_send_json_error( [ 'message' => 'Missing skill_key' ] );
+        }
+
+        if ( ! class_exists( 'BizCity_Skill_Manager' ) ) {
+            wp_send_json_error( [ 'message' => 'Skill Manager not available' ] );
+        }
+
+        $skill = BizCity_Skill_Manager::instance()->get_skill( $skill_key );
+        if ( ! $skill ) {
+            wp_send_json_error( [ 'message' => 'Skill not found' ] );
+        }
+
+        wp_send_json_success( [
+            'skill_key' => $skill_key,
+            'title'     => $skill['frontmatter']['title'] ?? 'Untitled',
+            'content'   => $skill['content'] ?? '',
+            'score'     => $skill['score'] ?? null,
+        ] );
+    }
+
+    public function ajax_fetch_memspec_detail() {
+        check_ajax_referer( 'bizcity_webchat', '_wpnonce' );
+
+        $post_id = (int) ( $_POST['post_id'] ?? 0 );
+        if ( ! $post_id ) {
+            wp_send_json_error( [ 'message' => 'Missing post_id' ] );
+        }
+
+        $post = get_post( $post_id );
+        if ( ! $post || $post->post_type !== 'bizcity_mem_draft' ) {
+            wp_send_json_error( [ 'message' => 'Memory spec not found' ] );
+        }
+
+        // Check ownership
+        if ( (int) $post->post_author !== get_current_user_id() && ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( [ 'message' => 'Permission denied' ] );
+        }
+
+        $spec_json = get_post_meta( $post_id, '_bizcity_spec_json', true );
+        $spec      = $spec_json ? json_decode( $spec_json, true ) : null;
+
+        wp_send_json_success( [
+            'task_id' => get_post_meta( $post_id, '_bizcity_task_id', true ),
+            'title'   => $post->post_title,
+            'spec'    => $spec ?: [],
         ] );
     }
 }

@@ -1182,32 +1182,32 @@ msgid "Viết bài"
 msgstr "Viết bài"
 
 #: modules/webchat/includes/class-admin-dashboard.php
-msgid "/write_article Viết bài giúp tôi"
-msgstr "/write_article Viết bài giúp tôi"
+msgid "@write_article Viết bài giúp tôi"
+msgstr "@write_article Viết bài giúp tôi"
 
 #: modules/webchat/includes/class-admin-dashboard.php
 msgid "Tạo hình ảnh"
 msgstr "Tạo hình ảnh"
 
 #: modules/webchat/includes/class-admin-dashboard.php
-msgid "/generate_image Tạo hình ảnh giúp tôi"
-msgstr "/generate_image Tạo hình ảnh giúp tôi"
+msgid "@generate_image Tạo hình ảnh giúp tôi"
+msgstr "@generate_image Tạo hình ảnh giúp tôi"
 
 #: modules/webchat/includes/class-admin-dashboard.php
 msgid "Tóm tắt"
 msgstr "Tóm tắt"
 
 #: modules/webchat/includes/class-admin-dashboard.php
-msgid "/summarize Tóm tắt nội dung này giúp tôi"
-msgstr "/summarize Tóm tắt nội dung này giúp tôi"
+msgid "@summarize Tóm tắt nội dung này giúp tôi"
+msgstr "@summarize Tóm tắt nội dung này giúp tôi"
 
 #: modules/webchat/includes/class-admin-dashboard.php
 msgid "Tư vấn"
 msgstr "Tư vấn"
 
 #: modules/webchat/includes/class-admin-dashboard.php
-msgid "/consult Tư vấn giúp tôi về"
-msgstr "/consult Tư vấn giúp tôi về"
+msgid "@consult Tư vấn giúp tôi về"
+msgstr "@consult Tư vấn giúp tôi về"
 
 #: modules/webchat/includes/class-admin-dashboard.php
 msgid "Xem đơn hàng"
@@ -1218,8 +1218,8 @@ msgid "Báo cáo"
 msgstr "Báo cáo"
 
 #: modules/webchat/includes/class-admin-dashboard.php
-msgid "/business_report Tạo báo cáo"
-msgstr "/business_report Tạo báo cáo"
+msgid "@business_report Tạo báo cáo"
+msgstr "@business_report Tạo báo cáo"
 
 #: modules/webchat/includes/class-admin-dashboard.php
 msgid "Tạo Mindmap"

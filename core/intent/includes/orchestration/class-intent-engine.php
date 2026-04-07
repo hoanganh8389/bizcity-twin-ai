@@ -131,6 +131,21 @@ class BizCity_Intent_Engine {
      * }
      */
     public function process( array $params ) {
+        // ── Phase 1.11 S4: Shell Engine feature flag ──
+        if ( class_exists( 'BizCity_Intent_Engine_Shell' ) && BizCity_Intent_Engine_Shell::should_handle() ) {
+            return BizCity_Intent_Engine_Shell::instance()->process( $params );
+        }
+
+        // ── Phase 1.11 S6: Shadow mode — run shell in background and log comparison ──
+        $shadow_enabled = (bool) get_option( 'bizcity_shell_shadow', false );
+        $shell_class_ok = class_exists( 'BizCity_Intent_Engine_Shell' );
+        if ( $shadow_enabled || $shell_class_ok ) {
+            error_log( '[Shell:Shadow-Check] shadow_opt=' . ( $shadow_enabled ? 'ON' : 'OFF' ) . ', class_exists=' . ( $shell_class_ok ? 'YES' : 'NO' ) );
+        }
+        if ( $shadow_enabled && $shell_class_ok ) {
+            $this->run_shadow_comparison( $params );
+        }
+
         $message      = $params['message']      ?? '';
         $session_id   = $params['session_id']   ?? '';
         $user_id      = intval( $params['user_id'] ?? 0 );
@@ -578,6 +593,35 @@ class BizCity_Intent_Engine {
         ) {
             $skill_slug_s16d = substr( $conv_goal_s16d, 6 ); // strip "skill:"
 
+            // ── Execution escape hatch ──
+            // If user's message contains strong execution intent (tạo workflow, chạy pipeline, etc.),
+            // break out of skill continuation → let normal intent pipeline handle it.
+            // This allows "tạo workflow đăng bài lên web rồi đăng facebook" to reach Router+Planner.
+            $exec_escape_patterns = [
+                'tạo workflow', 'tạo kịch bản', 'chạy pipeline', 'tạo pipeline',
+                'tạo luồng', 'tạo automation', 'chạy workflow', 'tạo flow',
+            ];
+            $exec_escaped = false;
+            $msg_lower = mb_strtolower( $message, 'UTF-8' );
+            foreach ( $exec_escape_patterns as $ep ) {
+                if ( mb_strpos( $msg_lower, $ep ) !== false ) {
+                    $exec_escaped = true;
+                    break;
+                }
+            }
+            if ( $exec_escaped ) {
+                // Clear skill goal so intent engine treats this as a fresh execution request
+                $this->conversation_mgr->set_goal( $conv_id, '', '' );
+                error_log( '[INTENT-ENGINE] Step 1.6D: Execution escape | skill=' . $skill_slug_s16d
+                    . ' | msg=' . mb_substr( $message, 0, 80, 'UTF-8' )
+                    . ' → falling through to intent pipeline' );
+                // Fall through — do NOT return. Let mode classifier + Router handle this.
+                // Keep skill_slug in meta so Router can reference the context if needed.
+                $result['meta']['_pre_skill_slug']    = $skill_slug_s16d;
+                $result['meta']['_pre_skill_escaped']  = true;
+                goto step_1_7_after_skill;
+            }
+
             // Try stored slots first, fallback to fresh SkillManager lookup
             $conv_slots_s16d = json_decode( $conversation['slots_json'] ?? '{}', true ) ?: [];
             $skill_title_s16d   = $conv_slots_s16d['_active_skill_title'] ?? '';
@@ -607,15 +651,8 @@ class BizCity_Intent_Engine {
                     $skill_title_s16d = $skill_slug_s16d;
                 }
 
-                // Count previous user turns in this conversation to determine phase
-                $turn_count = 0;
-                $turns_raw  = $conversation['turns_json'] ?? '[]';
-                $turns_arr  = json_decode( $turns_raw, true ) ?: [];
-                foreach ( $turns_arr as $t ) {
-                    if ( ( $t['role'] ?? '' ) === 'user' ) {
-                        $turn_count++;
-                    }
-                }
+                // Use turn_count from DB (incremented by add_turn each request)
+                $turn_count = (int) ( $conversation['turn_count'] ?? 0 );
 
                 // Build prompt: skill content FIRST, then STRONG directive AFTER
                 // (LLMs tend to follow the LAST instruction — put directives at bottom)
@@ -664,6 +701,191 @@ class BizCity_Intent_Engine {
             // Skill not found in manager either — fall through to normal pipeline
             error_log( '[INTENT-ENGINE] Step 1.6D: goal=' . $conv_goal_s16d
                 . ' but skill "' . $skill_slug_s16d . '" not found — falling through' );
+        }
+
+        step_1_7_after_skill:  // label for Step 1.6D execution escape hatch (goto)
+
+        // ── Step 1.6E: DIRECT SKILL ACTIVATION — early return BEFORE mode classifier ──
+        // When user explicitly selects a /skill (UI picker or typed), resolve it immediately.
+        // This runs BEFORE the Mode Classifier LLM call (~3s), eliminating:
+        //   - Unnecessary LLM cost for obvious /skill commands
+        //   - Clarify Gate (Step 2.4.5) blocking archetype A/B skills
+        //   - Mode classifier misclassifying "làm thôi" as execution → 0 objectives → WAITING_USER
+        // Archetype A/B → compose_answer (inject skill content, let LLM write)
+        // Archetype D   → pipeline_queued (fire pipeline action)
+        // @since v4.6.6 — Supersedes Step 2.4.10 for first-turn skill activation
+        // @since v4.6.7 — Also catches tool_goal_hint (manual /contentagentic typing → gateway
+        //   score < 30 → tool_goal instead of selected_skill). SkillManager lookup validates.
+        $effective_slash_s16e = $slash_command ?: $selected_skill;
+
+        // When gateway couldn't resolve /xyz as a skill (score < 30), it becomes tool_goal.
+        // Try it as a skill slug too — SkillManager will validate.
+        if ( ! $effective_slash_s16e && ! empty( $tool_goal_hint )
+             && preg_match( '/^[a-z][a-z0-9_-]*$/i', $tool_goal_hint )
+        ) {
+            $effective_slash_s16e = $tool_goal_hint;
+        }
+
+        if ( $effective_slash_s16e && class_exists( 'BizCity_Skill_Manager' ) ) {
+            $skill_match_s16e = $this->early_skill_lookup( $message, [ 'mode' => 'execution' ], $effective_slash_s16e );
+
+            // Fallback: direct SkillManager lookup if early_skill_lookup failed
+            if ( ! $skill_match_s16e ) {
+                $direct_matches = \BizCity_Skill_Manager::instance()->find_matching( [
+                    'slash_command' => $effective_slash_s16e,
+                    'message'       => $message,
+                    'limit'         => 1,
+                ] );
+                if ( ! empty( $direct_matches ) ) {
+                    $dm = $direct_matches[0];
+                    $archetype_s16e = 'A';
+                    if ( class_exists( 'BizCity_Skill_Context' ) ) {
+                        $archetype_s16e = \BizCity_Skill_Context::detect_archetype( $dm['frontmatter'] ?? [] );
+                    }
+                    $skill_match_s16e = [
+                        'skill'     => $dm,
+                        'archetype' => $archetype_s16e,
+                    ];
+                }
+            }
+
+            if ( $skill_match_s16e ) {
+                $arch_s16e = $skill_match_s16e['archetype'] ?? 'A';
+
+                // Upgrade A/B → D if body has @tool_refs or ≥2 numbered steps
+                // (same logic as inject_skill_context — RecipeParser body scan)
+                if ( in_array( $arch_s16e, [ 'A', 'B' ], true )
+                     && class_exists( 'BizCity_Skill_Recipe_Parser' )
+                ) {
+                    $body_s16e   = $skill_match_s16e['skill']['content'] ?? '';
+                    $fm_s16e     = $skill_match_s16e['skill']['frontmatter'] ?? [];
+                    $parsed_s16e = \BizCity_Skill_Recipe_Parser::instance()->parse( $body_s16e, $fm_s16e );
+                    if ( $parsed_s16e['strategy'] === 'guided' ) {
+                        $arch_s16e = 'D';
+                        $skill_match_s16e['archetype']                = 'D';
+                        $skill_match_s16e['skill']['body_steps']      = $parsed_s16e['steps'];
+                        $skill_match_s16e['skill']['body_tool_refs']  = $parsed_s16e['tool_refs'];
+                        $skill_match_s16e['skill']['body_guardrails'] = $parsed_s16e['guardrails'];
+                        error_log( '[INTENT-ENGINE] Step 1.6E: RecipeParser upgraded '
+                            . $effective_slash_s16e . ' from A/B → D (guided)' );
+                    }
+                }
+
+                // Signal to SkillContext filter (priority 93) — Step 1.6E is handling this skill.
+                // Prevents dual-path: 1.6E routes A→compose_answer while SkillContext independently fires C→pipeline.
+                $GLOBALS['_bizcity_s16e_handled_skill'] = $effective_slash_s16e;
+
+                // ── Archetype D → fire pipeline (same as Step 2.4.9) ──
+                if ( $arch_s16e === 'D' ) {
+                    do_action( 'bizcity_skill_trigger_pipeline', $skill_match_s16e['skill'], [
+                        'message' => $message, 'mode' => 'execution', 'engine_result' => $result,
+                    ] );
+                    $d_title = $skill_match_s16e['skill']['frontmatter']['title'] ?? $effective_slash_s16e;
+                    $result['reply']  = '📋 Đang tạo kịch bản từ skill **' . $d_title . '**...';
+                    $result['action'] = 'pipeline_queued';
+                    $result['goal']   = 'skill:' . $effective_slash_s16e;
+                    $result['meta']['mode']      = 'execution';
+                    $result['meta']['method']    = 'skill_direct/' . mb_substr( $effective_slash_s16e, 0, 15, 'UTF-8' );
+                    $result['meta']['archetype'] = 'D';
+
+                    $this->conversation_mgr->add_turn( $conv_id, 'user', $message );
+                    $this->conversation_mgr->set_goal( $conv_id, 'skill:' . $effective_slash_s16e, '📋 ' . $d_title );
+                    error_log( '[INTENT-ENGINE] Step 1.6E: Archetype D → pipeline_queued | skill=' . $effective_slash_s16e );
+                    $this->logger->end_trace( $result );
+                    do_action( 'bizcity_intent_processed', $result, $params );
+                    return $result;
+                }
+
+                // ── Step 1.6E-b: Execution-intent safety net ──
+                // When Archetype A/B but user message has strong execution verbs,
+                // inject skill context but fall through to mode classifier (Step 1.8+)
+                // instead of short-circuiting to compose_answer.
+                // This handles: "/contentcongnghe đăng bài viết về ..." → should be execution, not knowledge.
+                // @since v4.6.8
+                $exec_patterns_s16e = '/\b(đăng\s*(bài|lên)|viết\s*bài\s*lên|publish|post\s+to|tạo\s*bài|xuất\s*bản|write.*(article|post)|tạo\s*(sản phẩm|product)|đặt\s*hàng|gửi\s*(email|mail|tin)|send\s)/iu';
+                $has_exec_intent_s16e = (bool) preg_match( $exec_patterns_s16e, $message );
+
+                if ( $has_exec_intent_s16e ) {
+                    // Still inject skill context for the mode classifier / pipeline to use
+                    $skill_content_s16e_fb = $skill_match_s16e['skill']['content'] ?? '';
+                    $skill_title_s16e_fb   = $skill_match_s16e['skill']['frontmatter']['title']
+                        ?? $effective_slash_s16e ?? 'Skill';
+
+                    if ( $skill_content_s16e_fb ) {
+                        $skill_prompt_s16e_fb = "\n\n## 📘 KỸ NĂNG: " . $skill_title_s16e_fb . "\n"
+                            . "Người dùng đã chọn kỹ năng /" . $effective_slash_s16e . ". "
+                            . "Hãy tuân thủ các hướng dẫn bên dưới.\n\n"
+                            . mb_substr( $skill_content_s16e_fb, 0, 4000, 'UTF-8' );
+
+                        add_filter( 'bizcity_chat_system_prompt', function ( $prompt ) use ( $skill_prompt_s16e_fb ) {
+                            return $prompt . $skill_prompt_s16e_fb;
+                        }, 44 );
+
+                        $result['meta']['_injected_skill_context'] = mb_substr( $skill_content_s16e_fb, 0, 4000, 'UTF-8' );
+                        $result['meta']['selected_skill']          = $effective_slash_s16e;
+                        $result['meta']['slash_command']            = '/' . $effective_slash_s16e;
+                    }
+
+                    error_log( '[INTENT-ENGINE] Step 1.6E-b: Archetype ' . $arch_s16e
+                        . ' + execution intent detected → falling through to mode classifier'
+                        . ' | skill=' . $effective_slash_s16e . ' | message=' . mb_substr( $message, 0, 60, 'UTF-8' ) );
+
+                    // Fall through — do NOT return. Mode classifier will detect execution intent.
+                }
+
+                // ── Archetype A/B → compose_answer (inject skill prompt) ──
+                // Only when NO execution intent was detected (otherwise we fell through above)
+                if ( ! $has_exec_intent_s16e ) {
+
+                $skill_content_s16e = $skill_match_s16e['skill']['content'] ?? '';
+                $skill_title_s16e   = $skill_match_s16e['skill']['frontmatter']['title']
+                    ?? $effective_slash_s16e ?? 'Skill';
+
+                if ( $skill_content_s16e ) {
+                    $skill_prompt_s16e = "\n\n## 📘 KỸ NĂNG: " . $skill_title_s16e . "\n"
+                        . "Người dùng đã chọn kỹ năng /" . $effective_slash_s16e . ". "
+                        . "Hãy tuân thủ các hướng dẫn bên dưới và trả lời dựa trên nội dung này.\n"
+                        . "**GHI NHỚ**: Không hỏi lại \"bạn muốn tìm hiểu hay thực thi\" — hãy THỰC HIỆN theo skill.\n\n"
+                        . mb_substr( $skill_content_s16e, 0, 4000, 'UTF-8' );
+
+                    add_filter( 'bizcity_chat_system_prompt', function ( $prompt ) use ( $skill_prompt_s16e ) {
+                        return $prompt . $skill_prompt_s16e;
+                    }, 44 );
+
+                    $result['meta']['_injected_skill_context'] = mb_substr( $skill_content_s16e, 0, 4000, 'UTF-8' );
+                    $result['meta']['selected_skill']          = $effective_slash_s16e;
+                    $result['meta']['slash_command']            = '/' . $effective_slash_s16e;
+                }
+
+                $result['action'] = 'compose_answer';
+                $result['status'] = 'ACTIVE';
+                $result['goal']   = 'skill:' . $effective_slash_s16e;
+                $result['meta']['mode']        = 'knowledge';
+                $result['meta']['method']      = 'skill_direct/' . mb_substr( $effective_slash_s16e, 0, 15, 'UTF-8' );
+                $result['meta']['archetype']   = $arch_s16e;
+                $result['meta']['skill_title'] = $skill_title_s16e;
+
+                $this->conversation_mgr->add_turn( $conv_id, 'user', $message );
+                $this->conversation_mgr->set_goal( $conv_id, 'skill:' . $effective_slash_s16e, '📘 ' . $skill_title_s16e );
+                $this->conversation_mgr->update_slots( $conv_id, [
+                    '_active_skill_slug'    => $effective_slash_s16e,
+                    '_active_skill_title'   => $skill_title_s16e,
+                    '_active_skill_content' => mb_substr( $skill_content_s16e, 0, 4000, 'UTF-8' ),
+                ] );
+
+                error_log( '[INTENT-ENGINE] Step 1.6E: Archetype ' . $arch_s16e
+                    . ' skill → compose_answer | skill=' . $effective_slash_s16e
+                    . ' | title=' . $skill_title_s16e
+                    . ' | content_len=' . strlen( $skill_content_s16e ) );
+
+                $this->logger->end_trace( $result );
+                do_action( 'bizcity_intent_processed', $result, $params );
+                return $result;
+                } // end if ( ! $has_exec_intent_s16e )
+            }
+
+            // Skill not found — fall through to mode classifier
+            error_log( '[INTENT-ENGINE] Step 1.6E: slash=' . $effective_slash_s16e . ' → no skill found, falling through' );
         }
 
         // ── Step 1.7: TOOL SUGGEST CONFIRMATION ──
@@ -2005,6 +2227,57 @@ class BizCity_Intent_Engine {
             return $result;
         }
 
+        // ── Step 2.4.11: MULTI-ACTION EXECUTION OVERRIDE ──
+        // When Mode Classifier (or its cache) returned non-execution mode, but the
+        // message matches 2+ DISTINCT registered goal patterns → force execution.
+        // Without this, multi-action commands like "đăng bài lên web, đăng facebook"
+        // get routed to the knowledge pipeline and never reach the Intent Router
+        // (Step 3) nor Objective Understanding (Step 4.4).
+        // @since v4.9.3 — Multi-action pattern guard before Step 2.5
+        if ( $mode_result['mode'] !== BizCity_Mode_Classifier::MODE_EXECUTION
+             && ! empty( $message )
+        ) {
+            $msg_lower_2411    = mb_strtolower( trim( $message ), 'UTF-8' );
+            $patterns_2411     = $this->router->get_goal_patterns();
+            $matched_goals_2411 = [];
+
+            foreach ( $patterns_2411 as $pat_2411 => $cfg_2411 ) {
+                if ( ! is_string( $pat_2411 ) || empty( $cfg_2411['goal'] ) ) {
+                    continue;
+                }
+                if ( @preg_match( $pat_2411, $msg_lower_2411 ) ) {
+                    // Respect negative gate
+                    if ( ! empty( $cfg_2411['negative'] ) && @preg_match( $cfg_2411['negative'], $msg_lower_2411 ) ) {
+                        continue;
+                    }
+                    $goal_2411 = $cfg_2411['goal'];
+                    // Deduplicate — only count distinct goals
+                    if ( ! isset( $matched_goals_2411[ $goal_2411 ] ) ) {
+                        $matched_goals_2411[ $goal_2411 ] = $cfg_2411;
+                    }
+                }
+            }
+
+            // 2+ distinct goals matched → clearly a multi-action execution message
+            if ( count( $matched_goals_2411 ) >= 2 ) {
+                $original_mode_2411 = $mode_result['mode'];
+                $mode_result['mode']       = BizCity_Mode_Classifier::MODE_EXECUTION;
+                $mode_result['confidence'] = max( (float) ( $mode_result['confidence'] ?? 0 ), 0.85 );
+                $mode_result['method']     = ( $mode_result['method'] ?? '' )
+                    . '+multi_action_override(' . implode( ',', array_keys( $matched_goals_2411 ) ) . ')';
+
+                $result['meta']['mode']        = $mode_result['mode'];
+                $result['meta']['mode_method'] = $mode_result['method'];
+
+                if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+                    error_log( '[INTENT-ENGINE] Step 2.4.11: Multi-action override → execution'
+                        . ' | goals=' . implode( ',', array_keys( $matched_goals_2411 ) )
+                        . ' | original_mode=' . $original_mode_2411
+                        . ' | msg=' . mb_substr( $message, 0, 80, 'UTF-8' ) );
+                }
+            }
+        }
+
         // ── Step 2.5: NON-EXECUTION MODE PIPELINE ──
         // If mode is NOT execution → delegate to the appropriate pipeline
         // These pipelines handle emotion, reflection, knowledge, ambiguous without intent extraction
@@ -2183,6 +2456,93 @@ class BizCity_Intent_Engine {
         $result['meta']['suggested_tools'] = $intent['suggested_tools'] ?? [];
         $result['meta']['missing_fields']  = $intent['missing_fields'] ?? [];
         $result['meta']['goal_objective']  = $intent['goal_objective'] ?? '';
+
+        // ── Step 3.1.5: MULTI-ACTION GOAL RESCUE ──
+        // When Router returned no goal (mode=execution but intent unresolved),
+        // check if the message matches any registered goal_pattern.
+        // Multi-action messages like "đăng bài lên web, đăng facebook" confuse
+        // the LLM (expects exactly 1 tool match), but regex patterns can still
+        // match individual segments. Use the first match as the primary goal —
+        // Step 4.4 (Objective Understanding) will decompose multi-objective.
+        // This prevents the Clarify Gate from trapping multi-action execution requests.
+        // @since v4.9.2 — Multi-action goal rescue before Clarify Gate
+        $intent_goal_s315    = $intent['goal'] ?? '';
+        $intent_name_s315    = $intent['intent'] ?? '';
+        $needs_rescue_s315   = empty( $intent_goal_s315 )
+            || ! in_array( $intent_name_s315, [ 'new_goal', 'provide_input', 'continue_goal', 'end_conversation' ], true );
+
+        if ( $needs_rescue_s315 && ! empty( $message ) ) {
+            $message_lower_s315  = mb_strtolower( trim( $message ), 'UTF-8' );
+            $goal_patterns_s315  = $this->router->get_goal_patterns();
+            $rescue_candidates   = [];
+
+            // Specificity tiers — same as Router Step 3c
+            $specificity_conf_s315 = [
+                'exact'  => 0.95,
+                'narrow' => 0.90,
+                'broad'  => 0.65,
+            ];
+
+            foreach ( $goal_patterns_s315 as $pat_s315 => $cfg_s315 ) {
+                if ( ! is_string( $pat_s315 ) || empty( $cfg_s315['goal'] ) ) {
+                    continue;
+                }
+                if ( @preg_match( $pat_s315, $message_lower_s315, $m_s315 ) ) {
+                    // Respect negative gate
+                    if ( ! empty( $cfg_s315['negative'] ) && @preg_match( $cfg_s315['negative'], $message_lower_s315 ) ) {
+                        continue;
+                    }
+                    // Domain keywords gate
+                    if ( ! empty( $cfg_s315['domain_keywords'] ) && is_array( $cfg_s315['domain_keywords'] ) ) {
+                        $has_kw_s315 = false;
+                        foreach ( $cfg_s315['domain_keywords'] as $kw_s315 ) {
+                            if ( mb_stripos( $message_lower_s315, $kw_s315 ) !== false ) {
+                                $has_kw_s315 = true;
+                                break;
+                            }
+                        }
+                        if ( ! $has_kw_s315 ) {
+                            continue; // Skip candidates gated by domain keywords not present
+                        }
+                    }
+                    $tier_s315  = $cfg_s315['specificity'] ?? 'broad';
+                    $score_s315 = $specificity_conf_s315[ $tier_s315 ] ?? 0.65;
+                    // Bonus: content_production family > distribution family (prefer write_article over post_facebook)
+                    if ( in_array( $cfg_s315['goal'], [ 'write_article', 'generate_blog_content' ], true ) ) {
+                        $score_s315 += 0.05;
+                    }
+                    $cfg_s315['_rescue_score'] = $score_s315;
+                    $rescue_candidates[] = $cfg_s315;
+                }
+            }
+
+            // Sort by score DESC — pick highest specificity as primary goal
+            usort( $rescue_candidates, function( $a, $b ) {
+                return ( $b['_rescue_score'] ?? 0 ) <=> ( $a['_rescue_score'] ?? 0 );
+            } );
+
+            if ( ! empty( $rescue_candidates ) ) {
+                $rescue_goal  = $rescue_candidates[0]['goal'];
+                $rescue_label = $rescue_candidates[0]['label'] ?? $rescue_goal;
+
+                $intent['intent']     = 'new_goal';
+                $intent['goal']       = $rescue_goal;
+                $intent['goal_label'] = $rescue_label;
+                $intent['confidence'] = max( (float) ( $intent['confidence'] ?? 0 ), 0.80 );
+                $intent['method']     = ( $intent['method'] ?? '' ) . '+multi_action_rescue';
+                if ( empty( $intent['entities'] ) || ! is_array( $intent['entities'] ) ) {
+                    $intent['entities'] = [ '_raw_message' => $message ];
+                }
+
+                $result['meta']['intent']     = $intent['intent'];
+                $result['meta']['confidence'] = $intent['confidence'];
+                $result['meta']['method']     = $intent['method'];
+
+                error_log( '[INTENT-ENGINE] Step 3.1.5: Multi-action goal rescue → '
+                    . $rescue_goal . ' (' . count( $rescue_candidates ) . ' candidates)'
+                    . ' | msg=' . mb_substr( $message, 0, 80, 'UTF-8' ) );
+            }
+        }
 
         // ── Step 3.2: CLARIFY GATE (intent-level) ──
         // Router ran, but intent still unresolved: require user clarification before
@@ -3187,58 +3547,19 @@ class BizCity_Intent_Engine {
                         $content_value = $preconfirm_content;
                     }
 
-                    // ── v4.9.4: Topic-Confirm Gate ──
-                    // When no explicit topic/content detected → show parsed objectives
-                    // and ask user for topic details before generating workflow.
-                    // User can confirm, modify topic, or cancel.
-                    // Step 1.9c handles the resume when user replies.
-                    if ( ! $has_content && $preconfirm_state !== 'content_provided' ) {
-                        // Build objective labels for the ask message
-                        $obj_labels = [];
-                        $labels_map = class_exists( 'BizCity_Scenario_Generator' )
-                            ? BizCity_Scenario_Generator::get_tool_labels()
-                            : [];
-                        foreach ( $analysis['intents'] as $obj_item ) {
-                            $tool = $obj_item['tool_hint'] ?? '';
-                            $label = ! empty( $labels_map[ $tool ] ) ? $labels_map[ $tool ] : $tool;
-                            $obj_labels[] = '🔧 ' . $label;
+                    // ── v4.9.5: Topic-Confirm Gate REMOVED ──
+                    // Previously asked "Nội dung cụ thể là gì?" when no content detected.
+                    // Now: skip content ask → go straight to plan builder confirm.
+                    // User sees the builder link, can fill content there or run as-is.
+                    // If no content, use the raw message as topic fallback.
+                    if ( ! $has_content ) {
+                        $content_value = $message; // Use raw message as topic fallback
+                        $has_content   = true;
+
+                        if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+                            error_log( '[INTENT-ENGINE] Step 4.4: no explicit content → using raw message as topic fallback'
+                                . ' | tools=' . implode( ',', array_column( $analysis['intents'], 'tool_hint' ) ) );
                         }
-
-                        $obj_count = count( $obj_labels );
-                        $ask_reply  = "📋 Mình hiểu bạn muốn thực hiện {$obj_count} bước chính:\n\n";
-                        $ask_reply .= implode( "\n", $obj_labels );
-                        $ask_reply .= "\n\n❓ **Nội dung cụ thể là gì?** Bạn mô tả càng chi tiết càng tốt"
-                                    . " — ví dụ: chủ đề, ý chính, đối tượng, giọng văn..."
-                                    . " Mình sẽ dùng nội dung này để viết và đăng tự động cho bạn.";
-
-                        // Save analysis for resume (Step 1.9c)
-                        $this->conversation_mgr->set_waiting( $conv_id, 'confirm', '_multi_preconfirm' );
-                        $this->conversation_mgr->update_slots( $conv_id, [
-                            '_multi_preconfirm_state'    => 'asking_content',
-                            '_multi_preconfirm_analysis' => wp_json_encode( $analysis, JSON_UNESCAPED_UNICODE ),
-                        ] );
-
-                        $result['reply']  = $ask_reply;
-                        $result['action'] = 'ask_user';
-                        $result['status'] = 'WAITING_USER';
-                        $result['meta']['ask_field']      = '_multi_preconfirm';
-                        $result['meta']['ask_type']       = 'content';
-                        $result['meta']['multi_objective'] = true;
-                        $result['meta']['objectives']     = array_map( function ( $o ) {
-                            return [ 'text' => $o['text'], 'tool' => $o['tool_hint'] ?? '' ];
-                        }, $analysis['intents'] );
-
-                        $this->conversation_mgr->add_turn( $conv_id, 'assistant', $ask_reply, [
-                            'meta' => [ 'ask_field' => '_multi_preconfirm', 'ask_type' => 'content' ],
-                        ] );
-
-                        error_log( '[INTENT-ENGINE] Step 4.4: multi-goal no content → asking user for topic'
-                            . ' | objectives=' . $obj_count
-                            . ' | tools=' . implode( ',', array_column( $analysis['intents'], 'tool_hint' ) ) );
-
-                        $this->logger->end_trace( $result );
-                        do_action( 'bizcity_intent_processed', $result, $params );
-                        return $result;
                     }
 
                     // ── Content available → inject into analysis for plan builder ──
@@ -6242,5 +6563,55 @@ PROMPT;
             'slash_command' => $slash_command,
             'limit'         => 1,
         ] );
+    }
+
+    /* ================================================================
+     *  Phase 1.11 S6 — Shadow Comparison
+     *
+     *  Run Shell Engine in parallel (fire-and-forget) when legacy
+     *  is handling traffic. Log both results for comparison.
+     *  Enable: wp_option `bizcity_shell_shadow` = 1
+     * ================================================================ */
+
+    /**
+     * Run shell engine in shadow mode and log comparison.
+     *
+     * Catches ALL exceptions to prevent shadow from affecting production.
+     *
+     * @param array $params Same params as process().
+     */
+    private function run_shadow_comparison( array $params ): void {
+        try {
+            $t0 = microtime( true );
+            $shell_result = BizCity_Intent_Engine_Shell::instance()->process( $params );
+            $shell_ms = round( ( microtime( true ) - $t0 ) * 1000 );
+
+            // Log shadow result for comparison (non-blocking)
+            error_log( sprintf(
+                '[Shell:Shadow] user=%d, channel=%s, action=%s, goal=%s, elapsed=%dms, msg=%s',
+                intval( $params['user_id'] ?? 0 ),
+                $params['channel'] ?? 'webchat',
+                $shell_result['action'] ?? '?',
+                $shell_result['goal'] ?? '',
+                $shell_ms,
+                mb_substr( $params['message'] ?? '', 0, 80, 'UTF-8' )
+            ) );
+
+            // Store shadow result for comparison dashboard (transient, 5 min TTL)
+            $user_id = intval( $params['user_id'] ?? 0 );
+            set_transient(
+                'bizcity_shadow_' . $user_id . '_' . substr( md5( $params['message'] ?? '' ), 0, 8 ),
+                [
+                    'shell_action'  => $shell_result['action'] ?? '',
+                    'shell_goal'    => $shell_result['goal'] ?? '',
+                    'shell_ms'      => $shell_ms,
+                    'shell_meta'    => $shell_result['meta'] ?? [],
+                    'timestamp'     => time(),
+                ],
+                300
+            );
+        } catch ( \Throwable $e ) {
+            error_log( '[Shell:Shadow] Error: ' . $e->getMessage() );
+        }
     }
 }

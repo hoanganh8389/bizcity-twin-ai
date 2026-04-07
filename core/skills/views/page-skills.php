@@ -38,6 +38,42 @@ $workflows = [
     [ 'icon' => '📖', 'label' => __( 'Viết nhật ký hôm nay', $td ), 'desc' => __( 'Ghi lại ngày hôm nay: công việc, suy nghĩ, cảm xúc', $td ),'msg' => __( 'Viết nhật ký hôm nay', $td ),     'tags' => [__('Nhật ký',$td),'Daily'] ],
 ];
 
+/* ── Tools catalog (for @ Tool picker) ── */
+$tools_catalog = [ 'totalTools' => 0, 'groups' => [] ];
+if ( $is_admin && class_exists( 'BizCity_Skill_Admin_Page' ) ) {
+    // Reuse admin page's catalog builder via reflection
+    $admin_inst = BizCity_Skill_Admin_Page::instance();
+    $ref = new ReflectionMethod( $admin_inst, 'build_tools_catalog' );
+    $ref->setAccessible( true );
+    $tools_catalog = $ref->invoke( $admin_inst );
+} elseif ( $is_admin && class_exists( 'BizCity_Intent_Tool_Index' ) ) {
+    // Fallback: build minimal catalog inline
+    $all_tools = BizCity_Intent_Tool_Index::instance()->get_all_active();
+    $all_tools = array_filter( $all_tools, static function ( $t ) { return ! empty( $t['accepts_skill'] ); } );
+    $grouped = [];
+    foreach ( $all_tools as $t ) { $grouped[ $t['plugin'] ?: 'other' ][] = $t; }
+    $groups_out = [];
+    foreach ( $grouped as $pid => $tools ) {
+        $tools_out = [];
+        foreach ( $tools as $t ) {
+            $tools_out[] = [
+                'toolName' => $t['tool_name'] ?? '',
+                'label'    => $t['goal_label'] ?: $t['title'] ?: ucfirst( str_replace( '_', ' ', $t['tool_name'] ?? '' ) ),
+                'desc'     => $t['goal_description'] ?? '',
+                'slots'    => [],
+            ];
+        }
+        $groups_out[] = [
+            'plugin'    => $pid,
+            'name'      => ucfirst( str_replace( ['-','_'], ' ', $pid ) ),
+            'gradient'  => 'linear-gradient(135deg,#059669,#34D399)',
+            'toolCount' => count( $tools ),
+            'tools'     => $tools_out,
+        ];
+    }
+    $tools_catalog = [ 'totalTools' => count( $all_tools ), 'groups' => $groups_out ];
+}
+
 /* ── Templates (for New Skill modal) ── */
 $templates = [
     [ 'id' => 'automation', 'icon' => '🔄', 'name' => 'Automation / Workflow',  'desc' => __( 'Quy trình tự động hoá nhiều bước, có trigger & tool call', $td ) ],
@@ -174,6 +210,111 @@ body{
 .sk-save-msg.ok{display:block;background:#dcfce7;color:#166534}
 .sk-save-msg.err{display:block;background:#fef2f2;color:#b91c1c}
 .sk-save-msg.warn{display:block;background:#fefce8;color:#a16207}
+
+/* ══ Editor Toolbar Buttons ══ */
+.sk-editor-btns{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.sk-editor-btns .sk-tbtn{
+  padding:6px 12px;border-radius:8px;font-size:12px;font-weight:600;
+  border:1px solid var(--sk-border);cursor:pointer;
+  display:inline-flex;align-items:center;gap:4px;
+  transition:all .12s;background:var(--sk-card);color:var(--sk-text);
+  white-space:nowrap;
+}
+.sk-editor-btns .sk-tbtn:hover{border-color:var(--sk-primary);color:var(--sk-primary)}
+.sk-editor-btns .sk-tbtn:disabled{opacity:.5;cursor:not-allowed}
+.sk-tbtn--ai{background:linear-gradient(135deg,#7c3aed,#a855f7)!important;border-color:#7c3aed!important;color:#fff!important}
+.sk-tbtn--ai:hover{background:linear-gradient(135deg,#6d28d9,#9333ea)!important}
+.sk-tbtn--tool{background:#f1f5f9!important;border-color:#d1d5db!important;color:#4d6bfe!important}
+.sk-tbtn--tool:hover{background:#e0e7ff!important;border-color:#4d6bfe!important}
+.sk-tbtn--upload{background:#f0fdf4!important;border-color:#86efac!important;color:#15803d!important}
+.sk-tbtn--upload:hover:not(:disabled){background:#dcfce7!important;border-color:#4ade80!important}
+.sk-tbtn--download{background:#f0f9ff!important;border-color:#7dd3fc!important;color:#0369a1!important}
+.sk-tbtn--download:hover{background:#e0f2fe!important;border-color:#38bdf8!important}
+.sk-tbtn--save{background:var(--sk-primary)!important;color:#fff!important;border-color:var(--sk-primary)!important}
+.sk-tbtn--save:hover{background:var(--sk-primary-dark)!important}
+.sk-tbtn--save.saved{background:#e5e7eb!important;color:var(--sk-text2)!important;border-color:var(--sk-border)!important}
+.sk-tbtn--close{background:transparent!important;border-color:transparent!important;color:var(--sk-text3)!important;font-size:16px;padding:6px 8px}
+.sk-tbtn--close:hover{color:var(--sk-text)!important}
+
+/* ══ AI Skill Dialog ══ */
+.sk-ai-overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:300;
+  display:flex;align-items:center;justify-content:center;
+}
+.sk-ai-modal{
+  background:var(--sk-card);border-radius:16px;width:90%;max-width:520px;
+  box-shadow:0 20px 60px rgba(0,0,0,.25);overflow:hidden;
+}
+.sk-ai-modal h3{font-size:16px;padding:16px 20px 0;margin:0;display:flex;align-items:center;gap:8px}
+.sk-ai-hint{font-size:12px;color:var(--sk-text2);padding:4px 20px 12px;margin:0;line-height:1.5}
+.sk-ai-prompt{
+  width:calc(100% - 40px);margin:0 20px;padding:12px;
+  border:1px solid var(--sk-border);border-radius:10px;
+  font-size:13px;line-height:1.5;resize:vertical;min-height:120px;
+  font-family:inherit;outline:none;
+}
+.sk-ai-prompt:focus{border-color:#7c3aed;box-shadow:0 0 0 2px rgba(124,58,237,.15)}
+.sk-ai-tip{font-size:11px;color:var(--sk-text3);padding:4px 20px;margin:0}
+.sk-ai-actions{display:flex;gap:8px;padding:12px 20px 16px;justify-content:flex-end}
+.sk-ai-gen{
+  padding:8px 16px;background:linear-gradient(135deg,#7c3aed,#a855f7);
+  color:#fff;border:none;border-radius:8px;font-weight:600;font-size:13px;
+  cursor:pointer;transition:all .15s;
+}
+.sk-ai-gen:hover{background:linear-gradient(135deg,#6d28d9,#9333ea)}
+.sk-ai-gen:disabled{opacity:.5;cursor:not-allowed}
+.sk-ai-cancel{padding:8px 16px;background:var(--sk-bg);border:1px solid var(--sk-border);border-radius:8px;font-size:13px;cursor:pointer}
+
+/* ══ Tool Picker Dialog ══ */
+.sk-tp-overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:300;
+  display:flex;align-items:flex-end;justify-content:center;
+}
+.sk-tp-dialog{
+  background:var(--sk-card);border-radius:16px 16px 0 0;
+  width:100%;max-width:600px;max-height:70vh;
+  display:flex;flex-direction:column;overflow:hidden;
+  box-shadow:0 -8px 40px rgba(0,0,0,.15);
+}
+.sk-tp-header{border-bottom:1px solid var(--sk-border);flex-shrink:0}
+.sk-tp-search-row{display:flex;align-items:center;gap:8px;padding:12px 16px}
+.sk-tp-search-icon{color:var(--sk-text3);flex-shrink:0}
+.sk-tp-search{
+  flex:1;border:none;outline:none;font-size:14px;background:transparent;
+  color:var(--sk-text);
+}
+.sk-tp-close{
+  background:none;border:none;cursor:pointer;color:var(--sk-text3);
+  display:flex;align-items:center;padding:4px;
+}
+.sk-tp-close:hover{color:var(--sk-text)}
+.sk-tp-tabs{display:flex;gap:2px;padding:0 16px 8px;overflow-x:auto;flex-shrink:0}
+.sk-tp-tab{
+  padding:4px 10px;border-radius:6px;font-size:11px;font-weight:500;
+  border:1px solid var(--sk-border);background:var(--sk-card);
+  cursor:pointer;white-space:nowrap;color:var(--sk-text2);
+}
+.sk-tp-tab.active{background:#e0e7ff;border-color:#4d6bfe;color:#4d6bfe}
+.sk-tp-tab-count{font-size:10px;margin-left:3px;opacity:.7}
+.sk-tp-body{overflow-y:auto;padding:8px 0;flex:1}
+.sk-tp-empty{padding:20px;text-align:center;color:var(--sk-text3);font-size:13px}
+.sk-tp-group-hd{
+  display:flex;align-items:center;gap:8px;padding:6px 16px;
+  font-size:11px;font-weight:600;color:var(--sk-text2);
+}
+.sk-tp-group-icon{
+  width:20px;height:20px;border-radius:4px;display:flex;align-items:center;justify-content:center;
+  font-size:10px;color:#fff;flex-shrink:0;
+}
+.sk-tp-group-count{font-size:10px;font-weight:400;color:var(--sk-text3);margin-left:auto}
+.sk-tp-tool{
+  display:flex;align-items:center;gap:10px;padding:8px 16px;
+  cursor:pointer;transition:background .08s;
+}
+.sk-tp-tool:hover,.sk-tp-tool.focused{background:#f0f4ff}
+.sk-tp-tool-name{font-size:12px;font-weight:600;color:var(--sk-accent)}
+.sk-tp-tool-label{font-size:12px;color:var(--sk-text)}
+.sk-tp-tool-desc{font-size:11px;color:var(--sk-text3);margin-top:1px}
 
 /* ══ Template Gallery (home) ══ */
 .sk-home{padding:20px}
@@ -424,8 +565,13 @@ body{
         </div>
         <div class="sk-editor-btns">
           <?php if ( $is_admin ) : ?>
-          <button class="sk-del-btn" id="sk-editor-delete">🗑 Xóa</button>
-          <button class="sk-save-btn" id="sk-editor-save">💾 Lưu</button>
+          <button class="sk-tbtn sk-tbtn--ai" id="sk-btn-ai" title="Tạo nội dung skill bằng AI">✨ AI Skill</button>
+          <button class="sk-tbtn sk-tbtn--tool" id="sk-btn-tool" title="Chèn @tool vào nội dung skill">@ Tool</button>
+          <button class="sk-tbtn sk-tbtn--upload" id="sk-btn-upload" title="Tải lên file .md để nhập skill">📥 Upload</button>
+          <button class="sk-tbtn sk-tbtn--download" id="sk-btn-download" title="Tải xuống skill hiện tại dạng .md">📤 Download</button>
+          <input type="file" accept=".md" id="sk-file-input" style="display:none">
+          <button class="sk-tbtn sk-tbtn--save saved" id="sk-editor-save">✓ Saved</button>
+          <button class="sk-tbtn sk-tbtn--close" id="sk-editor-close" title="Đóng">✕</button>
           <?php endif; ?>
         </div>
       </div>
@@ -480,12 +626,46 @@ body{
 </div>
 <?php endif; ?>
 
+<!-- ════ AI Skill Dialog ════ -->
+<?php if ( $is_admin ) : ?>
+<div class="sk-ai-overlay" id="sk-ai-dialog" style="display:none">
+  <div class="sk-ai-modal">
+    <h3>✨ Tạo Skill bằng AI</h3>
+    <p class="sk-ai-hint">Mô tả mục tiêu, vai trò, ngữ cảnh của skill — AI sẽ tạo nội dung đầy đủ để bạn chỉnh sửa.</p>
+    <textarea class="sk-ai-prompt" id="sk-ai-prompt" rows="6" placeholder="Ví dụ:&#10;&quot;Skill hỗ trợ CSKH phản hồi khiếu nại về giao hàng trễ, dùng giọng điệu thân thiện, có @lookup_order để tra cứu đơn hàng. Phản hồi ngắn gọn, luôn kết thúc bằng lời xin lỗi.&quot;"></textarea>
+    <p class="sk-ai-tip">Ctrl+Enter để tạo</p>
+    <div class="sk-ai-actions">
+      <button class="sk-ai-cancel" id="sk-ai-cancel">Hủy</button>
+      <button class="sk-ai-gen" id="sk-ai-gen">✨ Tạo Skill</button>
+    </div>
+  </div>
+</div>
+<?php endif; ?>
+
+<!-- ════ Tool Picker Dialog ════ -->
+<?php if ( $is_admin ) : ?>
+<div class="sk-tp-overlay" id="sk-tp-dialog" style="display:none">
+  <div class="sk-tp-dialog">
+    <div class="sk-tp-header">
+      <div class="sk-tp-search-row">
+        <svg class="sk-tp-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <input class="sk-tp-search" id="sk-tp-search" placeholder="Tìm công cụ... (vd: viết bài, tạo sản phẩm)" autocomplete="off" spellcheck="false">
+        <button class="sk-tp-close" id="sk-tp-close">✕</button>
+      </div>
+      <div class="sk-tp-tabs" id="sk-tp-tabs"></div>
+    </div>
+    <div class="sk-tp-body" id="sk-tp-body"></div>
+  </div>
+</div>
+<?php endif; ?>
+
 <script>
 (function(){
 'use strict';
 var REST  = <?php echo wp_json_encode( $rest_url ); ?>;
 var NONCE = <?php echo wp_json_encode( $rest_nonce ); ?>;
 var IS_ADMIN = <?php echo $is_admin ? 'true' : 'false'; ?>;
+var TOOLS_CATALOG = <?php echo wp_json_encode( $tools_catalog ); ?>;
 var isIframe = window.parent && window.parent !== window;
 
 var treeData = [];
@@ -716,11 +896,27 @@ function openFileByPath(path) {
 /* ════════════════════════════════════════════════════════
  *  Editor panel
  * ════════════════════════════════════════════════════════ */
+var editorDirty = false;
+
+function markDirty(dirty) {
+  editorDirty = dirty;
+  var btn = document.getElementById('sk-editor-save');
+  if (!btn) return;
+  if (dirty) {
+    btn.textContent = '● Save';
+    btn.classList.remove('saved');
+  } else {
+    btn.textContent = '✓ Saved';
+    btn.classList.add('saved');
+  }
+}
+
 function showEditor(path, raw) {
   document.getElementById('sk-home').style.display = 'none';
   document.getElementById('sk-editor').style.display = '';
   document.getElementById('sk-editor-filename').textContent = path;
   document.getElementById('sk-editor-content').value = raw;
+  markDirty(false);
   var m = document.getElementById('sk-editor-msg');
   if (m) { m.className='sk-save-msg'; m.style.display='none'; }
 }
@@ -729,24 +925,36 @@ function goHome() {
   selectedFileId = null; currentFilePath = null;
   document.getElementById('sk-home').style.display = '';
   document.getElementById('sk-editor').style.display = 'none';
+  markDirty(false);
   renderTree();
 }
 
 document.getElementById('sk-editor-home').onclick = goHome;
+
+/* Track dirty state */
+var editorEl = document.getElementById('sk-editor-content');
+if (editorEl) {
+  editorEl.addEventListener('input', function(){ markDirty(true); });
+}
+
+/* Close button */
+var closeBtn = document.getElementById('sk-editor-close');
+if (closeBtn) closeBtn.onclick = goHome;
 
 /* Save */
 var saveBtn = document.getElementById('sk-editor-save');
 if (saveBtn) {
   saveBtn.onclick = function(){
     if (!currentFilePath) return;
-    saveBtn.disabled = true; saveBtn.textContent = '⏳ Đang lưu...';
+    saveBtn.disabled = true; saveBtn.textContent = '⏳...';
     var raw = document.getElementById('sk-editor-content').value;
     var m = document.getElementById('sk-editor-msg');
     fetch(REST+'/file', { method:'POST', headers:h(), body:JSON.stringify({path:currentFilePath,raw:raw}) })
     .then(function(r){ return r.json(); })
     .then(function(d){
-      saveBtn.disabled=false; saveBtn.textContent='💾 Lưu';
-      if (d.error) { m.className='sk-save-msg err'; m.textContent='❌ '+d.error; m.style.display=''; return; }
+      saveBtn.disabled=false;
+      if (d.error) { markDirty(true); m.className='sk-save-msg err'; m.textContent='❌ '+d.error; m.style.display=''; return; }
+      markDirty(false);
       if (d.db_synced === false) {
         m.className='sk-save-msg warn'; m.textContent='⚠️ File đã lưu nhưng chưa sync vào DB (skill_id=0)'; m.style.display='';
         toast('⚠️ Skill chưa sync DB — kiểm tra frontmatter', true);
@@ -756,16 +964,244 @@ if (saveBtn) {
         toast('Đã lưu ' + currentFilePath);
       }
     })
-    .catch(function(){ saveBtn.disabled=false; saveBtn.textContent='💾 Lưu'; m.className='sk-save-msg err'; m.textContent='❌ Lỗi'; m.style.display=''; });
+    .catch(function(){ saveBtn.disabled=false; markDirty(true); m.className='sk-save-msg err'; m.textContent='❌ Lỗi'; m.style.display=''; });
   };
   document.addEventListener('keydown', function(e){
     if ((e.ctrlKey||e.metaKey)&&e.key==='s'&&currentFilePath) { e.preventDefault(); saveBtn.click(); }
   });
 }
 
-/* Delete from editor */
-var delBtn = document.getElementById('sk-editor-delete');
-if (delBtn) delBtn.onclick = function(){ if (currentFilePath) deleteItem(currentFilePath, false); };
+/* ════════════════════════════════════════════════════════
+ *  Download — export current editor content as .md
+ * ════════════════════════════════════════════════════════ */
+var dlBtn = document.getElementById('sk-btn-download');
+if (dlBtn) {
+  dlBtn.onclick = function(){
+    if (!currentFilePath) return;
+    var content = document.getElementById('sk-editor-content').value;
+    var parts = currentFilePath.split('/').filter(Boolean);
+    var base = (parts[parts.length-1] || 'skill').replace(/\.md$/i, '');
+    var filename = base + '.md';
+    var blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
+    toast('📤 Đã tải xuống ' + filename);
+  };
+}
+
+/* ════════════════════════════════════════════════════════
+ *  Upload — read .md file and load into editor
+ * ════════════════════════════════════════════════════════ */
+var uploadBtn = document.getElementById('sk-btn-upload');
+var fileInput = document.getElementById('sk-file-input');
+if (uploadBtn && fileInput) {
+  uploadBtn.onclick = function(){ fileInput.click(); };
+  fileInput.onchange = function(e){
+    var file = e.target.files && e.target.files[0];
+    if (!file) return;
+    if (!file.name.endsWith('.md')) { toast('Chỉ chấp nhận file .md', true); fileInput.value=''; return; }
+    uploadBtn.disabled = true; uploadBtn.textContent = '⏳...';
+    var reader = new FileReader();
+    reader.onload = function(ev){
+      var text = ev.target.result;
+      if (currentFilePath) {
+        // Load content directly into current editor
+        document.getElementById('sk-editor-content').value = text;
+        markDirty(true);
+        toast('📥 Đã tải nội dung từ ' + file.name + ' — nhấn Save để lưu');
+      } else {
+        // No file open — try import via REST
+        fetch(REST+'/import-md', { method:'POST', headers:h(), body:JSON.stringify({raw:text,filename:file.name}) })
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          if (d.error) { toast(d.error, true); return; }
+          toast('📥 Đã nhập skill "' + (d.title||file.name) + '"');
+          loadTree();
+        })
+        .catch(function(){ toast('Lỗi nhập file', true); });
+      }
+      uploadBtn.disabled = false; uploadBtn.textContent = '📥 Upload';
+      fileInput.value = '';
+    };
+    reader.onerror = function(){ uploadBtn.disabled=false; uploadBtn.textContent='📥 Upload'; fileInput.value=''; toast('Lỗi đọc file',true); };
+    reader.readAsText(file);
+  };
+}
+
+/* ════════════════════════════════════════════════════════
+ *  AI Skill Dialog
+ * ════════════════════════════════════════════════════════ */
+var aiDialog = document.getElementById('sk-ai-dialog');
+var aiBtn = document.getElementById('sk-btn-ai');
+var aiPrompt = document.getElementById('sk-ai-prompt');
+var aiGenBtn = document.getElementById('sk-ai-gen');
+var aiCancelBtn = document.getElementById('sk-ai-cancel');
+
+if (aiBtn && aiDialog) {
+  aiBtn.onclick = function(){ aiDialog.style.display=''; aiPrompt.value=''; setTimeout(function(){ aiPrompt.focus(); }, 50); };
+  aiCancelBtn.onclick = function(){ aiDialog.style.display='none'; };
+  aiDialog.onclick = function(e){ if (e.target === aiDialog) aiDialog.style.display='none'; };
+
+  aiPrompt.onkeydown = function(e){
+    if (e.key==='Enter' && (e.ctrlKey||e.metaKey)) { e.preventDefault(); aiGenBtn.click(); }
+    if (e.key==='Escape') aiDialog.style.display='none';
+  };
+
+  aiGenBtn.onclick = function(){
+    var prompt = (aiPrompt.value||'').trim();
+    if (!prompt) return;
+    aiGenBtn.disabled = true; aiGenBtn.textContent = '⏳ Đang tạo...';
+    fetch(REST+'/generate', { method:'POST', headers:h(), body:JSON.stringify({prompt:prompt}) })
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      aiGenBtn.disabled=false; aiGenBtn.textContent='✨ Tạo Skill';
+      if (d.error || d.message) { toast(d.error||d.message, true); return; }
+      var generated = d.markdown || d.raw || '';
+      if (!generated) { toast('AI không trả về nội dung', true); return; }
+      document.getElementById('sk-editor-content').value = generated;
+      markDirty(true);
+      aiDialog.style.display='none';
+      toast('✨ AI đã tạo nội dung — chỉnh sửa và nhấn Save');
+    })
+    .catch(function(err){ aiGenBtn.disabled=false; aiGenBtn.textContent='✨ Tạo Skill'; toast('Lỗi: '+(err.message||'kết nối'), true); });
+  };
+}
+
+/* ════════════════════════════════════════════════════════
+ *  Tool Picker Dialog (@ Tool)
+ * ════════════════════════════════════════════════════════ */
+var tpDialog = document.getElementById('sk-tp-dialog');
+var tpBtn = document.getElementById('sk-btn-tool');
+var tpSearch = document.getElementById('sk-tp-search');
+var tpTabs = document.getElementById('sk-tp-tabs');
+var tpBody = document.getElementById('sk-tp-body');
+var tpClose = document.getElementById('sk-tp-close');
+var tpActiveTab = 'all';
+var tpFocusIdx = 0;
+
+if (tpBtn && tpDialog) {
+  tpBtn.onclick = function(){ openToolPicker(); };
+  tpClose.onclick = function(){ tpDialog.style.display='none'; };
+  tpDialog.onclick = function(e){ if (e.target === tpDialog) tpDialog.style.display='none'; };
+
+  function openToolPicker(){
+    tpDialog.style.display='';
+    tpActiveTab='all'; tpFocusIdx=0;
+    tpSearch.value='';
+    renderToolTabs();
+    renderToolList();
+    setTimeout(function(){ tpSearch.focus(); }, 50);
+  }
+
+  function renderToolTabs(){
+    var catalog = TOOLS_CATALOG;
+    var html = '<button class="sk-tp-tab'+(tpActiveTab==='all'?' active':'')+'" data-tab="all">🧰 Tất cả <span class="sk-tp-tab-count">'+catalog.totalTools+'</span></button>';
+    (catalog.groups||[]).forEach(function(g){
+      html += '<button class="sk-tp-tab'+(tpActiveTab===g.plugin?' active':'')+'" data-tab="'+esc(g.plugin)+'">🤖 '+esc(g.name)+' <span class="sk-tp-tab-count">'+g.toolCount+'</span></button>';
+    });
+    tpTabs.innerHTML = html;
+    tpTabs.querySelectorAll('.sk-tp-tab').forEach(function(tab){
+      tab.onclick = function(){ tpActiveTab=this.getAttribute('data-tab'); renderToolTabs(); renderToolList(); };
+    });
+  }
+
+  function getFilteredTools(){
+    var q = (tpSearch.value||'').toLowerCase().trim();
+    var catalog = TOOLS_CATALOG;
+    var groups = (catalog.groups||[]).map(function(g){
+      var tools = g.tools.filter(function(t){
+        if (!q) return true;
+        return (t.toolName||'').toLowerCase().indexOf(q)>=0
+          || (t.label||'').toLowerCase().indexOf(q)>=0
+          || (t.desc||'').toLowerCase().indexOf(q)>=0;
+      });
+      return { plugin:g.plugin, name:g.name, gradient:g.gradient, toolCount:tools.length, tools:tools };
+    }).filter(function(g){ return g.tools.length > 0; });
+    if (tpActiveTab !== 'all') groups = groups.filter(function(g){ return g.plugin === tpActiveTab; });
+    return groups;
+  }
+
+  function getFlatTools(groups){
+    var flat = [];
+    groups.forEach(function(g){ g.tools.forEach(function(t){ flat.push(t); }); });
+    return flat;
+  }
+
+  function renderToolList(){
+    var groups = getFilteredTools();
+    var flat = getFlatTools(groups);
+    if (tpFocusIdx >= flat.length) tpFocusIdx = Math.max(0, flat.length-1);
+    if (flat.length === 0) { tpBody.innerHTML = '<div class="sk-tp-empty">Không tìm thấy công cụ</div>'; return; }
+    var globalIdx = 0, html = '';
+    groups.forEach(function(g){
+      html += '<div class="sk-tp-group-hd"><span class="sk-tp-group-icon" style="background:'+g.gradient+'">🤖</span>'+esc(g.name)+'<span class="sk-tp-group-count">'+g.tools.length+' công cụ</span></div>';
+      g.tools.forEach(function(t){
+        var cls = 'sk-tp-tool' + (globalIdx === tpFocusIdx ? ' focused' : '');
+        html += '<div class="'+cls+'" data-idx="'+globalIdx+'" data-tool="'+esc(t.toolName)+'">';
+        html += '<span class="sk-tp-tool-name">@'+esc(t.toolName)+'</span>';
+        html += '<div><div class="sk-tp-tool-label">'+esc(t.label)+'</div>';
+        if (t.desc) html += '<div class="sk-tp-tool-desc">'+esc(t.desc)+'</div>';
+        html += '</div></div>';
+        globalIdx++;
+      });
+    });
+    tpBody.innerHTML = html;
+    tpBody.querySelectorAll('.sk-tp-tool').forEach(function(el){
+      el.onclick = function(){
+        var toolName = this.getAttribute('data-tool');
+        insertToolMention(toolName);
+      };
+      el.onmouseenter = function(){ tpFocusIdx = parseInt(this.getAttribute('data-idx')||'0'); highlightTool(); };
+    });
+  }
+
+  function highlightTool(){
+    tpBody.querySelectorAll('.sk-tp-tool').forEach(function(el){
+      el.classList.toggle('focused', parseInt(el.getAttribute('data-idx')||'-1') === tpFocusIdx);
+    });
+    var focused = tpBody.querySelector('.sk-tp-tool.focused');
+    if (focused) focused.scrollIntoView({ block:'nearest' });
+  }
+
+  function insertToolMention(toolName){
+    var ta = document.getElementById('sk-editor-content');
+    if (!ta) return;
+    var start = ta.selectionStart;
+    var val = ta.value;
+    // Check if there's a trailing '@' before cursor
+    var prefix = (start > 0 && val[start-1] === '@') ? '' : '@';
+    var insert = prefix + toolName;
+    ta.value = val.substring(0, start) + insert + val.substring(start);
+    ta.selectionStart = ta.selectionEnd = start + insert.length;
+    markDirty(true);
+    tpDialog.style.display='none';
+    ta.focus();
+    toast('@ Đã chèn @' + toolName);
+  }
+
+  tpSearch.oninput = function(){ tpFocusIdx=0; renderToolList(); };
+  tpSearch.onkeydown = function(e){
+    var flat = getFlatTools(getFilteredTools());
+    if (e.key==='ArrowDown') { e.preventDefault(); tpFocusIdx=Math.min(tpFocusIdx+1,flat.length-1); highlightTool(); }
+    else if (e.key==='ArrowUp') { e.preventDefault(); tpFocusIdx=Math.max(tpFocusIdx-1,0); highlightTool(); }
+    else if (e.key==='Enter') { e.preventDefault(); if(flat[tpFocusIdx]) insertToolMention(flat[tpFocusIdx].toolName); }
+    else if (e.key==='Escape') { e.preventDefault(); tpDialog.style.display='none'; }
+  };
+}
+
+/* @ shortcut: typing @ in editor opens tool picker */
+if (IS_ADMIN && editorEl) {
+  editorEl.addEventListener('keydown', function(e){
+    if (e.key === '@' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      // Delay to let the @ character be inserted first
+      setTimeout(function(){
+        if (tpBtn) openToolPicker();
+      }, 10);
+    }
+  });
+}
 
 /* ════════════════════════════════════════════════════════
  *  Create Folder

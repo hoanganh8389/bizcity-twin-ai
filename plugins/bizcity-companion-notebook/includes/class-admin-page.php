@@ -123,7 +123,7 @@ class BCN_Admin_Page {
     }
 
     public function render_page() {
-        echo '<div id="bcn-app" class="bcn-wrap" style="min-height:100vh;"></div>';
+        echo '<div id="bcn-app" class="bcn-wrap" style="min-height:100vh;margin:0;"></div>';
     }
 
     /* ─── Agent profile ─── */

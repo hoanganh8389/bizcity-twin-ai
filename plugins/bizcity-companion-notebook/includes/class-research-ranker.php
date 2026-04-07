@@ -124,7 +124,7 @@ class BCN_Research_Ranker {
 
     /** Content depth based on length, capped at MAX_CONTENT. */
     private static function content_depth( $content ) {
-        $max = BCN_Tavily_Client::MAX_CONTENT;
+        $max = class_exists( 'BizCity_Search_Client' ) ? BizCity_Search_Client::MAX_CONTENT : 5000;
         return min( 1.0, mb_strlen( (string) $content ) / $max );
     }
 }

@@ -14,7 +14,7 @@
  * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
  * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
  * @license    GPL-2.0-or-later
- * @since      Phase 1.10 Sprint 0
+ * @since      Phase 1.11 Sprint 0
  */
 
 defined( 'ABSPATH' ) or die( 'OOPS...' );
@@ -141,8 +141,8 @@ class WaicAction_it_call_research extends WaicAction {
 		$top_n    = (int) ( $settings['extract_top_n']['default'] ?? 3 );
 		$do_embed = (int) ( $settings['do_embed']['default'] ?? 1 );
 
-		// Override from block instance settings
-		$block_settings = $this->getBlock() ? ( $this->getBlock()->getSettings() ?? [] ) : [];
+		// Override from block instance settings (getParams() reads $this->_block['data']['settings'])
+		$block_settings = $this->getParams();
 		if ( ! empty( $block_settings['research_query'] ) ) {
 			$query = $this->resolveVariable( $block_settings['research_query'], $variables );
 		}
@@ -186,12 +186,31 @@ class WaicAction_it_call_research extends WaicAction {
 			error_log( self::LOG_PREFIX . ' Found ' . count( $existing ) . ' existing sources matching query — reusing' );
 		}
 
-		// ── Step 2: Tavily web search ──
-		if ( ! class_exists( 'BCN_Tavily_Client' ) ) {
-			return $this->make_error_result( 'BCN_Tavily_Client class not available' );
+		// ── Step 2: Web search via BizCity Search Router ──
+		if ( ! function_exists( 'bizcity_search' ) ) {
+			return $this->make_error_result( 'Search client not available — bizcity_search() not loaded' );
 		}
 
-		$search_results = BCN_Tavily_Client::search( $query, $max, $language );
+		// bizcity-llm (client): bizcity_search( $query, int $max, array $options )
+		// bizcity-openrouter (Hub): bizcity_search( $query, array $options )
+		// Detect signature via Reflection and call accordingly.
+		$ref = new \ReflectionFunction( 'bizcity_search' );
+		$p2  = $ref->getParameters()[1] ?? null;
+		if ( $p2 && $p2->getType() && $p2->getType()->getName() === 'int' ) {
+			// bizcity-llm 3-param signature
+			$search_results = bizcity_search( $query, $max, [ 'language' => $language ] );
+		} else {
+			// bizcity-openrouter 2-param signature — returns { success, results, ... }
+			$raw = bizcity_search( $query, [
+				'max_results' => $max,
+				'language'    => $language,
+			] );
+			if ( ! empty( $raw['success'] ) ) {
+				$search_results = $raw['results'] ?? [];
+			} else {
+				$search_results = new \WP_Error( 'tavily_error', $raw['error'] ?? 'Unknown search error' );
+			}
+		}
 
 		if ( is_wp_error( $search_results ) ) {
 			error_log( self::LOG_PREFIX . ' Tavily error: ' . $search_results->get_error_message() );
@@ -271,7 +290,7 @@ class WaicAction_it_call_research extends WaicAction {
 				'url'         => $url,
 				'title'       => $title,
 				'content'     => $content,
-			] );
+			], $project_id );
 
 			if ( $bcn_source_id && ! is_wp_error( $bcn_source_id ) ) {
 				$source_ids[] = $bcn_source_id;
@@ -298,8 +317,8 @@ class WaicAction_it_call_research extends WaicAction {
 			error_log( self::LOG_PREFIX . ' Embedded: total=' . ( $embed_result['total'] ?? 0 ) . ' success=' . $chunk_count . ' failed=' . ( $embed_result['failed'] ?? 0 ) );
 		}
 
-		// ── Step 7: Send sidebar notification via chat message ──
-		$this->notify_sources_added( $session_id, $user_id, $channel, count( $source_ids ), $query );
+		// ── Step 7: Send research results notification via chat message ──
+		$this->notify_sources_added( $session_id, $user_id, $channel, count( $source_ids ), $query, $summary_data );
 
 		$elapsed_ms = round( ( microtime( true ) - $start_time ) * 1000, 1 );
 		error_log( self::LOG_PREFIX . ' DONE sources=' . count( $source_ids ) . ' chars=' . $total_chars . ' chunks=' . $chunk_count . ' (' . $elapsed_ms . 'ms)' );
@@ -349,7 +368,7 @@ class WaicAction_it_call_research extends WaicAction {
 			// Update session with the new project_id
 			$wpdb->update(
 				$sessions_table,
-				[ 'project_id' => $project_id, 'updated_at' => current_time( 'mysql' ) ],
+				[ 'project_id' => $project_id ],
 				[ 'session_id' => $session_id ]
 			);
 
@@ -375,7 +394,7 @@ class WaicAction_it_call_research extends WaicAction {
 		$table = $wpdb->prefix . 'bizcity_webchat_sources';
 
 		return (bool) $wpdb->get_var( $wpdb->prepare(
-			"SELECT COUNT(*) FROM {$table} WHERE session_id = %s AND url = %s LIMIT 1",
+			"SELECT COUNT(*) FROM {$table} WHERE session_id = %s AND source_url = %s LIMIT 1",
 			$session_id,
 			$url
 		) );
@@ -399,7 +418,7 @@ class WaicAction_it_call_research extends WaicAction {
 		// Simple keyword match on title
 		$keyword = '%' . $wpdb->esc_like( mb_substr( $query, 0, 50 ) ) . '%';
 		$results = $wpdb->get_results( $wpdb->prepare(
-			"SELECT id, title, url FROM {$table} WHERE session_id = %s AND title LIKE %s LIMIT 10",
+			"SELECT id, title, source_url FROM {$table} WHERE session_id = %s AND title LIKE %s LIMIT 10",
 			$session_id,
 			$keyword
 		), ARRAY_A );
@@ -442,19 +461,35 @@ class WaicAction_it_call_research extends WaicAction {
 	 * @param string $session_id
 	 * @param int    $user_id
 	 * @param array  $data { source_type, url, title, content }
+	 * @param string $project_id Optional — when set, row is scoped to the notebook project.
 	 * @return int|false Insert ID or false
 	 */
-	private function write_to_webchat_sources( $session_id, $user_id, array $data ) {
+	private function write_to_webchat_sources( $session_id, $user_id, array $data, $project_id = '' ) {
 		global $wpdb;
 		$table = $wpdb->prefix . 'bizcity_webchat_sources';
 
+		$source_url = $data['url'] ?? '';
+
+		// Dedup: skip if same session + URL already exists
+		if ( ! empty( $source_url ) ) {
+			$exists = $wpdb->get_var( $wpdb->prepare(
+				"SELECT id FROM {$table} WHERE session_id = %s AND source_url = %s LIMIT 1",
+				$session_id,
+				$source_url
+			) );
+			if ( $exists ) {
+				return (int) $exists;
+			}
+		}
+
 		$inserted = $wpdb->insert( $table, [
 			'session_id'       => $session_id,
+			'project_id'       => $project_id,
 			'user_id'          => $user_id,
 			'source_type'      => $data['source_type'] ?? 'url',
 			'title'            => mb_substr( $data['title'] ?? '', 0, 500 ),
-			'url'              => $data['url'] ?? '',
-			'content'          => $data['content'] ?? '',
+			'source_url'       => $source_url,
+			'content_text'     => $data['content'] ?? '',
 			'embedding_status' => 'pending',
 			'chunk_count'      => 0,
 			'created_at'       => current_time( 'mysql' ),
@@ -473,7 +508,7 @@ class WaicAction_it_call_research extends WaicAction {
 	 * @param int    $count
 	 * @param string $query
 	 */
-	private function notify_sources_added( $session_id, $user_id, $channel, $count, $query ) {
+	private function notify_sources_added( $session_id, $user_id, $channel, $count, $query, array $summary_data = [] ) {
 		if ( empty( $session_id ) || $count < 1 ) {
 			return;
 		}
@@ -483,17 +518,30 @@ class WaicAction_it_call_research extends WaicAction {
 			return;
 		}
 
+		// Build rich message with research results list
+		$message = sprintf(
+			"🔍 **Research hoàn tất!** Đã tìm và import **%d nguồn** cho: \"%s\"\n\n",
+			$count,
+			mb_substr( $query, 0, 80 )
+		);
+		foreach ( array_slice( $summary_data, 0, 10 ) as $i => $item ) {
+			$title = ! empty( $item['title'] ) ? $item['title'] : ( $item['url'] ?? 'Nguồn' );
+			$url   = $item['url'] ?? '';
+			$chars = isset( $item['chars'] ) ? number_format( (int) $item['chars'] ) : '0';
+			if ( $url ) {
+				$message .= ( $i + 1 ) . '. [' . esc_html( mb_substr( $title, 0, 80 ) ) . '](' . esc_url( $url ) . ') — ' . $chars . ' ký tự' . "\n";
+			} else {
+				$message .= ( $i + 1 ) . '. ' . esc_html( mb_substr( $title, 0, 80 ) ) . ' — ' . $chars . ' ký tự' . "\n";
+			}
+		}
+
 		$db = BizCity_WebChat_Database::instance();
 		$db->log_message( [
 			'session_id'    => $session_id,
 			'user_id'       => 0,
 			'client_name'   => 'Research Bot',
 			'message_id'    => uniqid( 'research_' ),
-			'message_text'  => sprintf(
-				'🔍 **Research hoàn tất!** Đã tìm và import **%d nguồn** cho: "%s"',
-				$count,
-				mb_substr( $query, 0, 80 )
-			),
+			'message_text'  => $message,
 			'message_from'  => 'bot',
 			'message_type'  => 'pipeline_progress',
 			'platform_type' => ( $channel === 'adminchat' ) ? 'ADMINCHAT' : 'WEBCHAT',
@@ -591,6 +639,9 @@ class WaicAction_it_call_research extends WaicAction {
 	private function make_result( array $source_ids, $count, $total_chars, $chunk_count, $summary_json ) {
 		return [
 			'result' => [
+				'title'            => $count > 0
+					? sprintf( '%d nguồn · %s ký tự', $count, number_format( (int) $total_chars ) )
+					: 'Không tìm thấy nguồn',
 				'source_ids'       => implode( ',', $source_ids ),
 				'source_count'     => (string) $count,
 				'total_chars'      => (string) $total_chars,

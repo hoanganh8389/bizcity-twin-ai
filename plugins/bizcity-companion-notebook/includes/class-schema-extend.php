@@ -16,7 +16,7 @@ defined( 'ABSPATH' ) || exit;
  * memory_notes, webchat_studio_outputs
  */
 class BCN_Schema_Extend {
-    const SCHEMA_VERSION = '5.3.0';
+    const SCHEMA_VERSION = '5.5.0';
     const OPTION_KEY     = 'bcn_schema_version';
 
     public static function table_sources() {
@@ -64,6 +64,8 @@ class BCN_Schema_Extend {
             self::migrate_v5();
             self::migrate_v52();
             self::migrate_v53();
+            self::migrate_v54();
+            self::migrate_v55();
             update_option( self::OPTION_KEY, self::SCHEMA_VERSION );
         }
     }
@@ -93,6 +95,63 @@ class BCN_Schema_Extend {
         if ( empty( $indexes ) ) {
             $wpdb->query( "ALTER TABLE `{$t}` ADD INDEX `idx_caller` (`caller`)" );
         }
+    }
+
+    /**
+     * Migration for v5.5.0 — Add session_id column to studio_outputs.
+     * Architecture: webchat queries by session_id; notebook queries by project_id.
+     */
+    private static function migrate_v55() {
+        global $wpdb;
+        $t = self::table_studio_outputs();
+        if ( ! $wpdb->get_var( "SHOW TABLES LIKE '{$t}'" ) ) return;
+
+        $cols = $wpdb->get_col( "DESCRIBE `{$t}`", 0 );
+
+        if ( ! in_array( 'session_id', $cols, true ) ) {
+            $wpdb->query( "ALTER TABLE `{$t}` ADD COLUMN `session_id` VARCHAR(128) NOT NULL DEFAULT '' AFTER `project_id`" );
+            $wpdb->query( "ALTER TABLE `{$t}` ADD KEY `idx_session` (`session_id`)" );
+        }
+    }
+
+    /**
+     * Migration for v5.4.0 — Ensure session_id column exists on bizcity_rces and
+     * backfill both directions:
+     *   • Notebook project IDs: session_id → project_id  (legacy rows WHERE project_id='')
+     *   • Webchat session IDs:  project_id → session_id  (rows WHERE project_id LIKE 'wcs_%')
+     */
+    private static function migrate_v54() {
+        global $wpdb;
+        $t = self::table_sources();
+
+        if ( ! $wpdb->get_var( "SHOW TABLES LIKE '{$t}'" ) ) return;
+
+        $cols = $wpdb->get_col( "DESCRIBE `{$t}`", 0 );
+
+        // 1. Ensure session_id column exists (dbDelta may have missed it).
+        if ( ! in_array( 'session_id', $cols, true ) ) {
+            $wpdb->query( "ALTER TABLE `{$t}` ADD COLUMN `session_id` VARCHAR(128) NOT NULL DEFAULT '' AFTER `project_id`" );
+            $wpdb->query( "ALTER TABLE `{$t}` ADD KEY `idx_session` (`session_id`)" );
+        }
+
+        // 2. Backfill notebook project IDs: session_id → project_id.
+        //    These are legacy rows written before project_id was the canonical column.
+        $wpdb->query(
+            "UPDATE `{$t}`
+             SET project_id = session_id
+             WHERE project_id = ''
+               AND session_id != ''
+               AND session_id NOT LIKE 'wcs\\_%'"
+        );
+
+        // 3. Backfill webchat session IDs: project_id → session_id.
+        //    These rows were written before add() set the session_id column.
+        $wpdb->query(
+            "UPDATE `{$t}`
+             SET session_id = project_id, project_id = ''
+             WHERE project_id LIKE 'wcs\\_%'
+               AND session_id = ''"
+        );
     }
 
     /**
@@ -325,6 +384,7 @@ class BCN_Schema_Extend {
             task_id BIGINT(20) DEFAULT NULL,
             invoke_id VARCHAR(36) NOT NULL DEFAULT '',
             project_id VARCHAR(50) NOT NULL DEFAULT '',
+            session_id VARCHAR(128) NOT NULL DEFAULT '',
             tool_type VARCHAR(30) NOT NULL DEFAULT '',
             title VARCHAR(255) NOT NULL DEFAULT '',
             content LONGTEXT,
@@ -342,6 +402,7 @@ class BCN_Schema_Extend {
             updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             PRIMARY KEY (id),
             KEY idx_project_tool (project_id, tool_type),
+            KEY idx_session (session_id),
             KEY idx_user (user_id),
             KEY idx_post (external_post_id),
             KEY idx_caller (caller)

@@ -286,8 +286,15 @@ class BCN_Deep_Research {
         // Mark running.
         $wpdb->update( $table, [ 'status' => 'running' ], [ 'id' => $job_id ] );
 
-        // Search.
-        $results = BCN_Tavily_Client::search( $row->query, max( $max_results * 2, 10 ), $language );
+        // Search via BizCity Search Router (gateway-only).
+        if ( ! function_exists( 'bizcity_search' ) ) {
+            $wpdb->update( $table, [
+                'status'        => 'failed',
+                'error_message' => 'Search client not available — bizcity_search() not loaded',
+            ], [ 'id' => $job_id ] );
+            return;
+        }
+        $results = bizcity_search( $row->query, max( $max_results * 2, 10 ) );
 
         if ( is_wp_error( $results ) ) {
             $wpdb->update( $table, [

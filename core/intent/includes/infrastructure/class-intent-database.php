@@ -321,6 +321,12 @@ class BizCity_Intent_Database {
             }
         }
 
+        // ── Phase 1.11 S1: session_memory_spec column on conversations ──
+        $conv_cols = $this->wpdb->get_col( "SHOW COLUMNS FROM {$this->table_conversations}" );
+        if ( is_array( $conv_cols ) && ! in_array( 'session_memory_spec', $conv_cols, true ) ) {
+            $this->wpdb->query( "ALTER TABLE {$this->table_conversations} ADD COLUMN session_memory_spec LONGTEXT DEFAULT NULL AFTER context_snapshot" );
+        }
+
         // ── Classification Cache table ──
         if ( class_exists( 'BizCity_Intent_Classify_Cache' ) ) {
             BizCity_Intent_Classify_Cache::instance()->maybe_create_table();
@@ -438,7 +444,8 @@ class BizCity_Intent_Database {
             'waiting_field'   => '%s',
             'rolling_summary' => '%s',
             'open_loops'      => '%s',
-            'context_snapshot' => '%s',
+            'context_snapshot'     => '%s',
+            'session_memory_spec'  => '%s',
             'turn_count'      => '%d',
             'completed_at'    => '%s',
             'character_id'    => '%d',

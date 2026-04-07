@@ -41,6 +41,7 @@ require_once BIZCITY_SKILLS_DIR . 'includes/class-skill-manager.php';
 require_once BIZCITY_SKILLS_DIR . 'includes/class-skill-database.php';
 require_once BIZCITY_SKILLS_DIR . 'includes/class-skill-tool-map.php';
 require_once BIZCITY_SKILLS_DIR . 'includes/class-skill-rest-api.php';
+require_once BIZCITY_SKILLS_DIR . 'includes/class-skill-recipe-parser.php';
 require_once BIZCITY_SKILLS_DIR . 'includes/class-skill-context.php';
 require_once BIZCITY_SKILLS_DIR . 'includes/class-skill-pipeline-bridge.php';
 require_once BIZCITY_SKILLS_DIR . 'includes/class-admin-page.php';

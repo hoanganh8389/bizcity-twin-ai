@@ -1,0 +1,168 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BizCity Intent Contract v1",
+  "description": "Data contract between client (Intent Engine Shell) and server (Smart Classifier)",
+
+  "definitions": {
+    "skill_context": {
+      "type": ["object", "null"],
+      "properties": {
+        "slug":         { "type": "string" },
+        "title":        { "type": "string" },
+        "strategy":     { "type": "string", "enum": ["simple", "guided", "explicit"] },
+        "modes":        { "type": "array", "items": { "type": "string" } },
+        "tool_refs":    { "type": "array", "items": { "type": "string" } },
+        "guardrails":   { "type": "array", "items": { "type": "string" }, "maxItems": 10 },
+        "body_excerpt": { "type": "string", "maxLength": 2000 }
+      }
+    },
+
+    "memory_spec": {
+      "type": ["object", "null"],
+      "properties": {
+        "mode":         { "type": "string" },
+        "focus":        { "type": "string" },
+        "open_loops":   { "type": "array", "items": { "type": "string" } },
+        "next_actions": { "type": "array", "items": { "type": "string" } },
+        "pipeline_ref": { "type": "string" }
+      }
+    },
+
+    "tool_entry": {
+      "type": "object",
+      "required": ["tool_id", "type"],
+      "properties": {
+        "tool_id":       { "type": "string" },
+        "type":          { "type": "string", "enum": ["atomic", "composite"] },
+        "version":       { "type": "string" },
+        "capability":    {
+          "type": "object",
+          "properties": {
+            "summary":  { "type": "string" },
+            "actions":  { "type": "array", "items": { "type": "string" } },
+            "domains":  { "type": "array", "items": { "type": "string" } },
+            "triggers": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "input_fields":  { "type": "object" },
+        "output_fields": { "type": "object" },
+        "execution":     {
+          "type": "object",
+          "properties": {
+            "auto_execute":     { "type": "boolean" },
+            "confirm_required": { "type": "boolean" },
+            "side_effects":     { "type": "array", "items": { "type": "string" } },
+            "idempotent":       { "type": "boolean" }
+          }
+        },
+        "provider": { "type": "string" }
+      }
+    },
+
+    "pipeline_step": {
+      "type": "object",
+      "required": ["step", "tool"],
+      "properties": {
+        "step":  { "type": "integer" },
+        "tool":  { "type": "string" },
+        "label": { "type": "string" },
+        "skip":  { "type": "boolean", "default": false },
+        "input_mapping": { "type": "object" },
+        "settings": { "type": "object" }
+      }
+    }
+  },
+
+  "properties": {
+    "request": {
+      "type": "object",
+      "required": ["version", "message", "session_id", "channel", "user_id"],
+      "properties": {
+        "version":    { "type": "string", "const": "1" },
+        "message":    { "type": "string" },
+        "session_id": { "type": "string" },
+        "channel":    { "type": "string", "enum": ["webchat", "adminchat", "zalo", "telegram", "facebook"] },
+        "user_id":    { "type": "integer" },
+
+        "skill_context": { "$ref": "#/definitions/skill_context" },
+        "memory_spec":   { "$ref": "#/definitions/memory_spec" },
+
+        "user_memory": {
+          "type": ["object", "null"],
+          "properties": {
+            "profile_summary":  { "type": "string", "maxLength": 500 },
+            "recent_episodes":  { "type": "array" }
+          }
+        },
+
+        "knowledge_sources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "type":    { "type": "string" },
+              "slug":    { "type": "string" },
+              "excerpt": { "type": "string", "maxLength": 2000 }
+            }
+          }
+        },
+
+        "conversation_snapshot": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "role":    { "type": "string" },
+              "content": { "type": "string", "maxLength": 500 },
+              "ts":      { "type": "integer" }
+            }
+          },
+          "maxItems": 10
+        },
+
+        "tool_registry": {
+          "type": "object",
+          "properties": {
+            "fingerprint": { "type": "string" },
+            "tools":       { "type": "array", "items": { "$ref": "#/definitions/tool_entry" } }
+          }
+        }
+      }
+    },
+
+    "response": {
+      "type": "object",
+      "required": ["version", "action"],
+      "properties": {
+        "version": { "type": "string", "const": "1" },
+        "action":  { "type": "string", "enum": ["execute_pipeline", "ask_user", "confirm", "passthrough"] },
+        "depth":   { "type": "string", "enum": ["shallow", "standard", "deep"] },
+        "branch":  { "type": "string", "enum": ["knowledge", "single_step", "workflow"] },
+        "tool":        { "type": "string" },
+        "tool_type":   { "type": "string", "enum": ["atomic", "composite"] },
+        "entities":    { "type": "object" },
+
+        "pipeline_plan": {
+          "type": "object",
+          "properties": {
+            "steps": { "type": "array", "items": { "$ref": "#/definitions/pipeline_step" } }
+          }
+        },
+
+        "memory_spec": { "$ref": "#/definitions/memory_spec" },
+        "confidence":  { "type": "number", "minimum": 0, "maximum": 1 },
+        "reasoning":   { "type": "string" },
+        "reply":       { "type": ["string", "null"] },
+
+        "meta": {
+          "type": "object",
+          "properties": {
+            "model_used":    { "type": "string" },
+            "tokens_used":   { "type": "integer" },
+            "classifier_ms": { "type": "integer" }
+          }
+        }
+      }
+    }
+  }
+}

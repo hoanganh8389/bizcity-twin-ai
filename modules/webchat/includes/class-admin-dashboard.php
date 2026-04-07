@@ -894,14 +894,14 @@ class BizCity_WebChat_Admin_Dashboard {
 
         // ── Welcome screen tool shortcuts (configurable via filter) ──
         $welcome_tools = apply_filters('bizcity_welcome_tools', [
-            ['slug' => 'write_article',  'label' => __( 'Viết bài',            $td ), 'icon' => '✍️',  'color' => '#4D6BFE', 'pluginSlug' => 'bizcity-tool-content', 'toolName' => 'write_article',    'prompt' => __( '/write_article Viết bài giúp tôi', $td )],
-            ['slug' => 'gen_image',      'label' => __( 'Tạo hình ảnh',        $td ), 'icon' => '🖼️',  'color' => '#FF5630', 'pluginSlug' => 'bizcity-tool-image',   'toolName' => 'generate_image',   'prompt' => __( '/generate_image Tạo hình ảnh giúp tôi', $td )],
-            ['slug' => 'summarize',      'label' => __( 'Tóm tắt',             $td ), 'icon' => '📝',  'color' => '#8E33FF', 'pluginSlug' => 'bizcity-tool-content', 'toolName' => 'summarize',        'prompt' => __( '/summarize Tóm tắt nội dung này giúp tôi', $td )],
-            ['slug' => 'consult',        'label' => __( 'Tư vấn',              $td ), 'icon' => '💡',  'color' => '#FFAB00', 'pluginSlug' => 'bizcity-agent-calo',   'toolName' => 'consult',          'prompt' => __( '/consult Tư vấn giúp tôi về', $td )],
-            ['slug' => 'order_list',     'label' => __( 'Xem đơn hàng',        $td ), 'icon' => '🛒',  'color' => '#22C55E', 'pluginSlug' => 'bizcity-tool-woo',     'toolName' => 'order_list',       'prompt' => '/order_list'],
-            ['slug' => 'report',         'label' => __( 'Báo cáo',             $td ), 'icon' => '📊',  'color' => '#00B8D9', 'pluginSlug' => 'bizcity-tool-woo',     'toolName' => 'business_report',  'prompt' => __( '/business_report Tạo báo cáo', $td )],
-            ['slug' => 'mindmap',        'label' => __( 'Tạo Mindmap',         $td ), 'icon' => '🧠',  'color' => '#FF5630', 'pluginSlug' => 'bizcity-tool-mindmap', 'toolName' => 'create_mindmap',   'prompt' => '/create_mindmap'],
-            ['slug' => 'task',           'label' => __( 'Tạo nhắc nhở',        $td ), 'icon' => '📋',  'color' => '#8E33FF', 'pluginSlug' => 'bizcity-tool-slide',   'toolName' => 'create_task',      'prompt' => '/create_task'],
+            ['slug' => 'write_article',  'label' => __( 'Viết bài',            $td ), 'icon' => '✍️',  'color' => '#4D6BFE', 'pluginSlug' => 'bizcity-tool-content', 'toolName' => 'write_article',    'prompt' => __( '@write_article Viết bài giúp tôi', $td )],
+            ['slug' => 'gen_image',      'label' => __( 'Tạo hình ảnh',        $td ), 'icon' => '🖼️',  'color' => '#FF5630', 'pluginSlug' => 'bizcity-tool-image',   'toolName' => 'generate_image',   'prompt' => __( '@generate_image Tạo hình ảnh giúp tôi', $td )],
+            ['slug' => 'summarize',      'label' => __( 'Tóm tắt',             $td ), 'icon' => '📝',  'color' => '#8E33FF', 'pluginSlug' => 'bizcity-tool-content', 'toolName' => 'summarize',        'prompt' => __( '@summarize Tóm tắt nội dung này giúp tôi', $td )],
+            ['slug' => 'consult',        'label' => __( 'Tư vấn',              $td ), 'icon' => '💡',  'color' => '#FFAB00', 'pluginSlug' => 'bizcity-agent-calo',   'toolName' => 'consult',          'prompt' => __( '@consult Tư vấn giúp tôi về', $td )],
+            ['slug' => 'order_list',     'label' => __( 'Xem đơn hàng',        $td ), 'icon' => '🛒',  'color' => '#22C55E', 'pluginSlug' => 'bizcity-tool-woo',     'toolName' => 'order_list',       'prompt' => '@order_list'],
+            ['slug' => 'report',         'label' => __( 'Báo cáo',             $td ), 'icon' => '📊',  'color' => '#00B8D9', 'pluginSlug' => 'bizcity-tool-woo',     'toolName' => 'business_report',  'prompt' => __( '@business_report Tạo báo cáo', $td )],
+            ['slug' => 'mindmap',        'label' => __( 'Tạo Mindmap',         $td ), 'icon' => '🧠',  'color' => '#FF5630', 'pluginSlug' => 'bizcity-tool-mindmap', 'toolName' => 'create_mindmap',   'prompt' => '@create_mindmap'],
+            ['slug' => 'task',           'label' => __( 'Tạo nhắc nhở',        $td ), 'icon' => '📋',  'color' => '#8E33FF', 'pluginSlug' => 'bizcity-tool-slide',   'toolName' => 'create_task',      'prompt' => '@create_task'],
         ]);
 
         // ── Tools Catalog (full list for welcome screen) ──

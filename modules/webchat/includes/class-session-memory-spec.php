@@ -372,6 +372,7 @@ class BizCity_Session_Memory_Spec {
 			return $prompt;
 		}
 
+		error_log( '[Session-Spec] Injected into prompt | session=' . $session_id . ' | len=' . strlen( $block ) );
 		return $prompt . "\n\n" . $block;
 	}
 

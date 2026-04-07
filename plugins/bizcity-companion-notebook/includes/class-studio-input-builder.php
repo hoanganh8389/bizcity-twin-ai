@@ -98,6 +98,26 @@ class BCN_Studio_Input_Builder {
             $parts[] = "=== NGUỒN TÀI LIỆU ===\n" . $sources_text;
         }
 
+        // Fallback for webchat sessions: pull chat messages if no notes/sources.
+        if ( empty( $parts ) && str_starts_with( $project_id, 'wcs_' ) ) {
+            global $wpdb;
+            $msg_table = $wpdb->prefix . 'bizcity_webchat_messages';
+            $rows      = $wpdb->get_results( $wpdb->prepare(
+                "SELECT message_from, message_text FROM {$msg_table}
+                 WHERE session_id = %s AND status = 'visible'
+                 ORDER BY id ASC LIMIT 100",
+                $project_id
+            ) );
+            if ( $rows ) {
+                $msg_parts = [];
+                foreach ( $rows as $r ) {
+                    $role = ( $r->message_from === 'user' ) ? 'User' : 'AI';
+                    $msg_parts[] = "[{$role}] " . $r->message_text;
+                }
+                $parts[] = "=== HỘI THOẠI ===\n" . implode( "\n\n", $msg_parts );
+            }
+        }
+
         return [
             'text'         => implode( "\n\n", $parts ),
             'note_count'   => count( $all_notes ),

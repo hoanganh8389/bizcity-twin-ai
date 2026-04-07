@@ -335,7 +335,10 @@ class BizCity_Intent_Tools {
     }
 
     /**
-     * Get tool source (for execution logging).
+     * Get tool source (for execution logging + provider classification).
+     *
+     * S8 fix: distinguish core atomic tools (bizcity_atomic_* callbacks)
+     * from plugin tools for SmartClassifier tool filtering.
      *
      * @param string $name Tool name.
      * @return string 'built_in' | 'plugin' | 'provider' | 'unknown'
@@ -352,12 +355,18 @@ class BizCity_Intent_Tools {
             return 'built_in';
         }
 
-        // Check if it's from a provider
+        // Check if it's from a provider (class name contains 'Provider')
         if ( is_array( $callback ) && is_object( $callback[0] ) ) {
             $class_name = get_class( $callback[0] );
             if ( strpos( $class_name, 'Provider' ) !== false ) {
                 return 'provider';
             }
+        }
+
+        // S8: Core atomic tools use bizcity_atomic_* callback naming convention
+        // (registered in core/tools/*/bootstrap.php). Treat as built-in.
+        if ( is_string( $callback ) && strpos( $callback, 'bizcity_atomic_' ) === 0 ) {
+            return 'built_in';
         }
 
         return 'plugin';

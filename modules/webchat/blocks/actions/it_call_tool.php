@@ -473,6 +473,48 @@ class WaicAction_it_call_tool extends WaicAction {
 		// Clear HIL state on completion
 		$this->clear_hil_state( $tool_id, $variables );
 
+		// ── Studio Output: save content artifact if tool produced publishable content ──
+		// Covers: content-tier tools (landing, blog, slide, etc.) and
+		// publish tools that return external_url (WP post, FB post, etc.).
+		if ( $success && class_exists( 'BizCity_Output_Store' ) ) {
+			$tool_schema = class_exists( 'BizCity_Intent_Tools' )
+				? BizCity_Intent_Tools::instance()->get( $tool_id )
+				: [];
+			$tool_type_local = $tool_schema['tool_type'] ?? '';
+
+			// Determine if this tool produces a storable content artifact or a distribution result.
+			$is_content_tool = in_array( $tool_type_local, BizCity_Output_Store::CONTENT_TOOL_TYPES, true );
+			$has_content     = ! empty( $content ) || ! empty( $title );
+			$has_external    = ! empty( $resource_url );
+
+			if ( $is_content_tool && $has_content ) {
+				// Content artifact — save directly to studio_outputs.
+				BizCity_Output_Store::save_artifact( [
+					'tool_id'    => $tool_id,
+					'caller'     => 'pipeline',
+					'session_id' => $execution_state['session_id'] ?? '',
+					'user_id'    => $execution_state['user_id'] ?? get_current_user_id(),
+					'task_id'    => null,
+					'data'       => [
+						'title'   => $title,
+						'content' => $content,
+					],
+					'success'  => true,
+					'verified' => true,
+				], $tool_type_local ?: 'content' );
+
+			} elseif ( $has_external ) {
+				// Distribution/publish tool — update the most recent studio output for this session
+				// with the external_url and external_post_id so the Studio tab shows the live link.
+				$this->update_studio_output_with_url(
+					$execution_state['session_id'] ?? '',
+					$execution_state['user_id'] ?? 0,
+					$resource_url,
+					(int) ( $resource_id ?: 0 )
+				);
+			}
+		}
+
 		// Auto-send result to admin chat session if platform is adminchat
 		$this->maybe_send_to_adminchat( $variables, $tool_id, $success, $msg, $error, $resource_url, $title );
 
@@ -747,6 +789,36 @@ class WaicAction_it_call_tool extends WaicAction {
 		}
 
 		error_log( '[IT_CALL_TOOL] evidence_saved conv_id=' . $conv_id . ' status=' . ( $success ? 'COMPLETED' : 'FAILED' ) );
+	}
+
+	/**
+	 * Update the most recent studio output for a session with a distribution URL.
+	 * Called after a publish tool (publish_wp_post, post_facebook…) returns external_url.
+	 *
+	 * @param string $session_id       Webchat session ID.
+	 * @param int    $user_id          User ID.
+	 * @param string $external_url     Published permalink or social URL.
+	 * @param int    $external_post_id WP post ID (0 if not a WP post).
+	 */
+	private function update_studio_output_with_url( string $session_id, int $user_id, string $external_url, int $external_post_id = 0 ): void {
+		if ( ! class_exists( 'BCN_Schema_Extend' ) || empty( $external_url ) ) {
+			return;
+		}
+		global $wpdb;
+		$table = BCN_Schema_Extend::table_studio_outputs();
+
+		// Find the latest studio output for this session that has no external_url yet.
+		$output_id = (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT id FROM {$table}
+			 WHERE session_id = %s AND user_id = %d AND (external_url = '' OR external_url IS NULL)
+			 ORDER BY created_at DESC LIMIT 1",
+			$session_id, $user_id
+		) );
+
+		if ( $output_id ) {
+			BizCity_Output_Store::update_distribution_result( $output_id, $external_url, $external_post_id );
+			error_log( "[IT_CALL_TOOL] studio_output updated: id={$output_id} url={$external_url}" );
+		}
 	}
 
 	/**

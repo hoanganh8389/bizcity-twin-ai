@@ -66,6 +66,24 @@ add_action( 'init', function() {
     load_plugin_textdomain( 'bizcity-twin-ai', false, plugin_basename( BIZCITY_WEBCHAT_DIR ) . '/languages' );
 }, 5 );
 
+// Register bizcity_mem_draft CPT early so wp-admin can edit/display these posts.
+add_action( 'init', function() {
+    if ( post_type_exists( 'bizcity_mem_draft' ) ) {
+        return;
+    }
+    register_post_type( 'bizcity_mem_draft', [
+        'labels' => [
+            'name'          => 'Memory Drafts',
+            'singular_name' => 'Memory Draft',
+        ],
+        'public'          => false,
+        'show_ui'         => true,
+        'show_in_menu'    => false,
+        'supports'        => [ 'title', 'editor', 'custom-fields' ],
+        'capability_type' => 'post',
+    ] );
+}, 5 );
+
 /* ═══════════════════════════════════════════════════════════════
  * AGENT IFRAME MODE
  * Khi URL co ?bizcity_iframe=1 (Touch Bar goi), an header/footer/adminbar
@@ -193,8 +211,8 @@ require_once BIZCITY_WEBCHAT_INCLUDES . 'class-webchat-memory.php';
 require_once BIZCITY_WEBCHAT_INCLUDES . 'class-webchat-api.php';
 require_once BIZCITY_WEBCHAT_INCLUDES . 'class-admin-menu.php';
 require_once BIZCITY_WEBCHAT_INCLUDES . 'class-admin-dashboard.php'; // Admin dashboard with chat
-require_once BIZCITY_WEBCHAT_INCLUDES . 'class-working-panel.php'; // Re-enabled — reads from Execution Logger transient
-require_once BIZCITY_WEBCHAT_INCLUDES . 'class-working-panel-context.php'; // Phase 1.6 Context Layers tab for Working Panel
+// require_once BIZCITY_WEBCHAT_INCLUDES . 'class-working-panel.php'; // DEPRECATED v4.9.3 — old floating bwp-wrap panel, replaced by React bizc-working-panel
+// require_once BIZCITY_WEBCHAT_INCLUDES . 'class-working-panel-context.php'; // DEPRECATED v4.9.3 — old Working Panel Context tab
 require_once BIZCITY_WEBCHAT_INCLUDES . 'class-chatbot-shortcode.php'; // New chatbot shortcode
 require_once BIZCITY_WEBCHAT_INCLUDES . 'class-ajax-handlers.php'; // V3 Project/Session AJAX handlers
 require_once BIZCITY_WEBCHAT_INCLUDES . 'class-plugin-suggestion-api.php'; // v3.1.0 Plugin @mention suggestions

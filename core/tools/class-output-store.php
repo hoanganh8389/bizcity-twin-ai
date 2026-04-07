@@ -151,6 +151,7 @@ class BizCity_Output_Store {
             'task_id'        => $task_id,
             'invoke_id'      => sanitize_text_field( $event['invoke_id'] ?? '' ),
             'project_id'     => sanitize_text_field( $project_id ),
+            'session_id'     => sanitize_text_field( $session_id ),
             'tool_type'      => sanitize_key( $tool_type ),
             'title'          => $title,
             'content'        => $content,

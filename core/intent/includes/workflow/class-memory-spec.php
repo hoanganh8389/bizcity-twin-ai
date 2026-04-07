@@ -470,7 +470,11 @@ class BizCity_Memory_Spec {
 			}
 		}
 
-		return self::format_for_prompt( $spec );
+		$block = self::format_for_prompt( $spec );
+		if ( $block ) {
+			error_log( '[Memory-Spec] Pipeline spec injected | task=' . $task_id . ' | len=' . strlen( $block ) );
+		}
+		return $block;
 	}
 
 	/* ══════════════════════════════════════════════
@@ -484,7 +488,7 @@ class BizCity_Memory_Spec {
 	 * @param array $spec    The memory_spec array.
 	 * @return bool True on success.
 	 */
-	private static function persist( int $task_id, array $spec ): bool {
+	public static function persist( int $task_id, array $spec ): bool {
 		global $wpdb;
 		$table = $wpdb->prefix . ( defined( 'WAIC_DB_PREF' ) ? WAIC_DB_PREF : 'bizcity_' ) . 'tasks';
 
@@ -550,5 +554,164 @@ class BizCity_Memory_Spec {
 		) );
 
 		return (int) $task_id;
+	}
+
+	/* ══════════════════════════════════════════════
+	 *  SESSION MEMORY SPEC — Phase 1.11 S1
+	 *
+	 *  Session-scoped memory that persists across turns
+	 *  even WITHOUT an active pipeline. Stored in
+	 *  bizcity_intent_conversations.session_memory_spec.
+	 * ══════════════════════════════════════════════ */
+
+	/**
+	 * Load session memory spec from conversation row.
+	 *
+	 * @param array $conversation Conversation row (from get_or_create).
+	 * @return array|null Decoded session spec or null.
+	 */
+	public static function load_session( array $conversation ): ?array {
+		$raw = $conversation['session_memory_spec'] ?? '';
+		if ( empty( $raw ) ) {
+			return null;
+		}
+
+		$spec = json_decode( $raw, true );
+		if ( ! is_array( $spec ) ) {
+			return null;
+		}
+
+		// Stale check — ignore if older than STALE_HOURS
+		if ( ! empty( $spec['updated_at'] ) ) {
+			$updated = strtotime( $spec['updated_at'] );
+			if ( $updated && ( time() - $updated ) > self::STALE_HOURS * 3600 ) {
+				error_log( self::LOG . ' Session spec stale, ignoring.' );
+				return null;
+			}
+		}
+
+		return $spec;
+	}
+
+	/**
+	 * Save session memory spec to conversation.
+	 *
+	 * @param string $conversation_id Conversation UUID.
+	 * @param array  $spec            Session memory spec to save.
+	 * @return bool True on success.
+	 */
+	public static function save_session( string $conversation_id, array $spec ): bool {
+		if ( empty( $conversation_id ) ) {
+			return false;
+		}
+
+		$spec['version']    = self::VERSION;
+		$spec['scope']      = 'session';
+		$spec['updated_at'] = current_time( 'mysql', true );
+
+		// Trim arrays to prevent bloat
+		if ( isset( $spec['open_loops'] ) ) {
+			$spec['open_loops'] = array_slice( $spec['open_loops'], 0, 5 );
+		}
+		if ( isset( $spec['next_actions'] ) ) {
+			$spec['next_actions'] = array_slice( $spec['next_actions'], 0, 5 );
+		}
+
+		$json = wp_json_encode( $spec, JSON_UNESCAPED_UNICODE );
+
+		if ( ! class_exists( 'BizCity_Intent_Database' ) ) {
+			return false;
+		}
+
+		// Use the DB layer's update method
+		$db = BizCity_Intent_Database::instance();
+		return $db->update_conversation( $conversation_id, [
+			'session_memory_spec' => $json,
+		] );
+	}
+
+	/**
+	 * Merge server-returned memory spec into existing session spec.
+	 *
+	 * Server may return partial updates (e.g. new open_loops, updated mode).
+	 * We merge non-null fields, preserving local data where server is silent.
+	 *
+	 * @param array $existing    Current session spec (from load_session).
+	 * @param array $server_spec Server-returned memory_spec.
+	 * @return array Merged spec (ready for save_session).
+	 */
+	public static function merge_from_server( array $existing, array $server_spec ): array {
+		// Fields that server can override (non-null server values win)
+		$override_fields = [ 'mode', 'focus', 'pipeline_ref' ];
+		foreach ( $override_fields as $field ) {
+			if ( isset( $server_spec[ $field ] ) && $server_spec[ $field ] !== null ) {
+				$existing[ $field ] = $server_spec[ $field ];
+			}
+		}
+
+		// Arrays: merge + deduplicate
+		if ( ! empty( $server_spec['open_loops'] ) ) {
+			$local  = $existing['open_loops'] ?? [];
+			$merged = array_values( array_unique( array_merge( $local, $server_spec['open_loops'] ) ) );
+			$existing['open_loops'] = array_slice( $merged, 0, 5 );
+		}
+
+		if ( ! empty( $server_spec['next_actions'] ) ) {
+			// Server next_actions fully replace (they're more accurate)
+			$existing['next_actions'] = array_slice( $server_spec['next_actions'], 0, 5 );
+		}
+
+		return $existing;
+	}
+
+	/**
+	 * Build a fresh session spec from server classifier response.
+	 *
+	 * Used when no existing session spec exists and server returns one.
+	 *
+	 * @param array  $server_spec Server-returned memory_spec.
+	 * @param string $session_id  Session identifier.
+	 * @return array Session spec ready for save_session.
+	 */
+	public static function build_session_from_server( array $server_spec, string $session_id = '' ): array {
+		return [
+			'version'      => self::VERSION,
+			'scope'        => 'session',
+			'session_id'   => $session_id,
+			'updated_at'   => current_time( 'mysql', true ),
+			'mode'         => $server_spec['mode'] ?? '',
+			'focus'        => $server_spec['focus'] ?? '',
+			'open_loops'   => array_slice( (array) ( $server_spec['open_loops'] ?? [] ), 0, 5 ),
+			'next_actions' => array_slice( (array) ( $server_spec['next_actions'] ?? [] ), 0, 5 ),
+			'pipeline_ref' => $server_spec['pipeline_ref'] ?? '',
+		];
+	}
+
+	/**
+	 * Format session spec for system prompt injection.
+	 *
+	 * @param array $spec Session memory spec.
+	 * @return string Formatted prompt block.
+	 */
+	public static function format_session_for_prompt( array $spec ): string {
+		$lines   = [];
+		$lines[] = '---';
+		$lines[] = '## 🧠 SESSION CONTEXT';
+
+		if ( ! empty( $spec['mode'] ) ) {
+			$lines[] = 'Mode: ' . $spec['mode'];
+		}
+		if ( ! empty( $spec['focus'] ) ) {
+			$lines[] = 'Focus: ' . $spec['focus'];
+		}
+		if ( ! empty( $spec['open_loops'] ) ) {
+			$lines[] = 'Open loops: ' . implode( ', ', $spec['open_loops'] );
+		}
+		if ( ! empty( $spec['next_actions'] ) ) {
+			$lines[] = 'Next: ' . implode( ', ', $spec['next_actions'] );
+		}
+
+		$lines[] = '---';
+		return implode( "\n", $lines );
 	}
 }

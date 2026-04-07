@@ -192,19 +192,19 @@ class BizCity_Pipeline_Messenger {
 			? '<span class="bizc-wp-entry-ms">' . esc_html( $duration_ms . 'ms' ) . '</span>'
 			: '';
 
-		$link_html = '';
+		// Title: clickable link when URL available, plain text otherwise
+		$title_text = ! empty( $result_data['title'] ) ? $result_data['title'] : $summary;
 		if ( ! empty( $url ) ) {
-			$link_html = '<a href="' . esc_url( $url ) . '" target="_blank" class="bizc-wp-entry-link">🔗 '
-			           . ( ! empty( $post_id ) && is_numeric( $post_id ) ? 'post #' . intval( $post_id ) : esc_html( mb_substr( $url, 0, 60 ) ) )
-			           . '</a>';
+			$label_html = '<a href="' . esc_url( $url ) . '" target="_blank" class="bizc-wp-entry-label bizc-wp-entry-link">' . esc_html( $title_text ) . '</a>';
+		} else {
+			$label_html = '<span class="bizc-wp-entry-label">' . esc_html( $summary ) . '</span>';
 		}
 
 		$html = '<div class="bizc-wp-entry done result">'
 		      . '<span class="bizc-wp-entry-icon">✅</span>'
 		      . '<div class="bizc-wp-entry-main">'
-		      . '<span class="bizc-wp-entry-label">' . esc_html( $summary ) . '</span>'
+		      . $label_html
 		      . '<span class="bizc-wp-entry-step">' . esc_html( $tool_name ) . '</span>'
-		      . $link_html
 		      . '</div>'
 		      . $ms_html
 		      . '</div>'

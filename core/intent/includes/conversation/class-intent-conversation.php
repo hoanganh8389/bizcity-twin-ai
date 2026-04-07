@@ -432,6 +432,7 @@ class BizCity_Intent_Conversation {
             'waiting_field'   => $row->waiting_field,
             'rolling_summary' => $row->rolling_summary,
             'open_loops'      => $row->open_loops ?: '[]',
+            'session_memory_spec' => $row->session_memory_spec ?? '',
             'project_id'      => $row->project_id ?? '',
             'turn_count'      => (int) $row->turn_count,
             'created_at'      => $row->created_at,

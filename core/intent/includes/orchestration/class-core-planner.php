@@ -151,11 +151,39 @@ class BizCity_Core_Planner {
      * @param BizCity_Intent_Tools $tools
      * @return string|null Tool name.
      */
+    /**
+     * Alias map for LLM-invented tool names that don't exist in the registry.
+     * Maps common hallucinated names → actual registered tool keys.
+     *
+     * @var array alias => canonical_tool
+     */
+    private static $tool_aliases = [
+        'post_website'     => 'write_article',
+        'post_web'         => 'write_article',
+        'publish_website'  => 'write_article',
+        'publish_web'      => 'write_article',
+        'publish_blog'     => 'write_article',
+        'post_blog'        => 'write_article',
+        'write_web'        => 'write_article',
+        'dang_bai_web'     => 'write_article',
+        'post_to_website'  => 'write_article',
+        'dang_facebook'    => 'create_facebook_post',
+        'post_fb'          => 'create_facebook_post',
+    ];
+
     private function resolve_tool_for_objective( $objective, $tools ) {
         // Direct tool_hint from Prompt Parser
         $hint = $objective['tool_hint'] ?? '';
         if ( $hint && $tools->has( $hint ) ) {
             return $hint;
+        }
+
+        // v4.9.5: Alias map — resolve common LLM-hallucinated tool names
+        if ( $hint && isset( self::$tool_aliases[ $hint ] ) ) {
+            $canonical = self::$tool_aliases[ $hint ];
+            if ( $tools->has( $canonical ) ) {
+                return $canonical;
+            }
         }
 
         // Keyword search fallback against registered tools

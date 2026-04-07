@@ -13,20 +13,20 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
-msgid "/business_report Tạo báo cáo"
-msgstr "/business_report Generate a report"
+msgid "@business_report Tạo báo cáo"
+msgstr "@business_report Generate a report"
 
-msgid "/consult Tư vấn giúp tôi về"
-msgstr "/consult Give me advice on"
+msgid "@consult Tư vấn giúp tôi về"
+msgstr "@consult Give me advice on"
 
-msgid "/generate_image Tạo hình ảnh giúp tôi"
-msgstr "/generate_image Generate an image for me"
+msgid "@generate_image Tạo hình ảnh giúp tôi"
+msgstr "@generate_image Generate an image for me"
 
-msgid "/summarize Tóm tắt nội dung này giúp tôi"
-msgstr "/summarize Summarize this content for me"
+msgid "@summarize Tóm tắt nội dung này giúp tôi"
+msgstr "@summarize Summarize this content for me"
 
-msgid "/write_article Viết bài giúp tôi"
-msgstr "/write_article Write an article for me"
+msgid "@write_article Viết bài giúp tôi"
+msgstr "@write_article Write an article for me"
 
 msgid "1,000 requests/month free."
 msgstr "1,000 requests/month free."

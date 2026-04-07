@@ -540,6 +540,50 @@ class BizCity_Intent_Stream {
             exit;
         }
 
+        // ── S8: Pipeline execution → send reply directly, include task_id for frontend trigger ──
+        if ( ( $engine_result['action'] ?? '' ) === 'execute_pipeline' && ! empty( $engine_result['reply'] ) ) {
+            $bot_db_id = $this->log_webchat_message( [
+                'session_id'              => $session_id,
+                'user_id'                 => 0,
+                'client_name'             => 'AI Assistant',
+                'message_id'              => uniqid( 'intent_pipeline_' ),
+                'message_text'            => $engine_result['reply'],
+                'message_from'            => 'bot',
+                'message_type'            => 'text',
+                'platform_type'           => $platform_type,
+                'plugin_slug'             => $intent_plugin_slug,
+                'intent_conversation_id'  => $intent_conv_id,
+                'meta'                    => [
+                    'character_id'           => $character_id,
+                    'via'                    => 'shell_execute_pipeline',
+                    'task_id'                => $engine_result['meta']['task_id'] ?? null,
+                    'pipeline_id'            => $engine_result['meta']['pipeline_id'] ?? null,
+                    'step_count'             => $engine_result['meta']['step_count'] ?? 0,
+                    'intent_conversation_id' => $intent_conv_id,
+                ],
+            ] );
+
+            $this->send_sse_event( 'chunk', [
+                'delta' => $engine_result['reply'],
+                'full'  => $engine_result['reply'],
+            ] );
+            $this->send_sse_event( 'done', [
+                'message'          => $engine_result['reply'],
+                'conversation_id'  => $intent_conv_id,
+                'action'           => 'execute_pipeline',
+                'bot_message_id'   => $bot_db_id,
+                'goal'             => $intent_goal,
+                'goal_label'       => $intent_label,
+                'plugin_slug'      => $intent_plugin_slug,
+                'tool_name'        => $intent_tool_name,
+                'focus_mode'       => 'active',
+                'pipeline_active'  => true,
+                'task_id'          => $engine_result['meta']['task_id'] ?? null,
+                'pipeline_id'      => $engine_result['meta']['pipeline_id'] ?? null,
+            ] );
+            exit;
+        }
+
         // ── Tool completion → send tool's reply directly (contains URLs, structured content) ──
         // Also handles executor ack (contains trace_id) — must NOT be rephrased by LLM.
         $is_tool_complete = ( $engine_result['action'] ?? '' ) === 'complete'
@@ -897,6 +941,9 @@ class BizCity_Intent_Stream {
             'plugin_slug'      => $sr_plugin_slug,
             'tool_name'        => $sr_tool_name,
             'focus_mode'       => $sr_focus_mode,
+            'pipeline_active'  => ! empty( $engine_result['meta']['pipeline'] ) || ! empty( $engine_result['meta']['task_id'] ),
+            'task_id'          => $engine_result['meta']['task_id'] ?? null,
+            'pipeline_id'      => $engine_result['meta']['pipeline_id'] ?? null,
         ];
         // Pass BCN user message DB id back so Notebook frontend can replace temp id
         $bcn_user_msg_id = absint( $_REQUEST['_bcn_user_msg_id'] ?? 0 );

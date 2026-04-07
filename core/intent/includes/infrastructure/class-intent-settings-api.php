@@ -45,6 +45,7 @@ class BizCity_Intent_Settings_API {
 
     public function __construct() {
         add_action( 'rest_api_init', array( $this, 'register_rest_routes' ) );
+        add_action( 'admin_action_bizcity_shell_cutover', array( $this, 'admin_action_cutover' ) );
     }
 
     /* ================================================================
@@ -85,6 +86,18 @@ class BizCity_Intent_Settings_API {
                     'maximum'           => 50,
                     'sanitize_callback' => 'absint',
                 ),
+                'shell_percentage' => array(
+                    'description'       => 'Shell Engine traffic percentage (0=legacy, 100=shell, N=A/B)',
+                    'type'              => 'integer',
+                    'minimum'           => 0,
+                    'maximum'           => 100,
+                    'sanitize_callback' => 'absint',
+                ),
+                'shell_shadow' => array(
+                    'description'       => 'Enable shadow comparison mode (legacy runs shell in parallel)',
+                    'type'              => 'boolean',
+                    'sanitize_callback' => 'rest_sanitize_boolean',
+                ),
             ),
         ) );
 
@@ -93,6 +106,28 @@ class BizCity_Intent_Settings_API {
             'methods'             => WP_REST_Server::READABLE,
             'callback'            => array( $this, 'rest_get_routing' ),
             'permission_callback' => array( $this, 'check_read_permission' ),
+        ) );
+
+        // GET /bizcity-intent/v1/settings/shell — Shell Engine cutover status (S6)
+        register_rest_route( 'bizcity-intent/v1', '/settings/shell', array(
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => array( $this, 'rest_get_shell_status' ),
+            'permission_callback' => array( $this, 'check_read_permission' ),
+        ) );
+
+        // POST /bizcity-intent/v1/settings/shell/cutover — Quick cutover action (S6/S7)
+        register_rest_route( 'bizcity-intent/v1', '/settings/shell/cutover', array(
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => array( $this, 'rest_shell_cutover' ),
+            'permission_callback' => array( $this, 'check_write_permission' ),
+            'args'                => array(
+                'action' => array(
+                    'description'       => 'Cutover action: shadow, ab_10, ab_25, ab_50, full, rollback',
+                    'type'              => 'string',
+                    'required'          => true,
+                    'sanitize_callback' => 'sanitize_text_field',
+                ),
+            ),
         ) );
 
         // GET /bizcity-intent/v1/tools/active — Active tools list (for mobile app)
@@ -139,10 +174,12 @@ class BizCity_Intent_Settings_API {
      */
     public function rest_get_settings( WP_REST_Request $request ) {
         return new WP_REST_Response( array(
-            'routing_priority'   => get_option( 'bizcity_tcp_routing_priority', 'balanced' ),
-            'image_default_goal' => get_option( 'bizcity_tcp_image_default_goal', 'tarot_interpret' ),
-            'top_n_tools'        => (int) get_option( 'bizcity_tcp_top_n_tools', 10 ),
-            'version'            => defined( 'BIZCITY_INTENT_VERSION' ) ? BIZCITY_INTENT_VERSION : 'unknown',
+            'routing_priority'      => get_option( 'bizcity_tcp_routing_priority', 'balanced' ),
+            'image_default_goal'    => get_option( 'bizcity_tcp_image_default_goal', 'tarot_interpret' ),
+            'top_n_tools'           => (int) get_option( 'bizcity_tcp_top_n_tools', 10 ),
+            'shell_percentage'      => (int) get_option( 'bizcity_shell_percentage', 0 ),
+            'shell_shadow'          => (bool) get_option( 'bizcity_shell_shadow', false ),
+            'version'               => defined( 'BIZCITY_INTENT_VERSION' ) ? BIZCITY_INTENT_VERSION : 'unknown',
         ), 200 );
     }
 
@@ -186,6 +223,21 @@ class BizCity_Intent_Settings_API {
             $top_n = max( 3, min( 50, absint( $top_n ) ) );
             update_option( 'bizcity_tcp_top_n_tools', $top_n );
             $updated['top_n_tools'] = $top_n;
+        }
+
+        // Shell Engine percentage (S6 cutover)
+        $shell_pct = $request->get_param( 'shell_percentage' );
+        if ( $shell_pct !== null ) {
+            $shell_pct = max( 0, min( 100, absint( $shell_pct ) ) );
+            update_option( 'bizcity_shell_percentage', $shell_pct );
+            $updated['shell_percentage'] = $shell_pct;
+        }
+
+        // Shell shadow mode (S6 comparison)
+        $shell_shadow = $request->get_param( 'shell_shadow' );
+        if ( $shell_shadow !== null ) {
+            update_option( 'bizcity_shell_shadow', (bool) $shell_shadow );
+            $updated['shell_shadow'] = (bool) $shell_shadow;
         }
 
         // Clear cached context
@@ -277,5 +329,161 @@ class BizCity_Intent_Settings_API {
             'tools' => $tools,
             'total' => count( $tools ),
         ), 200 );
+    }
+
+    /* ================================================================
+     * Phase 1.11 S6/S7 — Shell Engine Cutover
+     * ================================================================ */
+
+    /**
+     * GET /settings/shell — Shell Engine status dashboard.
+     */
+    public function rest_get_shell_status( WP_REST_Request $request ) {
+        $pct    = (int) get_option( 'bizcity_shell_percentage', 0 );
+        $shadow = (bool) get_option( 'bizcity_shell_shadow', false );
+
+        // Determine phase
+        if ( $pct <= 0 && ! $shadow ) {
+            $phase = 'legacy';
+        } elseif ( $pct <= 0 && $shadow ) {
+            $phase = 'shadow';
+        } elseif ( $pct < 100 ) {
+            $phase = 'ab_test';
+        } else {
+            $phase = 'shell_full';
+        }
+
+        $phases = array(
+            'legacy'     => '🔴 Legacy 100% — Shell inactive',
+            'shadow'     => '🟡 Shadow — Legacy handles, Shell logs in parallel',
+            'ab_test'    => "🟠 A/B Test — Shell {$pct}%, Legacy " . ( 100 - $pct ) . '%',
+            'shell_full' => '🟢 Shell 100% — Legacy archived',
+        );
+
+        return new WP_REST_Response( array(
+            'phase'           => $phase,
+            'description'     => $phases[ $phase ] ?? '',
+            'shell_percentage' => $pct,
+            'shadow_enabled'  => $shadow,
+            'shell_available' => class_exists( 'BizCity_Intent_Engine_Shell' ),
+            'cutover_actions' => array(
+                'shadow'   => 'Enable shadow comparison (0% shell, log both)',
+                'ab_10'    => 'A/B test: 10% shell',
+                'ab_25'    => 'A/B test: 25% shell',
+                'ab_50'    => 'A/B test: 50% shell',
+                'full'     => 'Full cutover: 100% shell',
+                'rollback' => 'Instant rollback: 0% shell',
+            ),
+        ), 200 );
+    }
+
+    /**
+     * POST /settings/shell/cutover — Execute cutover action.
+     */
+    public function rest_shell_cutover( WP_REST_Request $request ) {
+        $action = $request->get_param( 'action' );
+
+        $actions = array(
+            'shadow'   => array( 'pct' => 0,   'shadow' => true  ),
+            'ab_10'    => array( 'pct' => 10,  'shadow' => false ),
+            'ab_25'    => array( 'pct' => 25,  'shadow' => false ),
+            'ab_50'    => array( 'pct' => 50,  'shadow' => false ),
+            'full'     => array( 'pct' => 100, 'shadow' => false ),
+            'rollback' => array( 'pct' => 0,   'shadow' => false ),
+        );
+
+        if ( ! isset( $actions[ $action ] ) ) {
+            return new WP_Error(
+                'invalid_cutover_action',
+                'Invalid action. Use: shadow, ab_10, ab_25, ab_50, full, rollback.',
+                array( 'status' => 400 )
+            );
+        }
+
+        $cfg = $actions[ $action ];
+        update_option( 'bizcity_shell_percentage', $cfg['pct'] );
+        update_option( 'bizcity_shell_shadow', $cfg['shadow'] );
+
+        error_log( '[Shell:Cutover] Action=' . $action . ' → pct=' . $cfg['pct'] . ', shadow=' . ( $cfg['shadow'] ? 'ON' : 'OFF' ) );
+
+        return new WP_REST_Response( array(
+            'success'          => true,
+            'action'           => $action,
+            'shell_percentage' => $cfg['pct'],
+            'shell_shadow'     => $cfg['shadow'],
+            'message'          => 'Cutover action "' . $action . '" applied. Effect: immediate.',
+        ), 200 );
+    }
+
+    /* ================================================================
+     *  Admin Action: /wp-admin/admin.php?action=bizcity_shell_cutover&cutover=shadow
+     *
+     *  Handles cutover via admin URL (no REST nonce needed).
+     *  Uses WordPress admin_action_ hook with nonce verification.
+     * ================================================================ */
+
+    /**
+     * Handle shell cutover via admin action URL.
+     *
+     * Usage (paste in browser address bar while logged in as admin):
+     *   /wp-admin/admin.php?action=bizcity_shell_cutover&cutover=shadow&_wpnonce=NONCE
+     *
+     * Generate link: admin_url('admin.php?action=bizcity_shell_cutover&cutover=shadow&_wpnonce=' . wp_create_nonce('bizcity_shell_cutover'))
+     */
+    public function admin_action_cutover() {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( 'Unauthorized.', 'Error', array( 'response' => 403 ) );
+        }
+
+        $cutover = sanitize_text_field( $_GET['cutover'] ?? '' );
+
+        $actions = array(
+            'shadow'   => array( 'pct' => 0,   'shadow' => true  ),
+            'ab_10'    => array( 'pct' => 10,  'shadow' => false ),
+            'ab_25'    => array( 'pct' => 25,  'shadow' => false ),
+            'ab_50'    => array( 'pct' => 50,  'shadow' => false ),
+            'full'     => array( 'pct' => 100, 'shadow' => false ),
+            'rollback' => array( 'pct' => 0,   'shadow' => false ),
+            'status'   => null,
+        );
+
+        if ( ! isset( $actions[ $cutover ] ) && $cutover !== 'status' ) {
+            wp_die(
+                'Invalid cutover action. Use: shadow, ab_10, ab_25, ab_50, full, rollback, status.',
+                'Shell Cutover Error',
+                array( 'response' => 400 )
+            );
+        }
+
+        // Status-only mode
+        if ( $cutover === 'status' ) {
+            $pct    = (int) get_option( 'bizcity_shell_percentage', 0 );
+            $shadow = (bool) get_option( 'bizcity_shell_shadow', false );
+            wp_die(
+                '<h2>Shell Engine Status</h2>'
+                . '<p><strong>shell_percentage:</strong> ' . $pct . '%</p>'
+                . '<p><strong>shell_shadow:</strong> ' . ( $shadow ? 'ON' : 'OFF' ) . '</p>'
+                . '<p><a href="' . esc_url( admin_url( 'admin.php?action=bizcity_shell_cutover&cutover=shadow' ) ) . '">Activate Shadow</a>'
+                . ' | <a href="' . esc_url( admin_url( 'admin.php?action=bizcity_shell_cutover&cutover=rollback' ) ) . '">Rollback</a></p>',
+                'Shell Status',
+                array( 'response' => 200 )
+            );
+        }
+
+        $cfg = $actions[ $cutover ];
+        update_option( 'bizcity_shell_percentage', $cfg['pct'] );
+        update_option( 'bizcity_shell_shadow', $cfg['shadow'] );
+
+        error_log( '[Shell:Cutover] Action=' . $cutover . ' → pct=' . $cfg['pct'] . ', shadow=' . ( $cfg['shadow'] ? 'ON' : 'OFF' ) . ' by user=' . get_current_user_id() );
+
+        wp_die(
+            '<h2>Shell Cutover: ' . esc_html( $cutover ) . '</h2>'
+            . '<p><strong>shell_percentage:</strong> ' . $cfg['pct'] . '%</p>'
+            . '<p><strong>shell_shadow:</strong> ' . ( $cfg['shadow'] ? 'ON' : 'OFF' ) . '</p>'
+            . '<p>Effect: immediate.</p>'
+            . '<p><a href="' . esc_url( admin_url( 'admin.php?action=bizcity_shell_cutover&cutover=status' ) ) . '">← View Status</a></p>',
+            'Shell Cutover Applied',
+            array( 'response' => 200 )
+        );
     }
 }

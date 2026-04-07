@@ -102,8 +102,8 @@ class WaicAction_it_call_memory extends WaicAction {
 		$goal_label    = $this->replaceVariables( $this->getParam( 'goal_label', '' ), $variables );
 		$focus_context = $this->replaceVariables( $this->getParam( 'focus_context', '' ), $variables );
 
-		// Override from block instance settings
-		$block_settings = $this->getBlock() ? ( $this->getBlock()->getSettings() ?? [] ) : [];
+		// Override from block instance settings (getParams() reads $this->_block['data']['settings'])
+		$block_settings = $this->getParams();
 		if ( ! empty( $block_settings['goal_label'] ) ) {
 			$goal_label = $this->replaceVariables( $block_settings['goal_label'], $variables );
 		}
@@ -375,7 +375,7 @@ class WaicAction_it_call_memory extends WaicAction {
 	/**
 	 * Resolve {{node#X.var}} variables in a string.
 	 */
-	private function replaceVariables( $text, $variables ) {
+	public function replaceVariables( $text, $variables ) {
 		if ( strpos( $text, '{{' ) === false ) {
 			return $text;
 		}

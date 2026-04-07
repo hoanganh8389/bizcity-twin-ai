@@ -89,6 +89,11 @@ class BizCity_Skill_Context {
 			return $prompt;
 		}
 
+		// Skip if Step 1.6E already activated this skill (avoids dual A→compose + C→pipeline)
+		if ( ! empty( $GLOBALS['_bizcity_s16e_handled_skill'] ) ) {
+			return $prompt;
+		}
+
 		$mgr = BizCity_Skill_Manager::instance();
 
 		// Build match criteria
@@ -136,6 +141,22 @@ class BizCity_Skill_Context {
 		foreach ( $matches as $m ) {
 			$archetype = self::detect_archetype( $m['frontmatter'] );
 			$m['archetype'] = $archetype;
+
+			// Upgrade A/B to guided pipeline if body has @tool_refs or ≥2 numbered steps
+			if ( in_array( $archetype, [ 'A', 'B' ], true ) && class_exists( 'BizCity_Skill_Recipe_Parser' ) ) {
+				$parsed = BizCity_Skill_Recipe_Parser::instance()->parse(
+					$m['content'] ?? '',
+					$m['frontmatter'] ?? []
+				);
+				if ( $parsed['strategy'] === 'guided' ) {
+					$m['archetype']       = 'D';
+					$m['body_steps']      = $parsed['steps'];
+					$m['body_tool_refs']  = $parsed['tool_refs'];
+					$m['body_guardrails'] = $parsed['guardrails'];
+					$pipeline_matches[]   = $m;
+					continue;
+				}
+			}
 
 			if ( $archetype === 'C' || $archetype === 'D' ) {
 				$pipeline_matches[] = $m;

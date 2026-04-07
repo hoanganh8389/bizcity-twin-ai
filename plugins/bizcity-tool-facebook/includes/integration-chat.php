@@ -26,13 +26,22 @@ function bztfb_notify_chat( int $job_id, array $result, string $session_id ): vo
         }
     }
 
-    $msg  = "✅ **Đã đăng bài Facebook thành công!**\n\n";
-    $msg .= "📝 **Tiêu đề:** " . ( $result['title'] ?? 'N/A' ) . "\n";
-    if ( ! empty( $result['wp_post_id'] ) ) {
-        $msg .= "🔗 **Bài WordPress:** " . get_permalink( $result['wp_post_id'] ) . "\n";
-    }
-    if ( $fb_links ) {
-        $msg .= "📣 **Facebook:** " . implode( "\n", $fb_links ) . "\n";
+    if ( empty( $fb_post_ids ) ) {
+        $msg  = "⚠️ **Bài viết đã tạo nhưng chưa đăng được lên Facebook.**\n\n";
+        $msg .= "📝 **Tiêu đề:** " . ( $result['title'] ?? 'N/A' ) . "\n";
+        if ( ! empty( $result['wp_post_id'] ) ) {
+            $msg .= "🔗 **Bài WordPress:** " . get_permalink( $result['wp_post_id'] ) . "\n";
+        }
+        $msg .= "❌ Không tìm thấy Facebook Page nào được kết nối.\n";
+    } else {
+        $msg  = "✅ **Đã đăng bài Facebook thành công!**\n\n";
+        $msg .= "📝 **Tiêu đề:** " . ( $result['title'] ?? 'N/A' ) . "\n";
+        if ( ! empty( $result['wp_post_id'] ) ) {
+            $msg .= "🔗 **Bài WordPress:** " . get_permalink( $result['wp_post_id'] ) . "\n";
+        }
+        if ( $fb_links ) {
+            $msg .= "📣 **Facebook:** " . implode( "\n", $fb_links ) . "\n";
+        }
     }
 
     bizcity_webchat_log_message( $session_id, 'assistant', $msg, array(

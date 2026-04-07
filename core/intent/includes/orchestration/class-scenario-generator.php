@@ -243,6 +243,7 @@ class BizCity_Scenario_Generator {
         'send_zalo_message'        => 'Gửi tin Zalo',
         'send_zalo'                => 'Gửi tin Zalo',
         'knowledge_search'         => 'Tìm kiến thức',
+        'post_website'             => 'Đăng bài WordPress',
         'publish_wp_post'          => 'Đăng bài WordPress',
         'generate_ig_caption'      => 'Tạo caption Instagram',
         'generate_linkedin_post'   => 'Tạo bài LinkedIn',
@@ -252,6 +253,7 @@ class BizCity_Scenario_Generator {
         'it_call_research'         => '🔍 Nghiên cứu & Thu thập nguồn',
         'it_call_memory'           => '🧠 Lưu context pipeline',
         'it_call_content'          => '📝 Tạo nội dung',
+        'it_call_skill'            => '🎯 Skill — Resolve & Inject',
         'it_call_reflection'       => '🎯 Kiểm tra & Tổng kết',
         'it_todos_planner'         => '📋 Khởi tạo kế hoạch',
     ];
@@ -316,6 +318,7 @@ class BizCity_Scenario_Generator {
         'schedule_post'            => [ 'family' => 'distribution', 'tool_type' => 'distribution', 'execution_path' => 'it_call_tool' ],
 
         // ── Composite Tools (multi-step internal, NOT for workflow automation) ──
+        'post_website'             => [ 'family' => 'content_production', 'tool_type' => 'composite', 'execution_path' => 'provider_direct' ],
         'write_article'            => [ 'family' => 'content_production', 'tool_type' => 'composite', 'execution_path' => 'provider_direct' ],
         'write_seo_article'        => [ 'family' => 'content_production', 'tool_type' => 'composite', 'execution_path' => 'provider_direct' ],
         'rewrite_article'          => [ 'family' => 'content_production', 'tool_type' => 'composite', 'execution_path' => 'provider_direct' ],
@@ -326,6 +329,7 @@ class BizCity_Scenario_Generator {
         // ── Phase 1.10: Agentic Pipeline Blocks (self-contained execution) ──
         'it_call_research'         => [ 'family' => 'pipeline_infra', 'tool_type' => 'pipeline_block', 'execution_path' => 'it_call_research' ],
         'it_call_memory'           => [ 'family' => 'pipeline_infra', 'tool_type' => 'pipeline_block', 'execution_path' => 'it_call_memory' ],
+        'it_call_skill'            => [ 'family' => 'pipeline_infra', 'tool_type' => 'pipeline_block', 'execution_path' => 'it_call_skill' ],
         'it_call_reflection'       => [ 'family' => 'pipeline_infra', 'tool_type' => 'pipeline_block', 'execution_path' => 'it_call_reflection' ],
         'it_todos_planner'         => [ 'family' => 'pipeline_infra', 'tool_type' => 'pipeline_block', 'execution_path' => 'it_todos_planner' ],
     ];
@@ -341,6 +345,7 @@ class BizCity_Scenario_Generator {
      */
     private static function resolve_composite( string $tool_name ): ?array {
         $map = [
+            'post_website'         => [ 'generate_blog_content', 'publish_wp_post' ],
             'write_article'        => [ 'generate_blog_content', 'publish_wp_post' ],
             'write_seo_article'    => [ 'generate_seo_content',  'publish_wp_post' ],
             'create_facebook_post' => [ 'generate_fb_post',      'post_facebook' ],
@@ -859,7 +864,7 @@ class BizCity_Scenario_Generator {
      * @param array  $context    Trigger context (user_id, session_id, etc.).
      * @return int|false  Task row ID or false on failure.
      */
-    private static function save_draft_task( array $scenario, string $title, array $context = [] ) {
+    public static function save_draft_task( array $scenario, string $title, array $context = [] ) {
         global $wpdb;
 
         $table = $wpdb->prefix . ( defined( 'WAIC_DB_PREF' ) ? WAIC_DB_PREF : 'bizcity_' ) . 'tasks';
@@ -881,6 +886,7 @@ class BizCity_Scenario_Generator {
                 'pipeline_version' => 1,
                 'session_id'       => $context['session_id'] ?? '',
                 'channel'          => $context['channel'] ?? 'webchat',
+                'slash_command'    => $context['slash_command'] ?? '',
                 'generated_by'     => 'scenario_generator',
             ],
         ], JSON_UNESCAPED_UNICODE );
