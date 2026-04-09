@@ -162,11 +162,25 @@ class BizCity_Tool_Content {
         $post_content = '';
         $post_category = '';
 
+        // Check for stream callback (SSE pipeline streaming)
+        $stream_callback = $meta['stream_callback'] ?? null;
+
         if ( function_exists( 'bizcity_openrouter_chat' ) ) {
-            $ai_result = bizcity_openrouter_chat( [
+            $llm_messages = [
                 [ 'role' => 'system', 'content' => $sys_prompt ],
                 [ 'role' => 'user',   'content' => $article_prompt ],
-            ], [ 'temperature' => 0.75, 'max_tokens' => 4000 ] );
+            ];
+            $llm_opts = [ 'temperature' => 0.75, 'max_tokens' => 4000 ];
+            $streamed = false;
+
+            // Stream if callback available → content appears in chat UI in real-time
+            if ( is_callable( $stream_callback ) && function_exists( 'bizcity_openrouter_chat_stream' ) ) {
+                error_log( '[TOOL-CONTENT] write_article: using STREAMING path' );
+                $ai_result = bizcity_openrouter_chat_stream( $llm_messages, $llm_opts, $stream_callback );
+                $streamed  = true;
+            } else {
+                $ai_result = bizcity_openrouter_chat( $llm_messages, $llm_opts );
+            }
 
             $raw    = $ai_result['message'] ?? '';
             $parsed = self::parse_json_response( $raw );
@@ -287,6 +301,7 @@ class BizCity_Tool_Content {
                 'trace_id'  => $trace ? $trace->get_trace_id() : '',
                 'meta'      => [ 'category' => $post_category ],
             ],
+            '_streamed' => ! empty( $streamed ),
         ];
     }
 
@@ -411,10 +426,22 @@ class BizCity_Tool_Content {
             $sys_seo .= "\n\n[Skill Context — Hướng dẫn chuyên môn]\n" . $skill_content;
         }
 
-        $ai_result = bizcity_openrouter_chat( [
+        $ai_result = null;
+        $streamed  = false;
+        $stream_callback = $meta['stream_callback'] ?? null;
+        $llm_messages = [
             [ 'role' => 'system', 'content' => $sys_seo ],
             [ 'role' => 'user',   'content' => $seo_prompt ],
-        ], [ 'temperature' => 0.7, 'max_tokens' => 4000 ] );
+        ];
+        $llm_opts = [ 'temperature' => 0.7, 'max_tokens' => 4000 ];
+
+        if ( is_callable( $stream_callback ) && function_exists( 'bizcity_openrouter_chat_stream' ) ) {
+            error_log( '[TOOL-CONTENT] write_seo_article: using STREAMING path' );
+            $ai_result = bizcity_openrouter_chat_stream( $llm_messages, $llm_opts, $stream_callback );
+            $streamed  = true;
+        } else {
+            $ai_result = bizcity_openrouter_chat( $llm_messages, $llm_opts );
+        }
 
         $raw = $ai_result['message'] ?? '';
         $parsed = self::parse_json_response( $raw );
@@ -485,6 +512,7 @@ class BizCity_Tool_Content {
                 'image_url' => $image_url, 'platform' => 'wordpress',
                 'trace_id' => $trace ? $trace->get_trace_id() : '',
             ],
+            '_streamed' => ! empty( $streamed ),
         ];
     }
 
@@ -581,10 +609,21 @@ class BizCity_Tool_Content {
             $sys_rewrite .= "\n\n[Skill Context — Hướng dẫn chuyên môn]\n" . $skill_content;
         }
 
-        $ai_result = bizcity_openrouter_chat( [
+        $stream_callback = $meta['stream_callback'] ?? null;
+        $llm_messages = [
             [ 'role' => 'system', 'content' => $sys_rewrite ],
             [ 'role' => 'user',   'content' => $rewrite_prompt ],
-        ], [ 'temperature' => 0.7, 'max_tokens' => 4000 ] );
+        ];
+        $llm_opts = [ 'temperature' => 0.7, 'max_tokens' => 4000 ];
+        $streamed = false;
+
+        if ( is_callable( $stream_callback ) && function_exists( 'bizcity_openrouter_chat_stream' ) ) {
+            error_log( '[TOOL-CONTENT] rewrite_article: using STREAMING path' );
+            $ai_result = bizcity_openrouter_chat_stream( $llm_messages, $llm_opts, $stream_callback );
+            $streamed  = true;
+        } else {
+            $ai_result = bizcity_openrouter_chat( $llm_messages, $llm_opts );
+        }
 
         $parsed = self::parse_json_response( $ai_result['message'] ?? '' );
         $new_title   = $parsed['title']   ?? $original_title;
@@ -636,6 +675,7 @@ class BizCity_Tool_Content {
                 'original_title' => $original_title, 'platform' => 'wordpress',
                 'trace_id' => $trace ? $trace->get_trace_id() : '',
             ],
+            '_streamed' => ! empty( $streamed ),
         ];
     }
 

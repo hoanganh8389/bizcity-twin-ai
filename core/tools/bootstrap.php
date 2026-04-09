@@ -41,6 +41,19 @@ if ( ! defined( 'BIZCITY_TOOLS_DIR' ) ) {
 	define( 'BIZCITY_TOOLS_DIR', __DIR__ . '/' );
 }
 
+/* ── Phase 1.9: Resource Resolver (must load before tool groups) ──── */
+require_once BIZCITY_TOOLS_DIR . 'class-resource-resolver.php';
+
+/* ── Phase 1.9 Sprint 1: Output Store (must load before tool groups) */
+require_once BIZCITY_TOOLS_DIR . 'class-output-store.php';
+add_action( 'plugins_loaded', [ 'BizCity_Output_Store', 'init' ], 20 );
+
+/* ── Phase 1.9 Sprint 4: Auto-cleanup cron for stale outputs ──── */
+add_action( 'plugins_loaded', [ 'BizCity_Output_Store', 'schedule_cleanup' ], 21 );
+
+/* ── Phase 1.9 Sprint 2: Unified Tool Registry ───────────────────── */
+require_once BIZCITY_TOOLS_DIR . 'class-tool-registry.php';
+
 /* ── Auto-load all tool group bootstraps ──────────────────────────── */
 $tool_groups = [
 	// ─── Active groups (priority ordered by each bootstrap) ───
@@ -49,6 +62,7 @@ $tool_groups = [
 	'content',       // Content — 36 atomic generators (priority 25)
 	'distribution',  // Delivery — post, send, publish (priority 26)
 	'workspace_google', // Google Workspace — Docs, Sheets, Slides, Drive (priority 27)
+	'video',         // Phase 1.12 — 5 video tools: script, create, poll, fetch, post-prod (priority 25)
 
 	// ─── Future groups (empty scaffolds) ───
 	'web',       // Phase 2.2  — HTTP, research, scraping
@@ -56,7 +70,7 @@ $tool_groups = [
 	'data',      // Phase 2.5  — Data/structured tools
 	'compute',   // Phase 2.6  — Utility/compute tools
 	'coding',    // Phase 2.7  — Code generation/analysis
-	'media',     // Phase 2.8  — Image/audio/video
+	'media',     // Phase 2.8  — Image/audio (non-video)
 	'project',   // Phase 2.9  — Workspace management
 	'task',      // Phase 2.10 — Task planning
 ];
@@ -67,3 +81,60 @@ foreach ( $tool_groups as $group ) {
 		require_once $bootstrap;
 	}
 }
+
+/* ── Phase 1.9 Sprint 2: Auto-sync adapters into BizCity_Tool_Registry
+ *
+ *  Priority 30 — content/distribution tools from BizCity_Intent_Tools
+ *  Priority 31 — notebook tools from BCN_Notebook_Tool_Registry
+ *  Priority 32 — seal the registry (no further mutations after this)
+ * ─────────────────────────────────────────────────────────────────── */
+
+// Adapter A: BizCity_Intent_Tools → BizCity_Tool_Registry
+add_action( 'init', static function () {
+	if ( ! class_exists( 'BizCity_Intent_Tools' ) || ! class_exists( 'BizCity_Tool_Registry' ) ) {
+		return;
+	}
+	$all = BizCity_Intent_Tools::instance()->list_all();
+	foreach ( $all as $slug => $schema ) {
+		$content_tier  = (int) ( $schema['content_tier'] ?? 0 );
+		$accepts_skill = ! empty( $schema['accepts_skill'] );
+		$tool_type     = $schema['tool_type'] ?? 'atomic';
+		BizCity_Tool_Registry::register( $slug, array_merge( $schema, [
+			'label'          => ucwords( str_replace( [ '_', '-' ], ' ', preg_replace( '/^generate_/', '', $slug ) ) ),
+			'icon'           => $tool_type === 'distribution' ? '📤' : '📝',
+			'icon_url'       => '',
+			'color'          => $tool_type === 'distribution' ? 'green' : 'blue',
+			'category'       => $tool_type === 'distribution' ? 'distribution' : 'content',
+			'available'      => true,
+			'studio_enabled' => $content_tier >= 1,
+			'at_enabled'     => $accepts_skill,
+			'source'         => 'intent_tools',
+		] ) );
+	}
+}, 30 );
+
+// Adapter B: BCN_Notebook_Tool_Registry → BizCity_Tool_Registry
+add_action( 'init', static function () {
+	if ( ! class_exists( 'BCN_Notebook_Tool_Registry' ) || ! class_exists( 'BizCity_Tool_Registry' ) ) {
+		return;
+	}
+	foreach ( BCN_Notebook_Tool_Registry::get_all() as $type => $tool ) {
+		BizCity_Tool_Registry::register( $type, array_merge( $tool, [
+			'slug'           => $type,
+			'tool_type'      => 'notebook',
+			'studio_enabled' => true,
+			'at_enabled'     => false,
+			'accepts_skill'  => false,
+			'content_tier'   => 1,
+			'input_fields'   => [],
+			'source'         => 'notebook_registry',
+		] ) );
+	}
+}, 31 );
+
+// Seal the registry so later code cannot mutate it
+add_action( 'init', static function () {
+	if ( class_exists( 'BizCity_Tool_Registry' ) ) {
+		BizCity_Tool_Registry::seal();
+	}
+}, 32 );

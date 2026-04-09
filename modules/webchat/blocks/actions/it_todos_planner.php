@@ -437,7 +437,7 @@ class WaicAction_it_todos_planner extends WaicAction {
 
 			$msg = "🧠 **Memory Spec** đã tạo.\n" . $spec_summary;
 			if ( ! empty( $result['memory_spec_url'] ) ) {
-				$msg .= "\n[📄 Xem Memory Spec](" . esc_url( $result['memory_spec_url'] ) . ')';
+				$msg .= "\n[📄 Xem Memory Spec](" . esc_url_raw( $result['memory_spec_url'] ) . ')';
 			}
 
 			BizCity_Pipeline_Messenger::send( $exec_state, $msg, 'info', [

@@ -32,6 +32,9 @@ class BizCity_Gateway_Admin {
 
 		// AJAX: save channel role definitions & assignments.
 		add_action( 'wp_ajax_bizchat_save_channel_roles', [ $this, 'ajax_save_roles' ] );
+
+		// AJAX: save integration accounts.
+		add_action( 'wp_ajax_bizchat_save_integration', [ $this, 'ajax_save_integration' ] );
 	}
 
 	/**
@@ -130,10 +133,11 @@ class BizCity_Gateway_Admin {
 		// Determine current tab.
 		$current_tab = isset( $_GET['tab'] ) ? sanitize_key( $_GET['tab'] ) : 'channels';
 		$tabs = [
-			'channels' => [ 'label' => '📡 Kênh kết nối',  'icon' => '' ],
-			'roles'    => [ 'label' => '🎭 Phân vai',      'icon' => '' ],
-			'adapters' => [ 'label' => '🔌 Adapters',      'icon' => '' ],
-			'test'     => [ 'label' => '🧪 Test gửi tin',  'icon' => '' ],
+			'channels'     => [ 'label' => '📡 Kênh kết nối',  'icon' => '' ],
+			'integrations' => [ 'label' => '🔗 Tích hợp',      'icon' => '' ],
+			'roles'        => [ 'label' => '🎭 Phân vai',      'icon' => '' ],
+			'adapters'     => [ 'label' => '🔌 Adapters',      'icon' => '' ],
+			'test'         => [ 'label' => '🧪 Test gửi tin',  'icon' => '' ],
 		];
 		$gateway_base = admin_url( 'admin.php?page=bizchat-gateway' );
 
@@ -194,6 +198,10 @@ class BizCity_Gateway_Admin {
 				</div>
 				<?php endforeach; ?>
 			</div>
+
+			<?php elseif ( $current_tab === 'integrations' ) : ?>
+			<!-- ═══ TAB: Integrations ═══ -->
+			<?php $this->render_integrations_tab(); ?>
 
 			<?php elseif ( $current_tab === 'roles' ) : ?>
 			<!-- ═══ TAB: Channel Role Management ═══ -->
@@ -490,6 +498,295 @@ class BizCity_Gateway_Admin {
 		});
 		</script>
 		<?php
+	}
+
+	/* ─────────────────── Render: Integrations Tab ─────────────────── */
+
+	private function render_integrations_tab(): void {
+		if ( ! class_exists( 'BizCity_Integration_Registry' ) ) {
+			echo '<div class="bizchat-gw-empty"><p>Integration Registry chưa được tải.</p></div>';
+			return;
+		}
+
+		$registry   = BizCity_Integration_Registry::instance();
+		$all        = $registry->get_all();
+		$categories = $registry->get_active_categories();
+		$nonce      = wp_create_nonce( 'bizchat_integ_save' );
+
+		$statuses = [
+			0 => '',
+			1 => __( 'Connected', 'bizcity-twin-ai' ),
+			7 => __( 'Error', 'bizcity-twin-ai' ),
+		];
+		?>
+		<div id="bizchat-integ-app" data-nonce="<?php echo esc_attr( $nonce ); ?>" data-statuses="<?php echo esc_attr( wp_json_encode( $statuses ) ); ?>">
+
+		<div class="bizchat-integ-toolbar">
+			<select id="bizchat-integ-category-filter">
+				<option value=""><?php esc_html_e( 'Tất cả danh mục', 'bizcity-twin-ai' ); ?></option>
+				<?php foreach ( $categories as $cat_key => $cat_label ) : ?>
+					<option value="<?php echo esc_attr( $cat_key ); ?>"><?php echo esc_html( $cat_label ); ?></option>
+				<?php endforeach; ?>
+			</select>
+		</div>
+
+		<div class="bizchat-integ-list">
+			<?php foreach ( $all as $code => $integ ) :
+				$info      = $integ->to_admin_array();
+				$accounts  = $registry->get_accounts( $code, true );
+				$connected = $registry->has_connected( $code );
+			?>
+			<div class="bizchat-integ-section" data-code="<?php echo esc_attr( $code ); ?>" data-category="<?php echo esc_attr( $info['category'] ); ?>">
+				<div class="bizchat-integ-header">
+					<div class="bizchat-integ-header-left">
+						<div class="bizchat-integ-logo"><?php echo esc_html( $info['logo'] ); ?></div>
+						<div class="bizchat-integ-info">
+							<div class="bizchat-integ-name"><?php echo esc_html( $info['name'] ); ?></div>
+							<div class="bizchat-integ-desc"><?php echo esc_html( $info['desc'] ); ?></div>
+						</div>
+					</div>
+					<div class="bizchat-integ-header-right">
+						<?php if ( $connected ) : ?>
+							<span class="bizchat-gw-badge gw-on">● Connected</span>
+						<?php endif; ?>
+						<button type="button" class="button button-small bizchat-integ-add"
+						        data-settings="<?php echo esc_attr( wp_json_encode( $info['settings'] ) ); ?>">
+							<?php esc_html_e( 'Kết nối mới', 'bizcity-twin-ai' ); ?>
+						</button>
+						<button type="button" class="bizchat-integ-toggle" title="Toggle">
+							<span class="dashicons dashicons-arrow-down-alt2"></span>
+						</button>
+					</div>
+				</div>
+				<div class="bizchat-integ-body" style="display:none;">
+					<div class="bizchat-integ-accounts"
+					     data-accounts="<?php echo esc_attr( wp_json_encode( $accounts ) ); ?>"
+					     data-settings="<?php echo esc_attr( wp_json_encode( $info['settings'] ) ); ?>">
+						<?php if ( empty( $accounts ) ) : ?>
+							<div class="bizchat-integ-empty">Chưa có kết nối nào</div>
+						<?php else : ?>
+							<?php foreach ( $accounts as $idx => $acc ) :
+								$status     = (int) ( $acc['_status'] ?? 0 );
+								$status_cls = $status === 1 ? 'gw-on' : ( $status === 7 ? 'gw-error' : 'gw-off' );
+								$status_lbl = $statuses[ $status ] ?? '';
+								$acc_name   = $acc['name'] ?? ( 'Account #' . ( $idx + 1 ) );
+								$err        = $acc['_status_error'] ?? '';
+							?>
+							<div class="bizchat-integ-account" data-index="<?php echo (int) $idx; ?>">
+								<div class="bizchat-integ-account-left">
+									<strong><?php echo esc_html( $acc_name ); ?></strong>
+									<?php if ( $err ) : ?>
+										<span class="bizchat-integ-err" title="<?php echo esc_attr( $err ); ?>">⚠ <?php echo esc_html( mb_substr( $err, 0, 60 ) ); ?></span>
+									<?php endif; ?>
+								</div>
+								<div class="bizchat-integ-account-right">
+									<?php if ( $status_lbl ) : ?>
+										<span class="bizchat-gw-badge <?php echo esc_attr( $status_cls ); ?>"><?php echo esc_html( $status_lbl ); ?></span>
+									<?php endif; ?>
+									<button type="button" class="button button-small bizchat-integ-edit">Sửa</button>
+									<button type="button" class="button button-small button-link-delete bizchat-integ-delete">Xóa</button>
+								</div>
+							</div>
+							<?php endforeach; ?>
+						<?php endif; ?>
+					</div>
+				</div>
+			</div>
+			<?php endforeach; ?>
+		</div>
+
+		</div><!-- #bizchat-integ-app -->
+
+		<!-- ── Dialog template for editing integration account ── -->
+		<div id="bizchat-integ-dialog" style="display:none;" title="<?php esc_attr_e( 'Cấu hình kết nối', 'bizcity-twin-ai' ); ?>">
+			<div class="bizchat-integ-dialog-form"></div>
+		</div>
+
+		<script>
+		jQuery(function($){
+			var $app = $('#bizchat-integ-app');
+			var nonce = $app.data('nonce');
+
+			// Category filter
+			$('#bizchat-integ-category-filter').on('change', function(){
+				var cat = $(this).val();
+				$('.bizchat-integ-section').each(function(){
+					$(this).toggle(!cat || $(this).data('category') === cat);
+				});
+			});
+
+			// Toggle body
+			$app.on('click', '.bizchat-integ-toggle', function(){
+				var $body = $(this).closest('.bizchat-integ-section').find('.bizchat-integ-body');
+				$body.slideToggle(200);
+				$(this).find('.dashicons').toggleClass('dashicons-arrow-down-alt2 dashicons-arrow-up-alt2');
+			});
+
+			// Render form fields from settings schema
+			function renderForm(settings, values) {
+				values = values || {};
+				var html = '';
+				$.each(settings, function(key, cfg){
+					if (cfg.type === 'hidden') return;
+					if (cfg.type === 'html') {
+						html += '<div class="bizchat-integ-field"><label>' + (cfg.label||'') + '</label><div>' + (cfg.content||'') + '</div></div>';
+						return;
+					}
+					// Conditional show
+					if (cfg.show) {
+						var showOk = true;
+						$.each(cfg.show, function(dep, vals){
+							if ($.inArray(values[dep]||cfg.default||'', vals) === -1) showOk = false;
+						});
+						if (!showOk) return;
+					}
+					var val = values[key] !== undefined ? values[key] : (cfg.default||'');
+					html += '<div class="bizchat-integ-field">';
+					if (cfg.label) html += '<label for="integ_'+key+'">' + cfg.label + '</label>';
+					if (cfg.type === 'select') {
+						html += '<select name="'+key+'" id="integ_'+key+'">';
+						$.each(cfg.options||{}, function(ov, ol){ html += '<option value="'+ov+'"'+(val==ov?' selected':'')+'>'+ol+'</option>'; });
+						html += '</select>';
+					} else if (cfg.type === 'button') {
+						var link = (cfg.link||'').replace(/\{(\w+)\}/g, function(m,k){ return values[k]||''; });
+						html += '<a href="'+link+'" target="_blank" class="button button-primary">'+(cfg.btn_label||'Connect')+'</a>';
+					} else {
+						var inputType = cfg.encrypt ? 'password' : 'text';
+						html += '<input type="'+inputType+'" name="'+key+'" id="integ_'+key+'" value="'+$('<div>').text(val).html()+'" placeholder="'+(cfg.plh||'')+'"'+(cfg.readonly?' readonly':'')+' class="regular-text" />';
+					}
+					html += '</div>';
+				});
+				return html;
+			}
+
+			// Open dialog
+			function openDialog(code, settings, values, onSave) {
+				var $dlg = $('#bizchat-integ-dialog');
+				var $form = $dlg.find('.bizchat-integ-dialog-form');
+				$form.html(renderForm(settings, values));
+				$form.append('<div class="bizchat-integ-dialog-actions"><button type="button" class="button button-primary bizchat-integ-save-btn">Lưu & Test</button> <span class="bizchat-integ-dialog-status"></span></div>');
+
+				// Re-render on select change (for conditional fields)
+				$form.on('change', 'select', function(){
+					var current = {};
+					$form.find('[name]').each(function(){ current[this.name] = $(this).val(); });
+					$form.html(renderForm(settings, current));
+					$form.append('<div class="bizchat-integ-dialog-actions"><button type="button" class="button button-primary bizchat-integ-save-btn">Lưu & Test</button> <span class="bizchat-integ-dialog-status"></span></div>');
+				});
+
+				$dlg.show();
+				// Simple modal
+				if (!$dlg.data('modal-init')) {
+					$dlg.data('modal-init', true);
+					$dlg.css({position:'fixed',top:'50%',left:'50%',transform:'translate(-50%,-50%)',zIndex:100100,background:'#fff',padding:'24px',borderRadius:'12px',boxShadow:'0 8px 32px rgba(0,0,0,.2)',minWidth:'420px',maxWidth:'560px',maxHeight:'80vh',overflow:'auto'});
+					$('body').append('<div id="bizchat-integ-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,.3);z-index:100099;"></div>');
+					$(document).on('click', '#bizchat-integ-overlay', function(){ $dlg.hide(); $(this).hide(); });
+				}
+				$('#bizchat-integ-overlay').show();
+
+				$form.off('click', '.bizchat-integ-save-btn').on('click', '.bizchat-integ-save-btn', function(){
+					var data = {};
+					$form.find('[name]').each(function(){ data[this.name] = $(this).val(); });
+					onSave(data);
+				});
+			}
+
+			// Save integration via AJAX
+			function saveInteg(code, accounts, $section) {
+				var $status = $('.bizchat-integ-dialog-status');
+				$status.text('Đang lưu...');
+				$.post(ajaxurl, {
+					action: 'bizchat_save_integration',
+					_nonce: nonce,
+					code: code,
+					accounts: JSON.stringify(accounts)
+				}, function(r){
+					if (r.success) {
+						$status.html('<span style="color:green">✓ Đã lưu</span>');
+						setTimeout(function(){ location.reload(); }, 800);
+					} else {
+						$status.html('<span style="color:red">✗ ' + (r.data||'Lỗi') + '</span>');
+					}
+				}).fail(function(){
+					$status.html('<span style="color:red">✗ Request failed</span>');
+				});
+			}
+
+			// Add new account
+			$app.on('click', '.bizchat-integ-add', function(){
+				var $section = $(this).closest('.bizchat-integ-section');
+				var code = $section.data('code');
+				var settings = $(this).data('settings') || JSON.parse($section.find('.bizchat-integ-accounts').data('settings')||'{}');
+				var $accounts = $section.find('.bizchat-integ-accounts');
+				var existing = $accounts.data('accounts') || [];
+
+				openDialog(code, settings, {}, function(newData){
+					existing.push(newData);
+					saveInteg(code, existing, $section);
+				});
+			});
+
+			// Edit account
+			$app.on('click', '.bizchat-integ-edit', function(){
+				var $account = $(this).closest('.bizchat-integ-account');
+				var $section = $(this).closest('.bizchat-integ-section');
+				var code = $section.data('code');
+				var idx = $account.data('index');
+				var $container = $section.find('.bizchat-integ-accounts');
+				var settings = $container.data('settings');
+				var accounts = $container.data('accounts') || [];
+
+				openDialog(code, settings, accounts[idx]||{}, function(updatedData){
+					accounts[idx] = updatedData;
+					saveInteg(code, accounts, $section);
+				});
+			});
+
+			// Delete account
+			$app.on('click', '.bizchat-integ-delete', function(){
+				if (!confirm('Bạn chắc chắn muốn xóa kết nối này?')) return;
+				var $account = $(this).closest('.bizchat-integ-account');
+				var $section = $(this).closest('.bizchat-integ-section');
+				var code = $section.data('code');
+				var idx = $account.data('index');
+				var $container = $section.find('.bizchat-integ-accounts');
+				var accounts = $container.data('accounts') || [];
+				accounts.splice(idx, 1);
+				saveInteg(code, accounts, $section);
+			});
+		});
+		</script>
+		<?php
+	}
+
+	/* ─────────────────── AJAX: Save Integration ─────────────────── */
+
+	public function ajax_save_integration(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( 'Forbidden', 403 );
+		}
+		if ( ! wp_verify_nonce( $_POST['_nonce'] ?? '', 'bizchat_integ_save' ) ) {
+			wp_send_json_error( 'Invalid nonce', 403 );
+		}
+
+		$code     = sanitize_key( $_POST['code'] ?? '' );
+		$accounts = json_decode( wp_unslash( $_POST['accounts'] ?? '[]' ), true );
+
+		if ( ! $code || ! is_array( $accounts ) ) {
+			wp_send_json_error( 'Invalid data' );
+		}
+
+		if ( ! class_exists( 'BizCity_Integration_Registry' ) ) {
+			wp_send_json_error( 'Registry not loaded' );
+		}
+
+		$registry = BizCity_Integration_Registry::instance();
+		if ( ! $registry->get( $code ) ) {
+			wp_send_json_error( 'Unknown integration: ' . $code );
+		}
+
+		$result = $registry->save_accounts( $code, $accounts );
+		wp_send_json_success( [ 'accounts' => $result ] );
 	}
 
 	/* ─────────────────── Helpers ─────────────────── */

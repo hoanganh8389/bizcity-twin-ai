@@ -100,6 +100,7 @@ require_once BIZCITY_INTENT_DIR . '/includes/tools/class-intent-tools.php';
 require_once BIZCITY_INTENT_DIR . '/includes/tools/class-intent-tool-index.php';
 require_once BIZCITY_INTENT_DIR . '/includes/tools/class-tool-control-panel.php';
 require_once BIZCITY_INTENT_DIR . '/includes/tools/class-tool-run.php';
+require_once BIZCITY_INTENT_DIR . '/includes/tools/class-tool-wrapper.php';
 require_once BIZCITY_INTENT_DIR . '/includes/tools/class-tool-registry-map.php';
 require_once BIZCITY_INTENT_DIR . '/includes/tools/class-context-collector.php';
 require_once BIZCITY_INTENT_DIR . '/includes/tools/class-composite-executor.php';
@@ -134,6 +135,7 @@ require_once BIZCITY_INTENT_DIR . '/includes/workflow/class-pipeline-middleware.
 require_once BIZCITY_INTENT_DIR . '/includes/workflow/class-intent-todos.php';
 require_once BIZCITY_INTENT_DIR . '/includes/workflow/class-pipeline-resume.php';
 require_once BIZCITY_INTENT_DIR . '/includes/workflow/class-memory-spec.php';
+require_once BIZCITY_INTENT_DIR . '/includes/workflow/class-pipeline-validator.php';
 require_once BIZCITY_INTENT_DIR . '/includes/workflow/class-intent-pipeline-evidence.php';
 
 /* -- observability/ -- */

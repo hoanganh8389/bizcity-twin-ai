@@ -27,6 +27,7 @@ function bccm_llm_call_openai($system, $user, $opts = []) {
 
     $max_tokens  = $opts['max_tokens']  ?? 8000;
     $temperature = $opts['temperature'] ?? 0.75;
+    $timeout     = $opts['timeout']     ?? 120;
 
     $messages = [
         [ 'role' => 'system', 'content' => $system ],
@@ -34,10 +35,10 @@ function bccm_llm_call_openai($system, $user, $opts = []) {
     ];
 
     $result = bizcity_openrouter_chat( $messages, [
-        'model'       => 'google/gemini-2.0-flash-001',
         'purpose'     => 'astro_report',
         'max_tokens'  => $max_tokens,
         'temperature' => $temperature,
+        'timeout'     => $timeout,
     ] );
 
     if ( empty( $result['success'] ) ) {

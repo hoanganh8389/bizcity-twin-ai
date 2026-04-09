@@ -37,7 +37,7 @@ class BizCity_Skill_Database {
 	private $table;
 
 	/** @var string Schema version — bump when adding migrations. */
-	const SCHEMA_VERSION = '1.0.0';
+	const SCHEMA_VERSION = '1.2.0';
 
 	/** @var string wp_options key */
 	const SCHEMA_VERSION_KEY = 'bizcity_skills_db_version';
@@ -94,6 +94,7 @@ class BizCity_Skill_Database {
 			tools_json      TEXT            DEFAULT NULL COMMENT 'JSON array of tool names',
 			content         LONGTEXT        NOT NULL COMMENT 'Markdown body — LLM prompt instructions',
 			content_hash    VARCHAR(64)     DEFAULT '' COMMENT 'MD5 for cache bust',
+			pipeline_json   LONGTEXT        DEFAULT NULL COMMENT 'JSON: chain, blocks, skip_* for pipeline config',
 			priority        INT UNSIGNED    DEFAULT 50 COMMENT '0=highest, 100=lowest',
 			status          ENUM('draft','active','archived') DEFAULT 'draft',
 			version         VARCHAR(32)     DEFAULT '1.0',
@@ -154,6 +155,9 @@ class BizCity_Skill_Database {
 		}
 		if ( isset( $data['tools_json'] ) && is_array( $data['tools_json'] ) ) {
 			$data['tools_json'] = wp_json_encode( $data['tools_json'], JSON_UNESCAPED_UNICODE );
+		}
+		if ( isset( $data['pipeline_json'] ) && is_array( $data['pipeline_json'] ) ) {
+			$data['pipeline_json'] = wp_json_encode( $data['pipeline_json'], JSON_UNESCAPED_UNICODE );
 		}
 		// Comma-separated arrays
 		if ( isset( $data['slash_commands'] ) && is_array( $data['slash_commands'] ) ) {

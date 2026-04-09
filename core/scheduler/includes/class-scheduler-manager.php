@@ -166,11 +166,12 @@ class BizCity_Scheduler_Manager {
 	/**
 	 * Update event.
 	 *
-	 * @param int   $id    Event ID.
-	 * @param array $data  Fields to update.
+	 * @param int      $id       Event ID.
+	 * @param array    $data     Fields to update.
+	 * @param int|null $user_id  If provided, enforce ownership (0 = skip check, admin bypass).
 	 * @return true|WP_Error
 	 */
-	public function update_event( int $id, array $data ) {
+	public function update_event( int $id, array $data, ?int $user_id = null ) {
 		if ( ! $this->table_ready() ) {
 			return new \WP_Error( 'no_table', 'Scheduler table not ready.' );
 		}
@@ -180,6 +181,11 @@ class BizCity_Scheduler_Manager {
 		$old = $this->get_event( $id );
 		if ( ! $old ) {
 			return new \WP_Error( 'not_found', 'Event not found.' );
+		}
+
+		// Ownership guard — skip only if $user_id === null (legacy callers) or admin
+		if ( $user_id !== null && $user_id > 0 && (int) $old->user_id !== $user_id ) {
+			return new \WP_Error( 'forbidden', 'Ban khong co quyen chinh su kien nay.' );
 		}
 
 		$allowed = [ 'title', 'description', 'start_at', 'end_at', 'all_day', 'reminder_min', 'status', 'source', 'ai_context', 'google_event_id', 'google_calendar_id', 'google_synced_at' ];
@@ -194,7 +200,11 @@ class BizCity_Scheduler_Manager {
 			return true;
 		}
 
-		$wpdb->update( $this->table, $update, [ 'id' => $id ] );
+		// SQL-level defense: include user_id in WHERE when provided (defense-in-depth)
+		$where = $user_id !== null && $user_id > 0
+			? [ 'id' => $id, 'user_id' => $user_id ]
+			: [ 'id' => $id ];
+		$wpdb->update( $this->table, $update, $where );
 
 		$event = $this->get_event( $id );
 
@@ -210,8 +220,11 @@ class BizCity_Scheduler_Manager {
 
 	/**
 	 * Delete event.
+	 *
+	 * @param int      $id      Event ID.
+	 * @param int|null $user_id If provided, enforce ownership.
 	 */
-	public function delete_event( int $id ) {
+	public function delete_event( int $id, ?int $user_id = null ) {
 		if ( ! $this->table_ready() ) {
 			return new \WP_Error( 'no_table', 'Scheduler table not ready.' );
 		}
@@ -223,7 +236,17 @@ class BizCity_Scheduler_Manager {
 			return new \WP_Error( 'not_found', 'Event not found.' );
 		}
 
-		$wpdb->delete( $this->table, [ 'id' => $id ], [ '%d' ] );
+		// Ownership guard
+		if ( $user_id !== null && $user_id > 0 && (int) $event->user_id !== $user_id ) {
+			return new \WP_Error( 'forbidden', 'Ban khong co quyen xoa su kien nay.' );
+		}
+
+		// SQL-level defense: include user_id in WHERE when provided
+		$where  = $user_id !== null && $user_id > 0
+			? [ 'id' => $id, 'user_id' => $user_id ]
+			: [ 'id' => $id ];
+		$format = $user_id !== null && $user_id > 0 ? [ '%d', '%d' ] : [ '%d' ];
+		$wpdb->delete( $this->table, $where, $format );
 
 		/**
 		 * @param object $event  Deleted row (snapshot before deletion).
@@ -239,12 +262,23 @@ class BizCity_Scheduler_Manager {
 
 	/**
 	 * Get single event by ID.
+	 *
+	 * @param int      $id       Event ID.
+	 * @param int|null $user_id  If provided, only return event owned by this user.
 	 */
-	public function get_event( int $id ) {
+	public function get_event( int $id, ?int $user_id = null ) {
 		if ( ! $this->table_ready() ) {
 			return null;
 		}
 		global $wpdb;
+
+		if ( $user_id !== null && $user_id > 0 ) {
+			return $wpdb->get_row( $wpdb->prepare(
+				"SELECT * FROM {$this->table} WHERE id = %d AND user_id = %d",
+				$id, $user_id
+			) );
+		}
+
 		return $wpdb->get_row( $wpdb->prepare(
 			"SELECT * FROM {$this->table} WHERE id = %d",
 			$id

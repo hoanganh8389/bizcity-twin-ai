@@ -179,8 +179,9 @@ add_action( 'bizcity_intent_register_providers', function ( $registry ) {
         'tools' => [
             'write_article' => [
                 'schema' => [
-                    'description'  => 'Viết bài blog/content MỚI và đăng lên WordPress (3 bước: AI viết → ảnh bìa → đăng)',
-                    'input_fields' => [
+                    'description'   => 'Viết bài blog/content MỚI và đăng lên WordPress (3 bước: AI viết → ảnh bìa → đăng)',
+                    'accepts_skill' => true,
+                    'input_fields'  => [
                         'topic'     => [ 'required' => true,  'type' => 'text' ],
                         'tone'      => [ 'required' => false, 'type' => 'choice' ],
                         'length'    => [ 'required' => false, 'type' => 'choice' ],
@@ -192,8 +193,9 @@ add_action( 'bizcity_intent_register_providers', function ( $registry ) {
             ],
             'write_seo_article' => [
                 'schema' => [
-                    'description'  => 'Viết bài chuẩn SEO (outline + nội dung + meta SEO + ảnh + đăng)',
-                    'input_fields' => [
+                    'description'   => 'Viết bài chuẩn SEO (outline + nội dung + meta SEO + ảnh + đăng)',
+                    'accepts_skill' => true,
+                    'input_fields'  => [
                         'topic'         => [ 'required' => true,  'type' => 'text' ],
                         'focus_keyword' => [ 'required' => false, 'type' => 'text' ],
                         'tone'          => [ 'required' => false, 'type' => 'choice' ],
@@ -205,8 +207,9 @@ add_action( 'bizcity_intent_register_providers', function ( $registry ) {
             ],
             'rewrite_article' => [
                 'schema' => [
-                    'description'  => 'Viết lại / biên tập nội dung một bài viết WordPress đã có',
-                    'input_fields' => [
+                    'description'   => 'Viết lại / biên tập nội dung một bài viết WordPress đã có',
+                    'accepts_skill' => true,
+                    'input_fields'  => [
                         'post_id'     => [ 'required' => true,  'type' => 'text' ],
                         'instruction' => [ 'required' => false, 'type' => 'text' ],
                         'tone'        => [ 'required' => false, 'type' => 'choice' ],
@@ -216,8 +219,9 @@ add_action( 'bizcity_intent_register_providers', function ( $registry ) {
             ],
             'translate_and_publish' => [
                 'schema' => [
-                    'description'  => 'Dịch bài viết đã có sang ngôn ngữ khác và đăng bản dịch',
-                    'input_fields' => [
+                    'description'   => 'Dịch bài viết đã có sang ngôn ngữ khác và đăng bản dịch',
+                    'accepts_skill' => true,
+                    'input_fields'  => [
                         'post_id'     => [ 'required' => true,  'type' => 'text' ],
                         'target_lang' => [ 'required' => true,  'type' => 'choice' ],
                         'tone'        => [ 'required' => false, 'type' => 'choice' ],

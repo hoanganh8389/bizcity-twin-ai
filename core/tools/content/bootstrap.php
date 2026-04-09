@@ -71,7 +71,7 @@ add_action( 'init', function () {
 		],
 		'tool_type'     => 'atomic',
 		'accepts_skill' => true,
-		'content_tier'  => 1,
+		'content_tier'  => 0,
 	], 'bizcity_atomic_generate_seo_content' );
 
 	$tools->register( 'rewrite_content', [
@@ -82,7 +82,7 @@ add_action( 'init', function () {
 		],
 		'tool_type'     => 'atomic',
 		'accepts_skill' => true,
-		'content_tier'  => 1,
+		'content_tier'  => 0,
 	], 'bizcity_atomic_rewrite_content' );
 
 	// ── Social Media ──
@@ -94,7 +94,7 @@ add_action( 'init', function () {
 		],
 		'tool_type'     => 'atomic',
 		'accepts_skill' => true,
-		'content_tier'  => 1,
+		'content_tier'  => 0,
 	], 'bizcity_atomic_generate_fb_post' );
 
 	$tools->register( 'generate_ad_copy', [
@@ -106,7 +106,7 @@ add_action( 'init', function () {
 		],
 		'tool_type'     => 'atomic',
 		'accepts_skill' => true,
-		'content_tier'  => 1,
+		'content_tier'  => 0,
 	], 'bizcity_atomic_generate_ad_copy' );
 
 	// ── Email ──
@@ -119,7 +119,7 @@ add_action( 'init', function () {
 		],
 		'tool_type'     => 'atomic',
 		'accepts_skill' => true,
-		'content_tier'  => 1,
+		'content_tier'  => 0, // hidden from Studio
 	], 'bizcity_atomic_generate_email_sales' );
 
 	$tools->register( 'generate_email_reply', [
@@ -130,7 +130,7 @@ add_action( 'init', function () {
 		],
 		'tool_type'     => 'atomic',
 		'accepts_skill' => true,
-		'content_tier'  => 1,
+		'content_tier'  => 0, // hidden from Studio
 	], 'bizcity_atomic_generate_email_reply' );
 
 	// ── Product ──
@@ -143,7 +143,7 @@ add_action( 'init', function () {
 		],
 		'tool_type'     => 'atomic',
 		'accepts_skill' => true,
-		'content_tier'  => 1,
+		'content_tier'  => 0,
 	], 'bizcity_atomic_generate_product_desc' );
 
 	/* ════════════════════════════════════════════════════════════════
@@ -186,7 +186,7 @@ add_action( 'init', function () {
 		],
 		'tool_type'     => 'atomic',
 		'accepts_skill' => true,
-		'content_tier'  => 1,
+		'content_tier'  => 0, // hidden from Studio
 	], 'bizcity_atomic_generate_threads_post' );
 
 	$tools->register( 'generate_ig_caption', [
@@ -198,7 +198,7 @@ add_action( 'init', function () {
 		],
 		'tool_type'     => 'atomic',
 		'accepts_skill' => true,
-		'content_tier'  => 1,
+		'content_tier'  => 0, // hidden from Studio
 	], 'bizcity_atomic_generate_ig_caption' );
 
 	$tools->register( 'generate_youtube_desc', [
@@ -230,7 +230,7 @@ add_action( 'init', function () {
 		],
 		'tool_type'     => 'atomic',
 		'accepts_skill' => true,
-		'content_tier'  => 1,
+		'content_tier'  => 0, // hidden from Studio
 	], 'bizcity_atomic_generate_linkedin_post' );
 
 	$tools->register( 'generate_zalo_message', [
@@ -241,7 +241,7 @@ add_action( 'init', function () {
 		],
 		'tool_type'     => 'atomic',
 		'accepts_skill' => true,
-		'content_tier'  => 1,
+		'content_tier'  => 0,
 	], 'bizcity_atomic_generate_zalo_message' );
 
 	/* ════════════════════════════════════════════════════════════════
@@ -257,7 +257,7 @@ add_action( 'init', function () {
 		],
 		'tool_type'     => 'atomic',
 		'accepts_skill' => true,
-		'content_tier'  => 1,
+		'content_tier'  => 0, // hidden from Studio
 	], 'bizcity_atomic_generate_email_quote' );
 
 	$tools->register( 'generate_email_contract', [
@@ -268,7 +268,7 @@ add_action( 'init', function () {
 		],
 		'tool_type'     => 'atomic',
 		'accepts_skill' => true,
-		'content_tier'  => 1,
+		'content_tier'  => 0, // hidden from Studio
 	], 'bizcity_atomic_generate_email_contract' );
 
 	$tools->register( 'generate_email_announce', [
@@ -279,7 +279,7 @@ add_action( 'init', function () {
 		],
 		'tool_type'     => 'atomic',
 		'accepts_skill' => true,
-		'content_tier'  => 1,
+		'content_tier'  => 0, // hidden from Studio
 	], 'bizcity_atomic_generate_email_announce' );
 
 	$tools->register( 'generate_email_newsletter', [
@@ -290,7 +290,7 @@ add_action( 'init', function () {
 		],
 		'tool_type'     => 'atomic',
 		'accepts_skill' => true,
-		'content_tier'  => 1,
+		'content_tier'  => 0, // hidden from Studio
 	], 'bizcity_atomic_generate_email_newsletter' );
 
 	$tools->register( 'generate_email_followup', [
@@ -301,7 +301,7 @@ add_action( 'init', function () {
 		],
 		'tool_type'     => 'atomic',
 		'accepts_skill' => true,
-		'content_tier'  => 1,
+		'content_tier'  => 0, // hidden from Studio
 	], 'bizcity_atomic_generate_email_followup' );
 
 	/* ════════════════════════════════════════════════════════════════
@@ -317,7 +317,7 @@ add_action( 'init', function () {
 		],
 		'tool_type'     => 'atomic',
 		'accepts_skill' => true,
-		'content_tier'  => 1,
+		'content_tier'  => 0,
 	], 'bizcity_atomic_generate_proposal' );
 
 	$tools->register( 'generate_report_content', [
@@ -329,7 +329,7 @@ add_action( 'init', function () {
 		],
 		'tool_type'     => 'atomic',
 		'accepts_skill' => true,
-		'content_tier'  => 1,
+		'content_tier'  => 0,
 	], 'bizcity_atomic_generate_report_content' );
 
 	$tools->register( 'generate_policy', [
@@ -340,7 +340,7 @@ add_action( 'init', function () {
 		],
 		'tool_type'     => 'atomic',
 		'accepts_skill' => true,
-		'content_tier'  => 1,
+		'content_tier'  => 0,
 	], 'bizcity_atomic_generate_policy' );
 
 	$tools->register( 'generate_sop', [
@@ -351,7 +351,7 @@ add_action( 'init', function () {
 		],
 		'tool_type'     => 'atomic',
 		'accepts_skill' => true,
-		'content_tier'  => 1,
+		'content_tier'  => 0, // hidden from Studio
 	], 'bizcity_atomic_generate_sop' );
 
 	$tools->register( 'generate_job_description', [
@@ -363,7 +363,7 @@ add_action( 'init', function () {
 		],
 		'tool_type'     => 'atomic',
 		'accepts_skill' => true,
-		'content_tier'  => 1,
+		'content_tier'  => 0,
 	], 'bizcity_atomic_generate_job_description' );
 
 	$tools->register( 'generate_meeting_notes', [
@@ -375,7 +375,7 @@ add_action( 'init', function () {
 		],
 		'tool_type'     => 'atomic',
 		'accepts_skill' => true,
-		'content_tier'  => 1,
+		'content_tier'  => 0,
 	], 'bizcity_atomic_generate_meeting_notes' );
 
 	/* ════════════════════════════════════════════════════════════════
@@ -390,7 +390,7 @@ add_action( 'init', function () {
 		],
 		'tool_type'     => 'atomic',
 		'accepts_skill' => true,
-		'content_tier'  => 1,
+		'content_tier'  => 0,
 	], 'bizcity_atomic_generate_comparison' );
 
 	$tools->register( 'generate_testimonial_request', [
@@ -402,7 +402,7 @@ add_action( 'init', function () {
 		],
 		'tool_type'     => 'atomic',
 		'accepts_skill' => true,
-		'content_tier'  => 1,
+		'content_tier'  => 0, // hidden from Studio
 	], 'bizcity_atomic_generate_testimonial_request' );
 
 	$tools->register( 'generate_campaign_brief', [
@@ -415,7 +415,7 @@ add_action( 'init', function () {
 		],
 		'tool_type'     => 'atomic',
 		'accepts_skill' => true,
-		'content_tier'  => 1,
+		'content_tier'  => 0,
 	], 'bizcity_atomic_generate_campaign_brief' );
 
 	/* ════════════════════════════════════════════════════════════════
@@ -454,7 +454,7 @@ add_action( 'init', function () {
 		],
 		'tool_type'     => 'atomic',
 		'accepts_skill' => true,
-		'content_tier'  => 1,
+		'content_tier'  => 0, // hidden from Studio
 	], 'bizcity_atomic_generate_podcast_outline' );
 
 	$tools->register( 'generate_presentation', [
@@ -466,7 +466,7 @@ add_action( 'init', function () {
 		],
 		'tool_type'     => 'atomic',
 		'accepts_skill' => true,
-		'content_tier'  => 1,
+		'content_tier'  => 0,
 	], 'bizcity_atomic_generate_presentation' );
 
 	/* ════════════════════════════════════════════════════════════════
@@ -482,7 +482,7 @@ add_action( 'init', function () {
 		],
 		'tool_type'     => 'atomic',
 		'accepts_skill' => true,
-		'content_tier'  => 1,
+		'content_tier'  => 0,
 	], 'bizcity_atomic_generate_support_reply' );
 
 	$tools->register( 'generate_chatbot_response', [
@@ -494,7 +494,7 @@ add_action( 'init', function () {
 		],
 		'tool_type'     => 'atomic',
 		'accepts_skill' => true,
-		'content_tier'  => 1,
+		'content_tier'  => 0, // hidden from Studio
 	], 'bizcity_atomic_generate_chatbot_response' );
 
 	$tools->register( 'generate_announcement', [
@@ -506,7 +506,7 @@ add_action( 'init', function () {
 		],
 		'tool_type'     => 'atomic',
 		'accepts_skill' => true,
-		'content_tier'  => 1,
+		'content_tier'  => 0,
 	], 'bizcity_atomic_generate_announcement' );
 
 }, 25 ); // priority 25: after init_builtin (priority 20)

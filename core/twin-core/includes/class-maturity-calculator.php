@@ -181,6 +181,18 @@ class BizCity_Maturity_Calculator {
 		global $wpdb;
 		$table_sessions = $wpdb->prefix . 'bizcity_webchat_sessions';
 
+		// Guard: skip blogs that don't have the required tables
+		$required_tables = [
+			$wpdb->prefix . 'bizcity_webchat_sources',
+			$wpdb->prefix . 'bizcity_memory_notes',
+		];
+		foreach ( $required_tables as $tbl ) {
+			$exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl ) );
+			if ( ! $exists ) {
+				return; // Tables not created for this blog — skip silently
+			}
+		}
+
 		$user_ids = $wpdb->get_col(
 			"SELECT DISTINCT user_id FROM {$table_sessions} WHERE user_id > 0"
 		);

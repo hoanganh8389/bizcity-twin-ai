@@ -106,6 +106,12 @@ class BizCity_Content_Engine {
 			$parts[] = "=== KIẾN THỨC BỔ SUNG ===\n" . implode( "\n---\n", $know_text ) . "\n=== /KIẾN THỨC ===";
 		}
 
+		// Layer 5b: Upstream research summary (from it_call_research pipeline node)
+		$research_summary = $params['_research_summary'] ?? '';
+		if ( $research_summary ) {
+			$parts[] = "=== KẾT QUẢ NGHIÊN CỨU ===\n" . mb_substr( $research_summary, 0, 8000 ) . "\n=== /KẾT QUẢ NGHIÊN CỨU ===";
+		}
+
 		// Layer 6: Tool template + topic
 		$tool_template = $params['_tool_template'] ?? '';
 		if ( ! empty( $skill['content'] ) ) {
@@ -121,7 +127,8 @@ class BizCity_Content_Engine {
 			. ' session=' . ( ! empty( $session ) ? 'yes' : 'no' )
 			. ' notes=' . count( $notes )
 			. ' sources=' . count( $sources )
-			. ' knowledge=' . count( $knowledge ) );
+			. ' knowledge=' . count( $knowledge )
+			. ' research=' . ( $research_summary ? strlen( $research_summary ) : 0 ) );
 
 		return implode( "\n\n", $parts );
 	}
@@ -188,27 +195,44 @@ class BizCity_Content_Engine {
 	 *   @type string $model       LLM model ID (default: auto via purpose).
 	 *   @type int    $max_tokens  Max output tokens (default: 4096).
 	 *   @type float  $temperature Creativity (default: 0.7).
-	 *   @type string $purpose     Router purpose tag (default: 'content_generation').
+	 *   @type string $purpose     Router purpose tag (default: 'chat').
 	 * }
 	 * @return array { success, content, title, metadata, tokens_used, model }
 	 */
 	public static function generate( string $prompt, array $options = [] ): array {
-		$max_tokens  = $options['max_tokens']  ?? 4096;
-		$temperature = $options['temperature'] ?? 0.7;
-		$purpose     = $options['purpose']     ?? 'content_generation';
+		$max_tokens       = $options['max_tokens']  ?? 4096;
+		$temperature      = $options['temperature'] ?? 0.7;
+		// Use 'chat' purpose so the gateway recognizes it (content_generation is unknown to the router).
+		$purpose          = $options['purpose'] ?? 'chat';
 
-		// ── Primary path: bizcity_llm_chat() ──
+		error_log( sprintf(
+			'[CONTENT-ENGINE] generate() ENTRY: prompt_len=%d purpose=%s max_tokens=%d llm_chat_exists=%s',
+			strlen( $prompt ), $purpose, $max_tokens,
+			function_exists( 'bizcity_llm_chat' ) ? 'yes' : 'no'
+		) );
+
+		// ── Always use blocking bizcity_llm_chat() — never stream for content generation ──
 		if ( function_exists( 'bizcity_llm_chat' ) ) {
 			$messages = [
 				[ 'role' => 'system', 'content' => 'You are a professional Vietnamese content writer. Always respond in valid JSON format.' ],
 				[ 'role' => 'user',   'content' => $prompt ],
 			];
 
-			$result = bizcity_llm_chat( $messages, [
+			$llm_opts = [
 				'purpose'     => $purpose,
 				'max_tokens'  => $max_tokens,
 				'temperature' => $temperature,
-			] );
+			];
+
+			// Pre-call trace log
+			$_mode     = function_exists( 'bizcity_llm_mode' ) ? bizcity_llm_mode() : 'unknown';
+			$_model_id = function_exists( 'bizcity_llm_get_model' ) ? bizcity_llm_get_model( $purpose ) : ( $options['model'] ?? 'auto' );
+			error_log( sprintf(
+				'[CONTENT-ENGINE] generate: PRE-CALL mode=%s model=%s purpose=%s max_tokens=%d prompt_len=%d temp=%.2f',
+				$_mode, $_model_id, $purpose, $max_tokens, strlen( $prompt ), $temperature
+			) );
+
+			$result = bizcity_llm_chat( $messages, $llm_opts );
 
 			if ( ! empty( $result['success'] ) && ! empty( $result['message'] ) ) {
 				$parsed = self::parse_json_response( $result['message'] );
@@ -222,33 +246,31 @@ class BizCity_Content_Engine {
 					'metadata'    => array_diff_key( $parsed, [ 'title' => 1, 'content' => 1 ] ),
 					'tokens_used' => $result['usage']['total_tokens'] ?? 0,
 					'model'       => $result['model'] ?? '',
+					'_streamed'   => false,
 				];
 			}
 
-			error_log( "[CONTENT-ENGINE] generate: FAILED error=" . ( $result['error'] ?? 'unknown' ) );
+			error_log( sprintf(
+				'[CONTENT-ENGINE] generate: FAILED error=%s model=%s provider=%s fallback_used=%s quota_exhausted=%s purpose=%s prompt_len=%d',
+				$result['error'] ?? 'unknown',
+				$result['model'] ?? 'n/a',
+				$result['provider'] ?? 'n/a',
+				( $result['fallback_used'] ?? false ) ? 'yes' : 'no',
+				( $result['quota_exhausted'] ?? false ) ? 'yes' : 'no',
+				$purpose,
+				strlen( $prompt )
+			) );
 
+			// ── Fall through to legacy ai_generate_content() when gateway fails ──
 			return [
-				'success'     => false,
-				'title'       => '',
-				'content'     => '',
-				'metadata'    => [],
-				'tokens_used' => 0,
-				'model'       => '',
-				'error'       => $result['error'] ?? 'LLM call failed',
-			];
-		}
-
-		// ── Fallback: legacy ai_generate_content() ──
-		if ( function_exists( 'ai_generate_content' ) ) {
-			error_log( '[CONTENT-ENGINE] generate: using legacy ai_generate_content fallback' );
-			$fields = ai_generate_content( $prompt );
-			return [
-				'success'     => ! empty( $fields['content'] ) || ! empty( $fields['title'] ),
-				'title'       => $fields['title'] ?? '',
-				'content'     => $fields['content'] ?? '',
-				'metadata'    => [],
-				'tokens_used' => 0,
-				'model'       => 'legacy',
+				'success'          => false,
+				'title'            => '',
+				'content'          => '',
+				'metadata'         => [],
+				'tokens_used'      => 0,
+				'model'            => '',
+				'error'            => $result['error'] ?? 'LLM call failed',
+				'quota_exhausted'  => $result['quota_exhausted'] ?? false,
 			];
 		}
 
@@ -256,7 +278,7 @@ class BizCity_Content_Engine {
 			'success' => false,
 			'title'   => '',
 			'content' => '',
-			'error'   => 'No LLM provider available (bizcity_llm_chat or ai_generate_content)',
+			'error'   => 'No LLM provider available (bizcity_llm_chat)',
 		];
 	}
 

@@ -55,7 +55,7 @@ if ( ! defined( 'BIZCITY_TWIN_RESOLVER_ENABLED' ) ) define( 'BIZCITY_TWIN_RESOLV
 if ( ! defined( 'BIZCITY_TWIN_SNAPSHOT_ENABLED' ) )  define( 'BIZCITY_TWIN_SNAPSHOT_ENABLED', false );
 
 // Phase 1.6 — Session Memory Spec (off by default, enable via wp-config.php)
-if ( ! defined( 'BIZCITY_SESSION_SPEC_ENABLED' ) )  define( 'BIZCITY_SESSION_SPEC_ENABLED', false );
+if ( ! defined( 'BIZCITY_SESSION_SPEC_ENABLED' ) )  define( 'BIZCITY_SESSION_SPEC_ENABLED', true );
 
 // Smart Gateway — offload Intent Engine + Twin Core to bizcity-llm-router server
 if ( ! defined( 'BIZCITY_SMART_GATEWAY_ENABLED' ) )  define( 'BIZCITY_SMART_GATEWAY_ENABLED', true );
@@ -126,6 +126,9 @@ if ( file_exists( __DIR__ . '/core/tools/bootstrap.php' ) ) {
 }
 if ( file_exists( __DIR__ . '/core/scheduler/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/scheduler/bootstrap.php';
+}
+if ( file_exists( __DIR__ . '/core/memory/bootstrap.php' ) ) {
+    require_once __DIR__ . '/core/memory/bootstrap.php';
 }
 
 // ── Legacy helpers — flow functions that automation blocks depend on ──────────

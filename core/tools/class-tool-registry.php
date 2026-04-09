@@ -114,7 +114,7 @@ class BizCity_Tool_Registry {
 		$result = [];
 		foreach ( self::$tools as $slug => $tool ) {
 			if ( ! empty( $tool['studio_enabled'] ) ) {
-				$result[ $slug ] = self::to_js_safe( $tool );
+				$result[] = self::to_js_safe( $tool );
 			}
 		}
 		return $result;

@@ -143,10 +143,48 @@ class BizCity_LLM_Client {
             'msg_count' => count( $messages ),
         ] );
 
-        if ( $mode === 'direct' ) {
-            $result = $this->chat_direct( $messages, $options );
-        } else {
-            $result = $this->chat_gateway( $messages, $options );
+        $result = $this->chat_gateway( $messages, $options );
+
+        // ── Client-side fallback: retry with fallback model on failure ──
+        $no_fallback    = ! empty( $options['no_fallback'] ) || ! empty( $options['_is_fallback'] );
+        $should_retry   = ! $result['success'] && ! $no_fallback;
+        if ( $should_retry ) {
+            $fallback_model = $this->get_fallback_model( $purpose );
+            if ( $fallback_model && $fallback_model !== $model ) {
+                $this->debug_log( 'chat() PRIMARY FAILED — trying fallback', [
+                    'primary_model'  => $model,
+                    'fallback_model' => $fallback_model,
+                    'primary_error'  => $result['error'] ?? '',
+                    'quota_exhausted'=> $result['quota_exhausted'] ?? false,
+                ] );
+                error_log( sprintf(
+                    '[bizcity-llm] chat() fallback: primary=%s failed (%s) → retrying with %s purpose=%s',
+                    $model,
+                    $result['error'] ?? 'unknown',
+                    $fallback_model,
+                    $purpose
+                ) );
+
+                $fallback_options                = $options;
+                $fallback_options['model']       = $fallback_model;
+                $fallback_options['_is_fallback'] = true;
+                $fallback_result = $this->chat_gateway( $messages, $fallback_options );
+
+                if ( ! empty( $fallback_result['success'] ) ) {
+                    $fallback_result['fallback_used'] = true;
+                    $fallback_result['model_primary'] = $model;
+                    $result = $fallback_result;
+                } else {
+                    // Both primary and fallback failed — keep original error,
+                    // but annotate with fallback attempt info.
+                    $result['fallback_error'] = $fallback_result['error'] ?? 'fallback also failed';
+                    error_log( sprintf(
+                        '[bizcity-llm] chat() fallback ALSO FAILED: model=%s error=%s',
+                        $fallback_model,
+                        $fallback_result['error'] ?? 'unknown'
+                    ) );
+                }
+            }
         }
 
         $ms = intval( ( microtime( true ) - $start ) * 1000 );
@@ -182,10 +220,30 @@ class BizCity_LLM_Client {
             'api_key_set' => ! empty( $this->get_api_key() ),
         ] );
 
-        if ( $mode === 'direct' ) {
-            $result = $this->chat_stream_direct( $messages, $options, $on_chunk );
-        } else {
-            $result = $this->chat_stream_gateway( $messages, $options, $on_chunk );
+        $result = $this->chat_stream_gateway( $messages, $options, $on_chunk );
+
+        // ── Client-side fallback: retry with fallback model on failure ──
+        $no_fallback    = ! empty( $options['no_fallback'] ) || ! empty( $options['_is_fallback'] );
+        $should_retry   = ! $result['success'] && ! $no_fallback;
+        if ( $should_retry ) {
+            $fallback_model = $this->get_fallback_model( $purpose );
+            if ( $fallback_model && $fallback_model !== $model ) {
+                error_log( sprintf(
+                    '[bizcity-llm] chat_stream() fallback: primary=%s failed (%s) → retrying with %s',
+                    $model, $result['error'] ?? 'unknown', $fallback_model
+                ) );
+
+                $fallback_options                = $options;
+                $fallback_options['model']       = $fallback_model;
+                $fallback_options['_is_fallback'] = true;
+                $fallback_result = $this->chat_stream_gateway( $messages, $fallback_options, $on_chunk );
+
+                if ( ! empty( $fallback_result['success'] ) ) {
+                    $fallback_result['fallback_used'] = true;
+                    $fallback_result['model_primary'] = $model;
+                    $result = $fallback_result;
+                }
+            }
         }
 
         $ms = intval( ( microtime( true ) - $start ) * 1000 );
@@ -311,7 +369,29 @@ class BizCity_LLM_Client {
         }
 
         if ( $code === 429 ) {
-            $base['error'] = $decoded['message'] ?? 'Rate limit exceeded.';
+            // Gateway returns {"success":false,"error":"...","tier":"free"}
+            // Fields can be in 'message' or 'error' depending on gateway version.
+            $err_msg          = $decoded['message'] ?? $decoded['error'] ?? 'Rate limit exceeded.';
+            $base['error']    = $err_msg;
+            $retry_after      = wp_remote_retrieve_header( $response, 'retry-after' );
+            $remaining        = wp_remote_retrieve_header( $response, 'x-ratelimit-remaining-requests' );
+            $reset            = wp_remote_retrieve_header( $response, 'x-ratelimit-reset-requests' );
+            $tier             = $decoded['tier'] ?? '';
+            // Distinguish monthly quota exhaustion from transient rate limit
+            $is_quota         = stripos( $err_msg, 'quota' ) !== false
+                             || stripos( $err_msg, 'monthly' ) !== false
+                             || ( $tier !== '' && $retry_after === '' );
+            $base['quota_exhausted'] = $is_quota;
+            error_log( sprintf(
+                '[bizcity-llm] 429 %s: model=%s purpose=%s tier=%s retry_after=%s remaining=%s reset=%s msg=%s raw=%s',
+                $is_quota ? 'QUOTA_EXHAUSTED' : 'RATE_LIMIT',
+                $model, $purpose, $tier ?: 'n/a',
+                $retry_after ?: 'n/a',
+                $remaining   ?: 'n/a',
+                $reset       ?: 'n/a',
+                $err_msg,
+                substr( $raw_body, 0, 400 )
+            ) );
             return $base;
         }
 
@@ -327,9 +407,7 @@ class BizCity_LLM_Client {
         }
 
         $base['error'] = $decoded['error'] ?? $decoded['message'] ?? "HTTP {$code}";
-        if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-            error_log( "[bizcity-llm] chat_gateway error: HTTP {$code} model={$model} error=" . $base['error'] );
-        }
+        error_log( "[bizcity-llm] chat_gateway error: HTTP {$code} model={$model} purpose={$purpose} error=" . $base['error'] );
         return $base;
     }
 
@@ -528,7 +606,27 @@ class BizCity_LLM_Client {
             }
             $base['stream_ms']       = $stream_ms;
             $base['stream_fallback'] = false;
-            if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+            if ( $http_code === 429 ) {
+                $retry_after = '';
+                // Parse Retry-After from buffered response headers if available
+                if ( preg_match( '/retry-after:\s*(\S+)/i', $raw_response, $m ) ) { $retry_after = $m[1]; }
+                // Parse actual error message from JSON body (gateway returns {error:...,tier:...})
+                $decoded_err = json_decode( $err_detail, true );
+                $real_err    = is_array( $decoded_err ) ? ( $decoded_err['message'] ?? $decoded_err['error'] ?? '' ) : '';
+                $tier        = is_array( $decoded_err ) ? ( $decoded_err['tier'] ?? '' ) : '';
+                if ( $real_err ) {
+                    $base['error'] = $real_err;
+                }
+                $is_quota = stripos( $base['error'], 'quota' ) !== false
+                         || stripos( $base['error'], 'monthly' ) !== false
+                         || ( $tier !== '' && $retry_after === '' );
+                $base['quota_exhausted'] = $is_quota;
+                error_log( sprintf(
+                    '[bizcity-llm] STREAM 429 %s: model=%s stream_ms=%d tier=%s retry_after=%s msg=%s',
+                    $is_quota ? 'QUOTA_EXHAUSTED' : 'RATE_LIMIT',
+                    $model, $stream_ms, $tier ?: 'n/a', $retry_after ?: 'n/a', mb_substr( $base['error'], 0, 200 )
+                ) );
+            } else {
                 error_log( "[bizcity-llm] chat_stream_gateway error: HTTP {$http_code} curl={$curl_err} model={$model} stream_ms={$stream_ms} full_text_len=" . strlen( $full_text ) . " body={$err_detail}" );
             }
             // CURLE_WRITE_ERROR (23) often means the client SSE connection dropped
@@ -625,10 +723,8 @@ class BizCity_LLM_Client {
         // Gateway returned 200 but no content was streamed — likely gateway-side error (BOM-only, silent crash, etc.)
         // Retry as non-streaming call so user gets a response
         if ( $full_text === '' && is_callable( $on_chunk ) ) {
-            if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-                $preview = mb_substr( trim( str_replace( [ "\r", "\n" ], ' ', $raw_response ) ), 0, 240 );
-                error_log( '[bizcity-llm] chat_stream_gateway empty-stream diagnostics | model=' . $model . ' | http=' . $http_code . ' | stream_ms=' . $stream_ms . ' | raw_len=' . strlen( $raw_response ) . ' | buf_len=' . strlen( $buffer ) . ' | preview=' . $preview );
-            }
+            $preview = mb_substr( trim( str_replace( [ "\r", "\n" ], ' ', $raw_response ) ), 0, 240 );
+            error_log( '[bizcity-llm] chat_stream_gateway empty-stream diagnostics | model=' . $model . ' | http=' . $http_code . ' | stream_ms=' . $stream_ms . ' | raw_len=' . strlen( $raw_response ) . ' | buf_len=' . strlen( $buffer ) . ' | preview=' . $preview );
             error_log( '[bizcity-llm] chat_stream_gateway: 200 OK but empty stream — retrying as blocking call' );
             $blocking = $this->chat_gateway( $messages, $options );
             $blocking['stream_fallback'] = true;
@@ -911,7 +1007,8 @@ class BizCity_LLM_Client {
         $this->debug_log( 'embeddings() START', [ 'mode' => $this->get_mode(), 'model' => $model ] );
 
         if ( $this->get_mode() === 'direct' ) {
-            $result = $this->embeddings_direct( $input, $options );
+            // Direct mode disabled for IP protection — force gateway
+            $result = $this->embeddings_gateway( $input, $options );
         } else {
             $result = $this->embeddings_gateway( $input, $options );
         }

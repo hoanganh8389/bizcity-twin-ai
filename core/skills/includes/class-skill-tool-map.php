@@ -187,7 +187,7 @@ class BizCity_Skill_Tool_Map {
 
 		$skills_table = $wpdb->prefix . 'bizcity_skills';
 
-		$sql = "SELECT s.id, s.title, s.content, s.category, s.user_id, m.binding
+		$sql = "SELECT s.id, s.title, s.content, s.category, s.user_id, s.tools_json, m.binding
 				FROM {$this->table} m
 				JOIN {$skills_table} s ON s.id = m.skill_id
 				WHERE m.tool_key = %s

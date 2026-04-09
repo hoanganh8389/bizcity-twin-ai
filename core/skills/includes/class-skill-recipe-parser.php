@@ -210,6 +210,28 @@ class BizCity_Skill_Recipe_Parser {
 	}
 
 	/* ================================================================
+	 *  Pipeline config extraction (Phase 1.12)
+	 * ================================================================ */
+
+	/**
+	 * Parse pipeline config from YAML frontmatter.
+	 * Extracts chain:, blocks:, and skip_* flags for structured pipeline building.
+	 *
+	 * @param array $frontmatter Parsed YAML frontmatter.
+	 * @return array { chain, blocks, skip_research, skip_planner, skip_memory, skip_reflection }
+	 */
+	public function parse_pipeline_config( array $frontmatter ): array {
+		return [
+			'chain'           => (array) ( $frontmatter['chain'] ?? [] ),
+			'blocks'          => (array) ( $frontmatter['blocks'] ?? [] ),
+			'skip_research'   => ! empty( $frontmatter['skip_research'] ),
+			'skip_planner'    => ! empty( $frontmatter['skip_planner'] ),
+			'skip_memory'     => ! empty( $frontmatter['skip_memory'] ),
+			'skip_reflection' => ! empty( $frontmatter['skip_reflection'] ),
+		];
+	}
+
+	/* ================================================================
 	 *  Skill context builder (for Data Contract v1 payload)
 	 * ================================================================ */
 

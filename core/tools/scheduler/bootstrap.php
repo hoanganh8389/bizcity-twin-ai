@@ -45,10 +45,10 @@ add_action( 'init', function () {
 	$tools->register( 'scheduler_create_event', [
 		'description'  => 'Tạo sự kiện / lịch hẹn mới',
 		'input_fields' => [
-			'title'        => [ 'required' => true,  'type' => 'text' ],
-			'start_at'     => [ 'required' => true,  'type' => 'text' ],
-			'end_at'       => [ 'required' => false, 'type' => 'text' ],
-			'description'  => [ 'required' => false, 'type' => 'text' ],
+			'title'        => [ 'required' => true,  'type' => 'text', 'prompt' => 'Tên sự kiện là gì?' ],
+			'start_at'     => [ 'required' => true,  'type' => 'text', 'prompt' => 'Bắt đầu lúc nào? (ví dụ: 14h chiều mai, 9h sáng 10/4, 2026-04-10 09:00)' ],
+			'end_at'       => [ 'required' => false, 'type' => 'text', 'prompt' => 'Kết thúc lúc nào? (bỏ qua nếu không cần)' ],
+			'description'  => [ 'required' => false, 'type' => 'text', 'prompt' => 'Mô tả thêm? (bỏ qua nếu không cần)' ],
 			'all_day'      => [ 'required' => false, 'type' => 'boolean', 'default' => false ],
 			'reminder_min' => [ 'required' => false, 'type' => 'number',  'default' => 15 ],
 			'source'       => [ 'required' => false, 'type' => 'text',    'default' => 'ai_plan' ],

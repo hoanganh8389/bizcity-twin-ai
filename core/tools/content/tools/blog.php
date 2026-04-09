@@ -32,21 +32,33 @@ function bizcity_atomic_generate_blog_content( array $slots ): array {
 	$tone   = $slots['tone']  ?? 'professional';
 	$length = $slots['length'] ?? '700-1000';
 
+	error_log( sprintf(
+		'[BLOG-TOOL] bizcity_atomic_generate_blog_content ENTRY: topic_len=%d tone=%s length=%s content_engine_exists=%s',
+		strlen( $topic ), $tone, $length,
+		class_exists( 'BizCity_Content_Engine' ) ? 'yes' : 'no'
+	) );
+
 	$tool_template = "Viết bài blog bằng tiếng Việt, {$length} từ, tone {$tone}.\n"
 	               . "Sử dụng HTML (<b>, <em>, <mark>), không markdown.\n"
 	               . "Cuối bài có CTA.\n"
 	               . 'Trả về JSON: {"title":"...","content":"...","excerpt":"..."}';
 
 	$prompt = BizCity_Content_Engine::build_skill_prompt( $slots, $tool_template, $topic );
+
+	error_log( '[BLOG-TOOL] calling BizCity_Content_Engine::generate() prompt_len=' . strlen( $prompt ) );
 	$result = BizCity_Content_Engine::generate( $prompt );
+	error_log( '[BLOG-TOOL] generate() returned: success=' . ( ! empty( $result['content'] ) ? 'yes' : 'no' ) . ' content_len=' . strlen( $result['content'] ?? '' ) . ' error=' . ( $result['error'] ?? '' ) . ' quota_exhausted=' . ( ! empty( $result['quota_exhausted'] ) ? 'yes' : 'no' ) );
 
 	return [
-		'success'    => ! empty( $result['content'] ),
-		'title'      => $result['title'] ?? '',
-		'content'    => $result['content'] ?? '',
-		'excerpt'    => $result['metadata']['excerpt'] ?? '',
-		'skill_used' => $slots['_meta']['_skill']['title'] ?? 'none',
-		'tokens_used' => $result['tokens_used'] ?? 0,
+		'success'         => ! empty( $result['content'] ),
+		'title'           => $result['title'] ?? '',
+		'content'         => $result['content'] ?? '',
+		'excerpt'         => $result['metadata']['excerpt'] ?? '',
+		'skill_used'      => $slots['_meta']['_skill']['title'] ?? 'none',
+		'tokens_used'     => $result['tokens_used'] ?? 0,
+		'_streamed'       => ! empty( $result['_streamed'] ),
+		'error'           => $result['error'] ?? '',
+		'quota_exhausted' => $result['quota_exhausted'] ?? false,
 	];
 }
 
@@ -69,6 +81,7 @@ function bizcity_atomic_generate_seo_content( array $slots ): array {
 	               . 'Trả về JSON: {"title":"...","content":"...","meta_desc":"...","schema_json":""}';
 
 	$prompt = BizCity_Content_Engine::build_skill_prompt( $slots, $tool_template, $topic );
+
 	$result = BizCity_Content_Engine::generate( $prompt );
 
 	return [
@@ -79,6 +92,7 @@ function bizcity_atomic_generate_seo_content( array $slots ): array {
 		'schema_json' => $result['metadata']['schema_json'] ?? '',
 		'skill_used'  => $slots['_meta']['_skill']['title'] ?? 'none',
 		'tokens_used' => $result['tokens_used'] ?? 0,
+		'_streamed'   => false,
 	];
 }
 
@@ -97,6 +111,7 @@ function bizcity_atomic_rewrite_content( array $slots ): array {
 	               . "Nội dung gốc:\n" . mb_substr( $source, 0, 8000 );
 
 	$prompt = BizCity_Content_Engine::build_skill_prompt( $slots, $tool_template, $instruction );
+
 	$result = BizCity_Content_Engine::generate( $prompt );
 
 	return [
@@ -105,5 +120,6 @@ function bizcity_atomic_rewrite_content( array $slots ): array {
 		'content'    => $result['content'] ?? '',
 		'skill_used' => $slots['_meta']['_skill']['title'] ?? 'none',
 		'tokens_used' => $result['tokens_used'] ?? 0,
+		'_streamed'   => false,
 	];
 }

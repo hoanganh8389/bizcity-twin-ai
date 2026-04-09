@@ -21,6 +21,8 @@ class WaicWorkflowExecuteAPI {
         add_action('wp_ajax_waic_workflow_execute_node', array($this, 'executeNode'));
         add_action('wp_ajax_waic_workflow_get_execution_status', array($this, 'getExecutionStatus'));
         add_action('wp_ajax_waic_workflow_stop_execution', array($this, 'stopExecution'));
+        add_action('wp_ajax_waic_workflow_pause_execution', array($this, 'pauseExecution'));
+        add_action('wp_ajax_waic_workflow_resume_execution', array($this, 'resumeExecution'));
     }
     
     /**
@@ -586,6 +588,17 @@ class WaicWorkflowExecuteAPI {
         $executionOrder = [];
         
         while (!empty($queue)) {
+            // Check if paused or stopped
+            $currentState = get_transient($executionId);
+            if (in_array($currentState['status'] ?? '', ['stopped', 'paused'], true)) {
+                if (($currentState['status'] ?? '') === 'paused') {
+                    $currentState['paused_queue'] = $queue;
+                    $currentState['visited_nodes'] = $visited;
+                    set_transient($executionId, $currentState, 3600);
+                }
+                break;
+            }
+            
             $currentNodeId = array_shift($queue);
             
             if (in_array($currentNodeId, $visited)) {
@@ -978,6 +991,85 @@ class WaicWorkflowExecuteAPI {
     }
     
     /**
+     * Pause execution — keeps state intact so it can be resumed
+     */
+    public function pauseExecution() {
+        check_ajax_referer('waic-nonce', 'nonce');
+        
+        $executionId = sanitize_text_field($_POST['execution_id'] ?? '');
+        
+        if (empty($executionId)) {
+            wp_send_json_error(['message' => 'Execution ID is required']);
+            return;
+        }
+        
+        $executionState = get_transient($executionId);
+        
+        if (!$executionState) {
+            wp_send_json_error(['message' => 'Execution state not found']);
+            return;
+        }
+        
+        if (!in_array($executionState['status'], ['running', 'waiting'], true)) {
+            wp_send_json_error(['message' => 'Execution is not running (status: ' . $executionState['status'] . ')']);
+            return;
+        }
+        
+        $executionState['status'] = 'paused';
+        $executionState['paused_at'] = current_time('mysql');
+        $this->addLog($executionId, 'NOTICE', 'Execution paused by user');
+        set_transient($executionId, $executionState, 3600);
+        
+        wp_send_json_success([
+            'message' => 'Execution paused',
+            'current_node' => $executionState['current_node'] ?? null,
+            'visited_nodes' => $executionState['visited_nodes'] ?? [],
+        ]);
+    }
+    
+    /**
+     * Resume execution — continue from where it was paused
+     */
+    public function resumeExecution() {
+        check_ajax_referer('waic-nonce', 'nonce');
+        
+        $executionId = sanitize_text_field($_POST['execution_id'] ?? '');
+        
+        if (empty($executionId)) {
+            wp_send_json_error(['message' => 'Execution ID is required']);
+            return;
+        }
+        
+        $executionState = get_transient($executionId);
+        
+        if (!$executionState) {
+            wp_send_json_error(['message' => 'Execution state not found']);
+            return;
+        }
+        
+        if ($executionState['status'] !== 'paused') {
+            wp_send_json_error(['message' => 'Execution is not paused (status: ' . $executionState['status'] . ')']);
+            return;
+        }
+        
+        $executionState['status'] = 'running';
+        $executionState['resumed_at'] = current_time('mysql');
+        unset($executionState['paused_at']);
+        $this->addLog($executionId, 'NOTICE', 'Execution resumed by user');
+        set_transient($executionId, $executionState, 3600);
+        
+        // If this is a test-mode execution, trigger background continuation
+        if (($executionState['mode'] ?? '') === 'test') {
+            $this->executeWorkflowBackground($executionId);
+        }
+        
+        wp_send_json_success([
+            'message' => 'Execution resumed',
+            'current_node' => $executionState['current_node'] ?? null,
+        ]);
+    }
+    
+    /**
      * Get real data from listener if available
      */
     private function getListenerData($nodeId, $executionState) {
@@ -1317,6 +1409,14 @@ class WaicWorkflowExecuteAPI {
                     return true;
                 }
             }
+        } else if (!empty($executionState['paused_queue'])) {
+            // ⭐ Resuming from a user-initiated pause
+            $queue = $executionState['paused_queue'];
+            error_log('[WAIC Test] Resuming from pause — queue: ' . implode(', ', $queue));
+            
+            // Clear the paused queue
+            $executionState['paused_queue'] = null;
+            set_transient($executionId, $executionState, 3600);
         } else {
             // Normal execution from trigger
             $queue = [$triggerNode['id']];
@@ -1328,10 +1428,18 @@ class WaicWorkflowExecuteAPI {
         $originalBlogId = get_current_blog_id(); // Save for multisite safety
         
         while (!empty($queue)) {
-            // Check if stopped
+            // Check if stopped or paused
             $currentState = get_transient($executionId);
             if (($currentState['status'] ?? '') === 'stopped') {
                 error_log('[WAIC Test] Execution stopped by user: ' . $executionId);
+                break;
+            }
+            if (($currentState['status'] ?? '') === 'paused') {
+                error_log('[WAIC Test] Execution paused by user: ' . $executionId);
+                // Save current queue so resume can continue from here
+                $this->updateExecutionState($executionId, [
+                    'paused_queue' => array_merge([$currentNodeId], $queue),
+                ], true);
                 break;
             }
             
@@ -1484,6 +1592,11 @@ class WaicWorkflowExecuteAPI {
                     }
                     $step_index  = $actionStepCounter++;  // Action-only index matching planner todos
                     $node_success = empty( $nodeResults['error'] ) && ( ( $nodeResults['status'] ?? 3 ) === 3 );
+                    // Defense-in-depth: also check the action's own success flag
+                    $result_success = $nodeResults['result']['success'] ?? null;
+                    if ( $result_success === 'false' || $result_success === false ) {
+                        $node_success = false;
+                    }
                     $verified = false;
                     
                     // Resolve effective tool name for todos matching:
@@ -1626,7 +1739,7 @@ class WaicWorkflowExecuteAPI {
                 usleep(300000); // 0.3 second
                 
             } else {
-                // Execution failed
+                // Execution failed — update state
                 $this->updateExecutionState($executionId, [
                     'status' => 'failed',
                     'error' => $result['message'],
@@ -1634,6 +1747,36 @@ class WaicWorkflowExecuteAPI {
                 ], true);
                 
                 error_log('[WAIC Test] Node execution error: ' . $result['message']);
+
+                // ── Send error message to chat so user sees the failure ──
+                $node_code_err = $currentNode['data']['code'] ?? 'unknown';
+                $msg_session_err = $executionState['session_id'] ?? '';
+                if ( class_exists( 'BizCity_Pipeline_Messenger' ) && ! empty( $msg_session_err ) ) {
+                    try {
+                        $err_step  = $actionStepCounter;
+                        $err_total = 0;
+                        foreach ( $executionState['nodes'] ?? [] as $n ) {
+                            $nc = $n['data']['code'] ?? '';
+                            if ( ( $n['type'] ?? '' ) === 'action' && ! in_array( $nc, [ 'it_todos_planner', 'it_summary_verifier' ], true ) ) {
+                                $err_total++;
+                            }
+                        }
+                        if ( $err_total < 1 ) $err_total = $err_step;
+
+                        BizCity_Pipeline_Messenger::send_error(
+                            $executionState,
+                            $node_code_err,
+                            $result['message'],
+                            $err_step,
+                            $err_total,
+                            0
+                        );
+                        error_log( '[WAIC Test] Error message sent to chat for ' . $node_code_err );
+                    } catch ( \Throwable $e ) {
+                        error_log( '[WAIC Test] Error message send failed: ' . $e->getMessage() );
+                    }
+                }
+
                 break;
             }
             

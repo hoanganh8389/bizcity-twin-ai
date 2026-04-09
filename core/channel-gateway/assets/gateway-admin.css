@@ -133,3 +133,127 @@
 .bizchat-assign-table { max-width: 700px; margin-top: 12px; }
 .bizchat-assign-table td,
 .bizchat-assign-table th { vertical-align: middle; }
+
+/* ═══ Integration Registry ═══ */
+.bizchat-integ-toolbar { margin-bottom: 16px; }
+.bizchat-integ-toolbar select { min-width: 200px; }
+
+.bizchat-integ-list { display: flex; flex-direction: column; gap: 12px; }
+
+.bizchat-integ-section {
+	border: 1px solid #dcdcde;
+	border-radius: 10px;
+	background: #fff;
+	overflow: hidden;
+	transition: box-shadow .2s;
+}
+.bizchat-integ-section:hover { box-shadow: 0 2px 8px rgba(0,0,0,.06); }
+
+.bizchat-integ-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 16px 20px;
+	gap: 12px;
+}
+.bizchat-integ-header-left {
+	display: flex;
+	align-items: center;
+	gap: 14px;
+	flex: 1;
+	min-width: 0;
+}
+.bizchat-integ-header-right {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex-shrink: 0;
+}
+
+.bizchat-integ-logo {
+	width: 44px;
+	height: 44px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 22px;
+	background: #f0f6fc;
+	border-radius: 10px;
+	flex-shrink: 0;
+	line-height: 1;
+}
+
+.bizchat-integ-info { min-width: 0; }
+.bizchat-integ-name { font-size: 14px; font-weight: 600; color: #1d2327; }
+.bizchat-integ-desc { font-size: 12px; color: #787c82; line-height: 1.4; margin-top: 2px; }
+
+.bizchat-integ-toggle {
+	background: none;
+	border: none;
+	cursor: pointer;
+	padding: 4px;
+	color: #787c82;
+	line-height: 1;
+}
+.bizchat-integ-toggle:hover { color: #2271b1; }
+
+/* ── Integration body (accounts list) ── */
+.bizchat-integ-body {
+	border-top: 1px solid #f0f0f1;
+	padding: 12px 20px 16px;
+	background: #fafafa;
+}
+
+.bizchat-integ-empty { font-size: 13px; color: #9ca3af; font-style: italic; padding: 8px 0; }
+
+.bizchat-integ-account {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 8px 0;
+	gap: 8px;
+}
+.bizchat-integ-account + .bizchat-integ-account { border-top: 1px solid #e8e8e8; }
+
+.bizchat-integ-account-left {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex: 1;
+	min-width: 0;
+}
+.bizchat-integ-account-left strong { font-size: 13px; }
+
+.bizchat-integ-account-right {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	flex-shrink: 0;
+}
+
+.bizchat-integ-err { font-size: 11px; color: #d63638; }
+
+/* ── Error badge ── */
+.bizchat-gw-badge.gw-error { background: #fce8e8; color: #d63638; }
+
+/* ── Dialog form ── */
+.bizchat-integ-field { margin-bottom: 14px; }
+.bizchat-integ-field label {
+	display: block;
+	font-size: 13px;
+	font-weight: 500;
+	margin-bottom: 4px;
+	color: #1d2327;
+}
+.bizchat-integ-field input,
+.bizchat-integ-field select { width: 100%; }
+
+.bizchat-integ-dialog-actions {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	margin-top: 20px;
+	padding-top: 16px;
+	border-top: 1px solid #f0f0f1;
+}
+.bizchat-integ-dialog-status { font-size: 13px; }

@@ -488,7 +488,7 @@ class BizCity_Scheduler_Tools {
 		$update['start_at'] = $start;
 		$update['end_at']   = $end;
 
-		$result = BizCity_Scheduler_Manager::instance()->update_event( (int) $event->id, $update );
+		$result = BizCity_Scheduler_Manager::instance()->update_event( (int) $event->id, $update, (int) $event->user_id );
 		if ( is_wp_error( $result ) ) {
 			return self::error_result( $result );
 		}
@@ -518,7 +518,7 @@ class BizCity_Scheduler_Tools {
 			return self::error_result( $event );
 		}
 
-		$result = BizCity_Scheduler_Manager::instance()->delete_event( (int) $event->id );
+		$result = BizCity_Scheduler_Manager::instance()->delete_event( (int) $event->id, (int) $event->user_id );
 		if ( is_wp_error( $result ) ) {
 			return self::error_result( $result );
 		}
@@ -606,10 +606,6 @@ class BizCity_Scheduler_Tools {
 	}
 
 	public static function sync_google( array $slots ): array {
-		if ( ! current_user_can( 'manage_options' ) ) {
-			return self::simple_result( false, true, 'Chi admin moi duoc dong bo Google Calendar tu tool nay.' );
-		}
-
 		$user_id = self::resolve_user_id( $slots );
 		if ( is_wp_error( $user_id ) ) {
 			return self::error_result( $user_id );
@@ -643,7 +639,7 @@ class BizCity_Scheduler_Tools {
 			return self::error_result( $event );
 		}
 
-		$result = BizCity_Scheduler_Manager::instance()->update_event( (int) $event->id, [ 'status' => $status ] );
+		$result = BizCity_Scheduler_Manager::instance()->update_event( (int) $event->id, [ 'status' => $status ], (int) $event->user_id );
 		if ( is_wp_error( $result ) ) {
 			return self::error_result( $result );
 		}

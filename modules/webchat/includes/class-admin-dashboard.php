@@ -1047,81 +1047,52 @@ class BizCity_WebChat_Admin_Dashboard {
             border-bottom: 1px solid rgba(128,128,128,0.12);
             margin-bottom: 4px;
         }
-        .bizc-kci-sidebar .bizc-kci-head {
+        .bizc-kci-sidebar .bizc-kci-autorun {
             display: flex;
             align-items: center;
-            gap: 6px;
-            margin-bottom: 6px;
+            gap: 8px;
+            margin-top: 8px;
+            padding: 4px 0;
         }
-        .bizc-kci-sidebar .bizc-kci-head span {
-            font-size: 11px;
-            color: var(--color-n300, #9ca3af);
+        .bizc-kci-sidebar .bizc-kci-toggle {
+            position: relative;
+            display: inline-block;
+            width: 32px;
+            height: 16px;
+            flex-shrink: 0;
         }
-        .bizc-kci-sidebar .bizc-kci-head .bizc-kci-vals {
-            margin-left: auto;
-            font-size: 10px;
-            color: var(--color-n200, #6b7280);
+        .bizc-kci-sidebar .bizc-kci-toggle input {
+            opacity: 0;
+            width: 0;
+            height: 0;
         }
-        .bizc-kci-sidebar input[type=range] {
-            -webkit-appearance: none;
-            appearance: none;
-            width: 100%;
-            height: 3px;
-            border-radius: 2px;
-            background: linear-gradient(90deg, #6366f1 0%, #a855f7 50%, #f59e0b 100%);
-            outline: none;
+        .bizc-kci-sidebar .bizc-kci-toggle-slider {
+            position: absolute;
             cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(128,128,128,0.25);
+            border-radius: 8px;
+            transition: 0.2s;
         }
-        .bizc-kci-sidebar input[type=range]::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            width: 12px; height: 12px;
-            border-radius: 50%;
+        .bizc-kci-sidebar .bizc-kci-toggle-slider:before {
+            content: "";
+            position: absolute;
+            height: 12px; width: 12px;
+            left: 2px; bottom: 2px;
             background: #fff;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-            cursor: pointer;
-        }
-        .bizc-kci-sidebar input[type=range]::-moz-range-thumb {
-            width: 12px; height: 12px;
             border-radius: 50%;
-            background: #fff;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-            cursor: pointer;
-            border: none;
+            transition: 0.2s;
         }
-        .bizc-kci-sidebar .bizc-kci-presets {
-            display: flex;
-            gap: 4px;
-            margin-top: 6px;
-            flex-wrap: wrap;
+        .bizc-kci-sidebar .bizc-kci-toggle input:checked + .bizc-kci-toggle-slider {
+            background: rgba(34,197,94,0.6);
         }
-        .bizc-kci-sidebar .bizc-kci-pre {
+        .bizc-kci-sidebar .bizc-kci-toggle input:checked + .bizc-kci-toggle-slider:before {
+            transform: translateX(16px);
+        }
+        .bizc-kci-sidebar .bizc-kci-autorun-label {
             font-size: 10px;
-            padding: 1px 6px;
-            border-radius: 9px;
-            border: 1px solid rgba(128,128,128,0.15);
-            background: transparent;
             color: var(--color-n300, #9ca3af);
-            cursor: pointer;
-            transition: all 0.15s;
-            line-height: 1.6;
-        }
-        .bizc-kci-sidebar .bizc-kci-pre:hover {
-            border-color: rgba(99,102,241,0.4);
-            color: var(--color-n200, #a5b4fc);
-        }
-        .bizc-kci-sidebar .bizc-kci-pre.active {
-            background: rgba(99,102,241,0.15);
-            border-color: rgba(99,102,241,0.4);
-            color: #a5b4fc;
-        }
-        .bizc-kci-sidebar .bizc-kci-nuoi {
-            margin-left: auto;
-            border-color: rgba(34,197,94,0.25);
-            color: rgba(34,197,94,0.6);
-        }
-        .bizc-kci-sidebar .bizc-kci-nuoi:hover {
-            background: rgba(34,197,94,0.1);
-            color: #4ade80;
+            user-select: none;
         }
         </style>
        
@@ -1138,80 +1109,44 @@ class BizCity_WebChat_Admin_Dashboard {
                 'teach_ai' => __( '🌱 Dạy AI', $td ),
                 'priority' => __( 'Ưu tiên', $td ),
                 'new_chat' => __( 'Chat mới', $td ),
+                'autorun_off' => __( '⏸️ Xem trước workflow', $td ),
+                'autorun_on'  => __( '▶️ Chạy workflow tự động', $td ),
             ]); ?>;
             var timer = null;
 
             function buildKciHtml(val) {
                 var exec = 100 - val;
                 return '<div class="bizc-kci-sidebar">' +
-                    '<div class="bizc-kci-head">' +
-                        '<span>' + kciI18n.twin_core + '</span>' +
-                        '<span class="bizc-kci-vals">' + kciI18n.knowledge + ':<b id="bizc-kci-k">' + val + '</b>% ' + kciI18n.execution + ':<b id="bizc-kci-e">' + exec + '</b>%</span>' +
-                    '</div>' +
-                    '<input type="range" id="bizc-kci-range" min="0" max="100" step="10" value="' + val + '">' +
-                    '' +
-                    '<div class="bizc-kci-presets">' +
-                        '<button class="bizc-kci-pre' + (val===100?' active':'') + '" data-v="100">📚100</button>' +
-                        '<button class="bizc-kci-pre' + (val===80?' active':'') + '" data-v="80">🧠80</button>' +
-                        '<button class="bizc-kci-pre' + (val===50?' active':'') + '" data-v="50">⚖️50</button>' +
-                        '<button class="bizc-kci-pre' + (val===20?' active':'') + '" data-v="20">🚀20</button>' +
-                        '<button class="bizc-kci-pre bizc-kci-nuoi" title="' + kciI18n.teach_ai_title + '">' + kciI18n.teach_ai + '</button>' +
+                    '<div class="bizc-kci-autorun">' +
+                        '<label class="bizc-kci-toggle">' +
+                            '<input type="checkbox" id="bizc-autorun-toggle">' +
+                            '<span class="bizc-kci-toggle-slider"></span>' +
+                        '</label>' +
+                        '<span class="bizc-kci-autorun-label">' + kciI18n.autorun_off + '</span>' +
                     '</div>' +
                 '</div>';
             }
 
-            function saveKci(val) {
-                var c = cfg();
-                console.log('[KCI-TRACE] dash_save:', { value: val, exec: 100 - val, sessionId: c.sessionId });
-                var x = new XMLHttpRequest();
-                x.open('POST', c.ajaxurl || '/wp-admin/admin-ajax.php');
-                x.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-                x.onload = function() { console.log('[KCI-TRACE] dash_response:', x.responseText); };
-                x.send('action=bizcity_chat_set_kci_ratio&session_id=' + encodeURIComponent(c.sessionId || '') +
-                       '&kci_ratio=' + val + '&_wpnonce=' + encodeURIComponent(c.chatNonce || c.nonce || ''));
-            }
-
-            function updateLabels(val) {
-                var exec = 100 - val;
-                var kEl = document.getElementById('bizc-kci-k');
-                var eEl = document.getElementById('bizc-kci-e');
-                if (kEl) kEl.textContent = val;
-                if (eEl) eEl.textContent = exec;
-                var sEl = document.getElementById('bizc-kci-status');
-                if (sEl) sEl.textContent = kciI18n.priority + ': ' + kciI18n.knowledge + ': ' + val + '%, ' + kciI18n.execution + ': ' + exec + '%';
-                var btns = document.querySelectorAll('.bizc-kci-pre[data-v]');
-                btns.forEach(function(b) {
-                    b.classList.toggle('active', parseInt(b.getAttribute('data-v')) === val);
-                });
-            }
-
             function bindEvents() {
-                var range = document.getElementById('bizc-kci-range');
-                if (!range) return;
-                range.addEventListener('input', function() {
-                    var v = parseInt(this.value);
-                    updateLabels(v);
-                    clearTimeout(timer);
-                    timer = setTimeout(function() { saveKci(v); }, 500);
-                });
-                document.querySelectorAll('.bizc-kci-pre[data-v]').forEach(function(btn) {
-                    btn.addEventListener('click', function() {
-                        var v = parseInt(this.getAttribute('data-v'));
-                        range.value = v;
-                        updateLabels(v);
-                        clearTimeout(timer);
-                        saveKci(v);
+                var autoToggle = document.getElementById('bizc-autorun-toggle');
+                if (autoToggle) {
+                    autoToggle.addEventListener('change', function() {
+                        var on = this.checked;
+                        var label = this.closest('.bizc-kci-autorun').querySelector('.bizc-kci-autorun-label');
+                        if (label) label.textContent = on ? kciI18n.autorun_on : kciI18n.autorun_off;
+                        var c = cfg();
+                        var x = new XMLHttpRequest();
+                        x.open('POST', c.ajaxurl || '/wp-admin/admin-ajax.php');
+                        x.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+                        x.send('action=bizcity_chat_set_auto_run&session_id=' + encodeURIComponent(c.sessionId || '') +
+                               '&auto_run=' + (on ? '1' : '0') + '&_wpnonce=' + encodeURIComponent(c.chatNonce || c.nonce || ''));
                     });
-                });
-                document.querySelector('.bizc-kci-nuoi')?.addEventListener('click', function() {
-                    var c = cfg();
-                    window.open(c.tasksUrl ? c.tasksUrl.replace('/tasks/', '/note/') : '/note/', '_blank');
-                });
+                }
             }
 
             function inject(sidebarCol) {
-                if (document.getElementById('bizc-kci-range')) return; // already injected
-                var navDiv = sidebarCol.querySelector('.flex.flex-col.pt-5');
+                if (document.getElementById('bizc-autorun-toggle')) return; // already injected
+                var navDiv = sidebarCol.querySelector('.flex.flex-col.pt-1');
                 if (!navDiv) {
                     // Fallback: find the flex-col with localized new chat text.
                     var allDivs = sidebarCol.querySelectorAll('.flex.flex-col');
@@ -1230,7 +1165,7 @@ class BizCity_WebChat_Admin_Dashboard {
 
             // Observe DOM for React sidebar render
             var obs = new MutationObserver(function(mutations) {
-                var sidebar = document.querySelector('[class*="flex"][class*="flex-col"][class*="pt-5"]');
+                var sidebar = document.querySelector('[class*="flex"][class*="flex-col"][class*="pt-1"]');
                 if (!sidebar) return;
                 // Look for localized new chat text to confirm this is the nav sidebar.
                 if (sidebar.textContent.indexOf(kciI18n.new_chat) === -1) return;
@@ -1241,7 +1176,7 @@ class BizCity_WebChat_Admin_Dashboard {
                 obs.observe(root, { childList: true, subtree: true });
                 // Also try immediate inject (in case React already rendered)
                 setTimeout(function() {
-                    var sidebar = document.querySelector('[class*="flex"][class*="flex-col"][class*="pt-5"]');
+                    var sidebar = document.querySelector('[class*="flex"][class*="flex-col"][class*="pt-1"]');
                     if (sidebar && sidebar.textContent.indexOf(kciI18n.new_chat) !== -1) {
                         inject(sidebar.parentElement || sidebar);
                     }

@@ -77,6 +77,12 @@ class BizCity_Pre_Rules {
 			return $slash;
 		}
 
+		// 3b. @tool_name mention or params['tool_name'] → tool activation
+		$tool = $this->check_tool_mention( $message, $params, $conversation );
+		if ( $tool['handled'] ) {
+			return $tool;
+		}
+
 		// 4. Skill continuation (active skill goal)
 		$continuation = $this->check_skill_continuation( $message, $params, $conversation );
 		if ( $continuation['handled'] ) {
@@ -333,6 +339,134 @@ class BizCity_Pre_Rules {
 				'skill'  => $skill,
 				'parsed' => $parsed,
 				'meta'   => [ 'pre_rule' => 'SKILL_SLASH_INJECT', 'slash' => $slash, 'llm_calls' => 0 ],
+			],
+		];
+	}
+
+	/* ================================================================
+	 *  Rule: @tool mention → tool activation with slot gathering
+	 * ================================================================ */
+
+	/**
+	 * Handle @tool_name mention (from webchat UI or typed) and params['tool_name'] (from frontend POST).
+	 *
+	 * Flow:
+	 *   1. Extract tool_name from params or @mention in message
+	 *   2. Try as skill (slash command) first — reuse existing skill flow
+	 *   3. If not a skill, check Intent Provider plan for slot gathering
+	 *   4. Ask first required slot using provider's configured prompt
+	 *   5. Set conversation goal + waiting state for slot continuation
+	 *
+	 * @since Phase 1.12 — Shell Engine @tool support
+	 */
+	private function check_tool_mention( string $message, array $params, array $conversation ): array {
+		// Extract tool_name from frontend params or @mention at start of message
+		$tool_name = $params['tool_name'] ?? '';
+		if ( empty( $tool_name ) && preg_match( '/^@([a-zA-Z][a-zA-Z0-9_]*)/', trim( $message ), $m ) ) {
+			$tool_name = $m[1];
+		}
+
+		if ( empty( $tool_name ) ) {
+			return [ 'handled' => false ];
+		}
+
+		error_log( self::LOG . " Tool mention detected: @{$tool_name}" );
+
+		// 1. Try as skill first (same as slash command flow)
+		if ( class_exists( 'BizCity_Skill_Database' ) ) {
+			$row = BizCity_Skill_Database::instance()->get_by_slash_command( $tool_name );
+			if ( $row ) {
+				error_log( self::LOG . " Tool @{$tool_name} found as skill → delegating to slash command" );
+				$slash_params = $params;
+				$slash_params['slash_command'] = $tool_name;
+				return $this->check_slash_command( $message, $slash_params, $conversation );
+			}
+		}
+
+		// 2. Check if tool exists in the registry
+		if ( ! class_exists( 'BizCity_Intent_Tools' ) || ! BizCity_Intent_Tools::instance()->has( $tool_name ) ) {
+			error_log( self::LOG . " Tool @{$tool_name} not found in registry, skipping" );
+			return [ 'handled' => false ];
+		}
+
+		// 3. Check Intent Provider / Planner for slot gathering plan
+		$plan = null;
+		if ( class_exists( 'BizCity_Intent_Planner' ) ) {
+			$plan = BizCity_Intent_Planner::instance()->get_plan( $tool_name );
+		}
+
+		// No plan or no required slots → trigger direct execution
+		if ( ! $plan || empty( $plan['required_slots'] ) ) {
+			error_log( self::LOG . " Tool @{$tool_name} → no required_slots, trigger execution" );
+			return [
+				'handled' => true,
+				'rule'    => 'TOOL_MENTION_EXECUTE',
+				'result'  => [
+					'reply'     => null,
+					'action'    => 'trigger_tool_execution',
+					'tool_name' => $tool_name,
+					'meta'      => [ 'pre_rule' => 'TOOL_MENTION_EXECUTE', 'tool_name' => $tool_name, 'llm_calls' => 0 ],
+				],
+			];
+		}
+
+		// 4. Plan has required slots → find first unfilled → ask with provider prompt
+		$conv_id       = $conversation['conversation_id'] ?? '';
+		$current_slots = $conversation['slots'] ?? [];
+		$slot_order    = $plan['slot_order'] ?? array_keys( $plan['required_slots'] );
+
+		$first_missing = '';
+		$first_slot_cfg = [];
+		foreach ( $slot_order as $slot_name ) {
+			if ( ! isset( $plan['required_slots'][ $slot_name ] ) ) {
+				continue;
+			}
+			$cfg = $plan['required_slots'][ $slot_name ];
+			// no_auto_map → always ask regardless of message content
+			if ( ! empty( $cfg['no_auto_map'] ) || empty( $current_slots[ $slot_name ] ) ) {
+				$first_missing  = $slot_name;
+				$first_slot_cfg = $cfg;
+				break;
+			}
+		}
+
+		if ( empty( $first_missing ) ) {
+			// All required slots already filled → trigger execution
+			error_log( self::LOG . " Tool @{$tool_name} → all required slots filled, trigger execution" );
+			return [
+				'handled' => true,
+				'rule'    => 'TOOL_MENTION_EXECUTE',
+				'result'  => [
+					'reply'     => null,
+					'action'    => 'trigger_tool_execution',
+					'tool_name' => $tool_name,
+					'meta'      => [ 'pre_rule' => 'TOOL_MENTION_EXECUTE', 'tool_name' => $tool_name, 'llm_calls' => 0 ],
+				],
+			];
+		}
+
+		// 5. Set conversation goal + waiting state
+		if ( $conv_id && class_exists( 'BizCity_Intent_Conversation' ) ) {
+			$mgr = BizCity_Intent_Conversation::instance();
+			$mgr->set_goal( $conv_id, 'tool:' . $tool_name, $plan['label'] ?? $tool_name );
+			$mgr->set_waiting( $conv_id, $first_slot_cfg['type'] ?? 'text', $first_missing );
+		}
+
+		$prompt = $first_slot_cfg['prompt'] ?? "Vui lòng cung cấp: {$first_missing}";
+		error_log( self::LOG . " Tool @{$tool_name} → asking slot '{$first_missing}': " . mb_substr( $prompt, 0, 80, 'UTF-8' ) );
+
+		return [
+			'handled' => true,
+			'rule'    => 'TOOL_MENTION_SLOT_ASK',
+			'result'  => [
+				'reply'  => $prompt,
+				'action' => 'ask_user',
+				'meta'   => [
+					'pre_rule'  => 'TOOL_MENTION_SLOT_ASK',
+					'tool_name' => $tool_name,
+					'slot_name' => $first_missing,
+					'llm_calls' => 0,
+				],
 			],
 		];
 	}

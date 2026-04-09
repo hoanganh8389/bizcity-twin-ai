@@ -2331,7 +2331,7 @@ class BizCity_Intent_Engine {
                     $meta = $pipeline_result['meta'] ?? [];
                     if ( ! empty( $meta['provider'] ) ) {
                         // Knowledge provider pipeline (Gemini / ChatGPT / Router)
-                        $mode_goal  = 'knowledge_' . $meta['provider'];
+                        $mode_goal  = 'knowledge:' . $meta['provider'];
                         $mode_label = '📚 ' . ( $meta['provider_label'] ?? ucfirst( $meta['provider'] ) );
                     } else {
                         // Other non-execution pipelines (emotion, reflection)

@@ -755,6 +755,95 @@ class WaicWorkflow extends WaicModule {
 		
 		wp_send_json_success(['message' => 'Execution stopped']);
 	}
+
+	/**
+	 * Pause test workflow execution — keeps state for resume
+	 */
+	public function ajaxTestWorkflowPause() {
+		check_ajax_referer('waic-nonce', 'waicNonce');
+		
+		if (!current_user_can('manage_options')) {
+			wp_send_json_error(['message' => 'Permission denied']);
+			return;
+		}
+		
+		$executionId = sanitize_text_field($_POST['execution_id'] ?? '');
+		
+		if (empty($executionId)) {
+			wp_send_json_error(['message' => 'Execution ID required']);
+			return;
+		}
+		
+		$executionState = get_transient($executionId);
+		
+		if (!$executionState || !in_array($executionState['status'], ['running', 'waiting'], true)) {
+			wp_send_json_error(['message' => 'Execution is not running']);
+			return;
+		}
+		
+		$executionState['status'] = 'paused';
+		$executionState['paused_at'] = current_time('mysql');
+		$executionState['logs'][] = [
+			'timestamp' => current_time('mysql'),
+			'level' => 'NOTICE',
+			'message' => 'Test execution paused by user',
+		];
+		
+		set_transient($executionId, $executionState, 3600);
+		
+		wp_send_json_success([
+			'message' => 'Execution paused',
+			'current_node' => $executionState['current_node'] ?? null,
+		]);
+	}
+
+	/**
+	 * Resume test workflow execution from paused state
+	 */
+	public function ajaxTestWorkflowResume() {
+		check_ajax_referer('waic-nonce', 'waicNonce');
+		
+		if (!current_user_can('manage_options')) {
+			wp_send_json_error(['message' => 'Permission denied']);
+			return;
+		}
+		
+		$executionId = sanitize_text_field($_POST['execution_id'] ?? '');
+		
+		if (empty($executionId)) {
+			wp_send_json_error(['message' => 'Execution ID required']);
+			return;
+		}
+		
+		$executionState = get_transient($executionId);
+		
+		if (!$executionState || $executionState['status'] !== 'paused') {
+			wp_send_json_error(['message' => 'Execution is not paused']);
+			return;
+		}
+		
+		$executionState['status'] = 'running';
+		$executionState['resumed_at'] = current_time('mysql');
+		unset($executionState['paused_at']);
+		$executionState['logs'][] = [
+			'timestamp' => current_time('mysql'),
+			'level' => 'NOTICE',
+			'message' => 'Test execution resumed by user',
+		];
+		
+		set_transient($executionId, $executionState, 3600);
+		
+		// Trigger background continuation
+		$executeAPI = WaicWorkflowExecuteAPI::getInstance();
+		if (method_exists($executeAPI, 'executeWorkflowBackground')) {
+			$executeAPI->executeWorkflowBackground($executionId);
+		}
+		
+		wp_send_json_success([
+			'message' => 'Execution resumed',
+			'current_node' => $executionState['current_node'] ?? null,
+		]);
+	}
 }
 
 // Add in any admin-loaded file (mu-plugin bootstrap / workflow module init)
@@ -803,6 +892,8 @@ add_action('admin_init', function() {
 		add_action('wp_ajax_waic_test_workflow_execute', array($module, 'ajaxTestWorkflowExecute'));
 		add_action('wp_ajax_waic_test_workflow_poll', array($module, 'ajaxTestWorkflowPoll'));
 		add_action('wp_ajax_waic_test_workflow_stop', array($module, 'ajaxTestWorkflowStop'));
+		add_action('wp_ajax_waic_test_workflow_pause', array($module, 'ajaxTestWorkflowPause'));
+		add_action('wp_ajax_waic_test_workflow_resume', array($module, 'ajaxTestWorkflowResume'));
 	}
 }, 20);
 

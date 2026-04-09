@@ -135,6 +135,14 @@ class WaicAction_it_call_content extends WaicAction {
 
 		$error = '';
 
+		// ── Auto-resolve content_tool when not explicitly set ──
+		if ( empty( $tool_id ) ) {
+			$tool_id = $this->auto_resolve_content_tool( $variables );
+			if ( $tool_id ) {
+				error_log( '[IT_CALL_CONTENT] Auto-resolved content_tool=' . $tool_id );
+			}
+		}
+
 		if ( empty( $tool_id ) ) {
 			$error = __( 'No content tool selected.', 'bizcity-twin-ai' );
 		}
@@ -157,6 +165,16 @@ class WaicAction_it_call_content extends WaicAction {
 			$params = $this->inherit_from_previous_nodes( $variables );
 			if ( ! empty( $params ) ) {
 				error_log( '[IT_CALL_CONTENT] Auto-inherited ' . count( $params ) . ' params from previous nodes: ' . implode( ', ', array_keys( $params ) ) );
+			}
+		}
+
+		// ── Always merge upstream research/memory data even when params already set ──
+		if ( empty( $error ) && ! empty( $params ) ) {
+			$upstream = $this->inherit_from_previous_nodes( $variables );
+			foreach ( [ '_research_summary', '_source_count', '_source_ids', '_memory_spec' ] as $up_key ) {
+				if ( ! empty( $upstream[ $up_key ] ) && empty( $params[ $up_key ] ) ) {
+					$params[ $up_key ] = $upstream[ $up_key ];
+				}
 			}
 		}
 
@@ -256,12 +274,16 @@ class WaicAction_it_call_content extends WaicAction {
 			}
 		}
 
-		// ── Execute via BizCity_Tool_Run (unified path) ──
-		$context = [
-			'caller'     => 'it_call_content',
-			'session_id' => $variables['session_id'] ?? '',
-			'user_id'    => $uid,
-			'channel'    => 'pipeline',
+		// ── Execute via BizCity_Tool_Wrapper (unified layer) ──
+		$wrapper_context = [
+			'caller'        => 'it_call_content',
+			'session_id'    => $variables['session_id'] ?? '',
+			'user_id'       => $uid,
+			'channel'       => 'pipeline',
+			'save_studio'   => $require_confirm ? 'never' : 'always',
+			'save_evidence' => true,
+			'pipeline_id'   => $variables['_pipeline_id'] ?? '',
+			'node_id'       => (string) ( $this->getId() ?? '' ),
 		];
 
 		// ── Propagate skill from upstream node (e.g. it_todos_planner) ──
@@ -269,11 +291,20 @@ class WaicAction_it_call_content extends WaicAction {
 		$upstream_skill_title   = $variables['skill_title']   ?? '';
 		$upstream_skill_content = $variables['skill_content'] ?? '';
 		if ( $upstream_skill_key && $upstream_skill_content ) {
-			$context['skill_override'] = [
+			$wrapper_context['skill_override'] = [
 				'title'   => $upstream_skill_title ?: $upstream_skill_key,
 				'content' => $upstream_skill_content,
 				'path'    => $upstream_skill_key,
 			];
+		}
+
+		// ── SSE streaming: provide stream callback if SSE context is active ──
+		$can_stream_sse = function_exists( 'bizcity_openrouter_chat_stream' )
+		                && has_action( 'bizcity_intent_stream_chunk' );
+		if ( $can_stream_sse ) {
+			$wrapper_context['stream_callback'] = function ( $delta, $full_text ) {
+				do_action( 'bizcity_intent_stream_chunk', $delta, $full_text );
+			};
 		}
 
 		// ── Micro-step: send granular progress messages ──
@@ -285,13 +316,14 @@ class WaicAction_it_call_content extends WaicAction {
 		}
 
 		$t_start = microtime( true );
-		$result = BizCity_Tool_Run::execute( $tool_id, $params, $context );
-		$duration_ms = (int) ( ( microtime( true ) - $t_start ) * 1000 );
+		$wrapper_result = BizCity_Tool_Wrapper::run( $tool_id, $params, $wrapper_context );
+		$result      = $wrapper_result['raw_result'];
+		$duration_ms = $wrapper_result['duration_ms'];
 
-		$success    = ! empty( $result['success'] );
-		$content    = $result['content']    ?? $result['data']['content'] ?? '';
-		$title      = $result['title']      ?? $result['data']['title'] ?? '';
-		$skill_used = $result['skill_used'] ?? $result['skill']['title'] ?? 'none';
+		$success    = $wrapper_result['success'];
+		$content    = $wrapper_result['content'];
+		$title      = $wrapper_result['title'];
+		$skill_used = $wrapper_result['skill_used'];
 
 		if ( $has_messenger ) {
 			// ── Tin nhắn 1: Skill resolution detail ──
@@ -338,7 +370,7 @@ class WaicAction_it_call_content extends WaicAction {
 			$icon  = $success ? '✅' : '❌';
 			$label = $success
 				? "Nội dung đã tạo — " . mb_substr( $title ?: $tool_id, 0, 60 )
-				: "Lỗi tạo nội dung: " . mb_substr( $result['message'] ?? 'unknown', 0, 80 );
+				: "Lỗi tạo nội dung: " . mb_substr( $result['message'] ?: $result['error'] ?? 'unknown', 0, 80 );
 			BizCity_Pipeline_Messenger::send_micro_step( $exec_state, $icon, $label, $tool_id, $duration_ms );
 		}
 
@@ -393,10 +425,48 @@ class WaicAction_it_call_content extends WaicAction {
 
 		// ── Auto-approve (no HIL) ──
 
-		// ── Studio outputs entry (content artifact) ──
-		if ( $success ) {
-			$this->save_content_studio_output( $session_id_trace, $uid, $taskId, $tool_id, $title, $content, $skill_used );
+		// ── Stream content to chat UI ──
+		$was_streamed = ! empty( $result['_streamed'] );
+		if ( $success && $content ) {
+			if ( $can_stream_sse && ! $was_streamed ) {
+				// Tool did NOT natively stream → post-hoc stream the generated content via SSE
+				error_log( "[IT_CALL_CONTENT] Post-hoc SSE stream: " . strlen( $content ) . " chars" );
+				$chunk_size = 120;
+				$offset     = 0;
+				$full_buf   = '';
+				$len        = strlen( $content );
+				while ( $offset < $len ) {
+					$chunk    = substr( $content, $offset, $chunk_size );
+					$full_buf .= $chunk;
+					do_action( 'bizcity_intent_stream_chunk', $chunk, $full_buf );
+					$offset  += $chunk_size;
+				}
+			}
+
+			// Push content as a persistent chat message (visible on reload / non-SSE channels)
+			if ( $has_messenger ) {
+				$word_count = str_word_count( strip_tags( $content ) );
+				if ( $can_stream_sse || $was_streamed ) {
+					// SSE already showed the full content → push compact card for chat history
+					$card_msg = "📝 **" . ( $title ?: $tool_id ) . "**\n"
+					          . "📊 {$word_count} từ · skill: {$skill_used} · {$duration_ms}ms";
+				} else {
+					// No SSE → push full content as chat message
+					$card_msg = "📝 **" . ( $title ?: $tool_id ) . "**\n\n"
+					          . $content . "\n\n"
+					          . "— *{$skill_used}* · {$word_count} từ · {$duration_ms}ms";
+				}
+				BizCity_Pipeline_Messenger::send( $exec_state, $card_msg, 'success', [
+					'_to_chat'  => true,
+					'tool_name' => $tool_id,
+					'format'    => 'content_stream',
+				] );
+			}
 		}
+
+		// ── Studio outputs entry — handled by BizCity_Tool_Wrapper when save_studio != 'never' ──
+		// (auto-approve path: Wrapper saves via save_studio='always')
+		// (HIL preview path: Wrapper skips via save_studio='never')
 
 		// ── Trace: execute_done ──
 		$elapsed_ms_trace = round( ( microtime( true ) - $start_time ) * 1000, 1 );
@@ -404,7 +474,7 @@ class WaicAction_it_call_content extends WaicAction {
 			'node_code'  => 'it_call_content',
 			'label'      => $success
 				? 'Content — ' . mb_substr( $title ?: $tool_id, 0, 60 )
-				: 'Content — lỗi: ' . mb_substr( $result['message'] ?? 'unknown', 0, 60 ),
+				: 'Content — lỗi: ' . mb_substr( $result['message'] ?: $result['error'] ?? 'unknown', 0, 60 ),
 			'has_error'  => $success ? 'false' : 'true',
 			'session_id' => $session_id_trace,
 		], $success ? 'info' : 'error', (int) $elapsed_ms_trace );
@@ -424,7 +494,7 @@ class WaicAction_it_call_content extends WaicAction {
 				'skill_used' => $skill_used,
 				'refined'    => 'false',
 			],
-			'error'  => $success ? '' : ( $result['message'] ?? 'Content generation failed' ),
+			'error'  => $success ? '' : $this->build_error_message( $result ),
 			'status' => 3,
 		];
 	}
@@ -450,6 +520,30 @@ class WaicAction_it_call_content extends WaicAction {
 				'content' => $content,
 			],
 		], 'content' );
+	}
+
+	/* ================================================================
+	 *  Error message builder
+	 * ================================================================ */
+
+	/**
+	 * Build a human-readable error from the tool run result.
+	 * Propagates quota_exhausted and surfaces the real error string.
+	 */
+	private function build_error_message( array $result ): string {
+		// quota_exhausted bubbles up via raw_result → tool_result
+		$quota = ! empty( $result['quota_exhausted'] );
+		$raw_error = $result['error'] ?? $result['message'] ?? '';
+
+		if ( $quota || stripos( $raw_error, 'quota' ) !== false || stripos( $raw_error, 'monthly' ) !== false ) {
+			return 'Hết quota LLM tháng này — ' . ( $raw_error ?: 'Monthly quota exceeded' ) . '. Vui lòng nạp thêm tại bizcity.vn/pricing';
+		}
+
+		if ( stripos( $raw_error, 'rate limit' ) !== false || stripos( $raw_error, 'Rate limit' ) !== false ) {
+			return 'Rate limit LLM — ' . $raw_error . '. Thử lại sau vài giây.';
+		}
+
+		return $raw_error ?: 'Content generation failed';
 	}
 
 	/* ================================================================
@@ -531,6 +625,57 @@ class WaicAction_it_call_content extends WaicAction {
 	 * @param array $variables Pipeline variables.
 	 * @return array Inherited params (may be empty if nothing found).
 	 */
+	/**
+	 * Auto-resolve content_tool when not explicitly configured.
+	 *
+	 * Precedence:
+	 *   1. @tool_name mention in trigger message (node#1.text or variables.text)
+	 *   2. Skill's slash_command (from _slash_command or planner's skill_key)
+	 *   3. First tool with accepts_skill=true in registry
+	 *
+	 * @param array $variables Pipeline variables.
+	 * @return string|null Resolved tool name or null.
+	 */
+	private function auto_resolve_content_tool( array $variables ): ?string {
+		if ( ! class_exists( 'BizCity_Intent_Tools' ) ) {
+			return null;
+		}
+		$registry = BizCity_Intent_Tools::instance();
+
+		// 1. Extract @tool_name from trigger message — trust explicit mention
+		$trigger_text = $variables['text'] ?? ( $variables['node#1']['text'] ?? '' );
+		if ( $trigger_text && preg_match( '/^@([a-zA-Z][a-zA-Z0-9_]*)/', trim( $trigger_text ), $m ) ) {
+			$candidate = $m[1];
+			if ( $registry->has( $candidate ) ) {
+				return $candidate;
+			}
+		}
+
+		// 2. Skill's slash_command
+		$slash = $variables['_slash_command'] ?? '';
+		if ( empty( $slash ) && ! empty( $variables['node#2']['skill_key'] ) ) {
+			// skill_key format: "sql://content" → extract "content"
+			$sk = $variables['node#2']['skill_key'];
+			$slash = preg_replace( '/^sql:\/\//', '', $sk );
+		}
+		if ( $slash && $registry->has( $slash ) ) {
+			$all = $registry->list_all();
+			if ( ! empty( $all[ $slash ]['accepts_skill'] ) ) {
+				return $slash;
+			}
+		}
+
+		// 3. First accepts_skill=true tool as fallback
+		$all = $registry->list_all();
+		foreach ( $all as $name => $schema ) {
+			if ( ! empty( $schema['accepts_skill'] ) ) {
+				return $name;
+			}
+		}
+
+		return null;
+	}
+
 	private function inherit_from_previous_nodes( array $variables ): array {
 		$inherit_fields = [ 'topic', 'title', 'content', 'message', 'keyword', 'subject', 'summary' ];
 		$inherited      = [];

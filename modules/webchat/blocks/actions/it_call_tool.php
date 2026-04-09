@@ -178,257 +178,190 @@ class WaicAction_it_call_tool extends WaicAction {
 		$node_id_str     = (string) ( $this->getId() ?? '' );
 
 		if ( empty( $error ) ) {
-			$tools = BizCity_Intent_Tools::instance();
 
-			if ( ! $tools->has( $tool_id ) ) {
-				$error = sprintf(
-					__( 'Tool "%s" not found.', 'bizcity-twin-ai' ),
-					$tool_id
-				);
-			} else {
-				$schema = $tools->get_schema( $tool_id );
+			// ── Phase 1.1 G1: HIL Resume Detection ──
+			// Check if we're resuming from a previous HIL wait (2nd getResults call)
+			$hil_state = $this->get_hil_state( $tool_id, $variables );
 
-				// ── Phase 1.1e: Skill Resolution via unified BizCity_Tool_Run ──
-				$skill_info = BizCity_Tool_Run::resolve_skill( $tool_id );
-				error_log( '[IT_CALL_TOOL] skill_lookup tool=' . $tool_id . ' found=' . ( $skill_info ? $skill_info['title'] : 'NONE' ) );
+			if ( $hil_state ) {
+				$hil_status = $hil_state['status'] ?? '';
 
-				if ( ! empty( $schema['input_fields'] ) ) {
-					// Common text-field aliases for auto-mapping
-					$text_aliases = [ 'message', 'text', 'user_message', 'question', 'prompt', 'content', 'query' ];
-
-					foreach ( $schema['input_fields'] as $field => $cfg ) {
-						if ( empty( $cfg['required'] ) ) {
-							continue;
-						}
-						// Already provided → skip
-						if ( isset( $params[ $field ] ) && $params[ $field ] !== '' ) {
-							continue;
-						}
-						// Try alias from existing params (e.g. message → question)
-						if ( in_array( $field, $text_aliases, true ) ) {
-							foreach ( $text_aliases as $alias ) {
-								if ( $alias !== $field && isset( $params[ $alias ] ) && $params[ $alias ] !== '' ) {
-									$params[ $field ] = $params[ $alias ];
-									break;
-								}
-							}
-						}
-						// Still missing → try trigger variables
-						if ( ! isset( $params[ $field ] ) || $params[ $field ] === '' ) {
-							// Try flat variable first, then node#1 variable
-							if ( ! empty( $variables[ $field ] ) ) {
-								$params[ $field ] = $variables[ $field ];
-							} elseif ( isset( $variables['node#1'] ) && ! empty( $variables['node#1'][ $field ] ) ) {
-								$params[ $field ] = $variables['node#1'][ $field ];
-							} elseif ( in_array( $field, $text_aliases, true ) ) {
-								// Last resort: try text/message from trigger
-								foreach ( $text_aliases as $alias ) {
-									if ( ! empty( $variables[ $alias ] ) ) {
-										$params[ $field ] = $variables[ $alias ];
-										break;
-									}
-									if ( isset( $variables['node#1'] ) && ! empty( $variables['node#1'][ $alias ] ) ) {
-										$params[ $field ] = $variables['node#1'][ $alias ];
-										break;
-									}
-								}
-							}
-						}
+				if ( $hil_status === 'rejected' ) {
+					// User cancelled/skipped this tool
+					error_log( '[IT_CALL_TOOL] HIL_REJECTED: tool=' . $tool_id );
+					if ( $pipeline_id && class_exists( 'BizCity_Intent_Todos' ) ) {
+						BizCity_Intent_Todos::update_status( $pipeline_id, $tool_id, 'CANCELLED', [
+							'node_id' => $node_id_str,
+						] );
 					}
-
-					// ── Phase 1.1 G1: HIL Resume Detection ──
-					// Check if we're resuming from a previous HIL wait (2nd getResults call)
-					$hil_state = $this->get_hil_state( $tool_id, $variables );
-
-					if ( $hil_state ) {
-						$hil_status = $hil_state['status'] ?? '';
-
-						if ( $hil_status === 'rejected' ) {
-							// User cancelled/skipped this tool
-							error_log( '[IT_CALL_TOOL] HIL_REJECTED: tool=' . $tool_id );
-							if ( $pipeline_id && class_exists( 'BizCity_Intent_Todos' ) ) {
-								BizCity_Intent_Todos::update_status( $pipeline_id, $tool_id, 'CANCELLED', [
-									'node_id' => $node_id_str,
-								] );
-							}
-							$this->clear_hil_state( $tool_id, $variables );
-							return [
-								'result' => [ 'success' => 'false', 'tool_name' => $tool_id, 'message' => 'Skipped by user' ],
-								'error'  => '',
-								'status' => 3, // completed (skipped)
-							];
-						}
-
-						if ( in_array( $hil_status, [ 'responded', 'confirmed' ], true ) ) {
-							// User provided slot data — parse and merge
-							$response_text  = $hil_state['response'] ?? '';
-							$stored_params  = $hil_state['current_params'] ?? [];
-							$missing_fields = $hil_state['missing_fields'] ?? [];
-
-							// Merge stored params first (params already resolved before 1st HIL wait)
-							foreach ( $stored_params as $k => $v ) {
-								if ( $v !== '' && $v !== null && ( ! isset( $params[ $k ] ) || $params[ $k ] === '' ) ) {
-									$params[ $k ] = $v;
-								}
-							}
-
-							// Parse user response into slot values
-							if ( ! empty( $response_text ) && ! empty( $missing_fields ) ) {
-								$parsed = $this->parse_slot_response( $response_text, $missing_fields, $schema );
-								foreach ( $parsed as $k => $v ) {
-									if ( $v !== '' && $v !== null ) {
-										$params[ $k ] = $v;
-									}
-								}
-								error_log( '[IT_CALL_TOOL] HIL_MERGED: tool=' . $tool_id . ' parsed=' . implode( ',', array_keys( $parsed ) ) );
-							}
-
-							$this->clear_hil_state( $tool_id, $variables );
-						}
-					}
-
-					// Check if required fields are still missing (after alias+variable+HIL merge)
-					$missing_required = [];
-					foreach ( $schema['input_fields'] as $field => $cfg ) {
-						if ( ! empty( $cfg['required'] ) && ( ! isset( $params[ $field ] ) || $params[ $field ] === '' || $params[ $field ] === null ) ) {
-							$missing_required[] = $field;
-						}
-					}
-
-					if ( ! empty( $missing_required ) ) {
-						// Try LLM fill as intermediate step (works for both pipeline and legacy)
-						$params = $this->prepare_input_with_llm( $tool_id, $params, $variables, $schema );
-
-						// Re-check after LLM fill
-						$still_missing = [];
-						foreach ( $schema['input_fields'] as $field => $cfg ) {
-							if ( ! empty( $cfg['required'] ) && ( ! isset( $params[ $field ] ) || $params[ $field ] === '' || $params[ $field ] === null ) ) {
-								$still_missing[] = $field;
-							}
-						}
-
-						if ( ! empty( $still_missing ) ) {
-							if ( $pipeline_id ) {
-								// ── Pipeline context → HIL WAITING (un_confirm pattern) ──
-								error_log( '[IT_CALL_TOOL] HIL_WAIT: tool=' . $tool_id . ' missing=' . implode( ',', $still_missing ) );
-
-								// Update todo status to WAITING_USER
-								if ( class_exists( 'BizCity_Intent_Todos' ) ) {
-									BizCity_Intent_Todos::update_status( $pipeline_id, $tool_id, 'WAITING_USER', [
-										'node_id' => $node_id_str,
-									] );
-								}
-
-								// Send HIL prompt message to user
-								$this->send_hil_slot_prompt( $variables, $tool_id, $still_missing, $schema, $params, $skill_info );
-
-								// Save HIL state for resume
-								$this->set_hil_state( $tool_id, $variables, $params, $still_missing );
-
-								$timeout_at = time() + 86400; // 24h timeout
-								return [
-									'result'               => [ 'success' => 'false', 'tool_name' => $tool_id, 'message' => 'Waiting for user input' ],
-									'error'                => '',
-									'status'               => 0, // waiting
-									'waiting'              => $timeout_at,
-									'reexecute_on_resume'  => true, // Phase 1.1: re-call getResults() on resume
-								];
-							} else {
-								// ── Legacy workflow → LLM-fill only, NO HIL pause ──
-								// Proceed with what we have; tool callback handles validation
-								error_log( '[IT_CALL_TOOL] LEGACY_FALLBACK: tool=' . $tool_id . ' missing=' . implode( ',', $still_missing ) . ' → proceeding without' );
-							}
-						}
-					} else {
-						// LLM-based smart input preparation: fill remaining empty optional fields
-						$params = $this->prepare_input_with_llm( $tool_id, $params, $variables, $schema );
-					}
+					$this->clear_hil_state( $tool_id, $variables );
+					return [
+						'result' => [ 'success' => 'false', 'tool_name' => $tool_id, 'message' => 'Skipped by user' ],
+						'error'  => '',
+						'status' => 3, // completed (skipped)
+					];
 				}
 
-				// ── Phase 1.1: Update todo to IN_PROGRESS ──
-				if ( $pipeline_id && class_exists( 'BizCity_Intent_Todos' ) ) {
-					BizCity_Intent_Todos::update_status( $pipeline_id, $tool_id, 'IN_PROGRESS', [
-						'node_id'         => $node_id_str,
-						'node_input_json' => $params,
-					] );
+				if ( in_array( $hil_status, [ 'responded', 'confirmed' ], true ) ) {
+					// User provided slot data — parse and merge
+					$response_text  = $hil_state['response'] ?? '';
+					$stored_params  = $hil_state['current_params'] ?? [];
+					$missing_fields = $hil_state['missing_fields'] ?? [];
+
+					// Merge stored params first (alias-resolved + LLM-filled from before HIL wait)
+					foreach ( $stored_params as $k => $v ) {
+						if ( $v !== '' && $v !== null && ( ! isset( $params[ $k ] ) || $params[ $k ] === '' ) ) {
+							$params[ $k ] = $v;
+						}
+					}
+
+					// Parse user response into slot values
+					if ( ! empty( $response_text ) && ! empty( $missing_fields ) ) {
+						$schema_for_parse = class_exists( 'BizCity_Intent_Tools' )
+							? ( BizCity_Intent_Tools::instance()->get_schema( $tool_id ) ?: [] )
+							: [];
+						$parsed = $this->parse_slot_response( $response_text, $missing_fields, $schema_for_parse );
+						foreach ( $parsed as $k => $v ) {
+							if ( $v !== '' && $v !== null ) {
+								$params[ $k ] = $v;
+							}
+						}
+						error_log( '[IT_CALL_TOOL] HIL_MERGED: tool=' . $tool_id . ' parsed=' . implode( ',', array_keys( $parsed ) ) );
+					}
+
+					$this->clear_hil_state( $tool_id, $variables );
 				}
+			}
 
-				// ── Phase 1.1e: Execute via unified BizCity_Tool_Run ──
-				$has_messenger = class_exists( 'BizCity_Pipeline_Messenger' ) && ! empty( $execution_state['session_id'] );
-
-				if ( $has_messenger ) {
-					BizCity_Pipeline_Messenger::send_micro_step( $execution_state, '⏳', "Đang thực thi {$tool_id}...", $tool_id );
-				}
-
-				$t_start = microtime( true );
-				$run_result = BizCity_Tool_Run::execute( $tool_id, $params, [
-					'session_id'   => $execution_state['session_id'] ?? '',
-					'user_id'      => $execution_state['user_id'] ?? get_current_user_id(),
-					'channel'      => $execution_state['channel'] ?? 'pipeline',
-					'conv_id'      => $execution_state['intent_conversation_id'] ?? '',
-					'goal'         => $tool_id,
-					'goal_label'   => $tool_id,
-					'character_id' => '',
-					'message_id'   => '',
-					'caller'       => 'it_call_tool',
+			// ── Phase 1.1: Update todo to IN_PROGRESS ──
+			if ( $pipeline_id && class_exists( 'BizCity_Intent_Todos' ) ) {
+				BizCity_Intent_Todos::update_status( $pipeline_id, $tool_id, 'IN_PROGRESS', [
+					'node_id'         => $node_id_str,
+					'node_input_json' => $params,
 				] );
-				$tool_duration_ms = (int) ( ( microtime( true ) - $t_start ) * 1000 );
+			}
 
-				$result_data = [
-					'success'        => $run_result['success'],
-					'message'        => $run_result['message'],
-					'data'           => $run_result['data'],
-					'missing_fields' => $run_result['missing_fields'],
-					'duration_ms'    => $tool_duration_ms,
-				];
+			// ── Execute via BizCity_Tool_Wrapper (unified layer) ──
+			$has_messenger = class_exists( 'BizCity_Pipeline_Messenger' ) && ! empty( $execution_state['session_id'] );
 
-				if ( $has_messenger ) {
-					// ── Micro-step 2: Skill resolution detail ──
-					$skill_used = $run_result['skill_used'] ?? 'none';
-					$skill_resolve = $run_result['skill_resolve'] ?? '';
-					if ( $skill_used && $skill_used !== 'none' ) {
-						$method = '';
-						if ( strpos( $skill_resolve, 'skill_tool_map' ) !== false ) {
-							$method = ' (via tool-map)';
-						} elseif ( strpos( $skill_resolve, 'text_matching' ) !== false ) {
-							$method = ' (via text matching)';
-						}
-						BizCity_Pipeline_Messenger::send_micro_step(
-							$execution_state, '📋',
-							"Skill: {$skill_used}{$method}",
-							'skill_found'
-						);
-					} else {
-						BizCity_Pipeline_Messenger::send_micro_step(
-							$execution_state, '⚠️',
-							"Không tìm thấy skill cho {$tool_id}",
-							'skill_not_found'
-						);
+			if ( $has_messenger ) {
+				BizCity_Pipeline_Messenger::send_micro_step( $execution_state, '⏳', "Đang thực thi {$tool_id}...", $tool_id );
+			}
+
+			$wrapper_context = [
+				'caller'        => 'it_call_tool',
+				'session_id'    => $execution_state['session_id'] ?? '',
+				'user_id'       => $execution_state['user_id'] ?? get_current_user_id(),
+				'channel'       => $execution_state['channel'] ?? 'pipeline',
+				'conv_id'       => $execution_state['intent_conversation_id'] ?? '',
+				'goal'          => $tool_id,
+				'goal_label'    => $tool_id,
+				'text_aliases'  => true,
+				'variables'     => $variables,
+				'save_studio'   => 'auto',
+				'save_evidence' => true,
+				'pipeline_id'   => $pipeline_id,
+				'node_id'       => $node_id_str,
+			];
+
+			$wrapper_result = BizCity_Tool_Wrapper::run( $tool_id, $params, $wrapper_context );
+
+			// ── Handle waiting_slot → Pipeline HIL wait or legacy fallback ──
+			if ( $wrapper_result['status'] === 'waiting_slot' ) {
+				$still_missing = $wrapper_result['missing_fields'];
+
+				if ( $pipeline_id ) {
+					// ── Pipeline context → HIL WAITING (un_confirm pattern) ──
+					error_log( '[IT_CALL_TOOL] HIL_WAIT: tool=' . $tool_id . ' missing=' . implode( ',', $still_missing ) );
+
+					// Update todo status to WAITING_USER
+					if ( class_exists( 'BizCity_Intent_Todos' ) ) {
+						BizCity_Intent_Todos::update_status( $pipeline_id, $tool_id, 'WAITING_USER', [
+							'node_id' => $node_id_str,
+						] );
 					}
 
-					// ── Micro-step 3: Knowledge context status ──
-					$has_knowledge = ! empty( $params['_meta']['_context'] ?? '' );
-					if ( $has_knowledge ) {
-						BizCity_Pipeline_Messenger::send_micro_step(
-							$execution_state, '📚',
-							'Context knowledge đã inject vào prompt',
-							'knowledge_inject'
-						);
-					} else {
-						BizCity_Pipeline_Messenger::send_micro_step(
-							$execution_state, '📭',
-							'Không có context knowledge — chỉ dùng prompt gốc',
-							'knowledge_none'
-						);
-					}
+					// Send HIL prompt message to user (using Wrapper's formatted prompt)
+					$this->send_hil_prompt_text( $variables, $tool_id, $wrapper_result['slot_prompt'] );
 
-					// ── Micro-step 4: Execution result ──
-					$t_icon  = ! empty( $run_result['success'] ) ? '✅' : '❌';
-					$t_label = ! empty( $run_result['success'] )
-						? "Hoàn tất {$tool_id}"
-						: "Lỗi {$tool_id}: " . mb_substr( $run_result['message'] ?? '', 0, 80 );
-					BizCity_Pipeline_Messenger::send_micro_step( $execution_state, $t_icon, $t_label, $tool_id, $tool_duration_ms );
+					// Save HIL state for resume
+					$this->set_hil_state( $tool_id, $variables, $wrapper_result['filled_params'], $still_missing );
+
+					$timeout_at = time() + 86400; // 24h timeout
+					return [
+						'result'               => [ 'success' => 'false', 'tool_name' => $tool_id, 'message' => 'Waiting for user input' ],
+						'error'                => '',
+						'status'               => 0, // waiting
+						'waiting'              => $timeout_at,
+						'reexecute_on_resume'  => true, // Phase 1.1: re-call getResults() on resume
+					];
+				} else {
+					// ── Legacy workflow → force execute with best-effort params ──
+					error_log( '[IT_CALL_TOOL] LEGACY_FALLBACK: tool=' . $tool_id . ' missing=' . implode( ',', $still_missing ) . ' → proceeding without' );
+					$legacy_context = $wrapper_context;
+					unset( $legacy_context['variables'], $legacy_context['text_aliases'] );
+					$legacy_context['skip_required_check'] = true;
+					$wrapper_result = BizCity_Tool_Wrapper::run( $tool_id, $wrapper_result['filled_params'], $legacy_context );
 				}
+			}
+
+			$run_result       = $wrapper_result['raw_result'];
+			$tool_duration_ms = $wrapper_result['duration_ms'];
+
+			$result_data = [
+				'success'        => $wrapper_result['success'],
+				'message'        => $wrapper_result['message'],
+				'data'           => $wrapper_result['data'],
+				'missing_fields' => $wrapper_result['missing_fields'],
+				'duration_ms'    => $tool_duration_ms,
+			];
+
+			if ( $has_messenger ) {
+				// ── Micro-step 2: Skill resolution detail ──
+				$skill_used = $run_result['skill_used'] ?? 'none';
+				$skill_resolve = $run_result['skill_resolve'] ?? '';
+				if ( $skill_used && $skill_used !== 'none' ) {
+					$method = '';
+					if ( strpos( $skill_resolve, 'skill_tool_map' ) !== false ) {
+						$method = ' (via tool-map)';
+					} elseif ( strpos( $skill_resolve, 'text_matching' ) !== false ) {
+						$method = ' (via text matching)';
+					}
+					BizCity_Pipeline_Messenger::send_micro_step(
+						$execution_state, '📋',
+						"Skill: {$skill_used}{$method}",
+						'skill_found'
+					);
+				} else {
+					BizCity_Pipeline_Messenger::send_micro_step(
+						$execution_state, '⚠️',
+						"Không tìm thấy skill cho {$tool_id}",
+						'skill_not_found'
+					);
+				}
+
+				// ── Micro-step 3: Knowledge context status ──
+				$has_knowledge = ! empty( $run_result['_meta']['_context'] ?? '' );
+				if ( $has_knowledge ) {
+					BizCity_Pipeline_Messenger::send_micro_step(
+						$execution_state, '📚',
+						'Context knowledge đã inject vào prompt',
+						'knowledge_inject'
+					);
+				} else {
+					BizCity_Pipeline_Messenger::send_micro_step(
+						$execution_state, '📭',
+						'Không có context knowledge — chỉ dùng prompt gốc',
+						'knowledge_none'
+					);
+				}
+
+				// ── Micro-step 4: Execution result ──
+				$t_icon  = $wrapper_result['success'] ? '✅' : '❌';
+				$t_label = $wrapper_result['success']
+					? "Hoàn tất {$tool_id}"
+					: "Lỗi {$tool_id}: " . mb_substr( $wrapper_result['message'] ?? '', 0, 80 );
+				BizCity_Pipeline_Messenger::send_micro_step( $execution_state, $t_icon, $t_label, $tool_id, $tool_duration_ms );
 			}
 		}
 
@@ -448,11 +381,7 @@ class WaicAction_it_call_tool extends WaicAction {
 			$error = $msg ?: __( 'Tool returned an error.', 'bizcity-twin-ai' );
 		}
 
-		// ── Phase 1.1e: Verification already done inside BizCity_Tool_Run::execute() ──
-		// No separate verify_result call needed.
-
-		// ── Phase 1.1 G3: Save evidence to intent_conversations ──
-		$this->save_pipeline_evidence( $tool_id, $params, $result_data, $variables, $execution_state );
+		// ── Evidence + Studio output — handled by BizCity_Tool_Wrapper ──
 
 		// ── Phase 1.1 G2: Update ToDos checkpoint ──
 		if ( $pipeline_id && class_exists( 'BizCity_Intent_Todos' ) ) {
@@ -472,48 +401,6 @@ class WaicAction_it_call_tool extends WaicAction {
 
 		// Clear HIL state on completion
 		$this->clear_hil_state( $tool_id, $variables );
-
-		// ── Studio Output: save content artifact if tool produced publishable content ──
-		// Covers: content-tier tools (landing, blog, slide, etc.) and
-		// publish tools that return external_url (WP post, FB post, etc.).
-		if ( $success && class_exists( 'BizCity_Output_Store' ) ) {
-			$tool_schema = class_exists( 'BizCity_Intent_Tools' )
-				? BizCity_Intent_Tools::instance()->get( $tool_id )
-				: [];
-			$tool_type_local = $tool_schema['tool_type'] ?? '';
-
-			// Determine if this tool produces a storable content artifact or a distribution result.
-			$is_content_tool = in_array( $tool_type_local, BizCity_Output_Store::CONTENT_TOOL_TYPES, true );
-			$has_content     = ! empty( $content ) || ! empty( $title );
-			$has_external    = ! empty( $resource_url );
-
-			if ( $is_content_tool && $has_content ) {
-				// Content artifact — save directly to studio_outputs.
-				BizCity_Output_Store::save_artifact( [
-					'tool_id'    => $tool_id,
-					'caller'     => 'pipeline',
-					'session_id' => $execution_state['session_id'] ?? '',
-					'user_id'    => $execution_state['user_id'] ?? get_current_user_id(),
-					'task_id'    => null,
-					'data'       => [
-						'title'   => $title,
-						'content' => $content,
-					],
-					'success'  => true,
-					'verified' => true,
-				], $tool_type_local ?: 'content' );
-
-			} elseif ( $has_external ) {
-				// Distribution/publish tool — update the most recent studio output for this session
-				// with the external_url and external_post_id so the Studio tab shows the live link.
-				$this->update_studio_output_with_url(
-					$execution_state['session_id'] ?? '',
-					$execution_state['user_id'] ?? 0,
-					$resource_url,
-					(int) ( $resource_id ?: 0 )
-				);
-			}
-		}
 
 		// Auto-send result to admin chat session if platform is adminchat
 		$this->maybe_send_to_adminchat( $variables, $tool_id, $success, $msg, $error, $resource_url, $title );
@@ -620,6 +507,36 @@ class WaicAction_it_call_tool extends WaicAction {
 		if ( is_array( $state ) && ( $state['tool_id'] ?? '' ) === $tool_id ) {
 			delete_transient( $key );
 		}
+	}
+
+	/**
+	 * Send a pre-formatted HIL prompt text to user via chat.
+	 * Used by the Tool_Wrapper integration — Wrapper builds the prompt,
+	 * this method just handles the delivery via pipeline chat infrastructure.
+	 *
+	 * @param array  $variables   Workflow variables (for session_id resolution).
+	 * @param string $tool_id     Tool identifier.
+	 * @param string $prompt_text Pre-formatted prompt from BizCity_Tool_Wrapper.
+	 */
+	private function send_hil_prompt_text( $variables, $tool_id, $prompt_text ) {
+		$session_id = $this->resolve_var( $variables, 'session_id' );
+		if ( empty( $session_id ) || ! class_exists( 'BizCity_WebChat_Database' ) ) {
+			return;
+		}
+
+		$text = $prompt_text . "\n\nVui lòng cung cấp thông tin còn thiếu, hoặc gõ \"bỏ qua\" để skip bước này.";
+
+		BizCity_WebChat_Database::instance()->log_message( [
+			'session_id'    => $session_id,
+			'user_id'       => 0,
+			'client_name'   => 'Pipeline Bot',
+			'message_id'    => uniqid( 'hil_' ),
+			'message_text'  => $text,
+			'message_from'  => 'bot',
+			'message_type'  => 'text',
+			'platform_type' => 'ADMINCHAT',
+			'tool_name'     => $tool_id,
+		] );
 	}
 
 	/**
@@ -1040,7 +957,8 @@ class WaicAction_it_call_tool extends WaicAction {
 			return;
 		}
 
-		// Build human-readable result message
+		// Build human-readable result message — use Markdown link [text](url)
+		// to prevent URL truncation in chat rendering.
 		if ( $success ) {
 			$text = '✅ Tool [' . $tool_id . '] hoàn tất.';
 			if ( ! empty( $msg ) ) {
@@ -1050,7 +968,7 @@ class WaicAction_it_call_tool extends WaicAction {
 				$text .= "\n📌 " . $title;
 			}
 			if ( ! empty( $resource_url ) ) {
-				$text .= "\n🔗 " . $resource_url;
+				$text .= "\n🔗 [" . $resource_url . ']('. $resource_url . ')';
 			}
 		} else {
 			$text = '❌ Tool [' . $tool_id . '] thất bại.';

@@ -2131,6 +2131,7 @@ class BizCity_WebChat_Ajax_Handlers {
 
         global $wpdb;
         $session_id = sanitize_text_field( $_POST['session_id'] ?? '' );
+        $project_id = sanitize_text_field( $_POST['project_id'] ?? '' );
         $user_id    = get_current_user_id();
         $table      = $wpdb->prefix . 'bizcity_webchat_sources';
 
@@ -2139,6 +2140,9 @@ class BizCity_WebChat_Ajax_Handlers {
             // Filter strictly by session_id — project-scoped sources (session_id='')
             // belong to the Notebook and must NOT bleed into chat sessions.
             $where .= $wpdb->prepare( " AND session_id = %s", $session_id );
+        } elseif ( $project_id ) {
+            // Project-scoped: return sources linked to this project (typically session_id='')
+            $where .= $wpdb->prepare( " AND project_id = %s", $project_id );
         }
 
         $sources = $wpdb->get_results(
@@ -2165,6 +2169,7 @@ class BizCity_WebChat_Ajax_Handlers {
 
         global $wpdb;
         $session_id  = sanitize_text_field( $_POST['session_id'] ?? '' );
+        $project_id  = sanitize_text_field( $_POST['project_id'] ?? '' );
         $source_type = sanitize_text_field( $_POST['source_type'] ?? 'url' );
         $title       = sanitize_text_field( $_POST['title'] ?? '' );
         $url         = esc_url_raw( $_POST['url'] ?? '' );
@@ -2198,6 +2203,7 @@ class BizCity_WebChat_Ajax_Handlers {
         $table = $wpdb->prefix . 'bizcity_webchat_sources';
         $wpdb->insert( $table, [
             'session_id'       => $session_id,
+            'project_id'       => $project_id,
             'user_id'          => $user_id,
             'source_type'      => $source_type,
             'title'            => $title,

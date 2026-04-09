@@ -30,23 +30,26 @@ $bizcityLogoUrl = function_exists('home_url')
     .wbw-wrap{
         font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif !important;
         background:#f6f7fb;
+		margin:0 !important;
+		padding:0 !important;
     }
 
     /* Main card */
     .wbw-wrap .wbw-plugin.wbw-main{
         background:var(--bc-card) !important;
-        border:1px solid var(--bc-border) !important;
+        /*border:1px solid var(--bc-border) !important;
         border-radius:var(--bc-radius) !important;
-        box-shadow:var(--bc-shadow) !important;
+        box-shadow:var(--bc-shadow) !important;*/
         overflow:hidden;
         padding:0 !important;
-        margin:10px !important;
+        margin:0px !important;
     }
-
+	.waic-flow-coltrols {gap:2px !important; padding:2px !important;}
+	.waic-flow-title {max-width:100px !important;}
     /* Header (dark) */
     .wbw-wrap .wbw-header{
         background:#010a14 !important;
-        border-bottom:1px solid #0c151e !important;
+        border-bottom:0px solid #0c151e !important;
     }
 
     .wbw-wrap .wbw-head{padding:14px 18px; background: #0c151e !important}
@@ -54,8 +57,10 @@ $bizcityLogoUrl = function_exists('home_url')
 
     /* Nav pills */
 	.wbw-plugin .wbw-navigation {background: #0c151e !important}
+	.bizcity-message-mode .wbw-navigation {display: none !important;}
     .wbw-wrap .wbw-navigation a{border-radius:12px}
 	.wbw-plugin .wbw-content .wbw-head { padding:0px !important}
+	.wbw-plugin .wbw-content {min-height:0px !important;}
 
     /* Content */
     .wbw-wrap .wbw-container{padding:18px}
@@ -67,7 +72,7 @@ $bizcityLogoUrl = function_exists('home_url')
         padding:12px 18px;
         color:#646970;
     }
-    .wbw-wrap .wbw-footer a{color:#2271b1;text-decoration:none}
+    .wbw-wrap .wbw-footer {display:none; min-height:0px !important; padding:0px !important;}
     .wbw-wrap .wbw-footer a:hover{text-decoration:underline}
 	.wbw-body-workspace .wbw-ws-block-create { border: 2px solid #3582c4cc !important; }
 	.wbw-ws-block {min-height:40px !important;}
@@ -130,7 +135,7 @@ $bizcityLogoUrl = function_exists('home_url')
     .wbw-wrap .wbw-plugin .wbw-navigation{margin-left:0 !important}
 </style>
 
-<div class="wbw-wrap">
+<div class="wbw-wrap<?php if ( ! empty( $_GET['bizcity_message'] ) ) echo ' bizcity-message-mode'; ?>">
 	<div class="wbw-plugin wbw-main">
 		<section class="wbw-content">
 			<div class="wbw-header wbw-sticky">

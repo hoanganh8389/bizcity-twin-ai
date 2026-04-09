@@ -30,17 +30,20 @@ function bztfb_notify_chat( int $job_id, array $result, string $session_id ): vo
         $msg  = "⚠️ **Bài viết đã tạo nhưng chưa đăng được lên Facebook.**\n\n";
         $msg .= "📝 **Tiêu đề:** " . ( $result['title'] ?? 'N/A' ) . "\n";
         if ( ! empty( $result['wp_post_id'] ) ) {
-            $msg .= "🔗 **Bài WordPress:** " . get_permalink( $result['wp_post_id'] ) . "\n";
+            $wp_url = get_permalink( $result['wp_post_id'] );
+            $msg .= "🔗 **Bài WordPress:** [{$wp_url}]({$wp_url})\n";
         }
         $msg .= "❌ Không tìm thấy Facebook Page nào được kết nối.\n";
     } else {
         $msg  = "✅ **Đã đăng bài Facebook thành công!**\n\n";
         $msg .= "📝 **Tiêu đề:** " . ( $result['title'] ?? 'N/A' ) . "\n";
         if ( ! empty( $result['wp_post_id'] ) ) {
-            $msg .= "🔗 **Bài WordPress:** " . get_permalink( $result['wp_post_id'] ) . "\n";
+            $wp_url = get_permalink( $result['wp_post_id'] );
+            $msg .= "🔗 **Bài WordPress:** [{$wp_url}]({$wp_url})\n";
         }
         if ( $fb_links ) {
-            $msg .= "📣 **Facebook:** " . implode( "\n", $fb_links ) . "\n";
+            $fb_md = array_map( function( $link ) { return "[{$link}]({$link})"; }, $fb_links );
+            $msg .= "📣 **Facebook:** " . implode( "\n", $fb_md ) . "\n";
         }
     }
 

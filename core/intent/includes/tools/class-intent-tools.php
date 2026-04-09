@@ -369,6 +369,15 @@ class BizCity_Intent_Tools {
             return 'built_in';
         }
 
+        // Domain atomic tools: scheduler_* prefix — registered via BizCity_Intent_Simple_Provider
+        // but are first-class domain tools that should rank above content tools in tool registry.
+        if ( is_array( $name ) ) {
+            $name = '';
+        }
+        if ( is_string( $name ) && strpos( $name, 'scheduler_' ) === 0 ) {
+            return 'built_in';
+        }
+
         return 'plugin';
     }
 

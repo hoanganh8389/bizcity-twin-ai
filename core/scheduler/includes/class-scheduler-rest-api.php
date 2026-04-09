@@ -95,18 +95,18 @@ class BizCity_Scheduler_REST_API {
 			'permission_callback' => [ $this, 'check_logged_in' ],
 		] );
 
-		// GET /google/status — connection status
+		// GET /google/status — connection status (any logged-in user can check)
 		register_rest_route( self::API_NAMESPACE, '/google/status', [
 			'methods'             => 'GET',
 			'callback'            => [ $this, 'google_status' ],
-			'permission_callback' => [ $this, 'check_admin' ],
+			'permission_callback' => [ $this, 'check_logged_in' ],
 		] );
 
-		// POST /google/sync — manual sync
+		// POST /google/sync — manual sync (any logged-in user can trigger)
 		register_rest_route( self::API_NAMESPACE, '/google/sync', [
 			'methods'             => 'POST',
 			'callback'            => [ $this, 'google_sync' ],
-			'permission_callback' => [ $this, 'check_admin' ],
+			'permission_callback' => [ $this, 'check_logged_in' ],
 		] );
 
 		register_rest_route( self::API_NAMESPACE, '/google/settings', [
@@ -170,31 +170,35 @@ class BizCity_Scheduler_REST_API {
 		$id     = (int) $req->get_param( 'id' );
 		$data   = $req->get_json_params();
 
-		// Ownership check
-		$event = $mgr->get_event( $id );
-		if ( ! $event || (int) $event->user_id !== get_current_user_id() ) {
+		$current_uid = get_current_user_id();
+
+		// Single query with user_id filter — no separate lookup needed
+		$event = $mgr->get_event( $id, $current_uid );
+		if ( ! $event ) {
 			return new \WP_REST_Response( [ 'error' => 'Not found or forbidden.' ], 404 );
 		}
 
-		$result = $mgr->update_event( $id, $data );
+		$result = $mgr->update_event( $id, $data, $current_uid );
 		if ( is_wp_error( $result ) ) {
 			return new \WP_REST_Response( [ 'error' => $result->get_error_message() ], 400 );
 		}
 
-		$event = $mgr->get_event( $id );
+		$event = $mgr->get_event( $id, $current_uid );
 		return new \WP_REST_Response( [ 'event' => $event ], 200 );
 	}
 
 	public function delete_event( \WP_REST_Request $req ): \WP_REST_Response {
-		$mgr = BizCity_Scheduler_Manager::instance();
-		$id  = (int) $req->get_param( 'id' );
+		$mgr         = BizCity_Scheduler_Manager::instance();
+		$id          = (int) $req->get_param( 'id' );
+		$current_uid = get_current_user_id();
 
-		$event = $mgr->get_event( $id );
-		if ( ! $event || (int) $event->user_id !== get_current_user_id() ) {
+		// Single query with user_id filter
+		$event = $mgr->get_event( $id, $current_uid );
+		if ( ! $event ) {
 			return new \WP_REST_Response( [ 'error' => 'Not found or forbidden.' ], 404 );
 		}
 
-		$result = $mgr->delete_event( $id );
+		$result = $mgr->delete_event( $id, $current_uid );
 		if ( is_wp_error( $result ) ) {
 			return new \WP_REST_Response( [ 'error' => $result->get_error_message() ], 400 );
 		}
@@ -240,10 +244,21 @@ class BizCity_Scheduler_REST_API {
 
 	public function google_sync( \WP_REST_Request $req ): \WP_REST_Response {
 		$google = BizCity_Scheduler_Google::instance();
+
+		if ( ! $google->is_connected() ) {
+			return new \WP_REST_Response( [ 'error' => 'Google Calendar chưa kết nối. Vui lòng vào cài đặt và cấp lại quyền.', 'error_code' => 'not_connected' ], 400 );
+		}
+
 		$result = $google->sync_from_google( get_current_user_id() );
 
 		if ( is_wp_error( $result ) ) {
-			return new \WP_REST_Response( [ 'error' => $result->get_error_message() ], 400 );
+			$code = $result->get_error_code();
+			$msg  = $result->get_error_message();
+			// Token error → advise re-auth
+			if ( in_array( $code, [ 'token_refresh_failed', 'no_refresh_token', 'not_connected' ], true ) ) {
+				$msg .= ' — Vui lòng vào Cài đặt Google Calendar và kết nối lại.';
+			}
+			return new \WP_REST_Response( [ 'error' => $msg, 'error_code' => $code ], 400 );
 		}
 
 		return new \WP_REST_Response( [ 'synced' => $result ], 200 );

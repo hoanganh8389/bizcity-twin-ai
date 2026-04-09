@@ -72,7 +72,15 @@ class BizCity_Tool_Run {
 		$char_id    = $context['character_id'] ?? '';
 		$message_id = $context['message_id'] ?? '';
 
+		error_log( '[TOOL-RUN] execute() ENTRY: tool=' . $tool_id . ' caller=' . $caller . ' user_id=' . $user_id
+			. ' stream_cb=' . ( isset( $context['stream_callback'] ) && is_callable( $context['stream_callback'] ) ? 'yes' : 'no' ) );
+
 		$run_start = microtime( true );
+
+		// Activate user context so WP APIs (permissions, API keys) resolve correctly.
+		if ( $user_id > 0 && get_current_user_id() !== $user_id ) {
+			wp_set_current_user( $user_id );
+		}
 
 		error_log( "[TOOL-RUN] ═══ START tool={$tool_id} caller={$caller} goal={$goal} session={$session_id} user={$user_id}" );
 
@@ -158,6 +166,11 @@ class BizCity_Tool_Run {
 			$meta['_resource_profile'] = $resource_bundle['profile'];
 		}
 
+		// Thread stream callback so tool callbacks can natively stream LLM output.
+		if ( isset( $context['stream_callback'] ) && is_callable( $context['stream_callback'] ) ) {
+			$meta['stream_callback'] = $context['stream_callback'];
+		}
+
 		$params['_meta'] = $meta;
 
 		// Ensure basic context fields exist in params
@@ -186,15 +199,25 @@ class BizCity_Tool_Run {
 		}
 
 		$tool_start  = microtime( true );
+		$tool_schema = $tools->get_schema( $tool_id );
+		$tool_cb     = $tool_schema['callback'] ?? null;
+		error_log( '[TOOL-RUN] PRE-CALLBACK tool=' . $tool_id
+			. ' callback=' . ( is_callable( $tool_cb ) ? ( is_string( $tool_cb ) ? $tool_cb : 'closure' ) : 'NOT-CALLABLE' )
+			. ' stream_cb_in_meta=' . ( isset( $params['_meta']['stream_callback'] ) && is_callable( $params['_meta']['stream_callback'] ) ? 'yes' : 'no' ) );
 		$tool_result = $tools->execute( $tool_id, $params );
 		$tool_duration = round( ( microtime( true ) - $tool_start ) * 1000, 2 );
+		error_log( '[TOOL-RUN] POST-CALLBACK tool=' . $tool_id
+			. ' success=' . ( ! empty( $tool_result['success'] ) ? 'YES' : 'NO' )
+			. ' content_len=' . strlen( $tool_result['content'] ?? '' )
+			. ' error=' . ( $tool_result['error'] ?? '' )
+			. ' ms=' . $tool_duration );
 
 		if ( class_exists( 'BizCity_Execution_Logger' ) ) {
 			BizCity_Execution_Logger::tool_result( $invoke_id, $tool_id, $tool_result, $tool_duration );
 		}
 
 		$success = ! empty( $tool_result['success'] );
-		$message = $tool_result['message'] ?? '';
+		$message = $tool_result['message'] ?? $tool_result['error'] ?? '';
 		$data    = $tool_result['data'] ?? [];
 		$missing = $tool_result['missing_fields'] ?? [];
 

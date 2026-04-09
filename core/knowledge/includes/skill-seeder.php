@@ -244,3 +244,393 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
 		WP_CLI::log( $r );
 	}
 }
+
+/* ================================================================
+ *  Phase 1.12: Scan plugin skills/ directory → DB sync
+ * ================================================================ */
+
+/**
+ * Scan all plugin skills/ directories for .md skill files.
+ * Parses YAML frontmatter (including chain:, blocks:, skip_* for pipeline config)
+ * and upserts into bizcity_skills table.
+ *
+ * Directories scanned:
+ *   - wp-content/plugins/bizcity-twin-ai/core/tools/ * /skills/*.md
+ *   - wp-content/plugins/ * /skills/*.md
+ *   - wp-content/mu-plugins/ * /skills/*.md
+ *
+ * @return array Results [ 'skill-key (created #ID)', 'skill-key (skipped)', ... ]
+ */
+function bizcity_scan_plugin_skills(): array {
+	$log = '[BizCity SkillSeeder]';
+	error_log( $log . ' === scan_plugin_skills START ===' );
+
+	if ( ! class_exists( 'BizCity_Skill_Database' ) ) {
+		error_log( $log . ' ABORT — BizCity_Skill_Database not loaded' );
+		return [ 'error' => 'BizCity_Skill_Database not loaded' ];
+	}
+
+	$db      = BizCity_Skill_Database::instance();
+	$results = [];
+
+	// Build scan directories
+	$scan_dirs = [];
+
+	// Core tools
+	$twin_dir = defined( 'BIZCITY_TWIN_AI_DIR' )
+		? BIZCITY_TWIN_AI_DIR
+		: WP_PLUGIN_DIR . '/bizcity-twin-ai';
+	$scan_dirs[] = $twin_dir . '/core/tools';
+
+	// Plugins
+	$scan_dirs[] = WP_PLUGIN_DIR;
+
+	// MU-Plugins
+	if ( defined( 'WPMU_PLUGIN_DIR' ) ) {
+		$scan_dirs[] = WPMU_PLUGIN_DIR;
+	}
+
+	foreach ( $scan_dirs as $base ) {
+		if ( ! is_dir( $base ) ) {
+			continue;
+		}
+
+		// Glob: {base}/*/skills/*.md
+		$pattern = rtrim( $base, '/\\' ) . '/*/skills/*.md';
+		$files   = glob( $pattern );
+
+		error_log( $log . ' Scan: ' . $pattern . ' → ' . count( $files ?: [] ) . ' files' );
+
+		if ( empty( $files ) ) {
+			continue;
+		}
+
+		foreach ( $files as $file_path ) {
+			error_log( $log . ' Processing: ' . $file_path );
+			$parsed = bizcity_parse_skill_file( $file_path );
+			if ( ! $parsed ) {
+				error_log( $log . ' ❌ Parse failed: ' . basename( $file_path ) );
+				$results[] = basename( $file_path ) . ' (parse failed)';
+				continue;
+			}
+
+			$skill_key = $parsed['skill_key'];
+			$data      = $parsed['data'];
+
+			// Upsert into DB
+			$id = $db->upsert( $data );
+			if ( $id ) {
+				error_log( $log . ' ✅ Synced: ' . $skill_key . ' #' . $id
+					. ' (tools=' . count( is_array( $data['tools_json'] ) ? $data['tools_json'] : [] )
+					. ', pipeline=' . ( ! empty( $data['pipeline_json'] ) ? 'yes' : 'no' ) . ')' );
+				$results[] = $skill_key . ' (synced #' . $id . ')';
+
+				// Link tools via skill_tool_map
+				if ( class_exists( 'BizCity_Skill_Tool_Map' ) && ! empty( $data['tools_json'] ) ) {
+					$tools = is_array( $data['tools_json'] )
+						? $data['tools_json']
+						: ( json_decode( $data['tools_json'], true ) ?: [] );
+					$map = BizCity_Skill_Tool_Map::instance();
+					foreach ( $tools as $tool_key ) {
+						$map->link( (int) $id, $tool_key, 'primary' );
+					}
+				}
+			} else {
+				error_log( $log . ' ❌ Upsert FAILED: ' . $skill_key );
+				$results[] = $skill_key . ' (FAILED)';
+			}
+		}
+	}
+
+	error_log( $log . ' === scan_plugin_skills END — ' . count( $results ) . ' results ===' );
+	return $results;
+}
+
+/**
+ * Parse a single .md skill file into DB-ready data.
+ *
+ * @param string $file_path Path to .md file.
+ * @return array|null { skill_key, data } or null on failure.
+ */
+function bizcity_parse_skill_file( string $file_path ): ?array {
+	$raw = file_get_contents( $file_path );
+	if ( ! $raw ) {
+		return null;
+	}
+
+	// Extract YAML frontmatter
+	if ( ! preg_match( '/\A---\s*\n(.*?)\n---\s*\n(.*)\z/s', $raw, $m ) ) {
+		return null;
+	}
+
+	$yaml_str = $m[1];
+	$body     = $m[2];
+
+	// Parse YAML — use PHP yaml extension if available, else simple parser
+	$fm = null;
+	if ( function_exists( 'yaml_parse' ) ) {
+		$fm = yaml_parse( '---' . "\n" . $yaml_str . "\n" . '---' );
+		if ( ! is_array( $fm ) ) {
+			error_log( '[BizCity SkillSeeder] yaml_parse failed for: ' . basename( $file_path )
+				. ' — falling back to simple parser' );
+			$fm = bizcity_simple_yaml_parse( $yaml_str );
+		}
+	} else {
+		$fm = bizcity_simple_yaml_parse( $yaml_str );
+	}
+
+	if ( ! is_array( $fm ) || empty( $fm['title'] ) ) {
+		error_log( '[BizCity SkillSeeder] Frontmatter invalid or missing title: ' . basename( $file_path )
+			. ' — keys=' . ( is_array( $fm ) ? implode( ',', array_keys( $fm ) ) : 'NOT_ARRAY' ) );
+		return null;
+	}
+
+	error_log( '[BizCity SkillSeeder] Parsed OK: ' . basename( $file_path )
+		. ' — title=' . $fm['title']
+		. ', tools=' . count( (array) ( $fm['tools'] ?? [] ) )
+		. ', chain=' . count( (array) ( $fm['chain'] ?? [] ) )
+		. ', blocks=' . count( (array) ( $fm['blocks'] ?? [] ) ) );
+
+	// Generate skill_key from filename
+	$skill_key = pathinfo( $file_path, PATHINFO_FILENAME );
+
+	// Build pipeline_config from frontmatter
+	$pipeline_config = [];
+	if ( ! empty( $fm['chain'] ) ) {
+		$pipeline_config['chain'] = (array) $fm['chain'];
+	}
+	if ( ! empty( $fm['blocks'] ) ) {
+		$pipeline_config['blocks'] = (array) $fm['blocks'];
+	}
+	foreach ( [ 'skip_research', 'skip_planner', 'skip_memory', 'skip_reflection' ] as $flag ) {
+		if ( isset( $fm[ $flag ] ) ) {
+			$pipeline_config[ $flag ] = (bool) $fm[ $flag ];
+		}
+	}
+
+	$data = [
+		'skill_key'    => $skill_key,
+		'user_id'      => 0,
+		'character_id' => 0,
+		'title'        => $fm['title'],
+		'description'  => $fm['description'] ?? '',
+		'category'     => $fm['category'] ?? 'general',
+		'triggers_json' => (array) ( $fm['triggers'] ?? [] ),
+		'tools_json'    => (array) ( $fm['tools'] ?? [] ),
+		'modes'         => implode( ',', (array) ( $fm['modes'] ?? [ 'execution' ] ) ),
+		'slash_commands' => implode( ',', (array) ( $fm['slash_commands'] ?? [] ) ),
+		'priority'       => (int) ( $fm['priority'] ?? 50 ),
+		'status'         => $fm['status'] ?? 'active',
+		'content'        => trim( $body ),
+		'pipeline_json'  => ! empty( $pipeline_config ) ? $pipeline_config : null,
+	];
+
+	return [ 'skill_key' => $skill_key, 'data' => $data ];
+}
+
+/**
+ * Simple YAML frontmatter parser (no dependency).
+ *
+ * Handles:
+ * - Flat scalars:         key: value
+ * - Booleans:             key: true / false
+ * - Inline arrays:        key: [a, b, c]
+ * - Inline objects:       key: { k1: v1, k2: v2 }
+ * - Nested maps:          key:\n  sub: val
+ * - List of maps:         key:\n  - step: 2\n    from: { ... }
+ *
+ * FIX 1.12-BUG1: No PHP reference (&) — prevents zval aliasing wipe.
+ * FIX 1.12-BUG2: Multi-line list items (continuation lines merged into last entry).
+ * FIX 1.12-BUG3: Inline objects { k: v, ... } parsed recursively.
+ *
+ * @param string $yaml_str Raw YAML between --- markers.
+ * @return array
+ */
+function bizcity_simple_yaml_parse( string $yaml_str ): array {
+	$result = [];
+	$lines  = explode( "\n", $yaml_str );
+	$current_key   = null;  // Top-level key owning current nested block
+	$current_items = [];    // Accumulator for nested block (NO reference)
+	$last_list_idx = -1;    // Index of last list item (for continuation lines)
+
+	$log = '[BizCity SkillYAML]';
+
+	foreach ( $lines as $line_num => $line ) {
+		$trimmed = trim( $line );
+
+		// Skip empty lines and comments
+		if ( $trimmed === '' || strpos( $trimmed, '#' ) === 0 ) {
+			continue;
+		}
+
+		$indent = strlen( $line ) - strlen( ltrim( $line ) );
+
+		// ── Top-level key (indent 0) ──────────────────────────────
+		if ( $indent === 0 ) {
+			// Flush previous nested block
+			if ( $current_key !== null ) {
+				$result[ $current_key ] = $current_items;
+				$current_key   = null;
+				$current_items = [];
+				$last_list_idx = -1;
+			}
+
+			// Inline array: key: [val1, val2]
+			if ( preg_match( '/^([a-z_]+)\s*:\s*\[(.+)\]\s*$/i', $line, $m ) ) {
+				$result[ trim( $m[1] ) ] = array_map( 'trim', explode( ',', $m[2] ) );
+				continue;
+			}
+
+			// Key: value (scalar / inline object)
+			if ( preg_match( '/^([a-z_]+)\s*:\s*(.+)$/i', $line, $m ) ) {
+				$key   = trim( $m[1] );
+				$value = trim( $m[2] );
+				$result[ $key ] = bizcity_yaml_cast_value( $value );
+				continue;
+			}
+
+			// Key: (start block — nested map or list)
+			if ( preg_match( '/^([a-z_]+)\s*:\s*$/i', $line, $m ) ) {
+				$current_key   = trim( $m[1] );
+				$current_items = [];
+				$last_list_idx = -1;
+				continue;
+			}
+
+			error_log( $log . ' Unrecognized top-level line ' . $line_num . ': ' . $trimmed );
+			continue;
+		}
+
+		// ── Nested content (indent >= 2) ──────────────────────────
+		if ( $current_key === null ) {
+			// Orphan indented line — skip
+			continue;
+		}
+
+		// List item: "  - ..."
+		if ( preg_match( '/^\s{2,}-\s+(.+)$/', $line, $m ) ) {
+			$item_str = trim( $m[1] );
+
+			// Inline object: - { step: 1, fields: [a, b] }
+			if ( preg_match( '/^\{(.+)\}$/', $item_str, $obj_m ) ) {
+				$current_items[] = bizcity_yaml_parse_inline_object( $obj_m[1] );
+				$last_list_idx   = count( $current_items ) - 1;
+				continue;
+			}
+
+			// Map starter: - key: value  (first key of a map entry)
+			if ( preg_match( '/^(\w+)\s*:\s*(.+)$/', $item_str, $km ) ) {
+				$val = trim( $km[2] );
+				// Value might be inline object: from: { step: 1, fields: [a] }
+				if ( preg_match( '/^\{(.+)\}$/', $val, $obj_m ) ) {
+					$val = bizcity_yaml_parse_inline_object( $obj_m[1] );
+				} else {
+					$val = bizcity_yaml_cast_value( $val );
+				}
+				$current_items[] = [ trim( $km[1] ) => $val ];
+				$last_list_idx   = count( $current_items ) - 1;
+				continue;
+			}
+
+			// Plain scalar list item
+			$current_items[] = bizcity_yaml_cast_value( $item_str );
+			$last_list_idx   = count( $current_items ) - 1;
+			continue;
+		}
+
+		// Continuation of last list item: "    key: value" (deeper indent, no -)
+		if ( $last_list_idx >= 0 && is_array( $current_items[ $last_list_idx ] ) ) {
+			if ( preg_match( '/^\s{4,}(\w+)\s*:\s*(.+)$/i', $line, $m ) ) {
+				$k = trim( $m[1] );
+				$v = trim( $m[2] );
+
+				// Value might be inline object or inline array
+				if ( preg_match( '/^\{(.+)\}$/', $v, $obj_m ) ) {
+					$v = bizcity_yaml_parse_inline_object( $obj_m[1] );
+				} elseif ( preg_match( '/^\[(.+)\]$/', $v, $arr_m ) ) {
+					$v = array_map( 'trim', explode( ',', $arr_m[1] ) );
+				} else {
+					$v = bizcity_yaml_cast_value( $v );
+				}
+
+				$current_items[ $last_list_idx ][ $k ] = $v;
+				continue;
+			}
+		}
+
+		// Nested map entry (not a list): "  tool_key: block_code"
+		if ( preg_match( '/^\s{2,}([a-z_][a-z0-9_]*)\s*:\s*(.+)$/i', $line, $m ) ) {
+			$k = trim( $m[1] );
+			$v = trim( $m[2] );
+			$current_items[ $k ] = bizcity_yaml_cast_value( $v );
+			$last_list_idx = -1; // Not in list mode
+			continue;
+		}
+	}
+
+	// Flush final nested block
+	if ( $current_key !== null ) {
+		$result[ $current_key ] = $current_items;
+	}
+
+	error_log( $log . ' Parsed: keys=' . implode( ',', array_keys( $result ) ) );
+
+	return $result;
+}
+
+/**
+ * Cast a YAML scalar string to proper PHP type.
+ *
+ * @param string $value
+ * @return mixed
+ */
+function bizcity_yaml_cast_value( string $value ) {
+	if ( $value === 'true' ) {
+		return true;
+	}
+	if ( $value === 'false' ) {
+		return false;
+	}
+	if ( $value === 'null' || $value === '~' ) {
+		return null;
+	}
+	if ( is_numeric( $value ) ) {
+		return strpos( $value, '.' ) !== false ? (float) $value : (int) $value;
+	}
+	// Strip surrounding quotes
+	if ( ( $value[0] ?? '' ) === '"' || ( $value[0] ?? '' ) === "'" ) {
+		return trim( $value, "\"'" );
+	}
+	return $value;
+}
+
+/**
+ * Parse an inline YAML object string: k1: v1, k2: v2
+ * Handles nested inline arrays: fields: [a, b]
+ *
+ * @param string $inner Content between { and }
+ * @return array
+ */
+function bizcity_yaml_parse_inline_object( string $inner ): array {
+	$result = [];
+	// Split on commas that are NOT inside brackets
+	$parts  = preg_split( '/,\s*(?![^\[]*\])/', $inner );
+
+	foreach ( $parts as $part ) {
+		$part = trim( $part );
+		if ( ! preg_match( '/^(\w+)\s*:\s*(.+)$/', $part, $m ) ) {
+			continue;
+		}
+		$key = trim( $m[1] );
+		$val = trim( $m[2] );
+
+		// Inline array inside object: fields: [a, b]
+		if ( preg_match( '/^\[(.+)\]$/', $val, $arr_m ) ) {
+			$result[ $key ] = array_map( 'trim', explode( ',', $arr_m[1] ) );
+		} else {
+			$result[ $key ] = bizcity_yaml_cast_value( $val );
+		}
+	}
+
+	return $result;
+}

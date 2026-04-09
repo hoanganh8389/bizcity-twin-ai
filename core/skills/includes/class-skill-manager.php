@@ -478,6 +478,64 @@ class BizCity_Skill_Manager {
 		}
 	}
 
+	/**
+	 * Get a single skill by key.
+	 *
+	 * Tries SQL database first (if available), then falls back to
+	 * scanning the file-system library matching by `name` frontmatter
+	 * field or file basename.
+	 *
+	 * @param string $skill_key  Slug/key identifying the skill.
+	 * @return array|null        Normalised skill array or null if not found.
+	 *                           Shape: {path, frontmatter: array, content: string, score: null}
+	 */
+	public function get_skill( string $skill_key ): ?array {
+		if ( empty( $skill_key ) ) {
+			return null;
+		}
+
+		// ── 1. SQL database (Phase 1.4a) ──────────────────────────
+		if ( class_exists( 'BizCity_Skill_Database' ) ) {
+			$db  = BizCity_Skill_Database::instance();
+			$uid = get_current_user_id();
+
+			// Try per-user first, then global (user_id = 0)
+			$row = $db->get_by_key( $skill_key, $uid ) ?? $db->get_by_key( $skill_key, 0 );
+
+			if ( $row ) {
+				return [
+					'path'        => 'sql://' . $row['skill_key'],
+					'frontmatter' => [
+						'title'       => $row['title'] ?? '',
+						'description' => $row['description'] ?? '',
+						'category'    => $row['category'] ?? 'general',
+						'key'         => $row['skill_key'],
+					],
+					'content'     => $row['content'] ?? '',
+					'score'       => null,
+				];
+			}
+		}
+
+		// ── 2. File-system scan — match by frontmatter `name` or basename ──
+		foreach ( $this->get_all_skills() as $skill ) {
+			$fm   = $skill['frontmatter'] ?? [];
+			$name = $fm['name'] ?? sanitize_title( $fm['title'] ?? basename( $skill['path'], '.md' ) );
+			if ( $name === $skill_key ) {
+				return $skill;
+			}
+		}
+
+		// ── 3. Direct path read (skill_key = "folder/slug" → "/folder/slug.md") ──
+		$path   = '/' . ltrim( $skill_key, '/' ) . '.md';
+		$result = $this->read_file( $path );
+		if ( ! is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		return null;
+	}
+
 	/* ================================================================
 	 *  Helpers
 	 * ================================================================ */

@@ -907,6 +907,42 @@ class BizCity_Scenario_Generator {
     }
 
     /**
+     * Update scenario params for an existing task (e.g. after auto-fix).
+     *
+     * @param int   $task_id  Existing task row ID.
+     * @param array $scenario Updated scenario JSON.
+     * @return bool True if updated.
+     */
+    public static function update_task_params( int $task_id, array $scenario ): bool {
+        global $wpdb;
+
+        $table = $wpdb->prefix . ( defined( 'WAIC_DB_PREF' ) ? WAIC_DB_PREF : 'bizcity_' ) . 'tasks';
+
+        $params = wp_json_encode( [
+            'nodes'    => $scenario['nodes'],
+            'edges'    => $scenario['edges'],
+            'settings' => $scenario['settings'],
+            'version'  => $scenario['version'] ?? '1.0.0',
+            'meta'     => [
+                'pipeline_id'      => $scenario['settings']['pipeline_id'] ?? '',
+                'pipeline_version' => 1,
+                'generated_by'     => 'scenario_generator',
+                'auto_fixed'       => true,
+            ],
+        ], JSON_UNESCAPED_UNICODE );
+
+        $updated = $wpdb->update(
+            $table,
+            [ 'params' => $params, 'updated' => current_time( 'mysql', true ) ],
+            [ 'id' => $task_id ],
+            [ '%s', '%s' ],
+            [ '%d' ]
+        );
+
+        return $updated !== false;
+    }
+
+    /**
      * Build Memory Spec after task is saved.
      *
      * @param int   $task_id  Task row ID.

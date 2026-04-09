@@ -193,7 +193,14 @@ class BizCity_Scheduler_Google {
 	 */
 	public function is_connected(): bool {
 		$config = $this->get_config();
-		return ! empty( $config['refresh_token'] ) || ! empty( $config['access_token'] );
+		// Must have a refresh_token OR a non-expired access_token to be considered connected.
+		if ( ! empty( $config['refresh_token'] ) ) {
+			return true;
+		}
+		if ( ! empty( $config['access_token'] ) && ! empty( $config['expires_at'] ) && $config['expires_at'] > time() ) {
+			return true;
+		}
+		return false;
 	}
 
 	/* ================================================================
@@ -501,7 +508,16 @@ class BizCity_Scheduler_Google {
 			return $response;
 		}
 
-		$body  = json_decode( wp_remote_retrieve_body( $response ), true );
+		$http_code = wp_remote_retrieve_response_code( $response );
+		$body      = json_decode( wp_remote_retrieve_body( $response ), true );
+
+		if ( $http_code !== 200 ) {
+			$msg = $body['error']['message'] ?? ( 'Google Calendar API error ' . $http_code );
+			do_action( 'bizcity_scheduler_google_error', 'sync_pull', $msg );
+			error_log( '[BizCity Scheduler] sync_from_google HTTP ' . $http_code . ': ' . $msg );
+			return new \WP_Error( 'google_api_error', $msg );
+		}
+
 		$items = $body['items'] ?? [];
 		$mgr   = BizCity_Scheduler_Manager::instance();
 		$count = 0;
@@ -538,7 +554,12 @@ class BizCity_Scheduler_Google {
 		}
 
 		$google_id = $this->push_event( $event );
-		if ( ! is_wp_error( $google_id ) && ! empty( $google_id ) ) {
+		if ( is_wp_error( $google_id ) ) {
+			error_log( '[BizCity Scheduler] push_event failed for event #' . ( $event->id ?? '?' ) . ': ' . $google_id->get_error_message() );
+			do_action( 'bizcity_scheduler_google_error', 'push', $google_id->get_error_message() );
+			return;
+		}
+		if ( ! empty( $google_id ) ) {
 			BizCity_Scheduler_Manager::instance()->update_event( (int) $event->id, [
 				'google_event_id'  => $google_id,
 				'google_synced_at' => current_time( 'mysql' ),

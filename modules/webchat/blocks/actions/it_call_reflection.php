@@ -291,7 +291,7 @@ class WaicAction_it_call_reflection extends WaicAction {
 			$content_output_id = $cpt_result['output_id'] ?? 0;
 
 			if ( $external_url ) {
-				$reflection_parts[] = '🔗 Đã đăng: ' . $external_url;
+				$reflection_parts[] = '🔗 Đã đăng: [' . $external_url . '](' . $external_url . ')';
 				$reflection = implode( "\n", $reflection_parts );
 			}
 		}
@@ -336,6 +336,35 @@ class WaicAction_it_call_reflection extends WaicAction {
 		], 'info', 0 );
 
 		error_log( self::LOG_PREFIX . ' DONE score=' . $pipeline_score . ' completed=' . $completed . '/' . $total . ' errors=' . ( $has_errors ? 'yes' : 'no' ) . ' (' . $elapsed_ms . 'ms)' );
+
+		// ── Phase 1.15: Finalize memory spec (BUG #5 fix) ──
+		// Lifecycle: CREATE (Shell 3.5) → SEED (execute_pipeline) → UPDATE (Ngón 4) → FINALIZE (here)
+		// Principle 1.1.4: "Mỗi memory spec phải có đường đi từ CREATE → FINALIZE"
+		$_pipeline_ctx = $variables['_pipeline_context'] ?? [];
+		$_p115_mem_id  = ! empty( $_pipeline_ctx['memory_id'] )
+			? (int) $_pipeline_ctx['memory_id']
+			: ( ! empty( $variables['_phase115_memory_id'] ) ? (int) $variables['_phase115_memory_id'] : 0 );
+
+		if ( $_p115_mem_id && class_exists( 'BizCity_Memory_Manager' ) ) {
+			$_mgr = BizCity_Memory_Manager::instance();
+
+			// Update ## Current with final reflection result
+			$_mgr->update_current( $_p115_mem_id, array(
+				'step'  => 'it_call_reflection (completed)',
+				'score' => (string) $pipeline_score,
+				'next'  => $has_errors ? 'retry_failed_steps' : 'done',
+			), 'it_call_reflection' );
+
+			// Finalize with resume state
+			$_mgr->finalize( $_p115_mem_id, array(
+				'last_completed'      => 'it_call_reflection',
+				'last_output_summary' => 'Pipeline score=' . $pipeline_score . ' completed=' . $completed . '/' . $total,
+				'next_action'         => $has_errors ? 'retry: ' . implode( ',', $failed_steps ) : 'none',
+				'can_resume'          => $has_errors,
+			) );
+
+			error_log( self::LOG_PREFIX . ' [Phase1.15] Finalized: mem_id=' . $_p115_mem_id . ' score=' . $pipeline_score );
+		}
 
 		return [
 			'result' => [
@@ -597,7 +626,7 @@ class WaicAction_it_call_reflection extends WaicAction {
 		);
 
 		if ( $external_url ) {
-			$msg .= "\n🔗 Đã đăng tại: " . $external_url;
+			$msg .= "\n🔗 Đã đăng tại: [" . $external_url . ']('. $external_url . ')';
 		}
 
 		if ( $has_errors ) {

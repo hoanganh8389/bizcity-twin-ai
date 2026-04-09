@@ -229,7 +229,7 @@ class BizCity_Output_Store {
      */
     private static function resolve_tool_type( string $tool_id ): string {
         if ( class_exists( 'BizCity_Intent_Tools' ) ) {
-            $schema = BizCity_Intent_Tools::instance()->get( $tool_id );
+            $schema = BizCity_Intent_Tools::instance()->get_schema( $tool_id );
             if ( ! empty( $schema['tool_type'] ) ) {
                 return $schema['tool_type'];
             }

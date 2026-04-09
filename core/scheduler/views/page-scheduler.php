@@ -1,5 +1,14 @@
 <?php
 /**
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\Scheduler
+ * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+ * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
+ * @license    GPL-2.0-or-later
+ * @link       https://bizcity.vn
+ */
+
+/**
  * BizCity Scheduler — Public Agent Page
  *
  * Route: /scheduler/
@@ -26,35 +35,36 @@ $rest_url   = esc_url_raw( rest_url( 'bizcity-scheduler/v1' ) );
 $rest_nonce = wp_create_nonce( 'wp_rest' );
 
 /* ── Quick-add prompts ── */
+$td = 'bizcity-twin-ai';
 $prompts = [
-    [ 'cat' => 'Tạo lịch',   'icon' => '📅', 'prompts' => [
-        'Họp team lúc 3h chiều mai',
-        'Gọi điện khách hàng 10h sáng thứ 2',
-        'Deadline báo cáo thứ 6 tuần này',
-        'Nhắc uống thuốc 8h sáng mỗi ngày',
+    [ 'cat' => __( 'Tạo lịch', $td ),   'icon' => '📅', 'prompts' => [
+        __( 'Họp team lúc 3h chiều mai', $td ),
+        __( 'Gọi điện khách hàng 10h sáng thứ 2', $td ),
+        __( 'Deadline báo cáo thứ 6 tuần này', $td ),
+        __( 'Nhắc uống thuốc 8h sáng mỗi ngày', $td ),
     ]],
-    [ 'cat' => 'Xem lịch',   'icon' => '📋', 'prompts' => [
-        'Xem lịch hôm nay',
-        'Lịch tuần này có gì?',
-        'Tìm thời gian trống chiều mai',
-        'Tóm tắt agenda hôm nay',
+    [ 'cat' => __( 'Xem lịch', $td ),   'icon' => '📋', 'prompts' => [
+        __( 'Xem lịch hôm nay', $td ),
+        __( 'Lịch tuần này có gì?', $td ),
+        __( 'Tìm thời gian trống chiều mai', $td ),
+        __( 'Tóm tắt agenda hôm nay', $td ),
     ]],
-    [ 'cat' => 'Quản lý',    'icon' => '⚡', 'prompts' => [
-        'Đánh dấu xong cuộc họp sáng',
-        'Hủy lịch họp ngày mai',
-        'Dời lịch họp sang 4h chiều',
-        'Sync Google Calendar',
+    [ 'cat' => __( 'Quản lý', $td ),    'icon' => '⚡', 'prompts' => [
+        __( 'Đánh dấu xong cuộc họp sáng', $td ),
+        __( 'Hủy lịch họp ngày mai', $td ),
+        __( 'Dời lịch họp sang 4h chiều', $td ),
+        __( 'Sync Google Calendar', $td ),
     ]],
 ];
 
 /* ── Workflows (feature cards) ── */
 $workflows = [
-    [ 'icon' => '📋', 'label' => 'Xem lịch hôm nay',   'desc' => 'Xem tất cả sự kiện và nhắc nhở hôm nay', 'msg' => 'Xem lịch hôm nay',              'tool' => 'scheduler_get_today_agenda', 'tags' => ['Lịch','Hôm nay'] ],
-    [ 'icon' => '📅', 'label' => 'Tạo sự kiện',         'desc' => 'Thêm sự kiện mới vào lịch',               'msg' => 'Tạo sự kiện họp team lúc 10h sáng mai', 'tool' => 'scheduler_create_event',     'tags' => ['Lịch','Tạo'] ],
-    [ 'icon' => '🔍', 'label' => 'Tìm thời gian trống', 'desc' => 'Tìm slot trống để hẹn lịch',              'msg' => 'Tìm thời gian trống chiều mai', 'tool' => 'scheduler_find_free_slots',  'tags' => ['Lịch','Trống'] ],
-    [ 'icon' => '✅', 'label' => 'Đánh dấu hoàn thành', 'desc' => 'Đánh dấu sự kiện đã xong',                'msg' => 'Đánh dấu xong cuộc họp sáng',  'tool' => 'scheduler_mark_done',        'tags' => ['Lịch','Done'] ],
-    [ 'icon' => '🔄', 'label' => 'Dời lịch',            'desc' => 'Thay đổi thời gian sự kiện',              'msg' => 'Dời lịch họp sang 4h chiều',   'tool' => 'scheduler_update_event',     'tags' => ['Lịch','Sửa'] ],
-    [ 'icon' => '🔗', 'label' => 'Sync Google',          'desc' => 'Đồng bộ 2 chiều với Google Calendar',     'msg' => 'Sync Google Calendar',          'tool' => 'scheduler_sync_google',      'tags' => ['Google','Sync'] ],
+    [ 'icon' => '📋', 'label' => __( 'Xem lịch hôm nay', $td ),   'desc' => __( 'Xem tất cả sự kiện và nhắc nhở hôm nay', $td ), 'msg' => __( 'Xem lịch hôm nay', $td ),              'tool' => 'scheduler_get_today_agenda', 'tags' => [__('Lịch',$td),__('Hôm nay',$td)] ],
+    [ 'icon' => '📅', 'label' => __( 'Tạo sự kiện', $td ),         'desc' => __( 'Thêm sự kiện mới vào lịch', $td ),               'msg' => __( 'Tạo sự kiện họp team lúc 10h sáng mai', $td ), 'tool' => 'scheduler_create_event',     'tags' => [__('Lịch',$td),__('Tạo',$td)] ],
+    [ 'icon' => '🔍', 'label' => __( 'Tìm thời gian trống', $td ), 'desc' => __( 'Tìm slot trống để hẹn lịch', $td ),              'msg' => __( 'Tìm thời gian trống chiều mai', $td ), 'tool' => 'scheduler_find_free_slots',  'tags' => [__('Lịch',$td),__('Trống',$td)] ],
+    [ 'icon' => '✅', 'label' => __( 'Đánh dấu hoàn thành', $td ), 'desc' => __( 'Đánh dấu sự kiện đã xong', $td ),                'msg' => __( 'Đánh dấu xong cuộc họp sáng', $td ),  'tool' => 'scheduler_mark_done',        'tags' => [__('Lịch',$td),'Done'] ],
+    [ 'icon' => '🔄', 'label' => __( 'Dời lịch', $td ),            'desc' => __( 'Thay đổi thời gian sự kiện', $td ),              'msg' => __( 'Dời lịch họp sang 4h chiều', $td ),   'tool' => 'scheduler_update_event',     'tags' => [__('Lịch',$td),__('Sửa',$td)] ],
+    [ 'icon' => '🔗', 'label' => __( 'Sync Google', $td ),          'desc' => __( 'Đồng bộ 2 chiều với Google Calendar', $td ),     'msg' => __( 'Sync Google Calendar', $td ),          'tool' => 'scheduler_sync_google',      'tags' => ['Google','Sync'] ],
 ];
 ?>
 <!DOCTYPE html>
@@ -62,7 +72,7 @@ $workflows = [
 <head>
 <meta charset="<?php bloginfo( 'charset' ); ?>">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Scheduler – Lịch & Nhắc việc</title>
+<title><?php echo esc_html__( 'Scheduler – Lịch & Nhắc việc', 'bizcity-twin-ai' ); ?></title>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{
@@ -1109,27 +1119,36 @@ textarea.sch-form-input{min-height:60px;resize:vertical}
                 method: 'POST',
                 headers: headers()
             })
-            .then(function(r) { return r.json(); })
+            .then(function(r) {
+                if (!r.ok && r.status !== 400) { throw new Error('http_' + r.status); }
+                return r.json();
+            })
             .then(function(data) {
                 syncBtn.disabled = false;
                 syncBtn.textContent = '🔄 Sync ngay';
                 if (data.error) {
                     msgEl.className = 'sch-ggl-msg sch-ggl-msg--err';
-                    msgEl.textContent = '❌ ' + data.error;
+                    var errMsg = '❌ ' + data.error;
+                    if (data.error_code === 'not_connected' || data.error_code === 'token_refresh_failed' || data.error_code === 'no_refresh_token') {
+                        errMsg += ' <a href="#" onclick="document.querySelector(\'[data-tab=settings]\').click();return false;">→ Cài đặt lại</a>';
+                    }
+                    msgEl.innerHTML = errMsg;
                     msgEl.style.display = '';
                     return;
                 }
+                var n = data.synced || 0;
                 msgEl.className = 'sch-ggl-msg sch-ggl-msg--ok';
-                msgEl.textContent = '✅ Đã đồng bộ ' + (data.synced || 0) + ' sự kiện từ Google.';
+                msgEl.textContent = n > 0
+                    ? '✅ Đã đồng bộ ' + n + ' sự kiện mới từ Google.'
+                    : '✅ Lịch đã cập nhật, không có sự kiện mới.';
                 msgEl.style.display = '';
-                todayLoaded = false;
-                loadToday();
+                if (n > 0) { todayLoaded = false; loadToday(); }
             })
-            .catch(function() {
+            .catch(function(e) {
                 syncBtn.disabled = false;
                 syncBtn.textContent = '🔄 Sync ngay';
                 msgEl.className = 'sch-ggl-msg sch-ggl-msg--err';
-                msgEl.textContent = '❌ Lỗi kết nối server.';
+                msgEl.textContent = '❌ Lỗi kết nối server. Thử lại sau.';
                 msgEl.style.display = '';
             });
         });

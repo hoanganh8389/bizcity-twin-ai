@@ -149,11 +149,13 @@ class BizCity_Tool_Facebook {
         // ── Mark trace complete ──
         if ( $trace ) $trace->complete( [ 'post_id' => $post_id, 'fb_count' => count( $fb_results ) ] );
 
-        // Build response message
+        // Build response message — always use Markdown link syntax [text](url)
+        // to prevent URL truncation in chat rendering.
+        $wp_url = get_permalink( $post_id );
         if ( empty( $fb_results ) ) {
             $msg  = "⚠️ **Bài viết đã được tạo trên WordPress nhưng chưa đăng được lên Facebook.**\n\n";
             $msg .= "📝 **Tiêu đề:** {$plain_title}\n";
-            $msg .= "🔗 **WordPress:** " . get_permalink( $post_id ) . "\n";
+            $msg .= "🔗 **WordPress:** [{$wp_url}]({$wp_url})\n";
             $msg .= "❌ Không tìm thấy Facebook Page nào được kết nối. Vui lòng kiểm tra cấu hình Facebook.\n";
 
             return [
@@ -174,11 +176,12 @@ class BizCity_Tool_Facebook {
 
         $msg  = "✅ **Đã đăng bài Facebook thành công!**\n\n";
         $msg .= "📝 **Tiêu đề:** {$plain_title}\n";
-        $msg .= "🔗 **WordPress:** " . get_permalink( $post_id ) . "\n";
+        $msg .= "🔗 **WordPress:** [{$wp_url}]({$wp_url})\n";
         if ( $fb_results ) {
             foreach ( $fb_results as $fb ) {
                 if ( ! empty( $fb['link'] ) ) {
-                    $msg .= "📣 **Facebook:** {$fb['link']}\n";
+                    $fb_link = $fb['link'];
+                    $msg .= "📣 **Facebook:** [{$fb_link}]({$fb_link})\n";
                 }
             }
         }

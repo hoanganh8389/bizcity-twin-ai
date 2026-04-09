@@ -58,11 +58,13 @@ class BizCity_Intent_Pipeline_Evidence {
 		$evidence_summary = self::build_summary( $tool_name, $result, $verified );
 
 		// Insert as a conversation record linked to parent pipeline
+		// Goal uses 'evidence:' prefix for consistency with goal format convention
+		// (tool: / skill: / evidence: / knowledge: / mode: / clarify: / confirm: / followup:)
 		$conv_id = $db->insert_conversation( [
 			'user_id'     => $user_id,
 			'session_id'  => $session_id,
 			'channel'     => 'pipeline_evidence',
-			'goal'        => $tool_name,
+			'goal'        => 'evidence:' . $tool_name,
 			'goal_label'  => sprintf( 'Evidence: %s (step %d)', $tool_name, $step_index ),
 			'status'      => 'COMPLETED',
 			'slots'       => [

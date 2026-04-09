@@ -397,7 +397,7 @@ class BizCity_Knowledge_Router_Pipeline extends BizCity_Mode_Pipeline {
         if ( empty( $conversation['goal'] ) ) {
             $conv_mgr->set_goal(
                 $conv_id,
-                'knowledge_' . $provider_id,
+                'knowledge:' . $provider_id,
                 '📚 ' . $provider_label
             );
         }

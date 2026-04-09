@@ -443,7 +443,7 @@ class BizCity_Skill_Pipeline_Bridge {
 			// Use tracked research node index (not node_index-1) to survive memory node insertion
 			if ( $block['code'] === 'it_call_content' && $research_node_index !== null ) {
 				$node_settings['input_json'] = wp_json_encode( [
-					'topic'   => '{{node#0.message}}',
+					'topic'   => '{{node#0.text}}',
 					'sources' => '{{node#' . $research_node_index . '.research_summary}}',
 				] );
 			}
@@ -503,7 +503,7 @@ class BizCity_Skill_Pipeline_Bridge {
 					'code'     => 'it_call_memory',
 					'label'    => 'Lưu context pipeline vào memory',
 					'settings' => [
-						'goal_label'    => '{{node#0.message}}',
+						'goal_label'    => '{{node#0.text}}',
 						'focus_context' => '',
 					],
 				];
@@ -579,7 +579,7 @@ class BizCity_Skill_Pipeline_Bridge {
 
 			// For it_call_research: auto-set query from trigger
 			if ( $matched_code === 'it_call_research' ) {
-				$settings['research_query'] = '{{node#0.message}}';
+				$settings['research_query'] = '{{node#0.text}}';
 			}
 
 			$blocks[] = [
@@ -614,7 +614,7 @@ class BizCity_Skill_Pipeline_Bridge {
 			$blocks[] = [
 				'code'     => 'it_call_research',
 				'label'    => 'Tìm kiếm tài liệu',
-				'settings' => [ 'research_query' => '{{node#0.message}}' ],
+				'settings' => [ 'research_query' => '{{node#0.text}}' ],
 			];
 		}
 
@@ -873,5 +873,403 @@ class BizCity_Skill_Pipeline_Bridge {
 		} catch ( \Throwable $e ) {
 			error_log( self::LOG_PREFIX . ' [NOTIFY] ❌ Failed: ' . $e->getMessage() );
 		}
+	}
+
+	/* ================================================================
+	 *  Phase 1.12: Pure Planner — Skill → WAIC Nodes (no DB save)
+	 * ================================================================ */
+
+	/**
+	 * Build WAIC nodes from a skill — pure planner, DOES NOT save task.
+	 * Shell calls this when it detects a skill match via skill_tool_map.
+	 *
+	 * Uses structured frontmatter (chain: + blocks:) for 100% deterministic chaining.
+	 * Falls back to tool registry content_tier → naming convention if blocks: absent.
+	 *
+	 * @param array  $skill   { title, tools, pipeline_config, content }
+	 * @param string $message User message.
+	 * @return array|null     WAIC nodes[] or null if insufficient data.
+	 */
+	public function plan_nodes_from_skill( array $skill, string $message, array $options = [] ): ?array {
+		$tools            = (array) ( $skill['tools'] ?? [] );
+		$title            = $skill['title'] ?? 'Unnamed Skill';
+		$config           = (array) ( $skill['pipeline_config'] ?? [] );
+		$chain            = (array) ( $config['chain'] ?? [] );
+		$blocks           = (array) ( $config['blocks'] ?? [] );
+		$extra_dist_tools = (array) ( $options['extra_distribution_tools'] ?? [] );
+		// block_code_hints: LLM-provided mapping (tool_id → block_code) from Scenario Planner.
+		// Highest priority — overrides both $blocks config and infer_block_code_for_tool().
+		$bc_hints         = (array) ( $options['block_code_hints'] ?? [] );
+		$skip             = [
+			'research'   => ! empty( $config['skip_research'] ),
+			'planner'    => ! empty( $config['skip_planner'] ),
+			'memory'     => ! empty( $config['skip_memory'] ),
+			'reflection' => ! empty( $config['skip_reflection'] ),
+		];
+
+		if ( empty( $tools ) ) {
+			error_log( self::LOG_PREFIX . ' [PLAN] Cannot plan: no tools in skill' );
+			return null;
+		}
+
+		error_log( self::LOG_PREFIX . ' [PLAN] Building nodes for: ' . $title
+			. ' | tools=' . implode( ',', $tools )
+			. ' | chain=' . count( $chain )
+			. ' | blocks=' . count( $blocks ) );
+
+		// ── Phase-order tools when no explicit chain config ──
+		// Ensures content generation (it_call_content) precedes distribution/action (it_call_tool).
+		// Fixes reversed ordering when tools_json has publish before generate.
+		if ( empty( $chain ) ) {
+			$self = $this;
+			usort( $tools, function ( $a, $b ) use ( $blocks, $bc_hints, $self ) {
+				$code_a = $bc_hints[ $a ] ?? $blocks[ $a ] ?? $self->infer_block_code_for_tool( $a );
+				$code_b = $bc_hints[ $b ] ?? $blocks[ $b ] ?? $self->infer_block_code_for_tool( $b );
+				$phase  = [
+					'it_call_research' => 1,
+					'it_call_content'  => 2,
+					'it_call_tool'     => 3,
+				];
+				return ( $phase[ $code_a ] ?? 3 ) - ( $phase[ $code_b ] ?? 3 );
+			} );
+			error_log( self::LOG_PREFIX . ' [PLAN] Phase-sorted tools: ' . implode( ', ', $tools ) );
+		}
+
+		// Node ID offset: trigger=1, planner=2 (if not skipped)
+		$prefix_count = 1 + ( $skip['planner'] ? 0 : 1 );
+
+		$nodes           = [];
+		$x_pos           = 350;
+		$node_id         = 1;
+		$content_node_id = null; // Track content node for auto-wiring distribution tools
+
+		// ── Node 1: Trigger ──
+		$nodes[] = [
+			'id'       => (string) $node_id,
+			'type'     => 'trigger',
+			'position' => [ 'x' => $x_pos, 'y' => 200 ],
+			'data'     => [
+				'type'            => 'trigger',
+				'category'        => 'bc',
+				'code'            => 'bc_instant_run',
+				'label'           => '⚡ Chạy ngay',
+				'settings'        => [ 'default_text' => $message ],
+				'executionStatus' => null,
+				'dragged'         => true,
+			],
+		];
+		$x_pos += 210;
+		$node_id++;
+
+		// ── Node 2: Planner (unless skip_planner) ──
+		if ( ! $skip['planner'] ) {
+			$plan_steps = [];
+			foreach ( $tools as $i => $tool_key ) {
+				$block_code        = $bc_hints[ $tool_key ] ?? $blocks[ $tool_key ] ?? $this->infer_block_code_for_tool( $tool_key );
+				$step_label_map    = [ 'it_call_research' => 'Nghiên cứu tài liệu' ];
+				$plan_steps[] = [
+					'tool_name' => $block_code,
+					'label'     => $step_label_map[ $tool_key ] ?? $tool_key,
+					'node_id'   => (string) ( $prefix_count + $i + 1 ),
+				];
+			}
+
+			$nodes[] = [
+				'id'       => (string) $node_id,
+				'type'     => 'action',
+				'position' => [ 'x' => $x_pos, 'y' => 200 ],
+				'data'     => [
+					'type'            => 'action',
+					'category'        => 'it',
+					'code'            => 'it_todos_planner',
+					'label'           => '📋 Kế hoạch: ' . $title,
+					'settings'        => [
+						'steps_json'     => wp_json_encode( $plan_steps ),
+						'pipeline_label' => $title,
+					],
+					'executionStatus' => null,
+					'dragged'         => true,
+				],
+			];
+			$x_pos += 210;
+			$node_id++;
+		}
+
+		// ── Tool action nodes (from structured frontmatter) ──
+		foreach ( $tools as $i => $tool_key ) {
+			$step_num   = $i + 1;
+			$block_code = $bc_hints[ $tool_key ] ?? $blocks[ $tool_key ] ?? $this->infer_block_code_for_tool( $tool_key );
+			$category   = ( strpos( $block_code, 'it_' ) === 0 ) ? 'it' : 'bc';
+
+			// Track content node for downstream auto-wiring
+			if ( $block_code === 'it_call_content' && null === $content_node_id ) {
+				$content_node_id = (string) $node_id;
+			}
+
+			// ── Resolve chaining from structured chain: config ──
+			// Supports two formats:
+			//   Format A: from: { step: N, fields: [...] }           (single source)
+			//   Format B: from_multi: [ { step: N, fields: [...] } ] (multiple sources)
+			//   Rename:   rename_FIELD: NEW_NAME  (inside from entry)
+			$input = [];
+			foreach ( $chain as $chain_entry ) {
+				if ( (int) ( $chain_entry['step'] ?? 0 ) !== $step_num ) {
+					continue;
+				}
+
+				// Build from_list from either 'from' or 'from_multi'
+				$from_list = [];
+				if ( ! empty( $chain_entry['from_multi'] ) && is_array( $chain_entry['from_multi'] ) ) {
+					$from_list = $chain_entry['from_multi'];
+				} elseif ( ! empty( $chain_entry['from'] ) ) {
+					$from_raw = $chain_entry['from'];
+					// Normalize single { step, fields } to array-of-one
+					if ( isset( $from_raw['step'] ) ) {
+						$from_list = [ $from_raw ];
+					} else {
+						$from_list = (array) $from_raw;
+					}
+				}
+
+				foreach ( $from_list as $from ) {
+					$from_step = (int) ( $from['step'] ?? 0 );
+					$fields    = (array) ( $from['fields'] ?? [] );
+					$rename    = (array) ( $from['rename'] ?? [] );
+					$from_node = $prefix_count + $from_step;
+
+					foreach ( $fields as $field ) {
+						// Check rename map OR rename_FIELD key
+						$target = $rename[ $field ] ?? ( $from[ 'rename_' . $field ] ?? $field );
+						$input[ $target ] = '{{node#' . $from_node . '.' . $field . '}}';
+					}
+				}
+			}
+
+			error_log( self::LOG_PREFIX . ' [PLAN] Step ' . $step_num . ' (' . $tool_key . '): '
+				. 'block=' . $block_code . ', input_keys=' . implode( ',', array_keys( $input ) ) );
+
+			// ── Build block settings ──
+			$settings = [];
+			if ( $block_code === 'it_call_content' ) {
+				$settings['content_tool']      = $tool_key;
+				$settings['require_confirm']   = '0';
+				$settings['max_refine_rounds'] = '2';
+				if ( empty( $input ) ) {
+					$input['topic'] = '{{node#1.text}}';
+				}
+			} elseif ( $block_code === 'it_call_tool' ) {
+				$settings['tool_id'] = $tool_key;
+				// Auto-wire content + title from content node for extra distribution tools
+				if ( in_array( $tool_key, $extra_dist_tools, true ) && $content_node_id && empty( $input ) ) {
+					$input['content'] = '{{node#' . $content_node_id . '.content}}';
+					$input['title']   = '{{node#' . $content_node_id . '.title}}';
+				}
+			} elseif ( $block_code === 'it_call_research' ) {
+				$settings['research_query'] = '{{node#1.text}}';
+			}
+
+			if ( ! empty( $input ) ) {
+				$settings['input_json'] = wp_json_encode( $input, JSON_UNESCAPED_UNICODE );
+			}
+
+			// Friendly label: avoid showing internal sentinel keys to user
+			$label_map = [
+				'it_call_research' => '🔍 Nghiên cứu',
+			];
+			$label = $label_map[ $tool_key ] ?? $tool_key;
+
+			$nodes[] = [
+				'id'       => (string) $node_id,
+				'type'     => 'action',
+				'position' => [ 'x' => $x_pos, 'y' => 200 ],
+				'data'     => [
+					'type'            => 'action',
+					'category'        => $category,
+					'code'            => $block_code,
+					'label'           => $label,
+					'settings'        => $settings,
+					'executionStatus' => null,
+					'dragged'         => true,
+				],
+			];
+			$x_pos += 210;
+			$node_id++;
+		}
+
+		// ── Bookend: Memory — INSERT after last research, before first content ──
+		// 8-finger principle: research(3) → memory(4) → content(5) → tool(6)
+		if ( ! $skip['memory'] ) {
+			$memory_node = [
+				'id'       => '0', // placeholder — recalculated below
+				'type'     => 'action',
+				'position' => [ 'x' => 0, 'y' => 200 ], // placeholder
+				'data'     => [
+					'type'            => 'action',
+					'category'        => 'it',
+					'code'            => 'it_call_memory',
+					'label'           => 'Lưu context pipeline',
+					'settings'        => [
+						'goal_label'    => '{{node#1.text}}',
+						'focus_context' => '',
+					],
+					'executionStatus' => null,
+					'dragged'         => true,
+				],
+			];
+
+			// Find insertion point: after last it_call_research, before first it_call_content
+			$mem_insert_idx   = null;
+			$last_research_idx = null;
+			$first_content_idx = null;
+			foreach ( $nodes as $ni => $n ) {
+				$code = $n['data']['code'] ?? '';
+				if ( $code === 'it_call_research' ) {
+					$last_research_idx = $ni;
+				}
+				if ( $code === 'it_call_content' && $first_content_idx === null ) {
+					$first_content_idx = $ni;
+				}
+			}
+			if ( $last_research_idx !== null ) {
+				$mem_insert_idx = $last_research_idx + 1;
+			} elseif ( $first_content_idx !== null ) {
+				$mem_insert_idx = $first_content_idx;
+			}
+
+			if ( $mem_insert_idx !== null ) {
+				array_splice( $nodes, $mem_insert_idx, 0, [ $memory_node ] );
+				// All node IDs >= (mem_insert_idx + 1) shift +1 in {{node#N.xxx}} refs
+				$shift_threshold = $mem_insert_idx + 1; // old IDs at/above this shift
+			} else {
+				$nodes[] = $memory_node; // fallback: append if no research/content found
+				$shift_threshold = PHP_INT_MAX; // no shift needed
+			}
+
+			// Recalculate IDs and x positions for all nodes
+			foreach ( $nodes as $ri => &$rn ) {
+				$rn['id']                 = (string) ( $ri + 1 );
+				$rn['position']['x']      = 350 + ( $ri * 210 );
+			}
+			unset( $rn );
+			$node_id = count( $nodes ) + 1;
+			$x_pos   = 350 + ( count( $nodes ) * 210 );
+
+			// Rewrite {{node#N.xxx}} references in input_json to match new IDs
+			if ( $shift_threshold < PHP_INT_MAX ) {
+				foreach ( $nodes as &$rn ) {
+					$ij = $rn['data']['settings']['input_json'] ?? '';
+					if ( $ij !== '' ) {
+						$rn['data']['settings']['input_json'] = preg_replace_callback(
+							'/\{\{node#(\d+)\./',
+							function ( $m ) use ( $shift_threshold ) {
+								$old = (int) $m[1];
+								$new = $old >= $shift_threshold ? $old + 1 : $old;
+								return '{{node#' . $new . '.';
+							},
+							$ij
+						);
+					}
+				}
+				unset( $rn );
+			}
+
+			// Rebuild planner steps_json with correct node_ids after splice
+			foreach ( $nodes as &$rn ) {
+				if ( ( $rn['data']['code'] ?? '' ) === 'it_todos_planner' ) {
+					$new_plan_steps = [];
+					foreach ( $nodes as $ni => $action_node ) {
+						$acode = $action_node['data']['code'] ?? '';
+						if ( in_array( $acode, [ 'it_call_research', 'it_call_content', 'it_call_tool' ], true ) ) {
+							$step_label_map    = [ 'it_call_research' => 'Nghiên cứu tài liệu' ];
+							$tool_label        = $action_node['data']['label'] ?? '';
+							$new_plan_steps[]  = [
+								'tool_name' => $acode,
+								'label'     => $step_label_map[ $acode ] ?? $tool_label,
+								'node_id'   => $action_node['id'],
+							];
+						}
+					}
+					$rn['data']['settings']['steps_json'] = wp_json_encode( $new_plan_steps );
+					break;
+				}
+			}
+			unset( $rn );
+		}
+
+		// ── Bookend: Reflection (unless skip_reflection) ──
+		if ( ! $skip['reflection'] ) {
+			$nodes[] = [
+				'id'       => (string) $node_id,
+				'type'     => 'action',
+				'position' => [ 'x' => $x_pos, 'y' => 200 ],
+				'data'     => [
+					'type'            => 'action',
+					'category'        => 'it',
+					'code'            => 'it_call_reflection',
+					'label'           => 'Kiểm tra & tổng kết',
+					'settings'        => [
+						'create_cpt'  => '0',
+						'max_retries' => '2',
+					],
+					'executionStatus' => null,
+					'dragged'         => true,
+				],
+			];
+			$x_pos += 210;
+			$node_id++;
+		}
+
+		// ── Summary verifier ──
+		$nodes[] = [
+			'id'       => (string) $node_id,
+			'type'     => 'action',
+			'position' => [ 'x' => $x_pos, 'y' => 200 ],
+			'data'     => [
+				'type'            => 'action',
+				'category'        => 'it',
+				'code'            => 'it_summary_verifier',
+				'label'           => '✅ Tổng kết Pipeline',
+				'settings'        => [
+					'pipeline_label' => $title,
+				],
+				'executionStatus' => null,
+				'dragged'         => true,
+			],
+		];
+
+		error_log( self::LOG_PREFIX . ' [PLAN] ✅ Built ' . count( $nodes ) . ' nodes for: ' . $title );
+
+		return $nodes;
+	}
+
+	/**
+	 * Infer block code for a tool — 3-layer fallback.
+	 *
+	 * Used when skill frontmatter doesn't specify blocks: for a tool.
+	 *   1. Tool registry content_tier (0=it_call_tool, 1=it_call_content)
+	 *   2. Naming convention (generate_*, write_* → it_call_content)
+	 *   3. Default → it_call_tool
+	 *
+	 * @param string $tool_key Tool registration key.
+	 * @return string Block code.
+	 */
+	private function infer_block_code_for_tool( string $tool_key ): string {
+		// Layer 1: Tool registry content_tier
+		if ( class_exists( 'BizCity_Intent_Tools' ) ) {
+			$registry = BizCity_Intent_Tools::instance();
+			$all      = $registry->list_all();
+			if ( isset( $all[ $tool_key ] ) ) {
+				$tier = (int) ( $all[ $tool_key ]['content_tier'] ?? 0 );
+				return $tier >= 1 ? 'it_call_content' : 'it_call_tool';
+			}
+		}
+
+		// Layer 2: Naming convention
+		if ( preg_match( '/^generate_|^write_|^video_create_script$/', $tool_key ) ) {
+			return 'it_call_content';
+		}
+
+		// Layer 3: Default
+		return 'it_call_tool';
 	}
 }
