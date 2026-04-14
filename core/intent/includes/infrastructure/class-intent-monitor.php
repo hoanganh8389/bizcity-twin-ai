@@ -36,7 +36,7 @@ class BizCity_Intent_Monitor {
     }
 
     public function __construct() {
-        add_action( 'admin_menu', [ $this, 'register_menu' ], 20 );
+        // Menu registration moved to BizCity_Admin_Menu (centralized).
         add_action( 'wp_ajax_bizcity_intent_monitor_stats',  [ $this, 'ajax_stats' ] );
         add_action( 'wp_ajax_bizcity_intent_monitor_convs',  [ $this, 'ajax_conversations' ] );
         add_action( 'wp_ajax_bizcity_intent_monitor_detail', [ $this, 'ajax_conversation_detail' ] );

@@ -22,7 +22,7 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 if ( ! class_exists( 'BizCity_AdminHook_AdminMenu' ) ) :
 class BizCity_AdminHook_AdminMenu {
 	public static function register() {
-		add_action('admin_menu', [__CLASS__, 'registerMenus']);
+		// Menu registration moved to BizCity_Admin_Menu (centralized).
 	}
 
 	public static function registerMenus() {

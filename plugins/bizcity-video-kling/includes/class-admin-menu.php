@@ -91,8 +91,8 @@ class BizCity_Video_Kling_Admin_Menu {
             BIZCITY_VIDEO_KLING_ASSETS_VERSION
         );
         
-        // Enqueue WordPress media uploader for scripts page
-        if (strpos($hook, 'bizcity-kling-scripts') !== false) {
+        // Enqueue WordPress media uploader for scripts & effects pages
+        if (strpos($hook, 'bizcity-kling-scripts') !== false || strpos($hook, 'bizcity-kling-effects') !== false) {
             wp_enqueue_media();
         }
     }
@@ -149,6 +149,16 @@ class BizCity_Video_Kling_Admin_Menu {
             [$this, 'render_monitor_page']
         );
         
+        // Video Effects (templates)
+        add_submenu_page(
+            'bizcity-kling',
+            __('Video Effects', 'bizcity-video-kling'),
+            __('Video Effects', 'bizcity-video-kling'),
+            'manage_options',
+            'bizcity-kling-effects',
+            [$this, 'render_effects_page']
+        );
+
         // Settings
         add_submenu_page(
             'bizcity-kling',
@@ -676,5 +686,15 @@ class BizCity_Video_Kling_Admin_Menu {
                 'raw' => $result['raw'] ?? null,
             ]);
         }
+    }
+
+    /**
+     * Render Video Effects management page
+     */
+    public function render_effects_page() {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            return;
+        }
+        include BIZCITY_VIDEO_KLING_DIR . 'views/admin-video-effects.php';
     }
 }

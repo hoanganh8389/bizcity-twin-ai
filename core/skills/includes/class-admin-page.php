@@ -31,7 +31,7 @@ class BizCity_Skill_Admin_Page {
 	}
 
 	public function __construct() {
-		add_action( 'admin_menu', [ $this, 'add_menu' ], 20 ); // after knowledge
+		// Menu registration moved to BizCity_Admin_Menu (centralized).
 		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_assets' ] );
 	}
 

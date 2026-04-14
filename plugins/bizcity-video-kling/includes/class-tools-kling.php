@@ -36,12 +36,13 @@ class BizCity_Tool_Kling {
         }
 
         // ── Extract slots ──
-        $prompt       = sanitize_textarea_field( $slots['message'] ?? $slots['prompt'] ?? '' );
-        $image_url    = esc_url_raw( $slots['image_url'] ?? '' );
-        $duration     = max( 5, min( 60, intval( $slots['duration'] ?? 10 ) ) );
-        $aspect_ratio = sanitize_text_field( $slots['aspect_ratio'] ?? '9:16' );
-        $voiceover    = sanitize_textarea_field( $slots['voiceover_text'] ?? '' );
-        $model        = sanitize_text_field( $slots['model'] ?? '2.6|pro' );
+        $prompt             = sanitize_textarea_field( $slots['message'] ?? $slots['prompt'] ?? '' );
+        $image_url          = esc_url_raw( $slots['image_url'] ?? '' );
+        $motion_ref_url     = esc_url_raw( $slots['motion_reference_url'] ?? '' );
+        $duration           = max( 5, min( 60, intval( $slots['duration'] ?? 10 ) ) );
+        $aspect_ratio       = sanitize_text_field( $slots['aspect_ratio'] ?? '9:16' );
+        $voiceover          = sanitize_textarea_field( $slots['voiceover_text'] ?? '' );
+        $model              = sanitize_text_field( $slots['model'] ?? '2.6|pro' );
 
         // Default prompt when image-only (no text prompt)
         if ( empty( $prompt ) && ! empty( $image_url ) ) {
@@ -76,8 +77,13 @@ class BizCity_Tool_Kling {
             'conversation_id' => $meta['conv_id'] ?? '',
         ];
 
+        // Strip 4-byte UTF-8 sequences (emoji) — byte-level, no /u flag needed
+        $raw_title  = $prompt ?: 'Video từ ảnh';
+        $safe_title = preg_replace( '/[\xF0-\xF4][\x80-\xBF]{3}/', '', $raw_title );
+        $safe_title = sanitize_text_field( mb_substr( trim( $safe_title ?? $raw_title ), 0, 250 ) );
+
         $script_id = BizCity_Video_Kling_Database::create_script( [
-            'title'        => mb_strimwidth( $prompt ?: 'Video từ ảnh', 0, 200, '...' ),
+            'title'        => $safe_title,
             'content'      => $prompt,
             'duration'     => $duration,
             'aspect_ratio' => $aspect_ratio,
@@ -113,6 +119,12 @@ class BizCity_Tool_Kling {
         ];
         if ( $image_url ) {
             $api_input['image_url'] = $image_url;
+        }
+        if ( $motion_ref_url ) {
+            $api_input['motion_reference_url'] = $motion_ref_url;
+        }
+        if ( ! empty( $slots['with_audio'] ) ) {
+            $api_input['with_audio'] = true;
         }
 
         $result = waic_kling_create_task( $api_settings, $api_input );

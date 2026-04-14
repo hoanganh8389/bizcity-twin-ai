@@ -46,7 +46,9 @@ if ( $is_logged_in && class_exists( 'BizCity_Video_Kling_Database' ) ) {
 
 // Active tab from URL
 $active_tab = isset( $_GET['tab'] ) ? sanitize_text_field( $_GET['tab'] ) : 'create';
-$allowed_tabs = [ 'create', 'monitor', 'chat', 'settings' ];
+// BC: map old slugs to new ones
+if ( $active_tab === 'workflow' ) $active_tab = 'canva';
+$allowed_tabs = [ 'create', 'canva', 'editor', 'monitor', 'chat', 'settings', 'studio', 'generate' ];
 if ( ! in_array( $active_tab, $allowed_tabs, true ) ) $active_tab = 'create';
 
 // Load current settings (for Settings tab)
@@ -63,26 +65,112 @@ $is_admin_user = current_user_can( 'manage_options' );
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Video Kling - AI Agent</title>
+<link rel="stylesheet" href="<?php echo esc_url( BIZCITY_VIDEO_KLING_URL . 'assets/video-studio.css?v=' . BIZCITY_VIDEO_KLING_ASSETS_VERSION ); ?>">
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
-body{background:#f9fafb;font-family:system-ui,-apple-system,sans-serif;color:#1a1a2e;line-height:1.5;min-height:100vh;}
+body{background:#0d1117;font-family:system-ui,-apple-system,sans-serif;color:#e6edf3;line-height:1.5;min-height:100vh;}
 
 /* ── App Container ── */
 .bvk-app{max-width:100%;padding:0 0 72px;position:relative;}
 
-/* ── Bottom Nav ── */
-.bvk-nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:#fff;border-top:1px solid #e5e7eb;z-index:100;padding:6px 0 env(safe-area-inset-bottom, 4px);}
-.bvk-nav-item{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 0;text-decoration:none;color:#9ca3af;font-size:10px;font-weight:600;transition:color .2s;}
-.bvk-nav-item.active{color:#f97316;}
+/* ── Bottom Nav (dark) ── */
+.bvk-nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:#161b22;border-top:1px solid #30363d;z-index:100;padding:6px 0 env(safe-area-inset-bottom, 4px);}
+.bvk-nav-item{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 0;text-decoration:none;color:#8b949e;font-size:10px;font-weight:600;transition:color .2s;}
+.bvk-nav-item.active{color:#58a6ff;}
 .bvk-nav-icon{font-size:20px;}
 
 /* ── Tab Content ── */
 .bvk-tab{display:none;}
 .bvk-tab.active{display:block;}
 
+/* ── AIVA Two-Panel (critical inline) ── */
+.bvk-aiva{display:grid;grid-template-columns:400px 1fr;min-height:calc(100vh - 60px);background:#0d1117;color:#e6edf3;}
+.bvk-aiva-form{background:#161b22;border-right:1px solid #30363d;padding:20px;overflow-y:auto;max-height:calc(100vh - 60px);}
+.bvk-aiva-results{padding:40px;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;overflow-y:auto;max-height:calc(100vh - 60px);}
+.bvk-aiva-header{display:flex;align-items:center;gap:10px;margin-bottom:20px;}
+.bvk-aiva-header__title{font-size:16px;font-weight:700;color:#e6edf3;margin:0;}
+.bvk-aiva-modes{display:flex;gap:2px;background:#21262d;border-radius:10px;padding:3px;margin-bottom:20px;}
+.bvk-aiva-mode{flex:1;padding:10px;border:none;border-radius:8px;background:transparent;color:#8b949e;font-size:13px;font-weight:600;cursor:pointer;transition:all .2s;font-family:inherit;}
+.bvk-aiva-mode.active{background:#30363d;color:#e6edf3;}
+.bvk-aiva-group{margin-bottom:18px;}
+.bvk-aiva-group__head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}
+.bvk-aiva-label{display:block;font-size:13px;font-weight:600;color:#e6edf3;margin-bottom:8px;}
+.bvk-aiva-group__head .bvk-aiva-label{margin-bottom:0;}
+.bvk-aiva-select{width:100%;padding:10px 12px;background:#21262d;border:1px solid #30363d;border-radius:8px;color:#e6edf3;font-size:13px;font-family:inherit;appearance:auto;}
+.bvk-aiva-select:focus{outline:none;border-color:#58a6ff;}
+.bvk-aiva-select optgroup{background:#21262d;color:#8b949e;}
+.bvk-aiva-select option{background:#21262d;color:#e6edf3;}
+.bvk-aiva-pills{display:flex;gap:8px;flex-wrap:wrap;}
+.bvk-aiva-pill{padding:8px 16px;background:#21262d;border:1px solid #30363d;border-radius:8px;color:#8b949e;font-size:13px;font-weight:600;cursor:pointer;transition:all .2s;}
+.bvk-aiva-pill input{display:none;}
+.bvk-aiva-pill:has(input:checked){background:#1f6feb;border-color:#1f6feb;color:#fff;}
+.bvk-aiva-add-scene{background:none;border:none;color:#58a6ff;font-size:13px;font-weight:600;cursor:pointer;padding:0;font-family:inherit;}
+.bvk-aiva-dropzone{display:block;border:2px dashed #30363d;border-radius:12px;padding:20px;text-align:center;cursor:pointer;transition:all .2s;position:relative;overflow:hidden;min-height:100px;background:#0d1117;}
+.bvk-aiva-dropzone:hover,.bvk-aiva-dropzone.dragover{border-color:#58a6ff;background:rgba(31,111,235,.08);}
+.bvk-aiva-scene-placeholder{color:#8b949e;}
+.bvk-aiva-scene-placeholder span{font-size:28px;display:block;margin-bottom:6px;}
+.bvk-aiva-scene-placeholder p{font-size:12px;margin:0 0 4px;}
+.bvk-aiva-scene-placeholder small{font-size:10px;color:#484f58;display:block;max-width:280px;margin:0 auto;}
+.bvk-aiva-scene-preview{position:relative;display:inline-block;}
+.bvk-aiva-scene-preview img{max-height:120px;max-width:100%;border-radius:8px;object-fit:contain;}
+.bvk-aiva-scene-clear{position:absolute;top:4px;right:4px;width:22px;height:22px;border-radius:50%;background:rgba(0,0,0,.7);color:#f85149;border:none;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+.bvk-aiva-scene-progress{height:2px;background:#21262d;border-radius:1px;overflow:hidden;margin-top:6px;display:none;}
+.bvk-aiva-scene-progress.active{display:block;}
+.bvk-aiva-scene-progress-bar{height:100%;background:linear-gradient(90deg,#1f6feb,#58a6ff);width:0;transition:width .3s;}
+.bvk-aiva-scene{margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid #21262d;}
+.bvk-aiva-scene:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0;}
+.bvk-aiva-scene__header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}
+.bvk-aiva-scene__label{font-size:12px;font-weight:700;color:#8b949e;text-transform:uppercase;letter-spacing:.5px;}
+.bvk-aiva-scene__remove{background:none;border:none;color:#f85149;font-size:14px;cursor:pointer;padding:2px 6px;border-radius:4px;}
+.bvk-aiva-scene-prompt-wrap{margin-top:10px;}
+.bvk-aiva-prompt-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;}
+.bvk-aiva-prompt-label{font-size:12px;font-weight:600;color:#8b949e;}
+.bvk-aiva-textarea{width:100%;padding:12px;background:#0d1117;border:1px solid #30363d;border-radius:10px;color:#e6edf3;font-size:13px;font-family:inherit;resize:vertical;min-height:100px;box-sizing:border-box;}
+.bvk-aiva-textarea:focus{outline:none;border-color:#58a6ff;}
+.bvk-aiva-textarea::placeholder{color:#484f58;}
+.bvk-aiva-prompt-foot{display:flex;justify-content:space-between;align-items:center;margin-top:8px;}
+.bvk-aiva-optimize{background:none;border:none;color:#58a6ff;font-size:12px;font-weight:600;cursor:pointer;padding:0;display:flex;align-items:center;gap:4px;font-family:inherit;}
+.bvk-aiva-charcount{font-size:11px;color:#484f58;}
+.bvk-aiva-switch{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:#8b949e;}
+.bvk-aiva-switch input{display:none;}
+.bvk-aiva-switch__track{width:36px;height:20px;background:#21262d;border-radius:10px;position:relative;transition:background .2s;flex-shrink:0;}
+.bvk-aiva-switch input:checked+.bvk-aiva-switch__track{background:#1f6feb;}
+.bvk-aiva-switch__track::after{content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;background:#fff;border-radius:50%;transition:transform .2s;}
+.bvk-aiva-switch input:checked+.bvk-aiva-switch__track::after{transform:translateX(16px);}
+.bvk-aiva-cta{margin-top:20px;padding-top:16px;border-top:1px solid #21262d;}
+.bvk-aiva-create-btn{width:100%;padding:14px;background:linear-gradient(135deg,#1f6feb,#58a6ff);border:none;border-radius:10px;color:#fff;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;transition:opacity .2s;display:flex;align-items:center;justify-content:center;gap:8px;}
+.bvk-aiva-create-btn:hover{opacity:0.9;}
+.bvk-aiva-create-btn:disabled{opacity:0.4;cursor:not-allowed;}
+.bvk-aiva-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;min-height:400px;color:#8b949e;}
+.bvk-aiva-empty__icon{width:80px;height:80px;background:#21262d;border-radius:20px;display:flex;align-items:center;justify-content:center;font-size:36px;margin-bottom:20px;}
+.bvk-aiva-empty h3{font-size:18px;font-weight:700;color:#e6edf3;margin:0 0 8px;}
+.bvk-aiva-empty p{font-size:14px;color:#8b949e;margin:0;}
+.bvk-aiva-jobs{width:100%;max-width:700px;display:flex;flex-direction:column;gap:12px;}
+.bvk-aiva-job{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:14px;}
+.bvk-aiva-job .bvk-job-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;}
+.bvk-aiva-job .bvk-job-status{padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700;}
+.bvk-aiva-job .st-queued{background:#21262d;color:#8b949e;}
+.bvk-aiva-job .st-processing{background:rgba(31,111,235,.15);color:#58a6ff;}
+.bvk-aiva-job .st-completed{background:rgba(63,185,80,.15);color:#3fb950;}
+.bvk-aiva-job .st-failed{background:rgba(248,81,73,.15);color:#f85149;}
+.bvk-aiva-job .bvk-job-prompt{font-size:12px;color:#8b949e;margin-bottom:6px;}
+.bvk-aiva-job .bvk-job-meta{font-size:11px;color:#484f58;display:flex;gap:8px;flex-wrap:wrap;}
+.bvk-aiva-job .bvk-job-meta a{color:#58a6ff;text-decoration:none;font-weight:600;}
+.bvk-aiva-job .bvk-progress{height:3px;background:#21262d;border-radius:2px;margin-top:8px;}
+.bvk-aiva-job .bvk-progress-bar{height:100%;background:linear-gradient(90deg,#1f6feb,#58a6ff);border-radius:2px;transition:width .5s;}
+.bvk-aiva-job .bvk-job-actions{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;}
+.bvk-aiva-job .bvk-job-act{padding:4px 10px;border-radius:6px;font-size:11px;font-weight:600;border:1px solid #30363d;background:#21262d;color:#8b949e;cursor:pointer;transition:all .2s;text-decoration:none;font-family:inherit;}
+.bvk-aiva-job .bvk-job-act:hover{border-color:#58a6ff;color:#58a6ff;}
+.bvk-aiva-job .bvk-job-act.done{background:rgba(63,185,80,.15);border-color:rgba(63,185,80,.3);color:#3fb950;cursor:default;}
+.bvk-aiva .bvk-status{border-radius:8px;font-size:12px;font-weight:600;}
+.bvk-aiva .bvk-status.success{background:rgba(63,185,80,.15);color:#3fb950;}
+.bvk-aiva .bvk-status.error{background:rgba(248,81,73,.15);color:#f85149;}
+.bvk-aiva .bvk-status.loading{background:rgba(31,111,235,.15);color:#58a6ff;}
+@media(max-width:768px){.bvk-aiva{grid-template-columns:1fr;}.bvk-aiva-form{max-height:none;border-right:none;border-bottom:1px solid #30363d;}.bvk-aiva-results{max-height:none;min-height:300px;padding:20px;}}
+
 /* ── Hero ── */
-.bvk-hero{background:linear-gradient(135deg,#f59e0b 0%,#f97316 50%,#ef4444 100%);padding:24px 16px;color:#fff;position:relative;overflow:hidden;}
-.bvk-hero::before{content:'';position:absolute;top:-50%;right:-20%;width:200px;height:200px;background:rgba(255,255,255,0.08);border-radius:50%;}
+.bvk-hero{background:linear-gradient(135deg,#1f6feb 0%,#388bfd 50%,#58a6ff 100%);padding:24px 16px;color:#fff;position:relative;overflow:hidden;}
+.bvk-hero::before{content:'';position:absolute;top:-50%;right:-20%;width:200px;height:200px;background:rgba(255,255,255,0.06);border-radius:50%;}
 .bvk-hero-icon{font-size:36px;margin-bottom:4px;}
 .bvk-hero h2{font-size:20px;font-weight:800;margin-bottom:2px;}
 .bvk-hero p{opacity:0.9;font-size:12px;}
@@ -90,13 +178,13 @@ body{background:#f9fafb;font-family:system-ui,-apple-system,sans-serif;color:#1a
 .bvk-hero-stat{background:rgba(255,255,255,0.18);backdrop-filter:blur(4px);border-radius:8px;padding:6px 12px;font-size:11px;font-weight:600;}
 
 /* ── Card ── */
-.bvk-card{background:#fff;border-radius:16px;padding:20px 16px;margin:12px 12px 0;box-shadow:0 1px 4px rgba(0,0,0,0.04);}
-.bvk-card h3{font-size:16px;font-weight:700;margin-bottom:12px;}
+.bvk-card{background:#161b22;border:1px solid #30363d;border-radius:16px;padding:20px 16px;margin:12px 12px 0;box-shadow:none;}
+.bvk-card h3{font-size:16px;font-weight:700;margin-bottom:12px;color:#e6edf3;}
 
 /* ── Photo Zone ── */
-.bvk-photo-zone{display:block;border:2px dashed #d1d5db;border-radius:12px;padding:24px;text-align:center;cursor:pointer;transition:border-color .2s;margin-bottom:12px;position:relative;overflow:hidden;}
-.bvk-photo-zone:hover{border-color:#f97316;}
-.bvk-photo-placeholder{color:#9ca3af;}
+.bvk-photo-zone{display:block;border:2px dashed #30363d;border-radius:12px;padding:24px;text-align:center;cursor:pointer;transition:border-color .2s;margin-bottom:12px;position:relative;overflow:hidden;background:#0d1117;}
+.bvk-photo-zone:hover{border-color:#58a6ff;}
+.bvk-photo-placeholder{color:#8b949e;}
 .bvk-photo-placeholder span{font-size:40px;display:block;margin-bottom:4px;}
 .bvk-photo-placeholder p{font-size:13px;margin-bottom:2px;}
 .bvk-photo-placeholder small{font-size:11px;color:#d1d5db;}
@@ -105,82 +193,82 @@ body{background:#f9fafb;font-family:system-ui,-apple-system,sans-serif;color:#1a
 
 /* ── Fields ── */
 .bvk-field{margin-bottom:12px;}
-.bvk-field label{display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:4px;}
-.bvk-field textarea,.bvk-field input,.bvk-field select{width:100%;padding:10px 12px;border:1px solid #e5e7eb;border-radius:10px;font-size:13px;font-family:inherit;resize:vertical;background:#fff;color:#1a1a2e;}
-.bvk-field textarea:focus,.bvk-field input:focus,.bvk-field select:focus{outline:none;border-color:#f97316;box-shadow:0 0 0 3px rgba(249,115,22,0.1);}
+.bvk-field label{display:block;font-size:12px;font-weight:600;color:#e6edf3;margin-bottom:4px;}
+.bvk-field textarea,.bvk-field input,.bvk-field select{width:100%;padding:10px 12px;border:1px solid #30363d;border-radius:10px;font-size:13px;font-family:inherit;resize:vertical;background:#21262d;color:#e6edf3;}
+.bvk-field textarea:focus,.bvk-field input:focus,.bvk-field select:focus{outline:none;border-color:#58a6ff;box-shadow:0 0 0 3px rgba(31,111,235,0.15);}
 .bvk-field-row{display:flex;gap:8px;}
 .bvk-field-row .bvk-field{flex:1;}
 
 /* ── Pills ── */
 .bvk-pill-row{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;}
-.bvk-pill{display:inline-flex;align-items:center;gap:4px;padding:8px 14px;border:1.5px solid #e5e7eb;border-radius:10px;font-size:12px;font-weight:600;cursor:pointer;transition:all .2s;background:#fff;}
-.bvk-pill:has(input:checked){border-color:#f97316;background:#fff7ed;color:#f97316;}
+.bvk-pill{display:inline-flex;align-items:center;gap:4px;padding:8px 14px;border:1.5px solid #30363d;border-radius:10px;font-size:12px;font-weight:600;cursor:pointer;transition:all .2s;background:#21262d;color:#8b949e;}
+.bvk-pill:has(input:checked){border-color:#1f6feb;background:#1f6feb;color:#fff;}
 .bvk-pill input{display:none;}
 
 /* ── Buttons ── */
 .bvk-btn-row{display:flex;gap:8px;margin-top:4px;}
 .bvk-btn{flex:1;padding:12px;border:none;border-radius:12px;font-size:14px;font-weight:700;cursor:pointer;transition:all .2s;font-family:inherit;}
-.bvk-btn-primary{background:linear-gradient(135deg,#f59e0b,#f97316);color:#fff;}
+.bvk-btn-primary{background:linear-gradient(135deg,#1f6feb,#58a6ff);color:#fff;}
 .bvk-btn-primary:hover{opacity:0.9;transform:translateY(-1px);}
-.bvk-btn-primary:disabled{opacity:0.5;cursor:not-allowed;transform:none;}
-.bvk-btn-secondary{background:#fff;border:1.5px solid #e5e7eb;color:#374151;}
-.bvk-btn-secondary:hover{border-color:#f97316;color:#f97316;}
+.bvk-btn-primary:disabled{opacity:0.4;cursor:not-allowed;transform:none;}
+.bvk-btn-secondary{background:#21262d;border:1.5px solid #30363d;color:#8b949e;}
+.bvk-btn-secondary:hover{border-color:#58a6ff;color:#58a6ff;}
 
 /* ── Status Message ── */
 .bvk-status{margin-top:10px;padding:10px 14px;border-radius:10px;font-size:12px;font-weight:600;display:none;}
-.bvk-status.success{display:block;background:#dcfce7;color:#166534;}
-.bvk-status.error{display:block;background:#fef2f2;color:#991b1b;}
-.bvk-status.loading{display:block;background:#dbeafe;color:#1e40af;}
+.bvk-status.success{display:block;background:rgba(63,185,80,.15);color:#3fb950;}
+.bvk-status.error{display:block;background:rgba(248,81,73,.15);color:#f85149;}
+.bvk-status.loading{display:block;background:rgba(31,111,235,.15);color:#58a6ff;}
 
 /* ── Result Card ── */
-.bvk-result{display:none;margin-top:12px;padding:14px;background:#f0fdf4;border:1px solid #86efac;border-radius:12px;font-size:13px;line-height:1.6;}
+.bvk-result{display:none;margin-top:12px;padding:14px;background:rgba(63,185,80,.1);border:1px solid rgba(63,185,80,.3);border-radius:12px;font-size:13px;line-height:1.6;color:#e6edf3;}
 .bvk-result.show{display:block;}
-.bvk-result h4{font-size:14px;font-weight:700;margin-bottom:6px;color:#166534;}
+.bvk-result h4{font-size:14px;font-weight:700;margin-bottom:6px;color:#3fb950;}
 
 /* ── Monitor ── */
 .bvk-section{padding:12px;}
 .bvk-section-title{font-size:15px;font-weight:700;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;}
 .bvk-job-list{display:flex;flex-direction:column;gap:8px;}
-.bvk-job{padding:12px;border:1px solid #f3f4f6;border-radius:12px;background:#fff;}
+.bvk-job{padding:12px;border:1px solid #30363d;border-radius:12px;background:#161b22;}
 .bvk-job-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;}
 .bvk-job-status{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700;}
-.st-queued{background:#f3f4f6;color:#6b7280;}
-.st-processing{background:#dbeafe;color:#1e40af;}
-.st-completed{background:#dcfce7;color:#166534;}
-.st-failed{background:#fef2f2;color:#991b1b;}
-.bvk-job-prompt{font-size:12px;color:#374151;line-height:1.4;margin-bottom:4px;}
-.bvk-job-meta{display:flex;gap:8px;font-size:11px;color:#9ca3af;flex-wrap:wrap;align-items:center;}
-.bvk-job-meta a{color:#f59e0b;font-weight:600;text-decoration:none;}
-.bvk-progress{height:4px;background:#f3f4f6;border-radius:2px;overflow:hidden;margin-top:6px;}
-.bvk-progress-bar{height:100%;border-radius:2px;background:linear-gradient(90deg,#f59e0b,#f97316);transition:width .5s ease;}
+.st-queued{background:#21262d;color:#8b949e;}
+.st-processing{background:rgba(31,111,235,.15);color:#58a6ff;}
+.st-completed{background:rgba(63,185,80,.15);color:#3fb950;}
+.st-failed{background:rgba(248,81,73,.15);color:#f85149;}
+.bvk-job-prompt{font-size:12px;color:#8b949e;line-height:1.4;margin-bottom:4px;}
+.bvk-job-meta{display:flex;gap:8px;font-size:11px;color:#484f58;flex-wrap:wrap;align-items:center;}
+.bvk-job-meta a{color:#58a6ff;font-weight:600;text-decoration:none;}
+.bvk-progress{height:4px;background:#21262d;border-radius:2px;overflow:hidden;margin-top:6px;}
+.bvk-progress-bar{height:100%;border-radius:2px;background:linear-gradient(90deg,#1f6feb,#58a6ff);transition:width .5s ease;}
 
 /* ── Chat Commands ── */
 .bvk-commands{display:flex;flex-direction:column;gap:10px;padding:0 12px;}
-.bvk-cmd{display:flex;align-items:center;gap:14px;background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:16px;cursor:pointer;transition:all .2s;text-align:left;width:100%;}
-.bvk-cmd:hover{border-color:#f97316;box-shadow:0 2px 12px rgba(249,115,22,.12);}
-.bvk-cmd.primary{border:2px solid #f97316;background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);}
-.bvk-cmd-icon{font-size:26px;flex-shrink:0;width:42px;height:42px;display:flex;align-items:center;justify-content:center;background:rgba(249,115,22,0.08);border-radius:10px;}
-.bvk-cmd-text h4{font-size:13px;font-weight:700;color:#1a1a2e;margin-bottom:1px;}
-.bvk-cmd-text p{font-size:11px;color:#6b7280;}
-.bvk-tips{margin:14px 12px 0;padding:12px;background:#fff;border-radius:12px;}
-.bvk-tips h4{font-size:12px;font-weight:700;color:#374151;margin-bottom:6px;}
-.bvk-tip{padding:8px 12px;background:#f9fafb;border-radius:8px;margin-bottom:4px;font-size:11px;color:#4b5563;cursor:pointer;transition:background .2s;}
-.bvk-tip:hover{background:#fef3c7;}
+.bvk-cmd{display:flex;align-items:center;gap:14px;background:#161b22;border:1px solid #30363d;border-radius:14px;padding:16px;cursor:pointer;transition:all .2s;text-align:left;width:100%;}
+.bvk-cmd:hover{border-color:#58a6ff;box-shadow:0 2px 12px rgba(31,111,235,.12);}
+.bvk-cmd.primary{border:2px solid #1f6feb;background:linear-gradient(135deg,#161b22 0%,#0d1117 100%);}
+.bvk-cmd-icon{font-size:26px;flex-shrink:0;width:42px;height:42px;display:flex;align-items:center;justify-content:center;background:rgba(31,111,235,0.1);border-radius:10px;}
+.bvk-cmd-text h4{font-size:13px;font-weight:700;color:#e6edf3;margin-bottom:1px;}
+.bvk-cmd-text p{font-size:11px;color:#8b949e;}
+.bvk-tips{margin:14px 12px 0;padding:12px;background:#161b22;border:1px solid #30363d;border-radius:12px;}
+.bvk-tips h4{font-size:12px;font-weight:700;color:#e6edf3;margin-bottom:6px;}
+.bvk-tip{padding:8px 12px;background:#21262d;border-radius:8px;margin-bottom:4px;font-size:11px;color:#8b949e;cursor:pointer;transition:background .2s;}
+.bvk-tip:hover{background:#30363d;}
 
 /* ── Login ── */
 .bvk-login{text-align:center;padding:80px 20px;}
 .bvk-login-icon{font-size:48px;margin-bottom:12px;}
-.bvk-login h2{font-size:22px;margin-bottom:6px;}
-.bvk-login p{color:#6b7280;font-size:14px;}
+.bvk-login h2{font-size:22px;margin-bottom:6px;color:#e6edf3;}
+.bvk-login p{color:#8b949e;font-size:14px;}
 
 /* ── Empty ── */
-.bvk-empty{text-align:center;padding:32px 16px;color:#9ca3af;font-size:13px;}
+.bvk-empty{text-align:center;padding:32px 16px;color:#8b949e;font-size:13px;}
 .bvk-empty-icon{font-size:36px;margin-bottom:8px;}
 
 /* ── Upload indicator ── */
-.bvk-upload-bar{height:3px;background:#f3f4f6;border-radius:2px;margin-top:6px;overflow:hidden;display:none;}
+.bvk-upload-bar{height:3px;background:#21262d;border-radius:2px;margin-top:6px;overflow:hidden;display:none;}
 .bvk-upload-bar.active{display:block;}
-.bvk-upload-bar-fill{height:100%;background:linear-gradient(90deg,#f59e0b,#f97316);width:0;transition:width .3s;}
+.bvk-upload-bar-fill{height:100%;background:linear-gradient(90deg,#1f6feb,#58a6ff);width:0;transition:width .3s;}
 
 /* ── Console Log ── */
 .bvk-console{background:#0f172a;border-radius:12px;margin:12px;padding:12px;max-height:200px;overflow-y:auto;font-family:'Cascadia Code','Fira Code',monospace;font-size:11px;line-height:1.7;color:#94a3b8;}
@@ -195,24 +283,24 @@ body{background:#f9fafb;font-family:system-ui,-apple-system,sans-serif;color:#1a
 
 /* ── Job Actions ── */
 .bvk-job-actions{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;}
-.bvk-job-act{display:inline-flex;align-items:center;gap:4px;padding:5px 10px;border-radius:8px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid #e5e7eb;background:#fff;color:#374151;transition:all .2s;font-family:inherit;}
-.bvk-job-act:hover{border-color:#f97316;color:#f97316;}
+.bvk-job-act{display:inline-flex;align-items:center;gap:4px;padding:5px 10px;border-radius:8px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid #30363d;background:#21262d;color:#8b949e;transition:all .2s;font-family:inherit;}
+.bvk-job-act:hover{border-color:#58a6ff;color:#58a6ff;}
 .bvk-job-act:disabled{opacity:0.4;cursor:not-allowed;}
-.bvk-job-act.done{background:#dcfce7;border-color:#86efac;color:#166534;cursor:default;}
+.bvk-job-act.done{background:rgba(63,185,80,.15);border-color:rgba(63,185,80,.3);color:#3fb950;cursor:default;}
 
 /* ── Pipeline Steps ── */
 .bvk-pipeline{display:flex;gap:4px;margin-top:8px;flex-wrap:wrap;}
-.bvk-step{display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:6px;font-size:10px;font-weight:600;background:#f3f4f6;color:#9ca3af;}
-.bvk-step.done{background:#dcfce7;color:#166534;}
-.bvk-step.active{background:#dbeafe;color:#1e40af;animation:bvk-pulse 1.5s infinite;}
+.bvk-step{display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:6px;font-size:10px;font-weight:600;background:#21262d;color:#8b949e;}
+.bvk-step.done{background:rgba(63,185,80,.15);color:#3fb950;}
+.bvk-step.active{background:rgba(31,111,235,.15);color:#58a6ff;animation:bvk-pulse 1.5s infinite;}
 @keyframes bvk-pulse{0%,100%{opacity:1;}50%{opacity:0.6;}}
 
 /* ── Monitor Header ── */
 .bvk-monitor-bar{display:flex;gap:8px;padding:8px 12px;align-items:center;flex-wrap:wrap;}
 .bvk-monitor-badge{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:8px;font-size:11px;font-weight:700;}
-.bvk-badge-active{background:#dbeafe;color:#1e40af;}
-.bvk-badge-done{background:#dcfce7;color:#166534;}
-.bvk-badge-total{background:#f3f4f6;color:#6b7280;}
+.bvk-badge-active{background:rgba(31,111,235,.15);color:#58a6ff;}
+.bvk-badge-done{background:rgba(63,185,80,.15);color:#3fb950;}
+.bvk-badge-total{background:#21262d;color:#8b949e;}
 </style>
 </head>
 <body>
@@ -232,6 +320,12 @@ body{background:#f9fafb;font-family:system-ui,-apple-system,sans-serif;color:#1a
     <a href="?tab=create" class="bvk-nav-item<?php echo $active_tab === 'create' ? ' active' : ''; ?>" data-tab="create">
         <span class="bvk-nav-icon"><?php echo "\xF0\x9F\x8E\xAC"; ?></span><span><?php echo "T\xE1\xBA\xA1o video"; ?></span>
     </a>
+    <a href="?tab=canva" class="bvk-nav-item<?php echo $active_tab === 'canva' ? ' active' : ''; ?>" data-tab="canva">
+        <span class="bvk-nav-icon"><?php echo "\xF0\x9F\x8E\xA8"; ?></span><span>Canva</span>
+    </a>
+    <a href="?tab=editor" class="bvk-nav-item<?php echo $active_tab === 'editor' ? ' active' : ''; ?>" data-tab="editor">
+        <span class="bvk-nav-icon"><?php echo "\xF0\x9F\x8E\x9E"; ?></span><span><?php echo "H\xE1\xBA\xADu k\xE1\xBB\xB3"; ?></span>
+    </a>
     <a href="?tab=monitor" class="bvk-nav-item<?php echo $active_tab === 'monitor' ? ' active' : ''; ?>" data-tab="monitor">
         <span class="bvk-nav-icon"><?php echo "\xF0\x9F\x93\x8A"; ?></span><span>Monitor</span>
     </a>
@@ -244,9 +338,9 @@ body{background:#f9fafb;font-family:system-ui,-apple-system,sans-serif;color:#1a
 </nav>
 
 <!-- ═══════════════════════════════════════════════
-     TAB 1: CREATE VIDEO (Direct Form)
+     TAB 1: CREATE VIDEO (Legacy — hidden)
      ═══════════════════════════════════════════════ -->
-<div class="bvk-tab<?php echo $active_tab === 'create' ? ' active' : ''; ?>" id="bvk-tab-create">
+<div style="display:none!important" id="bvk-tab-create-legacy">
 
     <!-- Hero -->
     <div class="bvk-hero">
@@ -296,11 +390,8 @@ body{background:#f9fafb;font-family:system-ui,-apple-system,sans-serif;color:#1a
         <div class="bvk-field">
             <label><?php echo "\xE2\x8F\xB1 Th\xE1\xBB\x9Di l\xC6\xB0\xE1\xBB\xA3ng"; ?></label>
             <div class="bvk-pill-row">
-                <label class="bvk-pill"><input type="radio" name="bvk_duration" value="5"<?php checked( $cfg_duration, 5 ); ?>> 5s</label>
-                <label class="bvk-pill"><input type="radio" name="bvk_duration" value="10"<?php checked( $cfg_duration, 10 ); ?>> 10s</label>
-                <label class="bvk-pill"><input type="radio" name="bvk_duration" value="15"<?php checked( $cfg_duration, 15 ); ?>> 15s</label>
-                <label class="bvk-pill"><input type="radio" name="bvk_duration" value="20"<?php checked( $cfg_duration, 20 ); ?>> 20s</label>
-                <label class="bvk-pill"><input type="radio" name="bvk_duration" value="30"<?php checked( $cfg_duration, 30 ); ?>> 30s</label>
+                <label class="bvk-pill"><input type="radio" name="bvk_duration" value="5"<?php checked( $cfg_duration ?: 10, 5 ); ?>> 5s</label>
+                <label class="bvk-pill"><input type="radio" name="bvk_duration" value="10"<?php checked( $cfg_duration ?: 10, 10 ); ?>> 10s</label>
             </div>
         </div>
 
@@ -366,6 +457,13 @@ body{background:#f9fafb;font-family:system-ui,-apple-system,sans-serif;color:#1a
 </div>
 
 <!-- ═══════════════════════════════════════════════
+     TAB 1: CREATE VIDEO (AIVA Two-Panel Layout)
+     ═══════════════════════════════════════════════ -->
+<div class="bvk-tab<?php echo $active_tab === 'create' ? ' active' : ''; ?>" id="bvk-tab-create">
+    <?php include BIZCITY_VIDEO_KLING_DIR . 'views/page-kling-create.php'; ?>
+</div>
+
+<!-- ═══════════════════════════════════════════════
      TAB 2: MONITOR (Live Console + Job Tracking)
      ═══════════════════════════════════════════════ -->
 <div class="bvk-tab<?php echo $active_tab === 'monitor' ? ' active' : ''; ?>" id="bvk-tab-monitor">
@@ -383,7 +481,7 @@ body{background:#f9fafb;font-family:system-ui,-apple-system,sans-serif;color:#1a
         <span class="bvk-monitor-badge bvk-badge-active"><?php echo "\xE2\x8F\xB3 " . $stats['active'] . " \xC4\x91ang ch\xE1\xBA\xA1y"; ?></span>
         <?php endif; ?>
         <?php endif; ?>
-        <button type="button" class="bvk-btn-sm" id="bvk-btn-refresh" style="margin-left:auto;padding:4px 10px;font-size:11px;font-weight:600;border-radius:6px;border:1px solid #e5e7eb;background:#fff;cursor:pointer;color:#374151;"><?php echo "\xF0\x9F\x94\x84 L\xC3\xA0m m\xE1\xBB\x9Bi"; ?></button>
+        <button type="button" class="bvk-btn-sm" id="bvk-btn-refresh" style="margin-left:auto;padding:4px 10px;font-size:11px;font-weight:600;border-radius:6px;border:1px solid #30363d;background:#21262d;cursor:pointer;color:#8b949e;"><?php echo "\xF0\x9F\x94\x84 L\xC3\xA0m m\xE1\xBB\x9Bi"; ?></button>
     </div>
 
     <!-- Live Console -->
@@ -528,24 +626,6 @@ body{background:#f9fafb;font-family:system-ui,-apple-system,sans-serif;color:#1a
         <p><?php echo "C\xE1\xBA\xA5u h\xC3\xACnh API v\xC3\xA0 th\xC3\xB4ng s\xE1\xBB\x91 m\xE1\xBA\xB7c \xC4\x91\xE1\xBB\x8Bnh"; ?></p>
     </div>
 
-    <?php if ( $is_admin_user ): ?>
-    <!-- API Configuration (admin only) -->
-    <div class="bvk-card">
-        <h3><?php echo "\xF0\x9F\x94\x91 API Configuration"; ?></h3>
-
-        <div class="bvk-field">
-            <label>PiAPI API Key</label>
-            <input type="password" id="bvk-cfg-api-key" value="<?php echo esc_attr( $cfg_api_key ); ?>" placeholder="pk-xxxxxxxxxxxxxxxx">
-            <small style="font-size:10px;color:#9ca3af;margin-top:2px;display:block;"><?php echo "L\xE1\xBA\xA5y API key t\xE1\xBA\xA1i <a href='https://piapi.ai' target='_blank' style='color:#6366f1;'>piapi.ai</a>"; ?></small>
-        </div>
-
-        <div class="bvk-field">
-            <label>API Endpoint</label>
-            <input type="url" id="bvk-cfg-endpoint" value="<?php echo esc_attr( $cfg_endpoint ); ?>" placeholder="https://api.piapi.ai/api/v1">
-        </div>
-    </div>
-    <?php endif; ?>
-
     <!-- Default Settings (all users) -->
     <div class="bvk-card">
         <h3><?php echo "\xF0\x9F\x8E\x9B M\xE1\xBA\xB7c \xC4\x91\xE1\xBB\x8Bnh t\xE1\xBA\xA1o video"; ?></h3>
@@ -598,23 +678,80 @@ body{background:#f9fafb;font-family:system-ui,-apple-system,sans-serif;color:#1a
         <div id="bvk-settings-status" class="bvk-status"></div>
     </div>
 
-    <!-- Info -->
-    <div class="bvk-card" style="background:#f8fafc;border:1px dashed #e2e8f0;">
-        <h3 style="font-size:13px;"><?php echo "\xE2\x84\xB9 Th\xC3\xB4ng tin"; ?></h3>
-        <div style="font-size:11px;color:#6b7280;line-height:1.7;">
-            <div><?php echo "\xF0\x9F\x94\xA7 Plugin: BizCity Video Kling v" . BIZCITY_VIDEO_KLING_VERSION; ?></div>
-            <div><?php echo "\xF0\x9F\x8C\x90 Gateway: PiAPI (piapi.ai)"; ?></div>
-            <div><?php echo "\xF0\x9F\x8E\xAC Engine: Kling AI (Image-to-Video)"; ?></div>
-            <div><?php echo "\xF0\x9F\x8E\x99 TTS: OpenAI Text-to-Speech"; ?></div>
-            <div><?php echo "\xF0\x9F\x8E\xAC FFmpeg: Video concat + audio merge"; ?></div>
-            <?php if ( $stats ): ?>
-            <div style="margin-top:6px;padding-top:6px;border-top:1px solid #e2e8f0;">
-                <?php echo "\xF0\x9F\x93\x8A T\xE1\xBB\x95ng: {$stats['total']} video | \xE2\x9C\x85 {$stats['done']} xong | \xE2\x8F\xB3 {$stats['active']} \xC4\x91ang ch\xE1\xBA\xA1y"; ?>
-            </div>
-            <?php endif; ?>
-        </div>
-    </div>
 </div>
+
+<!-- ═══════════════════════════════════════════════
+     TAB 5: STUDIO (Effect Gallery)
+     ═══════════════════════════════════════════════ -->
+<div class="bvk-tab<?php echo $active_tab === 'studio' ? ' active' : ''; ?>" id="bvk-tab-studio">
+    <?php include BIZCITY_VIDEO_KLING_DIR . 'views/page-kling-studio.php'; ?>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     TAB 6: GENERATE (Multi-scene from effect)
+     ═══════════════════════════════════════════════ -->
+<div class="bvk-tab<?php echo $active_tab === 'generate' ? ' active' : ''; ?>" id="bvk-tab-generate">
+    <?php include BIZCITY_VIDEO_KLING_DIR . 'views/page-kling-generate.php'; ?>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     TAB 7: VIDEO EDITOR (React Remotion)
+     ═══════════════════════════════════════════════ -->
+<div class="bvk-tab<?php echo $active_tab === 'editor' ? ' active' : ''; ?>" id="bvk-tab-editor" style="height:calc(100vh - 56px);">
+    <iframe
+        id="bvk-editor-frame"
+        src="<?php echo esc_url( BIZCITY_VIDEO_KLING_URL . 'assets/video-editor-loader.php' ); ?>"
+        style="width:100%;height:100%;border:none;display:block;"
+        allow="autoplay; fullscreen"
+        loading="lazy"
+    ></iframe>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     TAB: CANVA (TwitCanva Video Workflow)
+     ═══════════════════════════════════════════════ -->
+<div class="bvk-tab<?php echo $active_tab === 'canva' ? ' active' : ''; ?>" id="bvk-tab-canva" style="height:calc(100vh - 56px);display:flex;flex-direction:column;">
+    <!-- Canva → Hậu kỳ bridge toolbar -->
+    <div id="bvk-canva-toolbar" style="display:flex;align-items:center;gap:8px;padding:6px 12px;background:#161b22;border-bottom:1px solid #30363d;flex-shrink:0;">
+        <span style="font-size:12px;color:#8b949e;">Canva Video:</span>
+        <button type="button" id="bvk-wf-send-editor" onclick="bvkCanvaSendToEditor()" style="font-size:12px;padding:4px 12px;background:#1f6feb;color:#fff;border:1px solid #388bfd;border-radius:4px;cursor:pointer;">
+            <?php echo "\xF0\x9F\x8E\x9E"; ?> <?php echo "G\xE1\xBB\xADi sang H\xE1\xBA\xADu k\xE1\xBB\xB3"; ?>
+        </button>
+        <span id="bvk-wf-bridge-status" style="font-size:11px;color:#8b949e;"></span>
+    </div>
+    <?php
+    $tc_cfg = array(
+        'ajaxUrl' => admin_url( 'admin-ajax.php' ),
+        'nonce'   => wp_create_nonce( 'bvk_nonce' ),
+    );
+    $tc_hash = '#wp=' . strtr( base64_encode( wp_json_encode( $tc_cfg ) ), '+/', '-_' );
+    $tc_src  = BIZCITY_VIDEO_KLING_URL . 'twitcanva-dist/index.html' . $tc_hash;
+    ?>
+    <iframe
+        id="bvk-canva-frame"
+        src="<?php echo esc_url( $tc_src ); ?>"
+        style="width:100%;flex:1;border:none;display:block;"
+        allow="clipboard-write; clipboard-read; autoplay; fullscreen"
+        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads"
+        loading="lazy"
+    ></iframe>
+</div>
+<script>
+(function(){
+    var iframe = document.getElementById('bvk-canva-frame');
+    var cfg = {
+        ajaxUrl: <?php echo wp_json_encode( admin_url( 'admin-ajax.php' ) ); ?>,
+        nonce:   <?php echo wp_json_encode( wp_create_nonce( 'bvk_nonce' ) ); ?>
+    };
+    iframe.addEventListener('load', function() {
+        try {
+            iframe.contentWindow.__tcWp = cfg;
+        } catch(e) {
+            iframe.contentWindow.postMessage({ type: '__tcWp', payload: cfg }, '*');
+        }
+    });
+})();
+</script>
 
 <?php endif; // is_logged_in ?>
 
@@ -630,142 +767,319 @@ body{background:#f9fafb;font-family:system-ui,-apple-system,sans-serif;color:#1a
         nonce:    '<?php echo esc_js( wp_create_nonce( "bvk_nonce" ) ); ?>'
     };
 
-    var uploadedPhotoUrl = '';
     var isSubmitting = false;
 
-    /* ── Tab Navigation ── */
+    /* ── Tab Navigation (with URL persistence) ── */
     document.querySelectorAll('.bvk-nav-item').forEach(function(link) {
         link.addEventListener('click', function(e) {
             e.preventDefault();
+            var tabName = link.getAttribute('data-tab');
             document.querySelectorAll('.bvk-nav-item').forEach(function(l){ l.classList.remove('active'); });
             document.querySelectorAll('.bvk-tab').forEach(function(t){ t.classList.remove('active'); });
             link.classList.add('active');
-            var tab = document.getElementById('bvk-tab-' + link.getAttribute('data-tab'));
+            var tab = document.getElementById('bvk-tab-' + tabName);
             if (tab) tab.classList.add('active');
+            // Update URL so F5 preserves active tab
+            var url = new URL(window.location);
+            url.searchParams.set('tab', tabName);
+            history.replaceState(null, '', url);
         });
     });
 
-    /* ── Photo Upload ── */
-    var photoInput = document.getElementById('bvk-photo-input');
-    if (photoInput) {
-        photoInput.addEventListener('change', function() {
-            var file = this.files[0];
-            if (!file) return;
+    /* ── AIVA Create: Multi-scene management ── */
+    var createScenes = document.getElementById('bvk-create-scenes');
+    var createAddBtn = document.getElementById('bvk-create-add-scene');
 
-            // Preview immediately
-            var reader = new FileReader();
-            reader.onload = function(e) {
-                document.getElementById('bvk-photo-img').src = e.target.result;
-                document.getElementById('bvk-photo-preview').style.display = 'block';
-                document.getElementById('bvk-photo-placeholder').style.display = 'none';
-            };
-            reader.readAsDataURL(file);
+    function getCreateSceneCount() {
+        return createScenes ? createScenes.querySelectorAll('.bvk-aiva-scene').length : 0;
+    }
 
-            // Upload to WP Media
-            var fd = new FormData();
-            fd.append('action', 'bvk_upload_photo');
-            fd.append('nonce', BVK.nonce);
-            fd.append('photo', file);
+    function createNewScene(num) {
+        var div = document.createElement('div');
+        div.className = 'bvk-aiva-scene';
+        div.dataset.scene = num;
+        div.innerHTML =
+            '<div class="bvk-aiva-scene__header">' +
+                '<span class="bvk-aiva-scene__label">Cảnh ' + num + '</span>' +
+                '<button type="button" class="bvk-aiva-scene__remove" title="Xóa cảnh">✖</button>' +
+            '</div>' +
+            '<label class="bvk-aiva-dropzone" data-scene="' + num + '">' +
+                '<input type="file" accept="image/*" class="bvk-aiva-scene-file" data-scene="' + num + '" style="display:none">' +
+                '<div class="bvk-aiva-scene-preview" style="display:none"><img src="" alt=""><button type="button" class="bvk-aiva-scene-clear" title="Xóa ảnh">✕</button></div>' +
+                '<div class="bvk-aiva-scene-placeholder"><span>📤</span><p>Click để tải lên ảnh</p><small>JPG/PNG/WEBP tối đa 10MB</small></div>' +
+            '</label>' +
+            '<input type="hidden" class="bvk-aiva-scene-url" data-scene="' + num + '" value="">' +
+            '<div class="bvk-aiva-scene-progress"><div class="bvk-aiva-scene-progress-bar"></div></div>';
+        return div;
+    }
 
-            var bar = document.getElementById('bvk-upload-bar');
-            var fill = document.getElementById('bvk-upload-fill');
-            bar.classList.add('active');
-            fill.style.width = '30%';
-
-            var xhr = new XMLHttpRequest();
-            xhr.open('POST', BVK.ajax_url, true);
-            xhr.onload = function() {
-                fill.style.width = '100%';
-                setTimeout(function(){ bar.classList.remove('active'); fill.style.width = '0'; }, 800);
-                try {
-                    var res = JSON.parse(xhr.responseText);
-                    if (res.success) {
-                        uploadedPhotoUrl = res.data.url;
-                    } else {
-                        showStatus(res.data && res.data.message ? res.data.message : 'Upload failed', 'error');
-                    }
-                } catch(e) {
-                    showStatus('Upload error', 'error');
-                }
-            };
-            xhr.onerror = function() {
-                bar.classList.remove('active');
-                showStatus('Network error', 'error');
-            };
-            xhr.upload.onprogress = function(e) {
-                if (e.lengthComputable) {
-                    fill.style.width = Math.round((e.loaded / e.total) * 90) + '%';
-                }
-            };
-            xhr.send(fd);
+    if (createAddBtn && createScenes) {
+        createAddBtn.addEventListener('click', function() {
+            if (getCreateSceneCount() >= 3) return;
+            createScenes.appendChild(createNewScene(getCreateSceneCount() + 1));
+            updateAddSceneBtn();
+            updateCreateBtn();
         });
     }
 
-    /* ── Create Video ── */
-    var btnCreate = document.getElementById('bvk-btn-create');
-    if (btnCreate) {
-        btnCreate.addEventListener('click', function() {
-            if (isSubmitting) return;
-
-            var prompt    = (document.getElementById('bvk-prompt').value || '').trim();
-            var voiceover = (document.getElementById('bvk-voiceover').value || '').trim();
-            var model     = document.getElementById('bvk-model').value;
-            var duration  = document.querySelector('input[name="bvk_duration"]:checked');
-            var ratio     = document.querySelector('input[name="bvk_ratio"]:checked');
-
-            if (!prompt && !uploadedPhotoUrl) {
-                showStatus('Vui long nhap mo ta hoac chon anh de tao video.', 'error');
-                return;
+    if (createScenes) {
+        createScenes.addEventListener('change', function(e) {
+            if (e.target.classList.contains('bvk-aiva-scene-file')) {
+                aivaUploadScene(e.target.closest('.bvk-aiva-scene'), e.target.files[0]);
             }
+        });
+        createScenes.addEventListener('click', function(e) {
+            if (e.target.classList.contains('bvk-aiva-scene__remove')) {
+                var scene = e.target.closest('.bvk-aiva-scene');
+                if (scene && getCreateSceneCount() > 1) {
+                    scene.remove();
+                    renumberCreateScenes();
+                    updateAddSceneBtn();
+                    updateCreateBtn();
+                }
+            }
+            if (e.target.classList.contains('bvk-aiva-scene-clear')) {
+                e.preventDefault();
+                e.stopPropagation();
+                aivaClearScene(e.target.closest('.bvk-aiva-scene'));
+                updateCreateBtn();
+            }
+        });
+        createScenes.addEventListener('dragover', function(e) {
+            var dz = e.target.closest('.bvk-aiva-dropzone');
+            if (dz) { e.preventDefault(); dz.classList.add('dragover'); }
+        });
+        createScenes.addEventListener('dragleave', function(e) {
+            var dz = e.target.closest('.bvk-aiva-dropzone');
+            if (dz) dz.classList.remove('dragover');
+        });
+        createScenes.addEventListener('drop', function(e) {
+            var dz = e.target.closest('.bvk-aiva-dropzone');
+            if (!dz) return;
+            e.preventDefault();
+            dz.classList.remove('dragover');
+            if (e.dataTransfer.files.length > 0) aivaUploadScene(dz.closest('.bvk-aiva-scene'), e.dataTransfer.files[0]);
+        });
+    }
 
-            isSubmitting = true;
-            btnCreate.disabled = true;
-            showStatus('Dang gui yeu cau tao video...', 'loading');
+    function aivaUploadScene(scene, file) {
+        if (!file || !scene) return;
+        var preview = scene.querySelector('.bvk-aiva-scene-preview');
+        var placeholder = scene.querySelector('.bvk-aiva-scene-placeholder');
+        var urlInput = scene.querySelector('.bvk-aiva-scene-url');
+        var progressWrap = scene.querySelector('.bvk-aiva-scene-progress');
+        var progressBar = scene.querySelector('.bvk-aiva-scene-progress-bar');
+        var reader = new FileReader();
+        reader.onload = function(ev) {
+            preview.querySelector('img').src = ev.target.result;
+            preview.style.display = '';
+            placeholder.style.display = 'none';
+        };
+        reader.readAsDataURL(file);
+        var fd = new FormData();
+        fd.append('action', 'bvk_upload_photo');
+        fd.append('nonce', BVK.nonce);
+        fd.append('photo', file);
+        progressWrap.classList.add('active');
+        progressBar.style.width = '30%';
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', BVK.ajax_url, true);
+        xhr.upload.onprogress = function(ev) { if (ev.lengthComputable) progressBar.style.width = Math.round((ev.loaded / ev.total) * 90) + '%'; };
+        xhr.onload = function() {
+            progressBar.style.width = '100%';
+            setTimeout(function() { progressWrap.classList.remove('active'); progressBar.style.width = '0'; }, 600);
+            try {
+                var res = JSON.parse(xhr.responseText);
+                if (res.success && res.data && res.data.url) { urlInput.value = res.data.url; updateCreateBtn(); }
+                else { alert('Upload th\u1EA5t b\u1EA1i: ' + (res.data && res.data.message || 'L\u1ED7i')); aivaClearScene(scene); }
+            } catch(err) { alert('Upload th\u1EA5t b\u1EA1i.'); aivaClearScene(scene); }
+        };
+        xhr.onerror = function() { progressWrap.classList.remove('active'); alert('L\u1ED7i k\u1EBFt n\u1ED1i.'); aivaClearScene(scene); };
+        xhr.send(fd);
+    }
 
+    function aivaClearScene(scene) {
+        var preview = scene.querySelector('.bvk-aiva-scene-preview');
+        var placeholder = scene.querySelector('.bvk-aiva-scene-placeholder');
+        var urlInput = scene.querySelector('.bvk-aiva-scene-url');
+        var fileInput = scene.querySelector('.bvk-aiva-scene-file');
+        var promptTA = scene.querySelector('.bvk-aiva-scene-prompt');
+        var charcount = scene.querySelector('.bvk-aiva-charcount');
+        if (preview) { preview.style.display = 'none'; preview.querySelector('img').src = ''; }
+        if (placeholder) placeholder.style.display = '';
+        if (urlInput) urlInput.value = '';
+        if (fileInput) fileInput.value = '';
+        if (promptTA) promptTA.value = '';
+        if (charcount) charcount.textContent = '0/2000';
+    }
+
+    function renumberCreateScenes() {
+        if (!createScenes) return;
+        createScenes.querySelectorAll('.bvk-aiva-scene').forEach(function(s, i) {
+            s.dataset.scene = i + 1;
+            var lbl = s.querySelector('.bvk-aiva-scene__label');
+            if (lbl) lbl.textContent = 'C\u1EA3nh ' + (i + 1);
+        });
+    }
+
+    /* ── Per-scene charcount + Optimize + Mode Tabs ── */
+    if (createScenes) {
+        createScenes.addEventListener('input', function(e) {
+            if (e.target.classList.contains('bvk-aiva-scene-prompt')) {
+                var foot = e.target.closest('.bvk-aiva-scene-prompt-wrap');
+                if (foot) {
+                    var cc = foot.querySelector('.bvk-aiva-charcount');
+                    if (cc) cc.textContent = e.target.value.length + '/2000';
+                }
+            }
+        });
+        createScenes.addEventListener('click', function(e) {
+            if (!e.target.classList.contains('bvk-aiva-optimize')) return;
+            var wrap = e.target.closest('.bvk-aiva-scene-prompt-wrap');
+            if (!wrap) return;
+            var ta = wrap.querySelector('.bvk-aiva-scene-prompt');
+            if (!ta) return;
+            var btn = e.target;
+            var origText = btn.textContent;
+            btn.textContent = '\u23f3 \u0110ang t\u1ed1i \u01b0u...';
+            btn.disabled = true;
             var fd = new FormData();
-            fd.append('action', 'bvk_create_video');
+            fd.append('action', 'bvk_optimize_prompt');
             fd.append('nonce', BVK.nonce);
-            fd.append('prompt', prompt);
-            fd.append('image_url', uploadedPhotoUrl);
-            fd.append('duration', duration ? duration.value : '10');
-            fd.append('aspect_ratio', ratio ? ratio.value : '9:16');
-            fd.append('voiceover_text', voiceover);
-            fd.append('model', model);
-
+            fd.append('prompt', ta.value);
             var xhr = new XMLHttpRequest();
             xhr.open('POST', BVK.ajax_url, true);
             xhr.onload = function() {
-                isSubmitting = false;
-                btnCreate.disabled = false;
+                btn.textContent = origText;
+                btn.disabled = false;
                 try {
                     var res = JSON.parse(xhr.responseText);
-                    if (res.success) {
-                        showStatus('', '');
-                        var result = document.getElementById('bvk-result');
-                        var body = document.getElementById('bvk-result-body');
-                        body.innerHTML = (res.data.message || 'Video dang duoc xu ly!').replace(/\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-                        result.classList.add('show');
-                        // Reset form
-                        document.getElementById('bvk-prompt').value = '';
-                        document.getElementById('bvk-voiceover').value = '';
-                        uploadedPhotoUrl = '';
-                        document.getElementById('bvk-photo-preview').style.display = 'none';
-                        document.getElementById('bvk-photo-placeholder').style.display = '';
-                        document.getElementById('bvk-photo-url').value = '';
+                    if (res.success && res.data.prompt) {
+                        ta.value = res.data.prompt;
+                        var cc = wrap.querySelector('.bvk-aiva-charcount');
+                        if (cc) cc.textContent = ta.value.length + '/2000';
                     } else {
-                        showStatus(res.data && res.data.message ? res.data.message : 'Loi tao video', 'error');
+                        alert(res.data && res.data.message ? res.data.message : 'T\u1ed1i \u01b0u th\u1ea5t b\u1ea1i.');
                     }
-                } catch(e) {
-                    showStatus('Server error: ' + e.message, 'error');
-                }
+                } catch(err) { alert('Server error.'); }
             };
-            xhr.onerror = function() {
-                isSubmitting = false;
-                btnCreate.disabled = false;
-                showStatus('Network error', 'error');
-            };
+            xhr.onerror = function() { btn.textContent = origText; btn.disabled = false; alert('L\u1ed7i k\u1ebft n\u1ed1i.'); };
             xhr.send(fd);
         });
+    }
+    document.querySelectorAll('.bvk-aiva-mode').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            document.querySelectorAll('.bvk-aiva-mode').forEach(function(b) { b.classList.remove('active'); });
+            btn.classList.add('active');
+        });
+    });
+
+    /* ── Create Button State ── */
+    var btnCreateVideo = document.getElementById('bvk-btn-create-video');
+    function updateCreateBtn() {
+        if (!btnCreateVideo || !createScenes) return;
+        var hasAny = false;
+        createScenes.querySelectorAll('.bvk-aiva-scene-url').forEach(function(u) { if (u.value) hasAny = true; });
+        btnCreateVideo.disabled = !hasAny;
+    }
+    function updateAddSceneBtn() {
+        if (!createAddBtn) return;
+        createAddBtn.style.display = getCreateSceneCount() >= 3 ? 'none' : '';
+    }
+
+    /* ── Create Video Submit (multi-scene) ── */
+    if (btnCreateVideo) {
+        btnCreateVideo.addEventListener('click', function() {
+            if (isSubmitting || btnCreateVideo.disabled) return;
+            var model = document.getElementById('bvk-create-model').value;
+            var duration = document.querySelector('#bvk-tab-create input[name="bvk_duration"]:checked');
+            var ratio = document.querySelector('#bvk-tab-create input[name="bvk_ratio"]:checked');
+
+            // Collect filled scenes
+            var jobs = [];
+            createScenes.querySelectorAll('.bvk-aiva-scene').forEach(function(scene) {
+                var url = scene.querySelector('.bvk-aiva-scene-url');
+                var promptEl = scene.querySelector('.bvk-aiva-scene-prompt');
+                if (url && url.value) {
+                    jobs.push({ url: url.value, prompt: (promptEl ? promptEl.value.trim() : ''), scene: scene });
+                }
+            });
+            if (jobs.length === 0) { showCreateStatus('Vui l\u00F2ng upload \u00EDt nh\u1EA5t 1 \u1EA3nh.', 'error'); return; }
+
+            isSubmitting = true;
+            btnCreateVideo.disabled = true;
+            btnCreateVideo.innerHTML = '<span>\u23F3</span> \u0110ang g\u1EEDi ' + jobs.length + ' c\u1EA3nh...';
+            showCreateStatus('\u0110ang g\u1EEDi ' + jobs.length + ' c\u1EA3nh...', 'loading');
+
+            var completed = 0, succeeded = 0;
+            jobs.forEach(function(job) {
+                var fd = new FormData();
+                fd.append('action', 'bvk_create_video');
+                fd.append('nonce', BVK.nonce);
+                fd.append('prompt', job.prompt);
+                fd.append('image_url', job.url);
+                fd.append('duration', duration ? duration.value : '10');
+                fd.append('aspect_ratio', ratio ? ratio.value : '9:16');
+                fd.append('model', model);
+                var xhr = new XMLHttpRequest();
+                xhr.open('POST', BVK.ajax_url, true);
+                xhr.onload = function() {
+                    completed++;
+                    try {
+                        var res = JSON.parse(xhr.responseText);
+                        if (res.success) {
+                            succeeded++;
+                            var emptyEl = document.getElementById('bvk-results-empty');
+                            if (emptyEl) emptyEl.style.display = 'none';
+                            var jobsList = document.getElementById('bvk-create-jobs');
+                            if (!jobsList) {
+                                jobsList = document.createElement('div');
+                                jobsList.id = 'bvk-create-jobs';
+                                jobsList.className = 'bvk-aiva-jobs';
+                                var rp = document.querySelector('.bvk-aiva-results');
+                                if (rp) rp.appendChild(jobsList);
+                            }
+                            jobsList.insertAdjacentHTML('afterbegin',
+                                '<div class="bvk-aiva-job" data-status="queued"><div class="bvk-job-top">' +
+                                '<span class="bvk-job-status st-queued">\u0110ang ch\u1EDD</span>' +
+                                '<span style="font-size:10px;color:#58a6ff;font-weight:600;background:rgba(31,111,235,.15);padding:1px 6px;border-radius:4px;">' + escHtml(model) + '</span></div>' +
+                                '<div class="bvk-job-prompt">' + escHtml(job.prompt.substring(0, 100) || '(no prompt)') + '</div>' +
+                                '<div class="bvk-progress"><div class="bvk-progress-bar" style="width:10%"></div></div></div>');
+                        }
+                    } catch(e) {}
+                    if (completed === jobs.length) {
+                        isSubmitting = false;
+                        btnCreateVideo.innerHTML = '<span>\u25B6</span> T\u1EA1o video';
+                        if (succeeded > 0) {
+                            showCreateStatus('\u0110\u00E3 g\u1EEDi ' + succeeded + '/' + jobs.length + ' c\u1EA3nh th\u00E0nh c\u00F4ng! Theo d\u00F5i t\u1EA1i tab Monitor.', 'success');
+                            if (!pollTimer) { pollTimer = setInterval(pollJobs, 10000); }
+                            createScenes.querySelectorAll('.bvk-aiva-scene').forEach(function(s) { aivaClearScene(s); });
+                        } else {
+                            showCreateStatus('G\u1EEDi th\u1EA5t b\u1EA1i, vui l\u00F2ng th\u1EED l\u1EA1i.', 'error');
+                        }
+                        updateCreateBtn();
+                    }
+                };
+                xhr.onerror = function() {
+                    completed++;
+                    if (completed === jobs.length) {
+                        isSubmitting = false;
+                        btnCreateVideo.innerHTML = '<span>\u25B6</span> T\u1EA1o video';
+                        showCreateStatus('L\u1ED7i k\u1EBFt n\u1ED1i', 'error');
+                        updateCreateBtn();
+                    }
+                };
+                xhr.send(fd);
+            });
+        });
+    }
+    updateCreateBtn();
+
+    function showCreateStatus(msg, type) {
+        var el = document.getElementById('bvk-create-status');
+        if (!el) return;
+        el.className = 'bvk-status';
+        if (msg && type) { el.textContent = msg; el.classList.add(type); }
     }
 
     /* ── Refresh Monitor ── */
@@ -829,6 +1143,20 @@ body{background:#f9fafb;font-family:system-ui,-apple-system,sans-serif;color:#1a
                 if (prev.status !== job.status) {
                     if (job.status === 'completed') {
                         logConsole('Job #' + job.id + ': COMPLETED! ' + (job.media_url ? 'Media ready' : 'Video fetched'), 'ok');
+                        // Auto-insert into React video editor
+                        var completedUrl = job.media_url || job.video_url;
+                        if (completedUrl) {
+                            var editorFrame = document.getElementById('bvk-editor-frame');
+                            if (editorFrame && editorFrame.contentWindow) {
+                                editorFrame.contentWindow.postMessage({
+                                    type: 'BVK_INSERT_VIDEO',
+                                    src: completedUrl,
+                                    jobId: job.id,
+                                    prompt: job.prompt || ''
+                                }, '*');
+                                logConsole('Job #' + job.id + ': sent to Editor', 'ok');
+                            }
+                        }
                     } else if (job.status === 'failed') {
                         logConsole('Job #' + job.id + ': FAILED — ' + (job.error_message || 'Unknown'), 'err');
                     } else {
@@ -854,7 +1182,7 @@ body{background:#f9fafb;font-family:system-ui,-apple-system,sans-serif;color:#1a
         if (stats.active > 0) {
             html += '<span class="bvk-monitor-badge bvk-badge-active">\u23F3 ' + stats.active + ' dang chay</span>';
         }
-        html += '<button type="button" class="bvk-btn-sm" id="bvk-btn-refresh" style="margin-left:auto;padding:4px 10px;font-size:11px;font-weight:600;border-radius:6px;border:1px solid #e5e7eb;background:#fff;cursor:pointer;color:#374151;">\uD83D\uDD04 Lam moi</button>';
+        html += '<button type="button" class="bvk-btn-sm" id="bvk-btn-refresh" style="margin-left:auto;padding:4px 10px;font-size:11px;font-weight:600;border-radius:6px;border:1px solid #30363d;background:#21262d;cursor:pointer;color:#8b949e;">\uD83D\uDD04 Lam moi</button>';
         bar.innerHTML = html;
         // Re-bind refresh button
         var btn = document.getElementById('bvk-btn-refresh');
@@ -876,7 +1204,11 @@ body{background:#f9fafb;font-family:system-ui,-apple-system,sans-serif;color:#1a
             'seedance:1.0':'SeeDance','sora:v1':'Sora','veo:3':'Veo 3'
         };
 
-        var html = '';
+        var html = '<div id="bvk-multi-select-bar" style="display:none;position:sticky;top:0;z-index:10;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:8px 12px;margin-bottom:8px;display:none;align-items:center;gap:8px;">' +
+            '<span id="bvk-select-count" style="font-size:12px;color:#8b949e;flex:1;">0 đã chọn</span>' +
+            '<button type="button" onclick="bvkSendSelectedToEditor()" style="background:#1f6feb;color:#fff;border:1px solid #388bfd;border-radius:6px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;">🎞️ Mở trong Editor</button>' +
+            '<button type="button" onclick="bvkClearSelection()" style="background:#21262d;color:#8b949e;border:1px solid #30363d;border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer;">✕</button>' +
+            '</div>';
         jobs.forEach(function(job) {
             var videoUrl = job.media_url || job.video_url || '';
             var prompt = job.prompt || 'No prompt';
@@ -884,7 +1216,7 @@ body{background:#f9fafb;font-family:system-ui,-apple-system,sans-serif;color:#1a
             var modelLabel = modelLabels[job.model] || job.model || 'Kling';
             var cp = job.checkpoints || {};
 
-            html += '<div class="bvk-job" data-job-id="' + job.id + '" data-status="' + job.status + '">';
+            html += '<div class="bvk-job" data-job-id="' + job.id + '" data-status="' + job.status + '" data-video-url="' + escAttr(videoUrl) + '">';
 
             // Top bar: status + model + time
             html += '<div class="bvk-job-top">';
@@ -927,6 +1259,10 @@ body{background:#f9fafb;font-family:system-ui,-apple-system,sans-serif;color:#1a
             // Action buttons (for completed jobs)
             if (job.status === 'completed') {
                 html += '<div class="bvk-job-actions">';
+                // Checkbox for multi-select
+                if (videoUrl) {
+                    html += '<label style="display:flex;align-items:center;gap:4px;cursor:pointer;margin-right:4px;"><input type="checkbox" class="bvk-job-select" data-url="' + escAttr(videoUrl) + '"> <span style="font-size:11px;color:#8b949e;">Chọn</span></label>';
+                }
                 // Upload to Media button
                 if (job.media_url) {
                     html += '<button type="button" class="bvk-job-act done" disabled>\u2705 Media</button>';
@@ -944,6 +1280,10 @@ body{background:#f9fafb;font-family:system-ui,-apple-system,sans-serif;color:#1a
                 // Copy link
                 if (videoUrl) {
                     html += '<button type="button" class="bvk-job-act" onclick="bvkCopyLink(\'' + escAttr(videoUrl) + '\', this)">\uD83D\uDD17 Copy Link</button>';
+                }
+                // Open in Editor button
+                if (videoUrl) {
+                    html += '<button type="button" class="bvk-job-act bvk-job-act-editor" style="background:#1f6feb;color:#fff;border-color:#388bfd;" onclick="bvkSendToEditor([' + JSON.stringify(videoUrl) + '])">\uD83C\uDF9E\uFE0F Editor</button>';
                 }
                 html += '</div>';
             }
@@ -1026,6 +1366,117 @@ body{background:#f9fafb;font-family:system-ui,-apple-system,sans-serif;color:#1a
         }
         logConsole('Copied: ' + url, 'ok');
     };
+
+    /* ── Switch to tab helper ── */
+    function bvkSwitchTab(tabName) {
+        document.querySelectorAll('.bvk-nav-item').forEach(function(l){ l.classList.remove('active'); });
+        document.querySelectorAll('.bvk-tab').forEach(function(t){ t.classList.remove('active'); });
+        var navItem = document.querySelector('.bvk-nav-item[data-tab="' + tabName + '"]');
+        if (navItem) navItem.classList.add('active');
+        var tabEl = document.getElementById('bvk-tab-' + tabName);
+        if (tabEl) tabEl.classList.add('active');
+    }
+
+    /* ── Open video(s) in Editor ── */
+    window.bvkSendToEditor = function(urls) {
+        if (!urls || !urls.length) return;
+        bvkSwitchTab('editor');
+        var frame = document.getElementById('bvk-editor-frame');
+        if (!frame || !frame.contentWindow) return;
+        // Post each video sequentially with a small delay
+        urls.forEach(function(url, i) {
+            setTimeout(function() {
+                frame.contentWindow.postMessage({ type: 'BVK_INSERT_VIDEO', src: url }, '*');
+                logConsole('Editor \u2190 ' + url, 'ok');
+            }, i * 150);
+        });
+    };
+
+    /* ── TwitCanva → Editor Bridge ── */
+    // Listen for messages from TwitCanva iframe
+    window.addEventListener('message', function(e) {
+        if (!e.data || typeof e.data !== 'object') return;
+        // Forward TC_SEND_TO_EDITOR from TwitCanva to Editor
+        if (e.data.type === 'TC_SEND_TO_EDITOR') {
+            var urls = e.data.urls || (e.data.url ? [e.data.url] : []);
+            if (urls.length > 0) {
+                bvkSendToEditor(urls);
+                logConsole('Canva → Hậu kỳ: ' + urls.length + ' video(s)', 'ok');
+            }
+        }
+    });
+
+    // Canva toolbar: fetch latest completed job and send to editor
+    window.bvkCanvaSendToEditor = function() {
+        var statusEl = document.getElementById('bvk-wf-bridge-status');
+        if (statusEl) statusEl.textContent = 'Đang tìm video...';
+
+        var fd = new FormData();
+        fd.append('action', 'bvk_poll_jobs');
+        fd.append('nonce', BVK.nonce);
+
+        fetch(BVK.ajax_url, { method: 'POST', body: fd })
+            .then(function(r) { return r.json(); })
+            .then(function(res) {
+                if (!res.success || !res.data || !res.data.jobs) {
+                    if (statusEl) statusEl.textContent = 'Không tìm thấy job nào.';
+                    return;
+                }
+                // Find the latest completed job with a video URL
+                var jobs = res.data.jobs;
+                var videoUrl = null;
+                for (var i = 0; i < jobs.length; i++) {
+                    var j = jobs[i];
+                    if ((j.status === 'done' || j.status === 'completed') && j.video_url) {
+                        videoUrl = j.video_url;
+                        break;
+                    }
+                }
+                if (videoUrl) {
+                    bvkSendToEditor([videoUrl]);
+                    if (statusEl) statusEl.textContent = '✅ Đã gửi sang Editor!';
+                    setTimeout(function() { if (statusEl) statusEl.textContent = ''; }, 3000);
+                } else {
+                    if (statusEl) statusEl.textContent = 'Chưa có video hoàn thành.';
+                    setTimeout(function() { if (statusEl) statusEl.textContent = ''; }, 3000);
+                }
+            })
+            .catch(function(err) {
+                if (statusEl) statusEl.textContent = 'Lỗi: ' + err.message;
+            });
+    };
+
+    /* ── Multi-select: send all checked videos to Editor ── */
+    window.bvkSendSelectedToEditor = function() {
+        var checked = document.querySelectorAll('.bvk-job-select:checked');
+        var urls = [];
+        checked.forEach(function(cb) { if (cb.dataset.url) urls.push(cb.dataset.url); });
+        if (!urls.length) return;
+        bvkSendToEditor(urls);
+        bvkClearSelection();
+    };
+
+    /* ── Clear multi-select ── */
+    window.bvkClearSelection = function() {
+        document.querySelectorAll('.bvk-job-select').forEach(function(cb){ cb.checked = false; });
+        var bar = document.getElementById('bvk-multi-select-bar');
+        if (bar) bar.style.display = 'none';
+    };
+
+    /* ── Update multi-select bar on checkbox change ── */
+    document.addEventListener('change', function(e) {
+        if (!e.target.classList.contains('bvk-job-select')) return;
+        var checked = document.querySelectorAll('.bvk-job-select:checked');
+        var bar = document.getElementById('bvk-multi-select-bar');
+        if (!bar) return;
+        if (checked.length > 0) {
+            bar.style.display = 'flex';
+            var countEl = document.getElementById('bvk-multi-select-count') || document.getElementById('bvk-select-count');
+            if (countEl) countEl.textContent = checked.length + ' video đã chọn';
+        } else {
+            bar.style.display = 'none';
+        }
+    });
 
     /* ── Console Logger ── */
     function logConsole(msg, type) {
@@ -1159,5 +1610,13 @@ body{background:#f9fafb;font-family:system-ui,-apple-system,sans-serif;color:#1a
 
 })();
 </script>
+<script>
+    // Provide config for video-studio.js
+    var bvk_studio = {
+        ajax_url: '<?php echo esc_js( admin_url( "admin-ajax.php" ) ); ?>',
+        nonce:    '<?php echo esc_js( wp_create_nonce( "bvk_nonce" ) ); ?>'
+    };
+</script>
+<script src="<?php echo esc_url( BIZCITY_VIDEO_KLING_URL . 'assets/video-studio.js?v=' . BIZCITY_VIDEO_KLING_ASSETS_VERSION ); ?>"></script>
 </body>
 </html>

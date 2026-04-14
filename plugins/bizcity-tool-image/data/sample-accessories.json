@@ -1,0 +1,250 @@
+{
+  "_meta": {
+    "version": "1.0.0",
+    "schema": "bztimg_sample_accessories",
+    "created": "2026-04-13",
+    "description": "Thư viện mẫu phụ kiện cho tính năng Thử Đồ Phụ Kiện (Accessory Try-On)"
+  },
+
+  "accessory_types": [
+    {
+      "slug": "glasses",
+      "label": "Kính",
+      "icon": "👓",
+      "placement": "on face",
+      "recommended_model": "gpt-image",
+      "sort_order": 1
+    },
+    {
+      "slug": "hat",
+      "label": "Mũ / Nón",
+      "icon": "🧢",
+      "placement": "on head",
+      "recommended_model": "gpt-image",
+      "sort_order": 2
+    },
+    {
+      "slug": "watch",
+      "label": "Đồng hồ",
+      "icon": "⌚",
+      "placement": "on wrist",
+      "recommended_model": "flux-kontext",
+      "sort_order": 3
+    },
+    {
+      "slug": "ring",
+      "label": "Nhẫn",
+      "icon": "💍",
+      "placement": "on finger",
+      "recommended_model": "flux-kontext",
+      "sort_order": 4
+    },
+    {
+      "slug": "necklace",
+      "label": "Vòng cổ",
+      "icon": "📿",
+      "placement": "around neck",
+      "recommended_model": "flux-kontext",
+      "sort_order": 5
+    },
+    {
+      "slug": "bag",
+      "label": "Túi xách",
+      "icon": "👜",
+      "placement": "held in hand or over shoulder",
+      "recommended_model": "flux-kontext",
+      "sort_order": 6
+    },
+    {
+      "slug": "shoes",
+      "label": "Giày dép",
+      "icon": "👟",
+      "placement": "on feet",
+      "recommended_model": "flux-kontext",
+      "sort_order": 7
+    }
+  ],
+
+  "items": [
+    {
+      "id": "ac-001",
+      "name": "Kính mát phi công đen",
+      "type": "glasses",
+      "gender": "unisex",
+      "color": "black",
+      "thumbnail": "",
+      "sort_order": 1
+    },
+    {
+      "id": "ac-002",
+      "name": "Kính mát gọng tròn",
+      "type": "glasses",
+      "gender": "unisex",
+      "color": "brown",
+      "thumbnail": "",
+      "sort_order": 2
+    },
+    {
+      "id": "ac-003",
+      "name": "Kính cận gọng kim loại",
+      "type": "glasses",
+      "gender": "unisex",
+      "color": "silver",
+      "thumbnail": "",
+      "sort_order": 3
+    },
+    {
+      "id": "ac-004",
+      "name": "Mũ lưỡi trai đen",
+      "type": "hat",
+      "gender": "unisex",
+      "color": "black",
+      "thumbnail": "",
+      "sort_order": 4
+    },
+    {
+      "id": "ac-005",
+      "name": "Mũ fedora nâu",
+      "type": "hat",
+      "gender": "unisex",
+      "color": "brown",
+      "thumbnail": "",
+      "sort_order": 5
+    },
+    {
+      "id": "ac-006",
+      "name": "Mũ beret đỏ",
+      "type": "hat",
+      "gender": "female",
+      "color": "red",
+      "thumbnail": "",
+      "sort_order": 6
+    },
+    {
+      "id": "ac-007",
+      "name": "Đồng hồ mặt tròn bạc",
+      "type": "watch",
+      "gender": "male",
+      "color": "silver",
+      "thumbnail": "",
+      "sort_order": 7
+    },
+    {
+      "id": "ac-008",
+      "name": "Đồng hồ dây da nâu",
+      "type": "watch",
+      "gender": "unisex",
+      "color": "brown",
+      "thumbnail": "",
+      "sort_order": 8
+    },
+    {
+      "id": "ac-009",
+      "name": "Đồng hồ thể thao đen",
+      "type": "watch",
+      "gender": "male",
+      "color": "black",
+      "thumbnail": "",
+      "sort_order": 9
+    },
+    {
+      "id": "ac-010",
+      "name": "Nhẫn bạc đơn giản",
+      "type": "ring",
+      "gender": "unisex",
+      "color": "silver",
+      "thumbnail": "",
+      "sort_order": 10
+    },
+    {
+      "id": "ac-011",
+      "name": "Nhẫn vàng đính đá",
+      "type": "ring",
+      "gender": "female",
+      "color": "gold",
+      "thumbnail": "",
+      "sort_order": 11
+    },
+    {
+      "id": "ac-012",
+      "name": "Vòng cổ ngọc trai",
+      "type": "necklace",
+      "gender": "female",
+      "color": "white",
+      "thumbnail": "",
+      "sort_order": 12
+    },
+    {
+      "id": "ac-013",
+      "name": "Dây chuyền mặt tròn bạc",
+      "type": "necklace",
+      "gender": "unisex",
+      "color": "silver",
+      "thumbnail": "",
+      "sort_order": 13
+    },
+    {
+      "id": "ac-014",
+      "name": "Vòng cổ choker đen",
+      "type": "necklace",
+      "gender": "female",
+      "color": "black",
+      "thumbnail": "",
+      "sort_order": 14
+    },
+    {
+      "id": "ac-015",
+      "name": "Túi tote da đen",
+      "type": "bag",
+      "gender": "female",
+      "color": "black",
+      "thumbnail": "",
+      "sort_order": 15
+    },
+    {
+      "id": "ac-016",
+      "name": "Balo vải canvas",
+      "type": "bag",
+      "gender": "unisex",
+      "color": "khaki",
+      "thumbnail": "",
+      "sort_order": 16
+    },
+    {
+      "id": "ac-017",
+      "name": "Túi đeo chéo nâu",
+      "type": "bag",
+      "gender": "unisex",
+      "color": "brown",
+      "thumbnail": "",
+      "sort_order": 17
+    },
+    {
+      "id": "ac-018",
+      "name": "Giày sneaker trắng",
+      "type": "shoes",
+      "gender": "unisex",
+      "color": "white",
+      "thumbnail": "",
+      "sort_order": 18
+    },
+    {
+      "id": "ac-019",
+      "name": "Giày cao gót đen",
+      "type": "shoes",
+      "gender": "female",
+      "color": "black",
+      "thumbnail": "",
+      "sort_order": 19
+    },
+    {
+      "id": "ac-020",
+      "name": "Giày boot da nâu",
+      "type": "shoes",
+      "gender": "unisex",
+      "color": "brown",
+      "thumbnail": "",
+      "sort_order": 20
+    }
+  ]
+}

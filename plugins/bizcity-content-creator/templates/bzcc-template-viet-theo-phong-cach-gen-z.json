@@ -1,0 +1,228 @@
+{
+  "version": "1.0",
+  "plugin": "bizcity-content-creator",
+  "exported": "2026-04-10T06:00:00Z",
+  "templates": [
+    {
+      "slug": "viet-theo-phong-cach-gen-z",
+      "category_id": "0",
+      "title": "Viết theo phong cách Gen Z",
+      "description": "Biến mọi loại nội dung theo phong cách chuẩn GenZ — viral, chạm cảm xúc, đúng insight giới trẻ trên mạng xã hội",
+      "icon_url": "",
+      "icon_emoji": "🌈",
+      "form_fields": [
+        {
+          "slug": "heading_1",
+          "label": "📝 Nội dung đầu vào",
+          "type": "heading",
+          "placeholder": "",
+          "required": false,
+          "grid": "full",
+          "sort_order": 1,
+          "description": "Nhập chủ đề hoặc link bài viết gốc cần tái chế theo phong cách Gen Z",
+          "badge": ""
+        },
+        {
+          "slug": "textarea_2",
+          "label": "Nhập vào chủ đề/nội dung cần viết hay viết lại",
+          "type": "textarea",
+          "placeholder": "Nhập vào nội dung cần tái chế",
+          "required": true,
+          "grid": "half",
+          "sort_order": 2,
+          "description": ""
+        },
+        {
+          "slug": "text_3",
+          "label": "hoặc Nhập vào đường link cần viết lại",
+          "type": "text",
+          "placeholder": "hoặc Nhập vào đường link cần tái chế",
+          "required": false,
+          "grid": "half",
+          "sort_order": 3,
+          "description": ""
+        },
+        {
+          "slug": "select_4",
+          "label": "Kiểu nội dung mới bạn muốn tạo",
+          "type": "select",
+          "placeholder": "",
+          "required": true,
+          "grid": "half",
+          "sort_order": 4,
+          "description": "",
+          "options": [
+            {
+              "value": "Bài đăng Facebook — viết kiểu status/story, caption dài, chia dòng hợp lý, thêm emoji tự nhiên, có hook đầu bài và CTA cuối bài",
+              "label": "📢 Bài đăng Facebook"
+            },
+            {
+              "value": "Kịch bản Youtube — Dẫn nhập 5s đầu gây shock/gây tò mò mạnh. Cấu trúc: Gây chú ý → Giới thiệu → Triển khai nội dung → Chốt nội dung → Kêu gọi tương tác/đăng ký. Phải viết như đang nói, không phải như đang viết. Có biểu cảm, tạm dừng, chuyển cảnh",
+              "label": "🎥 Kịch bản Youtube"
+            },
+            {
+              "value": "Kịch bản Tiktok — Tạo twist, bất ngờ, giật mình hoặc hài hước. Nội dung cũ được chia nhỏ thành 1 tình huống, lời thoại ngắn, tốc độ nhanh. Script 60-90 giây",
+              "label": "📱 Kịch bản Tiktok"
+            },
+            {
+              "value": "Bài đăng Instagram — caption ngắn 150-300 từ, aesthetic, dùng dấu xuống dòng tạo nhịp, hashtag cuối bài",
+              "label": "📸 Bài đăng Instagram"
+            },
+            {
+              "value": "Kịch bản Podcast — viết dạng đối thoại tự nhiên, có intro hook, các segment rõ ràng, outro với câu hỏi mở",
+              "label": "🎙️ Kịch bản Podcast"
+            },
+            {
+              "value": "Mẫu tin nhắn chat ngắn gọn dưới 160 từ, gần gũi, thân thiện, đi thẳng vào vấn đề",
+              "label": "📱 Mẫu tin nhắn"
+            }
+          ]
+        },
+        {
+          "slug": "heading_5",
+          "label": "🎨 Giọng điệu Gen Z",
+          "type": "heading",
+          "placeholder": "",
+          "required": false,
+          "grid": "full",
+          "sort_order": 5,
+          "description": "Chọn phong cách viết phù hợp với nội dung và đối tượng của bạn",
+          "badge": "22 phong cách"
+        },
+        {
+          "slug": "radio_6",
+          "label": "Giọng điệu bạn muốn sử dụng",
+          "type": "radio",
+          "placeholder": "",
+          "required": true,
+          "grid": "full",
+          "sort_order": 6,
+          "description": "",
+          "options": [
+            {
+              "value": "Gen Z Sáng tạo — Viết với mạch cảm xúc thay đổi bất ngờ, không theo quy tắc truyền thống. Có thể bắt đầu bằng một câu hài hước, ngớ ngẩn, hoặc drama… rồi bẻ lái bất ngờ sang cảm xúc – bài học – kêu gọi – thông điệp. Ngôn ngữ sáng tạo, dùng phép ẩn dụ đời thường, liên tưởng thú vị. Kết cấu bài viết chia theo từng dòng ngắn – chuyển mood đột ngột – khiến người đọc phải dừng lại suy nghĩ. Ưu tiên sự bất ngờ, lạ tai, không đoán được trước – nhưng sau cùng vẫn có giá trị hoặc cảm xúc để đọng lại.",
+              "label": "🌈 Gen Z Sáng tạo"
+            },
+            {
+              "value": "Gen Z thân thiện – tự nhiên – dí dỏm — Viết như một người trẻ (20–28 tuổi) đang chia sẻ thật lòng với bạn bè trên mạng xã hội. Ngôn ngữ gần gũi, tự nhiên, như đang nói chuyện qua tin nhắn, không trau chuốt quá đà. Có thể sử dụng đại từ mình, tui, mấy bạn, tụi mình... Giọng văn linh hoạt, chèn một chút hài hước – cà khịa nhẹ – cảm xúc thật, nhưng tuyệt đối không dạy đời, không nghiêm trọng hóa vấn đề.",
+              "label": "✍️ Gen Z thân thiện – tự nhiên – dí dỏm"
+            },
+            {
+              "value": "Confession Style — Viết chân thành, ngập ngừng, có hơi bối rối và thường kết bằng một câu ngắn 'Mong ai đó đọc được…' hoặc 'Chỉ vậy thôi.' Ví dụ: 'Tớ không biết cậu có nhớ không, nhưng hôm ấy cậu mượn bút của tớ. Và từ hôm đó... tớ không bao giờ tìm lại được bình yên'",
+              "label": "💥 Confession Style"
+            },
+            {
+              "value": "Drama hóa vấn đề nhỏ xíu — Thổi phồng tình huống nhỏ thành câu chuyện 'rối như dây điện', thêm yếu tố kịch tính hoặc tự bi kịch hóa bản thân. Nên có chút hài nhẹ và tự troll.",
+              "label": "🎢 Drama hóa vấn đề nhỏ xíu"
+            },
+            {
+              "value": "Overthinking lúc 2h sáng — Viết như một dòng suy nghĩ tuôn ra lúc đêm muộn, có chút deep, có chút mông lung. Dùng câu ngắn – thở dài – im lặng – rồi tiếp tục viết.",
+              "label": "🫣 Overthinking lúc 2h sáng"
+            },
+            {
+              "value": "Đối thoại nội tâm — Viết như đang nghĩ trong đầu, có thể chia dòng theo kiểu 'Mình ... / Cũng mình ...' hoặc dùng đoạn độc thoại đứt quãng. Tự vấn, tự vặn mình, tự cười.",
+              "label": "🌀 Đối thoại nội tâm"
+            },
+            {
+              "value": "Triết lý đời thường — Viết như đang tâm sự sau một biến cố nhỏ, rút ra một câu kết nhẹ nhàng có thể biến thành quote sống ảo. Có chiều sâu nhưng không dạy đời.",
+              "label": "✨ Triết lý đời thường"
+            },
+            {
+              "value": "Tự troll bản thân / Hài nhẹ — Tấu hài bằng cách tự bóc phốt chính mình. Phải là hài duyên, không gồng, khiến người đọc thấy 'ủa, dễ thương ghê'. Dùng giọng điệu tự nhiên, kể cho bạn thân nghe 'mấy pha fail dở khóc dở cười'. Ưu tiên mẫu hài có yếu tố bất ngờ, kết nhanh, chốt gọn. Có thể chèn meme quote hoặc tự gán label cho bản thân.",
+              "label": "😂 Tự troll bản thân / Hài nhẹ"
+            },
+            {
+              "value": "Bình chọn / hỏi vui — Viết như đang rủ người đọc chơi trò chọn lựa hoặc 'khịa vui'. Ưu tiên tình huống ai cũng từng gặp → dễ relate. Có thể dùng emoji đại diện hoặc format kiểu 'A – ... / B – ...'. Đừng quá nhiều lựa chọn, tối đa 3 là đẹp.",
+              "label": "📋 Bình chọn / hỏi vui"
+            },
+            {
+              "value": "Tâm sự thật lòng — Viết như status lúc đêm muộn, không cố gây ấn tượng, không drama, chỉ là dòng cảm xúc thật từ một người đang sống thật. Viết chân thành, không tô vẽ, không cần kỹ thuật viết. Giống như đang nói chuyện với chính mình hoặc với 1 người bạn đủ thân. Có thể hơi 'một mình' nhưng không bi lụy. Dùng ngôn ngữ mềm, mộc – càng đơn giản càng chạm.",
+              "label": "📖 Tâm sự thật lòng"
+            },
+            {
+              "value": "Tự cãi nhau với chính mình — Viết dưới dạng đối thoại rút gọn 'Mình ... / Cũng mình ...' Hoặc dùng 'Tui nghĩ là... nhưng cũng có thể...', 'Một phần tui muốn... phần khác thì lại...' Thể hiện sự mâu thuẫn, do dự, đáng yêu và hài hước.",
+              "label": "🧠 Tự cãi nhau với chính mình"
+            },
+            {
+              "value": "Deadpan / Trần trụi kiểu chán đời — Viết kiểu cụt lủn, không cảm xúc, không biểu cảm – gần như một bản tin thời tiết vô cảm. Không dùng emoji, hoặc nếu có thì phải đúng kiểu 'bất lực'. Có thể pha vào chút sarcasm (mỉa nhẹ nhưng không ác).",
+              "label": "🧊 Deadpan / Trần trụi kiểu chán đời"
+            },
+            {
+              "value": "Tự nhận fail một cách sang chảnh — Viết giọng tỉnh bơ, kết hợp với sự tự trào – 'tui fail đó, rồi sao'. Có thể thêm câu kết kiểu 'Nhưng mà không sao, đẹp là được.' hoặc 'Ủa chứ ai chưa từng'. Dùng giọng văn hơi mặn nhẹ, tự tin kiểu 'chị đây còn lâu mới ngại'.",
+              "label": "😶‍🌫️ Tự nhận fail một cách sang chảnh"
+            },
+            {
+              "value": "Thơ thẩn tản mạn kiểu aesthetic — Viết chậm rãi, giàu hình ảnh, mang tính gợi mở. Không cần giải thích nhiều. Gợi cảm giác mênh mang, 'đẹp một cách buồn nhẹ'. Dùng câu ngắn – dài xen kẽ, dấu ba chấm, từ lặp để tạo nhịp thở. Không cần plot, không cần kết luận – chỉ cần khiến người đọc dừng lại vài giây và cảm thấy gì đó.",
+              "label": "🧃 Thơ thẩn tản mạn kiểu aesthetic"
+            },
+            {
+              "value": "Tao toxic thiệt nhưng… — Thẳng thắn nhận mình toxic, khó ưa, bướng bỉnh – rồi twist sang đáng thương, đáng yêu.",
+              "label": "⛓️ Tao toxic thiệt nhưng…"
+            },
+            {
+              "value": "Lười nhưng vẫn cute — Viết ngắn, hơi cà khịa bản thân, không cố làm gì to tát nhưng vẫn giữ vibe dễ mến. Dùng từ đơn giản, ngắt câu tự nhiên, có thể hơi 'cẩu thả cố tình' (viết như chat với bạn thân lúc đang nằm uể oải).",
+              "label": "🛏️ Lười nhưng vẫn cute"
+            },
+            {
+              "value": "Quăng đại 1 câu — Viết caption chỉ 1 câu, ngắn – gọn – tưởng như vu vơ nhưng phải 'có gì đó khiến người ta giật mình nhẹ'.",
+              "label": "📦 Quăng đại 1 câu"
+            },
+            {
+              "value": "Rối loạn cảm xúc trong 1 post — Vừa buồn → vừa hài → vừa confession → vừa triết lý → xong twist hài. Như đi tàu lượn – đọc không dừng được.",
+              "label": "😵‍💫 Rối loạn cảm xúc trong 1 post"
+            },
+            {
+              "value": "Góc người thứ 3 kể lại chuyện mình — 'Có một đứa... hay cố tỏ ra ổn nhưng thật ra là đang rất mệt.' – Đúng vibe viết về chính mình nhưng không nhận.",
+              "label": "🍉 Góc người thứ 3 kể lại chuyện mình"
+            },
+            {
+              "value": "Comment kiểu caption — Viết caption như đang comment vào bài của chính mình 'Ủa cái gì zạ trời', 'Ad có tâm post đúng lúc tui cần ghê'. Tạo cảm giác thân thiện, tự nhiên.",
+              "label": "🎮 Comment kiểu caption"
+            },
+            {
+              "value": "POV Style — Bắt đầu bằng 'POV …' rồi diễn tiếp như đang kể chính mình. Có thể hài hước, dễ thương hoặc hơi sad boi/girl đều được.",
+              "label": "🎭 POV Style"
+            },
+            {
+              "value": "Cà khịa nhẹ / đá đểu tinh tế — Viết kiểu bóng gió, dùng meme văn nói nhẹ nhàng như 'ai hiểu thì hiểu', 'mình không nói ai nhưng…' hoặc 'nhiều người chứ không riêng gì bạn đâu nha 😌'.",
+              "label": "👀 Cà khịa nhẹ tinh tế"
+            }
+          ]
+        }
+      ],
+      "system_prompt": "Bạn là chuyên gia sáng tạo nội dung phong cách Gen Z Việt Nam — viral, chạm cảm xúc, đúng insight giới trẻ 18-30 tuổi trên mạng xã hội.\n\n## NHIỆM VỤ\nViết lại hoặc tạo mới nội dung theo phong cách Gen Z dựa trên thông tin người dùng cung cấp.\n\n## THÔNG TIN ĐẦU VÀO\n- **Chủ đề / Nội dung gốc:** {{textarea_2}}\n- **Link tham khảo:** {{text_3}}\n- **Kiểu nội dung cần tạo:** {{select_4}}\n\n## PHONG CÁCH VIẾT\n{{radio_6}}\n\n## QUY TẮC BẮT BUỘC\n1. Viết bằng tiếng Việt, ngôn ngữ Gen Z tự nhiên — KHÔNG viết kiểu AI, KHÔNG sáo rỗng, KHÔNG giáo điều\n2. Hook câu đầu phải mạnh — khiến người đọc dừng scroll ngay lập tức\n3. Nội dung dễ đọc, chia dòng rõ ràng, có nhịp thở — mỗi dòng là 1 nhịp cảm xúc\n4. Emoji sử dụng có chủ đích, tự nhiên như Gen Z thật sự dùng (không spam, không cứng)\n5. Kết bài có CTA hoặc câu kết tạo ấn tượng / cảm xúc đọng lại\n6. Tối ưu định dạng theo nền tảng được chọn (Facebook dài hơn, TikTok script ngắn gọn, IG aesthetic...)\n7. KHÔNG dùng hashtag trừ khi kiểu nội dung yêu cầu (IG, TikTok)\n8. KHÔNG dùng từ ngữ marketing sáo rỗng: \"tuyệt vời\", \"đỉnh cao\", \"không thể bỏ lỡ\"...\n9. Dùng đại từ nhân xưng gần gũi: mình, tui, bạn, mấy bạn, tụi mình\n10. Nếu có link tham khảo, đọc hiểu nội dung gốc rồi viết lại hoàn toàn mới theo phong cách đã chọn — KHÔNG dịch hay paraphrase\n\n## ĐỊNH DẠNG OUTPUT\n- Facebook: 300-800 từ, chia paragraph ngắn, hook đầu bài\n- Youtube: Script có timestamp, [HÀNH ĐỘNG], lời thoại\n- TikTok: Script 60-90s, có [CẢNH], [TEXT ON SCREEN], [VOICEOVER]\n- Instagram: Caption 150-300 từ, aesthetic, hashtag cuối\n- Podcast: Đối thoại tự nhiên, intro hook, segment rõ ràng\n- Tin nhắn: Dưới 160 từ, đi thẳng vào vấn đề\n\nHãy viết nội dung ngay, KHÔNG giải thích hay hỏi lại. Bắt đầu bằng chính nội dung.",
+      "outline_prompt": "",
+      "chunk_prompt": "",
+      "model_purpose": "content_creation",
+      "temperature": "0.80",
+      "max_tokens": "4000",
+      "wizard_steps": [
+        {
+          "label": "Viết theo phong cách Gen Z",
+          "description": "Nhập nội dung và chọn phong cách viết Gen Z",
+          "fields": [
+            "heading_1",
+            "textarea_2",
+            "text_3",
+            "select_4",
+            "heading_5",
+            "radio_6"
+          ]
+        }
+      ],
+      "output_platforms": [
+        "facebook",
+        "tiktok",
+        "youtube",
+        "instagram"
+      ],
+      "skill_id": "0",
+      "tags": "gen-z,content,viral,social-media",
+      "badge_text": "Gen Z",
+      "badge_color": "#8b5cf6",
+      "is_featured": "1",
+      "sort_order": "0",
+      "status": "active"
+    }
+  ]
+}

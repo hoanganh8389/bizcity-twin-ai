@@ -27,7 +27,7 @@ class BizCity_Knowledge_Admin_Menu {
     }
     
     public function __construct() {
-        add_action('admin_menu', [$this, 'add_menu']);
+        // Menu registration moved to BizCity_Admin_Menu (centralized).
         add_action('admin_enqueue_scripts', [$this, 'enqueue_assets']);
         add_action('admin_notices', [$this, 'database_update_notice']);
         
@@ -137,93 +137,6 @@ class BizCity_Knowledge_Admin_Menu {
         } catch (Exception $e) {
             wp_send_json_error(['message' => $e->getMessage()]);
         }
-    }
-    
-    public function add_menu() {
-        $td = 'bizcity-twin-ai';
-
-        // Main menu
-        add_menu_page(
-            __( 'Teach AI', $td ),
-            __( 'Teach AI', $td ),
-            'manage_options',
-            'bizcity-knowledge',
-            [$this, 'render_maturity_dashboard'],
-            plugins_url( 'assets/icon/joy.png', BIZCITY_KNOWLEDGE_DIR . 'bootstrap.php' ),
-            28
-        );
-        
-        // Submenu: Dashboard (Maturity Overview)
-        add_submenu_page(
-            'bizcity-knowledge',
-            __( 'Knowledge Dashboard', $td ),
-            '📊 ' . __( 'Dashboard', $td ),
-            'manage_options',
-            'bizcity-knowledge',
-            [$this, 'render_maturity_dashboard']
-        );
-        
-        // Submenu: Training (Quick FAQ, Documents, Knowledge)
-        add_submenu_page(
-            'bizcity-knowledge',
-            __( 'Training', $td ),
-            '📚 ' . __( 'Training', $td ),
-            'manage_options',
-            'bizcity-knowledge-training',
-            [$this, 'render_training_page']
-        );
-        
-        // Submenu: Memory Hub (Memory, Episodic, Rolling, Research)
-        add_submenu_page(
-            'bizcity-knowledge',
-            __( 'Memory Hub', $td ),
-            '🧠 ' . __( 'Memory', $td ),
-            'manage_options',
-            'bizcity-knowledge-memory-hub',
-            [$this, 'render_memory_hub_page']
-        );
-        
-        // Submenu: Chat Monitor (Sessions, Goals, Messages, Trend)
-        add_submenu_page(
-            'bizcity-knowledge',
-            __( 'Chat Monitor', $td ),
-            '💬 ' . __( 'Chat Monitor', $td ),
-            'manage_options',
-            'bizcity-knowledge-monitor',
-            [$this, 'render_monitor_page']
-        );
-
-        
-
-        // Submenu: Trợ lý AI — Character list
-        add_submenu_page(
-            'bizcity-knowledge',
-            __( 'Trợ lý AI', $td ),
-            '🤖 ' . __( 'Trợ lý AI', $td ),
-            'manage_options',
-            'bizcity-knowledge-characters',
-            [$this, 'render_characters_page']
-        );
-
-        // Hidden submenu: Character Edit (no sidebar link, accessed via list page)
-        add_submenu_page(
-            null,
-            __( 'Chỉnh sửa Trợ lý AI', $td ),
-            __( 'Chỉnh sửa Trợ lý AI', $td ),
-            'manage_options',
-            'bizcity-knowledge-character-edit',
-            [$this, 'render_character_edit_page']
-        );
-
-        // Submenu: Learn with AI (Notebook companion)
-        add_submenu_page(
-            'bizcity-knowledge',
-            __( 'Dạy AI bằng sổ tay', $td ),
-            '📖 ' . __( 'Dạy AI bằng sổ tay', $td ),
-            'read',
-            'bizcity-knowledge-notebook',
-            [$this, 'render_notebook_page']
-        );
     }
     
     public function enqueue_assets($hook) {

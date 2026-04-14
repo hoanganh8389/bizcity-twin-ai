@@ -27,7 +27,7 @@ class BizCity_WebChat_Admin_Menu {
 	}
 	
 	public function __construct() {
-		add_action( 'admin_menu', array( $this, 'add_menu' ) );
+		// Menu registration moved to BizCity_Admin_Menu (centralized).
 		
 		// AJAX handlers
 		add_action( 'wp_ajax_bizcity_webchat_save_settings', array( $this, 'ajax_save_settings' ) );

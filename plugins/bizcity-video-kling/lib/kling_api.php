@@ -28,39 +28,81 @@ function waic_kling_log($msg, $data = null) {
 }
 
 /**
- * Get API config from settings or constants
+ * Get API config from settings or constants.
+ *
+ * Supports 2 modes:
+ * 1. Direct PiAPI — when local API key is configured
+ * 2. BizCity Gateway — when no local key, routes through bizcity-llm-router
  * 
  * @param array $settings Override settings
- * @return array Config array
+ * @return array Config array with 'mode' = 'direct' | 'gateway'
  */
 function waic_kling_get_api_config(array $settings = []): array {
-    $endpoint = !empty($settings['endpoint']) 
-        ? trim($settings['endpoint']) 
-        : get_option('bizcity_video_kling_endpoint', 'https://api.piapi.ai/api/v1');
-    
-    $api_key = !empty($settings['api_key']) 
-        ? trim($settings['api_key']) 
-        : get_option('bizcity_video_kling_api_key', '');
-    
+    $api_key = ! empty( $settings['api_key'] )
+        ? trim( $settings['api_key'] )
+        : get_option( 'bizcity_video_kling_api_key', '' );
+
     // Fallback to constant
-    if (empty($api_key) && defined('BIZCITY_KLING_API_KEY')) {
+    if ( empty( $api_key ) && defined( 'BIZCITY_KLING_API_KEY' ) ) {
         $api_key = BIZCITY_KLING_API_KEY;
     }
 
-    $cfg = [
-        'endpoint' => untrailingslashit($endpoint),
-        'api_key'  => $api_key,
-        'timeout'  => !empty($settings['timeout']) ? (int)$settings['timeout'] : 60,
-    ];
+    // Direct PiAPI mode
+    if ( ! empty( $api_key ) ) {
+        $endpoint = ! empty( $settings['endpoint'] )
+            ? trim( $settings['endpoint'] )
+            : get_option( 'bizcity_video_kling_endpoint', 'https://api.piapi.ai/api/v1' );
 
-    return apply_filters('waic_kling_api_config', $cfg, $settings);
+        return apply_filters( 'waic_kling_api_config', [
+            'mode'     => 'direct',
+            'endpoint' => untrailingslashit( $endpoint ),
+            'api_key'  => $api_key,
+            'timeout'  => ! empty( $settings['timeout'] ) ? (int) $settings['timeout'] : 60,
+        ], $settings );
+    }
+
+    // BizCity Gateway mode — use LLM Router API key as bearer token
+    // Use get_site_option for multisite compatibility (network-level option)
+    $gateway_key = get_site_option( 'bizcity_llm_api_key', '' );
+    if ( empty( $gateway_key ) ) {
+        $gateway_key = get_option( 'bizcity_llm_api_key', '' );
+    }
+    $gateway_url = get_site_option( 'bizcity_llm_gateway_url', '' );
+    if ( empty( $gateway_url ) ) {
+        $gateway_url = get_option( 'bizcity_llm_gateway_url', '' );
+    }
+
+    // Use Hub namespace (bizcity/llmhub/v1) — always available via mu-plugin bizcity-openrouter.
+    // video/router/v1 requires bizcity-llm-router plugin active, which may not be the case.
+    if ( empty( $gateway_url ) ) {
+        $gateway_url = 'https://bizcity.vn/wp-json/bizcity/llmhub/v1/video';
+    } else {
+        $gateway_url = untrailingslashit( $gateway_url );
+        // Strip any existing REST namespace suffix to get the base URL
+        $gateway_url = preg_replace( '#/wp-json/.*$#', '', $gateway_url );
+        // If it's a bare domain, just use it
+        $gateway_url = untrailingslashit( $gateway_url );
+        $gateway_url = $gateway_url . '/wp-json/bizcity/llmhub/v1/video';
+    }
+
+    return apply_filters( 'waic_kling_api_config', [
+        'mode'     => 'gateway',
+        'endpoint' => untrailingslashit( $gateway_url ),
+        'api_key'  => $gateway_key,
+        'timeout'  => ! empty( $settings['timeout'] ) ? (int) $settings['timeout'] : 60,
+    ], $settings );
 }
 
 /**
  * HTTP POST helper
  */
 function waic_kling_http_post(string $url, array $headers, array $body, int $timeout = 60): array {
-    waic_kling_log('http_post', ['url' => $url, 'body' => $body]);
+    // Log chỉ metadata — bỏ qua image_url / prompt dài để tránh log file phình to.
+    $log_body = $body;
+    if ( isset( $log_body['image_url'] ) )      $log_body['image_url']      = '[' . strlen( (string) $log_body['image_url'] ) . ' chars]';
+    if ( isset( $log_body['input']['image_url'] ) ) $log_body['input']['image_url'] = '[truncated]';
+    if ( isset( $log_body['input']['image'] ) )     $log_body['input']['image']     = '[truncated]';
+    waic_kling_log('http_post', ['url' => $url, 'body' => $log_body]);
     
     $res = wp_remote_post($url, [
         'timeout' => $timeout,
@@ -159,6 +201,11 @@ function waic_kling_get_all_models(): array {
 
         // ── Veo (Google) ──
         'veo:3'        => [ 'label' => 'Veo 3',           'engine' => 'veo', 'group' => 'Veo (Google)' ],
+
+        // ── Hailuo AI (MiniMax) ──
+        'hailuo:2.3'      => [ 'label' => 'Hailuo 2.3',      'engine' => 'hailuo', 'group' => 'Hailuo AI' ],
+        'hailuo:2.3-fast' => [ 'label' => 'Hailuo 2.3 Fast', 'engine' => 'hailuo', 'group' => 'Hailuo AI' ],
+        'hailuo:02'       => [ 'label' => 'Hailuo 02',       'engine' => 'hailuo', 'group' => 'Hailuo AI' ],
     ];
 }
 
@@ -228,34 +275,125 @@ function waic_kling_parse_model(string $model_str): array {
 /**
  * Create video generation task (supports Kling, SeeDance, Sora, Veo via PiAPI)
  * 
+ * In gateway mode, routes through BizCity LLM Router instead of PiAPI directly.
+ * 
  * @param array $settings API settings (api_key, endpoint, model)
  * @param array $input Task input parameters (prompt, duration, aspect_ratio, image_url)
  * @return array Result with task_id
  */
 function waic_kling_create_task(array $settings, array $input): array {
     $cfg = waic_kling_get_api_config($settings);
+
+    error_log('[BVK create_task] mode=' . ($cfg['mode'] ?? '?') . ' | endpoint=' . ($cfg['endpoint'] ?? '?') . ' | has_key=' . (empty($cfg['api_key']) ? 'NO' : 'yes(' . strlen($cfg['api_key']) . ')'));
     
     if (empty($cfg['api_key'])) {
-        return ['ok' => false, 'error' => 'Missing API key'];
+        return ['ok' => false, 'error' => 'Missing API key. Configure PiAPI key or BizCity API key.'];
     }
 
+    $model_str = !empty($settings['model']) ? $settings['model'] : '2.6|pro';
+
+    // ── Gateway mode: call BizCity Router ──
+    if (($cfg['mode'] ?? 'direct') === 'gateway') {
+        return waic_kling_create_task_via_gateway($cfg, $model_str, $input);
+    }
+
+    // ── Direct PiAPI mode ──
     $url = $cfg['endpoint'] . '/task';
     $headers = [
         'Content-Type' => 'application/json',
         'X-API-Key'    => $cfg['api_key'],
     ];
 
-    // Parse model to get engine + version + mode
-    $model_str = !empty($settings['model']) ? $settings['model'] : '2.6|pro';
     $parsed = waic_kling_parse_model($model_str);
     $engine = $parsed['engine'] ?? 'kling';
 
-    // Build engine-specific payload
     $payload = waic_kling_build_engine_payload($engine, $parsed, $input);
 
-    waic_kling_log('create_task', ['engine' => $engine, 'model' => $model_str, 'payload' => $payload]);
+    waic_kling_log('create_task', ['mode' => 'direct', 'engine' => $engine, 'model' => $model_str, 'payload' => $payload]);
 
     return waic_kling_http_post($url, $headers, $payload, $cfg['timeout']);
+}
+
+/**
+ * Create task via BizCity Gateway (video/router/v1/generate).
+ * Maps local model format to Hub model format.
+ */
+function waic_kling_create_task_via_gateway(array $cfg, string $model_str, array $input): array {
+    $url = $cfg['endpoint'] . '/generate';
+    $headers = [
+        'Content-Type'  => 'application/json',
+        'Authorization' => 'Bearer ' . $cfg['api_key'],
+    ];
+
+    // Map local model string to Hub model format
+    $hub_model = waic_kling_map_model_to_hub($model_str);
+
+    $body = [
+        'prompt'       => $input['prompt'] ?? '',
+        'model'        => $hub_model,
+        'duration'     => intval($input['duration'] ?? 5),
+        'aspect_ratio' => $input['aspect_ratio'] ?? '9:16',
+        'plugin_name'  => 'bizcity-video-kling',
+        'site_url'     => home_url(),
+    ];
+
+    if (!empty($input['image_url'])) {
+        $body['image_url'] = $input['image_url'];
+    }
+    if (!empty($input['motion_reference_url'])) {
+        $body['motion_reference_url'] = $input['motion_reference_url'];
+    }
+    if (!empty($input['negative_prompt'])) {
+        $body['negative_prompt'] = $input['negative_prompt'];
+    }
+    if (!empty($input['with_audio'])) {
+        $body['with_audio'] = true;
+    }
+
+    waic_kling_log('create_task', ['mode' => 'gateway', 'url' => $url, 'model' => $hub_model]);
+
+    $result = waic_kling_http_post($url, $headers, $body, $cfg['timeout']);
+
+    // Normalize gateway response to match PiAPI format expected by the rest of the code
+    if (($result['ok'] ?? false) && !empty($result['data']['task_id'])) {
+        return [
+            'ok'   => true,
+            'data' => [
+                'data' => [
+                    'task_id' => $result['data']['task_id'],
+                    'status'  => $result['data']['status'] ?? 'pending',
+                ],
+            ],
+            'cost_usd' => $result['data']['cost_usd'] ?? 0,
+            'via'      => 'bizcity_gateway',
+        ];
+    }
+
+    return $result;
+}
+
+/**
+ * Map local model string (2.6|pro, seedance:1.0, etc.) to Hub model format (kling/v1-5/pro, etc.)
+ */
+function waic_kling_map_model_to_hub(string $model_str): string {
+    $parsed = waic_kling_parse_model($model_str);
+    $engine = $parsed['engine'] ?? 'kling';
+
+    if ($engine === 'kling') {
+        $v    = str_replace('.', '-', $parsed['version'] ?? '2.6');
+        $mode = ($parsed['mode'] ?? 'pro') === 'std' ? 'standard' : ($parsed['mode'] ?? 'pro');
+        return "kling/v{$v}/{$mode}";
+    }
+
+    // Other engines: map directly
+    $hub_map = [
+        'seedance' => 'wan/v2.1',         // SeeDance maps to Wan
+        'sora'     => 'runway/gen3-alpha', // Sora maps to Runway
+        'veo'      => 'luma/ray2',         // Veo maps to Luma
+        'hailuo'   => 'hailuo/video-01',   // Hailuo (MiniMax)
+    ];
+
+    return $hub_map[$engine] ?? "kling/v1-5/pro";
 }
 
 /**
@@ -290,6 +428,9 @@ function waic_kling_build_engine_payload(string $engine, array $parsed, array $i
             }
             if (!empty($image_url)) {
                 $api_input['image_url'] = $image_url;
+            }
+            if (!empty($input['motion_reference_url'])) {
+                $api_input['motion_video'] = $input['motion_reference_url'];
             }
             if (!empty($input['negative_prompt'])) {
                 $api_input['negative_prompt'] = $input['negative_prompt'];
@@ -345,6 +486,31 @@ function waic_kling_build_engine_payload(string $engine, array $parsed, array $i
             return [
                 'model'     => 'veo',
                 'task_type' => 'video_generation',
+                'input'     => $api_input,
+            ];
+
+        /* ── Hailuo AI (MiniMax) ──────────────────────────── */
+        case 'hailuo':
+            $variant = $parsed['version'] ?? '2.3';
+            // Map Hailuo variant → PiAPI task_type
+            $hailuo_map = [
+                '2.3'      => 'hailuo_video_2.3',
+                '2.3-fast' => 'hailuo_video_2.3_fast',
+                '02'       => 'hailuo_video_02',
+            ];
+            $task_type = $hailuo_map[ $variant ] ?? 'hailuo_video_2.3';
+
+            $api_input = [
+                'prompt'       => $prompt,
+                'duration'     => min($duration, 5), // Hailuo max 5s
+                'aspect_ratio' => $aspect_ratio,
+            ];
+            if (!empty($image_url)) {
+                $api_input['image_url'] = $image_url;
+            }
+            return [
+                'model'     => 'hailuo',
+                'task_type' => $task_type,
                 'input'     => $api_input,
             ];
 
@@ -422,6 +588,8 @@ function waic_kling_calculate_segments(int $total_duration, int $segment_duratio
 /**
  * Get task status
  * 
+ * In gateway mode, routes through BizCity LLM Router.
+ * 
  * @param array $settings API settings
  * @param string $task_id Task ID
  * @return array Task status data
@@ -433,6 +601,38 @@ function waic_kling_get_task(array $settings, string $task_id): array {
         return ['ok' => false, 'error' => 'Missing API key'];
     }
 
+    // ── Gateway mode ──
+    if (($cfg['mode'] ?? 'direct') === 'gateway') {
+        $url = $cfg['endpoint'] . '/status?task_id=' . rawurlencode($task_id);
+        $headers = [
+            'Authorization' => 'Bearer ' . $cfg['api_key'],
+        ];
+
+        $result = waic_kling_http_get($url, $headers, $cfg['timeout']);
+
+        // Normalize gateway response to match PiAPI format
+        if (($result['ok'] ?? false) && isset($result['data']['status'])) {
+            return [
+                'ok'   => true,
+                'data' => [
+                    'data' => [
+                        'task_id'   => $task_id,
+                        'status'    => $result['data']['status'],
+                        'progress'  => $result['data']['progress'] ?? 0,
+                        'video_url' => $result['data']['video_url'] ?? '',
+                        'output'    => [
+                            'video_url' => $result['data']['video_url'] ?? '',
+                        ],
+                    ],
+                ],
+                'via' => 'bizcity_gateway',
+            ];
+        }
+
+        return $result;
+    }
+
+    // ── Direct PiAPI mode ──
     $url = $cfg['endpoint'] . '/task/' . rawurlencode($task_id);
     $headers = [
         'X-API-Key' => $cfg['api_key'],

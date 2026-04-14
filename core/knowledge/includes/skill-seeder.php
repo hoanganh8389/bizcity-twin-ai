@@ -262,11 +262,8 @@ if ( defined( 'WP_CLI' ) && WP_CLI ) {
  * @return array Results [ 'skill-key (created #ID)', 'skill-key (skipped)', ... ]
  */
 function bizcity_scan_plugin_skills(): array {
-	$log = '[BizCity SkillSeeder]';
-	error_log( $log . ' === scan_plugin_skills START ===' );
 
 	if ( ! class_exists( 'BizCity_Skill_Database' ) ) {
-		error_log( $log . ' ABORT — BizCity_Skill_Database not loaded' );
 		return [ 'error' => 'BizCity_Skill_Database not loaded' ];
 	}
 
@@ -299,17 +296,13 @@ function bizcity_scan_plugin_skills(): array {
 		$pattern = rtrim( $base, '/\\' ) . '/*/skills/*.md';
 		$files   = glob( $pattern );
 
-		error_log( $log . ' Scan: ' . $pattern . ' → ' . count( $files ?: [] ) . ' files' );
-
 		if ( empty( $files ) ) {
 			continue;
 		}
 
 		foreach ( $files as $file_path ) {
-			error_log( $log . ' Processing: ' . $file_path );
 			$parsed = bizcity_parse_skill_file( $file_path );
 			if ( ! $parsed ) {
-				error_log( $log . ' ❌ Parse failed: ' . basename( $file_path ) );
 				$results[] = basename( $file_path ) . ' (parse failed)';
 				continue;
 			}
@@ -320,9 +313,6 @@ function bizcity_scan_plugin_skills(): array {
 			// Upsert into DB
 			$id = $db->upsert( $data );
 			if ( $id ) {
-				error_log( $log . ' ✅ Synced: ' . $skill_key . ' #' . $id
-					. ' (tools=' . count( is_array( $data['tools_json'] ) ? $data['tools_json'] : [] )
-					. ', pipeline=' . ( ! empty( $data['pipeline_json'] ) ? 'yes' : 'no' ) . ')' );
 				$results[] = $skill_key . ' (synced #' . $id . ')';
 
 				// Link tools via skill_tool_map
@@ -336,13 +326,11 @@ function bizcity_scan_plugin_skills(): array {
 					}
 				}
 			} else {
-				error_log( $log . ' ❌ Upsert FAILED: ' . $skill_key );
 				$results[] = $skill_key . ' (FAILED)';
 			}
 		}
 	}
 
-	error_log( $log . ' === scan_plugin_skills END — ' . count( $results ) . ' results ===' );
 	return $results;
 }
 
@@ -371,8 +359,6 @@ function bizcity_parse_skill_file( string $file_path ): ?array {
 	if ( function_exists( 'yaml_parse' ) ) {
 		$fm = yaml_parse( '---' . "\n" . $yaml_str . "\n" . '---' );
 		if ( ! is_array( $fm ) ) {
-			error_log( '[BizCity SkillSeeder] yaml_parse failed for: ' . basename( $file_path )
-				. ' — falling back to simple parser' );
 			$fm = bizcity_simple_yaml_parse( $yaml_str );
 		}
 	} else {
@@ -380,16 +366,8 @@ function bizcity_parse_skill_file( string $file_path ): ?array {
 	}
 
 	if ( ! is_array( $fm ) || empty( $fm['title'] ) ) {
-		error_log( '[BizCity SkillSeeder] Frontmatter invalid or missing title: ' . basename( $file_path )
-			. ' — keys=' . ( is_array( $fm ) ? implode( ',', array_keys( $fm ) ) : 'NOT_ARRAY' ) );
 		return null;
 	}
-
-	error_log( '[BizCity SkillSeeder] Parsed OK: ' . basename( $file_path )
-		. ' — title=' . $fm['title']
-		. ', tools=' . count( (array) ( $fm['tools'] ?? [] ) )
-		. ', chain=' . count( (array) ( $fm['chain'] ?? [] ) )
-		. ', blocks=' . count( (array) ( $fm['blocks'] ?? [] ) ) );
 
 	// Generate skill_key from filename
 	$skill_key = pathinfo( $file_path, PATHINFO_FILENAME );
@@ -453,8 +431,6 @@ function bizcity_simple_yaml_parse( string $yaml_str ): array {
 	$current_items = [];    // Accumulator for nested block (NO reference)
 	$last_list_idx = -1;    // Index of last list item (for continuation lines)
 
-	$log = '[BizCity SkillYAML]';
-
 	foreach ( $lines as $line_num => $line ) {
 		$trimmed = trim( $line );
 
@@ -497,7 +473,6 @@ function bizcity_simple_yaml_parse( string $yaml_str ): array {
 				continue;
 			}
 
-			error_log( $log . ' Unrecognized top-level line ' . $line_num . ': ' . $trimmed );
 			continue;
 		}
 
@@ -572,8 +547,6 @@ function bizcity_simple_yaml_parse( string $yaml_str ): array {
 	if ( $current_key !== null ) {
 		$result[ $current_key ] = $current_items;
 	}
-
-	error_log( $log . ' Parsed: keys=' . implode( ',', array_keys( $result ) ) );
 
 	return $result;
 }

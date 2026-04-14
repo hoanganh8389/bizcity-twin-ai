@@ -257,8 +257,15 @@ class BizCity_Video_Kling_Scripts {
             'bgm_volume' => $bgm_volume,
         );
         
+        // Sanitize title — strip emoji, trim length for varchar(255)
+        $safe_title = preg_replace( '/[\xF0-\xF4][\x80-\xBF]{3}/', '', $title );
+        $safe_title = sanitize_text_field( mb_substr( trim( $safe_title ?? $title ), 0, 250 ) );
+        if ( empty( $safe_title ) ) {
+            $safe_title = 'Untitled Script';
+        }
+
         $data = array(
-            'title' => $title,
+            'title' => $safe_title,
             'content' => $content,
             'duration' => $duration,
             'aspect_ratio' => $aspect_ratio,

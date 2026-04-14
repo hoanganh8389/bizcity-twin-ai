@@ -1,0 +1,1 @@
+[11-Apr-2026 18:18:38 Asia/Ho_Chi_Minh] PHP Warning:  Version warning: Imagick was compiled against ImageMagick version 1692 but version 1693 is loaded. Imagick will run but may behave surprisingly in Unknown on line 0

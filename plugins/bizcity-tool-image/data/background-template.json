@@ -1,0 +1,392 @@
+{
+  "_meta": {
+    "version": "1.2.0",
+    "schema": "bztimg_template",
+    "created": "2026-04-13",
+    "description": "Template kịch bản Thay Nền Sản Phẩm — Product Background, hỗ trợ 2 mode: Generate & Composite"
+  },
+
+  "template": {
+    "slug": "product-background",
+    "category_slug": "background",
+    "subcategory": "product",
+    "title": "Thay nền sản phẩm",
+    "description": "🖼️ Thay đổi nền ảnh sản phẩm — studio, thiên nhiên, sang trọng, tuỳ chỉnh",
+    "preview_image": "",
+    "recommended_model": "flux-kontext",
+    "recommended_model_generate": "flux-pro",
+    "recommended_model_composite": "flux-kontext",
+    "fallback_model_composite": "gpt-image",
+    "recommended_size": "1024x1024",
+    "style": "photorealistic",
+    "num_outputs": 2,
+    "is_featured": 1,
+    "sort_order": 1,
+    "status": "active",
+    "tags": "background,product,studio,scene,photography",
+
+    "prompt_templates": {
+      "generate": "A {{product_description}} photographed on {{background_style_description}}, professional product photography, 8K, sharp focus on product, studio-quality lighting, clean composition, {{custom_detail}}",
+      "composite": "Change the background of the product in the image to {{background_style_description}}. Keep the product exactly the same — same shape, color, texture, branding, and all details. Only change the background, lighting, and shadows to match the new scene. Professional product photography. Ultra photorealistic. No artifacts. {{custom_detail}}"
+    },
+
+    "prompt_template": "A {{product_description}} photographed on {{background_style_description}}, professional product photography, 8K, sharp focus, {{custom_detail}}",
+
+    "negative_prompt": "blurry, low quality, distorted product, watermark, text overlay, logo overlay, amateur, flat lighting, wrong perspective, changed product shape or color",
+
+    "form_fields": [
+      {
+        "slug": "creation_mode",
+        "label": "Chế độ tạo ảnh",
+        "type": "card_radio",
+        "placeholder": "",
+        "required": true,
+        "grid": "full",
+        "sort_order": 0,
+        "default": "composite",
+        "options": [
+          {
+            "value": "composite",
+            "label": "Ghép ảnh thật",
+            "icon": "🖼️",
+            "description": "Upload ảnh sản phẩm → AI thay nền, giữ nguyên sản phẩm",
+            "recommended": true
+          },
+          {
+            "value": "generate",
+            "label": "Tạo ảnh mới",
+            "icon": "✨",
+            "description": "Mô tả sản phẩm + chọn nền → AI tạo ảnh hoàn toàn mới"
+          }
+        ],
+        "help": "Ghép ảnh thật: dùng ảnh sản phẩm có sẵn → đổi nền. Tạo ảnh mới: AI tự vẽ toàn bộ."
+      },
+      {
+        "slug": "product_image",
+        "label": "Ảnh sản phẩm",
+        "type": "image_upload",
+        "placeholder": "",
+        "required": true,
+        "grid": "full",
+        "sort_order": 1,
+        "options": [],
+        "help": "Upload ảnh sản phẩm cần thay nền. Nên dùng ảnh đã xóa nền hoặc nền trắng để kết quả tốt nhất.",
+        "visibility": { "always": true }
+      },
+      {
+        "slug": "product_description",
+        "label": "Mô tả sản phẩm",
+        "type": "text",
+        "placeholder": "VD: chai nước hoa Chanel, hộp quà Tết, đồng hồ Rolex...",
+        "required": true,
+        "required_when": { "creation_mode": "generate" },
+        "optional_when": { "creation_mode": "composite" },
+        "grid": "full",
+        "sort_order": 2,
+        "options": [],
+        "help": "Mô tả ngắn gọn sản phẩm. Bắt buộc khi Tạo ảnh mới, tuỳ chọn khi Ghép ảnh."
+      },
+      {
+        "slug": "background_style",
+        "label": "Phong cách nền",
+        "type": "card_radio",
+        "placeholder": "",
+        "required": true,
+        "grid": "full",
+        "sort_order": 3,
+        "default": "studio_minimal",
+        "options": [
+          {
+            "value": "studio_minimal",
+            "label": "Studio Tối Giản",
+            "icon": "⬜",
+            "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763371333834-691ae945587173811c126e8e.png",
+            "description": "Nền trung tính tối giản, ánh sáng studio chuyên nghiệp",
+            "prompt_hint": "a clean minimal studio background with soft neutral gradient, professional product photography lighting",
+            "prompt_hint_composite": "a clean minimal studio background with soft neutral gradient. Professional product photography lighting",
+            "recommended": true
+          },
+          {
+            "value": "tropical_leaves",
+            "label": "Lá Nhiệt Đới",
+            "icon": "🌿",
+            "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763371341892-691ae94d587173811c126f43.png",
+            "description": "Lá monstera xanh tươi, ánh sáng tự nhiên",
+            "prompt_hint": "lush tropical leaves background, vibrant green monstera and palm fronds, natural dappled sunlight",
+            "prompt_hint_composite": "lush tropical leaves background with vibrant green monstera and palm fronds, natural dappled sunlight"
+          },
+          {
+            "value": "marble_stone",
+            "label": "Đá Cẩm Thạch",
+            "icon": "🪨",
+            "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763371349601-691ae955587173811c126fda.png",
+            "description": "Bề mặt đá marble trắng sang trọng, luxury",
+            "prompt_hint": "elegant white marble surface with subtle grey veining, luxury product photography, soft reflective surface",
+            "prompt_hint_composite": "elegant white marble surface with subtle grey veining. Luxury product photography, soft reflective surface"
+          },
+          {
+            "value": "water_ripple",
+            "label": "Mặt Nước Gợn Sóng",
+            "icon": "💧",
+            "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763371359322-691ae95f587173811c1270b2.png",
+            "description": "Mặt nước gợn sóng nhẹ, thanh bình, spa",
+            "prompt_hint": "soft water surface with gentle ripples, light reflections, serene calm blue tones, spa-like atmosphere",
+            "prompt_hint_composite": "soft water surface with gentle ripples, light reflections, serene calm blue tones, spa-like atmosphere"
+          },
+          {
+            "value": "soft_silk",
+            "label": "Lụa Mềm",
+            "icon": "🧣",
+            "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763371371320-691ae96b587173811c1271a2.png",
+            "description": "Vải lụa mềm mại, nhẹ nhàng sang trọng",
+            "prompt_hint": "soft flowing silk fabric draped elegantly, smooth satin texture, gentle folds with subtle sheen, luxurious feel",
+            "prompt_hint_composite": "soft flowing silk fabric draped elegantly, smooth satin texture with subtle sheen, luxurious feel"
+          },
+          {
+            "value": "spa_zen",
+            "label": "Không Gian Spa",
+            "icon": "🧘",
+            "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763371379552-691ae973587173811c12723d.png",
+            "description": "Zen spa, đá cuội, tre, nến thư giãn",
+            "prompt_hint": "zen spa setting with smooth stones, bamboo accents, soft candlelight, tranquil wellness atmosphere",
+            "prompt_hint_composite": "zen spa setting with smooth stones, bamboo accents, soft candlelight, tranquil wellness atmosphere"
+          },
+          {
+            "value": "beach_summer",
+            "label": "Bãi Biển (Nắng Hè)",
+            "icon": "🏖️",
+            "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763371392562-691ae980587173811c12731e.png",
+            "description": "Bãi biển cát vàng, nắng hè, biển xanh",
+            "prompt_hint": "sunny beach scene with golden sand, turquoise ocean water, bright summer sunlight, tropical vacation vibe",
+            "prompt_hint_composite": "sunny beach scene with golden sand, turquoise ocean water, bright summer sunlight, tropical vibe"
+          },
+          {
+            "value": "geometric_podium",
+            "label": "Bục Hình Khối",
+            "icon": "📐",
+            "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763371402871-691ae98a587173811c127360.png",
+            "description": "Bục 3D hình khối, hiện đại, tối giản",
+            "prompt_hint": "geometric 3D podium display with abstract shapes, modern minimalist composition, soft studio lighting with shadows",
+            "prompt_hint_composite": "geometric 3D podium display with abstract shapes, modern minimalist composition, soft studio lighting"
+          },
+          {
+            "value": "wood_surface",
+            "label": "Bề Mặt Gỗ",
+            "icon": "🪵",
+            "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763371413087-691ae995587173811c12741c.png",
+            "description": "Mặt gỗ tự nhiên, ấm áp, handmade",
+            "prompt_hint": "warm rustic wooden surface, natural wood grain texture visible, cozy warm-toned lighting, handmade artisan feel",
+            "prompt_hint_composite": "warm rustic wooden surface with natural wood grain texture. Cozy warm-toned lighting, artisan feel"
+          },
+          {
+            "value": "city_bokeh",
+            "label": "Đèn Phố (Bokeh)",
+            "icon": "🌃",
+            "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763371423451-691ae99f587173811c1274d9.png",
+            "description": "Đèn phố đêm bokeh, lung linh, lễ hội",
+            "prompt_hint": "city night scene with colorful bokeh lights, warm street glow, festive urban atmosphere, out-of-focus background",
+            "prompt_hint_composite": "city night scene with colorful bokeh lights, warm street glow, festive urban atmosphere"
+          }
+        ],
+        "help": "Chọn phong cách nền cho sản phẩm"
+      },
+      {
+        "slug": "aspect_ratio",
+        "label": "Tỉ lệ ảnh",
+        "type": "size_picker",
+        "placeholder": "",
+        "required": false,
+        "grid": "full",
+        "sort_order": 4,
+        "options": [
+          { "value": "1024x1024", "label": "1:1 Vuông",  "icon": "⬛", "recommended": true },
+          { "value": "1024x1536", "label": "2:3 Dọc",   "icon": "📱" },
+          { "value": "1536x1024", "label": "3:2 Ngang",  "icon": "🖥️" },
+          { "value": "768x1344",  "label": "9:16 Story", "icon": "📲" }
+        ]
+      },
+      {
+        "slug": "custom_detail",
+        "label": "Chi tiết thêm (tuỳ chọn)",
+        "type": "textarea",
+        "placeholder": "VD: thêm hoa hồng xung quanh, bóng đổ mềm, ánh sáng rim light...",
+        "required": false,
+        "grid": "full",
+        "sort_order": 5,
+        "options": []
+      }
+    ]
+  },
+
+  "background_library": {
+    "_note": "Thư viện mẫu nền chung — nguồn từ AIVA / seeded",
+    "categories": ["natural", "seasonal", "studio"],
+    "backgrounds": [
+      {
+        "id": "bg-studio-minimal",
+        "name": "Studio Tối Giản",
+        "style": "studio",
+        "tags": ["studio", "minimal", "clean", "white"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763371333834-691ae945587173811c126e8e.png",
+        "bg_description": "clean minimal studio background, soft neutral gradient, professional product photography lighting",
+        "status": "active",
+        "sort_order": 1
+      },
+      {
+        "id": "bg-tropical-leaves",
+        "name": "Lá Nhiệt Đới",
+        "style": "natural",
+        "tags": ["natural", "tropical", "green", "leaves"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763371341892-691ae94d587173811c126f43.png",
+        "bg_description": "lush tropical leaves background, vibrant green monstera and palm fronds, natural dappled sunlight",
+        "status": "active",
+        "sort_order": 2
+      },
+      {
+        "id": "bg-marble-stone",
+        "name": "Đá Cẩm Thạch",
+        "style": "studio",
+        "tags": ["studio", "marble", "luxury", "stone"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763371349601-691ae955587173811c126fda.png",
+        "bg_description": "elegant white marble surface with subtle grey veining, luxury product photography, soft reflective surface",
+        "status": "active",
+        "sort_order": 3
+      },
+      {
+        "id": "bg-water-ripple",
+        "name": "Mặt Nước Gợn Sóng",
+        "style": "natural",
+        "tags": ["natural", "water", "ripple", "calm"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763371359322-691ae95f587173811c1270b2.png",
+        "bg_description": "soft water surface with gentle ripples, light reflections, serene calm blue tones, spa-like atmosphere",
+        "status": "active",
+        "sort_order": 4
+      },
+      {
+        "id": "bg-soft-silk",
+        "name": "Lụa Mềm",
+        "style": "natural",
+        "tags": ["natural", "silk", "fabric", "soft", "elegant"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763371371320-691ae96b587173811c1271a2.png",
+        "bg_description": "soft flowing silk fabric draped elegantly, smooth satin texture, gentle folds with subtle sheen, luxurious feel",
+        "status": "active",
+        "sort_order": 5
+      },
+      {
+        "id": "bg-spa-zen",
+        "name": "Không Gian Spa",
+        "style": "seasonal",
+        "tags": ["seasonal", "spa", "zen", "relaxation", "wellness"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763371379552-691ae973587173811c12723d.png",
+        "bg_description": "zen spa setting with smooth stones, bamboo accents, soft candlelight, tranquil wellness atmosphere",
+        "status": "active",
+        "sort_order": 6
+      },
+      {
+        "id": "bg-beach-summer",
+        "name": "Bãi Biển (Nắng Hè)",
+        "style": "seasonal",
+        "tags": ["seasonal", "beach", "summer", "sand", "ocean"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763371392562-691ae980587173811c12731e.png",
+        "bg_description": "sunny beach scene with golden sand, turquoise ocean water, bright summer sunlight, tropical vacation vibe",
+        "status": "active",
+        "sort_order": 7
+      },
+      {
+        "id": "bg-geometric-podium",
+        "name": "Bục Hình Khối",
+        "style": "studio",
+        "tags": ["studio", "geometric", "podium", "3d", "modern"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763371402871-691ae98a587173811c127360.png",
+        "bg_description": "geometric 3D podium display with abstract shapes, modern minimalist composition, soft studio lighting with shadows",
+        "status": "active",
+        "sort_order": 8
+      },
+      {
+        "id": "bg-wood-surface",
+        "name": "Bề Mặt Gỗ",
+        "style": "natural",
+        "tags": ["natural", "wood", "rustic", "warm", "organic"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763371413087-691ae995587173811c12741c.png",
+        "bg_description": "warm rustic wooden surface, natural wood grain texture visible, cozy warm-toned lighting, handmade artisan feel",
+        "status": "active",
+        "sort_order": 9
+      },
+      {
+        "id": "bg-city-bokeh",
+        "name": "Đèn Phố (Bokeh)",
+        "style": "seasonal",
+        "tags": ["seasonal", "city", "bokeh", "night", "lights"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763371423451-691ae99f587173811c1274d9.png",
+        "bg_description": "city night scene with colorful bokeh lights, warm street glow, festive urban atmosphere, out-of-focus background",
+        "status": "active",
+        "sort_order": 10
+      }
+    ]
+  },
+
+  "generation_logic": {
+    "_note": "Quy tắc build prompt — phân nhánh theo creation_mode",
+
+    "common_steps": [
+      {
+        "step": 1,
+        "action": "detect_mode",
+        "description": "Đọc creation_mode từ form. Mặc định: composite"
+      },
+      {
+        "step": 2,
+        "action": "select_prompt_template",
+        "description": "Chọn prompt_templates[mode] tương ứng"
+      }
+    ],
+
+    "mode_generate": {
+      "_note": "Tạo ảnh mới từ prompt — dùng flux-pro (text-to-image)",
+      "model": "flux-pro",
+      "steps": [
+        {
+          "step": 1,
+          "action": "resolve_product_description",
+          "source": "product_description field",
+          "required": true
+        },
+        {
+          "step": 2,
+          "action": "resolve_background_style",
+          "source": "background_style card_radio → prompt_hint"
+        },
+        {
+          "step": 3,
+          "action": "build_prompt",
+          "template": "prompt_templates.generate",
+          "ref_images": "none (text-to-image)"
+        }
+      ]
+    },
+
+    "mode_composite": {
+      "_note": "Thay nền ảnh sản phẩm — dùng flux-kontext. User upload ảnh sản phẩm → AI đổi nền",
+      "model": "flux-kontext",
+      "fallback_model": "gpt-image",
+      "steps": [
+        {
+          "step": 1,
+          "action": "collect_product_image",
+          "source": "product_image upload → ref_images[0]"
+        },
+        {
+          "step": 2,
+          "action": "resolve_background_style",
+          "source": "background_style card_radio → prompt_hint_composite"
+        },
+        {
+          "step": 3,
+          "action": "build_prompt",
+          "template": "prompt_templates.composite",
+          "ref_images": "[product_image]"
+        }
+      ]
+    }
+  }
+}

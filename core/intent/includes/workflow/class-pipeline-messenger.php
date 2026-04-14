@@ -230,7 +230,7 @@ class BizCity_Pipeline_Messenger {
 	 * @return int|false
 	 */
 	public static function send_error( array $execution_state, string $tool_name, string $error, int $step, int $total, int $todo_id = 0 ) {
-		$safe_error = mb_substr( $error, 0, 200 );
+		$safe_error = mb_substr( $error, 0, 800 );
 		$msg = "❌ **{$tool_name}** gặp lỗi: {$safe_error}\n"
 		     . "📋 Tiến độ: {$step}/{$total}\n"
 		     . "🔄 Thử lại · ⏭️ Bỏ qua · ❌ Dừng pipeline";

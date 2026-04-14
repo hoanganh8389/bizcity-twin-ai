@@ -33,7 +33,7 @@ class BizCity_Maturity_Dashboard {
 	}
 
 	public function __construct() {
-		add_action( 'admin_menu', [ $this, 'add_menu_page' ], 20 );
+		// Menu registration moved to BizCity_Admin_Menu (centralized).
 		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_assets' ] );
 	}
 

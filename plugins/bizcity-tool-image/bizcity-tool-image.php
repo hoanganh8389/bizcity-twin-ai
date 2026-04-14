@@ -61,10 +61,11 @@ if ( ! defined( 'BIZCITY_TWIN_AI_VERSION' ) ) {
 /* ═══════════════════════════════════════════════
    CONSTANTS
    ═══════════════════════════════════════════════ */
-define( 'BZTIMG_DIR',     plugin_dir_path( __FILE__ ) );
-define( 'BZTIMG_URL',     plugin_dir_url( __FILE__ ) );
-define( 'BZTIMG_VERSION', '2.0.0' );
-define( 'BZTIMG_SLUG',    'tool-image' );
+define( 'BZTIMG_DIR',           plugin_dir_path( __FILE__ ) );
+define( 'BZTIMG_URL',           plugin_dir_url( __FILE__ ) );
+define( 'BZTIMG_VERSION',       '2.1.8' );
+define( 'BZTIMG_SCHEMA_VERSION','3.8' );   // Bump this whenever DB schema changes
+define( 'BZTIMG_SLUG',          'tool-image' );
 
 /* ═══════════════════════════════════════════════
    AUTOLOAD INCLUDES
@@ -77,6 +78,20 @@ require_once BZTIMG_DIR . 'includes/class-ajax-image.php';
 require_once BZTIMG_DIR . 'includes/admin-menu.php';
 require_once BZTIMG_DIR . 'includes/integration-chat.php';
 require_once BZTIMG_DIR . 'includes/class-intent-provider.php';
+
+/* Phase 3 — Template Library */
+require_once BZTIMG_DIR . 'includes/class-template-category-manager.php';
+require_once BZTIMG_DIR . 'includes/class-template-manager.php';
+require_once BZTIMG_DIR . 'includes/class-rest-api-templates.php';
+require_once BZTIMG_DIR . 'includes/seed-templates.php';
+
+/* Phase 3.4 — Character Studio: Model Manager */
+if ( file_exists( BZTIMG_DIR . 'includes/class-model-manager.php' ) ) {
+    require_once BZTIMG_DIR . 'includes/class-model-manager.php';
+    BizCity_Model_Manager::boot();
+}
+
+BizCity_REST_API_Templates::init();
 
 /* ═══════════════════════════════════════════════
    PILLAR 2 — Intent Provider (bizcity_intent_register_plugin)
@@ -244,14 +259,20 @@ add_action( 'bizcity_intent_register_providers', function ( $registry ) {
    ═══════════════════════════════════════════════ */
 add_action( 'init', function() {
     add_rewrite_rule( '^tool-image/?$', 'index.php?bizcity_agent_page=tool-image', 'top' );
+    add_rewrite_rule( '^tool-image/product-studio/?$', 'index.php?bizcity_agent_page=tool-image-product-studio', 'top' );
 } );
 add_filter( 'query_vars', function( $vars ) {
     if ( ! in_array( 'bizcity_agent_page', $vars, true ) ) $vars[] = 'bizcity_agent_page';
     return $vars;
 } );
 add_action( 'template_redirect', function() {
-    if ( get_query_var( 'bizcity_agent_page' ) === 'tool-image' ) {
+    $page = get_query_var( 'bizcity_agent_page' );
+    if ( $page === 'tool-image' ) {
         include BZTIMG_DIR . 'views/page-image-profile.php';
+        exit;
+    }
+    if ( $page === 'tool-image-product-studio' ) {
+        include BZTIMG_DIR . 'views/page-product-studio.php';
         exit;
     }
 } );
@@ -273,6 +294,11 @@ register_activation_hook( __FILE__, function() {
     if ( ! get_option( 'bztimg_default_size' ) ) {
         add_option( 'bztimg_default_size', '1024x1024' );
     }
+
+    // Phase 3.4: Register CPT and seed default models
+    BizCity_Model_Manager::register_cpt();
+    BizCity_Model_Manager::seed_defaults();
+
     flush_rewrite_rules();
 } );
 
@@ -280,17 +306,56 @@ register_deactivation_hook( __FILE__, function() {
     flush_rewrite_rules();
 } );
 
-/* ── DB migration ── */
-add_action( 'admin_init', function() {
-    if ( get_option( 'bztimg_db_version' ) === BZTIMG_VERSION ) return;
+/* ── DB migration — runs on every request until schema is current ── */
+add_action( 'init', function() {
+    if ( get_option( 'bztimg_schema_version' ) === BZTIMG_SCHEMA_VERSION ) return;
     bztimg_install_tables();
+    bztimg_seed_categories(); // 3.6 — idempotent, adds accessory-tryon + any missing categories
+    bztimg_seed_json_templates(); // Re-seed all JSON templates + library items on schema bump
     // Auto-migrate PiAPI endpoint → OpenRouter
     $endpoint = get_option( 'bztimg_api_endpoint', '' );
     if ( empty( $endpoint ) || strpos( $endpoint, 'piapi.ai' ) !== false ) {
         update_option( 'bztimg_api_endpoint', 'https://openrouter.ai/api/v1' );
     }
-    update_option( 'bztimg_db_version', BZTIMG_VERSION );
-} );
+    // Fix model templates seeded with broken status (format array bug pre-3.1)
+    global $wpdb;
+    // Fix model rows with wrong subcategory — detect by form_fields containing model_description
+    $wpdb->query(
+        "UPDATE {$wpdb->prefix}bztimg_templates SET subcategory = 'model'
+         WHERE subcategory != 'model' AND form_fields LIKE '%model_description%' AND form_fields NOT LIKE '[%'"
+    );
+    // Fix status/style for ALL model rows (including those just fixed above)
+    $wpdb->query(
+        "UPDATE {$wpdb->prefix}bztimg_templates SET status = 'active' WHERE subcategory = 'model' AND status IN ('0', '')"
+    );
+    $wpdb->query(
+        "UPDATE {$wpdb->prefix}bztimg_templates SET style = 'photorealistic' WHERE subcategory = 'model' AND style IN ('0', '')"
+    );
+    // Backfill parent_slug for model rows that don't have it (wider scope — any subcategory='model')
+    $models = $wpdb->get_results(
+        "SELECT id, category_id, form_fields FROM {$wpdb->prefix}bztimg_templates WHERE subcategory = 'model' AND form_fields NOT LIKE '%parent_slug%'",
+        ARRAY_A
+    );
+    foreach ( $models as $m ) {
+        $parent_slug = $wpdb->get_var( $wpdb->prepare(
+            "SELECT slug FROM {$wpdb->prefix}bztimg_templates WHERE category_id = %d AND subcategory != 'model' ORDER BY sort_order ASC LIMIT 1",
+            $m['category_id']
+        ) );
+        if ( $parent_slug ) {
+            $ff = json_decode( $m['form_fields'], true ) ?: array();
+            $ff['parent_slug'] = $parent_slug;
+            $wpdb->update(
+                $wpdb->prefix . 'bztimg_templates',
+                array( 'form_fields' => wp_json_encode( $ff ) ),
+                array( 'id' => $m['id'] ),
+                array( '%s' ),
+                array( '%d' )
+            );
+        }
+    }
+    update_option( 'bztimg_db_version',    BZTIMG_VERSION );    // legacy compat
+    update_option( 'bztimg_schema_version', BZTIMG_SCHEMA_VERSION );
+}, 1 ); // priority 1 — before REST/rewrite rules
 
 /* ═══════════════════════════════════════════════
    REGISTER ASSETS

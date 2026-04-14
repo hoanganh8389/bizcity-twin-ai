@@ -32,10 +32,7 @@ class BizCity_WebChat_Admin_Dashboard {
     public function __construct() {
         // Replace default dashboard - use admin_init for redirects (before output)
         add_action('admin_init', [$this, 'redirect_dashboard']);
-        add_action('admin_menu', [$this, 'reorder_menu'], 999);
-        
-        // Add dashboard page
-        add_action('admin_menu', [$this, 'add_dashboard_page'], 5);
+        // Menu registration + reorder moved to BizCity_Admin_Menu (centralized).
         
         // Enqueue assets
         add_action('admin_enqueue_scripts', [$this, 'enqueue_assets']);
@@ -879,16 +876,16 @@ class BizCity_WebChat_Admin_Dashboard {
         // ── Sidebar navigation items (configurable via filter) ──
         $td = 'bizcity-twin-ai';
         $sidebar_nav = apply_filters('bizcity_sidebar_nav', [
-            ['slug' => 'explore',    'label' => __( 'Khám phá',            $td ), 'icon' => '🔍', 'type' => 'link', 'src' => admin_url('admin.php?page=bizcity-marketplace')],
+            ['slug' => 'creator',    'label' => __( 'Làm nội dung',      $td ), 'icon' => '✍️', 'type' => 'link', 'src' => home_url('creator/')],
+            ['slug' => 'video',      'label' => __( 'Làm video',          $td ), 'icon' => '🎬', 'type' => 'link', 'src' => home_url('kling-video/')],
+            ['slug' => 'design',     'label' => __( 'Thiết kế, đồ họa',   $td ), 'icon' => '🎨', 'type' => 'link', 'src' => home_url('tool-image/')],
+            ['slug' => 'training',   'label' => __( 'Học tập, làm báo cáo',     $td ), 'icon' => '📖', 'type' => 'link', 'src' => home_url('note/')],
             ['slug' => 'tools',      'label' => __( 'Công cụ',             $td ), 'icon' => '🛠️', 'type' => 'link', 'src' => home_url('tools-map/')],
             ['slug' => 'skills',     'label' => __( 'Tạo kỹ năng',            $td ), 'icon' => '⚡', 'type' => 'link', 'src' => home_url('skills/')],
-            ['slug' => 'training',   'label' => __( 'Dạy AI bằng sổ tay',     $td ), 'icon' => '📖', 'type' => 'link', 'src' => home_url('note/')],
-            ['slug' => 'maturity',   'label' => __( 'Dạy AI bằng hỏi đáp',    $td ), 'icon' => '🧬', 'type' => 'link', 'src' => admin_url('admin.php?page=bizcity-knowledge-training')],
-            ['slug' => 'automation', 'label' => __( 'Quy trình',              $td ), 'icon' => '🔄', 'type' => 'link', 'src' => admin_url('admin.php?page=bizcity-workspace&tab=workflow')],
-            
-            ['slug' => 'settings',   'label' => __( 'Cài đặt API',         $td ), 'icon' => '⚙️', 'panel' => 'settings'],
+            ['slug' => 'automation', 'label' => __( 'Lịch sử làm việc',              $td ), 'icon' => '🔄', 'type' => 'link', 'src' => admin_url('admin.php?page=bizcity-workspace&tab=workflow')],
+            ['slug' => 'scheduler',  'label' => __( 'Lịch nhắc nhở',           $td ), 'icon' => '📅', 'type' => 'link', 'src' => home_url('scheduler/')],
             ['slug' => 'gateway',    'label' => __( 'Cổng kết nối',        $td ), 'icon' => '🔌', 'type' => 'link', 'src' => admin_url('admin.php?page=bizchat-gateway')],
-            ['slug' => 'scheduler',  'label' => __( 'Lịch biểu',           $td ), 'icon' => '📅', 'type' => 'link', 'src' => home_url('scheduler/')],
+            ['slug' => 'explore',    'label' => __( 'Chợ công cụ',            $td ), 'icon' => '🔍', 'type' => 'link', 'src' => admin_url('admin.php?page=bizcity-marketplace')],
             
         ]);
 

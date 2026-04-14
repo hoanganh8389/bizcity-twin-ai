@@ -16,8 +16,11 @@ class BizCity_Tool_Image_Ajax {
         add_action( 'wp_ajax_bztimg_generate',        [ __CLASS__, 'handle_generate' ] );
         add_action( 'wp_ajax_bztimg_poll_jobs',       [ __CLASS__, 'handle_poll_jobs' ] );
         add_action( 'wp_ajax_bztimg_save_settings',   [ __CLASS__, 'handle_save_settings' ] );
-        add_action( 'wp_ajax_bztimg_upload_to_media', [ __CLASS__, 'handle_upload_to_media' ] );
-        add_action( 'wp_ajax_bztimg_delete_job',      [ __CLASS__, 'handle_delete_job' ] );
+        add_action( 'wp_ajax_bztimg_upload_to_media',  [ __CLASS__, 'handle_upload_to_media' ] );
+        add_action( 'wp_ajax_bztimg_delete_job',       [ __CLASS__, 'handle_delete_job' ] );
+        add_action( 'wp_ajax_bztimg_get_templates',    [ __CLASS__, 'handle_get_templates' ] );
+        add_action( 'wp_ajax_bztimg_save_template',    [ __CLASS__, 'handle_save_template' ] );
+        add_action( 'wp_ajax_bztimg_delete_template',  [ __CLASS__, 'handle_delete_template' ] );
     }
 
     /* ═════════════════════════════════════════════════════════
@@ -138,6 +141,9 @@ class BizCity_Tool_Image_Ajax {
             if ( isset( $_POST['openai_key'] ) ) {
                 update_option( 'bztimg_openai_key', sanitize_text_field( wp_unslash( $_POST['openai_key'] ) ) );
             }
+            if ( isset( $_POST['editor_url'] ) ) {
+                update_option( 'bztimg_editor_url', esc_url_raw( wp_unslash( $_POST['editor_url'] ) ) );
+            }
         }
 
         // User-accessible settings
@@ -213,6 +219,102 @@ class BizCity_Tool_Image_Ajax {
         ] );
 
         wp_send_json_success( [ 'message' => 'Đã xóa.' ] );
+    }
+    /* ═════════════════════════════════════════════════════════
+     *  Get Templates (user-saved)
+     * ═════════════════════════════════════════════════════════ */
+    public static function handle_get_templates() {
+        check_ajax_referer( 'bztimg_nonce', 'nonce' );
+
+        $user_id = get_current_user_id();
+        if ( ! $user_id ) {
+            wp_send_json_error( [ 'message' => 'Vui lòng đăng nhập.' ] );
+        }
+
+        $templates = get_user_meta( $user_id, 'bztimg_templates', true );
+        if ( ! is_array( $templates ) ) {
+            $templates = [];
+        }
+
+        // Mark all as user templates
+        foreach ( $templates as &$tpl ) {
+            $tpl['isUserTemplate'] = true;
+        }
+
+        wp_send_json_success( [ 'templates' => array_values( $templates ) ] );
+    }
+
+    /* ═════════════════════════════════════════════════════════
+     *  Save Template (current canvas → user meta)
+     * ═════════════════════════════════════════════════════════ */
+    public static function handle_save_template() {
+        check_ajax_referer( 'bztimg_nonce', 'nonce' );
+
+        $user_id = get_current_user_id();
+        if ( ! $user_id ) {
+            wp_send_json_error( [ 'message' => 'Vui lòng đăng nhập.' ] );
+        }
+
+        $name   = sanitize_text_field( wp_unslash( $_POST['name'] ?? 'Untitled' ) );
+        $json   = wp_unslash( $_POST['json'] ?? '' );
+        $width  = intval( $_POST['width'] ?? 1080 );
+        $height = intval( $_POST['height'] ?? 1080 );
+
+        // Validate JSON
+        $decoded = json_decode( $json, true );
+        if ( ! $decoded ) {
+            wp_send_json_error( [ 'message' => 'Dữ liệu template không hợp lệ.' ] );
+        }
+
+        $templates = get_user_meta( $user_id, 'bztimg_templates', true );
+        if ( ! is_array( $templates ) ) {
+            $templates = [];
+        }
+
+        $id = 'utpl_' . uniqid();
+        $templates[] = [
+            'id'             => $id,
+            'name'           => $name,
+            'width'          => $width,
+            'height'         => $height,
+            'json'           => $json,
+            'isUserTemplate' => true,
+            'created_at'     => current_time( 'mysql' ),
+        ];
+
+        update_user_meta( $user_id, 'bztimg_templates', $templates );
+
+        wp_send_json_success( [ 'id' => $id, 'message' => 'Đã lưu template.' ] );
+    }
+
+    /* ═════════════════════════════════════════════════════════
+     *  Delete Template
+     * ═════════════════════════════════════════════════════════ */
+    public static function handle_delete_template() {
+        check_ajax_referer( 'bztimg_nonce', 'nonce' );
+
+        $user_id = get_current_user_id();
+        if ( ! $user_id ) {
+            wp_send_json_error( [ 'message' => 'Vui lòng đăng nhập.' ] );
+        }
+
+        $template_id = sanitize_text_field( $_POST['template_id'] ?? '' );
+        if ( ! $template_id ) {
+            wp_send_json_error( [ 'message' => 'Thiếu template ID.' ] );
+        }
+
+        $templates = get_user_meta( $user_id, 'bztimg_templates', true );
+        if ( ! is_array( $templates ) ) {
+            $templates = [];
+        }
+
+        $templates = array_values( array_filter( $templates, function ( $t ) use ( $template_id ) {
+            return $t['id'] !== $template_id;
+        } ) );
+
+        update_user_meta( $user_id, 'bztimg_templates', $templates );
+
+        wp_send_json_success( [ 'message' => 'Đã xóa template.' ] );
     }
 }
 

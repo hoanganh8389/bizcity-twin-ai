@@ -1,0 +1,757 @@
+{
+  "_meta": {
+    "version": "1.3.0",
+    "schema": "bztimg_template",
+    "created": "2026-04-12",
+    "updated": "2026-04-13",
+    "description": "Template kịch bản Trên Tay Sản Phẩm — hỗ trợ 2 mode: Generate (tạo mới) & Composite (ghép ảnh thật)"
+  },
+
+  "template": {
+    "slug": "product-on-hand",
+    "category_slug": "on-hand",
+    "subcategory": "product",
+    "title": "Trên tay sản phẩm",
+    "description": "📸 Đặt sản phẩm lên tay model AI — tự nhiên, chân thực",
+    "preview_image": "",
+    "recommended_model": "flux-kontext",
+    "recommended_model_generate": "flux-pro",
+    "recommended_model_composite": "flux-kontext",
+    "fallback_model_composite": "gpt-image",
+    "recommended_size": "1024x1536",
+    "style": "photorealistic",
+    "num_outputs": 2,
+    "is_featured": 1,
+    "sort_order": 1,
+    "status": "active",
+    "tags": "on-hand,product,model,fashion,lifestyle",
+
+    "prompt_templates": {
+      "generate": "A {{model_description}} is naturally holding {{product_description}} in hand, {{pose_description}}, {{scene_description}}, photorealistic, 8K, product photography, natural lighting, detailed hands, sharp focus on product, {{custom_detail}}",
+      "composite": "The person in the first image is now {{pose_description}} the product shown in the second image. Keep the exact same face, hair, skin tone, body, pose, and background from the first image. The product should appear naturally in their hands with correct perspective, lighting, and shadows. Ultra photorealistic. No artifacts. {{custom_detail}}"
+    },
+
+    "prompt_template": "A {{model_description}} is naturally holding {{product_description}} in hand, {{pose_description}}, {{scene_description}}, photorealistic, 8K, product photography, natural lighting, detailed hands, sharp focus on product, {{custom_detail}}",
+
+    "negative_prompt": "blurry, low quality, distorted hands, extra fingers, missing fingers, deformed, ugly, bad anatomy, watermark, text, logo, oversaturated, flat lighting",
+
+    "form_fields": [
+      {
+        "slug": "creation_mode",
+        "label": "Chế độ tạo ảnh",
+        "type": "card_radio",
+        "placeholder": "",
+        "required": true,
+        "grid": "full",
+        "sort_order": 0,
+        "default": "composite",
+        "options": [
+          {
+            "value": "composite",
+            "label": "Ghép ảnh thật",
+            "icon": "🖼️",
+            "description": "Upload ảnh người mẫu + ảnh sản phẩm → AI ghép sản phẩm lên tay người mẫu, giữ nguyên ảnh gốc",
+            "recommended": true,
+            "model": "flux-kontext",
+            "requires": ["product_image", "model_template_id"]
+          },
+          {
+            "value": "generate",
+            "label": "Tạo ảnh mới",
+            "icon": "✨",
+            "description": "Chọn model preset + mô tả sản phẩm → AI tạo ảnh hoàn toàn mới từ prompt",
+            "model": "flux-pro",
+            "requires": ["product_description", "model_template_id"]
+          }
+        ],
+        "help": "Ghép ảnh thật: dùng ảnh người mẫu & sản phẩm có sẵn. Tạo ảnh mới: AI tự vẽ toàn bộ."
+      },
+      {
+        "slug": "product_image",
+        "label": "Ảnh sản phẩm",
+        "type": "image_upload",
+        "placeholder": "",
+        "required": true,
+        "grid": "full",
+        "sort_order": 1,
+        "options": [],
+        "help": "Upload ảnh sản phẩm cần đặt lên tay model. Nên dùng ảnh đã xóa nền.",
+        "visibility": { "always": true }
+      },
+      {
+        "slug": "product_description",
+        "label": "Mô tả sản phẩm",
+        "type": "text",
+        "placeholder": "VD: áo phông trắng, túi xách da đen, hộp nước hoa...",
+        "required": true,
+        "required_when": { "creation_mode": "generate" },
+        "optional_when": { "creation_mode": "composite" },
+        "grid": "full",
+        "sort_order": 2,
+        "options": [],
+        "help": "Mô tả ngắn gọn sản phẩm. Bắt buộc khi Tạo ảnh mới, tuỳ chọn khi Ghép ảnh thật."
+      },
+      {
+        "slug": "product_category",
+        "label": "Loại sản phẩm",
+        "type": "card_radio",
+        "placeholder": "",
+        "required": true,
+        "grid": "full",
+        "sort_order": 3,
+        "options": [
+          { "value": "fashion",   "label": "Thời trang",  "icon": "👗", "prompt_hint": "wearing the clothing item" },
+          { "value": "beauty",    "label": "Làm đẹp",     "icon": "💄", "prompt_hint": "holding the beauty product elegantly" },
+          { "value": "food",      "label": "Thực phẩm",   "icon": "🍜", "prompt_hint": "holding the food product naturally" },
+          { "value": "tech",      "label": "Công nghệ",   "icon": "📱", "prompt_hint": "holding the tech device confidently" },
+          { "value": "jewelry",   "label": "Trang sức",   "icon": "💍", "prompt_hint": "showcasing the jewelry piece" },
+          { "value": "lifestyle", "label": "Lifestyle",   "icon": "🎁", "prompt_hint": "holding the lifestyle product" }
+        ]
+      },
+      {
+        "slug": "model_template_id",
+        "label": "Chọn mẫu người",
+        "type": "model_picker",
+        "placeholder": "",
+        "required": true,
+        "grid": "full",
+        "sort_order": 4,
+        "options": [],
+        "allow_custom_upload": true,
+        "custom_upload_label": "Upload ảnh mẫu riêng",
+        "custom_upload_help_generate": "Upload ảnh người mẫu — AI sẽ dùng làm tham khảo khi tạo ảnh mới",
+        "custom_upload_help_composite": "Upload ảnh người mẫu thật — AI sẽ giữ nguyên ảnh gốc và ghép sản phẩm lên tay",
+        "help": "Chọn model để đặt sản phẩm lên tay (tối đa 5 mẫu mỗi lần), hoặc upload ảnh mẫu riêng"
+      },
+      {
+        "slug": "pose",
+        "label": "Tư thế cầm",
+        "type": "card_radio",
+        "placeholder": "",
+        "required": false,
+        "grid": "full",
+        "sort_order": 5,
+        "options": [
+          { "value": "natural_hold",     "label": "Cầm tự nhiên",   "icon": "🤝", "prompt_hint": "holding naturally relaxed", "prompt_hint_composite": "naturally holding" },
+          { "value": "showcase",         "label": "Giới thiệu",     "icon": "🎤", "prompt_hint": "presenting the product toward camera", "prompt_hint_composite": "presenting toward camera" },
+          { "value": "unboxing",         "label": "Mở hộp",         "icon": "📦", "prompt_hint": "unboxing, unwrapping enthusiastically", "prompt_hint_composite": "unboxing" },
+          { "value": "wearing",          "label": "Đang mặc/dùng",  "icon": "✨", "prompt_hint": "actively using or wearing", "prompt_hint_composite": "actively using" },
+          { "value": "close_up_hands",   "label": "Cận tay",        "icon": "🔍", "prompt_hint": "close-up on hands holding product", "prompt_hint_composite": "holding in a close-up shot" }
+        ]
+      },
+      {
+        "slug": "scene",
+        "label": "Bối cảnh",
+        "type": "card_radio",
+        "placeholder": "",
+        "required": false,
+        "grid": "full",
+        "sort_order": 6,
+        "visibility": { "creation_mode": "generate", "_note": "Composite mode giữ nguyên background gốc nên không cần chọn bối cảnh" },
+        "options": [
+          { "value": "white_studio",    "label": "Studio trắng",   "icon": "⬜", "prompt_hint": "clean white studio background, professional lighting" },
+          { "value": "lifestyle_home",  "label": "Sinh hoạt nhà",  "icon": "🏠", "prompt_hint": "cozy home environment, natural daylight" },
+          { "value": "outdoor_natural", "label": "Ngoại cảnh",     "icon": "🌿", "prompt_hint": "outdoor, natural greenery background, golden hour" },
+          { "value": "cafe_coffee",     "label": "Quán cà phê",    "icon": "☕", "prompt_hint": "warm coffee shop ambiance, wooden table" },
+          { "value": "fashion_street",  "label": "Phố thời trang", "icon": "🏙️", "prompt_hint": "trendy street, urban fashion environment" },
+          { "value": "luxury_interior", "label": "Không gian sang","icon": "✨", "prompt_hint": "luxury interior, marble, elegant decor" }
+        ]
+      },
+      {
+        "slug": "aspect_ratio",
+        "label": "Tỉ lệ ảnh",
+        "type": "size_picker",
+        "placeholder": "",
+        "required": false,
+        "grid": "full",
+        "sort_order": 7,
+        "options": [
+          { "value": "1024x1536", "label": "2:3 Dọc",      "icon": "📱", "recommended": true },
+          { "value": "1024x1024", "label": "1:1 Vuông",    "icon": "⬛" },
+          { "value": "768x1344",  "label": "9:16 Story",   "icon": "📲" },
+          { "value": "1536x1024", "label": "3:2 Ngang",    "icon": "🖥️" }
+        ]
+      },
+      {
+        "slug": "custom_detail",
+        "label": "Chi tiết thêm (tuỳ chọn)",
+        "type": "textarea",
+        "placeholder": "VD: thêm hiệu ứng ánh sáng vàng, nền blur bokeh, màu tím pastel...",
+        "required": false,
+        "grid": "full",
+        "sort_order": 8,
+        "options": []
+      },
+      {
+        "slug": "reference_images",
+        "label": "Ảnh tham khảo bổ sung",
+        "type": "multi_reference_images",
+        "required": false,
+        "grid": "full",
+        "sort_order": 9,
+        "visibility": { "creation_mode": "generate", "_note": "Composite mode đã có ảnh model + product, không cần thêm reference" },
+        "help": "Ghép nhiều ảnh tham khảo để AI kết hợp — mẫu người, phong cách, bối cảnh",
+        "max_images": 3,
+        "image_roles": [
+          { "slug": "model_ref",  "label": "Mẫu người tham khảo",  "icon": "👤", "help": "Upload ảnh người mẫu để AI giữ đặc điểm khuôn mặt/phong cách" },
+          { "slug": "style_ref",  "label": "Phong cách / Trang phục", "icon": "📸", "help": "Upload ảnh tham khảo phong cách, trang phục, màu sắc" },
+          { "slug": "scene_ref",  "label": "Bối cảnh tham khảo",   "icon": "🌿", "help": "Upload ảnh bối cảnh mong muốn để AI dùng làm nền" }
+        ]
+      }
+    ]
+  },
+
+  "model_library": {
+    "_note": "Danh sách model templates cho feature Trên Tay — nguồn từ AIVA / seeded",
+    "max_selection": 5,
+    "categories": ["fashion", "food", "tech", "beauty", "lifestyle"],
+    "models": [
+      {
+        "id": "model-f-asian-youth-casual",
+        "name": "Mẫu nữ trẻ Á Đông casual",
+        "gender": "female",
+        "age_group": "youth",
+        "ethnicity": "asian",
+        "style": "casual",
+        "tags": ["fashion", "female", "youth", "asian", "casual"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763365308303-691ad1bc587173811c10e745.png",
+        "model_description": "young Asian female, casual style, natural makeup, friendly expression",
+        "status": "active",
+        "sort_order": 1
+      },
+      {
+        "id": "model-f-europe-biz",
+        "name": "Mẫu nữ trung niên châu Âu business",
+        "gender": "female",
+        "age_group": "middle",
+        "ethnicity": "european",
+        "style": "business",
+        "tags": ["fashion", "female", "middle", "european", "business"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763365318984-691ad1c6587173811c10e764.png",
+        "model_description": "middle-aged European female, business professional look, confident posture",
+        "status": "active",
+        "sort_order": 2
+      },
+      {
+        "id": "model-f-africa-elegant",
+        "name": "Mẫu nữ cao tuổi châu Phi elegant",
+        "gender": "female",
+        "age_group": "senior",
+        "ethnicity": "african",
+        "style": "elegant",
+        "tags": ["fashion", "female", "senior", "african", "elegant"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763365328562-691ad1d0587173811c10e772.png",
+        "model_description": "senior African female, elegant graceful style, dignified expression",
+        "status": "active",
+        "sort_order": 3
+      },
+      {
+        "id": "model-m-asia-casual",
+        "name": "Mẫu nam trung niên châu Á casual",
+        "gender": "male",
+        "age_group": "middle",
+        "ethnicity": "asian",
+        "style": "casual",
+        "tags": ["fashion", "male", "middle", "asian", "casual"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763365348243-691ad1e4587173811c10e78e.png",
+        "model_description": "middle-aged Asian male, casual relaxed style, approachable look",
+        "status": "active",
+        "sort_order": 4
+      },
+      {
+        "id": "model-nb-youth-streetwear",
+        "name": "Mẫu non-binary trẻ streetwear",
+        "gender": "non-binary",
+        "age_group": "youth",
+        "ethnicity": "mixed",
+        "style": "streetwear",
+        "tags": ["fashion", "youth", "streetwear", "urban"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763365374879-691ad1fe587173811c10e7aa.png",
+        "model_description": "young non-binary person, trendy streetwear style, edgy urban look",
+        "status": "active",
+        "sort_order": 5
+      },
+      {
+        "id": "model-couple-casual",
+        "name": "Mẫu cặp đôi nam nữ casual",
+        "gender": "couple",
+        "age_group": "youth",
+        "ethnicity": "mixed",
+        "style": "casual",
+        "tags": ["fashion", "couple", "youth", "casual"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763365387844-691ad20b587173811c10e7b8.png",
+        "model_description": "young couple, man and woman, casual style, cheerful natural interaction",
+        "status": "active",
+        "sort_order": 6
+      },
+      {
+        "id": "model-m-latin-sporty",
+        "name": "Mẫu nam trẻ Mỹ Latinh sporty",
+        "gender": "male",
+        "age_group": "youth",
+        "ethnicity": "latin",
+        "style": "sporty",
+        "tags": ["fashion", "male", "youth", "latin", "sporty", "tech"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763365336274-691ad1d8587173811c10e780.png",
+        "model_description": "young Latin male, sporty athletic style, energetic confident pose",
+        "status": "active",
+        "sort_order": 7
+      },
+      {
+        "id": "model-m-europe-senior-biz",
+        "name": "Mẫu nam cao tuổi châu Âu business",
+        "gender": "male",
+        "age_group": "senior",
+        "ethnicity": "european",
+        "style": "business",
+        "tags": ["fashion", "male", "senior", "european", "business", "tech"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763365362993-691ad1f2587173811c10e79c.png",
+        "model_description": "senior European male, professional business attire, authoritative posture",
+        "status": "active",
+        "sort_order": 8
+      },
+      {
+        "id": "model-commercial",
+        "name": "Commercial Model",
+        "gender": "female",
+        "age_group": "youth",
+        "ethnicity": "mixed",
+        "style": "commercial",
+        "tags": ["fashion", "commercial", "youth"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763367696431-691adb10587173811c118312.png",
+        "model_description": "commercial model, natural approachable look, suitable for product ads",
+        "status": "active",
+        "sort_order": 9
+      },
+      {
+        "id": "model-high-fashion-editorial",
+        "name": "High Fashion / Editorial Model",
+        "gender": "female",
+        "age_group": "youth",
+        "ethnicity": "mixed",
+        "style": "high_fashion",
+        "tags": ["fashion", "editorial", "luxury", "youth"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763367503316-691ada4f587173811c1170ce.png",
+        "model_description": "high fashion editorial model, avant-garde dramatic style, intense gaze",
+        "status": "active",
+        "sort_order": 10
+      },
+      {
+        "id": "model-runway",
+        "name": "Runway Model",
+        "gender": "female",
+        "age_group": "youth",
+        "ethnicity": "mixed",
+        "style": "runway",
+        "tags": ["fashion", "runway", "luxury"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763367536204-691ada70587173811c1173b7.png",
+        "model_description": "runway model, tall slender figure, couture fashion forward look",
+        "status": "active",
+        "sort_order": 11
+      },
+      {
+        "id": "model-fitness",
+        "name": "Fitness Model",
+        "gender": "female",
+        "age_group": "youth",
+        "ethnicity": "mixed",
+        "style": "fitness",
+        "tags": ["fashion", "fitness", "sporty", "health"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763367798745-691adb76587173811c118b0f.png",
+        "model_description": "fitness athlete model, toned body, sporty activewear, energetic vibrant",
+        "status": "active",
+        "sort_order": 12
+      },
+      {
+        "id": "model-luxury-couture",
+        "name": "Luxury / Haute Couture Model",
+        "gender": "female",
+        "age_group": "youth",
+        "ethnicity": "mixed",
+        "style": "luxury",
+        "tags": ["fashion", "luxury", "couture", "elegant"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763368138034-691adcca587173811c11a836.png",
+        "model_description": "luxury haute couture model, opulent refined style, sophisticated bearing",
+        "status": "active",
+        "sort_order": 13
+      },
+      {
+        "id": "model-youth-teen-fashion",
+        "name": "Youth / Teen Fashion Model",
+        "gender": "female",
+        "age_group": "teen",
+        "ethnicity": "mixed",
+        "style": "teen_fashion",
+        "tags": ["fashion", "teen", "youth", "casual"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763369108063-691ae094587173811c11d5bf.png",
+        "model_description": "teen fashion model, youthful vibrant style, playful expressive",
+        "status": "active",
+        "sort_order": 14
+      },
+      {
+        "id": "model-group-diverse-biz",
+        "name": "Mẫu nhóm nhỏ đa dạng business",
+        "gender": "group",
+        "age_group": "mixed",
+        "ethnicity": "diverse",
+        "style": "business",
+        "tags": ["fashion", "group", "diverse", "business", "tech"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763365406329-691ad21e587173811c10e7cd.png",
+        "model_description": "diverse small group of business professionals, inclusive team look",
+        "status": "active",
+        "sort_order": 15
+      },
+      {
+        "id": "model-street-style",
+        "name": "Street Style Model",
+        "gender": "female",
+        "age_group": "youth",
+        "ethnicity": "mixed",
+        "style": "street_style",
+        "tags": ["fashion", "street", "urban", "tech"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763368815946-691adf6f587173811c11d385.png",
+        "model_description": "street style influencer, urban casual chic, candid photography feel",
+        "status": "active",
+        "sort_order": 16
+      },
+      {
+        "id": "model-pet-pomeranian",
+        "name": "Mẫu chó Pomeranian dễ thương",
+        "gender": "pet",
+        "age_group": "youth",
+        "ethnicity": "animal",
+        "style": "cute",
+        "tags": ["food", "pet", "cute", "lifestyle"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763365417157-691ad229587173811c10e7db.png",
+        "model_description": "adorable fluffy Pomeranian dog, cute playful energetic, puppy eyes",
+        "status": "active",
+        "sort_order": 17
+      },
+      {
+        "id": "model-pet-tabby-cat",
+        "name": "Mẫu mèo tabby xinh xắn",
+        "gender": "pet",
+        "age_group": "youth",
+        "ethnicity": "animal",
+        "style": "cute",
+        "tags": ["food", "pet", "cute", "lifestyle"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763367475115-691ada33587173811c116e6b.png",
+        "model_description": "adorable tabby cat, soft fluffy fur, curious expressive eyes, cute pose",
+        "status": "active",
+        "sort_order": 18
+      },
+      {
+        "id": "model-lingerie-swimwear",
+        "name": "Lingerie / Swimwear Model",
+        "gender": "female",
+        "age_group": "youth",
+        "ethnicity": "mixed",
+        "style": "swimwear",
+        "tags": ["fashion", "swimwear", "beauty", "lifestyle"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763367939908-691adc03587173811c1198b3.png",
+        "model_description": "swimwear model, beach lifestyle, confident natural beauty, summer vibe",
+        "status": "active",
+        "sort_order": 19
+      },
+      {
+        "id": "model-f-asian-beauty",
+        "name": "Mẫu nữ Á Đông beauty",
+        "gender": "female",
+        "age_group": "youth",
+        "ethnicity": "asian",
+        "style": "beauty",
+        "tags": ["beauty", "female", "youth", "asian", "makeup"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763368200000-691adcf0587173811c11ac00.png",
+        "model_description": "young Asian female, beauty and skincare focus, flawless skin, soft elegant makeup",
+        "status": "active",
+        "sort_order": 20
+      },
+      {
+        "id": "model-f-vietnam-ao-dai",
+        "name": "Mẫu nữ Việt Nam áo dài",
+        "gender": "female",
+        "age_group": "youth",
+        "ethnicity": "asian",
+        "style": "traditional",
+        "tags": ["fashion", "female", "youth", "asian", "traditional", "vietnam"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763368250000-691add20587173811c11ae40.png",
+        "model_description": "young Vietnamese female, traditional ao dai dress, graceful elegant pose",
+        "status": "active",
+        "sort_order": 21
+      },
+      {
+        "id": "model-m-asia-formal",
+        "name": "Mẫu nam Á Đông formal",
+        "gender": "male",
+        "age_group": "youth",
+        "ethnicity": "asian",
+        "style": "formal",
+        "tags": ["fashion", "male", "youth", "asian", "formal", "suit"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763368400000-691addb0587173811c11b280.png",
+        "model_description": "young Asian male, formal business suit, professional confident look",
+        "status": "active",
+        "sort_order": 22
+      },
+      {
+        "id": "model-f-plus-size",
+        "name": "Plus Size Model",
+        "gender": "female",
+        "age_group": "youth",
+        "ethnicity": "mixed",
+        "style": "casual",
+        "tags": ["fashion", "female", "youth", "plus-size", "inclusive"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763369200000-691ae0e0587173811c11d800.png",
+        "model_description": "plus size female model, body positive, stylish casual look, confident smile",
+        "status": "active",
+        "sort_order": 23
+      },
+      {
+        "id": "model-group-friends",
+        "name": "Mẫu nhóm bạn trẻ",
+        "gender": "group",
+        "age_group": "youth",
+        "ethnicity": "mixed",
+        "style": "casual",
+        "tags": ["fashion", "group", "youth", "casual", "lifestyle"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763365406329-691ad21e587173811c10e7cd.png",
+        "model_description": "group of young friends, casual style, fun energetic interaction, lifestyle vibe",
+        "status": "active",
+        "sort_order": 24
+      },
+      {
+        "id": "model-f-mature-elegant",
+        "name": "Mẫu nữ trung niên elegant",
+        "gender": "female",
+        "age_group": "middle",
+        "ethnicity": "asian",
+        "style": "elegant",
+        "tags": ["fashion", "female", "middle", "asian", "elegant", "beauty"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763368500000-691ade10587173811c11b640.png",
+        "model_description": "mature Asian female, refined elegant style, sophisticated graceful presence",
+        "status": "active",
+        "sort_order": 25
+      },
+      {
+        "id": "model-child-cute",
+        "name": "Mẫu trẻ em dễ thương",
+        "gender": "female",
+        "age_group": "child",
+        "ethnicity": "asian",
+        "style": "cute",
+        "tags": ["lifestyle", "child", "cute", "food", "kids"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/17/1763369300000-691ae144587173811c11da40.png",
+        "model_description": "cute Asian child, bright cheerful expression, playful innocent look",
+        "status": "active",
+        "sort_order": 26
+      },
+      {
+        "id": "model-f-vn-1",
+        "name": "Mẫu nữ 1",
+        "gender": "female",
+        "age_group": "young-adult",
+        "ethnicity": "asian",
+        "style": "casual",
+        "tags": ["fashion", "female", "young-adult", "asian", "vietnam"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/ai-models/2025/10/31/1761896412453-690467dc66be92ee6af7d34a.png",
+        "model_description": "young Vietnamese female, natural casual style, friendly approachable look",
+        "status": "active",
+        "sort_order": 27
+      },
+      {
+        "id": "model-f-vn-2",
+        "name": "Mẫu nữ 2",
+        "gender": "female",
+        "age_group": "young-adult",
+        "ethnicity": "asian",
+        "style": "casual",
+        "tags": ["fashion", "female", "young-adult", "asian", "vietnam"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/ai-models/2025/10/31/1761896514116-6904684266be92ee6af7d5d5.png",
+        "model_description": "young Vietnamese female, soft natural beauty, gentle elegant expression",
+        "status": "active",
+        "sort_order": 28
+      },
+      {
+        "id": "model-f-vn-3",
+        "name": "Mẫu nữ 3",
+        "gender": "female",
+        "age_group": "young-adult",
+        "ethnicity": "asian",
+        "style": "casual",
+        "tags": ["fashion", "female", "young-adult", "asian", "vietnam"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/ai-models/2025/10/31/1761896555275-6904686b66be92ee6af7d5db.png",
+        "model_description": "young Vietnamese female, fresh modern style, confident bright expression",
+        "status": "active",
+        "sort_order": 29
+      },
+      {
+        "id": "model-f-vn-4",
+        "name": "Mẫu nữ 4",
+        "gender": "female",
+        "age_group": "young-adult",
+        "ethnicity": "asian",
+        "style": "casual",
+        "tags": ["fashion", "female", "young-adult", "asian", "vietnam"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/ai-models/2025/10/31/1761896589591-6904688d66be92ee6af7d5e1.png",
+        "model_description": "young Vietnamese female, classic natural look, warm friendly smile",
+        "status": "active",
+        "sort_order": 30
+      },
+      {
+        "id": "model-f-vn-5",
+        "name": "Mẫu nữ 5",
+        "gender": "female",
+        "age_group": "young-adult",
+        "ethnicity": "asian",
+        "style": "casual",
+        "tags": ["fashion", "female", "young-adult", "asian", "vietnam"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/ai-models/2025/10/31/1761896620328-690468ac66be92ee6af7d5ee.png",
+        "model_description": "young Vietnamese female, trendy youthful style, lively cheerful expression",
+        "status": "active",
+        "sort_order": 31
+      },
+      {
+        "id": "model-m-vn-1",
+        "name": "Mẫu nam 1",
+        "gender": "male",
+        "age_group": "young-adult",
+        "ethnicity": "asian",
+        "style": "casual",
+        "tags": ["fashion", "male", "young-adult", "asian", "vietnam"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/ai-models/2025/10/31/1761896048252-6904667066be92ee6af7cb13.png",
+        "model_description": "young Vietnamese male, clean casual style, confident relaxed look",
+        "status": "active",
+        "sort_order": 32
+      },
+      {
+        "id": "model-m-vn-2",
+        "name": "Mẫu nam 2",
+        "gender": "male",
+        "age_group": "young-adult",
+        "ethnicity": "asian",
+        "style": "casual",
+        "tags": ["fashion", "male", "young-adult", "asian", "vietnam"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/ai-models/2025/10/31/1761896118882-690466b666be92ee6af7ce39.png",
+        "model_description": "young Vietnamese male, smart casual look, natural approachable expression",
+        "status": "active",
+        "sort_order": 33
+      },
+      {
+        "id": "model-m-vn-3",
+        "name": "Mẫu nam 3",
+        "gender": "male",
+        "age_group": "young-adult",
+        "ethnicity": "asian",
+        "style": "casual",
+        "tags": ["fashion", "male", "young-adult", "asian", "vietnam"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/ai-models/2025/10/31/1761896167022-690466e766be92ee6af7d067.png",
+        "model_description": "young Vietnamese male, modern stylish look, friendly warm expression",
+        "status": "active",
+        "sort_order": 34
+      },
+      {
+        "id": "model-m-vn-4",
+        "name": "Mẫu nam 4",
+        "gender": "male",
+        "age_group": "adult",
+        "ethnicity": "asian",
+        "style": "casual",
+        "tags": ["fashion", "male", "adult", "asian", "vietnam"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/ai-models/2025/10/31/1761896212615-6904671466be92ee6af7d089.png",
+        "model_description": "Vietnamese adult male, mature reliable look, professional confident demeanor",
+        "status": "active",
+        "sort_order": 35
+      },
+      {
+        "id": "model-m-vn-5",
+        "name": "Mẫu nam 5",
+        "gender": "male",
+        "age_group": "teen",
+        "ethnicity": "asian",
+        "style": "casual",
+        "tags": ["fashion", "male", "teen", "asian", "vietnam"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/ai-models/2025/10/31/1761896241526-6904673166be92ee6af7d08f.png",
+        "model_description": "Vietnamese teen male, youthful energetic style, fresh sporty look",
+        "status": "active",
+        "sort_order": 36
+      }
+    ]
+  },
+
+  "generation_logic": {
+    "_note": "Quy tắc build prompt — phân nhánh theo creation_mode",
+
+    "common_steps": [
+      {
+        "step": 1,
+        "action": "detect_creation_mode",
+        "description": "Đọc creation_mode từ form. Mặc định: composite"
+      },
+      {
+        "step": 2,
+        "action": "resolve_pose",
+        "description": "Lấy prompt_hint hoặc prompt_hint_composite (tuỳ mode) từ options của field 'pose', fallback: 'holding naturally'"
+      }
+    ],
+
+    "mode_generate": {
+      "_note": "Tạo ảnh mới hoàn toàn từ prompt — dùng flux-pro (text-to-image)",
+      "model": "flux-pro",
+      "steps": [
+        {
+          "step": 3,
+          "action": "resolve_model",
+          "description": "Lấy model_description từ model_library dựa theo model_template_id. Nếu user upload ảnh riêng → dùng ảnh đó làm ref + mô tả chung 'a model similar to the reference image'"
+        },
+        {
+          "step": 4,
+          "action": "resolve_scene",
+          "description": "Lấy prompt_hint từ options của field 'scene', fallback: 'clean neutral background'"
+        },
+        {
+          "step": 5,
+          "action": "build_prompt",
+          "template": "A {{model_description}} is naturally holding {{product_description}} in hand, {{pose_description}}, {{scene_description}}, photorealistic, 8K, product photography, natural lighting, detailed hands, sharp focus on product, {{custom_detail}}"
+        },
+        {
+          "step": 6,
+          "action": "set_reference_images",
+          "description": "Gom ảnh tham khảo: uploaded_model (model_ref_image) + reference_images slots (extra_ref_images). Nếu có ref images → upgrade model sang flux-kontext"
+        },
+        {
+          "step": 7,
+          "action": "set_model",
+          "logic": "Nếu có ref_image → dùng flux-kontext; nếu không → dùng flux-pro"
+        }
+      ]
+    },
+
+    "mode_composite": {
+      "_note": "Ghép ảnh thật — dùng flux-kontext (image-editing). User upload ảnh người mẫu thật + ảnh sản phẩm thật",
+      "model": "flux-kontext",
+      "fallback_model": "gpt-image",
+      "steps": [
+        {
+          "step": 3,
+          "action": "validate_inputs",
+          "description": "Kiểm tra: phải có product_image (ảnh sản phẩm) + model_template_id upload (ảnh người mẫu thật). Nếu thiếu → báo lỗi"
+        },
+        {
+          "step": 4,
+          "action": "set_reference_images",
+          "description": "ref_images[0] = ảnh người mẫu (giữ nguyên khuôn mặt, body, quần áo, background). ref_images[1] = ảnh sản phẩm (vật cần ghép lên tay)"
+        },
+        {
+          "step": 5,
+          "action": "build_prompt",
+          "template": "The person in the first image is now {{pose_description}} the product shown in the second image. Keep the exact same face, hair, skin tone, body, pose, and background from the first image. The product should appear naturally in their hands with correct perspective, lighting, and shadows. Ultra photorealistic. No artifacts. {{custom_detail}}",
+          "_note": "Prompt dạng image-editing instruction cho Flux Kontext — KHÔNG cần model_description hay scene_description vì giữ nguyên ảnh gốc"
+        },
+        {
+          "step": 6,
+          "action": "set_model",
+          "logic": "Dùng flux-kontext (mặc định). Nếu sản phẩm cần semantic understanding (VD: đeo kính, đội nón) → fallback sang gpt-image"
+        }
+      ]
+    }
+  }
+}

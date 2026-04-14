@@ -1,0 +1,497 @@
+{
+  "_meta": {
+    "version": "1.0.0",
+    "schema": "bztimg_template",
+    "created": "2026-04-13",
+    "description": "Template kịch bản Thử Đồ Ảo — Virtual Try-On cho quần áo, hỗ trợ 2 mode: Generate & Composite"
+  },
+
+  "template": {
+    "slug": "clothing-tryon",
+    "category_slug": "apparel-tryon",
+    "subcategory": "product",
+    "title": "Thử đồ ảo",
+    "description": "👕 Thử quần áo lên người — AI ghép ảnh thật hoặc tạo mới hoàn toàn",
+    "preview_image": "",
+    "recommended_model": "flux-kontext",
+    "recommended_model_generate": "flux-pro",
+    "recommended_model_composite": "flux-kontext",
+    "fallback_model_composite": "gpt-image",
+    "recommended_size": "1024x1536",
+    "style": "photorealistic",
+    "num_outputs": 2,
+    "is_featured": 1,
+    "sort_order": 1,
+    "status": "active",
+    "tags": "clothing,tryon,fashion,virtual,apparel",
+
+    "prompt_templates": {
+      "generate": "A {{model_description}} wearing {{clothing_description}}, {{try_on_mode_detail}}, photorealistic, 8K, fashion photography, natural lighting, full body visible, sharp focus on clothing details and fabric texture, {{custom_detail}}",
+      "composite": "The person in the first image is now wearing the clothing shown in the second image. {{try_on_mode_detail}} Keep the exact same face, hair, skin tone, body proportions, and pose from the first image. The clothing should fit naturally with correct perspective, realistic wrinkles, fabric texture, and shadows matching the lighting. Ultra photorealistic. No artifacts. {{custom_detail}}"
+    },
+
+    "prompt_template": "A {{model_description}} wearing {{clothing_description}}, {{try_on_mode_detail}}, photorealistic, 8K, fashion photography, natural lighting, {{custom_detail}}",
+
+    "negative_prompt": "blurry, low quality, distorted body, extra limbs, deformed, ugly, bad anatomy, watermark, text, logo, oversaturated, flat lighting, wrong clothing placement, misaligned seams",
+
+    "form_fields": [
+      {
+        "slug": "creation_mode",
+        "label": "Chế độ tạo ảnh",
+        "type": "card_radio",
+        "placeholder": "",
+        "required": true,
+        "grid": "full",
+        "sort_order": 0,
+        "default": "composite",
+        "options": [
+          {
+            "value": "composite",
+            "label": "Ghép ảnh thật",
+            "icon": "🖼️",
+            "description": "Dùng ảnh người thật & ảnh quần áo — AI ghép lên người",
+            "recommended": true
+          },
+          {
+            "value": "generate",
+            "label": "Tạo ảnh mới",
+            "icon": "✨",
+            "description": "AI tự vẽ toàn bộ người mặc quần áo từ mô tả"
+          }
+        ],
+        "help": "Ghép ảnh thật: dùng ảnh người & quần áo có sẵn. Tạo ảnh mới: AI tự vẽ toàn bộ."
+      },
+      {
+        "slug": "clothing_image",
+        "label": "Ảnh quần áo",
+        "type": "image_upload",
+        "placeholder": "",
+        "required": true,
+        "grid": "full",
+        "sort_order": 1,
+        "options": [],
+        "help": "Upload ảnh quần áo cần thử. Nên dùng ảnh đã xóa nền hoặc nền trắng.",
+        "visibility": { "always": true }
+      },
+      {
+        "slug": "clothing_description",
+        "label": "Mô tả quần áo",
+        "type": "text",
+        "placeholder": "VD: áo thun trắng basic, sơ mi kẻ sọc xanh, váy đen midi...",
+        "required": true,
+        "required_when": { "creation_mode": "generate" },
+        "optional_when": { "creation_mode": "composite" },
+        "grid": "full",
+        "sort_order": 2,
+        "options": [],
+        "help": "Mô tả ngắn gọn quần áo. Bắt buộc khi Tạo ảnh mới, tuỳ chọn khi Ghép ảnh."
+      },
+      {
+        "slug": "try_on_mode",
+        "label": "Chế độ thử đồ",
+        "type": "card_radio",
+        "placeholder": "",
+        "required": true,
+        "grid": "full",
+        "sort_order": 3,
+        "default": "full-body",
+        "options": [
+          {
+            "value": "only-top",
+            "label": "Chỉ Áo",
+            "icon": "👕",
+            "description": "Chỉ thay đổi phần áo, giữ nguyên quần",
+            "prompt_hint": "wearing the described top garment, keeping lower body clothes unchanged",
+            "prompt_hint_composite": "Replace only the upper body clothing (shirt/top) with the clothing in the second image. Keep the exact same pants, skirt, or bottom wear unchanged."
+          },
+          {
+            "value": "only-bottom",
+            "label": "Chỉ Quần",
+            "icon": "👖",
+            "description": "Chỉ thay đổi phần quần, giữ nguyên áo",
+            "prompt_hint": "wearing the described bottom garment, keeping upper body clothes unchanged",
+            "prompt_hint_composite": "Replace only the lower body clothing (pants/skirt) with the clothing in the second image. Keep the exact same shirt, top, or upper wear unchanged."
+          },
+          {
+            "value": "full-body",
+            "label": "Toàn Thân",
+            "icon": "👔",
+            "description": "Thay đổi toàn bộ trang phục",
+            "prompt_hint": "wearing the complete outfit, full body visible from head to toe",
+            "prompt_hint_composite": "Replace the entire outfit with the clothing shown in the second image. Full body visible from head to toe.",
+            "recommended": true
+          },
+          {
+            "value": "one-piece",
+            "label": "Trang Phục",
+            "icon": "👗",
+            "description": "Váy liền, đầm, jumpsuit...",
+            "prompt_hint": "wearing the one-piece outfit (dress/jumpsuit), full body visible",
+            "prompt_hint_composite": "Replace the entire outfit with the one-piece garment shown in the second image."
+          }
+        ],
+        "help": "Chọn phần quần áo cần thay đổi"
+      },
+      {
+        "slug": "model_template_id",
+        "label": "Chọn mẫu người",
+        "type": "model_picker",
+        "placeholder": "",
+        "required": true,
+        "grid": "full",
+        "sort_order": 4,
+        "options": [],
+        "allow_custom_upload": true,
+        "custom_upload_label": "Upload ảnh người riêng",
+        "custom_upload_help_generate": "Upload ảnh người — AI dùng làm tham khảo khi tạo ảnh mới",
+        "custom_upload_help_composite": "Upload ảnh người thật — AI sẽ giữ nguyên và thay quần áo lên",
+        "help": "Chọn model có sẵn hoặc upload ảnh người thật để thử đồ (tối đa 5 mẫu)"
+      },
+      {
+        "slug": "aspect_ratio",
+        "label": "Tỉ lệ ảnh",
+        "type": "size_picker",
+        "placeholder": "",
+        "required": false,
+        "grid": "full",
+        "sort_order": 5,
+        "options": [
+          { "value": "1024x1536", "label": "2:3 Dọc",  "icon": "📱", "recommended": true },
+          { "value": "1024x1024", "label": "1:1 Vuông", "icon": "⬛" },
+          { "value": "768x1344",  "label": "9:16 Story","icon": "📲" },
+          { "value": "1536x1024", "label": "3:2 Ngang", "icon": "🖥️" }
+        ]
+      },
+      {
+        "slug": "custom_detail",
+        "label": "Chi tiết thêm (tuỳ chọn)",
+        "type": "textarea",
+        "placeholder": "VD: nền studio trắng, ánh sáng mềm, tư thế đứng thẳng...",
+        "required": false,
+        "grid": "full",
+        "sort_order": 6,
+        "options": []
+      }
+    ]
+  },
+
+  "clothing_library": {
+    "_note": "Thư viện mẫu quần áo cho Virtual Try-On — nguồn seed cho child rows",
+    "categories": [
+      { "slug": "t-shirt",  "label": "T-shirt",   "icon": "👕", "sort_order": 1 },
+      { "slug": "polo",     "label": "Polo",       "icon": "👔", "sort_order": 2 },
+      { "slug": "shirt",    "label": "Sơ mi",      "icon": "👔", "sort_order": 3 },
+      { "slug": "hoodie",   "label": "Hoodie",     "icon": "🧥", "sort_order": 4 },
+      { "slug": "sweater",  "label": "Áo len",     "icon": "🧶", "sort_order": 5 },
+      { "slug": "jacket",   "label": "Áo khoác",   "icon": "🧥", "sort_order": 6 },
+      { "slug": "jeans",    "label": "Quần jeans",  "icon": "👖", "sort_order": 7 },
+      { "slug": "trousers", "label": "Quần âu",    "icon": "👖", "sort_order": 8 },
+      { "slug": "skirt",    "label": "Váy",         "icon": "👗", "sort_order": 9 },
+      { "slug": "dress",    "label": "Đầm",         "icon": "👗", "sort_order": 10 }
+    ],
+    "modes": [
+      { "slug": "only-top",    "label": "Chỉ Áo",    "icon": "👕", "description": "Chỉ thay đổi phần áo, giữ nguyên quần" },
+      { "slug": "only-bottom", "label": "Chỉ Quần",   "icon": "👖", "description": "Chỉ thay đổi phần quần, giữ nguyên áo" },
+      { "slug": "full-body",   "label": "Toàn Thân",   "icon": "👔", "description": "Thay đổi toàn bộ trang phục" },
+      { "slug": "one-piece",   "label": "Trang Phục",  "icon": "👗", "description": "Váy liền, đầm, jumpsuit..." }
+    ],
+    "items": [
+      {
+        "id": "cl-001",
+        "name": "Áo thun trắng basic",
+        "category": "t-shirt",
+        "suitable_modes": ["only-top", "full-body"],
+        "gender": "unisex",
+        "color": "white",
+        "thumbnail": "",
+        "sort_order": 1
+      },
+      {
+        "id": "cl-002",
+        "name": "Áo thun đen trơn",
+        "category": "t-shirt",
+        "suitable_modes": ["only-top", "full-body"],
+        "gender": "unisex",
+        "color": "black",
+        "thumbnail": "",
+        "sort_order": 2
+      },
+      {
+        "id": "cl-003",
+        "name": "Áo thun oversize xám",
+        "category": "t-shirt",
+        "suitable_modes": ["only-top", "full-body"],
+        "gender": "unisex",
+        "color": "gray",
+        "thumbnail": "",
+        "sort_order": 3
+      },
+      {
+        "id": "cl-004",
+        "name": "Áo polo xanh navy",
+        "category": "polo",
+        "suitable_modes": ["only-top", "full-body"],
+        "gender": "male",
+        "color": "navy",
+        "thumbnail": "",
+        "sort_order": 4
+      },
+      {
+        "id": "cl-005",
+        "name": "Áo polo trắng",
+        "category": "polo",
+        "suitable_modes": ["only-top", "full-body"],
+        "gender": "unisex",
+        "color": "white",
+        "thumbnail": "",
+        "sort_order": 5
+      },
+      {
+        "id": "cl-006",
+        "name": "Sơ mi xanh nhạt",
+        "category": "shirt",
+        "suitable_modes": ["only-top", "full-body"],
+        "gender": "male",
+        "color": "light-blue",
+        "thumbnail": "",
+        "sort_order": 6
+      },
+      {
+        "id": "cl-007",
+        "name": "Sơ mi trắng công sở",
+        "category": "shirt",
+        "suitable_modes": ["only-top", "full-body"],
+        "gender": "unisex",
+        "color": "white",
+        "thumbnail": "",
+        "sort_order": 7
+      },
+      {
+        "id": "cl-008",
+        "name": "Sơ mi kẻ sọc",
+        "category": "shirt",
+        "suitable_modes": ["only-top", "full-body"],
+        "gender": "male",
+        "color": "striped",
+        "thumbnail": "",
+        "sort_order": 8
+      },
+      {
+        "id": "cl-009",
+        "name": "Hoodie đen",
+        "category": "hoodie",
+        "suitable_modes": ["only-top", "full-body"],
+        "gender": "unisex",
+        "color": "black",
+        "thumbnail": "",
+        "sort_order": 9
+      },
+      {
+        "id": "cl-010",
+        "name": "Hoodie xám melange",
+        "category": "hoodie",
+        "suitable_modes": ["only-top", "full-body"],
+        "gender": "unisex",
+        "color": "gray",
+        "thumbnail": "",
+        "sort_order": 10
+      },
+      {
+        "id": "cl-011",
+        "name": "Áo len cổ lọ be",
+        "category": "sweater",
+        "suitable_modes": ["only-top", "full-body"],
+        "gender": "unisex",
+        "color": "beige",
+        "thumbnail": "",
+        "sort_order": 11
+      },
+      {
+        "id": "cl-012",
+        "name": "Áo len cardigan nâu",
+        "category": "sweater",
+        "suitable_modes": ["only-top", "full-body"],
+        "gender": "female",
+        "color": "brown",
+        "thumbnail": "",
+        "sort_order": 12
+      },
+      {
+        "id": "cl-013",
+        "name": "Áo khoác bomber đen",
+        "category": "jacket",
+        "suitable_modes": ["only-top", "full-body"],
+        "gender": "unisex",
+        "color": "black",
+        "thumbnail": "",
+        "sort_order": 13
+      },
+      {
+        "id": "cl-014",
+        "name": "Áo khoác blazer xám",
+        "category": "jacket",
+        "suitable_modes": ["only-top", "full-body"],
+        "gender": "male",
+        "color": "gray",
+        "thumbnail": "",
+        "sort_order": 14
+      },
+      {
+        "id": "cl-015",
+        "name": "Quần jeans xanh đậm",
+        "category": "jeans",
+        "suitable_modes": ["only-bottom", "full-body"],
+        "gender": "unisex",
+        "color": "dark-blue",
+        "thumbnail": "",
+        "sort_order": 15
+      },
+      {
+        "id": "cl-016",
+        "name": "Quần jeans rách gối",
+        "category": "jeans",
+        "suitable_modes": ["only-bottom", "full-body"],
+        "gender": "unisex",
+        "color": "light-blue",
+        "thumbnail": "",
+        "sort_order": 16
+      },
+      {
+        "id": "cl-017",
+        "name": "Quần âu đen",
+        "category": "trousers",
+        "suitable_modes": ["only-bottom", "full-body"],
+        "gender": "unisex",
+        "color": "black",
+        "thumbnail": "",
+        "sort_order": 17
+      },
+      {
+        "id": "cl-018",
+        "name": "Quần âu kaki",
+        "category": "trousers",
+        "suitable_modes": ["only-bottom", "full-body"],
+        "gender": "male",
+        "color": "khaki",
+        "thumbnail": "",
+        "sort_order": 18
+      },
+      {
+        "id": "cl-019",
+        "name": "Váy midi đen",
+        "category": "skirt",
+        "suitable_modes": ["only-bottom", "one-piece"],
+        "gender": "female",
+        "color": "black",
+        "thumbnail": "",
+        "sort_order": 19
+      },
+      {
+        "id": "cl-020",
+        "name": "Váy xòe hoa nhí",
+        "category": "skirt",
+        "suitable_modes": ["only-bottom", "one-piece"],
+        "gender": "female",
+        "color": "floral",
+        "thumbnail": "",
+        "sort_order": 20
+      },
+      {
+        "id": "cl-021",
+        "name": "Đầm liền trắng",
+        "category": "dress",
+        "suitable_modes": ["one-piece"],
+        "gender": "female",
+        "color": "white",
+        "thumbnail": "",
+        "sort_order": 21
+      },
+      {
+        "id": "cl-022",
+        "name": "Đầm công sở xanh đậm",
+        "category": "dress",
+        "suitable_modes": ["one-piece"],
+        "gender": "female",
+        "color": "dark-blue",
+        "thumbnail": "",
+        "sort_order": 22
+      }
+    ]
+  },
+
+  "generation_logic": {
+    "_note": "Quy tắc build prompt — phân nhánh theo creation_mode",
+
+    "common_steps": [
+      {
+        "step": 1,
+        "action": "detect_mode",
+        "description": "Đọc creation_mode từ form. Mặc định: composite"
+      },
+      {
+        "step": 2,
+        "action": "select_prompt_template",
+        "description": "Chọn prompt_templates[mode] tương ứng"
+      }
+    ],
+
+    "mode_generate": {
+      "_note": "Tạo ảnh mới từ prompt — dùng flux-pro (text-to-image)",
+      "model": "flux-pro",
+      "steps": [
+        {
+          "step": 1,
+          "action": "resolve_model_description",
+          "source": "model_picker → model_description hoặc custom upload",
+          "fallback": "'a person'"
+        },
+        {
+          "step": 2,
+          "action": "resolve_clothing_description",
+          "source": "clothing_description field",
+          "required": true
+        },
+        {
+          "step": 3,
+          "action": "resolve_try_on_mode",
+          "source": "try_on_mode card_radio → prompt_hint"
+        },
+        {
+          "step": 4,
+          "action": "build_prompt",
+          "template": "prompt_templates.generate",
+          "ref_images": "model_picker custom_upload (optional)"
+        }
+      ]
+    },
+
+    "mode_composite": {
+      "_note": "Ghép ảnh thật — dùng flux-kontext. User cung cấp ảnh người + ảnh quần áo",
+      "model": "flux-kontext",
+      "fallback_model": "gpt-image",
+      "steps": [
+        {
+          "step": 1,
+          "action": "collect_person_image",
+          "source": "model_picker custom_upload hoặc selected model preview_url → ref_images[0]"
+        },
+        {
+          "step": 2,
+          "action": "collect_clothing_image",
+          "source": "clothing_image upload → ref_images[1]"
+        },
+        {
+          "step": 3,
+          "action": "resolve_try_on_mode",
+          "source": "try_on_mode card_radio → prompt_hint_composite"
+        },
+        {
+          "step": 4,
+          "action": "build_prompt",
+          "template": "prompt_templates.composite",
+          "ref_images": "[person_image, clothing_image]"
+        }
+      ]
+    }
+  }
+}

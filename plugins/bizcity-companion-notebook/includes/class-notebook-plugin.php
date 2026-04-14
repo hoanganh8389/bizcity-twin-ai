@@ -33,7 +33,7 @@ class BCN_Plugin {
 
         // Admin page.
         $admin = new BCN_Admin_Page();
-        add_action( 'admin_menu', [ $admin, 'register' ] );
+        // Menu registration moved to BizCity_Admin_Menu (centralized).
         add_action( 'admin_enqueue_scripts', [ $admin, 'enqueue_assets' ] );
 
         // REST API.

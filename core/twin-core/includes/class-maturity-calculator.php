@@ -465,11 +465,15 @@ class BizCity_Maturity_Calculator {
 			$user_id
 		) );
 
-		$src = $wpdb->get_row( $wpdb->prepare(
-			"SELECT COUNT(*) AS cnt, COALESCE(SUM(token_estimate),0) AS tokens, COALESCE(SUM(chunk_count),0) AS chunks
-			 FROM {$p}webchat_sources WHERE user_id = %d AND status = 'ready'",
-			$user_id
-		) );
+		$src_table = $p . 'webchat_sources';
+		$src = null;
+		if ( $wpdb->get_var( "SHOW TABLES LIKE '{$src_table}'" ) === $src_table ) {
+			$src = $wpdb->get_row( $wpdb->prepare(
+				"SELECT COUNT(*) AS cnt, COALESCE(SUM(token_estimate),0) AS tokens, COALESCE(SUM(chunk_count),0) AS chunks
+				 FROM {$p}webchat_sources WHERE user_id = %d AND status = 'ready'",
+				$user_id
+			) );
+		}
 		$sources = $src ? (int) $src->cnt : 0;
 		$tokens  = $src ? (int) $src->tokens : 0;
 
@@ -522,14 +526,18 @@ class BizCity_Maturity_Calculator {
 		global $wpdb;
 		$p = $wpdb->prefix . 'bizcity_';
 
-		$notes_row = $wpdb->get_row( $wpdb->prepare(
-			"SELECT COUNT(*) AS total,
-				SUM(created_by='ai') AS ai_notes,
-				SUM(is_starred=1) AS starred,
-				COUNT(DISTINCT note_type) AS type_variety
-			 FROM {$p}memory_notes WHERE user_id = %d",
-			$user_id
-		) );
+		$notes_table = $p . 'memory_notes';
+		$notes_row = null;
+		if ( $wpdb->get_var( "SHOW TABLES LIKE '{$notes_table}'" ) === $notes_table ) {
+			$notes_row = $wpdb->get_row( $wpdb->prepare(
+				"SELECT COUNT(*) AS total,
+					SUM(created_by='ai') AS ai_notes,
+					SUM(is_starred=1) AS starred,
+					COUNT(DISTINCT note_type) AS type_variety
+				 FROM {$p}memory_notes WHERE user_id = %d",
+				$user_id
+			) );
+		}
 		$total_notes  = $notes_row ? (int) $notes_row->total : 0;
 		$ai_notes     = $notes_row ? (int) $notes_row->ai_notes : 0;
 		$starred      = $notes_row ? (int) $notes_row->starred : 0;
@@ -783,16 +791,20 @@ class BizCity_Maturity_Calculator {
 		$avg_imp = 50; // default mid-range
 
 		// Projects where sources are actually used in bot messages
-		$projects_with_usage = (int) $wpdb->get_var( $wpdb->prepare(
-			"SELECT COUNT(DISTINCT s.project_id)
-			 FROM {$p}webchat_sources s
-			 WHERE s.user_id = %d AND s.status = 'ready'
-			   AND EXISTS (
-				   SELECT 1 FROM {$p}webchat_messages m
-				   WHERE m.project_id = s.project_id AND m.message_from = 'bot'
-			   )",
-			$user_id
-		) );
+		$projects_with_usage = 0;
+		$src_table_r = $p . 'webchat_sources';
+		if ( $wpdb->get_var( "SHOW TABLES LIKE '{$src_table_r}'" ) === $src_table_r ) {
+			$projects_with_usage = (int) $wpdb->get_var( $wpdb->prepare(
+				"SELECT COUNT(DISTINCT s.project_id)
+				 FROM {$p}webchat_sources s
+				 WHERE s.user_id = %d AND s.status = 'ready'
+				   AND EXISTS (
+					   SELECT 1 FROM {$p}webchat_messages m
+					   WHERE m.project_id = s.project_id AND m.message_from = 'bot'
+				   )",
+				$user_id
+			) );
+		}
 
 		// Mode classification confidence
 		$avg_confidence = 0;

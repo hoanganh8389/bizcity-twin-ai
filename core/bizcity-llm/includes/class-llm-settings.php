@@ -42,7 +42,8 @@ class BizCity_LLM_Settings {
         }
 
         // Site-level menu — always registered (single-site or each site in multisite)
-        add_action( 'admin_menu',                                 [ $this, 'add_menu_single' ], 30 );
+        // Single-site menu moved to BizCity_Admin_Menu (centralized).
+        // add_action( 'admin_menu', [ $this, 'add_menu_single' ], 30 );
         add_action( 'admin_init',                                 [ $this, 'handle_save_single' ] );
         add_action( 'admin_notices',                              [ $this, 'admin_notices' ] );
 

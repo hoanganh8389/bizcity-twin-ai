@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 /**
  * Studio Built-in Content Tools - Analytics Page + TikTok Script
  *

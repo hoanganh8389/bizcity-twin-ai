@@ -47,7 +47,7 @@ class BizCity_Gateway_Admin {
 
 		BizChat_Menu::add_submenu( 'bizchat-gateway', [
 			'title'      => __( 'Channel Gateway', 'bizcity-twin-ai' ),
-			'menu_title' => '⚡ ' . __( 'Gateway', 'bizcity-twin-ai' ),
+			'menu_title' => __( 'Gateway', 'bizcity-twin-ai' ),
 			'capability' => 'manage_options',
 			'callback'   => [ $this, 'render_overview' ],
 			'position'   => 60,

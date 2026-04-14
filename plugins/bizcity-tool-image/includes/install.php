@@ -10,9 +10,10 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 function bztimg_install_tables() {
     global $wpdb;
     $charset = $wpdb->get_charset_collate();
-    $table   = $wpdb->prefix . 'bztimg_jobs';
 
-    $sql = "CREATE TABLE {$table} (
+    /* ── Jobs table (existing) ── */
+    $table_jobs = $wpdb->prefix . 'bztimg_jobs';
+    $sql = "CREATE TABLE {$table_jobs} (
         id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
         user_id         BIGINT UNSIGNED NOT NULL DEFAULT 0,
         prompt          TEXT            NOT NULL,
@@ -35,5 +36,130 @@ function bztimg_install_tables() {
         KEY created_at (created_at)
     ) $charset;";
 
+    /* ── Template categories ── */
+    $table_cats = $wpdb->prefix . 'bztimg_template_categories';
+    $sql .= "\nCREATE TABLE {$table_cats} (
+        id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        slug        VARCHAR(50)     NOT NULL,
+        name        VARCHAR(100)    NOT NULL,
+        description TEXT,
+        icon_emoji  VARCHAR(10)     NOT NULL DEFAULT '',
+        icon_url    VARCHAR(500)    NOT NULL DEFAULT '',
+        parent_id   BIGINT UNSIGNED NOT NULL DEFAULT 0,
+        sort_order  INT             NOT NULL DEFAULT 0,
+        status      VARCHAR(20)     NOT NULL DEFAULT 'active',
+        created_at  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY slug (slug)
+    ) $charset;";
+
+    /* ── Templates ── */
+    $table_tpl = $wpdb->prefix . 'bztimg_templates';
+    $sql .= "\nCREATE TABLE {$table_tpl} (
+        id                 BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        slug               VARCHAR(100)    NOT NULL,
+        category_id        BIGINT UNSIGNED NOT NULL DEFAULT 0,
+        subcategory        VARCHAR(50)     NOT NULL DEFAULT '',
+        title              VARCHAR(200)    NOT NULL,
+        description        TEXT,
+        thumbnail_url      VARCHAR(500)    NOT NULL DEFAULT '',
+        badge_text         VARCHAR(50)     NOT NULL DEFAULT '',
+        badge_color        VARCHAR(20)     NOT NULL DEFAULT '',
+        tags               VARCHAR(500)    NOT NULL DEFAULT '',
+        prompt_template    TEXT            NOT NULL,
+        negative_prompt    TEXT,
+        form_fields        LONGTEXT,
+        recommended_model  VARCHAR(50)     NOT NULL DEFAULT 'flux-pro',
+        recommended_size   VARCHAR(20)     NOT NULL DEFAULT '1024x1024',
+        style              VARCHAR(30)     NOT NULL DEFAULT 'auto',
+        num_outputs        INT             NOT NULL DEFAULT 1,
+        version            VARCHAR(20)     NOT NULL DEFAULT '',
+        extra_data         LONGTEXT,
+        use_count          INT UNSIGNED    NOT NULL DEFAULT 0,
+        is_featured        TINYINT(1)      NOT NULL DEFAULT 0,
+        sort_order         INT             NOT NULL DEFAULT 0,
+        status             VARCHAR(20)     NOT NULL DEFAULT 'active',
+        author_id          BIGINT UNSIGNED NOT NULL DEFAULT 0,
+        created_at         DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at         DATETIME        NULL,
+        PRIMARY KEY (id),
+        UNIQUE KEY slug (slug),
+        KEY idx_category (category_id),
+        KEY idx_status (status),
+        KEY idx_featured (is_featured),
+        KEY idx_sort (sort_order)
+    ) $charset;";
+
+    /* ── Compositions (multi-image collage) ── */
+    $table_comp = $wpdb->prefix . 'bztimg_compositions';
+    $sql .= "\nCREATE TABLE {$table_comp} (
+        id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        user_id       BIGINT UNSIGNED NOT NULL,
+        title         VARCHAR(200)    NOT NULL DEFAULT '',
+        layout_data   LONGTEXT,
+        images        LONGTEXT,
+        canvas_width  INT             NOT NULL DEFAULT 1024,
+        canvas_height INT             NOT NULL DEFAULT 1024,
+        output_url    VARCHAR(500)    NOT NULL DEFAULT '',
+        attachment_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+        status        VARCHAR(20)     NOT NULL DEFAULT 'draft',
+        created_at    DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at    DATETIME        NULL,
+        PRIMARY KEY (id),
+        KEY idx_user (user_id),
+        KEY idx_status (status)
+    ) $charset;";
+
+    require_once ABSPATH . 'wp-admin/includes/upgrade.php';
     dbDelta( $sql );
+
+    /* ── Seed default categories (only if empty) ── */
+    bztimg_seed_categories();
+
+    /* ── Seed default templates (only if empty) ── */
+    if ( function_exists( 'bztimg_seed_templates' ) ) {
+        bztimg_seed_templates();
+    }
+
+    /* ── Seed templates from data/*.json files ── */
+    if ( function_exists( 'bztimg_seed_json_templates' ) ) {
+        bztimg_seed_json_templates();
+    }
+}
+
+/**
+ * Seed default template categories.
+ */
+function bztimg_seed_categories() {
+    global $wpdb;
+    $table = $wpdb->prefix . 'bztimg_template_categories';
+
+    $categories = array(
+        array( 'background',       'Thay Background',       '🖼️', 1 ),
+        array( 'on-hand',          'Trên Tay Sản Phẩm',     '🤲', 2 ),
+        array( 'concepts',         'AI Concept',             '💡', 3 ),
+        array( 'ai-model',         'AI Model Studio',        '👤', 4 ),
+        array( 'apparel-tryon',    'Thử Đồ',                '👕', 5 ),
+        array( 'accessory-tryon',  'Thử Phụ Kiện',           '💍', 6 ),
+        array( 'mockup',           'Mockup',                 '📐', 7 ),
+        array( 'packaging',        'Bao Bì',                '📦', 8 ),
+        array( 'social-media',     'Social Media',           '📱', 9 ),
+        array( 'portrait',         'Chân Dung',              '🧑', 10 ),
+        array( 'branding',         'Thương Hiệu',            '🏷️', 11 ),
+    );
+
+    foreach ( $categories as $cat ) {
+        $exists = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM {$table} WHERE slug = %s", $cat[0]
+        ) );
+        if ( ! $exists ) {
+            $wpdb->insert( $table, array(
+                'slug'       => $cat[0],
+                'name'       => $cat[1],
+                'icon_emoji' => $cat[2],
+                'sort_order' => $cat[3],
+                'status'     => 'active',
+            ), array( '%s', '%s', '%s', '%d', '%s' ) );
+        }
+    }
 }

@@ -73,6 +73,7 @@ if ( ! function_exists( 'str_starts_with' ) ) {
 require_once __DIR__ . '/includes/class-module-loader.php';
 require_once __DIR__ . '/includes/class-connection-gate.php';
 require_once __DIR__ . '/includes/class-admin-support-link.php';
+require_once __DIR__ . '/includes/class-admin-menu.php';
 require_once __DIR__ . '/includes/class-twin-ai.php';
 
 /**
@@ -145,6 +146,7 @@ $_bizcity_bundled_must_load = [
     'bizcity-tool-facebook'       => 'BZTOOL_FB_VERSION',          // Facebook standalone — /bizfbhook/, OAuth, Messenger
     'bizcity-zalo-bot'            => 'BIZCITY_ZALO_BOT_VERSION',   // Zalo Bot — webhook, user linker, gateway bridge
     'bizcity-companion-notebook'  => 'BCN_VERSION',                // Companion Notebook — Studio, tool registry, research memory
+    'bizcity-content-creator'     => 'BZCC_VERSION',               // Content Creator — template-driven AI content generation
 ];
 foreach ( $_bizcity_bundled_must_load as $_slug => $_guard_const ) {
     if ( defined( $_guard_const ) ) {
@@ -163,6 +165,7 @@ add_action( 'init', function() {
 } );
 
 BizCity_Admin_Support_Link::init();
+BizCity_Admin_Menu::boot();
 
 // Boot at plugins_loaded priority 0 — load modules + fire loaded action
 add_action( 'plugins_loaded', [ 'BizCity_Twin_AI', 'boot' ], 0 );

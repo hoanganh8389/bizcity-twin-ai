@@ -5,7 +5,7 @@
  * Description:       Tạo video B-roll bằng Sora, Veo 3, SeeDance, Kling AI qua PiAPI Gateway — Image-to-Video cho Social Media. Chat để tạo video TikTok/Reels từ ảnh + prompt.
  * Short Description: Chat gửi ảnh + prompt → AI tạo video TikTok/Reels tự động.
  * Quick View:        🎬 Gửi ảnh + mô tả → AI tạo video → Nhận kết quả qua chat
- * Version:           2.0.0
+ * Version:           2.2.0
  * Requires at least: 6.3
  * Requires PHP:      7.4
  * Icon Path:         /assets/icon.png
@@ -59,7 +59,7 @@ if ( ! defined( 'BIZCITY_TWIN_AI_VERSION' ) ) {
 }
 
 // Constants
-define( 'BIZCITY_VIDEO_KLING_VERSION', '2.0.0' );
+define( 'BIZCITY_VIDEO_KLING_VERSION', '2.2.0' );
 define( 'BIZCITY_VIDEO_KLING_DIR', plugin_dir_path( __FILE__ ) );
 define( 'BIZCITY_VIDEO_KLING_URL', plugin_dir_url( __FILE__ ) );
 define( 'BIZCITY_VIDEO_KLING_SLUG', 'kling-video' );

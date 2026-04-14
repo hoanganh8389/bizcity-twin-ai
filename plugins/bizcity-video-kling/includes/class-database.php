@@ -31,9 +31,16 @@ class BizCity_Video_Kling_Database {
         
         // Table 1: Scripts (Kịch bản)
         $table_scripts = self::get_table_name( 'scripts' );
+
+        // Migrate: title varchar(255) → text (fixes WP 6.x strict validation with long/emoji prompts)
+        $col_info = $wpdb->get_row( "SHOW COLUMNS FROM `{$table_scripts}` LIKE 'title'", ARRAY_A );
+        if ( $col_info && stripos( $col_info['Type'], 'varchar' ) !== false ) {
+            $wpdb->query( "ALTER TABLE `{$table_scripts}` MODIFY `title` text NOT NULL" );
+        }
+
         $sql_scripts = "CREATE TABLE IF NOT EXISTS `{$table_scripts}` (
             `id` bigint(20) NOT NULL AUTO_INCREMENT,
-            `title` varchar(255) NOT NULL,
+            `title` text NOT NULL,
             `content` text NOT NULL,
             `duration` int(11) DEFAULT 30 COMMENT 'Total duration in seconds',
             `aspect_ratio` varchar(10) DEFAULT '9:16',
@@ -87,6 +94,40 @@ class BizCity_Video_Kling_Database {
         ) $charset_collate;";
         dbDelta( $sql_jobs );
         
+        // Table 3: Video Effects (Templates) 
+        $table_effects = self::get_table_name( 'video_effects' );
+        $sql_effects = "CREATE TABLE IF NOT EXISTS `{$table_effects}` (
+            `id` bigint(20) NOT NULL AUTO_INCREMENT,
+            `title` varchar(255) NOT NULL,
+            `slug` varchar(100) NOT NULL,
+            `description` text DEFAULT NULL,
+            `category` varchar(100) DEFAULT 'general',
+            `thumbnail_url` varchar(500) DEFAULT NULL,
+            `preview_video_url` varchar(500) DEFAULT NULL,
+            `prompt_template` text NOT NULL COMMENT 'Prompt template with {{image}} placeholder',
+            `num_images` int(11) DEFAULT 1 COMMENT 'Number of images required',
+            `model` varchar(50) DEFAULT '2.6|pro',
+            `duration` int(11) DEFAULT 5,
+            `aspect_ratio` varchar(10) DEFAULT '9:16',
+            `badge` varchar(20) DEFAULT NULL COMMENT 'Hot, New, etc.',
+            `badge_color` varchar(20) DEFAULT '#3b82f6',
+            `view_count` bigint(20) DEFAULT 0,
+            `use_count` bigint(20) DEFAULT 0,
+            `is_featured` tinyint(1) DEFAULT 0,
+            `sort_order` int(11) DEFAULT 0,
+            `status` varchar(20) DEFAULT 'active',
+            `created_by` bigint(20) DEFAULT NULL,
+            `created_at` datetime DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `slug` (`slug`),
+            KEY `category` (`category`),
+            KEY `status` (`status`),
+            KEY `is_featured` (`is_featured`),
+            KEY `sort_order` (`sort_order`)
+        ) $charset_collate;";
+        dbDelta( $sql_effects );
+
         // Add chain columns if not exist (for existing installations)
         self::maybe_add_chain_columns();
         
@@ -252,7 +293,7 @@ class BizCity_Video_Kling_Database {
     public static function drop_tables() {
         global $wpdb;
         
-        $tables = array( 'scripts', 'jobs' );
+        $tables = array( 'scripts', 'jobs', 'video_effects' );
         
         foreach ( $tables as $table ) {
             $table_name = self::get_table_name( $table );
@@ -363,10 +404,15 @@ class BizCity_Video_Kling_Database {
         );
         
         $args = wp_parse_args( $args, $defaults );
-        
+
+        // Whitelist orderby/order to prevent SQL injection
+        $allowed_orderby = array( 'created_at', 'title', 'id', 'updated_at' );
+        $orderby = in_array( $args['orderby'], $allowed_orderby, true ) ? $args['orderby'] : 'created_at';
+        $order   = strtoupper( $args['order'] ) === 'ASC' ? 'ASC' : 'DESC';
+
         return $wpdb->get_results( $wpdb->prepare( "
             SELECT * FROM {$table}
-            ORDER BY {$args['orderby']} {$args['order']}
+            ORDER BY {$orderby} {$order}
             LIMIT %d
         ", $args['limit'] ) );
     }
@@ -388,8 +434,44 @@ class BizCity_Video_Kling_Database {
         );
         
         $data = wp_parse_args( $data, $defaults );
+
+        // Strip 4-byte UTF-8 sequences (emoji) — byte-level, no /u flag needed
+        foreach ( $data as $key => $val ) {
+            if ( is_string( $val ) ) {
+                $clean = preg_replace( '/[\xF0-\xF4][\x80-\xBF]{3}/', '', $val );
+                $data[ $key ] = ( null !== $clean ) ? $clean : $val;
+            }
+        }
+
+        // Ensure title is never empty
+        if ( isset( $data['title'] ) ) {
+            $data['title'] = trim( $data['title'] );
+            if ( empty( $data['title'] ) ) {
+                $data['title'] = 'Untitled';
+            }
+        }
         
-        $wpdb->insert( $table, $data );
+        $result = $wpdb->insert( $table, $data );
+        
+        if ( false === $result ) {
+            error_log( sprintf(
+                '[BVK Database] create_script FAILED | table=%s | error=%s | data_keys=%s',
+                $table,
+                $wpdb->last_error,
+                implode( ',', array_keys( $data ) )
+            ) );
+
+            // Auto-create table if missing (multisite: new blog may not have tables yet)
+            if ( strpos( $wpdb->last_error, "doesn't exist" ) !== false ) {
+                error_log( '[BVK Database] Table missing — auto-creating tables...' );
+                self::create_tables();
+                // Retry insert
+                $result = $wpdb->insert( $table, $data );
+                if ( false === $result ) {
+                    error_log( '[BVK Database] create_script RETRY FAILED | error=' . $wpdb->last_error );
+                }
+            }
+        }
         
         return $wpdb->insert_id;
     }
@@ -578,5 +660,113 @@ class BizCity_Video_Kling_Database {
      */
     public static function generate_chain_id() {
         return 'chain_' . time() . '_' . wp_rand( 1000, 9999 );
+    }
+
+    /* ═══════════════════════════════════════════════════════
+     *  Video Effects CRUD
+     * ═══════════════════════════════════════════════════════ */
+
+    public static function get_video_effect( $id ) {
+        global $wpdb;
+        $table = self::get_table_name( 'video_effects' );
+        return $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE id = %d", $id ) );
+    }
+
+    public static function get_video_effects( $args = [] ) {
+        global $wpdb;
+        $table = self::get_table_name( 'video_effects' );
+
+        $defaults = [
+            'status'   => 'active',
+            'category' => '',
+            'featured' => false,
+            'orderby'  => 'sort_order',
+            'order'    => 'ASC',
+            'limit'    => 50,
+            'offset'   => 0,
+        ];
+        $args = wp_parse_args( $args, $defaults );
+
+        $where = [ '1=1' ];
+        $params = [];
+
+        if ( $args['status'] ) {
+            $where[]  = 'status = %s';
+            $params[] = $args['status'];
+        }
+        if ( $args['category'] ) {
+            $where[]  = 'category = %s';
+            $params[] = $args['category'];
+        }
+        if ( $args['featured'] ) {
+            $where[] = 'is_featured = 1';
+        }
+
+        // Whitelist orderby/order to prevent SQL injection
+        $allowed_orderby = [ 'sort_order', 'created_at', 'title', 'view_count', 'use_count', 'id' ];
+        $orderby = in_array( $args['orderby'], $allowed_orderby, true ) ? $args['orderby'] : 'sort_order';
+        $order   = strtoupper( $args['order'] ) === 'DESC' ? 'DESC' : 'ASC';
+
+        $sql = "SELECT * FROM {$table} WHERE " . implode( ' AND ', $where )
+             . " ORDER BY {$orderby} {$order} LIMIT %d OFFSET %d";
+        $params[] = $args['limit'];
+        $params[] = $args['offset'];
+
+        return $wpdb->get_results( $wpdb->prepare( $sql, ...$params ) );
+    }
+
+    public static function get_effect_categories() {
+        global $wpdb;
+        $table = self::get_table_name( 'video_effects' );
+        return $wpdb->get_col( "SELECT DISTINCT category FROM {$table} WHERE status = 'active' ORDER BY category ASC" );
+    }
+
+    public static function create_video_effect( $data ) {
+        global $wpdb;
+        $table = self::get_table_name( 'video_effects' );
+
+        $defaults = [
+            'num_images'   => 1,
+            'model'        => '2.6|pro',
+            'duration'     => 5,
+            'aspect_ratio' => '9:16',
+            'status'       => 'active',
+            'created_by'   => get_current_user_id(),
+            'created_at'   => current_time( 'mysql' ),
+            'updated_at'   => current_time( 'mysql' ),
+        ];
+        $data = wp_parse_args( $data, $defaults );
+
+        $wpdb->insert( $table, $data );
+        return $wpdb->insert_id;
+    }
+
+    public static function update_video_effect( $id, $data ) {
+        global $wpdb;
+        $table = self::get_table_name( 'video_effects' );
+        $data['updated_at'] = current_time( 'mysql' );
+        return $wpdb->update( $table, $data, [ 'id' => $id ] );
+    }
+
+    public static function delete_video_effect( $id ) {
+        global $wpdb;
+        $table = self::get_table_name( 'video_effects' );
+        return $wpdb->delete( $table, [ 'id' => $id ] );
+    }
+
+    public static function increment_effect_view( $id ) {
+        global $wpdb;
+        $table = self::get_table_name( 'video_effects' );
+        $wpdb->query( $wpdb->prepare(
+            "UPDATE {$table} SET view_count = view_count + 1 WHERE id = %d", $id
+        ) );
+    }
+
+    public static function increment_effect_use( $id ) {
+        global $wpdb;
+        $table = self::get_table_name( 'video_effects' );
+        $wpdb->query( $wpdb->prepare(
+            "UPDATE {$table} SET use_count = use_count + 1 WHERE id = %d", $id
+        ) );
     }
 }

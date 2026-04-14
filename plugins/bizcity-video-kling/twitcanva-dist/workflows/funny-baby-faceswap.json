@@ -1,0 +1,61 @@
+{
+  "id": "funny-baby-faceswap-workflow",
+  "title": "Funny Baby Faceswap",
+  "nodes": [
+    {
+      "id": "img-trump-ref",
+      "type": "Image",
+      "x": 400,
+      "y": 400,
+      "prompt": "Reference face image (Trump). Upload your own face to swap into the funny baby video.",
+      "status": "success",
+      "model": "Banana Pro",
+      "aspectRatio": "1:1",
+      "resolution": "Auto",
+      "parentIds": [],
+      "imageModel": "gemini-pro",
+      "resultUrl": "library/trump.png"
+    },
+    {
+      "id": "vid-baby-source",
+      "type": "Video",
+      "x": 400,
+      "y": 800,
+      "prompt": "Funny baby dancing video — use as the base video for faceswap.",
+      "status": "success",
+      "model": "tiktok-import",
+      "videoModel": "kling-v2-6",
+      "aspectRatio": "9:16",
+      "resolution": "Auto",
+      "parentIds": [],
+      "resultUrl": "library/funny_baby.mp4"
+    },
+    {
+      "id": "vid-faceswap-result",
+      "type": "Video",
+      "x": 1000,
+      "y": 600,
+      "prompt": "Faceswap the reference face onto the funny baby video. Connect the face image and baby video to this node, then press Generate.",
+      "status": "idle",
+      "model": "Banana Pro",
+      "videoModel": "faceswap-video",
+      "aspectRatio": "9:16",
+      "resolution": "Auto",
+      "parentIds": [
+        "img-trump-ref",
+        "vid-baby-source"
+      ],
+      "resultUrl": ""
+    }
+  ],
+  "groups": [],
+  "viewport": {
+    "x": 0,
+    "y": -100,
+    "zoom": 0.8
+  },
+  "updatedAt": "2026-01-10T00:00:00.000Z",
+  "createdAt": "2026-01-10T00:00:00.000Z",
+  "description": "Upload a face photo, combine with a funny baby dance video, and create a hilarious faceswap video. Replace Trump's face with your own!",
+  "coverUrl": "library/trump.png"
+}

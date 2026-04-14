@@ -1,0 +1,80 @@
+{
+  "id": "484f1e67-e2dd-4f64-8f0f-ea92db438d0b",
+  "title": "Animal/baby Dancing",
+  "nodes": [
+    {
+      "id": "57d32997-1df1-4c39-a7b0-498cd443da0e",
+      "type": "Image",
+      "x": 513.748605513562,
+      "y": 1290.764984278848,
+      "prompt": "generate a cute cat standing like a human on a dinner table with dishes.",
+      "status": "idle",
+      "model": "Banana Pro",
+      "aspectRatio": "9:16",
+      "resolution": "4K",
+      "parentIds": [],
+      "imageModel": "gemini-pro",
+      "resultUrl": ""
+    },
+    {
+      "id": "695492f1-3133-43c4-ad5a-dbd6b563e740",
+      "type": "Image",
+      "x": 1133.3337981909476,
+      "y": 1294.8145607015765,
+      "prompt": "please move the dishes a little away from the cat on the table, make more room for it to dance.",
+      "status": "idle",
+      "model": "Banana Pro",
+      "aspectRatio": "9:16",
+      "resolution": "4K",
+      "parentIds": [
+        "57d32997-1df1-4c39-a7b0-498cd443da0e"
+      ],
+      "imageModel": "gemini-pro",
+      "resultUrl": ""
+    },
+    {
+      "id": "0f9cf6a1-7593-4c88-964f-8724486012b2",
+      "type": "Video",
+      "x": 1912.2023301623015,
+      "y": 891.2067772363521,
+      "prompt": "",
+      "status": "idle",
+      "model": "Banana Pro",
+      "aspectRatio": "9:16",
+      "resolution": "Auto",
+      "parentIds": [
+        "1767728025300",
+        "695492f1-3133-43c4-ad5a-dbd6b563e740",
+        "1767728477077"
+      ],
+      "videoModel": "kling-v2-6",
+      "resultUrl": "",
+      "lastFrame": ""
+    },
+    {
+      "id": "1767728477077",
+      "type": "Video",
+      "x": 1123.8847865379157,
+      "y": 574.6096627400914,
+      "prompt": "cute baby funny dance #cute #funnydance #babydance #baby #dance ",
+      "status": "idle",
+      "resultUrl": "",
+      "model": "tiktok-import",
+      "videoModel": "veo-3.1",
+      "aspectRatio": "9:16",
+      "resolution": "Auto",
+      "videoDuration": 14,
+      "lastFrame": ""
+    }
+  ],
+  "groups": [],
+  "viewport": {
+    "x": 30.613912026665048,
+    "y": -381.57955451916064,
+    "zoom": 0.8187307530779817
+  },
+  "updatedAt": "2026-01-06T19:56:46.848Z",
+  "createdAt": "2026-01-06T19:56:46.848Z",
+  "description": "Generate a cute animal image, refine the pose, import a TikTok dance reference, and create a dancing animal video with Kling v2.6.",
+  "coverUrl": ""
+}

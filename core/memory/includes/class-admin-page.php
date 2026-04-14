@@ -39,7 +39,7 @@ class BizCity_Memory_Admin_Page {
 	}
 
 	private function __construct() {
-		add_action( 'admin_menu', array( $this, 'add_menu' ), 25 ); // after skills (20)
+		// Menu registration moved to BizCity_Admin_Menu (centralized).
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_assets' ) );
 	}
 

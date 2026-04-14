@@ -84,6 +84,10 @@ class BizCity_Tool_Image {
 
         $prompt    = self::resolve_prompt( $slots );
         $image_url = esc_url_raw( $slots['image_url'] ?? '' );
+        $ref_images = array_map( 'esc_url_raw', array_filter( (array) ( $slots['ref_images'] ?? array() ) ) );
+        if ( empty( $ref_images ) && ! empty( $image_url ) ) {
+            $ref_images = array( $image_url );
+        }
         $model     = sanitize_text_field( $slots['model'] ?? get_option( 'bztimg_default_model', 'flux-pro' ) );
         $size      = sanitize_text_field( $slots['size'] ?? get_option( 'bztimg_default_size', '1024x1024' ) );
         $style     = sanitize_text_field( $slots['style'] ?? 'auto' );
@@ -91,7 +95,7 @@ class BizCity_Tool_Image {
         // ── Step 2: Mode-specific validation ──
         if ( $creation_mode === 'reference' ) {
             // Reference mode: must have image URL(s)
-            if ( empty( $image_url ) ) {
+            if ( empty( $ref_images ) ) {
                 return [
                     'success'        => false,
                     'complete'       => false,
@@ -117,15 +121,17 @@ class BizCity_Tool_Image {
             }
         }
 
-        // ── Auto-detect purpose & enhance prompt ──
-        $purpose = sanitize_text_field( $slots['purpose'] ?? '' );
-        if ( empty( $purpose ) && class_exists( 'BizCity_Tool_Image_Intent_Provider' ) ) {
-            $purpose = BizCity_Tool_Image_Intent_Provider::detect_purpose( $prompt ) ?? '';
-        }
-        if ( ! empty( $purpose ) && class_exists( 'BizCity_Tool_Image_Intent_Provider' ) ) {
-            $prefix = BizCity_Tool_Image_Intent_Provider::get_purpose_prefix( $purpose );
-            if ( $prefix ) {
-                $prompt = $prefix . $prompt;
+        // ── Auto-detect purpose & enhance prompt (skip for reference/composite mode — prompt is already crafted) ──
+        if ( $creation_mode !== 'reference' ) {
+            $purpose = sanitize_text_field( $slots['purpose'] ?? '' );
+            if ( empty( $purpose ) && class_exists( 'BizCity_Tool_Image_Intent_Provider' ) ) {
+                $purpose = BizCity_Tool_Image_Intent_Provider::detect_purpose( $prompt ) ?? '';
+            }
+            if ( ! empty( $purpose ) && class_exists( 'BizCity_Tool_Image_Intent_Provider' ) ) {
+                $prefix = BizCity_Tool_Image_Intent_Provider::get_purpose_prefix( $purpose );
+                if ( $prefix ) {
+                    $prompt = $prefix . $prompt;
+                }
             }
         }
 
@@ -140,16 +146,17 @@ class BizCity_Tool_Image {
         $enhanced_prompt = self::apply_style( $prompt, $style );
 
         // Create job record in DB
-        $job_id = self::create_job( $user_id, $enhanced_prompt, $model, $size, $style, $image_url, $meta );
+        $job_id = self::create_job( $user_id, $enhanced_prompt, $model, $size, $style, $ref_images[0] ?? '', $meta );
 
         // Call API
         self::log( 'generate_image', [
             'model' => $model, 'size' => $size, 'style' => $style,
             'prompt_len' => mb_strlen( $enhanced_prompt ),
-            'has_ref' => ! empty( $image_url ),
+            'has_ref' => ! empty( $ref_images ),
+            'ref_count' => count( $ref_images ),
         ] );
 
-        $result = self::call_image_api( $model, $enhanced_prompt, $size, $image_url );
+        $result = self::call_image_api( $model, $enhanced_prompt, $size, $ref_images );
 
         if ( ! $result['success'] ) {
             self::log( 'generate_image FAILED', $result['error'] ?? 'Unknown' );
@@ -312,14 +319,17 @@ class BizCity_Tool_Image {
      *  API CALLS
      * ══════════════════════════════════════════════════════ */
 
-    private static function call_image_api( string $model, string $prompt, string $size, string $ref_image = '' ): array {
+    private static function call_image_api( string $model, string $prompt, string $size, $ref_images = array() ): array {
+        if ( is_string( $ref_images ) ) {
+            $ref_images = ! empty( $ref_images ) ? array( $ref_images ) : array();
+        }
         $model_info = self::MODELS[ $model ] ?? self::MODELS['flux-pro'];
 
         if ( $model_info['provider'] === 'openai' ) {
             return self::call_openai( $prompt, $size );
         }
 
-        return self::call_openrouter( $model_info['model_id'], $prompt, $size, $ref_image );
+        return self::call_openrouter( $model_info['model_id'], $prompt, $size, $ref_images );
     }
 
     /**
@@ -331,7 +341,10 @@ class BizCity_Tool_Image {
      * Body:      model, messages, modalities: ["image"] or ["image","text"], image_config
      * Response:  choices[0].message.images[0].image_url.url  (base64 data URL)
      */
-    private static function call_openrouter( string $model_id, string $prompt, string $size, string $ref_image = '' ): array {
+    private static function call_openrouter( string $model_id, string $prompt, string $size, $ref_images = array() ): array {
+        if ( is_string( $ref_images ) ) {
+            $ref_images = ! empty( $ref_images ) ? array( $ref_images ) : array();
+        }
 
         /* ── Resolve API key ── */
         $api_key = get_option( 'bztimg_api_key', '' );
@@ -362,12 +375,14 @@ class BizCity_Tool_Image {
         $content = [];
         $content[] = [ 'type' => 'text', 'text' => $prompt ];
 
-        // If reference image → add as image_url in messages (img2img)
-        if ( ! empty( $ref_image ) ) {
-            $content[] = [
-                'type'      => 'image_url',
-                'image_url' => [ 'url' => $ref_image ],
-            ];
+        // Add reference images (supports multiple for composite mode)
+        foreach ( $ref_images as $ref_url ) {
+            if ( ! empty( $ref_url ) ) {
+                $content[] = [
+                    'type'      => 'image_url',
+                    'image_url' => [ 'url' => $ref_url ],
+                ];
+            }
         }
 
         $messages = [
@@ -395,7 +410,8 @@ class BizCity_Tool_Image {
             'url'   => $url,
             'model' => $model_id,
             'aspect' => $aspect_ratio,
-            'has_ref' => ! empty( $ref_image ),
+            'has_ref' => ! empty( $ref_images ),
+            'ref_count' => count( $ref_images ),
         ] );
 
         /* ── HTTP request ── */

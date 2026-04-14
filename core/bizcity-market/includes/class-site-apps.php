@@ -17,7 +17,7 @@ class BizCity_Market_Site_Apps {
     const NONCE_ACTION = 'bizcity_site_apps_save_action';
 
     public static function boot() {
-        add_action('admin_menu', [__CLASS__, 'menu'], 30);
+        // Menu registration moved to BizCity_Admin_Menu (centralized).
         add_action('admin_init', [__CLASS__, 'assets_register']);
         add_action('admin_enqueue_scripts', [__CLASS__, 'assets_enqueue'], 20);
 

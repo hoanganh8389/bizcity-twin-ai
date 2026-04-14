@@ -11,7 +11,7 @@ class BZGoogle_Admin {
     public static function init() {
         if ( ! is_admin() ) return;
 
-        add_action( 'admin_menu', [ __CLASS__, 'register_menu' ] );
+        // Menu registration moved to BizCity_Admin_Menu (centralized).
         add_action( 'admin_init', [ __CLASS__, 'register_settings' ] );
         add_action( 'admin_enqueue_scripts', [ __CLASS__, 'enqueue_assets' ] );
 

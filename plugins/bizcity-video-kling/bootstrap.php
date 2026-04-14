@@ -13,7 +13,7 @@
 defined('ABSPATH') or die('OOPS...');
 
 // Asset version for cache busting
-define('BIZCITY_VIDEO_KLING_ASSETS_VERSION', '2.0.0');
+define('BIZCITY_VIDEO_KLING_ASSETS_VERSION', '2.20.0');
 
 // ── 1. Libraries ──
 require_once BIZCITY_VIDEO_KLING_DIR . 'lib/kling_api.php';
@@ -25,15 +25,34 @@ require_once BIZCITY_VIDEO_KLING_DIR . 'lib/class-r2-uploader.php';
 // ── 2. Database class (needed everywhere) ──
 require_once BIZCITY_VIDEO_KLING_DIR . 'includes/class-database.php';
 
-// Ensure new columns exist for existing installations
-add_action( 'admin_init', function() {
-    $db_version = get_option( 'bizcity_video_kling_db_version', '1.0.0' );
-    if ( version_compare( $db_version, '2.0.0', '<' ) ) {
+// ── 2b. Database migration (runs on EVERY request — safe because version check is cheap) ──
+// CRITICAL: Must use 'init' not 'admin_init' — frontend pages (Studio/Generate) need video_effects table
+add_action( 'init', 'bizcity_video_kling_run_migrations', 5 );
+
+function bizcity_video_kling_run_migrations() {
+    $current_version = get_option( 'bizcity_video_kling_db_version', '0' );
+    $target_version  = '2.1.0';
+
+    // Already up to date — skip (cheap check on every request)
+    if ( version_compare( $current_version, $target_version, '>=' ) ) {
+        return;
+    }
+
+    // v2.0.0: chain + checkpoint columns on jobs table
+    if ( version_compare( $current_version, '2.0.0', '<' ) ) {
         BizCity_Video_Kling_Database::maybe_add_chain_columns();
         BizCity_Video_Kling_Database::maybe_add_checkpoints_columns();
-        update_option( 'bizcity_video_kling_db_version', '2.0.0' );
+        $current_version = '2.0.0';
+        update_option( 'bizcity_video_kling_db_version', $current_version );
     }
-} );
+
+    // v2.1.0: video_effects table (uses dbDelta — safe to re-run)
+    if ( version_compare( $current_version, '2.1.0', '<' ) ) {
+        BizCity_Video_Kling_Database::create_tables();
+        $current_version = '2.1.0';
+        update_option( 'bizcity_video_kling_db_version', $current_version );
+    }
+}
 
 // ── 3. Cron + Chat notification (PILLAR 3) ──
 // CRITICAL: Must load outside is_admin() — WP-Cron runs without admin context
@@ -59,6 +78,14 @@ if ( is_admin() ) {
     BizCity_Video_Kling_Queue::init();
     BizCity_Video_Kling_Admin_Menu::instance();
 }
+
+// ── 4b. TwitCanva Video Workflow integration (admin + REST) ──
+require_once BIZCITY_VIDEO_KLING_DIR . 'includes/class-twitcanva-integration.php';
+BizCity_TwitCanva_Integration::init();
+
+// ── 4c. TwitCanva AJAX bridge (frontend SPA → PHP) ──
+require_once BIZCITY_VIDEO_KLING_DIR . 'includes/class-twitcanva-ajax.php';
+BizCity_TwitCanva_Ajax::init();
 
 // ── 5. Workflow actions (WAIC) ──
 add_action('plugins_loaded', 'bizcity_video_kling_register_workflow_actions', 20);

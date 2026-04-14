@@ -1,0 +1,519 @@
+{
+  "_meta": {
+    "version": "1.0.0",
+    "schema": "bztimg_template",
+    "created": "2026-04-13",
+    "description": "Template kịch bản Thử Phụ Kiện — Accessory Try-On, hỗ trợ 2 mode: Generate & Composite"
+  },
+
+  "template": {
+    "slug": "accessory-tryon",
+    "category_slug": "accessory-tryon",
+    "subcategory": "product",
+    "title": "Thử phụ kiện",
+    "description": "👓 Thử kính, mũ, đồng hồ, trang sức lên người — AI ghép hoặc tạo mới",
+    "preview_image": "",
+    "recommended_model": "gpt-image",
+    "recommended_model_generate": "flux-pro",
+    "recommended_model_composite": "gpt-image",
+    "fallback_model_composite": "flux-kontext",
+    "recommended_size": "1024x1536",
+    "style": "photorealistic",
+    "num_outputs": 2,
+    "is_featured": 1,
+    "sort_order": 2,
+    "status": "active",
+    "tags": "accessory,tryon,glasses,hat,watch,ring,necklace,bag,shoes",
+
+    "prompt_templates": {
+      "generate": "A {{model_description}} wearing {{accessory_description}} {{placement_detail}}, photorealistic, 8K, fashion photography, natural lighting, sharp focus on the accessory, {{custom_detail}}",
+      "composite": "The person in the first image is now wearing the accessory shown in the second image {{placement_detail}}. Keep the exact same face, hair, skin tone, body, outfit, and pose from the first image. The accessory should appear naturally with correct size, perspective, lighting, and shadows. Ultra photorealistic. No artifacts. {{custom_detail}}"
+    },
+
+    "prompt_template": "A {{model_description}} wearing {{accessory_description}} {{placement_detail}}, photorealistic, 8K, fashion photography, natural lighting, {{custom_detail}}",
+
+    "negative_prompt": "blurry, low quality, distorted face, deformed, ugly, bad anatomy, watermark, text, logo, oversaturated, flat lighting, wrong accessory placement, floating accessory, extra fingers",
+
+    "form_fields": [
+      {
+        "slug": "creation_mode",
+        "label": "Chế độ tạo ảnh",
+        "type": "card_radio",
+        "placeholder": "",
+        "required": true,
+        "grid": "full",
+        "sort_order": 0,
+        "default": "composite",
+        "options": [
+          {
+            "value": "composite",
+            "label": "Ghép ảnh thật",
+            "icon": "🖼️",
+            "description": "Dùng ảnh người thật & ảnh phụ kiện — AI ghép lên người",
+            "recommended": true
+          },
+          {
+            "value": "generate",
+            "label": "Tạo ảnh mới",
+            "icon": "✨",
+            "description": "AI tự vẽ người đeo phụ kiện từ mô tả"
+          }
+        ],
+        "help": "Ghép ảnh thật: dùng ảnh người & phụ kiện có sẵn. Tạo ảnh mới: AI tự vẽ toàn bộ."
+      },
+      {
+        "slug": "accessory_image",
+        "label": "Ảnh phụ kiện",
+        "type": "image_upload",
+        "placeholder": "",
+        "required": true,
+        "grid": "full",
+        "sort_order": 1,
+        "options": [],
+        "help": "Upload ảnh phụ kiện cần thử. Nên dùng ảnh đã xóa nền hoặc nền trắng.",
+        "visibility": { "always": true }
+      },
+      {
+        "slug": "accessory_description",
+        "label": "Mô tả phụ kiện",
+        "type": "text",
+        "placeholder": "VD: kính mát phi công đen, đồng hồ mặt tròn bạc, vòng cổ ngọc trai...",
+        "required": true,
+        "required_when": { "creation_mode": "generate" },
+        "optional_when": { "creation_mode": "composite" },
+        "grid": "full",
+        "sort_order": 2,
+        "options": [],
+        "help": "Mô tả phụ kiện. Bắt buộc khi Tạo ảnh mới, tuỳ chọn khi Ghép ảnh."
+      },
+      {
+        "slug": "accessory_type",
+        "label": "Loại phụ kiện",
+        "type": "card_radio",
+        "placeholder": "",
+        "required": true,
+        "grid": "full",
+        "sort_order": 3,
+        "options": [
+          {
+            "value": "glasses",
+            "label": "Kính",
+            "icon": "👓",
+            "description": "Kính mát, kính cận, kính thời trang",
+            "prompt_hint": "on face, properly fitted on nose bridge and ears",
+            "prompt_hint_composite": "Place the glasses/eyewear naturally on the face, properly fitted on the nose bridge and ears"
+          },
+          {
+            "value": "hat",
+            "label": "Mũ / Nón",
+            "icon": "🧢",
+            "description": "Mũ lưỡi trai, fedora, beret, nón...",
+            "prompt_hint": "on head, properly fitted and angled",
+            "prompt_hint_composite": "Place the hat/cap naturally on top of the head with correct angle and fit"
+          },
+          {
+            "value": "watch",
+            "label": "Đồng hồ",
+            "icon": "⌚",
+            "description": "Đồng hồ đeo tay các loại",
+            "prompt_hint": "on left wrist, naturally worn",
+            "prompt_hint_composite": "Place the watch naturally on the wrist with correct size and orientation"
+          },
+          {
+            "value": "ring",
+            "label": "Nhẫn",
+            "icon": "💍",
+            "description": "Nhẫn đeo ngón tay",
+            "prompt_hint": "on finger, properly sized and positioned",
+            "prompt_hint_composite": "Place the ring naturally on the finger with correct size and fit"
+          },
+          {
+            "value": "necklace",
+            "label": "Vòng cổ",
+            "icon": "📿",
+            "description": "Vòng cổ, dây chuyền, choker",
+            "prompt_hint": "around neck, natural drape and length",
+            "prompt_hint_composite": "Place the necklace naturally around the neck with correct drape and length"
+          },
+          {
+            "value": "bag",
+            "label": "Túi xách",
+            "icon": "👜",
+            "description": "Túi tote, balo, túi đeo chéo...",
+            "prompt_hint": "held in hand or carried over shoulder naturally",
+            "prompt_hint_composite": "The person is now holding/carrying the bag shown naturally in hand or over shoulder"
+          },
+          {
+            "value": "shoes",
+            "label": "Giày dép",
+            "icon": "👟",
+            "description": "Sneaker, cao gót, boot, sandal...",
+            "prompt_hint": "on feet, properly fitted, full body visible",
+            "prompt_hint_composite": "Replace the footwear with the shoes shown in the second image, properly fitted on both feet"
+          }
+        ],
+        "help": "Chọn loại phụ kiện để AI đặt đúng vị trí trên người"
+      },
+      {
+        "slug": "model_template_id",
+        "label": "Chọn mẫu người",
+        "type": "model_picker",
+        "placeholder": "",
+        "required": true,
+        "grid": "full",
+        "sort_order": 4,
+        "options": [],
+        "allow_custom_upload": true,
+        "custom_upload_label": "Upload ảnh người riêng",
+        "custom_upload_help_generate": "Upload ảnh người — AI dùng làm tham khảo khi tạo ảnh mới",
+        "custom_upload_help_composite": "Upload ảnh người thật — AI sẽ giữ nguyên và thêm phụ kiện lên",
+        "help": "Chọn model có sẵn hoặc upload ảnh người thật để thử phụ kiện"
+      },
+      {
+        "slug": "aspect_ratio",
+        "label": "Tỉ lệ ảnh",
+        "type": "size_picker",
+        "placeholder": "",
+        "required": false,
+        "grid": "full",
+        "sort_order": 5,
+        "options": [
+          { "value": "1024x1024", "label": "1:1 Vuông",  "icon": "⬛", "recommended": true },
+          { "value": "1024x1536", "label": "2:3 Dọc",   "icon": "📱" },
+          { "value": "768x1024",  "label": "3:4 Dọc",   "icon": "📲" },
+          { "value": "1536x1024", "label": "3:2 Ngang",  "icon": "🖥️" }
+        ]
+      },
+      {
+        "slug": "custom_detail",
+        "label": "Chi tiết thêm (tuỳ chọn)",
+        "type": "textarea",
+        "placeholder": "VD: studio lighting, mặt nhìn thẳng, nền blur bokeh...",
+        "required": false,
+        "grid": "full",
+        "sort_order": 6,
+        "options": []
+      }
+    ]
+  },
+
+  "accessory_library": {
+    "_note": "Thư viện mẫu phụ kiện cho Accessory Try-On — nguồn seed cho child rows",
+    "accessory_types": [
+      {
+        "slug": "glasses",
+        "label": "Kính",
+        "icon": "👓",
+        "placement": "on face",
+        "recommended_model": "gpt-image",
+        "sort_order": 1
+      },
+      {
+        "slug": "hat",
+        "label": "Mũ / Nón",
+        "icon": "🧢",
+        "placement": "on head",
+        "recommended_model": "gpt-image",
+        "sort_order": 2
+      },
+      {
+        "slug": "watch",
+        "label": "Đồng hồ",
+        "icon": "⌚",
+        "placement": "on wrist",
+        "recommended_model": "flux-kontext",
+        "sort_order": 3
+      },
+      {
+        "slug": "ring",
+        "label": "Nhẫn",
+        "icon": "💍",
+        "placement": "on finger",
+        "recommended_model": "flux-kontext",
+        "sort_order": 4
+      },
+      {
+        "slug": "necklace",
+        "label": "Vòng cổ",
+        "icon": "📿",
+        "placement": "around neck",
+        "recommended_model": "flux-kontext",
+        "sort_order": 5
+      },
+      {
+        "slug": "bag",
+        "label": "Túi xách",
+        "icon": "👜",
+        "placement": "held in hand or over shoulder",
+        "recommended_model": "flux-kontext",
+        "sort_order": 6
+      },
+      {
+        "slug": "shoes",
+        "label": "Giày dép",
+        "icon": "👟",
+        "placement": "on feet",
+        "recommended_model": "flux-kontext",
+        "sort_order": 7
+      }
+    ],
+    "items": [
+      {
+        "id": "ac-001",
+        "name": "Kính mát phi công đen",
+        "type": "glasses",
+        "gender": "unisex",
+        "color": "black",
+        "thumbnail": "",
+        "sort_order": 1
+      },
+      {
+        "id": "ac-002",
+        "name": "Kính mát gọng tròn",
+        "type": "glasses",
+        "gender": "unisex",
+        "color": "brown",
+        "thumbnail": "",
+        "sort_order": 2
+      },
+      {
+        "id": "ac-003",
+        "name": "Kính cận gọng kim loại",
+        "type": "glasses",
+        "gender": "unisex",
+        "color": "silver",
+        "thumbnail": "",
+        "sort_order": 3
+      },
+      {
+        "id": "ac-004",
+        "name": "Mũ lưỡi trai đen",
+        "type": "hat",
+        "gender": "unisex",
+        "color": "black",
+        "thumbnail": "",
+        "sort_order": 4
+      },
+      {
+        "id": "ac-005",
+        "name": "Mũ fedora nâu",
+        "type": "hat",
+        "gender": "unisex",
+        "color": "brown",
+        "thumbnail": "",
+        "sort_order": 5
+      },
+      {
+        "id": "ac-006",
+        "name": "Mũ beret đỏ",
+        "type": "hat",
+        "gender": "female",
+        "color": "red",
+        "thumbnail": "",
+        "sort_order": 6
+      },
+      {
+        "id": "ac-007",
+        "name": "Đồng hồ mặt tròn bạc",
+        "type": "watch",
+        "gender": "male",
+        "color": "silver",
+        "thumbnail": "",
+        "sort_order": 7
+      },
+      {
+        "id": "ac-008",
+        "name": "Đồng hồ dây da nâu",
+        "type": "watch",
+        "gender": "unisex",
+        "color": "brown",
+        "thumbnail": "",
+        "sort_order": 8
+      },
+      {
+        "id": "ac-009",
+        "name": "Đồng hồ thể thao đen",
+        "type": "watch",
+        "gender": "male",
+        "color": "black",
+        "thumbnail": "",
+        "sort_order": 9
+      },
+      {
+        "id": "ac-010",
+        "name": "Nhẫn bạc đơn giản",
+        "type": "ring",
+        "gender": "unisex",
+        "color": "silver",
+        "thumbnail": "",
+        "sort_order": 10
+      },
+      {
+        "id": "ac-011",
+        "name": "Nhẫn vàng đính đá",
+        "type": "ring",
+        "gender": "female",
+        "color": "gold",
+        "thumbnail": "",
+        "sort_order": 11
+      },
+      {
+        "id": "ac-012",
+        "name": "Vòng cổ ngọc trai",
+        "type": "necklace",
+        "gender": "female",
+        "color": "white",
+        "thumbnail": "",
+        "sort_order": 12
+      },
+      {
+        "id": "ac-013",
+        "name": "Dây chuyền mặt tròn bạc",
+        "type": "necklace",
+        "gender": "unisex",
+        "color": "silver",
+        "thumbnail": "",
+        "sort_order": 13
+      },
+      {
+        "id": "ac-014",
+        "name": "Vòng cổ choker đen",
+        "type": "necklace",
+        "gender": "female",
+        "color": "black",
+        "thumbnail": "",
+        "sort_order": 14
+      },
+      {
+        "id": "ac-015",
+        "name": "Túi tote da đen",
+        "type": "bag",
+        "gender": "female",
+        "color": "black",
+        "thumbnail": "",
+        "sort_order": 15
+      },
+      {
+        "id": "ac-016",
+        "name": "Balo vải canvas",
+        "type": "bag",
+        "gender": "unisex",
+        "color": "khaki",
+        "thumbnail": "",
+        "sort_order": 16
+      },
+      {
+        "id": "ac-017",
+        "name": "Túi đeo chéo nâu",
+        "type": "bag",
+        "gender": "unisex",
+        "color": "brown",
+        "thumbnail": "",
+        "sort_order": 17
+      },
+      {
+        "id": "ac-018",
+        "name": "Giày sneaker trắng",
+        "type": "shoes",
+        "gender": "unisex",
+        "color": "white",
+        "thumbnail": "",
+        "sort_order": 18
+      },
+      {
+        "id": "ac-019",
+        "name": "Giày cao gót đen",
+        "type": "shoes",
+        "gender": "female",
+        "color": "black",
+        "thumbnail": "",
+        "sort_order": 19
+      },
+      {
+        "id": "ac-020",
+        "name": "Giày boot da nâu",
+        "type": "shoes",
+        "gender": "unisex",
+        "color": "brown",
+        "thumbnail": "",
+        "sort_order": 20
+      }
+    ]
+  },
+
+  "generation_logic": {
+    "_note": "Quy tắc build prompt — phân nhánh theo creation_mode",
+
+    "common_steps": [
+      {
+        "step": 1,
+        "action": "detect_mode",
+        "description": "Đọc creation_mode từ form. Mặc định: composite"
+      },
+      {
+        "step": 2,
+        "action": "select_prompt_template",
+        "description": "Chọn prompt_templates[mode] tương ứng"
+      }
+    ],
+
+    "mode_generate": {
+      "_note": "Tạo ảnh mới từ prompt — dùng flux-pro (text-to-image)",
+      "model": "flux-pro",
+      "steps": [
+        {
+          "step": 1,
+          "action": "resolve_model_description",
+          "source": "model_picker → model_description hoặc custom upload",
+          "fallback": "'a person'"
+        },
+        {
+          "step": 2,
+          "action": "resolve_accessory_description",
+          "source": "accessory_description field",
+          "required": true
+        },
+        {
+          "step": 3,
+          "action": "resolve_placement",
+          "source": "accessory_type card_radio → prompt_hint"
+        },
+        {
+          "step": 4,
+          "action": "build_prompt",
+          "template": "prompt_templates.generate",
+          "ref_images": "model_picker custom_upload (optional)"
+        }
+      ]
+    },
+
+    "mode_composite": {
+      "_note": "Ghép ảnh thật — dùng gpt-image (face/body understanding). User cung cấp ảnh người + ảnh phụ kiện",
+      "model": "gpt-image",
+      "fallback_model": "flux-kontext",
+      "steps": [
+        {
+          "step": 1,
+          "action": "collect_person_image",
+          "source": "model_picker custom_upload hoặc selected model preview_url → ref_images[0]"
+        },
+        {
+          "step": 2,
+          "action": "collect_accessory_image",
+          "source": "accessory_image upload → ref_images[1]"
+        },
+        {
+          "step": 3,
+          "action": "resolve_placement",
+          "source": "accessory_type card_radio → prompt_hint_composite"
+        },
+        {
+          "step": 4,
+          "action": "build_prompt",
+          "template": "prompt_templates.composite",
+          "ref_images": "[person_image, accessory_image]"
+        }
+      ]
+    }
+  }
+}

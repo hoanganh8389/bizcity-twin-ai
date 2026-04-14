@@ -1,0 +1,332 @@
+{
+  "_meta": {
+    "version": "1.0.0",
+    "schema": "bztimg_template",
+    "created": "2026-04-13",
+    "description": "Template kịch bản AI Concept — Tạo ảnh concept marketing cho sản phẩm, hỗ trợ 2 mode: Generate & Composite"
+  },
+
+  "template": {
+    "slug": "product-concept",
+    "category_slug": "concepts",
+    "subcategory": "product",
+    "title": "AI Concept sản phẩm",
+    "description": "✨ Tạo ảnh concept marketing — quảng cáo, khuyến mãi, ra mắt sản phẩm",
+    "preview_image": "",
+    "recommended_model": "flux-kontext",
+    "recommended_model_generate": "flux-pro",
+    "recommended_model_composite": "flux-kontext",
+    "fallback_model_composite": "gpt-image",
+    "recommended_size": "1024x1024",
+    "style": "photorealistic",
+    "num_outputs": 2,
+    "is_featured": 1,
+    "sort_order": 1,
+    "status": "active",
+    "tags": "concept,marketing,advertising,sale,promotion,product,creative",
+
+    "prompt_templates": {
+      "generate": "A stunning {{concept_theme_description}} marketing visual featuring {{product_description}}, {{color_mood_description}}, professional advertising photography, 8K, eye-catching composition, commercial quality, ready for social media, {{custom_detail}}",
+      "composite": "Create a {{concept_theme_description}} marketing concept around the product in the image. {{color_mood_description}} Add professional marketing elements and advertising-quality lighting. Keep the product clearly visible and as the main focal point. Ultra photorealistic, commercial quality. No artifacts. {{custom_detail}}"
+    },
+
+    "prompt_template": "A stunning {{concept_theme_description}} marketing visual featuring {{product_description}}, {{color_mood_description}}, professional advertising photography, 8K, {{custom_detail}}",
+
+    "negative_prompt": "blurry, low quality, amateur, watermark, distorted product, ugly text, bad typography, cluttered layout, oversaturated, unrealistic lighting, cheap looking",
+
+    "form_fields": [
+      {
+        "slug": "creation_mode",
+        "label": "Chế độ tạo ảnh",
+        "type": "card_radio",
+        "placeholder": "",
+        "required": true,
+        "grid": "full",
+        "sort_order": 0,
+        "default": "composite",
+        "options": [
+          {
+            "value": "composite",
+            "label": "Ghép ảnh thật",
+            "icon": "🖼️",
+            "description": "Upload ảnh sản phẩm → AI tạo concept marketing xung quanh",
+            "recommended": true
+          },
+          {
+            "value": "generate",
+            "label": "Tạo ảnh mới",
+            "icon": "✨",
+            "description": "Mô tả sản phẩm + chọn concept → AI tạo ảnh marketing hoàn toàn mới"
+          }
+        ],
+        "help": "Ghép ảnh thật: dùng ảnh sản phẩm có sẵn → tạo concept xung quanh. Tạo ảnh mới: AI tự vẽ toàn bộ."
+      },
+      {
+        "slug": "product_image",
+        "label": "Ảnh sản phẩm",
+        "type": "image_upload",
+        "placeholder": "",
+        "required": true,
+        "grid": "full",
+        "sort_order": 1,
+        "options": [],
+        "help": "Upload ảnh sản phẩm. Nên dùng ảnh đã xóa nền hoặc nền trắng để kết quả tốt nhất.",
+        "visibility": { "always": true }
+      },
+      {
+        "slug": "product_description",
+        "label": "Mô tả sản phẩm",
+        "type": "text",
+        "placeholder": "VD: son môi MAC đỏ, iPhone 16 Pro, bộ mỹ phẩm chăm sóc da...",
+        "required": true,
+        "required_when": { "creation_mode": "generate" },
+        "optional_when": { "creation_mode": "composite" },
+        "grid": "full",
+        "sort_order": 2,
+        "options": [],
+        "help": "Mô tả ngắn gọn sản phẩm. Bắt buộc khi Tạo ảnh mới, tuỳ chọn khi Ghép ảnh."
+      },
+      {
+        "slug": "concept_theme",
+        "label": "Chủ đề concept",
+        "type": "card_radio",
+        "placeholder": "",
+        "required": true,
+        "grid": "full",
+        "sort_order": 3,
+        "default": "premium",
+        "options": [
+          {
+            "value": "sale_discount",
+            "label": "Giảm giá / Sale",
+            "icon": "🏷️",
+            "description": "Flash sale, giảm giá sốc, khuyến mãi hot",
+            "prompt_hint": "a bold eye-catching sale promotion concept with dynamic price tags, discount badges, burst elements, vibrant red and yellow accents, urgency-driven composition",
+            "prompt_hint_composite": "Create a bold sale/discount promotion concept around the product. Add dynamic price tags, discount badges, burst elements, vibrant red and yellow accents. Urgency-driven layout"
+          },
+          {
+            "value": "premium",
+            "label": "Cao cấp / Premium",
+            "icon": "👑",
+            "description": "Sang trọng, tối giản, luxury feel",
+            "prompt_hint": "a premium luxury product showcase with dark elegant background, gold accents, subtle reflections, sophisticated minimalist composition, high-end advertising feel",
+            "prompt_hint_composite": "Create a premium luxury concept around the product. Dark elegant background with gold accents, subtle reflections, sophisticated and high-end advertising feel",
+            "recommended": true
+          },
+          {
+            "value": "new_launch",
+            "label": "Mới ra mắt",
+            "icon": "🚀",
+            "description": "Sản phẩm mới, công nghệ, đột phá",
+            "prompt_hint": "a dramatic new product launch reveal with spotlight effect, particle burst, sleek futuristic elements, dark background with bright accent lighting, first impression impact",
+            "prompt_hint_composite": "Create a dramatic new product launch reveal around the product. Spotlight effect, particle burst, sleek futuristic elements, dark background with bright accent lighting"
+          },
+          {
+            "value": "seasonal",
+            "label": "Theo mùa / Lễ hội",
+            "icon": "🎄",
+            "description": "Tết, Noel, Valentine, Mid-Autumn...",
+            "prompt_hint": "a festive seasonal themed concept with holiday decorations, warm sparkling lights, gift elements, celebration atmosphere, seasonal color palette",
+            "prompt_hint_composite": "Create a festive seasonal concept around the product. Holiday decorations, warm sparkling lights, gift elements, celebration atmosphere"
+          },
+          {
+            "value": "lifestyle",
+            "label": "Lifestyle",
+            "icon": "🏡",
+            "description": "Sản phẩm trong đời sống hàng ngày",
+            "prompt_hint": "a warm lifestyle product scene in everyday setting, natural light, cozy atmosphere, authentic and relatable, aspirational daily use context",
+            "prompt_hint_composite": "Create a warm lifestyle concept around the product. Everyday setting, natural light, cozy atmosphere, authentic and aspirational daily use context"
+          },
+          {
+            "value": "minimalist",
+            "label": "Tối giản",
+            "icon": "◻️",
+            "description": "Clean, hiện đại, less is more",
+            "prompt_hint": "a clean minimalist product concept with ample white space, simple geometric elements, muted color palette, modern typography-friendly layout, Scandinavian design aesthetic",
+            "prompt_hint_composite": "Create a clean minimalist concept around the product. Ample white space, simple geometric elements, muted colors, modern and Scandinavian design aesthetic"
+          },
+          {
+            "value": "artistic",
+            "label": "Nghệ thuật",
+            "icon": "🎨",
+            "description": "Sáng tạo, abstract, fine art",
+            "prompt_hint": "an artistic creative product concept with abstract paint splashes, bold colors, fine art composition, gallery-worthy aesthetic, creative and unique",
+            "prompt_hint_composite": "Create an artistic creative concept around the product. Abstract paint splashes, bold colors, fine art composition, gallery-worthy aesthetic"
+          },
+          {
+            "value": "tech_modern",
+            "label": "Công nghệ",
+            "icon": "💻",
+            "description": "Hi-tech, digital, futuristic",
+            "prompt_hint": "a futuristic tech-themed product concept with holographic effects, neon glow, circuit board patterns, dark background, digital and innovative feel",
+            "prompt_hint_composite": "Create a futuristic tech concept around the product. Holographic effects, neon glow, digital patterns, dark background, innovative and cutting-edge feel"
+          }
+        ],
+        "help": "Chọn chủ đề concept marketing cho sản phẩm"
+      },
+      {
+        "slug": "color_mood",
+        "label": "Tone màu",
+        "type": "card_radio",
+        "placeholder": "",
+        "required": false,
+        "grid": "full",
+        "sort_order": 4,
+        "default": "auto",
+        "options": [
+          {
+            "value": "auto",
+            "label": "Tự động",
+            "icon": "🎯",
+            "description": "AI chọn tone màu phù hợp",
+            "prompt_hint": "",
+            "prompt_hint_composite": "",
+            "recommended": true
+          },
+          {
+            "value": "warm",
+            "label": "Warm / Ấm",
+            "icon": "🔥",
+            "description": "Vàng, cam, đỏ — ấm áp, năng lượng",
+            "prompt_hint": "warm color palette with golden, orange, and red tones, cozy warm lighting",
+            "prompt_hint_composite": "Use warm color palette with golden, orange, and red tones. Cozy warm lighting"
+          },
+          {
+            "value": "cool",
+            "label": "Cool / Mát",
+            "icon": "❄️",
+            "description": "Xanh dương, tím, bạc — chuyên nghiệp",
+            "prompt_hint": "cool color palette with blue, silver, and purple tones, crisp professional lighting",
+            "prompt_hint_composite": "Use cool color palette with blue, silver, and purple tones. Crisp professional lighting"
+          },
+          {
+            "value": "vibrant",
+            "label": "Rực rỡ",
+            "icon": "🌈",
+            "description": "Sáng, đậm, bắt mắt — strong visual impact",
+            "prompt_hint": "vibrant saturated colors, bold and eye-catching, high contrast, energetic and dynamic",
+            "prompt_hint_composite": "Use vibrant saturated colors, bold and eye-catching, high contrast, energetic visual impact"
+          },
+          {
+            "value": "pastel",
+            "label": "Pastel",
+            "icon": "🍬",
+            "description": "Nhẹ nhàng, dịu dàng, feminine",
+            "prompt_hint": "soft pastel color palette, gentle and delicate, light pink, mint, lavender tones, dreamy atmosphere",
+            "prompt_hint_composite": "Use soft pastel colors — gentle pink, mint, lavender tones. Dreamy and delicate atmosphere"
+          },
+          {
+            "value": "dark_moody",
+            "label": "Tối / Moody",
+            "icon": "🌙",
+            "description": "Tối, dramatic, mystery",
+            "prompt_hint": "dark moody atmosphere, deep shadows, dramatic accent lighting, mysterious and sophisticated, noir aesthetic",
+            "prompt_hint_composite": "Use dark moody atmosphere with deep shadows, dramatic accent lighting, mysterious and sophisticated feel"
+          }
+        ],
+        "help": "Chọn tone màu tổng thể cho concept — hoặc để AI tự chọn"
+      },
+      {
+        "slug": "aspect_ratio",
+        "label": "Tỉ lệ ảnh",
+        "type": "size_picker",
+        "placeholder": "",
+        "required": false,
+        "grid": "full",
+        "sort_order": 5,
+        "options": [
+          { "value": "1024x1024", "label": "1:1 Vuông",  "icon": "⬛", "recommended": true },
+          { "value": "1024x1536", "label": "2:3 Dọc",   "icon": "📱" },
+          { "value": "768x1344",  "label": "9:16 Story", "icon": "📲" },
+          { "value": "1536x1024", "label": "3:2 Ngang",  "icon": "🖥️" },
+          { "value": "1344x768",  "label": "16:9 Wide",  "icon": "📺" }
+        ]
+      },
+      {
+        "slug": "custom_detail",
+        "label": "Chi tiết thêm (tuỳ chọn)",
+        "type": "textarea",
+        "placeholder": "VD: thêm chữ 'SALE 50%', nền gradient tím, hiệu ứng bokeh...",
+        "required": false,
+        "grid": "full",
+        "sort_order": 6,
+        "options": []
+      }
+    ]
+  },
+
+  "generation_logic": {
+    "_note": "Quy tắc build prompt — phân nhánh theo creation_mode",
+
+    "common_steps": [
+      {
+        "step": 1,
+        "action": "detect_mode",
+        "description": "Đọc creation_mode từ form. Mặc định: composite"
+      },
+      {
+        "step": 2,
+        "action": "select_prompt_template",
+        "description": "Chọn prompt_templates[mode] tương ứng"
+      }
+    ],
+
+    "mode_generate": {
+      "_note": "Tạo ảnh concept mới từ prompt — dùng flux-pro",
+      "model": "flux-pro",
+      "steps": [
+        {
+          "step": 1,
+          "action": "resolve_product_description",
+          "source": "product_description field",
+          "required": true
+        },
+        {
+          "step": 2,
+          "action": "resolve_concept_theme",
+          "source": "concept_theme card_radio → prompt_hint"
+        },
+        {
+          "step": 3,
+          "action": "resolve_color_mood",
+          "source": "color_mood card_radio → prompt_hint"
+        },
+        {
+          "step": 4,
+          "action": "build_prompt",
+          "template": "prompt_templates.generate",
+          "ref_images": "none (text-to-image)"
+        }
+      ]
+    },
+
+    "mode_composite": {
+      "_note": "Tạo concept quanh ảnh sản phẩm thật — dùng flux-kontext",
+      "model": "flux-kontext",
+      "fallback_model": "gpt-image",
+      "steps": [
+        {
+          "step": 1,
+          "action": "collect_product_image",
+          "source": "product_image upload → ref_images[0]"
+        },
+        {
+          "step": 2,
+          "action": "resolve_concept_theme",
+          "source": "concept_theme card_radio → prompt_hint_composite"
+        },
+        {
+          "step": 3,
+          "action": "resolve_color_mood",
+          "source": "color_mood card_radio → prompt_hint_composite"
+        },
+        {
+          "step": 4,
+          "action": "build_prompt",
+          "template": "prompt_templates.composite",
+          "ref_images": "[product_image]"
+        }
+      ]
+    }
+  }
+}

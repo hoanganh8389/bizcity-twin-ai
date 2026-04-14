@@ -1,0 +1,251 @@
+{
+  "_meta": {
+    "version": "1.0.0",
+    "schema": "bztimg_sample_clothing",
+    "created": "2026-04-13",
+    "description": "Thư viện mẫu quần áo cho tính năng Thử Đồ Ảo (Virtual Try-On)"
+  },
+
+  "categories": [
+    { "slug": "t-shirt",  "label": "T-shirt",  "icon": "👕", "sort_order": 1 },
+    { "slug": "polo",     "label": "Polo",      "icon": "👔", "sort_order": 2 },
+    { "slug": "shirt",    "label": "Sơ mi",     "icon": "👔", "sort_order": 3 },
+    { "slug": "hoodie",   "label": "Hoodie",    "icon": "🧥", "sort_order": 4 },
+    { "slug": "sweater",  "label": "Áo len",    "icon": "🧶", "sort_order": 5 },
+    { "slug": "jacket",   "label": "Áo khoác",  "icon": "🧥", "sort_order": 6 },
+    { "slug": "jeans",    "label": "Quần jeans", "icon": "👖", "sort_order": 7 },
+    { "slug": "trousers", "label": "Quần âu",   "icon": "👖", "sort_order": 8 },
+    { "slug": "skirt",    "label": "Váy",        "icon": "👗", "sort_order": 9 },
+    { "slug": "dress",    "label": "Đầm",        "icon": "👗", "sort_order": 10 }
+  ],
+
+  "modes": [
+    { "slug": "only-top",    "label": "Chỉ Áo",    "icon": "👕", "description": "Chỉ thay đổi phần áo, giữ nguyên quần" },
+    { "slug": "only-bottom", "label": "Chỉ Quần",   "icon": "👖", "description": "Chỉ thay đổi phần quần, giữ nguyên áo" },
+    { "slug": "full-body",   "label": "Toàn Thân",   "icon": "👔", "description": "Thay đổi toàn bộ trang phục" },
+    { "slug": "one-piece",   "label": "Trang Phục",  "icon": "👗", "description": "Váy liền, đầm, jumpsuit..." }
+  ],
+
+  "items": [
+    {
+      "id": "cl-001",
+      "name": "Áo thun trắng basic",
+      "category": "t-shirt",
+      "suitable_modes": ["only-top", "full-body"],
+      "gender": "unisex",
+      "color": "white",
+      "thumbnail": "",
+      "sort_order": 1
+    },
+    {
+      "id": "cl-002",
+      "name": "Áo thun đen trơn",
+      "category": "t-shirt",
+      "suitable_modes": ["only-top", "full-body"],
+      "gender": "unisex",
+      "color": "black",
+      "thumbnail": "",
+      "sort_order": 2
+    },
+    {
+      "id": "cl-003",
+      "name": "Áo thun oversize xám",
+      "category": "t-shirt",
+      "suitable_modes": ["only-top", "full-body"],
+      "gender": "unisex",
+      "color": "gray",
+      "thumbnail": "",
+      "sort_order": 3
+    },
+    {
+      "id": "cl-004",
+      "name": "Áo polo xanh navy",
+      "category": "polo",
+      "suitable_modes": ["only-top", "full-body"],
+      "gender": "male",
+      "color": "navy",
+      "thumbnail": "",
+      "sort_order": 4
+    },
+    {
+      "id": "cl-005",
+      "name": "Áo polo trắng",
+      "category": "polo",
+      "suitable_modes": ["only-top", "full-body"],
+      "gender": "unisex",
+      "color": "white",
+      "thumbnail": "",
+      "sort_order": 5
+    },
+    {
+      "id": "cl-006",
+      "name": "Sơ mi xanh nhạt",
+      "category": "shirt",
+      "suitable_modes": ["only-top", "full-body"],
+      "gender": "male",
+      "color": "light-blue",
+      "thumbnail": "",
+      "sort_order": 6
+    },
+    {
+      "id": "cl-007",
+      "name": "Sơ mi trắng công sở",
+      "category": "shirt",
+      "suitable_modes": ["only-top", "full-body"],
+      "gender": "unisex",
+      "color": "white",
+      "thumbnail": "",
+      "sort_order": 7
+    },
+    {
+      "id": "cl-008",
+      "name": "Sơ mi kẻ sọc",
+      "category": "shirt",
+      "suitable_modes": ["only-top", "full-body"],
+      "gender": "male",
+      "color": "striped",
+      "thumbnail": "",
+      "sort_order": 8
+    },
+    {
+      "id": "cl-009",
+      "name": "Hoodie đen",
+      "category": "hoodie",
+      "suitable_modes": ["only-top", "full-body"],
+      "gender": "unisex",
+      "color": "black",
+      "thumbnail": "",
+      "sort_order": 9
+    },
+    {
+      "id": "cl-010",
+      "name": "Hoodie xám melange",
+      "category": "hoodie",
+      "suitable_modes": ["only-top", "full-body"],
+      "gender": "unisex",
+      "color": "gray",
+      "thumbnail": "",
+      "sort_order": 10
+    },
+    {
+      "id": "cl-011",
+      "name": "Áo len cổ lọ be",
+      "category": "sweater",
+      "suitable_modes": ["only-top", "full-body"],
+      "gender": "unisex",
+      "color": "beige",
+      "thumbnail": "",
+      "sort_order": 11
+    },
+    {
+      "id": "cl-012",
+      "name": "Áo len cardigan nâu",
+      "category": "sweater",
+      "suitable_modes": ["only-top", "full-body"],
+      "gender": "female",
+      "color": "brown",
+      "thumbnail": "",
+      "sort_order": 12
+    },
+    {
+      "id": "cl-013",
+      "name": "Áo khoác bomber đen",
+      "category": "jacket",
+      "suitable_modes": ["only-top", "full-body"],
+      "gender": "unisex",
+      "color": "black",
+      "thumbnail": "",
+      "sort_order": 13
+    },
+    {
+      "id": "cl-014",
+      "name": "Áo khoác blazer xám",
+      "category": "jacket",
+      "suitable_modes": ["only-top", "full-body"],
+      "gender": "male",
+      "color": "gray",
+      "thumbnail": "",
+      "sort_order": 14
+    },
+    {
+      "id": "cl-015",
+      "name": "Quần jeans xanh đậm",
+      "category": "jeans",
+      "suitable_modes": ["only-bottom", "full-body"],
+      "gender": "unisex",
+      "color": "dark-blue",
+      "thumbnail": "",
+      "sort_order": 15
+    },
+    {
+      "id": "cl-016",
+      "name": "Quần jeans rách gối",
+      "category": "jeans",
+      "suitable_modes": ["only-bottom", "full-body"],
+      "gender": "unisex",
+      "color": "light-blue",
+      "thumbnail": "",
+      "sort_order": 16
+    },
+    {
+      "id": "cl-017",
+      "name": "Quần âu đen",
+      "category": "trousers",
+      "suitable_modes": ["only-bottom", "full-body"],
+      "gender": "unisex",
+      "color": "black",
+      "thumbnail": "",
+      "sort_order": 17
+    },
+    {
+      "id": "cl-018",
+      "name": "Quần âu kaki",
+      "category": "trousers",
+      "suitable_modes": ["only-bottom", "full-body"],
+      "gender": "male",
+      "color": "khaki",
+      "thumbnail": "",
+      "sort_order": 18
+    },
+    {
+      "id": "cl-019",
+      "name": "Váy midi đen",
+      "category": "skirt",
+      "suitable_modes": ["only-bottom", "one-piece"],
+      "gender": "female",
+      "color": "black",
+      "thumbnail": "",
+      "sort_order": 19
+    },
+    {
+      "id": "cl-020",
+      "name": "Váy xòe hoa nhí",
+      "category": "skirt",
+      "suitable_modes": ["only-bottom", "one-piece"],
+      "gender": "female",
+      "color": "floral",
+      "thumbnail": "",
+      "sort_order": 20
+    },
+    {
+      "id": "cl-021",
+      "name": "Đầm liền trắng",
+      "category": "dress",
+      "suitable_modes": ["one-piece"],
+      "gender": "female",
+      "color": "white",
+      "thumbnail": "",
+      "sort_order": 21
+    },
+    {
+      "id": "cl-022",
+      "name": "Đầm công sở xanh đậm",
+      "category": "dress",
+      "suitable_modes": ["one-piece"],
+      "gender": "female",
+      "color": "dark-blue",
+      "thumbnail": "",
+      "sort_order": 22
+    }
+  ]
+}

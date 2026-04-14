@@ -163,6 +163,9 @@ class BizCity_Twin_AI {
         if ( class_exists( 'BCN_Plugin' ) ) {
             BCN_Plugin::instance()->activate();
         }
+        if ( class_exists( 'BizCity_Channel_Role' ) ) {
+            BizCity_Channel_Role::seed_defaults();
+        }
     }
 
     /* ── Public API ─────────────────────────────────────────── */

@@ -49,7 +49,7 @@ class BizCity_Tool_Control_Panel {
     }
 
     public function __construct() {
-        add_action( 'admin_menu', [ $this, 'register_menu' ] );
+        // Menu registration moved to BizCity_Admin_Menu (centralized).
         add_action( 'wp_ajax_bizcity_tcp_save_tool',     [ $this, 'ajax_save_tool' ] );
         add_action( 'wp_ajax_bizcity_tcp_reorder',       [ $this, 'ajax_reorder' ] );
         add_action( 'wp_ajax_bizcity_tcp_toggle_active', [ $this, 'ajax_toggle_active' ] );

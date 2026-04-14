@@ -1,0 +1,198 @@
+{
+  "_meta": {
+    "version": "1.0.0",
+    "schema": "bztimg_template",
+    "created": "2026-04-13",
+    "description": "Template bộ sưu tập AI Models — người mẫu ảo Việt Nam cho chụp ảnh sản phẩm"
+  },
+
+  "template": {
+    "slug": "ai-model-collection",
+    "category_slug": "ai-model",
+    "subcategory": "collection",
+    "title": "Bộ sưu tập AI Model",
+    "description": "👤 Chọn người mẫu AI Việt Nam — nữ & nam, đa phong cách",
+    "preview_image": "",
+    "recommended_model": "flux-kontext",
+    "recommended_model_generate": "flux-pro",
+    "recommended_model_composite": "flux-kontext",
+    "fallback_model_composite": "gpt-image",
+    "recommended_size": "1024x1536",
+    "style": "photorealistic",
+    "num_outputs": 1,
+    "is_featured": 1,
+    "sort_order": 1,
+    "status": "active",
+    "tags": "ai-model,model,fashion,vietnamese,portrait",
+
+    "prompt_templates": {
+      "generate": "A {{model_description}}, professional portrait photography, studio lighting, 8K, photorealistic, sharp focus, {{custom_detail}}",
+      "composite": "The person in the first image. Keep the exact same face, hair, skin tone, body from the first image. {{custom_detail}}"
+    },
+
+    "prompt_template": "A {{model_description}}, professional portrait photography, studio lighting, 8K, photorealistic, sharp focus, {{custom_detail}}",
+
+    "negative_prompt": "blurry, low quality, distorted face, extra fingers, deformed, ugly, bad anatomy, watermark, text, logo, oversaturated",
+
+    "form_fields": [
+      {
+        "slug": "model_picker",
+        "label": "Chọn người mẫu",
+        "type": "model_picker",
+        "placeholder": "",
+        "required": true,
+        "grid": "full",
+        "sort_order": 0,
+        "options": [],
+        "custom_upload": true,
+        "custom_upload_label": "Upload ảnh người mẫu riêng"
+      },
+      {
+        "slug": "custom_detail",
+        "label": "Chi tiết thêm (tuỳ chọn)",
+        "type": "textarea",
+        "placeholder": "VD: mặc áo trắng, nền thiên nhiên, phong cách sang trọng...",
+        "required": false,
+        "grid": "full",
+        "sort_order": 1,
+        "options": []
+      }
+    ]
+  },
+
+  "model_library": {
+    "description": "Bộ sưu tập 10 người mẫu AI Việt Nam — 5 nữ + 5 nam",
+    "models": [
+      {
+        "id": "model-f-vn-1",
+        "name": "Mẫu nữ 1",
+        "gender": "female",
+        "age_group": "young-adult",
+        "ethnicity": "vietnamese",
+        "style": "natural",
+        "tags": ["fashion", "female", "young-adult", "vietnamese", "natural"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/ai-models/2025/10/31/1761896412453-690467dc66be92ee6af7d34a.png",
+        "model_description": "young Vietnamese female, natural style, light makeup, friendly warm expression",
+        "status": "active",
+        "sort_order": 1
+      },
+      {
+        "id": "model-f-vn-2",
+        "name": "Mẫu nữ 2",
+        "gender": "female",
+        "age_group": "young-adult",
+        "ethnicity": "vietnamese",
+        "style": "casual",
+        "tags": ["fashion", "female", "young-adult", "vietnamese", "casual"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/ai-models/2025/10/31/1761896514116-6904684266be92ee6af7d5d5.png",
+        "model_description": "young Vietnamese female, casual style, soft makeup, approachable expression",
+        "status": "active",
+        "sort_order": 2
+      },
+      {
+        "id": "model-f-vn-3",
+        "name": "Mẫu nữ 3",
+        "gender": "female",
+        "age_group": "young-adult",
+        "ethnicity": "vietnamese",
+        "style": "elegant",
+        "tags": ["fashion", "female", "young-adult", "vietnamese", "elegant"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/ai-models/2025/10/31/1761896555275-6904686b66be92ee6af7d5db.png",
+        "model_description": "young Vietnamese female, elegant style, refined makeup, confident expression",
+        "status": "active",
+        "sort_order": 3
+      },
+      {
+        "id": "model-f-vn-4",
+        "name": "Mẫu nữ 4",
+        "gender": "female",
+        "age_group": "default",
+        "ethnicity": "vietnamese",
+        "style": "classic",
+        "tags": ["fashion", "female", "vietnamese", "classic"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/ai-models/2025/10/31/1761896589591-6904688d66be92ee6af7d5e1.png",
+        "model_description": "Vietnamese female, classic style, polished look, professional expression",
+        "status": "active",
+        "sort_order": 4
+      },
+      {
+        "id": "model-f-vn-5",
+        "name": "Mẫu nữ 5",
+        "gender": "female",
+        "age_group": "young-adult",
+        "ethnicity": "vietnamese",
+        "style": "trendy",
+        "tags": ["fashion", "female", "young-adult", "vietnamese", "trendy"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/ai-models/2025/10/31/1761896620328-690468ac66be92ee6af7d5ee.png",
+        "model_description": "young Vietnamese female, trendy style, modern makeup, vibrant expression",
+        "status": "active",
+        "sort_order": 5
+      },
+      {
+        "id": "model-m-vn-1",
+        "name": "Mẫu nam 1",
+        "gender": "male",
+        "age_group": "young-adult",
+        "ethnicity": "vietnamese",
+        "style": "casual",
+        "tags": ["fashion", "male", "young-adult", "vietnamese", "casual"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/ai-models/2025/10/31/1761896048252-6904667066be92ee6af7cb13.png",
+        "model_description": "young Vietnamese male, casual style, clean-cut, confident expression",
+        "status": "active",
+        "sort_order": 6
+      },
+      {
+        "id": "model-m-vn-2",
+        "name": "Mẫu nam 2",
+        "gender": "male",
+        "age_group": "young-adult",
+        "ethnicity": "vietnamese",
+        "style": "smart-casual",
+        "tags": ["fashion", "male", "young-adult", "vietnamese", "smart-casual"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/ai-models/2025/10/31/1761896118882-690466b666be92ee6af7ce39.png",
+        "model_description": "young Vietnamese male, smart-casual style, well-groomed, approachable expression",
+        "status": "active",
+        "sort_order": 7
+      },
+      {
+        "id": "model-m-vn-3",
+        "name": "Mẫu nam 3",
+        "gender": "male",
+        "age_group": "young-adult",
+        "ethnicity": "vietnamese",
+        "style": "urban",
+        "tags": ["fashion", "male", "young-adult", "vietnamese", "urban"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/ai-models/2025/10/31/1761896167022-690466e766be92ee6af7d067.png",
+        "model_description": "young Vietnamese male, urban style, modern look, dynamic expression",
+        "status": "active",
+        "sort_order": 8
+      },
+      {
+        "id": "model-m-vn-4",
+        "name": "Mẫu nam 4",
+        "gender": "male",
+        "age_group": "adult",
+        "ethnicity": "vietnamese",
+        "style": "business",
+        "tags": ["fashion", "male", "adult", "vietnamese", "business"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/ai-models/2025/10/31/1761896212615-6904671466be92ee6af7d089.png",
+        "model_description": "Vietnamese adult male, business style, mature look, professional expression",
+        "status": "active",
+        "sort_order": 9
+      },
+      {
+        "id": "model-m-vn-5",
+        "name": "Mẫu nam 5",
+        "gender": "male",
+        "age_group": "teen",
+        "ethnicity": "vietnamese",
+        "style": "youthful",
+        "tags": ["fashion", "male", "teen", "vietnamese", "youthful"],
+        "preview_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/ai-models/2025/10/31/1761896241526-6904673166be92ee6af7d08f.png",
+        "model_description": "Vietnamese teen male, youthful energetic style, fresh look, lively expression",
+        "status": "active",
+        "sort_order": 10
+      }
+    ]
+  }
+}

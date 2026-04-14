@@ -42,7 +42,7 @@ class BizCity_Intent_Data_Browser {
     }
 
     public function __construct() {
-        add_action( 'admin_menu',            [ $this, 'register_menus' ], 35 );
+        // Menu registration moved to BizCity_Admin_Menu (centralized).
         add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_assets' ] );
 
         // AJAX endpoints

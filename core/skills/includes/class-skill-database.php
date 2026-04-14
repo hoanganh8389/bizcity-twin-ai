@@ -37,7 +37,7 @@ class BizCity_Skill_Database {
 	private $table;
 
 	/** @var string Schema version — bump when adding migrations. */
-	const SCHEMA_VERSION = '1.2.0';
+	const SCHEMA_VERSION = '1.3.0';
 
 	/** @var string wp_options key */
 	const SCHEMA_VERSION_KEY = 'bizcity_skills_db_version';

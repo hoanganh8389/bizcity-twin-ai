@@ -1,0 +1,232 @@
+{
+  "id": "63e7afcf-eb53-4287-a1de-cb50905fe34e",
+  "title": "Hollywood Scene Visit Workflow",
+  "nodes": [
+    {
+      "id": "2946d4a8-21a4-42b2-abdd-bc80ec1dd1d8",
+      "type": "Image",
+      "x": 338.892986209199,
+      "y": 474.63470756824705,
+      "prompt": "",
+      "status": "idle",
+      "model": "Banana Pro",
+      "aspectRatio": "Auto",
+      "resolution": "Auto",
+      "parentIds": [],
+      "imageModel": "gemini-pro",
+      "resultUrl": ""
+    },
+    {
+      "id": "9cbc0744-3d1a-48b6-b0ff-9e15128cbeac",
+      "type": "Image",
+      "x": 814.405929633528,
+      "y": 477.00737517655824,
+      "prompt": "generate a photo of this character from front view, clear facial details.\n",
+      "status": "idle",
+      "model": "Banana Pro",
+      "aspectRatio": "16:9",
+      "resolution": "Auto",
+      "parentIds": [
+        "2946d4a8-21a4-42b2-abdd-bc80ec1dd1d8"
+      ],
+      "imageModel": "gemini-pro",
+      "resultUrl": ""
+    },
+    {
+      "id": "b9d6b2b8-40aa-4c93-a812-550a99c44eaf",
+      "type": "Image",
+      "x": 1265.671583451039,
+      "y": 234.9188730578569,
+      "prompt": "A cinematic, photorealistic smartphone selfie taken on a fictional movie set inspired by The Pursuit of Happyness.\n\nThe character reference is holding a smartphone with one hand, taking a casual selfie together with Will Smith, appearing in character as Chris Gardner.\n\nBoth are smiling naturally, as if during a quiet behind-the-scenes moment between takes.\nWill Smith wears a simple business suit consistent with Chris Gardner’s character.\n\nThe background shows a softly blurred film set:\n- warm natural lighting\n- minimal crew equipment\n- an emotional, hopeful atmosphere\n\nThe image feels spontaneous and authentic, like a real phone selfie.\nUltra-realistic skin texture, natural facial expressions,\nsmartphone perspective, slight wide-angle distortion, cinematic color grading.\n",
+      "status": "idle",
+      "model": "Banana Pro",
+      "aspectRatio": "16:9",
+      "resolution": "Auto",
+      "parentIds": [
+        "9cbc0744-3d1a-48b6-b0ff-9e15128cbeac"
+      ],
+      "imageModel": "gemini-pro",
+      "resultUrl": ""
+    },
+    {
+      "id": "b5ead48e-01f5-4d97-946e-46b39ad875c2",
+      "type": "Image",
+      "x": 1260.671583451039,
+      "y": 456.9188730578569,
+      "prompt": "A cinematic, photorealistic smartphone selfie on a fictional movie set inspired by Forrest Gump.\n\nThe character reference takes a relaxed selfie with Tom Hanks, appearing as Forrest Gump.\n\nTom Hanks has a gentle smile and calm expression, embodying Forrest Gump’s sincere and innocent personality.\n\nThe environment resembles a classic American film set:\n- soft daylight\n- muted vintage colors\n- subtle film grain\n- crew and cameras softly blurred in the background\n\nThe image feels warm, nostalgic, and genuine,\nlike a real behind-the-scenes phone photo.\nNatural hand-held framing, smartphone lens look, cinematic realism.",
+      "status": "idle",
+      "model": "Banana Pro",
+      "aspectRatio": "16:9",
+      "resolution": "Auto",
+      "parentIds": [
+        "9cbc0744-3d1a-48b6-b0ff-9e15128cbeac"
+      ],
+      "imageModel": "gemini-pro",
+      "resultUrl": ""
+    },
+    {
+      "id": "80881067-24a6-4982-8a63-4d77e87862b8",
+      "type": "Image",
+      "x": 1257.671583451039,
+      "y": 686.9188730578572,
+      "prompt": "A gritty, cinematic smartphone selfie on a fictional movie set inspired by Rocky.\n\nThe character reference takes a close-up selfie with Sylvester Stallone,\nappearing in character as Rocky Balboa.\n\nRocky is wearing a gray hoodie and boxing gloves, slightly sweaty after training,\nwith a determined yet friendly expression.\n\nThe background shows a raw training-set atmosphere:\n- boxing ring ropes\n- gym lighting\n- dramatic shadows\n- shallow depth of field\n\nThe selfie feels spontaneous and motivational,\nas if captured between intense training scenes.\nUltra-realistic details, cinematic lighting, smartphone perspective.\n",
+      "status": "idle",
+      "model": "Banana Pro",
+      "aspectRatio": "16:9",
+      "resolution": "Auto",
+      "parentIds": [
+        "9cbc0744-3d1a-48b6-b0ff-9e15128cbeac"
+      ],
+      "imageModel": "gemini-pro",
+      "resultUrl": ""
+    },
+    {
+      "id": "26ea4fad-1ebe-4ee1-b537-a04424409571",
+      "type": "Image",
+      "x": 1254.671583451039,
+      "y": 906.918873057857,
+      "prompt": "A cinematic, photorealistic smartphone selfie on a fictional movie set inspired by The Shawshank Redemption.\n\nThe character reference takes a calm selfie with Tim Robbins,\nappearing as Andy Dufresne.\n\nAndy Dufresne has a composed, thoughtful expression,\nreflecting the character’s quiet resilience and hope.\n\nThe background includes:\n- prison set walls\n- soft directional lighting\n- blurred film crew in the distance\n\nThe image feels intimate and meaningful,\nlike a rare behind-the-scenes moment.\nNatural phone framing, subtle film grain, cinematic realism.\n",
+      "status": "idle",
+      "model": "Banana Pro",
+      "aspectRatio": "16:9",
+      "resolution": "Auto",
+      "parentIds": [
+        "9cbc0744-3d1a-48b6-b0ff-9e15128cbeac"
+      ],
+      "imageModel": "gemini-pro",
+      "resultUrl": ""
+    },
+    {
+      "id": "40e49116-44fb-4353-9107-f069086f5d9e",
+      "type": "Image",
+      "x": 1255.671583451039,
+      "y": 1121.918873057856,
+      "prompt": "A cinematic, photorealistic smartphone selfie taken on a fictional movie set inspired by The Wolf of Wall Street.\n\nThe character reference takes a confident selfie with Leonardo DiCaprio,\nappearing in character as Jordan Belfort.\n\nLeonardo wears a sharp suit, charismatic smile, and bold presence,\nfully embodying Jordan Belfort’s high-energy personality.\n\nThe background shows a luxury office-style film set:\n- dramatic lighting\n- blurred crew and cameras\n- cinematic contrast\n\nThe selfie feels bold, spontaneous, and high-status,\nlike a quick shot taken between takes.\nSmartphone perspective, cinematic color grading, ultra-realistic textures.\n",
+      "status": "idle",
+      "model": "Banana Pro",
+      "aspectRatio": "16:9",
+      "resolution": "Auto",
+      "parentIds": [
+        "9cbc0744-3d1a-48b6-b0ff-9e15128cbeac"
+      ],
+      "imageModel": "gemini-pro",
+      "resultUrl": ""
+    },
+    {
+      "id": "f16a3bee-cc9c-4c92-9b09-10939a0aff41",
+      "type": "Image",
+      "x": 1266.6642082744802,
+      "y": 11.818644597990172,
+      "prompt": "A cinematic, photorealistic smartphone selfie taken on a fictional movie set inspired by The Avengers.\n\nThe character reference is holding a smartphone at arm’s length, taking a casual group selfie with several Avengers characters during a behind-the-scenes moment.\n\nIn the frame:\n- Robert Downey Jr. appearing as Tony Stark / Iron Man, wearing his signature sunglasses and relaxed smirk\n- Chris Evans appearing as Steve Rogers / Captain America, in a tactical suit, smiling confidently\n- Scarlett Johansson appearing as Natasha Romanoff / Black Widow, calm and focused, slightly amused\n- Chris Hemsworth appearing as Thor, tall and powerful, holding Mjölnir casually\n\nThe background shows a high-budget superhero film set:\n- green screens and lighting rigs\n- blurred cameras and crew\n- dramatic but natural cinematic lighting\n\nThe selfie feels spontaneous and authentic, like a real phone photo taken between takes,\nnot a staged promotional shot.\n\nSmartphone selfie perspective, slight wide-angle distortion,\nnatural hand-held framing, ultra-realistic skin texture,\ncinematic color grading, shallow depth of field, subtle film grain.\nClearly fictional and cinematic in style.\n",
+      "status": "idle",
+      "model": "Banana Pro",
+      "aspectRatio": "16:9",
+      "resolution": "Auto",
+      "parentIds": [
+        "9cbc0744-3d1a-48b6-b0ff-9e15128cbeac"
+      ],
+      "imageModel": "gemini-pro",
+      "resultUrl": ""
+    },
+    {
+      "id": "59d4e707-27ef-4c93-b543-16fb0c6246b3",
+      "type": "Video",
+      "x": 1839.5571944836797,
+      "y": 6.250903464394042,
+      "prompt": "Single continuous handheld smartphone selfie shot.\nNo blur transitions, no fades, no dissolves.\nThe smartphone is never lowered, never passed, and never leaves the character’s hand.\n\nThe character reference is the person holding the smartphone in selfie mode.\nThe smartphone remains in the same hand at all times.\nNatural smartphone camera realism.\n\nThe video begins with the character reference holding the phone in selfie mode,\ntaking a casual selfie on a movie set.\n\nWhile still holding the phone in selfie mode,\nthe character reference begins walking toward the right side of the frame.\n\nThe camera movement is caused entirely by the character’s walking motion,\nwith natural forward movement, subtle vertical bounce,\nand continuous handheld shake.\n\nAs the character walks,\nfilm crew members, lighting rigs, cables, and equipment\nmove past behind them,\ncreating natural parallax and momentary occlusion.\n\nWithout any cut, blur, fade, or phone handoff,\nthe character walks into a different filming environment on the right,\nclearly a new movie set with different lighting, props, and atmosphere.\n\nThe character reference slows down and stops walking,\nmaintaining the selfie framing.\n\nFrom the background of the second movie set,\na fictional movie character walks into frame,\napproaching the character reference naturally.\n\nThe character adjusts their position slightly to fit into the selfie,\nstanding beside the character reference.\n\nBoth face the smartphone camera,\nposing casually together as if taking a spontaneous behind-the-scenes photo.\n\nThe camera remains continuous and realistic throughout,\nfeeling like one unbroken selfie take.\n",
+      "status": "idle",
+      "model": "Banana Pro",
+      "aspectRatio": "Auto",
+      "resolution": "1080p",
+      "parentIds": [
+        "f16a3bee-cc9c-4c92-9b09-10939a0aff41",
+        "b9d6b2b8-40aa-4c93-a812-550a99c44eaf"
+      ],
+      "videoModel": "hailuo-2.3",
+      "resultUrl": "",
+      "lastFrame": ""
+    },
+    {
+      "id": "98a77ae2-152a-4c13-9347-ab330889038b",
+      "type": "Video",
+      "x": 1828.5571944836797,
+      "y": 265.60882071958815,
+      "prompt": "Single continuous handheld smartphone selfie shot.\nNo blur transitions, no fades, no dissolves.\nThe smartphone is never lowered, never passed, and never leaves the character’s hand.\n\nThe character reference is the person holding the smartphone in selfie mode.\nThe smartphone remains in the same hand at all times.\nNatural smartphone camera realism.\n\nThe video begins with the character reference holding the phone in selfie mode,\ntaking a casual behind-the-scenes selfie on a movie set.\n\nThe character maintains the selfie framing for a brief moment,\nthen naturally shifts their weight and begins walking toward the right side of the frame,\nstill holding the phone in selfie mode.\n\nThe camera movement is caused entirely by the character’s physical walking motion,\nwith realistic forward movement, subtle vertical bounce,\nsmall left-right sway, and continuous handheld shake.\n\nAs the character walks,\nfilm crew members, lighting rigs, cables, and equipment\ngradually move through the background from left to right,\ncreating continuous parallax and brief, natural occlusion\nwithout blocking the entire frame.\n\nThe walking pace remains steady and unbroken.\nThe background depth and lighting change progressively,\nas if the character is moving through connected filming areas.\n\nWithout any cut, blur, fade, dissolve, or phone handoff,\nthe character smoothly enters a different filming environment on the right,\nclearly a new movie set with distinct lighting, props, and atmosphere.\n\nThe character reference naturally slows down and stops walking,\nkeeping the phone in selfie mode and maintaining framing.\n\nFrom the background of the second movie set,\na fictional movie character walks into frame at a normal human pace,\napproaching from slightly behind and to the side.\n\nThe character reference subtly adjusts the selfie framing\nby a small wrist movement to include both faces.\n\nBoth subjects face the smartphone camera,\nstanding close together and posing casually,\nas if capturing a spontaneous on-set selfie.\n\nThe camera remains continuous, stable, and realistic throughout,\nfeeling like one uninterrupted handheld selfie take.\n",
+      "status": "idle",
+      "model": "Banana Pro",
+      "aspectRatio": "Auto",
+      "resolution": "1080p",
+      "parentIds": [
+        "b9d6b2b8-40aa-4c93-a812-550a99c44eaf",
+        "b5ead48e-01f5-4d97-946e-46b39ad875c2"
+      ],
+      "videoModel": "hailuo-2.3",
+      "resultUrl": "",
+      "lastFrame": ""
+    },
+    {
+      "id": "6e2c3123-4f24-4e95-96ab-ab02d4ec0b4a",
+      "type": "Video",
+      "x": 1837,
+      "y": 516.7158345103902,
+      "prompt": "Single continuous handheld smartphone selfie shot.\nNo blur transitions, no fades, no dissolves.\nThe smartphone is never lowered, never passed, and never leaves the character’s hand.\n\nThe character reference is the person holding the smartphone in selfie mode.\nThe smartphone remains in the same hand at all times.\nNatural smartphone camera realism.\n\nThe video begins with the character reference holding the phone in selfie mode,\ntaking a casual behind-the-scenes selfie on an outdoor movie set.\n\nThe background shows an active filming environment,\nwith crew members, cameras, lighting stands, and props visible at varying depths.\n\nThe character reference maintains the selfie framing briefly,\nthen naturally shifts their weight and begins walking\ntoward the right side of the frame,\nexiting the first filming area in that direction,\nwhile still holding the phone in selfie mode.\n\nThe camera movement is caused entirely by the character’s physical walking motion,\nwith realistic forward movement, subtle vertical bounce,\ngentle left-right sway, and continuous handheld shake.\n\nAs the character walks out to the right,\ncrew members and equipment move past behind them from left to right,\ncreating continuous parallax and momentary, partial occlusion\nwithout ever blocking the entire frame.\n\nThe surrounding light gradually changes as the character moves,\nas if passing from an outdoor filming area\nthrough connected set corridors or equipment zones.\n\nWithout any cut, blur, fade, dissolve, or phone handoff,\nthe character enters a new filming environment\nfrom the left side of the frame,\nclearly an indoor boxing-gym-style movie set\nwith different lighting, walls, and training equipment.\n\nThe character reference continues walking a short distance inside the new set,\nthen naturally slows down and stops,\nmaintaining the selfie framing.\n\nFrom deeper inside the boxing gym set,\na fictional veteran boxer character walks into frame,\napproaching the character reference from the right side\nat a normal human pace.\n\nThe character reference subtly adjusts the selfie framing\nwith a small wrist movement to include both faces.\n\nBoth subjects face the smartphone camera,\nstanding close together and posing casually,\nas if taking a spontaneous behind-the-scenes selfie on set.\n\nThe camera remains continuous, stable, and realistic throughout,\nfeeling like one uninterrupted handheld selfie take.\n",
+      "status": "idle",
+      "model": "Banana Pro",
+      "aspectRatio": "Auto",
+      "resolution": "1080p",
+      "parentIds": [
+        "b5ead48e-01f5-4d97-946e-46b39ad875c2",
+        "80881067-24a6-4982-8a63-4d77e87862b8"
+      ],
+      "videoModel": "hailuo-2.3",
+      "resultUrl": "",
+      "lastFrame": ""
+    },
+    {
+      "id": "100d2487-054d-40f9-a9a6-6660f29341fa",
+      "type": "Video",
+      "x": 1831.2581311795468,
+      "y": 770.4428055163208,
+      "prompt": "Single continuous handheld smartphone selfie shot.\nNo blur transitions, no fades, no dissolves.\nThe smartphone is never lowered, never passed, and never leaves the character’s hand.\n\nThe character reference is the person holding the smartphone in selfie mode.\nThe smartphone remains in the same hand at all times.\nNatural smartphone camera realism.\n\nThe video begins with the character reference holding the phone in selfie mode,\ntaking a casual behind-the-scenes selfie on an indoor boxing-gym-style movie set.\n\nThe background shows a gritty training environment,\nwith punching bags, ring ropes, and industrial lighting visible.\n\nThe character reference maintains the selfie framing briefly,\nthen naturally shifts their weight and begins walking\ntoward the right side of the frame,\nexiting the boxing gym filming area in that direction,\nwhile still holding the phone in selfie mode.\n\nThe camera movement is caused entirely by the character’s physical walking motion,\nwith realistic forward movement, subtle vertical bounce,\ngentle left-right sway, and continuous handheld shake.\n\nAs the character walks out to the right,\nboxing equipment, crew members, and set structures\nmove past behind them from left to right,\ncreating continuous parallax and momentary, partial occlusion\nwithout ever blocking the entire frame.\n\nThe surrounding environment gradually changes,\nas if passing through connected corridors or set transition areas.\n\nWithout any cut, blur, fade, dissolve, or phone handoff,\nthe character enters a new filming environment\nfrom the left side of the frame,\nclearly a different indoor movie set\nwith stone walls, large windows, and studio lighting.\n\nThe character reference continues walking a short distance inside the new set,\nthen naturally slows down and stops,\nmaintaining the selfie framing.\n\nFrom deeper inside the stone-walled movie set,\na fictional male movie character walks into frame\nfrom the right side at a normal human pace.\n\nThe character reference subtly adjusts the selfie framing\nwith a small wrist movement to include both faces.\n\nBoth subjects face the smartphone camera,\nstanding close together and posing casually,\nas if taking a spontaneous behind-the-scenes selfie on set.\n\nThe camera remains continuous, stable, and realistic throughout,\nfeeling like one uninterrupted handheld selfie take.\n",
+      "status": "idle",
+      "model": "Banana Pro",
+      "aspectRatio": "Auto",
+      "resolution": "1080p",
+      "parentIds": [
+        "80881067-24a6-4982-8a63-4d77e87862b8",
+        "26ea4fad-1ebe-4ee1-b537-a04424409571"
+      ],
+      "videoModel": "hailuo-2.3",
+      "resultUrl": "",
+      "lastFrame": ""
+    },
+    {
+      "id": "f4fd2087-bf29-429a-8509-a59731f25d26",
+      "type": "Video",
+      "x": 1832.4795339377074,
+      "y": 1069.6864812655633,
+      "prompt": "Single continuous handheld smartphone selfie shot.\nNo blur transitions, no fades, no dissolves.\nThe smartphone is never lowered, never passed, and never leaves the character’s hand.\n\nThe character reference is the person holding the smartphone in selfie mode.\nThe smartphone remains in the same hand at all times.\nNatural smartphone camera realism.\n\nThe video begins with the character reference holding the phone in selfie mode,\ntaking a casual behind-the-scenes selfie on an indoor movie set\nwith stone walls, large windows, and studio lighting.\n\nThe background shows an active filming environment,\nwith crew members, cameras, and lighting equipment visible.\n\nThe character reference maintains the selfie framing briefly,\nthen naturally shifts their weight and begins walking\ntoward the right side of the frame,\nexiting the stone-walled filming area in that direction,\nwhile still holding the phone in selfie mode.\n\nThe camera movement is caused entirely by the character’s physical walking motion,\nwith realistic forward movement, subtle vertical bounce,\ngentle left-right sway, and continuous handheld shake.\n\nAs the character walks out to the right,\nset walls, lighting stands, and crew members\nmove past behind them from left to right,\ncreating continuous parallax and momentary, partial occlusion\nwithout ever blocking the entire frame.\n\nThe surrounding environment gradually becomes busier and more energetic,\nas if passing through connected production areas.\n\nWithout any cut, blur, fade, dissolve, or phone handoff,\nthe character enters a new filming environment\nfrom the left side of the frame,\nclearly a high-energy indoor movie set\nwith multiple cameras, crew members, and bright studio lighting.\n\nThe character reference continues walking a short distance inside the new set,\nthen naturally slows down and stops,\nmaintaining the selfie framing.\n\nFrom deeper inside the busy movie set,\na fictional male movie character wearing a suit\nwalks into frame from the right side at a normal human pace.\n\nThe character reference subtly adjusts the selfie framing\nwith a small wrist movement to include both faces.\n\nBoth subjects face the smartphone camera,\nstanding close together and posing casually,\nas if taking a spontaneous behind-the-scenes selfie on set.\n\nThe camera remains continuous, stable, and realistic throughout,\nfeeling like one uninterrupted handheld selfie take.\n",
+      "status": "idle",
+      "model": "Banana Pro",
+      "aspectRatio": "Auto",
+      "resolution": "1080p",
+      "parentIds": [
+        "26ea4fad-1ebe-4ee1-b537-a04424409571",
+        "40e49116-44fb-4353-9107-f069086f5d9e"
+      ],
+      "videoModel": "hailuo-2.3",
+      "resultUrl": "",
+      "lastFrame": ""
+    }
+  ],
+  "groups": [],
+  "viewport": {
+    "x": -117.49157684406441,
+    "y": -26.65829367168817,
+    "zoom": 0.8187307530779817
+  },
+  "updatedAt": "2025-12-15T21:48:28.393Z",
+  "createdAt": "2025-12-15T21:48:28.393Z",
+  "description": "Upload your selfie, generate front-view portrait, then create selfie scenes with Hollywood stars (Avengers, Rocky, Wolf of Wall Street...) + Hailuo video generation.",
+  "coverUrl": ""
+}

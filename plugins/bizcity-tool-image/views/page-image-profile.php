@@ -31,9 +31,9 @@ if ( $is_logged_in ) {
     }
 }
 
-$active_tab = isset( $_GET['tab'] ) ? sanitize_text_field( $_GET['tab'] ) : 'create';
-$allowed_tabs = [ 'create', 'monitor', 'chat', 'settings' ];
-if ( ! in_array( $active_tab, $allowed_tabs, true ) ) $active_tab = 'create';
+$active_tab = isset( $_GET['tab'] ) ? sanitize_text_field( $_GET['tab'] ) : 'templates';
+$allowed_tabs = [ 'templates', 'create', 'monitor', 'chat', 'editor', 'settings' ];
+if ( ! in_array( $active_tab, $allowed_tabs, true ) ) $active_tab = 'templates';
 
 $cfg_model    = get_option( 'bztimg_default_model', 'flux-pro' );
 $cfg_size     = get_option( 'bztimg_default_size', '1024x1024' );
@@ -44,6 +44,10 @@ $is_admin     = current_user_can( 'manage_options' );
 
 // Prompt library
 $prompt_lib = class_exists( 'BizCity_Tool_Image' ) ? BizCity_Tool_Image::get_prompt_library() : [];
+
+// Template library (Phase 3)
+$tpl_categories = class_exists( 'BizCity_Template_Category_Manager' ) ? BizCity_Template_Category_Manager::get_all( array( 'status' => 'active' ) ) : [];
+$tpl_featured = class_exists( 'BizCity_Template_Manager' ) ? BizCity_Template_Manager::get_featured( 20 ) : [];
 ?>
 <!DOCTYPE html>
 <html lang="vi">
@@ -175,13 +179,119 @@ body{background:#f9fafb;font-family:system-ui,-apple-system,sans-serif;color:#1a
 .bti-tip{padding:10px 14px;background:#f5f3ff;border-radius:10px;font-size:12px;cursor:pointer;transition:background .2s;}
 .bti-tip:hover{background:#ede9fe;}
 
+/* ── Editor tab ── */
+#bti-editor-wrapper{height:calc(100vh - 60px);position:relative;overflow:hidden;background:#fff;}
+#bti-editor-wrapper #root{height:100%;width:100%;}
+.bti-tab#tab-editor.active{padding:0;}
+.bti-tab#tab-editor .bti-hero{display:none;}
+
 /* ── Loading spinner ── */
 @keyframes bti-spin{to{transform:rotate(360deg)}}
 .bti-spinner{display:inline-block;width:16px;height:16px;border:2px solid #e5e7eb;border-top-color:#8b5cf6;border-radius:50%;animation:bti-spin .6s linear infinite;vertical-align:middle;margin-right:6px;}
+
+/* ── Template Browser (Phase 3) ── */
+.bti-tpl-cats{display:flex;gap:6px;overflow-x:auto;padding:0 12px 8px;-webkit-overflow-scrolling:touch;margin-top:12px;}
+.bti-tpl-cats::-webkit-scrollbar{height:0;}
+.bti-tpl-cat{flex-shrink:0;padding:8px 16px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;background:#f3f4f6;color:#6b7280;border:1.5px solid transparent;transition:all .2s;white-space:nowrap;}
+.bti-tpl-cat.active{background:#f5f3ff;color:#8b5cf6;border-color:#8b5cf6;}
+
+.bti-tpl-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;padding:12px;transition:opacity .2s;}
+@media (min-width:640px){.bti-tpl-grid{grid-template-columns:repeat(3,1fr);}}
+@media (min-width:960px){.bti-tpl-grid{grid-template-columns:repeat(4,1fr);}}
+.bti-tpl-card{background:#fff;border:1.5px solid #f3f4f6;border-radius:12px;overflow:hidden;cursor:pointer;transition:all .2s;position:relative;}
+.bti-tpl-card:hover{border-color:#8b5cf6;transform:translateY(-2px);box-shadow:0 4px 12px rgba(139,92,246,0.12);}
+.bti-tpl-card-img{width:100%;aspect-ratio:1;object-fit:cover;background:#f9fafb;display:block;}
+.bti-tpl-card-img-ph{width:100%;aspect-ratio:1;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#f5f3ff,#ede9fe);font-size:40px;}
+.bti-tpl-card-body{padding:8px 10px;}
+.bti-tpl-card-body h4{font-size:12px;font-weight:600;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.bti-tpl-card-body p{font-size:10px;color:#9ca3af;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.bti-tpl-badge{position:absolute;top:6px;right:6px;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;color:#fff;}
+.bti-tpl-featured{position:absolute;top:6px;left:6px;font-size:14px;}
+.bti-tpl-loadmore{text-align:center;padding:16px;}
+
+/* Template detail modal */
+.bti-tpl-modal{display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.5);align-items:flex-end;justify-content:center;}
+.bti-tpl-modal.open{display:flex;}
+.bti-tpl-modal-content{background:#fff;border-radius:20px 20px 0 0;max-width:560px;width:100%;max-height:90vh;overflow-y:auto;padding:20px 16px env(safe-area-inset-bottom,16px);animation:bti-slide-up .3s ease;}
+@keyframes bti-slide-up{from{transform:translateY(100%)}to{transform:translateY(0)}}
+.bti-tpl-modal-close{display:flex;justify-content:center;margin-bottom:12px;}
+.bti-tpl-modal-close span{width:40px;height:4px;background:#d1d5db;border-radius:2px;cursor:pointer;}
+.bti-tpl-modal-header{display:flex;gap:12px;margin-bottom:16px;}
+.bti-tpl-modal-header img{width:100px;height:100px;border-radius:10px;object-fit:cover;}
+.bti-tpl-modal-header .info h3{font-size:16px;font-weight:700;}
+.bti-tpl-modal-header .info p{font-size:12px;color:#6b7280;margin-top:4px;}
+.bti-tpl-form-fields{margin-bottom:16px;}
+.bti-tpl-form-field{margin-bottom:12px;}
+.bti-tpl-form-field label{display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:4px;}
+.bti-tpl-form-field input,.bti-tpl-form-field textarea,.bti-tpl-form-field select{width:100%;padding:10px 12px;border:1px solid #e5e7eb;border-radius:10px;font-size:13px;}
+.bti-tpl-form-field .card-radio-group{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;}
+.bti-tpl-form-field .card-radio{padding:10px;border:1.5px solid #e5e7eb;border-radius:10px;cursor:pointer;text-align:center;font-size:12px;transition:all .2s;}
+.bti-tpl-form-field .card-radio.selected{border-color:#8b5cf6;background:#f5f3ff;color:#8b5cf6;}
+.bti-tpl-form-field .card-radio .cr-icon{font-size:20px;margin-bottom:4px;}
+.bti-tpl-prompt-preview{background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:10px;font-size:11px;color:#6b7280;margin-bottom:12px;font-family:monospace;white-space:pre-wrap;}
+.bti-tpl-size-pills{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;}
+.bti-tpl-size-pill{padding:6px 12px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:11px;cursor:pointer;transition:all .2s;}
+.bti-tpl-size-pill.selected{border-color:#8b5cf6;background:#f5f3ff;color:#8b5cf6;}
+/* Inline Template Form (no modal) */
+.bti-tpl-inline-form{display:flex;gap:24px;padding:8px 0;}
+.bti-inline-left{flex:0 0 360px;max-width:360px;}
+.bti-inline-right{flex:1;min-width:0;}
+.bti-inline-gallery-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;}
+.bti-inline-gallery-card{border-radius:12px;overflow:hidden;cursor:pointer;border:2px solid #e5e7eb;background:#fff;transition:all .2s;}
+.bti-inline-gallery-card:hover{border-color:#a78bfa;box-shadow:0 2px 8px rgba(139,92,246,.15);}
+.bti-inline-gallery-card.selected{border-color:#22c55e;background:#f0fdf4;}
+.bti-inline-gallery-card img{width:100%;aspect-ratio:1;object-fit:cover;}
+.bti-inline-gallery-card .card-label{padding:6px 8px;font-size:11px;font-weight:500;color:#374151;line-height:1.3;}
+.bti-inline-gallery-card .card-tag{display:inline-block;font-size:9px;background:#f3f4f6;color:#6b7280;padding:1px 6px;border-radius:4px;margin:0 8px 6px;}
+.bti-inline-gallery-card.selected .card-label{color:#16a34a;font-weight:700;}
+@media(max-width:768px){.bti-tpl-inline-form{flex-direction:column;}.bti-inline-left{flex:none;max-width:none;}.bti-inline-gallery-grid{grid-template-columns:repeat(auto-fill,minmax(120px,1fr));}}
 </style>
 </head>
 <body>
 <div class="bti-app">
+
+<!-- ═══════════ TAB 0: TEMPLATES ═══════════ -->
+<div class="bti-tab <?php echo $active_tab === 'templates' ? 'active' : ''; ?>" id="tab-templates">
+
+    <div class="bti-hero">
+        <div class="bti-hero-icon">📸</div>
+        <h2>Template Library</h2>
+        <p>Chọn template có sẵn → Điền thông tin → AI tạo ảnh</p>
+        <div class="bti-hero-stats">
+            <div class="bti-hero-stat">📁 <?php echo count( $tpl_categories ); ?> chủ đề</div>
+            <div class="bti-hero-stat">⭐ <?php echo count( $tpl_featured ); ?> nổi bật</div>
+        </div>
+    </div>
+
+    <!-- Category tabs -->
+    <div class="bti-tpl-cats">
+        <span class="bti-tpl-cat active" data-category="all">Tất cả</span>
+        <?php foreach ( $tpl_categories as $cat ) : ?>
+            <span class="bti-tpl-cat" data-category="<?php echo esc_attr( $cat['slug'] ); ?>">
+                <?php echo esc_html( $cat['icon_emoji'] . ' ' . $cat['name'] ); ?>
+            </span>
+        <?php endforeach; ?>
+    </div>
+
+    <!-- Template Grid -->
+    <div class="bti-tpl-grid" id="bti-tpl-grid">
+        <div style="grid-column:1/-1;text-align:center;padding:40px;color:#9ca3af;">
+            <span class="bti-spinner"></span> Đang tải templates...
+        </div>
+    </div>
+
+    <div class="bti-tpl-loadmore" id="bti-tpl-loadmore" style="display:none;">
+        <button class="bti-btn-secondary" onclick="btiTplLoadMore()">Xem thêm →</button>
+    </div>
+</div>
+
+<!-- Template Detail Modal -->
+<div class="bti-tpl-modal" id="bti-tpl-modal">
+    <div class="bti-tpl-modal-content" id="bti-tpl-modal-body">
+        <div class="bti-tpl-modal-close"><span onclick="btiTplCloseModal()"></span></div>
+        <!-- filled by JS -->
+    </div>
+</div>
 
 <!-- ═══════════ TAB 1: TẠO ẢNH ═══════════ -->
 <div class="bti-tab <?php echo $active_tab === 'create' ? 'active' : ''; ?>" id="tab-create">
@@ -501,8 +611,24 @@ body{background:#f9fafb;font-family:system-ui,-apple-system,sans-serif;color:#1a
 
 </div>
 
+<!-- ═══════════ TAB 5: EDITOR ═══════════ -->
+<div class="bti-tab <?php echo $active_tab === 'editor' ? 'active' : ''; ?>" id="tab-editor">
+    <div id="bti-editor-wrapper">
+        <iframe
+            id="bti-editor-frame"
+            src="<?php echo esc_url( BZTIMG_URL . 'editor-build/index.html' ); ?>"
+            style="width:100%;height:100%;border:0;display:block;"
+            allow="clipboard-read; clipboard-write"
+        ></iframe>
+    </div>
+</div>
+
 <!-- ═══════════ BOTTOM NAV ═══════════ -->
 <nav class="bti-nav">
+    <button class="bti-nav-item <?php echo $active_tab === 'templates' ? 'active' : ''; ?>" data-tab="templates">
+        <span class="bti-nav-icon">📸</span>
+        <span>Templates</span>
+    </button>
     <button class="bti-nav-item <?php echo $active_tab === 'create' ? 'active' : ''; ?>" data-tab="create">
         <span class="bti-nav-icon">🎨</span>
         <span>Tạo ảnh</span>
@@ -514,6 +640,10 @@ body{background:#f9fafb;font-family:system-ui,-apple-system,sans-serif;color:#1a
     <button class="bti-nav-item <?php echo $active_tab === 'chat' ? 'active' : ''; ?>" data-tab="chat">
         <span class="bti-nav-icon">💬</span>
         <span>Chat</span>
+    </button>
+    <button class="bti-nav-item <?php echo $active_tab === 'editor' ? 'active' : ''; ?>" data-tab="editor">
+        <span class="bti-nav-icon">🖌️</span>
+        <span>Editor</span>
     </button>
     <button class="bti-nav-item <?php echo $active_tab === 'settings' ? 'active' : ''; ?>" data-tab="settings">
         <span class="bti-nav-icon">⚙️</span>
@@ -530,7 +660,10 @@ body{background:#f9fafb;font-family:system-ui,-apple-system,sans-serif;color:#1a
 var BTI = {
     ajax: '<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>',
     nonce: '<?php echo esc_attr( wp_create_nonce( 'bztimg_nonce' ) ); ?>',
+    restUrl: '<?php echo esc_url( rest_url( 'bztool-image/v1/' ) ); ?>',
+    restNonce: '<?php echo esc_attr( wp_create_nonce( 'wp_rest' ) ); ?>',
     photoUrl: '',
+    editorBase: '<?php echo esc_url( BZTIMG_URL . 'assets/editor/' ); ?>',
 };
 
 /* ═══════════════════════════════════════════════
@@ -544,8 +677,22 @@ document.querySelectorAll('.bti-nav-item').forEach(function(btn) {
         document.getElementById('tab-' + tab).classList.add('active');
         this.classList.add('active');
         if (tab === 'monitor') btiPollJobs();
+        if (tab === 'templates' && !window._tplLoaded) btiTplLoad();
+        if (tab === 'editor') {
+            document.querySelector('.bti-nav').style.display = 'none';
+            document.querySelector('.bti-app').style.paddingBottom = '0';
+        } else {
+            document.querySelector('.bti-nav').style.display = 'flex';
+            document.querySelector('.bti-app').style.paddingBottom = '72px';
+        }
     });
 });
+
+/* Auto-load if editor tab is active on page load */
+if (document.getElementById('tab-editor') && document.getElementById('tab-editor').classList.contains('active')) {
+    document.querySelector('.bti-nav').style.display = 'none';
+    document.querySelector('.bti-app').style.paddingBottom = '0';
+}
 
 /* ═══════════════════════════════════════════════
    PHOTO UPLOAD
@@ -838,6 +985,860 @@ function escHtml(s) {
 function ucfirst(s) {
     return s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
 }
+
+/* ═══════════════════════════════════════════════
+   TEMPLATE BROWSER (Phase 3)
+   ═══════════════════════════════════════════════ */
+var _tplPage = 1;
+var _tplCategory = '';
+var _tplSearch = '';
+var _tplTotal = 0;
+window._tplLoaded = false;
+
+function btiTplLoad(append) {
+    if (!append) {
+        _tplPage = 1;
+        var grid = document.getElementById('bti-tpl-grid');
+        grid.style.display = ''; /* restore CSS grid */
+        grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:40px;color:#9ca3af;"><span class="bti-spinner"></span> Đang tải...</div>';
+        window._formContainer = null;
+    }
+
+    var url = BTI.restUrl + 'templates?per_page=12&page=' + _tplPage + '&status=active';
+    if (_tplCategory) url += '&category=' + encodeURIComponent(_tplCategory);
+    if (_tplSearch) url += '&search=' + encodeURIComponent(_tplSearch);
+
+    fetch(url, { headers: { 'X-WP-Nonce': BTI.restNonce } })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            window._tplLoaded = true;
+            var templates = data.templates || [];
+            _tplTotal = data.total || 0;
+
+            if (!append) {
+                document.getElementById('bti-tpl-grid').innerHTML = '';
+            }
+
+            if (templates.length === 0 && !append) {
+                document.getElementById('bti-tpl-grid').innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:40px;color:#9ca3af;">Chưa có template nào.</div>';
+                document.getElementById('bti-tpl-loadmore').style.display = 'none';
+                return;
+            }
+
+            var grid = document.getElementById('bti-tpl-grid');
+            templates.forEach(function(tpl) {
+                var card = document.createElement('div');
+                card.className = 'bti-tpl-card';
+                card.onclick = function() { btiTplOpenModal(tpl); };
+
+                var imgHtml = tpl.thumbnail_url
+                    ? '<img class="bti-tpl-card-img" src="' + escHtml(tpl.thumbnail_url) + '" alt="" loading="lazy" />'
+                    : '<div class="bti-tpl-card-img-ph">🎨</div>';
+
+                var badgeHtml = tpl.badge_text
+                    ? '<div class="bti-tpl-badge" style="background:' + escHtml(tpl.badge_color || '#3b82f6') + ';">' + escHtml(tpl.badge_text) + '</div>'
+                    : '';
+
+                var featuredHtml = tpl.is_featured == 1 ? '<div class="bti-tpl-featured">⭐</div>' : '';
+
+                card.innerHTML = imgHtml + badgeHtml + featuredHtml +
+                    '<div class="bti-tpl-card-body">' +
+                        '<h4>' + escHtml(tpl.title) + '</h4>' +
+                        '<p>' + escHtml(tpl.description || tpl.recommended_model) + '</p>' +
+                    '</div>';
+
+                grid.appendChild(card);
+            });
+
+            // Show/hide load more
+            var loaded = grid.querySelectorAll('.bti-tpl-card').length;
+            var loadMoreEl = document.getElementById('bti-tpl-loadmore');
+            loadMoreEl.style.display = loaded < _tplTotal ? 'block' : 'none';
+            var loadMoreBtn = loadMoreEl.querySelector('button');
+            if (loadMoreBtn) { loadMoreBtn.disabled = false; loadMoreBtn.innerHTML = 'Xem thêm'; }
+        })
+        .catch(function(err) {
+            console.error('Template load error:', err);
+            document.getElementById('bti-tpl-grid').innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:40px;color:#ef4444;">Lỗi tải templates.</div>';
+        });
+}
+
+function btiTplLoadMore() {
+    var btn = document.querySelector('#bti-tpl-loadmore button');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="bti-spinner"></span> Đang tải...'; }
+    _tplPage++;
+    btiTplLoad(true);
+}
+
+/* ── Inline Template Form (no modal) ── */
+function btiTplTryInline(catSlug) {
+    var grid = document.getElementById('bti-tpl-grid');
+    grid.style.display = 'block';
+    grid.innerHTML = '<div style="text-align:center;padding:40px;color:#9ca3af;"><span class="bti-spinner"></span> Đang tải...</div>';
+    document.getElementById('bti-tpl-loadmore').style.display = 'none';
+
+    fetch(BTI.restUrl + 'templates?category=' + encodeURIComponent(catSlug) + '&subcategory=product&status=active&per_page=1', {
+        headers: { 'X-WP-Nonce': BTI.restNonce }
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        var tpl = data.templates && data.templates[0];
+        if (tpl) {
+            if (typeof tpl.form_fields === 'string') {
+                try { tpl.form_fields = JSON.parse(tpl.form_fields); } catch(e) { tpl.form_fields = []; }
+            }
+            var hasCreationMode = Array.isArray(tpl.form_fields) && tpl.form_fields.some(function(f) { return f.slug === 'creation_mode'; });
+            if (hasCreationMode) {
+                btiTplRenderInline(tpl);
+                return;
+            }
+        }
+        /* Fallback: normal template grid */
+        btiTplLoad();
+    })
+    .catch(function() { btiTplLoad(); });
+}
+
+function btiTplRenderInline(tpl) {
+    var grid = document.getElementById('bti-tpl-grid');
+    document.getElementById('bti-tpl-loadmore').style.display = 'none';
+    var fields = Array.isArray(tpl.form_fields) ? tpl.form_fields : [];
+
+    /* Classify fields: gallery fields → right panel, rest → left panel.
+       Two-pass: model_picker always wins the right panel over card_radio. */
+    var rightField = null;
+    /* Pass 1: model_picker has highest priority for right panel */
+    fields.forEach(function(f) { if (!rightField && f.type === 'model_picker') rightField = f; });
+    /* Pass 2: if no model_picker, use first large card_radio */
+    if (!rightField) {
+        fields.forEach(function(f) {
+            if (!rightField && f.type === 'card_radio' && f.slug !== 'creation_mode' && (f.options || []).length >= 4) rightField = f;
+        });
+    }
+    var leftFields = fields.filter(function(f) { return f !== rightField; });
+
+    /* ── LEFT panel: form controls ── */
+    var leftHtml = '<h3 style="margin:0 0 4px;font-size:16px;font-weight:700;">' + escHtml(tpl.title) + '</h3>';
+    leftHtml += '<p style="font-size:12px;color:#6b7280;margin:0 0 14px;">' + escHtml(tpl.description || '') + '</p>';
+
+    leftFields.forEach(function(f) {
+        if (f.type === 'heading') {
+            leftHtml += '<h4 style="font-size:13px;font-weight:700;margin:10px 0 4px;">' + escHtml(f.label) + '</h4>';
+            return;
+        }
+        var visAttr = '';
+        if (f.visibility && f.visibility.creation_mode) {
+            visAttr = ' data-vis-mode="' + escHtml(f.visibility.creation_mode) + '"';
+        }
+        var defaultVal = f.default || '';
+        var inputHtml = '';
+        switch (f.type) {
+            case 'card_radio':
+                var cards = '';
+                (f.options || []).forEach(function(o, i) {
+                    var isSel = defaultVal ? (o.value === defaultVal) : (o.recommended || i === 0);
+                    cards += '<div class="card-radio' + (isSel ? ' selected' : '') + '" data-value="' + escHtml(o.value) + '" onclick="btiTplSelectCard(this,\'' + escHtml(f.slug) + '\')">' +
+                        (o.icon ? '<div class="cr-icon">' + o.icon + '</div>' : '') +
+                        '<div>' + escHtml(o.label) +
+                        (o.description ? '<br><small style="color:#9ca3af;font-size:10px;">' + escHtml(o.description) + '</small>' : '') +
+                        '</div></div>';
+                });
+                inputHtml = '<div class="card-radio-group" data-slug="' + escHtml(f.slug) + '">' + cards + '</div>';
+                break;
+            case 'image_upload':
+                inputHtml = '<div style="border:2px dashed #d1d5db;border-radius:10px;padding:16px;text-align:center;cursor:pointer;" onclick="btiTplUploadImage(this)" data-slug="' + escHtml(f.slug) + '">' +
+                    '<span style="font-size:24px;">📷</span><br><small>' + escHtml(f.help || 'Click để upload ảnh') + '</small>' +
+                    '<input type="hidden" class="tpl-img-url" /></div>';
+                break;
+            case 'textarea':
+                inputHtml = '<textarea data-slug="' + escHtml(f.slug) + '" rows="2" placeholder="' + escHtml(f.placeholder || '') + '"></textarea>';
+                break;
+            case 'size_picker':
+                var spPills = '';
+                (f.options || []).forEach(function(o) {
+                    var sel = o.recommended ? ' selected' : '';
+                    spPills += '<span class="bti-tpl-size-pill' + sel + '" data-size="' + escHtml(o.value) + '" onclick="btiTplSelectSize(this)">' + (o.icon ? o.icon + ' ' : '') + escHtml(o.label) + '</span>';
+                });
+                inputHtml = '<div class="bti-tpl-size-pills" data-slug="' + escHtml(f.slug) + '">' + spPills + '</div>';
+                break;
+            case 'multi_reference_images':
+                var riHtml = '';
+                (f.image_roles || []).forEach(function(role) {
+                    riHtml += '<div style="border:2px dashed #d1d5db;border-radius:10px;padding:12px;text-align:center;cursor:pointer;flex:1;min-width:100px;" onclick="btiTplUploadImage(this)" data-slug="ref_' + escHtml(role.slug) + '">' +
+                        '<span style="font-size:18px;">' + (role.icon || '📷') + '</span><br><small style="font-size:10px;">' + escHtml(role.label) + '</small>' +
+                        '<input type="hidden" class="tpl-img-url" /></div>';
+                });
+                inputHtml = '<div style="display:flex;gap:8px;flex-wrap:wrap;">' + riHtml + '</div>';
+                break;
+            default: /* text, number */
+                var inputType = f.type === 'number' ? 'number' : 'text';
+                inputHtml = '<input type="' + inputType + '" data-slug="' + escHtml(f.slug) + '" placeholder="' + escHtml(f.placeholder || '') + '" />';
+        }
+        var reqMark = f.required ? ' <span style="color:#ef4444;">*</span>' : '';
+        var helpHtml = (f.help && f.type !== 'image_upload') ? '<small style="color:#9ca3af;display:block;margin-top:2px;">' + escHtml(f.help) + '</small>' : '';
+        leftHtml += '<div class="bti-tpl-form-field"' + visAttr + '><label>' + escHtml(f.label) + reqMark + '</label>' + inputHtml + helpHtml + '</div>';
+    });
+
+    /* Default size pills if no size_picker */
+    var hasSizePicker = fields.some(function(f) { return f.type === 'size_picker'; });
+    if (!hasSizePicker) {
+        var sizes = [['1024x1024','1:1 Vuông'],['1024x1536','2:3 Dọc'],['1536x1024','3:2 Ngang'],['768x1344','9:16 Story']];
+        var sp = '';
+        sizes.forEach(function(s) {
+            var sel = s[0] === (tpl.recommended_size || '1024x1024') ? ' selected' : '';
+            sp += '<span class="bti-tpl-size-pill' + sel + '" data-size="' + s[0] + '" onclick="btiTplSelectSize(this)">' + s[1] + '</span>';
+        });
+        leftHtml += '<div class="bti-tpl-form-field"><label>Kích thước</label><div class="bti-tpl-size-pills">' + sp + '</div></div>';
+    }
+
+    leftHtml += '<button class="bti-btn bti-btn-primary" style="width:100%;margin-top:12px;" onclick="btiTplGenerate(' + tpl.id + ')" id="bti-tpl-gen-btn">✨ Tạo Ảnh</button>';
+    leftHtml += '<div id="bti-tpl-gen-status" class="bti-status" style="margin-top:8px;"></div>';
+    leftHtml += '<div id="bti-tpl-gen-result" class="bti-result" style="margin-top:12px;"></div>';
+
+    /* ── RIGHT panel: gallery / visual selector ── */
+    var rightHtml = '';
+    var _inlineModelSlug = null;
+    var _inlineModelSelectedId = '';
+    if (rightField) {
+        rightHtml += '<h4 style="margin:0 0 10px;font-size:14px;font-weight:600;">' + escHtml(rightField.label) + '</h4>';
+        if (rightField.help) rightHtml += '<p style="font-size:11px;color:#9ca3af;margin:0 0 8px;">' + escHtml(rightField.help) + '</p>';
+
+        if (rightField.type === 'model_picker') {
+            var preModelId = window._preSelectedModel ? window._preSelectedModel.id : '';
+            window._preSelectedModel = null;
+            _inlineModelSlug = rightField.slug;
+            _inlineModelSelectedId = preModelId;
+            rightHtml += '<input type="hidden" data-slug="' + escHtml(rightField.slug) + '" value="' + escHtml(preModelId) + '" />';
+            rightHtml += '<div id="bti-model-gallery-' + escHtml(rightField.slug) + '" class="bti-inline-gallery-grid">' +
+                '<div style="grid-column:1/-1;text-align:center;padding:40px;color:#9ca3af;"><span class="bti-spinner"></span> Đang tải mẫu người...</div></div>';
+            if (rightField.allow_custom_upload) {
+                rightHtml += '<div style="border:2px dashed #d1d5db;border-radius:10px;padding:14px;text-align:center;cursor:pointer;margin-top:10px;" onclick="btiTplUploadImage(this)" data-slug="' + escHtml(rightField.slug) + '_custom">' +
+                    '<span style="font-size:20px;">👤</span><br><small>' + escHtml(rightField.custom_upload_label || 'Upload ảnh mẫu riêng') + '</small>' +
+                    '<input type="hidden" class="tpl-img-url" /></div>';
+            }
+        } else if (rightField.type === 'card_radio') {
+            var defaultVal = rightField.default || '';
+            rightHtml += '<div class="bti-inline-gallery-grid card-radio-group" data-slug="' + escHtml(rightField.slug) + '">';
+            (rightField.options || []).forEach(function(o, i) {
+                var isSel = defaultVal ? (o.value === defaultVal) : (o.recommended || i === 0);
+                if (o.preview_url) {
+                    /* Image-backed card: show thumbnail like model gallery */
+                    rightHtml += '<div class="bti-inline-gallery-card card-radio' + (isSel ? ' selected' : '') + '" data-value="' + escHtml(o.value) + '" onclick="btiTplSelectCard(this,\'' + escHtml(rightField.slug) + '\')">' +
+                        '<img src="' + escHtml(o.preview_url) + '" alt="" loading="lazy" />' +
+                        '<div class="card-label">' + (isSel ? '✓ ' : '') + escHtml(o.label) + '</div>' +
+                        '</div>';
+                } else {
+                    /* Icon-based card: existing rendering */
+                    rightHtml += '<div class="bti-inline-gallery-card card-radio' + (isSel ? ' selected' : '') + '" data-value="' + escHtml(o.value) + '" onclick="btiTplSelectCard(this,\'' + escHtml(rightField.slug) + '\')">' +
+                        '<div style="padding:16px 10px;text-align:center;">' +
+                        (o.icon ? '<div style="font-size:28px;margin-bottom:4px;">' + o.icon + '</div>' : '') +
+                        '<div class="card-label" style="font-size:12px;font-weight:600;">' + escHtml(o.label) + '</div>' +
+                        (o.description ? '<div style="font-size:10px;color:#9ca3af;margin-top:2px;line-height:1.2;">' + escHtml(o.description) + '</div>' : '') +
+                        '</div></div>';
+                }
+            });
+            rightHtml += '</div>';
+        }
+    }
+
+    /* ── Render 2-column layout ── */
+    grid.style.display = 'block';
+    grid.innerHTML = '<div class="bti-tpl-inline-form" id="bti-tpl-inline-body">' +
+        '<div class="bti-inline-left">' + leftHtml + '</div>' +
+        (rightHtml ? '<div class="bti-inline-right">' + rightHtml + '</div>' : '') +
+    '</div>';
+
+    window._currentTpl = tpl;
+    window._formContainer = document.getElementById('bti-tpl-inline-body');
+
+    /* Load model gallery async */
+    if (_inlineModelSlug) {
+        (function(slug, selId) {
+            setTimeout(function() { btiLoadInlineModelGallery(slug, selId); }, 50);
+        })(_inlineModelSlug, _inlineModelSelectedId);
+    }
+
+    btiTplToggleVisibility();
+}
+
+function btiLoadInlineModelGallery(fieldSlug, selectedId) {
+    var container = document.getElementById('bti-model-gallery-' + fieldSlug);
+    if (!container) return;
+    fetch(BTI.restUrl + 'templates?subcategory=model&status=active&per_page=50', {
+        headers: { 'X-WP-Nonce': BTI.restNonce }
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        var models = data.templates || [];
+        if (!models.length) { container.innerHTML = '<small style="color:#9ca3af;">Chưa có mẫu người nào.</small>'; return; }
+        container.innerHTML = '';
+        models.forEach(function(m) {
+            var isSel = m.slug === selectedId;
+            var card = document.createElement('div');
+            card.className = 'bti-inline-gallery-card' + (isSel ? ' selected' : '');
+            card.dataset.modelSlug = m.slug;
+            card.innerHTML = (m.thumbnail_url
+                ? '<img src="' + escHtml(m.thumbnail_url) + '" alt="" loading="lazy" />'
+                : '<div style="width:100%;aspect-ratio:1;background:#f3f4f6;display:flex;align-items:center;justify-content:center;font-size:32px;">👤</div>') +
+                '<div class="card-label">' + (isSel ? '✓ ' : '') + escHtml(m.title) + '</div>';
+            card.onclick = function() { btiSelectInlineModel(fieldSlug, m.slug, container); };
+            container.appendChild(card);
+        });
+    })
+    .catch(function() { container.innerHTML = '<small style="color:#ef4444;">Lỗi tải mẫu người.</small>'; });
+}
+
+function btiSelectInlineModel(fieldSlug, modelSlug, gallery) {
+    var container = window._formContainer || document.getElementById('bti-tpl-inline-body');
+    var hiddenInput = container.querySelector('input[data-slug="' + fieldSlug + '"]');
+    if (hiddenInput) hiddenInput.value = modelSlug;
+    gallery.querySelectorAll('.bti-inline-gallery-card').forEach(function(card) {
+        var isSel = card.dataset.modelSlug === modelSlug;
+        card.classList.toggle('selected', isSel);
+        var label = card.querySelector('.card-label');
+        if (label) {
+            var name = label.textContent.replace(/^✓\s*/, '');
+            label.textContent = (isSel ? '✓ ' : '') + name;
+        }
+    });
+}
+
+/* Category filter tabs */
+document.querySelectorAll('.bti-tpl-cat').forEach(function(el) {
+    el.addEventListener('click', function() {
+        document.querySelectorAll('.bti-tpl-cat').forEach(function(c) { c.classList.remove('active'); });
+        this.classList.add('active');
+        _tplCategory = this.dataset.category === 'all' ? '' : this.dataset.category;
+        _tplSearch = '';
+        if (_tplCategory) {
+            btiTplTryInline(_tplCategory);
+        } else {
+            btiTplLoad();
+        }
+    });
+});
+
+
+
+/* Auto-load templates on page load if tab is active */
+if (document.getElementById('tab-templates') && document.getElementById('tab-templates').classList.contains('active')) {
+    btiTplLoad();
+}
+
+/* ── Template Detail Modal ── */
+function btiTplOpenModal(tpl) {
+    var modal = document.getElementById('bti-tpl-modal');
+    var body = document.getElementById('bti-tpl-modal-body');
+
+    /* ── Parse form_fields if still a JSON string ── */
+    if (typeof tpl.form_fields === 'string') {
+        try { tpl.form_fields = JSON.parse(tpl.form_fields); } catch(e) { tpl.form_fields = []; }
+    }
+
+    /* ── Child row (model/clothing/accessory) → redirect to parent template ── */
+    var ff = tpl.form_fields;
+    var isChildRow = (!Array.isArray(ff) && ff && ff.parent_slug)
+        || tpl.subcategory === 'model' || tpl.subcategory === 'clothing' || tpl.subcategory === 'accessory';
+    if (isChildRow) {
+        var parentSlug = (ff && !Array.isArray(ff)) ? (ff.parent_slug || '') : '';
+
+        body.innerHTML = '<div class="bti-tpl-modal-close"><span onclick="btiTplCloseModal()"></span></div>' +
+            '<div style="text-align:center;padding:60px 20px;"><span class="bti-spinner"></span><br><small style="color:#9ca3af;">Đang tải kịch bản...</small></div>';
+        modal.classList.add('open');
+
+        /* Pre-select info based on child type */
+        var childSub = tpl.subcategory || '';
+        if (childSub === 'model' || (ff && ff.model_description)) {
+            window._preSelectedModel = {
+                id: tpl.slug,
+                name: tpl.title,
+                thumbnail: tpl.thumbnail_url || '',
+                description: tpl.description || tpl.prompt_template || ''
+            };
+        }
+        if (childSub === 'clothing' || childSub === 'accessory' || (ff && (ff.clothing_name || ff.accessory_name))) {
+            window._preSelectedItem = {
+                id: tpl.slug,
+                name: tpl.title,
+                thumbnail: tpl.thumbnail_url || '',
+                description: tpl.description || tpl.title || '',
+                subcategory: childSub,
+                clothing_category: (ff && ff.clothing_category) || '',
+                accessory_type: (ff && ff.accessory_type) || ''
+            };
+        }
+
+        var fetchUrl = parentSlug
+            ? BTI.restUrl + 'templates?slug=' + encodeURIComponent(parentSlug) + '&status=active&per_page=1'
+            : BTI.restUrl + 'templates?category_id=' + tpl.category_id + '&subcategory=product&status=active&per_page=1';
+
+        fetch(fetchUrl, { headers: { 'X-WP-Nonce': BTI.restNonce } })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var parent = data.templates && data.templates[0];
+                if (parent) {
+                    if (typeof parent.form_fields === 'string') {
+                        try { parent.form_fields = JSON.parse(parent.form_fields); } catch(e) { parent.form_fields = []; }
+                    }
+                    btiTplOpenModal(parent);
+                } else {
+                    body.innerHTML = '<div class="bti-tpl-modal-close"><span onclick="btiTplCloseModal()"></span></div>' +
+                        '<div style="text-align:center;padding:60px;color:#ef4444;">Không tìm thấy kịch bản gốc.</div>';
+                }
+            })
+            .catch(function() {
+                body.innerHTML = '<div class="bti-tpl-modal-close"><span onclick="btiTplCloseModal()"></span></div>' +
+                    '<div style="text-align:center;padding:60px;color:#ef4444;">Lỗi kết nối.</div>';
+            });
+        return;
+    }
+
+    /* ── Old template without creation_mode → redirect to category parent ── */
+    var hasCreationMode = Array.isArray(ff) && ff.some(function(f) { return f.slug === 'creation_mode'; });
+    if (!hasCreationMode && tpl.category_id && !tpl._noRedirect) {
+        body.innerHTML = '<div class="bti-tpl-modal-close"><span onclick="btiTplCloseModal()"></span></div>' +
+            '<div style="text-align:center;padding:60px 20px;"><span class="bti-spinner"></span><br><small style="color:#9ca3af;">Đang tải kịch bản...</small></div>';
+        modal.classList.add('open');
+
+        fetch(BTI.restUrl + 'templates?category_id=' + tpl.category_id + '&subcategory=product&status=active&per_page=1', {
+            headers: { 'X-WP-Nonce': BTI.restNonce }
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            var parent = data.templates && data.templates[0];
+            if (parent) {
+                if (typeof parent.form_fields === 'string') {
+                    try { parent.form_fields = JSON.parse(parent.form_fields); } catch(e) { parent.form_fields = []; }
+                }
+                btiTplOpenModal(parent);
+            } else {
+                /* No parent found — show old template as-is */
+                tpl._noRedirect = true;
+                btiTplOpenModal(tpl);
+            }
+        })
+        .catch(function() {
+            tpl._noRedirect = true;
+            btiTplOpenModal(tpl);
+        });
+        return;
+    }
+
+    /* ── Build modal for regular template ── */
+    var imgHtml = tpl.thumbnail_url
+        ? '<img src="' + escHtml(tpl.thumbnail_url) + '" style="width:100px;height:100px;border-radius:10px;object-fit:cover;" />'
+        : '<div style="width:100px;height:100px;border-radius:10px;background:#f5f3ff;display:flex;align-items:center;justify-content:center;font-size:40px;">🎨</div>';
+
+    var fields = Array.isArray(tpl.form_fields) ? tpl.form_fields : [];
+    var hasSizePicker = fields.some(function(f) { return f.type === 'size_picker'; });
+    var fieldsHtml = '';
+    fields.forEach(function(f) {
+        if (f.type === 'heading') {
+            fieldsHtml += '<div class="bti-tpl-form-field"><h4 style="font-size:14px;font-weight:700;margin:8px 0 4px;">' + escHtml(f.label) + '</h4></div>';
+            return;
+        }
+
+        var visAttr = '';
+        if (f.visibility && f.visibility.creation_mode) {
+            visAttr = ' data-vis-mode="' + escHtml(f.visibility.creation_mode) + '"';
+        }
+
+        var inputHtml = '';
+        var defaultVal = f.default || '';
+        switch (f.type) {
+            case 'textarea':
+                inputHtml = '<textarea data-slug="' + escHtml(f.slug) + '" rows="3" placeholder="' + escHtml(f.placeholder || '') + '"></textarea>';
+                break;
+            case 'select':
+                var opts = '<option value="">-- Chọn --</option>';
+                (f.options || []).forEach(function(o) { opts += '<option value="' + escHtml(o.value) + '">' + escHtml(o.label) + '</option>'; });
+                inputHtml = '<select data-slug="' + escHtml(f.slug) + '">' + opts + '</select>';
+                break;
+            case 'card_radio':
+                var cards = '';
+                (f.options || []).forEach(function(o, i) {
+                    var isSelected = defaultVal ? (o.value === defaultVal) : (o.recommended || i === 0);
+                    cards += '<div class="card-radio' + (isSelected ? ' selected' : '') + '" data-value="' + escHtml(o.value) + '" onclick="btiTplSelectCard(this,\'' + escHtml(f.slug) + '\')">' +
+                        (o.icon ? '<div class="cr-icon">' + o.icon + '</div>' : '') +
+                        '<div>' + escHtml(o.label) +
+                        (o.description ? '<br><small style="color:#9ca3af;font-size:10px;line-height:1.3;">' + escHtml(o.description) + '</small>' : '') +
+                        '</div></div>';
+                });
+                inputHtml = '<div class="card-radio-group" data-slug="' + escHtml(f.slug) + '">' + cards + '</div>';
+                break;
+            case 'image_upload':
+                inputHtml = '<div style="border:2px dashed #d1d5db;border-radius:10px;padding:16px;text-align:center;cursor:pointer;" onclick="btiTplUploadImage(this)" data-slug="' + escHtml(f.slug) + '">' +
+                    '<span style="font-size:24px;">📷</span><br><small>' + escHtml(f.help || 'Click để upload ảnh') + '</small>' +
+                    '<input type="hidden" class="tpl-img-url" />' +
+                    '</div>';
+                break;
+            case 'model_picker':
+                var preModel = window._preSelectedModel;
+                var preModelId = preModel ? preModel.id : '';
+                window._preSelectedModel = null;
+                var mpSlug = escHtml(f.slug);
+                var mpHtml = '<input type="hidden" data-slug="' + mpSlug + '" value="' + escHtml(preModelId) + '" />';
+                // Gallery container — will be populated async
+                mpHtml += '<div id="bti-model-gallery-' + mpSlug + '" class="bti-model-gallery" ' +
+                    'style="display:flex;gap:10px;overflow-x:auto;padding:4px 0 8px;scroll-snap-type:x mandatory;">' +
+                    '<div style="padding:20px;color:#9ca3af;"><span class="bti-spinner"></span> Đang tải mẫu người...</div>' +
+                '</div>';
+                // Custom upload
+                if (f.allow_custom_upload) {
+                    mpHtml += '<div style="border:2px dashed #d1d5db;border-radius:10px;padding:14px;text-align:center;cursor:pointer;margin-top:8px;" onclick="btiTplUploadImage(this)" data-slug="' + mpSlug + '_custom">' +
+                        '<span style="font-size:20px;">👤</span><br><small>' + escHtml(f.custom_upload_label || 'Upload ảnh mẫu riêng') + '</small>' +
+                        '<input type="hidden" class="tpl-img-url" />' +
+                    '</div>';
+                }
+                inputHtml = mpHtml;
+                // Load gallery after DOM render
+                (function(slug, selectedId) {
+                    setTimeout(function() { btiLoadModelGallery(slug, selectedId); }, 50);
+                })(f.slug, preModelId);
+                break;
+            case 'size_picker':
+                var spPills = '';
+                (f.options || []).forEach(function(o) {
+                    var sel = o.recommended ? ' selected' : '';
+                    spPills += '<span class="bti-tpl-size-pill' + sel + '" data-size="' + escHtml(o.value) + '" onclick="btiTplSelectSize(this)">' +
+                        (o.icon ? o.icon + ' ' : '') + escHtml(o.label) + '</span>';
+                });
+                inputHtml = '<div class="bti-tpl-size-pills" data-slug="' + escHtml(f.slug) + '">' + spPills + '</div>';
+                break;
+            case 'multi_reference_images':
+                var roles = f.image_roles || [];
+                var riHtml = '';
+                roles.forEach(function(role) {
+                    riHtml += '<div style="border:2px dashed #d1d5db;border-radius:10px;padding:12px;text-align:center;cursor:pointer;flex:1;min-width:100px;" onclick="btiTplUploadImage(this)" data-slug="ref_' + escHtml(role.slug) + '">' +
+                        '<span style="font-size:18px;">' + (role.icon || '📷') + '</span><br>' +
+                        '<small style="font-size:10px;">' + escHtml(role.label) + '</small>' +
+                        '<input type="hidden" class="tpl-img-url" />' +
+                    '</div>';
+                });
+                inputHtml = '<div style="display:flex;gap:8px;flex-wrap:wrap;">' + riHtml + '</div>';
+                break;
+            case 'color_picker':
+                inputHtml = '<input type="color" data-slug="' + escHtml(f.slug) + '" value="' + escHtml(f.default || '#ffffff') + '" style="width:60px;height:36px;border:none;cursor:pointer;" />';
+                break;
+            case 'number':
+                inputHtml = '<input type="number" data-slug="' + escHtml(f.slug) + '" placeholder="' + escHtml(f.placeholder || '') + '" />';
+                break;
+            case 'quick_suggest':
+                var pills = '';
+                (f.options || []).forEach(function(o) {
+                    pills += '<span class="bti-pill" style="cursor:pointer;" onclick="btiTplQuickSuggest(this,\'' + escHtml(f.slug) + '\')" data-value="' + escHtml(o.value) + '">' + escHtml(o.label) + '</span>';
+                });
+                inputHtml = '<input type="hidden" data-slug="' + escHtml(f.slug) + '" />' +
+                    '<div class="bti-pill-row" data-qs-slug="' + escHtml(f.slug) + '">' + pills + '</div>';
+                break;
+            default: // text
+                var textVal = '';
+                var preItem = window._preSelectedItem;
+                if (preItem && (f.slug === 'clothing_description' || f.slug === 'accessory_description')) {
+                    textVal = preItem.description || preItem.name || '';
+                }
+                inputHtml = '<input type="text" data-slug="' + escHtml(f.slug) + '" placeholder="' + escHtml(f.placeholder || '') + '" value="' + escHtml(textVal) + '" />';
+        }
+
+        var requiredMark = f.required ? ' <span style="color:#ef4444;">*</span>' : '';
+        var helpHtml = (f.help && f.type !== 'image_upload') ? '<small style="color:#9ca3af;display:block;margin-top:2px;">' + escHtml(f.help) + '</small>' : '';
+        fieldsHtml += '<div class="bti-tpl-form-field"' + visAttr + '><label>' + escHtml(f.label) + requiredMark + '</label>' + inputHtml + helpHtml + '</div>';
+    });
+    window._preSelectedItem = null; // Clear after rendering
+
+    /* Size pills — only if no size_picker field in template */
+    var sizePillsHtml = '';
+    if (!hasSizePicker) {
+        var sizes = ['1024x1024', '1024x1792', '1792x1024', '768x1024', '1024x768'];
+        var sizeLabels = {'1024x1024':'1:1','1024x1792':'9:16','1792x1024':'16:9','768x1024':'3:4','1024x768':'4:3'};
+        var sizePills = '';
+        sizes.forEach(function(s) {
+            var sel = s === tpl.recommended_size ? ' selected' : '';
+            sizePills += '<span class="bti-tpl-size-pill' + sel + '" data-size="' + s + '" onclick="btiTplSelectSize(this)">' + (sizeLabels[s] || s) + '</span>';
+        });
+        sizePillsHtml = '<div><label style="font-size:12px;font-weight:600;margin-bottom:4px;display:block;">Kích thước</label><div class="bti-tpl-size-pills">' + sizePills + '</div></div>';
+    }
+
+    body.innerHTML =
+        '<div class="bti-tpl-modal-close"><span onclick="btiTplCloseModal()"></span></div>' +
+        '<div class="bti-tpl-modal-header">' + imgHtml +
+            '<div class="info"><h3>' + escHtml(tpl.title) + '</h3><p>' + escHtml(tpl.description || '') + '</p>' +
+            '<small style="color:#9ca3af;">Model: ' + escHtml(tpl.recommended_model) + ' · Style: ' + escHtml(tpl.style || 'auto') + '</small></div>' +
+        '</div>' +
+        (fieldsHtml ? '<div class="bti-tpl-form-fields">' + fieldsHtml + '</div>' : '') +
+        sizePillsHtml +
+        '<div class="bti-tpl-prompt-preview" id="bti-tpl-prompt-preview">' + escHtml(tpl.prompt_template) + '</div>' +
+        '<div id="bti-tpl-gen-status" class="bti-status"></div>' +
+        '<div id="bti-tpl-gen-result" class="bti-result"></div>' +
+        '<div style="display:flex;gap:8px;margin-top:12px;">' +
+            '<button class="bti-btn bti-btn-primary" onclick="btiTplGenerate(' + tpl.id + ')" id="bti-tpl-gen-btn">✨ Tạo Ảnh</button>' +
+        '</div>';
+
+    modal.classList.add('open');
+    window._currentTpl = tpl;
+    window._formContainer = document.getElementById('bti-tpl-modal-body');
+    btiTplToggleVisibility();
+}
+
+function btiTplCloseModal() {
+    document.getElementById('bti-tpl-modal').classList.remove('open');
+}
+
+function btiTplSelectCard(el, fieldSlug) {
+    el.parentElement.querySelectorAll('.card-radio, .bti-inline-gallery-card').forEach(function(c) { c.classList.remove('selected'); });
+    el.classList.add('selected');
+    if (fieldSlug === 'creation_mode') btiTplToggleVisibility();
+}
+
+function btiTplSelectSize(el) {
+    el.parentElement.querySelectorAll('.bti-tpl-size-pill').forEach(function(c) { c.classList.remove('selected'); });
+    el.classList.add('selected');
+}
+
+function btiTplToggleVisibility() {
+    var modalBody = window._formContainer || document.getElementById('bti-tpl-modal-body');
+    if (!modalBody) return;
+    var modeGroup = modalBody.querySelector('.card-radio-group[data-slug="creation_mode"]');
+    if (!modeGroup) return;
+    var selected = modeGroup.querySelector('.card-radio.selected');
+    var mode = selected ? selected.dataset.value : 'composite';
+    modalBody.querySelectorAll('[data-vis-mode]').forEach(function(el) {
+        el.style.display = el.dataset.visMode === mode ? '' : 'none';
+    });
+}
+
+function btiTplQuickSuggest(el, slug) {
+    // Find the textarea or input for this slug and append
+    var _c = window._formContainer || document.getElementById('bti-tpl-modal-body');
+    var input = _c ? _c.querySelector('[data-slug="' + slug + '"]') : null;
+    if (!input) {
+        input = _c ? _c.querySelector('textarea[data-slug="' + slug + '"], input[data-slug="' + slug + '"]') : null;
+    }
+    if (input && input.tagName) {
+        var existing = input.value || '';
+        input.value = existing ? existing + ', ' + el.dataset.value : el.dataset.value;
+    }
+}
+
+function btiTplUploadImage(zone) {
+    var input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = function() {
+        if (!this.files[0]) return;
+        var fd = new FormData();
+        fd.append('action', 'bztimg_upload_photo');
+        fd.append('_ajax_nonce', BTI.nonce);
+        fd.append('photo', this.files[0]);
+
+        zone.innerHTML = '<span class="bti-spinner"></span> Uploading...';
+
+        fetch(BTI.ajax, { method: 'POST', body: fd })
+            .then(function(r) { return r.json(); })
+            .then(function(res) {
+                if (res.success && res.data.url) {
+                    zone.innerHTML = '<img src="' + res.data.url + '" style="max-width:100%;max-height:120px;border-radius:8px;" />';
+                    zone.querySelector('.tpl-img-url') || (function() {
+                        var h = document.createElement('input');
+                        h.type = 'hidden';
+                        h.className = 'tpl-img-url';
+                        h.value = res.data.url;
+                        zone.appendChild(h);
+                    })();
+                    if (zone.querySelector('.tpl-img-url')) zone.querySelector('.tpl-img-url').value = res.data.url;
+                } else {
+                    zone.innerHTML = '<span style="color:#ef4444;">Upload lỗi</span>';
+                }
+            })
+            .catch(function() {
+                zone.innerHTML = '<span style="color:#ef4444;">Upload lỗi</span>';
+            });
+    };
+    input.click();
+}
+
+function btiLoadModelGallery(fieldSlug, selectedId) {
+    var container = document.getElementById('bti-model-gallery-' + fieldSlug);
+    if (!container) return;
+    fetch(BTI.restUrl + 'templates?subcategory=model&status=active&per_page=50', {
+        headers: { 'X-WP-Nonce': BTI.restNonce }
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        var models = data.templates || [];
+        if (!models.length) {
+            container.innerHTML = '<small style="color:#9ca3af;">Chưa có mẫu người nào.</small>';
+            return;
+        }
+        container.innerHTML = '';
+        models.forEach(function(m) {
+            var isSel = m.slug === selectedId;
+            var card = document.createElement('div');
+            card.className = 'bti-model-card' + (isSel ? ' selected' : '');
+            card.dataset.modelSlug = m.slug;
+            card.style.cssText = 'min-width:100px;max-width:110px;flex-shrink:0;border-radius:12px;padding:8px;text-align:center;cursor:pointer;' +
+                'border:2px solid ' + (isSel ? '#22c55e' : '#e5e7eb') + ';' +
+                'background:' + (isSel ? '#f0fdf4' : '#fff') + ';scroll-snap-align:start;transition:border-color .2s,background .2s;';
+            card.innerHTML = (m.thumbnail_url
+                ? '<img src="' + escHtml(m.thumbnail_url) + '" style="width:64px;height:64px;border-radius:8px;object-fit:cover;margin:0 auto 6px;" />'
+                : '<div style="width:64px;height:64px;border-radius:8px;background:#f3f4f6;margin:0 auto 6px;display:flex;align-items:center;justify-content:center;font-size:24px;">👤</div>') +
+                '<div style="font-size:11px;font-weight:' + (isSel ? '700' : '500') + ';color:' + (isSel ? '#16a34a' : '#374151') + ';line-height:1.3;word-break:break-word;">' +
+                    (isSel ? '✓ ' : '') + escHtml(m.title) +
+                '</div>';
+            card.onclick = function() { btiSelectModel(fieldSlug, m.slug, container); };
+            container.appendChild(card);
+        });
+    })
+    .catch(function() {
+        container.innerHTML = '<small style="color:#ef4444;">Lỗi tải mẫu người.</small>';
+    });
+}
+
+function btiSelectModel(fieldSlug, modelSlug, gallery) {
+    // Update hidden input
+    var container = window._formContainer || document.getElementById('bti-tpl-modal-body');
+    var hiddenInput = container.querySelector('input[data-slug="' + fieldSlug + '"]');
+    if (hiddenInput) hiddenInput.value = modelSlug;
+    // Visual toggle
+    gallery.querySelectorAll('.bti-model-card').forEach(function(card) {
+        var isSel = card.dataset.modelSlug === modelSlug;
+        card.classList.toggle('selected', isSel);
+        card.style.borderColor = isSel ? '#22c55e' : '#e5e7eb';
+        card.style.background = isSel ? '#f0fdf4' : '#fff';
+        // Update text style
+        var textDiv = card.querySelector('div:last-child');
+        if (textDiv) {
+            var name = textDiv.textContent.replace(/^✓\s*/, '');
+            textDiv.style.fontWeight = isSel ? '700' : '500';
+            textDiv.style.color = isSel ? '#16a34a' : '#374151';
+            textDiv.textContent = (isSel ? '✓ ' : '') + name;
+        }
+    });
+    // Clear custom upload if a preset is selected
+    var customZone = container.querySelector('[data-slug="' + fieldSlug + '_custom"] .tpl-img-url');
+    if (customZone) customZone.value = '';
+}
+
+function btiTplGenerate(templateId) {
+    var btn = document.getElementById('bti-tpl-gen-btn');
+    var status = document.getElementById('bti-tpl-gen-status');
+    var result = document.getElementById('bti-tpl-gen-result');
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="bti-spinner"></span> Đang tạo...';
+    status.className = 'bti-status loading';
+    status.style.display = 'block';
+    status.textContent = '⏳ Đang tạo ảnh từ template...';
+    result.className = 'bti-result';
+    result.innerHTML = '';
+
+    // Collect form data
+    var formData = {};
+    var modalBody = window._formContainer || document.getElementById('bti-tpl-modal-body');
+
+    // Text/textarea/number/color inputs
+    modalBody.querySelectorAll('input[data-slug], textarea[data-slug], select[data-slug]').forEach(function(el) {
+        formData[el.dataset.slug] = el.value;
+    });
+
+    // Card radios
+    modalBody.querySelectorAll('.card-radio-group[data-slug]').forEach(function(group) {
+        var selected = group.querySelector('.card-radio.selected');
+        if (selected) formData[group.dataset.slug] = selected.dataset.value;
+    });
+
+    // Image uploads
+    modalBody.querySelectorAll('[data-slug] .tpl-img-url').forEach(function(input) {
+        var slug = input.closest('[data-slug]').dataset.slug;
+        if (input.value) formData[slug] = input.value;
+    });
+
+    // Size picker fields
+    modalBody.querySelectorAll('.bti-tpl-size-pills[data-slug]').forEach(function(group) {
+        var selected = group.querySelector('.bti-tpl-size-pill.selected');
+        if (selected) formData[group.dataset.slug] = selected.dataset.size;
+    });
+
+    // Merge model_picker custom upload into main slug
+    var _tplFields = window._currentTpl ? window._currentTpl.form_fields : [];
+    if (Array.isArray(_tplFields)) {
+        _tplFields.forEach(function(f) {
+            if (f.type === 'model_picker' && formData[f.slug + '_custom'] && !formData[f.slug]) {
+                formData[f.slug] = formData[f.slug + '_custom'];
+            }
+            delete formData[f.slug + '_custom'];
+        });
+    }
+
+    // Validate required fields
+    var tpl = window._currentTpl;
+    if (tpl && tpl.form_fields) {
+        var missing = [];
+        tpl.form_fields.forEach(function(f) {
+            if (f.required && !formData[f.slug]) missing.push(f.label);
+        });
+        if (missing.length) {
+            status.className = 'bti-status error';
+            status.style.display = 'block';
+            status.textContent = '⚠️ Vui lòng điền: ' + missing.join(', ');
+            btn.disabled = false;
+            btn.innerHTML = '✨ Tạo Ảnh';
+            return;
+        }
+    }
+
+    // Get selected size
+    var sizeEl = modalBody.querySelector('.bti-tpl-size-pill.selected');
+    var size = sizeEl ? sizeEl.dataset.size : '';
+
+    var payload = { form_data: formData };
+    if (size) payload.size = size;
+
+    fetch(BTI.restUrl + 'templates/' + templateId + '/generate', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-WP-Nonce': BTI.restNonce,
+        },
+        body: JSON.stringify(payload),
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        btn.disabled = false;
+        btn.innerHTML = '✨ Tạo Ảnh';
+
+        if (data.image_url) {
+            status.className = 'bti-status success';
+            status.textContent = '✅ Ảnh đã tạo thành công!';
+            result.className = 'bti-result show';
+            result.innerHTML = '<img src="' + escHtml(data.image_url) + '" style="width:100%;border-radius:12px;" />' +
+                '<div class="bti-result-actions" style="padding:12px;">' +
+                    '<a href="' + escHtml(data.image_url) + '" target="_blank" class="bti-btn-secondary">🔗 Mở</a>' +
+                    '<button class="bti-btn-secondary" onclick="btiShareImage(\'' + escHtml(data.image_url) + '\')">📤 Chia sẻ</button>' +
+                '</div>';
+        } else if (data.code || data.message) {
+            status.className = 'bti-status error';
+            status.textContent = '❌ ' + (data.message || 'Lỗi không xác định');
+        }
+    })
+    .catch(function(err) {
+        btn.disabled = false;
+        btn.innerHTML = '✨ Tạo Ảnh';
+        status.className = 'bti-status error';
+        status.textContent = '❌ Lỗi kết nối: ' + err.message;
+    });
+}
+
+/* Close modal on backdrop click */
+document.getElementById('bti-tpl-modal').addEventListener('click', function(e) {
+    if (e.target === this) btiTplCloseModal();
+});
+
+/* Close modal on Escape key */
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') btiTplCloseModal();
+});
+
 </script>
 </body>
 </html>
