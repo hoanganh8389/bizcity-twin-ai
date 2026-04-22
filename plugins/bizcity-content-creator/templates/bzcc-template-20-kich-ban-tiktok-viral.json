@@ -1,0 +1,241 @@
+{
+  "version": "1.0",
+  "plugin": "bizcity-content-creator",
+  "exported": "2026-04-16T10:00:00Z",
+  "templates": [
+    {
+      "slug": "20-kich-ban-tiktok-viral",
+      "category_id": "0",
+      "title": "20 Kịch bản TikTok Viral — Hook, Twist & Nhạc nền",
+      "description": "AI tạo 20 kịch bản TikTok chi tiết: hook 3 giây đầu, thân bài, cú twist bất ngờ, gợi ý nhạc nền, thời lượng, kiểu quay — sẵn sàng bấm quay ngay.",
+      "icon_url": "",
+      "icon_emoji": "🎬",
+      "form_fields": [
+        {
+          "slug": "heading_step1",
+          "label": "🎯 Thông tin kênh & nội dung",
+          "type": "heading",
+          "placeholder": "",
+          "required": false,
+          "grid": "full",
+          "sort_order": 1,
+          "description": "Mô tả kênh TikTok và chủ đề bạn muốn tạo kịch bản",
+          "badge": ""
+        },
+        {
+          "slug": "channel_topic",
+          "label": "Chủ đề / niche kênh của bạn",
+          "type": "textarea",
+          "placeholder": "VD: skincare cho da dầu / review đồ công nghệ dưới 500k / dạy nấu ăn nhanh / tài chính cá nhân cho Gen Z...",
+          "required": true,
+          "grid": "full",
+          "sort_order": 2,
+          "description": "Càng cụ thể thì kịch bản càng sát thực tế"
+        },
+        {
+          "slug": "target_audience",
+          "label": "Đối tượng người xem",
+          "type": "textarea",
+          "placeholder": "VD: nữ 18-30 tuổi, quan tâm làm đẹp / nam Gen Z, thích công nghệ / mẹ bỉm sữa...",
+          "required": false,
+          "grid": "half",
+          "sort_order": 3,
+          "description": "Bỏ qua để AI tự phân tích"
+        },
+        {
+          "slug": "unique_point",
+          "label": "Điểm khác biệt của bạn",
+          "type": "textarea",
+          "placeholder": "VD: bác sĩ da liễu 10 năm / từng làm việc tại Samsung / mẹ 3 con với 5 năm kinh nghiệm...",
+          "required": true,
+          "grid": "half",
+          "sort_order": 4,
+          "description": "Yếu tố giúp bạn khác biệt và tạo độ tin cậy"
+        },
+        {
+          "slug": "heading_step2",
+          "label": "⚙️ Tùy chỉnh kịch bản",
+          "type": "heading",
+          "placeholder": "",
+          "required": false,
+          "grid": "full",
+          "sort_order": 10,
+          "description": "Tinh chỉnh kiểu video, thời lượng và phong cách",
+          "badge": "Quan trọng"
+        },
+        {
+          "slug": "video_duration",
+          "label": "Thời lượng video mong muốn",
+          "type": "button_group",
+          "placeholder": "",
+          "required": true,
+          "grid": "full",
+          "sort_order": 11,
+          "description": "Chọn độ dài phổ biến nhất bạn muốn quay",
+          "multi": false,
+          "options": [
+            { "value": "15-20 giây", "label": "⚡ 15-20s (Snack content)" },
+            { "value": "30-45 giây", "label": "🔥 30-45s (Sweet spot)" },
+            { "value": "60 giây", "label": "🎯 60s (Deep hook)" },
+            { "value": "90 giây - 3 phút", "label": "📖 90s-3 phút (Storytelling)" },
+            { "value": "mix", "label": "🎲 Mix nhiều thời lượng" }
+          ]
+        },
+        {
+          "slug": "video_format",
+          "label": "Kiểu quay / format video",
+          "type": "button_group",
+          "placeholder": "",
+          "required": true,
+          "grid": "full",
+          "sort_order": 12,
+          "description": "Chọn 1 hoặc nhiều format bạn muốn (AI sẽ phân bổ kịch bản theo)",
+          "multi": true,
+          "options": [
+            { "value": "oneshot_viral", "label": "🎤 Oneshot Viral (quay 1 shot, nói thẳng vào cam)" },
+            { "value": "ai_voiceover", "label": "🤖 AI Voiceover (dùng giọng AI + hình minh họa)" },
+            { "value": "facecam_greenscreen", "label": "🟢 Facecam + Green Screen" },
+            { "value": "pov", "label": "👀 POV / Góc nhìn thứ nhất" },
+            { "value": "slideshow_text", "label": "📱 Slideshow + Text overlay" },
+            { "value": "broll_voiceover", "label": "🎬 B-roll + Voiceover (không lộ mặt)" },
+            { "value": "duet_stitch", "label": "🔗 Duet / Stitch (react video khác)" },
+            { "value": "tutorial_demo", "label": "📐 Tutorial / Demo thực hành" }
+          ]
+        },
+        {
+          "slug": "script_style",
+          "label": "Phong cách kịch bản muốn tạo",
+          "type": "button_group",
+          "placeholder": "",
+          "required": false,
+          "grid": "full",
+          "sort_order": 13,
+          "description": "Chọn nhiều phong cách để AI mix đa dạng trong 20 kịch bản",
+          "multi": true,
+          "options": [
+            { "value": "hook_twist", "label": "🌀 Hook → Twist bất ngờ" },
+            { "value": "controversy", "label": "💥 Gây tranh cãi / Phản bác" },
+            { "value": "storytelling", "label": "📖 Kể chuyện cá nhân" },
+            { "value": "listicle", "label": "📋 Listicle (Top 3, 5 điều...)" },
+            { "value": "before_after", "label": "🔄 Before → After" },
+            { "value": "myth_busting", "label": "🚫 Phá bỏ hiểu lầm" },
+            { "value": "challenge_trend", "label": "🏆 Bắt trend / Challenge" },
+            { "value": "emotional", "label": "😢 Cảm xúc / Motivational" }
+          ]
+        },
+        {
+          "slug": "heading_step3",
+          "label": "🎵 Nhạc nền & Chi tiết thêm",
+          "type": "heading",
+          "placeholder": "",
+          "required": false,
+          "grid": "full",
+          "sort_order": 20,
+          "description": "",
+          "badge": "Tùy chọn"
+        },
+        {
+          "slug": "music_preference",
+          "label": "Sở thích nhạc nền",
+          "type": "button_group",
+          "placeholder": "",
+          "required": false,
+          "grid": "full",
+          "sort_order": 21,
+          "description": "AI sẽ gợi ý tên bài + kiểu nhạc cụ thể cho mỗi kịch bản",
+          "multi": true,
+          "options": [
+            { "value": "trending_tiktok", "label": "🔥 Nhạc trending TikTok" },
+            { "value": "emotional_piano", "label": "🎹 Piano / Cảm xúc" },
+            { "value": "hiphop_trap", "label": "🎤 Hip-hop / Trap beat" },
+            { "value": "cinematic", "label": "🎬 Cinematic / Epic" },
+            { "value": "lofi_chill", "label": "☕ Lo-fi / Chill" },
+            { "value": "funny_meme", "label": "😂 Funny / Meme sound" },
+            { "value": "original_audio", "label": "🎙️ Original Audio (giọng mình)" },
+            { "value": "no_music", "label": "🔇 Không nhạc (ASMR / Voiceover thuần)" }
+          ]
+        },
+        {
+          "slug": "cta_goal",
+          "label": "Mục tiêu CTA cuối video",
+          "type": "select",
+          "placeholder": "",
+          "required": false,
+          "grid": "half",
+          "sort_order": 22,
+          "description": "",
+          "options": [
+            { "value": "follow", "label": "👤 Follow kênh" },
+            { "value": "comment", "label": "💬 Tăng comment / Tương tác" },
+            { "value": "save_share", "label": "📌 Save + Share" },
+            { "value": "link_bio", "label": "🔗 Click link bio" },
+            { "value": "tiktok_shop", "label": "🛒 Mua hàng TikTok Shop" },
+            { "value": "watch_more", "label": "▶️ Xem thêm video khác" }
+          ]
+        },
+        {
+          "slug": "tone_of_voice",
+          "label": "Giọng điệu",
+          "type": "select",
+          "placeholder": "",
+          "required": false,
+          "grid": "half",
+          "sort_order": 23,
+          "description": "",
+          "options": [
+            { "value": "gen_z_casual", "label": "😎 Gen Z — vui vẻ, gần gũi" },
+            { "value": "professional", "label": "👔 Chuyên gia — uy tín, đáng tin" },
+            { "value": "dramatic", "label": "🎭 Dramatic — kịch tính, cuốn hút" },
+            { "value": "funny_sarcastic", "label": "🤪 Hài hước / Châm biếm" },
+            { "value": "warm_caring", "label": "🤗 Ấm áp / Chia sẻ chân thành" }
+          ]
+        },
+        {
+          "slug": "extra_notes",
+          "label": "Ghi chú thêm cho AI",
+          "type": "textarea",
+          "placeholder": "VD: Tôi không muốn lộ mặt / Muốn tập trung vào sản phẩm X / Đang chạy campaign giảm giá / Muốn nhắm vào controversy để viral...",
+          "required": false,
+          "grid": "full",
+          "sort_order": 24,
+          "description": ""
+        }
+      ],
+
+      "system_prompt": "Bạn là chuyên gia sáng tạo nội dung TikTok hàng đầu Việt Nam, từng giúp hàng trăm kênh đạt video triệu view. Bạn sẽ tạo **20 KỊCH BẢN TIKTOK VIRAL** chi tiết, mỗi kịch bản sẵn sàng bấm quay.\n\n## THÔNG TIN KÊNH\n- Chủ đề/niche: {{channel_topic}}\n- Đối tượng: {{target_audience}}\n- Điểm khác biệt: {{unique_point}}\n- Thời lượng: {{video_duration}}\n- Format video: {{video_format}}\n- Phong cách: {{script_style}}\n- Nhạc nền: {{music_preference}}\n- Mục tiêu CTA: {{cta_goal}}\n- Giọng điệu: {{tone_of_voice}}\n- Ghi chú: {{extra_notes}}\n\n## CẤU TRÚC MỖI KỊCH BẢN (BẮT BUỘC)\nMỗi kịch bản phải có ĐẦY ĐỦ các phần sau:\n\n### 🎬 Tiêu đề kịch bản\nTên ngắn gọn, gợi ý nội dung video\n\n### ⏱️ Thời lượng & Format\n- Thời lượng cụ thể (VD: ~30 giây)\n- Kiểu quay: oneshot / AI voiceover / POV / slideshow / etc.\n\n### 🪝 HOOK — 3 GIÂY ĐẦU (quyết định viral)\nViết NGUYÊN VĂN câu mở đầu. Hook phải:\n- Gây tò mò / shock / tranh cãi ngay lập tức\n- Khiến người xem KHÔNG THỂ lướt đi\n- Dạng: câu hỏi provocative / tuyên bố gây sốc / hành động bất ngờ / text on screen\n\n### 📝 THÂN BÀI (Body)\n- Script chi tiết từng câu nói / từng cảnh\n- Ghi rõ: [Cảnh 1] ... [Cảnh 2] ... hoặc [Text overlay] ...\n- Timing ước lượng cho mỗi phần\n- Nếu dùng text overlay: ghi rõ nội dung text\n\n### 🌀 CÚ TWIST / SPOT (điểm bùng nổ)\n- Vị trí trong video (VD: giây thứ 20-25)\n- Twist phải bất ngờ, đảo ngược kỳ vọng, hoặc reveal thông tin shocking\n- Viết nguyên văn câu/cảnh twist\n\n### 📢 CTA (Call to Action)\n- Câu kết thúc cụ thể hướng tới mục tiêu: {{cta_goal}}\n\n### 🎵 NHẠC NỀN\n- Gợi ý 1-2 bài nhạc cụ thể (tên bài + tác giả/nguồn)\n- Hoặc kiểu sound trending phù hợp\n- Timing: drop beat ở đâu, switch nhạc ở đâu\n\n### 💡 GHI CHÚ QUAY & EDIT\n- Tips setup quay (góc cam, ánh sáng, background)\n- Hiệu ứng edit gợi ý (zoom, slow-mo, text animation)\n- Hashtag gợi ý (5-8 hashtags)\n\n## QUY TẮC QUAN TRỌNG\n1. Viết CỤ THỂ cho niche \"{{channel_topic}}\" — KHÔNG viết chung chung\n2. 20 kịch bản phải ĐA DẠNG phong cách, KHÔNG lặp lại công thức\n3. Hook 3 giây đầu là QUAN TRỌNG NHẤT — viết nguyên văn, chi tiết\n4. Mỗi twist phải thực sự bất ngờ, tạo cảm xúc mạnh\n5. Nhạc nền phải phù hợp với mood từng video cụ thể\n6. Viết bằng tiếng Việt, giọng {{tone_of_voice}}\n7. Dùng emoji phù hợp, format dễ đọc\n8. Mỗi kịch bản viết CHI TIẾT ít nhất 300 từ\n9. Phân bổ format video theo lựa chọn: {{video_format}}\n10. Phân bổ phong cách theo: {{script_style}}",
+
+      "outline_prompt": "Dựa trên thông tin kênh TikTok đã cung cấp, hãy tạo outline cho 20 KỊCH BẢN TIKTOK VIRAL.\n\nYêu cầu:\n- Tạo 4-5 sections, mỗi section chứa 4-5 kịch bản theo chủ đề con\n- Nhóm các kịch bản theo phong cách/mục đích:\n  + Nhóm 1: Hook gây shock / Controversy (dễ viral nhất)\n  + Nhóm 2: Storytelling / Cảm xúc (giữ chân lâu)\n  + Nhóm 3: Educational / Chia sẻ giá trị (tăng save + share)\n  + Nhóm 4: Trend / Challenge / Tương tác (tăng comment)\n  + Nhóm 5: Bán hàng / CTA mạnh (monetize)\n- Mỗi item trong outline ghi: tên kịch bản + 1 dòng mô tả hook/twist chính\n- Phân bổ ĐỀU các format video đã chọn: {{video_format}}\n- Phân bổ ĐỀU các phong cách: {{script_style}}\n- Tên section phải MÔ TẢ CỤ THỂ, không chung chung\n- Thời lượng theo: {{video_duration}}",
+
+      "chunk_prompt": "Bạn đang viết phần \"{{chunk_title}}\" — một nhóm kịch bản TikTok viral.\n\n## BỐI CẢNH\n- Chủ đề kênh: {{channel_topic}}\n- Đối tượng: {{target_audience}}\n- Điểm khác biệt: {{unique_point}}\n- Thời lượng: {{video_duration}}\n- Format: {{video_format}}\n- Phong cách: {{script_style}}\n- Nhạc nền: {{music_preference}}\n- CTA: {{cta_goal}}\n- Giọng điệu: {{tone_of_voice}}\n\n## YÊU CẦU CHO MỖI KỊCH BẢN\nViết ĐẦY ĐỦ cấu trúc sau cho TỪNG kịch bản trong nhóm:\n\n1. **🎬 Tiêu đề** — tên ngắn gọn\n2. **⏱️ Thời lượng & Format** — bao nhiêu giây + kiểu quay\n3. **🪝 HOOK 3 GIÂY ĐẦU** — viết NGUYÊN VĂN câu mở đầu (đây là phần QUAN TRỌNG NHẤT). Hook phải gây tò mò/shock khiến người xem không lướt đi\n4. **📝 THÂN BÀI** — script chi tiết từng cảnh: [Cảnh 1] [Cảnh 2]... với timing. Nếu text overlay thì ghi rõ nội dung\n5. **🌀 CÚ TWIST** — vị trí (giây thứ mấy), nội dung twist nguyên văn, vì sao tạo bất ngờ\n6. **📢 CTA** — câu kết cụ thể\n7. **🎵 NHẠC NỀN** — tên bài cụ thể + timing drop beat/switch\n8. **💡 GHI CHÚ QUAY & EDIT** — setup, hiệu ứng, hashtags (5-8)\n\n## QUY TẮC\n- Viết CỤ THỂ cho \"{{channel_topic}}\", KHÔNG chung chung\n- Mỗi kịch bản ít nhất 300 từ, chi tiết đến mức đọc xong là quay được ngay\n- Hook phải nguyên văn, twist phải bất ngờ, nhạc phải có tên bài cụ thể\n- KHÔNG lặp lại công thức giữa các kịch bản\n- Dùng emoji, format rõ ràng, dễ đọc",
+
+      "model_purpose": "content_creation",
+      "temperature": "0.75",
+      "max_tokens": "8000",
+      "wizard_steps": [
+        {
+          "label": "Thông tin kênh",
+          "description": "Mô tả kênh và chủ đề nội dung",
+          "fields": ["heading_step1", "channel_topic", "target_audience", "unique_point"]
+        },
+        {
+          "label": "Format & Phong cách",
+          "description": "Chọn kiểu video, thời lượng và phong cách kịch bản",
+          "fields": ["heading_step2", "video_duration", "video_format", "script_style"]
+        },
+        {
+          "label": "Nhạc & Chi tiết",
+          "description": "Nhạc nền, giọng điệu và ghi chú thêm",
+          "fields": ["heading_step3", "music_preference", "cta_goal", "tone_of_voice", "extra_notes"]
+        }
+      ],
+      "output_platforms": ["tiktok"],
+      "skill_id": "0",
+      "tags": "tiktok,viral,kịch-bản,script,hook,twist,nhạc-nền,content-creator,video",
+      "badge_text": "TikTok Viral",
+      "badge_color": "#ff0050",
+      "is_featured": "1",
+      "sort_order": "1",
+      "status": "active"
+    }
+  ]
+}

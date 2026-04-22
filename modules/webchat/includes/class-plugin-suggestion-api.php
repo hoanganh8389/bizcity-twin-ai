@@ -978,7 +978,7 @@ class BizCity_Plugin_Suggestion_API {
         foreach ( $skills as $s ) {
             $fm    = $s['frontmatter'] ?? [];
             $title = $fm['title'] ?? basename( $s['path'] ?? '', '.md' );
-            $desc  = $fm['description'] ?? '';
+            $desc  = (string) ( $fm['description'] ?? '' );
             $name  = $fm['name'] ?? sanitize_title( $title );
             $triggers = $fm['triggers'] ?? [];
             $slash_cmds = $fm['slash_commands'] ?? [];
@@ -1040,11 +1040,13 @@ class BizCity_Plugin_Suggestion_API {
             }
 
             if ( $score > 0 ) {
-                $scored[] = [
+                // Phase 1.20: Use frontmatter category for DB skills (sql:// path)
+                $cat = ! empty( $fm['category'] ) ? $fm['category'] : dirname( $s['path'] ?? '' );
+                $item = [
                     'skill_key'   => $name,
                     'title'       => $title,
                     'description' => mb_substr( $desc, 0, 120 ),
-                    'category'    => dirname( $s['path'] ?? '' ),
+                    'category'    => $cat,
                     'path'        => $s['path'] ?? '',
                     'modes'       => $modes,
                     'tools'       => $tools,
@@ -1053,6 +1055,21 @@ class BizCity_Plugin_Suggestion_API {
                     'score'       => $score,
                     'reason'      => $reason,
                 ];
+
+                // Phase 1.20: Enrich Content Creator template skills with extra metadata
+                if ( $cat === 'content-creator' && class_exists( 'BZCC_Template_Manager' ) ) {
+                    $tpl_slug = preg_replace( '/^cc_/', '', $name );
+                    $tpl      = BZCC_Template_Manager::get_by_slug( $tpl_slug );
+                    if ( $tpl ) {
+                        $item['icon_emoji']  = $tpl->icon_emoji ?? '✨';
+                        $item['badge_text']  = $tpl->badge_text ?? '';
+                        $item['badge_color'] = $tpl->badge_color ?? '';
+                        $item['use_count']   = (int) ( $tpl->use_count ?? 0 );
+                        $item['template_id'] = (int) $tpl->id;
+                    }
+                }
+
+                $scored[] = $item;
             }
         }
 

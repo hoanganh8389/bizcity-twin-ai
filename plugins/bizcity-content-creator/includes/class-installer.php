@@ -107,6 +107,7 @@ CREATE TABLE {$t_tpl} (
   use_count       INT NOT NULL DEFAULT 0,
   is_featured     TINYINT(1) NOT NULL DEFAULT 0,
   sort_order      INT NOT NULL DEFAULT 0,
+  settings        LONGTEXT NOT NULL DEFAULT '{}',
   status          VARCHAR(20) NOT NULL DEFAULT 'active',
   author_id       BIGINT UNSIGNED NOT NULL DEFAULT 0,
   created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

@@ -252,16 +252,16 @@ body{background:#f9fafb;font-family:system-ui,-apple-system,sans-serif;color:#1a
 
 <!-- ═══════════ TAB 0: TEMPLATES ═══════════ -->
 <div class="bti-tab <?php echo $active_tab === 'templates' ? 'active' : ''; ?>" id="tab-templates">
-
+    <!--
     <div class="bti-hero">
         <div class="bti-hero-icon">📸</div>
-        <h2>Template Library</h2>
+        <h2>Studio ảnh sản phẩm</h2>
         <p>Chọn template có sẵn → Điền thông tin → AI tạo ảnh</p>
         <div class="bti-hero-stats">
             <div class="bti-hero-stat">📁 <?php echo count( $tpl_categories ); ?> chủ đề</div>
             <div class="bti-hero-stat">⭐ <?php echo count( $tpl_featured ); ?> nổi bật</div>
         </div>
-    </div>
+    </div>-->
 
     <!-- Category tabs -->
     <div class="bti-tpl-cats">
@@ -614,21 +614,80 @@ body{background:#f9fafb;font-family:system-ui,-apple-system,sans-serif;color:#1a
 <!-- ═══════════ TAB 5: EDITOR ═══════════ -->
 <div class="bti-tab <?php echo $active_tab === 'editor' ? 'active' : ''; ?>" id="tab-editor">
     <div id="bti-editor-wrapper">
+        <?php
+        $editor_nonce = wp_create_nonce( 'wp_rest' );
+        $editor_params = array(
+            'restUrl'   => rest_url( 'bztool-image/v1/' ),
+            'nonce'     => $editor_nonce,
+            'userId'    => $user_id,
+            'siteUrl'   => home_url(),
+            'logoUrl'   => 'https://media.bizcity.vn/uploads/sites/1258/2026/04/bizcanva.png',
+            'pluginUrl' => BZTIMG_URL . 'design-editor-build/',
+        );
+        $editor_base_url = BZTIMG_URL . 'design-editor-build/index.html';
+        ?>
+        <!-- Write nonce to localStorage BEFORE iframe loads — same origin shares localStorage -->
+        <script>
+        try{localStorage.setItem('bztimg_nonce','<?php echo esc_js( $editor_nonce ); ?>');}catch(e){}
+        // Build iframe URL with projectId from localStorage (persist across F5)
+        (function(){
+            var params = <?php echo wp_json_encode( $editor_params ); ?>;
+            var pid = localStorage.getItem('bztimg_projectId');
+            if (pid) params.projectId = pid;
+            var qs = Object.keys(params).map(function(k){ return encodeURIComponent(k)+'='+encodeURIComponent(params[k]); }).join('&');
+            var iframe = document.getElementById('bti-editor-frame');
+            if (iframe) iframe.src = <?php echo wp_json_encode( $editor_base_url ); ?> + '?' + qs;
+
+            // Listen for project save events from editor iframe
+            window.addEventListener('message', function(ev){
+                if (ev.data && ev.data.type === 'bztimg:saved' && ev.data.payload && ev.data.payload.id) {
+                    localStorage.setItem('bztimg_projectId', ev.data.payload.id);
+                }
+                if (ev.data && ev.data.type === 'bztimg:removed') {
+                    localStorage.removeItem('bztimg_projectId');
+                }
+            });
+        })();
+        </script>
         <iframe
             id="bti-editor-frame"
-            src="<?php echo esc_url( BZTIMG_URL . 'editor-build/index.html' ); ?>"
+            src="about:blank"
             style="width:100%;height:100%;border:0;display:block;"
             allow="clipboard-read; clipboard-write"
         ></iframe>
     </div>
+
+    <?php /* Phase 3.7 — AI Image Dialog (frontend editor) */
+    $dialog_partial = BZTIMG_DIR . 'views/partial-ai-image-dialog.php';
+    if ( file_exists( $dialog_partial ) ) {
+        include $dialog_partial;
+    }
+    ?>
+    <link rel="stylesheet" href="<?php echo esc_url( BZTIMG_URL . 'assets/ai-image-dialog.css' ); ?>?v=<?php echo esc_attr( BZTIMG_VERSION ); ?>">
+    <script>
+    var BZTIMG_AI = {
+        restUrl:    <?php echo wp_json_encode( rest_url( 'image-editor/v1' ) ); ?>,
+        toolUrl:    <?php echo wp_json_encode( rest_url( 'bztool-image/v1' ) ); ?>,
+        nonce:      <?php echo wp_json_encode( $editor_nonce ); ?>,
+        ajaxUrl:    <?php echo wp_json_encode( admin_url( 'admin-ajax.php' ) ); ?>,
+        ajaxNonce:  <?php echo wp_json_encode( wp_create_nonce( 'bztimg_nonce' ) ); ?>,
+        editorId:   'bti-editor-frame',
+        hasWpMedia: false
+    };
+    </script>
+    <script src="<?php echo esc_url( BZTIMG_URL . 'assets/ai-image-dialog.js' ); ?>?v=<?php echo esc_attr( BZTIMG_VERSION ); ?>"></script>
 </div>
 
 <!-- ═══════════ BOTTOM NAV ═══════════ -->
 <nav class="bti-nav">
     <button class="bti-nav-item <?php echo $active_tab === 'templates' ? 'active' : ''; ?>" data-tab="templates">
         <span class="bti-nav-icon">📸</span>
-        <span>Templates</span>
+        <span>Sản phẩm</span>
     </button>
+    <a class="bti-nav-item" href="/profile-studio/" style="text-decoration:none;">
+        <span class="bti-nav-icon">🎭</span>
+        <span>Chân dung</span>
+    </a>
     <button class="bti-nav-item <?php echo $active_tab === 'create' ? 'active' : ''; ?>" data-tab="create">
         <span class="bti-nav-icon">🎨</span>
         <span>Tạo ảnh</span>
@@ -693,6 +752,27 @@ if (document.getElementById('tab-editor') && document.getElementById('tab-editor
     document.querySelector('.bti-nav').style.display = 'none';
     document.querySelector('.bti-app').style.paddingBottom = '0';
 }
+
+/* ═══════════════════════════════════════════════
+   EDITOR IFRAME — send auth via postMessage
+   ═══════════════════════════════════════════════ */
+window.addEventListener('message', function(ev) {
+    if (ev.data && ev.data.type === 'bztimg:ready') {
+        var frame = document.getElementById('bti-editor-frame');
+        if (frame && frame.contentWindow) {
+            frame.contentWindow.postMessage({
+                type: 'bztimg:init',
+                payload: {
+                    restUrl: BTI.restUrl,
+                    nonce:   BTI.restNonce,
+                    userId:  <?php echo (int) $user_id; ?>,
+                    siteUrl: '<?php echo esc_js( home_url() ); ?>',
+                    projectId: null
+                }
+            }, '*');
+        }
+    }
+});
 
 /* ═══════════════════════════════════════════════
    PHOTO UPLOAD

@@ -3238,3 +3238,99 @@
 	.bzcc-gv-row { flex-direction: column; gap: 10px; }
 	.bzcc-gv-img-grid { grid-template-columns: repeat(3, 1fr); }
 }
+/* =================================================
+   Chat Prompt Bar - Continue generating
+   ================================================= */
+.bzcc-chatbar {
+margin: 20px 0 16px;
+border-radius: 16px;
+background: #fff;
+box-shadow: 0 2px 20px rgba(99, 102, 241, .08), 0 0 0 1px rgba(99, 102, 241, .12);
+overflow: hidden;
+transition: box-shadow .2s;
+}
+.bzcc-chatbar:focus-within {
+box-shadow: 0 4px 24px rgba(99, 102, 241, .15), 0 0 0 2px rgba(99, 102, 241, .25);
+}
+.bzcc-chatbar__inner { padding: 12px 16px; }
+.bzcc-chatbar__input-wrap { display: flex; align-items: flex-end; gap: 10px; }
+.bzcc-chatbar__input {
+flex: 1; border: none; outline: none; resize: none;
+font-size: .9rem; line-height: 1.5; color: #1e293b;
+background: transparent; padding: 6px 0;
+font-family: inherit; min-height: 24px; max-height: 120px;
+}
+.bzcc-chatbar__input::placeholder { color: #94a3b8; }
+.bzcc-chatbar__actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.bzcc-chatbar__send {
+display: inline-flex; align-items: center; gap: 6px;
+padding: 8px 16px; border-radius: 10px;
+background: linear-gradient(135deg, #6366f1, #8b5cf6);
+color: #fff; border: none; cursor: pointer;
+font-size: .82rem; font-weight: 600;
+transition: all .2s; white-space: nowrap;
+}
+.bzcc-chatbar__send:disabled { background: #e2e8f0; color: #94a3b8; cursor: not-allowed; }
+.bzcc-chatbar__send:not(:disabled):hover {
+background: linear-gradient(135deg, #4f46e5, #7c3aed);
+transform: translateY(-1px);
+box-shadow: 0 4px 12px rgba(99, 102, 241, .3);
+}
+.bzcc-chatbar__send svg { width: 16px; height: 16px; }
+.bzcc-chatbar__toolbar {
+display: flex; align-items: center; gap: 16px;
+margin-top: 8px; padding-top: 8px;
+border-top: 1px solid #f1f5f9;
+}
+.bzcc-chatbar__option {
+display: inline-flex; align-items: center; gap: 4px;
+font-size: .75rem; color: #64748b;
+}
+.bzcc-chatbar__option svg { flex-shrink: 0; color: #94a3b8; }
+.bzcc-chatbar__select {
+border: 1px solid #e2e8f0; border-radius: 6px;
+padding: 2px 6px; font-size: .75rem; color: #475569;
+background: #f8fafc; outline: none; cursor: pointer;
+}
+.bzcc-chatbar__select:focus { border-color: #818cf8; }
+@media (max-width: 640px) {
+.bzcc-chatbar__inner { padding: 10px 12px; }
+.bzcc-chatbar__toolbar { flex-wrap: wrap; gap: 10px; }
+.bzcc-chatbar__send span { display: none; }
+.bzcc-chatbar__send { padding: 8px 10px; }
+}
+
+/* ── Result Header Info (template title + form summary) ── */
+.bzcc-result-header--info {
+  text-align: center; padding: 24px 20px 16px;
+}
+.bzcc-result-header--info .bzcc-result-header__title {
+  font-size: 1.5rem; font-weight: 700; color: #1e293b;
+  margin: 0 0 6px; line-height: 1.3;
+}
+.bzcc-result-header--info .bzcc-result-header__sub {
+  font-size: .9rem; color: #64748b; margin: 0 0 16px;
+}
+
+/* Form data summary pills */
+.bzcc-result-summary {
+  display: flex; flex-wrap: wrap; gap: 8px; justify-content: center;
+  margin-top: 12px; padding: 12px 16px;
+  background: #f8fafc; border-radius: 12px; border: 1px solid #e2e8f0;
+}
+.bzcc-result-summary__item {
+  display: inline-flex; align-items: baseline; gap: 4px;
+  font-size: .8rem; padding: 4px 10px;
+  background: #fff; border-radius: 8px; border: 1px solid #e2e8f0;
+  max-width: 320px; overflow: hidden; text-overflow: ellipsis;
+}
+.bzcc-result-summary__label {
+  color: #6366f1; font-weight: 600; white-space: nowrap;
+}
+.bzcc-result-summary__label::after { content: ':'; }
+.bzcc-result-summary__value {
+  color: #334155; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* Utility: hide from PDF/Word/PPTX export */
+.bzcc-no-export { /* marker class for JS export exclusion */ }

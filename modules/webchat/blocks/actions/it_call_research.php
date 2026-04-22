@@ -191,25 +191,15 @@ class WaicAction_it_call_research extends WaicAction {
 			return $this->make_error_result( 'Search client not available — bizcity_search() not loaded' );
 		}
 
-		// bizcity-llm (client): bizcity_search( $query, int $max, array $options )
-		// bizcity-openrouter (Hub): bizcity_search( $query, array $options )
-		// Detect signature via Reflection and call accordingly.
-		$ref = new \ReflectionFunction( 'bizcity_search' );
-		$p2  = $ref->getParameters()[1] ?? null;
-		if ( $p2 && $p2->getType() && $p2->getType()->getName() === 'int' ) {
-			// bizcity-llm 3-param signature
-			$search_results = bizcity_search( $query, $max, [ 'language' => $language ] );
+		// Unified bizcity_search() accepts both (query, int) and (query, array) — always returns { success, results, error }
+		$raw = bizcity_search( $query, $max, [ 'language' => $language ] );
+
+		if ( is_wp_error( $raw ) ) {
+			$search_results = $raw;
+		} elseif ( ! empty( $raw['success'] ) ) {
+			$search_results = $raw['results'] ?? [];
 		} else {
-			// bizcity-openrouter 2-param signature — returns { success, results, ... }
-			$raw = bizcity_search( $query, [
-				'max_results' => $max,
-				'language'    => $language,
-			] );
-			if ( ! empty( $raw['success'] ) ) {
-				$search_results = $raw['results'] ?? [];
-			} else {
-				$search_results = new \WP_Error( 'tavily_error', $raw['error'] ?? 'Unknown search error' );
-			}
+			$search_results = new \WP_Error( 'tavily_error', $raw['error'] ?? 'Unknown search error' );
 		}
 
 		if ( is_wp_error( $search_results ) ) {

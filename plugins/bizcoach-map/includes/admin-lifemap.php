@@ -18,8 +18,9 @@ if (!defined('ABSPATH')) exit;
  * ADMIN MENU REGISTRATION
  * =====================================================================*/
 add_action('admin_menu', function () {
+  // Phase 7.1: ẩn submenu khỏi navigation chính, nhưng vẫn giữ page callable trực tiếp.
   add_submenu_page(
-    'bccm_root',
+    null,
     'Bước 5: Life Map – Kế hoạch đồng hành',
     'Bước 5: Life Map Plan',
     'manage_options',
@@ -28,7 +29,7 @@ add_action('admin_menu', function () {
     35
   );
   add_submenu_page(
-    'bccm_root',
+    null,
     'Bước 6: Cron & Reminders',
     'Bước 6: Nhắc nhở & AI',
     'manage_options',

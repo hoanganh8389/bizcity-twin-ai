@@ -90,6 +90,21 @@ function bztimg_install_tables() {
         KEY idx_sort (sort_order)
     ) $charset;";
 
+    /* ── Projects (design editor saves) ── */
+    $table_proj = $wpdb->prefix . 'bztimg_projects';
+    $sql .= "\nCREATE TABLE {$table_proj} (
+        id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        user_id     BIGINT UNSIGNED NOT NULL,
+        title       VARCHAR(200)    NOT NULL DEFAULT '',
+        data        LONGTEXT,
+        status      VARCHAR(20)     NOT NULL DEFAULT 'active',
+        created_at  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at  DATETIME        NULL,
+        PRIMARY KEY (id),
+        KEY idx_user (user_id),
+        KEY idx_status (status)
+    ) $charset;";
+
     /* ── Compositions (multi-image collage) ── */
     $table_comp = $wpdb->prefix . 'bztimg_compositions';
     $sql .= "\nCREATE TABLE {$table_comp} (
@@ -112,6 +127,9 @@ function bztimg_install_tables() {
 
     require_once ABSPATH . 'wp-admin/includes/upgrade.php';
     dbDelta( $sql );
+
+    /* ── Editor Asset tables (shapes, frames, fonts, text-presets) ── */
+    bztimg_install_editor_asset_tables();
 
     /* ── Seed default categories (only if empty) ── */
     bztimg_seed_categories();
@@ -146,6 +164,11 @@ function bztimg_seed_categories() {
         array( 'social-media',     'Social Media',           '📱', 9 ),
         array( 'portrait',         'Chân Dung',              '🧑', 10 ),
         array( 'branding',         'Thương Hiệu',            '🏷️', 11 ),
+        /* Phase 3.7 — editor AI tools */
+        array( 'remove-bg',        'Xóa Nền Ảnh',            '✂️', 12 ),
+        array( 'face-swap',        'Thay Khuôn Mặt',         '🎭', 13 ),
+        array( 'style-transfer',   'Chuyển Phong Cách',      '🎨', 14 ),
+        array( 'upscale',          'Phóng To / Nét Hơn',     '🔍', 15 ),
     );
 
     foreach ( $categories as $cat ) {
@@ -162,4 +185,102 @@ function bztimg_seed_categories() {
             ), array( '%s', '%s', '%s', '%d', '%s' ) );
         }
     }
+}
+
+/**
+ * Create DB tables for design-editor assets: shapes, frames, fonts, text_presets, templates.
+ * Marketplace-ready: attachment_id for WP Media Library thumbnails.
+ *
+ * NOTE on width/height columns:
+ *   These store THUMBNAIL dimensions (typically 256×256), matching the mock-api format.
+ *   Actual canvas dimensions are embedded inside data_json (RootLayer → boxSize).
+ *   This is by design — canva-editor uses width/height only for thumbnail display.
+ */
+function bztimg_install_editor_asset_tables() {
+    global $wpdb;
+    $charset = $wpdb->get_charset_collate();
+
+    /* ── Shapes ── */
+    $sql = "CREATE TABLE {$wpdb->prefix}bztimg_editor_shapes (
+        id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        clip_path     TEXT            NOT NULL,
+        description   VARCHAR(500)    NOT NULL DEFAULT '',
+        background    VARCHAR(50)     NOT NULL DEFAULT 'rgb(0,0,0)',
+        width         INT UNSIGNED    NOT NULL DEFAULT 256,
+        height        INT UNSIGNED    NOT NULL DEFAULT 256,
+        img_url       VARCHAR(500)    NOT NULL DEFAULT '',
+        attachment_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+        content_hash  VARCHAR(32)     NOT NULL DEFAULT '',
+        sort_order    INT             NOT NULL DEFAULT 0,
+        created_at    DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY uk_hash (content_hash),
+        FULLTEXT KEY ft_desc (description)
+    ) $charset;";
+
+    /* ── Frames ── */
+    $sql .= "\nCREATE TABLE {$wpdb->prefix}bztimg_editor_frames (
+        id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        clip_path     TEXT            NOT NULL,
+        description   VARCHAR(500)    NOT NULL DEFAULT '',
+        width         INT UNSIGNED    NOT NULL DEFAULT 256,
+        height        INT UNSIGNED    NOT NULL DEFAULT 256,
+        img_url       VARCHAR(500)    NOT NULL DEFAULT '',
+        attachment_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+        content_hash  VARCHAR(32)     NOT NULL DEFAULT '',
+        sort_order    INT             NOT NULL DEFAULT 0,
+        created_at    DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY uk_hash (content_hash),
+        FULLTEXT KEY ft_desc (description)
+    ) $charset;";
+
+    /* ── Fonts ── */
+    $sql .= "\nCREATE TABLE {$wpdb->prefix}bztimg_editor_fonts (
+        id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        family      VARCHAR(200)    NOT NULL,
+        styles_json LONGTEXT        NOT NULL,
+        sort_order  INT             NOT NULL DEFAULT 0,
+        created_at  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY uk_family (family)
+    ) $charset;";
+
+    /* ── Text presets ── */
+    $sql .= "\nCREATE TABLE {$wpdb->prefix}bztimg_editor_text_presets (
+        id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        description   VARCHAR(500)    NOT NULL DEFAULT '',
+        data_json     LONGTEXT        NOT NULL,
+        width         INT UNSIGNED    NOT NULL DEFAULT 256,
+        height        INT UNSIGNED    NOT NULL DEFAULT 256,
+        img_url       VARCHAR(500)    NOT NULL DEFAULT '',
+        attachment_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+        content_hash  VARCHAR(32)     NOT NULL DEFAULT '',
+        sort_order    INT             NOT NULL DEFAULT 0,
+        created_at    DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY uk_hash (content_hash),
+        FULLTEXT KEY ft_desc (description)
+    ) $charset;";
+
+    /* ── Editor Templates (canva-editor design templates — separate from AI prompt templates) ── */
+    $sql .= "\nCREATE TABLE {$wpdb->prefix}bztimg_editor_templates (
+        id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        description   VARCHAR(500)    NOT NULL DEFAULT '',
+        data_json     LONGTEXT        NOT NULL,
+        pages         INT UNSIGNED    NOT NULL DEFAULT 1,
+        width         INT UNSIGNED    NOT NULL DEFAULT 256,
+        height        INT UNSIGNED    NOT NULL DEFAULT 256,
+        img_url       VARCHAR(500)    NOT NULL DEFAULT '',
+        attachment_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+        content_hash  VARCHAR(32)     NOT NULL DEFAULT '',
+        sort_order    INT             NOT NULL DEFAULT 0,
+        created_at    DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY uk_hash (content_hash),
+        FULLTEXT KEY ft_desc (description)
+    ) $charset;";
+
+    require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+    dbDelta( $sql );
 }

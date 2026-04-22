@@ -1,0 +1,287 @@
+[
+    {
+        "name": "",
+        "notes": "",
+        "layers": {
+            "ROOT": {
+                "type": {
+                    "resolvedName": "RootLayer"
+                },
+                "props": {
+                    "boxSize": {
+                        "width": 1640,
+                        "height": 924
+                    },
+                    "position": {
+                        "x": 0,
+                        "y": 0
+                    },
+                    "rotate": 0,
+                    "color": "rgb(255, 255, 255)",
+                    "image": {
+                        "url": "http://localhost:4000/images/photos/sales/001.jpg",
+                        "thumb": "http://localhost:4000/images/photos/sales/001.jpg",
+                        "boxSize": {
+                            "width": 1640,
+                            "height": 1094.1875
+                        },
+                        "position": {
+                            "x": 0,
+                            "y": -85.09375
+                        },
+                        "rotate": 0
+                    }
+                },
+                "locked": false,
+                "child": [
+                    "ca_PAF88Y4",
+                    "ca_qfbQvpx",
+                    "ca_0vvIdCB",
+                    "ca_y4PdrSq"
+                ],
+                "parent": null
+            },
+            "ca_PAF88Y4": {
+                "type": {
+                    "resolvedName": "TextLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 106.00275355667739,
+                        "y": 96.57319871500692
+                    },
+                    "boxSize": {
+                        "width": 618.5362442361065,
+                        "height": 97.41945846718679,
+                        "x": 145.01147315282242,
+                        "y": 147.05507113354753
+                    },
+                    "scale": 1.5463406105902664,
+                    "rotate": 0,
+                    "text": "<p style=\"text-align: center;font-family: 'Canva Sans Regular';font-size: 45px;color: rgb(0, 0, 0);line-height: 1.4;letter-spacing: normal;\"><strong><span style=\"color: rgb(0, 0, 0);\">END OF SESSION</span></strong></p>",
+                    "fonts": [
+                        {
+                            "family": "Canva Sans",
+                            "name": "Canva Sans Regular",
+                            "url": "http://fonts.gstatic.com/s/alexandria/v3/UMBCrPdDqW66y0Y2usFeQCH18mulUxBvI9r7TqbCHJ8BRq0b.woff2",
+                            "style": "regular",
+                            "styles": []
+                        }
+                    ],
+                    "colors": [
+                        "rgb(0, 0, 0)"
+                    ],
+                    "fontSizes": [
+                        45
+                    ],
+                    "effect": null,
+                    "transparency": 1
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ROOT"
+            },
+            "ca_qfbQvpx": {
+                "type": {
+                    "resolvedName": "TextLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 91.56849053538191,
+                        "y": 187.44575837634736
+                    },
+                    "boxSize": {
+                        "width": 647.4047702786975,
+                        "height": 239.57636186229425,
+                        "x": 95.89660561863201,
+                        "y": 231.9564020192749
+                    },
+                    "scale": 3.8027993946395906,
+                    "rotate": 0,
+                    "text": "<p style=\"text-align: center;font-family: 'ADLaM Display Regular';font-size: 45px;color: rgb(255, 49, 49);line-height: 1.4;letter-spacing: normal;\"><strong><span style=\"color: rgb(255, 49, 49);\">SALE</span></strong></p>",
+                    "fonts": [
+                        {
+                            "family": "ADLaM Display",
+                            "name": "ADLaM Display Regular",
+                            "url": "http://fonts.gstatic.com/s/adlamdisplay/v1/KFOhCnGXkPOLlhx6jD8_b1ZECsTYkYBPY3o.woff2",
+                            "style": "regular",
+                            "styles": []
+                        }
+                    ],
+                    "colors": [
+                        "rgb(255, 49, 49)"
+                    ],
+                    "fontSizes": [
+                        45
+                    ],
+                    "effect": null,
+                    "transparency": 1
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ROOT"
+            },
+            "ca_0vvIdCB": {
+                "type": {
+                    "resolvedName": "GroupLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 92.3377399329413,
+                        "y": 427.0221202386416
+                    },
+                    "boxSize": {
+                        "width": 646.6355208811381,
+                        "height": 146.40605782469027
+                    },
+                    "scale": 1,
+                    "rotate": 0,
+                    "transparency": 1
+                },
+                "locked": false,
+                "child": [
+                    "ca_eqemCeD",
+                    "ca_yFzojrG"
+                ],
+                "parent": "ROOT"
+            },
+            "ca_eqemCeD": {
+                "type": {
+                    "resolvedName": "ShapeLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 0,
+                        "y": 0
+                    },
+                    "boxSize": {
+                        "width": 646.6355208811381,
+                        "height": 146.40605782469024,
+                        "x": 91.5684905353819,
+                        "y": 427.0221202386416
+                    },
+                    "rotate": 0,
+                    "clipPath": "M 256 0 L 0 0 L 32 128 L 0 256 L 256 256 L 224 128 L 256 0 Z",
+                    "scale": 0.6,
+                    "color": "rgb(0, 0, 0)",
+                    "shapeSize": {
+                        "width": "256",
+                        "height": "256"
+                    },
+                    "transparency": 1,
+                    "gradientBackground": null
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ca_0vvIdCB"
+            },
+            "ca_yFzojrG": {
+                "type": {
+                    "resolvedName": "TextLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 19.160912618918047,
+                        "y": 8.430885727397879
+                    },
+                    "boxSize": {
+                        "width": 602.8095946384839,
+                        "height": 129.54428636989445,
+                        "x": 120.43701657797286,
+                        "y": 464.53556677374945
+                    },
+                    "scale": 2.0562585138078484,
+                    "rotate": 0,
+                    "text": "<p style=\"text-align: center;font-family: 'Canva Sans Regular';font-size: 45px;color: rgb(255, 255, 255);line-height: 1.4;letter-spacing: normal;\"><strong><span style=\"color: rgb(255, 255, 255);\">50% OFF</span></strong></p>",
+                    "fonts": [
+                        {
+                            "family": "Canva Sans",
+                            "name": "Canva Sans Regular",
+                            "url": "http://fonts.gstatic.com/s/alexandria/v3/UMBCrPdDqW66y0Y2usFeQCH18mulUxBvI9r7TqbCHJ8BRq0b.woff2",
+                            "style": "regular",
+                            "styles": [
+                                {
+                                    "family": "Canva Sans",
+                                    "name": "Canva Sans Bold 300",
+                                    "url": "http://fonts.gstatic.com/s/alexandria/v3/UMBCrPdDqW66y0Y2usFeQCH18mulUxBvI9qlTqbCHJ8BRq0b.woff2",
+                                    "style": "300"
+                                },
+                                {
+                                    "family": "Canva Sans",
+                                    "name": "Canva Sans Bold 500",
+                                    "url": "http://fonts.gstatic.com/s/alexandria/v3/UMBCrPdDqW66y0Y2usFeQCH18mulUxBvI9rJTqbCHJ8BRq0b.woff2",
+                                    "style": "500"
+                                }
+                            ]
+                        }
+                    ],
+                    "colors": [
+                        "rgb(0, 0, 0)",
+                        "rgb(255, 255, 255)"
+                    ],
+                    "fontSizes": [
+                        45
+                    ],
+                    "effect": null,
+                    "transparency": 1
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ca_0vvIdCB"
+            },
+            "ca_y4PdrSq": {
+                "type": {
+                    "resolvedName": "TextLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 96.13438613004637,
+                        "y": 706.9449288664525
+                    },
+                    "boxSize": {
+                        "width": 639.0422284869279,
+                        "height": 100.64915098669115,
+                        "x": -17.834451510449725,
+                        "y": 672.5254703992657
+                    },
+                    "scale": 1.5976055712173198,
+                    "rotate": 0,
+                    "text": "<p style=\"text-align: center;font-family: 'Canva Sans Regular';font-size: 45px;color: rgb(0, 0, 0);line-height: 1.4;letter-spacing: normal;\"><strong><span style=\"color: rgb(0, 0, 0);\">SHOP NOW!</span></strong></p>",
+                    "fonts": [
+                        {
+                            "family": "Canva Sans",
+                            "name": "Canva Sans Regular",
+                            "url": "http://fonts.gstatic.com/s/alexandria/v3/UMBCrPdDqW66y0Y2usFeQCH18mulUxBvI9r7TqbCHJ8BRq0b.woff2",
+                            "style": "regular",
+                            "styles": [
+                                {
+                                    "family": "Canva Sans",
+                                    "name": "Canva Sans Bold 300",
+                                    "url": "http://fonts.gstatic.com/s/alexandria/v3/UMBCrPdDqW66y0Y2usFeQCH18mulUxBvI9qlTqbCHJ8BRq0b.woff2",
+                                    "style": "300"
+                                },
+                                {
+                                    "family": "Canva Sans",
+                                    "name": "Canva Sans Bold 500",
+                                    "url": "http://fonts.gstatic.com/s/alexandria/v3/UMBCrPdDqW66y0Y2usFeQCH18mulUxBvI9rJTqbCHJ8BRq0b.woff2",
+                                    "style": "500"
+                                }
+                            ]
+                        }
+                    ],
+                    "colors": [
+                        "rgb(0, 0, 0)"
+                    ],
+                    "fontSizes": [
+                        45
+                    ],
+                    "effect": null,
+                    "transparency": 1
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ROOT"
+            }
+        }
+    }
+]

@@ -135,6 +135,42 @@ class BZCC_Rest_API {
 			'callback'            => [ __CLASS__, 'handle_video_poll' ],
 			'permission_callback' => [ __CLASS__, 'check_auth' ],
 		] );
+
+		/* ── Continue: add more sections via chat prompt ── */
+		register_rest_route( self::NAMESPACE, '/file/(?P<id>\d+)/continue', [
+			'methods'             => 'POST',
+			'callback'            => [ __CLASS__, 'continue_generate' ],
+			'permission_callback' => [ __CLASS__, 'check_auth' ],
+			'args'                => [
+				'id'     => [ 'type' => 'integer', 'required' => true ],
+				'prompt' => [ 'type' => 'string',  'required' => true ],
+				'tone'   => [ 'type' => 'string',  'default'  => '' ],
+				'length' => [ 'type' => 'string',  'default'  => '' ],
+			],
+		] );
+
+		/* ── Smart Input: Vision preview (Phase 3.2 Sprint 1) ── */
+		register_rest_route( self::NAMESPACE, '/smart-input/vision', [
+			'methods'             => 'POST',
+			'callback'            => [ __CLASS__, 'smart_input_vision' ],
+			'permission_callback' => [ __CLASS__, 'check_auth' ],
+			'args'                => [
+				'attachment_id' => [ 'type' => 'integer', 'required' => true ],
+				'vision_prompt' => [ 'type' => 'string',  'default'  => '' ],
+				'max_tokens'    => [ 'type' => 'integer', 'default'  => 1500 ],
+			],
+		] );
+
+		/* ── Smart Input: File preview (Phase 3.2 Sprint 2) ── */
+		register_rest_route( self::NAMESPACE, '/smart-input/file', [
+			'methods'             => 'POST',
+			'callback'            => [ __CLASS__, 'smart_input_file' ],
+			'permission_callback' => [ __CLASS__, 'check_auth' ],
+			'args'                => [
+				'attachment_id' => [ 'type' => 'integer', 'required' => true ],
+				'max_rows'      => [ 'type' => 'integer', 'default'  => 100 ],
+			],
+		] );
 	}
 
 	/* ── Auth ── */
@@ -248,6 +284,7 @@ class BZCC_Rest_API {
 		$system_prompt  = $template->system_prompt ?: '';
 		$outline_prompt = $template->outline_prompt ?: '';
 		$chunk_prompt   = $template->chunk_prompt ?: '';
+		$original_system = $system_prompt; // Keep original for placeholder detection
 
 		foreach ( $form_data as $key => $val ) {
 			$placeholder = '{{' . $key . '}}';
@@ -257,40 +294,149 @@ class BZCC_Rest_API {
 			$chunk_prompt   = str_replace( $placeholder, $str_val, $chunk_prompt );
 		}
 
+		// ── Step 1.5: Smart Input Pipeline (Phase 3.2) ──
+		try {
+			$smart_result = BZCC_Smart_Input_Pipeline::run( $form_data, $template, get_current_user_id() );
+		} catch ( \Throwable $e ) {
+			error_log( '[BZCC] Smart Input Pipeline failed: ' . $e->getMessage() );
+			$smart_result = [ 'has_content' => false, 'smart_context' => '', 'smart_input_result' => [] ];
+		}
+
+		if ( $smart_result['has_content'] ) {
+			list( $system_prompt, $outline_prompt, $chunk_prompt ) = BZCC_Smart_Input_Pipeline::inject(
+				$system_prompt,
+				$outline_prompt,
+				$chunk_prompt,
+				$smart_result['smart_context'],
+				$original_system
+			);
+
+			// Store smart input trace in file record for debugging
+			BZCC_File_Manager::update( $file_id, [
+				'form_data' => wp_json_encode( array_merge( $form_data, [
+					'__smart_input' => $smart_result['smart_input_result'],
+				] ) ),
+			] );
+
+			error_log( '[BZCC] Smart Input injected: ' . mb_strlen( $smart_result['smart_context'] ) . ' chars' );
+		}
+
 		error_log( '[BZCC] generate_file #' . $file_id . ' | template=' . $template->slug . ' | form_keys=' . implode( ',', array_keys( $form_data ) ) );
 
-		// ── Step 2: Generate OUTLINE via LLM (dedicated JSON-forcing prompt) ──
-		$outline_system = implode( "\n", [
-			'Bạn là trợ lý lập kế hoạch nội dung. Nhiệm vụ DUY NHẤT: tạo dàn ý (outline) dưới dạng JSON.',
-			'',
-			'QUY TẮC BẮT BUỘC:',
-			'- CHỈ trả về JSON hợp lệ, KHÔNG viết nội dung chi tiết, KHÔNG giải thích',
-			'- Response bắt đầu bằng { và kết thúc bằng }',
-			'- Mỗi section là 1 bài viết/nội dung riêng cho 1 nền tảng cụ thể',
-			'- Tạo 5-8 sections đa dạng nền tảng và giai đoạn phễu',
-			'',
-			'FORMAT JSON BẮT BUỘC:',
-			'{',
-			'  "title": "Tên chiến dịch",',
-			'  "sections": [',
-			'    {',
-			'      "label": "Tiêu đề bài viết",',
-			'      "emoji": "📘",',
-			'      "description": "Mô tả ngắn gọn nội dung cần viết (1-2 câu)",',
-			'      "platform": "facebook",',
-			'      "stage": "awareness",',
-			'      "content_type": "post",',
-			'      "word_count": 200',
-			'    }',
-			'  ]',
-			'}',
-			'',
-			'Các platform hợp lệ: facebook, tiktok, zalo, instagram, youtube, email, website',
-			'Các stage hợp lệ: awareness, interest, trust, action, loyalty',
-			'Các content_type: post, story, script, reel, message, email, article, carousel',
-		] );
+		// ── Step 2: Detect template mode + build context-aware outline prompt ──
+		$output_platforms = json_decode( $template->output_platforms ?? '[]', true ) ?: [];
 
-		// Pass template context + user input as the user message
+		// Extract user-selected platforms from form data (multi-select field)
+		$selected_platforms = [];
+		foreach ( [ 'platforms', 'platform', 'channels' ] as $_pk ) {
+			if ( isset( $form_data[ $_pk ] ) ) {
+				$_v = $form_data[ $_pk ];
+				$selected_platforms = is_array( $_v ) ? $_v : array_filter( array_map( 'trim', explode( ',', (string) $_v ) ) );
+				break;
+			}
+		}
+
+		// Resolve active platforms: form selection → template output_platforms → fallback
+		$active_platforms = array_filter( ! empty( $selected_platforms ) ? $selected_platforms : $output_platforms );
+
+		// Determine document mode: single general platform, or outline_prompt explicitly targets steps/sections
+		$is_document_mode = (
+			( count( $output_platforms ) === 1 && ( $output_platforms[0] ?? '' ) === 'general' )
+			|| ( count( $active_platforms ) === 1 && reset( $active_platforms ) === 'general' )
+			|| ( ! empty( $outline_prompt ) && preg_match( '/\bgeneral\b|step_?\d|\bphần\b|\bbước\b|quy trình|tài liệu|lộ trình/ui', $outline_prompt ) )
+		);
+
+		error_log( '[BZCC] generate_file mode=' . ( $is_document_mode ? 'document' : 'campaign' ) . ' | active_platforms=' . implode( ',', $active_platforms ) );
+
+		// ── Step 3: Build outline_system based on detected mode ──
+		if ( $is_document_mode ) {
+			$outline_system = implode( "\n", [
+				'Bạn là trợ lý lập kế hoạch nội dung. Nhiệm vụ DUY NHẤT: tạo dàn ý (outline) dưới dạng JSON.',
+				'',
+				'CHẾ ĐỘ: TÀI LIỆU / KẾ HOẠCH / QUY TRÌNH',
+				'- Mỗi section là 1 PHẦN LOGIC trong tài liệu/kế hoạch, có thứ tự rõ ràng.',
+				'- Đặt "platform": "general" cho TẤT CẢ section.',
+				'- Tên section (label) phải mô tả CHÍNH XÁC nội dung sẽ được viết trong phần đó.',
+				'- Tạo 5-10 sections phù hợp với loại tài liệu, có logic tuần tự.',
+				'',
+				'QUY TẮC BẮT BUỘC:',
+				'- CHỈ trả về JSON hợp lệ, KHÔNG viết nội dung chi tiết, KHÔNG giải thích.',
+				'- Response bắt đầu bằng { và kết thúc bằng }',
+				'',
+				'FORMAT JSON BẮT BUỘC:',
+				'{',
+				'  "title": "Tên tài liệu/kế hoạch",',
+				'  "sections": [',
+				'    {',
+				'      "label": "Tên phần/bước cụ thể",',
+				'      "emoji": "📋",',
+				'      "description": "Mô tả ngắn nội dung của phần này (1-2 câu)",',
+				'      "platform": "general",',
+				'      "stage": "step_1",',
+				'      "content_type": "section",',
+				'      "word_count": 300',
+				'    }',
+				'  ]',
+				'}',
+				'',
+				'Các stage hợp lệ: step_1, step_2, step_3, ... (đánh số theo thứ tự)',
+				'Các content_type hợp lệ: section, step, analysis, guide, checklist, summary, flowchart',
+			] );
+		} else {
+			// Campaign / multi-platform mode
+			$platforms_list = ! empty( $active_platforms )
+				? implode( ', ', array_values( $active_platforms ) )
+				: 'facebook, tiktok, instagram, email, zalo';
+			$outline_system = implode( "\n", [
+				'Bạn là trợ lý lập kế hoạch nội dung. Nhiệm vụ DUY NHẤT: tạo dàn ý (outline) dưới dạng JSON.',
+				'',
+				'CHẾ ĐỘ: CHIẾN DỊCH MARKETING ĐA KÊNH',
+				'- Mỗi section là 1 bài viết/kịch bản riêng cho 1 kênh truyền thông cụ thể.',
+				'- CHỈ tạo section cho các kênh sau (KHÔNG thêm kênh khác): ' . $platforms_list,
+				'- Với mỗi kênh, tạo 1-3 bài theo giai đoạn phễu phù hợp.',
+				'- Tổng số sections: 5-10 tùy số kênh.',
+				'',
+				'QUY TẮC BẮT BUỘC:',
+				'- CHỈ trả về JSON hợp lệ, KHÔNG viết nội dung chi tiết, KHÔNG giải thích.',
+				'- Response bắt đầu bằng { và kết thúc bằng }',
+				'',
+				'FORMAT JSON BẮT BUỘC:',
+				'{',
+				'  "title": "Tên chiến dịch",',
+				'  "sections": [',
+				'    {',
+				'      "label": "Tiêu đề bài viết/kịch bản",',
+				'      "emoji": "📘",',
+				'      "description": "Mô tả ngắn nội dung cần viết (1-2 câu)",',
+				'      "platform": "facebook",',
+				'      "stage": "awareness",',
+				'      "content_type": "post",',
+				'      "word_count": 200',
+				'    }',
+				'  ]',
+				'}',
+				'',
+				'Các platform hợp lệ: ' . $platforms_list . ', general',
+				'Các stage hợp lệ: awareness, interest, trust, action, loyalty',
+				'Các content_type hợp lệ: post, story, script, reel, message, email, article, carousel',
+			] );
+		}
+
+		// ── Smart fallback when outline_prompt is empty ──
+		if ( empty( trim( $outline_prompt ) ) ) {
+			if ( $is_document_mode ) {
+				$outline_prompt = 'Phân tích yêu cầu trên và tạo dàn ý phù hợp. '
+					. 'Đảm bảo các section có thứ tự logic, mỗi section bao quát 1 khía cạnh quan trọng. '
+					. 'Tên section phải mô tả chính xác nội dung sẽ được viết trong phần đó, không chung chung.';
+			} else {
+				$_ph = ! empty( $active_platforms ) ? 'Chỉ tạo section cho các kênh: ' . implode( ', ', array_values( $active_platforms ) ) . '. ' : '';
+				$outline_prompt = $_ph
+					. 'Dựa trên thông tin chiến dịch, tạo dàn ý nội dung thực tế và cụ thể. '
+					. 'Mỗi section phải có tiêu đề rõ ràng mô tả bài viết/kịch bản cụ thể sẽ được tạo ra.';
+			}
+		}
+
+		// Build user message for outline LLM call
 		$outline_user = "BỐI CẢNH:\n" . $system_prompt . "\n\nYÊU CẦU OUTLINE:\n" . $outline_prompt
 			. "\n\nNHẮC LẠI: CHỈ trả JSON, KHÔNG viết nội dung. Bắt đầu bằng { kết thúc bằng }";
 
@@ -320,14 +466,18 @@ class BZCC_Rest_API {
 
 		if ( empty( $outline_sections ) ) {
 			error_log( '[BZCC] WARNING: outline parse returned 0 sections, full response: ' . mb_substr( $outline_response, 0, 1000 ) );
-			// Fallback: single section
+			// Fallback: mode-aware single section
+			$_fb_platform = $is_document_mode ? 'general' : ( reset( $active_platforms ) ?: 'general' );
+			$_fb_stage    = $is_document_mode ? 'step_1'  : 'awareness';
+			$_fb_type     = $is_document_mode ? 'section' : 'post';
 			$outline_sections = [ [
-				'label'       => $template->title,
-				'emoji'       => '📝',
-				'description' => 'Tạo nội dung hoàn chỉnh',
-				'platform'    => 'facebook',
-				'stage'       => 'awareness',
-				'word_count'  => 400,
+				'label'        => $template->title,
+				'emoji'        => '📝',
+				'description'  => 'Tạo nội dung hoàn chỉnh',
+				'platform'     => $_fb_platform,
+				'stage'        => $_fb_stage,
+				'content_type' => $_fb_type,
+				'word_count'   => 400,
 			] ];
 		}
 
@@ -390,6 +540,155 @@ class BZCC_Rest_API {
 	}
 
 	/* ═══════════════════════════════════════
+	 *  POST /file/{id}/continue
+	 *
+	 *  Chat-style continuation: takes a user prompt, generates new outline
+	 *  sections, appends chunk_meta records, returns them for SSE streaming.
+	 * ═══════════════════════════════════════ */
+	public static function continue_generate( WP_REST_Request $request ): WP_REST_Response {
+		$file_id = (int) $request->get_param( 'id' );
+		$prompt  = sanitize_textarea_field( $request->get_param( 'prompt' ) );
+		$tone    = sanitize_text_field( $request->get_param( 'tone' ) ?: '' );
+		$length  = sanitize_text_field( $request->get_param( 'length' ) ?: '' );
+
+		$file = BZCC_File_Manager::get_by_id( $file_id );
+		if ( ! $file || (int) $file->user_id !== get_current_user_id() ) {
+			return new WP_REST_Response( [ 'error' => 'Forbidden' ], 403 );
+		}
+
+		$template  = BZCC_Template_Manager::get_by_id( (int) $file->template_id );
+		$form_data = json_decode( $file->form_data, true ) ?: [];
+		$existing_outline = json_decode( $file->outline, true ) ?: [];
+		$existing_count   = count( $existing_outline );
+
+		if ( ! $template ) {
+			return new WP_REST_Response( [ 'error' => 'Template not found' ], 404 );
+		}
+
+		// Build system prompt with variable substitution
+		$system_prompt = $template->system_prompt ?: '';
+		foreach ( $form_data as $key => $val ) {
+			$placeholder = '{{' . $key . '}}';
+			$str_val     = is_array( $val ) ? implode( ', ', $val ) : (string) $val;
+			$system_prompt = str_replace( $placeholder, $str_val, $system_prompt );
+		}
+
+		// Determine mode from existing outline
+		$all_general = true;
+		foreach ( $existing_outline as $s ) {
+			if ( ( $s['platform'] ?? '' ) !== 'general' ) { $all_general = false; break; }
+		}
+		$is_document_mode = $all_general;
+
+		// Build existing section summary for context
+		$existing_summary = '';
+		foreach ( $existing_outline as $i => $s ) {
+			$existing_summary .= ( $i + 1 ) . '. ' . ( $s['emoji'] ?? '' ) . ' ' . ( $s['label'] ?? '' ) . "\n";
+		}
+
+		// Tone & length instructions
+		$tone_instruction   = $tone   ? "Giọng điệu: {$tone}. " : '';
+		$length_instruction = '';
+		if ( $length === 'short' )  $length_instruction = 'Mỗi section chỉ cần 150-200 từ. ';
+		if ( $length === 'medium' ) $length_instruction = 'Mỗi section khoảng 300-400 từ. ';
+		if ( $length === 'long' )   $length_instruction = 'Mỗi section chi tiết 500-800 từ. ';
+
+		// Build outline system for continuation
+		$continue_system = implode( "\n", [
+			'Bạn là trợ lý lập kế hoạch nội dung. Nhiệm vụ: tạo THÊM sections mới (dạng JSON) dựa trên yêu cầu của người dùng.',
+			'',
+			'CÁC SECTION ĐÃ CÓ (KHÔNG tạo lại):',
+			$existing_summary,
+			'',
+			$tone_instruction . $length_instruction,
+			'QUY TẮC:',
+			'- CHỈ tạo section MỚI, KHÔNG lặp lại section đã có.',
+			'- platform: "' . ( $is_document_mode ? 'general' : 'giữ nguyên theo yêu cầu' ) . '"',
+			'- stage: "step_' . ( $existing_count + 1 ) . '", step_' . ( $existing_count + 2 ) . '... (tiếp nối)',
+			'- CHỈ trả JSON, bắt đầu bằng { kết thúc bằng }',
+			'',
+			'FORMAT JSON:',
+			'{ "sections": [ { "label":"...", "emoji":"...", "description":"...", "platform":"' . ( $is_document_mode ? 'general' : '..." ' ) . '", "stage":"step_N", "content_type":"section", "word_count":300 } ] }',
+		] );
+
+		$continue_user = "BỐI CẢNH GỐC:\n" . $system_prompt . "\n\nYÊU CẦU BỔ SUNG:\n" . $prompt
+			. "\n\nNHẮC LẠI: CHỈ trả JSON sections MỚI. Bắt đầu bằng { kết thúc bằng }";
+
+		error_log( '[BZCC] continue_generate #' . $file_id . ' | prompt=' . mb_substr( $prompt, 0, 100 ) );
+
+		$response = self::call_llm( $continue_system, $continue_user, [
+			'purpose'     => 'content_planning',
+			'temperature' => 0.4,
+			'max_tokens'  => 2000,
+		] );
+
+		if ( is_wp_error( $response ) ) {
+			return new WP_REST_Response( [ 'error' => $response->get_error_message() ], 500 );
+		}
+
+		$new_sections = self::parse_outline( $response );
+		if ( empty( $new_sections ) ) {
+			return new WP_REST_Response( [ 'error' => 'Không thể tạo outline bổ sung. Thử lại với yêu cầu cụ thể hơn.' ], 422 );
+		}
+
+		// Create chunk_meta for new sections
+		$chunk_prompt = $template->chunk_prompt ?: '';
+		foreach ( $form_data as $key => $val ) {
+			$placeholder = '{{' . $key . '}}';
+			$str_val     = is_array( $val ) ? implode( ', ', $val ) : (string) $val;
+			$chunk_prompt = str_replace( $placeholder, $str_val, $chunk_prompt );
+		}
+
+		$created_chunks = [];
+		foreach ( $new_sections as $i => $section ) {
+			$chunk_index = $existing_count + $i;
+			$cid = BZCC_Chunk_Meta_Manager::insert( [
+				'file_id'     => $file_id,
+				'chunk_index' => $chunk_index,
+				'node_status' => 'pending',
+				'platform'    => sanitize_text_field( $section['platform'] ?? 'general' ),
+				'stage_label' => sanitize_text_field( $section['label'] ?? "Phần " . ( $chunk_index + 1 ) ),
+				'stage_emoji' => sanitize_text_field( $section['emoji'] ?? '📝' ),
+				'hashtags'    => '',
+				'cta_text'    => '',
+				'notes'       => wp_json_encode( $section ),
+				'last_prompt' => $chunk_prompt,
+			] );
+
+			if ( $cid ) {
+				$created_chunks[] = [
+					'id'          => $cid,
+					'chunk_index' => $chunk_index,
+					'label'       => sanitize_text_field( $section['label'] ?? "Phần " . ( $chunk_index + 1 ) ),
+					'emoji'       => sanitize_text_field( $section['emoji'] ?? '📝' ),
+					'platform'    => sanitize_text_field( $section['platform'] ?? 'general' ),
+				];
+			}
+		}
+
+		if ( empty( $created_chunks ) ) {
+			return new WP_REST_Response( [ 'error' => 'Không thể tạo chunks mới.' ], 500 );
+		}
+
+		// Merge outlines and update file
+		$merged_outline = array_merge( $existing_outline, $new_sections );
+		BZCC_File_Manager::update( $file_id, [
+			'outline'     => wp_json_encode( $merged_outline ),
+			'chunk_count' => count( $merged_outline ),
+			'status'      => 'generating',
+		] );
+
+		return new WP_REST_Response( [
+			'file_id'       => $file_id,
+			'status'        => 'generating',
+			'new_sections'  => $new_sections,
+			'chunks'        => $created_chunks,
+			'chunk_count'   => count( $merged_outline ),
+			'start_index'   => $existing_count,
+		] );
+	}
+
+	/* ═══════════════════════════════════════
 	 *  GET /file/{id}/stream — SSE
 	 *
 	 *  Sequentially generates content for each chunk.
@@ -422,6 +721,10 @@ class BZCC_Rest_API {
 		header( 'Cache-Control: no-cache' );
 		header( 'Connection: keep-alive' );
 		header( 'X-Accel-Buffering: no' );
+
+		// Prevent PHP errors from corrupting SSE stream
+		@ini_set( 'display_errors', '0' );
+		ignore_user_abort( true );
 
 		$form_data     = json_decode( $file->form_data, true ) ?: [];
 		$chunks        = BZCC_Chunk_Meta_Manager::get_by_file( $file_id );
@@ -460,92 +763,121 @@ class BZCC_Rest_API {
 
 		error_log( '[BZCC SSE] Sent outline event with ' . count( $outline_data ) . ' sections, ' . count( $chunks ) . ' chunks to generate' );
 
-		// Generate each chunk sequentially
-		$prev_content = '';
-		foreach ( $chunks as $i => $chunk ) {
-			// Skip already completed chunks
-			if ( $chunk->node_status === 'completed' ) {
+		try {
+			// Generate each chunk sequentially
+			$prev_content = '';
+			foreach ( $chunks as $i => $chunk ) {
+				// Skip already completed or in-progress chunks (avoid duplicate with parallel mode)
+				if ( in_array( $chunk->node_status, [ 'completed', 'generating' ], true ) ) {
+					self::sse_send( 'chunk_done', [
+						'chunk_index' => (int) $chunk->chunk_index,
+						'chunk_id'    => (int) $chunk->id,
+						'content'     => $chunk->notes, // already generated
+						'skipped'     => true,
+					] );
+					continue;
+				}
+
+				$section_info = json_decode( $chunk->notes, true ) ?: [];
+
+				// Build chunk-specific prompt — support both naming conventions
+				$label       = $section_info['label'] ?? $section_info['title'] ?? $chunk->stage_label;
+				$description = $section_info['description'] ?? $section_info['instructions'] ?? '';
+				$platform    = $section_info['platform'] ?? $chunk->platform ?? '';
+				$stage       = $section_info['stage'] ?? '';
+				$word_count  = (string) ( $section_info['word_count'] ?? 200 );
+
+				$prompt = self::build_enhanced_chunk_prompt(
+					$chunk_prompt,
+					$label,
+					$description,
+					$platform,
+					$stage,
+					$word_count,
+					$i + 1,
+					count( $chunks ),
+					$prev_content,
+					$section_info
+				);
+
+				// Mark chunk as generating
+				BZCC_Chunk_Meta_Manager::transition_status( (int) $chunk->id, 'generating' );
+
+				error_log( '[BZCC SSE] chunk_start #' . $i . ' | id=' . $chunk->id . ' | platform=' . $chunk->platform . ' | label=' . $chunk->stage_label );
+				error_log( '[BZCC SSE] chunk_prompt (first 300): ' . mb_substr( $prompt, 0, 300 ) );
+
+				self::sse_send( 'chunk_start', [
+					'chunk_index' => (int) $chunk->chunk_index,
+					'chunk_id'    => (int) $chunk->id,
+					'label'       => $chunk->stage_label,
+					'emoji'       => $chunk->stage_emoji,
+					'platform'    => $chunk->platform,
+				] );
+
+				// Stream LLM response
+				$full_content = self::stream_llm_chunk(
+					$system_prompt,
+					$prompt,
+					(int) $chunk->chunk_index,
+					(int) $chunk->id,
+					[
+						'purpose'     => $template->model_purpose ?: 'content_creation',
+						'temperature' => (float) $template->temperature,
+						'max_tokens'  => (int) ( $template->max_tokens ?: 4000 ),
+					]
+				);
+
+				error_log( '[BZCC SSE] chunk_done #' . $i . ' | content_len=' . strlen( $full_content ) );
+
+				// Save generated content to studio_outputs
+				self::save_chunk_content( (int) $chunk->id, $full_content, $label );
+				BZCC_Chunk_Meta_Manager::transition_status( (int) $chunk->id, 'completed' );
+				BZCC_File_Manager::increment_chunk_done( $file_id );
+
+				$prev_content = mb_substr( $full_content, 0, 500 ); // context window for next chunk
+
 				self::sse_send( 'chunk_done', [
 					'chunk_index' => (int) $chunk->chunk_index,
 					'chunk_id'    => (int) $chunk->id,
-					'content'     => $chunk->notes, // already generated
-					'skipped'     => true,
 				] );
-				continue;
 			}
 
-			$section_info = json_decode( $chunk->notes, true ) ?: [];
+			// All done
+			BZCC_File_Manager::update( $file_id, [ 'status' => 'completed' ] );
 
-			// Build chunk-specific prompt — support both naming conventions
-			$label       = $section_info['label'] ?? $section_info['title'] ?? $chunk->stage_label;
-			$description = $section_info['description'] ?? $section_info['instructions'] ?? '';
-			$platform    = $section_info['platform'] ?? $chunk->platform ?? '';
-			$stage       = $section_info['stage'] ?? '';
-			$word_count  = (string) ( $section_info['word_count'] ?? 200 );
+			error_log( '[BZCC SSE] DONE file #' . $file_id . ' | chunks_processed=' . count( $chunks ) );
 
-			$prompt = self::build_enhanced_chunk_prompt(
-				$chunk_prompt,
-				$label,
-				$description,
-				$platform,
-				$stage,
-				$word_count,
-				$i + 1,
-				count( $chunks ),
-				$prev_content
-			);
+			// Push completion summary to webchat
+			$webchat_session = $file->session_id ?? '';
+			if ( $webchat_session && class_exists( 'BizCity_WebChat_Database' ) ) {
+				$result_url = admin_url( 'admin.php?page=bizcity-content-creator&view=result&file_id=' . $file_id );
+				$webchat_db = new BizCity_WebChat_Database();
+				$webchat_db->log_message( [
+					'session_id'   => $webchat_session,
+					'user_id'      => (int) $file->user_id,
+					'message_text' => sprintf(
+						"🎉 **Hoàn thành!** Đã tạo xong %d phần nội dung.\n\n[📄 Xem kết quả](%s)",
+						count( $chunks ),
+						$result_url
+					),
+					'message_from' => 'bot',
+					'message_type' => 'tool_result',
+					'plugin_slug'  => 'content-creator',
+					'tool_name'    => 'content_creator_complete',
+				] );
+			}
 
-			// Mark chunk as generating
-			BZCC_Chunk_Meta_Manager::transition_status( (int) $chunk->id, 'generating' );
-
-			error_log( '[BZCC SSE] chunk_start #' . $i . ' | id=' . $chunk->id . ' | platform=' . $chunk->platform . ' | label=' . $chunk->stage_label );
-			error_log( '[BZCC SSE] chunk_prompt (first 300): ' . mb_substr( $prompt, 0, 300 ) );
-
-			self::sse_send( 'chunk_start', [
-				'chunk_index' => (int) $chunk->chunk_index,
-				'chunk_id'    => (int) $chunk->id,
-				'label'       => $chunk->stage_label,
-				'emoji'       => $chunk->stage_emoji,
-				'platform'    => $chunk->platform,
+			self::sse_send( 'done', [
+				'file_id' => $file_id,
+				'status'  => 'completed',
 			] );
-
-			// Stream LLM response
-			$full_content = self::stream_llm_chunk(
-				$system_prompt,
-				$prompt,
-				(int) $chunk->chunk_index,
-				(int) $chunk->id,
-				[
-					'purpose'     => $template->model_purpose ?: 'content_creation',
-					'temperature' => (float) $template->temperature,
-					'max_tokens'  => (int) ( $template->max_tokens ?: 4000 ),
-				]
-			);
-
-			error_log( '[BZCC SSE] chunk_done #' . $i . ' | content_len=' . strlen( $full_content ) );
-
-			// Save generated content to studio_outputs
-			self::save_chunk_content( (int) $chunk->id, $full_content, $label );
-			BZCC_Chunk_Meta_Manager::transition_status( (int) $chunk->id, 'completed' );
-			BZCC_File_Manager::increment_chunk_done( $file_id );
-
-			$prev_content = mb_substr( $full_content, 0, 500 ); // context window for next chunk
-
-			self::sse_send( 'chunk_done', [
-				'chunk_index' => (int) $chunk->chunk_index,
-				'chunk_id'    => (int) $chunk->id,
+		} catch ( \Throwable $e ) {
+			error_log( '[BZCC SSE] Fatal in stream_file #' . $file_id . ': ' . $e->getMessage() );
+			self::sse_send( 'error', [
+				'file_id' => $file_id,
+				'message' => 'Generation error: ' . $e->getMessage(),
 			] );
 		}
-
-		// All done
-		BZCC_File_Manager::update( $file_id, [ 'status' => 'completed' ] );
-
-		error_log( '[BZCC SSE] DONE file #' . $file_id . ' | chunks_processed=' . count( $chunks ) );
-
-		self::sse_send( 'done', [
-			'file_id' => $file_id,
-			'status'  => 'completed',
-		] );
 
 		exit;
 	}
@@ -585,6 +917,10 @@ class BZCC_Rest_API {
 		header( 'Cache-Control: no-cache' );
 		header( 'Connection: keep-alive' );
 		header( 'X-Accel-Buffering: no' );
+
+		// Prevent PHP errors from corrupting SSE stream
+		@ini_set( 'display_errors', '0' );
+		ignore_user_abort( true );
 
 		$chunk_index = (int) $chunk->chunk_index;
 
@@ -643,62 +979,118 @@ class BZCC_Rest_API {
 			$word_count,
 			$chunk_index + 1,
 			$total,
-			''
+			'',
+			$section_info
 		);
 
-		// Mark as generating
-		BZCC_Chunk_Meta_Manager::transition_status( $chunk_id, 'generating' );
+		try {
+			// Mark as generating
+			BZCC_Chunk_Meta_Manager::transition_status( $chunk_id, 'generating' );
 
-		error_log( '[BZCC SSE-P] chunk_start #' . $chunk_index . ' | id=' . $chunk_id . ' | platform=' . $chunk->platform );
+			error_log( '[BZCC SSE-P] chunk_start #' . $chunk_index . ' | id=' . $chunk_id . ' | platform=' . $chunk->platform );
 
-		self::sse_send( 'chunk_start', [
-			'chunk_index' => $chunk_index,
-			'chunk_id'    => $chunk_id,
-			'label'       => $chunk->stage_label,
-			'emoji'       => $chunk->stage_emoji,
-			'platform'    => $chunk->platform,
-		] );
+			self::sse_send( 'chunk_start', [
+				'chunk_index' => $chunk_index,
+				'chunk_id'    => $chunk_id,
+				'label'       => $chunk->stage_label,
+				'emoji'       => $chunk->stage_emoji,
+				'platform'    => $chunk->platform,
+			] );
 
-		// Stream LLM response
-		$full_content = self::stream_llm_chunk(
-			$system_prompt,
-			$prompt,
-			$chunk_index,
-			$chunk_id,
-			[
-				'purpose'     => $template->model_purpose ?: 'content_creation',
-				'temperature' => (float) $template->temperature,
-				'max_tokens'  => (int) ( $template->max_tokens ?: 4000 ),
-			]
-		);
+			// Stream LLM response
+			$full_content = self::stream_llm_chunk(
+				$system_prompt,
+				$prompt,
+				$chunk_index,
+				$chunk_id,
+				[
+					'purpose'     => $template->model_purpose ?: 'content_creation',
+					'temperature' => (float) $template->temperature,
+					'max_tokens'  => (int) ( $template->max_tokens ?: 4000 ),
+				]
+			);
 
-		error_log( '[BZCC SSE-P] chunk_done #' . $chunk_index . ' | content_len=' . strlen( $full_content ) );
+			error_log( '[BZCC SSE-P] chunk_done #' . $chunk_index . ' | content_len=' . strlen( $full_content ) );
 
-		// Save generated content to studio_outputs
-		self::save_chunk_content( $chunk_id, $full_content, $label );
+			// Save generated content to studio_outputs
+			self::save_chunk_content( $chunk_id, $full_content, $label );
 
-		// Mark completed
-		BZCC_Chunk_Meta_Manager::transition_status( $chunk_id, 'completed' );
-		BZCC_File_Manager::increment_chunk_done( (int) $chunk->file_id );
+			// Mark completed
+			BZCC_Chunk_Meta_Manager::transition_status( $chunk_id, 'completed' );
+			BZCC_File_Manager::increment_chunk_done( (int) $chunk->file_id );
 
-		// Check if ALL chunks are now done → mark file completed
-		$updated_chunks = BZCC_Chunk_Meta_Manager::get_by_file( (int) $chunk->file_id );
-		$all_done = true;
-		foreach ( $updated_chunks as $c ) {
-			if ( $c->node_status !== 'completed' ) {
-				$all_done = false;
-				break;
+			// ── Push chunk result to webchat_messages if session_id exists ──
+			$webchat_session = $file->session_id ?? '';
+			error_log( '[BZCC] chunk_done: file_id=' . $chunk->file_id
+				. ' session_id=' . ( $webchat_session ?: '(empty)' )
+				. ' class=' . ( class_exists( 'BizCity_WebChat_Database' ) ? 'YES' : 'NO' ) );
+			if ( $webchat_session && class_exists( 'BizCity_WebChat_Database' ) ) {
+				$preview = mb_substr( wp_strip_all_tags( $full_content ), 0, 300 );
+				$webchat_db = new BizCity_WebChat_Database();
+				$webchat_db->log_message( [
+					'session_id'   => $webchat_session,
+					'user_id'      => (int) $file->user_id,
+					'message_text' => sprintf(
+						"✅ **%s** (phần %d/%d)\n\n%s%s",
+						$label,
+						$chunk_index + 1,
+						$total,
+						$preview,
+						strlen( $full_content ) > 300 ? '…' : ''
+					),
+					'message_from' => 'bot',
+					'message_type' => 'tool_result',
+					'plugin_slug'  => 'content-creator',
+					'tool_name'    => 'content_creator_execute',
+				] );
+				error_log( '[BZCC] chunk→webchat: session=' . $webchat_session . ' chunk=#' . ( $chunk_index + 1 ) . '/' . $total );
 			}
-		}
-		if ( $all_done ) {
-			BZCC_File_Manager::update( (int) $chunk->file_id, [ 'status' => 'completed' ] );
-		}
 
-		self::sse_send( 'chunk_done', [
-			'chunk_index' => $chunk_index,
-			'chunk_id'    => $chunk_id,
-			'all_done'    => $all_done,
-		] );
+			// Check if ALL chunks are now done → mark file completed
+			$updated_chunks = BZCC_Chunk_Meta_Manager::get_by_file( (int) $chunk->file_id );
+			$all_done = true;
+			foreach ( $updated_chunks as $c ) {
+				if ( $c->node_status !== 'completed' ) {
+					$all_done = false;
+					break;
+				}
+			}
+			if ( $all_done ) {
+				BZCC_File_Manager::update( (int) $chunk->file_id, [ 'status' => 'completed' ] );
+
+				// Push completion summary to webchat
+				if ( $webchat_session && class_exists( 'BizCity_WebChat_Database' ) ) {
+					$result_url = admin_url( 'admin.php?page=bizcity-content-creator&view=result&file_id=' . $chunk->file_id );
+					$webchat_db_done = new BizCity_WebChat_Database();
+					$webchat_db_done->log_message( [
+						'session_id'   => $webchat_session,
+						'user_id'      => (int) $file->user_id,
+						'message_text' => sprintf(
+							"🎉 **Hoàn thành!** Đã tạo xong %d phần nội dung.\n\n[📄 Xem kết quả](%s)",
+							$total,
+							$result_url
+						),
+						'message_from' => 'bot',
+						'message_type' => 'tool_result',
+						'plugin_slug'  => 'content-creator',
+						'tool_name'    => 'content_creator_complete',
+					] );
+				}
+			}
+
+			self::sse_send( 'chunk_done', [
+				'chunk_index' => $chunk_index,
+				'chunk_id'    => $chunk_id,
+				'all_done'    => $all_done,
+			] );
+		} catch ( \Throwable $e ) {
+			error_log( '[BZCC SSE-P] Fatal in stream_chunk_single #' . $chunk_id . ': ' . $e->getMessage() );
+			self::sse_send( 'error', [
+				'chunk_index' => $chunk_index,
+				'chunk_id'    => $chunk_id,
+				'message'     => 'Generation error: ' . $e->getMessage(),
+			] );
+		}
 
 		exit;
 	}
@@ -1064,6 +1456,60 @@ class BZCC_Rest_API {
 	}
 
 	/* ═══════════════════════════════════════
+	 *  Smart Input: Vision Preview (Phase 3.2)
+	 * ═══════════════════════════════════════ */
+	public static function smart_input_vision( WP_REST_Request $request ): WP_REST_Response {
+		$attachment_id = (int) $request->get_param( 'attachment_id' );
+		$vision_prompt = sanitize_textarea_field( $request->get_param( 'vision_prompt' ) ?: '' );
+		$max_tokens    = min( (int) $request->get_param( 'max_tokens' ), 3000 ) ?: 1500;
+
+		if ( ! $attachment_id || ! wp_attachment_is_image( $attachment_id ) ) {
+			return new WP_REST_Response( [ 'error' => 'Invalid attachment' ], 400 );
+		}
+
+		$result = BZCC_Vision_Processor::process_single( $attachment_id, $vision_prompt, $max_tokens );
+
+		if ( empty( $result['success'] ) ) {
+			return new WP_REST_Response( [ 'error' => $result['description'] ?: 'Vision processing failed' ], 500 );
+		}
+
+		return new WP_REST_Response( [
+			'description' => $result['description'],
+			'tokens_used' => $result['tokens_used'] ?? 0,
+		] );
+	}
+
+	/* ═══════════════════════════════════════
+	 *  Smart Input: File Preview (Phase 3.2)
+	 * ═══════════════════════════════════════ */
+	public static function smart_input_file( WP_REST_Request $request ): WP_REST_Response {
+		$attachment_id = (int) $request->get_param( 'attachment_id' );
+		$max_rows      = min( (int) $request->get_param( 'max_rows' ), 500 ) ?: 100;
+
+		if ( ! $attachment_id ) {
+			return new WP_REST_Response( [ 'error' => 'Invalid attachment' ], 400 );
+		}
+
+		$file_path = get_attached_file( $attachment_id );
+		if ( ! $file_path || ! file_exists( $file_path ) ) {
+			return new WP_REST_Response( [ 'error' => 'File not found' ], 404 );
+		}
+
+		$result = BZCC_File_Processor::process_single( $attachment_id, $max_rows );
+
+		if ( empty( $result['success'] ) ) {
+			return new WP_REST_Response( [ 'error' => $result['content'] ?: 'File processing failed' ], 500 );
+		}
+
+		return new WP_REST_Response( [
+			'content'  => $result['content'],
+			'size'     => mb_strlen( $result['content'] ),
+			'rows'     => $result['rows'] ?? 0,
+			'filename' => basename( $file_path ),
+		] );
+	}
+
+	/* ═══════════════════════════════════════
 	 *  LLM Integration Helpers
 	 * ═══════════════════════════════════════ */
 
@@ -1215,13 +1661,48 @@ class BZCC_Rest_API {
 			return [];
 		}
 
-		// Normalise each section — map alternate key names
-		$sections = [];
-		foreach ( $parsed as $i => $sec ) {
+		// Flatten nested structures: sections may contain scripts[], items[], posts[]
+		$flat = [];
+		foreach ( $parsed as $sec ) {
 			if ( ! is_array( $sec ) ) {
 				continue;
 			}
-			$sections[] = [
+			// Check for nested child arrays (scripts, items, posts, children)
+			$children_key = null;
+			foreach ( [ 'scripts', 'items', 'posts', 'children', 'contents' ] as $key ) {
+				if ( ! empty( $sec[ $key ] ) && is_array( $sec[ $key ] ) && isset( $sec[ $key ][0] ) ) {
+					$children_key = $key;
+					break;
+				}
+			}
+			if ( $children_key ) {
+				// Expand children — each child inherits parent-level platform/stage/content_type
+				$parent_platform     = $sec['platform'] ?? '';
+				$parent_stage        = $sec['stage'] ?? '';
+				$parent_content_type = $sec['content_type'] ?? '';
+				$parent_label        = $sec['label'] ?? $sec['title'] ?? '';
+				foreach ( $sec[ $children_key ] as $child ) {
+					if ( ! is_array( $child ) ) {
+						continue;
+					}
+					$child['platform']     = $child['platform'] ?? $parent_platform;
+					$child['stage']        = $child['stage'] ?? $parent_stage;
+					$child['content_type'] = $child['content_type'] ?? $parent_content_type;
+					// Prefix child label with parent context if child has no label
+					if ( empty( $child['label'] ) && empty( $child['title'] ) ) {
+						$child['label'] = $parent_label;
+					}
+					$flat[] = $child;
+				}
+			} else {
+				$flat[] = $sec;
+			}
+		}
+
+		// Normalise each section — map alternate key names
+		$sections = [];
+		foreach ( $flat as $i => $sec ) {
+			$normalised = [
 				'label'        => $sec['label'] ?? $sec['title'] ?? $sec['stage_label'] ?? ( 'Phần ' . ( $i + 1 ) ),
 				'emoji'        => $sec['emoji'] ?? $sec['stage_emoji'] ?? '📝',
 				'description'  => $sec['description'] ?? $sec['instructions'] ?? '',
@@ -1232,6 +1713,13 @@ class BZCC_Rest_API {
 				'content_type' => $sec['content_type'] ?? '',
 				'word_count'   => (int) ( $sec['word_count'] ?? 200 ),
 			];
+			// Preserve all extra keys from outline (video_duration, video_format, script_style, etc.)
+			foreach ( $sec as $k => $v ) {
+				if ( ! isset( $normalised[ $k ] ) && ! is_array( $v ) ) {
+					$normalised[ $k ] = $v;
+				}
+			}
+			$sections[] = $normalised;
 		}
 
 		return $sections;
@@ -1328,7 +1816,8 @@ class BZCC_Rest_API {
 		string $word_count,
 		int $section_index,
 		int $total_sections,
-		string $prev_content = ''
+		string $prev_content = '',
+		array $section_info = []
 	): string {
 		$prompt = $base_prompt;
 
@@ -1343,6 +1832,16 @@ class BZCC_Rest_API {
 		$prompt = str_replace( '{{previous_content}}', $prev_content, $prompt );
 		$prompt = str_replace( '{{platform}}', $platform, $prompt );
 		$prompt = str_replace( '{{stage}}', $stage, $prompt );
+
+		// Replace extra outline fields from section_info (video_duration, video_format, script_style, etc.)
+		foreach ( $section_info as $key => $val ) {
+			if ( is_string( $val ) || is_numeric( $val ) ) {
+				$prompt = str_replace( '{{' . $key . '}}', (string) $val, $prompt );
+			}
+		}
+
+		// Remove any remaining unresolved {{...}} placeholders
+		$prompt = preg_replace( '/\{\{[a-zA-Z_][a-zA-Z0-9_]*\}\}/', '', $prompt );
 
 		// Inject platform-specific format instructions
 		$platform_guide = self::get_platform_instructions( $platform );
@@ -1510,7 +2009,7 @@ class BZCC_Rest_API {
 		unset( $data['id'], $data['author_id'], $data['use_count'], $data['created_at'], $data['updated_at'] );
 
 		// Decode JSON columns so they export as arrays, not escaped strings
-		foreach ( [ 'form_fields', 'wizard_steps', 'output_platforms' ] as $col ) {
+		foreach ( [ 'form_fields', 'wizard_steps', 'output_platforms', 'settings' ] as $col ) {
 			if ( isset( $data[ $col ] ) && is_string( $data[ $col ] ) ) {
 				$decoded = json_decode( $data[ $col ], true );
 				if ( is_array( $decoded ) ) {
@@ -1570,7 +2069,7 @@ class BZCC_Rest_API {
 			}
 
 			// Encode JSON columns back to strings for DB
-			foreach ( [ 'form_fields', 'wizard_steps', 'output_platforms' ] as $col ) {
+			foreach ( [ 'form_fields', 'wizard_steps', 'output_platforms', 'settings' ] as $col ) {
 				if ( isset( $tpl_data[ $col ] ) && is_array( $tpl_data[ $col ] ) ) {
 					$tpl_data[ $col ] = wp_json_encode( $tpl_data[ $col ], JSON_UNESCAPED_UNICODE );
 				}

@@ -73,6 +73,19 @@ class BizCity_TwitCanva_Ajax {
             'tc_save_url_to_media',
         ];
 
+        // Additional non-tc actions
+        add_action( 'wp_ajax_bvk_faceswap_gallery', [ __CLASS__, 'handle_faceswap_gallery' ] );
+
+        // Video Editor project persistence
+        add_action( 'wp_ajax_bvk_save_editor_project',  [ __CLASS__, 'handle_save_editor_project' ] );
+        add_action( 'wp_ajax_bvk_load_editor_project',  [ __CLASS__, 'handle_load_editor_project' ] );
+        add_action( 'wp_ajax_bvk_list_editor_projects', [ __CLASS__, 'handle_list_editor_projects' ] );
+
+        // Avatar LipSync
+        add_action( 'wp_ajax_bvk_avatar_create', [ __CLASS__, 'handle_avatar_create' ] );
+        add_action( 'wp_ajax_bvk_avatar_status', [ __CLASS__, 'handle_avatar_status' ] );
+        add_action( 'wp_ajax_bvk_avatar_tts',    [ __CLASS__, 'handle_avatar_tts' ] );
+
         foreach ( $actions as $action ) {
             add_action( 'wp_ajax_bvk_' . $action, [ __CLASS__, 'handle_' . $action ] );
         }
@@ -126,6 +139,108 @@ class BizCity_TwitCanva_Ajax {
                 $url
             );
         }
+        return $url;
+    }
+
+    /**
+     * Ensure a media URL has a clean filename safe for external APIs.
+     * PiAPI's URL parser breaks on parentheses/brackets in filenames.
+     *
+     * Strategy:
+     *   1) Try to find the WP attachment → copy local file with clean name
+     *   2) Fallback: download from CDN → re-upload with clean name
+     *   3) Fallback: download from wp-content URL → re-upload
+     *
+     * @param string $url  Media URL (local CDN or external).
+     * @return string       Clean URL (or original if already clean / on failure).
+     */
+    private static function sanitize_url_for_api( string $url ): string {
+        $path     = wp_parse_url( $url, PHP_URL_PATH ) ?: '';
+        $filename = basename( $path );
+
+        // Only act if filename has chars that break external API URL parsers
+        if ( ! preg_match( '/[() \[\]{}]/', $filename ) ) {
+            return $url;
+        }
+
+        error_log( '[BVK] sanitize_url_for_api: DIRTY URL detected: ' . $url );
+
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        require_once ABSPATH . 'wp-admin/includes/media.php';
+        require_once ABSPATH . 'wp-admin/includes/image.php';
+
+        $clean = sanitize_file_name( $filename );
+        error_log( '[BVK] sanitize_url_for_api: clean filename = ' . $clean );
+
+        // ── Method 1: Find WP attachment, copy local file ──
+        $site_host = wp_parse_url( home_url(), PHP_URL_HOST ) ?: '';
+        $wp_url    = $url;
+        if ( $site_host ) {
+            // Convert media.bizcity.vn/uploads/… → bizcity.vn/wp-content/uploads/…
+            $wp_url = str_replace(
+                'media.' . $site_host . '/uploads/',
+                $site_host . '/wp-content/uploads/',
+                $url
+            );
+        }
+        $att_id = attachment_url_to_postid( $wp_url );
+        error_log( '[BVK] sanitize_url_for_api: attachment lookup att_id=' . $att_id . ' wp_url=' . $wp_url );
+
+        if ( $att_id > 0 ) {
+            $file_path = get_attached_file( $att_id );
+            if ( $file_path && file_exists( $file_path ) ) {
+                error_log( '[BVK] sanitize_url_for_api: local file exists: ' . $file_path );
+                $upload_dir = wp_upload_dir();
+                $dest_name  = wp_unique_filename( $upload_dir['path'], $clean );
+                $dest_path  = $upload_dir['path'] . '/' . $dest_name;
+                if ( @copy( $file_path, $dest_path ) ) {
+                    $mime    = wp_check_filetype( $dest_path )['type'] ?: 'image/jpeg';
+                    $new_att = wp_insert_attachment( [
+                        'post_mime_type' => $mime,
+                        'post_title'     => pathinfo( $clean, PATHINFO_FILENAME ),
+                        'post_status'    => 'inherit',
+                    ], $dest_path );
+                    if ( ! is_wp_error( $new_att ) && $new_att > 0 ) {
+                        wp_update_attachment_metadata( $new_att, wp_generate_attachment_metadata( $new_att, $dest_path ) );
+                        $new_url = wp_get_attachment_url( $new_att );
+                        if ( $new_url ) {
+                            $result = self::to_media_url( $new_url );
+                            error_log( '[BVK] sanitize_url_for_api: SUCCESS via local copy → ' . $result );
+                            return $result;
+                        }
+                    }
+                }
+                error_log( '[BVK] sanitize_url_for_api: local copy failed' );
+            } else {
+                error_log( '[BVK] sanitize_url_for_api: local file not found (R2 offloaded?)' );
+            }
+        }
+
+        // ── Method 2: Download from URL(s) → re-upload ──
+        $urls_to_try = array_unique( [ $url, $wp_url ] );
+        foreach ( $urls_to_try as $try_url ) {
+            error_log( '[BVK] sanitize_url_for_api: trying download from ' . $try_url );
+            $tmp = download_url( $try_url, 30 );
+            if ( is_wp_error( $tmp ) ) {
+                error_log( '[BVK] sanitize_url_for_api: download FAILED — ' . $tmp->get_error_message() );
+                continue;
+            }
+
+            error_log( '[BVK] sanitize_url_for_api: download OK, sideloading as ' . $clean );
+            $new_att = media_handle_sideload( [ 'name' => $clean, 'tmp_name' => $tmp ], 0 );
+            if ( is_wp_error( $new_att ) ) {
+                @unlink( $tmp );
+                error_log( '[BVK] sanitize_url_for_api: sideload FAILED — ' . $new_att->get_error_message() );
+                continue;
+            }
+
+            $new_url = wp_get_attachment_url( $new_att ) ?: $url;
+            $result  = self::to_media_url( $new_url );
+            error_log( '[BVK] sanitize_url_for_api: SUCCESS via download → ' . $result );
+            return $result;
+        }
+
+        error_log( '[BVK] sanitize_url_for_api: ALL METHODS FAILED, using original: ' . $url );
         return $url;
     }
 
@@ -852,9 +967,37 @@ class BizCity_TwitCanva_Ajax {
 
         $file = $_FILES['file'];
 
-        // Validate mime type (images + videos only)
-        $allowed = [ 'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'video/mp4', 'video/webm', 'video/quicktime' ];
-        if ( ! in_array( $file['type'], $allowed, true ) ) {
+        // Allow audio MIME types that WP doesn't whitelist by default (e.g. audio/x-m4a from iPhone)
+        $audio_mime_filter = function( $mimes ) {
+            $mimes['m4a']  = 'audio/x-m4a';
+            $mimes['aac']  = 'audio/aac';
+            $mimes['ogg']  = 'audio/ogg';
+            $mimes['wav']  = 'audio/wav';
+            $mimes['mp3']  = 'audio/mpeg';
+            return $mimes;
+        };
+        add_filter( 'upload_mimes', $audio_mime_filter );
+        add_filter( 'wp_check_filetype_and_ext', function( $data, $file_path, $filename ) {
+            $ext = strtolower( pathinfo( $filename, PATHINFO_EXTENSION ) );
+            if ( $ext === 'm4a' && empty( $data['ext'] ) ) {
+                $data['ext']  = 'm4a';
+                $data['type'] = 'audio/x-m4a';
+            }
+            return $data;
+        }, 10, 3 );
+
+        // Validate mime type (images + videos + audio)
+        $allowed = [
+            'image/jpeg', 'image/png', 'image/webp', 'image/gif',
+            'video/mp4', 'video/webm', 'video/quicktime',
+            'audio/mpeg', 'audio/mp3', 'audio/mp4', 'audio/x-m4a',
+            'audio/m4a', 'audio/aac', 'audio/ogg', 'audio/wav',
+            'audio/x-wav', 'audio/webm',
+        ];
+        // Fallback: also allow by extension for browsers that misreport m4a MIME
+        $ext = strtolower( pathinfo( $file['name'], PATHINFO_EXTENSION ) );
+        $allowed_ext = [ 'jpg', 'jpeg', 'png', 'webp', 'gif', 'mp4', 'webm', 'mov', 'mp3', 'm4a', 'aac', 'ogg', 'wav' ];
+        if ( ! in_array( $file['type'], $allowed, true ) && ! in_array( $ext, $allowed_ext, true ) ) {
             wp_send_json_error( [ 'message' => 'File type not allowed: ' . $file['type'] ] );
         }
 
@@ -881,8 +1024,12 @@ class BizCity_TwitCanva_Ajax {
 
         wp_update_attachment_metadata( $attach_id, wp_generate_attachment_metadata( $attach_id, $upload['file'] ) );
 
+        // Use wp_get_attachment_url() so R2/CDN offload URL is returned (not the deleted local path)
+        $public_url = wp_get_attachment_url( $attach_id ) ?: $upload['url'];
+        $public_url = self::to_media_url( $public_url );
+
         wp_send_json_success( [
-            'url'          => $upload['url'],
+            'url'          => $public_url,
             'attachmentId' => $attach_id,
         ] );
     }
@@ -1840,6 +1987,414 @@ class BizCity_TwitCanva_Ajax {
         }
 
         // Rewrite URL for CDN if needed
+        $url = $result['url'] ?? '';
+        if ( method_exists( __CLASS__, 'to_media_url' ) ) {
+            $url = self::to_media_url( $url );
+        }
+
+        wp_send_json_success( [
+            'url'  => $url,
+            'size' => $result['size'] ?? 0,
+        ] );
+    }
+
+    /* ════════════════════════════════════════════════════════════
+     *  FACE SWAP GALLERY — query video_effects templates
+     * ════════════════════════════════════════════════════════════ */
+
+    public static function handle_faceswap_gallery() {
+        self::verify();
+
+        global $wpdb;
+        $table = BizCity_Video_Kling_Database::get_table_name( 'video_effects' );
+
+        $search   = sanitize_text_field( wp_unslash( $_POST['search'] ?? '' ) );
+        $category = sanitize_text_field( wp_unslash( $_POST['category'] ?? '' ) );
+
+        // Build WHERE clause
+        $where = [ "`status` = 'active'" ];
+        $params = [];
+
+        if ( $category !== '' ) {
+            $where[] = '`category` = %s';
+            $params[] = $category;
+        }
+        if ( $search !== '' ) {
+            $where[] = '(`title` LIKE %s OR `description` LIKE %s)';
+            $like = '%' . $wpdb->esc_like( $search ) . '%';
+            $params[] = $like;
+            $params[] = $like;
+        }
+
+        $where_sql = implode( ' AND ', $where );
+        $sql = "SELECT `id`, `title`, `slug`, `description`, `category`, `thumbnail_url`, `preview_video_url`, `model`, `duration`, `aspect_ratio`, `badge`, `badge_color`, `use_count`
+                FROM `{$table}` WHERE {$where_sql} ORDER BY `is_featured` DESC, `sort_order` ASC, `use_count` DESC LIMIT 60";
+
+        if ( ! empty( $params ) ) {
+            $sql = $wpdb->prepare( $sql, ...$params );
+        }
+
+        $templates = $wpdb->get_results( $sql, ARRAY_A ) ?: [];
+
+        // Get unique categories for filter dropdown
+        $categories = $wpdb->get_col( "SELECT DISTINCT `category` FROM `{$table}` WHERE `status` = 'active' ORDER BY `category` ASC" );
+
+        wp_send_json_success( [
+            'templates'  => $templates,
+            'categories' => $categories ?: [],
+        ] );
+    }
+
+    /* ═══════════════════════════════════════════════════════
+     *  Video Editor Project Persistence
+     * ═══════════════════════════════════════════════════════ */
+
+    /**
+     * Save / update editor project.
+     * POST: project_id (optional), title, data (JSON string)
+     */
+    public static function handle_save_editor_project() {
+        self::verify();
+
+        $user_id    = get_current_user_id();
+        $project_id = absint( $_POST['project_id'] ?? 0 );
+        $title      = sanitize_text_field( $_POST['title'] ?? '' );
+        $data_raw   = wp_unslash( $_POST['data'] ?? '{}' );
+
+        // Validate JSON
+        $decoded = json_decode( $data_raw, true );
+        if ( json_last_error() !== JSON_ERROR_NONE ) {
+            wp_send_json_error( [ 'message' => 'Invalid JSON data.' ] );
+        }
+
+        // If updating, verify ownership
+        if ( $project_id ) {
+            $existing = BizCity_Video_Kling_Database::get_project( $project_id );
+            if ( ! $existing || (int) $existing->user_id !== $user_id ) {
+                wp_send_json_error( [ 'message' => 'Project not found.' ] );
+            }
+        }
+
+        $save_data = [
+            'user_id' => $user_id,
+            'title'   => $title ?: 'Untitled video',
+            'status'  => 'active',
+            'data'    => wp_json_encode( $decoded ),
+        ];
+
+        if ( $project_id ) {
+            $save_data['id'] = $project_id;
+        }
+
+        $id = BizCity_Video_Kling_Database::save_project( $save_data );
+
+        if ( ! $id ) {
+            wp_send_json_error( [ 'message' => 'Failed to save project.' ] );
+        }
+
+        wp_send_json_success( [
+            'project_id' => $id,
+            'title'      => $save_data['title'],
+            'message'    => 'Đã lưu dự án.',
+        ] );
+    }
+
+    /**
+     * Load editor project by ID.
+     * POST: project_id
+     */
+    public static function handle_load_editor_project() {
+        self::verify();
+
+        $user_id    = get_current_user_id();
+        $project_id = absint( $_POST['project_id'] ?? 0 );
+
+        if ( ! $project_id ) {
+            wp_send_json_error( [ 'message' => 'Missing project_id.' ] );
+        }
+
+        $project = BizCity_Video_Kling_Database::get_project( $project_id );
+        if ( ! $project || (int) $project->user_id !== $user_id ) {
+            wp_send_json_error( [ 'message' => 'Project not found.' ] );
+        }
+
+        wp_send_json_success( [
+            'project_id'    => (int) $project->id,
+            'title'         => $project->title,
+            'data'          => json_decode( $project->data, true ) ?: [],
+            'thumbnail_url' => $project->thumbnail_url,
+            'created_at'    => $project->created_at,
+            'updated_at'    => $project->updated_at,
+        ] );
+    }
+
+    /**
+     * List user's editor projects.
+     * POST: limit, offset (optional)
+     */
+    public static function handle_list_editor_projects() {
+        self::verify();
+
+        $user_id = get_current_user_id();
+        $limit   = min( absint( $_POST['limit'] ?? 20 ), 100 );
+        $offset  = absint( $_POST['offset'] ?? 0 );
+
+        $projects = BizCity_Video_Kling_Database::get_user_projects( $user_id, $limit, $offset );
+
+        wp_send_json_success( [
+            'projects' => array_map( function( $p ) {
+                return [
+                    'id'            => (int) $p->id,
+                    'title'         => $p->title,
+                    'thumbnail_url' => $p->thumbnail_url,
+                    'updated_at'    => $p->updated_at,
+                ];
+            }, $projects ?: [] ),
+        ] );
+    }
+
+    /* ════════════════════════════════════════════════════════════
+     *  AVATAR LIPSYNC — Create / Status / TTS
+     * ════════════════════════════════════════════════════════════ */
+
+    /**
+     * Create Avatar LipSync task via PiAPI.
+     *
+     * Input (payload):
+     *   - image_url:  Portrait image URL
+     *   - audio_url:  Audio file URL
+     *   - model:      'kling-avatar-std' | 'kling-avatar-pro' | 'omni-human'
+     *   - duration:   int (seconds)
+     */
+    public static function handle_avatar_create() {
+        self::verify();
+        $p = self::payload();
+
+        $image_url = esc_url_raw( $p['image_url'] ?? '' );
+        $audio_url = esc_url_raw( $p['audio_url'] ?? '' );
+        $model_key = sanitize_text_field( $p['model'] ?? 'kling-avatar-std' );
+        $duration  = absint( $p['duration'] ?? 10 );
+
+        if ( empty( $image_url ) || ! filter_var( $image_url, FILTER_VALIDATE_URL ) ) {
+            wp_send_json_error( [ 'message' => 'image_url (ảnh chân dung) là bắt buộc.' ] );
+        }
+        if ( empty( $audio_url ) || ! filter_var( $audio_url, FILTER_VALIDATE_URL ) ) {
+            wp_send_json_error( [ 'message' => 'audio_url là bắt buộc.' ] );
+        }
+
+        // Convert wp-content/uploads/ URLs to public CDN URLs so PiAPI can download them
+        $image_url = self::to_media_url( $image_url );
+        $audio_url = self::to_media_url( $audio_url );
+
+        // Re-upload with clean filename if it contains chars that break PiAPI (e.g. parentheses)
+        $image_url = self::sanitize_url_for_api( $image_url );
+        $audio_url = self::sanitize_url_for_api( $audio_url );
+
+        if ( ! function_exists( 'waic_kling_get_api_config' ) || ! function_exists( 'waic_kling_http_post' ) ) {
+            wp_send_json_error( [ 'message' => 'PiAPI library not loaded.' ] );
+        }
+
+        $cfg = waic_kling_get_api_config( [] );
+        if ( empty( $cfg['api_key'] ) ) {
+            wp_send_json_error( [ 'message' => 'Missing PiAPI key.' ] );
+        }
+
+        // Build PiAPI payload based on model
+        $allowed_models = [ 'kling-avatar-std', 'kling-avatar-pro', 'omni-human' ];
+        if ( ! in_array( $model_key, $allowed_models, true ) ) {
+            $model_key = 'kling-avatar-std';
+        }
+
+        if ( $model_key === 'omni-human' ) {
+            // OmniHuman 1.5
+            $payload = [
+                'model'     => 'omni-human',
+                'task_type' => 'omni-human-1.5',
+                'input'     => [
+                    'image_url' => $image_url,
+                    'audio_url' => $audio_url,
+                ],
+            ];
+        } else {
+            // Kling Avatar (std / pro)
+            $mode = ( $model_key === 'kling-avatar-pro' ) ? 'pro' : 'std';
+            $payload = [
+                'model'     => 'kling',
+                'task_type' => 'avatar',
+                'input'     => [
+                    'image_url'        => $image_url,
+                    'local_dubbing_url' => $audio_url,
+                    'mode'             => $mode,
+                    'duration'         => min( max( $duration, 5 ), 30 ),
+                ],
+            ];
+        }
+
+        // Build URL and headers based on mode
+        if ( ( $cfg['mode'] ?? 'direct' ) === 'gateway' ) {
+            // Gateway mode: $cfg['endpoint'] = https://bizcity.vn/wp-json/bizcity/llmhub/v1/video
+            // /video/task accepts any raw PiAPI payload (no prompt required — supports avatar/omni-human)
+            $url     = rtrim( $cfg['endpoint'], '/' ) . '/task';
+            $headers = [
+                'Content-Type'  => 'application/json',
+                'Authorization' => 'Bearer ' . $cfg['api_key'],
+            ];
+            $payload['plugin_name'] = 'bizcity-video-kling';
+            $payload['site_url']    = home_url();
+        } else {
+            // Direct PiAPI mode
+            $url     = 'https://api.piapi.ai/api/v1/task';
+            $headers = [
+                'Content-Type' => 'application/json',
+                'X-API-Key'    => $cfg['api_key'],
+            ];
+        }
+
+        $result = waic_kling_http_post( $url, $headers, $payload, $cfg['timeout'] ?? 30 );
+
+        error_log( '[BVK] avatar_create: FINAL image_url=' . ( $payload['input']['image_url'] ?? 'n/a' ) );
+        error_log( '[BVK] avatar_create: FINAL audio_url=' . ( $payload['input']['local_dubbing_url'] ?? $payload['input']['audio_url'] ?? 'n/a' ) );
+
+        // Extract task_id from response
+        $task_id = $result['data']['data']['task_id']
+                ?? $result['data']['task_id']
+                ?? $result['task_id']
+                ?? '';
+
+        if ( ! empty( $task_id ) ) {
+            wp_send_json_success( [
+                'taskId' => $task_id,
+                'model'  => $model_key,
+                'status' => 'pending',
+            ] );
+        } else {
+            $err = $result['data']['message']
+                ?? $result['error']
+                ?? $result['data']['data']['message']
+                ?? 'Avatar creation failed.';
+            wp_send_json_error( [ 'message' => $err ] );
+        }
+    }
+
+    /**
+     * Poll Avatar task status.
+     * Input: taskId
+     */
+    public static function handle_avatar_status() {
+        self::verify();
+        $p = self::payload();
+
+        $task_id = sanitize_text_field( $p['taskId'] ?? '' );
+        if ( empty( $task_id ) ) {
+            wp_send_json_error( [ 'message' => 'taskId is required.' ] );
+        }
+
+        if ( ! function_exists( 'waic_kling_get_api_config' ) || ! function_exists( 'waic_kling_http_get' ) ) {
+            wp_send_json_error( [ 'message' => 'PiAPI library not loaded.' ] );
+        }
+
+        $cfg = waic_kling_get_api_config( [] );
+        if ( empty( $cfg['api_key'] ) ) {
+            wp_send_json_error( [ 'message' => 'Missing PiAPI key.' ] );
+        }
+
+        // Build URL and headers based on mode
+        if ( ( $cfg['mode'] ?? 'direct' ) === 'gateway' ) {
+            // Gateway mode: poll via /video/status on the hub
+            $url     = rtrim( $cfg['endpoint'], '/' ) . '/status?task_id=' . rawurlencode( $task_id );
+            $headers = [ 'Authorization' => 'Bearer ' . $cfg['api_key'] ];
+        } else {
+            // Direct PiAPI mode
+            $url     = 'https://api.piapi.ai/api/v1/task/' . rawurlencode( $task_id );
+            $headers = [ 'X-API-Key' => $cfg['api_key'] ];
+        }
+
+        $result  = waic_kling_http_get( $url, $headers, $cfg['timeout'] ?? 30 );
+
+        // Normalize status from nested PiAPI response
+        $data = $result['data']['data'] ?? $result['data'] ?? [];
+        $status = strtolower( $data['status'] ?? 'unknown' );
+
+        // Map PiAPI statuses
+        $status_map = [
+            'pending'    => 'pending',
+            'queued'     => 'pending',
+            'processing' => 'processing',
+            'running'    => 'processing',
+            'completed'  => 'completed',
+            'succeed'    => 'completed',
+            'failed'     => 'failed',
+            'error'      => 'failed',
+        ];
+        $norm_status = $status_map[ $status ] ?? 'processing';
+
+        $progress = intval( $data['progress'] ?? 0 );
+
+        // Extract video URL
+        $video_url = '';
+        if ( ! empty( $data['output']['works'][0]['video']['resource'] ) ) {
+            $video_url = $data['output']['works'][0]['video']['resource'];
+        } elseif ( ! empty( $data['output']['video_url'] ) ) {
+            $video_url = $data['output']['video_url'];
+        } elseif ( ! empty( $data['video_url'] ) ) {
+            $video_url = $data['video_url'];
+        } elseif ( ! empty( $data['output']['works'][0]['resource'] ) ) {
+            $video_url = $data['output']['works'][0]['resource'];
+        }
+
+        if ( $norm_status === 'completed' && $video_url ) {
+            wp_send_json_success( [
+                'status'    => 'completed',
+                'progress'  => 100,
+                'resultUrl' => $video_url,
+            ] );
+        } elseif ( $norm_status === 'failed' ) {
+            $raw_err = $data['error'] ?? $data['message'] ?? 'Avatar task failed.';
+            if ( is_array( $raw_err ) ) {
+                $raw_err = $raw_err['raw_message'] ?? $raw_err['message'] ?? 'Avatar task failed.';
+            }
+            wp_send_json_error( [
+                'status'  => 'failed',
+                'message' => $raw_err,
+            ] );
+        } else {
+            wp_send_json_success( [
+                'status'   => $norm_status,
+                'progress' => max( $progress, 5 ),
+            ] );
+        }
+    }
+
+    /**
+     * Avatar TTS — text-to-speech via OpenAI TTS (reuses existing TTS lib).
+     * Input: text, voice
+     */
+    public static function handle_avatar_tts() {
+        self::verify();
+        $p = self::payload();
+
+        $text  = sanitize_textarea_field( $p['text'] ?? '' );
+        $voice = sanitize_text_field( $p['voice'] ?? 'nova' );
+
+        if ( empty( trim( $text ) ) ) {
+            wp_send_json_error( [ 'message' => 'Text is required.' ] );
+        }
+
+        if ( ! class_exists( 'BizCity_Video_Kling_OpenAI_TTS' ) ) {
+            wp_send_json_error( [ 'message' => 'TTS library not available.' ] );
+        }
+
+        $result = BizCity_Video_Kling_OpenAI_TTS::generate_and_save( $text, '', [
+            'voice'           => $voice,
+            'model'           => 'tts-1',
+            'speed'           => 1.0,
+            'response_format' => 'mp3',
+        ] );
+
+        if ( empty( $result['success'] ) ) {
+            wp_send_json_error( [ 'message' => $result['error'] ?? 'TTS failed.' ] );
+        }
+
         $url = $result['url'] ?? '';
         if ( method_exists( __CLASS__, 'to_media_url' ) ) {
             $url = self::to_media_url( $url );

@@ -15,6 +15,34 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 class BizCity_Tool_Mindmap {
 
     /* ════════════════════════════════════════════════════════════
+     *  ID Encode / Decode (XOR + base62) — same pattern as /canva/
+     * ════════════════════════════════════════════════════════════ */
+    const XOR_KEY = 0x5A3C7E1D;
+    const B62     = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
+    public static function encode_id( int $id ): string {
+        $n = ( $id ^ self::XOR_KEY ) & 0xFFFFFFFF;
+        if ( $n === 0 ) return '0';
+        $s = '';
+        while ( $n > 0 ) {
+            $s = self::B62[ $n % 62 ] . $s;
+            $n = intdiv( $n, 62 );
+        }
+        return $s;
+    }
+
+    public static function decode_id( string $hash ): int {
+        if ( empty( $hash ) ) return 0;
+        $n = 0;
+        for ( $i = 0, $len = strlen( $hash ); $i < $len; $i++ ) {
+            $pos = strpos( self::B62, $hash[ $i ] );
+            if ( $pos === false ) return 0;
+            $n = $n * 62 + $pos;
+        }
+        return ( $n ^ self::XOR_KEY ) & 0xFFFFFFFF;
+    }
+
+    /* ════════════════════════════════════════════════════════════
      *  Bootstrap
      * ════════════════════════════════════════════════════════════ */
     public static function init() {
@@ -338,9 +366,15 @@ class BizCity_Tool_Mindmap {
         if ( $prompt ) {
             update_post_meta( $post_id, '_bz_prompt', $prompt );
         }
+        $diagram_json = wp_unslash( $_POST['diagram_json'] ?? '' );
+        if ( $diagram_json ) {
+            update_post_meta( $post_id, '_bz_diagram_json', $diagram_json );
+        }
 
+        $saved_post = get_post( $post_id );
         wp_send_json_success( [
             'post_id' => $post_id,
+            'hash_id' => self::encode_id( $post_id ),
             'title'   => get_the_title( $post_id ),
         ] );
     }
@@ -390,8 +424,16 @@ class BizCity_Tool_Mindmap {
     public static function ajax_get() {
         check_ajax_referer( 'bztool_mindmap', 'nonce' );
 
-        $post_id = intval( $_POST['post_id'] ?? 0 );
-        $post    = get_post( $post_id );
+        $raw = sanitize_text_field( $_POST['post_id'] ?? '' );
+
+        // Decode encoded hash → numeric ID (falls back to numeric if already a number)
+        if ( is_numeric( $raw ) ) {
+            $post_id = intval( $raw );
+        } else {
+            $post_id = self::decode_id( $raw );
+        }
+
+        $post = get_post( $post_id );
 
         if ( ! $post || $post->post_type !== 'bz_mindmap' ) {
             wp_send_json_error( [ 'message' => 'Không tìm thấy sơ đồ.' ] );
@@ -402,13 +444,15 @@ class BizCity_Tool_Mindmap {
         }
 
         wp_send_json_success( [
-            'id'          => $post->ID,
-            'title'       => $post->post_title,
-            'description' => $post->post_content,
-            'mermaid'     => get_post_meta( $post->ID, '_bz_mermaid_code', true ),
-            'type'        => get_post_meta( $post->ID, '_bz_mermaid_type', true ),
-            'prompt'      => get_post_meta( $post->ID, '_bz_prompt', true ),
-            'date'        => get_the_date( 'd/m/Y H:i', $post ),
+            'id'           => $post->ID,
+            'hash_id'      => self::encode_id( $post->ID ),
+            'title'        => $post->post_title,
+            'description'  => $post->post_content,
+            'mermaid'      => get_post_meta( $post->ID, '_bz_mermaid_code', true ),
+            'diagram_json' => get_post_meta( $post->ID, '_bz_diagram_json', true ),
+            'type'         => get_post_meta( $post->ID, '_bz_mermaid_type', true ),
+            'prompt'       => get_post_meta( $post->ID, '_bz_prompt', true ),
+            'date'         => get_the_date( 'd/m/Y H:i', $post ),
         ] );
     }
 
@@ -452,8 +496,16 @@ class BizCity_Tool_Mindmap {
         if ( $mermaid ) {
             update_post_meta( $post_id, '_bz_mermaid_code', $mermaid );
         }
+        $diagram_json = wp_unslash( $_POST['diagram_json'] ?? '' );
+        if ( $diagram_json ) {
+            update_post_meta( $post_id, '_bz_diagram_json', $diagram_json );
+        }
 
-        wp_send_json_success( [ 'post_id' => $post_id ] );
+        $updated_post = get_post( $post_id );
+        wp_send_json_success( [
+            'post_id' => $post_id,
+            'hash_id' => self::encode_id( $post_id ),
+        ] );
     }
 
     /* ══════════════════════════════════════════════════════════════

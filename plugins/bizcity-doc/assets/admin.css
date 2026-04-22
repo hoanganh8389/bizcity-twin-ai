@@ -1,0 +1,21 @@
+/**
+ * BizCity Doc Studio — Admin Styles (WordPress admin context).
+ */
+
+.bzdoc-studio-wrap {
+  min-height: 100vh;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Ensure no WordPress admin bar overlap */
+.admin-bar .bzdoc-studio-wrap {
+  margin-top: 0;
+}
+
+/* Print-friendly preview */
+@media print {
+  .bzdoc-app header,
+  .bzdoc-app .chat-panel {
+    display: none !important;
+  }
+}

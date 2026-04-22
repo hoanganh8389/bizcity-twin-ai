@@ -469,13 +469,13 @@ class BizCity_Maturity_Calculator {
 		$src = null;
 		if ( $wpdb->get_var( "SHOW TABLES LIKE '{$src_table}'" ) === $src_table ) {
 			$src = $wpdb->get_row( $wpdb->prepare(
-				"SELECT COUNT(*) AS cnt, COALESCE(SUM(token_estimate),0) AS tokens, COALESCE(SUM(chunk_count),0) AS chunks
-				 FROM {$p}webchat_sources WHERE user_id = %d AND status = 'ready'",
+				"SELECT COUNT(*) AS cnt, COALESCE(SUM(chunk_count),0) AS chunks
+				 FROM {$p}webchat_sources WHERE user_id = %d AND embedding_status = 'ready'",
 				$user_id
 			) );
 		}
 		$sources = $src ? (int) $src->cnt : 0;
-		$tokens  = $src ? (int) $src->tokens : 0;
+		$tokens  = 0;
 
 		// Character knowledge (shared across projects)
 		$char_sources = 0;
@@ -797,7 +797,7 @@ class BizCity_Maturity_Calculator {
 			$projects_with_usage = (int) $wpdb->get_var( $wpdb->prepare(
 				"SELECT COUNT(DISTINCT s.project_id)
 				 FROM {$p}webchat_sources s
-				 WHERE s.user_id = %d AND s.status = 'ready'
+				 WHERE s.user_id = %d AND s.embedding_status = 'ready'
 				   AND EXISTS (
 					   SELECT 1 FROM {$p}webchat_messages m
 					   WHERE m.project_id = s.project_id AND m.message_from = 'bot'
@@ -970,7 +970,7 @@ class BizCity_Maturity_Calculator {
 			"SELECT COUNT(*) FROM {$p}webchat_projects WHERE user_id = %d AND is_archived = 0", $user_id
 		) );
 		$sources = (int) $wpdb->get_var( $wpdb->prepare(
-			"SELECT COUNT(*) FROM {$p}webchat_sources WHERE user_id = %d AND status = 'ready'", $user_id
+			"SELECT COUNT(*) FROM {$p}webchat_sources WHERE user_id = %d AND embedding_status = 'ready'", $user_id
 		) );
 		$notes = (int) $wpdb->get_var( $wpdb->prepare(
 			"SELECT COUNT(*) FROM {$p}memory_notes WHERE user_id = %d", $user_id
@@ -1144,7 +1144,7 @@ class BizCity_Maturity_Calculator {
 		$source_types = $wpdb->get_results( $wpdb->prepare(
 			"SELECT COALESCE(source_type, 'unknown') AS source_type, COUNT(*) AS cnt,
 				COALESCE(SUM(chunk_count), 0) AS chunks
-			 FROM {$p}webchat_sources WHERE user_id = %d AND status = 'ready'
+			 FROM {$p}webchat_sources WHERE user_id = %d AND embedding_status = 'ready'
 			 GROUP BY source_type ORDER BY cnt DESC",
 			$user_id
 		), ARRAY_A ) ?: [];

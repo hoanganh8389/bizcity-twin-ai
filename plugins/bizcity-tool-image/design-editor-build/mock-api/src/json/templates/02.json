@@ -1,0 +1,194 @@
+[
+    {
+      "name": "",
+      "notes": "",
+      "layers": {
+        "ROOT": {
+          "type": {
+            "resolvedName": "RootLayer"
+          },
+          "props": {
+            "boxSize": {
+              "width": 900,
+              "height": 900
+            },
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "rotate": 0,
+            "color": "rgb(255, 255, 255)",
+            "image": {
+              "url": "http://localhost:4000/images/photos/nature/001.jpg",
+              "thumb": "http://localhost:4000/images/photos/nature/001.jpg",
+              "boxSize": {
+                "width": 1348.9461358313818,
+                "height": 900
+              },
+              "position": {
+                "x": -224.47306791569088,
+                "y": 0
+              },
+              "rotate": 0
+            }
+          },
+          "locked": false,
+          "child": ["ca_wq2HsKi", "ca_iAQOD6w", "ca_BFlVlpB"],
+          "parent": null
+        },
+        "ca_wq2HsKi": {
+          "type": {
+            "resolvedName": "ShapeLayer"
+          },
+          "props": {
+            "position": {
+              "x": -4.412771785653193,
+              "y": -4.412771785653063
+            },
+            "boxSize": {
+              "width": 908.8255435713063,
+              "height": 908.8255435713063,
+              "x": 4.147406266050282,
+              "y": 2.4353706557097183
+            },
+            "rotate": 0,
+            "clipPath": "M 0 0 L 256 0 L 256 256 L 0 256 Z",
+            "scale": 3.5500997795754152,
+            "color": "rgb(0, 0, 0)",
+            "transparency": 0.42,
+            "gradientBackground": null,
+            "shapeSize": {
+              "width": 256,
+              "height": 256
+            }
+          },
+          "locked": false,
+          "child": [],
+          "parent": "ROOT"
+        },
+        "ca_iAQOD6w": {
+          "type": {
+            "resolvedName": "TextLayer"
+          },
+          "props": {
+            "position": {
+              "x": 47.75388463189811,
+              "y": 645.5798668799711
+            },
+            "boxSize": {
+              "width": 550.885047057881,
+              "height": 193.93357273915308,
+              "x": 54.60202707326089,
+              "y": 654.1400449316745
+            },
+            "scale": 2.3087330087994413,
+            "rotate": 0,
+            "text": "<p style=\"font-family: 'Alexandria Regular';font-size: 45px;color: rgb(0, 0, 0);line-height: 0.93;letter-spacing: normal;\"><span style=\"color: rgb(255, 255, 255);\">HELLO</span></p><p style=\"font-family: 'Alexandria Regular';font-size: 45px;color: rgb(0, 0, 0);line-height: 0.93;letter-spacing: normal;\"><span style=\"color: rgb(255, 255, 255);\">MONDAY</span></p>",
+            "fonts": [
+              {
+                "family": "Alexandria",
+                "name": "Alexandria Regular",
+                "url": "http://fonts.gstatic.com/s/alexandria/v3/UMBCrPdDqW66y0Y2usFeQCH18mulUxBvI9r7TqbCHJ8BRq0b.woff2",
+                "style": "regular",
+                "styles": [
+                  {
+                    "family": "Alexandria",
+                    "name": "Alexandria Bold 100",
+                    "url": "http://fonts.gstatic.com/s/alexandria/v3/UMBCrPdDqW66y0Y2usFeQCH18mulUxBvI9r7T6bCHJ8BRq0b.woff2",
+                    "style": "100"
+                  },
+                  {
+                    "family": "Alexandria",
+                    "name": "Alexandria Bold 200",
+                    "url": "http://fonts.gstatic.com/s/alexandria/v3/UMBCrPdDqW66y0Y2usFeQCH18mulUxBvI9p7TqbCHJ8BRq0b.woff2",
+                    "style": "200"
+                  },
+                  {
+                    "family": "Alexandria",
+                    "name": "Alexandria Bold 300",
+                    "url": "http://fonts.gstatic.com/s/alexandria/v3/UMBCrPdDqW66y0Y2usFeQCH18mulUxBvI9qlTqbCHJ8BRq0b.woff2",
+                    "style": "300"
+                  },
+                  {
+                    "family": "Alexandria",
+                    "name": "Alexandria Bold 500",
+                    "url": "http://fonts.gstatic.com/s/alexandria/v3/UMBCrPdDqW66y0Y2usFeQCH18mulUxBvI9rJTqbCHJ8BRq0b.woff2",
+                    "style": "500"
+                  },
+                  {
+                    "family": "Alexandria",
+                    "name": "Alexandria Bold 600",
+                    "url": "http://fonts.gstatic.com/s/alexandria/v3/UMBCrPdDqW66y0Y2usFeQCH18mulUxBvI9olSabCHJ8BRq0b.woff2",
+                    "style": "600"
+                  },
+                  {
+                    "family": "Alexandria",
+                    "name": "Alexandria Bold 700",
+                    "url": "http://fonts.gstatic.com/s/alexandria/v3/UMBCrPdDqW66y0Y2usFeQCH18mulUxBvI9ocSabCHJ8BRq0b.woff2",
+                    "style": "700"
+                  },
+                  {
+                    "family": "Alexandria",
+                    "name": "Alexandria Bold 800",
+                    "url": "http://fonts.gstatic.com/s/alexandria/v3/UMBCrPdDqW66y0Y2usFeQCH18mulUxBvI9p7SabCHJ8BRq0b.woff2",
+                    "style": "800"
+                  },
+                  {
+                    "family": "Alexandria",
+                    "name": "Alexandria Bold 900",
+                    "url": "http://fonts.gstatic.com/s/alexandria/v3/UMBCrPdDqW66y0Y2usFeQCH18mulUxBvI9pSSabCHJ8BRq0b.woff2",
+                    "style": "900"
+                  }
+                ]
+              }
+            ],
+            "colors": ["rgb(0, 0, 0)", "rgb(255, 255, 255)"],
+            "fontSizes": [45],
+            "effect": null,
+            "transparency": 1
+          },
+          "locked": false,
+          "child": [],
+          "parent": "ROOT"
+        },
+        "ca_BFlVlpB": {
+          "type": {
+            "resolvedName": "TextLayer"
+          },
+          "props": {
+            "position": {
+              "x": 171.59732922444778,
+              "y": 338.474148262284
+            },
+            "boxSize": {
+              "width": 556.8053415511043,
+              "height": 167.0416024653313,
+              "x": 245.21486046909772,
+              "y": 350.45839753466885
+            },
+            "scale": 1.8560178051703478,
+            "rotate": 0,
+            "text": "<p style=\"text-align: center;font-family: 'Aboreto Regular';font-size: 32px;color: rgb(255, 255, 255);line-height: 1.4;letter-spacing: normal;\"><strong><span style=\"color: rgb(255, 255, 255);\">Keep on chasing</span></strong></p><p style=\"text-align: center;font-family: 'Aboreto Regular';font-size: 32px;color: rgb(255, 255, 255);line-height: 1.4;letter-spacing: normal;\"><strong><span style=\"color: rgb(255, 255, 255);\">your dreams</span></strong></p>",
+            "fonts": [
+              {
+                "family": "Aboreto",
+                "name": "Aboreto Regular",
+                "url": "http://fonts.gstatic.com/s/aboreto/v2/5DCXAKLhwDDQ4N8blKHeA2yuxSY.woff2",
+                "style": "regular",
+                "styles": []
+              }
+            ],
+            "colors": ["rgb(255, 255, 255)"],
+            "fontSizes": [32],
+            "effect": null,
+            "transparency": 1
+          },
+          "locked": false,
+          "child": [],
+          "parent": "ROOT"
+        }
+      }
+    }
+  ]
+  
+  

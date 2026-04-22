@@ -1,0 +1,102 @@
+{
+  "version": "1.0",
+  "plugin": "bizcity-content-creator",
+  "exported": "2026-04-16T18:30:00Z",
+  "templates": [
+    {
+      "slug": "tao-phan-canh-video",
+      "category_id": "0",
+      "title": "Tạo phân cảnh cho video",
+      "description": "Tạo các phân cảnh chi tiết cho video — tối ưu cho các công cụ AI video như VEO 3, Sora, Kling, Runway.",
+      "icon_url": "",
+      "icon_emoji": "🎬",
+      "form_fields": [
+        {
+          "slug": "scene_count",
+          "label": "Số phân cảnh muốn tạo",
+          "type": "textarea",
+          "placeholder": "VD: 5, 8, 10... (để trống sẽ tự đề xuất số cảnh phù hợp)",
+          "required": false,
+          "grid": "half",
+          "sort_order": 1,
+          "description": ""
+        },
+        {
+          "slug": "script_type",
+          "label": "Chọn loại kịch bản",
+          "type": "select",
+          "placeholder": "",
+          "required": false,
+          "grid": "half",
+          "sort_order": 2,
+          "description": "",
+          "options": [
+            { "value": "phim_ngan", "label": "🎬 Phim ngắn" },
+            { "value": "phim_dai", "label": "🎥 Phim dài" },
+            { "value": "trailer", "label": "🍿 Trailer/Teaser" },
+            { "value": "teaser", "label": "🍿 Teaser" },
+            { "value": "phim_gioi_thieu", "label": "🎞️ Phim giới thiệu" },
+            { "value": "show_truyen_hinh", "label": "📺 Show truyền hình" },
+            { "value": "phim_tai_lieu", "label": "📡 Phim tài liệu" },
+            { "value": "video_giao_duc", "label": "📖 Video giáo dục" },
+            { "value": "video_dao_tao", "label": "🎓 Video đào tạo" },
+            { "value": "quang_cao", "label": "📢 Quảng cáo" },
+            { "value": "tvc", "label": "📺 TVC" },
+            { "value": "mv_am_nhac", "label": "🎤 MV âm nhạc" },
+            { "value": "video_ca_nhac", "label": "🎶 Video ca nhạc" },
+            { "value": "hoat_hinh", "label": "🎨 Hoạt hình" },
+            { "value": "tutorial", "label": "📚 Video hướng dẫn (Tutorial)" },
+            { "value": "explainer", "label": "🧩 Video giải thích (Explainer)" },
+            { "value": "infographic", "label": "📊 Infographic video" },
+            { "value": "testimonial", "label": "🤝 Testimonial (Khách hàng nói)" },
+            { "value": "video_ban_hang", "label": "🛍️ Video bán hàng" },
+            { "value": "social_short", "label": "📱 Social media short (Shorts/Reels)" },
+            { "value": "gameplay", "label": "🎮 Gameplay/Esports highlight" },
+            { "value": "livestream_script", "label": "🎥 Live stream theo kịch bản" },
+            { "value": "web_series", "label": "🌐 Video web-series" },
+            { "value": "cinemagraph", "label": "🖼️ Cinemagraph (Ảnh động lặp)" },
+            { "value": "podcast_video", "label": "🎙️ Podcast video" }
+          ]
+        },
+        {
+          "slug": "video_script",
+          "label": "Kịch bản hoặc ý tưởng video",
+          "type": "textarea",
+          "placeholder": "Mô tả nội dung video bạn muốn tạo: cốt truyện, thông điệp, bối cảnh, diễn biến chính...",
+          "required": true,
+          "grid": "half",
+          "sort_order": 3,
+          "description": ""
+        },
+        {
+          "slug": "character_desc",
+          "label": "Mô tả nhân vật",
+          "type": "textarea",
+          "placeholder": "VD: Cô gái 25 tuổi, tóc dài, mặc áo trắng / Chàng trai trung niên, vest đen, đeo kính...",
+          "required": false,
+          "grid": "half",
+          "sort_order": 4,
+          "description": ""
+        }
+      ],
+
+      "system_prompt": "Bạn là chuyên gia biên kịch và đạo diễn hình ảnh, chuyên tạo phân cảnh (storyboard) chi tiết cho video. Output được tối ưu để sử dụng trực tiếp làm prompt cho các công cụ AI tạo video như Google VEO 3, Sora, Kling AI, Runway Gen-3, Pika Labs.\n\n## THÔNG TIN VIDEO\n- **Kịch bản / Ý tưởng**: {{video_script}}\n- **Loại kịch bản**: {{script_type}}\n- **Số phân cảnh yêu cầu**: {{scene_count}} (nếu trống, tự đề xuất số cảnh phù hợp với loại video)\n- **Mô tả nhân vật**: {{character_desc}}\n\n## YÊU CẦU OUTPUT\n\nTạo bảng phân cảnh (shot list) chi tiết. Mỗi phân cảnh gồm:\n\n### Cấu trúc mỗi SCENE:\n\n**🎬 SCENE [số] — [Tên cảnh ngắn gọn]**\n⏱️ Thời lượng: [X giây]\n\n| Thành phần | Chi tiết |\n|---|---|\n| 📹 **Góc quay (Camera)** | Close-up / Medium shot / Wide shot / Aerial / POV / Over-the-shoulder / Tracking shot / Dutch angle... |\n| 🎭 **Hành động nhân vật** | Mô tả chi tiết nhân vật đang làm gì, biểu cảm, cử chỉ |\n| 🏞️ **Bối cảnh (Setting)** | Địa điểm, thời gian trong ngày, thời tiết, không gian |\n| 💡 **Ánh sáng (Lighting)** | Natural / Studio / Golden hour / Neon / Dramatic shadow / Backlit... |\n| 🎨 **Tông màu (Color)** | Warm / Cool / Cinematic / Vintage / Pastel / High contrast... |\n| 🔄 **Chuyển động camera** | Pan left/right / Tilt up/down / Dolly in/out / Zoom / Static / Handheld / Crane |\n| 🔊 **Âm thanh / Nhạc** | Nhạc nền, sound effect, lời thoại, voiceover |\n| ✍️ **Text overlay** | Chữ xuất hiện trên màn hình (nếu có) |\n| 🔗 **Chuyển cảnh (Transition)** | Cut / Dissolve / Fade / Whip pan / Match cut / Jump cut |\n\n**🤖 AI VIDEO PROMPT (copy trực tiếp):**\n```\n[Viết 1 đoạn prompt tiếng Anh tối ưu cho VEO 3 / Sora, mô tả đầy đủ: camera angle, subject action, setting, lighting, mood, color grade, camera movement. Prompt dài 2-4 câu, chi tiết và cinematic.]\n```\n\n## QUY TẮC\n1. Mỗi scene có prompt AI video bằng **tiếng Anh** — viết sẵn, copy-paste được ngay\n2. Phần mô tả tiếng Việt chi tiết để người dùng hiểu bối cảnh\n3. Các scene phải có **mạch truyện logic**, chuyển cảnh mượt mà\n4. Giữ nhất quán nhân vật xuyên suốt (quần áo, ngoại hình, phong cách)\n5. Đề xuất nhạc nền / sound design phù hợp từng cảnh\n6. Nếu loại video là quảng cáo/bán hàng → nhấn mạnh CTA và product shot\n7. Nếu loại video là phim/MV → tập trung vào cinematic quality và emotion\n8. Cuối cùng: tạo bảng **TIMELINE TỔNG QUAN** gồm: Scene | Thời lượng | Nội dung chính | Góc quay | Mood\n9. Viết bằng tiếng Việt, prompt AI video bằng tiếng Anh\n10. Format dễ đọc, dùng emoji và markdown",
+
+      "outline_prompt": "",
+      "chunk_prompt": "",
+
+      "model_purpose": "content_creation",
+      "temperature": "0.80",
+      "max_tokens": "6000",
+      "wizard_steps": [],
+      "output_platforms": ["tiktok", "youtube", "general"],
+      "skill_id": "0",
+      "tags": "phân-cảnh,storyboard,video,veo3,sora,kling,runway,kịch-bản,shot-list,ai-video",
+      "badge_text": "🎬 Storyboard",
+      "badge_color": "#7c3aed",
+      "is_featured": "1",
+      "sort_order": "5",
+      "status": "active"
+    }
+  ]
+}

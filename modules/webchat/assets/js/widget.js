@@ -142,16 +142,7 @@
 
         // ========== State Management ==========
         restoreState() {
-            const isMobile = window.matchMedia("(max-width: 700px)").matches;
-            
-            if (isMobile) {
-                this.closeChat();
-            } else {
-                const isClosed = localStorage.getItem('bizchat_is_closed');
-                if (isClosed === 'false' || isClosed === null) {
-                    this.openChat();
-                }
-            }
+            // Always start hidden — user must click the float button to open
         }
 
         toggleExpand() {
@@ -279,9 +270,7 @@
         }
 
         notifyNewMessage() {
-            localStorage.removeItem('bizchat_is_closed');
-            $('#bizchat-window').removeClass('bizchat-hidden').addClass('active');
-            this.isOpen = true;
+            // Only show notification badge on float button, don't auto-open
             $('#bizchat-float-btn').addClass('bizchat-notify');
             
             // Play sound

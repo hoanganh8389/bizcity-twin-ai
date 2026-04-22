@@ -1,0 +1,172 @@
+{
+  "version": "1.0",
+  "plugin": "bizcity-content-creator",
+  "exported": "2026-04-16T14:00:00Z",
+  "templates": [
+    {
+      "slug": "y-tuong-video-tu-binh-luan",
+      "category_id": "0",
+      "title": "Lên ý tưởng video dựa trên bình luận",
+      "description": "Cách đỉnh cao để bạn có hàng ngàn ý tưởng content mới mẻ cho nội dung video YouTube, TikTok tiếp theo — dựa trên chính bình luận của người xem.",
+      "icon_url": "",
+      "icon_emoji": "💬",
+      "form_fields": [
+        {
+          "slug": "heading_input",
+          "label": "💬 Nguồn bình luận",
+          "type": "heading",
+          "placeholder": "",
+          "required": false,
+          "grid": "full",
+          "sort_order": 1,
+          "description": "Dán danh sách bình luận từ video của bạn hoặc đối thủ",
+          "badge": ""
+        },
+        {
+          "slug": "comments_list",
+          "label": "Dán vào đây danh sách bình luận",
+          "type": "textarea",
+          "placeholder": "Copy và paste bình luận từ TikTok, YouTube, Reels...\n\nVD:\n- \"Làm video về cách chọn kem chống nắng cho da dầu đi chị ơi\"\n- \"Review sản phẩm này đi bro\"\n- \"Mình cũng bị như vậy, có cách nào khắc phục không?\"\n- \"Part 2 đi anh ơi!!!\"\n\nMỗi bình luận 1 dòng, hoặc dán nguyên khối cũng được — AI sẽ tự tách.",
+          "required": true,
+          "grid": "full",
+          "sort_order": 2,
+          "description": "Paste tối thiểu 5-10 bình luận để AI phân tích tốt nhất"
+        },
+        {
+          "slug": "comments_screenshot",
+          "label": "Hoặc upload ảnh chụp màn hình bình luận",
+          "type": "image",
+          "placeholder": "",
+          "required": false,
+          "grid": "full",
+          "sort_order": 3,
+          "description": "📸 Chụp màn hình phần bình luận → upload lên đây. AI sẽ đọc nội dung từ ảnh (cần bật Vision)."
+        },
+        {
+          "slug": "heading_context",
+          "label": "🎯 Thông tin kênh của bạn",
+          "type": "heading",
+          "placeholder": "",
+          "required": false,
+          "grid": "full",
+          "sort_order": 10,
+          "description": "Để AI gợi ý ý tưởng phù hợp với kênh",
+          "badge": ""
+        },
+        {
+          "slug": "channel_topic",
+          "label": "Chủ đề video / kênh của bạn là gì?",
+          "type": "textarea",
+          "placeholder": "VD: chăm sóc da / review công nghệ / dạy nấu ăn / tài chính cá nhân / fitness...",
+          "required": true,
+          "grid": "half",
+          "sort_order": 11,
+          "description": ""
+        },
+        {
+          "slug": "platform",
+          "label": "Nền tảng chính",
+          "type": "button_group",
+          "placeholder": "",
+          "required": false,
+          "grid": "half",
+          "sort_order": 12,
+          "description": "",
+          "multi": false,
+          "options": [
+            { "value": "tiktok", "label": "🎵 TikTok" },
+            { "value": "youtube", "label": "▶️ YouTube" },
+            { "value": "reels", "label": "📸 Instagram Reels" },
+            { "value": "shorts", "label": "📱 YouTube Shorts" },
+            { "value": "multi", "label": "🔄 Đa nền tảng" }
+          ]
+        },
+        {
+          "slug": "output_type",
+          "label": "Bạn muốn AI output kiểu gì?",
+          "type": "button_group",
+          "placeholder": "",
+          "required": false,
+          "grid": "full",
+          "sort_order": 13,
+          "description": "Chọn mức độ chi tiết",
+          "multi": false,
+          "options": [
+            { "value": "ideas_only", "label": "💡 Chỉ ý tưởng (tiêu đề + mô tả ngắn)" },
+            { "value": "ideas_hook", "label": "🪝 Ý tưởng + Hook 3 giây" },
+            { "value": "full_script", "label": "📝 Ý tưởng + Kịch bản đầy đủ (hook + thân + twist)" }
+          ]
+        },
+        {
+          "slug": "tone_of_voice",
+          "label": "Giọng điệu",
+          "type": "select",
+          "placeholder": "",
+          "required": false,
+          "grid": "half",
+          "sort_order": 14,
+          "description": "",
+          "options": [
+            { "value": "default", "label": "Mặc định" },
+            { "value": "interactive", "label": "Tương tác" },
+            { "value": "convince", "label": "Thuyết phục" },
+            { "value": "humorous", "label": "Hài hước" },
+            { "value": "playful", "label": "Vui nhộn" },
+            { "value": "comfortable", "label": "Thoải mái" },
+            { "value": "attractive", "label": "Cuốn hút" },
+            { "value": "inspire", "label": "Truyền cảm hứng" },
+            { "value": "curiosity", "label": "Tạo sự tò mò" },
+            { "value": "emotional", "label": "Xúc động" },
+            { "value": "warm", "label": "Ấm áp" },
+            { "value": "serious", "label": "Nghiêm túc" }
+          ]
+        },
+        {
+          "slug": "video_count",
+          "label": "Số ý tưởng video muốn tạo",
+          "type": "select",
+          "placeholder": "",
+          "required": false,
+          "grid": "half",
+          "sort_order": 15,
+          "description": "",
+          "options": [
+            { "value": "5", "label": "5 ý tưởng" },
+            { "value": "10", "label": "10 ý tưởng (khuyến nghị)" },
+            { "value": "15", "label": "15 ý tưởng" },
+            { "value": "20", "label": "20 ý tưởng" }
+          ]
+        }
+      ],
+
+      "system_prompt": "Bạn là chuyên gia phân tích audience insight và sáng tạo nội dung video (TikTok, YouTube, Reels) hàng đầu Việt Nam. Nhiệm vụ: phân tích bình luận từ người xem để tạo ra {{video_count}} Ý TƯỞNG VIDEO hoàn toàn mới.\n\n## DỮ LIỆU ĐẦU VÀO\n\n### Danh sách bình luận:\n{{comments_list}}\n\n### Ảnh chụp màn hình bình luận (nếu có):\n{{comments_screenshot}}\n\n### Thông tin kênh:\n- Chủ đề: {{channel_topic}}\n- Nền tảng: {{platform}}\n- Giọng điệu: {{tone_of_voice}}\n- Mức chi tiết output: {{output_type}}\n\n## BƯỚC 1: PHÂN TÍCH BÌNH LUẬN\n\nTrước khi tạo ý tưởng, hãy phân tích bình luận thành bảng:\n\n| # | Bình luận gốc | Insight ẩn | Nhu cầu thực | Mức độ phổ biến |\n|---|---------------|-----------|-------------|----------------|\n\nPhân loại bình luận vào các nhóm:\n- 🔥 **Yêu cầu trực tiếp** — \"Làm video về X đi\"\n- ❓ **Câu hỏi** — người xem muốn biết/giải đáp\n- 😢 **Nỗi đau / Vấn đề** — chia sẻ khó khăn cá nhân\n- 💡 **Gợi ý ẩn** — không nói thẳng nhưng hàm ý chủ đề tiềm năng\n- 🔄 **Yêu cầu part 2 / continuity** — muốn xem thêm\n- 💬 **Tranh cãi / Ý kiến trái chiều** — chủ đề gây controversy\n\n## BƯỚC 2: TẠO {{video_count}} Ý TƯỞNG VIDEO\n\nDựa trên insight đã phân tích, tạo {{video_count}} ý tưởng:\n\n### Cấu trúc MỖI ý tưởng:\n\n**Nếu output_type = ideas_only:**\n1. 🎬 **Tiêu đề video** — hook title thu hút click\n2. 📌 **Bình luận gốc** — trích bình luận nào gợi cảm hứng\n3. 💡 **Insight** — vì sao ý tưởng này hay, ai sẽ xem\n4. 📊 **Tiềm năng viral** — ⭐ đến ⭐⭐⭐⭐⭐\n5. 🏷️ **Hashtags gợi ý** (5-8)\n\n**Nếu output_type = ideas_hook:**\nThêm phần:\n6. 🪝 **Hook 3 giây đầu** — viết nguyên văn câu mở\n7. 🎵 **Sound/nhạc gợi ý**\n\n**Nếu output_type = full_script:**\nThêm phần:\n6. 🪝 **Hook 3 giây** — câu mở nguyên văn\n7. 📝 **Thân bài** — script từng cảnh [Cảnh 1]...[Cảnh 2]...\n8. 🌀 **Cú twist** — điểm bùng nổ + vị trí trong video\n9. 📢 **CTA** — câu kết\n10. 🎵 **Nhạc nền** — tên bài cụ thể\n11. 💡 **Ghi chú quay & edit**\n\n## BƯỚC 3: BẢNG TỔNG HỢP\n\nCuối cùng, tạo bảng tổng hợp:\n\n| # | Tiêu đề | Từ bình luận | Kiểu content | Tiềm năng | Độ khó quay |\n|---|---------|-------------|-------------|-----------|------------|\n\n## QUY TẮC\n1. Viết CỤ THỂ cho chủ đề \"{{channel_topic}}\" — KHÔNG viết chung chung\n2. Mỗi ý tưởng phải mapping rõ ràng từ bình luận nào\n3. Ý tưởng phải ĐA DẠNG — không lặp lại kiểu content\n4. Ưu tiên ý tưởng dễ viral: controversy, relatable, educational\n5. Giọng điệu: {{tone_of_voice}}\n6. Viết bằng tiếng Việt, tự nhiên\n7. Nếu bình luận ít (<5): AI tự brainstorm thêm dựa trên trend niche\n8. Nếu có ảnh chụp màn hình: đọc text từ ảnh và merge với danh sách text",
+
+      "outline_prompt": "",
+      "chunk_prompt": "",
+
+      "model_purpose": "content_creation",
+      "temperature": "0.75",
+      "max_tokens": "6000",
+      "wizard_steps": [
+        {
+          "label": "Bình luận",
+          "description": "Dán hoặc upload bình luận từ video",
+          "fields": ["heading_input", "comments_list", "comments_screenshot"]
+        },
+        {
+          "label": "Tùy chỉnh",
+          "description": "Thông tin kênh và kiểu output mong muốn",
+          "fields": ["heading_context", "channel_topic", "platform", "output_type", "tone_of_voice", "video_count"]
+        }
+      ],
+      "output_platforms": ["tiktok", "general"],
+      "skill_id": "0",
+      "tags": "bình-luận,comment,ý-tưởng,video,tiktok,youtube,reels,content-ideas,audience-insight",
+      "badge_text": "Comment → Ideas",
+      "badge_color": "#8b5cf6",
+      "is_featured": "1",
+      "sort_order": "4",
+      "status": "active"
+    }
+  ]
+}

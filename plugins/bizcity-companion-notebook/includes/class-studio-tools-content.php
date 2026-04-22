@@ -620,8 +620,8 @@ return self::html_wrap( $title . ' - Kich ban TikTok', $body, $css );
 }
 }
 
-// ── Registration ──
-add_action( 'bcn_register_notebook_tools', [ 'BCN_Studio_Tools_Content', 'register' ] );
+// ── Registration ── (DISABLED for restructuring — Phase 6.0)
+// add_action( 'bcn_register_notebook_tools', [ 'BCN_Studio_Tools_Content', 'register' ] );
 
 // ── Template override: serve full HTML for studio pages, bypassing WP theme ──
 add_action( 'template_redirect', function () {

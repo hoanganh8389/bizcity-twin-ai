@@ -157,6 +157,8 @@ $platform_icons = [
 	'email'     => '📧',
 	'image'     => '🖼️',
 	'video'     => '🎬',
+	'general'   => '📄',
+	'website'   => '🌐',
 ];
 $platform_labels = [
 	'facebook'  => 'Facebook',
@@ -167,6 +169,8 @@ $platform_labels = [
 	'email'     => 'Email',
 	'image'     => 'Ảnh QC',
 	'video'     => 'Video',
+	'general'   => 'Nội dung',
+	'website'   => 'Website',
 ];
 
 // Stage colors (gradient pairs)
@@ -194,6 +198,9 @@ if ( ! empty( $chunks ) ) {
 		$platforms[ $p ][] = $chunk;
 	}
 }
+// Platform tabs are only meaningful when there are multiple distinct social platforms.
+// For document/roadmap/SOP mode (all 'general'), the stepper already shows everything.
+$all_general = ! empty( $platforms ) && array_keys( $platforms ) === [ 'general' ];
 ?>
 <style>
 
@@ -206,31 +213,53 @@ if ( ! empty( $chunks ) ) {
      <?php if ( ! empty( $form_images ) ) : ?>data-form-images="<?php echo esc_attr( wp_json_encode( $form_images ) ); ?>"<?php endif; ?>>
 
 	<!-- ── Header ── -->
-	<div class="bzcc-result-header">
-		<div class="bzcc-result-header__icon <?php echo $is_pending ? 'bzcc-result-header__icon--loading' : ''; ?>">
-			<?php if ( $is_complete ) : ?>
-				<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2.5"><path d="M20 6 9 17l-5-5"/></svg>
-			<?php elseif ( $is_pending ) : ?>
-				<div class="bzcc-pulse-ring"></div>
-				<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2"><path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48 2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48 2.83-2.83"/></svg>
-			<?php else : ?>
-				<span style="font-size:32px;">🎉</span>
-			<?php endif; ?>
+	<?php if ( $is_pending ) : ?>
+	<div class="bzcc-result-header bzcc-no-export" id="bzcc-result-header-loading">
+		<div class="bzcc-result-header__icon bzcc-result-header__icon--loading">
+			<div class="bzcc-pulse-ring"></div>
+			<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2"><path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48 2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48 2.83-2.83"/></svg>
 		</div>
-		<h2 class="bzcc-result-header__title">
-			<?php if ( $is_pending ) : ?>
-				AI đang tạo nội dung...
-			<?php else : ?>
-				Nội dung đã sẵn sàng!
-			<?php endif; ?>
-		</h2>
-		<p class="bzcc-result-header__sub">
-			<?php if ( $is_pending ) : ?>
-				Vui lòng chờ trong giây lát
-			<?php else : ?>
-				Copy và sử dụng ngay
-			<?php endif; ?>
-		</p>
+		<h2 class="bzcc-result-header__title">AI đang tạo nội dung...</h2>
+		<p class="bzcc-result-header__sub">Vui lòng chờ trong giây lát</p>
+	</div>
+	<?php endif; ?>
+	<?php
+	// Build template title for export + display
+	$result_title = '';
+	if ( $template ) {
+		$result_title = ( $template->icon_emoji ? $template->icon_emoji . ' ' : '' ) . $template->title;
+	}
+	if ( ! $result_title ) {
+		$result_title = $file->title ?: 'Nội dung #' . (int) $file->id;
+	}
+
+	// Extract key form fields for summary (skip internal/empty fields)
+	$skip_keys    = [ 'template_id', 'file_id', 'nonce', '_wp_nonce' ];
+	$summary_items = [];
+	foreach ( $form_data as $key => $val ) {
+		if ( in_array( $key, $skip_keys, true ) || empty( $val ) ) continue;
+		if ( substr( $key, -4 ) === '_url' ) continue; // skip file URLs
+		$str_val = is_array( $val ) ? implode( ', ', $val ) : (string) $val;
+		if ( mb_strlen( $str_val ) > 120 ) $str_val = mb_substr( $str_val, 0, 120 ) . '…';
+		$label = ucwords( str_replace( [ '_', '-' ], ' ', $key ) );
+		$summary_items[] = [ 'label' => $label, 'value' => $str_val ];
+	}
+	?>
+	<div class="bzcc-result-header bzcc-result-header--info" data-export-title="<?php echo esc_attr( wp_strip_all_tags( $result_title ) ); ?>">
+		<h2 class="bzcc-result-header__title"><?php echo esc_html( $result_title ); ?></h2>
+		<?php if ( $template && $template->description ) : ?>
+			<p class="bzcc-result-header__sub"><?php echo esc_html( $template->description ); ?></p>
+		<?php endif; ?>
+		<?php if ( ! empty( $summary_items ) ) : ?>
+		<div class="bzcc-result-summary bzcc-no-export">
+			<?php foreach ( $summary_items as $item ) : ?>
+			<div class="bzcc-result-summary__item">
+				<span class="bzcc-result-summary__label"><?php echo esc_html( $item['label'] ); ?></span>
+				<span class="bzcc-result-summary__value"><?php echo esc_html( $item['value'] ); ?></span>
+			</div>
+			<?php endforeach; ?>
+		</div>
+		<?php endif; ?>
 	</div>
 
 	<!-- ── Vertical Stepper (outline progress) ── -->
@@ -353,10 +382,56 @@ if ( ! empty( $chunks ) ) {
 		<?php endif; ?>
 	</div>
 
-	<?php if ( ! empty( $platforms ) ) : ?>
+	<!-- ══════════════════════════════════════
+	     Chat Prompt Bar — Continue generating
+	     ══════════════════════════════════════ -->
+	<div id="bzcc-chatbar" class="bzcc-chatbar">
+		<div class="bzcc-chatbar__inner">
+			<div class="bzcc-chatbar__input-wrap">
+				<textarea id="bzcc-chatbar-input"
+				          class="bzcc-chatbar__input"
+				          placeholder="Viết thêm nội dung, chỉnh sửa, hoặc yêu cầu bổ sung..."
+				          rows="1"></textarea>
+				<div class="bzcc-chatbar__actions">
+					<button type="button" id="bzcc-chatbar-send" class="bzcc-chatbar__send" disabled>
+						<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+						<span>Gửi</span>
+					</button>
+				</div>
+			</div>
+			<div class="bzcc-chatbar__toolbar">
+				<div class="bzcc-chatbar__option">
+					<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.376 3.622a1 1 0 0 1 3.002 3.002L7.368 18.635a2 2 0 0 1-.855.506l-2.872.838a.5.5 0 0 1-.62-.62l.838-2.872a2 2 0 0 1 .506-.855z"/></svg>
+					<span>Giọng điệu</span>
+					<select id="bzcc-chatbar-tone" class="bzcc-chatbar__select">
+						<option value="">Mặc định</option>
+						<option value="professional">Chuyên nghiệp</option>
+						<option value="friendly">Thân thiện</option>
+						<option value="humorous">Hài hước</option>
+						<option value="persuasive">Thuyết phục</option>
+						<option value="inspiring">Truyền cảm hứng</option>
+						<option value="serious">Nghiêm túc</option>
+						<option value="warm">Ấm áp</option>
+					</select>
+				</div>
+				<div class="bzcc-chatbar__option">
+					<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+					<span>Độ dài</span>
+					<select id="bzcc-chatbar-length" class="bzcc-chatbar__select">
+						<option value="">Tự động</option>
+						<option value="short">Ngắn gọn</option>
+						<option value="medium">Trung bình</option>
+						<option value="long">Chi tiết</option>
+					</select>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<?php if ( ! empty( $platforms ) && ! $all_general ) : ?>
 	<!-- ══════════════════════════════════════
 	     Platform Tabs + Content Cards
-	     (shown when content is generated)
+	     (shown for multi-platform campaign mode only)
 	     ══════════════════════════════════════ -->
 	<div class="bzcc-platforms" id="bzcc-platforms" <?php echo $is_pending ? 'style="display:none;"' : ''; ?>>
 		<!-- Stage Filter -->

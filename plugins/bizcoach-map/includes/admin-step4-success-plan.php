@@ -19,8 +19,9 @@ if (!defined('ABSPATH')) exit;
  * ADMIN MENU: Bước 4 – Success Plan
  * =====================================================================*/
 add_action('admin_menu', function () {
+  // Phase 7.1: ẩn submenu khỏi navigation chính, nhưng vẫn giữ page callable trực tiếp.
   add_submenu_page(
-    'bccm_root',
+    null,
     'Bước 4: Success Plan',
     'Bước 4: Success Plan',
     'edit_posts',

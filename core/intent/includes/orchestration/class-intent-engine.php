@@ -11,6 +11,13 @@
 /**
  * BizCity Intent — Main Engine (Orchestrator)
  *
+ * @deprecated Since Phase 1.11 — Shell Engine (đang active 100%) bypass toàn bộ logic trong file này.
+ *   - Shell intercept tại process() line ~135: `BizCity_Intent_Engine_Shell::should_handle()` return true.
+ *   - Smart Classifier (2-mode: single|multi) thay thế legacy 5-mode classifier.
+ *   - 6488 dòng code sau line 135 là DEAD CODE khi Shell ON.
+ *   - File này GIỮ LẠI vì class `BizCity_Intent_Engine` vẫn là entry point (process() delegate to Shell).
+ *   - KHÔNG sửa logic trong file này. Mọi thay đổi → class-intent-engine-shell.php.
+ *
  * The central coordinator that ties all components together:
  *   Conversation Manager ↔ Intent Router ↔ Flow Planner ↔ Tool Registry ↔ Stream Adapter
  *

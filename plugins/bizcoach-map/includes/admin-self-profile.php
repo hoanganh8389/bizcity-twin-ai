@@ -19,7 +19,7 @@ if (!defined('ABSPATH')) exit;
  * =====================================================================*/
 add_action('admin_menu', function () {
   add_submenu_page(
-    'bccm_root',
+    'bccm_user_profiles',
     'Bước 1: Hồ sơ & Chiêm tinh',
     'Bước 1: Hồ sơ & Chiêm tinh',
     'edit_posts',

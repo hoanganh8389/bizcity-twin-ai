@@ -19,8 +19,9 @@ if (!defined('ABSPATH')) exit;
  * ADMIN MENU: Bước 3 – Tạo Trợ lý
  * =====================================================================*/
 add_action('admin_menu', function () {
+  // Phase 7.1: ẩn submenu khỏi navigation chính, nhưng vẫn giữ page callable trực tiếp.
   add_submenu_page(
-    'bccm_root',
+    null,
     'Bước 3: Tạo Trợ lý',
     'Bước 3: Tạo Trợ lý',
     'edit_posts',

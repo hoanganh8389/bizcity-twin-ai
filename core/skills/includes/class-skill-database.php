@@ -37,7 +37,7 @@ class BizCity_Skill_Database {
 	private $table;
 
 	/** @var string Schema version — bump when adding migrations. */
-	const SCHEMA_VERSION = '1.3.0';
+	const SCHEMA_VERSION = '1.4.0';
 
 	/** @var string wp_options key */
 	const SCHEMA_VERSION_KEY = 'bizcity_skills_db_version';
@@ -80,7 +80,7 @@ class BizCity_Skill_Database {
 
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 
-		$sql = "CREATE TABLE IF NOT EXISTS {$this->table} (
+		$sql = "CREATE TABLE {$this->table} (
 			id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 			skill_key       VARCHAR(128)    NOT NULL COMMENT 'slug unique: marketing-blog-v1',
 			user_id         BIGINT UNSIGNED DEFAULT 0 COMMENT '0=global, >0=per-user',
@@ -241,6 +241,24 @@ class BizCity_Skill_Database {
 			"SELECT * FROM {$this->table} WHERE status = 'active' AND FIND_IN_SET( %s, REPLACE( REPLACE( slash_commands, '/', '' ), ' ', '' ) ) > 0 LIMIT 1",
 			$command
 		), ARRAY_A );
+
+		if ( $row ) {
+			error_log( '[SkillDB] get_by_slash: FIND_IN_SET hit | cmd=' . $command . ' | key=' . ( $row['skill_key'] ?? '' ) );
+			return $row;
+		}
+
+		// Fallback: frontend sends skill_key (e.g. cc_slug) but slash_commands stores just the slug
+		$row = $wpdb->get_row( $wpdb->prepare(
+			"SELECT * FROM {$this->table} WHERE status = 'active' AND skill_key = %s LIMIT 1",
+			$command
+		), ARRAY_A );
+
+		if ( $row ) {
+			error_log( '[SkillDB] get_by_slash: skill_key fallback hit | cmd=' . $command . ' | key=' . ( $row['skill_key'] ?? '' ) );
+		} else {
+			error_log( '[SkillDB] get_by_slash: NO MATCH | cmd=' . $command );
+		}
+
 		return $row ?: null;
 	}
 
@@ -394,14 +412,24 @@ class BizCity_Skill_Database {
 		$slashes  = array_filter( array_map( 'trim', explode( ',', $row['slash_commands'] ?? '' ) ) );
 		$modes    = array_filter( array_map( 'trim', explode( ',', $row['modes'] ?? '' ) ) );
 
-		// Slash command exact match (+30)
+		// Slash command exact match (+30) — checks slash_commands column AND skill_key
 		if ( ! empty( $criteria['slash_command'] ) ) {
-			$cmd = ltrim( $criteria['slash_command'], '/' );
+			$cmd = strtolower( ltrim( $criteria['slash_command'], '/' ) );
+			$matched_slash = false;
 			foreach ( $slashes as $sc ) {
-				if ( strtolower( ltrim( $sc, '/' ) ) === strtolower( $cmd ) ) {
-					$score += 30;
+				if ( strtolower( ltrim( $sc, '/' ) ) === $cmd ) {
+					$matched_slash = true;
 					break;
 				}
+			}
+			// Fallback: skill_key match (virtual skills use skill_key as implicit slash)
+			if ( ! $matched_slash && ! empty( $row['skill_key'] ) ) {
+				if ( strtolower( $row['skill_key'] ) === $cmd ) {
+					$matched_slash = true;
+				}
+			}
+			if ( $matched_slash ) {
+				$score += 30;
 			}
 		}
 

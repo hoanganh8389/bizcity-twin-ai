@@ -57,6 +57,46 @@ add_action( 'admin_menu', function() {
 
     /* Note: "Quản lý Mẫu Người" is auto-registered by CPT bztimg_model
        with show_in_menu => 'bztimg-dashboard' in class-model-manager.php */
+
+    /* Editor Assets — Import shapes, frames, fonts, text presets */
+    add_submenu_page(
+        'bztimg-dashboard',
+        'Editor Assets',
+        '📦 Editor Assets',
+        'manage_options',
+        'bztimg-editor-assets',
+        'bztimg_admin_editor_assets_page'
+    );
+
+    /* Editor Templates — CRUD management for canva-editor templates */
+    add_submenu_page(
+        'bztimg-dashboard',
+        'Editor Templates',
+        '🎨 Editor Templates',
+        'manage_options',
+        'bztimg-editor-templates',
+        'bztimg_admin_editor_templates_page'
+    );
+
+    /* Phase 3.6 — AI Template Generator */
+    add_submenu_page(
+        'bztimg-dashboard',
+        'AI Templates',
+        '🤖 AI Templates',
+        'manage_options',
+        'bztimg-ai-templates',
+        'bztimg_admin_ai_templates_page'
+    );
+
+    /* Phase 3.8 — Profile Studio Templates */
+    add_submenu_page(
+        'bztimg-dashboard',
+        'Profile Templates',
+        '🎨 Profile Templates',
+        'manage_options',
+        'bztimg-profile-templates',
+        'bztimg_admin_profile_templates_page'
+    );
 } );
 
 function bztimg_admin_dashboard() {
@@ -110,17 +150,39 @@ function bztimg_editor_page() {
     $nonce      = wp_create_nonce( 'wp_rest' );
     $user_id    = get_current_user_id();
     $site_url   = site_url();
+    $project_id = isset($_GET['project_id']) ? (int) $_GET['project_id'] : '';
+
+    // Pass config via URL params for immediate init (avoids postMessage race condition)
+    $editor_params = array(
+        'restUrl'   => $rest_url,
+        'nonce'     => $nonce,
+        'userId'    => $user_id,
+        'siteUrl'   => $site_url,
+        'logoUrl'   => 'https://media.bizcity.vn/uploads/sites/1258/2026/04/bizcanva.png',
+        'pluginUrl' => BZTIMG_URL . 'design-editor-build/',
+    );
+    if ( $project_id ) {
+        $editor_params['projectId'] = $project_id;
+    }
+    $editor_url_with_params = $editor_url . '?' . http_build_query( $editor_params );
     ?>
     <iframe
         id="bztimg-editor-frame"
-        src="<?php echo esc_url( $editor_url ); ?>"
+        src="<?php echo esc_url( $editor_url_with_params ); ?>"
         style="position:fixed;inset:0;z-index:99999;width:100%;height:100%;border:0;background:#fff;"
         allow="clipboard-read; clipboard-write"
     ></iframe>
+    <?php
+    /* Phase 3.7 — AI Image Overlay Dialog (rendered above iframe) */
+    $dialog_partial = BZTIMG_DIR . 'views/partial-ai-image-dialog.php';
+    if ( file_exists( $dialog_partial ) ) {
+        include $dialog_partial;
+    }
+    ?>
     <script>
     (function(){
         var frame = document.getElementById('bztimg-editor-frame');
-        // Send WP config to editor once it signals ready
+        // Also keep postMessage as secondary init method
         window.addEventListener('message', function(e) {
             if (e.data && e.data.type === 'bztimg:ready') {
                 frame.contentWindow.postMessage({
@@ -130,7 +192,7 @@ function bztimg_editor_page() {
                         nonce:     <?php echo wp_json_encode( $nonce ); ?>,
                         userId:    <?php echo (int) $user_id; ?>,
                         siteUrl:   <?php echo wp_json_encode( $site_url ); ?>,
-                        projectId: <?php echo isset($_GET['project_id']) ? (int) $_GET['project_id'] : 'null'; ?>
+                        projectId: <?php echo $project_id ? (int) $project_id : 'null'; ?>
                     }
                 }, '*');
             }
@@ -140,12 +202,6 @@ function bztimg_editor_page() {
     <?php
 }
 
-add_action( 'admin_enqueue_scripts', function( $hook ) {
-    if ( strpos( $hook, 'bztimg-editor' ) === false ) return;
-
-    /* Hide WP admin chrome so the editor goes full-screen */
-    echo '<style>#wpcontent{padding:0!important}#wpbody-content{padding-bottom:0!important}#adminmenumain,#wpadminbar,#wpfooter,.notice,.updated,.error:not(#bztimg-editor-frame){display:none!important}</style>';
-} );
 
 /* ═══════════════════════════════════════════════
    TEMPLATES ADMIN PAGE
@@ -167,6 +223,167 @@ function bztimg_admin_categories_page() {
         echo '<div class="wrap"><h1>Categories</h1><p>View file not found.</p></div>';
     }
 }
+
+/* ═══════════════════════════════════════════════
+   EDITOR ASSETS IMPORT PAGE
+   ═══════════════════════════════════════════════ */
+function bztimg_admin_editor_assets_page() {
+    wp_enqueue_media(); // For WP Media Library picker
+    $view_file = BZTIMG_DIR . 'admin/views/admin-editor-assets.php';
+    if ( file_exists( $view_file ) ) {
+        include $view_file;
+    } else {
+        echo '<div class="wrap"><h1>Editor Assets</h1><p>View file not found.</p></div>';
+    }
+}
+
+/* ═══════════════════════════════════════════════
+   EDITOR TEMPLATES ADMIN PAGE (CRUD)
+   ═══════════════════════════════════════════════ */
+function bztimg_admin_editor_templates_page() {
+    wp_enqueue_media();
+    $view_file = BZTIMG_DIR . 'admin/views/admin-editor-templates.php';
+    if ( file_exists( $view_file ) ) {
+        include $view_file;
+    } else {
+        echo '<div class="wrap"><h1>Editor Templates</h1><p>View file not found.</p></div>';
+    }
+}
+
+/* ═══════════════════════════════════════════════
+   AI TEMPLATE GENERATOR PAGE (Phase 3.6)
+   ═══════════════════════════════════════════════ */
+function bztimg_admin_ai_templates_page() {
+    $view_file = BZTIMG_DIR . 'admin/views/admin-ai-templates.php';
+    if ( file_exists( $view_file ) ) {
+        include $view_file;
+    } else {
+        echo '<div class="wrap"><h1>AI Templates</h1><p>View file not found.</p></div>';
+    }
+}
+
+/* ═══════════════════════════════════════════════
+   PROFILE TEMPLATES ADMIN PAGE (Phase 3.8)
+   ═══════════════════════════════════════════════ */
+function bztimg_admin_profile_templates_page() {
+    wp_enqueue_media();
+    $view_file = BZTIMG_DIR . 'admin/views/admin-profile-templates.php';
+    if ( file_exists( $view_file ) ) {
+        include $view_file;
+    } else {
+        echo '<div class="wrap"><h1>Profile Templates</h1><p>View file not found.</p></div>';
+    }
+}
+
+/* ── Admin Post: Auto Seed from mock-api ── */
+add_action( 'admin_post_bztimg_seed_assets', function() {
+    check_admin_referer( 'bztimg_seed_assets' );
+    if ( ! current_user_can( 'manage_options' ) ) {
+        wp_die( 'Forbidden', 403 );
+    }
+
+    @set_time_limit( 600 );
+    @ini_set( 'memory_limit', '512M' );
+
+    if ( ! function_exists( 'bztimg_seed_all_editor_assets' ) ) {
+        wp_redirect( add_query_arg( array(
+            'page'      => 'bztimg-editor-assets',
+            'seed_error' => urlencode( 'Seed function not available.' ),
+        ), admin_url( 'admin.php' ) ) );
+        exit;
+    }
+
+    $result = bztimg_seed_all_editor_assets();
+
+    if ( ! empty( $result['error'] ) ) {
+        wp_redirect( add_query_arg( array(
+            'page'       => 'bztimg-editor-assets',
+            'seed_error' => urlencode( $result['error'] ),
+        ), admin_url( 'admin.php' ) ) );
+        exit;
+    }
+
+    $total  = array_sum( $result );
+
+    wp_redirect( add_query_arg( array(
+        'page'       => 'bztimg-editor-assets',
+        'seed_done'  => 1,
+        'seed_total' => $total,
+        'shapes'     => $result['shapes'],
+        'frames'     => $result['frames'],
+        'fonts'      => $result['fonts'],
+        'texts'      => $result['texts'],
+        'templates'  => $result['templates'],
+    ), admin_url( 'admin.php' ) ) );
+    exit;
+} );
+
+/* ── Admin Post: Rewrite localhost URLs in existing DB data ── */
+add_action( 'admin_post_bztimg_rewrite_urls', function() {
+    check_admin_referer( 'bztimg_rewrite_urls' );
+    if ( ! current_user_can( 'manage_options' ) ) {
+        wp_die( 'Forbidden', 403 );
+    }
+
+    @set_time_limit( 600 );
+    @ini_set( 'memory_limit', '512M' );
+
+    if ( ! function_exists( 'bztimg_rewrite_localhost_urls_in_data' ) ) {
+        wp_redirect( add_query_arg( array(
+            'page'          => 'bztimg-editor-assets',
+            'rewrite_error' => urlencode( 'Rewrite function not available.' ),
+        ), admin_url( 'admin.php' ) ) );
+        exit;
+    }
+
+    global $wpdb;
+    $updated = 0;
+
+    // Rewrite templates
+    $tpl_table = $wpdb->prefix . 'bztimg_editor_templates';
+    $rows = $wpdb->get_results( "SELECT id, data_json FROM {$tpl_table} WHERE data_json LIKE '%localhost:4000%'" );
+    foreach ( $rows as $row ) {
+        $new_data = bztimg_rewrite_localhost_urls_in_data( $row->data_json );
+        if ( $new_data !== $row->data_json ) {
+            $wpdb->update( $tpl_table, array(
+                'data_json'    => $new_data,
+                'content_hash' => md5( $new_data ),
+            ), array( 'id' => $row->id ), array( '%s', '%s' ), array( '%d' ) );
+            $updated++;
+        }
+    }
+
+    // Rewrite text presets
+    $txt_table = $wpdb->prefix . 'bztimg_editor_text_presets';
+    $txt_rows = $wpdb->get_results( "SELECT id, data_json FROM {$txt_table} WHERE data_json LIKE '%localhost:4000%'" );
+    foreach ( $txt_rows as $row ) {
+        $new_data = bztimg_rewrite_localhost_urls_in_data( $row->data_json );
+        if ( $new_data !== $row->data_json ) {
+            $wpdb->update( $txt_table, array(
+                'data_json'    => $new_data,
+                'content_hash' => md5( $new_data ),
+            ), array( 'id' => $row->id ), array( '%s', '%s' ), array( '%d' ) );
+            $updated++;
+        }
+    }
+
+    wp_redirect( add_query_arg( array(
+        'page'           => 'bztimg-editor-assets',
+        'rewrite_done'   => 1,
+        'rewrite_count'  => $updated,
+    ), admin_url( 'admin.php' ) ) );
+    exit;
+} );
+
+/* ── AJAX: Save Hub URL ── */
+add_action( 'wp_ajax_bztimg_save_hub_url', function() {
+    check_ajax_referer( 'bztimg_hub', '_wpnonce' );
+    if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Forbidden' );
+
+    $hub_url = esc_url_raw( wp_unslash( $_POST['hub_url'] ?? '' ) );
+    update_option( 'bztimg_editor_hub_url', $hub_url );
+    wp_send_json_success( array( 'hub_url' => $hub_url ) );
+} );
 
 /* ═══════════════════════════════════════════════
    CHARACTER STUDIO ADMIN PAGE (Phase 3.4)
@@ -261,6 +478,35 @@ add_action( 'admin_enqueue_scripts', function( $hook ) {
     $screen = get_current_screen();
     if ( ! $screen || $screen->post_type !== BizCity_Model_Manager::CPT ) return;
     wp_enqueue_media();
+} );
+
+/* Phase 3.7 — Enqueue AI Image Dialog assets on the editor page */
+add_action( 'admin_enqueue_scripts', function( $hook ) {
+    if ( strpos( $hook, 'bztimg-editor' ) === false ) return;
+
+    wp_enqueue_media();
+    wp_enqueue_style(
+        'bztimg-ai-dialog',
+        BZTIMG_URL . 'assets/ai-image-dialog.css',
+        array(),
+        BZTIMG_VERSION
+    );
+    wp_enqueue_script(
+        'bztimg-ai-dialog',
+        BZTIMG_URL . 'assets/ai-image-dialog.js',
+        array(),
+        BZTIMG_VERSION,
+        true
+    );
+    wp_localize_script( 'bztimg-ai-dialog', 'BZTIMG_AI', array(
+        'restUrl'    => rest_url( 'image-editor/v1' ),
+        'toolUrl'    => rest_url( 'bztool-image/v1' ),
+        'nonce'      => wp_create_nonce( 'wp_rest' ),
+        'ajaxUrl'    => admin_url( 'admin-ajax.php' ),
+        'ajaxNonce'  => wp_create_nonce( 'bztimg_nonce' ),
+        'editorId'   => 'bztimg-editor-frame',
+        'hasWpMedia' => true,
+    ) );
 } );
 
 /* ═══════════════════════════════════════════════

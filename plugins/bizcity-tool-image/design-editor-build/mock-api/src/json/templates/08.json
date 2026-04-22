@@ -1,0 +1,354 @@
+[
+    {
+        "name": "",
+        "notes": "",
+        "layers": {
+            "ROOT": {
+                "type": {
+                    "resolvedName": "RootLayer"
+                },
+                "props": {
+                    "boxSize": {
+                        "width": 1640,
+                        "height": 924
+                    },
+                    "position": {
+                        "x": 0,
+                        "y": 0
+                    },
+                    "rotate": 0,
+                    "color": "rgb(253, 219, 210)",
+                    "image": null,
+                    "gradientBackground": null
+                },
+                "locked": false,
+                "child": [
+                    "ca_lFEX2s5",
+                    "ca_L0KZEhI",
+                    "ca_sV26nmi",
+                    "ca_GZ95ovt",
+                    "ca_DXeAtB9",
+                    "ca_Sfwrm9t",
+                    "ca_CdatrFp",
+                    "ca_WBWFWpN"
+                ],
+                "parent": null
+            },
+            "ca_lFEX2s5": {
+                "type": {
+                    "resolvedName": "FrameLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 9.347561176981124,
+                        "y": 375.31972975232475
+                    },
+                    "boxSize": {
+                        "width": 337.86903860608135,
+                        "height": 501.2893747864708,
+                        "x": 27.134834984626004,
+                        "y": 174.62828834984626
+                    },
+                    "rotate": 0,
+                    "clipPath": "path(\"M 337 0 L 215.733 500 L 0 500 L 119.855 0 L 337 0 Z\")",
+                    "scale": 1.0025787495729415,
+                    "image": {
+                        "boxSize": {
+                            "width": 337.00000000000006,
+                            "height": 505.5000000000001
+                        },
+                        "position": {
+                            "x": 0,
+                            "y": -2.7500000000000284
+                        },
+                        "rotate": 0,
+                        "thumb": "http://localhost:4000/images/photos/models/007.jpg",
+                        "url": "http://localhost:4000/images/photos/models/007.jpg"
+                    },
+                    "transparency": 1
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ROOT"
+            },
+            "ca_L0KZEhI": {
+                "type": {
+                    "resolvedName": "FrameLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 282.41554887769854,
+                        "y": 303.32451280664657
+                    },
+                    "boxSize": {
+                        "width": 337.86903860608135,
+                        "height": 501.2893747864708,
+                        "x": 27.134834984626004,
+                        "y": 174.62828834984626
+                    },
+                    "rotate": 0,
+                    "clipPath": "path(\"M 337 0 L 215.733 500 L 0 500 L 119.855 0 L 337 0 Z\")",
+                    "scale": 1.0025787495729415,
+                    "image": {
+                        "boxSize": {
+                            "width": 337.00000000000006,
+                            "height": 505.5000000000001
+                        },
+                        "position": {
+                            "x": 0,
+                            "y": -2.7500000000000284
+                        },
+                        "rotate": 0,
+                        "thumb": "http://localhost:4000/images/photos/models/007.jpg",
+                        "url": "http://localhost:4000/images/photos/models/002.jpg"
+                    },
+                    "transparency": 1
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ROOT"
+            },
+            "ca_sV26nmi": {
+                "type": {
+                    "resolvedName": "FrameLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 516.443563910155,
+                        "y": 375.3197297523247
+                    },
+                    "boxSize": {
+                        "width": 337.86903860608135,
+                        "height": 501.2893747864708,
+                        "x": 27.134834984626004,
+                        "y": 174.62828834984626
+                    },
+                    "rotate": 0,
+                    "clipPath": "path(\"M 337 0 L 215.733 500 L 0 500 L 119.855 0 L 337 0 Z\")",
+                    "scale": 1.0025787495729415,
+                    "image": {
+                        "boxSize": {
+                            "width": 337.00000000000006,
+                            "height": 505.5000000000001
+                        },
+                        "position": {
+                            "x": 0,
+                            "y": -2.7500000000000284
+                        },
+                        "rotate": 0,
+                        "thumb": "http://localhost:4000/images/photos/models/007.jpg",
+                        "url": "http://localhost:4000/images/photos/models/003.jpg"
+                    },
+                    "transparency": 1
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ROOT"
+            },
+            "ca_GZ95ovt": {
+                "type": {
+                    "resolvedName": "FrameLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 784.3868505517676,
+                        "y": 303.32451280664657
+                    },
+                    "boxSize": {
+                        "width": 337.86903860608135,
+                        "height": 501.2893747864708,
+                        "x": 27.134834984626004,
+                        "y": 174.62828834984626
+                    },
+                    "rotate": 0,
+                    "clipPath": "path(\"M 337 0 L 215.733 500 L 0 500 L 119.855 0 L 337 0 Z\")",
+                    "scale": 1.0025787495729415,
+                    "image": {
+                        "boxSize": {
+                            "width": 428.2213767882019,
+                            "height": 642.3320651823028
+                        },
+                        "position": {
+                            "x": 0,
+                            "y": -57.260334910023076
+                        },
+                        "rotate": 0,
+                        "thumb": "http://localhost:4000/images/photos/models/004.jpg",
+                        "url": "http://localhost:4000/images/photos/models/006.jpg"
+                    },
+                    "transparency": 1
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ROOT"
+            },
+            "ca_DXeAtB9": {
+                "type": {
+                    "resolvedName": "FrameLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 1019.4170191856401,
+                        "y": 375.31972975232475
+                    },
+                    "boxSize": {
+                        "width": 337.86903860608135,
+                        "height": 501.2893747864708,
+                        "x": 27.134834984626004,
+                        "y": 174.62828834984626
+                    },
+                    "rotate": 0,
+                    "clipPath": "path(\"M 337 0 L 215.733 500 L 0 500 L 119.855 0 L 337 0 Z\")",
+                    "scale": 1.0025787495729415,
+                    "image": {
+                        "boxSize": {
+                            "width": 371.1153116443682,
+                            "height": 556.6729674665524
+                        },
+                        "position": {
+                            "x": -34.11531164436814,
+                            "y": -53.92296746655232
+                        },
+                        "rotate": 0,
+                        "thumb": "http://localhost:4000/images/photos/models/004.jpg",
+                        "url": "http://localhost:4000/images/photos/models/005.jpg"
+                    },
+                    "transparency": 1
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ROOT"
+            },
+            "ca_Sfwrm9t": {
+                "type": {
+                    "resolvedName": "FrameLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 1288.1723169772974,
+                        "y": 303.32451280664657
+                    },
+                    "boxSize": {
+                        "width": 337.86903860608135,
+                        "height": 501.2893747864708,
+                        "x": 27.134834984626004,
+                        "y": 174.62828834984626
+                    },
+                    "rotate": 0,
+                    "clipPath": "path(\"M 337 0 L 215.733 500 L 0 500 L 119.855 0 L 337 0 Z\")",
+                    "scale": 1.0025787495729415,
+                    "image": {
+                        "boxSize": {
+                            "width": 337.00000000000006,
+                            "height": 505.5000000000001
+                        },
+                        "position": {
+                            "x": 0,
+                            "y": -2.7500000000000284
+                        },
+                        "rotate": 0,
+                        "thumb": "http://localhost:4000/images/photos/models/004.jpg",
+                        "url": "http://localhost:4000/images/photos/models/004.jpg"
+                    },
+                    "transparency": 1
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ROOT"
+            },
+            "ca_CdatrFp": {
+                "type": {
+                    "resolvedName": "TextLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 521.629636700975,
+                        "y": 32.17510595583309
+                    },
+                    "boxSize": {
+                        "width": 666.7219017877059,
+                        "height": 143.3033682801695,
+                        "x": 827.5276045111698,
+                        "y": 47.7896497880883
+                    },
+                    "scale": 2.27465663936777,
+                    "rotate": 0,
+                    "text": "<p style=\"text-align: center;font-family: 'Aboreto Regular';font-size: 45px;color: rgb(0, 0, 0);line-height: 1.4;letter-spacing: normal;\"><strong><span style=\"color: rgb(0, 0, 0);\">FASHION</span></strong></p>",
+                    "fonts": [
+                        {
+                            "family": "Aboreto",
+                            "name": "Aboreto Regular",
+                            "url": "http://fonts.gstatic.com/s/aboreto/v2/5DCXAKLhwDDQ4N8blKHeA2yuxSY.woff2",
+                            "style": "regular",
+                            "styles": []
+                        }
+                    ],
+                    "colors": [
+                        "rgb(0, 0, 0)"
+                    ],
+                    "fontSizes": [
+                        45
+                    ],
+                    "effect": null,
+                    "transparency": 1
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ROOT"
+            },
+            "ca_WBWFWpN": {
+                "type": {
+                    "resolvedName": "TextLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 689.7478186157216,
+                        "y": 173.24782511710902
+                    },
+                    "boxSize": {
+                        "width": 330.4855379582126,
+                        "height": 94.07428061565916,
+                        "x": 667.7693508811063,
+                        "y": 153.17198304706665
+                    },
+                    "scale": 2.0905395692368702,
+                    "rotate": 0,
+                    "text": "<p style=\"text-align: center;font-family: 'Amatic SC Regular';font-size: 32px;color: rgb(0, 0, 0);line-height: 1.4;letter-spacing: normal;\"><strong><span style=\"color: rgb(0, 0, 0);\">MODELS</span></strong></p>",
+                    "fonts": [
+                        {
+                            "family": "Amatic SC",
+                            "name": "Amatic SC Regular",
+                            "url": "http://fonts.gstatic.com/s/amaticsc/v26/TUZyzwprpvBS1izr_vO0CO6ecZQf1A.woff2",
+                            "style": "regular",
+                            "styles": [
+                                {
+                                    "family": "Amatic SC",
+                                    "name": "Amatic SC Bold 700",
+                                    "url": "http://fonts.gstatic.com/s/amaticsc/v26/TUZ3zwprpvBS1izr_vOMscG6fL8D3WTy-A.woff2",
+                                    "style": "700"
+                                },
+                                {
+                                    "family": "Amatic SC",
+                                    "name": "Amatic SC Bold 700",
+                                    "url": "http://fonts.gstatic.com/s/amaticsc/v26/TUZ3zwprpvBS1izr_vOMscG6fL8D3WTy-A.woff2",
+                                    "style": "700"
+                                }
+                            ]
+                        }
+                    ],
+                    "colors": [
+                        "rgb(0, 0, 0)"
+                    ],
+                    "fontSizes": [
+                        32
+                    ],
+                    "effect": null,
+                    "transparency": 1
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ROOT"
+            }
+        }
+    }
+]

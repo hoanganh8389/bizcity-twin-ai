@@ -84,6 +84,12 @@ class BizCity_Context_Collector {
 		// 1. Skill context
 		$payload['skill_context'] = $this->collect_skill_context( $skill, $skill_parsed );
 
+		$sc = $payload['skill_context'];
+		error_log( '[ContextCollector] skill_context=' . ( $sc ? 'YES' : 'NULL' )
+			. ( $sc ? ' | slug=' . ( $sc['slug'] ?? '?' )
+				. ' | tool_refs=[' . implode( ',', $sc['tool_refs'] ?? [] ) . ']'
+				. ' | strategy=' . ( $sc['strategy'] ?? '?' ) : '' ) );
+
 		// 2. Memory spec (session-scoped)
 		$payload['memory_spec'] = $this->collect_memory_spec( $user_id, $session_id, $conversation );
 
@@ -98,6 +104,7 @@ class BizCity_Context_Collector {
 
 		// 6. Tool registry (focused by skill tool_refs)
 		$prefer = $skill_parsed['tool_refs'] ?? [];
+		error_log( '[ContextCollector] tool_registry prefer=[' . implode( ',', $prefer ) . ']' );
 		$payload['tool_registry'] = $this->collect_tool_registry( $prefer );
 
 		return $payload;

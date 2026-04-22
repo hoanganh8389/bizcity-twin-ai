@@ -16,7 +16,7 @@ defined( 'ABSPATH' ) || exit;
  * memory_notes, webchat_studio_outputs
  */
 class BCN_Schema_Extend {
-    const SCHEMA_VERSION = '5.5.0';
+    const SCHEMA_VERSION = '5.6.0';
     const OPTION_KEY     = 'bcn_schema_version';
 
     public static function table_sources() {
@@ -66,6 +66,7 @@ class BCN_Schema_Extend {
             self::migrate_v53();
             self::migrate_v54();
             self::migrate_v55();
+            self::migrate_v56();
             update_option( self::OPTION_KEY, self::SCHEMA_VERSION );
         }
     }
@@ -111,6 +112,44 @@ class BCN_Schema_Extend {
         if ( ! in_array( 'session_id', $cols, true ) ) {
             $wpdb->query( "ALTER TABLE `{$t}` ADD COLUMN `session_id` VARCHAR(128) NOT NULL DEFAULT '' AFTER `project_id`" );
             $wpdb->query( "ALTER TABLE `{$t}` ADD KEY `idx_session` (`session_id`)" );
+        }
+    }
+
+    /**
+     * Migration for v5.6.0 — Add media columns to studio_outputs for unified output.
+     * Supports image/video/design/document outputs from all 5 workshops.
+     *
+     * New columns:
+     *   media_type    — '' (text) | 'image' | 'video' | 'design' | 'document'
+     *   attachment_id  — WP Media Library attachment ID (0 if external)
+     *   file_url       — Canonical file URL (WP attachment URL or external)
+     *   thumbnail_url  — Preview thumbnail URL
+     *   workshop       — Source workshop: 'notebook' | 'canva-editor' | 'image-studio'
+     *                    | 'video-studio' | 'content-creator'
+     */
+    private static function migrate_v56() {
+        global $wpdb;
+        $t = self::table_studio_outputs();
+        if ( ! $wpdb->get_var( "SHOW TABLES LIKE '{$t}'" ) ) return;
+
+        $cols = $wpdb->get_col( "DESCRIBE `{$t}`", 0 );
+
+        if ( ! in_array( 'media_type', $cols, true ) ) {
+            $wpdb->query( "ALTER TABLE `{$t}` ADD COLUMN `media_type` VARCHAR(20) NOT NULL DEFAULT '' AFTER `version`" );
+            $wpdb->query( "ALTER TABLE `{$t}` ADD KEY `idx_media` (`media_type`)" );
+        }
+        if ( ! in_array( 'attachment_id', $cols, true ) ) {
+            $wpdb->query( "ALTER TABLE `{$t}` ADD COLUMN `attachment_id` BIGINT UNSIGNED NOT NULL DEFAULT 0 AFTER `media_type`" );
+        }
+        if ( ! in_array( 'file_url', $cols, true ) ) {
+            $wpdb->query( "ALTER TABLE `{$t}` ADD COLUMN `file_url` VARCHAR(500) NOT NULL DEFAULT '' AFTER `attachment_id`" );
+        }
+        if ( ! in_array( 'thumbnail_url', $cols, true ) ) {
+            $wpdb->query( "ALTER TABLE `{$t}` ADD COLUMN `thumbnail_url` VARCHAR(500) NOT NULL DEFAULT '' AFTER `file_url`" );
+        }
+        if ( ! in_array( 'workshop', $cols, true ) ) {
+            $wpdb->query( "ALTER TABLE `{$t}` ADD COLUMN `workshop` VARCHAR(30) NOT NULL DEFAULT '' AFTER `thumbnail_url`" );
+            $wpdb->query( "ALTER TABLE `{$t}` ADD KEY `idx_workshop` (`workshop`, `user_id`)" );
         }
     }
 
@@ -398,6 +437,11 @@ class BCN_Schema_Extend {
             status VARCHAR(20) NOT NULL DEFAULT 'ready',
             error_message TEXT,
             version INT UNSIGNED NOT NULL DEFAULT 1,
+            media_type VARCHAR(20) NOT NULL DEFAULT '',
+            attachment_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+            file_url VARCHAR(500) NOT NULL DEFAULT '',
+            thumbnail_url VARCHAR(500) NOT NULL DEFAULT '',
+            workshop VARCHAR(30) NOT NULL DEFAULT '',
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             PRIMARY KEY (id),
@@ -405,7 +449,9 @@ class BCN_Schema_Extend {
             KEY idx_session (session_id),
             KEY idx_user (user_id),
             KEY idx_post (external_post_id),
-            KEY idx_caller (caller)
+            KEY idx_caller (caller),
+            KEY idx_workshop (workshop, user_id),
+            KEY idx_media (media_type)
         ) {$charset};";
 
         // ── webchat_project_skeletons ──

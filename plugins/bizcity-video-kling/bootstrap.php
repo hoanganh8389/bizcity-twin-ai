@@ -31,7 +31,7 @@ add_action( 'init', 'bizcity_video_kling_run_migrations', 5 );
 
 function bizcity_video_kling_run_migrations() {
     $current_version = get_option( 'bizcity_video_kling_db_version', '0' );
-    $target_version  = '2.1.0';
+    $target_version  = '2.2.0';
 
     // Already up to date — skip (cheap check on every request)
     if ( version_compare( $current_version, $target_version, '>=' ) ) {
@@ -50,6 +50,13 @@ function bizcity_video_kling_run_migrations() {
     if ( version_compare( $current_version, '2.1.0', '<' ) ) {
         BizCity_Video_Kling_Database::create_tables();
         $current_version = '2.1.0';
+        update_option( 'bizcity_video_kling_db_version', $current_version );
+    }
+
+    // v2.2.0: projects table (video editor persistence)
+    if ( version_compare( $current_version, '2.2.0', '<' ) ) {
+        BizCity_Video_Kling_Database::create_projects_table();
+        $current_version = '2.2.0';
         update_option( 'bizcity_video_kling_db_version', $current_version );
     }
 }
@@ -86,6 +93,14 @@ BizCity_TwitCanva_Integration::init();
 // ── 4c. TwitCanva AJAX bridge (frontend SPA → PHP) ──
 require_once BIZCITY_VIDEO_KLING_DIR . 'includes/class-twitcanva-ajax.php';
 BizCity_TwitCanva_Ajax::init();
+
+// ── 4d. Standalone Video Editor page at /video-editor/ ──
+require_once BIZCITY_VIDEO_KLING_DIR . 'includes/class-video-editor-page.php';
+BizCity_Video_Editor_Page::init();
+
+// ── 4e. Standalone Avatar LipSync page at /avatar/ ──
+require_once BIZCITY_VIDEO_KLING_DIR . 'includes/class-avatar-page.php';
+BizCity_Avatar_Page::init();
 
 // ── 5. Workflow actions (WAIC) ──
 add_action('plugins_loaded', 'bizcity_video_kling_register_workflow_actions', 20);

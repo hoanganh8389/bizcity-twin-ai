@@ -1,0 +1,83 @@
+{
+  "version": "1.0",
+  "plugin": "bizcity-content-creator",
+  "exported": "2026-04-16T12:00:00Z",
+  "templates": [
+    {
+      "slug": "10-hook-video-viral",
+      "category_id": "0",
+      "title": "Tạo 10 hook cho video",
+      "description": "Trợ lý này sẽ giúp bạn có được 10 ý tưởng để bắt đầu phần kịch bản video hấp dẫn, giúp bạn thu hút người xem ngay trong 3 giây đầu tiên.",
+      "icon_url": "",
+      "icon_emoji": "🪝",
+      "form_fields": [
+        {
+          "slug": "video_topic",
+          "label": "Nhập vào chủ đề, tiêu đề video của bạn",
+          "type": "textarea",
+          "placeholder": "VD: review kem chống nắng mùa hè / 5 sai lầm khi giảm cân / cách kiếm 10 triệu đầu tiên từ TikTok...",
+          "required": true,
+          "grid": "half",
+          "sort_order": 1,
+          "description": ""
+        },
+        {
+          "slug": "target_audience",
+          "label": "Đối tượng người xem bạn nhắm tới",
+          "type": "textarea",
+          "placeholder": "VD: phụ nữ 20-35 tuổi / sinh viên / doanh nhân trẻ / mẹ bỉm sữa...",
+          "required": false,
+          "grid": "half",
+          "sort_order": 2,
+          "description": ""
+        },
+        {
+          "slug": "tone_of_voice",
+          "label": "Giọng điệu",
+          "type": "select",
+          "placeholder": "",
+          "required": false,
+          "grid": "half",
+          "sort_order": 3,
+          "description": "",
+          "options": [
+            { "value": "default", "label": "Mặc định" },
+            { "value": "interactive", "label": "Tương tác" },
+            { "value": "convince", "label": "Thuyết phục" },
+            { "value": "humorous", "label": "Hài hước" },
+            { "value": "playful", "label": "Vui nhộn" },
+            { "value": "polite", "label": "Lịch sự và Tôn trọng" },
+            { "value": "comfortable", "label": "Thoải mái" },
+            { "value": "attractive", "label": "Cuốn hút" },
+            { "value": "inspire", "label": "Truyền cảm hứng" },
+            { "value": "curiosity", "label": "Tạo sự tò mò" },
+            { "value": "authoritative", "label": "Quyền lực" },
+            { "value": "confident", "label": "Tự tin" },
+            { "value": "emotional", "label": "Xúc động" },
+            { "value": "ironic", "label": "Châm biếm" },
+            { "value": "warm", "label": "Ấm áp" },
+            { "value": "serious", "label": "Nghiêm túc" }
+          ]
+        }
+      ],
+
+      "system_prompt": "Bạn là chuyên gia sáng tạo nội dung video ngắn (TikTok, Reels, Shorts) hàng đầu Việt Nam. Nhiệm vụ: tạo 10 HOOK THU HÚT trong 3 giây đầu tiên cho video.\n\n## THÔNG TIN VIDEO\n- Chủ đề / tiêu đề: {{video_topic}}\n- Đối tượng người xem: {{target_audience}}\n- Giọng điệu: {{tone_of_voice}}\n\n## YÊU CẦU OUTPUT\nTạo **10 hook** hoàn toàn khác nhau. Mỗi hook gồm:\n\n### Cấu trúc mỗi hook:\n1. **🪝 Câu hook** — viết NGUYÊN VĂN câu mở đầu (dưới 3 giây nói/đọc được)\n2. **🎯 Kiểu hook** — phân loại: Câu hỏi / Tuyên bố gây sốc / Số liệu / Thách thức / Bí mật / Phản bác / Kể chuyện / Hành động / Đau điểm / Lợi ích\n3. **📝 Cách thể hiện** — hướng dẫn cụ thể:\n   - Biểu cảm khuôn mặt / body language\n   - Text overlay (nếu có) — nội dung + font style gợi ý\n   - Góc quay / chuyển động camera gợi ý\n4. **🎵 Sound gợi ý** — kiểu nhạc/sound phù hợp (trending sound hoặc original)\n5. **💡 Vì sao hook này hiệu quả** — giải thích tâm lý người xem (1-2 câu)\n\n## 10 KIỂU HOOK PHẢI BAO GỒM (mỗi kiểu ít nhất 1):\n1. **Câu hỏi provocative** — \"Bạn có biết...?\" / \"Tại sao...?\"\n2. **Tuyên bố gây sốc** — phản trực giác, đảo ngược niềm tin phổ biến\n3. **Số liệu / Thống kê** — con số cụ thể gây bất ngờ\n4. **Đau điểm trực tiếp** — chạm vào nỗi đau/lo lắng của người xem\n5. **Lợi ích ngay** — hứa hẹn giá trị cụ thể trong video\n6. **Hành động bất ngờ** — bắt đầu bằng hành động gây tò mò\n7. **Kể chuyện** — mở đầu bằng 1 câu chuyện mini\n8. **Phản bác** — \"Ai nói... thì SAI rồi!\"\n9. **Bí mật / Tiết lộ** — \"Điều mà không ai nói cho bạn...\"\n10. **Thách thức** — thách thức người xem\n\n## QUY TẮC\n- Viết CỤ THỂ cho chủ đề \"{{video_topic}}\" — KHÔNG viết chung chung\n- Hook phải nói/đọc được trong ≤ 3 GIÂY\n- Giọng điệu: {{tone_of_voice}}\n- Viết bằng tiếng Việt, tự nhiên, đúng ngôn ngữ nói\n- Mỗi hook phải KHÁC BIỆT hoàn toàn về cách tiếp cận\n- Dùng emoji phù hợp, format dễ đọc\n- Cuối cùng: bảng so sánh 10 hook (Tên | Kiểu | Độ gây sốc ⭐ | Phù hợp nhất cho)",
+
+      "outline_prompt": "",
+      "chunk_prompt": "",
+
+      "model_purpose": "content_creation",
+      "temperature": "0.80",
+      "max_tokens": "4000",
+      "wizard_steps": [],
+      "output_platforms": ["tiktok", "general"],
+      "skill_id": "0",
+      "tags": "hook,video,tiktok,reels,shorts,kịch-bản,thu-hút,3-giây,viral",
+      "badge_text": "Video Hook",
+      "badge_color": "#1f6feb",
+      "is_featured": "1",
+      "sort_order": "3",
+      "status": "active"
+    }
+  ]
+}

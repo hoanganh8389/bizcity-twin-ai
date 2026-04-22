@@ -1,0 +1,285 @@
+[
+    {
+        "name": "",
+        "notes": "",
+        "layers": {
+            "ROOT": {
+                "type": {
+                    "resolvedName": "RootLayer"
+                },
+                "props": {
+                    "boxSize": {
+                        "width": 1640,
+                        "height": 924
+                    },
+                    "position": {
+                        "x": 0,
+                        "y": 0
+                    },
+                    "rotate": 0,
+                    "color": "rgb(255, 255, 255)",
+                    "image": {
+                        "url": "http://localhost:4000/images/photos/sales/005.jpg",
+                        "thumb": "http://localhost:4000/images/photos/sales/005.jpg",
+                        "boxSize": {
+                            "width": 1640,
+                            "height": 2460
+                        },
+                        "position": {
+                            "x": 0,
+                            "y": -768
+                        },
+                        "rotate": 0
+                    }
+                },
+                "locked": false,
+                "child": [
+                    "ca_vb1EWqs",
+                    "ca_kuCR8nG",
+                    "ca_Cpvfhab",
+                    "ca_n1njsR0"
+                ],
+                "parent": null
+            },
+            "ca_vb1EWqs": {
+                "type": {
+                    "resolvedName": "TextLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 311.2426805217001,
+                        "y": 188.1976688296082
+                    },
+                    "boxSize": {
+                        "width": 1050.3320706637214,
+                        "height": 224,
+                        "x": 231.93482183388468,
+                        "y": 186.65090730107
+                    },
+                    "scale": 1,
+                    "rotate": 0,
+                    "text": "<p style=\"text-align: center;font-family: 'Acme Regular';font-size: 160px;color: rgb(255, 255, 255);line-height: 1.4;letter-spacing: normal;\"><strong><span style=\"color: rgb(255, 255, 255);\">BLACK FRIDAY</span></strong></p>",
+                    "fonts": [
+                        {
+                            "family": "Acme",
+                            "name": "Acme Regular",
+                            "url": "http://fonts.gstatic.com/s/acme/v25/RrQfboBx-C5_bxjLb23lzLk.woff2",
+                            "style": "regular",
+                            "styles": []
+                        }
+                    ],
+                    "colors": [
+                        "rgb(255, 255, 255)"
+                    ],
+                    "fontSizes": [
+                        160
+                    ],
+                    "effect": {
+                        "name": "hollow",
+                        "settings": {
+                            "thickness": 0,
+                            "color": "rgb(128, 128, 128)"
+                        }
+                    },
+                    "transparency": 1
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ROOT"
+            },
+            "ca_kuCR8nG": {
+                "type": {
+                    "resolvedName": "TextLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 311.2426805217001,
+                        "y": 362.1976688296082
+                    },
+                    "boxSize": {
+                        "width": 1050.3320706637214,
+                        "height": 224,
+                        "x": 231.93482183388468,
+                        "y": 186.65090730107
+                    },
+                    "scale": 1,
+                    "rotate": 0,
+                    "text": "<p style=\"text-align: center;font-family: 'Acme Regular';font-size: 160px;color: rgb(255, 255, 255);line-height: 1.4;letter-spacing: normal;\"><strong><span style=\"color: rgb(255, 255, 255);\">BLACK FRIDAY</span></strong></p>",
+                    "fonts": [
+                        {
+                            "family": "Acme",
+                            "name": "Acme Regular",
+                            "url": "http://fonts.gstatic.com/s/acme/v25/RrQfboBx-C5_bxjLb23lzLk.woff2",
+                            "style": "regular",
+                            "styles": []
+                        }
+                    ],
+                    "colors": [
+                        "rgb(255, 255, 255)"
+                    ],
+                    "fontSizes": [
+                        160
+                    ],
+                    "effect": {
+                        "name": "hollow",
+                        "settings": {
+                            "thickness": 0,
+                            "color": "rgb(128, 128, 128)"
+                        }
+                    },
+                    "transparency": 1
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ROOT"
+            },
+            "ca_Cpvfhab": {
+                "type": {
+                    "resolvedName": "GroupLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 215.1659216534486,
+                        "y": 268.19766882960823
+                    },
+                    "boxSize": {
+                        "width": 1216.8779620283585,
+                        "height": 223.99999999999994
+                    },
+                    "scale": 1,
+                    "rotate": 0,
+                    "transparency": 1
+                },
+                "locked": false,
+                "child": [
+                    "ca_BfFdnff",
+                    "ca_GN5qfhh"
+                ],
+                "parent": "ROOT"
+            },
+            "ca_BfFdnff": {
+                "type": {
+                    "resolvedName": "ShapeLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 5.684341886080802e-14,
+                        "y": 23.868637346791616
+                    },
+                    "boxSize": {
+                        "width": 1216.8779620283585,
+                        "height": 176.2627253064167,
+                        "x": 217.56919009853394,
+                        "y": 345.5212448930546
+                    },
+                    "rotate": 0,
+                    "clipPath": "M 0 0 L 256 0 L 256 256 L 0 256 Z",
+                    "scale": 0.6,
+                    "color": "rgb(0, 0, 0)",
+                    "shapeSize": {
+                        "width": "256",
+                        "height": "256"
+                    },
+                    "gradientBackground": null,
+                    "transparency": 1
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ca_Cpvfhab"
+            },
+            "ca_GN5qfhh": {
+                "type": {
+                    "resolvedName": "TextLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 52.81792685671584,
+                        "y": 0
+                    },
+                    "boxSize": {
+                        "width": 1142.664377050242,
+                        "height": 224,
+                        "x": 157.43350003623993,
+                        "y": 331.2561884162461
+                    },
+                    "scale": 1,
+                    "rotate": 0,
+                    "text": "<p style=\"text-align: center;font-family: 'Acme Regular';font-size: 160px;color: rgb(255, 255, 255);line-height: 1.4;letter-spacing: normal;\"><strong><span style=\"color: rgb(255, 255, 255);\">BLACK FRIDAY</span></strong></p>",
+                    "fonts": [
+                        {
+                            "family": "Acme",
+                            "name": "Acme Regular",
+                            "url": "http://fonts.gstatic.com/s/acme/v25/RrQfboBx-C5_bxjLb23lzLk.woff2",
+                            "style": "regular",
+                            "styles": []
+                        }
+                    ],
+                    "colors": [
+                        "rgb(255, 255, 255)"
+                    ],
+                    "fontSizes": [
+                        160
+                    ],
+                    "effect": null,
+                    "transparency": 1
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ca_Cpvfhab"
+            },
+            "ca_n1njsR0": {
+                "type": {
+                    "resolvedName": "TextLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 567.7439031368375,
+                        "y": 664.9235760634463
+                    },
+                    "boxSize": {
+                        "width": 537.3296254334466,
+                        "height": 84.62941600576784,
+                        "x": 610.3869262196588,
+                        "y": 705.7791396298967
+                    },
+                    "scale": 1.3433240635836166,
+                    "rotate": 0,
+                    "text": "<p style=\"text-align: center;font-family: 'Canva Sans Regular';font-size: 45px;color: rgb(255, 255, 255);line-height: 1.4;letter-spacing: normal;\"><strong><span style=\"color: rgb(255, 255, 255);\">UP TO 60% OFF</span></strong></p>",
+                    "fonts": [
+                        {
+                            "family": "Canva Sans",
+                            "name": "Canva Sans Regular",
+                            "url": "http://fonts.gstatic.com/s/alexandria/v3/UMBCrPdDqW66y0Y2usFeQCH18mulUxBvI9r7TqbCHJ8BRq0b.woff2",
+                            "style": "regular",
+                            "styles": [
+                                {
+                                    "family": "Canva Sans",
+                                    "name": "Canva Sans Bold 300",
+                                    "url": "http://fonts.gstatic.com/s/alexandria/v3/UMBCrPdDqW66y0Y2usFeQCH18mulUxBvI9qlTqbCHJ8BRq0b.woff2",
+                                    "style": "300"
+                                },
+                                {
+                                    "family": "Canva Sans",
+                                    "name": "Canva Sans Bold 500",
+                                    "url": "http://fonts.gstatic.com/s/alexandria/v3/UMBCrPdDqW66y0Y2usFeQCH18mulUxBvI9rJTqbCHJ8BRq0b.woff2",
+                                    "style": "500"
+                                }
+                            ]
+                        }
+                    ],
+                    "colors": [
+                        "rgb(255, 255, 255)"
+                    ],
+                    "fontSizes": [
+                        45
+                    ],
+                    "effect": null,
+                    "transparency": 1
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ROOT"
+            }
+        }
+    }
+]

@@ -122,6 +122,21 @@ if ( ! defined( 'ABSPATH' ) ) exit;
             </div>
         </div>
 
+        <!-- Batch Options -->
+        <div class="bvk-aiva-group bvk-batch-options">
+            <label class="bvk-aiva-label">Tùy chọn Batch</label>
+            <div style="display:flex;flex-direction:column;gap:6px;">
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:#c9d1d9;">
+                    <input type="checkbox" id="bvk-batch-auto-fetch" checked style="accent-color:#1f6feb;">
+                    <span>📥 Auto-fetch to Media khi hoàn thành</span>
+                </label>
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:#c9d1d9;">
+                    <input type="checkbox" id="bvk-batch-auto-editor" style="accent-color:#1f6feb;">
+                    <span>🎞️ Auto-send to Editor khi tất cả xong</span>
+                </label>
+            </div>
+        </div>
+
         <!-- Create CTA -->
         <div class="bvk-aiva-cta">
             <button type="button" id="bvk-btn-create-video" class="bvk-aiva-create-btn" disabled>
@@ -132,69 +147,36 @@ if ( ! defined( 'ABSPATH' ) ) exit;
         <div id="bvk-create-status" class="bvk-status" style="margin-top:10px;"></div>
     </div>
 
-    <!-- ═══ RIGHT PANEL: Results / Queue ═══ -->
+    <!-- ═══ RIGHT PANEL: Live Monitor (identical to Monitor tab) ═══ -->
     <div class="bvk-aiva-results">
-        <?php if ( empty( $recent_jobs ) ): ?>
-        <div class="bvk-aiva-empty" id="bvk-results-empty">
-            <div class="bvk-aiva-empty__icon">🎬</div>
-            <h3>No video created yet</h3>
-            <p>Your generated videos will appear here</p>
+        <!-- Stats bar -->
+        <div class="bvk-monitor-bar" id="bvk-create-stats-bar">
+            <?php if ( $stats ): ?>
+            <span class="bvk-monitor-badge bvk-badge-total">🎬 <?php echo $stats['total']; ?></span>
+            <span class="bvk-monitor-badge bvk-badge-done">✅ <?php echo $stats['done']; ?></span>
+            <?php if ( $stats['active'] > 0 ): ?>
+            <span class="bvk-monitor-badge bvk-badge-active">⏳ <?php echo $stats['active']; ?> đang chạy</span>
+            <?php endif; ?>
+            <?php endif; ?>
+            <button type="button" class="bvk-btn-sm bvk-create-refresh-btn" style="margin-left:auto;padding:4px 10px;font-size:11px;font-weight:600;border-radius:6px;border:1px solid #30363d;background:#21262d;cursor:pointer;color:#8b949e;">🔄 Làm mới</button>
         </div>
-        <?php else: ?>
-        <!-- Multi-select bar -->
-        <div id="bvk-multi-select-bar" style="display:none;position:sticky;top:0;z-index:10;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:8px 12px;margin-bottom:8px;align-items:center;gap:8px;">
-            <span id="bvk-multi-select-count" style="font-size:12px;color:#e6edf3;font-weight:600;">0 video đã chọn</span>
-            <button type="button" onclick="bvkSendSelectedToEditor()" style="background:#1f6feb;color:#fff;border:1px solid #388bfd;border-radius:6px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;">🎞️ Mở trong Editor</button>
-            <button type="button" onclick="bvkClearSelection()" style="background:transparent;color:#8b949e;border:1px solid #30363d;border-radius:6px;padding:5px 12px;font-size:12px;cursor:pointer;">✕ Bỏ chọn</button>
+
+        <!-- Live Console -->
+        <div class="bvk-console" id="bvk-create-console">
+            <span class="bvk-log-line"><span class="bvk-log-time">[<?php echo current_time( 'H:i:s' ); ?>]</span> <span class="bvk-log-info">Create monitor ready. Auto-poll <?php echo $stats && $stats['active'] > 0 ? 'ON' : 'OFF'; ?>.</span></span>
         </div>
-        <div id="bvk-create-jobs" class="bvk-aiva-jobs">
-            <?php foreach ( $recent_jobs as $job ):
-                $st_class  = 'st-' . esc_attr( $job['status'] );
-                $st_labels = [ 'draft' => 'Nháp', 'queued' => 'Đang chờ', 'processing' => 'Đang xử lý', 'completed' => 'Hoàn thành', 'failed' => 'Lỗi' ];
-                $video_url = $job['media_url'] ?: $job['video_url'];
-                $model_labels = [
-                    '2.6|pro' => 'Kling 2.6 Pro', '2.6|std' => 'Kling 2.6 Std', '2.5|pro' => 'Kling 2.5 Pro', '1.6|pro' => 'Kling 1.6 Pro',
-                    'seedance:1.0' => 'SeeDance', 'sora:v1' => 'Sora', 'veo:3' => 'Veo 3',
-                ];
-                $model_label = $model_labels[ $job['model'] ?? '' ] ?? ( $job['model'] ?: 'Kling' );
-            ?>
-            <div class="bvk-aiva-job" data-job-id="<?php echo (int) $job['id']; ?>" data-status="<?php echo esc_attr( $job['status'] ); ?>">
-                <div class="bvk-job-top">
-                    <span class="bvk-job-status <?php echo $st_class; ?>"><?php echo $st_labels[ $job['status'] ] ?? $job['status']; ?></span>
-                    <span style="font-size:10px;color:#58a6ff;font-weight:600;background:rgba(31,111,235,.15);padding:1px 6px;border-radius:4px;"><?php echo esc_html( $model_label ); ?></span>
-                    <span style="font-size:11px;color:#484f58;margin-left:auto;"><?php echo esc_html( $job['created_at'] ); ?></span>
+
+        <!-- Job List -->
+        <div class="bvk-section">
+            <div id="bvk-create-jobs" class="bvk-job-list">
+            <?php if ( empty( $recent_jobs ) ): ?>
+                <div class="bvk-aiva-empty" id="bvk-results-empty">
+                    <div class="bvk-aiva-empty__icon">🎬</div>
+                    <h3>No video created yet</h3>
+                    <p>Your generated videos will appear here</p>
                 </div>
-                <div class="bvk-job-prompt"><?php echo esc_html( mb_strimwidth( $job['prompt'] ?: 'No prompt', 0, 100, '...' ) ); ?></div>
-                <div class="bvk-job-meta">
-                    <span>⏱ <?php echo esc_html( $job['duration'] ); ?>s</span>
-                    <span>📐 <?php echo esc_html( $job['aspect_ratio'] ); ?></span>
-                    <span>#<?php echo (int) $job['id']; ?></span>
-                    <?php if ( $video_url && $job['status'] === 'completed' ): ?>
-                    <a href="<?php echo esc_url( $video_url ); ?>" target="_blank">▶ Xem video</a>
-                    <?php endif; ?>
-                </div>
-                <?php if ( in_array( $job['status'], [ 'queued', 'processing' ], true ) ): ?>
-                <div class="bvk-progress"><div class="bvk-progress-bar" style="width:<?php echo (int) $job['progress']; ?>%"></div></div>
-                <?php endif; ?>
-                <?php if ( $job['status'] === 'completed' && $video_url ): ?>
-                <div class="bvk-job-actions">
-                    <label style="display:flex;align-items:center;gap:4px;cursor:pointer;margin-right:4px;"><input type="checkbox" class="bvk-job-select" data-url="<?php echo esc_attr( $video_url ); ?>"> <span style="font-size:11px;color:#8b949e;">Chọn</span></label>
-                    <?php if ( ! empty( $job['media_url'] ) ): ?>
-                    <button type="button" class="bvk-job-act done" disabled>✅ Media</button>
-                    <?php elseif ( ! empty( $job['video_url'] ) ): ?>
-                    <button type="button" class="bvk-job-act" onclick="bvkUploadToMedia(<?php echo (int) $job['id']; ?>, this)">📥 Upload</button>
-                    <?php endif; ?>
-                    <a href="<?php echo esc_url( $video_url ); ?>" target="_blank" class="bvk-job-act" style="text-decoration:none;">▶ Xem</a>
-                    <button type="button" class="bvk-job-act" onclick="bvkCopyLink('<?php echo esc_js( $video_url ); ?>', this)">🔗 Copy</button>
-                    <button type="button" class="bvk-job-act" style="background:#1f6feb;color:#fff;border-color:#388bfd;" onclick="bvkSendToEditor([<?php echo esc_attr( json_encode( $video_url ) ); ?>])">🎞️ Editor</button>
-                </div>
-                <?php endif; ?>
-                <?php if ( $job['status'] === 'failed' && ! empty( $job['error_message'] ) ): ?>
-                <div style="font-size:11px;color:#f85149;margin-top:6px;">💡 <?php echo esc_html( $job['error_message'] ); ?></div>
-                <?php endif; ?>
+            <?php endif; ?>
             </div>
-            <?php endforeach; ?>
         </div>
-        <?php endif; ?>
     </div>
 </div>

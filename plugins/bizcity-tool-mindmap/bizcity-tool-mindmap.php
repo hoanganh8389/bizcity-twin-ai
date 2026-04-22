@@ -261,14 +261,20 @@ add_action( 'bcn_register_notebook_tools', function ( $registry ) {
  * ══════════════════════════════════════════════════════════════ */
 add_action( 'init', function() {
     add_rewrite_rule( '^tool-mindmap/?$', 'index.php?bizcity_agent_page=tool-mindmap', 'top' );
+    add_rewrite_rule( '^mindmap/?$', 'index.php?bizcity_agent_page=mindmap', 'top' );
 } );
 add_filter( 'query_vars', function( $vars ) {
     if ( ! in_array( 'bizcity_agent_page', $vars, true ) ) $vars[] = 'bizcity_agent_page';
     return $vars;
 } );
 add_action( 'template_redirect', function() {
-    if ( get_query_var( 'bizcity_agent_page' ) === 'tool-mindmap' ) {
+    $page = get_query_var( 'bizcity_agent_page' );
+    if ( $page === 'tool-mindmap' ) {
         include BZTOOL_MINDMAP_DIR . 'views/page-mindmap.php';
+        exit;
+    }
+    if ( $page === 'mindmap' ) {
+        include BZTOOL_MINDMAP_DIR . 'views/page-mindmap-react.php';
         exit;
     }
 } );

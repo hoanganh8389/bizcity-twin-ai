@@ -448,7 +448,64 @@ class BizCity_Skill_Manager {
 	public function get_all_skills(): array {
 		$skills = [];
 		$this->collect_skills( BIZCITY_SKILLS_LIBRARY, $skills );
+
+		// ── Phase 1.20: Merge DB skills (Universal Plugin Router) ──
+		// Virtual skills from plugins (e.g. Content Creator templates) are stored
+		// in bizcity_skills DB. Merge them so AJAX search + all consumers see them.
+		if ( class_exists( 'BizCity_Skill_Database' ) ) {
+			$db_rows = BizCity_Skill_Database::instance()->list_skills( [
+				'status' => 'active',
+				'limit'  => 200,
+			] );
+
+			// Build FS key set to avoid duplicates
+			$fs_keys = [];
+			foreach ( $skills as $s ) {
+				$fm  = $s['frontmatter'] ?? [];
+				$key = $fm['name'] ?? sanitize_title( $fm['title'] ?? basename( $s['path'] ?? '', '.md' ) );
+				$fs_keys[ $key ] = true;
+			}
+
+			foreach ( $db_rows as $row ) {
+				$key = $row['skill_key'] ?? '';
+				if ( empty( $key ) || isset( $fs_keys[ $key ] ) ) {
+					continue;
+				}
+				$skills[] = self::normalize_db_row( $row );
+			}
+		}
+
 		return $skills;
+	}
+
+	/**
+	 * Normalize a DB skill row to the same shape as file-based skills.
+	 *
+	 * @param array $row DB row from bizcity_skills.
+	 * @return array {path, frontmatter, content}
+	 */
+	private static function normalize_db_row( array $row ): array {
+		$triggers = $row['triggers_json'] ?? '';
+		$tools    = $row['tools_json'] ?? '';
+		$slash    = $row['slash_commands'] ?? '';
+		$modes    = $row['modes'] ?? '';
+
+		return [
+			'path'        => 'sql://' . ( $row['skill_key'] ?? '' ),
+			'frontmatter' => [
+				'title'          => $row['title'] ?? '',
+				'name'           => $row['skill_key'] ?? '',
+				'description'    => $row['description'] ?? '',
+				'category'       => $row['category'] ?? 'general',
+				'triggers'       => is_string( $triggers ) ? ( json_decode( $triggers, true ) ?: [] ) : (array) $triggers,
+				'tools'          => is_string( $tools ) ? ( json_decode( $tools, true ) ?: [] ) : (array) $tools,
+				'slash_commands' => is_string( $slash ) ? array_filter( explode( ',', $slash ) ) : (array) $slash,
+				'modes'          => is_string( $modes ) ? array_filter( explode( ',', $modes ) ) : (array) $modes,
+				'priority'       => (int) ( $row['priority'] ?? 50 ),
+				'status'         => $row['status'] ?? 'active',
+			],
+			'content'     => $row['content'] ?? '',
+		];
 	}
 
 	private function collect_skills( string $dir, array &$skills ): void {

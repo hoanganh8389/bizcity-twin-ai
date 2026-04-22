@@ -587,17 +587,24 @@ jQuery(function($) {
     //
     //  Type / in the input to search tools from bizcity_tool_registry.
     //  Reuses the @mention dropdown UI with tool-specific rendering.
-    //  When user selects a tool:
-    //    1. Auto-select the tool's plugin (enter plugin-context-mode)
-    //    2. Set the specific goal for the Intent Engine
-    //    3. Update context header with tool label
+    //  SLASH / = SKILL selection, @ = TOOL selection
     //
-    //  @since v4.0.0 (Phase 13 — Dual Context Architecture)
+    //  When user types /:
+    //    1. Search skills catalog
+    //    2. Select a skill → sets _selectedSkill for context injection
+    //
+    //  When user types @:
+    //    1. Search tool registry (was previously /)
+    //    2. Auto-select the tool's plugin (enter plugin-context-mode)
+    //    3. Set the specific goal for the Intent Engine
+    //
+    //  @since v4.1.0 (Phase 1.7 — Skill/Tool Command Refactor)
     // ════════════════════════════════════════════════════════════
     var _slashActive = false;
     var _slashQuery = '';
     var _slashIdx = 0;
     var _slashSearchTimer = null;
+    var _selectedSkill = null; // { skill_key, title, description, path }
     var _selectedTool = null; // { goal, tool_name, title, goal_label, plugin_slug }
     var _contextToolsCache = {}; // { slug: [tools] }
     var $toolPill = $('#bizc-tool-pill');
@@ -664,8 +671,33 @@ jQuery(function($) {
     }
 
     /**
-     * Search tools via AJAX (debounced).
+     * Search skills via AJAX (debounced) — triggered by /command.
      * @param {string} query  Keyword from /command
+     */
+    function _searchSkills(query) {
+        clearTimeout(_slashSearchTimer);
+        _slashSearchTimer = setTimeout(function() {
+            var params = {
+                action: 'bizcity_search_skills',
+                query: query || '',
+                _wpnonce: nonce
+            };
+
+            $.post(ajaxurl, params, function(response) {
+                if (!response.success || !response.data) {
+                    _renderSlashDropdown([]);
+                    return;
+                }
+                _renderSlashDropdown(response.data.skills || []);
+            }).fail(function() {
+                _renderSlashDropdown([]);
+            });
+        }, 150);
+    }
+
+    /**
+     * Search tools via AJAX (debounced) — triggered by @command.
+     * @param {string} query  Keyword from @command
      */
     function _searchTools(query) {
         clearTimeout(_slashSearchTimer);
@@ -675,19 +707,15 @@ jQuery(function($) {
                 query: query || '',
                 _wpnonce: nonce
             };
-            // If already in plugin context, scope to that plugin
-            if (_mentionProvider && _mentionProvider.slug) {
-                params.plugin_slug = _mentionProvider.slug;
-            }
 
             $.post(ajaxurl, params, function(response) {
                 if (!response.success || !response.data) {
-                    _renderSlashDropdown([]);
+                    _renderAtDropdown([]);
                     return;
                 }
-                _renderSlashDropdown(response.data.tools || []);
+                _renderAtDropdown(response.data.tools || []);
             }).fail(function() {
-                _renderSlashDropdown([]);
+                _renderAtDropdown([]);
             });
         }, 150); // Debounce 150ms
     }
@@ -696,11 +724,15 @@ jQuery(function($) {
      * Render tool search results in the mention dropdown.
      * @param {Array} tools  Array of tool objects from API
      */
-    function _renderSlashDropdown(tools) {
-        if (!tools || !tools.length) {
+    /**
+     * Render skill search results in the dropdown (/ trigger).
+     * @param {Array} skills  Array of skill objects from API
+     */
+    function _renderSlashDropdown(skills) {
+        if (!skills || !skills.length) {
             $mentionDrop.html(
-                '<div class="bizc-mention-header">🔍 Tìm kiếm Tools</div>' +
-                '<div style="padding:12px 16px;color:#9ca3af;font-size:12px;">Không tìm thấy tool nào' +
+                '<div class="bizc-mention-header">📋 Tìm kiếm Skills</div>' +
+                '<div style="padding:12px 16px;color:#9ca3af;font-size:12px;">Không tìm thấy skill nào' +
                 (_slashQuery ? ' cho "' + esc(_slashQuery) + '"' : '') + '</div>'
             ).addClass('active');
             _slashActive = true;
@@ -708,6 +740,57 @@ jQuery(function($) {
         }
 
         _slashIdx = 0;
+
+        var html = '<div class="bizc-mention-header">📋 Chọn Skill</div>';
+        html += '<div class="bizc-mention-list">';
+
+        skills.forEach(function(s, i) {
+            var desc = s.description || '';
+            if (desc.length > 80) desc = desc.substring(0, 77) + '...';
+            var cat = s.category && s.category !== '/' && s.category !== '.' ? s.category : '';
+            var toolsLabel = (s.tools && s.tools.length) ? s.tools.slice(0, 3).join(', ') : '';
+
+            html += '<div class="bizc-mention-item' + (i === 0 ? ' selected' : '') + '" '
+                + 'data-idx="' + i + '" '
+                + 'data-skill-key="' + esc(s.skill_key) + '" '
+                + 'data-title="' + esc(s.title) + '" '
+                + 'data-description="' + esc(s.description || '') + '" '
+                + 'data-path="' + esc(s.path || '') + '" '
+                + 'data-type="skill">'
+                + '<div class="bizc-mention-item-icon">📋</div>'
+                + '<div class="bizc-mention-item-info">'
+                + '<div class="bizc-mention-item-name">' + esc(s.title) + '</div>'
+                + '<div class="bizc-mention-item-slug">'
+                + '<span style="color:#10b981;">/' + esc(s.skill_key) + '</span>'
+                + (cat ? ' · ' + esc(cat) : '')
+                + '</div>'
+                + (desc ? '<div style="font-size:11px;color:#9ca3af;margin-top:2px;">' + esc(desc) + '</div>' : '')
+                + (toolsLabel ? '<div style="font-size:10px;color:#6366f1;margin-top:1px;">🔧 ' + esc(toolsLabel) + '</div>' : '')
+                + '</div></div>';
+        });
+
+        html += '</div>';
+
+        $mentionDrop.html(html).addClass('active');
+        _slashActive = true;
+    }
+
+    /**
+     * Render tool search results in the dropdown (@ trigger).
+     * @param {Array} tools  Array of tool objects from API
+     */
+    function _renderAtDropdown(tools) {
+        if (!tools || !tools.length) {
+            $mentionDrop.html(
+                '<div class="bizc-mention-header">🔍 Tìm kiếm Tools</div>' +
+                '<div style="padding:12px 16px;color:#9ca3af;font-size:12px;">Không tìm thấy tool nào' +
+                (_mentionQuery ? ' cho "' + esc(_mentionQuery) + '"' : '') + '</div>'
+            ).addClass('active');
+            _mentionActive = true;
+            return;
+        }
+
+        _mentionIdx = 0;
 
         var html = '<div class="bizc-mention-header">🔧 Chọn Tool</div>';
         html += '<div class="bizc-mention-list">';
@@ -734,7 +817,7 @@ jQuery(function($) {
                 + '<div class="bizc-mention-item-info">'
                 + '<div class="bizc-mention-item-name">' + esc(t.goal_label || t.title) + '</div>'
                 + '<div class="bizc-mention-item-slug">'
-                + '<span style="color:#6366f1;">/' + esc(t.goal) + '</span>'
+                + '<span style="color:#6366f1;">@' + esc(t.goal) + '</span>'
                 + (t.plugin_name ? ' · ' + esc(t.plugin_name) : '')
                 + '</div>'
                 + (desc ? '<div style="font-size:11px;color:#9ca3af;margin-top:2px;">' + esc(desc) + '</div>' : '')
@@ -744,20 +827,18 @@ jQuery(function($) {
         html += '</div>';
 
         $mentionDrop.html(html).addClass('active');
-        _slashActive = true;
+        _mentionActive = true;
     }
 
     /**
-     * User selects a tool from the / dropdown.
-     * Auto-selects the parent plugin and enters focused tool mode.
+     * User selects a skill from the / dropdown.
      */
-    function _selectTool(goal, toolName, title, goalLabel, pluginSlug, pluginName, icon) {
-        _selectedTool = {
-            goal: goal,
-            tool_name: toolName,
+    function _selectSkill(skillKey, title, description, path) {
+        _selectedSkill = {
+            skill_key: skillKey,
             title: title,
-            goal_label: goalLabel,
-            plugin_slug: pluginSlug
+            description: description,
+            path: path
         };
 
         // Close dropdown
@@ -772,6 +853,44 @@ jQuery(function($) {
             $input.val(val.substring(0, val.length - slashMatch[0].length));
         }
 
+        // Update placeholder
+        $input.attr('placeholder', 'Nhập yêu cầu với skill ' + (title || skillKey) + '...');
+
+        // Show skill pill
+        $toolPill.html('📋 /' + esc(skillKey)
+            + ' <span class="bizc-pill-remove" title="Thoát skill">✕</span>').show();
+
+        console.log('📋 [Slash] Skill selected:', skillKey, 'path:', path);
+        $input.focus();
+    }
+
+    /**
+     * User selects a tool from the @ dropdown.
+     * Auto-selects the parent plugin and enters focused tool mode.
+     */
+    function _selectTool(goal, toolName, title, goalLabel, pluginSlug, pluginName, icon) {
+        _selectedTool = {
+            goal: goal,
+            tool_name: toolName,
+            title: title,
+            goal_label: goalLabel,
+            plugin_slug: pluginSlug
+        };
+
+        // Close dropdown
+        _slashActive = false;
+        _slashIdx = 0;
+        _mentionActive = false;
+        _mentionIdx = 0;
+        $mentionDrop.removeClass('active').empty();
+
+        // Remove @ query from textarea (tool is now triggered by @)
+        var val = $input.val();
+        var atMatch = val.match(/@[\S]*$/);
+        if (atMatch) {
+            $input.val(val.substring(0, val.length - atMatch[0].length));
+        }
+
         // Auto-select plugin (enters plugin-context-mode)
         if (pluginSlug && (!_mentionProvider || _mentionProvider.slug !== pluginSlug)) {
             _selectMention(pluginSlug, pluginName || pluginSlug, icon || '🔧');
@@ -782,10 +901,10 @@ jQuery(function($) {
         $input.attr('placeholder', 'Mô tả yêu cầu cho ' + toolLabel + '...');
 
         // Show tool pill inline in input row
-        $toolPill.html('/' + esc(toolName || goal)
+        $toolPill.html('@' + esc(toolName || goal)
             + ' <span class="bizc-pill-remove" title="Thoát tool">✕</span>').show();
 
-        console.log('🔧 [Slash] Tool selected:', goal, 'plugin:', pluginSlug);
+        console.log('🔧 [@] Tool selected:', goal, 'plugin:', pluginSlug);
         $input.focus();
     }
 
@@ -794,6 +913,7 @@ jQuery(function($) {
      */
     function _clearToolSelection() {
         _selectedTool = null;
+        _selectedSkill = null;
         _slashActive = false;
         _slashIdx = 0;
         $mentionDrop.removeClass('active').empty();
@@ -805,7 +925,7 @@ jQuery(function($) {
         if (_mentionProvider) {
             $input.attr('placeholder', 'Nhập tin nhắn cho ' + (_mentionProvider.label || _mentionProvider.slug) + '...');
         } else {
-            $input.attr('placeholder', 'Nhập tin nhắn... (@ chọn agent · / tìm tool)');
+            $input.attr('placeholder', 'Nhập tin nhắn... (/ chọn skill · @ tìm tool)');
         }
     }
 
@@ -817,9 +937,21 @@ jQuery(function($) {
         return _selectedTool;
     }
 
-    // Click handler for tool items in dropdown (delegated from mention dropdown)
+    // Click handler for skill items in dropdown (/ trigger)
+    $mentionDrop.on('click', '.bizc-mention-item[data-type="skill"]', function(e) {
+        e.stopImmediatePropagation();
+        var $el = $(this);
+        _selectSkill(
+            $el.data('skill-key'),
+            $el.data('title'),
+            $el.data('description'),
+            $el.data('path')
+        );
+    });
+
+    // Click handler for tool items in dropdown (@ trigger)
     $mentionDrop.on('click', '.bizc-mention-item[data-type="tool"]', function(e) {
-        e.stopImmediatePropagation(); // Prevent @mention click handler
+        e.stopImmediatePropagation();
         var $el = $(this);
         _selectTool(
             $el.data('goal'),
@@ -832,9 +964,10 @@ jQuery(function($) {
         );
     });
 
-    // Click handler for dropdown items
+    // Fallback click handler for other dropdown items (legacy mention)
     $mentionDrop.on('click', '.bizc-mention-item', function() {
         var $el = $(this);
+        if ($el.data('type') === 'skill' || $el.data('type') === 'tool') return; // handled above
         _selectMention($el.data('slug'), $el.data('label'), $el.data('icon'));
     });
 
@@ -891,7 +1024,14 @@ jQuery(function($) {
                 e.preventDefault();
                 e.stopImmediatePropagation();
                 var $sel = items.eq(_slashIdx);
-                if ($sel.data('type') === 'tool') {
+                if ($sel.data('type') === 'skill') {
+                    _selectSkill(
+                        $sel.data('skill-key'),
+                        $sel.data('title'),
+                        $sel.data('description'),
+                        $sel.data('path')
+                    );
+                } else if ($sel.data('type') === 'tool') {
                     _selectTool(
                         $sel.data('goal'),
                         $sel.data('tool-name'),
@@ -954,7 +1094,19 @@ jQuery(function($) {
                 e.preventDefault();
                 e.stopImmediatePropagation(); // Prevent sendMsg() from firing
                 var $sel = items.eq(_mentionIdx);
-                _selectMention($sel.data('slug'), $sel.data('label'), $sel.data('icon'));
+                if ($sel.data('type') === 'tool') {
+                    _selectTool(
+                        $sel.data('goal'),
+                        $sel.data('tool-name'),
+                        $sel.data('title'),
+                        $sel.data('goal-label'),
+                        $sel.data('plugin-slug'),
+                        $sel.data('plugin-name'),
+                        $sel.data('icon')
+                    );
+                } else {
+                    _selectMention($sel.data('slug'), $sel.data('label'), $sel.data('icon'));
+                }
                 return;
             }
             if (e.key === 'Escape') {
@@ -973,16 +1125,16 @@ jQuery(function($) {
         }
     });
 
-// Watch input for @ and / triggers with async loading
+// Watch input for / (skills) and @ (tools) triggers with async loading
     $input.on('input', function() {
         var val = $input.val();
 
-        // ── / Slash command detection ──
+        // ── / Slash command detection → Search Skills ──
         // Match /keyword at start of input OR after whitespace
         var slashMatch = val.match(/(?:^|\s)\/([\S]*)$/);
         if (slashMatch) {
             _slashQuery = slashMatch[1] || '';
-            console.log('/ detected, query:', _slashQuery);
+            console.log('/ detected, searching skills:', _slashQuery);
             
             // Close @mention if active
             if (_mentionActive) {
@@ -991,20 +1143,20 @@ jQuery(function($) {
 
             // Show loading state
             $mentionDrop.html(
-                '<div class="bizc-mention-header">🔍 Tìm kiếm Tools...</div>' +
+                '<div class="bizc-mention-header">📋 Tìm kiếm Skills...</div>' +
                 '<div style="padding:12px 16px;text-align:center;color:#9ca3af;font-size:12px;">⏳ Đang tải...</div>'
             ).addClass('active');
             _slashActive = true;
 
-            // Search tools
-            _searchTools(_slashQuery);
+            // Search skills
+            _searchSkills(_slashQuery);
         }
-        // ── @ Mention detection ──
+        // ── @ Mention detection → Search Tools ──
         else {
             var atMatch = val.match(/@([\w-]*)$/);
             if (atMatch) {
                 _mentionQuery = atMatch[1];
-                console.log('@ detected, query:', _mentionQuery);
+                console.log('@ detected, searching tools:', _mentionQuery);
                 
                 // Close /slash if active
                 if (_slashActive) {
@@ -1012,12 +1164,12 @@ jQuery(function($) {
                 }
 
                 // Show loading state
-                $mentionDrop.html('<div class="bizc-mention-header">Đang tải...</div>' +
-                    '<div style="padding: 16px; text-align: center; color: #9ca3af; font-size: 12px;">⏳ Loading agents...</div>').addClass('active');
+                $mentionDrop.html('<div class="bizc-mention-header">🔧 Tìm kiếm Tools...</div>' +
+                    '<div style="padding: 16px; text-align: center; color: #9ca3af; font-size: 12px;">⏳ Đang tải...</div>').addClass('active');
                 _mentionActive = true;
                 
-                // Load and filter agents
-                _searchMentionAgents(_mentionQuery);
+                // Search tools instead of agents
+                _searchTools(_mentionQuery);
             } else if (_mentionActive || _slashActive) {
                 $mentionDrop.removeClass('active').empty();
                 _mentionActive = false;
@@ -1378,23 +1530,57 @@ jQuery(function($) {
     }
 
     /**
-     * Listen for postMessage from agent iframes (guided commands).
-     * When an agent profile page sends { type:'bizcity_agent_command', text:'...' },
-     * hide the agent panel, switch to chat, and send the message.
+     * Listen for postMessage from agent/canvas iframes.
+     * - bizcity_agent_command: agent sends text → hide agent, send as chat message
+     * - bizcity_canvas_ready: iframe loaded, send context
+     * - bizcity_canvas_done: generation completed, update status
+     * - bizcity_canvas_title: update header title
+     * - bizcity_canvas_error: generation error
      */
     window.addEventListener('message', function(event) {
-        if (!event.data || event.data.type !== 'bizcity_agent_command') return;
-        var text = (event.data.text || '').trim();
-        if (!text) return;
+        if (!event.data || !event.data.type) return;
 
-        // Hide agent panel → switch to chat
-        hideAgentPanel();
+        // Security: only accept same-origin messages
+        if (event.origin !== window.location.origin) return;
 
-        // Set input text and trigger send
-        setTimeout(function() {
-            $input.val(text);
-            sendMsg();
-        }, 150);
+        switch (event.data.type) {
+            case 'bizcity_agent_command':
+                var text = (event.data.text || '').trim();
+                if (!text) return;
+                hideAgentPanel();
+                setTimeout(function() {
+                    $input.val(text);
+                    sendMsg();
+                }, 150);
+                break;
+
+            case 'bizcity_canvas_ready':
+                // Send context to iframe
+                var iframe = document.getElementById('bizc-canvas-iframe');
+                if (iframe && iframe.contentWindow) {
+                    iframe.contentWindow.postMessage({
+                        type: 'bizcity_canvas_context',
+                        session_id: window.bizcSessionId || '',
+                        user_id: (window.bizcData || {}).userId || 0,
+                        output_id: $('#bizc-rp-canvas').data('outputId') || 0
+                    }, window.location.origin);
+                }
+                break;
+
+            case 'bizcity_canvas_done':
+                updateCanvasStatus('completed');
+                break;
+
+            case 'bizcity_canvas_error':
+                updateCanvasStatus('error');
+                break;
+
+            case 'bizcity_canvas_title':
+                if (event.data.title) {
+                    $('#bizc-canvas-title').text(event.data.title);
+                }
+                break;
+        }
     });
 
     /**
@@ -1484,10 +1670,14 @@ jQuery(function($) {
             var wcId = $conv.length ? $conv.data('wc-id') : null;
             if (wcId) { loadSession(wcId, true); }
             else { _loadSessionBySessionId(state.bizcVal); }
+        } else if (state && state.bizcKey === 'canvas' && state.bizcVal) {
+            // Phase 1.20: Restore canvas panel from URL state
+            _restoreCanvasFromUrl(state.bizcVal);
         } else {
             // Back to chat (default / new chat) - lazy-unload iframe
             $('#bizc-agent-panel').hide().data('slug', '');
             loadAgentIframe(''); // Clear iframe to release memory
+            hideCanvasPanel();
             $('.bizc-tb-agent').removeClass('active');
             $('.bizc-tb-link').removeClass('active');
             $('#bizc-chat-panel').css('display', 'flex');
@@ -1541,9 +1731,10 @@ jQuery(function($) {
 
     (function bizcRestoreFromUrl() {
         var params = new URLSearchParams(window.location.search);
-        var agent = params.get('agent');
-        var panel = params.get('panel');
-        var chat  = params.get('chat');
+        var agent  = params.get('agent');
+        var panel  = params.get('panel');
+        var chat   = params.get('chat');
+        var canvas = params.get('canvas');
         if (agent) {
             history.replaceState({ bizcKey: 'agent', bizcVal: agent }, '', window.location.href);
             showAgentBySlug(agent, '', '', '');
@@ -1555,10 +1746,351 @@ jQuery(function($) {
             if ($link.length) $link.trigger('click');
         } else if (chat) {
             history.replaceState({ bizcKey: 'chat', bizcVal: chat }, '', window.location.href);
-            // Wait a tick for sessions to load, then restore
             setTimeout(function() { _loadSessionBySessionId(chat); }, 500);
+        } else if (canvas) {
+            // Phase 1.20: Restore canvas from URL
+            history.replaceState({ bizcKey: 'canvas', bizcVal: canvas }, '', window.location.href);
+            _restoreCanvasFromUrl(canvas);
         }
     })();
+
+    // ══════════════════════════════════════════════════════════════
+    //  Phase 1.20 — Right Panel (Canvas, Suy nghĩ, Studio)
+    // ══════════════════════════════════════════════════════════════
+
+    var _rpActiveTab = 'canvas';
+
+    /** Toggle right panel visibility */
+    function toggleRightPanel(open) {
+        var $rp = $('#bizc-right-panel');
+        if (typeof open === 'undefined') open = !$rp.is(':visible');
+        if (open) {
+            $rp.css('display', 'flex');
+            $('.bizc-dash').addClass('rp-open');
+        } else {
+            $rp.hide();
+            $('.bizc-dash').removeClass('rp-open');
+        }
+    }
+
+    /** Switch right panel tab */
+    function switchRpTab(tab) {
+        _rpActiveTab = tab;
+        $('.bizc-rp-tab').removeClass('active');
+        $('.bizc-rp-tab[data-rp-tab="' + tab + '"]').addClass('active');
+        $('.bizc-rp-content').hide();
+        $('#bizc-rp-' + tab).css('display', 'flex');
+    }
+
+    // Tab click handlers
+    $(document).on('click', '.bizc-rp-tab[data-rp-tab]', function() {
+        switchRpTab($(this).data('rp-tab'));
+    });
+    // Close button
+    $(document).on('click', '#bizc-rp-close', function() {
+        toggleRightPanel(false);
+    });
+    // Toggle button (in chat panel)
+    $(document).on('click', '#bizc-rp-toggle', function() {
+        toggleRightPanel();
+    });
+
+    // ── Canvas type icon map ──
+    var _canvasTypeIcons = {
+        content: '📄', image: '🖼️', video: '🎬', design: '🎨', document: '📝'
+    };
+
+    // ── Canvas context menu per type ──
+    var _canvasMenuItems = {
+        content: [
+            { action: 'export-pdf',  icon: '📄', label: 'Tải PDF' },
+            { action: 'export-word', icon: '📝', label: 'Tải Word' },
+            { action: 'export-pptx', icon: '📊', label: 'Tải PPTX' },
+            { action: 'share',       icon: '🔗', label: 'Chia sẻ' }
+        ],
+        image: [
+            { action: 'download', icon: '⬇️', label: 'Tải về' },
+            { action: 'edit',     icon: '✏️', label: 'Chỉnh sửa' }
+        ],
+        video: [
+            { action: 'download', icon: '⬇️', label: 'Tải về' }
+        ],
+        design: [
+            { action: 'download',  icon: '⬇️', label: 'Tải về' },
+            { action: 'duplicate', icon: '📋', label: 'Nhân bản' }
+        ]
+    };
+
+    /** Update canvas status badge */
+    function updateCanvasStatus(status) {
+        var $s = $('#bizc-canvas-status');
+        $s.removeClass('generating completed error');
+        switch (status) {
+            case 'generating':
+                $s.addClass('generating').text('⏳ Đang tạo...');
+                break;
+            case 'completed':
+                $s.addClass('completed').text('✅ Hoàn thành');
+                break;
+            case 'error':
+                $s.addClass('error').text('❌ Lỗi');
+                break;
+            default:
+                $s.text('');
+        }
+    }
+
+    /** Build context menu dropdown based on type */
+    function buildCanvasMenu(type) {
+        var items = _canvasMenuItems[type] || _canvasMenuItems.content;
+        var html = '';
+        items.forEach(function(item) {
+            html += '<button class="bizc-canvas-dropdown-item" data-action="' + item.action + '">'
+                  + '<span class="bizc-cd-icon">' + item.icon + '</span>'
+                  + '<span>' + item.label + '</span>'
+                  + '</button>';
+        });
+        $('#bizc-canvas-dropdown').html(html);
+    }
+
+    /** Lazy-load canvas iframe */
+    function loadCanvasIframe(url) {
+        var $iframe = $('#bizc-canvas-iframe');
+        $iframe.attr('src', 'about:blank');
+        if (url && url !== 'about:blank') {
+            var sep = url.indexOf('?') > -1 ? '&' : '?';
+            var fullUrl = url + sep + 'bizcity_iframe=1';
+            setTimeout(function() { $iframe.attr('src', fullUrl).show(); }, 10);
+            $('#bizc-canvas-empty').hide();
+            $('#bizc-canvas-header').show();
+        } else {
+            $iframe.hide();
+            $('#bizc-canvas-header').hide();
+            $('#bizc-canvas-empty').show();
+        }
+    }
+
+    /**
+     * Show canvas in right panel
+     * @param {Object} options
+     * @param {string} options.url       - URL to load in iframe
+     * @param {string} options.title     - Header title
+     * @param {string} options.icon      - Emoji icon
+     * @param {string} options.type      - 'content'|'image'|'video'|'design'
+     * @param {number} options.outputId  - studio_outputs.id
+     * @param {string} options.status    - 'generating'|'completed'|'error'
+     */
+    function showCanvasPanel(options) {
+        if (!options || !options.url) return;
+
+        // Set header
+        $('#bizc-canvas-title').text(options.title || 'Canvas');
+        $('#bizc-canvas-icon').html(options.icon || _canvasTypeIcons[options.type] || '📄');
+        updateCanvasStatus(options.status || 'ready');
+
+        // Build context menu
+        buildCanvasMenu(options.type || 'content');
+
+        // Store metadata
+        $('#bizc-rp-canvas').data({
+            outputId: options.outputId || 0,
+            type: options.type || 'content',
+            url: options.url
+        });
+
+        // Load iframe
+        loadCanvasIframe(options.url);
+
+        // Show right panel + switch to canvas tab
+        toggleRightPanel(true);
+        switchRpTab('canvas');
+
+        // Push URL state
+        if (options.outputId) {
+            bizcPushUrl('canvas', options.outputId);
+        }
+    }
+    // Expose globally for studio cards and other triggers
+    window.showCanvasPanel = showCanvasPanel;
+
+    /** Hide canvas / clear iframe */
+    function hideCanvasPanel() {
+        loadCanvasIframe('');
+        $('#bizc-rp-canvas').data({ outputId: 0, type: '', url: '' });
+        $('#bizc-canvas-dropdown').hide();
+    }
+
+    // ── Canvas header button handlers ──
+
+    // Back button → close canvas (clear iframe, stay on right panel)
+    $(document).on('click', '#bizc-canvas-back', function() {
+        hideCanvasPanel();
+    });
+
+    // External link → open URL in new tab
+    $(document).on('click', '#bizc-canvas-external', function() {
+        var url = $('#bizc-rp-canvas').data('url');
+        if (url) window.open(url, '_blank');
+    });
+
+    // Menu toggle
+    $(document).on('click', '#bizc-canvas-menu', function(e) {
+        e.stopPropagation();
+        $('#bizc-canvas-dropdown').toggle();
+    });
+
+    // Close dropdown on click outside
+    $(document).on('click', function(e) {
+        if (!$(e.target).closest('#bizc-canvas-menu, #bizc-canvas-dropdown').length) {
+            $('#bizc-canvas-dropdown').hide();
+        }
+    });
+
+    // Dropdown action → relay to iframe via postMessage
+    $(document).on('click', '.bizc-canvas-dropdown-item', function() {
+        var action = $(this).data('action');
+        var iframe = document.getElementById('bizc-canvas-iframe');
+        if (iframe && iframe.contentWindow) {
+            iframe.contentWindow.postMessage({
+                type: 'bizcity_canvas_command',
+                command: 'export',
+                format: action.replace('export-', '')
+            }, window.location.origin);
+        }
+        $('#bizc-canvas-dropdown').hide();
+    });
+
+    // ── Thinking panel — trace entry management ──
+
+    var _thinkingEntryCount = 0;
+
+    /** Step icon resolver (simplified from React WorkingPanel) */
+    function _thinkingIcon(step) {
+        var map = {
+            gateway_entry: '🔌', kci_ratio_applied: '📊', local_intent_start: '🧠',
+            mode_classified: '🔄', objectives_detected: '🎯', multi_goal_decision: '🔀',
+            slot_progress: '📋', local_intent_result: '📤', local_intent_terminal: '✨',
+            classify: '🎯', plan: '📝', execute_tool: '🔧', slot_fill_rate: '📊',
+            input: '💬', mode_classify: '🔄', slot_analyze: '📋',
+            llm_request: '🤖', llm_first_chunk: '⚡', stream_first_chunk: '📡',
+            context_resolver: '🧩', intent_router: '🎯', intent_planner: '📝',
+            tool_trace: '🔧', trace_end: '✅'
+        };
+        if (step && step.startsWith('mw:')) return '⚙️';
+        if (step && step.startsWith('twin:')) return '🧬';
+        return map[step] || '▸';
+    }
+
+    /** Step label resolver — uses thinking text when available */
+    function _thinkingLabel(entry) {
+        var d = entry.data || {};
+        if (d.thinking) return d.thinking;
+        if (d.text) return d.text;
+        switch (entry.step) {
+            case 'input': return 'Nhận tin nhắn mới...';
+            case 'gateway_entry': return 'Đang phân tích...';
+            case 'mode_classified': case 'mode_classify': return 'Chế độ: ' + (d.mode || 'tự động');
+            case 'objectives_detected': return (d.objectives_count || 0) + ' mục tiêu nhận diện.';
+            case 'classify': return d.goal ? 'Mục tiêu: ' + d.goal : 'Đang nhận diện ý định...';
+            case 'plan': return d.tool_name ? 'Kế hoạch: gọi ' + d.tool_name : 'Đang lên kế hoạch...';
+            case 'execute_tool': return d.tool_name ? 'Thực thi: ' + d.tool_name + '...' : 'Đang thực thi...';
+            case 'context_resolver': return 'Đang xây dựng prompt...';
+            case 'llm_request': return 'Đang gửi cho AI' + (d.model ? ' (' + d.model + ')' : '') + '...';
+            case 'llm_first_chunk': return 'AI bắt đầu phản hồi...';
+            case 'trace_end': return 'Xong! ✓';
+            default: return entry.step ? entry.step.replace(/_/g, ' ') : '...';
+        }
+    }
+
+    /** Add a trace entry to thinking panel */
+    function addThinkingEntry(entry) {
+        var $logs = $('#bizc-thinking-logs');
+        // Remove empty state on first entry
+        if (_thinkingEntryCount === 0) {
+            $logs.find('.bizc-rp-empty').remove();
+        }
+        _thinkingEntryCount++;
+
+        var icon = _thinkingIcon(entry.step);
+        var label = _thinkingLabel(entry);
+        var ms = (entry.ms && entry.ms > 50) ? (entry.ms > 1000 ? (entry.ms / 1000).toFixed(1) + 's' : Math.round(entry.ms) + 'ms') : '';
+
+        var html = '<div class="bizc-thinking-entry active" id="bizc-te-' + _thinkingEntryCount + '">'
+                 + '<span class="bizc-thinking-icon">' + icon + '</span>'
+                 + '<span class="bizc-thinking-text">' + esc(label) + '</span>'
+                 + (ms ? '<span class="bizc-thinking-time">' + ms + '</span>' : '')
+                 + '</div>';
+
+        // Mark previous entry as done
+        $logs.find('.bizc-thinking-entry.active').removeClass('active');
+        $logs.append(html);
+
+        // Auto-scroll
+        $logs.scrollTop($logs[0].scrollHeight);
+
+        // Auto-open right panel on key steps
+        var autoOpenSteps = ['objectives_detected', 'multi_goal_decision', 'classify', 'plan', 'execute_tool'];
+        if (autoOpenSteps.indexOf(entry.step) > -1) {
+            toggleRightPanel(true);
+            switchRpTab('thinking');
+        }
+    }
+
+    /** Add separator between message traces */
+    function addThinkingSeparator() {
+        var $logs = $('#bizc-thinking-logs');
+        if ($logs.find('.bizc-thinking-entry').length > 0) {
+            $logs.append('<hr class="bizc-thinking-separator">');
+        }
+    }
+
+    /** Restore canvas from URL output_id — fetch output info via AJAX */
+    function _restoreCanvasFromUrl(outputId) {
+        if (!outputId) return;
+        $.ajax({
+            url: ajaxurl, type: 'POST',
+            data: { action: 'bizcity_webchat_studio_outputs', output_id: outputId, _wpnonce: nonce },
+            dataType: 'json',
+            success: function(res) {
+                if (res.success && res.data && res.data.canvas_url) {
+                    showCanvasPanel({
+                        url: res.data.canvas_url,
+                        title: res.data.title || 'Canvas',
+                        type: res.data.media_type || 'content',
+                        outputId: parseInt(outputId, 10),
+                        status: res.data.status || 'completed'
+                    });
+                }
+            }
+        });
+    }
+
+    /** Intercept chat link clicks to open in canvas instead of navigating */
+    $(document).on('click', '#bizc-messages a[href]', function(e) {
+        var href = $(this).attr('href') || '';
+        // Match content creator result URLs or studio URLs
+        var creatorMatch = href.match(/\/creator\/result\/(\d+)/);
+        var studioMatch = href.match(/\/studio\/(image|video|design)\/(\d+)/);
+        if (creatorMatch) {
+            e.preventDefault();
+            showCanvasPanel({
+                url: href,
+                title: $(this).text() || 'Content Creator',
+                type: 'content',
+                status: 'completed'
+            });
+        } else if (studioMatch) {
+            e.preventDefault();
+            showCanvasPanel({
+                url: href,
+                title: $(this).text() || 'Studio',
+                type: studioMatch[1],
+                status: 'completed'
+            });
+        }
+    });
+
+    // ══════════════════════════════════════════════════════════════
 
     function loadProjectDetailList(projectId) {
         var $list = $('#bizc-proj-detail-list');
@@ -2062,15 +2594,23 @@ jQuery(function($) {
 
         var text = $input.val().trim();
         
-        // ═══ TOOL PILL PREFIX: Prepend /tool_name to message text ═══
-        // When user selected a tool via chip or slash, include the
-        // /tool_name slug in the message for self-documenting history
+        // ═══ TOOL PILL PREFIX: Prepend @tool_name to message text ═══
+        // When user selected a tool via @ command, include the
+        // @tool_name slug in the message for self-documenting history
         // and backend Logic 2 parsing (works across all channels).
         if (_selectedTool && _selectedTool.tool_name) {
             var slug = _selectedTool.tool_name;
             // Only prepend if not already there (user may have typed it)
-            if (text.indexOf('/' + slug) !== 0) {
-                text = '/' + slug + (text ? ' ' + text : '');
+            if (text.indexOf('@' + slug) !== 0 && text.indexOf('/' + slug) !== 0) {
+                text = '@' + slug + (text ? ' ' + text : '');
+            }
+        }
+
+        // ═══ SKILL PREFIX: Prepend /skill_key to message text ═══
+        if (_selectedSkill && _selectedSkill.skill_key) {
+            var skillSlug = _selectedSkill.skill_key;
+            if (text.indexOf('/' + skillSlug) !== 0) {
+                text = '/' + skillSlug + (text ? ' ' + text : '');
             }
         }
         
@@ -2153,6 +2693,9 @@ jQuery(function($) {
         // Typing indicator
         var typId = 'typ-' + Math.random().toString(36).substr(2, 6);
         var _sendPluginSlug = (routingMode === 'manual' && selectedPlugin) ? selectedPlugin : '';
+
+        // Phase 1.20: Add separator in thinking panel for new message
+        addThinkingSeparator();
         $msgs.append(
             '<div class="bizc-typing" id="' + typId + '">' +
             '<div class="bizc-msg-av">' + avHtml('bot') + '</div>' +
@@ -2209,7 +2752,7 @@ jQuery(function($) {
             formData.append('routing_mode', 'manual');               // Routing mode
             _ssePluginSlug = _mentionProvider.slug;
             
-            // ═══ SLASH COMMAND: include selected tool goal ═══
+            // ═══ @ TOOL COMMAND: include selected tool goal ═══
             var _selTool = _getSelectedTool();
             if (_selTool) {
                 _sseToolLabel = _selTool.goal_label || _selTool.title || _selTool.tool_name || '';
@@ -2217,7 +2760,7 @@ jQuery(function($) {
             if (_selTool && _selTool.goal) {
                 formData.append('tool_goal', _selTool.goal);         // Direct tool targeting
                 formData.append('tool_name', _selTool.tool_name);    // Tool registry name
-                console.log('📤 [Slash] Sending tool_goal:', _selTool.goal, 'tool_name:', _selTool.tool_name);
+                console.log('📤 [@] Sending tool_goal:', _selTool.goal, 'tool_name:', _selTool.tool_name);
             }
             
             console.log('📤 [Dual-Path] Sending manual routing params:', {
@@ -2234,6 +2777,13 @@ jQuery(function($) {
         } else {
             formData.append('routing_mode', 'automatic');            // Automatic intent detection
             console.log('📤 [Dual-Path] Sending automatic routing params');
+        }
+
+        // ═══ / SKILL CONTEXT: include selected skill for context injection ═══
+        if (_selectedSkill && _selectedSkill.skill_key) {
+            formData.append('selected_skill', _selectedSkill.skill_key);
+            formData.append('skill_path', _selectedSkill.path || '');
+            console.log('📤 [/] Sending selected_skill:', _selectedSkill.skill_key);
         }
         
         // Create streaming bot bubble
@@ -2311,8 +2861,23 @@ jQuery(function($) {
                                             );
                                             scrollBottom();
                                         }
+                                        // Phase 1.20: Feed status events to thinking panel
+                                        if (statusData.step) {
+                                            addThinkingEntry(statusData);
+                                        }
                                     } catch(e) {}
                                     i++; // skip the data line
+                                }
+                            }
+                            // Phase 1.20: Handle log events for thinking panel
+                            if (evType === 'log' && i + 1 < lines.length) {
+                                var logLine = lines[i + 1].trim();
+                                if (logLine.startsWith('data: ')) {
+                                    try {
+                                        var logData = JSON.parse(logLine.substring(6));
+                                        addThinkingEntry(logData);
+                                    } catch(e) {}
+                                    i++;
                                 }
                             }
                             continue;
@@ -2434,6 +2999,24 @@ jQuery(function($) {
                                     document.body.classList.add('bc-sidebar-open');
                                     console.log('📊 [PipelineMonitor] Sidebar opened for:', data.pipeline_id);
                                 }
+                            }
+
+                            // ═══ Phase 1.20: Canvas auto-open (SSE) ═══
+                            if (data.canvas_open) {
+                                showCanvasPanel(data.canvas_open);
+                                console.log('🖼️ [Canvas] Auto-opened:', data.canvas_open.url);
+                            }
+
+                            // ═══ Phase 1.20: Canvas Adapter handoff (Intent Engine → Canvas) ═══
+                            if (data.action === 'canvas_handoff' && data.canvas) {
+                                showCanvasPanel({
+                                    url: data.canvas.launch_url,
+                                    title: data.message ? data.message.substring(0, 100) : 'Content Creator',
+                                    type: 'content',
+                                    outputId: data.canvas.artifact_id || '',
+                                    status: data.canvas.auto_execute ? 'generating' : 'pending'
+                                });
+                                console.log('🎨 [Canvas] Handoff:', data.canvas.launch_url);
                             }
                         }
                     }

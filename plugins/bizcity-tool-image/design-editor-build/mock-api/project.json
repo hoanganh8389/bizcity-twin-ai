@@ -1,0 +1,73 @@
+{
+  "name": "mock-api",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/mock-api/src",
+  "projectType": "application",
+  "targets": {
+    "build": {
+      "executor": "@nx/esbuild:esbuild",
+      "outputs": ["{options.outputPath}"],
+      "defaultConfiguration": "production",
+      "options": {
+        "platform": "node",
+        "outputPath": "dist/apps/mock-api",
+        "format": ["cjs"],
+        "bundle": true, // Enable bundling for a single output file
+        "main": "apps/mock-api/src/main.ts",
+        "tsConfig": "apps/mock-api/tsconfig.app.json",
+        "assets": [
+          {
+            "input": "apps/mock-api/src/json",
+            "output": "json",
+            "glob": "**/*"
+          },
+          {
+            "input": "apps/mock-api/public",
+            "output": "public",
+            "glob": "**/*"
+          }
+        ],
+        "generatePackageJson": true,
+        "esbuildOptions": {
+          "sourcemap": true,
+          "outdir": "dist/apps/mock-api", // Explicitly set output directory
+          "outbase": "apps/mock-api/src", // Map source root to output
+          "outExtension": {
+            ".js": ".js"
+          }
+        }
+      },
+      "configurations": {
+        "development": {},
+        "production": {
+          "esbuildOptions": {
+            "sourcemap": false,
+            "outdir": "dist/apps/mock-api",
+            "outbase": "apps/mock-api/src",
+            "outExtension": {
+              ".js": ".js"
+            }
+          }
+        }
+      }
+    },
+    "serve": {
+      "executor": "@nx/js:node",
+      "defaultConfiguration": "development",
+      "dependsOn": ["build"],
+      "options": {
+        "buildTarget": "mock-api:build",
+        "runBuildTargetDependencies": false
+      },
+      "configurations": {
+        "development": {
+          "buildTarget": "mock-api:build:development"
+        },
+        "production": {
+          "buildTarget": "mock-api:build:production"
+        }
+      }
+    }
+  },
+  "tags": []
+}

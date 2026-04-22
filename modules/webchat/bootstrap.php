@@ -18,7 +18,7 @@
  * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
  * @license    GPL-2.0-or-later
  * @link       https://bizcity.vn
- * @version    3.0.16
+ * @version    3.0.18
  * @since      2026-02-07
  *
  * This file is part of Bizcity Twin AI.
@@ -38,7 +38,7 @@ if ( ! defined( 'BIZCITY_WEBCHAT_URL' ) ) {
 
 // Constants — guarded to allow coexistence with legacy mu-plugin
 if ( ! defined( 'BIZCITY_WEBCHAT_VERSION' ) ) {
-    define('BIZCITY_WEBCHAT_VERSION', '3.0.17');
+    define('BIZCITY_WEBCHAT_VERSION', '3.1.0');
 }
 if ( ! defined( 'BIZCITY_WEBCHAT_INCLUDES' ) ) {
     define('BIZCITY_WEBCHAT_INCLUDES', BIZCITY_WEBCHAT_DIR . 'includes/');
@@ -83,6 +83,12 @@ add_action( 'init', function() {
         'capability_type' => 'post',
     ] );
 }, 5 );
+
+/* ═══════════════════════════════════════════════════════════════
+ * HIDE ADMIN BAR ON ALL FRONTEND PAGES
+ * [2026-04-18] Consistent with tool-image, kling-video, avatar standalone pages.
+ * ═══════════════════════════════════════════════════════════════ */
+add_filter( 'show_admin_bar', '__return_false' );
 
 /* ═══════════════════════════════════════════════════════════════
  * AGENT IFRAME MODE
@@ -332,7 +338,11 @@ function bizcity_aiagent_ajax_login() {
         wp_send_json_error( [ 'message' => $msg ] );
     }
 
-    wp_set_current_user( $user->ID );
+    if ( $user && $user->ID > 0 ) {
+        wp_set_current_user( $user->ID );
+    } else {
+        wp_send_json_error( [ 'message' => 'User object invalid.' ] );
+    }
 
     wp_send_json_success( [
         'message'      => __( 'Đăng nhập thành công!', 'bizcity-twin-ai' ),
@@ -418,8 +428,10 @@ function bizcity_aiagent_ajax_register() {
     $user = new WP_User( $user_id );
     $user->set_role( 'subscriber' );
 
-    // Auto-login
-    wp_set_current_user( $user_id );
+    // Auto-login (validate first)
+    if ( $user_id > 0 && get_userdata( $user_id ) ) {
+        wp_set_current_user( $user_id );
+    }
     wp_set_auth_cookie( $user_id, true, is_ssl() );
 
     // Send notification email
@@ -525,7 +537,8 @@ class BizCity_WebChat_Bot {
         add_action('template_redirect', [$this, 'handle_webhook'], 0);
         
         // Frontend widget only (chủ yếu phục vụ trigger automation)
-        add_action('wp_footer', [$this, 'render_chat_widget']);
+        // [2026-04-18] Disabled bizchat float widget — /chat/ page is the main chat entry.
+        // add_action('wp_footer', [$this, 'render_chat_widget']);
         add_action('wp_enqueue_scripts', [$this, 'enqueue_assets']);
         
             // Admin widget – disabled (BCA floating icon tạm tắt để gọn admin)

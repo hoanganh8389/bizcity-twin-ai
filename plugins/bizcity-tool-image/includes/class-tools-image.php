@@ -185,6 +185,30 @@ class BizCity_Tool_Image {
         // Update job as completed
         self::update_job_completed( $job_id, $saved_url, $attachment_id );
 
+        // ── Register in unified output store (Phase 3.5.3) ──
+        if ( class_exists( 'BizCity_Output_Store' ) ) {
+            BizCity_Output_Store::register_media_output( [
+                'workshop'      => BizCity_Output_Store::WORKSHOP_IMAGE_STUDIO,
+                'media_type'    => 'image',
+                'title'         => mb_substr( $prompt, 0, 200 ),
+                'file_url'      => $saved_url,
+                'thumbnail_url' => $attachment_id ? ( wp_get_attachment_image_url( $attachment_id, 'medium' ) ?: $saved_url ) : $saved_url,
+                'attachment_id' => $attachment_id ?: 0,
+                'tool_id'       => $model,
+                'tool_type'     => 'image',
+                'caller'        => 'studio',
+                'user_id'       => $user_id,
+                'session_id'    => $meta['session_id'] ?? '',
+                'input_snapshot'=> [
+                    'prompt' => $prompt,
+                    'model'  => $model,
+                    'size'   => $size,
+                    'style'  => $style,
+                    'job_id' => $job_id,
+                ],
+            ] );
+        }
+
         // Build response
         $model_label = self::MODELS[ $model ]['label'] ?? $model;
         $purpose_labels = [

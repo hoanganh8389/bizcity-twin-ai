@@ -1,0 +1,129 @@
+{
+  "version": "1.0",
+  "plugin": "bizcity-content-creator",
+  "exported": "2026-04-16T19:00:00Z",
+  "templates": [
+    {
+      "slug": "bai-dang-social-tu-anh",
+      "category_id": "0",
+      "title": "Tạo bài đăng Social từ ảnh up lên",
+      "description": "Giúp bạn tạo ra 1 bài viết cho Facebook, X, Instagram nhanh chóng từ bức ảnh tải lên.",
+      "icon_url": "",
+      "icon_emoji": "📸",
+      "form_fields": [
+        {
+          "slug": "platform",
+          "label": "Chọn nền tảng bạn muốn đăng",
+          "type": "select",
+          "placeholder": "",
+          "required": false,
+          "grid": "half",
+          "sort_order": 1,
+          "description": "",
+          "options": [
+            { "value": "Facebook", "label": "Facebook" },
+            { "value": "Instagram", "label": "Instagram" },
+            { "value": "X/Twitter", "label": "X/Twitter" },
+            { "value": "Thread", "label": "Thread" }
+          ]
+        },
+        {
+          "slug": "tone_of_voice",
+          "label": "Giọng điệu",
+          "type": "select",
+          "placeholder": "",
+          "required": false,
+          "grid": "half",
+          "sort_order": 2,
+          "description": "",
+          "options": [
+            { "value": "interactive_natural", "label": "Tương tác và tự nhiên" },
+            { "value": "friendly", "label": "Thân thiện" },
+            { "value": "persuasive", "label": "Thuyết phục" },
+            { "value": "humorous", "label": "Hài hước" },
+            { "value": "polite", "label": "Lịch sự và Tôn trọng" },
+            { "value": "comfortable", "label": "Tông giọng thoải mái" },
+            { "value": "super_comfortable", "label": "Ngôn ngữ cực kỳ thoải mái" },
+            { "value": "slang", "label": "Thêm tiếng lóng" },
+            { "value": "questions", "label": "Thêm câu hỏi" },
+            { "value": "sensory", "label": "Ngôn ngữ ảnh hưởng và giác quan" },
+            { "value": "emotional", "label": "Cảm xúc" },
+            { "value": "storytelling", "label": "Kể chuyện" },
+            { "value": "examples", "label": "Có ví dụ" },
+            { "value": "sharing", "label": "Tâm sự chia sẻ" },
+            { "value": "inspiring", "label": "Truyền cảm hứng" },
+            { "value": "curiosity", "label": "Tạo sự tò mò" },
+            { "value": "grateful", "label": "Biểu đạt biết ơn" },
+            { "value": "data_driven", "label": "Có dữ liệu" },
+            { "value": "surprising", "label": "Bất ngờ" },
+            { "value": "explanatory", "label": "Giải thích" },
+            { "value": "attractive", "label": "Cuốn hút" }
+          ]
+        },
+        {
+          "slug": "photo",
+          "label": "Tải lên ảnh cần tạo bài đăng",
+          "type": "image",
+          "placeholder": "",
+          "required": true,
+          "grid": "half",
+          "sort_order": 3,
+          "description": "",
+          "enable_vision": true,
+          "vision_prompt": "Quan sát bức ảnh này và mô tả chi tiết:\n1. Nội dung chính trong ảnh (người, vật, cảnh, sản phẩm...)\n2. Bối cảnh / không gian / thời gian\n3. Cảm xúc / tâm trạng / bầu không khí\n4. Màu sắc chủ đạo / phong cách nghệ thuật\n5. Nếu có text / logo / thương hiệu → trích xuất toàn bộ\n6. Chi tiết đặc biệt nào có thể dùng để viết bài social media"
+        },
+        {
+          "slug": "extra_context",
+          "label": "Bạn có muốn làm rõ nội dung nào không?",
+          "type": "textarea",
+          "placeholder": "VD: Đây là ảnh team building công ty / Ảnh review sản phẩm mới ra mắt / Ảnh du lịch Đà Lạt...",
+          "required": false,
+          "grid": "half",
+          "sort_order": 4,
+          "description": ""
+        },
+        {
+          "slug": "post_length",
+          "label": "Độ dài mong muốn",
+          "type": "select",
+          "placeholder": "",
+          "required": false,
+          "grid": "half",
+          "sort_order": 5,
+          "description": "",
+          "options": [
+            { "value": "medium", "label": "Trung bình (5-10 câu)" },
+            { "value": "short", "label": "Ngắn (3-5 câu)" },
+            { "value": "long", "label": "Dài (10+ câu)" }
+          ]
+        }
+      ],
+
+      "system_prompt": "Bạn là chuyên gia viết bài đăng mạng xã hội hàng đầu Việt Nam. Nhiệm vụ: tạo bài đăng hấp dẫn từ bức ảnh người dùng tải lên.\n\n## THÔNG TIN\n- **Nền tảng**: {{platform}}\n- **Giọng điệu**: {{tone_of_voice}}\n- **Bổ sung từ người dùng**: {{extra_context}}\n- **Độ dài mong muốn**: {{post_length}}\n\n## NỘI DUNG ẢNH (Smart Input - Vision AI đã phân tích)\n{{__smart_context__}}\n\n## YÊU CẦU OUTPUT\n\nDựa vào nội dung ảnh được phân tích ở trên và thông tin bổ sung từ người dùng, viết bài đăng theo cấu trúc:\n\n### 1. BÀI ĐĂNG CHÍNH\n- **Hook mở đầu** — câu đầu tiên phải gây chú ý, khiến người đọc dừng lại\n- **Nội dung chính** — kể câu chuyện / chia sẻ thông tin liên quan đến ảnh\n- **CTA kết bài** — kêu gọi tương tác (comment, share, like)\n- **Hashtag** — 5-10 hashtag phù hợp nền tảng\n\n### 2. PHIÊN BẢN THAY THẾ\nViết thêm 1 phiên bản khác với góc tiếp cận khác để người dùng lựa chọn.\n\n## QUY TẮC THEO NỀN TẢNG\n\n**Facebook:**\n- Độ dài linh hoạt, có thể dài\n- Dùng emoji vừa phải\n- Khuyến khích comment dạng câu hỏi mở\n- Có thể dùng bullet points\n\n**Instagram:**\n- Caption hấp dẫn, bắt đầu bằng câu hook mạnh\n- Tối đa 30 hashtag (đề xuất 10-15 phù hợp nhất)\n- Dùng emoji nhiều hơn\n- Kết bằng CTA rõ ràng\n\n**X/Twitter:**\n- Ngắn gọn, tối đa 280 ký tự cho bài chính\n- Cung cấp thêm thread 3-5 tweets nếu cần nội dung dài\n- Hashtag tối đa 2-3\n- Giọng điệu trực tiếp, súc tích\n\n**Thread:**\n- Phong cách gần gũi, conversational\n- Ngắn gọn như note cá nhân\n- Emoji tinh tế\n- Không cần hashtag, tập trung vào nội dung\n\n## QUY TẮC CHUNG\n- Viết bằng tiếng Việt, tự nhiên, không robot\n- PHẢI dựa vào nội dung ảnh — KHÔNG bịa đặt chi tiết không có trong ảnh\n- Giọng điệu: {{tone_of_voice}}\n- Độ dài: {{post_length}}\n- Format dễ đọc, dùng emoji phù hợp",
+
+      "outline_prompt": "",
+      "chunk_prompt": "",
+
+      "settings": {
+        "smart_input": {
+          "enable_knowledge": false,
+          "enable_user_memory": false,
+          "vision_max_tokens": 1500
+        }
+      },
+
+      "model_purpose": "content_creation",
+      "temperature": "0.75",
+      "max_tokens": "3000",
+      "wizard_steps": [],
+      "output_platforms": ["facebook", "instagram", "twitter", "general"],
+      "skill_id": "0",
+      "tags": "social-media,bài-đăng,ảnh,facebook,instagram,twitter,thread,vision,smart-input",
+      "badge_text": "📸 Smart Vision",
+      "badge_color": "#0ea5e9",
+      "is_featured": "1",
+      "sort_order": "6",
+      "status": "active"
+    }
+  ]
+}

@@ -35,6 +35,11 @@ class BizCity_Output_Store {
         'quiz', 'data_table', 'landing', 'summary', 'blog',
     ];
 
+    /** Media-producing tool types (saved with file_url + attachment_id). */
+    const MEDIA_TOOL_TYPES = [
+        'image', 'video', 'design', 'document',
+    ];
+
     /** Caller values mapped from BizCity_Tool_Run's caller field. */
     const CALLER_MAP = [
         'intent'   => 'intent',
@@ -42,6 +47,18 @@ class BizCity_Output_Store {
         'studio'   => 'studio',
         'schedule' => 'schedule',
     ];
+
+    /**
+     * Workshop identifiers — the 5 production studios.
+     *
+     * Every media/content output MUST declare its source workshop so the
+     * unified output gallery can filter and present outputs correctly.
+     */
+    const WORKSHOP_NOTEBOOK        = 'notebook';
+    const WORKSHOP_CANVA_EDITOR    = 'canva-editor';
+    const WORKSHOP_IMAGE_STUDIO    = 'image-studio';
+    const WORKSHOP_VIDEO_STUDIO    = 'video-studio';
+    const WORKSHOP_CONTENT_CREATOR = 'content-creator';
 
     /* ─────────────────────────────────────────────────────────────────
      * Bootstrapper — call once from plugins_loaded or init.
@@ -82,7 +99,7 @@ class BizCity_Output_Store {
         // Detect tool_type from registry (falls back to 'content').
         $tool_type = self::resolve_tool_type( $tool_id );
 
-        // Only store content-tier artifacts.
+        // Only store content-tier artifacts (media outputs use register_media_output).
         if ( ! in_array( $tool_type, self::CONTENT_TOOL_TYPES, true ) ) {
             return;
         }
@@ -298,6 +315,227 @@ class BizCity_Output_Store {
     }
 
     /* ─────────────────────────────────────────────────────────────────
+     * Unified Media Output Registrar — Phase 3.5.3
+     *
+     * Every workshop (image-studio, canva-editor, video-studio,
+     * content-creator, notebook) calls this single entry point
+     * to register file outputs into webchat_studio_outputs.
+     *
+     * Flow:  Workshop → register_media_output() → studio_outputs row
+     *        Optionally also → save_to_media_library() → WP attachment
+     * ───────────────────────────────────────────────────────────────── */
+
+    /**
+     * Register a media output from any workshop into the unified output store.
+     *
+     * @param array $args {
+     *   @type string $workshop      Required. One of WORKSHOP_* constants.
+     *   @type string $media_type    Required. 'image' | 'video' | 'design' | 'document' | ''.
+     *   @type string $title         Output title.
+     *   @type string $file_url      File URL (WP attachment URL or external CDN).
+     *   @type string $thumbnail_url Preview thumbnail URL.
+     *   @type int    $attachment_id WP Media Library attachment ID (0 if external).
+     *   @type string $content       Optional content/metadata (JSON, HTML, markdown).
+     *   @type string $content_format 'json' | 'html' | 'markdown' | 'text'.
+     *   @type int    $user_id       User ID (default: current user).
+     *   @type string $session_id    Webchat session ID.
+     *   @type string $project_id    Notebook project UUID.
+     *   @type string $tool_id       Tool identifier (e.g. 'flux-pro', 'canva-export', 'kling-v2').
+     *   @type string $tool_type     Resolved tool type (falls back to $media_type).
+     *   @type string $caller        'studio' | 'intent' | 'pipeline' | 'schedule'.
+     *   @type array  $input_snapshot Original generation/input params for replay.
+     * }
+     * @return int|false Inserted row ID or false on failure.
+     */
+    public static function register_media_output( array $args ) {
+        global $wpdb;
+
+        if ( ! class_exists( 'BCN_Schema_Extend' ) ) {
+            return false;
+        }
+
+        $table = BCN_Schema_Extend::table_studio_outputs();
+
+        $workshop    = sanitize_key( $args['workshop'] ?? '' );
+        $media_type  = sanitize_key( $args['media_type'] ?? '' );
+        $user_id     = (int) ( $args['user_id'] ?? get_current_user_id() );
+        $caller      = self::CALLER_MAP[ $args['caller'] ?? 'studio' ] ?? 'studio';
+
+        $title = wp_strip_all_tags( $args['title'] ?? '' );
+        if ( empty( $title ) ) {
+            $title = ucfirst( $media_type ?: 'Output' ) . ' — ' . ucfirst( $workshop );
+        }
+        $title = mb_substr( $title, 0, 255 );
+
+        // Resolve project_id from session if not given.
+        $session_id = sanitize_text_field( $args['session_id'] ?? '' );
+        $project_id = sanitize_text_field( $args['project_id'] ?? '' );
+        if ( empty( $project_id ) && ! empty( $session_id ) ) {
+            $project_id = self::resolve_project_id( $session_id );
+        }
+
+        $row = [
+            'user_id'        => $user_id,
+            'caller'         => $caller,
+            'tool_id'        => sanitize_key( $args['tool_id'] ?? '' ),
+            'invoke_id'      => sanitize_text_field( $args['invoke_id'] ?? '' ),
+            'project_id'     => $project_id,
+            'session_id'     => $session_id,
+            'tool_type'      => sanitize_key( $args['tool_type'] ?? $media_type ),
+            'title'          => $title,
+            'content'        => $args['content'] ?? '',
+            'content_format' => sanitize_key( $args['content_format'] ?? 'json' ),
+            'input_snapshot' => ! empty( $args['input_snapshot'] )
+                ? wp_json_encode( $args['input_snapshot'], JSON_UNESCAPED_UNICODE )
+                : null,
+            'external_url'   => esc_url_raw( $args['file_url'] ?? '' ),
+            'status'         => 'ready',
+
+            // Media-specific columns (v5.6.0).
+            'media_type'     => $media_type,
+            'attachment_id'  => absint( $args['attachment_id'] ?? 0 ),
+            'file_url'       => esc_url_raw( $args['file_url'] ?? '' ),
+            'thumbnail_url'  => esc_url_raw( $args['thumbnail_url'] ?? '' ),
+            'workshop'       => $workshop,
+
+            'created_at'     => current_time( 'mysql' ),
+        ];
+
+        $inserted = $wpdb->insert( $table, $row );
+
+        if ( $inserted ) {
+            $output_id = $wpdb->insert_id;
+
+            /** Fires after a media output is registered in the unified store. */
+            do_action( 'bizcity_media_output_registered', $output_id, $args, $row );
+
+            return $output_id;
+        }
+
+        error_log( '[BizCity_Output_Store] register_media_output failed: ' . $wpdb->last_error );
+        return false;
+    }
+
+    /**
+     * Download a remote URL (or decode a base64 data-URL) into WP Media Library,
+     * then register it in the unified output store.
+     *
+     * Convenience wrapper: save file → get attachment_id → register_media_output().
+     *
+     * @param string $source     Remote URL or data:image/... base64 string.
+     * @param array  $args       Same as register_media_output() (workshop, media_type, etc.).
+     * @param string $filename   Optional filename hint (default: auto-generated).
+     * @return array{ output_id: int, attachment_id: int, url: string }|false
+     */
+    public static function save_to_media_library( string $source, array $args, string $filename = '' ) {
+        require_once ABSPATH . 'wp-admin/includes/image.php';
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        require_once ABSPATH . 'wp-admin/includes/media.php';
+
+        $workshop   = sanitize_key( $args['workshop'] ?? 'unknown' );
+        $media_type = sanitize_key( $args['media_type'] ?? 'image' );
+
+        // ── Resolve file data ──
+        $is_base64 = ( strpos( $source, 'data:' ) === 0 );
+
+        if ( $is_base64 ) {
+            // data:image/png;base64,iVBOR...
+            if ( ! preg_match( '/^data:([\w\/\+\-]+);base64,(.+)$/s', $source, $m ) ) {
+                return false;
+            }
+            $raw  = base64_decode( $m[2] );
+            if ( ! $raw || strlen( $raw ) < 100 ) {
+                return false;
+            }
+            $ext = self::mime_to_ext( $m[1] );
+            if ( empty( $filename ) ) {
+                $filename = $workshop . '-' . time() . '-' . wp_rand( 100, 999 ) . '.' . $ext;
+            }
+            $upload = wp_upload_bits( $filename, null, $raw );
+            if ( ! empty( $upload['error'] ) ) {
+                error_log( '[BizCity_Output_Store] wp_upload_bits error: ' . $upload['error'] );
+                return false;
+            }
+        } else {
+            // Remote URL → download to temp, then sideload.
+            $tmp = download_url( $source, 30 );
+            if ( is_wp_error( $tmp ) ) {
+                error_log( '[BizCity_Output_Store] download_url error: ' . $tmp->get_error_message() );
+                return false;
+            }
+            if ( empty( $filename ) ) {
+                $ext      = pathinfo( wp_parse_url( $source, PHP_URL_PATH ), PATHINFO_EXTENSION ) ?: 'png';
+                $filename = $workshop . '-' . time() . '-' . wp_rand( 100, 999 ) . '.' . $ext;
+            }
+            $file_array = [ 'name' => $filename, 'tmp_name' => $tmp ];
+            $att_id = media_handle_sideload( $file_array, 0, $args['title'] ?? '' );
+            if ( is_wp_error( $att_id ) ) {
+                @unlink( $tmp );
+                error_log( '[BizCity_Output_Store] sideload error: ' . $att_id->get_error_message() );
+                return false;
+            }
+            $url = wp_get_attachment_url( $att_id );
+            $thumb = wp_get_attachment_image_url( $att_id, 'medium' ) ?: $url;
+
+            $args['attachment_id']  = $att_id;
+            $args['file_url']      = $url;
+            $args['thumbnail_url'] = $args['thumbnail_url'] ?? $thumb;
+
+            $output_id = self::register_media_output( $args );
+            return $output_id ? [
+                'output_id'     => $output_id,
+                'attachment_id' => $att_id,
+                'url'           => $url,
+            ] : false;
+        }
+
+        // ── base64 path: create attachment from uploaded file ──
+        $file_type  = wp_check_filetype( $upload['file'] );
+        $attachment = [
+            'post_mime_type' => $file_type['type'],
+            'post_title'     => sanitize_text_field( $args['title'] ?? ucfirst( $media_type ) . ' Output' ),
+            'post_status'    => 'inherit',
+        ];
+
+        $att_id = wp_insert_attachment( $attachment, $upload['file'] );
+        if ( is_wp_error( $att_id ) ) {
+            return false;
+        }
+        wp_update_attachment_metadata( $att_id, wp_generate_attachment_metadata( $att_id, $upload['file'] ) );
+
+        $url   = wp_get_attachment_url( $att_id );
+        $thumb = wp_get_attachment_image_url( $att_id, 'medium' ) ?: $url;
+
+        $args['attachment_id']  = $att_id;
+        $args['file_url']      = $url;
+        $args['thumbnail_url'] = $args['thumbnail_url'] ?? $thumb;
+
+        $output_id = self::register_media_output( $args );
+        return $output_id ? [
+            'output_id'     => $output_id,
+            'attachment_id' => $att_id,
+            'url'           => $url,
+        ] : false;
+    }
+
+    /**
+     * Map MIME type to file extension for media saving.
+     */
+    private static function mime_to_ext( string $mime ): string {
+        $map = [
+            'image/png'  => 'png',
+            'image/jpeg' => 'jpg',
+            'image/webp' => 'webp',
+            'image/gif'  => 'gif',
+            'image/svg+xml' => 'svg',
+            'video/mp4'  => 'mp4',
+            'video/webm' => 'webm',
+            'application/pdf' => 'pdf',
+        ];
+        return $map[ $mime ] ?? 'png';
+    }
+
+    /* ─────────────────────────────────────────────────────────────────
      * S4.5 — Auto-cleanup: remove old unpinned outputs (24h default).
      * ───────────────────────────────────────────────────────────────── */
 
@@ -320,8 +558,9 @@ class BizCity_Output_Store {
         // 1. Are older than cutoff
         // 2. Have no external_url (not distributed)
         // 3. Have status != 'pinned'
+        // 4. Have no media file (media outputs are permanent)
         $deleted = $wpdb->query( $wpdb->prepare(
-            "DELETE FROM {$table} WHERE created_at < %s AND (external_url IS NULL OR external_url = '') AND status != 'pinned' LIMIT 500",
+            "DELETE FROM {$table} WHERE created_at < %s AND (external_url IS NULL OR external_url = '') AND status != 'pinned' AND (media_type IS NULL OR media_type = '') LIMIT 500",
             $cutoff
         ) );
 

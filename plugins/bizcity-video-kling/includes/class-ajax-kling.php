@@ -47,6 +47,9 @@ class BizCity_Video_Kling_Ajax {
         // Audio: browse WP Media audios + upload
         add_action( 'wp_ajax_bvk_get_media_audios', [ __CLASS__, 'handle_get_media_audios' ] );
         add_action( 'wp_ajax_bvk_upload_audio',      [ __CLASS__, 'handle_upload_audio' ] );
+
+        // Batch: auto-fetch all completed jobs in a chain to WP Media
+        add_action( 'wp_ajax_bvk_auto_fetch_batch', [ __CLASS__, 'handle_auto_fetch_batch' ] );
     }
 
     /* ═════════════════════════════════════════════════════════
@@ -99,6 +102,11 @@ class BizCity_Video_Kling_Ajax {
             'model'          => sanitize_text_field( $_POST['model'] ?? '2.6|pro' ),
         ];
 
+        // Batch params (optional)
+        $chain_id       = sanitize_text_field( $_POST['chain_id'] ?? '' );
+        $segment_index  = intval( $_POST['segment_index'] ?? 0 );
+        $total_segments = intval( $_POST['total_segments'] ?? 0 );
+
         $context = [
             'user_id'    => $user_id,
             'session_id' => 'profile_direct_' . $user_id,
@@ -106,12 +114,30 @@ class BizCity_Video_Kling_Ajax {
             'conversation_id' => '',
         ];
 
+        // Pass batch info through context so create_video can save it
+        if ( $chain_id ) {
+            $context['chain_id']       = $chain_id;
+            $context['segment_index']  = $segment_index;
+            $context['total_segments'] = $total_segments;
+        }
+
         // Reuse the same tool callback used by intent engine
         if ( ! class_exists( 'BizCity_Tool_Kling' ) ) {
             require_once BIZCITY_VIDEO_KLING_DIR . 'includes/class-tools-kling.php';
         }
 
         $result = BizCity_Tool_Kling::create_video( $slots, $context );
+
+        // If batch params provided and job was created, update the job with chain info
+        if ( ! empty( $result['success'] ) && $chain_id && ! empty( $result['job_id'] ) ) {
+            BizCity_Video_Kling_Database::update_job( $result['job_id'], [
+                'chain_id'       => $chain_id,
+                'segment_index'  => $segment_index,
+                'total_segments' => $total_segments,
+                'is_final'       => ( $segment_index === $total_segments ) ? 1 : 0,
+            ] );
+            $result['chain_id'] = $chain_id;
+        }
 
         if ( ! empty( $result['success'] ) ) {
             wp_send_json_success( $result );
@@ -175,14 +201,26 @@ class BizCity_Video_Kling_Ajax {
         $has_table  = $wpdb->get_var( $wpdb->prepare( "SHOW TABLES LIKE %s", $jobs_table ) ) === $jobs_table;
 
         if ( ! $has_table ) {
-            wp_send_json_success( [ 'jobs' => [], 'stats' => [ 'total' => 0, 'done' => 0, 'active' => 0 ] ] );
+            wp_send_json_success( [ 'jobs' => [], 'stats' => [ 'total' => 0, 'done' => 0, 'active' => 0 ], 'chains' => [] ] );
         }
 
-        $jobs = $wpdb->get_results( $wpdb->prepare(
-            "SELECT id, prompt, status, progress, video_url, media_url, attachment_id, model, duration, aspect_ratio, checkpoints, error_message, created_at, updated_at
-             FROM {$jobs_table} WHERE created_by = %d ORDER BY created_at DESC LIMIT 20",
-            $user_id
-        ), ARRAY_A );
+        // Optional chain_id filter
+        $chain_id = sanitize_text_field( $_POST['chain_id'] ?? '' );
+
+        if ( $chain_id ) {
+            // Return only jobs in this chain
+            $jobs = $wpdb->get_results( $wpdb->prepare(
+                "SELECT id, task_id, prompt, status, progress, video_url, media_url, attachment_id, model, duration, aspect_ratio, checkpoints, error_message, chain_id, segment_index, total_segments, is_final, created_at, updated_at
+                 FROM {$jobs_table} WHERE created_by = %d AND chain_id = %s ORDER BY segment_index ASC",
+                $user_id, $chain_id
+            ), ARRAY_A );
+        } else {
+            $jobs = $wpdb->get_results( $wpdb->prepare(
+                "SELECT id, task_id, prompt, status, progress, video_url, media_url, attachment_id, model, duration, aspect_ratio, checkpoints, error_message, chain_id, segment_index, total_segments, is_final, created_at, updated_at
+                 FROM {$jobs_table} WHERE created_by = %d ORDER BY created_at DESC LIMIT 20",
+                $user_id
+            ), ARRAY_A );
+        }
 
         // Parse checkpoints JSON for each job
         foreach ( $jobs as &$j ) {
@@ -190,13 +228,92 @@ class BizCity_Video_Kling_Ajax {
         }
         unset( $j );
 
+        // ── Self-healing: re-schedule cron for stuck active jobs ──
+        // If a job is still queued/processing but its cron transient is missing,
+        // the WP-Cron event was lost. Re-schedule it so all scenes get polled.
+        foreach ( $jobs as $j ) {
+            if ( ! in_array( $j['status'], [ 'queued', 'processing' ], true ) ) continue;
+            if ( empty( $j['task_id'] ) ) continue;
+
+            $poll_key = 'bvk_intent_poll_' . $j['id'];
+            $poll     = get_transient( $poll_key );
+
+            if ( ! $poll ) {
+                // Transient missing → cron was lost. Re-schedule.
+                $api_key  = get_option( 'bizcity_video_kling_api_key', '' );
+                $endpoint = get_option( 'bizcity_video_kling_endpoint', '' );
+
+                set_transient( $poll_key, [
+                    'job_id'       => (int) $j['id'],
+                    'task_id'      => $j['task_id'],
+                    'api_settings' => [
+                        'api_key'  => $api_key,
+                        'endpoint' => $endpoint,
+                    ],
+                    'created'    => time(),
+                    'poll_count' => 0,
+                ], 2 * HOUR_IN_SECONDS );
+
+                wp_schedule_single_event( time() + 5, 'bvk_intent_poll_video', [ (int) $j['id'] ] );
+                error_log( "[BVK-SelfHeal] Re-scheduled cron poll for stuck job #{$j['id']} (task: {$j['task_id']})" );
+            }
+        }
+
         $total  = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$jobs_table} WHERE created_by = %d", $user_id ) );
         $done   = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$jobs_table} WHERE created_by = %d AND status = 'completed'", $user_id ) );
         $active = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$jobs_table} WHERE created_by = %d AND status IN ('queued','processing')", $user_id ) );
 
+        // Build chain summaries from the returned jobs
+        $chains = [];
+        foreach ( $jobs as $j ) {
+            if ( empty( $j['chain_id'] ) ) continue;
+            $cid = $j['chain_id'];
+            if ( ! isset( $chains[ $cid ] ) ) {
+                $chains[ $cid ] = [
+                    'chain_id'        => $cid,
+                    'total_segments'  => (int) $j['total_segments'],
+                    'completed'       => 0,
+                    'failed'          => 0,
+                    'pending'         => 0,
+                    'media_uploaded'  => 0,
+                    'all_done'        => false,
+                    'all_media_done'  => false,
+                    'video_urls'      => [],
+                ];
+            }
+            if ( $j['status'] === 'completed' ) {
+                $chains[ $cid ]['completed']++;
+                $video_url = $j['media_url'] ?: $j['video_url'];
+                if ( $video_url ) {
+                    $chains[ $cid ]['video_urls'][ (int) $j['segment_index'] ] = $video_url;
+                }
+                if ( ! empty( $j['media_url'] ) ) {
+                    $chains[ $cid ]['media_uploaded']++;
+                }
+            } elseif ( $j['status'] === 'failed' ) {
+                $chains[ $cid ]['failed']++;
+            } else {
+                $chains[ $cid ]['pending']++;
+            }
+        }
+        foreach ( $chains as &$c ) {
+            $c['all_done']       = ( $c['completed'] + $c['failed'] ) >= $c['total_segments'];
+            $c['all_media_done'] = $c['media_uploaded'] >= $c['completed'] && $c['completed'] > 0 && $c['all_done'];
+            ksort( $c['video_urls'] );
+            $c['video_urls'] = array_values( $c['video_urls'] );
+        }
+        unset( $c );
+
+        // Strip task_id from response (internal field, not needed by frontend)
+        $frontend_jobs = array_map( function( $j ) {
+            unset( $j['task_id'] );
+            return $j;
+        }, $jobs );
+
         wp_send_json_success( [
-            'jobs'  => $jobs,
-            'stats' => compact( 'total', 'done', 'active' ),
+            'jobs'   => $frontend_jobs,
+            'stats'  => compact( 'total', 'done', 'active' ),
+            'chains' => array_values( $chains ),
         ] );
     }
 
@@ -1252,5 +1369,69 @@ class BizCity_Video_Kling_Ajax {
             }
         }
         @rmdir( $dir );
+    }
+
+    /* ═════════════════════════════════════════════════════════
+     *  Auto-fetch Batch — Upload all completed chain jobs to WP Media
+     * ═════════════════════════════════════════════════════════ */
+    public static function handle_auto_fetch_batch() {
+        check_ajax_referer( 'bvk_nonce', 'nonce' );
+
+        $user_id = get_current_user_id();
+        if ( ! $user_id ) {
+            wp_send_json_error( [ 'message' => 'Vui lòng đăng nhập.' ] );
+        }
+
+        $job_id = intval( $_POST['job_id'] ?? 0 );
+        if ( ! $job_id ) {
+            wp_send_json_error( [ 'message' => 'Missing job_id.' ] );
+        }
+
+        $job = BizCity_Video_Kling_Database::get_job( $job_id );
+        if ( ! $job || (int) $job->created_by !== $user_id ) {
+            wp_send_json_error( [ 'message' => 'Job không tồn tại hoặc không có quyền.' ] );
+        }
+
+        if ( $job->status !== 'completed' || empty( $job->video_url ) ) {
+            wp_send_json_error( [ 'message' => 'Job chưa hoàn thành hoặc chưa có video URL.' ] );
+        }
+
+        // Already uploaded?
+        if ( ! empty( $job->media_url ) && ! empty( $job->attachment_id ) ) {
+            if ( wp_get_attachment_url( $job->attachment_id ) ) {
+                wp_send_json_success( [
+                    'message'       => 'Đã có trong Media.',
+                    'media_url'     => $job->media_url,
+                    'attachment_id' => (int) $job->attachment_id,
+                    'duplicate'     => true,
+                ] );
+            }
+        }
+
+        // Download to WordPress Media Library
+        if ( ! function_exists( 'waic_kling_download_video_to_media' ) ) {
+            require_once BIZCITY_VIDEO_KLING_DIR . 'lib/kling_api.php';
+        }
+
+        $chain_label = $job->chain_id ? '-s' . $job->segment_index : '';
+        $result = waic_kling_download_video_to_media( $job->video_url, "kling-video-{$job_id}{$chain_label}.mp4" );
+
+        if ( empty( $result['ok'] ) ) {
+            wp_send_json_error( [ 'message' => 'Lỗi tải video: ' . ( $result['error'] ?? 'Unknown' ) ] );
+        }
+
+        // Update job record
+        BizCity_Video_Kling_Database::update_job( $job_id, [
+            'media_url'     => $result['media_url'],
+            'attachment_id' => $result['attachment_id'],
+        ] );
+        BizCity_Video_Kling_Database::set_checkpoint( $job_id, 'auto_media_upload' );
+
+        wp_send_json_success( [
+            'message'       => 'Auto-fetch: Đã upload video vào Media Library!',
+            'media_url'     => $result['media_url'],
+            'attachment_id' => $result['attachment_id'],
+            'job_id'        => $job_id,
+        ] );
     }
 }

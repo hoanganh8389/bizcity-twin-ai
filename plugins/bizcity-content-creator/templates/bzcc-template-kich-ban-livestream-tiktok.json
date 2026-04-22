@@ -1,0 +1,154 @@
+{
+  "version": "1.0",
+  "plugin": "bizcity-content-creator",
+  "exported": "2026-04-16T18:00:00Z",
+  "templates": [
+    {
+      "slug": "kich-ban-livestream-tiktok",
+      "category_id": "0",
+      "title": "Viết kịch bản Livestream TikTok đỉnh cao",
+      "description": "Tạo kịch bản Livestream 15 phút giúp bạn tăng tương tác và bùng nổ doanh số — chi tiết từng phút, từng câu nói, mini game, chốt đơn.",
+      "icon_url": "",
+      "icon_emoji": "🎥",
+      "form_fields": [
+        {
+          "slug": "product_info",
+          "label": "Giới thiệu sản phẩm thật cụ thể và chi tiết",
+          "type": "textarea",
+          "placeholder": "Tên sản phẩm, đặc điểm, lợi ích, chất liệu, công dụng chính...",
+          "required": true,
+          "grid": "half",
+          "sort_order": 1,
+          "description": ""
+        },
+        {
+          "slug": "promotion_info",
+          "label": "Thông tin ưu đãi, khuyến mại (nếu có)",
+          "type": "textarea",
+          "placeholder": "VD: Giảm 30%, miễn phí ship, tặng kèm sample, flash sale chỉ trong live...",
+          "required": false,
+          "grid": "half",
+          "sort_order": 2,
+          "description": ""
+        },
+        {
+          "slug": "price_info",
+          "label": "Giá niêm yết và giá ưu đãi",
+          "type": "textarea",
+          "placeholder": "VD: Giá gốc 599k → Live giá chỉ 299k, combo 2 cái 499k...",
+          "required": false,
+          "grid": "half",
+          "sort_order": 3,
+          "description": ""
+        },
+        {
+          "slug": "target_audience",
+          "label": "Nhắm tới người xem là ai?",
+          "type": "textarea",
+          "placeholder": "VD: phụ nữ 20-35 tuổi / sinh viên / mẹ bỉm sữa / dân văn phòng...",
+          "required": false,
+          "grid": "half",
+          "sort_order": 4,
+          "description": ""
+        },
+        {
+          "slug": "gift_types",
+          "label": "Loại quà tặng trong Live",
+          "type": "select",
+          "placeholder": "",
+          "required": false,
+          "grid": "half",
+          "sort_order": 5,
+          "description": "",
+          "options": [
+            { "value": "voucher", "label": "Voucher giảm giá" },
+            { "value": "sample", "label": "Sản phẩm sample/minisize" },
+            { "value": "accessory", "label": "Phụ kiện tặng kèm" },
+            { "value": "free_ship", "label": "Miễn phí vận chuyển" },
+            { "value": "next_coupon", "label": "Phiếu mua hàng cho lần sau" },
+            { "value": "limited", "label": "Quà độc quyền (limited)" },
+            { "value": "combo", "label": "Combo quà tặng" },
+            { "value": "none", "label": "Không có quà tặng" }
+          ]
+        },
+        {
+          "slug": "mini_game",
+          "label": "Mini game trong Live",
+          "type": "select",
+          "placeholder": "",
+          "required": false,
+          "grid": "half",
+          "sort_order": 6,
+          "description": "",
+          "options": [
+            { "value": "quiz", "label": "Đố vui nhanh" },
+            { "value": "lucky_number", "label": "Chọn con số may mắn" },
+            { "value": "random_share", "label": "Quay random từ người chia sẻ livestream" },
+            { "value": "tag_friend", "label": "Tag bạn bè" },
+            { "value": "lucky_draw", "label": "Bốc thăm trúng quà" },
+            { "value": "share_hashtag", "label": "Chia sẻ livestream kèm hashtag" },
+            { "value": "survey", "label": "Khảo sát nhanh" },
+            { "value": "guess_price", "label": "Trò chơi đoán giá" },
+            { "value": "duet_trend", "label": "Duet trend TikTok" },
+            { "value": "none", "label": "Không chơi game" }
+          ]
+        },
+        {
+          "slug": "persona",
+          "label": "Bạn sẽ tham gia phiên Live này như một",
+          "type": "select",
+          "placeholder": "",
+          "required": false,
+          "grid": "full",
+          "sort_order": 7,
+          "description": "",
+          "options": [
+            { "value": "tiktoker_funny", "label": "🎭 TikToker Gen Z Hài Hước — trẻ trung, sôi nổi, dùng từ lóng bắt trend" },
+            { "value": "tiktoker_friendly", "label": "😊 TikToker Gen Z Thân Thiện — gần gũi, tạo cảm giác bạn bè" },
+            { "value": "livestreamer_pro", "label": "🎥 Livestreamer Nhiều Kinh Nghiệm — tự tin, dẫn dắt mượt, chốt đơn mạnh" },
+            { "value": "beauty_blogger", "label": "💄 Beauty Blogger — tươi tắn, review chân thật, ngôn từ nữ tính" },
+            { "value": "hot_mom", "label": "👩‍👧 Hot Mom — ấm áp, chân thành, nhấn mạnh an toàn cho gia đình" },
+            { "value": "mc_pro", "label": "🎤 MC Chuyên Nghiệp — nghiêm túc, dẫn dắt lưu loát, tạo tin cậy" },
+            { "value": "seller_friendly", "label": "🤝 Người Bán Hàng Thân Thiện — đời thường, dễ bắt chuyện, chốt đơn nhanh" },
+            { "value": "food_vlogger", "label": "🍽️ Food Vlogger — miêu tả gây thèm, kích thích vị giác" },
+            { "value": "fitness_coach", "label": "💪 Fitness Coach — tràn đầy năng lượng, thúc đẩy healthy & fit" },
+            { "value": "tech_reviewer", "label": "💻 Reviewer Công Nghệ — phân tích thông số, test thực tế, khách quan" },
+            { "value": "fashionista", "label": "👗 Fashionista — gu thời trang trendy, mẹo mix & match" },
+            { "value": "expert", "label": "🏥 Chuyên Gia — dẫn chứng khoa học, giải thích chuyên sâu, uy tín" },
+            { "value": "talkshow_host", "label": "📺 Host Talkshow — phong thái điềm tĩnh, dẫn dắt mang tính sự kiện" },
+            { "value": "ceo_startup", "label": "🚀 CEO Start-up — tầm nhìn, câu chuyện khởi nghiệp, cam kết chất lượng" },
+            { "value": "stylist", "label": "✂️ Stylist — tư vấn phối đồ chuyên sâu, phong cách sang trọng" }
+          ]
+        },
+        {
+          "slug": "product_story",
+          "label": "Lý do sản phẩm đặc biệt, câu chuyện hay review thực tế",
+          "type": "textarea",
+          "placeholder": "VD: Đã dùng 3 tháng, da sáng hẳn / Khách hàng feedback 5 sao / Câu chuyện tạo ra sản phẩm...",
+          "required": false,
+          "grid": "full",
+          "sort_order": 8,
+          "description": ""
+        }
+      ],
+
+      "system_prompt": "Bạn là chuyên gia viết kịch bản Livestream bán hàng trên TikTok hàng đầu Việt Nam. Nhiệm vụ: tạo kịch bản Livestream 15 PHÚT chi tiết, giúp tăng tương tác và bùng nổ doanh số.\n\n## THÔNG TIN PHIÊN LIVE\n- **Sản phẩm**: {{product_info}}\n- **Ưu đãi/Khuyến mại**: {{promotion_info}}\n- **Giá niêm yết & giá ưu đãi**: {{price_info}}\n- **Đối tượng người xem**: {{target_audience}}\n- **Quà tặng trong Live**: {{gift_types}}\n- **Mini game**: {{mini_game}}\n- **Phong cách dẫn**: {{persona}}\n- **Câu chuyện sản phẩm**: {{product_story}}\n\n## CẤU TRÚC KỊCH BẢN 15 PHÚT (12 phần)\n\nViết kịch bản theo **12 phần** dưới đây. Mỗi phần ghi rõ:\n- ⏱️ Mốc thời gian (phút:giây)\n- 🎤 Lời nói NGUYÊN VĂN (viết đúng như người nói, tự nhiên)\n- 📌 Hành động / cử chỉ / hiệu ứng trên màn hình\n- 💬 Câu CTA kêu gọi tương tác cụ thể\n\n### PHẦN 1 — MỞ MÀN THU HÚT (0:00 – 0:30)\n- Hook câu đầu tiên PHẢI nói trong 3 giây — gây tò mò, sốc, hoặc hứa hẹn giá trị\n- Chào hỏi ngắn gọn + giới thiệu deal HOT hôm nay\n- CTA: \"Bấm ❤️ + Follow ngay để không bỏ lỡ deal khủng!\"\n\n### PHẦN 2 — XÂY DỰNG FOMO (0:30 – 1:30)\n- Nhấn mạnh: \"Chỉ hôm nay\", \"Chỉ trong live này\", số lượng có hạn\n- Đặt câu hỏi tương tác: \"Ai đang muốn [lợi ích] thì comment 1 đi!\"\n\n### PHẦN 3 — GIỚI THIỆU SẢN PHẨM (1:30 – 4:00)\n- Mô tả sản phẩm CHI TIẾT theo thông tin đã cho\n- Show sản phẩm + demo (gợi ý hành động cụ thể)\n- Nhấn mạnh USP + điểm khác biệt\n- Xen kẽ câu hỏi tương tác\n\n### PHẦN 4 — BẰNG CHỨNG XÃ HỘI (4:00 – 5:30)\n- Đọc review khách hàng / show hình ảnh feedback\n- Chia sẻ câu chuyện sản phẩm (nếu có)\n- \"X người đã mua rồi, ai chưa có thì nhanh tay nhé!\"\n\n### PHẦN 5 — MINI GAME / TƯƠNG TÁC (5:30 – 7:00)\n- Chơi mini game theo lựa chọn: {{mini_game}}\n- Tặng quà: {{gift_types}}\n- Kêu gọi share livestream để tham gia\n\n### PHẦN 6 — CÔNG BỐ GIÁ + DEAL ĐỘC QUYỀN (7:00 – 8:30)\n- So sánh giá gốc vs giá live\n- Nhấn mạnh \"Chỉ mua được giá này trong phiên live\"\n- Show giá ưu đãi: {{price_info}}\n- CTA chốt đơn lần 1\n\n### PHẦN 7 — XỬ LÝ TỪ CHỐI (8:30 – 9:30)\n- Trả lời câu hỏi/comment thường gặp\n- Phản bác objection: \"Đắt quá\" → so sánh giá trị | \"Không biết có tốt không\" → show review\n- Tạo urgency: \"Còn X sản phẩm thôi!\"\n\n### PHẦN 8 — WAVE 2: NHẮC LẠI DEAL (9:30 – 10:30)\n- \"Các bạn mới vào live, chào mừng! Để mình recap nhanh deal khủng...\"\n- Tóm tắt lại sản phẩm + giá ưu đãi trong 60 giây\n- CTA chốt đơn lần 2\n\n### PHẦN 9 — MINI GAME / TẶNG QUÀ LẦN 2 (10:30 – 11:30)\n- Tặng thêm quà cho người share/comment\n- Đọc tên người trúng quà\n- Kêu gọi tương tác đỉnh điểm\n\n### PHẦN 10 — FLASH SALE CUỐI (11:30 – 13:00)\n- \"CHỈ CÒN 2 PHÚT NỮA, ai chưa chốt thì NHANH TAY!\"\n- Đếm ngược, tạo FOMO tối đa\n- CTA chốt đơn lần 3 — mạnh nhất\n\n### PHẦN 11 — CẢM ƠN + TƯƠNG TÁC (13:00 – 14:00)\n- Cảm ơn người xem, người mua\n- Đọc comment + tương tác\n- Nhắc lịch live tiếp theo\n\n### PHẦN 12 — KẾT THÚC + TEASER (14:00 – 15:00)\n- Preview deal phiên live sau\n- CTA Follow + Bật thông báo\n- Câu kết ấn tượng\n\n## QUY TẮC VIẾT\n- Viết NGUYÊN VĂN lời nói — đọc lên là nói được luôn\n- Giọng điệu theo phong cách: {{persona}}\n- Xen kẽ emoji phù hợp\n- Mỗi phần có header thời gian rõ ràng: **⏱️ [00:00 – 00:30]**\n- Viết bằng tiếng Việt, tự nhiên, đúng ngôn ngữ nói trên TikTok\n- Ghi chú hành động trong [ngoặc vuông]: [cầm sản phẩm lên], [chỉ vào giỏ hàng]...\n- Cuối kịch bản: tóm tắt 1 bảng TIMELINE tổng quan 12 phần (Phần | Thời gian | Nội dung chính | CTA)",
+
+      "outline_prompt": "",
+      "chunk_prompt": "",
+
+      "model_purpose": "content_creation",
+      "temperature": "0.75",
+      "max_tokens": "8000",
+      "wizard_steps": [],
+      "output_platforms": ["tiktok", "general"],
+      "skill_id": "0",
+      "tags": "livestream,tiktok,kịch-bản,bán-hàng,live,chốt-đơn,tương-tác,doanh-số,mini-game",
+      "badge_text": "🔴 Livestream",
+      "badge_color": "#e11d48",
+      "is_featured": "1",
+      "sort_order": "4",
+      "status": "active"
+    }
+  ]
+}

@@ -1,0 +1,165 @@
+[
+    {
+        "name": "",
+        "notes": "",
+        "layers": {
+            "ROOT": {
+                "type": {
+                    "resolvedName": "RootLayer"
+                },
+                "props": {
+                    "boxSize": {
+                        "width": 900,
+                        "height": 900
+                    },
+                    "position": {
+                        "x": 0,
+                        "y": 0
+                    },
+                    "rotate": 0,
+                    "color": "rgb(217, 217, 217)",
+                    "image": {
+                        "url": "http://localhost:4000/images/photos/sports/002.jpg",
+                        "thumb": "http://localhost:4000/images/photos/sports/002.jpg",
+                        "boxSize": {
+                            "width": 900,
+                            "height": 1350
+                        },
+                        "position": {
+                            "x": 0,
+                            "y": -225
+                        },
+                        "rotate": 0
+                    },
+                    "gradientBackground": null
+                },
+                "locked": false,
+                "child": [
+                    "ca_cAgP00p",
+                    "ca_1QM4uEU",
+                    "ca_KYuieoA"
+                ],
+                "parent": null
+            },
+            "ca_cAgP00p": {
+                "type": {
+                    "resolvedName": "ShapeLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": -9.198459609528898,
+                        "y": -5.61615618842916
+                    },
+                    "boxSize": {
+                        "width": 916.6057675085079,
+                        "height": 916.6057675085079,
+                        "x": -0.24270105677948095,
+                        "y": 1.5484506537703737
+                    },
+                    "rotate": 0,
+                    "clipPath": "M 0 0 L 256 0 L 256 256 L 0 256 Z",
+                    "scale": 2.036901705574462,
+                    "color": "rgb(0, 0, 0)",
+                    "shapeSize": {
+                        "width": "256",
+                        "height": "256"
+                    },
+                    "transparency": 0.33,
+                    "gradientBackground": null
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ROOT"
+            },
+            "ca_1QM4uEU": {
+                "type": {
+                    "resolvedName": "TextLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 161.78579735199224,
+                        "y": 452.68672756582475
+                    },
+                    "boxSize": {
+                        "width": 616.0754444472875,
+                        "height": 194.06376500089556,
+                        "x": 205.22120723625292,
+                        "y": 174.9856707863156
+                    },
+                    "scale": 1.5401886111182188,
+                    "rotate": 0,
+                    "text": "<p style=\"text-align: center;font-family: 'Canva Sans Regular';font-size: 45px;color: rgb(0, 0, 0);line-height: 1.4;letter-spacing: normal;\"><strong><span style=\"color: rgb(255, 255, 255);\">REQUIRES DAILY ACTION</span></strong></p>",
+                    "fonts": [
+                        {
+                            "family": "Canva Sans",
+                            "name": "Canva Sans Regular",
+                            "url": "http://fonts.gstatic.com/s/alexandria/v3/UMBCrPdDqW66y0Y2usFeQCH18mulUxBvI9r7TqbCHJ8BRq0b.woff2",
+                            "style": "regular",
+                            "styles": []
+                        }
+                    ],
+                    "colors": [
+                        "rgb(0, 0, 0)",
+                        "rgb(255, 255, 255)"
+                    ],
+                    "fontSizes": [
+                        45
+                    ],
+                    "effect": null,
+                    "transparency": 1
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ROOT"
+            },
+            "ca_KYuieoA": {
+                "type": {
+                    "resolvedName": "TextLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 120.34760649017029,
+                        "y": 274.31228730073434
+                    },
+                    "boxSize": {
+                        "width": 657.5136353091095,
+                        "height": 159.7221923696937,
+                        "x": 44.22365879180023,
+                        "y": 311.9264732222819
+                    },
+                    "scale": 2.5352728947570426,
+                    "rotate": 0,
+                    "text": "<p style=\"text-align: center;font-family: 'Aldrich Regular';font-size: 45px;color: rgb(255, 255, 255);line-height: 1.4;letter-spacing: normal;\"><strong><span style=\"color: rgb(255, 255, 255);\">SUCESS</span></strong></p>",
+                    "fonts": [
+                        {
+                            "family": "Aldrich",
+                            "name": "Aldrich Regular",
+                            "url": "http://fonts.gstatic.com/s/aldrich/v21/MCoTzAn-1s3IGyJMZaUS3pP5H_E.woff2",
+                            "style": "regular",
+                            "styles": []
+                        }
+                    ],
+                    "colors": [
+                        "rgb(0, 0, 0)",
+                        "rgb(255, 255, 255)"
+                    ],
+                    "fontSizes": [
+                        45
+                    ],
+                    "effect": {
+                        "name": "echo",
+                        "settings": {
+                            "offset": 50,
+                            "direction": 50,
+                            "color": "rgb(0, 0, 0)"
+                        }
+                    },
+                    "transparency": 1
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ROOT"
+            }
+        }
+    }
+]

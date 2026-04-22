@@ -1,18 +1,27 @@
 <?php
 /**
- * BizCity Tool Wrapper — Universal Tool Execution Layer
+ * BizCity Tool Wrapper — Universal Tool Execution Gateway
  *
- * Phase 1.12a: Unified wrapper sitting BELOW Shell Engine, it_call_content, and it_call_tool.
+ * Phase 1.12a + 1.20: Unified wrapper sitting BELOW Shell Engine, it_call_content, and it_call_tool.
+ * ALL tool execution MUST go through this class. No exceptions.
+ *
  * Absorbs shared logic:
  *   - Slot preparation (entity→schema for SINGLE, context→schema for pipeline)
  *   - Text alias resolution for pipeline tools
  *   - Required field validation + human-readable prompt
- *   - BizCity_Tool_Run::execute() with properly assembled context
+ *   - Canvas handoff decision (Phase 2a: should_handoff → dispatch → canvas_handoff status)
+ *   - Inline execution via BizCity_Tool_Run::execute() (Phase 2b)
  *   - Studio output save (always / conditional based on tool_type)
  *   - Pipeline evidence logging to intent_conversations
  *
+ * Returns 4 status codes:
+ *   - 'completed'       → Tool executed inline, result ready
+ *   - 'waiting_slot'    → Missing required fields, needs user input
+ *   - 'canvas_handoff'  → Creative tool dispatched to Canvas Panel
+ *   - 'error'           → Execution failed
+ *
  * Callers add their own layer:
- *   - Shell Engine: conversation state, format_single_tool_reply
+ *   - Shell Engine: conversation state, format_single_tool_reply, SSE canvas event
  *   - it_call_content: HIL confirm/refine, SSE post-hoc, micro-steps
  *   - it_call_tool: HIL transient state, todo updates, micro-steps
  *
@@ -61,7 +70,7 @@ class BizCity_Tool_Wrapper {
 	 *   @type string   $node_id         Node ID within pipeline (for evidence).
 	 * }
 	 * @return array {
-	 *   @type string     $status         'completed'|'waiting_slot'|'error'
+	 *   @type string     $status         'completed'|'waiting_slot'|'canvas_handoff'|'error'
 	 *   @type bool       $success        Whether execution succeeded.
 	 *   @type string     $message        Human-readable result message.
 	 *   @type array      $data           Tool output data.
@@ -75,6 +84,7 @@ class BizCity_Tool_Wrapper {
 	 *   @type array      $raw_result     Full BizCity_Tool_Run result.
 	 *   @type bool       $verified       Post-execution verification result.
 	 *   @type int|null   $artifact_id    Studio output ID if saved.
+	 *   @type array      $canvas         Canvas meta when status=canvas_handoff {workshop, launch_url, sse_endpoint, auto_execute, prefill_data}.
 	 * }
 	 */
 	public static function run( string $tool_id, array $raw_input, array $context = [] ): array {
@@ -151,8 +161,61 @@ class BizCity_Tool_Wrapper {
 
 		// ══════════════════════════════════════════════════
 		//  Phase 2: EXECUTION
+		//  Branch A: Canvas handoff (creative tools)
+		//  Branch B: Inline execution (atomic tools)
 		// ══════════════════════════════════════════════════
 
+		// ── 2a. Canvas Adapter handoff — creative tools → Canvas Panel ──
+		// Tool Wrapper is the UNIVERSAL GATEWAY for all tool execution.
+		// Canvas check happens HERE (after slot prep + validation) so that:
+		// - dispatch() receives properly resolved $params (not raw entities)
+		// - All callers (Shell, it_call_content, it_call_tool) auto-benefit
+		// - Output Store logic stays in one place (Phase 3)
+		error_log( self::LOG . " [Phase2] Canvas check: tool={$tool_id} adapter_loaded=" . ( class_exists( 'BizCity_Canvas_Adapter' ) ? 'yes' : 'no' ) );
+
+		if ( class_exists( 'BizCity_Canvas_Adapter' )
+		     && BizCity_Canvas_Adapter::should_handoff( $tool_id ) ) {
+
+			error_log( self::LOG . " [Phase2] Canvas dispatching: tool={$tool_id} params_keys=" . implode( ',', array_keys( $params ) ) );
+			$canvas_result = BizCity_Canvas_Adapter::dispatch( $tool_id, $params, $context );
+
+			if ( ! empty( $canvas_result['canvas_handoff'] ) ) {
+				$duration = (int) ( ( microtime( true ) - $start ) * 1000 );
+
+				error_log( self::LOG . " CANVAS_HANDOFF tool={$tool_id}"
+					. ' artifact=' . ( $canvas_result['artifact_id'] ?? 0 )
+					. " duration={$duration}ms caller={$caller}" );
+
+				return [
+					'status'         => 'canvas_handoff',
+					'success'        => true,
+					'message'        => $canvas_result['reply'] ?? '',
+					'data'           => [],
+					'content'        => '',
+					'title'          => '',
+					'skill_used'     => '',
+					'duration_ms'    => $duration,
+					'missing_fields' => [],
+					'filled_params'  => $params,
+					'slot_prompt'    => '',
+					'raw_result'     => [],
+					'verified'       => false,
+					'artifact_id'    => $canvas_result['artifact_id'] ?? null,
+					'canvas'         => [
+						'workshop'     => $canvas_result['workshop'] ?? '',
+						'launch_url'   => $canvas_result['launch_url'] ?? '',
+						'sse_endpoint' => $canvas_result['sse_endpoint'] ?? '',
+						'auto_execute' => $canvas_result['auto_execute'] ?? false,
+						'prefill_data' => $canvas_result['prefill_data'] ?? $params,
+					],
+				];
+			}
+
+			// Canvas handoff declined (no handler, handler failed) → fall through to inline
+			error_log( self::LOG . " CANVAS_DECLINED tool={$tool_id} error=" . ( $canvas_result['error'] ?? 'unknown' ) );
+		}
+
+		// ── 2b. Inline execution (atomic tools, or canvas fallback) ──
 		$run_context = self::build_run_context( $context );
 
 		error_log( self::LOG . ' PRE-EXECUTE tool=' . $tool_id

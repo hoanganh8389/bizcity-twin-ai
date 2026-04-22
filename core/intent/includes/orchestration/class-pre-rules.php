@@ -137,6 +137,18 @@ class BizCity_Pre_Rules {
 	private function check_waiting( string $message, string $msg_lower, array $params, array $conversation ): array {
 		$waiting_for = $conversation['waiting_for'] ?? '';
 
+		// ── Slash command escape: any /command breaks out of WAITING state ──
+		// User is invoking a new skill, not answering the pending question.
+		if ( preg_match( '/^\/[a-zA-Z0-9_]/', trim( $message ) ) ) {
+			$conv_id = $conversation['conversation_id'] ?? '';
+			if ( $conv_id && class_exists( 'BizCity_Intent_Conversation' ) ) {
+				BizCity_Intent_Conversation::instance()->resume( $conv_id );
+			}
+			error_log( '[PreRules] [WAITING] Slash escape: "' . mb_substr( $message, 0, 60 )
+				. '" | waiting_for=' . $waiting_for . ' → fall through to check_slash_command' );
+			return [ 'handled' => false ];
+		}
+
 		// WAITING_CONFIRM — accept/reject/modify
 		if ( strpos( $waiting_for, 'confirm' ) !== false || strpos( $waiting_for, 'plan' ) !== false ) {
 			return $this->resolve_confirm( $message, $msg_lower, $params, $conversation );
@@ -273,16 +285,21 @@ class BizCity_Pre_Rules {
 	private function check_slash_command( string $message, array $params, array $conversation ): array {
 		// Extract slash command from params or message
 		$slash = $params['slash_command'] ?? '';
-		if ( empty( $slash ) && preg_match( '/^\/([a-zA-Z0-9_]+)/', trim( $message ), $m ) ) {
+		$slash_source = 'params';
+		if ( empty( $slash ) && preg_match( '/^\/([a-zA-Z0-9_-]+)/', trim( $message ), $m ) ) {
 			$slash = $m[1];
+			$slash_source = 'regex';
 		}
 
 		if ( empty( $slash ) ) {
 			return [ 'handled' => false ];
 		}
 
+		error_log( self::LOG . " [Slash] extracted=/{$slash} source={$slash_source}" );
+
 		// Look up skill by slash command via Skill Database (Phase 1.12 fix)
 		if ( ! class_exists( 'BizCity_Skill_Database' ) ) {
+			error_log( self::LOG . ' [Slash] BizCity_Skill_Database not loaded' );
 			return [ 'handled' => false ];
 		}
 
@@ -290,16 +307,36 @@ class BizCity_Pre_Rules {
 		$row      = $skill_db->get_by_slash_command( $slash );
 
 		if ( ! $row ) {
+			error_log( self::LOG . " [Slash] /{$slash} → NOT FOUND in DB" );
 			return [ 'handled' => false ];
 		}
 
-		// Normalize DB row to expected format (frontmatter.title, content)
+		error_log( self::LOG . ' [Slash] DB hit: skill_key=' . ( $row['skill_key'] ?? '' )
+			. ' | category=' . ( $row['category'] ?? '' )
+			. ' | tools_json=' . ( $row['tools_json'] ?? '(empty)' ) );
+
+		// Normalize DB row to expected format (frontmatter with all fields)
 		$skill = $row;
 		if ( ! isset( $skill['frontmatter'] ) ) {
+			$tools_raw    = $row['tools_json'] ?? '';
+			$triggers_raw = $row['triggers_json'] ?? '';
+			$slash_raw    = $row['slash_commands'] ?? '';
+			$modes_raw    = $row['modes'] ?? '';
+
 			$skill['frontmatter'] = [
-				'title' => $row['title'] ?? $slash,
-				'name'  => $row['skill_key'] ?? $slash,
+				'title'          => $row['title'] ?? $slash,
+				'name'           => $row['skill_key'] ?? $slash,
+				'description'    => $row['description'] ?? '',
+				'category'       => $row['category'] ?? 'general',
+				'tools'          => is_string( $tools_raw ) ? ( json_decode( $tools_raw, true ) ?: [] ) : (array) $tools_raw,
+				'triggers'       => is_string( $triggers_raw ) ? ( json_decode( $triggers_raw, true ) ?: [] ) : (array) $triggers_raw,
+				'slash_commands' => is_string( $slash_raw ) ? array_filter( explode( ',', $slash_raw ) ) : (array) $slash_raw,
+				'modes'          => is_string( $modes_raw ) ? array_filter( explode( ',', $modes_raw ) ) : (array) $modes_raw,
+				'priority'       => (int) ( $row['priority'] ?? 50 ),
 			];
+
+			error_log( self::LOG . ' [Slash] frontmatter.tools=[' . implode( ',', $skill['frontmatter']['tools'] ) . ']'
+				. ' modes=[' . implode( ',', $skill['frontmatter']['modes'] ) . ']' );
 		}
 
 		// Parse skill body with RecipeParser

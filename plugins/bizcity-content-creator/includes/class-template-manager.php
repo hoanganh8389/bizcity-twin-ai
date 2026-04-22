@@ -71,6 +71,10 @@ class BZCC_Template_Manager {
 		$data['created_at'] = current_time( 'mysql', true );
 		$data['updated_at'] = $data['created_at'];
 
+		if ( ! isset( $data['settings'] ) ) {
+			$data['settings'] = '{}';
+		}
+
 		if ( empty( $data['author_id'] ) ) {
 			$data['author_id'] = get_current_user_id();
 		}
@@ -80,6 +84,10 @@ class BZCC_Template_Manager {
 
 		if ( $id && ! empty( $data['category_id'] ) ) {
 			BZCC_Category_Manager::update_tool_count( (int) $data['category_id'] );
+		}
+
+		if ( $id && function_exists( 'bzcc_invalidate_skill_sync' ) ) {
+			bzcc_invalidate_skill_sync();
 		}
 
 		return $id;
@@ -107,6 +115,9 @@ class BZCC_Template_Manager {
 			if ( $new_cat && $new_cat !== $old_cat ) {
 				BZCC_Category_Manager::update_tool_count( $new_cat );
 			}
+			if ( function_exists( 'bzcc_invalidate_skill_sync' ) ) {
+				bzcc_invalidate_skill_sync();
+			}
 		}
 
 		return $ok;
@@ -121,6 +132,10 @@ class BZCC_Template_Manager {
 
 		if ( $ok && $tpl && (int) $tpl->category_id ) {
 			BZCC_Category_Manager::update_tool_count( (int) $tpl->category_id );
+		}
+
+		if ( $ok && function_exists( 'bzcc_invalidate_skill_sync' ) ) {
+			bzcc_invalidate_skill_sync();
 		}
 
 		return $ok;
@@ -167,7 +182,7 @@ class BZCC_Template_Manager {
 			'wizard_steps', 'output_platforms', 'skill_id',
 			'tags', 'badge_text', 'badge_color',
 			'use_count', 'is_featured', 'sort_order',
-			'status', 'author_id',
+			'settings', 'status', 'author_id',
 			'created_at', 'updated_at',
 		];
 

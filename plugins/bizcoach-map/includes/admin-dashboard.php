@@ -46,44 +46,32 @@ function bccm_render_workflow_steps( $current_step = '' ) {
     $current_step = $page_map[$_GET['page']] ?? '';
   }
 
-  $basic_steps = [
-    'step1'   => [
-      'icon'  => '🌟',
-      'label' => 'Bước 1: Hồ sơ & Chiêm tinh',
-      'url'   => admin_url('admin.php?page=bccm_my_profile'),
-    ],
-    'step2'   => [
-      'icon'  => '📋',
-      'label' => 'Bước 2: Coach Template',
-      'url'   => admin_url('admin.php?page=bccm_step2_coach_template'),
-    ],
-    'step3'   => [
-      'icon'  => '🤖',
-      'label' => 'Bước 3: Tạo Character',
-      'url'   => admin_url('admin.php?page=bccm_step3_character'),
-    ],
-  ];
+  $basic_steps = [];
 
   $advanced_steps = [
-    'step4'   => [
-      'icon'  => '🎯',
-      'label' => 'Bước 4: Success Plan',
-      'url'   => admin_url('admin.php?page=bccm_step4_success_plan'),
-    ],
-    'lifemap' => [
-      'icon'  => '🗺️',
-      'label' => 'Bước 5: Life Map Plan',
-      'url'   => admin_url('admin.php?page=bccm_lifemap_plan'),
-    ],
-    'reminders' => [
-      'icon'  => '⏰',
-      'label' => 'Bước 6: Nhắc nhở & AI',
-      'url'   => admin_url('admin.php?page=bccm_cron_reminders'),
-    ],
+    // Phase 7.1: tạm ẩn toàn bộ nhóm advanced khỏi workflow guideline.
+    // 'step4'   => [
+    //   'icon'  => '🎯',
+    //   'label' => 'Bước 4: Success Plan',
+    //   'url'   => admin_url('admin.php?page=bccm_step4_success_plan'),
+    // ],
+    // 'lifemap' => [
+    //   'icon'  => '🗺️',
+    //   'label' => 'Bước 5: Life Map Plan',
+    //   'url'   => admin_url('admin.php?page=bccm_lifemap_plan'),
+    // ],
+    // 'reminders' => [
+    //   'icon'  => '⏰',
+    //   'label' => 'Bước 6: Nhắc nhở & AI',
+    //   'url'   => admin_url('admin.php?page=bccm_cron_reminders'),
+    // ],
   ];
+  if ( empty( $basic_steps ) && empty( $advanced_steps ) ) {
+    return;
+  }
   ?>
   <div class="bccm-workflow-steps">
-    <h3>🎯 Quy trình xây dựng Bản đồ cuộc đời</h3>
+    <h3>🎯 PHASE 7.1 — Build hồ sơ chủ nhân</h3>
     <div class="bccm-workflow-group-label">⭐ Cơ bản</div>
     <div class="bccm-workflow-steps-container">
       <?php foreach ( $basic_steps as $key => $step ):
@@ -96,6 +84,7 @@ function bccm_render_workflow_steps( $current_step = '' ) {
       </a>
       <?php endforeach; ?>
     </div>
+    <?php if ( ! empty( $advanced_steps ) ) : ?>
     <div class="bccm-workflow-group-label bccm-advanced-label">🚀 Nâng cao</div>
     <div class="bccm-workflow-steps-container">
       <?php foreach ( $advanced_steps as $key => $step ):
@@ -108,6 +97,7 @@ function bccm_render_workflow_steps( $current_step = '' ) {
       </a>
       <?php endforeach; ?>
     </div>
+    <?php endif; ?>
   </div>
   <?php
 }
@@ -134,20 +124,17 @@ add_action('_admin_menu', 'bccm_reorder_admin_submenu', 9999);
  */
 function bccm_reorder_admin_submenu() {
   global $submenu;
-  if (!isset($submenu['bccm_root']) || empty($submenu['bccm_root'])) return;
+  if (!isset($submenu['bccm_user_profiles']) || empty($submenu['bccm_user_profiles'])) return;
 
   // Desired order by page slug
   $order = [
-    'bccm_root',                // Dashboard (parent default)
-    'bccm_my_profile',          // Bước 1: Hồ sơ & Chiêm tinh
-    'bccm_step2_coach_template',// Bước 2: Coach Template
     'bccm_step3_character',     // Bước 3: Tạo Character
     'bccm_step4_success_plan',  // Bước 4: Success Plan
     'bccm_lifemap_plan',        // Life Map Plan
     'bccm_cron_reminders',      // Cron & Reminders
     'bccm_coachees',            // Bản đồ người khác
     'bccm_coachees_list',       // └ Danh sách
-    'bccm_settings',            // Cài đặt (tabbed)
+    'bccm_user_profiles',       // Hồ sơ thành viên
   ];
 
   $sorted   = [];
@@ -155,7 +142,7 @@ function bccm_reorder_admin_submenu() {
 
   // Build lookup: slug → submenu item
   $lookup = [];
-  foreach ($submenu['bccm_root'] as $item) {
+  foreach ($submenu['bccm_user_profiles'] as $item) {
     $slug = $item[2] ?? '';
     $lookup[$slug] = $item;
   }
@@ -173,7 +160,7 @@ function bccm_reorder_admin_submenu() {
     $sorted[] = $item;
   }
 
-  $submenu['bccm_root'] = array_values($sorted);
+  $submenu['bccm_user_profiles'] = array_values($sorted);
 }
 
 
@@ -301,17 +288,14 @@ function bccm_admin_dashboard() {
         <div class="bccm-card">
           <h2>⚡ Quick Actions</h2>
           <div class="bccm-quick-actions">
-            <a href="<?php echo esc_url(admin_url('admin.php?page=bccm_my_profile')); ?>" class="button button-primary button-hero">
-              🌟 Bước 1: Hồ sơ & Chiêm tinh
-            </a>
-            <a href="<?php echo esc_url(admin_url('admin.php?page=bccm_step2_coach_template')); ?>" class="button button-hero">
-              📋 Bước 2: Coach Template
-            </a>
             <a href="<?php echo esc_url(admin_url('admin.php?page=bccm_step3_character')); ?>" class="button button-hero">
               🤖 Bước 3: Tạo Character
             </a>
             <a href="<?php echo esc_url(admin_url('admin.php?page=bccm_step4_success_plan')); ?>" class="button button-hero">
               🎯 Bước 4: Success Plan
+            </a>
+            <a href="<?php echo esc_url(admin_url('admin.php?page=bccm_user_profiles')); ?>" class="button button-hero">
+              Hồ sơ thành viên
             </a>
           </div>
         </div>

@@ -294,18 +294,19 @@ class BCN_Deep_Research {
             ], [ 'id' => $job_id ] );
             return;
         }
-        $results = bizcity_search( $row->query, max( $max_results * 2, 10 ) );
+        $raw = bizcity_search( $row->query, max( $max_results * 2, 10 ) );
 
-        if ( is_wp_error( $results ) ) {
+        if ( is_wp_error( $raw ) || empty( $raw['success'] ) ) {
+            $err_msg = is_wp_error( $raw ) ? $raw->get_error_message() : ( $raw['error'] ?? 'Search failed' );
             $wpdb->update( $table, [
                 'status'        => 'failed',
-                'error_message' => $results->get_error_message(),
+                'error_message' => $err_msg,
             ], [ 'id' => $job_id ] );
             return;
         }
 
         // Rank — reduce to top $max_results.
-        $ranked = BCN_Research_Ranker::rank( $results, $max_results );
+        $ranked = BCN_Research_Ranker::rank( $raw['results'], $max_results );
 
         $total = count( $ranked );
 

@@ -48,7 +48,7 @@ if ( $is_logged_in && class_exists( 'BizCity_Video_Kling_Database' ) ) {
 $active_tab = isset( $_GET['tab'] ) ? sanitize_text_field( $_GET['tab'] ) : 'create';
 // BC: map old slugs to new ones
 if ( $active_tab === 'workflow' ) $active_tab = 'canva';
-$allowed_tabs = [ 'create', 'canva', 'editor', 'monitor', 'chat', 'settings', 'studio', 'generate' ];
+$allowed_tabs = [ 'create', 'faceswap', 'canva', 'editor', 'monitor', 'chat', 'settings', 'studio', 'generate' ];
 if ( ! in_array( $active_tab, $allowed_tabs, true ) ) $active_tab = 'create';
 
 // Load current settings (for Settings tab)
@@ -320,6 +320,9 @@ body{background:#0d1117;font-family:system-ui,-apple-system,sans-serif;color:#e6
     <a href="?tab=create" class="bvk-nav-item<?php echo $active_tab === 'create' ? ' active' : ''; ?>" data-tab="create">
         <span class="bvk-nav-icon"><?php echo "\xF0\x9F\x8E\xAC"; ?></span><span><?php echo "T\xE1\xBA\xA1o video"; ?></span>
     </a>
+    <a href="?tab=faceswap" class="bvk-nav-item<?php echo $active_tab === 'faceswap' ? ' active' : ''; ?>" data-tab="faceswap">
+        <span class="bvk-nav-icon"><?php echo "\xF0\x9F\x8E\xAD"; ?></span><span>Face Swap</span>
+    </a>
     <a href="?tab=canva" class="bvk-nav-item<?php echo $active_tab === 'canva' ? ' active' : ''; ?>" data-tab="canva">
         <span class="bvk-nav-icon"><?php echo "\xF0\x9F\x8E\xA8"; ?></span><span>Canva</span>
     </a>
@@ -461,6 +464,13 @@ body{background:#0d1117;font-family:system-ui,-apple-system,sans-serif;color:#e6
      ═══════════════════════════════════════════════ -->
 <div class="bvk-tab<?php echo $active_tab === 'create' ? ' active' : ''; ?>" id="bvk-tab-create">
     <?php include BIZCITY_VIDEO_KLING_DIR . 'views/page-kling-create.php'; ?>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     TAB: FACE SWAP (AIVA Two-Panel Layout)
+     ═══════════════════════════════════════════════ -->
+<div class="bvk-tab<?php echo $active_tab === 'faceswap' ? ' active' : ''; ?>" id="bvk-tab-faceswap">
+    <?php include BIZCITY_VIDEO_KLING_DIR . 'views/page-kling-faceswap.php'; ?>
 </div>
 
 <!-- ═══════════════════════════════════════════════
@@ -697,11 +707,18 @@ body{background:#0d1117;font-family:system-ui,-apple-system,sans-serif;color:#e6
 <!-- ═══════════════════════════════════════════════
      TAB 7: VIDEO EDITOR (React Remotion)
      ═══════════════════════════════════════════════ -->
-<div class="bvk-tab<?php echo $active_tab === 'editor' ? ' active' : ''; ?>" id="bvk-tab-editor" style="height:calc(100vh - 56px);">
+<div class="bvk-tab<?php echo $active_tab === 'editor' ? ' active' : ''; ?>" id="bvk-tab-editor" style="height:calc(100vh - 56px);display:flex;flex-direction:column;">
+    <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;background:#161b22;border-bottom:1px solid #30363d;flex-shrink:0;">
+        <a href="<?php echo esc_url( home_url( '/video-editor/' ) ); ?>" target="_blank"
+           style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px;background:#238636;color:#fff;border-radius:6px;font-size:12px;text-decoration:none;">
+            🚀 Mở Editor toàn trang (lưu dự án)
+        </a>
+        <span style="font-size:11px;color:#8b949e;">Mở trang riêng để auto-save dự án theo project ID</span>
+    </div>
     <iframe
         id="bvk-editor-frame"
         src="<?php echo esc_url( BIZCITY_VIDEO_KLING_URL . 'assets/video-editor-loader.php' ); ?>"
-        style="width:100%;height:100%;border:none;display:block;"
+        style="width:100%;flex:1;border:none;display:block;"
         allow="autoplay; fullscreen"
         loading="lazy"
     ></iframe>
@@ -809,16 +826,28 @@ body{background:#0d1117;font-family:system-ui,-apple-system,sans-serif;color:#e6
                 '<div class="bvk-aiva-scene-placeholder"><span>📤</span><p>Click để tải lên ảnh</p><small>JPG/PNG/WEBP tối đa 10MB</small></div>' +
             '</label>' +
             '<input type="hidden" class="bvk-aiva-scene-url" data-scene="' + num + '" value="">' +
-            '<div class="bvk-aiva-scene-progress"><div class="bvk-aiva-scene-progress-bar"></div></div>';
+            '<div class="bvk-aiva-scene-progress"><div class="bvk-aiva-scene-progress-bar"></div></div>' +
+            '<div class="bvk-aiva-scene-prompt-wrap">' +
+                '<div class="bvk-aiva-prompt-head">' +
+                    '<span class="bvk-aiva-prompt-label">Prompt</span>' +
+                    '<label class="bvk-aiva-switch"><span>Translate Prompt</span><input type="checkbox" class="bvk-translate-prompt"><span class="bvk-aiva-switch__track"></span></label>' +
+                '</div>' +
+                '<textarea class="bvk-aiva-scene-prompt bvk-aiva-textarea" rows="4" placeholder="What do you want to create with this image?" maxlength="2000"></textarea>' +
+                '<div class="bvk-aiva-prompt-foot">' +
+                    '<button type="button" class="bvk-aiva-optimize">✨ Tối ưu prompt</button>' +
+                    '<span class="bvk-aiva-charcount">0/2000</span>' +
+                '</div>' +
+            '</div>';
         return div;
     }
 
     if (createAddBtn && createScenes) {
         createAddBtn.addEventListener('click', function() {
-            if (getCreateSceneCount() >= 3) return;
+            if (getCreateSceneCount() >= 10) return;
             createScenes.appendChild(createNewScene(getCreateSceneCount() + 1));
             updateAddSceneBtn();
             updateCreateBtn();
+            updateCreateBtnLabel();
         });
     }
 
@@ -836,6 +865,7 @@ body{background:#0d1117;font-family:system-ui,-apple-system,sans-serif;color:#e6
                     renumberCreateScenes();
                     updateAddSceneBtn();
                     updateCreateBtn();
+                    updateCreateBtnLabel();
                 }
             }
             if (e.target.classList.contains('bvk-aiva-scene-clear')) {
@@ -843,6 +873,7 @@ body{background:#0d1117;font-family:system-ui,-apple-system,sans-serif;color:#e6
                 e.stopPropagation();
                 aivaClearScene(e.target.closest('.bvk-aiva-scene'));
                 updateCreateBtn();
+                updateCreateBtnLabel();
             }
         });
         createScenes.addEventListener('dragover', function(e) {
@@ -890,7 +921,7 @@ body{background:#0d1117;font-family:system-ui,-apple-system,sans-serif;color:#e6
             setTimeout(function() { progressWrap.classList.remove('active'); progressBar.style.width = '0'; }, 600);
             try {
                 var res = JSON.parse(xhr.responseText);
-                if (res.success && res.data && res.data.url) { urlInput.value = res.data.url; updateCreateBtn(); }
+                if (res.success && res.data && res.data.url) { urlInput.value = res.data.url; updateCreateBtn(); updateCreateBtnLabel(); }
                 else { alert('Upload th\u1EA5t b\u1EA1i: ' + (res.data && res.data.message || 'L\u1ED7i')); aivaClearScene(scene); }
             } catch(err) { alert('Upload th\u1EA5t b\u1EA1i.'); aivaClearScene(scene); }
         };
@@ -984,16 +1015,34 @@ body{background:#0d1117;font-family:system-ui,-apple-system,sans-serif;color:#e6
     }
     function updateAddSceneBtn() {
         if (!createAddBtn) return;
-        createAddBtn.style.display = getCreateSceneCount() >= 3 ? 'none' : '';
+        createAddBtn.style.display = getCreateSceneCount() >= 10 ? 'none' : '';
     }
 
-    /* ── Create Video Submit (multi-scene) ── */
+    /* ── Dynamic CTA label ── */
+    function updateCreateBtnLabel() {
+        if (!btnCreateVideo || !createScenes) return;
+        var count = 0;
+        createScenes.querySelectorAll('.bvk-aiva-scene-url').forEach(function(u) { if (u.value) count++; });
+        if (count <= 1) {
+            btnCreateVideo.innerHTML = '<span>▶</span> Tạo video';
+        } else {
+            btnCreateVideo.innerHTML = '<span>🚀</span> Tạo tất cả (' + count + ' cảnh)';
+        }
+    }
+
+    /* ── Active batch tracking ── */
+    var activeBatchChainId = null;
+    var batchAutoFetchPending = {}; // jobId -> true (avoid duplicate auto-fetch)
+
+    /* ── Create Video Submit (batch with chain_id) ── */
     if (btnCreateVideo) {
         btnCreateVideo.addEventListener('click', function() {
             if (isSubmitting || btnCreateVideo.disabled) return;
             var model = document.getElementById('bvk-create-model').value;
             var duration = document.querySelector('#bvk-tab-create input[name="bvk_duration"]:checked');
             var ratio = document.querySelector('#bvk-tab-create input[name="bvk_ratio"]:checked');
+            var autoFetch = document.getElementById('bvk-batch-auto-fetch');
+            var autoEditor = document.getElementById('bvk-batch-auto-editor');
 
             // Collect filled scenes
             var jobs = [];
@@ -1004,15 +1053,19 @@ body{background:#0d1117;font-family:system-ui,-apple-system,sans-serif;color:#e6
                     jobs.push({ url: url.value, prompt: (promptEl ? promptEl.value.trim() : ''), scene: scene });
                 }
             });
-            if (jobs.length === 0) { showCreateStatus('Vui l\u00F2ng upload \u00EDt nh\u1EA5t 1 \u1EA3nh.', 'error'); return; }
+            if (jobs.length === 0) { showCreateStatus('Vui lòng upload ít nhất 1 ảnh.', 'error'); return; }
 
             isSubmitting = true;
             btnCreateVideo.disabled = true;
-            btnCreateVideo.innerHTML = '<span>\u23F3</span> \u0110ang g\u1EEDi ' + jobs.length + ' c\u1EA3nh...';
-            showCreateStatus('\u0110ang g\u1EEDi ' + jobs.length + ' c\u1EA3nh...', 'loading');
+            btnCreateVideo.innerHTML = '<span>⏳</span> Đang gửi ' + jobs.length + ' cảnh...';
+            showCreateStatus('Đang gửi ' + jobs.length + ' cảnh...', 'loading');
+
+            // Generate chain_id for batch (only if >1 scene)
+            var chainId = jobs.length > 1 ? ('chain_' + Date.now() + '_' + Math.floor(Math.random() * 9000 + 1000)) : '';
+            if (chainId) activeBatchChainId = chainId;
 
             var completed = 0, succeeded = 0;
-            jobs.forEach(function(job) {
+            jobs.forEach(function(job, idx) {
                 var fd = new FormData();
                 fd.append('action', 'bvk_create_video');
                 fd.append('nonce', BVK.nonce);
@@ -1021,6 +1074,12 @@ body{background:#0d1117;font-family:system-ui,-apple-system,sans-serif;color:#e6
                 fd.append('duration', duration ? duration.value : '10');
                 fd.append('aspect_ratio', ratio ? ratio.value : '9:16');
                 fd.append('model', model);
+                // Batch params
+                if (chainId) {
+                    fd.append('chain_id', chainId);
+                    fd.append('segment_index', idx + 1);
+                    fd.append('total_segments', jobs.length);
+                }
                 var xhr = new XMLHttpRequest();
                 xhr.open('POST', BVK.ajax_url, true);
                 xhr.onload = function() {
@@ -1031,31 +1090,20 @@ body{background:#0d1117;font-family:system-ui,-apple-system,sans-serif;color:#e6
                             succeeded++;
                             var emptyEl = document.getElementById('bvk-results-empty');
                             if (emptyEl) emptyEl.style.display = 'none';
-                            var jobsList = document.getElementById('bvk-create-jobs');
-                            if (!jobsList) {
-                                jobsList = document.createElement('div');
-                                jobsList.id = 'bvk-create-jobs';
-                                jobsList.className = 'bvk-aiva-jobs';
-                                var rp = document.querySelector('.bvk-aiva-results');
-                                if (rp) rp.appendChild(jobsList);
-                            }
-                            jobsList.insertAdjacentHTML('afterbegin',
-                                '<div class="bvk-aiva-job" data-status="queued"><div class="bvk-job-top">' +
-                                '<span class="bvk-job-status st-queued">\u0110ang ch\u1EDD</span>' +
-                                '<span style="font-size:10px;color:#58a6ff;font-weight:600;background:rgba(31,111,235,.15);padding:1px 6px;border-radius:4px;">' + escHtml(model) + '</span></div>' +
-                                '<div class="bvk-job-prompt">' + escHtml(job.prompt.substring(0, 100) || '(no prompt)') + '</div>' +
-                                '<div class="bvk-progress"><div class="bvk-progress-bar" style="width:10%"></div></div></div>');
+                            logConsole('Job #' + (res.data.job_id || '?') + ': submitted (Scene ' + (idx + 1) + '/' + jobs.length + ')', 'ok');
                         }
                     } catch(e) {}
                     if (completed === jobs.length) {
                         isSubmitting = false;
-                        btnCreateVideo.innerHTML = '<span>\u25B6</span> T\u1EA1o video';
+                        updateCreateBtnLabel();
                         if (succeeded > 0) {
-                            showCreateStatus('\u0110\u00E3 g\u1EEDi ' + succeeded + '/' + jobs.length + ' c\u1EA3nh th\u00E0nh c\u00F4ng! Theo d\u00F5i t\u1EA1i tab Monitor.', 'success');
+                            showCreateStatus('Đã gửi ' + succeeded + '/' + jobs.length + ' cảnh thành công!' + (chainId ? ' Batch: ' + chainId.substring(0, 16) + '...' : ''), 'success');
+                            // Immediately poll to populate both create tab and monitor tab
+                            setTimeout(pollJobs, 500);
                             if (!pollTimer) { pollTimer = setInterval(pollJobs, 10000); }
                             createScenes.querySelectorAll('.bvk-aiva-scene').forEach(function(s) { aivaClearScene(s); });
                         } else {
-                            showCreateStatus('G\u1EEDi th\u1EA5t b\u1EA1i, vui l\u00F2ng th\u1EED l\u1EA1i.', 'error');
+                            showCreateStatus('Gửi thất bại, vui lòng thử lại.', 'error');
                         }
                         updateCreateBtn();
                     }
@@ -1064,8 +1112,8 @@ body{background:#0d1117;font-family:system-ui,-apple-system,sans-serif;color:#e6
                     completed++;
                     if (completed === jobs.length) {
                         isSubmitting = false;
-                        btnCreateVideo.innerHTML = '<span>\u25B6</span> T\u1EA1o video';
-                        showCreateStatus('L\u1ED7i k\u1EBFt n\u1ED1i', 'error');
+                        updateCreateBtnLabel();
+                        showCreateStatus('Lỗi kết nối', 'error');
                         updateCreateBtn();
                     }
                 };
@@ -1074,6 +1122,7 @@ body{background:#0d1117;font-family:system-ui,-apple-system,sans-serif;color:#e6
         });
     }
     updateCreateBtn();
+    updateCreateBtnLabel();
 
     function showCreateStatus(msg, type) {
         var el = document.getElementById('bvk-create-status');
@@ -1082,14 +1131,13 @@ body{background:#0d1117;font-family:system-ui,-apple-system,sans-serif;color:#e6
         if (msg && type) { el.textContent = msg; el.classList.add(type); }
     }
 
-    /* ── Refresh Monitor ── */
-    var btnRefresh = document.getElementById('bvk-btn-refresh');
-    if (btnRefresh) {
-        btnRefresh.addEventListener('click', function() {
+    /* ── Refresh Monitor (both monitor tab and create tab) ── */
+    document.querySelectorAll('#bvk-btn-refresh, .bvk-create-refresh-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
             logConsole('Manual refresh...', 'info');
             pollJobs();
         });
-    }
+    });
 
     var pollTimer = null;
     var prevJobStates = {}; // Track state changes for console log
@@ -1104,12 +1152,12 @@ body{background:#0d1117;font-family:system-ui,-apple-system,sans-serif;color:#e6
         xhr.onload = function() {
             try {
                 var res = JSON.parse(xhr.responseText);
-                if (res.success) {
-                    renderJobs(res.data.jobs, res.data.stats);
-                    updateStatsBar(res.data.stats);
+                if (res.success && res.data && Array.isArray(res.data.jobs)) {
+                    renderJobs(res.data.jobs, res.data.stats || {});
+                    updateStatsBar(res.data.stats || {});
                     detectChanges(res.data.jobs);
-                    // Auto-start/stop polling based on active jobs
-                    managePollTimer(res.data.stats.active || 0);
+                    handleBatchChains(res.data.chains || []);
+                    managePollTimer((res.data.stats && res.data.stats.active) || 0);
                 }
             } catch(e) {
                 logConsole('Poll parse error: ' + e.message, 'err');
@@ -1131,6 +1179,9 @@ body{background:#0d1117;font-family:system-ui,-apple-system,sans-serif;color:#e6
     }
 
     function detectChanges(jobs) {
+        var autoFetchEl = document.getElementById('bvk-batch-auto-fetch');
+        var shouldAutoFetch = autoFetchEl && autoFetchEl.checked;
+
         jobs.forEach(function(job) {
             var prev = prevJobStates[job.id];
             if (!prev) {
@@ -1143,18 +1194,25 @@ body{background:#0d1117;font-family:system-ui,-apple-system,sans-serif;color:#e6
                 if (prev.status !== job.status) {
                     if (job.status === 'completed') {
                         logConsole('Job #' + job.id + ': COMPLETED! ' + (job.media_url ? 'Media ready' : 'Video fetched'), 'ok');
-                        // Auto-insert into React video editor
-                        var completedUrl = job.media_url || job.video_url;
-                        if (completedUrl) {
-                            var editorFrame = document.getElementById('bvk-editor-frame');
-                            if (editorFrame && editorFrame.contentWindow) {
-                                editorFrame.contentWindow.postMessage({
-                                    type: 'BVK_INSERT_VIDEO',
-                                    src: completedUrl,
-                                    jobId: job.id,
-                                    prompt: job.prompt || ''
-                                }, '*');
-                                logConsole('Job #' + job.id + ': sent to Editor', 'ok');
+                        // Auto-fetch to Media if checkbox enabled and no media_url yet
+                        if (shouldAutoFetch && !job.media_url && job.video_url && !batchAutoFetchPending[job.id]) {
+                            batchAutoFetchPending[job.id] = true;
+                            bvkAutoFetchJob(job.id);
+                        }
+                        // Auto-insert into React video editor (only for non-batch single jobs)
+                        if (!job.chain_id) {
+                            var completedUrl = job.media_url || job.video_url;
+                            if (completedUrl) {
+                                var editorFrame = document.getElementById('bvk-editor-frame');
+                                if (editorFrame && editorFrame.contentWindow) {
+                                    editorFrame.contentWindow.postMessage({
+                                        type: 'BVK_INSERT_VIDEO',
+                                        src: completedUrl,
+                                        jobId: job.id,
+                                        prompt: job.prompt || ''
+                                    }, '*');
+                                    logConsole('Job #' + job.id + ': sent to Editor', 'ok');
+                                }
                             }
                         }
                     } else if (job.status === 'failed') {
@@ -1168,33 +1226,125 @@ body{background:#0d1117;font-family:system-ui,-apple-system,sans-serif;color:#e6
                 // Detect media_url appearance
                 if (!prev.media_url && job.media_url) {
                     logConsole('Job #' + job.id + ': Uploaded to Media Library', 'ok');
+                    delete batchAutoFetchPending[job.id];
                 }
             }
-            prevJobStates[job.id] = { status: job.status, progress: job.progress, media_url: job.media_url };
+            prevJobStates[job.id] = { status: job.status, progress: job.progress, media_url: job.media_url, chain_id: job.chain_id };
+        });
+    }
+
+    /* ── Auto-fetch single job to Media ── */
+    function bvkAutoFetchJob(jobId) {
+        logConsole('Auto-fetch Job #' + jobId + ' to Media...', 'info');
+        var fd = new FormData();
+        fd.append('action', 'bvk_auto_fetch_batch');
+        fd.append('nonce', BVK.nonce);
+        fd.append('job_id', jobId);
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', BVK.ajax_url, true);
+        xhr.onload = function() {
+            try {
+                var res = JSON.parse(xhr.responseText);
+                if (res.success) {
+                    logConsole('Auto-fetch Job #' + jobId + ': ' + (res.data.duplicate ? 'Already in Media' : 'Uploaded!') + ' — ' + res.data.media_url, 'ok');
+                    setTimeout(pollJobs, 1000);
+                } else {
+                    logConsole('Auto-fetch Job #' + jobId + ' failed: ' + (res.data && res.data.message || 'Error'), 'err');
+                    delete batchAutoFetchPending[jobId];
+                }
+            } catch(e) {
+                logConsole('Auto-fetch parse error', 'err');
+                delete batchAutoFetchPending[jobId];
+            }
+        };
+        xhr.onerror = function() {
+            logConsole('Auto-fetch network error', 'err');
+            delete batchAutoFetchPending[jobId];
+        };
+        xhr.send(fd);
+    }
+
+    /* ── Handle batch chain summaries ── */
+    var prevChainStates = {};
+    function handleBatchChains(chains) {
+        var autoEditorEl = document.getElementById('bvk-batch-auto-editor');
+        var shouldAutoEditor = autoEditorEl && autoEditorEl.checked;
+
+        chains.forEach(function(chain) {
+            var prev = prevChainStates[chain.chain_id];
+            var progressPct = chain.total_segments > 0 ? Math.round(((chain.completed + chain.failed) / chain.total_segments) * 100) : 0;
+
+            // Log batch progress
+            if (!prev || prev.completed !== chain.completed || prev.failed !== chain.failed) {
+                logConsole('Batch ' + chain.chain_id.substring(0, 16) + ': ' + chain.completed + '/' + chain.total_segments + ' ✅' +
+                    (chain.failed > 0 ? ' ' + chain.failed + ' ❌' : '') +
+                    (chain.media_uploaded > 0 ? ' ' + chain.media_uploaded + ' 📥' : '') +
+                    ' (' + progressPct + '%)', chain.all_done ? 'ok' : 'info');
+            }
+
+            // Detect batch completion → auto-send to Editor
+            if (chain.all_done && (!prev || !prev.all_done)) {
+                logConsole('🎉 Batch ' + chain.chain_id.substring(0, 16) + ': ALL DONE! ' + chain.completed + ' completed, ' + chain.failed + ' failed', 'ok');
+
+                if (shouldAutoEditor && chain.video_urls && chain.video_urls.length > 0) {
+                    logConsole('Auto-sending ' + chain.video_urls.length + ' videos to Editor...', 'info');
+                    bvkSendToEditor(chain.video_urls);
+                }
+            }
+
+            // Detect all media uploaded
+            if (chain.all_media_done && (!prev || !prev.all_media_done)) {
+                logConsole('📥 Batch ' + chain.chain_id.substring(0, 16) + ': All videos uploaded to Media Library', 'ok');
+            }
+
+            prevChainStates[chain.chain_id] = {
+                completed: chain.completed,
+                failed: chain.failed,
+                media_uploaded: chain.media_uploaded,
+                all_done: chain.all_done,
+                all_media_done: chain.all_media_done,
+            };
+
+            // Cleanup completed chains to prevent memory leak
+            if (chain.all_done && chain.all_media_done) {
+                delete activeBatchChainIds[chain.chain_id];
+                // Defer cleanup of prevChainStates (keep for 1 more cycle to avoid re-triggering)
+                setTimeout(function() { delete prevChainStates[chain.chain_id]; }, 15000);
+            }
         });
     }
 
     function updateStatsBar(stats) {
-        var bar = document.getElementById('bvk-stats-bar');
-        if (!bar) return;
+        var bars = [
+            document.getElementById('bvk-stats-bar'),
+            document.getElementById('bvk-create-stats-bar')
+        ].filter(Boolean);
+        if (!bars.length) return;
         var html = '<span class="bvk-monitor-badge bvk-badge-total">\uD83C\uDFAC ' + stats.total + '</span>';
         html += '<span class="bvk-monitor-badge bvk-badge-done">\u2705 ' + stats.done + '</span>';
         if (stats.active > 0) {
             html += '<span class="bvk-monitor-badge bvk-badge-active">\u23F3 ' + stats.active + ' dang chay</span>';
         }
-        html += '<button type="button" class="bvk-btn-sm" id="bvk-btn-refresh" style="margin-left:auto;padding:4px 10px;font-size:11px;font-weight:600;border-radius:6px;border:1px solid #30363d;background:#21262d;cursor:pointer;color:#8b949e;">\uD83D\uDD04 Lam moi</button>';
-        bar.innerHTML = html;
-        // Re-bind refresh button
-        var btn = document.getElementById('bvk-btn-refresh');
-        if (btn) btn.addEventListener('click', function() { logConsole('Manual refresh...', 'info'); pollJobs(); });
+        html += '<button type="button" class="bvk-btn-sm bvk-refresh-trigger" style="margin-left:auto;padding:4px 10px;font-size:11px;font-weight:600;border-radius:6px;border:1px solid #30363d;background:#21262d;cursor:pointer;color:#8b949e;">\uD83D\uDD04 Lam moi</button>';
+        bars.forEach(function(bar) {
+            bar.innerHTML = html;
+        });
+        // Re-bind all refresh buttons
+        document.querySelectorAll('.bvk-refresh-trigger').forEach(function(btn) {
+            btn.addEventListener('click', function() { logConsole('Manual refresh...', 'info'); pollJobs(); });
+        });
     }
 
     function renderJobs(jobs, stats) {
-        var list = document.getElementById('bvk-job-list');
-        if (!list) return;
+        var lists = [
+            document.getElementById('bvk-job-list'),
+            document.getElementById('bvk-create-jobs')
+        ].filter(Boolean);
+        if (!lists.length) return;
 
         if (!jobs || jobs.length === 0) {
-            list.innerHTML = '<div class="bvk-empty"><div class="bvk-empty-icon">\uD83C\uDFAC</div><p>Chua co video nao.</p></div>';
+            var emptyHtml = '<div class="bvk-empty"><div class="bvk-empty-icon">\uD83C\uDFAC</div><p>Chua co video nao.</p></div>';
+            lists.forEach(function(el) { el.innerHTML = emptyHtml; });
             return;
         }
 
@@ -1204,93 +1354,168 @@ body{background:#0d1117;font-family:system-ui,-apple-system,sans-serif;color:#e6
             'seedance:1.0':'SeeDance','sora:v1':'Sora','veo:3':'Veo 3'
         };
 
+        // Group jobs by chain_id
+        var chainGroups = {};
+        var singleJobs = [];
+        jobs.forEach(function(job) {
+            if (job.chain_id) {
+                if (!chainGroups[job.chain_id]) chainGroups[job.chain_id] = [];
+                chainGroups[job.chain_id].push(job);
+            } else {
+                singleJobs.push(job);
+            }
+        });
+
         var html = '<div id="bvk-multi-select-bar" style="display:none;position:sticky;top:0;z-index:10;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:8px 12px;margin-bottom:8px;display:none;align-items:center;gap:8px;">' +
             '<span id="bvk-select-count" style="font-size:12px;color:#8b949e;flex:1;">0 đã chọn</span>' +
             '<button type="button" onclick="bvkSendSelectedToEditor()" style="background:#1f6feb;color:#fff;border:1px solid #388bfd;border-radius:6px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;">🎞️ Mở trong Editor</button>' +
             '<button type="button" onclick="bvkClearSelection()" style="background:#21262d;color:#8b949e;border:1px solid #30363d;border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer;">✕</button>' +
             '</div>';
-        jobs.forEach(function(job) {
-            var videoUrl = job.media_url || job.video_url || '';
-            var prompt = job.prompt || 'No prompt';
-            if (prompt.length > 100) prompt = prompt.substring(0, 100) + '...';
-            var modelLabel = modelLabels[job.model] || job.model || 'Kling';
-            var cp = job.checkpoints || {};
 
-            html += '<div class="bvk-job" data-job-id="' + job.id + '" data-status="' + job.status + '" data-video-url="' + escAttr(videoUrl) + '">';
+        // Render chain groups first
+        Object.keys(chainGroups).forEach(function(chainId) {
+            var chainJobs = chainGroups[chainId];
+            // Sort by segment_index
+            chainJobs.sort(function(a, b) { return (a.segment_index || 0) - (b.segment_index || 0); });
+            var totalSegs = chainJobs[0].total_segments || chainJobs.length;
+            var completedSegs = 0, failedSegs = 0, mediaSegs = 0;
+            var chainVideoUrls = [];
+            chainJobs.forEach(function(j) {
+                if (j.status === 'completed') {
+                    completedSegs++;
+                    var vu = j.media_url || j.video_url;
+                    if (vu) chainVideoUrls.push(vu);
+                    if (j.media_url) mediaSegs++;
+                }
+                if (j.status === 'failed') failedSegs++;
+            });
+            var allDone = (completedSegs + failedSegs) >= totalSegs;
+            var batchPct = totalSegs > 0 ? Math.round(((completedSegs + failedSegs) / totalSegs) * 100) : 0;
 
-            // Top bar: status + model + time
-            html += '<div class="bvk-job-top">';
-            html += '<span class="bvk-job-status st-' + job.status + '">' + (stLabels[job.status] || job.status) + '</span>';
-            html += '<span style="font-size:10px;color:#6366f1;font-weight:600;background:#eef2ff;padding:1px 6px;border-radius:4px;">' + escHtml(modelLabel) + '</span>';
-            html += '<span style="font-size:11px;color:#9ca3af;margin-left:auto;">' + (job.created_at || '') + '</span>';
+            // Batch header
+            html += '<div class="bvk-batch-group" style="border:1px solid #30363d;border-radius:10px;padding:10px;margin-bottom:10px;background:#0d1117;">';
+            html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">';
+            html += '<span style="font-size:13px;font-weight:700;color:#e6edf3;">🎬 Batch</span>';
+            html += '<span style="font-size:11px;color:#58a6ff;font-weight:600;background:rgba(31,111,235,.15);padding:2px 8px;border-radius:10px;">' + completedSegs + '/' + totalSegs + ' ✅</span>';
+            if (failedSegs > 0) html += '<span style="font-size:11px;color:#f85149;font-weight:600;">❌ ' + failedSegs + '</span>';
+            if (mediaSegs > 0) html += '<span style="font-size:11px;color:#3fb950;font-weight:600;">📥 ' + mediaSegs + '</span>';
+            html += '<span style="font-size:10px;color:#484f58;margin-left:auto;">' + chainId.substring(0, 20) + '</span>';
             html += '</div>';
 
-            // Prompt
-            html += '<div class="bvk-job-prompt">' + escHtml(prompt) + '</div>';
+            // Batch progress bar
+            html += '<div class="bvk-progress" style="margin-bottom:8px;height:4px;"><div class="bvk-progress-bar" style="width:' + batchPct + '%;background:' + (allDone ? '#3fb950' : '#1f6feb') + ';"></div></div>';
 
-            // Meta
-            html += '<div class="bvk-job-meta">';
-            html += '<span>\u23F1 ' + job.duration + 's</span>';
-            html += '<span>\uD83D\uDCD0 ' + job.aspect_ratio + '</span>';
-            html += '<span>#' + job.id + '</span>';
-            if (videoUrl && job.status === 'completed') {
-                html += '<a href="' + escAttr(videoUrl) + '" target="_blank">\u25B6 Xem video</a>';
-            }
-            html += '</div>';
-
-            // Pipeline steps
-            if (job.status !== 'draft') {
-                html += '<div class="bvk-pipeline">';
-                html += pipeStep('Submitted', true);
-                html += pipeStep('API Processing', job.status === 'processing' ? 'active' : (job.status === 'completed' || cp.video_completed));
-                html += pipeStep('Video Fetched', cp.video_completed || cp.video_fetched);
-                html += pipeStep('Media Upload', cp.video_fetched || cp.manual_media_upload || !!job.media_url);
-                if (cp.tts_generated) html += pipeStep('TTS', true);
-                if (cp.audio_merged) html += pipeStep('FFmpeg', true);
-                html += pipeStep('Done', job.status === 'completed');
+            // "Send all to Editor" button when batch complete
+            if (allDone && chainVideoUrls.length > 0) {
+                html += '<div style="display:flex;gap:6px;margin-bottom:8px;">';
+                html += '<button type="button" class="bvk-job-act bvk-job-act-editor bvk-batch-send-editor" style="background:#1f6feb;color:#fff;border-color:#388bfd;font-size:12px;padding:5px 12px;" data-urls="' + chainVideoUrls.map(function(u){ return u.replace(/[&"<>]/g, function(c){ return {'&':'&amp;','"':'&quot;','<':'&lt;','>':'&gt;'}[c]; }); }).join('|') + '">🎞️ Gửi tất cả sang Hậu kỳ (' + chainVideoUrls.length + ' video)</button>';
                 html += '</div>';
             }
 
-            // Progress bar (for active jobs)
-            if (job.status === 'queued' || job.status === 'processing') {
-                html += '<div class="bvk-progress"><div class="bvk-progress-bar" style="width:' + (parseInt(job.progress)||0) + '%"></div></div>';
-            }
-
-            // Action buttons (for completed jobs)
-            if (job.status === 'completed') {
-                html += '<div class="bvk-job-actions">';
-                // Checkbox for multi-select
-                if (videoUrl) {
-                    html += '<label style="display:flex;align-items:center;gap:4px;cursor:pointer;margin-right:4px;"><input type="checkbox" class="bvk-job-select" data-url="' + escAttr(videoUrl) + '"> <span style="font-size:11px;color:#8b949e;">Chọn</span></label>';
-                }
-                // Upload to Media button
-                if (job.media_url) {
-                    html += '<button type="button" class="bvk-job-act done" disabled>\u2705 Media</button>';
-                } else if (job.video_url) {
-                    html += '<button type="button" class="bvk-job-act" onclick="bvkUploadToMedia(' + job.id + ', this)">\uD83D\uDCE5 Upload Media</button>';
-                }
-                // Copy link button
-                if (videoUrl) {
-                    html += '<a href="' + escAttr(videoUrl) + '" download class="bvk-job-act" style="text-decoration:none;">\uD83D\uDCE5 T\u1EA3i v\u1EC1</a>';
-                }
-                // View in new tab
-                if (videoUrl) {
-                    html += '<a href="' + escAttr(videoUrl) + '" target="_blank" class="bvk-job-act" style="text-decoration:none;">\u25B6 Xem</a>';
-                }
-                // Copy link
-                if (videoUrl) {
-                    html += '<button type="button" class="bvk-job-act" onclick="bvkCopyLink(\'' + escAttr(videoUrl) + '\', this)">\uD83D\uDD17 Copy Link</button>';
-                }
-                // Open in Editor button
-                if (videoUrl) {
-                    html += '<button type="button" class="bvk-job-act bvk-job-act-editor" style="background:#1f6feb;color:#fff;border-color:#388bfd;" onclick="bvkSendToEditor([' + JSON.stringify(videoUrl) + '])">\uD83C\uDF9E\uFE0F Editor</button>';
-                }
-                html += '</div>';
-            }
+            // Render each job in the chain
+            chainJobs.forEach(function(job) {
+                html += renderSingleJob(job, stLabels, modelLabels, true);
+            });
 
             html += '</div>';
         });
-        list.innerHTML = html;
+
+        // Render single (non-chain) jobs
+        singleJobs.forEach(function(job) {
+            html += renderSingleJob(job, stLabels, modelLabels, false);
+        });
+
+        lists.forEach(function(el) { el.innerHTML = html; });
+        // Hide empty placeholder if jobs exist
+        var emptyEl = document.getElementById('bvk-results-empty');
+        if (emptyEl && jobs && jobs.length > 0) emptyEl.style.display = 'none';
+    }
+
+    function renderSingleJob(job, stLabels, modelLabels, isChainChild) {
+        var videoUrl = job.media_url || job.video_url || '';
+        var prompt = job.prompt || 'No prompt';
+        if (prompt.length > 100) prompt = prompt.substring(0, 100) + '...';
+        var modelLabel = modelLabels[job.model] || job.model || 'Kling';
+        var cp = job.checkpoints || {};
+
+        var html = '<div class="bvk-job' + (isChainChild ? ' bvk-chain-child' : '') + '" data-job-id="' + job.id + '" data-status="' + job.status + '" data-video-url="' + escAttr(videoUrl) + '"' +
+            (isChainChild ? ' style="margin-left:8px;border-left:2px solid #30363d;padding-left:8px;"' : '') + '>';
+
+        // Top bar: status + model + scene label + time
+        html += '<div class="bvk-job-top">';
+        html += '<span class="bvk-job-status st-' + job.status + '">' + (stLabels[job.status] || job.status) + '</span>';
+        html += '<span style="font-size:10px;color:#6366f1;font-weight:600;background:#eef2ff;padding:1px 6px;border-radius:4px;">' + escHtml(modelLabel) + '</span>';
+        if (isChainChild && job.segment_index) {
+            html += '<span style="font-size:10px;color:#8b949e;font-weight:600;">Scene ' + job.segment_index + '</span>';
+        }
+        html += '<span style="font-size:11px;color:#9ca3af;margin-left:auto;">' + (job.created_at || '') + '</span>';
+        html += '</div>';
+
+        // Prompt
+        html += '<div class="bvk-job-prompt">' + escHtml(prompt) + '</div>';
+
+        // Meta
+        html += '<div class="bvk-job-meta">';
+        html += '<span>\u23F1 ' + job.duration + 's</span>';
+        html += '<span>\uD83D\uDCD0 ' + job.aspect_ratio + '</span>';
+        html += '<span>#' + job.id + '</span>';
+        if (videoUrl && job.status === 'completed') {
+            html += '<a href="' + escAttr(videoUrl) + '" target="_blank">\u25B6 Xem video</a>';
+        }
+        html += '</div>';
+
+        // Pipeline steps
+        if (job.status !== 'draft') {
+            html += '<div class="bvk-pipeline">';
+            html += pipeStep('Submitted', true);
+            html += pipeStep('API Processing', job.status === 'processing' ? 'active' : (job.status === 'completed' || cp.video_completed));
+            html += pipeStep('Video Fetched', cp.video_completed || cp.video_fetched);
+            html += pipeStep('Media Upload', cp.video_fetched || cp.manual_media_upload || cp.auto_media_upload || !!job.media_url);
+            if (cp.tts_generated) html += pipeStep('TTS', true);
+            if (cp.audio_merged) html += pipeStep('FFmpeg', true);
+            html += pipeStep('Done', job.status === 'completed');
+            html += '</div>';
+        }
+
+        // Progress bar (for active jobs)
+        if (job.status === 'queued' || job.status === 'processing') {
+            html += '<div class="bvk-progress"><div class="bvk-progress-bar" style="width:' + (parseInt(job.progress)||0) + '%"></div></div>';
+        }
+
+        // Action buttons (for completed jobs)
+        if (job.status === 'completed') {
+            html += '<div class="bvk-job-actions">';
+            // Checkbox for multi-select
+            if (videoUrl) {
+                html += '<label style="display:flex;align-items:center;gap:4px;cursor:pointer;margin-right:4px;"><input type="checkbox" class="bvk-job-select" data-url="' + escAttr(videoUrl) + '"> <span style="font-size:11px;color:#8b949e;">Chọn</span></label>';
+            }
+            // Upload to Media button
+            if (job.media_url) {
+                html += '<button type="button" class="bvk-job-act done" disabled>\u2705 Media</button>';
+            } else if (job.video_url) {
+                html += '<button type="button" class="bvk-job-act" onclick="bvkUploadToMedia(' + job.id + ', this)">\uD83D\uDCE5 Upload Media</button>';
+            }
+            // Download
+            if (videoUrl) {
+                html += '<a href="' + escAttr(videoUrl) + '" download class="bvk-job-act" style="text-decoration:none;">\uD83D\uDCE5 Tải về</a>';
+            }
+            // View in new tab
+            if (videoUrl) {
+                html += '<a href="' + escAttr(videoUrl) + '" target="_blank" class="bvk-job-act" style="text-decoration:none;">\u25B6 Xem</a>';
+            }
+            // Copy link
+            if (videoUrl) {
+                html += '<button type="button" class="bvk-job-act" onclick="bvkCopyLink(\'' + escAttr(videoUrl) + '\', this)">\uD83D\uDD17 Copy Link</button>';
+            }
+            // Open in Editor button
+            if (videoUrl) {
+                html += '<button type="button" class="bvk-job-act bvk-job-act-editor bvk-single-send-editor" style="background:#1f6feb;color:#fff;border-color:#388bfd;" data-url="' + escAttr(videoUrl) + '">\uD83C\uDF9E\uFE0F Editor</button>';
+            }
+            html += '</div>';
+        }
+
+        html += '</div>';
+        return html;
     }
 
     function pipeStep(label, state) {
@@ -1392,6 +1617,22 @@ body{background:#0d1117;font-family:system-ui,-apple-system,sans-serif;color:#e6
         });
     };
 
+    // Delegated click: batch "Send all to Editor" button
+    document.addEventListener('click', function(e) {
+        var btn = e.target.closest('.bvk-batch-send-editor');
+        if (btn) {
+            var raw = btn.getAttribute('data-urls') || '';
+            var urls = raw.split('|').filter(function(u) { return u.length > 0; });
+            if (urls.length) bvkSendToEditor(urls);
+            return;
+        }
+        var single = e.target.closest('.bvk-single-send-editor');
+        if (single) {
+            var url = single.getAttribute('data-url');
+            if (url) bvkSendToEditor([url]);
+        }
+    });
+
     /* ── TwitCanva → Editor Bridge ── */
     // Listen for messages from TwitCanva iframe
     window.addEventListener('message', function(e) {
@@ -1480,21 +1721,26 @@ body{background:#0d1117;font-family:system-ui,-apple-system,sans-serif;color:#e6
 
     /* ── Console Logger ── */
     function logConsole(msg, type) {
-        var con = document.getElementById('bvk-console');
-        if (!con) return;
+        var consoles = [
+            document.getElementById('bvk-console'),
+            document.getElementById('bvk-create-console')
+        ].filter(Boolean);
+        if (!consoles.length) return;
         var now = new Date();
         var ts = pad(now.getHours()) + ':' + pad(now.getMinutes()) + ':' + pad(now.getSeconds());
         var cls = 'bvk-log-info';
         if (type === 'ok') cls = 'bvk-log-ok';
         else if (type === 'warn') cls = 'bvk-log-warn';
         else if (type === 'err') cls = 'bvk-log-err';
-        var line = document.createElement('span');
-        line.className = 'bvk-log-line';
-        line.innerHTML = '<span class="bvk-log-time">[' + ts + ']</span> <span class="' + cls + '">' + escHtml(msg) + '</span>';
-        con.appendChild(line);
-        con.scrollTop = con.scrollHeight;
-        // Keep max 50 lines
-        while (con.children.length > 50) con.removeChild(con.firstChild);
+        consoles.forEach(function(con) {
+            var line = document.createElement('span');
+            line.className = 'bvk-log-line';
+            line.innerHTML = '<span class="bvk-log-time">[' + ts + ']</span> <span class="' + cls + '">' + escHtml(msg) + '</span>';
+            con.appendChild(line);
+            con.scrollTop = con.scrollHeight;
+            // Keep max 50 lines
+            while (con.children.length > 50) con.removeChild(con.firstChild);
+        });
     }
     function pad(n) { return n < 10 ? '0' + n : '' + n; }
 
@@ -1504,6 +1750,8 @@ body{background:#0d1117;font-family:system-ui,-apple-system,sans-serif;color:#e6
         pollTimer = setInterval(pollJobs, 10000);
         logConsole('Auto-poll started (10s interval)', 'ok');
     }
+    // Initial poll to populate create tab monitor
+    pollJobs();
 
     /* ── Chat Commands → postMessage ── */
     document.querySelectorAll('[data-msg]').forEach(function(el) {

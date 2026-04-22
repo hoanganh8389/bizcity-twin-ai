@@ -11,6 +11,13 @@
 /**
  * BizCity Intent — Meta Mode Classifier (Tầng 1) — LLM-First v3
  *
+ * @deprecated Since Phase 1.11 — Thay thế bởi BizCity_Smart_Classifier (2-mode: single|multi).
+ *   - Khi Shell Engine ON (100% traffic), file này KHÔNG ĐƯỢC GỌI.
+ *   - Smart Classifier: `bizcity-llm-router/intelligence/intent/class-smart-classifier.php`
+ *   - 5 modes cũ (emotion/reflection/knowledge/execution/ambiguous) là DEAD CODE.
+ *   - Emotion KHÔNG PHẢI mode — đó là giọng điệu (tone) trong Smart Classifier.
+ *   - Chỉ còn Focus Gate gọi lại file này như fallback (cần fix).
+ *
  * Phân loại tin nhắn vào 1 trong 4 nhóm (mode) trước khi đi vào pipeline:
  *
  *   1. emotion    — Tâm sự, cảm xúc (Empathy Mode)

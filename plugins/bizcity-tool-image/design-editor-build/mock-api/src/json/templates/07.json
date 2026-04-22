@@ -1,0 +1,363 @@
+[
+    {
+        "name": "",
+        "notes": "",
+        "layers": {
+            "ROOT": {
+                "type": {
+                    "resolvedName": "RootLayer"
+                },
+                "props": {
+                    "boxSize": {
+                        "width": 1640,
+                        "height": 924
+                    },
+                    "position": {
+                        "x": 0,
+                        "y": 0
+                    },
+                    "rotate": 0,
+                    "color": "rgb(242, 237, 237)",
+                    "image": null,
+                    "gradientBackground": null
+                },
+                "locked": false,
+                "child": [
+                    "ca_wG7gTxS",
+                    "ca_Alf6K8d",
+                    "ca_rBjMTkS",
+                    "ca_KUCx1ck",
+                    "ca_4grFR15",
+                    "ca_P1zW9Xc"
+                ],
+                "parent": null
+            },
+            "ca_wG7gTxS": {
+                "type": {
+                    "resolvedName": "FrameLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 0.5147652432547445,
+                        "y": 313.9925986400923
+                    },
+                    "boxSize": {
+                        "width": 462,
+                        "height": 462
+                    },
+                    "rotate": 0,
+                    "clipPath": "path(\"M 64 0 L 256 0 L 192 256 L 0 256 L 64 0 Z\")",
+                    "scale": 1.8046875,
+                    "image": {
+                        "boxSize": {
+                            "width": 278.36698221401855,
+                            "height": 417.5504733210278
+                        },
+                        "position": {
+                            "x": 0,
+                            "y": -64
+                        },
+                        "rotate": 0,
+                        "thumb": "http://localhost:4000/images/photos/models/004.jpg",
+                        "url": "http://localhost:4000/images/photos/models/004.jpg"
+                    },
+                    "transparency": 1
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ROOT"
+            },
+            "ca_Alf6K8d": {
+                "type": {
+                    "resolvedName": "FrameLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 367.42999787550457,
+                        "y": 368.6070027191235
+                    },
+                    "boxSize": {
+                        "width": 493.8674314850223,
+                        "height": 493.8674314850223,
+                        "x": 392.9239430635224,
+                        "y": 294.1123858083705
+                    },
+                    "rotate": 0,
+                    "clipPath": "path(\"M 64 0 L 256 0 L 192 256 L 0 256 L 64 0 Z\")",
+                    "scale": 1.9291696542383683,
+                    "image": {
+                        "boxSize": {
+                            "width": 256,
+                            "height": 384
+                        },
+                        "position": {
+                            "x": 0,
+                            "y": -64
+                        },
+                        "rotate": 0,
+                        "thumb": "http://localhost:4000/images/photos/models/002.jpg",
+                        "url": "http://localhost:4000/images/photos/models/006.jpg"
+                    },
+                    "transparency": 1
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ROOT"
+            },
+            "ca_rBjMTkS": {
+                "type": {
+                    "resolvedName": "FrameLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 802.9515615041428,
+                        "y": 313.99259864009224
+                    },
+                    "boxSize": {
+                        "width": 462,
+                        "height": 462
+                    },
+                    "rotate": 0,
+                    "clipPath": "path(\"M 64 0 L 256 0 L 192 256 L 0 256 L 64 0 Z\")",
+                    "scale": 1.8046875,
+                    "image": {
+                        "boxSize": {
+                            "width": 256,
+                            "height": 384
+                        },
+                        "position": {
+                            "x": 0,
+                            "y": -7.493939669847889
+                        },
+                        "rotate": 0,
+                        "thumb": "http://localhost:4000/images/photos/models/002.jpg",
+                        "url": "http://localhost:4000/images/photos/models/007.jpg"
+                    },
+                    "transparency": 1
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ROOT"
+            },
+            "ca_KUCx1ck": {
+                "type": {
+                    "resolvedName": "FrameLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 1175.8627575950711,
+                        "y": 384.5407184616347
+                    },
+                    "boxSize": {
+                        "width": 462,
+                        "height": 462
+                    },
+                    "rotate": 0,
+                    "clipPath": "path(\"M 64 0 L 256 0 L 192 256 L 0 256 L 64 0 Z\")",
+                    "scale": 1.8046875,
+                    "image": {
+                        "boxSize": {
+                            "width": 256,
+                            "height": 384
+                        },
+                        "position": {
+                            "x": 0,
+                            "y": -95.78465893571057
+                        },
+                        "rotate": 0,
+                        "thumb": "http://localhost:4000/images/photos/models/002.jpg",
+                        "url": "http://localhost:4000/images/photos/models/002.jpg"
+                    },
+                    "transparency": 1
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ROOT"
+            },
+            "ca_4grFR15": {
+                "type": {
+                    "resolvedName": "TextLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 480.78238712410973,
+                        "y": 72.90333419488245
+                    },
+                    "boxSize": {
+                        "width": 761.0300844728342,
+                        "height": 119.86223830447139,
+                        "x": 537.2343639689528,
+                        "y": 28.964331868699972
+                    },
+                    "scale": 1.9025752111820855,
+                    "rotate": 0,
+                    "text": "<p style=\"text-align: center;font-family: 'Abel Regular';font-size: 45px;color: rgb(0, 0, 0);line-height: 1.4;letter-spacing: normal;\"><strong><span style=\"color: rgb(0, 0, 0);\">FASHIONISTA</span></strong></p>",
+                    "fonts": [
+                        {
+                            "family": "Abel",
+                            "name": "Abel Regular",
+                            "url": "http://fonts.gstatic.com/s/abel/v18/MwQ5bhbm2POE6V1LPJp6qGI.woff2",
+                            "style": "regular",
+                            "styles": []
+                        }
+                    ],
+                    "colors": [
+                        "rgb(0, 0, 0)"
+                    ],
+                    "fontSizes": [
+                        45
+                    ],
+                    "effect": null,
+                    "transparency": 1
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ROOT"
+            },
+            "ca_P1zW9Xc": {
+                "type": {
+                    "resolvedName": "TextLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 537.9666283445803,
+                        "y": 212.05104678211427
+                    },
+                    "boxSize": {
+                        "width": 646.661602031893,
+                        "height": 60.50788317394676,
+                        "x": 582.0650695776372,
+                        "y": 199.1278108038253
+                    },
+                    "scale": 1.3446196260877057,
+                    "rotate": 0,
+                    "text": "<p style=\"text-align: center;font-family: 'Advent Pro Regular';font-size: 32px;color: rgb(140, 82, 255);line-height: 1.4;letter-spacing: normal;\"><strong><span style=\"color: rgb(140, 82, 255);\">OUTFITS OF THE WEEK</span></strong></p>",
+                    "fonts": [
+                        {
+                            "family": "Advent Pro",
+                            "name": "Advent Pro Regular",
+                            "url": "http://fonts.gstatic.com/s/adventpro/v23/V8mqoQfxVT4Dvddr_yOwrzaFxV7JtdQgFqXdUAQrGp_zgX5sWCpLQyNPSZoonw1aBA.woff2",
+                            "style": "regular",
+                            "styles": [
+                                {
+                                    "family": "Advent Pro",
+                                    "name": "Advent Pro Bold 100",
+                                    "url": "http://fonts.gstatic.com/s/adventpro/v23/V8mqoQfxVT4Dvddr_yOwrzaFxV7JtdQgFqXdUAQrGp_zgX5sWCpLQyJPSZoonw1aBA.woff2",
+                                    "style": "100"
+                                },
+                                {
+                                    "family": "Advent Pro",
+                                    "name": "Advent Pro Bold 200",
+                                    "url": "http://fonts.gstatic.com/s/adventpro/v23/V8mqoQfxVT4Dvddr_yOwrzaFxV7JtdQgFqXdUAQrGp_zgX5sWCpLwyNPSZoonw1aBA.woff2",
+                                    "style": "200"
+                                },
+                                {
+                                    "family": "Advent Pro",
+                                    "name": "Advent Pro Bold 300",
+                                    "url": "http://fonts.gstatic.com/s/adventpro/v23/V8mqoQfxVT4Dvddr_yOwrzaFxV7JtdQgFqXdUAQrGp_zgX5sWCpLHSNPSZoonw1aBA.woff2",
+                                    "style": "300"
+                                },
+                                {
+                                    "family": "Advent Pro",
+                                    "name": "Advent Pro Bold 500",
+                                    "url": "http://fonts.gstatic.com/s/adventpro/v23/V8mqoQfxVT4Dvddr_yOwrzaFxV7JtdQgFqXdUAQrGp_zgX5sWCpLcSNPSZoonw1aBA.woff2",
+                                    "style": "500"
+                                },
+                                {
+                                    "family": "Advent Pro",
+                                    "name": "Advent Pro Bold 600",
+                                    "url": "http://fonts.gstatic.com/s/adventpro/v23/V8mqoQfxVT4Dvddr_yOwrzaFxV7JtdQgFqXdUAQrGp_zgX5sWCpLnSRPSZoonw1aBA.woff2",
+                                    "style": "600"
+                                },
+                                {
+                                    "family": "Advent Pro",
+                                    "name": "Advent Pro Bold 700",
+                                    "url": "http://fonts.gstatic.com/s/adventpro/v23/V8mqoQfxVT4Dvddr_yOwrzaFxV7JtdQgFqXdUAQrGp_zgX5sWCpLpCRPSZoonw1aBA.woff2",
+                                    "style": "700"
+                                },
+                                {
+                                    "family": "Advent Pro",
+                                    "name": "Advent Pro Bold 800",
+                                    "url": "http://fonts.gstatic.com/s/adventpro/v23/V8mqoQfxVT4Dvddr_yOwrzaFxV7JtdQgFqXdUAQrGp_zgX5sWCpLwyRPSZoonw1aBA.woff2",
+                                    "style": "800"
+                                },
+                                {
+                                    "family": "Advent Pro",
+                                    "name": "Advent Pro Bold 900",
+                                    "url": "http://fonts.gstatic.com/s/adventpro/v23/V8mqoQfxVT4Dvddr_yOwrzaFxV7JtdQgFqXdUAQrGp_zgX5sWCpL6iRPSZoonw1aBA.woff2",
+                                    "style": "900"
+                                },
+                                {
+                                    "family": "Advent Pro",
+                                    "name": "Advent Pro Italic Bold 100",
+                                    "url": "http://fonts.gstatic.com/s/adventpro/v23/V8mkoQfxVT4Dvddr_yOwhT-3Jr6w5kKOEbAVEvZiKGAr6BX29i1ei2CnDpApvQhKBH4C.woff2",
+                                    "style": "100italic"
+                                },
+                                {
+                                    "family": "Advent Pro",
+                                    "name": "Advent Pro Italic Bold 200",
+                                    "url": "http://fonts.gstatic.com/s/adventpro/v23/V8mkoQfxVT4Dvddr_yOwhT-3Jr6w5kKOEbAVEvZiKGAr6BX29i1ei2AnD5ApvQhKBH4C.woff2",
+                                    "style": "200italic"
+                                },
+                                {
+                                    "family": "Advent Pro",
+                                    "name": "Advent Pro Italic Bold 300",
+                                    "url": "http://fonts.gstatic.com/s/adventpro/v23/V8mkoQfxVT4Dvddr_yOwhT-3Jr6w5kKOEbAVEvZiKGAr6BX29i1ei2D5D5ApvQhKBH4C.woff2",
+                                    "style": "300italic"
+                                },
+                                {
+                                    "family": "Advent Pro",
+                                    "name": "Advent Pro Italic",
+                                    "url": "http://fonts.gstatic.com/s/adventpro/v23/V8mkoQfxVT4Dvddr_yOwhT-3Jr6w5kKOEbAVEvZiKGAr6BX29i1ei2CnD5ApvQhKBH4C.woff2",
+                                    "style": "italic"
+                                },
+                                {
+                                    "family": "Advent Pro",
+                                    "name": "Advent Pro Italic Bold 500",
+                                    "url": "http://fonts.gstatic.com/s/adventpro/v23/V8mkoQfxVT4Dvddr_yOwhT-3Jr6w5kKOEbAVEvZiKGAr6BX29i1ei2CVD5ApvQhKBH4C.woff2",
+                                    "style": "500italic"
+                                },
+                                {
+                                    "family": "Advent Pro",
+                                    "name": "Advent Pro Italic Bold 600",
+                                    "url": "http://fonts.gstatic.com/s/adventpro/v23/V8mkoQfxVT4Dvddr_yOwhT-3Jr6w5kKOEbAVEvZiKGAr6BX29i1ei2B5CJApvQhKBH4C.woff2",
+                                    "style": "600italic"
+                                },
+                                {
+                                    "family": "Advent Pro",
+                                    "name": "Advent Pro Italic Bold 700",
+                                    "url": "http://fonts.gstatic.com/s/adventpro/v23/V8mkoQfxVT4Dvddr_yOwhT-3Jr6w5kKOEbAVEvZiKGAr6BX29i1ei2BACJApvQhKBH4C.woff2",
+                                    "style": "700italic"
+                                },
+                                {
+                                    "family": "Advent Pro",
+                                    "name": "Advent Pro Italic Bold 800",
+                                    "url": "http://fonts.gstatic.com/s/adventpro/v23/V8mkoQfxVT4Dvddr_yOwhT-3Jr6w5kKOEbAVEvZiKGAr6BX29i1ei2AnCJApvQhKBH4C.woff2",
+                                    "style": "800italic"
+                                },
+                                {
+                                    "family": "Advent Pro",
+                                    "name": "Advent Pro Italic Bold 900",
+                                    "url": "http://fonts.gstatic.com/s/adventpro/v23/V8mkoQfxVT4Dvddr_yOwhT-3Jr6w5kKOEbAVEvZiKGAr6BX29i1ei2AOCJApvQhKBH4C.woff2",
+                                    "style": "900italic"
+                                }
+                            ]
+                        }
+                    ],
+                    "colors": [
+                        "rgb(203, 108, 230)",
+                        "rgb(140, 82, 255)"
+                    ],
+                    "fontSizes": [
+                        32
+                    ],
+                    "effect": null,
+                    "transparency": 1
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ROOT"
+            }
+        }
+    }
+]

@@ -54,6 +54,9 @@ add_action( 'plugins_loaded', [ 'BizCity_Output_Store', 'schedule_cleanup' ], 21
 /* ── Phase 1.9 Sprint 2: Unified Tool Registry ───────────────────── */
 require_once BIZCITY_TOOLS_DIR . 'class-tool-registry.php';
 
+/* ── Phase 1.20: Canvas Adapter (handoff layer Intent → Canvas Panel) */
+require_once BIZCITY_TOOLS_DIR . 'class-canvas-adapter.php';
+
 /* ── Auto-load all tool group bootstraps ──────────────────────────── */
 $tool_groups = [
 	// ─── Active groups (priority ordered by each bootstrap) ───

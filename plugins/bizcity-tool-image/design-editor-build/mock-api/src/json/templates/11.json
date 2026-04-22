@@ -1,0 +1,727 @@
+[
+    {
+        "name": "",
+        "notes": "",
+        "layers": {
+            "ROOT": {
+                "type": {
+                    "resolvedName": "RootLayer"
+                },
+                "props": {
+                    "boxSize": {
+                        "width": 1640,
+                        "height": 924
+                    },
+                    "position": {
+                        "x": 0,
+                        "y": 0
+                    },
+                    "rotate": 0,
+                    "color": "rgb(248, 248, 247)",
+                    "image": null,
+                    "gradientBackground": null
+                },
+                "locked": false,
+                "child": [
+                    "ca_sx7ndQH",
+                    "ca_AYfPDf4",
+                    "ca_smX9Xmf",
+                    "ca_QsruVxU",
+                    "ca_puhJI64",
+                    "ca_uw5mrD7",
+                    "ca_UxmUBS0",
+                    "ca_oiDqobL",
+                    "ca_GUOvt1b"
+                ],
+                "parent": null
+            },
+            "ca_sx7ndQH": {
+                "type": {
+                    "resolvedName": "TextLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 448.42895415114253,
+                        "y": 115.30537099511477
+                    },
+                    "boxSize": {
+                        "width": 774.519458488924,
+                        "height": 121.98681471200554,
+                        "x": 614.9799603968053,
+                        "y": 150.0034972962945
+                    },
+                    "scale": 1.93629864622231,
+                    "rotate": 0,
+                    "text": "<p style=\"text-align: center;font-family: 'Canva Sans Regular';font-size: 45px;color: rgb(0, 0, 0);line-height: 1.4;letter-spacing: normal;\"><strong><span style=\"color: rgb(0, 0, 0);\">Mother’s Day</span></strong></p>",
+                    "fonts": [
+                        {
+                            "family": "Canva Sans",
+                            "name": "Canva Sans Regular",
+                            "url": "http://fonts.gstatic.com/s/alexandria/v3/UMBCrPdDqW66y0Y2usFeQCH18mulUxBvI9r7TqbCHJ8BRq0b.woff2",
+                            "style": "regular",
+                            "styles": []
+                        }
+                    ],
+                    "colors": [
+                        "rgb(0, 0, 0)"
+                    ],
+                    "fontSizes": [
+                        45
+                    ],
+                    "effect": null,
+                    "transparency": 1
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ROOT"
+            },
+            "ca_AYfPDf4": {
+                "type": {
+                    "resolvedName": "FrameLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 237.9809421928688,
+                        "y": 350.6314807959783
+                    },
+                    "boxSize": {
+                        "width": 272.0323868130013,
+                        "height": 290.09703749980224
+                    },
+                    "rotate": 0,
+                    "clipPath": "path(\"M 79.5488 267.8 C 94.5423 271.3 110.508 273 127.028 273 C 145.215 273 162.291 271.4 177.562 268.4 C 193.527 265.2 207.549 260 219.072 253 C 230.872 245.9 240.035 236.6 246.56 225.4 C 252.946 214.4 256.139 201.1 256.139 185.9 C 256.139 173.4 253.501 162.6 248.226 153.7 C 242.95 144.8 235.87 137.3 227.262 131.2 C 218.794 125.3 209.215 120.3 198.386 116.5 C 188.39 112.9 177.978 109.7 167.427 107 C 157.293 104.4 147.297 102 137.44 99.8 C 128.555 97.8 120.503 95.5 113.562 92.8 C 107.453 90.5 102.456 87.7 98.846 84.5 C 95.7918 82 94.4035 78.7 94.4035 74.5 C 94.4035 69.4 96.9024 65.4 102.178 62.1 C 107.87 58.6 117.033 56.8 129.249 56.8 C 140.078 56.8 148.269 58.9 153.961 63.3 C 159.931 67.9 162.707 74.1 162.707 82.4 L 162.707 94.2 L 249.892 94.2 L 249.892 81.3 C 249.892 67.5 246.56 55.3 240.174 45 C 233.649 34.7 224.764 26 213.657 19.3 C 202.69 12.7 189.64 7.7 175.063 4.6 C 160.902 1.5 145.77 0 129.805 0 C 114.117 0 98.7072 1.5 84.269 4.6 C 69.4143 7.7 56.2256 12.5 44.8416 18.9 C 33.3189 25.4 24.0174 33.6 17.2148 43.4 C 10.2733 53.2 6.8026 64.8 6.8026 77.8 C 6.8026 88 8.46855 97.1 11.8004 104.9 C 15.1323 112.7 19.8525 119.7 25.961 125.5 C 31.9306 131.3 38.872 136.3 46.6464 140.4 C 54.1432 144.3 62.0564 147.8 70.5249 150.6 C 78.577 153.4 87.1844 155.8 95.7918 157.9 C 103.983 159.9 111.896 161.8 119.67 163.8 C 127.028 165.7 134.108 167.6 140.772 169.7 C 146.742 171.6 151.879 173.8 156.321 176.3 C 160.208 178.6 163.262 181.2 165.484 184.3 C 167.566 187.2 168.677 191 168.677 195.4 C 168.677 198.1 168.121 200.6 166.733 203.1 C 165.623 205.4 163.818 207.4 161.041 209.2 C 158.265 211.1 154.516 212.7 149.518 214 C 144.382 215.4 137.718 216 129.805 216 C 122.863 216 116.616 215.3 111.479 213.8 C 106.482 212.4 102.317 210.4 98.9848 207.8 C 95.5141 205.2 93.0152 202.1 91.2104 198.4 C 89.2668 194.5 88.295 190.1 88.295 185.2 C 88.295 184.5 88.295 183.6 88.4338 182.6 C 88.5727 180.9 88.7115 179.9 88.7115 179.4 L 88.7115 170.9 L 0.416486 170.9 L 0.416486 179.4 C 0.416486 180.2 0.277657 181.2 0.277657 182.3 C 0.138829 184 0 185.7 0 187.3 C 0 201.2 3.47072 213.6 10.4121 224.3 C 17.3536 235 26.9328 244.1 38.7332 251.3 C 50.3948 258.8 64.1388 264.2 79.5488 267.8 Z\")",
+                    "scale": 1.0626265109882864,
+                    "image": {
+                        "boxSize": {
+                            "width": 913.2780099160916,
+                            "height": 609.3276722408923
+                        },
+                        "position": {
+                            "x": -47.202309078425955,
+                            "y": -153.46990869244593
+                        },
+                        "rotate": 0,
+                        "thumb": "http://localhost:4000/images/photos/mothers/002.jpg",
+                        "url": "http://localhost:4000/images/photos/mothers/002.jpg"
+                    },
+                    "transparency": 1
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ROOT"
+            },
+            "ca_smX9Xmf": {
+                "type": {
+                    "resolvedName": "FrameLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 510.0133290058701,
+                        "y": 350.6314807959783
+                    },
+                    "boxSize": {
+                        "width": 280.2446852828278,
+                        "height": 290.09703749980224
+                    },
+                    "rotate": 0,
+                    "clipPath": "path(\"M 84.2927 216.353 L 168.697 216.353 L 185.087 265.1 L 256 265.1 L 164.125 0 L 92.0976 0 L 0 265 L 68.3484 265 L 84.2927 216.353 Z M 126.662 87.765 L 149.408 157.977 L 103.582 157.977 L 126.662 87.765 Z\")",
+                    "scale": 1.094705801886046,
+                    "image": {
+                        "boxSize": {
+                            "width": 733.1705025935131,
+                            "height": 489.16219469910936
+                        },
+                        "position": {
+                            "x": -225.9067302762598,
+                            "y": -79.24075637810427
+                        },
+                        "rotate": 0,
+                        "thumb": "http://localhost:4000/images/photos/mothers/002.jpg",
+                        "url": "http://localhost:4000/images/photos/mothers/002.jpg"
+                    },
+                    "transparency": 1
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ROOT"
+            },
+            "ca_QsruVxU": {
+                "type": {
+                    "resolvedName": "FrameLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 814.9799603968053,
+                        "y": 350.6314807959783
+                    },
+                    "boxSize": {
+                        "width": 280.2446852828278,
+                        "height": 290.09703749980224
+                    },
+                    "rotate": 0,
+                    "clipPath": "path(\"M 0 0 L 0 265 L 256 265 L 256 204.517 L 96.8437 204.517 L 96.8437 0 Z\")",
+                    "scale": 1.094705801886046,
+                    "image": {
+                        "boxSize": {
+                            "width": 880.3541763607309,
+                            "height": 587.361302040675
+                        },
+                        "position": {
+                            "x": -564.1312015133717,
+                            "y": -133.12447071521512
+                        },
+                        "rotate": 0,
+                        "thumb": "http://localhost:4000/images/photos/mothers/002.jpg",
+                        "url": "http://localhost:4000/images/photos/mothers/002.jpg"
+                    },
+                    "transparency": 1
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ROOT"
+            },
+            "ca_puhJI64": {
+                "type": {
+                    "resolvedName": "FrameLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 1126.6328039755322,
+                        "y": 345.5335516298509
+                    },
+                    "boxSize": {
+                        "width": 280.2446852828278,
+                        "height": 290.09703749980224
+                    },
+                    "rotate": 0,
+                    "clipPath": "path(\"M 256 206.824 L 91.9395 206.824 L 91.9395 158.779 L 230.072 158.779 L 230.072 100.403 L 91.9395 100.403 L 91.9395 58.3762 L 253.02 58.3762 L 253.02 0 L 0 0 L 0 265 L 256 265 Z\")",
+                    "scale": 1.094705801886046,
+                    "image": {
+                        "boxSize": {
+                            "width": 498.61786371432476,
+                            "height": 332.67160594690097
+                        },
+                        "position": {
+                            "x": -159.34449491865243,
+                            "y": -19.017781530745
+                        },
+                        "rotate": 0,
+                        "thumb": "http://localhost:4000/images/photos/mothers/002.jpg",
+                        "url": "http://localhost:4000/images/photos/mothers/002.jpg"
+                    },
+                    "transparency": 1
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ROOT"
+            },
+            "ca_uw5mrD7": {
+                "type": {
+                    "resolvedName": "ShapeLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 498.8018837087795,
+                        "y": 677.3208882720332
+                    },
+                    "boxSize": {
+                        "width": 596.4227619708536,
+                        "height": 154.16616206227786,
+                        "x": 498.8018837087795,
+                        "y": 677.3208882720332
+                    },
+                    "rotate": 0,
+                    "clipPath": "M 0 0 L 256 0 L 256 256 L 0 256 Z",
+                    "scale": 0.6,
+                    "color": "rgb(248, 248, 247)",
+                    "shapeSize": {
+                        "width": "256",
+                        "height": "256"
+                    },
+                    "transparency": 1,
+                    "gradientBackground": null,
+                    "border": {
+                        "style": "longDashes",
+                        "weight": 4,
+                        "color": "rgb(0, 0, 0)"
+                    }
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ROOT"
+            },
+            "ca_UxmUBS0": {
+                "type": {
+                    "resolvedName": "TextLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 597.0132646942063,
+                        "y": 707.1453020361753
+                    },
+                    "boxSize": {
+                        "width": 400,
+                        "height": 63
+                    },
+                    "scale": 1,
+                    "rotate": 0,
+                    "text": "<p style=\"text-align: center;font-family: 'Canva Sans Regular';font-size: 45px;color: rgb(0, 0, 0);line-height: 1.4;letter-spacing: normal;\"><strong><span style=\"color: rgb(0, 0, 0);\">UP TO 70% OFF</span></strong></p>",
+                    "fonts": [
+                        {
+                            "family": "Canva Sans",
+                            "name": "Canva Sans Regular",
+                            "url": "http://fonts.gstatic.com/s/alexandria/v3/UMBCrPdDqW66y0Y2usFeQCH18mulUxBvI9r7TqbCHJ8BRq0b.woff2",
+                            "style": "regular",
+                            "styles": []
+                        }
+                    ],
+                    "colors": [
+                        "rgb(0, 0, 0)"
+                    ],
+                    "fontSizes": [
+                        45
+                    ],
+                    "effect": null,
+                    "transparency": 1
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ROOT"
+            },
+            "ca_oiDqobL": {
+                "type": {
+                    "resolvedName": "ShapeLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 517.7108783817345,
+                        "y": 788.564673026792
+                    },
+                    "boxSize": {
+                        "width": 558.6047726249437,
+                        "height": 85.84475461503825,
+                        "x": 519.8132646942063,
+                        "y": 770.1453020361753
+                    },
+                    "rotate": 0,
+                    "clipPath": "M 0 0 L 256 0 L 256 256 L 0 256 Z",
+                    "scale": 0.6,
+                    "color": "rgb(0, 0, 0)",
+                    "shapeSize": {
+                        "width": "256",
+                        "height": "256"
+                    },
+                    "transparency": 1,
+                    "gradientBackground": null
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ROOT"
+            },
+            "ca_GUOvt1b": {
+                "type": {
+                    "resolvedName": "TextLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 617.2744083232024,
+                        "y": 808.149822646328
+                    },
+                    "boxSize": {
+                        "width": 379.738856371004,
+                        "height": 46.67445537596627,
+                        "x": 597.0132646942063,
+                        "y": 799.9870503343111
+                    },
+                    "scale": 0.7408643710470836,
+                    "rotate": 0,
+                    "text": "<p style=\"text-align: center;font-family: 'Canva Sans Regular';font-size: 45px;color: rgb(255, 255, 255);line-height: 1.4;letter-spacing: normal;\"><strong><span style=\"color: rgb(255, 255, 255);\">ONLINE &amp; IN STORES</span></strong></p>",
+                    "fonts": [
+                        {
+                            "family": "Canva Sans",
+                            "name": "Canva Sans Regular",
+                            "url": "http://fonts.gstatic.com/s/alexandria/v3/UMBCrPdDqW66y0Y2usFeQCH18mulUxBvI9r7TqbCHJ8BRq0b.woff2",
+                            "style": "regular",
+                            "styles": []
+                        }
+                    ],
+                    "colors": [
+                        "rgb(255, 255, 255)"
+                    ],
+                    "fontSizes": [
+                        45
+                    ],
+                    "effect": null,
+                    "transparency": 1
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ROOT"
+            }
+        }
+    },
+    {
+        "name": "",
+        "notes": "",
+        "layers": {
+            "ROOT": {
+                "type": {
+                    "resolvedName": "RootLayer"
+                },
+                "props": {
+                    "boxSize": {
+                        "width": 1640,
+                        "height": 924
+                    },
+                    "position": {
+                        "x": 0,
+                        "y": 0
+                    },
+                    "rotate": 0,
+                    "color": "rgb(0, 0, 0)",
+                    "image": null,
+                    "gradientBackground": null
+                },
+                "locked": false,
+                "child": [
+                    "ca_k3NivEP",
+                    "ca_5n5ni9Z",
+                    "ca_E7yCi85",
+                    "ca_PlF9pz6",
+                    "ca_iYpRGrv",
+                    "ca_zr7tkl5",
+                    "ca_yYqeFwA",
+                    "ca_o6PD6fg",
+                    "ca_zllWQdK"
+                ],
+                "parent": null
+            },
+            "ca_k3NivEP": {
+                "type": {
+                    "resolvedName": "TextLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 448.42895415114253,
+                        "y": 115.30537099511477
+                    },
+                    "boxSize": {
+                        "width": 774.519458488924,
+                        "height": 121.98681471200553,
+                        "x": 614.9799603968053,
+                        "y": 150.0034972962945
+                    },
+                    "scale": 1.93629864622231,
+                    "rotate": 0,
+                    "text": "<p style=\"text-align: center;font-family: 'Canva Sans Regular';font-size: 45px;color: rgb(255, 255, 255);line-height: 1.4;letter-spacing: normal;\"><strong><span style=\"color: rgb(255, 255, 255);\">Mother’s Day</span></strong></p>",
+                    "fonts": [
+                        {
+                            "family": "Canva Sans",
+                            "name": "Canva Sans Regular",
+                            "url": "http://fonts.gstatic.com/s/alexandria/v3/UMBCrPdDqW66y0Y2usFeQCH18mulUxBvI9r7TqbCHJ8BRq0b.woff2",
+                            "style": "regular",
+                            "styles": []
+                        }
+                    ],
+                    "colors": [
+                        "rgb(0, 0, 0)",
+                        "rgb(255, 255, 255)"
+                    ],
+                    "fontSizes": [
+                        45
+                    ],
+                    "effect": null,
+                    "transparency": 1
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ROOT"
+            },
+            "ca_5n5ni9Z": {
+                "type": {
+                    "resolvedName": "FrameLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 237.9809421928688,
+                        "y": 350.6314807959783
+                    },
+                    "boxSize": {
+                        "width": 272.0323868130013,
+                        "height": 290.09703749980224
+                    },
+                    "rotate": 0,
+                    "clipPath": "path(\"M 79.5488 267.8 C 94.5423 271.3 110.508 273 127.028 273 C 145.215 273 162.291 271.4 177.562 268.4 C 193.527 265.2 207.549 260 219.072 253 C 230.872 245.9 240.035 236.6 246.56 225.4 C 252.946 214.4 256.139 201.1 256.139 185.9 C 256.139 173.4 253.501 162.6 248.226 153.7 C 242.95 144.8 235.87 137.3 227.262 131.2 C 218.794 125.3 209.215 120.3 198.386 116.5 C 188.39 112.9 177.978 109.7 167.427 107 C 157.293 104.4 147.297 102 137.44 99.8 C 128.555 97.8 120.503 95.5 113.562 92.8 C 107.453 90.5 102.456 87.7 98.846 84.5 C 95.7918 82 94.4035 78.7 94.4035 74.5 C 94.4035 69.4 96.9024 65.4 102.178 62.1 C 107.87 58.6 117.033 56.8 129.249 56.8 C 140.078 56.8 148.269 58.9 153.961 63.3 C 159.931 67.9 162.707 74.1 162.707 82.4 L 162.707 94.2 L 249.892 94.2 L 249.892 81.3 C 249.892 67.5 246.56 55.3 240.174 45 C 233.649 34.7 224.764 26 213.657 19.3 C 202.69 12.7 189.64 7.7 175.063 4.6 C 160.902 1.5 145.77 0 129.805 0 C 114.117 0 98.7072 1.5 84.269 4.6 C 69.4143 7.7 56.2256 12.5 44.8416 18.9 C 33.3189 25.4 24.0174 33.6 17.2148 43.4 C 10.2733 53.2 6.8026 64.8 6.8026 77.8 C 6.8026 88 8.46855 97.1 11.8004 104.9 C 15.1323 112.7 19.8525 119.7 25.961 125.5 C 31.9306 131.3 38.872 136.3 46.6464 140.4 C 54.1432 144.3 62.0564 147.8 70.5249 150.6 C 78.577 153.4 87.1844 155.8 95.7918 157.9 C 103.983 159.9 111.896 161.8 119.67 163.8 C 127.028 165.7 134.108 167.6 140.772 169.7 C 146.742 171.6 151.879 173.8 156.321 176.3 C 160.208 178.6 163.262 181.2 165.484 184.3 C 167.566 187.2 168.677 191 168.677 195.4 C 168.677 198.1 168.121 200.6 166.733 203.1 C 165.623 205.4 163.818 207.4 161.041 209.2 C 158.265 211.1 154.516 212.7 149.518 214 C 144.382 215.4 137.718 216 129.805 216 C 122.863 216 116.616 215.3 111.479 213.8 C 106.482 212.4 102.317 210.4 98.9848 207.8 C 95.5141 205.2 93.0152 202.1 91.2104 198.4 C 89.2668 194.5 88.295 190.1 88.295 185.2 C 88.295 184.5 88.295 183.6 88.4338 182.6 C 88.5727 180.9 88.7115 179.9 88.7115 179.4 L 88.7115 170.9 L 0.416486 170.9 L 0.416486 179.4 C 0.416486 180.2 0.277657 181.2 0.277657 182.3 C 0.138829 184 0 185.7 0 187.3 C 0 201.2 3.47072 213.6 10.4121 224.3 C 17.3536 235 26.9328 244.1 38.7332 251.3 C 50.3948 258.8 64.1388 264.2 79.5488 267.8 Z\")",
+                    "scale": 1.0626265109882864,
+                    "image": {
+                        "boxSize": {
+                            "width": 913.2780099160916,
+                            "height": 609.3276722408923
+                        },
+                        "position": {
+                            "x": -47.202309078425955,
+                            "y": -153.46990869244593
+                        },
+                        "rotate": 0,
+                        "thumb": "http://localhost:4000/images/photos/mothers/002.jpg",
+                        "url": "http://localhost:4000/images/photos/mothers/002.jpg"
+                    },
+                    "transparency": 1
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ROOT"
+            },
+            "ca_E7yCi85": {
+                "type": {
+                    "resolvedName": "FrameLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 510.0133290058701,
+                        "y": 350.6314807959783
+                    },
+                    "boxSize": {
+                        "width": 280.2446852828278,
+                        "height": 290.09703749980224
+                    },
+                    "rotate": 0,
+                    "clipPath": "path(\"M 84.2927 216.353 L 168.697 216.353 L 185.087 265.1 L 256 265.1 L 164.125 0 L 92.0976 0 L 0 265 L 68.3484 265 L 84.2927 216.353 Z M 126.662 87.765 L 149.408 157.977 L 103.582 157.977 L 126.662 87.765 Z\")",
+                    "scale": 1.094705801886046,
+                    "image": {
+                        "boxSize": {
+                            "width": 733.1705025935131,
+                            "height": 489.16219469910936
+                        },
+                        "position": {
+                            "x": -225.9067302762598,
+                            "y": -79.24075637810427
+                        },
+                        "rotate": 0,
+                        "thumb": "http://localhost:4000/images/photos/mothers/002.jpg",
+                        "url": "http://localhost:4000/images/photos/mothers/002.jpg"
+                    },
+                    "transparency": 1
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ROOT"
+            },
+            "ca_PlF9pz6": {
+                "type": {
+                    "resolvedName": "FrameLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 814.9799603968053,
+                        "y": 350.6314807959783
+                    },
+                    "boxSize": {
+                        "width": 280.2446852828278,
+                        "height": 290.09703749980224
+                    },
+                    "rotate": 0,
+                    "clipPath": "path(\"M 0 0 L 0 265 L 256 265 L 256 204.517 L 96.8437 204.517 L 96.8437 0 Z\")",
+                    "scale": 1.094705801886046,
+                    "image": {
+                        "boxSize": {
+                            "width": 880.3541763607309,
+                            "height": 587.361302040675
+                        },
+                        "position": {
+                            "x": -564.1312015133717,
+                            "y": -133.12447071521512
+                        },
+                        "rotate": 0,
+                        "thumb": "http://localhost:4000/images/photos/mothers/002.jpg",
+                        "url": "http://localhost:4000/images/photos/mothers/002.jpg"
+                    },
+                    "transparency": 1
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ROOT"
+            },
+            "ca_iYpRGrv": {
+                "type": {
+                    "resolvedName": "FrameLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 1126.6328039755322,
+                        "y": 345.5335516298509
+                    },
+                    "boxSize": {
+                        "width": 280.2446852828278,
+                        "height": 290.09703749980224
+                    },
+                    "rotate": 0,
+                    "clipPath": "path(\"M 256 206.824 L 91.9395 206.824 L 91.9395 158.779 L 230.072 158.779 L 230.072 100.403 L 91.9395 100.403 L 91.9395 58.3762 L 253.02 58.3762 L 253.02 0 L 0 0 L 0 265 L 256 265 Z\")",
+                    "scale": 1.094705801886046,
+                    "image": {
+                        "boxSize": {
+                            "width": 498.61786371432476,
+                            "height": 332.67160594690097
+                        },
+                        "position": {
+                            "x": -159.34449491865243,
+                            "y": -19.017781530745
+                        },
+                        "rotate": 0,
+                        "thumb": "http://localhost:4000/images/photos/mothers/002.jpg",
+                        "url": "http://localhost:4000/images/photos/mothers/002.jpg"
+                    },
+                    "transparency": 1
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ROOT"
+            },
+            "ca_zr7tkl5": {
+                "type": {
+                    "resolvedName": "ShapeLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 498.8018837087795,
+                        "y": 677.3208882720332
+                    },
+                    "boxSize": {
+                        "width": 596.4227619708536,
+                        "height": 154.16616206227786,
+                        "x": 498.8018837087795,
+                        "y": 677.3208882720332
+                    },
+                    "rotate": 0,
+                    "clipPath": "M 0 0 L 256 0 L 256 256 L 0 256 Z",
+                    "scale": 0.6,
+                    "color": "rgb(0, 0, 0)",
+                    "shapeSize": {
+                        "width": "256",
+                        "height": "256"
+                    },
+                    "transparency": 1,
+                    "gradientBackground": null,
+                    "border": {
+                        "style": "longDashes",
+                        "weight": 4,
+                        "color": "rgb(0, 0, 0)"
+                    }
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ROOT"
+            },
+            "ca_yYqeFwA": {
+                "type": {
+                    "resolvedName": "TextLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 597.0132646942063,
+                        "y": 707.1453020361753
+                    },
+                    "boxSize": {
+                        "width": 400,
+                        "height": 63
+                    },
+                    "scale": 1,
+                    "rotate": 0,
+                    "text": "<p style=\"text-align: center;font-family: 'Canva Sans Regular';font-size: 45px;color: rgb(255, 255, 255);line-height: 1.4;letter-spacing: normal;\"><strong><span style=\"color: rgb(255, 255, 255);\">UP TO 70% OFF</span></strong></p>",
+                    "fonts": [
+                        {
+                            "family": "Canva Sans",
+                            "name": "Canva Sans Regular",
+                            "url": "http://fonts.gstatic.com/s/alexandria/v3/UMBCrPdDqW66y0Y2usFeQCH18mulUxBvI9r7TqbCHJ8BRq0b.woff2",
+                            "style": "regular",
+                            "styles": []
+                        }
+                    ],
+                    "colors": [
+                        "rgb(0, 0, 0)",
+                        "rgb(255, 255, 255)"
+                    ],
+                    "fontSizes": [
+                        45
+                    ],
+                    "effect": null,
+                    "transparency": 1
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ROOT"
+            },
+            "ca_o6PD6fg": {
+                "type": {
+                    "resolvedName": "ShapeLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 517.7108783817345,
+                        "y": 788.564673026792
+                    },
+                    "boxSize": {
+                        "width": 558.6047726249437,
+                        "height": 85.84475461503825,
+                        "x": 519.8132646942063,
+                        "y": 770.1453020361753
+                    },
+                    "rotate": 0,
+                    "clipPath": "M 0 0 L 256 0 L 256 256 L 0 256 Z",
+                    "scale": 0.6,
+                    "color": "rgb(255, 255, 255)",
+                    "shapeSize": {
+                        "width": "256",
+                        "height": "256"
+                    },
+                    "transparency": 1,
+                    "gradientBackground": null
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ROOT"
+            },
+            "ca_zllWQdK": {
+                "type": {
+                    "resolvedName": "TextLayer"
+                },
+                "props": {
+                    "position": {
+                        "x": 617.2744083232024,
+                        "y": 808.149822646328
+                    },
+                    "boxSize": {
+                        "width": 379.738856371004,
+                        "height": 46.67445537596627,
+                        "x": 597.0132646942063,
+                        "y": 799.9870503343111
+                    },
+                    "scale": 0.7408643710470836,
+                    "rotate": 0,
+                    "text": "<p style=\"text-align: center;font-family: 'Canva Sans Regular';font-size: 45px;color: rgb(0, 0, 0);line-height: 1.4;letter-spacing: normal;\"><strong><span style=\"color: rgb(0, 0, 0);\">ONLINE &amp; IN STORES</span></strong></p>",
+                    "fonts": [
+                        {
+                            "family": "Canva Sans",
+                            "name": "Canva Sans Regular",
+                            "url": "http://fonts.gstatic.com/s/alexandria/v3/UMBCrPdDqW66y0Y2usFeQCH18mulUxBvI9r7TqbCHJ8BRq0b.woff2",
+                            "style": "regular",
+                            "styles": []
+                        }
+                    ],
+                    "colors": [
+                        "rgb(255, 255, 255)",
+                        "rgb(0, 0, 0)"
+                    ],
+                    "fontSizes": [
+                        45
+                    ],
+                    "effect": null,
+                    "transparency": 1
+                },
+                "locked": false,
+                "child": [],
+                "parent": "ROOT"
+            }
+        }
+    }
+]

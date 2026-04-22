@@ -682,6 +682,10 @@
     border-radius: 24px;
     box-shadow: 0 8px 32px rgba(99, 102, 241, 0.12);
 }
+/* When right panel is open, adjust main border radius */
+.bizc-dash.rp-open .bizc-main {
+    border-radius: 24px 0 0 24px;
+}
 
 /* Console Section */
 .bizc-tools {
@@ -2398,4 +2402,324 @@ button {margin: 5px !important;}
     .bizc-touchbar-wrap.expanded .bizc-tb-icon img { width: 48px; height: 48px; border-radius: 13px; }
     .bizc-touchbar-wrap.expanded .bizc-tb-label { font-size: 10px; max-width: 58px; }
     .bizc-touchbar-wrap.expanded .bizc-tb-page { gap: 8px 0; padding: 10px 8px 4px; }
+}
+
+/* ══════════════════════════════════════════════════════
+   Right Panel — Phase 1.20 (Canvas, Suy nghĩ, Studio)
+   ══════════════════════════════════════════════════════ */
+.bizc-right-panel {
+    width: 380px;
+    min-width: 300px;
+    max-width: 480px;
+    border-left: 1px solid #e5e7eb;
+    background: #f8f9fa;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border-radius: 0 24px 24px 0;
+    transition: width 0.2s ease;
+}
+
+/* ── Tab header ── */
+.bizc-right-panel .bizc-rp-tabs {
+    display: flex;
+    align-items: center;
+    border-bottom: 1px solid #e5e7eb;
+    padding: 0 4px;
+    gap: 2px;
+    flex-shrink: 0;
+    background: #fff;
+    border-radius: 0 24px 0 0;
+}
+.bizc-right-panel .bizc-rp-tab {
+    flex: 1;
+    padding: 10px 8px;
+    font-size: 13px;
+    font-weight: 500;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: #7b8088;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+    text-align: center;
+}
+.bizc-right-panel .bizc-rp-tab:hover { color: #434956; background: rgba(99,102,241,0.04); }
+.bizc-right-panel .bizc-rp-tab.active {
+    color: #6366f1;
+    border-bottom-color: #6366f1;
+    font-weight: 600;
+}
+.bizc-right-panel .bizc-rp-close {
+    padding: 6px 10px;
+    font-size: 14px;
+    background: none;
+    border: none;
+    color: #7b8088;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: all 0.15s;
+    flex-shrink: 0;
+}
+.bizc-right-panel .bizc-rp-close:hover { background: rgba(0,0,0,0.06); color: #1a1a2e; }
+
+/* ── Tab content containers ── */
+.bizc-right-panel .bizc-rp-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.bizc-right-panel .bizc-rp-empty {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #9ca3af;
+    font-size: 13px;
+    text-align: center;
+    padding: 32px 16px;
+}
+.bizc-right-panel .bizc-rp-empty p { margin: 4px 0; }
+.bizc-right-panel .bizc-rp-empty p:first-child { font-size: 32px; margin-bottom: 8px; }
+
+/* ── Canvas header bar ── */
+.bizc-canvas-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-bottom: 1px solid #e5e7eb;
+    background: #fff;
+    flex-shrink: 0;
+}
+.bizc-canvas-header__info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.bizc-canvas-header__title {
+    font-weight: 600;
+    font-size: 13px;
+    color: #1a1a2e;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.bizc-canvas-header__icon {
+    font-size: 18px;
+    flex-shrink: 0;
+}
+.bizc-canvas-header__status {
+    font-size: 11px;
+    color: #9ca3af;
+}
+.bizc-canvas-header__status.generating { color: #f59e0b; }
+.bizc-canvas-header__status.completed { color: #10b981; }
+.bizc-canvas-header__status.error { color: #ef4444; }
+.bizc-canvas-header__actions {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+}
+.bizc-canvas-btn--circle {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: rgba(99,102,241,0.08);
+    border: 1px solid rgba(99,102,241,0.2);
+    cursor: pointer;
+    font-size: 14px;
+    color: #6366f1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+    flex-shrink: 0;
+}
+.bizc-canvas-btn--circle:hover {
+    background: rgba(99,102,241,0.18);
+    border-color: rgba(99,102,241,0.4);
+}
+
+/* ── Canvas dropdown menu ── */
+.bizc-canvas-dropdown {
+    position: absolute;
+    right: 12px;
+    top: 90px;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+    min-width: 180px;
+    z-index: 100;
+    padding: 4px 0;
+}
+.bizc-canvas-dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    font-size: 13px;
+    color: #1a1a2e;
+    cursor: pointer;
+    background: none;
+    border: none;
+    width: 100%;
+    text-align: left;
+    transition: background 0.1s;
+}
+.bizc-canvas-dropdown-item:hover { background: rgba(99,102,241,0.06); }
+.bizc-canvas-dropdown-item .bizc-cd-icon { font-size: 16px; flex-shrink: 0; }
+
+/* ── Thinking logs ── */
+.bizc-thinking-logs {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 0;
+}
+.bizc-thinking-entry {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 6px 14px;
+    font-size: 12px;
+    line-height: 1.5;
+    transition: background 0.15s;
+}
+.bizc-thinking-entry:hover { background: rgba(0,0,0,0.02); }
+.bizc-thinking-entry.active { background: rgba(99,102,241,0.06); }
+.bizc-thinking-icon {
+    flex-shrink: 0;
+    width: 18px;
+    text-align: center;
+    font-size: 12px;
+    margin-top: 1px;
+}
+.bizc-thinking-text {
+    flex: 1;
+    color: #374151;
+    min-width: 0;
+    word-break: break-word;
+}
+.bizc-thinking-time {
+    flex-shrink: 0;
+    color: #9ca3af;
+    font-size: 10px;
+    font-family: 'JetBrains Mono', Consolas, monospace;
+}
+.bizc-thinking-separator {
+    border: none;
+    border-top: 1px dashed #e5e7eb;
+    margin: 8px 14px;
+}
+
+/* ── Studio list ── */
+.bizc-studio-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 12px;
+}
+.bizc-studio-card {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 12px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.bizc-studio-card:hover {
+    border-color: rgba(99,102,241,0.3);
+    box-shadow: 0 2px 8px rgba(99,102,241,0.08);
+}
+.bizc-studio-card__header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+.bizc-studio-card__icon { font-size: 18px; }
+.bizc-studio-card__title {
+    font-weight: 600;
+    font-size: 13px;
+    color: #1a1a2e;
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.bizc-studio-card__time {
+    font-size: 11px;
+    color: #9ca3af;
+}
+.bizc-studio-card__meta {
+    display: flex;
+    gap: 8px;
+    font-size: 11px;
+    color: #6b7280;
+}
+.bizc-studio-card__canvas-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 5px 12px;
+    font-size: 12px;
+    font-weight: 500;
+    color: #6366f1;
+    background: rgba(99,102,241,0.08);
+    border: 1px solid rgba(99,102,241,0.2);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.15s;
+    margin-top: 8px;
+}
+.bizc-studio-card__canvas-btn:hover {
+    background: rgba(99,102,241,0.16);
+    border-color: rgba(99,102,241,0.4);
+}
+
+/* ── Right panel responsive ── */
+@media (max-width: 1024px) {
+    .bizc-right-panel { width: 320px; min-width: 260px; }
+}
+@media (max-width: 768px) {
+    .bizc-right-panel {
+        position: fixed;
+        top: 0; right: 0; bottom: 0;
+        width: 100% !important;
+        max-width: 100%;
+        z-index: 1000;
+        border-radius: 0;
+        border-left: none;
+    }
+    .bizc-right-panel .bizc-rp-tabs { border-radius: 0; }
+}
+
+/* ── Right panel toggle button (floats in chat panel) ── */
+.bizc-rp-toggle {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: rgba(99,102,241,0.08);
+    border: 1px solid rgba(99,102,241,0.2);
+    cursor: pointer;
+    font-size: 16px;
+    color: #6366f1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+    z-index: 10;
+}
+.bizc-rp-toggle:hover {
+    background: rgba(99,102,241,0.18);
+    border-color: rgba(99,102,241,0.4);
 }

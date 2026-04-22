@@ -140,11 +140,54 @@
 		initButtonGroups();
 		initCheckboxGrids();
 		initImageUpload();
+		initFileUpload();
 		initCardCheckbox();
 		initWizard();
 		initFormSubmit();
 		initRating();
 		initRangeOutput();
+		prefillFromWebchat();
+		listenAutoGenerate();
+	}
+
+	/* ── Listen for postMessage from parent (webchat iframe) to auto-submit form ── */
+	function listenAutoGenerate() {
+		window.addEventListener('message', function (e) {
+			if (!e.data || e.data.type !== 'bzcc-auto-generate') return;
+			var form = document.getElementById('bzcc-form');
+			if (!form) return;
+			// Trigger native submit event (same as clicking Tạo nội dung button)
+			var event = new Event('submit', { bubbles: true, cancelable: true });
+			form.dispatchEvent(event);
+		});
+	}
+
+	/* ── Prefill form from webchat iframe params (topic, session_id) ── */
+	function prefillFromWebchat() {
+		var front = window.bzccFront;
+		if (!front) return;
+
+		var form = document.getElementById('bzcc-form');
+		if (!form) return;
+
+		// Prefill topic into first matching text/textarea field
+		var topic = front.topic;
+		if (topic) {
+			var target = form.querySelector('input[name="topic"], textarea[name="topic"]')
+			          || form.querySelector('.bzcc-fields input[type="text"], .bzcc-fields textarea');
+			if (target && !target.value) {
+				target.value = topic;
+			}
+		}
+
+		// Inject session_id as hidden input (for form submit to push to webchat)
+		if (front.sessionId) {
+			var hidden = document.createElement('input');
+			hidden.type = 'hidden';
+			hidden.name = 'webchat_session_id';
+			hidden.value = front.sessionId;
+			form.appendChild(hidden);
+		}
 	}
 
 	/* ── Star Rating click handler ── */
@@ -275,6 +318,106 @@
 				previewImg.src = '';
 			}
 		});
+	}
+
+	/* ── File Upload handler (Smart Input Phase 3.2) ── */
+	function initFileUpload() {
+		document.querySelectorAll('.bzcc-file-upload').forEach(function (wrap) {
+			var fileInput   = wrap.querySelector('.bzcc-file-upload-input');
+			if (!fileInput) return;
+
+			var slug       = fileInput.name;
+			var previewEl  = wrap.querySelector('.bzcc-file-upload-preview');
+			var nameEl     = wrap.querySelector('.bzcc-file-upload-name');
+			var sizeEl     = wrap.querySelector('.bzcc-file-upload-size');
+			var removeBtn  = wrap.querySelector('.bzcc-file-upload-remove');
+			var statusEl   = wrap.querySelector('.bzcc-file-upload-status');
+			var statusText = wrap.querySelector('.bzcc-file-upload-status-text');
+			var labelEl    = wrap.querySelector('.bzcc-file-upload-label');
+
+			// Hidden inputs for uploaded attachment
+			var hiddenId  = document.createElement('input');
+			hiddenId.type = 'hidden';
+			hiddenId.name = slug + '_attachment_id';
+			hiddenId.value = '';
+			wrap.appendChild(hiddenId);
+
+			var hiddenFilename = document.createElement('input');
+			hiddenFilename.type = 'hidden';
+			hiddenFilename.name = slug + '_filename';
+			hiddenFilename.value = '';
+			wrap.appendChild(hiddenFilename);
+
+			fileInput.addEventListener('change', function () {
+				var file = fileInput.files && fileInput.files[0];
+				if (!file) return;
+
+				// Show uploading state
+				if (statusEl) statusEl.style.display = '';
+				if (statusText) statusText.textContent = 'Đang tải lên...';
+				if (labelEl) labelEl.style.display = 'none';
+
+				// Upload to WP via admin-ajax
+				var fd = new FormData();
+				fd.append('action', 'bzcc_upload_file');
+				fd.append('nonce', document.querySelector('[name="bzcc_nonce"]').value);
+				fd.append('file', file);
+
+				var xhr = new XMLHttpRequest();
+				xhr.open('POST', (window.bzccFront && window.bzccFront.ajaxUrl) || '/wp-admin/admin-ajax.php');
+
+				xhr.onload = function () {
+					if (statusEl) statusEl.style.display = 'none';
+					try {
+						var res = JSON.parse(xhr.responseText);
+						if (res.success && res.data) {
+							hiddenId.value       = res.data.id;
+							hiddenFilename.value = res.data.filename;
+							if (nameEl) nameEl.textContent = res.data.filename;
+							if (sizeEl) sizeEl.textContent = formatFileSize(res.data.size);
+							if (previewEl) previewEl.style.display = '';
+						} else {
+							alert(res.data && res.data.message ? res.data.message : 'Upload file thất bại');
+							resetFileField();
+						}
+					} catch (err) {
+						alert('Upload file thất bại');
+						resetFileField();
+					}
+				};
+
+				xhr.onerror = function () {
+					if (statusEl) statusEl.style.display = 'none';
+					alert('Không thể tải file lên server');
+					resetFileField();
+				};
+
+				xhr.send(fd);
+			});
+
+			if (removeBtn) {
+				removeBtn.addEventListener('click', function () {
+					resetFileField();
+				});
+			}
+
+			function resetFileField() {
+				fileInput.value = '';
+				hiddenId.value  = '';
+				hiddenFilename.value = '';
+				if (previewEl) previewEl.style.display = 'none';
+				if (nameEl)    nameEl.textContent = '';
+				if (sizeEl)    sizeEl.textContent = '';
+				if (labelEl)   labelEl.style.display = '';
+			}
+		});
+	}
+
+	function formatFileSize(bytes) {
+		if (!bytes) return '';
+		if (bytes < 1024) return bytes + ' B';
+		if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+		return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 	}
 
 	/* ── Populate Confirm Step ── */
@@ -527,6 +670,18 @@
 				}
 			});
 
+			// Include file upload data (attachment_id and filename)
+			form.querySelectorAll('.bzcc-file-upload').forEach(function (wrap) {
+				var idInput   = wrap.querySelector('[name$="_attachment_id"]');
+				var nameInput = wrap.querySelector('[name$="_filename"]');
+				if (idInput && idInput.value) {
+					data[idInput.name] = idInput.value;
+				}
+				if (nameInput && nameInput.value) {
+					data[nameInput.name] = nameInput.value;
+				}
+			});
+
 			// Show loading
 			var loading = document.getElementById('bzcc-loading');
 			if (loading) loading.style.display = '';
@@ -544,6 +699,12 @@
 				+ '&nonce=' + encodeURIComponent(formData.get('bzcc_nonce') || '')
 				+ '&template_id=' + encodeURIComponent(data.template_id || '')
 				+ '&form_data=' + encodeURIComponent(JSON.stringify(data));
+
+			// Include webchat session_id if present (iframe mode)
+			var sessionId = (window.bzccFront && window.bzccFront.sessionId) || '';
+			if (sessionId) {
+				body += '&session_id=' + encodeURIComponent(sessionId);
+			}
 
 			xhr.onload = function () {
 				if (loading) loading.style.display = 'none';
@@ -593,6 +754,7 @@
 		initStageFilter();
 		initActionButtons(restUrl, nonce);
 		initCardCheckbox();
+		initChatbar(fileId, restUrl, nonce);
 
 		// Render mermaid diagrams in already-completed content
 		if (fileStatus === 'completed') {
@@ -606,6 +768,121 @@
 			// Resume SSE for in-progress file
 			startSSE(fileId, restUrl, nonce);
 		}
+	}
+
+	/* ── Chat prompt bar: continue generating ── */
+	function initChatbar(fileId, restUrl, nonce) {
+		var bar   = document.getElementById('bzcc-chatbar');
+		var input = document.getElementById('bzcc-chatbar-input');
+		var btn   = document.getElementById('bzcc-chatbar-send');
+		if (!bar || !input || !btn) return;
+
+		// Auto-resize textarea
+		input.addEventListener('input', function () {
+			this.style.height = 'auto';
+			this.style.height = Math.min(this.scrollHeight, 160) + 'px';
+			btn.disabled = !this.value.trim();
+		});
+
+		// Enter to send (Shift+Enter for newline)
+		input.addEventListener('keydown', function (e) {
+			if (e.key === 'Enter' && !e.shiftKey) {
+				e.preventDefault();
+				if (!btn.disabled) btn.click();
+			}
+		});
+
+		btn.addEventListener('click', function () {
+			var prompt = input.value.trim();
+			if (!prompt || btn.disabled) return;
+
+			var tone   = (document.getElementById('bzcc-chatbar-tone') || {}).value || '';
+			var length = (document.getElementById('bzcc-chatbar-length') || {}).value || '';
+
+			btn.disabled = true;
+			input.disabled = true;
+			btn.innerHTML = '<span class="bzcc-spinner"></span>';
+
+			var xhr = new XMLHttpRequest();
+			xhr.open('POST', restUrl + '/file/' + fileId + '/continue');
+			xhr.setRequestHeader('Content-Type', 'application/json');
+			xhr.setRequestHeader('X-WP-Nonce', nonce);
+
+			xhr.onload = function () {
+				btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m22 2-7 20-4-9-9-4 20-7Z"/></svg>';
+				input.disabled = false;
+				input.value = '';
+				input.style.height = 'auto';
+				btn.disabled = true;
+
+				try {
+					var res = JSON.parse(xhr.responseText);
+					if (res.error) {
+						showToast(res.error, 'error');
+						return;
+					}
+					if (res.new_sections && res.new_sections.length) {
+						appendStepperNodes(res.new_sections, res.start_index);
+					}
+					if (res.chunks && res.chunks.length) {
+						streamChunksParallel(res.chunks, fileId, restUrl, nonce);
+					}
+				} catch (e) {
+					showToast('Lỗi khi xử lý phản hồi.', 'error');
+				}
+			};
+
+			xhr.onerror = function () {
+				btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m22 2-7 20-4-9-9-4 20-7Z"/></svg>';
+				input.disabled = false;
+				btn.disabled = false;
+				showToast('Lỗi kết nối.', 'error');
+			};
+
+			xhr.send(JSON.stringify({ prompt: prompt, tone: tone, length: length }));
+		});
+	}
+
+	/* ── Append new stepper nodes from continue-generate ── */
+	function appendStepperNodes(sections, startIndex) {
+		var stepper = document.getElementById('bzcc-stepper');
+		if (!stepper) return;
+
+		sections.forEach(function (section, i) {
+			var idx  = startIndex + i;
+			var node = document.createElement('div');
+			node.className = 'bzcc-stepper-node bzcc-stepper-node--queued';
+			node.setAttribute('data-chunk-index', idx);
+			node.setAttribute('data-platform', section.platform || 'general');
+
+			var header = document.createElement('div');
+			header.className = 'bzcc-stepper-node__header';
+			header.innerHTML =
+				'<span class="bzcc-stepper-node__icon">' + (section.emoji || '📝') + '</span>' +
+				'<span class="bzcc-stepper-node__label">' + (section.label || 'Phần ' + (idx + 1)) + '</span>' +
+				'<span class="bzcc-stepper-node__status">Đang chờ...</span>';
+
+			var body = document.createElement('div');
+			body.className = 'bzcc-stepper-node__body';
+
+			var content = document.createElement('div');
+			content.className = 'bzcc-stepper-node__content bzcc-prose';
+
+			// Skeleton placeholder
+			content.innerHTML =
+				'<div class="bzcc-skeleton"><div class="bzcc-skeleton__line" style="width:90%"></div>' +
+				'<div class="bzcc-skeleton__line" style="width:75%"></div>' +
+				'<div class="bzcc-skeleton__line" style="width:60%"></div></div>';
+
+			body.appendChild(content);
+			node.appendChild(header);
+			node.appendChild(body);
+			stepper.appendChild(node);
+		});
+
+		// Scroll to first new node
+		var firstNew = stepper.querySelector('[data-chunk-index="' + startIndex + '"]');
+		if (firstNew) firstNew.scrollIntoView({ behavior: 'smooth', block: 'center' });
 	}
 
 	/* ── Trigger generation pipeline ── */
@@ -664,12 +941,14 @@
 
 		var platformIcons = {
 			facebook: '📘', tiktok: '🎵', instagram: '📸', youtube: '▶️',
-			zalo: '💬', email: '📧', image: '🖼️', video: '🎬'
+			zalo: '💬', email: '📧', image: '🖼️', video: '🎬',
+			general: '📄', website: '🌐'
 		};
 		var platformLabels = {
 			facebook: 'Facebook', tiktok: 'TikTok', instagram: 'Instagram',
 			youtube: 'YouTube Short', zalo: 'Zalo/SMS', email: 'Email',
-			image: 'Ảnh QC', video: 'Video'
+			image: 'Ảnh QC', video: 'Video',
+			general: '', website: 'Website'
 		};
 
 		outline.forEach(function (section, i) {
@@ -678,11 +957,13 @@
 			node.setAttribute('data-chunk-index', i);
 			node.setAttribute('data-chunk-id', '0');
 
+			// Hide platform badge for document-mode content (general platform)
 			var platHtml = '';
-			if (section.platform) {
+			var platLabel = platformLabels[section.platform] !== undefined ? platformLabels[section.platform] : section.platform;
+			if (section.platform && section.platform !== 'general' && platLabel) {
 				platHtml = '<span class="bzcc-stepper-node__platform">' +
 					escHtml(platformIcons[section.platform] || '') + ' ' +
-					escHtml(platformLabels[section.platform] || section.platform) +
+					escHtml(platLabel) +
 					'</span>';
 			}
 
@@ -859,7 +1140,7 @@
 
 			try {
 				var data = JSON.parse(e.data);
-				updateHeader('done', 'Nội dung đã sẵn sàng!', 'Copy và sử dụng ngay');
+				updateHeader('done');
 
 				// Update data attribute
 				var result = document.getElementById('bzcc-result');
@@ -2254,22 +2535,21 @@
 
 	/* ── Update result header ── */
 	function updateHeader(state, title, subtitle) {
-		var header = document.querySelector('.bzcc-result-header');
-		if (!header) return;
+		var loadingHeader = document.getElementById('bzcc-result-header-loading');
+		var infoHeader    = document.querySelector('.bzcc-result-header--info');
 
-		var titleEl = header.querySelector('.bzcc-result-header__title');
-		var subEl   = header.querySelector('.bzcc-result-header__sub');
-		var iconEl  = header.querySelector('.bzcc-result-header__icon');
-
-		if (titleEl) titleEl.textContent = title;
-		if (subEl) subEl.textContent = subtitle;
-
-		if (iconEl) {
-			iconEl.classList.remove('bzcc-result-header__icon--loading');
-			if (state === 'done') {
-				iconEl.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2.5"><path d="M20 6 9 17l-5-5"/></svg>';
-			} else if (state === 'loading') {
-				iconEl.classList.add('bzcc-result-header__icon--loading');
+		if (state === 'done') {
+			// Hide loading header, show info header
+			if (loadingHeader) loadingHeader.style.display = 'none';
+			if (infoHeader) infoHeader.style.display = '';
+		} else if (state === 'loading') {
+			// Show loading header
+			if (loadingHeader) {
+				loadingHeader.style.display = '';
+				var titleEl = loadingHeader.querySelector('.bzcc-result-header__title');
+				var subEl   = loadingHeader.querySelector('.bzcc-result-header__sub');
+				if (titleEl && title) titleEl.textContent = title;
+				if (subEl && subtitle) subEl.textContent = subtitle;
 			}
 		}
 	}
@@ -2641,7 +2921,7 @@
 		}
 
 		function finishAll() {
-			updateHeader('done', 'Nội dung đã sẵn sàng!', 'Copy và sử dụng ngay');
+			updateHeader('done');
 			var result = document.getElementById('bzcc-result');
 			if (result) result.setAttribute('data-file-status', 'completed');
 			showExportButtons();
@@ -2831,8 +3111,8 @@
 	function handleExport(format) {
 		var chunks = document.querySelectorAll('.bzcc-stepper-node');
 		var content = '';
-		var titleEl = document.querySelector('.bzcc-result-header__title');
-		var titleText = titleEl ? titleEl.textContent : 'Content';
+		var infoHeader = document.querySelector('.bzcc-result-header--info');
+		var titleText = infoHeader ? (infoHeader.getAttribute('data-export-title') || infoHeader.querySelector('.bzcc-result-header__title').textContent) : 'Content';
 
 		chunks.forEach(function (node) {
 			var label = node.querySelector('.bzcc-stepper-node__label');

@@ -154,6 +154,9 @@ function bccm_nobi_get_progress() {
  * ADMIN BAR: "Bản đồ cá nhân (Life Success)"
  * =====================================================================*/
 add_action('admin_bar_menu', function ($wp_admin_bar) {
+  // Phase 7.1: tạm ẩn hoàn toàn wp-admin-bar-bccm-lifemap để tập trung flow hồ sơ chủ nhân.
+  return;
+
   if (!is_admin() || !current_user_can('edit_posts')) return;
 
   $progress = bccm_nobi_get_progress();
@@ -252,6 +255,9 @@ add_action('admin_bar_menu', function ($wp_admin_bar) {
  * ADMIN BAR INLINE STYLES (đồng bộ với bizcity-brain-level)
  * =====================================================================*/
 add_action('admin_head', function () {
+  // Phase 7.1: admin bar node đang bị ẩn, không cần inject styles.
+  return;
+
   if (!is_admin_bar_showing()) return;
   ?>
   <style>

@@ -14,9 +14,9 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 /* ── Register submenu ── */
 add_action( 'admin_menu', function() {
     add_submenu_page(
-        'bccm_root',
-        'Hồ sơ người dùng',
-        '👥 Hồ sơ người dùng',
+        'bccm_user_profiles',
+        'Hồ sơ thành viên',
+        'Hồ sơ thành viên',
         'manage_options',
         'bccm_user_profiles',
         'bccm_admin_user_profiles_page',
@@ -100,7 +100,7 @@ function bccm_admin_user_profiles_page() {
     ?>
     <div class="wrap">
         <h1 style="display:flex;align-items:center;gap:10px;">
-            👥 Hồ sơ người dùng
+            Hồ sơ thành viên
             <span style="background:#e0e7ff;color:#3730a3;padding:4px 12px;border-radius:20px;font-size:13px;font-weight:600;"><?php echo $total; ?> người dùng</span>
             <a href="<?php echo admin_url( 'admin.php?page=bccm_user_profiles&action=add_new' ); ?>" class="button button-primary" style="margin-left:auto;background:#059669;border-color:#047857;border-radius:8px;padding:6px 16px;font-size:13px;">➕ Tạo mới khách hàng</a>
         </h1>

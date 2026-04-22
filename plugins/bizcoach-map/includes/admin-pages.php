@@ -3,15 +3,25 @@ if (!defined('ABSPATH')) exit;
 
 /* =========================== ADMIN MENU =========================== */
 function bccm_admin_menu(){
-  // Main menu: Bản đồ chủ nhân (admin's own journey)
+  // Main menu: Phase 7.1 ưu tiên Hồ sơ thành viên thay cho dashboard cũ.
   add_menu_page(
     'Bản đồ chủ nhân',
     'Bản đồ chủ nhân',
     'edit_posts',
-    'bccm_root',
-    'bccm_admin_dashboard',
+    'bccm_user_profiles',
+    'bccm_admin_user_profiles_page',
     plugins_url('assets/icon/nobi_16.png', dirname(__FILE__)),
     26
+  );
+
+  // Hidden legacy dashboard page — keep direct URL working.
+  add_submenu_page(
+    null,
+    'Bản đồ chủ nhân — Dashboard',
+    'Bản đồ chủ nhân — Dashboard',
+    'edit_posts',
+    'bccm_root',
+    'bccm_admin_dashboard'
   );
 
   // === WORKFLOW STEPS (admin's journey) ===
@@ -28,8 +38,8 @@ function bccm_admin_menu(){
   #add_submenu_page('bccm_root', 'Thêm Coachees', 'Bản đồ người khác', 'manage_options', 'bccm_coachees', 'bccm_admin_coachees', 30);
   #add_submenu_page('bccm_root', 'Danh sách Coachees', '  └ Danh sách', 'manage_options', 'bccm_coachees_list', 'bccm_admin_coachees_list', 31);
 
-  // === CÀI ĐẶT (tabbed: Tổng quan | Câu hỏi | Bản đồ cuộc đời) ===
-  add_submenu_page('bccm_root', 'Cài đặt', 'Cài đặt', 'manage_options', 'bccm_settings', 'bccm_admin_settings', 50);
+  // === CÀI ĐẶT (hidden page, keep direct URL working) ===
+  add_submenu_page(null, 'Cài đặt', 'Cài đặt', 'manage_options', 'bccm_settings', 'bccm_admin_settings', 50);
 
   // Hidden pages (no menu label)
   add_submenu_page(
@@ -43,6 +53,13 @@ function bccm_admin_menu(){
 }
 
 add_action('admin_menu','bccm_admin_menu');
+
+add_action('admin_menu', 'bccm_hide_phase71_admin_submenus', 99999);
+function bccm_hide_phase71_admin_submenus() {
+  #remove_submenu_page('bccm_user_profiles', 'bccm_my_profile');
+  #remove_submenu_page('bccm_user_profiles', 'bccm_step2_coach_template');
+  #remove_submenu_page('bccm_user_profiles', 'bccm_settings');
+}
 
 
 /* =========================================================

@@ -200,7 +200,7 @@ class WaicAction_it_call_content extends WaicAction {
 		} elseif ( isset( $variables['node#1'] ) && ! empty( $variables['node#1']['user_id'] ) ) {
 			$uid = (int) $variables['node#1']['user_id'];
 		}
-		if ( $uid > 0 ) {
+		if ( $uid > 0 && get_userdata( $uid ) ) {
 			wp_set_current_user( $uid );
 		}
 

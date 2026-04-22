@@ -1,7 +1,8 @@
-# Twin Claw — Turn WordPress Into Your AI Super-Assistant
+# Twin Claw — Your WordPress as a Personal AI Assistant
 
 > **One chat. Every plugin. Every task. Done.**  
-> Code. Automate. Create content. Sell products. Connect 60,000+ plugins. All through a single conversation.
+> Turn your WordPress into a tireless personal AI — codes, writes, sells, automates, remembers everything about you.  
+> 60,000+ plugins × AI brain = your own digital twin that works 24/7.
 
 <div align="center">
 
@@ -20,6 +21,7 @@
 [![Demo](https://img.shields.io/badge/Live%20Demo-bizgpt.vn-green)](https://bizgpt.vn)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 [![Models](https://img.shields.io/badge/AI%20Models-500%2B-purple)](https://bizcity.vn/ai-models/)
+[![Version](https://img.shields.io/badge/Version-v1.5.0-orange)](CHANGELOG.md)
 
 </div>
 
@@ -27,11 +29,17 @@
 
 ## What Is Twin Claw?
 
-**Twin Claw** is a WordPress plugin that turns your entire WordPress installation into a **full-blown AI super-assistant** — like having Claude, ChatGPT, and n8n combined, running on your own server.
+**Twin Claw** is a WordPress plugin that turns your entire WordPress installation into a **personal AI assistant** — always on, always on your side. It learns who you are, remembers your preferences, understands your goals, and acts on your behalf across every corner of your WordPress ecosystem.
+
+Think of it as hiring an infinitely capable employee who:
+- **Knows your business** — products, customers, content, workflows
+- **Lives in your WordPress** — no external data leaks, 100% self-hosted
+- **Works any channel** — chat widget, Zalo, Telegram, Facebook Messenger
+- **Executes, not just answers** — doesn't just tell you how, it actually does it
 
 WordPress has **60,000+ plugins**. Each one is a capability: e-commerce, email, CRM, forms, video, payments, SEO, analytics... Twin Claw registers all of them into a **Tool Registry** and lets an AI agent orchestrate them through natural language.
 
-The result: **an online assistant that can do everything WordPress can do** — just by chatting.
+The result: **your own digital twin that works 24/7** — just by chatting.
 
 ```
 You:  "Write a blog post about electric stoves, publish it, and share on my Facebook page"
@@ -39,6 +47,44 @@ Twin Claw: → Research → Write article → Generate image → Publish to Word
 ```
 
 No more switching between 10 tabs. No more manual copy-paste workflows. **One claw. Every task.**
+
+---
+
+## WordPress as Your Personal Virtual Assistant
+
+Most people use WordPress as a website builder. Twin Claw transforms it into something entirely different: **a personal AI operating system**.
+
+```
+  Traditional WordPress:          Twin Claw WordPress:
+  ┌─────────────────┐             ┌─────────────────────────────────┐
+  │  Static website │             │  Living AI workspace            │
+  │  Manual updates │    ──→      │  Understands you personally     │
+  │  Plugin chaos   │             │  Executes tasks autonomously    │
+  │  No memory      │             │  Remembers everything           │
+  └─────────────────┘             │  Works 24/7 across all channels │
+                                  └─────────────────────────────────┘
+```
+
+### Your AI Remembers You
+- Your name, role, business context, writing style
+- Past decisions, preferences, recurring tasks
+- Your customers, products, schedule, team
+- Conversation history across sessions and channels
+
+### Your AI Acts For You
+- Publishes content on your behalf
+- Manages WooCommerce orders and customers
+- Sends notifications to the right people
+- Books calendar events and syncs everything
+- Generates documents, presentations, spreadsheets
+
+### Your AI Grows With You
+- Upload your own files → it reads and learns from them
+- Add new WordPress plugins → instantly become new AI capabilities
+- Train custom personas → specialized expert for each domain
+- Build visual workflows → once defined, runs forever automatically
+
+> **This is what "personal AI" means.** Not a chatbot. Not a search engine. A co-worker who knows your world and executes your intent.
 
 ---
 
@@ -163,9 +209,103 @@ Claw: → Script → Generate video (Kling) → Add avatar (HeyGen) → Deliver
 
 ## The Smart Core
 
+### Harness — The Execution Framework
+
+The **Harness** is Twin Claw's binding layer between intent classification and actual task execution. It is the architectural concept that ties every component together into a coherent, goal-oriented execution path.
+
+```
+  User Message
+       │
+       ▼
+  ┌─────────────────────────────────────────────────────────────────┐
+  │                     INTENT ENGINE                               │
+  │  Classify: mode · intent · goal_type · entities · slots         │
+  └───────────────────────┬─────────────────────────────────────────┘
+                          │
+                          ▼
+  ┌─────────────────────────────────────────────────────────────────┐
+  │                   HARNESS LAYER                                 │
+  │                                                                 │
+  │  Intent  ──→  Rule Match  ──→  Action Binding  ──→  Goal         │
+  │                                                                 │
+  │  • intent      = what the user wants (classified)               │
+  │  • rule        = condition/pattern that must be satisfied        │
+  │  • action      = tool / skill / pipeline to execute             │
+  │  • goal        = expected outcome (single or multi)             │
+  └──────┬──────────────────────────────────────┬───────────────────┘
+         │                                      │
+         ▼                                      ▼
+  ┌─────────────┐                     ┌─────────────────────┐
+  │ SINGLE GOAL │                     │   MULTI GOAL        │
+  │             │                     │                     │
+  │ One tool    │                     │ Orchestrated        │
+  │ One result  │                     │ pipeline across     │
+  │ Immediate   │                     │ multiple tools      │
+  └─────────────┘                     │ Canvas / WaicFrame  │
+                                      └─────────────────────┘
+```
+
+#### Harness Terminology
+
+| Term | Role | Example |
+|------|------|---------|
+| **Intent** | Classified desire from user message | `publish_content`, `manage_order`, `generate_doc` |
+| **Rule** | Condition pattern the harness checks before firing | `slot:topic filled`, `user_role:admin`, `woo:product_exists` |
+| **Action** | Bound executable — tool wrapper, skill, or pipeline step | `content_tool.write()`, `woo_tool.update_price()` |
+| **Single Goal** | One intent → one action → one result | "What is my latest order?" → `woo.get_order()` → answer |
+| **Multi Goal** | One intent → harness fans out → N parallel/sequential actions | "Research, write, publish and post" → 4-step pipeline |
+| **Canvas** | Visual representation of a multi-goal harness flow | Drag-and-drop nodes = harness steps |
+| **Automation Pipeline** | Persisted harness with triggers, checkpoints, and recovery | Runs forever, survives failures, resumes from last checkpoint |
+
+#### Tool Wrapper — Independence & Fallback
+
+Every capability in Twin Claw is wrapped in a **Tool Wrapper** — an isolation boundary that:
+
+```
+  ┌────────────────────────────────────────────┐
+  │             TOOL WRAPPER                   │
+  │                                            │
+  │  ┌──────────┐   ┌─────────┐   ┌────────┐  │
+  │  │ Input    │   │ Execute │   │ Output │  │
+  │  │ Schema   │──▶│ Handler │──▶│ Schema │  │
+  │  │ Validate │   │         │   │ Assert │  │
+  │  └──────────┘   └────┬────┘   └────────┘  │
+  │                      │                    │
+  │                 ┌────▼────┐               │
+  │                 │Fallback │               │
+  │                 │ Chain   │               │
+  │                 └─────────┘               │
+  └────────────────────────────────────────────┘
+```
+
+- **Independent** — each tool wrapper runs in isolation; failure in one never crashes others
+- **Self-describing** — exposes a `describe()` method the AI reads to know when/how to call it
+- **Fallback Chain** — primary provider fails → secondary provider → graceful degradation
+- **Retry logic** — transient failures auto-retry with exponential backoff
+- **Output normalization** — every tool returns a unified response schema the harness understands
+
+#### Canvas — Visual Harness Builder
+
+The Canvas is the **visual editor for multi-goal harnesses**. Users drag, connect, and configure nodes that map directly to harness rules and actions:
+
+```
+  [Trigger: New WooCommerce Order]
+         │
+         ├──▶ [Action: Send SMS notification]     → Goal: Customer notified
+         ├──▶ [Action: Add to Google Sheets]       → Goal: Data logged
+         └──▶ [Action: Generate invoice PDF]       → Goal: Invoice ready
+                    │
+                    └──▶ [Action: Email to customer]  → Goal: Invoice sent
+```
+
+Each node = one **rule + action** binding. The canvas serializes into a WaicFrame automation pipeline that runs with full checkpoint/recovery support.
+
+---
+
 ### Intent Engine — The Brain
-- **Single-call classification**: 1 LLM call → classifies mode, intent, goal, entities, slots simultaneously
+- **Single-call classification**: 1 LLM call → classifies mode, intent, goal_type, entities, slots simultaneously
 - **5 execution modes**: `knowledge` · `tool` · `pipeline` · `ambiguous` · `chitchat`
+- **Goal resolution**: single-goal (direct dispatch) vs multi-goal (harness fan-out)
 - **Slot Engine**: Asks for missing info, auto-executes when all slots are filled
 - **HIL Focus Mode**: Keeps AI focused on one task until completion
 
@@ -298,13 +438,58 @@ bizcity-twin-claw/
 
 ---
 
-## Latest Release — v1.4.0 (2026-04-02)
+## Releases & Changelog
+
+### v1.5.0 — 2026-04-22 (Current)
+
+#### bizcity-doc — Document Studio
+
+**Logo / Brand Identity in Exports**
+- `NEW` `LogoOptions` type — `placement` (header/footer/both), `position` (left/center/right), `size` (small/medium/large)
+- `NEW` `LogoPanel` component — floating popover UI with live file upload, placement/alignment/size controls
+- `NEW` DOCX logo support — `ImageRun` embedded in `Header`/`Footer` of every section via docx.js
+- `NEW` PPTX logo support — `addImage()` overlay anchored at top/bottom-left/right/center of each slide
+- `NEW` PDF logo support — `addImage()` stamped on every page post-render (document and presentation PDFs)
+- `NEW` Live preview — logo renders in real-time in both `DocumentPreview` and `PresentationPreview` before export
+- `NEW` Logo persistence — stored in `localStorage` keyed by `doc_id`; survives F5 / browser reload
+- `UPD` `DownloadMenu` — accepts `logoOptions` prop and passes to all three builders
+- `UPD` `DocApp.tsx` — `setLogoOptions` wraps `localStorage.setItem/removeItem` automatically
+
+**Convert Between Document Types**
+- `NEW` `ConvertMenu` — purple dropdown to convert current document to any other type
+- `NEW` Same `doc_id` reuse — sources already uploaded are reused automatically; no re-upload needed
+- `NEW` `convertLoading` state with conversion-specific loading messages
+
+**Export Bug Fixes**
+- `FIX` `RangeError: Invalid array length` — DOCX builder: always passes explicit `columnWidths` to `Table` constructor, bypassing docx.js internal `Array(Math.max(...))` crash
+- `FIX` `arrayBufferToBase64` — chunked approach (8192 bytes/chunk) prevents stack overflow on large font files in PDF builder
+- `FIX` Bullet text `undefined` crash — all builders now use `String(content ?? '')` coercion
+- `FIX` Spreadsheet empty workbook — adds fallback sheet when CSV parsing returns no data
+- `FIX` Browser cache serving stale JS — vite config changed to `chunkFileNames: 'doc-[name]-[hash].js'`; PHP page template uses `filemtime()` instead of version constant
+
+**Source Upload (PHP backend)**
+- `FIX` DOCX/XLSX upload rejected by WordPress — added `register_upload_filters()` with two WP filters: `upload_mimes` and `wp_check_filetype_and_ext`; server detects Office XML as `application/zip` causing WP to reject, override normalizes by extension
+- `FIX` XLSX `sharedStrings` parsing — rewrote with `DOMDocument` instead of SimpleXML; `$si->t` only read direct child `<t>`, missed `<si><r><t>` rich string structures
+- `FIX` DOCX text extraction — now reads `word/document.xml` + `header*.xml` + `footer*.xml` + `footnotes.xml` + `endnotes.xml`; proper `</w:tc>→\t` and `</w:tr>→\n` handling for tables
+
+---
+
+### v1.4.0 — 2026-04-02
 
 - **Skill Library** — File-based skill auto-discovery, YAML/Markdown definitions, slash commands, triggers
 - **WaicFrame Automation** — Resumable pipeline, todos ledger, mismatch detection, E2E test suite
 - **Scheduler Core** — Timeline backbone, event CRUD, Google Calendar sync, dual-context
 - **Demo & Marketplace** — Live demo at [bizgpt.vn](https://bizgpt.vn) · 500+ AI models
 - **MIT License** — Officially open source
+
+---
+
+### v1.3.x — 2026-03
+
+- **Phase 0 Context Cleanup** — Smart gateway migration, smart sources standardization
+- **Unified Pipeline** — Single pipeline for all doc types
+- **Central Brain Multisite** — One AI brain managing multiple WordPress sites
+- **Agentic Tool Execution** — Tool Registry v2, self-describing tool wrappers, harness scaffold
 
 ---
 
@@ -330,9 +515,14 @@ bizcity-twin-claw/
 | 2 | Agentic Plugin Ecosystem | [GUIDE-01-AGENTIC-ECOSYSTEM.md](GUIDE-01-AGENTIC-ECOSYSTEM.md) |
 | 3 | Automation Pipeline | [GUIDE-02-AUTOMATION-PIPELINE.md](GUIDE-02-AUTOMATION-PIPELINE.md) |
 | 4 | Expert Twin Training | [GUIDE-03-EXPERT-TWIN.md](GUIDE-03-EXPERT-TWIN.md) |
-| 5 | Agentic Tool Execution | [PHASE-1.1-AGENTIC-TOOL-EXECUTION.md](PHASE-1.1-AGENTIC-TOOL-EXECUTION.md) |
-| 6 | Skill ↔ Pipeline Integration | [PHASE-1.2-SKILL-PIPELINE-INTEGRATION.md](PHASE-1.2-SKILL-PIPELINE-INTEGRATION.md) |
-| 7 | Scheduler Core | [PHASE-1.3-SCHEDULER-CORE.md](PHASE-1.3-SCHEDULER-CORE.md) |
+| 5 | Central Brain for Multisite Project Factory | [PHASE-1.0-CENTRAL-BRAIN-MULTISITE.md](PHASE-1.0-CENTRAL-BRAIN-MULTISITE.md) |
+| 6 | Agentic Tool Execution | [PHASE-1.1-AGENTIC-TOOL-EXECUTION.md](PHASE-1.1-AGENTIC-TOOL-EXECUTION.md) |
+| 7 | Skill ↔ Pipeline Integration | [PHASE-1.2-SKILL-PIPELINE-INTEGRATION.md](PHASE-1.2-SKILL-PIPELINE-INTEGRATION.md) |
+| 8 | Scheduler Core | [PHASE-1.3-SCHEDULER-CORE.md](PHASE-1.3-SCHEDULER-CORE.md) |
+| 9 | Harness — Intent → Rule → Action → Goal | [PHASE-1.11B-TOOL-ARCHITECTURE.md](PHASE-1.11B-TOOL-ARCHITECTURE.md) |
+| 10 | Shell Engine Final | [PHASE-1.11-SHELL-ENGINE-FINAL.md](PHASE-1.11-SHELL-ENGINE-FINAL.md) |
+| 11 | Canvas Adapter | [PHASE-1.20-CANVAS-ADAPTER.md](PHASE-1.20-CANVAS-ADAPTER.md) |
+| 12 | Unified Canvas Panel | [PHASE-3.0-UNIFIED-CANVAS-PANEL.md](PHASE-3.0-UNIFIED-CANVAS-PANEL.md) |
 
 ---
 
@@ -344,9 +534,9 @@ bizcity-twin-claw/
 
 ---
 
-> *"WordPress has 60,000+ plugins. Each one is a capability. Twin Claw turns them all into tools for an AI that can do everything."*
+> *"Your WordPress already has 60,000+ plugins. Each one is a capability. Twin Claw turns them all into tools for an AI that knows you, works for you, and never stops."*
 
 **⭐ Star if you find this useful. Fork to build your own. Contributions welcome.**
 
-`#TwinClaw` `#OnlineClaw` `#WordPressAI` `#AgenticAI` `#OpenSource`
+`#TwinClaw` `#PersonalAI` `#WordPressAI` `#AgenticAI` `#Harness` `#OpenSource`
 

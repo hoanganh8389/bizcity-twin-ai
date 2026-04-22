@@ -17,7 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 $user_id      = get_current_user_id();
 $is_logged_in = is_user_logged_in();
 $active_tool  = isset( $_GET['tool'] ) ? sanitize_key( $_GET['tool'] ) : 'on-hand';
-$allowed      = [ 'on-hand', 'apparel-tryon', 'background', 'concept', 'ai-model', 'mockup', 'packaging' ];
+$allowed      = [ 'on-hand', 'apparel-tryon', 'background', 'concept', 'mockup', 'packaging' ];
 if ( ! in_array( $active_tool, $allowed, true ) ) $active_tool = 'on-hand';
 
 // Tool → category_slug map for model library API calls
@@ -26,7 +26,6 @@ $tool_category_map = [
     'apparel-tryon' => 'apparel-tryon',
     'background'    => 'background',
     'concept'       => 'concepts',
-    'ai-model'      => 'ai-model',
 ];
 $model_category = $tool_category_map[ $active_tool ] ?? '';
 
@@ -328,10 +327,6 @@ body{font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
       <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"></path><path d="M20 2v4"></path><path d="M22 4h-4"></path><circle cx="4" cy="20" r="2"></circle></svg>
       AI Concept<span class="ps-badge ps-badge-new">New</span>
     </a>
-    <a href="?tool=ai-model" class="ps-tool-btn <?php echo $active_tool === 'ai-model' ? 'active' : ''; ?>">
-      <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
-      AI Model<span class="ps-badge ps-badge-new">New</span>
-    </a>
     <span class="ps-tool-btn disabled">
       Mockup<span class="ps-badge ps-badge-soon">S&#7855;p c&#243;</span>
     </span>
@@ -524,7 +519,6 @@ body{font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
           'apparel-tryon' => '&#128085; Th&#7917; &#273;&#7891; AI',
           'background'    => '&#128444;&#65039; N&#7873;n s&#7843;n ph&#7849;m',
           'concept'       => '&#128161; AI Concept',
-          'ai-model'      => '&#128100; AI Model Studio',
         ];
         echo $tool_labels[ $active_tool ] ?? 'Product Studio';
       ?></h2>

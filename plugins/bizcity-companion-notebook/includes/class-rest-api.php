@@ -518,6 +518,10 @@ class BCN_REST_API {
         header( 'Cache-Control: no-cache' );
         header( 'X-Accel-Buffering: no' );
 
+        // Prevent PHP errors from corrupting SSE stream
+        @ini_set( 'display_errors', '0' );
+        ignore_user_abort( true );
+
         $content = mb_substr( $source->content_text ?? '', 0, 40000 );
         $title   = $source->title ?? 'Untitled';
         $type    = $source->source_type ?? 'text';
@@ -555,45 +559,50 @@ class BCN_REST_API {
             if ( file_exists( $mu ) ) require_once $mu;
         }
 
-        if ( function_exists( 'bizcity_openrouter_chat_stream' ) ) {
-            $full = '';
-            bizcity_openrouter_chat_stream( $llm_messages, [], function( $delta ) use ( &$full ) {
-                $full .= $delta;
-                echo "event: chunk\ndata: " . wp_json_encode( [ 'delta' => $delta, 'full' => $full ] ) . "\n\n";
-                if ( ob_get_level() ) ob_flush();
-                flush();
-            } );
+        try {
+            if ( function_exists( 'bizcity_openrouter_chat_stream' ) ) {
+                $full = '';
+                bizcity_openrouter_chat_stream( $llm_messages, [], function( $delta ) use ( &$full ) {
+                    $full .= $delta;
+                    echo "event: chunk\ndata: " . wp_json_encode( [ 'delta' => $delta, 'full' => $full ] ) . "\n\n";
+                    if ( ob_get_level() ) ob_flush();
+                    flush();
+                } );
 
-            // Extract suggested questions.
-            $questions = [];
-            if ( preg_match( '/## Gợi ý câu hỏi.*?\n((?:\s*[-•]\s*.+\n?)+)/u', $full, $m ) ) {
-                preg_match_all( '/[-•]\s*(.+)/u', $m[1], $items );
-                if ( ! empty( $items[1] ) ) {
-                    foreach ( $items[1] as $item ) {
-                        $clean = trim( wp_strip_all_tags( $item ) );
-                        if ( $clean ) $questions[] = $clean;
+                // Extract suggested questions.
+                $questions = [];
+                if ( preg_match( '/## Gợi ý câu hỏi.*?\n((?:\s*[-•]\s*.+\n?)+)/u', $full, $m ) ) {
+                    preg_match_all( '/[-•]\s*(.+)/u', $m[1], $items );
+                    if ( ! empty( $items[1] ) ) {
+                        foreach ( $items[1] as $item ) {
+                            $clean = trim( wp_strip_all_tags( $item ) );
+                            if ( $clean ) $questions[] = $clean;
+                        }
                     }
                 }
+
+                echo "event: done\ndata: " . wp_json_encode( [
+                    'summary'   => $full,
+                    'questions' => array_slice( $questions, 0, 6 ),
+                ] ) . "\n\n";
+
+                // Cache summary + questions into source metadata for future loads.
+                $meta['ai_summary']   = $full;
+                $meta['ai_questions'] = array_slice( $questions, 0, 6 );
+                global $wpdb;
+                $wpdb->update(
+                    BCN_Schema_Extend::table_sources(),
+                    [ 'metadata' => wp_json_encode( $meta ) ],
+                    [ 'id' => $source_id ],
+                    [ '%s' ],
+                    [ '%d' ]
+                );
+            } else {
+                echo "event: error\ndata: " . wp_json_encode( [ 'message' => 'No LLM provider' ] ) . "\n\n";
             }
-
-            echo "event: done\ndata: " . wp_json_encode( [
-                'summary'   => $full,
-                'questions' => array_slice( $questions, 0, 6 ),
-            ] ) . "\n\n";
-
-            // Cache summary + questions into source metadata for future loads.
-            $meta['ai_summary']   = $full;
-            $meta['ai_questions'] = array_slice( $questions, 0, 6 );
-            global $wpdb;
-            $wpdb->update(
-                BCN_Schema_Extend::table_sources(),
-                [ 'metadata' => wp_json_encode( $meta ) ],
-                [ 'id' => $source_id ],
-                [ '%s' ],
-                [ '%d' ]
-            );
-        } else {
-            echo "event: error\ndata: " . wp_json_encode( [ 'message' => 'No LLM provider' ] ) . "\n\n";
+        } catch ( \Throwable $e ) {
+            error_log( '[BCN SSE] Fatal in summarize_source #' . $source_id . ': ' . $e->getMessage() );
+            echo "event: error\ndata: " . wp_json_encode( [ 'message' => 'Summarization error: ' . $e->getMessage() ] ) . "\n\n";
         }
 
         if ( ob_get_level() ) ob_flush();

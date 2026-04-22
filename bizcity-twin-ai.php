@@ -144,20 +144,26 @@ require_once __DIR__ . '/core/helper-legacy/bootstrap.php';
 $_bizcity_bundled_must_load = [
     'bizgpt-tool-google'          => 'BZGOOGLE_VERSION',           // Google Workspace tools
     'bizcity-tool-facebook'       => 'BZTOOL_FB_VERSION',          // Facebook standalone — /bizfbhook/, OAuth, Messenger
+    'bizcity-tool-image'          => 'BZTIMG_VERSION',             // Image Studio, templates, editor assets, product/image tools
     'bizcity-zalo-bot'            => 'BIZCITY_ZALO_BOT_VERSION',   // Zalo Bot — webhook, user linker, gateway bridge
     'bizcity-companion-notebook'  => 'BCN_VERSION',                // Companion Notebook — Studio, tool registry, research memory
     'bizcity-content-creator'     => 'BZCC_VERSION',               // Content Creator — template-driven AI content generation
+    'bizcity-doc'                 => 'BZDOC_VERSION',              // Doc Studio — AI tạo Word, PowerPoint, Excel
+    'bizcity-code'                => 'BZCODE_VERSION',             // Code Builder — AI tạo web & landing page
+    'bizcity-tool-mindmap'        => 'BZTOOL_MINDMAP_VERSION',     // Mindmap Tool — AI tạo sơ đồ tư duy
 ];
 foreach ( $_bizcity_bundled_must_load as $_slug => $_guard_const ) {
     if ( defined( $_guard_const ) ) {
         continue; // Already loaded (activated as regular plugin or by mu-plugin)
     }
-    $_bundled_file = __DIR__ . '/plugins/' . $_slug . '/' . $_slug . '.php';
-    if ( file_exists( $_bundled_file ) ) {
+    // Guard: only load if plugin folder exists — skip gracefully if not deployed
+    $_bundled_dir  = __DIR__ . '/plugins/' . $_slug;
+    $_bundled_file = $_bundled_dir . '/' . $_slug . '.php';
+    if ( is_dir( $_bundled_dir ) && file_exists( $_bundled_file ) ) {
         require_once $_bundled_file;
     }
 }
-unset( $_bizcity_bundled_must_load, $_slug, $_guard_const, $_bundled_file );
+unset( $_bizcity_bundled_must_load, $_slug, $_guard_const, $_bundled_dir, $_bundled_file );
 
 // Translations — load Vietnamese (and other) .po files from /languages/
 add_action( 'init', function() {

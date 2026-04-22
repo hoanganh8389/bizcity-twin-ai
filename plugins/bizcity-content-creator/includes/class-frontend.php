@@ -32,6 +32,9 @@ class BZCC_Frontend {
 		/* AJAX handler for image upload */
 		add_action( 'wp_ajax_bzcc_upload_image', [ __CLASS__, 'ajax_upload_image' ] );
 
+		/* AJAX handler for file upload (Smart Input Phase 3.2) */
+		add_action( 'wp_ajax_bzcc_upload_file', [ __CLASS__, 'ajax_upload_file' ] );
+
 		/* ── Rewrite rules: /creator/ and /creator/{id}/ ── */
 		add_action( 'init', [ __CLASS__, 'register_rewrite_rules' ] );
 		add_filter( 'query_vars', [ __CLASS__, 'register_query_vars' ] );
@@ -556,6 +559,28 @@ class BZCC_Frontend {
 				echo '</div>';
 				break;
 
+			case 'file':
+				$accepted_types     = $field['accepted_types'] ?? 'csv,xlsx';
+				$accepted_types_arr = is_array( $accepted_types ) ? $accepted_types : array_map( 'trim', explode( ',', $accepted_types ) );
+				$accept_attr        = BZCC_File_Processor::get_accept_string( $accepted_types_arr );
+				$max_rows       = intval( $field['max_rows'] ?? 100 );
+				echo '<div class="bzcc-file-upload" data-max-rows="' . $max_rows . '">';
+				echo '<input type="file" id="bzcc_' . $slug . '" name="' . $slug . '" accept="' . esc_attr( $accept_attr ) . '" class="bzcc-file-input bzcc-file-upload-input" ' . $req_attr . '>';
+				echo '<label for="bzcc_' . $slug . '" class="bzcc-file-label bzcc-file-upload-label">';
+				echo '<span class="bzcc-file-upload-icon">📎</span>';
+				echo '<span class="bzcc-file-upload-text">Chọn file (' . esc_html( str_replace( ',', ', ', $accepted_types ) ) . ')</span>';
+				echo '</label>';
+				echo '<div class="bzcc-file-upload-preview" style="display:none;">';
+				echo '<span class="bzcc-file-upload-name"></span>';
+				echo '<span class="bzcc-file-upload-size"></span>';
+				echo '<button type="button" class="bzcc-file-upload-remove" title="Xóa file">&times;</button>';
+				echo '</div>';
+				echo '<div class="bzcc-file-upload-status" style="display:none;">';
+				echo '<div class="bzcc-spinner-sm"></div> <span class="bzcc-file-upload-status-text">Đang tải lên...</span>';
+				echo '</div>';
+				echo '</div>';
+				break;
+
 			case 'number':
 				echo '<input type="number" id="bzcc_' . $slug . '" name="' . $slug . '" class="bzcc-input" placeholder="' . $placeholder . '" value="' . esc_attr( $value ) . '" ' . $req_attr . '>';
 				break;
@@ -638,12 +663,15 @@ class BZCC_Frontend {
 		}
 
 		// Create file record
+		$session_id = sanitize_text_field( $_POST['session_id'] ?? '' );
+		error_log( '[BZCC] ajax_submit_form: template_id=' . $template_id . ' session_id=' . ( $session_id ?: '(empty)' ) );
 		$file_id = BZCC_File_Manager::insert( [
 			'user_id'     => $user_id,
 			'template_id' => $template_id,
 			'form_data'   => wp_json_encode( $clean ),
 			'title'       => $template->title . ' — ' . wp_date( 'd/m/Y H:i' ),
 			'status'      => 'pending',
+			'session_id'  => $session_id,
 		] );
 
 		if ( ! $file_id ) {
@@ -653,9 +681,30 @@ class BZCC_Frontend {
 		// Increment template use count
 		BZCC_Template_Manager::increment_use_count( $template_id );
 
+		$result_url = home_url( 'creator/result/' . $file_id . '/' );
+
+		// ── Push notification to webchat if from iframe (session_id present) ──
+		if ( $session_id && class_exists( 'BizCity_WebChat_Database' ) ) {
+			$webchat_db = new BizCity_WebChat_Database();
+			$webchat_db->log_message( [
+				'session_id'   => $session_id,
+				'user_id'      => $user_id,
+				'message_text' => sprintf(
+					"📝 **%s** — đang tạo nội dung...\n\n[Xem kết quả](%s)",
+					esc_html( $template->title ),
+					$result_url
+				),
+				'message_from' => 'bot',
+				'message_type' => 'tool_result',
+				'plugin_slug'  => 'content-creator',
+				'tool_name'    => 'content_creator_execute',
+			] );
+			error_log( '[BZCC] ajax_submit_form: pushed webchat msg session=' . $session_id . ' file=' . $file_id );
+		}
+
 		wp_send_json_success( [
 			'file_id'  => $file_id,
-			'redirect' => home_url( 'creator/result/' . $file_id . '/' ),
+			'redirect' => $result_url,
 			'message'  => 'Đã tạo thành công! AI đang xử lý nội dung cho bạn.',
 		] );
 	}
@@ -700,6 +749,74 @@ class BZCC_Frontend {
 		wp_send_json_success( [
 			'id'  => $attachment_id,
 			'url' => $url,
+		] );
+	}
+
+	/* ══════════════════════════════════════════════
+	 *  AJAX: Upload file (CSV/Excel) to WP Media Library
+	 *  Phase 3.2 Sprint 2
+	 * ══════════════════════════════════════════════ */
+	public static function ajax_upload_file() {
+		check_ajax_referer( 'bzcc_frontend', 'nonce' );
+
+		if ( ! is_user_logged_in() ) {
+			wp_send_json_error( [ 'message' => 'Bạn cần đăng nhập.' ] );
+		}
+
+		if ( empty( $_FILES['file'] ) ) {
+			wp_send_json_error( [ 'message' => 'Không có file nào được gửi.' ] );
+		}
+
+		// Validate file type
+		$allowed_mimes = [
+			'text/csv',
+			'text/plain',
+			'application/vnd.ms-excel',
+			'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+			'application/csv',
+		];
+		$file_type = $_FILES['file']['type'] ?? '';
+		$file_ext  = strtolower( pathinfo( $_FILES['file']['name'] ?? '', PATHINFO_EXTENSION ) );
+
+		// Allow by extension as MIME can be unreliable
+		$allowed_exts = [ 'csv', 'xlsx', 'xls', 'txt' ];
+		if ( ! in_array( $file_ext, $allowed_exts, true ) && ! in_array( $file_type, $allowed_mimes, true ) ) {
+			wp_send_json_error( [ 'message' => 'Chỉ cho phép upload file CSV, Excel (.xlsx) hoặc Text.' ] );
+		}
+
+		// Validate file size (max 10MB)
+		if ( $_FILES['file']['size'] > 10 * 1024 * 1024 ) {
+			wp_send_json_error( [ 'message' => 'File không được vượt quá 10MB.' ] );
+		}
+
+		require_once ABSPATH . 'wp-admin/includes/file.php';
+		require_once ABSPATH . 'wp-admin/includes/media.php';
+		require_once ABSPATH . 'wp-admin/includes/image.php';
+
+		// Allow additional MIME types for upload
+		add_filter( 'upload_mimes', function ( $mimes ) {
+			$mimes['csv']  = 'text/csv';
+			$mimes['xlsx'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+			$mimes['xls']  = 'application/vnd.ms-excel';
+			$mimes['txt']  = 'text/plain';
+			return $mimes;
+		} );
+
+		$attachment_id = media_handle_upload( 'file', 0 );
+
+		if ( is_wp_error( $attachment_id ) ) {
+			wp_send_json_error( [ 'message' => $attachment_id->get_error_message() ] );
+		}
+
+		$file_path = get_attached_file( $attachment_id );
+		$file_size = filesize( $file_path );
+
+		wp_send_json_success( [
+			'id'       => $attachment_id,
+			'url'      => wp_get_attachment_url( $attachment_id ),
+			'filename' => basename( $file_path ),
+			'size'     => $file_size,
+			'ext'      => $file_ext,
 		] );
 	}
 }

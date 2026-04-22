@@ -162,12 +162,29 @@ class WaicAction_it_call_tool extends WaicAction {
 					} elseif ( isset( $variables['node#1'] ) && ! empty( $variables['node#1']['user_id'] ) ) {
 						$uid = (int) $variables['node#1']['user_id'];
 					}
-					if ( $uid > 0 ) {
+					if ( $uid > 0 && get_userdata( $uid ) ) {
 						wp_set_current_user( $uid );
 					}
 					break;
 				case 'admin':
-					wp_set_current_user( 1 );
+					// SECURITY: Only allow admin context if current user is already an admin
+					$current_user_id = get_current_user_id();
+					if ( $current_user_id && current_user_can( 'manage_options' ) ) {
+						// Current user is admin → allow switch to admin context
+						if ( get_userdata( 1 ) ) {
+							wp_set_current_user( 1 );
+						} else {
+							// Fallback: find first admin in current shard
+							$admins = get_users( [ 'role' => 'administrator', 'number' => 1 ] );
+							if ( ! empty( $admins ) ) {
+								wp_set_current_user( $admins[0]->ID );
+							}
+						}
+					} else {
+						// UNAUTHORIZED: Current user is not admin → refuse privilege escalation
+						$error = __( 'Security error: admin context requires administrator privileges.', 'bizcity-twin-ai' );
+						error_log( '[IT_CALL_TOOL] SECURITY: user_id=' . $current_user_id . ' attempted admin escalation for tool=' . $tool_id );
+					}
 					break;
 			}
 		}

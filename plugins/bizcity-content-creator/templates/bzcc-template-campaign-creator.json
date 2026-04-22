@@ -1,0 +1,343 @@
+{
+  "version": "1.0",
+  "plugin": "bizcity-content-creator",
+  "exported": "2026-04-10T15:00:00Z",
+  "templates": [
+    {
+      "slug": "campaign-creator",
+      "category_id": "0",
+      "title": "Campaign Creator — Tạo chiến dịch Marketing",
+      "description": "Tạo chiến dịch marketing hoàn chỉnh với AI: bài viết, kịch bản video, ảnh quảng cáo, email & nhiều hơn nữa — tất cả trong 1 lần tạo.",
+      "icon_url": "",
+      "icon_emoji": "🚀",
+      "form_fields": [
+        {
+          "slug": "heading_step1",
+          "label": "🎯 Bạn muốn tạo chiến dịch gì?",
+          "type": "heading",
+          "placeholder": "",
+          "required": false,
+          "grid": "full",
+          "sort_order": 1,
+          "description": "Chọn loại chiến dịch phù hợp với mục tiêu kinh doanh của bạn",
+          "badge": ""
+        },
+        {
+          "slug": "campaign_type",
+          "label": "Loại chiến dịch",
+          "type": "card_radio",
+          "placeholder": "",
+          "required": true,
+          "grid": "full",
+          "sort_order": 2,
+          "description": "",
+          "options": [
+            {
+              "value": "ban-san-pham",
+              "label": "Bán Sản Phẩm",
+              "description": "Tạo chiến dịch bán hàng hoàn chỉnh từ ảnh/link sản phẩm",
+              "icon": "📦",
+              "tag": "🔥 Phổ biến nhất"
+            },
+            {
+              "value": "su-kien-mua-vu",
+              "label": "Sự Kiện Mùa Vụ",
+              "description": "Chiến dịch cho lễ hội, mùa sale, event đặc biệt",
+              "icon": "🎄",
+              "tag": "🎁 Mùa lễ hội"
+            },
+            {
+              "value": "ra-mat-san-pham",
+              "label": "Ra Mắt Sản Phẩm",
+              "description": "Kế hoạch launch sản phẩm mới từ A-Z",
+              "icon": "🚀",
+              "tag": "✨ Mới"
+            },
+            {
+              "value": "tang-nhan-biet",
+              "label": "Tăng Sự Nhận Biết",
+              "description": "Tăng độ nhận diện cho sản phẩm, thương hiệu hoặc sự kiện",
+              "icon": "📣",
+              "tag": "🔥 Phổ biến"
+            }
+          ]
+        },
+
+        {
+          "slug": "heading_step2",
+          "label": "📋 Thông tin sản phẩm / chiến dịch",
+          "type": "heading",
+          "placeholder": "",
+          "required": false,
+          "grid": "full",
+          "sort_order": 10,
+          "description": "Cung cấp thông tin chi tiết để AI tạo nội dung chính xác",
+          "badge": ""
+        },
+        {
+          "slug": "product_image",
+          "label": "Ảnh sản phẩm",
+          "type": "image",
+          "placeholder": "",
+          "required": false,
+          "grid": "full",
+          "sort_order": 11,
+          "description": "Upload ảnh sản phẩm để AI tạo ảnh quảng cáo & video"
+        },
+        {
+          "slug": "product_name",
+          "label": "Tên sản phẩm / chiến dịch",
+          "type": "text",
+          "placeholder": "VD: Serum Vitamin C Pro, Lễ hội mùa hè 2026...",
+          "required": true,
+          "grid": "half",
+          "sort_order": 12,
+          "description": ""
+        },
+        {
+          "slug": "industry",
+          "label": "Ngành hàng",
+          "type": "select",
+          "placeholder": "",
+          "required": true,
+          "grid": "half",
+          "sort_order": 13,
+          "description": "",
+          "options": [
+            { "value": "beauty", "label": "🌸 Mỹ phẩm & Làm đẹp" },
+            { "value": "fashion", "label": "👗 Thời trang" },
+            { "value": "food", "label": "🍜 Ẩm thực & Đồ uống" },
+            { "value": "tech", "label": "💻 Công nghệ & Điện tử" },
+            { "value": "health", "label": "💪 Sức khỏe & Fitness" },
+            { "value": "education", "label": "📚 Giáo dục" },
+            { "value": "real-estate", "label": "🏠 Bất động sản" },
+            { "value": "finance", "label": "💰 Tài chính & Bảo hiểm" },
+            { "value": "travel", "label": "✈️ Du lịch & Khách sạn" },
+            { "value": "baby", "label": "👶 Mẹ & Bé" },
+            { "value": "home", "label": "🏡 Nội thất & Gia dụng" },
+            { "value": "pet", "label": "🐕 Thú cưng" },
+            { "value": "auto", "label": "🚗 Ô tô & Xe máy" },
+            { "value": "service", "label": "🔧 Dịch vụ" },
+            { "value": "other", "label": "📦 Khác" }
+          ]
+        },
+        {
+          "slug": "price",
+          "label": "Giá sản phẩm / ngân sách (VNĐ)",
+          "type": "text",
+          "placeholder": "VD: 499000",
+          "required": false,
+          "grid": "half",
+          "sort_order": 14,
+          "description": ""
+        },
+        {
+          "slug": "launch_date",
+          "label": "Ngày bắt đầu dự kiến",
+          "type": "text",
+          "placeholder": "VD: 15/05/2026",
+          "required": false,
+          "grid": "half",
+          "sort_order": 15,
+          "description": ""
+        },
+        {
+          "slug": "usp",
+          "label": "Điểm nổi bật / Điểm đột phá",
+          "type": "textarea",
+          "placeholder": "VD: Công thức độc quyền, kết quả sau 7 ngày, giá tốt nhất thị trường...",
+          "required": true,
+          "grid": "full",
+          "sort_order": 16,
+          "description": "Mô tả ngắn gọn điểm mạnh hoặc lợi ích nổi bật nhất"
+        },
+        {
+          "slug": "promotion",
+          "label": "Ưu đãi / Khuyến mãi (nếu có)",
+          "type": "textarea",
+          "placeholder": "VD: Giảm 30% + quà tặng cho 100 đơn đầu, freeship toàn quốc...",
+          "required": false,
+          "grid": "full",
+          "sort_order": 17,
+          "description": ""
+        },
+
+        {
+          "slug": "heading_step3",
+          "label": "⚡ Chọn chiến lược & Kênh truyền thông",
+          "type": "heading",
+          "placeholder": "",
+          "required": false,
+          "grid": "full",
+          "sort_order": 20,
+          "description": "Chọn hướng đi phù hợp và các kênh bạn muốn tạo nội dung",
+          "badge": ""
+        },
+        {
+          "slug": "strategy",
+          "label": "Chiến lược nội dung",
+          "type": "card_radio",
+          "placeholder": "",
+          "required": true,
+          "grid": "full",
+          "sort_order": 21,
+          "description": "",
+          "options": [
+            {
+              "value": "curiosity",
+              "label": "🔮 Gây tò mò",
+              "description": "Tạo tò mò, countdown, hé lộ dần — build hype trước launch 1-2 tuần",
+              "icon": "🔮",
+              "tag": "Tò mò → Háo hức"
+            },
+            {
+              "value": "kol-review",
+              "label": "👑 Review từ KOL",
+              "description": "Review từ KOL/KOC, unboxing, trải nghiệm — sản phẩm cần review chuyên môn",
+              "icon": "👑",
+              "tag": "Uy tín → Bằng chứng"
+            },
+            {
+              "value": "early-bird",
+              "label": "⚡ Ưu đãi sớm",
+              "description": "Ưu đãi sớm, limited, chỉ cho người đầu tiên — tạo momentum từ ngày đầu",
+              "icon": "⚡",
+              "tag": "Khan hiếm → Chốt nhanh"
+            },
+            {
+              "value": "waitlist",
+              "label": "📋 Waitlist VIP",
+              "description": "Đăng ký sớm để được ưu tiên — sản phẩm premium, giới hạn số lượng",
+              "icon": "📋",
+              "tag": "Đăng ký → Danh sách chờ"
+            },
+            {
+              "value": "storytelling",
+              "label": "📖 Kể chuyện thương hiệu",
+              "description": "Dùng câu chuyện để kết nối cảm xúc — sản phẩm có câu chuyện đằng sau",
+              "icon": "📖",
+              "tag": "Cảm xúc → Kết nối"
+            },
+            {
+              "value": "comparison",
+              "label": "⚖️ So sánh vượt trội",
+              "description": "So sánh với đối thủ, chứng minh giá trị — thị trường cạnh tranh",
+              "icon": "⚖️",
+              "tag": "Lý trí → Thuyết phục"
+            }
+          ]
+        },
+        {
+          "slug": "platforms",
+          "label": "Kênh truyền thông",
+          "type": "button_group",
+          "placeholder": "",
+          "required": true,
+          "grid": "full",
+          "sort_order": 22,
+          "description": "Chọn các kênh bạn muốn tạo nội dung (có thể chọn nhiều)",
+          "multi": true,
+          "options": [
+            { "value": "facebook", "label": "📘 Facebook" },
+            { "value": "tiktok", "label": "🎵 TikTok" },
+            { "value": "instagram", "label": "📸 Instagram" },
+            { "value": "youtube", "label": "▶️ YouTube Short" },
+            { "value": "image", "label": "🖼️ Ảnh quảng cáo" },
+            { "value": "video", "label": "🎬 Video QC" },
+            { "value": "email", "label": "📧 Email" },
+            { "value": "zalo", "label": "💬 Zalo/SMS" }
+          ]
+        },
+
+        {
+          "slug": "heading_step4",
+          "label": "⚙️ Tùy chỉnh nâng cao",
+          "type": "heading",
+          "placeholder": "",
+          "required": false,
+          "grid": "full",
+          "sort_order": 30,
+          "description": "Tinh chỉnh thêm để AI tạo nội dung sát hơn",
+          "badge": "Tùy chọn"
+        },
+        {
+          "slug": "target_audience",
+          "label": "Khách hàng mục tiêu",
+          "type": "textarea",
+          "placeholder": "VD: Phụ nữ 25-45 tuổi, quan tâm làm đẹp, thu nhập trung bình khá...",
+          "required": false,
+          "grid": "full",
+          "sort_order": 31,
+          "description": "Mô tả chân dung khách hàng (để trống nếu muốn AI tự phân tích)"
+        },
+        {
+          "slug": "tone",
+          "label": "Giọng văn",
+          "type": "button_group",
+          "placeholder": "",
+          "required": false,
+          "grid": "full",
+          "sort_order": 32,
+          "description": "",
+          "multi": false,
+          "options": [
+            { "value": "professional", "label": "💼 Chuyên nghiệp" },
+            { "value": "friendly", "label": "😊 Thân thiện" },
+            { "value": "genz", "label": "🌈 Gen Z" },
+            { "value": "luxury", "label": "💎 Sang trọng" },
+            { "value": "urgent", "label": "🔥 Gấp gáp" },
+            { "value": "humorous", "label": "😂 Hài hước" }
+          ]
+        },
+        {
+          "slug": "extra_notes",
+          "label": "Ghi chú thêm cho AI",
+          "type": "textarea",
+          "placeholder": "VD: Không dùng từ ngữ tiêu cực, tập trung vào cảm xúc, nhấn mạnh free shipping...",
+          "required": false,
+          "grid": "full",
+          "sort_order": 33,
+          "description": ""
+        }
+      ],
+
+      "system_prompt": "Bạn là chuyên gia marketing và content creator hàng đầu Việt Nam. Bạn sẽ tạo chiến dịch marketing hoàn chỉnh dựa trên thông tin được cung cấp.\n\n## THÔNG TIN CHIẾN DỊCH\n- Loại chiến dịch: {{campaign_type}}\n- Tên sản phẩm/chiến dịch: {{product_name}}\n- Ngành hàng: {{industry}}\n- Giá: {{price}}\n- Ngày bắt đầu: {{launch_date}}\n- Điểm nổi bật: {{usp}}\n- Ưu đãi: {{promotion}}\n- Chiến lược: {{strategy}}\n- Kênh truyền thông: {{platforms}}\n- Khách hàng mục tiêu: {{target_audience}}\n- Giọng văn: {{tone}}\n- Ghi chú thêm: {{extra_notes}}\n- Ảnh sản phẩm: {{product_image}}\n\n## YÊU CẦU ĐẦU RA\nTạo nội dung chiến dịch cho TỪNG kênh truyền thông được chọn ở trên. Với mỗi kênh, tạo 2-3 bài viết/kịch bản theo các giai đoạn marketing funnel phù hợp (Nhận biết → Quan tâm → Tin tưởng → Hành động → Trung thành).\n\n### Với mỗi bài Facebook:\n- Hook (câu mở đầu gây chú ý)\n- Nội dung chính (200-400 từ)\n- CTA (kêu gọi hành động)\n- Hashtag phù hợp\n\n### Với mỗi kịch bản TikTok:\n- Thời lượng: 30s hoặc 60s\n- Hook (0-3s): câu nói gây chú ý\n- Cảnh 1-4: mô tả chi tiết từng cảnh với thời gian\n- CTA cuối video\n- Hashtag trend\n\n### Với mỗi bài Instagram:\n- Caption (150-300 từ)\n- Mô tả hình ảnh gợi ý\n- Hashtag (15-20 tags)\n- Story idea kèm theo\n\n### Với YouTube Short:\n- Kịch bản 60s tương tự TikTok nhưng tone phù hợp YouTube\n\n### Với Ảnh quảng cáo:\n- Headline (tối đa 10 từ)\n- Subheadline\n- Body text ngắn\n- CTA button text\n- Mô tả layout & màu sắc gợi ý\n- [IMAGE_PROMPT]: Mô tả chi tiết ảnh cần tạo bằng AI (bằng tiếng Anh)\n\n### Với Video QC:\n- Storyboard 15-30s\n- Voiceover script\n- Mô tả hình ảnh từng cảnh\n- [VIDEO_PROMPT]: Mô tả chi tiết video cần tạo bằng AI\n\n### Với Email:\n- Subject line (2-3 options)\n- Preview text\n- Nội dung email (header, body, CTA)\n\n### Với Zalo/SMS:\n- Tin nhắn ngắn gọn (< 160 ký tự cho SMS)\n- Tin nhắn Zalo OA (có thể dài hơn, kèm CTA)\n\n## QUY TẮC FORMAT\n- Tách rõ từng bài viết/kịch bản\n- Dùng emoji phù hợp\n- Mỗi kênh bắt đầu bằng tiêu đề: ## 📘 Facebook / ## 🎵 TikTok / ...\n- Đánh dấu giai đoạn funnel: [Nhận biết] / [Quan tâm] / [Hành động] ...\n- Nếu có prompt tạo ảnh/video, đặt trong block [IMAGE_PROMPT]...[/IMAGE_PROMPT] hoặc [VIDEO_PROMPT]...[/VIDEO_PROMPT]\n\nHãy tạo nội dung sáng tạo, phù hợp thị trường Việt Nam, và tối ưu cho từng nền tảng.",
+
+      "outline_prompt": "",
+      "chunk_prompt": "",
+      "model_purpose": "content_creation",
+      "temperature": "0.80",
+      "max_tokens": "8000",
+      "wizard_steps": [
+        {
+          "label": "Chiến dịch",
+          "description": "Chọn loại chiến dịch phù hợp",
+          "fields": ["heading_step1", "campaign_type"]
+        },
+        {
+          "label": "Thông tin",
+          "description": "Nhập thông tin sản phẩm hoặc chiến dịch",
+          "fields": ["heading_step2", "product_image", "product_name", "industry", "price", "launch_date", "usp", "promotion"]
+        },
+        {
+          "label": "Chiến lược",
+          "description": "Chọn chiến lược và kênh truyền thông",
+          "fields": ["heading_step3", "strategy", "platforms"]
+        },
+        {
+          "label": "Tùy chỉnh",
+          "description": "Tinh chỉnh thêm để AI tạo nội dung sát hơn",
+          "fields": ["heading_step4", "target_audience", "tone", "extra_notes"]
+        }
+      ],
+      "output_platforms": ["facebook", "tiktok", "instagram", "youtube", "image", "video", "email", "zalo"],
+      "skill_id": "0",
+      "tags": "campaign,marketing,chiến-dịch,bán-hàng,quảng-cáo,tiktok,facebook,video,image",
+      "badge_text": "Campaign",
+      "badge_color": "#8b5cf6",
+      "is_featured": "1",
+      "sort_order": "0",
+      "status": "active"
+    }
+  ]
+}

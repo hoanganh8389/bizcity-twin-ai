@@ -2287,10 +2287,16 @@ class BizCity_WebChat_Ajax_Handlers {
             wp_send_json_error( [ 'message' => 'Search client not available.' ] );
             return;
         }
-        $results = bizcity_search( $query, min( $max_results, 10 ) );
+        $raw = bizcity_search( $query, min( $max_results, 10 ) );
 
-        if ( is_wp_error( $results ) ) {
-            wp_send_json_error( [ 'message' => $results->get_error_message() ] );
+        if ( is_wp_error( $raw ) ) {
+            wp_send_json_error( [ 'message' => $raw->get_error_message() ] );
+            return;
+        }
+
+        // bizcity_search() returns { success, results, error }
+        if ( empty( $raw['success'] ) || empty( $raw['results'] ) ) {
+            wp_send_json_error( [ 'message' => $raw['error'] ?? 'Search failed' ] );
             return;
         }
 
@@ -2299,7 +2305,7 @@ class BizCity_WebChat_Ajax_Handlers {
 
         // Normalize scores to 0-5 star scale (Tavily returns 0-1)
         $candidates = [];
-        foreach ( $results as $item ) {
+        foreach ( $raw['results'] as $item ) {
             $candidates[] = [
                 'url'     => $item['url'],
                 'title'   => $item['title'],

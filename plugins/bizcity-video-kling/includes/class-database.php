@@ -769,4 +769,77 @@ class BizCity_Video_Kling_Database {
             "UPDATE {$table} SET use_count = use_count + 1 WHERE id = %d", $id
         ) );
     }
+
+    /* ═══════════════════════════════════════════════════════
+     *  Table 4: Projects (Video Editor project persistence)
+     * ═══════════════════════════════════════════════════════ */
+
+    public static function create_projects_table() {
+        global $wpdb;
+        $charset_collate = $wpdb->get_charset_collate();
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+
+        $table = self::get_table_name( 'projects' );
+        $sql   = "CREATE TABLE IF NOT EXISTS `{$table}` (
+            `id`            bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            `user_id`       bigint(20) unsigned NOT NULL DEFAULT 0,
+            `title`         varchar(255) NOT NULL DEFAULT '',
+            `status`        varchar(20) NOT NULL DEFAULT 'draft',
+            `data`          longtext NOT NULL,
+            `thumbnail_url` varchar(500) DEFAULT '',
+            `created_at`    datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at`    datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_user_status` (`user_id`, `status`),
+            KEY `idx_updated` (`updated_at`)
+        ) $charset_collate;";
+        dbDelta( $sql );
+    }
+
+    /* ── Project CRUD ── */
+
+    public static function save_project( $data ) {
+        global $wpdb;
+        $table = self::get_table_name( 'projects' );
+
+        if ( ! empty( $data['id'] ) ) {
+            $id = absint( $data['id'] );
+            unset( $data['id'] );
+            $data['updated_at'] = current_time( 'mysql' );
+            $wpdb->update( $table, $data, [ 'id' => $id ] );
+            return $id;
+        }
+
+        $data['created_at'] = current_time( 'mysql' );
+        $data['updated_at'] = current_time( 'mysql' );
+        $wpdb->insert( $table, $data );
+        return $wpdb->insert_id;
+    }
+
+    public static function get_project( $id ) {
+        global $wpdb;
+        $table = self::get_table_name( 'projects' );
+        return $wpdb->get_row( $wpdb->prepare(
+            "SELECT * FROM {$table} WHERE id = %d", $id
+        ) );
+    }
+
+    public static function get_user_projects( $user_id, $limit = 20, $offset = 0 ) {
+        global $wpdb;
+        $table = self::get_table_name( 'projects' );
+        return $wpdb->get_results( $wpdb->prepare(
+            "SELECT id, user_id, title, status, thumbnail_url, created_at, updated_at
+             FROM {$table}
+             WHERE user_id = %d AND status != 'archived'
+             ORDER BY updated_at DESC
+             LIMIT %d OFFSET %d",
+            $user_id, $limit, $offset
+        ) );
+    }
+
+    public static function delete_project( $id ) {
+        global $wpdb;
+        $table = self::get_table_name( 'projects' );
+        return $wpdb->update( $table, [ 'status' => 'archived' ], [ 'id' => $id ] );
+    }
 }

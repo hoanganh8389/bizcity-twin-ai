@@ -269,7 +269,10 @@ add_action('wp_enqueue_scripts', function () {
 
 /* =====================================================================
  * 3. AUTO-RENDER PANEL ON FRONTEND PAGES
+ * [2026-04-18] Disabled — nobi float btn causes clutter on all frontend pages.
+ * Admin bar + bizchat float also hidden globally. Re-enable if needed.
  * =====================================================================*/
+/*
 add_action('wp_footer', function () {
   // Only show panel on frontend, not admin
   if (is_admin()) return;
@@ -294,6 +297,7 @@ add_action('wp_footer', function () {
     bccm_render_frontend_progress_panel();
   }
 }, 99);
+*/ // END disabled nobi float auto-render
 
 /* =====================================================================
  * 4. MY ACCOUNT: Progress Tracker Widget

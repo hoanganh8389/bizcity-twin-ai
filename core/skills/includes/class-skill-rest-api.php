@@ -44,14 +44,17 @@ class BizCity_Skill_REST_API {
 	public function __construct() {
 		add_action( 'rest_api_init', [ $this, 'register_routes' ] );
 
-		// Strip BOM bytes leaked by other included PHP files (UTF-8 BOM = EF BB BF)
+		// Strip BOM bytes only during actual REST API requests (not admin pages).
+		// rest_api_init fires on ALL requests since WP 4.7, so guard with REST_REQUEST.
 		add_action( 'rest_api_init', function () {
+			if ( ! defined( 'REST_REQUEST' ) || ! REST_REQUEST ) {
+				return;
+			}
 			if ( ob_get_level() ) {
 				$buf = ob_get_clean();
-				// Remove BOM characters
 				$buf = str_replace( "\xEF\xBB\xBF", '', $buf );
-				if ( $buf !== '' ) {
-					echo $buf;
+				if ( trim( $buf ) !== '' ) {
+					error_log( '[BizCity Skills] Stray output stripped from REST buffer: ' . mb_substr( $buf, 0, 200 ) );
 				}
 			}
 		}, 999 );

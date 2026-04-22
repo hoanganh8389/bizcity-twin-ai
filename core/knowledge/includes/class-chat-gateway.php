@@ -1987,7 +1987,7 @@ class BizCity_Chat_Gateway {
                 if ( ! empty( $skill_check ) && ( $skill_check[0]['score'] ?? 0 ) >= 30 ) {
                     $is_skill      = true;
                     $slash_command  = $detected_slug;
-                    $message        = $remaining_msg;
+                    $message        = $remaining_msg ?: '/' . $detected_slug;
                     error_log( '[chat-gateway-stream] slash_skill_detected | skill=' . $detected_slug . ' | message_len=' . mb_strlen( $message, 'UTF-8' ) );
                 }
             }
@@ -1995,7 +1995,7 @@ class BizCity_Chat_Gateway {
             // Fallback: treat as tool_goal (legacy behavior)
             if ( ! $is_skill ) {
                 $tool_goal = $detected_slug;
-                $message   = $remaining_msg;
+                $message   = $remaining_msg ?: '/' . $detected_slug;
                 error_log( '[chat-gateway-stream] slash_tool_detected | tool_goal=' . $tool_goal . ' | message_len=' . mb_strlen( $message, 'UTF-8' ) );
             }
         }
@@ -2213,6 +2213,11 @@ class BizCity_Chat_Gateway {
                     $done_data['task_id']         = $intent_result['meta']['task_id'];
                     $done_data['pipeline_id']     = $intent_result['meta']['pipeline_id'] ?? '';
                     $done_data['pipeline_active'] = true;
+                }
+                // Phase 1.20: Canvas Adapter handoff → promote canvas fields to top level
+                if ( $intent_action === 'canvas_handoff' && ! empty( $intent_result['meta']['canvas'] ) ) {
+                    $done_data['canvas_handoff'] = true;
+                    $done_data['canvas']         = $intent_result['meta']['canvas'];
                 }
                 $this->send_stream_event( 'done', $done_data );
                 $this->send_stream_close();

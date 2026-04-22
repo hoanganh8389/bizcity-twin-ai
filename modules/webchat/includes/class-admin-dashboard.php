@@ -876,13 +876,20 @@ class BizCity_WebChat_Admin_Dashboard {
         // ── Sidebar navigation items (configurable via filter) ──
         $td = 'bizcity-twin-ai';
         $sidebar_nav = apply_filters('bizcity_sidebar_nav', [
-            ['slug' => 'creator',    'label' => __( 'Làm nội dung',      $td ), 'icon' => '✍️', 'type' => 'link', 'src' => home_url('creator/')],
+            ['slug' => 'creator',    'label' => __( 'Tư duy làm kế hoạch, kịch bản',      $td ), 'icon' => '✍️', 'type' => 'link', 'src' => home_url('creator/')],
+            ['slug' => 'doc',        'label' => __( 'Làm tài liệu, slides',       $td ), 'icon' => '📄', 'type' => 'link', 'src' => home_url('tool-doc/')],
+            ['slug' => 'design',     'label' => __( 'Làm ảnh sản phẩm',   $td ), 'icon' => '🎨', 'type' => 'link', 'src' => home_url('tool-image/')],
+            ['slug' => 'design',     'label' => __( 'Làm ảnh chân dung',   $td ), 'icon' => '🎨', 'type' => 'link', 'src' => home_url('profile-studio/')],
+            ['slug' => 'design',     'label' => __( 'Thiết kế tờ rơi,banner',   $td ), 'icon' => '🎨', 'type' => 'link', 'src' => home_url('canva/')],
             ['slug' => 'video',      'label' => __( 'Làm video',          $td ), 'icon' => '🎬', 'type' => 'link', 'src' => home_url('kling-video/')],
-            ['slug' => 'design',     'label' => __( 'Thiết kế, đồ họa',   $td ), 'icon' => '🎨', 'type' => 'link', 'src' => home_url('tool-image/')],
-            ['slug' => 'training',   'label' => __( 'Học tập, làm báo cáo',     $td ), 'icon' => '📖', 'type' => 'link', 'src' => home_url('note/')],
+            ['slug' => 'avatar',     'label' => __( 'Avatar LipSync',   $td ), 'icon' => '🧑‍🎤', 'type' => 'link', 'src' => home_url('avatar/')],
+            ['slug' => 'code',       'label' => __( 'Viết code',                  $td ), 'icon' => '🖥️', 'type' => 'link', 'src' => home_url('tool-code/')],
+            ['slug' => 'pagebuilder','label' => __( 'Tạo web',                   $td ), 'icon' => '🌐', 'type' => 'link', 'src' => home_url('tool-pagebuilder/')],
+            ['slug' => 'training',   'label' => __( 'Làm mindmap',     $td ), 'icon' => '📖', 'type' => 'link', 'src' => home_url('mindmap/')],
+            ['slug' => 'training',   'label' => __( 'Notebook',     $td ), 'icon' => '📖', 'type' => 'link', 'src' => home_url('note/')],
+            ['slug' => 'automation', 'label' => __( 'Chia việc chạy',              $td ), 'icon' => '🔄', 'type' => 'link', 'src' => admin_url('admin.php?page=bizcity-workspace&tab=workflow')],
             ['slug' => 'tools',      'label' => __( 'Công cụ',             $td ), 'icon' => '🛠️', 'type' => 'link', 'src' => home_url('tools-map/')],
             ['slug' => 'skills',     'label' => __( 'Tạo kỹ năng',            $td ), 'icon' => '⚡', 'type' => 'link', 'src' => home_url('skills/')],
-            ['slug' => 'automation', 'label' => __( 'Lịch sử làm việc',              $td ), 'icon' => '🔄', 'type' => 'link', 'src' => admin_url('admin.php?page=bizcity-workspace&tab=workflow')],
             ['slug' => 'scheduler',  'label' => __( 'Lịch nhắc nhở',           $td ), 'icon' => '📅', 'type' => 'link', 'src' => home_url('scheduler/')],
             ['slug' => 'gateway',    'label' => __( 'Cổng kết nối',        $td ), 'icon' => '🔌', 'type' => 'link', 'src' => admin_url('admin.php?page=bizchat-gateway')],
             ['slug' => 'explore',    'label' => __( 'Chợ công cụ',            $td ), 'icon' => '🔍', 'type' => 'link', 'src' => admin_url('admin.php?page=bizcity-marketplace')],
@@ -899,6 +906,8 @@ class BizCity_WebChat_Admin_Dashboard {
             ['slug' => 'report',         'label' => __( 'Báo cáo',             $td ), 'icon' => '📊',  'color' => '#00B8D9', 'pluginSlug' => 'bizcity-tool-woo',     'toolName' => 'business_report',  'prompt' => __( '@business_report Tạo báo cáo', $td )],
             ['slug' => 'mindmap',        'label' => __( 'Tạo Mindmap',         $td ), 'icon' => '🧠',  'color' => '#FF5630', 'pluginSlug' => 'bizcity-tool-mindmap', 'toolName' => 'create_mindmap',   'prompt' => '@create_mindmap'],
             ['slug' => 'task',           'label' => __( 'Tạo nhắc nhở',        $td ), 'icon' => '📋',  'color' => '#8E33FF', 'pluginSlug' => 'bizcity-tool-slide',   'toolName' => 'create_task',      'prompt' => '@create_task'],
+            ['slug' => 'code_generate',  'label' => __( 'Tạo landing page',    $td ), 'icon' => '🖥️',  'color' => '#2563EB', 'pluginSlug' => 'bizcity-code',        'toolName' => 'code_generate',    'prompt' => '@code_generate Tạo landing page cho tôi'],
+            ['slug' => 'page_generate',  'label' => __( 'Tạo website',         $td ), 'icon' => '🌐',  'color' => '#22C55E', 'pluginSlug' => 'bizcity-pagebuilder', 'toolName' => 'page_generate',    'prompt' => '@page_generate Tạo website cho tôi'],
         ]);
 
         // ── Tools Catalog (full list for welcome screen) ──
@@ -1493,7 +1502,10 @@ class BizCity_WebChat_Admin_Dashboard {
                 </div>
 
                 <!-- Chat Panel (shown by default) -->
-                <div id="bizc-chat-panel" style="display:flex;flex-direction:column;flex:1;overflow:hidden;">
+                <div id="bizc-chat-panel" style="display:flex;flex-direction:column;flex:1;overflow:hidden;position:relative;">
+
+                <!-- Right Panel toggle button -->
+                <button class="bizc-rp-toggle" id="bizc-rp-toggle" type="button" title="<?php echo esc_attr__( 'Mở/đóng panel phải', $td ); ?>">☰</button>
 
                 <!-- Header --
                 <div class="bizc-header">
@@ -1594,6 +1606,64 @@ class BizCity_WebChat_Admin_Dashboard {
                 </div>
                 
             </div>
+
+            <!-- Right Panel (Phase 1.20 — Canvas, Thinking, Studio) -->
+            <div id="bizc-right-panel" class="bizc-right-panel" style="display:none;">
+                <!-- Tab header -->
+                <div class="bizc-rp-tabs">
+                    <button class="bizc-rp-tab active" data-rp-tab="canvas">🖼️ Canvas</button>
+                    <button class="bizc-rp-tab" data-rp-tab="thinking">🧠 <?php echo esc_html__( 'Suy nghĩ', $td ); ?></button>
+                    <button class="bizc-rp-tab" data-rp-tab="studio">📋 Studio</button>
+                    <button class="bizc-rp-close" id="bizc-rp-close" title="<?php echo esc_attr__( 'Đóng', $td ); ?>">✕</button>
+                </div>
+
+                <!-- Canvas Tab Content -->
+                <div id="bizc-rp-canvas" class="bizc-rp-content" data-rp-tab="canvas">
+                    <!-- Canvas header bar (shown when iframe loaded) -->
+                    <div id="bizc-canvas-header" class="bizc-canvas-header" style="display:none;">
+                        <button id="bizc-canvas-back" class="bizc-canvas-btn--circle" title="<?php echo esc_attr__( 'Đóng canvas', $td ); ?>">←</button>
+                        <span id="bizc-canvas-icon" class="bizc-canvas-header__icon">📄</span>
+                        <div class="bizc-canvas-header__info">
+                            <span id="bizc-canvas-title" class="bizc-canvas-header__title"></span>
+                            <span id="bizc-canvas-status" class="bizc-canvas-header__status"></span>
+                        </div>
+                        <div class="bizc-canvas-header__actions">
+                            <button id="bizc-canvas-external" class="bizc-canvas-btn--circle" title="<?php echo esc_attr__( 'Mở tab mới', $td ); ?>">↗</button>
+                            <button id="bizc-canvas-menu" class="bizc-canvas-btn--circle" title="<?php echo esc_attr__( 'Thêm', $td ); ?>">⋮</button>
+                        </div>
+                    </div>
+                    <!-- Dropdown menu (context-sensitive per media_type) -->
+                    <div id="bizc-canvas-dropdown" class="bizc-canvas-dropdown" style="display:none;"></div>
+                    <!-- Canvas iframe -->
+                    <iframe id="bizc-canvas-iframe" src="about:blank" style="flex:1;border:none;width:100%;display:none;" allow="clipboard-write"></iframe>
+                    <!-- Empty state -->
+                    <div id="bizc-canvas-empty" class="bizc-rp-empty">
+                        <p>🖼️</p>
+                        <p><?php echo esc_html__( 'Canvas sẽ hiển thị khi bạn tạo nội dung.', $td ); ?></p>
+                    </div>
+                </div>
+
+                <!-- Thinking Tab Content -->
+                <div id="bizc-rp-thinking" class="bizc-rp-content" data-rp-tab="thinking" style="display:none;">
+                    <div id="bizc-thinking-logs" class="bizc-thinking-logs">
+                        <div class="bizc-rp-empty">
+                            <p>🧠</p>
+                            <p><?php echo esc_html__( 'Quá trình suy nghĩ của AI sẽ hiển thị khi bạn gửi tin nhắn.', $td ); ?></p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Studio Tab Content -->
+                <div id="bizc-rp-studio" class="bizc-rp-content" data-rp-tab="studio" style="display:none;">
+                    <div id="bizc-studio-list" class="bizc-studio-list">
+                        <div class="bizc-rp-empty">
+                            <p>📋</p>
+                            <p><?php echo esc_html__( 'Đầu ra Studio sẽ hiển thị ở đây.', $td ); ?></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
         </div>
 
         <!-- Pipeline Monitor Sidebar (Phase 1.2 — SSE-based, positioned fixed right) -->

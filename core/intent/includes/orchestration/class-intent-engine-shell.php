@@ -155,6 +155,11 @@ class BizCity_Intent_Engine_Shell {
 			if ( $action === 'inject_skill' ) {
 				$skill  = $pre_result['result']['skill'] ?? [];
 				$parsed = $pre_result['result']['parsed'] ?? [];
+				$tool_refs = $parsed['tool_refs'] ?? [];
+				$strategy  = $parsed['strategy'] ?? '';
+				error_log( self::LOG . ' [inject_skill] skill_key=' . ( $skill['frontmatter']['name'] ?? '?' )
+					. ' | tool_refs=[' . implode( ',', $tool_refs ) . ']'
+					. ' | strategy=' . $strategy );
 				// Set conversation goal so next turn triggers skill continuation
 				$slash_name = ltrim( $skill['frontmatter']['name'] ?? '', '/' );
 				if ( $slash_name && $conv_id ) {
@@ -164,6 +169,116 @@ class BizCity_Intent_Engine_Shell {
 						$skill['frontmatter']['title'] ?? $slash_name
 					);
 				}
+
+				// ── Fast-path: Canvas-eligible skill with pipeline_json → return iframe reply ──
+				// When skill declares exactly 1 tool_ref with strategy=simple and the tool
+				// supports Canvas handoff, bypass classifier entirely and return an iframe URL.
+				if ( count( $tool_refs ) === 1
+				     && $strategy === 'simple'
+				     && class_exists( 'BizCity_Canvas_Adapter' )
+				     && BizCity_Canvas_Adapter::should_handoff( $tool_refs[0] )
+				) {
+					$fast_tool = $tool_refs[0];
+
+					// Extract template_id from pipeline_json (set by virtual skill sync)
+					$pipeline_raw = $skill['pipeline_json'] ?? '';
+					$pipeline     = is_string( $pipeline_raw ) ? json_decode( $pipeline_raw, true ) : (array) $pipeline_raw;
+					$template_id  = (int) ( $pipeline['tool_params']['template_id'] ?? 0 );
+
+					if ( $template_id > 0 ) {
+						// Extract topic from user message (text after slash command)
+						$topic = '';
+						if ( preg_match( '/^\/[a-zA-Z0-9_-]+\s+(.+)$/s', $message, $_topic_m ) ) {
+							$topic = trim( $_topic_m[1] );
+						}
+
+						// Build iframe URL with topic + session_id params
+						$iframe_params = [ 'bizcity_iframe' => '1' ];
+						if ( $topic !== '' ) {
+							$iframe_params['topic'] = $topic;
+						}
+						$sess_id = $params['session_id'] ?? '';
+						if ( $sess_id !== '' ) {
+							$iframe_params['session_id'] = $sess_id;
+						}
+						$creator_url = home_url( "creator/{$template_id}/?" . http_build_query( $iframe_params ) );
+						$skill_title = $skill['frontmatter']['title'] ?? $slash_name;
+
+						error_log( self::LOG . " [inject_skill] FAST-PATH iframe: tool={$fast_tool}"
+							. " template_id={$template_id} topic=" . mb_substr( $topic, 0, 60 )
+							. " session_id={$sess_id} url={$creator_url}" );
+
+						$result['reply']  = "✨ **{$skill_title}**\n\n"
+							. '<div data-creator-url="' . esc_attr( $creator_url ) . '" data-template-id="' . $template_id . '"></div>';
+						$result['action'] = 'canvas_iframe';
+						$result['meta']   = array_merge( $result['meta'], [
+							'engine'      => 'shell',
+							'pre_rule'    => 'SKILL_SLASH_INJECT',
+							'fast_path'   => 'canvas_iframe',
+							'tool'        => $fast_tool,
+							'template_id' => $template_id,
+							'creator_url' => $creator_url,
+							'llm_calls'   => 0,
+						] );
+						$this->finalize( $result, $conversation, $start_time, $params );
+						return $result;
+					}
+
+					// No template_id — check for launch_url (profile studio, product studio, etc.)
+					$launch_url = $pipeline['launch_url'] ?? '';
+					if ( $launch_url !== '' ) {
+						$skill_title = $skill['frontmatter']['title'] ?? $slash_name;
+						$sess_id     = $params['session_id'] ?? '';
+
+						// Build full URL with iframe flag + session
+						$sep = ( strpos( $launch_url, '?' ) !== false ) ? '&' : '?';
+						$full_url = home_url( ltrim( $launch_url, '/' ) )
+							. $sep . 'bizcity_iframe=1'
+							. ( $sess_id !== '' ? '&session_id=' . urlencode( $sess_id ) : '' );
+
+						error_log( self::LOG . " [inject_skill] FAST-PATH launch_url: tool={$fast_tool}"
+							. " studio=" . ( $pipeline['studio'] ?? '?' )
+							. " url={$full_url}" );
+
+						$result['reply']  = "✨ **{$skill_title}**\n\n"
+							. '<div data-creator-url="' . esc_attr( $full_url ) . '"></div>';
+						$result['action'] = 'canvas_iframe';
+						$result['meta']   = array_merge( $result['meta'], [
+							'engine'      => 'shell',
+							'pre_rule'    => 'SKILL_SLASH_INJECT',
+							'fast_path'   => 'canvas_launch_url',
+							'tool'        => $fast_tool,
+							'launch_url'  => $full_url,
+							'llm_calls'   => 0,
+						] );
+						$this->finalize( $result, $conversation, $start_time, $params );
+						return $result;
+					}
+
+					// No template_id, no launch_url — fall through to execute_single_tool (legacy path)
+					error_log( self::LOG . " [inject_skill] FAST-PATH canvas dispatch: tool={$fast_tool} (no template_id, using Tool Wrapper)" );
+
+					$synth_server = [
+						'action'     => 'single',
+						'mode'       => 'single',
+						'tool'       => $fast_tool,
+						'tool_type'  => 'composite',
+						'depth'      => 'shallow',
+						'confidence' => 1.0,
+						'reasoning'  => 'Fast-path: skill ' . $slash_name . ' → canvas dispatch',
+						'entities'   => [],
+					];
+					return $this->execute_single_tool(
+						$fast_tool,
+						[],
+						$synth_server,
+						$params,
+						$conversation,
+						$result,
+						$start_time
+					);
+				}
+
 				return $this->step3_server_resolve( $message, $params, $conversation, $result, $skill, $parsed, $start_time );
 			}
 
@@ -210,6 +325,7 @@ class BizCity_Intent_Engine_Shell {
 		}
 
 		// ── Step 3+4: Collect context → call server → execute ──
+		error_log( self::LOG . ' Pre-rules: handled=false → fallback to server (no skill context)' );
 		return $this->step3_server_resolve( $message, $params, $conversation, $result, [], [], $start_time );
 	}
 
@@ -672,6 +788,27 @@ class BizCity_Intent_Engine_Shell {
 		}
 
 		$wrapper_result = BizCity_Tool_Wrapper::run( $tool_name, [], $wrapper_context );
+
+		// ── Phase 1.20: Canvas handoff — Tool Wrapper decides, Shell reacts ──
+		if ( $wrapper_result['status'] === 'canvas_handoff' ) {
+			$canvas = $wrapper_result['canvas'] ?? [];
+
+			$result['reply']  = $wrapper_result['message'];
+			$result['action'] = 'canvas_handoff';
+			$result['meta']['canvas'] = [
+				'artifact_id'  => $wrapper_result['artifact_id'] ?? 0,
+				'workshop'     => $canvas['workshop'] ?? '',
+				'launch_url'   => $canvas['launch_url'] ?? '',
+				'sse_endpoint' => $canvas['sse_endpoint'] ?? '',
+				'auto_execute' => $canvas['auto_execute'] ?? false,
+			];
+
+			error_log( self::LOG . " [SINGLE] Canvas handoff: tool={$tool_name} artifact=" . ( $wrapper_result['artifact_id'] ?? 0 ) );
+
+			$this->save_server_memory_spec( $server_result, $conversation );
+			$this->finalize( $result, $conversation, $start_time, $params );
+			return $result;
+		}
 
 		// ── Handle waiting_slot → ask_user ──
 		if ( $wrapper_result['status'] === 'waiting_slot' ) {

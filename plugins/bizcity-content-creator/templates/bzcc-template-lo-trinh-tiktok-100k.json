@@ -1,0 +1,175 @@
+{
+  "version": "1.0",
+  "plugin": "bizcity-content-creator",
+  "exported": "2026-04-15T10:00:00Z",
+  "templates": [
+    {
+      "slug": "lo-trinh-tiktok-100k",
+      "category_id": "0",
+      "title": "Lộ trình đạt 100.000 followers trên TikTok",
+      "description": "Giúp bạn có lộ trình chi tiết để đạt 100.000 followers trên TikTok — từ phân tích đối tượng, lên ý tưởng nội dung, tối ưu kênh đến chiến lược tăng trưởng theo từng cột mốc.",
+      "icon_url": "",
+      "icon_emoji": "🎵",
+      "form_fields": [
+        {
+          "slug": "heading_step1",
+          "label": "🎯 Thông tin kênh TikTok của bạn",
+          "type": "heading",
+          "placeholder": "",
+          "required": false,
+          "grid": "full",
+          "sort_order": 1,
+          "description": "Mô tả kênh TikTok bạn muốn xây dựng hoặc đang phát triển",
+          "badge": ""
+        },
+        {
+          "slug": "channel_topic",
+          "label": "Chủ đề / kiểu content kênh của bạn",
+          "type": "textarea",
+          "placeholder": "VD: làm đẹp, giảm cân / review công nghệ / dạy tiếng Anh / nấu ăn healthy...",
+          "required": true,
+          "grid": "half",
+          "sort_order": 2,
+          "description": ""
+        },
+        {
+          "slug": "target_audience",
+          "label": "Đối tượng người xem bạn nhắm đến?",
+          "type": "textarea",
+          "placeholder": "VD: phụ nữ trẻ, 20-35 tuổi / sinh viên Gen Z / doanh nhân / bất kỳ ai...",
+          "required": false,
+          "grid": "half",
+          "sort_order": 3,
+          "description": "Có thể bỏ qua để được AI tự gợi ý"
+        },
+        {
+          "slug": "unique_point",
+          "label": "Điểm độc đáo kênh của bạn?",
+          "type": "textarea",
+          "placeholder": "VD: kinh nghiệm thực tế hơn 10 năm, các mẹo thực tế, background y khoa...",
+          "required": true,
+          "grid": "full",
+          "sort_order": 4,
+          "description": "Điều gì giúp kênh bạn khác biệt so với các kênh cùng lĩnh vực?"
+        },
+        {
+          "slug": "heading_step2",
+          "label": "⚙️ Tùy chỉnh lộ trình",
+          "type": "heading",
+          "placeholder": "",
+          "required": false,
+          "grid": "full",
+          "sort_order": 10,
+          "description": "Tinh chỉnh thêm để AI tạo lộ trình sát với thực tế của bạn",
+          "badge": "Tùy chọn"
+        },
+        {
+          "slug": "current_followers",
+          "label": "Số followers hiện tại (nếu có)",
+          "type": "text",
+          "placeholder": "VD: 0 / 500 / 2000",
+          "required": false,
+          "grid": "half",
+          "sort_order": 11,
+          "description": "Để trống nếu bắt đầu từ 0"
+        },
+        {
+          "slug": "posting_frequency",
+          "label": "Tần suất đăng bài dự kiến",
+          "type": "select",
+          "placeholder": "",
+          "required": false,
+          "grid": "half",
+          "sort_order": 12,
+          "description": "",
+          "options": [
+            { "value": "1-2 video/tuần", "label": "🐢 1-2 video/tuần" },
+            { "value": "3-4 video/tuần", "label": "🚀 3-4 video/tuần" },
+            { "value": "1 video/ngày", "label": "🔥 1 video/ngày" },
+            { "value": "2-3 video/ngày", "label": "⚡ 2-3 video/ngày" }
+          ]
+        },
+        {
+          "slug": "monetization_goal",
+          "label": "Mục tiêu kiếm tiền từ TikTok",
+          "type": "button_group",
+          "placeholder": "",
+          "required": false,
+          "grid": "full",
+          "sort_order": 13,
+          "description": "Chọn mục tiêu chính của bạn (có thể chọn nhiều)",
+          "multi": true,
+          "options": [
+            { "value": "brand_awareness", "label": "📣 Tăng nhận diện thương hiệu" },
+            { "value": "affiliate", "label": "🛒 Affiliate / Bán hàng liên kết" },
+            { "value": "tiktok_shop", "label": "🏪 TikTok Shop" },
+            { "value": "creator_fund", "label": "💰 Creator Fund / Quỹ sáng tạo" },
+            { "value": "kol", "label": "👑 Trở thành KOL / Nhận booking quảng cáo" },
+            { "value": "lead_gen", "label": "🎯 Kéo traffic về website / fanpage" }
+          ]
+        },
+        {
+          "slug": "content_style",
+          "label": "Phong cách nội dung ưa thích",
+          "type": "button_group",
+          "placeholder": "",
+          "required": false,
+          "grid": "full",
+          "sort_order": 14,
+          "description": "",
+          "multi": true,
+          "options": [
+            { "value": "educational", "label": "📚 Chia sẻ kiến thức" },
+            { "value": "entertainment", "label": "🎭 Giải trí / Hài hước" },
+            { "value": "storytelling", "label": "📖 Kể chuyện" },
+            { "value": "challenge", "label": "🏆 Thử thách / Trend" },
+            { "value": "review", "label": "⭐ Review / Đánh giá" },
+            { "value": "vlog", "label": "🎬 Vlog / Cuộc sống" },
+            { "value": "tutorial", "label": "🎓 Hướng dẫn / Tutorial" },
+            { "value": "asmr", "label": "🎧 ASMR / Aesthetic" }
+          ]
+        },
+        {
+          "slug": "extra_notes",
+          "label": "Ghi chú thêm cho AI",
+          "type": "textarea",
+          "placeholder": "VD: Tôi không muốn lộ mặt, chỉ quay tay / Tôi có budget chạy ads / Tôi muốn tập trung vào Reels ngắn...",
+          "required": false,
+          "grid": "full",
+          "sort_order": 15,
+          "description": ""
+        }
+      ],
+
+      "system_prompt": "Bạn là chuyên gia tăng trưởng TikTok hàng đầu Việt Nam với kinh nghiệm giúp hàng trăm kênh đạt 100K+ followers. Bạn sẽ tạo một LỘ TRÌNH CHI TIẾT, CỤ THỂ, THỰC TẾ để phát triển kênh TikTok.\n\n## THÔNG TIN KÊNH\n- Chủ đề/niche: {{channel_topic}}\n- Đối tượng người xem: {{target_audience}}\n- Điểm độc đáo: {{unique_point}}\n- Followers hiện tại: {{current_followers}}\n- Tần suất đăng: {{posting_frequency}}\n- Mục tiêu kiếm tiền: {{monetization_goal}}\n- Phong cách nội dung: {{content_style}}\n- Ghi chú thêm: {{extra_notes}}\n\n## QUY TẮC VIẾT\n1. Viết CỤ THỂ cho chủ đề \"{{channel_topic}}\" — KHÔNG viết chung chung áp dụng cho mọi kênh\n2. Mỗi mốc phải có: mục tiêu số, thời gian cụ thể, chiến lược rõ ràng, ví dụ ý tưởng video thực tế\n3. Ý tưởng video phải có tiêu đề cụ thể (dạng hook thu hút) + mô tả ngắn\n4. Bảng kế hoạch hành động phải có cột: Ngày, Hành động, Ví dụ nội dung, Kết quả mong đợi\n5. Viết bằng tiếng Việt, giọng văn tư vấn chuyên gia nhưng gần gũi, thực tế\n6. Dùng emoji phù hợp để dễ đọc, dùng bảng (table) khi cần so sánh/liệt kê\n7. Phân tích đối tượng khán giả phải dùng bảng audience personas (5 nhân vật)\n8. Mỗi phần phải có ít nhất 300 từ, viết chi tiết, KHÔNG viết sơ sài",
+
+      "outline_prompt": "Dựa trên thông tin kênh TikTok đã cung cấp, hãy tạo outline cho LỘ TRÌNH đạt 100.000 followers.\n\nTạo 8-10 sections theo CẤU TRÚC LOGIC sau:\n1. Xác định mục tiêu & phân tích lộ trình tổng quan (timeline, cột mốc chính)\n2. Phân tích đối tượng khán giả chi tiết (audience personas dạng bảng)\n3. Xác định trụ cột nội dung + 10 ý tưởng video mỗi trụ cột\n4. Tối ưu hồ sơ kênh (username, bio, avatar — kèm ví dụ cụ thể)\n5. Giai đoạn 1: Đạt 1.000 followers đầu tiên (30 ngày — kế hoạch hành động)\n6. Giai đoạn 2: Đạt 10.000 followers (chiến lược mở rộng)\n7. Giai đoạn 3: Đạt 50.000 followers (chiến lược tăng tốc)\n8. Giai đoạn 4: Đạt 100.000 followers (chiến lược đột phá)\n9. Lời khuyên chung & những sai lầm cần tránh\n\nTên section (label) phải MÔ TẢ CỤ THỂ nội dung sẽ viết, KHÔNG chung chung.",
+
+      "chunk_prompt": "Bạn đang viết phần \"{{chunk_title}}\" của lộ trình TikTok.\n\n## BỐI CẢNH\n- Chủ đề kênh: {{channel_topic}}\n- Đối tượng: {{target_audience}}\n- Điểm độc đáo: {{unique_point}}\n- Followers hiện tại: {{current_followers}}\n- Tần suất đăng: {{posting_frequency}}\n- Phong cách: {{content_style}}\n\n## YÊU CẦU\n- Viết CỤ THỂ cho chủ đề \"{{channel_topic}}\", KHÔNG viết chung chung\n- Mỗi ý tưởng video phải có tiêu đề hook + mô tả ngắn\n- Dùng bảng (table) cho kế hoạch hành động, audience personas, so sánh\n- Viết ít nhất 400 từ, chi tiết, thực tế, áp dụng được ngay\n- Giọng văn tư vấn chuyên gia, gần gũi, có emoji phù hợp\n- Khi liệt kê: mỗi mục có tiêu đề đậm + 2-3 câu giải thích\n- Nếu là giai đoạn followers: phải có bảng kế hoạch hành động theo ngày",
+
+      "model_purpose": "content_creation",
+      "temperature": "0.70",
+      "max_tokens": "8000",
+      "wizard_steps": [
+        {
+          "label": "Thông tin kênh",
+          "description": "Mô tả kênh TikTok của bạn",
+          "fields": ["heading_step1", "channel_topic", "target_audience", "unique_point"]
+        },
+        {
+          "label": "Tùy chỉnh",
+          "description": "Tinh chỉnh lộ trình cho sát thực tế",
+          "fields": ["heading_step2", "current_followers", "posting_frequency", "monetization_goal", "content_style", "extra_notes"]
+        }
+      ],
+      "output_platforms": ["general"],
+      "skill_id": "0",
+      "tags": "tiktok,followers,lộ-trình,tăng-trưởng,social-media,100k,roadmap",
+      "badge_text": "TikTok 100K",
+      "badge_color": "#ff0050",
+      "is_featured": "1",
+      "sort_order": "2",
+      "status": "active"
+    }
+  ]
+}

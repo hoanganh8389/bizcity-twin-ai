@@ -281,9 +281,10 @@ register_activation_hook( __FILE__, function() {
     // Create database tables
     require_once BIZCITY_VIDEO_KLING_DIR . 'includes/class-database.php';
     BizCity_Video_Kling_Database::create_tables();
+    BizCity_Video_Kling_Database::create_projects_table();
 
     // Set DB version
-    update_option( 'bizcity_video_kling_db_version', '2.0.0' );
+    update_option( 'bizcity_video_kling_db_version', '2.2.0' );
 
     // Flush rewrite rules
     flush_rewrite_rules();

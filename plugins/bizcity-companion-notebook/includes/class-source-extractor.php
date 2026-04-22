@@ -48,25 +48,235 @@ class BCN_Source_Extractor {
         }
     }
 
+    /**
+     * Extract text from PDF with 4-level fallback chain.
+     *
+     * Level 1: Smalot PDF Parser (library, most accurate for text PDFs)
+     * Level 2: pdftotext CLI (fast, requires poppler-utils)
+     * Level 3: Pure PHP stream extraction (no deps, handles simple text PDFs)
+     * Level 4: Vision OCR (scanned/image PDFs → Imagick → Vision LLM)
+     *
+     * Scanned PDF detection: if Levels 1-3 yield < 50 chars → trigger OCR.
+     */
     public function extract_pdf( $file_path ) {
-        // Try pdftotext command first (fast, accurate).
-        if ( $this->can_exec() ) {
-            $escaped = escapeshellarg( $file_path );
-            $output = shell_exec( "pdftotext -layout {$escaped} -" );
-            if ( $output ) {
-                return [ 'text' => trim( $output ), 'metadata' => [], 'error' => null ];
+        // ── Level 1: Smalot PDF Parser ──
+        if ( class_exists( '\\Smalot\\PdfParser\\Parser' ) ) {
+            try {
+                $parser = new \Smalot\PdfParser\Parser();
+                $pdf    = $parser->parseFile( $file_path );
+                $text   = $pdf->getText();
+                if ( mb_strlen( trim( $text ) ) > 50 ) {
+                    return [ 'text' => trim( $text ), 'metadata' => [ 'method' => 'smalot' ], 'error' => null ];
+                }
+            } catch ( \Throwable $e ) {
+                error_log( '[BCN] PDF parse error (Smalot): ' . $e->getMessage() );
             }
         }
 
-        // Fallback: read raw — very basic but works for simple PDFs.
-        $content = file_get_contents( $file_path );
-        if ( $content ) {
-            // Basic text extraction from PDF streams.
-            $text = $this->basic_pdf_text( $content );
-            return [ 'text' => $text, 'metadata' => [], 'error' => null ];
+        // ── Level 2: pdftotext CLI ──
+        if ( $this->can_exec() ) {
+            $output = [];
+            $code   = 0;
+            @exec( 'pdftotext ' . escapeshellarg( $file_path ) . ' -', $output, $code );
+            if ( $code === 0 && ! empty( $output ) ) {
+                $text = implode( "\n", $output );
+                if ( mb_strlen( trim( $text ) ) > 50 ) {
+                    return [ 'text' => trim( $text ), 'metadata' => [ 'method' => 'pdftotext' ], 'error' => null ];
+                }
+            }
         }
 
-        return [ 'text' => '', 'metadata' => [], 'error' => 'Could not extract PDF text' ];
+        // ── Level 3: Pure PHP stream extraction ──
+        $text = $this->extract_pdf_pure( $file_path );
+        if ( mb_strlen( $text ) > 50 ) {
+            return [ 'text' => $text, 'metadata' => [ 'method' => 'pure_php' ], 'error' => null ];
+        }
+
+        // ── Level 4: Vision OCR (scanned/image PDF) ──
+        $ocr_text = $this->extract_pdf_vision_ocr( $file_path );
+        if ( $ocr_text && ! is_wp_error( $ocr_text ) && mb_strlen( $ocr_text ) > 50 ) {
+            return [ 'text' => $ocr_text, 'metadata' => [ 'method' => 'vision_ocr' ], 'error' => null ];
+        }
+
+        // All levels failed — return whatever we have.
+        $fallback = $text ?: '';
+        $error    = 'Không thể đọc PDF. File có thể là scan/image và server không hỗ trợ Imagick.';
+        return [ 'text' => $fallback, 'metadata' => [], 'error' => $error ];
+    }
+
+    /**
+     * Pure PHP PDF text extraction — decode text streams without external libraries.
+     * Handles most text-based PDFs via FlateDecode + BT/ET text operators.
+     */
+    private function extract_pdf_pure( string $path ): string {
+        $content = @file_get_contents( $path );
+        if ( $content === false ) return '';
+
+        $text = '';
+
+        // Find all stream...endstream blocks.
+        $streams = [];
+        $offset  = 0;
+        while ( ( $start = strpos( $content, 'stream', $offset ) ) !== false ) {
+            $data_start = $start + 6;
+            if ( isset( $content[ $data_start ] ) && $content[ $data_start ] === "\r" ) $data_start++;
+            if ( isset( $content[ $data_start ] ) && $content[ $data_start ] === "\n" ) $data_start++;
+
+            $end = strpos( $content, 'endstream', $data_start );
+            if ( $end === false ) break;
+
+            $stream_data = substr( $content, $data_start, $end - $data_start );
+
+            // Try to decompress (most PDF streams are FlateDecode).
+            $decoded = @gzuncompress( $stream_data );
+            if ( $decoded === false ) {
+                $decoded = @gzinflate( $stream_data );
+            }
+            if ( $decoded === false ) {
+                $decoded = $stream_data;
+            }
+
+            if ( preg_match( '/BT\b/s', $decoded ) ) {
+                $streams[] = $decoded;
+            }
+
+            $offset = $end + 9;
+        }
+
+        foreach ( $streams as $stream ) {
+            preg_match_all( '/BT\s*(.*?)\s*ET/s', $stream, $bt_matches );
+            foreach ( $bt_matches[1] as $bt_block ) {
+                // Tj operator: (text) Tj
+                preg_match_all( '/\(([^)]*)\)\s*Tj/s', $bt_block, $tj );
+                foreach ( $tj[1] as $t ) {
+                    $text .= $this->pdf_decode_string( $t );
+                }
+
+                // TJ operator: [(text) num (text)] TJ
+                preg_match_all( '/\[(.*?)\]\s*TJ/s', $bt_block, $tj_arr );
+                foreach ( $tj_arr[1] as $arr ) {
+                    preg_match_all( '/\(([^)]*)\)/', $arr, $parts );
+                    foreach ( $parts[1] as $t ) {
+                        $text .= $this->pdf_decode_string( $t );
+                    }
+                }
+
+                // ' operator
+                preg_match_all( "/\\(([^)]*)\\)\\s*'/s", $bt_block, $tick );
+                foreach ( $tick[1] as $t ) {
+                    $text .= $this->pdf_decode_string( $t ) . "\n";
+                }
+
+                if ( preg_match( '/T[dD]\s/s', $bt_block ) ) {
+                    $text .= "\n";
+                }
+            }
+        }
+
+        $text = preg_replace( '/[ \t]+/', ' ', $text );
+        $text = preg_replace( '/\n{3,}/', "\n\n", $text );
+        return trim( $text );
+    }
+
+    /**
+     * Decode PDF string escapes: \n, \r, \t, octal \NNN.
+     */
+    private function pdf_decode_string( string $str ): string {
+        $str = str_replace( [ '\\n', '\\r', '\\t' ], [ "\n", "\r", "\t" ], $str );
+        $str = preg_replace_callback( '/\\\\([0-7]{1,3})/', function ( $m ) {
+            return chr( octdec( $m[1] ) );
+        }, $str );
+        $str = str_replace( [ '\\(', '\\)', '\\\\' ], [ '(', ')', '\\' ], $str );
+        return $str;
+    }
+
+    /**
+     * Vision OCR for scanned/image PDFs.
+     *
+     * Requires Imagick + bizcity_llm_chat().
+     * Converts each page to PNG → base64 → Vision model extracts text.
+     * Processes up to 20 pages.
+     */
+    private function extract_pdf_vision_ocr( string $path ) {
+        if ( ! class_exists( 'Imagick' ) ) {
+            error_log( '[BCN] Vision OCR skipped: Imagick not available' );
+            return null;
+        }
+        if ( ! function_exists( 'bizcity_llm_chat' ) ) {
+            error_log( '[BCN] Vision OCR skipped: bizcity_llm_chat not available' );
+            return null;
+        }
+
+        error_log( '[BCN] Starting Vision OCR for scanned PDF: ' . basename( $path ) );
+
+        try {
+            $imagick = new \Imagick();
+            $imagick->setResolution( 200, 200 );
+            $imagick->readImage( $path );
+            $page_count = $imagick->getNumberImages();
+            $max_pages  = min( $page_count, 20 );
+            $all_text   = [];
+
+            for ( $i = 0; $i < $max_pages; $i++ ) {
+                $imagick->setIteratorIndex( $i );
+                $imagick->setImageFormat( 'png' );
+
+                $width = $imagick->getImageWidth();
+                if ( $width > 1500 ) {
+                    $imagick->resizeImage( 1500, 0, \Imagick::FILTER_LANCZOS, 1 );
+                }
+
+                $blob   = $imagick->getImageBlob();
+                $base64 = base64_encode( $blob );
+                unset( $blob );
+
+                $messages = [
+                    [
+                        'role'    => 'user',
+                        'content' => [
+                            [
+                                'type'      => 'image_url',
+                                'image_url' => [
+                                    'url' => 'data:image/png;base64,' . $base64,
+                                ],
+                            ],
+                            [
+                                'type' => 'text',
+                                'text' => 'Trích xuất TOÀN BỘ text trong hình này. Giữ nguyên cấu trúc, bao gồm tiêu đề, đoạn văn, bảng, gạch đầu dòng. Chỉ trả về text thuần, không thêm giải thích.',
+                            ],
+                        ],
+                    ],
+                ];
+
+                $result = bizcity_llm_chat( $messages, [
+                    'model'      => 'google/gemini-2.0-flash-001',
+                    'purpose'    => 'vision',
+                    'max_tokens' => 4000,
+                    'timeout'    => 60,
+                ] );
+
+                unset( $base64 );
+
+                if ( ! empty( $result['success'] ) && ! empty( $result['message'] ) ) {
+                    $all_text[] = "--- Trang " . ( $i + 1 ) . " ---\n" . trim( $result['message'] );
+                } else {
+                    error_log( '[BCN] Vision OCR failed on page ' . ( $i + 1 ) . ': ' . ( $result['error'] ?? 'unknown' ) );
+                    $all_text[] = "--- Trang " . ( $i + 1 ) . " --- [OCR thất bại]";
+                }
+            }
+
+            $imagick->clear();
+            $imagick->destroy();
+
+            $combined = implode( "\n\n", $all_text );
+            error_log( '[BCN] Vision OCR complete: ' . $max_pages . ' pages, ' . mb_strlen( $combined ) . ' chars' );
+
+            return mb_strlen( $combined ) > 100 ? $combined : '';
+
+        } catch ( \Throwable $e ) {
+            error_log( '[BCN] Vision OCR error: ' . $e->getMessage() );
+            return null;
+        }
     }
 
     public function extract_url( $url ) {

@@ -23,6 +23,7 @@
 		range:    { icon: '🎚️', label: 'Range',     hasOptions: false, hasRange: true },
 		toggle:   { icon: '🔀', label: 'Toggle',    hasOptions: false },
 		image:    { icon: '🖼️', label: 'Image',     hasOptions: false },
+		file:     { icon: '📎', label: 'File Upload', hasOptions: false },
 		// ── Layout / Advanced field types ──
 		heading:        { icon: '🏷️', label: 'Heading',        hasOptions: false, isLayout: true },
 		button_group:   { icon: '💊', label: 'Button Group',   hasOptions: true,  isLayout: true },
@@ -370,6 +371,45 @@
 					Bắt buộc
 				</label>
 			</div>`;
+
+			// Vision toggle for image type (Smart Input Phase 3.2)
+			if (f.type === 'image') {
+				h += `<div class="fb-editor-row fb-editor-row--vision">
+					<div class="fb-editor-group" style="flex:1;">
+						<label class="fb-toggle">
+							<input type="checkbox" data-field="enable_vision" data-index="${i}" ${f.enable_vision ? 'checked' : ''}>
+							🔍 Vision AI — Phân tích ảnh tự động
+						</label>
+					</div>
+				</div>`;
+				if (f.enable_vision) {
+					h += `<div class="fb-editor-row">
+						<div class="fb-editor-group" style="flex:1;">
+							<label>Vision Prompt <small>(hướng dẫn AI phân tích ảnh)</small></label>
+							<textarea data-field="vision_prompt" data-index="${i}" rows="2" placeholder="VD: Mô tả chi tiết sản phẩm trong ảnh, màu sắc, chất liệu...">${esc(f.vision_prompt || '')}</textarea>
+						</div>
+					</div>`;
+				}
+			}
+
+			// File config for file type (Smart Input Phase 3.2)
+			if (f.type === 'file') {
+				h += `<div class="fb-editor-row">
+					<div class="fb-editor-group">
+						<label>Loại file chấp nhận</label>
+						<select data-field="accepted_types" data-index="${i}">
+							<option value="csv,xlsx" ${(f.accepted_types||'csv,xlsx')==='csv,xlsx'?'selected':''}>CSV, Excel</option>
+							<option value="csv" ${f.accepted_types==='csv'?'selected':''}>Chỉ CSV</option>
+							<option value="xlsx" ${f.accepted_types==='xlsx'?'selected':''}>Chỉ Excel</option>
+							<option value="csv,xlsx,txt" ${f.accepted_types==='csv,xlsx,txt'?'selected':''}>CSV, Excel, Text</option>
+						</select>
+					</div>
+					<div class="fb-editor-group">
+						<label>Giới hạn dòng <small>(max rows)</small></label>
+						<input type="number" data-field="max_rows" data-index="${i}" value="${f.max_rows || 100}" min="10" max="500">
+					</div>
+				</div>`;
+			}
 		}
 
 		// Button group: multi-select toggle
@@ -501,6 +541,15 @@
 				{ label: 'Tab 1', icon: '📋' },
 				{ label: 'Tab 2', icon: '🔥' },
 			];
+		}
+		if (type === 'file') {
+			field.label = 'File Upload ' + idx;
+			field.accepted_types = 'csv,xlsx';
+			field.max_rows = 100;
+		}
+		if (type === 'image') {
+			field.enable_vision = false;
+			field.vision_prompt = '';
 		}
 
 		steps[activeStep].fields.push(field);

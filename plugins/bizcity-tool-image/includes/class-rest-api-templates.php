@@ -108,6 +108,25 @@ class BizCity_REST_API_Templates {
             'callback'            => array( __CLASS__, 'reorder_categories' ),
             'permission_callback' => array( __CLASS__, 'is_admin' ),
         ) );
+
+        /* ── Design Editor: templates formatted for @lidojs ── */
+
+        /* ── Design Editor endpoints moved to class-rest-api-editor-assets.php:
+              /editor-templates, /fonts, /text-presets, /shapes, /frames,
+              /user-images, keyword suggestions ── */
+
+        /* ── Design Editor: stock images proxy (Pixabay) ── */
+
+        register_rest_route( self::NAMESPACE, '/stock-images', array(
+            'methods'             => 'GET',
+            'callback'            => array( __CLASS__, 'get_stock_images' ),
+            'permission_callback' => array( __CLASS__, 'is_logged_in' ),
+            'args'                => array(
+                'q'        => array( 'type' => 'string',  'sanitize_callback' => 'sanitize_text_field' ),
+                'page'     => array( 'type' => 'integer', 'sanitize_callback' => 'absint', 'default' => 1 ),
+                'per_page' => array( 'type' => 'integer', 'sanitize_callback' => 'absint', 'default' => 40 ),
+            ),
+        ) );
     }
 
     /* ═══════════════════════════ TEMPLATE CALLBACKS ═══════════════════════════ */
@@ -303,6 +322,195 @@ class BizCity_REST_API_Templates {
         $ids = array_map( 'absint', $ids );
         BizCity_Template_Category_Manager::reorder( $ids );
         return new \WP_REST_Response( array( 'message' => 'Categories reordered.' ), 200 );
+    }
+
+    /* ═══════════════════════════ DESIGN EDITOR CALLBACKS ═══════════════════════════ */
+
+    /**
+     * GET /editor-templates — returns templates in the format expected by
+     * the design editor (img + elements SerializedPage JSON).
+     */
+    public static function get_editor_templates( $request ) {
+        $args = array(
+            'category_slug' => $request->get_param( 'category' ),
+            'search'        => $request->get_param( 'search' ),
+            'status'        => 'active',
+            'per_page'      => $request->get_param( 'per_page' ) ?: 20,
+            'page'          => $request->get_param( 'page' ) ?: 1,
+        );
+
+        $templates = BizCity_Template_Manager::get_all( $args );
+        $total     = BizCity_Template_Manager::count( $args );
+
+        $size_filter = $request->get_param( 'size' ); // "1:1", "16:9", "9:16"
+
+        $items = array();
+        foreach ( $templates as $tpl ) {
+            // Parse editor_data JSON if available
+            $editor_data = ! empty( $tpl['editor_data'] ) ? json_decode( $tpl['editor_data'], true ) : null;
+
+            // Determine thumbnail
+            $img = $tpl['preview_url'] ?? $tpl['thumbnail_url'] ?? '';
+
+            // If no editor_data, create a minimal SerializedPage
+            $elements = $editor_data ?: self::make_minimal_page( $tpl );
+
+            // Size info
+            $w = (int) ( $tpl['canvas_width']  ?? 1080 );
+            $h = (int) ( $tpl['canvas_height'] ?? 1080 );
+            $ratio = self::calc_ratio( $w, $h );
+
+            // Apply size filter
+            if ( $size_filter && $ratio !== $size_filter ) {
+                continue;
+            }
+
+            $items[] = array(
+                'id'       => (int) $tpl['id'],
+                'title'    => $tpl['name'] ?? $tpl['title'] ?? '',
+                'img'      => $img,
+                'category' => $tpl['category_slug'] ?? '',
+                'size'     => array( 'width' => $w, 'height' => $h, 'ratio' => $ratio ),
+                'elements' => $elements,
+            );
+        }
+
+        return new \WP_REST_Response( array(
+            'templates' => $items,
+            'total'     => (int) $total,
+            'pages'     => ceil( $total / max( 1, (int) $args['per_page'] ) ),
+        ), 200 );
+    }
+
+    /**
+     * GET /stock-images — proxy to Pixabay API (keeps API key server-side).
+     */
+    public static function get_stock_images( $request ) {
+        $api_key = defined( 'BZTIMG_PIXABAY_KEY' ) ? BZTIMG_PIXABAY_KEY : '';
+        if ( empty( $api_key ) ) {
+            return new \WP_REST_Response( array(), 200 );
+        }
+
+        $q        = $request->get_param( 'q' ) ?: 'nature';
+        $page     = $request->get_param( 'page' ) ?: 1;
+        $per_page = min( $request->get_param( 'per_page' ) ?: 40, 200 );
+
+        $url = add_query_arg( array(
+            'key'      => $api_key,
+            'q'        => urlencode( $q ),
+            'page'     => $page,
+            'per_page' => $per_page,
+            'image_type' => 'photo',
+            'safesearch' => 'true',
+        ), 'https://pixabay.com/api/' );
+
+        $response = wp_remote_get( $url, array( 'timeout' => 10 ) );
+        if ( is_wp_error( $response ) ) {
+            return new \WP_REST_Response( array(), 200 );
+        }
+
+        $body = json_decode( wp_remote_retrieve_body( $response ), true );
+        $hits = $body['hits'] ?? array();
+
+        $images = array();
+        foreach ( $hits as $hit ) {
+            $images[] = array(
+                'id'       => (string) $hit['id'],
+                'image'    => $hit['largeImageURL'] ?? $hit['webformatURL'],
+                'thumb'    => $hit['previewURL'],
+                'width'    => (int) $hit['imageWidth'],
+                'height'   => (int) $hit['imageHeight'],
+                'username' => $hit['user'] ?? '',
+                'name'     => $hit['user'] ?? '',
+            );
+        }
+
+        return new \WP_REST_Response( $images, 200 );
+    }
+
+    /**
+     * GET /fonts — returns Google Fonts list for the editor.
+     */
+    public static function get_fonts( $request ) {
+        $google_key = defined( 'BZTIMG_GOOGLE_FONTS_KEY' ) ? BZTIMG_GOOGLE_FONTS_KEY : '';
+
+        // Return popular Vietnamese-compatible fonts as fallback
+        $default_fonts = array(
+            self::make_font( 'Roboto', array( 'Regular', 'Bold', 'Italic', 'Bold_Italic' ) ),
+            self::make_font( 'Open Sans', array( 'Regular', 'Bold', 'Italic' ) ),
+            self::make_font( 'Nunito', array( 'Regular', 'Bold', 'Italic' ) ),
+            self::make_font( 'Montserrat', array( 'Regular', 'Bold', 'Italic' ) ),
+            self::make_font( 'Lato', array( 'Regular', 'Bold', 'Italic' ) ),
+            self::make_font( 'Poppins', array( 'Regular', 'Bold', 'Italic' ) ),
+            self::make_font( 'Inter', array( 'Regular', 'Bold', 'Italic' ) ),
+            self::make_font( 'Playfair Display', array( 'Regular', 'Bold', 'Italic' ) ),
+            self::make_font( 'Dancing Script', array( 'Regular', 'Bold' ) ),
+            self::make_font( 'Be Vietnam Pro', array( 'Regular', 'Bold', 'Italic' ) ),
+        );
+
+        return new \WP_REST_Response( $default_fonts, 200 );
+    }
+
+    /**
+     * GET /text-presets — returns text preset templates for the editor.
+     */
+    public static function get_text_presets( $request ) {
+        // Return empty for now; the editor has built-in heading/subheading/body presets
+        return new \WP_REST_Response( array(), 200 );
+    }
+
+    /* ═══════════════════════════ DESIGN EDITOR HELPERS ═══════════════════════════ */
+
+    private static function calc_ratio( int $w, int $h ): string {
+        if ( $w === $h ) return '1:1';
+        if ( abs( $w / $h - 16/9 ) < 0.05 ) return '16:9';
+        if ( abs( $w / $h - 9/16 ) < 0.05 ) return '9:16';
+        return $w . ':' . $h;
+    }
+
+    private static function make_minimal_page( array $tpl ): array {
+        $w = (int) ( $tpl['canvas_width']  ?? 1080 );
+        $h = (int) ( $tpl['canvas_height'] ?? 1080 );
+
+        return array(
+            'locked' => false,
+            'layers' => array(
+                'ROOT' => array(
+                    'type'   => array( 'resolvedName' => 'RootLayer' ),
+                    'props'  => array(
+                        'boxSize'  => array( 'width' => $w, 'height' => $h ),
+                        'position' => array( 'x' => 0, 'y' => 0 ),
+                        'rotate'   => 0,
+                        'color'    => array( 'r' => 255, 'g' => 255, 'b' => 255, 'a' => 1 ),
+                        'image'    => ! empty( $tpl['preview_url'] ) ? array(
+                            'url'    => $tpl['preview_url'],
+                            'thumb'  => $tpl['preview_url'],
+                            'boxSize' => array( 'width' => $w, 'height' => $h ),
+                            'position' => array( 'x' => 0, 'y' => 0 ),
+                            'rotate' => 0,
+                        ) : null,
+                    ),
+                    'locked' => false,
+                    'child'  => array(),
+                    'parent' => null,
+                ),
+            ),
+        );
+    }
+
+    private static function make_font( string $family, array $styles ): array {
+        $base_url = 'https://fonts.gstatic.com/s/' . strtolower( str_replace( ' ', '', $family ) ) . '/v1/';
+        $fonts = array();
+        foreach ( $styles as $style ) {
+            $fonts[] = array(
+                'style' => $style,
+                'urls'  => array( "https://fonts.googleapis.com/css2?family=" . urlencode( $family ) . "&display=swap" ),
+            );
+        }
+        return array(
+            'name'  => $family,
+            'fonts' => $fonts,
+        );
     }
 
     /* ═══════════════════════════ PERMISSIONS ═══════════════════════════ */

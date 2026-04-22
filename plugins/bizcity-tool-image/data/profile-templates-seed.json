@@ -1,0 +1,821 @@
+[
+  {
+    "title": "GRAZIA VIETNAM — \"SỰ QUYẾN RŨ CỦA NGỌC TRAI\"",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762059952321-6906e6b0d2abeb24e571608d.jpg",
+    "category": "woman",
+    "style_prompt": "GRAZIA VIETNAM — \"SỰ QUYẾN RŨ CỦA NGỌC TRAI\"",
+    "status": "active"
+  },
+  {
+    "title": "TẠP CHÍ PHONG CÁCH — \"NÉT ĐẸP VIỆT ĐƯƠNG ĐẠI\"",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762059925345-6906e695d2abeb24e5715f22.jpg",
+    "category": "woman",
+    "style_prompt": "TẠP CHÍ PHONG CÁCH — \"NÉT ĐẸP VIỆT ĐƯƠNG ĐẠI\"",
+    "status": "active"
+  },
+  {
+    "title": "Thời trang EILE",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762059904430-6906e680d2abeb24e5715d3b.jpg",
+    "category": "woman",
+    "style_prompt": "Thời trang EILE",
+    "status": "active"
+  },
+  {
+    "title": "Tạp chí Vouge dịu dàng",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762059858287-6906e652d2abeb24e5715bcc.jpg",
+    "category": "woman",
+    "style_prompt": "Tạp chí Vouge dịu dàng",
+    "status": "active"
+  },
+  {
+    "title": "Tạp chí Vouge phong cách",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762059830884-6906e636d2abeb24e5715bc2.jpg",
+    "category": "woman",
+    "style_prompt": "Tạp chí Vouge phong cách",
+    "status": "active"
+  },
+  {
+    "title": "Người mẫu áo dài nam hiện đại",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762059261796-6906e3fdd2abeb24e5715030.jpg",
+    "category": "man",
+    "style_prompt": "10. Người mẫu áo dài nam hiện đại",
+    "status": "active"
+  },
+  {
+    "title": "Đạo diễn nghệ thuật",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762059277714-6906e40dd2abeb24e5715041.jpg",
+    "category": "man",
+    "style_prompt": "Đạo diễn nghệ thuật",
+    "status": "active"
+  },
+  {
+    "title": "Người mẫu thời trang cao cấp",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762059292418-6906e41cd2abeb24e5715052.jpg",
+    "category": "woman",
+    "style_prompt": "Người mẫu thời trang cao cấp",
+    "status": "active"
+  },
+  {
+    "title": "Nghệ sĩ nhạc indie",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762059107396-6906e363d2abeb24e5714fef.jpg",
+    "category": "man",
+    "style_prompt": "Nghệ sĩ nhạc indie",
+    "status": "active"
+  },
+  {
+    "title": "Nàng Hoa Trắng",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/01/1761971594701-69058d8a867f20a803dab29e.png",
+    "category": "woman",
+    "style_prompt": "Chân dung cận cảnh quý cô trong váy trắng trễ vai, đội mũ rộng vành, đeo bông tai ngọc trai, ánh sáng studio tôn vẻ đẹp tinh khôi và quyến rũ.",
+    "status": "active"
+  },
+  {
+    "title": "Quý cô thanh lịch",
+    "thumbnail_url": "https://api.aiva.vn/uploads/images/2025/10/31/1761928502665.298.png",
+    "category": "woman",
+    "style_prompt": "Người phụ nữ thanh lịch trong váy blazer trắng sang trọng, thắt lưng Gucci đen, đội mũ rộng vành cài hoa, ngồi tại quán cà phê châu Âu, phong cách thời trang cao cấp, ánh sáng điện ảnh.",
+    "status": "active"
+  },
+  {
+    "title": "Thời trang Channel cao cấp",
+    "thumbnail_url": "https://api.aiva.vn/uploads/images/2025/10/31/1761928720869.807.png",
+    "category": "woman",
+    "style_prompt": "Chân dung thời trang cao cấp: cô gái đội mũ nồi Chanel, váy đen trễ vai, trang điểm quyến rũ, ánh sáng studio sang trọng.",
+    "status": "active"
+  },
+  {
+    "title": "Kỹ sư công nghệ",
+    "thumbnail_url": "https://i.ibb.co/FSM7C8v/Profiles-Nam-20.png",
+    "category": "man",
+    "style_prompt": "Người đàn ông đeo kính, áo sơ mi xanh dương, ánh sáng studio dịu, biểu cảm nghiêm túc, nền trung tính",
+    "status": "active"
+  },
+  {
+    "title": "Giảng viên tri thức",
+    "thumbnail_url": "https://i.ibb.co/LDqNQJKM/Profiles-Nam-19.jpg",
+    "category": "man",
+    "style_prompt": "Nam trung niên đeo kính gọng đen, áo sơ mi trắng, biểu cảm hiền hậu, ánh sáng ấm, nền be sáng.",
+    "status": "active"
+  },
+  {
+    "title": "Hành lang công ty",
+    "thumbnail_url": "https://i.ibb.co/Rr2R4qZ/Profiles-Nam-08.png",
+    "category": "man",
+    "style_prompt": "Doanh nhân tự tin đứng giữa hành lang văn phòng kính, tay cầm điện thoại, ánh sáng phản chiếu tinh tế tạo cảm giác hiện đại",
+    "status": "active"
+  },
+  {
+    "title": "Cô gái trong làn khói phố",
+    "thumbnail_url": "https://api.aiva.vn/uploads/images/2025/10/31/1761924998753.6675.png",
+    "category": "woman",
+    "style_prompt": "Chân dung đường phố của một cô gái thành thị giữa ánh đèn và hơi khói chiều muộn.",
+    "status": "active"
+  },
+  {
+    "title": "Vẻ đẹp tĩnh lặng nơi thư viện",
+    "thumbnail_url": "https://api.aiva.vn/uploads/images/2025/10/31/1761925046496.4426.png",
+    "category": "woman",
+    "style_prompt": "Ánh sáng vàng dịu hắt lên gương mặt cô gái đang đọc sách giữa thư viện cổ.",
+    "status": "active"
+  },
+  {
+    "title": "Ánh nhìn cô nhạc công",
+    "thumbnail_url": "https://api.aiva.vn/uploads/images/2025/10/31/1761925081937.509.png",
+    "category": "woman",
+    "style_prompt": "Một ánh nhìn xa xăm của nữ nghệ sĩ violin giữa khung cảnh sân khấu trống.",
+    "status": "active"
+  },
+  {
+    "title": "Vẻ đẹp hoài cổ",
+    "thumbnail_url": "https://api.aiva.vn/uploads/images/2025/10/31/1761925131180.9958.png",
+    "category": "woman",
+    "style_prompt": "Ánh mắt dịu, nụ cười mỉm, thần thái như minh tinh cổ điển trong gam màu phim nhẹ nhàng.",
+    "status": "active"
+  },
+  {
+    "title": "Nhiếp ảnh gia tại hiện trường",
+    "thumbnail_url": "https://api.aiva.vn/uploads/images/2025/10/31/1761925172229.4233.png",
+    "category": "man",
+    "style_prompt": "Ánh mắt tập trung, môi khẽ nhếch, ánh sáng tự nhiên phản chiếu sự đam mê trong công việc.",
+    "status": "active"
+  },
+  {
+    "title": "Nghệ sĩ guitar",
+    "thumbnail_url": "https://api.aiva.vn/uploads/images/2025/10/31/1761925219691.8965.png",
+    "category": "man",
+    "style_prompt": "Ánh mắt sâu và trầm, nụ cười nhẹ ẩn chứa cảm xúc, ánh sáng ấm gợi nét lãng mạn.",
+    "status": "active"
+  },
+  {
+    "title": "Giảng viên điềm tĩnh",
+    "thumbnail_url": "https://api.aiva.vn/uploads/images/2025/10/31/1761925253458.248.png",
+    "category": "man",
+    "style_prompt": "Ánh mắt nghiêm nhưng hiền, môi mím nhẹ, biểu cảm tự tin và đầy trí tuệ trong không gian học thuật.",
+    "status": "active"
+  },
+  {
+    "title": "Góc bình yên trong nhà",
+    "thumbnail_url": "https://api.aiva.vn/uploads/images/2025/10/31/1761926074831.2236.png",
+    "category": "woman",
+    "style_prompt": "Ánh mắt ấm áp nhìn qua cửa sổ, nụ cười dịu dàng, toát lên sự bình an và mềm mại.",
+    "status": "active"
+  },
+  {
+    "title": "Cá tính đường phố",
+    "thumbnail_url": "https://api.aiva.vn/uploads/images/2025/10/31/1761926138380.6345.png",
+    "category": "woman",
+    "style_prompt": "Ánh mắt sắc sảo, môi cong nhẹ, phong thái phóng khoáng giữa không gian đô thị náo nhiệt.",
+    "status": "active"
+  },
+  {
+    "title": "Thời trang điện ảnh",
+    "thumbnail_url": "https://api.aiva.vn/uploads/images/2025/10/31/1761926171080.1597.png",
+    "category": "woman",
+    "style_prompt": "Ánh mắt mạnh mẽ, khuôn miệng kiêu kỳ, phong thái như người mẫu tạp chí, ánh sáng tạo khối ấn tượng",
+    "status": "active"
+  },
+  {
+    "title": "Cô gái bên giá sách",
+    "thumbnail_url": "https://api.aiva.vn/uploads/images/2025/10/31/1761926211065.7275.png",
+    "category": "woman",
+    "style_prompt": "Ánh mắt sâu và nhẹ nhàng, nụ cười kín đáo, thể hiện sự trầm tĩnh và trí tuệ của người yêu sách.",
+    "status": "active"
+  },
+  {
+    "title": "Chân dung tối giản studio",
+    "thumbnail_url": "https://api.aiva.vn/uploads/images/2025/10/31/1761926242113.825.png",
+    "category": "woman",
+    "style_prompt": "Nụ cười tự nhiên, ánh mắt thân thiện, ánh sáng trắng tinh khôi làm nổi bật vẻ gần gũi, chuyên nghiệp.",
+    "status": "active"
+  },
+  {
+    "title": "Giữa khu vườn xanh",
+    "thumbnail_url": "https://api.aiva.vn/uploads/images/2025/10/31/1761926278504.287.png",
+    "category": "woman",
+    "style_prompt": "Nụ cười nhẹ, ánh mắt dịu dàng nhìn xa, gương mặt hứng ánh nắng chiều, toát lên sự yên bình và nữ tính.",
+    "status": "active"
+  },
+  {
+    "title": "Cô gái công nghệ",
+    "thumbnail_url": "https://api.aiva.vn/uploads/images/2025/10/31/1761926335923.5706.png",
+    "category": "woman",
+    "style_prompt": "Ánh mắt tập trung nhưng ánh lên sự hứng khởi, nụ cười nhẹ khi đang làm việc trong không gian hiện đại.",
+    "status": "active"
+  },
+  {
+    "title": "Trắng đen cổ điển",
+    "thumbnail_url": "https://api.aiva.vn/uploads/images/2025/10/31/1761926416546.3242.png",
+    "category": "creative",
+    "style_prompt": "Gương mặt nghiêng nhẹ, ánh mắt xa xăm, biểu cảm sâu lắng và kiêu sa trong khung trắng đen cổ điển.",
+    "status": "active"
+  },
+  {
+    "title": "Khoảnh khắc bên tách cà phê",
+    "thumbnail_url": "https://api.aiva.vn/uploads/images/2025/10/31/1761926459023.8838.png",
+    "category": "woman",
+    "style_prompt": "Ánh mắt tươi sáng, nụ cười tự nhiên, thể hiện niềm vui nhẹ nhàng giữa nắng sớm và hơi thở đời thường.",
+    "status": "active"
+  },
+  {
+    "title": "Họa sĩ trong xưởng",
+    "thumbnail_url": "https://api.aiva.vn/uploads/images/2025/10/31/1761926496988.419.png",
+    "category": "creative",
+    "style_prompt": "Ánh mắt mơ màng pha chút tập trung, khóe môi khẽ cong — thần thái của người đang đắm mình trong sáng tạo.",
+    "status": "active"
+  },
+  {
+    "title": "Thanh lịch tối giản",
+    "thumbnail_url": "https://api.aiva.vn/uploads/images/2025/10/31/1761926586849.2773.png",
+    "category": "woman",
+    "style_prompt": "Ánh sáng tự nhiên chiếu nhẹ, gương mặt thư thái, ánh mắt hiền và nụ cười mỉm tự tin, giản đơn mà tinh tế.",
+    "status": "active"
+  },
+  {
+    "title": "Chuyên nghiệp hiện đại",
+    "thumbnail_url": "https://api.aiva.vn/uploads/images/2025/10/31/1761926657577.823.png",
+    "category": "professional",
+    "style_prompt": "Nữ doanh nhân tự tin trong không gian văn phòng hiện đại, ánh sáng studio tinh tế và sắc nét.",
+    "status": "active"
+  },
+  {
+    "title": "Tâm thế lãnh đạo",
+    "thumbnail_url": "https://api.aiva.vn/uploads/images/2025/10/31/1761926733324.6035.png",
+    "category": "professional",
+    "style_prompt": "Chân dung doanh nhân châu Á thanh lịch, ngồi vắt chân trên ghế hiện đại, một tay đặt lên gối, tay kia gần cằm trong dáng suy tư tự tin. Cô mặc áo lụa trắng phối quần tây đen và blazer đen mở nhẹ, đeo đồng hồ bạc tinh giản. Ánh sáng mềm tôn gương mặt rạng rỡ, biểu cảm bình tĩnh, toát lên phong thái chuyên nghiệp và quyền lực tinh tế.",
+    "status": "active"
+  },
+  {
+    "title": "Thanh lịch tự chủ",
+    "thumbnail_url": "https://api.aiva.vn/uploads/images/2025/10/31/1761926780279.6658.png",
+    "category": "professional",
+    "style_prompt": "Chân dung chuyên nghiệp của người phụ nữ châu Á thanh lịch, đứng tự tin trên nền studio be sáng. Cô diện áo cổ cao trắng phối quần tây lưng cao đen, blazer khoác vai tinh tế. Mái tóc đen suôn giữa, trang điểm nhẹ tự nhiên với ánh nhìn kiêu hãnh. Tổng thể toát lên vẻ đẹp hiện đại, quyền lực và đầy cuốn hút.",
+    "status": "active"
+  },
+  {
+    "title": "Dáng ngọc trong nắng",
+    "thumbnail_url": "https://api.aiva.vn/uploads/images/2025/10/31/1761926815822.3816.png",
+    "category": "woman",
+    "style_prompt": "Chân dung điện ảnh của người phụ nữ với làn da sáng mịn, mái tóc nâu buộc thấp gọn gàng. Cô nghiêng nhẹ, quay đầu thanh thoát về phía ống kính, ánh nắng ấm phủ lên gò má và xương quai xanh tạo bóng mềm mại. Váy trễ vai tông trung tính tôn vẻ tinh tế, hiện đại và quyến rũ.",
+    "status": "active"
+  },
+  {
+    "title": "Vẻ đẹp trầm lắng",
+    "thumbnail_url": "https://api.aiva.vn/uploads/images/2025/10/31/1761926867135.3684.png",
+    "category": "woman",
+    "style_prompt": "Chân dung điện ảnh chân thực của người phụ nữ trong áo cổ lọ đen, tay khẽ chạm môi đầy tinh tế. Đồng hồ da nâu viền vàng hồng mặt xanh hiện rõ trên cổ tay. Ánh sáng Rembrandt nhẹ chiếu, nền đỏ rượu vang tạo chiều sâu, tôn lên ánh nhìn điềm tĩnh, bí ẩn và cuốn hút.",
+    "status": "active"
+  },
+  {
+    "title": "Quyền lực thanh tao",
+    "thumbnail_url": "https://api.aiva.vn/uploads/images/2025/10/31/1761927025096.7554.png",
+    "category": "professional",
+    "style_prompt": "Chân dung người phụ nữ ngồi tự tin trên ghế văn phòng, chân vắt chéo, tay đặt nhẹ lên tay ghế. Cô diện blazer xanh nhạt và chân váy đồng bộ, áo lụa trắng mở nhẹ cổ áo. Ánh sáng tự nhiên mạnh chiếu ngang tạo bóng đổ kịch tính, làm nổi bật vẻ sang trọng, tự chủ và phong thái thời trang hiện đại.",
+    "status": "active"
+  },
+  {
+    "title": "Tĩnh lặng tinh khôi",
+    "thumbnail_url": "https://api.aiva.vn/uploads/images/2025/10/31/1761927070711.7246.png",
+    "category": "woman",
+    "style_prompt": "Chân dung cô gái trẻ với mái tóc dài hơi rối nhẹ, diện sơ mi trắng oversize, ngồi tựa tay dưới cằm nhìn thẳng ống kính. Ánh sáng điện ảnh mềm mại trên nền xám tối giản tôn lên làn da mịn màng và biểu cảm trầm lắng, tạo nên vẻ đẹp tự nhiên, thanh lịch và sâu lắng.",
+    "status": "active"
+  },
+  {
+    "title": "Thanh lịch bí ẩn",
+    "thumbnail_url": "https://api.aiva.vn/uploads/images/2025/10/31/1761927116691.5183.png",
+    "category": "woman",
+    "style_prompt": "Chân dung người phụ nữ trong studio với ánh sáng mềm tạo chiều sâu, diện bộ suit trắng tinh khôi và cầm iPad trên tay. Tông màu trắng ngọt ngào hòa cùng phong cách tối giản, toát lên vẻ sang trọng, lạnh lùng nhưng vẫn cuốn hút và mạnh mẽ.",
+    "status": "active"
+  },
+  {
+    "title": "Phong thái quyền lực",
+    "thumbnail_url": "https://api.aiva.vn/uploads/images/2025/10/31/1761927177323.2935.png",
+    "category": "professional",
+    "style_prompt": "Chân dung người phụ nữ hiện đại, thanh lịch trong bộ suit được may đo tinh xảo tông đen, trắng, kem hoặc đỏ. Mái tóc nâu gợn sóng buông tự nhiên, kết hợp khuyên tai và nhẫn vàng nổi bật. Cô tạo dáng khoanh tay tự tin, gương mặt trang điểm nhẹ với môi đỏ trầm, toát lên vẻ sang trọng, tự chủ và đậm chất thời trang cao cấp.",
+    "status": "active"
+  },
+  {
+    "title": "Thanh sắc dịu dàng",
+    "thumbnail_url": "https://api.aiva.vn/uploads/images/2025/10/31/1761927225601.1597.png",
+    "category": "woman",
+    "style_prompt": "Chân dung thời trang tinh tế của người phụ nữ trong bộ blazer và chân váy vàng pastel, tạo dáng nghiêng nhẹ dưới ánh sáng tự nhiên mềm mại. Tông màu điện ảnh chân thực, nền studio tối giản tôn lên vẻ đẹp sang trọng, thanh lịch và đầy cuốn hút.",
+    "status": "active"
+  },
+  {
+    "title": "Nụ cười tinh nghịch",
+    "thumbnail_url": "https://api.aiva.vn/uploads/images/2025/10/31/1761927347392.4177.png",
+    "category": "woman",
+    "style_prompt": "Chân dung tươi vui của cô gái trẻ với mái tóc đen búi lỏng, diện blazer đen oversize và khuyên tai tròn bạc. Cô nháy mắt cùng nụ cười rạng rỡ, toát lên vẻ đáng yêu và tự tin trong không gian studio sáng nhẹ, phông nền xám sáng tối giản.",
+    "status": "active"
+  },
+  {
+    "title": "Thanh xuân tinh tế",
+    "thumbnail_url": "https://api.aiva.vn/uploads/images/2025/10/31/1761927792072.9124.png",
+    "category": "woman",
+    "style_prompt": "Chân dung thời trang hiện đại với tông ánh sáng điện ảnh ấm áp, khắc họa người phụ nữ thanh lịch trong bộ short suit vải tweed vàng với khuy vàng nổi bật. Mái tóc uốn nhẹ buông vai, nụ cười nhẹ hướng về ống kính toát lên vẻ tự tin tự nhiên. Trang sức tối giản cùng phông nền be-xám dịu mang lại cảm giác tinh tế, sang trọng và đầy sức hút.",
+    "status": "active"
+  },
+  {
+    "title": "Sức mạnh tĩnh lặng",
+    "thumbnail_url": "https://api.aiva.vn/uploads/images/2025/10/31/1761927876749.5457.png",
+    "category": "creative",
+    "style_prompt": "Ảnh chân dung dọc phong cách điện ảnh với ánh sáng tương phản mạnh, góc chụp thấp tôn lên đường nét hàm và cổ đầy uy lực. Phông nền xanh xám làm nổi bật làn da sáng và trang phục tối màu. Ánh sáng vàng ấm chiếu lệch tạo chiều sâu, tôn cấu trúc khuôn mặt như điêu khắc. Biểu cảm lạnh lùng, ánh mắt nửa khép và đôi môi thả lỏng gợi cảm giác tách biệt, mạnh mẽ và bí ẩn.",
+    "status": "active"
+  },
+  {
+    "title": "Rạng ngời kiêu sa",
+    "thumbnail_url": "https://api.aiva.vn/uploads/images/2025/10/31/1761928051110.3027.png",
+    "category": "woman",
+    "style_prompt": "Chân dung chân thực của người phụ nữ quyến rũ với mái tóc nâu sáng uốn lượn, diện váy quây đen phối áo lông giả màu kem. Trang sức vàng tinh tế và lớp trang điểm căng bóng, đôi môi bóng nhẹ cùng ánh sáng vàng dịu tập trung trên gương mặt, tạo nên vẻ đẹp sang trọng, tự tin và rực rỡ chuẩn phong cách thời trang cao cấp.",
+    "status": "active"
+  },
+  {
+    "title": "Quyến rũ sắc đỏ",
+    "thumbnail_url": "https://api.aiva.vn/uploads/images/2025/10/31/1761928096051.841.png",
+    "category": "woman",
+    "style_prompt": "Chân dung studio của người phụ nữ thanh lịch với mái tóc nâu suôn mượt, diện corset đỏ ôm dáng, điểm xuyết khuyên tai tròn bạc và trang sức tối giản. Ánh sáng tương phản nhẹ tạo chiều sâu, tôn lên lớp trang điểm lì với eyeliner sắc và môi mềm. Phông nền xám trung tính cùng phong cách thời trang cao cấp mang đậm tinh thần tự tin, cuốn hút và sang trọng.",
+    "status": "active"
+  },
+  {
+    "title": "Tĩnh lặng thanh tao",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762047999718-6906b7ffd2abeb24e5707f80.png",
+    "category": "woman",
+    "style_prompt": "Bức chân dung nghệ thuật tinh xảo khắc họa người phụ nữ châu Á trẻ trung với dáng ngồi duyên dáng, hai tay khẽ chụm gần khuôn mặt. Cô nhìn thẳng ống kính với biểu cảm bình thản, mái tóc buộc thấp bằng dải ruy băng đen và vài lọn tóc buông nhẹ. Trang phục váy đen trễ vai kết hợp vòng cổ vải đen đơn giản, ánh sáng studio mềm mại tôn lên vẻ đẹp thanh lịch, tối giản và đầy cuốn hút.",
+    "status": "active"
+  },
+  {
+    "title": "Vẻ đẹp tự tin",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762048094614-6906b85ed2abeb24e5708080.png",
+    "category": "woman",
+    "style_prompt": "Chân dung người phụ nữ thanh lịch trong bộ suit trắng sang trọng, áo khoác choàng vai kết hợp corset ôm dáng và váy xẻ cao quyến rũ. Mái tóc dài gợn sóng buông nhẹ một bên vai, ánh sáng ấm áp làm nổi bật nét đẹp tự nhiên và biểu cảm tự tin trên gương mặt. Phông nền tối tối giản tôn lên vẻ tinh tế và khí chất điện ảnh chuẩn bìa tạp chí thời trang.",
+    "status": "active"
+  },
+  {
+    "title": "Thanh lịch hiện đại",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762048152616-6906b898d2abeb24e5708091.png",
+    "category": "woman",
+    "style_prompt": "Người phụ nữ trẻ tự tin tạo dáng trong studio trắng sáng, khoác hờ blazer xám sọc dọc kết hợp áo crop top và chân váy ngắn đồng bộ. Mái tóc đen suôn dài, gương mặt trang điểm nhẹ tự nhiên cùng ánh nhìn cuốn hút tạo nên vẻ đẹp thời thượng, tinh tế và hiện đại trong phong cách high-fashion tối giản.",
+    "status": "active"
+  },
+  {
+    "title": "Ánh vàng của sự tĩnh lặng",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762048188195-6906b8bcd2abeb24e57080a2.png",
+    "category": "woman",
+    "style_prompt": "Bức chân dung nửa người siêu thực 8K khắc họa hình ảnh một người phụ nữ châu Á trẻ trung đầy cuốn hút, được ghi lại trong ánh sáng vàng điện ảnh ấm áp. Cô ngồi uyển chuyển, hơi nghiêng người về phía trước, mái tóc nâu gợn sóng buông mềm trên vai, lấp lánh dưới ánh đèn hậu trường. Trên người là chiếc áo trench coat màu nâu camel được thắt gọn ở eo, phần cổ áo mở nhẹ tôn lên đường nét thanh tú nơi cổ và vai.",
+    "status": "active"
+  },
+  {
+    "title": "Sắc đen kiêu hãnh",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762048518669-6906ba06d2abeb24e570887e.png",
+    "category": "woman",
+    "style_prompt": "Bức ảnh chân dung thể hiện vẻ đẹp cuốn hút của một người phụ nữ trẻ trung, hiện đại và đầy phong cách. Cô diện chiếc váy quây bằng lụa satin đen bóng, kết hợp cùng chiếc blazer đen được khoác hờ trên vai — tạo nên hình ảnh vừa sang trọng vừa tự tin.",
+    "status": "active"
+  },
+  {
+    "title": "Vẻ đẹp thanh khiết",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762048553640-6906ba29d2abeb24e5708a7f.png",
+    "category": "woman",
+    "style_prompt": "Bức chân dung cận cảnh trong studio ghi lại hình ảnh một người phụ nữ tinh tế với mái tóc dài, gợn sóng màu đen mềm mại. Cô khoác trên mình chiếc blazer trắng tinh với đường cổ chữ V sâu, tôn lên vẻ quyến rũ mà vẫn trang nhã. Đôi bông tai ngọc trai lớn càng làm tăng thêm nét quý phái.",
+    "status": "active"
+  },
+  {
+    "title": "Thanh lịch trong sắc trắng",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762048667047-6906ba9bd2abeb24e5708aec.png",
+    "category": "woman",
+    "style_prompt": "Bức ảnh khắc họa hình ảnh một người phụ nữ thời thượng trong bộ pantsuit trắng, chiếc áo khoác được khoác hờ qua vai tạo cảm giác vừa mạnh mẽ vừa nữ tính. Mái tóc dài đen óng ả buông nhẹ, kết hợp cùng lớp trang điểm tinh tế và đôi khuyên tai nổi bật, tôn lên nét thanh lịch hiện đại.",
+    "status": "active"
+  },
+  {
+    "title": "Tinh hoa của quyền lực và sự thanh tao",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762048709770-6906bac5d2abeb24e5708afd.png",
+    "category": "professional",
+    "style_prompt": "Bức chân dung thể hiện hình ảnh một nữ doanh nhân tự tin và thanh lịch trong bộ vest trắng hai hàng cúc được may đo hoàn hảo. Mái tóc đen dài suôn thẳng và lớp trang điểm tự nhiên tôn lên vẻ đẹp sắc sảo nhưng tinh tế. Bộ trang sức kim cương gồm vòng cổ, hoa tai và nhẫn đính hôn lấp lánh làm nổi bật phong thái sang trọng.",
+    "status": "active"
+  },
+  {
+    "title": "Diễn viên múa",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762048752788-6906baf0d2abeb24e5708b0e.png",
+    "category": "creative",
+    "style_prompt": "Vẻ đẹp thanh thoát của người nghệ sĩ múa được thu lại trong khoảnh khắc tĩnh lặng — ánh sáng nhẹ nhàng chạm lên khuôn mặt, gợi cảm giác về sự uyển chuyển và kỷ luật.",
+    "status": "active"
+  },
+  {
+    "title": "Doanh nhân sáng tạo nghệ thuật",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762048859476-6906bb5bd2abeb24e5709044.png",
+    "category": "man",
+    "style_prompt": "Nam thanh niên mặc áo cổ lọ đen, blazer sáng, ánh sáng mạnh phía trước, nền gradient trắng-xám.",
+    "status": "active"
+  },
+  {
+    "title": "Ánh sáng tinh tế trắng đen",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762049032105-6906bc08d2abeb24e5709157.png",
+    "category": "creative",
+    "style_prompt": "Sức mạnh của sự giản đơn trong ánh sáng trắng đen cổ điển, lột tả chiều sâu tâm hồn.",
+    "status": "active"
+  },
+  {
+    "title": "Giấc mơ thành phố",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762049087106-6906bc3fd2abeb24e5709168.png",
+    "category": "creative",
+    "style_prompt": "Giữa ánh đèn mờ và bokeh đêm, khuôn mặt khẽ nghiêng thể hiện sự mơ màng đầy hoài niệm.",
+    "status": "active"
+  },
+  {
+    "title": "Ánh sáng hoàng hôn",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762049122637-6906bc62d2abeb24e570947c.png",
+    "category": "creative",
+    "style_prompt": "Gam cam hồng của hoàng hôn bao phủ, gợi cảm giác ấm áp và ký ức xa xăm.",
+    "status": "active"
+  },
+  {
+    "title": "Cảm xúc nội tâm",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762049250668-6906bce2d2abeb24e5709693.png",
+    "category": "creative",
+    "style_prompt": "Đôi mắt khép lại, hơi thở chậm rãi – biểu hiện sự tĩnh lặng và tự lắng nghe chính mình.",
+    "status": "active"
+  },
+  {
+    "title": "Khoảnh khắc trong mưa",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762049284038-6906bd04d2abeb24e57096a4.png",
+    "category": "creative",
+    "style_prompt": "Một chút cô đơn giữa thành phố ướt mưa, ánh nhìn xa xăm gợi cảm xúc trầm tư.",
+    "status": "active"
+  },
+  {
+    "title": "Freelancer trẻ mộng mơ",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762049325816-6906bd2dd2abeb24e57096b8.png",
+    "category": "man",
+    "style_prompt": "Freelancer trẻ mộng mơ",
+    "status": "active"
+  },
+  {
+    "title": "Doanh nhân trẻ tham vọng",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762049368730-6906bd58d2abeb24e57096c9.png",
+    "category": "man",
+    "style_prompt": "Doanh nhân trẻ tham vọng",
+    "status": "active"
+  },
+  {
+    "title": "Nam chính phim hongkong",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762049403689-6906bd7bd2abeb24e5709812.png",
+    "category": "man",
+    "style_prompt": "Nam chính phim hongkong",
+    "status": "active"
+  },
+  {
+    "title": "Nhà văn nghệ sĩ tự do",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762049499792-6906bddbd2abeb24e5709bf4.png",
+    "category": "man",
+    "style_prompt": "Người đàn ông châu Á tóc hơi dài, mặc đồ thời trang xịn, ánh sáng tự nhiên, nền pastel, nụ cười nhẹ tự nhiên.",
+    "status": "active"
+  },
+  {
+    "title": "Giám đốc sáng tạo (Creative Director)",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762049540986-6906be04d2abeb24e5709c05.png",
+    "category": "man",
+    "style_prompt": "Nam châu Á mặc áo cổ lọ đen, đeo kính, ánh sáng ấm, nền cam nhạt, biểu cảm tập trung.",
+    "status": "active"
+  },
+  {
+    "title": "Streamer vui tính",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762049584612-6906be30d2abeb24e5709c16.png",
+    "category": "man",
+    "style_prompt": "Nam thanh niên châu Á đeo tai nghe lớn, áo hoodie sáng, cười rạng rỡ, ánh sáng neon nhẹ, nền gradient xanh tím.",
+    "status": "active"
+  },
+  {
+    "title": "Nhà cố vấn tâm lý",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762049623192-6906be57d2abeb24e5709c27.png",
+    "category": "man",
+    "style_prompt": "Nam châu Á mặc vest sáng, nụ cười nhẹ, ánh sáng ấm, nền beige nhạt, ánh mắt gần gũi.",
+    "status": "active"
+  },
+  {
+    "title": "Giảng viên đại học",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762049731393-6906bec3d2abeb24e5709ef3.png",
+    "category": "man",
+    "style_prompt": "Nam châu Á mặc vest sáng, nụ cười nhẹ, ánh sáng ấm, nền beige nhạt, ánh mắt gần gũi.",
+    "status": "active"
+  },
+  {
+    "title": "Nhà thiết kế đồ họa",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762049876513-6906bf54d2abeb24e570a382.png",
+    "category": "man",
+    "style_prompt": "Người đàn ông châu Á đeo kính, mặc áo đen, tai nghe quanh cổ, ánh sáng vàng nhẹ, nền trung tính, ánh nhìn tập trung.",
+    "status": "active"
+  },
+  {
+    "title": "Chuyên gia tài chính - phân tích",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762049989366-6906bfc5d2abeb24e570a393.png",
+    "category": "man",
+    "style_prompt": "Nam châu Á đeo kính, vest xanh đậm, cà vạt xám, nhìn thẳng nghiêm túc, ánh sáng đều, nền trung tính.",
+    "status": "active"
+  },
+  {
+    "title": "Luật sư tự tin",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762050026951-6906bfead2abeb24e570a6b9.png",
+    "category": "man",
+    "style_prompt": "Nam doanh nhân châu Á mặc vest đen, cà vạt đỏ, nhìn thẳng nghiêm nghị, ánh sáng studio mạnh, nền trung tính tối.",
+    "status": "active"
+  },
+  {
+    "title": "Kiến trúc sư hiện đại",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762050063696-6906c00fd2abeb24e570a854.png",
+    "category": "man",
+    "style_prompt": "Người đàn ông châu Á mặc áo sơ mi trắng, đeo kính, cầm bản vẽ trong tay, ánh sáng đều, nền xám sáng, ánh nhìn chuyên nghiệp.",
+    "status": "active"
+  },
+  {
+    "title": "Giảng viên tâm huyết",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762050115258-6906c043d2abeb24e570a8cf.png",
+    "category": "man",
+    "style_prompt": "Người đàn ông trung niên châu Á đeo kính, mặc sơ mi trắng và vest ghi nhạt, nhìn thẳng ống kính với nụ cười hiền hậu, ánh sáng ấm dịu, nền be sáng.",
+    "status": "active"
+  },
+  {
+    "title": "Chuyên gia học thuật Nam",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762050149909-6906c065d2abeb24e570a8e0.png",
+    "category": "man",
+    "style_prompt": "Trung niên châu Á đeo kính, áo sơ mi xanh nhạt, ánh sáng dịu vàng, nền beige.",
+    "status": "active"
+  },
+  {
+    "title": "Freelancer sáng tạo",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762050229420-6906c0b5d2abeb24e570a900.png",
+    "category": "man",
+    "style_prompt": "Nam thanh niên châu Á mặc áo sơ mi kẻ, mỉm cười tự nhiên, ánh sáng cửa sổ, nền trắng mờ.",
+    "status": "active"
+  },
+  {
+    "title": "Nhiếp ảnh gia cá tính",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762050500851-6906c1c4d2abeb24e570ae1a.png",
+    "category": "man",
+    "style_prompt": "Người đàn ông châu Á mặc áo đen, đeo dây máy ảnh quanh cổ, ánh sáng key light từ trái, nền trung tính.",
+    "status": "active"
+  },
+  {
+    "title": "Chuyên gia tài chính",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/04/1762265992766-690a0b88d2abeb24e580484c.png",
+    "category": "man",
+    "style_prompt": "Người đàn ông đeo kính, vest xám đậm, cà vạt xanh navy, ánh sáng mạnh chính diện, nền xám.",
+    "status": "active"
+  },
+  {
+    "title": "Bác sĩ chuyên nghiệp",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/04/1762266048392-690a0bc0d2abeb24e5804cb5.png",
+    "category": "man",
+    "style_prompt": "Nam bác sĩ mặc blouse trắng, đeo ống nghe quanh cổ, ánh sáng trắng tinh khiết, nền sáng nhẹ.",
+    "status": "active"
+  },
+  {
+    "title": "Nhà thiết kế sáng tạo",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/04/1762266137207-690a0c19d2abeb24e5804d88.png",
+    "category": "man",
+    "style_prompt": "Người đàn ông tóc hơi dài, mặc áo cổ lọ đen, nhìn thẳng ống kính, ánh sáng ấm mềm, nền gradient cam-nâu.",
+    "status": "active"
+  },
+  {
+    "title": "Dáng đứng cổ điển",
+    "thumbnail_url": "https://i.ibb.co/39sRsb68/Profiles-Nam-01.png",
+    "category": "man",
+    "style_prompt": "Doanh nhân châu Á đứng thẳng, tay khoanh trước ngực, biểu cảm tự tin, chụp trong studio ánh sáng mềm, phông nền xám trung tính.",
+    "status": "active"
+  },
+  {
+    "title": "Ghế da quyền lực",
+    "thumbnail_url": "https://i.ibb.co/p826cjP/Profiles-Nam-02.png",
+    "category": "man",
+    "style_prompt": "CEO ngồi trên ghế da màu đen, dáng ngồi vững chãi, gương mặt điềm tĩnh, ánh sáng 3 điểm tạo chiều sâu, phông nền mờ nhẹ",
+    "status": "active"
+  },
+  {
+    "title": "Ánh sáng tự nhiên",
+    "thumbnail_url": "https://i.ibb.co/213xk1q9/Profiles-Nam-03.png",
+    "category": "man",
+    "style_prompt": "Doanh nhân trẻ đứng gần cửa sổ, ánh sáng buổi sáng chiếu nghiêng lên khuôn mặt, nụ cười nhẹ thể hiện năng lượng tích cực.",
+    "status": "active"
+  },
+  {
+    "title": "Suy tư bên cửa kính",
+    "thumbnail_url": "https://i.ibb.co/Y4vvdr63/Profiles-Nam-04.png",
+    "category": "man",
+    "style_prompt": "Lãnh đạo nhìn ra thành phố qua lớp kính, áo sơ mi trắng xắn tay, ánh sáng nhẹ từ phía sau, cảm giác trầm tư và chuyên nghiệp.",
+    "status": "active"
+  },
+  {
+    "title": "Giữa phố tài chính",
+    "thumbnail_url": "https://i.ibb.co/K4dGT5b/Profiles-Nam-05.png",
+    "category": "man",
+    "style_prompt": "Doanh nhân đi giữa khu trung tâm, tay cầm cặp da, ánh nắng chiếu nhẹ qua toà nhà, biểu cảm tự tin và tập trung.",
+    "status": "active"
+  },
+  {
+    "title": "Ban công vàng chiều",
+    "thumbnail_url": "https://i.ibb.co/ZzNBxSZx/Profiles-Nam-06.jpg",
+    "category": "man",
+    "style_prompt": "Doanh nhân dựa vào lan can, nhìn ra xa, khoảnh khắc thư giãn cuối ngày, ánh sáng hoàng hôn phủ ấm gương mặt.",
+    "status": "active"
+  },
+  {
+    "title": "Làm việc tại bàn",
+    "thumbnail_url": "https://i.ibb.co/mrQtgpVv/Profiles-Nam-07.jpg",
+    "category": "man",
+    "style_prompt": "CEO đang ngồi trước laptop, không gian sáng tự nhiên, trên bàn có vài tài liệu, ánh sáng chiếu đều lên khuôn mặt tập trung.",
+    "status": "active"
+  },
+  {
+    "title": "Phong cách tối giản",
+    "thumbnail_url": "https://i.ibb.co/DH8q8j7p/Profiles-Nam-09.jpg",
+    "category": "man",
+    "style_prompt": "Doanh nhân mặc áo cổ lọ đen và blazer xanh, phông nền trắng, ánh sáng mềm nhẹ tạo phong cách tinh tế, hiện đại.",
+    "status": "active"
+  },
+  {
+    "title": "Bước đi tự tin",
+    "thumbnail_url": "https://i.ibb.co/KpP3nZrs/Profiles-Nam-10.jpg",
+    "category": "man",
+    "style_prompt": "Doanh nhân đang bước trên hành lang công ty, dáng năng động, vest vừa vặn, ánh sáng vàng nhẹ.",
+    "status": "active"
+  },
+  {
+    "title": "Ngoài trời nắng nhẹ",
+    "thumbnail_url": "https://i.ibb.co/GvrY7Q1w/Profiles-Nam-11.jpg",
+    "category": "man",
+    "style_prompt": "Đứng ngoài ban công tầng cao, gió nhẹ thổi, hậu cảnh là tòa nhà mờ xa.",
+    "status": "active"
+  },
+  {
+    "title": "Cuộc họp chiến lược",
+    "thumbnail_url": "https://i.ibb.co/p6nL761R/Profiles-Nam-13.jpg",
+    "category": "man",
+    "style_prompt": "Nhìn sang đồng nghiệp trong phòng họp, tay cầm bút, tập trung và chuyên nghiệp.",
+    "status": "active"
+  },
+  {
+    "title": "Tay đút túi vest nhẹ nhàng",
+    "thumbnail_url": "https://i.ibb.co/20s95J9D/Profiles-Nam-14.jpg",
+    "category": "man",
+    "style_prompt": "Doanh nhân đứng thoải mái, một tay đút túi, ánh sáng trắng sạch, phông nền xám sáng.",
+    "status": "active"
+  },
+  {
+    "title": "Tư thế khoanh tay nhẹ",
+    "thumbnail_url": "https://i.ibb.co/qvxrLTM/Profiles-Nam-16.jpg",
+    "category": "man",
+    "style_prompt": "Doanh nhân châu Á khoanh tay ngang bụng, nhìn thẳng vào camera, ánh sáng studio trung tính.",
+    "status": "active"
+  },
+  {
+    "title": "Ánh sáng tương phản mạnh",
+    "thumbnail_url": "https://i.ibb.co/VWG524zh/Profiles-Nam-17.jpg",
+    "category": "man",
+    "style_prompt": "Ánh sáng chiếu một bên mặt, phông nền đen mờ, tạo cảm giác mạnh mẽ và quyền lực.",
+    "status": "active"
+  },
+  {
+    "title": "Phong thái lãnh đạo",
+    "thumbnail_url": "https://i.ibb.co/spTMv4pM/Profiles-Nam-18.jpg",
+    "category": "man",
+    "style_prompt": "Ngồi trên ghế da, tay đan trước mặt, ánh sáng tập trung vào khuôn mặt, nền tối sâu.",
+    "status": "active"
+  },
+  {
+    "title": "Nàng thơ",
+    "thumbnail_url": "https://i.ibb.co/pB3MnSHm/female-001.png",
+    "category": "woman",
+    "style_prompt": "Mơ mộng, nhìn nghiêng, tóc xõa, studio tâm trạng",
+    "status": "active"
+  },
+  {
+    "title": "Doanh nhân mảng thời trang",
+    "thumbnail_url": "https://i.ibb.co/Cpd6JMf8/female-002.png",
+    "category": "woman",
+    "style_prompt": "Tóc bối lả lơi, áo tweet sang trọng màu hồng, khuyên tai channel",
+    "status": "active"
+  },
+  {
+    "title": "Doanh nhân bí ẩn",
+    "thumbnail_url": "https://i.ibb.co/8LGmTbbn/female-003.png",
+    "category": "woman",
+    "style_prompt": "Vẻ đẹp bí ẩn, áo vest sang trọng màu đen",
+    "status": "active"
+  },
+  {
+    "title": "Xinh đẹp quý phái",
+    "thumbnail_url": "https://i.ibb.co/ccr8yKJS/female-004.png",
+    "category": "woman",
+    "style_prompt": "Vẻ đẹp sang chảnh",
+    "status": "active"
+  },
+  {
+    "title": "Tiểu thư đài các",
+    "thumbnail_url": "https://i.ibb.co/Xk50GgpH/female-005.png",
+    "category": "woman",
+    "style_prompt": "Quý cô mặc đầm trắng quyến rũ",
+    "status": "active"
+  },
+  {
+    "title": "Quý cô sang trọng",
+    "thumbnail_url": "https://i.ibb.co/8n53KJw1/female-006.png",
+    "category": "woman",
+    "style_prompt": "Quý cô mặc đầm đen quyến rũ",
+    "status": "active"
+  },
+  {
+    "title": "Quý cô quý phái",
+    "thumbnail_url": "https://i.ibb.co/CKDBbq7p/female-007.png",
+    "category": "woman",
+    "style_prompt": "Quý cô mặc áo khoác đen quyến rũ",
+    "status": "active"
+  },
+  {
+    "title": "Quý cô quyền lực",
+    "thumbnail_url": "https://i.ibb.co/MksvJ7n3/female-008.png",
+    "category": "woman",
+    "style_prompt": "Quý cô mặc áo khoác đen quyến rũ",
+    "status": "active"
+  },
+  {
+    "title": "Phong cách hàn quốc",
+    "thumbnail_url": "https://i.ibb.co/XrfXPrg7/female-009.png",
+    "category": "woman",
+    "style_prompt": "Điện ảnh hàn quốc",
+    "status": "active"
+  },
+  {
+    "title": "Quý cô hiện đại",
+    "thumbnail_url": "https://i.ibb.co/MDFMqhdz/female-010.png",
+    "category": "woman",
+    "style_prompt": "Ảnh chụp trong studio",
+    "status": "active"
+  },
+  {
+    "title": "Tiểu thư đài các 2",
+    "thumbnail_url": "https://i.ibb.co/39vDkcbw/female-011.png",
+    "category": "woman",
+    "style_prompt": "Ảnh chụp trong studio",
+    "status": "active"
+  },
+  {
+    "title": "Quyến rũ",
+    "thumbnail_url": "https://i.ibb.co/C3t1YNJk/female-012.png",
+    "category": "woman",
+    "style_prompt": "Quyến rũ",
+    "status": "active"
+  },
+  {
+    "title": "Vogue cho nam",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762058936501-6906e2b8d2abeb24e5714a8f.jpg",
+    "category": "man",
+    "style_prompt": "Tạp chí Vogue cho nam",
+    "status": "active"
+  },
+  {
+    "title": "New Edge cho nam",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762058966721-6906e2d6d2abeb24e5714aaa.jpg",
+    "category": "man",
+    "style_prompt": "Tạp chí new edge cho nam",
+    "status": "active"
+  },
+  {
+    "title": "Bazaar cho nam",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762059001117-6906e2f9d2abeb24e5714b4c.jpg",
+    "category": "man",
+    "style_prompt": "Tạp chí Bazaar cho nam",
+    "status": "active"
+  },
+  {
+    "title": "Esquire cho nam",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762059028067-6906e314d2abeb24e5714e05.jpg",
+    "category": "man",
+    "style_prompt": "Tạp chí Esquire cho nam",
+    "status": "active"
+  },
+  {
+    "title": "Tạp chí Bazaar",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762059697285-6906e5b1d2abeb24e5715b36.jpg",
+    "category": "woman",
+    "style_prompt": "Lên trang bìa Bazaar",
+    "status": "active"
+  },
+  {
+    "title": "Tạp chí GRAZIA",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762059727966-6906e5cfd2abeb24e5715b81.jpg",
+    "category": "woman",
+    "style_prompt": "Lên trang bìa GRAZIA",
+    "status": "active"
+  },
+  {
+    "title": "Tạp chí Vogue",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762059755470-6906e5ebd2abeb24e5715ba5.jpg",
+    "category": "woman",
+    "style_prompt": "Lên trang bìa Vogue",
+    "status": "active"
+  },
+  {
+    "title": "Tạp chí Vogue mới",
+    "thumbnail_url": "https://sites-aibestseller.s3.ap-east-1.amazonaws.com/image-templates/2025/11/02/1762059780287-6906e604d2abeb24e5715bb6.jpg",
+    "category": "woman",
+    "style_prompt": "Lên trang bìa Vogue mới",
+    "status": "active"
+  }
+]

@@ -1,0 +1,259 @@
+{
+  "version": "1.0",
+  "plugin": "bizcity-content-creator",
+  "exported": "2026-04-10T18:00:00Z",
+  "templates": [
+    {
+      "slug": "sop-builder",
+      "category_id": "0",
+      "title": "Tạo Quy Trình SOP từ A-Z",
+      "description": "Giúp bạn xây dựng SOP (quy trình hoạt động tiêu chuẩn) hoàn chỉnh từ bước khởi đầu đến khi triển khai — bao gồm KPI, checklist, flowchart và kế hoạch triển khai.",
+      "icon_url": "",
+      "icon_emoji": "📋",
+      "form_fields": [
+        {
+          "slug": "heading_step1",
+          "label": "📋 Thông tin quy trình",
+          "type": "heading",
+          "placeholder": "",
+          "required": false,
+          "grid": "full",
+          "sort_order": 1,
+          "description": "Cung cấp thông tin cơ bản về quy trình bạn muốn xây dựng"
+        },
+        {
+          "slug": "process_name",
+          "label": "Tên quy trình",
+          "type": "text",
+          "placeholder": "VD: Xử lý đơn hàng Online, Tuyển dụng nhân sự, Chăm sóc khách hàng...",
+          "required": true,
+          "grid": "half",
+          "sort_order": 2,
+          "description": ""
+        },
+        {
+          "slug": "objective",
+          "label": "Mục tiêu",
+          "type": "text",
+          "placeholder": "VD: Tối ưu hóa thời gian xử lý đơn hàng, Đảm bảo chất lượng dịch vụ...",
+          "required": true,
+          "grid": "half",
+          "sort_order": 3,
+          "description": ""
+        },
+        {
+          "slug": "department",
+          "label": "Phòng ban / Team phụ trách",
+          "type": "select",
+          "placeholder": "",
+          "required": true,
+          "grid": "half",
+          "sort_order": 4,
+          "description": "",
+          "options": [
+            { "value": "marketing", "label": "📣 Marketing" },
+            { "value": "sales", "label": "💰 Kinh doanh / Sales" },
+            { "value": "customer-service", "label": "📞 Chăm sóc khách hàng" },
+            { "value": "operations", "label": "⚙️ Vận hành / Operations" },
+            { "value": "hr", "label": "👥 Nhân sự (HR)" },
+            { "value": "finance", "label": "💳 Tài chính / Kế toán" },
+            { "value": "it", "label": "💻 IT / Kỹ thuật" },
+            { "value": "production", "label": "🏭 Sản xuất" },
+            { "value": "logistics", "label": "🚚 Kho vận / Logistics" },
+            { "value": "quality", "label": "✅ Quản lý chất lượng (QC/QA)" },
+            { "value": "management", "label": "🏢 Ban giám đốc / Quản lý chung" },
+            { "value": "other", "label": "📦 Khác" }
+          ]
+        },
+        {
+          "slug": "industry",
+          "label": "Ngành nghề",
+          "type": "select",
+          "placeholder": "",
+          "required": false,
+          "grid": "half",
+          "sort_order": 5,
+          "description": "",
+          "options": [
+            { "value": "retail", "label": "🛒 Bán lẻ / Thương mại" },
+            { "value": "fnb", "label": "🍜 F&B / Nhà hàng / Khách sạn" },
+            { "value": "manufacturing", "label": "🏭 Sản xuất / Chế biến" },
+            { "value": "tech", "label": "💻 Công nghệ / Phần mềm" },
+            { "value": "education", "label": "📚 Giáo dục / Đào tạo" },
+            { "value": "healthcare", "label": "🏥 Y tế / Dược phẩm" },
+            { "value": "real-estate", "label": "🏠 Bất động sản" },
+            { "value": "finance", "label": "💰 Tài chính / Ngân hàng" },
+            { "value": "logistics", "label": "🚚 Vận tải / Logistics" },
+            { "value": "beauty", "label": "💅 Thẩm mỹ / Spa" },
+            { "value": "consulting", "label": "📊 Tư vấn / Dịch vụ chuyên nghiệp" },
+            { "value": "other", "label": "📦 Khác" }
+          ]
+        },
+        {
+          "slug": "context",
+          "label": "Bối cảnh hoặc thông tin bổ sung",
+          "type": "textarea",
+          "placeholder": "VD: Áp dụng cho team Marketing, tập trung vào các nhóm Facebook và Zalo cho nhà hàng hải sản tại Hà Nội",
+          "required": false,
+          "grid": "full",
+          "sort_order": 6,
+          "description": "Mô tả thêm bối cảnh, quy mô team, công cụ đang dùng, vấn đề hiện tại..."
+        },
+
+        {
+          "slug": "heading_step2",
+          "label": "⚙️ Tùy chỉnh SOP",
+          "type": "heading",
+          "placeholder": "",
+          "required": false,
+          "grid": "full",
+          "sort_order": 10,
+          "description": "Tinh chỉnh thêm để AI tạo SOP phù hợp nhất"
+        },
+        {
+          "slug": "sop_type",
+          "label": "Loại SOP",
+          "type": "card_radio",
+          "placeholder": "",
+          "required": true,
+          "grid": "full",
+          "sort_order": 11,
+          "description": "",
+          "options": [
+            {
+              "value": "operational",
+              "label": "Vận hành hàng ngày",
+              "description": "Quy trình lặp lại mỗi ngày: xử lý đơn, tiếp khách, nhập hàng...",
+              "icon": "⚙️",
+              "tag": "🔥 Phổ biến nhất"
+            },
+            {
+              "value": "onboarding",
+              "label": "Onboarding / Đào tạo",
+              "description": "Quy trình đào tạo nhân viên mới, hướng dẫn sử dụng công cụ",
+              "icon": "📚",
+              "tag": "👥 HR"
+            },
+            {
+              "value": "quality",
+              "label": "Kiểm soát chất lượng",
+              "description": "QC/QA, kiểm tra đầu ra, nghiệm thu, đánh giá hiệu suất",
+              "icon": "✅",
+              "tag": "📊 QC/QA"
+            },
+            {
+              "value": "crisis",
+              "label": "Xử lý sự cố / Khủng hoảng",
+              "description": "Phản ứng khi có vấn đề: khiếu nại, lỗi hệ thống, sự cố truyền thông",
+              "icon": "🚨",
+              "tag": "⚡ Khẩn cấp"
+            },
+            {
+              "value": "approval",
+              "label": "Phê duyệt / Ký kết",
+              "description": "Quy trình phê duyệt, ký hợp đồng, duyệt ngân sách, xét duyệt nội dung",
+              "icon": "✍️",
+              "tag": "📝 Hành chính"
+            },
+            {
+              "value": "custom",
+              "label": "Tùy chỉnh khác",
+              "description": "AI sẽ phân tích và đề xuất cấu trúc SOP phù hợp nhất",
+              "icon": "🎯",
+              "tag": "💡 Linh hoạt"
+            }
+          ]
+        },
+        {
+          "slug": "complexity",
+          "label": "Độ phức tạp",
+          "type": "button_group",
+          "placeholder": "",
+          "required": false,
+          "grid": "full",
+          "sort_order": 12,
+          "description": "",
+          "multi": false,
+          "options": [
+            { "value": "simple", "label": "📄 Đơn giản (3-5 bước)" },
+            { "value": "medium", "label": "📋 Trung bình (6-10 bước)" },
+            { "value": "complex", "label": "📊 Phức tạp (10+ bước, nhiều nhánh)" }
+          ]
+        },
+        {
+          "slug": "tone",
+          "label": "Giọng điệu",
+          "type": "select",
+          "placeholder": "",
+          "required": false,
+          "grid": "half",
+          "sort_order": 13,
+          "description": "",
+          "options": [
+            { "value": "professional", "label": "💼 Chuyên nghiệp" },
+            { "value": "friendly", "label": "😊 Thân thiện" },
+            { "value": "authoritative", "label": "📜 Quyền lực / Trang trọng" },
+            { "value": "concise", "label": "⚡ Ngắn gọn / Súc tích" },
+            { "value": "detailed", "label": "📖 Chi tiết / Tỉ mỉ" },
+            { "value": "inspiring", "label": "✨ Truyền cảm hứng" }
+          ]
+        },
+        {
+          "slug": "language",
+          "label": "Ngôn ngữ đầu ra",
+          "type": "select",
+          "placeholder": "",
+          "required": false,
+          "grid": "half",
+          "sort_order": 14,
+          "description": "",
+          "options": [
+            { "value": "vi", "label": "🇻🇳 Tiếng Việt" },
+            { "value": "en", "label": "🇺🇸 English" },
+            { "value": "vi-en", "label": "🌐 Song ngữ Việt-Anh" }
+          ]
+        },
+        {
+          "slug": "extra_notes",
+          "label": "Ghi chú thêm cho AI",
+          "type": "textarea",
+          "placeholder": "VD: Cần tham khảo ISO 9001, team có 5 người, hiện đang dùng Google Sheets...",
+          "required": false,
+          "grid": "full",
+          "sort_order": 15,
+          "description": ""
+        }
+      ],
+
+      "system_prompt": "Bạn là chuyên gia tư vấn quản lý và xây dựng quy trình hoạt động tiêu chuẩn (SOP) hàng đầu Việt Nam, với kinh nghiệm triển khai SOP cho hàng trăm doanh nghiệp SME.\n\n## THÔNG TIN QUY TRÌNH\n- Tên quy trình: {{process_name}}\n- Mục tiêu: {{objective}}\n- Phòng ban: {{department}}\n- Ngành nghề: {{industry}}\n- Loại SOP: {{sop_type}}\n- Độ phức tạp: {{complexity}}\n- Bối cảnh: {{context}}\n- Giọng điệu: {{tone}}\n- Ngôn ngữ: {{language}}\n- Ghi chú: {{extra_notes}}\n\n## QUY TẮC VIẾT SOP\n1. Mỗi bước phải có: STT, Tên bước, Người thực hiện, Mô tả chi tiết, Input/Output, Thời gian dự kiến\n2. Dùng động từ hành động ở đầu mỗi bước (Kiểm tra, Xác nhận, Gửi, Tạo, Cập nhật...)\n3. Chỉ rõ ai làm gì, khi nào, bằng công cụ gì\n4. Có xử lý exception/ngoại lệ cho các trường hợp đặc biệt\n5. KPI phải SMART (Specific, Measurable, Achievable, Relevant, Time-bound)\n6. Checklist phải dạng có/không, dễ tick\n7. Flowchart mô tả bằng Mermaid syntax\n8. Viết bằng {{language}} (mặc định: Tiếng Việt)",
+
+      "outline_prompt": "Dựa trên thông tin quy trình đã cung cấp, hãy tạo outline cho SOP theo đúng format JSON.\n\nMỗi section là MỘT phần độc lập của SOP, tập trung vào 1 khía cạnh cụ thể.\n\nTạo từ 7-9 section gồm:\n1. Xác định phạm vi & mục tiêu quy trình\n2. Phân tích các bước chi tiết của quy trình\n3. viết SOP chi tiết từng bước (bước này là phần dài nhất, quan trọng nhất)\n4. Xử lý ngoại lệ & các trường hợp đặc biệt\n5. Xác định KPI & thiết lập checklist\n6. Xây dựng kế hoạch triển khai\n7. Tổng hợp & hoàn thiện SOP\n8. Vẽ quy trình (Mermaid flowchart)\n\nTRẢ VỀ JSON theo format:\n[\n  {\"label\": \"Tên section\", \"emoji\": \"📋\", \"platform\": \"general\"},\n  ...\n]",
+
+      "chunk_prompt": "Bạn đang viết phần \"{{chunk_title}}\" của SOP \"{{process_name}}\".\n\n## BỐI CẢNH\n- Mục tiêu SOP: {{objective}}\n- Phòng ban: {{department}}\n- Ngành: {{industry}}\n- Loại SOP: {{sop_type}}\n- Bối cảnh: {{context}}\n\n## YÊU CẦU\n- Viết chi tiết, thực tế, áp dụng được ngay\n- Dùng bảng (table) khi cần so sánh hoặc liệt kê nhiều mục\n- Mỗi bước cần: Người thực hiện, Hành động cụ thể, Input/Output, Timeline\n- Nếu là phần KPI → viết dạng bảng SMART\n- Nếu là phần Checklist → viết dạng ☐ checkbox\n- Nếu là phần Flowchart → viết bằng Mermaid syntax (```mermaid ... ```)\n- Dùng emoji phù hợp để dễ đọc\n- Viết bằng {{language}}",
+
+      "model_purpose": "content_creation",
+      "temperature": "0.65",
+      "max_tokens": "8000",
+      "wizard_steps": [
+        {
+          "label": "Thông tin",
+          "description": "Nhập thông tin cơ bản về quy trình",
+          "fields": ["heading_step1", "process_name", "objective", "department", "industry", "context"]
+        },
+        {
+          "label": "Tùy chỉnh",
+          "description": "Chọn loại SOP và cấu hình chi tiết",
+          "fields": ["heading_step2", "sop_type", "complexity", "tone", "language", "extra_notes"]
+        }
+      ],
+      "output_platforms": ["general"],
+      "skill_id": "0",
+      "tags": "sop,quy-trình,process,standard-operating-procedure,quản-lý,operations,kpi,checklist,flowchart",
+      "badge_text": "SOP",
+      "badge_color": "#0ea5e9",
+      "is_featured": "1",
+      "sort_order": "1",
+      "status": "active"
+    }
+  ]
+}

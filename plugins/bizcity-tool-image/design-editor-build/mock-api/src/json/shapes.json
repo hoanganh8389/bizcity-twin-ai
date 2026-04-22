@@ -1,0 +1,544 @@
+{
+    "data": [
+        {
+            "clipPath": "M 256 0 L 256 220 L 128 256 L 0 220 L 0 0 L 256 0 Z",
+            "desc": "shape rounded circle",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/001.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 85.3794 6.00616 C 98.4615 2.37979 113.425 0 128.069 0 C 142.714 0 156.805 2.03982 169.792 5.6662 C 170.068 5.77956 170.344 5.77956 170.621 5.89284 C 219.389 20.3984 255.309 58.702 256 103.465 L 256 256 L 0 256 L 0 103.578 C 0.690772 58.4756 36.0583 20.1717 85.3794 6.00616 Z",
+            "desc": "shape rounded circle",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/002.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 85.3794 249.994 C 98.5039 253.62 113.425 256 128.069 256 C 142.714 256 156.805 253.96 169.792 250.334 C 170.068 250.22 170.344 250.22 170.621 250.107 C 219.389 235.602 255.309 197.298 256 152.535 L 256 0 L 0 0 L 0 152.422 C 0.690772 197.524 36.0583 235.828 85.3794 249.994 Z",
+            "desc": "shape rounded circle",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/003.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 128 0 L 256 64 L 256 192 L 128 256 L 0 192 L 0 64 L 128 0 Z",
+            "desc": "shape hexagon",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/004.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 128 0 L 179.878 50.1824 L 256 64 L 231.757 128 L 256 192 L 179.878 205.818 L 128 256 L 76.1216 205.818 L 0 192 L 24.2432 128 L 0 64 L 76.1216 50.1824 L 128 0 Z",
+            "desc": "shape octagon",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/005.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 256 0 L 256 256 L 128 216 L 0 256 L 0 0 L 256 0 Z",
+            "desc": "shape rectangle",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/006.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 176 0 L 80 0 L 80 80 L 0 80 L 0 176 L 80 176 L 80 256 L 176 256 L 176 176 L 256 176 L 256 80 L 176 80 L 176 0 Z",
+            "desc": "shape plus add",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/007.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 0 0 L 256 0 L 256 256 L 0 256 Z",
+            "desc": "shape square",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/008.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 230.986 0 L 25.0136 0 C 25.0136 13.7634 13.8831 25.0136 0 25.0136 L 0 230.986 C 13.7634 230.986 25.0136 242.117 25.0136 256 L 230.986 256 C 230.986 242.236 242.117 230.986 256 230.986 L 256 25.0136 C 242.236 25.0136 230.986 13.8831 230.986 0 Z",
+            "desc": "shape square rounded",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/009.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 0 128 L 128 0 L 128 64 L 256 64 L 256 192 L 128 192 L 128 256 L 0 128 Z",
+            "desc": "shape arrow left",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/010.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 128 0 L 0 128 L 64 128 L 64 256 L 192 256 L 192 128 L 256 128 L 128 0 Z",
+            "desc": "shape arrow up",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/011.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 256 128 L 128 0 L 128 64 L 0 64 L 0 192 L 128 192 L 128 256 L 256 128 Z",
+            "desc": "shape arrow right",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/012.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 128 0 L 140.418 10.5032 L 154.759 2.7971 L 164.71 15.6384 L 180.349 11.0662 L 187.397 25.6843 L 203.651 24.4458 L 207.489 40.202 L 223.646 42.3512 L 224.107 58.5568 L 239.462 64 L 236.524 79.9464 L 250.406 88.446 L 244.199 103.436 L 256 114.62 L 246.795 128 L 256 141.38 L 244.199 152.564 L 250.406 167.554 L 236.524 176.054 L 239.462 192 L 224.107 197.443 L 223.646 213.649 L 207.489 215.798 L 203.651 231.554 L 187.397 230.316 L 180.349 244.934 L 164.71 240.362 L 154.759 253.203 L 140.418 245.497 L 128 256 L 115.582 245.497 L 101.241 253.203 L 91.2904 240.362 L 75.6508 244.934 L 68.6028 230.316 L 52.3492 231.554 L 48.5108 215.798 L 32.3535 213.649 L 31.893 197.443 L 16.5382 192 L 19.4756 176.054 L 5.5942 167.554 L 11.8012 152.564 L 0 141.38 L 9.20524 128 L 0 114.62 L 11.8012 103.436 L 5.5942 88.446 L 19.4756 79.9464 L 16.5382 64 L 31.893 58.5568 L 32.3535 42.3512 L 48.5108 40.202 L 52.3492 24.4458 L 68.6028 25.6843 L 75.6508 11.0662 L 91.2904 15.6384 L 101.241 2.7971 L 115.582 10.5032 L 128 0 Z",
+            "desc": "shape circle",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/013.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 0 0 L 192 0 L 256 128 L 192 256 L 0 256 L 64 128 L 0 0 Z",
+            "desc": "shape arrow",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/014.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 128 0 L 152.847 35.2711 L 192 17.1488 L 195.882 60.1176 L 238.851 64 L 220.729 103.153 L 256 128 L 220.729 152.847 L 238.851 192 L 195.882 195.882 L 192 238.851 L 152.847 220.729 L 128 256 L 103.153 220.729 L 64 238.851 L 60.1176 195.882 L 17.1488 192 L 35.2711 152.847 L 0 128 L 35.2711 103.153 L 17.1488 64 L 60.1176 60.1176 L 64 17.1488 L 103.153 35.2711 L 128 0 Z",
+            "desc": "shape circle",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/015.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 128 0 L 256 256 L 0 256 L 128 0 Z",
+            "desc": "shape triangle",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/016.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 128 256 L 0 128 L 64 128 L 64 0 L 192 0 L 192 128 L 256 128 L 128 256 Z",
+            "desc": "shape arrow down",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/017.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 256 128 L 192 256 L 64 256 L 0 128 L 64 0 L 192 0 L 256 128 Z",
+            "desc": "shape hexagon",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/018.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 128 0 L 256 128 L 128 256 L 0 128 L 128 0 Z",
+            "desc": "shape square rotate",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/019.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 128 256 L 256 0 L 0 0 L 128 256 Z",
+            "desc": "shape triangle rotate",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/020.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 64 0 L 256 0 L 192 256 L 0 256 L 64 0 Z",
+            "desc": "shape parallelogram",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/021.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 192 0 L 0 0 L 64 256 L 256 256 L 192 0 Z",
+            "desc": "shape parallelogram",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/022.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 128 0 L 170.273 25.9446 L 218.51 37.4903 L 230.056 85.7272 L 256 128 L 230.056 170.273 L 218.51 218.51 L 170.273 230.056 L 128 256 L 85.7272 230.056 L 37.4903 218.51 L 25.9446 170.273 L 0 128 L 25.9446 85.7272 L 37.4903 37.4903 L 85.7272 25.9446 L 128 0 Z",
+            "desc": "shape star nonagon",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/023.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 128 0 L 164.738 39.3076 L 218.51 37.4903 L 216.692 91.2624 L 256 128 L 216.692 164.738 L 218.51 218.51 L 164.738 216.692 L 128 256 L 91.2624 216.692 L 37.4903 218.51 L 39.3076 164.738 L 0 128 L 39.3076 91.2624 L 37.4903 37.4903 L 91.2624 39.3076 L 128 0 Z",
+            "desc": "shape star",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/024.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 0 18.2857 L 128 0 L 256 18.2857 L 256 237.714 L 128 256 L 0 237.714 L 0 18.2857 Z",
+            "desc": "shape rectangle",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/025.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 192 0 L 64 0 L 0 128 L 64 256 L 192 256 L 256 128 L 192 0 Z",
+            "desc": "shape rectangle",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/026.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 40.3175 0 L 215.683 0 C 237.949 0 256 18.0507 256 40.3175 L 256 215.683 C 256 237.949 237.949 256 215.683 256 L 40.3175 256 C 18.0507 256 0 237.949 0 215.683 L 0 40.3175 C 0 18.0507 18.0507 0 40.3175 0 Z",
+            "desc": "shape square rounded",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/027.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 192 0 L 0 0 L 0 256 L 192 256 L 256 128 L 192 0 Z",
+            "desc": "shape rectangle arrow right",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/028.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 64 0 L 192 0 L 256 256 L 0 256 L 64 0 Z",
+            "desc": "shape trapezoid",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/029.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 128 0 L 152.847 35.2711 L 192 17.1488 L 195.882 60.1176 L 238.851 64 L 220.729 103.153 L 256 128 L 220.729 152.847 L 238.851 192 L 195.882 195.882 L 192 238.851 L 152.847 220.729 L 128 256 L 103.153 220.729 L 64 238.851 L 60.1176 195.882 L 17.1488 192 L 35.2711 152.847 L 0 128 L 35.2711 103.153 L 17.1488 64 L 60.1176 60.1176 L 64 17.1488 L 103.153 35.2711 L 128 0 Z",
+            "desc": "shape star",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/030.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 128 0 L 146.021 14.2183 L 167.554 6.26476 L 180.3 25.356 L 203.236 24.4458 L 209.459 46.5412 L 231.554 52.7636 L 230.644 75.7004 L 249.735 88.446 L 241.782 109.979 L 256 128 L 241.782 146.021 L 249.735 167.554 L 230.644 180.3 L 231.554 203.236 L 209.459 209.459 L 203.236 231.554 L 180.3 230.644 L 167.554 249.735 L 146.021 241.782 L 128 256 L 109.979 241.782 L 88.446 249.735 L 75.7004 230.644 L 52.7636 231.554 L 46.5412 209.459 L 24.4458 203.236 L 25.356 180.3 L 6.26476 167.554 L 14.2183 146.021 L 0 128 L 14.2183 109.979 L 6.26476 88.446 L 25.356 75.7004 L 24.4458 52.7636 L 46.5412 46.5412 L 52.7636 24.4458 L 75.7004 25.356 L 88.446 6.26476 L 109.979 14.2183 L 128 0 Z",
+            "desc": "shape circle",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/031.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 181 0 L 256 75 L 256 181 L 181 256 L 75 256 L 0 181 L 0 75 L 75 0 L 181 0 Z",
+            "desc": "shape octagon",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/032.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "",
+            "desc": "shape ",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/033.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 192 0 C 227.346 0 256 57.3076 256 128 C 256 198.692 227.346 256 192 256 L 64 256 C 28.6538 256 0 198.692 0 128 C 0 57.3076 28.6538 0 64 0 Z",
+            "desc": "shape rounded",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/034.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 128 0 L 168.729 87.2708 L 256 128 L 168.729 168.729 L 128 256 L 87.2708 168.729 L 0 128 L 87.2708 87.2708 L 128 0 Z",
+            "desc": "shape star",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/035.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 86 0 L 0 128 L 86 256 L 86 192 L 170 192 L 170 256 L 256 128 L 170 0 L 170 64 L 86 64 L 86 0 Z",
+            "desc": "shape arrow left right",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/036.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 205.6 0 L 50.4 0 L 0 50.4 L 0 205.6 L 50.4 256 L 205.6 256 L 256 205.6 L 256 50.4 L 205.6 0 Z",
+            "desc": "shape square",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/037.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 128 0 L 256 97.7832 L 207.108 256 L 48.8916 256 L 0 97.7832 L 128 0 Z",
+            "desc": "shape pentagon",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/038.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 64 256 L 192 256 L 256 0 L 0 0 L 64 256 Z",
+            "desc": "shape trapezoid",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/039.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 256 0 L 0 0 L 32 128 L 0 256 L 256 256 L 224 128 L 256 0 Z",
+            "desc": "shape triangle arrow left right",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/040.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 145.351 0 C 148.159 0 150.984 0 153.786 0 C 176.129 4.27574 190.092 18.5086 196.452 41.7979 C 233.702 38.692 260.784 82.7288 244.279 125.949 C 249.768 135.031 254.346 145.19 256 158.825 C 256 162.731 256 166.627 256 170.533 C 251.072 205.235 229.867 228.685 195.054 222.372 C 186.096 240.19 170.158 258.034 145.356 255.812 C 132.537 254.642 123.618 247.867 115.81 239.635 C 107.586 246.477 98.6784 251.847 85.8088 251.906 C 56.0348 252.008 36.1172 225.646 35.6343 189.488 C 16.4936 181.029 3.52958 165.239 0 138.22 C 0 134.315 0 130.402 0 126.513 C 3.89586 99.7394 16.155 82.9221 36.5667 75.7931 C 35.3402 30.6288 76.1692 2.4072 109.711 22.3045 C 117.697 12.4653 128.996 1.73386 145.351 0 Z",
+            "desc": "shape cloud rounded",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/041.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 10.149 40.8756 C -10.6078 79.957 4.01548 117.996 22.3925 138.186 L 129.842 256 L 235.023 138.607 C 252.115 116.888 258.666 93.851 255.028 68.1989 C 250.002 32.7136 224.415 5.18272 192.807 1.25132 C 173.421 -1.13412 154.694 5.13563 140.079 19.016 C 136.145 22.7507 132.629 26.9259 129.564 31.4641 C 125.928 26.2971 121.665 21.5705 116.843 17.3814 C 100.036 2.78343 78.6416 -3.01254 58.0912 1.49513 C 38.6276 5.79223 21.157 20.1409 10.149 40.8756 Z",
+            "desc": "shape heart",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/042.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 256 0 L 0 0 L 0 196.8 L 49.6 196.8 L 49.6 256 L 146 196.8 L 256 196.8 L 256 0 Z",
+            "desc": "shape chat think rectangle",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/043.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 167.046 0 L 88.9472 0 C 39.8193 0 0 44.4587 0 99.301 C 0 139.003 20.8752 173.25 51.0352 189.139 L 51.0352 256 L 111.447 198.599 L 167.046 198.599 C 216.177 198.599 256 154.14 256 99.2974 C 256.004 44.4587 216.177 0 167.046 0 Z",
+            "desc": "shape chat think rectangle rounded",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/044.png",
+                "width": 256,
+                "height": 256
+            }
+        },
+        {
+            "clipPath": "M 128 0 C 57.3076 0 0 57.3076 0 128 C 0 198.692 57.3076 256 128 256 C 198.692 256 256 198.692 256 128 C 256 57.3076 198.692 0 128 0 Z",
+            "desc": "shape circle",
+            "background": "rgb(123, 68, 68)",
+            "width": 256,
+            "height": 256,
+            "img": {
+                "url": "http://localhost:4000/images/shapes/045.png",
+                "width": 256,
+                "height": 256
+            }
+        }
+    ]
+}

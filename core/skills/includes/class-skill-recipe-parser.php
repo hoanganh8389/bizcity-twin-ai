@@ -65,6 +65,14 @@ class BizCity_Skill_Recipe_Parser {
 	 */
 	public function parse( string $body, array $frontmatter ): array {
 		$tool_refs  = $this->extract_tool_refs( $body );
+
+		// Merge frontmatter 'tools' declaration (authoritative for DB-synced virtual skills)
+		$fm_tools = (array) ( $frontmatter['tools'] ?? [] );
+		if ( ! empty( $fm_tools ) ) {
+			error_log( self::LOG . ' tool_refs merge: body=[' . implode( ',', $tool_refs ) . '] + fm_tools=[' . implode( ',', $fm_tools ) . ']' );
+			$tool_refs = array_values( array_unique( array_merge( $tool_refs, $fm_tools ) ) );
+		}
+
 		$steps      = $this->extract_numbered_steps( $body );
 		$guardrails = $this->extract_guardrails( $body );
 		$strategy   = $this->detect_strategy( $frontmatter, $tool_refs, $steps );
@@ -196,13 +204,25 @@ class BizCity_Skill_Recipe_Parser {
 	 * @return string 'explicit'|'guided'|'simple'
 	 */
 	public function detect_strategy( array $frontmatter, array $tool_refs, array $steps ): string {
+		// Explicit override from frontmatter (e.g. strategy: simple)
+		$fm_strategy = $frontmatter['strategy'] ?? '';
+		if ( in_array( $fm_strategy, [ 'simple', 'guided', 'explicit' ], true ) ) {
+			return $fm_strategy;
+		}
+
 		// Explicit: frontmatter steps[] wins regardless of body
 		if ( ! empty( $frontmatter['steps'] ) && is_array( $frontmatter['steps'] ) ) {
 			return 'explicit';
 		}
 
-		// Guided: body has @tool_ref(s) or 2+ numbered steps
-		if ( ! empty( $tool_refs ) || count( $steps ) >= 2 ) {
+		// Guided: body has 2+ numbered steps (actual workflow), or @tool_ref in body WITH steps
+		// tool_refs alone (from frontmatter['tools']) = routing metadata, NOT a workflow
+		if ( count( $steps ) >= 2 ) {
+			return 'guided';
+		}
+
+		// tool_refs from body @mentions + at least 1 step = guided
+		if ( ! empty( $tool_refs ) && count( $steps ) >= 1 ) {
 			return 'guided';
 		}
 

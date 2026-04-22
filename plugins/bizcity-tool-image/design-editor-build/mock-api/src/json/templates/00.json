@@ -1,0 +1,435 @@
+[
+  {
+      "name": "",
+      "notes": "",
+      "layers": {
+          "ROOT": {
+              "type": {
+                  "resolvedName": "RootLayer"
+              },
+              "props": {
+                  "boxSize": {
+                      "width": 1640,
+                      "height": 924
+                  },
+                  "position": {
+                      "x": 0,
+                      "y": 0
+                  },
+                  "rotate": 0,
+                  "color": "rgb(0, 0, 0)",
+                  "image": null,
+                  "gradientBackground": null
+              },
+              "locked": false,
+              "child": [
+                  "ca_VRMC9TP",
+                  "ca_Bcpl8by",
+                  "ca_WMp9UAF",
+                  "ca_yAERg62",
+                  "ca_3h1bsYQ",
+                  "ca_lfHwy04",
+                  "ca_6DDvf39",
+                  "ca_lPVWEk4",
+                  "ca_lUfLwLL"
+              ],
+              "parent": null
+          },
+          "ca_VRMC9TP": {
+              "type": {
+                  "resolvedName": "FrameLayer"
+              },
+              "props": {
+                  "position": {
+                      "x": 25.670635809198785,
+                      "y": 377.16647633720015
+                  },
+                  "boxSize": {
+                      "width": 433.2307692307692,
+                      "height": 462
+                  },
+                  "rotate": 0,
+                  "clipPath": "path(\"M 34.3461 238.4 C 45.8374 250 60.2653 258.8 76.9915 264.6 C 93.4623 270.2 112.231 273.1 132.788 273.1 C 150.153 273.1 166.496 270.9 181.307 266.7 C 196.501 262.4 209.78 255.7 220.888 246.9 C 231.996 238.1 240.678 227.1 246.935 213.9 C 253.063 201 256.128 185.8 256.128 168.6 L 256.128 160.1 L 178.625 160.1 L 178.625 168.6 C 178.625 177.2 177.476 184.8 175.178 191 C 173.007 196.9 169.943 201.8 166.113 205.5 C 162.41 209.1 158.069 211.7 152.962 213.4 C 147.599 215.2 141.47 216.1 134.703 216.1 C 125.766 216.1 117.977 214.6 111.593 211.8 C 104.954 208.9 99.591 204.7 95.1222 199.1 C 90.398 193.2 86.8229 185.7 84.5247 176.9 C 82.0988 167.7 80.8219 157.1 80.8219 145.5 L 80.8219 127.4 C 80.8219 115.7 81.9711 105.1 84.397 95.9 C 86.6953 87.1 90.1426 79.6 94.7392 73.7 C 99.0803 68.1 104.315 63.9 110.699 61 C 116.956 58.1 124.233 56.7 133.043 56.7 C 139.427 56.7 145.428 57.6 150.536 59.4 C 155.515 61.1 159.856 63.8 163.559 67.4 C 167.39 71.2 170.454 76.1 172.752 82.1 C 175.05 88.4 176.2 96 176.2 104.6 L 176.2 113.1 L 256.255 113.1 L 256.255 104.6 C 256.255 86.9 253.191 71.3 246.935 58.3 C 240.678 45 231.868 33.9 220.76 25.3 C 209.652 16.6 196.245 10.1 181.051 6 C 165.985 2.1 149.77 0 132.66 0 C 112.104 0 93.3347 2.8 76.8638 8.4 C 60.1377 14.2 45.8374 23 34.3461 34.6 C 22.9825 46 14.3002 60.5 8.55461 77.6 C 2.80898 94.3 0 114.1 0 136.6 C 0 159.1 2.80898 178.9 8.55461 195.5 C 14.3002 212.6 22.9825 227 34.3461 238.4 Z\")",
+                  "scale": 1.6923076923076923,
+                  "image": {
+                      "boxSize": {
+                          "width": 256,
+                          "height": 384
+                      },
+                      "position": {
+                          "x": 0,
+                          "y": -55.5
+                      },
+                      "rotate": 0,
+                      "thumb": "http://localhost:4000/images/photos/christmas/002.jpg",
+                      "url": "http://localhost:4000/images/photos/christmas/006.jpg"
+                  },
+                  "transparency": 1
+              },
+              "locked": false,
+              "child": [],
+              "parent": "ROOT"
+          },
+          "ca_Bcpl8by": {
+              "type": {
+                  "resolvedName": "TextLayer"
+              },
+              "props": {
+                  "position": {
+                      "x": 68.12582109382848,
+                      "y": 158.88000467155902
+                  },
+                  "boxSize": {
+                      "width": 805.9213867785503,
+                      "height": 237.47011404398754,
+                      "x": 212.81344289254488,
+                      "y": 441.67674400520934
+                  },
+                  "scale": 3.7693668895871038,
+                  "rotate": 0,
+                  "text": "<p style=\"text-align: center;font-family: 'Alumni Sans Pinstripe Regular';font-size: 45px;color: rgb(255, 255, 255);line-height: 1.4;letter-spacing: normal;\"><span style=\"color: rgb(255, 255, 255);\">Canva Editor</span></p>",
+                  "fonts": [
+                      {
+                          "family": "Alumni Sans Pinstripe",
+                          "name": "Alumni Sans Pinstripe Regular",
+                          "url": "http://fonts.gstatic.com/s/alumnisanspinstripe/v6/ZgNNjOFFPq_AUJD1umyS30W-Xub8zD1ObhezZ7VIpcDA5w.woff2",
+                          "style": "regular",
+                          "styles": [
+                              {
+                                  "family": "Alumni Sans Pinstripe",
+                                  "name": "Alumni Sans Pinstripe Italic",
+                                  "url": "http://fonts.gstatic.com/s/alumnisanspinstripe/v6/ZgNDjOFFPq_AUJD1umyS30W-Xub8zD1ObheDYL9Jh8XQ5_cY.woff2",
+                                  "style": "italic"
+                              }
+                          ]
+                      }
+                  ],
+                  "colors": [
+                      "rgb(255, 255, 255)"
+                  ],
+                  "fontSizes": [
+                      45
+                  ],
+                  "effect": null,
+                  "transparency": 1
+              },
+              "locked": false,
+              "child": [],
+              "parent": "ROOT"
+          },
+          "ca_WMp9UAF": {
+              "type": {
+                  "resolvedName": "ShapeLayer"
+              },
+              "props": {
+                  "position": {
+                      "x": 1018,
+                      "y": -56.23277270266345
+                  },
+                  "boxSize": {
+                      "width": 1102,
+                      "height": 1102,
+                      "x": 589,
+                      "y": 231
+                  },
+                  "rotate": 0,
+                  "clipPath": "M 64 0 L 256 0 L 192 256 L 0 256 L 64 0 Z",
+                  "scale": 4.3046875,
+                  "color": "rgb(230, 0, 18)",
+                  "gradientBackground": null,
+                  "transparency": 1,
+                  "shapeSize": {
+                      "width": 256,
+                      "height": 256
+                  }
+              },
+              "locked": false,
+              "child": [],
+              "parent": "ROOT"
+          },
+          "ca_yAERg62": {
+              "type": {
+                  "resolvedName": "TextLayer"
+              },
+              "props": {
+                  "position": {
+                      "x": 242.28602042458343,
+                      "y": 377.16647633720015
+                  },
+                  "boxSize": {
+                      "width": 486.4600528044839,
+                      "height": 82.59182118917317,
+                      "x": 175.73573017317892,
+                      "y": 231.94423856945727
+                  },
+                  "scale": 1.3109812887170342,
+                  "rotate": 0,
+                  "text": "<p style=\"text-align: center;font-family: 'Alfa Slab One Regular';font-size: 45px;color: rgb(0, 0, 0);line-height: 1.4;letter-spacing: 0.182em;\"><strong><span style=\"color: rgb(0, 0, 0);\">WELCOME!</span></strong></p>",
+                  "fonts": [
+                      {
+                          "family": "Alfa Slab One",
+                          "name": "Alfa Slab One Regular",
+                          "url": "http://fonts.gstatic.com/s/alfaslabone/v19/6NUQ8FmMKwSEKjnm5-4v-4Jh6dBretWvYmE.woff2",
+                          "style": "regular",
+                          "styles": []
+                      }
+                  ],
+                  "colors": [
+                      "rgb(0, 0, 0)"
+                  ],
+                  "fontSizes": [
+                      45
+                  ],
+                  "effect": {
+                      "name": "outline",
+                      "settings": {
+                          "thickness": 25,
+                          "color": "rgb(255, 255, 255)"
+                      }
+                  },
+                  "transparency": 1
+              },
+              "locked": false,
+              "child": [],
+              "parent": "ROOT"
+          },
+          "ca_3h1bsYQ": {
+              "type": {
+                  "resolvedName": "GroupLayer"
+              },
+              "props": {
+                  "position": {
+                      "x": 948.2166993978026,
+                      "y": 215.25829752637338
+                  },
+                  "boxSize": {
+                      "width": 489,
+                      "height": 488.99999999999994
+                  },
+                  "scale": 1,
+                  "rotate": 0,
+                  "transparency": 1
+              },
+              "locked": false,
+              "child": [
+                  "ca_lTHfi2W",
+                  "ca_rKQqanA"
+              ],
+              "parent": "ROOT"
+          },
+          "ca_lTHfi2W": {
+              "type": {
+                  "resolvedName": "ShapeLayer"
+              },
+              "props": {
+                  "position": {
+                      "x": 0,
+                      "y": 0
+                  },
+                  "boxSize": {
+                      "width": 489,
+                      "height": 489,
+                      "x": 371,
+                      "y": 73.25829752637338
+                  },
+                  "rotate": 0,
+                  "clipPath": "M 128 0 C 57.3076 0 0 57.3076 0 128 C 0 198.692 57.3076 256 128 256 C 198.692 256 256 198.692 256 128 C 256 57.3076 198.692 0 128 0 Z",
+                  "scale": 1.91015625,
+                  "color": "rgb(230, 0, 18)",
+                  "gradientBackground": null,
+                  "transparency": 1,
+                  "shapeSize": {
+                      "width": 256,
+                      "height": 256
+                  }
+              },
+              "locked": false,
+              "child": [],
+              "parent": "ca_3h1bsYQ"
+          },
+          "ca_rKQqanA": {
+              "type": {
+                  "resolvedName": "FrameLayer"
+              },
+              "props": {
+                  "position": {
+                      "x": 13.5,
+                      "y": 13.5
+                  },
+                  "boxSize": {
+                      "width": 462,
+                      "height": 462
+                  },
+                  "rotate": 0,
+                  "clipPath": "path(\"M 500 250.003 C 500 388.069 388.069 500 250 500 C 111.929 500 0 388.069 0 250.003 C 0 111.93 111.929 0 250 0 C 388.071 0 500 111.93 500 250.003 Z\")",
+                  "scale": 0.924,
+                  "image": {
+                      "boxSize": {
+                          "width": 500,
+                          "height": 750
+                      },
+                      "position": {
+                          "x": 0,
+                          "y": -125
+                      },
+                      "rotate": 0,
+                      "thumb": "http://localhost:4000/images/photos/animals/003.jpg",
+                      "url": "http://localhost:4000/images/photos/animals/003.jpg"
+                  },
+                  "transparency": 1
+              },
+              "locked": false,
+              "child": [],
+              "parent": "ca_3h1bsYQ"
+          },
+          "ca_lfHwy04": {
+              "type": {
+                  "resolvedName": "FrameLayer"
+              },
+              "props": {
+                  "position": {
+                      "x": 242.28602042458337,
+                      "y": 637.1797140049287
+                  },
+                  "boxSize": {
+                      "width": 179.11321606542015,
+                      "height": 185.41016506772007,
+                      "x": 267.44073740571537,
+                      "y": 525.1087137227618
+                  },
+                  "rotate": 0,
+                  "clipPath": "path(\"M 84.2927 216.353 L 168.697 216.353 L 185.087 265.1 L 256 265.1 L 164.125 0 L 92.0976 0 L 0 265 L 68.3484 265 L 84.2927 216.353 Z M 126.662 87.765 L 149.408 157.977 L 103.582 157.977 L 126.662 87.765 Z\")",
+                  "scale": 0.6996610002555474,
+                  "image": {
+                      "boxSize": {
+                          "width": 397.1896955503513,
+                          "height": 265
+                      },
+                      "position": {
+                          "x": -70.59484777517565,
+                          "y": 0
+                      },
+                      "rotate": 0,
+                      "thumb": "http://localhost:4000/images/photos/christmas/002.jpg",
+                      "url": "http://localhost:4000/images/photos/christmas/009.jpg"
+                  },
+                  "transparency": 1
+              },
+              "locked": false,
+              "child": [],
+              "parent": "ROOT"
+          },
+          "ca_6DDvf39": {
+              "type": {
+                  "resolvedName": "FrameLayer"
+              },
+              "props": {
+                  "position": {
+                      "x": 435.50758863447305,
+                      "y": 642.0074157543643
+                  },
+                  "boxSize": {
+                      "width": 169.78573193066148,
+                      "height": 175.7547615688488,
+                      "x": 440.9106126133477,
+                      "y": 386.8137962566218
+                  },
+                  "rotate": 0,
+                  "clipPath": "path(\"M 175.868 133.002 L 74.5085 0 L 0 0 L 0 265 L 79.2883 265 L 79.2883 131.998 L 180.789 265 L 256 265 L 256 0 L 175.868 0 Z\")",
+                  "scale": 0.6632255153541464,
+                  "image": {
+                      "boxSize": {
+                          "width": 256,
+                          "height": 384
+                      },
+                      "position": {
+                          "x": 0,
+                          "y": -59.5
+                      },
+                      "rotate": 0,
+                      "thumb": "http://localhost:4000/images/photos/christmas/002.jpg",
+                      "url": "http://localhost:4000/images/photos/christmas/002.jpg"
+                  },
+                  "transparency": 1
+              },
+              "locked": false,
+              "child": [],
+              "parent": "ROOT"
+          },
+          "ca_lPVWEk4": {
+              "type": {
+                  "resolvedName": "FrameLayer"
+              },
+              "props": {
+                  "position": {
+                      "x": 628.1239746156139,
+                      "y": 642.0074157543643
+                  },
+                  "boxSize": {
+                      "width": 175.62073342135525,
+                      "height": 181.79489983069976,
+                      "x": 647.6353507389581,
+                      "y": 529.9364154721974
+                  },
+                  "rotate": 0,
+                  "clipPath": "path(\"M 182.396 0 L 129.735 157.074 L 76.4769 0 L 0 0 L 93.4717 265 L 162.528 265 L 256 0 Z\")",
+                  "scale": 0.686018489927169,
+                  "image": {
+                      "boxSize": {
+                          "width": 256,
+                          "height": 341.2
+                      },
+                      "position": {
+                          "x": 0,
+                          "y": -38.099999999999994
+                      },
+                      "rotate": 0,
+                      "thumb": "http://localhost:4000/images/photos/christmas/005.jpg",
+                      "url": "http://localhost:4000/images/photos/christmas/005.jpg"
+                  },
+                  "transparency": 1
+              },
+              "locked": false,
+              "child": [],
+              "parent": "ROOT"
+          },
+          "ca_lUfLwLL": {
+              "type": {
+                  "resolvedName": "FrameLayer"
+              },
+              "props": {
+                  "position": {
+                      "x": 787.0319349205673,
+                      "y": 584.7142794676826
+                  },
+                  "boxSize": {
+                      "width": 230.96806507943268,
+                      "height": 239.08803611738148,
+                      "x": 839.5089399037438,
+                      "y": 453.9119638826185
+                  },
+                  "rotate": 0,
+                  "clipPath": "path(\"M 84.2927 216.353 L 168.697 216.353 L 185.087 265.1 L 256 265.1 L 164.125 0 L 92.0976 0 L 0 265 L 68.3484 265 L 84.2927 216.353 Z M 126.662 87.765 L 149.408 157.977 L 103.582 157.977 L 126.662 87.765 Z\")",
+                  "scale": 0.9022190042165339,
+                  "image": {
+                      "boxSize": {
+                          "width": 256,
+                          "height": 383.6
+                      },
+                      "position": {
+                          "x": 0,
+                          "y": -59.30000000000001
+                      },
+                      "rotate": 0,
+                      "thumb": "http://localhost:4000/images/photos/birthdays/004.jpg",
+                      "url": "http://localhost:4000/images/photos/birthdays/004.jpg"
+                  },
+                  "transparency": 1
+              },
+              "locked": false,
+              "child": [],
+              "parent": "ROOT"
+          }
+      }
+  }
+]

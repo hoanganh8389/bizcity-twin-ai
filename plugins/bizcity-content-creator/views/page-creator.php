@@ -15,6 +15,10 @@ $is_iframe   = isset( $_GET['bizcity_iframe'] );
 $template_id = absint( get_query_var( 'bzcc_template_id' ) );
 $page_title  = '✨ Content Creator — BizCity';
 
+// Webchat iframe params: topic prefill + session linkage
+$prefill_topic = sanitize_text_field( $_GET['topic'] ?? '' );
+$webchat_session_id = sanitize_text_field( $_GET['session_id'] ?? '' );
+
 if ( $template_id ) {
 	$tpl = BZCC_Template_Manager::get_by_id( $template_id );
 	if ( $tpl ) {
@@ -29,10 +33,13 @@ $js_url  = BZCC_URL . 'assets/frontend.js';
 
 /* Build localized JS data (same as enqueue_assets) */
 $bzcc_front_data = wp_json_encode( [
-	'ajaxUrl'  => admin_url( 'admin-ajax.php' ),
-	'restUrl'  => untrailingslashit( rest_url( 'bzcc/v1' ) ),
-	'nonce'    => wp_create_nonce( 'wp_rest' ),
-	'baseUrl'  => home_url( 'creator/' ),
+	'ajaxUrl'    => admin_url( 'admin-ajax.php' ),
+	'restUrl'    => untrailingslashit( rest_url( 'bzcc/v1' ) ),
+	'nonce'      => wp_create_nonce( 'wp_rest' ),
+	'baseUrl'    => home_url( 'creator/' ),
+	'isIframe'   => $is_iframe,
+	'topic'      => $prefill_topic,
+	'sessionId'  => $webchat_session_id,
 ] );
 ?>
 <!DOCTYPE html>
