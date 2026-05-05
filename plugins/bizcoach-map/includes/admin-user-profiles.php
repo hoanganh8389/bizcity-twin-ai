@@ -80,8 +80,8 @@ function bccm_admin_user_profiles_page() {
             a_v.summary     AS vedic_summary,
             (SELECT COUNT(*) FROM {$t['profiles']} p2 WHERE p2.user_id = p.user_id) AS profile_count
         FROM {$t['profiles']} p
-        LEFT JOIN {$t_astro} a_w ON a_w.user_id = p.user_id AND a_w.chart_type = 'western'
-        LEFT JOIN {$t_astro} a_v ON a_v.user_id = p.user_id AND a_v.chart_type = 'vedic'
+        LEFT JOIN {$t_astro} a_w ON a_w.coachee_id = p.id AND a_w.chart_type = 'western'
+        LEFT JOIN {$t_astro} a_v ON a_v.coachee_id = p.id AND a_v.chart_type = 'vedic'
         {$where}
         AND p.user_id IS NOT NULL AND p.user_id > 0
         AND p.id = (
@@ -291,6 +291,75 @@ function bccm_admin_user_profile_detail( $view_uid ) {
         $action = $auto_gen === 'vedic' ? 'gen_vedic_chart' : ( $auto_gen === 'both' ? 'gen_both_charts' : 'gen_free_chart' );
     }
 
+    /* ── Update profile (personal info + birth data) ── */
+    if ( $action === 'update_profile' ) {
+        $up_full   = sanitize_text_field( wp_unslash( $_POST['full_name']   ?? '' ) );
+        $up_phone  = sanitize_text_field( wp_unslash( $_POST['phone']       ?? '' ) );
+        $up_dob    = sanitize_text_field( wp_unslash( $_POST['dob']         ?? '' ) );
+        $up_addr   = sanitize_text_field( wp_unslash( $_POST['address']     ?? '' ) );
+        $up_btime  = sanitize_text_field( wp_unslash( $_POST['birth_time']  ?? '' ) );
+        $up_bplace = sanitize_text_field( wp_unslash( $_POST['birth_place'] ?? '' ) );
+        $up_lat    = isset( $_POST['latitude']  ) && $_POST['latitude']  !== '' ? floatval( $_POST['latitude']  ) : null;
+        $up_lng    = isset( $_POST['longitude'] ) && $_POST['longitude'] !== '' ? floatval( $_POST['longitude'] ) : null;
+        $up_tz     = isset( $_POST['timezone']  ) && $_POST['timezone']  !== '' ? floatval( $_POST['timezone']  ) : 7.0;
+        $regen     = ! empty( $_POST['regen_after_save'] );
+
+        // Update coachee profile
+        $wpdb->update(
+            $t['profiles'],
+            [
+                'full_name'  => $up_full,
+                'phone'      => $up_phone,
+                'dob'        => $up_dob ?: null,
+                'address'    => $up_addr,
+                'updated_at' => current_time( 'mysql' ),
+            ],
+            [ 'id' => $coachee_id ]
+        );
+
+        // Upsert astro birth data for both chart_types so Western & Vedic stay in sync
+        $now = current_time( 'mysql' );
+        foreach ( [ 'western', 'vedic' ] as $_ct ) {
+            $existing_id = (int) $wpdb->get_var( $wpdb->prepare(
+                "SELECT id FROM $t_astro WHERE coachee_id=%d AND chart_type=%s",
+                $coachee_id, $_ct
+            ) );
+            $row_data = [
+                'birth_place' => $up_bplace,
+                'birth_time'  => $up_btime,
+                'latitude'    => $up_lat,
+                'longitude'   => $up_lng,
+                'timezone'    => $up_tz,
+                'updated_at'  => $now,
+            ];
+            if ( $existing_id ) {
+                $wpdb->update( $t_astro, $row_data, [ 'id' => $existing_id ] );
+            } else {
+                $wpdb->insert( $t_astro, array_merge( $row_data, [
+                    'coachee_id' => $coachee_id,
+                    'user_id'    => $view_uid,
+                    'chart_type' => $_ct,
+                    'created_at' => $now,
+                ] ) );
+            }
+        }
+
+        echo '<div class="updated notice is-dismissible"><p>✅ Đã cập nhật thông tin cá nhân và dữ liệu sinh.</p></div>';
+
+        // Refresh in-memory rows
+        $coachee   = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$t['profiles']} WHERE id=%d", $coachee_id ), ARRAY_A );
+        $astro_row = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM $t_astro WHERE user_id=%d AND chart_type='western'", $view_uid ), ARRAY_A );
+        $vedic_row = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM $t_astro WHERE user_id=%d AND chart_type='vedic'", $view_uid ), ARRAY_A );
+        if ( ! $astro_row ) $astro_row = $vedic_row;
+
+        // Optionally chain to chart regeneration
+        if ( $regen ) {
+            $action = 'gen_both_charts';
+        } else {
+            $action = ''; // prevent fall-through into chart-gen branch
+        }
+    }
+
     if ( $action && in_array( $action, [ 'gen_free_chart', 'gen_vedic_chart', 'gen_both_charts' ], true ) ) {
         // Build birth_data from DB
         $birth_time_val = $astro_row['birth_time'] ?? '';
@@ -411,10 +480,63 @@ function bccm_admin_user_profile_detail( $view_uid ) {
     </div>
 
     <!-- ══════════ TOP GRID: Info + Astro + Actions ══════════ -->
+    <?php
+    $edit_mode  = ! empty( $_GET['edit'] );
+    $edit_url   = esc_url( add_query_arg( [ 'edit' => 1 ] ) );
+    $cancel_url = esc_url( remove_query_arg( 'edit' ) );
+    ?>
+    <?php if ( $edit_mode ): ?>
+    <form method="post" style="margin-bottom:20px;">
+        <?php wp_nonce_field( 'bccm_user_detail_' . $view_uid ); ?>
+        <input type="hidden" name="bccm_action" value="update_profile">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;">
+            <!-- Personal Info — EDIT -->
+            <div style="background:#fffbeb;padding:16px;border-radius:12px;border:1px solid #fcd34d;">
+                <h3 style="margin:0 0 10px;font-size:15px;">✏️ Sửa thông tin cá nhân</h3>
+                <table style="width:100%;font-size:13px;">
+                    <tr><td style="color:#6b7280;width:100px;padding:4px 0;">Họ tên</td><td><input type="text" name="full_name" value="<?php echo esc_attr( $coachee['full_name'] ?? '' ); ?>" class="regular-text" style="width:100%;"></td></tr>
+                    <tr><td style="color:#6b7280;padding:4px 0;">SĐT</td><td><input type="text" name="phone" value="<?php echo esc_attr( $coachee['phone'] ?? '' ); ?>" style="width:100%;"></td></tr>
+                    <tr><td style="color:#6b7280;padding:4px 0;">Ngày sinh</td><td><input type="date" name="dob" value="<?php echo esc_attr( $coachee['dob'] ?? '' ); ?>" style="width:100%;"></td></tr>
+                    <tr><td style="color:#6b7280;padding:4px 0;">Địa chỉ</td><td><input type="text" name="address" value="<?php echo esc_attr( $coachee['address'] ?? '' ); ?>" style="width:100%;"></td></tr>
+                </table>
+            </div>
+
+            <!-- Astro Data — EDIT -->
+            <div style="background:#fffbeb;padding:16px;border-radius:12px;border:1px solid #fcd34d;">
+                <h3 style="margin:0 0 10px;font-size:15px;">✏️ Sửa dữ liệu chiêm tinh</h3>
+                <table style="width:100%;font-size:13px;">
+                    <tr><td style="color:#6b7280;width:100px;padding:4px 0;">Giờ sinh</td><td><input type="time" name="birth_time" value="<?php echo esc_attr( $astro_row['birth_time'] ?? '' ); ?>" style="width:100%;" required></td></tr>
+                    <tr><td style="color:#6b7280;padding:4px 0;">Nơi sinh</td><td><input type="text" name="birth_place" value="<?php echo esc_attr( $astro_row['birth_place'] ?? '' ); ?>" style="width:100%;" placeholder="VD: Hà Nội, Việt Nam"></td></tr>
+                    <tr><td style="color:#6b7280;padding:4px 0;">Vĩ độ (lat)</td><td><input type="number" step="0.0000001" name="latitude" value="<?php echo esc_attr( $astro_row['latitude'] ?? '' ); ?>" style="width:100%;" placeholder="21.0285"></td></tr>
+                    <tr><td style="color:#6b7280;padding:4px 0;">Kinh độ (lng)</td><td><input type="number" step="0.0000001" name="longitude" value="<?php echo esc_attr( $astro_row['longitude'] ?? '' ); ?>" style="width:100%;" placeholder="105.8542"></td></tr>
+                    <tr><td style="color:#6b7280;padding:4px 0;">Timezone</td><td><input type="number" step="0.5" name="timezone" value="<?php echo esc_attr( $astro_row['timezone'] ?? 7 ); ?>" style="width:100%;" placeholder="7"></td></tr>
+                </table>
+                <p style="margin:8px 0 0;font-size:11px;color:#92400e;">⚠️ Lat/Lng sai → bản đồ sao sai. Có thể tra Google Maps → chuột phải → copy tọa độ.</p>
+            </div>
+
+            <!-- Save actions -->
+            <div style="background:#ecfdf5;padding:16px;border-radius:12px;border:1px solid #6ee7b7;display:flex;flex-direction:column;gap:8px;">
+                <h3 style="margin:0 0 10px;font-size:15px;">💾 Lưu thay đổi</h3>
+                <button type="submit" class="button button-primary" style="text-align:left;padding:8px 14px;">
+                    💾 Lưu thông tin
+                </button>
+                <label style="display:flex;align-items:center;gap:6px;font-size:13px;background:#fff;padding:8px 10px;border-radius:8px;border:1px solid #d1fae5;cursor:pointer;">
+                    <input type="checkbox" name="regen_after_save" value="1" checked>
+                    <span>Tạo lại cả 2 bản đồ sao sau khi lưu</span>
+                </label>
+                <a href="<?php echo $cancel_url; ?>" class="button" style="text-align:center;">Huỷ</a>
+                <p style="margin:4px 0 0;font-size:11px;color:#065f46;">Sau khi lưu, các bản luận giải AI cũ vẫn còn cache — bấm "🔄 Tạo lại" trong toolbar để buộc viết lại theo dữ liệu mới.</p>
+            </div>
+        </div>
+    </form>
+    <?php else: ?>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:20px;">
         <!-- Personal Info -->
         <div style="background:#f8fafc;padding:16px;border-radius:12px;border:1px solid #e5e7eb;">
-            <h3 style="margin:0 0 10px;font-size:15px;">📋 Thông tin cá nhân</h3>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin:0 0 10px;">
+                <h3 style="margin:0;font-size:15px;">📋 Thông tin cá nhân</h3>
+                <a href="<?php echo $edit_url; ?>" class="button button-small" title="Sửa thông tin">✏️ Sửa</a>
+            </div>
             <table style="width:100%;font-size:13px;">
                 <tr><td style="color:#6b7280;width:100px;">Họ tên</td><td><strong><?php echo esc_html( $coachee['full_name'] ?: '—' ); ?></strong></td></tr>
                 <tr><td style="color:#6b7280;">SĐT</td><td><?php echo esc_html( $coachee['phone'] ?: '—' ); ?></td></tr>
@@ -428,7 +550,10 @@ function bccm_admin_user_profile_detail( $view_uid ) {
 
         <!-- Astro Data -->
         <div style="background:#f8fafc;padding:16px;border-radius:12px;border:1px solid #e5e7eb;">
-            <h3 style="margin:0 0 10px;font-size:15px;">🌟 Dữ liệu chiêm tinh</h3>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin:0 0 10px;">
+                <h3 style="margin:0;font-size:15px;">🌟 Dữ liệu chiêm tinh</h3>
+                <a href="<?php echo $edit_url; ?>" class="button button-small" title="Sửa dữ liệu sinh">✏️ Sửa</a>
+            </div>
             <?php if ( $astro_row ): ?>
                 <table style="width:100%;font-size:13px;">
                     <tr><td style="color:#6b7280;width:100px;">Giờ sinh</td><td><strong><?php echo esc_html( $astro_row['birth_time'] ?: '—' ); ?></strong></td></tr>
@@ -440,7 +565,7 @@ function bccm_admin_user_profile_detail( $view_uid ) {
                 </table>
             <?php else: ?>
                 <p style="color:#d97706;margin:0;font-size:13px;">⚠️ Chưa có dữ liệu chiêm tinh.</p>
-                <p style="color:#9ca3af;font-size:12px;margin:4px 0 0;">User chưa khai báo giờ sinh/nơi sinh.</p>
+                <p style="color:#9ca3af;font-size:12px;margin:4px 0 0;">Bấm "✏️ Sửa" để khai báo giờ sinh / nơi sinh / toạ độ.</p>
             <?php endif; ?>
         </div>
 
@@ -459,11 +584,12 @@ function bccm_admin_user_profile_detail( $view_uid ) {
                     ⚡ Tạo cả 2 bản đồ
                 </button>
                 <?php if ( ! $astro_row || ! $astro_row['birth_time'] ): ?>
-                    <p style="color:#dc2626;font-size:11px;margin:0;">⚠️ User chưa khai báo giờ sinh. Không thể tạo bản đồ.</p>
+                    <p style="color:#dc2626;font-size:11px;margin:0;">⚠️ User chưa khai báo giờ sinh. Bấm "✏️ Sửa" ở thẻ bên cạnh để bổ sung.</p>
                 <?php endif; ?>
             </form>
         </div>
     </div>
+    <?php endif; ?>
 
     <!-- ══════════ TOOLBAR: AI Reports + Transit + Public Links ══════════ -->
     <?php if ( $has_western || $has_vedic ): ?>

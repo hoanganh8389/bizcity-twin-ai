@@ -5,7 +5,7 @@
  * Description:       AI tạo mindmap, flowchart, sơ đồ quy trình từ prompt. Lưu + xem dưới dạng Mermaid, kèm trang editor tương tác mobile-first.
  * Short Description: Chat để vẽ mindmap, flowchart, lưu đồ bằng AI — xem & chỉnh sửa online.
  * Quick View:        🧠 Nhập mô tả → AI vẽ mindmap/flow → Xem & Chỉnh sửa
- * Version:           1.0.0
+ * Version:           1.0.1
  * Requires at least: 6.3
  * Requires PHP:      7.4
  * Author:            BizCity
@@ -59,7 +59,7 @@ if ( ! defined( 'BIZCITY_TWIN_AI_VERSION' ) ) {
 
 define( 'BZTOOL_MINDMAP_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'BZTOOL_MINDMAP_URL',     plugin_dir_url( __FILE__ ) );
-define( 'BZTOOL_MINDMAP_VERSION', '1.0.0' );
+define( 'BZTOOL_MINDMAP_VERSION', '1.0.1' );
 define( 'BZTOOL_MINDMAP_SLUG',    'bizcity-tool-mindmap' );
 
 require_once BZTOOL_MINDMAP_DIR . 'includes/class-tools-mindmap.php';
@@ -195,16 +195,24 @@ add_action( 'bizcity_intent_register_providers', function ( $registry ) {
 
 /* ══════════════════════════════════════════════════════════════
  *  Register as Notebook Tool — BCN_Notebook_Tool_Registry
- *  Allows Companion Notebook Studio to delegate mindmap creation.
+ *  Allows Companion Notebook Studio to delegate diagram creation.
+ *
+ *  NOTE (2026-04-29): trước đây tool này đăng ký type='mindmap' và
+ *  vô tình ghi đè đăng ký 'mindmap' của `bizcity-doc` (cùng priority 10,
+ *  load sau) → Studio panel "Sơ đồ tư duy" mở Mermaid thay vì bzdoc
+ *  mindmap interactive. Đổi sang type='flowchart' / label "Lưu đồ quy
+ *  trình" để giải phóng slot 'mindmap' cho bzdoc.
  * ══════════════════════════════════════════════════════════════ */
 add_action( 'bcn_register_notebook_tools', function ( $registry ) {
     $registry->add( [
-        'type'      => 'mindmap',
-        'label'     => 'Bản đồ tư duy',
-        'icon'      => '🗺️',
-        'color'     => 'pink',
-        'mode'      => 'delegate',
-        'available' => true,
+        'type'        => 'flowchart',
+        'label'       => 'Lưu đồ quy trình',
+        'description' => 'Mermaid flowchart từ Graph-RAG + skeleton (graph TD)',
+        'icon'        => '🔀',
+        'color'       => 'blue',
+        'category'    => 'visual',
+        'mode'        => 'delegate',
+        'available'   => true,
         'callback'  => function ( array $skeleton ) {
             // Adapter: Skeleton JSON → create_diagram.
             // Build rich topic from skeleton structure instead of raw text.

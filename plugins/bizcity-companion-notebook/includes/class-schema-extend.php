@@ -16,7 +16,7 @@ defined( 'ABSPATH' ) || exit;
  * memory_notes, webchat_studio_outputs
  */
 class BCN_Schema_Extend {
-    const SCHEMA_VERSION = '5.6.0';
+    const SCHEMA_VERSION = '5.7.0';
     const OPTION_KEY     = 'bcn_schema_version';
 
     public static function table_sources() {
@@ -44,6 +44,11 @@ class BCN_Schema_Extend {
         return $wpdb->prefix . 'bizcity_webchat_studio_outputs';
     }
 
+    public static function table_studio_jobs() {
+        global $wpdb;
+        return $wpdb->prefix . 'bizcity_webchat_studio_jobs';
+    }
+
     public static function table_project_skeletons() {
         global $wpdb;
         return $wpdb->prefix . 'bizcity_webchat_project_skeletons';
@@ -67,6 +72,7 @@ class BCN_Schema_Extend {
             self::migrate_v54();
             self::migrate_v55();
             self::migrate_v56();
+            self::migrate_v57();
             update_option( self::OPTION_KEY, self::SCHEMA_VERSION );
         }
     }
@@ -499,6 +505,65 @@ class BCN_Schema_Extend {
             KEY idx_user (user_id)
         ) {$charset};";
         dbDelta( $sql6 );
+
+        // ── webchat_studio_jobs (v5.7.0) ──
+        $t7 = self::table_studio_jobs();
+        $sql7 = "CREATE TABLE {$t7} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            project_id VARCHAR(64) NOT NULL DEFAULT '',
+            user_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+            tool_type VARCHAR(64) NOT NULL DEFAULT '',
+            dispatch_mode ENUM('dispatch','async','wait') NOT NULL DEFAULT 'async',
+            status ENUM('pending','processing','done','failed') NOT NULL DEFAULT 'pending',
+            payload_json LONGTEXT COMMENT 'Skeleton JSON — written by worker before executing bridge',
+            output_id BIGINT UNSIGNED DEFAULT NULL COMMENT 'FK studio_outputs.id — set when done',
+            result_url VARCHAR(2048) NOT NULL DEFAULT '',
+            result_data LONGTEXT COMMENT 'Bridge result JSON',
+            error_message TEXT,
+            started_at DATETIME DEFAULT NULL,
+            completed_at DATETIME DEFAULT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            KEY idx_project_tool (project_id, tool_type),
+            KEY idx_status (status, updated_at),
+            KEY idx_user (user_id)
+        ) {$charset};";
+        dbDelta( $sql7 );
+    }
+
+    /**
+     * Migration v5.7.0 — Create studio_jobs table (standalone dispatch via dbDelta).
+     * extend_tables() already covers fresh installs; this handles existing sites.
+     */
+    private static function migrate_v57() {
+        global $wpdb;
+        $t = self::table_studio_jobs();
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$t}'" ) ) return; // already exists
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        $charset = $wpdb->get_charset_collate();
+        $sql = "CREATE TABLE {$t} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            project_id VARCHAR(64) NOT NULL DEFAULT '',
+            user_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+            tool_type VARCHAR(64) NOT NULL DEFAULT '',
+            dispatch_mode ENUM('dispatch','async','wait') NOT NULL DEFAULT 'async',
+            status ENUM('pending','processing','done','failed') NOT NULL DEFAULT 'pending',
+            payload_json LONGTEXT,
+            output_id BIGINT UNSIGNED DEFAULT NULL,
+            result_url VARCHAR(2048) NOT NULL DEFAULT '',
+            result_data LONGTEXT,
+            error_message TEXT,
+            started_at DATETIME DEFAULT NULL,
+            completed_at DATETIME DEFAULT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            KEY idx_project_tool (project_id, tool_type),
+            KEY idx_status (status, updated_at),
+            KEY idx_user (user_id)
+        ) {$charset};";
+        dbDelta( $sql );
     }
 
     public static function drop_extended_tables() {
@@ -508,6 +573,7 @@ class BCN_Schema_Extend {
         $wpdb->query( "DROP TABLE IF EXISTS " . self::table_source_extractor() );
         $wpdb->query( "DROP TABLE IF EXISTS " . self::table_notes() );
         $wpdb->query( "DROP TABLE IF EXISTS " . self::table_studio_outputs() );
+        $wpdb->query( "DROP TABLE IF EXISTS " . self::table_studio_jobs() );
         $wpdb->query( "DROP TABLE IF EXISTS " . self::table_project_skeletons() );
         $wpdb->query( "DROP TABLE IF EXISTS " . self::table_research_jobs() );
         delete_option( self::OPTION_KEY );

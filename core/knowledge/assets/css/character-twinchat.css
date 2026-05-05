@@ -1,0 +1,450 @@
+/**!
+ * Bizcity Twin AI — Character Admin (TwinChat Skin)
+ * Sprint 0.18.A.2 — Light / minimal restyle aligned with twinchat widget tokens.
+ * Loaded AFTER admin.css + character-edit.css to override loud gradients,
+ * oversized headings, and bright accent buttons. Keeps the same DOM/classes.
+ *
+ * Token source: modules/webchat/assets/css/widget.css
+ *
+ * @package Bizcity_Twin_AI\Knowledge
+ * @since   1.3.3
+ */
+
+/* ── Design tokens (mirror twinchat) ───────────────────────────────────── */
+.bk-character-edit-wrap,
+.bk-char-grid,
+.bk-empty-characters {
+    --bk-primary:        #1976e7;
+    --bk-primary-hover:  #1565d8;
+    --bk-primary-soft:   #dbeafe;
+    --bk-bg:             #ffffff;
+    --bk-bg-soft:        #f6f7fb;
+    --bk-border:         #ececec;
+    --bk-border-strong:  #d8dade;
+    --bk-text:           #1b1b23;
+    --bk-text-soft:      #6b7280;
+    --bk-text-muted:     #9ca3af;
+    --bk-success:        #10b981;
+    --bk-error:          #d02828;
+    --bk-warning:        #f59e0b;
+    --bk-radius:         10px;
+    --bk-radius-sm:      6px;
+    --bk-shadow:         0 1px 2px rgba(15,23,42,.04), 0 1px 1px rgba(15,23,42,.03);
+    --bk-shadow-hover:   0 4px 12px rgba(15,23,42,.06);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    color: var(--bk-text);
+}
+
+/* ─────────────────────────────────────────────────────────────────────── */
+/* CHARACTER LIST PAGE                                                     */
+/* ─────────────────────────────────────────────────────────────────────── */
+
+.wrap > h1.wp-heading-inline {
+    font-size: 20px;
+    font-weight: 600;
+    color: #1b1b23;
+}
+
+/* "Import JSON" button: drop the bright cyan/blue inline fill */
+.bk-import-json-btn,
+.bk-import-json-btn:hover,
+.bk-import-json-btn:focus {
+    background: #fff !important;
+    color: #1976e7 !important;
+    border: 1px solid #1976e7 !important;
+    box-shadow: none !important;
+}
+.bk-import-json-btn .dashicons {
+    color: #1976e7 !important;
+}
+
+.bk-char-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 16px;
+    margin-top: 16px;
+}
+
+.bk-char-card {
+    background: var(--bk-bg);
+    border: 1px solid var(--bk-border);
+    border-radius: var(--bk-radius);
+    padding: 18px;
+    box-shadow: var(--bk-shadow);
+    transition: box-shadow .15s ease, border-color .15s ease, transform .15s ease;
+}
+
+.bk-char-card:hover {
+    box-shadow: var(--bk-shadow-hover);
+    border-color: var(--bk-border-strong);
+    transform: translateY(-1px);
+}
+
+.bk-char-card-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+
+.bk-char-card-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    overflow: hidden;
+    background: var(--bk-bg-soft);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: 20px;
+    border: 1px solid var(--bk-border);
+}
+.bk-char-card-avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+.bk-char-card-title { font-size: 14px; font-weight: 600; color: var(--bk-text); line-height: 1.3; }
+.bk-char-card-slug { font-size: 12px; color: var(--bk-text-muted); margin-top: 2px; }
+
+.bk-char-card-desc {
+    font-size: 13px;
+    color: var(--bk-text-soft);
+    line-height: 1.5;
+    margin: 8px 0 12px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.bk-char-card-stats {
+    display: flex;
+    gap: 14px;
+    font-size: 12px;
+    color: var(--bk-text-soft);
+    padding-top: 10px;
+    border-top: 1px solid var(--bk-border);
+}
+
+.bk-char-card-meta { margin-top: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+.bk-shortcode-text {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px;
+    background: var(--bk-bg-soft);
+    border: 1px solid var(--bk-border);
+    color: var(--bk-text-soft);
+    padding: 4px 8px;
+    border-radius: var(--bk-radius-sm);
+}
+
+.bk-char-card-actions { margin-top: 12px; display: flex; gap: 6px; }
+.bk-char-card-actions .button { font-size: 12px; padding: 4px 10px; height: auto; line-height: 1.6; }
+
+/* Status badge: less shouty */
+.status-badge,
+.bk-status {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px !important;
+    font-size: 11px !important;
+    font-weight: 500 !important;
+    text-transform: none !important;
+    letter-spacing: 0;
+    border-radius: 999px !important;
+    line-height: 1.5 !important;
+}
+.status-active, .bk-status-active, .bk-status-published, .status-published {
+    background: #ecfdf5 !important; color: #047857 !important;
+}
+.status-draft, .bk-status-draft { background: var(--bk-bg-soft) !important; color: var(--bk-text-soft) !important; }
+.status-archived, .bk-status-archived { background: #fef2f2 !important; color: #b91c1c !important; }
+.bk-status-ready { background: var(--bk-primary-soft) !important; color: var(--bk-primary) !important; }
+.bk-status-processing { background: #fff7ed !important; color: #c2410c !important; }
+.bk-status-error { background: #fef2f2 !important; color: var(--bk-error) !important; }
+
+/* ─────────────────────────────────────────────────────────────────────── */
+/* CHARACTER EDIT PAGE                                                     */
+/* ─────────────────────────────────────────────────────────────────────── */
+
+.bk-character-edit-wrap { max-width: 1240px; margin: 0 auto; }
+
+.bk-character-header {
+    background: var(--bk-bg);
+    border: 1px solid var(--bk-border);
+    border-radius: var(--bk-radius) var(--bk-radius) 0 0;
+    padding: 14px 20px;
+    box-shadow: none;
+}
+
+.bk-character-avatar-mini {
+    width: 44px;
+    height: 44px;
+    border: 1px solid var(--bk-border);
+    background: var(--bk-bg-soft);
+}
+.bk-avatar-placeholder { font-size: 22px; }
+
+.bk-header-info h1 {
+    font-size: 17px;
+    font-weight: 600;
+    margin: 0 0 4px 0;
+    color: var(--bk-text);
+}
+.bk-character-meta { font-size: 12px; color: var(--bk-text-soft); }
+
+/* Header buttons — strip all bright fills, use ghost / single-accent */
+.bk-character-header .button,
+.bk-character-header .button-large {
+    background: #fff !important;
+    color: var(--bk-text) !important;
+    border: 1px solid var(--bk-border-strong) !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+    height: auto !important;
+    line-height: 1.6 !important;
+    padding: 6px 12px !important;
+    font-size: 13px !important;
+    font-weight: 500 !important;
+    border-radius: var(--bk-radius-sm) !important;
+}
+.bk-character-header .button:hover {
+    background: var(--bk-bg-soft) !important;
+    border-color: var(--bk-text-muted) !important;
+    color: var(--bk-text) !important;
+}
+.bk-character-header .button .dashicons {
+    color: var(--bk-text-soft) !important;
+    font-size: 16px !important;
+    width: 16px !important;
+    height: 16px !important;
+    margin-top: 2px;
+}
+
+/* Save = the ONLY accented action */
+.bk-character-header .bk-save-btn,
+.bk-character-header .bk-save-btn:focus {
+    background: var(--bk-primary) !important;
+    border-color: var(--bk-primary) !important;
+    color: #fff !important;
+    font-weight: 600 !important;
+}
+.bk-character-header .bk-save-btn:hover {
+    background: var(--bk-primary-hover) !important;
+    border-color: var(--bk-primary-hover) !important;
+    opacity: 1 !important;
+}
+.bk-character-header .bk-save-btn .dashicons { color: #fff !important; }
+
+/* Kill the gradient backgrounds elsewhere */
+.bk-prompt-templates {
+    background: var(--bk-bg-soft) !important;
+    border: 1px solid var(--bk-border) !important;
+}
+.bk-insert-template:hover {
+    background: var(--bk-primary) !important;
+    border-color: var(--bk-primary) !important;
+    color: #fff !important;
+    transform: none !important;
+    box-shadow: none !important;
+}
+
+/* Tabs — slimmer + accent on twinchat blue (replaces purple #6366f1) */
+.bk-tabs-nav {
+    border: 1px solid var(--bk-border);
+    border-top: none;
+    padding: 0 10px;
+    gap: 0;
+}
+.bk-tab-btn {
+    padding: 10px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--bk-text-soft);
+    border-bottom: 2px solid transparent;
+}
+.bk-tab-btn:hover { background: var(--bk-bg-soft); color: var(--bk-text); }
+.bk-tab-btn.active {
+    color: var(--bk-primary);
+    border-bottom-color: var(--bk-primary);
+    background: transparent;
+}
+.bk-tab-btn .dashicons { font-size: 16px; width: 16px; height: 16px; }
+.bk-tab-count {
+    background: var(--bk-bg-soft);
+    color: var(--bk-text-soft);
+    border-radius: 999px;
+    font-size: 11px;
+    padding: 1px 7px;
+    min-width: 18px;
+}
+.bk-tab-btn.active .bk-tab-count {
+    background: var(--bk-primary-soft);
+    color: var(--bk-primary);
+}
+
+.bk-tab-content {
+    border: 1px solid var(--bk-border);
+    border-top: none;
+    border-radius: 0 0 var(--bk-radius) var(--bk-radius);
+}
+.bk-tab-inner { padding: 22px; }
+.bk-tab-inner h2 {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--bk-text);
+    margin: 0 0 4px 0;
+}
+.bk-tab-inner .description { color: var(--bk-text-soft); font-size: 13px; }
+
+/* Tables / footers inside tabs */
+.bk-editable-table {
+    border: 1px solid var(--bk-border);
+    border-radius: var(--bk-radius-sm);
+    overflow: hidden;
+    background: #fff;
+}
+.bk-editable-table th {
+    background: var(--bk-bg-soft);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--bk-text-soft);
+    text-transform: uppercase;
+    letter-spacing: .02em;
+}
+.bk-table-footer {
+    margin-top: 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.bk-table-footer .button-primary {
+    background: var(--bk-primary) !important;
+    border-color: var(--bk-primary) !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+}
+.bk-row-count { font-size: 12px; color: var(--bk-text-soft); margin-left: auto; }
+
+/* Inputs — match WP defaults but tighter radius */
+.bk-character-edit-wrap input[type="text"],
+.bk-character-edit-wrap input[type="url"],
+.bk-character-edit-wrap input[type="number"],
+.bk-character-edit-wrap select,
+.bk-character-edit-wrap textarea {
+    border: 1px solid var(--bk-border-strong);
+    border-radius: var(--bk-radius-sm);
+    box-shadow: none;
+    font-size: 13px;
+}
+.bk-character-edit-wrap input:focus,
+.bk-character-edit-wrap select:focus,
+.bk-character-edit-wrap textarea:focus {
+    border-color: var(--bk-primary);
+    box-shadow: 0 0 0 1px var(--bk-primary-soft);
+    outline: none;
+}
+
+/* Empty states */
+.bk-empty-state, .bk-empty-row td, .bk-empty-characters {
+    color: var(--bk-text-muted) !important;
+}
+
+/* ── Sprint 0.18.A.4 — Upload progress + Website console ─────────────── */
+.bk-progress-panel {
+    margin: 12px 0 18px;
+    padding: 12px 14px;
+    background: #fff;
+    border: 1px solid var(--bk-border, #ececec);
+    border-radius: 8px;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+}
+.bk-progress-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--bk-text, #1b1b23);
+    margin-bottom: 8px;
+}
+.bk-progress-counter {
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
+    color: var(--bk-text-muted, #6b7280);
+    font-size: 12px;
+}
+.bk-progress-bar {
+    height: 6px;
+    background: #f1f5f9;
+    border-radius: 999px;
+    overflow: hidden;
+    margin-bottom: 8px;
+}
+.bk-progress-bar-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #1976e7, #60a5fa);
+    transition: width .25s ease;
+}
+.bk-progress-log {
+    list-style: none;
+    margin: 0;
+    padding: 6px 8px;
+    max-height: 140px;
+    overflow-y: auto;
+    background: #fafbfc;
+    border: 1px solid #eef0f3;
+    border-radius: 6px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11.5px;
+    line-height: 1.55;
+}
+.bk-progress-line { padding: 1px 0; color: #475569; }
+.bk-progress-ok    { color: #047857; }
+.bk-progress-error { color: #b91c1c; }
+.bk-progress-warn  { color: #b45309; }
+
+@keyframes bk-spin { to { transform: rotate(360deg); } }
+.bk-spin { animation: bk-spin 1.1s linear infinite; display: inline-block; }
+
+/* Website console */
+.bk-console {
+    margin-top: 12px;
+    margin-bottom: 18px;
+    border: 1px solid var(--bk-border, #ececec);
+    border-radius: 8px;
+    background: #0f172a;
+    color: #e2e8f0;
+    overflow: hidden;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, .06);
+}
+.bk-console-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: #1e293b;
+    color: #f1f5f9;
+    font-size: 12.5px;
+    border-bottom: 1px solid #334155;
+}
+.bk-console-header .dashicons { color: #94a3b8; }
+.bk-console-clear {
+    margin-left: auto;
+    color: #94a3b8 !important;
+    text-decoration: none !important;
+    font-size: 11.5px;
+}
+.bk-console-clear:hover { color: #f1f5f9 !important; }
+.bk-console-body {
+    padding: 8px 12px;
+    max-height: 220px;
+    overflow-y: auto;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.55;
+}
+.bk-console-line { white-space: pre-wrap; word-break: break-word; padding: 1px 0; }
+.bk-console-info  { color: #cbd5e1; }
+.bk-console-ok    { color: #34d399; }
+.bk-console-warn  { color: #fbbf24; }
+.bk-console-error { color: #f87171; }

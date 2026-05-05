@@ -877,9 +877,10 @@ function bccm_ai_generate_reminder($type, $coachee, $week_data, $next_week, $wee
   ), ARRAY_A);
   if (!$character || empty($character['system_prompt'])) return false;
 
-  // BizGPT proxy token
-  $proxy_token = get_option('bizgpt_api', '');
-  if (empty($proxy_token)) return false;
+  // PHASE-0-RULE-SMART-GATEWAY-MIGRATION: dùng BizCity LLM Router thay cho proxy bizgpt.vn cũ.
+  if ( ! class_exists( 'BizCity_LLM_Client' ) ) return false;
+  $bccm_llm_client = BizCity_LLM_Client::instance();
+  if ( ! $bccm_llm_client->is_ready() ) return false;
 
   $name       = $coachee['full_name'] ?? 'Chủ nhân';
   $coach_type = $coachee['coach_type'] ?? 'biz_coach';
@@ -928,37 +929,33 @@ function bccm_ai_generate_reminder($type, $coachee, $week_data, $next_week, $wee
       . (!empty($next_week) ? "\n\nDỮ LIỆU TUẦN KẾ TIẾP:\n" . wp_json_encode($next_week, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) : '');
   }
 
-  // Call BizGPT proxy
-  $model   = get_option('bizgpt_model', 'gpt-4.1-nano');
-  $payload = [
-    'model'       => $model,
-    'messages'    => [
+  // Call qua BizCity LLM Router
+  $model_opt = get_option('bizgpt_model', '');
+  $model     = $model_opt ?: ( $bccm_llm_client->get_model('chat') ?: 'gpt-4o-mini' );
+
+  $result = $bccm_llm_client->chat(
+    [
       ['role' => 'system', 'content' => $system],
       ['role' => 'user',   'content' => $user_prompt],
     ],
-    'max_tokens'  => 2000,
-    'temperature' => min(max($temp, 0.3), 1.0),
-  ];
+    [
+      'purpose'     => 'chat',
+      'model'       => $model,
+      'max_tokens'  => 2000,
+      'temperature' => min(max($temp, 0.3), 1.0),
+      'timeout'     => 60,
+    ]
+  );
 
-  $response = wp_remote_post('https://bizgpt.vn/wp-json/bizgpt/chat', [
-    'headers' => [
-      'Authorization' => 'Bearer ' . $proxy_token,
-      'Content-Type'  => 'application/json',
-    ],
-    'body'    => wp_json_encode($payload),
-    'timeout' => 60,
-  ]);
-
-  if (is_wp_error($response)) {
-    error_log('[BCCM Reminder AI] HTTP error: ' . $response->get_error_message());
+  if ( empty( $result['success'] ) ) {
+    error_log('[BCCM Reminder AI] Router error: ' . ( $result['error'] ?? 'unknown' ));
     return false;
   }
 
-  $body = json_decode(wp_remote_retrieve_body($response), true);
-  $text = trim($body['choices'][0]['message']['content'] ?? '');
+  $text = trim( (string) ( $result['message'] ?? '' ) );
 
   if (empty($text)) {
-    error_log('[BCCM Reminder AI] Empty response from API');
+    error_log('[BCCM Reminder AI] Empty response from Router');
     return false;
   }
 

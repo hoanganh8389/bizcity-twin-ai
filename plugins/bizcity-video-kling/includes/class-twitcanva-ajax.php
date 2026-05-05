@@ -143,108 +143,6 @@ class BizCity_TwitCanva_Ajax {
     }
 
     /**
-     * Ensure a media URL has a clean filename safe for external APIs.
-     * PiAPI's URL parser breaks on parentheses/brackets in filenames.
-     *
-     * Strategy:
-     *   1) Try to find the WP attachment → copy local file with clean name
-     *   2) Fallback: download from CDN → re-upload with clean name
-     *   3) Fallback: download from wp-content URL → re-upload
-     *
-     * @param string $url  Media URL (local CDN or external).
-     * @return string       Clean URL (or original if already clean / on failure).
-     */
-    private static function sanitize_url_for_api( string $url ): string {
-        $path     = wp_parse_url( $url, PHP_URL_PATH ) ?: '';
-        $filename = basename( $path );
-
-        // Only act if filename has chars that break external API URL parsers
-        if ( ! preg_match( '/[() \[\]{}]/', $filename ) ) {
-            return $url;
-        }
-
-        error_log( '[BVK] sanitize_url_for_api: DIRTY URL detected: ' . $url );
-
-        require_once ABSPATH . 'wp-admin/includes/file.php';
-        require_once ABSPATH . 'wp-admin/includes/media.php';
-        require_once ABSPATH . 'wp-admin/includes/image.php';
-
-        $clean = sanitize_file_name( $filename );
-        error_log( '[BVK] sanitize_url_for_api: clean filename = ' . $clean );
-
-        // ── Method 1: Find WP attachment, copy local file ──
-        $site_host = wp_parse_url( home_url(), PHP_URL_HOST ) ?: '';
-        $wp_url    = $url;
-        if ( $site_host ) {
-            // Convert media.bizcity.vn/uploads/… → bizcity.vn/wp-content/uploads/…
-            $wp_url = str_replace(
-                'media.' . $site_host . '/uploads/',
-                $site_host . '/wp-content/uploads/',
-                $url
-            );
-        }
-        $att_id = attachment_url_to_postid( $wp_url );
-        error_log( '[BVK] sanitize_url_for_api: attachment lookup att_id=' . $att_id . ' wp_url=' . $wp_url );
-
-        if ( $att_id > 0 ) {
-            $file_path = get_attached_file( $att_id );
-            if ( $file_path && file_exists( $file_path ) ) {
-                error_log( '[BVK] sanitize_url_for_api: local file exists: ' . $file_path );
-                $upload_dir = wp_upload_dir();
-                $dest_name  = wp_unique_filename( $upload_dir['path'], $clean );
-                $dest_path  = $upload_dir['path'] . '/' . $dest_name;
-                if ( @copy( $file_path, $dest_path ) ) {
-                    $mime    = wp_check_filetype( $dest_path )['type'] ?: 'image/jpeg';
-                    $new_att = wp_insert_attachment( [
-                        'post_mime_type' => $mime,
-                        'post_title'     => pathinfo( $clean, PATHINFO_FILENAME ),
-                        'post_status'    => 'inherit',
-                    ], $dest_path );
-                    if ( ! is_wp_error( $new_att ) && $new_att > 0 ) {
-                        wp_update_attachment_metadata( $new_att, wp_generate_attachment_metadata( $new_att, $dest_path ) );
-                        $new_url = wp_get_attachment_url( $new_att );
-                        if ( $new_url ) {
-                            $result = self::to_media_url( $new_url );
-                            error_log( '[BVK] sanitize_url_for_api: SUCCESS via local copy → ' . $result );
-                            return $result;
-                        }
-                    }
-                }
-                error_log( '[BVK] sanitize_url_for_api: local copy failed' );
-            } else {
-                error_log( '[BVK] sanitize_url_for_api: local file not found (R2 offloaded?)' );
-            }
-        }
-
-        // ── Method 2: Download from URL(s) → re-upload ──
-        $urls_to_try = array_unique( [ $url, $wp_url ] );
-        foreach ( $urls_to_try as $try_url ) {
-            error_log( '[BVK] sanitize_url_for_api: trying download from ' . $try_url );
-            $tmp = download_url( $try_url, 30 );
-            if ( is_wp_error( $tmp ) ) {
-                error_log( '[BVK] sanitize_url_for_api: download FAILED — ' . $tmp->get_error_message() );
-                continue;
-            }
-
-            error_log( '[BVK] sanitize_url_for_api: download OK, sideloading as ' . $clean );
-            $new_att = media_handle_sideload( [ 'name' => $clean, 'tmp_name' => $tmp ], 0 );
-            if ( is_wp_error( $new_att ) ) {
-                @unlink( $tmp );
-                error_log( '[BVK] sanitize_url_for_api: sideload FAILED — ' . $new_att->get_error_message() );
-                continue;
-            }
-
-            $new_url = wp_get_attachment_url( $new_att ) ?: $url;
-            $result  = self::to_media_url( $new_url );
-            error_log( '[BVK] sanitize_url_for_api: SUCCESS via download → ' . $result );
-            return $result;
-        }
-
-        error_log( '[BVK] sanitize_url_for_api: ALL METHODS FAILED, using original: ' . $url );
-        return $url;
-    }
-
-    /**
      * Check if a URL is a local (own domain) URL.
      */
     private static function is_local_url( string $url ): bool {
@@ -1026,7 +924,6 @@ class BizCity_TwitCanva_Ajax {
 
         // Use wp_get_attachment_url() so R2/CDN offload URL is returned (not the deleted local path)
         $public_url = wp_get_attachment_url( $attach_id ) ?: $upload['url'];
-        $public_url = self::to_media_url( $public_url );
 
         wp_send_json_success( [
             'url'          => $public_url,
@@ -2182,14 +2079,6 @@ class BizCity_TwitCanva_Ajax {
             wp_send_json_error( [ 'message' => 'audio_url là bắt buộc.' ] );
         }
 
-        // Convert wp-content/uploads/ URLs to public CDN URLs so PiAPI can download them
-        $image_url = self::to_media_url( $image_url );
-        $audio_url = self::to_media_url( $audio_url );
-
-        // Re-upload with clean filename if it contains chars that break PiAPI (e.g. parentheses)
-        $image_url = self::sanitize_url_for_api( $image_url );
-        $audio_url = self::sanitize_url_for_api( $audio_url );
-
         if ( ! function_exists( 'waic_kling_get_api_config' ) || ! function_exists( 'waic_kling_http_post' ) ) {
             wp_send_json_error( [ 'message' => 'PiAPI library not loaded.' ] );
         }
@@ -2232,10 +2121,13 @@ class BizCity_TwitCanva_Ajax {
 
         // Build URL and headers based on mode
         if ( ( $cfg['mode'] ?? 'direct' ) === 'gateway' ) {
-            // Gateway mode: $cfg['endpoint'] = https://bizcity.vn/wp-json/bizcity/llmhub/v1/video
-            // /video/task accepts any raw PiAPI payload (no prompt required — supports avatar/omni-human)
-            $url     = rtrim( $cfg['endpoint'], '/' ) . '/task';
-            $headers = [
+            // Gateway mode: use the bzvideo/v1/proxy/task endpoint which
+            // transparently forwards the raw PiAPI payload through the hub.
+            // Do NOT use /video/generate — that route requires a `prompt` field
+            // and does not support avatar task_type.
+            $hub_base = preg_replace( '#/wp-json/.*$#', '', rtrim( $cfg['endpoint'], '/' ) );
+            $url      = $hub_base . '/wp-json/bzvideo/v1/proxy/task';
+            $headers  = [
                 'Content-Type'  => 'application/json',
                 'Authorization' => 'Bearer ' . $cfg['api_key'],
             ];
@@ -2243,7 +2135,7 @@ class BizCity_TwitCanva_Ajax {
             $payload['site_url']    = home_url();
         } else {
             // Direct PiAPI mode
-            $url     = 'https://api.piapi.ai/api/v1/task';
+            $url     = rtrim( $cfg['endpoint'], '/' ) . '/task';
             $headers = [
                 'Content-Type' => 'application/json',
                 'X-API-Key'    => $cfg['api_key'],
@@ -2251,9 +2143,6 @@ class BizCity_TwitCanva_Ajax {
         }
 
         $result = waic_kling_http_post( $url, $headers, $payload, $cfg['timeout'] ?? 30 );
-
-        error_log( '[BVK] avatar_create: FINAL image_url=' . ( $payload['input']['image_url'] ?? 'n/a' ) );
-        error_log( '[BVK] avatar_create: FINAL audio_url=' . ( $payload['input']['local_dubbing_url'] ?? $payload['input']['audio_url'] ?? 'n/a' ) );
 
         // Extract task_id from response
         $task_id = $result['data']['data']['task_id']
@@ -2300,12 +2189,13 @@ class BizCity_TwitCanva_Ajax {
 
         // Build URL and headers based on mode
         if ( ( $cfg['mode'] ?? 'direct' ) === 'gateway' ) {
-            // Gateway mode: poll via /video/status on the hub
-            $url     = rtrim( $cfg['endpoint'], '/' ) . '/status?task_id=' . rawurlencode( $task_id );
-            $headers = [ 'Authorization' => 'Bearer ' . $cfg['api_key'] ];
+            // Gateway mode: poll via the proxy endpoint on the hub
+            $hub_base = preg_replace( '#/wp-json/.*$#', '', rtrim( $cfg['endpoint'], '/' ) );
+            $url      = $hub_base . '/wp-json/bzvideo/v1/proxy/task/' . rawurlencode( $task_id );
+            $headers  = [ 'Authorization' => 'Bearer ' . $cfg['api_key'] ];
         } else {
             // Direct PiAPI mode
-            $url     = 'https://api.piapi.ai/api/v1/task/' . rawurlencode( $task_id );
+            $url     = rtrim( $cfg['endpoint'], '/' ) . '/task/' . rawurlencode( $task_id );
             $headers = [ 'X-API-Key' => $cfg['api_key'] ];
         }
 
@@ -2349,13 +2239,9 @@ class BizCity_TwitCanva_Ajax {
                 'resultUrl' => $video_url,
             ] );
         } elseif ( $norm_status === 'failed' ) {
-            $raw_err = $data['error'] ?? $data['message'] ?? 'Avatar task failed.';
-            if ( is_array( $raw_err ) ) {
-                $raw_err = $raw_err['raw_message'] ?? $raw_err['message'] ?? 'Avatar task failed.';
-            }
             wp_send_json_error( [
                 'status'  => 'failed',
-                'message' => $raw_err,
+                'message' => $data['error'] ?? $data['message'] ?? 'Avatar task failed.',
             ] );
         } else {
             wp_send_json_success( [

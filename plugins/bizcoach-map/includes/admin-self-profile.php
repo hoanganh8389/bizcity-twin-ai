@@ -96,8 +96,8 @@ function bccm_admin_my_profile() {
   // Astro data (Western + Vedic separate rows)
   // Query by user_id to share astro data across all platforms (WEBCHAT, ADMINCHAT, etc.)
   $t_astro   = $wpdb->prefix . 'bccm_astro';
-  $astro_row = $wpdb->get_row($wpdb->prepare("SELECT * FROM $t_astro WHERE user_id=%d AND chart_type='western'", $user_id), ARRAY_A);
-  $vedic_row = $wpdb->get_row($wpdb->prepare("SELECT * FROM $t_astro WHERE user_id=%d AND chart_type='vedic'", $user_id), ARRAY_A);
+  $astro_row = $wpdb->get_row($wpdb->prepare("SELECT * FROM $t_astro WHERE coachee_id=%d AND chart_type='western'", $coachee_id), ARRAY_A);
+  $vedic_row = $wpdb->get_row($wpdb->prepare("SELECT * FROM $t_astro WHERE coachee_id=%d AND chart_type='vedic'", $coachee_id), ARRAY_A);
   // For birth data, use whichever row exists
   if (!$astro_row) $astro_row = $vedic_row;
 
@@ -127,7 +127,7 @@ function bccm_admin_my_profile() {
     if ($birth_place || $birth_time) {
       // Update birth data on all chart_type rows for this user (by user_id to share across platforms)
       $existing_astro = $wpdb->get_var($wpdb->prepare(
-        "SELECT id FROM {$wpdb->prefix}bccm_astro WHERE user_id=%d AND chart_type='western'", $user_id
+        "SELECT id FROM {$wpdb->prefix}bccm_astro WHERE coachee_id=%d AND chart_type='western'", $coachee_id
       ));
       $astro_row_data = [
         'birth_place' => $birth_place,
@@ -138,20 +138,19 @@ function bccm_admin_my_profile() {
         'updated_at'  => current_time('mysql'),
       ];
       if ($existing_astro) {
-        $wpdb->update($wpdb->prefix . 'bccm_astro', $astro_row_data, ['user_id' => $user_id, 'chart_type' => 'western']);
+        $wpdb->update($wpdb->prefix . 'bccm_astro', $astro_row_data, ['coachee_id' => $coachee_id, 'chart_type' => 'western']);
       } else {
         $astro_row_data['coachee_id'] = $coachee_id;
-        $astro_row_data['user_id']    = $user_id;
         $astro_row_data['chart_type'] = 'western';
         $astro_row_data['created_at'] = current_time('mysql');
         $wpdb->insert($wpdb->prefix . 'bccm_astro', $astro_row_data);
       }
       // Also update vedic row birth data if it exists
       $existing_vedic = $wpdb->get_var($wpdb->prepare(
-        "SELECT id FROM {$wpdb->prefix}bccm_astro WHERE user_id=%d AND chart_type='vedic'", $user_id
+        "SELECT id FROM {$wpdb->prefix}bccm_astro WHERE coachee_id=%d AND chart_type='vedic'", $coachee_id
       ));
       if ($existing_vedic) {
-        $wpdb->update($wpdb->prefix . 'bccm_astro', $astro_row_data, ['user_id' => $user_id, 'chart_type' => 'vedic']);
+        $wpdb->update($wpdb->prefix . 'bccm_astro', $astro_row_data, ['coachee_id' => $coachee_id, 'chart_type' => 'vedic']);
       }
     }
 
@@ -269,8 +268,8 @@ function bccm_admin_my_profile() {
 
     // Refresh data
     $coachee  = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$t['profiles']} WHERE id=%d", $coachee_id), ARRAY_A);
-    $astro_row = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}bccm_astro WHERE user_id=%d AND chart_type='western'", $user_id), ARRAY_A);
-    $vedic_row = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}bccm_astro WHERE user_id=%d AND chart_type='vedic'", $user_id), ARRAY_A);
+    $astro_row = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}bccm_astro WHERE coachee_id=%d AND chart_type='western'", $coachee_id), ARRAY_A);
+    $vedic_row = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}bccm_astro WHERE coachee_id=%d AND chart_type='vedic'", $coachee_id), ARRAY_A);
   }
 
   $v = function($k) use($coachee) { return esc_attr($coachee[$k] ?? ''); };

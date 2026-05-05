@@ -36,6 +36,89 @@ class BizCity_Skill_Context {
 	}
 
 	/**
+	 * Phase 0.19.6.2 — Resolve the best skill for a single turn.
+	 *
+	 * Pure function for callers that need the matched skill BEFORE the system prompt
+	 * is built (e.g. TwinChat stream handler injecting per-skill tools into the
+	 * agent loop's allowed_tools). Does not mutate any global state.
+	 *
+	 * @param int         $notebook_id
+	 * @param int         $character_id
+	 * @param int         $user_id
+	 * @param string      $message        Raw user message for this turn.
+	 * @param string|null $slash_command  Optional explicit "/cmd" override.
+	 * @return array|null  {
+	 *     skill_id, skill_key, title, slash_command, archetype, score,
+	 *     tools (string[]), frontmatter, content_excerpt
+	 * }
+	 */
+	public function resolve_for_turn(
+		int $notebook_id,
+		int $character_id,
+		int $user_id,
+		string $message,
+		?string $slash_command = null
+	): ?array {
+		if ( ! class_exists( 'BizCity_Skill_Database' ) ) {
+			return null;
+		}
+
+		// Auto-detect slash from message if not provided
+		if ( ! $slash_command && preg_match( '/^\s*\/([a-z0-9_]+)/i', $message, $sm ) ) {
+			$slash_command = '/' . strtolower( $sm[1] );
+		}
+
+		$db    = BizCity_Skill_Database::instance();
+		$match = $db->find_matching( [
+			'character_id'  => $character_id,
+			'user_id'       => $user_id,
+			'slash_command' => (string) $slash_command,
+			'message'       => $message,
+			'limit'         => 1,
+		] );
+
+		if ( ! $match || empty( $match['id'] ) ) {
+			return null;
+		}
+
+		$frontmatter = [
+			'title'          => $match['title'] ?? '',
+			'category'       => $match['category'] ?? 'general',
+			'triggers'       => json_decode( $match['triggers_json'] ?? '[]', true ) ?: [],
+			'tools'          => json_decode( $match['tools_json']    ?? '[]', true ) ?: [],
+			'slash_commands' => array_filter( array_map( 'trim', explode( ',', $match['slash_commands'] ?? '' ) ) ),
+			'modes'          => array_filter( array_map( 'trim', explode( ',', $match['modes'] ?? '' ) ) ),
+			'priority'       => (int) ( $match['priority'] ?? 50 ),
+			'output_format'  => $match['output_format'] ?? '',
+		];
+
+		// Merge frontmatter.tools + body @tool_refs (Phase 0.19 §6 contract)
+		$tools = (array) $frontmatter['tools'];
+		if ( class_exists( 'BizCity_Skill_Recipe_Parser' ) ) {
+			$parsed = BizCity_Skill_Recipe_Parser::instance()->parse(
+				$match['content'] ?? '',
+				$frontmatter
+			);
+			if ( ! empty( $parsed['tool_refs'] ) ) {
+				$tools = array_merge( $tools, (array) $parsed['tool_refs'] );
+			}
+		}
+		$tools = array_values( array_unique( array_filter( array_map( 'strval', $tools ) ) ) );
+
+		return [
+			'skill_id'        => (int) $match['id'],
+			'skill_key'       => (string) ( $match['skill_key'] ?? '' ),
+			'title'           => (string) $frontmatter['title'],
+			'slash_command'   => (string) $slash_command,
+			'archetype'       => self::detect_archetype( $frontmatter ),
+			'score'           => (float) ( $match['_score'] ?? 0 ),
+			'tools'           => $tools,
+			'frontmatter'     => $frontmatter,
+			'content_excerpt' => mb_substr( (string) ( $match['content'] ?? '' ), 0, 240 ),
+		];
+	}
+
+	/**
 	 * Detect skill archetype from frontmatter.
 	 *
 	 * A = Knowledge-only (no tools)

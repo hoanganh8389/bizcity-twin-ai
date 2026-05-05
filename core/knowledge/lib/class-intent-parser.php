@@ -262,15 +262,18 @@ class BizCity_Intent_Parser {
     }
     
     /**
-     * Use AI to parse intent (when keyword matching fails)
+     * Use AI to parse intent — PHASE-0-RULE-SMART-GATEWAY-MIGRATION:
+     * đi qua BizCity LLM Router, không gọi thẳng api.openai.com.
      */
     private function ai_parse_intent($message, $character) {
-        $api_key = get_option('bizcity_knowledge_openai_key') ?: get_option('twf_openai_api_key');
-        
-        if (empty($api_key)) {
+        if ( ! class_exists( 'BizCity_LLM_Client' ) ) {
             return null;
         }
-        
+        $client = BizCity_LLM_Client::instance();
+        if ( ! $client->is_ready() ) {
+            return null;
+        }
+
         // Build intents list
         $db = BizCity_Knowledge_Database::instance();
         $intents = $db->get_intents($character->id);
@@ -290,30 +293,24 @@ class BizCity_Intent_Parser {
         $prompt .= "Các intent có thể:\n" . implode("\n", $intent_list) . "\n\n";
         $prompt .= "Trả lời theo format JSON: {\"intent\": \"<intent_name>\", \"confidence\": <0-1>, \"variables\": {...}}\n";
         $prompt .= "Chỉ trả lời JSON, không giải thích.";
-        
-        $response = wp_remote_post('https://api.openai.com/v1/chat/completions', [
-            'headers' => [
-                'Authorization' => 'Bearer ' . $api_key,
-                'Content-Type' => 'application/json',
+
+        $resp = $client->chat( [
+            [ 'role' => 'user', 'content' => $prompt ],
+        ], [
+            'purpose'     => 'classify',
+            'temperature' => 0.3,
+            'max_tokens'  => 200,
+            'timeout'     => 30,
+            'extra_body'  => [
+                'response_format' => [ 'type' => 'json_object' ],
             ],
-            'body' => json_encode([
-                'model' => 'gpt-4o-mini',
-                'messages' => [
-                    ['role' => 'user', 'content' => $prompt],
-                ],
-                'max_tokens' => 200,
-                'temperature' => 0.3,
-            ]),
-            'timeout' => 30,
-        ]);
-        
-        if (is_wp_error($response)) {
+        ] );
+
+        if ( empty( $resp['success'] ) ) {
             return null;
         }
-        
-        $body = json_decode(wp_remote_retrieve_body($response), true);
-        $content = $body['choices'][0]['message']['content'] ?? '';
-        
+        $content = (string) ( $resp['message'] ?? '' );
+
         // Parse JSON from response
         if (preg_match('/\{.+\}/s', $content, $matches)) {
             $parsed = json_decode($matches[0], true);

@@ -19,6 +19,7 @@ class BCN_Ajax_Handler {
         $actions = [
             'bcn_chat_stream'            => 'handle_chat_stream',
             'bcn_upload_source'          => 'handle_upload_source',
+            'bcn_upload_sources_batch'   => 'handle_upload_sources_batch',
             'bcn_pin_message'            => 'handle_pin_message',
             'bcn_generate_studio'        => 'handle_generate_studio',
             'bcn_generate_studio_status' => 'handle_generate_studio_status',
@@ -53,6 +54,47 @@ class BCN_Ajax_Handler {
         }
 
         wp_send_json_success( $sources->get( $id ) );
+    }
+
+    public function handle_upload_sources_batch() {
+        check_ajax_referer( 'bcn_ajax' );
+
+        $project_id = sanitize_text_field( $_POST['project_id'] ?? '' );
+        if ( ! $project_id || empty( $_FILES ) ) {
+            wp_send_json_error( 'Missing data or files' );
+        }
+
+        $results = [];
+        $sources = new BCN_Sources();
+
+        foreach ( $_FILES as $field_name => $file ) {
+            // Skip if not a proper file upload
+            if ( ! is_array( $file ) || empty( $file['tmp_name'] ) ) {
+                continue;
+            }
+
+            $id = $sources->upload( $project_id, $file );
+            if ( is_wp_error( $id ) ) {
+                $results[] = [
+                    'success'   => false,
+                    'filename'  => $file['name'] ?? 'unknown',
+                    'error'     => $id->get_error_message(),
+                ];
+            } else {
+                $source = $sources->get( $id );
+                $results[] = [
+                    'success'   => true,
+                    'filename'  => $file['name'] ?? 'unknown',
+                    'source'    => $source,
+                ];
+            }
+        }
+
+        wp_send_json_success( [
+            'batch_results' => $results,
+            'total'         => count( $results ),
+            'successful'    => count( array_filter( $results, fn( $r ) => $r['success'] ) ),
+        ] );
     }
 
     public function handle_pin_message() {

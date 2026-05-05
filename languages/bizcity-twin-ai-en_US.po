@@ -4,7 +4,7 @@ msgstr ""
 "Project-Id-Version: bizcity-twin-ai 4.9\n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2026-04-02 00:00+0700\n"
-"PO-Revision-Date: 2026-04-02 00:00+0700\n"
+"PO-Revision-Date: 2026-05-02 00:00+0700\n"
 "Last-Translator: BizCity Copilot\n"
 "Language-Team: English\n"
 "Language: en_US\n"
@@ -1021,6 +1021,21 @@ msgstr "Assistant"
 
 msgid "Trợ lý AI thông minh của bạn"
 msgstr "Your smart AI Assistant"
+
+msgid "Twin Guru"
+msgstr "Twin Guru"
+
+msgid "🦾 Twin Guru"
+msgstr "🦾 Twin Guru"
+
+msgid "Edit Twin Guru"
+msgstr "Edit Twin Guru"
+
+msgid "New Twin Guru"
+msgstr "New Twin Guru"
+
+msgid "No Twin Gurus yet."
+msgstr "No Twin Gurus yet."
 
 msgid "Type"
 msgstr "Type"

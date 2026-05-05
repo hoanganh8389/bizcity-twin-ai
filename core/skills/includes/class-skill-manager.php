@@ -819,4 +819,77 @@ class BizCity_Skill_Manager {
 
 		return implode( "\n", $lines ) . $content;
 	}
+
+	/* ================================================================
+	 *  Phase 0.20.1 — Clone a global skill to a character scope
+	 * ================================================================ */
+
+	/**
+	 * Clone an existing skill row into a character-scoped copy.
+	 *
+	 * - Loads source via BizCity_Skill_Database::get( $source_skill_id ).
+	 * - Re-uses skill_key but suffixes "_cloneN" if (skill_key, user_id, character_id)
+	 *   collides for the target scope (UNIQUE constraint).
+	 * - Returns the new row id, or null on failure.
+	 *
+	 * @param int $source_skill_id     Existing skill id (any scope).
+	 * @param int $target_character_id Character id to bind clone to.
+	 * @param int $user_id             User id for the clone (0 = global).
+	 * @return int|null
+	 */
+	public function clone_to_character( int $source_skill_id, int $target_character_id, int $user_id = 0 ): ?int {
+		if ( $source_skill_id <= 0 || $target_character_id <= 0 ) {
+			return null;
+		}
+		if ( ! class_exists( 'BizCity_Skill_Database' ) ) {
+			return null;
+		}
+
+		$db  = BizCity_Skill_Database::instance();
+		$src = $db->get( $source_skill_id );
+		if ( ! $src ) {
+			return null;
+		}
+
+		// Resolve a non-colliding skill_key in the target scope
+		$base_key = (string) $src['skill_key'];
+		$skill_key = $base_key;
+		$suffix    = 0;
+		while ( $db->get_by_key( $skill_key, $user_id, $target_character_id ) ) {
+			$suffix++;
+			$skill_key = $base_key . '_clone' . $suffix;
+			if ( $suffix > 99 ) {
+				error_log( '[BizCity Skills] clone_to_character: too many collisions for ' . $base_key );
+				return null;
+			}
+		}
+
+		// Decode JSON / CSV columns into arrays for upsert() to re-encode safely
+		$triggers = json_decode( $src['triggers_json'] ?? '[]', true ) ?: [];
+		$tools    = json_decode( $src['tools_json']    ?? '[]', true ) ?: [];
+		$pipeline = json_decode( $src['pipeline_json'] ?? '[]', true ) ?: [];
+		$slash    = array_filter( array_map( 'trim', explode( ',', $src['slash_commands'] ?? '' ) ) );
+		$modes    = array_filter( array_map( 'trim', explode( ',', $src['modes'] ?? '' ) ) );
+
+		$payload = [
+			'skill_key'      => $skill_key,
+			'user_id'        => $user_id,
+			'character_id'   => $target_character_id,
+			'category'       => $src['category']    ?? 'general',
+			'title'          => $src['title']       ?? $base_key,
+			'description'    => $src['description'] ?? '',
+			'content'        => $src['content']     ?? '',
+			'triggers_json'  => $triggers,
+			'tools_json'     => $tools,
+			'pipeline_json'  => $pipeline,
+			'slash_commands' => $slash,
+			'modes'          => $modes,
+			'priority'       => (int) ( $src['priority'] ?? 50 ),
+			'status'         => $src['status']  ?? 'active',
+			'version'        => $src['version'] ?? '1.0',
+		];
+
+		$new_id = $db->upsert( $payload );
+		return $new_id ? (int) $new_id : null;
+	}
 }

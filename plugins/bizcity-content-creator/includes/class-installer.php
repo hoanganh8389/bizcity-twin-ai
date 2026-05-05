@@ -14,6 +14,23 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class BZCC_Installer {
 
+	/** Cached result of the SHOW TABLES check — null = not checked yet. */
+	private static ?bool $tables_exist_cache = null;
+
+	/**
+	 * Returns true if the creator tables exist for the current site prefix.
+	 * Result is cached statically for the lifetime of the request.
+	 */
+	public static function tables_exist(): bool {
+		if ( self::$tables_exist_cache !== null ) {
+			return self::$tables_exist_cache;
+		}
+		global $wpdb;
+		$tbl                      = self::table_templates();
+		self::$tables_exist_cache = ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl ) ) === $tbl );
+		return self::$tables_exist_cache;
+	}
+
 	/* ── Table helpers (per-site with wpdb->prefix) ── */
 
 	public static function table_categories(): string {
@@ -46,7 +63,8 @@ class BZCC_Installer {
 	/* ── Self-healing ── */
 
 	public static function maybe_create_tables(): void {
-		if ( get_option( 'bzcc_db_version' ) === BZCC_VERSION ) {
+		// Version matches AND table physically exists for the current site prefix → skip.
+		if ( get_option( 'bzcc_db_version' ) === BZCC_VERSION && self::tables_exist() ) {
 			return;
 		}
 		self::create_tables();
@@ -192,6 +210,7 @@ CREATE TABLE {$t_chunk} (
 		}
 
 		update_option( 'bzcc_db_version', BZCC_VERSION );
+		self::$tables_exist_cache = true; // Tables now exist — update cache.
 	}
 
 	/* ── Seed defaults ── */

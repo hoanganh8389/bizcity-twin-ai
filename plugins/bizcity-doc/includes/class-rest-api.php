@@ -17,8 +17,54 @@ class BZDoc_Rest_API {
 	const MAX_TOPIC    = 5000;
 	const MAX_CONTEXT  = 50000;
 
+	/**
+	 * When true, call_llm() skips bizcity_llm_chat_stream() and uses the direct
+	 * bizcity_llm_chat() path. Set this before calling handle_generate() from
+	 * internal PHP context (e.g. BZDoc_Notebook_Bridge) to avoid self-referencing
+	 * HTTP requests which cause 503 under Apache/PHP-FPM.
+	 */
+	public static $force_direct_llm = false;
+
 	public static function init() {
 		add_action( 'rest_api_init', [ __CLASS__, 'register_routes' ] );
+
+		// Multisite guard — switch to user's primary blog for every bzdoc/v1
+		// request so `$wpdb->prefix` resolves to `wp_{blog_id}_*` (e.g.
+		// `wp_1258_bzdoc_documents`) instead of root `wp_bzdoc_documents`.
+		add_filter( 'rest_pre_dispatch',  [ __CLASS__, 'rest_switch_blog' ], 10, 3 );
+		add_filter( 'rest_post_dispatch', [ __CLASS__, 'rest_restore_blog' ], 10, 3 );
+
+		// Async image-gen worker (cron fallback when fastcgi_finish_request
+		// is unavailable — receives doc_id, payload, blog_id).
+		add_action( 'bzdoc_run_image_job', [ __CLASS__, 'run_image_job_cron' ], 10, 3 );
+		add_action( 'bzdoc_run_image_edit_job', [ __CLASS__, 'run_image_edit_job_cron' ], 10, 3 );
+	}
+
+	/**
+	 * Switch to the user's primary blog before dispatching any bzdoc/v1 route.
+	 * Bound to `rest_pre_dispatch` (must return $result to allow normal flow).
+	 */
+	public static function rest_switch_blog( $result, $server, $request ) {
+		if ( ! ( $request instanceof \WP_REST_Request ) ) {
+			return $result;
+		}
+		$route = (string) $request->get_route();
+		if ( strpos( $route, '/' . self::NAMESPACE . '/' ) !== 0 ) {
+			return $result;
+		}
+		self::ensure_user_blog_context( $request );
+		return $result;
+	}
+
+	/** Restore blog after the bzdoc/v1 request is dispatched. */
+	public static function rest_restore_blog( $response, $server, $request ) {
+		if ( $request instanceof \WP_REST_Request ) {
+			$route = (string) $request->get_route();
+			if ( strpos( $route, '/' . self::NAMESPACE . '/' ) === 0 ) {
+				self::restore_blog_context();
+			}
+		}
+		return $response;
 	}
 
 	public static function register_routes() {
@@ -29,10 +75,24 @@ class BZDoc_Rest_API {
 			'permission_callback' => [ __CLASS__, 'check_auth' ],
 		] );
 
+		/* SSE streaming generate — keeps connection alive, prevents web server timeout */
+		register_rest_route( self::NAMESPACE, '/generate/stream', [
+			'methods'             => 'POST',
+			'callback'            => [ __CLASS__, 'handle_generate_stream' ],
+			'permission_callback' => [ __CLASS__, 'check_auth' ],
+		] );
+
 		/* Edit existing document via chat */
 		register_rest_route( self::NAMESPACE, '/edit', [
 			'methods'             => 'POST',
 			'callback'            => [ __CLASS__, 'handle_edit' ],
+			'permission_callback' => [ __CLASS__, 'check_auth' ],
+		] );
+
+		/* SSE streaming edit — prevents web server timeout on long edits */
+		register_rest_route( self::NAMESPACE, '/edit/stream', [
+			'methods'             => 'POST',
+			'callback'            => [ __CLASS__, 'handle_edit_stream' ],
 			'permission_callback' => [ __CLASS__, 'check_auth' ],
 		] );
 
@@ -87,6 +147,13 @@ class BZDoc_Rest_API {
 			'permission_callback' => [ __CLASS__, 'check_auth' ],
 		] );
 
+		/* Get source detail (with content_text) */
+		register_rest_route( self::NAMESPACE, '/source/detail/(?P<id>\d+)', [
+			'methods'             => 'GET',
+			'callback'            => [ __CLASS__, 'handle_source_get' ],
+			'permission_callback' => [ __CLASS__, 'check_auth' ],
+		] );
+
 		/* Add URL source */
 		register_rest_route( self::NAMESPACE, '/source/add-url', [
 			'methods'             => 'POST',
@@ -98,6 +165,13 @@ class BZDoc_Rest_API {
 		register_rest_route( self::NAMESPACE, '/source/add-text', [
 			'methods'             => 'POST',
 			'callback'            => [ __CLASS__, 'handle_source_add_text' ],
+			'permission_callback' => [ __CLASS__, 'check_auth' ],
+		] );
+
+		/* Add YouTube video as source (transcript extraction) */
+		register_rest_route( self::NAMESPACE, '/source/add-youtube', [
+			'methods'             => 'POST',
+			'callback'            => [ __CLASS__, 'handle_source_add_youtube' ],
 			'permission_callback' => [ __CLASS__, 'check_auth' ],
 		] );
 
@@ -143,10 +217,126 @@ class BZDoc_Rest_API {
 			'callback'            => [ __CLASS__, 'handle_restore_generation' ],
 			'permission_callback' => [ __CLASS__, 'check_auth' ],
 		] );
+
+		/* ── Phase 6.4: Image generation endpoints ── */
+		register_rest_route( self::NAMESPACE, '/image/generate', [
+			'methods'             => 'POST',
+			'callback'            => [ __CLASS__, 'handle_image_generate' ],
+			'permission_callback' => [ __CLASS__, 'check_auth' ],
+		] );
+		/*
+		 * Async start/poll variant — image gen via slow models (e.g.
+		 * `openai/gpt-5.4-image-2`) routinely exceeds Cloudflare's 100s
+		 * edge timeout. The `start` route returns the doc_id immediately
+		 * and detaches via `fastcgi_finish_request()`, then runs the
+		 * pipeline in the background. The frontend polls `status/{id}`
+		 * until `schema_json.status` flips to `done` or `failed`.
+		 */
+		register_rest_route( self::NAMESPACE, '/image/generate/start', [
+			'methods'             => 'POST',
+			'callback'            => [ __CLASS__, 'handle_image_generate_start' ],
+			'permission_callback' => [ __CLASS__, 'check_auth' ],
+		] );
+		register_rest_route( self::NAMESPACE, '/image/generate/status/(?P<id>\d+)', [
+			'methods'             => 'GET',
+			'callback'            => [ __CLASS__, 'handle_image_generate_status' ],
+			'permission_callback' => [ __CLASS__, 'check_auth' ],
+		] );
+		/*
+		 * Image edit (Phase 6.4 Wave 2) — re-uses the same async +
+		 * polling status endpoint as generate. Body shape:
+		 *   { doc_id: int, parent_variant_index: int, instruction: string }
+		 * Appends the edited variant to schema_json.variants[] (lineage via
+		 * `parent_variant_index` + `edit_instruction`).
+		 */
+		register_rest_route( self::NAMESPACE, '/image/edit/start', [
+			'methods'             => 'POST',
+			'callback'            => [ __CLASS__, 'handle_image_edit_start' ],
+			'permission_callback' => [ __CLASS__, 'check_auth' ],
+		] );
+		register_rest_route( self::NAMESPACE, '/image/prompts/featured', [
+			'methods'             => 'GET',
+			'callback'            => [ __CLASS__, 'handle_image_prompts_featured' ],
+			'permission_callback' => [ __CLASS__, 'check_auth' ],
+		] );
+		register_rest_route( self::NAMESPACE, '/image/prompts/search', [
+			'methods'             => 'GET',
+			'callback'            => [ __CLASS__, 'handle_image_prompts_search' ],
+			'permission_callback' => [ __CLASS__, 'check_auth' ],
+		] );
+		register_rest_route( self::NAMESPACE, '/image/prompts/(?P<id>\d+)', [
+			'methods'             => 'GET',
+			'callback'            => [ __CLASS__, 'handle_image_prompt_get' ],
+			'permission_callback' => [ __CLASS__, 'check_auth' ],
+		] );
 	}
 
 	public static function check_auth() {
 		return is_user_logged_in();
+	}
+
+	/* ═══════════════════════════════════════════════
+	   MULTISITE GUARD
+	   ───────────────────────────────────────────────
+	   bzdoc data lives in per-blog tables (`wp_{blog_id}_bzdoc_*`).
+	   When the REST endpoint is hit from the wrong blog context (e.g.
+	   Twin Canvas iframe served from network root `bizcity.vn` while the
+	   user actually owns blog 1258 = huongnguyen.vibeyeu.com.vn), the
+	   default `$wpdb->prefix` would point at `wp_bzdoc_*` (root tables
+	   that don't exist for this user).
+
+	   Rule: every bzdoc REST handler MUST run inside the user's primary
+	   blog context so `$wpdb->prefix` resolves to `wp_{blog_id}_*`.
+
+	   Resolution priority:
+	     1. Explicit `blog_id` param on the request (trusted only when the
+	        current user is a member of that blog).
+	     2. `get_active_blog_for_user()` — user's primary blog.
+	     3. Current blog (no-op).
+	   ═══════════════════════════════════════════════ */
+
+	/** Track switches so we can pop in pairs. */
+	private static $blog_switch_depth = 0;
+
+	/**
+	 * Switch to the correct blog for this request. Call at the very top of
+	 * every REST handler that touches bzdoc tables. Always pair with
+	 * `restore_blog_context()` before returning.
+	 */
+	public static function ensure_user_blog_context( \WP_REST_Request $request = null ) {
+		if ( ! is_multisite() ) {
+			return;
+		}
+		$user_id = get_current_user_id();
+		if ( ! $user_id ) {
+			return;
+		}
+
+		$target = 0;
+		if ( $request ) {
+			$req_blog = absint( $request->get_param( 'blog_id' ) );
+			if ( $req_blog && is_user_member_of_blog( $user_id, $req_blog ) ) {
+				$target = $req_blog;
+			}
+		}
+		if ( ! $target ) {
+			$primary = get_active_blog_for_user( $user_id );
+			$target  = $primary ? (int) $primary->blog_id : 0;
+		}
+		if ( ! $target || $target === (int) get_current_blog_id() ) {
+			return;
+		}
+
+		switch_to_blog( $target );
+		self::$blog_switch_depth++;
+	}
+
+	/** Restore blog context if `ensure_user_blog_context()` switched. */
+	public static function restore_blog_context() {
+		while ( self::$blog_switch_depth > 0 ) {
+			restore_current_blog();
+			self::$blog_switch_depth--;
+		}
 	}
 
 	/* ═══════════════════════════════════════════════
@@ -224,16 +414,20 @@ class BZDoc_Rest_API {
 		}
 
 		// Auto-save to get a doc_id for URL persistence
-		$title = $schema['metadata']['title'] ?? $schema['presentation_title'] ?? $topic;
+		$title = $schema['metadata']['title'] ?? $schema['presentation_title'] ?? $schema['title'] ?? $topic;
 		$saved = self::auto_save_document( $doc_id, $user_id, $doc_type, $title, $template, $theme, $schema );
 
 		self::complete_generation( $gen_id, 'completed', $start_time, null, $saved, $schema );
 
+		// PHASE-0.13 — Graph-RAG citation validation (warn-only on first pass).
+		$citation_report = self::run_citation_validator( $schema );
+
 		return rest_ensure_response( [
-			'success' => true,
-			'data'    => $schema,
-			'doc_id'  => $saved,
-			'gen_id'  => $gen_id,
+			'success'    => true,
+			'data'       => $schema,
+			'doc_id'     => $saved,
+			'gen_id'     => $gen_id,
+			'validation' => $citation_report,
 		] );
 	}
 
@@ -309,6 +503,256 @@ class BZDoc_Rest_API {
 			'data'    => $schema,
 			'gen_id'  => $gen_id,
 		] );
+	}
+
+	/* ═══════════════════════════════════════════════
+	   EDIT/STREAM — SSE streaming edit endpoint
+	   ═══════════════════════════════════════════════ */
+	public static function handle_edit_stream( \WP_REST_Request $request ) {
+		@set_time_limit( 0 );
+		@ignore_user_abort( true );
+
+		// Disable compression at PHP/Apache level — required for SSE on LiteSpeed
+		@ini_set( 'zlib.output_compression', '0' );
+		@ini_set( 'output_buffering', '0' );
+		@ini_set( 'implicit_flush', '1' );
+		if ( function_exists( 'apache_setenv' ) ) { @apache_setenv( 'no-gzip', '1' ); }
+
+		while ( ob_get_level() > 0 ) { ob_end_clean(); }
+		ob_implicit_flush( true );
+
+		header( 'Content-Type: text/event-stream; charset=utf-8' );
+		header( 'Cache-Control: no-cache, no-store, must-revalidate, no-transform' );
+		header( 'X-Accel-Buffering: no' );
+		header( 'Content-Encoding: none' );
+		header( 'Connection: keep-alive' );
+		header( 'Access-Control-Allow-Origin: ' . esc_url_raw( get_site_url() ) );
+
+		// 4KB padding comment — defeats LiteSpeed/proxy SSE buffering by forcing initial flush
+		echo ':' . str_repeat( ' ', 4096 ) . "\n\n";
+		flush();
+
+		self::sse_send( 'connected', [ 'status' => 'connected' ] );
+
+		$instruction  = sanitize_textarea_field( $request->get_param( 'instruction' ) ?: '' );
+		$current_json = $request->get_param( 'current_json' );
+		$doc_type     = sanitize_text_field( $request->get_param( 'doc_type' ) ?: 'document' );
+		$theme        = sanitize_text_field( $request->get_param( 'theme_name' ) ?: 'modern' );
+		$doc_id       = absint( $request->get_param( 'doc_id' ) ?: 0 );
+
+		if ( empty( $instruction ) || empty( $current_json ) ) {
+			self::sse_send( 'error', [ 'message' => 'Instruction and current document are required.' ] );
+			exit;
+		}
+
+		$context_string = wp_json_encode( $current_json );
+		if ( strlen( $context_string ) > self::MAX_CONTEXT ) {
+			$context_string = substr( $context_string, 0, self::MAX_CONTEXT );
+		}
+
+		$source_context = '';
+		if ( $doc_id > 0 ) {
+			$source_context = self::build_source_context( $doc_id, $instruction );
+		}
+
+		$user_id    = get_current_user_id();
+		$gen_id     = self::log_generation( $doc_id, $user_id, 'edit', $instruction );
+		$start_time = microtime( true );
+
+		self::sse_send( 'progress', [ 'status' => 'editing', 'message' => 'Đang chỉnh sửa tài liệu...' ] );
+
+		$system_prompt = self::get_system_prompt( $doc_type );
+		$user_prompt   = self::get_edit_prompt( $doc_type, $instruction, $context_string, $theme, $source_context );
+
+		$tick         = 0;
+		$on_keepalive = static function () use ( &$tick ) {
+			$tick++;
+			self::sse_send( 'ping', [ 'tick' => $tick ] );
+		};
+
+		// Cap at 8000 tokens — keep generation under ~160s to dodge Cloudflare 524.
+		$ai_response = self::call_llm( $system_prompt, $user_prompt, 8000, $on_keepalive );
+
+		if ( is_wp_error( $ai_response ) ) {
+			self::complete_generation( $gen_id, 'failed', $start_time, $ai_response->get_error_message() );
+			self::sse_send( 'error', [ 'message' => $ai_response->get_error_message() ] );
+			exit;
+		}
+
+		self::sse_send( 'progress', [ 'status' => 'parsing', 'message' => 'Đang xử lý kết quả...' ] );
+
+		if ( $doc_type === 'spreadsheet' ) {
+			$schema = [ 'content' => trim( $ai_response ) ];
+		} else {
+			$schema = self::parse_ai_json( $ai_response );
+			if ( is_wp_error( $schema ) ) {
+				self::complete_generation( $gen_id, 'failed', $start_time, $schema->get_error_message() );
+				self::sse_send( 'error', [ 'message' => $schema->get_error_message() ] );
+				exit;
+			}
+		}
+
+		$schema = self::ensure_defaults( $schema, $doc_type, '', $theme );
+		if ( is_wp_error( $schema ) ) {
+			self::complete_generation( $gen_id, 'failed', $start_time, $schema->get_error_message() );
+			self::sse_send( 'error', [ 'message' => $schema->get_error_message() ] );
+			exit;
+		}
+
+		self::complete_generation( $gen_id, 'completed', $start_time, null, $doc_id, $schema );
+
+		if ( $doc_id > 0 ) {
+			self::auto_save_document( $doc_id, $user_id, $doc_type, '', '', $theme, $schema );
+		}
+
+		self::sse_send( 'done', [
+			'success' => true,
+			'data'    => $schema,
+			'gen_id'  => $gen_id,
+		] );
+		exit;
+	}
+
+	/* ═══════════════════════════════════════════════
+	   GENERATE/STREAM — SSE streaming endpoint
+	   Keeps web-server connection alive with ping events
+	   so LiteSpeed/Apache don't kill the PHP process
+	   before generation completes.
+	   ═══════════════════════════════════════════════ */
+	public static function handle_generate_stream( \WP_REST_Request $request ) {
+		@set_time_limit( 0 );
+		@ignore_user_abort( true );
+
+		// Disable compression at PHP/Apache level — required for SSE on LiteSpeed
+		@ini_set( 'zlib.output_compression', '0' );
+		@ini_set( 'output_buffering', '0' );
+		@ini_set( 'implicit_flush', '1' );
+		if ( function_exists( 'apache_setenv' ) ) { @apache_setenv( 'no-gzip', '1' ); }
+
+		// Flush all output buffers so we can stream directly
+		while ( ob_get_level() > 0 ) {
+			ob_end_clean();
+		}
+		ob_implicit_flush( true );
+
+		// SSE headers
+		header( 'Content-Type: text/event-stream; charset=utf-8' );
+		header( 'Cache-Control: no-cache, no-store, must-revalidate, no-transform' );
+		header( 'X-Accel-Buffering: no' ); // nginx / LiteSpeed: disable proxy buffering
+		header( 'Content-Encoding: none' );
+		header( 'Connection: keep-alive' );
+		header( 'Access-Control-Allow-Origin: ' . esc_url_raw( get_site_url() ) );
+
+		// 4KB padding comment — defeats LiteSpeed/proxy SSE buffering by forcing initial flush
+		echo ':' . str_repeat( ' ', 4096 ) . "\n\n";
+		flush();
+
+		self::sse_send( 'connected', [ 'status' => 'connected' ] );
+
+		$user_id     = get_current_user_id();
+		$doc_type    = sanitize_text_field( $request->get_param( 'doc_type' ) ?: 'document' );
+		$topic       = sanitize_textarea_field( $request->get_param( 'topic' ) ?: '' );
+		$template    = sanitize_text_field( $request->get_param( 'template_name' ) ?: 'blank' );
+		$theme       = sanitize_text_field( $request->get_param( 'theme_name' ) ?: 'modern' );
+		$slide_count = absint( $request->get_param( 'slide_count' ) ?: 10 );
+		$doc_id      = absint( $request->get_param( 'doc_id' ) ?: 0 );
+
+		if ( empty( $topic ) && $template === 'blank' ) {
+			self::sse_send( 'error', [ 'message' => 'Topic or template is required.' ] );
+			exit;
+		}
+
+		if ( strlen( $topic ) > self::MAX_TOPIC ) {
+			self::sse_send( 'error', [ 'message' => 'Topic exceeds maximum length.' ] );
+			exit;
+		}
+
+		// Sectional generation (skeleton_json present)
+		$skeleton_json = $request->get_param( 'skeleton_json' );
+		if ( is_array( $skeleton_json ) && $doc_type === 'document' && ! empty( $skeleton_json['skeleton'] ) ) {
+			self::generate_document_sectional_sse( $request, $skeleton_json );
+			exit;
+		}
+
+		// Build source context
+		$source_context  = '';
+		$source_override = $request->get_param( 'source_context_override' );
+		if ( ! empty( $source_override ) ) {
+			$source_context = $source_override;
+		} elseif ( $doc_id > 0 ) {
+			$source_context = self::build_source_context( $doc_id, $topic );
+		}
+
+		$gen_id     = self::log_generation( $doc_id, $user_id, 'generate', $topic );
+		$start_time = microtime( true );
+
+		self::sse_send( 'progress', [ 'status' => 'generating', 'message' => 'Đang tạo tài liệu...' ] );
+
+		$system_prompt = self::get_system_prompt( $doc_type );
+		$user_prompt   = self::get_user_prompt( $doc_type, $topic, $template, $theme, $slide_count, $source_context );
+
+		// Send SSE ping every ~3s while waiting for LLM to respond
+		$tick         = 0;
+		$on_keepalive = static function () use ( &$tick ) {
+			$tick++;
+			self::sse_send( 'ping', [ 'tick' => $tick ] );
+		};
+
+		// Cap at 8000 tokens — keep generation under ~160s to dodge Cloudflare 524.
+		// For longer docs, use the sectional skeleton flow (per-section streaming).
+		$ai_response = self::call_llm( $system_prompt, $user_prompt, 8000, $on_keepalive );
+
+		if ( is_wp_error( $ai_response ) ) {
+			self::complete_generation( $gen_id, 'failed', $start_time, $ai_response->get_error_message() );
+			self::sse_send( 'error', [ 'message' => $ai_response->get_error_message() ] );
+			exit;
+		}
+
+		self::sse_send( 'progress', [ 'status' => 'parsing', 'message' => 'Đang xử lý kết quả...' ] );
+
+		if ( $doc_type === 'spreadsheet' ) {
+			$schema = [ 'content' => trim( $ai_response ) ];
+		} else {
+			$schema = self::parse_ai_json( $ai_response );
+			if ( is_wp_error( $schema ) ) {
+				self::complete_generation( $gen_id, 'failed', $start_time, $schema->get_error_message() );
+				self::sse_send( 'error', [ 'message' => $schema->get_error_message() ] );
+				exit;
+			}
+		}
+
+		$schema = self::ensure_defaults( $schema, $doc_type, $topic, $theme );
+		if ( is_wp_error( $schema ) ) {
+			self::complete_generation( $gen_id, 'failed', $start_time, $schema->get_error_message() );
+			self::sse_send( 'error', [ 'message' => $schema->get_error_message() ] );
+			exit;
+		}
+
+		$title = $schema['metadata']['title'] ?? $schema['presentation_title'] ?? $schema['title'] ?? $topic;
+		$saved = self::auto_save_document( $doc_id, $user_id, $doc_type, $title, $template, $theme, $schema );
+		self::complete_generation( $gen_id, 'completed', $start_time, null, $saved, $schema );
+
+		self::sse_send( 'done', [
+			'success' => true,
+			'data'    => $schema,
+			'doc_id'  => $saved,
+			'gen_id'  => $gen_id,
+		] );
+		exit;
+	}
+
+	/**
+	 * Send a Server-Sent Event to the browser.
+	 */
+	private static function sse_send( string $event, array $data ): void {
+		echo 'event: ' . $event . "\n";
+		echo 'data: ' . wp_json_encode( $data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) . "\n\n";
+		// Add 1KB padding on every event to keep LiteSpeed flushing immediately
+		echo ':' . str_repeat( ' ', 1024 ) . "\n\n";
+		if ( ob_get_level() > 0 ) {
+			@ob_flush();
+		}
+		flush();
 	}
 
 	/* ═══════════════════════════════════════════════
@@ -399,27 +843,54 @@ class BZDoc_Rest_API {
 	   Uses bizcity_llm_chat_stream() internally but
 	   accumulates full response (no SSE to browser).
 	   ═══════════════════════════════════════════════ */
-	private static function call_llm( string $system_prompt, string $user_prompt, int $max_tokens = 32000 ) {
+	private static function call_llm( string $system_prompt, string $user_prompt, int $max_tokens = 8000, ?callable $on_keepalive = null ) {
 		$messages = [
 			[ 'role' => 'system', 'content' => $system_prompt ],
 			[ 'role' => 'user',   'content' => $user_prompt ],
 		];
 
 		$llm_opts = [
-			'model'       => 'anthropic/claude-sonnet-4',
-			'purpose'     => 'executor',
-			'temperature' => 0.4,
-			'max_tokens'  => $max_tokens,
-			'timeout'     => 180,
+			'model'          => 'anthropic/claude-sonnet-4-5',
+			// Cross-vendor fallback so Anthropic outages don't kill doc generation.
+			// Hub default fallback for 'executor' is also Anthropic (claude-sonnet-4),
+			// which means an Anthropic-wide 502 takes both down. Override here.
+			'fallback_model' => 'google/gemini-2.5-pro',
+			'purpose'        => 'executor',
+			'temperature'    => 0.3,
+			'max_tokens'     => $max_tokens,
+			'timeout'        => 300,
 		];
 
+		if ( $on_keepalive !== null ) {
+			$llm_opts['on_keepalive'] = $on_keepalive;
+		}
+
 		// Prefer streaming — keeps proxy connection alive, prevents 502
-		if ( function_exists( 'bizcity_llm_chat_stream' ) ) {
+		// Skip when force_direct_llm is set (internal call from Notebook Bridge)
+		// to avoid self-referencing HTTP requests which cause 503 under Apache.
+		if ( ! self::$force_direct_llm && function_exists( 'bizcity_llm_chat_stream' ) ) {
 			error_log( '[BZDoc] Using bizcity_llm_chat_stream()' );
-			$full = '';
-			$result = bizcity_llm_chat_stream( $messages, $llm_opts,
-				function ( $delta, $full_so_far ) use ( &$full ) {
-					$full = $full_so_far; // just accumulate, no SSE output
+			$full    = '';
+			$last_hb = microtime( true );
+			$result  = bizcity_llm_chat_stream( $messages, $llm_opts,
+				function ( $delta, $full_so_far ) use ( &$full, &$last_hb, $on_keepalive ) {
+					$full = $full_so_far; // accumulate full response
+					// Cloudflare 100 s idle-timeout guard:
+					// Send a heartbeat to the client SSE stream every 30 s while
+					// Claude accumulates output, otherwise CF kills the connection
+					// before the response is complete (especially for >8 000 token docs).
+					if ( microtime( true ) - $last_hb >= 30.0 ) {
+						if ( $on_keepalive !== null ) {
+							( $on_keepalive )();
+						} else {
+							// Fallback when called without a keepalive handler
+							// (e.g. force_direct_llm path — should not reach here, but safe).
+							echo ": heartbeat\n\n";
+							if ( ob_get_level() > 0 ) { @ob_flush(); }
+							@flush();
+						}
+						$last_hb = microtime( true );
+					}
 				}
 			);
 
@@ -457,6 +928,8 @@ class BZDoc_Rest_API {
 				return self::system_prompt_presentation();
 			case 'spreadsheet':
 				return self::system_prompt_spreadsheet();
+			case 'mindmap':
+				return self::system_prompt_mindmap();
 			default:
 				return self::system_prompt_document();
 		}
@@ -515,18 +988,29 @@ You MUST write in THE SAME LANGUAGE as the user's topic/prompt. If the topic is 
    - Each major section: heading2 → context paragraph → detailed sub-sections (heading3) → evidence/data
 
 2. **Content depth**: Each section MUST have:
-   - Opening paragraph explaining the section's purpose (2-3 sentences)
-   - Detailed sub-points with heading3 for each
-   - Supporting data: tables, numbered lists, concrete examples
-   - TOTAL document: 40-60 elements (keep JSON compact to avoid truncation)
+   - Opening paragraph explaining the section's purpose (3-5 sentences)
+   - Detailed sub-sections with heading3 for each sub-topic
+   - Supporting data: tables with complete rows/columns, numbered lists, concrete examples
+   - TOTAL document: 60-100 elements minimum when source documents are provided; 40-60 for no-source generation
 
-3. **Formatting richness**:
+3. **Source-based generation** (when reference documents are provided):
+   - EXTRACT ALL structured content: every step, every criterion, every scoring table, every assessment tool
+   - For protocol/framework documents: build a complete reusable template structure, then demonstrate with 2-3 specific application examples
+   - Do NOT summarize or condense source content — reproduce it fully in structured form
+   - Preserve exact Vietnamese medical/technical terminology from the source
+   - **MANDATORY INLINE CITATIONS**: For EVERY substantive claim, statistic, criterion, threshold, or recommendation derived from a source, you MUST cite the source by name in the format `(Nguồn: "<tên tài liệu>")` or `(Theo "<tên tài liệu>")` immediately after the claim. The source name appears in the `[TÀI LIỆU #X | Nguồn: "..."]` or `[ĐOẠN TRÍCH #X | Nguồn: "..."]` headers in the reference block.
+   - **DIRECT QUOTES**: For at least 30% of the substantive claims, include a direct verbatim quote from the source using `text_runs` with `"italic": true`, immediately followed by a deep analytical paragraph that explains, applies, or contextualizes the quote (3-5 sentences minimum, NOT a restatement).
+   - **MULTI-SOURCE SYNTHESIS**: When multiple sources address the same topic, compare/contrast them in dedicated paragraphs — name each source explicitly, identify agreements/differences, and synthesize a conclusion.
+   - **NO SHALLOW PARAPHRASING**: Replace any 1-2 sentence shallow paragraph with: quote + 3-5 sentence analysis + practical application. Empty/generic statements like "rất quan trọng", "cần lưu ý", "có ý nghĩa lớn" are FORBIDDEN unless backed by a quoted source line.
+   - **CITATION FOOTER**: Add a final section `## Tài liệu tham khảo` listing every source actually cited, formatted as a numbered_list: `[1] "Tên tài liệu"`.
+
+4. **Formatting richness**:
    - Use text_runs for inline formatting: bold key terms, italic for emphasis
-   - Tables with 3-5 columns and 4-10 data rows (realistic data)
+   - Tables with 3-5 columns and 4-10 data rows (realistic data, complete scoring tables)
    - Mix paragraph, bullet_list, numbered_list, table in every section
    - Use divider between major sections
 
-4. **Professional tone**: Formal language, specific data points, concrete recommendations
+5. **Professional tone**: Formal language, specific data points, concrete recommendations
 
 ## CRITICAL RULES
 1. ONLY output valid JSON — no markdown, no explanations, no code blocks
@@ -536,6 +1020,7 @@ You MUST write in THE SAME LANGUAGE as the user's topic/prompt. If the topic is 
 5. Every heading must follow hierarchy: heading1 > heading2 > heading3
 6. Tables MUST have isHeader: true on first row
 7. Generate COMPREHENSIVE content — a full professional document, NOT a skeleton
+8. NEVER truncate or omit sections to save space — output the complete document
 PROMPT;
 	}
 
@@ -607,6 +1092,64 @@ RULES:
 PROMPT;
 	}
 
+	/* ── Phase 6.3: Mindmap system prompt ── */
+	private static function system_prompt_mindmap(): string {
+		return <<<'PROMPT'
+You are a Mindmap Architect. You create comprehensive, hierarchical mindmaps by outputting STRICT JSON.
+
+You MUST write in THE SAME LANGUAGE as the user's topic/prompt. Vietnamese topic → Vietnamese labels.
+
+## REQUIRED OUTPUT SCHEMA
+
+```json
+{
+  "title": "string — main topic name",
+  "root": {
+    "id": "root",
+    "label": "string — same as title",
+    "children": [
+      {
+        "id": "1",
+        "label": "string — main branch (2–6 words)",
+        "note": "string — 1 sentence context for this branch",
+        "children": [
+          {
+            "id": "1.1",
+            "label": "string — sub-topic",
+            "note": "string — optional detail",
+            "children": [
+              { "id": "1.1.1", "label": "string — leaf node" }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "theme": "colorful",
+  "direction": "LR"
+}
+```
+
+## QUALITY RULES
+
+1. Root: 1 node — the main topic label
+2. Level 1 (direct root children): 5–8 branches covering ALL key dimensions/aspects/categories
+3. Level 2: 3–5 sub-topics per branch with specific, actionable labels
+4. Level 3 (optional): detail/leaf nodes — max 3 per parent (use only for important breakdowns)
+5. Max depth: 4 levels total (root + 3 levels)
+6. Node IDs: "root" → "1","2",... → "1.1","1.2",... → "1.1.1",...
+7. Node labels: CONCISE (2–7 words), SPECIFIC — no vague phrases like "Important factor"
+8. "note" field: Include on Level 1 & Level 2 (1 brief sentence each)
+9. If REFERENCE DOCUMENTS are provided: extract key concepts, terminology, facts — build branches from source content; include "(Nguồn: ...)" in note fields
+10. Match source language. Vietnamese topic → all labels & notes in Vietnamese.
+
+## CRITICAL RULES
+- ONLY output valid JSON — zero markdown, zero code blocks, zero explanations
+- All strings properly JSON-escaped (no raw newlines inside values)
+- Generate a COMPLETE, SUBSTANTIVE mindmap — not a skeleton
+PROMPT;
+	}
+
 	/* ═══════════════════════════════════════════════
 	   USER PROMPTS — Per doc type & mode
 	   ═══════════════════════════════════════════════ */
@@ -616,11 +1159,51 @@ PROMPT;
 		// Build source reference block if sources are provided
 		$source_block = '';
 		if ( ! empty( $source_context ) ) {
+			// PHASE-0.13 — Graph-RAG mode adds an extra `[src:N#pM]` citation
+			// requirement on top of the human-readable (Nguồn: "X") citations.
+			// Detect by looking for the `id:[src:` annotation injected by
+			// build_kg_graph_context().
+			$is_graph_rag = ( strpos( $source_context, 'id:[src:' ) !== false );
+			$graph_rag_block = '';
+			if ( $is_graph_rag ) {
+				$graph_rag_block = <<<GRAPHRAG
+
+CHẾ ĐỘ GRAPH-RAG (BẮT BUỘC ĐỌC):
+Mỗi đoạn trích bắt đầu bằng header có dạng [ĐOẠN TRÍCH #X | Nguồn: "TÊN" | id:[src:NNN#pMMM]].
+Phần `[src:NNN#pMMM]` là MÃ ĐỊNH DANH CHÍNH XÁC của đoạn (NNN = source_id, MMM = passage_id).
+
+YÊU CẦU TRÍCH DẪN GRAPH-RAG (THÊM VÀO ngoài quy tắc A-F bên dưới):
+G. Sau MỖI nhận định lấy từ một đoạn trích, ngoài (Nguồn: "TÊN") bạn PHẢI thêm marker chính xác `[src:NNN#pMMM]` lấy NGUYÊN VĂN từ header của đoạn đó (KHÔNG bịa số, KHÔNG đổi NNN/MMM, KHÔNG dùng [1]/[2] hay [src:1] kiểu thứ tự).
+   Ví dụ ĐÚNG: "Tỉ lệ phát hiện sớm đạt 78% (Nguồn: \"Báo cáo HTN 2025\") [src:142#p9]."
+   Ví dụ SAI:  "[src:1]" hoặc "[1]" hoặc "[src:142]" thiếu #pMMM.
+H. Marker `[src:NNN#pMMM]` đặt SAU dấu chấm câu hoặc cuối câu, ở dạng plain text (KHÔNG bọc bold/italic, KHÔNG đặt trong text_runs riêng).
+I. Nếu một câu tổng hợp nhiều đoạn, liệt kê tất cả markers cách nhau bằng khoảng trắng: `… [src:142#p9] [src:188#p3]`.
+J. CẤM TUYỆT ĐỐI sáng tạo `[src:N#pM]` không có trong header. Mọi marker bịa sẽ bị reject ở khâu validate.
+GRAPHRAG;
+			}
+
 			$source_block = <<<SOURCES
 
-=== TÀI LIỆU THAM KHẢO (Reference Documents) ===
-Analyze the following reference materials carefully. Use their structure, data, style, and content as the basis for generating the document.
-Extract key themes, data points, formatting patterns, and domain-specific terminology from these sources.
+=== TÀI LIỆU THAM KHẢO (NGUỒN CHÍNH — ĐỌC KỸ TRƯỚC KHI TẠO) ===
+QUAN TRỌNG: Tài liệu dưới đây là CƠ SỞ CHÍNH để tạo nội dung. Bạn PHẢI:
+1. TRÍCH XUẤT ĐẦY ĐỦ: tất cả quy trình, bước thực hiện, tiêu chí đánh giá, bảng điểm, công cụ, chỉ số, mục tiêu cụ thể có trong tài liệu
+2. BÁM SÁT nội dung gốc — không bỏ sót bước nào, không tự sáng tạo nội dung không có trong tài liệu
+3. NẾU topic yêu cầu "khung", "template", "quy trình" → tạo document có cấu trúc rõ ràng, đầy đủ mọi bước từ tài liệu, với phần ví dụ ứng dụng cho từng mặt bệnh/tình huống cụ thể
+4. GIỮ NGUYÊN thuật ngữ chuyên môn, tên công cụ, tên thang điểm từ tài liệu gốc
+
+ĐỊNH DẠNG NGUỒN: Mỗi đoạn dưới đây bắt đầu bằng header [TÀI LIỆU #X | Nguồn: "<TÊN TÀI LIỆU>"] hoặc [ĐOẠN TRÍCH #X | Nguồn: "<TÊN TÀI LIỆU>"]. Phần trong dấu ngoặc kép là TÊN NGUỒN — bạn PHẢI dùng nguyên văn tên này khi trích dẫn (cấm bịa tên nguồn).{$graph_rag_block}
+
+YÊU CẦU TRÍCH DẪN BẮT BUỘC:
+A. MỌI nhận định, ngưỡng số, tiêu chí, khuyến nghị, thống kê lấy từ nguồn PHẢI kết thúc bằng (Nguồn: "<tên>") hoặc (Theo "<tên>").
+B. Mỗi heading2 chính phải có TỐI THIỂU 2-3 trích dẫn nguyên văn (verbatim quotes) in nghiêng, định dạng:
+   { "type": "paragraph", "text_runs": [
+     { "text": "Theo \"<tên nguồn>\": ", "bold": true },
+     { "text": "\"<câu trích nguyên văn 5-25 từ>\"", "italic": true }
+   ] }
+C. NGAY SAU mỗi trích dẫn nguyên văn phải là 1 đoạn paragraph PHÂN TÍCH SÂU 3-5 câu (giải thích ý nghĩa, áp dụng thực tế, đối chiếu với nguồn khác — KHÔNG diễn đạt lại).
+D. Khi 2+ tài liệu cùng đề cập 1 vấn đề: phải có đoạn so sánh nêu rõ tên cả hai nguồn và điểm tương đồng/khác biệt.
+E. Cấm câu chung chung kiểu "rất quan trọng", "có ý nghĩa lớn", "cần lưu ý" trừ khi đi kèm trích dẫn cụ thể.
+F. Cuối tài liệu BẮT BUỘC có section "## Tài liệu tham khảo" liệt kê numbered_list tất cả nguồn đã trích, format: [1] "Tên tài liệu".
 
 {$source_context}
 === HẾT TÀI LIỆU THAM KHẢO ===
@@ -664,26 +1247,58 @@ Requirements:
 Return ONLY CSV data.
 PROMPT;
 
+			case 'mindmap':
+				return <<<PROMPT
+{$source_block}
+Create a comprehensive, detailed mindmap about: {$topic}
+
+Requirements:
+- Root node = main topic label
+- 5–8 Level 1 branches covering ALL key dimensions, aspects, or categories of the topic
+- 3–5 Level 2 nodes per branch with SPECIFIC details, data points, examples — not vague labels
+- Level 3 (optional): up to 3 leaf nodes per parent for important breakdowns only
+- Include "note" field on every Level 1 and Level 2 node (1 brief sentence context each)
+- If reference documents are provided above: extract key concepts, terminology, data → build branches from source content; reference sources in note fields as "(Nguồn: ...)"
+- All labels: CONCISE (2–7 words), SUBSTANTIVE — no filler phrases like "General overview"
+
+Return ONLY the complete JSON.
+PROMPT;
+
 			default:
+				$has_sources = ! empty( $source_context );
+				$length_guide = $has_sources
+					? '60-100 elements total (source-based documents MUST be comprehensive — extract ALL steps, criteria, tables from reference)'
+					: '40-60 elements total. Professional document — concise but thorough.';
+				$source_guide = $has_sources ? <<<SRC
+
+**SOURCE EXTRACTION MODE** — Reference documents are provided. You MUST:
+- Extract EVERY step, criterion, scoring table, assessment tool, objective from the source documents
+- For framework/template requests: Build a complete reusable template with clear sections for each process step, then provide worked examples showing how to apply it to specific cases/diseases/scenarios
+- Cite source content directly: preserve exact terminology, tool names, scoring scales, cutoff values
+- Do NOT omit details to save space — completeness is required
+SRC
+					: '';
 				return <<<PROMPT
 {$source_block}
 Create a comprehensive, professional document about: {$topic}
 
 Theme: {$theme}
 {$template_guide}
+{$source_guide}
 
 REQUIREMENTS — Follow these strictly:
-1. **Length**: Generate 40-60 elements total. This is a professional document — concise but thorough.
+1. **Length**: Generate {$length_guide}.
 2. **Structure**: Use heading1 for document title (centered), heading2 for major sections, heading3 for sub-sections.
 3. **Content depth**: Each heading2 section needs:
    - Opening paragraph (3-5 sentences explaining context)
    - 2-3 heading3 sub-sections with detailed content
    - Supporting elements: tables (3+ columns, 4+ rows), numbered_list, bullet_list
    - Use text_runs for inline bold/italic formatting on key terms
-4. **Data & Evidence**: Include specific numbers, percentages, dates, examples. NOT vague statements.
-5. **Tables**: Every major section should have at least one table with realistic data.
+4. **Data & Evidence**: Include specific numbers, percentages, cutoff values, scoring criteria. NOT vague statements.
+5. **Tables**: Every major section must have at least one detailed table. For assessment tools/criteria: build complete scoring tables with all rows and columns from the source.
 6. **Professional formatting**: Use divider between major sections. Justify paragraph alignment.
-7. **Conclusion**: End with concrete recommendations or action items.
+7. **Framework/Template sections**: If topic is a process/protocol → include a blank template section AND a filled worked example for at least 2-3 specific application cases.
+8. **Conclusion**: End with concrete recommendations or action items.
 
 Return ONLY the complete JSON document.
 PROMPT;
@@ -692,19 +1307,38 @@ PROMPT;
 
 	private static function get_edit_prompt( string $doc_type, string $instruction, string $context, string $theme, string $source_context = '' ): string {
 		$source_block = '';
+		$citation_rules = '';
 		if ( ! empty( $source_context ) ) {
-			$source_block = "\n\nTÀI LIỆU THAM KHẢO (dùng để bổ sung trích dẫn, dữ liệu, hoặc phân tích sâu hơn khi user yêu cầu):\n---\n{$source_context}\n---\n";
+			$source_block = "\n\n=== TÀI LIỆU THAM KHẢO ===\n"
+				. "Mỗi đoạn dưới đây bắt đầu bằng header [TÀI LIỆU #X | Nguồn: \"<TÊN>\"] hoặc [ĐOẠN TRÍCH #X | Nguồn: \"<TÊN>\"]. "
+				. "Phần trong dấu ngoặc kép là TÊN NGUỒN — phải dùng nguyên văn khi trích dẫn (cấm bịa).\n---\n{$source_context}\n---\n";
+
+			$citation_rules = "\nQUY TẮC TRÍCH DẪN BẮT BUỘC khi cập nhật:\n"
+				. "1. MỌI nội dung mới/sửa lấy từ tài liệu phải có (Nguồn: \"<tên>\") hoặc (Theo \"<tên>\") ở cuối câu.\n"
+				. "2. Bổ sung tối thiểu 2 trích dẫn nguyên văn (in nghiêng) bằng text_runs:\n"
+				. "   { \"type\": \"paragraph\", \"text_runs\": [ { \"text\": \"Theo \\\"<tên>\\\": \", \"bold\": true }, { \"text\": \"\\\"<câu nguyên văn>\\\"\", \"italic\": true } ] }\n"
+				. "3. NGAY SAU mỗi trích dẫn phải có paragraph PHÂN TÍCH SÂU 3-5 câu (giải thích, áp dụng — không diễn đạt lại).\n"
+				. "4. Cấm câu chung chung kiểu \"rất quan trọng\", \"có ý nghĩa\" trừ khi đi kèm trích dẫn cụ thể.\n"
+				. "5. Nếu user yêu cầu \"sâu hơn\", \"chi tiết\", \"trích dẫn\", \"phân tích kỹ\" → MỞ RỘNG mỗi section ít nhất gấp đôi với trích dẫn + phân tích.\n";
+		}
+
+		if ( $doc_type === 'mindmap' ) {
+			return "CURRENT MINDMAP JSON:\n{$context}{$source_block}{$citation_rules}\n\n"
+				. "USER REQUEST: \"{$instruction}\"\n\n"
+				. "Update the mindmap tree based on the request. "
+				. "You may add branches, rename labels, expand sub-topics, or restructure.\n"
+				. "Return ONLY the COMPLETE updated mindmap JSON. No markdown, no explanations.";
 		}
 
 		if ( $doc_type === 'presentation' ) {
-			return "Current presentation:\n{$context}{$source_block}\n\nUser request: {$instruction}\n\nUpdate the presentation based on the request. If user asks for citations or deeper analysis, USE the reference documents above. Return the COMPLETE updated JSON with changes applied. Output ONLY valid JSON.";
+			return "Current presentation:\n{$context}{$source_block}{$citation_rules}\n\nUser request: {$instruction}\n\nUpdate the presentation. Apply citation rules above when source documents are provided. Return the COMPLETE updated JSON. Output ONLY valid JSON.";
 		}
 
 		if ( $doc_type === 'spreadsheet' ) {
 			return "Current spreadsheet data (CSV):\n{$context}{$source_block}\n\nUser request: {$instruction}\n\nUpdate the spreadsheet. Return updated CSV data only.";
 		}
 
-		return "CURRENT DOCUMENT JSON:\n{$context}{$source_block}\n\nUSER'S EDIT REQUEST: \"{$instruction}\"\n\nINSTRUCTIONS:\n1. Apply the specific changes requested\n2. If user asks for citations, references, or deeper analysis — USE the reference documents above to add real data, quotes, and source attributions\n3. Keep all other content unchanged\n4. Return the COMPLETE updated JSON\n5. Output ONLY valid JSON, no explanations";
+		return "CURRENT DOCUMENT JSON:\n{$context}{$source_block}{$citation_rules}\n\nUSER'S EDIT REQUEST: \"{$instruction}\"\n\nINSTRUCTIONS:\n1. Apply the specific changes requested\n2. Áp dụng QUY TẮC TRÍCH DẪN BẮT BUỘC ở trên cho mọi nội dung mới/sửa khi có tài liệu tham khảo\n3. Keep all unchanged content intact\n4. Return the COMPLETE updated JSON\n5. Output ONLY valid JSON, no explanations";
 	}
 
 	/* ═══════════════════════════════════════════════
@@ -823,10 +1457,18 @@ PROMPT;
 
 			error_log( '[BZDoc] Sectional: generating section ' . ( $idx + 1 ) . '/' . $total . ': "' . $label . '"' );
 
-			$ai_response = self::call_llm( $section_system, $section_prompt, 8000 );
+			// Use higher token budget when source context is present (complex tables)
+			$section_tokens = ! empty( $source_context ) ? 11000 : 8000;
+			$ai_response = self::call_llm( $section_system, $section_prompt, $section_tokens );
+
+			// Retry once if LLM call failed
+			if ( is_wp_error( $ai_response ) ) {
+				error_log( '[BZDoc] Sectional: section ' . ( $idx + 1 ) . ' failed, retrying...' );
+				$ai_response = self::call_llm( $section_system, $section_prompt, $section_tokens );
+			}
 
 			if ( is_wp_error( $ai_response ) ) {
-				error_log( '[BZDoc] Sectional: section ' . ( $idx + 1 ) . ' LLM failed: ' . $ai_response->get_error_message() );
+				error_log( '[BZDoc] Sectional: section ' . ( $idx + 1 ) . ' LLM failed after retry: ' . $ai_response->get_error_message() );
 				$elements[] = [ 'type' => 'heading2', 'text' => $label ];
 				$elements[] = [ 'type' => 'paragraph', 'text' => '[Không thể sinh nội dung cho phần này. Vui lòng thử chỉnh sửa bằng chat.]' ];
 				$elements[] = [ 'type' => 'divider' ];
@@ -835,8 +1477,20 @@ PROMPT;
 
 			$section_data = self::parse_ai_json( $ai_response );
 
+			// If parse failed, retry with simpler prompt (no source context to reduce token pressure)
 			if ( is_wp_error( $section_data ) ) {
-				error_log( '[BZDoc] Sectional: section ' . ( $idx + 1 ) . ' parse failed' );
+				error_log( '[BZDoc] Sectional: section ' . ( $idx + 1 ) . ' parse failed, retrying without source context...' );
+				$retry_prompt = self::build_section_user_prompt(
+					$label, $summary, $children, '', $title, $key_points_text, $is_last
+				);
+				$ai_retry = self::call_llm( $section_system, $retry_prompt, 6000 );
+				if ( ! is_wp_error( $ai_retry ) ) {
+					$section_data = self::parse_ai_json( $ai_retry );
+				}
+			}
+
+			if ( is_wp_error( $section_data ) ) {
+				error_log( '[BZDoc] Sectional: section ' . ( $idx + 1 ) . ' parse failed after retry' );
 				$elements[] = [ 'type' => 'heading2', 'text' => $label ];
 				$elements[] = [ 'type' => 'paragraph', 'text' => '[Không thể phân tích JSON cho phần này. Vui lòng thử chỉnh sửa bằng chat.]' ];
 				$elements[] = [ 'type' => 'divider' ];
@@ -852,9 +1506,13 @@ PROMPT;
 				continue;
 			}
 
-			// Validate and append each element
+			// Validate, repair empty tables, and append each element
 			foreach ( $section_elements as $el ) {
 				if ( is_array( $el ) && ! empty( $el['type'] ) ) {
+					// Repair tables that have empty cells (truncation artifacts)
+					if ( $el['type'] === 'table' && ! empty( $el['rows'] ) ) {
+						$el = self::repair_empty_table_cells( $el );
+					}
 					$elements[] = $el;
 				}
 			}
@@ -880,6 +1538,201 @@ PROMPT;
 		self::complete_generation( $gen_id, 'completed', $start_time, null, $saved, $schema );
 
 		return rest_ensure_response( [
+			'success' => true,
+			'data'    => $schema,
+			'doc_id'  => $saved,
+			'gen_id'  => $gen_id,
+		] );
+	}
+
+	/**
+	 * SSE variant of generate_document_sectional.
+	 * Sends progress events after each section so the web-server
+	 * connection stays alive during the full multi-step generation.
+	 */
+	private static function generate_document_sectional_sse( \WP_REST_Request $request, array $skeleton ): void {
+		$user_id  = get_current_user_id();
+		$topic    = sanitize_textarea_field( $request->get_param( 'topic' ) ?: '' );
+		$template = sanitize_text_field( $request->get_param( 'template_name' ) ?: 'blank' );
+		$theme    = sanitize_text_field( $request->get_param( 'theme_name' ) ?: 'modern' );
+		$doc_id   = absint( $request->get_param( 'doc_id' ) ?: 0 );
+
+		// Source context
+		$source_context  = '';
+		$source_override = $request->get_param( 'source_context_override' );
+		if ( ! empty( $source_override ) ) {
+			$source_context = $source_override;
+		} elseif ( $doc_id > 0 ) {
+			$source_context = self::build_source_context( $doc_id, $topic );
+		}
+
+		$gen_id     = self::log_generation( $doc_id, $user_id, 'generate', $topic );
+		$start_time = microtime( true );
+
+		$nucleus = $skeleton['nucleus'] ?? [];
+		$nodes   = $skeleton['skeleton'] ?? [];
+		$title   = $nucleus['title'] ?? $topic ?: 'Untitled';
+		$total   = count( $nodes );
+
+		self::sse_send( 'progress', [
+			'status'  => 'start',
+			'current' => 0,
+			'total'   => $total,
+			'message' => "Bắt đầu tạo {$total} phần...",
+		] );
+
+		// Build document shell
+		$schema = [
+			'metadata' => [
+				'title'   => $title,
+				'subject' => $nucleus['thesis'] ?? '',
+				'author'  => wp_get_current_user()->display_name ?: 'BizCity Doc Studio',
+			],
+			'theme' => [
+				'name'            => $theme,
+				'font_name'       => 'Times New Roman',
+				'font_size'       => 13,
+				'heading_font'    => 'Times New Roman',
+				'primary_color'   => '1F4E79',
+				'secondary_color' => '2E75B6',
+			],
+			'sections' => [ [
+				'orientation' => 'portrait',
+				'header'      => [ 'text' => $title, 'align' => 'left', 'show_page_numbers' => false ],
+				'footer'      => [ 'text' => 'Trang', 'show_page_numbers' => true ],
+				'elements'    => [],
+			] ],
+		];
+
+		// Title page elements
+		$elements = [
+			[ 'type' => 'heading1', 'text' => $title, 'alignment' => 'center' ],
+		];
+		if ( ! empty( $nucleus['thesis'] ) ) {
+			$elements[] = [ 'type' => 'paragraph', 'text' => $nucleus['thesis'], 'alignment' => 'center' ];
+		}
+		$elements[] = [ 'type' => 'divider' ];
+
+		// Build key points string for context
+		$key_points_text = '';
+		if ( ! empty( $skeleton['key_points'] ) ) {
+			$kps = [];
+			foreach ( $skeleton['key_points'] as $kp ) {
+				$text = is_array( $kp ) ? ( $kp['text'] ?? $kp['point'] ?? '' ) : (string) $kp;
+				if ( $text ) $kps[] = $text;
+			}
+			if ( $kps ) {
+				$key_points_text = "Điểm chính của tài liệu:\n- " . implode( "\n- ", $kps );
+			}
+		}
+
+		$section_system = self::system_prompt_document_section();
+		$success        = 0;
+
+		foreach ( $nodes as $idx => $node ) {
+			$label    = is_array( $node ) ? ( $node['label'] ?? $node['heading'] ?? '' ) : (string) $node;
+			$summary  = is_array( $node ) ? ( $node['summary'] ?? '' ) : '';
+			$children = is_array( $node ) ? ( $node['children'] ?? [] ) : [];
+			$is_last  = ( $idx === $total - 1 );
+
+			self::sse_send( 'progress', [
+				'status'  => 'generating',
+				'current' => $idx + 1,
+				'total'   => $total,
+				'section' => $label,
+				'message' => 'Đang tạo phần ' . ( $idx + 1 ) . "/{$total}: {$label}",
+			] );
+
+			$section_prompt = self::build_section_user_prompt(
+				$label, $summary, $children, $source_context, $title, $key_points_text, $is_last
+			);
+
+			// Keepalive ping while waiting for this section's LLM call
+			$tick         = 0;
+			$on_keepalive = static function () use ( &$tick ) {
+				$tick++;
+				self::sse_send( 'ping', [ 'tick' => $tick ] );
+			};
+
+			$section_tokens = ! empty( $source_context ) ? 11000 : 8000;
+			$ai_response    = self::call_llm( $section_system, $section_prompt, $section_tokens, $on_keepalive );
+
+			// Retry once on LLM failure
+			if ( is_wp_error( $ai_response ) ) {
+				$ai_response = self::call_llm( $section_system, $section_prompt, $section_tokens, $on_keepalive );
+			}
+
+			if ( is_wp_error( $ai_response ) ) {
+				$elements[] = [ 'type' => 'heading2',  'text' => $label ];
+				$elements[] = [ 'type' => 'paragraph',  'text' => '[Không thể sinh nội dung cho phần này. Vui lòng thử chỉnh sửa bằng chat.]' ];
+				$elements[] = [ 'type' => 'divider' ];
+				continue;
+			}
+
+			$section_data = self::parse_ai_json( $ai_response );
+
+			// If parse failed, retry without source context to reduce token pressure
+			if ( is_wp_error( $section_data ) ) {
+				$retry_prompt = self::build_section_user_prompt(
+					$label, $summary, $children, '', $title, $key_points_text, $is_last
+				);
+				$ai_retry = self::call_llm( $section_system, $retry_prompt, 6000, null );
+				if ( ! is_wp_error( $ai_retry ) ) {
+					$section_data = self::parse_ai_json( $ai_retry );
+				}
+			}
+
+			if ( is_wp_error( $section_data ) ) {
+				$elements[] = [ 'type' => 'heading2',  'text' => $label ];
+				$elements[] = [ 'type' => 'paragraph',  'text' => '[Không thể phân tích JSON cho phần này. Vui lòng thử chỉnh sửa bằng chat.]' ];
+				$elements[] = [ 'type' => 'divider' ];
+				continue;
+			}
+
+			$section_elements = $section_data['elements'] ?? $section_data;
+			if ( ! is_array( $section_elements ) || empty( $section_elements ) ) {
+				$elements[] = [ 'type' => 'heading2',  'text' => $label ];
+				$elements[] = [ 'type' => 'paragraph',  'text' => '[Nội dung rỗng.]' ];
+				$elements[] = [ 'type' => 'divider' ];
+				continue;
+			}
+
+			foreach ( $section_elements as $el ) {
+				if ( is_array( $el ) && ! empty( $el['type'] ) ) {
+					if ( $el['type'] === 'table' && ! empty( $el['rows'] ) ) {
+						$el = self::repair_empty_table_cells( $el );
+					}
+					$elements[] = $el;
+				}
+			}
+
+			if ( ! $is_last ) {
+				$elements[] = [ 'type' => 'divider' ];
+			}
+
+			$success++;
+		}
+
+		self::sse_send( 'progress', [
+			'status'  => 'saving',
+			'current' => $total,
+			'total'   => $total,
+			'message' => 'Đang lưu tài liệu...',
+		] );
+
+		$schema['sections'][0]['elements'] = $elements;
+		$schema = self::ensure_defaults( $schema, 'document', $topic, $theme );
+
+		if ( is_wp_error( $schema ) ) {
+			self::complete_generation( $gen_id, 'failed', $start_time, $schema->get_error_message() );
+			self::sse_send( 'error', [ 'message' => $schema->get_error_message() ] );
+			return;
+		}
+
+		$saved = self::auto_save_document( $doc_id, $user_id, 'document', $title, $template, $theme, $schema );
+		self::complete_generation( $gen_id, 'completed', $start_time, null, $saved, $schema );
+
+		self::sse_send( 'done', [
 			'success' => true,
 			'data'    => $schema,
 			'doc_id'  => $saved,
@@ -927,14 +1780,31 @@ You MUST write in THE SAME LANGUAGE as the user's request. If Vietnamese, write 
 6. Use text_runs for inline bold/italic formatting on key terms
 7. Generate 15-25 elements per section — comprehensive but focused
 8. Use specific data: numbers, percentages, dates, concrete examples
-9. If reference material is provided, cite specifics inline
-10. Mix element types: paragraphs, bullet_list, numbered_list, tables, text_runs
+9. Mix element types: paragraphs, bullet_list, numbered_list, tables, text_runs
+
+## CITATION RULES (MANDATORY when reference material is provided)
+The reference block uses headers `[ĐOẠN TRÍCH #X | Nguồn: "<title>"]` or `[TÀI LIỆU #X | Nguồn: "<title>"]`. The string inside the quotes is the SOURCE NAME.
+
+1. **Inline citation**: Every claim, threshold, criterion, statistic, or recommendation taken from the reference MUST end with `(Nguồn: "<source name>")` or `(Theo "<source name>")`.
+2. **Direct quotes**: Include at least 2 direct verbatim quotes per section as a paragraph using `text_runs` with `"italic": true`. Format:
+   ```
+   { "type": "paragraph", "text_runs": [
+     { "text": "Theo \"<source name>\": ", "bold": true },
+     { "text": "\"<verbatim quote from source>\"", "italic": true }
+   ] }
+   ```
+3. **Deep analysis after each quote**: Every direct quote MUST be followed by an analytical paragraph (3-5 sentences) that interprets, applies, or contextualizes the quote — NOT a restatement.
+4. **Multi-source compare/contrast**: When 2+ sources address the same point, write a paragraph naming both sources and explaining their agreement / divergence.
+5. **No vague claims**: Generic phrases like "rất quan trọng", "có ý nghĩa", "cần lưu ý" are FORBIDDEN unless backed by a quoted source line.
 
 ## CRITICAL RULES
 1. Output ONLY valid JSON: { "elements": [...] } — no markdown fences, no explanation
 2. All string values must use proper JSON escaping (no raw newlines inside strings)
 3. Tables MUST have isHeader: true on first row
 4. Keep all content within this single section — do NOT generate other sections
+5. ALL table cells MUST be filled with data — empty string "" cells are FORBIDDEN. Fill every cell.
+6. Do NOT truncate tables — if a table has N rows in the source, generate ALL N rows
+7. If you are running low on output space, PRIORITIZE completing the current table before starting a new element
 PROMPT;
 	}
 
@@ -974,12 +1844,26 @@ PROMPT;
 
 		if ( ! empty( $source_context ) ) {
 			$parts[] = "\n=== TÀI LIỆU THAM KHẢO ===";
-			$parts[] = "Trích xuất dữ liệu, thống kê, phát hiện liên quan đến phần này:";
+			$parts[] = "Trích xuất dữ liệu, thống kê, phát hiện liên quan đến phần này.";
+			$parts[] = "Mỗi đoạn trích đều có header dạng [ĐOẠN TRÍCH #X | Nguồn: \"<TÊN TÀI LIỆU>\"] hoặc [TÀI LIỆU #X | Nguồn: \"<TÊN TÀI LIỆU>\"].";
+			$parts[] = "Phần tên tài liệu trong dấu \" là TÊN NGUỒN bạn PHẢI dùng khi trích dẫn (không bịa tên).";
 			$parts[] = $source_context;
 			$parts[] = "=== HẾT TÀI LIỆU ===";
+
+			$parts[] = "\nYÊU CẦU TRÍCH DẪN BẮT BUỘC (vì có tài liệu tham khảo):";
+			$parts[] = "1. MỌI nhận định, ngưỡng số, tiêu chí, khuyến nghị lấy từ tài liệu phải kết thúc bằng (Nguồn: \"<tên tài liệu>\") hoặc (Theo \"<tên tài liệu>\").";
+			$parts[] = "2. Trong phần này phải có TỐI THIỂU 2 trích dẫn nguyên văn (in nghiêng), mỗi trích dẫn ngay sau là 1 đoạn phân tích sâu 3-5 câu (giải thích, áp dụng, đối chiếu — KHÔNG diễn đạt lại).";
+			$parts[] = "3. Format trích dẫn nguyên văn dùng text_runs:";
+			$parts[] = "   { \"type\": \"paragraph\", \"text_runs\": [ { \"text\": \"Theo \\\"<tên>\\\": \", \"bold\": true }, { \"text\": \"\\\"<câu trích nguyên văn>\\\"\", \"italic\": true } ] }";
+			$parts[] = "4. Khi 2+ tài liệu cùng đề cập cùng vấn đề, phải có 1 đoạn so sánh/đối chiếu nêu rõ tên cả hai nguồn.";
+			$parts[] = "5. Cấm câu chung chung kiểu \"rất quan trọng\", \"có ý nghĩa\", \"cần lưu ý\" trừ khi đi kèm trích dẫn nguồn.";
 		}
 
-		$parts[] = "\nViết nội dung chi tiết, chuyên nghiệp cho phần này. Trả về JSON duy nhất.";
+		$parts[] = "\nYÊU CẦU BẮT BUỘC:";
+		$parts[] = "1. Viết nội dung đầy đủ, chi tiết, chuyên nghiệp cho phần này.";
+		$parts[] = "2. MỌI BẢNG phải được điền ĐẦY ĐỦ tất cả các ô — TUYỆT ĐỐI không để ô trống. Nếu thiếu dữ liệu, điền nội dung phù hợp từ kiến thức chuyên môn.";
+		$parts[] = "3. Không cắt ngắn bảng — điền đủ tất cả hàng dữ liệu theo tài liệu gốc.";
+		$parts[] = "4. Trả về JSON duy nhất, không markdown, không giải thích.";
 
 		return implode( "\n", $parts );
 	}
@@ -987,6 +1871,68 @@ PROMPT;
 	/* ═══════════════════════════════════════════════
 	   HELPERS
 	   ═══════════════════════════════════════════════ */
+
+	/**
+	 * Repair table elements that have empty cells due to truncation.
+	 * Removes rows where all non-header cells are empty strings.
+	 * Marks surviving rows with a warning if any single cell is empty.
+	 */
+	private static function repair_empty_table_cells( array $el ): array {
+		if ( empty( $el['rows'] ) || ! is_array( $el['rows'] ) ) return $el;
+
+		$col_count = 0;
+		$repaired_rows = [];
+		$has_data_rows = false;
+
+		foreach ( $el['rows'] as $row ) {
+			if ( empty( $row['cells'] ) || ! is_array( $row['cells'] ) ) continue;
+
+			$cells = $row['cells'];
+			if ( $col_count === 0 ) $col_count = count( $cells );
+
+			$is_header = ! empty( $row['isHeader'] );
+
+			if ( $is_header ) {
+				$repaired_rows[] = $row;
+				continue;
+			}
+
+			// Check if row is entirely empty (truncation artifact)
+			$non_empty = array_filter( $cells, fn( $c ) => trim( (string) $c ) !== '' );
+			if ( empty( $non_empty ) ) {
+				// Skip completely empty rows (were not generated due to token cutoff)
+				error_log( '[BZDoc] Removed empty table row (truncation artifact)' );
+				continue;
+			}
+
+			// Fill individual empty cells with a placeholder so rendering doesn't break
+			if ( count( $non_empty ) < count( $cells ) ) {
+				error_log( '[BZDoc] Partial empty cells in row — filling with placeholder' );
+				$cells = array_map( fn( $c ) => trim( (string) $c ) !== '' ? $c : '—', $cells );
+				$row['cells'] = $cells;
+			}
+
+			$repaired_rows[] = $row;
+			$has_data_rows = true;
+		}
+
+		// If all data rows were stripped (entire table was empty), keep original
+		// to avoid losing the header context
+		if ( ! $has_data_rows && count( $el['rows'] ) > 1 ) {
+			$header = $el['rows'][0];
+			$placeholder_cells = array_fill( 0, $col_count ?: 3, '[Chưa có dữ liệu]' );
+			$el['rows'] = [
+				$header,
+				[ 'cells' => $placeholder_cells ],
+			];
+			error_log( '[BZDoc] Table had no data rows after repair — added placeholder row' );
+			return $el;
+		}
+
+		$el['rows'] = $repaired_rows;
+		return $el;
+	}
+
 	private static function parse_ai_json( string $content ) {
 		// Log raw length for debugging truncation
 		$raw_len = strlen( $content );
@@ -1223,6 +2169,19 @@ PROMPT;
 			return $schema;
 		}
 
+		// ── Phase 6.3: Mindmap defaults ──
+		if ( $doc_type === 'mindmap' ) {
+			if ( empty( $schema['root'] ) || ! is_array( $schema['root'] ) ) {
+				return new \WP_Error( 'invalid_schema', 'Invalid mindmap structure: missing root node.', [ 'status' => 500 ] );
+			}
+			if ( empty( $schema['title'] ) ) {
+				$schema['title'] = $topic ?: 'Mindmap';
+			}
+			$schema['theme']     = $schema['theme']     ?? 'colorful';
+			$schema['direction'] = $schema['direction'] ?? 'LR';
+			return $schema;
+		}
+
 		// Document defaults
 		if ( empty( $schema['metadata']['title'] ) ) {
 			$schema['metadata']          = $schema['metadata'] ?? [];
@@ -1282,13 +2241,114 @@ PROMPT;
 	/* ═══════════════════════════════════════════════
 	   SOURCE CONTEXT — Build RAG context from sources
 	   ═══════════════════════════════════════════════ */
+
+	/**
+	 * PHASE-0.13 — last Graph-RAG retrieval result captured by build_source_context().
+	 * Holds the passages list (shape compatible with bizcity_kg_validate_citations_in_json)
+	 * so the post-LLM validator can verify cited [src:N#pM] markers without re-querying.
+	 *
+	 * @var array{ passages: array<int, array{source_id:int, passage_id:int, source_title:string, index:int}>, kg_entities: array<int, array{id:int, name:string}>, mode: string }
+	 */
+	private static $last_kg_context = [
+		'passages'    => [],
+		'kg_entities' => [],
+		'mode'        => '',
+	];
+
+	/**
+	 * Public read-only accessor for the last KG context — used by post-LLM validator.
+	 */
+	public static function get_last_kg_context(): array {
+		return self::$last_kg_context;
+	}
+
+	/**
+	 * PHASE-0.13 — validate citation markers in a generated bzdoc schema against
+	 * the passages list captured by build_kg_graph_context(). Returns a report
+	 * suitable for the FE `validation` event (mirrors TwinChat shape).
+	 *
+	 * Warn-only: never blocks the response on first pass. Hallucinated markers
+	 * are logged so the team can tune the prompt before flipping to enforce mode.
+	 *
+	 * @param mixed $schema  Decoded JSON schema (or raw text for spreadsheets).
+	 * @return array {
+	 *   mode: string ('graph'|'vector'|'raw'|'none'),
+	 *   ok:   bool,
+	 *   total_markers: int,
+	 *   missing: array,           — hallucinated marker labels
+	 *   hallucinated_fields: array,
+	 *   passage_count: int,       — passages actually fed to the LLM
+	 * }
+	 */
+	private static function run_citation_validator( $schema ): array {
+		$ctx = self::$last_kg_context;
+		$mode = (string) ( $ctx['mode'] ?? 'none' );
+		$base = [
+			'mode'                => $mode,
+			'ok'                  => true,
+			'total_markers'       => 0,
+			'missing'             => [],
+			'hallucinated_fields' => [],
+			'passage_count'       => count( $ctx['passages'] ?? [] ),
+		];
+		// Only validate Graph-RAG mode; vector/raw paths use prose citations.
+		if ( $mode !== 'graph' || empty( $ctx['passages'] ) ) {
+			return $base;
+		}
+		if ( ! function_exists( 'bizcity_kg_validate_citations_in_json' ) ) {
+			return $base;
+		}
+		$report = bizcity_kg_validate_citations_in_json(
+			$schema,
+			$ctx['passages'],
+			$ctx['kg_entities'] ?? [],
+			[]
+		);
+		if ( ! is_array( $report ) ) return $base;
+
+		$out = array_merge( $base, [
+			'ok'                  => (bool) ( $report['ok'] ?? true ),
+			'total_markers'       => (int) ( $report['total_markers'] ?? 0 ),
+			'missing'             => array_values( (array) ( $report['missing'] ?? [] ) ),
+			'hallucinated_fields' => array_values( (array) ( $report['hallucinated_fields'] ?? [] ) ),
+		] );
+
+		if ( ! empty( $out['missing'] ) ) {
+			error_log( sprintf(
+				'[BZDoc] CITATION-V2 hallucinated markers (warn-only): %s | passages_available=%d',
+				wp_json_encode( $out['missing'] ),
+				$out['passage_count']
+			) );
+		}
+		return $out;
+	}
+
 	private static function build_source_context( int $doc_id, string $topic ): string {
+		// Reset per-request state so a previous call doesn't leak into validator.
+		self::$last_kg_context = [ 'passages' => [], 'kg_entities' => [], 'mode' => '' ];
+
 		$sources = BZDoc_Sources::list_by_doc( $doc_id );
 		if ( empty( $sources ) ) {
 			error_log( '[BZDoc] build_source_context: doc_id=' . $doc_id . ' — no sources found' );
 			return '';
 		}
 		error_log( '[BZDoc] build_source_context: doc_id=' . $doc_id . ' — ' . count( $sources ) . ' sources' );
+
+		// PHASE-0.13 — Graph-RAG path. Use BizCity_KG_Retriever when this doc is
+		// bound to a notebook AND the retriever class is loaded. Falls back to
+		// the legacy embedder/raw-concat path on any failure.
+		$notebook_id = self::lookup_doc_notebook_id( $doc_id );
+		if ( $notebook_id > 0 && ! empty( $topic ) && class_exists( 'BizCity_KG_Retriever' ) ) {
+			$kg_context = self::build_kg_graph_context( $notebook_id, $topic );
+			if ( $kg_context !== '' ) {
+				error_log( sprintf(
+					'[BZDoc] build_source_context: Graph-RAG hit doc=%d notebook=%d passages=%d ctx_len=%d',
+					$doc_id, $notebook_id, count( self::$last_kg_context['passages'] ), strlen( $kg_context )
+				) );
+				return $kg_context;
+			}
+			error_log( '[BZDoc] build_source_context: Graph-RAG miss for notebook=' . $notebook_id . ' — falling back to embedder' );
+		}
 
 		// Check if any sources are embedded
 		$has_embeddings = false;
@@ -1304,6 +2364,7 @@ PROMPT;
 			$context = BZDoc_Embedder::build_context( $topic, $doc_id, 6000 );
 			if ( ! empty( $context ) ) {
 				error_log( '[BZDoc] build_source_context: using embeddings, context_len=' . strlen( $context ) );
+				self::$last_kg_context['mode'] = 'vector';
 				return $context;
 			}
 		}
@@ -1311,7 +2372,142 @@ PROMPT;
 		// Fallback: all source content directly
 		$fallback = BZDoc_Sources::get_all_content( $doc_id, 24000 );
 		error_log( '[BZDoc] build_source_context: fallback get_all_content, len=' . strlen( $fallback ) );
+		self::$last_kg_context['mode'] = 'raw';
 		return $fallback;
+	}
+
+	/**
+	 * PHASE-0.13 — read the notebook_id binding for a bzdoc document.
+	 * Returns 0 when the doc is unbound or doesn't exist.
+	 */
+	private static function lookup_doc_notebook_id( int $doc_id ): int {
+		if ( $doc_id <= 0 ) return 0;
+		global $wpdb;
+		$tbl = $wpdb->prefix . 'bzdoc_documents';
+		$nb  = (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT notebook_id FROM {$tbl} WHERE id = %d",
+			$doc_id
+		) );
+		return max( 0, $nb );
+	}
+
+	/**
+	 * PHASE-0.13 — call BizCity_KG_Retriever and format the resulting passages
+	 * as a context block annotated with `[src:N#pM]` IDs the LLM is instructed
+	 * to cite. Stores the passages map in self::$last_kg_context for validator.
+	 *
+	 * @return string Empty string when no graph data is available.
+	 */
+	private static function build_kg_graph_context( int $notebook_id, string $question ): string {
+		try {
+			$retr = BizCity_KG_Retriever::instance()->ask( $notebook_id, $question, [
+				'answer'         => false,
+				'seed_entities'  => 4,
+				'seed_relations' => 20,
+				'rerank_top_k'   => 6,
+				'expand_hops'    => 1,
+			] );
+		} catch ( \Throwable $e ) {
+			error_log( '[BZDoc] KG_Retriever threw: ' . $e->getMessage() );
+			return '';
+		}
+
+		if ( ! is_array( $retr ) || empty( $retr['passages'] ) ) {
+			return '';
+		}
+
+		$passages = is_array( $retr['passages'] ) ? array_slice( $retr['passages'], 0, 8 ) : [];
+		if ( empty( $passages ) ) return '';
+
+		// Resolve source titles via the shared helper (cross-table lookup).
+		$source_ids = [];
+		foreach ( $passages as $p ) {
+			$sid = (int) ( $p['source_id'] ?? 0 );
+			if ( $sid > 0 ) $source_ids[ $sid ] = true;
+		}
+		$titles_by_id = [];
+		if ( ! empty( $source_ids ) && class_exists( 'BizCity_KG_Source_Service' ) ) {
+			$svc = BizCity_KG_Source_Service::instance();
+			foreach ( array_keys( $source_ids ) as $sid ) {
+				$meta = $svc->lookup_source_meta( (int) $sid );
+				if ( $meta && ! empty( $meta['title'] ) ) {
+					$titles_by_id[ (int) $sid ] = (string) $meta['title'];
+				}
+			}
+		}
+		// Top-up missing titles directly from kg_sources.
+		$missing = array_values( array_diff( array_keys( $source_ids ), array_keys( $titles_by_id ) ) );
+		if ( ! empty( $missing ) && class_exists( 'BizCity_KG_Database' ) ) {
+			global $wpdb;
+			$tbl_src = BizCity_KG_Database::instance()->tbl_sources();
+			$placeholders = implode( ',', array_fill( 0, count( $missing ), '%d' ) );
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$rows = $wpdb->get_results( $wpdb->prepare(
+				"SELECT id, title FROM {$tbl_src} WHERE id IN ({$placeholders})",
+				$missing
+			), ARRAY_A );
+			if ( is_array( $rows ) ) {
+				foreach ( $rows as $r ) {
+					$titles_by_id[ (int) $r['id'] ] = (string) $r['title'];
+				}
+			}
+		}
+
+		// Build context block. Each passage carries its canonical [src:N#pM] tag
+		// so the LLM can cite it byte-for-byte without inventing IDs.
+		$blocks   = [];
+		$cap_used = 0;
+		$cap_max  = 24000; // chars budget — comparable to legacy raw fallback.
+		$idx      = 1;
+		$source_meta_for_validator = [];
+		foreach ( $passages as $p ) {
+			$sid     = (int) ( $p['source_id'] ?? 0 );
+			$pid     = (int) ( $p['id'] ?? 0 );
+			$content = (string) ( $p['content'] ?? '' );
+			if ( $sid <= 0 || $content === '' ) continue;
+			$title = $titles_by_id[ $sid ] ?? ( 'Source #' . $sid );
+			$tag   = $pid > 0 ? sprintf( '[src:%d#p%d]', $sid, $pid ) : sprintf( '[src:%d]', $sid );
+
+			$remaining = $cap_max - $cap_used;
+			if ( $remaining <= 200 ) break;
+			$body = mb_strlen( $content ) > $remaining ? mb_substr( $content, 0, $remaining ) : $content;
+
+			$blocks[] = sprintf(
+				"[ĐOẠN TRÍCH #%d | Nguồn: \"%s\" | id:%s]\n%s",
+				$idx, $title, $tag, $body
+			);
+			$cap_used += mb_strlen( $body );
+
+			$source_meta_for_validator[] = [
+				'index'        => $idx,
+				'source_id'    => $sid,
+				'passage_id'   => $pid,
+				'source_title' => $title,
+			];
+			$idx++;
+		}
+
+		if ( empty( $blocks ) ) return '';
+
+		// Build KG entity citation list (subgraph nodes) so validator can verify [ent:N].
+		$kg_entities = [];
+		if ( ! empty( $retr['subgraph']['nodes'] ) && is_array( $retr['subgraph']['nodes'] ) ) {
+			foreach ( array_slice( $retr['subgraph']['nodes'], 0, 8 ) as $node ) {
+				$eid  = (int) ( $node['id'] ?? 0 );
+				$name = (string) ( $node['name'] ?? $node['label'] ?? '' );
+				if ( $eid > 0 ) {
+					$kg_entities[] = [ 'id' => $eid, 'name' => $name ];
+				}
+			}
+		}
+
+		self::$last_kg_context = [
+			'passages'    => $source_meta_for_validator,
+			'kg_entities' => $kg_entities,
+			'mode'        => 'graph',
+		];
+
+		return implode( "\n---\n", $blocks );
 	}
 
 	/* ═══════════════════════════════════════════════
@@ -1326,7 +2522,51 @@ PROMPT;
 		$doc_type = sanitize_text_field( $request->get_param( 'doc_type' ) ?: 'document' );
 		$title    = sanitize_text_field( $request->get_param( 'title' ) ?: 'Untitled' );
 
-		$wpdb->insert( $table, [
+		// Title column is VARCHAR(255). Topics from image-gen / agents can be
+		// much longer (MAX_TOPIC = 5000) → truncate multibyte-safe to fit the
+		// column without tripping wpdb's strict length check.
+		if ( function_exists( 'mb_substr' ) ) {
+			$title = mb_substr( $title, 0, 200, 'UTF-8' );
+		} else {
+			$title = substr( $title, 0, 200 );
+		}
+
+		// Defensive normalization — strip 4-byte UTF-8 (emoji/supplementary
+		// planes) and control chars unconditionally. Custom tables often
+		// don't report a charset via get_col_charset(), so we can't rely
+		// on the conditional path. wpdb::strip_invalid_text() rejects with
+		// the cryptic "may be too long or contains invalid data" otherwise.
+
+		// Step 1: round-trip through mb_convert_encoding to drop any
+		// malformed UTF-8 byte sequences (lone surrogates, truncated
+		// multibyte). Without this, the /u regex below silent-fails and
+		// returns the original (still-broken) string.
+		if ( function_exists( 'mb_convert_encoding' ) ) {
+			$cleaned = @mb_convert_encoding( $title, 'UTF-8', 'UTF-8' );
+			if ( is_string( $cleaned ) ) $title = $cleaned;
+		}
+		if ( function_exists( 'wp_encode_emoji' ) ) {
+			$title = wp_encode_emoji( $title );
+		}
+		// Drop any remaining non-BMP code points (>U+FFFF).
+		$title = preg_replace( '/[\x{10000}-\x{10FFFF}]/u', '', $title ) ?? $title;
+		// Drop ASCII control chars (sanitize_text_field already kills tab/newline).
+		$title = preg_replace( '/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $title ) ?? $title;
+		// Re-truncate after entity expansion may have grown the string.
+		if ( function_exists( 'mb_substr' ) ) {
+			$title = mb_substr( $title, 0, 200, 'UTF-8' );
+		}
+
+		if ( $title === '' ) {
+			$title = 'Untitled';
+		}
+
+		// Self-heal: ensure tables exist before first insert of a new doc_type.
+		if ( class_exists( 'BZDoc_Installer' ) ) {
+			BZDoc_Installer::maybe_create_tables();
+		}
+
+		$row = [
 			'user_id'       => $user_id,
 			'doc_type'      => $doc_type,
 			'title'         => $title,
@@ -1336,9 +2576,62 @@ PROMPT;
 			'status'        => 'draft',
 			'created_at'    => current_time( 'mysql' ),
 			'updated_at'    => current_time( 'mysql' ),
-		] );
+		];
+
+		$inserted = $wpdb->insert( $table, $row );
+
+		// Fail-safe: if wpdb's strip_invalid_text rejects the title (cryptic
+		// "may be too long or contains invalid data"), retry with an
+		// ASCII-only short title. The real topic lives in schema_json so
+		// nothing user-visible is lost — only the doc-list label degrades.
+		if ( $inserted === false ) {
+			$last_err = $wpdb->last_error ?: '';
+			if ( stripos( $last_err, 'title' ) !== false || stripos( $last_err, 'invalid data' ) !== false ) {
+				error_log( sprintf(
+					'[BZDoc][project_create] retry with safe title. orig_hex=%s',
+					bin2hex( substr( $title, 0, 80 ) )
+				) );
+				$safe_title = preg_replace( '/[^A-Za-z0-9 _\-.,!?]/', '', $title );
+				$safe_title = trim( substr( $safe_title, 0, 100 ) );
+				if ( $safe_title === '' ) {
+					$safe_title = ucfirst( $doc_type ) . ' ' . gmdate( 'Y-m-d H:i' );
+				}
+				$row['title'] = $safe_title;
+				$inserted = $wpdb->insert( $table, $row );
+				if ( $inserted !== false ) {
+					$title = $safe_title;
+				}
+			}
+		}
+
+		if ( $inserted === false ) {
+			error_log( sprintf(
+				'[BZDoc][project_create] insert failed. blog_id=%d, table=%s, doc_type=%s, last_error=%s',
+				(int) get_current_blog_id(),
+				$table,
+				$doc_type,
+				$wpdb->last_error ?: '(empty)'
+			) );
+			error_log( sprintf(
+				'[BZDoc][project_create] title hex (first 80B): %s',
+				bin2hex( substr( $title, 0, 80 ) )
+			) );
+			return new \WP_Error(
+				'db_insert_failed',
+				'DB insert thất bại: ' . ( $wpdb->last_error ?: 'unknown error' ),
+				[ 'status' => 500 ]
+			);
+		}
 
 		$doc_id = (int) $wpdb->insert_id;
+		if ( ! $doc_id ) {
+			error_log( sprintf(
+				'[BZDoc][project_create] insert OK but insert_id=0. blog_id=%d, table=%s',
+				(int) get_current_blog_id(),
+				$table
+			) );
+			return new \WP_Error( 'db_no_insert_id', 'insert_id = 0 sau khi insert.', [ 'status' => 500 ] );
+		}
 
 		return rest_ensure_response( [ 'success' => true, 'doc_id' => $doc_id ] );
 	}
@@ -1424,6 +2717,40 @@ PROMPT;
 		}
 
 		return rest_ensure_response( [ 'success' => true ] );
+	}
+
+	/* ═════════════════════════════════════════════
+	   GET SOURCE DETAIL — returns full source including content_text
+	   ═════════════════════════════════════════════ */
+	public static function handle_source_get( \WP_REST_Request $request ) {
+		$source_id = absint( $request['id'] );
+		if ( ! $source_id ) {
+			return new \WP_Error( 'missing_source_id', 'source_id is required.', [ 'status' => 400 ] );
+		}
+
+		$source = BZDoc_Sources::get( $source_id );
+		if ( ! $source ) {
+			return new \WP_Error( 'not_found', 'Source not found.', [ 'status' => 404 ] );
+		}
+
+		// Security: only the owner can view source content
+		$user_id = get_current_user_id();
+		if ( (int) $source->user_id !== $user_id && ! current_user_can( 'manage_options' ) ) {
+			return new \WP_Error( 'forbidden', 'Access denied.', [ 'status' => 403 ] );
+		}
+
+		return rest_ensure_response( [
+			'id'               => (int) $source->id,
+			'title'            => (string) $source->title,
+			'source_type'      => (string) $source->source_type,
+			'source_url'       => (string) ( $source->source_url ?? '' ),
+			'char_count'       => (int) $source->char_count,
+			'token_estimate'   => (int) $source->token_estimate,
+			'chunk_count'      => (int) $source->chunk_count,
+			'embedding_status' => (string) $source->embedding_status,
+			'created_at'       => (string) $source->created_at,
+			'content_text'     => (string) ( $source->content_text ?? '' ),
+		] );
 	}
 
 	/* ═══════════════════════════════════════════════
@@ -1544,6 +2871,87 @@ PROMPT;
 	/* ═══════════════════════════════════════════════
 	   GENERATION TRACKING — log each AI call
 	   ═══════════════════════════════════════════════ */
+	/**
+	 * Upload base64 reference images to WP Media Library and return HTTPS URLs.
+	 *
+	 * Why: sending raw base64 data URIs inline to OpenRouter / OpenAI can hit
+	 * request-size limits and is slower than letting the provider fetch a URL.
+	 * Uploading once → storing a permanent WP attachment → re-using the URL
+	 * for both the LLM compose step and the image generation call.
+	 *
+	 * @param string[] $raw_refs  Array of data:image/... base64 URIs or existing HTTPS URLs.
+	 * @param int      $user_id   Author for the new attachments.
+	 * @return string[]           Same-length(-or-less) array of HTTPS attachment URLs.
+	 */
+	private static function upload_ref_images_to_media( array $raw_refs, int $user_id ): array {
+		require_once ABSPATH . 'wp-admin/includes/file.php';
+		require_once ABSPATH . 'wp-admin/includes/image.php';
+		require_once ABSPATH . 'wp-admin/includes/media.php';
+
+		$urls = [];
+		foreach ( array_slice( $raw_refs, 0, 4 ) as $ref ) {
+			if ( ! is_string( $ref ) || $ref === '' ) continue;
+
+			// Already a plain HTTPS URL — keep as-is, no upload needed.
+			if ( strpos( $ref, 'https://' ) === 0 ) {
+				$urls[] = $ref;
+				continue;
+			}
+
+			// Must be a data URI.
+			if ( strpos( $ref, 'data:image/' ) !== 0 ) continue;
+
+			// Parse: data:image/jpeg;base64,<payload>
+			$comma = strpos( $ref, ',' );
+			if ( $comma === false ) continue;
+
+			$meta_part = substr( $ref, 5, $comma - 5 ); // "image/jpeg;base64"
+			$b64       = substr( $ref, $comma + 1 );
+			$bytes     = base64_decode( $b64, true );
+			if ( $bytes === false || $bytes === '' ) continue;
+
+			// Derive extension from MIME.
+			$mime = strtolower( explode( ';', $meta_part )[0] ); // "image/jpeg"
+			$ext  = [
+				'image/jpeg' => 'jpg',
+				'image/jpg'  => 'jpg',
+				'image/png'  => 'png',
+				'image/webp' => 'webp',
+				'image/gif'  => 'gif',
+			][ $mime ] ?? 'jpg';
+
+			$upload = wp_upload_dir();
+			if ( ! empty( $upload['error'] ) ) continue;
+
+			$filename = sprintf( 'bzdoc-ref-%d-%s.%s', $user_id, wp_generate_password( 8, false, false ), $ext );
+			$filepath = trailingslashit( $upload['path'] ) . $filename;
+
+			if ( false === file_put_contents( $filepath, $bytes ) ) continue;
+
+			$file_array = [
+				'name'     => $filename,
+				'tmp_name' => $filepath,
+			];
+
+			$att_id = media_handle_sideload( $file_array, 0, 'BizCity Doc Reference Image' );
+			if ( is_wp_error( $att_id ) ) {
+				@unlink( $filepath );
+				continue;
+			}
+
+			// Tag the attachment so it can be cleaned up later if needed.
+			update_post_meta( $att_id, '_bzdoc_ref_image', '1' );
+			if ( $user_id ) {
+				wp_update_post( [ 'ID' => $att_id, 'post_author' => $user_id ] );
+			}
+
+			$url = wp_get_attachment_url( $att_id );
+			if ( $url ) $urls[] = $url;
+		}
+
+		return $urls;
+	}
+
 	private static function log_generation( int $doc_id, int $user_id, string $action, string $prompt ): int {
 		global $wpdb;
 		$wpdb->insert( $wpdb->prefix . 'bzdoc_generations', [
@@ -1783,6 +3191,45 @@ PROMPT;
 	}
 
 	/* ═══════════════════════════════════════════════
+	   ADD YOUTUBE SOURCE — Extract transcript
+	   ═══════════════════════════════════════════════ */
+	public static function handle_source_add_youtube( \WP_REST_Request $request ) {
+		$doc_id = absint( $request->get_param( 'doc_id' ) );
+		$url    = sanitize_text_field( $request->get_param( 'url' ) ?? '' );
+
+		if ( ! $doc_id ) {
+			return new \WP_Error( 'missing_doc_id', 'doc_id is required.', [ 'status' => 400 ] );
+		}
+		if ( empty( $url ) ) {
+			return new \WP_Error( 'missing_url', 'URL YouTube là bắt buộc.', [ 'status' => 400 ] );
+		}
+
+		$source_id = BZDoc_Sources::add_youtube( $doc_id, $url );
+		if ( is_wp_error( $source_id ) ) {
+			return $source_id;
+		}
+
+		$source = BZDoc_Sources::get( $source_id );
+
+		if ( function_exists( 'wp_schedule_single_event' ) ) {
+			wp_schedule_single_event( time(), 'bzdoc_embed_source', [ $source_id ] );
+		}
+
+		return rest_ensure_response( [
+			'success' => true,
+			'source'  => [
+				'id'               => (int) $source->id,
+				'title'            => $source->title,
+				'source_type'      => 'youtube',
+				'char_count'       => (int) $source->char_count,
+				'token_estimate'   => (int) $source->token_estimate,
+				'embedding_status' => 'pending',
+				'chunk_count'      => 0,
+			],
+		] );
+	}
+
+	/* ═══════════════════════════════════════════════
 	   WEB SEARCH — via BizCity Search Router gateway
 	   Uses BizCity_Search_Client (proven gateway client)
 	   or bizcity_search() helper as fallback.
@@ -1904,5 +3351,631 @@ PROMPT;
 			'sources' => $imported,
 			'count'   => count( $imported ),
 		] );
+	}
+
+	/* ═══════════════════════════════════════════════
+	   Phase 6.4 — Image generation REST handlers
+	   ═══════════════════════════════════════════════ */
+
+	public static function handle_image_generate( \WP_REST_Request $request ) {
+		@set_time_limit( 0 );
+
+		$user_id = get_current_user_id();
+		$doc_id  = absint( $request->get_param( 'doc_id' ) );
+
+		// Auto-create a new image doc if not provided.
+		if ( $doc_id === 0 ) {
+			$topic_raw   = sanitize_text_field( (string) $request->get_param( 'topic' ) ?: 'Untitled Image' );
+			$title_short = function_exists( 'mb_substr' )
+				? mb_substr( $topic_raw, 0, 200, 'UTF-8' )
+				: substr( $topic_raw, 0, 200 );
+
+			$create = new \WP_REST_Request( 'POST' );
+			$create->set_param( 'doc_type', 'image' );
+			$create->set_param( 'title', $title_short );
+			$resp = self::handle_project_create( $create );
+			if ( is_wp_error( $resp ) ) {
+				error_log( '[BZDoc][image_generate] project_create returned WP_Error: ' . $resp->get_error_code() . ' — ' . $resp->get_error_message() );
+				return $resp;
+			}
+			$d = $resp->get_data();
+			$doc_id = (int) ( $d['doc_id'] ?? 0 );
+			if ( ! $doc_id ) {
+				global $wpdb;
+				$debug = sprintf(
+					'doc_id=0 sau project_create. blog_id=%d, prefix=%s, table_exists=%s, last_error=%s, response=%s',
+					(int) get_current_blog_id(),
+					$wpdb->prefix,
+					( $wpdb->get_var( "SHOW TABLES LIKE '{$wpdb->prefix}bzdoc_documents'" ) ? 'yes' : 'NO' ),
+					$wpdb->last_error ?: '(empty)',
+					wp_json_encode( $d )
+				);
+				error_log( '[BZDoc][image_generate] ' . $debug );
+				return new \WP_Error( 'create_failed', 'Không tạo được image doc. Debug: ' . $debug, [ 'status' => 500 ] );
+			}
+		} else {
+			// Verify ownership.
+			global $wpdb;
+			$owner = (int) $wpdb->get_var( $wpdb->prepare(
+				"SELECT user_id FROM {$wpdb->prefix}bzdoc_documents WHERE id = %d", $doc_id
+			) );
+			if ( $owner !== $user_id ) {
+				return new \WP_Error( 'forbidden', 'Bạn không sở hữu doc này.', [ 'status' => 403 ] );
+			}
+		}
+
+		$payload = [
+			'topic'        => sanitize_textarea_field( (string) $request->get_param( 'topic' ) ?: '' ),
+			'prompt_id'    => absint( $request->get_param( 'prompt_id' ) ),
+			'prompt_args'  => (array) ( $request->get_param( 'prompt_args' ) ?: [] ),
+			'style_preset' => sanitize_text_field( (string) $request->get_param( 'style_preset' ) ?: '' ),
+			'aspect_ratio' => sanitize_text_field( (string) $request->get_param( 'aspect_ratio' ) ?: '1:1' ),
+			'n_variants'   => max( 1, min( 4, absint( $request->get_param( 'n_variants' ) ?: 1 ) ) ),
+			'user_id'      => $user_id,
+		];
+
+		$result = BZDoc_Image_Pipeline::run( $doc_id, $payload );
+		if ( is_wp_error( $result ) ) return $result;
+
+		// Persist schema_json so the doc page can re-load variants without re-generating.
+		global $wpdb;
+		$wpdb->update(
+			$wpdb->prefix . 'bzdoc_documents',
+			[
+				'schema_json' => wp_json_encode( [
+					'doc_type'     => 'image',
+					'topic'        => $payload['topic'],
+					'final_prompt' => $result['final_prompt'],
+					'aspect_ratio' => $result['aspect_ratio'],
+					'variants'     => $result['variants'],
+					'citations'    => $result['citations'],
+					'job_id'       => $result['job_id'],
+					'updated_at'   => current_time( 'mysql' ),
+				], JSON_UNESCAPED_UNICODE ),
+				'updated_at'  => current_time( 'mysql' ),
+			],
+			[ 'id' => $doc_id ]
+		);
+
+		return rest_ensure_response( [ 'success' => true, 'data' => $result ] );
+	}
+
+	/* ═══════════════════════════════════════════════
+	   Phase 6.4 — Async image generation (start + poll)
+	   ───────────────────────────────────────────────
+	   Cloudflare's edge has a hard 100s request timeout. Heavy multimodal
+	   image models (e.g. `openai/gpt-5.4-image-2`) routinely take 60-180s.
+	   We split the synchronous flow:
+
+	     1. POST /image/generate/start  → returns doc_id immediately,
+	        marks `schema_json.status = 'pending'`, then detaches via
+	        `fastcgi_finish_request()` and runs the pipeline in the
+	        background process (no client connection).
+	     2. GET /image/generate/status/{id} → frontend polls every ~2s,
+	        reads `schema_json.status`. Returns 'pending' | 'done' | 'failed'
+	        plus the full result payload when complete.
+
+	   Status flow stored in `schema_json`:
+	     { status, started_at, finished_at, error?, ...result fields }
+	   ═══════════════════════════════════════════════ */
+
+	public static function handle_image_generate_start( \WP_REST_Request $request ) {
+		$user_id = get_current_user_id();
+		$doc_id  = absint( $request->get_param( 'doc_id' ) );
+
+		// 1. Auto-create doc if needed (reuses sanitization + multisite guard).
+		if ( $doc_id === 0 ) {
+			$topic_raw   = sanitize_text_field( (string) $request->get_param( 'topic' ) ?: 'Untitled Image' );
+			$title_short = function_exists( 'mb_substr' )
+				? mb_substr( $topic_raw, 0, 200, 'UTF-8' )
+				: substr( $topic_raw, 0, 200 );
+
+			$create = new \WP_REST_Request( 'POST' );
+			$create->set_param( 'doc_type', 'image' );
+			$create->set_param( 'title', $title_short );
+			$resp = self::handle_project_create( $create );
+			if ( is_wp_error( $resp ) ) {
+				return $resp;
+			}
+			$d      = $resp->get_data();
+			$doc_id = (int) ( $d['doc_id'] ?? 0 );
+			if ( ! $doc_id ) {
+				return new \WP_Error( 'create_failed', 'Không tạo được image doc.', [ 'status' => 500 ] );
+			}
+		} else {
+			global $wpdb;
+			$owner = (int) $wpdb->get_var( $wpdb->prepare(
+				"SELECT user_id FROM {$wpdb->prefix}bzdoc_documents WHERE id = %d", $doc_id
+			) );
+			if ( $owner !== $user_id ) {
+				return new \WP_Error( 'forbidden', 'Bạn không sở hữu doc này.', [ 'status' => 403 ] );
+			}
+		}
+
+		// 2. Build payload (same shape as the sync endpoint).
+		$payload = [
+			'topic'        => sanitize_textarea_field( (string) $request->get_param( 'topic' ) ?: '' ),
+			'prompt_id'    => absint( $request->get_param( 'prompt_id' ) ),
+			'prompt_args'  => (array) ( $request->get_param( 'prompt_args' ) ?: [] ),
+			'style_preset' => sanitize_text_field( (string) $request->get_param( 'style_preset' ) ?: '' ),
+			'aspect_ratio' => sanitize_text_field( (string) $request->get_param( 'aspect_ratio' ) ?: '1:1' ),
+			'n_variants'   => max( 1, min( 4, absint( $request->get_param( 'n_variants' ) ?: 1 ) ) ),
+			'user_id'      => $user_id,
+		];
+
+		// Phase 6.4 Wave 2 — log generation row so version history surfaces
+		// image runs the same way as doc/presentation/mindmap.
+		$payload['gen_id']     = self::log_generation( $doc_id, $user_id, 'generate', $payload['topic'] );
+		$payload['start_time'] = microtime( true );
+
+		// Reference images (image-to-image): accept up to 4 base64 data URIs
+		// or HTTPS URLs.
+		//
+		// Strategy: Upload base64 refs to WP Media → get permanent CDN URLs.
+		//   - CDN URLs are stored in `reference_images` for the LLM compose
+		//     step (vision model reads the face/product from the URL) and for
+		//     long-term storage in schema_json.
+		//   - Original base64 data URIs are stored in `reference_images_b64`
+		//     so the image GENERATION model always receives the actual pixel
+		//     data inline, bypassing any CDN access-control or fetch-timeout
+		//     issues that would cause the model to silently ignore the image.
+		$refs_in = $request->get_param( 'reference_images' );
+		if ( is_array( $refs_in ) && ! empty( $refs_in ) ) {
+			error_log( '[BZDoc Ref] Received ' . count( $refs_in ) . ' raw ref(s). First prefix: ' . substr( (string) ( $refs_in[0] ?? '' ), 0, 40 ) );
+
+			// Keep original base64 data URIs for the generation step.
+			$refs_b64 = [];
+			foreach ( array_slice( $refs_in, 0, 4 ) as $r ) {
+				if ( is_string( $r ) && $r !== '' &&
+					( strpos( $r, 'data:image/' ) === 0 || strpos( $r, 'https://' ) === 0 ) ) {
+					$refs_b64[] = $r;
+				}
+			}
+			if ( $refs_b64 ) $payload['reference_images_b64'] = $refs_b64;
+
+			// Upload to WP media → CDN URLs for compose step + storage.
+			$refs = self::upload_ref_images_to_media( $refs_in, $user_id );
+			error_log( '[BZDoc Ref] After upload: ' . count( $refs ) . ' URL(s). ' . implode( ' | ', array_map( fn($u) => substr($u,0,80), $refs ) ) );
+			if ( $refs ) $payload['reference_images'] = $refs;
+		} else {
+			error_log( '[BZDoc Ref] No reference_images in request.' );
+		}
+
+		// Optional model override from frontend (UI picker). Whitelist a small
+		// set of OpenRouter image models to prevent arbitrary model strings.
+		$model_in = sanitize_text_field( (string) $request->get_param( 'image_model' ) );
+		$allowed_models = [
+			'google/gemini-2.5-flash-image',
+			'google/gemini-2.5-flash-image-preview',
+			'openai/gpt-image-1',
+			'openai/gpt-5.4-image-2',
+		];
+		if ( $model_in && in_array( $model_in, $allowed_models, true ) ) {
+			$payload['image_model'] = $model_in;
+			error_log( '[BZDoc Ref] User selected model: ' . $model_in );
+		}
+
+		// 3. Mark pending and capture the blog so the worker switches back.
+		global $wpdb;
+		$blog_id = (int) get_current_blog_id();
+		$wpdb->update(
+			$wpdb->prefix . 'bzdoc_documents',
+			[
+				'schema_json' => wp_json_encode( [
+					'doc_type'   => 'image',
+					'status'     => 'pending',
+					'started_at' => current_time( 'mysql' ),
+					'topic'      => $payload['topic'],
+				], JSON_UNESCAPED_UNICODE ),
+				'updated_at'  => current_time( 'mysql' ),
+			],
+			[ 'id' => $doc_id ]
+		);
+
+		// 4. Send response NOW — client only needs the doc_id.
+		$response = rest_ensure_response( [
+			'success' => true,
+			'doc_id'  => $doc_id,
+			'status'  => 'pending',
+		] );
+
+		// 5. Detach: flush response to client + close connection so the
+		// browser (and Cloudflare) move on. PHP keeps running below.
+		// `fastcgi_finish_request` works on PHP-FPM / LiteSpeed LSAPI; if
+		// missing (rare), fall back to WP cron.
+		$detached = false;
+		if ( function_exists( 'fastcgi_finish_request' ) ) {
+			// Ship the REST response through the normal WP pipeline first
+			// by registering a shutdown step that runs the worker after
+			// fastcgi_finish_request has been called.
+			$server = rest_get_server();
+			if ( $server instanceof \WP_REST_Server ) {
+				// Send headers + body manually then finish.
+				$result = $server->response_to_data( $response, false );
+				status_header( 200 );
+				header( 'Content-Type: application/json; charset=' . get_option( 'blog_charset' ) );
+				echo wp_json_encode( $result );
+				if ( function_exists( 'litespeed_finish_request' ) ) {
+					litespeed_finish_request();
+				}
+				fastcgi_finish_request();
+				$detached = true;
+			}
+		}
+
+		if ( ! $detached ) {
+			// Fallback: schedule via WP-Cron (single-event). Slower (waits
+			// for next pageload to spawn) but always works.
+			wp_schedule_single_event(
+				time(),
+				'bzdoc_run_image_job',
+				[ $doc_id, $payload, $blog_id ]
+			);
+			return $response;
+		}
+
+		// ── Background work (no client connection) ──────────────────
+		@set_time_limit( 0 );
+		@ignore_user_abort( true );
+		self::run_image_job( $doc_id, $payload, $blog_id );
+		exit;
+	}
+
+	/**
+	 * Cron fallback — invoked when `fastcgi_finish_request` is unavailable.
+	 */
+	public static function run_image_job_cron( $doc_id, $payload, $blog_id ) {
+		@set_time_limit( 0 );
+		self::run_image_job( (int) $doc_id, (array) $payload, (int) $blog_id );
+	}
+
+	/**
+	 * Actual worker — runs `BZDoc_Image_Pipeline` and persists the result
+	 * (or error) into `schema_json` so the status endpoint can pick it up.
+	 */
+	private static function run_image_job( int $doc_id, array $payload, int $blog_id ) {
+		$switched = false;
+		if ( is_multisite() && $blog_id && $blog_id !== (int) get_current_blog_id() ) {
+			switch_to_blog( $blog_id );
+			$switched = true;
+		}
+
+		try {
+			$result = BZDoc_Image_Pipeline::run( $doc_id, $payload );
+		} catch ( \Throwable $e ) {
+			$result = new \WP_Error( 'image_pipeline_exception', $e->getMessage() );
+		}
+
+		$gen_id     = (int) ( $payload['gen_id'] ?? 0 );
+		$start_time = (float) ( $payload['start_time'] ?? microtime( true ) );
+
+		global $wpdb;
+		if ( is_wp_error( $result ) ) {
+			$wpdb->update(
+				$wpdb->prefix . 'bzdoc_documents',
+				[
+					'schema_json' => wp_json_encode( [
+						'doc_type'    => 'image',
+						'status'      => 'failed',
+						'error'       => $result->get_error_message(),
+						'error_code'  => $result->get_error_code(),
+						'finished_at' => current_time( 'mysql' ),
+						'topic'       => $payload['topic'] ?? '',
+					], JSON_UNESCAPED_UNICODE ),
+					'updated_at'  => current_time( 'mysql' ),
+				],
+				[ 'id' => $doc_id ]
+			);
+			if ( $gen_id ) {
+				self::complete_generation( $gen_id, 'failed', $start_time, $result->get_error_message() );
+			}
+		} else {
+			$schema_snapshot = [
+				'doc_type'         => 'image',
+				'status'           => 'done',
+				'topic'            => $payload['topic'] ?? '',
+				'final_prompt'     => $result['final_prompt'] ?? '',
+				'aspect_ratio'     => $result['aspect_ratio'] ?? '1:1',
+				'variants'         => $result['variants'] ?? [],
+				'citations'        => $result['citations'] ?? [],
+				'job_id'           => $result['job_id'] ?? 0,
+				'n_variants'       => count( (array) ( $result['variants'] ?? [] ) ),
+				'finished_at'      => current_time( 'mysql' ),
+				// Phase 6.4 — carry the original user-uploaded references into
+				// the doc schema so edit_variant() can re-attach them as
+				// identity anchors and prevent subject drift across edits.
+				'reference_images' => $result['reference_images'] ?? ( $payload['reference_images'] ?? [] ),
+			];
+			$wpdb->update(
+				$wpdb->prefix . 'bzdoc_documents',
+				[
+					'schema_json' => wp_json_encode( $schema_snapshot, JSON_UNESCAPED_UNICODE ),
+					'updated_at'  => current_time( 'mysql' ),
+				],
+				[ 'id' => $doc_id ]
+			);
+			if ( $gen_id ) {
+				self::complete_generation( $gen_id, 'completed', $start_time, null, $doc_id, $schema_snapshot );
+			}
+		}
+
+		if ( $switched ) {
+			restore_current_blog();
+		}
+	}
+
+	/**
+	 * POST /image/edit/start — async edit of an existing variant.
+	 *
+	 * Body: { doc_id: int (required), parent_variant_index: int, instruction: string }
+	 *
+	 * Returns the doc_id immediately + status='pending'. Use the same
+	 * GET /image/generate/status/{doc_id} endpoint to poll. The edited
+	 * variant gets appended to schema_json.variants[] (not replacing).
+	 */
+	public static function handle_image_edit_start( \WP_REST_Request $request ) {
+		$user_id     = get_current_user_id();
+		$doc_id      = absint( $request->get_param( 'doc_id' ) );
+		$parent_idx  = (int) $request->get_param( 'parent_variant_index' );
+		$instruction = trim( (string) $request->get_param( 'instruction' ) );
+
+		if ( ! $doc_id ) {
+			return new \WP_Error( 'missing_doc_id', 'doc_id required.', [ 'status' => 400 ] );
+		}
+		if ( $instruction === '' ) {
+			return new \WP_Error( 'missing_instruction', 'Cần mô tả chỉnh sửa.', [ 'status' => 400 ] );
+		}
+
+		// Ownership check.
+		global $wpdb;
+		$owner = (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT user_id FROM {$wpdb->prefix}bzdoc_documents WHERE id = %d",
+			$doc_id
+		) );
+		if ( ! $owner ) {
+			return new \WP_Error( 'doc_not_found', 'Doc không tồn tại.', [ 'status' => 404 ] );
+		}
+		if ( $owner !== $user_id ) {
+			return new \WP_Error( 'forbidden', 'Bạn không sở hữu doc này.', [ 'status' => 403 ] );
+		}
+
+		$payload = [
+			'parent_variant_index' => max( 0, $parent_idx ),
+			'instruction'          => $instruction,
+			'user_id'              => $user_id,
+		];
+
+		// Phase 6.4 Wave 2 — log edit generation so version history records it.
+		$payload['gen_id']     = self::log_generation( $doc_id, $user_id, 'edit', $instruction );
+		$payload['start_time'] = microtime( true );
+
+		// Mark pending — preserve existing variants[] but flip status so
+		// the polling client knows a job is running. We DON'T overwrite
+		// the schema; we set a side-channel flag.
+		$row = $wpdb->get_row( $wpdb->prepare(
+			"SELECT schema_json FROM {$wpdb->prefix}bzdoc_documents WHERE id = %d",
+			$doc_id
+		) );
+		$schema = json_decode( (string) $row->schema_json, true ) ?: [];
+		$schema['status']            = 'pending';
+		$schema['edit_in_progress']  = true;
+		$schema['edit_instruction']  = $instruction;
+		$schema['edit_started_at']   = current_time( 'mysql' );
+		$wpdb->update(
+			$wpdb->prefix . 'bzdoc_documents',
+			[
+				'schema_json' => wp_json_encode( $schema, JSON_UNESCAPED_UNICODE ),
+				'updated_at'  => current_time( 'mysql' ),
+			],
+			[ 'id' => $doc_id ]
+		);
+
+		$blog_id  = (int) get_current_blog_id();
+		$response = rest_ensure_response( [
+			'success' => true,
+			'doc_id'  => $doc_id,
+			'status'  => 'pending',
+		] );
+
+		// Detach + run inline (same pattern as handle_image_generate_start).
+		$detached = false;
+		if ( function_exists( 'fastcgi_finish_request' ) ) {
+			$server = rest_get_server();
+			if ( $server instanceof \WP_REST_Server ) {
+				$result = $server->response_to_data( $response, false );
+				status_header( 200 );
+				header( 'Content-Type: application/json; charset=' . get_option( 'blog_charset' ) );
+				echo wp_json_encode( $result );
+				if ( function_exists( 'litespeed_finish_request' ) ) {
+					litespeed_finish_request();
+				}
+				fastcgi_finish_request();
+				$detached = true;
+			}
+		}
+
+		if ( ! $detached ) {
+			wp_schedule_single_event( time(), 'bzdoc_run_image_edit_job', [ $doc_id, $payload, $blog_id ] );
+			return $response;
+		}
+
+		@set_time_limit( 0 );
+		@ignore_user_abort( true );
+		self::run_image_edit_job( $doc_id, $payload, $blog_id );
+		exit;
+	}
+
+	public static function run_image_edit_job_cron( $doc_id, $payload, $blog_id ) {
+		self::run_image_edit_job( (int) $doc_id, (array) $payload, (int) $blog_id );
+	}
+
+	private static function run_image_edit_job( int $doc_id, array $payload, int $blog_id ) {
+		$switched = false;
+		if ( is_multisite() && $blog_id && $blog_id !== (int) get_current_blog_id() ) {
+			switch_to_blog( $blog_id );
+			$switched = true;
+		}
+
+		try {
+			$result = BZDoc_Image_Pipeline::edit_variant( $doc_id, $payload );
+		} catch ( \Throwable $e ) {
+			$result = new \WP_Error( 'image_edit_exception', $e->getMessage() );
+		}
+
+		$gen_id     = (int) ( $payload['gen_id'] ?? 0 );
+		$start_time = (float) ( $payload['start_time'] ?? microtime( true ) );
+
+		global $wpdb;
+		// Reload current schema so we don't clobber unrelated fields.
+		$row = $wpdb->get_row( $wpdb->prepare(
+			"SELECT schema_json FROM {$wpdb->prefix}bzdoc_documents WHERE id = %d",
+			$doc_id
+		) );
+		$schema = json_decode( (string) ( $row->schema_json ?? '{}' ), true ) ?: [];
+		unset( $schema['edit_in_progress'], $schema['edit_started_at'] );
+
+		if ( is_wp_error( $result ) ) {
+			$schema['status']     = 'failed';
+			$schema['error']      = $result->get_error_message();
+			$schema['error_code'] = $result->get_error_code();
+		} else {
+			$schema['doc_type']     = 'image';
+			$schema['status']       = 'done';
+			$schema['final_prompt'] = $result['final_prompt'] ?? ( $schema['final_prompt'] ?? '' );
+			$schema['aspect_ratio'] = $result['aspect_ratio'] ?? ( $schema['aspect_ratio'] ?? '1:1' );
+			$schema['variants']     = $result['variants'] ?? ( $schema['variants'] ?? [] );
+			$schema['citations']    = $result['citations'] ?? ( $schema['citations'] ?? [] );
+			$schema['job_id']       = $result['job_id'] ?? ( $schema['job_id'] ?? 0 );
+			$schema['n_variants']   = count( (array) $schema['variants'] );
+			$schema['finished_at']  = current_time( 'mysql' );
+		}
+
+		$wpdb->update(
+			$wpdb->prefix . 'bzdoc_documents',
+			[
+				'schema_json' => wp_json_encode( $schema, JSON_UNESCAPED_UNICODE ),
+				'updated_at'  => current_time( 'mysql' ),
+			],
+			[ 'id' => $doc_id ]
+		);
+
+		if ( $gen_id ) {
+			if ( is_wp_error( $result ) ) {
+				self::complete_generation( $gen_id, 'failed', $start_time, $result->get_error_message() );
+			} else {
+				self::complete_generation( $gen_id, 'completed', $start_time, null, $doc_id, $schema );
+			}
+		}
+
+		if ( $switched ) {
+			restore_current_blog();
+		}
+	}
+
+	public static function handle_image_generate_status( \WP_REST_Request $request ) {
+		$user_id = get_current_user_id();
+		$doc_id  = absint( $request['id'] );
+		if ( ! $doc_id ) {
+			return new \WP_Error( 'missing_id', 'doc_id required', [ 'status' => 400 ] );
+		}
+
+		global $wpdb;
+		$row = $wpdb->get_row( $wpdb->prepare(
+			"SELECT user_id, schema_json FROM {$wpdb->prefix}bzdoc_documents WHERE id = %d",
+			$doc_id
+		) );
+		if ( ! $row ) {
+			return new \WP_Error( 'not_found', 'Doc không tồn tại.', [ 'status' => 404 ] );
+		}
+		if ( (int) $row->user_id !== $user_id ) {
+			return new \WP_Error( 'forbidden', 'Bạn không sở hữu doc này.', [ 'status' => 403 ] );
+		}
+
+		$schema = json_decode( $row->schema_json ?: '{}', true ) ?: [];
+		$status = (string) ( $schema['status'] ?? 'unknown' );
+
+		$out = [
+			'success' => true,
+			'doc_id'  => $doc_id,
+			'status'  => $status,
+		];
+
+		if ( $status === 'done' ) {
+			$out['data'] = [
+				'doc_id'       => $doc_id,
+				'job_id'       => (int) ( $schema['job_id'] ?? 0 ),
+				'aspect_ratio' => (string) ( $schema['aspect_ratio'] ?? '1:1' ),
+				'final_prompt' => (string) ( $schema['final_prompt'] ?? '' ),
+				'citations'    => (array) ( $schema['citations'] ?? [] ),
+				'variants'     => (array) ( $schema['variants'] ?? [] ),
+				'n_variants'   => count( (array) ( $schema['variants'] ?? [] ) ),
+			];
+		} elseif ( $status === 'failed' ) {
+			$out['error']      = (string) ( $schema['error'] ?? 'unknown' );
+			$out['error_code'] = (string) ( $schema['error_code'] ?? 'image_failed' );
+		} else {
+			// Pending — surface streaming heartbeat so the UI can prove the
+			// upstream socket is still actively receiving bytes (not stalled).
+			if ( class_exists( 'BZDoc_Image_Pipeline' )
+				&& method_exists( 'BZDoc_Image_Pipeline', 'get_job_heartbeat' ) ) {
+				$hb = BZDoc_Image_Pipeline::get_job_heartbeat( $doc_id );
+				if ( is_array( $hb ) ) {
+					$out['heartbeat'] = [
+						'ts'        => (int) $hb['ts'],
+						'age_s'     => max( 0, time() - (int) $hb['ts'] ),
+						'variant'   => (int) ( $hb['variant'] ?? 0 ),
+						'event'     => (string) ( $hb['event'] ?? '' ),
+					];
+				}
+			}
+		}
+
+		return rest_ensure_response( $out );
+	}
+
+	public static function handle_image_prompts_featured( \WP_REST_Request $request ) {
+		$lang  = sanitize_text_field( (string) $request->get_param( 'lang' ) ?: 'vi' );
+		$limit = absint( $request->get_param( 'limit' ) ?: 12 );
+		$rows  = BZDoc_Image_Prompts_Database::list_featured( $limit, $lang );
+		return rest_ensure_response( [ 'success' => true, 'items' => self::decode_prompt_rows( $rows ) ] );
+	}
+
+	public static function handle_image_prompts_search( \WP_REST_Request $request ) {
+		$q     = sanitize_text_field( (string) $request->get_param( 'q' ) ?: '' );
+		$lang  = sanitize_text_field( (string) $request->get_param( 'lang' ) ?: 'vi' );
+		$limit = absint( $request->get_param( 'limit' ) ?: 20 );
+		$rows  = BZDoc_Image_Prompts_Database::search( $q, $limit, $lang );
+		return rest_ensure_response( [ 'success' => true, 'items' => self::decode_prompt_rows( $rows ) ] );
+	}
+
+	public static function handle_image_prompt_get( \WP_REST_Request $request ) {
+		$id = absint( $request['id'] );
+		$row = BZDoc_Image_Prompts_Database::get_by_id( $id );
+		if ( ! $row ) {
+			return new \WP_Error( 'not_found', 'Prompt không tồn tại.', [ 'status' => 404 ] );
+		}
+		$decoded = self::decode_prompt_rows( [ $row ] );
+		// Include full template + arguments for editor.
+		$decoded[0]['template']  = json_decode( (string) $row['template_json'], true );
+		$decoded[0]['arguments'] = json_decode( (string) $row['arguments_json'], true );
+		return rest_ensure_response( [ 'success' => true, 'item' => $decoded[0] ] );
+	}
+
+	private static function decode_prompt_rows( array $rows ): array {
+		$out = [];
+		foreach ( $rows as $r ) {
+			$out[] = [
+				'id'                 => (int) $r['id'],
+				'slug'               => $r['slug'],
+				'title'              => $r['title'],
+				'description'        => $r['description'],
+				'cover_url'          => $r['cover_url'],
+				'language'           => $r['language'] ?? 'vi',
+				'categories'         => json_decode( (string) ( $r['categories_json'] ?? '[]' ), true ) ?: [],
+				'arguments'          => json_decode( (string) ( $r['arguments_json'] ?? '[]' ), true ) ?: [],
+				'source_attribution' => $r['source_attribution'] ?? '',
+			];
+		}
+		return $out;
 	}
 }

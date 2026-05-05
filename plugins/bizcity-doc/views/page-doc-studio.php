@@ -15,6 +15,9 @@ if ( ! is_user_logged_in() ) {
 	exit;
 }
 
+// Disable admin bar — prevents WP from injecting margin-top:32px on <html>
+show_admin_bar( false );
+
 // Force enqueue our assets (template_redirect fires before wp_head)
 BZDoc_Frontend::maybe_enqueue();
 
@@ -94,13 +97,50 @@ add_action( 'wp_enqueue_scripts', function () {
 </head>
 <body class="bzdoc-body">
 	<div id="doc-app" class="bzdoc-studio-wrap"></div>
-	<script>var bzdocConfig = <?php echo wp_json_encode( [
-		'restUrl'   => esc_url_raw( rest_url( 'bzdoc/v1' ) ),
-		'nonce'     => wp_create_nonce( 'wp_rest' ),
-		'userId'    => get_current_user_id(),
-		'pluginUrl' => BZDOC_URL,
-	] ); ?>;</script>
+	<script>
+		var bzdocConfig = <?php echo wp_json_encode( [
+			'restUrl'   => esc_url_raw( rest_url( 'bzdoc/v1' ) ),
+			'nonce'     => wp_create_nonce( 'wp_rest' ),
+			'userId'    => get_current_user_id(),
+			'pluginUrl' => BZDOC_URL,
+		] ); ?>;
+		// Shim wpApiSettings so primitive callers + SourceSidebar binding fetch work
+		// (this template dequeues all WP scripts including wp-api).
+		window.wpApiSettings = window.wpApiSettings || {
+			root:  <?php echo wp_json_encode( esc_url_raw( rest_url() ) ); ?>,
+			nonce: bzdocConfig.nonce
+		};
+	</script>
 	<?php
+	// ── Phase 0.13 W3 — TwinShell primitives bundle (picker + source upload).
+	// Required because this template dequeues all WP scripts; SourceSidebar
+	// calls window.BizcityTwin.openSourceUpload() which lives here.
+	if ( class_exists( 'BizCity_Twin_Shell_Primitives' )
+		&& BizCity_Twin_Shell_Primitives::is_enabled()
+		&& defined( 'BIZCITY_TWIN_SHELL_DIR' ) ) {
+
+		$prim_files = BizCity_Twin_Shell_Primitives::asset_files();
+		$prim_urls  = BizCity_Twin_Shell_Primitives::asset_urls();
+		$ts_ver     = defined( 'BIZCITY_TWIN_SHELL_VERSION' ) ? BIZCITY_TWIN_SHELL_VERSION : '0.13.0';
+
+		$css_v   = file_exists( $prim_files['css'] )    ? filemtime( $prim_files['css'] )    : $ts_ver;
+		$js_v    = file_exists( $prim_files['js'] )     ? filemtime( $prim_files['js'] )     : $ts_ver;
+		$up_v    = file_exists( $prim_files['upload'] ) ? filemtime( $prim_files['upload'] ) : $ts_ver;
+
+		$prim_cfg = wp_json_encode( [
+			'restRoot' => esc_url_raw( rest_url( BizCity_Twin_Shell_Primitives::NS . '/' ) ),
+			'nonce'    => wp_create_nonce( 'wp_rest' ),
+			'userId'   => get_current_user_id(),
+			'plugin'   => 'bizdoc',
+		] );
+		?>
+		<link rel="stylesheet" href="<?php echo esc_url( $prim_urls['css'] . '?ver=' . $css_v ); ?>">
+		<script>window.BIZCITY_TWIN_PRIMITIVES_CFG = <?php echo $prim_cfg; ?>;</script>
+		<script src="<?php echo esc_url( $prim_urls['js']     . '?ver=' . $js_v ); ?>"></script>
+		<script src="<?php echo esc_url( $prim_urls['upload'] . '?ver=' . $up_v ); ?>"></script>
+		<?php
+	}
+
 	$js_file = BZDOC_DIR . 'assets/dist/doc-app.js';
 	$js_ver  = file_exists( $js_file ) ? filemtime( $js_file ) : BZDOC_VERSION;
 	?>

@@ -1,0 +1,172 @@
+/* Bizcity Twin Shell — layout + ActivityBar styles. */
+:root {
+  --ts-bg: #0f1115;
+  --ts-bar-bg: #181b22;
+  --ts-bar-border: #23262e;
+  --ts-fg: #e6e6e6;
+  --ts-fg-dim: #8a8f9b;
+  --ts-accent: #4f8cff;
+  --ts-active-bg: #23262e;
+}
+
+#twin-shell {
+  display: flex;
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.ts-activitybar {
+  width: 48px;
+  flex: 0 0 48px;
+  background: var(--ts-bar-bg);
+  border-right: 1px solid var(--ts-bar-border);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 4px 0;
+  user-select: none;
+}
+
+.ts-ab-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.ts-ab-item {
+  width: 48px;
+  height: 44px;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  border-radius: 0;
+  color: var(--ts-fg-dim);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+  position: relative;
+  font-family: inherit;
+}
+
+.ts-ab-item:hover {
+  background: var(--ts-active-bg);
+  color: var(--ts-fg);
+}
+
+.ts-ab-item.is-active {
+  color: var(--ts-fg);
+}
+
+.ts-ab-item.is-active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  background: var(--ts-accent);
+  border-radius: 0 2px 2px 0;
+}
+
+.ts-main {
+  flex: 1 1 auto;
+  position: relative;
+  background: var(--ts-bg);
+  min-width: 0;
+}
+
+.ts-frame-stack {
+  position: absolute;
+  inset: 0;
+}
+
+.ts-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #fff;
+  display: none;
+}
+
+.ts-frame.is-active {
+  display: block;
+}
+
+.ts-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 17, 21, 0.7);
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* Fix: [hidden] bị ghi đè bởi display:flex ở trên — phải override tường minh */
+.ts-loading[hidden] {
+  display: none;
+}
+
+.ts-spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid rgba(255, 255, 255, 0.15);
+  border-top-color: var(--ts-accent);
+  border-radius: 50%;
+  animation: ts-spin 0.8s linear infinite;
+}
+
+@keyframes ts-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Phase 0.13 W3 — upload chip in ActivityBar bottom */
+.ts-upload-chip { position: relative; overflow: hidden; }
+.ts-upload-chip .ts-ab-icon { font-size: 16px; }
+/* Label is hidden — ActivityBar is icon-only (48px); tooltip carries the text. */
+.ts-upload-chip .ts-ab-label { display: none; }
+.ts-upload-chip.is-live::after {
+  content: ''; position: absolute; top: 6px; right: 6px;
+  width: 8px; height: 8px; border-radius: 50%;
+  background: #fbbf24; box-shadow: 0 0 0 2px rgba(15,17,21,.95);
+  animation: ts-pulse 1.4s infinite;
+}
+@keyframes ts-pulse { 0%,100% { opacity: 1 } 50% { opacity: .4 } }
+.ts-upload-chip.is-pending { opacity: .55; pointer-events: none; }
+
+/* Phase 0.13 W3 — gentle hint bubble next to upload chip */
+.ts-chip-hint {
+  position: fixed; z-index: 999998;
+  max-width: 280px;
+  background: #111827; color: #e5e7eb;
+  border: 1px solid #334155; border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(0,0,0,.45);
+  padding: 10px 12px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;
+  font-size: 12px; line-height: 1.45;
+  display: flex; align-items: flex-start; gap: 8px;
+  animation: ts-hint-in .18s ease-out;
+}
+.ts-chip-hint::before {
+  content: ''; position: absolute; left: -6px; top: 14px;
+  width: 10px; height: 10px; background: #111827;
+  border-left: 1px solid #334155; border-bottom: 1px solid #334155;
+  transform: rotate(45deg);
+}
+.ts-chip-hint-body { display: flex; gap: 8px; flex: 1; align-items: flex-start; }
+.ts-chip-hint-icon { font-size: 14px; line-height: 1.2; }
+.ts-chip-hint-text { color: #cbd5e1; }
+.ts-chip-hint-close {
+  background: transparent; color: #94a3b8; border: 0; cursor: pointer;
+  font-size: 14px; padding: 0 2px; line-height: 1; margin-left: 4px;
+}
+.ts-chip-hint-close:hover { color: #e5e7eb; }
+@keyframes ts-hint-in {
+  from { opacity: 0; transform: translateX(-4px); }
+  to   { opacity: 1; transform: translateX(0); }
+}

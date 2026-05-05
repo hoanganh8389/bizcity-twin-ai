@@ -90,6 +90,9 @@ if ( is_admin() ) {
 require_once BIZCITY_VIDEO_KLING_DIR . 'includes/class-twitcanva-integration.php';
 BizCity_TwitCanva_Integration::init();
 
+// ── 4b2. Gateway Video Proxy (hub-side REST endpoint for avatar tasks) ──
+require_once BIZCITY_VIDEO_KLING_DIR . 'includes/class-gateway-video-proxy.php';
+
 // ── 4c. TwitCanva AJAX bridge (frontend SPA → PHP) ──
 require_once BIZCITY_VIDEO_KLING_DIR . 'includes/class-twitcanva-ajax.php';
 BizCity_TwitCanva_Ajax::init();

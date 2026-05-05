@@ -72,8 +72,21 @@ class BZCC_Canvas_Bridge {
 			];
 		}
 
-		// ── 5. Build launch URL ──
+		// ── 4b. Federation stamp (Rule 8g v2 — JSON map on kg_notebooks) ──
+		// Đăng ký artifact vào notebook.artifacts_json để Canvas mode + KG
+		// resolve_sources thấy được. nb=0 → no-op (an toàn).
 		$launch_url = home_url( '/creator/result/' . $file_id . '/' );
+		if ( class_exists( 'BizCity_Artifact_Source_Federation' ) ) {
+			BizCity_Artifact_Source_Federation::stamp(
+				'bizcity-content-creator',
+				(int) $file_id,
+				(int) ( $context['notebook_id'] ?? 0 ),
+				(string) $title,
+				$launch_url
+			);
+		}
+
+		// ── 5. Build launch URL ──
 
 		error_log( '[BZCC-Bridge] dispatch: template=' . $template->slug . ' file=' . $file_id . ' url=' . $launch_url );
 

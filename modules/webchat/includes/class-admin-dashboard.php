@@ -82,17 +82,26 @@ class BizCity_WebChat_Admin_Dashboard {
      */
     public function redirect_dashboard() {
         global $pagenow;
-        
-        // Redirect index.php to chat dashboard
+
+        // 2026-05-06 — Twin (TwinChat) is the default dashboard, not WebChat.
+        // Redirect index.php → TwinChat dashboard.
         if ($pagenow === 'index.php' && !isset($_GET['page'])) {
-            wp_redirect(admin_url('admin.php?page=bizcity-webchat-dashboard'));
+            wp_redirect(admin_url('admin.php?page=bizcity-twinchat'));
             exit;
         }
-        
-        // Fix: /wp-admin/admin.php?chat=wcs_xxx → add page= param
+
+        // Fix: /wp-admin/admin.php?chat=wcs_xxx → add page= param (still routes via TwinChat)
         if ($pagenow === 'admin.php' && isset($_GET['chat']) && !isset($_GET['page'])) {
             $chat_id = sanitize_text_field($_GET['chat']);
-            wp_redirect(admin_url('admin.php?page=bizcity-webchat-dashboard&chat=' . urlencode($chat_id)));
+            wp_redirect(admin_url('admin.php?page=bizcity-twinchat&chat=' . urlencode($chat_id)));
+            exit;
+        }
+
+        // Legacy URL guard: ?page=bizcity-webchat-dashboard → forward to TwinChat.
+        if ($pagenow === 'admin.php' && isset($_GET['page']) && $_GET['page'] === 'bizcity-webchat-dashboard') {
+            $args = $_GET;
+            $args['page'] = 'bizcity-twinchat';
+            wp_redirect(admin_url('admin.php?' . http_build_query($args)));
             exit;
         }
     }
@@ -873,28 +882,22 @@ class BizCity_WebChat_Admin_Dashboard {
         $user_avatar = $current_uid ? get_avatar_url($current_uid, ['size' => 96]) : '';
         $logout_url  = wp_logout_url(get_permalink());
 
-        // ── Sidebar navigation items (configurable via filter) ──
+        // ── Sidebar navigation items ──────────────────────────────────
+        // SOURCE OF TRUTH: modules/twinshell registry
+        // (filter `bizcity_twin_register_plugins`, default-plugins.php).
+        // The legacy hardcoded list that used to live here is GONE — do NOT
+        // re-add plugin entries to this dashboard. Register them in twinshell
+        // so they appear here AND in the unified /twin/ ActivityBar shell.
+        // Back-compat: `as_sidebar_nav()` still applies the old
+        // `bizcity_sidebar_nav` filter as a final post-filter for any
+        // third-party code still hooking the legacy name.
         $td = 'bizcity-twin-ai';
-        $sidebar_nav = apply_filters('bizcity_sidebar_nav', [
-            ['slug' => 'creator',    'label' => __( 'Tư duy làm kế hoạch, kịch bản',      $td ), 'icon' => '✍️', 'type' => 'link', 'src' => home_url('creator/')],
-            ['slug' => 'doc',        'label' => __( 'Làm tài liệu, slides',       $td ), 'icon' => '📄', 'type' => 'link', 'src' => home_url('tool-doc/')],
-            ['slug' => 'design',     'label' => __( 'Làm ảnh sản phẩm',   $td ), 'icon' => '🎨', 'type' => 'link', 'src' => home_url('tool-image/')],
-            ['slug' => 'design',     'label' => __( 'Làm ảnh chân dung',   $td ), 'icon' => '🎨', 'type' => 'link', 'src' => home_url('profile-studio/')],
-            ['slug' => 'design',     'label' => __( 'Thiết kế tờ rơi,banner',   $td ), 'icon' => '🎨', 'type' => 'link', 'src' => home_url('canva/')],
-            ['slug' => 'video',      'label' => __( 'Làm video',          $td ), 'icon' => '🎬', 'type' => 'link', 'src' => home_url('kling-video/')],
-            ['slug' => 'avatar',     'label' => __( 'Avatar LipSync',   $td ), 'icon' => '🧑‍🎤', 'type' => 'link', 'src' => home_url('avatar/')],
-            ['slug' => 'code',       'label' => __( 'Viết code',                  $td ), 'icon' => '🖥️', 'type' => 'link', 'src' => home_url('tool-code/')],
-            ['slug' => 'pagebuilder','label' => __( 'Tạo web',                   $td ), 'icon' => '🌐', 'type' => 'link', 'src' => home_url('tool-pagebuilder/')],
-            ['slug' => 'training',   'label' => __( 'Làm mindmap',     $td ), 'icon' => '📖', 'type' => 'link', 'src' => home_url('mindmap/')],
-            ['slug' => 'training',   'label' => __( 'Notebook',     $td ), 'icon' => '📖', 'type' => 'link', 'src' => home_url('note/')],
-            ['slug' => 'automation', 'label' => __( 'Chia việc chạy',              $td ), 'icon' => '🔄', 'type' => 'link', 'src' => admin_url('admin.php?page=bizcity-workspace&tab=workflow')],
-            ['slug' => 'tools',      'label' => __( 'Công cụ',             $td ), 'icon' => '🛠️', 'type' => 'link', 'src' => home_url('tools-map/')],
-            ['slug' => 'skills',     'label' => __( 'Tạo kỹ năng',            $td ), 'icon' => '⚡', 'type' => 'link', 'src' => home_url('skills/')],
-            ['slug' => 'scheduler',  'label' => __( 'Lịch nhắc nhở',           $td ), 'icon' => '📅', 'type' => 'link', 'src' => home_url('scheduler/')],
-            ['slug' => 'gateway',    'label' => __( 'Cổng kết nối',        $td ), 'icon' => '🔌', 'type' => 'link', 'src' => admin_url('admin.php?page=bizchat-gateway')],
-            ['slug' => 'explore',    'label' => __( 'Chợ công cụ',            $td ), 'icon' => '🔍', 'type' => 'link', 'src' => admin_url('admin.php?page=bizcity-marketplace')],
-            
-        ]);
+        if ( class_exists( 'BizCity_Twin_Shell_Registry' ) ) {
+            $sidebar_nav = BizCity_Twin_Shell_Registry::instance()->as_sidebar_nav();
+        } else {
+            // twin-shell module not loaded — fall back to legacy filter only.
+            $sidebar_nav = apply_filters( 'bizcity_sidebar_nav', [] );
+        }
 
         // ── Welcome screen tool shortcuts (configurable via filter) ──
         $welcome_tools = apply_filters('bizcity_welcome_tools', [
@@ -906,7 +909,7 @@ class BizCity_WebChat_Admin_Dashboard {
             ['slug' => 'report',         'label' => __( 'Báo cáo',             $td ), 'icon' => '📊',  'color' => '#00B8D9', 'pluginSlug' => 'bizcity-tool-woo',     'toolName' => 'business_report',  'prompt' => __( '@business_report Tạo báo cáo', $td )],
             ['slug' => 'mindmap',        'label' => __( 'Tạo Mindmap',         $td ), 'icon' => '🧠',  'color' => '#FF5630', 'pluginSlug' => 'bizcity-tool-mindmap', 'toolName' => 'create_mindmap',   'prompt' => '@create_mindmap'],
             ['slug' => 'task',           'label' => __( 'Tạo nhắc nhở',        $td ), 'icon' => '📋',  'color' => '#8E33FF', 'pluginSlug' => 'bizcity-tool-slide',   'toolName' => 'create_task',      'prompt' => '@create_task'],
-            ['slug' => 'code_generate',  'label' => __( 'Tạo landing page',    $td ), 'icon' => '🖥️',  'color' => '#2563EB', 'pluginSlug' => 'bizcity-code',        'toolName' => 'code_generate',    'prompt' => '@code_generate Tạo landing page cho tôi'],
+            // ['slug' => 'code_generate',  'label' => __( 'Tạo landing page',    $td ), 'icon' => '🖥️',  'color' => '#2563EB', 'pluginSlug' => 'bizcity-code',        'toolName' => 'code_generate',    'prompt' => '@code_generate Tạo landing page cho tôi'], // ARCHIVED
             ['slug' => 'page_generate',  'label' => __( 'Tạo website',         $td ), 'icon' => '🌐',  'color' => '#22C55E', 'pluginSlug' => 'bizcity-pagebuilder', 'toolName' => 'page_generate',    'prompt' => '@page_generate Tạo website cho tôi'],
         ]);
 

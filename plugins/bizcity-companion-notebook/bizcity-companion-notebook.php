@@ -70,7 +70,7 @@ if ( ! defined( 'BIZCITY_TWIN_AI_VERSION' ) ) {
     return;
 }
 
-define( 'BCN_VERSION', '1.0.1' );
+define( 'BCN_VERSION', '1.0.0' );
 define( 'BCN_PLUGIN_FILE', __FILE__ );
 define( 'BCN_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'BCN_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -79,6 +79,7 @@ define( 'BCN_INCLUDES', BCN_PLUGIN_DIR . 'includes/' );
 // Load all classes.
 $bcn_classes = [
     'class-schema-extend.php',
+    'class-session-memory.php',
     'class-projects.php',
     'class-sources.php',
     'class-source-extractor.php',
@@ -121,6 +122,15 @@ add_action( 'plugins_loaded', function() {
         BCN_Research_Memory::instance()->register_hooks();
     }
 }, 25 );
+
+// Ensure memory_spec column exists in webchat sessions table (one-time migration).
+add_action( 'admin_init', function() {
+    $version_key = 'bcn_session_memory_schema_v1';
+    if ( ! get_option( $version_key ) && class_exists( 'BCN_Session_Memory' ) ) {
+        BCN_Session_Memory::maybe_add_column();
+        update_option( $version_key, '1', false );
+    }
+}, 99 );
 
 // Activation / Deactivation.
 register_activation_hook( __FILE__, [ BCN_Plugin::instance(), 'activate' ] );

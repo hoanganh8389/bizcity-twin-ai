@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "bizcity://events/suggestion_emitted.json",
+  "title": "suggestion_emitted",
+  "description": "Server proposes follow-up question chips (or welcome-time prompts) for a specific assistant message. Sprint 5.0b.",
+  "type": "object",
+  "required": ["message_id", "items"],
+  "properties": {
+    "message_id": {
+      "type": "string",
+      "description": "Webchat message id (string id used in FE store) or numeric id of bizcity_webchat_messages row."
+    },
+    "items": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 5,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 240
+      }
+    },
+    "reason": {
+      "type": "string",
+      "enum": ["follow_up", "welcome", "no_source", "research"],
+      "description": "Why these chips were emitted; drives subtle UI variant if needed."
+    },
+    "notebook_id": { "type": "integer" }
+  },
+  "additionalProperties": true
+}

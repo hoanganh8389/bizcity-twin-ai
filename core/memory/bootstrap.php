@@ -47,6 +47,7 @@ if ( ! BIZCITY_MEMORY_ENABLED ) {
 require_once BIZCITY_MEMORY_DIR . 'includes/class-memory-database.php';
 require_once BIZCITY_MEMORY_DIR . 'includes/class-memory-parser.php';
 require_once BIZCITY_MEMORY_DIR . 'includes/class-memory-log.php';
+require_once BIZCITY_MEMORY_DIR . 'includes/class-memory-log-projector.php';
 require_once BIZCITY_MEMORY_DIR . 'includes/class-memory-manager.php';
 require_once BIZCITY_MEMORY_DIR . 'includes/class-memory-rest-api.php';
 require_once BIZCITY_MEMORY_DIR . 'includes/class-admin-page.php';
@@ -54,6 +55,9 @@ require_once BIZCITY_MEMORY_DIR . 'includes/class-admin-page.php';
 /* ── Initialize ───────────────────────────────────────────────────── */
 BizCity_Memory_Database::instance();
 BizCity_Memory_Log::instance();
+if ( class_exists( 'BizCity_Memory_Log_Projector' ) ) {
+	BizCity_Memory_Log_Projector::instance();
+}
 BizCity_Memory_Manager::instance();
 BizCity_Memory_REST_API::instance();
 

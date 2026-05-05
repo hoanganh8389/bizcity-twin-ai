@@ -130,6 +130,15 @@ class BCN_Embedder {
         // 5. Update source status.
         $this->update_source_status( $source_id, 'done', $total_stored, $used_model );
 
+        // Phase 0.6.5 — Wave C: notify KG-Hub mirror so all chunks for this
+        // source land in kg_source_chunks (handler is feature-flagged + idempotent).
+        do_action( 'bizcity_kg_legacy_chunks_persisted', [
+            'cortex'              => 'bcn',
+            'legacy_source_id'    => (int) $source_id,
+            'legacy_source_table' => $this->table_sources(),
+            'legacy_chunks_table' => $this->table_chunks(),
+        ] );
+
         return [ 'success' => true, 'chunks' => $total_stored, 'error' => '' ];
     }
 

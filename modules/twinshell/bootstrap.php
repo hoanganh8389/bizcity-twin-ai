@@ -1,0 +1,75 @@
+<?php
+/**
+ * Bizcity Twin AI — Twin Shell module bootstrap.
+ *
+ * Phase 0.11 — universal Activity-Bar shell at /twin/ that wraps every
+ * registered plugin in an <iframe>, syncs URL state both ways, and exposes
+ * a single canonical entry point so plugin pages don't need to ship their
+ * own ActivityBar copy.
+ *
+ * @package Bizcity_Twin_AI
+ * @subpackage Modules\TwinShell
+ * @since 0.11.0
+ */
+
+defined( 'ABSPATH' ) or die( 'OOPS...' );
+
+if ( ! defined( 'BIZCITY_TWIN_SHELL_DIR' ) ) {
+	define( 'BIZCITY_TWIN_SHELL_DIR', __DIR__ . '/' );
+}
+if ( ! defined( 'BIZCITY_TWIN_SHELL_URL' ) ) {
+	define( 'BIZCITY_TWIN_SHELL_URL', plugin_dir_url( __FILE__ ) );
+}
+if ( ! defined( 'BIZCITY_TWIN_SHELL_VERSION' ) ) {
+	// DEV: dùng time() để invalidate cache asset (CSS/JS) mỗi request, đỡ phải bump version thủ công.
+	// TODO(prod): khi release chính thức, đổi lại thành chuỗi version cố định, ví dụ '0.13.38'.
+	define( 'BIZCITY_TWIN_SHELL_VERSION', '1.5.1' . (string) time() );
+}
+
+require_once BIZCITY_TWIN_SHELL_DIR . 'includes/class-twin-shell-registry.php';
+require_once BIZCITY_TWIN_SHELL_DIR . 'includes/class-twin-shell-page.php';
+require_once BIZCITY_TWIN_SHELL_DIR . 'includes/class-twin-shell-rest.php';
+require_once BIZCITY_TWIN_SHELL_DIR . 'includes/class-twin-shell-bridge.php';
+require_once BIZCITY_TWIN_SHELL_DIR . 'includes/class-twin-shell-primitives.php';
+
+// Phase 0.7 Wave D + E — Learning Hub SDK, REST proxy, public page.
+require_once BIZCITY_TWIN_SHELL_DIR . 'includes/class-twin-shell-learning-sdk.php';
+require_once BIZCITY_TWIN_SHELL_DIR . 'includes/class-twin-shell-learning-rest.php';
+require_once BIZCITY_TWIN_SHELL_DIR . 'includes/class-twin-shell-learning-page.php';
+if ( defined( 'WP_CLI' ) && WP_CLI ) {
+	require_once BIZCITY_TWIN_SHELL_DIR . 'includes/class-twin-shell-learning-cli.php';
+}
+
+// Register default plugins shipped with the bundle.
+require_once BIZCITY_TWIN_SHELL_DIR . 'includes/default-plugins.php';
+
+// Public page /twin/ — registers rewrite + render handler.
+BizCity_Twin_Shell_Page::instance()->register();
+
+// REST: GET /bizcity-twinchat/v1/shell/plugins.
+BizCity_Twin_Shell_REST::instance()->register();
+
+// REST: bizcity-twin-shell/v1/{notebooks,host/bind-notebook,...} (Phase 0.13).
+BizCity_Twin_Shell_Primitives::instance()->register();
+
+// Phase 0.7 Wave D — Learning Hub cortex SDK + REST proxy.
+BizCity_Twin_Shell_Learning_SDK::instance()->bind();
+BizCity_Twin_Shell_Learning_REST::instance()->register();
+
+// Phase 0.7 Wave E — public page /learning-hub/.
+BizCity_Twin_Shell_Learning_Page::instance()->register();
+
+// Auto-inject bridge JS into any page whose URL matches a registered plugin slug.
+BizCity_Twin_Shell_Bridge::instance()->register();
+
+// One-time rewrite flush — covers /twin/ and /learning-hub/.
+add_action( 'admin_init', static function () {
+	if ( ! get_option( BizCity_Twin_Shell_Page::OPTION_KEY ) ) {
+		flush_rewrite_rules( false );
+		update_option( BizCity_Twin_Shell_Page::OPTION_KEY, 1 );
+	}
+	if ( ! get_option( BizCity_Twin_Shell_Learning_Page::OPTION_KEY ) ) {
+		flush_rewrite_rules( false );
+		update_option( BizCity_Twin_Shell_Learning_Page::OPTION_KEY, 1 );
+	}
+} );

@@ -17,7 +17,7 @@
  * Plugin Name:       Bizcity Twin AI
  * Plugin URI:        https://bizcity.vn
  * Description:       AI Companion Platform — Personalized AI with Identity, Memory, and Intent. Nền tảng AI đồng hành cá nhân hóa.
- * Version:           1.3.2
+ * Version:           1.3.7
  * Author:            Johnny Chu (Chu Hoàng Anh)
  * Author URI:        https://bizcity.vn
  * License:           GPL-2.0-or-later
@@ -36,7 +36,7 @@ define( 'BIZCITY_TWIN_AI_MAIN_LOADED', true );
 
 // Constants — guarded because compat mu-plugin may have defined them early
 if ( ! defined( 'BIZCITY_TWIN_AI_VERSION' ) ) {
-    define( 'BIZCITY_TWIN_AI_VERSION', '1.3.2' );
+    define( 'BIZCITY_TWIN_AI_VERSION', '1.3.7' );
 }
 if ( ! defined( 'BIZCITY_TWIN_AI_DIR' ) ) {
     define( 'BIZCITY_TWIN_AI_DIR', plugin_dir_path( __FILE__ ) );
@@ -70,6 +70,7 @@ if ( ! function_exists( 'str_starts_with' ) ) {
 }
 
 // Infrastructure
+require_once __DIR__ . '/includes/helpers-table-cache.php';
 require_once __DIR__ . '/includes/class-module-loader.php';
 require_once __DIR__ . '/includes/class-connection-gate.php';
 require_once __DIR__ . '/includes/class-admin-support-link.php';
@@ -114,6 +115,10 @@ if ( ! function_exists( 'bizcity_get_charset_collate' ) ) {
 require_once __DIR__ . '/core/bizcity-llm/bootstrap.php';
 require_once __DIR__ . '/core/knowledge/bootstrap.php';
 require_once __DIR__ . '/core/intent/bootstrap.php';
+// Phase 0.18 / Wave 0.18.0 — Persona Provider contract + registry.
+if ( file_exists( __DIR__ . '/core/persona/bootstrap.php' ) ) {
+    require_once __DIR__ . '/core/persona/bootstrap.php';
+}
 if ( file_exists( __DIR__ . '/core/twin-core/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/twin-core/bootstrap.php';
 }
@@ -131,6 +136,52 @@ if ( file_exists( __DIR__ . '/core/scheduler/bootstrap.php' ) ) {
 if ( file_exists( __DIR__ . '/core/memory/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/memory/bootstrap.php';
 }
+// Phase 0.13 / 0.15 — TwinShell Runtime (agents, runner, REST /run endpoint)
+if ( file_exists( __DIR__ . '/core/agents/bootstrap.php' ) ) {
+    require_once __DIR__ . '/core/agents/bootstrap.php';
+}
+if ( file_exists( __DIR__ . '/core/runtime/bootstrap.php' ) ) {
+    require_once __DIR__ . '/core/runtime/bootstrap.php';
+}
+// Phase 0.16 / Vòng 4 — Intent Shell (foundation only, not yet wired into Intent_Engine)
+if ( file_exists( __DIR__ . '/core/intent/shell/bootstrap.php' ) ) {
+    require_once __DIR__ . '/core/intent/shell/bootstrap.php';
+}
+
+// Phase 0.18.1 — Guru Research Studio (Tavily ReAct port; multi-scope: character | user)
+if ( file_exists( __DIR__ . '/core/research/bootstrap.php' ) ) {
+    require_once __DIR__ . '/core/research/bootstrap.php';
+}
+
+// Vòng 3 / Sprint 6 — Test pages (triage accuracy + SSE reconnect demo).
+// Loaded when WP_DEBUG is on or BIZCITY_TWIN_ENABLE_TESTS is defined.
+if (
+    ( defined( 'WP_DEBUG' ) && WP_DEBUG )
+    || defined( 'BIZCITY_TWIN_ENABLE_TESTS' )
+) {
+    if ( file_exists( __DIR__ . '/tests/admin-test-pages.php' ) ) {
+        require_once __DIR__ . '/tests/admin-test-pages.php';
+    }
+}
+
+// ── Modules — feature modules layered on top of core ─────────────────────────
+if ( file_exists( __DIR__ . '/modules/twinchat/bootstrap.php' ) ) {
+    require_once __DIR__ . '/modules/twinchat/bootstrap.php';
+}
+// Phase 0.11 — Twin Shell (universal /twin/ ActivityBar wrapper, iframe-based).
+if ( file_exists( __DIR__ . '/modules/twinshell/bootstrap.php' ) ) {
+    require_once __DIR__ . '/modules/twinshell/bootstrap.php';
+}
+// Phase 6.1 — Twinsource (standard source-management panel for all plugins).
+// See PHASE-6.1-TWINSOURCE-STANDARD.md
+if ( file_exists( __DIR__ . '/modules/twinsource/bootstrap.php' ) ) {
+    require_once __DIR__ . '/modules/twinsource/bootstrap.php';
+}
+// Phase 0.18.1.7 — TwinSearch (Tavily research input gate, retrieval family).
+// See PHASE-0-RULE-INPUT-PROVIDER.md + PHASE-0.18.1-GURU-RESEARCH-TAVILY.md
+if ( file_exists( __DIR__ . '/modules/twinsearch/bootstrap.php' ) ) {
+    require_once __DIR__ . '/modules/twinsearch/bootstrap.php';
+}
 
 // ── Legacy helpers — flow functions that automation blocks depend on ──────────
 // Loaded here so bizcity-twin-ai works standalone (without mu-plugin).
@@ -143,13 +194,14 @@ require_once __DIR__ . '/core/helper-legacy/bootstrap.php';
 // Guard bằng constant riêng của mỗi plugin để tránh load trùng khi đã activate bình thường.
 $_bizcity_bundled_must_load = [
     'bizgpt-tool-google'          => 'BZGOOGLE_VERSION',           // Google Workspace tools
-    'bizcity-tool-facebook'       => 'BZTOOL_FB_VERSION',          // Facebook standalone — /bizfbhook/, OAuth, Messenger
+    // 'bizcity-tool-facebook'       => 'BZTOOL_FB_VERSION',          // DISABLED — Facebook tool (gitignored, không load mặc định)
     'bizcity-tool-image'          => 'BZTIMG_VERSION',             // Image Studio, templates, editor assets, product/image tools
-    'bizcity-zalo-bot'            => 'BIZCITY_ZALO_BOT_VERSION',   // Zalo Bot — webhook, user linker, gateway bridge
-    'bizcity-companion-notebook'  => 'BCN_VERSION',                // Companion Notebook — Studio, tool registry, research memory
+    // 'bizcity-zalo-bot'            => 'BIZCITY_ZALO_BOT_VERSION',   // DISABLED — Zalo Bot (gitignored, không load mặc định)
+    // 'bizcity-companion-notebook'  => 'BCN_VERSION',                // DISABLED — Companion Notebook (gitignored, không load mặc định)
+    // 'bizcity-automation'          => 'BIZCITY_AUTOMATION_VERSION', // DISABLED — Automation (gitignored, không load mặc định)
     'bizcity-content-creator'     => 'BZCC_VERSION',               // Content Creator — template-driven AI content generation
     'bizcity-doc'                 => 'BZDOC_VERSION',              // Doc Studio — AI tạo Word, PowerPoint, Excel
-    'bizcity-code'                => 'BZCODE_VERSION',             // Code Builder — AI tạo web & landing page
+    // 'bizcity-code'                => 'BZCODE_VERSION',             // Code Builder — AI tạo web & landing page (ARCHIVED)
     'bizcity-tool-mindmap'        => 'BZTOOL_MINDMAP_VERSION',     // Mindmap Tool — AI tạo sơ đồ tư duy
 ];
 foreach ( $_bizcity_bundled_must_load as $_slug => $_guard_const ) {
@@ -178,6 +230,15 @@ add_action( 'plugins_loaded', [ 'BizCity_Twin_AI', 'boot' ], 0 );
 
 // Activation hook — install DB tables, set defaults
 register_activation_hook( __FILE__, [ 'BizCity_Twin_AI', 'activate' ] );
+
+// Phase 0.7 — deactivation: clear scheduled crons so they don't fire after
+// disable (would emit "hook target missing" notices on next reactivation).
+register_deactivation_hook( __FILE__, static function () {
+	// Wave A learning sweep (per-blog, hourly).
+	wp_clear_scheduled_hook( 'bizcity_kg_learning_sweep' );
+	// Wave B cleanup engine (weekly Sunday 03:00).
+	wp_clear_scheduled_hook( 'bizcity_kg_orphan_cleanup_weekly' );
+} );
 
 // ── Compat Loader Check ──────────────────────────────────────────────────────
 // Cảnh báo admin nếu bizcity-twin-compat.php chưa được copy vào mu-plugins/.

@@ -168,12 +168,14 @@ add_action( 'wp_head', function() {
     ?>
     <style id="bizcity-iframe-mode">
     /* ── Hide header, footer, admin bar, breadcrumbs ── */
+    /* NOTE: do NOT use bare `header`/`footer` selectors — they hide
+       app-shell headers/footers inside React tools (e.g. Doc Studio). */
     #wpadminbar,
-    header, .site-header, #masthead, #site-header,
+    .site-header, #masthead, #site-header,
     .header-main, .header-wrapper, .header-top, .header-bottom,
     .top-bar, #top-bar, .top-header,
     nav.main-navigation, .primary-navigation,
-    footer, .site-footer, #colophon, #site-footer,
+    .site-footer, #colophon, #site-footer,
     .footer-main, .footer-wrapper, .footer-widgets,
     .breadcrumbs, .woocommerce-breadcrumb, .breadcrumb,
     .page-title-wrapper, .entry-title,

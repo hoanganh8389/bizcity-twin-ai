@@ -1,542 +1,444 @@
-# Twin Claw — Your WordPress as a Personal AI Assistant
+# Bizcity Twin AI — Turn Any WordPress Into Your **Second Brain**
 
-> **One chat. Every plugin. Every task. Done.**  
-> Turn your WordPress into a tireless personal AI — codes, writes, sells, automates, remembers everything about you.  
-> 60,000+ plugins × AI brain = your own digital twin that works 24/7.
+> **One person. One WordPress. One AI brain that runs the entire business.**
+>
+> Twin AI is a **WordPress-native Second Brain** powered by **Graph RAG + Neo4j-style knowledge graph**, designed for the **one-person business** era — where a single founder + one digital twin can replace an entire ops team.
 
 <div align="center">
 
 ```
- ████████╗██╗    ██╗██╗███╗   ██╗     ██████╗██╗      █████╗ ██╗    ██╗
- ╚══██╔══╝██║    ██║██║████╗  ██║    ██╔════╝██║     ██╔══██╗██║    ██║
-    ██║   ██║ █╗ ██║██║██╔██╗ ██║    ██║     ██║     ███████║██║ █╗ ██║
-    ██║   ██║███╗██║██║██║╚██╗██║    ██║     ██║     ██╔══██║██║███╗██║
-    ██║   ╚███╔███╔╝██║██║ ╚████║    ╚██████╗███████╗██║  ██║╚███╔███╔╝
-    ╚═╝    ╚══╝╚══╝ ╚═╝╚═╝  ╚═══╝     ╚═════╝╚══════╝╚═╝  ╚═╝ ╚══╝╚══╝
+ ████████╗██╗    ██╗██╗███╗   ██╗     █████╗ ██╗
+ ╚══██╔══╝██║    ██║██║████╗  ██║    ██╔══██╗██║
+    ██║   ██║ █╗ ██║██║██╔██╗ ██║    ███████║██║
+    ██║   ██║███╗██║██║██║╚██╗██║    ██╔══██║██║
+    ██║   ╚███╔███╔╝██║██║ ╚████║    ██║  ██║██║
+    ╚═╝    ╚══╝╚══╝ ╚═╝╚═╝  ╚═══╝    ╚═╝  ╚═╝╚═╝
 ```
 
-**WordPress-native · Agentic AI · Self-hosted · Open Source · MIT License**
+**Second Brain · Graph RAG · Neo4j-grade Knowledge Graph · WordPress-native · Self-hosted**
 
-[![GitHub](https://img.shields.io/badge/GitHub-hoanganh8389%2Fbizcity--twin--claw-blue?logo=github)](https://github.com/hoanganh8389/bizcity-twin-claw)
-[![Demo](https://img.shields.io/badge/Live%20Demo-bizgpt.vn-green)](https://bizgpt.vn)
-[![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
-[![Models](https://img.shields.io/badge/AI%20Models-500%2B-purple)](https://bizcity.vn/ai-models/)
-[![Version](https://img.shields.io/badge/Version-v1.5.0-orange)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/Version-v1.3.7-orange)](bizcity-twin-ai.php)
+[![PHP](https://img.shields.io/badge/PHP-7.4%2B-blue)](https://www.php.net/)
+[![WordPress](https://img.shields.io/badge/WordPress-6.0%2B-blue?logo=wordpress)](https://wordpress.org/)
+[![Graph RAG](https://img.shields.io/badge/Graph%20RAG-Neo4j%20compatible-008CC1?logo=neo4j&logoColor=white)](#3-graph-rag--the-engine-behind-the-second-brain)
+[![License](https://img.shields.io/badge/License-GPL--2.0-yellow)](LICENSE)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-bizgpt.vn%2Fchat-ff4b6e?logo=googlechrome&logoColor=white)](https://bizgpt.vn/chat/)
+
+### 🚀 Try the Second Brain live → **[bizgpt.vn/chat](https://bizgpt.vn/chat/)**
 
 </div>
 
 ---
 
-## What Is Twin Claw?
+## ✨ Screenshots
 
-**Twin Claw** is a WordPress plugin that turns your entire WordPress installation into a **personal AI assistant** — always on, always on your side. It learns who you are, remembers your preferences, understands your goals, and acts on your behalf across every corner of your WordPress ecosystem.
+<p align="center">
+  <a href="https://bizgpt.vn/chat/">
+    <img src="https://media.bizcity.vn/uploads/sites/1258/2026/05/Screenshot-2026-05-06-003857-scaled.png" alt="Twin AI Second Brain — Live Thinking Timeline" width="900" />
+  </a>
+</p>
 
-Think of it as hiring an infinitely capable employee who:
-- **Knows your business** — products, customers, content, workflows
-- **Lives in your WordPress** — no external data leaks, 100% self-hosted
-- **Works any channel** — chat widget, Zalo, Telegram, Facebook Messenger
-- **Executes, not just answers** — doesn't just tell you how, it actually does it
+<p align="center">
+  <a href="https://bizgpt.vn/chat/">
+    <img src="https://media.bizcity.vn/uploads/sites/1258/2026/05/Screenshot-2026-05-06-003734-scaled.png" alt="Twin AI Second Brain — Knowledge Graph & Multi-Perspective Reasoning" width="900" />
+  </a>
+</p>
 
-WordPress has **60,000+ plugins**. Each one is a capability: e-commerce, email, CRM, forms, video, payments, SEO, analytics... Twin Claw registers all of them into a **Tool Registry** and lets an AI agent orchestrate them through natural language.
+<p align="center">
+  <a href="https://bizgpt.vn/chat/">
+    <img src="https://media.bizcity.vn/uploads/sites/1258/2026/05/Screenshot-2026-05-06-003758-scaled.png" alt="Twin AI Second Brain — Memory Federation & Citations" width="900" />
+  </a>
+</p>
 
-The result: **your own digital twin that works 24/7** — just by chatting.
-
-```
-You:  "Write a blog post about electric stoves, publish it, and share on my Facebook page"
-Twin Claw: → Research → Write article → Generate image → Publish to WordPress → Post to Facebook → Done ✅
-```
-
-No more switching between 10 tabs. No more manual copy-paste workflows. **One claw. Every task.**
-
----
-
-## WordPress as Your Personal Virtual Assistant
-
-Most people use WordPress as a website builder. Twin Claw transforms it into something entirely different: **a personal AI operating system**.
-
-```
-  Traditional WordPress:          Twin Claw WordPress:
-  ┌─────────────────┐             ┌─────────────────────────────────┐
-  │  Static website │             │  Living AI workspace            │
-  │  Manual updates │    ──→      │  Understands you personally     │
-  │  Plugin chaos   │             │  Executes tasks autonomously    │
-  │  No memory      │             │  Remembers everything           │
-  └─────────────────┘             │  Works 24/7 across all channels │
-                                  └─────────────────────────────────┘
-```
-
-### Your AI Remembers You
-- Your name, role, business context, writing style
-- Past decisions, preferences, recurring tasks
-- Your customers, products, schedule, team
-- Conversation history across sessions and channels
-
-### Your AI Acts For You
-- Publishes content on your behalf
-- Manages WooCommerce orders and customers
-- Sends notifications to the right people
-- Books calendar events and syncs everything
-- Generates documents, presentations, spreadsheets
-
-### Your AI Grows With You
-- Upload your own files → it reads and learns from them
-- Add new WordPress plugins → instantly become new AI capabilities
-- Train custom personas → specialized expert for each domain
-- Build visual workflows → once defined, runs forever automatically
-
-> **This is what "personal AI" means.** Not a chatbot. Not a search engine. A co-worker who knows your world and executes your intent.
+<p align="center"><sub>👉 Click any screenshot to open the live demo at <a href="https://bizgpt.vn/chat/"><b>bizgpt.vn/chat</b></a></sub></p>
 
 ---
 
-## Why "Claw"?
+## 1. The thesis — Why a *Second Brain*, not a chatbot
 
-Like a claw machine that reaches in and grabs exactly what you need — Twin Claw reaches into your WordPress ecosystem, picks the right plugins, and executes the job. Multiple arms, one brain, infinite reach.
+The "one-person business" is no longer a meme. A single founder today can ship products, run marketing, support customers and close deals — **if** they have a brain that:
 
----
+- **Remembers** every customer, every doc, every promise.
+- **Connects** facts that live in different silos (CRM, docs, email, chats, WooCommerce orders).
+- **Reasons** across those connections instead of just regurgitating snippets.
+- **Acts** through tools, not just text.
 
-## What Can It Do?
+That brain has a name: a **Second Brain**. Twin AI builds one **inside your WordPress**, so your CMS — the system you already trust to host your business — becomes the **operating cortex** of the entire company.
 
-### 💻 Code & DevOps
-```
-You:  "Create a REST API endpoint that returns products by category"
-Claw: → Write PHP code → Register route → Test → Return result
-```
-
-### 📝 Content & Marketing
-```
-You:  "Write an SEO article about AI trends 2026, publish it, share on Facebook and Telegram"
-Claw: → Research → Write → Generate featured image → Publish → Share to socials → Done
-```
-
-### 🛒 E-commerce (WooCommerce)
-```
-You:  "Update iPhone 16 Pro price to $999 and add the 'hot deal' tag"
-Claw: → Find product → Update price + tag → Confirm
-```
-
-### 🔄 Workflow Automation
-```
-You:  "Every time a new order comes in, send me an SMS and add the customer to Google Sheets"
-Claw: → Create trigger → Connect SMS → Connect Google Sheets → Deploy
-```
-
-### 📅 Calendar & Connections
-```
-You:  "Schedule a team meeting next Thursday, add to Google Calendar and notify on Telegram"
-Claw: → Create event → Sync Google Calendar → Send Telegram → Done
-```
-
-### 🧠 Research & Knowledge
-```
-You:  "Summarize these 3 PDF files and tell me the key differences"
-Claw: → Read PDFs → Analyze → Synthesize → Save to knowledge base → Present
-```
-
-### 🎨 Creative
-```
-You:  "Generate a product video for our new coffee machine with AI avatar"
-Claw: → Script → Generate video (Kling) → Add avatar (HeyGen) → Deliver
-```
+| One-person business needs | Generic chatbot | Vector-only RAG | **Twin AI (Graph RAG Second Brain)** |
+|---|---|---|---|
+| Remember a 6-month-old customer chat | ❌ | Partial | ✅ via 5-cortex memory federation |
+| Answer "Who introduced me to client X?" | ❌ | ❌ (no relations) | ✅ via graph traversal |
+| Combine WooCommerce order + Calendar + Doc | ❌ | ❌ | ✅ via Tool Registry + KG entities |
+| Run autonomously while you sleep | ❌ | ❌ | ✅ via Intent Engine + Scheduler |
+| Stay 100% under your control | ❌ | Depends | ✅ self-hosted on your WP |
+| Cost-scale with one user | $20+/mo per seat | high egress | flat WP hosting |
 
 ---
 
-## Architecture — Simple but Powerful
+## 2. What is Twin AI?
+
+**Bizcity Twin AI** is a WordPress plugin that turns any WordPress site into a **personalized AI Second Brain** with three pillars every real assistant needs: an **Identity** (Twin Guru persona), a **Memory** (5-cortex federation + KG), and an **Intent** (action-taking Intent Engine).
+
+It is built on three foundational ideas:
+
+1. **Graph RAG over Vector RAG.** Vector search is great at "find similar text", terrible at "find connected meaning". Twin AI uses a **knowledge graph** as the index and vectors only as one signal among many.
+2. **WordPress is the substrate, not a wrapper.** Tables live in `$wpdb`, sites are multisite-shard native, posts/users/Woo-orders are first-class entities in the graph.
+3. **A brain, not an app.** Every reasoning step is observable through the **Brain Spine** event stream. The user *sees* the brain think.
+
+---
+
+## 3. Graph RAG — the engine behind the Second Brain
+
+### 3.1 Why "Graph RAG"
+
+Classic RAG = `embed(question) → top-k chunks → stuff into prompt`. It collapses on three things every business needs:
+
+- **Multi-hop questions** — "Which clients introduced by Anh in Q1 still owe me money?" requires **traversing relationships**, not similarity.
+- **Entity disambiguation** — "Apple" the customer vs "Apple" the supplier vs "apple" the product line.
+- **Temporal + provenance reasoning** — "What did we agree on *last week*, and where is the source?"
+
+A **knowledge graph** solves all three: entities and relations are first-class, hops are cheap, every edge carries provenance and time.
+
+Twin AI ships a **Neo4j-compatible property-graph model** implemented natively in MySQL via 7 KG tables (no extra service required), with an optional adapter to push to a real Neo4j cluster for enterprise scale.
+
+### 3.2 The KG schema (Neo4j-style, in `$wpdb`)
 
 ```
-  ┌──────────────────────────────────────────────────────────────────┐
-  │         YOU  (Webchat · Zalo · Telegram · Facebook · Widget)     │
-  └──────────────────────────────┬───────────────────────────────────┘
-                                 │  one message
-                                 ▼
-  ┌──────────────────────────────────────────────────────────────────┐
-  │                      CHANNEL GATEWAY                             │
-  │           Unified adapter-based multi-channel bridge              │
-  └──────────────────────────────┬───────────────────────────────────┘
-                                 │
-                                 ▼
-  ┌──────────────────────────────────────────────────────────────────┐
-  │                    INTENT ENGINE (Team Leader)                    │
-  │         Classify → Plan → Orchestrate → Verify result            │
-  └──────────┬───────────────────┬───────────────────┬───────────────┘
-             │                   │                   │
-             ▼                   ▼                   ▼
-      ┌───────────┐      ┌───────────┐       ┌──────────────┐
-      │  Tool A   │      │  Tool B   │       │   Tool N...  │
-      │  Content  │      │  WooCom.  │       │   Video AI   │
-      │  Code     │      │  Google   │       │   Zalo Bot   │
-      └─────┬─────┘      └─────┬─────┘       └──────┬───────┘
-            │                  │                     │
-            └──────────────────┴─────────────────────┘
+                    ┌──────────────────────────────────┐
+                    │      bizcity_kg_entities         │  ← :Person, :Project, :Order, :Doc, :Note…
+                    │  (id, type, name, labels, props) │
+                    └──────────┬───────────────────────┘
                                │
-                   ┌───────────▼────────────┐
-                   │     TOOL REGISTRY      │
-                   │   60,000+ WP plugins   │
-                   │   = 60,000+ AI tools   │
-                   └────────────────────────┘
+        ┌──────────────────────┼──────────────────────┐
+        │                      │                      │
+        ▼                      ▼                      ▼
+┌────────────────┐   ┌──────────────────┐   ┌──────────────────────┐
+│ kg_relations   │   │  kg_passages     │   │   kg_xref            │
+│ subj──pred──obj│   │ chunked text +   │   │  (cortex,id) ↔ ent   │
+│ (cypher-like)  │   │ embeddings       │   │  the "axon"          │
+└────────────────┘   └──────────────────┘   └──────────────────────┘
+        │                      │                      │
+        ▼                      ▼                      ▼
+┌────────────────┐   ┌──────────────────┐   ┌──────────────────────┐
+│ kg_mentions    │   │  kg_sources      │   │   kg_scope_links     │
+│ entity ↔ chunk │   │  doc/url/post    │   │   notebook ↔ ent     │
+└────────────────┘   └──────────────────┘   └──────────────────────┘
 ```
 
-**One brain. Many claws. Zero manual configuration.**
+Every WordPress object you already have — a **post**, a **user**, a **WooCommerce order**, a **Companion Notebook**, a **chat message** — is mirrored into the graph as an entity, with `kg_xref` acting as the **axon** that points back to the live row in its source cortex.
+
+KG is an **index, not a store**: the source cortex remains the system of record (with its own retention rules), the graph just connects.
+
+### 3.3 The 4-step Graph RAG retrieval
+
+When a question arrives, Twin AI does not just "find similar chunks". It runs a **4-step pipeline**:
+
+```
+Question
+  │
+  ├─► [1] RETRIEVE   BM25 + dense fusion → top-k entities + passages
+  │
+  ├─► [2] EXPAND     Cypher-like graph traversal:
+  │                    MATCH (e)-[:RELATES|MENTIONS|OWNS]->(n)
+  │                    WHERE e IN seed AND depth ≤ 2
+  │                    RETURN n, path, weight
+  │
+  ├─► [3] RERANK     Cross-encoder over (question, expanded passages)
+  │                  + recency + provenance + persona-fit
+  │
+  └─► [4] ANSWER     Build context pack with stable citations:
+                     [src:N#pM] [ent:N] [mem:U#42] [nb:17] [faq:7]
+```
+
+Result: the model sees not just "10 similar paragraphs", but **the actual subgraph** around the question — entities, relations, sources and memories all wired together. This is what unlocks multi-hop, business-grade reasoning on commodity hardware.
+
+### 3.4 Human-in-the-loop graph growth
+
+Triplets extracted by the LLM never enter retrieval until **approved** by a human (or by a confidence policy). The plugin ships a review queue under **WP Admin → Twin → KG Review** with:
+
+- Pending vs Approved view
+- One-click merge / split / forget
+- Force-graph visualization of the live brain
+
+This is non-negotiable: a Second Brain you cannot *correct* will eventually lie to you.
 
 ---
 
-## Plugin Ecosystem — Every Plugin Is a Superpower
+## 4. The Second Brain anatomy (Cortex Federation)
 
-| Plugin | What It Does | Role |
-|--------|-------------|------|
-| `bizcity-tool-content` | Blog writing, copywriting, SEO | Agent |
-| `bizcity-tool-woo` | WooCommerce product & order management | Agent |
-| `bizcity-tool-image` | AI image generation & upscaling | Agent |
-| `bizcity-video-kling` | AI video creation (Kling) | Agent |
-| `bizcity-tool-mindmap` | Auto mind map generation | Agent |
-| `bizcity-tool-slide` | Presentation builder | Agent |
-| `bizgpt-tool-google` | Google Calendar, Sheets, Drive | Agent |
-| `bizcity-tool-facebook` | Facebook Page management & posting | Agent |
-| `bizcity-tool-pdf` | PDF reading, summarization, analysis | Agent |
-| `bizcity-tool-heygen` | AI avatar videos (HeyGen) | Agent |
-| `bizcity-tool-landing` | Landing page auto-builder | Agent |
-| `bizcity-companion-notebook` | Deep research, RAG notebook | Agent |
-| `bizcity-automation` | Workflow builder (WaicFrame) | Agent |
-| `bizcity-tarot` | AI Tarot reading | Agent |
-| `bizcity-agent-calo` | Nutrition, fitness, education | Agent |
-| `bizcoach-map` | Astrology, coaching, natal charts | Agent |
-| `bizcity-zalo-bot` | Zalo OA channel connector | Tool |
-| `bizcity-gemini-knowledge` | Gemini-powered knowledge Q&A | Agent |
-| `bizcity-chatgpt-knowledge` | OpenAI-powered knowledge Q&A | Agent |
+Twin AI is not a monolith — it is a **federation of cortexes**, each owning its own data, all wired through the KG-Hub:
 
-> **All auto-register into the Tool Registry. The AI knows when to use each one. Zero configuration.**
+```
+            ┌──────────────────────────────────────────────────┐
+            │      KG-HUB  (thalamus + hippocampus)            │
+            │   Graph RAG index · entity registry · kg_xref    │
+            └───┬────────┬────────┬──────────┬───────────┬─────┘
+                │        │        │          │           │
+            ┌───▼──┐ ┌───▼──┐ ┌───▼──────┐ ┌─▼────────┐ ┌─▼─────────┐
+            │INTENT│ │MEMORY│ │ TOOL     │ │ CHANNEL  │ │ KNOWLEDGE │
+            │cortex│ │cortex│ │ cortex   │ │ cortex   │ │ cortex    │
+            │      │ │ 5×   │ │ Registry │ │ Web/Zalo │ │ Sources / │
+            │ plan │ │ tier │ │ + agents │ │ TG / FB  │ │ Notebooks │
+            └──────┘ └──────┘ └──────────┘ └──────────┘ └───────────┘
+```
+
+### 4.1 The 5-cortex Memory Federation
+
+A real brain doesn't have "one memory". Twin AI ships five, each tuned for a different timescale:
+
+| Tier | Table | Role | Citation token |
+|---|---|---|---|
+| 🧠 User | `bizcity_memory_users` | Long-term facts ("my company is ACME") | `[mem:U#N]` |
+| 📖 Episodic | `bizcity_memory_episodic` | Event log with embeddings | `[mem:E#N]` |
+| 🔄 Rolling | `bizcity_memory_rolling` | Last-N session summary | `[mem:R#N]` |
+| 📝 Notes | `bizcity_memory_notes` | Notebook-scoped personal notes | `[mem:N#N]` |
+| ❓ FAQ | quick FAQ table | Pinned Q/A pairs | `[faq:N]` |
+
+Every memory is **a citation, not a hallucination**. Click any token in the chat → the source row opens in the side panel → user can **edit or forget** it (the *Right-to-Forget* contract, R-Right-to-Forget).
+
+### 4.2 Twin Guru — 3-layer persona
+
+The Second Brain is opinionated on purpose. A **Twin Guru** is a domain-expert nucleus the user can summon with `@guru-name`:
+
+- **L1 Instruction** — domain system prompt, priority 20, never trimmed.
+- **L2 Knowledge sources** — pulled before generic RAG.
+- **L3 Personal artifacts** — owner-uploaded materials.
+
+Bind a Guru to a Notebook → that notebook *thinks like* that expert.
+
+### 4.3 Multi-Perspective Reasoning (MPR)
+
+A single answer is rarely enough for a real decision. MPR runs **multiple sub-agents in parallel**, each anchored to a different notebook (lens), and the synthesizer returns:
+
+```
+CONSENSUS   → what every lens agrees on
+TENSIONS    → where they disagree (and why)
+RECOMMENDATION → the synthesizer's call, with explicit caveats
+```
+
+This is the difference between a chatbot ("here's an answer") and a Second Brain ("here are the trade-offs you should be aware of").
+
+### 4.4 Brain Spine — observable thinking
+
+Every reasoning step is dispatched through a single event stream `bizcity_twin_event_stream` (taxonomy v4, 15 + 6 standard event types) and broadcast on a single SSE channel `twin_event`. Result:
+
+- A **Thinking Timeline** the user watches in real time.
+- A **Live KG Activation** — when the answer cites `[ent:45]`, node 45 on the graph **pulses**. The user literally sees which "brain region" is firing.
+- A **Reasoning Ledger** (`bizcity_twin_reasoning_steps`, 90-day retention) lets admins **replay** any past turn step-by-step.
 
 ---
 
-## The Smart Core
-
-### Harness — The Execution Framework
-
-The **Harness** is Twin Claw's binding layer between intent classification and actual task execution. It is the architectural concept that ties every component together into a coherent, goal-oriented execution path.
+## 5. The end-to-end turn pipeline
 
 ```
-  User Message
-       │
-       ▼
-  ┌─────────────────────────────────────────────────────────────────┐
-  │                     INTENT ENGINE                               │
-  │  Classify: mode · intent · goal_type · entities · slots         │
-  └───────────────────────┬─────────────────────────────────────────┘
-                          │
-                          ▼
-  ┌─────────────────────────────────────────────────────────────────┐
-  │                   HARNESS LAYER                                 │
-  │                                                                 │
-  │  Intent  ──→  Rule Match  ──→  Action Binding  ──→  Goal         │
-  │                                                                 │
-  │  • intent      = what the user wants (classified)               │
-  │  • rule        = condition/pattern that must be satisfied        │
-  │  • action      = tool / skill / pipeline to execute             │
-  │  • goal        = expected outcome (single or multi)             │
-  └──────┬──────────────────────────────────────┬───────────────────┘
-         │                                      │
-         ▼                                      ▼
-  ┌─────────────┐                     ┌─────────────────────┐
-  │ SINGLE GOAL │                     │   MULTI GOAL        │
-  │             │                     │                     │
-  │ One tool    │                     │ Orchestrated        │
-  │ One result  │                     │ pipeline across     │
-  │ Immediate   │                     │ multiple tools      │
-  └─────────────┘                     │ Canvas / WaicFrame  │
-                                      └─────────────────────┘
+USER turn ──► Twin Core (entry)
+                │
+                ├─► T-1  Guru Lookup           (decision.kind=guru_lookup)
+                ├─► T-2  Context Pack Enrich   (decision.kind=context_pack_enriched)
+                ├─► T-3  FAQ Lookup            (retrieval.kind=faq_lookup)
+                ├─► T-4  Hybrid Passages       (retrieval.kind=hybrid_passages)
+                ├─► T-5  Graph Augment         (retrieval.kind=graph_augment)  ← Cypher-like hop
+                ├─► T-6  Memory Recall ×4 tier (memory_recall.kind=user|episodic|rolling|note)
+                ├─► T-7  Perspective Select    (decision.kind=perspective_select)
+                ├─► T-8  Sub-agents (parallel) (decision.kind=perspective_answer)
+                ├─► T-9  Synthesize            (decision.kind=synthesize)
+                └─► T-10 Stream answer + citations
+                         │
+                         └─► Reasoning Projector → bizcity_twin_reasoning_steps (90d)
+                                                   bizcity_twin_citations_index (hot)
+                                                   bizcity_kg_xref (axon, kept forever if cited)
 ```
-
-#### Harness Terminology
-
-| Term | Role | Example |
-|------|------|---------|
-| **Intent** | Classified desire from user message | `publish_content`, `manage_order`, `generate_doc` |
-| **Rule** | Condition pattern the harness checks before firing | `slot:topic filled`, `user_role:admin`, `woo:product_exists` |
-| **Action** | Bound executable — tool wrapper, skill, or pipeline step | `content_tool.write()`, `woo_tool.update_price()` |
-| **Single Goal** | One intent → one action → one result | "What is my latest order?" → `woo.get_order()` → answer |
-| **Multi Goal** | One intent → harness fans out → N parallel/sequential actions | "Research, write, publish and post" → 4-step pipeline |
-| **Canvas** | Visual representation of a multi-goal harness flow | Drag-and-drop nodes = harness steps |
-| **Automation Pipeline** | Persisted harness with triggers, checkpoints, and recovery | Runs forever, survives failures, resumes from last checkpoint |
-
-#### Tool Wrapper — Independence & Fallback
-
-Every capability in Twin Claw is wrapped in a **Tool Wrapper** — an isolation boundary that:
-
-```
-  ┌────────────────────────────────────────────┐
-  │             TOOL WRAPPER                   │
-  │                                            │
-  │  ┌──────────┐   ┌─────────┐   ┌────────┐  │
-  │  │ Input    │   │ Execute │   │ Output │  │
-  │  │ Schema   │──▶│ Handler │──▶│ Schema │  │
-  │  │ Validate │   │         │   │ Assert │  │
-  │  └──────────┘   └────┬────┘   └────────┘  │
-  │                      │                    │
-  │                 ┌────▼────┐               │
-  │                 │Fallback │               │
-  │                 │ Chain   │               │
-  │                 └─────────┘               │
-  └────────────────────────────────────────────┘
-```
-
-- **Independent** — each tool wrapper runs in isolation; failure in one never crashes others
-- **Self-describing** — exposes a `describe()` method the AI reads to know when/how to call it
-- **Fallback Chain** — primary provider fails → secondary provider → graceful degradation
-- **Retry logic** — transient failures auto-retry with exponential backoff
-- **Output normalization** — every tool returns a unified response schema the harness understands
-
-#### Canvas — Visual Harness Builder
-
-The Canvas is the **visual editor for multi-goal harnesses**. Users drag, connect, and configure nodes that map directly to harness rules and actions:
-
-```
-  [Trigger: New WooCommerce Order]
-         │
-         ├──▶ [Action: Send SMS notification]     → Goal: Customer notified
-         ├──▶ [Action: Add to Google Sheets]       → Goal: Data logged
-         └──▶ [Action: Generate invoice PDF]       → Goal: Invoice ready
-                    │
-                    └──▶ [Action: Email to customer]  → Goal: Invoice sent
-```
-
-Each node = one **rule + action** binding. The canvas serializes into a WaicFrame automation pipeline that runs with full checkpoint/recovery support.
 
 ---
 
-### Intent Engine — The Brain
-- **Single-call classification**: 1 LLM call → classifies mode, intent, goal_type, entities, slots simultaneously
-- **5 execution modes**: `knowledge` · `tool` · `pipeline` · `ambiguous` · `chitchat`
-- **Goal resolution**: single-goal (direct dispatch) vs multi-goal (harness fan-out)
-- **Slot Engine**: Asks for missing info, auto-executes when all slots are filled
-- **HIL Focus Mode**: Keeps AI focused on one task until completion
+## 6. The one-person business operating model
 
-### 3-Layer Memory
+Twin AI is built around a single mental model: **one founder + one Twin = one company**. The Twin handles the boring loop, the founder handles judgment calls.
+
 ```
-Rolling Memory   → Last N messages (short-term)
-Episodic Memory  → Summarized past sessions (mid-term)
-User Profile     → Habits, preferences, personal info (long-term)
+                ┌──────────────────────────────────────────────┐
+                │             FOUNDER (you)                    │
+                │   Strategy · Relationships · Final calls     │
+                └───────────────────────┬──────────────────────┘
+                                        │ delegates
+                                        ▼
+                ┌──────────────────────────────────────────────┐
+                │           TWIN (Second Brain)                │
+                │  Remembers · Connects · Drafts · Acts        │
+                └─┬──────────┬──────────┬──────────┬───────────┘
+                  │          │          │          │
+                  ▼          ▼          ▼          ▼
+              CRM &      Content    Calendar &  WooCommerce
+            customer     drafting   scheduling    & orders
+              chats     (Doc/Slide)
+                  │          │          │          │
+                  ▼          ▼          ▼          ▼
+                ┌──────────────────────────────────────────────┐
+                │       WORDPRESS = Operating System           │
+                │  Posts · Users · Woo · Notebooks · Tools     │
+                └──────────────────────────────────────────────┘
 ```
 
-### Knowledge Companion Intelligence (KCI)
-- Upload PDF, CSV, Excel, JSON → AI reads and remembers
-- Crawl websites → auto-learn from URLs
-- Vector-based semantic search
-- Multiple AI personas with separate knowledge bases
+Concrete examples a founder can ship today:
 
-### WaicFrame — Workflow Engine
-- Build automation pipelines without code
-- Any tool in the registry is a workflow step
-- Checkpoints: auto-save progress, auto-recover on failure
-- Triggers: message, schedule, webhook, WooCommerce event
+- **Sales** — Twin reads Zalo/Telegram/Messenger threads, extracts entities into the KG, and drafts follow-ups citing previous promises with `[mem:E#N]`.
+- **Content** — `@content-guru` writes a blog post that cites internal sources `[src:N#pM]` and avoids contradicting last week's notes `[nb:17]`.
+- **Ops** — Intent Engine spots "customer X mentioned a refund 3 days ago", checks the WooCommerce order via Tool Registry, and proposes a one-click action.
+- **Knowledge ops** — every meeting transcript becomes new triplets, reviewed in 30 seconds, and the brain gets smarter overnight.
 
 ---
 
-## Multi-Channel — Talk to Your AI Anywhere
-
-| Channel | Status |
-|---------|--------|
-| 💬 Webchat (React) | ✅ Production |
-| 📱 Zalo OA | ✅ Production |
-| ✈️ Telegram | ✅ Production |
-| 📘 Facebook Messenger | ✅ Production |
-| 🔲 Embeddable Widget | ✅ Production |
-| 📧 Email (SMTP trigger) | 🔜 Coming soon |
-
-One pipeline handles everything. Adapter-based. Add new channels without refactoring.
-
----
-
-## 500+ AI Models — Right Model for the Right Job
-
-Twin Claw doesn't lock you into one provider:
+## 7. Project structure
 
 ```
-chat      → Gemini 2.0 Flash / GPT-4o / Claude 3.5
-vision    → GPT-4o Vision / Gemini Vision
-code      → DeepSeek Coder / GPT-4o / Claude 3.5
-fast      → Gemini Flash / GPT-4o-mini
-planner   → Claude 3.5 Sonnet / GPT-4o
-executor  → Gemini 2.0 / GPT-4o
+bizcity-twin-ai/
+├── bizcity-twin-ai.php          # Entry point (v1.3.7)
+├── core/
+│   ├── bizcity-llm/             # LLM Gateway client (500+ models via router)
+│   ├── intent/                  # Intent Engine — classify, plan, orchestrate
+│   │   └── shell/               # Phase 0.16 — Intent Shell
+│   ├── knowledge/               # KG-Hub — 7 tables, Graph RAG, vector search
+│   ├── persona/                 # Phase 0.18 — Persona Provider contract
+│   ├── twin-core/               # Twin identity + memory + Guru + Event Bus
+│   ├── bizcity-market/          # Plugin marketplace + agent catalog
+│   ├── channel-gateway/         # Multi-channel adapter (Zalo/TG/FB/Web)
+│   ├── skills/                  # Skill Library (YAML/Markdown)
+│   ├── tools/                   # Tool registry runtime
+│   ├── scheduler/               # Cron + automation triggers
+│   ├── memory/                  # 5-cortex memory federation
+│   ├── agents/                  # Phase 0.13 — TwinShell Agents-as-Tools
+│   ├── runtime/                 # Phase 0.15 — Runner + REST /run
+│   ├── research/                # Phase 0.18.1 — Guru Research Studio (Tavily)
+│   └── helper-legacy/           # Backward-compat flow helpers
+├── modules/
+│   ├── twinchat/                # ⭐ Default dashboard (TwinChat React SPA)
+│   ├── twinshell/               # Phase 0.11 — /twin/ ActivityBar wrapper
+│   ├── twinsource/              # Phase 6.1 — Source-management panel
+│   ├── twinsearch/              # Phase 0.18.1.7 — Tavily input gate
+│   └── webchat/                 # Legacy webchat (settings only)
+├── plugins/                     # Bundled "must-load" agent plugins
+│   ├── bizgpt-tool-google/      # ✅ Google Workspace
+│   ├── bizcity-tool-image/      # ✅ Image Studio
+│   ├── bizcity-content-creator/ # ✅ Content templates
+│   └── bizcity-doc/             # ✅ Doc / Slides / Sheets generation
+├── changelog/                   # Per-phase changelog dashboard (admin)
+├── mu-plugin/
+│   └── bizcity-twin-compat.php  # Loader for early hooks (auto-copied)
+└── PHASE-*.md                   # Architecture phase docs (0.3 → 0.19)
 ```
 
-Each purpose uses the best model. Auto-fallback on failure. Switch models without changing code.
+---
+
+## 8. Bundled plugins — loaded by default
+
+| Plugin | Role |
+|---|---|
+| `bizgpt-tool-google` | Google Calendar, Sheets, Drive, Docs |
+| `bizcity-tool-image` | AI image generation, templates, editor assets |
+| `bizcity-content-creator` | Template-driven AI content generation |
+| `bizcity-doc` | AI-generated Word, PowerPoint, Excel |
+
+> Several optional plugins (Companion Notebook, Automation, Zalo Bot, Tool Facebook, Tool Mindmap, Tool PDF, Tool Content, Tool Heygen, Tool Woo, Pagebuilder, ChatGPT/Gemini Knowledge, Agent Calo, Tarot) are **not loaded by default** and **excluded from GitHub** (see `.gitignore`). They can be re-enabled by activating them manually under `wp-admin/plugins.php`.
 
 ---
 
-## Comparison
-
-| | Twin Claw | ChatGPT / Claude | n8n / Make |
-|--|-----------|-----------------|------------|
-| Runs on your server | ✅ | ❌ | ✅ |
-| 100% data privacy | ✅ | ❌ | Partial |
-| Connects 60,000+ WP plugins | ✅ | ❌ | ❌ |
-| Autonomous task execution | ✅ | ❌ | ✅ |
-| Built-in chat UI | ✅ | ✅ | ❌ |
-| Multi-channel (Zalo, TG, FB) | ✅ | ❌ | Via plugins |
-| Open source | ✅ MIT | ❌ | ✅ |
-| Free to use | ✅ | ❌ Paid | Freemium |
-| Visual workflow builder | ✅ WaicFrame | ❌ | ✅ |
-| RAG / Custom knowledge base | ✅ | ❌ | ❌ |
-| Long-term user memory | ✅ 3 layers | Limited | ❌ |
-
----
-
-## Quick Start — 3 Steps
+## 9. Quick Start
 
 ### Requirements
-- WordPress 6.0+ · PHP 7.4+ · BizCity API key
+- WordPress 6.0+ · PHP 7.4+ · MySQL 5.7+
+- BizCity API key (free signup at [bizcity.vn/my-account/](https://bizcity.vn/my-account/))
+- *(Optional)* Neo4j 5.x — for projecting the in-WP graph to a real graph DB at scale
 
-### Step 1 — Clone
+### Install
 
 ```bash
 cd wp-content/plugins/
-git clone https://github.com/hoanganh8389/bizcity-twin-claw.git
+git clone https://github.com/hoanganh8389/bizcity-twin-ai.git
 ```
 
-### Step 2 — Activate
+### Activate
 
-**WP Admin → Plugins → Activate Twin Claw**
+**WP Admin → Plugins → Activate "Bizcity Twin AI"**
 
-The plugin automatically:
-- Copies `bizcity-twin-compat.php` to `mu-plugins/`
-- Registers all bundled agent plugins
-- Initializes Tool Registry, Intent Engine, Channel Gateway
+The plugin will automatically:
+1. Create the `bizcity_kg_*` and `bizcity_memory_*` tables (per-blog shard).
+2. Copy `mu-plugin/bizcity-twin-compat.php` into `mu-plugins/`.
+3. Register the Tool Registry, Intent Engine and Channel Gateway.
+4. Mount **Twin** as the default dashboard (menu position 2, slug `bizcity-twinchat`).
 
-### Step 3 — Configure API
+### Configure
 
-**WP Admin → Bots - Web Chat → ⚡ LLM Settings**
+**WP Admin → BizCity AI → LLM Settings** → enter API key → Test → Done.
 
-Enter API key from [bizcity.vn/my-account/](https://bizcity.vn/my-account/) → Test connection → Done.
-
-> No API key? [Register for free →](https://bizcity.vn/my-account/)
-
----
-
-## Project Structure
-
-```
-bizcity-twin-claw/
-├── bizcity-twin-ai.php          # Entry point
-├── core/
-│   ├── bizcity-llm/             # LLM Gateway (500+ models)
-│   ├── intent/                  # Intent Engine — Team Leader AI
-│   ├── knowledge/               # Knowledge base + RAG + vector search
-│   ├── skills/                  # Skill Library (YAML/Markdown, slash commands)
-│   ├── bizcity-market/          # Plugin marketplace + agent catalog
-│   ├── twin-core/               # Twin identity + memory + menu system
-│   └── channel-gateway/         # Multi-channel bridge (adapter-based)
-├── modules/
-│   ├── webchat/                 # React chat UI + REST API + admin dashboard
-│   ├── automation/              # WaicFrame workflow engine
-│   ├── notebook/                # Research notebook (RAG + deep read)
-│   └── identity/                # User identity + persona
-└── plugins/                     # Bundled agent/tool plugins (19+)
-    ├── bizcity-tool-content/
-    ├── bizcity-tool-woo/
-    ├── bizgpt-tool-google/
-    └── ...
-```
+To enable optional Neo4j projection: set `BIZCITY_KG_NEO4J_URI`, `BIZCITY_KG_NEO4J_USER`, `BIZCITY_KG_NEO4J_PASS` in `wp-config.php`.
 
 ---
 
-## Releases & Changelog
+## 10. Phase Roadmap
 
-### v1.5.0 — 2026-04-22 (Current)
+| Phase | Summary | Status |
+|---|---|---|
+| **0.3** [KG-Hub](PHASE-0.3-KGHUB.md) | Graph schema (entity/relation/passage), 4-step Graph RAG | ✅ |
+| **0.6** [Central Brain](PHASE-0.6-KGHUB-CENTRAL-BRAIN.md) | Cortex federation, `kg_xref` axon, citation V2 | ✅ |
+| **0.8** Multi-Perspective Reasoning | Notebook = lens | ✅ |
+| **0.11** Twin Shell | Universal `/twin/` Activity Bar | ✅ |
+| **0.12** Event Stream Unification | 1 table, 15 event types, 1 SSE channel | ✅ |
+| **0.13** TwinShell Primitives | Standardized UX layer, per-source learning progress | ✅ |
+| **0.15** Agents-as-Tools | OpenAI SDK pattern composition | ✅ |
+| **0.16** Intent Shell Migration | Intent flows through Shell | ✅ |
+| **0.17** [Brain Spine](PHASE-0.17-BRAIN-SPINE.md) | Memory citation, Thinking Timeline, Reasoning Ledger | ✅ |
+| **0.18** Notebook Persona | Character ↔ Notebook binding, 3-layer Guru pipeline | ✅ |
+| **0.18.1** Guru Research (Tavily) | L2 Knowledge Builder | 🔄 Draft |
+| **0.19** [Guru Surface Polish](PHASE-0.19-GURU-INDEX.md) | Observability, UI polish | 🟡 In progress |
 
-#### bizcity-doc — Document Studio
-
-**Logo / Brand Identity in Exports**
-- `NEW` `LogoOptions` type — `placement` (header/footer/both), `position` (left/center/right), `size` (small/medium/large)
-- `NEW` `LogoPanel` component — floating popover UI with live file upload, placement/alignment/size controls
-- `NEW` DOCX logo support — `ImageRun` embedded in `Header`/`Footer` of every section via docx.js
-- `NEW` PPTX logo support — `addImage()` overlay anchored at top/bottom-left/right/center of each slide
-- `NEW` PDF logo support — `addImage()` stamped on every page post-render (document and presentation PDFs)
-- `NEW` Live preview — logo renders in real-time in both `DocumentPreview` and `PresentationPreview` before export
-- `NEW` Logo persistence — stored in `localStorage` keyed by `doc_id`; survives F5 / browser reload
-- `UPD` `DownloadMenu` — accepts `logoOptions` prop and passes to all three builders
-- `UPD` `DocApp.tsx` — `setLogoOptions` wraps `localStorage.setItem/removeItem` automatically
-
-**Convert Between Document Types**
-- `NEW` `ConvertMenu` — purple dropdown to convert current document to any other type
-- `NEW` Same `doc_id` reuse — sources already uploaded are reused automatically; no re-upload needed
-- `NEW` `convertLoading` state with conversion-specific loading messages
-
-**Export Bug Fixes**
-- `FIX` `RangeError: Invalid array length` — DOCX builder: always passes explicit `columnWidths` to `Table` constructor, bypassing docx.js internal `Array(Math.max(...))` crash
-- `FIX` `arrayBufferToBase64` — chunked approach (8192 bytes/chunk) prevents stack overflow on large font files in PDF builder
-- `FIX` Bullet text `undefined` crash — all builders now use `String(content ?? '')` coercion
-- `FIX` Spreadsheet empty workbook — adds fallback sheet when CSV parsing returns no data
-- `FIX` Browser cache serving stale JS — vite config changed to `chunkFileNames: 'doc-[name]-[hash].js'`; PHP page template uses `filemtime()` instead of version constant
-
-**Source Upload (PHP backend)**
-- `FIX` DOCX/XLSX upload rejected by WordPress — added `register_upload_filters()` with two WP filters: `upload_mimes` and `wp_check_filetype_and_ext`; server detects Office XML as `application/zip` causing WP to reject, override normalizes by extension
-- `FIX` XLSX `sharedStrings` parsing — rewrote with `DOMDocument` instead of SimpleXML; `$si->t` only read direct child `<t>`, missed `<si><r><t>` rich string structures
-- `FIX` DOCX text extraction — now reads `word/document.xml` + `header*.xml` + `footer*.xml` + `footnotes.xml` + `endnotes.xml`; proper `</w:tc>→\t` and `</w:tr>→\n` handling for tables
+Further reading: [GUIDE-00-COMPANION-TWIN.md](GUIDE-00-COMPANION-TWIN.md) · [ARCHITECTURE.md](ARCHITECTURE.md) · the `PHASE-0-RULE-*.md` files (pinned rules — read these before opening a PR).
 
 ---
 
-### v1.4.0 — 2026-04-02
+## 11. Pinned Rules (read before contributing)
 
-- **Skill Library** — File-based skill auto-discovery, YAML/Markdown definitions, slash commands, triggers
-- **WaicFrame Automation** — Resumable pipeline, todos ledger, mismatch detection, E2E test suite
-- **Scheduler Core** — Timeline backbone, event CRUD, Google Calendar sync, dual-context
-- **Demo & Marketplace** — Live demo at [bizgpt.vn](https://bizgpt.vn) · 500+ AI models
-- **MIT License** — Officially open source
+These rules are **immutable** — never refactor without updating the rule first:
 
----
+- **R-EVT-*** — Every state change goes through `Event_Bus::dispatch()`. No new tables or event types outside taxonomy v4.
+- **R-MPR-*** — A Notebook is a lens, not a store. No cross-notebook entity merging.
+- **R-KG-*** — All ingestion goes through `BizCity_KG_Source_Service::ingest()`. No bypass.
+- **R-TG-1/2** — Guru instruction has priority 20 and is never trimmed. Guru sources are pulled before generic RAG.
+- **R-PERSONA-*** — Bridge contract between character and notebook.
+- **R-Right-to-Forget** — Users always retain the ability to edit or forget any memory item.
 
-### v1.3.x — 2026-03
-
-- **Phase 0 Context Cleanup** — Smart gateway migration, smart sources standardization
-- **Unified Pipeline** — Single pipeline for all doc types
-- **Central Brain Multisite** — One AI brain managing multiple WordPress sites
-- **Agentic Tool Execution** — Tool Registry v2, self-describing tool wrappers, harness scaffold
+Full set: `PHASE-0-RULE-*.md`.
 
 ---
 
-## Links
+## 12. Comparison
 
-| | |
-|----|------|
-| 🎮 **Live Demo** | [bizgpt.vn](https://bizgpt.vn) |
-| 📦 **GitHub** | [github.com/hoanganh8389/bizcity-twin-claw](https://github.com/hoanganh8389/bizcity-twin-claw) |
-| 🏪 **AI Plugin Marketplace** | [bizcity.vn/marketplace/](https://bizcity.vn/marketplace/) |
-| 🤖 **500+ AI Models** | [bizcity.vn/ai-models/](https://bizcity.vn/ai-models/) |
-| 🔑 **Register API Key** | [bizcity.vn/my-account/](https://bizcity.vn/my-account/) |
-| 🛠️ **Request Custom Agent** | [bizcity.vn/request-agent/](https://bizcity.vn/request-agent/) |
-| ☕ **Support the Project** | [buymeacoffee.com/chuhoanganh](https://buymeacoffee.com/chuhoanganh) |
-
----
-
-## Documentation
-
-| # | Guide | Link |
-|---|-------|------|
-| 1 | Companion Twin — Digital Twin Overview | [GUIDE-00-COMPANION-TWIN.md](GUIDE-00-COMPANION-TWIN.md) |
-| 2 | Agentic Plugin Ecosystem | [GUIDE-01-AGENTIC-ECOSYSTEM.md](GUIDE-01-AGENTIC-ECOSYSTEM.md) |
-| 3 | Automation Pipeline | [GUIDE-02-AUTOMATION-PIPELINE.md](GUIDE-02-AUTOMATION-PIPELINE.md) |
-| 4 | Expert Twin Training | [GUIDE-03-EXPERT-TWIN.md](GUIDE-03-EXPERT-TWIN.md) |
-| 5 | Central Brain for Multisite Project Factory | [PHASE-1.0-CENTRAL-BRAIN-MULTISITE.md](PHASE-1.0-CENTRAL-BRAIN-MULTISITE.md) |
-| 6 | Agentic Tool Execution | [PHASE-1.1-AGENTIC-TOOL-EXECUTION.md](PHASE-1.1-AGENTIC-TOOL-EXECUTION.md) |
-| 7 | Skill ↔ Pipeline Integration | [PHASE-1.2-SKILL-PIPELINE-INTEGRATION.md](PHASE-1.2-SKILL-PIPELINE-INTEGRATION.md) |
-| 8 | Scheduler Core | [PHASE-1.3-SCHEDULER-CORE.md](PHASE-1.3-SCHEDULER-CORE.md) |
-| 9 | Harness — Intent → Rule → Action → Goal | [PHASE-1.11B-TOOL-ARCHITECTURE.md](PHASE-1.11B-TOOL-ARCHITECTURE.md) |
-| 10 | Shell Engine Final | [PHASE-1.11-SHELL-ENGINE-FINAL.md](PHASE-1.11-SHELL-ENGINE-FINAL.md) |
-| 11 | Canvas Adapter | [PHASE-1.20-CANVAS-ADAPTER.md](PHASE-1.20-CANVAS-ADAPTER.md) |
-| 12 | Unified Canvas Panel | [PHASE-3.0-UNIFIED-CANVAS-PANEL.md](PHASE-3.0-UNIFIED-CANVAS-PANEL.md) |
+| | **Twin AI Second Brain** | ChatGPT / Claude | n8n / Make | Vector-RAG SaaS |
+|--|---|---|---|---|
+| Self-hosted, full data privacy | ✅ | ❌ | ✅ | ❌ |
+| **Graph RAG** (multi-hop reasoning) | ✅ | ❌ | ❌ | ❌ |
+| Neo4j-compatible schema | ✅ | ❌ | ❌ | ❌ |
+| Multi-Perspective Reasoning | ✅ | ❌ | ❌ | ❌ |
+| Live thinking timeline | ✅ | Partial | ❌ | ❌ |
+| Memory citations (`[mem:U#N]`) | ✅ | ❌ | ❌ | Partial |
+| Right-to-forget for users | ✅ | Limited | ❌ | Limited |
+| Multi-channel (Zalo, TG, FB) | ✅ | ❌ | Via plugins | ❌ |
+| 500+ AI models with auto-fallback | ✅ | ❌ | Limited | Limited |
+| WordPress-native | ✅ | ❌ | ❌ | ❌ |
+| Multisite-shard ready | ✅ | N/A | N/A | N/A |
+| **Cost for one-person business** | flat WP host | $20+/seat | per-execution | per-doc |
 
 ---
 
-## 🇻🇳 Made in Vietnam
+## 13. About
 
-> **Author**: Johnny Chu (Chu Hoàng Anh)  
-> **Contact**: Hoanganh.itm@gmail.com · +84 931 576 886  
+> **Author**: Johnny Chu (Chu Hoàng Anh)
+> **Contact**: Hoanganh.itm@gmail.com · +84 931 576 886
 > **Website**: [bizcity.vn](https://bizcity.vn) · [bizcity.ai](https://bizcity.ai)
+> **Live demo**: [bizgpt.vn/chat](https://bizgpt.vn/chat/)
+> **License**: GPL-2.0-or-later
+> **Made in Vietnam 🇻🇳, built for the world.**
 
 ---
 
-> *"Your WordPress already has 60,000+ plugins. Each one is a capability. Twin Claw turns them all into tools for an AI that knows you, works for you, and never stops."*
-
-**⭐ Star if you find this useful. Fork to build your own. Contributions welcome.**
-
-`#TwinClaw` `#PersonalAI` `#WordPressAI` `#AgenticAI` `#Harness` `#OpenSource`
-
+> *"The future of business is not 1,000 employees with 1 AI tool — it's 1 founder with 1 Second Brain that knows everything they know, and never forgets."*

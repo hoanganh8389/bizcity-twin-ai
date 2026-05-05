@@ -277,6 +277,7 @@ class BCCM_Installer {
       '0.1.0.18' => 'migrate_0_1_0_18',
       '0.1.0.19' => 'migrate_0_1_0_19',
       '0.1.0.35' => 'migrate_0_1_0_35',
+      '0.1.0.38' => 'migrate_0_1_0_38',
     ];
   }
 
@@ -589,6 +590,64 @@ class BCCM_Installer {
   private function migrate_0_1_0_35(): void {
     // Table is created via install_tables() / dbDelta — no ALTER needed.
     // This entry just ensures maybe_upgrade() reruns install_tables() on deploys.
+  }
+
+  /**
+   * v0.1.0.38: Schema drift fix.
+   * - bccm_astro: ensure user_id + chart_type + llm_report exist (re-run of 0.1.0.17 logic
+   *   for sites where that migration was skipped because db_version was bumped past it
+   *   without the ALTER actually running).
+   * - bccm_coachees (profiles): force all LONGTEXT JSON columns to NULL DEFAULT NULL so
+   *   INSERTs without these columns don't fail under MySQL strict mode (sites created
+   *   before nullable schema had vision_json LONGTEXT NOT NULL with no default).
+   */
+  private function migrate_0_1_0_38(): void {
+    $prefix = $this->wpdb->prefix;
+
+    // --- 1. bccm_astro: ensure user_id / chart_type / llm_report exist ---
+    $t_astro = $prefix . 'bccm_astro';
+    if ($this->table_exists($t_astro)) {
+      $acols = $this->get_columns($t_astro);
+      $this->add_column_if_missing($t_astro, $acols, 'user_id',    'BIGINT UNSIGNED NULL DEFAULT NULL', 'coachee_id');
+      $this->add_column_if_missing($t_astro, $acols, 'chart_type', "VARCHAR(32) NOT NULL DEFAULT 'western'", 'user_id');
+      $this->add_column_if_missing($t_astro, $acols, 'llm_report', 'LONGTEXT NULL', 'chart_svg');
+
+      // Refresh and ensure index exists (silent if already there)
+      $has_idx_user = $this->wpdb->get_results("SHOW INDEX FROM `$t_astro` WHERE Key_name = 'idx_user_id'");
+      if (empty($has_idx_user)) {
+        $this->wpdb->query("ALTER TABLE `$t_astro` ADD INDEX idx_user_id (user_id)");
+      }
+      $has_idx_ct = $this->wpdb->get_results("SHOW INDEX FROM `$t_astro` WHERE Key_name = 'idx_chart_type'");
+      if (empty($has_idx_ct)) {
+        $this->wpdb->query("ALTER TABLE `$t_astro` ADD INDEX idx_chart_type (chart_type)");
+      }
+
+      // Backfill user_id from coachee profiles (idempotent)
+      $t_profiles = bccm_tables()['profiles'];
+      $this->wpdb->query("
+        UPDATE `$t_astro` a
+        INNER JOIN `$t_profiles` p ON a.coachee_id = p.id
+        SET a.user_id = p.user_id
+        WHERE a.user_id IS NULL AND p.user_id IS NOT NULL
+      ");
+    }
+
+    // --- 2. bccm_coachees: force JSON LONGTEXT columns to NULL DEFAULT NULL ---
+    $t_profiles = bccm_tables()['profiles'];
+    if ($this->table_exists($t_profiles)) {
+      $json_cols = [
+        'ai_summary', 'numeric_json', 'answer_json', 'vision_json', 'swot_json',
+        'customer_json', 'winning_json', 'value_json', 'bizcoach_json',
+        'baby_json', 'iqmap_json', 'health_json', 'mental_json', 'extra_fields_json',
+      ];
+      $pcols = $this->get_columns($t_profiles);
+      foreach ($json_cols as $col) {
+        if (in_array($col, $pcols, true)) {
+          // MODIFY is safe even if already nullable; just normalises the definition.
+          $this->wpdb->query("ALTER TABLE `$t_profiles` MODIFY COLUMN `$col` LONGTEXT NULL DEFAULT NULL");
+        }
+      }
+    }
   }
 
   private function add_column_if_missing( string $table, array $cols, string $column, string $def, string $after ): void {

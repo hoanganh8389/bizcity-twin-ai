@@ -780,57 +780,40 @@ class BizCity_Knowledge_Context_API {
     }
     
     /**
-     * Call OpenAI Vision API
-     * 
-     * @param array $image_data Prepared image data
-     * @param string $prompt Vision prompt
-     * @param array $config Configuration
-     * @return string|WP_Error Description or error
+     * Call OpenAI Vision API — PHASE-0-RULE-SMART-GATEWAY-MIGRATION:
+     * đi qua BizCity LLM Router (purpose=vision).
      */
     private function call_openai_vision($image_data, $prompt, $config) {
-        $api_key = get_option('twf_openai_api_key', '');
-        
-        if (empty($api_key)) {
-            return new WP_Error('no_api_key', 'OpenAI API key not configured');
+        if ( ! class_exists( 'BizCity_LLM_Client' ) ) {
+            return new WP_Error( 'no_router', 'BizCity LLM Router missing' );
         }
-        
-        $model = $config['vision_model'] ?? 'gpt-4o-mini';
-        
+        $client = BizCity_LLM_Client::instance();
+        if ( ! $client->is_ready() ) {
+            return new WP_Error( 'no_router_key', 'BizCity LLM Router API key chưa cấu hình' );
+        }
+
+        $model    = $config['vision_model'] ?? ( $client->get_model( 'vision' ) ?: 'gpt-4o-mini' );
         $messages = [
             [
                 'role' => 'user',
                 'content' => [
-                    ['type' => 'text', 'text' => $prompt],
-                    $image_data
-                ]
-            ]
-        ];
-        
-        $response = wp_remote_post('https://api.openai.com/v1/chat/completions', [
-            'headers' => [
-                'Authorization' => 'Bearer ' . $api_key,
-                'Content-Type' => 'application/json'
+                    [ 'type' => 'text', 'text' => $prompt ],
+                    $image_data,
+                ],
             ],
-            'body' => json_encode([
-                'model' => $model,
-                'messages' => $messages,
-                'max_tokens' => 1000
-            ]),
-            'timeout' => 60
-        ]);
-        
-        if (is_wp_error($response)) {
-            return $response;
+        ];
+
+        $resp = $client->chat( $messages, [
+            'purpose'    => 'vision',
+            'model'      => $model,
+            'max_tokens' => 1000,
+            'timeout'    => 60,
+        ] );
+
+        if ( empty( $resp['success'] ) ) {
+            return new WP_Error( 'vision_error', $resp['error'] ?? 'Vision API error' );
         }
-        
-        $body = json_decode(wp_remote_retrieve_body($response), true);
-        
-        if (isset($body['choices'][0]['message']['content'])) {
-            return $body['choices'][0]['message']['content'];
-        }
-        
-        $error_msg = $body['error']['message'] ?? 'Vision API error';
-        return new WP_Error('vision_error', $error_msg);
+        return (string) ( $resp['message'] ?? '' );
     }
     
     /**

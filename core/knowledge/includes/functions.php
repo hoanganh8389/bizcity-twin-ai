@@ -258,40 +258,30 @@ function bizgpt_chatbot_fallback_ai_response($api_key, $question) {
         return $ai->get_fallback_response($question, $api_key);
     }
     
-    // Fallback: gọi trực tiếp OpenAI
-    if (empty($api_key)) {
-        $api_key = get_option('twf_openai_api_key');
+    // PHASE-0-RULE-SMART-GATEWAY-MIGRATION: phải đi qua BizCity LLM Router.
+    // Tham số $api_key giữ lại để giữ chữ ký hàm cũ; bị bỏ qua.
+    unset( $api_key );
+
+    if ( ! class_exists( 'BizCity_LLM_Client' ) ) {
+        return 'Xin lỗi, BizCity LLM Router chưa được cài.';
     }
-    
-    if (empty($api_key)) {
-        return 'Xin lỗi, hệ thống chưa được cấu hình API key.';
+    $client = BizCity_LLM_Client::instance();
+    if ( ! $client->is_ready() ) {
+        return 'Xin lỗi, BizCity LLM Router chưa được cấu hình API key.';
     }
-    
-    // Gọi OpenAI trực tiếp
-    $response = wp_remote_post('https://api.openai.com/v1/chat/completions', [
-        'headers' => [
-            'Content-Type' => 'application/json',
-            'Authorization' => 'Bearer ' . $api_key,
-        ],
-        'body' => json_encode([
-            'model' => 'gpt-3.5-turbo',
-            'messages' => [
-                ['role' => 'system', 'content' => 'Bạn là trợ lý AI hữu ích, trả lời ngắn gọn và thân thiện.'],
-                ['role' => 'user', 'content' => $question],
-            ],
-            'temperature' => 0.7,
-            'max_tokens' => 500,
-        ]),
-        'timeout' => 30,
-    ]);
-    
-    if (is_wp_error($response)) {
+    $resp = $client->chat( [
+        [ 'role' => 'system', 'content' => 'Bạn là trợ lý AI hữu ích, trả lời ngắn gọn và thân thiện.' ],
+        [ 'role' => 'user',   'content' => $question ],
+    ], [
+        'purpose'     => 'fast',
+        'temperature' => 0.7,
+        'max_tokens'  => 500,
+        'timeout'     => 30,
+    ] );
+    if ( empty( $resp['success'] ) ) {
         return 'Xin lỗi, có lỗi kết nối đến AI.';
     }
-    
-    $body = json_decode(wp_remote_retrieve_body($response), true);
-    
-    return $body['choices'][0]['message']['content'] ?? 'Xin lỗi, không thể xử lý câu hỏi của bạn.';
+    return $resp['message'] ?? 'Xin lỗi, không thể xử lý câu hỏi của bạn.';
 }
 endif;
 

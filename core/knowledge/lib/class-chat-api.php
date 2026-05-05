@@ -318,51 +318,34 @@ function bizcity_knowledge_call_openai($message, $knowledge_context, $character_
         $messages[] = ['role' => 'user', 'content' => $message];
     }
     
-    // Get OpenAI API key
-    $api_key = get_option('twf_openai_api_key', '');
-    
-    if (empty($api_key)) {
-        return 'Xin lỗi, hệ thống chưa được cấu hình API key. Vui lòng liên hệ quản trị viên.';
+    // PHASE-0-RULE-SMART-GATEWAY-MIGRATION: đi qua BizCity LLM Router.
+    if ( ! class_exists( 'BizCity_LLM_Client' ) ) {
+        return 'Xin lỗi, BizCity LLM Router chưa được cài.';
     }
-    
-    // Select model - use vision model if image provided
-    $model = get_option('openai_model', 'gpt-4o-mini');
-    if (!empty($image_data)) {
-        // Force vision-capable model
-        $model = 'gpt-4o'; // gpt-4o supports vision
+    $client = BizCity_LLM_Client::instance();
+    if ( ! $client->is_ready() ) {
+        return 'Xin lỗi, BizCity LLM Router chưa được cấu hình.';
     }
-    
-    // Call OpenAI API
-    $response = wp_remote_post('https://api.openai.com/v1/chat/completions', [
-        'timeout' => 60,
-        'headers' => [
-            'Content-Type' => 'application/json',
-            'Authorization' => 'Bearer ' . $api_key,
-        ],
-        'body' => json_encode([
-            'model' => $model,
-            'messages' => $messages,
-            'temperature' => 0.8,
-            'max_tokens' => 3000,
-        ])
-    ]);
-    
-    if (is_wp_error($response)) {
-        return 'Xin lỗi, có lỗi kết nối đến OpenAI. Vui lòng thử lại sau.';
+
+    $purpose = ! empty( $image_data ) ? 'vision' : 'chat';
+    $model   = get_option( 'openai_model', '' );
+    if ( $model === '' ) {
+        $model = $client->get_model( $purpose ) ?: ( $purpose === 'vision' ? 'gpt-4o' : 'gpt-4o-mini' );
     }
-    
-    $body = json_decode(wp_remote_retrieve_body($response), true);
-    
-    if (isset($body['choices'][0]['message']['content'])) {
-        return trim($body['choices'][0]['message']['content']);
+
+    $resp = $client->chat( $messages, [
+        'purpose'     => $purpose,
+        'model'       => $model,
+        'temperature' => 0.8,
+        'max_tokens'  => 3000,
+        'timeout'     => 60,
+    ] );
+
+    if ( empty( $resp['success'] ) ) {
+        error_log( '[bizcity-knowledge chat-api] router error: ' . ( $resp['error'] ?? 'unknown' ) );
+        return 'Xin lỗi, có lỗi kết nối đến AI. Vui lòng thử lại sau.';
     }
-    
-    if (isset($body['error']['message'])) {
-        error_log('OpenAI API Error: ' . $body['error']['message']);
-        return 'Xin lỗi, có lỗi từ OpenAI API. Vui lòng thử lại sau.';
-    }
-    
-    return 'Xin lỗi, không nhận được phản hồi từ AI. Vui lòng thử lại sau.';
+    return trim( (string) ( $resp['message'] ?? '' ) );
 }
 
 /**

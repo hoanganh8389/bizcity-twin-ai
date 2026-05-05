@@ -70,32 +70,39 @@ class BizCity_Memory_Log {
 	 * @return int|false Inserted row ID or false on failure.
 	 */
 	public function record( $memory_id, $action, $step_name = '', $details = array(), $user_id = 0 ) {
-		global $wpdb;
-
 		if ( empty( $memory_id ) || empty( $action ) ) {
 			return false;
 		}
 
 		$user_id = $user_id > 0 ? $user_id : get_current_user_id();
 
-		$data = array(
-			'memory_id'  => absint( $memory_id ),
-			'action'     => sanitize_text_field( $action ),
-			'step_name'  => sanitize_text_field( $step_name ),
-			'user_id'    => absint( $user_id ),
-			'detail_json' => wp_json_encode( $details, JSON_UNESCAPED_UNICODE ),
-			'created_at' => current_time( 'mysql' ),
-		);
-
-		$formats = array( '%d', '%s', '%s', '%d', '%s', '%s' );
-
-		$inserted = $wpdb->insert( $this->table, $data, $formats );
-		if ( $inserted ) {
-			return $wpdb->insert_id;
+		// R-EVT-1 (Sprint 5.0+ housekeeping): NEVER write directly to
+		// bizcity_memory_logs. Dispatch a 'memory_mutation' event onto the
+		// single backbone (bizcity_twin_event_stream); the projector
+		// BizCity_Memory_Log_Projector materializes the legacy table for
+		// read consumers (get_logs / get_step_trail / etc.).
+		if ( ! class_exists( 'BizCity_Twin_Event_Bus' ) ) {
+			error_log( self::$LOG . ' Event_Bus unavailable; memory_mutation dropped (memory_id=' . absint( $memory_id ) . ')' );
+			return false;
 		}
 
-		error_log( self::$LOG . " Failed to record log: memory_id={$memory_id} action={$action}" );
-		return false;
+		try {
+			BizCity_Twin_Event_Bus::dispatch_v2(
+				'memory_mutation',
+				array(
+					'memory_id' => absint( $memory_id ),
+					'operation' => sanitize_text_field( (string) $action ),
+					'step_name' => sanitize_text_field( (string) $step_name ),
+					'user_id'   => absint( $user_id ),
+					'details'   => is_array( $details ) ? $details : array(),
+				),
+				array( 'event_source' => 'memory' )
+			);
+			return true;
+		} catch ( \Exception $e ) {
+			error_log( self::$LOG . ' dispatch failed: ' . $e->getMessage() );
+			return false;
+		}
 	}
 
 	/* ================================================================

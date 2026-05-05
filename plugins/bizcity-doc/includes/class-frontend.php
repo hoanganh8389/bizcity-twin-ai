@@ -25,14 +25,18 @@ class BZDoc_Frontend {
 		$dist_url = BZDOC_URL . 'assets/dist/';
 
 		// Main CSS bundle
-		if ( file_exists( $dist_dir . 'doc-app.css' ) ) {
+		$css_file = $dist_dir . 'doc-app.css';
+		if ( file_exists( $css_file ) ) {
 			wp_enqueue_style(
 				'bzdoc-app',
 				$dist_url . 'doc-app.css',
 				[],
-				BZDOC_VERSION
+				filemtime( $css_file )
 			);
 		}
+
+		// Phase 6.1 — Twinsource bundle is printed manually in page-doc-studio.php
+		// (we can't use wp_footer() because the theme would re-inject Flatsome/global-styles).
 	}
 
 }

@@ -24,7 +24,7 @@ if (!defined('ABSPATH')) exit;
  * -------------------------------------------------- */
 define('BCCM_DIR', plugin_dir_path(__FILE__));
 define('BCCM_URL', plugin_dir_url(__FILE__));
-define('BCCM_VERSION', '0.1.0.37');
+define('BCCM_VERSION', '0.1.0.38');
 
 require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 
@@ -67,6 +67,28 @@ if ( class_exists( 'BizCity_Intent_Provider' ) ) {
         $registry->register( new BizCoach_Intent_Provider() );
     } );
 }
+
+/* ---- Persona Tool Provider (Wave 0.18.2) — Twin Guru bridge for notebooks ---- */
+// NOTE: bizcoach-map.php may load either at file-scope (standard WP plugin in
+// active_plugins) OR during plugins_loaded (bundled sub-plugin loaded by
+// bizcity-twin-ai's boot). In both cases the persona bootstrap has already run
+// (it's required at bizcity-twin-ai.php file scope), so the class is available.
+// We must NOT wrap this in add_action('plugins_loaded') because if this file
+// loads during plugins_loaded, WordPress won't re-fire that hook at higher
+// priorities. Instead, register the filter directly — it's a filter (not an
+// action), and can safely be registered at any point before the Registry builds
+// (which happens lazily during page render / REST, after init).
+if ( class_exists( 'BizCity_Persona_Tool_Provider' ) ) {
+    require_once BCCM_DIR . 'includes/class-persona-provider.php';
+    add_filter( 'bizcity_persona_tool_providers', function ( array $providers ) {
+        $providers[] = new BizCoach_Persona_Provider();
+        return $providers;
+    }, 20 );
+}
+
+// Wave 0.18.2 — REST endpoints for the Personal Artifact Dialog (TwinChat FE).
+require_once BCCM_DIR . 'includes/class-persona-rest.php';
+BizCoach_Persona_Rest::init();
 
 
 /* ----------------------------------------------------

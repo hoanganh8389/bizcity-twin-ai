@@ -138,7 +138,21 @@ class BizCity_Intent_Engine {
      * }
      */
     public function process( array $params ) {
+        // ── Phase 0.16 / Vòng 4 — Intent Shell (TwinShell runtime) takes priority. ──
+        // Gated by BizCity_Intent_Shell_Config: defaults to disabled, deterministic
+        // user-bucket rollout, so production traffic stays on the legacy engine
+        // until the flag is flipped.
+        if (
+            class_exists( 'BizCity_Intent_Shell_Config' )
+            && class_exists( 'BizCity_Intent_Shell' )
+            && BizCity_Intent_Shell_Config::should_use_shell( $params )
+        ) {
+            return BizCity_Intent_Shell::instance()->handle( $params );
+        }
+
         // ── Phase 1.11 S4: Shell Engine feature flag ──
+        // Engine_Shell::process() handles its own shadow capture (Vòng 4 Sprint 4)
+        // — wraps Phase 1.11 pipeline timing/reply and schedules shadow_compare().
         if ( class_exists( 'BizCity_Intent_Engine_Shell' ) && BizCity_Intent_Engine_Shell::should_handle() ) {
             return BizCity_Intent_Engine_Shell::instance()->process( $params );
         }

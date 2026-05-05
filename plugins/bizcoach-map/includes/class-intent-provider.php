@@ -806,8 +806,8 @@ class BizCoach_Intent_Provider extends BizCity_Intent_Provider {
         $astro_row = wp_cache_get( $astro_cache_key, 'bccm_coachees' );
         if ( false === $astro_row ) {
             $astro_row = $wpdb->get_row( $wpdb->prepare(
-                "SELECT * FROM {$prefix}bccm_astro WHERE user_id = %d AND chart_type = 'western' AND (summary IS NOT NULL OR traits IS NOT NULL) LIMIT 1",
-                $user_id
+                "SELECT * FROM {$prefix}bccm_astro WHERE coachee_id = %d AND chart_type = 'western' AND (summary IS NOT NULL OR traits IS NOT NULL) LIMIT 1",
+                $coachee['id']
             ), ARRAY_A );
 
             if ( ! $astro_row ) {

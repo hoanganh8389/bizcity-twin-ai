@@ -41,7 +41,7 @@ function bccm_get_public_key_from_request(){
   // Fallback cuối: bóc từ path /coachee-map/<key>[/...]
   if (empty($key) && !empty($_SERVER['REQUEST_URI'])) {
     $req = $_SERVER['REQUEST_URI'];
-    if (preg_match('#/coachee-map/([^/?#]+)/?#', $req, $m)) {
+    if (preg_match('~/coachee-map/([^/?#]+)/?~', $req, $m)) {
       $key = sanitize_text_field($m[1]);
     }
   }

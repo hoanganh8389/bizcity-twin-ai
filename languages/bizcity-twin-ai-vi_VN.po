@@ -10,7 +10,7 @@ msgstr ""
 "Project-Id-Version: BizCity Twin AI 1.0.0\n"
 "Report-Msgid-Bugs-To: Hoanganh.itm@gmail.com\n"
 "POT-Creation-Date: 2026-03-23T00:00+07:00\n"
-"PO-Revision-Date: 2026-03-23T00:00+07:00\n"
+"PO-Revision-Date: 2026-05-02T00:00+07:00\n"
 "Last-Translator: Johnny Chu <Hoanganh.itm@gmail.com>\n"
 "Language-Team: BizCity <info@bizcity.vn>\n"
 "Language: vi_VN\n"
@@ -633,6 +633,27 @@ msgstr "Đánh giá"
 #: core/knowledge/includes/class-admin-menu.php
 msgid "No assistants yet."
 msgstr "Chưa có trợ lý nào."
+
+#: core/knowledge/includes/class-admin-menu.php
+#: includes/class-admin-menu.php
+msgid "Twin Guru"
+msgstr "Twin Guru"
+
+#: includes/class-admin-menu.php
+msgid "🦾 Twin Guru"
+msgstr "🦾 Twin Guru"
+
+#: includes/class-admin-menu.php
+msgid "Edit Twin Guru"
+msgstr "Chỉnh sửa Twin Guru"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "New Twin Guru"
+msgstr "Tạo Twin Guru mới"
+
+#: core/knowledge/includes/class-admin-menu.php
+msgid "No Twin Gurus yet."
+msgstr "Chưa có Twin Guru nào."
 
 #: core/knowledge/includes/class-admin-menu.php
 msgid "Visible"

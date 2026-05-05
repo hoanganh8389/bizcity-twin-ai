@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "bizcity://events/welcome_job.json",
+  "title": "welcome_job",
+  "description": "Lifecycle of an AI welcome-after-upload job (Sprint 5.1). Single event_type with status field instead of separate started/completed/failed types.",
+  "type": "object",
+  "required": ["job_id", "status"],
+  "properties": {
+    "job_id":            { "type": "integer" },
+    "status":            { "type": "string", "enum": ["started", "completed", "failed"] },
+    "notebook_id":       { "type": "integer" },
+    "source_id":         { "type": "integer" },
+    "message_id":        { "type": "string", "description": "Set when status=completed (the inserted assistant message)." },
+    "summary_tokens":    { "type": "integer" },
+    "suggestions_count": { "type": "integer" },
+    "latency_ms":        { "type": "integer" },
+    "error":             { "type": "string" }
+  },
+  "additionalProperties": true
+}

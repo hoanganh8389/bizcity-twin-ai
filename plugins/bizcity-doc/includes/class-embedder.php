@@ -121,6 +121,15 @@ class BZDoc_Embedder {
 			'chunk_count'      => $total_stored,
 		], [ 'id' => $source_id ] );
 
+		// Phase 0.6.5 — Wave C: notify KG-Hub mirror so all chunks for this
+		// source land in kg_source_chunks (handler is feature-flagged + idempotent).
+		do_action( 'bizcity_kg_legacy_chunks_persisted', [
+			'cortex'              => 'bizdoc',
+			'legacy_source_id'    => (int) $source_id,
+			'legacy_source_table' => self::sources_table(),
+			'legacy_chunks_table' => self::chunks_table(),
+		] );
+
 		return [ 'success' => true, 'chunks' => $total_stored, 'model' => $embed_model ];
 	}
 
@@ -201,11 +210,31 @@ class BZDoc_Embedder {
 			return BZDoc_Sources::get_all_content( $doc_id, $max_tokens * 4 );
 		}
 
+		// Lookup source titles for citation labelling
+		global $wpdb;
+		$src_ids = array_unique( array_map( static fn( $r ) => (int) $r['source_id'], $results ) );
+		$src_ids = array_filter( $src_ids );
+		$titles  = [];
+		if ( ! empty( $src_ids ) ) {
+			$placeholders = implode( ',', array_fill( 0, count( $src_ids ), '%d' ) );
+			$rows = $wpdb->get_results( $wpdb->prepare(
+				"SELECT id, title FROM " . $wpdb->prefix . "bzdoc_project_sources WHERE id IN ($placeholders)",
+				...$src_ids
+			) );
+			foreach ( $rows as $row ) {
+				$titles[ (int) $row->id ] = $row->title;
+			}
+		}
+
 		$context = '';
 		$budget  = $max_tokens * 4; // approx chars
+		$idx     = 0;
 
 		foreach ( $results as $r ) {
-			$addition = "[Relevance: {$r['similarity']}]\n{$r['content']}\n---\n";
+			$idx++;
+			$title = $titles[ (int) $r['source_id'] ] ?? ( 'Tài liệu #' . $r['source_id'] );
+			$addition  = "[ĐOẠN TRÍCH #{$idx} | Nguồn: \"{$title}\" | Mức độ liên quan: {$r['similarity']}]\n";
+			$addition .= $r['content'] . "\n---\n";
 			if ( strlen( $context ) + strlen( $addition ) > $budget ) break;
 			$context .= $addition;
 		}

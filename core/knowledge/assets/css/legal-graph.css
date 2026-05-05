@@ -1,0 +1,445 @@
+/**
+ * Bizcity Legal Knowledge Graph — Admin UI Styles
+ *
+ * @package    Bizcity_Twin_AI
+ * @since      5.2.2 (2026-04-23)
+ */
+
+/* ── Layout ──────────────────────────────────────────────── */
+
+.bizcity-legal-graph-wrap {
+    box-sizing: border-box;
+    padding: 12px 20px 20px;
+}
+
+.bizcity-legal-graph-wrap .wp-heading-inline {
+    margin-right: 10px;
+}
+
+/* ── Status badge ──────────────────────────────────────────── */
+
+.blg-status-badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+    vertical-align: middle;
+    background: #e5e7eb;
+    color: #374151;
+}
+.blg-status-badge.blg-status-ready    { background: #d1fae5; color: #065f46; }
+.blg-status-badge.blg-status-building { background: #fef3c7; color: #92400e; }
+.blg-status-badge.blg-status-error    { background: #fee2e2; color: #991b1b; }
+.blg-status-badge.blg-status-no_graph { background: #f3f4f6; color: #6b7280; }
+
+/* ── Toolbar ──────────────────────────────────────────────── */
+
+.blg-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin: 12px 0 8px;
+}
+
+.blg-toolbar-left,
+.blg-toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.blg-toolbar-left input[type="text"],
+.blg-toolbar-left select {
+    height: 32px;
+    border-radius: 4px;
+    border: 1px solid #d1d5db;
+    padding: 0 8px;
+    font-size: 13px;
+}
+
+.blg-build-status {
+    font-size: 13px;
+    color: #374151;
+    margin-left: 6px;
+}
+
+/* ── Stats bar ────────────────────────────────────────────── */
+
+.blg-stats-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    padding: 6px 14px;
+    font-size: 13px;
+    margin-bottom: 10px;
+}
+
+.blg-stat { color: #374151; }
+.blg-stat-sep { color: #d1d5db; }
+
+.blg-progress-bar {
+    flex: 1 1 100%;
+    height: 5px;
+    background: #e5e7eb;
+    border-radius: 3px;
+    margin-top: 4px;
+}
+
+.blg-progress-fill {
+    height: 100%;
+    background: #3b82f6;
+    border-radius: 3px;
+    transition: width .4s ease;
+}
+
+/* ── Main two-column layout ───────────────────────────────── */
+
+.blg-main-layout {
+    display: flex;
+    gap: 12px;
+    height: calc(100vh - 280px);
+    min-height: 420px;
+}
+
+/* ── Graph pane ───────────────────────────────────────────── */
+
+.blg-graph-pane {
+    position: relative;
+    flex: 1 1 0;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    background: #111827;
+    overflow: hidden;
+}
+
+#blg-graph-svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+.blg-graph-loading {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(17,24,39,.8);
+    color: #f9fafb;
+    font-size: 15px;
+    z-index: 10;
+}
+
+/* Graph SVG elements */
+.blg-edge {
+    transition: stroke .2s;
+}
+
+.blg-edge-label {
+    fill: #9ca3af;
+    font-size: 9px;
+    text-anchor: middle;
+    pointer-events: none;
+    user-select: none;
+}
+
+.blg-node { cursor: pointer; }
+
+.blg-node circle {
+    transition: stroke .15s, stroke-width .15s, r .15s;
+}
+
+.blg-node:hover circle {
+    stroke: #fbbf24;
+    stroke-width: 3px;
+}
+
+.blg-node-label {
+    fill: #f3f4f6;
+    font-size: 10px;
+    text-anchor: middle;
+    pointer-events: none;
+    user-select: none;
+    text-shadow: 0 1px 3px #000;
+}
+
+.blg-node-dimmed circle { opacity: .2; }
+.blg-node-dimmed .blg-node-label { opacity: .2; }
+.blg-node-highlight circle { stroke: #fbbf24; stroke-width: 3px; }
+
+/* Zoom controls overlay */
+.blg-graph-controls {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.blg-graph-controls button {
+    width: 30px;
+    height: 30px;
+    border: 1px solid #4b5563;
+    border-radius: 4px;
+    background: #1f2937;
+    color: #e5e7eb;
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}
+.blg-graph-controls button:hover { background: #374151; }
+
+/* ── Inspector pane ───────────────────────────────────────── */
+
+.blg-inspector-pane {
+    width: 310px;
+    flex-shrink: 0;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    background: #fff;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.blg-inspector-default {
+    padding: 18px;
+    flex: 1;
+    overflow-y: auto;
+    color: #6b7280;
+    text-align: center;
+}
+
+.blg-inspector-loading {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #6b7280;
+}
+
+.blg-inspector-detail {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+}
+
+/* Inspector header */
+#blg-inspector-header {
+    padding: 12px 14px 8px;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.blg-insp-title {
+    margin: 0 0 6px;
+    padding-left: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #111827;
+    word-break: break-word;
+}
+
+.blg-insp-meta {
+    margin: 0;
+    font-size: 12px;
+    color: #6b7280;
+}
+
+/* Badges */
+.blg-badge {
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: 9px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #fff;
+    white-space: nowrap;
+}
+
+.blg-badge-sm {
+    font-size: 10px;
+    padding: 1px 5px;
+}
+
+.blg-verified-badge {
+    display: inline-block;
+    color: #16a34a;
+    font-weight: 700;
+    font-size: 13px;
+    margin-left: 4px;
+}
+
+/* Tabs */
+.blg-inspector-tabs {
+    display: flex;
+    border-bottom: 1px solid #e5e7eb;
+    background: #f9fafb;
+}
+
+.blg-tab-btn {
+    flex: 1;
+    padding: 7px 0;
+    border: none;
+    border-bottom: 2px solid transparent;
+    background: none;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 500;
+    color: #6b7280;
+    transition: color .15s, border-color .15s;
+}
+
+.blg-tab-btn.active {
+    color: #2563eb;
+    border-bottom-color: #2563eb;
+}
+
+.blg-tab-btn:hover:not(.active) { color: #374151; }
+
+.blg-tab-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 12px;
+}
+
+.blg-empty {
+    color: #9ca3af;
+    font-size: 12px;
+    text-align: center;
+    padding: 20px 0;
+}
+
+/* Neighbor rows */
+.blg-neighbor-row {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 4px;
+    border-bottom: 1px solid #f3f4f6;
+    cursor: pointer;
+    font-size: 12px;
+    transition: background .1s;
+    border-radius: 4px;
+}
+
+.blg-neighbor-row:hover { background: #f0f9ff; }
+
+.blg-neighbor-dir {
+    font-weight: 700;
+    font-size: 14px;
+    min-width: 16px;
+    text-align: center;
+}
+
+.blg-neighbor-dir.blg-neighbor-out { color: #2563eb; }
+.blg-neighbor-dir.blg-neighbor-in  { color: #7c3aed; }
+
+.blg-neighbor-rel {
+    color: #6b7280;
+    font-style: italic;
+    min-width: 80px;
+    flex-shrink: 0;
+}
+
+.blg-neighbor-label {
+    flex: 1;
+    color: #111827;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Chunk cards */
+.blg-chunk-card {
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin-bottom: 8px;
+    background: #f9fafb;
+}
+
+.blg-chunk-text {
+    font-size: 12px;
+    color: #374151;
+    line-height: 1.5;
+    margin: 0 0 4px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.blg-chunk-meta {
+    font-size: 11px;
+    color: #9ca3af;
+    margin: 0;
+}
+
+/* ── Legend ───────────────────────────────────────────────── */
+
+.blg-legend {
+    margin-top: 16px;
+    text-align: left;
+    font-size: 12px;
+    color: #374151;
+}
+
+.blg-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 0;
+}
+
+.blg-legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+/* ── D3 tooltip ───────────────────────────────────────────── */
+
+.blg-tooltip {
+    position: absolute;
+    background: rgba(17,24,39,.92);
+    color: #f9fafb;
+    font-size: 12px;
+    padding: 7px 11px;
+    border-radius: 6px;
+    pointer-events: none;
+    z-index: 9999;
+    max-width: 240px;
+    box-shadow: 0 4px 12px rgba(0,0,0,.3);
+    line-height: 1.5;
+}
+
+/* ── Responsive ───────────────────────────────────────────── */
+
+@media (max-width: 1100px) {
+    .blg-main-layout {
+        flex-direction: column;
+        height: auto;
+    }
+    .blg-inspector-pane {
+        width: 100%;
+        min-height: 240px;
+    }
+    .blg-graph-pane {
+        height: 400px;
+    }
+}

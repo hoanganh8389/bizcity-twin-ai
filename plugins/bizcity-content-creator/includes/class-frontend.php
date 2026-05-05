@@ -678,10 +678,22 @@ class BZCC_Frontend {
 			wp_send_json_error( [ 'message' => 'Không thể tạo file, vui lòng thử lại.' ] );
 		}
 
+		// ── Federation stamp (Rule 8g v2 — JSON map on kg_notebooks) ──
+		// notebook_id không có ở context AJAX form submit → default 0
+		// (federation no-op khi nb=0; signature giữ nguyên cho khi chain wire vào notebook).
+		$result_url = home_url( 'creator/result/' . $file_id . '/' );
+		if ( class_exists( 'BizCity_Artifact_Source_Federation' ) ) {
+			BizCity_Artifact_Source_Federation::stamp(
+				'bizcity-content-creator',
+				(int) $file_id,
+				0,
+				(string) ( $template->title . ' — ' . wp_date( 'd/m/Y H:i' ) ),
+				$result_url
+			);
+		}
+
 		// Increment template use count
 		BZCC_Template_Manager::increment_use_count( $template_id );
-
-		$result_url = home_url( 'creator/result/' . $file_id . '/' );
 
 		// ── Push notification to webchat if from iframe (session_id present) ──
 		if ( $session_id && class_exists( 'BizCity_WebChat_Database' ) ) {

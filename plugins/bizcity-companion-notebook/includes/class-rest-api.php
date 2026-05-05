@@ -36,6 +36,9 @@ class BCN_REST_API {
         register_rest_route( self::NS, '/projects/(?P<id>[a-f0-9-]+)/sources/upload', [
             [ 'methods' => 'POST', 'callback' => [ $this, 'upload_source' ], 'permission_callback' => [ $this, 'check_auth' ] ],
         ] );
+        register_rest_route( self::NS, '/projects/(?P<id>[a-f0-9-]+)/sources/upload-batch', [
+            [ 'methods' => 'POST', 'callback' => [ $this, 'upload_sources_batch' ], 'permission_callback' => [ $this, 'check_auth' ] ],
+        ] );
         register_rest_route( self::NS, '/sources/(?P<source_id>\d+)', [
             [ 'methods' => 'GET',    'callback' => [ $this, 'get_source' ],    'permission_callback' => [ $this, 'check_auth' ] ],
             [ 'methods' => 'DELETE', 'callback' => [ $this, 'delete_source' ], 'permission_callback' => [ $this, 'check_auth' ] ],
@@ -185,6 +188,49 @@ class BCN_REST_API {
         if ( is_wp_error( $id ) ) return $id;
         $source = ( new BCN_Sources() )->get( $id );
         return rest_ensure_response( $source );
+    }
+
+    /**
+     * Upload multiple sources at once.
+     * Returns array of successful uploads + errors.
+     */
+    public function upload_sources_batch( $req ) {
+        $files = $req->get_file_params();
+        if ( empty( $files ) ) {
+            return new WP_Error( 'no_files', 'No files uploaded', [ 'status' => 400 ] );
+        }
+
+        $results = [];
+        $sources = new BCN_Sources();
+
+        foreach ( $files as $field_name => $file ) {
+            // Skip if not a proper file upload
+            if ( ! is_array( $file ) || empty( $file['tmp_name'] ) ) {
+                continue;
+            }
+
+            $id = $sources->upload( $req['id'], $file );
+            if ( is_wp_error( $id ) ) {
+                $results[] = [
+                    'success'   => false,
+                    'filename'  => $file['name'] ?? 'unknown',
+                    'error'     => $id->get_error_message(),
+                ];
+            } else {
+                $source = $sources->get( $id );
+                $results[] = [
+                    'success'   => true,
+                    'filename'  => $file['name'] ?? 'unknown',
+                    'source'    => $source,
+                ];
+            }
+        }
+
+        return rest_ensure_response( [
+            'batch_results' => $results,
+            'total'         => count( $results ),
+            'successful'    => count( array_filter( $results, fn( $r ) => $r['success'] ) ),
+        ] );
     }
 
     public function get_source( $req ) {

@@ -36,7 +36,7 @@ class BizChat_Menu {
 	/**
 	 * Parent menu slug — the main Chat dashboard page.
 	 */
-	const PARENT_SLUG = 'bizcity-webchat-dashboard';
+	const PARENT_SLUG = 'bizcity-twinchat';
 
 	/**
 	 * Registered submenu items.

@@ -45,6 +45,7 @@ class BizCity_Knowledge_Admin_Menu {
         add_action('wp_ajax_bizcity_knowledge_add_website', [$this, 'ajax_add_website']);
         add_action('wp_ajax_bizcity_knowledge_delete_website', [$this, 'ajax_delete_website']);
         add_action('wp_ajax_bizcity_knowledge_process_website', [$this, 'ajax_process_website']);
+        add_action('wp_ajax_bizcity_knowledge_list_sources', [$this, 'ajax_list_sources']);
         add_action('wp_ajax_bizcity_knowledge_import_legacy_faq', [$this, 'ajax_import_legacy_faq']);
         add_action('wp_ajax_bizcity_knowledge_export_knowledge', [$this, 'ajax_export_knowledge']);
         add_action('wp_ajax_bizcity_knowledge_import_knowledge', [$this, 'ajax_import_knowledge']);
@@ -55,6 +56,12 @@ class BizCity_Knowledge_Admin_Menu {
         add_action('wp_ajax_bizcity_knowledge_delete_memory', [$this, 'ajax_delete_memory']);
         // Knowledge Fabric — scope promote
         add_action('wp_ajax_bizcity_knowledge_promote_source', [$this, 'ajax_promote_source']);
+        // Tavily search proxy — routes through BizCity_Search_Client (gateway + API key)
+        add_action('wp_ajax_bizcity_knowledge_tavily_search', [$this, 'ajax_tavily_search']);
+
+        // Sprint 0.18.A.3 — inline Quick FAQ auto-save (per-row).
+        add_action( 'wp_ajax_bizcity_knowledge_quick_faq_upsert', [ $this, 'ajax_quick_faq_upsert' ] );
+        add_action( 'wp_ajax_bizcity_knowledge_quick_faq_delete', [ $this, 'ajax_quick_faq_delete' ] );
     }
     
     /**
@@ -144,6 +151,35 @@ class BizCity_Knowledge_Admin_Menu {
             return;
         }
 
+        // ── Legal Knowledge Graph — React SPA (Sprint React-A) ────────────
+        if ( strpos( $hook, 'bizcity-knowledge-legal-graph' ) !== false ) {
+            wp_enqueue_style(
+                'bizcity-legal-knowledge-app',
+                plugins_url( 'assets/react/legal-knowledge.css', dirname( __FILE__ ) ),
+                [],
+                time()
+            );
+            wp_enqueue_script(
+                'bizcity-legal-knowledge-app',
+                plugins_url( 'assets/react/legal-knowledge.js', dirname( __FILE__ ) ),
+                [],
+                time(),
+                true
+            );
+            wp_localize_script( 'bizcity-legal-knowledge-app', 'bizCityLegal', [
+                'restBase'      => rest_url( 'bizcity/v1/legal-graph' ),
+                'restNonce'     => wp_create_nonce( 'wp_rest' ),
+                'ajaxUrl'       => admin_url( 'admin-ajax.php' ),
+                'ajaxNonce'     => wp_create_nonce( 'bizcity_knowledge' ),
+                'maturityNonce' => wp_create_nonce( 'bizcity_maturity_nonce' ),
+                'graphId'       => (int) get_site_option( 'bizcity_legal_graph_id', 0 ),
+                'characterId'   => class_exists( 'BizCity_Legal_Character' )
+                    ? BizCity_Legal_Character::instance()->get_id()
+                    : (int) get_site_option( 'bizcity_legal_character_id', 0 ),
+            ] );
+            return;
+        }
+
         // Load character-edit specific assets
         $is_character_edit = strpos($hook, 'bizcity-knowledge-character-edit') !== false
             || strpos($hook, 'knowledge-character-edit') !== false;
@@ -153,6 +189,13 @@ class BizCity_Knowledge_Admin_Menu {
                 'bizcity-knowledge-character-edit',
                 plugins_url('assets/css/character-edit.css', dirname(__FILE__)),
                 [],
+                BIZCITY_KNOWLEDGE_VERSION
+            );
+            // Sprint 0.18.A.2 — TwinChat-aligned skin (loaded last so it wins).
+            wp_enqueue_style(
+                'bizcity-knowledge-character-twinchat',
+                plugins_url('assets/css/character-twinchat.css', dirname(__FILE__)),
+                ['bizcity-knowledge-character-edit'],
                 BIZCITY_KNOWLEDGE_VERSION
             );
             wp_enqueue_script(
@@ -194,6 +237,16 @@ class BizCity_Knowledge_Admin_Menu {
             [],
             BIZCITY_KNOWLEDGE_VERSION
         );
+
+        // Sprint 0.18.A.2 — TwinChat skin also applies to the character LIST page (cards).
+        if ( strpos( $hook, 'bizcity-knowledge-characters' ) !== false ) {
+            wp_enqueue_style(
+                'bizcity-knowledge-character-twinchat',
+                plugins_url( 'assets/css/character-twinchat.css', dirname( __FILE__ ) ),
+                [ 'bizcity-knowledge-admin' ],
+                BIZCITY_KNOWLEDGE_VERSION
+            );
+        }
         
         wp_enqueue_script(
             'bizcity-knowledge-admin',
@@ -606,12 +659,17 @@ class BizCity_Knowledge_Admin_Menu {
      * Render Characters List Page
      */
     public function render_characters_page() {
+        // Hide WP admin chrome when embedded in TwinChat iframe.
+        if ( ! empty( $_GET['bizcity_iframe'] ) ) {
+            echo '<style>#adminmenumain,#adminmenuback,#wpadminbar,#wpfooter,.notice,.updated,.error{display:none!important}#wpcontent,#wpbody-content{margin-left:0!important;padding-top:0!important}</style>';
+        }
         $db = BizCity_Knowledge_Database::instance();
+        $iframe_suffix = ! empty( $_GET['bizcity_iframe'] ) ? '&bizcity_iframe=1' : '';
         $characters = $db->get_characters(['limit' => 100]);
         ?>
         <div class="wrap">
-            <h1 class="wp-heading-inline"><?php esc_html_e( 'AI Assistants', 'bizcity-twin-ai' ); ?></h1>
-            <a href="<?php echo admin_url('admin.php?page=bizcity-knowledge-character-edit'); ?>" class="page-title-action"><?php esc_html_e( 'Create New', 'bizcity-twin-ai' ); ?></a>
+            <h1 class="wp-heading-inline"><?php esc_html_e( 'Twin Guru', 'bizcity-twin-ai' ); ?></h1>
+            <a href="<?php echo admin_url('admin.php?page=bizcity-knowledge-character-edit' . $iframe_suffix); ?>" class="page-title-action"><?php esc_html_e( 'New Twin Guru', 'bizcity-twin-ai' ); ?></a>
             <button type="button" class="page-title-action bk-import-json-btn" id="import-character-json-btn" style="background:#3b82f6;color:white;border-color:#2563eb;">
                 <span class="dashicons dashicons-upload" style="color:white;"></span> Import JSON
             </button>
@@ -635,7 +693,7 @@ class BizCity_Knowledge_Admin_Menu {
                 </thead>
                 <tbody>
                     <?php if (empty($characters)): ?>
-                    <tr><td colspan="11"><?php esc_html_e( 'No assistants yet.', 'bizcity-twin-ai' ); ?> <a href="<?php echo admin_url('admin.php?page=bizcity-knowledge-character-edit'); ?>"><?php esc_html_e( 'Create new', 'bizcity-twin-ai' ); ?></a></td></tr>
+                    <tr><td colspan="11"><?php esc_html_e( 'No Twin Gurus yet.', 'bizcity-twin-ai' ); ?> <a href="<?php echo admin_url('admin.php?page=bizcity-knowledge-character-edit' . $iframe_suffix); ?>"><?php esc_html_e( 'Create new', 'bizcity-twin-ai' ); ?></a></td></tr>
                     <?php endif; ?>
                 </tbody>
             </table>
@@ -645,8 +703,8 @@ class BizCity_Knowledge_Admin_Menu {
             <div class="bk-empty-characters">
                 <div style="text-align:center;padding:60px 20px;color:#9ca3af;">
                     <div style="font-size:48px;margin-bottom:12px;">🤖</div>
-                    <p><?php esc_html_e( 'No assistants yet.', 'bizcity-twin-ai' ); ?></p>
-                    <a href="<?php echo admin_url('admin.php?page=bizcity-knowledge-character-edit'); ?>" class="button button-primary"><?php esc_html_e( 'Create New', 'bizcity-twin-ai' ); ?></a>
+                    <p><?php esc_html_e( 'No Twin Gurus yet.', 'bizcity-twin-ai' ); ?></p>
+                    <a href="<?php echo admin_url('admin.php?page=bizcity-knowledge-character-edit' . $iframe_suffix); ?>" class="button button-primary"><?php esc_html_e( 'New Twin Guru', 'bizcity-twin-ai' ); ?></a>
                 </div>
             </div>
             <?php else: ?>
@@ -679,9 +737,9 @@ class BizCity_Knowledge_Admin_Menu {
                     
                     <!-- Stats Row -->
                     <div class="bk-char-card-stats">
-                        <span title="<?php esc_attr_e( 'Knowledge sources', 'bizcity-twin-ai' ); ?>">📚 <?php echo count($sources); ?></span>
-                        <span title="Conversations">💬 <?php echo number_format($char->total_conversations); ?></span>
-                        <span title="Rating"><?php echo number_format($char->rating, 1); ?> ⭐</span>
+                        <span title="<?php esc_attr_e( 'Knowledge sources', 'bizcity-twin-ai' ); ?>"><?php echo count($sources); ?> sources</span>
+                        <span title="Conversations"><?php echo number_format($char->total_conversations); ?> chats</span>
+                        <span title="Rating"><?php echo number_format($char->rating, 1); ?> ★</span>
                     </div>
                     
                     <!-- Visibility Toggle + Shortcode -->
@@ -709,9 +767,9 @@ class BizCity_Knowledge_Admin_Menu {
                     
                     <!-- Actions -->
                     <div class="bk-char-card-actions">
-                        <a href="<?php echo admin_url('admin.php?page=bizcity-knowledge-character-edit&id=' . $char->id); ?>" class="button button-primary button-small">✏️ <?php esc_html_e( 'Edit', 'bizcity-twin-ai' ); ?></a>
-                        <a href="#" class="button button-small duplicate-character" data-id="<?php echo $char->id; ?>" data-name="<?php echo esc_attr($char->name); ?>">📋 <?php esc_html_e( 'Clone', 'bizcity-twin-ai' ); ?></a>
-                        <a href="#" class="button button-small bk-btn-danger delete-character" data-id="<?php echo $char->id; ?>">🗑 <?php esc_html_e( 'Delete', 'bizcity-twin-ai' ); ?></a>
+                        <a href="<?php echo admin_url('admin.php?page=bizcity-knowledge-character-edit&id=' . $char->id . $iframe_suffix); ?>" class="button button-small"><?php esc_html_e( 'Edit', 'bizcity-twin-ai' ); ?></a>
+                        <a href="#" class="button button-small duplicate-character" data-id="<?php echo $char->id; ?>" data-name="<?php echo esc_attr($char->name); ?>"><?php esc_html_e( 'Clone', 'bizcity-twin-ai' ); ?></a>
+                        <a href="#" class="button button-small bk-btn-danger delete-character" data-id="<?php echo $char->id; ?>"><?php esc_html_e( 'Delete', 'bizcity-twin-ai' ); ?></a>
                     </div>
                 </div>
                 <?php endforeach; ?>
@@ -720,11 +778,11 @@ class BizCity_Knowledge_Admin_Menu {
         </div>
         <style>
             /* ── Status Badge ── */
-            .status-badge { padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; white-space: nowrap; }
-            .status-draft { background: #e5e7eb; color: #374151; }
-            .status-active { background: #d1fae5; color: #065f46; }
-            .status-published { background: #dbeafe; color: #1e40af; }
-            .status-archived { background: #fef3c7; color: #92400e; }
+            .status-badge { padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; white-space: nowrap; background: #f3f4f6; color: #374151; }
+            .status-active { background: #f0fdf4; color: #166534; }
+            .status-published { background: #eff6ff; color: #1e40af; }
+            .status-draft { background: #f9fafb; color: #6b7280; }
+            .status-archived { background: #fefce8; color: #854d0e; }
             
             /* ── Card Grid ── */
             .bk-char-grid {
@@ -736,13 +794,12 @@ class BizCity_Knowledge_Admin_Menu {
             .bk-char-card {
                 background: #fff;
                 border: 1px solid #e5e7eb;
-                border-radius: 12px;
+                border-radius: 8px;
                 padding: 16px;
-                transition: box-shadow 0.2s, border-color 0.2s;
+                transition: box-shadow 0.15s;
             }
             .bk-char-card:hover {
-                border-color: #a5b4fc;
-                box-shadow: 0 4px 16px rgba(99,102,241,0.1);
+                box-shadow: 0 2px 8px rgba(0,0,0,0.08);
             }
             
             /* Card Header */
@@ -835,11 +892,9 @@ class BizCity_Knowledge_Admin_Menu {
             }
             .bk-btn-danger {
                 color: #dc2626 !important;
-                border-color: #fca5a5 !important;
             }
             .bk-btn-danger:hover {
                 background: #fef2f2 !important;
-                border-color: #f87171 !important;
             }
             
             /* Shortcode Cell */
@@ -855,7 +910,7 @@ class BizCity_Knowledge_Admin_Menu {
                 border-radius: 4px;
                 font-family: 'Courier New', monospace;
                 font-size: 11px;
-                color: #1e40af;
+                color: #555;
                 border: 1px solid #e0e0e0;
                 white-space: nowrap;
                 overflow: hidden;
@@ -867,20 +922,10 @@ class BizCity_Knowledge_Admin_Menu {
                 height: 24px !important;
                 min-height: 24px !important;
                 line-height: 1 !important;
-                border: 1px solid #0ea5e9 !important;
-                background: #e0f2fe !important;
-                color: #0369a1 !important;
                 flex-shrink: 0;
             }
-            .bk-copy-shortcode:hover {
-                background: #0ea5e9 !important;
-                color: #fff !important;
-                border-color: #0284c7 !important;
-            }
             .bk-copy-shortcode.copied {
-                background: #10b981 !important;
-                border-color: #059669 !important;
-                color: #fff !important;
+                color: #059669 !important;
             }
             
             /* Toggle Switch */
@@ -1117,7 +1162,7 @@ class BizCity_Knowledge_Admin_Menu {
                         <?php endif; ?>
                     </div>
                     <div class="bk-header-info">
-                        <h1><?php echo $is_new ? esc_html__( 'Create New AI Assistant', 'bizcity-twin-ai' ) : esc_html($character->name); ?></h1>
+                        <h1><?php echo $is_new ? esc_html__( 'New Twin Guru', 'bizcity-twin-ai' ) : esc_html($character->name); ?></h1>
                         <?php if (!$is_new): ?>
                             <div class="bk-character-meta">
                                 <span class="bk-status bk-status-<?php echo esc_attr($character->status); ?>">
@@ -2659,6 +2704,44 @@ class BizCity_Knowledge_Admin_Menu {
     }
 
     /**
+     * AJAX: Tavily web search — proxies through BizCity_Search_Client (gateway, no local Tavily key needed).
+     * Mirrors BCN_Tavily_Client pattern: uses bizcity_llm_api_key → search/router/v1/query on gateway.
+     */
+    public function ajax_tavily_search() {
+        check_ajax_referer( 'bizcity_knowledge', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( array( 'message' => 'Permission denied' ) );
+        }
+
+        $query       = sanitize_text_field( isset( $_POST['query'] ) ? $_POST['query'] : '' );
+        $max_results = intval( isset( $_POST['max_results'] ) ? $_POST['max_results'] : 10 );
+
+        if ( empty( $query ) ) {
+            wp_send_json_error( array( 'message' => 'Missing query' ) );
+        }
+
+        if ( ! class_exists( 'BizCity_Search_Client' ) ) {
+            wp_send_json_error( array( 'message' => 'BizCity_Search_Client không khả dụng' ) );
+        }
+
+        $client = BizCity_Search_Client::instance();
+        if ( ! $client->is_ready() ) {
+            wp_send_json_error( array( 'message' => 'BizCity API key chưa được cấu hình. Vào BizCity > Settings để nhập API key.' ) );
+        }
+
+        $results = $client->search( $query, $max_results );
+
+        if ( is_wp_error( $results ) ) {
+            wp_send_json_error( array( 'message' => $results->get_error_message() ) );
+        }
+
+        wp_send_json_success( array(
+            'results' => $results,
+            'answer'  => '',
+        ) );
+    }
+
+    /**
      * Render Settings Page
      */
     public function render_settings_page() {
@@ -2731,7 +2814,7 @@ class BizCity_Knowledge_Admin_Menu {
                                 <span class="dashicons dashicons-visibility"></span>
                             </button>
                             <p class="description">
-                                <?php esc_html_e( 'Get API key at', 'bizcity-twin-ai' ); ?> <a href="https://openrouter.ai/keys" target="_blank">OpenRouter Keys</a>.
+                                <?php esc_html_e( 'Đăng ký BizCity API key tại', 'bizcity-twin-ai' ); ?> <a href="https://bizcity.vn/api-docs/" target="_blank">BizCity API Docs</a>.
                                 <?php if (!empty($openrouter_key)): ?>
                                     <span style="color:green;">✓ <?php esc_html_e( 'Configured', 'bizcity-twin-ai' ); ?></span>
                                 <?php else: ?>
@@ -2886,10 +2969,61 @@ class BizCity_Knowledge_Admin_Menu {
             'creativity_level' => floatval($data['creativity_level'] ?? 0.7),
             'status' => sanitize_text_field($data['status'] ?? 'draft'),
         ];
+
+        // Phase 0.18 — optional max_tokens override (NULL = system default).
+        // Empty string from form → store NULL so the LLM client falls back
+        // to its built-in default (3000) via `?? 3000` in chat_with_character().
+        if ( array_key_exists( 'max_tokens', $data ) ) {
+            $raw_max = trim( (string) $data['max_tokens'] );
+            if ( $raw_max === '' ) {
+                $char_data['max_tokens'] = null;
+            } else {
+                $mt = (int) $raw_max;
+                if ( $mt < 1 )      { $char_data['max_tokens'] = null; }
+                elseif ( $mt > 32000 ) { $char_data['max_tokens'] = 32000; }
+                else                { $char_data['max_tokens'] = $mt; }
+            }
+        }
         
         // Handle skills as JSON array
         $skills = isset($data['skills']) && is_array($data['skills']) ? $data['skills'] : [];
         $char_data['capabilities'] = json_encode($skills, JSON_UNESCAPED_UNICODE);
+
+        // Wave 0.18.2 — Persona Provider binding (settings.provider_id).
+        // Merge into existing settings JSON so we don't clobber unrelated keys.
+        $existing_settings = [];
+        $current_id        = intval( $data['id'] ?? 0 );
+        if ( $current_id > 0 ) {
+            $existing_char = $db->get_character( $current_id );
+            $raw_settings  = is_object( $existing_char ) ? ( $existing_char->settings ?? '' )
+                : ( is_array( $existing_char ) ? ( $existing_char['settings'] ?? '' ) : '' );
+            if ( is_string( $raw_settings ) && $raw_settings !== '' ) {
+                $decoded = json_decode( $raw_settings, true );
+                if ( is_array( $decoded ) ) {
+                    $existing_settings = $decoded;
+                }
+            } elseif ( is_array( $raw_settings ) ) {
+                $existing_settings = $raw_settings;
+            }
+        }
+        if ( array_key_exists( 'persona_provider_id', $data ) ) {
+            $provider_id = sanitize_key( (string) $data['persona_provider_id'] );
+            // Validate against registry when available; allow empty (= unbind).
+            if ( $provider_id !== '' && class_exists( 'BizCity_Persona_Registry' ) ) {
+                if ( ! BizCity_Persona_Registry::instance()->get( $provider_id ) ) {
+                    // Unknown provider — keep value but log so admin can see it on next reload.
+                    $existing_settings['provider_id_pending'] = $provider_id;
+                }
+            }
+            if ( $provider_id === '' ) {
+                unset( $existing_settings['provider_id'] );
+            } else {
+                $existing_settings['provider_id'] = $provider_id;
+            }
+        }
+        if ( ! empty( $existing_settings ) || array_key_exists( 'persona_provider_id', $data ) ) {
+            $char_data['settings'] = json_encode( $existing_settings, JSON_UNESCAPED_UNICODE );
+        }
         
         // Handle greeting messages
         if (!empty($data['greeting_messages'])) {
@@ -2914,84 +3048,170 @@ class BizCity_Knowledge_Admin_Menu {
             wp_send_json_error(['message' => $result->get_error_message()]);
         }
         
-        // Save Quick Knowledge
-        if (!empty($data['quick_knowledge_data'])) {
-            $quick_knowledge = json_decode(stripslashes($data['quick_knowledge_data']), true);
-            if (is_array($quick_knowledge)) {
-                $this->save_quick_knowledge($id, $quick_knowledge);
+        // Save Quick Knowledge — Sprint 0.18.A.1: capture result for visibility/diagnostics
+        $quick_knowledge_result = null;
+        if ( ! empty( $data['quick_knowledge_data'] ) ) {
+            $quick_knowledge = json_decode( stripslashes( $data['quick_knowledge_data'] ), true );
+            if ( is_array( $quick_knowledge ) ) {
+                $quick_knowledge_result = $this->save_quick_knowledge( $id, $quick_knowledge );
+            } else {
+                $quick_knowledge_result = [
+                    'created' => [],
+                    'updated' => [],
+                    'deleted' => [],
+                    'errors'  => [ 'quick_knowledge_data is not a JSON array' ],
+                    'rows'    => [],
+                ];
             }
         }
-        
+
         // Save FAQs
-        if (!empty($data['faqs_data'])) {
-            $faqs = json_decode(stripslashes($data['faqs_data']), true);
-            if (is_array($faqs)) {
-                $this->save_faqs($id, $faqs);
+        $faqs_result = null;
+        if ( ! empty( $data['faqs_data'] ) ) {
+            $faqs = json_decode( stripslashes( $data['faqs_data'] ), true );
+            if ( is_array( $faqs ) ) {
+                $faqs_result = $this->save_faqs( $id, $faqs );
             }
         }
-        
-        wp_send_json_success(['id' => $id]);
+
+        wp_send_json_success( [
+            'id'              => $id,
+            'quick_knowledge' => $quick_knowledge_result,
+            'faqs'            => $faqs_result,
+        ] );
     }
     
     /**
-     * Save quick knowledge entries
+     * Save quick knowledge entries.
+     *
+     * Sprint 0.18.A.1: now returns a structured result so callers (and the FE)
+     * can see exactly which rows were created / updated / deleted, fix the
+     * stale `data-id="0"` issue in the editor, and surface DB errors that
+     * previously failed silently.
+     *
+     * @param int   $character_id Character owning the FAQs.
+     * @param array $entries      Posted rows: [{id, title, content}, ...].
+     *
+     * @return array{
+     *   created: int[],
+     *   updated: int[],
+     *   deleted: int[],
+     *   errors:  string[],
+     *   rows:    array<int,array{client_index:int,id:int,title:string,op:string}>
+     * }
      */
-    private function save_quick_knowledge($character_id, $entries) {
+    private function save_quick_knowledge( $character_id, $entries ) {
         global $wpdb;
         $db = BizCity_Knowledge_Database::instance();
 
+        $character_id = (int) $character_id;
         $submitted_ids = [];
+        $result = [
+            'created' => [],
+            'updated' => [],
+            'deleted' => [],
+            'errors'  => [],
+            'rows'    => [],
+        ];
 
-        foreach ($entries as $entry) {
-            $source_id = intval($entry['id'] ?? 0);
-            $content = json_encode([
-                'title' => sanitize_text_field($entry['title'] ?? ''),
-                'content' => sanitize_textarea_field($entry['content'] ?? '')
-            ], JSON_UNESCAPED_UNICODE);
-            
-            if ($source_id > 0) {
-                // Update existing
-                $wpdb->update(
-                    $wpdb->prefix . 'bizcity_knowledge_sources',
+        if ( $character_id <= 0 ) {
+            $result['errors'][] = 'invalid_character_id';
+            return $result;
+        }
+
+        $table = $wpdb->prefix . 'bizcity_knowledge_sources';
+
+        foreach ( $entries as $client_index => $entry ) {
+            $title   = sanitize_text_field( $entry['title'] ?? '' );
+            $body    = sanitize_textarea_field( $entry['content'] ?? '' );
+
+            // Skip fully empty rows so users can leave blank trailing rows in the editor.
+            if ( $title === '' && $body === '' ) {
+                continue;
+            }
+
+            $source_id = intval( $entry['id'] ?? 0 );
+            $content   = wp_json_encode( [
+                'title'   => $title,
+                'content' => $body,
+            ], JSON_UNESCAPED_UNICODE );
+
+            if ( $source_id > 0 ) {
+                $updated = $wpdb->update(
+                    $table,
                     [
-                        'content' => $content,
-                        'content_hash' => md5($content),
-                        'status' => 'ready'
+                        'content'      => $content,
+                        'content_hash' => md5( $content ),
+                        'source_name'  => $title !== '' ? $title : 'Quick Knowledge',
+                        'status'       => 'ready',
                     ],
-                    ['id' => $source_id]
+                    [ 'id' => $source_id, 'character_id' => $character_id ],
+                    [ '%s', '%s', '%s', '%s' ],
+                    [ '%d', '%d' ]
                 );
-                $submitted_ids[] = $source_id;
-            } else {
-                // Create new
-                $new_id = $db->create_knowledge_source([
-                    'character_id' => $character_id,
-                    'source_type' => 'quick_faq',
-                    'source_name' => $entry['title'] ?? 'Quick Knowledge',
-                    'content' => $content,
-                    'content_hash' => md5($content),
-                    'status' => 'ready'
-                ]);
-                if ($new_id) {
-                    $submitted_ids[] = intval($new_id);
+                if ( false === $updated ) {
+                    $result['errors'][] = sprintf(
+                        'update_failed id=%d: %s',
+                        $source_id,
+                        $wpdb->last_error ?: 'unknown'
+                    );
+                    continue;
                 }
+                $submitted_ids[]    = $source_id;
+                $result['updated'][] = $source_id;
+                $result['rows'][]   = [
+                    'client_index' => (int) $client_index,
+                    'id'           => $source_id,
+                    'title'        => $title,
+                    'op'           => 'updated',
+                ];
+            } else {
+                $new_id = $db->create_knowledge_source( [
+                    'character_id' => $character_id,
+                    'source_type'  => 'quick_faq',
+                    'source_name'  => $title !== '' ? $title : 'Quick Knowledge',
+                    'content'      => $content,
+                    'content_hash' => md5( $content ),
+                    'status'       => 'ready',
+                ] );
+                if ( is_wp_error( $new_id ) ) {
+                    $result['errors'][] = 'create_failed: ' . $new_id->get_error_message();
+                    continue;
+                }
+                if ( ! $new_id ) {
+                    $result['errors'][] = 'create_failed: ' . ( $wpdb->last_error ?: 'no insert_id' );
+                    continue;
+                }
+                $submitted_ids[]    = (int) $new_id;
+                $result['created'][] = (int) $new_id;
+                $result['rows'][]   = [
+                    'client_index' => (int) $client_index,
+                    'id'           => (int) $new_id,
+                    'title'        => $title,
+                    'op'           => 'created',
+                ];
             }
         }
 
-        // Delete entries that were removed from the UI
-        $existing_ids = $wpdb->get_col($wpdb->prepare(
-            "SELECT id FROM {$wpdb->prefix}bizcity_knowledge_sources WHERE character_id = %d AND source_type = 'quick_faq'",
+        // Delete entries that were removed from the UI.
+        $existing_ids = $wpdb->get_col( $wpdb->prepare(
+            "SELECT id FROM {$table} WHERE character_id = %d AND source_type = 'quick_faq'",
             $character_id
-        ));
+        ) );
 
-        foreach ($existing_ids as $existing_id) {
-            if (!in_array(intval($existing_id), $submitted_ids)) {
+        foreach ( $existing_ids as $existing_id ) {
+            $existing_id = (int) $existing_id;
+            if ( ! in_array( $existing_id, $submitted_ids, true ) ) {
                 $wpdb->delete(
-                    $wpdb->prefix . 'bizcity_knowledge_sources',
-                    ['id' => intval($existing_id)],
-                    ['%d']
+                    $table,
+                    [ 'id' => $existing_id ],
+                    [ '%d' ]
                 );
+                $result['deleted'][] = $existing_id;
             }
         }
+
+        return $result;
     }
     
     /**
@@ -3038,17 +3258,122 @@ class BizCity_Knowledge_Admin_Menu {
      */
     public function ajax_delete_character() {
         check_ajax_referer('bizcity_knowledge', 'nonce');
-        
+
         if (!current_user_can('manage_options')) {
             wp_send_json_error(['message' => 'Permission denied']);
         }
-        
-        $id = intval($_POST['id']);
-        
+
+        $id = intval( $_POST['id'] ?? 0 );
+        if ( $id <= 0 ) {
+            wp_send_json_error( [ 'message' => 'Invalid character ID' ] );
+        }
+
         $db = BizCity_Knowledge_Database::instance();
-        $db->delete_character($id);
-        
+        $db->delete_character( $id );
+
         wp_send_json_success();
+    }
+
+    /**
+     * AJAX: Sprint 0.18.A.3 — upsert ONE inline Quick FAQ row.
+     *
+     * Accepts: character_id, source_id (0 for create), title, content.
+     * Returns: { id, op: 'created'|'updated' }.
+     */
+    public function ajax_quick_faq_upsert() {
+        check_ajax_referer( 'bizcity_knowledge', 'nonce' );
+
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( [ 'message' => 'Permission denied' ], 403 );
+        }
+
+        $character_id = intval( $_POST['character_id'] ?? 0 );
+        $source_id    = intval( $_POST['source_id']    ?? 0 );
+        $title        = sanitize_text_field( wp_unslash( $_POST['title']   ?? '' ) );
+        $body         = sanitize_textarea_field( wp_unslash( $_POST['content'] ?? '' ) );
+
+        if ( $character_id <= 0 ) {
+            wp_send_json_error( [ 'message' => 'invalid_character_id' ] );
+        }
+        if ( $title === '' && $body === '' ) {
+            wp_send_json_error( [ 'message' => 'empty_row' ] );
+        }
+
+        global $wpdb;
+        $table   = $wpdb->prefix . 'bizcity_knowledge_sources';
+        $content = wp_json_encode( [
+            'title'   => $title,
+            'content' => $body,
+        ], JSON_UNESCAPED_UNICODE );
+
+        if ( $source_id > 0 ) {
+            $updated = $wpdb->update(
+                $table,
+                [
+                    'content'      => $content,
+                    'content_hash' => md5( $content ),
+                    'source_name'  => $title !== '' ? $title : 'Quick Knowledge',
+                    'status'       => 'ready',
+                ],
+                [ 'id' => $source_id, 'character_id' => $character_id ],
+                [ '%s', '%s', '%s', '%s' ],
+                [ '%d', '%d' ]
+            );
+            if ( false === $updated ) {
+                wp_send_json_error( [ 'message' => $wpdb->last_error ?: 'update_failed' ] );
+            }
+            wp_send_json_success( [ 'id' => $source_id, 'op' => 'updated' ] );
+        }
+
+        $db     = BizCity_Knowledge_Database::instance();
+        $new_id = $db->create_knowledge_source( [
+            'character_id' => $character_id,
+            'source_type'  => 'quick_faq',
+            'source_name'  => $title !== '' ? $title : 'Quick Knowledge',
+            'content'      => $content,
+            'content_hash' => md5( $content ),
+            'status'       => 'ready',
+        ] );
+
+        if ( is_wp_error( $new_id ) ) {
+            wp_send_json_error( [ 'message' => $new_id->get_error_message() ] );
+        }
+        if ( ! $new_id ) {
+            wp_send_json_error( [ 'message' => $wpdb->last_error ?: 'create_failed' ] );
+        }
+
+        wp_send_json_success( [ 'id' => (int) $new_id, 'op' => 'created' ] );
+    }
+
+    /**
+     * AJAX: Sprint 0.18.A.3 — delete ONE inline Quick FAQ row.
+     */
+    public function ajax_quick_faq_delete() {
+        check_ajax_referer( 'bizcity_knowledge', 'nonce' );
+
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( [ 'message' => 'Permission denied' ], 403 );
+        }
+
+        $character_id = intval( $_POST['character_id'] ?? 0 );
+        $source_id    = intval( $_POST['source_id']    ?? 0 );
+
+        if ( $character_id <= 0 || $source_id <= 0 ) {
+            wp_send_json_error( [ 'message' => 'invalid_args' ] );
+        }
+
+        global $wpdb;
+        $deleted = $wpdb->delete(
+            $wpdb->prefix . 'bizcity_knowledge_sources',
+            [ 'id' => $source_id, 'character_id' => $character_id, 'source_type' => 'quick_faq' ],
+            [ '%d', '%d', '%s' ]
+        );
+
+        if ( false === $deleted ) {
+            wp_send_json_error( [ 'message' => $wpdb->last_error ?: 'delete_failed' ] );
+        }
+
+        wp_send_json_success( [ 'id' => $source_id, 'rows' => (int) $deleted ] );
     }
     
     /**
@@ -3096,32 +3421,21 @@ class BizCity_Knowledge_Admin_Menu {
         if (!current_user_can('manage_options')) {
             wp_send_json_error(['message' => 'Permission denied']);
         }
-        
-        $api_key = get_option('bizcity_knowledge_openrouter_api_key', '');
-        
-        if (empty($api_key)) {
-            wp_send_json_error(['message' => 'API key not configured']);
+
+        // Gateway-only: route through BizCity_LLM_Client (R-GW-1).
+        if ( ! class_exists( 'BizCity_LLM_Client' ) ) {
+            wp_send_json_error(['message' => 'BizCity_LLM_Client not loaded — gateway client missing.']);
         }
-        
-        $response = wp_remote_get('https://openrouter.ai/api/v1/models', [
-            'headers' => [
-                'Authorization' => 'Bearer ' . $api_key,
-                'HTTP-Referer' => home_url(),
-                'X-Title' => get_bloginfo('name')
-            ],
-            'timeout' => 15
-        ]);
-        
-        if (is_wp_error($response)) {
-            wp_send_json_error(['message' => $response->get_error_message()]);
+        $client = BizCity_LLM_Client::instance();
+        if ( ! $client->is_ready() ) {
+            wp_send_json_error(['message' => 'BizCity API key chưa cấu hình (gateway).']);
         }
-        
-        $body = json_decode(wp_remote_retrieve_body($response), true);
-        
-        if (isset($body['data']) && is_array($body['data'])) {
-            wp_send_json_success(['models' => count($body['data'])]);
+
+        $models = $client->get_available_models();
+        if ( ! empty( $models ) ) {
+            wp_send_json_success(['models' => count( $models )]);
         } else {
-            wp_send_json_error(['message' => 'Invalid response from OpenRouter']);
+            wp_send_json_error(['message' => 'Invalid response from gateway']);
         }
     }
     
@@ -3134,13 +3448,16 @@ class BizCity_Knowledge_Admin_Menu {
         if (!current_user_can('manage_options')) {
             wp_send_json_error(['message' => 'Permission denied']);
         }
-        
-        $api_key = get_option('bizcity_knowledge_openrouter_api_key', '');
-        
-        if (empty($api_key)) {
-            wp_send_json_error(['message' => 'API key not configured']);
+
+        // Gateway-only: route through BizCity_LLM_Client (R-GW-1).
+        if ( ! class_exists( 'BizCity_LLM_Client' ) ) {
+            wp_send_json_error(['message' => 'BizCity_LLM_Client not loaded — gateway client missing.']);
         }
-        
+        $client = BizCity_LLM_Client::instance();
+        if ( ! $client->is_ready() ) {
+            wp_send_json_error(['message' => 'BizCity API key chưa cấu hình (gateway).']);
+        }
+
         // Check cache first
         $cache_key = 'bizcity_knowledge_openrouter_models';
         $cached = get_transient($cache_key);
@@ -3148,41 +3465,26 @@ class BizCity_Knowledge_Admin_Menu {
         if ($cached !== false) {
             wp_send_json_success(['models' => $cached]);
         }
-        
-        $response = wp_remote_get('https://openrouter.ai/api/v1/models', [
-            'headers' => [
-                'Authorization' => 'Bearer ' . $api_key,
-                'HTTP-Referer' => home_url(),
-                'X-Title' => get_bloginfo('name')
-            ],
-            'timeout' => 15
-        ]);
-        
-        if (is_wp_error($response)) {
-            wp_send_json_error(['message' => $response->get_error_message()]);
-        }
-        
-        $body = json_decode(wp_remote_retrieve_body($response), true);
-        
-        if (isset($body['data']) && is_array($body['data'])) {
+
+        $raw_models = $client->get_available_models();
+        if ( ! empty( $raw_models ) ) {
             $models = [];
-            
-            foreach ($body['data'] as $model) {
+            foreach ( $raw_models as $model ) {
                 $models[] = [
-                    'id' => $model['id'] ?? '',
-                    'name' => $model['name'] ?? $model['id'],
-                    'description' => $model['description'] ?? '',
+                    'id'             => $model['id'] ?? '',
+                    'name'           => $model['name'] ?? ( $model['id'] ?? '' ),
+                    'description'    => $model['description'] ?? '',
                     'context_length' => $model['context_length'] ?? 0,
-                    'pricing' => [
-                        'prompt' => $model['pricing']['prompt'] ?? 0,
-                        'completion' => $model['pricing']['completion'] ?? 0
-                    ]
+                    'pricing'        => [
+                        'prompt'     => $model['pricing']['prompt'] ?? 0,
+                        'completion' => $model['pricing']['completion'] ?? 0,
+                    ],
                 ];
             }
-            
+
             // Cache for 1 hour
             set_transient($cache_key, $models, HOUR_IN_SECONDS);
-            
+
             wp_send_json_success(['models' => $models]);
         } else {
             wp_send_json_error(['message' => 'Invalid response from OpenRouter']);
@@ -3200,9 +3502,10 @@ class BizCity_Knowledge_Admin_Menu {
         }
         
         $character_id = intval($_POST['character_id'] ?? 0);
-        $message = sanitize_textarea_field($_POST['message'] ?? '');
-        $history = json_decode(stripslashes($_POST['history'] ?? '[]'), true);
-        $images = json_decode(stripslashes($_POST['images'] ?? '[]'), true);
+        $message      = sanitize_textarea_field($_POST['message'] ?? '');
+        $history      = json_decode(stripslashes($_POST['history'] ?? '[]'), true);
+        $images       = json_decode(stripslashes($_POST['images'] ?? '[]'), true);
+        $session_id   = sanitize_text_field($_POST['session_id'] ?? '');
         
         // Allow empty message if images are provided
         if (!$character_id || (!$message && empty($images))) {
@@ -3214,6 +3517,43 @@ class BizCity_Knowledge_Admin_Menu {
         
         if (!$character) {
             wp_send_json_error(['message' => 'Character not found']);
+        }
+
+        // Rule W-1: Session management (PHASE-0-RULES-WEBCHAT)
+        $wc_db = class_exists('BizCity_WebChat_Database') ? BizCity_WebChat_Database::instance() : null;
+        if ($wc_db) {
+            $existing_session = $session_id ? $wc_db->get_session_v3_by_session_id($session_id) : null;
+            if (!$existing_session) {
+                $user      = wp_get_current_user();
+                $sess_data = $wc_db->create_session_v3(
+                    get_current_user_id(),
+                    $user->display_name ?: $user->user_login,
+                    'LEGAL-ADMIN',
+                    '',
+                    ['character_id' => $character_id]
+                );
+                $session_id = $sess_data['session_id'];
+            } else {
+                $session_id = $existing_session->session_id;
+            }
+        } elseif (!$session_id) {
+            $session_id = 'legal_' . get_current_blog_id() . '_' . get_current_user_id();
+        }
+
+        // Rule W-2: Log user message
+        if ($wc_db) {
+            $user_msg_id = uniqid('legal_u_');
+            $wc_db->log_message([
+                'session_id'    => $session_id,
+                'user_id'       => get_current_user_id(),
+                'message_id'    => $user_msg_id,
+                'message_text'  => $message ?: '[Image]',
+                'message_from'  => 'user',
+                'message_type'  => !empty($images) ? 'image' : 'text',
+                'plugin_slug'   => 'legal-knowledge',
+                'platform_type' => 'LEGAL-ADMIN',
+                'attachments'   => $images ?: [],
+            ]);
         }
         
         // Get Context API instance
@@ -3336,14 +3676,35 @@ class BizCity_Knowledge_Admin_Menu {
             ];
         }
         
-        // Check if character has custom model (OpenRouter) or use default OpenAI
-        if (!empty($character->model_id)) {
-            // Use OpenRouter API
-            $this->chat_with_openrouter($character, $messages, $vision_used);
-        } else {
-            // Use default OpenAI API
-            $this->chat_with_openai($messages, $character, $vision_used);
+        // Rule W-5: Route through BizCity_LLM_Client (not direct API calls)
+        // Rule W-2: Capture response to log bot reply before returning
+        $llm_result = $this->get_ai_response_for_chat($character, $messages, $vision_used);
+
+        // Rule W-2: Log bot reply
+        if ($wc_db && !empty($llm_result['message'])) {
+            $wc_db->log_message([
+                'session_id'    => $session_id,
+                'user_id'       => 0,
+                'message_id'    => uniqid('legal_b_'),
+                'message_text'  => $llm_result['message'],
+                'message_from'  => 'bot',
+                'message_type'  => 'text',
+                'plugin_slug'   => 'legal-knowledge',
+                'platform_type' => 'LEGAL-ADMIN',
+                'input_tokens'  => $llm_result['usage']['prompt_tokens'] ?? 0,
+                'output_tokens' => $llm_result['usage']['completion_tokens'] ?? 0,
+            ]);
         }
+
+        wp_send_json_success([
+            'reply'       => $llm_result['message'] ?? '',
+            'message'     => $llm_result['message'] ?? '',
+            'session_id'  => $session_id,
+            'model'       => $llm_result['model'] ?? '',
+            'usage'       => $llm_result['usage'] ?? [],
+            'provider'    => $llm_result['provider'] ?? 'gateway',
+            'vision_used' => $vision_used,
+        ]);
     }
     
     /**
@@ -3423,107 +3784,108 @@ class BizCity_Knowledge_Admin_Menu {
     }
 
     /**
-     * Chat using OpenRouter API
+     * Get AI response and return as array (for session-aware logging).
+     * Routes through BizCity_LLM_Client (→ bizcity-llm-router @ bizcity.vn).
+     * Rule W-5: PHASE-0-RULES-WEBCHAT
+     *
+     * @param object $character  Character object
+     * @param array  $messages   Chat messages
+     * @param bool   $vision_used Whether vision was used
+     * @return array  Keys: message, model, usage, provider, success, error
      */
+    private function get_ai_response_for_chat($character, $messages, $vision_used = false) {
+        if ( ! class_exists( 'BizCity_LLM_Client' ) ) {
+            return [ 'success' => false, 'message' => '', 'error' => 'BizCity_LLM_Client not available.' ];
+        }
+
+        $llm = BizCity_LLM_Client::instance();
+
+        if ( ! $llm->is_ready() ) {
+            return [ 'success' => false, 'message' => '', 'error' => 'LLM gateway not configured.' ];
+        }
+
+        $settings    = json_decode( $character->settings ?? '{}', true );
+        $temperature = isset( $settings['temperature'] )
+            ? floatval( $settings['temperature'] )
+            : floatval( $character->creativity_level ?? 0.7 );
+        $max_tokens  = isset( $settings['max_tokens'] )
+            ? intval( $settings['max_tokens'] )
+            : 1000;
+
+        $result = $llm->chat( $messages, [
+            'model'       => $character->model_id ?: $llm->get_model( 'chat' ),
+            'purpose'     => 'chat',
+            'temperature' => $temperature,
+            'max_tokens'  => $max_tokens,
+        ] );
+
+        if ( ! $result['success'] ) {
+            return [ 'success' => false, 'message' => '', 'error' => $result['error'] ?? 'LLM request failed' ];
+        }
+
+        return [
+            'success'     => true,
+            'message'     => $result['message'],
+            'model'       => $result['model'] ?? $character->model_id,
+            'usage'       => $result['usage'] ?? [],
+            'provider'    => $result['provider'] ?? 'gateway',
+            'vision_used' => $vision_used,
+        ];
+    }
+
     /**
-     * Chat using OpenRouter API
-     * 
-     * @param object $character Character object
-     * @param array $messages Chat messages
-     * @param bool $vision_used Whether vision was used
+     * @deprecated Use get_ai_response_for_chat() — kept for backward compat with chat_with_openrouter callers.
      */
     private function chat_with_openrouter($character, $messages, $vision_used = false) {
-        $api_key = get_option('bizcity_knowledge_openrouter_api_key', '');
-        
-        if (empty($api_key)) {
-            wp_send_json_error(['message' => 'OpenRouter API key not configured']);
+        $result = $this->get_ai_response_for_chat($character, $messages, $vision_used);
+        if ( ! $result['success'] ) {
+            wp_send_json_error( [ 'message' => $result['error'] ?? 'LLM request failed' ] );
+            return;
         }
-        
-        $response = wp_remote_post('https://openrouter.ai/api/v1/chat/completions', [
-            'headers' => [
-                'Authorization' => 'Bearer ' . $api_key,
-                'HTTP-Referer' => home_url(),
-                'X-Title' => get_bloginfo('name'),
-                'Content-Type' => 'application/json'
-            ],
-            'body' => json_encode([
-                'model' => $character->model_id,
-                'messages' => $messages,
-                'temperature' => floatval($character->creativity_level ?? 0.7),
-                'max_tokens' => 1000
-            ]),
-            'timeout' => 60 // Longer timeout for vision requests
-        ]);
-        
-        if (is_wp_error($response)) {
-            wp_send_json_error(['message' => $response->get_error_message()]);
-        }
-        
-        $body = json_decode(wp_remote_retrieve_body($response), true);
-        
-        if (isset($body['choices'][0]['message']['content'])) {
-            wp_send_json_success([
-                'message' => $body['choices'][0]['message']['content'],
-                'model' => $body['model'] ?? $character->model_id,
-                'usage' => $body['usage'] ?? [],
-                'provider' => 'openrouter',
-                'vision_used' => $vision_used
-            ]);
-        } else {
-            $error_msg = $body['error']['message'] ?? 'OpenRouter API error';
-            wp_send_json_error(['message' => $error_msg]);
-        }
+        wp_send_json_success( [
+            'message'     => $result['message'],
+            'model'       => $result['model'] ?? '',
+            'usage'       => $result['usage'] ?? [],
+            'provider'    => $result['provider'] ?? 'gateway',
+            'vision_used' => $vision_used,
+        ] );
     }
     
     /**
-     * Chat using default OpenAI API
-     * 
-     * @param array $messages Chat messages
-     * @param object|null $character Character object
-     * @param bool $vision_used Whether vision was used
+     * Chat using default OpenAI API — PHASE-0-RULE-SMART-GATEWAY-MIGRATION:
+     * Đi qua BizCity LLM Router thay vì gọi thẳng api.openai.com.
      */
     private function chat_with_openai($messages, $character = null, $vision_used = false) {
-        global $wpdb;
-        
-        // Get OpenAI API key from twf_openai_api_key option
-        $api_key = get_option('twf_openai_api_key', '');
-        
-        if (empty($api_key)) {
-            wp_send_json_error(['message' => 'OpenAI API key not configured (twf_openai_api_key)']);
+        if ( ! class_exists( 'BizCity_LLM_Client' ) ) {
+            wp_send_json_error( [ 'message' => 'BizCity LLM Router chưa được cài.' ] );
         }
-        
-        $response = wp_remote_post('https://api.openai.com/v1/chat/completions', [
-            'headers' => [
-                'Authorization' => 'Bearer ' . $api_key,
-                'Content-Type' => 'application/json'
-            ],
-            'body' => json_encode([
-                'model' => 'gpt-4o-mini',
-                'messages' => $messages,
-                'temperature' => $character ? floatval($character->creativity_level ?? 0.7) : 0.7,
-                'max_tokens' => 1000
-            ]),
-            'timeout' => 60 // Longer timeout for vision requests
-        ]);
-        
-        if (is_wp_error($response)) {
-            wp_send_json_error(['message' => $response->get_error_message()]);
+        $client = BizCity_LLM_Client::instance();
+        if ( ! $client->is_ready() ) {
+            wp_send_json_error( [ 'message' => 'BizCity LLM Router chưa cấu hình API key (option `bizcity_llm_api_key`).' ] );
         }
-        
-        $body = json_decode(wp_remote_retrieve_body($response), true);
-        
-        if (isset($body['choices'][0]['message']['content'])) {
-            wp_send_json_success([
-                'message' => $body['choices'][0]['message']['content'],
-                'model' => $body['model'] ?? 'gpt-4o-mini',
-                'usage' => $body['usage'] ?? [],
-                'provider' => 'openai',
-                'vision_used' => $vision_used
-            ]);
-        } else {
-            $error_msg = $body['error']['message'] ?? 'OpenAI API error';
-            wp_send_json_error(['message' => $error_msg]);
+
+        $purpose = $vision_used ? 'vision' : 'chat';
+        $model   = $client->get_model( $purpose ) ?: 'gpt-4o-mini';
+
+        $resp = $client->chat( $messages, [
+            'purpose'     => $purpose,
+            'model'       => $model,
+            'temperature' => $character ? floatval( $character->creativity_level ?? 0.7 ) : 0.7,
+            'max_tokens'  => 1000,
+            'timeout'     => 60,
+        ] );
+
+        if ( empty( $resp['success'] ) ) {
+            wp_send_json_error( [ 'message' => $resp['error'] ?? 'Router error' ] );
         }
+
+        wp_send_json_success( [
+            'message'     => $resp['message'] ?? '',
+            'model'       => $resp['model'] ?? $model,
+            'usage'       => $resp['usage'] ?? [],
+            'provider'    => 'router',
+            'vision_used' => $vision_used,
+        ] );
     }
     
     /**
@@ -3597,6 +3959,38 @@ class BizCity_Knowledge_Admin_Menu {
             
             if (is_wp_error($result)) {
                 $errors[] = $source_data['source_name'] . ': ' . $result->get_error_message();
+            } elseif ( class_exists( 'BizCity_Legal_Chunker' ) ) {
+                // Tag chunks as legal scope so graph builder (get_unprocessed_chunks) picks them up.
+                // Sources keep the real character_id so ajax_list_sources still finds them.
+                global $wpdb;
+                $legal_cid = BizCity_Legal_Chunker::LEGAL_CHARACTER_ID; // = 0
+                // 1. Batch-update character_id
+                $wpdb->update(
+                    $wpdb->prefix . 'bizcity_knowledge_chunks',
+                    [ 'character_id' => $legal_cid ],
+                    [ 'source_id'    => $source_id ],
+                    [ '%d' ],
+                    [ '%d' ]
+                );
+                // 2. Add scope:"legal" to each chunk's metadata (PHP loop — MySQL 5.x safe)
+                $chunk_rows = $wpdb->get_results( $wpdb->prepare(
+                    "SELECT id, metadata FROM {$wpdb->prefix}bizcity_knowledge_chunks WHERE source_id = %d",
+                    $source_id
+                ) );
+                foreach ( $chunk_rows as $chk ) {
+                    $meta = json_decode( $chk->metadata, true );
+                    if ( ! is_array( $meta ) ) {
+                        $meta = [];
+                    }
+                    $meta['scope'] = 'legal';
+                    $wpdb->update(
+                        $wpdb->prefix . 'bizcity_knowledge_chunks',
+                        [ 'metadata' => json_encode( $meta, JSON_UNESCAPED_UNICODE ) ],
+                        [ 'id' => (int) $chk->id ],
+                        [ '%s' ],
+                        [ '%d' ]
+                    );
+                }
             }
             
             // Get updated source status
@@ -3622,9 +4016,10 @@ class BizCity_Knowledge_Admin_Menu {
         }
         
         wp_send_json_success([
-            'documents' => $uploaded,
-            'message' => $message,
-            'errors' => $errors
+            'uploaded'  => $uploaded,
+            'documents' => $uploaded, // compat alias
+            'message'   => $message,
+            'errors'    => $errors,
         ]);
     }
     
@@ -3723,6 +4118,50 @@ class BizCity_Knowledge_Admin_Menu {
     }
     
     /**
+     * AJAX: List knowledge sources for a character (for React persistent history).
+     */
+    public function ajax_list_sources() {
+        check_ajax_referer( 'bizcity_knowledge', 'nonce' );
+
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( [ 'message' => 'Permission denied' ] );
+        }
+
+        $character_id = intval( $_POST['character_id'] ?? 0 );
+        $source_type  = sanitize_text_field( $_POST['source_type'] ?? '' );
+
+        if ( ! $character_id ) {
+            wp_send_json_error( [ 'message' => 'Character ID required' ] );
+        }
+
+        global $wpdb;
+        $table = $wpdb->prefix . 'bizcity_knowledge_sources';
+
+        if ( $source_type ) {
+            $rows = $wpdb->get_results( $wpdb->prepare(
+                "SELECT id, source_type, source_name, source_url, status, chunks_count, created_at
+                 FROM {$table}
+                 WHERE character_id = %d AND source_type = %s
+                 ORDER BY created_at DESC
+                 LIMIT 200",
+                $character_id,
+                $source_type
+            ) );
+        } else {
+            $rows = $wpdb->get_results( $wpdb->prepare(
+                "SELECT id, source_type, source_name, source_url, status, chunks_count, created_at
+                 FROM {$table}
+                 WHERE character_id = %d
+                 ORDER BY created_at DESC
+                 LIMIT 200",
+                $character_id
+            ) );
+        }
+
+        wp_send_json_success( $rows ?: [] );
+    }
+
+    /**
      * AJAX: Add website to character
      */
     public function ajax_add_website() {
@@ -3781,42 +4220,96 @@ class BizCity_Knowledge_Admin_Menu {
         // Save URLs to database with status "pending"
         global $wpdb;
         $sources_added = 0;
-        
+        $source_ids    = [];
+        $insert_errors = [];
+        $table         = $wpdb->prefix . 'bizcity_knowledge_sources';
+
+        // Detect source_url column max length so long URLs don't silently fail insert
+        $url_max_len = 500;
+        $col_info = $wpdb->get_row( $wpdb->prepare(
+            "SELECT CHARACTER_MAXIMUM_LENGTH AS len FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = 'source_url'",
+            DB_NAME,
+            $table
+        ) );
+        if ( $col_info && (int) $col_info->len > 0 ) {
+            $url_max_len = (int) $col_info->len;
+        }
+
         foreach ($urls_to_crawl as $crawl_url) {
+            // Guard: skip URLs that exceed the column limit (and report so UI can show reason)
+            if ( strlen( $crawl_url ) > $url_max_len ) {
+                $insert_errors[] = sprintf( 'URL dài %d ký tự, vượt quá giới hạn %d của cột source_url', strlen( $crawl_url ), $url_max_len );
+                continue;
+            }
+
             // Check if URL already exists for this character
-            $exists = $wpdb->get_var($wpdb->prepare(
-                "SELECT COUNT(*) FROM {$wpdb->prefix}bizcity_knowledge_sources 
-                WHERE character_id = %d AND source_url = %s",
+            $existing_id = (int) $wpdb->get_var( $wpdb->prepare(
+                "SELECT id FROM {$table} WHERE character_id = %d AND source_url = %s LIMIT 1",
                 $character_id,
                 $crawl_url
-            ));
-            
-            if ($exists) {
-                continue; // Skip duplicate
+            ) );
+
+            if ( $existing_id ) {
+                // Reset to pending so processWebsite will re-crawl it
+                $wpdb->update( $table, [ 'status' => 'pending' ], [ 'id' => $existing_id ], [ '%s' ], [ '%d' ] );
+                $source_ids[] = $existing_id;
+                $sources_added++;
+                continue;
             }
-            
-            // Insert pending source
-            $wpdb->insert(
-                $wpdb->prefix . 'bizcity_knowledge_sources',
+
+            // Insert new pending source
+            $inserted = $wpdb->insert(
+                $table,
                 [
                     'character_id' => $character_id,
-                    'source_type' => 'url',
-                    'source_url' => $crawl_url,
-                    'source_name' => $crawl_url,
-                    'status' => 'pending',
-                    'created_at' => current_time('mysql')
+                    'source_type'  => 'url',
+                    'source_url'   => $crawl_url,
+                    'source_name'  => mb_substr( $crawl_url, 0, 255 ),
+                    'status'       => 'pending',
+                    'created_at'   => current_time( 'mysql' ),
                 ],
-                ['%d', '%s', '%s', '%s', '%s', '%s']
+                [ '%d', '%s', '%s', '%s', '%s', '%s' ]
             );
-            
-            $sources_added++;
+
+            if ( false === $inserted ) {
+                $insert_errors[] = $wpdb->last_error ?: 'Insert failed (unknown DB error)';
+                continue;
+            }
+
+            $new_id = (int) $wpdb->insert_id;
+
+            // Fallback: if insert_id not captured (e.g. unique-key conflict), query for it
+            if ( ! $new_id ) {
+                $new_id = (int) $wpdb->get_var( $wpdb->prepare(
+                    "SELECT id FROM {$table} WHERE character_id = %d AND source_url = %s LIMIT 1",
+                    $character_id,
+                    $crawl_url
+                ) );
+            }
+
+            if ( $new_id ) {
+                $source_ids[] = $new_id;
+                $sources_added++;
+            } else {
+                $insert_errors[] = 'Không lấy được ID sau khi insert';
+            }
         }
-        
-        wp_send_json_success([
-            'message' => sprintf('Added %d URL(s). Click "Process" to crawl content.', $sources_added, $sources_added),
+
+        if ( 0 === $sources_added && ! empty( $insert_errors ) ) {
+            wp_send_json_error( [
+                'message'       => 'Không thêm được nguồn: ' . implode( '; ', array_unique( $insert_errors ) ),
+                'sources_added' => 0,
+                'errors'        => $insert_errors,
+            ] );
+        }
+
+        wp_send_json_success( [
+            'message'       => sprintf( 'Added %d URL(s).', $sources_added ),
             'sources_added' => $sources_added,
-            'total_urls' => count($urls_to_crawl)
-        ]);
+            'source_ids'    => $source_ids,
+            'total_urls'    => count( $urls_to_crawl ),
+            'errors'        => $insert_errors,
+        ] );
     }
     
     /**
@@ -3885,7 +4378,7 @@ class BizCity_Knowledge_Admin_Menu {
         $wpdb->update(
             $wpdb->prefix . 'bizcity_knowledge_sources',
             [
-                'source_name' => $result['title'] ?: $source->source_url,
+                'source_name' => mb_substr( $result['title'] ?: $source->source_url, 0, 255 ),
                 'content' => $result['content'],
                 'metadata' => json_encode($metadata),
                 'status' => 'processing'
@@ -3910,23 +4403,30 @@ class BizCity_Knowledge_Admin_Menu {
         );
         
         // Insert chunks
-        $chunks_created = 0;
+        $chunks_created  = 0;
+        $is_legal_scope  = ( (int) $source->character_id === 0 );
         foreach ($chunks as $index => $chunk_text) {
+            $chunk_meta = [
+                'url'          => $source->source_url,
+                'title'        => $result['title'],
+                'chunk_number' => $index + 1,
+                'total_chunks' => count($chunks),
+            ];
+            // Mark as legal scope so build-batch can find it (character_id=0)
+            if ( $is_legal_scope ) {
+                $chunk_meta['scope'] = 'legal';
+            }
             $wpdb->insert(
                 $wpdb->prefix . 'bizcity_knowledge_chunks',
                 [
-                    'source_id' => $source_id,
-                    'chunk_text' => $chunk_text,
-                    'chunk_index' => $index,
-                    'metadata' => json_encode([
-                        'url' => $source->source_url,
-                        'title' => $result['title'],
-                        'chunk_number' => $index + 1,
-                        'total_chunks' => count($chunks)
-                    ]),
-                    'created_at' => current_time('mysql')
+                    'source_id'    => $source_id,
+                    'character_id' => (int) $source->character_id,
+                    'content'      => $chunk_text,
+                    'chunk_index'  => $index,
+                    'metadata'     => json_encode( $chunk_meta ),
+                    'created_at'   => current_time('mysql')
                 ],
-                ['%d', '%s', '%d', '%s', '%s']
+                ['%d', '%d', '%s', '%d', '%s', '%s']
             );
             $chunks_created++;
         }
@@ -3944,10 +4444,12 @@ class BizCity_Knowledge_Admin_Menu {
         );
         
         wp_send_json_success([
-            'message' => sprintf('Crawled successfully! Created %d chunks.', $chunks_created, $chunks_created),
+            'message'      => sprintf('Crawled successfully! Created %d chunks.', $chunks_created),
             'chunks_count' => $chunks_created,
-            'word_count' => $result['word_count'],
-            'title' => $result['title']
+            'word_count'   => $result['word_count'],
+            'title'        => $result['title'],
+            'crawl_source' => $result['source'] ?? 'direct',
+            'attempts'     => $result['attempts'] ?? [],
         ]);
     }
     

@@ -1,0 +1,143 @@
+{
+  "translation-revision-date": "2026-04-28T08:51:10.015Z",
+  "generator": "scripts/i18n-build.cjs",
+  "domain": "bizcity-twin-ai",
+  "locale_data": {
+    "bizcity-twin-ai": {
+      "": {
+        "domain": "bizcity-twin-ai",
+        "lang": "vi",
+        "plural-forms": "nplurals=1; plural=0;"
+      },
+      " · %d remaining": [
+        " · còn %d"
+      ],
+      "· ajax-driver #%1$d → %2$s": [
+        "· ajax-driver #%1$d → %2$s"
+      ],
+      "· finalizing learning process (waiting up to %ds for central Twin)…": [
+        "· đang hoàn thành quá trình học tập (chờ Twin trung tâm tối đa %d giây)…"
+      ],
+      "[%1$d] +%2$d passages → %3$d relationships": [
+        "[%1$d] +%2$d đoạn → %3$d quan hệ"
+      ],
+      "%dh ago": [
+        "%d giờ trước"
+      ],
+      "%dm ago": [
+        "%d phút trước"
+      ],
+      "%ds ago": [
+        "%d giây trước"
+      ],
+      "╭─ Twin (fallback mode) starting to learn notebook #%d": [
+        "╭─ Twin (chế độ dự phòng) bắt đầu học notebook #%d"
+      ],
+      "╰─ Completed after %ss": [
+        "╰─ Hoàn tất sau %s giây"
+      ],
+      "Add a document to get started.": [
+        "Thêm tài liệu để bắt đầu."
+      ],
+      "Cache refreshed. ✅": [
+        "Cache đã làm mới. ✅"
+      ],
+      "Clear log": [
+        "Xoá log"
+      ],
+      "Connected to central Twin (SSE) — listening for learning progress.": [
+        "Đã kết nối Twin trung tâm (SSE) — đang theo dõi tiến trình học."
+      ],
+      "Could not reach the central Twin — falling back to in-browser pipeline…": [
+        "Không kết nối được với Twin trung tâm — chuyển sang pipeline trên trình duyệt…"
+      ],
+      "Could not read job list: %s": [
+        "Không đọc được danh sách job: %s"
+      ],
+      "cron is holding the lease (busy x%d) — waiting 2s…": [
+        "cron đang giữ lease (busy x%d) — chờ 2 giây…"
+      ],
+      "done": [
+        "xong"
+      ],
+      "done after %1$d ticks (phase=%2$s)": [
+        "xong sau %1$d tick (phase=%2$s)"
+      ],
+      "Duration:": [
+        "Thời lượng:"
+      ],
+      "Failed: %s": [
+        "Thất bại: %s"
+      ],
+      "Finished learning the new source.": [
+        "Đã học xong nguồn vừa tải lên."
+      ],
+      "Found %d pending job(s) — activating ajax-driver.": [
+        "Tìm thấy %d job đang chờ — kích hoạt ajax-driver."
+      ],
+      "Last run:": [
+        "Lần cuối:"
+      ],
+      "Learning achievements": [
+        "Thành tích học tập"
+      ],
+      "Learning runs": [
+        "Số lần học"
+      ],
+      "Learning…": [
+        "Đang học…"
+      ],
+      "Loop %d: Twin needs a short break, will continue next round…": [
+        "Vòng %d: Twin cần nghỉ một chút, sẽ tiếp vòng sau…"
+      ],
+      "network error (%s) — retrying in 3s": [
+        "lỗi mạng (%s) — thử lại sau 3 giây"
+      ],
+      "Never": [
+        "Chưa có"
+      ],
+      "New concepts": [
+        "Khái niệm mới"
+      ],
+      "No learning activity yet.": [
+        "Chưa có hoạt động học tập."
+      ],
+      "Passages read": [
+        "Đoạn đã đọc"
+      ],
+      "Pipeline error: %s": [
+        "Lỗi pipeline: %s"
+      ],
+      "Pushing source for Twin (Second Brain) to learn…": [
+        "Đẩy nguồn cho Twin (Second Brain) học…"
+      ],
+      "Ready": [
+        "Sẵn sàng"
+      ],
+      "Relationships": [
+        "Quan hệ"
+      ],
+      "starting to push job via admin-ajax tick…": [
+        "bắt đầu đẩy job qua admin-ajax tick…"
+      ],
+      "tab is hidden — yielding to cron lane": [
+        "tab đang ẩn — nhường cho cron lane"
+      ],
+      "Total: %1$d passages · %2$d relationships": [
+        "Tổng: %1$d đoạn · %2$d quan hệ"
+      ],
+      "Twin accepted learning #%d": [
+        "Twin đã nhận học tập #%d"
+      ],
+      "Twin is reading the source…": [
+        "Twin đang đọc nguồn…"
+      ],
+      "Twin is writing into the Second Brain…": [
+        "Twin đang ghi vào Second Brain…"
+      ],
+      "Twin memorized %1$d relationships → %2$d new concepts": [
+        "Twin đã ghi nhớ %1$d quan hệ → %2$d khái niệm mới"
+      ]
+    }
+  }
+}

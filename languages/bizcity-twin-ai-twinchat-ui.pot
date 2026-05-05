@@ -1,0 +1,184 @@
+# TwinChat UI translations (POT template).
+# Copyright (C) BizCity. SPDX-License-Identifier: GPL-2.0-or-later
+msgid ""
+msgstr ""
+"Project-Id-Version: bizcity-twin-ai\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-04-28T08:51:09.945Z\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: scripts/i18n-build.cjs\n"
+
+
+#: modules/twinchat/ui/src/services/learningRunner.ts:99
+msgid " · %d remaining"
+msgstr ""
+
+#: modules/twinchat/ui/src/hooks/useLearningStream.ts:35
+msgid "· ajax-driver #%1$d → %2$s"
+msgstr ""
+
+#: modules/twinchat/ui/src/services/learningRunner.ts:55
+msgid "· finalizing learning process (waiting up to %ds for central Twin)…"
+msgstr ""
+
+#: modules/twinchat/ui/src/services/learningRunner.ts:98
+msgid "[%1$d] +%2$d passages → %3$d relationships"
+msgstr ""
+
+#: modules/twinchat/ui/src/components/LearningPanel.tsx:44
+msgid "%dh ago"
+msgstr ""
+
+#: modules/twinchat/ui/src/components/LearningPanel.tsx:43
+msgid "%dm ago"
+msgstr ""
+
+#: modules/twinchat/ui/src/components/LearningPanel.tsx:42
+msgid "%ds ago"
+msgstr ""
+
+#: modules/twinchat/ui/src/services/learningRunner.ts:76
+msgid "╭─ Twin (fallback mode) starting to learn notebook #%d"
+msgstr ""
+
+#: modules/twinchat/ui/src/services/learningRunner.ts:133
+msgid "╰─ Completed after %ss"
+msgstr ""
+
+#: modules/twinchat/ui/src/components/LearningPanel.tsx:143
+msgid "Add a document to get started."
+msgstr ""
+
+#: modules/twinchat/ui/src/services/learningRunner.ts:122
+msgid "Cache refreshed. ✅"
+msgstr ""
+
+#: modules/twinchat/ui/src/components/LearningPanel.tsx:129
+msgid "Clear log"
+msgstr ""
+
+#: modules/twinchat/ui/src/hooks/useLearningStream.ts:102
+msgid "Connected to central Twin (SSE) — listening for learning progress."
+msgstr ""
+
+#: modules/twinchat/ui/src/services/learningRunner.ts:65
+msgid "Could not reach the central Twin — falling back to in-browser pipeline…"
+msgstr ""
+
+#: modules/twinchat/ui/src/hooks/useLearningStream.ts:116
+msgid "Could not read job list: %s"
+msgstr ""
+
+#: modules/twinchat/ui/src/hooks/useLearningStream.ts:57
+msgid "cron is holding the lease (busy x%d) — waiting 2s…"
+msgstr ""
+
+#: modules/twinchat/ui/src/services/learningRunner.ts:99
+msgid "done"
+msgstr ""
+
+#: modules/twinchat/ui/src/hooks/useLearningStream.ts:51
+msgid "done after %1$d ticks (phase=%2$s)"
+msgstr ""
+
+#: modules/twinchat/ui/src/components/LearningPanel.tsx:101
+msgid "Duration:"
+msgstr ""
+
+#: modules/twinchat/ui/src/hooks/useLearningStream.ts:163
+msgid "Failed: %s"
+msgstr ""
+
+#: modules/twinchat/ui/src/hooks/useLearningStream.ts:213
+msgid "Finished learning the new source."
+msgstr ""
+
+#: modules/twinchat/ui/src/hooks/useLearningStream.ts:111
+msgid "Found %d pending job(s) — activating ajax-driver."
+msgstr ""
+
+#: modules/twinchat/ui/src/components/LearningPanel.tsx:99
+msgid "Last run:"
+msgstr ""
+
+#: modules/twinchat/ui/src/components/LearningPanel.tsx:68
+msgid "Learning achievements"
+msgstr ""
+
+#: modules/twinchat/ui/src/components/LearningPanel.tsx:92
+msgid "Learning runs"
+msgstr ""
+
+#: modules/twinchat/ui/src/components/LearningPanel.tsx:114
+msgid "Learning…"
+msgstr ""
+
+#: modules/twinchat/ui/src/services/learningRunner.ts:104
+msgid "Loop %d: Twin needs a short break, will continue next round…"
+msgstr ""
+
+#: modules/twinchat/ui/src/hooks/useLearningStream.ts:46
+msgid "network error (%s) — retrying in 3s"
+msgstr ""
+
+#: modules/twinchat/ui/src/components/LearningPanel.tsx:40
+msgid "Never"
+msgstr ""
+
+#: modules/twinchat/ui/src/components/LearningPanel.tsx:86
+msgid "New concepts"
+msgstr ""
+
+#: modules/twinchat/ui/src/components/LearningPanel.tsx:142
+msgid "No learning activity yet."
+msgstr ""
+
+#: modules/twinchat/ui/src/components/LearningPanel.tsx:74
+msgid "Passages read"
+msgstr ""
+
+#: modules/twinchat/ui/src/services/learningRunner.ts:130
+msgid "Pipeline error: %s"
+msgstr ""
+
+#: modules/twinchat/ui/src/services/learningRunner.ts:54
+msgid "Pushing source for Twin (Second Brain) to learn…"
+msgstr ""
+
+#: modules/twinchat/ui/src/components/LearningPanel.tsx:119
+msgid "Ready"
+msgstr ""
+
+#: modules/twinchat/ui/src/components/LearningPanel.tsx:80
+msgid "Relationships"
+msgstr ""
+
+#: modules/twinchat/ui/src/hooks/useLearningStream.ts:36
+msgid "starting to push job via admin-ajax tick…"
+msgstr ""
+
+#: modules/twinchat/ui/src/hooks/useLearningStream.ts:66
+msgid "tab is hidden — yielding to cron lane"
+msgstr ""
+
+#: modules/twinchat/ui/src/services/learningRunner.ts:110
+msgid "Total: %1$d passages · %2$d relationships"
+msgstr ""
+
+#: modules/twinchat/ui/src/hooks/useLearningStream.ts:135
+msgid "Twin accepted learning #%d"
+msgstr ""
+
+#: modules/twinchat/ui/src/services/learningRunner.ts:86
+msgid "Twin is reading the source…"
+msgstr ""
+
+#: modules/twinchat/ui/src/services/learningRunner.ts:111
+msgid "Twin is writing into the Second Brain…"
+msgstr ""
+
+#: modules/twinchat/ui/src/services/learningRunner.ts:115
+msgid "Twin memorized %1$d relationships → %2$d new concepts"
+msgstr ""

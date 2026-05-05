@@ -1941,7 +1941,24 @@ class BizCity_Maturity_Calculator {
 			] );
 
 			if ( $wpdb->insert_id ) {
-				$uploaded[] = (int) $wpdb->insert_id;
+				$ks_id = (int) $wpdb->insert_id;
+				$uploaded[] = $ks_id;
+				// Phase 0.6.5 — Wave C: mirror to unified kg_sources (feature-flagged in handler).
+				do_action( 'bizcity_kg_legacy_source_inserted', [
+					'cortex'       => 'knowledge',
+					'plugin'       => 'knowledge',
+					'legacy_id'    => $ks_id,
+					'legacy_table' => $table,
+					'project_id'   => 'agent_0',
+					'scope_type'   => 'character',
+					'scope_id'     => '0',
+					'user_id'      => (int) $user_id,
+					'title'        => (string) $source_name,
+					'origin_url'   => (string) $upload['url'],
+					'content_text' => (string) $content,
+					'origin_kind'  => 'file',
+					'attachment_id'=> (int) $attachment_id,
+				] );
 			} else {
 				$errors[] = $file['name'] . ': DB insert failed';
 			}
@@ -1991,6 +2008,23 @@ class BizCity_Maturity_Calculator {
 		if ( ! $source_id ) {
 			wp_send_json_error( 'DB insert failed' );
 		}
+
+		// Phase 0.6.5 — Wave C: mirror to unified kg_sources (feature-flagged in handler).
+		do_action( 'bizcity_kg_legacy_source_inserted', [
+			'cortex'       => 'knowledge',
+			'plugin'       => 'knowledge',
+			'legacy_id'    => (int) $source_id,
+			'legacy_table' => $table,
+			'project_id'   => 'agent_0',
+			'scope_type'   => 'character',
+			'scope_id'     => '0',
+			'user_id'      => (int) $user_id,
+			'title'        => (string) $source_name,
+			'origin_url'   => (string) $url,
+			'content_text' => '',
+			'origin_kind'  => 'url',
+			'attachment_id'=> 0,
+		] );
 
 		self::invalidate_dashboard_cache( $user_id );
 

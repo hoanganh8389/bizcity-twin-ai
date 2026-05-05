@@ -146,20 +146,152 @@ class BZDoc_Sources {
 			'created_at'       => current_time( 'mysql' ),
 		] );
 
-		return (int) $wpdb->insert_id;
+		$id = (int) $wpdb->insert_id;
+
+		// Phase 0.6.5 — Wave C: mirror to unified kg_sources (feature-flagged in handler).
+		if ( $id > 0 ) {
+
+			// Vòng 4.5.5e (Rule 8g v2 — 2026-05-02): if this doc is bound to a
+			// notebook, the upload belongs to the NOTEBOOK source pool — not just
+			// the doc. Otherwise resolve_sources($notebook_id) (the only v2 read
+			// path) will silently hide it from sibling artifacts (mindmap, etc.)
+			// and even from bzdoc's own kg-sources REST after refresh.
+			//
+			// Doc-private uploads (no notebook binding) used to keep
+			// scope_type='document' — but then the source could never be shared
+			// with sibling artifacts. New rule (2026-05-02 follow-up): every
+			// bzdoc upload MUST live under a notebook scope, so we auto-create
+			// a notebook named after the doc the first time a doc receives a
+			// source without a binding. The doc row is then bound to it.
+			$doc_table       = $wpdb->prefix . 'bzdoc_documents';
+			$doc_row         = $wpdb->get_row( $wpdb->prepare(
+				"SELECT id, title, user_id, notebook_id FROM {$doc_table} WHERE id = %d",
+				$doc_id
+			) );
+			$doc_notebook_id = $doc_row ? (int) $doc_row->notebook_id : 0;
+
+			if ( $doc_notebook_id <= 0 && $doc_row && class_exists( 'BizCity_KG_Notebook_Service' ) ) {
+				$nb_name = trim( (string) $doc_row->title );
+				if ( $nb_name === '' ) $nb_name = 'BzDoc #' . $doc_id;
+				try {
+					$nb = BizCity_KG_Notebook_Service::instance()->create(
+						[
+							'name'        => $nb_name,
+							'description' => 'Notebook tự tạo cho bzdoc #' . $doc_id . ' (Rule 8g v2)',
+							'settings'    => [ 'origin' => 'bzdoc', 'doc_id' => $doc_id ],
+						],
+						(int) $doc_row->user_id
+					);
+					if ( is_array( $nb ) && ! empty( $nb['id'] ) ) {
+						$doc_notebook_id = (int) $nb['id'];
+						$wpdb->update(
+							$doc_table,
+							[ 'notebook_id' => $doc_notebook_id ],
+							[ 'id' => $doc_id ],
+							[ '%d' ],
+							[ '%d' ]
+						);
+						do_action( 'bizcity_bzdoc_notebook_auto_created', $doc_id, $doc_notebook_id, $nb_name );
+					}
+				} catch ( \Throwable $e ) {
+					error_log( '[BZDoc_Sources] auto-create notebook failed: ' . $e->getMessage() );
+				}
+			}
+
+			if ( $doc_notebook_id > 0 ) {
+				$mirror_scope_type = 'notebook';
+				$mirror_scope_id   = (string) $doc_notebook_id;
+				$mirror_project_id = 'tc_' . $doc_notebook_id; // BC for v1 readers.
+			} else {
+				// Fallback if KG service unavailable — keep source private to doc.
+				$mirror_scope_type = 'document';
+				$mirror_scope_id   = 'doc_' . $doc_id;
+				$mirror_project_id = 'doc_' . $doc_id;
+			}
+
+			do_action( 'bizcity_kg_legacy_source_inserted', [
+				'cortex'       => 'bizdoc',
+				'plugin'       => 'bizdoc',
+				'legacy_id'    => $id,
+				'legacy_table' => self::table(),
+				'project_id'   => $mirror_project_id,
+				'scope_type'   => $mirror_scope_type,
+				'scope_id'     => $mirror_scope_id,
+				'user_id'      => (int) get_current_user_id(),
+				'title'        => (string) ( $data['title'] ?? '' ),
+				'origin_url'   => (string) ( $data['source_url'] ?? '' ),
+				'content_text' => (string) $content,
+				'origin_kind'  => (string) ( $data['source_type'] ?? 'file' ),
+				'attachment_id'=> (int) ( $data['attachment_id'] ?? 0 ),
+			] );
+		}
+
+		return $id;
 	}
 
-	/* ── List sources for a doc/project ── */
+	/* -- List sources for a doc/project -- */
 	public static function list_by_doc( int $doc_id ): array {
 		global $wpdb;
-		return $wpdb->get_results( $wpdb->prepare(
-			"SELECT id, doc_id, title, source_type, char_count, token_estimate,
+		$rows = $wpdb->get_results( $wpdb->prepare(
+			"SELECT id, doc_id, title, source_type, source_url, char_count, token_estimate,
 			        chunk_count, embedding_status, status, created_at
 			 FROM " . self::table() . "
 			 WHERE doc_id = %d AND status = 'ready'
 			 ORDER BY created_at ASC",
 			$doc_id
 		), ARRAY_A ) ?: [];
+
+		// PHASE-0.13 — augment each row with KG graph-extraction (triplet) progress.
+		// Joins through kg_xref to find the mirrored kg_sources row, then aggregates
+		// kg_source_chunks.extraction_status. Rows that haven't been mirrored to KG
+		// (e.g. legacy uploads before dual-write was enabled) get zero counts.
+		if ( ! empty( $rows ) ) {
+			$legacy_ids = array_map( static function ( $r ) { return (int) $r['id']; }, $rows );
+			$placeholders = implode( ',', array_fill( 0, count( $legacy_ids ), '%d' ) );
+			$kg_xref      = $wpdb->prefix . 'bizcity_kg_xref';
+			$kg_chunks    = $wpdb->prefix . 'bizcity_kg_source_chunks';
+			$legacy_table = self::table();
+
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$agg_sql = "
+				SELECT x.cortex_ref_id AS legacy_id,
+				       COUNT(c.id) AS total_chunks,
+				       SUM(CASE WHEN c.extraction_status = 'done'  THEN 1 ELSE 0 END) AS done_chunks,
+				       SUM(CASE WHEN c.extraction_status = 'error' THEN 1 ELSE 0 END) AS error_chunks
+				  FROM {$kg_xref}    x
+				  LEFT JOIN {$kg_chunks} c ON c.source_id = x.kg_ref_id
+				 WHERE x.cortex        = 'bizdoc'
+				   AND x.cortex_table  = %s
+				   AND x.kg_ref_type   = 'source'
+				   AND x.cortex_ref_id IN ({$placeholders})
+				 GROUP BY x.cortex_ref_id";
+			$params  = array_merge( [ $legacy_table ], $legacy_ids );
+			// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+			$agg_rows = $wpdb->get_results( $wpdb->prepare( $agg_sql, $params ), ARRAY_A );
+			$agg_map = [];
+			if ( is_array( $agg_rows ) ) {
+				foreach ( $agg_rows as $a ) {
+					$agg_map[ (int) $a['legacy_id'] ] = [
+						'total' => (int) $a['total_chunks'],
+						'done'  => (int) $a['done_chunks'],
+						'error' => (int) $a['error_chunks'],
+					];
+				}
+			}
+			foreach ( $rows as &$r ) {
+				$lid   = (int) $r['id'];
+				$stat  = $agg_map[ $lid ] ?? [ 'total' => 0, 'done' => 0, 'error' => 0 ];
+				$total = $stat['total'];
+				$done  = $stat['done'];
+				$r['extraction_total']    = $total;
+				$r['extraction_done']     = $done;
+				$r['extraction_error']    = $stat['error'];
+				$r['extraction_complete'] = ( $total > 0 && $done >= $total );
+				$r['extraction_progress'] = $total > 0 ? round( $done / $total, 4 ) : 0.0;
+			}
+			unset( $r );
+		}
+		return $rows;
 	}
 
 	/* ── Get single source ── */
@@ -186,8 +318,10 @@ class BZDoc_Sources {
 
 		$parts = [];
 		$used  = 0;
+		$idx   = 0;
 
 		foreach ( $sources as $src ) {
+			$idx++;
 			$text = $src->content_text;
 			$remaining = $max_chars - $used;
 			if ( $remaining <= 0 ) break;
@@ -196,7 +330,7 @@ class BZDoc_Sources {
 				$text = mb_substr( $text, 0, $remaining );
 			}
 
-			$parts[] = "[Nguồn: {$src->title}]\n{$text}";
+			$parts[] = "[TÀI LIỆU #{$idx} | Nguồn: \"{$src->title}\"]\n{$text}";
 			$used   += mb_strlen( $text );
 		}
 
@@ -626,5 +760,134 @@ class BZDoc_Sources {
 		}
 
 		return implode( "\n", $all_rows );
+	}
+
+	/* ═══════════════════════════════════════════════
+	   YOUTUBE SOURCE — Transcript Extraction
+	   ═══════════════════════════════════════════════ */
+
+	/**
+	 * Add a YouTube video as a source by extracting its transcript.
+	 *
+	 * @param int    $doc_id
+	 * @param string $youtube_url
+	 * @return int|\WP_Error
+	 */
+	public static function add_youtube( int $doc_id, string $youtube_url ) {
+		$video_id = self::extract_youtube_id( $youtube_url );
+		if ( ! $video_id ) {
+			return new \WP_Error(
+				'invalid_url',
+				'URL YouTube không hợp lệ. Hãy dùng định dạng youtube.com/watch?v=... hoặc youtu.be/...',
+				[ 'status' => 400 ]
+			);
+		}
+
+		// Get video title via oEmbed
+		$title = 'YouTube: ' . $video_id;
+		$oembed_url = 'https://www.youtube.com/oembed?url=' . rawurlencode( 'https://www.youtube.com/watch?v=' . $video_id ) . '&format=json';
+		$oembed_res = wp_remote_get( $oembed_url, [
+			'timeout'    => 10,
+			'user-agent' => 'BZDoc/1.0 (WordPress)',
+		] );
+		if ( ! is_wp_error( $oembed_res ) && wp_remote_retrieve_response_code( $oembed_res ) === 200 ) {
+			$oembed_data = json_decode( wp_remote_retrieve_body( $oembed_res ), true );
+			if ( ! empty( $oembed_data['title'] ) ) {
+				$title = $oembed_data['title'];
+			}
+		}
+
+		// Try to fetch transcript
+		$transcript = self::fetch_youtube_transcript( $video_id );
+
+		// Fallback: try page description from ytInitialData
+		if ( ! $transcript ) {
+			$page_res = wp_remote_get( 'https://www.youtube.com/watch?v=' . $video_id, [
+				'timeout'    => 15,
+				'user-agent' => 'Mozilla/5.0 (compatible; BZDoc/1.0)',
+			] );
+			if ( ! is_wp_error( $page_res ) && wp_remote_retrieve_response_code( $page_res ) === 200 ) {
+				$html = wp_remote_retrieve_body( $page_res );
+				if ( preg_match( '/"description":\{"simpleText":"((?:[^"\\\\]|\\\\.)*)"\}/', $html, $m ) ) {
+					$desc = json_decode( '"' . $m[1] . '"' );
+					if ( is_string( $desc ) && mb_strlen( $desc ) > 20 ) {
+						$transcript = '[Mô tả video]' . "\n" . $desc;
+					}
+				}
+			}
+		}
+
+		if ( ! $transcript ) {
+			return new \WP_Error(
+				'no_transcript',
+				'Không thể lấy transcript hoặc mô tả từ video YouTube này.',
+				[ 'status' => 422 ]
+			);
+		}
+
+		$canonical_url = 'https://www.youtube.com/watch?v=' . $video_id;
+
+		return self::create( $doc_id, [
+			'title'        => mb_substr( $title, 0, 200 ),
+			'source_type'  => 'youtube',
+			'source_url'   => $canonical_url,
+			'content_text' => $transcript,
+		] );
+	}
+
+	/**
+	 * Extract YouTube video ID from various URL formats.
+	 */
+	private static function extract_youtube_id( string $url ): ?string {
+		// youtu.be/VIDEO_ID
+		if ( preg_match( '~youtu\.be/([A-Za-z0-9_\-]{11})~', $url, $m ) ) {
+			return $m[1];
+		}
+		// youtube.com/watch?v=VIDEO_ID
+		if ( preg_match( '~[?&]v=([A-Za-z0-9_\-]{11})~', $url, $m ) ) {
+			return $m[1];
+		}
+		// youtube.com/embed/ID, youtube.com/v/ID, youtube.com/shorts/ID
+		if ( preg_match( '~youtube\.com/(?:embed|v|shorts)/([A-Za-z0-9_\-]{11})~', $url, $m ) ) {
+			return $m[1];
+		}
+		return null;
+	}
+
+	/**
+	 * Fetch auto-generated transcript via YouTube timedtext API.
+	 * Tries Vietnamese first, then English.
+	 */
+	private static function fetch_youtube_transcript( string $video_id ): ?string {
+		foreach ( [ 'vi', 'en', 'en-US' ] as $lang ) {
+			$url = add_query_arg(
+				[ 'v' => $video_id, 'lang' => $lang, 'fmt' => 'json3' ],
+				'https://www.youtube.com/api/timedtext'
+			);
+			$res = wp_remote_get( $url, [
+				'timeout'    => 10,
+				'user-agent' => 'Mozilla/5.0 (compatible; BZDoc/1.0)',
+			] );
+			if ( is_wp_error( $res ) || wp_remote_retrieve_response_code( $res ) !== 200 ) {
+				continue;
+			}
+			$data = json_decode( wp_remote_retrieve_body( $res ), true );
+			if ( empty( $data['events'] ) ) {
+				continue;
+			}
+			$lines = [];
+			foreach ( $data['events'] as $event ) {
+				if ( empty( $event['segs'] ) ) continue;
+				$line = implode( '', array_column( $event['segs'], 'utf8' ) );
+				$line = trim( $line );
+				if ( $line !== '' ) {
+					$lines[] = $line;
+				}
+			}
+			if ( $lines ) {
+				return implode( ' ', $lines );
+			}
+		}
+		return null;
 	}
 }

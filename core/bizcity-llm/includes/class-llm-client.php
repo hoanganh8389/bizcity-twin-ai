@@ -117,7 +117,9 @@ class BizCity_LLM_Client {
      * Global timeout in seconds.
      */
     public function get_timeout(): int {
-        return (int) $this->get_setting( 'timeout', 60 );
+        // Default 300s — long Claude Sonnet generations (60K tokens) need 120-240s.
+        // Caller can override via $options['timeout'] or admin setting.
+        return (int) $this->get_setting( 'timeout', 300 );
     }
 
     /* ================================================================
@@ -327,8 +329,16 @@ class BizCity_LLM_Client {
         if ( ! empty( $options['extra_body'] ) ) {
             $body = array_merge( $body, $options['extra_body'] );
         }
+        // Forward optional cross-vendor fallback (caller can override Hub default).
+        if ( ! empty( $options['fallback_model'] ) ) {
+            $body['fallback_model'] = (string) $options['fallback_model'];
+        }
 
         $timeout  = isset( $options['timeout'] ) ? intval( $options['timeout'] ) : $this->get_timeout();
+        // Forward timeout to the router. Without this the gateway REST handler
+        // defaults to 60s and aborts long generations (Claude Sonnet 4.5 docs
+        // routinely take 90-180s) regardless of the local CURLOPT_TIMEOUT.
+        $body['timeout'] = $timeout;
         // [2026-03-25] Unified API namespace: migrate llm/router/v1/chat → bizcity/v1/llm/chat
         // $endpoint = $this->get_gateway_url() . '/wp-json/llm/router/v1/chat';
         $endpoint = $this->get_gateway_url() . '/wp-json/bizcity/v1/llm/chat';
@@ -446,6 +456,13 @@ class BizCity_LLM_Client {
         }
 
         $timeout  = isset( $options['timeout'] ) ? intval( $options['timeout'] ) : $this->get_timeout();
+        if ( $timeout <= 0 ) {
+            $timeout = $this->get_timeout();
+        }
+        // Forward timeout to the router so its proxy curl call uses the same value.
+        // Without this, the router REST handler defaults to 90s and kills long
+        // generations at ~92s wall clock regardless of the local CURLOPT_TIMEOUT.
+        $body['timeout'] = $timeout;
         // SSE streaming MUST use the direct llm/router/v1/chat/stream endpoint.
         // bizcity/v1/llm/chat/stream is handled by Hub REST which internally dispatches
         // into handle_chat_stream() — the ob_end_flush() calls inside it cannot escape
@@ -456,11 +473,12 @@ class BizCity_LLM_Client {
         // DO NOT migrate this URL to bizcity/v1 until Hub REST supports SSE pass-through.
         $endpoint = $this->get_gateway_url() . '/wp-json/llm/router/v1/chat/stream';
 
-        $full_text    = '';
-        $usage        = [];
-        $buffer       = '';
-        $raw_response = '';
-        $actual_model = '';
+        $full_text     = '';
+        $usage         = [];
+        $finish_reason = '';
+        $buffer        = '';
+        $raw_response  = '';
+        $actual_model  = '';
 
         error_log( '[LLM-Client] v2-curl_multi | mode=gateway | endpoint=' . $endpoint . ' | model=' . $model );
 
@@ -490,7 +508,7 @@ class BizCity_LLM_Client {
             CURLOPT_ENCODING       => '',
             CURLOPT_TCP_NODELAY    => true,
             CURLOPT_BUFFERSIZE     => 1024,
-            CURLOPT_WRITEFUNCTION  => function ( $ch, $data ) use ( &$full_text, &$usage, &$buffer, &$raw_response, &$actual_model, &$chunk_queue ) {
+            CURLOPT_WRITEFUNCTION  => function ( $ch, $data ) use ( &$full_text, &$usage, &$finish_reason, &$buffer, &$raw_response, &$actual_model, &$chunk_queue ) {
                 $raw_len = strlen( $data );
                 if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
                     static $write_t0;
@@ -538,6 +556,9 @@ class BizCity_LLM_Client {
                     if ( $delta !== '' ) {
                         $full_text .= $delta;
                         $chunk_queue[] = [ $delta, $full_text ];
+                    }
+                    if ( isset( $chunk['choices'][0]['finish_reason'] ) && ! empty( $chunk['choices'][0]['finish_reason'] ) ) {
+                        $finish_reason = (string) $chunk['choices'][0]['finish_reason'];
                     }
                     if ( isset( $chunk['usage'] ) ) {
                         $usage = $chunk['usage'];
@@ -637,6 +658,7 @@ class BizCity_LLM_Client {
                 $base['message'] = $full_text;
                 $base['model']   = $actual_model ?: $model;
                 $base['usage']   = $usage;
+                $base['finish_reason'] = $finish_reason;
             }
             return $base;
         }
@@ -645,6 +667,7 @@ class BizCity_LLM_Client {
         $base['message'] = $full_text;
         $base['model']   = $actual_model ?: $model;
         $base['usage']   = $usage;
+        $base['finish_reason'] = $finish_reason;
         $base['stream_ms'] = $stream_ms;
         $base['stream_fallback'] = false;
 

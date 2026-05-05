@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "bizcity://events/note_pinned.json",
+  "title": "note_pinned",
+  "description": "User pinned an assistant message as a note (or auto-pin trigger fired). Sprint 5.3.",
+  "type": "object",
+  "required": ["note_id", "message_id"],
+  "properties": {
+    "note_id":    { "type": "integer" },
+    "message_id": { "type": "string" },
+    "mode":       { "type": "string", "enum": ["manual", "auto"] },
+    "notebook_id":{ "type": "integer" },
+    "title":      { "type": "string" }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "bizcity://events/suggestion_clicked.json",
+  "title": "suggestion_clicked",
+  "description": "Audit-trail event when user picks a suggestion chip. Dispatched by FE through /events/dispatch. Sprint 5.0d.",
+  "type": "object",
+  "required": ["message_id", "text"],
+  "properties": {
+    "message_id": { "type": "string" },
+    "text":       { "type": "string", "maxLength": 240 },
+    "index":      { "type": "integer", "minimum": 0 },
+    "reason":     { "type": "string", "enum": ["follow_up", "welcome", "no_source", "research"] },
+    "notebook_id":{ "type": "integer" }
+  },
+  "additionalProperties": true
+}

@@ -120,15 +120,18 @@ class BizCity_Character {
     }
     
     /**
-     * Generate AI response
+     * Generate AI response — PHASE-0-RULE-SMART-GATEWAY-MIGRATION:
+     * đi qua BizCity LLM Router thay vì api.openai.com.
      */
     public function generate_response($query, $parsed, $context = []) {
-        $api_key = get_option('bizcity_knowledge_openai_key') ?: get_option('twf_openai_api_key');
-        
-        if (empty($api_key)) {
+        if ( ! class_exists( 'BizCity_LLM_Client' ) ) {
             return $this->get_fallback_response($query, $parsed);
         }
-        
+        $client = BizCity_LLM_Client::instance();
+        if ( ! $client->is_ready() ) {
+            return $this->get_fallback_response($query, $parsed);
+        }
+
         // Build messages
         $messages = [
             [
@@ -154,29 +157,18 @@ class BizCity_Character {
         }
         
         $messages[] = ['role' => 'user', 'content' => $user_message];
-        
-        // Call OpenAI
-        $response = wp_remote_post('https://api.openai.com/v1/chat/completions', [
-            'headers' => [
-                'Authorization' => 'Bearer ' . $api_key,
-                'Content-Type' => 'application/json',
-            ],
-            'body' => json_encode([
-                'model' => 'gpt-4o-mini',
-                'messages' => $messages,
-                'max_tokens' => 1024,
-                'temperature' => 0.7,
-            ]),
-            'timeout' => 60,
-        ]);
-        
-        if (is_wp_error($response)) {
-            return $this->get_fallback_response($query, $parsed);
+
+        $resp = $client->chat( $messages, [
+            'purpose'     => 'chat',
+            'temperature' => 0.7,
+            'max_tokens'  => 1024,
+            'timeout'     => 60,
+        ] );
+
+        if ( empty( $resp['success'] ) ) {
+            return $this->get_fallback_response( $query, $parsed );
         }
-        
-        $body = json_decode(wp_remote_retrieve_body($response), true);
-        
-        return $body['choices'][0]['message']['content'] ?? $this->get_fallback_response($query, $parsed);
+        return $resp['message'] ?? $this->get_fallback_response( $query, $parsed );
     }
     
     /**

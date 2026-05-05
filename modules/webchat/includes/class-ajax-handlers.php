@@ -2213,6 +2213,41 @@ class BizCity_WebChat_Ajax_Handlers {
             'created_at'       => current_time( 'mysql' ),
         ] );
 
+        // Phase 0.6.5 — Wave C: mirror to unified kg_sources (feature-flagged in handler).
+        // Scope rule MUST match BizCity_KG_Backfill_Driver_Webchat::scope() — driven
+        // by project_id (not session_id) so cron + real-time produce identical rows.
+        $legacy_id = (int) $wpdb->insert_id;
+        if ( $legacy_id > 0 ) {
+            $pid = (string) $project_id;
+            if ( ctype_digit( $pid ) && (int) $pid > 0 ) {
+                $scope_type = 'notebook';
+                $scope_id   = $pid;
+            } elseif ( strpos( $pid, 'sess_' ) === 0 ) {
+                $scope_type = 'session';
+                $scope_id   = $pid;
+            } else {
+                // No project_id (chat-bound source) — fall back to session_id.
+                $scope_type = $session_id !== '' ? 'session' : 'notebook';
+                $scope_id   = $session_id !== '' ? $session_id : '0';
+            }
+
+            do_action( 'bizcity_kg_legacy_source_inserted', [
+                'cortex'       => 'webchat',
+                'plugin'       => 'twinchat',
+                'legacy_id'    => $legacy_id,
+                'legacy_table' => $table,
+                'project_id'   => $pid,
+                'scope_type'   => $scope_type,
+                'scope_id'     => $scope_id,
+                'user_id'      => (int) $user_id,
+                'title'        => (string) $title,
+                'origin_url'   => (string) $url,
+                'content_text' => (string) $content,
+                'origin_kind'  => (string) $source_type,
+                'attachment_id'=> 0,
+            ] );
+        }
+
         wp_send_json_success( [
             'id'               => $wpdb->insert_id,
             'source_type'      => $source_type,

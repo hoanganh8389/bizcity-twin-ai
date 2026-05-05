@@ -210,13 +210,13 @@ class BizCity_Video_Kling_Ajax {
         if ( $chain_id ) {
             // Return only jobs in this chain
             $jobs = $wpdb->get_results( $wpdb->prepare(
-                "SELECT id, task_id, prompt, status, progress, video_url, media_url, attachment_id, model, duration, aspect_ratio, checkpoints, error_message, chain_id, segment_index, total_segments, is_final, created_at, updated_at
+                "SELECT id, prompt, status, progress, video_url, media_url, attachment_id, model, duration, aspect_ratio, checkpoints, error_message, chain_id, segment_index, total_segments, is_final, created_at, updated_at
                  FROM {$jobs_table} WHERE created_by = %d AND chain_id = %s ORDER BY segment_index ASC",
                 $user_id, $chain_id
             ), ARRAY_A );
         } else {
             $jobs = $wpdb->get_results( $wpdb->prepare(
-                "SELECT id, task_id, prompt, status, progress, video_url, media_url, attachment_id, model, duration, aspect_ratio, checkpoints, error_message, chain_id, segment_index, total_segments, is_final, created_at, updated_at
+                "SELECT id, prompt, status, progress, video_url, media_url, attachment_id, model, duration, aspect_ratio, checkpoints, error_message, chain_id, segment_index, total_segments, is_final, created_at, updated_at
                  FROM {$jobs_table} WHERE created_by = %d ORDER BY created_at DESC LIMIT 20",
                 $user_id
             ), ARRAY_A );
@@ -227,37 +227,6 @@ class BizCity_Video_Kling_Ajax {
             $j['checkpoints'] = ! empty( $j['checkpoints'] ) ? json_decode( $j['checkpoints'], true ) : [];
         }
         unset( $j );
-
-        // ── Self-healing: re-schedule cron for stuck active jobs ──
-        // If a job is still queued/processing but its cron transient is missing,
-        // the WP-Cron event was lost. Re-schedule it so all scenes get polled.
-        foreach ( $jobs as $j ) {
-            if ( ! in_array( $j['status'], [ 'queued', 'processing' ], true ) ) continue;
-            if ( empty( $j['task_id'] ) ) continue;
-
-            $poll_key = 'bvk_intent_poll_' . $j['id'];
-            $poll     = get_transient( $poll_key );
-
-            if ( ! $poll ) {
-                // Transient missing → cron was lost. Re-schedule.
-                $api_key  = get_option( 'bizcity_video_kling_api_key', '' );
-                $endpoint = get_option( 'bizcity_video_kling_endpoint', '' );
-
-                set_transient( $poll_key, [
-                    'job_id'       => (int) $j['id'],
-                    'task_id'      => $j['task_id'],
-                    'api_settings' => [
-                        'api_key'  => $api_key,
-                        'endpoint' => $endpoint,
-                    ],
-                    'created'    => time(),
-                    'poll_count' => 0,
-                ], 2 * HOUR_IN_SECONDS );
-
-                wp_schedule_single_event( time() + 5, 'bvk_intent_poll_video', [ (int) $j['id'] ] );
-                error_log( "[BVK-SelfHeal] Re-scheduled cron poll for stuck job #{$j['id']} (task: {$j['task_id']})" );
-            }
-        }
 
         $total  = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$jobs_table} WHERE created_by = %d", $user_id ) );
         $done   = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$jobs_table} WHERE created_by = %d AND status = 'completed'", $user_id ) );
@@ -304,14 +273,8 @@ class BizCity_Video_Kling_Ajax {
         }
         unset( $c );
 
-        // Strip task_id from response (internal field, not needed by frontend)
-        $frontend_jobs = array_map( function( $j ) {
-            unset( $j['task_id'] );
-            return $j;
-        }, $jobs );
-
         wp_send_json_success( [
-            'jobs'   => $frontend_jobs,
+            'jobs'   => $jobs,
             'stats'  => compact( 'total', 'done', 'active' ),
             'chains' => array_values( $chains ),
         ] );
@@ -522,7 +485,7 @@ class BizCity_Video_Kling_Ajax {
             wp_send_json_error( [ 'message' => 'LLM client không khả dụng.' ] );
         }
 
-        $llm = new BizCity_LLM_Client();
+        $llm = BizCity_LLM_Client::instance();
         $result = $llm->chat( [
             [
                 'role'    => 'system',

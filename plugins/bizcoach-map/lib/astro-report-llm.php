@@ -21,8 +21,14 @@ if (!defined('ABSPATH')) exit;
  * =====================================================================*/
 
 function bccm_llm_call_openai($system, $user, $opts = []) {
-    if ( ! function_exists( 'bizcity_openrouter_chat' ) ) {
-        return new WP_Error( 'no_openrouter', 'bizcity_openrouter_chat() chưa sẵn sàng.' );
+    // PHASE-0-RULE-SMART-GATEWAY-MIGRATION: gọi qua BizCity LLM Router (gateway),
+    // KHÔNG gọi trực tiếp Hub bizcity_openrouter_chat() hay api.openai.com.
+    if ( ! class_exists( 'BizCity_LLM_Client' ) ) {
+        return new WP_Error( 'no_llm_client', 'BizCity_LLM_Client chưa sẵn sàng.' );
+    }
+    $client = BizCity_LLM_Client::instance();
+    if ( ! $client->is_ready() ) {
+        return new WP_Error( 'llm_not_ready', 'BizCity LLM Router chưa cấu hình API key.' );
     }
 
     $max_tokens  = $opts['max_tokens']  ?? 8000;
@@ -34,8 +40,11 @@ function bccm_llm_call_openai($system, $user, $opts = []) {
         [ 'role' => 'user',   'content' => $user ],
     ];
 
-    $result = bizcity_openrouter_chat( $messages, [
+    $model = $client->get_model( 'astro_report' ) ?: $client->get_model( 'chat' ) ?: 'gpt-4o-mini';
+
+    $result = $client->chat( $messages, [
         'purpose'     => 'astro_report',
+        'model'       => $model,
         'max_tokens'  => $max_tokens,
         'temperature' => $temperature,
         'timeout'     => $timeout,
@@ -43,11 +52,11 @@ function bccm_llm_call_openai($system, $user, $opts = []) {
 
     if ( empty( $result['success'] ) ) {
         $err = $result['error'] ?? 'Unknown error';
-        error_log( '[BCCM LLM] OpenRouter error: ' . $err );
-        return new WP_Error( 'openrouter_error', $err );
+        error_log( '[BCCM LLM] Router error: ' . $err );
+        return new WP_Error( 'router_error', $err );
     }
 
-    return trim( $result['message'] );
+    return trim( (string) ( $result['message'] ?? '' ) );
 }
 
 /* =====================================================================

@@ -11,10 +11,11 @@ class BZDoc_Installer {
 
 	/**
 	 * Create tables if they don't exist (self-healing — sub-plugin, no activation hook).
+	 * Pass $force=true to bypass schema-version check (used when a doc insert fails).
 	 */
-	public static function maybe_create_tables() {
+	public static function maybe_create_tables( bool $force = false ) {
 		$current = get_option( 'bzdoc_schema_version', '0' );
-		if ( version_compare( $current, BZDOC_SCHEMA_VERSION, '>=' ) ) {
+		if ( ! $force && version_compare( $current, BZDOC_SCHEMA_VERSION, '>=' ) ) {
 			return;
 		}
 
@@ -31,11 +32,13 @@ class BZDoc_Installer {
 			theme_name VARCHAR(50) NOT NULL DEFAULT 'modern',
 			schema_json LONGTEXT NOT NULL,
 			status VARCHAR(20) NOT NULL DEFAULT 'draft',
+			notebook_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
 			created_at DATETIME NOT NULL DEFAULT '0000-00-00 00:00:00',
 			updated_at DATETIME NOT NULL DEFAULT '0000-00-00 00:00:00',
 			PRIMARY KEY (id),
 			KEY idx_user_type (user_id, doc_type),
-			KEY idx_status (status)
+			KEY idx_status (status),
+			KEY idx_notebook (notebook_id)
 		) {$charset};
 
 		CREATE TABLE {$prefix}bzdoc_project_sources (
@@ -105,6 +108,14 @@ class BZDoc_Installer {
 		$col_exists = $wpdb->get_var( "SHOW COLUMNS FROM {$gen_table} LIKE 'schema_snapshot'" );
 		if ( ! $col_exists ) {
 			$wpdb->query( "ALTER TABLE {$gen_table} ADD COLUMN schema_snapshot LONGTEXT AFTER duration_ms" );
+		}
+
+		// v2.3: notebook_id binding column on documents (TwinShell primitive integration).
+		$doc_table = $prefix . 'bzdoc_documents';
+		$nb_col = $wpdb->get_var( "SHOW COLUMNS FROM {$doc_table} LIKE 'notebook_id'" );
+		if ( ! $nb_col ) {
+			$wpdb->query( "ALTER TABLE {$doc_table} ADD COLUMN notebook_id BIGINT UNSIGNED NOT NULL DEFAULT 0 AFTER status" );
+			$wpdb->query( "ALTER TABLE {$doc_table} ADD KEY idx_notebook (notebook_id)" );
 		}
 
 		update_option( 'bzdoc_schema_version', BZDOC_SCHEMA_VERSION );

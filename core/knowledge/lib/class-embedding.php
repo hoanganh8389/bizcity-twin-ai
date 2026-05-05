@@ -59,10 +59,65 @@ class BizCity_Knowledge_Embedding {
     }
     
     /**
-     * Get OpenAI API key
+     * Embeddings now go through the BizCity LLM Router (BUSINESS-MODEL §4.1,
+     * PHASE-0-RULE-SMART-GATEWAY-MIGRATION). The legacy `twf_openai_api_key`
+     * path is removed — `BizCity_LLM_Client` owns the gateway/direct mode
+     * decision, billing, fallback model and retries.
+     *
+     * Returns true when the gateway client is configured and ready.
      */
-    private function get_api_key() {
-        return get_option('twf_openai_api_key', '');
+    private function router_ready() {
+        return class_exists( 'BizCity_LLM_Client' )
+            && BizCity_LLM_Client::instance()->is_ready();
+    }
+
+    /**
+     * Call gateway embeddings with our existing throttle + retry wrapper.
+     *
+     * The router itself already applies tier-aware rate limiting, but we
+     * keep the local throttle so a single PHP request that loops over
+     * hundreds of triplets (KG approve_all_pending, knowledge fabric)
+     * does not flood the gateway with bursts.
+     *
+     * @param string|array $input  Single text or array of texts.
+     * @param int          $timeout HTTP timeout per attempt.
+     * @return array { success, embeddings, model, dimensions, usage, error }
+     */
+    private function router_embeddings( $input, $timeout = 30 ) {
+        $client = BizCity_LLM_Client::instance();
+
+        $max_attempts = 4;
+        $delay_us     = 250000; // 250 ms
+        $last         = [
+            'success' => false, 'embeddings' => [], 'model' => '',
+            'usage' => [], 'error' => 'router_unreached', 'dimensions' => 0,
+        ];
+
+        for ( $attempt = 1; $attempt <= $max_attempts; $attempt++ ) {
+            $this->throttle_embed_request();
+            $resp = $client->embeddings( $input, [
+                'model'   => self::MODEL,
+                'timeout' => (int) $timeout,
+            ] );
+            $last = $resp;
+
+            if ( ! empty( $resp['success'] ) ) {
+                return $resp;
+            }
+
+            $err = (string) ( $resp['error'] ?? '' );
+            $is_transient = ( stripos( $err, 'rate' )   !== false
+                           || stripos( $err, '429' )    !== false
+                           || stripos( $err, 'quota' )  !== false
+                           || stripos( $err, 'timeout' )!== false
+                           || stripos( $err, '5' )      === 0 );
+            if ( ! $is_transient || $attempt >= $max_attempts ) {
+                return $resp;
+            }
+            usleep( $delay_us );
+            $delay_us = min( $delay_us * 2, 4000000 );
+        }
+        return $last;
     }
     
     /**
@@ -76,12 +131,10 @@ class BizCity_Knowledge_Embedding {
      * @return array|WP_Error Embedding vector or error
      */
     public function create_embedding($text) {
-        $api_key = $this->get_api_key();
-        
-        if (empty($api_key)) {
-            return new WP_Error('no_api_key', 'OpenAI API key not configured');
+        if ( ! $this->router_ready() ) {
+            return new WP_Error( 'no_router', 'BizCity LLM Router not configured (option `bizcity_llm_api_key`).' );
         }
-        
+
         // Truncate text if too long (max ~8000 tokens for embedding model)
         $text = $this->truncate_text($text, 8000);
 
@@ -104,39 +157,23 @@ class BizCity_Knowledge_Embedding {
             return $cached;
         }
 
-        // L3: API call (slow — 200-800ms)
+        // L3: gateway call (slow — 200-800ms). Router applies tier-aware
+        // rate limiting + provider fallback; we still throttle locally to
+        // avoid bursting from tight KG approve_all_pending loops.
         $this->cache_stats['misses']++;
-        
-        $response = wp_remote_post('https://api.openai.com/v1/embeddings', [
-            'headers' => [
-                'Authorization' => 'Bearer ' . $api_key,
-                'Content-Type' => 'application/json'
-            ],
-            'body' => json_encode([
-                'model' => self::MODEL,
-                'input' => $text
-            ]),
-            'timeout' => 30
-        ]);
-        
-        if (is_wp_error($response)) {
-            return $response;
-        }
-        
-        $body = json_decode(wp_remote_retrieve_body($response), true);
-        
-        if (isset($body['data'][0]['embedding'])) {
-            $embedding = $body['data'][0]['embedding'];
 
-            // Store in both cache layers (TTL 5 min for transient)
-            $this->embed_cache[ $cache_hash ] = $embedding;
-            set_transient( $transient_k, $embedding, 5 * MINUTE_IN_SECONDS );
-
-            return $embedding;
+        $resp = $this->router_embeddings( $text, 30 );
+        if ( empty( $resp['success'] ) || empty( $resp['embeddings'][0] ) ) {
+            $err = (string) ( $resp['error'] ?? 'Unknown embedding error' );
+            return new WP_Error( 'embedding_error', $err );
         }
-        
-        $error_msg = $body['error']['message'] ?? 'Unknown embedding error';
-        return new WP_Error('embedding_error', $error_msg);
+        $embedding = $resp['embeddings'][0];
+
+        // Store in both cache layers (TTL 5 min for transient)
+        $this->embed_cache[ $cache_hash ] = $embedding;
+        set_transient( $transient_k, $embedding, 5 * MINUTE_IN_SECONDS );
+
+        return $embedding;
     }
 
     /**
@@ -154,46 +191,22 @@ class BizCity_Knowledge_Embedding {
      * @return array Array of embeddings or errors
      */
     public function create_embeddings_batch($texts) {
-        $api_key = $this->get_api_key();
-        
-        if (empty($api_key)) {
-            return new WP_Error('no_api_key', 'OpenAI API key not configured');
+        if ( ! $this->router_ready() ) {
+            return new WP_Error( 'no_router', 'BizCity LLM Router not configured (option `bizcity_llm_api_key`).' );
         }
-        
+
         // Truncate each text
         $texts = array_map(function($text) {
             return $this->truncate_text($text, 8000);
         }, $texts);
-        
-        $response = wp_remote_post('https://api.openai.com/v1/embeddings', [
-            'headers' => [
-                'Authorization' => 'Bearer ' . $api_key,
-                'Content-Type' => 'application/json'
-            ],
-            'body' => json_encode([
-                'model' => self::MODEL,
-                'input' => $texts
-            ]),
-            'timeout' => 60
-        ]);
-        
-        if (is_wp_error($response)) {
-            return $response;
+
+        $resp = $this->router_embeddings( array_values( $texts ), 60 );
+        if ( empty( $resp['success'] ) || empty( $resp['embeddings'] ) ) {
+            $err = (string) ( $resp['error'] ?? 'Unknown embedding error' );
+            return new WP_Error( 'embedding_error', $err );
         }
-        
-        $body = json_decode(wp_remote_retrieve_body($response), true);
-        
-        if (isset($body['data'])) {
-            $embeddings = [];
-            foreach ($body['data'] as $item) {
-                $embeddings[$item['index']] = $item['embedding'];
-            }
-            ksort($embeddings);
-            return array_values($embeddings);
-        }
-        
-        $error_msg = $body['error']['message'] ?? 'Unknown embedding error';
-        return new WP_Error('embedding_error', $error_msg);
+        // Router returns embeddings in the same order as the input array.
+        return array_values( $resp['embeddings'] );
     }
     
     /**
@@ -310,6 +323,63 @@ class BizCity_Knowledge_Embedding {
         $max_chars = intval(mb_strlen($text) * $ratio * 0.9); // 10% buffer
         
         return mb_substr($text, 0, $max_chars);
+    }
+
+    /**
+     * Rate-limit embedding requests across all callers.
+     *
+     * Two protection layers:
+     *   - In-process minimum gap (`bizcity_embed_throttle_us`, default 50 ms)
+     *     guards a single PHP request that loops many embed() calls
+     *     (legal chunker, knowledge fabric, KG approve_all_pending).
+     *   - Cross-process per-second cap (`bizcity_embed_max_per_sec`,
+     *     default 20) guards parallel PHP-FPM workers from collectively
+     *     exceeding the account-wide OpenAI quota. Implemented as an
+     *     atomic counter in the WP object cache (Redis-backed in this
+     *     environment) keyed by current unix second.
+     *
+     * Set either filter to 0 to disable that layer.
+     */
+    private function throttle_embed_request() {
+        // ---- Layer 1: in-process gap ----
+        static $last_call_us = 0;
+        $gap_us = (int) apply_filters( 'bizcity_embed_throttle_us', 50000 );
+        if ( $gap_us > 0 && $last_call_us > 0 ) {
+            $elapsed = (int) ( microtime( true ) * 1000000 ) - $last_call_us;
+            if ( $elapsed < $gap_us ) {
+                usleep( $gap_us - $elapsed );
+            }
+        }
+
+        // ---- Layer 2: cross-process per-second cap ----
+        $max_per_sec = (int) apply_filters( 'bizcity_embed_max_per_sec', 20 );
+        if ( $max_per_sec > 0 && function_exists( 'wp_cache_add' ) && function_exists( 'wp_cache_incr' ) ) {
+            // Try up to ~2 seconds to acquire a slot, then proceed regardless.
+            for ( $i = 0; $i < 20; $i++ ) {
+                $sec = time();
+                $key = 'embed_rl_' . $sec;
+                // Initialise counter for this second (atomic — only one
+                // worker wins). Short TTL of 2s is enough; key expires
+                // automatically. Group "bizcity_embed_throttle".
+                wp_cache_add( $key, 0, 'bizcity_embed_throttle', 2 );
+                $count = wp_cache_incr( $key, 1, 'bizcity_embed_throttle' );
+                if ( $count === false ) {
+                    // Object cache unavailable / no incr support → skip layer 2.
+                    break;
+                }
+                if ( (int) $count <= $max_per_sec ) {
+                    break; // slot acquired
+                }
+                // Over budget for this second — sleep until next second tick.
+                $sleep_us = (int) ( ( 1.0 - ( microtime( true ) - $sec ) ) * 1000000 );
+                if ( $sleep_us < 10000 ) {
+                    $sleep_us = 100000; // 100 ms minimum to avoid busy-loop
+                }
+                usleep( $sleep_us );
+            }
+        }
+
+        $last_call_us = (int) ( microtime( true ) * 1000000 );
     }
     
     /**
@@ -689,7 +759,15 @@ class BizCity_Knowledge_Embedding {
                 ],
                 ['id' => $source_id]
             );
-            
+
+            // Phase 0.6.5 — Wave C: notify KG-Hub mirror (feature-flagged + idempotent).
+            do_action( 'bizcity_kg_legacy_chunks_persisted', [
+                'cortex'              => 'knowledge',
+                'legacy_source_id'    => (int) $source_id,
+                'legacy_source_table' => $wpdb->prefix . 'bizcity_knowledge_sources',
+                'legacy_chunks_table' => $wpdb->prefix . 'bizcity_knowledge_chunks',
+            ] );
+
             return [
                 'success' => true,
                 'chunks_count' => $total_chunks,

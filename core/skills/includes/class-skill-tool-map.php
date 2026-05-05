@@ -35,7 +35,10 @@ class BizCity_Skill_Tool_Map {
 	/** @var string */
 	private $table;
 
-	const SCHEMA_VERSION     = '1.0.0';
+	/** 1.0.1 — force re-create on shards where table was missing
+	 *           (dbDelta failed silently, option was already saved as 1.0.0).
+	 */
+	const SCHEMA_VERSION     = '1.0.1';
 	const SCHEMA_VERSION_KEY = 'bizcity_skill_tool_map_db_version';
 
 	public static function instance(): self {
@@ -187,7 +190,7 @@ class BizCity_Skill_Tool_Map {
 
 		$skills_table = $wpdb->prefix . 'bizcity_skills';
 
-		$sql = "SELECT s.id, s.title, s.content, s.category, s.user_id, s.tools_json, m.binding
+		$sql = "SELECT s.id, s.title, s.content, s.category, s.user_id, s.tools_json, s.pipeline_json, m.binding
 				FROM {$this->table} m
 				JOIN {$skills_table} s ON s.id = m.skill_id
 				WHERE m.tool_key = %s

@@ -20,6 +20,7 @@
 defined('ABSPATH') or die('OOPS...');
 
 $db = BizCity_Knowledge_Database::instance();
+$iframe_suffix = ! empty( $_GET['bizcity_iframe'] ) ? '&bizcity_iframe=1' : '';
 
 // Get knowledge sources if editing
 $quick_knowledge = [];
@@ -53,6 +54,13 @@ if ($id) {
     
     // Get all chunks for this character
     $all_chunks = $db->get_all_chunks_with_source($id);
+
+    // Sprint 0.18.A.4 — newest first so user sees what they just added on top.
+    $sort_desc = static function ( $a, $b ) {
+        return strcmp( (string) ( $b->created_at ?? '' ), (string) ( $a->created_at ?? '' ) );
+    };
+    usort( $documents, $sort_desc );
+    usort( $websites, $sort_desc );
 }
 ?>
 
@@ -68,7 +76,7 @@ if ($id) {
                 <?php endif; ?>
             </div>
             <div class="bk-header-info">
-                <h1 id="header-title"><?php echo $is_new ? 'Tạo AI Character Mới' : esc_html($character->name); ?></h1>
+                <h1 id="header-title"><?php echo $is_new ? 'New Twin Guru' : esc_html($character->name); ?></h1>
                 <?php if (!$is_new): ?>
                     <div class="bk-character-meta">
                         <span class="bk-status bk-status-<?php echo esc_attr($character->status ?? 'draft'); ?>">
@@ -81,10 +89,6 @@ if ($id) {
         </div>
         <div class="bk-header-right">
             <?php if (!$is_new): ?>
-                <a href="<?php echo admin_url('admin.php?page=bizcity-knowledge-chat&character_id=' . $id); ?>" 
-                   class="button button-large bk-chat-btn" target="_blank">
-                    <span class="dashicons dashicons-format-chat"></span> Chat thử
-                </a>
                 <button type="button" class="button button-large bk-export-btn" id="export-knowledge-btn">
                     <span class="dashicons dashicons-download"></span> Export Knowledge
                 </button>
@@ -93,9 +97,9 @@ if ($id) {
                 </button>
             <?php endif; ?>
             <button type="button" class="button button-large bk-save-btn" id="save-character-btn">
-                <span class="dashicons dashicons-saved"></span> Lưu thay đổi
+                <span class="dashicons dashicons-saved"></span> Save Changes
             </button>
-            <a href="<?php echo admin_url('admin.php?page=bizcity-knowledge-characters'); ?>" class="button button-large">Quay lại</a>
+            <a href="<?php echo admin_url('admin.php?page=bizcity-knowledge-characters' . $iframe_suffix); ?>" class="button button-large">Back</a>
         </div>
     </div>
     
@@ -108,16 +112,16 @@ if ($id) {
         <div class="bk-tabs-nav">
             <button type="button" class="bk-tab-btn active" data-tab="general">
                 <span class="dashicons dashicons-admin-generic"></span>
-                Tổng quan
+                Overview
             </button>
             <button type="button" class="bk-tab-btn" data-tab="quick-knowledge">
                 <span class="dashicons dashicons-editor-table"></span>
-                Đào tạo nhanh
+                Quick Training
                 <span class="bk-tab-count"><?php echo count($quick_knowledge); ?></span>
             </button>
             <button type="button" class="bk-tab-btn" data-tab="documents">
                 <span class="dashicons dashicons-media-document"></span>
-                Tài liệu
+                Documents
                 <span class="bk-tab-count"><?php echo count($documents); ?></span>
             </button>
             <button type="button" class="bk-tab-btn" data-tab="websites">
@@ -125,28 +129,25 @@ if ($id) {
                 Websites
                 <span class="bk-tab-count"><?php echo count($websites); ?></span>
             </button>
-            <button type="button" class="bk-tab-btn" data-tab="faqs">
-                <span class="dashicons dashicons-editor-help"></span>
-                FAQs
-            </button>
-            <button type="button" class="bk-tab-btn" data-tab="legacy-faq">
-                <span class="dashicons dashicons-database-import"></span>
-                Legacy FAQ Posts
-            </button>
             <button type="button" class="bk-tab-btn" data-tab="model">
                 <span class="dashicons dashicons-admin-settings"></span>
-                Choose Model
+                Cài đặt AI
+            </button>
+            <button type="button" class="bk-tab-btn" data-tab="skills">
+                <span class="dashicons dashicons-superhero-alt"></span>
+                Skills
+                <span class="bk-tab-count" id="bk-skills-count">0</span>
             </button>
         </div>
         
         <!-- Tab: General -->
         <div class="bk-tab-content active" id="tab-general">
             <div class="bk-tab-inner">
-                <h2>Thông tin cơ bản</h2>
+                <h2>Basic Information</h2>
                 
                 <table class="form-table">
                     <tr>
-                        <th><label for="character-name">Tên Character *</label></th>
+                        <th><label for="character-name">Name *</label></th>
                         <td>
                             <input type="text" name="name" id="character-name" class="regular-text" required
                                 value="<?php echo esc_attr($character->name ?? ''); ?>"
@@ -326,6 +327,49 @@ if ($id) {
                             </select>
                         </td>
                     </tr>
+                    <?php
+                    // ── Wave 0.18.2 — Twin Guru Persona Provider binding (settings.provider_id) ──
+                    $current_provider_id = '';
+                    $character_settings  = [];
+                    if ( ! empty( $character->settings ) ) {
+                        $character_settings = is_string( $character->settings )
+                            ? (array) json_decode( $character->settings, true )
+                            : (array) $character->settings;
+                        $current_provider_id = isset( $character_settings['provider_id'] )
+                            ? (string) $character_settings['provider_id']
+                            : '';
+                    }
+                    $persona_providers = [];
+                    if ( class_exists( 'BizCity_Persona_Registry' ) ) {
+                        foreach ( BizCity_Persona_Registry::instance()->all() as $slug => $prov ) {
+                            $persona_providers[ $slug ] = method_exists( $prov, 'label' ) ? (string) $prov->label() : (string) $slug;
+                        }
+                    }
+                    ?>
+                    <tr>
+                        <th><label for="persona-provider-id">🧩 Twin Guru Provider</label></th>
+                        <td>
+                            <select name="persona_provider_id" id="persona-provider-id" class="regular-text">
+                                <option value=""><?php esc_html_e( '— Không gắn provider (pure prompt) —', 'bizcity-twin-ai' ); ?></option>
+                                <?php foreach ( $persona_providers as $slug => $label ) : ?>
+                                    <option value="<?php echo esc_attr( $slug ); ?>" <?php selected( $current_provider_id, $slug ); ?>>
+                                        <?php echo esc_html( $label . ' (' . $slug . ')' ); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                                <?php if ( $current_provider_id !== '' && ! isset( $persona_providers[ $current_provider_id ] ) ) : ?>
+                                    <option value="<?php echo esc_attr( $current_provider_id ); ?>" selected>
+                                        <?php echo esc_html( $current_provider_id . ' — ⚠ provider chưa load' ); ?>
+                                    </option>
+                                <?php endif; ?>
+                            </select>
+                            <p class="description">
+                                <?php esc_html_e( 'Gắn character này với Persona Provider (PHASE-0.18). Khi notebook chọn character → tự lấy smart-source chips, tools, và artifact dialog tương ứng.', 'bizcity-twin-ai' ); ?>
+                                <?php if ( empty( $persona_providers ) ) : ?>
+                                    <br><strong style="color:#b91c1c;">⚠ <?php esc_html_e( 'Chưa có persona provider nào được register. Cần activate plugin (vd: bizcoach-map).', 'bizcity-twin-ai' ); ?></strong>
+                                <?php endif; ?>
+                            </p>
+                        </td>
+                    </tr>
                 </table>
             </div>
         </div>
@@ -409,6 +453,17 @@ if ($id) {
                     <p class="bk-upload-text">Kéo thả file vào đây hoặc</p>
                     <button type="button" class="button button-primary" id="browse-documents">Chọn file</button>
                     <p class="bk-upload-formats">Hỗ trợ: PDF, Image, TXT, Word, Excel, CSV</p>
+                </div>
+
+                <!-- Sprint 0.18.A.4 — Upload progress dialog -->
+                <div class="bk-progress-panel" id="upload-progress-panel" style="display:none;">
+                    <div class="bk-progress-header">
+                        <span class="dashicons dashicons-update bk-spin"></span>
+                        <strong id="upload-progress-title">Đang upload &amp; embed…</strong>
+                        <span class="bk-progress-counter" id="upload-progress-counter"></span>
+                    </div>
+                    <div class="bk-progress-bar"><div class="bk-progress-bar-fill" id="upload-progress-fill"></div></div>
+                    <ul class="bk-progress-log" id="upload-progress-log"></ul>
                 </div>
                 
                 <div class="bk-documents-list" id="documents-list">
@@ -505,6 +560,18 @@ if ($id) {
                     <div class="bk-website-input-form">
                         <input type="text" id="website-url" class="large-text" placeholder="https://www.example.com">
                         <button type="button" class="button button-primary" id="add-website">Add link</button>
+                    </div>
+                </div>
+
+                <!-- Sprint 0.18.A.4 — AJAX console for website crawl/embed -->
+                <div class="bk-console" id="website-console">
+                    <div class="bk-console-header">
+                        <span class="dashicons dashicons-editor-code"></span>
+                        <strong>Console — crawl &amp; embed</strong>
+                        <button type="button" class="button-link bk-console-clear" id="website-console-clear">clear</button>
+                    </div>
+                    <div class="bk-console-body" id="website-console-body">
+                        <div class="bk-console-line bk-console-info">[ready] Nhập URL ở trên rồi bấm <em>Add link</em>. Mọi request AJAX sẽ log tại đây.</div>
                     </div>
                 </div>
                 
@@ -636,6 +703,8 @@ if ($id) {
             </div>
         </div>
         
+        <!-- Tab: FAQs (REMOVED Sprint 0.18.A.4) -->
+        <?php if ( false ): ?>
         <!-- Tab: FAQs -->
         <div class="bk-tab-content" id="tab-faqs">
             <div class="bk-tab-inner">
@@ -801,6 +870,7 @@ if ($id) {
                 </div>
             </div>
         </div>
+        <?php endif; // end removed FAQs/Legacy tabs ?>
         
         <!-- Tab: Model -->
         <div class="bk-tab-content" id="tab-model">
@@ -814,22 +884,24 @@ if ($id) {
                 <?php
                 $selected_model = $character->model_id ?? '';
                 $creativity_level = $character->creativity_level ?? 0.7;
+                $max_tokens_val = $character->max_tokens ?? null;
                 $greeting_messages = $character->greeting_messages ?? '[]';
                 if (is_string($greeting_messages)) {
                     $greeting_messages = json_decode($greeting_messages, true) ?: [];
                 }
                 $openrouter_api_key = get_option('bizcity_knowledge_openrouter_api_key', '');
-                $openai_key = get_option('twf_openai_api_key', '');
+                // PHASE-0-RULE-SMART-GATEWAY-MIGRATION: status hiển thị theo Router thay vì twf_openai_api_key.
+                $router_ready = class_exists( 'BizCity_LLM_Client' ) && BizCity_LLM_Client::instance()->is_ready();
                 ?>
                 
                 <div class="bk-api-status" style="background: #f0f0f1; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
                     <h3 style="margin-top: 0;">📊 Trạng thái API</h3>
                     <p style="margin: 5px 0;">
-                        <strong>OpenAI API (Default):</strong> 
-                        <?php if (!empty($openai_key)): ?>
-                            <span style="color: green;">✓ Đã cấu hình</span> - Sử dụng model <code>gpt-4o-mini</code>
+                        <strong>BizCity LLM Router (Default):</strong>
+                        <?php if ( $router_ready ): ?>
+                            <span style="color: green;">✓ Đã cấu hình</span> - Sử dụng model <code>gpt-4o-mini</code> qua Router
                         <?php else: ?>
-                            <span style="color: red;">✗ Chưa cấu hình</span>
+                            <span style="color: red;">✗ Chưa cấu hình</span> — set option <code>bizcity_llm_api_key</code>
                         <?php endif; ?>
                     </p>
                     <p style="margin: 5px 0;">
@@ -885,7 +957,23 @@ if ($id) {
                             <p class="description">Temperature điều chỉnh độ sáng tạo của AI. Thấp = chính xác, Cao = sáng tạo.</p>
                         </td>
                     </tr>
-                    
+
+                    <tr>
+                        <th><label for="max-tokens">Max Tokens (Output)</label></th>
+                        <td>
+                            <input type="number" name="max_tokens" id="max-tokens"
+                                min="0" max="32000" step="1"
+                                value="<?php echo esc_attr( $max_tokens_val !== null && $max_tokens_val !== '' ? (int) $max_tokens_val : '' ); ?>"
+                                placeholder="Mặc định: 3000"
+                                class="small-text">
+                            <p class="description">
+                                Giới hạn token đầu ra cho mỗi câu trả lời của Guru này.
+                                <strong>Để trống</strong> = dùng mặc định hệ thống (<code>3000</code>).
+                                Giá trị lớn cho câu trả lời dài hơn nhưng tốn nhiều token & chậm hơn.
+                            </p>
+                        </td>
+                    </tr>
+
                     <tr>
                         <th><label for="greeting-messages">Greeting Messages</label></th>
                         <td>
@@ -922,8 +1010,152 @@ if ($id) {
                 </table>
             </div>
         </div>
+
+        <!-- Tab: Skills (Phase 0.20.2) -->
+        <div class="bk-tab-content" id="tab-skills">
+            <div class="bk-tab-inner">
+                <h2>🪄 Skills bound to this character</h2>
+                <p class="description">
+                    Skills là <strong>recipe markdown</strong> (frontmatter + nội dung) gắn với character.
+                    Khi user gõ <code>/slash_command</code> hoặc gửi message khớp triggers, TwinChat sẽ inject
+                    skill vào system prompt và mở khoá các tool tương ứng cho LLM gọi.
+                </p>
+
+                <div class="bk-skills-toolbar" style="margin:12px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                    <button type="button" class="button button-secondary" id="bk-skills-refresh">
+                        <span class="dashicons dashicons-update"></span> Refresh
+                    </button>
+                    <button type="button" class="button button-primary" id="bk-skills-clone-open">
+                        <span class="dashicons dashicons-plus-alt2"></span> Clone từ Skill Library
+                    </button>
+                    <a href="<?php echo esc_url( admin_url( 'admin.php?page=bizcity-skills' ) ); ?>" target="_blank" class="button button-link">
+                        <span class="dashicons dashicons-external"></span> Mở Skill Library
+                    </a>
+                </div>
+
+                <div id="bk-skills-list" class="bk-skills-list" data-character-id="<?php echo (int) $id; ?>">
+                    <p class="description"><em>Đang tải skills…</em></p>
+                </div>
+            </div>
+        </div>
+        <!-- /Tab: Skills -->
     </form>
     
     <!-- Hidden file input for imports -->
     <input type="file" id="import-file-input" accept=".csv,.xlsx,.xls" style="display:none;">
 </div>
+
+<style>
+.bk-skills-list{display:flex;flex-direction:column;gap:10px}
+.bk-skill-card{border:1px solid #dcdcde;border-radius:8px;padding:12px 14px;background:#fff;display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.bk-skill-card .bk-skill-meta{flex:1;min-width:0}
+.bk-skill-card h4{margin:0 0 4px 0;font-size:14px}
+.bk-skill-card .bk-skill-key{color:#646970;font-size:12px;font-family:Menlo,Monaco,monospace}
+.bk-skill-card .bk-skill-tags{margin-top:6px;display:flex;flex-wrap:wrap;gap:4px}
+.bk-skill-card .bk-skill-tag{background:#f0f0f1;border:1px solid #dcdcde;border-radius:999px;font-size:11px;padding:1px 8px;color:#1d2327}
+.bk-skill-card .bk-skill-tag.slash{background:#eff6ff;border-color:#bfdbfe;color:#1d4ed8;font-family:Menlo,Monaco,monospace}
+.bk-skill-card .bk-skill-tag.tool{background:#ecfdf5;border-color:#a7f3d0;color:#065f46;font-family:Menlo,Monaco,monospace}
+.bk-skill-card .bk-skill-actions{display:flex;flex-direction:column;gap:6px;align-items:flex-end}
+.bk-skill-card.is-draft{opacity:.65;border-style:dashed}
+.bk-skills-empty{padding:18px;border:1px dashed #c3c4c7;border-radius:8px;text-align:center;color:#646970}
+</style>
+
+<script>
+jQuery(function($){
+    var $list = $('#bk-skills-list');
+    if(!$list.length) return;
+
+    var characterId = parseInt($list.attr('data-character-id') || '0', 10);
+    if(!characterId){ return; }
+
+    var REST_BASE  = <?php echo wp_json_encode( esc_url_raw( rest_url( 'bizcity/skill/v1' ) ) ); ?>;
+    var REST_NONCE = <?php echo wp_json_encode( wp_create_nonce( 'wp_rest' ) ); ?>;
+
+    function api(method, path, body){
+        return $.ajax({
+            url: REST_BASE + path,
+            method: method,
+            contentType: 'application/json',
+            data: body ? JSON.stringify(body) : undefined,
+            beforeSend: function(xhr){ xhr.setRequestHeader('X-WP-Nonce', REST_NONCE); }
+        });
+    }
+
+    function escapeHtml(s){
+        return String(s == null ? '' : s)
+            .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+            .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    }
+
+    function renderSkill(s){
+        var slash = (s.slash_commands || []).map(function(c){
+            return '<span class="bk-skill-tag slash">/' + escapeHtml(String(c).replace(/^\//,'')) + '</span>';
+        }).join('');
+        var tools = (s.tools || []).map(function(t){
+            return '<span class="bk-skill-tag tool">@' + escapeHtml(t) + '</span>';
+        }).join('');
+        var modes = (s.modes || []).map(function(m){
+            return '<span class="bk-skill-tag">' + escapeHtml(m) + '</span>';
+        }).join('');
+        var draft = (s.status && s.status !== 'active') ? ' is-draft' : '';
+        return ''
+          + '<div class="bk-skill-card' + draft + '" data-skill-id="' + (s.id|0) + '">'
+          +   '<div class="bk-skill-meta">'
+          +     '<h4>' + escapeHtml(s.title || s.skill_key) + '</h4>'
+          +     '<div class="bk-skill-key">' + escapeHtml(s.skill_key) + ' · priority ' + (s.priority|0) + ' · ' + escapeHtml(s.status || 'active') + '</div>'
+          +     '<div class="bk-skill-tags">' + slash + tools + modes + '</div>'
+          +   '</div>'
+          +   '<div class="bk-skill-actions">'
+          +     '<a href="' + <?php echo wp_json_encode( esc_url_raw( admin_url( 'admin.php?page=bizcity-skills' ) ) ); ?> + '#skill-' + (s.id|0) + '" target="_blank" class="button button-small">Edit</a>'
+          +     '<button type="button" class="button button-small bk-skill-detach" data-skill-id="' + (s.id|0) + '">Detach</button>'
+          +   '</div>'
+          + '</div>';
+    }
+
+    function load(){
+        $list.html('<p class="description"><em>Đang tải skills…</em></p>');
+        api('GET', '/character/' + characterId + '/skills').done(function(res){
+            var skills = (res && res.skills) || [];
+            $('#bk-skills-count').text(skills.length);
+            if(!skills.length){
+                $list.html('<div class="bk-skills-empty">Chưa có skill nào gắn với character này.<br>Nhấn <strong>Clone từ Skill Library</strong> để bắt đầu.</div>');
+                return;
+            }
+            $list.html(skills.map(renderSkill).join(''));
+        }).fail(function(xhr){
+            $list.html('<div class="notice notice-error"><p>Không tải được skills: ' + escapeHtml(xhr.responseText || xhr.statusText) + '</p></div>');
+        });
+    }
+
+    $('#bk-skills-refresh').on('click', load);
+
+    $('#bk-skills-clone-open').on('click', function(){
+        var raw = window.prompt('Nhập Skill ID nguồn (xem ở Skill Library) để clone vào character này:', '');
+        if(!raw) return;
+        var srcId = parseInt(raw, 10);
+        if(!srcId){ alert('Skill ID không hợp lệ'); return; }
+        api('POST', '/character/' + characterId + '/skills/clone', { source_skill_id: srcId }).done(function(){
+            load();
+        }).fail(function(xhr){
+            alert('Clone thất bại: ' + (xhr.responseText || xhr.statusText));
+        });
+    });
+
+    $list.on('click', '.bk-skill-detach', function(){
+        var id = parseInt($(this).attr('data-skill-id'), 10);
+        if(!id) return;
+        if(!confirm('Detach (xoá) skill này khỏi character? Hành động không thể hoàn tác.')) return;
+        api('DELETE', '/skill/' + id).done(load).fail(function(xhr){
+            alert('Detach thất bại: ' + (xhr.responseText || xhr.statusText));
+        });
+    });
+
+    // Lazy-load when the Skills tab is first activated
+    var loaded = false;
+    $(document).on('click', '.bk-tab-btn[data-tab="skills"]', function(){
+        if(loaded) return;
+        loaded = true;
+        load();
+    });
+});
+</script>

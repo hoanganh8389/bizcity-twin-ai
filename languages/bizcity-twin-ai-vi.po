@@ -1,0 +1,184 @@
+# Vietnamese translation for bizcity-twin-ai (TwinChat UI).
+msgid ""
+msgstr ""
+"Project-Id-Version: bizcity-twin-ai\n"
+"PO-Revision-Date: 2026-04-28T08:51:09.945Z\n"
+"Language: vi\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"X-Generator: scripts/i18n-build.cjs\n"
+
+
+#: modules/twinchat/ui/src/services/learningRunner.ts:99
+msgid " · %d remaining"
+msgstr " · còn %d"
+
+#: modules/twinchat/ui/src/hooks/useLearningStream.ts:35
+msgid "· ajax-driver #%1$d → %2$s"
+msgstr "· ajax-driver #%1$d → %2$s"
+
+#: modules/twinchat/ui/src/services/learningRunner.ts:55
+msgid "· finalizing learning process (waiting up to %ds for central Twin)…"
+msgstr "· đang hoàn thành quá trình học tập (chờ Twin trung tâm tối đa %d giây)…"
+
+#: modules/twinchat/ui/src/services/learningRunner.ts:98
+msgid "[%1$d] +%2$d passages → %3$d relationships"
+msgstr "[%1$d] +%2$d đoạn → %3$d quan hệ"
+
+#: modules/twinchat/ui/src/components/LearningPanel.tsx:44
+msgid "%dh ago"
+msgstr "%d giờ trước"
+
+#: modules/twinchat/ui/src/components/LearningPanel.tsx:43
+msgid "%dm ago"
+msgstr "%d phút trước"
+
+#: modules/twinchat/ui/src/components/LearningPanel.tsx:42
+msgid "%ds ago"
+msgstr "%d giây trước"
+
+#: modules/twinchat/ui/src/services/learningRunner.ts:76
+msgid "╭─ Twin (fallback mode) starting to learn notebook #%d"
+msgstr "╭─ Twin (chế độ dự phòng) bắt đầu học notebook #%d"
+
+#: modules/twinchat/ui/src/services/learningRunner.ts:133
+msgid "╰─ Completed after %ss"
+msgstr "╰─ Hoàn tất sau %s giây"
+
+#: modules/twinchat/ui/src/components/LearningPanel.tsx:143
+msgid "Add a document to get started."
+msgstr "Thêm tài liệu để bắt đầu."
+
+#: modules/twinchat/ui/src/services/learningRunner.ts:122
+msgid "Cache refreshed. ✅"
+msgstr "Cache đã làm mới. ✅"
+
+#: modules/twinchat/ui/src/components/LearningPanel.tsx:129
+msgid "Clear log"
+msgstr "Xoá log"
+
+#: modules/twinchat/ui/src/hooks/useLearningStream.ts:102
+msgid "Connected to central Twin (SSE) — listening for learning progress."
+msgstr "Đã kết nối Twin trung tâm (SSE) — đang theo dõi tiến trình học."
+
+#: modules/twinchat/ui/src/services/learningRunner.ts:65
+msgid "Could not reach the central Twin — falling back to in-browser pipeline…"
+msgstr "Không kết nối được với Twin trung tâm — chuyển sang pipeline trên trình duyệt…"
+
+#: modules/twinchat/ui/src/hooks/useLearningStream.ts:116
+msgid "Could not read job list: %s"
+msgstr "Không đọc được danh sách job: %s"
+
+#: modules/twinchat/ui/src/hooks/useLearningStream.ts:57
+msgid "cron is holding the lease (busy x%d) — waiting 2s…"
+msgstr "cron đang giữ lease (busy x%d) — chờ 2 giây…"
+
+#: modules/twinchat/ui/src/services/learningRunner.ts:99
+msgid "done"
+msgstr "xong"
+
+#: modules/twinchat/ui/src/hooks/useLearningStream.ts:51
+msgid "done after %1$d ticks (phase=%2$s)"
+msgstr "xong sau %1$d tick (phase=%2$s)"
+
+#: modules/twinchat/ui/src/components/LearningPanel.tsx:101
+msgid "Duration:"
+msgstr "Thời lượng:"
+
+#: modules/twinchat/ui/src/hooks/useLearningStream.ts:163
+msgid "Failed: %s"
+msgstr "Thất bại: %s"
+
+#: modules/twinchat/ui/src/hooks/useLearningStream.ts:213
+msgid "Finished learning the new source."
+msgstr "Đã học xong nguồn vừa tải lên."
+
+#: modules/twinchat/ui/src/hooks/useLearningStream.ts:111
+msgid "Found %d pending job(s) — activating ajax-driver."
+msgstr "Tìm thấy %d job đang chờ — kích hoạt ajax-driver."
+
+#: modules/twinchat/ui/src/components/LearningPanel.tsx:99
+msgid "Last run:"
+msgstr "Lần cuối:"
+
+#: modules/twinchat/ui/src/components/LearningPanel.tsx:68
+msgid "Learning achievements"
+msgstr "Thành tích học tập"
+
+#: modules/twinchat/ui/src/components/LearningPanel.tsx:92
+msgid "Learning runs"
+msgstr "Số lần học"
+
+#: modules/twinchat/ui/src/components/LearningPanel.tsx:114
+msgid "Learning…"
+msgstr "Đang học…"
+
+#: modules/twinchat/ui/src/services/learningRunner.ts:104
+msgid "Loop %d: Twin needs a short break, will continue next round…"
+msgstr "Vòng %d: Twin cần nghỉ một chút, sẽ tiếp vòng sau…"
+
+#: modules/twinchat/ui/src/hooks/useLearningStream.ts:46
+msgid "network error (%s) — retrying in 3s"
+msgstr "lỗi mạng (%s) — thử lại sau 3 giây"
+
+#: modules/twinchat/ui/src/components/LearningPanel.tsx:40
+msgid "Never"
+msgstr "Chưa có"
+
+#: modules/twinchat/ui/src/components/LearningPanel.tsx:86
+msgid "New concepts"
+msgstr "Khái niệm mới"
+
+#: modules/twinchat/ui/src/components/LearningPanel.tsx:142
+msgid "No learning activity yet."
+msgstr "Chưa có hoạt động học tập."
+
+#: modules/twinchat/ui/src/components/LearningPanel.tsx:74
+msgid "Passages read"
+msgstr "Đoạn đã đọc"
+
+#: modules/twinchat/ui/src/services/learningRunner.ts:130
+msgid "Pipeline error: %s"
+msgstr "Lỗi pipeline: %s"
+
+#: modules/twinchat/ui/src/services/learningRunner.ts:54
+msgid "Pushing source for Twin (Second Brain) to learn…"
+msgstr "Đẩy nguồn cho Twin (Second Brain) học…"
+
+#: modules/twinchat/ui/src/components/LearningPanel.tsx:119
+msgid "Ready"
+msgstr "Sẵn sàng"
+
+#: modules/twinchat/ui/src/components/LearningPanel.tsx:80
+msgid "Relationships"
+msgstr "Quan hệ"
+
+#: modules/twinchat/ui/src/hooks/useLearningStream.ts:36
+msgid "starting to push job via admin-ajax tick…"
+msgstr "bắt đầu đẩy job qua admin-ajax tick…"
+
+#: modules/twinchat/ui/src/hooks/useLearningStream.ts:66
+msgid "tab is hidden — yielding to cron lane"
+msgstr "tab đang ẩn — nhường cho cron lane"
+
+#: modules/twinchat/ui/src/services/learningRunner.ts:110
+msgid "Total: %1$d passages · %2$d relationships"
+msgstr "Tổng: %1$d đoạn · %2$d quan hệ"
+
+#: modules/twinchat/ui/src/hooks/useLearningStream.ts:135
+msgid "Twin accepted learning #%d"
+msgstr "Twin đã nhận học tập #%d"
+
+#: modules/twinchat/ui/src/services/learningRunner.ts:86
+msgid "Twin is reading the source…"
+msgstr "Twin đang đọc nguồn…"
+
+#: modules/twinchat/ui/src/services/learningRunner.ts:111
+msgid "Twin is writing into the Second Brain…"
+msgstr "Twin đang ghi vào Second Brain…"
+
+#: modules/twinchat/ui/src/services/learningRunner.ts:115
+msgid "Twin memorized %1$d relationships → %2$d new concepts"
+msgstr "Twin đã ghi nhớ %1$d quan hệ → %2$d khái niệm mới"

@@ -110,17 +110,14 @@ class BCN_Intent_Detector {
 
     private static function search_patterns(): array {
         return [
-            // Vietnamese
-            'tìm kiếm thêm', 'tìm kiếm nguồn', 'tìm nguồn',
-            'bổ sung nguồn', 'thêm nguồn', 'thêm tài liệu',
-            'tìm tài liệu', 'tìm hiểu thêm trên web',
-            'tìm trên internet', 'tìm trên mạng',
+            // Vietnamese — explicit source-adding signals only
+            'bổ sung nguồn', 'thêm nguồn', 'thêm tài liệu mới',
+            'tìm nguồn mới', 'tìm kiếm nguồn',
+            'tìm hiểu thêm trên web', 'tìm trên internet', 'tìm trên mạng',
             'tìm kiếm web', 'tìm kiếm internet',
-            'muốn tìm thêm', 'cần tìm thêm nguồn',
-            'tìm thêm về', 'tra cứu thêm',
+            'cần tìm thêm nguồn', 'muốn tìm thêm nguồn',
             // English / mixed
-            'search web', 'research về', 'deep search',
-            'find sources', 'add sources',
+            'search web', 'find sources', 'add sources',
         ];
     }
 
@@ -143,12 +140,11 @@ class BCN_Intent_Detector {
 
     private static function start_research_patterns(): array {
         return [
-            // Vietnamese — explicit "start" signals
-            'bắt đầu nghiên cứu', 'bắt đầu tìm kiếm', 'bắt đầu tìm',
+            // Vietnamese — explicit "start" + deep research signals only
+            'bắt đầu nghiên cứu', 'bắt đầu tìm kiếm',
             'bắt đầu deep research', 'chạy deep research',
             'mở deep research', 'thực hiện deep research',
-            'deep research về', 'nghiên cứu sâu', 'nghiên cứu chuyên sâu',
-            'tìm kiếm sâu', 'nghiên cứu thêm', 'tìm hiểu sâu hơn',
+            'deep research về',
             // English / mixed
             'deep research', 'start research',
         ];

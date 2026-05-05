@@ -39,7 +39,8 @@ class BizCity_Chat_History_Service {
         global $wpdb;
         $table = $wpdb->prefix . 'bizcity_webchat_messages';
 
-        if ( $wpdb->get_var( "SHOW TABLES LIKE '$table'" ) !== $table ) {
+        // Cached qua `bizcity_known_tables` — chỉ hit DB 1 lần / blog.
+        if ( function_exists( 'bizcity_table_exists' ) ? ! bizcity_table_exists( $table ) : ( $wpdb->get_var( "SHOW TABLES LIKE '$table'" ) !== $table ) ) {
             return [];
         }
 
@@ -115,7 +116,7 @@ class BizCity_Chat_History_Service {
         global $wpdb;
         $table = $wpdb->prefix . 'bizcity_webchat_messages';
 
-        if ( $wpdb->get_var( "SHOW TABLES LIKE '$table'" ) !== $table ) {
+        if ( function_exists( 'bizcity_table_exists' ) ? ! bizcity_table_exists( $table ) : ( $wpdb->get_var( "SHOW TABLES LIKE '$table'" ) !== $table ) ) {
             return false;
         }
 
@@ -154,7 +155,10 @@ class BizCity_Chat_History_Service {
         $table = $wpdb->prefix . 'bizcity_webchat_messages';
 
         $deleted = 0;
-        if ( $wpdb->get_var( "SHOW TABLES LIKE '$table'" ) === $table ) {
+        $msg_exists = function_exists( 'bizcity_table_exists' )
+            ? bizcity_table_exists( $table )
+            : ( $wpdb->get_var( "SHOW TABLES LIKE '$table'" ) === $table );
+        if ( $msg_exists ) {
             $deleted = $wpdb->delete( $table, [
                 'session_id'    => $session_id,
                 'platform_type' => $platform_type,
@@ -163,7 +167,10 @@ class BizCity_Chat_History_Service {
 
         // Close conversation
         $conv_table = $wpdb->prefix . 'bizcity_webchat_conversations';
-        if ( $wpdb->get_var( "SHOW TABLES LIKE '$conv_table'" ) === $conv_table ) {
+        $conv_exists = function_exists( 'bizcity_table_exists' )
+            ? bizcity_table_exists( $conv_table )
+            : ( $wpdb->get_var( "SHOW TABLES LIKE '$conv_table'" ) === $conv_table );
+        if ( $conv_exists ) {
             $wpdb->query( $wpdb->prepare(
                 "UPDATE {$conv_table} SET status = 'closed', ended_at = NOW() WHERE session_id = %s AND platform_type = %s",
                 $session_id,

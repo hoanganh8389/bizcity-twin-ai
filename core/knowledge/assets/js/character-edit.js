@@ -454,34 +454,146 @@ Guidelines:
         
         initQuickKnowledgeTable() {
             const $tbody = $('#quick-knowledge-tbody');
-            
+
             // Add new row
             $('#add-quick-knowledge-row').on('click', () => {
                 this.addQuickKnowledgeRow();
             });
-            
-            // Delete row
+
+            // Delete row — Sprint 0.18.A.3: AJAX-delete row from DB instead of just DOM.
             $tbody.on('click', '.bk-row-delete', function() {
-                if (confirm('Xóa dòng này?')) {
-                    $(this).closest('tr').remove();
+                if (!confirm('Delete this row?')) return;
+                const $row      = $(this).closest('tr');
+                const sourceId  = parseInt($row.attr('data-id'), 10) || 0;
+                const charId    = parseInt($('#character-id').val(), 10) || 0;
+
+                // Unsaved row (id=0) → just remove from DOM, no AJAX needed.
+                if (sourceId <= 0 || charId <= 0) {
+                    $row.remove();
                     CharacterEdit.updateRowNumbers('#quick-knowledge-tbody');
                     CharacterEdit.updateQuickKnowledgeData();
+                    CharacterEdit.refreshFaqTabCount();
+                    return;
                 }
+
+                $row.css('opacity', .5);
+                $.post(bizcity_knowledge_vars.ajaxurl, {
+                    action:       'bizcity_knowledge_quick_faq_delete',
+                    nonce:        bizcity_knowledge_vars.nonce,
+                    character_id: charId,
+                    source_id:    sourceId
+                }).done((response) => {
+                    if (response && response.success) {
+                        $row.fadeOut(200, function() {
+                            $(this).remove();
+                            CharacterEdit.updateRowNumbers('#quick-knowledge-tbody');
+                            CharacterEdit.updateQuickKnowledgeData();
+                            CharacterEdit.refreshFaqTabCount();
+                        });
+                    } else {
+                        $row.css('opacity', 1);
+                        CharacterEdit.showMessage(
+                            (response && response.data && response.data.message) || 'Delete failed!',
+                            'error'
+                        );
+                    }
+                }).fail(() => {
+                    $row.css('opacity', 1);
+                    CharacterEdit.showMessage('Connection error during delete!', 'error');
+                });
             });
-            
-            // Auto-save on blur
-            $tbody.on('blur', '.bk-editable', () => {
-                this.updateQuickKnowledgeData();
+
+            // Auto-save on blur — Sprint 0.18.A.3: per-row AJAX upsert.
+            $tbody.on('blur', '.bk-editable', function() {
+                CharacterEdit.updateQuickKnowledgeData();
+                CharacterEdit.autoSaveQuickKnowledgeRow($(this).closest('tr'));
             });
-            
+
             // Import/Export
             $('#import-quick-knowledge').on('click', () => this.importQuickKnowledge());
             $('#export-quick-knowledge').on('click', () => this.exportQuickKnowledge());
-            
+
             // Remove empty row if exists
             if ($tbody.find('.bk-editable-row').length > 0) {
                 $tbody.find('.bk-empty-row').remove();
             }
+        },
+
+        /**
+         * Sprint 0.18.A.3 — Persist a single Quick Knowledge row through wp_ajax.
+         * Idempotent: skips empty rows; switches between INSERT/UPDATE based on data-id.
+         * Updates the inline status indicator (saving / saved / error).
+         */
+        autoSaveQuickKnowledgeRow($row) {
+            if (!$row || !$row.length) return;
+            const charId = parseInt($('#character-id').val(), 10) || 0;
+            if (charId <= 0) {
+                this.showMessage('Please save the Twin Guru first (Save Changes) to generate an ID.', 'warning');
+                return;
+            }
+
+            const title    = $row.find('[data-field="title"]').text().trim();
+            const content  = $row.find('[data-field="content"]').text().trim();
+            const sourceId = parseInt($row.attr('data-id'), 10) || 0;
+
+            // Empty row → don't waste a request.
+            if (!title && !content) {
+                this.setRowStatus($row, '');
+                return;
+            }
+
+            // Skip if nothing changed since last save.
+            const sig = title + '\u0001' + content;
+            if ($row.data('lastSig') === sig) return;
+
+            this.setRowStatus($row, 'saving');
+
+            $.post(bizcity_knowledge_vars.ajaxurl, {
+                action:       'bizcity_knowledge_quick_faq_upsert',
+                nonce:        bizcity_knowledge_vars.nonce,
+                character_id: charId,
+                source_id:    sourceId,
+                title:        title,
+                content:      content
+            }).done((response) => {
+                if (response && response.success && response.data && response.data.id) {
+                    $row.attr('data-id', response.data.id).data('id', response.data.id);
+                    $row.data('lastSig', sig);
+                    this.setRowStatus($row, 'saved');
+                    this.refreshFaqTabCount();
+                } else {
+                    const msg = (response && response.data && response.data.message) || 'unknown';
+                    this.setRowStatus($row, 'error', msg);
+                }
+            }).fail(() => {
+                this.setRowStatus($row, 'error', 'network');
+            });
+        },
+
+        setRowStatus($row, state, detail) {
+            // Indicator lives in the row-number cell so we don't reshape the table.
+            let $cell = $row.find('.bk-row-status');
+            if (!$cell.length) {
+                $cell = $('<span class="bk-row-status" style="margin-left:6px;font-size:11px;"></span>');
+                $row.find('.bk-row-number').append($cell);
+            }
+            const map = {
+                saving: { html: '⏳', color: '#9ca3af', title: 'Saving…' },
+                saved:  { html: '✓',  color: '#10b981', title: 'Saved' },
+                error:  { html: '✗',  color: '#d02828', title: 'Error: ' + (detail || '') },
+                '':     { html: '',   color: '',         title: '' }
+            };
+            const m = map[state] || map[''];
+            $cell.html(m.html).css('color', m.color).attr('title', m.title);
+        },
+
+        refreshFaqTabCount() {
+            const n = $('#quick-knowledge-tbody .bk-editable-row').filter(function () {
+                return $(this).find('[data-field="title"]').text().trim()
+                    || $(this).find('[data-field="content"]').text().trim();
+            }).length;
+            $('.bk-tab-btn[data-tab="quick-knowledge"] .bk-tab-count').text(n);
+            $('#qk-row-count').text(n);
         },
         
         addQuickKnowledgeRow() {
@@ -492,10 +604,10 @@ Guidelines:
             const newRow = `
                 <tr class="bk-editable-row" data-id="0">
                     <td class="bk-row-number">${rowCount}</td>
-                    <td class="bk-editable" contenteditable="true" data-field="title" data-placeholder="Nhập tiêu đề..."></td>
-                    <td class="bk-editable" contenteditable="true" data-field="content" data-placeholder="Nhập nội dung..."></td>
+                    <td class="bk-editable" contenteditable="true" data-field="title" data-placeholder="Enter title..."></td>
+                    <td class="bk-editable" contenteditable="true" data-field="content" data-placeholder="Enter content..."></td>
                     <td>
-                        <button type="button" class="bk-row-delete" title="Xóa">
+                        <button type="button" class="bk-row-delete" title="Delete">
                             <span class="dashicons dashicons-trash"></span>
                         </button>
                     </td>
@@ -793,14 +905,14 @@ Guidelines:
             
             // Delete handlers
             $('.bk-documents-list').on('click', '.bk-doc-delete', function() {
-                if (confirm('Xóa tài liệu này?')) {
+                if (confirm('Delete this document?')) {
                     const id = $(this).data('id');
                     CharacterEdit.deleteKnowledgeSource(id, $(this).closest('.bk-document-item'));
                 }
             });
             
             $('.bk-websites-list').on('click', '.bk-web-delete', function() {
-                if (confirm('Xóa website này?')) {
+                if (confirm('Delete this website?')) {
                     const id = $(this).data('id');
                     CharacterEdit.deleteWebsite(id, $(this).closest('.bk-website-item'));
                 }
@@ -810,14 +922,22 @@ Guidelines:
             $('.bk-websites-list').on('click', '.bk-web-process', function() {
                 const id = $(this).data('id');
                 const $item = $(this).closest('.bk-website-item');
+                CharacterEdit.wsConsole('info', 'Manual Process clicked source_id=' + id);
                 CharacterEdit.processWebsite(id, $item);
+            });
+
+            // Sprint 0.18.A.4 — console clear
+            $(document).on('click', '#website-console-clear', function (e) {
+                e.preventDefault();
+                $('#website-console-body').empty();
+                CharacterEdit.wsConsole('info', '[cleared]');
             });
         },
         
         browseDocuments() {
             const mediaUploader = wp.media({
-                title: 'Chọn tài liệu',
-                button: { text: 'Chọn file' },
+                title: 'Select Documents',
+                button: { text: 'Select File' },
                 multiple: true
             });
             
@@ -831,16 +951,21 @@ Guidelines:
         
         uploadDocuments(files) {
             console.log('Upload documents:', files);
-            
+
             const characterId = $('#character-id').val();
             console.log('Character ID:', characterId);
-            
+
             if (!characterId || characterId === '0') {
-                alert('Vui lòng lưu character trước khi upload file!');
-                this.showMessage('Vui lòng lưu character trước khi upload file!', 'error');
+                this.showMessage('Please save the Twin Guru before uploading files!', 'error');
                 return;
             }
-            
+
+            // Sprint 0.18.A.4 — progress dialog so user thinks process is alive.
+            const total = Array.isArray(files) ? files.length : 0;
+            this.uploadProgressOpen('Uploading & embedding ' + total + ' file(s)…');
+            this.uploadProgressLog('upload', 'POST bizcity_knowledge_upload_document (' + total + ' file)');
+            this.uploadProgressSet(10);
+
             $.ajax({
                 url: bizcity_knowledge_vars.ajaxurl,
                 method: 'POST',
@@ -850,37 +975,85 @@ Guidelines:
                     character_id: characterId,
                     files: JSON.stringify(files)
                 },
+                xhr: () => {
+                    const x = $.ajaxSettings.xhr();
+                    if (x.upload) {
+                        x.upload.addEventListener('progress', (ev) => {
+                            if (ev.lengthComputable) {
+                                const pct = 10 + (ev.loaded / ev.total) * 40;
+                                this.uploadProgressSet(pct);
+                            }
+                        });
+                    }
+                    return x;
+                },
                 success: (response) => {
-                    console.log('Upload response:', response);
-                    
-                    // Check if response is valid
                     if (typeof response !== 'object') {
-                        console.error('Invalid response format:', response);
-                        this.showMessage('Lỗi server: Response không hợp lệ', 'error');
+                        this.uploadProgressLog('error', 'Server returned an invalid response');
+                        this.uploadProgressDone(false);
+                        this.showMessage('Server error: Invalid response', 'error');
                         return;
                     }
-                    
+
                     if (response.success) {
-                        this.showMessage(response.data.message || 'Upload thành công!', 'success');
-                        
-                        // Add uploaded documents to list
-                        if (response.data.documents && response.data.documents.length > 0) {
-                            response.data.documents.forEach(doc => {
-                                this.addDocumentToList(doc);
-                            });
-                        }
+                        this.uploadProgressSet(80);
+                        const docs = (response.data && response.data.documents) || [];
+                        this.uploadProgressLog('ok', 'Upload complete: ' + docs.length + ' file(s). Embedding…');
+
+                        // Prepend so newest sits at top.
+                        docs.forEach((doc) => {
+                            this.uploadProgressLog('ok', '• ' + (doc.name || doc.id) + ' (status=' + (doc.status || '?') + ')');
+                            this.addDocumentToList(doc);
+                        });
+
+                        this.uploadProgressSet(100);
+                        this.uploadProgressDone(true);
+                        this.showMessage((response.data && response.data.message) || 'Upload successful!', 'success');
                     } else {
-                        this.showMessage(response.data && response.data.message ? response.data.message : 'Lỗi upload!', 'error');
+                        const msg = (response.data && response.data.message) || 'Upload failed!';
+                        this.uploadProgressLog('error', msg);
+                        this.uploadProgressDone(false);
+                        this.showMessage(msg, 'error');
                     }
                 },
                 error: (xhr, status, error) => {
-                    console.error('Upload error:', error);
-                    console.error('XHR:', xhr);
-                    this.showMessage('Lỗi kết nối: ' + error, 'error');
+                    this.uploadProgressLog('error', 'Connection error: ' + error);
+                    this.uploadProgressDone(false);
+                    this.showMessage('Connection error: ' + error, 'error');
                 }
             });
         },
-        
+
+        uploadProgressOpen(title) {
+            $('#upload-progress-title').text(title || 'Processing…');
+            $('#upload-progress-counter').text('');
+            $('#upload-progress-fill').css('width', '0%');
+            $('#upload-progress-log').empty();
+            $('#upload-progress-panel').slideDown(150);
+        },
+        uploadProgressSet(pct) {
+            const v = Math.max(0, Math.min(100, Math.round(pct)));
+            $('#upload-progress-fill').css('width', v + '%');
+            $('#upload-progress-counter').text(v + '%');
+        },
+        uploadProgressLog(type, msg) {
+            const stamp = new Date().toLocaleTimeString();
+            const $li = $('<li class="bk-progress-line bk-progress-' + (type || 'info') + '"></li>')
+                .text('[' + stamp + '] ' + msg);
+            $('#upload-progress-log').append($li);
+            const $body = $('#upload-progress-log');
+            $body.scrollTop($body.prop('scrollHeight'));
+        },
+        uploadProgressDone(ok) {
+            $('#upload-progress-title').text(ok ? 'Done ✓' : 'Error ✗');
+            $('#upload-progress-panel').find('.dashicons-update').removeClass('bk-spin');
+            setTimeout(() => {
+                $('#upload-progress-panel').slideUp(250, function () {
+                    $(this).find('.dashicons-update').addClass('bk-spin');
+                });
+            }, ok ? 4000 : 8000);
+        },
+
         addDocumentToList(doc) {
             const html = `
                 <div class="bk-document-item" data-id="${doc.id}">
@@ -897,36 +1070,38 @@ Guidelines:
                     </button>
                 </div>
             `;
-            
-            $('#documents-list').append(html);
+
+            // Sprint 0.18.A.4 — prepend so newest sits on top.
+            $('#documents-list').prepend(html);
         },
         
         addWebsite() {
             const url = $('#website-url').val().trim();
             const mode = $('.bk-input-tab-btn.active').data('mode') || 'single';
             const characterId = $('#character-id').val();
-            
+
             if (!url) {
-                alert('Vui lòng nhập URL!');
+                this.wsConsole('error', 'URL is empty — enter a link and click Add link.');
                 return;
             }
-            
+
             if (!characterId || characterId === '0') {
-                alert('Vui lòng lưu character trước khi thêm website!');
+                this.wsConsole('error', 'No character_id — save the Twin Guru first.');
                 return;
             }
-            
-            // Validate URL format
-            try {
-                new URL(url);
-            } catch (e) {
-                alert('URL không hợp lệ! Vui lòng nhập URL đầy đủ (bắt đầu bằng http:// hoặc https://)');
+
+            try { new URL(url); }
+            catch (e) {
+                this.wsConsole('error', 'Invalid URL: ' + url);
                 return;
             }
-            
+
             const $btn = $('#add-website');
-            $btn.prop('disabled', true).text('Đang xử lý...');
-            
+            $btn.prop('disabled', true).text('Processing…');
+
+            this.wsConsole('info', 'POST bizcity_knowledge_add_website mode=' + mode + ' url=' + url);
+            const t0 = performance.now();
+
             $.ajax({
                 url: bizcity_knowledge_vars.ajaxurl,
                 method: 'POST',
@@ -938,26 +1113,140 @@ Guidelines:
                     mode: mode
                 },
                 success: (response) => {
+                    const dt = (performance.now() - t0).toFixed(0);
                     if (response.success) {
-                        this.showMessage(response.data.message, 'success');
-                        $('#website-url').val(''); // Clear input
-                        
-                        // Reload page to show new websites
-                        setTimeout(() => {
-                            location.reload();
-                        }, 1500);
+                        this.wsConsole('ok', 'Added (' + dt + 'ms): ' + (response.data.message || ''));
+                        $('#website-url').val('');
+
+                        // Sprint 0.18.A.4 — don't reload; auto-trigger Process for each new source.
+                        const ids = (response.data && response.data.source_ids) || [];
+                        if (ids.length) {
+                            this.wsConsole('info', '→ auto Process ' + ids.length + ' source_id(s)…');
+                            let pending = ids.length;
+                            const onDone = (result) => {
+                                if (result && result.success) {
+                                    this.addWebsiteToList(result.sourceId, result.url, result.title, result.chunks_count);
+                                }
+                                if (--pending <= 0) {
+                                    this.wsConsole('ok', 'All sources processed — list updated.');
+                                    this.refreshWebsiteTabCount();
+                                }
+                            };
+                            ids.forEach((sid, i) => {
+                                setTimeout(() => this.processWebsiteHeadless(parseInt(sid, 10), url, onDone), 200 + i * 250);
+                            });
+                        } else {
+                            this.wsConsole('warn', 'Server returned no source_ids. Please refresh the page manually to see the new row.');
+                        }
                     } else {
-                        this.showMessage(response.data.message || 'Lỗi thêm website!', 'error');
+                        const msg = (response.data && response.data.message) || 'Lỗi thêm website!';
+                        this.wsConsole('error', 'Failed: ' + msg);
+                        this.showMessage(msg, 'error');
                     }
                 },
                 error: (xhr, status, error) => {
-                    console.error('Add website error:', error);
+                    this.wsConsole('error', 'Lỗi AJAX: ' + error + ' (status=' + status + ')');
                     this.showMessage('Lỗi kết nối: ' + error, 'error');
                 },
                 complete: () => {
                     $btn.prop('disabled', false).text('Add link');
                 }
             });
+        },
+
+        /**
+         * Sprint 0.18.A.4 — process newly-added website without needing the row in DOM yet.
+         * Logs every step to the console. Calls onDone({success, sourceId, url, title, chunks_count})
+         * so the caller can inject the row into the DOM without a page reload.
+         */
+        processWebsiteHeadless(sourceId, urlHint, onDone) {
+            this.wsConsole('info', 'POST bizcity_knowledge_process_website source_id=' + sourceId);
+            const t0 = performance.now();
+            let crawlResult = null;
+
+            $.ajax({
+                url: bizcity_knowledge_vars.ajaxurl,
+                method: 'POST',
+                data: {
+                    action: 'bizcity_knowledge_process_website',
+                    nonce: bizcity_knowledge_vars.nonce,
+                    source_id: sourceId
+                },
+                success: (response) => {
+                    const dt = (performance.now() - t0).toFixed(0);
+                    if (response.success) {
+                        const d = response.data || {};
+                        this.wsConsole('ok', 'Crawled (' + dt + 'ms) source_id=' + sourceId + ' title="' + (d.title || '?') + '" chunks=' + (d.chunks_count || 0));
+                        crawlResult = { success: true, sourceId: sourceId, url: urlHint, title: d.title || '', chunks_count: d.chunks_count || 0 };
+                    } else {
+                        this.wsConsole('error', 'Process failed source_id=' + sourceId + ': ' + ((response.data && response.data.message) || 'unknown'));
+                        crawlResult = { success: false, sourceId: sourceId, url: urlHint };
+                    }
+                },
+                error: (xhr, status, error) => {
+                    this.wsConsole('error', 'Process AJAX error source_id=' + sourceId + ': ' + error);
+                    crawlResult = { success: false, sourceId: sourceId, url: urlHint };
+                },
+                complete: () => { if (typeof onDone === 'function') onDone(crawlResult); }
+            });
+        },
+
+        /**
+         * Inject a newly-crawled website row at the top of #websites-list without a page reload.
+         */
+        addWebsiteToList(sourceId, url, title, chunksCount) {
+            const escAttr = (str) => $('<span>').text(str || '').html().replace(/"/g, '&quot;');
+            const escHtml = (str) => $('<span>').text(str || '').html();
+            let displayTitle = title || '';
+            if (!displayTitle && url) {
+                try { displayTitle = new URL(url).hostname; } catch(e) { displayTitle = url; }
+            }
+            let displayUrl = url || '';
+            if (displayUrl.length > 60) displayUrl = displayUrl.substring(0, 60) + '…';
+            const today = new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' });
+            const chunksHtml = chunksCount > 0
+                ? '<span class="bk-web-chunks"><span class="dashicons dashicons-database"></span> ' + escHtml(String(chunksCount)) + ' chunks</span>'
+                : '';
+            const html =
+                '<div class="bk-website-item bk-website-status-ready" data-id="' + escAttr(String(sourceId)) + '">' +
+                    '<div class="bk-web-icon">🌐</div>' +
+                    '<div class="bk-web-info">' +
+                        '<div class="bk-web-title">' + escHtml(displayTitle) + '</div>' +
+                        '<div class="bk-web-url-small">' +
+                            '<a href="' + escAttr(url || '') + '" target="_blank" title="' + escAttr(url || '') + '">' + escHtml(displayUrl) + '</a>' +
+                        '</div>' +
+                        '<div class="bk-web-meta">' +
+                            '<span class="bk-web-status bk-status-ready"><span class="dashicons dashicons-yes-alt"></span> Ready</span>' +
+                            chunksHtml +
+                            '<span class="bk-web-date"><span class="dashicons dashicons-calendar-alt"></span> ' + escHtml(today) + '</span>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="bk-web-actions">' +
+                        '<button type="button" class="bk-web-delete" data-id="' + escAttr(String(sourceId)) + '" title="Delete this website">' +
+                            '<span class="dashicons dashicons-trash"></span>' +
+                        '</button>' +
+                    '</div>' +
+                '</div>';
+            $('#websites-list').prepend(html);
+        },
+
+        /**
+         * Update the Websites tab badge counter.
+         */
+        refreshWebsiteTabCount() {
+            const count = $('#websites-list .bk-website-item').length;
+            $('.bk-tab-btn[data-tab="websites"] .bk-tab-count').text(count);
+        },
+
+        wsConsole(type, msg) {
+            const $body = $('#website-console-body');
+            if (!$body.length) return;
+            const stamp = new Date().toLocaleTimeString();
+            const cls = 'bk-console-' + (type || 'info');
+            const $line = $('<div class="bk-console-line ' + cls + '"></div>')
+                .text('[' + stamp + '] ' + msg);
+            $body.append($line);
+            $body.scrollTop($body.prop('scrollHeight'));
         },
         
         processWebsite(sourceId, $element) {
@@ -1016,6 +1305,7 @@ Guidelines:
                             $(this).remove();
                         });
                     } else {
+                        this.wsConsole('error', 'Process failed source_id=' + sourceId + ': ' + ((response.data && response.data.message) || 'unknown'));
                         $element.removeClass('bk-website-status-processing')
                                .addClass('bk-website-status-error');
                         
@@ -1083,8 +1373,35 @@ Guidelines:
                 data: formData + '&nonce=' + bizcity_knowledge_vars.nonce,
                 success: (response) => {
                     if (response.success) {
-                        this.showMessage('Lưu thành công!', 'success');
-                        
+                        // Sprint 0.18.A.1: surface Quick Knowledge save counts + sync new IDs back to DOM.
+                        const qk = response.data && response.data.quick_knowledge;
+                        let msg = 'Lưu thành công!';
+                        if (qk) {
+                            const c = (qk.created || []).length;
+                            const u = (qk.updated || []).length;
+                            const d = (qk.deleted || []).length;
+                            const e = (qk.errors  || []).length;
+                            if (c || u || d || e) {
+                                msg += ' Quick Knowledge: ' + c + ' tạo, ' + u + ' cập nhật, ' + d + ' xóa' + (e ? ', ' + e + ' lỗi' : '') + '.';
+                            }
+                            if (e) {
+                                console.warn('[BizCity] Quick Knowledge errors:', qk.errors);
+                            }
+                            // Re-bind data-id for newly created rows so re-saving updates instead of duplicating.
+                            if (Array.isArray(qk.rows)) {
+                                const $rows = $('#quick-knowledge-tbody .bk-editable-row');
+                                qk.rows.forEach((row) => {
+                                    if (row && typeof row.client_index === 'number' && row.id) {
+                                        const $r = $rows.eq(row.client_index);
+                                        if ($r.length) {
+                                            $r.attr('data-id', row.id).data('id', row.id);
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                        this.showMessage(msg, 'success');
+
                         // Update character ID if new
                         if (response.data.id && $('#character-id').val() == '0') {
                             $('#character-id').val(response.data.id);
@@ -1093,7 +1410,7 @@ Guidelines:
                             window.history.pushState({}, '', newUrl);
                         }
                     } else {
-                        this.showMessage(response.data.message || 'Có lỗi xảy ra!', 'error');
+                        this.showMessage((response.data && response.data.message) || 'Có lỗi xảy ra!', 'error');
                     }
                 },
                 error: () => {

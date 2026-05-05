@@ -16,7 +16,9 @@ class BZDoc_Canvas_Bridge {
 		$handlers['doc_generate'] = [
 			'class'    => __CLASS__,
 			'method'   => 'handle_generate',
-			'doc_type' => [ 'document', 'presentation', 'spreadsheet' ],
+			// Phase 6.4 [V4] — added 'mindmap' + 'image' so Canvas knows the
+			// bzdoc plugin handles every doc_type the agents can produce.
+			'doc_type' => [ 'document', 'presentation', 'spreadsheet', 'mindmap', 'image' ],
 		];
 		$handlers['doc_edit'] = [
 			'class'  => __CLASS__,

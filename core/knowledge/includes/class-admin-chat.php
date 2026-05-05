@@ -432,51 +432,42 @@ class BizCity_Admin_Chat {
     }
 
     /* ================================================================
-     * Call OpenAI API
+     * Call OpenAI API — PHASE-0-RULE-SMART-GATEWAY-MIGRATION
+     * Đi qua BizCity LLM Router thay vì gọi thẳng api.openai.com.
      * ================================================================ */
     private function call_openai($messages) {
-        $api_key = get_option('twf_openai_api_key', '');
-
-        if (empty($api_key)) {
-            return ['message' => 'Hệ thống chưa cấu hình API key. Vui lòng liên hệ quản trị viên.', 'provider' => 'openai'];
+        if ( ! class_exists( 'BizCity_LLM_Client' ) ) {
+            return [ 'message' => 'BizCity LLM Router chưa được cài.', 'provider' => 'router' ];
+        }
+        $client = BizCity_LLM_Client::instance();
+        if ( ! $client->is_ready() ) {
+            return [ 'message' => 'BizCity LLM Router chưa cấu hình API key.', 'provider' => 'router' ];
         }
 
-        $model = get_option('openai_model', 'gpt-4o-mini');
-
-        $response = wp_remote_post('https://api.openai.com/v1/chat/completions', [
-            'timeout' => 60,
-            'headers' => [
-                'Content-Type'  => 'application/json',
-                'Authorization' => 'Bearer ' . $api_key,
-            ],
-            'body' => wp_json_encode([
-                'model'       => $model,
-                'messages'    => $messages,
-                'temperature' => 0.7,
-                'max_tokens'  => 3000,
-            ]),
-        ]);
-
-        if (is_wp_error($response)) {
-            return ['message' => 'Lỗi kết nối: ' . $response->get_error_message(), 'provider' => 'openai'];
+        $model = get_option( 'openai_model', '' );
+        if ( $model === '' ) {
+            $model = $client->get_model( 'chat' ) ?: 'gpt-4o-mini';
         }
 
-        $body = json_decode(wp_remote_retrieve_body($response), true);
+        $resp = $client->chat( $messages, [
+            'purpose'     => 'chat',
+            'model'       => $model,
+            'temperature' => 0.7,
+            'max_tokens'  => 3000,
+            'timeout'     => 60,
+        ] );
 
-        if (isset($body['choices'][0]['message']['content'])) {
-            return [
-                'message'  => trim($body['choices'][0]['message']['content']),
-                'provider' => 'openai',
-                'model'    => $model,
-                'usage'    => $body['usage'] ?? [],
-            ];
+        if ( empty( $resp['success'] ) ) {
+            error_log( '[AdminChat] router error: ' . ( $resp['error'] ?? 'unknown' ) );
+            return [ 'message' => 'Xin lỗi, không nhận được phản hồi từ AI.', 'provider' => 'router' ];
         }
 
-        if (isset($body['error']['message'])) {
-            error_log('[AdminChat] OpenAI error: ' . $body['error']['message']);
-        }
-
-        return ['message' => 'Xin lỗi, không nhận được phản hồi từ AI.', 'provider' => 'openai'];
+        return [
+            'message'  => trim( (string) ( $resp['message'] ?? '' ) ),
+            'provider' => 'router',
+            'model'    => $resp['model'] ?? $model,
+            'usage'    => $resp['usage'] ?? [],
+        ];
     }
 
     /* ================================================================

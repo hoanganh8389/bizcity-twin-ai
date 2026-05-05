@@ -5,7 +5,7 @@
  * Description:       Prompt → AI sinh Document (DOCX/PDF), Presentation (PPTX), Spreadsheet (XLSX). Preview, chat edit, download.
  * Short Description: AI tạo Word, PowerPoint, Excel chuyên nghiệp — Preview & Edit realtime.
  * Quick View:        📄 Prompt → AI sinh tài liệu → Preview & Edit → Download DOCX/PDF/PPTX/XLSX
- * Version:           0.4.0
+ * Version:           0.4.1
  * Requires at least: 6.3
  * Requires PHP:      7.4
  * Author:            BizCity
@@ -34,6 +34,7 @@
  * • AI Document Generator: Prompt → DOCX/PDF với heading, table, list, image
  * • AI Presentation Maker: Prompt → PPTX slide decks có theme & layout
  * • AI Spreadsheet Maker: Prompt → XLSX với headers, formulas, data
+ * • AI Mindmap Maker: Prompt + Sources → Sơ đồ tư duy SVG tương tác, xuất PNG/PDF (Phase 6.3)
  * • Chat-based editing: Chỉnh sửa tài liệu qua chat (split panel)
  * • Template system: Invoice, Resume, Report, Proposal, Contract, Meeting Notes
  * • Theme system: Modern, Classic, Professional, Creative, Minimal
@@ -61,12 +62,12 @@ if ( ! defined( 'BIZCITY_TWIN_AI_VERSION' ) ) {
 /* ═══════════════════════════════════════════════
    CONSTANTS
    ═══════════════════════════════════════════════ */
-define( 'BZDOC_VERSION',        '0.3.224' );
+define( 'BZDOC_VERSION',        '0.4.76' );
 define( 'BZDOC_DIR',            __DIR__ . '/' );
 define( 'BZDOC_FILE',           __FILE__ );
 define( 'BZDOC_URL',            plugin_dir_url( __FILE__ ) );
 define( 'BZDOC_SLUG',           'bizcity-doc' );
-define( 'BZDOC_SCHEMA_VERSION', '2.2' );
+define( 'BZDOC_SCHEMA_VERSION', '2.3' );
 
 /* ═══════════════════════════════════════════════
    AUTOLOAD INCLUDES
@@ -79,18 +80,40 @@ require_once BZDOC_DIR . 'includes/class-canvas-bridge.php';
 require_once BZDOC_DIR . 'includes/class-sources.php';
 require_once BZDOC_DIR . 'includes/class-embedder.php';
 require_once BZDOC_DIR . 'includes/class-notebook-bridge.php';
+require_once BZDOC_DIR . 'includes/class-twinshell-binding.php';
+// Phase 6.4 — Image prompts catalog + pipeline.
+require_once BZDOC_DIR . 'includes/image/class-image-prompts-database.php';
+require_once BZDOC_DIR . 'includes/image/class-image-argument-resolver.php';
+require_once BZDOC_DIR . 'includes/image/class-image-pipeline.php';
+
+// Vòng 4.5.5e (Rule 8g v2 — 2026-05-02) — own our TwinShell agents.
+// Each file calls add_filter( 'bizcity_register_agent', ... ) so the core
+// BizCity_Twin_Agent_Registry can resolve them lazily at first dispatch.
+require_once BZDOC_DIR . 'includes/agents/register-doc-agent.php';
+require_once BZDOC_DIR . 'includes/mindmap/register-mindmap-agent.php';
 
 /* ── Self-healing: table creation ── */
-BZDoc_Installer::maybe_create_tables();
+if ( class_exists( 'BZDoc_Installer' ) ) {
+	BZDoc_Installer::maybe_create_tables();
+}
+if ( class_exists( 'BZDoc_Image_Prompts_Database' ) ) {
+	BZDoc_Image_Prompts_Database::maybe_create_tables();
+}
 
 /* ── Admin ── */
-BZDoc_Admin_Menu::init();
+if ( class_exists( 'BZDoc_Admin_Menu' ) ) {
+	BZDoc_Admin_Menu::init();
+}
 
 /* ── Frontend (template page at /tool-doc/) ── */
-BZDoc_Frontend::init();
+if ( class_exists( 'BZDoc_Frontend' ) ) {
+	BZDoc_Frontend::init();
+}
 
 /* ── REST API ── */
-BZDoc_Rest_API::init();
+if ( class_exists( 'BZDoc_Rest_API' ) ) {
+	BZDoc_Rest_API::init();
+}
 
 /* ── Register WordPress upload filters for DOCX/XLSX support ── */
 add_action( 'init', [ 'BZDoc_Sources', 'register_upload_filters' ] );
@@ -120,8 +143,52 @@ add_action( 'bzdoc_embed_source', function ( $source_id ) {
 /* ── Canvas Adapter (Twin AI integration) ── */
 add_filter( 'bizcity_canvas_handlers', [ 'BZDoc_Canvas_Bridge', 'register_handlers' ] );
 
+/* ── PHASE-0.13 — enable KG dual-write for bzdoc cortex so every uploaded
+ *    source is mirrored into bizcity_kg_sources. Required for Graph-RAG
+ *    docgen (build_kg_graph_context) to find passages by source_id. Scoped
+ *    via filter so we don't flip the global option for other plugins.
+ */
+add_filter( 'bizcity_kg_unified_write_enabled', static function ( $enabled ) {
+	if ( $enabled ) return $enabled;
+	// Heuristic: only enable when the current legacy_source_inserted action
+	// is for bzdoc cortex. The action signature carries an args array whose
+	// 'cortex' key tells us. We can't read it from the filter directly, so
+	// we hook before the action and toggle a request-scoped flag.
+	return ( ! empty( $GLOBALS['bzdoc_kg_dual_write_active'] ) );
+}, 10, 1 );
+add_action( 'bizcity_kg_legacy_source_inserted', static function ( $args ) {
+	if ( isset( $args['cortex'] ) && $args['cortex'] === 'bizdoc' ) {
+		$GLOBALS['bzdoc_kg_dual_write_active'] = true;
+	}
+}, 1, 1 ); // priority 1 — runs BEFORE BizCity_KG::on_legacy_source_inserted (priority 10)
+add_action( 'bizcity_kg_legacy_source_inserted', static function () {
+	// Cleanup so the request-scoped flip can't leak to unrelated downstream code.
+	unset( $GLOBALS['bzdoc_kg_dual_write_active'] );
+}, 999, 0 );
+
+// Same flip pattern for the chunks-persisted hook fired by BZDoc_Embedder.
+add_action( 'bizcity_kg_legacy_chunks_persisted', static function ( $args ) {
+	if ( isset( $args['cortex'] ) && $args['cortex'] === 'bizdoc' ) {
+		$GLOBALS['bzdoc_kg_dual_write_active'] = true;
+	}
+}, 1, 1 );
+add_action( 'bizcity_kg_legacy_chunks_persisted', static function () {
+	unset( $GLOBALS['bzdoc_kg_dual_write_active'] );
+}, 999, 0 );
+
 /* ── Notebook Tool Registration (Phase 6.0 — Unify Sources) ── */
-add_action( 'bcn_register_notebook_tools', [ 'BZDoc_Notebook_Bridge', 'register' ] );
+// Priority 20 (sau default 10 của bizcity-tool-mindmap) — đảm bảo bzdoc
+// luôn ghi đè slot 'mindmap' kể cả khi plugin Mermaid (legacy) còn registration cũ.
+add_action( 'bcn_register_notebook_tools', [ 'BZDoc_Notebook_Bridge', 'register' ], 20 );
+
+// Register bridges với Studio Job Manager — cung cấp dispatch_fn chuẩn cho
+// tất cả doc tools (doc_document, doc_presentation, doc_spreadsheet, mindmap).
+// Hooks vào 'init' priority 20 để chắc chắn BizCity_Studio_Job_Manager đã loaded.
+add_action( 'init', static function () {
+	if ( class_exists( 'BZDoc_Notebook_Bridge' ) ) {
+		BZDoc_Notebook_Bridge::register_job_bridges();
+	}
+}, 20 );
 
 /* ══════════════════════════════════════════════
  *  Intent Provider — patterns → plans → tools

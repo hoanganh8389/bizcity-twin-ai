@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "memory_mutation.json",
+  "title": "memory_mutation",
+  "description": "Append-only audit trail entry for any change to a memory spec. Replaces direct writes to bizcity_memory_logs — that table is now a projection, not a source of truth (R-EVT-1).",
+  "type": "object",
+  "required": ["memory_id", "operation"],
+  "additionalProperties": true,
+  "properties": {
+    "memory_id": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "ID of the memory spec affected."
+    },
+    "operation": {
+      "type": "string",
+      "enum": [
+        "created",
+        "updated",
+        "section_patched",
+        "archived",
+        "restored",
+        "finalized",
+        "deleted"
+      ]
+    },
+    "step_name": {
+      "type": "string",
+      "description": "Pipeline step (e.g. planner, executor, reflector, rest_api, auto_create, finalize, user)."
+    },
+    "user_id": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "details": {
+      "type": "object",
+      "description": "Free-form payload (was detail_json in the legacy row)."
+    }
+  }
+}

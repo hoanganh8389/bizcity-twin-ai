@@ -24,7 +24,7 @@ class BizCity_Knowledge_Database {
     /**
      * Database schema version
      */
-    const SCHEMA_VERSION = '3.0.0';
+    const SCHEMA_VERSION = '3.0.3';
     
     public static function instance() {
         if (is_null(self::$instance)) {
@@ -78,6 +78,7 @@ class BizCity_Knowledge_Database {
             system_prompt TEXT,
             model_id VARCHAR(255) DEFAULT '' COMMENT 'OpenRouter model ID',
             creativity_level DECIMAL(3,2) DEFAULT 0.70 COMMENT 'Temperature 0-1',
+            max_tokens INT UNSIGNED NULL DEFAULT NULL COMMENT 'Per-character max output tokens override (NULL = system default)',
             greeting_messages TEXT COMMENT 'JSON array of greeting messages',
             capabilities TEXT COMMENT 'JSON array of capabilities',
             industries TEXT COMMENT 'JSON array of industry tags',
@@ -110,7 +111,7 @@ class BizCity_Knowledge_Database {
             character_id BIGINT UNSIGNED NOT NULL,
             source_type ENUM('quick_faq', 'file', 'url', 'fanpage', 'manual') NOT NULL,
             source_name VARCHAR(255) NOT NULL,
-            source_url VARCHAR(500) DEFAULT '',
+            source_url VARCHAR(1000) DEFAULT '',
             attachment_id BIGINT UNSIGNED DEFAULT NULL,
             post_id BIGINT UNSIGNED DEFAULT NULL COMMENT 'quick_faq post ID',
             content LONGTEXT,
@@ -236,6 +237,12 @@ class BizCity_Knowledge_Database {
 
         // Migration v3.0.0: Knowledge Fabric — scope columns on sources + chunks
         $this->run_migration_v3_0_0();
+
+        // Migration v3.0.1: Add metadata column to sources (fix crawling compatibility)
+        $this->run_migration_v3_0_1();
+
+        // Migration v3.0.3: Add max_tokens column to characters (Phase 0.18)
+        $this->run_migration_v3_0_3();
         
         // Update version option
         update_option('bizcity_knowledge_db_version', self::SCHEMA_VERSION);
@@ -278,6 +285,15 @@ class BizCity_Knowledge_Database {
                 ADD COLUMN greeting_messages TEXT COMMENT 'JSON array of greeting messages' AFTER creativity_level");
             if ($result === false) {
                 error_log("BizCity Knowledge: Failed to add greeting_messages column - " . $wpdb->last_error);
+            }
+        }
+
+        // Phase 0.18 — Add max_tokens override (NULL = use system default 3000).
+        if (!in_array('max_tokens', $existing_columns)) {
+            $result = $wpdb->query("ALTER TABLE {$table_characters} 
+                ADD COLUMN max_tokens INT UNSIGNED NULL DEFAULT NULL COMMENT 'Per-character max output tokens override; NULL = system default' AFTER creativity_level");
+            if ($result === false) {
+                error_log("BizCity Knowledge: Failed to add max_tokens column - " . $wpdb->last_error);
             }
         }
     }
@@ -378,6 +394,69 @@ class BizCity_Knowledge_Database {
             $wpdb->query( "UPDATE {$chunks_table} SET scope = 'agent', user_id = 0 WHERE scope = 'agent'" );
 
             error_log( 'BizCity Knowledge v3.0.0: Added scope columns to chunks table' );
+        }
+    }
+
+    /**
+     * Migration v3.0.1 — Add metadata column to bizcity_knowledge_sources for crawling compatibility.
+     * 
+     * Fixes the error: Unknown column 'metadata' in 'SET' for query UPDATE `bizcity_knowledge_sources`
+     *
+     * @since 3.0.1
+     */
+    private function run_migration_v3_0_1() {
+        global $wpdb;
+
+        $sources_table = $wpdb->prefix . 'bizcity_knowledge_sources';
+
+        // Check if metadata column exists
+        $src_cols = wp_list_pluck(
+            $wpdb->get_results( "SHOW COLUMNS FROM {$sources_table}" ),
+            'Field'
+        );
+
+        if ( ! in_array( 'metadata', $src_cols, true ) ) {
+            $wpdb->query( "ALTER TABLE {$sources_table}
+                ADD COLUMN metadata TEXT COMMENT 'JSON metadata from web crawler' AFTER settings" );
+
+            error_log( 'BizCity Knowledge v3.0.1: Added metadata column to sources table' );
+        }
+    }
+
+    /**
+     * Migration v3.0.3 — Add max_tokens column to bizcity_characters (Phase 0.18).
+     *
+     * `max_tokens` was added to `run_migration_v1_0_3` AFTER sites had already
+     * reached schema version 3.0.2, so `create_tables()` was never re-triggered
+     * for those sites and the column was silently missing.
+     *
+     * Symptom: WordPress database error "Unknown column 'max_tokens' in 'INSERT INTO'"
+     * when saving a character via Knowledge → Characters admin screen.
+     *
+     * @since 3.0.3
+     */
+    private function run_migration_v3_0_3() {
+        global $wpdb;
+
+        $table = $wpdb->prefix . 'bizcity_characters';
+
+        $existing = wp_list_pluck(
+            $wpdb->get_results( "SHOW COLUMNS FROM {$table}" ),
+            'Field'
+        );
+
+        if ( ! in_array( 'max_tokens', $existing, true ) ) {
+            $result = $wpdb->query(
+                "ALTER TABLE {$table}
+                 ADD COLUMN max_tokens INT UNSIGNED NULL DEFAULT NULL
+                     COMMENT 'Per-character max output tokens override (NULL = system default)'
+                     AFTER creativity_level"
+            );
+            if ( $result === false ) {
+                error_log( 'BizCity Knowledge v3.0.3: Failed to add max_tokens column — ' . $wpdb->last_error );
+            } else {
+                error_log( 'BizCity Knowledge v3.0.3: Added max_tokens column to characters table.' );
+            }
         }
     }
 

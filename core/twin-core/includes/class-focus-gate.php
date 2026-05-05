@@ -86,6 +86,10 @@ class BizCity_Focus_Gate {
         $meta    = $args['meta'] ?? [];
 
         // If mode not passed (e.g. from Chat Gateway), classify on the fly
+        // @deprecated fallback: When Shell Engine is active (100% traffic),
+        // mode should already be resolved by Smart Classifier (2-mode: single|multi).
+        // This legacy 5-mode classifier call only triggers if Shell didn't pass mode upstream.
+        // TODO: Remove this fallback once Shell always passes mode to Focus Gate args.
         if ( empty( $mode ) && class_exists( 'BizCity_Mode_Classifier' ) ) {
             $result = BizCity_Mode_Classifier::instance()->classify( $message );
             $mode   = $result['mode'] ?? 'ambiguous';

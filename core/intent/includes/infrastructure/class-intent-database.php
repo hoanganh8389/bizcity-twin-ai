@@ -106,7 +106,21 @@ class BizCity_Intent_Database {
         $current    = get_option( $option_key, '0' );
 
         if ( version_compare( $current, BIZCITY_INTENT_VERSION, '>=' ) ) {
-            return;
+            // On multisite, the version option may exist while the physical table is absent
+            // (e.g. activation ran on a different blog shard). Verify before skipping.
+            // Cached qua `bizcity_known_tables` — chỉ hit DB 1 lần / blog.
+            $table_exists = function_exists( 'bizcity_table_exists' )
+                ? bizcity_table_exists( $this->table_conversations )
+                : (bool) $this->wpdb->get_var( $this->wpdb->prepare( 'SHOW TABLES LIKE %s', $this->table_conversations ) );
+            if ( $table_exists ) {
+                return;
+            }
+            // Table missing despite version flag — reset so the CREATE block runs.
+            delete_option( $option_key );
+            if ( function_exists( 'bizcity_table_cache_forget' ) ) {
+                bizcity_table_cache_forget( $this->table_conversations );
+            }
+            $current = '0';
         }
 
         $charset = $this->wpdb->get_charset_collate();
@@ -479,6 +493,17 @@ class BizCity_Intent_Database {
      * Expire stale conversations (> 30 min inactive).
      */
     public function expire_stale() {
+        // Safety guard: skip if table doesn't exist yet on this blog (multisite shard).
+        // Cached qua `bizcity_known_tables`.
+        if ( function_exists( 'bizcity_table_exists' ) ) {
+            if ( ! bizcity_table_exists( $this->table_conversations ) ) {
+                return;
+            }
+        } elseif ( ! $this->wpdb->get_var(
+            $this->wpdb->prepare( 'SHOW TABLES LIKE %s', $this->table_conversations )
+        ) ) {
+            return;
+        }
         $this->wpdb->query(
             "UPDATE {$this->table_conversations}
              SET status = 'EXPIRED'

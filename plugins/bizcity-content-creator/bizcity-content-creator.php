@@ -31,6 +31,11 @@ define( 'BZCC_SLUG',    'bizcity-content-creator' );
 
 /* ── Autoload includes ── */
 require_once BZCC_DIR . 'includes/class-installer.php';
+
+// Vòng 4.5.5e (Rule 8g v2 — 2026-05-02) — own our TwinShell agent.
+// Registers via add_filter( 'bizcity_register_agent', ... ); resolved lazily
+// by BizCity_Twin_Agent_Registry on first dispatch.
+require_once BZCC_DIR . 'includes/agents/register-content-agent.php';
 require_once BZCC_DIR . 'includes/class-admin-menu.php';
 require_once BZCC_DIR . 'includes/class-category-manager.php';
 require_once BZCC_DIR . 'includes/class-template-manager.php';
@@ -170,6 +175,12 @@ function bzcc_sync_template_skills(): void {
 	/* ── Fingerprint check: skip if nothing changed ── */
 	global $wpdb;
 	$tpl_table = BZCC_Installer::table_templates();
+
+	// Guard: table must exist before querying.
+	if ( ! BZCC_Installer::tables_exist() ) {
+		return;
+	}
+
 	$row       = $wpdb->get_row(
 		"SELECT COUNT(*) AS cnt, MAX(updated_at) AS max_upd FROM {$tpl_table} WHERE status = 'active'"
 	);
@@ -258,6 +269,10 @@ function bzcc_get_intent_patterns(): array {
 		],
 	];
 
+	if ( ! BZCC_Installer::tables_exist() ) {
+		return $patterns;
+	}
+
 	$templates = BZCC_Template_Manager::get_all_active();
 	foreach ( $templates as $tpl ) {
 		$keywords = array_filter( array_map( 'trim', explode( ',', $tpl->tags ?? '' ) ) );
@@ -299,6 +314,10 @@ function bzcc_get_intent_plans(): array {
 		'image_upload' => 'image',
 		'date'         => 'text',
 	];
+
+	if ( ! BZCC_Installer::tables_exist() ) {
+		return $plans;
+	}
 
 	$templates = BZCC_Template_Manager::get_all_active();
 	foreach ( $templates as $tpl ) {

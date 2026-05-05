@@ -65,6 +65,14 @@ class BizCity_Intent_Logger {
     }
 
     /**
+     * Public accessor for the fully-qualified logs table name.
+     * Used by Intent_Monitor and other admin views that need direct SQL.
+     */
+    public function get_table_name(): string {
+        return $this->table;
+    }
+
+    /**
      * Create the logs table.
      * Called from Database::maybe_create_tables().
      */

@@ -60,40 +60,25 @@ class BCN_Chat_Engine {
         $source_context  = self::build_source_context( $project_id );
         $notes_context   = self::build_notes_context( $project_id );
         $journey_state   = self::build_journey_state( $project_id, $project );
-        $recent_events   = self::build_recent_events( $project_id );
+        $rolling_summary = self::get_session_rolling_summary( $project_id );
 
-        error_log( '[BCN] context: sources=' . mb_strlen( $source_context ) . ' notes=' . mb_strlen( $notes_context ) . ' journey=' . mb_strlen( $journey_state ) . ' events=' . mb_strlen( $recent_events ) );
+        error_log( '[BCN] context: sources=' . mb_strlen( $source_context ) . ' notes=' . mb_strlen( $notes_context ) . ' journey=' . mb_strlen( $journey_state ) . ' rolling=' . mb_strlen( $rolling_summary ) );
 
-        $prompt = "Bạn là trợ lý nghiên cứu chuyên sâu (BizCity Research Companion).\n\n"
-                . "VAI TRÒ: Bạn là nhà nghiên cứu đồng hành — phân tích tài liệu một cách HỌC THUẬT, SÂU SẮC và CHI TIẾT.\n\n"
+        $prompt = "Bạn là trợ lý nghiên cứu đồng hành (BizCity Research Companion).\n\n"
+                . "VAI TRÒ: Nhà nghiên cứu thông minh — đọc tài liệu, trả lời chính xác, phân tích sâu khi cần.\n\n"
                 . "PHONG CÁCH TRẢ LỜI:\n"
-                . "- Trả lời DÀI, ĐẦY ĐỦ, có cấu trúc rõ ràng (heading, bullet, numbered list)\n"
-                . "- Phân tích đa chiều: so sánh, đối chiếu, liên kết các nguồn với nhau\n"
-                . "- Trích dẫn cụ thể từ tài liệu: tên nguồn, đoạn trích, số liệu\n"
-                . "- Đưa ra nhận xét, đánh giá chuyên gia khi phù hợp\n"
-                . "- Kết nối với kiến thức rộng hơn nếu tài liệu cho phép\n"
-                . "- Highlight insight quan trọng và hàm ý thực tiễn\n\n"
-                . "QUY TẮC:\n"
-                . "1. Ưu tiên thông tin từ NGUỒN TÀI LIỆU và GHI CHÚ — luôn trích dẫn nguồn\n"
-                . "2. Phân tích sâu: không chỉ tóm tắt mà phải giải thích WHY, HOW, SO WHAT\n"
-                . "3. Nếu tài liệu có nhiều góc nhìn → trình bày cả hai và đánh giá\n"
-                . "4. Nếu thấy thông tin quan trọng → đề xuất lưu thành NOTE\n\n"
+                . "- Trả lời đủ ý, có cấu trúc rõ ràng (heading, bullet, numbered list khi phù hợp)\n"
+                . "- Trích dẫn từ tài liệu khi có — ghi rõ tên nguồn\n"
+                . "- Phân tích WHY, HOW, SO WHAT thay vì chỉ liệt kê\n"
+                . "- Nếu tài liệu có nhiều góc nhìn → trình bày đủ, sau đó đánh giá\n\n"
                 . "KHI TÀI LIỆU KHÔNG ĐỀ CẬP ĐẾN CHỦ ĐỀ:\n"
-                . "- KHÔNG từ chối trả lời, KHÔNG nói ngắn gọn rồi dừng\n"
-                . "- Trả lời ĐẦY ĐỦ, CHI TIẾT dựa trên kiến thức của bạn (ghi rõ '📚 Từ kiến thức chung:' ở đầu phần này)\n"
-                . "- Sau khi trả lời xong, gợi ý 🔍 để tìm nguồn xác minh/bổ sung (không cắt bỏ nội dung)\n"
-                . "- Mục tiêu: user luôn nhận được câu trả lời hữu ích, sau đó có thể làm giàu bằng tài liệu thực tế\n\n"
-                . "FORMAT GỢI Ý (BẮT BUỘC cuối mỗi câu trả lời):\n"
-                . "---\n💡 **Gợi ý tiếp theo:**\n"
-                . "- 🔍 Tìm thêm nguồn về [chủ đề chính user đang hỏi]\n"
-                . "- Phân tích sâu hơn về [khía cạnh cụ thể trong tài liệu]\n"
-                . "- So sánh [A] với [B] trong bối cảnh [chủ đề]\n\n"
-                . "LUẬT GỢI Ý:\n"
-                . "- Gợi ý 1: Bắt đầu bằng 🔍, phản ánh chủ đề user vừa hỏi\n"
-                . "- Gợi ý 2-3: Dạng hành động — bắt đầu bằng động từ (Phân tích, So sánh, Mở rộng, Giải thích, Tổng hợp, Liệt kê...)\n"
-                . "- KHÔNG bao giờ viết dạng 'Bạn muốn...' / 'Bạn có muốn...' / 'Mình có thể...'\n"
-                . "- ĐÚNG: 'Phân tích chi tiết cơ chế X' / 'So sánh framework A với B' / 'Tổng hợp các best practices'\n"
-                . "- SAI: 'Bạn muốn mình giúp phân tích...' / 'Bạn có muốn tìm hiểu thêm...'\n";
+                . "- Trả lời dựa trên kiến thức chung, ghi rõ '📚 Từ kiến thức chung:' ở đầu phần này\n"
+                . "- Không từ chối, không cắt ngắn — user luôn nhận được câu trả lời có ích\n\n"
+                . "GỢI Ý FOLLOW-UP:\n"
+                . "- Khi câu trả lời hoàn chỉnh, bạn CÓ THỂ đề xuất 1-3 hướng đi tiếp theo nếu thực sự hữu ích\n"
+                . "- Gợi ý bắt đầu bằng động từ hành động (Phân tích, So sánh, Tổng hợp, Mở rộng...)\n"
+                . "- Không viết dạng 'Bạn muốn...' hoặc 'Mình có thể...'\n"
+                . "- Không bắt buộc thêm nếu câu trả lời đã tự hoàn chỉnh\n";
 
         if ( $source_context ) {
             $prompt .= "\n--- NGUỒN TÀI LIỆU ---\n{$source_context}\n--- HẾT NGUỒN ---\n";
@@ -101,11 +86,11 @@ class BCN_Chat_Engine {
         if ( $notes_context ) {
             $prompt .= "\n--- GHI CHÚ ĐÃ LƯU ---\n{$notes_context}\n--- HẾT GHI CHÚ ---\n";
         }
-        if ( $journey_state ) {
-            $prompt .= "\n--- TRẠNG THÁI CÔNG VIỆC ---\n{$journey_state}\n--- HẾT ---\n";
+        if ( $rolling_summary ) {
+            $prompt .= "\n--- TÓM TẮT HỘI THOẠI TRƯỚC ---\n{$rolling_summary}\n--- HẾT ---\n";
         }
-        if ( $recent_events ) {
-            $prompt .= "\n--- HOẠT ĐỘNG GẦN ĐÂY ---\n{$recent_events}\n--- HẾT ---\n";
+        if ( $journey_state ) {
+            $prompt .= "\n--- TRẠNG THÁI PROJECT ---\n{$journey_state}\n--- HẾT ---\n";
         }
 
         return $prompt;
@@ -147,6 +132,11 @@ class BCN_Chat_Engine {
 
         // Store for filter hook.
         set_transient( "bcn_sse_project_{$user_id}", $project_id, 120 );
+
+        // Initialize per-session Memory Spec on first message (async, cheap LLM).
+        if ( class_exists( 'BCN_Session_Memory' ) ) {
+            BCN_Session_Memory::maybe_init( $session_id, $project_id, $user_id, $message );
+        }
 
         error_log( "[BCN] handle_sse: project_id={$project_id}, user_id={$user_id}, session_id={$session_id}" );
         error_log( "[BCN] handle_sse: bcn_has_intent=" . ( bcn_has_intent() ? '1' : '0' ) );
@@ -475,34 +465,40 @@ class BCN_Chat_Engine {
                 $system_prompt .= $data_context;
             }
 
-            // Notebook follow-up format
-            $system_prompt .= "\n\nCuối mỗi câu trả lời, gợi ý 2-3 hành động tiếp theo:\n"
-                . "---\n💡 **Gợi ý tiếp theo:**\n"
-                . "- 🔍 Tìm thêm nguồn về [chủ đề] (nếu tài liệu chưa đủ)\n"
-                . "- Phân tích / So sánh / Mở rộng [khía cạnh cụ thể]\n"
-                . "- Tổng hợp / Giải thích [chủ đề liên quan]\n\n"
-                . "Gợi ý bắt đầu bằng động từ hành động, KHÔNG viết dạng AI hỏi lại user.\n";
+            // Hướng dẫn follow-up tự nhiên (không bắt buộc format cứng)
+            $system_prompt .= "\nKhi hữu ích, gợi ý 1-2 hướng đi tiếp theo cụ thể (bắt đầu bằng động từ hành động).\n";
+
+            // Inject per-session Memory Spec (Twin Resolver path).
+            if ( class_exists( 'BCN_Session_Memory' ) ) {
+                $mem_spec = BCN_Session_Memory::format_for_prompt( $session_id );
+                if ( $mem_spec ) $system_prompt .= $mem_spec;
+            }
         } else {
             // ── LEGACY FALLBACK — definition blocks consolidated in Twin Context Resolver ──
-            $system_prompt = "Bạn là trợ lý nghiên cứu chuyên sâu. Hỗ trợ Chủ Nhân trong Notebook nghiên cứu.\n";
-            $system_prompt .= "Trả lời bằng tiếng Việt, chi tiết, sâu sắc, có cấu trúc.\n\n";
+            $system_prompt = "Bạn là trợ lý nghiên cứu đồng hành trong Notebook. Trả lời bằng tiếng Việt, rõ ràng và có ích.\n";
 
             $data_context = self::build_notebook_data_context( $project_id, $project );
             if ( ! empty( $data_context ) ) {
                 $system_prompt .= $data_context;
             }
 
-            $system_prompt .= "\n\nCuối mỗi câu trả lời, gợi ý 2-3 hành động tiếp theo:\n"
-                . "---\n💡 **Gợi ý tiếp theo:**\n"
-                . "- 🔍 Tìm thêm nguồn về [chủ đề] (nếu tài liệu chưa đủ)\n"
-                . "- Phân tích / So sánh / Mở rộng [khía cạnh cụ thể]\n"
-                . "- Tổng hợp / Giải thích [chủ đề liên quan]\n\n"
-                . "Gợi ý bắt đầu bằng động từ hành động, KHÔNG viết dạng AI hỏi lại user.\n";
+            // Hướng dẫn follow-up tự nhiên
+            $system_prompt .= "\nKhi hữu ích, gợi ý 1-2 hướng đi tiếp theo cụ thể (bắt đầu bằng động từ hành động).\n";
+
+            // Inject per-session Memory Spec (Legacy path).
+            if ( class_exists( 'BCN_Session_Memory' ) ) {
+                $mem_spec = BCN_Session_Memory::format_for_prompt( $session_id );
+                if ( $mem_spec ) $system_prompt .= $mem_spec;
+            }
         }
 
-        // Get recent messages for conversation context.
+        // Build conversation history cho LLM.
+        // Nếu có rolling summary (lịch sử cũ đã được tóm tắt) → chỉ load 8 messages recent.
+        // Nếu chưa có summary → load 16 messages để đảm bảo đủ context.
         $messages_handler = new BCN_Messages();
-        $recent = $messages_handler->get_by_project( $project_id, [ 'limit' => 20 ] );
+        $rolling_summary  = self::get_session_rolling_summary( $project_id );
+        $history_limit    = $rolling_summary ? 8 : 16;
+        $recent           = $messages_handler->get_by_project( $project_id, [ 'limit' => $history_limit ] );
 
         $llm_messages = [ [ 'role' => 'system', 'content' => $system_prompt ] ];
         foreach ( $recent as $msg ) {
@@ -534,6 +530,11 @@ class BCN_Chat_Engine {
             // Auto-save substantive response content as auto_pinned note.
             self::auto_pin_response( $project_id, $session_id, $user_id, $full_response, $message );
 
+            // Update per-session Memory Spec with this turn.
+            if ( class_exists( 'BCN_Session_Memory' ) ) {
+                BCN_Session_Memory::maybe_update( $session_id, $message, $full_response );
+            }
+
             echo "event: done\ndata: " . wp_json_encode( [
                 'message'     => [ 'id' => $bot_msg_id, 'role' => 'assistant', 'content' => $full_response ],
                 'userMessage' => [ 'id' => $user_msg_id ],
@@ -551,14 +552,14 @@ class BCN_Chat_Engine {
     // ── Context Builders ──
 
     /**
-     * Build ONLY the notebook data sections (sources, notes, journey, events).
+     * Build ONLY the notebook data sections (sources, notes, journey, events, rolling summary).
      * Used by inject_source_context (pri 15) to append data without a competing persona.
      */
     public static function build_notebook_data_context( string $project_id, ?object $project = null ): string {
-        $source_context = self::build_source_context( $project_id );
-        $notes_context  = self::build_notes_context( $project_id );
-        $journey_state  = self::build_journey_state( $project_id, $project );
-        $recent_events  = self::build_recent_events( $project_id );
+        $source_context  = self::build_source_context( $project_id );
+        $notes_context   = self::build_notes_context( $project_id );
+        $journey_state   = self::build_journey_state( $project_id, $project );
+        $rolling_summary = self::get_session_rolling_summary( $project_id );
 
         $parts = [];
         if ( $source_context ) {
@@ -567,19 +568,47 @@ class BCN_Chat_Engine {
         if ( $notes_context ) {
             $parts[] = "--- GHI CHÚ ĐÃ LƯU ---\n{$notes_context}\n--- HẾT GHI CHÚ ---";
         }
-        if ( $journey_state ) {
-            $parts[] = "--- TRẠNG THÁI CÔNG VIỆC ---\n{$journey_state}\n--- HẾT ---";
+        // Rolling summary giúp LLM nhớ ngữ cảnh các session trước mà không cần load toàn bộ messages.
+        if ( $rolling_summary ) {
+            $parts[] = "--- TÓM TẮT HỘI THOẠI TRƯỚC ---\n{$rolling_summary}\n--- HẾT ---";
         }
-        if ( $recent_events ) {
-            $parts[] = "--- HOẠT ĐỘNG GẦN ĐÂY ---\n{$recent_events}\n--- HẾT ---";
+        if ( $journey_state ) {
+            $parts[] = "--- TRẠNG THÁI PROJECT ---\n{$journey_state}\n--- HẾT ---";
         }
 
         if ( empty( $parts ) ) return '';
 
         return "\n\n## 📓 NOTEBOOK RESEARCH CONTEXT:\n"
-             . "Chủ Nhân đang làm việc trong Notebook nghiên cứu — dưới đây là tài liệu và ghi chú.\n"
-             . "Hãy ưu tiên trả lời dựa trên tài liệu này. Nếu không tìm thấy → thừa nhận ngắn gọn.\n\n"
+             . "Người dùng đang làm việc trong Notebook nghiên cứu — ưu tiên trả lời dựa trên tài liệu dưới đây.\n"
+             . "Nếu tài liệu không đề cập → trả lời từ kiến thức chung, ghi rõ '📚 Kiến thức chung:' ở đầu.\n\n"
              . implode( "\n\n", $parts );
+    }
+
+    /**
+     * Lấy rolling summary của session gần nhất trong project.
+     * Rolling summary được tạo bởi BCN_Research_Memory mỗi N turns.
+     *
+     * @param  string $project_id
+     * @return string  Rolling summary text, hoặc rỗng nếu chưa có.
+     */
+    private static function get_session_rolling_summary( string $project_id ): string {
+        global $wpdb;
+
+        // Tìm trong bizcity_webchat_sessions (nếu có) hoặc bảng sessions của BCN.
+        // BCN_Research_Memory lưu rolling summary vào bizcity_memory_notes với note_type='research_auto'.
+        // Lấy note_type='research_auto' mới nhất của project này.
+        $notes_table = BCN_Schema_Extend::table_notes();
+        $summary = $wpdb->get_var( $wpdb->prepare(
+            "SELECT content FROM {$notes_table}
+             WHERE project_id = %s AND note_type = 'research_auto'
+             ORDER BY created_at DESC LIMIT 1",
+            $project_id
+        ) );
+
+        if ( ! $summary ) return '';
+
+        // Giới hạn rolling summary không quá 2000 chars để tiết kiệm tokens.
+        return mb_substr( $summary, 0, 2000 );
     }
 
     public static function build_source_context( $project_id, $max_tokens = 30000 ) {
@@ -703,24 +732,25 @@ class BCN_Chat_Engine {
             $research_context = BCN_Research_Memory::instance()->build_research_context( $project_id, $user_message );
         }
 
-        if ( empty( $data_context ) && empty( $research_context ) ) return $prompt;
+        // Inject per-session Memory Spec (Intent Engine path).
+        $memory_spec_context = '';
+        if ( class_exists( 'BCN_Session_Memory' ) ) {
+            $session_id = sanitize_text_field( $_REQUEST['session_id'] ?? $_POST['session_id'] ?? '' );
+            if ( $session_id ) {
+                $memory_spec_context = BCN_Session_Memory::format_for_prompt( $session_id );
+            }
+        }
 
-        // Notebook-specific instructions for handling missing info + follow-up format.
-        $suggestion_rules = "\n\n## 📓 NOTEBOOK — QUY TẮC TRẢ LỜI:\n"
-            . "KHI TÀI LIỆU KHÔNG ĐỀ CẬP ĐẾN CHỦ ĐỀ:\n"
-            . "- KHÔNG từ chối, KHÔNG nói 'tôi không có thông tin', KHÔNG trả lời ngắn gọn rồi dừng\n"
-            . "- Trả lời ĐẦY ĐỦ, CHI TIẾT dựa trên kiến thức của bạn — ghi rõ '📚 Từ kiến thức chung:' ở đầu phần này\n"
-            . "- Sau khi trả lời xong mới gợi ý 🔍 để tìm nguồn xác minh\n"
-            . "- Mục tiêu: user LUÔN nhận được câu trả lời hữu ích\n\n"
-            . "FORMAT GỢI Ý (BẮT BUỘC cuối mỗi câu trả lời):\n"
-            . "---\n💡 **Gợi ý tiếp theo:**\n"
-            . "- 🔍 Tìm thêm nguồn về [chủ đề user đang hỏi]\n"
-            . "- Phân tích sâu hơn về [khía cạnh cụ thể]\n"
-            . "- So sánh / Tổng hợp [chủ đề liên quan]\n\n"
-            . "Gợi ý bắt đầu bằng ĐỘNG TỪ hành động (Phân tích, So sánh, Mở rộng, Giải thích, Tổng hợp, Liệt kê...).\n"
-            . "KHÔNG viết dạng 'Bạn muốn...' / 'Mình có thể...' — hãy viết như một lệnh hành động.\n";
+        if ( empty( $data_context ) && empty( $research_context ) && empty( $memory_spec_context ) ) return $prompt;
 
-        return $prompt . $data_context . $research_context . $suggestion_rules;
+        // Hướng dẫn xử lý khi tài liệu không đủ — natural, không bắt buộc format cứng.
+        $notebook_rules = "\n\n## 📓 NOTEBOOK — Hướng dẫn:\n"
+            . "- Ưu tiên trả lời từ tài liệu và ghi chú trong Notebook.\n"
+            . "- Nếu tài liệu không đề cập → trả lời từ kiến thức chung, ghi '📚 Kiến thức chung:' ở đầu.\n"
+            . "- Không từ chối trả lời, không cắt ngắn — user luôn cần một câu trả lời đầy đủ.\n"
+            . "- Khi hữu ích, có thể đề xuất 1-2 hành động tiếp theo (bắt đầu bằng động từ).\n";
+
+        return $prompt . $data_context . $research_context . $memory_spec_context . $notebook_rules;
     }
 
     // ── Auto-pin Response Content ──
@@ -742,15 +772,17 @@ class BCN_Chat_Engine {
     private static function auto_pin_response( $project_id, $session_id, $user_id, string $bot_reply, string $user_query ) {
         if ( ! $project_id || ! $user_id ) return;
 
-        // Skip very short replies — not substantive.
-        if ( mb_strlen( wp_strip_all_tags( $bot_reply ) ) < 200 ) return;
+        // Skip rất ngắn — không có nội dung substantive.
+        if ( mb_strlen( wp_strip_all_tags( $bot_reply ) ) < 300 ) return;
 
-        // Extract suggestions, filter out 🔍 search pills.
+        // Skip nếu response chủ yếu là search-redirect (>60% là 🔍 pills).
         $all_suggestions = self::extract_suggestions( $bot_reply );
+        $search_pills    = array_filter( $all_suggestions, fn( $s ) => mb_strpos( $s, '🔍' ) === 0 );
         $action_pills    = array_values( array_filter( $all_suggestions, fn( $s ) => mb_strpos( $s, '🔍' ) !== 0 ) );
+        if ( count( $search_pills ) >= count( $all_suggestions ) && ! empty( $all_suggestions ) ) return;
 
-        // Skip if no action-oriented suggestions — pure search-redirect response, nothing to pin.
-        if ( empty( $action_pills ) ) return;
+        // Skip nếu không có nội dung phân tích — chỉ 🔍 redirect, không có insight.
+        if ( empty( $action_pills ) && mb_strlen( wp_strip_all_tags( $bot_reply ) ) < 500 ) return;
 
         // Strip the "💡 Gợi ý" block to get the clean answer body.
         $answer_body = preg_replace( '/---\s*\n💡.*$/us', '', $bot_reply );
@@ -801,6 +833,11 @@ class BCN_Chat_Engine {
         // Auto-save substantive response content as auto_pinned note (Intent Engine path).
         if ( is_string( $bot_reply ) && is_string( $user_message ) ) {
             self::auto_pin_response( $project_id, $session_id, $user_id, $bot_reply, $user_message );
+        }
+
+        // Update per-session Memory Spec with new turn data.
+        if ( class_exists( 'BCN_Session_Memory' ) && is_string( $user_message ) && is_string( $bot_reply ) ) {
+            BCN_Session_Memory::maybe_update( $session_id, $user_message, $bot_reply );
         }
 
         // Trigger Research Memory LLM summary every N turns.

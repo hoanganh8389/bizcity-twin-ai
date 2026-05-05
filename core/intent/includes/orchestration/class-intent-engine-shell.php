@@ -103,6 +103,112 @@ class BizCity_Intent_Engine_Shell {
 	 * @return array { reply, action, conversation_id, goal, status, slots, meta }
 	 */
 	public function process( array $params ): array {
+		$user_id = intval( $params['user_id'] ?? 0 );
+		$channel = $params['channel'] ?? 'webchat';
+		$message = $params['message'] ?? '';
+
+		error_log( self::LOG . " process: user={$user_id}, channel={$channel}, msg=" . mb_substr( $message, 0, 80 ) );
+
+		// ── Phase 0.16 / Vòng 4 — PRIMARY route ──
+		// Khi user nằm trong rollout của Intent_Shell, bypass Phase 1.11
+		// pipeline hoàn toàn. Không cần shadow vì shell là primary.
+		if (
+			class_exists( 'BizCity_Intent_Shell_Config' )
+			&& class_exists( 'BizCity_Intent_Shell' )
+			&& BizCity_Intent_Shell_Config::should_use_shell( $params )
+		) {
+			error_log( '[Intent_Shell] PRIMARY route activated for user=' . $user_id );
+			return BizCity_Intent_Shell::instance()->handle( $params );
+		}
+
+		// ── Phase 1.11 LEGACY pipeline — Smart Classifier ──
+		// Capture timing + reply để log shadow diff so với Intent_Shell.
+		$legacy_start  = microtime( true );
+		$legacy_result = $this->process_legacy_pipeline( $params );
+		$legacy_ms     = (int) round( ( microtime( true ) - $legacy_start ) * 1000 );
+
+		// ── Phase 0.16 / Vòng 4 — SHADOW capture ──
+		// Schedule Intent_Shell::handle() chạy sau khi user đã nhận response,
+		// rồi log diff. Guard duplicate trong cùng HTTP request bằng fingerprint.
+		$shadow_on = class_exists( 'BizCity_Intent_Shell_Config' )
+			&& class_exists( 'BizCity_Intent_Shell' )
+			&& BizCity_Intent_Shell_Config::is_shadow_enabled();
+
+		if ( $shadow_on ) {
+			static $shadow_fps = [];
+			$fp = md5( ( $params['user_id'] ?? '' ) . '|' . ( $params['session_id'] ?? '' ) . '|' . ( $params['message'] ?? '' ) );
+			if ( isset( $shadow_fps[ $fp ] ) ) {
+				error_log( '[Intent_Shell shadow] skipped duplicate within same request fp=' . $fp );
+			} else {
+				$shadow_fps[ $fp ] = true;
+				$shadow_params  = $params;
+				$shadow_legacy  = $legacy_result;
+				$shadow_legacy_ms = $legacy_ms;
+
+				// Sprint 4 E2 — Engine_Shell often defers reply composition to
+				// chat-gateway (action=knowledge|multi|passthrough). Capture the
+				// final composed reply via `bizcity_chat_message_processed` so
+				// shadow can compare REAL text instead of empty string.
+				if ( ( $shadow_legacy['reply'] ?? '' ) === '' ) {
+					$captured_reply = null;
+					$capture = static function ( $payload ) use ( &$captured_reply, $shadow_params ) {
+						if ( $captured_reply !== null ) { return; }
+						// Loose match: same session OR same user — chat-gateway
+						// payload uses `user_message`, our params use `message`.
+						$same = false;
+						if ( ! empty( $payload['session_id'] ) && ! empty( $shadow_params['session_id'] ) ) {
+							$same = $payload['session_id'] === $shadow_params['session_id'];
+						}
+						if ( ! $same && ! empty( $payload['user_id'] ) && ! empty( $shadow_params['user_id'] ) ) {
+							$same = (int) $payload['user_id'] === (int) $shadow_params['user_id'];
+						}
+						if ( $same && ! empty( $payload['bot_reply'] ) ) {
+							$captured_reply = (string) $payload['bot_reply'];
+						}
+					};
+					add_action( 'bizcity_chat_message_processed', $capture, 99, 1 );
+
+					register_shutdown_function( static function () use ( $shadow_params, $shadow_legacy, $shadow_legacy_ms, &$captured_reply ) {
+						try {
+							$legacy_for_diff = $shadow_legacy;
+							if ( $captured_reply !== null && $captured_reply !== '' ) {
+								$legacy_for_diff['reply'] = $captured_reply;
+								$legacy_for_diff['_reply_source'] = 'chat_gateway';
+							}
+							BizCity_Intent_Shell::instance()->shadow_compare(
+								$shadow_params,
+								$legacy_for_diff,
+								$shadow_legacy_ms
+							);
+						} catch ( Throwable $e ) {
+							error_log( '[Intent_Shell shadow] ' . $e->getMessage() );
+						}
+					} );
+				} else {
+					// Engine already produced a reply (e.g. pre-rules path).
+					register_shutdown_function( static function () use ( $shadow_params, $shadow_legacy, $shadow_legacy_ms ) {
+						try {
+							BizCity_Intent_Shell::instance()->shadow_compare(
+								$shadow_params,
+								$shadow_legacy,
+								$shadow_legacy_ms
+							);
+						} catch ( Throwable $e ) {
+							error_log( '[Intent_Shell shadow] ' . $e->getMessage() );
+						}
+					} );
+				}
+			}
+		}
+
+		return $legacy_result;
+	}
+
+	/**
+	 * Phase 1.11 Smart Classifier pipeline — original 5-step body.
+	 * Wrapped by process() so we can capture timing/reply for shadow diff.
+	 */
+	private function process_legacy_pipeline( array $params ): array {
 		$message      = $params['message']      ?? '';
 		$session_id   = $params['session_id']   ?? '';
 		$user_id      = intval( $params['user_id'] ?? 0 );
@@ -122,8 +228,6 @@ class BizCity_Intent_Engine_Shell {
 			'rolling_summary' => '',
 			'meta'            => [ 'engine' => 'shell' ],
 		];
-
-		error_log( self::LOG . " process: user={$user_id}, channel={$channel}, msg=" . mb_substr( $message, 0, 80 ) );
 
 		// ── Step 1: Init — Get/create conversation ──
 		$conversation = $this->conversation_mgr->get_or_create(

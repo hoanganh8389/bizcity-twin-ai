@@ -33,6 +33,10 @@ add_filter('query_vars', function ($vars) {
  * =====================================================================*/
 add_action('template_redirect', function () {
   if (get_query_var('bccm_natal_chart')) {
+    // Disable Query Monitor on this standalone public view — its HTML panel
+    // pollutes the page when it gets ingested as AI training context.
+    add_filter( 'qm/dispatch/html', '__return_false', 0 );
+
     $chart_id = intval($_GET['id'] ?? get_query_var('chart_id'));
     $chart_hash = sanitize_text_field($_GET['hash'] ?? get_query_var('chart_hash'));
     $export_pdf = !empty($_GET['export_pdf']) || get_query_var('export_pdf');

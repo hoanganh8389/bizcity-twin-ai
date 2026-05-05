@@ -101,9 +101,9 @@ class BizCity_Maturity_Dashboard {
 
 	public function add_menu_page(): void {
 		add_submenu_page(
-			'bizcity-webchat-dashboard',
-			'Twin AI Maturity',
-			'🧬 Maturity',
+			'bizcity-twinchat',
+			'Twin chat',
+			'Twin chat',
 			'read',
 			'bizcity-twin-maturity',
 			[ $this, 'render_page' ]

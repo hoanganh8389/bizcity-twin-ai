@@ -209,36 +209,39 @@ function bccm_admin_settings(){
 
 /* ---------- Tab: Tổng quan (API keys + coach types) ---------- */
 function bccm_settings_tab_overview(){
-  $api    = get_option('bccm_openai_api_key','');
-  $proxy  = get_option('bizgpt_api','');
-  $model  = get_option('bizgpt_model','gpt-4.1-nano');
+  // PHASE-0-RULE-SMART-GATEWAY-MIGRATION: BizGPT proxy + bccm_openai_api_key đã ngưng dùng.
+  // Mọi LLM call đi qua BizCity_LLM_Client (Router gateway).
   $astro_key = get_option('bccm_astro_api_key','');
 
   $pk_client_id     = get_option('bccm_prokerala_client_id','');
   $pk_client_secret = get_option('bccm_prokerala_client_secret','');
 
   if (!empty($_POST['bccm_save_settings']) && check_admin_referer('bccm_save_settings')){
-    update_option('bizgpt_api', sanitize_text_field($_POST['bizgpt_api'] ?? ''));
-    update_option('bizgpt_model', sanitize_text_field($_POST['bizgpt_model'] ?? 'gpt-4.1-nano'));
-    update_option('bccm_openai_api_key', sanitize_text_field($_POST['api_key'] ?? ''));
     update_option('bccm_astro_api_key', sanitize_text_field($_POST['astro_api_key'] ?? ''));
     update_option('bccm_prokerala_client_id', sanitize_text_field($_POST['prokerala_client_id'] ?? ''));
     update_option('bccm_prokerala_client_secret', sanitize_text_field($_POST['prokerala_client_secret'] ?? ''));
     echo '<div class="updated"><p>Saved.</p></div>';
-    $api   = get_option('bccm_openai_api_key','');
-    $proxy = get_option('bizgpt_api','');
-    $model = get_option('bizgpt_model','gpt-4.1-nano');
     $astro_key = get_option('bccm_astro_api_key','');
     $pk_client_id     = get_option('bccm_prokerala_client_id','');
     $pk_client_secret = get_option('bccm_prokerala_client_secret','');
   }
 
   echo '<form method="post">'; wp_nonce_field('bccm_save_settings');
-  echo '<h2>API Settings</h2>';
+  echo '<h2>LLM (AI) — BizCity LLM Router</h2>';
   echo '<table class="form-table">';
-  echo '<tr><th>BizGPT Proxy Token</th><td><input type="password" name="bizgpt_api" value="'.esc_attr($proxy).'" class="regular-text"/></td></tr>';
-  echo '<tr><th>BizGPT Model</th><td><input type="text" name="bizgpt_model" value="'.esc_attr($model).'" class="regular-text"/></td></tr>';
-  echo '<tr><th>OpenAI API Key (fallback)</th><td><input type="password" name="api_key" value="'.esc_attr($api).'" class="regular-text"/></td></tr>';
+  echo '<tr><th>Trạng thái Router</th><td>';
+  if ( class_exists('BizCity_LLM_Client') ) {
+    $bccm_router_ready = BizCity_LLM_Client::instance()->is_ready();
+    if ( $bccm_router_ready ) {
+      echo '<p style="color:#059669">✔ Router sẵn sàng. Mọi LLM call (BizCoach Map, reminder, astrology report…) sẽ đi qua gateway.</p>';
+    } else {
+      echo '<p style="color:#dc2626">✘ BizCity_LLM_Client chưa cấu hình API key.</p>';
+    }
+  } else {
+    echo '<p style="color:#dc2626">✘ BizCity_LLM_Client chưa được tải. Hãy bật plugin <code>bizcity-llm-router</code>.</p>';
+  }
+  echo '<p class="description">Cấu hình API key/model tại <strong>BizCity LLM Router → Settings</strong>. Các option cũ <code>bccm_openai_api_key</code>, <code>bizgpt_api</code>, <code>bizgpt_model</code> đã ngưng sử dụng.</p>';
+  echo '</td></tr>';
   echo '</table>';
 
   echo '<h2>🌟 Astrology API (Free Astrology API)</h2>';

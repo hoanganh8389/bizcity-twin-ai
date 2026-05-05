@@ -53,14 +53,14 @@ function bccm_admin_step4_success_plan() {
   $types_meta    = bccm_coach_types();
   $type_label    = $types_meta[$selected_type]['label'] ?? $selected_type;
 
-  // Astro data — USE user_id as primary for cross-platform consistency
+  // Astro data — use coachee_id for stable cross-schema compatibility
   $t_astro   = $wpdb->prefix . 'bccm_astro';
   $astro_row = $wpdb->get_row($wpdb->prepare(
-    "SELECT * FROM $t_astro WHERE user_id=%d AND chart_type='western' ORDER BY id DESC LIMIT 1", $user_id
+    "SELECT * FROM $t_astro WHERE coachee_id=%d AND chart_type='western' ORDER BY id DESC LIMIT 1", $coachee_id
   ), ARRAY_A);
   if (!$astro_row) {
     $astro_row = $wpdb->get_row($wpdb->prepare(
-      "SELECT * FROM $t_astro WHERE user_id=%d AND chart_type='vedic' ORDER BY id DESC LIMIT 1", $user_id
+      "SELECT * FROM $t_astro WHERE coachee_id=%d AND chart_type='vedic' ORDER BY id DESC LIMIT 1", $coachee_id
     ), ARRAY_A);
   }
 

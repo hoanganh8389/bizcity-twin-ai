@@ -222,6 +222,24 @@ class BizCity_Skill_REST_API {
 				'args'                => [ 'id' => [ 'type' => 'integer', 'required' => true ] ],
 			],
 		] );
+
+		// ── Phase 0.20.1 — Character-scoped skill bindings ──
+
+		// GET /character/{id}/skills — list skills bound to a character
+		register_rest_route( self::API_NAMESPACE, '/character/(?P<id>\d+)/skills', [
+			'methods'             => 'GET',
+			'callback'            => [ $this, 'list_character_skills' ],
+			'permission_callback' => function () { return is_user_logged_in(); },
+			'args'                => [ 'id' => [ 'type' => 'integer', 'required' => true ] ],
+		] );
+
+		// POST /character/{id}/skills/clone { source_skill_id }
+		register_rest_route( self::API_NAMESPACE, '/character/(?P<id>\d+)/skills/clone', [
+			'methods'             => 'POST',
+			'callback'            => [ $this, 'clone_skill_to_character' ],
+			'permission_callback' => [ $this, 'check_admin' ],
+			'args'                => [ 'id' => [ 'type' => 'integer', 'required' => true ] ],
+		] );
 	}
 
 	/* ── Permission ────────────────────────────────────────────── */
@@ -1061,6 +1079,81 @@ SYSTEM;
 			return new \WP_REST_Response( [ 'error' => 'Skill not found or already deleted' ], 404 );
 		}
 		return new \WP_REST_Response( [ 'deleted' => true, 'id' => $id ], 200 );
+	}
+
+	/* ══════════════════════════════════════════════════════════════
+	 *  Phase 0.20.1 — Character-scoped skill bindings
+	 * ══════════════════════════════════════════════════════════════ */
+
+	/**
+	 * GET /character/{id}/skills — list skills bound to a character.
+	 */
+	public function list_character_skills( \WP_REST_Request $req ): \WP_REST_Response {
+		$char_id = (int) $req->get_param( 'id' );
+		if ( $char_id <= 0 ) {
+			return new \WP_REST_Response( [ 'error' => 'Invalid character id' ], 400 );
+		}
+		if ( ! class_exists( 'BizCity_Skill_Database' ) ) {
+			return new \WP_REST_Response( [ 'error' => 'DB class not found' ], 500 );
+		}
+
+		$db     = BizCity_Skill_Database::instance();
+		$status = sanitize_text_field( $req->get_param( 'status' ) ?: 'active' );
+		$rows   = $db->list_skills( [
+			'character_id' => $char_id,
+			'status'       => $status,
+			'limit'        => 200,
+		] );
+
+		$skills = [];
+		foreach ( $rows as $row ) {
+			$skills[] = $this->db_row_to_skill_array( $row );
+		}
+
+		return new \WP_REST_Response( [
+			'character_id' => $char_id,
+			'skills'       => $skills,
+			'total'        => count( $skills ),
+		], 200 );
+	}
+
+	/**
+	 * POST /character/{id}/skills/clone — clone an existing skill into character scope.
+	 *
+	 * Body: { source_skill_id: int, user_id?: int }
+	 */
+	public function clone_skill_to_character( \WP_REST_Request $req ): \WP_REST_Response {
+		$char_id = (int) $req->get_param( 'id' );
+		$body    = $req->get_json_params() ?: [];
+		$src_id  = (int) ( $body['source_skill_id'] ?? 0 );
+		$user_id = (int) ( $body['user_id'] ?? 0 );
+
+		if ( $char_id <= 0 || $src_id <= 0 ) {
+			return new \WP_REST_Response( [
+				'error' => 'character id and source_skill_id are required',
+			], 400 );
+		}
+		if ( ! class_exists( 'BizCity_Skill_Manager' ) ) {
+			return new \WP_REST_Response( [ 'error' => 'Skill_Manager not found' ], 500 );
+		}
+
+		$new_id = BizCity_Skill_Manager::instance()->clone_to_character( $src_id, $char_id, $user_id );
+		if ( ! $new_id ) {
+			return new \WP_REST_Response( [
+				'error'           => 'Clone failed',
+				'source_skill_id' => $src_id,
+				'character_id'    => $char_id,
+			], 500 );
+		}
+
+		// Return the new row (frontmatter shape) so UI can render immediately
+		$row = BizCity_Skill_Database::instance()->get( $new_id );
+		return new \WP_REST_Response( [
+			'cloned'        => true,
+			'new_skill_id'  => $new_id,
+			'character_id'  => $char_id,
+			'skill'         => $row ? $this->db_row_to_skill_array( $row ) : null,
+		], 201 );
 	}
 
 	/* ── Private helpers ──────────────────────────────────────────── */

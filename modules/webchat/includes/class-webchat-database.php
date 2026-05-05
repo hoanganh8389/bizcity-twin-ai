@@ -164,6 +164,7 @@ class BizCity_WebChat_Database {
             tool_calls LONGTEXT,
             input_tokens INT DEFAULT 0,
             output_tokens INT DEFAULT 0,
+            finish_reason VARCHAR(32) DEFAULT '',
             is_context_included TINYINT(1) DEFAULT 1,
             importance_score TINYINT UNSIGNED DEFAULT 50,
             platform_type VARCHAR(32) DEFAULT 'WEBCHAT',
@@ -356,6 +357,23 @@ class BizCity_WebChat_Database {
         }
         if ( ! in_array( 'is_pinned', $cols_msg, true ) ) {
             $wpdb->query( "ALTER TABLE {$table_messages} ADD COLUMN is_pinned TINYINT(1) DEFAULT 0 AFTER rating" );
+        }
+
+        // Migration 13 (v5.1 — Sprint 4.5): Add input_tokens + output_tokens if missing.
+        // These columns exist in the CREATE TABLE DDL but may be absent on tables created
+        // before this DDL version was deployed.
+        if ( ! in_array( 'input_tokens', $cols_msg, true ) ) {
+            $wpdb->query( "ALTER TABLE {$table_messages} ADD COLUMN input_tokens INT DEFAULT 0 AFTER attachments" );
+        }
+        if ( ! in_array( 'output_tokens', $cols_msg, true ) ) {
+            $wpdb->query( "ALTER TABLE {$table_messages} ADD COLUMN output_tokens INT DEFAULT 0 AFTER input_tokens" );
+        }
+
+        // Migration 14 (Phase 0.6 — Sprint 0.6.16): persist LLM `finish_reason`
+        // alongside per-direction token counts so we can power billing dashboards
+        // (Phase 1.11.d) and detect truncated responses (`length`, `content_filter`).
+        if ( ! in_array( 'finish_reason', $cols_msg, true ) ) {
+            $wpdb->query( "ALTER TABLE {$table_messages} ADD COLUMN finish_reason VARCHAR(32) DEFAULT '' AFTER output_tokens" );
         }
 
         // Migration 10 (v4.0.0 — Phase 1.8): Create webchat_notes table

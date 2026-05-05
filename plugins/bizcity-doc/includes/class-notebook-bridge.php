@@ -2,10 +2,11 @@
 /**
  * Notebook Bridge — Register Doc Studio tools with Companion Notebook.
  *
- * Registers 3 tools into BCN_Notebook_Tool_Registry:
+ * Registers 4 tools into BCN_Notebook_Tool_Registry:
  *   doc_document      → DOCX/PDF document
  *   doc_presentation  → PPTX presentation
  *   doc_spreadsheet   → XLSX spreadsheet
+ *   mindmap           → Interactive mindmap JSON schema
  *
  * Each tool receives the standard skeleton JSON from Notebook Studio,
  * converts it into a topic string, and delegates to the Doc Studio
@@ -46,10 +47,17 @@ class BZDoc_Notebook_Bridge {
 			'color'       => 'green',
 			'doc_type'    => 'spreadsheet',
 		],
+		'mindmap' => [
+			'label'       => 'Sơ đồ tư duy',
+			'description' => 'Tạo mindmap tương tác từ Graph-RAG entities và nguồn dự án',
+			'icon'        => '🧠',
+			'color'       => 'green',
+			'doc_type'    => 'mindmap',
+		],
 	];
 
 	/**
-	 * Register all Doc Studio tools with the Notebook Tool Registry.
+	 * Register all Doc Studio tools with the Notebook Tool Registry (legacy path).
 	 */
 	public static function register( $registry ) {
 		foreach ( self::$tools as $type => $def ) {
@@ -72,24 +80,70 @@ class BZDoc_Notebook_Bridge {
 	}
 
 	/**
-	 * Hybrid Bridge: Notebook → Doc Studio.
+	 * Register bridges with BizCity_Studio_Job_Manager.
 	 *
-	 * Flow (3 steps, user feels 1):
-	 *   1. Create a Doc Studio project + transfer sources (fast, no embed)
-	 *   2. Generate document via LLM pipeline (with source_context_override)
-	 *   3. Return output with edit link → /tool-doc/?id={doc_id}&gen={gen_id}
+	 * bzdoc bridge mode = 'async': skeleton building (LLM) happens in worker;
+	 * the bridge fn itself (project create + source stamp) runs fast (<1s)
+	 * but is called from inside the worker after skeleton is ready.
 	 *
-	 * Benefits:
-	 *   - Immediate generation (no waiting for embeddings)
-	 *   - Sources preserved in Doc Studio for future RAG edits
-	 *   - User can continue editing in Doc Studio after generation
-	 *   - Generation history tracked (gen_id for undo/restore)
+	 * Plugin async completion (future): when bzdoc finishes generating the
+	 * actual document content, it can call:
+	 *   do_action( 'bizcity_studio_job_complete', $job_id, $result, $skeleton );
+	 * to update the studio_outputs row with the real content for re-learning.
+	 */
+	public static function register_job_bridges(): void {
+		if ( ! class_exists( 'BizCity_Studio_Job_Manager' ) ) return;
+
+		foreach ( self::$tools as $type => $def ) {
+			$doc_type = $def['doc_type'];
+
+			BizCity_Studio_Job_Manager::register_bridge(
+				$type,
+				static function ( array $job, array $skeleton ) use ( $doc_type ): array {
+					$result = self::generate_from_skeleton( $skeleton, $doc_type );
+					if ( is_wp_error( $result ) ) return $result;
+					return (array) $result;
+				},
+				'async'  // skeleton is built by worker; bridge fn is fast
+			);
+		}
+	}
+
+	/**
+	 * Hybrid Bridge: Notebook → Doc Studio (Plan A — handoff only).
+	 *
+	 * Flow (no LLM here — bzdoc UI tự generate khi user mở):
+	 *   1. Tạo Doc Studio project (blank row)
+	 *   2. Transfer sources (clone embeddings từ notebook)
+	 *   3. Lưu autogen payload (topic + source context + theme/template) vào
+	 *      schema_json._autogen → bzdoc FE đọc & pre-fill prompt khi load.
+	 *   4. Trả về URL `/tool-doc/?id={doc_id}&autogen=1` cho TwinChat.
+	 *
+	 * Tại sao bỏ step 2 (LLM):
+	 *   - LLM call ~60–180s sống chung process với TwinChat shutdown worker
+	 *     thường xuyên 524 (Cloudflare 100s) hoặc 502 (Anthropic outage).
+	 *   - Đẩy LLM về trang bzdoc → user thấy progress, có nút retry, edit prompt
+	 *     trước khi generate, dùng UI gốc của bzdoc (history/restore version).
+	 *   - TwinChat row instant ready trong <1s, không treo "Đang tạo…".
 	 *
 	 * @param array  $skeleton  Standard skeleton JSON from BCN_Studio_Input_Builder.
-	 * @param string $doc_type  document | presentation | spreadsheet
+	 * @param string $doc_type  document | presentation | spreadsheet | mindmap
 	 * @return array|WP_Error
 	 */
 	private static function generate_from_skeleton( array $skeleton, string $doc_type ) {
+		return self::generate_from_skeleton_public( $skeleton, $doc_type );
+	}
+
+	/**
+	 * Vòng 4.5.5d — Public entry point so external agents (e.g. TwinShell mindmap
+	 * agent) can use the same instant "blank doc + autogen URL" handoff. The
+	 * private wrapper above stays for backward-compat with notebook bridges.
+	 *
+	 * @param array  $skeleton  Standard skeleton JSON.
+	 * @param string $doc_type  document | presentation | spreadsheet | mindmap
+	 * @return array|WP_Error
+	 */
+	public static function generate_from_skeleton_public( array $skeleton, string $doc_type ) {
 		$topic_parts  = self::skeleton_to_topic( $skeleton, $doc_type );
 		$topic        = $topic_parts['topic'] ?? '';
 		$source_text  = $topic_parts['source_text'] ?? '';
@@ -99,73 +153,139 @@ class BZDoc_Notebook_Bridge {
 		}
 
 		/* ── Step 1: Create Doc Studio project + transfer sources ── */
-		$doc_id  = self::create_doc_project( $skeleton, $doc_type );
+		$doc_id   = self::create_doc_project( $skeleton, $doc_type );
 		$raw_text = $skeleton['_raw_text'] ?? '';
 
-		if ( $doc_id && ! is_wp_error( $doc_id ) ) {
-			self::transfer_sources( $doc_id, $skeleton, $raw_text );
+		if ( is_wp_error( $doc_id ) || ! $doc_id ) {
+			return is_wp_error( $doc_id )
+				? $doc_id
+				: new \WP_Error( 'create_failed', 'Không tạo được doc project.' );
 		}
 
-		/* ── Step 2: Generate document via full LLM pipeline ── */
-		$request = new \WP_REST_Request( 'POST' );
-		$request->set_param( 'doc_type', $doc_type );
-		$request->set_param( 'topic', $topic );
-		$request->set_param( 'template_name', self::guess_template( $skeleton, $doc_type ) );
-		$request->set_param( 'theme_name', 'modern' );
+		self::transfer_sources( $doc_id, $skeleton, $raw_text );
 
-		// Pass the long source text separately so it goes into the source context
-		// instead of the topic (which has a 2000-char limit)
-		if ( ! empty( $source_text ) ) {
-			$request->set_param( 'source_context_override', $source_text );
+		/* ── Step 2: Lưu autogen payload vào schema_json (bzdoc FE đọc khi load) ── */
+		$template = self::guess_template( $skeleton, $doc_type );
+		$theme    = 'modern';
+		$title    = $skeleton['nucleus']['title'] ?? '';
+		if ( empty( $title ) ) {
+			$title = self::extract_title( [], $doc_type );
 		}
 
-		if ( $doc_id && ! is_wp_error( $doc_id ) ) {
-			$request->set_param( 'doc_id', $doc_id );
+		// Wave 7 (PHASE-6.1 §8.3) — resolve notebook id from skeleton.project_id ("tc_<id>").
+		$project_id  = (string) ( $skeleton['project_id'] ?? '' );
+		$notebook_id = 0;
+		if ( $project_id !== '' && preg_match( '/^tc_(\d+)$/', $project_id, $m ) ) {
+			$notebook_id = (int) $m[1];
 		}
 
-		if ( $doc_type === 'presentation' ) {
-			$request->set_param( 'slide_count', 0 );
+		// Wave 7 — load pinned memory notes for prompt injection.
+		$pinned_notes = self::load_pinned_notes( $project_id );
+
+		// Vòng 4.5.5e (Rule 8g v2 — 2026-05-02) — also pull recent webchat
+		// turns of the SAME notebook so the autogen prompt is personalized
+		// to the conversation that led to the agent dispatch. Without this
+		// the iframe just sees the literal topic string and loses every
+		// piece of context the user already shared in chat.
+		$recent_chat = self::load_recent_webchat( $notebook_id );
+
+		// Wave 7 — outline block from skeleton (replaces source-clone of "Dàn ý").
+		$outline_block = self::skeleton_to_structured_source( $skeleton );
+
+		// Append recent chat under the outline so summarize_autogen_payload
+		// folds it into the LLM compaction step automatically.
+		if ( $recent_chat !== '' ) {
+			$outline_block = trim( $outline_block . "\n\n=== Hội thoại gần đây trong notebook ===\n" . $recent_chat );
 		}
 
-		// Pass full skeleton for sectional generation (documents only)
-		if ( $doc_type === 'document' && ! empty( $skeleton['skeleton'] ) ) {
-			$request->set_param( 'skeleton_json', $skeleton );
+		// HOTFIX (2026-05-02 v2) — halve caps + LLM summarization fallback so the
+		// full _autogen concat (outline + notes + topic) stays well under
+		// MAX_TOPIC (5000). Previous v1 caps still overflowed when topic itself
+		// was already long.
+		$max_outline = (int) apply_filters( 'bizcity_bzdoc_outline_block_chars', 1000 );
+		if ( mb_strlen( $outline_block ) > $max_outline ) {
+			$outline_block = mb_substr( $outline_block, 0, $max_outline - 1 ) . '…';
 		}
 
-		$result = BZDoc_Rest_API::handle_generate( $request );
-
-		if ( is_wp_error( $result ) ) {
-			return $result;
+		// Compact via LLM if combined payload still risks overflow (> ~2000 chars
+		// raw → stays safely under 5000 once headers/topic added).
+		$combined_len = mb_strlen( $outline_block );
+		foreach ( $pinned_notes as $n ) {
+			$combined_len += mb_strlen( (string) ( $n['content'] ?? '' ) ) + mb_strlen( (string) ( $n['title'] ?? '' ) );
 		}
-
-		/* ── Step 3: Build output with edit link ── */
-		$response_data = $result->get_data();
-		$schema        = $response_data['data'] ?? $response_data;
-		$final_doc_id  = $response_data['doc_id'] ?? $doc_id;
-		$gen_id        = $response_data['gen_id'] ?? 0;
-
-		$title = self::extract_title( $schema, $doc_type );
-
-		// Build Doc Studio URL with doc_id + gen_id + preview mode for iframe display.
-		$url = '';
-		if ( $final_doc_id ) {
-			$url = home_url( "/tool-doc/?id={$final_doc_id}" );
-			if ( $gen_id ) {
-				$url .= "&gen={$gen_id}";
+		if ( $combined_len > 2000 ) {
+			$summary = self::summarize_autogen_payload( $outline_block, $pinned_notes, $topic );
+			if ( $summary !== '' ) {
+				$outline_block = $summary;
+				$pinned_notes  = []; // already folded into summary
 			}
-			$url .= '&preview=true';
 		}
+
+		// Wave 2 kickstart flag (PHASE-6.1 §8.4) — set by Studio orchestrator.
+		$kickstart = ! empty( $skeleton['_kickstart'] );
+
+		global $wpdb;
+		$tbl = $wpdb->prefix . 'bzdoc_documents';
+		$wpdb->update(
+			$tbl,
+			[
+				'title'         => sanitize_text_field( $title ),
+				'template_name' => $template,
+				'theme_name'    => $theme,
+				'notebook_id'   => $notebook_id, // 1-1 binding (PHASE-6.1 §0bis.6).
+				'schema_json'   => wp_json_encode( [
+					'_autogen' => [
+						'topic'         => $topic,
+						'source_text'   => $source_text,
+						'doc_type'      => $doc_type,
+						'template_name' => $template,
+						'theme_name'    => $theme,
+						'created_at'    => current_time( 'mysql' ),
+						// Wave 7 additions:
+						'notebook_id'   => $notebook_id,
+						'studio_id'     => (int) $doc_id,
+						'outline_block' => $outline_block,
+						'pinned_notes'  => $pinned_notes,
+						'kickstart'     => $kickstart,
+						// Phase 6.4 — image options forwarded for FE pipeline call.
+						'image_opts'    => isset( $skeleton['image_opts'] ) && is_array( $skeleton['image_opts'] )
+							? $skeleton['image_opts'] : null,
+					],
+				], JSON_UNESCAPED_UNICODE ),
+				'updated_at'    => current_time( 'mysql' ),
+			],
+			[ 'id' => $doc_id ]
+		);
+
+		// Rule 8g v2 (2026-05-15) — federation key moved off `kg_sources.studio_id`
+		// onto `kg_notebooks.artifacts_json`. The central helper owns the write now;
+		// no per-source UPDATE needed here. Keeping the call site explicit so the
+		// notebook-bridge upserts the doc into the federation map even when it
+		// wasn't created via the agent path.
+		if ( $notebook_id > 0 && class_exists( 'BizCity_Artifact_Source_Federation' ) ) {
+			$edit_url = home_url( '/tool-doc/?id=' . $doc_id );
+			BizCity_Artifact_Source_Federation::stamp(
+				'bizcity-doc',
+				(int) $doc_id,
+				(int) $notebook_id,
+				(string) $title,
+				$edit_url
+			);
+		}
+
+		/* ── Step 3: Build handoff URL (kickstart flag piggy-backs as ?kickstart=1) ── */
+		$qs = [ 'id' => $doc_id, 'autogen' => 1 ];
+		if ( $kickstart ) $qs['kickstart'] = 1;
+		$url = home_url( '/tool-doc/?' . http_build_query( $qs ) );
 
 		return [
-			'content'        => wp_json_encode( $schema ),
+			'content'        => wp_json_encode( [ 'doc_id' => $doc_id, 'autogen' => true ] ),
 			'content_format' => 'json',
 			'title'          => $title,
 			'data'           => [
-				'doc_id'   => $final_doc_id,
-				'gen_id'   => $gen_id,
+				'doc_id'   => $doc_id,
 				'doc_type' => $doc_type,
 				'url'      => $url,
-				'schema'   => $schema,
 			],
 		];
 	}
@@ -184,6 +304,8 @@ class BZDoc_Notebook_Bridge {
 				'document'     => 'Tài liệu',
 				'presentation' => 'Thuyết trình',
 				'spreadsheet'  => 'Bảng tính',
+				'mindmap'      => 'Sơ đồ tư duy',
+				'image'        => 'Ảnh AI',
 			];
 			$title = ( $type_labels[ $doc_type ] ?? 'Tài liệu' ) . ' từ Notebook';
 		}
@@ -226,6 +348,19 @@ class BZDoc_Notebook_Bridge {
 		$doc_chunks = $wpdb->prefix . 'bzdoc_project_source_chunks';
 		$cloned     = 0;
 		$chunks_cloned = 0;
+
+		// Wave 7 hotfix (2026-04-29) — DEFAULT-OFF the legacy clone path.
+		// Tại sao: clone vào bzdoc_project_sources với `embedding_status='pending'`
+		// → bzdoc UI re-embed → toast "Đang phân tích nguồn 0/N" + double Graph-RAG cost.
+		// Giờ bzdoc đọc trực tiếp federated `kg_sources` qua route
+		// `/bizcity-doc/v1/document/{id}/kg-sources` (Wave 7 §8.3) — không cần clone.
+		// Ops có thể bật lại bằng filter nếu cần fallback cho version cũ của bzdoc UI.
+		$legacy_clone = (bool) apply_filters( 'bizcity_bzdoc_studio_legacy_clone_sources', false );
+		if ( ! $legacy_clone ) {
+			error_log( sprintf( '[BZDoc][Wave7] transfer_sources: SKIP legacy clone (federation via studio_id) doc_id=%d project_id=%s',
+				$doc_id, (string) $project_id ) );
+			return;
+		}
 
 		/* ── Step 1: Clone from bizcity_rces (BCN canonical sources with embeddings) ── */
 		if ( $project_id && class_exists( 'BCN_Schema_Extend' ) ) {
@@ -386,27 +521,12 @@ class BZDoc_Notebook_Bridge {
 			}
 		}
 
-		/* ── Step 3: Skeleton JSON as package source ── */
-		$structured = self::skeleton_to_structured_source( $skeleton );
-		if ( mb_strlen( $structured ) >= 10 ) {
-			$wpdb->insert( $doc_table, [
-				'doc_id'           => $doc_id,
-				'user_id'          => $user_id,
-				'title'            => 'Notebook — Dàn ý & Ghi nhớ',
-				'source_type'      => 'text',
-				'source_url'       => '',
-				'content_text'     => $structured,
-				'content_hash'     => hash( 'sha256', $structured ),
-				'char_count'       => mb_strlen( $structured ),
-				'token_estimate'   => (int) ( mb_strlen( $structured ) / 4 ),
-				'chunk_count'      => 0,
-				'embedding_model'  => '',
-				'embedding_status' => 'pending',
-				'status'           => 'ready',
-				'created_at'       => current_time( 'mysql' ),
-			] );
-			$cloned++;
-		}
+		/* ── Step 3: Skeleton JSON as package source ──
+		 * Wave 7 (PHASE-6.1 §8.3): SKIPPED. Outline + pinned notes now flow into
+		 * `_autogen.outline_block` / `_autogen.pinned_notes` → bzdoc FE prefills the
+		 * prompt textarea instead of polluting the SourceSidebar with a synthetic
+		 * "Notebook — Dàn ý & Ghi nhớ" entry. Sources panel only shows real KG sources.
+		 */
 
 		/* ── Legacy fallback: raw text if no sources cloned ── */
 		if ( $cloned === 0 && $raw_text && mb_strlen( $raw_text ) >= 10 ) {
@@ -432,6 +552,198 @@ class BZDoc_Notebook_Bridge {
 
 		error_log( "[BZDoc] transfer_sources: doc_id={$doc_id}, project_id={$project_id}, "
 			. "sources_cloned={$cloned}, chunks_cloned={$chunks_cloned}" );
+	}
+
+	/**
+	 * Wave 7 (PHASE-6.1 §8.3) — Load pinned memory notes for the notebook scope.
+	 * Mirrors the logic used by Studio_Input_Builder so the same notes that
+	 * inform skeleton extraction also inform the doc-gen prompt.
+	 *
+	 * @param string $project_id  e.g. "tc_2"
+	 * @return array  Each entry: [ id, title, content, note_type, is_starred ]
+	 *
+	 * HOTFIX (2026-05-02): payload concatenated downstream into bzdoc `topic`
+	 * which has a hard server cap (`BZDoc_Rest_API::MAX_TOPIC = 5000`). When
+	 * users pin the same chat answer multiple times (very common in TwinChat)
+	 * the raw 30-row dump easily exceeds 10k chars → 400 topic_too_long.
+	 * We dedupe by content prefix and trim per-note body so total stays small.
+	 */
+	private static function load_pinned_notes( string $project_id ): array {
+		if ( $project_id === '' ) return [];
+		global $wpdb;
+		$tbl = $wpdb->prefix . 'bizcity_memory_notes';
+		$exists = (string) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl ) ) === $tbl;
+		if ( ! $exists ) return [];
+		$rows = $wpdb->get_results( $wpdb->prepare(
+			"SELECT id, title, content, note_type, is_starred
+			 FROM {$tbl}
+			 WHERE project_id = %s
+			   AND note_type IN ('chat_pinned','manual','research_auto','auto_pinned')
+			 ORDER BY is_starred DESC, created_at DESC
+			 LIMIT 30",
+			$project_id
+		), ARRAY_A );
+		if ( ! is_array( $rows ) || empty( $rows ) ) return [];
+
+		/* Dedupe + truncate (PHASE-6.1 hotfix v2 — halved). */
+		$max_notes      = (int) apply_filters( 'bizcity_bzdoc_pinned_notes_max', 4 );
+		$max_note_chars = (int) apply_filters( 'bizcity_bzdoc_pinned_note_chars', 200 );
+		$seen           = [];
+		$out            = [];
+		foreach ( $rows as $r ) {
+			$body = trim( (string) ( $r['content'] ?? '' ) );
+			if ( $body === '' ) continue;
+			$key = mb_substr( preg_replace( '/\s+/u', ' ', $body ), 0, 200 );
+			if ( isset( $seen[ $key ] ) ) continue;
+			$seen[ $key ] = true;
+			if ( mb_strlen( $body ) > $max_note_chars ) {
+				$body = mb_substr( $body, 0, $max_note_chars - 1 ) . '…';
+			}
+			$r['content'] = $body;
+			$out[] = $r;
+			if ( count( $out ) >= $max_notes ) break;
+		}
+		return $out;
+	}
+
+	/**
+	 * Vòng 4.5.5e (Rule 8g v2 — 2026-05-02) — Pull the most recent N twinchat
+	 * messages of THIS notebook so the autogen prompt is conversation-aware,
+	 * not just topic-aware. Without this, the iframe sees only the literal
+	 * topic ("automation của bizcity") and loses every clarification or
+	 * decision the user made in chat before approving the agent.
+	 *
+	 * Source table: `bizcity_webchat_messages` where
+	 *   project_id = (string) $notebook_id   (no `tc_` prefix — twinchat raw)
+	 *   platform_type = 'TWINCHAT'
+	 *
+	 * Capped tightly so the combined payload still fits MAX_TOPIC after
+	 * outline + notes are appended.
+	 */
+	private static function load_recent_webchat( int $notebook_id ): string {
+		if ( $notebook_id <= 0 ) return '';
+		global $wpdb;
+		$tbl = $wpdb->prefix . 'bizcity_webchat_messages';
+		$exists = (string) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl ) ) === $tbl;
+		if ( ! $exists ) return '';
+
+		$limit       = (int) apply_filters( 'bizcity_bzdoc_recent_chat_max', 8 );
+		$turn_chars  = (int) apply_filters( 'bizcity_bzdoc_recent_chat_turn_chars', 220 );
+		$total_chars = (int) apply_filters( 'bizcity_bzdoc_recent_chat_total_chars', 1200 );
+
+		// Tolerate schemas that don't have project_id (older blogs).
+		$has_project = (bool) $wpdb->get_var( "SHOW COLUMNS FROM `{$tbl}` LIKE 'project_id'" );
+		if ( ! $has_project ) return '';
+
+		$rows = $wpdb->get_results( $wpdb->prepare(
+			"SELECT role, message
+			 FROM {$tbl}
+			 WHERE project_id = %s
+			 ORDER BY id DESC
+			 LIMIT %d",
+			(string) $notebook_id,
+			$limit
+		), ARRAY_A );
+		if ( ! is_array( $rows ) || empty( $rows ) ) return '';
+
+		// Reverse so output reads chronologically.
+		$rows = array_reverse( $rows );
+
+		$out    = [];
+		$budget = $total_chars;
+		foreach ( $rows as $r ) {
+			$role = (string) ( $r['role'] ?? 'user' );
+			$msg  = trim( (string) ( $r['message'] ?? '' ) );
+			if ( $msg === '' ) continue;
+			if ( mb_strlen( $msg ) > $turn_chars ) {
+				$msg = mb_substr( $msg, 0, $turn_chars - 1 ) . '…';
+			}
+			$prefix = $role === 'assistant' ? 'AI' : 'User';
+			$line   = $prefix . ': ' . $msg;
+			if ( $budget - mb_strlen( $line ) < 0 ) break;
+			$out[]   = $line;
+			$budget -= mb_strlen( $line ) + 1;
+		}
+		return implode( "\n", $out );
+	}
+
+	/**
+	 * HOTFIX (2026-05-02 v2) — When the raw outline + pinned notes payload
+	 * still risks blowing past `BZDoc_Rest_API::MAX_TOPIC = 5000`, ask the
+	 * LLM router to fold everything into one compact Vietnamese brief
+	 * (≤ ~700 chars). Falls back to truncated raw text on any error so the
+	 * user is never blocked by a transient LLM failure.
+	 *
+	 * @param string $outline_block
+	 * @param array  $pinned_notes  rows from load_pinned_notes()
+	 * @param string $topic         user's original topic (for context only)
+	 * @return string  Summary text, or '' on failure (caller keeps raw inputs).
+	 */
+	private static function summarize_autogen_payload( string $outline_block, array $pinned_notes, string $topic ): string {
+		if ( ! function_exists( 'bizcity_llm_chat' ) ) return '';
+
+		$target_chars = (int) apply_filters( 'bizcity_bzdoc_autogen_summary_chars', 700 );
+
+		$notes_text = '';
+		foreach ( $pinned_notes as $n ) {
+			$title = trim( (string) ( $n['title'] ?? '' ) );
+			$body  = trim( (string) ( $n['content'] ?? '' ) );
+			if ( $body === '' ) continue;
+			$notes_text .= ( $title !== '' ? "[{$title}] " : '' ) . $body . "\n";
+		}
+
+		// Cap raw input fed to the LLM so we don't pay for huge prompts.
+		$raw  = "DÀN Ý:\n" . $outline_block . "\n\nGHI CHÚ ĐÃ GHIM:\n" . $notes_text;
+		if ( mb_strlen( $raw ) > 6000 ) {
+			$raw = mb_substr( $raw, 0, 5999 ) . '…';
+		}
+
+		$messages = [
+			[
+				'role'    => 'system',
+				'content' => 'Bạn là trợ lý tóm tắt tiếng Việt. Tóm tắt nội dung dưới đây thành MỘT đoạn ngắn gọn dưới ' . $target_chars . ' ký tự, giữ lại ý chính, dàn ý, quyết định, dữ kiện quan trọng. KHÔNG markdown, KHÔNG bullet, viết liền mạch.',
+			],
+			[
+				'role'    => 'user',
+				'content' => "Chủ đề người dùng: {$topic}\n\n{$raw}",
+			],
+		];
+
+		try {
+			$result = bizcity_llm_chat( $messages, [
+				'purpose'     => 'bzdoc_autogen_summary',
+				'max_tokens'  => 600,
+				'temperature' => 0.2,
+			] );
+		} catch ( \Throwable $e ) {
+			error_log( '[BZDoc][summarize_autogen] ' . $e->getMessage() );
+			return '';
+		}
+
+		if ( is_wp_error( $result ) ) {
+			error_log( '[BZDoc][summarize_autogen] ' . $result->get_error_message() );
+			return '';
+		}
+
+		// Router returns array — extract content defensively.
+		$text = '';
+		if ( is_array( $result ) ) {
+			$text = (string) ( $result['content'] ?? $result['text'] ?? $result['message'] ?? '' );
+			if ( $text === '' && isset( $result['choices'][0]['message']['content'] ) ) {
+				$text = (string) $result['choices'][0]['message']['content'];
+			}
+		} elseif ( is_string( $result ) ) {
+			$text = $result;
+		}
+
+		$text = trim( $text );
+		if ( $text === '' ) return '';
+
+		// Hard-cap in case the model ignored the budget.
+		if ( mb_strlen( $text ) > $target_chars + 200 ) {
+			$text = mb_substr( $text, 0, $target_chars + 199 ) . '…';
+		}
+		return $text;
 	}
 
 	/**
@@ -603,6 +915,12 @@ class BZDoc_Notebook_Bridge {
 		// Fallback: if nothing structured, use raw text as topic (truncated to fit).
 		if ( empty( trim( $topic ) ) ) {
 			$topic = mb_substr( $raw_text ?: '', 0, 1800 );
+		}
+
+		// Hard-cap topic to match server MAX_TOPIC (5000) — tránh lỗi "Topic exceeds maximum length".
+		$max_topic = class_exists( 'BZDoc_Rest_API' ) ? BZDoc_Rest_API::MAX_TOPIC : 5000;
+		if ( mb_strlen( $topic ) > $max_topic ) {
+			$topic = mb_substr( $topic, 0, $max_topic );
 		}
 
 		return [

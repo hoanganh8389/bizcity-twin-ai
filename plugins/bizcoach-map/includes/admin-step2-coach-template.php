@@ -54,13 +54,13 @@ function bccm_admin_step2_coach_template() {
 
   // Check if Step 1 is complete (has DOB + astro data)
   $t_astro   = $wpdb->prefix . 'bccm_astro';
-  // USE user_id as primary for cross-platform consistency
+  // Use coachee_id for stable cross-schema compatibility
   $astro_row = $wpdb->get_row($wpdb->prepare(
-    "SELECT * FROM $t_astro WHERE user_id=%d AND chart_type='western' ORDER BY id DESC LIMIT 1", $user_id
+    "SELECT * FROM $t_astro WHERE coachee_id=%d AND chart_type='western' ORDER BY id DESC LIMIT 1", $coachee_id
   ), ARRAY_A);
   if (!$astro_row) {
     $astro_row = $wpdb->get_row($wpdb->prepare(
-      "SELECT * FROM $t_astro WHERE user_id=%d AND chart_type='vedic' ORDER BY id DESC LIMIT 1", $user_id
+      "SELECT * FROM $t_astro WHERE coachee_id=%d AND chart_type='vedic' ORDER BY id DESC LIMIT 1", $coachee_id
     ), ARRAY_A);
   }
   $step1_complete = !empty($coachee['dob']) && !empty($coachee['full_name']);

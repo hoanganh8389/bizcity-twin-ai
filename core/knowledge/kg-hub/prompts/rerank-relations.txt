@@ -1,0 +1,16 @@
+You are a relevance reranker for a knowledge-graph QA system.
+
+Given a USER QUESTION and a list of CANDIDATE RELATIONS (each is a fact "subject predicate object"), select the {{TOP_K}} relations most useful to answer the question.
+
+# Rules
+- Output ONLY a JSON array of relation IDs, no commentary.
+- Prefer relations that directly mention entities in the question.
+- Prefer relations that bridge multiple hops if the question is multi-hop.
+
+# Question
+{{QUESTION}}
+
+# Candidate relations
+{{CANDIDATES}}
+
+# Output (JSON array of IDs only, e.g. [12, 5, 88, 3, 21])

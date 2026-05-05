@@ -1,0 +1,266 @@
+<?php
+/**
+ * Bizcity TwinChat — Notes (Pin Request) REST Controller
+ *
+ * Phase 0.7 Wave B1 — surfaces pinned notes endpoints for TwinChat.
+ * Notes persist to bizcity_memory_notes via BCN_Notes (Companion Notebook).
+ *
+ *   POST   /messages/(?P<id>\d+)/pin   → pin a chat message as a note
+ *   POST   /notes                      → create a manual note
+ *   GET    /notes                      → list notes for a notebook
+ *   PATCH  /notes/(?P<id>\d+)          → update a note
+ *   DELETE /notes/(?P<id>\d+)          → delete a note
+ *
+ * Project-id convention: TwinChat scope is mapped to `tc_<notebook_id>` so it
+ * coexists with Companion Notebook projects without collision.
+ *
+ * @package    Bizcity_Twin_AI
+ * @subpackage Modules\TwinChat\Notes
+ * @since      Phase 0.7
+ */
+
+defined( 'ABSPATH' ) or die( 'OOPS...' );
+
+class BizCity_TwinChat_Notes_Controller {
+
+	const PROJECT_PREFIX = 'tc_';
+
+	private static $instance = null;
+
+	public static function instance() {
+		if ( null === self::$instance ) {
+			self::$instance = new self();
+		}
+		return self::$instance;
+	}
+
+	public function register_routes() {
+		$ns = defined( 'BIZCITY_TWINCHAT_REST_NS' ) ? BIZCITY_TWINCHAT_REST_NS : 'bizcity-twinchat/v1';
+
+		register_rest_route( $ns, '/messages/(?P<id>\d+)/pin', [
+			'methods'             => WP_REST_Server::CREATABLE,
+			'permission_callback' => [ $this, 'check_logged_in' ],
+			'callback'            => [ $this, 'pin_message' ],
+			'args'                => [
+				'id'           => [ 'type' => 'integer', 'required' => true ],
+				'notebook_id'  => [ 'type' => 'integer', 'required' => true ],
+				'content'      => [ 'type' => 'string' ],
+				'title'        => [ 'type' => 'string' ],
+				'session_id'   => [ 'type' => 'string' ],
+			],
+		] );
+
+		register_rest_route( $ns, '/notes', [
+			[
+				'methods'             => WP_REST_Server::CREATABLE,
+				'permission_callback' => [ $this, 'check_logged_in' ],
+				'callback'            => [ $this, 'create_note' ],
+				'args'                => [
+					'notebook_id' => [ 'type' => 'integer', 'required' => true ],
+					'title'       => [ 'type' => 'string' ],
+					'content'     => [ 'type' => 'string', 'required' => true ],
+					'note_type'   => [ 'type' => 'string', 'default' => 'manual' ],
+					'session_id'  => [ 'type' => 'string' ],
+					'message_id'  => [ 'type' => 'integer' ],
+				],
+			],
+			[
+				'methods'             => WP_REST_Server::READABLE,
+				'permission_callback' => [ $this, 'check_logged_in' ],
+				'callback'            => [ $this, 'list_notes' ],
+				'args'                => [
+					'notebook_id' => [ 'type' => 'integer', 'required' => true ],
+					'limit'       => [ 'type' => 'integer', 'default' => 50 ],
+					'q'           => [ 'type' => 'string' ],
+				],
+			],
+		] );
+
+		register_rest_route( $ns, '/notes/(?P<id>\d+)', [
+			[
+				'methods'             => 'PATCH',
+				'permission_callback' => [ $this, 'check_logged_in' ],
+				'callback'            => [ $this, 'update_note' ],
+			],
+			[
+				'methods'             => WP_REST_Server::DELETABLE,
+				'permission_callback' => [ $this, 'check_logged_in' ],
+				'callback'            => [ $this, 'delete_note' ],
+			],
+		] );
+	}
+
+	// ── Permissions ─────────────────────────────────────────────────────
+
+	public function check_logged_in() {
+		if ( ! is_user_logged_in() ) {
+			return new WP_Error( 'rest_forbidden', 'Must be logged in', [ 'status' => 401 ] );
+		}
+		return true;
+	}
+
+	// ── Helpers ─────────────────────────────────────────────────────────
+
+	private function project_id_from_notebook( $notebook_id ) {
+		return self::PROJECT_PREFIX . (int) $notebook_id;
+	}
+
+	private function notes_service() {
+		if ( ! class_exists( 'BCN_Notes' ) ) {
+			return new WP_Error( 'notes_unavailable', 'Companion Notebook plugin not active', [ 'status' => 500 ] );
+		}
+		return new BCN_Notes();
+	}
+
+	// ── Handlers ────────────────────────────────────────────────────────
+
+	public function pin_message( WP_REST_Request $req ) {
+		$svc = $this->notes_service();
+		if ( is_wp_error( $svc ) ) return $svc;
+
+		$notebook_id = (int) $req->get_param( 'notebook_id' );
+		$message_id  = (int) $req['id'];
+		$content     = (string) $req->get_param( 'content' );
+		$title       = (string) $req->get_param( 'title' );
+		$session_id  = (string) $req->get_param( 'session_id' );
+
+		if ( $notebook_id <= 0 ) {
+			return new WP_Error( 'invalid_notebook', 'notebook_id required', [ 'status' => 400 ] );
+		}
+		if ( $content === '' ) {
+			return new WP_Error( 'empty_content', 'content required (TwinChat pins use client-supplied content)', [ 'status' => 400 ] );
+		}
+
+		// TwinChat messages live in a different table than BCN_Notes::pin_from_message expects,
+		// so we always create directly using the supplied content.
+		$content_clean = trim( preg_replace( '/\n?---\n?💡[\s\S]*$/u', '', $content ) );
+		if ( $title === '' ) {
+			$title = mb_substr( wp_strip_all_tags( $content_clean ), 0, 80 ) ?: 'Pinned chat';
+		}
+
+		$project_id = $this->project_id_from_notebook( $notebook_id );
+
+		// ── Dedup ──────────────────────────────────────────────────────
+		// Same (project_id, message_id) already pinned? Return existing instead
+		// of creating a duplicate (user may click 📌 multiple times).
+		if ( $message_id > 0 ) {
+			global $wpdb;
+			$table = $wpdb->prefix . 'bizcity_memory_notes';
+			$existing = $wpdb->get_var( $wpdb->prepare(
+				"SELECT id FROM {$table} WHERE project_id = %s AND message_id = %d AND note_type = %s ORDER BY id DESC LIMIT 1",
+				$project_id, $message_id, 'chat_pinned'
+			) );
+			if ( $existing ) {
+				return rest_ensure_response( [
+					'ok'         => true,
+					'note_id'    => (int) $existing,
+					'marker'     => '[note:' . (int) $existing . ']',
+					'duplicated' => true,
+				] );
+			}
+		}
+
+		$id = $svc->create( [
+			'project_id' => $project_id,
+			'session_id' => $session_id,
+			'message_id' => $message_id,
+			'title'      => $title,
+			'content'    => $content_clean,
+			'note_type'  => 'chat_pinned',
+		] );
+
+		if ( is_wp_error( $id ) ) return $id;
+
+		return rest_ensure_response( [
+			'ok'      => true,
+			'note_id' => (int) $id,
+			'marker'  => '[note:' . (int) $id . ']',
+		] );
+	}
+
+	public function create_note( WP_REST_Request $req ) {
+		$svc = $this->notes_service();
+		if ( is_wp_error( $svc ) ) return $svc;
+
+		$notebook_id = (int) $req->get_param( 'notebook_id' );
+		if ( $notebook_id <= 0 ) {
+			return new WP_Error( 'invalid_notebook', 'notebook_id required', [ 'status' => 400 ] );
+		}
+
+		$id = $svc->create( [
+			'project_id' => $this->project_id_from_notebook( $notebook_id ),
+			'session_id' => (string) $req->get_param( 'session_id' ),
+			'message_id' => (int) $req->get_param( 'message_id' ),
+			'title'      => (string) $req->get_param( 'title' ),
+			'content'    => (string) $req->get_param( 'content' ),
+			'note_type'  => (string) $req->get_param( 'note_type' ),
+		] );
+
+		if ( is_wp_error( $id ) ) return $id;
+
+		return rest_ensure_response( [
+			'ok'      => true,
+			'note_id' => (int) $id,
+			'marker'  => '[note:' . (int) $id . ']',
+		] );
+	}
+
+	public function list_notes( WP_REST_Request $req ) {
+		$svc = $this->notes_service();
+		if ( is_wp_error( $svc ) ) return $svc;
+
+		$notebook_id = (int) $req->get_param( 'notebook_id' );
+		$limit       = max( 1, min( 200, (int) $req->get_param( 'limit' ) ?: 50 ) );
+		$q           = trim( (string) $req->get_param( 'q' ) );
+		$pid         = $this->project_id_from_notebook( $notebook_id );
+
+		$rows = $q !== ''
+			? $svc->search_by_keyword( $pid, $q, $limit )
+			: $svc->get_by_project( $pid );
+
+		if ( ! is_array( $rows ) ) $rows = [];
+		$rows = array_slice( $rows, 0, $limit );
+
+		$out = array_map( static function ( $r ) {
+			return [
+				'id'         => (int) ( $r->id ?? 0 ),
+				'title'      => (string) ( $r->title ?? '' ),
+				'content'    => (string) ( $r->content ?? '' ),
+				'note_type'  => (string) ( $r->note_type ?? 'manual' ),
+				'is_starred' => (int) ( $r->is_starred ?? 0 ),
+				'created_at' => (string) ( $r->created_at ?? '' ),
+				'updated_at' => (string) ( $r->updated_at ?? '' ),
+				'marker'     => '[note:' . (int) ( $r->id ?? 0 ) . ']',
+			];
+		}, $rows );
+
+		return rest_ensure_response( [
+			'ok'    => true,
+			'count' => count( $out ),
+			'notes' => $out,
+		] );
+	}
+
+	public function update_note( WP_REST_Request $req ) {
+		$svc = $this->notes_service();
+		if ( is_wp_error( $svc ) ) return $svc;
+
+		$id = (int) $req['id'];
+		$data = [];
+		foreach ( [ 'title', 'content', 'is_starred' ] as $k ) {
+			$v = $req->get_param( $k );
+			if ( $v !== null ) $data[ $k ] = $v;
+		}
+		$ok = $svc->update( $id, $data );
+		return rest_ensure_response( [ 'ok' => (bool) $ok, 'note_id' => $id ] );
+	}
+
+	public function delete_note( WP_REST_Request $req ) {
+		$svc = $this->notes_service();
+		if ( is_wp_error( $svc ) ) return $svc;
+
+		$id = (int) $req['id'];
+		$ok = $svc->delete( $id );
+		return rest_ensure_response( [ 'ok' => (bool) $ok, 'note_id' => $id ] );
+	}
+}

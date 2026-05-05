@@ -36,8 +36,11 @@ class BizCity_Skill_Database {
 	/** @var string DB table name (wp_bizcity_skills) */
 	private $table;
 
-	/** @var string Schema version — bump when adding migrations. */
-	const SCHEMA_VERSION = '1.4.0';
+	/** @var string Schema version — bump when adding migrations.
+	 *  1.4.1 — force re-create on sites where table was missing on a shard
+	 *           (dbDelta failed silently, option was already saved as 1.4.0).
+	 */
+	const SCHEMA_VERSION = '1.4.1';
 
 	/** @var string wp_options key */
 	const SCHEMA_VERSION_KEY = 'bizcity_skills_db_version';

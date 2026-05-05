@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "bizcity://events/research_job.json",
+  "title": "research_job",
+  "description": "Lifecycle of an autonomous research job (Tavily + import). Sprint 5.4.",
+  "type": "object",
+  "required": ["job_id", "status"],
+  "properties": {
+    "job_id":          { "type": "integer" },
+    "status":          { "type": "string", "enum": ["started", "tavily_returned", "imported", "failed"] },
+    "notebook_id":     { "type": "integer" },
+    "query":           { "type": "string" },
+    "results_count":   { "type": "integer" },
+    "imported_source_ids": { "type": "array", "items": { "type": "integer" } },
+    "latency_ms":      { "type": "integer" },
+    "error":           { "type": "string" }
+  },
+  "additionalProperties": true
+}

@@ -426,9 +426,9 @@ function bccm_render_frontend_profile_form($user_id, $default_type = 'mental_coa
             💾 Lưu hồ sơ
           </button>
           <?php
-          // Show regenerate button if chart data already exists - USE user_id
+          // Show regenerate button if chart data already exists
           $existing_chart = $wpdb->get_var($wpdb->prepare(
-            "SELECT summary FROM {$wpdb->prefix}bccm_astro WHERE user_id=%d AND chart_type='western' AND summary IS NOT NULL LIMIT 1", $user_id
+            "SELECT summary FROM {$wpdb->prefix}bccm_astro WHERE coachee_id=%d AND chart_type='western' AND summary IS NOT NULL LIMIT 1", $coachee_id
           ));
 
           if (!empty($existing_chart)):

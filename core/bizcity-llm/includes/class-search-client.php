@@ -230,6 +230,71 @@ class BizCity_Search_Client {
     }
 
     /* ================================================================
+     *  POST /search/router/v1/crawl — Site crawl
+     * ================================================================ */
+
+    /**
+     * Crawl pages from a seed URL via BizCity Search Router.
+     *
+     * @param string $url     Seed URL.
+     * @param array  $options { limit?: int 1-50, include_favicon?: bool, max_depth?: int }
+     * @return array|WP_Error  Array of {url, title, raw_content, favicon} on success.
+     */
+    public function crawl( string $url, array $options = [] ) {
+        if ( ! $this->is_ready() ) {
+            return new WP_Error( 'search_not_configured', 'BizCity API key chưa được cấu hình.' );
+        }
+
+        $url = esc_url_raw( $url );
+        if ( empty( $url ) ) {
+            return new WP_Error( 'no_url', 'Cần URL hợp lệ.' );
+        }
+
+        $endpoint = $this->get_gateway_url() . '/wp-json/search/router/v1/crawl';
+        $start    = microtime( true );
+
+        $body = [
+            'url'             => $url,
+            'limit'           => isset( $options['limit'] ) ? max( 1, min( intval( $options['limit'] ), 50 ) ) : 10,
+            'include_favicon' => ! empty( $options['include_favicon'] ),
+        ];
+        if ( isset( $options['max_depth'] ) ) {
+            $body['max_depth'] = max( 1, min( intval( $options['max_depth'] ), 5 ) );
+        }
+
+        $this->debug_log( 'crawl() START', [ 'url' => $url, 'limit' => $body['limit'] ] );
+
+        $response = wp_remote_post( $endpoint, [
+            'timeout' => 90,
+            'headers' => [
+                'Content-Type'  => 'application/json',
+                'Authorization' => 'Bearer ' . $this->get_api_key(),
+            ],
+            'body' => wp_json_encode( $body ),
+        ] );
+
+        $ms = intval( ( microtime( true ) - $start ) * 1000 );
+
+        if ( is_wp_error( $response ) ) {
+            return $response;
+        }
+
+        $code = intval( wp_remote_retrieve_response_code( $response ) );
+        $data = json_decode( wp_remote_retrieve_body( $response ), true );
+
+        if ( in_array( $code, [ 401, 402, 429 ], true ) ) {
+            return new WP_Error( 'search_gateway_' . $code, $data['error'] ?? "HTTP {$code}" );
+        }
+        if ( $code < 200 || $code >= 300 || empty( $data['success'] ) ) {
+            return new WP_Error( 'crawl_error', $data['error'] ?? "HTTP {$code}" );
+        }
+
+        $this->debug_log( 'crawl() OK', [ 'results' => count( $data['results'] ?? [] ), 'ms' => $ms ] );
+
+        return $data['results'] ?? [];
+    }
+
+    /* ================================================================
      *  GET /search/router/v1/health — Health check
      * ================================================================ */
 

@@ -888,12 +888,12 @@ function bccm_get_user_astro_display_data($user_id = 0) {
 
   $coachee_id = (int) $coachee['id'];
 
-  // Get astro record - USE user_id for cross-platform consistency
+  // Get astro record by coachee_id (stable, always present)
   $astro = $wpdb->get_row($wpdb->prepare(
-    "SELECT * FROM {$wpdb->prefix}bccm_astro WHERE user_id=%d AND chart_type='western' AND (summary IS NOT NULL OR traits IS NOT NULL) ORDER BY id DESC LIMIT 1", $user_id
+    "SELECT * FROM {$wpdb->prefix}bccm_astro WHERE coachee_id=%d AND chart_type='western' AND (summary IS NOT NULL OR traits IS NOT NULL) ORDER BY id DESC LIMIT 1", $coachee_id
   ), ARRAY_A);
   
-  // Fallback to coachee_id
+  // Fallback: any western record without summary
   if (!$astro) {
     $astro = $wpdb->get_row($wpdb->prepare(
       "SELECT * FROM {$wpdb->prefix}bccm_astro WHERE coachee_id=%d AND chart_type='western' LIMIT 1", $coachee_id
