@@ -43,8 +43,11 @@ vendor/
 *.log
 
 # Build
-dist/
-build/
+# [2026-06-03 Johnny Chu] HOTFIX — KHÔNG ignore `dist/` global nữa.
+# End-user pull GitHub zip về không chạy `npm run build`, nên mọi `dist/`
+# (Vite/webpack output cho React UI, asset bundles) PHẢI nằm trong git.
+# Nếu muốn ignore 1 dist tạm cụ thể → thêm path tuyệt đối, vd:
+#   /tools/scratch/dist/
 
 # Mac
 .DS_Store
