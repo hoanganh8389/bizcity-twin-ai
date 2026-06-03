@@ -89,6 +89,11 @@ add_filter('woocommerce_account_menu_items', function ($items) {
 
 // 3c. Enqueue CSS for life-map endpoint (phải chạy trước khi render content)
 add_action('wp_enqueue_scripts', function () {
+  // Guard: WooCommerce may be inactive on this site. `is_account_page()` only
+  // exists when WC is loaded, so bail early otherwise to avoid a fatal.
+  if ( ! function_exists( 'is_account_page' ) ) {
+    return;
+  }
   // Check if we're on my-account page AND life-map endpoint
   if (is_account_page()) {
     global $wp;
