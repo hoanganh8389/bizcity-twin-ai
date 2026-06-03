@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.0",
+  "slug": "mental_coach",
+  "label": "Mindfulness Coach",
+  "base_type": "mental_coach",
+  "icon": "🧘",
+  "description": "Bản đồ chánh niệm & sức khỏe tinh thần: nhận diện trạng thái cảm xúc, vòng tròn căng thẳng, lộ trình thực hành 30 ngày.",
+  "status": "active",
+  "questions": [
+    { "key": "full_name",        "label": "Họ tên",                       "type": "text",     "required": true },
+    { "key": "dob",              "label": "Ngày sinh",                     "type": "date",     "required": false },
+    { "key": "current_mood",     "label": "Trạng thái cảm xúc hiện tại",   "type": "select",   "required": true,
+      "choices": { "calm": "Bình an", "anxious": "Lo âu", "stressed": "Căng thẳng", "burnout": "Kiệt sức", "depressed": "Trầm cảm nhẹ", "mixed": "Hỗn hợp" } },
+    { "key": "stress_sources",   "label": "Nguồn gốc căng thẳng chính",    "type": "textarea", "required": true },
+    { "key": "sleep_hours",      "label": "Số giờ ngủ trung bình/ngày",    "type": "number",   "required": false, "step": "0.5" },
+    { "key": "practice_history", "label": "Đã từng thực hành mindfulness?", "type": "select",  "required": false,
+      "choices": { "never": "Chưa bao giờ", "tried": "Đã thử vài lần", "regular": "Thực hành đều đặn" } },
+    { "key": "intention",        "label": "Ý định khi tham gia",            "type": "textarea", "required": false }
+  ],
+  "generators": [
+    { "key": "gen_overview",      "label": "Tổng quan trạng thái tinh thần",  "output": "markdown",
+      "prompt": "Phân tích trạng thái tinh thần cho {{full_name}}: cảm xúc hiện tại={{current_mood}}, ngủ {{sleep_hours}}h/ngày, nguồn căng thẳng={{stress_sources}}. Trả markdown 200-400 từ với giọng từ bi, không phán xét." },
+    { "key": "gen_stress_map",    "label": "Bản đồ vòng tròn căng thẳng",     "output": "json",
+      "prompt": "Sinh stress map từ nguồn {{stress_sources}}. JSON {triggers[], body_signals[], thought_patterns[], coping_resources[]}." },
+    { "key": "gen_practice_30d",  "label": "Lộ trình thực hành 30 ngày",      "output": "json",
+      "prompt": "Lộ trình mindfulness 30 ngày cho {{full_name}} (kinh nghiệm={{practice_history}}, ý định={{intention}}). JSON {weeks: [{week, theme, daily_practice, duration_min, reflection_prompt}]}." },
+    { "key": "gen_self_compass",  "label": "Bài tập tự thương",                "output": "markdown",
+      "prompt": "Viết 3 bài tập tự thương (self-compassion) cá nhân hoá cho {{full_name}} đang {{current_mood}}. Markdown ngắn gọn, mỗi bài có hướng dẫn 5 bước." }
+  ]
+}

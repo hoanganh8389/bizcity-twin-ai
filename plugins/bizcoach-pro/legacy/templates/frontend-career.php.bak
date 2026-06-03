@@ -1,0 +1,477 @@
+<?php if (!defined('ABSPATH')) exit;
+/**
+ * Frontend Template: CareerCoach
+ * Hiển thị: Career Overview + Vision Map + SWOT + Value Map + Winning Model + Leadership Map + 90-Days Plan
+ */
+
+global $wpdb;
+$t = bccm_tables();
+
+$planRow = $wpdb->get_row($wpdb->prepare(
+  "SELECT * FROM {$t['plans']} WHERE public_key=%s AND status='active'", $key
+), ARRAY_A);
+
+if (!$planRow) {
+  status_header(404);
+  echo '<div class="bccm-public"><h1>Không tìm thấy bản đồ</h1></div>';
+  return;
+}
+
+$profile = $wpdb->get_row($wpdb->prepare(
+  "SELECT * FROM {$t['profiles']} WHERE id=%d", $planRow['coachee_id']
+), ARRAY_A);
+
+// Decode JSON data
+$overview   = json_decode($profile['ai_summary'] ?? '{}', true) ?: [];
+$vision     = json_decode($profile['vision_json'] ?? '{}', true) ?: [];
+$swot       = json_decode($profile['swot_json'] ?? '{}', true) ?: [];
+$value      = json_decode($profile['value_json'] ?? '{}', true) ?: [];
+$winning    = json_decode($profile['winning_json'] ?? '{}', true) ?: [];
+$leadership = json_decode($profile['iqmap_json'] ?? '{}', true) ?: [];
+$milestone  = json_decode($profile['bizcoach_json'] ?? '{}', true) ?: [];
+
+// Load astro data for enrichment
+$astro = bccm_load_astro_data((int)$planRow['coachee_id']);
+
+$name = $profile['full_name'] ?? 'Chủ nhân';
+$dob  = $profile['dob'] ?? '';
+$current_role = $profile['current_role'] ?? '';
+?>
+
+<style>
+:root {
+  --cc-primary: #6366f1;
+  --cc-secondary: #8b5cf6;
+  --cc-accent: #f59e0b;
+  --cc-success: #10b981;
+  --cc-danger: #ef4444;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  line-height: 1.6;
+  color: #1e293b;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  margin: 0;
+  padding: 20px;
+}
+
+.bccm-public {
+  max-width: 1200px;
+  margin: 0 auto;
+  background: white;
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+  overflow: hidden;
+}
+
+.career-header {
+  background: linear-gradient(135deg, var(--cc-primary) 0%, var(--cc-secondary) 100%);
+  color: white;
+  padding: 40px;
+  text-align: center;
+}
+
+.career-header h1 {
+  margin: 0 0 8px;
+  font-size: 2.5em;
+  font-weight: 700;
+}
+
+.career-header .subtitle {
+  font-size: 1.2em;
+  opacity: 0.9;
+}
+
+.career-header .meta {
+  margin-top: 16px;
+  display: flex;
+  justify-content: center;
+  gap: 24px;
+  font-size: 0.95em;
+}
+
+.career-body {
+  padding: 40px;
+}
+
+.section {
+  margin-bottom: 48px;
+}
+
+.section-title {
+  font-size: 1.8em;
+  font-weight: 700;
+  color: var(--cc-primary);
+  margin-bottom: 24px;
+  padding-bottom: 12px;
+  border-bottom: 3px solid var(--cc-primary);
+}
+
+.card {
+  background: #f9fafb;
+  border-radius: 12px;
+  padding: 24px;
+  margin-bottom: 16px;
+  border: 1px solid #e5e7eb;
+}
+
+.card-header {
+  font-size: 1.2em;
+  font-weight: 600;
+  color: var(--cc-secondary);
+  margin-bottom: 16px;
+}
+
+.score-circle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  font-size: 1.5em;
+  font-weight: 700;
+  color: white;
+  background: linear-gradient(135deg, var(--cc-primary), var(--cc-secondary));
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+}
+
+.badge {
+  display: inline-block;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 0.9em;
+  font-weight: 600;
+  margin: 4px;
+}
+
+.badge-primary { background: var(--cc-primary); color: white; }
+.badge-success { background: var(--cc-success); color: white; }
+.badge-warning { background: var(--cc-accent); color: white; }
+.badge-danger  { background: var(--cc-danger); color: white; }
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+
+.progress-bar {
+  height: 8px;
+  background: #e5e7eb;
+  border-radius: 4px;
+  overflow: hidden;
+  margin: 8px 0;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--cc-primary), var(--cc-secondary));
+  transition: width 0.3s;
+}
+
+@media print {
+  body { background: white; padding: 0; }
+  .bccm-public { box-shadow: none; }
+  .no-print { display: none !important; }
+}
+</style>
+
+<div class="bccm-public career-coach-map">
+  <!-- Header -->
+  <div class="career-header">
+    <h1>🚀 <?php echo esc_html($name); ?></h1>
+    <div class="subtitle">Career Breakthrough Map</div>
+    <div class="meta">
+      <?php if ($dob): ?>
+        <div>📅 <?php echo esc_html(date('d/m/Y', strtotime($dob))); ?></div>
+      <?php endif; ?>
+      <?php if ($current_role): ?>
+        <div>💼 <?php echo esc_html($current_role); ?></div>
+      <?php endif; ?>
+      <?php if ($astro && isset($astro['summary']['sun_sign'])): ?>
+        <div>♈ <?php echo esc_html($astro['summary']['sun_sign']); ?></div>
+      <?php endif; ?>
+    </div>
+  </div>
+
+  <div class="career-body">
+    <!-- 1. Career Overview -->
+    <?php if (!empty($overview)): ?>
+    <section class="section">
+      <h2 class="section-title">📊 Tổng quan Sự nghiệp</h2>
+      <div class="card">
+        <?php if (isset($overview['overview'])): ?>
+          <p style="font-size:1.1em;line-height:1.8;color:#475569;"><?php echo esc_html($overview['overview']); ?></p>
+        <?php endif; ?>
+        
+        <?php if (isset($overview['career_score'])): ?>
+          <div style="text-align:center;margin:24px 0;">
+            <div class="score-circle"><?php echo (int)$overview['career_score']; ?>/100</div>
+            <div style="margin-top:8px;font-weight:600;">Career Potential Score</div>
+          </div>
+        <?php endif; ?>
+
+        <div class="grid-2">
+          <?php if (!empty($overview['natural_talents'])): ?>
+          <div>
+            <div class="card-header">✨ Tài năng Tự nhiên</div>
+            <ul>
+              <?php foreach ($overview['natural_talents'] as $talent): ?>
+                <li><?php echo esc_html($talent); ?></li>
+              <?php endforeach; ?>
+            </ul>
+          </div>
+          <?php endif; ?>
+
+          <?php if (!empty($overview['ideal_roles'])): ?>
+          <div>
+            <div class="card-header">🎯 Vai trò Lý tưởng</div>
+            <ul>
+              <?php foreach ($overview['ideal_roles'] as $role): ?>
+                <li><?php echo esc_html($role); ?></li>
+              <?php endforeach; ?>
+            </ul>
+          </div>
+          <?php endif; ?>
+        </div>
+
+        <?php if (!empty($overview['career_archetype'])): ?>
+          <div style="margin-top:16px;">
+            <strong>Kiểu hình Sự nghiệp:</strong> 
+            <span class="badge badge-primary"><?php echo esc_html($overview['career_archetype']); ?></span>
+          </div>
+        <?php endif; ?>
+      </div>
+    </section>
+    <?php endif; ?>
+
+    <!-- 2. Career Vision -->
+    <?php if (!empty($vision)): ?>
+    <section class="section">
+      <h2 class="section-title">🎯 Tầm nhìn Sự nghiệp</h2>
+      <div class="card">
+        <?php if (isset($vision['vision_statement'])): ?>
+          <div style="background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;padding:24px;border-radius:8px;margin-bottom:24px;">
+            <div style="font-size:1.3em;font-weight:600;text-align:center;">
+              "<?php echo esc_html($vision['vision_statement']); ?>"
+            </div>
+          </div>
+        <?php endif; ?>
+
+        <?php if (isset($vision['career_purpose'])): ?>
+          <div style="margin-bottom:24px;">
+            <div class="card-header">💡 Mục đích Sự nghiệp</div>
+            <p><?php echo esc_html($vision['career_purpose']); ?></p>
+          </div>
+        <?php endif; ?>
+
+        <?php if (!empty($vision['milestones'])): ?>
+          <div class="card-header">📅 Mốc thời gian</div>
+          <?php foreach ($vision['milestones'] as $m): ?>
+            <div style="margin:12px 0;padding:12px;background:#f1f5f9;border-radius:6px;">
+              <strong>Năm <?php echo (int)($m['year'] ?? 0); ?>:</strong> 
+              <?php echo esc_html($m['goal'] ?? ''); ?>
+            </div>
+          <?php endforeach; ?>
+        <?php endif; ?>
+      </div>
+    </section>
+    <?php endif; ?>
+
+    <!-- 3. SWOT Analysis -->
+    <?php if (!empty($swot)): ?>
+    <section class="section">
+      <h2 class="section-title">⚖️ SWOT Bản thân</h2>
+      <div class="grid-2">
+        <!-- Strengths -->
+        <?php if (!empty($swot['strengths'])): ?>
+        <div class="card">
+          <div class="card-header" style="color:#10b981;">💪 Thế mạnh</div>
+          <?php foreach ($swot['strengths'] as $s): ?>
+            <div style="margin:12px 0;padding:12px;background:#d1fae5;border-radius:6px;">
+              <strong><?php echo esc_html($s['item'] ?? ''); ?></strong>
+              <?php if (!empty($s['leverage'])): ?>
+                <div style="font-size:0.9em;color:#059669;margin-top:4px;">
+                  → <?php echo esc_html($s['leverage']); ?>
+                </div>
+              <?php endif; ?>
+            </div>
+          <?php endforeach; ?>
+        </div>
+        <?php endif; ?>
+
+        <!-- Weaknesses -->
+        <?php if (!empty($swot['weaknesses'])): ?>
+        <div class="card">
+          <div class="card-header" style="color:#ef4444;">⚠️ Điểm yếu</div>
+          <?php foreach ($swot['weaknesses'] as $w): ?>
+            <div style="margin:12px 0;padding:12px;background:#fee2e2;border-radius:6px;">
+              <strong><?php echo esc_html($w['item'] ?? ''); ?></strong>
+              <?php if (!empty($w['mitigation'])): ?>
+                <div style="font-size:0.9em;color:#dc2626;margin-top:4px;">
+                  🔧 <?php echo esc_html($w['mitigation']); ?>
+                </div>
+              <?php endif; ?>
+            </div>
+          <?php endforeach; ?>
+        </div>
+        <?php endif; ?>
+      </div>
+
+      <div class="grid-2" style="margin-top:24px;">
+        <!-- Opportunities -->
+        <?php if (!empty($swot['opportunities'])): ?>
+        <div class="card">
+          <div class="card-header" style="color:#6366f1;">🚀 Cơ hội</div>
+          <?php foreach ($swot['opportunities'] as $o): ?>
+            <div style="margin:12px 0;padding:12px;background:#e0e7ff;border-radius:6px;">
+              <strong><?php echo esc_html($o['item'] ?? ''); ?></strong>
+              <?php if (!empty($o['action'])): ?>
+                <div style="font-size:0.9em;color:#4f46e5;margin-top:4px;">
+                  ✅ <?php echo esc_html($o['action']); ?>
+                </div>
+              <?php endif; ?>
+            </div>
+          <?php endforeach; ?>
+        </div>
+        <?php endif; ?>
+
+        <!-- Threats -->
+        <?php if (!empty($swot['threats'])): ?>
+        <div class="card">
+          <div class="card-header" style="color:#f59e0b;">⚡ Thách thức</div>
+          <?php foreach ($swot['threats'] as $th): ?>
+            <div style="margin:12px 0;padding:12px;background:#fef3c7;border-radius:6px;">
+              <strong><?php echo esc_html($th['item'] ?? ''); ?></strong>
+              <?php if (!empty($th['response'])): ?>
+                <div style="font-size:0.9em;color:#d97706;margin-top:4px;">
+                  🛡️ <?php echo esc_html($th['response']); ?>
+                </div>
+              <?php endif; ?>
+            </div>
+          <?php endforeach; ?>
+        </div>
+        <?php endif; ?>
+      </div>
+    </section>
+    <?php endif; ?>
+
+    <!-- 4. Winning Model -->
+    <?php if (!empty($winning)): ?>
+    <section class="section">
+      <h2 class="section-title">🏆 Công thức Chiến thắng</h2>
+      <div class="card">
+        <?php if (isset($winning['winning_formula'])): ?>
+          <div style="background:linear-gradient(135deg,#f59e0b,#ef4444);color:white;padding:24px;border-radius:8px;margin-bottom:24px;">
+            <div style="font-size:1.2em;font-weight:600;text-align:center;">
+              <?php echo esc_html($winning['winning_formula']); ?>
+            </div>
+          </div>
+        <?php endif; ?>
+
+        <div class="grid-2">
+          <div>
+            <div class="card-header">❓ WHAT - Điều bạn làm tốt nhất</div>
+            <p><?php echo esc_html($winning['what'] ?? ''); ?></p>
+          </div>
+          <div>
+            <div class="card-header">❤️ WHY - Động lực cốt lõi</div>
+            <p><?php echo esc_html($winning['why'] ?? ''); ?></p>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div>
+            <div class="card-header">🛠️ HOW - Phương pháp độc đáo</div>
+            <p><?php echo esc_html($winning['how'] ?? ''); ?></p>
+          </div>
+          <div>
+            <div class="card-header">👥 WHO - Người hưởng lợi</div>
+            <p><?php echo esc_html($winning['who'] ?? ''); ?></p>
+          </div>
+        </div>
+
+        <?php if (!empty($winning['competitive_advantages'])): ?>
+          <div style="margin-top:24px;">
+            <div class="card-header">⚡ Lợi thế Cạnh tranh</div>
+            <?php foreach ($winning['competitive_advantages'] as $adv): ?>
+              <span class="badge badge-success"><?php echo esc_html($adv); ?></span>
+            <?php endforeach; ?>
+          </div>
+        <?php endif; ?>
+      </div>
+    </section>
+    <?php endif; ?>
+
+    <!-- 5. Leadership Map -->
+    <?php if (!empty($leadership)): ?>
+    <section class="section">
+      <h2 class="section-title">👑 Bản đồ Nhà lãnh đạo</h2>
+      <div class="card">
+        <?php if (isset($leadership['leadership_archetype'])): ?>
+          <div style="text-align:center;margin-bottom:24px;">
+            <span class="badge badge-primary" style="font-size:1.1em;padding:12px 24px;">
+              <?php echo esc_html($leadership['leadership_archetype']); ?>
+            </span>
+          </div>
+        <?php endif; ?>
+
+        <?php if (!empty($leadership['leadership_scores'])): ?>
+          <div class="card-header">📊 Leadership Scores</div>
+          <?php foreach ($leadership['leadership_scores'] as $skill => $score): ?>
+            <div style="margin:12px 0;">
+              <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                <span><?php echo esc_html(ucwords(str_replace('_', ' ', $skill))); ?></span>
+                <strong><?php echo (int)$score; ?>/10</strong>
+              </div>
+              <div class="progress-bar">
+                <div class="progress-fill" style="width:<?php echo ((int)$score * 10); ?>%"></div>
+              </div>
+            </div>
+          <?php endforeach; ?>
+        <?php endif; ?>
+
+        <?php if (isset($leadership['leadership_readiness'])): ?>
+          <div style="margin-top:24px;padding:20px;background:#f1f5f9;border-radius:8px;">
+            <div class="card-header">🎯 Leadership Readiness</div>
+            <div><strong>Current:</strong> <?php echo esc_html($leadership['leadership_readiness']['current_level'] ?? ''); ?></div>
+            <div><strong>Next Level:</strong> <?php echo esc_html($leadership['leadership_readiness']['next_level'] ?? ''); ?></div>
+            <div><strong>Timeline:</strong> <?php echo esc_html($leadership['leadership_readiness']['timeline'] ?? ''); ?></div>
+          </div>
+        <?php endif; ?>
+      </div>
+    </section>
+    <?php endif; ?>
+
+    <!-- 6. 90-Days Career Breakthrough -->
+    <?php if (!empty($milestone)): ?>
+    <section class="section">
+      <h2 class="section-title">📅 90-Days Career Breakthrough</h2>
+      <?php if (!empty($milestone['phases'])): ?>
+        <?php foreach ($milestone['phases'] as $phase): ?>
+          <div class="card">
+            <h3 style="color:var(--cc-primary);margin:0 0 16px;"><?php echo esc_html($phase['title'] ?? ''); ?></h3>
+            <?php if (!empty($phase['weeks'])): ?>
+              <?php foreach ($phase['weeks'] as $week): ?>
+                <div style="margin:16px 0;padding:16px;background:#f9fafb;border-left:4px solid var(--cc-accent);border-radius:6px;">
+                  <strong><?php echo esc_html($week['title'] ?? ''); ?></strong>
+                  <div style="margin-top:8px;color:#64748b;"><?php echo esc_html($week['goal'] ?? ''); ?></div>
+                </div>
+              <?php endforeach; ?>
+            <?php endif; ?>
+          </div>
+        <?php endforeach; ?>
+      <?php endif; ?>
+    </section>
+    <?php endif; ?>
+
+  </div>
+</div>
+
+<div class="no-print" style="text-align:center;padding:24px;">
+  <button onclick="window.print()" class="btn-print" style="background:var(--cc-primary);color:white;padding:12px 32px;border:none;border-radius:8px;font-size:1.1em;cursor:pointer;box-shadow:0 4px 12px rgba(99,102,241,0.3);">
+    🖨️ In / Lưu PDF
+  </button>
+</div>

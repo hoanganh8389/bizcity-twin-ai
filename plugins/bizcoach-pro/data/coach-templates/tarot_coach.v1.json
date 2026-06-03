@@ -1,0 +1,27 @@
+{
+  "schema_version": "1.0",
+  "slug": "tarot_coach",
+  "label": "TarotCoach",
+  "base_type": "tarot_coach",
+  "icon": "🃏",
+  "description": "Bản đồ năng lượng tâm linh & dẫn dắt thiền định 90 ngày qua lăng kính tarot.",
+  "status": "active",
+  "questions": [
+    { "key": "full_name",     "label": "Họ tên",                "type": "text", "required": true },
+    { "key": "dob",           "label": "Ngày sinh",             "type": "date", "required": true },
+    { "key": "birth_time",    "label": "Giờ sinh",              "type": "time", "required": false },
+    { "key": "birth_place",   "label": "Nơi sinh",              "type": "text", "required": false },
+    { "key": "spiritual_exp", "label": "Kinh nghiệm tâm linh",  "type": "select", "required": false,
+      "choices": {
+        "beginner":     "Mới bắt đầu",
+        "intermediate": "Đã tìm hiểu 1-3 năm",
+        "advanced":     "Thực hành trên 3 năm"
+      } }
+  ],
+  "generators": [
+    { "key": "gen_overview",   "label": "Nhận xét tổng quan",                          "output": "markdown", "legacy_fn": "bccm_generate_overview" },
+    { "key": "gen_lifemap",    "label": "Life Map - Bản đồ cuộc đời",                  "output": "json",     "legacy_fn": "bccm_generate_life_map" },
+    { "key": "gen_health_map", "label": "Bản đồ năng lượng & Mối quan hệ",             "output": "json",     "legacy_fn": "bccm_generate_health_map" },
+    { "key": "gen_milestone",  "label": "90-Days Spiritual Journey",                   "output": "json",     "legacy_fn": "bccm_generate_health_milestone_calendar" }
+  ]
+}

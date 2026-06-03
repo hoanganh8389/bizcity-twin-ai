@@ -1,0 +1,1223 @@
+<?php // includes/helpers.php
+if (!defined('ABSPATH')) exit;
+
+function bccm_public_map_url($key){
+  // Pretty permalink: /coachee-map/<key>/
+  if (get_option('permalink_structure')) {
+    return home_url('coachee-map/'.rawurlencode($key).'/');
+  }
+  // Fallback query: /?bccm_key=1&key=<key>
+  return home_url('/?bccm_key=1&key='.rawurlencode($key));
+}
+
+function bccm_tables(){
+    global $wpdb; return [
+    'profiles' => $wpdb->prefix.'bccm_coachees',
+    'templates' => $wpdb->prefix.'bccm_templates',
+    'answers' => $wpdb->prefix.'bccm_answers',
+    'plan_templates' => $wpdb->prefix.'bccm_plan_templates',
+    'plans' => $wpdb->prefix.'bccm_action_plans',
+    'logs' => $wpdb->prefix.'bccm_daily_logs',
+    ];
+}
+
+
+// ===== CoachType Registry (template, fields, generators) =====
+if (!function_exists('bccm_slugify_type')) {
+  function bccm_slugify_type($s){
+    $s = strtolower(trim((string)$s));
+    $s = str_replace([' ', '-'], '_', $s);
+    return preg_replace('/[^a-z0-9_]/', '', $s);
+  }
+}
+
+if (!function_exists('bccm_detect_base_type')) {
+  function bccm_detect_base_type($slug){
+    // Ưu tiên theo từ khoá
+    if (strpos($slug, 'baby') !== false) return 'baby_coach';
+    if (strpos($slug, 'biz')  !== false || strpos($slug, 'business') !== false) return 'biz_coach';
+    if (strpos($slug, 'tiktok') !== false) return 'tiktok_coach';
+    if (strpos($slug, 'astro') !== false) return 'astro_coach';
+    if (strpos($slug, 'tarot') !== false) return 'tarot_coach';
+    // Các coach như fit/vegan/diab/mental/life/... gom về mental_coach (healthcoach)
+    return 'mental_coach';
+  }
+}
+if (!function_exists('bccm_coach_type_base_registry')) {
+  function bccm_coach_type_base_registry(): array {
+    return [
+      'biz_coach' => [
+        'label'      => 'BizCoach',
+        'coach_type' => 'biz_coach',
+        'template'   => 'frontend-bizcoach.php',
+        'fields'     => [
+          'company_name'         => ['label'=>'Tên công ty','type'=>'text','placeholder'=>'Công ty ABC'],
+          'company_industry'     => ['label'=>'Ngành nghề','type'=>'text','placeholder'=>'FMCG, F&B...'],
+          'company_founded_date' => ['label'=>'Ngày thành lập','type'=>'date','placeholder'=>''],
+        ],
+        'generators' => [
+          ['key'=>'gen_overview',    'column'=>'ai_summary',    'label'=>'Nhận xét tổng quan','fn'=>'bccm_generate_overview'],
+          ['key'=>'gen_iqmap',       'column'=>'iqmap_json',    'label'=>'Bản đồ IQ (Leadership Map)','fn'=>'bccm_generate_leadership_iqmap'],
+          ['key'=>'gen_vision',      'column'=>'vision_json',   'label'=>'Mission • Vision Map','fn'=>'bccm_generate_vision_map'],
+          ['key'=>'gen_swot',        'column'=>'swot_json',     'label'=>'SWOT Analysis','fn'=>'bccm_generate_swot_map'],
+          ['key'=>'gen_customer',    'column'=>'customer_json', 'label'=>'Customer Insights','fn'=>'bccm_generate_customer_insight_map'],
+          ['key'=>'gen_value',       'column'=>'value_json',    'label'=>'Bản đồ chuỗi giá trị','fn'=>'bccm_generate_value_map'],
+          ['key'=>'gen_winning',     'column'=>'winning_json',  'label'=>'Winning Model (What • Why • How • Who)','fn'=>'bccm_generate_winning_model'],
+          ['key'=>'gen_action_plan_90','column'=>'bizcoach_json','label'=>'90-Days Business Action Plan','fn'=>'bccm_generate_90day_action_plan_ai'],
+        ],
+      ],
+
+      'baby_coach' => [
+        'label'      => 'BabyCoach',
+        'coach_type' => 'baby_coach',
+        'template'   => 'frontend-baby.php',
+        'fields'     => [
+          'baby_name'              => ['label'=>'Tên bé','type'=>'text','placeholder'=>'Ví dụ: Chu Hoài An'],
+          'baby_gender'            => ['label'=>'Giới tính','type'=>'select','options'=>['male'=>'Bé trai','female'=>'Bé gái','other'=>'Khác']],
+          'baby_gestational_weeks' => ['label'=>'Số tuần trong bụng mẹ','type'=>'number','placeholder'=>'37'],
+          'baby_weight_kg'         => ['label'=>'Cân nặng hiện tại (kg)','type'=>'number','step'=>'0.1','placeholder'=>'8.2'],
+          'baby_height_cm'         => ['label'=>'Chiều cao hiện tại(cm)','type'=>'number','step'=>'0.1','placeholder'=>'72.5'],
+          'dob'                    => ['label'=>'Ngày sinh','type'=>'date','placeholder'=>''],
+        ],
+        'generators' => [
+          ['key'=>'gen_baby_overview',  'column'=>'ai_summary',   'label'=>'Nhận xét tổng quan','fn'=>'bccm_generate_baby_overview'],
+          ['key'=>'baby_json',          'column'=>'baby_json',    'label'=>'Bản đồ tăng trưởng (WHO/CDC)','fn'=>'bccm_generate_baby_growth_map'],
+          ['key'=>'gen_milestone',      'column'=>'bizcoach_json','label'=>'90-Days Milestone Calendar','fn'=>'bccm_generate_health_milestone_calendar'],
+        ],
+      ],
+
+      'mental_coach' => [
+        'label'      => 'HealthCoach',
+        'coach_type' => 'mental_coach',
+        'template'   => 'frontend-health.php',
+        'fields'     => [
+          'height_cm' => ['label'=>'Chiều cao (cm)','type'=>'number','step'=>'0.1'],
+          'weight_kg' => ['label'=>'Cân nặng (kg)','type'=>'number','step'=>'0.1'],
+        ],
+        'generators' => [
+          ['key'=>'gen_overview',      'column'=>'ai_summary',    'label'=>'Nhận xét tổng quan','fn'=>'bccm_generate_health_overview'],
+          ['key'=>'gen_lifemap',       'column'=>'mental_json',   'label'=>'Life Map - Bản đồ cuộc đời','fn'=>'bccm_generate_life_map'],
+          ['key'=>'gen_health_map',    'column'=>'health_json',   'label'=>'Bản đồ sức khỏe toàn diện','fn'=>'bccm_generate_health_map'],
+          ['key'=>'gen_milestone',     'column'=>'bizcoach_json', 'label'=>'90-Days Milestone Calendar','fn'=>'bccm_generate_health_milestone_calendar'],
+        ],
+      ],
+
+      'tiktok_coach' => [
+        'label'      => 'TiktokCoach',
+        'coach_type' => 'tiktok_coach',
+        'template'   => 'frontend-tiktokcoach.php',
+        'fields'     => [
+          'company_name'         => ['label'=>'Tên công ty','type'=>'text','placeholder'=>'Công ty ABC'],
+          'company_industry'     => ['label'=>'Ngành nghề','type'=>'text','placeholder'=>'FMCG, F&B...'],
+          'company_founded_date' => ['label'=>'Ngày thành lập','type'=>'date','placeholder'=>''],
+        ],
+        'generators' => [
+          ['key'=>'gen_overview',    'column'=>'ai_summary',    'label'=>'Nhận xét tổng quan','fn'=>'bccm_generate_overview'],
+          ['key'=>'gen_iqmap',       'column'=>'iqmap_json',    'label'=>'Bản đồ IQ (Leadership Map)','fn'=>'bccm_generate_leadership_iqmap'],
+          ['key'=>'gen_vision',      'column'=>'vision_json',   'label'=>'Mission • Vision Map','fn'=>'bccm_generate_vision_map'],
+          ['key'=>'gen_customer',    'column'=>'customer_json', 'label'=>'Customer Insights','fn'=>'bccm_generate_customer_insight_map'],
+          ['key'=>'gen_winning',     'column'=>'winning_json',  'label'=>'Winning Model (What • Why • How • Who)','fn'=>'bccm_generate_winning_model'],
+          ['key'=>'gen_action_plan_90','column'=>'bizcoach_json','label'=>'90-Days TikTok Action Plan','fn'=>'bccm_generate_90day_tiktokcoach_ai'],
+        ],
+      ],
+
+      'astro_coach' => [
+        'label'      => 'AstroCoach',
+        'coach_type' => 'astro_coach',
+        'template'   => 'frontend-astro.php',
+        'fields'     => [
+          // Astro birth fields (birth_place, birth_time, zodiac_sign) are now UNIVERSAL
+          // and handled in Step 1 for ALL coach types. No type-specific fields needed here.
+        ],
+        'generators' => [
+          ['key'=>'gen_overview',    'column'=>'ai_summary',    'label'=>'Nhận xét tổng quan','fn'=>'bccm_generate_overview'],
+          ['key'=>'gen_lifemap',     'column'=>'mental_json',   'label'=>'Life Map - Bản đồ cuộc đời','fn'=>'bccm_generate_life_map'],
+          ['key'=>'gen_health_map',  'column'=>'health_json',   'label'=>'Bản đồ sức khỏe & Mối quan hệ','fn'=>'bccm_generate_health_map'],
+          ['key'=>'gen_milestone',   'column'=>'bizcoach_json', 'label'=>'90-Days Transformation Plan','fn'=>'bccm_generate_health_milestone_calendar'],
+        ],
+      ],
+
+      'tarot_coach' => [
+        'label'      => 'TarotCoach',
+        'coach_type' => 'tarot_coach',
+        'template'   => 'frontend-tarot.php',
+        'fields'     => [
+          // birth_place, birth_time are now UNIVERSAL (Step 1) — no duplication
+          'spiritual_exp'  => ['label'=>'Kinh nghiệm tâm linh','type'=>'select','options'=>[
+            'beginner'=>'Mới bắt đầu','intermediate'=>'Đã tìm hiểu 1-3 năm','advanced'=>'Thực hành trên 3 năm',
+          ]],
+        ],
+        'generators' => [
+          ['key'=>'gen_overview',    'column'=>'ai_summary',    'label'=>'Nhận xét tổng quan','fn'=>'bccm_generate_overview'],
+          ['key'=>'gen_lifemap',     'column'=>'mental_json',   'label'=>'Life Map - Bản đồ cuộc đời','fn'=>'bccm_generate_life_map'],
+          ['key'=>'gen_health_map',  'column'=>'health_json',   'label'=>'Bản đồ năng lượng & Mối quan hệ','fn'=>'bccm_generate_health_map'],
+          ['key'=>'gen_milestone',   'column'=>'bizcoach_json', 'label'=>'90-Days Spiritual Journey','fn'=>'bccm_generate_health_milestone_calendar'],
+        ],
+      ],
+
+      'career_coach' => [
+        'label'      => 'CareerCoach',
+        'coach_type' => 'career_coach',
+        'template'   => 'frontend-career.php',
+        'fields'     => [
+          'current_role'         => ['label'=>'Vị trí hiện tại','type'=>'text','placeholder'=>'Ví dụ: Marketing Manager'],
+          'years_experience'     => ['label'=>'Số năm kinh nghiệm','type'=>'number','placeholder'=>'5'],
+          'education_level'      => ['label'=>'Trình độ học vấn','type'=>'select','options'=>[
+            'highschool'=>'THPT','vocational'=>'Trung cấp/Cao đẳng','bachelor'=>'Đại học','master'=>'Thạc sĩ','phd'=>'Tiến sĩ',
+          ]],
+        ],
+        'generators' => [
+          ['key'=>'gen_career_overview',  'column'=>'ai_summary',    'label'=>'Tổng quan Sự nghiệp','fn'=>'bccm_generate_career_overview'],
+          ['key'=>'gen_career_vision',    'column'=>'vision_json',   'label'=>'Tầm nhìn Sự nghiệp Bản thân','fn'=>'bccm_generate_career_vision'],
+          ['key'=>'gen_career_swot',      'column'=>'swot_json',     'label'=>'SWOT Bản thân (Thế mạnh & Điểm yếu)','fn'=>'bccm_generate_career_swot'],
+          ['key'=>'gen_career_value',     'column'=>'value_json',    'label'=>'Giá trị Bản thân Hướng đến','fn'=>'bccm_generate_career_value'],
+          ['key'=>'gen_career_winning',   'column'=>'winning_json',  'label'=>'Công thức Chiến thắng Cá nhân','fn'=>'bccm_generate_career_winning'],
+          ['key'=>'gen_career_leadership','column'=>'iqmap_json',    'label'=>'Bản đồ Nhà lãnh đạo','fn'=>'bccm_generate_career_leadership'],
+          ['key'=>'gen_career_milestone', 'column'=>'bizcoach_json', 'label'=>'90-Days Career Breakthrough','fn'=>'bccm_generate_health_milestone_calendar'],
+        ],
+      ],
+    ];
+  }
+}
+
+if (!function_exists('bccm_coach_types')) {
+  function bccm_coach_types(): array {
+    static $cache = null;
+    if ($cache !== null) return $cache;
+
+    global $wpdb;
+    $t     = bccm_tables();
+    $base  = bccm_coach_type_base_registry();
+    $types = [];
+
+    // Lấy danh sách coach_type có trong bảng templates
+    $rows = $wpdb->get_col("SELECT DISTINCT coach_type FROM {$t['templates']} ORDER BY coach_type ASC");
+
+    // Nếu rỗng, trả registry mặc định
+    if (empty($rows)) {
+      return $cache = $base;
+    }
+
+    foreach ($rows as $raw) {
+      $raw  = trim((string)$raw);
+      if ($raw === '') continue;
+
+      $slug_norm = bccm_slugify_type($raw);        // vd: biz_coach -> biz_coach
+      $base_key  = bccm_detect_base_type($slug_norm);
+
+      $cfg_base  = $base[$base_key] ?? $base['biz_coach'] ?? [];
+      // Ưu tiên template riêng nếu tồn tại: /templates/frontend-<slug_norm>.php
+      $tpl_candidate = 'frontend-'.$slug_norm.'.php';
+      $tpl_path      = BCCM_DIR . 'templates/' . $tpl_candidate;
+      $template      = file_exists($tpl_path) ? $tpl_candidate : $cfg_base['template'];
+
+      // Nhãn đẹp từ slug DB
+      $label = ucwords(str_replace(['_','-'],' ', $raw));
+
+      $types[$raw] = [
+        'label'      => $label,
+        'template'   => $template,
+        'fields'     => $cfg_base['fields'],
+        'generators' => $cfg_base['generators'],
+      ];
+    }
+
+
+    return $cache = $types;
+  }
+}
+if (!function_exists('bccm_coach_template_for')) {
+  function bccm_coach_template_for(string $type): string {
+    // Lấy thư mục gốc plugin
+    $plugin_root = BCCM_DIR;
+    $templates_dir = $plugin_root . 'templates/';
+
+    $DEFAULT_TPL = 'frontend-bizcoach.php';
+    $tpl = null;
+
+    // 1) Lấy từ bccm_coach_types() nếu có
+    if (function_exists('bccm_coach_types')) {
+      $all = bccm_coach_types();
+
+      // match trực tiếp key
+      if (!empty($all[$type]['template'])) {
+        $tpl = $all[$type]['template'];
+      } else {
+        // match theo slug chuẩn hoá
+        $norm = function_exists('bccm_slugify_type') ? bccm_slugify_type($type) : strtolower(trim($type));
+        foreach ($all as $k => $meta) {
+          $slugK = function_exists('bccm_slugify_type') ? bccm_slugify_type($k) : strtolower($k);
+          if ($slugK === $norm && !empty($meta['template'])) {
+            $tpl = $meta['template'];
+            break;
+          }
+        }
+      }
+    }
+
+    // 2) Nếu vẫn chưa có, tra trong base registry
+    if ($tpl === null && function_exists('bccm_coach_type_base_registry')) {
+      $base = bccm_coach_type_base_registry();
+
+      $norm = function_exists('bccm_slugify_type') ? bccm_slugify_type($type) : strtolower(trim($type));
+
+      // match trực tiếp key
+      if (!empty($base[$norm]['template'])) {
+        $tpl = $base[$norm]['template'];
+      } else {
+        // match theo 'coach_type' bên trong
+        foreach ($base as $k => $cfg) {
+          $slugK  = function_exists('bccm_slugify_type') ? bccm_slugify_type($k) : strtolower($k);
+          $slugCT = !empty($cfg['coach_type'])
+                    ? (function_exists('bccm_slugify_type') ? bccm_slugify_type($cfg['coach_type']) : strtolower($cfg['coach_type']))
+                    : null;
+          if (($slugK === $norm || $slugCT === $norm) && !empty($cfg['template'])) {
+            $tpl = $cfg['template'];
+            break;
+          }
+        }
+      }
+    }
+
+    // 3) Fallback cuối
+    if (empty($tpl)) $tpl = $DEFAULT_TPL;
+
+    // 4) Build absolute path; nếu file không tồn tại, fallback về default
+    $path = $templates_dir . $tpl;
+    if (!file_exists($path)) {
+      $fallback = $templates_dir . $DEFAULT_TPL;
+      return file_exists($fallback) ? $fallback : $path; // trả path dù file thiếu để dev dễ thấy
+    }
+    return $path;
+  }
+}
+
+if (!function_exists('bccm_fields_for_type')) {
+  function bccm_fields_for_type(string $type): array {
+    // Ưu tiên dùng registry chuẩn
+    $norm = function_exists('bccm_slugify_type') ? bccm_slugify_type($type) : strtolower(trim($type));
+    $base = bccm_coach_type_base_registry();
+
+    // 1) Khớp trực tiếp theo key trong registry
+    if (isset($base[$norm]['fields']) && is_array($base[$norm]['fields'])) {
+      return $base[$norm]['fields'];
+    }
+
+    // 2) Khớp theo coach_type bên trong từng entry (trường hợp key khác coach_type)
+    foreach ($base as $k => $cfg) {
+      $slugK   = function_exists('bccm_slugify_type') ? bccm_slugify_type($k) : strtolower($k);
+      $slugCT  = isset($cfg['coach_type']) ? (function_exists('bccm_slugify_type') ? bccm_slugify_type($cfg['coach_type']) : strtolower($cfg['coach_type'])) : null;
+
+      if (($slugK === $norm || $slugCT === $norm) && !empty($cfg['fields']) && is_array($cfg['fields'])) {
+        return $cfg['fields'];
+      }
+    }
+
+    // 3) Hỗ trợ cấu trúc cũ (nếu bccm_coach_types() còn chứa fields)
+    if (function_exists('bccm_coach_types')) {
+      $all = bccm_coach_types();
+
+      if (isset($all[$type]['fields']) && is_array($all[$type]['fields'])) {
+        return $all[$type]['fields'];
+      }
+      foreach ($all as $k => $meta) {
+        $slugK = function_exists('bccm_slugify_type') ? bccm_slugify_type($k) : strtolower($k);
+        if ($slugK === $norm && isset($meta['fields']) && is_array($meta['fields'])) {
+          return $meta['fields'];
+        }
+      }
+    }
+
+    // 4) Fallback cuối: dùng BizCoach nếu có, nếu không thì [] để đảm bảo return type
+    if (isset($base['biz_coach']['fields']) && is_array($base['biz_coach']['fields'])) {
+      return $base['biz_coach']['fields'];
+    }
+
+    return []; // luôn trả array
+  }
+}
+
+if (!function_exists('bccm_generators_for_type')) {
+  function bccm_generators_for_type(string $type): array {
+    // Chuẩn hoá slug
+    $norm = function_exists('bccm_slugify_type') ? bccm_slugify_type($type) : strtolower(trim($type));
+    $base = bccm_coach_type_base_registry();
+
+    // 1) Khớp trực tiếp theo key trong registry
+    if (isset($base[$norm]['generators']) && is_array($base[$norm]['generators'])) {
+      return $base[$norm]['generators'];
+    }
+
+    // 2) Khớp theo coach_type bên trong từng entry
+    foreach ($base as $k => $cfg) {
+      $slugK  = function_exists('bccm_slugify_type') ? bccm_slugify_type($k) : strtolower($k);
+      $slugCT = isset($cfg['coach_type']) ? (function_exists('bccm_slugify_type') ? bccm_slugify_type($cfg['coach_type']) : strtolower($cfg['coach_type'])) : null;
+
+      if ($slugK === $norm || $slugCT === $norm) {
+        if (!empty($cfg['generators']) && is_array($cfg['generators'])) {
+          return $cfg['generators'];
+        }
+      }
+    }
+
+    // 3) Hỗ trợ cấu trúc cũ nếu bccm_coach_types() còn giữ generators
+    if (function_exists('bccm_coach_types')) {
+      $all = bccm_coach_types();
+
+      if (isset($all[$type]['generators']) && is_array($all[$type]['generators'])) {
+        return $all[$type]['generators'];
+      }
+      foreach ($all as $k => $meta) {
+        $slugK = function_exists('bccm_slugify_type') ? bccm_slugify_type($k) : strtolower($k);
+        if ($slugK === $norm && isset($meta['generators']) && is_array($meta['generators'])) {
+          return $meta['generators'];
+        }
+      }
+    }
+
+    // 4) Fallback: dùng BizCoach nếu có, nếu không thì []
+    if (isset($base['biz_coach']['generators']) && is_array($base['biz_coach']['generators'])) {
+      return $base['biz_coach']['generators'];
+    }
+
+    return []; // đảm bảo luôn là array để tránh fatal
+  }
+}
+
+
+
+if (!function_exists('bccm_default_coach_type')) {
+  function bccm_default_coach_type(): string {
+    $all = bccm_coach_types();
+    return array_key_first($all) ?: 'bizcoach';
+  }
+}
+
+if (!function_exists('bccm_coach_template_for')) {
+  function bccm_coach_template_for(string $type): string {
+    $all = bccm_coach_types();
+    $tpl = isset($all[$type]) ? $all[$type]['template'] : 'frontend-bizcoach.php';
+    // trả về path tuyệt đối
+    return  BCCM_DIR . 'templates/' . $tpl;
+  }
+}
+
+if (!function_exists('bccm_fields_for_type')) {
+  function bccm_fields_for_type(string $type): array {
+    $all = bccm_coach_types(); return $all[$type]['fields'] ?? [];
+  }
+}
+
+if (!function_exists('bccm_generators_for_type')) {
+  function bccm_generators_for_type(string $type): array {
+    $all = bccm_coach_types(); return $all[$type]['generators'] ?? [];
+  }
+}
+
+
+
+function bccm_default_questions(){
+  return [
+    'biz_coach' => [
+      // Sản phẩm – Dịch vụ – Giá trị
+      'Sản phẩm/dịch vụ bạn muốn bán là gì? Giá bán/biên lợi nhuận?',
+      'USP (điểm khác biệt) của sản phẩm là gì so với đối thủ?',
+      'Sản phẩm giúp giải quyết “nỗi đau” cụ thể nào của khách hàng?',
+      // Khách hàng mục tiêu
+      'Khách hàng mục tiêu (ICP) là ai? Độ tuổi? Giới tính? Khu vực?',
+      'Thu nhập/mức chi tiêu dự kiến của khách hàng?',
+      'Sở thích/chủ đề quan tâm gần nhất với sản phẩm?',
+      'Những nỗi đau/cản trở thường gặp trước khi mua là gì?',
+      // Hành vi & Kênh
+      'Khách hàng hiện biết đến bạn qua kênh nào? (TikTok/FB/YouTube/Offline?)',
+      'Đối thủ trực tiếp trên TikTok là ai? 3 kênh bạn muốn học theo?',
+      'Ví dụ 3 video “thắng” trong niche của bạn (link)? Vì sao chúng mạnh?',
+      // Brand & Content style
+      'Phong cách cá nhân/brandstyle mong muốn (ví dụ: hài hước/đanh thép/ấm áp/chuyên gia)?',
+      'Nhân vật kênh (creator) là ai? Có host/đội nhóm hay 1 người?',
+      'Ngôn ngữ/giọng địa phương/tiếng Anh–Việt? Có cần phụ đề?',
+      'Các trụ nội dung (Content Pillars) ý tưởng ban đầu của bạn là gì (3–5 trụ)?',
+      // Vận hành
+      'Mục đích, giá trị cho xã hội bạn muốn hướng tới cho kênh này',
+      'Nội dung chính bạn cảm thấy có thể truyền tải hàng ngày, dài hạn là gì?',
+      'Bạn tự tin nhất về kiến thức nền tảng gì của mình để chuẩn bị cho điều đó? (kinh nghiệm? học vấn?)',
+      // Chuyển đổi & Mục tiêu
+      'Mục tiêu 90 ngày (follower, views, lead, GMV)?',
+      'Bạn muốn chốt sales qua đâu? (TikTok Shop/Website/Inbox/Hotline)',
+      'Ngân sách dự kiến cho ads hoặc collab/UGC (tháng)?'
+    ],
+    'life_coach'   => array_fill(0,20,'Câu hỏi life coach ...'),
+    'health_coach' => [
+      'Họ tên đầy đủ và ngày tháng năm sinh?',
+      'Giới tính và chiều cao hiện tại (cm)?',
+      'Cân nặng hiện tại (kg) và cân nặng mong muốn?',
+      'Trình độ học vấn và nghề nghiệp hiện tại?',
+      'Lịch trình làm việc hàng ngày (giờ bắt đầu/kết thúc)?',
+      'Tiền sử bệnh lý cá nhân (tiểu đường, huyết áp, tim mạch, xương khớp...)?',
+      'Tiền sử bệnh lý gia đình?',
+      'Bạn có đang dùng thuốc hoặc thực phẩm chức năng nào không?',
+      'Chế độ ăn hiện tại: số bữa/ngày, thói quen ăn uống?',
+      'Dị ứng thực phẩm hoặc kiêng cữ đặc biệt?',
+      'Tần suất và loại hình tập luyện hiện tại (gym/yoga/chạy bộ/bơi...)?',
+      'Giấc ngủ trung bình mỗi đêm? Chất lượng giấc ngủ (1-10)?',
+      'Mức độ stress hiện tại (1-10)? Nguyên nhân chính gây stress?',
+      'Thói quen sinh hoạt: hút thuốc, uống rượu bia, caffeine?',
+      'Mục tiêu sức khỏe trong 90 ngày tới (giảm cân/tăng cơ/cải thiện giấc ngủ/giảm stress...)?',
+      'Nỗi đau/khó chịu lớn nhất về sức khỏe hiện tại?',
+      'Bạn đã từng thử phương pháp cải thiện sức khỏe nào? Kết quả?',
+      'Ngân sách dự kiến cho chế độ dinh dưỡng và tập luyện?',
+      'Ai/điều gì là động lực lớn nhất để bạn thay đổi lối sống?',
+      'Kỳ vọng cụ thể từ HealthCoach (tư vấn dinh dưỡng/lịch tập/theo dõi chỉ số/mental wellness)?',
+    ],
+    'baby_coach'  => [
+      'Bé đã được tiêm chủng đầy đủ theo lịch chưa? Mũi tiêm gần nhất là gì?',
+      'Bé được bú mẹ hoàn toàn trong bao lâu? Hiện tại bé đang bú mẹ/sữa công thức/ăn dặm?',
+      'Bé có phản ứng dị ứng với thức ăn nào không? (sữa bò, trứng, đậu, hải sản...)',
+      'Thực đơn ăn dặm hiện tại của bé gồm những gì? Bé ăn mấy bữa/ngày?',
+      'Bé có biểu hiện táo bón, tiêu chảy hoặc khó tiêu thường xuyên không?',
+      'Lịch ngủ của bé như thế nào? Ngủ liên tục ban đêm hay thức nhiều?',
+      'Bé có thói quen gì khó bỏ không? (mút tay, dùng ti giả, cần bế mới ngủ...)',
+      'Mốc phát triển nào bé đạt được gần đây? (lẫy, bò, đứng, nói...)',
+      'Có mốc phát triển nào bé chậm hơn so với bạn bè cùng tuổi không?',
+      'Bé có hay ốm vặt không? (sốt, ho, sổ mũi, viêm họng...) Tần suất bao nhiêu lần/tháng?',
+      'Bé có bổ sung vitamin D, sắt, canxi hoặc vi chất nào khác không?',
+      'Tiền sử sinh: bé sinh non, nhẹ cân, vàng da hoặc có biến chứng nào không?',
+      'Bé có hay quấy khóc, khó chịu không rõ nguyên nhân không?',
+      'Môi trường sống của bé: thành phố/nông thôn? Có ô nhiễm không khí/khói thuốc không?',
+      'Bé có được tắm nắng đầy đủ không? Tần suất bao nhiêu lần/tuần?',
+      'Phụ huynh có lo lắng gì về chiều cao, cân nặng của bé so với chuẩn WHO không?',
+      'Bé có thường xuyên tiếp xúc với trẻ khác (nhà trẻ, sân chơi) không?',
+      'Mục tiêu phát triển 3 tháng tới cho bé là gì? (tăng cân, chiều cao, kỹ năng vận động...)',
+      'Bác sĩ nhi khoa có khuyến nghị hoặc lưu ý gì đặc biệt về bé không?',
+      'Kỳ vọng cụ thể từ BabyCoach (lịch ăn/ngủ, theo dõi tăng trưởng, tư vấn dinh dưỡng, phát triển kỹ năng)?',
+    ],
+    'mental'       => [
+      'Họ tên đầy đủ và ngày tháng năm sinh?',
+      'Bạn mô tả trạng thái tinh thần hiện tại trong 3 từ?',
+      'Mức độ lo âu trung bình hàng ngày (1-10)?',
+      'Bạn có khó ngủ, mất ngủ hoặc ngủ quá nhiều không?',
+      'Điều gì khiến bạn cảm thấy kiệt sức nhất hiện tại?',
+      'Bạn có mối quan hệ xung đột với ai (gia đình/đồng nghiệp/bạn bè)?',
+      'Bạn thường xử lý stress bằng cách nào?',
+      'Bạn có sở thích/hoạt động nào giúp bạn thư giãn?',
+      'Bạn đã từng tham vấn tâm lý hoặc trị liệu chưa?',
+      'Bạn có đang dùng thuốc điều trị tâm lý/thần kinh nào không?',
+      'Mục tiêu tinh thần trong 90 ngày tới?',
+      'Điều bạn muốn thay đổi nhất về bản thân?',
+      'Giá trị sống quan trọng nhất với bạn (gia đình/sự nghiệp/tự do/sáng tạo)?',
+      'Bạn có thực hành thiền, mindfulness, hoặc journaling không?',
+      'Mức độ tự tin về bản thân hiện tại (1-10)?',
+      'Bạn có cảm giác đang "mắc kẹt" ở đâu trong cuộc sống?',
+      'Ai hoặc điều gì truyền cảm hứng cho bạn nhất?',
+      'Bạn có mạng lưới hỗ trợ tinh thần (bạn bè/gia đình/cộng đồng)?',
+      'Nỗi sợ lớn nhất của bạn hiện tại?',
+      'Kỳ vọng cụ thể từ MentalCoach (giảm lo âu/tìm mục đích/cải thiện quan hệ/phát triển bản thân)?',
+    ],
+
+    // ===== NEW: TikTok Coach (20 câu) =====
+    'tiktok_coach' => [
+      // Sản phẩm – Dịch vụ – Giá trị
+      'Sản phẩm/dịch vụ bạn muốn bán là gì? Giá bán/biên lợi nhuận?',
+      'USP (điểm khác biệt) của sản phẩm là gì so với đối thủ?',
+      'Sản phẩm giúp giải quyết “nỗi đau” cụ thể nào của khách hàng?',
+      // Khách hàng mục tiêu
+      'Khách hàng mục tiêu (ICP) là ai? Độ tuổi? Giới tính? Khu vực?',
+      'Thu nhập/mức chi tiêu dự kiến của khách hàng?',
+      'Sở thích/chủ đề quan tâm gần nhất với sản phẩm?',
+      'Những nỗi đau/cản trở thường gặp trước khi mua là gì?',
+      // Hành vi & Kênh
+      'Khách hàng hiện biết đến bạn qua kênh nào? (TikTok/FB/YouTube/Offline?)',
+      'Đối thủ trực tiếp trên TikTok là ai? 3 kênh bạn muốn học theo?',
+      'Ví dụ 3 video “thắng” trong niche của bạn (link)? Vì sao chúng mạnh?',
+      // Brand & Content style
+      'Phong cách cá nhân/brandstyle mong muốn (ví dụ: hài hước/đanh thép/ấm áp/chuyên gia)?',
+      'Nhân vật kênh (creator) là ai? Có host/đội nhóm hay 1 người?',
+      'Ngôn ngữ/giọng địa phương/tiếng Anh–Việt? Có cần phụ đề?',
+      'Các trụ nội dung (Content Pillars) ý tưởng ban đầu của bạn là gì (3–5 trụ)?',
+      // Vận hành
+      'Tần suất đăng mong muốn (video/ngày)? Thời gian có thể dành cho sản xuất?',
+      'Thiết bị/micro/ánh sáng hiện có? Phông quay?',
+      'Có kho media cũ (footage/testimonial/case study) để tái sử dụng không?',
+      // Chuyển đổi & Mục tiêu
+      'Mục tiêu 90 ngày (follower, views, lead, GMV)?',
+      'Bạn muốn chốt sales qua đâu? (TikTok Shop/Website/Inbox/Hotline)',
+      'Ngân sách dự kiến cho ads hoặc collab/UGC (tháng)?'
+    ],
+
+    // ===== AstroCoach (20 câu) =====
+    'astro_coach' => [
+      // Hiện trạng tâm lý & Năng lượng
+      'Bạn mô tả cảm giác hiện tại của mình trong 3 từ?',
+      'Điều gì khiến bạn cảm thấy tràn đầy năng lượng? Điều gì làm bạn kiệt sức?',
+      'Bạn có cảm giác đang "lạc lối" hay "tìm thấy hướng đi" trong cuộc sống?',
+      'Cung hoàng đạo bạn đã biết có "đúng" với bạn không? Điều gì khác biệt?',
+      'Bạn đã từng xem bản đồ sao chưa? Phần nào khiến bạn ấn tượng/hoang mang nhất?',
+      // Mối quan hệ & Tình cảm
+      'Mối quan hệ nào đang ảnh hưởng lớn nhất đến bạn hiện tại? (tình yêu/gia đình/bạn bè/đồng nghiệp)',
+      'Bạn cảm thấy mình "cho đi" nhiều hơn "nhận lại" trong các mối quan hệ không?',
+      'Mẫu người lý tưởng của bạn có đặc điểm gì? Bạn thường bị thu hút bởi kiểu người nào?',
+      'Có mối quan hệ nào khiến bạn cảm thấy vướng mắc, muốn thay đổi nhưng chưa biết cách?',
+      'Gia đình bạn có hiểu và ủng hộ bạn không? Xung đột lớn nhất là gì?',
+      // Sự nghiệp & Định hướng
+      'Công việc hiện tại có phù hợp với bản chất/đam mê thật sự của bạn không?',
+      'Bạn cảm thấy mình đang "đi đúng hướng" hay "sai đường" trong sự nghiệp?',
+      'Nếu không lo về tiền bạc, bạn muốn làm gì nhất trong đời?',
+      'Bạn có cảm giác "vận may" đang ủng hộ hay "vận xui" đeo bám mình không?',
+      // Tâm linh & Chuyển hóa
+      'Bạn tin vào số mệnh, nghiệp quả, hay luật hấp dẫn không?',
+      'Câu hỏi hay đặt trong đầu nhất của bạn hiện nay là gì?',
+      'Điều bạn THẬT SỰ muốn thay đổi/tháo gỡ trong 3 tháng tới là gì?',
+      'Bạn có thực hành tâm linh nào (thiền, yoga, cầu nguyện, tarot, năng lượng) không?',
+      'Bạn muốn AstroCoach giúp bạn hiểu sâu về khía cạnh nào? (tình duyên/sự nghiệp/bản thân/tâm linh)',
+      'Mục tiêu chuyển hóa lớn nhất của bạn trong 90 ngày tới?',
+    ],
+
+    // ===== CareerCoach (20 câu) =====
+    'career_coach' => [
+      // Hiện trạng Sự nghiệp
+      'Vị trí công việc hiện tại và số năm kinh nghiệm trong lĩnh vực?',
+      'Mô tả công việc hiện tại trong 3 từ: (thỏa mãn/nhàm chán/áp lực/phát triển/...)?',
+      'Điều bạn yêu thích NHẤT và GHÉT NHẤT ở công việc hiện tại?',
+      'Mức độ hài lòng với sự nghiệp hiện tại (1-10)? Tại sao?',
+      'Thu nhập hiện tại có đáp ứng kỳ vọng không? Mục tiêu thu nhập 3 năm tới?',
+      // Thế mạnh & Năng lực
+      'Top 3 kỹ năng/thế mạnh nổi bật nhất của bạn (chuyên môn/soft skill)?',
+      'Thành tựu sự nghiệp nào bạn tự hào nhất? Tại sao?',
+      'Điểm yếu/kỹ năng nào bạn cần cải thiện để lên cấp tiếp theo?',
+      'Phong cách làm việc của bạn: độc lập/team/kết hợp? Thích quản lý hay làm chuyên môn sâu?',
+      'Trình độ học vấn và chứng chỉ chuyên môn hiện có? Có dự định học thêm không?',
+      // Định hướng & Mục tiêu
+      'Vị trí mơ ước trong 3-5 năm tới là gì? (cụ thể: Manager/Director/Founder/Expert/...)',
+      'Ngành nghề/lĩnh vực nào bạn cảm thấy đam mê và muốn gắn bó lâu dài?',
+      'Nếu không lo về tiền bạc, công việc lý tưởng của bạn là gì?',
+      'Bạn muốn làm gì để "để lại dấu ấn" trong sự nghiệp?',
+      'Giá trị cốt lõi quan trọng nhất trong công việc (thu nhập/ý nghĩa/tự do/sáng tạo/ảnh hưởng)?',
+      // Thử thách & Chuyển đổi
+      'Rào cản lớn nhất ngăn cản bạn đạt mục tiêu sự nghiệp? (kỹ năng/mạng lưới/cơ hội/tự tin)?',
+      'Bạn có đang cân nhắc chuyển việc/chuyển ngành/khởi nghiệp không? Tại sao?',
+      'Người hoặc môi trường làm việc nào ảnh hưởng tiêu cực đến sự nghiệp bạn?',
+      'Mục tiêu cụ thể trong 90 ngày tới (thăng chức/chuyển việc/học skill/mở rộng network)?',
+      'Kỳ vọng từ CareerCoach (định hướng sự nghiệp/xây dựng thương hiệu cá nhân/tư vấn leadership/tìm cơ hội)?',
+    ],
+
+    // ===== TarotCoach (20 câu) =====
+    'tarot_coach' => [
+      // Trạng thái hiện tại & Năng lượng
+      'Bạn cảm thấy cuộc sống hiện tại của mình thế nào? (bế tắc/đang phát triển/lên xuống thất thường)',
+      'Điều gì làm bạn thức tỉnh mỗi sáng? Điều gì khiến bạn mất ngủ mỗi đêm?',
+      'Bạn có cảm giác đang đứng ở "ngã rẽ" quan trọng trong cuộc đời không?',
+      'Nếu phải chọn 1 từ mô tả nỗi đau lớn nhất hiện tại, đó là gì? (cô đơn/bế tắc/hoang mang/tổn thương...)',
+      'Vấn đề khiến bạn stress nhất hiện nay: tình cảm/công việc/tài chính/gia đình/bản thân?',
+      // Mối quan hệ & Tình cảm
+      'Tình trạng tình cảm hiện tại? Có vấn đề cụ thể nào bạn cần lời khuyên?',
+      'Bạn đang "níu kéo" hay "buông bỏ" một mối quan hệ nào không?',
+      'Ai là người ảnh hưởng lớn nhất đến quyết định của bạn? (bạn đời/cha mẹ/bạn bè/chính mình)',
+      'Bạn cảm thấy mình "xứng đáng" được yêu thương và hạnh phúc không?',
+      'Có ai đó trong quá khứ bạn vẫn chưa thể "tha thứ" hoặc "buông xuống"?',
+      // Sự nghiệp & Tài chính
+      'Công việc hiện tại: ổn định nhưng nhàm chán/thử thách nhưng phát triển/đang cân nhắc thay đổi?',
+      'Bạn có dự án/cơ hội quan trọng đang phân vân có nên nắm bắt không?',
+      'Tình hình tài chính hiện tại và cảm giác của bạn về tiền bạc (an toàn/lo lắng/tự do)?',
+      'Nếu có cơ hội chọn lại, bạn sẽ thay đổi điều gì trong 5 năm qua?',
+      // Trực giác & Tâm linh
+      'Bạn có tin vào trực giác của mình không? Có lần nào trực giác cứu bạn?',
+      'Giấc mơ hoặc "dấu hiệu" nào đó lặp lại gần đây khiến bạn thắc mắc?',
+      'Kinh nghiệm với Tarot: chưa biết/tò mò thử/đã xem nhiều lần/thường xuyên tham khảo?',
+      'Câu hỏi quan trọng NHẤT bạn muốn Tarot trả lời cho bạn ngay bây giờ?',
+      'Điều bạn THẬT SỰ muốn tháo gỡ/chữa lành trong 3 tháng tới là gì?',
+      'Kỳ vọng cụ thể từ TarotCoach (định hướng tình cảm/sự nghiệp/chữa lành nội tâm/kết nối tâm linh)?',
+    ],
+  ];
+}
+
+function bccm_default_plan_templates(){
+  return [
+    // ===== BizCoach =====
+    'biz_coach' => [
+      'title'  => 'BizCoach – Hành trình chuyển hóa kinh doanh 90 ngày',
+      'phases' => [
+        [
+          'key'   => 'p1',
+          'title' => 'Giai đoạn 1 – Nền tảng & Chiến lược (Ngày 1–30)',
+          'notes' => 'Xây dựng nền tảng tư duy kinh doanh, phân tích thị trường, xác định USP & chiến lược cạnh tranh.',
+          'weeks' => [
+            ['title'=>'Tuần 1','goal'=>'Phân tích SWOT, xác định Vision & Mission cá nhân'],
+            ['title'=>'Tuần 2','goal'=>'Nghiên cứu thị trường, xác định ICP (Ideal Customer Profile)'],
+            ['title'=>'Tuần 3','goal'=>'Định vị USP, xây dựng Value Proposition Canvas'],
+            ['title'=>'Tuần 4','goal'=>'Lập kế hoạch bán hàng & marketing 60 ngày tiếp theo'],
+          ],
+        ],
+        [
+          'key'   => 'p2',
+          'title' => 'Giai đoạn 2 – Triển khai & Tăng trưởng (Ngày 31–60)',
+          'notes' => 'Thực thi kế hoạch, xây dựng kênh bán hàng, tối ưu quy trình.',
+          'weeks' => [
+            ['title'=>'Tuần 5','goal'=>'Thiết lập kênh bán hàng chính (online/offline)'],
+            ['title'=>'Tuần 6','goal'=>'Chạy campaign marketing đầu tiên, đo lường KPI'],
+            ['title'=>'Tuần 7','goal'=>'Tối ưu chuyển đổi, xây dựng sales funnel'],
+            ['title'=>'Tuần 8','goal'=>'Review doanh số, điều chỉnh chiến lược giá & khuyến mãi'],
+          ],
+        ],
+        [
+          'key'   => 'p3',
+          'title' => 'Giai đoạn 3 – Tối ưu & Nhân rộng (Ngày 61–90)',
+          'notes' => 'Đánh giá kết quả, tối ưu hệ thống, lập kế hoạch scale up.',
+          'weeks' => [
+            ['title'=>'Tuần 9','goal'=>'Phân tích ROI các kênh, cắt kênh kém hiệu quả'],
+            ['title'=>'Tuần 10','goal'=>'Xây dựng quy trình vận hành chuẩn (SOP)'],
+            ['title'=>'Tuần 11','goal'=>'Đào tạo đội ngũ/đối tác, mở rộng mạng lưới'],
+            ['title'=>'Tuần 12','goal'=>'Tổng kết 90 ngày, lập roadmap quý tiếp theo'],
+          ],
+        ],
+      ],
+    ],
+
+    // ===== Life Coach =====
+    'life_coach' => [
+      'title'  => 'Life Coach – 90 ngày tự chuyển hóa',
+      'phases' => [
+        [
+          'key'   => 'p1',
+          'title' => 'Giai đoạn 1 – Nhận diện & Tự hiểu (Ngày 1–30)',
+          'notes' => 'Khám phá bản thân, xác định giá trị cốt lõi, thiết lập tầm nhìn cuộc đời.',
+          'weeks' => [
+            ['title'=>'Tuần 1','goal'=>'Viết nhật ký giá trị cốt lõi, xác định 3-5 giá trị sống quan trọng nhất'],
+            ['title'=>'Tuần 2','goal'=>'Vẽ Life Map hiện tại, đánh giá 8 lĩnh vực cuộc sống (Wheel of Life)'],
+            ['title'=>'Tuần 3','goal'=>'Thiết lập Vision Board, xác định mục tiêu 1 năm & 3 năm'],
+            ['title'=>'Tuần 4','goal'=>'Xây dựng thói quen buổi sáng (morning routine), bắt đầu journaling'],
+          ],
+        ],
+        [
+          'key'   => 'p2',
+          'title' => 'Giai đoạn 2 – Hành động & Thay đổi (Ngày 31–60)',
+          'notes' => 'Xây dựng thói quen tích cực, phá bỏ giới hạn, thực hành kỷ luật bản thân.',
+          'weeks' => [
+            ['title'=>'Tuần 5','goal'=>'Thực hành gratitude journal, tập thiền 10 phút/ngày'],
+            ['title'=>'Tuần 6','goal'=>'Cải thiện 1 mối quan hệ quan trọng, học cách lắng nghe'],
+            ['title'=>'Tuần 7','goal'=>'Học kỹ năng mới (đọc sách/khóa học), dành 30 phút/ngày'],
+            ['title'=>'Tuần 8','goal'=>'Review mục tiêu, điều chỉnh kế hoạch, loại bỏ 1 thói quen xấu'],
+          ],
+        ],
+        [
+          'key'   => 'p3',
+          'title' => 'Giai đoạn 3 – Củng cố & Bứt phá (Ngày 61–90)',
+          'notes' => 'Duy trì thói quen, nâng tầm mục tiêu, chuẩn bị cho giai đoạn tiếp theo.',
+          'weeks' => [
+            ['title'=>'Tuần 9','goal'=>'Đánh giá tiến bộ so với đầu hành trình, cập nhật Wheel of Life'],
+            ['title'=>'Tuần 10','goal'=>'Mentoring/chia sẻ kinh nghiệm cho người khác'],
+            ['title'=>'Tuần 11','goal'=>'Tham gia cộng đồng phát triển bản thân, mở rộng network'],
+            ['title'=>'Tuần 12','goal'=>'Tổng kết 90 ngày, viết thư cho bản thân tương lai, lập kế hoạch quý mới'],
+          ],
+        ],
+      ],
+    ],
+
+    // ===== Health Coach =====
+    'health' => [
+      'title'  => 'Health Coach – 90 ngày sức khỏe chủ động',
+      'phases' => [
+        [
+          'key'   => 'p1',
+          'title' => 'Giai đoạn 1 – Đánh giá & Khởi động (Ngày 1–30)',
+          'notes' => 'Đánh giá toàn diện sức khỏe, thiết lập baseline, bắt đầu thay đổi thói quen.',
+          'weeks' => [
+            ['title'=>'Tuần 1','goal'=>'Đo chỉ số cơ thể (BMI, body fat%), lập nhật ký ăn uống 7 ngày'],
+            ['title'=>'Tuần 2','goal'=>'Thiết lập chế độ dinh dưỡng cá nhân, cắt giảm đường/thực phẩm chế biến'],
+            ['title'=>'Tuần 3','goal'=>'Bắt đầu tập luyện 3-4 buổi/tuần, tối thiểu 30 phút/buổi'],
+            ['title'=>'Tuần 4','goal'=>'Cải thiện giấc ngủ: ngủ đúng giờ, 7-8 tiếng/đêm, giảm screen time trước ngủ'],
+          ],
+        ],
+        [
+          'key'   => 'p2',
+          'title' => 'Giai đoạn 2 – Tăng cường & Kỷ luật (Ngày 31–60)',
+          'notes' => 'Nâng cấp chế độ tập luyện, tối ưu dinh dưỡng, quản lý stress.',
+          'weeks' => [
+            ['title'=>'Tuần 5','goal'=>'Tăng cường độ tập, thêm strength training hoặc HIIT'],
+            ['title'=>'Tuần 6','goal'=>'Meal prep hàng tuần, đảm bảo đủ protein & vi chất'],
+            ['title'=>'Tuần 7','goal'=>'Thực hành quản lý stress: thiền/yoga/breathing exercises'],
+            ['title'=>'Tuần 8','goal'=>'Đo lại chỉ số, so sánh tiến bộ, điều chỉnh chế độ'],
+          ],
+        ],
+        [
+          'key'   => 'p3',
+          'title' => 'Giai đoạn 3 – Duy trì & Lifestyle (Ngày 61–90)',
+          'notes' => 'Biến thói quen lành mạnh thành lối sống, xây dựng kế hoạch dài hạn.',
+          'weeks' => [
+            ['title'=>'Tuần 9','goal'=>'Thử thách nâng cao: thi đấu/event thể thao hoặc mục tiêu fitness'],
+            ['title'=>'Tuần 10','goal'=>'Khám sức khỏe tổng quát, so sánh với baseline ban đầu'],
+            ['title'=>'Tuần 11','goal'=>'Xây dựng community sức khỏe, chia sẻ hành trình'],
+            ['title'=>'Tuần 12','goal'=>'Tổng kết 90 ngày, lập kế hoạch sức khỏe 6 tháng tiếp theo'],
+          ],
+        ],
+      ],
+    ],
+
+    // ===== Baby Health Coach =====
+    'baby_health' => [
+      'title'  => 'Baby Health – 90 ngày tăng trưởng toàn diện',
+      'phases' => [
+        [
+          'key'   => 'p1',
+          'title' => 'Giai đoạn 1 – Đánh giá & Theo dõi (Ngày 1–30)',
+          'notes' => 'Đánh giá phát triển hiện tại, thiết lập baseline, lập lịch theo dõi.',
+          'weeks' => [
+            ['title'=>'Tuần 1','goal'=>'Đo cân nặng/chiều cao, so sánh biểu đồ WHO, đánh giá mốc phát triển'],
+            ['title'=>'Tuần 2','goal'=>'Lập nhật ký dinh dưỡng: ghi chép bữa ăn, sữa, giấc ngủ'],
+            ['title'=>'Tuần 3','goal'=>'Thiết lập lịch ăn dặm/sữa phù hợp theo tuổi, tham vấn bác sĩ'],
+            ['title'=>'Tuần 4','goal'=>'Đánh giá vận động thô/tinh, ngôn ngữ theo mốc tuổi'],
+          ],
+        ],
+        [
+          'key'   => 'p2',
+          'title' => 'Giai đoạn 2 – Can thiệp & Cải thiện (Ngày 31–60)',
+          'notes' => 'Áp dụng chế độ dinh dưỡng tối ưu, kích thích phát triển toàn diện.',
+          'weeks' => [
+            ['title'=>'Tuần 5','goal'=>'Đa dạng hóa thực đơn, bổ sung nhóm thực phẩm còn thiếu'],
+            ['title'=>'Tuần 6','goal'=>'Kích thích phát triển qua chơi/đọc sách/âm nhạc phù hợp'],
+            ['title'=>'Tuần 7','goal'=>'Hoàn thiện lịch tiêm chủng, bổ sung vi chất theo chỉ dẫn BS'],
+            ['title'=>'Tuần 8','goal'=>'Đo lại cân nặng/chiều cao, đánh giá tiến bộ phát triển'],
+          ],
+        ],
+        [
+          'key'   => 'p3',
+          'title' => 'Giai đoạn 3 – Duy trì & Phát triển (Ngày 61–90)',
+          'notes' => 'Ổn định chế độ, theo dõi dài hạn, lập kế hoạch phát triển tiếp theo.',
+          'weeks' => [
+            ['title'=>'Tuần 9','goal'=>'Duy trì thực đơn chuẩn, tập cho bé tự ăn/tự chơi'],
+            ['title'=>'Tuần 10','goal'=>'Social development: cho bé giao tiếp bạn cùng tuổi'],
+            ['title'=>'Tuần 11','goal'=>'Review giấc ngủ, điều chỉnh lịch ngủ phù hợp giai đoạn'],
+            ['title'=>'Tuần 12','goal'=>'Tổng kết 90 ngày phát triển, lập kế hoạch quý tiếp theo'],
+          ],
+        ],
+      ],
+    ],
+
+    // ===== Mental Coach =====
+    'mental' => [
+      'title'  => 'Mental Coach – 90 ngày cân bằng nội tâm',
+      'phases' => [
+        [
+          'key'   => 'p1',
+          'title' => 'Giai đoạn 1 – Nhận diện & Hiểu mình (Ngày 1–30)',
+          'notes' => 'Khám phá cảm xúc, nhận diện pattern tiêu cực, xây dựng nền tảng mindfulness.',
+          'weeks' => [
+            ['title'=>'Tuần 1','goal'=>'Viết nhật ký cảm xúc hàng ngày, nhận diện cảm xúc chủ đạo'],
+            ['title'=>'Tuần 2','goal'=>'Tập thiền 5-10 phút/ngày, học kỹ thuật hít thở 4-7-8'],
+            ['title'=>'Tuần 3','goal'=>'Xác định 3 trigger gây stress chính, lập kế hoạch đối phó'],
+            ['title'=>'Tuần 4','goal'=>'Đánh giá mối quan hệ: ai mang năng lượng tích cực/tiêu cực?'],
+          ],
+        ],
+        [
+          'key'   => 'p2',
+          'title' => 'Giai đoạn 2 – Thực hành & Chuyển hóa (Ngày 31–60)',
+          'notes' => 'Áp dụng kỹ thuật CBT, xây dựng thói quen tích cực, cải thiện quan hệ.',
+          'weeks' => [
+            ['title'=>'Tuần 5','goal'=>'Thực hành reframe suy nghĩ tiêu cực, viết 3 điều biết ơn mỗi tối'],
+            ['title'=>'Tuần 6','goal'=>'Thiết lập boundary lành mạnh trong 1 mối quan hệ'],
+            ['title'=>'Tuần 7','goal'=>'Tăng thiền lên 15-20 phút/ngày, thêm body scan meditation'],
+            ['title'=>'Tuần 8','goal'=>'Review tiến bộ: đo lại mức lo âu/stress (1-10), điều chỉnh'],
+          ],
+        ],
+        [
+          'key'   => 'p3',
+          'title' => 'Giai đoạn 3 – Củng cố & Tỏa sáng (Ngày 61–90)',
+          'notes' => 'Duy trì thói quen, xây dựng resilience, hướng đến mục đích sống.',
+          'weeks' => [
+            ['title'=>'Tuần 9','goal'=>'Xác định mục đích sống (Ikigai), kết nối giá trị cốt lõi với hành động'],
+            ['title'=>'Tuần 10','goal'=>'Thực hành self-compassion, viết thư tha thứ cho bản thân/người khác'],
+            ['title'=>'Tuần 11','goal'=>'Tham gia hoạt động cộng đồng/tình nguyện, mở rộng kết nối'],
+            ['title'=>'Tuần 12','goal'=>'Tổng kết hành trình 90 ngày, lập kế hoạch duy trì & phát triển'],
+          ],
+        ],
+      ],
+    ],
+
+    // ===== TikTok Coach =====
+    'tiktok_coach' => [
+      'title'  => 'TikTok Coach – 90 ngày bùng nổ kênh TikTok',
+      'phases' => [
+        [
+          'key'   => 'p1',
+          'title' => 'Giai đoạn 1 – Xây dựng nền tảng (Ngày 1–30)',
+          'notes' => 'Nghiên cứu thị trường, định vị kênh, xây nội dung trụ cột, tạo 30 video đầu tiên.',
+          'weeks' => [
+            ['title'=>'Tuần 1','goal'=>'Research niche, phân tích 10 đối thủ top, xác định 3-5 content pillars'],
+            ['title'=>'Tuần 2','goal'=>'Setup branding: bio, avatar, kịch bản mẫu, phong cách quay'],
+            ['title'=>'Tuần 3','goal'=>'Sản xuất & đăng 1 video/ngày, test format: hook → value → CTA'],
+            ['title'=>'Tuần 4','goal'=>'Phân tích analytics: video nào perform tốt, tối ưu thumbnail & caption'],
+          ],
+        ],
+        [
+          'key'   => 'p2',
+          'title' => 'Giai đoạn 2 – Tăng trưởng & Tối ưu (Ngày 31–60)',
+          'notes' => 'Scale nội dung, tối ưu algorithm, bắt đầu monetize.',
+          'weeks' => [
+            ['title'=>'Tuần 5','goal'=>'Tăng tần suất 2 video/ngày, batch production cuối tuần'],
+            ['title'=>'Tuần 6','goal'=>'Tham gia trend + duet/stitch, collab với creator cùng niche'],
+            ['title'=>'Tuần 7','goal'=>'Setup TikTok Shop hoặc link CTA đến landing page/inbox'],
+            ['title'=>'Tuần 8','goal'=>'Review KPIs: follower, views, engagement rate, điều chỉnh chiến lược'],
+          ],
+        ],
+        [
+          'key'   => 'p3',
+          'title' => 'Giai đoạn 3 – Monetize & Scale (Ngày 61–90)',
+          'notes' => 'Chuyển đổi traffic thành doanh thu, xây dựng community, nhân rộng.',
+          'weeks' => [
+            ['title'=>'Tuần 9','goal'=>'Chạy TikTok Ads test: Spark Ads + TopView, tối ưu CPM/CPA'],
+            ['title'=>'Tuần 10','goal'=>'Xây community: live stream 2-3 lần/tuần, tạo group khách hàng'],
+            ['title'=>'Tuần 11','goal'=>'Tối ưu sales funnel: video → shop/inbox → chốt đơn, UGC campaign'],
+            ['title'=>'Tuần 12','goal'=>'Tổng kết 90 ngày: tổng follower, GMV, ROI. Lập kế hoạch quý mới'],
+          ],
+        ],
+      ],
+    ],
+
+    // ===== AstroCoach =====
+    'astro_coach' => [
+      'title'  => 'AstroCoach – 90 ngày khám phá bản đồ sao & chuyển hóa',
+      'phases' => [
+        [
+          'key'   => 'p1',
+          'title' => 'Giai đoạn 1 – Đọc bản đồ & Nhận diện (Ngày 1–30)',
+          'notes' => 'Phân tích birth chart, hiểu cung hoàng đạo, mặt trăng, các hành tinh chủ đạo.',
+          'weeks' => [
+            ['title'=>'Tuần 1','goal'=>'Lập birth chart đầy đủ, phân tích Sun/Moon/Rising sign'],
+            ['title'=>'Tuần 2','goal'=>'Đọc các hành tinh cá nhân (Mercury, Venus, Mars), hiểu cách giao tiếp & tình cảm'],
+            ['title'=>'Tuần 3','goal'=>'Phân tích các nhà (Houses), xác định lĩnh vực trọng tâm cuộc đời'],
+            ['title'=>'Tuần 4','goal'=>'Đọc aspect & transit hiện tại, nhận diện chu kỳ năng lượng đang diễn ra'],
+          ],
+        ],
+        [
+          'key'   => 'p2',
+          'title' => 'Giai đoạn 2 – Ứng dụng & Sống theo Năng lượng (Ngày 31–60)',
+          'notes' => 'Áp dụng hiểu biết chiêm tinh vào cuộc sống, tối ưu thời điểm hành động.',
+          'weeks' => [
+            ['title'=>'Tuần 5','goal'=>'Lên kế hoạch theo chu kỳ Mặt trăng (New Moon → Full Moon)'],
+            ['title'=>'Tuần 6','goal'=>'Tối ưu sự nghiệp/tài chính dựa trên Nhà 2, 6, 10 trong birth chart'],
+            ['title'=>'Tuần 7','goal'=>'Cải thiện mối quan hệ dựa trên Venus sign & Nhà 7'],
+            ['title'=>'Tuần 8','goal'=>'Thực hành ritual theo nguyên tố (Lửa/Đất/Khí/Nước) phù hợp cung'],
+          ],
+        ],
+        [
+          'key'   => 'p3',
+          'title' => 'Giai đoạn 3 – Chuyển hóa & Vận mệnh (Ngày 61–90)',
+          'notes' => 'Dự báo transit quan trọng, chuẩn bị cho chu kỳ mới, tổng kết hành trình.',
+          'weeks' => [
+            ['title'=>'Tuần 9','goal'=>'Phân tích Solar Return chart, dự báo năm tới'],
+            ['title'=>'Tuần 10','goal'=>'Xác định Saturn Return / Jupiter transit, tận dụng cơ hội'],
+            ['title'=>'Tuần 11','goal'=>'Tạo lịch chiêm tinh cá nhân 12 tháng tiếp theo'],
+            ['title'=>'Tuần 12','goal'=>'Tổng kết 90 ngày, viết "Bản đồ sao cuộc đời" cá nhân'],
+          ],
+        ],
+      ],
+    ],
+
+    // ===== TarotCoach =====
+    'tarot_coach' => [
+      'title'  => 'TarotCoach – 90 ngày khai mở trực giác & chữa lành',
+      'phases' => [
+        [
+          'key'   => 'p1',
+          'title' => 'Giai đoạn 1 – Kết nối & Nhận diện (Ngày 1–30)',
+          'notes' => 'Đọc bài Tarot tổng quan, nhận diện chủ đề chính trong cuộc sống, thiết lập nền tảng tâm linh.',
+          'weeks' => [
+            ['title'=>'Tuần 1','goal'=>'Trải bài Celtic Cross tổng quan, xác định chủ đề năng lượng hiện tại'],
+            ['title'=>'Tuần 2','goal'=>'Đọc bài về tình cảm & quan hệ, nhận diện pattern lặp lại'],
+            ['title'=>'Tuần 3','goal'=>'Đọc bài về sự nghiệp & tài chính, xác định hướng đi phù hợp'],
+            ['title'=>'Tuần 4','goal'=>'Bắt đầu thực hành thiền/journaling hàng ngày, ghi nhận thông điệp'],
+          ],
+        ],
+        [
+          'key'   => 'p2',
+          'title' => 'Giai đoạn 2 – Chữa lành & Chuyển hóa (Ngày 31–60)',
+          'notes' => 'Làm việc với shadow work, giải phóng năng lượng cũ, xây dựng thực hành tâm linh.',
+          'weeks' => [
+            ['title'=>'Tuần 5','goal'=>'Shadow Work spread: đối mặt nỗi sợ, giải phóng niềm tin giới hạn'],
+            ['title'=>'Tuần 6','goal'=>'Thực hành affirmation & visualization dựa trên thông điệp Tarot'],
+            ['title'=>'Tuần 7','goal'=>'Đọc bài theo chu kỳ Mặt trăng, setting intention New Moon'],
+            ['title'=>'Tuần 8','goal'=>'Review tiến bộ: đánh giá mức trực giác, sự thay đổi nội tâm'],
+          ],
+        ],
+        [
+          'key'   => 'p3',
+          'title' => 'Giai đoạn 3 – Khai mở & Tỏa sáng (Ngày 61–90)',
+          'notes' => 'Phát triển trực giác, tự đọc bài, xây dựng thực hành tâm linh bền vững.',
+          'weeks' => [
+            ['title'=>'Tuần 9','goal'=>'Year Ahead spread: dự báo 12 tháng tới, xác định cơ hội & thử thách'],
+            ['title'=>'Tuần 10','goal'=>'Học đọc bài cơ bản cho bản thân (1-card daily pull)'],
+            ['title'=>'Tuần 11','goal'=>'Tích hợp Tarot vào routine: morning pull + evening reflection'],
+            ['title'=>'Tuần 12','goal'=>'Tổng kết 90 ngày, viết "Bản đồ tâm linh" cá nhân, lập kế hoạch tiếp'],
+          ],
+        ],
+      ],
+    ],
+  ];
+}
+
+
+
+function bccm_uuid(){ return wp_generate_uuid4(); }
+
+
+function bccm_safe_json($any){ return wp_json_encode($any, JSON_UNESCAPED_UNICODE); }
+
+
+// very light numerology helpers (stubs)
+function bccm_numerology_life_path($dob){ return $dob ? substr(str_replace('-','',$dob),-2) : ''; }
+function bccm_numerology_name_number($name){ return strlen(preg_replace('/\s+/','', $name)); }
+
+
+/* ===== Helpers: Pythagorean mapping ===== */
+
+/** chuyển Unicode -> a-z (loại dấu, loại ký tự ngoài a-z) */
+function bccm_letters_ascii($s){
+  $s = strtolower(trim((string)$s));
+  // chuẩn hóa unicode -> ascii
+  if (function_exists('iconv')) {
+    $tmp = @iconv('UTF-8','ASCII//TRANSLIT//IGNORE',$s);
+    if ($tmp !== false) $s = $tmp;
+  }
+  $s = preg_replace('/[^a-z]+/','',$s);
+  return $s;
+}
+
+/** Bản đồ chữ cái Pythagoras 1..9 */
+function bccm_letter_map_val($ch){
+  static $map = [
+    'a'=>1,'j'=>1,'s'=>1,
+    'b'=>2,'k'=>2,'t'=>2,
+    'c'=>3,'l'=>3,'u'=>3,
+    'd'=>4,'m'=>4,'v'=>4,
+    'e'=>5,'n'=>5,'w'=>5,
+    'f'=>6,'o'=>6,'x'=>6,
+    'g'=>7,'p'=>7,'y'=>7,
+    'h'=>8,'q'=>8,'z'=>8,
+    'i'=>9,'r'=>9
+  ];
+  return $map[$ch] ?? 0;
+}
+
+/** Giữ master 11/22/33 */
+function bccm_reduce_keep_master($n){
+  $n = (int)$n;
+  while ($n>9 && !in_array($n,[11,22,33],true)){
+    $n = array_sum(array_map('intval', str_split((string)$n)));
+  }
+  return $n;
+}
+
+/** Tính tổng số cho toàn bộ tên; kiểu: all | vowels | consonants */
+function bccm_sum_name($full_name, $mode='all'){
+  $letters = bccm_letters_ascii($full_name);
+  if ($letters==='') return 0;
+
+  $vowels = ['a','e','i','o','u','y']; // coi y là nguyên âm
+  $sum = 0;
+  $digits = []; // để tính Subconscious Self
+  for ($i=0;$i<strlen($letters);$i++){
+    $ch = $letters[$i];
+    $val = bccm_letter_map_val($ch);
+    if (!$val) continue;
+
+    $is_vowel = in_array($ch,$vowels,true);
+    if ($mode==='vowels'     && !$is_vowel) continue;
+    if ($mode==='consonants' &&  $is_vowel) continue;
+
+    $sum += $val;
+    $digits[] = $val;
+  }
+  return [$sum,$digits];
+}
+// Giới hạn còn tối đa 10 từ (đảm bảo UTF-8, bỏ dư)
+// Cắt đúng 7–10 từ (nếu <7 thì giữ nguyên; nếu >10 thì cắt 10)
+function bccm_brief_10w($t){
+  $t = trim(preg_replace('/\s+/u',' ', (string)$t));
+  if ($t==='') return '—';
+  // bỏ dấu chấm cuối câu nếu có
+  $t = preg_replace('/[[:space:]]*[\.。…]+$/u','',$t);
+  $w = preg_split('/\s+/u', $t, -1, PREG_SPLIT_NO_EMPTY);
+  if (count($w) > 10) $w = array_slice($w, 0, 10);
+  return implode(' ', $w);
+}
+
+// Ép 7–10 từ: nếu ít hơn 7 từ mà AI trả quá ngắn, vẫn chấp nhận; nếu dài >10 đã cắt ở trên.
+
+// Ép tối đa 10 từ, tối thiểu giữ nguyên (nếu <7 vẫn giữ, tránh phát sinh câu vô nghĩa)
+function bccm_brief_force_7_10($t){
+  $t = trim(preg_replace('/\s+/u',' ', (string)$t));
+  if ($t==='') return '—';
+  $p = preg_split('/\s+/u',$t,-1,PREG_SPLIT_NO_EMPTY);
+  if (count($p) > 10) $p = array_slice($p,0,10);
+  return implode(' ',$p);
+}
+
+// Parse nhiều dạng AI có thể trả
+function bccm_parse_ai_briefs($raw){
+  if (!is_string($raw) || $raw==='') return [];
+
+  // bỏ code fences
+  $s = trim($raw);
+  if (preg_match('/^```/u',$s)){
+    $s = preg_replace('/^```[a-zA-Z0-9_-]*\s*|\s*```$/u','',$s);
+    $s = trim($s);
+  }
+
+  // thử decode “relaxed” nếu có, nếu không thì json_decode
+  if (function_exists('bccm_try_decode_json_relaxed')) {
+    $data = bccm_try_decode_json_relaxed($s);
+  } else {
+    $data = json_decode($s, true);
+  }
+  if (!is_array($data)) return [];
+
+  $keys = function_exists('bccm_metric_keys') ? bccm_metric_keys() : [];
+  $out  = [];
+
+  // Shape A: {"numbers_full":{"life_path":{"brief":"..."}, ...}}
+  if (isset($data['numbers_full']) && is_array($data['numbers_full'])){
+    foreach($keys as $k){
+      if(isset($data['numbers_full'][$k]['brief'])){
+        $out[$k] = (string)$data['numbers_full'][$k]['brief'];
+      }
+    }
+    if ($out) return $out;
+  }
+
+  // Shape B: {"briefs":{"life_path":"...", ...}}
+  if (isset($data['briefs']) && is_array($data['briefs'])){
+    foreach($keys as $k){
+      if(isset($data['briefs'][$k]) && is_string($data['briefs'][$k])){
+        $out[$k] = (string)$data['briefs'][$k];
+      }
+    }
+    if ($out) return $out;
+  }
+
+  // Shape C: phẳng {"life_path":"...","mission":"..."}
+  $hit=0;
+  foreach($keys as $k){
+    if(isset($data[$k]) && is_string($data[$k])){ $out[$k]=(string)$data[$k]; $hit++; }
+  }
+  if ($hit>=10) return $out; // đủ tin cậy
+
+  return [];
+}
+
+function bccm_local_make_briefs(array $numbers_full): array {
+  $titles = function_exists('bccm_metric_titles') ? bccm_metric_titles() : array_combine(bccm_metric_keys(), bccm_metric_keys());
+  $keys   = bccm_metric_keys();
+  $gen = function($k, $val, $title) {
+    $val_s = is_array($val) ? '—' : (string)$val;
+    // Các khung câu đơn giản, ngắn gọn (<=10 từ)
+    switch ($k){
+      case 'life_path':            return "Đường đời $val_s: tập trung mục tiêu, kỷ luật";
+      case 'soul_number':          return "Linh hồn $val_s: động lực nội tại và cảm hứng";
+      case 'personality':          return "Nhân cách $val_s: cách thể hiện và ấn tượng ban đầu";
+      case 'maturity':             return "Độ chín $val_s: tầm nhìn dài hạn, kiên định";
+      case 'attitude':             return "Thái độ $val_s: phản ứng nhanh, hướng giải pháp";
+      case 'logic':                return "Lý trí $val_s: phân tích thực tế, quyết định rõ";
+      case 'passion':              return "Đam mê $val_s: nguồn lửa sáng tạo, kiên trì";
+      case 'subconscious_power':   return "Tiềm thức $val_s: sức bền thầm lặng hỗ trợ";
+      case 'pinnacle':             return "Đỉnh vận $val_s: giai đoạn bứt phá quan trọng";
+      case 'challenges':           return "Thử thách $val_s: bài học thúc đẩy trưởng thành";
+      case 'personal_year':        return "Năm cá nhân $val_s: ưu tiên trọng tâm phù hợp";
+      case 'personal_month':       return "Tháng cá nhân $val_s: tinh chỉnh nhịp độ công việc";
+      case 'personal_day':         return "Ngày cá nhân $val_s: chọn khung giờ hiệu quả";
+      case 'birth_day':            return "Ngày sinh $val_s: khí chất bẩm sinh, ưu điểm";
+      case 'mission':              return "Sứ mệnh $val_s: giá trị trao cho người khác";
+      case 'balance':              return "Cân bằng $val_s: điều phối cảm xúc và hành động";
+      case 'link_life_mission':    return "Liên kết $val_s: hòa hợp đường đời và sứ mệnh";
+      case 'link_soul_personality':return "Trong–ngoài $val_s: thống nhất nội tâm và biểu hiện";
+      case 'missing':              return "Thiếu: ".($val_s!=='—'?$val_s:'đang xác định')." cần bù đắp dần";
+      case 'generation':           return "Thế hệ: $val_s, tận dụng bối cảnh xã hội";
+      case 'lesson':               return "Bài học $val_s: chủ đề cần hoàn thiện dần";
+      default:                     return "$title $val_s: gợi ý hành động ngắn gọn";
+    }
+  };
+
+  foreach($keys as $k){
+    $title = $titles[$k] ?? strtoupper($k);
+    $val   = $numbers_full[$k]['value'] ?? '—';
+    $s     = $gen($k, $val, $title);
+    $numbers_full[$k]['brief'] = bccm_brief_force_7_10($s);
+  }
+  return $numbers_full;
+}
+/**
+ * Chuẩn hóa output từ bccm_ai_generate() về schema $destiny phẳng cho view.
+ */
+function bccm_ai_to_destiny(array $ai): array {
+  // Lấy node overview có thể là string hoặc array
+  $ov_node = $ai['overview'] ?? $ai['summary'] ?? '';
+  if (is_array($ov_node)) {
+    $ov_str = $ov_node['overview'] ?? '';
+    $life_path   = $ov_node['life_path']   ?? ($ai['life_path'] ?? '');
+    $soul_number = $ov_node['soul_number'] ?? ($ai['soul_number'] ?? '');
+  } else {
+    $ov_str = (string)$ov_node;
+    $life_path   = $ai['life_path']   ?? '';
+    $soul_number = $ai['soul_number'] ?? '';
+  }
+
+  // Chuyển numbers_full (assoc) → numbers (list)
+  $numbers = [];
+  $numbers_full = $ai['numbers_full'] ?? $ai['numbers'] ?? [];
+  if (is_array($numbers_full)) {
+    foreach ($numbers_full as $key => $row) {
+      if (!is_array($row)) continue;
+      $name    = $row['title'] ?? $row['name'] ?? $key;
+      $meaning = $row['meaning'] ?? '';
+      $advice  = $row['brief']   ?? $row['advice'] ?? '';
+      $numbers[] = [
+        'name'    => (string)$name,
+        'meaning' => (string)$meaning,
+        'advice'  => (string)$advice,
+      ];
+    }
+  }
+
+  // Mặc định rỗng an toàn cho các mảng
+  $jobs_recommended = array_values((array)($ai['jobs_recommended'] ?? []));
+  $lucky_colors     = array_values((array)($ai['lucky_colors'] ?? []));
+  $to_practice      = array_values((array)($ai['to_practice'] ?? []));
+  $to_avoid         = array_values((array)($ai['to_avoid'] ?? []));
+
+  // 12 tháng
+  $twelve_months = [];
+  foreach ((array)($ai['twelve_months'] ?? []) as $m) {
+    if (!is_array($m)) continue;
+    $twelve_months[] = [
+      'month' => (string)($m['month'] ?? ''),
+      'focus' => (string)($m['focus'] ?? ''),
+      'notes' => (string)($m['notes'] ?? ''),
+    ];
+  }
+
+  // Fortune
+  $fortune_src = (array)($ai['fortune'] ?? []);
+  $fortune = [
+    'money'     => (string)($fortune_src['money'] ?? ''),
+    'colleagues'=> (string)($fortune_src['colleagues'] ?? ''),
+    'career'    => (string)($fortune_src['career'] ?? ''),
+    'luck'      => (string)($fortune_src['luck'] ?? ''),
+  ];
+
+  // Career / mission có thể ở root hoặc trong overview-node
+  $career  = (string)($ai['career']  ?? ($ov_node['career']  ?? ''));
+  $mission = (string)($ai['mission'] ?? ($ov_node['mission'] ?? ''));
+
+  return [
+    'overview'        => $ov_str,
+    'life_path'       => (string)$life_path,
+    'soul_number'     => (string)$soul_number,
+    'numbers'         => $numbers,
+    'lucky_colors'    => $lucky_colors,
+    'career'          => $career,
+    'mission'         => $mission,
+    'jobs_recommended'=> $jobs_recommended,
+    'to_practice'     => $to_practice,
+    'to_avoid'        => $to_avoid,
+    'twelve_months'   => $twelve_months,
+    'fortune'         => $fortune,
+  ];
+}

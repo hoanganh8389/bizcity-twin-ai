@@ -685,7 +685,7 @@ final class BizCity_KG {
 			'status'        => 'active',
 			'scope_type'    => (string) ( $scope['scope_type'] ?? 'notebook' ),
 			'scope_id'      => (string) ( $scope['scope_id'] ?? '' ),
-			'user_id'       => isset( $payload['user_id'] ) ? (int) $payload['user_id'] : get_current_user_id() ?: null,
+			'user_id'       => isset( $payload['user_id'] ) ? (int) $payload['user_id'] : ( get_current_user_id() ?: null ),
 		] );
 
 		$kg_source_id = (int) $wpdb->insert_id;

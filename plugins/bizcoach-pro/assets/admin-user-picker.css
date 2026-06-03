@@ -1,0 +1,22 @@
+/* PHASE-0.3 H.2 — User picker styling */
+.bcpro-up-wrap { position: relative; display: inline-block; width: 100%; max-width: 480px; }
+.bcpro-up-wrap input[type="text"] { width: 100%; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; }
+.bcpro-up-panel {
+	position: absolute; top: 100%; left: 0; right: 0; z-index: 9999;
+	background: #fff; border: 1px solid #d1d5db; border-radius: 8px;
+	box-shadow: 0 8px 24px rgba(0,0,0,.08);
+	max-height: 320px; overflow-y: auto; margin-top: 4px;
+}
+.bcpro-up-row { padding: 8px 12px; border-bottom: 1px solid #f1f5f9; cursor: pointer; }
+.bcpro-up-row:last-child { border-bottom: none; }
+.bcpro-up-row:hover { background: #eff6ff; }
+.bcpro-up-name { font-size: 14px; color: #0f172a; }
+.bcpro-up-login { color: #64748b; font-size: 12px; margin-left: 6px; }
+.bcpro-up-email { color: #64748b; font-size: 12px; margin-left: 6px; }
+.bcpro-up-badges { font-size: 11px; color: #64748b; margin-top: 4px; }
+.bcpro-up-badge {
+	display: inline-block; padding: 2px 8px; margin-left: 4px;
+	background: #e0f2fe; color: #075985; border-radius: 10px; font-weight: 600;
+}
+.bcpro-up-badge--warn { background: #fef3c7; color: #92400e; }
+.bcpro-up-msg { padding: 12px; color: #64748b; font-size: 13px; text-align: center; }

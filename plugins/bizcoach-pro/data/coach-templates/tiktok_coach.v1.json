@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "slug": "tiktok_coach",
+  "label": "TiktokCoach",
+  "base_type": "tiktok_coach",
+  "icon": "🎬",
+  "description": "Bản đồ chiến lược TikTok cho doanh nghiệp: tổng quan, IQ Map, Vision, Customer, Winning Model, kế hoạch hành động 90 ngày trên TikTok.",
+  "status": "active",
+  "questions": [
+    { "key": "full_name",            "label": "Họ tên",                  "type": "text", "required": true },
+    { "key": "company_name",         "label": "Tên công ty / kênh",      "type": "text", "required": true,  "placeholder": "Công ty ABC" },
+    { "key": "company_industry",     "label": "Ngành nghề",              "type": "text", "required": true,  "placeholder": "FMCG, F&B..." },
+    { "key": "company_founded_date", "label": "Ngày thành lập",          "type": "date", "required": false }
+  ],
+  "generators": [
+    { "key": "gen_overview",       "label": "Nhận xét tổng quan",                            "output": "markdown", "legacy_fn": "bccm_generate_overview" },
+    { "key": "gen_iqmap",          "label": "Bản đồ IQ (Leadership Map)",                    "output": "json",     "legacy_fn": "bccm_generate_leadership_iqmap" },
+    { "key": "gen_vision",         "label": "Mission • Vision Map",                          "output": "json",     "legacy_fn": "bccm_generate_vision_map" },
+    { "key": "gen_customer",       "label": "Customer Insights",                             "output": "json",     "legacy_fn": "bccm_generate_customer_insight_map" },
+    { "key": "gen_winning",        "label": "Winning Model (What • Why • How • Who)",        "output": "json",     "legacy_fn": "bccm_generate_winning_model" },
+    { "key": "gen_action_plan_90", "label": "90-Days TikTok Action Plan",                    "output": "json",     "legacy_fn": "bccm_generate_90day_tiktokcoach_ai" }
+  ]
+}

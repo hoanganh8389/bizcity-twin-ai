@@ -3,9 +3,14 @@ node_modules/
 vendor/
 
 # Ignore specific plugin
+/docs/ip-registration/
+/docs/roadmaps/
+/docs/rules/
+/docs/extension/
+/docs/diagnostics/
+/docs/api/
 /plugins/_achived/
 /plugins/bizcity-zalo-bizcity/
-/plugins/bizcity-zalo-bot/
 /plugins/bizcity-pagebuilder/
 /plugins/bizcity-chatgpt-knowledge/
 /plugins/bizcity-gemini-knowledge/
@@ -20,8 +25,10 @@ vendor/
 /plugins/bizcity-tool-mindmap/
 /plugins/bizcity-tool-pdf/
 /plugins/bizcity-agent-calo/
+/plugins/bizcity-tarot/
+
 # bizcoach-pro — Producer hub flagship (PHASE-0.36 / R-PROD-HUB) — in-house, do NOT publish
-/plugins/bizcoach-pro/
+
 
 # bizcity-twin-crm — CRM Inbox Hub (Phase 0.32) — proprietary commercial vertical (PHASE-0.98).
 /plugins/bizcity-twin-crm/

@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "slug": "astro_coach",
+  "label": "AstroCoach",
+  "base_type": "astro_coach",
+  "icon": "🔮",
+  "description": "Bản đồ chiêm tinh cá nhân: tổng quan, Life Map, sức khỏe & mối quan hệ, lịch transformation 90 ngày.",
+  "status": "active",
+  "questions": [
+    { "key": "full_name",   "label": "Họ tên",        "type": "text", "required": true },
+    { "key": "dob",         "label": "Ngày sinh",     "type": "date", "required": true },
+    { "key": "birth_time",  "label": "Giờ sinh",      "type": "time", "required": false },
+    { "key": "birth_place", "label": "Nơi sinh",      "type": "text", "required": true,  "placeholder": "TP.HCM, Việt Nam" },
+    { "key": "gender",      "label": "Giới tính",     "type": "select", "required": false,
+      "choices": { "male": "Nam", "female": "Nữ", "other": "Khác" } }
+  ],
+  "generators": [
+    { "key": "gen_overview",   "label": "Nhận xét tổng quan",                       "output": "markdown", "legacy_fn": "bccm_generate_overview" },
+    { "key": "gen_lifemap",    "label": "Life Map - Bản đồ cuộc đời",               "output": "json",     "legacy_fn": "bccm_generate_life_map" },
+    { "key": "gen_health_map", "label": "Bản đồ sức khỏe & Mối quan hệ",            "output": "json",     "legacy_fn": "bccm_generate_health_map" },
+    { "key": "gen_milestone",  "label": "90-Days Transformation Plan",              "output": "json",     "legacy_fn": "bccm_generate_health_milestone_calendar" }
+  ]
+}

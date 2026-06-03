@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0",
+  "slug": "health_coach",
+  "label": "HealthCoach",
+  "base_type": "health_coach",
+  "icon": "🏃",
+  "description": "Bản đồ sức khỏe toàn diện: tổng quan, Life Map, Health Map, lịch milestone 90 ngày.",
+  "status": "active",
+  "questions": [
+    { "key": "full_name",  "label": "Họ tên",         "type": "text",   "required": true },
+    { "key": "dob",        "label": "Ngày sinh",      "type": "date",   "required": false },
+    { "key": "height_cm",  "label": "Chiều cao (cm)", "type": "number", "required": true,  "step": "0.1" },
+    { "key": "weight_kg",  "label": "Cân nặng (kg)",  "type": "number", "required": true,  "step": "0.1" }
+  ],
+  "generators": [
+    { "key": "gen_overview",   "label": "Nhận xét tổng quan",                "output": "markdown", "legacy_fn": "bccm_generate_health_overview" },
+    { "key": "gen_lifemap",    "label": "Life Map - Bản đồ cuộc đời",        "output": "json",     "legacy_fn": "bccm_generate_life_map" },
+    { "key": "gen_health_map", "label": "Bản đồ sức khỏe toàn diện",         "output": "json",     "legacy_fn": "bccm_generate_health_map" },
+    { "key": "gen_milestone",  "label": "90-Days Milestone Calendar",        "output": "json",     "legacy_fn": "bccm_generate_health_milestone_calendar" }
+  ]
+}

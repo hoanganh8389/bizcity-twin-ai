@@ -1,0 +1,226 @@
+{
+  "schema_version": "1.1",
+  "slug": "career_coach",
+  "label": "Career Coach",
+  "base_type": "career_coach",
+  "icon": "💼",
+  "description": "Bản đồ định hướng sự nghiệp: tổng quan, tầm nhìn, SWOT, giá trị cốt lõi, mô hình thắng cuộc, lãnh đạo, milestone 90 ngày.",
+  "status": "active",
+  "questions": [
+    { "key": "full_name",        "label": "Họ tên",                 "type": "text",     "required": true },
+    { "key": "current_role",     "label": "Vai trò hiện tại",       "type": "text",     "required": true },
+    { "key": "years_experience", "label": "Số năm kinh nghiệm",     "type": "number",   "required": false },
+    { "key": "education_level",  "label": "Trình độ học vấn",       "type": "select",   "required": false,
+      "choices": { "highschool": "Trung học", "vocational": "Cao đẳng/Nghề", "bachelor": "Cử nhân", "master": "Thạc sĩ", "phd": "Tiến sĩ" } },
+    { "key": "career_goal",      "label": "Mục tiêu sự nghiệp 3 năm tới", "type": "textarea", "required": true },
+    { "key": "biggest_challenge","label": "Thách thức lớn nhất hiện tại", "type": "textarea", "required": false }
+  ],
+  "generators": [
+    {
+      "key": "gen_career_overview",
+      "label": "Tổng quan Sự nghiệp",
+      "output": "json",
+      "render": "career_overview",
+      "system": "Bạn là CareerCoach Career-Strategist. Phân tích tổng quan tiềm năng sự nghiệp dựa trên profile + answers + (nếu có) astro. Trả về DUY NHẤT một JSON hợp lệ (RFC 8259), KHÔNG markdown, KHÔNG code-fence, KHÔNG giải thích. Tiếng Việt tự nhiên, súc tích nhưng giàu insight.",
+      "json_schema": {
+        "type": "object",
+        "required": ["summary", "career_score", "career_archetype", "leadership_potential", "natural_talents", "ideal_roles", "career_challenges", "growth_areas", "career_timing"],
+        "properties": {
+          "summary":              { "type": "string", "description": "3-5 câu phân tích tiềm năng tổng thể, gọi đích danh tên người dùng" },
+          "career_score":         { "type": "integer", "minimum": 0, "maximum": 100 },
+          "career_archetype":     { "type": "string", "description": "1 từ: Creator | Builder | Connector | Analyst | Leader | Healer | Explorer | Strategist" },
+          "leadership_potential": { "type": "integer", "minimum": 0, "maximum": 100 },
+          "natural_talents":      { "type": "array", "items": { "type": "string" }, "minItems": 3, "maxItems": 5 },
+          "ideal_roles":          { "type": "array", "items": { "type": "string" }, "minItems": 3, "maxItems": 5 },
+          "career_challenges":    { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4 },
+          "growth_areas":         { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4 },
+          "career_timing": {
+            "type": "object",
+            "required": ["current_phase", "favorable_period", "caution_period"],
+            "properties": {
+              "current_phase":    { "type": "string" },
+              "favorable_period": { "type": "string" },
+              "caution_period":   { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "key": "gen_career_vision",
+      "label": "Tầm nhìn Sự nghiệp Bản thân",
+      "output": "json",
+      "render": "career_vision",
+      "system": "Bạn là CareerCoach Vision Strategist. Xây dựng tầm nhìn sự nghiệp 5 năm. Trả về DUY NHẤT JSON hợp lệ.",
+      "json_schema": {
+        "type": "object",
+        "required": ["vision_statement", "career_purpose", "core_values", "milestones", "impact_goals", "legacy_statement"],
+        "properties": {
+          "vision_statement": { "type": "string", "description": "1-2 câu, ngôi thứ nhất, mạnh mẽ" },
+          "career_purpose":   { "type": "string", "description": "2-3 câu mục đích sâu xa" },
+          "core_values":      { "type": "array", "items": { "type": "string" }, "minItems": 3, "maxItems": 5 },
+          "milestones": {
+            "type": "array", "minItems": 3, "maxItems": 3,
+            "items": {
+              "type": "object",
+              "required": ["year_label", "goal"],
+              "properties": {
+                "year_label": { "type": "string", "description": "Vd: 1 năm | 3 năm | 5 năm" },
+                "goal":       { "type": "string" }
+              }
+            }
+          },
+          "impact_goals":     { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4 },
+          "legacy_statement": { "type": "string" }
+        }
+      }
+    },
+    {
+      "key": "gen_career_swot",
+      "label": "SWOT Bản thân (Thế mạnh & Điểm yếu)",
+      "output": "json",
+      "render": "career_swot",
+      "system": "Bạn là CareerCoach SWOT Analyst. Mỗi điểm có tiêu đề + mô tả + hành động. Trả về DUY NHẤT JSON hợp lệ.",
+      "json_schema": {
+        "type": "object",
+        "required": ["strengths", "weaknesses", "opportunities", "threats", "swot_strategy"],
+        "properties": {
+          "strengths":     { "type": "array", "minItems": 2, "maxItems": 4, "items": { "type": "object", "required": ["title", "description", "action"], "properties": { "title": { "type": "string" }, "description": { "type": "string" }, "action": { "type": "string" } } } },
+          "weaknesses":    { "type": "array", "minItems": 2, "maxItems": 4, "items": { "type": "object", "required": ["title", "description", "action"], "properties": { "title": { "type": "string" }, "description": { "type": "string" }, "action": { "type": "string" } } } },
+          "opportunities": { "type": "array", "minItems": 2, "maxItems": 4, "items": { "type": "object", "required": ["title", "description", "action", "timing"], "properties": { "title": { "type": "string" }, "description": { "type": "string" }, "action": { "type": "string" }, "timing": { "type": "string" } } } },
+          "threats":       { "type": "array", "minItems": 2, "maxItems": 4, "items": { "type": "object", "required": ["title", "description", "mitigation", "severity"], "properties": { "title": { "type": "string" }, "description": { "type": "string" }, "mitigation": { "type": "string" }, "severity": { "type": "string", "enum": ["thấp", "trung bình", "cao"] } } } },
+          "swot_strategy": { "type": "string" }
+        }
+      }
+    },
+    {
+      "key": "gen_career_value",
+      "label": "Giá trị Bản thân Hướng đến",
+      "output": "json",
+      "render": "career_value",
+      "system": "Bạn là CareerCoach Values Mapper. Trả về DUY NHẤT JSON hợp lệ.",
+      "json_schema": {
+        "type": "object",
+        "required": ["core_values", "work_values", "non_negotiables", "contribution_model"],
+        "properties": {
+          "core_values": {
+            "type": "array", "minItems": 3, "maxItems": 5,
+            "items": { "type": "object", "required": ["name", "score", "description"], "properties": { "name": { "type": "string" }, "score": { "type": "integer", "minimum": 1, "maximum": 10 }, "description": { "type": "string" } } }
+          },
+          "work_values":     { "type": "array", "items": { "type": "string" }, "minItems": 3, "maxItems": 5 },
+          "non_negotiables": { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4 },
+          "contribution_model": { "type": "string" }
+        }
+      }
+    },
+    {
+      "key": "gen_career_winning",
+      "label": "Công thức Chiến thắng Cá nhân",
+      "output": "json",
+      "render": "career_winning",
+      "system": "Bạn là CareerCoach Winning-Formula Designer. Trả về DUY NHẤT JSON hợp lệ.",
+      "json_schema": {
+        "type": "object",
+        "required": ["winning_formula", "what", "why", "how", "who", "competitive_advantages", "success_patterns", "execution_principles"],
+        "properties": {
+          "winning_formula":         { "type": "string" },
+          "what":                    { "type": "string" },
+          "why":                     { "type": "string" },
+          "how":                     { "type": "string" },
+          "who":                     { "type": "string" },
+          "competitive_advantages":  { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4 },
+          "success_patterns":        { "type": "array", "minItems": 1, "maxItems": 3, "items": { "type": "object", "required": ["pattern", "action"], "properties": { "pattern": { "type": "string" }, "action": { "type": "string" } } } },
+          "execution_principles":    { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4 }
+        }
+      }
+    },
+    {
+      "key": "gen_career_leadership",
+      "label": "Bản đồ Nhà lãnh đạo",
+      "output": "json",
+      "render": "career_leadership",
+      "system": "Bạn là CareerCoach Leadership Profiler. Trả về DUY NHẤT JSON hợp lệ.",
+      "json_schema": {
+        "type": "object",
+        "required": ["leadership_archetype", "leadership_archetype_desc", "leadership_scores", "leadership_strengths", "leadership_blindspots", "team_dynamics", "leadership_readiness"],
+        "properties": {
+          "leadership_archetype":      { "type": "string", "description": "Coach | Visionary | Operator | Connector | Architect | Catalyst | Servant | Commander" },
+          "leadership_archetype_desc": { "type": "string" },
+          "leadership_scores": {
+            "type": "object",
+            "required": ["vision", "execution", "people_management", "strategic_thinking", "communication", "decision_making", "emotional_intelligence", "influence"],
+            "properties": {
+              "vision":                 { "type": "integer", "minimum": 1, "maximum": 10 },
+              "execution":              { "type": "integer", "minimum": 1, "maximum": 10 },
+              "people_management":      { "type": "integer", "minimum": 1, "maximum": 10 },
+              "strategic_thinking":     { "type": "integer", "minimum": 1, "maximum": 10 },
+              "communication":          { "type": "integer", "minimum": 1, "maximum": 10 },
+              "decision_making":        { "type": "integer", "minimum": 1, "maximum": 10 },
+              "emotional_intelligence": { "type": "integer", "minimum": 1, "maximum": 10 },
+              "influence":              { "type": "integer", "minimum": 1, "maximum": 10 }
+            }
+          },
+          "leadership_strengths":      { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4 },
+          "leadership_blindspots":     { "type": "array", "items": { "type": "string" }, "minItems": 1, "maxItems": 3 },
+          "team_dynamics": {
+            "type": "object",
+            "required": ["ideal_team_size", "team_culture", "conflict_style"],
+            "properties": {
+              "ideal_team_size": { "type": "string", "enum": ["nhỏ", "trung bình", "lớn"] },
+              "team_culture":    { "type": "string" },
+              "conflict_style":  { "type": "string" }
+            }
+          },
+          "leadership_readiness": {
+            "type": "object",
+            "required": ["current", "next", "gap_skills", "time_to_next"],
+            "properties": {
+              "current":      { "type": "string" },
+              "next":         { "type": "string" },
+              "gap_skills":   { "type": "array", "items": { "type": "string" }, "minItems": 1, "maxItems": 3 },
+              "time_to_next": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "key": "gen_career_milestone",
+      "label": "90-Days Career Breakthrough",
+      "output": "json",
+      "render": "career_milestone",
+      "system": "Bạn là CareerCoach Action Designer. Lập kế hoạch 90 ngày = 3 phase, mỗi phase 4 tuần. Trả về DUY NHẤT JSON hợp lệ.",
+      "json_schema": {
+        "type": "object",
+        "required": ["objective", "phases"],
+        "properties": {
+          "objective": { "type": "string" },
+          "phases": {
+            "type": "array", "minItems": 3, "maxItems": 3,
+            "items": {
+              "type": "object",
+              "required": ["phase_label", "theme", "weeks"],
+              "properties": {
+                "phase_label": { "type": "string" },
+                "theme":       { "type": "string" },
+                "weeks": {
+                  "type": "array", "minItems": 4, "maxItems": 4,
+                  "items": {
+                    "type": "object",
+                    "required": ["week", "focus", "tasks", "deliverable"],
+                    "properties": {
+                      "week":        { "type": "integer", "minimum": 1, "maximum": 12 },
+                      "focus":       { "type": "string" },
+                      "tasks":       { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4 },
+                      "deliverable": { "type": "string" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

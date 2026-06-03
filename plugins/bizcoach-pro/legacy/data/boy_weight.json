@@ -1,0 +1,486 @@
+[
+    {
+        "months": 0,
+        "standard": 3.3
+    },
+    {
+        "months": 1,
+        "standard": 4.5
+    },
+    {
+        "months": 2,
+        "standard": 5.6
+    },
+    {
+        "months": 3,
+        "standard": 6.4
+    },
+    {
+        "months": 4,
+        "standard": 7
+    },
+    {
+        "months": 5,
+        "standard": 7.5
+    },
+    {
+        "months": 6,
+        "standard": 7.9
+    },
+    {
+        "months": 7,
+        "standard": 8.3
+    },
+    {
+        "months": 8,
+        "standard": 8.6
+    },
+    {
+        "months": 9,
+        "standard": 8.9
+    },
+    {
+        "months": 10,
+        "standard": 9.2
+    },
+    {
+        "months": 11,
+        "standard": 9.4
+    },
+    {
+        "months": 12,
+        "standard": 9.6
+    },
+    {
+        "months": 13,
+        "standard": 9.9
+    },
+    {
+        "months": 14,
+        "standard": 10.1
+    },
+    {
+        "months": 15,
+        "standard": 10.3
+    },
+    {
+        "months": 16,
+        "standard": 10.5
+    },
+    {
+        "months": 17,
+        "standard": 10.7
+    },
+    {
+        "months": 18,
+        "standard": 10.9
+    },
+    {
+        "months": 19,
+        "standard": 11.1
+    },
+    {
+        "months": 20,
+        "standard": 11.3
+    },
+    {
+        "months": 21,
+        "standard": 11.5
+    },
+    {
+        "months": 22,
+        "standard": 11.8
+    },
+    {
+        "months": 23,
+        "standard": 12
+    },
+    {
+        "months": 24,
+        "standard": 12.2
+    },
+    {
+        "months": 25,
+        "standard": 12.4
+    },
+    {
+        "months": 26,
+        "standard": 12.5
+    },
+    {
+        "months": 27,
+        "standard": 12.7
+    },
+    {
+        "months": 28,
+        "standard": 12.9
+    },
+    {
+        "months": 29,
+        "standard": 13.1
+    },
+    {
+        "months": 30,
+        "standard": 13.3
+    },
+    {
+        "months": 31,
+        "standard": 13.5
+    },
+    {
+        "months": 32,
+        "standard": 13.7
+    },
+    {
+        "months": 33,
+        "standard": 13.8
+    },
+    {
+        "months": 34,
+        "standard": 14
+    },
+    {
+        "months": 35,
+        "standard": 14.2
+    },
+    {
+        "months": 36,
+        "standard": 14.3
+    },
+    {
+        "months": 37,
+        "standard": 14.5
+    },
+    {
+        "months": 38,
+        "standard": 14.7
+    },
+    {
+        "months": 39,
+        "standard": 14.8
+    },
+    {
+        "months": 40,
+        "standard": 15
+    },
+    {
+        "months": 41,
+        "standard": 15.2
+    },
+    {
+        "months": 42,
+        "standard": 15.3
+    },
+    {
+        "months": 43,
+        "standard": 15.5
+    },
+    {
+        "months": 44,
+        "standard": 15.7
+    },
+    {
+        "months": 45,
+        "standard": 15.8
+    },
+    {
+        "months": 46,
+        "standard": 16
+    },
+    {
+        "months": 47,
+        "standard": 16.2
+    },
+    {
+        "months": 48,
+        "standard": 16.3
+    },
+    {
+        "months": 49,
+        "standard": 16.5
+    },
+    {
+        "months": 50,
+        "standard": 16.7
+    },
+    {
+        "months": 51,
+        "standard": 16.8
+    },
+    {
+        "months": 52,
+        "standard": 17
+    },
+    {
+        "months": 53,
+        "standard": 17.2
+    },
+    {
+        "months": 54,
+        "standard": 17.3
+    },
+    {
+        "months": 55,
+        "standard": 17.5
+    },
+    {
+        "months": 56,
+        "standard": 17.7
+    },
+    {
+        "months": 57,
+        "standard": 17.8
+    },
+    {
+        "months": 58,
+        "standard": 18
+    },
+    {
+        "months": 59,
+        "standard": 18.2
+    },
+    {
+        "months": 60,
+        "standard": 18.3
+    },
+    {
+        "months": 61,
+        "standard": 18.5
+    },
+    {
+        "months": 62,
+        "standard": 18.7
+    },
+    {
+        "months": 63,
+        "standard": 18.9
+    },
+    {
+        "months": 64,
+        "standard": 19
+    },
+    {
+        "months": 65,
+        "standard": 19.2
+    },
+    {
+        "months": 66,
+        "standard": 19.4
+    },
+    {
+        "months": 67,
+        "standard": 19.6
+    },
+    {
+        "months": 68,
+        "standard": 19.8
+    },
+    {
+        "months": 69,
+        "standard": 19.9
+    },
+    {
+        "months": 70,
+        "standard": 20.1
+    },
+    {
+        "months": 71,
+        "standard": 20.3
+    },
+    {
+        "months": 72,
+        "standard": 20.5
+    },
+    {
+        "months": 73,
+        "standard": 20.7
+    },
+    {
+        "months": 74,
+        "standard": 20.9
+    },
+    {
+        "months": 75,
+        "standard": 21.1
+    },
+    {
+        "months": 76,
+        "standard": 21.3
+    },
+    {
+        "months": 77,
+        "standard": 21.5
+    },
+    {
+        "months": 78,
+        "standard": 21.7
+    },
+    {
+        "months": 79,
+        "standard": 21.9
+    },
+    {
+        "months": 80,
+        "standard": 22.1
+    },
+    {
+        "months": 81,
+        "standard": 22.3
+    },
+    {
+        "months": 82,
+        "standard": 22.5
+    },
+    {
+        "months": 83,
+        "standard": 22.7
+    },
+    {
+        "months": 84,
+        "standard": 22.9
+    },
+    {
+        "months": 85,
+        "standard": 23.1
+    },
+    {
+        "months": 86,
+        "standard": 23.3
+    },
+    {
+        "months": 87,
+        "standard": 23.5
+    },
+    {
+        "months": 88,
+        "standard": 23.7
+    },
+    {
+        "months": 89,
+        "standard": 23.9
+    },
+    {
+        "months": 90,
+        "standard": 24.1
+    },
+    {
+        "months": 91,
+        "standard": 24.3
+    },
+    {
+        "months": 92,
+        "standard": 24.6
+    },
+    {
+        "months": 93,
+        "standard": 24.8
+    },
+    {
+        "months": 94,
+        "standard": 25
+    },
+    {
+        "months": 95,
+        "standard": 25.2
+    },
+    {
+        "months": 96,
+        "standard": 25.4
+    },
+    {
+        "months": 97,
+        "standard": 25.6
+    },
+    {
+        "months": 98,
+        "standard": 25.9
+    },
+    {
+        "months": 99,
+        "standard": 26.1
+    },
+    {
+        "months": 100,
+        "standard": 26.3
+    },
+    {
+        "months": 101,
+        "standard": 26.5
+    },
+    {
+        "months": 102,
+        "standard": 26.7
+    },
+    {
+        "months": 103,
+        "standard": 27
+    },
+    {
+        "months": 104,
+        "standard": 27.2
+    },
+    {
+        "months": 105,
+        "standard": 27.4
+    },
+    {
+        "months": 106,
+        "standard": 27.6
+    },
+    {
+        "months": 107,
+        "standard": 27.9
+    },
+    {
+        "months": 108,
+        "standard": 28.1
+    },
+    {
+        "months": 109,
+        "standard": 28.3
+    },
+    {
+        "months": 110,
+        "standard": 28.6
+    },
+    {
+        "months": 111,
+        "standard": 28.8
+    },
+    {
+        "months": 112,
+        "standard": 29.1
+    },
+    {
+        "months": 113,
+        "standard": 29.3
+    },
+    {
+        "months": 114,
+        "standard": 29.6
+    },
+    {
+        "months": 115,
+        "standard": 29.8
+    },
+    {
+        "months": 116,
+        "standard": 30.1
+    },
+    {
+        "months": 117,
+        "standard": 30.4
+    },
+    {
+        "months": 118,
+        "standard": 30.6
+    },
+    {
+        "months": 119,
+        "standard": 30.9
+    },
+    {
+        "months": 120,
+        "standard": 31.2
+    }
+]

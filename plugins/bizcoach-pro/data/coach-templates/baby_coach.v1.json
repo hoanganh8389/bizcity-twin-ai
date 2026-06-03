@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "slug": "baby_coach",
+  "label": "BabyCoach",
+  "base_type": "baby_coach",
+  "icon": "👶",
+  "description": "Bản đồ tăng trưởng & milestone bé sơ sinh / nhỏ tuổi (theo chuẩn WHO/CDC).",
+  "status": "active",
+  "questions": [
+    { "key": "baby_name",              "label": "Tên bé",                  "type": "text",   "required": true,  "placeholder": "VD: Chu Hoài An" },
+    { "key": "baby_gender",            "label": "Giới tính",               "type": "select", "required": true,
+      "choices": { "male": "Bé trai", "female": "Bé gái", "other": "Khác" } },
+    { "key": "dob",                    "label": "Ngày sinh",               "type": "date",   "required": true },
+    { "key": "baby_gestational_weeks", "label": "Số tuần trong bụng mẹ",   "type": "number", "required": false, "placeholder": "37" },
+    { "key": "baby_weight_kg",         "label": "Cân nặng hiện tại (kg)",  "type": "number", "required": false, "placeholder": "8.2" },
+    { "key": "baby_height_cm",         "label": "Chiều cao hiện tại (cm)", "type": "number", "required": false, "placeholder": "72.5" }
+  ],
+  "generators": [
+    { "key": "gen_baby_overview", "label": "Nhận xét tổng quan",            "output": "markdown", "legacy_fn": "bccm_generate_baby_overview" },
+    { "key": "baby_json",         "label": "Bản đồ tăng trưởng (WHO/CDC)",  "output": "json",     "legacy_fn": "bccm_generate_baby_growth_map" },
+    { "key": "gen_milestone",     "label": "90-Days Milestone Calendar",    "output": "json",     "legacy_fn": "bccm_generate_health_milestone_calendar" }
+  ]
+}
