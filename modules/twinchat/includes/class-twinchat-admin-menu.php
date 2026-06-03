@@ -254,7 +254,7 @@ class BizCity_TwinChat_Admin_Menu {
 			'notebookName' => $nb_name,
 			'notebookList' => $nb_list,
 			'pluginUrl'    => BIZCITY_TWINCHAT_URL,
-			'shellUrl'     => esc_url_raw( home_url( '/twin/' ) ),
+			'shellUrl'     => esc_url_raw( class_exists( 'BizCity_Twin_Shell_Page' ) ? BizCity_Twin_Shell_Page::shell_url() : home_url( '/twin/' ) ),
 			// Activity bar — same items as /twin/ so both surfaces look identical.
 			'activityBar'  => self::build_activity_bar(),
 			// Twin Debug bridge — when ON, FE prints BE traces to console and
@@ -429,7 +429,9 @@ class BizCity_TwinChat_Admin_Menu {
 		// duplicate ActivityBar.tsx instance on this surface.
 
 		$initial_plugin = isset( $_GET['plugin'] ) ? sanitize_key( wp_unslash( $_GET['plugin'] ) ) : 'twinchat';
-		$shell_url      = home_url( '/twin/' );
+		$shell_url      = class_exists( 'BizCity_Twin_Shell_Page' )
+			? BizCity_Twin_Shell_Page::shell_url()
+			: home_url( '/twin/' );
 		$shell_url      = add_query_arg(
 			[
 				'plugin'         => $initial_plugin,

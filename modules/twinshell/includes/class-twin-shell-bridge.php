@@ -63,7 +63,7 @@ class BizCity_Twin_Shell_Bridge {
 		// Tell the bridge which plugin id this page belongs to.
 		$bridge_cfg = (string) wp_json_encode( [
 			'pluginId' => $matched['id'],
-			'shellUrl' => esc_url_raw( home_url( '/twin/' ) ),
+			'shellUrl' => esc_url_raw( class_exists( 'BizCity_Twin_Shell_Page' ) ? BizCity_Twin_Shell_Page::shell_url() : home_url( '/twin/' ) ),
 		] );
 		wp_add_inline_script( self::HANDLE, 'window.BIZCITY_TWIN_SHELL_BRIDGE=' . $bridge_cfg . ';', 'before' );
 

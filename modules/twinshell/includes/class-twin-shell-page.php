@@ -27,6 +27,28 @@ class BizCity_Twin_Shell_Page {
 		return self::$instance;
 	}
 
+	/**
+	 * Canonical URL for the Twin Shell, safe on every permalink configuration.
+	 *
+	 * - Pretty permalinks ON  → `home_url('/twin/')`
+	 * - Pretty permalinks OFF → `home_url('/?bizcity_twin_shell=1')` (fallback
+	 *   that uses the registered query_var and avoids the 404 caused when the
+	 *   `^twin/?$` rewrite rule cannot match on plain permalinks).
+	 *
+	 * @param array $args Extra query args to append (e.g. `['plugin' => 'crm']`).
+	 * @return string
+	 */
+	public static function shell_url( array $args = [] ) {
+		$pretty = (string) get_option( 'permalink_structure', '' ) !== '';
+		$base   = $pretty
+			? home_url( '/twin/' )
+			: home_url( '/?' . self::QUERY_VAR . '=1' );
+		if ( ! empty( $args ) ) {
+			$base = add_query_arg( $args, $base );
+		}
+		return $base;
+	}
+
 	public function register() {
 		add_action( 'init',              [ $this, 'add_rewrite_rule' ] );
 		add_filter( 'query_vars',        [ $this, 'add_query_var' ] );
@@ -135,7 +157,7 @@ class BizCity_Twin_Shell_Page {
 			'plugins'       => $visible,
 			'defaultPlugin' => $initial,
 			'initialUrl'    => $initial_url,
-			'shellUrl'      => esc_url_raw( home_url( '/twin/' ) ),
+			'shellUrl'      => esc_url_raw( self::shell_url() ),
 			'pluginUrl'     => BIZCITY_TWIN_SHELL_URL,
 		] );
 
@@ -198,7 +220,7 @@ class BizCity_Twin_Shell_Page {
 	 * @param array $p Locked plugin entry (from the registry).
 	 */
 	private function render_locked_notice( $p ) {
-		$shell_url   = esc_url( home_url( '/twin/' ) );
+		$shell_url   = esc_url( self::shell_url() );
 		$account_url = 'https://bizcity.vn/my-account/';
 		$label       = isset( $p['label'] ) ? (string) $p['label'] : (string) $p['id'];
 		$emoji       = isset( $p['emoji'] ) && $p['emoji'] !== '' ? (string) $p['emoji'] : '🔒';

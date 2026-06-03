@@ -265,7 +265,9 @@ class BizCity_Twin_Shell_Registry {
 	 * @return array<int, array<string, mixed>>
 	 */
 	public function as_sidebar_nav() {
-		$shell_url = home_url( '/twin/' );
+		$shell_url = class_exists( 'BizCity_Twin_Shell_Page' )
+			? BizCity_Twin_Shell_Page::shell_url()
+			: home_url( '/twin/' );
 		$out       = [];
 
 		foreach ( $this->all() as $p ) {
