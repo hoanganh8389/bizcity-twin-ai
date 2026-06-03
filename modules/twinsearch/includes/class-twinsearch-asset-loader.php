@@ -172,9 +172,12 @@ class BizCity_TwinSearch_Asset_Loader {
 	 * the inline config + <script type="module"> directly into the custom
 	 * HTML document so the headless controller mounts properly.
 	 *
-	 * @param string $ver  Version string for cache-busting (from caller).
+	 * @param string|null $ver  Version string for cache-busting (from caller).
+	 *                          Null tolerated (open-source builds without a Vite
+	 *                          manifest may not have computed a version yet).
 	 */
-	public static function inline_for_full_page( string $ver = '' ): void {
+	public static function inline_for_full_page( $ver = '' ): void {
+		$ver = (string) ( $ver !== null ? $ver : '' );
 		// Prevent double-injection if called more than once per page render.
 		static $already_injected = false;
 		if ( $already_injected ) {

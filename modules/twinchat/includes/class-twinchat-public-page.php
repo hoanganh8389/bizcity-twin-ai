@@ -333,6 +333,14 @@ class BizCity_TwinChat_Public_Page {
 		$dist_dir = BIZCITY_TWINCHAT_UI_DIR . 'dist/';
 		$dist_url = trailingslashit( BIZCITY_TWINCHAT_URL ) . 'ui/dist/';
 
+		// 2026-06-03 — `$ver` MUST be initialised before any subsequent use
+		// (modulepreload hrefs, CSS hrefs, inline_for_full_page($ver)).
+		// Previously only the `$ver .= filemtime($manifest)` branch set it,
+		// so when the Vite manifest was absent (fresh checkout / open-source
+		// pull without a built `ui/dist/` folder) `$ver` stayed null and
+		// fataled at `BizCity_TwinSearch_Asset_Loader::inline_for_full_page(null)`.
+		$ver = defined( 'BIZCITY_TWINCHAT_VERSION' ) ? (string) BIZCITY_TWINCHAT_VERSION : '0.0.0';
+
 		// Load Vite manifest.
 		$manifest = $dist_dir . '.vite/manifest.json';
 		if ( ! file_exists( $manifest ) ) {
