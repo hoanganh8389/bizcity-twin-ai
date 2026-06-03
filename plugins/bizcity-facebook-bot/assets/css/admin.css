@@ -1,0 +1,335 @@
+/**
+ * BizCity Facebook Bot - Admin Styles
+ */
+
+/* Base styles */
+.bizcity-fb-bot-wrap {
+    max-width: 1200px;
+}
+
+.bizcity-fb-bot-wrap h1 {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+/* Cards */
+.bizcity-fb-card {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 14px;
+    padding: 20px 24px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+    margin-bottom: 20px;
+}
+
+.bizcity-fb-card h2 {
+    margin: 0 0 15px;
+    font-size: 16px;
+    padding-bottom: 12px;
+    border-bottom: 2px solid #f0f0f0;
+}
+
+/* Status badges */
+.status-active {
+    background: linear-gradient(45deg, #4CAF50, #45a049);
+    color: white;
+    padding: 4px 12px;
+    border-radius: 15px;
+    font-size: 11px;
+    font-weight: bold;
+    box-shadow: 0 2px 4px rgba(76,175,80,0.3);
+    display: inline-block;
+}
+
+.status-inactive {
+    background: linear-gradient(45deg, #ff9800, #f57c00);
+    color: white;
+    padding: 4px 12px;
+    border-radius: 15px;
+    font-size: 11px;
+    font-weight: bold;
+    box-shadow: 0 2px 4px rgba(255,152,0,0.3);
+    display: inline-block;
+}
+
+/* Buttons */
+.bizcity-fb-btn {
+    border: none;
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.bizcity-fb-btn:hover {
+    transform: scale(1.05);
+}
+
+.bizcity-fb-btn-primary {
+    background: linear-gradient(45deg, #1877f2, #0d65d9);
+    color: white;
+    box-shadow: 0 2px 4px rgba(24,119,242,0.3);
+}
+
+.bizcity-fb-btn-primary:hover {
+    box-shadow: 0 4px 8px rgba(24,119,242,0.4);
+}
+
+.bizcity-fb-btn-success {
+    background: linear-gradient(45deg, #4CAF50, #45a049);
+    color: white;
+    box-shadow: 0 2px 4px rgba(76,175,80,0.3);
+}
+
+.bizcity-fb-btn-success:hover {
+    box-shadow: 0 4px 8px rgba(76,175,80,0.4);
+}
+
+.bizcity-fb-btn-danger {
+    background: linear-gradient(45deg, #dc3232, #c62828);
+    color: white;
+    box-shadow: 0 2px 4px rgba(220,50,50,0.3);
+}
+
+/* Info boxes */
+.bizcity-fb-info {
+    background: #e7f5ff;
+    border-left: 4px solid #2196F3;
+    padding: 15px 20px;
+    border-radius: 4px;
+    margin: 15px 0;
+}
+
+.bizcity-fb-warning {
+    background: #fff3cd;
+    border-left: 4px solid #ff9800;
+    padding: 15px 20px;
+    border-radius: 4px;
+    margin: 15px 0;
+}
+
+.bizcity-fb-help {
+    background: #f9fafb;
+    border: 1px dashed #e5e7eb;
+    border-radius: 12px;
+    padding: 12px 16px;
+    margin: 10px 0;
+}
+
+.bizcity-fb-help p {
+    margin: 6px 0;
+    color: #374151;
+}
+
+.bizcity-fb-help code {
+    background: #1118270d;
+    padding: 2px 8px;
+    border-radius: 8px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+}
+
+/* Listener styles */
+.listener-output {
+    background: #1e1e1e;
+    color: #d4d4d4;
+    padding: 20px;
+    border-radius: 8px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+    font-size: 13px;
+    max-height: 500px;
+    overflow-y: auto;
+    margin-top: 15px;
+}
+
+.listener-output .log-entry {
+    margin-bottom: 10px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #333;
+}
+
+.listener-output .log-time {
+    color: #6a9955;
+}
+
+.listener-output .log-event {
+    color: #569cd6;
+}
+
+.listener-output .log-user {
+    color: #ce9178;
+}
+
+/* Message bubbles */
+.message-bubble {
+    padding: 12px 18px;
+    border-radius: 18px;
+    max-width: 500px;
+    margin-bottom: 10px;
+}
+
+.message-bubble.user {
+    background: #1877f2;
+    color: white;
+    margin-left: auto;
+    border-bottom-right-radius: 4px;
+}
+
+.message-bubble.bot {
+    background: #e4e6eb;
+    color: #050505;
+    margin-right: auto;
+    border-bottom-left-radius: 4px;
+}
+
+/* Tables */
+.bizcity-fb-bot-wrap .wp-list-table td {
+    vertical-align: middle;
+}
+
+.bizcity-fb-bot-wrap .wp-list-table .column-actions {
+    white-space: nowrap;
+}
+
+/* Grid layout */
+.bizcity-fb-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+
+@media (max-width: 1100px) {
+    .bizcity-fb-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Test API page */
+.test-api-container {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-top: 20px;
+}
+
+@media (max-width: 900px) {
+    .test-api-container {
+        grid-template-columns: 1fr;
+    }
+}
+
+.test-api-result {
+    background: #f7f7f7;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 15px;
+    margin-top: 10px;
+    white-space: pre-wrap;
+    word-break: break-all;
+    font-family: monospace;
+    font-size: 12px;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+/* Inbox styles */
+.inbox-container {
+    display: flex;
+    height: calc(100vh - 200px);
+    min-height: 500px;
+    background: #fff;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid #e0e0e0;
+}
+
+.inbox-sidebar {
+    width: 320px;
+    background: #f8f9fa;
+    border-right: 1px solid #e0e0e0;
+    overflow-y: auto;
+}
+
+.inbox-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.inbox-header {
+    padding: 20px;
+    border-bottom: 1px solid #e0e0e0;
+    background: #fff;
+}
+
+.inbox-messages {
+    flex: 1;
+    padding: 20px;
+    overflow-y: auto;
+}
+
+.inbox-input {
+    padding: 15px 20px;
+    border-top: 1px solid #e0e0e0;
+    background: #f8f9fa;
+    display: flex;
+    gap: 10px;
+}
+
+.inbox-input input {
+    flex: 1;
+    padding: 12px 16px;
+    border: 1px solid #ddd;
+    border-radius: 24px;
+    font-size: 14px;
+}
+
+/* User list item */
+.user-item {
+    display: flex;
+    align-items: center;
+    padding: 15px;
+    border-bottom: 1px solid #eee;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.user-item:hover,
+.user-item.active {
+    background: #e7f3ff;
+}
+
+.user-avatar {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    margin-right: 12px;
+    background: #e0e0e0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+}
+
+.user-info {
+    flex: 1;
+}
+
+.user-name {
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.user-preview {
+    font-size: 13px;
+    color: #65676b;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}

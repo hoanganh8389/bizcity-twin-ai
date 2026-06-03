@@ -108,8 +108,68 @@ class BizCity_Admin_Support_Link {
 		echo '</script>';
 	}
 
+	/**
+	 * Detect whether we're running inside the BizCity-owned infrastructure
+	 * (bizcity.vn / bizcity.ai multisite). On those hosts the CTA is noise
+	 * because Johnny IS the operator; the widget should only appear when the
+	 * plugin is installed standalone on an external client site.
+	 *
+	 * Signals (any one positive → "internal"):
+	 *   - Host suffix matches `bizcity.vn` / `bizcity.ai`.
+	 *   - Constant `BIZCITY_INTERNAL_HOST` is truthy.
+	 *   - `bizcity-llm-router` plugin is active (per R-GW-8 it only exists on
+	 *     BizCity servers; client sites never install it).
+	 *
+	 * Operators can override via `bizcity_admin_support_link_is_internal` filter.
+	 */
+	private static function is_internal_host(): bool {
+		$internal = false;
+
+		if ( defined( 'BIZCITY_INTERNAL_HOST' ) && BIZCITY_INTERNAL_HOST ) {
+			$internal = true;
+		}
+
+		if ( ! $internal ) {
+			$host = '';
+			if ( function_exists( 'home_url' ) ) {
+				$host = (string) wp_parse_url( home_url(), PHP_URL_HOST );
+			}
+			if ( ! $host && isset( $_SERVER['HTTP_HOST'] ) ) {
+				$host = (string) $_SERVER['HTTP_HOST'];
+			}
+			$host = strtolower( $host );
+			foreach ( [ 'bizcity.vn', 'bizcity.ai' ] as $suffix ) {
+				if ( $host === $suffix || substr( $host, -( strlen( $suffix ) + 1 ) ) === '.' . $suffix ) {
+					$internal = true;
+					break;
+				}
+			}
+		}
+
+		if ( ! $internal && function_exists( 'is_plugin_active' ) ) {
+			if ( is_plugin_active( 'bizcity-llm-router/bizcity-llm-router.php' ) ) {
+				$internal = true;
+			}
+		} elseif ( ! $internal ) {
+			// Fallback khi `is_plugin_active` chưa available (admin_enqueue_scripts đôi
+			// khi fire trước wp-admin/includes/plugin.php trong vài context).
+			$active = (array) get_option( 'active_plugins', [] );
+			if ( in_array( 'bizcity-llm-router/bizcity-llm-router.php', $active, true ) ) {
+				$internal = true;
+			}
+		}
+
+		return (bool) apply_filters( 'bizcity_admin_support_link_is_internal', $internal );
+	}
+
 	private static function should_render( string $hook = '' ): bool {
 		if ( ! is_admin() ) {
+			return false;
+		}
+
+		// 2026-05-23 — Ẩn CTA khi chạy trong hạ tầng BizCity (multisite nội bộ);
+		// chỉ hiện khi plugin được cài standalone trên site client bên ngoài.
+		if ( self::is_internal_host() ) {
 			return false;
 		}
 

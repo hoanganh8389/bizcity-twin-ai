@@ -1,0 +1,44 @@
+{
+  "$schema": "https://bizcity.vn/schema/diagnostics-changelog-v1.json",
+  "module_id": "core.bizcity-llm",
+  "owner": "core/bizcity-llm",
+  "installer_id": "bizcity_llm_usage",
+  "current_version": "1.1.0",
+  "version_option": "bizcity_llm_usage_db_ver",
+  "history": [
+    { "version": "1.0.0", "date": "2025-12-01", "change": "Initial table bizcity_llm_usage (per-call LLM log: mode, purpose, endpoint, model, tokens, latency, success/error)." },
+    { "version": "1.1.0", "date": "2026-06-02", "change": "R-1API Phase B — add `service` column (VARCHAR 20) + index to break down usage stats by service domain (llm/embedding/search/video/image/astro/market/tools). Default 'llm' for backward compat." }
+  ],
+  "tables": {
+    "bizcity_llm_usage": {
+      "since": "1.0.0",
+      "purpose": "Per-call usage log for every gateway request — LLM chat, embeddings, search (Tavily), video (Kling), image (FLUX/Gemini), astrology, market lookup. One row per outbound call; UsageWorkspace (React) + bizcity-llm admin dashboard read aggregates from here.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "columns": {
+        "id":                 { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
+        "blog_id":            { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 1",      "since": "1.0.0" },
+        "user_id":            { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",      "since": "1.0.0" },
+        "created_at":         { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.0.0" },
+        "service":            { "type": "VARCHAR(20) NOT NULL DEFAULT 'llm'",      "since": "1.1.0", "doc": "Service bucket: llm|embedding|search|video|image|astro|market|tools. Allows per-service usage breakdown in UsageWorkspace tabs." },
+        "mode":               { "type": "VARCHAR(20) NOT NULL DEFAULT 'gateway'",  "since": "1.0.0" },
+        "purpose":            { "type": "VARCHAR(50) NOT NULL DEFAULT 'chat'",     "since": "1.0.0" },
+        "endpoint":           { "type": "VARCHAR(20) NOT NULL DEFAULT 'chat'",     "since": "1.0.0", "doc": "chat|stream|embeddings|search|video|image|astro|tool" },
+        "model_requested":    { "type": "VARCHAR(200) NOT NULL DEFAULT ''",        "since": "1.0.0" },
+        "model_used":         { "type": "VARCHAR(200) NOT NULL DEFAULT ''",        "since": "1.0.0" },
+        "fallback_used":      { "type": "TINYINT(1) NOT NULL DEFAULT 0",           "since": "1.0.0" },
+        "success":            { "type": "TINYINT(1) NOT NULL DEFAULT 0",           "since": "1.0.0" },
+        "tokens_prompt":      { "type": "INT NOT NULL DEFAULT 0",                  "since": "1.0.0" },
+        "tokens_completion":  { "type": "INT NOT NULL DEFAULT 0",                  "since": "1.0.0" },
+        "latency_ms":         { "type": "INT NOT NULL DEFAULT 0",                  "since": "1.0.0" },
+        "error":              { "type": "VARCHAR(500) NOT NULL DEFAULT ''",        "since": "1.0.0" }
+      },
+      "indexes": {
+        "idx_created":         { "cols": ["created_at"],              "since": "1.0.0" },
+        "idx_blog":            { "cols": ["blog_id", "created_at"],   "since": "1.0.0" },
+        "idx_user":            { "cols": ["user_id"],                 "since": "1.0.0" },
+        "idx_service_created": { "cols": ["service", "created_at"],   "since": "1.1.0" }
+      }
+    }
+  }
+}

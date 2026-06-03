@@ -13,7 +13,35 @@
  */
 if(!defined('ABSPATH')) exit;
 
+/**
+ * TASK-UNIFY Phase 3 gate.
+ * When BizCity_Scheduler_Manager is available, create a fb_post scheduler event.
+ * Falls through to twf_handle_facebook_request() when scheduler is not loaded.
+ */
 function biz_create_facebook($chat_id, $message, $data = array()) {
+    if ( class_exists( 'BizCity_Scheduler_Manager' ) ) {
+        $text       = $message['caption'] ?? $message['text'] ?? '';
+        $image_url  = $data['image_url'] ?? '';
+        $fb_page_id = $data['fb_page_id'] ?? ( $data['page_id'] ?? '' );
+
+        if ( $text || $image_url ) {
+            return BizCity_Scheduler_Manager::instance()->create_event( [
+                'user_id'    => get_current_user_id(),
+                'title'      => wp_trim_words( $text, 10, '…' ) ?: 'FB Post',
+                'start_at'   => current_time( 'mysql' ),
+                'end_at'     => null,
+                'status'     => 'active',
+                'event_type' => 'fb_post',
+                'source'     => 'legacy_facebook_wrapper',
+                'metadata'   => [
+                    'fb_page_id'      => sanitize_text_field( (string) $fb_page_id ),
+                    'fb_content'      => wp_kses_post( $text ),
+                    'fb_image_url'    => esc_url_raw( $image_url ),
+                    'fb_publish_status' => 'pending',
+                ],
+            ] );
+        }
+    }
     return twf_handle_facebook_request($chat_id, $message, $data);
 }
 
@@ -272,8 +300,28 @@ function twf_clean_plain_text($html_content) {
     return trim(preg_replace("/[\r\n]{3,}/", "\n\n", $text));
 }
 
+/**
+ * @deprecated TASK-UNIFY Phase 3 (2026-05-30).
+ * Multi-page Facebook posting is now handled by BizCity_FB_Publisher via
+ * bizcity_scheduler_reminder_fire (event_type='fb_post'). This function is kept
+ * for backward compatibility only and will be removed in a future release.
+ * Do NOT call this function in new code.
+ */
 function twf_handle_facebook_multi_page_post($chat_id, $message, $data = array()) {
-    $caption    = $message['caption'] ?? '';
+    if ( class_exists( 'BizCity_Deprecation' ) ) {
+        BizCity_Deprecation::notify(
+            'twf_handle_facebook_multi_page_post()',
+            'BizCity_FB_Publisher via bizcity_scheduler_reminder_fire (event_type=fb_post)',
+            '1.0.0',
+            'Multi-page Facebook posting unified through scheduler in TASK-UNIFY Phase 3.'
+        );
+    } else {
+        _doing_it_wrong(
+            __FUNCTION__,
+            'twf_handle_facebook_multi_page_post() is deprecated. Use BizCity_FB_Publisher via the scheduler event_type=\'fb_post\' instead.',
+            '3.3.0'
+        );
+    }
     $image_url  = $data['image_url'] ?? '';
     $ai_title   = '';
     $ai_content = '';

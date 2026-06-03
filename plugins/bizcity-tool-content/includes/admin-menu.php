@@ -6,17 +6,21 @@
  */
 if ( ! defined( 'ABSPATH' ) ) exit;
 
-add_action( 'admin_menu', function() {
-    add_menu_page(
-        'Tool Content',
-        'Tool Content',
-        'edit_posts',
-        'bizcity-tool-content',
-        'bztc_admin_dashboard',
-        'dashicons-edit-page',
-        58
-    );
-}, 20 );
+// Phase G (2026-05-19) — Admin menu registration disabled per product owner.
+// Trang ?page=bizcity-tool-content không còn hiển thị trong sidebar.
+// Function bztc_admin_dashboard() vẫn tồn tại → có thể truy cập trực tiếp
+// qua admin_url khi cần debug. Comment lại nếu muốn re-enable.
+// add_action( 'admin_menu', function() {
+//     add_menu_page(
+//         'Tool Content',
+//         'Tool Content',
+//         'edit_posts',
+//         'bizcity-tool-content',
+//         'bztc_admin_dashboard',
+//         'dashicons-edit-page',
+//         58
+//     );
+// }, 20 );
 
 function bztc_admin_dashboard() {
     $user_id = get_current_user_id();

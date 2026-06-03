@@ -33,13 +33,21 @@ class BizCity_TwinSearch_Asset_Loader {
 		add_action( 'wp_enqueue_scripts',    [ __CLASS__, 'maybe_enqueue_front' ], 20 );
 	}
 
-	/** Enqueue on Knowledge → Character editor pages only. */
+	/** Enqueue on Knowledge → Character editor pages AND TwinChat admin page. */
 	public static function maybe_enqueue_admin( $hook ): void {
 		// Knowledge module character edit screens use these slugs (see core/knowledge/views/).
-		$is_character_screen = (
-			isset( $_GET['page'] ) && in_array( $_GET['page'], [ 'bizcity-knowledge-characters', 'bizcity-characters' ], true )
+		// 2026-05-06 — also load on the TwinChat admin page so the standalone
+		// "Deep Research" button in SmartSourcesPanel can call
+		// `window.bizcityTwinSearch.openDialog()` and the headless dialog
+		// controller mounts. Without this, clicking the button is a no-op
+		// because neither the global nor the event listener exists.
+		$page = isset( $_GET['page'] ) ? (string) $_GET['page'] : '';
+		$is_target_screen = in_array(
+			$page,
+			[ 'bizcity-knowledge-characters', 'bizcity-characters', 'bizcity-twinchat' ],
+			true
 		);
-		if ( ! $is_character_screen ) {
+		if ( ! $is_target_screen ) {
 			return;
 		}
 		self::enqueue_bundle();
@@ -80,11 +88,17 @@ class BizCity_TwinSearch_Asset_Loader {
 			return;
 		}
 
+		// Cache-bust by manifest mtime so post-build CSS/JS edits don't get stuck behind ?ver=0.1.0.
+		$ver = (string) BIZCITY_TWINSEARCH_VERSION;
+		if ( file_exists( $manifest_path ) ) {
+			$ver .= '.' . filemtime( $manifest_path );
+		}
+
 		wp_enqueue_script(
 			self::HANDLE_JS,
 			$dist_url . $entry_js,
 			[],
-			BIZCITY_TWINSEARCH_VERSION,
+			$ver,
 			true
 		);
 		// Vite emits as ESM.
@@ -100,7 +114,12 @@ class BizCity_TwinSearch_Asset_Loader {
 				self::HANDLE_CSS,
 				$dist_url . $entry_css,
 				[],
-				BIZCITY_TWINSEARCH_VERSION
+				$ver
+			);
+			// Override Tailwind preflight leak so admin chrome (img/svg) is not broken.
+			wp_add_inline_style(
+				self::HANDLE_CSS,
+				'img,svg,video,canvas,audio,iframe,embed,object{display:inline-block !important;vertical-align:middle}'
 			);
 		}
 

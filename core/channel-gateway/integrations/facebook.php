@@ -119,7 +119,8 @@ class BizCity_Integration_Facebook extends BizCity_Integration {
 	/**
 	 * Exchange authorization code for a short-lived user access token.
 	 */
-	private function exchange_user_token( string $app_id, string $app_secret, string $code, string $redirect_uri ): string|array {
+	/** @return string|array */
+	private function exchange_user_token( string $app_id, string $app_secret, string $code, string $redirect_uri ) {
 		$resp = wp_remote_get( add_query_arg( [
 			'client_id'     => $app_id,
 			'redirect_uri'  => $redirect_uri,
@@ -140,7 +141,8 @@ class BizCity_Integration_Facebook extends BizCity_Integration {
 	/**
 	 * Get page-scoped token for the given Page ID.
 	 */
-	private function get_page_token( string $user_token, string $page_id ): array|string {
+	/** @return array|string */
+	private function get_page_token( string $user_token, string $page_id ) {
 		$resp = wp_remote_get( "https://graph.facebook.com/v19.0/{$page_id}?fields=access_token&access_token=" . rawurlencode( $user_token ), [
 			'timeout' => 10,
 		] );

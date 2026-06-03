@@ -52,16 +52,10 @@ add_action( 'rest_api_init', static function () {
     BizCity_Research_REST::instance()->register_routes();
 } );
 
-// Admin pages + character-edit tab injection
-add_action( 'admin_menu', static function () {
-    BizCity_Research_Admin::instance()->register_menu();
-}, 50 );
-
-add_action( 'admin_enqueue_scripts', static function ( $hook ) {
-    BizCity_Research_Admin::instance()->maybe_enqueue( $hook );
-} );
-
-// Inject Research tab inside character-edit page
-add_action( 'admin_footer', static function () {
-    BizCity_Research_Admin::instance()->maybe_inject_character_tab();
-} );
+// 2026-05-22 — Standalone admin page "Twin Research" + character-edit tab + studio.js
+// bundle đã được gỡ. TwinChat (React) gọi trực tiếp REST `bizcity/research/v1`
+// qua flow Deep Research / Add Source nên admin UI riêng là thừa.
+// Cố ý KHÔNG hook: admin_menu / admin_enqueue_scripts / admin_footer ở đây.
+// Class BizCity_Research_Admin vẫn được autoload để giữ backwards-compat khi
+// có code legacy gọi tới (ví dụ deep-link cũ tới ?page=bizcity-twin-research
+// sẽ chỉ 404 thay vì fatal).

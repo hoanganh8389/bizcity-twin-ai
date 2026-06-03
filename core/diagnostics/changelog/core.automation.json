@@ -1,0 +1,136 @@
+{
+  "$schema": "https://bizcity.vn/schema/diagnostics-changelog-v1.json",
+  "module_id": "core.automation",
+  "owner": "core/automation",
+  "installer_id": "automation",
+  "current_version": "1.7.0",
+  "version_option": "bizcity_automation_db_version",
+  "tables": {
+    "bizcity_automation_workflows": {
+      "since": "1.0.0",
+      "purpose": "Native xyflow-based visual workflow definitions (replaces legacy WAIC bizcity_workflows).",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":                  { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
+        "slug":                { "type": "VARCHAR(64) NOT NULL DEFAULT ''",         "since": "1.0.0" },
+        "name":                { "type": "VARCHAR(200) NOT NULL DEFAULT ''",        "since": "1.0.0" },
+        "description":         { "type": "TEXT NULL",                               "since": "1.0.0" },
+        "enabled":             { "type": "TINYINT(1) NOT NULL DEFAULT 1",           "since": "1.0.0" },
+        "version":             { "type": "INT UNSIGNED NOT NULL DEFAULT 1",         "since": "1.0.0" },
+        "graph_json":          { "type": "LONGTEXT NULL",                           "since": "1.0.0" },
+        "trigger_type":        { "type": "VARCHAR(32) NOT NULL DEFAULT 'manual'",   "since": "1.0.0" },
+        "trigger_config_json": { "type": "TEXT NULL",                               "since": "1.0.0" },
+        "tags":                { "type": "VARCHAR(255) NOT NULL DEFAULT ''",        "since": "1.0.0" },
+        "debug_breakpoints_json": { "type": "LONGTEXT NULL",                          "since": "1.6.0" },
+        "created_at":          { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",                           "since": "1.0.0" },
+        "updated_at":          { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", "since": "1.0.0" },
+        "created_by":          { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",      "since": "1.0.0" }
+      },
+      "indexes": {
+        "uniq_slug":         { "cols": ["slug"],                       "since": "1.0.0", "unique": true },
+        "idx_enabled_trig":  { "cols": ["enabled", "trigger_type"],    "since": "1.0.0" }
+      }
+    },
+
+    "bizcity_automation_runs": {
+      "since": "1.0.0",
+      "purpose": "One row per workflow execution; status machine = queued/running/ok/fail/cancelled.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":                   { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
+        "workflow_id":          { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",      "since": "1.0.0" },
+        "run_id":               { "type": "VARCHAR(32) NOT NULL DEFAULT ''",         "since": "1.0.0" },
+        "status":               { "type": "TINYINT NOT NULL DEFAULT 0",              "since": "1.0.0" },
+        "trigger_payload_json": { "type": "LONGTEXT NULL",                           "since": "1.0.0" },
+        "result_json":          { "type": "LONGTEXT NULL",                           "since": "1.0.0" },
+        "error":                { "type": "VARCHAR(500) NOT NULL DEFAULT ''",        "since": "1.0.0" },
+        "started_at":           { "type": "DATETIME NULL DEFAULT NULL",              "since": "1.0.0" },
+        "ended_at":             { "type": "DATETIME NULL DEFAULT NULL",              "since": "1.0.0" },
+        "tokens_used":          { "type": "INT UNSIGNED NOT NULL DEFAULT 0",         "since": "1.0.0" },
+        "crm_event_id":         { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",      "since": "1.0.0" },
+        "debug_state":          { "type": "VARCHAR(64) NOT NULL DEFAULT ''",         "since": "1.6.0" },
+        "parent_run_id":        { "type": "VARCHAR(32) NOT NULL DEFAULT ''",         "since": "1.7.0" },
+        "created_at":           { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.0.0" }
+      },
+      "indexes": {
+        "uniq_run_id":       { "cols": ["run_id"],                  "since": "1.0.0", "unique": true },
+        "idx_wf_status":     { "cols": ["workflow_id", "status"],   "since": "1.0.0" },
+        "idx_status_created":{ "cols": ["status", "created_at"],    "since": "1.0.0" },
+        "idx_parent_run_id": { "cols": ["parent_run_id"],            "since": "1.7.0" }
+      }
+    },
+
+    "bizcity_automation_logs": {
+      "since": "1.0.0",
+      "purpose": "Per-node log of every run; primary feed for FE RunTimeline + SSE stream.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":           { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
+        "run_id":       { "type": "VARCHAR(32) NOT NULL DEFAULT ''",         "since": "1.0.0" },
+        "node_id":      { "type": "VARCHAR(64) NOT NULL DEFAULT ''",         "since": "1.0.0" },
+        "block_id":     { "type": "VARCHAR(64) NOT NULL DEFAULT ''",         "since": "1.0.0" },
+        "step":         { "type": "INT UNSIGNED NOT NULL DEFAULT 0",         "since": "1.0.0" },
+        "status":       { "type": "TINYINT NOT NULL DEFAULT 0",              "since": "1.0.0" },
+        "input_json":   { "type": "LONGTEXT NULL",                           "since": "1.0.0" },
+        "output_json":  { "type": "LONGTEXT NULL",                           "since": "1.0.0" },
+        "error":        { "type": "VARCHAR(500) NOT NULL DEFAULT ''",        "since": "1.0.0" },
+        "started_at":   { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.0.0" },
+        "ended_at":     { "type": "DATETIME NULL DEFAULT NULL",              "since": "1.0.0" }
+      },
+      "indexes": {
+        "idx_run":         { "cols": ["run_id"],            "since": "1.0.0" },
+        "idx_run_step":    { "cols": ["run_id", "step"],    "since": "1.0.0" }
+      }
+    },
+
+    "bizcity_automation_templates": {
+      "since": "1.1.0",
+      "purpose": "BE-7 — Template library: reusable workflow blueprints (built-in seeded + user-saved). `instantiate` clones graph_json into bizcity_automation_workflows.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":                  { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",                                "since": "1.1.0", "pk": true },
+        "slug":                { "type": "VARCHAR(96) NOT NULL DEFAULT ''",                                        "since": "1.1.0" },
+        "name":                { "type": "VARCHAR(200) NOT NULL DEFAULT ''",                                       "since": "1.1.0" },
+        "description":         { "type": "TEXT NULL",                                                              "since": "1.1.0" },
+        "category":            { "type": "VARCHAR(48) NOT NULL DEFAULT 'general'",                                 "since": "1.1.0", "doc": "general | cskh | lead | report | webhook | mpr" },
+        "source":              { "type": "VARCHAR(16) NOT NULL DEFAULT 'builtin'",                                 "since": "1.1.0", "doc": "builtin | user | imported" },
+        "trigger_type":        { "type": "VARCHAR(32) NOT NULL DEFAULT 'manual'",                                  "since": "1.1.0" },
+        "graph_json":          { "type": "LONGTEXT NULL",                                                          "since": "1.1.0" },
+        "trigger_config_json": { "type": "TEXT NULL",                                                              "since": "1.1.0" },
+        "tags":                { "type": "VARCHAR(255) NOT NULL DEFAULT ''",                                       "since": "1.1.0" },
+        "icon":                { "type": "VARCHAR(48) NOT NULL DEFAULT 'FileText'",                                "since": "1.1.0", "doc": "lucide-react icon name" },
+        "version":             { "type": "INT UNSIGNED NOT NULL DEFAULT 1",                                        "since": "1.1.0" },
+        "is_active":           { "type": "TINYINT(1) NOT NULL DEFAULT 1",                                          "since": "1.1.0" },
+        "use_count":           { "type": "INT UNSIGNED NOT NULL DEFAULT 0",                                        "since": "1.1.0", "doc": "Bumped by instantiate." },
+        "created_at":          { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",                            "since": "1.1.0" },
+        "updated_at":          { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP","since": "1.1.0" },
+        "created_by":          { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",                                     "since": "1.1.0" }
+      },
+      "indexes": {
+        "uniq_slug":           { "cols": ["slug"],                       "since": "1.1.0", "unique": true },
+        "idx_category_active": { "cols": ["category", "is_active"],      "since": "1.1.0" },
+        "idx_source":          { "cols": ["source"],                     "since": "1.1.0" }
+      }
+    }
+  },
+  "history": [
+    { "version": "1.0.0", "date": "2026-05-29", "change": "Initial schema for native automation runner (workflows + runs + logs). Replaces legacy WAIC bizcity_workflows." },
+    { "version": "1.0.1", "date": "2026-05-29", "change": "BE-4 — contract docs only (no DDL): trigger_config_json now supports keys { schedule, filter, page_id, slug, secret }. Scheduler bridge consumes bizcity_crm_events rows with event_type='automation_workflow' (metadata = { workflow_id, payload, defer }). Webhook public route /bizcity-automation/v1/webhook/{slug} added." },
+    { "version": "1.0.2", "date": "2026-05-29", "change": "BE-6 — contract docs only (no DDL). trigger_type enum extends to { manual, zalo_inbound, fb_message, fb_comment, telegram_inbound, cron, webhook, twinbrain_intent }. trigger_config_json gains key `instance_id` (oa_id Zalo / page_id FB / bot Telegram; empty = match all). bizcity_automation_logs now also stores per-MPR-layer events with block_id='llm.mpr_think.event' (FE timeline). New REST routes: GET /channel-registry, GET /cron-health, POST /test/listen, GET /test/poll, POST /test/stop. New option `bizcity_automation_cron_last_tick` (autoload=no) for cron freshness probe. New option `bizcity_automation_listener_active` (autoload=no) — index of active test-listener transient ids." },
+    { "version": "1.1.0", "date": "2026-05-29", "change": "BE-7 — Workflow Templates. New table bizcity_automation_templates (id/slug/name/description/category/source/trigger_type/graph_json/trigger_config_json/tags/icon/version/is_active/use_count + audit cols). New options bizcity_automation_templates_seed_version (autoload=no) — bumps when builtin seeder runs. New REST routes: GET /templates (filter category/source/search), GET /templates/(?P<id>\\d+), POST /templates/(?P<id>\\d+)/instantiate (clones to workflows + bumps use_count), POST /workflows/(?P<id>\\d+)/save-as-template (user → templates). Built-in seeder ships 5 blueprints: tpl_zalo_cskh_v1, tpl_fb_lead_capture_v1, tpl_mpr_auto_reply_v1, tpl_cron_daily_report_v1, tpl_webhook_crm_v1 — all idempotent (slug-unique upsert)." },
+    { "version": "1.2.0", "date": "2026-05-29", "change": "BE-7.B — Pilot workflows + Fallback rule (R-FB-NOMATCH). Contract docs only (no DDL). trigger_config_json now supports keys { is_fallback: bool, priority: int } for channel inbound matcher. Matcher behavior (`BizCity_Automation_Trigger_Matcher::on_channel_message`): split workflows into matched (filter PASS) vs fallback (is_fallback=true); only enqueue fallback when matched is empty; sort fallback by priority DESC. Seeder bumped to 1.2.0, adds 2 builtin pilot blueprints: tpl_zalo_pilot_keyword_v1 (keyword 'bảng giá' → KG → compose → reply, priority=10), tpl_zalo_pilot_fallback_brain_v1 (is_fallback=true, priority=0 → llm.mpr_think with user-bound notebook via TwinBrain Stage 1 selector → reply_zalo + CRM log). Both instantiate with enabled=0 (manual supervision). Guarantees every Zalo inbound that doesn't match any keyword always gets a TwinBrain response grounded on the user's bound notebook." },
+    { "version": "1.3.0", "date": "2026-05-30", "change": "BE-7.C — Multi-turn slot (pending state) + 3 pilot templates. Contract docs only (no DDL — storage = WP transient `bizcity_auto_pending_<md5(chat_id)>`, default TTL 900s). New helper class `BizCity_Automation_Pending_State` (get/set/patch/clear/has_resume). Matcher precedence updated: resume (pending.workflow_id) > matched (keyword) > fallback (is_fallback). Resume preempts other rules; clears pending on workflow disabled/missing. New action blocks: action.capture_attachment, action.set_pending_intent, action.consume_attachment, action.publish_wp_post (default status=draft), action.publish_fb_post (delegates to scheduler event_type=fb_post via existing BizCity_FB_Publisher — R-CH compliant). Seeder bumped 1.3.0 + 3 builtin templates: tpl_image_capture_v1 (turn 1 lưu ảnh + ask purpose, priority=12), tpl_post_web_with_image_v1 (keyword 'đăng bài' → ask image → resume → LLM gen → publish_wp_post draft, priority=15), tpl_post_fb_with_image_v1 (keyword 'đăng fb' → ask image → resume → publish_fb_post mode=scheduled+5m, priority=15). All enabled=0 on instantiate (manual supervision). Replaces legacy `twf_handle_image_attachment` + `bizgpt_image_<md5>` transient pattern." },
+    { "version": "1.4.0", "date": "2026-05-30", "change": "BE-7.D — CRM Bridge canonical + production hardening. Contract docs only (no DDL). Root cause fix: trước khi BE-7.D, tất cả automation block gọi filter `bizcity_crm_event_create_filter` + action `bizcity_crm_event_create` nhưng KHÔNG có listener nào trong workspace → row CRM không bao giờ được insert → Scheduler page trống. Fix: thêm `BizCity_Automation_CRM_Bridge` gọi thẳng `BizCity_Scheduler_Manager::create_event()` với field map đúng sanitize_row contract (start_at thay due_at, description thay body, status string thay int, source='workflow' thay vì 'automation_run'). Refactor 4 call sites: `class-automation-runner.php::emit_crm_bridge` (event_type='task' vì 'automation_run' không trong whitelist), `class-action-create-crm-event.php` (bỏ field due_at/body, thêm start_at/description), `class-action-publish-fb-post.php` (đổi field name fb_post payload), `class-action-publish-wp-post.php` (thêm mirror_to_scheduler mặc định → row event_type='web_post' status='done' metadata{web_post_id, web_permalink, web_publish_status='published'}). New block `action.schedule_event` (generic CRM row creator, hỗ trợ reminder_zalo). Seeder 1.4.0 + builtin template `tpl_schedule_event_v1` keyword 'lên lịch' → LLM extract slots → schedule_event. Productión flow check: 'dăng bài' → publish_wp_post → 1 row crm_events (web_post, status=done) + 1 WP post draft. 'đăng fb' → publish_fb_post → 1 row crm_events (fb_post, status=active, due+5m) → cron fire → BizCity_FB_Publisher publish + ghi fb_post_id. 'lên lịch' → schedule_event → 1 row crm_events (task hoaặc reminder_zalo, status=active). Tất cả visible Scheduler admin page." },
+    { "version": "1.5.0", "date": "2026-05-30", "change": "BE-7.E — Realtime test runner + per-node status badges + smoke-test templates. Contract docs only (no DDL). Problem: trước BE-7.E, FE 'Chạy thử' button chỉ chạy MOCK local (block.simulate()), không gọi BE thật → user không debug được production blocks; SSE endpoint `/runs/:id/events` đã có nhưng FE không subscribe. Solution: (1) REST `/workflows/:id/run` thêm query param `async=1` → schedules `wp_schedule_single_event(time(), 'bizcity_automation_run_async', [run_id])` + `spawn_cron()` → trả 202 + run_id ngay lập tức trong khi runner thực thi ở loopback request. Bootstrap thêm listener `bizcity_automation_run_async` → `BizCity_Automation_Runner::execute($run_id)`. (2) FE rewrite `runtime/runner.js`: detect numeric meta.id → POST async + open `EventSource('/runs/:id/events?_wpnonce=...&max_seconds=60')` → parse SSE 'log' / 'end' / 'timeout' events → store.setNodeStatus(node_id, status, output) realtime. Fallback sang MOCK BFS với block.simulate() khi workflow chưa save (meta.id='wf_new') hoặc REST lỗi. (3) FE store thêm fields: nodeStatus{[id]:0|1|2|3}, nodeOutputs{[id]:obj}, runDbId, runMode ('mock'|'async'|'sync'), runStatus, runError. (4) FE NodeShell.jsx render absolute-positioned status badge top-right (Loader2 spin / CheckCircle2 / XCircle / MinusCircle) + colored ring border khớp status. Status int = LOG_STATUS_RUNNING/OK/FAIL/SKIP từ runner. (5) Seeder 1.5.0: 2 smoke-test templates category='test' source='builtin' enabled=0: `tpl_test_smoke_manual_v1` (trigger.manual → llm.compose_reply → action.create_crm_event — pipeline ngắn nhất verify SSE + per-node badges + DB write) và `tpl_test_smoke_branch_v1` (trigger.manual → logic.condition → 2 action.create_crm_event branches — verify branch routing + skip status=3). Cả hai dùng trigger.manual để chạy không cần channel binding. R-DCL: contract-only bump, không tạo bảng/cột mới." },
+    { "version": "1.6.0", "date": "2026-05-31", "change": "PG-S5 — Pause / Step / Resume runner (Playground breakpoints). DDL: ADD COLUMN `bizcity_automation_runs.debug_state VARCHAR(64) NOT NULL DEFAULT ''` (values: ''|'pausing'|'stepping'|'paused_before:<node_id>'); ADD COLUMN `bizcity_automation_workflows.debug_breakpoints_json LONGTEXT NULL` (format: {\"<node_id>\":{\"before\":true|false,\"after\":bool,\"on_error\":bool}}). Both ADD-only → handled by Auto_Create. Runner now allows re-entry when status=RUNNING && debug_state matches paused_*; skips nodes that already have an OK/FAIL log row (idempotent resume). New REST routes (admin-only, NS bizcity-automation/v1): POST /runs/{run_id}/pause (set debug_state='pausing'), POST /runs/{run_id}/step (set 'stepping' + inline continue), POST /runs/{run_id}/resume (clear state + inline continue). Workflow PUT /workflows/{id} accepts new payload key `debug_breakpoints` (array<node_id, {before,after,on_error}>) — persisted via repo normalise(). FE Topbar surfaces ⏸ ⏭ ▶ buttons when run is RUNNING; Inspector adds 'Breakpoint before' toggle per node. R-DCL: ADD-only DDL, validator must pass." },
+    { "version": "1.7.0", "date": "2026-05-31", "change": "PG-S6 — Replay (Playground re-run with same payload). DDL: ADD COLUMN `bizcity_automation_runs.parent_run_id VARCHAR(32) NOT NULL DEFAULT ''` + ADD INDEX `idx_parent_run_id (parent_run_id)`. ADD-only → handled by Auto_Create. Repo `BizCity_Automation_Repo_Runs::enqueue()` adds optional 3rd arg `$parent_run_id` (default ''); hydrate() now exposes `parent_run_id` field. New REST route (admin-only, NS bizcity-automation/v1): POST /runs/{run_id}/replay — loads original run, copies workflow_id + trigger_payload_json, calls enqueue() with parent_run_id=original.run_id, schedules async via wp_schedule_single_event('bizcity_automation_run_async') + spawn_cron(); returns 202 + new run_id. FE Topbar surfaces ↺ Replay button when run finished (status ∈ {ok, fail, cancelled}); click → swap runDbId to new run + restart polling. R-DCL: ADD-only DDL, validator must pass." }
+  ]
+}

@@ -64,7 +64,7 @@ if ( ! defined( 'BIZCITY_TWIN_AI_VERSION' ) ) {
 define( 'BZTIMG_DIR',           plugin_dir_path( __FILE__ ) );
 define( 'BZTIMG_URL',           plugin_dir_url( __FILE__ ) );
 define( 'BZTIMG_VERSION',       '3.7.1' );
-define( 'BZTIMG_SCHEMA_VERSION','6.2' );   // Bump this whenever DB schema changes
+define( 'BZTIMG_SCHEMA_VERSION','6.3' );   // 6.3 — add source/hub_*/protected_from_sync cols (Phase IT-3)
 define( 'BZTIMG_SLUG',          'tool-image' );
 
 /* ═══════════════════════════════════════════════
@@ -103,6 +103,10 @@ BizCity_Canva_Page::init();
 require_once BZTIMG_DIR . 'includes/class-profile-studio-page.php';
 BizCity_Profile_Studio_Page::init();
 
+/* Phase 4.0 — QR Studio at /qr-studio/ */
+require_once BZTIMG_DIR . 'includes/class-qr-studio-page.php';
+BizCity_QR_Studio_Page::init();
+
 /* Canvas Bridge — generate_image → Canvas Adapter handoff */
 require_once BZTIMG_DIR . 'includes/class-canvas-bridge-image.php';
 add_filter( 'bizcity_canvas_handlers', [ 'BizCity_Canvas_Bridge_Image', 'register_handlers' ] );
@@ -116,6 +120,11 @@ if ( file_exists( BZTIMG_DIR . 'includes/class-model-manager.php' ) ) {
 BizCity_REST_API_Templates::init();
 BizCity_REST_API_Projects::init();
 BizCity_REST_API_Editor_Assets::init();
+
+/* Phase IT-4 — Hub Sync Engine + "Update Templates" page */
+require_once BZTIMG_DIR . 'includes/class-template-sync.php';
+require_once BZTIMG_DIR . 'includes/class-update-templates-page.php';
+BizCity_Update_Templates_Page::init();
 
 /**
  * Re-authenticate from cookie for plugin REST routes.
@@ -597,6 +606,7 @@ register_activation_hook( __FILE__, function() {
     BizCity_Model_Manager::register_cpt();
     BizCity_Model_Manager::seed_defaults();
 
+    BizCity_QR_Studio_Page::register_rewrite();
     flush_rewrite_rules();
 } );
 
@@ -608,7 +618,7 @@ register_deactivation_hook( __FILE__, function() {
 add_action( 'init', function() {
     // Auto-flush rewrite rules when /canva/ or /product-studio/ rule is missing
     $rules = get_option( 'rewrite_rules', array() );
-    if ( is_array( $rules ) && ( ! isset( $rules['^canva/?$'] ) || ! isset( $rules['^product-studio/?$'] ) ) ) {
+    if ( is_array( $rules ) && ( ! isset( $rules['^canva/?$'] ) || ! isset( $rules['^product-studio/?$'] ) || ! isset( $rules['^qr-studio/?$'] ) ) ) {
         flush_rewrite_rules( false );
     }
 

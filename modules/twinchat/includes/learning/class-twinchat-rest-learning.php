@@ -31,6 +31,39 @@ class BizCity_TwinChat_REST_Learning {
 
 	private static $instance = null;
 
+	/**
+	 * Cache of `bizcity_kg_learning_jobs.updated_at` column existence per blog.
+	 * Filled lazily by {@see self::jobs_has_updated_at()}.
+	 *
+	 * @var array<int,bool>
+	 */
+	private static $jobs_has_updated_at_cache = [];
+
+	/**
+	 * Defensive column probe — true when the jobs table on the current blog
+	 * has the `updated_at` column (schema 1.4.0+). False for older subsites
+	 * that were created at 1.3.0 and have not yet run the additive migration.
+	 *
+	 * Used by {@see self::rebuild()} to pick `updated_at` vs `created_at` for
+	 * stale-lease detection without throwing "Unknown column".
+	 */
+	private static function jobs_has_updated_at( string $tbl_jobs ): bool {
+		global $wpdb;
+		$blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 1;
+		if ( isset( self::$jobs_has_updated_at_cache[ $blog_id ] ) ) {
+			return self::$jobs_has_updated_at_cache[ $blog_id ];
+		}
+		$prev_supp = $wpdb->suppress_errors( true );
+		$col = $wpdb->get_var( $wpdb->prepare(
+			"SHOW COLUMNS FROM `{$tbl_jobs}` LIKE %s",
+			'updated_at'
+		) );
+		$wpdb->suppress_errors( $prev_supp );
+		$has = ! empty( $col );
+		self::$jobs_has_updated_at_cache[ $blog_id ] = $has;
+		return $has;
+	}
+
 	public static function instance() {
 		if ( null === self::$instance ) {
 			self::$instance = new self();
@@ -298,19 +331,31 @@ class BizCity_TwinChat_REST_Learning {
 	}
 
 	/**
-	 * Rebuild graph for a notebook — user-initiated kick.
+	 * Force-rebuild graph for a notebook — user-initiated unstick.
 	 *
-	 * Two modes:
-	 *   - soft (default): retry only passages that didn't yield triplets
-	 *     (extraction_status IN 'error','skipped' OR stuck 'processing'
-	 *     orphans). Cheap — no LLM re-cost on already-extracted passages.
-	 *   - hard: full rebuild. Cancels active jobs, resets ALL passages of
-	 *     the notebook to 'pending', deletes 'pending' triplet_queue rows
-	 *     (keeps 'approved' since they're already in the graph) and enqueues
-	 *     a fresh job. Burns LLM quota → confirm in UI before calling.
+	 * Both modes ALWAYS run an "unstick" sequence first, regardless of mode,
+	 * because the most common reason users press Rebuild is that a job is
+	 * silently stuck (loopback dead, lease abandoned, triplets sitting in
+	 * the staging queue, etc.). The mode-specific reset runs AFTER unstick.
 	 *
-	 * Returns the new (or coalesced) job id so the FE foreground driver
-	 * can pick it up.
+	 *   ── Always (force unstick) ──
+	 *   A. Cancel stale jobs (status IN queued/running AND updated_at older
+	 *      than $stale_secs). This breaks the enqueue dedup that would
+	 *      otherwise return the stuck job's ID and do nothing.
+	 *   B. Reclaim 'processing' passages older than 30s back to 'pending'.
+	 *   C. Flush pending triplet_queue → graph via approve_all_pending().
+	 *      Idempotent — safe to call any time, surfaces entities immediately.
+	 *   D. Clear sticky 'loopback dead' option so the new job retries the
+	 *      fast loopback path instead of the 1-passage-per-tick sync fallback.
+	 *
+	 *   ── Mode-specific ──
+	 *   - soft (default): also reset 'error'/'skipped' passages.
+	 *   - hard: cancel ALL active jobs, reset ALL passages, drop 'pending'
+	 *           triplet_queue rows. Burns LLM quota — confirm in UI.
+	 *
+	 *   ── Always (post) ──
+	 *   E. Force-enqueue (bypass dedup) so a guaranteed fresh job exists.
+	 *   F. Drive one tick synchronously so progress starts within the request.
 	 */
 	public function rebuild( WP_REST_Request $req ) {
 		global $wpdb;
@@ -332,83 +377,173 @@ class BizCity_TwinChat_REST_Learning {
 		$queue         = BizCity_TwinChat_Learning_Job_Queue::instance();
 		$tbl_jobs      = BizCity_TwinChat_Learning_Database::instance()->table_jobs();
 
-		$reset_passages = 0;
-		$reset_triplets = 0;
-		$cancelled_jobs = 0;
+		// Guard: ensure the `updated_at` column exists before the stale-detection
+		// query runs. On long-lived sites the table was created at schema 1.3.0
+		// (no updated_at) — fall back to created_at when the column is missing
+		// so rebuild never throws "Unknown column 'updated_at'".
+		$has_updated_at = self::jobs_has_updated_at( $tbl_jobs );
+		$ts_col         = $has_updated_at ? 'updated_at' : 'created_at';
 
+		$reset_passages   = 0;
+		$reset_triplets   = 0;
+		$cancelled_jobs   = 0;
+		$reclaimed        = 0;
+		$flushed_triplets = 0;
+
+		// ── A. Cancel stale jobs (force unstick — runs in BOTH modes) ──
+		// A job that hasn't moved updated_at in 90s is presumed wedged
+		// (lease holder died, loopback dropped, etc.). Cancelling it lets
+		// the dedup-bypass enqueue below create a fresh job that actually
+		// ticks. In hard mode we cancel ALL active jobs (see below).
+		$stale_secs = (int) apply_filters( 'bizcity_twinchat_learning_rebuild_stale_secs', 90 );
 		if ( $mode === 'hard' ) {
-			// 1) Cancel any in-flight jobs so the new one doesn't race.
-			$active_ids = (array) $wpdb->get_col( $wpdb->prepare(
+			$stale_ids = (array) $wpdb->get_col( $wpdb->prepare(
 				"SELECT id FROM {$tbl_jobs}
 				  WHERE notebook_id = %d AND status IN ('queued','running')",
 				$nb
 			) );
-			foreach ( $active_ids as $jid ) {
-				$jid = (int) $jid;
-				if ( $jid > 0 ) {
-					$queue->cancel( $jid );
-					$cancelled_jobs++;
-				}
+		} else {
+			$stale_ids = (array) $wpdb->get_col( $wpdb->prepare(
+				"SELECT id FROM {$tbl_jobs}
+				  WHERE notebook_id = %d
+				    AND status IN ('queued','running')
+				    AND ( {$ts_col} IS NULL OR {$ts_col} < DATE_SUB(NOW(), INTERVAL %d SECOND) )",
+				$nb, $stale_secs
+			) );
+		}
+		foreach ( $stale_ids as $jid ) {
+			$jid = (int) $jid;
+			if ( $jid > 0 ) {
+				$queue->cancel( $jid );
+				$cancelled_jobs++;
 			}
+		}
 
-			// 2) Reset all passages → 'pending'.
+		// ── B. Reclaim stuck 'processing' passages (always) ────────────
+		$reclaimed = (int) $wpdb->query( $wpdb->prepare(
+			"UPDATE {$tbl_passages}
+			    SET extraction_status = 'pending', updated_at = NOW()
+			  WHERE notebook_id = %d
+			    AND extraction_status = 'processing'
+			    AND updated_at < DATE_SUB(NOW(), INTERVAL 30 SECOND)",
+			$nb
+		) );
+
+		// ── C. Flush pending triplet_queue → graph (always, idempotent) ─
+		// Even when no extraction has happened in this rebuild, draining the
+		// queue is the cheapest way to surface entities that previous ticks
+		// extracted but never approved (e.g. job died mid-approve phase).
+		if ( class_exists( 'BizCity_KG_Graph_Service' ) ) {
+			$flushed_triplets = (int) $wpdb->get_var( $wpdb->prepare(
+				"SELECT COUNT(*) FROM {$tbl_triplets} WHERE notebook_id = %d AND status = 'pending'",
+				$nb
+			) );
+			if ( $flushed_triplets > 0 ) {
+				BizCity_KG_Graph_Service::instance()->approve_all_pending( $nb, get_current_user_id() );
+			}
+		}
+
+		// ── D. Clear sticky 'loopback dead' option (always) ────────────
+		// tick_extract sets this when it detects the parallel-worker
+		// loopback is broken; it stays set for 1 hour. Force-rebuild is
+		// the user telling us "try the fast path again".
+		delete_option( 'bizcity_tc_loopback_dead_ts' );
+
+		// ── Mode-specific passage reset ────────────────────────────────
+		if ( $mode === 'hard' ) {
+			// Reset all passages → 'pending'.
 			$reset_passages = (int) $wpdb->query( $wpdb->prepare(
 				"UPDATE {$tbl_passages}
 				    SET extraction_status = 'pending', updated_at = NOW()
 				  WHERE notebook_id = %d",
 				$nb
 			) );
-
-			// 3) Drop unprocessed triplets (keep 'approved' — they're in the graph).
+			// Drop unprocessed triplets (the C flush already approved any
+			// useful ones; remaining 'pending' rows here are leftovers we
+			// want re-extracted from scratch).
 			$reset_triplets = (int) $wpdb->query( $wpdb->prepare(
 				"DELETE FROM {$tbl_triplets}
 				  WHERE notebook_id = %d AND status = 'pending'",
 				$nb
 			) );
 		} else {
-			// Soft: only re-process passages that previously failed or were
-			// skipped, plus orphan 'processing' rows older than 30s.
+			// Soft: only re-process error/skipped (B already handled stuck processing).
 			$reset_passages = (int) $wpdb->query( $wpdb->prepare(
 				"UPDATE {$tbl_passages}
 				    SET extraction_status = 'pending', updated_at = NOW()
 				  WHERE notebook_id = %d
-				    AND (
-				      extraction_status IN ('error','skipped')
-				      OR ( extraction_status = 'processing'
-				           AND updated_at < DATE_SUB(NOW(), INTERVAL 30 SECOND) )
-				    )",
+				    AND extraction_status IN ('error','skipped')",
 				$nb
 			) );
+			// Reclaimed rows count toward "reset" total for UI clarity.
+			$reset_passages += $reclaimed;
 		}
 
-		// 4) Enqueue (job-queue dedupes if an active job already exists).
+		// ── E. Enqueue. Bypass dedup ONLY if we just cancelled stale jobs
+		// (or nothing is active). When a healthy job is already running and
+		// we just flushed/reclaimed for it, dedup correctly returns its id —
+		// no need for a redundant racing job.
+		$has_active = (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT COUNT(*) FROM {$tbl_jobs}
+			  WHERE notebook_id = %d AND status IN ('queued','running')",
+			$nb
+		) );
+		$bypass_dedup = ( $cancelled_jobs > 0 || $has_active === 0 || $mode === 'hard' );
+		$disable_dedup = function () { return false; };
+		if ( $bypass_dedup ) {
+			add_filter( 'bizcity_twinchat_learning_enqueue_dedupe', $disable_dedup, 999 );
+		}
 		$res = $queue->enqueue( [
 			'notebook_id'  => $nb,
 			'origin'       => 'rebuild_' . $mode,
 			'source_title' => sprintf( '[rebuild:%s]', $mode ),
 			'user_id'      => get_current_user_id(),
 		] );
+		if ( $bypass_dedup ) {
+			remove_filter( 'bizcity_twinchat_learning_enqueue_dedupe', $disable_dedup, 999 );
+		}
 		if ( is_wp_error( $res ) ) {
 			return $res;
 		}
+		$new_job_id = (int) $res;
 
-		// 5) Announce so FE log shows the action.
+		// ── F. Drive one tick synchronously so user sees movement now ──
+		// Wrapped in try/catch to never let a tick error abort the rebuild
+		// response — the cron sweeper will retry within ~30s.
+		$first_tick = null;
+		try {
+			$first_tick = BizCity_TwinChat_Learning_Pipeline::tick(
+				$new_job_id,
+				'ajax-' . (int) get_current_user_id()
+			);
+		} catch ( \Throwable $e ) {
+			bizcity_tc_learning_debug_log( sprintf(
+				'rebuild job=%d → first tick threw: %s', $new_job_id, $e->getMessage()
+			) );
+		}
+
+		// ── Announce + return ─────────────────────────────────────────
 		BizCity_TwinChat_Learning_Events::instance()->push( $nb, 'log', [
 			'level' => 'step',
 			'msg'   => sprintf(
-				'[rebuild:%s] Reset %d passage(s), cleared %d triplet(s), cancelled %d job(s) → job #%d',
-				$mode, $reset_passages, $reset_triplets, $cancelled_jobs, (int) $res
+				'[rebuild:%s] reset=%d reclaimed=%d flushed=%d cancelled=%d dropped=%d → job #%d',
+				$mode, $reset_passages, $reclaimed, $flushed_triplets, $cancelled_jobs, $reset_triplets, $new_job_id
 			),
-		], (int) $res );
+		], $new_job_id );
 
 		return rest_ensure_response( [
 			'ok'   => true,
 			'data' => [
-				'job_id'           => (int) $res,
-				'mode'             => $mode,
-				'passages_reset'   => $reset_passages,
-				'triplets_dropped' => $reset_triplets,
-				'jobs_cancelled'   => $cancelled_jobs,
+				'job_id'             => $new_job_id,
+				'mode'               => $mode,
+				'passages_reset'     => $reset_passages,
+				'passages_reclaimed' => $reclaimed,
+				'triplets_flushed'   => $flushed_triplets,
+				'triplets_dropped'   => $reset_triplets,
+				'jobs_cancelled'     => $cancelled_jobs,
+				'first_tick_phase'   => is_array( $first_tick ) && isset( $first_tick['phase'] )
+					? (string) $first_tick['phase']
+					: null,
 			],
 		] );
 	}
@@ -447,14 +582,38 @@ class BizCity_TwinChat_REST_Learning {
 		$id    = (int) $req['id'];
 		$owner = 'ajax-' . (int) get_current_user_id();
 		$res   = BizCity_TwinChat_Learning_Pipeline::tick( $id, $owner );
+
+		// Derive a stable `reason` code so the FE can show a meaningful
+		// message instead of just "busy x N". Order matters — most specific
+		// reason wins.
+		$reason = '';
+		if ( ! empty( $res['busy'] ) ) {
+			if ( ! empty( $res['paused'] ) ) {
+				$reason = 'paused_quota';
+			} elseif ( ! empty( $res['phase'] ) && $res['phase'] === 'approving' ) {
+				$reason = 'approving';
+			} elseif ( isset( $res['job']['lease_owner'] ) && (string) $res['job']['lease_owner'] !== '' && (string) $res['job']['lease_owner'] !== $owner ) {
+				$reason = 'lease_held_by_other';
+			} else {
+				$reason = 'tick_busy';
+			}
+		}
+
 		return rest_ensure_response( [
 			'ok'   => true,
 			'data' => [
-				'done'  => (bool) $res['done'],
-				'busy'  => (bool) $res['busy'],
-				'error' => (bool) $res['error'],
-				'phase' => (string) $res['phase'],
-				'job'   => $res['job'],
+				'done'        => (bool) $res['done'],
+				'busy'        => (bool) $res['busy'],
+				'error'       => (bool) $res['error'],
+				'phase'       => (string) $res['phase'],
+				'reason'      => $reason,
+				'paused'      => ! empty( $res['paused'] ),
+				'retry_after' => isset( $res['retry_after'] ) ? (int) $res['retry_after'] : 0,
+				'lease_owner' => isset( $res['job']['lease_owner'] ) ? (string) $res['job']['lease_owner'] : '',
+				'reason_code' => isset( $res['reason_code'] ) ? (string) $res['reason_code'] : '',
+				'reason_msg'  => isset( $res['reason_msg'] )  ? (string) $res['reason_msg']  : '',
+				'diag'        => isset( $res['diag'] ) && is_array( $res['diag'] ) ? $res['diag'] : null,
+				'job'         => $res['job'],
 			],
 		] );
 	}

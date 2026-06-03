@@ -375,8 +375,11 @@ final class BizCity_Research_Agent {
             $out['action'] = trim( $am[1] );
         }
 
-        // Action Input: ... (until a blank line / Observation / Thought / EOF)
-        if ( preg_match( '/Action Input:\s*(.+?)(?=\n\s*(?:Observation:|Thought:|Action:|Final Answer:|$))/su', $text, $im ) ) {
+        // Action Input: ... (until next ReAct marker or EOF).
+        // Lookahead allows BOTH "\n<marker>" AND inline " Observation:" / " Thought:"
+        // because the LLM sometimes puts the entire ReAct turn on a single line
+        // without trailing newlines, which would otherwise leave action_input null.
+        if ( preg_match( '/Action Input:\s*(.+?)(?=\s*(?:Observation:|Thought:|Action:|Final Answer:)|$)/su', $text, $im ) ) {
             $raw = trim( $im[1] );
             // Try JSON first
             $json = json_decode( $raw, true );
@@ -411,6 +414,13 @@ final class BizCity_Research_Agent {
         // Strip embedded JSON arrays that look like Tavily search results.
         // The LLM sometimes includes the observation JSON in its output.
         $text = preg_replace( '/\[\s*\{\s*"url"\s*:.+?\}\s*\]/su', '', $text ) ?? $text;
+
+        // Strip inline ReAct markers (single-line outputs). For each marker
+        // segment, drop everything from the marker up to the next marker or EOL.
+        // This handles the case where the LLM packs Thought/Action/Action Input
+        // all on one line — the multi-line filter below would otherwise miss them.
+        $inline_pattern = '/(?:Thought|Action Input|Action|Observation|Question|Final Answer):\s*.*?(?=(?:Thought|Action Input|Action|Observation|Question|Final Answer):|$)/su';
+        $text = preg_replace( $inline_pattern, '', $text ) ?? $text;
 
         $lines = preg_split( '/\r?\n/', $text );
         $skip  = [ 'Thought:', 'Action:', 'Action Input:', 'Observation:', 'Question:', 'Final Answer:' ];

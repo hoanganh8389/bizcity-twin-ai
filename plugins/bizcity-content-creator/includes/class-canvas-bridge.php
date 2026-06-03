@@ -92,7 +92,7 @@ class BZCC_Canvas_Bridge {
 
 		return [
 			'workshop'       => 'content-creator',
-			'workshop_label' => 'Content Creator',
+			'workshop_label' => 'Brain Factory',
 			'tool_type'      => 'content',
 			'title'          => $title,
 			'launch_url'     => $launch_url,
@@ -120,12 +120,12 @@ class BZCC_Canvas_Bridge {
 	private static function generic_handoff( array $context ): array {
 		return [
 			'workshop'       => 'content-creator',
-			'workshop_label' => 'Content Creator',
+			'workshop_label' => 'Brain Factory',
 			'tool_type'      => 'content',
-			'title'          => 'Content Creator',
+			'title'          => 'Brain Factory',
 			'launch_url'     => home_url( '/creator/' ),
 			'auto_execute'   => false,
-			'reply'          => 'Mở Content Creator — hãy chọn template phù hợp.',
+			'reply'          => 'Mở Brain Factory — hãy chọn template phù hợp.',
 			'job_data'       => [],
 		];
 	}
@@ -274,9 +274,9 @@ class BZCC_Canvas_Bridge {
 
 		return [
 			'success' => true,
-			'content' => sprintf( 'Mở Content Creator để tạo nội dung: %s', $url ),
+			'content' => sprintf( 'Mở Brain Factory để tạo nội dung: %s', $url ),
 			'data'    => [
-				'content'    => sprintf( '[Mở Content Creator](%s)', $url ),
+				'content'    => sprintf( '[Mở Brain Factory](%s)', $url ),
 				'action_url' => $url,
 			],
 		];

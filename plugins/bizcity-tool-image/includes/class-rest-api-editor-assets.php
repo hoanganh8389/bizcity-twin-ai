@@ -1801,6 +1801,17 @@ class BizCity_REST_API_Editor_Assets {
         );
     }
 
+    /**
+     * Low-level PiAPI HTTP wrapper.
+     *
+     * @todo R-1API-MIGRATION (2026-06-02): Replace với `BizCity_Video_Client::piapi_task()`
+     *       khi server bizcity-llm-router thêm proxy endpoint
+     *       `bizcity/v1/piapi/{task,task/{id}}`. Tham khảo roadmap:
+     *       `docs/roadmap/R-1API-CONSOLIDATION-2026-06-02.md`.
+     *       Site option `bizcity_piapi_api_key` hiện vẫn được đọc trực tiếp — vi phạm
+     *       R-GW-1 (provider key trên client) nhưng giữ tạm để background-remove
+     *       không bị down trong giai đoạn migration.
+     */
     private static function ai_piapi_request( $method, $path, $body = null ) {
         $api_key = trim( (string) get_site_option( 'bizcity_piapi_api_key' ) );
 

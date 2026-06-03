@@ -553,6 +553,18 @@ body{background:#f9fafb;font-family:system-ui,-apple-system,sans-serif;color:#1a
 
     <div class="bti-card">
         <?php if ( $is_admin ) : ?>
+        <div class="bti-settings-group" style="background:#fef3c7;border:1px solid #fcd34d;border-radius:10px;padding:12px 14px;margin-bottom:12px;">
+            <h4 style="margin:0 0 6px;color:#92400e;">🚧 LEGACY config (R-1API migrating)</h4>
+            <p style="margin:0;font-size:12px;line-height:1.5;color:#78350f;">
+                Theo rule <strong>1 API – 1 cửa</strong>, mọi key AI phải cấu hình tập trung tại
+                <a href="<?php echo esc_url( admin_url( 'admin.php?page=bizcity-twinchat-settings' ) ); ?>"
+                   target="_blank" style="color:#1d4ed8;font-weight:600;">
+                   BizCity API &amp; Gateway
+                </a>.
+                Các field bên dưới sẽ deprecate khi `BizCity_Tool_Image` chuyển hoàn toàn về
+                <code>BizCity_LLM_Client</code>.
+            </p>
+        </div>
         <div class="bti-settings-group">
             <h4>🔑 API Configuration (Admin only)</h4>
             <div class="bti-settings-row">

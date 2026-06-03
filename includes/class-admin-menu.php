@@ -37,7 +37,9 @@ class BizCity_Admin_Menu {
 	const SLUG_CHAT      = 'bizcity-twinchat';          // End-user: Twin (TwinChat) React SPA — default dashboard since 2026-05-06
 	const SLUG_NOTEBOOK  = 'bizcity-notebook';          // End-user: React Notebook SPA
 	const SLUG_CREATOR   = 'bizcity-creator';           // End-user: Content Creator
-	const SLUG_GATEWAY   = 'bizchat-gateway';           // Đào tạo kết nối — tích hợp kênh
+	const SLUG_GATEWAY   = 'bizchat-gateway';           // Đào tạo kết nối — tích hợp kênh (PHASE 0.31 T-S4.2: demoted → read-only deep-link dashboard)
+	const SLUG_CHANNELS  = 'bizcity-channels';          // PHASE 0.31 T-S4.1 — Channel admin parent (Zalo Bot, FB Bot, Zalo Hotline)
+	const SLUG_INTEGRATIONS = 'bizcity-integrations';  // PHASE 0.31 Sprint 6 — Standalone integration config page (moved from Workflow tab)
 	const SLUG_ADMIN     = 'bizcity-ai';                // Admin hub: settings / logs
 	const SLUG_KNOWLEDGE = 'bizcity-knowledge';         // Đào tạo kiến thức — characters, memory, legal
 	const SLUG_SKILLS    = 'bizcity-skills-hub';        // Đào tạo kỹ năng — content, image, notebook
@@ -131,29 +133,48 @@ class BizCity_Admin_Menu {
 			29
 		);
 
-		/* ── Admin hub: BizCity AI (pos 30 → reorder to 4) ── */
+		/* ── PHASE 0.31 T-S4.1 — Channels parent (Zalo Bot, FB Bot, Zalo Hotline) (pos 29.5) ── */
 		add_menu_page(
-			__( 'BizCity AI', $td ),
-			__( 'BizCity AI', $td ),
+			__( 'Channels', $td ),
+			__( 'Channels', $td ),
+			'manage_options',
+			self::SLUG_CHANNELS,
+			[ __CLASS__, 'render_channels_page' ],
+			'dashicons-networking',
+			29
+		);
+
+		/* ── Cài đặt Twin AI (pos 88 — phía cuối, gần Settings của WP)
+		 *     Phase G (2026-05-19): repurposed from "BizCity AI" hub →
+		 *     trang cài đặt chung của bộ plugin bizcity-twin-ai.
+		 *     Slug giữ nguyên (`bizcity-ai`) để không phá deep-links cũ.
+		 */
+		add_menu_page(
+			__( 'Cài đặt Twin AI', $td ),
+			__( 'Cài đặt Twin AI', $td ),
 			'manage_options',
 			self::SLUG_ADMIN,
 			[ __CLASS__, 'render_overview_page' ],
-			'dashicons-superhero-alt',
-			30
+			'dashicons-admin-generic',
+			88
 		);
 
-		/* ── Intent Monitor (pos 72) ── */
-		if ( class_exists( 'BizCity_Intent_Monitor', false ) ) {
-			add_menu_page(
-				'Intent Monitor',
-				'Intent Monitor',
-				'manage_options',
-				self::SLUG_INTENT,
-				[ BizCity_Intent_Monitor::instance(), 'render_page' ],
-				'dashicons-analytics',
-				72
-			);
-		}
+		/* ── Intent Monitor — DISABLED 2026-05-19 (Phase G).
+		 * Comment out top-level menu registration and all related submenus.
+		 * AJAX handlers, internal services, and direct ?page=... access remain
+		 * functional for backward compatibility but the menu is hidden from UI.
+		 */
+		// if ( class_exists( 'BizCity_Intent_Monitor', false ) ) {
+		// 	add_menu_page(
+		// 		'Intent Monitor',
+		// 		'Intent Monitor',
+		// 		'manage_options',
+		// 		self::SLUG_INTENT,
+		// 		[ BizCity_Intent_Monitor::instance(), 'render_page' ],
+		// 		'dashicons-analytics',
+		// 		72
+		// 	);
+		// }
 	}
 
 	/* ══════════════════════════════════════════════════════════
@@ -170,7 +191,7 @@ class BizCity_Admin_Menu {
 		// First item replaces top-level label
 		add_submenu_page(
 			self::SLUG_ADMIN,
-			__( 'BizCity AI — Tổng quan', $td ),
+			__( 'Cài đặt Twin AI — Tổng quan', $td ),
 			__( 'Tổng quan', $td ),
 			'manage_options',
 			self::SLUG_ADMIN,
@@ -231,7 +252,13 @@ class BizCity_Admin_Menu {
 		}
 
 		/* ─────────────────────────────────────────────
-		 *  B. Đào tạo kết nối — Zalo, Facebook, Google, Scheduler
+		 *  B. Đào tạo kết nối — Gateway dashboard (read-only)
+		 *
+		 *  PHASE 0.31 T-S4.1/T-S4.2:
+		 *   - Channel admin pages (Zalo Bot, FB Bot, Zalo Hotline) live under
+		 *     SLUG_CHANNELS now. SLUG_GATEWAY only holds the read-only
+		 *     deep-link dashboard + a few cross-cutting tools (Google Tools,
+		 *     Scheduler) until Sprint 6 fully demotes those.
 		 * ───────────────────────────────────────────── */
 
 		add_submenu_page(
@@ -243,13 +270,24 @@ class BizCity_Admin_Menu {
 			[ __CLASS__, 'render_gateway_page' ]
 		);
 
+		// PHASE 0.31 Sprint 6 — Standalone Integrations page (moved from Workflow tab)
+		add_submenu_page(
+			self::SLUG_GATEWAY,
+			__( 'Tích hợp bên ngoài', $td ),
+			__( 'Tích hợp', $td ),
+			'manage_options',
+			self::SLUG_INTEGRATIONS,
+			[ __CLASS__, 'render_integrations_page' ]
+		);
+
+		/* ── Channel submenus → moved to SLUG_CHANNELS (T-S4.1) ── */
 		if ( class_exists( 'BizCity_Zalo_Bot_Dashboard', false ) ) {
 			$zalo_dashboard = BizCity_Zalo_Bot_Dashboard::instance();
-			add_submenu_page( self::SLUG_GATEWAY,
-				__( 'Zalo Bot Dashboard', $td ), __( '🤖 Zalo Bot', $td ),
+			add_submenu_page( self::SLUG_CHANNELS,
+				__( 'Zalo Bot Dashboard', $td ), __( 'Zalo Bot', $td ),
 				'manage_options', 'bizcity-zalo-bot-dashboard',
 				[ $zalo_dashboard, 'render_dashboard' ] );
-			add_submenu_page( self::SLUG_GATEWAY,
+			add_submenu_page( self::SLUG_CHANNELS,
 				__( 'Zalo Bot Assign', $td ), __( 'Zalo Connections', $td ),
 				'manage_options', 'bizcity-zalo-bot-assign',
 				[ $zalo_dashboard, 'render_assign_page' ] );
@@ -257,73 +295,81 @@ class BizCity_Admin_Menu {
 
 		if ( class_exists( 'BizCity_Zalo_Bot_Admin_Menu', false ) ) {
 			$zb = BizCity_Zalo_Bot_Admin_Menu::instance();
-			add_submenu_page( self::SLUG_GATEWAY,
+			add_submenu_page( self::SLUG_CHANNELS,
 				__( 'All Zalo Bots', $td ), __( 'Zalo Bots', $td ),
 				'manage_options', 'bizcity-zalo-bots',
 				[ $zb, 'render_page' ] );
-			add_submenu_page( self::SLUG_GATEWAY,
+			add_submenu_page( self::SLUG_CHANNELS,
 				__( 'Zalo Listener', $td ), __( 'Zalo Webhook', $td ),
 				'manage_options', 'bizcity-zalo-bot-listener',
 				[ $zb, 'render_listener_page' ] );
-			add_submenu_page( self::SLUG_GATEWAY,
+			add_submenu_page( self::SLUG_CHANNELS,
 				__( 'Zalo Test API', $td ), __( 'Zalo Test API', $td ),
 				'manage_options', 'bizcity-zalo-bot-test-api',
 				[ $zb, 'render_test_api_page' ] );
-			add_submenu_page( self::SLUG_GATEWAY,
+			add_submenu_page( self::SLUG_CHANNELS,
 				__( 'Zalo Logs', $td ), __( 'Zalo Logs', $td ),
 				'manage_options', 'bizcity-zalo-bot-logs',
 				[ $zb, 'render_logs_page' ] );
-			add_submenu_page( self::SLUG_GATEWAY,
+			add_submenu_page( self::SLUG_CHANNELS,
 				__( 'Zalo Memory', $td ), __( 'Zalo Memory', $td ),
 				'manage_options', 'bizcity-zalo-bot-memory',
 				[ $zb, 'render_memory_page' ] );
 		}
 
 		if ( function_exists( 'bizcity_guides_admin_page' ) ) {
-			add_submenu_page( self::SLUG_GATEWAY,
+			add_submenu_page( self::SLUG_CHANNELS,
 				__( 'Zalo BizCity Guide', $td ), __( 'Zalo BizCity', $td ),
 				'manage_options', 'zalo-video-guider',
 				'bizcity_guides_admin_page' );
 		}
 
 		if ( function_exists( 'twf_zalo_users_admin_page' ) ) {
-			add_submenu_page( self::SLUG_GATEWAY,
+			add_submenu_page( self::SLUG_CHANNELS,
 				__( 'Zalo BizCity Users', $td ), __( 'Zalo User Mapping', $td ),
 				'manage_options', 'zalo-users-admin',
 				'twf_zalo_users_admin_page' );
 		}
 
 		if ( function_exists( 'twf_telegram_command_widget_content' ) ) {
-			add_submenu_page( self::SLUG_GATEWAY,
+			add_submenu_page( self::SLUG_CHANNELS,
 				__( 'Zalo BizCity Connection Guide', $td ), __( 'Zalo Legacy Guide', $td ),
 				'manage_options', 'zalo-guider',
 				'twf_telegram_command_widget_content' );
 		}
 
-		if ( function_exists( 'bztfb_render_admin_page' ) ) {
-			add_submenu_page( self::SLUG_GATEWAY,
-				__( 'Facebook AI Posting', $td ), __( '📘 Facebook Tools', $td ),
-				'manage_options', 'bizcity-tool-facebook',
-				'bztfb_render_admin_page' );
+		if ( class_exists( 'BizCity_Facebook_Bot_Admin_Menu', false ) ) {
+			add_submenu_page( self::SLUG_CHANNELS,
+				__( 'Facebook Bots', $td ), __( 'Facebook Bots', $td ),
+				'manage_options', 'bizcity-facebook-bots',
+				[ BizCity_Facebook_Bot_Admin_Menu::instance(), 'render_page' ] );
 		}
 
-		if ( function_exists( 'bztfb_render_settings_page' ) ) {
-			add_submenu_page( self::SLUG_GATEWAY,
-				__( 'Facebook Settings', $td ), __( 'Facebook Settings', $td ),
-				'manage_options', 'bizcity-facebook-settings',
-				'bztfb_render_settings_page' );
+		if ( class_exists( 'BizCity_Facebook_Bot_Admin_Menu', false ) ) {
+			add_submenu_page( self::SLUG_CHANNELS,
+				__( 'FB Connect Legacy', $td ), __( 'FB Connect', $td ),
+				'manage_options', 'bizcity-facebook-bot-connect',
+				[ BizCity_Facebook_Bot_Admin_Menu::instance(), 'render_connect_page' ] );
+		}
+
+		/* ── Zalo Hotline (mu-plugins/bizcity-admin-hook-zalo) submenu under Channels ── */
+		if ( class_exists( 'BizCity_Zalo_Hotline_Admin_Menu', false ) ) {
+			add_submenu_page( self::SLUG_CHANNELS,
+				__( 'Zalo Hotline (ZNS)', $td ), __( 'Zalo Hotline', $td ),
+				'manage_options', 'bizcity-zalo-hotline',
+				[ BizCity_Zalo_Hotline_Admin_Menu::instance(), 'render_page' ] );
 		}
 
 		if ( class_exists( 'BZGoogle_Admin', false ) ) {
 			add_submenu_page( self::SLUG_GATEWAY,
-				__( 'Google Tools', $td ), __( '🔍 Google Tools', $td ),
+				__( 'Google Tools', $td ), __( 'Google Tools', $td ),
 				'read', self::SLUG_GOOGLE,
 				[ 'BZGoogle_Admin', 'render_page' ] );
 		}
 
 		if ( class_exists( 'BizCity_Scheduler_Admin_Page', false ) ) {
 			add_submenu_page( self::SLUG_GATEWAY,
-				__( 'Scheduler', $td ), __( '📅 Scheduler', $td ),
+				__( 'Scheduler', $td ), __( 'Scheduler', $td ),
 				'read', 'bizcity-scheduler',
 				[ BizCity_Scheduler_Admin_Page::instance(), 'render_page' ] );
 		}
@@ -331,7 +377,7 @@ class BizCity_Admin_Menu {
 		if ( class_exists( 'BizCity_Knowledge_Admin_Menu', false ) ) {
 			$km = BizCity_Knowledge_Admin_Menu::instance();
 			add_submenu_page( self::SLUG_GATEWAY,
-				__( 'Chat Monitor', $td ), __( '📊 Chat Monitor', $td ),
+				__( 'Chat Monitor', $td ), __( 'Chat Monitor', $td ),
 				'manage_options', 'bizcity-knowledge-monitor',
 				[ $km, 'render_monitor_page' ] );
 		}
@@ -347,21 +393,22 @@ class BizCity_Admin_Menu {
 				'manage_options', self::SLUG_KNOWLEDGE,
 				[ $km, 'render_training_page' ] );
 
-			add_submenu_page( self::SLUG_KNOWLEDGE,
-				__( 'Twin Guru', $td ), __( '🦾 Twin Guru', $td ),
+			// Twin Guru — 2026-05-21: moved to Twin (bizcity-twinchat) parent so
+			// the Guru list is visible alongside Knowledge Graph & Phong cấp Guru.
+			// Slug `bizcity-knowledge-characters` preserved verbatim.
+			add_submenu_page( self::SLUG_CHAT,
+				__( 'Twin Guru', $td ), __( 'Guru list', $td ),
 				'manage_options', 'bizcity-knowledge-characters',
 				[ $km, 'render_characters_page' ] );
 
 			add_submenu_page( self::SLUG_KNOWLEDGE,
-				__( 'Lưu trữ tài liệu, ghi nhớ', $td ), __( '📚 Tài liệu & Ghi nhớ', $td ),
+				__( 'Lưu trữ tài liệu, ghi nhớ', $td ), __( 'Tài liệu & Ghi nhớ', $td ),
 				'manage_options', 'bizcity-knowledge-memory-hub',
 				[ $km, 'render_memory_hub_page' ] );
 
 			// Hidden legacy direct-URL pages
 			add_submenu_page( null, __( 'Training FAQ', $td ), __( 'Training FAQ', $td ),
 				'manage_options', 'bizcity-knowledge-training', [ $km, 'render_training_page' ] );
-			add_submenu_page( null, __( 'Knowledge Dashboard', $td ), __( 'Knowledge Dashboard', $td ),
-				'manage_options', 'bizcity-knowledge-dashboard', [ $km, 'render_maturity_dashboard' ] );
 			add_submenu_page( null, __( 'Dạy AI bằng sổ tay', $td ), __( 'Dạy AI bằng sổ tay', $td ),
 				'read', 'bizcity-knowledge-notebook', [ $km, 'render_notebook_page' ] );
 			add_submenu_page( null, __( 'Edit Twin Guru', $td ), __( 'Edit Twin Guru', $td ),
@@ -371,27 +418,12 @@ class BizCity_Admin_Menu {
 		// Memory Specs
 		if ( class_exists( 'BizCity_Memory_Admin_Page', false ) ) {
 			add_submenu_page( self::SLUG_KNOWLEDGE,
-				__( 'Chỉnh sửa trí nhớ', $td ), __( '🧩 Chỉnh sửa trí nhớ', $td ),
+				__( 'Chỉnh sửa trí nhớ', $td ), __( 'Chỉnh sửa trí nhớ', $td ),
 				'manage_options', 'bizcity-memory',
 				[ BizCity_Memory_Admin_Page::instance(), 'render_page' ] );
 		}
 
-		// Thư viện Pháp luật (Phase 1 Legal Library — dữ liệu crawl)
-		if ( class_exists( 'BizCity_Legal_Database', false ) ) {
-			add_submenu_page( self::SLUG_KNOWLEDGE,
-				__( 'Thư viện Pháp luật', $td ), __( '⚖️ Thư viện Pháp luật', $td ),
-				'manage_options', 'bizcity-legal-library',
-				[ __CLASS__, 'render_legal_library_page' ] );
-			// Legal Graph (Phase 2+)
-			add_submenu_page( self::SLUG_KNOWLEDGE,
-				__( 'Legal Knowledge Graph', $td ), __( 'Pháp lý — Graph', $td ),
-				'manage_options', 'bizcity-knowledge-legal-graph',
-				static function () {
-					if ( defined( 'BIZCITY_LEGAL_DIR' ) ) {
-						include dirname( BIZCITY_LEGAL_DIR ) . '/views/legal-graph.php';
-					}
-				} );
-		}
+		// Legal module — removed 2026-05-21 (core/knowledge/legal/ deleted).
 
 		/* ─────────────────────────────────────────────
 		 *  D. Đào tạo kỹ năng — Content, Image, Video, Notebook
@@ -405,7 +437,7 @@ class BizCity_Admin_Menu {
 		// Notebook (end-user page accessible from Skills admin)
 		if ( class_exists( 'BCN_Admin_Page', false ) ) {
 			add_submenu_page( self::SLUG_SKILLS,
-				'Notebook', '📓 Notebook',
+				'Notebook', 'Notebook',
 				'read', self::SLUG_NOTEBOOK,
 				[ new BCN_Admin_Page(), 'render_page' ] );
 		}
@@ -413,7 +445,7 @@ class BizCity_Admin_Menu {
 		// Content Creator
 		if ( class_exists( 'BZCC_Admin_Menu', false ) ) {
 			add_submenu_page( self::SLUG_SKILLS,
-				'Content Creator', '✍️ Content Creator',
+				'Content Creator', 'Content Creator',
 				'read', self::SLUG_CREATOR,
 				[ 'BZCC_Admin_Menu', 'render_page' ] );
 			add_submenu_page( self::SLUG_SKILLS,
@@ -429,19 +461,19 @@ class BizCity_Admin_Menu {
 		// Image skills
 		if ( function_exists( 'bztimg_admin_editor_templates_page' ) ) {
 			add_submenu_page( self::SLUG_SKILLS,
-				__( 'Kỹ năng thiết kế', $td ), __( '🎨 Kỹ năng thiết kế', $td ),
+				__( 'Kỹ năng thiết kế', $td ), __( 'Kỹ năng thiết kế', $td ),
 				'manage_options', 'bztimg-editor-templates',
 				'bztimg_admin_editor_templates_page' );
 		}
 		if ( function_exists( 'bztimg_admin_templates_page' ) ) {
 			add_submenu_page( self::SLUG_SKILLS,
-				__( 'Kỹ năng ảnh sản phẩm', $td ), __( '📸 Kỹ năng ảnh sản phẩm', $td ),
+				__( 'Kỹ năng ảnh sản phẩm', $td ), __( 'Kỹ năng ảnh sản phẩm', $td ),
 				'manage_options', 'bztimg-templates',
 				'bztimg_admin_templates_page' );
 		}
 		if ( function_exists( 'bztimg_admin_profile_templates_page' ) ) {
 			add_submenu_page( self::SLUG_SKILLS,
-				__( 'Kỹ năng ảnh chân dung', $td ), __( '🧑‍🎨 Kỹ năng ảnh chân dung', $td ),
+				__( 'Kỹ năng ảnh chân dung', $td ), __( 'Kỹ năng ảnh chân dung', $td ),
 				'manage_options', 'bztimg-profile-templates',
 				'bztimg_admin_profile_templates_page' );
 		}
@@ -449,49 +481,39 @@ class BizCity_Admin_Menu {
 		// Skills library (task delegation)
 		if ( class_exists( 'BizCity_Skill_Admin_Page', false ) ) {
 			add_submenu_page( self::SLUG_SKILLS,
-				__( 'Kỹ năng chia việc', $td ), __( '🔀 Kỹ năng chia việc', $td ),
+				__( 'Kỹ năng chia việc', $td ), __( 'Kỹ năng chia việc', $td ),
 				'manage_options', 'bizcity-skills',
 				[ BizCity_Skill_Admin_Page::instance(), 'render_page' ] );
 		}
 
 		/* ─────────────────────────────────────────────
-		 *  E. Chat submenus (under Chat React SPA)
+		 *  F. Intent Monitor submenus — DISABLED 2026-05-19 (Phase G).
+		 *     Parent menu (bizcity-intent-monitor) is no longer registered;
+		 *     these submenus are also commented out so they don't orphan.
 		 * ───────────────────────────────────────────── */
 
-		// Maturity Dashboard
-		if ( class_exists( 'BizCity_Maturity_Dashboard', false ) ) {
-			add_submenu_page( self::SLUG_CHAT,
-				__( 'Độ trưởng thành', $td ), __( 'Độ trưởng thành', $td ),
-				'read', 'bizcity-twin-maturity',
-				[ BizCity_Maturity_Dashboard::instance(), 'render_page' ] );
-		}
+		// // Tool Control Panel
+		// if ( class_exists( 'BizCity_Tool_Control_Panel', false ) ) {
+		// 	add_submenu_page( self::SLUG_INTENT,
+		// 		'Tool Control Panel', 'Control Panel',
+		// 		'manage_options', 'bizcity-tool-control',
+		// 		[ BizCity_Tool_Control_Panel::instance(), 'render_page' ] );
+		// }
 
-		/* ─────────────────────────────────────────────
-		 *  F. Intent Monitor submenus
-		 * ───────────────────────────────────────────── */
-
-		// Tool Control Panel
-		if ( class_exists( 'BizCity_Tool_Control_Panel', false ) ) {
-			add_submenu_page( self::SLUG_INTENT,
-				'Tool Control Panel', 'Control Panel',
-				'manage_options', 'bizcity-tool-control',
-				[ BizCity_Tool_Control_Panel::instance(), 'render_page' ] );
-		}
-
-		// Intent Data Browser — dynamic submenus from page definitions
-		if ( class_exists( 'BizCity_Intent_Data_Browser', false ) ) {
-			$browser = BizCity_Intent_Data_Browser::instance();
-			foreach ( BizCity_Intent_Data_Browser::get_browser_pages() as $slug => $page ) {
-				add_submenu_page(
-					self::SLUG_INTENT,
-					$page['title'],
-					$page['menu'],
-					'manage_options',
-					'bizcity-idb-' . $slug,
-					[ $browser, 'render_page' ]
-				);
-			}
-		}
+		// // Intent Data Browser — dynamic submenus from page definitions
+		// if ( class_exists( 'BizCity_Intent_Data_Browser', false ) ) {
+		// 	$browser = BizCity_Intent_Data_Browser::instance();
+		// 	foreach ( BizCity_Intent_Data_Browser::get_browser_pages() as $slug => $page ) {
+		// 		add_submenu_page(
+		// 			self::SLUG_INTENT,
+		// 			$page['title'],
+		// 			$page['menu'],
+		// 			'manage_options',
+		// 			'bizcity-idb-' . $slug,
+		// 			[ $browser, 'render_page' ]
+		// 		);
+		// 	}
+		// }
 
 		/* ─────────────────────────────────────────────
 		 *  G. WP Dashboard submenus
@@ -547,8 +569,9 @@ class BizCity_Admin_Menu {
 	public static function reorder_sidebar(): void {
 		self::move_menu_item( self::SLUG_ADMIN,     4 );
 		self::move_menu_item( self::SLUG_GATEWAY,   5 );
-		self::move_menu_item( self::SLUG_KNOWLEDGE, 6 );
-		self::move_menu_item( self::SLUG_SKILLS,    7 );
+		self::move_menu_item( self::SLUG_CHANNELS,  6 );
+		self::move_menu_item( self::SLUG_KNOWLEDGE, 7 );
+		self::move_menu_item( self::SLUG_SKILLS,    8 );
 	}
 
 	/**
@@ -653,240 +676,631 @@ class BizCity_Admin_Menu {
 		<?php
 	}
 
+
 	/**
-	 * ══════════════════════════════════════
-	 *  Render: Thư viện Pháp luật — Phase 1
-	 *  Dữ liệu crawl từ luatvietnam.vn + vbpl.vn
-	 * ══════════════════════════════════════
+	 * Gateway landing page — PHASE 0.31 T-S4.2 + PHASE 0.35.S1 (SMTP option migration).
+	 *
+	 * Cards now deep-link directly to each module's native admin page (real URLs,
+	 * not generic Integrations popup). Adds 2 new cards: Scheduler + SMTP.
+	 * SMTP card opens an inline form section that writes to option
+	 * `bizcity_smtp_settings` — replacing legacy `define('BIZCITY_SMTP_*')` in
+	 * `mu-plugins/bizcity-smtp-gmail.php`. The `core/smtp/bootstrap.php` bridge
+	 * still respects `wp-config.php` constants if present (constants > option > none).
 	 */
-	public static function render_legal_library_page(): void {
-		$td      = 'bizcity-twin-ai';
-		$api_url = rest_url( 'bizcity/v1/legal' );
-		$nonce   = wp_create_nonce( 'wp_rest' );
+	public static function render_gateway_page(): void {
+		$td = 'bizcity-twin-ai';
+
+		// PHASE 0.37 M1.W2 — Delegate to Channel Menu Registry when navigating
+		// inside the hub (?group=...&sub=...). The legacy cards-overview only
+		// shows on the bare ?page=bizchat-gateway URL.
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		if ( ( isset( $_GET['group'] ) || isset( $_GET['sub'] ) )
+		     && class_exists( 'BizCity_Channel_Menu_Registry' ) ) {
+			BizCity_Channel_Menu_Registry::instance()->render();
+			return;
+		}
+
+		$cards = [
+			[ 'zalo_bot',     '🤖 Zalo Bot',          __( 'Zalo Official Account bot — webhook + outbound', $td ),       admin_url( 'admin.php?page=bizchat-gateway&group=channels&sub=zalo-bot' ) ],
+			[ 'facebook',     '📘 Facebook Page',     __( 'Messenger DM + Page post', $td ),                              admin_url( 'admin.php?page=bizchat-gateway&group=channels&sub=facebook-page' ) ],
+			[ 'zalo_hotline', '📞 Zalo Hotline (ZNS)',__( 'ZNS template / hotline — Zalo users management', $td ),        admin_url( 'admin.php?page=bizchat-gateway&group=channels&sub=zalo-hotline' ) ],
+			[ 'gmail',        '📧 Gmail',             __( 'Gmail OAuth — đọc/gửi mail (Google Tools)', $td ),             admin_url( 'admin.php?page=bizchat-gateway&group=integrations&sub=google' ) ],
+			[ 'scheduler',    '📅 Scheduler',         __( 'Lịch hẹn — Google Calendar sync, slot booking', $td ),         admin_url( 'admin.php?page=bizchat-gateway&group=integrations&sub=scheduler' ) ],
+			[ 'smtp',         '✉️ SMTP / Gmail relay',__( 'Cấu hình SMTP outbound (mở trang riêng)', $td ),                 admin_url( 'admin.php?page=bizcity-smtp-settings' ) ],
+		];
 		?>
-		<div class="wrap" id="biz-legal-lib">
-			<h1>⚖️ <?php esc_html_e( 'Thư viện Pháp luật', $td ); ?>
-				<a href="<?php echo esc_url( admin_url( 'admin.php?page=bizcity-knowledge-legal-graph' ) ); ?>"
-				   class="page-title-action"><?php esc_html_e( 'Knowledge Graph →', $td ); ?></a>
-			</h1>
-
-			<!-- Stats bar -->
-			<div id="biz-legal-stats" style="display:flex;gap:16px;flex-wrap:wrap;margin:12px 0 20px;"></div>
-
-			<!-- Toolbar -->
-			<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
-				<input id="biz-legal-q" type="search" placeholder="<?php esc_attr_e( 'Tìm kiếm văn bản pháp luật…', $td ); ?>"
-					class="regular-text" style="min-width:280px;">
-				<select id="biz-legal-linh-vuc"><option value=""><?php esc_html_e( '— Lĩnh vực —', $td ); ?></option></select>
-				<select id="biz-legal-loai"><option value=""><?php esc_html_e( '— Loại VB —', $td ); ?></option></select>
-				<select id="biz-legal-priority">
-					<option value=""><?php esc_html_e( '— Mức ưu tiên —', $td ); ?></option>
-					<option value="1">P1 — Bộ luật / Luật</option>
-					<option value="2">P2 — Nghị định / Thông tư</option>
-					<option value="3">P3 — Khác</option>
-				</select>
-				<button id="biz-legal-search" class="button button-primary"><?php esc_html_e( 'Tìm', $td ); ?></button>
-				<button id="biz-legal-crawl-btn" class="button" style="margin-left:auto;">
-					<?php esc_html_e( '+ Crawl URL', $td ); ?>
-				</button>
+		<div class="wrap">
+			<h1><?php esc_html_e( 'Đào tạo kết nối — Channel Gateway', $td ); ?></h1>
+			<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;margin-top:24px;">
+				<?php foreach ( $cards as [ $code, $title, $desc, $url ] ) : ?>
+					<a href="<?php echo esc_url( $url ); ?>"
+					   style="text-decoration:none;color:inherit;display:block;background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:18px;box-shadow:0 2px 6px rgba(0,0,0,.04);transition:box-shadow .2s,transform .2s;"
+					   onmouseover="this.style.boxShadow='0 6px 18px rgba(0,0,0,.10)';this.style.transform='translateY(-2px)'"
+					   onmouseout="this.style.boxShadow='0 2px 6px rgba(0,0,0,.04)';this.style.transform='none'">
+						<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+							<h3 style="margin:0;font-size:16px;"><?php echo esc_html( $title ); ?></h3>
+							<code style="background:#f0f0f1;padding:2px 6px;border-radius:4px;font-size:11px;color:#646970;"><?php echo esc_html( $code ); ?></code>
+						</div>
+						<p style="margin:0;color:#666;font-size:13px;line-height:1.5;"><?php echo esc_html( $desc ); ?></p>
+						<div style="margin-top:10px;color:#2271b1;font-size:12px;">
+							<?php esc_html_e( 'Mở trang quản trị →', $td ); ?>
+						</div>
+					</a>
+				<?php endforeach; ?>
 			</div>
-
-			<!-- Crawl form (hidden by default) -->
-			<div id="biz-legal-crawl-form"
-				 style="display:none;background:#fff;border:1px solid #ddd;border-radius:6px;padding:16px;margin-bottom:14px;">
-				<strong><?php esc_html_e( 'Crawl URL văn bản:', $td ); ?></strong>
-				<div style="display:flex;gap:8px;margin-top:8px;">
-					<input id="biz-crawl-url" type="url" class="regular-text"
-						placeholder="https://luatvietnam.vn/lao-dong/bo-luat-lao-dong-2019-…" style="flex:1;">
-					<button id="biz-crawl-submit" class="button button-primary"><?php esc_html_e( 'Crawl ngay', $td ); ?></button>
-				</div>
-				<div id="biz-crawl-result" style="margin-top:8px;font-size:13px;"></div>
-			</div>
-
-			<!-- Results table -->
-			<div id="biz-legal-loading" style="display:none;padding:12px;color:#666;">Đang tải...</div>
-			<table class="wp-list-table widefat fixed striped" style="margin-top:4px;">
-				<thead><tr>
-					<th style="width:35%">Tên văn bản</th>
-					<th style="width:14%">Số hiệu</th>
-					<th style="width:16%">Cơ quan</th>
-					<th style="width:8%">Năm</th>
-					<th style="width:10%">Hiệu lực</th>
-					<th style="width:8%">Ưu tiên</th>
-					<th style="width:9%">Từ / Trạng thái</th>
-				</tr></thead>
-				<tbody id="biz-legal-tbody"><tr><td colspan="7" style="text-align:center;color:#999;">Nhập từ khoá và nhấn Tìm…</td></tr></tbody>
-			</table>
-
-			<!-- Pagination -->
-			<div id="biz-legal-pager" style="margin-top:12px;display:flex;gap:8px;align-items:center;"></div>
 		</div>
-		<script>
-		(function(){
-			const API  = <?php echo wp_json_encode( $api_url ); ?>;
-			const NON  = <?php echo wp_json_encode( $nonce ); ?>;
-			const HEADS = { 'X-WP-Nonce': NON, 'Content-Type': 'application/json' };
-			let offset = 0, limit = 30, curArgs = {};
-
-			// Load taxonomy dropdowns
-			function loadTaxonomy(type, selId) {
-				fetch(API + '/taxonomy?type=' + type, { headers: HEADS })
-					.then(r => r.json()).then(data => {
-						const sel = document.getElementById(selId);
-						(data.terms || []).forEach(t => {
-							const o = document.createElement('option');
-							o.value = t.slug; o.textContent = t.name + (t.doc_count ? ' (' + t.doc_count + ')' : '');
-							sel.appendChild(o);
-						});
-					}).catch(() => {});
-			}
-			loadTaxonomy('linh_vuc', 'biz-legal-linh-vuc');
-			loadTaxonomy('loai',     'biz-legal-loai');
-
-			// Load stats
-			function loadStats() {
-				fetch(API + '/legal-graph/stats', { headers: HEADS })
-					.then(r => r.json()).then(s => {
-						const bar = document.getElementById('biz-legal-stats');
-						const items = [
-							['Tổng văn bản', s.docs ?? '—'],
-							['Sẵn sàng', s.docs_ready ?? '—'],
-							['P1 (Luật)', s.docs_p1 ?? '—'],
-							['P2 (NĐ/TT)', s.docs_p2 ?? '—'],
-							['Queue', s.queue_pending ?? '—'],
-						];
-						bar.innerHTML = items.map(([l,v]) =>
-							`<div style="background:#fff;border:1px solid #e0e0e0;border-radius:6px;padding:8px 16px;">
-								<div style="font-size:22px;font-weight:600;color:#1d2327;">${v}</div>
-								<div style="font-size:11px;color:#666;">${l}</div>
-							</div>`
-						).join('');
-					}).catch(() => {});
-			}
-			loadStats();
-
-			// Search / list docs
-			function loadDocs() {
-				const args = {
-					search:        document.getElementById('biz-legal-q').value.trim(),
-					linh_vuc_slug: document.getElementById('biz-legal-linh-vuc').value,
-					loai:          document.getElementById('biz-legal-loai').value,
-					priority:      document.getElementById('biz-legal-priority').value,
-					limit, offset,
-				};
-				curArgs = args;
-				const qs = Object.entries(args).filter(([,v]) => v !== '' && v !== 0)
-					.map(([k,v]) => k + '=' + encodeURIComponent(v)).join('&');
-				document.getElementById('biz-legal-loading').style.display = 'block';
-				document.getElementById('biz-legal-tbody').innerHTML = '';
-				fetch(API + '/docs?' + qs, { headers: HEADS })
-					.then(r => r.json()).then(data => {
-						document.getElementById('biz-legal-loading').style.display = 'none';
-						renderDocs(data.docs || [], data.total || 0);
-					}).catch(e => {
-						document.getElementById('biz-legal-loading').style.display = 'none';
-						document.getElementById('biz-legal-tbody').innerHTML =
-							'<tr><td colspan="7" style="color:red;">Lỗi: ' + e.message + '</td></tr>';
-					});
-			}
-
-			const PRIORITY_LABELS = { '1':'🔴 P1', '2':'🟡 P2', '3':'⚪ P3' };
-			const STATUS_LABELS   = { 'con_hieu_luc':'✅ Còn', 'het_hieu_luc':'❌ Hết', 'unknown':'—' };
-
-			function renderDocs(docs, total) {
-				const tb = document.getElementById('biz-legal-tbody');
-				if (!docs.length) {
-					tb.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#999;">Không tìm thấy văn bản nào.</td></tr>';
-					document.getElementById('biz-legal-pager').innerHTML = '';
-					return;
-				}
-				tb.innerHTML = docs.map(d => {
-					const name  = d.ten_van_ban || '(chưa có tên)';
-					const words = d.text_word_count > 0
-						? d.text_word_count.toLocaleString() + ' từ'
-						: d.status === 'ready' ? '✓' : d.status;
-					const link = d.lvn_url || d.file_url || '#';
-					return `<tr>
-						<td><a href="${link}" target="_blank" rel="noopener" title="${name}">${name}</a>`
-						+ (d.excerpt ? `<br><small style="color:#888;">${d.excerpt.substring(0,120)}…</small>` : '')
-						+ `</td>
-						<td style="font-size:12px;">${d.so_hieu || '—'}</td>
-						<td style="font-size:12px;">${d.co_quan || '—'}</td>
-						<td>${d.nam_ban_hanh > 0 ? d.nam_ban_hanh : (d.ngay_ban_hanh ? d.ngay_ban_hanh.substring(0,4) : '—')}</td>
-						<td>${STATUS_LABELS[d.hieu_luc] ?? d.hieu_luc}</td>
-						<td>${PRIORITY_LABELS[String(d.crawl_priority)] ?? d.crawl_priority}</td>
-						<td style="font-size:11px;color:#555;">${words}</td>
-					</tr>`;
-				}).join('');
-
-				// Pagination
-				const pager = document.getElementById('biz-legal-pager');
-				const totalPages = Math.ceil(total / limit);
-				const curPage    = Math.floor(offset / limit) + 1;
-				pager.innerHTML = `<span style="color:#666;">Tìm thấy <strong>${total}</strong> văn bản — trang ${curPage}/${totalPages}</span>`
-					+ (offset > 0 ? ' <button id="biz-pg-prev" class="button">← Trước</button>' : '')
-					+ (offset + limit < total ? ' <button id="biz-pg-next" class="button">Sau →</button>' : '');
-				pager.querySelector('#biz-pg-prev')?.addEventListener('click', () => { offset -= limit; loadDocs(); });
-				pager.querySelector('#biz-pg-next')?.addEventListener('click', () => { offset += limit; loadDocs(); });
-			}
-
-			// Search button
-			document.getElementById('biz-legal-search').addEventListener('click', () => { offset = 0; loadDocs(); });
-			document.getElementById('biz-legal-q').addEventListener('keydown', e => { if (e.key === 'Enter') { offset = 0; loadDocs(); } });
-
-			// Crawl form toggle
-			document.getElementById('biz-legal-crawl-btn').addEventListener('click', () => {
-				const f = document.getElementById('biz-legal-crawl-form');
-				f.style.display = f.style.display === 'none' ? 'block' : 'none';
-			});
-
-			// Crawl submit
-			document.getElementById('biz-crawl-submit').addEventListener('click', () => {
-				const url = document.getElementById('biz-crawl-url').value.trim();
-				const res = document.getElementById('biz-crawl-result');
-				if (!url) { res.textContent = 'Nhập URL trước.'; return; }
-				res.textContent = '⏳ Đang crawl…';
-				const btn = document.getElementById('biz-crawl-submit');
-				btn.disabled = true;
-				fetch(API + '/crawl-now', {
-					method: 'POST', headers: HEADS,
-					body: JSON.stringify({ url }),
-				}).then(r => r.json()).then(data => {
-					btn.disabled = false;
-					if (data.ok) {
-						const d = data.doc;
-						res.innerHTML = '✅ OK — <strong>' + (d?.ten_van_ban || 'doc_id=' + data.doc_id) + '</strong>'
-							+ ' | ' + (d?.text_word_count || 0).toLocaleString() + ' từ'
-							+ ' | nguồn: ' + (d?.text_source || '?');
-						loadStats();
-					} else {
-						res.textContent = '❌ ' + (data.error || 'Lỗi không xác định');
-					}
-				}).catch(e => { btn.disabled = false; res.textContent = '❌ ' + e.message; });
-			});
-
-			// Auto-load first page on open
-			loadDocs();
-		})();
-		</script>
 		<?php
 	}
 
 	/**
-	 * Gateway landing page delegates to the channel gateway module when available.
+	 * Handle SMTP settings form POST → write to option `bizcity_smtp_settings`.
+	 *
+	 * Called from render_gateway_page() before output. Uses nonce + manage_options.
+	 * Picked up automatically on next request by `core/smtp/bootstrap.php`
+	 * (option-level config, lower precedence than wp-config.php constants).
 	 */
-	public static function render_gateway_page(): void {
-		if ( class_exists( 'BizCity_Gateway_Admin', false ) ) {
-			BizCity_Gateway_Admin::instance()->render_overview();
+	private static function handle_smtp_settings_post(): void {
+		if ( ! isset( $_POST['bizcity_smtp_settings_submit'] ) ) {
+			return;
+		}
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+		if ( ! isset( $_POST['_wpnonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['_wpnonce'] ) ), 'bizcity_smtp_settings' ) ) {
 			return;
 		}
 
-		$td = 'bizcity-twin-ai';
+		$existing = get_option( 'bizcity_smtp_settings', array() );
+		$existing = is_array( $existing ) ? $existing : array();
+
+		$pass_in    = isset( $_POST['smtp_pass'] ) ? (string) wp_unslash( $_POST['smtp_pass'] ) : '';
+		$keep_pass  = isset( $_POST['smtp_keep_pass'] ) && $_POST['smtp_keep_pass'] === '1';
+
+		$new = array(
+			'host'      => isset( $_POST['smtp_host'] )      ? sanitize_text_field( wp_unslash( $_POST['smtp_host'] ) )      : '',
+			'port'      => isset( $_POST['smtp_port'] )      ? (int)               wp_unslash( $_POST['smtp_port'] )         : 587,
+			'user'      => isset( $_POST['smtp_user'] )      ? sanitize_text_field( wp_unslash( $_POST['smtp_user'] ) )      : '',
+			'pass'      => $keep_pass ? (string) ( $existing['pass'] ?? '' ) : $pass_in,
+			'from'      => isset( $_POST['smtp_from'] )      ? sanitize_email(      wp_unslash( $_POST['smtp_from'] ) )      : '',
+			'from_name' => isset( $_POST['smtp_from_name'] ) ? sanitize_text_field( wp_unslash( $_POST['smtp_from_name'] ) ) : '',
+			'secure'    => isset( $_POST['smtp_secure'] )    ? sanitize_key(        wp_unslash( $_POST['smtp_secure'] ) )    : 'tls',
+			'auth'      => isset( $_POST['smtp_auth'] ) && $_POST['smtp_auth'] === '1',
+		);
+
+		// Sanitize secure to known values.
+		if ( ! in_array( $new['secure'], array( 'tls', 'ssl', '' ), true ) ) {
+			$new['secure'] = 'tls';
+		}
+
+		update_option( 'bizcity_smtp_settings', $new, false );
+
+		// Optional: send a test email if requested.
+		if ( isset( $_POST['smtp_send_test'] ) && $_POST['smtp_send_test'] === '1' ) {
+			$test_to   = isset( $_POST['smtp_test_to'] ) ? sanitize_email( wp_unslash( $_POST['smtp_test_to'] ) ) : wp_get_current_user()->user_email;
+			$test_to   = $test_to ?: get_option( 'admin_email' );
+			$ok        = wp_mail( $test_to, '[BizCity] SMTP test ' . current_time( 'mysql' ), 'SMTP relay test thành công nếu bạn nhận được email này.' );
+			set_transient( 'bizcity_smtp_settings_notice', array(
+				'type' => $ok ? 'success' : 'error',
+				'msg'  => $ok
+					? sprintf( /* translators: %s = recipient email */ __( '✅ Đã lưu + gửi test tới %s. Kiểm tra inbox.', 'bizcity-twin-ai' ), $test_to )
+					: __( '⚠️ Đã lưu nhưng gửi test thất bại. Kiểm tra log error_log() / lỗi PHPMailer.', 'bizcity-twin-ai' ),
+			), 30 );
+		} else {
+			set_transient( 'bizcity_smtp_settings_notice', array(
+				'type' => 'success',
+				'msg'  => __( '✅ Đã lưu cấu hình SMTP.', 'bizcity-twin-ai' ),
+			), 30 );
+		}
+
+		// PRG: redirect to avoid re-submit on refresh.
+		wp_safe_redirect( admin_url( 'admin.php?page=' . self::SLUG_GATEWAY . '#bizcity-smtp-settings' ) );
+		exit;
+	}
+
+	/**
+	 * Render SMTP settings form section (option-driven, replaces legacy mu-plugin defines).
+	 *
+	 * Precedence (resolved by `core/smtp/bootstrap.php::BizCity_SMTP::resolve_config()`):
+	 *   1. `wp-config.php` constants `BIZCITY_SMTP_*`  ← read-only override (shown locked)
+	 *   2. This option `bizcity_smtp_settings`         ← editable here
+	 *   3. None → `wp_mail()` falls back to PHP mail()
+	 */
+	private static function render_smtp_settings_form(): void {
+		$td       = 'bizcity-twin-ai';
+		$opt      = get_option( 'bizcity_smtp_settings', array() );
+		$opt      = is_array( $opt ) ? $opt : array();
+		$has_pass = ! empty( $opt['pass'] );
+
+		$constants = array(
+			'BIZCITY_SMTP_HOST'      => defined( 'BIZCITY_SMTP_HOST' ),
+			'BIZCITY_SMTP_PORT'      => defined( 'BIZCITY_SMTP_PORT' ),
+			'BIZCITY_SMTP_USER'      => defined( 'BIZCITY_SMTP_USER' ),
+			'BIZCITY_SMTP_PASS'      => defined( 'BIZCITY_SMTP_PASS' ),
+			'BIZCITY_SMTP_FROM'      => defined( 'BIZCITY_SMTP_FROM' ),
+			'BIZCITY_SMTP_FROM_NAME' => defined( 'BIZCITY_SMTP_FROM_NAME' ),
+			'BIZCITY_SMTP_SECURE'    => defined( 'BIZCITY_SMTP_SECURE' ),
+			'BIZCITY_SMTP_AUTH'      => defined( 'BIZCITY_SMTP_AUTH' ),
+		);
+		$has_const_override = in_array( true, $constants, true );
+
+		$notice = get_transient( 'bizcity_smtp_settings_notice' );
+		if ( $notice ) {
+			delete_transient( 'bizcity_smtp_settings_notice' );
+		}
+
 		?>
-		<div class="wrap">
-			<h1><?php esc_html_e( 'Gateway', $td ); ?></h1>
-			<p><?php esc_html_e( 'Trung tâm quản lý các đầu kết nối như Zalo, Facebook, Google Tools và Scheduler.', $td ); ?></p>
+		<div id="bizcity-smtp-settings" style="margin-top:36px;background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:24px;box-shadow:0 2px 6px rgba(0,0,0,.04);">
+			<h2 style="margin-top:0;">✉️ <?php esc_html_e( 'SMTP / Gmail Relay', $td ); ?></h2>
+			<p style="color:#50575e;max-width:760px;">
+				<?php esc_html_e( 'Cấu hình SMTP để wp_mail() (đăng ký tài khoản, reset password, hoá đơn, thông báo…) gửi qua relay riêng thay vì PHP mail(). Module bridge ở core/smtp/bootstrap.php sẽ tự áp dụng config bên dưới — không cần restart.', $td ); ?>
+			</p>
+
+			<?php if ( $notice ) : ?>
+			<div class="notice notice-<?php echo esc_attr( $notice['type'] ); ?>" style="margin:12px 0;">
+				<p><?php echo esc_html( $notice['msg'] ); ?></p>
+			</div>
+			<?php endif; ?>
+
+			<?php if ( $has_const_override ) : ?>
+			<div class="notice notice-warning" style="margin:12px 0;">
+				<p>
+					<strong>⚠️ <?php esc_html_e( 'Đang có override từ wp-config.php', $td ); ?></strong> —
+					<?php esc_html_e( 'các define BIZCITY_SMTP_* ưu tiên hơn option. Khi cả hai cùng tồn tại, constant thắng. Để dùng form bên dưới, gỡ define trong wp-config.php.', $td ); ?>
+				</p>
+				<p style="font-family:monospace;font-size:12px;color:#666;">
+				<?php foreach ( $constants as $name => $defined ) : ?>
+					<span style="display:inline-block;margin-right:14px;"><?php echo esc_html( $name ); ?>: <?php echo $defined ? '<span style="color:#1a7f37">defined</span>' : '<span style="color:#999">not set</span>'; ?></span>
+				<?php endforeach; ?>
+				</p>
+			</div>
+			<?php endif; ?>
+
+			<form method="post" action="">
+				<?php wp_nonce_field( 'bizcity_smtp_settings' ); ?>
+				<table class="form-table" role="presentation">
+					<tbody>
+					<tr>
+						<th scope="row"><label for="smtp_host"><?php esc_html_e( 'SMTP Host', $td ); ?></label></th>
+						<td>
+							<input type="text" id="smtp_host" name="smtp_host" value="<?php echo esc_attr( $opt['host'] ?? 'smtp.gmail.com' ); ?>" class="regular-text" placeholder="smtp.gmail.com" />
+							<p class="description"><?php esc_html_e( 'Ví dụ: smtp.gmail.com (Google Workspace), smtp.mailgun.org, smtp.sendgrid.net.', $td ); ?></p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="smtp_port"><?php esc_html_e( 'Port', $td ); ?></label></th>
+						<td>
+							<input type="number" id="smtp_port" name="smtp_port" value="<?php echo esc_attr( (string) ( $opt['port'] ?? 587 ) ); ?>" class="small-text" min="1" max="65535" />
+							<p class="description"><?php esc_html_e( '587 (TLS, đa số) · 465 (SSL) · 25 (plain, ít dùng)', $td ); ?></p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="smtp_secure"><?php esc_html_e( 'Encryption', $td ); ?></label></th>
+						<td>
+							<select id="smtp_secure" name="smtp_secure">
+								<?php $cur = $opt['secure'] ?? 'tls'; ?>
+								<option value="tls" <?php selected( $cur, 'tls' ); ?>>TLS (port 587)</option>
+								<option value="ssl" <?php selected( $cur, 'ssl' ); ?>>SSL (port 465)</option>
+								<option value=""    <?php selected( $cur, '' );    ?>><?php esc_html_e( '(không mã hoá)', $td ); ?></option>
+							</select>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="smtp_auth"><?php esc_html_e( 'Yêu cầu auth', $td ); ?></label></th>
+						<td>
+							<label><input type="checkbox" id="smtp_auth" name="smtp_auth" value="1" <?php checked( ! empty( $opt['auth'] ) || ! isset( $opt['auth'] ) ); ?> /> <?php esc_html_e( 'SMTP server yêu cầu username + password (mặc định bật).', $td ); ?></label>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="smtp_user"><?php esc_html_e( 'Username', $td ); ?></label></th>
+						<td>
+							<input type="text" id="smtp_user" name="smtp_user" value="<?php echo esc_attr( $opt['user'] ?? '' ); ?>" class="regular-text" placeholder="hoanganh.itm@gmail.com" autocomplete="off" />
+							<p class="description"><?php esc_html_e( 'Với Gmail: full email address. Với Workspace: account dùng để gửi.', $td ); ?></p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="smtp_pass"><?php esc_html_e( 'Password / App Password', $td ); ?></label></th>
+						<td>
+							<input type="password" id="smtp_pass" name="smtp_pass" value="" class="regular-text" placeholder="<?php echo $has_pass ? esc_attr__( '(để trống = giữ nguyên password đã lưu)', $td ) : 'gfsp pxcc xytz svnq'; ?>" autocomplete="new-password" />
+							<?php if ( $has_pass ) : ?>
+								<label style="display:block;margin-top:6px;"><input type="checkbox" name="smtp_keep_pass" value="1" checked /> <?php esc_html_e( 'Giữ password hiện tại (đã có)', $td ); ?></label>
+							<?php endif; ?>
+							<p class="description"><?php
+								printf(
+									/* translators: %s = link to Google App Password */
+									wp_kses_post( __( 'Với Gmail bật 2FA: dùng %s thay vì mật khẩu thường.', $td ) ),
+									'<a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener">App Password</a>'
+								);
+							?></p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="smtp_from"><?php esc_html_e( 'From Email', $td ); ?></label></th>
+						<td>
+							<input type="email" id="smtp_from" name="smtp_from" value="<?php echo esc_attr( $opt['from'] ?? '' ); ?>" class="regular-text" placeholder="no-reply@bizcity.vn" />
+							<p class="description"><?php esc_html_e( 'Địa chỉ hiển thị ở “From:” — thường = SMTP user (Gmail bắt buộc). Với Workspace có thể đặt khác nếu là alias.', $td ); ?></p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="smtp_from_name"><?php esc_html_e( 'From Name', $td ); ?></label></th>
+						<td>
+							<input type="text" id="smtp_from_name" name="smtp_from_name" value="<?php echo esc_attr( $opt['from_name'] ?? get_bloginfo( 'name' ) ); ?>" class="regular-text" />
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="smtp_test_to"><?php esc_html_e( 'Gửi email test (optional)', $td ); ?></label></th>
+						<td>
+							<label><input type="checkbox" name="smtp_send_test" value="1" /> <?php esc_html_e( 'Gửi email test ngay sau khi lưu tới:', $td ); ?></label>
+							<input type="email" id="smtp_test_to" name="smtp_test_to" value="<?php echo esc_attr( wp_get_current_user()->user_email ?: get_option( 'admin_email' ) ); ?>" class="regular-text" placeholder="<?php esc_attr_e( 'Để trống = email admin', $td ); ?>" />
+						</td>
+					</tr>
+					</tbody>
+				</table>
+				<p>
+					<button type="submit" name="bizcity_smtp_settings_submit" value="1" class="button button-primary"><?php esc_html_e( '💾 Lưu cấu hình SMTP', $td ); ?></button>
+					<span style="margin-left:14px;color:#666;font-size:12px;">
+						<?php
+						$loaded = defined( 'BIZCITY_SMTP_LOADED' );
+						$cfg    = ( $loaded && class_exists( 'BizCity_SMTP' ) ) ? BizCity_SMTP::resolve_config() : null;
+						if ( $cfg ) {
+							echo '🟢 ' . esc_html__( 'SMTP bridge ACTIVE — gửi qua', $td ) . ' <code>' . esc_html( $cfg['host'] . ':' . $cfg['port'] ) . '</code>';
+						} elseif ( $loaded ) {
+							echo '⚪ ' . esc_html__( 'SMTP bridge loaded nhưng chưa đủ config (cần host + user + pass + from).', $td );
+						} else {
+							echo '⚠️ ' . esc_html__( 'SMTP module chưa load (kiểm tra core/smtp/bootstrap.php).', $td );
+						}
+						?>
+					</span>
+				</p>
+			</form>
 		</div>
+		<?php
+	}
+
+	/**
+	 * PHASE 0.31 Sprint 6 — Standalone Integrations admin page.
+	 *
+	 * Renders the integration list (previously the "Tích hợp bên ngoài" tab
+	 * of the Workflow Builder) as an independent WP admin page accessible via
+	 * ?page=bizcity-integrations in the "Đào tạo kết nối" sidebar.
+	 */
+	public static function render_integrations_page(): void {
+		if ( ! class_exists( 'WaicFrame', false ) ) {
+			echo '<div class="wrap"><div class="notice notice-error"><p>Automation (WAIC) module not loaded.</p></div></div>';
+			return;
+		}
+		$workflow_mod = WaicFrame::_()->getModule( 'workflow' );
+		if ( ! $workflow_mod ) {
+			echo '<div class="wrap"><div class="notice notice-error"><p>Workflow module not available.</p></div></div>';
+			return;
+		}
+		echo $workflow_mod->getView()->showIntegrationsPage(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+	}
+
+	/**
+	 * PHASE 0.31 T-S4.1 — Channels parent landing page.
+	 * Shows index of channel bot admin pages registered as submenus.
+	 */
+	public static function render_channels_page(): void {
+		$td = 'bizcity-twin-ai';
+
+		// ── Channel cards (single source of truth) ───────────────────
+		// Each entry: id, emoji, brand_color, name, subtitle, ready (bool),
+		// primary { url, label, target }, secondary[] (optional extra btns).
+		$support_zalo = (string) apply_filters(
+			'bizcity_support_zalo_url',
+			get_option( 'bizcity_support_zalo_url', 'https://zalo.me/0562608899' )
+		);
+		$channels = [
+			[
+				'id'        => 'zalo_bot',
+				'emoji'     => '🤖',
+				'brand'     => '#0068FF',
+				'name'      => __( 'Zalo Official Account', $td ),
+				'subtitle'  => __( 'Bot OA — gửi/nhận tin nhắn, gán bot vào user, memory & logs.', $td ),
+				'ready'     => class_exists( 'BizCity_Zalo_Bot_Dashboard', false ),
+				'install_hint' => __( 'Plugin "BizCity Zalo Bot" chưa được kích hoạt.', $td ),
+				'primary'   => [
+					'url'   => admin_url( 'admin.php?page=bizcity-zalo-bot-dashboard' ),
+					'label' => __( 'Mở Dashboard', $td ),
+				],
+				'secondary' => [
+					[ 'url' => admin_url( 'admin.php?page=bizcity-zalo-bots' ),         'label' => __( 'Bots', $td ) ],
+					[ 'url' => admin_url( 'admin.php?page=bizcity-zalo-bot-assign' ),   'label' => __( 'Assign', $td ) ],
+					[ 'url' => admin_url( 'admin.php?page=bizcity-zalo-bot-listener' ), 'label' => __( 'Listener', $td ) ],
+				],
+			],
+			[
+				'id'        => 'facebook',
+				'emoji'     => '📘',
+				'brand'     => '#1877F2',
+				'name'      => __( 'Facebook Pages', $td ),
+				'subtitle'  => __( 'Kết nối Page tokens qua OAuth, quản lý connected pages.', $td ),
+				'ready'     => class_exists( 'BizCity_Facebook_Bot_Admin_Menu', false ),
+				'install_hint' => __( 'Plugin "BizCity Facebook Bot" chưa được kích hoạt.', $td ),
+				'primary'   => [
+					'url'   => admin_url( 'admin.php?page=bizcity-facebook-bots' ),
+					'label' => __( 'Quản lý Pages', $td ),
+				],
+				'secondary' => [
+					[ 'url' => admin_url( 'admin.php?page=bizcity-facebook-bot-connect' ), 'label' => __( 'Kết nối Page', $td ) ],
+				],
+			],
+			[
+				'id'        => 'zalo_hotline',
+				'emoji'     => '📞',
+				'brand'     => '#00B0FF',
+				'name'      => __( 'Zalo Hotline (ZNS)', $td ),
+				'subtitle'  => __( 'Gửi ZNS template tới khách (OTP, xác nhận đơn, nhắc lịch).', $td ),
+				'ready'     => class_exists( 'BizCity_Zalo_Hotline_Admin_Menu', false ),
+				'install_hint' => __( 'Plugin "BizCity Zalo Hotline" (mu-plugins) chưa được kích hoạt.', $td ),
+				'primary'   => [
+					'url'   => admin_url( 'admin.php?page=bizcity-zalo-hotline' ),
+					'label' => __( 'Cấu hình ZNS', $td ),
+				],
+			],
+			[
+				'id'        => 'google',
+				'emoji'     => '🔍',
+				'brand'     => '#4285F4',
+				'name'      => __( 'Google Workspace', $td ),
+				'subtitle'  => __( 'Calendar, Gmail, Drive — OAuth kết nối Google account.', $td ),
+				'ready'     => class_exists( 'BZGoogle_Admin', false ),
+				'install_hint' => __( 'Plugin "BizGPT Tool Google" chưa được kích hoạt.', $td ),
+				'primary'   => [
+					'url'   => admin_url( 'admin.php?page=' . self::SLUG_GOOGLE ),
+					'label' => __( 'Kết nối Google', $td ),
+				],
+			],
+			[
+				'id'        => 'bizcity_hotline',
+				'emoji'     => '☎️',
+				'brand'     => '#1A5276',
+				'name'      => __( 'Hotline BizCity (Hỗ trợ)', $td ),
+				'subtitle'  => __( 'Liên hệ trực tiếp đội hỗ trợ BizCity qua Zalo OA chính thức.', $td ),
+				'ready'     => true,
+				'primary'   => [
+					'url'    => $support_zalo,
+					'label'  => __( 'Mở Zalo BizCity', $td ),
+					'target' => '_blank',
+				],
+				'secondary' => [
+					[ 'url' => 'mailto:support@bizcity.vn', 'label' => __( 'Email', $td ), 'target' => '_blank' ],
+				],
+			],
+		];
+
+		// Default active tab from URL (?tab=facebook etc).
+		$req_tab    = isset( $_GET['tab'] ) ? sanitize_key( (string) $_GET['tab'] ) : 'zalo_bot';
+		$active_tab = 'zalo_bot';
+		foreach ( $channels as $c ) {
+			if ( $c['id'] === $req_tab ) { $active_tab = $req_tab; break; }
+		}
+		?>
+		<style>
+			/* ── Channels — single-screen tabbed layout (no body scroll) ── */
+			html.bz-ch-lock, html.bz-ch-lock body { overflow: hidden !important; }
+			#wpbody-content { padding-bottom: 0 !important; }
+			#wpfooter { display: none !important; }
+			.bz-ch {
+				position: fixed;
+				top: 32px; left: 160px; right: 0; bottom: 0;
+				display: flex; flex-direction: column;
+				background: #f6f7f9;
+				font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+			}
+			body.folded .bz-ch { left: 36px; }
+			@media (max-width: 782px) {
+				.bz-ch { top: 46px; left: 0; }
+			}
+			.bz-ch__head {
+				flex: 0 0 auto;
+				padding: 18px 28px 0;
+			}
+			.bz-ch__head h1 { margin: 0 0 4px; font-size: 22px; font-weight: 600; color: #1d2327; }
+			.bz-ch__head p  { margin: 0 0 12px; color: #50575e; font-size: 13px; max-width: 880px; line-height: 1.5; }
+			.bz-ch__tabs {
+				flex: 0 0 auto;
+				display: flex; gap: 2px;
+				padding: 0 28px;
+				border-bottom: 1px solid #dcdcde;
+				background: #f6f7f9;
+				overflow-x: auto; scrollbar-width: thin;
+			}
+			.bz-ch__tab {
+				display: inline-flex; align-items: center; gap: 8px;
+				padding: 10px 18px;
+				border: 1px solid transparent; border-bottom: none;
+				border-radius: 8px 8px 0 0;
+				background: transparent;
+				color: #50575e; font-size: 13px; font-weight: 500;
+				text-decoration: none; cursor: pointer; white-space: nowrap;
+				transition: background .12s, color .12s;
+			}
+			.bz-ch__tab:hover { color: #1d2327; background: #fff; }
+			.bz-ch__tab.is-active {
+				background: #fff;
+				border-color: #dcdcde;
+				color: #1d2327;
+				margin-bottom: -1px;
+				border-bottom: 1px solid #fff;
+			}
+			.bz-ch__tab .bz-ch__tab-emoji { font-size: 16px; line-height: 1; }
+			.bz-ch__tab .bz-ch__tab-dot {
+				width: 8px; height: 8px; border-radius: 50%;
+				background: #d63638;
+			}
+			.bz-ch__tab.is-ready .bz-ch__tab-dot { background: #00a32a; }
+			.bz-ch__body {
+				flex: 1 1 auto;
+				display: flex; align-items: center; justify-content: center;
+				padding: 28px;
+				overflow: hidden;
+			}
+			.bz-ch__panel { display: none; width: 100%; max-width: 720px; }
+			.bz-ch__panel.is-active { display: block; }
+			.bz-ch__card {
+				background: #fff;
+				border: 1px solid #e0e0e0;
+				border-radius: 14px;
+				padding: 32px;
+				box-shadow: 0 4px 16px rgba(0,0,0,.04);
+				text-align: center;
+			}
+			.bz-ch__brand {
+				width: 72px; height: 72px;
+				margin: 0 auto 18px;
+				border-radius: 18px;
+				display: flex; align-items: center; justify-content: center;
+				font-size: 36px;
+				background: var(--bz-brand, #0068FF);
+				color: #fff;
+				box-shadow: 0 6px 18px color-mix(in srgb, var(--bz-brand, #0068FF) 32%, transparent);
+			}
+			.bz-ch__name { margin: 0 0 6px; font-size: 20px; font-weight: 600; color: #1d2327; }
+			.bz-ch__sub  { margin: 0 0 20px; color: #50575e; font-size: 13px; line-height: 1.55; }
+			.bz-ch__status {
+				display: inline-flex; align-items: center; gap: 6px;
+				padding: 4px 10px;
+				border-radius: 999px;
+				font-size: 11px; font-weight: 600; letter-spacing: .02em;
+				margin-bottom: 18px;
+			}
+			.bz-ch__status--ready  { background: #edfaef; color: #00723b; }
+			.bz-ch__status--missing{ background: #fdecec; color: #b32d2e; }
+			.bz-ch__status::before {
+				content: ""; width: 6px; height: 6px; border-radius: 50%;
+				background: currentColor;
+			}
+			.bz-ch__actions {
+				display: flex; flex-wrap: wrap; gap: 10px; justify-content: center;
+				margin-top: 8px;
+			}
+			.bz-ch__btn {
+				display: inline-flex; align-items: center; gap: 6px;
+				padding: 10px 20px;
+				border-radius: 8px;
+				font-size: 13px; font-weight: 600;
+				text-decoration: none; cursor: pointer;
+				transition: filter .12s, transform .04s;
+				border: 1px solid transparent;
+			}
+			.bz-ch__btn:active { transform: translateY(1px); }
+			.bz-ch__btn--primary {
+				background: var(--bz-brand, #0068FF);
+				color: #fff;
+			}
+			.bz-ch__btn--primary:hover { filter: brightness(.92); color: #fff; }
+			.bz-ch__btn--ghost {
+				background: #fff;
+				color: #50575e;
+				border-color: #c3c4c7;
+			}
+			.bz-ch__btn--ghost:hover { background: #f6f7f9; color: #1d2327; }
+			.bz-ch__btn[disabled],
+			.bz-ch__btn.is-disabled {
+				opacity: .5; pointer-events: none;
+			}
+			.bz-ch__hint {
+				margin-top: 18px;
+				font-size: 12px; color: #b32d2e;
+			}
+		</style>
+		<div class="bz-ch" id="bz-ch-root">
+			<div class="bz-ch__head">
+				<h1><?php esc_html_e( 'Channels', $td ); ?></h1>
+				<p><?php esc_html_e( 'Trung tâm kết nối các kênh giao tiếp: Zalo OA, Facebook Pages, ZNS Hotline, Google Workspace và Hotline hỗ trợ BizCity. Mỗi tab dẫn tới trang cấu hình chi tiết của plugin tương ứng.', $td ); ?></p>
+			</div>
+			<nav class="bz-ch__tabs" role="tablist" aria-label="<?php esc_attr_e( 'Channel tabs', $td ); ?>">
+				<?php foreach ( $channels as $c ) :
+					$is_active = ( $c['id'] === $active_tab );
+					?>
+					<a href="<?php echo esc_url( admin_url( 'admin.php?page=' . self::SLUG_CHANNELS . '&tab=' . $c['id'] ) ); ?>"
+					   class="bz-ch__tab <?php echo $is_active ? 'is-active' : ''; ?> <?php echo $c['ready'] ? 'is-ready' : ''; ?>"
+					   data-bz-tab="<?php echo esc_attr( $c['id'] ); ?>"
+					   role="tab"
+					   aria-selected="<?php echo $is_active ? 'true' : 'false'; ?>">
+						<span class="bz-ch__tab-emoji"><?php echo esc_html( $c['emoji'] ); ?></span>
+						<span><?php echo esc_html( $c['name'] ); ?></span>
+						<span class="bz-ch__tab-dot" title="<?php echo $c['ready'] ? esc_attr__( 'Plugin sẵn sàng', $td ) : esc_attr__( 'Chưa cài plugin', $td ); ?>"></span>
+					</a>
+				<?php endforeach; ?>
+			</nav>
+			<div class="bz-ch__body">
+				<?php foreach ( $channels as $c ) :
+					$is_active = ( $c['id'] === $active_tab );
+					$primary   = $c['primary'] ?? [];
+					$secondary = $c['secondary'] ?? [];
+					?>
+					<section class="bz-ch__panel <?php echo $is_active ? 'is-active' : ''; ?>"
+					         data-bz-panel="<?php echo esc_attr( $c['id'] ); ?>"
+					         role="tabpanel">
+						<div class="bz-ch__card" style="--bz-brand: <?php echo esc_attr( $c['brand'] ); ?>;">
+							<div class="bz-ch__brand"><?php echo esc_html( $c['emoji'] ); ?></div>
+							<h2 class="bz-ch__name"><?php echo esc_html( $c['name'] ); ?></h2>
+							<p class="bz-ch__sub"><?php echo esc_html( $c['subtitle'] ); ?></p>
+							<?php if ( $c['ready'] ) : ?>
+								<span class="bz-ch__status bz-ch__status--ready"><?php esc_html_e( 'Sẵn sàng', $td ); ?></span>
+							<?php else : ?>
+								<span class="bz-ch__status bz-ch__status--missing"><?php esc_html_e( 'Chưa cài đặt', $td ); ?></span>
+							<?php endif; ?>
+							<div class="bz-ch__actions">
+								<?php if ( ! empty( $primary['url'] ) ) :
+									$tgt = $primary['target'] ?? ''; ?>
+									<a class="bz-ch__btn bz-ch__btn--primary <?php echo $c['ready'] ? '' : 'is-disabled'; ?>"
+									   href="<?php echo esc_url( $primary['url'] ); ?>"
+									   <?php if ( $tgt ) : ?>target="<?php echo esc_attr( $tgt ); ?>" rel="noopener noreferrer"<?php endif; ?>>
+										<?php echo esc_html( $primary['label'] ?? __( 'Mở', $td ) ); ?>
+									</a>
+								<?php endif; ?>
+								<?php foreach ( $secondary as $sec ) :
+									$tgt = $sec['target'] ?? ''; ?>
+									<a class="bz-ch__btn bz-ch__btn--ghost <?php echo $c['ready'] ? '' : 'is-disabled'; ?>"
+									   href="<?php echo esc_url( $sec['url'] ); ?>"
+									   <?php if ( $tgt ) : ?>target="<?php echo esc_attr( $tgt ); ?>" rel="noopener noreferrer"<?php endif; ?>>
+										<?php echo esc_html( $sec['label'] ); ?>
+									</a>
+								<?php endforeach; ?>
+							</div>
+							<?php if ( ! $c['ready'] && ! empty( $c['install_hint'] ) ) : ?>
+								<p class="bz-ch__hint"><?php echo esc_html( $c['install_hint'] ); ?></p>
+							<?php endif; ?>
+						</div>
+					</section>
+				<?php endforeach; ?>
+			</div>
+		</div>
+		<script>
+			(function () {
+				document.documentElement.classList.add('bz-ch-lock');
+				var root = document.getElementById('bz-ch-root');
+				if (!root) return;
+				root.querySelectorAll('[data-bz-tab]').forEach(function (tab) {
+					tab.addEventListener('click', function (e) {
+						// Allow Ctrl/Cmd-click to open in new tab as URL
+						if (e.metaKey || e.ctrlKey || e.shiftKey) return;
+						e.preventDefault();
+						var id = tab.getAttribute('data-bz-tab');
+						root.querySelectorAll('[data-bz-tab]').forEach(function (t) {
+							var on = t.getAttribute('data-bz-tab') === id;
+							t.classList.toggle('is-active', on);
+							t.setAttribute('aria-selected', on ? 'true' : 'false');
+						});
+						root.querySelectorAll('[data-bz-panel]').forEach(function (p) {
+							p.classList.toggle('is-active', p.getAttribute('data-bz-panel') === id);
+						});
+						// Sync URL without reload.
+						try {
+							var u = new URL(window.location.href);
+							u.searchParams.set('tab', id);
+							window.history.replaceState({}, '', u.toString());
+						} catch (_) {}
+					});
+				});
+				window.addEventListener('beforeunload', function () {
+					document.documentElement.classList.remove('bz-ch-lock');
+				});
+			})();
+		</script>
 		<?php
 	}
 
@@ -944,3 +1358,5 @@ class BizCity_Admin_Menu {
 		<?php
 	}
 }
+
+

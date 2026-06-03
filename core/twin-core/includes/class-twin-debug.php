@@ -16,7 +16,8 @@
  *  └──────────────────────────┴───────────────────────────────────────────┘
  *
  * When ON:
- *   • `Debug::trace()` writes a line to PHP error_log (tail with `tail -f`).
+ *   • `Debug::trace()` writes a line to site uploads daily file:
+ *     `/uploads/sites/{id}/bizcity-logs/twin-debug/twin-debug-YYYY-MM-DD.log`.
  *   • Same payload is forwarded into `bizcity_intent_pipeline_log` action so
  *     the SSE writer can mirror it as an `event: debug` chunk to the FE.
  *   • FE picks it up in `useTwinChatStream` and prints it under
@@ -80,15 +81,31 @@ class BizCity_Twin_Debug {
 			return;
 		}
 
+		// Per-event mute list — suppress chatty traces from the worker hot path
+		// so log files don't get spammed. Override via filter:
+		//   add_filter( 'bizcity_twin_debug_mute_events', fn($mut)=>[...] );
+		$key   = $scope . '.' . $event;
+		$muted = apply_filters(
+			'bizcity_twin_debug_mute_events',
+			[
+				'kg.extract_passage_enqueued',
+				'kg.extract_llm_do',
+				'kg.extract_llm_done',
+			]
+		);
+		if ( is_array( $muted ) && in_array( $key, $muted, true ) ) {
+			return;
+		}
+
 		$ms      = self::elapsed_ms();
 		$payload = [ 'scope' => $scope, 'event' => $event ] + $data;
 
-		// 1) error_log line — compact one-liner so tail -f stays readable.
+		// 1) Daily file line — compact one-liner for post-mortem tracing.
 		$json = wp_json_encode( $payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
 		if ( false === $json ) {
 			$json = '[unencodable]';
 		}
-		error_log( sprintf( '[TwinDebug %6.0fms] %s.%s %s', $ms, $scope, $event, $json ) );
+		self::write_daily_log_line( sprintf( '[TwinDebug %6.0fms] %s.%s %s', $ms, $scope, $event, $json ) );
 
 		// 2) Pipe into the existing pipeline_log action so any attached SSE
 		//    writer (TwinChat stream-handler, Intent stream, etc.) can mirror
@@ -101,6 +118,34 @@ class BizCity_Twin_Debug {
 			'debug',
 			$ms
 		);
+	}
+
+	/**
+	 * Append a TwinDebug line into site-scoped uploads daily log.
+	 */
+	private static function write_daily_log_line( string $line ): void {
+		$uploads = function_exists( 'wp_upload_dir' )
+			? wp_upload_dir( null, true, false )
+			: [];
+
+		$base_dir = '';
+		if ( is_array( $uploads ) && ! empty( $uploads['basedir'] ) ) {
+			$base_dir = (string) $uploads['basedir'];
+		}
+		if ( $base_dir === '' ) {
+			$base_dir = WP_CONTENT_DIR . '/uploads';
+		}
+
+		$log_dir = trailingslashit( wp_normalize_path( $base_dir ) ) . 'bizcity-logs/twin-debug';
+		if ( ! is_dir( $log_dir ) ) {
+			@wp_mkdir_p( $log_dir );
+			@file_put_contents( trailingslashit( $log_dir ) . '.htaccess', "Require all denied\nDeny from all\n" );
+			@file_put_contents( trailingslashit( $log_dir ) . 'index.php', "<?php // Silence is golden.\n" );
+		}
+
+		$path = trailingslashit( $log_dir ) . 'twin-debug-' . gmdate( 'Y-m-d' ) . '.log';
+		$line = sprintf( "[%s UTC] %s\n", gmdate( 'd-M-Y H:i:s' ), $line );
+		@file_put_contents( $path, $line, FILE_APPEND | LOCK_EX );
 	}
 
 	/**

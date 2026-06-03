@@ -1,0 +1,47 @@
+{
+  "$schema": "https://bizcity.vn/schema/diagnostics-changelog-v1.json",
+  "module_id": "core.intent.memory.episodic",
+  "owner": "core/intent",
+  "installer_id": "intent",
+  "current_version": "1.0.0",
+  "version_option": "bizcity_memory_episodic_db_ver",
+  "tables": {
+    "bizcity_memory_episodic": {
+      "since": "1.0.0",
+      "purpose": "Tier C of TwinBrain Memory Recall — episodic events captured on `bizcity_intent_processed` (goal success/cancel, pain points, tool usage). Read-only optional in Memory_Recall::collect_episodic (cap 5). Owner: BizCity_Episodic_Memory (core/intent/includes/conversation/class-episodic-memory.php).",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":                     { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",                          "since": "1.0.0", "pk": true },
+        "blog_id":                { "type": "INT UNSIGNED NOT NULL DEFAULT 1",                                  "since": "1.0.0" },
+        "user_id":                { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",                               "since": "1.0.0" },
+        "session_id":             { "type": "VARCHAR(255) DEFAULT ''",                                          "since": "1.0.0" },
+        "event_type":             { "type": "VARCHAR(50) NOT NULL DEFAULT 'fact'",                              "since": "1.0.0" },
+        "event_key":              { "type": "VARCHAR(191) NOT NULL DEFAULT ''",                                 "since": "1.0.0" },
+        "event_text":             { "type": "TEXT NOT NULL",                                                    "since": "1.0.0" },
+        "source_conversation_id": { "type": "VARCHAR(64) DEFAULT ''",                                           "since": "1.0.0" },
+        "source_goal":            { "type": "VARCHAR(100) DEFAULT ''",                                          "since": "1.0.0" },
+        "source_tool":            { "type": "VARCHAR(100) DEFAULT ''",                                          "since": "1.0.0" },
+        "importance":             { "type": "TINYINT UNSIGNED DEFAULT 50",                                      "since": "1.0.0" },
+        "times_seen":             { "type": "INT UNSIGNED DEFAULT 1",                                           "since": "1.0.0" },
+        "token_count":            { "type": "INT UNSIGNED DEFAULT 0",                                           "since": "1.0.0" },
+        "metadata":               { "type": "TEXT",                                                              "since": "1.0.0" },
+        "last_seen":              { "type": "DATETIME DEFAULT CURRENT_TIMESTAMP",                                "since": "1.0.0" },
+        "created_at":             { "type": "DATETIME DEFAULT CURRENT_TIMESTAMP",                                "since": "1.0.0" },
+        "updated_at":             { "type": "DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",    "since": "1.0.0" }
+      },
+      "indexes": {
+        "idx_user":         { "cols": ["blog_id", "user_id"],                       "since": "1.0.0" },
+        "idx_event_type":   { "cols": ["event_type"],                               "since": "1.0.0" },
+        "idx_source_conv":  { "cols": ["source_conversation_id"],                   "since": "1.0.0" },
+        "idx_source_tool":  { "cols": ["source_tool"],                              "since": "1.0.0" },
+        "idx_last_seen":    { "cols": ["last_seen"],                                "since": "1.0.0" },
+        "unique_event":     { "cols": ["blog_id", "user_id", "event_key"], "unique": true, "since": "1.0.0" }
+      }
+    }
+  },
+  "history": [
+    { "version": "1.0.0", "date": "2026-05-24", "change": "Baseline declaration for R-DCL compliance (Wave 2.8d TBR.MEM-D3). Schema matches DDL in core/intent/includes/conversation/class-episodic-memory.php (back-declared as 1.0.0 baseline; table pre-existed prior to changelog ledger). Tier C of unified memory layer — read-only optional in Memory_Recall. Future consolidation target: bizcity_memory (class='episodic') — see core/memory/PHASE-MEMORY-CONSOLIDATION.md." }
+  ]
+}

@@ -77,6 +77,13 @@ require_once __DIR__ . '/includes/class-admin-support-link.php';
 require_once __DIR__ . '/includes/class-admin-menu.php';
 require_once __DIR__ . '/includes/class-twin-ai.php';
 
+// PHASE-0.41 L3 — REST_Error trait must load BEFORE any controller that
+// `use`s it (research/twinbrain/twinchat-sources). Diagnostics bootstrap
+// (loaded later) re-requires it via require_once, so this is idempotent.
+if ( file_exists( __DIR__ . '/core/diagnostics/includes/trait-rest-error.php' ) ) {
+    require_once __DIR__ . '/core/diagnostics/includes/trait-rest-error.php';
+}
+
 /**
  * Safe charset+collate for CREATE TABLE — fixes shard mismatch.
  *
@@ -112,6 +119,10 @@ if ( ! function_exists( 'bizcity_get_charset_collate' ) ) {
 // ── Core components — load at file scope (trước khi regular plugins load) ────
 // Tool plugins extend BizCity_Intent_Provider ở file scope → class phải tồn tại sớm.
 // Market đăng ký plugins_loaded @1 → phải load trước khi hook fires.
+// Framework v1 contracts (Phase 0.99.2) — opt-in interfaces + module base class.
+require_once __DIR__ . '/core/twin-core/contracts/framework-contracts.php';
+// Phase 0.99.3 — Module registry (implements `bizcity_register_module` filter).
+require_once __DIR__ . '/core/twin-core/contracts/class-module-registry.php';
 require_once __DIR__ . '/core/bizcity-llm/bootstrap.php';
 require_once __DIR__ . '/core/knowledge/bootstrap.php';
 require_once __DIR__ . '/core/intent/bootstrap.php';
@@ -124,14 +135,37 @@ if ( file_exists( __DIR__ . '/core/twin-core/bootstrap.php' ) ) {
 }
 require_once __DIR__ . '/core/bizcity-market/bootstrap.php';
 require_once __DIR__ . '/core/channel-gateway/bootstrap.php';
+// Phase AUTOMATION S0 — visual workflow builder (own SPA, own bundle).
+if ( file_exists( __DIR__ . '/core/automation/bootstrap.php' ) ) {
+    require_once __DIR__ . '/core/automation/bootstrap.php';
+}
+// Phase CO-1 — Content Ops (Layer 2: AI content + schedule + cross-channel publish)
+if ( file_exists( __DIR__ . '/core/content-ops/bootstrap.php' ) ) {
+    require_once __DIR__ . '/core/content-ops/bootstrap.php';
+}
 if ( file_exists( __DIR__ . '/core/skills/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/skills/bootstrap.php';
 }
 if ( file_exists( __DIR__ . '/core/tools/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/tools/bootstrap.php';
 }
+// Phase 1 — Unified cron registry & observability (see core/cron/PHASE-CRON.md).
+// Must load BEFORE any module that registers its own cron job so the manager
+// is available to wrap their hooks.
+if ( file_exists( __DIR__ . '/core/cron/bootstrap.php' ) ) {
+    require_once __DIR__ . '/core/cron/bootstrap.php';
+}
 if ( file_exists( __DIR__ . '/core/scheduler/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/scheduler/bootstrap.php';
+}
+// Phase 0.35 — SMTP bridge (replaces legacy mu-plugin bizcity-smtp-gmail.php).
+// No-ops unless BIZCITY_SMTP_* constants in wp-config.php OR option `bizcity_smtp_settings` is set.
+if ( file_exists( __DIR__ . '/core/smtp/bootstrap.php' ) ) {
+    require_once __DIR__ . '/core/smtp/bootstrap.php';
+}
+// Admin settings page — wp-admin/admin.php?page=bizcity-smtp-settings
+if ( is_admin() && file_exists( __DIR__ . '/core/smtp/admin.php' ) ) {
+    require_once __DIR__ . '/core/smtp/admin.php';
 }
 if ( file_exists( __DIR__ . '/core/memory/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/memory/bootstrap.php';
@@ -153,16 +187,19 @@ if ( file_exists( __DIR__ . '/core/research/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/research/bootstrap.php';
 }
 
-// Vòng 3 / Sprint 6 — Test pages (triage accuracy + SSE reconnect demo).
-// Loaded when WP_DEBUG is on or BIZCITY_TWIN_ENABLE_TESTS is defined.
-if (
-    ( defined( 'WP_DEBUG' ) && WP_DEBUG )
-    || defined( 'BIZCITY_TWIN_ENABLE_TESTS' )
-) {
-    if ( file_exists( __DIR__ . '/tests/admin-test-pages.php' ) ) {
-        require_once __DIR__ . '/tests/admin-test-pages.php';
-    }
+// Diagnostics (PHASE-0.36) — multisite schema audit + repair + cron hygiene.
+// Registers WP-CLI `wp bizcity diag` and stays inert on web requests unless ?cmd= is set.
+if ( file_exists( __DIR__ . '/tools/class-diagnostics.php' ) ) {
+    require_once __DIR__ . '/tools/class-diagnostics.php';
 }
+
+// Diagnostics Core (PHASE-0.40) — table inventory + soft-guard notices + REST.
+// Tools → BizCity Diagnostics + GET /wp-json/bizcity-diagnostics/v1/tables.
+if ( file_exists( __DIR__ . '/core/diagnostics/bootstrap.php' ) ) {
+    require_once __DIR__ . '/core/diagnostics/bootstrap.php';
+}
+
+// Test pages — archived 2026-06-01, moved to tests/_archived/
 
 // ── Modules — feature modules layered on top of core ─────────────────────────
 if ( file_exists( __DIR__ . '/modules/twinchat/bootstrap.php' ) ) {
@@ -183,6 +220,14 @@ if ( file_exists( __DIR__ . '/modules/twinsearch/bootstrap.php' ) ) {
     require_once __DIR__ . '/modules/twinsearch/bootstrap.php';
 }
 
+// Phase 0.36 v3 — TwinBrain (Não tổng / Central Brain Orchestrator).
+// BE-only orchestrator; UI lives inside TwinChat (mode='brain'). Moved from
+// modules/twinbrain/ → core/twinbrain/ on 2026-05-10 (no SPA = no module).
+// See PHASE-0.36-TWINBRAIN-CENTRAL-BRAIN.md
+if ( file_exists( __DIR__ . '/core/twinbrain/bootstrap.php' ) ) {
+    require_once __DIR__ . '/core/twinbrain/bootstrap.php';
+}
+
 // ── Legacy helpers — flow functions that automation blocks depend on ──────────
 // Loaded here so bizcity-twin-ai works standalone (without mu-plugin).
 // function_exists() guards inside prevent double-loading when mu-plugin is also active.
@@ -193,16 +238,22 @@ require_once __DIR__ . '/core/helper-legacy/bootstrap.php';
 // Tương tự cơ chế must-use: luôn chạy khi bizcity-twin-ai active.
 // Guard bằng constant riêng của mỗi plugin để tránh load trùng khi đã activate bình thường.
 $_bizcity_bundled_must_load = [
+    'bizcity-admin-hook-zalo'     => 'BIZCITY_ADMIN_ZALO_DIR',     // Zalo Hotline (ZNS) adapter + /bizhook/ webhook + admin page (bundled must-load, replaces mu-plugin copy)
+    'bizcity-facebook-bot'        => 'BIZCITY_FACEBOOK_BOT_VERSION', // Facebook Messenger + Page webhook (PHASE 0.31 Sprint 6 — moved from mu-plugins)
     'bizgpt-tool-google'          => 'BZGOOGLE_VERSION',           // Google Workspace tools
-    // 'bizcity-tool-facebook'       => 'BZTOOL_FB_VERSION',          // DISABLED — Facebook tool (gitignored, không load mặc định)
+    // 'bizcity-tool-facebook'       => 'BZTOOL_FB_VERSION',          // ARCHIVED 2026-05-24 → plugins/_archived/. Slug /tool-facebook/ now owned by core/channel-gateway (canonical /channel/).
     'bizcity-tool-image'          => 'BZTIMG_VERSION',             // Image Studio, templates, editor assets, product/image tools
-    // 'bizcity-zalo-bot'            => 'BIZCITY_ZALO_BOT_VERSION',   // DISABLED — Zalo Bot (gitignored, không load mặc định)
+    'bizcity-zalo-bot'            => 'BIZCITY_ZALO_BOT_VERSION',   // Zalo Bot — CG channel sub-plugin
     // 'bizcity-companion-notebook'  => 'BCN_VERSION',                // DISABLED — Companion Notebook (gitignored, không load mặc định)
-    // 'bizcity-automation'          => 'BIZCITY_AUTOMATION_VERSION', // DISABLED — Automation (gitignored, không load mặc định)
+    // 'bizcity-automation'          => 'BIZCITY_AUTOMATION_VERSION', // ARCHIVED 2026-06-01 → plugins/_archived/bizcity-automation/. Replaced by core/automation/ (native xyflow runtime, BE-1..BE-5 shipped).
     'bizcity-content-creator'     => 'BZCC_VERSION',               // Content Creator — template-driven AI content generation
     'bizcity-doc'                 => 'BZDOC_VERSION',              // Doc Studio — AI tạo Word, PowerPoint, Excel
     // 'bizcity-code'                => 'BZCODE_VERSION',             // Code Builder — AI tạo web & landing page (ARCHIVED)
-    'bizcity-tool-mindmap'        => 'BZTOOL_MINDMAP_VERSION',     // Mindmap Tool — AI tạo sơ đồ tư duy
+    // 'bizcity-tool-mindmap'        => 'BZTOOL_MINDMAP_VERSION',     // ARCHIVED 2026-06-01 → plugins/_archived/bizcity-tool-mindmap/. Mindmap functionality moved to bizcity-doc (Phase 6.3 PHASE-0.7-DOCGEN).
+    // 'bizcity-twin-crm'            => 'BIZCITY_CRM_VERSION',        // PROPRIETARY (PHASE-0.98) — gitignored, commercial-only. Auto-loads when separately activated as regular WP plugin.
+    'bizcoach-pro'                => 'BCPRO_VERSION',              // BizCoach Pro — Producer hub flagship (PHASE-0.36 / R-PROD-HUB) — gitignored, in-house only
+    'bizcity-video-kling'         => 'BIZCITY_VIDEO_KLING_VERSION', // B-roll Video — Kling/Sora/Veo3/SeeDance image-to-video via PiAPI
+    'bizcity-pagebuilder'         => 'BZPB_VERSION',               // Page Builder — AI tạo website drag-and-drop, 19 block types, export HTML
 ];
 foreach ( $_bizcity_bundled_must_load as $_slug => $_guard_const ) {
     if ( defined( $_guard_const ) ) {
@@ -246,13 +297,7 @@ register_deactivation_hook( __FILE__, static function () {
 add_action( 'admin_notices', 'bizcity_twin_ai_notice_compat_loader' );
 add_action( 'admin_init',    'bizcity_twin_ai_maybe_copy_compat_loader' );
 
-// ── Changelog Dashboard — admin only ─────────────────────────────────────────
-// URL: wp-admin/admin.php?page=bizcity-changelog
-// Per-phase: wp-admin/admin.php?page=bizcity-changelog-1.4 (etc.)
-// WP-CLI: wp bizcity changelog [phase_id]
-if ( is_admin() && file_exists( __DIR__ . '/changelog/bootstrap.php' ) ) {
-    require_once __DIR__ . '/changelog/bootstrap.php';
-}
+// ── Changelog Dashboard — archived 2026-06-01, moved to changelog/_archived/ ─
 
 function bizcity_twin_ai_notice_compat_loader(): void {
     if ( ! current_user_can( 'manage_options' ) ) {

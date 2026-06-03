@@ -25,7 +25,8 @@ final class BizCity_Intent_Shell_Admin {
 	const NONCE         = 'bizcity_intent_shell_save';
 
 	public static function init(): void {
-		add_action( 'admin_menu', [ __CLASS__, 'register_pages' ], 12 );
+		// Phase G (2026-05-19) — Intent Monitor admin pages disabled.
+		// add_action( 'admin_menu', [ __CLASS__, 'register_pages' ], 12 );
 		add_action( 'admin_post_bizcity_intent_shell_save', [ __CLASS__, 'handle_save' ] );
 	}
 

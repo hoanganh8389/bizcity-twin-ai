@@ -46,6 +46,8 @@ class BizCity_KG_Graph_Service {
 			$wpdb->query( $wpdb->prepare(
 				"UPDATE {$db->tbl_entities()} SET weight = weight + 1, deleted_at = NULL WHERE id = %d", $existing
 			) );
+			// Restoring a soft-deleted row changes the approved-count → drop stats cache.
+			do_action( 'bizcity_kg_notebook_stats_dirty', (int) $notebook_id );
 			return $existing;
 		}
 
@@ -53,6 +55,20 @@ class BizCity_KG_Graph_Service {
 		$embed_text = trim( $name . ( $description ? ' — ' . $description : '' ) );
 		$vec        = BizCity_KG_Vector_Index::instance()->embed( $embed_text );
 		$embedding  = is_array( $vec ) ? BizCity_KG_Database::encode_embedding( $vec ) : null;
+
+		// PHASE-0.3 Wave 2 — auto-tag identity (sku/order/…) from entity name+desc.
+		// Pure regex, no LLM, no DB read. NULL columns when no structured ID found.
+		$id_kind = null; $canon_id = null; $id_score = null; $id_source = 'none';
+		if ( class_exists( 'BizCity_KG_Identity_Extractor' ) ) {
+			$ids = BizCity_KG_Identity_Extractor::extract( $embed_text );
+			$primary = BizCity_KG_Identity_Extractor::primary( $ids );
+			if ( $primary ) {
+				$id_kind   = $primary['id_kind'];
+				$canon_id  = $primary['canonical_id'];
+				$id_score  = (float) $primary['score'];
+				$id_source = 'auto';
+			}
+		}
 
 		// 2026-04-30 — race-safe insert. Two concurrent learning batches can
 		// both miss the SELECT above and both try to INSERT, hitting the
@@ -70,11 +86,21 @@ class BizCity_KG_Graph_Service {
 			'embedding'       => $embedding,
 			'weight'          => 1,
 			'status'          => 'approved',
+			'id_kind'         => $id_kind,
+			'canonical_id'    => $canon_id,
+			'identity_source' => $id_source,
+			'identity_score'  => $id_score,
 		] );
 		$wpdb->suppress_errors( $prev );
 
 		if ( $ok ) {
-			return (int) $wpdb->insert_id;
+			$eid = (int) $wpdb->insert_id;
+			do_action( 'bizcity_kg_notebook_stats_dirty', (int) $notebook_id );
+			// PHASE-0.7-LEARN-VECTOR-FILE Wave F2 — dual-write entity to filestore.
+			if ( $eid && class_exists( 'BizCity_KG_Filestore_Dispatcher' ) ) {
+				BizCity_KG_Filestore_Dispatcher::instance()->after_entity_insert( $eid, (int) $notebook_id );
+			}
+			return $eid;
 		}
 
 		// Duplicate hit (race) → another worker already inserted. Bump weight
@@ -87,6 +113,7 @@ class BizCity_KG_Graph_Service {
 			$wpdb->query( $wpdb->prepare(
 				"UPDATE {$db->tbl_entities()} SET weight = weight + 1, deleted_at = NULL WHERE id = %d", $existing_id
 			) );
+			do_action( 'bizcity_kg_notebook_stats_dirty', (int) $notebook_id );
 		}
 		return $existing_id;
 	}
@@ -115,6 +142,8 @@ class BizCity_KG_Graph_Service {
 			$wpdb->query( $wpdb->prepare(
 				"UPDATE {$db->tbl_relations()} SET weight = weight + 1, deleted_at = NULL WHERE id = %d", $existing
 			) );
+			// Restoring a soft-deleted relation changes the approved-count.
+			do_action( 'bizcity_kg_notebook_stats_dirty', (int) $notebook_id );
 			$relation_id = $existing;
 		} else {
 			// Build relation_text "head predicate tail" + embed it.
@@ -142,6 +171,11 @@ class BizCity_KG_Graph_Service {
 
 			if ( $ok ) {
 				$relation_id = (int) $wpdb->insert_id;
+				do_action( 'bizcity_kg_notebook_stats_dirty', (int) $notebook_id );
+				// PHASE-0.7-LEARN-VECTOR-FILE Wave F2 — dual-write relation to filestore.
+				if ( $relation_id && class_exists( 'BizCity_KG_Filestore_Dispatcher' ) ) {
+					BizCity_KG_Filestore_Dispatcher::instance()->after_relation_insert( $relation_id, (int) $notebook_id );
+				}
 			} else {
 				// Race loser — re-SELECT and bump weight.
 				$relation_id = (int) $wpdb->get_var( $wpdb->prepare(
@@ -153,6 +187,7 @@ class BizCity_KG_Graph_Service {
 					$wpdb->query( $wpdb->prepare(
 						"UPDATE {$db->tbl_relations()} SET weight = weight + 1, deleted_at = NULL WHERE id = %d", $relation_id
 					) );
+					do_action( 'bizcity_kg_notebook_stats_dirty', (int) $notebook_id );
 				}
 			}
 		}
@@ -212,12 +247,19 @@ class BizCity_KG_Graph_Service {
 			[ 'id' => (int) $queue_id ]
 		);
 
+		// Pending→approved transition shifts pending_triplets count → flush stats cache.
+		do_action( 'bizcity_kg_notebook_stats_dirty', (int) $row['notebook_id'] );
+
 		return $relation_id;
 	}
 
 	public function reject_triplet( $queue_id, $reviewer_id = 0 ) {
 		global $wpdb;
 		$db = BizCity_KG_Database::instance();
+		// Capture notebook_id BEFORE flipping status so we can invalidate the right cache key.
+		$nb_id = (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT notebook_id FROM {$db->tbl_triplet_queue()} WHERE id=%d", (int) $queue_id
+		) );
 		$wpdb->update( $db->tbl_triplet_queue(),
 			[
 				'status'      => 'rejected',
@@ -226,6 +268,9 @@ class BizCity_KG_Graph_Service {
 			],
 			[ 'id' => (int) $queue_id ]
 		);
+		if ( $nb_id ) {
+			do_action( 'bizcity_kg_notebook_stats_dirty', $nb_id );
+		}
 		return true;
 	}
 
@@ -259,6 +304,10 @@ class BizCity_KG_Graph_Service {
 				'status'        => 'pending',
 			] );
 			$inserted++;
+		}
+		// Pending-triplet count moved → invalidate notebook stats cache.
+		if ( $inserted > 0 ) {
+			do_action( 'bizcity_kg_notebook_stats_dirty', (int) $notebook_id );
 		}
 		return $inserted;
 	}
@@ -376,6 +425,12 @@ class BizCity_KG_Graph_Service {
 			'approved'   => $approved,
 			'entity_ids' => $entity_ids,
 		] );
+		// Bulk approval moves many triplets pending→approved (and may add entities/relations).
+		// upsert_entity/relation already fired the stats-dirty hook per row, but call once
+		// more here as a cheap belt-and-suspenders for the queue→approved transition.
+		if ( $approved > 0 ) {
+			do_action( 'bizcity_kg_notebook_stats_dirty', $notebook_id );
+		}
 		return [
 			'approved'   => $approved,
 			'errors'     => $errors,
@@ -449,9 +504,23 @@ class BizCity_KG_Graph_Service {
 	 * Phase 4.5b — Global graph: all approved entities + relations across every notebook.
 	 * Each node/link includes notebook_id so the client can color-code or group.
 	 */
-	public function get_global_graph( $limit_nodes = 600 ) {
+	/**
+	 * Phase 4.5b — Global graph: all approved entities + relations.
+	 *
+	 * @param int   $limit_nodes   Maximum entity nodes to return.
+	 * @param int[] $notebook_ids  When non-empty, restrict to these notebooks only
+	 *                             (used to scope to the current user's brain).
+	 */
+	public function get_global_graph( $limit_nodes = 600, $notebook_ids = [], $must_include_ids = [] ) {
 		global $wpdb;
 		$db = BizCity_KG_Database::instance();
+
+		// Build optional per-user notebook scope clause.
+		$nb_clause = '';
+		if ( ! empty( $notebook_ids ) ) {
+			$safe_ids  = implode( ',', array_map( 'intval', $notebook_ids ) );
+			$nb_clause = "AND notebook_id IN ({$safe_ids}) ";
+		}
 
 		$entities = $wpdb->get_results( $wpdb->prepare(
 			"SELECT id, notebook_id, name, type, weight,
@@ -460,10 +529,39 @@ class BizCity_KG_Graph_Service {
 			 FROM {$db->tbl_entities()}
 			 WHERE status='approved'
 			   AND (deleted_at IS NULL OR deleted_at = '0000-00-00 00:00:00')
+			   {$nb_clause}
 			 ORDER BY weight DESC, id ASC
 			 LIMIT %d",
 			(int) $limit_nodes
 		), ARRAY_A ) ?: [];
+
+		// TBR.F2-cite (2026-05-13) — union with must-include entity ids so the
+		// caller's highlight set always has matching nodes in the payload, even if
+		// they fall outside the top-N weight slice. Same nb scope still applies
+		// (admin all-mode bypasses scope upstream).
+		if ( ! empty( $must_include_ids ) ) {
+			$present = [];
+			foreach ( $entities as $e ) $present[ (int) $e['id'] ] = true;
+			$missing = array_values( array_filter(
+				array_map( 'intval', $must_include_ids ),
+				static fn( $id ) => $id > 0 && empty( $present[ $id ] )
+			) );
+			if ( ! empty( $missing ) ) {
+				$miss_csv = implode( ',', $missing );
+				$extra = $wpdb->get_results(
+					"SELECT id, notebook_id, name, type, weight,
+					        COALESCE(user_verified,0) AS user_verified,
+					        COALESCE(user_corrected,0) AS user_corrected
+					 FROM {$db->tbl_entities()}
+					 WHERE status='approved'
+					   AND (deleted_at IS NULL OR deleted_at = '0000-00-00 00:00:00')
+					   {$nb_clause}
+					   AND id IN ({$miss_csv})",
+					ARRAY_A
+				) ?: [];
+				$entities = array_merge( $entities, $extra );
+			}
+		}
 
 		if ( empty( $entities ) ) {
 			return [ 'nodes' => [], 'links' => [] ];
@@ -530,16 +628,37 @@ class BizCity_KG_Graph_Service {
 
 		// Append aliases.
 		$alias_rows = $wpdb->get_col( "SELECT name FROM {$db->tbl_entities()} WHERE id IN ({$ids_csv})" ) ?: [];
-		$cur_aliases = json_decode( (string) $wpdb->get_var( $wpdb->prepare(
-			"SELECT aliases FROM {$db->tbl_entities()} WHERE id=%d", $canonical_id
-		) ), true ) ?: [];
+		// Filestore-first read — inline `aliases` is NULL once Wave F4 cleaned.
+		$canon_row = $wpdb->get_row( $wpdb->prepare(
+			"SELECT id, notebook_id, aliases, storage_ver, jsonl_line FROM {$db->tbl_entities()} WHERE id=%d",
+			$canonical_id
+		), ARRAY_A );
+		$canon_rows = $canon_row ? [ $canon_row ] : [];
+		if ( $canon_rows && class_exists( 'BizCity_KG_Content_Router' ) ) {
+			BizCity_KG_Content_Router::instance()->hydrate_entities( $canon_rows, true );
+			$canon_row = $canon_rows[0];
+		}
+		$cur_aliases = $canon_row ? ( json_decode( (string) $canon_row['aliases'], true ) ?: [] ) : [];
 		$new_aliases = array_values( array_unique( array_merge( $cur_aliases, $alias_rows ) ) );
 		$wpdb->update( $db->tbl_entities(),
 			[ 'aliases' => wp_json_encode( $new_aliases ) ],
 			[ 'id' => $canonical_id ]
 		);
+		// Re-dual-write so the JSONL reflects the merged aliases list.
+		if ( class_exists( 'BizCity_KG_Filestore_Dispatcher' ) ) {
+			BizCity_KG_Filestore_Dispatcher::instance()->backfill_entity( (int) $canonical_id );
+		}
 
 		$wpdb->query( "DELETE FROM {$db->tbl_entities()} WHERE id IN ({$ids_csv})" );
+
+		// Hard-deleting entities + re-pointing relations changes counts for the affected notebook(s).
+		// Look up the canonical entity's notebook (all merged ids share one notebook by design).
+		$canon_nb = (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT notebook_id FROM {$db->tbl_entities()} WHERE id=%d", $canonical_id
+		) );
+		if ( $canon_nb ) {
+			do_action( 'bizcity_kg_notebook_stats_dirty', $canon_nb );
+		}
 		return count( $other_ids );
 	}
 
@@ -585,6 +704,10 @@ class BizCity_KG_Graph_Service {
 	public function soft_delete_entity( $id ) {
 		global $wpdb;
 		$db = BizCity_KG_Database::instance();
+		// Capture notebook_id before mutation so we can flush stats cache.
+		$nb_id = (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT notebook_id FROM {$db->tbl_entities()} WHERE id=%d", (int) $id
+		) );
 		$wpdb->update( $db->tbl_entities(),
 			[ 'deleted_at' => current_time( 'mysql' ), 'user_corrected' => 1 ],
 			[ 'id' => (int) $id ]
@@ -595,6 +718,9 @@ class BizCity_KG_Graph_Service {
 			 WHERE (head_entity_id=%d OR tail_entity_id=%d) AND (deleted_at IS NULL OR deleted_at = '0000-00-00 00:00:00')",
 			current_time( 'mysql' ), (int) $id, (int) $id
 		) );
+		if ( $nb_id ) {
+			do_action( 'bizcity_kg_notebook_stats_dirty', $nb_id );
+		}
 		return true;
 	}
 

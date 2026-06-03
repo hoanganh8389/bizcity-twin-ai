@@ -14,6 +14,10 @@ defined( 'ABSPATH' ) || exit;
 
 class BizCity_Blog_Resolver {
 
+	/** Version gate for global_inbox_admin table. Bump when schema changes. */
+	const INBOX_DB_VERSION     = '1.0.0';
+	const INBOX_DB_VERSION_OPT = 'bizcity_blog_resolver_inbox_db_version';
+
 	/** @var self|null */
 	private static $instance = null;
 
@@ -220,6 +224,11 @@ class BizCity_Blog_Resolver {
 	 * Ensure global_inbox_admin table exists.
 	 */
 	public static function maybe_install_inbox(): void {
+		// Version gate — skip dbDelta when schema is already current.
+		if ( (string) get_option( self::INBOX_DB_VERSION_OPT, '' ) === self::INBOX_DB_VERSION ) {
+			return;
+		}
+
 		global $wpdb;
 
 		$table   = $wpdb->base_prefix . 'global_inbox_admin';
@@ -244,5 +253,7 @@ class BizCity_Blog_Resolver {
 
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 		dbDelta( $sql );
+
+		update_option( self::INBOX_DB_VERSION_OPT, self::INBOX_DB_VERSION, false );
 	}
 }

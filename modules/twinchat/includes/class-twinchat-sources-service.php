@@ -28,12 +28,38 @@
 
 defined( 'ABSPATH' ) or die( 'OOPS...' );
 
+// PHASE-0.41 L3 — trait is required for the `use` below; load defensively so
+// this file works even if core/diagnostics bootstrap hasn't fired yet.
+if ( ! trait_exists( 'BizCity_REST_Error' ) ) {
+	$__trait = dirname( __DIR__, 3 ) . '/core/diagnostics/includes/trait-rest-error.php';
+	if ( file_exists( $__trait ) ) {
+		require_once $__trait;
+	}
+}
+
 class BizCity_TwinChat_Sources_Service {
+
+	// Unified WP_Error builder (status/fix/ctx payload + telemetry recording).
+	use BizCity_REST_Error;
 
 	const EMBED_MODEL    = 'text-embedding-3-small';
 	const CHUNK_CHARS    = 1500;
 	const CHUNK_OVERLAP  = 200;
-	const MAX_FILE_BYTES = 5242880; // 5 MB
+
+	/**
+	 * Per-modality upload caps. Aligned with downstream adapters so the
+	 * pre-flight check is a true gate, not a false-positive blocker.
+	 *
+	 * 2026-05-20 — bumped text cap from 5 MB → 25 MB so big PDFs and CSV/JSON
+	 * dumps work without surprising users; the actual hosting cap is still
+	 * enforced by `upload_max_filesize` / `post_max_size` in php.ini.
+	 */
+	const MAX_FILE_BYTES_TEXT   = 26214400;    // 25 MB — plain text / md / csv / json / html / srt / pdf…
+	const MAX_FILE_BYTES_OFFICE = 26214400;    // 25 MB — mirrors BizCity_KG_Office_Adapter::MAX_DOC_BYTES
+	const MAX_FILE_BYTES_AV     = 262144000;   // 250 MB — mirrors AV adapter cap (deferred to adapter)
+
+	/** @deprecated Use modality-specific MAX_FILE_BYTES_* constants. Kept for BC. */
+	const MAX_FILE_BYTES = self::MAX_FILE_BYTES_TEXT;
 
 	const ALLOWED_TEXT_EXT = [
 		'txt', 'md', 'markdown', 'csv', 'tsv', 'json', 'log',
@@ -42,11 +68,27 @@ class BizCity_TwinChat_Sources_Service {
 
 	private static $instance = null;
 
+	/**
+	 * Phase 0.7 / Wave E1 — when an Adapter (PDF/Office/...) processes a file
+	 * via read_file_content(), it stashes its full structured payload here so
+	 * downstream materialize/persist steps can pick up segments + meta without
+	 * a wider refactor of the legacy string-only contract.
+	 *
+	 * Shape: see BizCity_KG_Source_Adapter::extract() return spec.
+	 *
+	 * @var array|null
+	 */
+	private $last_adapter_payload = null;
+
 	public static function instance() {
 		if ( null === self::$instance ) {
 			self::$instance = new self();
 		}
 		return self::$instance;
+	}
+
+	protected function rest_error_module(): string {
+		return 'twinchat.sources';
 	}
 
 	/* ──────────────────────  Public Service Contract  ────────────────────── */
@@ -61,10 +103,10 @@ class BizCity_TwinChat_Sources_Service {
 		$scope_id = (int) $scope_id;
 		$user_id  = (int) $user_id;
 		if ( $scope_id <= 0 ) {
-			return new WP_Error( 'invalid_scope', 'notebook_id required' );
+			return $this->err_validation( 'invalid_scope', 'Thiếu notebook_id — vui lòng chọn notebook trước khi thêm nguồn.' );
 		}
 		$type = isset( $payload['type'] ) ? sanitize_key( $payload['type'] ) : 'text';
-		$type = in_array( $type, [ 'file', 'url', 'text', 'manual' ], true ) ? $type : 'text';
+		$type = in_array( $type, [ 'file', 'url', 'text', 'manual', 'youtube' ], true ) ? $type : 'text';
 
 		// PHP-2024: keep work alive even if Cloudflare cuts the client connection at ~100s
 		// (524 Origin Timeout). Server-side ingest will still complete; the FE polls
@@ -111,7 +153,7 @@ class BizCity_TwinChat_Sources_Service {
 		], $extra_meta );
 
 		if ( $content === '' ) {
-			return new WP_Error( 'empty_content', 'Source has no readable content' );
+			return $this->err_validation( 'empty_content', 'Nguồn này không đọc được nội dung nào — file có thể rỗng, bị mã hoá, hoặc ở định dạng chưa hỗ trợ.', [ 'type' => $type ] );
 		}
 
 		if ( class_exists( 'BizCity_Twin_Debug' ) ) {
@@ -193,7 +235,13 @@ class BizCity_TwinChat_Sources_Service {
 			'metadata'         => $metadata,
 		] );
 		if ( $source_id <= 0 ) {
-			return new WP_Error( 'insert_failed', 'Failed to insert source row' );
+			global $wpdb;
+			$db_err = isset( $wpdb ) ? (string) $wpdb->last_error : '';
+			// MySQL 1146 = table doesn't exist → promote to table_missing (auto-repair).
+			if ( $db_err !== '' && preg_match( '/1146|doesn.?t exist|no such table/i', $db_err ) ) {
+				return $this->err_table_missing( $wpdb->prefix . 'bizcity_webchat_sources', 'twinchat.sources' );
+			}
+			return $this->err_server( 'insert_failed', 'Không lưu được nguồn vào database — đã ghi nhận lỗi để team xử lý.', [ 'scope_id' => $scope_id, 'type' => $type, 'db_error' => $db_err ] );
 		}
 
 		// Wave 0.6.C — write to kg_sources as primary unified store (unconditional, not flag-gated).
@@ -202,9 +250,39 @@ class BizCity_TwinChat_Sources_Service {
 
 		// Chunk + embed.
 		// Sprint 4.8c+d (Nexus port) — heading-aware chunker + Jaccard 5-gram dedup.
+		// Phase 0.7 / Sprint D — AV adapter pre-chunked segments take precedence
+		// so per-passage start_ts/end_ts/speaker survive into retrieval metadata.
 		$t_chunk = microtime( true );
 		$chunk_records = [];
-		if ( class_exists( 'BizCity_TwinChat_Chunker' ) ) {
+		$av_segments   = null;
+		if ( is_array( $this->last_adapter_payload )
+			&& ! empty( $this->last_adapter_payload['segments'] )
+			&& isset( $this->last_adapter_payload['meta']['chunker'] )
+			&& $this->last_adapter_payload['meta']['chunker'] === 'av_temporal_v1'
+		) {
+			$av_segments = $this->last_adapter_payload['segments'];
+		}
+		if ( is_array( $av_segments ) ) {
+			foreach ( $av_segments as $seg ) {
+				$seg_text = isset( $seg['text'] ) ? trim( (string) $seg['text'] ) : '';
+				if ( $seg_text === '' ) continue;
+				$chunk_records[] = [
+					'text'         => $seg_text,
+					'heading_path' => [],
+					'heading'      => '',
+					'av'           => [
+						'start_ts' => isset( $seg['start_ts'] ) ? (int) $seg['start_ts'] : 0,
+						'end_ts'   => isset( $seg['end_ts'] )   ? (int) $seg['end_ts']   : 0,
+						'speaker'  => isset( $seg['speaker'] )  ? $seg['speaker']        : null,
+						'is_scene' => ! empty( $seg['is_scene'] ),
+					],
+				];
+			}
+			$metadata['chunker'] = [
+				'kept'    => count( $chunk_records ),
+				'engine'  => 'av_temporal_v1',
+			];
+		} elseif ( class_exists( 'BizCity_TwinChat_Chunker' ) ) {
 			$raw_records = BizCity_TwinChat_Chunker::chunk( $content, self::CHUNK_CHARS, self::CHUNK_OVERLAP );
 			$dedup_res   = BizCity_TwinChat_Chunker::dedup_chunks( $raw_records );
 			$chunk_records = $dedup_res['kept'];
@@ -263,9 +341,12 @@ class BizCity_TwinChat_Sources_Service {
 			$heading_path = isset( $chunk_records[ $idx ]['heading_path'] ) && is_array( $chunk_records[ $idx ]['heading_path'] )
 				? $chunk_records[ $idx ]['heading_path'] : [];
 			$heading      = isset( $chunk_records[ $idx ]['heading'] ) ? (string) $chunk_records[ $idx ]['heading'] : '';
+			$av_meta      = isset( $chunk_records[ $idx ]['av'] ) && is_array( $chunk_records[ $idx ]['av'] )
+				? $chunk_records[ $idx ]['av'] : null;
 
 			$chunk_id = $db->insert_chunk( [
 				'source_id'       => $source_id,
+				'kg_source_id'    => $kg_source_id, // Wave 0.21.2 — link unified chunks to kg_sources.id
 				'notebook_id'     => $scope_id,
 				'chunk_index'     => $idx,
 				'content'         => $chunk_text,
@@ -298,7 +379,13 @@ class BizCity_TwinChat_Sources_Service {
 					'chunk_index'  => $idx,
 					'heading_path' => $heading_path,
 					'heading'      => $heading,
-				],
+				] + ( $av_meta ? [
+					'start_ts' => (int) $av_meta['start_ts'],
+					'end_ts'   => (int) $av_meta['end_ts'],
+					'speaker'  => $av_meta['speaker'],
+					'is_scene' => (bool) $av_meta['is_scene'],
+					'chunker'  => 'av_temporal_v1',
+				] : [] ),
 			] );
 			if ( $passage_id > 0 ) {
 				$passage_ids[] = $passage_id;
@@ -449,6 +536,12 @@ class BizCity_TwinChat_Sources_Service {
 				$wpdb->delete( $kg->tbl_sources(), [ 'id' => $kg_source_id_to_del ] );
 			}
 		}
+		// Source removal cascaded passages → stats counts (passages + entities/relations
+		// touched by the cleanup hook) drifted. Drop the per-notebook stats cache.
+		$nb_for_invalidation = (int) ( $src['notebook_id'] ?? $project_id );
+		if ( $nb_for_invalidation > 0 ) {
+			do_action( 'bizcity_kg_notebook_stats_dirty', $nb_for_invalidation );
+		}
 		return BizCity_TwinChat_Sources_Database::instance()->delete_source( $source_id );
 	}
 
@@ -508,20 +601,37 @@ class BizCity_TwinChat_Sources_Service {
 					}
 				}
 
-				if ( (int) $file['size'] > self::MAX_FILE_BYTES ) {
-					return new WP_Error( 'file_too_large', 'File exceeds 5 MB limit' );
+				$ext_check  = strtolower( pathinfo( $file['name'], PATHINFO_EXTENSION ) );
+				$mime_check = strtolower( (string) ( $file['type'] ?? '' ) );
+				$cap        = $this->resolve_max_file_bytes( $ext_check, $mime_check );
+				if ( (int) $file['size'] > $cap['bytes'] ) {
+					// AV files are deferred to the AV adapter (its own 250 MB cap).
+					// All other modalities (text 5 MB, office 25 MB) are hard-stopped here.
+					if ( $cap['modality'] !== 'av' ) {
+						return new WP_Error(
+							$cap['modality'] === 'office' ? 'office_file_too_large' : 'file_too_large',
+							sprintf( 'File exceeds %d MB limit for %s uploads.', (int) round( $cap['bytes'] / 1048576 ), $cap['modality'] ),
+							[ 'status' => 413, 'modality' => $cap['modality'], 'max_bytes' => $cap['bytes'] ]
+						);
+					}
 				}
 
 				$ext = strtolower( pathinfo( $file['name'], PATHINFO_EXTENSION ) );
 				$mime = (string) ( $file['type'] ?? '' );
 				$title = $title !== '' ? $title : $file['name'];
 
-				$content = $this->read_file_content( $file['tmp_name'], $ext );
+				$content = $this->read_file_content( $file['tmp_name'], $ext, [
+					'filename'      => $file['name'],
+					'mime'          => $mime,
+					'attachment_id' => (int) ( $payload['attachment_id'] ?? 0 ),
+					'user_id'       => (int) ( $payload['user_id'] ?? get_current_user_id() ),
+				] );
 				if ( is_wp_error( $content ) ) {
 					return $content;
 				}
 				break;
 
+			case 'youtube':
 			case 'url':
 				$url = isset( $payload['url'] ) ? esc_url_raw( (string) $payload['url'] ) : '';
 				if ( ! $url ) {
@@ -534,9 +644,35 @@ class BizCity_TwinChat_Sources_Service {
 					// Caller pre-fetched content (e.g. browser snippet).
 					$content = (string) $payload['content'];
 				} else {
-					$content = $this->fetch_url_text( $url );
-					if ( is_wp_error( $content ) ) {
-						return $content;
+					// Phase 0.7 / Wave E0.YT — detect YouTube URL and route through caption transcriber.
+					if ( class_exists( 'BizCity_Youtube_Transcriber' )
+					     && BizCity_Youtube_Transcriber::is_youtube_url( $url ) ) {
+						$transcriber = BizCity_Youtube_Transcriber::instance();
+						// Sprint C — prefer fetch_with_av_fallback when available so videos
+						// without captions transparently fall back to AV transcribe.
+						$method = method_exists( $transcriber, 'fetch_with_av_fallback' )
+							? 'fetch_with_av_fallback'
+							: 'fetch';
+						$yt = $transcriber->{$method}( $url, [
+							'lang'              => isset( $payload['lang'] ) ? (string) $payload['lang'] : '',
+							'allow_av_fallback' => true,
+							'user_id'           => get_current_user_id(),
+						] );
+						if ( is_wp_error( $yt ) ) {
+							return $yt;
+						}
+						$content = (string) ( $yt['text'] ?? '' );
+						if ( ! empty( $yt['title'] ) && $title === $this->derive_title_from_url( $url ) ) {
+							$title = (string) $yt['title'];
+						}
+						$mime = ( ( $yt['modality'] ?? '' ) === 'youtube_av_fallback' )
+							? 'text/youtube-av-transcript'
+							: 'text/youtube-transcript';
+					} else {
+						$content = $this->fetch_url_text( $url );
+						if ( is_wp_error( $content ) ) {
+							return $content;
+						}
 					}
 				}
 				break;
@@ -558,7 +694,56 @@ class BizCity_TwinChat_Sources_Service {
 		];
 	}
 
-	private function read_file_content( $path, $ext ) {
+	/**
+	 * Resolve the per-modality upload cap for a file based on its extension/mime.
+	 *
+	 * Modalities and caps:
+	 *   - 'av'     → 250 MB (deferred to AV adapter — caller usually skips the hard stop)
+	 *   - 'office' → 25 MB  (mirrors BizCity_KG_Office_Adapter::MAX_DOC_BYTES)
+	 *   - 'text'   → 5 MB   (default for txt/md/csv/json/html/srt/pdf/...)
+	 *
+	 * Filterable via 'twinchat_sources_max_file_bytes' so site admins can override
+	 * (e.g. raise office cap to 50 MB on enterprise tier).
+	 *
+	 * @param string $ext  Lowercased extension without the dot.
+	 * @param string $mime Lowercased MIME type, may be empty.
+	 * @return array{ modality: string, bytes: int }
+	 */
+	private function resolve_max_file_bytes( $ext, $mime ) {
+		$ext  = (string) $ext;
+		$mime = (string) $mime;
+
+		$av_exts = [
+			'mp3','wav','m4a','aac','ogg','oga','opus','flac','3gp','amr',
+			'mp4','mov','m4v','webm','mkv','avi','mpeg','mpg','3gpp',
+		];
+		$office_exts = [
+			'doc','docx','xls','xlsx','ppt','pptx','odt','ods','odp','rtf',
+		];
+
+		if ( strpos( $mime, 'audio/' ) === 0 || strpos( $mime, 'video/' ) === 0 || in_array( $ext, $av_exts, true ) ) {
+			$out = [ 'modality' => 'av', 'bytes' => self::MAX_FILE_BYTES_AV ];
+		} elseif ( in_array( $ext, $office_exts, true ) || strpos( $mime, 'application/vnd.openxmlformats' ) === 0 || strpos( $mime, 'application/vnd.oasis' ) === 0 || $mime === 'application/msword' ) {
+			$out = [ 'modality' => 'office', 'bytes' => self::MAX_FILE_BYTES_OFFICE ];
+		} else {
+			$out = [ 'modality' => 'text', 'bytes' => self::MAX_FILE_BYTES_TEXT ];
+		}
+
+		/**
+		 * Filter the resolved upload cap.
+		 *
+		 * @param array  $out  [ 'modality' => string, 'bytes' => int ]
+		 * @param string $ext  File extension (no dot).
+		 * @param string $mime MIME type.
+		 */
+		$filtered = apply_filters( 'twinchat_sources_max_file_bytes', $out, $ext, $mime );
+		if ( is_array( $filtered ) && isset( $filtered['bytes'], $filtered['modality'] ) ) {
+			$out = [ 'modality' => (string) $filtered['modality'], 'bytes' => max( 1, (int) $filtered['bytes'] ) ];
+		}
+		return $out;
+	}
+
+	private function read_file_content( $path, $ext, array $opts = [] ) {
 		if ( ! file_exists( $path ) ) {
 			return new WP_Error( 'file_missing', 'Uploaded file missing' );
 		}
@@ -573,7 +758,30 @@ class BizCity_TwinChat_Sources_Service {
 			return $raw;
 		}
 
-		// PDF/DOCX/etc — try external extractor if present.
+		// PDF/DOCX/Audio/Video/etc — delegate to KG-Hub Adapter Registry (Phase 0.7 / Wave E1, E0.AV).
+		// Adapters return a structured array; we keep the legacy string contract
+		// here for backward compat and stash the structured payload on the
+		// instance so the caller can pick up segments/meta without a refactor.
+		if ( class_exists( 'BizCity_KG_Adapter_Registry' ) ) {
+			$mime    = isset( $opts['mime'] ) && $opts['mime'] !== ''
+				? (string) $opts['mime']
+				: ( function_exists( 'mime_content_type' ) ? @mime_content_type( $path ) : '' );
+			$adapter = BizCity_KG_Adapter_Registry::instance()->resolve( strtolower( $ext ), (string) $mime );
+			if ( $adapter ) {
+				$adapter_opts = array_merge( [ 'ext' => $ext, 'mime' => $mime ], $opts );
+				$result = $adapter->extract( $path, $adapter_opts );
+				if ( is_wp_error( $result ) ) {
+					return $result; // already structured (e.g. pdf_extract_empty, av_no_speech, tier_required)
+				}
+				if ( is_array( $result ) && isset( $result['text'] ) && $result['text'] !== '' ) {
+					$this->last_adapter_payload = $result;
+					return (string) $result['text'];
+				}
+				return new WP_Error( 'adapter_empty', 'Adapter returned no text', [ 'http_status' => 422 ] );
+			}
+		}
+
+		// Legacy stub — left in place for future wiring of niche extractors.
 		if ( class_exists( 'BizCity_File_Extractor' ) && method_exists( 'BizCity_File_Extractor', 'extract' ) ) {
 			$extracted = BizCity_File_Extractor::extract( $path, $ext );
 			if ( is_string( $extracted ) && $extracted !== '' ) {
@@ -587,24 +795,65 @@ class BizCity_TwinChat_Sources_Service {
 	}
 
 	private function fetch_url_text( $url ) {
-		$res = wp_remote_get( $url, [
-			'timeout'    => 12,
-			'user-agent' => 'BizCityKG/0.5 (+https://bizcity.vn)',
-		] );
-		if ( is_wp_error( $res ) ) return $res;
-		$code = wp_remote_retrieve_response_code( $res );
+		// 2026-05-20 — hardened: longer timeout, follow redirects, gzip,
+		// graceful fallback when upstream SSL cert is broken (common on VN sites).
+		$base_args = [
+			'timeout'     => 30,
+			'redirection' => 5,
+			'decompress'  => true,
+			'user-agent'  => 'Mozilla/5.0 (compatible; BizCityKG/0.7; +https://bizcity.vn)',
+			'headers'     => [
+				'Accept'          => 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+				'Accept-Language' => 'vi,en;q=0.8',
+			],
+		];
+		$res = wp_remote_get( $url, $base_args );
+		if ( is_wp_error( $res ) ) {
+			// Retry once with SSL verification disabled — some Vietnamese sites
+			// have expired/mis-chained certs that wp_http rejects by default.
+			$code = $res->get_error_code();
+			if ( strpos( (string) $code, 'http' ) !== false || $code === 'http_request_failed' ) {
+				$res = wp_remote_get( $url, $base_args + [ 'sslverify' => false ] );
+			}
+		}
+		if ( is_wp_error( $res ) ) {
+			return new WP_Error(
+				'url_fetch_failed',
+				'Could not fetch URL: ' . $res->get_error_message(),
+				[ 'http_status' => 502, 'url' => $url ]
+			);
+		}
+		$code = (int) wp_remote_retrieve_response_code( $res );
 		if ( $code < 200 || $code >= 400 ) {
-			return new WP_Error( 'url_http_' . $code, 'URL fetch returned HTTP ' . $code );
+			return new WP_Error(
+				'url_http_' . $code,
+				sprintf( 'URL fetch returned HTTP %d', $code ),
+				[ 'http_status' => $code >= 500 ? 502 : 422, 'url' => $url ]
+			);
 		}
 		$body = (string) wp_remote_retrieve_body( $res );
 		if ( $body === '' ) {
-			return new WP_Error( 'url_empty', 'URL returned empty body' );
+			return new WP_Error( 'url_empty', 'URL returned empty body', [ 'http_status' => 422, 'url' => $url ] );
 		}
 		// Strip HTML — tiny extractor; full readability later.
-		$body = preg_replace( '#<(script|style)\b[^>]*>.*?</\1>#is', ' ', $body );
+		$body = preg_replace( '#<(script|style|noscript|template)\b[^>]*>.*?</\1>#is', ' ', $body );
 		$body = wp_strip_all_tags( $body );
 		$body = preg_replace( "/\s+/u", ' ', $body );
-		return trim( (string) $body );
+		$body = trim( (string) $body );
+		if ( $body === '' ) {
+			return new WP_Error( 'url_empty_text', 'URL had no extractable text', [ 'http_status' => 422, 'url' => $url ] );
+		}
+		// 2026-05-21 R-LEARN E? — surface "thin body" cases so we can debug why
+		// some sites (e.g. JS-rendered SPA, soft-paywall) only yield ~nav text.
+		// Stage 1 trace requirement (§5 of PHASE-0-RULE-LEARNING-PIPELINE).
+		if ( class_exists( 'BizCity_Twin_Debug' ) && mb_strlen( $body ) < 400 ) {
+			BizCity_Twin_Debug::trace( 'kg', 'ingest_url_thin', [
+				'url'        => $url,
+				'body_bytes' => mb_strlen( $body ),
+				'preview'    => mb_substr( $body, 0, 120 ),
+			] );
+		}
+		return $body;
 	}
 
 	private function normalize_text( $text ) {
@@ -649,9 +898,14 @@ class BizCity_TwinChat_Sources_Service {
 		if ( ! function_exists( 'bizcity_openrouter_embeddings' ) ) {
 			return new WP_Error( 'no_embedder', 'bizcity_openrouter_embeddings() unavailable' );
 		}
-		// Embed in batches of 32 to stay under provider limits.
+		// 2026-05-20 — bumped batch 32 → 96. OpenAI / OpenRouter embedding
+		// endpoints accept up to 2048 inputs per call; 96 trims request count
+		// to ~1/3 for typical sources without bumping payload past ~150 KB.
+		// Filterable so admins can tune per provider.
+		$batch_size = (int) apply_filters( 'bizcity_kg_embed_batch_size', 96 );
+		if ( $batch_size < 1 ) { $batch_size = 1; }
 		$out      = [];
-		$batches  = array_chunk( $texts, 32 );
+		$batches  = array_chunk( $texts, $batch_size );
 		$total_b  = count( $batches );
 		foreach ( $batches as $bi => $batch ) {
 			$bt0 = microtime( true );
@@ -705,11 +959,9 @@ class BizCity_TwinChat_Sources_Service {
 
 		$embedding_json = null;
 		if ( is_array( $args['embedding'] ) && ! empty( $args['embedding'] ) ) {
-			if ( method_exists( 'BizCity_KG_Database', 'encode_embedding' ) ) {
-				$embedding_json = BizCity_KG_Database::encode_embedding( $args['embedding'] );
-			} else {
-				$embedding_json = wp_json_encode( $args['embedding'] );
-			}
+			// Filestore-only (Rule v2.0): NO JSON encode for kg_passages.embedding column.
+			// Keep $embedding_json as null; vector flows directly into .bin via register_chunk below.
+			$embedding_json = null;
 		}
 
 		$ok = $wpdb->insert( $db->tbl_passages(), [
@@ -722,13 +974,44 @@ class BizCity_TwinChat_Sources_Service {
 			'origin'            => substr( sanitize_text_field( (string) $args['origin'] ), 0, 100 ),
 			'content'           => (string) $args['content'],
 			'content_hash'      => $hash,
-			'embedding'         => $embedding_json,
+			'embedding'         => null,
 			'token_count'       => (int) $args['token_count'],
 			// Keep 'pending' so KG triplet extractor can build the Knowledge Graph.
 			'extraction_status' => 'pending',
 			'metadata'          => wp_json_encode( $args['metadata'] ?? [] ),
 		] );
-		return $ok ? (int) $wpdb->insert_id : 0;
+		$pid = $ok ? (int) $wpdb->insert_id : 0;
+
+		// PHASE-0.21 Wave 2 — dual-write embedding into .bin file store.
+		if ( $pid && is_array( $args['embedding'] ) && ! empty( $args['embedding'] ) && class_exists( 'BizCity_KG_Embedding_Writer' ) ) {
+			BizCity_KG_Embedding_Writer::instance()->register_chunk(
+				(int) $args['notebook_id'],
+				$pid,
+				$args['embedding'],
+				null,
+				(int) $args['source_id']
+			);
+		}
+
+		// PHASE-0.7-LEARN-VECTOR-FILE Wave F1 — dual-write passage body to
+		// MD shard file so new sources land in filestore immediately when
+		// `bizcity_kg_filestore_dual_write` option is ON. Without this hook,
+		// only embeddings hit .bin and the body stays in MySQL forever.
+		if ( $pid && (int) $args['notebook_id'] > 0 && class_exists( 'BizCity_KG_Filestore_Dispatcher' ) ) {
+			BizCity_KG_Filestore_Dispatcher::instance()->after_passage_insert(
+				$pid,
+				(int) $args['notebook_id'],
+				(string) $args['content']
+			);
+		}
+
+		// Passages count on the notebook just changed — flush KG stats cache so the
+		// brain workspace shows fresh numbers without waiting for the 5-min TTL.
+		if ( $pid && (int) $args['notebook_id'] > 0 ) {
+			do_action( 'bizcity_kg_notebook_stats_dirty', (int) $args['notebook_id'] );
+		}
+
+		return $pid;
 	}
 
 	private function derive_title( $type, $material ) {

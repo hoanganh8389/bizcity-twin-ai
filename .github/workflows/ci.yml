@@ -1,0 +1,198 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+
+jobs:
+
+  lint-php:
+    name: PHP Lint & Compat
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['7.4', '8.1', '8.2']
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP ${{ matrix.php }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mbstring, json, curl
+          tools: composer:v2, phpcs
+
+      - name: Validate composer.json
+        run: composer validate --strict --no-check-lock
+
+      - name: Cache Composer
+        uses: actions/cache@v4
+        with:
+          path: ~/.composer/cache
+          key: composer-${{ matrix.php }}-${{ hashFiles('composer.json') }}
+          restore-keys: composer-${{ matrix.php }}-
+
+      - name: Install dependencies
+        run: composer install --no-progress --prefer-dist --no-interaction
+
+      - name: PHP syntax check
+        run: |
+          set -e
+          ! find core modules plugins includes mu-plugin bin -name '*.php' -print0 \
+            | xargs -0 -n1 -P4 php -l 2>&1 | grep -v 'No syntax errors detected'
+
+      - name: PHP 7.4 compatibility grep guards
+        run: |
+          set -e
+          # Union return type
+          if grep -rn --include='*.php' -E '\):\s*[A-Za-z_]+\|[A-Za-z_]+' core modules plugins includes; then
+            echo "::error::Union return type detected (PHP 8.0+ only). PHP 7.4 floor violation."
+            exit 1
+          fi
+          # Nullsafe
+          if grep -rn --include='*.php' -E '\?->[a-zA-Z_]' core modules plugins includes; then
+            echo "::error::Nullsafe operator ?-> detected (PHP 8.0+ only)."
+            exit 1
+          fi
+          # match expression
+          if grep -rn --include='*.php' -E '\bmatch\s*\(' core modules plugins includes; then
+            echo "::error::match() expression detected (PHP 8.0+ only)."
+            exit 1
+          fi
+          # str_contains family
+          if grep -rn --include='*.php' -E '\bstr_(contains|starts_with|ends_with)\s*\(' core modules plugins includes; then
+            echo "::error::str_contains/str_starts_with/str_ends_with detected (PHP 8.0+ only). Use strpos/substr."
+            exit 1
+          fi
+          echo "PHP 7.4 compat: PASS"
+
+      - name: R-GW-8 anti-pattern grep guards
+        run: |
+          set -e
+          # Client code MUST NOT reference server-only Router_Proxy
+          BAD=$(grep -rn --include='*.php' -E 'BizCity_Router_(Proxy|Auth|Usage)' core modules plugins | grep -v 'class_exists' | grep -v 'docs/' | grep -v 'CHANGELOG' || true)
+          if [ -n "$BAD" ]; then
+            echo "::error::R-GW-8 violation: client code references BizCity_Router_* directly (must use BizCity_LLM_Client)."
+            echo "$BAD"
+            exit 1
+          fi
+          # No leak of provider key option
+          BAD2=$(grep -rn --include='*.php' "bizcity_openrouter_api_key" core modules plugins | grep -v 'docs/' | grep -v 'changelog' || true)
+          if [ -n "$BAD2" ]; then
+            echo "::warning::Provider key option referenced on client (should be server-only)."
+            echo "$BAD2"
+          fi
+          echo "R-GW-8: PASS"
+
+  schema-changelog:
+    name: Diagnostics schema changelog (R-DCL)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup PHP 7.4
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '7.4'
+          extensions: mbstring, json
+      - name: Validate JSON changelog
+        run: php core/diagnostics/validate-schema-changelog.php
+
+  diagnostics-mock:
+    name: Diagnostics CLI runner (mock mode)
+    runs-on: ubuntu-latest
+    needs: [lint-php]
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['7.4', '8.1']
+        wp: ['6.4', 'latest']
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: wordpress_test
+        ports: ['3306:3306']
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: wp-content/plugins/bizcity-twin-ai
+
+      - name: Setup PHP ${{ matrix.php }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mbstring, json, curl, mysqli, mysql
+          tools: composer:v2, wp-cli
+
+      - name: Download WordPress
+        run: |
+          wp core download --path=. --version=${{ matrix.wp }}
+          wp config create --dbname=wordpress_test --dbuser=root --dbpass=root --dbhost=127.0.0.1 --skip-check
+          wp core install --url=http://cli.local --title=Test --admin_user=admin --admin_email=admin@example.com --admin_password=admin
+
+      - name: Activate plugin
+        run: wp plugin activate bizcity-twin-ai
+
+      - name: Composer install
+        working-directory: wp-content/plugins/bizcity-twin-ai
+        run: composer install --no-dev --no-progress --prefer-dist
+
+      - name: Run diagnostics (mock mode)
+        working-directory: wp-content/plugins/bizcity-twin-ai
+        env:
+          BIZCITY_WP_ROOT: ${{ github.workspace }}
+        run: php bin/diagnostics-run.php --skip-network --junit=build/junit.xml --filter='*'
+
+      - name: Upload JUnit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-php${{ matrix.php }}-wp${{ matrix.wp }}
+          path: wp-content/plugins/bizcity-twin-ai/build/junit.xml
+
+      - name: Annotate test results
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: Diagnostics (PHP ${{ matrix.php }} · WP ${{ matrix.wp }})
+          path: wp-content/plugins/bizcity-twin-ai/build/junit.xml
+          reporter: java-junit
+
+  docs-hooks-coverage:
+    name: HOOKS.md coverage check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify new public hooks documented
+        run: |
+          set -e
+          # Find apply_filters / do_action with bizcity_ prefix
+          NEW=$(git diff origin/main...HEAD --unified=0 -- core modules plugins | \
+                grep -oE "(apply_filters|do_action)\(\s*'bizcity_[a-z_]+'" | \
+                sort -u || true)
+          if [ -z "$NEW" ]; then
+            echo "No new bizcity_* hooks in diff."
+            exit 0
+          fi
+          for hook in $NEW; do
+            name=$(echo "$hook" | grep -oE "'bizcity_[a-z_]+'")
+            if ! grep -q "$name" docs/extension/HOOKS.md; then
+              echo "::warning::New hook $name missing from docs/extension/HOOKS.md"
+            fi
+          done
+
+  fe-build:
+    name: FE bundle smoke (TS/JS)
+    runs-on: ubuntu-latest
+    if: false  # enable once package.json scripts stabilize
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '18', cache: 'npm' }
+      - run: npm ci
+      - run: npm run build

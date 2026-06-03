@@ -1,21 +1,62 @@
-MIT License
+                    GNU GENERAL PUBLIC LICENSE
+                       Version 2, June 1991
 
-Copyright (c) 2023-2026 Johnny Chu
+ Copyright (C) 1989, 1991 Free Software Foundation, Inc.,
+ 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+ Everyone is permitted to copy and distribute verbatim copies
+ of this license document, but changing it is not allowed.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+================================================================================
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+BizCity Twin AI — WordPress AI Framework
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+Copyright (C) 2023-2026 Johnny Chu (Chu Hoàng Anh) <hoanganh.itm@gmail.com>
+
+This program is free software; you can redistribute it and/or modify it under
+the terms of the GNU General Public License, version 2 (GPL-2.0), as published
+by the Free Software Foundation, OR (at your option) any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License along with
+this program; if not, write to the Free Software Foundation, Inc., 51 Franklin
+Street, Fifth Floor, Boston, MA 02110-1301, USA.
+
+Full license text: https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt
+
+================================================================================
+
+NOTE ON SCOPE
+
+The GPL-2.0+ license above applies ONLY to the public framework code shipped in
+this repository (`bizcity-twin-ai`). The following components are PROPRIETARY
+and require a separate commercial license from BizCity:
+
+  • bizcity-llm-router    (gateway server, server-side at bizcity.vn)
+  • bizcity-twin-crm      (CRM Inbox Hub vertical plugin)
+  • bizcoach-pro          (Producer hub flagship vertical plugin)
+  • bizcity-tarot, bizcity-tool-content, bizcity-doc, bizcity-pagebuilder,
+    bizcity-tool-image, bizcity-tool-mindmap, bizcity-tool-woo,
+    and other vertical commercial plugins distributed under separate license.
+
+These components are NOT included in this GPL-licensed distribution.
+Contact hoanganh.itm@gmail.com for commercial licensing inquiries.
+
+================================================================================
+
+TRADEMARK NOTICE
+
+"BizCity", the BizCity logo, "BizCity Twin AI", and "BizCoach Pro" are
+trademarks of Johnny Chu (Chu Hoàng Anh) / BizCity. The GPL-2.0+ license does
+NOT grant trademark rights. See TRADEMARK.md for permitted usage.
+
+================================================================================
+
+CONTACT
+
+Maintainer:   Johnny Chu (Chu Hoàng Anh)
+Email:        hoanganh.itm@gmail.com
+Website:      https://bizcity.vn
+Repository:   https://github.com/hoanganh8389/bizcity-twin-ai

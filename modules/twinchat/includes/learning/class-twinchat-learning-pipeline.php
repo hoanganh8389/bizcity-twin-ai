@@ -65,12 +65,21 @@ class BizCity_TwinChat_Learning_Pipeline {
 	 * Filterable via `bizcity_twinchat_learning_parallel_workers`.
 	 * Cap: [1, 10] — PHP-FPM pool is finite.
 	 *
-	 * 2026-05-04 — lowered default 5→3 after observing 500/522 from Cloudflare
-	 * caused by FPM pool exhaustion (1 SSE + 5 workers + tick + other tabs > pool).
-	 * Bump back to 5–7 only if your FPM pool is comfortably > 20 processes.
+	 * History:
+	 *   - 2026-05-04 lowered 5→3 (FPM pool exhaustion 500/522 from Cloudflare).
+	 *   - 2026-05-26 raised 3→5 (Pro-Tier Wave). The quota cooldown now stops
+	 *     runaway jobs cheaply, so we can afford the larger fan-out. Ops can
+	 *     lower back to 3 on hosts with < 20 FPM processes via:
+	 *       add_filter('bizcity_twinchat_learning_parallel_workers', fn() => 3);
 	 * Set to 1 to revert to sequential mode.
 	 */
-	const PARALLEL_WORKERS = 3;
+	const PARALLEL_WORKERS = 5;
+
+	/**
+	 * Delay (seconds) before re-running an in-flight job. Lower = faster
+	 * throughput, higher = less FPM pressure. Filterable.
+	 */
+	const BUSY_RESCHEDULE_S  = 5;
 
 	private static $bound = false;
 
@@ -103,7 +112,20 @@ class BizCity_TwinChat_Learning_Pipeline {
 		for ( $loops = 0; $loops < self::MAX_LOOPS; $loops++ ) {
 			$res = self::tick( $job_id, $owner );
 			if ( $res['done']  ) { return; }
-			if ( $res['busy']  ) { self::reschedule( $job_id, 30 ); return; }
+			if ( $res['busy']  ) {
+				// Paused (quota cooldown) — wait until retry_after, capped 1h.
+				if ( ! empty( $res['paused'] ) && ! empty( $res['retry_after'] ) ) {
+					$delay = max( 60, min( HOUR_IN_SECONDS, (int) $res['retry_after'] - time() ) );
+					self::reschedule( $job_id, $delay );
+					return;
+				}
+				// Fast cadence — workers fired non-blocking; come back ASAP so the
+				// next batch can dispatch instead of waiting half a minute.
+				$busy_delay = (int) apply_filters( 'bizcity_twinchat_learning_busy_delay_s', self::BUSY_RESCHEDULE_S );
+				$busy_delay = max( 2, min( 60, $busy_delay ) );
+				self::reschedule( $job_id, $busy_delay );
+				return;
+			}
 			if ( $res['error'] ) { return; }
 			if ( microtime( true ) >= $deadline ) {
 				self::reschedule( $job_id, 5 );
@@ -143,6 +165,37 @@ class BizCity_TwinChat_Learning_Pipeline {
 		}
 		if ( in_array( $job['status'], [ 'done', 'failed', 'cancelled' ], true ) ) {
 			return [ 'done' => true, 'busy' => false, 'error' => false, 'phase' => $job['phase'], 'job' => $job ];
+		}
+
+		// ── Cooldown gate ───────────────────────────────────────────────
+		// PHASE-0.7 Wave Pro-Tier (2026-05-26): if `restartable_at` is in the
+		// future, this job was paused (most likely by quota_exceeded). Yield
+		// cheaply so cron/ajax tick don't spam logs or burn LLM calls.
+		if ( ! empty( $job['restartable_at'] ) ) {
+			$resume_ts = strtotime( (string) $job['restartable_at'] . ' UTC' );
+			if ( $resume_ts && $resume_ts > time() ) {
+				$user_id = (int) $job['user_id'];
+				// Cheap proactive re-check: if the user upgraded plan / admin
+				// granted extra quota, lift the block immediately so we don't
+				// wait until midnight.
+				if ( $user_id > 0
+				     && class_exists( 'BizCity_TwinChat_Learning_Quota_Cooldown' )
+				     && BizCity_TwinChat_Learning_Quota_Cooldown::is_quota_available_again( $user_id ) ) {
+					BizCity_TwinChat_Learning_Quota_Cooldown::clear( $user_id );
+					$queue->update( $job_id, [ 'restartable_at' => null, 'error' => null ] );
+					$job = $queue->get_job( $job_id );
+				} else {
+					return [
+						'done'        => false,
+						'busy'        => true,
+						'error'       => false,
+						'paused'      => true,
+						'phase'       => $job['phase'],
+						'job'         => $job,
+						'retry_after' => $resume_ts,
+					];
+				}
+			}
 		}
 
 		// ── Notebook-level singleton guard ──────────────────────────────
@@ -269,6 +322,72 @@ class BizCity_TwinChat_Learning_Pipeline {
 		$nb       = (int) $job['notebook_id'];
 		$db       = BizCity_KG_Database::instance();
 
+		// ── Pro/Free tier quota gate ────────────────────────────────────
+		// PHASE-0.7 Wave Pro-Tier (2026-05-26): probe cost-guard ONCE per tick.
+		// Before this gate, a quota-exhausted user would re-trigger SYNC fallback
+		// every 3s, emitting `sync_worker ... ERROR [quota_exceeded]` to logs
+		// indefinitely (observed user=12 50/50 looping at 03:20 UTC).
+		//
+		// IMPORTANT (2026-05-26 follow-up): we DO NOT call $cost_guard->can_extract()
+		// here, because the LLM Router exempts admins (manage_options) AND the
+		// explicit exempt-users list — for *learning cron* that means an admin
+		// notebook would grow _kg_passages / _kg_relations without bound. The
+		// learning pipeline is a background batch job, not an interactive call,
+		// so it MUST honor the per-user daily quota regardless of role. We probe
+		// the raw counters and ignore the exemption filter.
+		$user_id = (int) $job['user_id'];
+		if ( $user_id <= 0 ) {
+			// Refuse to run unowned jobs — they can't be quota-attributed.
+			// Mark failed so cron / sweep stop re-firing.
+			$queue->update( $job_id, [
+				'status'      => 'failed',
+				'error'       => 'job has no user_id; cannot attribute quota',
+				'finished_at' => current_time( 'mysql', 1 ),
+			] );
+			$queue->release_lease( $job_id, $owner );
+			if ( $events ) {
+				$events->push( $nb, 'log', [
+					'level' => 'error',
+					'msg'   => '[quota] Job thiếu user_id — đã dừng để tránh ghi không kiểm soát.',
+				], $job_id );
+			}
+			bizcity_tc_learning_debug_log( sprintf( 'tick job=%d FAILED — user_id=0', $job_id ) );
+			return [ 'done' => true, 'busy' => false, 'error' => true, 'phase' => 'failed', 'job' => $queue->get_job( $job_id ) ];
+		}
+		if ( class_exists( 'BizCity_KG_Cost_Guard' ) ) {
+			$cg   = BizCity_KG_Cost_Guard::instance();
+			$cap  = $cg->quota_per_user();
+			$used = method_exists( $cg, 'user_passages_today' ) ? (int) $cg->user_passages_today( $user_id ) : 0;
+			// Site-wide USD cap still applies (admins shouldn't escape this).
+			$site_cap   = method_exists( $cg, 'daily_cap_usd' ) ? (float) $cg->daily_cap_usd() : 0.0;
+			$site_spent = method_exists( $cg, 'spent_today_usd' ) ? (float) $cg->spent_today_usd() : 0.0;
+
+			$err = null;
+			if ( $site_cap > 0 && $site_spent >= $site_cap ) {
+				$err = new WP_Error( 'cap_exceeded', sprintf(
+					'Site-wide daily cap reached: $%.2f / $%.2f', $site_spent, $site_cap
+				) );
+			} elseif ( $used + 1 > $cap ) {
+				$err = new WP_Error( 'quota_exceeded', sprintf(
+					'User %d quota: %d / %d passages today', $user_id, $used, $cap
+				) );
+			}
+
+			if ( $err ) {
+				$paused = self::pause_for_quota( $job_id, $nb, $user_id, $err, $events );
+				$queue->release_lease( $job_id, $owner );
+				return [
+					'done'        => false,
+					'busy'        => true,
+					'error'       => false,
+					'paused'      => true,
+					'phase'       => 'extracting',
+					'job'         => $queue->get_job( $job_id ),
+					'retry_after' => $paused['retry_after'] ?? ( time() + 900 ),
+				];
+			}
+		}
+
 		// Detect dead loopback up-front so we can override the in-flight gate.
 		// (Otherwise stuck 'processing' passages — a SYMPTOM of dead loopback —
 		// keep us in the in-flight branch for 5 minutes per round, masking the
@@ -299,10 +418,11 @@ class BizCity_TwinChat_Learning_Pipeline {
 			update_option( 'bizcity_tc_loopback_dead_ts', time(), false );
 		}
 
-		bizcity_tc_learning_debug_log( sprintf( 'tick_extract job=%d nb=%d owner=%s batches_done=%d passages_processed=%d gap=%d loopback_dead=%s',
-			$job_id, $nb, (string) $owner, $dispatched_rounds, $counter_progress,
-			$dispatched_rounds - $counter_progress, $loopback_dead ? 'YES' : 'no'
-		) );
+		// Noisy every-tick status log — commented out 2026-05-09 (normal behaviour, not an error).
+		// bizcity_tc_learning_debug_log( sprintf( 'tick_extract job=%d nb=%d owner=%s batches_done=%d passages_processed=%d gap=%d loopback_dead=%s',
+		// 	$job_id, $nb, (string) $owner, $dispatched_rounds, $counter_progress,
+		// 	$dispatched_rounds - $counter_progress, $loopback_dead ? 'YES' : 'no'
+		// ) );
 
 		// ── Step 1: check in-flight workers from previous dispatch ─────
 		// Passages stuck as 'processing' for >30s are considered orphaned
@@ -395,6 +515,21 @@ class BizCity_TwinChat_Learning_Pipeline {
 				'level' => 'info',
 				'msg'   => sprintf( '[%s] Twin đã đọc hết nguồn — %d đoạn / %d quan hệ → chuyển duyệt.', $lane, $totals_p, $totals_t ),
 			], $job_id );
+			// Pre-approve flush: drain any remaining triplets (below incremental
+			// threshold) before handing off to tick_approve, so entities that
+			// accumulated in small batches are not silently lost.
+			if ( class_exists( 'BizCity_KG_Database' ) && class_exists( 'BizCity_KG_Graph_Service' ) ) {
+				$tbl_tq  = BizCity_KG_Database::instance()->tbl_triplet_queue();
+				$tq_left = (int) $wpdb->get_var( $wpdb->prepare(
+					"SELECT COUNT(*) FROM {$tbl_tq} WHERE notebook_id = %d AND status = 'pending'",
+					$nb
+				) );
+				if ( $tq_left > 0 ) {
+					bizcity_tc_learning_debug_log( sprintf( 'tick_extract job=%d → pre-approve flush: %d pending triplets before approving phase', $job_id, $tq_left ) );
+					BizCity_KG_Graph_Service::instance()->approve_all_pending( $nb, (int) $job['user_id'] );
+				}
+			}
+
 			$queue->update( $job_id, [ 'phase' => 'approving', 'progress' => 80, 'batches_done' => (int) $job['batches_done'] + 1 ] );
 			return [ 'done' => false, 'busy' => false, 'error' => false, 'phase' => 'approving', 'job' => $queue->get_job( $job_id ) ];
 		}
@@ -425,10 +560,12 @@ class BizCity_TwinChat_Learning_Pipeline {
 			// concurrently — atomic claim correctly prevents double-dispatch,
 			// no harm done; logging it just adds noise.
 			if ( empty( $claimed ) ) {
-				bizcity_tc_learning_debug_log( sprintf(
-					'tick_extract job=%d → race lost ALL %d passage(s) to sibling tick',
-					$job_id, count( $ids )
-				) );
+				// Race condition log — commented out 2026-05-09. Normal when ajax + cron
+				// lanes tick concurrently; atomic claim correctly prevents double-dispatch.
+				// bizcity_tc_learning_debug_log( sprintf(
+				// 	'tick_extract job=%d → race lost ALL %d passage(s) to sibling tick',
+				// 	$job_id, count( $ids )
+				// ) );
 			}
 		}
 		if ( empty( $claimed ) ) {
@@ -479,18 +616,24 @@ class BizCity_TwinChat_Learning_Pipeline {
 		// passages). User saw "0 entities approved" and assumed system broken.
 		// Now we drain the triplet queue periodically so entities/relations
 		// surface in the graph as soon as they're extracted.
-		$incr_threshold = (int) apply_filters( 'bizcity_twinchat_learning_incremental_approve_threshold', 50 );
-		if ( $incr_threshold > 0 && class_exists( 'BizCity_KG_Database' ) ) {
-			$tq = $wpdb->get_var( $wpdb->prepare(
-				"SELECT COUNT(*) FROM {$wpdb->prefix}bizcity_kg_triplet_queue
-				 WHERE notebook_id = %d AND status = 'pending'",
+		// Threshold lowered from 50 → 5 (2026-05-11): with Vietnamese short-section
+		// documents each passage yields 1-3 triplets; 50 would never trigger.
+		$incr_threshold = (int) apply_filters( 'bizcity_twinchat_learning_incremental_approve_threshold', 5 );
+		if ( $incr_threshold > 0 && class_exists( 'BizCity_KG_Database' ) && class_exists( 'BizCity_KG_Graph_Service' ) ) {
+			// MUST use BizCity_KG_Database::tbl_triplet_queue() — multisite-aware.
+			// $wpdb->prefix is wrong when cron runs outside blog context.
+			$tbl_tq = BizCity_KG_Database::instance()->tbl_triplet_queue();
+			$tq = (int) $wpdb->get_var( $wpdb->prepare(
+				"SELECT COUNT(*) FROM {$tbl_tq} WHERE notebook_id = %d AND status = 'pending'",
 				$nb
 			) );
-			if ( (int) $tq >= $incr_threshold && class_exists( 'BizCity_KG_Graph_Service' ) ) {
-				bizcity_tc_learning_debug_log( sprintf( 'tick_extract job=%d → incremental approve %d pending triplets', $job_id, (int) $tq ) );
+			bizcity_tc_learning_debug_log( sprintf( 'tick_extract job=%d → triplet queue pending=%d (threshold=%d)', $job_id, $tq, $incr_threshold ) );
+			if ( $tq >= $incr_threshold ) {
+				bizcity_tc_learning_debug_log( sprintf( 'tick_extract job=%d → incremental approve %d pending triplets', $job_id, $tq ) );
 				$res = BizCity_KG_Graph_Service::instance()->approve_all_pending( $nb, (int) $job['user_id'] );
 				if ( ! is_wp_error( $res ) ) {
 					$delta_appr = (int) ( $res['approved'] ?? 0 );
+					bizcity_tc_learning_debug_log( sprintf( 'tick_extract job=%d → approve_all_pending returned approved=%d errors=%d', $job_id, $delta_appr, (int) ( $res['errors'] ?? 0 ) ) );
 					if ( $delta_appr > 0 ) {
 						$queue->update( $job_id, [
 							'entities_approved' => (int) $job['entities_approved'] + $delta_appr,
@@ -500,8 +643,12 @@ class BizCity_TwinChat_Learning_Pipeline {
 							'msg'   => sprintf( '[approve+] +%d quan hệ vào graph (incremental).', $delta_appr ),
 						], $job_id );
 					}
+				} else {
+					bizcity_tc_learning_debug_log( sprintf( 'tick_extract job=%d → approve_all_pending WP_ERROR: %s', $job_id, $res->get_error_message() ) );
 				}
 			}
+		} else {
+			bizcity_tc_learning_debug_log( sprintf( 'tick_extract job=%d → incremental approve SKIPPED (kg_db=%s, kg_svc=%s)', $job_id, class_exists( 'BizCity_KG_Database' ) ? 'yes' : 'NO', class_exists( 'BizCity_KG_Graph_Service' ) ? 'yes' : 'NO' ) );
 		}
 
 		return [ 'done' => false, 'busy' => false, 'error' => false, 'phase' => 'extracting', 'in_flight' => $dispatched, 'job' => $queue->get_job( $job_id ) ];
@@ -610,6 +757,92 @@ class BizCity_TwinChat_Learning_Pipeline {
 	}
 
 	/**
+	 * Pause a job because the cost-guard rejected the user (quota_exceeded /
+	 * cap_exceeded). Stamps `restartable_at` (UTC midnight by default — matches
+	 * cost guard daily bucket), persists ONE structured event for the FE
+	 * banner, and writes a single debug log line. Subsequent ticks short-circuit
+	 * via the `restartable_at` gate at the top of {@see tick()} — no log spam,
+	 * no LLM calls.
+	 *
+	 * Safe to call multiple times: the transient + restartable_at idempotency
+	 * means re-emission only fires when the block transitions OFF→ON.
+	 *
+	 * @param int                  $job_id
+	 * @param int                  $nb       notebook id (for events)
+	 * @param int                  $user_id  the user whose quota tripped
+	 * @param WP_Error             $err      cost-guard error
+	 * @param object|null          $events   BizCity_TwinChat_Learning_Events|null
+	 * @return array {code,reason,retry_after,used,cap}
+	 */
+	protected static function pause_for_quota( $job_id, $nb, $user_id, $err, $events = null ) {
+		$code   = $err->get_error_code();
+		$reason = $err->get_error_message();
+		$queue  = BizCity_TwinChat_Learning_Job_Queue::instance();
+
+		$payload = null;
+		if ( class_exists( 'BizCity_TwinChat_Learning_Quota_Cooldown' ) ) {
+			$existing = BizCity_TwinChat_Learning_Quota_Cooldown::get_block( (int) $user_id );
+			if ( $existing && ! empty( $existing['retry_after'] ) && (int) $existing['retry_after'] > time() ) {
+				// Already blocked — no re-emit, just propagate.
+				return $existing;
+			}
+			$payload = BizCity_TwinChat_Learning_Quota_Cooldown::apply_block( (int) $user_id, (string) $code, (string) $reason );
+		}
+		$retry_after = isset( $payload['retry_after'] ) ? (int) $payload['retry_after'] : ( time() + 3600 );
+
+		// Stamp the job so all tick lanes (cron + ajax) short-circuit cheaply.
+		$queue->update( $job_id, [
+			'status'         => 'running', // keep status so resume is implicit
+			'error'          => sprintf( '[%s] %s', $code, $reason ),
+			'restartable_at' => gmdate( 'Y-m-d H:i:s', $retry_after ),
+		] );
+
+		// Emit ONE structured event for FE banner.
+		if ( $events ) {
+			$events->push( $nb, 'log', [
+				'level'       => 'warn',
+				'msg'         => sprintf(
+					'[quota] %s — Tự động tiếp tục lúc %s UTC hoặc nâng cấp Pro để chạy ngay.',
+					$reason,
+					gmdate( 'H:i', $retry_after )
+				),
+				'code'        => $code,
+				'retry_after' => $retry_after,
+			], $job_id );
+			$events->push( $nb, 'quota_exhausted', [
+				'code'        => $code,
+				'message'     => $reason,
+				'retry_after' => $retry_after,
+				'user_id'     => (int) $user_id,
+				'used'        => isset( $payload['used'] ) ? (int) $payload['used'] : null,
+				'cap'         => isset( $payload['cap'] ) ? (int) $payload['cap'] : null,
+			], $job_id );
+		}
+
+		bizcity_tc_learning_debug_log( sprintf(
+			'tick job=%d user=%d PAUSED [%s] until %s — %s',
+			$job_id, $user_id, $code, gmdate( 'Y-m-d H:i:s', $retry_after ), $reason
+		) );
+
+		return $payload ?: [
+			'code'        => $code,
+			'reason'      => $reason,
+			'retry_after' => $retry_after,
+		];
+	}
+
+	/**
+	 * Synchronous fallback — extract passages inline within the current tick.
+	 *
+	 * Used when {@see dispatch_parallel_workers()} keeps firing but the
+	 * counter never moves (loopback HTTP silently dropped on this host).
+	 * Slow but reliable: 1 LLM call per tick, counter updates atomically.
+	 *
+	 * Mirrors the body of {@see BizCity_TwinChat_REST_Learning::passage_worker()}
+	 * minus the HTTP boundary.
+	 *
+	 * @return int number of passages processed (== count($passage_ids) unless extractor missing)
+
 	 * Synchronous fallback — extract passages inline within the current tick.
 	 *
 	 * Used when {@see dispatch_parallel_workers()} keeps firing but the
@@ -657,6 +890,14 @@ class BizCity_TwinChat_Learning_Pipeline {
 						'msg'   => sprintf( '[sync] passage #%d error [%s]: %s',
 							$pid, $result->get_error_code(), $result->get_error_message() ),
 					], $job_id );
+				}
+				// Defensive cooldown: tick_extract should have caught this, but
+				// if quota tripped mid-loop (e.g. another tab burned the last
+				// slot), stop now — don't iterate remaining passages.
+				$code = $result->get_error_code();
+				if ( $code === 'quota_exceeded' || $code === 'cap_exceeded' ) {
+					self::pause_for_quota( $job_id, $nb, $user_id, $result, $events );
+					break;
 				}
 				continue;
 			}

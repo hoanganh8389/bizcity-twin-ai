@@ -128,6 +128,16 @@ class BizCity_KG_Cleanup_Service {
 		if ( get_transient( self::LOCK_KEY ) ) {
 			return [ 'ok' => false, 'busy' => true ];
 		}
+
+		// HOTFIX 2026-05-10 — Multisite guard: skip silently on blogs that don't have the
+		// KG schema installed yet (e.g. fresh shard, replica lag, network-wide cron walking
+		// blogs that never activated KG features). Without this guard the weekly cron emits
+		// "Table 'wp_<id>_bizcity_kg_passages' doesn't exist" warnings on every shard.
+		// See PHASE-0.36 §Diagnostics, log entry slave9/wp_1453 + slave2/wp_1157 (10-May-2026).
+		if ( ! $this->kg_tables_present() ) {
+			return [ 'ok' => true, 'skipped' => 'kg_tables_missing', 'blog_id' => (int) get_current_blog_id() ];
+		}
+
 		set_transient( self::LOCK_KEY, time(), self::LOCK_TTL_S );
 
 		$run_id  = function_exists( 'wp_generate_uuid4' ) ? wp_generate_uuid4() : uniqid( 'cl_', true );
@@ -213,6 +223,51 @@ class BizCity_KG_Cleanup_Service {
 		$params[] = $limit;
 		$params[] = $offset;
 		return $wpdb->get_results( $wpdb->prepare( $sql, $params ), ARRAY_A );
+	}
+
+	// ── Schema preflight (HOTFIX 2026-05-10) ──────────────────────────
+
+	/**
+	 * Verify the 4 core KG tables touched by detect/reap exist on the CURRENT blog.
+	 *
+	 * Multisite + per-blog cron means weekly hook may fire on shards where the KG
+	 * schema was never installed (fresh sites, replica lag, partial activation).
+	 * Without this preflight the cron crashes with "Table doesn't exist" warnings.
+	 *
+	 * Returns true only if ALL of: kg_passages, kg_passage_entities,
+	 * kg_passage_relations, kg_triplet_queue exist. Missing any = bail.
+	 *
+	 * @return bool
+	 */
+	protected function kg_tables_present() {
+		global $wpdb;
+		if ( ! class_exists( 'BizCity_KG_Database' ) ) {
+			return false;
+		}
+		$db        = BizCity_KG_Database::instance();
+		$psg_tbl   = method_exists( $db, 'tbl_source_chunks' ) ? $db->tbl_source_chunks() : $db->tbl_passages();
+		$required  = [
+			$psg_tbl,
+			$db->tbl_passage_entities(),
+			$db->tbl_passage_relations(),
+			$db->tbl_triplet_queue(),
+		];
+		// Per-request cache so repeated calls in same cron tick don't re-issue SHOW TABLES.
+		static $cache = [];
+		$cache_key = (int) get_current_blog_id();
+		if ( isset( $cache[ $cache_key ] ) ) {
+			return $cache[ $cache_key ];
+		}
+		$prev_supp = $wpdb->suppress_errors( true );
+		foreach ( $required as $tbl ) {
+			$found = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl ) );
+			if ( $found !== $tbl ) {
+				$wpdb->suppress_errors( $prev_supp );
+				return $cache[ $cache_key ] = false;
+			}
+		}
+		$wpdb->suppress_errors( $prev_supp );
+		return $cache[ $cache_key ] = true;
 	}
 
 	// ── Stage A — detect orphans ────────────────────────────────────────

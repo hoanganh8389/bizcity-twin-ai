@@ -357,49 +357,36 @@ class BizCity_Tool_Image {
     }
 
     /**
-     * OpenRouter Gateway — FLUX.2, Gemini, Seedream, GPT-5 Image, etc.
+     * Image generation via BizCity LLM Gateway (R-GW-1 compliant).
      *
-     * @see https://openrouter.ai/docs/guides/overview/multimodal/image-generation
+     * Routes through `BizCity_LLM_Client::chat()` which proxies to
+     * `bizcity.vn/wp-json/bizcity/v1/llm/chat`. The gateway forwards
+     * `modalities` + `image_config` + image_url content parts to OpenRouter
+     * and returns the standard chat-completion response shape, from which
+     * we extract `choices[0].message.images[0].image_url.url` (base64 data URL
+     * or http URL) using `extract_openrouter_image()`.
      *
-     * Endpoint:  POST /api/v1/chat/completions
-     * Body:      model, messages, modalities: ["image"] or ["image","text"], image_config
-     * Response:  choices[0].message.images[0].image_url.url  (base64 data URL)
+     * Endpoint:  client → gateway → OpenRouter (KHÔNG gọi trực tiếp openrouter.ai)
+     * Per:       PHASE-0-RULE-GATEWAY-ONLY R-GW-1, R-GW-2, R-GW-5
      */
     private static function call_openrouter( string $model_id, string $prompt, string $size, $ref_images = array() ): array {
         if ( is_string( $ref_images ) ) {
             $ref_images = ! empty( $ref_images ) ? array( $ref_images ) : array();
         }
 
-        /* ── Resolve API key ── */
-        $api_key = get_option( 'bztimg_api_key', '' );
-        if ( empty( $api_key ) && function_exists( 'bizcity_openrouter_get_api_key' ) ) {
-            $api_key = bizcity_openrouter_get_api_key();
+        /* ── R-GW-5 guard: gateway client must be available ── */
+        if ( ! class_exists( 'BizCity_LLM_Client' ) ) {
+            self::log( 'call_openrouter: gateway client missing' );
+            return [ 'success' => false, 'error' => 'BizCity LLM Gateway client chưa cài đặt (mu-plugin bizcity-llm).' ];
         }
-        if ( empty( $api_key ) ) {
-            $api_key = get_site_option( 'bizcity_openrouter_api_key', '' );
-        }
-        if ( empty( $api_key ) ) {
-            self::log( 'call_openrouter: No API key configured' );
-            return [ 'success' => false, 'error' => 'Chưa cấu hình API Key. Vào Settings hoặc cấu hình OpenRouter.' ];
+        $llm = \BizCity_LLM_Client::instance();
+        if ( method_exists( $llm, 'is_ready' ) && ! $llm->is_ready() ) {
+            self::log( 'call_openrouter: gateway not ready (no API key)' );
+            return [ 'success' => false, 'error' => 'Chưa cấu hình BizCity API Key (biz-xxx). Vào Settings → BizCity LLM.' ];
         }
 
-        /* ── Endpoint ── */
-        $endpoint = rtrim( get_option( 'bztimg_api_endpoint', 'https://openrouter.ai/api/v1' ), '/' );
-
-        // Auto-fix stale PiAPI endpoint
-        if ( strpos( $endpoint, 'piapi.ai' ) !== false ) {
-            $endpoint = 'https://openrouter.ai/api/v1';
-            update_option( 'bztimg_api_endpoint', $endpoint );
-            self::log( 'call_openrouter: auto-migrated endpoint from PiAPI to OpenRouter' );
-        }
-
-        $url      = $endpoint . '/chat/completions';
-
-        /* ── Build messages ── */
-        $content = [];
-        $content[] = [ 'type' => 'text', 'text' => $prompt ];
-
-        // Add reference images (supports multiple for composite mode)
+        /* ── Build messages (multimodal: text + image_url refs) ── */
+        $content = [ [ 'type' => 'text', 'text' => $prompt ] ];
         foreach ( $ref_images as $ref_url ) {
             if ( ! empty( $ref_url ) ) {
                 $content[] = [
@@ -408,83 +395,85 @@ class BizCity_Tool_Image {
                 ];
             }
         }
+        $messages = [ [ 'role' => 'user', 'content' => $content ] ];
 
-        $messages = [
-            [
-                'role'    => 'user',
-                'content' => $content,
-            ],
-        ];
-
-        /* ── image_config: aspect_ratio ── */
         $aspect_ratio = self::SIZE_TO_ASPECT[ $size ] ?? '1:1';
 
-        /* ── Body ── */
-        $body = [
-            'model'      => $model_id,
-            'messages'   => $messages,
-            'modalities' => [ 'image' ],
-            'stream'     => false,
-            'image_config' => [
-                'aspect_ratio' => $aspect_ratio,
-            ],
-        ];
-
-        self::log( 'call_openrouter REQUEST', [
-            'url'   => $url,
-            'model' => $model_id,
-            'aspect' => $aspect_ratio,
-            'has_ref' => ! empty( $ref_images ),
+        self::log( 'call_openrouter REQUEST (gateway)', [
+            'model'     => $model_id,
+            'aspect'    => $aspect_ratio,
+            'has_ref'   => ! empty( $ref_images ),
             'ref_count' => count( $ref_images ),
         ] );
 
-        /* ── HTTP request ── */
-        $response = wp_remote_post( $url, [
-            'headers' => [
-                'Authorization' => 'Bearer ' . $api_key,
-                'Content-Type'  => 'application/json',
-                'HTTP-Referer'  => home_url(),
-                'X-Title'       => 'BizCity Tool Image',
+        /* ── Call via gateway. extra_body forwards image-specific fields. ── */
+        $result = $llm->chat( $messages, [
+            'model'       => $model_id,
+            'purpose'     => 'image',
+            'temperature' => 0.7,
+            'max_tokens'  => 4096,
+            'timeout'     => 180,
+            'no_fallback' => true, // image models don't fall back to text purposes
+            'extra_body'  => [
+                'modalities'   => [ 'image' ],
+                'stream'       => false,
+                'image_config' => [ 'aspect_ratio' => $aspect_ratio ],
             ],
-            'body'    => wp_json_encode( $body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ),
-            'timeout' => 180,
         ] );
 
-        if ( is_wp_error( $response ) ) {
-            self::log( 'call_openrouter WP_ERROR', $response->get_error_message() );
-            return [ 'success' => false, 'error' => 'Lỗi kết nối: ' . $response->get_error_message() ];
+        self::log( 'call_openrouter RESPONSE (gateway)', [
+            'success'  => ! empty( $result['success'] ),
+            'model'    => $result['model']    ?? '',
+            'provider' => $result['provider'] ?? '',
+            'error'    => $result['error']    ?? '',
+        ] );
+
+        if ( empty( $result['success'] ) ) {
+            $err = $result['error'] ?? 'Unknown gateway error';
+            return [ 'success' => false, 'error' => 'Gateway: ' . $err ];
         }
 
-        $http_code = wp_remote_retrieve_response_code( $response );
-        $raw_body  = wp_remote_retrieve_body( $response );
-        $data      = json_decode( $raw_body, true );
-
-        self::log( 'call_openrouter RESPONSE', [
-            'http_code'  => $http_code,
-            'has_data'   => ! empty( $data ),
-            'has_choices' => ! empty( $data['choices'] ),
-            'error'      => $data['error'] ?? null,
-        ] );
-
-        /* ── Error handling ── */
-        if ( $http_code !== 200 || empty( $data ) ) {
-            $err_msg = 'HTTP ' . $http_code;
-            if ( ! empty( $data['error']['message'] ) ) {
-                $err_msg = $data['error']['message'];
-            } elseif ( ! empty( $data['error'] ) && is_string( $data['error'] ) ) {
-                $err_msg = $data['error'];
+        /* ── Extract image. Gateway forwards `images` from message.images directly. ── */
+        $image_url = '';
+        if ( ! empty( $result['images'] ) && is_array( $result['images'] ) ) {
+            // Standard OpenRouter shape: [{ image_url: { url: "data:..." } }, ...]
+            foreach ( $result['images'] as $img ) {
+                if ( is_array( $img ) ) {
+                    $image_url = $img['image_url']['url'] ?? ( $img['url'] ?? '' );
+                } elseif ( is_string( $img ) ) {
+                    $image_url = $img;
+                }
+                if ( ! empty( $image_url ) ) break;
             }
-            self::log( 'call_openrouter ERROR', $err_msg );
-            return [ 'success' => false, 'error' => $err_msg ];
         }
-
-        /* ── Extract image from response ── */
-        $image_url = self::extract_openrouter_image( $data );
+        // Legacy/alt fields some gateways might use.
+        if ( empty( $image_url ) && ! empty( $result['image_url'] ) ) {
+            $image_url = $result['image_url'];
+        }
+        if ( empty( $image_url ) && ! empty( $result['b64_json'] ) ) {
+            $image_url = 'data:image/png;base64,' . $result['b64_json'];
+        }
+        // Fallback: parse out of the raw upstream response (handles all OpenRouter shapes).
+        if ( empty( $image_url ) && ! empty( $result['raw'] ) && is_array( $result['raw'] ) ) {
+            $image_url = self::extract_openrouter_image( $result['raw'] );
+        }
+        // Last resort: parse out of `message` text if model returned a markdown image link.
+        if ( empty( $image_url ) && ! empty( $result['message'] ) ) {
+            $fake = [ 'choices' => [ [ 'message' => [ 'content' => (string) $result['message'] ] ] ] ];
+            $image_url = self::extract_openrouter_image( $fake );
+        }
 
         if ( empty( $image_url ) ) {
-            // Log full response for debugging
-            self::log( 'call_openrouter NO IMAGE in response', mb_substr( $raw_body, 0, 2000 ) );
-            return [ 'success' => false, 'error' => 'API phản hồi nhưng không có ảnh. Kiểm tra model có hỗ trợ image generation.' ];
+            $dump = wp_json_encode( $result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
+            self::log( 'call_openrouter NO IMAGE in gateway response', mb_substr( (string) $dump, 0, 2000 ) );
+            $dump_file = wp_upload_dir()['basedir'] . '/bztimg-no-image-' . time() . '.json';
+            @file_put_contents( $dump_file, $dump );
+            $hint = '';
+            $text = is_string( $result['message'] ?? '' ) ? mb_substr( trim( (string) $result['message'] ), 0, 240 ) : '';
+            if ( $text !== '' ) {
+                $hint = ' — gateway trả text thay vì image: “' . $text . '”';
+            }
+            return [ 'success' => false, 'error' => 'Gateway phản hồi nhưng không có ảnh. Model có thể không hỗ trợ image generation hoặc gateway chưa forward `modalities=image`.' . $hint ];
         }
 
         /* ── If base64 data URL → save to WP uploads ── */
@@ -517,12 +506,55 @@ class BizCity_Tool_Image {
                 if ( ! empty( $img['url'] ) ) {
                     return $img['url'];
                 }
+                // Alternative: base64 / b64_json fields
+                if ( ! empty( $img['b64_json'] ) ) {
+                    return 'data:image/png;base64,' . $img['b64_json'];
+                }
+                if ( ! empty( $img['data'] ) && is_string( $img['data'] ) && strpos( $img['data'], 'data:image' ) !== 0 ) {
+                    return 'data:image/png;base64,' . $img['data'];
+                }
             }
         }
-        // Fallback: choices[0].message.content may contain inline image
+
+        // OpenAI-shaped fallback: data[0].b64_json or data[0].url
+        if ( ! empty( $data['data'] ) && is_array( $data['data'] ) ) {
+            foreach ( $data['data'] as $d ) {
+                if ( ! empty( $d['b64_json'] ) ) {
+                    return 'data:image/png;base64,' . $d['b64_json'];
+                }
+                if ( ! empty( $d['url'] ) ) {
+                    return $d['url'];
+                }
+            }
+        }
+
+        // content as array (multimodal): scan for image_url parts
         $content = $data['choices'][0]['message']['content'] ?? '';
-        if ( is_string( $content ) && preg_match( '/https?:\/\/\S+\.(?:png|jpg|jpeg|webp)/i', $content, $m ) ) {
-            return $m[0];
+        if ( is_array( $content ) ) {
+            foreach ( $content as $part ) {
+                if ( ! is_array( $part ) ) continue;
+                if ( ! empty( $part['image_url']['url'] ) ) {
+                    return $part['image_url']['url'];
+                }
+                if ( ! empty( $part['source']['data'] ) ) {
+                    $mt = $part['source']['media_type'] ?? 'image/png';
+                    return 'data:' . $mt . ';base64,' . $part['source']['data'];
+                }
+            }
+        }
+
+        // Fallback string content: inline URL or markdown image
+        if ( is_string( $content ) ) {
+            // Markdown ![alt](url)
+            if ( preg_match( '/!\[[^\]]*\]\((https?:\/\/\S+)\)/i', $content, $m ) ) {
+                return $m[1];
+            }
+            if ( preg_match( '/(data:image\/\w+;base64,[A-Za-z0-9+\/=]+)/', $content, $m ) ) {
+                return $m[1];
+            }
+            if ( preg_match( '/https?:\/\/\S+\.(?:png|jpg|jpeg|webp|gif)(?:\?\S*)?/i', $content, $m ) ) {
+                return $m[0];
+            }
         }
         return '';
     }

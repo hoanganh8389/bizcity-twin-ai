@@ -70,6 +70,21 @@ class BizCity_TwinChat_REST_Controller {
 			],
 		] );
 
+		// 2026-05-21 — API key health probe used by the React SetupApiKeyDialog
+		// (R-LEARN §6 E10 — "api key missing/invalid" surface).
+		//   GET  /api-key/status    → cached snapshot from get_api_key_status()
+		//   POST /api-key/test      → live ping to bizcity.vn /account/info
+		register_rest_route( $ns, '/api-key/status', [
+			'methods'             => 'GET',
+			'callback'            => [ $this, 'handle_api_key_status' ],
+			'permission_callback' => [ $this, 'check_logged_in' ],
+		] );
+		register_rest_route( $ns, '/api-key/test', [
+			'methods'             => 'POST',
+			'callback'            => [ $this, 'handle_api_key_test' ],
+			'permission_callback' => [ $this, 'check_logged_in' ],
+		] );
+
 		// ── Direct Sources routes (no KG-Hub dependency) ──────────────────────
 		register_rest_route( $ns, '/sources/(?P<notebook_id>\d+)', [
 			'methods'             => 'GET',
@@ -121,6 +136,28 @@ class BizCity_TwinChat_REST_Controller {
 			'callback'            => [ $this, 'list_gurus' ],
 			'permission_callback' => [ $this, 'check_logged_in' ],
 		] );
+		// PHASE 0.31 T-S3.2 — Per-passage actions (Tag note + Trigger workflow).
+		// Backed by `BizCity_KG_Source_Service::tag_passage()` which fires
+		// `bizcity_twin_notebook_event('note_tagged', ...)` so workflow trigger
+		// `nb_note_tagged` reacts. "Trigger workflow" is implemented as a
+		// dedicated reserved tag (default `#trigger`) to reuse the same pipeline.
+		register_rest_route( $ns, '/passages/(?P<passage_id>\d+)/tag', [
+			'methods'             => 'POST',
+			'callback'            => [ $this, 'tag_passage' ],
+			'permission_callback' => [ $this, 'check_logged_in' ],
+			'args'                => [
+				'passage_id' => [ 'type' => 'integer', 'required' => true ],
+			],
+		] );
+		register_rest_route( $ns, '/passages/(?P<passage_id>\d+)/trigger-workflow', [
+			'methods'             => 'POST',
+			'callback'            => [ $this, 'trigger_workflow_for_passage' ],
+			'permission_callback' => [ $this, 'check_logged_in' ],
+			'args'                => [
+				'passage_id' => [ 'type' => 'integer', 'required' => true ],
+			],
+		] );
+
 		// (2)(3)(4) Per-(user, notebook) sticky Guru — saved in user_meta.
 		register_rest_route( $ns, '/notebooks/(?P<notebook_id>\d+)/sticky-guru', [
 			[
@@ -148,6 +185,110 @@ class BizCity_TwinChat_REST_Controller {
 			return new WP_Error( 'rest_forbidden', 'Login required.', [ 'status' => 401 ] );
 		}
 		return true;
+	}
+
+	/* ── API key health (R-LEARN §6 E10) ───────────────────────────────── */
+
+	/**
+	 * GET /bizcity-twinchat/v1/api-key/status
+	 * Returns the cached snapshot from the public-page helper.
+	 */
+	public function handle_api_key_status() {
+		if ( ! class_exists( 'BizCity_TwinChat_Public_Page' ) ) {
+			return new WP_Error( 'public_page_missing', 'Public page class not loaded.', [ 'status' => 500 ] );
+		}
+		return rest_ensure_response( BizCity_TwinChat_Public_Page::get_api_key_status() );
+	}
+
+	/**
+	 * POST /bizcity-twinchat/v1/api-key/test
+	 * Live-pings the gateway `/bizcity/v1/account/info` endpoint with the
+	 * currently configured key. Persists the result in `bizcity_llm_last_test`
+	 * so `handle_api_key_status` reflects it next call.
+	 */
+	public function handle_api_key_test() {
+		$key = trim( (string) get_site_option( 'bizcity_llm_api_key', '' ) );
+		if ( $key === '' ) {
+			return new WP_Error(
+				'bizcity_api_key_missing',
+				'Chưa có API key trong cấu hình site này.',
+				[
+					'status'       => 412,
+					'settings_url' => admin_url( 'admin.php?page=bizcity-twinchat-settings' ),
+				]
+			);
+		}
+
+		$gateway = (string) get_site_option( 'bizcity_llm_gateway_url', '' );
+		if ( $gateway === '' ) {
+			$gateway = 'https://bizcity.vn';
+		}
+		$url = trailingslashit( $gateway ) . 'wp-json/bizcity/v1/account/info';
+
+		$started_at = microtime( true );
+		$resp       = wp_remote_get( $url, [
+			'timeout'     => 8,
+			'redirection' => 3,
+			'sslverify'   => true,
+			'headers'     => [
+				'Authorization' => 'Bearer ' . $key,
+				'Accept'        => 'application/json',
+			],
+		] );
+		$elapsed_ms = (int) round( ( microtime( true ) - $started_at ) * 1000 );
+
+		if ( is_wp_error( $resp ) ) {
+			update_site_option( 'bizcity_llm_last_test', [
+				'ok'      => false,
+				'ts'      => time(),
+				'ms'      => $elapsed_ms,
+				'code'    => 'network_error',
+				'message' => $resp->get_error_message(),
+			] );
+			return new WP_Error(
+				'bizcity_api_key_test_failed',
+				sprintf( 'Không gọi được gateway %s: %s', $gateway, $resp->get_error_message() ),
+				[
+					'status'       => 502,
+					'settings_url' => admin_url( 'admin.php?page=bizcity-twinchat-settings' ),
+				]
+			);
+		}
+
+		$code  = (int) wp_remote_retrieve_response_code( $resp );
+		$body  = (string) wp_remote_retrieve_body( $resp );
+		$json  = json_decode( $body, true );
+		$ok    = ( $code === 200 );
+
+		update_site_option( 'bizcity_llm_last_test', [
+			'ok'      => $ok,
+			'ts'      => time(),
+			'ms'      => $elapsed_ms,
+			'code'    => 'http_' . $code,
+			'message' => is_array( $json ) ? '' : substr( $body, 0, 200 ),
+		] );
+
+		if ( ! $ok ) {
+			return new WP_Error(
+				'bizcity_api_key_invalid',
+				sprintf( 'Gateway từ chối key (HTTP %d). Có thể key sai/đã thu hồi, hoặc gateway URL không đúng.', $code ),
+				[
+					'status'       => $code === 401 || $code === 403 ? 401 : 502,
+					'gateway_url'  => $gateway,
+					'http_status'  => $code,
+					'settings_url' => admin_url( 'admin.php?page=bizcity-twinchat-settings' ),
+				]
+			);
+		}
+
+		return rest_ensure_response( [
+			'ok'           => true,
+			'http_status'  => $code,
+			'elapsed_ms'   => $elapsed_ms,
+			'gateway_url'  => $gateway,
+			'account'      => is_array( $json ) ? $json : null,
+			'status'       => BizCity_TwinChat_Public_Page::get_api_key_status(),
+		] );
 	}
 
 	/**
@@ -1263,5 +1404,106 @@ class BizCity_TwinChat_REST_Controller {
 		$key = 'bizcity_twin_sticky_guru_' . $notebook_id;
 		delete_user_meta( get_current_user_id(), $key );
 		return rest_ensure_response( [ 'ok' => true ] );
+	}
+
+	/* ── PHASE 0.31 T-S3.2 — Per-passage actions ─────────────────────── */
+
+	/**
+	 * Look up `notebook_id` for a passage and verify access.
+	 * Returns array{passage_id, notebook_id} on success, WP_Error otherwise.
+	 */
+	private function load_passage_with_access( int $passage_id ) {
+		global $wpdb;
+		if ( $passage_id <= 0 ) {
+			return new WP_Error( 'invalid_passage', 'Invalid passage_id', [ 'status' => 400 ] );
+		}
+		if ( ! class_exists( 'BizCity_KG_Database' ) ) {
+			return new WP_Error( 'kg_unavailable', 'KG-Hub not loaded', [ 'status' => 503 ] );
+		}
+		$db  = BizCity_KG_Database::instance();
+		$row = $wpdb->get_row( $wpdb->prepare(
+			"SELECT id, notebook_id FROM {$db->tbl_passages()} WHERE id = %d LIMIT 1",
+			$passage_id
+		), ARRAY_A );
+		if ( ! $row ) {
+			return new WP_Error( 'passage_not_found', 'Passage not found', [ 'status' => 404 ] );
+		}
+		$auth = $this->check_notebook_access( (int) $row['notebook_id'] );
+		if ( is_wp_error( $auth ) ) return $auth;
+		return [
+			'passage_id'  => (int) $row['id'],
+			'notebook_id' => (int) $row['notebook_id'],
+		];
+	}
+
+	/**
+	 * POST /passages/{id}/tag
+	 * Body: { tag: string, action?: 'added'|'removed' }
+	 * Adds/removes a tag on the passage's metadata.tags and fires note_tagged.
+	 */
+	public function tag_passage( WP_REST_Request $request ) {
+		$ctx = $this->load_passage_with_access( (int) $request->get_param( 'passage_id' ) );
+		if ( is_wp_error( $ctx ) ) return $ctx;
+
+		$body   = $request->get_json_params();
+		if ( ! is_array( $body ) ) { $body = []; }
+		$tag    = isset( $body['tag'] )    ? sanitize_text_field( (string) $body['tag'] )    : '';
+		$action = isset( $body['action'] ) ? (string) $body['action'] : 'added';
+		$action = ( $action === 'removed' ) ? 'removed' : 'added';
+
+		if ( $tag === '' ) {
+			return new WP_Error( 'tag_required', 'Body must include non-empty `tag`.', [ 'status' => 400 ] );
+		}
+		if ( ! class_exists( 'BizCity_KG_Source_Service' ) ) {
+			return new WP_Error( 'kg_unavailable', 'KG service unavailable', [ 'status' => 503 ] );
+		}
+		$result = BizCity_KG_Source_Service::instance()->tag_passage( $ctx['passage_id'], $tag, $action );
+		if ( is_wp_error( $result ) ) return $result;
+
+		return rest_ensure_response( [
+			'ok'          => true,
+			'passage_id'  => $ctx['passage_id'],
+			'notebook_id' => $ctx['notebook_id'],
+			'tag'         => strtolower( trim( $tag ) ),
+			'action'      => $action,
+		] );
+	}
+
+	/**
+	 * POST /passages/{id}/trigger-workflow
+	 * Body: { tag?: string }  (default: filterable, fallback `#trigger`)
+	 *
+	 * Implementation: tag the passage with the reserved "trigger" tag so any
+	 * workflow whose `nb_note_tagged` trigger filters on that tag fires. This
+	 * keeps a single mechanism (the existing trigger) instead of inventing a
+	 * second event channel.
+	 */
+	public function trigger_workflow_for_passage( WP_REST_Request $request ) {
+		$ctx = $this->load_passage_with_access( (int) $request->get_param( 'passage_id' ) );
+		if ( is_wp_error( $ctx ) ) return $ctx;
+
+		$body = $request->get_json_params();
+		if ( ! is_array( $body ) ) { $body = []; }
+		$tag  = isset( $body['tag'] ) && trim( (string) $body['tag'] ) !== ''
+			? sanitize_text_field( (string) $body['tag'] )
+			: apply_filters( 'bizcity_twin_default_trigger_tag', 'trigger' );
+
+		if ( ! class_exists( 'BizCity_KG_Source_Service' ) ) {
+			return new WP_Error( 'kg_unavailable', 'KG service unavailable', [ 'status' => 503 ] );
+		}
+
+		// Force-add (re-add idempotent: the service no-ops if already present, which
+		// would not fire the event again — so for retriggering we remove-then-add).
+		BizCity_KG_Source_Service::instance()->tag_passage( $ctx['passage_id'], $tag, 'removed' );
+		$result = BizCity_KG_Source_Service::instance()->tag_passage( $ctx['passage_id'], $tag, 'added' );
+		if ( is_wp_error( $result ) ) return $result;
+
+		return rest_ensure_response( [
+			'ok'          => true,
+			'passage_id'  => $ctx['passage_id'],
+			'notebook_id' => $ctx['notebook_id'],
+			'tag'         => strtolower( trim( $tag ) ),
+			'note'        => 'Fired bizcity_twin_notebook_event(note_tagged); workflows with matching nb_note_tagged trigger will queue.',
+		] );
 	}
 }

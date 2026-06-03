@@ -69,7 +69,9 @@ class BizCity_TwinChat_Notes_Controller {
 				'permission_callback' => [ $this, 'check_logged_in' ],
 				'callback'            => [ $this, 'list_notes' ],
 				'args'                => [
-					'notebook_id' => [ 'type' => 'integer', 'required' => true ],
+					// notebook_id optional — omit (or pass 0) to fetch ALL notes for
+					// the current user (Ask Brain / home context).
+					'notebook_id' => [ 'type' => 'integer', 'required' => false, 'default' => 0 ],
 					'limit'       => [ 'type' => 'integer', 'default' => 50 ],
 					'q'           => [ 'type' => 'string' ],
 				],
@@ -106,10 +108,16 @@ class BizCity_TwinChat_Notes_Controller {
 	}
 
 	private function notes_service() {
-		if ( ! class_exists( 'BCN_Notes' ) ) {
-			return new WP_Error( 'notes_unavailable', 'Companion Notebook plugin not active', [ 'status' => 500 ] );
+		// Prefer the self-contained TwinChat service (no longer depends on the
+		// archived Companion Notebook plugin). Fall back to BCN_Notes only if
+		// the legacy plugin is still loaded — keeps backward compatibility.
+		if ( class_exists( 'BizCity_TwinChat_Notes_Service' ) ) {
+			return new BizCity_TwinChat_Notes_Service();
 		}
-		return new BCN_Notes();
+		if ( class_exists( 'BCN_Notes' ) ) {
+			return new BCN_Notes();
+		}
+		return new WP_Error( 'notes_unavailable', 'Notes service unavailable', [ 'status' => 500 ] );
 	}
 
 	// ── Handlers ────────────────────────────────────────────────────────
@@ -154,6 +162,9 @@ class BizCity_TwinChat_Notes_Controller {
 				// Sprint 5.3 — re-pin click on already-pinned message: still emit
 				// the v2 event (mode=duplicate) so timeline / observers see the action.
 				$this->dispatch_note_pinned_event( (int) $existing, $message_id, $session_id, $notebook_id, 'duplicate' );
+				// Phase 6.6 S2.1 — still nudge skeleton service so debounce window
+				// resets even on duplicate pins (user signal = "this matters").
+				$this->fire_notes_pinned_action( $notebook_id, (int) $existing );
 				return rest_ensure_response( [
 					'ok'         => true,
 					'note_id'    => (int) $existing,
@@ -177,6 +188,10 @@ class BizCity_TwinChat_Notes_Controller {
 		// Sprint 5.3 — emit note_pinned v2 event so timeline + memory observers
 		// see fresh pins. Failure-tolerant: pin success is the source of truth.
 		$this->dispatch_note_pinned_event( (int) $id, $message_id, $session_id, $notebook_id, 'manual' );
+
+		// Phase 6.6 S2.1 — trigger debounced (10s) skeleton rebuild so pinned
+		// notes flow into the next reflection pass with priority. R-SK-DOC §15.1.
+		$this->fire_notes_pinned_action( $notebook_id, (int) $id );
 
 		return rest_ensure_response( [
 			'ok'      => true,
@@ -205,11 +220,33 @@ class BizCity_TwinChat_Notes_Controller {
 					'session_id'      => $session_id,
 					'conversation_id' => $session_id,
 					'user_id'         => get_current_user_id(),
-					'event_source'    => 'user',
+					'event_source'    => 'twinchat',
 				]
 			);
 		} catch ( \Throwable $e ) {
 			error_log( '[TwinChat][notes] dispatch_note_pinned_event failed: ' . $e->getMessage() );
+		}
+	}
+
+	/**
+	 * Phase 6.6 S2.1 — fire `bizcity_kg_notebook_notes_pinned` action so the
+	 * KG Skeleton Service can debounce-rebuild (R-SK-DOC §15.1).
+	 *
+	 * Failure-tolerant: never let listener errors break the pin REST response.
+	 */
+	private function fire_notes_pinned_action( int $notebook_id, int $note_id ): void {
+		if ( $notebook_id <= 0 ) {
+			return;
+		}
+		try {
+			do_action(
+				'bizcity_kg_notebook_notes_pinned',
+				$notebook_id,
+				get_current_user_id(),
+				$note_id
+			);
+		} catch ( \Throwable $e ) {
+			error_log( '[TwinChat][notes] fire_notes_pinned_action failed: ' . $e->getMessage() );
 		}
 	}
 
@@ -245,13 +282,22 @@ class BizCity_TwinChat_Notes_Controller {
 		if ( is_wp_error( $svc ) ) return $svc;
 
 		$notebook_id = (int) $req->get_param( 'notebook_id' );
-		$limit       = max( 1, min( 200, (int) $req->get_param( 'limit' ) ?: 50 ) );
+		$limit       = max( 1, min( 500, (int) $req->get_param( 'limit' ) ?: 50 ) );
 		$q           = trim( (string) $req->get_param( 'q' ) );
-		$pid         = $this->project_id_from_notebook( $notebook_id );
 
-		$rows = $q !== ''
-			? $svc->search_by_keyword( $pid, $q, $limit )
-			: $svc->get_by_project( $pid );
+		// notebook_id == 0 → Ask Brain / home context: return ALL notes for user.
+		if ( $notebook_id <= 0 ) {
+			if ( method_exists( $svc, 'get_all_by_user' ) ) {
+				$rows = $svc->get_all_by_user( get_current_user_id(), $limit );
+			} else {
+				$rows = [];
+			}
+		} else {
+			$pid  = $this->project_id_from_notebook( $notebook_id );
+			$rows = $q !== ''
+				? $svc->search_by_keyword( $pid, $q, $limit )
+				: $svc->get_by_project( $pid );
+		}
 
 		if ( ! is_array( $rows ) ) $rows = [];
 		$rows = array_slice( $rows, 0, $limit );

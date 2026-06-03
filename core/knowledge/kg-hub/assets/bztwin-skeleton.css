@@ -1,0 +1,40 @@
+/*!
+ * BizCity Twin — Notebook Skeleton shared FE styles (PHASE-0-RULE-SKELETON RULE-3/RULE-4).
+ */
+.bztwin-skel-selector{display:block;width:100%}
+.bztwin-skel-select{display:block;width:100%;min-width:0;padding:6px 8px;font:inherit;border:1px solid #d1d5db;border-radius:6px;background:#fff;box-sizing:border-box}
+.bztwin-skel-status{font-size:12px;color:#6b7280}
+
+.bztwin-skel-mount{margin-top:8px}
+
+.bztwin-skel-panel{border:1px solid #e5e7eb;border-radius:8px;background:#fff;margin:8px 0;overflow:hidden;font-size:13px}
+.bztwin-skel-head{display:flex;align-items:center;gap:8px;padding:8px 12px;background:#f9fafb;border-bottom:1px solid #e5e7eb}
+.bztwin-skel-head .bztwin-skel-title{flex:0 0 auto;font-size:13px}
+.bztwin-skel-head .bztwin-skel-badge-slot{flex:1 1 auto}
+.bztwin-skel-head button{flex:0 0 auto;padding:3px 10px;border:1px solid #d1d5db;background:#fff;border-radius:5px;cursor:pointer;font-size:12px}
+.bztwin-skel-head button:hover{background:#f3f4f6}
+
+.bztwin-skel-body{padding:12px 16px;line-height:1.45}
+.bztwin-skel-loading,.bztwin-skel-empty{color:#6b7280;font-style:italic}
+.bztwin-skel-err{color:#b91c1c;background:#fef2f2;border:1px solid #fecaca;padding:8px 10px;border-radius:6px}
+.bztwin-skel-stale-banner{padding:8px 12px;background:#fffbeb;color:#9a3412;border-bottom:1px solid #fde68a;font-size:12px}
+
+.bztwin-skel-nucleus{margin-bottom:10px;padding-bottom:8px;border-bottom:1px dashed #e5e7eb}
+.bztwin-skel-h{font-weight:600;font-size:14px;color:#111827}
+.bztwin-skel-thesis{color:#374151;margin-top:2px}
+
+.bztwin-skel-tree,.bztwin-skel-kp ul{margin:6px 0 6px 18px;padding:0}
+.bztwin-skel-tree li{margin:3px 0}
+.bztwin-skel-node strong{color:#1f2937}
+.bztwin-skel-node em,.bztwin-skel-tree em{color:#6b7280;font-style:italic}
+.bztwin-skel-kp{margin-top:8px}
+.bztwin-skel-kp strong{font-size:12px;text-transform:uppercase;color:#374151;letter-spacing:0.04em}
+.bztwin-skel-meta{margin-top:8px;font-size:11px;color:#9ca3af;border-top:1px solid #f3f4f6;padding-top:6px}
+
+.bztwin-skel-badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:500;line-height:1.6}
+.bztwin-skel-badge.is-ready   {background:#d1fae5;color:#065f46}
+.bztwin-skel-badge.is-building{background:#fef3c7;color:#92400e}
+.bztwin-skel-badge.is-pending {background:#e0e7ff;color:#3730a3}
+.bztwin-skel-badge.is-stale   {background:#fef3c7;color:#9a3412}
+.bztwin-skel-badge.is-failed  {background:#fee2e2;color:#991b1b}
+.bztwin-skel-badge.is-none    {background:#f3f4f6;color:#6b7280}

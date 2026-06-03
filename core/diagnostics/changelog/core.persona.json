@@ -1,0 +1,93 @@
+{
+  "$schema": "https://bizcity.vn/schema/diagnostics-changelog-v1.json",
+  "module_id": "core.persona",
+  "owner": "core/persona",
+  "installer_id": "persona_guru",
+  "current_version": "1.0.0",
+  "version_option": "bizcity_persona_guru_db_version",
+  "tables": {
+    "bizcity_character_skills": {
+      "since": "1.0.0",
+      "purpose": "Many-to-many binding between Twin Guru characters and skills. Owned by BizCity_Guru_Bridge_Installer; declared here so probes can reason about its presence. Auto-installed on plugins_loaded priority 7.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":           { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",                          "since": "1.0.0", "pk": true },
+        "character_id": { "type": "BIGINT UNSIGNED NOT NULL",                                          "since": "1.0.0" },
+        "skill_id":     { "type": "BIGINT UNSIGNED NOT NULL",                                          "since": "1.0.0" },
+        "weight":       { "type": "INT NOT NULL DEFAULT 0",                                            "since": "1.0.0" },
+        "created_at":   { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",                       "since": "1.0.0" }
+      },
+      "indexes": {
+        "idx_char_skill": { "cols": ["character_id", "skill_id"], "unique": true, "since": "1.0.0" }
+      }
+    },
+    "bizcity_character_providers": {
+      "since": "1.0.0",
+      "purpose": "Many-to-many binding between characters and provider plugins (tool providers). Owned by BizCity_Guru_Bridge_Installer.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":           { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",                          "since": "1.0.0", "pk": true },
+        "character_id": { "type": "BIGINT UNSIGNED NOT NULL",                                          "since": "1.0.0" },
+        "provider_id":  { "type": "VARCHAR(128) NOT NULL",                                             "since": "1.0.0" },
+        "enabled":      { "type": "TINYINT(1) NOT NULL DEFAULT 1",                                    "since": "1.0.0" },
+        "created_at":   { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",                       "since": "1.0.0" }
+      },
+      "indexes": {
+        "idx_char_prov": { "cols": ["character_id", "provider_id"], "unique": true, "since": "1.0.0" }
+      }
+    }
+  },
+  "contracts": {
+    "guru_reply_dto": {
+      "since": "1.0.0",
+      "shape": "BizCity_Guru_Reply_DTO",
+      "file": "core/persona/includes/dto/class-guru-reply-dto.php",
+      "fields": {
+        "trace_id":      "string (UUID) — joins bizcity_guru_traces.trace_id",
+        "runtime":       "string — 'guru_native'|'twinbrain'",
+        "text":          "string — Markdown with [src:N#pM] citation tags",
+        "citations":     "array<{nb_id:int,passage_id:int,source_id:int,source_label:string}>",
+        "skill_results": "array — Phase 2+",
+        "perspectives":  "array — Phase 3+ (TwinBrain cross-NB)",
+        "character_id":  "int",
+        "channel":       "string — 'zalo'|'facebook'|'webchat'|'twinchat'|'rest'",
+        "tokens":        "object<{prompt:int,completion:int,total:int}>",
+        "cost_usd":      "float",
+        "latency_ms":    "int",
+        "error":         "object<{code:string,message:string}>|null",
+        "meta":          "object — freeform (notebook_id, breadth, ...)"
+      }
+    },
+    "channel_send_dto": {
+      "since": "1.0.0",
+      "shape": "BizCity_Channel_Send_DTO",
+      "file": "core/persona/includes/dto/class-guru-reply-dto.php",
+      "fields": {
+        "channel":       "string",
+        "recipient_ref": "string — channel-specific user/chat id",
+        "text":          "string — plain/markdown depending on channel formatter",
+        "attachments":   "array",
+        "quick_replies": "array",
+        "footer_blocks": "array",
+        "meta":          "object"
+      }
+    }
+  },
+  "rest_routes": [
+    {
+      "namespace": "bizcity-channel/v1",
+      "route":     "/guru/turn",
+      "methods":   ["POST"],
+      "since":     "1.0.0",
+      "owner":     "core/channel-gateway/includes/class-guru-turn-controller.php",
+      "purpose":   "Cross-process entry point fronting BizCity_Guru_Runtime::reply()."
+    }
+  ],
+  "history": [
+    { "version": "1.0.0", "date": "2026-05-26", "change": "Phase 0.35 GURU-ZALO-BOT §1 Foundation: declare existing character_skills/character_providers tables + new GuruReplyDTO + ChannelSendDTO contracts + REST POST /bizcity-channel/v1/guru/turn. No schema delta — tables were auto-installed by BizCity_Guru_Bridge_Installer in Phase 0.18 Wave 0.18.0; this file backfills the canonical changelog declaration." }
+  ]
+}

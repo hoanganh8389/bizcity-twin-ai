@@ -240,6 +240,64 @@ class BizCity_TwinChat_Stream_Handler {
 			'enable_thinking' => (bool) $args['enable_thinking'],
 		] );
 
+		/* Wave 2.8b TBR.MEM-N2 (2026-05-23) — Layer 0.5 Memory Recall parity.
+		 * Founder mandate: notebook chat phải có memory layer y hệt master Ask Brain,
+		 * đi cùng qua `bizcity_twin_event_stream` (R-EVT-2). Inject memory_block vào
+		 * top of system_prompt + dispatch `memory_recall` event với cause-context
+		 * surface='twinchat-notebook'. notebook_id scope passed xuống Memory_Recall
+		 * để prefer rows có key=`nb:<id>:*` nếu Memory_Recall implement scope-aware.
+		 * Idempotent + failure-tolerant: không block turn khi recall miss. */
+		if ( $user_id > 0 && class_exists( 'BizCity_TwinBrain_Memory_Recall' ) ) {
+			try {
+				$mem_res = BizCity_TwinBrain_Memory_Recall::instance()->collect(
+					(int) $user_id,
+					(string) $args['user_message'],
+					[
+						'notebook_id' => (int) $notebook_id,
+						'session_id'  => (string) $session_id,
+						'surface'     => 'twinchat-notebook',
+					]
+				);
+				$mem_block = (string) ( $mem_res['block'] ?? '' );
+				if ( $mem_block !== '' ) {
+					/* Wave 2.8d D6.9d — wrap memory block with explicit instruction
+					 * (mirrors twin_agent path above) so LLM stops defaulting to
+					 * "tôi không có khả năng ghi nhớ". */
+					$wrapped  = "### BEGIN USER MEMORY (HIGH PRIORITY — PERSONAL FACTS ABOUT THE CURRENT USER)\n";
+					$wrapped .= "The following lines are persistent facts the user has TOLD this assistant in previous conversations.\n";
+					$wrapped .= "RULES (override any generic 'I cannot remember' default):\n";
+					$wrapped .= "1. You DO have memory of this user — these facts are it. NEVER say 'tôi không nhớ', 'tôi không có khả năng ghi nhớ', or any equivalent denial.\n";
+					$wrapped .= "2. When the user asks about themselves (tên, sở thích, công việc, dự án, thói quen…), answer DIRECTLY using these facts.\n";
+					$wrapped .= "3. When you state a fact drawn from this block, cite it with `[mem:U#<id>]` exactly as listed (the FE renders these as clickable chips).\n";
+					$wrapped .= "4. If a fact is missing here, you may say so politely, but do NOT deny having memory at all.\n";
+					$wrapped .= "---\n" . $mem_block . "\n### END USER MEMORY\n\n";
+					if ( ! empty( $ctx['system_prompt'] ) ) {
+						$ctx['system_prompt'] = $wrapped . (string) $ctx['system_prompt'];
+					} else {
+						$ctx['system_prompt'] = $wrapped;
+					}
+				}
+				$counts = (array) ( $mem_res['counts'] ?? [ 'A' => 0, 'B' => 0, 'C' => 0, 'D' => 0 ] );
+				$mem_recall_payload = [
+					'surface'     => 'twinchat-notebook',
+					'notebook_id' => (int) $notebook_id,
+					'counts'      => $counts,
+					'citations'   => (array) ( $mem_res['citations'] ?? [] ),
+					'block_len'   => mb_strlen( $mem_block ),
+					'latency_ms'  => (int) ( $mem_res['latency_ms'] ?? 0 ),
+				];
+				// Emit on legacy SSE channel so existing FE reducer (case 'memory_recall')
+				// hiển thị violet step trong timeline.
+				$this->emit( 'memory_recall', $mem_recall_payload );
+				// Mirror vào `bizcity_twin_event_stream` (R-EVT-2) cho forensics.
+				$this->dispatch_turn_event( 'memory_recall', $mem_recall_payload );
+			} catch ( \Throwable $e ) {
+				if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+					error_log( '[TwinChat][memory_recall][error] ' . $e->getMessage() );
+				}
+			}
+		}
+
 		// 5. KG retrieving + sources + kg_highlight.
 		if ( ! empty( $ctx['kg_summary']['sources'] ) || ! empty( $ctx['kg_summary']['cited_entities'] ) ) {
 			if ( ! $kg_step_emitted ) {
@@ -649,6 +707,44 @@ class BizCity_TwinChat_Stream_Handler {
 			'citations'        => $citation_labels,
 			'citations_meta'   => $citations_meta,
 		] );
+
+		/* Wave 2.8b TBR.MEM-N3 (2026-05-23) — Layer 4.7 Memory Writer parity.
+		 * Sau khi notebook chat phát final answer, dispatch Memory_Writer tích hợp
+		 * Mode 1 (regex "hãy nhớ...") + Mode 2 (LLM extractor có cost-guard).
+		 * Emit `memory_write` event vào cả SSE lẫn twin_event_stream cho parity
+		 * với master Ask Brain. Failures swallowed. */
+		if ( $user_id > 0 && class_exists( 'BizCity_TwinBrain_Memory_Writer' ) ) {
+			try {
+				$mw_trace_id = is_array( $this->event_stream_turn ) && ! empty( $this->event_stream_turn['trace_id'] )
+					? (string) $this->event_stream_turn['trace_id']
+					: ( 'twinchat-' . (int) $assistant_id );
+				$mw = BizCity_TwinBrain_Memory_Writer::instance()->extract_and_persist(
+					$mw_trace_id,
+					(string) $args['user_message'],
+					(string) $accumulated,
+					[
+						'user_id'     => (int) $user_id,
+						'session_id'  => (string) $session_id,
+						'notebook_id' => (int) $notebook_id,
+						'surface'     => 'twinchat-notebook',
+					]
+				);
+				$mw_payload = [
+					'surface'     => 'twinchat-notebook',
+					'notebook_id' => (int) $notebook_id,
+					'persisted'   => (int)    ( $mw['persisted']  ?? 0 ),
+					'mode'        => (string) ( $mw['mode']       ?? '' ),
+					'ops'         => (array)  ( $mw['ops']        ?? [] ),
+					'latency_ms'  => (int)    ( $mw['latency_ms'] ?? 0 ),
+				];
+				$this->emit( 'memory_write', $mw_payload );
+				$this->dispatch_turn_event( 'memory_write', $mw_payload );
+			} catch ( \Throwable $e ) {
+				if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+					error_log( '[TwinChat][memory_write][error] ' . $e->getMessage() );
+				}
+			}
+		}
 
 		// Phase 0.16 Wave 10d.3 — feed TwinChat turn into Intent_Shell shadow
 		// diff dashboard so we can compare current TwinChat reply ↔ Intent_Shell
@@ -1174,8 +1270,8 @@ class BizCity_TwinChat_Stream_Handler {
 				$notebook_id
 			) );
 			$this->dispatch_turn_event( 'decision', [
-				'stage'  => 'guru_lookup',
-				'kind'   => 'guru_lookup',
+				'stage'  => 'twin_guru_lookup',
+				'kind'   => 'twin_guru_lookup',
 				'status' => 'skipped',
 				'reason' => 'class_missing',
 				'character_id'   => 0,
@@ -1237,8 +1333,8 @@ class BizCity_TwinChat_Stream_Handler {
 				// No character bound at any level — emit an explicit "skipped" decision
 				// event so the FE timeline (and console.log) shows WHY there's no Guru.
 				$this->dispatch_turn_event( 'decision', [
-					'stage'        => 'guru_lookup',
-					'kind'         => 'guru_lookup',
+					'stage'        => 'twin_guru_lookup',
+					'kind'         => 'twin_guru_lookup',
 					'status'       => 'skipped',
 					'reason'       => 'no_character_bound',
 					'notebook_id'  => $notebook_id,
@@ -1270,8 +1366,8 @@ class BizCity_TwinChat_Stream_Handler {
 				// PHASE-0.17 §3.1 — payload.kind='guru_lookup' on the canonical
 				// `decision` event taxonomy (no new event type).
 				$this->dispatch_turn_event( 'decision', [
-					'stage'              => 'guru_lookup',
-					'kind'               => 'guru_lookup',
+					'stage'              => 'twin_guru_lookup',
+					'kind'               => 'twin_guru_lookup',
 					'character_id'       => $_character_id,
 					'character_slug'     => $_guru_meta['character_slug'],
 					'character_name'     => $_name,
@@ -1318,8 +1414,8 @@ class BizCity_TwinChat_Stream_Handler {
 						$_temperature = isset( $_char_row->creativity_level ) ? (float) $_char_row->creativity_level : null;
 						$_max_tokens  = isset( $_char_row->max_tokens ) ? (int) $_char_row->max_tokens : null;
 						$this->dispatch_turn_event( 'decision', [
-							'stage'         => 'guru_layer_resolved',
-							'kind'          => 'guru_layer_resolved',
+							'stage'         => 'twin_guru_layer_resolved',
+							'kind'          => 'twin_guru_layer_resolved',
 							'layer'         => 'L5',
 							'character_id'  => $_character_id,
 							'model_id'      => $_model_id !== '' ? $_model_id : 'gpt-4o-mini',
@@ -1408,8 +1504,8 @@ class BizCity_TwinChat_Stream_Handler {
 				$allowed_tools = array_values( array_unique( array_merge( $allowed_tools, $_skill_tools ) ) );
 
 				$this->dispatch_turn_event( 'decision', [
-					'stage'         => 'skill_resolved',
-					'kind'          => 'skill_resolved',
+					'stage'         => 'twin_skill_resolved',
+					'kind'          => 'twin_skill_resolved',
 					'character_id'  => (int) $_character_id,
 					'skill_id'      => (int) $_skill_match['skill_id'],
 					'skill_key'     => (string) $_skill_match['skill_key'],
@@ -1422,8 +1518,8 @@ class BizCity_TwinChat_Stream_Handler {
 			} elseif ( $_character_id > 0 ) {
 				// No skill matched — emit a skipped decision so the timeline shows WHY.
 				$this->dispatch_turn_event( 'decision', [
-					'stage'        => 'skill_resolved',
-					'kind'         => 'skill_resolved',
+					'stage'        => 'twin_skill_resolved',
+					'kind'         => 'twin_skill_resolved',
 					'status'       => 'skipped',
 					'reason'       => 'no_match',
 					'character_id' => (int) $_character_id,
@@ -1433,8 +1529,8 @@ class BizCity_TwinChat_Stream_Handler {
 			// Phase 0.19.6.3 — Rollup event: complete Guru context (5 layers stitched).
 			if ( $_character_id > 0 ) {
 				$this->dispatch_turn_event( 'decision', [
-					'stage'         => 'guru_context_resolved',
-					'kind'          => 'guru_context_resolved',
+					'stage'         => 'twin_guru_context_resolved',
+					'kind'          => 'twin_guru_context_resolved',
 					'character_id'  => (int) $_character_id,
 					'has_skill'     => is_array( $_skill_match ) && ! empty( $_skill_match['skill_id'] ),
 					'skill_id'      => is_array( $_skill_match ) ? (int) ( $_skill_match['skill_id'] ?? 0 ) : 0,
@@ -1625,6 +1721,109 @@ class BizCity_TwinChat_Stream_Handler {
 				BizCity_Twin_Debug::trace( 'stream', 'kg_resolve_skip', [ 'reason' => $_kg_skipped_reason ] );
 			}
 
+			/* ── Wave 2.8d D6.9e (2026-05-24) — MOVED memory_recall ABOVE history
+			 * truncate/scrub block.
+			 * Pre-fix: memory_recall ran AFTER REFUSAL ECHO GUARD (block ~1760).
+			 * Guard only triggered when `$extra_system !== ''` (KG block).
+			 * For Tarot/Guru notebooks with no KG passages → guard SKIPPED →
+			 * history kept 5-10 prior "tôi không có khả năng ghi nhớ" turns →
+			 * Gemini few-shot echo-bias overrode the freshly-injected memory
+			 * block. Now: collect memory FIRST so $extra_system is non-empty
+			 * BEFORE scrub, AND extend refusal pattern list with memory-denial
+			 * variants so the offending assistant turns get dropped. */
+			if ( $user_id > 0 && class_exists( 'BizCity_TwinBrain_Memory_Recall' ) ) {
+				// Wave 2.8d D6.9f — timeline layer (mirror guru_lookup pattern).
+				// FE eventToStep reducer pushes a 'memory_layer' AgentStep when it
+				// sees stage='memory_lookup', then completes it on stage='memory_resolved'.
+				$this->dispatch_turn_event( 'decision', [
+					'stage'   => 'twin_memory_lookup',
+					'kind'    => 'twin_memory_lookup',
+					'status'  => 'active',
+					'user_id' => (int) $user_id,
+				] );
+				try {
+					$mem_res = BizCity_TwinBrain_Memory_Recall::instance()->collect(
+						(int) $user_id,
+						(string) $args['user_message'],
+						[
+							'notebook_id' => (int) $notebook_id,
+							'session_id'  => (string) $session_id,
+							'surface'     => 'twinchat-notebook-agent',
+						]
+					);
+					$mem_block = (string) ( $mem_res['block'] ?? '' );
+					if ( $mem_block !== '' ) {
+						$mem_prefix  = "### BEGIN USER MEMORY (HIGH PRIORITY — PERSONAL FACTS ABOUT THE CURRENT USER)\n";
+						$mem_prefix .= "The following lines are persistent facts the user has TOLD this assistant in previous conversations.\n";
+						$mem_prefix .= "RULES (override any generic 'I cannot remember' default):\n";
+						$mem_prefix .= "1. You DO have memory of this user — these facts are it. NEVER say 'tôi không nhớ', 'tôi không có khả năng ghi nhớ', or any equivalent denial.\n";
+						$mem_prefix .= "2. When the user asks about themselves (tên, sở thích, công việc, dự án, thói quen…), answer DIRECTLY using these facts.\n";
+						$mem_prefix .= "3. When you state a fact drawn from this block, cite it with `[mem:U#<id>]` exactly as listed (the FE renders these as clickable chips).\n";
+						$mem_prefix .= "4. If a fact is missing here, you may say so politely, but do NOT deny having memory at all.\n";
+						$mem_prefix .= "---\n";
+						$mem_prefix .= $mem_block . "\n";
+						$mem_prefix .= "### END USER MEMORY\n\n";
+						$extra_system = $extra_system !== ''
+							? $mem_prefix . $extra_system
+							: $mem_prefix;
+					}
+					$mem_recall_payload = [
+						'surface'     => 'twinchat-notebook-agent',
+						'notebook_id' => (int) $notebook_id,
+						'counts'      => (array) ( $mem_res['counts'] ?? [ 'A' => 0, 'B' => 0, 'C' => 0, 'D' => 0 ] ),
+						'citations'   => (array) ( $mem_res['citations'] ?? [] ),
+						'block_len'   => mb_strlen( $mem_block ),
+						'latency_ms'  => (int) ( $mem_res['latency_ms'] ?? 0 ),
+						'source'      => (string) ( $mem_res['source'] ?? 'legacy' ),
+						'injected'    => $mem_block !== '',
+					];
+					error_log( sprintf(
+						'[TwinChat][agent][memory_recall] user_id=%d notebook=%d source=%s block_len=%d counts=A%d/B%d/C%d/D%d citations=%d latency=%dms extra_system_after=%dB',
+						$user_id, $notebook_id,
+						$mem_recall_payload['source'],
+						$mem_recall_payload['block_len'],
+						$mem_recall_payload['counts']['A'] ?? 0,
+						$mem_recall_payload['counts']['B'] ?? 0,
+						$mem_recall_payload['counts']['C'] ?? 0,
+						$mem_recall_payload['counts']['D'] ?? 0,
+						count( $mem_recall_payload['citations'] ),
+						$mem_recall_payload['latency_ms'],
+						mb_strlen( $extra_system )
+					) );
+					$sse->emit( 'memory_recall', $mem_recall_payload );
+					$this->dispatch_turn_event( 'memory_recall', $mem_recall_payload );
+					// Wave 2.8d D6.9f — completion event for the timeline layer.
+					$this->dispatch_turn_event( 'decision', [
+						'stage'           => 'twin_memory_resolved',
+						'kind'            => 'twin_memory_lookup',
+						'status'          => 'completed',
+						'counts'          => $mem_recall_payload['counts'],
+						'citations_count' => count( $mem_recall_payload['citations'] ),
+						'block_len'       => $mem_recall_payload['block_len'],
+						'latency_ms'      => $mem_recall_payload['latency_ms'],
+						'source'          => $mem_recall_payload['source'],
+						'injected'        => $mem_recall_payload['injected'],
+					] );
+				} catch ( \Throwable $e ) {
+					error_log( '[TwinChat][agent][memory_recall][error] ' . $e->getMessage() . ' @ ' . basename( $e->getFile() ) . ':' . $e->getLine() );
+					$this->dispatch_turn_event( 'decision', [
+						'stage'  => 'twin_memory_resolved',
+						'kind'   => 'twin_memory_lookup',
+						'status' => 'skipped',
+						'reason' => 'error: ' . $e->getMessage(),
+					] );
+				}
+			} elseif ( $user_id <= 0 ) {
+				// Anonymous user — still emit a skipped layer so the timeline
+				// shows WHY memory wasn't loaded (helps debugging).
+				$this->dispatch_turn_event( 'decision', [
+					'stage'  => 'twin_memory_resolved',
+					'kind'   => 'twin_memory_lookup',
+					'status' => 'skipped',
+					'reason' => 'no_user',
+				] );
+			}
+
 			// === Sprint 4.5j (Wave 10d.4) — History Window Management ===
 			// Pre-fix: FE gửi nguyên history (132+ messages, ~71k tokens) → Gemini
 			// echo lại câu trả lời cũ thay vì đọc câu hỏi mới + KG block (block 893
@@ -1674,9 +1873,42 @@ class BizCity_TwinChat_Stream_Handler {
 					],
 					$args
 				);
+				// Wave 2.8d D6.9g (2026-05-24) — memory-denial patterns ALWAYS
+				// drop, kể cả turn có [src:N#pM]/[K...] citation. Lý do: assistant
+				// vừa refuse memory vừa trích nguồn KG (vd "tôi không có khả năng
+				// ghi nhớ ... nhưng có thể nói về [K2]") — cite-exemption ở
+				// patterns thường khiến những turn này lọt qua → Gemini echo bias
+				// override luôn USER MEMORY block dù đã inject.
+				$_memory_denial_patterns = apply_filters(
+					'bizcity_twinchat_memory_denial_patterns',
+					[
+						'tôi không nhớ',
+						'tôi không có khả năng ghi nhớ',
+						'tôi không thể nhớ',
+						'không có chức năng ghi nhớ',
+						'không có khả năng lưu trữ',
+						'không lưu trữ thông tin cá nhân',
+						'không có trí nhớ',
+						'không có khả năng truy cập',
+						'không thể truy cập thông tin',
+						'không có quyền truy cập',
+						'xử lý thông tin dựa trên ngữ cảnh hiện tại',
+						'dựa trên ngữ cảnh hiện tại',
+						'tôi là một mô hình ngôn ngữ',
+						'tôi chỉ là một ai',
+						'as an ai language model',
+						'as a language model',
+						'i don\'t have memory',
+						'i cannot remember',
+						'i do not have memory',
+						'i don\'t have the ability to remember',
+					],
+					$args
+				);
 				$_orig_n   = count( $raw_history );
 				$_filtered = [];
 				$_dropped  = 0;
+				$_dropped_memory = 0;
 				foreach ( $raw_history as $_msg ) {
 					$_role = (string) ( $_msg['role'] ?? '' );
 					$_text = (string) ( $_msg['content'] ?? $_msg['text'] ?? '' );
@@ -1684,7 +1916,16 @@ class BizCity_TwinChat_Stream_Handler {
 						$_low = mb_strtolower( $_text );
 						$_has_cite = ( strpos( $_text, '[src:' ) !== false ) || ( strpos( $_text, '[K' ) !== false );
 						$_is_refusal = false;
-						if ( ! $_has_cite ) {
+						// Memory-denial: ALWAYS drop (bypass cite-exemption).
+						foreach ( $_memory_denial_patterns as $_pat ) {
+							if ( $_pat !== '' && strpos( $_low, mb_strtolower( $_pat ) ) !== false ) {
+								$_is_refusal = true;
+								$_dropped_memory++;
+								break;
+							}
+						}
+						// Context-refusal: chỉ drop khi KHÔNG có cite (giữ legacy).
+						if ( ! $_is_refusal && ! $_has_cite ) {
 							foreach ( $_refusal_patterns as $_pat ) {
 								if ( $_pat !== '' && strpos( $_low, mb_strtolower( $_pat ) ) !== false ) {
 									$_is_refusal = true;
@@ -1711,10 +1952,11 @@ class BizCity_TwinChat_Stream_Handler {
 				if ( $_dropped > 0 ) {
 					$raw_history = array_values( $_filtered );
 					BizCity_Twin_Debug::trace( 'stream', 'history_refusal_scrubbed', [
-						'orig_n'  => $_orig_n,
-						'kept'    => count( $raw_history ),
-						'dropped' => $_dropped,
-						'reason'  => 'refusal-echo-guard',
+						'orig_n'         => $_orig_n,
+						'kept'           => count( $raw_history ),
+						'dropped'        => $_dropped,
+						'dropped_memory' => $_dropped_memory,
+						'reason'         => 'refusal-echo-guard',
 					] );
 				}
 			}
@@ -1733,6 +1975,9 @@ class BizCity_TwinChat_Stream_Handler {
 					. "3. KHÔNG sao chép, paraphrase, hoặc echo lại câu trả lời cũ trong lịch sử hội thoại.\n"
 					. "4. Cite mọi thông tin bằng nhãn [src:N#pM] đúng như xuất hiện đầu mỗi passage.";
 			}
+
+			/* Wave 2.8d D6.9e — memory_recall block MOVED to BEFORE history
+			 * scrub (see ~line 1724). Do NOT duplicate it here. */
 
 			$_agent_args = [
 				'user_message'   => (string) $args['user_message'],

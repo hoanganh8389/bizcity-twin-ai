@@ -570,18 +570,29 @@ textarea.sch-form-input{min-height:60px;resize:vertical}
             </div>
         <?php else : ?>
             <p style="font-size:12px;color:#6b7280;margin-bottom:8px;">
-                Kết nối Google Calendar để đồng bộ sự kiện 2 chiều.
-                <?php if ( ! $is_admin ) : ?>
-                    Liên hệ Admin để cấu hình kết nối.
-                <?php endif; ?>
+                Kết nối Google Calendar để đồng bộ sự kiện 2 chiều.<br>
+                <?php
+                // 2026-06-04 — Unified Google Hub flow via bizcity.vn pretty URL.
+                $hub_page_url = admin_url( 'admin.php?page=bizchat-gateway&group=integrations&sub=google-hub' );
+                if ( class_exists( 'BizCity_Google_Hub', false ) ) {
+                    $hub_domain = BizCity_Google_Hub::get_hub_domain();
+                    echo 'Dùng chung tài khoản kết nối qua hub <code>' . esc_html( $hub_domain ) . '</code> — không cần OAuth Client ID/Secret riêng.';
+                }
+                ?>
             </p>
-            <?php if ( $is_admin ) : ?>
-                <div class="sch-google-actions">
-                    <a class="sch-ggl-btn sch-ggl-btn--primary" href="<?php echo esc_url( admin_url( 'admin.php?page=bizcity-scheduler' ) ); ?>">
-                        ⚙️ Cấu hình trong Admin
-                    </a>
-                </div>
-            <?php endif; ?>
+            <div class="sch-google-actions">
+                <a class="sch-ggl-btn sch-ggl-btn--primary" href="<?php echo esc_url( $hub_page_url ); ?>">
+                    🔗 <?php esc_html_e( 'Mở Google Hub', 'bizcity-twin-ai' ); ?>
+                </a>
+                <?php if ( class_exists( 'BizCity_Google_Hub', false ) ) :
+                    $quick = BizCity_Google_Hub::get_service_connect_url( 'calendar', $hub_page_url );
+                    if ( ! is_wp_error( $quick ) ) : ?>
+                        <a class="sch-ggl-btn sch-ggl-btn--secondary" href="<?php echo esc_url( $quick ); ?>">
+                            ⚡ <?php esc_html_e( 'Kết nối nhanh Calendar', 'bizcity-twin-ai' ); ?>
+                        </a>
+                    <?php endif;
+                endif; ?>
+            </div>
         <?php endif; ?>
         <div class="sch-ggl-msg" id="sch-ggl-msg" style="display:none"></div>
     </div>

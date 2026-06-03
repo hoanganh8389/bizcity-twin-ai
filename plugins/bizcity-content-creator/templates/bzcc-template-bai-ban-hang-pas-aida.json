@@ -1,0 +1,234 @@
+{
+  "version": "1.0",
+  "plugin": "bizcity-content-creator",
+  "exported": "2026-05-19T12:00:00Z",
+  "templates": [
+    {
+      "slug": "bai-ban-hang-pas-aida",
+      "category_id": "ban-hang",
+      "title": "Bài viết bán hàng (PAS / AIDA / FAB)",
+      "description": "Viết bài bán hàng chuyển đổi cao theo công thức copywriting kinh điển — PAS (Problem-Agitate-Solution), AIDA (Attention-Interest-Desire-Action) hoặc FAB (Feature-Advantage-Benefit). Đầu ra: bài hoàn chỉnh kèm hook, body, CTA + 3 phiên bản A/B test.",
+      "icon_url": "",
+      "icon_emoji": "🛒",
+      "form_fields": [
+        {
+          "slug": "product_name",
+          "label": "Tên sản phẩm / dịch vụ",
+          "type": "text",
+          "placeholder": "VD: Khoá học Tiếng Anh giao tiếp 30 ngày, Serum Vitamin C Pro...",
+          "required": true,
+          "grid": "half",
+          "sort_order": 1,
+          "description": ""
+        },
+        {
+          "slug": "industry",
+          "label": "Ngành hàng",
+          "type": "select",
+          "placeholder": "",
+          "required": false,
+          "grid": "half",
+          "sort_order": 2,
+          "description": "",
+          "options": [
+            { "value": "auto", "label": "🤖 AI tự nhận diện" },
+            { "value": "beauty", "label": "💅 Mỹ phẩm / Làm đẹp" },
+            { "value": "fashion", "label": "👗 Thời trang" },
+            { "value": "food", "label": "🍜 Ẩm thực / F&B" },
+            { "value": "tech", "label": "💻 Công nghệ / SaaS" },
+            { "value": "health", "label": "💪 Sức khoẻ / Fitness" },
+            { "value": "education", "label": "📚 Giáo dục / Khoá học" },
+            { "value": "real-estate", "label": "🏠 Bất động sản" },
+            { "value": "finance", "label": "💰 Tài chính / Bảo hiểm" },
+            { "value": "baby", "label": "👶 Mẹ & Bé" },
+            { "value": "home", "label": "🏡 Nội thất / Gia dụng" },
+            { "value": "service", "label": "🔧 Dịch vụ" },
+            { "value": "other", "label": "📦 Khác" }
+          ]
+        },
+        {
+          "slug": "framework",
+          "label": "Công thức copywriting",
+          "type": "card_radio",
+          "placeholder": "",
+          "required": true,
+          "grid": "full",
+          "sort_order": 3,
+          "description": "Chọn công thức phù hợp với mức độ nhận biết của khách hàng",
+          "options": [
+            {
+              "value": "pas",
+              "label": "PAS — Problem · Agitate · Solution",
+              "description": "Khơi nỗi đau → khoét sâu → đưa giải pháp. Tốt cho khách đã biết vấn đề.",
+              "icon": "🔥",
+              "tag": "🎯 Chuyển đổi cao"
+            },
+            {
+              "value": "aida",
+              "label": "AIDA — Attention · Interest · Desire · Action",
+              "description": "Gây chú ý → tạo hứng thú → khao khát → hành động. Tốt cho khách lạnh.",
+              "icon": "💎",
+              "tag": "🔥 Phổ biến nhất"
+            },
+            {
+              "value": "fab",
+              "label": "FAB — Feature · Advantage · Benefit",
+              "description": "Tính năng → ưu điểm → lợi ích thực tế. Tốt cho sản phẩm có nhiều USP kỹ thuật.",
+              "icon": "⚙️",
+              "tag": "💡 Sản phẩm phức tạp"
+            },
+            {
+              "value": "be-be",
+              "label": "BAB — Before · After · Bridge",
+              "description": "Trước (đau) → sau (sướng) → cây cầu (sản phẩm). Storytelling mạnh.",
+              "icon": "🌉",
+              "tag": "✨ Storytelling"
+            }
+          ]
+        },
+        {
+          "slug": "target_audience",
+          "label": "Khách hàng mục tiêu",
+          "type": "textarea",
+          "placeholder": "VD: Mẹ bỉm 25-35 tuổi đang nuôi con nhỏ, lo lắng về dinh dưỡng, ngân sách 500k-2tr/tháng...",
+          "required": true,
+          "grid": "full",
+          "sort_order": 4,
+          "description": "Mô tả nhân khẩu học + nỗi đau + khao khát"
+        },
+        {
+          "slug": "pain_points",
+          "label": "Nỗi đau / vấn đề khách hàng đang gặp",
+          "type": "textarea",
+          "placeholder": "VD: Học tiếng Anh nhiều năm vẫn không nói được, sợ giao tiếp với người nước ngoài...",
+          "required": true,
+          "grid": "half",
+          "sort_order": 5,
+          "description": "Càng cụ thể, càng dễ chạm cảm xúc"
+        },
+        {
+          "slug": "benefits",
+          "label": "Lợi ích / kết quả khách nhận được",
+          "type": "textarea",
+          "placeholder": "VD: Tự tin giao tiếp sau 30 ngày, có giáo viên 1-1, lộ trình cá nhân hoá...",
+          "required": true,
+          "grid": "half",
+          "sort_order": 6,
+          "description": "Lợi ích cụ thể — không phải tính năng"
+        },
+        {
+          "slug": "price_offer",
+          "label": "Giá & ưu đãi",
+          "type": "textarea",
+          "placeholder": "VD: 1.990.000đ (giảm từ 3.500.000đ), tặng kèm sách + 1 tháng học thử miễn phí, hoàn 100% nếu không hiệu quả",
+          "required": false,
+          "grid": "full",
+          "sort_order": 7,
+          "description": "Bao gồm anchor price, deal hiện tại, bonus, guarantee nếu có"
+        },
+        {
+          "slug": "social_proof",
+          "label": "Bằng chứng xã hội (review, số liệu, chứng nhận)",
+          "type": "textarea",
+          "placeholder": "VD: 10.000+ học viên đã hoàn thành, 4.8★ trên Google Reviews, được VTV đưa tin, chứng nhận ISO...",
+          "required": false,
+          "grid": "full",
+          "sort_order": 8,
+          "description": "Số liệu cụ thể & nguồn xác thực"
+        },
+        {
+          "slug": "platform",
+          "label": "Nền tảng đăng bài",
+          "type": "button_group",
+          "placeholder": "",
+          "required": false,
+          "grid": "full",
+          "sort_order": 9,
+          "description": "Bài viết sẽ được tối ưu format theo platform",
+          "multi": false,
+          "options": [
+            { "value": "facebook", "label": "📘 Facebook (post dài)" },
+            { "value": "landing", "label": "🌐 Landing page" },
+            { "value": "zalo", "label": "💬 Zalo / Tin nhắn" },
+            { "value": "email", "label": "📧 Email marketing" },
+            { "value": "shopee", "label": "🛍️ Shopee/Lazada (mô tả SP)" },
+            { "value": "instagram", "label": "📸 Instagram caption" }
+          ]
+        },
+        {
+          "slug": "length",
+          "label": "Độ dài bài viết",
+          "type": "button_group",
+          "placeholder": "",
+          "required": false,
+          "grid": "half",
+          "sort_order": 10,
+          "description": "",
+          "multi": false,
+          "options": [
+            { "value": "short", "label": "⚡ Ngắn (200-400 từ)" },
+            { "value": "medium", "label": "📄 Vừa (500-800 từ)" },
+            { "value": "long", "label": "📚 Dài (1000-1500 từ)" }
+          ]
+        },
+        {
+          "slug": "tone",
+          "label": "Giọng điệu",
+          "type": "select",
+          "placeholder": "",
+          "required": false,
+          "grid": "half",
+          "sort_order": 11,
+          "description": "",
+          "options": [
+            { "value": "friendly", "label": "😊 Thân thiện, gần gũi" },
+            { "value": "professional", "label": "💼 Chuyên nghiệp, đáng tin" },
+            { "value": "urgent", "label": "🔥 Khẩn cấp, kích thích" },
+            { "value": "storytelling", "label": "📖 Kể chuyện, cảm xúc" },
+            { "value": "expert", "label": "🎓 Chuyên gia, uy tín" },
+            { "value": "fun", "label": "🎉 Vui nhộn, trẻ trung" }
+          ]
+        },
+        {
+          "slug": "cta",
+          "label": "Hành động bạn muốn khách thực hiện (CTA)",
+          "type": "text",
+          "placeholder": "VD: Inbox để nhận tư vấn miễn phí, comment 'TÔI MUỐN', đăng ký tại link...",
+          "required": true,
+          "grid": "full",
+          "sort_order": 12,
+          "description": "Càng cụ thể & dễ làm, tỷ lệ chuyển đổi càng cao"
+        },
+        {
+          "slug": "extra_context",
+          "label": "Ghi chú thêm",
+          "type": "textarea",
+          "placeholder": "VD: Đang trong chiến dịch sale 11.11, tránh dùng từ 'cam kết' vì chính sách, brand voice trẻ trung...",
+          "required": false,
+          "grid": "full",
+          "sort_order": 13,
+          "description": ""
+        }
+      ],
+
+      "system_prompt": "Bạn là copywriter chuyên về direct-response copywriting — đã viết hàng ngàn bài bán hàng chuyển đổi cao tại Việt Nam, am hiểu insight người tiêu dùng Việt và các công thức copywriting kinh điển của thế giới (Eugene Schwartz, Dan Kennedy, Russell Brunson).\n\n## THÔNG TIN BÀI VIẾT\n- **Sản phẩm/Dịch vụ:** {{product_name}}\n- **Ngành:** {{industry}}\n- **Công thức:** {{framework}}\n- **Khách hàng mục tiêu:** {{target_audience}}\n- **Nỗi đau:** {{pain_points}}\n- **Lợi ích:** {{benefits}}\n- **Giá & ưu đãi:** {{price_offer}}\n- **Bằng chứng xã hội:** {{social_proof}}\n- **Nền tảng:** {{platform}}\n- **Độ dài:** {{length}}\n- **Giọng điệu:** {{tone}}\n- **CTA:** {{cta}}\n- **Ghi chú thêm:** {{extra_context}}\n\n## QUY TẮC VIẾT\n1. **Hook trong 3 giây đầu** — câu đầu PHẢI khiến khách dừng scroll (đặt câu hỏi đánh trúng pain, số liệu sốc, tuyên bố ngược chiều, hoặc 'before-after' đột phá).\n2. **Một ý — một dòng ngắn** — câu ngắn, đoạn ngắn, dễ đọc trên mobile. Tránh đoạn quá 3 dòng.\n3. **Cảm xúc trước, logic sau** — chạm cảm xúc bằng story/scenario cụ thể, sau đó mới đưa số liệu/feature để justify.\n4. **Specificity bán hàng** — số liệu cụ thể (\"10.382 học viên\" thay vì \"hàng ngàn học viên\"), tên người thật, mốc thời gian rõ ràng.\n5. **Không nói tính năng — nói lợi ích** — \"camera 50MP\" ❌ → \"chụp lại nụ cười của con dù trời tối\" ✅.\n6. **CTA rõ ràng + dễ làm** — chỉ 1 hành động chính, lặp lại 2-3 lần trong bài.\n7. **Tạo urgency thật** — deadline thật, số lượng có hạn thật. KHÔNG bịa.\n8. **Tuân thủ pháp luật VN** — không dùng \"cam kết 100%\", \"chữa khỏi bệnh\", \"số 1 Việt Nam\" nếu không có chứng nhận.\n9. **Viết tiếng Việt thuần** — hạn chế từ Hán-Việt khó hiểu, không sai chính tả.\n10. **Tuyệt đối không bịa social proof** — chỉ dùng {{social_proof}} người dùng cung cấp.\n\n## TUỲ THEO {{framework}}\n- **PAS:** Problem (1 câu chạm pain) → Agitate (2-3 câu khoét sâu hậu quả) → Solution (giới thiệu SP như cứu cánh)\n- **AIDA:** Attention (hook) → Interest (vì sao đáng quan tâm) → Desire (vẽ kết quả + social proof) → Action (CTA)\n- **FAB:** Feature (tính năng nổi bật) → Advantage (hơn đối thủ ở điểm gì) → Benefit (lợi ích thực tế cho khách)\n- **BAB:** Before (cuộc sống khách hiện tại — đau) → After (cuộc sống sau khi có SP — sướng) → Bridge (SP là cây cầu)",
+
+      "outline_prompt": "Tạo outline cho bài bán hàng theo công thức {{framework}} cho sản phẩm '{{product_name}}', đăng trên {{platform}}, độ dài {{length}}.\n\nOutline gồm 5 section CỐ ĐỊNH:\n1. **Bài viết chính** — bài hoàn chỉnh theo công thức {{framework}} (hook → body → CTA)\n2. **3 hook A/B test** — 3 phiên bản câu mở đầu khác nhau để test\n3. **3 CTA A/B test** — 3 phiên bản call-to-action khác nhau\n4. **Caption ngắn** — phiên bản rút gọn 80-150 từ để post story / quảng cáo\n5. **Tips tối ưu hoá** — 5-7 gợi ý cải thiện tỷ lệ chuyển đổi (timing post, hashtag, ảnh kèm, follow-up...)\n\nTRẢ VỀ JSON:\n[\n  {\"label\": \"Bài viết chính\", \"emoji\": \"📝\", \"platform\": \"{{platform}}\"},\n  {\"label\": \"3 hook A/B test\", \"emoji\": \"🎣\", \"platform\": \"{{platform}}\"},\n  {\"label\": \"3 CTA A/B test\", \"emoji\": \"🎯\", \"platform\": \"{{platform}}\"},\n  {\"label\": \"Caption ngắn\", \"emoji\": \"⚡\", \"platform\": \"{{platform}}\"},\n  {\"label\": \"Tips tối ưu hoá\", \"emoji\": \"💡\", \"platform\": \"general\"}\n]",
+
+      "chunk_prompt": "Bạn đang viết phần \"{{chunk_title}}\" của bài bán hàng cho '{{product_name}}', theo công thức {{framework}}, đăng trên {{platform}}.\n\n## CONTEXT\n- Khách hàng: {{target_audience}}\n- Pain: {{pain_points}}\n- Benefits: {{benefits}}\n- Giá/Ưu đãi: {{price_offer}}\n- Social proof: {{social_proof}}\n- Giọng điệu: {{tone}}\n- CTA chính: {{cta}}\n- Ghi chú: {{extra_context}}\n\n## YÊU CẦU THEO LOẠI SECTION\n\n### Nếu là **Bài viết chính**:\n- Tuân thủ ĐÚNG công thức {{framework}} với cấu trúc rõ ràng (đánh dấu các phần bằng emoji hoặc dòng trống)\n- Hook ở dòng đầu — câu ≤ 15 từ, có power word hoặc số liệu\n- Body trải đủ các bước của framework, mỗi bước 2-4 đoạn ngắn\n- Chèn social proof tự nhiên (không liệt kê khô khan)\n- Chèn giá & ưu đãi sau khi đã 'bán giấc mơ'\n- Kết bài có CTA rõ + 1 dòng PS (postscript) để tăng tỷ lệ click\n- Format phù hợp {{platform}}: Facebook dùng emoji + line break nhiều; Landing page có heading; Email có subject line; Zalo ngắn gọn; Shopee nhấn USP.\n\n### Nếu là **3 hook A/B test**:\n- Trình bày dưới dạng:\n  - **Hook 1 — [Loại hook]** (vd: Câu hỏi đánh trúng pain): \"...\"\n  - **Hook 2 — [Loại hook]** (vd: Tuyên bố sốc/ngược chiều): \"...\"\n  - **Hook 3 — [Loại hook]** (vd: Story 1 câu): \"...\"\n- Mỗi hook ≤ 20 từ, độc lập, có thể đứng đầu bài\n\n### Nếu là **3 CTA A/B test**:\n- 3 phiên bản với 3 mức 'cam kết' khác nhau:\n  - **CTA mềm (low commitment)** — vd: comment để nhận info\n  - **CTA trung bình** — vd: inbox để tư vấn\n  - **CTA mạnh (high commitment)** — vd: đăng ký mua ngay với deal\n- Mỗi CTA kèm gợi ý micro-copy bổ trợ (vd: '⏰ Chỉ còn 12 suất trong hôm nay')\n\n### Nếu là **Caption ngắn**:\n- 80-150 từ, đầy đủ hook + 1 benefit chính + CTA\n- Phù hợp dùng để chạy quảng cáo hoặc đăng story\n- Có 5-10 hashtag liên quan ở cuối (nếu {{platform}} là instagram/tiktok/facebook)\n\n### Nếu là **Tips tối ưu hoá**:\n- 5-7 tips dạng bullet:\n  1. Timing đăng bài tối ưu trên {{platform}}\n  2. Ảnh/video kèm nên thế nào (mô tả cụ thể)\n  3. Comment đầu tiên nên là gì (pinned comment)\n  4. Cách reply comment để tăng engagement\n  5. Sequence follow-up sau khi khách inbox\n  6. Khi nào nên boost / chạy ads\n  7. Tracking metric nào để biết bài thành công\n\n## QUY TẮC TRÌNH BÀY\n- Markdown chuẩn, dễ copy-paste\n- KHÔNG mở đầu bằng 'Dưới đây là...' — vào thẳng nội dung\n- KHÔNG dùng disclaimer thừa\n- Tiếng Việt thuần, không lẫn từ Anh trừ thuật ngữ marketing chuẩn",
+
+      "model_purpose": "content_creation",
+      "temperature": "0.75",
+      "max_tokens": "6000",
+      "wizard_steps": [],
+      "output_platforms": ["facebook", "landing", "zalo", "email", "shopee", "instagram"],
+      "skill_id": "0",
+      "tags": "ban-hang,copywriting,pas,aida,fab,sales-copy,bai-ban-hang,chuyen-doi",
+      "badge_text": "HOT",
+      "badge_color": "#ef4444",
+      "is_featured": "1",
+      "sort_order": "1",
+      "status": "active"
+    }
+  ]
+}

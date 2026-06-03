@@ -380,12 +380,14 @@ class BizCity_Chat_Gateway {
         $this->current_kci_ratio = $kci_ratio;
 
         /* ── Log user message (skip if stream already logged it) ── */
+        $user_msg_id  = uniqid( 'chat_' );
+        $user_row_id  = 0;
         if ( ! $skip_user_log ) {
             $this->log_message([
                 'session_id'    => $session_id,
                 'user_id'       => $user_id,
                 'client_name'   => $client_name,
-                'message_id'    => uniqid('chat_'),
+                'message_id'    => $user_msg_id,
                 'message_text'  => $message ?: '[Image]',
                 'message_from'  => 'user',
                 'message_type'  => !empty($images) ? 'image' : 'text',
@@ -393,6 +395,31 @@ class BizCity_Chat_Gateway {
                 'platform_type' => $platform_type,
                 'plugin_slug'   => $plugin_slug, // @ mention plugin routing
             ]);
+            $user_row_id = $this->_webchat_lookup_row_id( $session_id, $user_msg_id );
+        }
+
+        /* ── PHASE 0.37 — Mirror WEBCHAT inbound into unified channel ledger
+             (wp_bizcity_channel_messages) via canonical workflow trigger.
+             This single fire feeds: (a) BizCity_Universal_Channel_Listener →
+             ledger row, (b) `bizcity_channel_normalized` envelope → CRM Inbox,
+             (c) any other automation subscribed to wu_webchat_message_received. */
+        if ( $platform_type === 'WEBCHAT' && $message !== '' ) {
+            $site_id = (string) get_current_blog_id();
+            if ( $site_id !== '' && $session_id !== '' ) {
+                do_action( 'waic_twf_process_flow', 'wu_webchat_message_received', [
+                    'site_id'     => $site_id,
+                    'session_id'  => $session_id,
+                    'message'     => $message,
+                    'message_id'  => $user_msg_id,
+                    'client_name' => $client_name,
+                    'user_id'     => $user_id,
+                    'image_url'   => ! empty( $images[0] ) ? (string) $images[0] : '',
+                    'raw'         => [
+                        'platform_type' => 'WEBCHAT',
+                        'session_id'    => $session_id,
+                    ],
+                ] );
+            }
         }
 
         /* ── Get AI response (single pipeline) ── */
@@ -483,7 +510,45 @@ class BizCity_Chat_Gateway {
                     'plugin_slug'  => $effective_slug,
                 ],
             ]);
-            $reply_payload['bot_message_id'] = $bot_msg_id;
+            $reply_payload['bot_message_id']  = $this->_webchat_lookup_row_id( $session_id, $bot_msg_id );
+            $reply_payload['user_message_id'] = $user_row_id;
+
+            /* ── PHASE 0.37 — mirror pre_reply bot turn to channel ledger too. */
+            if ( $platform_type === 'WEBCHAT' && ! empty( $pre_reply['message'] ) && class_exists( 'BizCity_Channel_Messages' ) ) {
+                BizCity_Channel_Messages::log_outbound( array(
+                    'platform'       => 'WEBCHAT',
+                    'chat_id'        => 'webchat_' . $session_id,
+                    'user_psid'      => $session_id,
+                    'message_id'     => $bot_msg_id,
+                    'event_type'     => 'message',
+                    'body'           => (string) $pre_reply['message'],
+                    'character_id'   => $character_id ? (int) $character_id : null,
+                    'responder_kind' => 'auto',
+                    'status'         => 'sent',
+                    'payload'        => array(
+                        'session_id' => $session_id,
+                        'via'        => $pre_reply['action'] ?? 'pre_ai_filter',
+                        'goal'       => $pre_reply['goal'] ?? '',
+                    ),
+                ) );
+
+                /* Notify CRM Ingestor (Gateway_Sender-compatible payload). */
+                do_action( 'bizcity_channel_outbound_logged', array(
+                    'chat_id'  => 'webchat_' . $session_id,
+                    'platform' => 'WEBCHAT',
+                    'message'  => (string) $pre_reply['message'],
+                    'type'     => 'text',
+                    'extra'    => array(
+                        'source'         => 'chat-gateway-ai',
+                        'message_id'     => $bot_msg_id,
+                        'character_id'   => $character_id ? (int) $character_id : null,
+                        'responder_kind' => 'auto',
+                        'via'            => $pre_reply['action'] ?? 'pre_ai_filter',
+                    ),
+                    'sent'     => true,
+                    'error'    => '',
+                ) );
+            }
 
             wp_send_json_success( $reply_payload );
             exit;
@@ -498,11 +563,13 @@ class BizCity_Chat_Gateway {
         }
 
         /* ── Log bot reply (with plugin_slug if @ mentioned) ── */
+        $bot_msg_id  = uniqid('chat_bot_');
+        $bot_row_id  = 0;
         $this->log_message([
             'session_id'    => $session_id,
             'user_id'       => 0,
             'client_name'   => $reply_data['character_name'] ?? 'AI Assistant',
-            'message_id'    => uniqid('chat_bot_'),
+            'message_id'    => $bot_msg_id,
             'message_text'  => $reply_data['message'],
             'message_from'  => 'bot',
             'message_type'  => 'text',
@@ -518,6 +585,49 @@ class BizCity_Chat_Gateway {
                 'routing_mode' => $routing_mode,
             ],
         ]);
+        $bot_row_id = $this->_webchat_lookup_row_id( $session_id, $bot_msg_id );
+
+        /* ── PHASE 0.37 — Mirror auto-AI bot reply to unified channel ledger
+             as an OUTBOUND row so CRM Inbox sees the assistant turn alongside
+             manual agent replies (which already log via BizCity_Gateway_Sender). */
+        if ( $platform_type === 'WEBCHAT' && ! empty( $reply_data['message'] ) && class_exists( 'BizCity_Channel_Messages' ) ) {
+            BizCity_Channel_Messages::log_outbound( array(
+                'platform'        => 'WEBCHAT',
+                'chat_id'         => 'webchat_' . $session_id,
+                'user_psid'       => $session_id,
+                'message_id'      => $bot_msg_id,
+                'event_type'      => 'message',
+                'body'            => (string) $reply_data['message'],
+                'character_id'    => $character_id ? (int) $character_id : null,
+                'responder_kind'  => 'auto',
+                'status'          => 'sent',
+                'payload'         => array(
+                    'session_id' => $session_id,
+                    'provider'   => $reply_data['provider'] ?? '',
+                    'model'      => $reply_data['model'] ?? '',
+                    'via'        => 'chat-gateway.ajax_send',
+                ),
+            ) );
+
+            /* Notify CRM Ingestor (Gateway_Sender-compatible payload) so the
+               auto-AI reply mirrors into crm_messages and shows in Inbox UI. */
+            do_action( 'bizcity_channel_outbound_logged', array(
+                'chat_id'  => 'webchat_' . $session_id,
+                'platform' => 'WEBCHAT',
+                'message'  => (string) $reply_data['message'],
+                'type'     => 'text',
+                'extra'    => array(
+                    'source'         => 'chat-gateway-ai',
+                    'message_id'     => $bot_msg_id,
+                    'character_id'   => $character_id ? (int) $character_id : null,
+                    'responder_kind' => 'auto',
+                    'provider'       => $reply_data['provider'] ?? '',
+                    'model'          => $reply_data['model'] ?? '',
+                ),
+                'sent'     => true,
+                'error'    => '',
+            ) );
+        }
 
         /* ── Fire action for automation triggers ── */
         do_action('bizcity_chat_message_processed', [
@@ -544,6 +654,10 @@ class BizCity_Chat_Gateway {
             'vision_used' => $reply_data['vision_used'] ?? false,
             'plugin_slug' => $plugin_slug, // Echo back for frontend badge
             'focus_mode'  => 'none',       // Normal AI path — no HIL focus
+            // PHASE 0.37 — webchat row ids for poll dedupe (widget marks these as
+            // already-displayed so the 4s pull loop skips them instead of dupe-rendering).
+            'user_message_id' => $user_row_id,
+            'bot_message_id'  => $bot_row_id,
         ]);
         exit;
     }
@@ -2956,6 +3070,21 @@ class BizCity_Chat_Gateway {
         }
 
         return $cid;
+    }
+
+    /**
+     * Lookup wp_bizcity_webchat_messages.id by (session_id, message_id).
+     * Used to return integer row ids back to the widget for poll dedupe.
+     */
+    private function _webchat_lookup_row_id( $session_id, $message_id ) {
+        if ( empty( $session_id ) || empty( $message_id ) ) { return 0; }
+        global $wpdb;
+        $table = $wpdb->prefix . 'bizcity_webchat_messages';
+        $row_id = $wpdb->get_var( $wpdb->prepare(
+            "SELECT id FROM {$table} WHERE session_id = %s AND message_id = %s ORDER BY id DESC LIMIT 1",
+            $session_id, $message_id
+        ) );
+        return $row_id ? (int) $row_id : 0;
     }
 
     /**

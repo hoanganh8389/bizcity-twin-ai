@@ -58,9 +58,25 @@ class BizCity_Scheduler_Cron {
 	}
 
 	/**
-	 * Ensure cron is scheduled.
+	 * Ensure cron is scheduled. Prefers core/cron unified manager when
+	 * available so the run gets traced into bizcity_cron_runs; falls back
+	 * to direct wp_schedule_event for backward-compat on sites that have
+	 * not yet activated the manager.
 	 */
 	public function schedule(): void {
+		if ( class_exists( 'BizCity_Cron_Manager' ) ) {
+			BizCity_Cron_Manager::instance()->register( array(
+				'id'          => 'scheduler.reminder',
+				'hook'        => self::REMINDER_HOOK,
+				'interval'    => self::INTERVAL_NAME,
+				'owner'       => 'core/scheduler',
+				'description' => 'Scan due reminders & fire bizcity_scheduler_reminder_fire (every 5min).',
+				'singleton'   => true,
+				'enabled'     => true,
+				'retention'   => 7,
+			) );
+			return;
+		}
 		if ( ! wp_next_scheduled( self::REMINDER_HOOK ) ) {
 			wp_schedule_event( time(), self::INTERVAL_NAME, self::REMINDER_HOOK );
 		}
@@ -89,12 +105,51 @@ class BizCity_Scheduler_Cron {
 	 *   - Automation      → trigger workflow on reminder
 	 */
 	public function scan_reminders(): void {
-		$mgr     = BizCity_Scheduler_Manager::instance();
+		$mgr = BizCity_Scheduler_Manager::instance();
+
+		// Self-heal: if the table option says ready but the physical table
+		// is missing on this shard, attempt to (re)install before bailing.
+		if ( ! $mgr->is_ready() ) {
+			$mgr->ensure_schema();
+		}
+
+		// Soft guard: still missing → bail silently, surface admin notice,
+		// avoid spamming the WordPress database error log every 5 minutes.
+		if ( ! $mgr->is_ready() ) {
+			if ( function_exists( 'set_transient' ) ) {
+				set_transient(
+					'bizcity_scheduler_table_missing',
+					[
+						'table'   => $GLOBALS['wpdb']->prefix . BizCity_Scheduler_Manager::TABLE_NAME,
+						'blog_id' => function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0,
+						'at'      => time(),
+					],
+					HOUR_IN_SECONDS
+				);
+			}
+			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+				error_log( '[Scheduler] reminder_scan skipped — bizcity_crm_events table missing on current shard.' );
+			}
+			return;
+		}
+
 		$pending = $mgr->claim_due_reminders();
+
+		// R-CRON-META: log scan summary into bizcity_cron_runs.meta.
+		if ( class_exists( 'BizCity_Cron_Manager' ) ) {
+			BizCity_Cron_Manager::instance()->note( array(
+				'scan' => array(
+					'claimed'  => count( $pending ),
+					'event_ids' => array_map( static function( $e ) { return (int) $e['id']; }, $pending ),
+				),
+			) );
+		}
 
 		if ( empty( $pending ) ) {
 			return;
 		}
+
+		$counters = array( 'fired' => 0, 'sent' => 0, 'errors' => 0 );
 
 		foreach ( $pending as $event ) {
 			try {
@@ -104,11 +159,21 @@ class BizCity_Scheduler_Cron {
 				 * @param array $event  Full event row from DB.
 				 */
 				do_action( 'bizcity_scheduler_reminder_fire', $event );
+				$counters['fired']++;
 
 				// Mark as sent to prevent duplicate firing
 				$mgr->mark_reminder_sent( (int) $event['id'] );
+				$counters['sent']++;
 			} catch ( \Throwable $e ) {
 				$mgr->release_reminder_claim( (int) $event['id'] );
+				$counters['errors']++;
+
+				if ( class_exists( 'BizCity_Cron_Manager' ) ) {
+					BizCity_Cron_Manager::instance()->note_event( 'reminder_fire_exception', array(
+						'event_id' => (int) $event['id'],
+						'error'    => $e->getMessage(),
+					) );
+				}
 
 				if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 					error_log( '[Scheduler] Reminder failed: ' . $e->getMessage() );
@@ -124,6 +189,14 @@ class BizCity_Scheduler_Cron {
 					$event['start_at']
 				) );
 			}
+		}
+
+		if ( class_exists( 'BizCity_Cron_Manager' ) ) {
+			BizCity_Cron_Manager::instance()->note( array( 'scan' => array(
+				'fired'  => $counters['fired'],
+				'sent'   => $counters['sent'],
+				'errors' => $counters['errors'],
+			) ) );
 		}
 	}
 }

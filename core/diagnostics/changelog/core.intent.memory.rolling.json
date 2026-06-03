@@ -1,0 +1,44 @@
+{
+  "$schema": "https://bizcity.vn/schema/diagnostics-changelog-v1.json",
+  "module_id": "core.intent.memory.rolling",
+  "owner": "core/intent",
+  "installer_id": "intent",
+  "current_version": "1.0.0",
+  "version_option": "bizcity_memory_rolling_db_ver",
+  "tables": {
+    "bizcity_memory_rolling": {
+      "since": "1.0.0",
+      "purpose": "Tier D of TwinBrain Memory Recall — rolling conversation window per conversation_id (goal + last 3-5 turns summary + bidirectional scoring). Read-only optional in Memory_Recall::collect_rolling (cap 5). Owner: BizCity_Rolling_Memory (core/intent/includes/conversation/class-rolling-memory.php).",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":                     { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",                          "since": "1.0.0", "pk": true },
+        "user_id":                { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",                               "since": "1.0.0" },
+        "session_id":             { "type": "VARCHAR(255) NOT NULL DEFAULT ''",                                 "since": "1.0.0" },
+        "conversation_id":        { "type": "VARCHAR(64) NOT NULL DEFAULT ''",                                  "since": "1.0.0" },
+        "goal":                   { "type": "VARCHAR(100) DEFAULT ''",                                          "since": "1.0.0" },
+        "goal_label":             { "type": "VARCHAR(255) DEFAULT ''",                                          "since": "1.0.0" },
+        "window_summary":         { "type": "TEXT",                                                              "since": "1.0.0" },
+        "window_turn_count":      { "type": "INT UNSIGNED DEFAULT 0",                                           "since": "1.0.0" },
+        "user_goal_score":        { "type": "TINYINT UNSIGNED DEFAULT 0",                                       "since": "1.0.0" },
+        "bot_satisfaction_score": { "type": "TINYINT UNSIGNED DEFAULT 0",                                       "since": "1.0.0" },
+        "status":                 { "type": "VARCHAR(20) DEFAULT 'active'",                                     "since": "1.0.0" },
+        "completion_summary":     { "type": "TEXT",                                                              "since": "1.0.0" },
+        "summary_token_count":    { "type": "INT UNSIGNED DEFAULT 0",                                           "since": "1.0.0" },
+        "total_turns":            { "type": "INT UNSIGNED DEFAULT 0",                                           "since": "1.0.0" },
+        "created_at":             { "type": "DATETIME DEFAULT CURRENT_TIMESTAMP",                                "since": "1.0.0" },
+        "updated_at":             { "type": "DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",    "since": "1.0.0" }
+      },
+      "indexes": {
+        "uniq_conversation": { "cols": ["conversation_id"], "unique": true, "since": "1.0.0" },
+        "idx_user_active":   { "cols": ["user_id", "status"],                  "since": "1.0.0" },
+        "idx_session":       { "cols": ["session_id"],                         "since": "1.0.0" },
+        "idx_updated":       { "cols": ["updated_at"],                         "since": "1.0.0" }
+      }
+    }
+  },
+  "history": [
+    { "version": "1.0.0", "date": "2026-05-24", "change": "Baseline declaration for R-DCL compliance (Wave 2.8d TBR.MEM-D3). Schema matches DDL in core/intent/includes/conversation/class-rolling-memory.php (back-declared as 1.0.0 baseline; table pre-existed prior to changelog ledger). Tier D of unified memory layer — read-only optional in Memory_Recall. Future consolidation target: bizcity_memory (class='rolling') — see core/memory/PHASE-MEMORY-CONSOLIDATION.md." }
+  ]
+}

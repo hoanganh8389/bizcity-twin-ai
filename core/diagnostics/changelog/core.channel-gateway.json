@@ -1,0 +1,41 @@
+{
+  "$schema": "https://bizcity.vn/schema/diagnostics-changelog-v1.json",
+  "module_id": "core.channel-gateway",
+  "owner": "core/channel-gateway",
+  "installer_id": "blog_resolver_inbox",
+  "current_version": "1.0.0",
+  "version_option": "bizcity_blog_resolver_inbox_db_version",
+  "tables": {
+    "global_inbox_admin": {
+      "since": "1.0.0",
+      "purpose": "Outbound + inbound message log from all channels (Zalo, Facebook, WebChat, Telegram). One row per message dispatched or received via Gateway Sender.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":             { "type": "BIGINT AUTO_INCREMENT",    "since": "1.0.0", "pk": true },
+        "client_id":      { "type": "VARCHAR(32)",              "since": "1.0.0" },
+        "client_name":    { "type": "VARCHAR(255)",             "since": "1.0.0" },
+        "platform_type":  { "type": "VARCHAR(20)",              "since": "1.0.0" },
+        "page_id":        { "type": "VARCHAR(40)",              "since": "1.0.0" },
+        "message_id":     { "type": "VARCHAR(64)",              "since": "1.0.0" },
+        "message_text":   { "type": "TEXT",                     "since": "1.0.0" },
+        "message_type":   { "type": "VARCHAR(10)",              "since": "1.0.0" },
+        "created_at":     { "type": "DATETIME",                 "since": "1.0.0" },
+        "blog_id":        { "type": "INT DEFAULT 0",            "since": "1.0.0" },
+        "flow_id":        { "type": "INT DEFAULT 0",            "since": "1.0.0" },
+        "reminded_at":    { "type": "DATETIME NULL DEFAULT NULL", "since": "1.0.0" },
+        "reminder_msg_id":{ "type": "INT DEFAULT 0",            "since": "1.0.0" },
+        "meta":           { "type": "LONGTEXT",                 "since": "1.0.0" }
+      },
+      "indexes": {}
+    }
+  },
+  "history": [
+    {
+      "version": "1.0.0",
+      "date": "2026-05-30",
+      "change": "Initial changelog registration. Table predates R-DCL; adding version gate to prevent repeated dbDelta on every provisioner cycle."
+    }
+  ]
+}

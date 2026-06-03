@@ -35,6 +35,13 @@ class BZDoc_Frontend {
 			);
 		}
 
+		// PHASE-0-RULE-SKELETON Sprint 0★ (S0.fe-enqueue) — ship the shared
+		// <bztwin-notebook-selector> + <bztwin-skeleton-preview> web components
+		// on every Doc Studio page, so PromptInput can render them inline.
+		if ( class_exists( 'BizCity_KG_Skeleton_Assets' ) ) {
+			BizCity_KG_Skeleton_Assets::enqueue();
+		}
+
 		// Phase 6.1 — Twinsource bundle is printed manually in page-doc-studio.php
 		// (we can't use wp_footer() because the theme would re-inject Flatsome/global-styles).
 	}

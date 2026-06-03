@@ -198,22 +198,25 @@ class BZDoc_Notebook_Bridge {
 			$outline_block = trim( $outline_block . "\n\n=== Hội thoại gần đây trong notebook ===\n" . $recent_chat );
 		}
 
-		// HOTFIX (2026-05-02 v2) — halve caps + LLM summarization fallback so the
-		// full _autogen concat (outline + notes + topic) stays well under
-		// MAX_TOPIC (5000). Previous v1 caps still overflowed when topic itself
-		// was already long.
-		$max_outline = (int) apply_filters( 'bizcity_bzdoc_outline_block_chars', 1000 );
+		// HOTFIX (2026-05-06) — MAX_TOPIC was raised to 50_000 chars (mb_strlen)
+		// so we relax the in-bridge caps too. Outline default 4000 chars, and
+		// only fall back to the LLM compaction when the combined payload is
+		// genuinely huge (> 16k chars). Previous 1000/2000 caps silently truncated
+		// notebook outlines and triggered an extra LLM round-trip that itself
+		// often timed out (524) — manifesting as "prompt dài quá → không gen”.
+		$max_outline = (int) apply_filters( 'bizcity_bzdoc_outline_block_chars', 4000 );
 		if ( mb_strlen( $outline_block ) > $max_outline ) {
 			$outline_block = mb_substr( $outline_block, 0, $max_outline - 1 ) . '…';
 		}
 
-		// Compact via LLM if combined payload still risks overflow (> ~2000 chars
-		// raw → stays safely under 5000 once headers/topic added).
+		// Compact via LLM ONLY if combined payload would still risk overflow
+		// (> ~16000 chars raw; comfortably under MAX_TOPIC = 50000 once headers/
+		// topic added).
 		$combined_len = mb_strlen( $outline_block );
 		foreach ( $pinned_notes as $n ) {
 			$combined_len += mb_strlen( (string) ( $n['content'] ?? '' ) ) + mb_strlen( (string) ( $n['title'] ?? '' ) );
 		}
-		if ( $combined_len > 2000 ) {
+		if ( $combined_len > 16000 ) {
 			$summary = self::summarize_autogen_payload( $outline_block, $pinned_notes, $topic );
 			if ( $summary !== '' ) {
 				$outline_block = $summary;
@@ -222,40 +225,128 @@ class BZDoc_Notebook_Bridge {
 		}
 
 		// Wave 2 kickstart flag (PHASE-6.1 §8.4) — set by Studio orchestrator.
+		// PHASE-6.4 BUG-FIX (May 2026) — for image doc_type, default-ON because
+		// the ONLY callers of this code path are (a) Image Studio form submit
+		// and (b) the `generate_image` agent tool — both want the bzdoc image
+		// iframe to auto-fire on load. Without this default the iframe lands
+		// with a prefilled prompt but stuck waiting for a manual click. The
+		// `_kickstart` flag is still respected for non-image flows where the
+		// orchestrator may legitimately want to disable autorun.
 		$kickstart = ! empty( $skeleton['_kickstart'] );
+		if ( $doc_type === 'image' && ! isset( $skeleton['_kickstart'] ) ) {
+			$kickstart = true;
+		}
+
+		// PHASE-6.4 Wave C5 (May 2026) — split-two flag from FE doc_opts.
+		// When true, bzdoc /generate/stream runs the section loop in 2 batches
+		// and flushes Part 1 to the iframe before Part 2 starts.
+		$split_two = false;
+		if ( isset( $skeleton['doc_opts'] ) && is_array( $skeleton['doc_opts'] ) ) {
+			$split_two = ! empty( $skeleton['doc_opts']['split_two'] );
+		}
+
+		// PHASE-6.4 Wave C6 (May 2026) — parallel_batches (2 or 3).
+		$parallel_batches = 0;
+		if ( isset( $skeleton['doc_opts'] ) && is_array( $skeleton['doc_opts'] ) ) {
+			$parallel_batches = absint( $skeleton['doc_opts']['parallel_batches'] ?? 0 );
+		}
 
 		global $wpdb;
 		$tbl = $wpdb->prefix . 'bzdoc_documents';
-		$wpdb->update(
+
+		// PHASE-6.4 BUG-FIX (May 2026) — `bzdoc_documents.title` is VARCHAR(255).
+		// Image / agent flows now pass verbatim user prompts (multi-line, often
+		// 500+ chars) as nucleus.title. Without sanitization+truncation here the
+		// row's title column rejects the value AND because wpdb->update is atomic
+		// the `schema_json` write is rolled back too — that is exactly why row 95
+		// & 96 in bzdoc_documents had `{}` schema and FE saw no autogen prefill
+		// nor kickstart. We now mirror handle_project_create's normalization and
+		// split the write into two best-effort updates so schema_json is ALWAYS
+		// stored even if the title sanitizer chokes on exotic codepoints.
+		$safe_title = sanitize_text_field( (string) $title );
+		if ( function_exists( 'mb_convert_encoding' ) ) {
+			$cleaned = @mb_convert_encoding( $safe_title, 'UTF-8', 'UTF-8' );
+			if ( is_string( $cleaned ) ) $safe_title = $cleaned;
+		}
+		if ( function_exists( 'wp_encode_emoji' ) ) {
+			$safe_title = wp_encode_emoji( $safe_title );
+		}
+		$safe_title = preg_replace( '/[\x{10000}-\x{10FFFF}]/u', '', $safe_title ) ?? $safe_title;
+		$safe_title = preg_replace( '/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $safe_title ) ?? $safe_title;
+		if ( function_exists( 'mb_substr' ) ) {
+			$safe_title = mb_substr( $safe_title, 0, 200, 'UTF-8' );
+		} else {
+			$safe_title = substr( $safe_title, 0, 200 );
+		}
+		if ( $safe_title === '' ) {
+			$safe_title = mb_substr( (string) $title, 0, 80, 'UTF-8' );
+			if ( $safe_title === '' ) $safe_title = 'Untitled';
+		}
+
+		$autogen_payload = [
+			'_autogen' => [
+				'topic'            => $topic,
+				'source_text'      => $source_text,
+				'doc_type'         => $doc_type,
+				'template_name'    => $template,
+				'theme_name'       => $theme,
+				'created_at'       => current_time( 'mysql' ),
+				// Wave 7 additions:
+				'notebook_id'      => $notebook_id,
+				'studio_id'        => (int) $doc_id,
+				'outline_block'    => $outline_block,
+				'pinned_notes'     => $pinned_notes,
+				'kickstart'        => $kickstart,
+				// PHASE-6.4 Wave C5 (May 2026) — split-two passthrough.
+				'split_two'        => $split_two,
+				// PHASE-6.4 Wave C6 (May 2026) — parallel batches passthrough.
+				'parallel_batches' => $parallel_batches,
+				// Phase 6.4 — image options forwarded for FE pipeline call.
+				'image_opts'       => isset( $skeleton['image_opts'] ) && is_array( $skeleton['image_opts'] )
+					? $skeleton['image_opts'] : null,
+			],
+		];
+
+		// (1) Schema first — must always land. Title intentionally OMITTED so a
+		// title sanitizer failure can't roll back the autogen payload.
+		// PHASE-6.4 BUG-FIX (May 2026) — DROP `JSON_UNESCAPED_UNICODE` so
+		// Vietnamese chars are escaped to `\uXXXX`. The schema_json column
+		// charset on some installs is `utf8` (3-byte) not `utf8mb4`, and wpdb
+		// double-encodes any raw UTF-8 byte sequence it can't validate against
+		// the column collation — that's why the DB ended up with mojibake
+		// (`Chá»§ Ä‘á»` instead of `Chủ đề`). ASCII-only JSON sidesteps the
+		// issue entirely; the FE's `JSON.parse` decodes \uXXXX → original chars.
+		$schema_ok = $wpdb->update(
 			$tbl,
 			[
-				'title'         => sanitize_text_field( $title ),
 				'template_name' => $template,
 				'theme_name'    => $theme,
-				'notebook_id'   => $notebook_id, // 1-1 binding (PHASE-6.1 §0bis.6).
-				'schema_json'   => wp_json_encode( [
-					'_autogen' => [
-						'topic'         => $topic,
-						'source_text'   => $source_text,
-						'doc_type'      => $doc_type,
-						'template_name' => $template,
-						'theme_name'    => $theme,
-						'created_at'    => current_time( 'mysql' ),
-						// Wave 7 additions:
-						'notebook_id'   => $notebook_id,
-						'studio_id'     => (int) $doc_id,
-						'outline_block' => $outline_block,
-						'pinned_notes'  => $pinned_notes,
-						'kickstart'     => $kickstart,
-						// Phase 6.4 — image options forwarded for FE pipeline call.
-						'image_opts'    => isset( $skeleton['image_opts'] ) && is_array( $skeleton['image_opts'] )
-							? $skeleton['image_opts'] : null,
-					],
-				], JSON_UNESCAPED_UNICODE ),
+				'notebook_id'   => $notebook_id,
+				'schema_json'   => wp_json_encode( $autogen_payload ),
 				'updated_at'    => current_time( 'mysql' ),
 			],
 			[ 'id' => $doc_id ]
 		);
+		if ( $schema_ok === false ) {
+			error_log( sprintf(
+				'[BZDoc][bridge] schema_json update FAILED doc_id=%d err=%s',
+				(int) $doc_id, $wpdb->last_error ?: '(empty)'
+			) );
+		}
+
+		// (2) Title best-effort. If wpdb rejects (cryptic invalid-data), retry
+		// with ASCII-only fallback so the doc-list label degrades gracefully.
+		$title_ok = $wpdb->update(
+			$tbl,
+			[ 'title' => $safe_title ],
+			[ 'id' => $doc_id ]
+		);
+		if ( $title_ok === false ) {
+			$ascii = preg_replace( '/[^A-Za-z0-9 _\-.,!?]/', '', $safe_title );
+			$ascii = trim( substr( $ascii ?: '', 0, 100 ) );
+			if ( $ascii === '' ) $ascii = ucfirst( $doc_type ) . ' ' . gmdate( 'Y-m-d H:i' );
+			$wpdb->update( $tbl, [ 'title' => $ascii ], [ 'id' => $doc_id ] );
+		}
 
 		// Rule 8g v2 (2026-05-15) — federation key moved off `kg_sources.studio_id`
 		// onto `kg_notebooks.artifacts_json`. The central helper owns the write now;
@@ -635,8 +726,22 @@ class BZDoc_Notebook_Bridge {
 		$has_project = (bool) $wpdb->get_var( "SHOW COLUMNS FROM `{$tbl}` LIKE 'project_id'" );
 		if ( ! $has_project ) return '';
 
+		// Schema reality (modules/webchat/.../class-webchat-database.php):
+		//   message_from ENUM('user','bot','system'), message_text LONGTEXT.
+		// Older patches called these "role" / "message" — keep BOTH paths so
+		// blogs that ran an alias migration still work.
+		$has_role         = (bool) $wpdb->get_var( "SHOW COLUMNS FROM `{$tbl}` LIKE 'role'" );
+		$has_message_from = (bool) $wpdb->get_var( "SHOW COLUMNS FROM `{$tbl}` LIKE 'message_from'" );
+		$role_col = $has_role ? 'role' : ( $has_message_from ? 'message_from' : '' );
+		if ( $role_col === '' ) return '';
+
+		$has_message      = (bool) $wpdb->get_var( "SHOW COLUMNS FROM `{$tbl}` LIKE 'message'" );
+		$has_message_text = (bool) $wpdb->get_var( "SHOW COLUMNS FROM `{$tbl}` LIKE 'message_text'" );
+		$msg_col = $has_message ? 'message' : ( $has_message_text ? 'message_text' : '' );
+		if ( $msg_col === '' ) return '';
+
 		$rows = $wpdb->get_results( $wpdb->prepare(
-			"SELECT role, message
+			"SELECT `{$role_col}` AS role, `{$msg_col}` AS message
 			 FROM {$tbl}
 			 WHERE project_id = %s
 			 ORDER BY id DESC
@@ -652,13 +757,14 @@ class BZDoc_Notebook_Bridge {
 		$out    = [];
 		$budget = $total_chars;
 		foreach ( $rows as $r ) {
-			$role = (string) ( $r['role'] ?? 'user' );
+			$role = strtolower( (string) ( $r['role'] ?? 'user' ) );
 			$msg  = trim( (string) ( $r['message'] ?? '' ) );
 			if ( $msg === '' ) continue;
 			if ( mb_strlen( $msg ) > $turn_chars ) {
 				$msg = mb_substr( $msg, 0, $turn_chars - 1 ) . '…';
 			}
-			$prefix = $role === 'assistant' ? 'AI' : 'User';
+			// Normalise: assistant|bot → AI, everything else → User.
+			$prefix = ( $role === 'assistant' || $role === 'bot' ) ? 'AI' : 'User';
 			$line   = $prefix . ': ' . $msg;
 			if ( $budget - mb_strlen( $line ) < 0 ) break;
 			$out[]   = $line;
@@ -917,8 +1023,9 @@ class BZDoc_Notebook_Bridge {
 			$topic = mb_substr( $raw_text ?: '', 0, 1800 );
 		}
 
-		// Hard-cap topic to match server MAX_TOPIC (5000) — tránh lỗi "Topic exceeds maximum length".
-		$max_topic = class_exists( 'BZDoc_Rest_API' ) ? BZDoc_Rest_API::MAX_TOPIC : 5000;
+		// Hard-cap topic to match server MAX_TOPIC (50_000 chars) — tránh lỗi
+		// "Topic exceeds maximum length" từ REST endpoint.
+		$max_topic = class_exists( 'BZDoc_Rest_API' ) ? BZDoc_Rest_API::MAX_TOPIC : 50000;
 		if ( mb_strlen( $topic ) > $max_topic ) {
 			$topic = mb_substr( $topic, 0, $max_topic );
 		}

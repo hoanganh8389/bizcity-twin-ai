@@ -1,0 +1,54 @@
+{
+  "$schema": "https://bizcity.vn/schema/diagnostics-changelog-v1.json",
+  "module_id": "core.scheduler",
+  "owner": "core/scheduler",
+  "installer_id": "scheduler",
+  "current_version": "3.4.0",
+  "version_option": "bizcity_scheduler_db_version",
+  "tables": {
+    "bizcity_crm_events": {
+      "since": "3.0.0",
+      "purpose": "Unified events table — CRM meetings, internal/workshop/training calendar entries, and channel-gateway fb_post schedule rows. Reminder cron + Google Calendar 2-way sync.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":                  { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",                          "since": "3.0.0", "pk": true },
+        "user_id":             { "type": "BIGINT UNSIGNED NOT NULL",                                          "since": "3.0.0" },
+        "title":               { "type": "VARCHAR(255) NOT NULL DEFAULT ''",                                  "since": "3.0.0" },
+        "description":         { "type": "TEXT NULL",                                                         "since": "3.0.0" },
+        "start_at":            { "type": "DATETIME NOT NULL",                                                 "since": "3.0.0" },
+        "end_at":              { "type": "DATETIME NULL DEFAULT NULL",                                        "since": "3.0.0" },
+        "all_day":             { "type": "TINYINT(1) NOT NULL DEFAULT 0",                                     "since": "3.0.0" },
+        "reminder_min":        { "type": "INT NOT NULL DEFAULT 15",                                           "since": "3.0.0" },
+        "reminder_sent":       { "type": "TINYINT(1) NOT NULL DEFAULT 0",                                     "since": "3.0.0" },
+        "reminder_claimed_at": { "type": "DATETIME NULL DEFAULT NULL",                                        "since": "3.0.0" },
+        "google_event_id":     { "type": "VARCHAR(255) NULL DEFAULT NULL",                                    "since": "3.0.0" },
+        "google_calendar_id":  { "type": "VARCHAR(255) NULL DEFAULT 'primary'",                               "since": "3.0.0" },
+        "google_account_id":   { "type": "BIGINT UNSIGNED NULL DEFAULT NULL",                                 "since": "3.0.0" },
+        "google_synced_at":    { "type": "DATETIME NULL DEFAULT NULL",                                        "since": "3.0.0" },
+        "source":              { "type": "VARCHAR(32) NOT NULL DEFAULT 'user'",                               "since": "3.0.0" },
+        "ai_context":          { "type": "TEXT NULL",                                                         "since": "3.0.0" },
+        "status":              { "type": "VARCHAR(16) NOT NULL DEFAULT 'active'",                             "since": "3.0.0" },
+        "event_type":          { "type": "VARCHAR(32) NOT NULL DEFAULT 'meeting'",                            "since": "3.0.0" },
+        "metadata":            { "type": "LONGTEXT NULL",                                                     "since": "3.0.0" },
+        "created_at":          { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",                       "since": "3.0.0" },
+        "updated_at":          { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", "since": "3.0.0" }
+      },
+      "indexes": {
+        "idx_user_start":  { "cols": ["user_id", "start_at"],                "since": "3.0.0" },
+        "idx_reminder":    { "cols": ["reminder_sent", "start_at", "status"], "since": "3.0.0" },
+        "idx_google":      { "cols": ["google_event_id"],                    "since": "3.0.0" },
+        "idx_event_type":  { "cols": ["event_type"],                         "since": "3.0.0" }
+      }
+    }
+  },
+  "history": [
+    { "version": "3.0.0", "date": "2025-09-01", "change": "Unify CRM + scheduler tables → bizcity_crm_events with event_type + metadata + google_account_id (PHASE-0.28 unify-scheduler)." },
+    { "version": "3.1.0", "date": "2026-05-23", "change": "Document contract: event_type='fb_post' (channel-gateway) reuses metadata JSON column for fb_page_id, fb_page_name, fb_content, fb_image_url, fb_publish_status (pending|publishing|published|failed|cancelled), fb_post_id, fb_permalink, fb_error. No schema delta — pure contract addition. See core/channel-gateway/PHASE-CG-SCHEDULER.md v0.2." },
+    { "version": "3.2.0", "date": "2026-05-26", "change": "Contract addition: event_type='web_post' (channel-gateway Web Post Publisher) reuses metadata JSON column for web_title, web_content, web_excerpt, web_status (publish|draft|pending|future|private), web_category_ids[], web_tag_names[], web_image_url, web_notebook_id, web_skeleton_version, web_publish_status (pending|publishing|published|failed|cancelled), web_post_id, web_permalink, web_edit_link, web_error. No schema delta. Handler: core/channel-gateway/includes/class-web-post-publisher.php (priority 25). Cron events: web_publish_attempt/ok/failed + web_image_sideload_failed (R-CRON-META). Also documents event_type='reminder_zalo' reservation (channel-gateway Zalo Reminder, ships next slice) using metadata zalo_bot_id, zalo_user_id, zalo_text, zalo_reminder_status." },
+    { "version": "3.2.1", "date": "2026-05-29", "change": "Formalize event_type='reminder_zalo' contract (TASK-UNIFY Phase 2): metadata fields zalo_bot_id (BIGINT), zalo_user_id (VARCHAR 64), zalo_text (TEXT), zalo_reminder_status (pending|sending|sent|failed). Handler: core/channel-gateway/includes/class-zalo-reminder.php (priority 30). Cron events: zalo_reminder_send_attempt/ok/failed (R-CRON-META). Formalize 'draft' as valid status value (alongside active|cancelled|done) for admin command HIL flow: event created as status='draft' by CG Admin Router, flipped to status='active' on admin confirm, cron claim_due_reminders skips draft rows (no schema delta — guard already present in WHERE status='active' clause)." },
+    { "version": "3.3.0", "date": "2026-05-30", "change": "TASK-UNIFY Phase 3 — Legacy migration matrix. Register four new event_types (no schema delta — reuse metadata JSON column): event_type='woo_product_create' handler class-woo-product-handler.php (priority 35), metadata: woo_product_name, woo_product_price, woo_product_sale_price, woo_product_description, woo_product_image_url, woo_product_category, woo_chat_id, woo_product_status (pending|creating|created|failed); event_type='woo_product_edit' (same handler, priority 35), metadata: woo_product_identity, woo_product_updates (JSON obj), woo_chat_id, woo_product_edit_status (pending|updating|updated|failed); event_type='woo_order_create' handler class-woo-order-handler.php (priority 40), metadata: woo_order_user_input, woo_chat_id, woo_order_status (pending|creating|created|failed); event_type='lead_report' handler class-lead-report-handler.php (priority 38), metadata: lead_report_type (daily|weekly|monthly), lead_report_days, lead_report_months, lead_report_month, lead_report_year, lead_report_chat_id, lead_report_status (pending|generating|done|failed). Cron events per handler: *_attempt/*_ok/*_failed (R-CRON-META). Legacy wrappers: biz_create_task() -> reminder_zalo, biz_create_content() -> web_post, biz_create_product() -> woo_product_create, biz_create_order() -> woo_order_create. Deprecated: twf_handle_facebook_multi_page_post()." },
+    { "version": "3.4.0", "date": "2026-05-29", "change": "AUTOMATION BE-4 — Register event_type='automation_workflow' (no schema delta — reuse metadata JSON column). Handler: core/automation/includes/class-automation-trigger-matcher.php::on_scheduler_fire() at priority 45. Metadata contract: { workflow_id: int (required, FK bizcity_automation_workflows.id), payload: object (optional, free-form data merged into runner ctx.trigger), defer: bool (reserved, currently always sync inside cron context). Idempotency: matcher only fires when event.status='active'; scheduler-cron flips reminder_sent=1 after dispatch (existing logic). UI flow: user opens wp-admin/admin.php?page=bizcity-scheduler → New Event → set title='Run workflow X' + event_type='automation_workflow' + metadata={workflow_id:N,payload:{...}} + start_at → scheduler cron tick at reminder time → do_action('bizcity_scheduler_reminder_fire',event) → matcher dispatches → BizCity_Automation_Repo_Runs::enqueue() + BizCity_Automation_Runner::execute(). Runner emits result row back to bizcity_crm_events with event_type='automation_run' (CRM bridge from BE-3)." }
+  ]
+}

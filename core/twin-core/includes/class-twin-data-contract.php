@@ -29,7 +29,9 @@ class BizCity_Twin_Data_Contract {
 	 * CONTRACT VERSION
 	 * ================================================================ */
 
-	const CONTRACT_VERSION = '1.0';
+	// 1.1 (2026-05-10, Phase 0.36 TBR.1): added user_message, assistant_message,
+	// brain_perspective_selected, brain_perspective_answer, brain_tool_intent, system_diagnostic.
+	const CONTRACT_VERSION = '1.1';
 
 	/* ================================================================
 	 * §1 — SOURCE REGISTRY
@@ -153,6 +155,26 @@ class BizCity_Twin_Data_Contract {
 	const EVT_TOOL_EXECUTED      = 'tool_executed';
 	const EVT_MILESTONE_REACHED  = 'milestone_reached';
 
+	// Phase 0.36 — TwinBrain (Não tổng) brain pipeline events + diagnostics.
+	const EVT_USER_MESSAGE              = 'user_message';
+	const EVT_ASSISTANT_MESSAGE         = 'assistant_message';
+	const EVT_BRAIN_PERSPECTIVE_SELECTED = 'brain_perspective_selected';
+	const EVT_BRAIN_PERSPECTIVE_ANSWER   = 'brain_perspective_answer';
+	const EVT_BRAIN_TOOL_INTENT          = 'brain_tool_intent';
+	const EVT_SYSTEM_DIAGNOSTIC          = 'system_diagnostic';
+
+	// Phase 0.35 — MPR Thinking pre-rules layer (R-MPRT-2 token parser, R-MPRT-5 anti-jailbreak).
+	const EVT_PRE_RULES_DONE             = 'pre_rules_done';
+
+	// Phase 0.35 / F7.C4 — Layer 5 tool decision (await_dispatch | auto_dispatch | no_tool).
+	const EVT_TOOL_DECIDED               = 'tool_decided';
+	// Phase 0.35 / F7.C5 — Layer 6 tool dispatch result.
+	const EVT_TOOL_DONE                  = 'tool_done';
+
+	// Phase 0.35 / F7.C4.1 — Devlog parity events (mirror twinchat surface).
+	const EVT_GURU_LOOKUP                = 'guru_lookup';
+	const EVT_GURU_LAYER                 = 'guru_layer';
+
 	/**
 	 * Full event taxonomy.
 	 *
@@ -209,6 +231,72 @@ class BizCity_Twin_Data_Contract {
 				'trigger'      => 'milestone evaluator',
 				'payload_keys' => [ 'trace_id', 'journey_id', 'milestone_type', 'milestone_score' ],
 				'state_impact' => [ 'journeys', 'milestones' ],
+			],
+
+			// Phase 0.36 — TwinBrain (Não tổng).
+			// state_impact stays empty: brain_turns is a VIEW projection, not a state mutation.
+			self::EVT_USER_MESSAGE => [
+				'trigger'      => 'twinbrain runtime / chat surface user input',
+				'payload_keys' => [ 'trace_id' ],
+				'state_impact' => [],
+			],
+			self::EVT_ASSISTANT_MESSAGE => [
+				'trigger'      => 'twinbrain runtime / chat surface assistant output',
+				'payload_keys' => [ 'trace_id' ],
+				'state_impact' => [],
+			],
+			self::EVT_BRAIN_PERSPECTIVE_SELECTED => [
+				'trigger'      => 'twinbrain stage 1A notebook selector',
+				'payload_keys' => [ 'trace_id', 'k', 'candidates' ],
+				'state_impact' => [],
+			],
+			self::EVT_BRAIN_PERSPECTIVE_ANSWER => [
+				'trigger'      => 'twinbrain stage 2 sub-agent answer',
+				'payload_keys' => [ 'trace_id', 'notebook_id', 'stance', 'confidence', 'answer_md' ],
+				'state_impact' => [],
+			],
+			self::EVT_BRAIN_TOOL_INTENT => [
+				'trigger'      => 'twinbrain stage 1B tool intent matcher',
+				'payload_keys' => [ 'trace_id', 'k', 'candidates', 'threshold' ],
+				'state_impact' => [],
+			],
+			self::EVT_SYSTEM_DIAGNOSTIC => [
+				'trigger'      => 'BizCity_Diagnostics audit / repair / smoke',
+				'payload_keys' => [ 'trace_id', 'level', 'tag' ],
+				'state_impact' => [],
+			],
+
+			// Phase 0.35 — pre-rules (token parser + anti-jailbreak).
+			self::EVT_PRE_RULES_DONE => [
+				'trigger'      => 'twinbrain runtime / start_turn pre-rules layer',
+				'payload_keys' => [ 'trace_id', 'user_id' ],
+				'state_impact' => [],
+			],
+
+			// Phase 0.35 / F7.C4 — Layer 5 tool decision (decision before dispatch).
+			self::EVT_TOOL_DECIDED => [
+				'trigger'      => 'twinbrain runtime / Layer 5 tool_decision',
+				'payload_keys' => [ 'trace_id', 'decision' ],
+				'state_impact' => [],
+			],
+
+			// Phase 0.35 / F7.C5 — Layer 6 tool dispatch result.
+			self::EVT_TOOL_DONE => [
+				'trigger'      => 'twinbrain runtime / Layer 6 tool dispatch',
+				'payload_keys' => [ 'trace_id', 'tool_slug', 'status' ],
+				'state_impact' => [ 'context_logs' ],
+			],
+
+			// Phase 0.35 / F7.C4.1 — Devlog parity (mirror twinchat surface).
+			self::EVT_GURU_LOOKUP => [
+				'trigger'      => 'twinbrain runtime / start_turn after pre_rules_done when guru_id > 0',
+				'payload_keys' => [ 'trace_id', 'character_id' ],
+				'state_impact' => [],
+			],
+			self::EVT_GURU_LAYER => [
+				'trigger'      => 'twinbrain runtime / after candidates selected, summarises L1+L2+L3 enrichment',
+				'payload_keys' => [ 'trace_id', 'character_id' ],
+				'state_impact' => [],
 			],
 		];
 	}

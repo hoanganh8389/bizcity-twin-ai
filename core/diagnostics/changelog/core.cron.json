@@ -1,0 +1,83 @@
+{
+  "$schema": "https://bizcity.vn/schema/diagnostics-changelog-v1.json",
+  "module_id": "core.cron",
+  "owner": "core/cron",
+  "installer_id": "cron",
+  "current_version": "1.2.0",
+  "version_option": "bizcity_cron_db_version",
+  "tables": {
+    "bizcity_cron_registry": {
+      "since": "1.0.0",
+      "purpose": "Unified cron job registry — one row per declared job (idempotent via UNIQUE job_id). Source of truth for the diagnostics cron probe and the future MCP cron.list_jobs tool.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":              { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",                          "since": "1.0.0", "pk": true },
+        "job_id":          { "type": "VARCHAR(128) NOT NULL DEFAULT ''",                                  "since": "1.0.0" },
+        "hook":            { "type": "VARCHAR(191) NOT NULL DEFAULT ''",                                  "since": "1.0.0" },
+        "interval_key":    { "type": "VARCHAR(64) NOT NULL DEFAULT ''",                                   "since": "1.0.0" },
+        "owner":           { "type": "VARCHAR(128) NOT NULL DEFAULT ''",                                  "since": "1.0.0" },
+        "description":     { "type": "TEXT NULL",                                                         "since": "1.0.0" },
+        "singleton":       { "type": "TINYINT(1) NOT NULL DEFAULT 1",                                     "since": "1.0.0" },
+        "enabled":         { "type": "TINYINT(1) NOT NULL DEFAULT 1",                                     "since": "1.0.0" },
+        "retention_days":  { "type": "INT NOT NULL DEFAULT 7",                                            "since": "1.0.0" },
+        "registered_at":   { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",                       "since": "1.0.0" },
+        "updated_at":      { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", "since": "1.0.0" }
+      },
+      "indexes": {
+        "uniq_job_id":   { "cols": ["job_id"],   "unique": true, "since": "1.0.0" },
+        "idx_owner":     { "cols": ["owner"],                    "since": "1.0.0" },
+        "idx_hook":      { "cols": ["hook"],                     "since": "1.0.0" }
+      }
+    },
+    "bizcity_cron_runs": {
+      "since": "1.0.0",
+      "purpose": "Per-tick run log — start/end timestamps, duration, status, error trace. GC keeps last N days per job (default 7). Diagnostics probe reads this to compute health.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":            { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",                          "since": "1.0.0", "pk": true },
+        "job_id":        { "type": "VARCHAR(128) NOT NULL DEFAULT ''",                                  "since": "1.0.0" },
+        "started_at":    { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",                       "since": "1.0.0" },
+        "ended_at":      { "type": "DATETIME NULL DEFAULT NULL",                                        "since": "1.0.0" },
+        "duration_ms":   { "type": "INT UNSIGNED NULL DEFAULT NULL",                                    "since": "1.0.0" },
+        "status":        { "type": "VARCHAR(16) NOT NULL DEFAULT 'running'",                            "since": "1.0.0" },
+        "error":         { "type": "TEXT NULL",                                                         "since": "1.0.0" },
+        "trace":         { "type": "LONGTEXT NULL",                                                     "since": "1.0.0" },
+        "meta":          { "type": "LONGTEXT NULL",                                                     "since": "1.2.0" }
+      },
+      "indexes": {
+        "idx_job_started": { "cols": ["job_id", "started_at"], "since": "1.0.0" },
+        "idx_status":      { "cols": ["status"],               "since": "1.0.0" }
+      }
+    },
+    "bizcity_cron_retries": {
+      "since": "1.1.0",
+      "purpose": "Retry queue — failed cron jobs scheduled for exponential-backoff redispatch (1m → 5m → 30m → dead). One live row per job (status='pending'); historical rows marked status='done' or 'dead'.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":            { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",                          "since": "1.1.0", "pk": true },
+        "job_id":        { "type": "VARCHAR(128) NOT NULL DEFAULT ''",                                  "since": "1.1.0" },
+        "attempt":       { "type": "TINYINT UNSIGNED NOT NULL DEFAULT 0",                               "since": "1.1.0" },
+        "status":        { "type": "VARCHAR(16) NOT NULL DEFAULT 'pending'",                            "since": "1.1.0" },
+        "next_run_at":   { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",                       "since": "1.1.0" },
+        "last_error":    { "type": "TEXT NULL",                                                         "since": "1.1.0" },
+        "created_at":    { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",                       "since": "1.1.0" },
+        "updated_at":    { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", "since": "1.1.0" }
+      },
+      "indexes": {
+        "idx_status_next": { "cols": ["status", "next_run_at"], "since": "1.1.0" },
+        "idx_job":         { "cols": ["job_id"],                "since": "1.1.0" }
+      }
+    }
+  },
+  "history": [
+    { "version": "1.0.0", "date": "2026-05-23", "change": "Initial schema — registry + runs log for core/cron Phase 1 (Registry + Observability). See core/cron/PHASE-CRON.md." },
+    { "version": "1.1.0", "date": "2026-05-24", "change": "Phase 2 — add bizcity_cron_retries (exponential-backoff retry queue, dispatched every 5 min). Hooks into BizCity_Cron_Manager::run_now() failures." },
+    { "version": "1.2.0", "date": "2026-05-24", "change": "R-CRON-META — add meta LONGTEXT to bizcity_cron_runs. Every registered cron job MUST persist structured JSON evidence per run via BizCity_Cron_Manager::note()/note_event() so failures can be analysed post-mortem (FB token errors, Graph 4xx/5xx, timeouts, partial sends…)." }
+  ]
+}

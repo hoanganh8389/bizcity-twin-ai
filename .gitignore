@@ -3,6 +3,8 @@ node_modules/
 vendor/
 
 # Ignore specific plugin
+/plugins/_achived/
+/plugins/bizcity-zalo-bizcity/
 /plugins/bizcity-zalo-bot/
 /plugins/bizcity-pagebuilder/
 /plugins/bizcity-chatgpt-knowledge/
@@ -12,11 +14,18 @@ vendor/
 /plugins/bizcity-companion-notebook/
 /plugins/bizcity-automation/
 /plugins/bizcity-tarot/
+/plugins/bizcity-admin-hook-zalo/
 /plugins/bizcity-tool-content/
 /plugins/bizcity-tool-facebook/
 /plugins/bizcity-tool-mindmap/
 /plugins/bizcity-tool-pdf/
 /plugins/bizcity-agent-calo/
+# bizcoach-pro — Producer hub flagship (PHASE-0.36 / R-PROD-HUB) — in-house, do NOT publish
+/plugins/bizcoach-pro/
+
+# bizcity-twin-crm — CRM Inbox Hub (Phase 0.32) — proprietary commercial vertical (PHASE-0.98).
+/plugins/bizcity-twin-crm/
+
 /core/intent/includes/backup-legacy/
 /core/intent/logs/
 # Env
@@ -39,3 +48,10 @@ build/
 # Reference / research libraries (3rd-party source for inspiration only)
 /modules/twinclaw/_library/
 /modules/twinclaw/_research/
+
+# Phase 0.42 — LiteParse layout-preserving adapter (private/optional addon).
+# Kept OUT of public repo: deployed to Linux VPS via scp; absent on most clones.
+# Registry + bootstrap both guard with file_exists() so vắng file = no-op.
+/core/knowledge/kg-hub/includes/adapters/class-liteparse-adapter.php
+/core/knowledge/kg-hub/includes/adapters/liteparse-sidecar.py
+/core/diagnostics/includes/probes/class-probe-liteparse.php

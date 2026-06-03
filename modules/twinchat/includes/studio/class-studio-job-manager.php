@@ -34,9 +34,13 @@
 defined( 'ABSPATH' ) || exit;
 
 class BizCity_Studio_Job_Manager {
+	const SCHEMA_VERSION     = '1.0.0';
+	const OPTION_VERSION_KEY = 'bizcity_twinchat_studio_jobs_db_version';
 
 	/** @var array<string, array{fn: callable, mode: string}> */
 	private static $bridges = [];
+	/** @var array<int, bool> */
+	private static $ready_blogs = [];
 
 	/* ── Bridge registration ─────────────────────────────────────────────── */
 
@@ -71,9 +75,73 @@ class BizCity_Studio_Job_Manager {
 
 	/* ── Table ───────────────────────────────────────────────────────────── */
 
+	public static function maybe_install(): void {
+		global $wpdb;
+		$blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 1;
+		if ( isset( self::$ready_blogs[ $blog_id ] ) ) {
+			return;
+		}
+
+		$table      = $wpdb->prefix . 'bizcity_webchat_studio_jobs';
+		$installed  = get_option( self::OPTION_VERSION_KEY, '' );
+
+		// Version check FIRST — avoids SHOW TABLES on every request when schema is current.
+		if ( $installed === self::SCHEMA_VERSION ) {
+			self::$ready_blogs[ $blog_id ] = true;
+			return;
+		}
+
+		// Version mismatch — check physical existence to decide CREATE vs ALTER.
+		$exists = (string) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) === $table;
+
+		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+		$charset = $wpdb->get_charset_collate();
+		$sql = "CREATE TABLE {$table} (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			project_id VARCHAR(80) NOT NULL,
+			user_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+			tool_type VARCHAR(60) NOT NULL,
+			dispatch_mode VARCHAR(20) NOT NULL DEFAULT 'async',
+			status VARCHAR(20) NOT NULL DEFAULT 'pending',
+			payload_json LONGTEXT NULL,
+			error_message TEXT NULL,
+			result_url VARCHAR(500) NULL,
+			result_data LONGTEXT NULL,
+			output_id BIGINT UNSIGNED NULL,
+			started_at DATETIME NULL,
+			completed_at DATETIME NULL,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			PRIMARY KEY  (id),
+			KEY idx_project_tool_status (project_id, tool_type, status),
+			KEY idx_status (status),
+			KEY idx_user (user_id),
+			KEY idx_output (output_id),
+			KEY idx_created (created_at)
+		) {$charset};";
+
+		$prev_show = $wpdb->show_errors;
+		$wpdb->hide_errors();
+		$prev_supp = $wpdb->suppress_errors( true );
+		dbDelta( $sql );
+		$wpdb->suppress_errors( $prev_supp );
+		if ( $prev_show ) {
+			$wpdb->show_errors();
+		}
+
+		update_option( self::OPTION_VERSION_KEY, self::SCHEMA_VERSION, false );
+		self::$ready_blogs[ $blog_id ] = true;
+	}
+
 	public static function table(): string {
 		global $wpdb;
+		self::maybe_install();
 		return $wpdb->prefix . 'bizcity_webchat_studio_jobs';
+	}
+
+	private static function table_exists( string $table ): bool {
+		global $wpdb;
+		return (string) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) === $table;
 	}
 
 	/* ── CRUD ────────────────────────────────────────────────────────────── */
@@ -92,6 +160,9 @@ class BizCity_Studio_Job_Manager {
 	public static function create( array $args ) {
 		global $wpdb;
 		$tbl = self::table();
+		if ( ! self::table_exists( $tbl ) ) {
+			return new WP_Error( 'studio_jobs_table_missing', 'Studio jobs table is not ready yet. Please retry.' );
+		}
 
 		$project_id = sanitize_text_field( $args['project_id'] ?? '' );
 		$user_id    = (int) ( $args['user_id'] ?? 0 );
@@ -245,7 +316,11 @@ class BizCity_Studio_Job_Manager {
 
 	public static function get( int $job_id ): ?object {
 		global $wpdb;
-		return $wpdb->get_row( $wpdb->prepare( 'SELECT * FROM ' . self::table() . ' WHERE id = %d', $job_id ) ) ?: null;
+		$tbl = self::table();
+		if ( ! self::table_exists( $tbl ) ) {
+			return null;
+		}
+		return $wpdb->get_row( $wpdb->prepare( 'SELECT * FROM ' . $tbl . ' WHERE id = %d', $job_id ) ) ?: null;
 	}
 
 	/**
@@ -258,6 +333,9 @@ class BizCity_Studio_Job_Manager {
 	public static function list_for_project( string $project_id, string $tool_type = '' ): array {
 		global $wpdb;
 		$jobs_tbl    = self::table();
+		if ( ! self::table_exists( $jobs_tbl ) ) {
+			return [];
+		}
 		$outputs_tbl = class_exists( 'BCN_Schema_Extend' )
 			? BCN_Schema_Extend::table_studio_outputs()
 			: $wpdb->prefix . 'bizcity_webchat_studio_outputs';
@@ -303,6 +381,10 @@ class BizCity_Studio_Job_Manager {
 	 */
 	public static function delete( int $job_id, int $user_id = 0, bool $delete_output = false ): bool {
 		global $wpdb;
+		$jobs_tbl = self::table();
+		if ( ! self::table_exists( $jobs_tbl ) ) {
+			return false;
+		}
 
 		if ( $delete_output ) {
 			$job = self::get( $job_id );
@@ -316,7 +398,7 @@ class BizCity_Studio_Job_Manager {
 
 		$where = [ 'id' => $job_id ];
 		if ( $user_id > 0 ) $where['user_id'] = $user_id;
-		return (bool) $wpdb->delete( self::table(), $where );
+		return (bool) $wpdb->delete( $jobs_tbl, $where );
 	}
 
 	/* ── Internal helpers ────────────────────────────────────────────────── */
@@ -326,12 +408,17 @@ class BizCity_Studio_Job_Manager {
 	 * Only called once per job from complete().
 	 */
 	private static function write_output( object $job, array $result, array $skeleton ): int {
+		global $wpdb;
+
+		// BCN was archived in 2026-05; fall back to the canonical table name when
+		// BCN_Schema_Extend is not loaded. Without this fallback `write_output`
+		// silently returned 0 → no row was inserted into studio_outputs even
+		// though the job was marked done, leaving the FE polling on a NULL row
+		// (title='Đang tạo…' forever).
 		$tbl = class_exists( 'BCN_Schema_Extend' )
 			? BCN_Schema_Extend::table_studio_outputs()
-			: null;
+			: $wpdb->prefix . 'bizcity_webchat_studio_outputs';
 		if ( ! $tbl ) return 0;
-
-		global $wpdb;
 
 		// Resolve external_url / external_post_id from nested data key or flat result.
 		$external_url     = esc_url_raw( (string) ( $result['data']['url'] ?? $result['external_url'] ?? '' ) );

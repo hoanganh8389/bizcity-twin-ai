@@ -298,4 +298,56 @@ class BizCity_Gateway_Bridge {
 			'raw'             => $payload['raw'] ?? [],
 		];
 	}
+
+	/* ─── PHASE 0.37 Additions ─── */
+
+	/**
+	 * Alias for get_adapters() — used by BizCity_Channel_Menu_Registry + REST API.
+	 *
+	 * @return array
+	 */
+	public function get_all_adapters(): array {
+		return $this->adapters;
+	}
+
+	/**
+	 * Get the chat_id prefix for a given platform (reverse prefix_map lookup).
+	 *
+	 * @param string $platform
+	 * @return string Prefix string or '' if not mapped.
+	 */
+	public function get_prefix_for_platform( string $platform ): string {
+		$platform = strtoupper( $platform );
+		foreach ( $this->prefix_map as $prefix => $plt ) {
+			if ( $plt === $platform ) {
+				return $prefix;
+			}
+		}
+		return '';
+	}
+
+	/**
+	 * Register a BizCity_Channel_Integration with the bridge.
+	 *
+	 * Called from BizCity_Channel_Integration::register_with_gateway().
+	 * Registers prefix and endpoint maps from get_chat_id_prefix() and get_inbound_platform().
+	 *
+	 * @param BizCity_Channel_Integration $channel
+	 */
+	public function register_channel_integration( BizCity_Channel_Integration $channel ): void {
+		$platform = strtoupper( $channel->inbound_platform() );
+		if ( ! $platform ) {
+			return;
+		}
+
+		// Store as adapter entry (channel extends integration but may not implement full adapter interface).
+		$this->adapters[ $platform ] = $channel;
+
+		$prefix = $channel->get_chat_id_prefix();
+		if ( $prefix !== '' ) {
+			$this->prefix_map[ $prefix ] = $platform;
+		}
+
+		do_action( 'bizcity_channel_registered', $channel, $platform );
+	}
 }

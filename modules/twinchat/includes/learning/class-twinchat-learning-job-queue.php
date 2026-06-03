@@ -41,6 +41,17 @@ class BizCity_TwinChat_Learning_Job_Queue {
 	 */
 	public function enqueue( array $args ) {
 		global $wpdb;
+		$db = BizCity_TwinChat_Learning_Database::instance();
+		if ( ! $db->is_ready() ) {
+			// Soft-guard: surface the issue to admins via Diagnostics notices.
+			if ( function_exists( 'do_action' ) ) {
+				do_action( 'bizcity_diagnostics_notice', 'learning', [
+					'table'   => $wpdb->prefix . 'bizcity_kg_learning_jobs',
+					'blog_id' => function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0,
+				] );
+			}
+			return new WP_Error( 'learning_db_missing', 'Learning tables are not ready yet. Please retry in a moment.' );
+		}
 		$notebook_id  = (int) ( $args['notebook_id'] ?? 0 );
 		$source_id    = isset( $args['source_id'] ) ? (int) $args['source_id'] : 0;
 		$source_title = isset( $args['source_title'] ) ? substr( (string) $args['source_title'], 0, 250 ) : '';
@@ -53,7 +64,7 @@ class BizCity_TwinChat_Learning_Job_Queue {
 			return new WP_Error( 'invalid_notebook', 'notebook_id required' );
 		}
 
-		$tbl = BizCity_TwinChat_Learning_Database::instance()->table_jobs();
+		$tbl = $db->table_jobs();
 
 		// ── Per-notebook coalescing (idempotent enqueue) ────────────────
 		// Bug fix 2026-05-04: REST `/learning/enqueue` and the
@@ -156,14 +167,22 @@ class BizCity_TwinChat_Learning_Job_Queue {
 
 	public function get_job( $job_id ) {
 		global $wpdb;
-		$tbl = BizCity_TwinChat_Learning_Database::instance()->table_jobs();
+		$db = BizCity_TwinChat_Learning_Database::instance();
+		if ( ! $db->is_ready() ) {
+			return null;
+		}
+		$tbl = $db->table_jobs();
 		$row = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$tbl} WHERE id=%d", (int) $job_id ), ARRAY_A );
 		return $row ? $this->hydrate( $row ) : null;
 	}
 
 	public function list_jobs( $notebook_id, array $args = [] ) {
 		global $wpdb;
-		$tbl       = BizCity_TwinChat_Learning_Database::instance()->table_jobs();
+		$db = BizCity_TwinChat_Learning_Database::instance();
+		if ( ! $db->is_ready() ) {
+			return [];
+		}
+		$tbl       = $db->table_jobs();
 		$limit     = max( 1, min( 200, (int) ( $args['limit'] ?? 50 ) ) );
 		$statuses  = isset( $args['statuses'] ) && is_array( $args['statuses'] ) ? array_filter( array_map( 'sanitize_key', $args['statuses'] ) ) : [];
 		$where     = [ 'notebook_id=%d' ];
@@ -184,7 +203,7 @@ class BizCity_TwinChat_Learning_Job_Queue {
 	public function update( $job_id, array $fields ) {
 		global $wpdb;
 		$tbl   = BizCity_TwinChat_Learning_Database::instance()->table_jobs();
-		$allow = [ 'status', 'phase', 'progress', 'passages_processed', 'triplets_extracted', 'entities_approved', 'batches_total', 'batches_done', 'entity_ids', 'error', 'started_at', 'finished_at', 'lease_owner', 'lease_until' ];
+		$allow = [ 'status', 'phase', 'progress', 'passages_processed', 'triplets_extracted', 'entities_approved', 'batches_total', 'batches_done', 'entity_ids', 'error', 'started_at', 'finished_at', 'lease_owner', 'lease_until', 'restartable_at' ];
 		$row   = [];
 		foreach ( $allow as $k ) {
 			if ( array_key_exists( $k, $fields ) ) {

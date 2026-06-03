@@ -48,7 +48,9 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 class BizCity_Twin_Event_Taxonomy {
 
 	// Bumped 2026-04-30 (Sprint 5.0+ housekeeping) — added memory_mutation (memory_logs cleanup, R-EVT-1 enforcement).
-	const TAXONOMY_VERSION = 3;
+	// Bumped 2026-05-10 (Phase 0.36 TBR.1) — added brain_perspective_selected, brain_perspective_answer, brain_tool_intent, system_diagnostic.
+	// Bumped 2026-05-13 (Phase 0.36 TBR.5) — added brain_synthesize (Stage 4 telemetry).
+	const TAXONOMY_VERSION = 5;
 
 	// ---- 15 canonical event types (Phase 0.12) --------------------------
 	const USER_MESSAGE              = 'user_message';
@@ -81,6 +83,14 @@ class BizCity_Twin_Event_Taxonomy {
 	// table remains, but is now materialized by BizCity_Memory_Log_Projector
 	// from this single event type so the backbone stays the only write path.
 	const MEMORY_MUTATION     = 'memory_mutation';      // operation ∈ created|updated|section_patched|archived|restored|finalized|deleted
+
+	// ---- Phase 0.36 — TwinBrain (Não tổng) -------------------------------
+	// All payload contracts in core/twinbrain/includes/event-schemas/*.json.
+	const BRAIN_PERSPECTIVE_SELECTED = 'brain_perspective_selected';
+	const BRAIN_PERSPECTIVE_ANSWER   = 'brain_perspective_answer';
+	const BRAIN_TOOL_INTENT          = 'brain_tool_intent';
+	const BRAIN_SYNTHESIZE           = 'brain_synthesize';
+	const SYSTEM_DIAGNOSTIC          = 'system_diagnostic';
 
 	/**
 	 * Required payload fields per event type.
@@ -115,6 +125,13 @@ class BizCity_Twin_Event_Taxonomy {
 
 			// Sprint 5.0+ housekeeping
 			self::MEMORY_MUTATION           => [ 'memory_id', 'operation' ],
+
+			// Phase 0.36 — TwinBrain (Não tổng)
+			self::BRAIN_PERSPECTIVE_SELECTED => [ 'k', 'candidates' ],
+			self::BRAIN_PERSPECTIVE_ANSWER   => [ 'notebook_id', 'stance', 'confidence', 'answer_md' ],
+			self::BRAIN_TOOL_INTENT          => [ 'k', 'candidates', 'threshold' ],
+			self::BRAIN_SYNTHESIZE           => [ 'trace_id', 'ms' ],
+			self::SYSTEM_DIAGNOSTIC          => [ 'level', 'tag' ],
 		];
 	}
 

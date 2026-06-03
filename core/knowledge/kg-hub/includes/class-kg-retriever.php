@@ -78,7 +78,7 @@ class BizCity_KG_Retriever {
 			$kw_hits = $this->search_passages_keyword( (int) $notebook_id, $question, 8 );
 			if ( ! empty( $kw_hits ) ) {
 				$result['passages'] = array_map( static function ( $p ) {
-					return [ 'id' => (int) $p['id'], 'content' => $p['content'], 'source_id' => (int) $p['source_id'] ];
+					return [ 'id' => (int) $p['id'], 'content' => $p['content'], 'source_id' => (int) $p['source_id'], 'metadata' => isset( $p['metadata'] ) ? (string) $p['metadata'] : '' ];
 				}, $kw_hits );
 				$result['retrieval_mode'] = 'degraded_keyword';
 				$result['steps'][] = [ 'name' => 'Retrieve Seeds',  'entities' => 0, 'relations' => 0, 'note' => 'embed_failed → keyword fallback' ];
@@ -114,7 +114,7 @@ class BizCity_KG_Retriever {
 			$passage_hits = $this->search_passages_direct( (int) $notebook_id, $qvec, 8 );
 			if ( ! empty( $passage_hits ) ) {
 				$result['passages'] = array_map( static function ( $p ) {
-					return [ 'id' => (int) $p['id'], 'content' => $p['content'], 'source_id' => (int) $p['source_id'] ];
+					return [ 'id' => (int) $p['id'], 'content' => $p['content'], 'source_id' => (int) $p['source_id'], 'metadata' => isset( $p['metadata'] ) ? (string) $p['metadata'] : '' ];
 				}, $passage_hits );
 				$result['steps'][] = [ 'name' => 'Expand Subgraph',  'entities' => 0, 'relations' => 0, 'note' => 'fallback: KG empty' ];
 				$result['steps'][] = [ 'name' => 'LLM Rerank',       'selected' => 0, 'note' => 'fallback' ];
@@ -153,14 +153,41 @@ class BizCity_KG_Retriever {
 
 		// ── Step 4: Generate Answer
 		$passages = $index->get_passages_for_relations( $selected_ids );
+
+		// Hybrid fallback: if GraphRAG path returned too few passages (KG relations
+		// chưa cover hết facts trong source — ví dụ source mới ingest, extraction
+		// chưa kịp tạo relation cho mọi fact), bổ sung bằng vector search trực
+		// tiếp trên passages. Merge dedupe theo passage.id, ưu tiên thứ tự
+		// graph-passages trước (đã được rerank), keyword/vector hits append sau.
+		$min_passages = (int) apply_filters( 'bizcity_kg_min_passages', 3, $notebook_id, $question );
+		$fallback_added = 0;
+		if ( count( $passages ) < $min_passages ) {
+			$direct_hits = $this->search_passages_direct( (int) $notebook_id, $qvec, 8 );
+			if ( ! empty( $direct_hits ) ) {
+				$seen_ids = [];
+				foreach ( $passages as $p ) { $seen_ids[ (int) $p['id'] ] = true; }
+				foreach ( $direct_hits as $p ) {
+					$pid = (int) $p['id'];
+					if ( isset( $seen_ids[ $pid ] ) ) { continue; }
+					$passages[] = $p;
+					$seen_ids[ $pid ] = true;
+					$fallback_added++;
+				}
+			}
+		}
+
 		$result['passages'] = array_map( static function ( $p ) {
-			return [ 'id' => (int) $p['id'], 'content' => $p['content'], 'source_id' => (int) $p['source_id'] ];
+			return [ 'id' => (int) $p['id'], 'content' => $p['content'], 'source_id' => (int) $p['source_id'], 'metadata' => isset( $p['metadata'] ) ? (string) $p['metadata'] : '' ];
 		}, $passages );
 
 		if ( $opts['answer'] ) {
 			$result['answer'] = $this->generate_answer( $question, $selected_texts, $passages );
 		}
-		$result['steps'][] = [ 'name' => 'Generate Answer', 'passages' => count( $passages ) ];
+		$step = [ 'name' => 'Generate Answer', 'passages' => count( $passages ) ];
+		if ( $fallback_added > 0 ) {
+			$step['note'] = sprintf( 'hybrid: +%d passage(s) via vector fallback', $fallback_added );
+		}
+		$result['steps'][] = $step;
 
 		return $result;
 	}
@@ -187,12 +214,15 @@ class BizCity_KG_Retriever {
 		$relation_ids = $seed_rids;
 		$current_layer = $entity_ids;
 
+		// Wave 1.3 — virtual-merge: in-house + attached-guru relations.
+		$merge_where = BizCity_KG_Database::instance()->build_virtual_merge_where( $notebook_id );
+
 		for ( $hop = 0; $hop < max( 1, (int) $hops ); $hop++ ) {
 			if ( empty( $current_layer ) ) break;
 			$ids_csv = implode( ',', array_map( 'intval', $current_layer ) );
 			$rows = $wpdb->get_results(
 				"SELECT id, head_entity_id, tail_entity_id FROM {$db->tbl_relations()}
-				 WHERE notebook_id={$notebook_id} AND status='approved'
+				 WHERE ({$merge_where}) AND status='approved'
 				   AND deleted_at IS NULL
 				   AND ( head_entity_id IN ({$ids_csv}) OR tail_entity_id IN ({$ids_csv}) )
 				 LIMIT 500",
@@ -215,10 +245,14 @@ class BizCity_KG_Retriever {
 		if ( ! empty( $relation_ids ) ) {
 			$rids_csv = implode( ',', array_map( 'intval', $relation_ids ) );
 			$relations_full = $wpdb->get_results(
-				"SELECT id, head_entity_id, tail_entity_id, predicate, relation_text, weight
+				"SELECT id, notebook_id, head_entity_id, tail_entity_id, predicate, relation_text, weight,
+				        storage_ver, jsonl_line
 				 FROM {$db->tbl_relations()} WHERE id IN ({$rids_csv}) AND deleted_at IS NULL",
 				ARRAY_A
 			) ?: [];
+			if ( $relations_full && class_exists( 'BizCity_KG_Content_Router' ) ) {
+				BizCity_KG_Content_Router::instance()->hydrate_relations( $relations_full );
+			}
 		}
 		$entities_full = [];
 		if ( ! empty( $entity_ids ) ) {
@@ -334,29 +368,166 @@ class BizCity_KG_Retriever {
 	/**
 	 * Pure passage vector search (no KG) — fallback when entities/relations tables are empty.
 	 *
+	 * PHASE-0-RULE-VECTOR-FILE-STORE.md v2.0 (FILESTORE-ONLY, 2026-05-10):
+	 *   .bin file is the ONLY source of truth. JSON column `embedding` fallback REMOVED.
+	 *   .bin missing/corrupt → log + `do_action('bizcity_kg_bin_missing', ...)` + return [].
+	 *   Run backfill via /wp-admin/tools.php?page=bizcity-kg-bin-diagnostic (Section 8.5).
+	 *
 	 * @param int   $notebook_id
 	 * @param float[] $qvec
 	 * @param int   $top_k
 	 * @return array  passages enriched with 'score'
 	 */
 	private function search_passages_direct( $notebook_id, array $qvec, $top_k = 8 ) {
+		$bin_hits = $this->search_passages_via_bin( (int) $notebook_id, $qvec, (int) $top_k );
+		return is_array( $bin_hits ) ? $bin_hits : [];
+	}
+
+	/**
+	 * PHASE-0.21 Wave 2 — vector search backed by `.bin` file store.
+	 *
+	 * v2.0 (FILESTORE-ONLY): No more JSON fallback. When `.bin` is missing /
+	 * corrupt / empty, fires the `bizcity_kg_bin_missing` action so admin
+	 * tooling can surface a backfill prompt, then returns []. Returns null
+	 * ONLY when prerequisites are missing (file store class / helper / uuid)
+	 * — caller will treat null as "[]" anyway.
+	 *
+	 * @return array<int, array{id:int,content:string,source_id:int,score:float}>|null
+	 */
+	private function search_passages_via_bin( $notebook_id, array $qvec, $top_k ) {
+		if ( ! class_exists( 'BizCity_KG_Vector_File_Store' ) ) { return null; }
+		if ( ! function_exists( 'bizcity_kg_vector_bin_path' ) ) { return null; }
+
 		global $wpdb;
-		$db = BizCity_KG_Database::instance();
+		$db    = BizCity_KG_Database::instance();
+		$nb_tbl = $db->tbl_notebooks();
+		$uuid   = $wpdb->get_var( $wpdb->prepare( "SELECT uuid FROM {$nb_tbl} WHERE id = %d", (int) $notebook_id ) );
+		if ( ! $uuid ) { return null; }
+		$uuid = strtolower( (string) $uuid );
 
-		$rows = $wpdb->get_results( $wpdb->prepare(
-			"SELECT id, content, source_id, embedding
-			 FROM {$db->tbl_passages()}
-			 WHERE notebook_id = %d AND embedding IS NOT NULL
-			 LIMIT 2000",
-			(int) $notebook_id
-		), ARRAY_A );
+		$store = BizCity_KG_Vector_File_Store::instance();
+		$all_hits = [];
+		// 2026-05-14 — Over-fetch from .bin so we can drop chat-promoted (source_id<=0)
+		// rows after DB resolve and still return $top_k real passages. Without this,
+		// chat-promoted rows out-rank real chunks (lexical near-match on user query)
+		// and feed the model its own "no data" answers → vicious loop.
+		// See PHASE-0.13 §41 "infinite chat-promote loop".
+		$include_chat = (bool) apply_filters( 'bizcity_kg_rag_include_chat_promoted', false, (int) $notebook_id );
+		$hit_budget = $include_chat ? (int) $top_k : max( (int) $top_k * 4, (int) $top_k + 16 );
 
-		if ( empty( $rows ) ) {
+		// ── Notebook .bin (in-house) ──────────────────────────────────────────
+		$nb_abs = bizcity_kg_vector_bin_path( 'notebooks', $uuid );
+		$nb_present = $nb_abs && file_exists( $nb_abs );
+		if ( $nb_present ) {
+			$hdr = $store->header_validate( $nb_abs );
+			if ( is_wp_error( $hdr ) ) {
+				error_log( '[KG] .bin header invalid notebooks/' . $uuid . ': ' . $hdr->get_error_message() );
+				do_action( 'bizcity_kg_bin_missing', 'notebooks', $uuid, $hdr );
+				$nb_present = false;
+			} else {
+				$nb_results = $store->search( $nb_abs, $qvec, $hit_budget, 0.0 );
+				if ( ! is_wp_error( $nb_results ) ) {
+					$all_hits = array_merge( $all_hits, $nb_results );
+				}
+			}
+		} else {
+			error_log( '[KG] .bin missing notebooks/' . $uuid . ' — run backfill via Diagnostic 8.5' );
+			do_action( 'bizcity_kg_bin_missing', 'notebooks', $uuid, null );
+		}
+
+		// ── Attached-guru .bin files (Wave 1.3 virtual-merge) ─────────────────
+		$guru_uuids = $db->get_attached_guru_uuids( $notebook_id );
+		foreach ( $guru_uuids as $guru_uuid ) {
+			$guru_uuid = strtolower( (string) $guru_uuid );
+			$g_abs = bizcity_kg_vector_bin_path( 'gurus', $guru_uuid );
+			if ( ! $g_abs || ! file_exists( $g_abs ) ) {
+				do_action( 'bizcity_kg_bin_missing', 'gurus', $guru_uuid, null );
+				continue;
+			}
+			$g_hdr = $store->header_validate( $g_abs );
+			if ( is_wp_error( $g_hdr ) ) {
+				do_action( 'bizcity_kg_bin_missing', 'gurus', $guru_uuid, $g_hdr );
+				continue;
+			}
+			$g_results = $store->search( $g_abs, $qvec, $hit_budget, 0.0 );
+			if ( ! is_wp_error( $g_results ) ) {
+				$all_hits = array_merge( $all_hits, $g_results );
+			}
+		}
+
+		if ( empty( $all_hits ) ) {
+			// All .bin candidates exhausted (missing or empty). Per filestore-only
+			// rule: NO JSON fallback. Return [] so chat surfaces "no info" rather
+			// than silently scanning DB embeddings.
 			return [];
 		}
 
-		$index = BizCity_KG_Vector_Index::instance();
-		return $index->rank( $qvec, $rows, $top_k, 0.0 );
+		// Merge + re-sort by score, take top_k.
+		usort( $all_hits, function( $a, $b ) {
+			return ( $a['score'] < $b['score'] ) ? 1 : ( ( $a['score'] > $b['score'] ) ? -1 : 0 );
+		} );
+		// Keep over-fetched list intact here; final slice happens AFTER the
+		// chat-promoted filter below so we don't waste headroom.
+
+		// Resolve content for the matched chunk_ids.
+		$ids = [];
+		$score_map = [];
+		foreach ( $all_hits as $hit ) {
+			$cid = isset( $hit['payload']['chunk_id'] ) ? (int) $hit['payload']['chunk_id'] : 0;
+			if ( $cid > 0 ) {
+				$ids[] = $cid;
+				$score_map[ $cid ] = (float) $hit['score'];
+			}
+		}
+		if ( empty( $ids ) ) { return []; }
+
+		$ids_csv = implode( ',', array_map( 'intval', $ids ) );
+		$rows    = $wpdb->get_results(
+			"SELECT id, content, source_id, metadata, notebook_id, storage_ver, file_shard, file_offset, file_length FROM {$db->tbl_passages()} WHERE id IN ({$ids_csv})",
+			ARRAY_A
+		);
+		if ( empty( $rows ) ) { return []; }
+		if ( class_exists( 'BizCity_KG_Content_Router' ) ) {
+			BizCity_KG_Content_Router::instance()->hydrate_passages( $rows );
+		}
+
+		$dropped_chat = 0;
+		$out = [];
+		foreach ( $rows as $r ) {
+			$cid = (int) $r['id'];
+			$src_id = (int) $r['source_id'];
+			// 2026-05-14 — Drop chat-promoted rows from RAG context (source_id<=0).
+			// Chat answers ingested as passages have NEAR-DUPLICATE lexical content
+			// to the next user query ("giá FS 836G" → "Mình chưa có dữ liệu về FS
+			// 836G"), so they out-rank real source chunks and the model parrots
+			// the same "no data" reply forever. They remain available for
+			// conversation memory paths that explicitly opt in via the filter.
+			if ( ! $include_chat && $src_id <= 0 ) {
+				$dropped_chat++;
+				continue;
+			}
+			$out[] = [
+				'id'        => $cid,
+				'content'   => (string) $r['content'],
+				'source_id' => $src_id,
+				'metadata'  => isset( $r['metadata'] ) ? (string) $r['metadata'] : '',
+				'score'     => isset( $score_map[ $cid ] ) ? $score_map[ $cid ] : 0.0,
+			];
+		}
+		if ( $dropped_chat > 0 && function_exists( 'error_log' ) ) {
+			error_log( sprintf(
+				'[KG] chat-promoted RAG filter notebook=%d dropped=%d kept=%d (over-fetched=%d, top_k=%d)',
+				(int) $notebook_id, $dropped_chat, count( $out ), count( $rows ), (int) $top_k
+			) );
+		}
+		// Preserve order from .bin score ranking, then trim to top_k.
+		usort( $out, function( $a, $b ) {
+			return ( $a['score'] < $b['score'] ) ? 1 : ( ( $a['score'] > $b['score'] ) ? -1 : 0 );
+		} );
+		if ( count( $out ) > (int) $top_k ) {
+			$out = array_slice( $out, 0, (int) $top_k );
+		}
+		return $out;
 	}
 
 	/**
@@ -397,17 +568,40 @@ class BizCity_KG_Retriever {
 			$where_or[] = 'content LIKE %s';
 			$params[]   = '%' . $wpdb->esc_like( $tok ) . '%';
 		}
-		$sql = "SELECT id, content, source_id
+		// Wave 1.3 — virtual-merge: notebook in-house + attached-guru passages.
+		$merge_where = BizCity_KG_Database::instance()->build_virtual_merge_where( (int) $notebook_id );
+		// $params already has notebook_id at index 0 (used for build_virtual_merge_where
+		// internally); the LIKE params are separate — build combined WHERE by appending.
+		$sql = "SELECT id, content, source_id, metadata, notebook_id, storage_ver, file_shard, file_offset, file_length
 		        FROM {$db->tbl_passages()}
-		        WHERE notebook_id = %d AND ( " . implode( ' OR ', $where_or ) . " )
+		        WHERE ({$merge_where}) AND ( " . implode( ' OR ', $where_or ) . " )
 		        LIMIT 200";
-		$rows = $wpdb->get_results( $wpdb->prepare( $sql, $params ), ARRAY_A );
+		// Remove the notebook_id from $params[0] — it is already baked into $merge_where.
+		$like_params = array_slice( $params, 1 );
+		$rows = $wpdb->get_results(
+			empty( $like_params ) ? $sql : $wpdb->prepare( $sql, $like_params ),
+			ARRAY_A
+		);
 		if ( empty( $rows ) ) {
 			return [];
 		}
+		if ( class_exists( 'BizCity_KG_Content_Router' ) ) {
+			BizCity_KG_Content_Router::instance()->hydrate_passages( $rows );
+		}
 
 		// Rank by token-hit count (case-insensitive substring count).
-		foreach ( $rows as &$row ) {
+		// 2026-05-14 — also drop chat-promoted (source_id<=0) rows here so the
+		// keyword fallback shares the same RAG hygiene as the .bin path. See
+		// search_passages_via_bin() for rationale.
+		$include_chat = (bool) apply_filters( 'bizcity_kg_rag_include_chat_promoted', false, (int) $notebook_id );
+		$dropped_chat = 0;
+		$ranked = [];
+		foreach ( $rows as $row ) {
+			$src_id = (int) $row['source_id'];
+			if ( ! $include_chat && $src_id <= 0 ) {
+				$dropped_chat++;
+				continue;
+			}
 			$content_lc = mb_strtolower( (string) $row['content'], 'UTF-8' );
 			$score = 0.0;
 			foreach ( $tokens as $tok ) {
@@ -418,12 +612,18 @@ class BizCity_KG_Retriever {
 			}
 			$row['score']     = $score;
 			$row['id']        = (int) $row['id'];
-			$row['source_id'] = (int) $row['source_id'];
+			$row['source_id'] = $src_id;
+			$ranked[] = $row;
 		}
-		unset( $row );
+		if ( $dropped_chat > 0 && function_exists( 'error_log' ) ) {
+			error_log( sprintf(
+				'[KG] chat-promoted keyword filter notebook=%d dropped=%d kept=%d',
+				(int) $notebook_id, $dropped_chat, count( $ranked )
+			) );
+		}
 
-		usort( $rows, static fn( $a, $b ) => $b['score'] <=> $a['score'] );
-		return array_slice( $rows, 0, max( 1, (int) $top_k ) );
+		usort( $ranked, static fn( $a, $b ) => $b['score'] <=> $a['score'] );
+		return array_slice( $ranked, 0, max( 1, (int) $top_k ) );
 	}
 
 	/**

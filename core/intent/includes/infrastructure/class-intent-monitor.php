@@ -53,17 +53,20 @@ class BizCity_Intent_Monitor {
 
     /**
      * Register admin menu page.
+     *
+     * Phase G (2026-05-19) — DISABLED. Body commented out so even if some
+     * legacy bootstrap still calls this method the menu won't appear.
      */
     public function register_menu() {
-        add_menu_page(
-            'Intent Monitor',
-            'Intent Monitor',
-            'manage_options',
-            'bizcity-intent-monitor',
-            [ $this, 'render_page' ],
-            'dashicons-analytics',
-            72
-        );
+        // add_menu_page(
+        //     'Intent Monitor',
+        //     'Intent Monitor',
+        //     'manage_options',
+        //     'bizcity-intent-monitor',
+        //     [ $this, 'render_page' ],
+        //     'dashicons-analytics',
+        //     72
+        // );
     }
 
     /**

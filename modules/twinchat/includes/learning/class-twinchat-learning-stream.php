@@ -181,7 +181,11 @@ class BizCity_TwinChat_Learning_Stream {
 	 */
 	protected function no_active_jobs( int $notebook_id ): bool {
 		global $wpdb;
-		$tbl = BizCity_TwinChat_Learning_Database::instance()->table_jobs();
+		$db = BizCity_TwinChat_Learning_Database::instance();
+		if ( ! $db->is_ready() ) {
+			return true;
+		}
+		$tbl = $db->table_jobs();
 		$cnt = (int) $wpdb->get_var( $wpdb->prepare(
 			"SELECT COUNT(*) FROM {$tbl}
 			  WHERE notebook_id = %d AND status IN ('queued','running')",
@@ -216,7 +220,11 @@ class BizCity_TwinChat_Learning_Stream {
 	 */
 	protected function find_stale_running_jobs( int $notebook_id, int $silent_for_s ): array {
 		global $wpdb;
-		$tbl = BizCity_TwinChat_Learning_Database::instance()->table_jobs();
+		$db = BizCity_TwinChat_Learning_Database::instance();
+		if ( ! $db->is_ready() ) {
+			return [];
+		}
+		$tbl = $db->table_jobs();
 		$cutoff = gmdate( 'Y-m-d H:i:s', time() - $silent_for_s );
 		$rows = $wpdb->get_results( $wpdb->prepare(
 			"SELECT id, source_id, status, started_at, created_at

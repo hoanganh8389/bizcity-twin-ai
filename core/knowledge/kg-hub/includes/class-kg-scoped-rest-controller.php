@@ -189,8 +189,88 @@ class BizCity_KG_Scoped_REST_Controller {
 		}
 
 		$res = BizCity_KG::ingest( $scope, $payload );
-		if ( is_wp_error( $res ) ) return $res;
+		if ( is_wp_error( $res ) ) return self::normalize_ingest_error( $res );
 		return rest_ensure_response( [ 'ok' => true, 'data' => $res ] );
+	}
+
+	/**
+	 * Phase 0.7 / Wave UI-ERR — translate adapter / tier WP_Errors into proper
+	 * HTTP status codes so the SourcesPanel receives 4xx (not 500) and can
+	 * render an actionable upgrade/retry message instead of a raw stack.
+	 *
+	 * Maps:
+	 *   tier_required               → 402 Payment Required
+	 *   insufficient_credit         → 402
+	 *   pdf_extract_empty           → 422 Unprocessable Entity (scan PDF)
+	 *   office_adapter_pending      → 422
+	 *   adapter_empty               → 422
+	 *   unsupported_ext             → 415 Unsupported Media Type
+	 *   file_missing|file_read_failed → 400
+	 *   pdf_file_*                  → 400
+	 *   anything else with explicit data.http_status → honor it
+	 *   fallback                    → 500
+	 *
+	 * Honors `data.http_status` set by adapters (see PDF/Office adapters).
+	 */
+	private static function normalize_ingest_error( WP_Error $err ) {
+		$code = $err->get_error_code();
+		$data = (array) $err->get_error_data();
+		$explicit = isset( $data['http_status'] ) ? (int) $data['http_status'] : 0;
+		$map = [
+			'tier_required'          => 402,
+			'insufficient_credit'    => 402,
+			'quota_exceeded_free'    => 402,
+			'pdf_extract_empty'      => 422,
+			'office_adapter_pending' => 422, // legacy stub code (kept for back-compat)
+			'office_extract_empty'   => 422,
+			'office_docx_empty'      => 422,
+			'office_xlsx_empty'      => 422,
+			'office_pptx_empty'      => 422,
+			'office_rtf_empty'       => 422,
+			'office_xlsx_no_sheets'  => 422,
+			'office_unknown_format'  => 415,
+			'office_unsupported_kind'=> 415,
+			'office_zip_missing'     => 500,
+			'office_zip_open_failed' => 422,
+			'office_file_too_large'  => 413,
+			'adapter_empty'          => 422,
+			// URL / web import errors (Wave 0.7 — surface 422/502 instead of 500).
+			'no_url'                 => 400,
+			'url_fetch_failed'       => 502,
+			'url_empty'              => 422,
+			'url_empty_text'         => 422,
+			'youtube_no_captions'    => 422,
+			'youtube_invalid_url'    => 400,
+			'youtube_not_a_yt_url'   => 400,
+			'youtube_player_response_missing' => 422,
+			'youtube_player_response_invalid' => 422,
+			'youtube_empty_transcript'        => 422,
+			// Wave E0.AV — audio/video adapter
+			'av_file_missing'        => 400,
+			'av_file_unreadable'     => 400,
+			'av_file_too_large'      => 413,
+			'av_invalid_kind'        => 400,
+			'av_missing_media_url'   => 400,
+			'av_no_public_url'       => 500,
+			'av_tmp_copy_failed'     => 500,
+			'av_sideload_failed'     => 500,
+			'av_client_missing'      => 500,
+			'av_not_configured'      => 503,
+			'av_transport_error'     => 502,
+			'av_provider_error'      => 502,
+			'av_invalid_response'    => 502,
+			'av_no_speech'           => 422,
+			'unsupported_ext'        => 415,
+			'file_missing'           => 400,
+			'file_read_failed'       => 400,
+			'pdf_file_missing'       => 400,
+			'pdf_file_unreadable'    => 400,
+			'invalid_scope'          => 400,
+			'file_too_large'         => 413,
+		];
+		$status = $explicit ?: ( isset( $map[ $code ] ) ? $map[ $code ] : 500 );
+		$data['status'] = $status; // WP REST reads `data.status`
+		return new WP_Error( $code, $err->get_error_message(), $data );
 	}
 
 	public function delete_source( WP_REST_Request $req ) {

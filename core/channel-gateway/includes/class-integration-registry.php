@@ -64,6 +64,7 @@ class BizCity_Integration_Registry {
 		$this->loaded = true;
 
 		$this->categories = [
+			'channel'   => __( 'Kênh hội thoại', 'bizcity-twin-ai' ), // PHASE 0.37: channel always first
 			'email'     => __( 'Email', 'bizcity-twin-ai' ),
 			'calendar'  => __( 'Lịch & Họp', 'bizcity-twin-ai' ),
 			'messenger' => __( 'Tin nhắn', 'bizcity-twin-ai' ),
@@ -284,5 +285,135 @@ class BizCity_Integration_Registry {
 		}
 
 		return $data;
+	}
+
+	/* ═══════════════════════════════════════════
+	 *  Channel Account CRUD (PHASE 0.37 — R-CH-2)
+	 *
+	 *  All channel credential storage flows through here.
+	 *  Accounts are stored as indexed array under OPTION_PREFIX + code.
+	 *  Each account carries a _uid (stable slug key) for addressability.
+	 * ═══════════════════════════════════════════ */
+
+	/**
+	 * Save (add or update) a single channel account.
+	 *
+	 * If $account_data contains a non-empty '_uid', update the matching slot.
+	 * Otherwise, append a new account with a fresh _uid.
+	 *
+	 * @param string $code         Integration code (e.g. 'zalo_bot').
+	 * @param array  $account_data Plain-text account fields. Encrypted fields are encrypted on save.
+	 * @return array|WP_Error Saved account (without private params), or WP_Error on failure.
+	 */
+	public function save_channel_account( string $code, array $account_data ) {
+		$integ = $this->get( $code );
+		if ( ! $integ ) {
+			return new \WP_Error( 'not_found', "Integration '{$code}' not registered." );
+		}
+
+		$accounts = $this->get_accounts( $code );
+		$uid      = sanitize_key( $account_data['_uid'] ?? '' );
+
+		// Find existing slot index.
+		$target_idx = null;
+		if ( $uid ) {
+			foreach ( $accounts as $idx => $acc ) {
+				if ( ( $acc['_uid'] ?? '' ) === $uid ) {
+					$target_idx = $idx;
+					break;
+				}
+			}
+		}
+
+		$clone = clone $integ;
+
+		if ( $target_idx !== null ) {
+			// Update: merge new data over old, preserving private params if signal unchanged.
+			$old_clone = clone $integ;
+			$old_clone->set_account( $accounts[ $target_idx ] );
+			$merged = array_merge( $accounts[ $target_idx ], $account_data );
+			$clone->set_account( $merged );
+			$clone->merge_private_from_old( $old_clone->get_decrypted_params() );
+		} else {
+			// New account: generate uid.
+			if ( ! $uid ) {
+				$uid = $code . '_' . substr( md5( uniqid( $code, true ) ), 0, 8 );
+			}
+			$account_data['_uid'] = $uid;
+			$clone->set_account( $account_data );
+		}
+
+		$clone->do_test();
+		$encrypted = $clone->get_encrypted_params();
+		$encrypted['_uid'] = $uid;
+
+		if ( $target_idx !== null ) {
+			$accounts[ $target_idx ] = $encrypted;
+		} else {
+			$accounts[] = $encrypted;
+		}
+
+		update_option( self::OPTION_PREFIX . $code, $accounts, false );
+		return $clone->get_decrypted_params( false );
+	}
+
+	/**
+	 * List channel accounts — single code or all channel integrations.
+	 *
+	 * @param string|null $code  If null, returns accounts for all channel integrations.
+	 * @param bool        $decrypt Decrypt private params. Default false (masked).
+	 * @return array Keyed by "{code}/{_uid}" (single code) or "{code}" => [...accounts...].
+	 */
+	public function list_channel_accounts( ?string $code = null, bool $decrypt = false ): array {
+		$this->load();
+
+		if ( $code !== null ) {
+			return $this->get_accounts( $code, $decrypt );
+		}
+
+		$out = [];
+		foreach ( $this->integrations as $c => $integ ) {
+			if ( $integ->get_category() === 'channel' ) {
+				$out[ $c ] = $this->get_accounts( $c, $decrypt );
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Delete a channel account by uid.
+	 *
+	 * @param string $code Integration code.
+	 * @param string $uid  Account uid.
+	 * @return bool True if deleted, false if not found.
+	 */
+	public function delete_channel_account( string $code, string $uid ): bool {
+		$accounts   = $this->get_accounts( $code );
+		$filtered   = array_values( array_filter( $accounts, fn( $acc ) => ( $acc['_uid'] ?? '' ) !== $uid ) );
+		if ( count( $filtered ) === count( $accounts ) ) {
+			return false; // not found
+		}
+		update_option( self::OPTION_PREFIX . $code, $filtered, false );
+		return true;
+	}
+
+	/**
+	 * Update just the status fields of one account (after connection test).
+	 *
+	 * @param string $code         Integration code.
+	 * @param string $uid          Account uid.
+	 * @param array  $encrypted    Full encrypted account (from get_encrypted_params()).
+	 * @return bool
+	 */
+	public function update_channel_account_status( string $code, string $uid, array $encrypted ): bool {
+		$accounts = $this->get_accounts( $code );
+		foreach ( $accounts as $idx => $acc ) {
+			if ( ( $acc['_uid'] ?? '' ) === $uid ) {
+				$accounts[ $idx ] = array_merge( $acc, $encrypted );
+				update_option( self::OPTION_PREFIX . $code, $accounts, false );
+				return true;
+			}
+		}
+		return false;
 	}
 }

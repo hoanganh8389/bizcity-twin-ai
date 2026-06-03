@@ -54,9 +54,28 @@ require_once BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-sources-service.php';
 require_once BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-context-builder.php';
 require_once BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-stream-handler.php';
 require_once BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-rest-controller.php';
+// PHASE-0.41 L6 (R-GW) — Entitlement proxy: client FE → this proxy → gateway.
+require_once BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-entitlement-proxy.php';
+// PHASE-0.41 L7 (R-GW-8) — Search proxy: wraps search/router/v1/{query,extract}.
+require_once BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-search-proxy.php';
+// PHASE-0.42 — LiteParse sidecar health (status pill in AddSourceDialog).
+require_once BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-liteparse-health.php';
+// Wave 9 — Brain Workspace tabs aggregator (history / integrations / plans).
+require_once BIZCITY_TWINCHAT_INCLUDES . 'workspace/class-twinchat-workspace-rest.php';
 // NotebookLM-parity surface (notes / pin / suggestion-click) — see modules/twinchat/notebooklm/README.md
+// Service must load before controller (controller depends on BizCity_TwinChat_Notes_Service).
+require_once BIZCITY_TWINCHAT_DIR . 'notebooklm/includes/class-twinchat-notes-service.php';
 require_once BIZCITY_TWINCHAT_DIR . 'notebooklm/includes/class-twinchat-notes-controller.php';
+// PHASE-6.4-KGHub-IMAGE Wave B — context-bundle endpoint feeding embedded Doc/Image Studio tabs.
+require_once BIZCITY_TWINCHAT_DIR . 'notebooklm/includes/class-twinchat-context-bundle-controller.php';
 require_once BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-public-page.php';
+
+// Phase 0.7 / Wave D0 — Pro Learning Diagnostic (admin Tools page).
+// Loads in admin context only; safe at all times since the class self-registers
+// its admin_menu hook only when first accessed (singleton).
+if ( is_admin() ) {
+	require_once BIZCITY_TWINCHAT_INCLUDES . 'diagnostics/class-pro-learning-diagnostic.php';
+}
 
 // Phase 0.7 — Studio (port of BCN_Studio for TwinChat notebook scope).
 require_once BIZCITY_TWINCHAT_INCLUDES . 'studio/class-twinchat-studio-input-builder.php';
@@ -70,6 +89,7 @@ require_once BIZCITY_TWINCHAT_INCLUDES . 'studio/class-twinchat-studio-tools-min
 // Phase 4.9 — backend learning pipeline + SSE.
 require_once BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-learning-database.php';
 require_once BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-learning-events.php';
+require_once BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-quota-cooldown.php';
 require_once BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-learning-job-queue.php';
 require_once BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-learning-notifier.php';
 require_once BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-learning-pipeline.php';
@@ -86,6 +106,7 @@ require_once BIZCITY_TWINCHAT_INCLUDES . 'welcome/class-twinchat-welcome-runner.
 
 if ( is_admin() ) {
 	require_once BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-admin-menu.php';
+	require_once BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-settings-page.php';
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────
@@ -101,6 +122,9 @@ add_action( 'init', static function () {
 	}
 	if ( class_exists( 'BizCity_TwinChat_Welcome_Database' ) ) {
 		BizCity_TwinChat_Welcome_Database::instance()->maybe_install();
+	}
+	if ( class_exists( 'BizCity_Studio_Job_Manager' ) ) {
+		BizCity_Studio_Job_Manager::maybe_install();
 	}
 	// Bind background workers / hooks.
 	if ( class_exists( 'BizCity_TwinChat_Learning_Pipeline' ) ) {
@@ -140,9 +164,22 @@ add_filter( 'bizcity_kg_register_source_table', static function ( $entries ) {
 
 add_action( 'rest_api_init', static function () {
 	BizCity_TwinChat_REST_Controller::instance()->register_routes();
+	if ( class_exists( 'BizCity_TwinChat_Entitlement_Proxy' ) ) {
+		BizCity_TwinChat_Entitlement_Proxy::instance()->register_routes();
+	}
+	if ( class_exists( 'BizCity_TwinChat_Search_Proxy' ) ) {
+		BizCity_TwinChat_Search_Proxy::instance()->register_routes();
+	}
+	if ( class_exists( 'BizCity_TwinChat_LiteParse_Health' ) ) {
+		BizCity_TwinChat_LiteParse_Health::instance()->register_routes();
+	}
 	BizCity_TwinChat_REST_Learning::instance()->register_routes();
 	BizCity_TwinChat_Notes_Controller::instance()->register_routes();
+	BizCity_TwinChat_Context_Bundle_Controller::instance()->register_routes();
 	BizCity_TwinChat_Studio_REST::instance()->register_routes();
+	if ( class_exists( 'BizCity_TwinChat_Workspace_REST' ) ) {
+		BizCity_TwinChat_Workspace_REST::instance()->register_routes();
+	}
 } );
 
 /**
@@ -238,7 +275,12 @@ add_action( 'bizcity_twinchat_after_ingest', static function ( $scope_id, $user_
 if ( is_admin() ) {
 	add_action( 'admin_menu', static function () {
 		BizCity_TwinChat_Admin_Menu::instance()->register();
-	}, 25 );
+	}, 9 );
+	// R-1API-9: register the unified BizCity API & Gateway settings page
+	// as a submenu of the TwinChat parent menu.
+	if ( class_exists( 'BizCity_TwinChat_Settings_Page' ) ) {
+		BizCity_TwinChat_Settings_Page::instance()->register();
+	}
 }
 
 // ── Public frontend page — /twinchat/ ────────────────────────────────────

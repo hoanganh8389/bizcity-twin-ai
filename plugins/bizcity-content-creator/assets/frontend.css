@@ -60,6 +60,12 @@
 	margin: 0;
 	color: var(--bzcc-text);
 }
+.bzcc-header__subtitle {
+	font-size: 14px;
+	font-weight: 500;
+	color: var(--bzcc-text-muted);
+	margin-left: 4px;
+}
 .bzcc-header__desc {
 	font-size: 14px;
 	color: var(--bzcc-text-muted);
@@ -116,6 +122,207 @@
 	font-size: 20px;
 	line-height: 1;
 }
+.bzcc-section__head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin-bottom: 16px;
+	gap: 12px;
+}
+.bzcc-section__head .bzcc-section__title { margin: 0; }
+.bzcc-section__count {
+	font-weight: 500;
+	color: var(--bzcc-text-muted, #64748b);
+	font-size: 14px;
+}
+.bzcc-section__more {
+	font-size: 14px;
+	font-weight: 500;
+	color: #6366f1;
+	text-decoration: none;
+	white-space: nowrap;
+}
+.bzcc-section__more:hover { text-decoration: underline; }
+
+/* ── Breadcrumb ── */
+.bzcc-breadcrumb {
+	position: sticky;
+	top: 0;
+	z-index: 50;
+	background: rgba(248, 250, 252, 0.92);
+	backdrop-filter: blur(8px);
+	-webkit-backdrop-filter: blur(8px);
+	border-bottom: 1px solid #e2e8f0;
+	padding: 10px 24px;
+	font-size: 13px;
+}
+.bzcc-breadcrumb__list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px;
+	max-width: 1400px;
+	margin: 0 auto;
+}
+.bzcc-breadcrumb__item {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	color: #64748b;
+}
+.bzcc-breadcrumb__item a {
+	color: #475569;
+	text-decoration: none;
+	padding: 2px 6px;
+	border-radius: 4px;
+	transition: background 0.15s, color 0.15s;
+}
+.bzcc-breadcrumb__item a:hover {
+	background: #e2e8f0;
+	color: #1e293b;
+}
+.bzcc-breadcrumb__item--current span {
+	color: #1e293b;
+	font-weight: 600;
+}
+.bzcc-breadcrumb__sep {
+	color: #cbd5e1;
+	font-size: 14px;
+	margin: 0 2px;
+}
+
+/* ── Recent Results Grid ── */
+.bzcc-results-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+	gap: 12px;
+}
+.bzcc-result-card {
+	display: flex;
+	align-items: flex-start;
+	gap: 12px;
+	padding: 14px 16px;
+	background: #fff;
+	border: 1px solid #e2e8f0;
+	border-radius: 10px;
+	text-decoration: none;
+	color: inherit;
+	transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+.bzcc-result-card:hover {
+	border-color: #6366f1;
+	box-shadow: 0 4px 12px rgba(99, 102, 241, 0.12);
+	transform: translateY(-1px);
+}
+.bzcc-result-card__icon {
+	flex-shrink: 0;
+	width: 40px;
+	height: 40px;
+	border-radius: 8px;
+	background: #f1f5f9;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 22px;
+}
+.bzcc-result-card__body { flex: 1; min-width: 0; }
+.bzcc-result-card__title {
+	font-size: 14px;
+	font-weight: 600;
+	margin: 0 0 4px;
+	color: #1e293b;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.bzcc-result-card__meta {
+	font-size: 12px;
+	color: #64748b;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	align-items: center;
+}
+.bzcc-result-card__status { font-weight: 500; }
+.bzcc-result-card[data-status="completed"] .bzcc-result-card__status { color: #22c55e; }
+.bzcc-result-card[data-status="failed"]    .bzcc-result-card__status { color: #ef4444; }
+.bzcc-result-card[data-status="generating"] .bzcc-result-card__status { color: #3b82f6; }
+
+/* ── Hero Pill Tabs (Featured / Recent Results) ── */
+.bzcc-hero-tabs { margin-bottom: 32px; }
+.bzcc-tabs {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+	margin-bottom: 20px;
+	border-bottom: 1px solid #e2e8f0;
+	padding-bottom: 12px;
+}
+.bzcc-tab {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	padding: 8px 18px;
+	border: 1px solid transparent;
+	background: #f1f5f9;
+	border-radius: 999px;
+	font-size: 14px;
+	font-weight: 600;
+	color: #475569;
+	cursor: pointer;
+	transition: background 0.15s, color 0.15s, border-color 0.15s, box-shadow 0.15s;
+	font-family: inherit;
+	line-height: 1.2;
+}
+.bzcc-tab:hover {
+	background: #e2e8f0;
+	color: #1e293b;
+}
+.bzcc-tab--active {
+	background: #ede9fe;
+	color: #6d28d9;
+	border-color: #c4b5fd;
+	box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.12);
+}
+.bzcc-tab__emoji { font-size: 16px; line-height: 1; }
+.bzcc-tab__count {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 22px;
+	height: 22px;
+	padding: 0 7px;
+	border-radius: 999px;
+	background: rgba(99, 102, 241, 0.15);
+	color: #6366f1;
+	font-size: 12px;
+	font-weight: 700;
+}
+.bzcc-tab--active .bzcc-tab__count {
+	background: #6d28d9;
+	color: #fff;
+}
+.bzcc-tabs__more {
+	margin-left: auto;
+	font-size: 13px;
+	font-weight: 500;
+	color: #6366f1;
+	text-decoration: none;
+	white-space: nowrap;
+}
+.bzcc-tabs__more:hover { text-decoration: underline; }
+
+.bzcc-tab-panel { display: none; }
+.bzcc-tab-panel--active { display: block; animation: bzccTabFade 0.2s ease-out; }
+@keyframes bzccTabFade {
+	from { opacity: 0; transform: translateY(4px); }
+	to   { opacity: 1; transform: translateY(0); }
+}
+
 
 /* ═══════════════════════════════════════
  *  Featured Grid (Hero Cards)

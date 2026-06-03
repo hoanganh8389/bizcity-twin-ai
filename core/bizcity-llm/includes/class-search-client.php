@@ -58,6 +58,24 @@ class BizCity_Search_Client {
     }
 
     /* ── Debug logging ── */
+    /**
+     * Record a search-service call into the unified usage log (R-1API Phase B).
+     * Best-effort: silently no-ops if the log class is unavailable.
+     */
+    private function record_usage( string $endpoint, bool $success, int $ms, string $error = '', string $model = '' ): void {
+        if ( ! class_exists( 'BizCity_LLM_Usage_Log' ) ) return;
+        BizCity_LLM_Usage_Log::log( [
+            'service'    => 'search',
+            'mode'       => 'gateway',
+            'purpose'    => $endpoint, // search|extract|crawl
+            'endpoint'   => 'search',
+            'model_used' => $model ?: 'tavily',
+            'success'    => $success,
+            'latency_ms' => $ms,
+            'error'      => $error,
+        ] );
+    }
+
     private function debug_log( string $msg, array $ctx = [] ): void {
         if ( ! defined( 'BIZCITY_LLM_DEBUG' ) || ! BIZCITY_LLM_DEBUG ) {
             return;
@@ -133,6 +151,7 @@ class BizCity_Search_Client {
 
         if ( is_wp_error( $response ) ) {
             $this->debug_log( 'search() HTTP ERROR', [ 'error' => $response->get_error_message(), 'ms' => $ms ] );
+            $this->record_usage( 'search', false, $ms, $response->get_error_message() );
             return $response;
         }
 
@@ -151,6 +170,7 @@ class BizCity_Search_Client {
         if ( $code < 200 || $code >= 300 || empty( $data['success'] ) ) {
             $msg = $data['error'] ?? "Search gateway HTTP {$code}";
             $this->debug_log( 'search() FAIL', [ 'code' => $code, 'error' => $msg, 'ms' => $ms ] );
+            $this->record_usage( 'search', false, $ms, $msg );
             return new WP_Error( 'search_error', $msg );
         }
 
@@ -171,6 +191,7 @@ class BizCity_Search_Client {
         }
 
         $this->debug_log( 'search() OK', [ 'results' => count( $results ), 'ms' => $ms ] );
+        $this->record_usage( 'search', true, $ms );
 
         return $results;
     }
@@ -225,6 +246,7 @@ class BizCity_Search_Client {
         }
 
         $this->debug_log( 'extract() OK', [ 'results' => count( $data['results'] ?? [] ), 'ms' => $ms ] );
+        $this->record_usage( 'extract', true, $ms );
 
         return $data['results'] ?? [];
     }
@@ -290,6 +312,7 @@ class BizCity_Search_Client {
         }
 
         $this->debug_log( 'crawl() OK', [ 'results' => count( $data['results'] ?? [] ), 'ms' => $ms ] );
+        $this->record_usage( 'crawl', true, $ms );
 
         return $data['results'] ?? [];
     }

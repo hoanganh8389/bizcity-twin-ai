@@ -233,17 +233,203 @@ class BizCity_Tool_Search_KG implements BizCity_Twin_Tool {
 		}
 		unset( $pp );
 
+		// ─────────────────────────────────────────────────────────────
+		// PHASE-0.3 §4.9 — TRANSPARENCY-FIRST IDENTITY OVERLAY
+		// Pure additive: extracts structured IDs (sku/order/…) from the
+		// query + each passage so the LLM can NEVER mix prices/values
+		// of different SKUs without an explicit "Mã KHÁC …" disclaimer.
+		// Old retrieval algorithm is untouched.
+		// ─────────────────────────────────────────────────────────────
+		$identity_report = [
+			'has_query_identity' => false,
+			'query_identities'   => [],
+			'matched'            => [],   // [{passage_index, identity}]
+			'related'            => [],   // wrong code, same family
+			'unidentified'       => [],   // chunk has NO id
+			'other'              => [],   // has id but completely unrelated
+		];
+		if ( class_exists( 'BizCity_KG_Identity_Extractor' ) ) {
+			$q_ids = BizCity_KG_Identity_Extractor::extract( $query );
+			$identity_report['query_identities']   = $q_ids;
+			$identity_report['has_query_identity'] = ! empty( $q_ids );
+			$q_primary = BizCity_KG_Identity_Extractor::primary( $q_ids );
+
+			// PHASE-0.3 Wave 2 — bulk-load persisted identity cache for these
+			// passage_ids so we skip re-running regex on long content (faster +
+			// honors user_confirmed overrides). Cache misses fall back to
+			// on-the-fly extraction below.
+			$cache_by_pid = [];
+			if ( class_exists( 'BizCity_KG_Database' ) ) {
+				$pid_list = [];
+				foreach ( $passages as $pp ) {
+					$pid = (int) ( $pp['passage_id'] ?? 0 );
+					if ( $pid > 0 ) $pid_list[] = $pid;
+				}
+				$pid_list = array_values( array_unique( $pid_list ) );
+				if ( ! empty( $pid_list ) ) {
+					global $wpdb;
+					$db_  = BizCity_KG_Database::instance();
+					$tbl  = $db_->tbl_passage_identities();
+					$ids_csv = implode( ',', array_map( 'intval', $pid_list ) );
+					$prev = $wpdb->suppress_errors( true );
+					$rows = $wpdb->get_results(
+						"SELECT passage_id, id_kind, canonical_id, evidence_span, occurrences, score, source
+						   FROM {$tbl}
+						  WHERE passage_id IN ({$ids_csv})
+						  ORDER BY ( source = 'user_confirmed' ) DESC, score DESC",
+						ARRAY_A
+					);
+					$wpdb->suppress_errors( $prev );
+					foreach ( (array) $rows as $r ) {
+						$cache_by_pid[ (int) $r['passage_id'] ][] = [
+							'id_kind'       => (string) $r['id_kind'],
+							'canonical_id'  => (string) $r['canonical_id'],
+							'evidence_span' => (string) $r['evidence_span'],
+							'occurrences'   => (int) $r['occurrences'],
+							'score'         => (float) $r['score'],
+							'source'        => (string) $r['source'],
+						];
+					}
+				}
+			}
+
+			foreach ( $sources as $i => &$src ) {
+				$pid_int = (int) ( $passages[ $i ]['passage_id'] ?? $src['passage_id'] ?? 0 );
+				if ( $pid_int > 0 && ! empty( $cache_by_pid[ $pid_int ] ) ) {
+					$p_ids = $cache_by_pid[ $pid_int ];
+				} else {
+					$snippet = '';
+					if ( isset( $passages[ $i ]['snippet'] ) )       $snippet  = (string) $passages[ $i ]['snippet'];
+					elseif ( isset( $src['content_snippet'] ) )      $snippet  = (string) $src['content_snippet'];
+					$p_ids = BizCity_KG_Identity_Extractor::extract( $snippet );
+				}
+
+				$status   = 'unidentified';
+				$matched  = null;
+				$reason   = '';
+				if ( empty( $p_ids ) ) {
+					$status = 'unidentified';
+				} elseif ( $q_primary ) {
+					foreach ( $p_ids as $pid ) {
+						if ( $pid['id_kind'] === $q_primary['id_kind']
+							&& $pid['canonical_id'] === $q_primary['canonical_id'] ) {
+							$status  = 'matched';
+							$matched = $pid;
+							$reason  = sprintf( 'exact_match:%s', $pid['evidence_span'] );
+							break;
+						}
+					}
+					if ( ! $matched ) {
+						foreach ( $p_ids as $pid ) {
+							if ( BizCity_KG_Identity_Extractor::are_related( $q_primary, $pid ) ) {
+								$status  = 'related';
+								$matched = $pid;
+								$reason  = sprintf( 'related_to:%s (query:%s)',
+									$pid['canonical_id'], $q_primary['canonical_id'] );
+								break;
+							}
+						}
+					}
+					if ( ! $matched ) {
+						$status   = 'other';
+						$matched  = $p_ids[0];
+						$reason   = sprintf( 'unrelated_id:%s', $p_ids[0]['canonical_id'] );
+					}
+				} else {
+					// No identity in query — still annotate so prompt shows the IDs found.
+					$status   = 'matched';   // treat as ok (no identity to mismatch)
+					$matched  = $p_ids[0];
+					$reason   = 'no_query_identity';
+				}
+
+				$identity_meta = [
+					'identity_match'    => $status,                           // matched|related|other|unidentified
+					'identity'          => $matched ? [
+						'id_kind'      => $matched['id_kind'],
+						'canonical_id' => $matched['canonical_id'],
+					] : null,
+					'identity_label'    => $matched ? BizCity_KG_Identity_Extractor::label(
+						$matched['id_kind'], $matched['canonical_id'] ) : null,
+					'evidence_span'     => $matched['evidence_span'] ?? null,
+					'match_reason'      => $reason,
+					'all_identities'    => array_map( static function ( $r ) {
+						return [
+							'id_kind'      => $r['id_kind'],
+							'canonical_id' => $r['canonical_id'],
+							'occurrences'  => (int) $r['occurrences'],
+						];
+					}, $p_ids ),
+				];
+				$src = array_merge( $src, $identity_meta );
+				if ( isset( $passages[ $i ] ) ) {
+					$passages[ $i ] = array_merge( $passages[ $i ], $identity_meta );
+				}
+				$identity_report[ $status ][] = [
+					'passage_index' => $src['index'],
+					'identity'      => $identity_meta['identity'],
+					'reason'        => $reason,
+				];
+			}
+			unset( $src );
+		}
+
+		// Build explicit Vietnamese instruction per spec §4.9.3.
+		$default_instruction = 'Cite each used passage in your final answer using its exact label in square brackets, e.g. [src:187#p9921]. The label is the `label` field on each passage. Copy the numbers exactly — do NOT invent labels.';
+		$instruction = $default_instruction;
+		if ( $identity_report['has_query_identity'] ) {
+			$qp = $identity_report['query_identities'][0];
+			$ql = BizCity_KG_Identity_Extractor::label( $qp['id_kind'], $qp['canonical_id'] );
+			$matched_idx     = wp_list_pluck( $identity_report['matched'], 'passage_index' );
+			$related_idx     = wp_list_pluck( $identity_report['related'], 'passage_index' );
+			$other_idx       = wp_list_pluck( $identity_report['other'], 'passage_index' );
+			$unidentified_ix = wp_list_pluck( $identity_report['unidentified'], 'passage_index' );
+			$has_match  = ! empty( $matched_idx );
+			// 2026-05-14 — sync với class-twin-context-resolver.php fix #2:
+			// Bỏ "trả lời nguyên văn ... rồi DỪNG". Cho phép dùng passage ❓
+			// làm context định tính nhưng vẫn cấm suy số liệu định lượng.
+			$strict_rule = $has_match
+				? sprintf( "QUY TẮC TUYỆT ĐỐI:\n- Có passage ✅ cho %s → CHỈ dùng số liệu (giá, tồn, thông số) từ ✅.\n- KHÔNG viết \"Ngoài ra, có nguồn khác…\", \"Một thông tin khác…\", \"Lưu ý có mã…\" — đó là mã KHÁC, BỎ QUA hoàn toàn trong câu trả lời.\n- Nếu user muốn biết mã khác, họ sẽ hỏi tiếp ở câu sau.", $qp['canonical_id'] )
+				: sprintf( "QUY TẮC:\n- Không có passage ✅ trùng mã \"%s\".\n- ĐƯỢC PHÉP dùng passage ❓ (không xác định mã) để trả lời ĐỊNH TÍNH về %s nếu nội dung/tiêu đề rõ ràng liên quan (cùng tên sản phẩm, cùng dòng, mô tả tính năng).\n- TUYỆT ĐỐI KHÔNG suy diễn số liệu định lượng (giá, tồn, kích thước, thông số) cho %s từ passage ⚠️ hoặc ❓.\n- Nếu chỉ trả lời được định tính, hãy nói rõ phần nào CÓ và phần nào THIẾU trong nguồn.\n- Chỉ refuse khi KHÔNG passage nào dùng được kể cả định tính.", $qp['canonical_id'], $qp['canonical_id'], $qp['canonical_id'] );
+			$instruction = sprintf(
+				"NHẬN DIỆN MÃ TRONG CÂU HỎI: %s (kind=%s).\n"
+				. "PASSAGE TRÙNG MÃ (✅): %s\n"
+				. "PASSAGE MÃ KHÁC – CÙNG HỌ (⚠️): %s\n"
+				. "PASSAGE MÃ KHÁC HẲN: %s\n"
+				. "PASSAGE KHÔNG CÓ MÃ (❓): %s\n\n"
+				. "%s\n\n"
+				. "Mỗi câu trích dẫn dùng marker [N] đúng số ID đã liệt kê — không gộp [1,2], không bịa số.",
+				$ql, $qp['id_kind'],
+				$matched_idx     ? '[' . implode( '][', $matched_idx ) . ']'      : '(không có)',
+				$related_idx     ? '[' . implode( '][', $related_idx ) . ']'      : '(không có)',
+				$other_idx       ? '[' . implode( '][', $other_idx ) . ']'        : '(không có)',
+				$unidentified_ix ? '[' . implode( '][', $unidentified_ix ) . ']'  : '(không có)',
+				$strict_rule
+			);
+		}
+
+		/**
+		 * Observability hook — fired once per search_kg call after identity
+		 * tagging. Listeners (audit log, debug bar) can capture the report
+		 * shape and the user query verbatim.
+		 *
+		 * @param int    $scope_id        Notebook id.
+		 * @param string $query           Raw user query.
+		 * @param array  $identity_report See header of this block.
+		 */
+		do_action( 'bizcity_kg_identity_report_built', $scope_id, $query, $identity_report );
+
 		return [
-			'ok'           => true,
-			'result'       => [
+			'ok'              => true,
+			'result'          => [
 				'passages'    => $passages,
-				'instruction' => 'Cite each used passage in your final answer using its exact label in square brackets, e.g. [src:187#p9921]. The label is the `label` field on each passage. Copy the numbers exactly — do NOT invent labels.',
+				'instruction' => $instruction,
 			],
-			'summary'      => sprintf( 'KG search "%s": %d passages', mb_substr( $query, 0, 60 ), count( $passages ) ),
-			'sources'      => $sources,
-			'citation_ids' => $cite_ids,
-			'kg_citations' => $kg_citations,
-			'kg_highlight' => [ 'entity_ids' => $entity_ids, 'relation_ids' => $relation_ids ],
+			'summary'         => sprintf( 'KG search "%s": %d passages', mb_substr( $query, 0, 60 ), count( $passages ) ),
+			'sources'         => $sources,
+			'citation_ids'    => $cite_ids,
+			'kg_citations'    => $kg_citations,
+			'kg_highlight'    => [ 'entity_ids' => $entity_ids, 'relation_ids' => $relation_ids ],
+			'identity_report' => $identity_report,
 		];
 	}
 

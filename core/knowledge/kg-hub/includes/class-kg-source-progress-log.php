@@ -48,14 +48,22 @@ class BizCity_KG_Source_Progress_Log {
 	public static function maybe_install() {
 		$blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 1;
 		if ( isset( self::$migrated_blogs[ $blog_id ] ) ) return;
-		self::$migrated_blogs[ $blog_id ] = true;
 
-		if ( get_option( self::OPTION_VERSION ) === self::SCHEMA_VERSION ) return;
+		// Version check FIRST — avoids SHOW TABLES on every request when schema is current.
+		// SHOW TABLES is only issued when the version option doesn't match (real upgrade needed).
+		if ( get_option( self::OPTION_VERSION ) === self::SCHEMA_VERSION ) {
+			self::$migrated_blogs[ $blog_id ] = true;
+			return;
+		}
 
 		global $wpdb;
-		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
-		$cs    = $wpdb->get_charset_collate();
 		$table = self::table();
+
+		// Version mismatch — check physical existence to decide CREATE vs additive ALTER.
+		$table_exists = ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) === $table );
+
+		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+		$cs = $wpdb->get_charset_collate();
 
 		dbDelta( "CREATE TABLE IF NOT EXISTS {$table} (
 			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -77,7 +85,18 @@ class BizCity_KG_Source_Progress_Log {
 			KEY created_at (created_at)
 		) {$cs};" );
 
+		// Post-verify: only mark cache + bump option when the table is actually
+		// present, so dbDelta silent failures retry on the next request instead
+		// of poisoning the request with insert errors forever.
+		$created = ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) === $table );
+		if ( ! $created ) {
+			error_log( '[KG Source Progress Log] dbDelta failed to create ' . $table
+			           . ' on blog ' . $blog_id . ' — will retry next request.' );
+			return;
+		}
+
 		update_option( self::OPTION_VERSION, self::SCHEMA_VERSION, false );
+		self::$migrated_blogs[ $blog_id ] = true;
 	}
 
 	public static function table() {
@@ -106,6 +125,13 @@ class BizCity_KG_Source_Progress_Log {
 	public static function record( array $args ) {
 		try {
 			self::maybe_install();
+			$blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 1;
+			// Guard: maybe_install() may have failed (dbDelta silent fail / no
+			// CREATE perm). Skip insert silently rather than letting wpdb spam
+			// "table doesn't exist" via its SHOW FULL COLUMNS introspection.
+			if ( ! isset( self::$migrated_blogs[ $blog_id ] ) ) {
+				return;
+			}
 			global $wpdb;
 			$wpdb->insert( self::table(), [
 				'notebook_id'  => isset( $args['notebook_id'] ) ? (int) $args['notebook_id'] : null,
@@ -135,6 +161,8 @@ class BizCity_KG_Source_Progress_Log {
 	public static function get_for_source( $source_id, $limit = 100 ) {
 		global $wpdb;
 		self::maybe_install();
+		$blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 1;
+		if ( ! isset( self::$migrated_blogs[ $blog_id ] ) ) { return []; }
 		$source_id = (int) $source_id;
 		$limit     = max( 1, min( 500, (int) $limit ) );
 		$rows = $wpdb->get_results( $wpdb->prepare(
@@ -155,6 +183,8 @@ class BizCity_KG_Source_Progress_Log {
 	public static function get_for_notebook( $notebook_id, $limit = 200 ) {
 		global $wpdb;
 		self::maybe_install();
+		$blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 1;
+		if ( ! isset( self::$migrated_blogs[ $blog_id ] ) ) { return []; }
 		$notebook_id = (int) $notebook_id;
 		$limit       = max( 1, min( 1000, (int) $limit ) );
 		$rows = $wpdb->get_results( $wpdb->prepare(
@@ -177,6 +207,8 @@ class BizCity_KG_Source_Progress_Log {
 	public static function summarise_for_source( $source_id ) {
 		global $wpdb;
 		self::maybe_install();
+		$blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 1;
+		if ( ! isset( self::$migrated_blogs[ $blog_id ] ) ) { return []; }
 		$source_id = (int) $source_id;
 		$rows = $wpdb->get_results( $wpdb->prepare(
 			"SELECT event, COUNT(*) AS n, MAX(created_at) AS last_at

@@ -13,7 +13,33 @@ if(!defined('ABSPATH')) exit;
 | Xử lý tạo đơn hàng WooCommerce từ AI qua Telegram 
 |--------------------------------------------------------------------------
 */
+/**
+ * TASK-UNIFY Phase 3 gate.
+ * When BizCity_Scheduler_Manager is available, store the user input and create a
+ * woo_order_create scheduler event. BizCity_Woo_Order_Handler re-parses AI data
+ * at execution time (same as legacy behavior, but via scheduler pipeline).
+ * Falls through to twf_handle_create_order_ai_flow() when scheduler is not loaded.
+ */
 function biz_create_order($message, $chat_id) {
+    if ( class_exists( 'BizCity_Scheduler_Manager' ) ) {
+        $user_input = sanitize_textarea_field( $message['text'] ?? $message['caption'] ?? '' );
+        if ( $user_input ) {
+            return BizCity_Scheduler_Manager::instance()->create_event( [
+                'user_id'    => get_current_user_id(),
+                'title'      => wp_trim_words( $user_input, 10, '…' ) ?: 'Đơn hàng mới',
+                'start_at'   => current_time( 'mysql' ),
+                'end_at'     => null,
+                'status'     => 'active',
+                'event_type' => 'woo_order_create',
+                'source'     => 'legacy_orders_wrapper',
+                'metadata'   => [
+                    'woo_order_user_input' => $user_input,
+                    'woo_chat_id'          => $chat_id,
+                    'woo_order_status'     => 'pending',
+                ],
+            ] );
+        }
+    }
     return twf_handle_create_order_ai_flow($message, $chat_id);
 }
 

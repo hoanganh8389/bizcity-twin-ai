@@ -252,12 +252,22 @@ class BizCity_Profile_Studio_Page {
         $query_args   = array_merge( array( $user_id ), $ids );
 
         $rows = $wpdb->get_results( $wpdb->prepare(
-            "SELECT id, status, image_url, chat_id, error_message FROM {$table} WHERE user_id = %d AND id IN ({$placeholders})",
+            "SELECT id, status, image_url, chat_id, error_message, updated_at FROM {$table} WHERE user_id = %d AND id IN ({$placeholders})",
             ...$query_args
         ), ARRAY_A );
 
         // For 'processing' jobs with a PiAPI task_id, poll PiAPI for status update
+        if ( ! class_exists( 'BizCity_PiAPI_Proxy' ) ) {
+            $proxy_file = WP_PLUGIN_DIR . '/bizcity-llm-router/includes/class-piapi-proxy.php';
+            if ( file_exists( $proxy_file ) ) {
+                require_once $proxy_file;
+            }
+        }
         $piapi_available = class_exists( 'BizCity_PiAPI_Proxy' ) && BizCity_PiAPI_Proxy::is_ready();
+
+        // Safety timeout: jobs stuck in 'processing' for > 10 min with no PiAPI
+        // response should be marked failed so the UI doesn't spin forever.
+        $processing_timeout_sec = 10 * MINUTE_IN_SECONDS;
 
         $jobs = array();
         foreach ( $rows as $row ) {
@@ -310,7 +320,46 @@ class BizCity_Profile_Studio_Page {
                         $row['status']        = 'failed';
                         $row['error_message'] = $error_msg;
                     }
-                    // else still processing — leave as-is
+                    // else PiAPI reports still processing — leave as-is
+                } else {
+                    // get_task() failed (network error, invalid/expired task_id, API error).
+                    // Mark job failed so the UI stops spinning. The user can retry.
+                    $error_msg = $task_result['error'] ?: 'PiAPI: không lấy được trạng thái task.';
+                    $wpdb->update(
+                        $table,
+                        array(
+                            'status'        => 'failed',
+                            'error_message' => sanitize_text_field( $error_msg ),
+                            'updated_at'    => current_time( 'mysql' ),
+                        ),
+                        array( 'id' => $row['id'] ),
+                        array( '%s', '%s', '%s' ),
+                        array( '%d' )
+                    );
+                    $row['status']        = 'failed';
+                    $row['error_message'] = $error_msg;
+                }
+            }
+
+            // Safety net: if still processing but PiAPI is unavailable or no
+            // chat_id, and the job is older than the timeout, mark it failed.
+            if ( $row['status'] === 'processing' ) {
+                $updated_ts = strtotime( $row['updated_at'] ?? '' );
+                if ( $updated_ts && ( time() - $updated_ts ) > $processing_timeout_sec ) {
+                    $error_msg = 'Quá thời gian xử lý (10 phút). Vui lòng thử lại.';
+                    $wpdb->update(
+                        $table,
+                        array(
+                            'status'        => 'failed',
+                            'error_message' => $error_msg,
+                            'updated_at'    => current_time( 'mysql' ),
+                        ),
+                        array( 'id' => $row['id'] ),
+                        array( '%s', '%s', '%s' ),
+                        array( '%d' )
+                    );
+                    $row['status']        = 'failed';
+                    $row['error_message'] = $error_msg;
                 }
             }
 
@@ -566,6 +615,12 @@ class BizCity_Profile_Studio_Page {
                 continue;
             }
 
+            // 2026-05-06 — PiAPI face-swap rejects images with any side > 2048px
+            // ("invalid request, swap image size 1920x2560 too large, maximum is
+            // 2048x2048"). Downscale BOTH inputs defensively before submission.
+            $swap_image   = self::downscale_for_piapi( $swap_image );
+            $target_image = self::downscale_for_piapi( $target_image );
+
             // Call PiAPI faceswap
             $piapi_result = BizCity_PiAPI_Proxy::faceswap_async( $swap_image, $target_image );
 
@@ -596,6 +651,98 @@ class BizCity_Profile_Studio_Page {
                 );
             }
         }
+    }
+
+    /* ═══════════ Helper: Downscale images for PiAPI (max 2048×2048) ═══════════ */
+
+    /**
+     * Ensure the given image URL fits within PiAPI's 2048×2048 face-swap limit.
+     * If the image already fits, the original URL is returned unchanged.
+     * Otherwise a downscaled JPEG (long edge = 2048) is rendered into the WP
+     * uploads dir and a public URL to that file is returned.
+     *
+     * @param string $url Public image URL (local upload OR remote).
+     * @return string Possibly-rewritten URL safe for PiAPI submission.
+     */
+    public static function downscale_for_piapi( string $url ): string {
+        if ( empty( $url ) ) {
+            return $url;
+        }
+
+        $max = 2048;
+
+        // Resolve to a local file path: prefer attached files; fall back to download.
+        $path        = '';
+        $cleanup_tmp = false;
+
+        $attach_id = attachment_url_to_postid( $url );
+        if ( $attach_id ) {
+            $maybe = get_attached_file( $attach_id );
+            if ( $maybe && file_exists( $maybe ) ) {
+                $path = $maybe;
+            }
+        }
+
+        if ( empty( $path ) ) {
+            // Remote (or unattached) URL — download to a tmp file.
+            require_once ABSPATH . 'wp-admin/includes/file.php';
+            $tmp = download_url( $url, 30 );
+            if ( is_wp_error( $tmp ) ) {
+                return $url; // Fail open — let PiAPI surface its own error.
+            }
+            $path        = $tmp;
+            $cleanup_tmp = true;
+        }
+
+        // Probe dimensions.
+        $info = @getimagesize( $path );
+        if ( ! $info || empty( $info[0] ) || empty( $info[1] ) ) {
+            if ( $cleanup_tmp ) @unlink( $path );
+            return $url;
+        }
+        list( $w, $h ) = $info;
+        if ( $w <= $max && $h <= $max ) {
+            if ( $cleanup_tmp ) @unlink( $path );
+            return $url;
+        }
+
+        // Resize via WP image editor (preserves aspect ratio).
+        $editor = wp_get_image_editor( $path );
+        if ( is_wp_error( $editor ) ) {
+            if ( $cleanup_tmp ) @unlink( $path );
+            return $url;
+        }
+        $resized = $editor->resize( $max, $max, false );
+        if ( is_wp_error( $resized ) ) {
+            if ( $cleanup_tmp ) @unlink( $path );
+            return $url;
+        }
+
+        // Save next to the original (or in uploads if remote) as JPEG.
+        $uploads = wp_upload_dir();
+        $ext     = 'jpg';
+        $base    = wp_basename( $path );
+        $base    = preg_replace( '/\.[A-Za-z0-9]+$/', '', $base );
+        $base    = sanitize_file_name( $base );
+        $fname   = $base . '-piapi2k.' . $ext;
+        $out_dir = trailingslashit( $uploads['path'] );
+        $out_url_base = trailingslashit( $uploads['url'] );
+
+        // Avoid filename collisions.
+        $i = 0;
+        $candidate = $fname;
+        while ( file_exists( $out_dir . $candidate ) ) {
+            $i++;
+            $candidate = $base . '-piapi2k-' . $i . '.' . $ext;
+        }
+        $saved = $editor->save( $out_dir . $candidate, 'image/jpeg' );
+        if ( $cleanup_tmp ) @unlink( $path );
+
+        if ( is_wp_error( $saved ) || empty( $saved['file'] ) ) {
+            return $url;
+        }
+
+        return $out_url_base . wp_basename( $saved['file'] );
     }
 
     /* ═══════════ DB: Create profile templates table ═══════════ */

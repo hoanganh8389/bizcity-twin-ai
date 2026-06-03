@@ -98,7 +98,10 @@ abstract class BizCity_KG_Backfill_Driver {
 		$tbl_src   = $wpdb->prefix . $this->source_table;
 		$tbl_chk   = $this->chunks_table ? ( $wpdb->prefix . $this->chunks_table ) : '';
 		$kg_src    = $wpdb->prefix . 'bizcity_kg_sources';
-		$kg_chunks = $wpdb->prefix . 'bizcity_kg_source_chunks'; // Phase 0.6.5 — replaces kg_passages.
+		// HOTFIX 2026-05-06: kg_source_chunks doesn't exist on prod (RENAME rolled back); helper now → kg_passages.
+		$kg_chunks = class_exists( 'BizCity_KG_Database' )
+			? BizCity_KG_Database::instance()->tbl_source_chunks()
+			: ( $wpdb->prefix . 'bizcity_kg_passages' );
 		$kg_xref   = $wpdb->prefix . 'bizcity_kg_xref';
 
 		// Guard: legacy table must exist on this blog.
@@ -231,7 +234,8 @@ abstract class BizCity_KG_Backfill_Driver {
 					'content'      => $content,
 					'content_hash' => $ch_hash ?: null,
 					'token_count'  => isset( $ch['token_count'] ) ? (int) $ch['token_count'] : 0,
-					'embedding'    => $embedding,
+					// Filestore-only (Rule v2.0): NULL column; .bin is source of truth.
+					'embedding'    => null,
 					'embed_model'  => $embed_model ?: null,
 					'embed_status' => $embedding ? 'ready' : 'pending',
 					'origin'       => $this->plugin_name . '_backfill',
@@ -247,7 +251,20 @@ abstract class BizCity_KG_Backfill_Driver {
 						'chunk_index'  => isset( $ch['chunk_index'] ) ? (int) $ch['chunk_index'] : 0,
 					] ),
 				] );
-				if ( $wpdb->insert_id ) $pass_count++;
+				if ( $wpdb->insert_id ) {
+					$pass_count++;
+					// PHASE-0-RULE-VECTOR-FILE-STORE.md v2.0 — write vector to .bin.
+					$pid = (int) $wpdb->insert_id;
+					$nb  = (int) ( $scope['notebook_id'] ?? 0 );
+					if ( $pid && $nb > 0 && $embedding && class_exists( 'BizCity_KG_Embedding_Writer' ) ) {
+						$vec_arr = is_array( $embedding ) ? $embedding : json_decode( (string) $embedding, true );
+						if ( is_array( $vec_arr ) && ! empty( $vec_arr ) ) {
+							BizCity_KG_Embedding_Writer::instance()->register_chunk(
+								$nb, $pid, $vec_arr, null, (int) $kg_src_id
+							);
+						}
+					}
+				}
 			}
 
 			$wpdb->insert( $kg_xref, [

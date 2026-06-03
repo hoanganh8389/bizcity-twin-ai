@@ -118,6 +118,69 @@ class BZDoc_Installer {
 			$wpdb->query( "ALTER TABLE {$doc_table} ADD KEY idx_notebook (notebook_id)" );
 		}
 
+		// v2.4 (Sprint 0★ S0.2 — PHASE-0-RULE-SKELETON): snapshot the notebook
+		// skeleton_version at the moment a document was generated. Used by the
+		// FE stale-banner (S0.14) to warn when the upstream skeleton has moved
+		// beyond the version this document was authored against.
+		$ssv_col = $wpdb->get_var( "SHOW COLUMNS FROM {$doc_table} LIKE 'source_skeleton_version'" );
+		if ( ! $ssv_col ) {
+			$wpdb->query( "ALTER TABLE {$doc_table} ADD COLUMN source_skeleton_version INT UNSIGNED NOT NULL DEFAULT 0 AFTER notebook_id" );
+		}
+
+		// v2.5 (PHASE-0-RULE-OUTPUT-FILES — R-OF Documents Hub):
+		// generator/origin/job_id/media_id/parent_event_uuid columns + indexes.
+		// Enables CRM Documents tab + Notebook Files tab to render the unified
+		// upload-or-generated stream from a single canonical store.
+		self::ensure_v2_5_columns( $doc_table );
+
 		update_option( 'bzdoc_schema_version', BZDOC_SCHEMA_VERSION );
 	}
+
+	/**
+	 * v2.5 column patch — idempotent, safe to call multiple times.
+	 * Adds the R-OF columns + matching indexes + backfills legacy rows.
+	 */
+	private static function ensure_v2_5_columns( string $doc_table ): void {
+		global $wpdb;
+
+		$add_col = function ( string $col, string $ddl ) use ( $wpdb, $doc_table ) {
+			$exists = $wpdb->get_var( $wpdb->prepare(
+				"SHOW COLUMNS FROM {$doc_table} LIKE %s",
+				$col
+			) );
+			if ( ! $exists ) {
+				$wpdb->query( "ALTER TABLE {$doc_table} {$ddl}" );
+			}
+		};
+
+		$add_col( 'generator',         "ADD COLUMN generator VARCHAR(64) NOT NULL DEFAULT '' AFTER source_skeleton_version" );
+		$add_col( 'origin',            "ADD COLUMN origin VARCHAR(20) NOT NULL DEFAULT 'generated' AFTER generator" );
+		$add_col( 'job_id',            "ADD COLUMN job_id BIGINT UNSIGNED NULL DEFAULT NULL AFTER origin" );
+		$add_col( 'media_id',          "ADD COLUMN media_id BIGINT UNSIGNED NULL DEFAULT NULL AFTER job_id" );
+		$add_col( 'file_url',          "ADD COLUMN file_url TEXT NULL AFTER media_id" );
+		$add_col( 'mime',              "ADD COLUMN mime VARCHAR(100) NOT NULL DEFAULT '' AFTER file_url" );
+		$add_col( 'size_bytes',        "ADD COLUMN size_bytes BIGINT UNSIGNED NOT NULL DEFAULT 0 AFTER mime" );
+		$add_col( 'parent_event_uuid', "ADD COLUMN parent_event_uuid CHAR(36) NULL DEFAULT NULL AFTER size_bytes" );
+
+		$add_index = function ( string $name, string $cols ) use ( $wpdb, $doc_table ) {
+			$exists = $wpdb->get_var( $wpdb->prepare(
+				"SHOW INDEX FROM {$doc_table} WHERE Key_name = %s",
+				$name
+			) );
+			if ( ! $exists ) {
+				$wpdb->query( "ALTER TABLE {$doc_table} ADD KEY {$name} ({$cols})" );
+			}
+		};
+
+		$add_index( 'idx_nb_doctype',  'notebook_id, doc_type' );
+		$add_index( 'idx_origin_st',   'origin, status' );
+		$add_index( 'idx_gen_doctype', 'generator, doc_type' );
+		$add_index( 'idx_media',       'media_id' );
+
+		// Backfill legacy rows: existing rows have no job_id / generator → mark
+		// as native bizcity-doc generated content (the only writer pre-2.5).
+		$wpdb->query( "UPDATE {$doc_table} SET generator = 'bizcity-doc' WHERE generator = ''" );
+		$wpdb->query( "UPDATE {$doc_table} SET origin = 'generated' WHERE origin = ''" );
+	}
 }
+

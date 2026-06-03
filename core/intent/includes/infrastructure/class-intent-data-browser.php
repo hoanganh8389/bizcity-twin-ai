@@ -270,19 +270,22 @@ class BizCity_Intent_Data_Browser {
 
     /**
      * Register data browser sub-menus under Intent Monitor parent.
+     *
+     * Phase G (2026-05-19) — DISABLED. Parent menu is gone; submenus
+     * skipped to avoid orphans. Method body kept commented for reference.
      */
     public function register_menus() {
-        $pages = self::get_browser_pages();
-        foreach ( $pages as $slug => $page ) {
-            add_submenu_page(
-                'bizcity-intent-monitor',
-                $page['title'],
-                $page['menu'],
-                'manage_options',
-                'bizcity-idb-' . $slug,
-                [ $this, 'render_page' ]
-            );
-        }
+        // $pages = self::get_browser_pages();
+        // foreach ( $pages as $slug => $page ) {
+        //     add_submenu_page(
+        //         'bizcity-intent-monitor',
+        //         $page['title'],
+        //         $page['menu'],
+        //         'manage_options',
+        //         'bizcity-idb-' . $slug,
+        //         [ $this, 'render_page' ]
+        //     );
+        // }
     }
 
     /* ══════════════════════════════════════════════════════════════

@@ -21,11 +21,23 @@
  *   tasks      → /tasks/                (core/intent)
  *   sessions   → /chat-sessions/        (core/intent)
  *   scheduler  → /scheduler/            (core/scheduler)
- *   workflow   → admin: bizcity-workspace?tab=workflow   (mode=link)
+ *   workflow   → admin: bizcity-automation               (mode=link)
  *   tools      → /tools-map/            (intent tool map)
  *   skills     → /skills/               (skills page)
  *   gateway    → admin: bizchat-gateway                  (mode=link)
  *   explore    → admin: bizcity-marketplace              (mode=link)
+ *
+ * ── Activation gating (2026-06-02) ─────────────────────────────────────
+ * Each entry MAY declare `requires`:
+ *   [ 'const'    => 'CONST_NAME'  ]   — defined(CONST_NAME)
+ *   [ 'class'    => 'Class_Name'  ]   — class_exists(...)
+ *   [ 'function' => 'fn_name'     ]   — function_exists(...)
+ *   [ 'plugin'   => 'slug/file.php' ] — is_plugin_active(...)
+ * Entries WITHOUT `requires` are considered **core** and ALWAYS show:
+ *   twinchat · gateway · scheduler · workflow · skills · settings · account.
+ * Non-core entries whose requirement fails are hidden from the ActivityBar.
+ * Bookmarked URLs (`/twin/?plugin=xxx`) hitting a locked entry render the
+ * “Plugin chưa được kích hoạt / gói Pro” notice (see class-twin-shell-page).
  *
  * Language convention (PHASE-0-RULE-LANGUAGE):
  *   - Source labels are written in English.
@@ -62,14 +74,15 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 		// ── Authoring ─────────────────────────────────────────────────
 		[
 			'id'          => 'creator',
-			'label'       => __( 'Plans & Scripts',               $td ),
+			'label'       => __( 'Brain Factory',                $td ),
 			'icon'        => 'creator',
-			'emoji'       => '✍️',
+			'emoji'       => '🧠',
 			'mode'        => 'embed',
 			'public_slug' => '/creator/',
 			'capability'  => 'read',
 			'section'     => 'top',
 			'params'      => [ 'id', 'tab', 'session_id' ],
+			'requires'    => [ 'class' => 'BizCity_Content_Creator' ],
 		],
 		[
 			'id'          => 'doc',
@@ -81,6 +94,31 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 			'capability'  => 'read',
 			'section'     => 'top',
 			'params'      => [ 'doc', 'id', 'tab' ],
+			'requires'    => [ 'const' => 'BZDOC_VERSION' ],
+		],
+		// ── Customer Operations ───────────────────────────────────────
+		[
+			'id'          => 'gateway',
+			'label'       => __( 'Channels',                      $td ),
+			'icon'        => 'gateway',
+			'emoji'       => '🔌',
+			'mode'        => 'link',
+			'target_url'  => admin_url( 'admin.php?page=bizchat-gateway-spa' ),
+			'capability'  => 'read',
+			'section'     => 'top',
+		],
+		[
+			'id'          => 'crm',
+			'label'       => __( 'CRM Inbox',                     $td ),
+			'icon'        => 'funnel',
+			'emoji'       => '📥',
+			'mode'        => 'embed',
+			'public_slug' => '/crm/',
+			'capability'  => 'read',
+			'section'     => 'top',
+			'params'      => [ 'id', 'tab', 'inbox', 'thread', 'contact_id' ],
+			'desc'        => __( 'Unified multi-channel inbox (Facebook / Zalo / WebChat) with Twin Brain trace.', $td ),
+			'requires'    => [ 'class' => 'BizCity_Twin_CRM' ],
 		],
 		// ── Visual / Design ───────────────────────────────────────────
 		[
@@ -93,6 +131,7 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 			'capability'  => 'read',
 			'section'     => 'top',
 			'params'      => [ 'id', 'tab' ],
+			'requires'    => [ 'const' => 'BZTIMG_VERSION' ],
 		],
 		[
 			'id'          => 'profile',
@@ -104,17 +143,7 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 			'capability'  => 'read',
 			'section'     => 'top',
 			'params'      => [ 'id', 'tab' ],
-		],
-		[
-			'id'          => 'canva',
-			'label'       => __( 'Banners & Flyers',              $td ),
-			'icon'        => 'image',
-			'emoji'       => '🖼️',
-			'mode'        => 'embed',
-			'public_slug' => '/canva/',
-			'capability'  => 'read',
-			'section'     => 'top',
-			'params'      => [ 'id', 'template' ],
+			'requires'    => [ 'const' => 'BZTIMG_VERSION' ],
 		],
 		[
 			'id'          => 'video',
@@ -126,6 +155,7 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 			'capability'  => 'read',
 			'section'     => 'top',
 			'params'      => [ 'id', 'tab', 'mode' ],
+			'requires'    => [ 'const' => 'BIZCITY_VIDEO_KLING_VERSION' ],
 		],
 		// ── Web ───────────────────────────────────────────────────────
 		[
@@ -138,52 +168,27 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 			'capability'  => 'read',
 			'section'     => 'top',
 			'params'      => [ 'id', 'page' ],
+			'requires'    => [ 'class' => 'BizCity_Pagebuilder' ],
 		],
 		// ── Knowledge ─────────────────────────────────────────────────
-		[
-			'id'          => 'mindmap',
-			'label'       => __( 'Mindmap',                       $td ),
-			'icon'        => 'notebook',
-			'emoji'       => '🧠',
-			'mode'        => 'embed',
-			'public_slug' => '/mindmap/',
-			'capability'  => 'read',
-			'section'     => 'top',
-			'params'      => [ 'id' ],
-		],
-		[
-			'id'          => 'note',
-			'label'       => __( 'Notebook',                      $td ),
-			'icon'        => 'notebook',
-			'emoji'       => '📖',
-			'mode'        => 'embed',
-			'public_slug' => '/note/',
-			'capability'  => 'read',
-			'section'     => 'top',
-			'params'      => [ 'id' ],
-		],
+		// Mindmap & Notebook entries removed from ActivityBar (still reachable
+		// from Workspace / inline tools); keep registry lean per UX feedback.
+		// 2026-05-13 — twin-builder removed from ActivityBar per UX feedback
+		// (still reachable via /wp-admin/?page=bizcity-twin-builder direct URL).
 		// ── Operations (bottom — utilities & system links) ────────────
 		[
-			'id'          => 'tasks',
-			'label'       => __( 'Tasks',                         $td ),
-			'icon'        => 'tasks',
-			'emoji'       => '📋',
-			'mode'        => 'embed',
-			'public_slug' => '/tasks/',
+			'id'          => 'account',
+			'label'       => __( 'Account & Billing',             $td ),
+			'icon'        => 'wallet',
+			'emoji'       => '💳',
+			'mode'        => 'link',
+			// Unified BizCity API key registration — works on every client install
+			// even when local plugins (bizcity-llm-router, mu bizcity-openrouter)
+			// are NOT present. One key serves every BizCity JSON service.
+			'target_url'  => 'https://bizcity.vn/my-account/',
 			'capability'  => 'read',
 			'section'     => 'bottom',
-			'params'      => [ 'id', 'status' ],
-		],
-		[
-			'id'          => 'sessions',
-			'label'       => __( 'Chat Sessions',                 $td ),
-			'icon'        => 'sessions',
-			'emoji'       => '🗂️',
-			'mode'        => 'embed',
-			'public_slug' => '/chat-sessions/',
-			'capability'  => 'read',
-			'section'     => 'bottom',
-			'params'      => [ 'id' ],
+			'desc'        => __( 'Register the unified BizCity API key, top-up & PayPal billing.', $td ),
 		],
 		[
 			'id'          => 'scheduler',
@@ -198,25 +203,15 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 		],
 		[
 			'id'          => 'workflow',
-			'label'       => __( 'Workflow',                      $td ),
-			'icon'        => 'tools',
+			'label'       => __( 'Automation',                    $td ),
+			'icon'        => 'automation',
 			'emoji'       => '🔄',
 			'mode'        => 'link',
-			'target_url'  => admin_url( 'admin.php?page=bizcity-workspace&tab=workflow' ),
+			'target_url'  => admin_url( 'admin.php?page=bizcity-automation' ),
 			'capability'  => 'read',
 			'section'     => 'bottom',
 		],
-		[
-			'id'          => 'tools',
-			'label'       => __( 'Tools',                         $td ),
-			'icon'        => 'tools',
-			'emoji'       => '🛠️',
-			'mode'        => 'embed',
-			'public_slug' => '/tools-map/',
-			'capability'  => 'read',
-			'section'     => 'bottom',
-			'params'      => [],
-		],
+		// 2026-05-13 — `tools` removed from ActivityBar (still reachable at /tools-map/).
 		[
 			'id'          => 'skills',
 			'label'       => __( 'Skills',                        $td ),
@@ -229,41 +224,20 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 			'params'      => [ 'id' ],
 		],
 		[
-			'id'          => 'gateway',
-			'label'       => __( 'Gateway',                       $td ),
-			'icon'        => 'tools',
-			'emoji'       => '🔌',
+			'id'          => 'settings',
+			'label'       => __( 'Settings',                      $td ),
+			'icon'        => 'settings',
+			'emoji'       => '⚙️',
 			'mode'        => 'link',
-			'target_url'  => admin_url( 'admin.php?page=bizchat-gateway' ),
-			'capability'  => 'read',
+			'target_url'  => admin_url( 'admin.php?page=bizcity-twinchat-settings' ),
+			'capability'  => 'manage_options',
 			'section'     => 'bottom',
+			'desc'        => __( 'TwinChat & BizCity API key — single source of truth for the whole ecosystem.', $td ),
 		],
-		[
-			'id'          => 'explore',
-			'label'       => __( 'Marketplace',                   $td ),
-			'icon'        => 'explore',
-			'emoji'       => '🔍',
-			'mode'        => 'link',
-			'target_url'  => admin_url( 'admin.php?page=bizcity-marketplace' ),
-			'capability'  => 'read',
-			'section'     => 'bottom',
-		],
-		// Phase 0.7 Wave E — KG Learning Hub (analytics + cleanup).
-		// Page itself enforces tighter cap (`bizcity_view_kg_learning`); the
-		// shell entry stays at `read` so the icon shows for everyone — the
-		// 403 from the inner page is the canonical gate.
-		[
-			'id'          => 'learning-hub',
-			'label'       => __( 'Learning Hub',                  $td ),
-			'icon'        => 'mindmap',
-			'emoji'       => '🧠',
-			'mode'        => 'embed',
-			'public_slug' => '/learning-hub/',
-			'capability'  => 'read',
-			'section'     => 'bottom',
-			'params'      => [ 'cortex', 'scope', 'range' ],
-			'desc'        => __( 'KG learning analytics & cleanup.', $td ),
-		],
+		// 2026-05-13 — `channels` and `explore` removed from bottom ActivityBar
+		// (channels merged into `gateway`; marketplace reachable via direct URL).
+		// Learning Hub entry intentionally hidden from ActivityBar (still
+		// reachable via direct /learning-hub/ URL when needed).
 	];
 
 	return array_merge( $defaults, $plugins );

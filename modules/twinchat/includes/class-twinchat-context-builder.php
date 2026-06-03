@@ -409,7 +409,27 @@ class BizCity_TwinChat_Context_Builder {
 				$last       = (string) end( $heading_path );
 				$heading_id = $this->slugify_heading( $last );
 			}
-			$out[] = [
+
+			// Phase 0.8 — surface AV temporal markers from passage metadata so
+			// FE can render `[1:23]` chips on retrieved passages without a
+			// second round-trip. metadata may be JSON string or already-decoded
+			// array depending on retrieval path.
+			$av_meta = null;
+			$raw_meta = isset( $p['metadata'] ) ? $p['metadata'] : null;
+			if ( is_string( $raw_meta ) && $raw_meta !== '' ) {
+				$decoded = json_decode( $raw_meta, true );
+				if ( is_array( $decoded ) ) $raw_meta = $decoded;
+			}
+			if ( is_array( $raw_meta ) && isset( $raw_meta['chunker'] ) && $raw_meta['chunker'] === 'av_temporal_v1' ) {
+				$av_meta = [
+					'start_ts' => isset( $raw_meta['start_ts'] ) ? (int) $raw_meta['start_ts'] : 0,
+					'end_ts'   => isset( $raw_meta['end_ts'] )   ? (int) $raw_meta['end_ts']   : 0,
+					'speaker'  => isset( $raw_meta['speaker'] )  ? $raw_meta['speaker']        : null,
+					'is_scene' => ! empty( $raw_meta['is_scene'] ),
+				];
+			}
+
+			$entry = [
 				'index'             => $idx,
 				'passage_id'        => isset( $p['id'] ) ? (int) $p['id'] : 0,
 				'source_id'         => $sid,
@@ -421,6 +441,8 @@ class BizCity_TwinChat_Context_Builder {
 				'heading_id'        => $heading_id,
 				'related_entities'  => isset( $p['related_entities'] ) && is_array( $p['related_entities'] ) ? $p['related_entities'] : [],
 			];
+			if ( $av_meta ) $entry['av'] = $av_meta;
+			$out[] = $entry;
 			$idx++;
 		}
 		return $out;

@@ -145,6 +145,22 @@ add_action( 'template_redirect', function() {
 } );
 
 /* ══════════════════════════════════════════════════════════════
+ *  PHASE 0.31 Sprint 6 follow-up — surface "⚙ Cài đặt riêng →"
+ *  shortcut in WAIC integration dialog for Gmail / Google Calendar
+ *  rows, redirecting to /tool-google/ (Cài đặt tab). Avoids users
+ *  duplicating Client ID/Secret editing in 2 places.
+ * ══════════════════════════════════════════════════════════════ */
+add_filter( 'bizcity_integrations_data', function ( $integs ) {
+    $url = home_url( '/tool-google/?tab=settings' );
+    foreach ( array( 'gmail', 'googlecalendar' ) as $code ) {
+        if ( isset( $integs[ $code ] ) && empty( $integs[ $code ]['config_url'] ) ) {
+            $integs[ $code ]['config_url'] = $url;
+        }
+    }
+    return $integs;
+} );
+
+/* ══════════════════════════════════════════════════════════════
  *  Register Intent Provider
  * ══════════════════════════════════════════════════════════════ */
 add_action( 'bizcity_intent_register_providers', function ( $registry ) {

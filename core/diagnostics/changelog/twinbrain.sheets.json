@@ -1,0 +1,80 @@
+{
+  "$schema": "https://bizcity.vn/schema/diagnostics-changelog-v1.json",
+  "module_id": "twinbrain.sheets",
+  "owner": "core/twinbrain/sheets",
+  "installer_id": "twinbrain_sheets",
+  "current_version": "1.0.0",
+  "version_option": "bizcity_twinbrain_sheets_db_ver",
+  "tables": {
+    "bizcity_sheets": {
+      "since": "1.0.0",
+      "purpose": "TwinBrain Sheets — spreadsheet artifacts từ `sheet_enrich` tool (Wave 2.8e). Mỗi row = 1 sheet user-owned, lưu headers + status + cost aggregate. Cells lưu sang bảng `bizcity_sheet_cells`. Citation token `[sheet:S#<id>]` resolve qua `BizCity_Twin_Citation_Resolver::resolve_sheet()`. Owner: BizCity_TwinBrain_Sheets_Installer (core/twinbrain/sheets/includes/class-sheets-installer.php). Spec: PHASE-0.36-TWINBRAIN-TOOLS-SHEETS.md §3.2.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":                { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",                                       "since": "1.0.0", "pk": true },
+        "blog_id":           { "type": "INT UNSIGNED NOT NULL DEFAULT 1",                                               "since": "1.0.0" },
+        "user_id":           { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",                                            "since": "1.0.0" },
+        "title":             { "type": "VARCHAR(255) NOT NULL DEFAULT ''",                                              "since": "1.0.0" },
+        "headers_json":      { "type": "TEXT NULL",                                                                      "since": "1.0.0" },
+        "research_mode":     { "type": "ENUM('fast','deep') NOT NULL DEFAULT 'fast'",                                   "since": "1.0.0" },
+        "status":            { "type": "ENUM('draft','enriching','complete','error') NOT NULL DEFAULT 'draft'",         "since": "1.0.0" },
+        "row_count":         { "type": "INT UNSIGNED NOT NULL DEFAULT 0",                                               "since": "1.0.0" },
+        "col_count":         { "type": "INT UNSIGNED NOT NULL DEFAULT 0",                                               "since": "1.0.0" },
+        "cell_count":        { "type": "INT UNSIGNED NOT NULL DEFAULT 0",                                               "since": "1.0.0" },
+        "source_count":      { "type": "INT UNSIGNED NOT NULL DEFAULT 0",                                               "since": "1.0.0" },
+        "tavily_cost_cents": { "type": "INT UNSIGNED NOT NULL DEFAULT 0",                                               "since": "1.0.0" },
+        "total_tokens":      { "type": "INT UNSIGNED NOT NULL DEFAULT 0",                                               "since": "1.0.0" },
+        "ingest_to_kg":      { "type": "TINYINT(1) NOT NULL DEFAULT 0",                                                 "since": "1.0.0" },
+        "visibility":        { "type": "ENUM('private','shared') NOT NULL DEFAULT 'private'",                           "since": "1.0.0" },
+        "trace_id":          { "type": "VARCHAR(64) NOT NULL DEFAULT ''",                                               "since": "1.0.0" },
+        "last_error":        { "type": "TEXT NULL",                                                                      "since": "1.0.0" },
+        "metadata":          { "type": "LONGTEXT NULL",                                                                  "since": "1.0.0" },
+        "created_at":        { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",                                   "since": "1.0.0" },
+        "updated_at":        { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",       "since": "1.0.0" }
+      },
+      "indexes": {
+        "idx_user_updated": { "cols": ["blog_id", "user_id", "updated_at"], "since": "1.0.0" },
+        "idx_status":       { "cols": ["status"],                            "since": "1.0.0" },
+        "idx_trace":        { "cols": ["trace_id"],                          "since": "1.0.0" }
+      }
+    },
+    "bizcity_sheet_cells": {
+      "since": "1.0.0",
+      "purpose": "Per-cell records cho TwinBrain Sheets. UPSERT bởi `BizCity_TwinBrain_Sheet_Enricher` mỗi khi 1 cell được Tavily+LLM fill. `sources_json` lưu array {title,url,favicon,snippet}. `enrichment_trace` audit câu query Tavily + LLM reasoning. Citation token `[sheet:S#<sheet_id>/r<row>c<col>]`. Cleanup theo sheet_id FK.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":                 { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",                                       "since": "1.0.0", "pk": true },
+        "sheet_id":           { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",                                            "since": "1.0.0" },
+        "blog_id":            { "type": "INT UNSIGNED NOT NULL DEFAULT 1",                                               "since": "1.0.0" },
+        "user_id":            { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",                                            "since": "1.0.0" },
+        "row_idx":            { "type": "INT UNSIGNED NOT NULL DEFAULT 0",                                               "since": "1.0.0" },
+        "col_idx":            { "type": "INT UNSIGNED NOT NULL DEFAULT 0",                                               "since": "1.0.0" },
+        "column_name":        { "type": "VARCHAR(191) NOT NULL DEFAULT ''",                                              "since": "1.0.0" },
+        "value":              { "type": "LONGTEXT NULL",                                                                  "since": "1.0.0" },
+        "is_context":         { "type": "TINYINT(1) NOT NULL DEFAULT 0",                                                 "since": "1.0.0" },
+        "sources_json":       { "type": "TEXT NULL",                                                                      "since": "1.0.0" },
+        "enrichment_trace":   { "type": "TEXT NULL",                                                                      "since": "1.0.0" },
+        "query_used":         { "type": "TEXT NULL",                                                                      "since": "1.0.0" },
+        "tavily_cost_cents":  { "type": "INT UNSIGNED NOT NULL DEFAULT 0",                                               "since": "1.0.0" },
+        "llm_tokens":         { "type": "INT UNSIGNED NOT NULL DEFAULT 0",                                               "since": "1.0.0" },
+        "duration_ms":        { "type": "INT UNSIGNED NOT NULL DEFAULT 0",                                               "since": "1.0.0" },
+        "status":             { "type": "ENUM('empty','enriched','error') NOT NULL DEFAULT 'empty'",                    "since": "1.0.0" },
+        "last_error":         { "type": "TEXT NULL",                                                                      "since": "1.0.0" },
+        "created_at":         { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",                                   "since": "1.0.0" },
+        "updated_at":         { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",       "since": "1.0.0" }
+      },
+      "indexes": {
+        "uq_cell":         { "cols": ["sheet_id", "row_idx", "col_idx"], "unique": true, "since": "1.0.0" },
+        "idx_sheet_status":{ "cols": ["sheet_id", "status"],                                "since": "1.0.0" },
+        "idx_owner":       { "cols": ["blog_id", "user_id"],                                "since": "1.0.0" }
+      }
+    }
+  },
+  "history": [
+    { "version": "1.0.0", "date": "2026-05-24", "change": "Baseline schema cho Phase 0.36 Wave 2.8e TwinBrain Sheets (TBR.TOOL-S1). Hai bảng: `bizcity_sheets` (sheet metadata + aggregate cost) + `bizcity_sheet_cells` (per-cell value + sources_json + enrichment_trace). Owner: BizCity_TwinBrain_Sheets_Installer (core/twinbrain/sheets/includes/class-sheets-installer.php). Citation token `[sheet:S#<id>/r<row>c<col>]`. Spec: PHASE-0.36-TWINBRAIN-TOOLS-SHEETS.md." }
+  ]
+}

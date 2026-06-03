@@ -59,9 +59,27 @@ class BizCity_Knowledge_Admin_Menu {
         // Tavily search proxy — routes through BizCity_Search_Client (gateway + API key)
         add_action('wp_ajax_bizcity_knowledge_tavily_search', [$this, 'ajax_tavily_search']);
 
+        // PHASE 0.34.2 — Character ↔ Notebook attach/detach (1:N via kg_notebooks.character_id)
+        add_action('admin_post_bizcity_character_notebook_attach', [$this, 'admin_post_character_notebook_attach']);
+        add_action('admin_post_bizcity_character_notebook_detach', [$this, 'admin_post_character_notebook_detach']);
+
         // Sprint 0.18.A.3 — inline Quick FAQ auto-save (per-row).
         add_action( 'wp_ajax_bizcity_knowledge_quick_faq_upsert', [ $this, 'ajax_quick_faq_upsert' ] );
         add_action( 'wp_ajax_bizcity_knowledge_quick_faq_delete', [ $this, 'ajax_quick_faq_delete' ] );
+
+        // Memory Hub — full CRUD for all 5 memory zones (admin-mh.js).
+        add_action( 'wp_ajax_bizcity_mh_faq_upsert',      [ $this, 'ajax_mh_faq_upsert' ] );
+        add_action( 'wp_ajax_bizcity_mh_faq_delete',      [ $this, 'ajax_mh_faq_delete' ] );
+        add_action( 'wp_ajax_bizcity_mh_memory_upsert',   [ $this, 'ajax_mh_memory_upsert' ] );
+        add_action( 'wp_ajax_bizcity_mh_episodic_list',   [ $this, 'ajax_mh_episodic_list' ] );
+        add_action( 'wp_ajax_bizcity_mh_episodic_delete', [ $this, 'ajax_mh_episodic_delete' ] );
+        add_action( 'wp_ajax_bizcity_mh_rolling_list',    [ $this, 'ajax_mh_rolling_list' ] );
+        add_action( 'wp_ajax_bizcity_mh_rolling_delete',  [ $this, 'ajax_mh_rolling_delete' ] );
+        add_action( 'wp_ajax_bizcity_mh_notes_list',      [ $this, 'ajax_mh_notes_list' ] );
+        add_action( 'wp_ajax_bizcity_mh_notes_upsert',    [ $this, 'ajax_mh_notes_upsert' ] );
+        add_action( 'wp_ajax_bizcity_mh_notes_delete',    [ $this, 'ajax_mh_notes_delete' ] );
+        add_action( 'wp_ajax_bizcity_mh_files_list',      [ $this, 'ajax_mh_files_list' ] );
+        add_action( 'wp_ajax_bizcity_mh_files_delete',    [ $this, 'ajax_mh_files_delete' ] );
     }
     
     /**
@@ -151,34 +169,7 @@ class BizCity_Knowledge_Admin_Menu {
             return;
         }
 
-        // ── Legal Knowledge Graph — React SPA (Sprint React-A) ────────────
-        if ( strpos( $hook, 'bizcity-knowledge-legal-graph' ) !== false ) {
-            wp_enqueue_style(
-                'bizcity-legal-knowledge-app',
-                plugins_url( 'assets/react/legal-knowledge.css', dirname( __FILE__ ) ),
-                [],
-                time()
-            );
-            wp_enqueue_script(
-                'bizcity-legal-knowledge-app',
-                plugins_url( 'assets/react/legal-knowledge.js', dirname( __FILE__ ) ),
-                [],
-                time(),
-                true
-            );
-            wp_localize_script( 'bizcity-legal-knowledge-app', 'bizCityLegal', [
-                'restBase'      => rest_url( 'bizcity/v1/legal-graph' ),
-                'restNonce'     => wp_create_nonce( 'wp_rest' ),
-                'ajaxUrl'       => admin_url( 'admin-ajax.php' ),
-                'ajaxNonce'     => wp_create_nonce( 'bizcity_knowledge' ),
-                'maturityNonce' => wp_create_nonce( 'bizcity_maturity_nonce' ),
-                'graphId'       => (int) get_site_option( 'bizcity_legal_graph_id', 0 ),
-                'characterId'   => class_exists( 'BizCity_Legal_Character' )
-                    ? BizCity_Legal_Character::instance()->get_id()
-                    : (int) get_site_option( 'bizcity_legal_character_id', 0 ),
-            ] );
-            return;
-        }
+        // Legal Knowledge Graph React SPA — removed 2026-05-21 (module deleted).
 
         // Load character-edit specific assets
         $is_character_edit = strpos($hook, 'bizcity-knowledge-character-edit') !== false
@@ -213,24 +204,9 @@ class BizCity_Knowledge_Admin_Menu {
             return;
         }
 
-        // Load maturity dashboard assets for Training, Memory Hub, Monitor, and Dashboard pages
-        $maturity_pages = ['bizcity-knowledge-training', 'bizcity-knowledge-memory-hub', 'bizcity-knowledge-monitor'];
-        $is_maturity_page = false;
-        foreach ($maturity_pages as $page_slug) {
-            if (strpos($hook, $page_slug) !== false) {
-                $is_maturity_page = true;
-                break;
-            }
-        }
-        // Dashboard page also uses maturity assets
-        if (!$is_maturity_page && preg_match('/page_bizcity-knowledge$/', $hook)) {
-            $is_maturity_page = true;
-        }
-        if ($is_maturity_page && class_exists('BizCity_Maturity_Dashboard')) {
-            BizCity_Maturity_Dashboard::do_enqueue_assets();
-            return; // Only maturity assets needed for these pages
-        }
-        
+        // Maturity Dashboard removed 2026-05-06 — Training/Memory Hub/Monitor pages
+        // now fall through to standard bizcity-knowledge-admin styling below.
+
         wp_enqueue_style(
             'bizcity-knowledge-admin',
             plugins_url('assets/css/admin.css', dirname(__FILE__)),
@@ -260,25 +236,35 @@ class BizCity_Knowledge_Admin_Menu {
             'ajaxurl' => admin_url('admin-ajax.php'),
             'nonce' => wp_create_nonce('bizcity_knowledge'),
         ]);
-        
+
+        // Memory Hub — full CRUD + charts (admin-mh.js).
+        // Also enqueue on the Training page (Đào tạo AI / ?page=bizcity-knowledge)
+        // because Quick FAQ uses the same .bizcity-mh + .bk-* markup as Memory Hub
+        // (the legacy Maturity Dashboard bundle that handled it was retired
+        // 2026-05-06 — admin-mh.js is the surviving CRUD layer).
+        $needs_mh = ( strpos( $hook, 'bizcity-knowledge-memory-hub' ) !== false )
+                 || ( $hook === 'toplevel_page_bizcity-knowledge' );
+        if ( $needs_mh ) {
+            wp_register_script(
+                'chartjs',
+                'https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js',
+                [],
+                '4.4.3',
+                true
+            );
+            wp_enqueue_script(
+                'bizcity-knowledge-admin-mh',
+                plugins_url( 'assets/js/admin-mh.js', dirname( __FILE__ ) ),
+                [ 'bizcity-knowledge-admin', 'jquery', 'chartjs' ],
+                BIZCITY_KNOWLEDGE_VERSION,
+                true
+            );
+        }
+
         // Media uploader
         wp_enqueue_media();
     }
     
-    /**
-     * Render Maturity Dashboard (replaces old Knowledge Dashboard)
-     */
-    public function render_maturity_dashboard() {
-        if ( defined( 'BIZCITY_TWIN_CORE_DIR' ) ) {
-            $template = BIZCITY_TWIN_CORE_DIR . '/templates/maturity-dashboard.php';
-            if ( file_exists( $template ) ) {
-                include $template;
-                return;
-            }
-        }
-        echo '<div class="wrap"><h1>Knowledge Dashboard</h1><p>Twin Core module not found.</p></div>';
-    }
-
     /**
      * Render Training page (Quick FAQ, Documents, Knowledge)
      */
@@ -3047,6 +3033,17 @@ class BizCity_Knowledge_Admin_Menu {
         if (is_wp_error($result)) {
             wp_send_json_error(['message' => $result->get_error_message()]);
         }
+
+        /**
+         * Fires after a character row has been saved via AJAX. Listeners may
+         * persist additional fields (e.g. CRM Service Template selectors)
+         * by reading from $data and writing through update_character() with
+         * `settings` JSON merge.
+         *
+         * @param int   $id   Character id.
+         * @param array $data Raw $_POST payload (already stripslashed via shortcode_atts upstream is NOT done — handler reads $_POST directly).
+         */
+        do_action( 'bizcity_knowledge_character_saved', (int) $id, (array) $data );
         
         // Save Quick Knowledge — Sprint 0.18.A.1: capture result for visibility/diagnostics
         $quick_knowledge_result = null;
@@ -3375,10 +3372,449 @@ class BizCity_Knowledge_Admin_Menu {
 
         wp_send_json_success( [ 'id' => $source_id, 'rows' => (int) $deleted ] );
     }
-    
+
+    /* ================================================================
+     *  Memory Hub — full CRUD AJAX handlers (used by admin-mh.js)
+     *  All handlers: nonce = bizcity_knowledge, cap = manage_options.
+     * ================================================================ */
+
     /**
-     * AJAX: Quick update character status (for web visibility toggle)
+     * AJAX: Upsert one Quick FAQ row for current user (Memory Hub).
+     * Uses user_id (not character_id) as owner key.
      */
+    public function ajax_mh_faq_upsert() {
+        check_ajax_referer( 'bizcity_knowledge', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( [ 'message' => 'Permission denied' ], 403 );
+        }
+
+        $uid       = get_current_user_id();
+        $source_id = intval( $_POST['source_id'] ?? 0 );
+        $question  = sanitize_text_field( wp_unslash( $_POST['question'] ?? '' ) );
+        $answer    = sanitize_textarea_field( wp_unslash( $_POST['answer']   ?? '' ) );
+
+        if ( $question === '' && $answer === '' ) {
+            wp_send_json_error( [ 'message' => 'empty_row' ] );
+        }
+
+        global $wpdb;
+        $table   = $wpdb->prefix . 'bizcity_knowledge_sources';
+        $content = wp_json_encode( [ 'question' => $question, 'answer' => $answer ], JSON_UNESCAPED_UNICODE );
+
+        if ( $source_id > 0 ) {
+            $r = $wpdb->update(
+                $table,
+                [ 'content' => $content, 'content_hash' => md5( $content ), 'source_name' => $question ?: 'Quick FAQ', 'status' => 'ready' ],
+                [ 'id' => $source_id, 'user_id' => $uid, 'source_type' => 'quick_faq' ],
+                [ '%s', '%s', '%s', '%s' ],
+                [ '%d', '%d', '%s' ]
+            );
+            if ( false === $r ) {
+                wp_send_json_error( [ 'message' => $wpdb->last_error ?: 'update_failed' ] );
+            }
+            wp_send_json_success( [ 'id' => $source_id, 'op' => 'updated' ] );
+        }
+
+        $r = $wpdb->insert(
+            $table,
+            [ 'user_id' => $uid, 'source_type' => 'quick_faq', 'source_name' => $question ?: 'Quick FAQ', 'content' => $content, 'content_hash' => md5( $content ), 'status' => 'ready' ],
+            [ '%d', '%s', '%s', '%s', '%s', '%s' ]
+        );
+        if ( ! $r ) {
+            wp_send_json_error( [ 'message' => $wpdb->last_error ?: 'insert_failed' ] );
+        }
+        wp_send_json_success( [ 'id' => (int) $wpdb->insert_id, 'op' => 'created' ] );
+    }
+
+    /**
+     * AJAX: Delete one Quick FAQ row for current user (Memory Hub).
+     */
+    public function ajax_mh_faq_delete() {
+        check_ajax_referer( 'bizcity_knowledge', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( [ 'message' => 'Permission denied' ], 403 );
+        }
+
+        $uid       = get_current_user_id();
+        $source_id = intval( $_POST['source_id'] ?? 0 );
+        if ( $source_id <= 0 ) {
+            wp_send_json_error( [ 'message' => 'invalid_source_id' ] );
+        }
+
+        global $wpdb;
+        $r = $wpdb->delete(
+            $wpdb->prefix . 'bizcity_knowledge_sources',
+            [ 'id' => $source_id, 'user_id' => $uid, 'source_type' => 'quick_faq' ],
+            [ '%d', '%d', '%s' ]
+        );
+        if ( false === $r ) {
+            wp_send_json_error( [ 'message' => $wpdb->last_error ?: 'delete_failed' ] );
+        }
+        wp_send_json_success( [ 'id' => $source_id ] );
+    }
+
+    /**
+     * AJAX: Upsert one Long-term User Memory row (Memory Hub).
+     */
+    public function ajax_mh_memory_upsert() {
+        check_ajax_referer( 'bizcity_knowledge', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( [ 'message' => 'Permission denied' ], 403 );
+        }
+
+        $uid         = get_current_user_id();
+        $memory_id   = intval( $_POST['memory_id'] ?? 0 );
+        $memory_type = sanitize_text_field( wp_unslash( $_POST['memory_type'] ?? 'fact' ) );
+        $memory_key  = sanitize_text_field( wp_unslash( $_POST['memory_key']  ?? '' ) );
+        $content     = sanitize_textarea_field( wp_unslash( $_POST['content']  ?? '' ) );
+        $importance  = max( 0, min( 100, intval( $_POST['importance'] ?? 50 ) ) );
+
+        $allowed_types = [ 'fact', 'preference', 'identity', 'goal', 'pain', 'constraint', 'habit', 'relationship', 'request' ];
+        if ( ! in_array( $memory_type, $allowed_types, true ) ) {
+            $memory_type = 'fact';
+        }
+
+        if ( $content === '' ) {
+            wp_send_json_error( [ 'message' => 'empty_content' ] );
+        }
+
+        global $wpdb;
+        $table = $wpdb->prefix . 'bizcity_memory_users';
+
+        if ( ! class_exists( 'BizCity_User_Memory' ) || $wpdb->get_var( "SHOW TABLES LIKE '{$table}'" ) !== $table ) {
+            wp_send_json_error( [ 'message' => 'table_unavailable' ] );
+        }
+
+        if ( $memory_id > 0 ) {
+            $r = $wpdb->update(
+                $table,
+                [ 'memory_type' => $memory_type, 'memory_key' => $memory_key, 'memory_text' => $content, 'score' => $importance, 'updated_at' => current_time( 'mysql' ) ],
+                [ 'id' => $memory_id, 'user_id' => $uid ],
+                [ '%s', '%s', '%s', '%d', '%s' ],
+                [ '%d', '%d' ]
+            );
+            if ( false === $r ) {
+                wp_send_json_error( [ 'message' => $wpdb->last_error ?: 'update_failed' ] );
+            }
+            wp_send_json_success( [ 'id' => $memory_id, 'op' => 'updated' ] );
+        }
+
+        $blog_id = get_current_blog_id();
+        $r = $wpdb->insert(
+            $table,
+            [ 'blog_id' => $blog_id, 'user_id' => $uid, 'session_id' => '', 'memory_tier' => 'explicit', 'memory_type' => $memory_type, 'memory_key' => $memory_key, 'memory_text' => $content, 'score' => $importance, 'times_seen' => 1, 'last_seen' => current_time( 'mysql' ), 'created_at' => current_time( 'mysql' ), 'updated_at' => current_time( 'mysql' ) ],
+            [ '%d', '%d', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%s', '%s', '%s' ]
+        );
+        if ( ! $r ) {
+            wp_send_json_error( [ 'message' => $wpdb->last_error ?: 'insert_failed' ] );
+        }
+        wp_send_json_success( [ 'id' => (int) $wpdb->insert_id, 'op' => 'created' ] );
+    }
+
+    /**
+     * AJAX: List Episodic Memory rows for current user (Memory Hub).
+     */
+    public function ajax_mh_episodic_list() {
+        check_ajax_referer( 'bizcity_knowledge', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( [ 'message' => 'Permission denied' ], 403 );
+        }
+
+        global $wpdb;
+        $uid   = get_current_user_id();
+        $table = $wpdb->prefix . 'bizcity_memory_episodic';
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$table}'" ) !== $table ) {
+            wp_send_json_success( [ 'rows' => [] ] );
+        }
+
+        $page     = max( 1, intval( $_POST['page'] ?? 1 ) );
+        $per_page = min( 100, max( 10, intval( $_POST['per_page'] ?? 50 ) ) );
+        $offset   = ( $page - 1 ) * $per_page;
+
+        $rows = $wpdb->get_results( $wpdb->prepare(
+            "SELECT id, event_type, event_key, event_text, importance, source_goal, last_seen, updated_at
+             FROM {$table}
+             WHERE user_id = %d
+             ORDER BY updated_at DESC
+             LIMIT %d OFFSET %d",
+            $uid, $per_page, $offset
+        ), ARRAY_A ) ?: [];
+
+        $total = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$table} WHERE user_id = %d", $uid ) );
+
+        wp_send_json_success( [ 'rows' => $rows, 'total' => $total, 'page' => $page, 'per_page' => $per_page ] );
+    }
+
+    /**
+     * AJAX: Delete one Episodic Memory row (Memory Hub).
+     */
+    public function ajax_mh_episodic_delete() {
+        check_ajax_referer( 'bizcity_knowledge', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( [ 'message' => 'Permission denied' ], 403 );
+        }
+
+        $uid = get_current_user_id();
+        $id  = intval( $_POST['id'] ?? 0 );
+        if ( $id <= 0 ) {
+            wp_send_json_error( [ 'message' => 'invalid_id' ] );
+        }
+
+        global $wpdb;
+        $r = $wpdb->delete(
+            $wpdb->prefix . 'bizcity_memory_episodic',
+            [ 'id' => $id, 'user_id' => $uid ],
+            [ '%d', '%d' ]
+        );
+        if ( false === $r ) {
+            wp_send_json_error( [ 'message' => $wpdb->last_error ?: 'delete_failed' ] );
+        }
+        wp_send_json_success( [ 'id' => $id ] );
+    }
+
+    /**
+     * AJAX: List Rolling Memory rows for current user (Memory Hub).
+     */
+    public function ajax_mh_rolling_list() {
+        check_ajax_referer( 'bizcity_knowledge', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( [ 'message' => 'Permission denied' ], 403 );
+        }
+
+        global $wpdb;
+        $uid   = get_current_user_id();
+        $table = $wpdb->prefix . 'bizcity_memory_rolling';
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$table}'" ) !== $table ) {
+            wp_send_json_success( [ 'rows' => [] ] );
+        }
+
+        $page     = max( 1, intval( $_POST['page'] ?? 1 ) );
+        $per_page = min( 100, max( 10, intval( $_POST['per_page'] ?? 50 ) ) );
+        $offset   = ( $page - 1 ) * $per_page;
+
+        $rows = $wpdb->get_results( $wpdb->prepare(
+            "SELECT id, goal, goal_label, window_summary, status, user_goal_score, bot_satisfaction_score, total_turns, updated_at
+             FROM {$table}
+             WHERE user_id = %d
+             ORDER BY updated_at DESC
+             LIMIT %d OFFSET %d",
+            $uid, $per_page, $offset
+        ), ARRAY_A ) ?: [];
+
+        $total = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$table} WHERE user_id = %d", $uid ) );
+
+        wp_send_json_success( [ 'rows' => $rows, 'total' => $total, 'page' => $page, 'per_page' => $per_page ] );
+    }
+
+    /**
+     * AJAX: Delete one Rolling Memory row (Memory Hub).
+     */
+    public function ajax_mh_rolling_delete() {
+        check_ajax_referer( 'bizcity_knowledge', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( [ 'message' => 'Permission denied' ], 403 );
+        }
+
+        $uid = get_current_user_id();
+        $id  = intval( $_POST['id'] ?? 0 );
+        if ( $id <= 0 ) {
+            wp_send_json_error( [ 'message' => 'invalid_id' ] );
+        }
+
+        global $wpdb;
+        $r = $wpdb->delete(
+            $wpdb->prefix . 'bizcity_memory_rolling',
+            [ 'id' => $id, 'user_id' => $uid ],
+            [ '%d', '%d' ]
+        );
+        if ( false === $r ) {
+            wp_send_json_error( [ 'message' => $wpdb->last_error ?: 'delete_failed' ] );
+        }
+        wp_send_json_success( [ 'id' => $id ] );
+    }
+
+    /**
+     * AJAX: List Research Notes for current user (Memory Hub).
+     */
+    public function ajax_mh_notes_list() {
+        check_ajax_referer( 'bizcity_knowledge', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( [ 'message' => 'Permission denied' ], 403 );
+        }
+
+        global $wpdb;
+        $uid   = get_current_user_id();
+        $table = $wpdb->prefix . 'bizcity_memory_notes';
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$table}'" ) !== $table ) {
+            wp_send_json_success( [ 'rows' => [] ] );
+        }
+
+        $page     = max( 1, intval( $_POST['page'] ?? 1 ) );
+        $per_page = min( 100, max( 10, intval( $_POST['per_page'] ?? 50 ) ) );
+        $offset   = ( $page - 1 ) * $per_page;
+
+        $rows = $wpdb->get_results( $wpdb->prepare(
+            "SELECT id, title, content, tags, note_type, is_starred, created_at, updated_at
+             FROM {$table}
+             WHERE user_id = %d
+             ORDER BY updated_at DESC
+             LIMIT %d OFFSET %d",
+            $uid, $per_page, $offset
+        ), ARRAY_A ) ?: [];
+
+        $total = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$table} WHERE user_id = %d", $uid ) );
+
+        wp_send_json_success( [ 'rows' => $rows, 'total' => $total, 'page' => $page, 'per_page' => $per_page ] );
+    }
+
+    /**
+     * AJAX: Upsert one Research Note (Memory Hub).
+     */
+    public function ajax_mh_notes_upsert() {
+        check_ajax_referer( 'bizcity_knowledge', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( [ 'message' => 'Permission denied' ], 403 );
+        }
+
+        $uid      = get_current_user_id();
+        $note_id  = intval( $_POST['note_id'] ?? 0 );
+        $title    = sanitize_text_field( wp_unslash( $_POST['title']   ?? '' ) );
+        $content  = sanitize_textarea_field( wp_unslash( $_POST['content'] ?? '' ) );
+        $tags     = sanitize_text_field( wp_unslash( $_POST['tags']    ?? '[]' ) );
+
+        if ( $title === '' && $content === '' ) {
+            wp_send_json_error( [ 'message' => 'empty_note' ] );
+        }
+
+        global $wpdb;
+        $table = $wpdb->prefix . 'bizcity_memory_notes';
+
+        if ( $note_id > 0 ) {
+            $r = $wpdb->update(
+                $table,
+                [ 'title' => $title, 'content' => $content, 'tags' => $tags, 'updated_at' => current_time( 'mysql' ) ],
+                [ 'id' => $note_id, 'user_id' => $uid ],
+                [ '%s', '%s', '%s', '%s' ],
+                [ '%d', '%d' ]
+            );
+            if ( false === $r ) {
+                wp_send_json_error( [ 'message' => $wpdb->last_error ?: 'update_failed' ] );
+            }
+            wp_send_json_success( [ 'id' => $note_id, 'op' => 'updated' ] );
+        }
+
+        $r = $wpdb->insert(
+            $table,
+            [ 'user_id' => $uid, 'title' => $title, 'content' => $content, 'tags' => $tags, 'note_type' => 'manual', 'created_by' => 'user', 'created_at' => current_time( 'mysql' ), 'updated_at' => current_time( 'mysql' ) ],
+            [ '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s' ]
+        );
+        if ( ! $r ) {
+            wp_send_json_error( [ 'message' => $wpdb->last_error ?: 'insert_failed' ] );
+        }
+        wp_send_json_success( [ 'id' => (int) $wpdb->insert_id, 'op' => 'created' ] );
+    }
+
+    /**
+     * AJAX: Delete one Research Note (Memory Hub).
+     */
+    public function ajax_mh_notes_delete() {
+        check_ajax_referer( 'bizcity_knowledge', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( [ 'message' => 'Permission denied' ], 403 );
+        }
+
+        $uid     = get_current_user_id();
+        $note_id = intval( $_POST['note_id'] ?? 0 );
+        if ( $note_id <= 0 ) {
+            wp_send_json_error( [ 'message' => 'invalid_id' ] );
+        }
+
+        global $wpdb;
+        $r = $wpdb->delete(
+            $wpdb->prefix . 'bizcity_memory_notes',
+            [ 'id' => $note_id, 'user_id' => $uid ],
+            [ '%d', '%d' ]
+        );
+        if ( false === $r ) {
+            wp_send_json_error( [ 'message' => $wpdb->last_error ?: 'delete_failed' ] );
+        }
+        wp_send_json_success( [ 'id' => $note_id ] );
+    }
+
+    /**
+     * AJAX: List files from bizcity_rces (BCN sources) for Memory Hub Files tab.
+     */
+    public function ajax_mh_files_list() {
+        check_ajax_referer( 'bizcity_knowledge', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( [ 'message' => 'Permission denied' ], 403 );
+        }
+
+        global $wpdb;
+        $uid         = get_current_user_id();
+        $table       = $wpdb->prefix . 'bzdoc_documents';
+        $page        = max( 1, intval( $_POST['page'] ?? 1 ) );
+        $per_page    = min( 100, max( 10, intval( $_POST['per_page'] ?? 50 ) ) );
+        $offset      = ( $page - 1 ) * $per_page;
+        $notebook_id = intval( $_POST['notebook_id'] ?? 0 );
+        $doc_type    = sanitize_text_field( $_POST['doc_type'] ?? '' );
+
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$table}'" ) !== $table ) {
+            wp_send_json_success( [ 'rows' => [], 'total' => 0 ] );
+        }
+
+        $where = $wpdb->prepare( 'WHERE user_id = %d', $uid );
+        if ( $notebook_id > 0 ) {
+            $where .= $wpdb->prepare( ' AND notebook_id = %d', $notebook_id );
+        }
+        if ( $doc_type !== '' ) {
+            $where .= $wpdb->prepare( ' AND doc_type = %s', $doc_type );
+        }
+
+        $total = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table} {$where}" );
+        $rows  = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT id, doc_type, title, template_name, theme_name, status,
+                        notebook_id, created_at, updated_at
+                 FROM {$table} {$where}
+                 ORDER BY updated_at DESC
+                 LIMIT %d OFFSET %d",
+                $per_page,
+                $offset
+            ),
+            ARRAY_A
+        ) ?: [];
+
+        wp_send_json_success( [ 'rows' => $rows, 'total' => $total ] );
+    }
+
+    /**
+     * AJAX: Delete a document from bzdoc_documents for Memory Hub Files tab.
+     */
+    public function ajax_mh_files_delete() {
+        check_ajax_referer( 'bizcity_knowledge', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( [ 'message' => 'Permission denied' ], 403 );
+        }
+
+        $uid    = get_current_user_id();
+        $doc_id = intval( $_POST['doc_id'] ?? 0 );
+        if ( $doc_id <= 0 ) {
+            wp_send_json_error( [ 'message' => 'invalid_id' ] );
+        }
+
+        global $wpdb;
+        $table = $wpdb->prefix . 'bzdoc_documents';
+        $r     = $wpdb->delete(
+            $table,
+            [ 'id' => $doc_id, 'user_id' => $uid ],
+            [ '%d', '%d' ]
+        );
+        if ( false === $r ) {
+            wp_send_json_error( [ 'message' => $wpdb->last_error ?: 'delete_failed' ] );
+        }
+        wp_send_json_success( [ 'id' => $doc_id ] );
+    }
     public function ajax_quick_update_status() {
         check_ajax_referer('bizcity_knowledge', 'nonce');
         
@@ -3959,40 +4395,9 @@ class BizCity_Knowledge_Admin_Menu {
             
             if (is_wp_error($result)) {
                 $errors[] = $source_data['source_name'] . ': ' . $result->get_error_message();
-            } elseif ( class_exists( 'BizCity_Legal_Chunker' ) ) {
-                // Tag chunks as legal scope so graph builder (get_unprocessed_chunks) picks them up.
-                // Sources keep the real character_id so ajax_list_sources still finds them.
-                global $wpdb;
-                $legal_cid = BizCity_Legal_Chunker::LEGAL_CHARACTER_ID; // = 0
-                // 1. Batch-update character_id
-                $wpdb->update(
-                    $wpdb->prefix . 'bizcity_knowledge_chunks',
-                    [ 'character_id' => $legal_cid ],
-                    [ 'source_id'    => $source_id ],
-                    [ '%d' ],
-                    [ '%d' ]
-                );
-                // 2. Add scope:"legal" to each chunk's metadata (PHP loop — MySQL 5.x safe)
-                $chunk_rows = $wpdb->get_results( $wpdb->prepare(
-                    "SELECT id, metadata FROM {$wpdb->prefix}bizcity_knowledge_chunks WHERE source_id = %d",
-                    $source_id
-                ) );
-                foreach ( $chunk_rows as $chk ) {
-                    $meta = json_decode( $chk->metadata, true );
-                    if ( ! is_array( $meta ) ) {
-                        $meta = [];
-                    }
-                    $meta['scope'] = 'legal';
-                    $wpdb->update(
-                        $wpdb->prefix . 'bizcity_knowledge_chunks',
-                        [ 'metadata' => json_encode( $meta, JSON_UNESCAPED_UNICODE ) ],
-                        [ 'id' => (int) $chk->id ],
-                        [ '%s' ],
-                        [ '%d' ]
-                    );
-                }
             }
-            
+            // Legal-scope tagging block removed 2026-05-21 (Legal module deleted).
+
             // Get updated source status
             global $wpdb;
             $source = $wpdb->get_row($wpdb->prepare(
@@ -5016,6 +5421,51 @@ class BizCity_Knowledge_Admin_Menu {
             'suggested_slug' => $base_slug . '-' . $timestamp_suffix,
             'original_slug' => $slug
         ]);
+    }
+
+    /**
+     * PHASE 0.34.2 — Attach one or more notebooks to a character (1:N via kg_notebooks.character_id).
+     * Source: character-edit.php Notebooks tab form.
+     */
+    public function admin_post_character_notebook_attach() {
+        $cid = isset( $_POST['character_id'] ) ? (int) $_POST['character_id'] : 0;
+        if ( ! $cid || ! current_user_can( 'manage_options' ) ) {
+            wp_die( 'forbidden' );
+        }
+        check_admin_referer( 'bk_char_nb_' . $cid );
+
+        $ids = isset( $_POST['notebook_ids'] ) ? (array) $_POST['notebook_ids'] : [];
+        $ids = array_filter( array_map( 'intval', $ids ) );
+
+        if ( $ids && class_exists( 'BizCity_KG_Database' ) ) {
+            global $wpdb;
+            $tbl = BizCity_KG_Database::instance()->tbl_notebooks();
+            foreach ( $ids as $nb_id ) {
+                $wpdb->update( $tbl, [ 'character_id' => $cid ], [ 'id' => $nb_id ] );
+            }
+        }
+        wp_safe_redirect( wp_get_referer() ?: admin_url() );
+        exit;
+    }
+
+    /**
+     * PHASE 0.34.2 — Detach a single notebook from a character (sets character_id NULL).
+     */
+    public function admin_post_character_notebook_detach() {
+        $cid = isset( $_POST['character_id'] ) ? (int) $_POST['character_id'] : 0;
+        $nb  = isset( $_POST['notebook_id'] )  ? (int) $_POST['notebook_id']  : 0;
+        if ( ! $cid || ! $nb || ! current_user_can( 'manage_options' ) ) {
+            wp_die( 'forbidden' );
+        }
+        check_admin_referer( 'bk_char_nb_' . $cid );
+
+        if ( class_exists( 'BizCity_KG_Database' ) ) {
+            global $wpdb;
+            $tbl = BizCity_KG_Database::instance()->tbl_notebooks();
+            $wpdb->update( $tbl, [ 'character_id' => null ], [ 'id' => $nb, 'character_id' => $cid ] );
+        }
+        wp_safe_redirect( wp_get_referer() ?: admin_url() );
+        exit;
     }
 }
 

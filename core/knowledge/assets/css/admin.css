@@ -686,3 +686,8 @@ a.duplicate-character:hover {
     color: #2e7d32;
     font-weight: 500;
 }
+
+/* Override WP core .wrap margin (wp-admin/css/common.css) */
+.wrap {
+    margin: 0 !important;
+}

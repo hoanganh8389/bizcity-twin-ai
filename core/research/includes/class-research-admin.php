@@ -18,14 +18,15 @@ final class BizCity_Research_Admin {
     }
 
     public function register_menu(): void {
-        add_menu_page(
+        // Phase G (2026-05-19) — promoted as submenu of Twin Chat
+        // (admin.php?page=bizcity-twinchat). Slug unchanged → deep-links OK.
+        add_submenu_page(
+            'bizcity-twinchat',
             __( 'Twin Research', 'bizcity-twin-ai' ),
             __( 'Twin Research', 'bizcity-twin-ai' ),
             'read',
             self::PAGE_SLUG,
-            [ $this, 'render_user_page' ],
-            'dashicons-search',
-            56
+            [ $this, 'render_user_page' ]
         );
     }
 

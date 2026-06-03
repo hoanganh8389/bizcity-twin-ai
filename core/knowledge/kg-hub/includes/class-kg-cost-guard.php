@@ -117,34 +117,153 @@ class BizCity_KG_Cost_Guard {
 			return true;
 		}
 
+		$user_id = (int) $user_id;
+		$diag    = $this->diagnose_quota_chain( $user_id );
+
 		/**
 		 * Filter: bizcity_kg_user_is_exempt
 		 * Return true to bypass all KG quota checks for this user.
 		 * LLM Router hooks this to exempt admins + the explicit exempt-users list.
 		 */
-		if ( (bool) apply_filters( 'bizcity_kg_user_is_exempt', false, (int) $user_id ) ) {
+		if ( (bool) apply_filters( 'bizcity_kg_user_is_exempt', false, $user_id ) ) {
 			return true;
 		}
 
-		$today = $this->today();
+		// R-GW-8 fallback: when bizcity-llm-router is NOT on this client site
+		// the `bizcity_kg_user_is_exempt` filter is never hooked, so the central
+		// exception list never applies. Fetch entitlement from bizcity.vn (cached
+		// transient) and treat tier>=paid OR balance>=$0.001 OR explicit bypass
+		// flag as exempt. This makes the central "Ngoại lệ quota (User IDs)" work
+		// end-to-end as long as that user pays for credits.
+		if ( $diag['entitlement_bypass'] ) {
+			return true;
+		}
 
 		// 1. Site-wide USD cap
 		$spent = $this->spent_today_usd();
 		if ( $spent >= $this->daily_cap_usd() ) {
-			return new WP_Error( 'cap_exceeded', sprintf(
-				'Site-wide daily cap reached: $%.2f / $%.2f', $spent, $this->daily_cap_usd()
-			) );
+			$msg  = sprintf( 'Site-wide daily cap reached: $%.2f / $%.2f', $spent, $this->daily_cap_usd() );
+			$msg .= "\n" . $this->compose_diagnostic_hint( $diag );
+			return new WP_Error( 'cap_exceeded', $msg, array_merge( $diag, [
+				'spent_usd' => $spent,
+				'cap_usd'   => $this->daily_cap_usd(),
+				'user_id'   => $user_id,
+			] ) );
 		}
 
 		// 2. Per-user quota
-		$used = $this->user_passages_today( (int) $user_id );
+		$used = $this->user_passages_today( $user_id );
 		if ( $used + $estimated_passages > $this->quota_per_user() ) {
-			return new WP_Error( 'quota_exceeded', sprintf(
-				'User %d quota: %d / %d passages today', $user_id, $used, $this->quota_per_user()
-			) );
+			$msg  = sprintf( 'User #%d: %d / %d passages today', $user_id, $used, $this->quota_per_user() );
+			$msg .= "\n" . $this->compose_diagnostic_hint( $diag );
+			return new WP_Error( 'quota_exceeded', $msg, array_merge( $diag, [
+				'used'    => $used,
+				'cap'     => $this->quota_per_user(),
+				'user_id' => $user_id,
+			] ) );
 		}
 
 		return true;
+	}
+
+	/**
+	 * Inspect the filter chain + bizcity.vn entitlement to build a structured
+	 * diagnostic snapshot. Used by can_extract() to enrich quota errors so the
+	 * FE can show actionable hints (e.g. "central settings không sync xuống
+	 * client" or "user chưa nạp credit").
+	 *
+	 * @return array {
+	 *   quota_per_user, quota_filter_hooked, exempt_filter_hooked,
+	 *   has_llm_router_local, has_llm_client, entitlement_status,
+	 *   entitlement_tier, entitlement_balance, entitlement_bypass,
+	 *   entitlement_message
+	 * }
+	 */
+	protected function diagnose_quota_chain( int $user_id ): array {
+		$quota_hooked  = (bool) has_filter( 'bizcity_kg_quota_per_user' );
+		$exempt_hooked = (bool) has_filter( 'bizcity_kg_user_is_exempt' );
+		$has_router    = class_exists( 'BizCity_Router_KG_Bridge' );
+		$has_client    = class_exists( 'BizCity_LLM_Client' );
+
+		$ent_status  = $has_client ? 'pending' : 'missing';
+		$ent_tier    = '';
+		$ent_balance = 0.0;
+		$ent_bypass  = false;
+		$ent_msg     = '';
+
+		if ( $has_client && $user_id > 0 ) {
+			// Short-lived per-request cache so a tick that already paid the round-trip
+			// once doesn't pay it again for site-cap + per-user-quota checks.
+			static $ent_cache = [];
+			$key = 'ent_' . $user_id;
+			if ( ! isset( $ent_cache[ $key ] ) ) {
+				$ent_cache[ $key ] = BizCity_LLM_Client::instance()->get_entitlement( $user_id, [ 'timeout' => 3 ] );
+			}
+			$ent = $ent_cache[ $key ];
+			if ( is_wp_error( $ent ) ) {
+				$ent_status = 'error';
+				$ent_msg    = $ent->get_error_message();
+			} elseif ( is_array( $ent ) ) {
+				$ent_status  = 'ok';
+				$ent_tier    = isset( $ent['tier'] )        ? (string) $ent['tier']        : '';
+				$ent_balance = isset( $ent['balance_usd'] ) ? (float)  $ent['balance_usd'] : 0.0;
+				// Treat as exempt when: explicit bypass flag, OR paid/enterprise tier,
+				// OR balance > free-tier threshold ($0.001 — mirrors central).
+				$ent_bypass = ! empty( $ent['bypass'] )
+					|| in_array( $ent_tier, [ 'paid', 'enterprise', 'pro' ], true )
+					|| $ent_balance >= 0.001;
+				if ( ! empty( $ent['_degraded']['message'] ) ) {
+					$ent_msg = (string) $ent['_degraded']['message'];
+				}
+			}
+		}
+
+		return [
+			'quota_per_user'         => $this->quota_per_user(),
+			'quota_filter_hooked'    => $quota_hooked,
+			'exempt_filter_hooked'   => $exempt_hooked,
+			'has_llm_router_local'   => $has_router,
+			'has_llm_client'         => $has_client,
+			'entitlement_status'     => $ent_status,
+			'entitlement_tier'       => $ent_tier,
+			'entitlement_balance'    => $ent_balance,
+			'entitlement_bypass'     => $ent_bypass,
+			'entitlement_message'    => $ent_msg,
+		];
+	}
+
+	/**
+	 * Compose a human-readable Vietnamese hint that pinpoints WHY the quota
+	 * tripped — distinguishing between (a) client topology (R-GW-8) missing
+	 * central settings sync, (b) entitlement upstream unreachable, and (c)
+	 * user genuinely on free tier with $0 balance.
+	 */
+	protected function compose_diagnostic_hint( array $diag ): string {
+		$lines = [];
+		$lines[] = sprintf(
+			'Quota nguồn: %s (= %d passages/ngày).',
+			$diag['quota_filter_hooked'] ? 'filter đã hook (router/local)' : 'DEFAULT_QUOTA_USER local',
+			(int) $diag['quota_per_user']
+		);
+		if ( ! $diag['quota_filter_hooked'] && ! $diag['has_llm_router_local'] ) {
+			$lines[] = 'Site này KHÔNG cài bizcity-llm-router (R-GW-8 client topology) → cấu hình quota & danh sách ngoại lệ trên bizcity.vn không tự sync xuống. Cần nạp credit cho user hoặc đặt filter `bizcity_kg_quota_per_user` / `bizcity_kg_user_is_exempt` ở mu-plugin local.';
+		}
+		if ( $diag['entitlement_status'] === 'ok' ) {
+			$lines[] = sprintf(
+				'Entitlement bizcity.vn: tier=%s · balance=$%.4f · bypass=%s.',
+				$diag['entitlement_tier'] ?: 'free',
+				(float) $diag['entitlement_balance'],
+				$diag['entitlement_bypass'] ? 'yes' : 'no'
+			);
+			if ( ! $diag['entitlement_bypass'] ) {
+				$lines[] = 'User đang ở free tier (balance < $0.001). Nạp credit ở bizcity.vn để gỡ rate-limit tự động, hoặc thêm User ID vào "Ngoại lệ quota (User IDs)" rồi kích hoạt bridge filter local.';
+			}
+		} elseif ( $diag['entitlement_status'] === 'error' ) {
+			$lines[] = sprintf( 'Entitlement bizcity.vn FAIL: %s — không xác định được tier/balance, fallback dùng quota default.', $diag['entitlement_message'] ?: 'unknown' );
+		} elseif ( $diag['entitlement_status'] === 'missing' ) {
+			$lines[] = 'BizCity_LLM_Client chưa load → không thể hỏi entitlement từ bizcity.vn.';
+		}
+		return implode( "\n", $lines );
 	}
 
 	/**

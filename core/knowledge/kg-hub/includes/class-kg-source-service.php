@@ -287,7 +287,8 @@ class BizCity_KG_Source_Service {
 
 			// Generate embedding.
 			$vec            = BizCity_KG_Vector_Index::instance()->embed( $content );
-			$embedding_json = is_array( $vec ) ? BizCity_KG_Database::encode_embedding( $vec ) : null;
+			// Filestore-only (Rule v2.0): set embedding column NULL; .bin is source of truth.
+			$embedding_json = null;
 
 			$wpdb->insert( $db->tbl_passages(), [
 				'notebook_id'       => (int) $notebook_id,
@@ -296,12 +297,27 @@ class BizCity_KG_Source_Service {
 				'origin'            => 'source',
 				'content'           => $content,
 				'content_hash'      => $content_hash,
-				'embedding'         => $embedding_json,
+				'embedding'         => null,
 				'token_count'       => (int) ceil( mb_strlen( $content ) / 4 ),
 				'extraction_status' => 'pending',
 				'metadata'          => wp_json_encode( [ 'chunk_index' => $idx, 'source' => 'content_text' ] ),
 			] );
 			$count++;
+
+			// PHASE-0-RULE-VECTOR-FILE-STORE.md v2.0 — .bin is single source of truth.
+			$pid = (int) $wpdb->insert_id;
+			if ( $pid && is_array( $vec ) && class_exists( 'BizCity_KG_Embedding_Writer' ) ) {
+				BizCity_KG_Embedding_Writer::instance()->register_chunk(
+					(int) $notebook_id, $pid, $vec, null, (int) $source_id
+				);
+			}
+			// PHASE-0.7-LEARN-VECTOR-FILE Wave F1 — dual-write body to filestore.
+			// No-op when option `bizcity_kg_filestore_dual_write` !== 1.
+			if ( $pid && class_exists( 'BizCity_KG_Filestore_Dispatcher' ) ) {
+				BizCity_KG_Filestore_Dispatcher::instance()->after_passage_insert(
+					$pid, (int) $notebook_id, $content
+				);
+			}
 		}
 
 		return [ 'count' => $count, 'table' => $src_tbl . ' (content_text)' ];
@@ -366,7 +382,7 @@ class BizCity_KG_Source_Service {
 				'origin'            => 'source',
 				'content'           => $content,
 				'content_hash'      => $content_hash,
-				'embedding'         => $chunk['embedding'] ?: null,
+				'embedding'         => null,
 				'token_count'       => (int) ( $chunk['token_count'] ?? 0 ),
 				'extraction_status' => 'pending',
 				'metadata'          => $has_meta && ! empty( $chunk['metadata'] )
@@ -374,6 +390,25 @@ class BizCity_KG_Source_Service {
 					: wp_json_encode( (object) [] ),
 			] );
 			$count++;
+
+			// PHASE-0-RULE-VECTOR-FILE-STORE.md v2.0 — .bin only.
+			$pid = (int) $wpdb->insert_id;
+			if ( $pid && ! empty( $chunk['embedding'] ) && class_exists( 'BizCity_KG_Embedding_Writer' ) ) {
+				$vec_arr = is_array( $chunk['embedding'] )
+					? $chunk['embedding']
+					: json_decode( (string) $chunk['embedding'], true );
+				if ( is_array( $vec_arr ) && ! empty( $vec_arr ) ) {
+					BizCity_KG_Embedding_Writer::instance()->register_chunk(
+						(int) $notebook_id, $pid, $vec_arr, null, (int) $source_id
+					);
+				}
+			}
+			// PHASE-0.7-LEARN-VECTOR-FILE Wave F1 — dual-write body to filestore.
+			if ( $pid && class_exists( 'BizCity_KG_Filestore_Dispatcher' ) ) {
+				BizCity_KG_Filestore_Dispatcher::instance()->after_passage_insert(
+					$pid, (int) $notebook_id, $content
+				);
+			}
 		}
 		return [ 'count' => $count, 'table' => $chunks_table ];
 	}
@@ -402,7 +437,7 @@ class BizCity_KG_Source_Service {
 		// Generate embedding immediately (cheap, cached).
 		$token_estimate = (int) ceil( str_word_count( $content ) * 1.3 );
 		$vec = BizCity_KG_Vector_Index::instance()->embed( $content );
-		$embedding_json = is_array( $vec ) ? BizCity_KG_Database::encode_embedding( $vec ) : null;
+		// Filestore-only (Rule v2.0): embedding column stays NULL; .bin holds vector.
 
 		// Use sanitize_text_field (not sanitize_key) to preserve colons/dots in origins like
 		// 'file:filename.txt' and 'url:domain.com'. Truncate to 100 chars (column width).
@@ -415,12 +450,25 @@ class BizCity_KG_Source_Service {
 			'origin'           => $origin_clean,
 			'content'          => $content,
 			'content_hash'     => $content_hash,
-			'embedding'        => $embedding_json,
+			'embedding'        => null,
 			'token_count'      => $token_estimate,
 			'extraction_status'=> 'pending',
 			'metadata'         => wp_json_encode( $metadata ),
 		] );
 		$pid = (int) $wpdb->insert_id;
+
+		// PHASE-0-RULE-VECTOR-FILE-STORE.md v2.0 — .bin is source of truth.
+		if ( $pid && is_array( $vec ) && class_exists( 'BizCity_KG_Embedding_Writer' ) ) {
+			BizCity_KG_Embedding_Writer::instance()->register_chunk(
+				(int) $notebook_id, $pid, $vec, null, null
+			);
+		}
+		// PHASE-0.7-LEARN-VECTOR-FILE Wave F1 — dual-write body to filestore.
+		if ( $pid && class_exists( 'BizCity_KG_Filestore_Dispatcher' ) ) {
+			BizCity_KG_Filestore_Dispatcher::instance()->after_passage_insert(
+				$pid, (int) $notebook_id, $content
+			);
+		}
 
 		// Record embedding cost.
 		if ( $pid && is_array( $vec ) && class_exists( 'BizCity_KG_Cost_Guard' ) ) {
@@ -433,7 +481,232 @@ class BizCity_KG_Source_Service {
 			] );
 		}
 
+		// PHASE 0.31 T-S3.1 — fire Brain⇄Workflow event so trigger blocks can react.
+		// Payload contract is documented at the trigger side (`nb_note_created`).
+		// `event` is the subtype string the trigger filters on.
+		if ( $pid ) {
+			do_action( 'bizcity_twin_notebook_event', 'note_created', array(
+				'event'       => 'note_created',
+				'passage_id'  => (int) $pid,
+				'notebook_id' => (int) $notebook_id,
+				'origin'      => $origin_clean,
+				'content'     => $content,
+				'metadata'    => $metadata,
+				'user_id'     => get_current_user_id(),
+				'timestamp'   => time() * 1000,
+			) );
+		}
+
 		return $pid;
+	}
+
+	/**
+	 * PHASE 0.31 T-S3.1 (Sprint 4 follow-up) — Update an existing passage.
+	 *
+	 * Supports updating `content`, `metadata` (merge), and/or `origin`.
+	 * - When `content` changes: recompute `content_hash`, regenerate embedding,
+	 *   dual-write into the .bin store, and record cost.
+	 * - When `metadata` changes: shallow-merge with existing JSON (caller passes
+	 *   only the keys to overwrite; pass `null` value to remove a key).
+	 * - Emits `bizcity_twin_notebook_event` with subtype `note_updated` per changed
+	 *   field so trigger `nb_note_updated` (with optional changed_field filter)
+	 *   reacts deterministically.
+	 *
+	 * @param int   $passage_id
+	 * @param array $changes  ['content' => string, 'metadata' => array, 'origin' => string]
+	 * @return int|WP_Error  passage_id on success, WP_Error otherwise.
+	 */
+	public function update_passage( $passage_id, array $changes ) {
+		global $wpdb;
+		$db = BizCity_KG_Database::instance();
+		$passage_id = (int) $passage_id;
+		if ( $passage_id <= 0 ) {
+			return new WP_Error( 'invalid_id', 'passage_id required' );
+		}
+		if ( empty( $changes ) ) {
+			return new WP_Error( 'empty', 'No changes supplied' );
+		}
+
+		$row = $wpdb->get_row( $wpdb->prepare(
+			"SELECT id, notebook_id, origin, content, metadata,
+			        storage_ver, file_shard, file_offset, file_length
+			 FROM {$db->tbl_passages()} WHERE id = %d LIMIT 1",
+			$passage_id
+		), ARRAY_A );
+		if ( ! $row ) {
+			return new WP_Error( 'not_found', 'Passage not found' );
+		}
+		// Filestore-first read — inline `content` is NULL once Wave F4 cleaned.
+		if ( class_exists( 'BizCity_KG_Content_Router' ) ) {
+			$row['content'] = BizCity_KG_Content_Router::instance()->passage_body( $row );
+		}
+
+		$update      = array();
+		$diffs       = array();   // [ ['changed_field', $old, $new], ... ]
+		$notebook_id = (int) $row['notebook_id'];
+
+		// --- content -------------------------------------------------------
+		if ( array_key_exists( 'content', $changes ) ) {
+			$new_content = trim( (string) $changes['content'] );
+			if ( $new_content === '' ) {
+				return new WP_Error( 'empty_content', 'Empty content' );
+			}
+			if ( $new_content !== (string) $row['content'] ) {
+				$new_hash = md5( $new_content );
+				$update['content']      = $new_content;
+				$update['content_hash'] = $new_hash;
+				$update['token_count']  = (int) ceil( str_word_count( $new_content ) * 1.3 );
+
+				$vec = BizCity_KG_Vector_Index::instance()->embed( $new_content );
+				if ( is_array( $vec ) ) {
+					$update['embedding'] = BizCity_KG_Database::encode_embedding( $vec );
+				}
+				$update['extraction_status'] = 'pending';
+
+				$diffs[] = array( 'content', (string) $row['content'], $new_content );
+
+				// Re-register embedding + cost (deferred to AFTER update succeeds).
+				$pending_embedding = is_array( $vec ) ? $vec : null;
+			}
+		}
+
+		// --- metadata (shallow merge) -------------------------------------
+		if ( array_key_exists( 'metadata', $changes ) && is_array( $changes['metadata'] ) ) {
+			$old_meta = json_decode( (string) ( $row['metadata'] ?? '' ), true );
+			if ( ! is_array( $old_meta ) ) { $old_meta = array(); }
+			$new_meta = $old_meta;
+			foreach ( $changes['metadata'] as $k => $v ) {
+				if ( $v === null ) {
+					unset( $new_meta[ $k ] );
+				} else {
+					$new_meta[ $k ] = $v;
+				}
+			}
+			if ( $new_meta !== $old_meta ) {
+				$update['metadata'] = wp_json_encode( $new_meta );
+				$diffs[] = array( 'metadata', $old_meta, $new_meta );
+			}
+		}
+
+		// --- origin --------------------------------------------------------
+		if ( array_key_exists( 'origin', $changes ) ) {
+			$new_origin = substr( sanitize_text_field( (string) $changes['origin'] ), 0, 100 );
+			if ( $new_origin !== (string) $row['origin'] ) {
+				$update['origin'] = $new_origin;
+				$diffs[] = array( 'origin', (string) $row['origin'], $new_origin );
+			}
+		}
+
+		if ( empty( $update ) ) {
+			return $passage_id; // nothing actually changed
+		}
+
+		$wpdb->update( $db->tbl_passages(), $update, array( 'id' => $passage_id ) );
+
+		// Dual-write embedding + cost AFTER successful update.
+		if ( isset( $update['embedding'] ) && ! empty( $pending_embedding ) ) {
+			if ( class_exists( 'BizCity_KG_Embedding_Writer' ) ) {
+				BizCity_KG_Embedding_Writer::instance()->register_chunk(
+					$notebook_id, $passage_id, $pending_embedding, null, null
+				);
+			}
+			if ( class_exists( 'BizCity_KG_Cost_Guard' ) ) {
+				BizCity_KG_Cost_Guard::instance()->record_usage( array(
+					'user_id'      => get_current_user_id(),
+					'operation'    => BizCity_KG_Cost_Guard::OP_EMBED,
+					'notebook_id'  => $notebook_id,
+					'passage_id'   => $passage_id,
+					'input_tokens' => isset( $update['token_count'] ) ? (int) $update['token_count'] : 0,
+				) );
+			}
+		}
+
+		// Fire one event per changed field so trigger filter (changed_field=…)
+		// can target a single field cleanly.
+		foreach ( $diffs as $d ) {
+			list( $field, $old_val, $new_val ) = $d;
+			do_action( 'bizcity_twin_notebook_event', 'note_updated', array(
+				'event'         => 'note_updated',
+				'passage_id'    => $passage_id,
+				'notebook_id'   => $notebook_id,
+				'changed_field' => $field,
+				'old_value'     => $old_val,
+				'new_value'     => $new_val,
+				'user_id'       => get_current_user_id(),
+				'timestamp'     => time() * 1000,
+			) );
+		}
+
+		return $passage_id;
+	}
+
+	/**
+	 * PHASE 0.31 T-S3.1 (Sprint 4 follow-up) — Add or remove a tag on a passage.
+	 *
+	 * Tags live inside `metadata.tags` (array of unique strings, lowercase-trim).
+	 * Emits `bizcity_twin_notebook_event` with subtype `note_tagged` so the
+	 * `nb_note_tagged` trigger reacts. No-op (returns passage_id) if the tag
+	 * change would be a duplicate add or remove-of-missing.
+	 *
+	 * @param int    $passage_id
+	 * @param string $tag
+	 * @param string $action  'added' | 'removed'
+	 * @return int|WP_Error
+	 */
+	public function tag_passage( $passage_id, $tag, $action = 'added' ) {
+		global $wpdb;
+		$db = BizCity_KG_Database::instance();
+		$passage_id = (int) $passage_id;
+		$tag        = strtolower( trim( (string) $tag ) );
+		$action     = ( $action === 'removed' ) ? 'removed' : 'added';
+
+		if ( $passage_id <= 0 || $tag === '' ) {
+			return new WP_Error( 'invalid', 'passage_id and tag required' );
+		}
+
+		$row = $wpdb->get_row( $wpdb->prepare(
+			"SELECT id, notebook_id, metadata FROM {$db->tbl_passages()} WHERE id = %d LIMIT 1",
+			$passage_id
+		), ARRAY_A );
+		if ( ! $row ) {
+			return new WP_Error( 'not_found', 'Passage not found' );
+		}
+
+		$meta = json_decode( (string) ( $row['metadata'] ?? '' ), true );
+		if ( ! is_array( $meta ) ) { $meta = array(); }
+		$tags = isset( $meta['tags'] ) && is_array( $meta['tags'] ) ? array_values( $meta['tags'] ) : array();
+		$tags = array_map( static function ( $t ) { return strtolower( trim( (string) $t ) ); }, $tags );
+		$tags = array_values( array_unique( array_filter( $tags ) ) );
+
+		$has = in_array( $tag, $tags, true );
+		if ( $action === 'added' && $has )       { return $passage_id; } // no-op
+		if ( $action === 'removed' && ! $has )   { return $passage_id; } // no-op
+
+		if ( $action === 'added' ) {
+			$tags[] = $tag;
+		} else {
+			$tags = array_values( array_diff( $tags, array( $tag ) ) );
+		}
+
+		$meta['tags'] = $tags;
+		$wpdb->update(
+			$db->tbl_passages(),
+			array( 'metadata' => wp_json_encode( $meta ) ),
+			array( 'id' => $passage_id )
+		);
+
+		do_action( 'bizcity_twin_notebook_event', 'note_tagged', array(
+			'event'       => 'note_tagged',
+			'passage_id'  => $passage_id,
+			'notebook_id' => (int) $row['notebook_id'],
+			'tag'         => $tag,
+			'action'      => $action,
+			'all_tags'    => $tags,
+			'user_id'     => get_current_user_id(),
+			'timestamp'   => time() * 1000,
+		) );
+
+		return $passage_id;
 	}
 
 	/**
@@ -446,13 +719,24 @@ class BizCity_KG_Source_Service {
 		$limit  = isset( $args['limit'] )  ? min( 200, (int) $args['limit'] ) : 50;
 		$offset = isset( $args['offset'] ) ? (int) $args['offset'] : 0;
 
-		return $wpdb->get_results( $wpdb->prepare(
-			"SELECT id, source_id, chunk_id, origin, content, token_count, extraction_status, created_at
+		$rows = $wpdb->get_results( $wpdb->prepare(
+			// Bug fix 2026-05-08 — `chunk_id` only exists when kg_passages is the
+			// VIEW alias from migrate_v065_unified_sources() (`uuid AS chunk_id`).
+			// On blogs reverted to physical kg_passages by HOTFIX 2026-05-06 the
+			// canonical column is `uuid`. Select with explicit alias to work on
+			// BOTH shapes — VIEW already exposes `uuid` underneath, BASE TABLE
+			// has it natively.
+			"SELECT id, notebook_id, source_id, uuid AS chunk_id, origin, content, token_count, extraction_status, created_at,
+			        storage_ver, file_shard, file_offset, file_length
 			 FROM {$db->tbl_passages()}
 			 WHERE notebook_id = %d
 			 ORDER BY created_at DESC
 			 LIMIT %d OFFSET %d",
 			(int) $notebook_id, $limit, $offset
 		), ARRAY_A ) ?: [];
+		if ( $rows && class_exists( 'BizCity_KG_Content_Router' ) ) {
+			BizCity_KG_Content_Router::instance()->hydrate_passages( $rows );
+		}
+		return $rows;
 	}
 }

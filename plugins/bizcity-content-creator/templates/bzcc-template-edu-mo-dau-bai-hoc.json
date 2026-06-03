@@ -1,0 +1,116 @@
+{
+  "version": "1.0",
+  "plugin": "bizcity-content-creator",
+  "exported": "2026-05-19T12:00:00Z",
+  "templates": [
+    {
+      "slug": "edu-mo-dau-bai-hoc-hap-dan",
+      "category_id": "hoc-tap",
+      "title": "Tạo phần mở đầu bài học hấp dẫn",
+      "description": "Có ý tưởng bắt đầu mọi bài giảng cực kỳ thú vị và lôi cuốn — chọn từ 16 kiểu hook (trò chơi, tình huống thực tế, thí nghiệm, kể chuyện, video, câu đố tư duy, nhập vai, giai thoại lịch sử...). Mỗi lần tạo trả về tối đa 3 phương án để giáo viên chọn.",
+      "icon_url": "",
+      "icon_emoji": "✨",
+      "form_fields": [
+        {
+          "slug": "lesson_topic",
+          "label": "Chủ đề bạn dạy là gì?",
+          "type": "text",
+          "placeholder": "VD: Định luật Acsimet, Truyện Kiều - đoạn trao duyên, Phương trình bậc hai...",
+          "required": true,
+          "grid": "full",
+          "sort_order": 1
+        },
+        {
+          "slug": "grade_level",
+          "label": "Bạn dạy cấp học nào?",
+          "type": "card_radio",
+          "required": true,
+          "grid": "full",
+          "sort_order": 2,
+          "options": [
+            { "value": "mam-non", "label": "Mầm non", "icon": "🧸" },
+            { "value": "cap-1", "label": "Cấp 1 — Tiểu học", "icon": "🎒" },
+            { "value": "cap-2", "label": "Cấp 2 — THCS", "icon": "📘" },
+            { "value": "cap-3", "label": "Cấp 3 — THPT", "icon": "🎓" },
+            { "value": "dh-cd", "label": "Đại học / Cao đẳng", "icon": "🏛️" }
+          ]
+        },
+        {
+          "slug": "hook_styles",
+          "label": "Chọn kiểu mở đầu (tối đa 3)",
+          "type": "checkbox_group",
+          "required": false,
+          "grid": "full",
+          "sort_order": 3,
+          "description": "Bỏ trống = AI tự gợi ý 3 kiểu phù hợp nhất",
+          "multi": true,
+          "options": [
+            { "value": "ai-suggest", "label": "🤖 Brain Factory gợi ý cho tôi" },
+            { "value": "question", "label": "❓ Câu hỏi tư duy" },
+            { "value": "game", "label": "🎮 Trò chơi" },
+            { "value": "real-situation", "label": "🌍 Tình huống thực tế" },
+            { "value": "experiment", "label": "🧪 Thí nghiệm" },
+            { "value": "storytelling", "label": "📖 Kể chuyện" },
+            { "value": "video", "label": "🎬 Video ngắn" },
+            { "value": "guess", "label": "🔮 Đoán kết quả" },
+            { "value": "quote", "label": "💬 Trích dẫn hoặc câu danh ngôn" },
+            { "value": "debate", "label": "⚔️ Vấn đề tranh luận" },
+            { "value": "roleplay", "label": "🎭 Hoạt động nhập vai" },
+            { "value": "poll", "label": "📊 Khảo sát nhanh hoặc bình chọn" },
+            { "value": "mystery", "label": "🔍 Vật phẩm bí ẩn" },
+            { "value": "mindmap", "label": "🧠 Sơ đồ tư duy mở" },
+            { "value": "history-anecdote", "label": "🏛️ Giai thoại lịch sử" },
+            { "value": "self-discover", "label": "💡 Học sinh tự khám phá" }
+          ]
+        },
+        {
+          "slug": "duration",
+          "label": "Thời lượng phần mở đầu",
+          "type": "select",
+          "required": false,
+          "grid": "half",
+          "sort_order": 4,
+          "options": [
+            { "value": "3", "label": "3 phút (Hook nhanh)" },
+            { "value": "5", "label": "5 phút (Tiêu chuẩn)" },
+            { "value": "10", "label": "10 phút (Sâu)" },
+            { "value": "15", "label": "15 phút (Workshop opener)" }
+          ]
+        },
+        {
+          "slug": "class_size",
+          "label": "Sĩ số lớp",
+          "type": "select",
+          "required": false,
+          "grid": "half",
+          "sort_order": 5,
+          "options": [
+            { "value": "small", "label": "Nhỏ (< 15 HS)" },
+            { "value": "medium", "label": "Vừa (15-30 HS)" },
+            { "value": "large", "label": "Lớn (30-45 HS)" },
+            { "value": "very-large", "label": "Rất lớn (> 45 HS)" }
+          ]
+        }
+      ],
+
+      "system_prompt": "Bạn là chuyên gia thiết kế trải nghiệm học tập (Learning Experience Designer), am hiểu tâm lý lứa tuổi học sinh VN và các kỹ thuật engagement của Robert Marzano, Doug Lemov ('Teach Like a Champion').\n\n## THÔNG TIN\n- Chủ đề: {{lesson_topic}}\n- Cấp: {{grade_level}}\n- Kiểu mở đầu chọn: {{hook_styles}}\n- Thời lượng: {{duration}} phút\n- Sĩ số: {{class_size}}\n\n## NGUYÊN TẮC HOOK HIỆU QUẢ\n1. **30 GIÂY VÀNG** — phải bắt được sự chú ý trong 30s đầu (não bộ HS quyết định 'chán hay thích' rất nhanh)\n2. **Kết nối cảm xúc trước, lý trí sau** — gây tò mò, ngạc nhiên, hài hước, hồi hộp\n3. **Liên kết bài học** — hook phải dẫn dắt được vào nội dung chính, không lạc đề\n4. **Phù hợp lứa tuổi** — tiểu học = vui nhộn/trực quan; cấp 2 = thử thách/tương tác; cấp 3 = ý nghĩa/phản biện\n5. **Tham gia hoạt động** — HS làm/nói/đoán/cảm, KHÔNG chỉ ngồi nghe\n6. **Khả thi với lớp đông** — không hoạt động chỉ làm được khi sĩ số nhỏ\n7. **Có pivot rõ** — câu chuyển từ hook → nội dung bài học phải tự nhiên\n\n## ĐẶC THÙ TỪNG KIỂU HOOK\n- question: câu hỏi không có 1 đáp án đúng, kích thích thảo luận\n- game: luật đơn giản, ≤ 3 phút, ai cũng tham gia\n- real-situation: case study thực tế VN, gần gũi đời sống HS\n- experiment: an toàn, vật liệu dễ kiếm, có 'wow moment'\n- storytelling: có nhân vật + xung đột + bài học\n- video: gợi ý keyword search (không link cụ thể), ≤ 2 phút\n- guess: đưa kết quả bất ngờ, ngược trực giác\n- quote: có nguồn rõ ràng, kèm câu hỏi phản biện\n- debate: chủ đề có 2 mặt rõ, an toàn về văn hoá/chính trị\n- roleplay: tình huống đơn giản, vai phân chia nhanh\n- poll: 3-5 lựa chọn, kết quả phục vụ bài học\n- mystery: vật phẩm/hình ảnh kích thích trí tò mò\n- mindmap: từ khoá trung tâm, HS gọi tên liên tưởng\n- history-anecdote: giai thoại có thật, có nguồn, ngắn gọn\n- self-discover: bài tập khám phá ngắn HS tự tìm pattern",
+
+      "outline_prompt": "Tạo 3 PHƯƠNG ÁN MỞ ĐẦU cho chủ đề '{{lesson_topic}}' (cấp {{grade_level}}, {{duration}}p, sĩ số {{class_size}}).\n\nNếu {{hook_styles}} có giá trị cụ thể: dùng các kiểu đó (mỗi phương án 1 kiểu).\nNếu trống hoặc chứa 'ai-suggest': AI tự chọn 3 kiểu khác nhau phù hợp nhất.\n\nMỗi phương án là 1 section riêng + 1 section cuối 'So sánh & khuyến nghị'.\n\nTRẢ VỀ JSON:\n[\n  {\"label\": \"💡 Phương án 1 — [Tên kiểu]\", \"emoji\": \"1️⃣\", \"platform\": \"general\"},\n  {\"label\": \"💡 Phương án 2 — [Tên kiểu]\", \"emoji\": \"2️⃣\", \"platform\": \"general\"},\n  {\"label\": \"💡 Phương án 3 — [Tên kiểu]\", \"emoji\": \"3️⃣\", \"platform\": \"general\"},\n  {\"label\": \"⚖️ So sánh & khuyến nghị\", \"emoji\": \"⚖️\", \"platform\": \"general\"}\n]",
+
+      "chunk_prompt": "Bạn đang viết phần \"{{chunk_title}}\" — phương án mở đầu bài '{{lesson_topic}}' ({{grade_level}}, {{duration}}p).\n\n## CONTEXT\n- Sĩ số: {{class_size}}\n- Kiểu chọn: {{hook_styles}}\n\n## FORMAT CHO MỖI PHƯƠNG ÁN\n\n### 🎯 Phương án [N]: [Tên hấp dẫn] ([Kiểu hook])\n\n**⏱️ Thời lượng:** [phút]\n**👥 Hình thức:** [Cá nhân / Cặp đôi / Nhóm / Cả lớp]\n**📦 Chuẩn bị:** [Liệt kê đồ dùng/thiết bị tối thiểu]\n\n---\n\n#### 📝 Kịch bản chi tiết\n\n**🔹 Bước 1 — Mở (30 giây đầu)**\n> 'Câu nói cụ thể của GV...' \n*Hành động: GV [làm gì cụ thể]*\n\n**🔹 Bước 2 — Triển khai**\n> [Mô tả chi tiết hoạt động, có câu thoại GV, hành vi HS dự đoán]\n\n**🔹 Bước 3 — Cao trào / Wow Moment**\n> [Đỉnh của hook — bất ngờ, vui, ngạc nhiên]\n\n**🔹 Bước 4 — Câu chuyển vào bài (Bridge)**\n> 'Đó chính là lý do hôm nay chúng ta sẽ học về [{{lesson_topic}}]...'\n\n---\n\n#### 💬 Câu hỏi chốt cho HS\n- [3-4 câu hỏi kích thích tư duy, kết nối hook → nội dung bài]\n\n#### ✅ Tiêu chí thành công\n- [3 dấu hiệu cho thấy hook hiệu quả: HS có hỏi lại, có cười/wow, có liên hệ đúng vào bài]\n\n#### ⚠️ Lưu ý sư phạm\n- [Cách xử lý nếu HS không tham gia]\n- [Backup nếu thiết bị hỏng / hết thời gian]\n- [Risk cần tránh, vd: an toàn thí nghiệm, tránh chủ đề nhạy cảm]\n\n#### 📚 Mở rộng / Biến thể\n- [1-2 cách biến tấu cho lớp đông hơn hoặc nhỏ hơn]\n\n---\n\n### Với section 'So sánh & khuyến nghị':\nDùng bảng so sánh 3 phương án:\n\n| Tiêu chí | PA1 | PA2 | PA3 |\n|---|---|---|---|\n| Mức độ hấp dẫn (1-5) | | | |\n| Dễ triển khai | | | |\n| Phù hợp lớp đông | | | |\n| Phù hợp HS yếu | | | |\n| Yêu cầu chuẩn bị | | | |\n\n**🏆 Khuyến nghị:** PA [N] — vì [3-4 lý do cụ thể cho hoàn cảnh {{grade_level}} / {{class_size}}].\n\n**🔄 Khi nào dùng PA còn lại:** [tình huống cụ thể]\n\n## QUY TẮC\n- KHÔNG mở đầu bằng 'Dưới đây là...'\n- Lời thoại GV PHẢI đặt trong dấu '...'\n- Ngôn ngữ phù hợp {{grade_level}}\n- Tiếng Việt tự nhiên, sống động",
+
+      "model_purpose": "content_creation",
+      "temperature": "0.85",
+      "max_tokens": "8000",
+      "wizard_steps": [],
+      "output_platforms": ["general"],
+      "skill_id": "0",
+      "tags": "giao-duc,hoc-tap,hook,mo-dau,engagement,lesson-opener",
+      "badge_text": "FUN",
+      "badge_color": "#f59e0b",
+      "is_featured": "1",
+      "sort_order": "3",
+      "status": "active"
+    }
+  ]
+}

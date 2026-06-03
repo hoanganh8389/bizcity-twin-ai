@@ -172,10 +172,12 @@ class BizCity_Tarot_Intent_Provider extends BizCity_Intent_Provider {
 
     public function get_tools() {
         return [
-            // ── MAIN TOOL: Giải nghĩa lá bài (text/ảnh) + lưu lịch sử ──
+            // ── MAIN TOOL: Giải nghĩa lá bài (text/ảnh) + lưu lịch sử — R-MPRT §6.5 producer ──
             'tarot_interpret' => [
+                'tool_class' => 'producer',
                 'schema' => [
                     'description'  => 'Tool CHÍNH — Giải nghĩa lá bài Tarot: nhận tên/ảnh lá bài, tra DB, lưu lịch sử, trả kết quả cho AI giải nghĩa theo khung 4 tầng',
+                    'tool_class'   => 'producer',
                     'input_fields' => [
                         'card_info'      => [ 'required' => true,  'type' => 'text' ],
                         'card_images'    => [ 'required' => false, 'type' => 'image' ],
@@ -184,15 +186,18 @@ class BizCity_Tarot_Intent_Provider extends BizCity_Intent_Provider {
                         'session_id'     => [ 'required' => false, 'type' => 'text' ],
                         'platform'       => [ 'required' => false, 'type' => 'text' ],
                         'client_id'      => [ 'required' => false, 'type' => 'text' ],
+                        'notebook_id'    => [ 'required' => false, 'type' => 'number' ],
                     ],
                 ],
                 'callback' => [ $this, 'tool_interpret' ],
             ],
 
-            // ── SECONDARY TOOL: Gửi link bốc bài Tarot online ──
+            // ── SECONDARY TOOL: Gửi link bốc bài Tarot online — R-MPRT §6.5 distributor ──
             'send_link_tarot' => [
+                'tool_class' => 'distributor',
                 'schema' => [
                     'description'  => 'Tool phụ — Gửi/tạo link bốc bài Tarot online để user bốc bài khi không có bài trong tay',
+                    'tool_class'   => 'distributor',
                     'input_fields' => [
                         'question_focus' => [ 'required' => true,  'type' => 'text' ],
                         'spread'         => [ 'required' => false, 'type' => 'number' ],
@@ -488,6 +493,36 @@ class BizCity_Tarot_Intent_Provider extends BizCity_Intent_Provider {
             $reading_id = $wpdb->insert_id ?: null;
         }
 
+        // ── 3.5. Federation stamp + artifact_created payload (Wave F7.0a — Producer plugin per R-MPRT §6.5) ──
+        $title    = $focus !== '' ? ( 'Tarot — ' . $focus ) : 'Trải bài Tarot';
+        $edit_url = '';
+        if ( function_exists( 'bct_get_tarot_page_url' ) ) {
+            $base = bct_get_tarot_page_url();
+            if ( $base && $reading_id ) {
+                $edit_url = add_query_arg( 'reading', (int) $reading_id, $base );
+            }
+        }
+        $nb_id_for_stamp = isset( $slots['notebook_id'] ) ? (int) $slots['notebook_id'] : 0;
+        if ( $reading_id && $nb_id_for_stamp > 0 && class_exists( 'BizCity_Artifact_Source_Federation' ) ) {
+            BizCity_Artifact_Source_Federation::stamp(
+                'bizcity-tarot',
+                (int) $reading_id,
+                $nb_id_for_stamp,
+                $title,
+                $edit_url
+            );
+        }
+
+        $artifact_created = ( $reading_id && class_exists( 'BizCity_Artifact_Source_Federation' ) )
+            ? BizCity_Artifact_Source_Federation::make_artifact_created(
+                'bizcity-tarot',
+                (int) $reading_id,
+                $title,
+                $edit_url,
+                $nb_id_for_stamp
+            )
+            : null;
+
         // ── 4. Return complete interpretation ──
         if ( ! empty( $ai_reply ) ) {
             return [
@@ -495,10 +530,11 @@ class BizCity_Tarot_Intent_Provider extends BizCity_Intent_Provider {
                 'complete' => true,
                 'message'  => $ai_reply,
                 'data'     => [
-                    'card_info'      => $card_info,
-                    'question_focus' => $focus,
-                    'matched_cards'  => $matched_cards,
-                    'reading_id'     => $reading_id,
+                    'card_info'        => $card_info,
+                    'question_focus'   => $focus,
+                    'matched_cards'    => $matched_cards,
+                    'reading_id'       => $reading_id,
+                    'artifact_created' => $artifact_created,
                 ],
             ];
         }
@@ -509,10 +545,11 @@ class BizCity_Tarot_Intent_Provider extends BizCity_Intent_Provider {
             'complete' => false,
             'message'  => '',
             'data'     => [
-                'card_info'      => $card_info,
-                'question_focus' => $focus,
-                'matched_cards'  => $matched_cards,
-                'reading_id'     => $reading_id,
+                'card_info'        => $card_info,
+                'question_focus'   => $focus,
+                'matched_cards'    => $matched_cards,
+                'reading_id'       => $reading_id,
+                'artifact_created' => $artifact_created,
             ],
         ];
     }

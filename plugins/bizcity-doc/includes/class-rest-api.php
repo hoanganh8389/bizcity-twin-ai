@@ -14,7 +14,13 @@ if ( ! defined( 'ABSPATH' ) ) {
 class BZDoc_Rest_API {
 
 	const NAMESPACE    = 'bzdoc/v1';
-	const MAX_TOPIC    = 5000;
+	// Hard cap on the user-facing "topic" / prompt field.
+	// NOTE: counted in CHARACTERS via mb_strlen(), not bytes — so 50_000 here
+	// means ~50k Vietnamese characters, not ~16k after UTF-8 byte expansion.
+	// Raised 2026-05-06 from 5_000 (which was strlen-bytes → ~1.6k VN chars and
+	// commonly rejected long-form notebook outlines with "Topic exceeds maximum
+	// length").
+	const MAX_TOPIC    = 50000;
 	const MAX_CONTEXT  = 50000;
 
 	/**
@@ -269,10 +275,68 @@ class BZDoc_Rest_API {
 			'callback'            => [ __CLASS__, 'handle_image_prompt_get' ],
 			'permission_callback' => [ __CLASS__, 'check_auth' ],
 		] );
+		// PHASE-6.4 BUG-FIX (May 2026) — resolver theo slug. TwinChat ImageStudio
+		// chỉ biết slug của bzdoc seed (vd 'vn-numerology-profile-poster'), cần
+		// route này để DocApp map về prompt_id rồi bind vào ImagePromptInput
+		// (load arguments + template).
+		register_rest_route( self::NAMESPACE, '/image/prompts/by-slug/(?P<slug>[a-z0-9\-_]+)', [
+			'methods'             => 'GET',
+			'callback'            => [ __CLASS__, 'handle_image_prompt_get_by_slug' ],
+			'permission_callback' => [ __CLASS__, 'check_auth' ],
+		] );
+		// PHASE-6.4 SMART-INFER (May 2026) — đọc lịch sử hội thoại của
+		// notebook (TwinChat session) + schema arguments của preset, gọi LLM
+		// để tự suy luận giá trị từng field. Trả về prompt_args đã fill sẵn
+		// để TwinChat ImageStudio handoff sang bzdoc với kickstart=true.
+		register_rest_route( self::NAMESPACE, '/image/prompts/infer-args', [
+			'methods'             => 'POST',
+			'callback'            => [ __CLASS__, 'handle_image_prompt_infer_args' ],
+			'permission_callback' => [ __CLASS__, 'check_auth' ],
+		] );
+
+		/* ── PHASE-6.4 Wave C6 (May 2026) — Parallel batch document generation.
+		 * Workers run as async loopback sub-requests so N batches of sections
+		 * are processed concurrently, then merged in section order.
+		 * Auth is a one-time HMAC secret stored in a transient by the SSE handler.
+		 */
+		register_rest_route( self::NAMESPACE, '/generate/section-worker', [
+			'methods'             => 'POST',
+			'callback'            => [ __CLASS__, 'handle_section_worker' ],
+			'permission_callback' => [ __CLASS__, 'check_worker_auth' ],
+		] );
 	}
 
 	public static function check_auth() {
 		return is_user_logged_in();
+	}
+
+	/**
+	 * Auth check for parallel worker sub-requests.
+	 * Validates a one-time secret stored by the dispatching SSE handler.
+	 * Switches to the worker's blog context before reading the transient
+	 * (required on multisite where the loopback request has no user session).
+	 */
+	public static function check_worker_auth( \WP_REST_Request $request ): bool {
+		$job_id  = sanitize_text_field( $request->get_param( 'job_id' ) ?: '' );
+		$secret  = sanitize_text_field( $request->get_param( 'worker_secret' ) ?: '' );
+		$blog_id = absint( $request->get_param( 'blog_id' ) ?: 0 );
+		if ( ! $job_id || ! $secret ) {
+			return false;
+		}
+		// On multisite the loopback request has no authenticated user,
+		// so rest_pre_dispatch never switches blog. Switch here manually.
+		$switched = false;
+		if ( $blog_id > 0 && function_exists( 'is_multisite' ) && is_multisite()
+			&& $blog_id !== (int) get_current_blog_id() ) {
+			switch_to_blog( $blog_id );
+			$switched = true;
+		}
+		$stored = get_transient( "bzdoc_wauth_{$job_id}" );
+		$valid  = ( is_string( $stored ) && $stored !== '' && hash_equals( $stored, $secret ) );
+		if ( $switched ) {
+			restore_current_blog();
+		}
+		return $valid;
 	}
 
 	/* ═══════════════════════════════════════════════
@@ -357,7 +421,9 @@ class BZDoc_Rest_API {
 			return new \WP_Error( 'missing_topic', 'Topic or template is required.', [ 'status' => 400 ] );
 		}
 
-		if ( strlen( $topic ) > self::MAX_TOPIC ) {
+		// Char-count validation (mb_strlen) so multi-byte UTF-8 — e.g. Vietnamese
+		// diacritics that occupy 2-3 bytes per char — is not unfairly counted as 3x.
+		if ( mb_strlen( $topic ) > self::MAX_TOPIC ) {
 			return new \WP_Error( 'topic_too_long', 'Topic exceeds maximum length.', [ 'status' => 400 ] );
 		}
 
@@ -656,21 +722,159 @@ class BZDoc_Rest_API {
 		$theme       = sanitize_text_field( $request->get_param( 'theme_name' ) ?: 'modern' );
 		$slide_count = absint( $request->get_param( 'slide_count' ) ?: 10 );
 		$doc_id      = absint( $request->get_param( 'doc_id' ) ?: 0 );
+		$notebook_id      = absint( $request->get_param( 'notebook_id' ) ?: 0 );
+		// Sprint 0★ FE handoff — user may edit the auto-generated summary in
+		// the “Tóm tắt notebook” textarea; if non-empty we use it verbatim and
+		// SKIP the auto Adapter::get_prompt_block() call (avoid double-inject).
+		$notebook_summary = trim( (string) ( $request->get_param( 'notebook_summary' ) ?: '' ) );
+
+		// PHASE-0-RULE-SKELETON S0.11 — when a notebook_id is present and the
+		// upstream skeleton is ready, inject Adapter::get_prompt_block() as a
+		// system-context prefix on the topic. We also snapshot the current
+		// skeleton_version onto bzdoc_documents.source_skeleton_version (S0.2)
+		// so the FE can later show a stale banner (S0.14) when the underlying
+		// notebook moves on. Idempotent + defensive — if the adapter class
+		// isn't loaded (KG-Hub disabled) we simply skip the injection.
+		if ( $notebook_id > 0 && class_exists( 'BizCity_KG_Skeleton_Adapter' ) ) {
+			try {
+				$skel_block = $notebook_summary !== ''
+					? "## NOTEBOOK REFERENCE — user-edited summary\n" . $notebook_summary
+					: (string) BizCity_KG_Skeleton_Adapter::get_prompt_block( $notebook_id );
+				if ( $skel_block !== '' ) {
+					$topic = $skel_block . "\n\n---\n\n" . $topic;
+					self::sse_send( 'progress', [
+						'status'           => 'skeleton_injected',
+						'message'          => 'Đã chèn skeleton từ notebook #' . $notebook_id . ( $notebook_summary !== '' ? ' (user-edited)' : '' ),
+						'bytes'            => strlen( $skel_block ),
+						'source'           => $notebook_summary !== '' ? 'user' : 'auto',
+						// S0.14 — FE stale-banner: version at time of inject so FE can
+						// detect if notebook was rebuilt before the doc was saved.
+						'skeleton_version' => class_exists( 'BizCity_KG_Skeleton_Adapter' )
+							? (int) BizCity_KG_Skeleton_Adapter::get_version( $notebook_id ) : 0,
+					] );
+				}
+				if ( $doc_id > 0 ) {
+					global $wpdb;
+					$ver = (int) BizCity_KG_Skeleton_Adapter::get_version( $notebook_id );
+					$wpdb->update(
+						$wpdb->prefix . 'bzdoc_documents',
+						[ 'notebook_id' => $notebook_id, 'source_skeleton_version' => $ver ],
+						[ 'id' => $doc_id ],
+						[ '%d', '%d' ],
+						[ '%d' ]
+					);
+				}
+			} catch ( \Throwable $e ) {
+				error_log( '[BZDoc][S0.11] skeleton inject failed nb=' . $notebook_id . ': ' . $e->getMessage() );
+			}
+		}
 
 		if ( empty( $topic ) && $template === 'blank' ) {
 			self::sse_send( 'error', [ 'message' => 'Topic or template is required.' ] );
 			exit;
 		}
 
-		if ( strlen( $topic ) > self::MAX_TOPIC ) {
+		// Char-count validation (see handle_generate above).
+		if ( mb_strlen( $topic ) > self::MAX_TOPIC ) {
 			self::sse_send( 'error', [ 'message' => 'Topic exceeds maximum length.' ] );
 			exit;
 		}
 
 		// Sectional generation (skeleton_json present)
-		$skeleton_json = $request->get_param( 'skeleton_json' );
+		$skeleton_json    = $request->get_param( 'skeleton_json' );
+		$parallel_batches = absint( $request->get_param( 'parallel_batches' ) ?: 0 );
+
+		// PHASE-6.4 Wave C6.3 (May 2026) — DEFENSIVE DEFAULT.
+		// Khi doc_type=document, không có skeleton sẵn, và FE không yêu cầu
+		// rõ ràng (parallel_batches===0 hoặc thiếu), tự bật 3 luồng. Người
+		// dùng vẫn có thể vô hiệu hoá bằng parallel_batches=1 (sequential).
+		// Lý do: nếu không bật, request rơi xuống single-shot LLM 8000 tokens
+		// → 110s+, hay bị Cloudflare 524. Parallel an toàn hơn nhiều.
+		$parallel_raw = $request->get_param( 'parallel_batches' );
+		$parallel_explicit_off = ( $parallel_raw === 1 || $parallel_raw === '1' );
+		if ( $doc_type === 'document'
+			&& ! $parallel_explicit_off
+			&& $parallel_batches < 2
+			&& empty( $skeleton_json ) ) {
+			$parallel_batches = 3;
+		}
+
+		// ── DIAGNOSTICS (PHASE-6.4 Wave C6.2) ────────────────────────────────
+		// In ra mọi tham số quan trọng để chẩn đoán vì sao parallel mode không
+		// được kích hoạt. Xuất qua SSE event `debug` (FE EventStream sẽ thấy)
+		// + qua error_log để có dấu vết server-side.
+		$all_params  = $request->get_params();
+		$param_keys  = array_keys( $all_params );
+		$body_raw    = $request->get_body();
+		$body_len    = strlen( (string) $body_raw );
+		$body_first  = mb_substr( (string) $body_raw, 0, 200, 'UTF-8' );
+		$dbg = [
+			'route_version'        => 'C6.5-2026-05-08-curlmulti',
+			'doc_type'             => $doc_type,
+			'parallel_batches_raw' => $request->get_param( 'parallel_batches' ),
+			'parallel_batches_int' => $parallel_batches,
+			'has_skeleton_json'    => is_array( $skeleton_json ),
+			'skeleton_keys'        => is_array( $skeleton_json ) ? array_keys( $skeleton_json ) : null,
+			'skeleton_count'       => is_array( $skeleton_json ) && ! empty( $skeleton_json['skeleton'] ) ? count( $skeleton_json['skeleton'] ) : 0,
+			'topic_len'            => mb_strlen( $topic ),
+			'doc_id'               => $doc_id,
+			'param_keys'           => $param_keys,
+			'content_type'         => $request->get_content_type()['value'] ?? null,
+			'body_len'             => $body_len,
+			'body_first_200'       => $body_first,
+		];
+		error_log( '[BZDoc][Diag] handle_generate_stream entry: ' . wp_json_encode( $dbg ) );
+		self::sse_send( 'debug', $dbg );
+
 		if ( is_array( $skeleton_json ) && $doc_type === 'document' && ! empty( $skeleton_json['skeleton'] ) ) {
-			self::generate_document_sectional_sse( $request, $skeleton_json );
+			if ( $parallel_batches >= 2 ) {
+				// PHASE-6.4 Wave C6 — concurrent N-batch mode.
+				self::generate_document_parallel_sse( $request, $skeleton_json, $parallel_batches );
+			} else {
+				// Default: sequential sectional (split_two supported inside).
+				self::generate_document_sectional_sse( $request, $skeleton_json );
+			}
+			exit;
+		}
+
+		// PHASE-6.4 Wave C6.1 (May 2026) — AUTO-SKELETON for parallel mode.
+		// Khi FE yêu cầu parallel_batches >= 2 nhưng không gửi skeleton_json
+		// (đường đi từ TwinChat handoff / standalone bzdoc UI không qua
+		// Notebook Studio, vì vậy không có skeleton dựng sẵn) — BE phải tự
+		// dựng outline trước (1 LLM call ngắn ~20-30s) rồi mới fan-out N
+		// workers song song. Nếu không, code sẽ rơi xuống single-shot LLM
+		// 8000 tokens (~110s) và parallel_batches bị bỏ qua hoàn toàn.
+		if ( $doc_type === 'document' && $parallel_batches >= 2 ) {
+			// Build source context cho cả skeleton + workers.
+			$src_ctx = '';
+			$src_override = $request->get_param( 'source_context_override' );
+			if ( ! empty( $src_override ) ) {
+				$src_ctx = $src_override;
+			} elseif ( $doc_id > 0 ) {
+				$src_ctx = self::build_source_context( $doc_id, $topic );
+			}
+
+			self::sse_send( 'progress', [
+				'status'  => 'building_skeleton',
+				'message' => 'Đang dựng outline để chia luồng song song...',
+			] );
+
+			$auto_skeleton = self::build_auto_skeleton( $topic, $src_ctx, $parallel_batches );
+			if ( is_wp_error( $auto_skeleton ) ) {
+				self::sse_send( 'error', [ 'message' => 'Skeleton build failed: ' . $auto_skeleton->get_error_message() ] );
+				exit;
+			}
+
+			self::sse_send( 'progress', [
+				'status'   => 'skeleton_ready',
+				'sections' => count( $auto_skeleton['skeleton'] ?? [] ),
+				'message'  => 'Outline xong, bắt đầu chia ' . $parallel_batches . ' luồng...',
+			] );
+
+			// Inject source context override so worker batches reuse it
+			// without re-querying KG (build_source_context có thể đắt).
+			$request->set_param( 'source_context_override', $src_ctx );
+			self::generate_document_parallel_sse( $request, $auto_skeleton, $parallel_batches );
 			exit;
 		}
 
@@ -1545,6 +1749,609 @@ PROMPT;
 		] );
 	}
 
+	/* ═══════════════════════════════════════════════════════════════════
+	   PHASE-6.4 Wave C6 (May 2026) — PARALLEL BATCH DOCUMENT GENERATION
+	   ═══════════════════════════════════════════════════════════════════ */
+
+	/**
+	 * Async worker endpoint — processes one batch of sections synchronously,
+	 * saves results to a transient, then returns. Called via non-blocking
+	 * loopback POST from generate_document_parallel_sse().
+	 *
+	 * Auth: one-time HMAC secret in bzdoc_wauth_{job_id} transient.
+	 */
+	public static function handle_section_worker( \WP_REST_Request $request ): \WP_REST_Response {
+		@ignore_user_abort( true );
+		@set_time_limit( 300 );
+
+		$job_id         = sanitize_text_field( $request->get_param( 'job_id' ) ?: '' );
+		$batch_no       = absint( $request->get_param( 'batch_no' ) );
+		$sections       = $request->get_param( 'sections' ) ?: [];
+		$topic          = sanitize_textarea_field( $request->get_param( 'topic' ) ?: '' );
+		$title          = sanitize_text_field( $request->get_param( 'title' ) ?: $topic );
+		$source_context = (string) ( $request->get_param( 'source_context' ) ?: '' );
+		$key_points     = (string) ( $request->get_param( 'key_points' ) ?: '' );
+		$blog_id        = absint( $request->get_param( 'blog_id' ) ?: 0 );
+
+		// PHASE-6.4 Wave C6.4 — diag: loopback có chạy tới đây không?
+		error_log( sprintf(
+			'[BZDoc][Worker] ENTRY job=%s batch=%d sections=%d blog=%d ip=%s ua=%s',
+			$job_id, $batch_no, count( (array) $sections ), $blog_id,
+			$_SERVER['REMOTE_ADDR'] ?? '?',
+			substr( (string) ( $_SERVER['HTTP_USER_AGENT'] ?? '?' ), 0, 60 )
+		) );
+
+		// Switch blog context for multisite — the loopback request arrives without
+		// an authenticated user session, so rest_pre_dispatch won't switch blogs.
+		// Without this, set_transient / get_transient use the wrong blog's option table.
+		$blog_switched = false;
+		if ( $blog_id > 0 && function_exists( 'is_multisite' ) && is_multisite()
+			&& $blog_id !== (int) get_current_blog_id() ) {
+			switch_to_blog( $blog_id );
+			$blog_switched = true;
+		}
+
+		$worker_key = "bzdoc_worker_{$job_id}_{$batch_no}";
+
+		// Mark as working so the polling SSE handler can show live progress.
+		set_transient( $worker_key, [ 'status' => 'working', 'elements' => [], 'progress' => [] ], 600 );
+
+		$section_system = self::system_prompt_document_section();
+		$results        = []; // [ { global_idx, label, elements[] } ]
+
+		foreach ( (array) $sections as $entry ) {
+			$global_idx = absint( $entry['global_idx'] ?? 0 );
+			$is_last    = ! empty( $entry['is_last'] );
+			$node       = $entry['node'] ?? '';
+			$label      = is_array( $node ) ? ( $node['label'] ?? $node['heading'] ?? '' ) : (string) $node;
+			$summary    = is_array( $node ) ? ( $node['summary'] ?? '' ) : '';
+			$children   = is_array( $node ) ? ( $node['children'] ?? [] ) : [];
+
+			$section_prompt = self::build_section_user_prompt(
+				$label, $summary, $children, $source_context, $title, $key_points, $is_last
+			);
+
+			$section_tokens = ! empty( $source_context ) ? 11000 : 8000;
+			$ai_response    = self::call_llm_blocking( $section_system, $section_prompt, $section_tokens );
+
+			// One automatic retry on failure.
+			if ( is_wp_error( $ai_response ) ) {
+				$ai_response = self::call_llm_blocking( $section_system, $section_prompt, $section_tokens );
+			}
+
+			if ( is_wp_error( $ai_response ) ) {
+				$results[] = [
+					'global_idx' => $global_idx,
+					'label'      => $label,
+					'elements'   => [
+						[ 'type' => 'heading2',  'text' => $label ],
+						[ 'type' => 'paragraph', 'text' => '[Không thể sinh nội dung cho phần này. Vui lòng chỉnh sửa bằng chat.]' ],
+						[ 'type' => 'divider' ],
+					],
+				];
+				// Update progress in transient for live display.
+				set_transient( $worker_key, [ 'status' => 'working', 'elements' => $results, 'progress' => array_column( $results, 'label' ) ], 600 );
+				continue;
+			}
+
+			$section_data = self::parse_ai_json( $ai_response );
+
+			// If parse failed, retry without source context.
+			if ( is_wp_error( $section_data ) ) {
+				$retry_prompt = self::build_section_user_prompt( $label, $summary, $children, '', $title, $key_points, $is_last );
+				$ai_retry     = self::call_llm_blocking( $section_system, $retry_prompt, 6000 );
+				if ( ! is_wp_error( $ai_retry ) ) {
+					$section_data = self::parse_ai_json( $ai_retry );
+				}
+			}
+
+			if ( is_wp_error( $section_data ) ) {
+				$results[] = [
+					'global_idx' => $global_idx,
+					'label'      => $label,
+					'elements'   => [
+						[ 'type' => 'heading2',  'text' => $label ],
+						[ 'type' => 'paragraph', 'text' => '[Lỗi phân tích JSON. Vui lòng chỉnh sửa bằng chat.]' ],
+						[ 'type' => 'divider' ],
+					],
+				];
+				set_transient( $worker_key, [ 'status' => 'working', 'elements' => $results, 'progress' => array_column( $results, 'label' ) ], 600 );
+				continue;
+			}
+
+			$section_elements = $section_data['elements'] ?? $section_data;
+			$merged           = [];
+			if ( is_array( $section_elements ) && ! empty( $section_elements ) ) {
+				foreach ( $section_elements as $el ) {
+					if ( is_array( $el ) && ! empty( $el['type'] ) ) {
+						if ( $el['type'] === 'table' && ! empty( $el['rows'] ) ) {
+							$el = self::repair_empty_table_cells( $el );
+						}
+						$merged[] = $el;
+					}
+				}
+			}
+			if ( empty( $merged ) ) {
+				$merged = [
+					[ 'type' => 'heading2',  'text' => $label ],
+					[ 'type' => 'paragraph', 'text' => '[Nội dung rỗng.]' ],
+				];
+			}
+			if ( ! $is_last ) {
+				$merged[] = [ 'type' => 'divider' ];
+			}
+
+			$results[] = [ 'global_idx' => $global_idx, 'label' => $label, 'elements' => $merged ];
+
+			// Write incremental progress so the SSE poller can show per-section status.
+			set_transient( $worker_key, [ 'status' => 'working', 'elements' => $results, 'progress' => array_column( $results, 'label' ) ], 600 );
+		}
+
+		// Mark batch complete.
+		set_transient( $worker_key, [ 'status' => 'done', 'elements' => $results ], 600 );
+
+		if ( $blog_switched ) {
+			restore_current_blog();
+		}
+
+		return new \WP_REST_Response( [ 'ok' => true, 'count' => count( $results ) ], 200 );
+	}
+
+	/**
+	 * Blocking LLM call (no streaming) — for use inside worker sub-requests
+	 * where there is no SSE connection to keep alive.
+	 */
+	private static function call_llm_blocking( string $system_prompt, string $user_prompt, int $max_tokens = 8000 ) {
+		$messages = [
+			[ 'role' => 'system', 'content' => $system_prompt ],
+			[ 'role' => 'user',   'content' => $user_prompt ],
+		];
+		$opts = [
+			'model'          => 'anthropic/claude-sonnet-4-5',
+			'fallback_model' => 'google/gemini-2.5-pro',
+			'purpose'        => 'executor',
+			'temperature'    => 0.3,
+			'max_tokens'     => $max_tokens,
+			'timeout'        => 300,
+		];
+
+		if ( function_exists( 'bizcity_llm_chat' ) ) {
+			$result = bizcity_llm_chat( $messages, $opts );
+			if ( ! empty( $result['success'] ) ) {
+				return $result['message'] ?? '';
+			}
+			return new \WP_Error( 'llm_error', $result['error'] ?? 'LLM blocking call failed' );
+		}
+
+		return new \WP_Error( 'llm_unavailable', 'bizcity_llm_chat() is not available.' );
+	}
+
+	/**
+	 * PHASE-6.4 Wave C6.1 (May 2026) — auto-build a `nucleus + skeleton[]`
+	 * outline from a free-form topic so parallel batch mode can run on
+	 * standalone bzdoc UI flows that do NOT come from Notebook Studio
+	 * (which would normally provide the skeleton). Returns the same shape
+	 * `generate_document_parallel_sse()` expects.
+	 *
+	 * Cost: ~1 LLM call ~20-30s, ~2k output tokens.
+	 *
+	 * @param string $topic            User's request / prompt.
+	 * @param string $source_context   Optional KG / source-pack text.
+	 * @param int    $batch_count      Used to size the outline (3 sections
+	 *                                 per batch → balanced workers).
+	 * @return array|\WP_Error  Skeleton array or WP_Error on parse failure.
+	 */
+	private static function build_auto_skeleton( string $topic, string $source_context, int $batch_count ) {
+		$batch_count = max( 2, min( 3, $batch_count ) );
+		$target      = $batch_count * 3; // 6 or 9 sections — balanced fan-out.
+
+		$system = "Bạn là kiến trúc sư outline tài liệu chuyên nghiệp. " .
+			"Bạn CHỈ trả về JSON object (không markdown fence, không giải thích). " .
+			"Viết bằng tiếng Việt nếu yêu cầu của user là tiếng Việt.\n\n" .
+			"## SCHEMA BẮT BUỘC\n" .
+			"```json\n" .
+			"{\n" .
+			"  \"nucleus\": { \"title\": \"<tên tài liệu>\", \"thesis\": \"<luận điểm chính 1-2 câu>\" },\n" .
+			"  \"skeleton\": [\n" .
+			"    {\n" .
+			"      \"label\": \"<số thứ tự>. <Tiêu đề phần>\",\n" .
+			"      \"summary\": \"<1-2 câu mô tả nội dung sẽ viết>\",\n" .
+			"      \"children\": [\"<mục con 1>\", \"<mục con 2>\", \"<mục con 3>\"]\n" .
+			"    }\n" .
+			"  ],\n" .
+			"  \"key_points\": [\"<điểm cốt lõi 1>\", \"<điểm cốt lõi 2>\", \"<điểm cốt lõi 3>\"]\n" .
+			"}\n" .
+			"```\n\n" .
+			"## QUY TẮC\n" .
+			"1. Chính xác {$target} phần trong skeleton (không nhiều hơn, không ít hơn).\n" .
+			"2. Mỗi phần phải độc lập — viết được riêng mà không cần phần khác.\n" .
+			"3. label đánh số rõ: \"1. ...\", \"2. ...\".\n" .
+			"4. children: 2-4 mục con cụ thể cho mỗi phần.\n" .
+			"5. summary phải gợi ý dữ liệu/ví dụ cụ thể, KHÔNG được mơ hồ.\n" .
+			"6. nucleus.title: ngắn gọn (≤ 80 ký tự), không sao chép nguyên prompt.\n" .
+			"7. key_points: 4-6 điểm cốt lõi xuyên suốt tài liệu.\n" .
+			"8. Output JSON ASCII-safe (Unicode escape \\uXXXX cho tiếng Việt).";
+
+		$user_parts = [];
+		$user_parts[] = "Yêu cầu của user:\n" . trim( $topic );
+		if ( $source_context !== '' ) {
+			// Trim source context to ~6k chars để skeleton call nhanh.
+			$src_trim = mb_substr( $source_context, 0, 6000, 'UTF-8' );
+			$user_parts[] = "\n## TÀI LIỆU THAM KHẢO\n" . $src_trim;
+		}
+		$user_parts[] = "\nDựng skeleton {$target} phần theo schema trên. Output ONLY JSON.";
+
+		$user = implode( "\n\n", $user_parts );
+
+		// PHASE-6.4 Wave C6.4 (May 2026) — STREAMING + KEEPALIVE.
+		// Trước đây dùng call_llm_blocking → 20-30s im lặng → Cloudflare/
+		// LiteSpeed cắt SSE connection → FE thấy "Stream ended without a
+		// done event". Giờ dùng call_llm (streaming) với on_keepalive ping
+		// mỗi delta chunk → connection sống đến khi skeleton xong.
+		$tick_sk = 0;
+		$on_ka_sk = static function () use ( &$tick_sk ) {
+			$tick_sk++;
+			self::sse_send( 'ping', [ 'tick' => 'sk_' . $tick_sk ] );
+		};
+		$ai = self::call_llm( $system, $user, 2500, $on_ka_sk );
+		if ( is_wp_error( $ai ) ) {
+			return $ai;
+		}
+
+		$parsed = self::parse_ai_json( $ai );
+		if ( is_wp_error( $parsed ) ) {
+			return $parsed;
+		}
+		if ( ! is_array( $parsed ) || empty( $parsed['skeleton'] ) || ! is_array( $parsed['skeleton'] ) ) {
+			return new \WP_Error( 'bad_skeleton', 'Skeleton output thiếu trường `skeleton[]`.' );
+		}
+		// Ensure nucleus.title fallback.
+		if ( empty( $parsed['nucleus']['title'] ) ) {
+			$parsed['nucleus']['title'] = mb_substr( trim( $topic ), 0, 80, 'UTF-8' ) ?: 'Tài liệu';
+		}
+		return $parsed;
+	}
+
+	/**
+	 * Parallel SSE handler — splits sections into $batch_count batches,
+	 * fires each as an async (non-blocking) loopback sub-request, then polls
+	 * the result transients while sending SSE progress/ping events.
+	 * Sections are distributed round-robin so each worker gets a fair share.
+	 *
+	 * Fall-through: if all workers time out (loopback blocked), missing
+	 * sections get placeholder elements — document still saves.
+	 */
+	private static function generate_document_parallel_sse( \WP_REST_Request $request, array $skeleton, int $batch_count ): void {
+		$user_id  = get_current_user_id();
+		$topic    = sanitize_textarea_field( $request->get_param( 'topic' ) ?: '' );
+		$template = sanitize_text_field( $request->get_param( 'template_name' ) ?: 'blank' );
+		$theme    = sanitize_text_field( $request->get_param( 'theme_name' ) ?: 'modern' );
+		$doc_id   = absint( $request->get_param( 'doc_id' ) ?: 0 );
+
+		// Source context
+		$source_context  = '';
+		$source_override = $request->get_param( 'source_context_override' );
+		if ( ! empty( $source_override ) ) {
+			$source_context = $source_override;
+		} elseif ( $doc_id > 0 ) {
+			$source_context = self::build_source_context( $doc_id, $topic );
+		}
+
+		$gen_id     = self::log_generation( $doc_id, $user_id, 'generate', $topic );
+		$start_time = microtime( true );
+
+		$nucleus = $skeleton['nucleus'] ?? [];
+		$nodes   = $skeleton['skeleton'] ?? [];
+		$title   = $nucleus['title'] ?? $topic ?: 'Untitled';
+		$total   = count( $nodes );
+
+		// Key-points context for section prompts.
+		$key_points_text = '';
+		if ( ! empty( $skeleton['key_points'] ) ) {
+			$kps = [];
+			foreach ( $skeleton['key_points'] as $kp ) {
+				$text = is_array( $kp ) ? ( $kp['text'] ?? $kp['point'] ?? '' ) : (string) $kp;
+				if ( $text ) $kps[] = $text;
+			}
+			if ( $kps ) {
+				$key_points_text = "Điểm chính của tài liệu:\n- " . implode( "\n- ", $kps );
+			}
+		}
+
+		// Round-robin distribute sections across $batch_count batches.
+		// e.g. 9 sections × 3 batches → batch 0=[0,3,6], batch 1=[1,4,7], batch 2=[2,5,8]
+		// This ensures balanced workloads and avoids one batch being all heavy sections.
+		$batch_count = max( 2, min( 3, $batch_count ) );
+		$batches     = array_fill( 0, $batch_count, [] );
+		foreach ( $nodes as $i => $node ) {
+			$batches[ $i % $batch_count ][] = [
+				'global_idx' => $i,
+				'is_last'    => ( $i === $total - 1 ),
+				'node'       => $node,
+			];
+		}
+
+		self::sse_send( 'progress', [
+			'status'      => 'parallel_start',
+			'total'       => $total,
+			'batch_count' => $batch_count,
+			'message'     => "Khởi động {$batch_count} luồng song song cho {$total} phần...",
+		] );
+
+		// PHASE-6.4 Wave C6.5 (May 2026) — IN-PROCESS curl_multi.
+		// Bỏ async loopback REST (Cloudflare/firewall hay chặn server tự
+		// gọi REST của chính mình → workers không bao giờ chạy → toàn bộ
+		// rơi về placeholder). Thay bằng curl_multi_exec gọi N HTTP requests
+		// song song trực tiếp tới LLM gateway, cùng PHP process. Hoạt động
+		// trên mọi hosting, không phụ thuộc loopback.
+		$gateway_url = trim( (string) get_site_option( 'bizcity_llm_gateway_url', '' ) );
+		$api_key     = trim( (string) get_site_option( 'bizcity_llm_api_key', '' ) );
+		if ( $gateway_url === '' || $api_key === '' ) {
+			self::sse_send( 'error', [ 'message' => 'LLM gateway chưa cấu hình.' ] );
+			return;
+		}
+		$endpoint = rtrim( $gateway_url, '/' ) . '/wp-json/bizcity/v1/llm/chat';
+
+		// 1 curl handle = 1 SECTION (max parallelism). 9 sections → 9 handles.
+		$section_system = self::system_prompt_document_section();
+		$mh = curl_multi_init();
+		$handles = []; // [global_idx => [ch, batch_no, label]]
+		foreach ( $batches as $bn => $batch ) {
+			foreach ( $batch as $entry ) {
+				$global_idx = (int) $entry['global_idx'];
+				$node       = $entry['node'];
+				$is_last    = ! empty( $entry['is_last'] );
+				$label      = is_array( $node ) ? ( $node['label'] ?? $node['heading'] ?? '' ) : (string) $node;
+				$summary    = is_array( $node ) ? ( $node['summary'] ?? '' ) : '';
+				$children   = is_array( $node ) ? ( $node['children'] ?? [] ) : [];
+
+				$user_prompt = self::build_section_user_prompt(
+					$label, $summary, $children, $source_context, $title, $key_points_text, $is_last
+				);
+
+				$body = wp_json_encode( [
+					'model'          => 'anthropic/claude-sonnet-4-5',
+					'fallback_model' => 'google/gemini-2.5-pro',
+					'messages'       => [
+						[ 'role' => 'system', 'content' => $section_system ],
+						[ 'role' => 'user',   'content' => $user_prompt ],
+					],
+					'temperature'    => 0.3,
+					'max_tokens'     => 6000,
+					'purpose'        => 'executor',
+					'timeout'        => 280,
+					'site_url'       => home_url(),
+				] );
+
+				$ch = curl_init( $endpoint );
+				curl_setopt_array( $ch, [
+					CURLOPT_POST           => true,
+					CURLOPT_POSTFIELDS     => $body,
+					CURLOPT_HTTPHEADER     => [
+						'Content-Type: application/json',
+						'Authorization: Bearer ' . $api_key,
+						'X-Site-URL: ' . home_url(),
+					],
+					CURLOPT_RETURNTRANSFER => true,
+					CURLOPT_TIMEOUT        => 280,
+					CURLOPT_CONNECTTIMEOUT => 15,
+					CURLOPT_SSL_VERIFYPEER => false,
+					CURLOPT_SSL_VERIFYHOST => 0,
+				] );
+				curl_multi_add_handle( $mh, $ch );
+				$handles[ $global_idx ] = [
+					'ch'       => $ch,
+					'batch_no' => $bn,
+					'label'    => $label,
+					'is_last'  => $is_last,
+					'done'     => false,
+					'result'   => null,
+				];
+			}
+		}
+
+		error_log( sprintf( '[BZDoc][CurlMulti] START sections=%d endpoint=%s',
+			count( $handles ), $endpoint ) );
+
+		self::sse_send( 'progress', [
+			'status'  => 'parallel_dispatched',
+			'message' => count( $handles ) . " phần đang được tạo song song...",
+		] );
+
+		// ── curl_multi exec loop với SSE keepalive ───────────────────────────
+		$active   = null;
+		$tick     = 0;
+		$batch_done_count = array_fill( 0, $batch_count, 0 );
+		$batch_size_map   = [];
+		foreach ( $batches as $bn => $batch ) {
+			$batch_size_map[ $bn ] = count( $batch );
+		}
+		$deadline = microtime( true ) + 280.0;
+
+		do {
+			$status = curl_multi_exec( $mh, $active );
+			// Wait up to 1.5s for activity, then loop to send keepalive ping.
+			if ( $active && $status === CURLM_OK ) {
+				curl_multi_select( $mh, 1.5 );
+			}
+
+			// Drain finished handles.
+			while ( $info = curl_multi_info_read( $mh ) ) {
+				if ( $info['msg'] !== CURLMSG_DONE ) continue;
+				$ch = $info['handle'];
+				// Find which global_idx this handle belongs to.
+				$found_idx = null;
+				foreach ( $handles as $gidx => &$h ) {
+					if ( $h['ch'] === $ch && ! $h['done'] ) {
+						$found_idx = $gidx;
+						$h['done'] = true;
+						$body = curl_multi_getcontent( $ch );
+						$code = curl_getinfo( $ch, CURLINFO_RESPONSE_CODE );
+						$err  = curl_error( $ch );
+						$h['result'] = [ 'code' => $code, 'body' => $body, 'err' => $err ];
+						break;
+					}
+				}
+				unset( $h );
+				curl_multi_remove_handle( $mh, $ch );
+				curl_close( $ch );
+
+				if ( $found_idx !== null ) {
+					$bn = $handles[ $found_idx ]['batch_no'];
+					$batch_done_count[ $bn ]++;
+					self::sse_send( 'progress', [
+						'status'  => 'batch_working',
+						'batch'   => $bn + 1,
+						'batches' => $batch_count,
+						'done'    => $batch_done_count[ $bn ],
+						'of'      => $batch_size_map[ $bn ],
+						'message' => "Luồng " . ( $bn + 1 ) . ": {$batch_done_count[$bn]}/{$batch_size_map[$bn]} phần xong.",
+					] );
+					if ( $batch_done_count[ $bn ] === $batch_size_map[ $bn ] ) {
+						self::sse_send( 'progress', [
+							'status'  => 'batch_done',
+							'batch'   => $bn + 1,
+							'batches' => $batch_count,
+							'message' => "Luồng " . ( $bn + 1 ) . " hoàn thành.",
+						] );
+					}
+				}
+			}
+
+			// Keepalive ping every loop iteration.
+			self::sse_send( 'ping', [ 'tick' => ++$tick ] );
+
+			if ( microtime( true ) > $deadline ) {
+				error_log( '[BZDoc][CurlMulti] DEADLINE reached, aborting remaining handles' );
+				break;
+			}
+		} while ( $active && $status === CURLM_OK );
+
+		// Cleanup any leftover handles (timeout / abort).
+		foreach ( $handles as $gidx => $h ) {
+			if ( ! $h['done'] && is_resource( $h['ch'] ) ) {
+				curl_multi_remove_handle( $mh, $h['ch'] );
+				curl_close( $h['ch'] );
+			}
+		}
+		curl_multi_close( $mh );
+
+		// ── Parse responses → all_results[ global_idx ] = elements[] ─────────
+		$all_results = [];
+		$ok_count    = 0;
+		$fail_count  = 0;
+		foreach ( $handles as $gidx => $h ) {
+			$entry_label = $h['label'] ?: ( 'Phần ' . ( $gidx + 1 ) );
+			if ( ! $h['done'] || ! $h['result'] ) {
+				$fail_count++;
+				$all_results[ $gidx ] = [
+					[ 'type' => 'heading2',  'text' => $entry_label ],
+					[ 'type' => 'paragraph', 'text' => '[Phần này không kịp tạo (timeout). Vui lòng tạo lại bằng chat.]' ],
+					[ 'type' => 'divider' ],
+				];
+				continue;
+			}
+			$res = $h['result'];
+			if ( $res['code'] !== 200 || $res['err'] ) {
+				$fail_count++;
+				error_log( sprintf( '[BZDoc][CurlMulti] section=%d HTTP %d err=%s body_first=%s',
+					$gidx, $res['code'], $res['err'], substr( (string) $res['body'], 0, 200 ) ) );
+				$all_results[ $gidx ] = [
+					[ 'type' => 'heading2',  'text' => $entry_label ],
+					[ 'type' => 'paragraph', 'text' => '[Lỗi gateway HTTP ' . $res['code'] . '. Vui lòng tạo lại bằng chat.]' ],
+					[ 'type' => 'divider' ],
+				];
+				continue;
+			}
+			$decoded = json_decode( (string) $res['body'], true );
+			$ai_text = '';
+			if ( is_array( $decoded ) && ! empty( $decoded['success'] ) ) {
+				$ai_text = (string) ( $decoded['message'] ?? '' );
+			}
+			$parsed = $ai_text !== '' ? self::parse_ai_json( $ai_text ) : null;
+			if ( is_array( $parsed ) && ! empty( $parsed['elements'] ) ) {
+				$ok_count++;
+				$all_results[ $gidx ] = $parsed['elements'];
+			} else {
+				$fail_count++;
+				error_log( sprintf( '[BZDoc][CurlMulti] section=%d parse failed, ai_len=%d',
+					$gidx, mb_strlen( $ai_text ) ) );
+				$all_results[ $gidx ] = [
+					[ 'type' => 'heading2',  'text' => $entry_label ],
+					[ 'type' => 'paragraph', 'text' => '[Không phân tích được kết quả AI cho phần này.]' ],
+					[ 'type' => 'divider' ],
+				];
+			}
+		}
+
+		error_log( sprintf( '[BZDoc][CurlMulti] DONE ok=%d fail=%d total=%d ticks=%d',
+			$ok_count, $fail_count, count( $handles ), $tick ) );
+
+		ksort( $all_results );
+
+		// ── Assemble final schema ─────────────────────────────────────────────
+		$schema = [
+			'metadata' => [
+				'title'   => $title,
+				'subject' => $nucleus['thesis'] ?? '',
+				'author'  => wp_get_current_user()->display_name ?: 'BizCity Doc Studio',
+			],
+			'theme' => [
+				'name'            => $theme,
+				'font_name'       => 'Times New Roman',
+				'font_size'       => 13,
+				'heading_font'    => 'Times New Roman',
+				'primary_color'   => '1F4E79',
+				'secondary_color' => '2E75B6',
+			],
+			'sections' => [ [
+				'orientation' => 'portrait',
+				'header'      => [ 'text' => $title, 'align' => 'left', 'show_page_numbers' => false ],
+				'footer'      => [ 'text' => 'Trang', 'show_page_numbers' => true ],
+				'elements'    => [],
+			] ],
+		];
+
+		// Title page + all section elements in order.
+		$elements = [
+			[ 'type' => 'heading1', 'text' => $title, 'alignment' => 'center' ],
+		];
+		if ( ! empty( $nucleus['thesis'] ) ) {
+			$elements[] = [ 'type' => 'paragraph', 'text' => $nucleus['thesis'], 'alignment' => 'center' ];
+		}
+		$elements[] = [ 'type' => 'divider' ];
+		foreach ( $all_results as $section_els ) {
+			foreach ( $section_els as $el ) {
+				$elements[] = $el;
+			}
+		}
+
+		self::sse_send( 'progress', [
+			'status'  => 'saving',
+			'total'   => $total,
+			'message' => 'Đang lưu tài liệu...',
+		] );
+
+		$schema['sections'][0]['elements'] = $elements;
+		$schema = self::ensure_defaults( $schema, 'document', $topic, $theme );
+
+		if ( is_wp_error( $schema ) ) {
+			self::complete_generation( $gen_id, 'failed', $start_time, $schema->get_error_message() );
+			self::sse_send( 'error', [ 'message' => $schema->get_error_message() ] );
+			return;
+		}
+
+		$saved = self::auto_save_document( $doc_id, $user_id, 'document', $title, $template, $theme, $schema );
+		self::complete_generation( $gen_id, 'completed', $start_time, null, $saved, $schema );
+
+		self::sse_send( 'done', [
+			'success' => true,
+			'data'    => $schema,
+			'doc_id'  => $saved,
+			'gen_id'  => $gen_id,
+		] );
+	}
+
 	/**
 	 * SSE variant of generate_document_sectional.
 	 * Sends progress events after each section so the web-server
@@ -1629,11 +2436,43 @@ PROMPT;
 		$section_system = self::system_prompt_document_section();
 		$success        = 0;
 
-		foreach ( $nodes as $idx => $node ) {
-			$label    = is_array( $node ) ? ( $node['label'] ?? $node['heading'] ?? '' ) : (string) $node;
-			$summary  = is_array( $node ) ? ( $node['summary'] ?? '' ) : '';
-			$children = is_array( $node ) ? ( $node['children'] ?? [] ) : [];
-			$is_last  = ( $idx === $total - 1 );
+		// PHASE-6.4 Wave C5 (May 2026) — Split-two mode.
+		// When the FE sets split_two=true, we run the section loop in TWO
+		// batches against the SAME doc_id: after batch 1 finishes we save the
+		// (still-incomplete) schema, send a `part_done` SSE event so the
+		// iframe shows the first half immediately, then continue with batch 2
+		// and finally send the usual `done`. Total wall-clock is the same as
+		// running all sections in one go, but the user sees content earlier
+		// AND if the second half times out the first half is already saved
+		// and viewable.
+		$split_two = (bool) $request->get_param( 'split_two' );
+		if ( $split_two && $total >= 2 ) {
+			$mid     = (int) ceil( $total / 2 );
+			$batches = [ array_slice( $nodes, 0, $mid ), array_slice( $nodes, $mid ) ];
+		} else {
+			$batches = [ $nodes ];
+		}
+
+		$global_idx = 0; // running index across all batches for progress display
+		foreach ( $batches as $batch_no => $batch_nodes ) {
+			$is_split    = count( $batches ) > 1;
+			$batch_label = $is_split ? ( $batch_no === 0 ? 'Phần 1/2' : 'Phần 2/2' ) : '';
+			if ( $is_split ) {
+				self::sse_send( 'progress', [
+					'status'  => 'batch_start',
+					'batch'   => $batch_no + 1,
+					'batches' => count( $batches ),
+					'message' => "Bắt đầu {$batch_label}...",
+				] );
+			}
+
+			foreach ( $batch_nodes as $node ) {
+				$global_idx++;
+				$idx      = $global_idx - 1;
+				$label    = is_array( $node ) ? ( $node['label'] ?? $node['heading'] ?? '' ) : (string) $node;
+				$summary  = is_array( $node ) ? ( $node['summary'] ?? '' ) : '';
+				$children = is_array( $node ) ? ( $node['children'] ?? [] ) : [];
+				$is_last  = ( $global_idx === $total );
 
 			self::sse_send( 'progress', [
 				'status'  => 'generating',
@@ -1711,7 +2550,30 @@ PROMPT;
 			}
 
 			$success++;
-		}
+			} // end inner foreach (sections in this batch)
+
+			// PHASE-6.4 Wave C5 — Flush partial schema after batch 1 of split mode.
+			// We persist the doc and emit `part_done` so the iframe can render
+			// the first half right away. If batch 2 later fails or times out,
+			// the user still has the first half safely saved.
+			if ( $is_split && $batch_no < count( $batches ) - 1 ) {
+				$schema['sections'][0]['elements'] = $elements;
+				$partial = self::ensure_defaults( $schema, 'document', $topic, $theme );
+				if ( ! is_wp_error( $partial ) ) {
+					$saved_partial = self::auto_save_document( $doc_id, $user_id, 'document', $title, $template, $theme, $partial );
+					if ( $saved_partial > 0 ) {
+						$doc_id = $saved_partial; // reuse for batch 2 save
+					}
+					self::sse_send( 'part_done', [
+						'batch'   => $batch_no + 1,
+						'batches' => count( $batches ),
+						'doc_id'  => $doc_id,
+						'data'    => $partial,
+						'message' => "Đã xong {$batch_label}, đang viết tiếp...",
+					] );
+				}
+			}
+		} // end outer foreach (batches)
 
 		self::sse_send( 'progress', [
 			'status'  => 'saving',
@@ -1933,18 +2795,101 @@ PROMPT;
 		return $el;
 	}
 
+	/**
+	 * Walk the JSON char-by-char and:
+	 * 1. Escape raw control characters (TAB=0x09, LF=0x0A, CR=0x0D, etc.) that
+	 *    appear inside JSON string values — they are illegal there and cause
+	 *    JSON_ERROR_STATE_MISMATCH in PHP's json_decode.
+	 * 2. Remove invalid escape sequences (\v, \a, \e, \j, … ) that some LLMs
+	 *    generate (valid in JavaScript but not in JSON spec RFC 8259).
+	 *
+	 * This is the #1 cause of "State mismatch" errors from LLM-generated JSON.
+	 */
+	private static function fix_json_strings( string $json ): string {
+		$result    = '';
+		$len       = strlen( $json );
+		$in_string = false;
+		$escape    = false;
+
+		for ( $i = 0; $i < $len; $i++ ) {
+			$ch  = $json[ $i ];
+			$ord = ord( $ch );
+
+			if ( $escape ) {
+				$escape = false;
+				// Valid JSON escape chars after a backslash: " \ / b f n r t u
+				if ( $ch === '"'  || $ch === '\\'  || $ch === '/'  ||
+				     $ch === 'b'  || $ch === 'f'   || $ch === 'n'  ||
+				     $ch === 'r'  || $ch === 't'   || $ch === 'u' ) {
+					$result .= $ch;
+				} else {
+					// Invalid escape: drop the backslash we already appended.
+					$result = substr( $result, 0, -1 );
+					if ( $ord < 0x20 ) {
+						// The char itself is a control char — convert to valid escape.
+						$map    = [ 0x08 => '\\b', 0x09 => '\\t', 0x0A => '\\n', 0x0C => '\\f', 0x0D => '\\r' ];
+						$result .= $map[ $ord ] ?? sprintf( '\\u%04x', $ord );
+					} else {
+						// Normal printable char after invalid backslash — keep as-is.
+						$result .= $ch;
+					}
+				}
+				continue;
+			}
+
+			if ( $ch === '\\' && $in_string ) {
+				$escape  = true;
+				$result .= $ch;
+				continue;
+			}
+
+			if ( $ch === '"' ) {
+				$in_string = ! $in_string;
+				$result   .= $ch;
+				continue;
+			}
+
+			// Raw control character inside a JSON string — must be escaped.
+			if ( $in_string && $ord < 0x20 ) {
+				$map    = [ 0x08 => '\\b', 0x09 => '\\t', 0x0A => '\\n', 0x0C => '\\f', 0x0D => '\\r' ];
+				$result .= $map[ $ord ] ?? sprintf( '\\u%04x', $ord );
+				continue;
+			}
+
+			$result .= $ch;
+		}
+
+		return $result;
+	}
+
 	private static function parse_ai_json( string $content ) {
 		// Log raw length for debugging truncation
 		$raw_len = strlen( $content );
 		error_log( '[BZDoc] AI response length: ' . $raw_len . ' chars' );
 
-		// Clean JSON from AI response — strip markdown fences
+		// Strip markdown code fences
 		$content = preg_replace( '/^```(?:json)?\s*/m', '', $content );
 		$content = preg_replace( '/\s*```\s*$/m', '', $content );
 		$content = trim( $content );
 
-		// Strip control characters that break json_decode
+		// Strip always-illegal control chars globally (NUL, SOH…BS, VT, FF, SO…US).
+		// NOTE: we intentionally keep 0x09(TAB), 0x0A(LF), 0x0D(CR) here because
+		// they are valid JSON whitespace between tokens; fix_json_strings() will
+		// escape them when they appear inside string values.
 		$content = preg_replace( '/[\x00-\x08\x0B\x0C\x0E-\x1F]/', '', $content );
+
+		// Repair invalid UTF-8 sequences — common when the LLM response is cut
+		// mid-multibyte character (e.g. mid Vietnamese diacritic). PHP json_decode
+		// returns JSON_ERROR_STATE_MISMATCH for invalid UTF-8.
+		if ( function_exists( 'mb_convert_encoding' ) ) {
+			$cleaned = @mb_convert_encoding( $content, 'UTF-8', 'UTF-8' );
+			if ( is_string( $cleaned ) ) $content = $cleaned;
+		}
+
+		// Fix raw control chars (TAB/LF/CR) inside JSON string values and remove
+		// invalid escape sequences (\v, \a, \j, etc. — legal in JS but not JSON).
+		// This is the primary cause of JSON_ERROR_STATE_MISMATCH from LLM output.
+		$content = self::fix_json_strings( $content );
 
 		$data = json_decode( $content, true );
 
@@ -1952,7 +2897,8 @@ PROMPT;
 			// Retry: extract outermost { ... }
 			if ( preg_match( '/\{[\s\S]*\}/u', $content, $m ) ) {
 				$extracted = preg_replace( '/[\x00-\x08\x0B\x0C\x0E-\x1F]/', '', $m[0] );
-				$data = json_decode( $extracted, true );
+				$extracted = self::fix_json_strings( $extracted );
+				$data      = json_decode( $extracted, true );
 			}
 		}
 
@@ -3545,10 +4491,11 @@ PROMPT;
 		// set of OpenRouter image models to prevent arbitrary model strings.
 		$model_in = sanitize_text_field( (string) $request->get_param( 'image_model' ) );
 		$allowed_models = [
+			'openai/gpt-5.4-image-2',
+			'openai/gpt-image-1',
+			'google/gemini-3-pro-image-preview',
 			'google/gemini-2.5-flash-image',
 			'google/gemini-2.5-flash-image-preview',
-			'openai/gpt-image-1',
-			'openai/gpt-5.4-image-2',
 		];
 		if ( $model_in && in_array( $model_in, $allowed_models, true ) ) {
 			$payload['image_model'] = $model_in;
@@ -3959,6 +4906,248 @@ PROMPT;
 		$decoded[0]['template']  = json_decode( (string) $row['template_json'], true );
 		$decoded[0]['arguments'] = json_decode( (string) $row['arguments_json'], true );
 		return rest_ensure_response( [ 'success' => true, 'item' => $decoded[0] ] );
+	}
+
+	/**
+	 * PHASE-6.4 BUG-FIX (May 2026) — slug → prompt detail resolver.
+	 * Used by DocApp when TwinChat handoff carries `image_opts.template_slug`
+	 * (instead of a numeric prompt_id) so we can bind ImagePromptInput to the
+	 * correct preset and render its argument form.
+	 */
+	public static function handle_image_prompt_get_by_slug( \WP_REST_Request $request ) {
+		$slug = sanitize_title( (string) $request['slug'] );
+		if ( $slug === '' ) {
+			return new \WP_Error( 'bad_slug', 'Slug rỗng.', [ 'status' => 400 ] );
+		}
+		$row = BZDoc_Image_Prompts_Database::get_by_slug( $slug );
+		if ( ! $row ) {
+			return new \WP_Error( 'not_found', 'Không tìm thấy preset cho slug: ' . $slug, [ 'status' => 404 ] );
+		}
+		$decoded = self::decode_prompt_rows( [ $row ] );
+		$decoded[0]['template']  = json_decode( (string) $row['template_json'], true );
+		$decoded[0]['arguments'] = json_decode( (string) $row['arguments_json'], true );
+		return rest_ensure_response( [ 'success' => true, 'item' => $decoded[0] ] );
+	}
+
+	/**
+	 * PHASE-6.4 SMART-INFER (May 2026) — POST /image/prompts/infer-args
+	 *
+	 * Body: { notebook_id: int, slug: string, message_limit?: int }
+	 * Đọc N tin nhắn cuối của TwinChat session gắn với notebook_id, ghép với
+	 * schema arguments của preset, gọi LLM (JSON mode) để suy luận value cho
+	 * từng key. Trả về:
+	 *   { success, prompt_id, prompt_args: {key→value}, used_messages_count,
+	 *     model_used, missing_required: [...], usage }
+	 *
+	 * Nếu LLM fail / parse fail → trả 502 để FE fallback dùng default + KHÔNG
+	 * kickstart (theo quy ước UX đã chốt).
+	 */
+	public static function handle_image_prompt_infer_args( \WP_REST_Request $request ) {
+		self::ensure_user_blog_context( $request );
+
+		try {
+			$notebook_id = absint( $request->get_param( 'notebook_id' ) );
+			$slug        = sanitize_title( (string) $request->get_param( 'slug' ) );
+			$msg_limit   = (int) ( $request->get_param( 'message_limit' ) ?: 20 );
+			$msg_limit   = max( 4, min( 50, $msg_limit ) );
+
+			if ( ! $notebook_id ) {
+				self::restore_blog_context();
+				return new \WP_Error( 'missing_notebook_id', 'notebook_id bắt buộc.', [ 'status' => 400 ] );
+			}
+			if ( $slug === '' ) {
+				self::restore_blog_context();
+				return new \WP_Error( 'missing_slug', 'slug bắt buộc.', [ 'status' => 400 ] );
+			}
+
+			// 1) Load preset
+			$preset = BZDoc_Image_Prompts_Database::get_by_slug( $slug );
+			if ( ! $preset ) {
+				self::restore_blog_context();
+				return new \WP_Error( 'preset_not_found', "Preset '{$slug}' không tồn tại", [ 'status' => 404 ] );
+			}
+			$arguments_schema = json_decode( (string) ( $preset['arguments_json'] ?? '' ), true );
+			if ( ! is_array( $arguments_schema ) || empty( $arguments_schema ) ) {
+				self::restore_blog_context();
+				return rest_ensure_response( [
+					'success'             => true,
+					'prompt_id'           => (int) $preset['id'],
+					'prompt_args'         => new \stdClass(),
+					'used_messages_count' => 0,
+					'model_used'          => '',
+					'missing_required'    => [],
+					'note'                => 'Preset không có arguments cần infer.',
+				] );
+			}
+
+			// 2) Load N messages từ webchat unified table (platform=TWINCHAT, project_id=notebook_id)
+			global $wpdb;
+			$tbl = $wpdb->prefix . 'bizcity_webchat_messages';
+			$rows = $wpdb->get_results( $wpdb->prepare(
+				"SELECT message_from, message_text
+				   FROM {$tbl}
+				  WHERE project_id = %s
+				    AND platform_type = %s
+				    AND status = 'visible'
+				  ORDER BY id DESC
+				  LIMIT %d",
+				(string) $notebook_id,
+				'TWINCHAT',
+				$msg_limit
+			), ARRAY_A );
+
+			if ( empty( $rows ) ) {
+				self::restore_blog_context();
+				return new \WP_Error( 'no_messages', 'Notebook chưa có tin nhắn TwinChat nào để suy luận.', [ 'status' => 404 ] );
+			}
+			$rows = array_reverse( $rows ); // ascending (oldest → newest)
+
+			$conversation = '';
+			foreach ( $rows as $r ) {
+				$role = ( $r['message_from'] === 'bot' ) ? 'Assistant' : ucfirst( (string) $r['message_from'] );
+				$txt  = trim( wp_strip_all_tags( (string) $r['message_text'] ) );
+				if ( $txt === '' ) continue;
+				if ( mb_strlen( $txt ) > 1500 ) {
+					$txt = mb_substr( $txt, 0, 1500 ) . '…';
+				}
+				$conversation .= "{$role}: {$txt}\n\n";
+			}
+
+			// 3) Build prompt cho LLM
+			// NOTE: arguments schema dùng key 'name' (không phải 'key') — xem image-prompts-seed.php
+			$schema_compact = [];
+			foreach ( $arguments_schema as $a ) {
+				if ( ! is_array( $a ) ) continue;
+				$name = (string) ( $a['name'] ?? $a['key'] ?? '' );
+				if ( $name === '' ) continue;
+				$entry = [
+					'name'     => $name,
+					'label'    => (string) ( $a['label'] ?? $name ),
+					'type'     => (string) ( $a['type'] ?? 'text' ),
+					'required' => ! empty( $a['required'] ),
+				];
+				if ( ! empty( $a['default'] ) )       $entry['default_example'] = $a['default'];
+				if ( ! empty( $a['placeholder'] ) )   $entry['placeholder']     = $a['placeholder'];
+				if ( ! empty( $a['options'] ) )       $entry['options']         = $a['options'];
+				if ( ! empty( $a['description'] ) )   $entry['description']     = $a['description'];
+				$schema_compact[] = $entry;
+			}
+			if ( empty( $schema_compact ) ) {
+				self::restore_blog_context();
+				return rest_ensure_response( [
+					'success'             => true,
+					'prompt_id'           => (int) $preset['id'],
+					'prompt_args'         => new \stdClass(),
+					'used_messages_count' => 0,
+					'model_used'          => '',
+					'missing_required'    => [],
+					'note'                => 'Schema rỗng (không có field hợp lệ).',
+				] );
+			}
+			$schema_json    = wp_json_encode( $schema_compact, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE );
+			$expected_keys  = array_map( function( $a ){ return $a['name']; }, $schema_compact );
+			$skeleton       = (object) array_fill_keys( $expected_keys, '' );
+			$skeleton_json  = wp_json_encode( $skeleton, JSON_UNESCAPED_UNICODE );
+			$keys_csv       = implode( ', ', $expected_keys );
+
+			$system = "Bạn là EXTRACTOR. Nhiệm vụ: đọc HỘI THOẠI giữa User và Assistant rồi TRÍCH (extract) giá trị cho từng field trong SCHEMA. Đây là EXTRACT, KHÔNG phải GENERATE.\n\n"
+				. "QUY TẮC BẮT BUỘC (vi phạm = output bị loại):\n"
+				. "1. CHỈ trả JSON object thuần. Không markdown, không giải thích.\n"
+				. "2. JSON PHẢI chứa ĐẦY ĐỦ các key sau: {$keys_csv}.\n"
+				. "3. Mỗi value PHẢI là chuỗi nguyên văn (hoặc paraphrase rất sát) đã xuất hiện trong HỘI THOẠI từ phía User. Nếu không tìm thấy bằng chứng rõ ràng → để \"\" (chuỗi rỗng).\n"
+				. "4. CẤM TUYỆT ĐỐI bịa, suy diễn, tính toán, hay tra cứu. Cụ thể:\n"
+				. "   • CẤM tự suy ra cung hoàng đạo (zodiac), mệnh ngũ hành (element), thần số học (life_path / birthday_no / soul_urge / destiny), v.v. từ tên hay ngày sinh. Chỉ điền nếu User TỰ NÓI RÕ chuỗi đó (ví dụ: 'tôi cung Bạch Dương').\n"
+				. "   • CẤM dùng default_example / placeholder làm value. Chúng chỉ để bạn HIỂU field, KHÔNG phải để copy.\n"
+				. "   • CẤM dùng tên mẫu, slogan mẫu, palette mẫu nếu User chưa khai.\n"
+				. "5. type=date → dd/MM/yyyy. type=select → chọn đúng 1 giá trị trong options (chỉ khi User đã chọn rõ).\n"
+				. "6. Khi mâu thuẫn, ưu tiên phát ngôn gần nhất của User.\n"
+				. "7. Nếu hội thoại không liên quan đến chủ đề preset (ví dụ User nói chuyện khác, chưa khai báo gì cho hồ sơ) → trả TẤT CẢ value bằng \"\". Đó là kết quả ĐÚNG.\n\n"
+				. "SCHEMA (mô tả từng field — default_example/placeholder CHỈ để hiểu, KHÔNG copy):\n{$schema_json}\n\n"
+				. "ĐỊNH DẠNG OUTPUT BẮT BUỘC (giữ nguyên các key, chỉ thay value bằng dữ liệu User đã khai, hoặc \"\"):\n{$skeleton_json}";
+
+			$user = "HỘI THOẠI:\n\n{$conversation}\n---\nTRÍCH (không sinh mới) JSON theo skeleton. Field nào User chưa khai rõ → để \"\". Bắt buộc đủ key: {$keys_csv}.";
+
+			// 4) Gọi LLM (JSON mode) — model rẻ
+			if ( ! function_exists( 'bizcity_llm_chat' ) ) {
+				self::restore_blog_context();
+				return new \WP_Error( 'llm_unavailable', 'LLM helper chưa sẵn sàng.', [ 'status' => 503 ] );
+			}
+
+			$resp = bizcity_llm_chat(
+				[
+					[ 'role' => 'system', 'content' => $system ],
+					[ 'role' => 'user',   'content' => $user ],
+				],
+				[
+					'model'       => 'google/gemini-2.5-flash',
+					'purpose'     => 'fast',
+					'temperature' => 0.2,
+					'max_tokens'  => 1200,
+					'timeout'     => 30,
+					'extra_body'  => [ 'response_format' => [ 'type' => 'json_object' ] ],
+				]
+			);
+
+			if ( empty( $resp['success'] ) ) {
+				$err = isset( $resp['error'] ) ? (string) $resp['error'] : 'LLM call failed';
+				error_log( '[BZDoc][infer-args] LLM fail: ' . $err );
+				self::restore_blog_context();
+				return new \WP_Error( 'llm_error', $err, [ 'status' => 502 ] );
+			}
+
+			$raw = (string) ( $resp['message'] ?? '' );
+			// Strip markdown fence nếu model bướng bỉnh.
+			$raw = trim( $raw );
+			$raw = preg_replace( '/^```(?:json)?\s*|\s*```$/m', '', $raw );
+			$parsed = json_decode( $raw, true );
+			if ( ! is_array( $parsed ) ) {
+				error_log( '[BZDoc][infer-args] JSON parse fail. Raw: ' . substr( $raw, 0, 500 ) );
+				self::restore_blog_context();
+				return new \WP_Error( 'parse_error', 'LLM trả về không phải JSON hợp lệ.', [
+					'status'  => 502,
+					'raw'     => substr( $raw, 0, 500 ),
+				] );
+			}
+
+			// 5) Sanitize: chỉ giữ key trong schema, ép string, kiểm required.
+			$valid_keys = [];
+			$required_keys = [];
+			foreach ( $schema_compact as $a ) {
+				$valid_keys[ $a['name'] ] = true;
+				if ( ! empty( $a['required'] ) ) $required_keys[] = $a['name'];
+			}
+			$prompt_args = [];
+			foreach ( $parsed as $k => $v ) {
+				if ( ! isset( $valid_keys[ $k ] ) ) continue;
+				if ( is_array( $v ) || is_object( $v ) ) {
+					$v = wp_json_encode( $v );
+				}
+				$prompt_args[ $k ] = (string) $v;
+			}
+			$missing = [];
+			foreach ( $required_keys as $rk ) {
+				if ( ! isset( $prompt_args[ $rk ] ) || $prompt_args[ $rk ] === '' ) {
+					$missing[] = $rk;
+				}
+			}
+
+			self::restore_blog_context();
+
+			return rest_ensure_response( [
+				'success'             => true,
+				'prompt_id'           => (int) $preset['id'],
+				'prompt_args'         => (object) $prompt_args, // object để JSON {} thay vì []
+				'used_messages_count' => count( $rows ),
+				'model_used'          => (string) ( $resp['model'] ?? '' ),
+				'missing_required'    => $missing,
+				'usage'               => $resp['usage'] ?? null,
+			] );
+
+		} catch ( \Throwable $e ) {
+			self::restore_blog_context();
+			error_log( '[BZDoc][infer-args] exception: ' . $e->getMessage() );
+			return new \WP_Error( 'exception', $e->getMessage(), [ 'status' => 500 ] );
+		}
 	}
 
 	private static function decode_prompt_rows( array $rows ): array {

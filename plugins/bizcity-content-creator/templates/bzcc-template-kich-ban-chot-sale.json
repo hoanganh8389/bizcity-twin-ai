@@ -1,0 +1,195 @@
+{
+  "version": "1.0",
+  "plugin": "bizcity-content-creator",
+  "exported": "2026-05-19T12:00:00Z",
+  "templates": [
+    {
+      "slug": "kich-ban-chot-sale",
+      "category_id": "ban-hang",
+      "title": "Kịch bản tư vấn & chốt sale (Call / Inbox / Tại quầy)",
+      "description": "Tạo kịch bản tư vấn bán hàng đầy đủ 7 bước: chào hỏi → khai thác nhu cầu → giới thiệu giải pháp → xử lý phản đối → chốt → upsell/cross-sell → chăm sóc sau bán. Tuỳ chỉnh theo kênh (cuộc gọi, inbox/chat, tại cửa hàng) và độ ấm khách (lạnh/ấm/nóng).",
+      "icon_url": "",
+      "icon_emoji": "📞",
+      "form_fields": [
+        {
+          "slug": "product_name",
+          "label": "Sản phẩm / dịch vụ cần chốt",
+          "type": "text",
+          "placeholder": "VD: Gói combo spa 10 buổi, khoá học Tiếng Anh online, căn hộ 2PN dự án X...",
+          "required": true,
+          "grid": "half",
+          "sort_order": 1,
+          "description": ""
+        },
+        {
+          "slug": "channel",
+          "label": "Kênh tư vấn",
+          "type": "card_radio",
+          "placeholder": "",
+          "required": true,
+          "grid": "full",
+          "sort_order": 2,
+          "description": "Kịch bản sẽ tối ưu theo đặc thù từng kênh",
+          "options": [
+            {
+              "value": "call",
+              "label": "Cuộc gọi điện thoại",
+              "description": "Gọi telesales / gọi lại lead. Cần script đọc lưu loát + tone giọng.",
+              "icon": "📞",
+              "tag": "🔥 Phổ biến"
+            },
+            {
+              "value": "inbox",
+              "label": "Inbox Facebook / Zalo",
+              "description": "Chat 1-1 qua tin nhắn. Cần ngắn gọn, có emoji, dễ trả lời nhanh.",
+              "icon": "💬",
+              "tag": "🌟 Tỷ lệ chốt cao"
+            },
+            {
+              "value": "store",
+              "label": "Tư vấn tại cửa hàng",
+              "description": "Face-to-face. Cần ngôn ngữ cơ thể, demo sản phẩm trực tiếp.",
+              "icon": "🏪",
+              "tag": "🏆 Trải nghiệm cao"
+            },
+            {
+              "value": "livestream",
+              "label": "Livestream / Video call",
+              "description": "1 người tư vấn — nhiều người xem, hoặc demo sản phẩm online.",
+              "icon": "📹",
+              "tag": "✨ Xu hướng"
+            }
+          ]
+        },
+        {
+          "slug": "lead_temperature",
+          "label": "Độ ấm của khách",
+          "type": "button_group",
+          "placeholder": "",
+          "required": true,
+          "grid": "full",
+          "sort_order": 3,
+          "description": "Khách càng ấm, càng đi nhanh đến bước chốt",
+          "multi": false,
+          "options": [
+            { "value": "cold", "label": "❄️ Lạnh — Chưa biết đến SP, mới gọi/inbox lần đầu" },
+            { "value": "warm", "label": "🌤️ Ấm — Đã biết, đang cân nhắc, hỏi thêm thông tin" },
+            { "value": "hot", "label": "🔥 Nóng — Đã quyết tâm, chỉ cần chốt" }
+          ]
+        },
+        {
+          "slug": "customer_profile",
+          "label": "Chân dung khách hàng điển hình",
+          "type": "textarea",
+          "placeholder": "VD: Nữ 28-40 tuổi, làm văn phòng, thu nhập 15-30tr/tháng, quan tâm chăm sóc da, đã từng dùng spa nhưng chưa hài lòng...",
+          "required": true,
+          "grid": "full",
+          "sort_order": 4,
+          "description": "Càng cụ thể, AI càng cá nhân hoá script"
+        },
+        {
+          "slug": "main_benefits",
+          "label": "3-5 lợi ích chính của sản phẩm",
+          "type": "textarea",
+          "placeholder": "VD: 1) Giảm thâm nám sau 4 tuần, 2) Liệu trình cá nhân hoá, 3) Bác sĩ da liễu trực tiếp tư vấn, 4) Hoàn tiền nếu không hiệu quả",
+          "required": true,
+          "grid": "half",
+          "sort_order": 5,
+          "description": "Mỗi lợi ích 1 dòng"
+        },
+        {
+          "slug": "price_offer",
+          "label": "Giá & ưu đãi hiện tại",
+          "type": "textarea",
+          "placeholder": "VD: Combo 10 buổi 8.900.000đ (giảm từ 15tr), tặng kèm 2 buổi soi da + 1 mặt nạ vàng, trả góp 0% qua thẻ",
+          "required": true,
+          "grid": "half",
+          "sort_order": 6,
+          "description": "Bao gồm giá gốc, giá khuyến mại, bonus, payment terms"
+        },
+        {
+          "slug": "common_objections",
+          "label": "Top 3-5 phản đối khách thường nêu",
+          "type": "textarea",
+          "placeholder": "VD: 1) Đắt quá, 2) Để suy nghĩ thêm, 3) Phải hỏi chồng, 4) Đang dùng SP khác, 5) Không có thời gian đi liệu trình",
+          "required": false,
+          "grid": "full",
+          "sort_order": 7,
+          "description": "AI sẽ viết sẵn câu trả lời cho từng phản đối"
+        },
+        {
+          "slug": "upsell_options",
+          "label": "Có sản phẩm upsell / cross-sell không?",
+          "type": "textarea",
+          "placeholder": "VD: Combo 20 buổi (tiết kiệm hơn), thêm liệu trình chăm sóc cơ thể, gói VIP có bác sĩ riêng...",
+          "required": false,
+          "grid": "full",
+          "sort_order": 8,
+          "description": "AI sẽ chèn bước upsell tự nhiên sau khi chốt"
+        },
+        {
+          "slug": "tone",
+          "label": "Giọng điệu tư vấn",
+          "type": "select",
+          "placeholder": "",
+          "required": false,
+          "grid": "half",
+          "sort_order": 9,
+          "description": "",
+          "options": [
+            { "value": "warm", "label": "🤗 Ấm áp, chị/em thân thiết" },
+            { "value": "professional", "label": "💼 Chuyên nghiệp, đáng tin" },
+            { "value": "expert", "label": "🎓 Chuyên gia, tư vấn sâu" },
+            { "value": "energetic", "label": "⚡ Năng lượng cao, nhiệt huyết" },
+            { "value": "consultative", "label": "🧭 Cố vấn — lắng nghe trước" }
+          ]
+        },
+        {
+          "slug": "brand_voice",
+          "label": "Cách xưng hô",
+          "type": "select",
+          "placeholder": "",
+          "required": false,
+          "grid": "half",
+          "sort_order": 10,
+          "description": "",
+          "options": [
+            { "value": "anh-chi", "label": "Em — Anh/Chị" },
+            { "value": "ban", "label": "Mình — Bạn" },
+            { "value": "co-chu", "label": "Em — Cô/Chú" },
+            { "value": "chuyen-vien", "label": "Chuyên viên — Quý khách" }
+          ]
+        },
+        {
+          "slug": "extra_context",
+          "label": "Ghi chú thêm",
+          "type": "textarea",
+          "placeholder": "VD: Đang trong promo sinh nhật, không được phép hứa kết quả 100%, brand cấm dùng từ 'rẻ nhất'...",
+          "required": false,
+          "grid": "full",
+          "sort_order": 11,
+          "description": ""
+        }
+      ],
+
+      "system_prompt": "Bạn là chuyên gia training sales hàng đầu Việt Nam — đã đào tạo cho hàng nghìn nhân viên bán hàng cao cấp trong các ngành spa, bất động sản, ô tô, giáo dục, SaaS. Bạn viết kịch bản tư vấn vừa đủ ấm cúng để khách tin tưởng, vừa đủ chiến thuật để chốt.\n\n## THÔNG TIN BUỔI TƯ VẤN\n- **Sản phẩm:** {{product_name}}\n- **Kênh:** {{channel}}\n- **Độ ấm khách:** {{lead_temperature}}\n- **Chân dung KH:** {{customer_profile}}\n- **Lợi ích chính:** {{main_benefits}}\n- **Giá & ưu đãi:** {{price_offer}}\n- **Phản đối thường gặp:** {{common_objections}}\n- **Upsell:** {{upsell_options}}\n- **Giọng điệu:** {{tone}}\n- **Xưng hô:** {{brand_voice}}\n- **Ghi chú:** {{extra_context}}\n\n## NGUYÊN TẮC KỊCH BẢN BÁN HÀNG VN\n1. **Lắng nghe nhiều hơn nói** — câu hỏi mở chiếm 60% kịch bản. Bán cái khách cần, không bán cái mình có.\n2. **Cá nhân hoá tối đa** — luôn lặp lại tên khách, hoàn cảnh khách vừa chia sẻ. Không đọc script như robot.\n3. **Bán giải pháp — không bán sản phẩm** — chuyển feature thành benefit cụ thể cho hoàn cảnh khách.\n4. **Khan hiếm thật + cấp bách thật** — chỉ dùng deadline/quantity thật. KHÔNG bịa.\n5. **Chốt nhẹ trước, chốt mạnh sau** — bắt đầu bằng câu hỏi giả định (\"Anh/Chị muốn nhận hàng vào thứ 5 hay thứ 7?\"), nếu chưa được thì mới mạnh hơn.\n6. **Xử lý phản đối = đồng cảm trước, phản biện sau** — công thức 'Em hiểu... nhiều khách cũng từng nghĩ vậy... nhưng sau khi... thì...'.\n7. **Đừng sợ im lặng** — sau khi đưa giá / chốt, ngừng 3-5 giây để khách phản hồi. KHÔNG nói thêm.\n8. **Upsell sau khi đã chốt** — đừng làm khách phân vân trước quyết định chính.\n9. **Không nói xấu đối thủ** — chỉ nói điểm khác biệt của mình.\n10. **Đóng = mở rộng quan hệ** — kết thúc bằng follow-up rõ ràng, dù chốt hay chưa.\n\n## ĐẶC THÙ KÊNH {{channel}}\n- **call:** mở đầu xin phép 30 giây, tone tự nhiên không đọc kịch bản, có break để khách nói.\n- **inbox:** câu ngắn ≤ 2 dòng/lần gửi, có emoji vừa phải, gửi nhiều tin nhỏ thay 1 tin dài.\n- **store:** mô tả cả ngôn ngữ cơ thể (mỉm cười, mời nước, demo trực tiếp), có hành động không phải chỉ lời.\n- **livestream:** nhắc lại offer mỗi 5-10 phút, kêu gọi tương tác (comment, react), có hashtag/keyword.\n\n## ĐẶC THÙ ĐỘ ẤM {{lead_temperature}}\n- **cold:** bước 1-2 phải dài (chào + khai thác). Đừng vội pitch.\n- **warm:** bỏ qua bước chào dài, vào thẳng giải pháp + khác biệt.\n- **hot:** đi nhanh tới chốt, tập trung vào xử lý phản đối + giảm rào cản (payment, delivery).",
+
+      "outline_prompt": "Tạo outline cho kịch bản tư vấn & chốt sale '{{product_name}}' qua {{channel}}, khách độ ấm {{lead_temperature}}.\n\nOutline gồm 8 section theo flow tư vấn chuẩn:\n1. **Bước 1 — Chào & gây thiện cảm** (Opening)\n2. **Bước 2 — Khai thác nhu cầu** (Discovery questions)\n3. **Bước 3 — Giới thiệu giải pháp** (Solution pitch)\n4. **Bước 4 — Đưa giá & ưu đãi** (Price reveal)\n5. **Bước 5 — Xử lý phản đối** (Objection handling)\n6. **Bước 6 — Chốt sale** (Closing techniques — 3 cách chốt)\n7. **Bước 7 — Upsell / Cross-sell** (sau khi đã chốt)\n8. **Bước 8 — Chăm sóc sau bán & Follow-up plan**\n\nTRẢ VỀ JSON:\n[\n  {\"label\": \"Bước 1 — Chào & gây thiện cảm\", \"emoji\": \"👋\", \"platform\": \"{{channel}}\"},\n  {\"label\": \"Bước 2 — Khai thác nhu cầu\", \"emoji\": \"🔍\", \"platform\": \"{{channel}}\"},\n  {\"label\": \"Bước 3 — Giới thiệu giải pháp\", \"emoji\": \"💡\", \"platform\": \"{{channel}}\"},\n  {\"label\": \"Bước 4 — Đưa giá & ưu đãi\", \"emoji\": \"💰\", \"platform\": \"{{channel}}\"},\n  {\"label\": \"Bước 5 — Xử lý phản đối\", \"emoji\": \"🛡️\", \"platform\": \"{{channel}}\"},\n  {\"label\": \"Bước 6 — Chốt sale\", \"emoji\": \"🎯\", \"platform\": \"{{channel}}\"},\n  {\"label\": \"Bước 7 — Upsell / Cross-sell\", \"emoji\": \"📈\", \"platform\": \"{{channel}}\"},\n  {\"label\": \"Bước 8 — Chăm sóc sau bán\", \"emoji\": \"💝\", \"platform\": \"{{channel}}\"}\n]",
+
+      "chunk_prompt": "Bạn đang viết phần \"{{chunk_title}}\" của kịch bản tư vấn '{{product_name}}' qua {{channel}}, khách {{lead_temperature}}.\n\n## CONTEXT\n- Chân dung KH: {{customer_profile}}\n- Lợi ích chính: {{main_benefits}}\n- Giá/Ưu đãi: {{price_offer}}\n- Phản đối thường gặp: {{common_objections}}\n- Upsell: {{upsell_options}}\n- Tone: {{tone}}\n- Xưng hô: {{brand_voice}}\n- Ghi chú: {{extra_context}}\n\n## FORMAT KỊCH BẢN (áp dụng MỌI bước)\nMỗi đoạn hội thoại trình bày dưới dạng:\n\n**🗣️ Sales:** \"Câu nói cụ thể của sales...\"\n\n*💭 (Mục đích bước này / lưu ý cho sales)*\n\n**👤 Khách (kịch bản dự đoán):** \"Câu trả lời điển hình A\" / \"Câu trả lời điển hình B\"\n\n**🗣️ Sales (nếu khách trả lời A):** \"...\"\n**🗣️ Sales (nếu khách trả lời B):** \"...\"\n\n## YÊU CẦU THEO TỪNG BƯỚC\n\n### Bước 1 — Chào & gây thiện cảm\n- 2-3 câu mở đầu tự nhiên (xin phép thời gian nếu là call)\n- 1 câu hỏi mở phá băng (không hỏi về SP ngay)\n- Mục tiêu: khách cảm thấy thoải mái, không phòng vệ\n- Lưu ý theo {{channel}} (call: không vội; inbox: ngắn + emoji; store: lời mời nước/ngồi)\n\n### Bước 2 — Khai thác nhu cầu (Discovery)\n- 5-7 câu hỏi mở (KHÔNG dùng câu hỏi yes/no) — về vấn đề khách đang gặp, mong muốn, bối cảnh, ngân sách\n- Mỗi câu hỏi có mục đích rõ (đo budget, đo độ urgent, đo quyết định, đo trải nghiệm cũ)\n- Hướng dẫn sales cách phản hồi đồng cảm sau mỗi câu trả lời\n\n### Bước 3 — Giới thiệu giải pháp\n- Mở đầu bằng câu chuyển: \"Dạ em hiểu rồi, để giải quyết đúng vấn đề này thì...\"\n- 3-5 benefit chính BÁM SÁT vào pain vừa khai thác (không liệt kê khô khan)\n- Mỗi benefit có 1 mini-story / case khách tương tự (số liệu cụ thể)\n- Demo / dẫn chứng phù hợp {{channel}}\n\n### Bước 4 — Đưa giá & ưu đãi\n- Kỹ thuật 'anchor pricing': đưa giá gốc trước → giá ưu đãi sau\n- Liệt kê bonus dưới dạng giá trị (vd: 'tặng kèm gói chăm sóc trị giá 1.5tr')\n- Chốt bằng câu hỏi giả định (vd: 'Mình lên đơn cho chị nhận hàng thứ 5 hay thứ 7 tiện hơn ạ?')\n- Hướng dẫn sales NGỪNG NÓI sau khi đưa giá (đợi khách phản hồi)\n\n### Bước 5 — Xử lý phản đối\n- LIỆT KÊ TỪNG phản đối trong {{common_objections}} (nếu trống → tự suy ra top 5 phổ biến cho ngành)\n- Mỗi phản đối theo công thức 3 bước:\n  1. **Đồng cảm** (\"Em hiểu chị, nhiều khách cũng từng nghĩ vậy...\")\n  2. **Tái khung** (\"Nhưng thực ra điều quan trọng hơn là...\")\n  3. **Bằng chứng + chốt nhẹ** (case study / số liệu + câu hỏi đóng)\n- Có ít nhất 1 phản hồi cho mỗi phản đối\n\n### Bước 6 — Chốt sale\n- ĐƯA RA 3 KỸ THUẬT CHỐT khác nhau (sales chọn theo tình huống):\n  1. **Chốt giả định** — \"Vậy chị muốn nhận hàng vào...\"\n  2. **Chốt khan hiếm** — \"Chỉ còn 3 suất ưu đãi trong hôm nay...\"\n  3. **Chốt tóm tắt** — \"Vậy em chốt giúp chị: SP X, giá Y, giao Z, đúng không ạ?\"\n- Hướng dẫn cách xử lý nếu khách vẫn lưỡng lự (cho thêm bonus nhỏ, giảm rào cản thanh toán)\n\n### Bước 7 — Upsell / Cross-sell\n- CHỈ làm sau khi khách đã đồng ý mua sản phẩm chính\n- Mở đầu: \"Cảm ơn chị, à tiện đây em chia sẻ thêm một chút...\"\n- 1-2 đề xuất upsell từ {{upsell_options}} (nếu trống → tự gợi ý hợp ngành)\n- Phải có lý do KHÁCH NHẬN LỢI (vd: tiết kiệm hơn, hiệu quả nhanh hơn)\n- KHÔNG ép — chỉ gợi ý 1 lần, khách từ chối thì thôi\n\n### Bước 8 — Chăm sóc sau bán & Follow-up\n- Script cảm ơn cuối buổi\n- Thông tin xác nhận đơn (mã đơn, ngày giao, hotline hỗ trợ)\n- Plan follow-up: ngày 1 (cảm ơn + hướng dẫn dùng), ngày 7 (check kết quả), ngày 30 (xin review + giới thiệu KH mới)\n- Mẫu tin nhắn follow-up cụ thể cho từng mốc\n\n## QUY TẮC TRÌNH BÀY\n- Dùng markdown rõ ràng (bold, italic, bullet)\n- Xưng hô theo {{brand_voice}}\n- Mọi câu thoại của sales đặt trong dấu \"...\"\n- KHÔNG mở đầu bằng 'Dưới đây là...' — vào thẳng nội dung\n- Tiếng Việt thuần, tự nhiên như đời thực",
+
+      "model_purpose": "content_creation",
+      "temperature": "0.7",
+      "max_tokens": "8000",
+      "wizard_steps": [],
+      "output_platforms": ["general"],
+      "skill_id": "0",
+      "tags": "ban-hang,chot-sale,sales-script,kich-ban,telesales,inbox,tu-van,objection-handling",
+      "badge_text": "PRO",
+      "badge_color": "#0ea5e9",
+      "is_featured": "1",
+      "sort_order": "2",
+      "status": "active"
+    }
+  ]
+}

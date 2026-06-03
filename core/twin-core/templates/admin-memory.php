@@ -52,6 +52,24 @@ if ( $wpdb->get_var( "SHOW TABLES LIKE '{$_nt_tbl}'" ) === $_nt_tbl ) {
 	$_nt_count = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$_nt_tbl} WHERE user_id = %d", $_uid ) );
 }
 
+// Pre-load Files count (bzdoc_documents — tài liệu Doc/Slide/Sheet sinh từ AI)
+$_fl_tbl   = $wpdb->prefix . 'bzdoc_documents';
+$_fl_nb    = intval( $_GET['nb'] ?? 0 );   // optional ?nb=<notebook_id> filter
+$_fl_count = 0;
+if ( $wpdb->get_var( "SHOW TABLES LIKE '{$_fl_tbl}'" ) === $_fl_tbl ) {
+	if ( $_fl_nb > 0 ) {
+		$_fl_count = (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT COUNT(*) FROM {$_fl_tbl} WHERE user_id = %d AND notebook_id = %d",
+			$_uid, $_fl_nb
+		) );
+	} else {
+		$_fl_count = (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT COUNT(*) FROM {$_fl_tbl} WHERE user_id = %d",
+			$_uid
+		) );
+	}
+}
+
 // Pre-load Quick FAQ (stored in knowledge_sources with source_type=quick_faq)
 $_faq_tbl = $wpdb->prefix . 'bizcity_knowledge_sources';
 $_faqs    = [];
@@ -134,7 +152,7 @@ if ( $wpdb->get_var( "SHOW TABLES LIKE '{$_faq_tbl}'" ) === $_faq_tbl ) {
 	box-shadow: none;
 }
 .bizcity-mh .stat-icon {
-	font-size: 18px; margin: 0;
+	font-size: 12px; margin: 0;
 	width: 32px; height: 32px;
 	display: inline-flex; align-items: center; justify-content: center;
 	background: #f3f4f6; border-radius: 8px;
@@ -159,10 +177,6 @@ if ( $wpdb->get_var( "SHOW TABLES LIKE '{$_faq_tbl}'" ) === $_faq_tbl ) {
 .bizcity-mh .stat-desc {
 	font-size: 10px !important; color: #9ca3af !important;
 	margin-top: 1px !important;
-}
-/* Use a flex column inside the card for label+value+desc */
-.bizcity-mh .stat-card {
-	display: flex;
 }
 .bizcity-mh .stat-card > .stat-icon { order: 0; }
 .bizcity-mh .stat-card .stat-meta {
@@ -233,6 +247,44 @@ if ( $wpdb->get_var( "SHOW TABLES LIKE '{$_faq_tbl}'" ) === $_faq_tbl ) {
 	color: #9ca3af; font-size: 14px; padding: 2px 6px; border-radius: 4px;
 }
 .bizcity-mh .bk-row-delete:hover { color: #dc2626; background: #fef2f2; }
+.bizcity-mh .bk-table-footer {
+	padding: 10px 0 2px; font-size: 11px; color: #9ca3af;
+}
+
+/* ─── Files tab — card grid ─── */
+.bizcity-mh .bk-files-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+	gap: 10px; padding: 4px 0;
+}
+.bizcity-mh .bk-file-card {
+	border: 1px solid #e5e7eb; border-radius: 10px;
+	padding: 12px 14px; background: #fff; position: relative;
+	transition: box-shadow .15s;
+}
+.bizcity-mh .bk-file-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+.bizcity-mh .bk-file-card__icon { font-size: 20px; margin-bottom: 6px; display: block; }
+.bizcity-mh .bk-file-card__title {
+	font-size: 12px; font-weight: 500; color: #111827; line-height: 1.4;
+	display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+	overflow: hidden; margin-bottom: 6px;
+}
+.bizcity-mh .bk-file-card__meta {
+	font-size: 10px; color: #9ca3af;
+	display: flex; justify-content: space-between; align-items: center; gap: 4px;
+}
+.bizcity-mh .bk-file-card__type {
+	font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em;
+	color: #6366f1; background: #eef2ff; border-radius: 3px;
+	padding: 1px 5px;
+}
+.bizcity-mh .bk-file-card__del {
+	position: absolute; top: 6px; right: 6px;
+	background: transparent; border: none; cursor: pointer;
+	color: #d1d5db; font-size: 13px; padding: 2px 5px; border-radius: 4px; line-height: 1;
+}
+.bizcity-mh .bk-file-card__del:hover { color: #dc2626; background: #fef2f2; }
+
 .bizcity-mh .bk-table-footer {
 	padding: 10px 0 2px; font-size: 11px; color: #9ca3af;
 }
@@ -325,6 +377,14 @@ if ( $wpdb->get_var( "SHOW TABLES LIKE '{$_faq_tbl}'" ) === $_faq_tbl ) {
 					<span class="stat-value" id="stat-notes"><?php echo $_nt_count; ?></span>
 					<span class="stat-label">Research</span>
 					<span class="stat-desc">notes · pri 92</span>
+				</span>
+			</button>
+			<button class="stat-card" data-tab="files">
+				<span class="stat-icon">📁</span>
+				<span class="stat-meta">
+					<span class="stat-value" id="stat-files"><?php echo $_fl_count; ?></span>
+					<span class="stat-label">Files</span>
+					<span class="stat-desc">bzdoc_documents · đã sinh</span>
 				</span>
 			</button>
 		</div>
@@ -523,5 +583,74 @@ if ( $wpdb->get_var( "SHOW TABLES LIKE '{$_faq_tbl}'" ) === $_faq_tbl ) {
 			</div>
 		</div>
 
+		<!-- ═══ TAB: Files (bzdoc_documents) ═══ -->
+		<div class="maturity-tab-panel" id="panel-files">
+			<div class="maturity-card maturity-card--full">
+				<div class="tab-header">
+					<h3>Files <span style="font-size:11px;font-weight:400;color:#9ca3af;margin-left:6px">bzdoc_documents · Doc/Slide/Sheet đã sinh</span></h3>
+					<div class="tab-actions">
+						<?php if ( $_fl_nb > 0 ) : ?>
+							<span style="font-size:11px;color:#6b7280;padding:4px 0">notebook: <code><?php echo $_fl_nb; ?></code></span>
+						<?php endif; ?>
+						<select id="bk-files-type-filter" style="font-size:12px;padding:4px 8px;border:1px solid #e5e7eb;border-radius:6px;background:#fff;cursor:pointer">
+							<option value="">Tất cả loại</option>
+							<option value="document">📄 Document</option>
+							<option value="presentation">📊 Slide</option>
+							<option value="spreadsheet">📈 Sheet</option>
+						</select>
+					</div>
+				</div>
+				<p class="card-desc">Tài liệu <strong>Document / Slide / Sheet</strong> đã được AI sinh ra, lưu trong <code>bzdoc_documents</code>. Lọc theo <code>user_id</code> hiện tại<?php if ( $_fl_nb > 0 ) echo ' và <strong>notebook #' . $_fl_nb . '</strong>'; ?>. Nhấn vào card để mở trình soạn thảo.</p>
+				<div class="detail-loading"><?php esc_html_e( 'Loading...', $td ); ?></div>
+				<div class="detail-list" id="detail-files"></div>
+			</div>
+		</div>
+
 	</div>
 </div>
+
+<script>
+/**
+ * Memory Hub — minimal bootstrap.
+ *
+ * The legacy "Maturity Dashboard" JS bundle was retired on 2026-05-06
+ * (see core/knowledge/includes/class-admin-menu.php enqueue_assets() comment),
+ * but this template still ships #maturity-loading shown / #maturity-content
+ * hidden by default. Without that JS the loader spinner is stuck forever
+ * even though Quick FAQ + Long-term rows are already pre-rendered server-side.
+ *
+ * Inline shim restores the two pieces the dashboard JS used to do:
+ *   1. Reveal #maturity-content + hide #maturity-loading on DOM ready.
+ *   2. Wire .stat-card[data-tab=X] click → activate matching #panel-X.
+ *
+ * CRUD/import/export buttons + the lazy-loaded Episodic/Rolling/Notes lists
+ * are NOT restored here — those need the full dashboard bundle.
+ */
+(function () {
+	function ready(fn) {
+		if (document.readyState !== 'loading') { fn(); }
+		else { document.addEventListener('DOMContentLoaded', fn); }
+	}
+	ready(function () {
+		var loading = document.getElementById('maturity-loading');
+		var content = document.getElementById('maturity-content');
+		if (loading) { loading.style.display = 'none'; }
+		if (content) { content.style.display = ''; }
+
+		// Tab switching: stat-card buttons + tab panels.
+		var cards  = document.querySelectorAll('.bizcity-mh .stat-card[data-tab]');
+		var panels = document.querySelectorAll('.bizcity-mh .maturity-tab-panel');
+		cards.forEach(function (btn) {
+			btn.addEventListener('click', function () {
+				var tab = btn.getAttribute('data-tab');
+				cards.forEach(function (b) {
+					b.setAttribute('aria-selected', b === btn ? 'true' : 'false');
+				});
+				panels.forEach(function (p) {
+					p.classList.toggle('active', p.id === 'panel-' + tab);
+				});
+			});
+		});
+	});
+})();
+</script>

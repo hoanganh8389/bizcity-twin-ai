@@ -115,7 +115,14 @@ class BizCity_Twin_AI {
         // We cannot call boot() here because mu-plugins haven't loaded yet
         // during activation, causing class redeclaration conflicts.
         set_transient( 'bizcity_twin_ai_activated', 1, 60 );
+        // Reset TwinChat public-page rewrite flush flag so /twinchat/ rule is registered fresh.
+        delete_option( 'bizcity_twinchat_rewrite_flushed_v1' );
         flush_rewrite_rules();
+
+        // Install Phase 0.13 runtime DB tables immediately on activation.
+        if ( class_exists( 'BizCity_Twin_DB_Installer' ) ) {
+            BizCity_Twin_DB_Installer::install();
+        }
 
         // Auto-copy (or overwrite) mu-plugin compat loader
         self::sync_compat_loader();

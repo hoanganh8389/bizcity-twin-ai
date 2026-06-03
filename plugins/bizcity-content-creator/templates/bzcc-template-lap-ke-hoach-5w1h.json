@@ -1,0 +1,178 @@
+{
+  "version": "1.0",
+  "plugin": "bizcity-content-creator",
+  "exported": "2026-05-19T10:30:00Z",
+  "templates": [
+    {
+      "slug": "lap-ke-hoach-5w1h",
+      "category_id": "kinh-doanh",
+      "title": "Lập mọi kế hoạch với 5W1H",
+      "description": "Giúp bạn lập kế hoạch chi tiết và thông minh cho bất kỳ công việc gì — từ phương án đến kế hoạch triển khai từng bước theo khung 5W1H (What/Why/When/Where/Who/How) kèm bảng phân công, KPI, timeline và chiến lược triển khai chi tiết.",
+      "icon_url": "",
+      "icon_emoji": "🎯",
+      "form_fields": [
+        {
+          "slug": "goal",
+          "label": "Mục tiêu bạn muốn đạt được là gì?",
+          "type": "textarea",
+          "placeholder": "VD: kinh doanh sữa bột nhập khẩu thành công, tăng doanh thu 30% trong quý 3, mở 5 chi nhánh mới...",
+          "required": true,
+          "grid": "half",
+          "sort_order": 1,
+          "description": "Càng cụ thể, đo lường được càng tốt (SMART)"
+        },
+        {
+          "slug": "subject",
+          "label": "Bạn muốn lập kế hoạch cho việc gì? Cho sản phẩm dịch vụ gì?",
+          "type": "textarea",
+          "placeholder": "VD: mở rộng thị trường phân phối kinh doanh, ra mắt sản phẩm mới, tổ chức sự kiện ra mắt...",
+          "required": true,
+          "grid": "half",
+          "sort_order": 2,
+          "description": "Mô tả ngắn về chủ thể của kế hoạch"
+        },
+        {
+          "slug": "industry",
+          "label": "Ngành nghề / Lĩnh vực (tuỳ chọn)",
+          "type": "select",
+          "placeholder": "",
+          "required": false,
+          "grid": "half",
+          "sort_order": 3,
+          "description": "",
+          "options": [
+            { "value": "auto", "label": "🤖 AI tự nhận diện" },
+            { "value": "retail", "label": "🛒 Bán lẻ / Thương mại" },
+            { "value": "fnb", "label": "🍜 F&B / Nhà hàng" },
+            { "value": "manufacturing", "label": "🏭 Sản xuất" },
+            { "value": "tech", "label": "💻 Công nghệ / Phần mềm" },
+            { "value": "education", "label": "📚 Giáo dục / Đào tạo" },
+            { "value": "healthcare", "label": "🏥 Y tế / Dược phẩm" },
+            { "value": "real-estate", "label": "🏠 Bất động sản" },
+            { "value": "finance", "label": "💰 Tài chính / Ngân hàng" },
+            { "value": "logistics", "label": "🚚 Logistics / Vận tải" },
+            { "value": "beauty", "label": "💅 Thẩm mỹ / Spa" },
+            { "value": "consulting", "label": "📊 Tư vấn / Dịch vụ" },
+            { "value": "event", "label": "🎪 Sự kiện / Tổ chức" },
+            { "value": "marketing", "label": "📣 Marketing / Quảng cáo" },
+            { "value": "other", "label": "📦 Khác" }
+          ]
+        },
+        {
+          "slug": "timeline_range",
+          "label": "Khung thời gian dự kiến",
+          "type": "button_group",
+          "placeholder": "",
+          "required": false,
+          "grid": "half",
+          "sort_order": 4,
+          "description": "",
+          "multi": false,
+          "options": [
+            { "value": "1m", "label": "⚡ 1 tháng" },
+            { "value": "3m", "label": "🎯 3 tháng" },
+            { "value": "6m", "label": "📅 6 tháng" },
+            { "value": "1y", "label": "🗓️ 1 năm" },
+            { "value": "long", "label": "🚀 Dài hạn (>1 năm)" }
+          ]
+        },
+        {
+          "slug": "budget",
+          "label": "Ngân sách dự kiến (tuỳ chọn)",
+          "type": "select",
+          "placeholder": "",
+          "required": false,
+          "grid": "half",
+          "sort_order": 5,
+          "description": "",
+          "options": [
+            { "value": "none", "label": "💸 Không xác định / Tối ưu" },
+            { "value": "under-50m", "label": "💵 Dưới 50 triệu" },
+            { "value": "50-200m", "label": "💰 50-200 triệu" },
+            { "value": "200m-1b", "label": "💎 200tr - 1 tỷ" },
+            { "value": "1b-5b", "label": "🏦 1-5 tỷ" },
+            { "value": "over-5b", "label": "👑 Trên 5 tỷ" }
+          ]
+        },
+        {
+          "slug": "num_strategies",
+          "label": "Số chiến lược triển khai chi tiết",
+          "type": "button_group",
+          "placeholder": "",
+          "required": false,
+          "grid": "half",
+          "sort_order": 6,
+          "description": "Mỗi chiến lược sẽ là một section riêng có timeline + KPI + ví dụ cụ thể",
+          "multi": false,
+          "options": [
+            { "value": "2", "label": "📋 2 chiến lược" },
+            { "value": "3", "label": "🎯 3 chiến lược" },
+            { "value": "4", "label": "🔥 4 chiến lược" },
+            { "value": "5", "label": "💎 5 chiến lược" }
+          ]
+        },
+        {
+          "slug": "tone",
+          "label": "Giọng điệu",
+          "type": "select",
+          "placeholder": "",
+          "required": false,
+          "grid": "half",
+          "sort_order": 7,
+          "description": "",
+          "options": [
+            { "value": "professional", "label": "💼 Chuyên nghiệp" },
+            { "value": "detailed", "label": "📖 Chi tiết / Tỉ mỉ" },
+            { "value": "concise", "label": "⚡ Ngắn gọn / Súc tích" },
+            { "value": "consultant", "label": "🧭 Tư vấn chiến lược" },
+            { "value": "friendly", "label": "😊 Thân thiện / Dễ hiểu" }
+          ]
+        },
+        {
+          "slug": "language",
+          "label": "Ngôn ngữ",
+          "type": "select",
+          "placeholder": "",
+          "required": false,
+          "grid": "half",
+          "sort_order": 8,
+          "description": "",
+          "options": [
+            { "value": "vi", "label": "🇻🇳 Tiếng Việt" },
+            { "value": "en", "label": "🇺🇸 English" },
+            { "value": "vi-en", "label": "🌐 Song ngữ Việt-Anh" }
+          ]
+        },
+        {
+          "slug": "extra_context",
+          "label": "Bối cảnh / Ghi chú thêm",
+          "type": "textarea",
+          "placeholder": "VD: Đang ở Hà Nội, team 5 người, đã có kênh phân phối truyền thống, muốn mở rộng online...",
+          "required": false,
+          "grid": "full",
+          "sort_order": 9,
+          "description": "Thông tin bổ sung giúp AI cá nhân hoá kế hoạch"
+        }
+      ],
+
+      "system_prompt": "Bạn là chuyên gia hoạch định chiến lược và quản lý dự án hàng đầu, có kinh nghiệm triển khai hàng trăm kế hoạch kinh doanh, marketing, vận hành và sự kiện tại Việt Nam.\n\n## THÔNG TIN KẾ HOẠCH\n- **Mục tiêu (Goal):** {{goal}}\n- **Chủ thể kế hoạch:** {{subject}}\n- **Ngành nghề:** {{industry}}\n- **Khung thời gian:** {{timeline_range}}\n- **Ngân sách:** {{budget}}\n- **Số chiến lược chi tiết cần triển khai:** {{num_strategies}}\n- **Bối cảnh thêm:** {{extra_context}}\n- **Giọng điệu:** {{tone}}\n- **Ngôn ngữ:** {{language}}\n\n## KHUNG 5W1H\n1. **What** — Việc cần làm là gì? Sản phẩm/dịch vụ/phạm vi?\n2. **Why** — Tại sao việc này quan trọng? Lý do, kết quả kỳ vọng?\n3. **When** — Khi nào triển khai? Timeline từng giai đoạn, mốc thời gian?\n4. **Where** — Triển khai ở đâu? Địa điểm, kênh, phạm vi địa lý?\n5. **Who** — Ai làm? Đối tượng khách hàng + team thực thi + phân công vai trò?\n6. **How** — Làm như thế nào? Chiến lược, phương pháp, KPI, ngân sách?\n\n## QUY TẮC VIẾT KẾ HOẠCH\n1. Mỗi bước 5W1H phải có **bảng (markdown table)** để trực quan hoá\n2. Bảng phải có cột rõ ràng: Nội dung / Chi tiết / Ví dụ cụ thể / KPI khi phù hợp\n3. KPI phải SMART (Specific, Measurable, Achievable, Relevant, Time-bound) — KÈM số liệu cụ thể\n4. Timeline phải có **giai đoạn** + **thời gian cụ thể** + **hoạt động** + **kết quả mong đợi**\n5. Phân công team phải rõ: Vai trò / Trách nhiệm cụ thể / Số người cần\n6. KHÔNG viết chung chung — luôn có ví dụ thực tế và con số tham khảo\n7. Nếu có {{industry}} → bám sát ngành đó cho ví dụ\n8. Nếu có {{budget}} → đề xuất phân bổ ngân sách thực tế\n9. Viết bằng {{language}} (mặc định Tiếng Việt)\n10. Không bịa số liệu thị trường — nếu không chắc, ghi 'ước tính dựa trên thị trường 2025-2026'",
+
+      "outline_prompt": "Dựa trên thông tin kế hoạch, hãy tạo outline theo đúng khung 5W1H — mỗi 'W/H' là MỘT section riêng.\n\nSố chiến lược cần triển khai chi tiết: {{num_strategies}} (mặc định 2)\n\nTạo outline gồm các section theo thứ tự:\n1. **Bước 1 - What** — Mở rộng/triển khai cái gì? (mô tả + bảng phạm vi)\n2. **Bước 2 - Why** — Tại sao quan trọng? (bảng lý do + kết quả kỳ vọng + ví dụ)\n3. **Bước 3 - When** — Timeline chi tiết theo giai đoạn (Giai đoạn 1, 2, 3...)\n4. **Bước 4 - Where** — Địa điểm/kênh phân phối/phạm vi địa lý\n5. **Bước 5 - Who** — Đối tượng khách hàng mục tiêu (demographic, hành vi, vấn đề, khao khát)\n6. **Bước 6 - Who (tiếp)** — Bảng phân công team thực thi (vai trò + trách nhiệm)\n7. **Bước 7 - How** — Bảng tổng các chiến lược triển khai (chiến lược / phương pháp / KPI / ví dụ + nguồn lực cần thiết)\n8-(7+N). **Chiến lược 1, 2, 3... N** — MỖI chiến lược là MỘT section riêng, có timeline + KPI + ví dụ cụ thể (N = {{num_strategies}})\n(cuối). **Tổng kết & Lưu ý quan trọng**\n\nTRẢ VỀ JSON theo format:\n[\n  {\"label\": \"Bước 1 - What\", \"emoji\": \"🎯\", \"platform\": \"general\"},\n  {\"label\": \"Bước 2 - Why\", \"emoji\": \"💡\", \"platform\": \"general\"},\n  ...\n]\n\nLƯU Ý: tên section phải bắt đầu bằng 'Bước X - Y' cho 5W1H và 'Chiến lược N' cho phần chiến lược chi tiết, để giữ đúng cấu trúc UI.",
+
+      "chunk_prompt": "Bạn đang viết phần \"{{chunk_title}}\" của kế hoạch 5W1H cho:\n- **Mục tiêu:** {{goal}}\n- **Chủ thể:** {{subject}}\n- **Ngành:** {{industry}}\n- **Timeline:** {{timeline_range}}\n- **Ngân sách:** {{budget}}\n- **Bối cảnh thêm:** {{extra_context}}\n\n## YÊU CẦU CHUNG\n- Giọng điệu: {{tone}}\n- Ngôn ngữ: {{language}}\n- Cá nhân hoá tối đa với mục tiêu + chủ thể\n- Mở đầu phần bằng 1 dòng tiêu đề rõ ràng (vd: 'Phần What: ...', 'Kế Hoạch Chi Tiết Về Thời Gian Và Lịch Trình')\n- Kết thúc phần bằng 1 đoạn 'Phần này tập trung vào...' hoặc 'Kết Luận:' tóm tắt 1-2 câu\n\n## YÊU CẦU CỤ THỂ THEO LOẠI SECTION\n\n### Nếu là **Bước 1 - What**:\n- Bảng 2 cột: Nội Dung / Chi Tiết\n- Các hàng: Mục Tiêu, Sản Phẩm, Đối Tượng Khách Hàng, Các Kênh Phân Phối, Chiến Lược Marketing, Chỉ Tiêu Doanh Số, Dịch Vụ Hỗ Trợ Khách Hàng\n\n### Nếu là **Bước 2 - Why**:\n- Bảng 4 cột: Nội Dung / Lý Do Quan Trọng / Kết Quả Kỳ Vọng / Ví Dụ Cụ Thể\n- Cùng các hàng như Bước 1 (Mục Tiêu, Sản Phẩm, Đối Tượng KH, Kênh PP, Marketing, Chỉ Tiêu DS, Dịch Vụ HTKH)\n\n### Nếu là **Bước 3 - When**:\n- KHÔNG dùng bảng, dùng cấu trúc theo Giai Đoạn:\n  - **Giai Đoạn 1: [Tên]** — Thời gian: Từ DD/MM/YYYY đến DD/MM/YYYY — Hoạt động cụ thể: bullets\n  - **Giai Đoạn 2, 3, 4, 5, 6** tương tự\n- Cuối có **Tính Thời Điểm** + **Kết Luận**\n\n### Nếu là **Bước 4 - Where**:\n- Cấu trúc theo 3 mục: 1) Địa Điểm Chính Xác, 2) Phạm Vi Tiếp Cận, 3) Tính Khả Thi\n- Mỗi mục chia theo: Cửa Hàng Truyền Thống / Online / Sự Kiện — với Địa điểm + Kênh phân phối\n- Kết Luận ngắn\n\n### Nếu là **Bước 5 - Who** (đối tượng KH):\n- 4 mục: 1) Nhóm Khách Hàng Chính (đối tượng), 2) Demographic (Dân số học — độ tuổi, giới tính, trình độ, thu nhập, địa lý), 3) Hành Vi Tiêu Dùng (mua sắm + sử dụng công nghệ), 4) Vấn Đề và Khao Khát (vấn đề + khao khát)\n- Kết Luận\n\n### Nếu là **Bước 6 - Who (tiếp)** (phân công team):\n- Bảng 3 cột: Nhóm/Đối Tượng / Vai Trò / Trách Nhiệm Cụ Thể\n- Tối thiểu 5 hàng: Bộ phận Marketing, Bộ phận Bán hàng, Đối tác sự kiện, Bộ phận Hỗ trợ Khách Hàng, Đội ngũ Phân tích Dữ liệu\n- Kết Luận\n\n### Nếu là **Bước 7 - How** (bảng chiến lược tổng):\n- Bảng 4 cột: Chiến Lược / Phương Pháp Chi Tiết / KPI Cần Đạt / Ví Dụ Cụ Thể\n- Có nhóm chiến lược: Marketing, Phương thức Bán hàng, Phát triển công nghệ, Nguồn Lực Cần Thiết\n- Kết Luận\n\n### Nếu là **Chiến lược N** (chi tiết từng chiến lược):\n- Mở đầu: 'Dưới đây là chi tiết triển khai chiến lược [tên], bao gồm các bước cụ thể, timeline, KPI và ví dụ cụ thể để bạn dễ hình dung và thực hiện.'\n- **Chiến Lược [Loại]: [Tên cụ thể]**\n- **Bước 1, 2, 3, 4...** — mỗi bước có Mục tiêu + Hành động cụ thể (bullets)\n- **Timeline Triển Khai** — bảng 3 cột: Thời Gian / Hành Động / KPI Cần Đạt\n- **Ví Dụ Cụ Thể** — kịch bản giả định có số liệu thực tế\n- Kết thúc: 1 dòng động viên (vd: 'Hy vọng rằng với chi tiết này, bạn có thể dễ dàng triển khai chiến lược marketing hiệu quả...')\n\n### Nếu là **Tổng kết**:\n- Tóm tắt 5-7 ý chính của toàn kế hoạch\n- 3 lưu ý quan trọng để triển khai thành công\n- 1 câu kêu gọi hành động\n\n## QUY TẮC TRÌNH BÀY\n- Dùng markdown table cho mọi bảng\n- Dùng heading H3 (###) cho tiêu đề phụ trong section\n- Dùng bullet `-` cho danh sách\n- Bold (**) các từ khoá quan trọng\n- KHÔNG dùng quá nhiều emoji trong nội dung (giữ chuyên nghiệp)",
+
+      "model_purpose": "content_creation",
+      "temperature": "0.65",
+      "max_tokens": "8000",
+      "wizard_steps": [],
+      "output_platforms": ["general"],
+      "skill_id": "0",
+      "tags": "5w1h,kế-hoạch,lập-kế-hoạch,planning,strategy,kpi,timeline,quản-lý-dự-án,project-plan",
+      "badge_text": "5W1H",
+      "badge_color": "#7c3aed",
+      "is_featured": "1",
+      "sort_order": "3",
+      "status": "active"
+    }
+  ]
+}

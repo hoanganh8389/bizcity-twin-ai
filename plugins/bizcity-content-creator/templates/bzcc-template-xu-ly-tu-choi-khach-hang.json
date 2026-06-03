@@ -1,0 +1,165 @@
+{
+  "version": "1.0",
+  "plugin": "bizcity-content-creator",
+  "exported": "2026-05-19T12:00:00Z",
+  "templates": [
+    {
+      "slug": "xu-ly-tu-choi-khach-hang",
+      "category_id": "ban-hang",
+      "title": "Xử lý 10 phản đối khách hàng phổ biến",
+      "description": "Tạo bộ kịch bản phản hồi cho 10 phản đối phổ biến nhất khi bán hàng tại Việt Nam: 'Đắt quá', 'Để suy nghĩ thêm', 'Phải hỏi chồng/vợ', 'Đang dùng SP khác', 'Không tin tưởng', 'Không có thời gian'… Mỗi phản đối có 3 cách phản hồi khác nhau theo công thức Feel-Felt-Found / Đồng cảm-Tái khung-Chốt nhẹ.",
+      "icon_url": "",
+      "icon_emoji": "🛡️",
+      "form_fields": [
+        {
+          "slug": "product_name",
+          "label": "Sản phẩm / dịch vụ",
+          "type": "text",
+          "placeholder": "VD: Khoá học online 5tr, gói spa 10 buổi, căn hộ 2.5 tỷ...",
+          "required": true,
+          "grid": "half",
+          "sort_order": 1,
+          "description": ""
+        },
+        {
+          "slug": "industry",
+          "label": "Ngành hàng",
+          "type": "select",
+          "placeholder": "",
+          "required": true,
+          "grid": "half",
+          "sort_order": 2,
+          "description": "",
+          "options": [
+            { "value": "auto", "label": "🤖 AI tự nhận diện" },
+            { "value": "beauty", "label": "💅 Mỹ phẩm / Spa" },
+            { "value": "fashion", "label": "👗 Thời trang" },
+            { "value": "food", "label": "🍜 F&B" },
+            { "value": "tech", "label": "💻 Công nghệ / SaaS" },
+            { "value": "health", "label": "💪 Sức khoẻ / Fitness" },
+            { "value": "education", "label": "📚 Giáo dục / Khoá học" },
+            { "value": "real-estate", "label": "🏠 Bất động sản" },
+            { "value": "finance", "label": "💰 Tài chính / Bảo hiểm" },
+            { "value": "auto-vehicle", "label": "🚗 Ô tô / Xe máy" },
+            { "value": "service", "label": "🔧 Dịch vụ" },
+            { "value": "other", "label": "📦 Khác" }
+          ]
+        },
+        {
+          "slug": "price_range",
+          "label": "Tầm giá sản phẩm",
+          "type": "button_group",
+          "placeholder": "",
+          "required": false,
+          "grid": "full",
+          "sort_order": 3,
+          "description": "Tầm giá ảnh hưởng cách xử lý phản đối 'đắt'",
+          "multi": false,
+          "options": [
+            { "value": "low", "label": "💵 Thấp (< 1 triệu)" },
+            { "value": "mid", "label": "💰 Trung bình (1-10 triệu)" },
+            { "value": "high", "label": "💎 Cao (10-100 triệu)" },
+            { "value": "premium", "label": "👑 Cao cấp (> 100 triệu)" }
+          ]
+        },
+        {
+          "slug": "main_benefits",
+          "label": "3-5 USP / lợi ích cốt lõi",
+          "type": "textarea",
+          "placeholder": "VD: 1) Giảm thâm sau 4 tuần, 2) Bác sĩ da liễu trực tiếp, 3) Hoàn tiền nếu không hiệu quả, 4) 10.000+ khách đã dùng",
+          "required": true,
+          "grid": "full",
+          "sort_order": 4,
+          "description": "Đây là 'vũ khí' để tái khung phản đối"
+        },
+        {
+          "slug": "selected_objections",
+          "label": "Chọn phản đối cần xử lý",
+          "type": "checkbox_group",
+          "placeholder": "",
+          "required": false,
+          "grid": "full",
+          "sort_order": 5,
+          "description": "Bỏ chọn tất cả = xử lý cả 10 phản đối mặc định",
+          "multi": true,
+          "options": [
+            { "value": "expensive", "label": "💸 'Đắt quá / Không có ngân sách'" },
+            { "value": "think", "label": "🤔 'Để tôi suy nghĩ thêm'" },
+            { "value": "ask-spouse", "label": "👫 'Phải hỏi ý chồng / vợ / sếp'" },
+            { "value": "competitor", "label": "🆚 'Đang dùng SP khác rồi'" },
+            { "value": "no-trust", "label": "❓ 'Chưa biết shop / chưa tin tưởng'" },
+            { "value": "no-time", "label": "⏰ 'Không có thời gian'" },
+            { "value": "no-need", "label": "🚫 'Tôi không có nhu cầu'" },
+            { "value": "send-info", "label": "📩 'Gửi thông tin qua mình xem'" },
+            { "value": "later", "label": "🕐 'Để khi khác mua / Sau lễ'" },
+            { "value": "compare", "label": "🔍 'Để so sánh thêm vài chỗ'" },
+            { "value": "guarantee", "label": "🤷 'Lỡ không hiệu quả thì sao?'" },
+            { "value": "promo-wait", "label": "🎁 'Đợi khuyến mại lớn hơn'" }
+          ]
+        },
+        {
+          "slug": "brand_voice",
+          "label": "Cách xưng hô",
+          "type": "select",
+          "placeholder": "",
+          "required": false,
+          "grid": "half",
+          "sort_order": 6,
+          "description": "",
+          "options": [
+            { "value": "anh-chi", "label": "Em — Anh/Chị" },
+            { "value": "ban", "label": "Mình — Bạn" },
+            { "value": "co-chu", "label": "Em — Cô/Chú" },
+            { "value": "chuyen-vien", "label": "Chuyên viên — Quý khách" }
+          ]
+        },
+        {
+          "slug": "channel",
+          "label": "Kênh chính áp dụng",
+          "type": "button_group",
+          "placeholder": "",
+          "required": false,
+          "grid": "half",
+          "sort_order": 7,
+          "description": "",
+          "multi": false,
+          "options": [
+            { "value": "all", "label": "🌐 Đa kênh" },
+            { "value": "call", "label": "📞 Cuộc gọi" },
+            { "value": "inbox", "label": "💬 Inbox/Zalo" },
+            { "value": "store", "label": "🏪 Tại cửa hàng" }
+          ]
+        },
+        {
+          "slug": "extra_context",
+          "label": "Ghi chú thêm",
+          "type": "textarea",
+          "placeholder": "VD: Brand cấm dùng từ 'cam kết', đang trong chương trình sale, tránh so sánh trực tiếp với đối thủ X...",
+          "required": false,
+          "grid": "full",
+          "sort_order": 8,
+          "description": ""
+        }
+      ],
+
+      "system_prompt": "Bạn là chuyên gia training kỹ năng bán hàng & xử lý phản đối — đã đào tạo cho hàng nghìn sales senior tại VN, am hiểu tâm lý người tiêu dùng Việt và các kỹ thuật objection-handling kinh điển của Zig Ziglar, Brian Tracy, Grant Cardone.\n\n## THÔNG TIN\n- **Sản phẩm:** {{product_name}}\n- **Ngành:** {{industry}}\n- **Tầm giá:** {{price_range}}\n- **USP/Lợi ích:** {{main_benefits}}\n- **Phản đối cần xử lý:** {{selected_objections}}\n- **Xưng hô:** {{brand_voice}}\n- **Kênh:** {{channel}}\n- **Ghi chú:** {{extra_context}}\n\n## NGUYÊN TẮC XỬ LÝ PHẢN ĐỐI\n1. **Đồng cảm trước, phản biện sau** — không bao giờ nói 'Không, anh/chị sai rồi'. Luôn bắt đầu bằng 'Em hiểu...', 'Em đồng ý với chị một phần...'\n2. **Công thức Feel-Felt-Found:**\n   - **Feel:** 'Em hiểu cảm giác của anh/chị...'\n   - **Felt:** 'Nhiều khách của em cũng từng cảm thấy như vậy...'\n   - **Found:** 'Nhưng sau khi họ thử, họ nhận ra...'\n3. **Tái khung (reframe) thay vì phản bác** — đổi góc nhìn từ 'giá' sang 'giá trị', từ 'rủi ro' sang 'cơ hội', từ 'chi phí' sang 'đầu tư'.\n4. **Dùng bằng chứng cụ thể** — case study, số liệu, testimonial từ {{main_benefits}}. KHÔNG bịa.\n5. **Kết thúc bằng câu hỏi đóng / chốt nhẹ** — để dẫn khách đi tiếp, không để cuộc trò chuyện chết.\n6. **KHÔNG hứa quá** — đặc biệt tránh 'cam kết 100%', 'chắc chắn hiệu quả' (vi phạm quảng cáo VN).\n7. **KHÔNG nói xấu đối thủ** — chỉ nói khác biệt của mình.\n8. **3 cách phản hồi cho mỗi phản đối** — vì mỗi khách phản ứng khác nhau, sales cần linh hoạt chọn.\n\n## ĐẶC THÙ THEO TẦM GIÁ {{price_range}}\n- **low:** Đắt = so sánh với giá trị nhỏ hằng ngày (1 ly cà phê)\n- **mid:** Đắt = chia nhỏ theo tháng / theo lần dùng\n- **high:** Đắt = ROI, so sánh với chi phí cơ hội nếu không dùng\n- **premium:** Đắt = positioning đẳng cấp, không tranh luận giá\n\n## QUY TẮC TRÌNH BÀY\n- Mỗi phản đối là 1 section riêng\n- Mỗi cách phản hồi đặt trong khung rõ ràng (3 cách / phản đối)\n- Lời thoại sales đặt trong dấu \"...\"\n- Có ghi chú '*💡 Khi nào dùng:*' cho mỗi cách phản hồi\n- Xưng hô theo {{brand_voice}}\n- Tiếng Việt tự nhiên, không lẫn Anh ngữ thừa",
+
+      "outline_prompt": "Tạo outline cho bộ xử lý phản đối khách hàng cho '{{product_name}}'.\n\nDựa vào {{selected_objections}} (nếu trống → dùng full 10 phản đối phổ biến nhất theo thứ tự):\n1. expensive — 'Đắt quá / Không có ngân sách'\n2. think — 'Để tôi suy nghĩ thêm'\n3. ask-spouse — 'Phải hỏi ý chồng/vợ/sếp'\n4. competitor — 'Đang dùng SP khác rồi'\n5. no-trust — 'Chưa biết shop / chưa tin tưởng'\n6. no-time — 'Không có thời gian'\n7. no-need — 'Tôi không có nhu cầu'\n8. send-info — 'Gửi thông tin qua mình xem'\n9. later — 'Để khi khác mua'\n10. guarantee — 'Lỡ không hiệu quả thì sao?'\n\nMỗi phản đối là MỘT section riêng, cộng thêm 1 section cuối 'Tổng kết & Mindset xử lý phản đối'.\n\nTRẢ VỀ JSON (tên section bắt đầu bằng emoji + nội dung phản đối):\n[\n  {\"label\": \"💸 'Đắt quá'\", \"emoji\": \"💸\", \"platform\": \"general\"},\n  {\"label\": \"🤔 'Để suy nghĩ thêm'\", \"emoji\": \"🤔\", \"platform\": \"general\"},\n  ...\n  {\"label\": \"📊 Tổng kết & Mindset\", \"emoji\": \"📊\", \"platform\": \"general\"}\n]\n\nLƯU Ý: chỉ tạo section cho phản đối được chọn trong {{selected_objections}}. Nếu trống thì dùng cả 10 phản đối mặc định theo thứ tự trên.",
+
+      "chunk_prompt": "Bạn đang viết phần \"{{chunk_title}}\" — kịch bản xử lý phản đối cho '{{product_name}}'.\n\n## CONTEXT\n- Ngành: {{industry}}\n- Tầm giá: {{price_range}}\n- USP: {{main_benefits}}\n- Xưng hô: {{brand_voice}}\n- Kênh: {{channel}}\n- Ghi chú: {{extra_context}}\n\n## FORMAT BẮT BUỘC CHO MỖI PHẢN ĐỐI\n\n### 🎯 Phản đối: \"[Nguyên văn phản đối]\"\n\n**🧠 Tâm lý khách:** [1-2 câu giải thích khách thực sự đang nghĩ gì khi nói câu này — có khi không phải vấn đề giá mà là vấn đề niềm tin / so sánh / sợ rủi ro]\n\n---\n\n#### ✅ Cách 1 — [Tên kỹ thuật, vd: Feel-Felt-Found]\n*💡 Khi nào dùng:* [Tình huống cụ thể nên áp dụng cách này]\n\n**🗣️ Sales:** \"...\"\n\n*Diễn giải:* [Giải thích vì sao câu này hiệu quả]\n\n---\n\n#### ✅ Cách 2 — [Tên kỹ thuật, vd: Tái khung Giá → Giá trị]\n*💡 Khi nào dùng:* [...]\n\n**🗣️ Sales:** \"...\"\n\n*Diễn giải:* [...]\n\n---\n\n#### ✅ Cách 3 — [Tên kỹ thuật, vd: Câu chuyện khách hàng]\n*💡 Khi nào dùng:* [...]\n\n**🗣️ Sales:** \"...\"\n\n*Diễn giải:* [...]\n\n---\n\n#### ❌ Tránh nói\n- [2-3 câu sales TUYỆT ĐỐI không nên nói khi gặp phản đối này]\n\n#### 🎯 Câu hỏi chốt nhẹ sau khi xử lý\n- [1-2 câu hỏi đóng để dẫn khách đi tiếp]\n\n## YÊU CẦU CHI TIẾT THEO TỪNG PHẢN ĐỐI\n\n### Nếu là 'Đắt quá':\n- Cách 1: Chia nhỏ giá theo ngày/tháng/lần dùng + so sánh chi tiêu hằng ngày\n- Cách 2: Tái khung 'chi phí' → 'đầu tư' với ROI cụ thể\n- Cách 3: So sánh chi phí cơ hội nếu KHÔNG dùng (vd: đi spa rẻ nhưng hỏng da → tốn chữa)\n\n### Nếu là 'Để suy nghĩ thêm':\n- Cách 1: Hỏi mở 'Em hiểu, anh/chị đang băn khoăn điều gì cụ thể không ạ?' để khai thác đối tượng phản đối thật\n- Cách 2: Đưa ra deadline có thật (ưu đãi hết hạn, hết suất...) — KHÔNG bịa\n- Cách 3: Đề xuất thử bước nhỏ trước (gói trial, đặt cọc, mua 1 buổi thử)\n\n### Nếu là 'Phải hỏi chồng/vợ':\n- Cách 1: Tôn trọng + hỏi 'Anh nhà thường quan tâm điều gì nhất ạ?' để chuẩn bị sẵn câu trả lời\n- Cách 2: Đề xuất conference call 3 bên hoặc gửi tài liệu chuẩn để anh/chị dễ trao đổi lại\n- Cách 3: Khẳng định quyền quyết định: 'Thực ra việc này liên quan trực tiếp đến chị, chị có thể quyết...'\n\n### Nếu là 'Đang dùng SP khác':\n- Cách 1: Không công kích đối thủ, hỏi 'Anh/chị thấy SP đó tốt ở điểm nào, còn điểm nào chưa hài lòng không ạ?'\n- Cách 2: So sánh thẳng theo USP riêng (KHÔNG nói xấu)\n- Cách 3: Đề xuất thử song song — không cần bỏ SP cũ ngay\n\n### Nếu là 'Chưa tin tưởng':\n- Cách 1: Đưa bằng chứng cụ thể (số khách, review, chứng nhận, KOL)\n- Cách 2: Cam kết bảo hành / hoàn tiền nếu không hiệu quả\n- Cách 3: Mời tham quan / demo / dùng thử miễn phí\n\n### Nếu là 'Không có thời gian':\n- Cách 1: Tái khung 'tốn thời gian' → 'tiết kiệm thời gian dài hạn'\n- Cách 2: Đưa option linh hoạt (online, giao tận nơi, tự setup, hỗ trợ 24/7)\n- Cách 3: Hỏi 'Anh/chị tiện vào khung giờ nào nhất, em sắp xếp ạ?'\n\n### Nếu là 'Không có nhu cầu':\n- Cách 1: Khai thác sâu — có thật sự không cần hay chưa nhận ra cần? Hỏi pain ngầm.\n- Cách 2: Chia sẻ case study người tương tự cũng từng nghĩ vậy, sau dùng thấy giá trị\n- Cách 3: Để lại thông tin tham khảo, không ép — duy trì quan hệ\n\n### Nếu là 'Gửi thông tin qua tôi xem':\n- Cách 1: Đồng ý + hỏi cụ thể 'Anh/chị quan tâm phần nào nhất để em focus gửi cái đó ạ?'\n- Cách 2: Đề xuất gọi lại 5 phút giải thích nhanh thay vì đọc tài liệu khô khan\n- Cách 3: Gửi tài liệu CÓ deadline + lịch hẹn follow-up cụ thể (vd: 'Em sẽ gọi lại lúc 3h chiều mai')\n\n### Nếu là 'Để khi khác mua':\n- Cách 1: Hỏi 'Khi khác cụ thể là khi nào ạ?' để biến lời từ chối mơ hồ thành thời điểm cụ thể\n- Cách 2: Chỉ ra cost of delay (vd: bệnh nặng hơn, mất ưu đãi, giá sẽ tăng)\n- Cách 3: Đặt cọc giữ deal hiện tại, thanh toán đầy đủ sau\n\n### Nếu là 'Lỡ không hiệu quả thì sao':\n- Cách 1: Cam kết bảo hành / hoàn tiền / đổi trả CÓ điều kiện rõ ràng\n- Cách 2: Đưa case study khách tương tự đã thành công\n- Cách 3: Chia nhỏ thanh toán (trả góp, theo giai đoạn) để giảm rủi ro\n\n### Nếu là 'Tổng kết & Mindset':\n- Tổng hợp 5-7 mindset cốt lõi khi xử lý phản đối:\n  1. Phản đối = quan tâm. Khách hỏi = khách đang cân nhắc.\n  2. Lắng nghe trước, nói sau. Im lặng là vũ khí.\n  3. Đồng cảm là chìa khoá mở cửa lý trí.\n  4. Có sẵn 3 cách / phản đối → linh hoạt theo tình huống.\n  5. Không tranh luận thắng-thua, dẫn dắt đến chốt.\n  6. KHÔNG hứa quá. Thật + ấn tượng > Bịa + hoành tráng.\n  7. Theo dõi tỷ lệ chuyển đổi để cải thiện.\n- 3 câu quote tạo động lực cho sales\n- Checklist cuối: 5 việc sales cần làm sau mỗi cuộc thất bại (ghi nhật ký, tự đánh giá, học từ đồng nghiệp, role-play, cải thiện)\n\n## QUY TẮC CHUNG\n- KHÔNG mở đầu bằng 'Dưới đây là...' — vào thẳng nội dung\n- Lời thoại sales luôn đặt trong \"...\"\n- Xưng hô theo {{brand_voice}}\n- Tiếng Việt tự nhiên, sát đời thực\n- Mỗi cách phản hồi PHẢI có lý do khác biệt — không lặp lại ý",
+
+      "model_purpose": "content_creation",
+      "temperature": "0.7",
+      "max_tokens": "10000",
+      "wizard_steps": [],
+      "output_platforms": ["general"],
+      "skill_id": "0",
+      "tags": "ban-hang,objection-handling,xu-ly-phan-doi,sales-script,chot-sale,training-sales,feel-felt-found",
+      "badge_text": "MUST",
+      "badge_color": "#22c55e",
+      "is_featured": "0",
+      "sort_order": "3",
+      "status": "active"
+    }
+  ]
+}

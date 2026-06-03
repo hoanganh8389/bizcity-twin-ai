@@ -102,11 +102,21 @@ class BizCity_Scheduler_REST_API {
 			'permission_callback' => [ $this, 'check_logged_in' ],
 		] );
 
+		// GET /google/accounts — list user's Google accounts (BZGoogle Hub + legacy fallback)
+		register_rest_route( self::API_NAMESPACE, '/google/accounts', [
+			'methods'             => 'GET',
+			'callback'            => [ $this, 'google_accounts' ],
+			'permission_callback' => [ $this, 'check_logged_in' ],
+		] );
+
 		// POST /google/sync — manual sync (any logged-in user can trigger)
 		register_rest_route( self::API_NAMESPACE, '/google/sync', [
 			'methods'             => 'POST',
 			'callback'            => [ $this, 'google_sync' ],
 			'permission_callback' => [ $this, 'check_logged_in' ],
+			'args'                => [
+				'account_id' => [ 'type' => 'integer', 'required' => false ],
+			],
 		] );
 
 		register_rest_route( self::API_NAMESPACE, '/google/settings', [
@@ -133,6 +143,42 @@ class BizCity_Scheduler_REST_API {
 			'callback'            => [ $this, 'google_callback' ],
 			'permission_callback' => '__return_true',
 		] );
+
+		/* ── Automation Lab (Phase 0.37 — admin QA harness) ─────────── */
+
+		// POST /automation/fire-now — bypass cron, dispatch reminder_fire immediately
+		register_rest_route( self::API_NAMESPACE, '/automation/fire-now', [
+			'methods'             => 'POST',
+			'callback'            => [ $this, 'automation_fire_now' ],
+			'permission_callback' => [ $this, 'check_admin' ],
+			'args'                => [
+				'event_id' => [ 'type' => 'integer', 'required' => true ],
+			],
+		] );
+
+		// GET /automation/recent — pull last N automation chain runs from cron meta
+		register_rest_route( self::API_NAMESPACE, '/automation/recent', [
+			'methods'             => 'GET',
+			'callback'            => [ $this, 'automation_recent' ],
+			'permission_callback' => [ $this, 'check_admin' ],
+			'args'                => [
+				'limit' => [ 'type' => 'integer', 'default' => 20 ],
+			],
+		] );
+
+		// POST /automation/validate — lint a chain JSON before saving
+		register_rest_route( self::API_NAMESPACE, '/automation/validate', [
+			'methods'             => 'POST',
+			'callback'            => [ $this, 'automation_validate' ],
+			'permission_callback' => [ $this, 'check_admin' ],
+		] );
+
+		// GET /automation/tools — discover registered tool names + required slots
+		register_rest_route( self::API_NAMESPACE, '/automation/tools', [
+			'methods'             => 'GET',
+			'callback'            => [ $this, 'automation_tools' ],
+			'permission_callback' => [ $this, 'check_admin' ],
+		] );
 	}
 
 	/* ================================================================
@@ -145,7 +191,8 @@ class BizCity_Scheduler_REST_API {
 			get_current_user_id(),
 			$req->get_param( 'from' ),
 			$req->get_param( 'to' ),
-			$req->get_param( 'status' ) ?: 'all'
+			$req->get_param( 'status' ) ?: 'all',
+			$req->get_param( 'event_type' ) ?: ''
 		);
 
 		return new \WP_REST_Response( [ 'events' => $events ], 200 );
@@ -238,30 +285,48 @@ class BizCity_Scheduler_REST_API {
 	}
 
 	public function google_status( \WP_REST_Request $req ): \WP_REST_Response {
+		$google  = BizCity_Scheduler_Google::instance();
+		$user_id = get_current_user_id();
+
+		$status            = $google->get_connection_status();
+		$status['accounts'] = $google->list_user_accounts( $user_id );
+		$status['bzgoogle_available'] = $google->bzgoogle_available();
+		$status['connected_for_user'] = $google->is_connected_for_user( $user_id );
+
+		return new \WP_REST_Response( $status, 200 );
+	}
+
+	public function google_accounts( \WP_REST_Request $req ): \WP_REST_Response {
 		$google = BizCity_Scheduler_Google::instance();
-		return new \WP_REST_Response( $google->get_connection_status(), 200 );
+		return new \WP_REST_Response( [
+			'accounts'           => $google->list_user_accounts( get_current_user_id() ),
+			'bzgoogle_available' => $google->bzgoogle_available(),
+		], 200 );
 	}
 
 	public function google_sync( \WP_REST_Request $req ): \WP_REST_Response {
-		$google = BizCity_Scheduler_Google::instance();
+		$google     = BizCity_Scheduler_Google::instance();
+		$user_id    = get_current_user_id();
+		$account_id = $req->get_param( 'account_id' );
+		$account_id = $account_id ? (int) $account_id : null;
 
-		if ( ! $google->is_connected() ) {
+		if ( ! $google->is_connected_for_user( $user_id ) ) {
 			return new \WP_REST_Response( [ 'error' => 'Google Calendar chưa kết nối. Vui lòng vào cài đặt và cấp lại quyền.', 'error_code' => 'not_connected' ], 400 );
 		}
 
-		$result = $google->sync_from_google( get_current_user_id() );
+		$result = $google->sync_from_google( $user_id, $account_id );
 
 		if ( is_wp_error( $result ) ) {
 			$code = $result->get_error_code();
 			$msg  = $result->get_error_message();
 			// Token error → advise re-auth
-			if ( in_array( $code, [ 'token_refresh_failed', 'no_refresh_token', 'not_connected' ], true ) ) {
+			if ( in_array( $code, [ 'token_refresh_failed', 'no_refresh_token', 'not_connected', 'bzgoogle_no_token', 'bzgoogle_account_not_found' ], true ) ) {
 				$msg .= ' — Vui lòng vào Cài đặt Google Calendar và kết nối lại.';
 			}
 			return new \WP_REST_Response( [ 'error' => $msg, 'error_code' => $code ], 400 );
 		}
 
-		return new \WP_REST_Response( [ 'synced' => $result ], 200 );
+		return new \WP_REST_Response( [ 'synced' => $result, 'account_id' => $account_id ], 200 );
 	}
 
 	public function google_settings( \WP_REST_Request $req ): \WP_REST_Response {
@@ -308,6 +373,267 @@ class BizCity_Scheduler_REST_API {
 
 	public function check_admin(): bool {
 		return current_user_can( 'manage_options' );
+	}
+
+	/* ================================================================
+	 *  Automation Lab Callbacks (Phase 0.37)
+	 * ================================================================ */
+
+	/**
+	 * Force-fire reminder for an event NOW (bypass 5-min cron).
+	 * Admin-only — used by Automation Lab to test chain wiring.
+	 */
+	public function automation_fire_now( \WP_REST_Request $req ): \WP_REST_Response {
+		$event_id = (int) $req->get_param( 'event_id' );
+		if ( $event_id <= 0 ) {
+			return new \WP_REST_Response( [ 'error' => 'invalid_event_id' ], 400 );
+		}
+
+		$mgr   = BizCity_Scheduler_Manager::instance();
+		$event = $mgr->get_event( $event_id );
+		if ( ! $event ) {
+			return new \WP_REST_Response( [ 'error' => 'event_not_found' ], 404 );
+		}
+		// get_event() returns stdClass; fire hook expects array (matches claim_due_reminders() format).
+		if ( is_object( $event ) ) {
+			$event = (array) $event;
+		}
+
+		// Wrap inside a synthetic cron run so the runner's note_event() calls
+		// land in bizcity_cron_runs.meta (otherwise they're silent no-ops).
+		$started = microtime( true );
+		$ok      = true;
+		$error   = '';
+		$run_id  = 0;
+
+		if ( class_exists( 'BizCity_Cron_Manager' ) ) {
+			$cron = BizCity_Cron_Manager::instance();
+			try {
+				$run_id = $cron->with_synthetic_run( 'lab.automation.fire-now', function () use ( $cron, $event, $event_id ) {
+					$cron->note( [
+						'lab' => [
+							'fire_now'     => true,
+							'event_id'     => $event_id,
+							'triggered_by' => get_current_user_id(),
+							'triggered_at' => gmdate( 'c' ),
+						],
+					] );
+					do_action( 'bizcity_scheduler_reminder_fire', $event );
+				} );
+			} catch ( \Throwable $e ) {
+				$ok    = false;
+				$error = $e->getMessage();
+			}
+		} else {
+			try {
+				do_action( 'bizcity_scheduler_reminder_fire', $event );
+			} catch ( \Throwable $e ) {
+				$ok    = false;
+				$error = $e->getMessage();
+			}
+		}
+
+		return new \WP_REST_Response( [
+			'ok'       => $ok,
+			'event_id' => $event_id,
+			'run_id'   => $run_id,
+			'ms'       => (int) round( ( microtime( true ) - $started ) * 1000 ),
+			'error'    => $error,
+			'hint'     => $ok
+				? 'Synthetic run #' . $run_id . ' created. Timeline sẽ refresh trong 3s.'
+				: 'Reminder hook threw — xem error field.',
+		], $ok ? 200 : 500 );
+	}
+
+	/**
+	 * Pull last N automation chain runs from bizcity_cron_runs.meta.events[].
+	 * Returns grouped chains: { event_id, started_at, steps[], counters, status }.
+	 */
+	public function automation_recent( \WP_REST_Request $req ): \WP_REST_Response {
+		global $wpdb;
+
+		$limit = max( 1, min( 100, (int) $req->get_param( 'limit' ) ) );
+		$table = $wpdb->prefix . 'bizcity_cron_runs';
+
+		// Pull recent runs (limit larger to find enough chain pairs).
+		$rows = $wpdb->get_results( $wpdb->prepare(
+			"SELECT id, job_id, status, started_at, ended_at, meta
+			   FROM {$table}
+			  WHERE meta LIKE %s
+			  ORDER BY id DESC
+			  LIMIT %d",
+			'%automation_%',
+			$limit * 4
+		), ARRAY_A );
+
+		$chains = [];
+
+		foreach ( (array) $rows as $row ) {
+			$meta = json_decode( (string) $row['meta'], true );
+			if ( ! is_array( $meta ) || empty( $meta['events'] ) ) {
+				continue;
+			}
+
+			// Group events by automation_chain_started → automation_chain_done.
+			$current = null;
+			foreach ( $meta['events'] as $evt ) {
+				$name = (string) ( $evt['name'] ?? '' );
+				$data = is_array( $evt['data'] ?? null ) ? $evt['data'] : [];
+
+				if ( $name === 'automation_chain_started' ) {
+					$current = [
+						'run_id'     => (int) $row['id'],
+						'job_id'     => (string) $row['job_id'],
+						'started_at' => (string) ( $evt['ts'] ?? $row['started_at'] ),
+						'ended_at'   => '',
+						'event_id'   => (int) ( $data['event_id'] ?? 0 ),
+						'user_id'    => (int) ( $data['user_id'] ?? 0 ),
+						'skill_ref'  => (string) ( $data['skill_ref'] ?? '' ),
+						'step_count' => (int) ( $data['step_count'] ?? 0 ),
+						'steps'      => [],
+						'status'     => 'running',
+					];
+					continue;
+				}
+
+				if ( $current === null ) {
+					continue;
+				}
+
+				if ( $name === 'automation_step_ok' ) {
+					$current['steps'][] = [
+						'idx'     => (int) ( $data['step_idx'] ?? -1 ),
+						'tool'    => (string) ( $data['tool'] ?? '' ),
+						'ok'      => true,
+						'message' => (string) ( $data['message'] ?? '' ),
+					];
+				} elseif ( $name === 'automation_step_failed' ) {
+					$current['steps'][] = [
+						'idx'    => (int) ( $data['step_idx'] ?? -1 ),
+						'tool'   => (string) ( $data['tool'] ?? '' ),
+						'ok'     => false,
+						'reason' => (string) ( $data['reason'] ?? '' ),
+						'error'  => (string) ( $data['error'] ?? '' ),
+					];
+				} elseif ( $name === 'automation_chain_done' ) {
+					$current['ended_at'] = (string) ( $evt['ts'] ?? '' );
+					$failed = 0;
+					foreach ( $current['steps'] as $s ) {
+						if ( empty( $s['ok'] ) ) { $failed++; }
+					}
+					$current['status'] = $failed === 0 ? 'ok' : ( $failed === count( $current['steps'] ) ? 'failed' : 'partial' );
+					$chains[] = $current;
+					$current  = null;
+
+					if ( count( $chains ) >= $limit ) {
+						break 2;
+					}
+				}
+			}
+		}
+
+		return new \WP_REST_Response( [ 'chains' => $chains, 'count' => count( $chains ) ], 200 );
+	}
+
+	/**
+	 * Lint an automation chain. Returns warnings + errors without saving.
+	 */
+	public function automation_validate( \WP_REST_Request $req ): \WP_REST_Response {
+		$body  = is_array( $req->get_json_params() ) ? $req->get_json_params() : [];
+		$chain = isset( $body['automation'] ) && is_array( $body['automation'] ) ? $body['automation'] : $body;
+
+		$errors   = [];
+		$warnings = [];
+
+		if ( ! isset( $chain['on_fire'] ) || ! is_array( $chain['on_fire'] ) ) {
+			$errors[] = 'Thiếu trường `automation.on_fire[]`.';
+		}
+
+		$known_tools = $this->known_tool_names();
+		$valid_err   = [ 'continue', 'stop', 'retry_once' ];
+
+		foreach ( ( $chain['on_fire'] ?? [] ) as $idx => $step ) {
+			$prefix = "Step #{$idx}: ";
+			if ( ! is_array( $step ) ) {
+				$errors[] = $prefix . 'phải là object.';
+				continue;
+			}
+			$tool = (string) ( $step['tool'] ?? '' );
+			if ( $tool === '' ) {
+				$errors[] = $prefix . 'thiếu `tool`.';
+			} elseif ( $known_tools && ! in_array( $tool, $known_tools, true ) ) {
+				$warnings[] = $prefix . "tool `{$tool}` không có trong Intent Provider registry (chạy runtime sẽ fail).";
+			}
+			if ( isset( $step['on_error'] ) && ! in_array( $step['on_error'], $valid_err, true ) ) {
+				$warnings[] = $prefix . "`on_error` không hợp lệ (mong: continue | stop | retry_once).";
+			}
+			if ( isset( $step['args'] ) && ! is_array( $step['args'] ) ) {
+				$errors[] = $prefix . '`args` phải là object.';
+			}
+		}
+
+		return new \WP_REST_Response( [
+			'ok'       => empty( $errors ),
+			'errors'   => $errors,
+			'warnings' => $warnings,
+		], 200 );
+	}
+
+	/**
+	 * Discover registered tool names from Intent Provider registry.
+	 */
+	public function automation_tools( \WP_REST_Request $req ): \WP_REST_Response {
+		$tools = [];
+		if ( class_exists( 'BizCity_Intent_Tools' ) ) {
+			$reg = BizCity_Intent_Tools::instance();
+			// BizCity_Intent_Tools stores tools in private $this->tools — reflect.
+			try {
+				$ref  = new \ReflectionClass( $reg );
+				$prop = $ref->getProperty( 'tools' );
+				$prop->setAccessible( true );
+				$raw  = $prop->getValue( $reg );
+				if ( is_array( $raw ) ) {
+					foreach ( $raw as $name => $def ) {
+						$schema = isset( $def['schema'] ) && is_array( $def['schema'] ) ? $def['schema'] : [];
+						$tools[] = [
+							'name'        => (string) $name,
+							'label'       => (string) ( $def['label'] ?? $name ),
+							'description' => (string) ( $schema['description'] ?? '' ),
+							'required'    => $this->extract_required_fields( $schema ),
+						];
+					}
+				}
+			} catch ( \Throwable $e ) {
+				// Ignore — return empty list.
+			}
+		}
+
+		usort( $tools, static function ( $a, $b ) { return strcmp( $a['name'], $b['name'] ); } );
+		return new \WP_REST_Response( [ 'tools' => $tools, 'count' => count( $tools ) ], 200 );
+	}
+
+	private function known_tool_names(): array {
+		$resp = $this->automation_tools( new \WP_REST_Request( 'GET' ) );
+		$data = $resp->get_data();
+		$names = [];
+		foreach ( $data['tools'] ?? [] as $t ) {
+			$names[] = (string) $t['name'];
+		}
+		return $names;
+	}
+
+	private function extract_required_fields( array $schema ): array {
+		$req    = [];
+		$fields = $schema['input_fields'] ?? [];
+		if ( ! is_array( $fields ) ) {
+			return $req;
+		}
+		foreach ( $fields as $key => $def ) {
+			if ( is_array( $def ) && ! empty( $def['required'] ) ) {
+				$req[] = (string) $key;
+			}
+		}
+		return $req;
 	}
 
 	/* ================================================================

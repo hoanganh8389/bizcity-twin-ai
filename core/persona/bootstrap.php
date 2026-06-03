@@ -31,6 +31,28 @@ require_once BIZCITY_PERSONA_INCLUDES . 'class-persona-tool-provider.php';
 require_once BIZCITY_PERSONA_INCLUDES . 'class-persona-registry.php';
 require_once BIZCITY_PERSONA_INCLUDES . 'class-twin-guru-context.php';
 
+// Phase B (F7.B1..B4) — Guru ↔ Skill/Provider bridge (R-MPRT-5 anti-jailbreak
+// + admin REST). Schema auto-migrates on plugins_loaded.
+require_once BIZCITY_PERSONA_INCLUDES . 'class-guru-bridge-installer.php';
+require_once BIZCITY_PERSONA_INCLUDES . 'class-guru-skill-bridge.php';
+require_once BIZCITY_PERSONA_INCLUDES . 'class-guru-provider-bridge.php';
+require_once BIZCITY_PERSONA_INCLUDES . 'class-guru-bridge-rest.php';
+
+// Phase C.1 (F7.C1) — Pre-rules @guru / #tool token parser. Pure helper, no
+// auto-hook; TwinBrain runtime + Intent Engine call ::parse() as needed.
+require_once BIZCITY_PERSONA_INCLUDES . 'class-guru-token-parser.php';
+
+// PHASE-0.35 GURU-ZALO-BOT §1 (2026-05-26) — Unified Guru Runtime + DTO +
+// citation canonicaliser. R-GURU-UNIFY: every channel reply funnels through
+// BizCity_Guru_Runtime::instance()->reply() so context / citations / events
+// stay uniform. See PHASE-0.35-GURU-ZALO-BOT.md §1.1-§1.4.
+require_once BIZCITY_PERSONA_INCLUDES . 'dto/class-guru-reply-dto.php';
+require_once BIZCITY_PERSONA_INCLUDES . 'class-guru-citation-formatter.php';
+require_once BIZCITY_PERSONA_INCLUDES . 'class-guru-runtime.php';
+
+add_action( 'plugins_loaded', array( 'BizCity_Guru_Bridge_Installer', 'maybe_install' ), 7 );
+BizCity_Guru_Bridge_REST::init();
+
 // Wave 0.18.5 — wire 3-layer Twin Guru context (L1 instruction / L2 guru
 // knowledge / L3 personal artifacts) into the chat system-prompt chain.
 BizCity_Twin_Guru_Context::init();

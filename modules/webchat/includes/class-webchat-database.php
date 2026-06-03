@@ -18,7 +18,7 @@ if (!class_exists('BizCity_WebChat_Database')) {
 class BizCity_WebChat_Database {
 
     /** Schema version — bump to trigger migration */
-    const SCHEMA_VERSION = '3.10.0';
+    const SCHEMA_VERSION = '3.11.0';
     
     private static $instance = null;
     
@@ -393,7 +393,12 @@ class BizCity_WebChat_Database {
             INDEX idx_type (note_type)
         ) {$charset_collate};" );
 
-        // Migration 11 (v4.0.0 — Phase 1.8): Create webchat_sources table
+        // Migration 11 (v4.0.0 — Phase 1.8): Create webchat_sources table.
+        // NOTE: columns below are the v1 DDL. Newer columns added by tail
+        // migrations 12/15 (project_id, source_url, content_text, attachment_id,
+        // content_hash, char_count, token_estimate, embedding_model,
+        // error_message, metadata). Don't expand this CREATE — keep it minimal
+        // so old shards converge through ALTERs to the same final schema.
         $table_sources = $wpdb->prefix . 'bizcity_webchat_sources';
         $wpdb->query( "CREATE TABLE IF NOT EXISTS {$table_sources} (
             id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -427,6 +432,35 @@ class BizCity_WebChat_Database {
         }
         if ( ! in_array( 'attachment_id', $cols_sources, true ) ) {
             $wpdb->query( "ALTER TABLE {$table_sources} ADD COLUMN attachment_id BIGINT UNSIGNED DEFAULT NULL AFTER content_text" );
+        }
+
+        // Migration 15 (v3.11.0 — Sprint 4.5d): TwinChat ingest columns.
+        // BizCity_TwinChat_Sources_Database::insert_source() writes these columns
+        // (sha256 content_hash for dedup via find_by_hash, char_count/token_estimate
+        // for cost analytics, embedding_model for vector provenance, error_message
+        // + metadata for ingest debugging). Older shards (e.g. blog 1458) created
+        // the table before these columns were added → INSERT fails with "Unknown
+        // column 'content_hash'" and the sources sidebar shows empty. Add them
+        // idempotently.
+        $cols_sources = $wpdb->get_col( "DESCRIBE {$table_sources}", 0 ) ?: $cols_sources;
+        if ( ! in_array( 'content_hash', $cols_sources, true ) ) {
+            $wpdb->query( "ALTER TABLE {$table_sources} ADD COLUMN content_hash CHAR(64) DEFAULT '' AFTER content_text" );
+            $wpdb->query( "ALTER TABLE {$table_sources} ADD INDEX idx_project_hash (project_id, content_hash)" );
+        }
+        if ( ! in_array( 'char_count', $cols_sources, true ) ) {
+            $wpdb->query( "ALTER TABLE {$table_sources} ADD COLUMN char_count INT UNSIGNED DEFAULT 0 AFTER content_hash" );
+        }
+        if ( ! in_array( 'token_estimate', $cols_sources, true ) ) {
+            $wpdb->query( "ALTER TABLE {$table_sources} ADD COLUMN token_estimate INT UNSIGNED DEFAULT 0 AFTER char_count" );
+        }
+        if ( ! in_array( 'embedding_model', $cols_sources, true ) ) {
+            $wpdb->query( "ALTER TABLE {$table_sources} ADD COLUMN embedding_model VARCHAR(64) DEFAULT '' AFTER chunk_count" );
+        }
+        if ( ! in_array( 'error_message', $cols_sources, true ) ) {
+            $wpdb->query( "ALTER TABLE {$table_sources} ADD COLUMN error_message TEXT NULL AFTER embedding_status" );
+        }
+        if ( ! in_array( 'metadata', $cols_sources, true ) ) {
+            $wpdb->query( "ALTER TABLE {$table_sources} ADD COLUMN metadata LONGTEXT NULL AFTER error_message" );
         }
     }
 

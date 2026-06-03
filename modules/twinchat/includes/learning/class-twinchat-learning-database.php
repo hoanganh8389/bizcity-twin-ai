@@ -25,7 +25,8 @@ class BizCity_TwinChat_Learning_Database {
 	// 1.1.0 — hybrid exec: jobs.phase / lease_owner / lease_until / batches_total / batches_done + new tc_learning_batches table
 	// 1.2.0 — rename legacy tc_learning_* → bizcity_kg_learning_* (unified naming for cross-plugin tracing)
 	// 1.3.0 — Wave A (TwinShell Learning Hub): add jobs.origin (user|sweep|backfill|api) + jobs.restartable_at (cleanup window)
-	const SCHEMA_VERSION     = '1.3.0';
+	// 1.4.0 — add jobs.updated_at (auto ON UPDATE CURRENT_TIMESTAMP) so REST rebuild can detect stale lease holders (2026-05-27).
+	const SCHEMA_VERSION     = '1.4.0';
 	const OPTION_VERSION_KEY = 'bizcity_twinchat_learning_db_version';
 
 	const EVENTS_RING_PER_NB = 1000;
@@ -38,6 +39,25 @@ class BizCity_TwinChat_Learning_Database {
 	];
 
 	private static $instance = null;
+	/** Per-blog warm flag so we do not run schema checks repeatedly in one request. */
+	private static $ready_blogs = [];
+	/** Re-entrancy guard while maybe_install() is actively migrating. */
+	private $is_installing = false;
+
+	private function jobs_table_name() {
+		global $wpdb;
+		return $wpdb->prefix . 'bizcity_kg_learning_jobs';
+	}
+
+	private function events_table_name() {
+		global $wpdb;
+		return $wpdb->prefix . 'bizcity_kg_learning_events';
+	}
+
+	private function batches_table_name() {
+		global $wpdb;
+		return $wpdb->prefix . 'bizcity_kg_learning_batches';
+	}
 
 	public static function instance() {
 		if ( null === self::$instance ) {
@@ -47,32 +67,96 @@ class BizCity_TwinChat_Learning_Database {
 	}
 
 	public function table_jobs() {
-		global $wpdb;
-		return $wpdb->prefix . 'bizcity_kg_learning_jobs';
+		if ( ! $this->is_installing ) {
+			$this->maybe_install();
+		}
+		return $this->jobs_table_name();
 	}
 
 	public function table_events() {
-		global $wpdb;
-		return $wpdb->prefix . 'bizcity_kg_learning_events';
+		if ( ! $this->is_installing ) {
+			$this->maybe_install();
+		}
+		return $this->events_table_name();
 	}
 
 	public function table_batches() {
-		global $wpdb;
-		return $wpdb->prefix . 'bizcity_kg_learning_batches';
+		if ( ! $this->is_installing ) {
+			$this->maybe_install();
+		}
+		return $this->batches_table_name();
 	}
 
 	/** Install / upgrade when bumped. Idempotent. */
 	public function maybe_install() {
-		$installed = get_option( self::OPTION_VERSION_KEY, '' );
-		if ( $installed === self::SCHEMA_VERSION ) {
+		if ( $this->is_installing ) {
 			return;
 		}
+		$blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 1;
+		if ( isset( self::$ready_blogs[ $blog_id ] ) ) {
+			return;
+		}
+
+		$this->is_installing = true;
+		$installed = get_option( self::OPTION_VERSION_KEY, '' );
+
+		// Version check FIRST — avoids 3× SHOW TABLES on every request when schema is current.
+		// required_tables_exist() is only called on real version mismatch.
+		if ( $installed === self::SCHEMA_VERSION ) {
+			self::$ready_blogs[ $blog_id ] = true;
+			$this->is_installing = false;
+			return;
+		}
+
+		$schema_exists = $this->required_tables_exist();
 		// 1.2.0 — rename old tables in place (preserves data + indexes).
 		$this->migrate_rename_legacy_tables();
 		$this->create_tables();
 		// 1.3.0 — additive ALTERs (idempotent: suppress + ignore "Duplicate column" 1060).
 		$this->migrate_jobs_origin_columns();
-		update_option( self::OPTION_VERSION_KEY, self::SCHEMA_VERSION, false );
+		// 1.4.0 — additive ALTER for jobs.updated_at.
+		$this->migrate_jobs_updated_at_column();
+		$schema_exists = $this->required_tables_exist();
+		if ( $schema_exists ) {
+			update_option( self::OPTION_VERSION_KEY, self::SCHEMA_VERSION, false );
+			self::$ready_blogs[ $blog_id ] = true;
+		} elseif ( function_exists( 'error_log' ) ) {
+			error_log( '[TwinChat Learning DB] install attempted but required tables are still missing.' );
+		}
+		$this->is_installing = false;
+	}
+
+	/** Quick readiness probe for callers before running SELECT/INSERT. */
+	public function is_ready() {
+		$this->maybe_install();
+		$blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 1;
+		if ( isset( self::$ready_blogs[ $blog_id ] ) ) {
+			return true;
+		}
+		return $this->required_tables_exist();
+	}
+
+	/**
+	 * Verify all required tables are physically present for the current blog prefix.
+	 * This protects against stale version options after partial deploys/migrations.
+	 */
+	protected function required_tables_exist() {
+		global $wpdb;
+		$tables = [
+			$this->jobs_table_name(),
+			$this->events_table_name(),
+			$this->batches_table_name(),
+		];
+		$prev_supp = $wpdb->suppress_errors( true );
+		foreach ( $tables as $tbl ) {
+			$exists = (string) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl ) );
+			if ( $exists !== $tbl ) {
+				$wpdb->suppress_errors( $prev_supp );
+				return false;
+			}
+		}
+		$wpdb->suppress_errors( $prev_supp );
+		return true;
 	}
 
 	/**
@@ -98,6 +182,37 @@ class BizCity_TwinChat_Learning_Database {
 		}
 		if ( ! in_array( 'restartable_at', $cols, true ) ) {
 			$wpdb->query( "ALTER TABLE `{$jobs}` ADD COLUMN `restartable_at` DATETIME NULL DEFAULT NULL AFTER `finished_at`" );
+		}
+
+		$wpdb->suppress_errors( $prev_supp );
+		if ( $prev_show ) { $wpdb->show_errors(); }
+	}
+
+	/**
+	 * 1.4.0 — add `updated_at` (DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)
+	 * to the jobs table so REST rebuild can detect stale lease holders.
+	 *
+	 * Idempotent. Errors are suppressed because dbDelta-style detection of new
+	 * columns can race with the WPDB router.
+	 */
+	protected function migrate_jobs_updated_at_column() {
+		global $wpdb;
+		$jobs = $this->jobs_table_name();
+		$prev_show = $wpdb->show_errors;
+		$wpdb->hide_errors();
+		$prev_supp = $wpdb->suppress_errors( true );
+
+		$cols = $wpdb->get_col( "SHOW COLUMNS FROM `{$jobs}`" );
+		$cols = is_array( $cols ) ? array_map( 'strtolower', $cols ) : [];
+
+		if ( ! in_array( 'updated_at', $cols, true ) ) {
+			$wpdb->query(
+				"ALTER TABLE `{$jobs}` ADD COLUMN `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER `created_at`"
+			);
+			$wpdb->query( "ALTER TABLE `{$jobs}` ADD KEY `idx_updated` (`updated_at`)" );
+			if ( function_exists( 'error_log' ) ) {
+				error_log( '[TwinChat Learning DB] migrated jobs: added updated_at column (1.4.0)' );
+			}
 		}
 
 		$wpdb->suppress_errors( $prev_supp );
@@ -167,13 +282,15 @@ class BizCity_TwinChat_Learning_Database {
 			finished_at DATETIME NULL DEFAULT NULL,
 			restartable_at DATETIME NULL DEFAULT NULL,
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 			PRIMARY KEY  (id),
 			KEY idx_notebook (notebook_id),
 			KEY idx_status (status),
 			KEY idx_phase (phase),
 			KEY idx_lease (lease_until),
 			KEY idx_source (source_id),
-			KEY idx_origin (origin)
+			KEY idx_origin (origin),
+			KEY idx_updated (updated_at)
 		) {$charset};";
 
 		$sql_events = "CREATE TABLE {$events} (

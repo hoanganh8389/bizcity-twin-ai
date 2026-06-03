@@ -5,7 +5,7 @@
   "templates": [
     {
       "slug": "tao-phan-canh-video",
-      "category_id": "0",
+      "category_id": "video",
       "title": "Tạo phân cảnh cho video",
       "description": "Tạo các phân cảnh chi tiết cho video — tối ưu cho các công cụ AI video như VEO 3, Sora, Kling, Runway.",
       "icon_url": "",

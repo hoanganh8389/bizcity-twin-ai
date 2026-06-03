@@ -86,13 +86,12 @@ class BizCity_KG_Auto_Promoter {
 
 		$origin = 'chat:' . $role;
 
-		// Optional embedding (best-effort, skip on failure).
-		$embedding_json = null;
+		// Filestore-only (Rule v2.0): generate embedding for .bin write only;
+		// embedding column on kg_passages stays NULL.
+		$vec = null;
 		if ( class_exists( 'BizCity_KG_Vector_Index' ) ) {
-			$vec = BizCity_KG_Vector_Index::instance()->embed( $content );
-			if ( is_array( $vec ) && method_exists( 'BizCity_KG_Database', 'encode_embedding' ) ) {
-				$embedding_json = BizCity_KG_Database::encode_embedding( $vec );
-			}
+			$tmp = BizCity_KG_Vector_Index::instance()->embed( $content );
+			if ( is_array( $tmp ) ) { $vec = $tmp; }
 		}
 
 		$wpdb->insert( $db->tbl_passages(), [
@@ -105,7 +104,7 @@ class BizCity_KG_Auto_Promoter {
 			'origin'            => substr( $origin, 0, 100 ),
 			'content'           => $content,
 			'content_hash'      => $hash,
-			'embedding'         => $embedding_json,
+			'embedding'         => null,
 			'token_count'       => (int) ceil( mb_strlen( $content ) / 4 ),
 			'extraction_status' => 'pending',
 			'metadata'          => wp_json_encode( [
@@ -115,6 +114,14 @@ class BizCity_KG_Auto_Promoter {
 				'message_id' => isset( $message['id'] ) ? (int) $message['id'] : 0,
 			] ),
 		] );
+
+		// PHASE-0-RULE-VECTOR-FILE-STORE.md v2.0 — .bin is single source of truth.
+		$pid = (int) $wpdb->insert_id;
+		if ( $pid && $notebook_id > 0 && is_array( $vec ) && class_exists( 'BizCity_KG_Embedding_Writer' ) ) {
+			BizCity_KG_Embedding_Writer::instance()->register_chunk(
+				(int) $notebook_id, $pid, $vec, null, null
+			);
+		}
 	}
 
 	/**

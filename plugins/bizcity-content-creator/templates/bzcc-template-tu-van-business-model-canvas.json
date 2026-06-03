@@ -1,0 +1,138 @@
+{
+  "version": "1.0",
+  "plugin": "bizcity-content-creator",
+  "exported": "2026-05-19T11:00:00Z",
+  "templates": [
+    {
+      "slug": "tu-van-business-model-canvas",
+      "category_id": "kinh-doanh",
+      "title": "Tư vấn kinh doanh theo Business model canvas",
+      "description": "Giúp bạn có 1 bức tranh toàn cảnh về hoạt động kinh doanh qua phân tích Business model canvas — bao gồm đầy đủ 9 khối: Phân khúc KH, Đề xuất giá trị, Kênh tiếp cận, Quan hệ KH, Dòng tiền, Nguồn lực, Hoạt động, Đối tác và Cấu trúc chi phí.",
+      "icon_url": "",
+      "icon_emoji": "📊",
+      "form_fields": [
+        {
+          "slug": "product",
+          "label": "Sản phẩm, dịch vụ hoặc công việc kinh doanh chi tiết của bạn",
+          "type": "textarea",
+          "placeholder": "Sản phẩm, dịch vụ hoặc công việc kinh doanh chi tiết của bạn",
+          "required": true,
+          "grid": "half",
+          "sort_order": 1,
+          "description": ""
+        },
+        {
+          "slug": "customer_segment",
+          "label": "Đối tượng khách hàng tiềm năng",
+          "type": "text",
+          "placeholder": "Đối tượng khách hàng tiềm năng",
+          "required": false,
+          "grid": "half",
+          "sort_order": 2,
+          "description": ""
+        },
+        {
+          "slug": "revenue_channels",
+          "label": "Các kênh tạo ra dòng tiền chính",
+          "type": "text",
+          "placeholder": "Các kênh tạo ra dòng tiền chính",
+          "required": false,
+          "grid": "half",
+          "sort_order": 3,
+          "description": ""
+        },
+        {
+          "slug": "challenges",
+          "label": "Các thách thức hiện tại trong vận hành và kinh doanh",
+          "type": "text",
+          "placeholder": "Các thách thức hiện tại trong vận hành và kinh doanh",
+          "required": false,
+          "grid": "half",
+          "sort_order": 4,
+          "description": ""
+        },
+        {
+          "slug": "customer_segment_detail",
+          "label": "Đối tượng khách hàng tiềm năng",
+          "type": "textarea",
+          "placeholder": "Mô tả chi tiết hơn về đối tượng khách hàng (độ tuổi, nghề nghiệp, thu nhập, hành vi...)",
+          "required": false,
+          "grid": "half",
+          "sort_order": 5,
+          "description": ""
+        },
+        {
+          "slug": "revenue_channels_detail",
+          "label": "Các kênh tạo ra dòng tiền chính",
+          "type": "textarea",
+          "placeholder": "Mô tả chi tiết hơn về kênh phân phối, bán hàng và tạo ra doanh thu",
+          "required": false,
+          "grid": "half",
+          "sort_order": 6,
+          "description": ""
+        },
+        {
+          "slug": "challenges_detail",
+          "label": "Các thách thức hiện tại trong vận hành và kinh doanh",
+          "type": "textarea",
+          "placeholder": "Mô tả chi tiết các thách thức, vấn đề đang gặp phải trong kinh doanh và vận hành",
+          "required": false,
+          "grid": "full",
+          "sort_order": 7,
+          "description": ""
+        },
+        {
+          "slug": "tone",
+          "label": "Giọng điệu",
+          "type": "select",
+          "placeholder": "",
+          "required": false,
+          "grid": "half",
+          "sort_order": 8,
+          "description": "",
+          "options": [
+            { "value": "professional", "label": "💼 Chuyên nghiệp" },
+            { "value": "consultant", "label": "🧭 Tư vấn chiến lược" },
+            { "value": "detailed", "label": "📖 Chi tiết / Tỉ mỉ" },
+            { "value": "concise", "label": "⚡ Ngắn gọn / Súc tích" },
+            { "value": "friendly", "label": "😊 Thân thiện / Dễ hiểu" }
+          ]
+        },
+        {
+          "slug": "language",
+          "label": "Ngôn ngữ",
+          "type": "select",
+          "placeholder": "",
+          "required": false,
+          "grid": "half",
+          "sort_order": 9,
+          "description": "",
+          "options": [
+            { "value": "vi", "label": "🇻🇳 Tiếng Việt" },
+            { "value": "en", "label": "🇺🇸 English" },
+            { "value": "vi-en", "label": "🌐 Song ngữ Việt-Anh" }
+          ]
+        }
+      ],
+
+      "system_prompt": "Bạn là chuyên gia tư vấn chiến lược kinh doanh hàng đầu Việt Nam, chuyên dùng Business Model Canvas (BMC) để giúp doanh nghiệp nhìn thấy bức tranh toàn cảnh về mô hình kinh doanh của họ.\n\n## THÔNG TIN KINH DOANH\n- **Sản phẩm/Dịch vụ:** {{product}}\n- **Đối tượng KH chính:** {{customer_segment}}\n- **Chi tiết đối tượng KH:** {{customer_segment_detail}}\n- **Kênh doanh thu chính:** {{revenue_channels}}\n- **Chi tiết kênh doanh thu:** {{revenue_channels_detail}}\n- **Thách thức ngắn gọn:** {{challenges}}\n- **Chi tiết thách thức:** {{challenges_detail}}\n- **Giọng điệu:** {{tone}}\n- **Ngôn ngữ:** {{language}}\n\n## 9 KHỐI BUSINESS MODEL CANVAS\n1. **Customer Segments (Phân khúc khách hàng)** — Ai là khách hàng của bạn?\n2. **Value Propositions (Đề xuất giá trị)** — Bạn mang lại giá trị gì?\n3. **Channels (Kênh tiếp cận)** — Bạn tiếp cận khách hàng như thế nào?\n4. **Customer Relationships (Quan hệ KH)** — Bạn xây dựng và duy trì quan hệ KH như thế nào?\n5. **Revenue Streams (Dòng doanh thu)** — Bạn kiếm tiền từ đâu?\n6. **Key Resources (Nguồn lực chính)** — Bạn cần những nguồn lực gì?\n7. **Key Activities (Hoạt động chính)** — Bạn cần làm gì để vận hành?\n8. **Key Partnerships (Đối tác chính)** — Ai là đối tác quan trọng?\n9. **Cost Structure (Cấu trúc chi phí)** — Chi phí lớn nhất là gì?\n\n## QUY TẮC PHÂN TÍCH\n1. Bám sát đặc thù của {{product}} và ngành nghề tương ứng — KHÔNG viết chung chung\n2. Mỗi khối phải có: Phân tích hiện trạng + Vấn đề/Cơ hội + Đề xuất thực tế (có thể làm ngay)\n3. Dùng cấu trúc: đánh số mục 1, 2, 3 → bullet sub-items cho mỗi điểm\n4. Kết mỗi section bằng 1 đoạn 'Bằng cách...' tóm tắt hướng đi\n5. Ví dụ phải cụ thể, gắn với sản phẩm/thị trường Việt Nam\n6. Chi phí cấu trúc phải chia: Chi phí biến đổi / Chi phí cố định / Chi phí vận hành\n7. Viết bằng {{language}} (mặc định Tiếng Việt)\n8. KHÔNG bịa số liệu — dùng 'ước tính thị trường VN 2025-2026' khi cần",
+
+      "outline_prompt": "Dựa trên thông tin kinh doanh của user, tạo outline phân tích Business Model Canvas (BMC) theo đúng 9 khối chuẩn.\n\nMỖI khối BMC là MỘT section riêng. Tạo đúng 9 section theo thứ tự:\n1. Phân khúc khách hàng (Customer Segments)\n2. Đề xuất giá trị (Value Propositions)\n3. Kênh tiếp cận (Channels)\n4. Phát triển quan hệ khách hàng (Customer Relationships)\n5. Nguồn doanh thu (Revenue Streams)\n6. Nguồn lực chính (Key Resources)\n7. Hoạt động chính (Key Activities)\n8. Đối tác chính (Key Partnerships)\n9. Cấu trúc chi phí (Cost Structure)\n\nTRẢ VỀ JSON theo format:\n[\n  {\"label\": \"Phân khúc khách hàng\", \"emoji\": \"👥\", \"platform\": \"general\"},\n  {\"label\": \"Đề xuất giá trị\", \"emoji\": \"💎\", \"platform\": \"general\"},\n  {\"label\": \"Kênh tiếp cận\", \"emoji\": \"📡\", \"platform\": \"general\"},\n  {\"label\": \"Phát triển quan hệ khách hàng\", \"emoji\": \"🤝\", \"platform\": \"general\"},\n  {\"label\": \"Nguồn doanh thu\", \"emoji\": \"💰\", \"platform\": \"general\"},\n  {\"label\": \"Nguồn lực chính\", \"emoji\": \"🛠️\", \"platform\": \"general\"},\n  {\"label\": \"Hoạt động chính\", \"emoji\": \"⚙️\", \"platform\": \"general\"},\n  {\"label\": \"Đối tác chính\", \"emoji\": \"🤲\", \"platform\": \"general\"},\n  {\"label\": \"Cấu trúc chi phí\", \"emoji\": \"📋\", \"platform\": \"general\"}\n]\n\nLƯU Ý: Trả về đúng 9 phần tử, giữ đúng tên label tiếng Việt như trên.",
+
+      "chunk_prompt": "Bạn đang viết phần **\"{{chunk_title}}\"** trong phân tích Business Model Canvas cho:\n- **Sản phẩm/Dịch vụ:** {{product}}\n- **Đối tượng KH:** {{customer_segment}} — {{customer_segment_detail}}\n- **Kênh doanh thu:** {{revenue_channels}} — {{revenue_channels_detail}}\n- **Thách thức:** {{challenges}} — {{challenges_detail}}\n\n## YÊU CẦU CHUNG\n- Giọng điệu: {{tone}}\n- Ngôn ngữ: {{language}}\n- Mở đầu section bằng 1-2 câu giới thiệu về khối này và tầm quan trọng\n- Mỗi điểm lớn: đánh số 1, 2, 3... Mỗi sub-item dùng bullet `-`\n- Kết thúc bằng đoạn 'Bằng cách áp dụng...' hoặc 'Đề xuất triển khai...' (1-2 câu actionable)\n- Cá nhân hoá tối đa với sản phẩm + khách hàng + thị trường VN\n\n## YÊU CẦU CỤ THỂ THEO TỪNG KHỐI\n\n### Phân khúc khách hàng (Customer Segments):\n- Mở đầu: đáp ứng nhu cầu gì của thị trường\n- Phân tích theo: 1) Chiều hướng sản phẩm, 2) Tài trợ thị trường hoặc bán hàng online, 3) Thông tin sản phẩm và tính năng, 4) Hỗ trợ tư vấn, 5) Chương trình khuyến mãi và ưu đãi\n- Liệt kê 'Các phân khúc trọng điểm': Mẹ bỉm sữa, Người tiêu dùng sức khoẻ, etc. (tuỳ sản phẩm)\n- Kết: 'Bằng cách nhắm đến...'\n\n### Đề xuất giá trị (Value Propositions):\n- Tiêu đề: 'Giá Trị Độc Đáo' + giải thích USP\n- Phân tích 5-6 điểm giá trị: Điểm bán hàng độc đáo (USP), Công thức dinh dưỡng, Đảm bảo lợi ích, Tính linh hoạt, Hỗ trợ và chăm sóc, Ưu đãi thành viên\n- Mỗi điểm: tên + giải thích 1-2 câu\n- Sau đó: 'Có thể sáng tạo các ý tưởng để xuất giá trị nổi bật:' → 5-6 ý tưởng cụ thể\n- Kết: 'Bằng cách tạo ra và thể hiện...'\n\n### Kênh tiếp cận (Channels):\n- Liệt kê 'Kênh tiếp cận để đáp ứng thị trường mục tiêu:' — 5-6 kênh\n- Mỗi kênh: tên + giải thích tại sao phù hợp\n- Sau đó phân tích 'Thách thức và giải pháp với các kênh này:'\n  - Ví dụ: 'Sự cạnh tranh trên mạng xã hội → Giải pháp: ...'\n  - 'Quản lý hàng trực tuyến → Giải pháp: ...'\n  - 'Dịch vụ khách hàng → Giải pháp: ...'\n- Kết: 'Đặt bảo đảm...'\n\n### Phát triển quan hệ khách hàng (Customer Relationships):\n- Phần 1: 'Mối Quan hệ Khách hàng' → Đánh giá 4 chiến lược: Dịch vụ cá nhân, Mạng xã hội, Chương trình khách hàng thân thiết, Email Marketing\n- Phần 2: 'Để nuôi dưỡng bảo toàn tốt các mối quan hệ:' → 5 cách cụ thể, mỗi cách có 'Giải pháp:'\n- Kết: 'Bằng cách áp dụng...'\n\n### Nguồn doanh thu (Revenue Streams):\n- Phần 1: 'Đánh giá Các Nguồn Doanh thu Hiện tại:' → 2-3 nguồn\n- Phần 2: 'Có thể tạo ra các nguồn doanh thu tiềm năng:' → 4-5 nguồn MỚI, mỗi nguồn có:\n  - Tên nguồn + bullet mô tả\n  - `- Lợi ích:` kèm ví dụ số liệu tham khảo\n  - `- Giải pháp:` cách triển khai\n- Phần 3: 'Có thể bán ra doanh thu đa dạng phù hợp với thị trường mục tiêu:' → gợi ý collaboration\n- Kết: 'Bằng cách áp dụng...'\n\n### Nguồn lực chính (Key Resources):\n- Tiêu đề: 'Tài Nguyên Cần Thiết cho Hoạt Động Sản Phẩm/Dịch Vụ'\n- Phần 1: 'Liệt kê các loại tài nguyên quan trọng:' → 4 loại (Nguồn lực thô, Cơ sở hạ tầng, Nhân lực, Công nghệ, Tài chính) — mỗi loại có bullet chi tiết\n- Phần 2: 'Dự đoán nhu cầu trong tương lai:' → phân tích xu hướng + 'Giải pháp Quản lý Hiệu quả:' 6 điểm\n- Kết: 'Bằng cách áp dụng...'\n\n### Hoạt động chính (Key Activities):\n- Tiêu đề: 'Các Hoạt Động Trọng Tâm Để Đưa Sản Phẩm Đến Tay Người Dùng'\n- Liệt kê 5-6 hoạt động: (1) Nghiên cứu và Phát triển, (2) Sản xuất, (3) Quản lý Chuỗi Cung, (4) Tiếp thị và Bán hàng, (5) Dịch vụ Khách hàng — mỗi hoạt động có 2-3 bullet sub-item\n- Sau đó: 'Đề xuất Cải Thiện Hoạt Động:' → 6 điểm cải thiện, mỗi điểm có 'Giải pháp:'\n- Kết: 'Bằng cách triển khai...'\n\n### Đối tác chính (Key Partnerships):\n- Tiêu đề: 'Đối Tác Quan Trọng Để Nâng Cao Sản Phẩm/Dịch Vụ'\n- Liệt kê 5 loại đối tác: (1) Nhà cung cấp nguyên liệu, (2) Đối tác phân phối, (3) Nhà tiếp công nghệ, (4) Đối tác tiếp thị, (5) Hợp tác nghiên cứu và phát triển — mỗi loại có bullet\n- Sau đó: 'Chiến Lược Nhân Rộng và Tối Ưu Hóa Tài:' → 6 điểm chiến lược, mỗi điểm có 'Giải pháp:' + 'Khuyến khích đối tác:'\n- Kết: 'Bằng cách áp dụng...'\n\n### Cấu trúc chi phí (Cost Structure):\n- Tiêu đề: 'Cấu Trúc Chi Phí Kinh Doanh'\n- Phần 1: 'Chi phí biến đổi (Variable Costs):' → bullet các chi phí liên quan\n- Phần 2: 'Chi phí cố định (Fixed Costs):' → bullet\n- Phần 3: 'Chi phí vận hành (Overhead Costs):' → bullet\n- Phần 4: 'Chi phí khác liên quan:' → bullet\n- Sau đó: 'Đề Xuất Tối Ưu Hóa Chi Phí:' → 4-5 điểm tối ưu, mỗi điểm có 'Giải pháp:'\n- Kết: 'Bằng cách áp dụng các chiến lược tối ưu hóa chi phí trên, doanh nghiệp có thể...'\n\n## QUY TẮC TRÌNH BÀY\n- Dùng heading **bold** cho tên khối và tiêu đề phụ\n- Dùng số (1, 2, 3) cho các mục lớn\n- Dùng `-` (bullet) cho sub-items\n- Dùng `- Giải pháp:` và `- Lợi ích:` để highlight action items\n- Không dùng markdown table (giữ định dạng paragraph + list)\n- Mỗi section dài 400-600 từ",
+
+      "model_purpose": "content_creation",
+      "temperature": "0.65",
+      "max_tokens": "8000",
+      "wizard_steps": [],
+      "output_platforms": ["general"],
+      "skill_id": "0",
+      "tags": "business-model-canvas,bmc,tư-vấn-kinh-doanh,chiến-lược,mô-hình-kinh-doanh,startup,phân-tích,canvas,value-proposition",
+      "badge_text": "BMC",
+      "badge_color": "#0369a1",
+      "is_featured": "1",
+      "sort_order": "4",
+      "status": "active"
+    }
+  ]
+}

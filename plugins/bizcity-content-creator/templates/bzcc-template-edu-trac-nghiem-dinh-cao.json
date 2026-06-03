@@ -1,0 +1,150 @@
+{
+  "version": "1.0",
+  "plugin": "bizcity-content-creator",
+  "exported": "2026-05-19T12:00:00Z",
+  "templates": [
+    {
+      "slug": "edu-trac-nghiem-dinh-cao",
+      "category_id": "hoc-tap",
+      "title": "Tạo bộ trắc nghiệm đỉnh cao",
+      "description": "Công cụ tạo trắc nghiệm SIÊU TÙY BIẾN — chọn số câu, mức độ khó, dạng câu hỏi (nhiều lựa chọn / điền vào chỗ trống / đúng-sai / nối / sắp xếp). Mỗi câu kèm đáp án đúng + giải thích chi tiết + thang Bloom (Biết / Hiểu / Vận dụng / Phân tích / Đánh giá / Sáng tạo).",
+      "icon_url": "",
+      "icon_emoji": "🧠",
+      "form_fields": [
+        {
+          "slug": "topic",
+          "label": "Nhập chủ đề hoặc nội dung bạn muốn tạo trắc nghiệm",
+          "type": "textarea",
+          "placeholder": "VD: Định luật Newton, Truyện Lão Hạc, Cách mạng tháng 8/1945, Tỷ lệ phần trăm lớp 5...",
+          "required": true,
+          "grid": "full",
+          "sort_order": 1
+        },
+        {
+          "slug": "question_count",
+          "label": "Số lượng câu hỏi",
+          "type": "select",
+          "required": true,
+          "grid": "half",
+          "sort_order": 2,
+          "options": [
+            { "value": "5", "label": "5 câu" },
+            { "value": "10", "label": "10 câu" },
+            { "value": "15", "label": "15 câu" },
+            { "value": "20", "label": "20 câu" },
+            { "value": "30", "label": "30 câu" },
+            { "value": "40", "label": "40 câu" },
+            { "value": "50", "label": "50 câu" }
+          ]
+        },
+        {
+          "slug": "difficulty",
+          "label": "Độ khó của câu hỏi",
+          "type": "select",
+          "required": true,
+          "grid": "half",
+          "sort_order": 3,
+          "options": [
+            { "value": "easy", "label": "Dễ — chủ yếu Biết, Hiểu" },
+            { "value": "medium", "label": "Trung bình — Hiểu, Vận dụng" },
+            { "value": "hard", "label": "Khó — Phân tích, Đánh giá" },
+            { "value": "mixed", "label": "Hỗn hợp (40% dễ - 40% TB - 20% khó)" },
+            { "value": "expert", "label": "Chuyên sâu — Đánh giá, Sáng tạo" }
+          ]
+        },
+        {
+          "slug": "question_types",
+          "label": "Kiểu câu hỏi (chọn 1 hoặc nhiều)",
+          "type": "checkbox_group",
+          "required": true,
+          "grid": "full",
+          "sort_order": 4,
+          "multi": true,
+          "options": [
+            { "value": "mcq", "label": "📝 Nhiều lựa chọn (MCQ — 4 đáp án)" },
+            { "value": "true-false", "label": "✅ Đúng/Sai" },
+            { "value": "fill-blank", "label": "✏️ Điền vào chỗ trống" },
+            { "value": "matching", "label": "🔗 Nối cột (A ↔ B)" },
+            { "value": "ordering", "label": "🔢 Sắp xếp thứ tự" },
+            { "value": "short-answer", "label": "💬 Trả lời ngắn (1-2 câu)" }
+          ]
+        },
+        {
+          "slug": "answer_count",
+          "label": "Số đáp án mỗi câu MCQ",
+          "type": "button_group",
+          "required": false,
+          "grid": "half",
+          "sort_order": 5,
+          "multi": false,
+          "options": [
+            { "value": "3", "label": "3 đáp án" },
+            { "value": "4", "label": "4 đáp án (chuẩn)" },
+            { "value": "5", "label": "5 đáp án" }
+          ]
+        },
+        {
+          "slug": "grade_level",
+          "label": "Cấp học",
+          "type": "card_radio",
+          "required": false,
+          "grid": "full",
+          "sort_order": 6,
+          "options": [
+            { "value": "cap-1", "label": "Cấp 1 — Tiểu học", "icon": "🎒" },
+            { "value": "cap-2", "label": "Cấp 2 — THCS", "icon": "📘" },
+            { "value": "cap-3", "label": "Cấp 3 — THPT", "icon": "🎓" },
+            { "value": "dh-cd", "label": "Đại học / Cao đẳng", "icon": "🏛️" }
+          ]
+        },
+        {
+          "slug": "language_style",
+          "label": "Phong cách ngôn ngữ",
+          "type": "button_group",
+          "required": false,
+          "grid": "half",
+          "sort_order": 7,
+          "multi": false,
+          "options": [
+            { "value": "formal", "label": "📚 Học thuật chuẩn" },
+            { "value": "friendly", "label": "😊 Thân thiện, gần gũi" },
+            { "value": "real-life", "label": "🌍 Lồng tình huống đời sống" }
+          ]
+        },
+        {
+          "slug": "include_explanation",
+          "label": "Có giải thích đáp án không?",
+          "type": "button_group",
+          "required": false,
+          "grid": "half",
+          "sort_order": 8,
+          "multi": false,
+          "options": [
+            { "value": "yes-detail", "label": "✅ Có — Giải thích chi tiết (khuyến nghị)" },
+            { "value": "yes-short", "label": "💡 Có — Ngắn gọn 1 dòng" },
+            { "value": "no", "label": "❌ Không cần" }
+          ]
+        }
+      ],
+
+      "system_prompt": "Bạn là chuyên gia ra đề trắc nghiệm theo chuẩn Bloom's Taxonomy & Item Response Theory, đã thiết kế đề thi cho hàng nghìn giáo viên VN từ tiểu học đến đại học.\n\n## THÔNG TIN\n- Chủ đề: {{topic}}\n- Số câu: {{question_count}}\n- Độ khó: {{difficulty}}\n- Kiểu câu: {{question_types}}\n- Số đáp án MCQ: {{answer_count}}\n- Cấp học: {{grade_level}}\n- Phong cách: {{language_style}}\n- Giải thích: {{include_explanation}}\n\n## 7 NGUYÊN TẮC RA ĐỀ CHẤT LƯỢNG CAO\n1. **Câu hỏi đo đúng mục tiêu** — bám sát chuẩn kiến thức, không lan man\n2. **Phân bổ Bloom hợp lý** — không chỉ 'Biết/Hiểu', có cả 'Vận dụng/Phân tích'\n3. **Đáp án nhiễu hợp lý (Distractor quality)** — đáp án sai phải LÀM HS NGHI NGỜ, không quá lố\n4. **Tránh các trap kinh điển:**\n   - 'Tất cả đều đúng' / 'Không câu nào đúng' (làm yếu câu hỏi)\n   - Câu hỏi phủ định kép (KHÔNG... KHÔNG...)\n   - Đáp án đúng luôn dài nhất / luôn ở vị trí C\n   - Manh mối ngữ pháp lộ đáp án\n5. **Ngôn ngữ trong sáng** — câu ngắn, không gây hiểu nhầm\n6. **Phù hợp lứa tuổi** — tiểu học = đơn giản + hình ảnh; cấp 3 = dài hơn, có dữ kiện phân tích\n7. **Khả thi trong thời gian thi** — MCQ 4 đáp án ~ 1.5-2p/câu cho cấp 3\n\n## PHÂN BỐ BLOOM THEO {{difficulty}}\n- easy: 60% Biết, 30% Hiểu, 10% Vận dụng\n- medium: 20% Biết, 40% Hiểu, 30% Vận dụng, 10% Phân tích\n- hard: 10% Hiểu, 30% Vận dụng, 40% Phân tích, 20% Đánh giá\n- mixed: 30/40/20/10 chia đều các cấp\n- expert: 20% Phân tích, 40% Đánh giá, 40% Sáng tạo\n\n## ĐẶC THÙ TỪNG KIỂU CÂU\n- **MCQ:** 1 đáp án đúng + (3-4) nhiễu chất lượng. Mỗi nhiễu phải có logic SAI cụ thể.\n- **True/False:** câu khẳng định rõ ràng, KHÔNG mơ hồ\n- **Fill-blank:** chỗ trống nằm CUỐI câu, đáp án ngắn (1-3 từ)\n- **Matching:** cột A nhiều hơn cột B (hoặc ngược lại) tránh dò ngẫu nhiên\n- **Ordering:** 4-6 mục, có logic thời gian / nhân quả / quy trình\n- **Short answer:** câu trả lời ≤ 2 câu, có rubric chấm\n\n## QUY TẮC GIẢI THÍCH\nNếu {{include_explanation}} = yes-detail:\n- Tại sao đáp án đúng đúng (1-2 câu)\n- Tại sao mỗi đáp án sai (1 câu/đáp án)\n- Mẹo / công thức / từ khoá để nhớ\n- Sai lầm thường gặp của HS với câu này",
+
+      "outline_prompt": "Tạo outline cho bộ trắc nghiệm {{question_count}} câu chủ đề '{{topic}}' (độ khó {{difficulty}}, cấp {{grade_level}}).\n\nChia thành các section theo kiểu câu hỏi trong {{question_types}}:\n- Nếu nhiều kiểu → mỗi kiểu 1 section\n- Nếu 1 kiểu → chia theo nhóm 10 câu/section\n\nLuôn có 2 section cuối: 'Ma trận đề theo Bloom' và 'Đáp án & Giải thích tổng hợp'.\n\nTRẢ VỀ JSON, ví dụ:\n[\n  {\"label\": \"📝 Câu hỏi MCQ (1-10)\", \"emoji\": \"📝\", \"platform\": \"general\"},\n  {\"label\": \"✅ Câu hỏi Đúng/Sai (11-15)\", \"emoji\": \"✅\", \"platform\": \"general\"},\n  {\"label\": \"📊 Ma trận Bloom\", \"emoji\": \"📊\", \"platform\": \"general\"},\n  {\"label\": \"🔑 Đáp án & Giải thích\", \"emoji\": \"🔑\", \"platform\": \"general\"}\n]",
+
+      "chunk_prompt": "Bạn đang viết phần \"{{chunk_title}}\" của bộ trắc nghiệm '{{topic}}' ({{question_count}} câu, độ khó {{difficulty}}, cấp {{grade_level}}).\n\n## CONTEXT\n- Kiểu câu hỏi: {{question_types}}\n- Số đáp án MCQ: {{answer_count}}\n- Phong cách: {{language_style}}\n- Giải thích: {{include_explanation}}\n\n## FORMAT MỖI CÂU HỎI\n\n### Câu [N] [🎯 Bloom level] [⭐ Độ khó]\n[Nội dung câu hỏi đầy đủ, không cắt xén]\n\n**A.** [Đáp án 1]\n**B.** [Đáp án 2]\n**C.** [Đáp án 3]\n**D.** [Đáp án 4]\n\n*(Với True/False)*\n**A.** Đúng\n**B.** Sai\n\n*(Với Fill-blank)*\n... [chỗ trống] ...\n\n*(Với Matching: dùng bảng 2 cột)*\n\n*(Với Ordering: liệt kê các mục lộn xộn, HS sắp xếp)*\n\n*(Với Short answer: chỉ ghi câu hỏi, không có lựa chọn)*\n\n---\n\n## YÊU CẦU CHO PHẦN ĐÁP ÁN & GIẢI THÍCH\n\nNếu section là 'Đáp án & Giải thích':\n\n| Câu | Đáp án | Bloom |\n|---|---|---|\n| 1 | B | Hiểu |\n| 2 | C | Vận dụng |\n\nSau bảng tóm tắt, với mỗi câu (nếu {{include_explanation}} = yes-detail):\n\n**Câu [N]:** Đáp án **[X]**\n- ✅ **Vì sao đúng:** [1-2 câu]\n- ❌ **A sai vì:** [...]\n- ❌ **C sai vì:** [...]\n- ❌ **D sai vì:** [...]\n- 💡 **Mẹo nhớ:** [...]\n- ⚠️ **Sai lầm HS thường mắc:** [...]\n\n## YÊU CẦU CHO 'MA TRẬN BLOOM'\n\nBảng phân bố câu hỏi theo cấp độ Bloom:\n\n| Cấp độ Bloom | Số câu | % | Câu số |\n|---|---|---|---|\n| Biết (Remember) | 3 | 20% | 1, 4, 7 |\n| Hiểu (Understand) | 5 | 33% | 2, 5, 8, 10, 12 |\n| Vận dụng (Apply) | 4 | 27% | 3, 6, 9, 11 |\n| Phân tích (Analyze) | 2 | 13% | 13, 14 |\n| Đánh giá (Evaluate) | 1 | 7% | 15 |\n\nKèm 3-4 dòng đánh giá chất lượng đề: 'Đề phân bố Bloom phù hợp/chưa phù hợp với...', 'Đề phù hợp đánh giá HS ở mức...'.\n\n## QUY TẮC CHUNG\n- KHÔNG mở đầu bằng 'Dưới đây là...'\n- ĐÁNH SỐ CÂU LIÊN TỤC theo bộ đề (Câu 1, 2, 3... không reset)\n- Mỗi đáp án nhiễu PHẢI là 'sai có lý' — không bịa đáp án vô lý\n- Tránh dùng 'Tất cả đều đúng' / 'Cả A và B'\n- Phù hợp ngôn ngữ {{grade_level}}\n- Phong cách {{language_style}}\n- Tiếng Việt chuẩn, không sai chính tả",
+
+      "model_purpose": "content_creation",
+      "temperature": "0.5",
+      "max_tokens": "12000",
+      "wizard_steps": [],
+      "output_platforms": ["general"],
+      "skill_id": "0",
+      "tags": "giao-duc,hoc-tap,quiz,trac-nghiem,bloom-taxonomy,kiem-tra,danh-gia",
+      "badge_text": "PRO",
+      "badge_color": "#0ea5e9",
+      "is_featured": "1",
+      "sort_order": "5",
+      "status": "active"
+    }
+  ]
+}

@@ -67,6 +67,7 @@ class BizCity_TwinSearch_Persona_Provider extends BizCity_Persona_Tool_Provider 
 				'cost_class'    => 'high',
 				'callback'      => [ $this, 'tool_open_dialog' ],
 				'required_caps' => [ 'read' ],
+				'tool_class'    => 'retriever', /* R-MPRT-12 — fetches web sources, no artifact write */
 			],
 		];
 	}

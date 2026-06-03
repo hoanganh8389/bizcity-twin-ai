@@ -1,0 +1,66 @@
+{
+  "$schema": "https://bizcity.vn/schema/diagnostics-changelog-v1.json",
+  "module_id": "modules.flows",
+  "owner": "core/channel-gateway/includes/flows",
+  "installer_id": "cg_flows",
+  "current_version": "1.2.1",
+  "version_option": "bizcity_crm_flows_db_version",
+  "tables": {
+    "bizcity_crm_flows": {
+      "since": "1.0.0",
+      "renamed_from": { "table": "bizcity_cg_flows", "version": "1.1.0", "note": "Align with bizcity_crm_* prefix family." },
+      "purpose": "Intent flow definitions (port from legacy wp_bizgpt_custom_flows). Each row = 1 trigger keyword + action (run_shortcode | send_message) + optional reminder. Consumed by BizCity_CG_Flow_Handler when inbound message arrives.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":                 { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
+        "message":            { "type": "VARCHAR(255) NOT NULL DEFAULT ''",        "since": "1.0.0", "comment": "Trigger keyword (with Vietnamese tones)" },
+        "message_khong_dau":  { "type": "VARCHAR(255) NOT NULL DEFAULT ''",        "since": "1.0.0", "comment": "Trigger keyword normalized (no tones) for fuzzy match" },
+        "shortcode":          { "type": "TEXT NULL",                                "since": "1.0.0", "comment": "Shortcode pattern e.g. [tim_san_pham keyword=\"{params.keyword}\"]" },
+        "action_type":        { "type": "VARCHAR(32) NOT NULL DEFAULT 'run_shortcode'", "since": "1.0.0", "comment": "run_shortcode | send_message" },
+        "action_config":      { "type": "LONGTEXT NULL",                            "since": "1.0.0", "comment": "JSON: { attributes: [{key, prompt}], clear_context: bool }" },
+        "prompt":             { "type": "LONGTEXT NULL",                            "since": "1.0.0", "comment": "LLM prompt OR raw message text depending on reply_mode" },
+        "reply_mode":         { "type": "VARCHAR(16) NOT NULL DEFAULT 'direct'",    "since": "1.0.0", "comment": "send_message branch only: direct (raw text) | llm (generate via LLM Client)" },
+        "output_json":        { "type": "LONGTEXT NULL",                            "since": "1.0.0", "comment": "Reserved: cached last LLM JSON parse result" },
+        "reminder_delay":     { "type": "INT NOT NULL DEFAULT 0",                   "since": "1.0.0" },
+        "reminder_unit":      { "type": "VARCHAR(10) NOT NULL DEFAULT 'minutes'",   "since": "1.0.0", "comment": "seconds | minutes | hours | days" },
+        "reminder_text":      { "type": "TEXT NULL",                                "since": "1.0.0" },
+        "delay_only":         { "type": "TINYINT(1) NOT NULL DEFAULT 0",            "since": "1.0.0", "comment": "If 1, do not run action, only schedule reminder" },
+        "created_at":         { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.0.0" },
+        "updated_at":         { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", "since": "1.0.0" }
+      },
+      "indexes": {
+        "idx_action_type":    { "cols": ["action_type"],              "since": "1.0.0" },
+        "idx_reminder":       { "cols": ["reminder_delay"],           "since": "1.0.0" },
+        "idx_message_kd":     { "cols": ["message_khong_dau(64)"],    "since": "1.0.0" }
+      }
+    }
+  },
+  "history": [
+    { "version": "1.0.0", "date": "2026-05-25", "change": "Initial port from legacy wp_bizgpt_custom_flows. Adds reply_mode column (direct|llm) for send_message action branch (task #2)." },
+    { "version": "1.1.0", "date": "2026-05-26", "change": "Renamed table bizcity_cg_flows → bizcity_crm_flows (align with bizcity_crm_* CRM prefix family). Canonical from this point on: ONLY bizcity_crm_flows is acceptable in code/docs. Migration installer performs atomic RENAME (DROP empty dst + RENAME TABLE) to avoid duplicate tables. Options bizcity_cg_flows_* are mirrored once into bizcity_crm_flows_*." },
+    { "version": "1.2.0", "date": "2026-05-26", "change": "Runtime hardening (NO schema change). (a) bizcity-facebook-bot webhook handler `handle_referral()` now SKIPS legacy `bizgpt_run_flow_steps($id)` when the decrypted ref resolves to a Campaign (Campaign_Tracker + Scenario_Dispatcher already own the response via `bizcity_facebook_referral_received` action). Fixes: `Table 'slave1.wp_1258_bizcity_crm_flows' doesn't exist` on bizcity.vn blog 1258 where scenarios live exclusively in `bizcity_crm_campaigns`. (b) Legacy `bizgpt_run_flow_steps()` wraps the SELECT in `suppress_errors(true)` so missing-table on satellite sites no longer floods debug.log. (c) `BizCity_CRM_Campaign_Ref_Codec::decode()` adds path #0 for plain-numeric input (so `ref_decrypted` from webhook adapter resolves directly through `campaign_id` then `imported_from_bizgpt_flow_id`). (d) QR endpoints `/bizcity-crm/v1/campaigns/{id}/qr.{png,svg}` switched to `__return_true` permission so `<img src>` (no X-WP-Nonce header) renders correctly. (e) Legacy plugin `bizgpt-custom-flows` repointed at canonical `bizcity_crm_flows` (no longer creates `bizgpt_custom_flows` on activation) — see `wp-content/plugins/bizgpt-custom-flows/PHASE-LEGACY-DEPRECATED.md`." },
+    { "version": "1.2.1", "date": "2026-05-25", "change": "Runtime hardening (NO schema change). `BizCity_CRM_Campaign_Tracker::record_visit()` is now archived-tolerant for scenario dispatch. Previously, hitting an archived campaign returned `WP_Error('bizcity_crm_track_archived')` → no visit inserted → `Scenario_Dispatcher::on_visit_recorded` never cached envelope → first inbound message produced ONLY generic CRM AI reply (notebook fallback), NOT the campaign scenario template. Symptom in logs: `record_visit_result.wp_error='campaign is archived'` followed by `scenario_dispatcher.envelope_miss` for the contact's first message. New behavior: emit `crm_campaign_visit_recorded` event with `archived_dispatch=true` + `visit_id=0` (mirror of dedupe-revisit branch), skip the `bizcity_crm_campaign_visits` INSERT (funnel stays clean), and return 0 instead of WP_Error so caller `Campaign_Tracker::on_fb_referral_received()` logs at info level. `Conversion_Linker.link_visit()` is idempotent (existing converted_contact_id short-circuits), so re-emitting per referral is safe. Operational note: if user wants to truly stop the scenario, they must delete/replace the FB ad creative OR delete the campaign row (status='archived' is no longer enough on its own)." }
+  ],
+  "migrations": [
+    {
+      "from_table": "wp_bizcity_cg_flows",
+      "to_table":   "bizcity_crm_flows",
+      "strategy":   "rename_table_if_dst_empty",
+      "guard_option": "bizcity_crm_flows_migrated_from_bizgpt",
+      "sql": "DROP TABLE {dst}; RENAME TABLE {src} TO {dst};",
+      "note": "Auto on admin Flows page load. dst is just-created by ensure_table() and is empty, so DROP is safe. RENAME is atomic from app POV; preserves id + indexes + collation. After this run, table wp_bizcity_cg_flows no longer exists anywhere in the install."
+    },
+    {
+      "from_table": "wp_bizgpt_custom_flows",
+      "to_table":   "bizcity_crm_flows",
+      "strategy":   "one_shot_copy_if_empty",
+      "guard_option": "bizcity_crm_flows_migrated_from_bizgpt",
+      "column_map":  {
+        "reply_mode": { "default": "direct" }
+      },
+      "note": "Fallback when interim wp_bizcity_cg_flows absent. INSERT...SELECT preserving id. Legacy table belongs to bizgpt-custom-flows plugin so we copy (do not rename)."
+    }
+  ]
+}

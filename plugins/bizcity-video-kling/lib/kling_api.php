@@ -104,31 +104,50 @@ function waic_kling_http_post(string $url, array $headers, array $body, int $tim
     if ( isset( $log_body['input']['image'] ) )     $log_body['input']['image']     = '[truncated]';
     waic_kling_log('http_post', ['url' => $url, 'body' => $log_body]);
     
+    $t_start = microtime(true);
     $res = wp_remote_post($url, [
         'timeout' => $timeout,
         'headers' => $headers,
         'body'    => wp_json_encode($body),
     ]);
+    $elapsed_ms = intval((microtime(true) - $t_start) * 1000);
 
     if (is_wp_error($res)) {
-        return ['ok' => false, 'error' => $res->get_error_message()];
+        $err_msg  = $res->get_error_message();
+        $err_code = $res->get_error_code();
+        waic_kling_log('http_post.wp_error', [
+            'url'        => $url,
+            'code'       => $err_code,
+            'message'    => $err_msg,
+            'elapsed_ms' => $elapsed_ms,
+            'timeout'    => $timeout,
+        ]);
+        return ['ok' => false, 'error' => $err_msg, 'wp_error_code' => $err_code, 'elapsed_ms' => $elapsed_ms];
     }
     
     $code = wp_remote_retrieve_response_code($res);
     $raw_body = wp_remote_retrieve_body($res);
     $json = json_decode($raw_body, true);
-    
-    waic_kling_log('http_post.response', ['code' => $code, 'body' => $json]);
-    
+
+    // If response is non-JSON (e.g. upstream proxy 502 HTML page), surface a snippet
+    // of the raw body in the log so we can distinguish "empty body" from
+    // "JSON parse failure" / "HTML error page".
+    $log_response = ['code' => $code, 'body' => $json];
+    if ($json === null && $raw_body !== '' && $raw_body !== null) {
+        $log_response['raw_excerpt'] = substr(preg_replace('/\s+/', ' ', strip_tags($raw_body)), 0, 500);
+        $log_response['raw_len']     = strlen($raw_body);
+    }
+    waic_kling_log('http_post.response', $log_response);
+
     if ($code < 200 || $code >= 300) {
         return [
-            'ok' => false, 
-            'error' => 'HTTP ' . $code, 
+            'ok' => false,
+            'error' => 'HTTP ' . $code,
             'raw' => $json,
             'raw_body' => $raw_body
         ];
     }
-    
+
     return ['ok' => true, 'data' => $json];
 }
 
@@ -325,8 +344,13 @@ function waic_kling_create_task_via_gateway(array $cfg, string $model_str, array
         'Authorization' => 'Bearer ' . $cfg['api_key'],
     ];
 
-    // Map local model string to Hub model format
+    // Map local model string to Hub model format. When an image is provided,
+    // auto-switch to the image-to-video variant if available so PiAPI doesn't
+    // silently reject the request (and trigger a 502 from the proxy).
     $hub_model = waic_kling_map_model_to_hub($model_str);
+    if (!empty($input['image_url'])) {
+        $hub_model = waic_kling_ensure_i2v_model($hub_model);
+    }
 
     $body = [
         'prompt'       => $input['prompt'] ?? '',
@@ -394,6 +418,38 @@ function waic_kling_map_model_to_hub(string $model_str): string {
     ];
 
     return $hub_map[$engine] ?? "kling/v1-5/pro";
+}
+
+/**
+ * Ensure a hub model id is image-to-video capable. If the given model has no
+ * known i2v variant on the hub, fall back to a safe i2v default (kling i2v).
+ *
+ * This prevents shipping an image_url to text-only models like luma/ray2,
+ * which causes PiAPI to reject the task and the gateway to respond 502.
+ */
+function waic_kling_ensure_i2v_model(string $hub_model): string {
+    // Known i2v aliases on the hub (mirror of class-video-api.php MODEL_MAP).
+    static $i2v_map = [
+        'kling/v1-5/pro'        => 'kling/v1-5/i2v-pro',
+        'kling/v1-5/standard'   => 'kling/v1-5/i2v-standard',
+        'kling/v1/pro'          => 'kling/v1-5/i2v-pro',
+        'luma/dream-machine'    => 'luma/dream-machine-i2v',
+        'luma/ray2'             => 'luma/dream-machine-i2v',
+        'runway/gen3-alpha'     => 'runway/gen3-i2v',
+        'runway/gen3-turbo'     => 'runway/gen3-i2v',
+    ];
+
+    // Kling v2.x unified models already accept image_url via the same task_type.
+    if (preg_match('#^kling/v2-\d+/(pro|standard)$#', $hub_model)) {
+        return $hub_model;
+    }
+    // Wan / Hailuo / faceswap / pixverse / pika / minimax already use the same
+    // task_type for both modes (with image being optional).
+    if (preg_match('#^(wan|hailuo|faceswap|pixverse|pika|minimax)/#', $hub_model)) {
+        return $hub_model;
+    }
+
+    return $i2v_map[$hub_model] ?? $hub_model;
 }
 
 /**

@@ -91,6 +91,15 @@ if ( class_exists( 'BizCity_Intent_Provider' ) ) {
     } );
 }
 
+/* ---- Persona Tool Provider (Wave F7.0a — Producer plugin per R-MPRT §6.5) ---- */
+require_once BCT_DIR . 'includes/class-persona-provider.php';
+add_filter( 'bizcity_persona_tool_providers', function ( array $providers ) : array {
+    if ( class_exists( 'BizCity_Tarot_Persona_Provider' ) ) {
+        $providers['tarot'] = new BizCity_Tarot_Persona_Provider();
+    }
+    return $providers;
+}, 20 );
+
 /* ---------------------------------------------------------------
  * AGENT PROFILE PAGE: /tarot-profile/
  * Trang hồ sơ Tarot frontend — load trong Touch Bar iframe.

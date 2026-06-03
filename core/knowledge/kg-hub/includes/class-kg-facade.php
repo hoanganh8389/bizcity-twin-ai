@@ -981,7 +981,10 @@ final class BizCity_KG {
 		$plugin            = (string) ( $args['plugin'] ?? $map[ $cortex ]['plugin'] );
 		$legacy_id         = (int) ( $args['legacy_id'] ?? 0 );
 		$legacy_table      = (string) ( $args['legacy_table'] ?? '' );
-		$kg_chunks_tbl     = $wpdb->prefix . 'bizcity_kg_source_chunks';
+		// HOTFIX 2026-05-06: helper resolves to bizcity_kg_passages on this install.
+		$kg_chunks_tbl     = class_exists( 'BizCity_KG_Database' )
+			? BizCity_KG_Database::instance()->tbl_source_chunks()
+			: ( $wpdb->prefix . 'bizcity_kg_passages' );
 
 		// Guard: chunk tables must exist.
 		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $legacy_chunks_tbl ) ) !== $legacy_chunks_tbl ) {
@@ -1056,7 +1059,8 @@ final class BizCity_KG {
 				'content'      => $content,
 				'content_hash' => $ch_hash ?: null,
 				'token_count'  => isset( $ch['token_count'] ) ? (int) $ch['token_count'] : 0,
-				'embedding'    => $embedding,
+				// Filestore-only (Rule v2.0): embedding column NULL; .bin holds vector.
+				'embedding'    => null,
 				'embed_model'  => $model ?: null,
 				'embed_status' => $embedding ? 'ready' : 'pending',
 				'origin'       => $plugin . '_unified_write',
@@ -1070,7 +1074,19 @@ final class BizCity_KG {
 					'chunk_index'    => $idx,
 				] ),
 			] );
-			if ( $ok ) { $inserted++; }
+			if ( $ok ) {
+				$inserted++;
+				// PHASE-0-RULE-VECTOR-FILE-STORE.md v2.0 — write vector into .bin (single source of truth).
+				$pid = (int) $wpdb->insert_id;
+				if ( $pid && $embedding && class_exists( 'BizCity_KG_Embedding_Writer' ) ) {
+					$vec_arr = is_array( $embedding ) ? $embedding : json_decode( (string) $embedding, true );
+					if ( is_array( $vec_arr ) && ! empty( $vec_arr ) ) {
+						BizCity_KG_Embedding_Writer::instance()->register_chunk(
+							(int) $notebook_id, $pid, $vec_arr, null, (int) $kg_src_id
+						);
+					}
+				}
+			}
 		}
 
 		if ( $inserted > 0 ) {

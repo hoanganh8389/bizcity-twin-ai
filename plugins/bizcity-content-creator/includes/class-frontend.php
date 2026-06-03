@@ -49,7 +49,11 @@ class BZCC_Frontend {
 	public static function register_rewrite_rules(): void {
 		add_rewrite_rule( '^creator/history/(\d+)/?$', 'index.php?bzcc_page=history-detail&bzcc_file_id=$matches[1]', 'top' );
 		add_rewrite_rule( '^creator/history/?$', 'index.php?bzcc_page=history', 'top' );
+		add_rewrite_rule( '^creator/results/?$', 'index.php?bzcc_page=history', 'top' ); // alias
 		add_rewrite_rule( '^creator/result/(\d+)/?$', 'index.php?bzcc_page=result&bzcc_file_id=$matches[1]', 'top' );
+		// Slug-based template URL: /creator/t/{slug}/
+		add_rewrite_rule( '^creator/t/([a-z0-9\-]+)/?$', 'index.php?bzcc_page=form&bzcc_template_slug=$matches[1]', 'top' );
+		// Legacy numeric URL: /creator/{id}/
 		add_rewrite_rule( '^creator/(\d+)/?$', 'index.php?bzcc_page=form&bzcc_template_id=$matches[1]', 'top' );
 		add_rewrite_rule( '^creator/?$', 'index.php?bzcc_page=browse', 'top' );
 	}
@@ -57,6 +61,7 @@ class BZCC_Frontend {
 	public static function register_query_vars( array $vars ): array {
 		$vars[] = 'bzcc_page';
 		$vars[] = 'bzcc_template_id';
+		$vars[] = 'bzcc_template_slug';
 		$vars[] = 'bzcc_file_id';
 		return $vars;
 	}
@@ -82,8 +87,8 @@ class BZCC_Frontend {
 	public static function add_sidebar_nav( array $nav ): array {
 		/*$nav[] = [
 			'slug'  => 'creator',
-			'label' => 'Content Creator',
-			'icon'  => '✨',
+			'label' => 'Brain Factory',
+			'icon'  => '🧠',
 			'type'  => 'link',
 			'src'   => home_url( 'creator/' ),
 		];*/
@@ -122,6 +127,18 @@ class BZCC_Frontend {
 		$view        = sanitize_key( $atts['view'] ?: ( get_query_var( 'bzcc_page' ) ?: ( $_GET['bzcc_view'] ?? 'browse' ) ) );
 		$template_id = absint( $atts['template_id'] ?: ( get_query_var( 'bzcc_template_id' ) ?: ( $_GET['bzcc_template'] ?? 0 ) ) );
 		$category    = sanitize_key( $atts['category'] ?: ( $_GET['bzcc_cat'] ?? '' ) );
+
+		// Resolve slug → template_id (if /creator/t/{slug}/ route hit)
+		$template_slug = sanitize_title( (string) ( get_query_var( 'bzcc_template_slug' ) ?: ( $_GET['bzcc_slug'] ?? '' ) ) );
+		if ( ! $template_id && $template_slug ) {
+			$tpl_by_slug = BZCC_Template_Manager::get_by_slug( $template_slug );
+			if ( $tpl_by_slug ) {
+				$template_id = (int) $tpl_by_slug->id;
+				if ( ! $view || $view === 'browse' ) {
+					$view = 'form';
+				}
+			}
+		}
 
 		ob_start();
 		echo '<div id="bzcc-app" class="bzcc-wrap" data-view="' . esc_attr( $view ) . '">';
@@ -174,6 +191,14 @@ class BZCC_Frontend {
 	private static function render_browse_view( string $active_category = '' ): void {
 		$categories = BZCC_Category_Manager::get_all_active();
 		$featured   = BZCC_Template_Manager::get_featured( 6 );
+
+		$recent_results = [];
+		$recent_total   = 0;
+		if ( is_user_logged_in() ) {
+			$_uid           = get_current_user_id();
+			$recent_results = BZCC_File_Manager::get_by_user_with_meta( $_uid, 6 );
+			$recent_total   = BZCC_File_Manager::count_by_user( $_uid );
+		}
 
 		include BZCC_DIR . 'views/frontend-browse.php';
 	}
@@ -314,12 +339,138 @@ class BZCC_Frontend {
 	}
 
 	/**
+	 * Render breadcrumb bar for current view.
+	 * Echoes HTML directly. Safe on all views (browse / form / result / history*).
+	 */
+	public static function render_breadcrumb(): void {
+		$view          = sanitize_key( get_query_var( 'bzcc_page' ) ?: 'browse' );
+		$template_id   = absint( get_query_var( 'bzcc_template_id' ) );
+		$template_slug = sanitize_title( (string) get_query_var( 'bzcc_template_slug' ) );
+		$file_id       = absint( get_query_var( 'bzcc_file_id' ) );
+		// Propagate iframe context so internal navigation keeps bizcity_iframe=1.
+		$is_iframe = isset( $_GET['bizcity_iframe'] );
+
+		$home_url    = home_url( '/' );
+		$creator_url = home_url( 'creator/' );
+		$history_url = home_url( 'creator/history/' );
+		if ( $is_iframe ) {
+			$creator_url = add_query_arg( 'bizcity_iframe', '1', $creator_url );
+			$history_url = add_query_arg( 'bizcity_iframe', '1', $history_url );
+		}
+
+		$crumbs = [];
+		$crumbs[] = [ 'label' => '🧠 Home', 'url' => $creator_url ];
+
+		$tpl = null;
+		if ( $template_id ) {
+			$tpl = BZCC_Template_Manager::get_by_id( $template_id );
+		} elseif ( $template_slug ) {
+			$tpl = BZCC_Template_Manager::get_by_slug( $template_slug );
+		}
+
+		switch ( $view ) {
+			case 'form':
+				if ( $tpl ) {
+					$cat = BZCC_Category_Manager::get_by_id( (int) $tpl->category_id );
+					if ( $cat ) {
+						$crumbs[] = [
+							'label' => trim( ( $cat->icon_emoji ?: '📁' ) . ' ' . $cat->title ),
+							'url'   => add_query_arg( 'bzcc_cat', $cat->slug, $creator_url ),
+						];
+					}
+					$crumbs[] = [
+						'label' => trim( ( $tpl->icon_emoji ?: '📝' ) . ' ' . $tpl->title ),
+						'url'   => '',
+					];
+				}
+				break;
+
+			case 'result':
+				if ( $file_id ) {
+					$file = BZCC_File_Manager::get_by_id( $file_id );
+					if ( $file ) {
+						$file_tpl = BZCC_Template_Manager::get_by_id( (int) $file->template_id );
+						if ( $file_tpl ) {
+							$crumbs[] = [
+								'label' => trim( ( $file_tpl->icon_emoji ?: '📝' ) . ' ' . $file_tpl->title ),
+								'url'   => self::get_template_url( (int) $file_tpl->id, $file_tpl->slug ?? null ),
+							];
+						}
+						$crumbs[] = [
+							'label' => '📄 ' . ( $file->title ?: 'Kết quả #' . $file_id ),
+							'url'   => '',
+						];
+					}
+				}
+				break;
+
+			case 'history':
+				$crumbs[] = [ 'label' => '📋 Lịch sử', 'url' => '' ];
+				break;
+
+			case 'history-detail':
+				$crumbs[] = [ 'label' => '📋 Lịch sử', 'url' => $history_url ];
+				if ( $file_id ) {
+					$file = BZCC_File_Manager::get_by_id( $file_id );
+					if ( $file ) {
+						$crumbs[] = [
+							'label' => '📄 ' . ( $file->title ?: 'File #' . $file_id ),
+							'url'   => '',
+						];
+					}
+				}
+				break;
+
+			case 'browse':
+			default:
+				// Just Home > Creator
+				$crumbs[ count( $crumbs ) - 1 ]['url'] = '';
+				break;
+		}
+
+		echo '<nav class="bzcc-breadcrumb" aria-label="Breadcrumb"><ol class="bzcc-breadcrumb__list">';
+		$last = count( $crumbs ) - 1;
+		foreach ( $crumbs as $i => $c ) {
+			// Propagate bizcity_iframe=1 to every intermediate link so the creator
+			// page doesn't lose iframe mode when the user navigates breadcrumbs.
+			if ( $is_iframe && ! empty( $c['url'] ) && $i !== $last ) {
+				$c['url'] = add_query_arg( 'bizcity_iframe', '1', $c['url'] );
+			}
+			echo '<li class="bzcc-breadcrumb__item' . ( $i === $last ? ' bzcc-breadcrumb__item--current' : '' ) . '">';
+			if ( ! empty( $c['url'] ) && $i !== $last ) {
+				echo '<a href="' . esc_url( $c['url'] ) . '">' . esc_html( $c['label'] ) . '</a>';
+			} else {
+				echo '<span>' . esc_html( $c['label'] ) . '</span>';
+			}
+			if ( $i !== $last ) {
+				echo '<span class="bzcc-breadcrumb__sep" aria-hidden="true">›</span>';
+			}
+			echo '</li>';
+		}
+		echo '</ol></nav>';
+	}
+
+	/**
 	 * Get clean URL for a template form.
 	 *
 	 * @param int $template_id Template ID.
 	 * @return string e.g. https://site.com/creator/123/
 	 */
-	public static function get_template_url( int $template_id ): string {
+	/**
+	 * Get clean URL for a template form. Prefers slug-based URL when slug exists.
+	 *
+	 * @param int         $template_id Template ID.
+	 * @param string|null $slug        Optional pre-fetched slug to avoid DB query.
+	 * @return string e.g. https://site.com/creator/t/my-template/ or /creator/123/
+	 */
+	public static function get_template_url( int $template_id, ?string $slug = null ): string {
+		if ( null === $slug ) {
+			$tpl  = BZCC_Template_Manager::get_by_id( $template_id );
+			$slug = $tpl && ! empty( $tpl->slug ) ? (string) $tpl->slug : '';
+		}
+		if ( $slug ) {
+			return home_url( 'creator/t/' . $slug . '/' );
+		}
 		return home_url( 'creator/' . $template_id . '/' );
 	}
 

@@ -70,6 +70,30 @@
   border-radius: 0 2px 2px 0;
 }
 
+/* Context-toggle (admin ⇄ standalone) — sits at very top, visually separated. */
+.ts-ab-context-toggle {
+  margin-bottom: 6px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  padding-bottom: 8px;
+  color: var(--ts-accent);
+}
+.ts-ab-context-toggle:hover {
+  color: #fff;
+  background: rgba(255,255,255,0.04);
+}
+
+/* Fold-admin toggle — collapses wp-admin sidebar inside the active iframe. */
+.ts-ab-fold-admin {
+  color: var(--ts-fg-muted, #9aa3b2);
+}
+.ts-ab-fold-admin:hover:not(:disabled) {
+  color: #fff;
+  background: rgba(255,255,255,0.04);
+}
+.ts-ab-fold-admin[aria-pressed="true"] {
+  color: var(--ts-accent);
+}
+
 .ts-main {
   flex: 1 1 auto;
   position: relative;

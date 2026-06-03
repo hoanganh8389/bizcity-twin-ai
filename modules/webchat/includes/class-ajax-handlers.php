@@ -1459,10 +1459,37 @@ class BizCity_WebChat_Ajax_Handlers {
             : 0;
         $stats_week['total_tokens'] = (int) $stats_week['total_prompt_tokens'] + (int) $stats_week['total_completion_tokens'];
 
+        // R-1API Phase B (2026-06-02) — per-service breakdown for UsageWorkspace tabs.
+        $by_service_day  = [];
+        $by_service_week = [];
+        if ( method_exists( 'BizCity_LLM_Usage_Log', 'get_stats_by_service' ) ) {
+            $by_service_day  = BizCity_LLM_Usage_Log::get_stats_by_service( '24h' );
+            $by_service_week = BizCity_LLM_Usage_Log::get_stats_by_service( '7d' );
+            $compute_rate = function( array &$row ) {
+                $calls = (int) ( $row['total_calls'] ?? 0 );
+                $row['success_rate'] = $calls > 0 ? round( ( (int) ( $row['success_count'] ?? 0 ) / $calls ) * 100 ) : 0;
+            };
+            foreach ( $by_service_day as &$r )  { $compute_rate( $r ); }
+            foreach ( $by_service_week as &$r ) { $compute_rate( $r ); }
+            unset( $r );
+        }
+
         wp_send_json_success( [
-            'available'  => true,
-            'statsDay'   => $stats_day,
-            'statsWeek'  => $stats_week,
+            'available'        => true,
+            'statsDay'         => $stats_day,
+            'statsWeek'        => $stats_week,
+            'byServiceDay'     => $by_service_day,
+            'byServiceWeek'    => $by_service_week,
+            'serviceCatalog'   => [
+                [ 'id' => 'llm',       'label' => 'LLM Chat',     'icon' => 'message-square' ],
+                [ 'id' => 'embedding', 'label' => 'Embeddings',   'icon' => 'sparkles' ],
+                [ 'id' => 'search',    'label' => 'Web Search',   'icon' => 'search' ],
+                [ 'id' => 'video',     'label' => 'Video',        'icon' => 'video' ],
+                [ 'id' => 'image',     'label' => 'Image',        'icon' => 'image' ],
+                [ 'id' => 'astro',     'label' => 'Astrology',    'icon' => 'star' ],
+                [ 'id' => 'market',    'label' => 'Marketplace',  'icon' => 'shopping-bag' ],
+                [ 'id' => 'tools',     'label' => 'Tools',        'icon' => 'wrench' ],
+            ],
             'topModels'  => BizCity_LLM_Usage_Log::get_top_models( 5 ),
             'recent'     => BizCity_LLM_Usage_Log::get_recent( $limit, ( $page - 1 ) * $limit ),
             'page'       => $page,
@@ -1936,6 +1963,21 @@ class BizCity_WebChat_Ajax_Handlers {
         }
 
         $note_id = $wpdb->insert_id;
+
+        // Wave 2.8d D5 — dual-write mirror into unified `bizcity_memory`.
+        // NO-OP unless filter `bizcity_memory_unified_enabled` is TRUE.
+        do_action( 'bizcity_memory_mirror_write', 'note', [
+            'id'         => (int) $note_id,
+            'blog_id'    => get_current_blog_id(),
+            'user_id'    => $user_id,
+            'session_id' => $sid,
+            'project_id' => '',
+            'title'      => $title,
+            'content'    => $msg->message_text,
+            'note_type'  => 'chat_pinned',
+            'is_starred' => 0,
+            'metadata'   => '',
+        ], 'insert' );
 
         // Mark message as pinned in messages table
         $wpdb->update(

@@ -51,6 +51,17 @@ require_once BIZCITY_MEMORY_DIR . 'includes/class-memory-log-projector.php';
 require_once BIZCITY_MEMORY_DIR . 'includes/class-memory-manager.php';
 require_once BIZCITY_MEMORY_DIR . 'includes/class-memory-rest-api.php';
 require_once BIZCITY_MEMORY_DIR . 'includes/class-admin-page.php';
+// Wave 2.8d (TBR.MEM-D4 2026-05-24) — unified `bizcity_memory` table installer
+// (behind flag `bizcity_memory_unified_enabled`, default FALSE).
+require_once BIZCITY_MEMORY_DIR . 'includes/class-memory-unified-installer.php';
+// Wave 2.8d (TBR.MEM-D5 2026-05-24) — dual-write mirror writer (listens on
+// action `bizcity_memory_mirror_write`, NO-OP unless flag enabled).
+require_once BIZCITY_MEMORY_DIR . 'includes/class-memory-unified-writer.php';
+// Wave 2.8d (TBR.MEM-D6.7 2026-05-24) — admin toggle UI for the unified flag
+// + staging timer + D7 readiness checklist (replaces hardcoded filter).
+if ( is_admin() ) {
+	require_once BIZCITY_MEMORY_DIR . 'includes/class-memory-unified-admin.php';
+}
 
 /* ── Initialize ───────────────────────────────────────────────────── */
 BizCity_Memory_Database::instance();
@@ -60,6 +71,8 @@ if ( class_exists( 'BizCity_Memory_Log_Projector' ) ) {
 }
 BizCity_Memory_Manager::instance();
 BizCity_Memory_REST_API::instance();
+BizCity_Memory_Unified_Installer::instance();
+BizCity_Memory_Unified_Writer::instance();
 
 if ( is_admin() ) {
 	BizCity_Memory_Admin_Page::instance();

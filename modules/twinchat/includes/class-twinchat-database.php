@@ -46,13 +46,29 @@ class BizCity_TwinChat_Database {
 	/**
 	 * No DDL needed — tables owned by WebChat module.
 	 * Triggers WebChat install if tables don't exist yet.
+	 *
+	 * Caches the "installed" flag in an option so we skip the SHOW TABLES probe
+	 * on every request (Query Monitor flagged this as a slow recurring query).
 	 */
 	public function maybe_install() {
+		$opt_key = 'bizcity_twinchat_db_installed';
+		if ( get_option( $opt_key ) === '1' ) {
+			return;
+		}
 		global $wpdb;
-		$tbl = $this->table_messages();
+		$tbl    = $this->table_messages();
 		$exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl ) );
-		if ( $exists !== $tbl && class_exists( 'BizCity_WebChat_Database' ) ) {
+		if ( $exists === $tbl ) {
+			update_option( $opt_key, '1', true );
+			return;
+		}
+		if ( class_exists( 'BizCity_WebChat_Database' ) ) {
 			BizCity_WebChat_Database::instance()->create_tables();
+			// Re-probe once to confirm before caching.
+			$exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl ) );
+			if ( $exists === $tbl ) {
+				update_option( $opt_key, '1', true );
+			}
 		}
 	}
 

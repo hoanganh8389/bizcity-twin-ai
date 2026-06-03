@@ -46,22 +46,86 @@ class BizCity_TwinChat_Admin_Menu {
 			2
 		);
 
-		// Wave 10d.5c — Admin diagnostic: source learning progress debugger.
-		// URL: /wp-admin/admin.php?page=bizcity-twinchat-diag-sources&nb=2
-		// Access: manage_options only. Avoids REST nonce requirement.
+		// 2026-05-06 — FIX: ensure parent's clickable URL = admin.php?page=bizcity-twinchat.
+		// WordPress auto-promotes the FIRST submenu's URL to be the parent's <a href> when
+		// the parent slug is not itself in the submenu list. Without this, the parent link
+		// inherited the slug of whichever submodule registered first.
 		add_submenu_page(
 			self::PAGE_SLUG,
-			'Diag: Source Progress',
-			'Diag Sources',
-			'manage_options',
-			'bizcity-twinchat-diag-sources',
-			[ $this, 'render_diag_sources_page' ]
+			'Twin chat',
+			'Twin chat',
+			'read',
+			self::PAGE_SLUG,
+			[ $this, 'render_page' ]
 		);
 
 		// Enqueue assets only on our admin page.
 		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_assets' ] );
 		// Make the main entry script a JS module (Vite output requires type="module").
 		add_filter( 'script_loader_tag', [ $this, 'add_module_type' ], 10, 3 );
+	}
+
+	/**
+	 * Build the activity bar item list from BizCity_Twin_Shell_Registry — the
+	 * same data source that powers /twin/ — so both surfaces are always in sync.
+	 *
+	 * Converts registry schema (public_slug / target_url) → ActivityBar schema
+	 * (pluginId / target) expected by ActivityBar.tsx.
+	 *
+	 * @return array
+	 */
+	public static function build_activity_bar(): array {
+		// Primary: use the Twin Shell registry (same source as /twin/).
+		if ( class_exists( 'BizCity_Twin_Shell_Registry' ) ) {
+			$plugins = BizCity_Twin_Shell_Registry::instance()->all();
+			if ( ! empty( $plugins ) ) {
+				$out = [];
+				foreach ( $plugins as $p ) {
+					// Skip items the current user cannot access.
+					if ( ! empty( $p['capability'] ) && ! current_user_can( $p['capability'] ) ) {
+						continue;
+					}
+					$mode = (string) $p['mode'];
+					// For 'embed' items the shell navigates via ?plugin=<id>.
+					// For 'link' items, target_url is the destination.
+					$target    = ( $mode === 'link' ) ? (string) $p['target_url'] : '';
+					$plugin_id = ( $mode === 'embed' || $mode === 'home' || $mode === 'workspace' ) ? (string) $p['id'] : '';
+					$out[] = [
+						'id'       => (string) $p['id'],
+						'label'    => (string) $p['label'],
+						'icon'     => (string) $p['icon'],
+					'emoji'    => '', // Strip emoji — TwinChat uses lucide icons (monochrome), not colored emoji.
+						'mode'     => $mode,
+						'target'   => $target,
+						'pluginId' => $plugin_id,
+						'section'  => ( isset( $p['section'] ) && $p['section'] === 'bottom' ) ? 'bottom' : 'top',
+					];
+				}
+				if ( ! empty( $out ) ) {
+					return $out;
+				}
+			}
+		}
+
+		// Fallback (registry not loaded yet) — inline minimal list.
+		$td   = 'bizcity-twin-ai';
+		$items = [
+			[ 'id' => 'home',         'label' => __( 'Home',             $td ), 'icon' => 'home',       'emoji' => '', 'mode' => 'home',  'target' => '',                                                                          'pluginId' => 'home',         'section' => 'top' ],
+			[ 'id' => 'creator',      'label' => __( 'Plans & Scripts',  $td ), 'icon' => 'creator',    'emoji' => '', 'mode' => 'embed', 'target' => '',                                                                          'pluginId' => 'creator',      'section' => 'top' ],
+			[ 'id' => 'doc',          'label' => __( 'Documents',        $td ), 'icon' => 'doc',        'emoji' => '', 'mode' => 'embed', 'target' => '',                                                                          'pluginId' => 'doc',          'section' => 'top' ],
+			[ 'id' => 'crm',          'label' => __( 'CRM Inbox',        $td ), 'icon' => 'gateway',    'emoji' => '', 'mode' => 'embed', 'target' => '',                                                                          'pluginId' => 'crm',          'section' => 'top' ],
+			[ 'id' => 'image',        'label' => __( 'Product Images',   $td ), 'icon' => 'image',      'emoji' => '', 'mode' => 'embed', 'target' => '',                                                                          'pluginId' => 'image',        'section' => 'top' ],
+			[ 'id' => 'video',        'label' => __( 'Video',            $td ), 'icon' => 'video',      'emoji' => '', 'mode' => 'embed', 'target' => '',                                                                          'pluginId' => 'video',        'section' => 'top' ],
+			[ 'id' => 'web',          'label' => __( 'Web Builder',      $td ), 'icon' => 'web',        'emoji' => '', 'mode' => 'embed', 'target' => '',                                                                          'pluginId' => 'web',          'section' => 'top' ],
+			[ 'id' => 'twin-builder', 'label' => __( 'TwinBuilder',      $td ), 'icon' => 'brain',      'emoji' => '', 'mode' => 'link',  'target' => admin_url( 'admin.php?page=bizcity-twin-builder' ),                         'pluginId' => '',             'section' => 'top' ],
+			[ 'id' => 'account',      'label' => __( 'Account',          $td ), 'icon' => 'wallet',     'emoji' => '', 'mode' => 'link',  'target' => 'https://bizcity.vn/my-account/',                                           'pluginId' => '',             'section' => 'bottom' ],
+			[ 'id' => 'scheduler',    'label' => __( 'Reminders',        $td ), 'icon' => 'scheduler',  'emoji' => '', 'mode' => 'embed', 'target' => '',                                                                          'pluginId' => 'scheduler',    'section' => 'bottom' ],
+			[ 'id' => 'workflow',     'label' => __( 'Automation',       $td ), 'icon' => 'automation', 'emoji' => '', 'mode' => 'link',  'target' => admin_url( 'admin.php?page=bizcity-workspace&tab=workflow' ),                 'pluginId' => '',             'section' => 'bottom' ],
+			[ 'id' => 'tools',        'label' => __( 'Tools',            $td ), 'icon' => 'tools',      'emoji' => '', 'mode' => 'embed', 'target' => '',                                                                          'pluginId' => 'tools',        'section' => 'bottom' ],
+			[ 'id' => 'skills',       'label' => __( 'Skills',           $td ), 'icon' => 'skills',     'emoji' => '', 'mode' => 'embed', 'target' => '',                                                                          'pluginId' => 'skills',       'section' => 'bottom' ],
+			[ 'id' => 'explore',      'label' => __( 'Marketplace',      $td ), 'icon' => 'explore',    'emoji' => '', 'mode' => 'link',  'target' => admin_url( 'admin.php?page=bizcity-marketplace' ),                           'pluginId' => '',             'section' => 'bottom' ],
+		];
+		return $items;
 	}
 
 	/**
@@ -74,6 +138,13 @@ class BizCity_TwinChat_Admin_Menu {
 		if ( $hook !== 'toplevel_page_' . self::PAGE_SLUG ) {
 			return;
 		}
+
+		// 2026-05-13 — Unify with /twin/: this admin page is now a thin iframe
+		// wrapper around /twin/?plugin=twinchat, so the React/Vite bundle no
+		// longer needs to be loaded inside the WP admin shell. The TwinShell
+		// activity bar (dark, single source of truth) is used instead.
+		$this->bundle_built = true;
+		return;
 
 		$dist_dir = BIZCITY_TWINCHAT_UI_DIR . 'dist/';
 		$dist_url = trailingslashit( BIZCITY_TWINCHAT_URL ) . 'ui/dist/';
@@ -119,23 +190,37 @@ class BizCity_TwinChat_Admin_Menu {
 		}
 
 		// ── CSS in <head> via wp_enqueue_style ──────────────────────────────────
+		$last_css_handle = '';
 		foreach ( $entry_css as $i => $css_url ) {
+			$last_css_handle = 'bizcity-twinchat-' . $i;
 			wp_enqueue_style(
-				'bizcity-twinchat-' . $i,
+				$last_css_handle,
 				$css_url,
 				[],
 				$ver
 			);
 		}
 
-		// ── modulepreload <link> tags in <head> ─────────────────────────────────
+		// Override Tailwind preflight leak: force img/svg/etc back to inline so
+		// WP admin chrome (toolbar icons, plugin lists, notices) is not broken
+		// on TwinChat admin pages. Scoped only to this hook to avoid conflicts.
+		if ( $last_css_handle ) {
+			$inline_reset = 'img,svg,video,canvas,audio,iframe,embed,object{display:inline-block !important;vertical-align:middle}';
+			wp_add_inline_style( $last_css_handle, $inline_reset );
+		}
+
+		// ── modulepreload <link> tags in <head> — only on this page ────────────
+		// Emitting preloads on every admin page causes "preloaded but not used"
+		// warnings (×52 chunks × every page visit). Guard is already applied by
+		// the early-return above, but add_action fires *after* enqueue_scripts so
+		// we confirm we are still on the right hook before printing.
 		foreach ( $chunk_js as $chunk_url ) {
 			// Capture by value so the closure carries the correct URL.
 			$url = $chunk_url;
 			add_action(
 				'admin_head',
 				static function () use ( $url ) {
-					echo '<link rel="modulepreload" href="' . esc_url( $url ) . '" />' . "\n";
+					echo '<link rel="modulepreload" crossorigin href="' . esc_url( $url ) . '" />' . "\n";
 				}
 			);
 		}
@@ -169,10 +254,29 @@ class BizCity_TwinChat_Admin_Menu {
 			'notebookName' => $nb_name,
 			'notebookList' => $nb_list,
 			'pluginUrl'    => BIZCITY_TWINCHAT_URL,
+			'shellUrl'     => esc_url_raw( home_url( '/twin/' ) ),
+			// Activity bar — same items as /twin/ so both surfaces look identical.
+			'activityBar'  => self::build_activity_bar(),
 			// Twin Debug bridge — when ON, FE prints BE traces to console and
 			// turns on its own per-stage tracing. Driven by the same gate as
 			// `BizCity_Twin_Debug::is_enabled()` (constant / option / ?twin_debug=1).
 			'debug'        => class_exists( 'BizCity_Twin_Debug' ) ? BizCity_Twin_Debug::is_enabled() : false,
+			// ── Billing / PayPal (shared with webchat) ────────────────────────────
+			'walletRestUrl'  => esc_url_raw( rest_url( 'bizcity/v1/' ) ),
+			'paypalClientId' => (string) get_site_option( 'bizcity_paypal_client_id', '' ),
+			'fxUsdVnd'       => (int) get_site_option( 'bizcity_wallet_fx_usd_vnd', 25000 ),
+			// R-1API — Webchat AJAX (admin-ajax) bridge for ApiKey/Usage workspaces.
+			// Shares the `bizcity_llm_*` actions registered by webchat module.
+			'ajaxUrl'        => esc_url_raw( admin_url( 'admin-ajax.php' ) ),
+			'webchatNonce'   => wp_create_nonce( 'bizcity_webchat' ),
+			// Admin URL used by FilesWorkspace and other deep-link helpers.
+			'adminUrl'       => esc_url_raw( admin_url( 'admin.php' ) ),
+			'siteUrl'        => esc_url_raw( home_url( '/' ) ),
+			// Wave D — BizDesign embed integration (resolved by helper for consistency).
+			'bzdesignEmbedUrl' => class_exists( 'BizCity_TwinChat_Public_Page' )
+				? BizCity_TwinChat_Public_Page::resolve_bzdesign_embed_url()
+				: ( defined( 'BZDESIGN_URL' ) ? esc_url_raw( BZDESIGN_URL . 'assets/dist/design-embed.js' ) : '' ),
+			'bzdesignRestUrl'  => esc_url_raw( rest_url( 'bzdesign/v1' ) ),
 		] );
 
 		// ── Main entry script in footer (React needs the DOM node first) ─────────
@@ -194,7 +298,7 @@ class BizCity_TwinChat_Admin_Menu {
 		wp_set_script_translations(
 			'bizcity-twinchat-app',
 			'bizcity-twin-ai',
-			BIZCITY_TWIN_AI_PATH . 'languages'
+			BIZCITY_TWIN_AI_DIR . 'languages'
 		);
 
 		// Cache resolved data for render_page().
@@ -319,210 +423,110 @@ class BizCity_TwinChat_Admin_Menu {
 	}
 
 	public function render_page() {
-		$nb_id   = $this->resolved_nb_id;
-		$nb_name = $this->resolved_nb_name;
-		$nb_list = $this->resolved_nb_list;
+		// 2026-05-13 — UNIFY: render the same TwinShell at /twin/?plugin=twinchat
+		// inside an iframe so the WP admin page uses the EXACT same activity bar
+		// (dark themed, React-driven, single source of truth) as /twin/. No more
+		// duplicate ActivityBar.tsx instance on this surface.
 
-		echo '<div class="wrap">';
+		$initial_plugin = isset( $_GET['plugin'] ) ? sanitize_key( wp_unslash( $_GET['plugin'] ) ) : 'twinchat';
+		$shell_url      = home_url( '/twin/' );
+		$shell_url      = add_query_arg(
+			[
+				'plugin'         => $initial_plugin,
+				'bizcity_iframe' => '1',
+			],
+			$shell_url
+		);
 
-		if ( ! $this->bundle_built ) {
-			echo '<div style="padding:24px;color:#b32d2e;">';
-			echo '<strong>UI bundle not built yet.</strong><br/>';
-			echo 'Run <code>cd modules/twinchat/ui &amp;&amp; npm install &amp;&amp; npm run build</code>.';
-			echo '</div>';
+		// Forward useful query args (notebook_id, session, thread, tab, ...) so
+		// deep-links into the admin URL still hit the right plugin context.
+		// Union of params declared across registered shell plugins
+		// (twinchat / crm / doc / brain / studio / ...). Keep this list in sync
+		// with `modules/twinshell/includes/default-plugins.php`.
+		$forward = [
+			'notebook_id', 'notebook', 'session', 'session_id', 'thread', 'tab',
+			'id', 'task_id', 'inbox', 'contact_id', 'doc', 'instance_id',
+		];
+		foreach ( $forward as $k ) {
+			if ( isset( $_GET[ $k ] ) && $_GET[ $k ] !== '' ) {
+				$shell_url = add_query_arg( $k, sanitize_text_field( wp_unslash( $_GET[ $k ] ) ), $shell_url );
+			}
 		}
 
-		echo '<div id="bizcity-twinchat-root"
-			  data-nonce="' . esc_attr( wp_create_nonce( 'wp_rest' ) ) . '"
-			  style="height:calc(100vh - 160px);min-height:600px;border:1px solid #dcdcde;border-radius:6px;background:#fff;"></div>';
+		// Forward _iurl (deeplink path) with strict validation:
+		// must be a same-origin relative path so we never create an open redirect.
+		if ( isset( $_GET['_iurl'] ) && $_GET['_iurl'] !== '' ) {
+			$iurl_raw = wp_unslash( $_GET['_iurl'] );
+			// Accept only paths starting with '/' and containing no protocol (no '://').
+			if (
+				substr( $iurl_raw, 0, 1 ) === '/' &&
+				strpos( $iurl_raw, '//' ) !== 0 &&
+				strpos( $iurl_raw, '://' ) === false
+			) {
+				$shell_url = add_query_arg( '_iurl', sanitize_text_field( $iurl_raw ), $shell_url );
+			}
+		}
+
+		// Full-bleed: hide WP admin chrome padding for this page only.
+		echo '<style>
+			#wpcontent, #wpbody-content { padding-left: 0 !important; }
+			#wpbody-content { padding-bottom: 0 !important; margin: 0 !important; }
+			.wrap { margin: 0 !important; }
+			html.wp-toolbar { padding-top: 32px; }
+			#bizcity-twinchat-shell-frame { display:block; width:100%; height:calc(100vh - 32px); border:0; background:#0f1115; }
+			@media screen and (max-width: 782px) { html.wp-toolbar { padding-top: 46px; } #bizcity-twinchat-shell-frame { height:calc(100vh - 46px); } }
+		</style>';
+
+		echo '<div class="wrap" style="margin:0;padding:0;">';
+		echo '<iframe id="bizcity-twinchat-shell-frame" src="' . esc_url( $shell_url ) . '" title="Twin AI" allow="clipboard-read; clipboard-write; microphone; camera; fullscreen"></iframe>';
 		echo '</div>';
-	}
 
-	/* ── Wave 10d.5c — Diagnostic admin page ───────────────────────────── */
-
-	/**
-	 * Render admin diagnostic page for source extraction_progress.
-	 * Access: /wp-admin/admin.php?page=bizcity-twinchat-diag-sources&nb=2
-	 * Optional: &fix=1 (with WP nonce) to auto-backfill origin_id by title match.
-	 * Bypasses REST cookie/nonce issue — runs inside normal admin context.
-	 */
-	public function render_diag_sources_page() {
-		global $wpdb;
-
-		if ( ! current_user_can( 'manage_options' ) ) {
-			wp_die( 'Access denied.' );
-		}
-
-		$nb     = max( 0, (int) ( $_GET['nb'] ?? 0 ) );
-		$do_fix = isset( $_GET['fix'], $_GET['_wpnonce'] )
-		          && wp_verify_nonce(
-		              sanitize_text_field( wp_unslash( $_GET['_wpnonce'] ) ),
-		              'bizcity_diag_fix_' . $nb
-		          );
-
-		echo '<div class="wrap"><h1>🔍 Diag: Source Extraction Progress</h1>';
-		echo '<form method="get" style="margin-bottom:16px;">';
-		echo '<input type="hidden" name="page" value="bizcity-twinchat-diag-sources" />';
-		echo '<label><strong>Notebook ID:</strong> ';
-		echo '<input type="number" name="nb" value="' . esc_attr( (string) $nb ) . '" min="1" style="width:80px;" /></label>';
-		echo ' <button type="submit" class="button button-primary">Chạy Diagnostic</button></form>';
-
-		if ( $nb <= 0 ) {
-			echo '<p>Nhập notebook ID và nhấn "Chạy Diagnostic".</p></div>';
-			return;
-		}
-
-		$out      = [ '=== DIAG notebook_id=' . $nb . ' ===' ];
-		$mirror_ok = false;
-		$w_rows    = [];
-		$kg_rows   = [];
-
-		// [1] webchat_sources
-		$tbl_w  = $wpdb->prefix . 'bizcity_webchat_sources';
-		$w_rows = (array) ( $wpdb->get_results( $wpdb->prepare(
-			"SELECT id, title, embedding_status FROM {$tbl_w} WHERE project_id=%s ORDER BY id DESC LIMIT 50",
-			(string) $nb
-		), ARRAY_A ) ?: [] );
-		$out[] = "\n[1] webchat_sources ({$tbl_w}): " . count( $w_rows ) . ' rows';
-		foreach ( $w_rows as $r ) {
-			$out[] = '    id=' . $r['id'] . '  emb=' . $r['embedding_status'] . '  title=' . mb_substr( (string) $r['title'], 0, 60 );
-		}
-		$w_ids = array_map( static fn( $r ) => (int) $r['id'], $w_rows );
-
-		// [2] kg_sources
-		if ( ! class_exists( 'BizCity_KG_Database' ) ) {
-			$out[] = "\n[!] BizCity_KG_Database not loaded.";
-		} else {
-			$kg      = BizCity_KG_Database::instance();
-			$tbl_s   = $kg->tbl_sources();
-			$tbl_p   = $kg->tbl_passages();
-			$kg_rows = (array) ( $wpdb->get_results( $wpdb->prepare(
-				"SELECT id, origin_id, origin_kind, title, passage_count FROM {$tbl_s}
-				  WHERE scope_type=%s AND scope_id=%s ORDER BY id DESC LIMIT 50",
-				'notebook', (string) $nb
-			), ARRAY_A ) ?: [] );
-			$out[] = "\n[2] kg_sources ({$tbl_s}): " . count( $kg_rows ) . ' rows';
-			foreach ( $kg_rows as $r ) {
-				$out[] = '    id=' . $r['id'] . '  origin_id=' . $r['origin_id'] . '  kind=' . $r['origin_kind'] . '  passages=' . $r['passage_count'] . '  title=' . mb_substr( (string) $r['title'], 0, 60 );
-			}
-			$kg_ids    = array_map( static fn( $r ) => (int) $r['id'], $kg_rows );
-			$probe_ids = array_values( array_unique( array_merge( $w_ids, $kg_ids ) ) );
-
-			// [3] aggregate
-			if ( $probe_ids ) {
-				$ph  = implode( ',', array_fill( 0, count( $probe_ids ), '%d' ) );
-				$agg = (array) ( $wpdb->get_results( $wpdb->prepare(
-					"SELECT source_id, COUNT(*) AS n,
-						SUM(extraction_status='done') AS done_n,
-						SUM(extraction_status='error') AS error_n
-					   FROM {$tbl_p}
-					  WHERE notebook_id=%d AND source_id IN ({$ph}) GROUP BY source_id",
-					array_merge( [ $nb ], $probe_ids )
-				), ARRAY_A ) ?: [] );
-				$out[] = "\n[3] kg_passages aggregate (probed: " . implode( ',', $probe_ids ) . ')';
-				foreach ( $agg as $a ) {
-					$out[] = '    source_id=' . $a['source_id'] . '  total=' . $a['n'] . '  done=' . $a['done_n'] . '  err=' . $a['error_n'];
-				}
-				if ( ! $agg ) { $out[] = '    (no rows — source_ids NOT in kg_passages)'; }
-			}
-
-			// [4] ALL passages on notebook
-			$any = (array) ( $wpdb->get_results( $wpdb->prepare(
-				"SELECT source_id, COUNT(*) n, SUM(extraction_status='done') d FROM {$tbl_p} WHERE notebook_id=%d GROUP BY source_id ORDER BY n DESC LIMIT 20",
-				$nb
-			), ARRAY_A ) ?: [] );
-			$out[] = "\n[4] kg_passages — ALL source_ids for nb={$nb}:";
-			foreach ( $any as $a ) { $out[] = '    source_id=' . $a['source_id'] . '  total=' . $a['n'] . '  done=' . $a['d']; }
-			if ( ! $any ) { $out[] = '    (none)'; }
-
-			// [5] verdict
-			$out[] = "\n=== VERDICT ===";
-			foreach ( $kg_rows as $r ) {
-				if ( (int) $r['origin_id'] > 0 && in_array( (int) $r['origin_id'], $w_ids, true ) ) { $mirror_ok = true; break; }
-			}
-			$rs_on = (bool) get_option( 'bizcity_kg_unified_read_enabled', false );
-			$out[] = 'kg_sources.origin_id → webchat_sources.id : ' . ( $mirror_ok ? 'OK ✓' : 'MISSING ✗ (this is why % shows 0)' );
-			$out[] = 'bizcity_kg_unified_read_enabled : ' . ( $rs_on ? 'ON (kg_sources path)' : 'OFF (webchat_sources path, Wave 10d.5c patch active)' );
-
-			// [6] backfill if fix requested
-			if ( $do_fix && ! $mirror_ok && $w_rows && $kg_rows ) {
-				$updated = 0;
-				foreach ( $kg_rows as $krow ) {
-					if ( (int) $krow['origin_id'] > 0 ) continue;
-					foreach ( $w_rows as $wr ) {
-						if ( trim( (string) $krow['title'] ) === trim( (string) $wr['title'] ) ) {
-							$wpdb->update( $tbl_s, [ 'origin_id' => (int) $wr['id'] ], [ 'id' => (int) $krow['id'] ] );
-							$updated++;
-							break;
+		// ── Deep-link sync ─────────────────────────────────────────────
+		// /twin/ shell (loaded inside #bizcity-twinchat-shell-frame) posts
+		// `{source:'bizcity-twin-shell',type:'url-change',pluginId,params}`
+		// every time the user navigates. Mirror those params onto THIS
+		// admin page URL so the address bar reflects the current deep-link
+		// (e.g. ?page=bizcity-twinchat&plugin=crm&tab=inbox). Reloading the
+		// admin page then forwards the same params back into the iframe via
+		// the `$forward` whitelist above.
+		$origin = wp_parse_url( $shell_url, PHP_URL_SCHEME ) . '://' . wp_parse_url( $shell_url, PHP_URL_HOST );
+		?>
+		<script>
+		( function () {
+			var EXPECTED_ORIGIN = <?php echo wp_json_encode( $origin ); ?>;
+			var FORWARD_KEYS    = <?php echo wp_json_encode( $forward ); ?>;
+			console.log( '[twinchat-admin][deeplink-sync] listener armed', { origin: EXPECTED_ORIGIN, forward: FORWARD_KEYS } );
+			window.addEventListener( 'message', function ( ev ) {
+				if ( ! ev || ev.origin !== EXPECTED_ORIGIN ) { return; }
+				var d = ev.data;
+				if ( ! d || d.source !== 'bizcity-twin-shell' || d.type !== 'url-change' ) { return; }
+				try {
+					var url = new URL( window.location.href );
+					url.searchParams.set( 'page', 'bizcity-twinchat' );
+					if ( d.pluginId ) { url.searchParams.set( 'plugin', String( d.pluginId ) ); }
+					// Wipe stale forwarded keys, then re-apply from current params.
+					FORWARD_KEYS.forEach( function ( k ) { url.searchParams.delete( k ); } );
+					var p = d.params || {};
+					FORWARD_KEYS.forEach( function ( k ) {
+						if ( Object.prototype.hasOwnProperty.call( p, k ) && p[ k ] !== '' && p[ k ] !== null && p[ k ] !== undefined ) {
+							url.searchParams.set( k, String( p[ k ] ) );
 						}
+					} );
+					// _iurl: deeplink path stored by shell (not in d.params — arrives in d.iurl).
+					// Always clear stale value, then re-apply with security validation.
+					url.searchParams.delete( '_iurl' );
+					if ( typeof d.iurl === 'string' && d.iurl.charAt( 0 ) === '/' &&
+					     d.iurl.indexOf( '//' ) !== 0 && d.iurl.indexOf( '://' ) === -1 ) {
+						url.searchParams.set( '_iurl', d.iurl );
 					}
-				}
-				$out[] = "\n[FIX] Backfilled origin_id for {$updated} kg_sources rows (matched by title).";
-				$out[] = 'Reload Sources panel để xem % cập nhật.';
-			}
-		}
-
-		// [5] kg_source_chunks — what the sweep cron ACTUALLY queries (DIFFERENT table!)
-		if ( class_exists( 'BizCity_KG_Database' ) ) {
-			$tbl_chunks = BizCity_KG_Database::instance()->tbl_source_chunks();
-			$chunks_exist = ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl_chunks ) ) === $tbl_chunks );
-			if ( $chunks_exist ) {
-				$chunk_agg = (array) ( $wpdb->get_results( $wpdb->prepare(
-					"SELECT source_id, extraction_status, COUNT(*) AS n
-					   FROM {$tbl_chunks}
-					  WHERE notebook_id = %d
-					  GROUP BY source_id, extraction_status
-					  ORDER BY source_id, extraction_status",
-					$nb
-				), ARRAY_A ) ?: [] );
-				$out[] = "\n[5] kg_source_chunks ({$tbl_chunks}) — what sweep cron sees:";
-				if ( $chunk_agg ) {
-					$by_src = [];
-					foreach ( $chunk_agg as $c ) {
-						$sid = $c['source_id'] ?? 'NULL';
-						$by_src[ $sid ][ $c['extraction_status'] ] = (int) $c['n'];
-					}
-					foreach ( $by_src as $sid => $statuses ) {
-						$total   = array_sum( $statuses );
-						$pending = $statuses['pending'] ?? 0;
-						$done    = $statuses['done']    ?? 0;
-						$error   = $statuses['error']   ?? 0;
-						$flag    = $pending > 0 ? ' ← PENDING (sweep will re-enqueue!)' : '';
-						$out[]   = "    source_id={$sid}  total={$total}  pending={$pending}  done={$done}  err={$error}{$flag}";
-					}
-				} else {
-					$out[] = '    (no rows for this notebook_id — sweep has nothing to re-enqueue ✓)';
-				}
-				// Sweep candidate count (mirrors sweep cron query)
-				$sweep_count = (int) $wpdb->get_var( $wpdb->prepare(
-					"SELECT COUNT(DISTINCT source_id) FROM {$tbl_chunks}
-					  WHERE extraction_status = 'pending'
-					    AND notebook_id = %d
-					    AND source_id IS NOT NULL AND source_id > 0
-					    AND created_at < UTC_TIMESTAMP() - INTERVAL 5 MINUTE",
-					$nb
-				) );
-				$out[] = "    → Sweep candidate source_ids (pending > 5min): {$sweep_count}";
-			} else {
-				$out[] = "\n[5] kg_source_chunks: table does not exist (sweep cron inactive)";
-			}
-		}
-
-		echo '<pre style="background:#1e1e1e;color:#d4d4d4;padding:20px;border-radius:8px;overflow:auto;max-height:620px;font-size:13px;line-height:1.6;">';
-		echo esc_html( implode( "\n", $out ) );
-		echo '</pre>';
-
-		if ( ! $mirror_ok && $w_rows && $kg_rows ) {
-			$fix_url = wp_nonce_url(
-				admin_url( 'admin.php?page=bizcity-twinchat-diag-sources&nb=' . $nb . '&fix=1' ),
-				'bizcity_diag_fix_' . $nb
-			);
-			echo '<p><a href="' . esc_url( $fix_url ) . '" class="button button-secondary">🔧 Auto-fix: backfill origin_id by title</a>';
-			echo ' &nbsp; <em style="color:#888;font-size:12px;">Sau khi fix: reload Sources panel trong TwinChat.</em></p>';
-		} elseif ( $mirror_ok ) {
-			echo '<p style="color:#0a5;font-weight:600;">✓ origin_id OK — code patch đã active, reload Sources panel sẽ thấy đúng %.</p>';
-		}
-
-		echo '</div>';
+					var nextUrl = url.pathname + url.search;
+					console.log( '[twinchat-admin][deeplink-sync] <- shell', { pluginId: d.pluginId, params: p, iurl: d.iurl || '', nextUrl: nextUrl } );
+					window.history.replaceState( null, '', nextUrl );
+				} catch ( e ) { console.warn( '[twinchat-admin][deeplink-sync] err', e ); }
+			}, false );
+		} )();
+		</script>
+		<?php
 	}
+
 }

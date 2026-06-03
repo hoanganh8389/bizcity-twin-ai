@@ -8,9 +8,88 @@
  */
 
 if (!defined('ABSPATH')) exit;
-// file content
+/**
+ * TASK-UNIFY Phase 3 gate.
+ * When BizCity_Scheduler_Manager is available, generate content via AI and
+ * create a web_post scheduler event (instead of publishing immediately).
+ * Falls through to twf_handle_post_request() when scheduler is not loaded.
+ */
 function biz_create_content($message, $chat_id, $title='', $image_url='', $arr= array()) {
+    if ( class_exists( 'BizCity_Scheduler_Manager' ) ) {
+        return _biz_create_content_via_scheduler( $message, $chat_id, $title, $image_url, $arr );
+    }
     return twf_handle_post_request($message, $chat_id, $title, $image_url, $arr);
+}
+
+/**
+ * New path: AI-generate web_post content → create scheduler event.
+ * Mirrors the AI gen logic in twf_handle_post_request() but stores result
+ * as a web_post event row instead of calling wp_insert_post() directly.
+ * @internal
+ */
+function _biz_create_content_via_scheduler( array $message, string $chat_id, string $title = '', string $image_url = '', array $arr = [] ): int {
+    $info_title   = $arr['info']['title']   ?? $title;
+    $info_content = $arr['info']['content'] ?? ( $message['caption'] ?? $message['text'] ?? '' );
+
+    // Build the same blog-gen prompt as the legacy function.
+    $prompt = 'Hãy viết một bài blog hoàn chỉnh bằng tiếng Việt, dạng văn xuôi, ít nhất 700 từ, chia đoạn rõ ràng theo ý tưởng dưới đây, văn phong nhẹ nhàng và chuyên nghiệp, thân thiện người đọc. 
+
+	- Không sử dụng các ký hiệu markdown như ##, ###, *, -, — cho list, heading, tiêu đề phụ hoặc các phần bôi đậm/in nghiêng.
+	- Thay vào đó, sử dụng các thẻ HTML như <b>, <strong>, <em>, <mark> để bôi đậm, in nghiêng, HIGHLIGHT các thông tin cần nhấn mạnh và giúp bài viết đẹp, hiện đại, dễ đọc trên web.
+	- Heading, tiêu đề phụ hãy đặt bằng các thẻ <b> hoặc <strong> và xuống dòng rõ ràng, KHÔNG dùng ký hiệu đầu dòng.
+	- Cuối bài nên có lời kêu gọi hành động ("call to action").
+	- Tuyệt đối không chèn bất cứ đoạn mã code, không có chú thích thêm ngoài bài viết, không dùng markdown.
+	
+	Hãy trả về đúng JSON như sau:
+	{"title": "Tiêu đề bài viết ngắn gọn, sáng tạo", "content": "Nội dung bài viết (có thể sử dụng HTML)"}
+	
+	Nội dung/yêu cầu chủ đề: ' . $info_title . ': ' . $info_content;
+
+    $fields = function_exists( 'ai_generate_content' )
+        ? ai_generate_content( [ 'text' => $prompt ] )
+        : ( function_exists( 'twf_parse_post_fields_from_ai' ) ? twf_parse_post_fields_from_ai( $prompt ) : [] );
+
+    $web_title   = sanitize_text_field( $fields['title']   ?? $info_title );
+    $web_content = wp_kses_post( $fields['content'] ?? $info_content );
+
+    // Handle image: sideload Telegram photo if present, else keep passed URL.
+    if ( isset( $message['photo'] ) && function_exists( 'twf_telegram_get_file_url' ) ) {
+        $photo     = end( $message['photo'] );
+        $file_id   = $photo['file_id'];
+        $tg_url    = twf_telegram_get_file_url( $file_id );
+        if ( $tg_url ) $image_url = $tg_url;
+    }
+
+    if ( empty( $image_url ) && function_exists( 'twf_generate_image_url' ) ) {
+        $image_url = twf_generate_image_url(
+            $web_title . ' — cinematic, soft natural light, clean background, ultra-detailed'
+        );
+    }
+
+    $event_id = BizCity_Scheduler_Manager::instance()->create_event( [
+        'user_id'    => get_current_user_id(),
+        'title'      => $web_title,
+        'start_at'   => current_time( 'mysql' ),
+        'end_at'     => null,
+        'status'     => 'active',
+        'event_type' => 'web_post',
+        'source'     => 'legacy_content_wrapper',
+        'metadata'   => [
+            'web_title'          => $web_title,
+            'web_content'        => $web_content,
+            'web_status'         => 'publish',
+            'web_image_url'      => esc_url_raw( $image_url ),
+            'web_publish_status' => 'pending',
+        ],
+    ] );
+
+    if ( function_exists( 'twf_telegram_send_message' ) ) {
+        twf_telegram_send_message( $chat_id, "✅ Bài đã lên lịch đăng: {$web_title}" );
+    } elseif ( function_exists( 'bizcity_channel_send' ) ) {
+        bizcity_channel_send( $chat_id, "✅ Bài đã lên lịch đăng: {$web_title}" );
+    }
+
+    return $event_id;
 }
 
 // Xử lý hình ảnh upload

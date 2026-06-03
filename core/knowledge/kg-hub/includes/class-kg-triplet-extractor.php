@@ -20,6 +20,13 @@ class BizCity_KG_Triplet_Extractor {
 	const MODEL_OPTION = 'bizcity_kg_extract_model';
 	const DEFAULT_MODEL = 'gpt-4o-mini';
 
+	/**
+	 * Passages shorter than this (in chars) are enriched with adjacent context
+	 * before being sent to the LLM.  ~300 chars ≈ 75 tokens — too short for
+	 * reliable triplet extraction in Vietnamese short-section documents.
+	 */
+	const MIN_EXTRACT_CHARS = 300;
+
 	private static $instance = null;
 
 	public static function instance() {
@@ -39,12 +46,17 @@ class BizCity_KG_Triplet_Extractor {
 		$db = BizCity_KG_Database::instance();
 
 		$row = $wpdb->get_row( $wpdb->prepare(
-			"SELECT id, notebook_id, content, content_hash, extraction_status
+			"SELECT id, notebook_id, content, content_hash, extraction_status,
+			        storage_ver, file_shard, file_offset, file_length
 			 FROM {$db->tbl_passages()} WHERE id = %d",
 			(int) $passage_id
 		), ARRAY_A );
 		if ( ! $row ) {
 			return new WP_Error( 'not_found', 'Passage not found' );
+		}
+		// Filestore-first read — inline `content` is NULL once Wave F4 cleaned.
+		if ( class_exists( 'BizCity_KG_Content_Router' ) ) {
+			$row['content'] = BizCity_KG_Content_Router::instance()->passage_body( $row );
 		}
 		if ( $row['extraction_status'] === 'done' ) {
 			return 0;
@@ -72,7 +84,7 @@ class BizCity_KG_Triplet_Extractor {
 
 		$wpdb->update( $db->tbl_passages(), [ 'extraction_status' => 'processing' ], [ 'id' => (int) $passage_id ] );
 
-			$result = $this->call_llm( $row['content'] );
+			$result = $this->call_llm( $this->build_extract_context( $row ) );
 			if ( is_wp_error( $result ) ) {
 				// PHASE-0.13 Wave 10d — transient throttling (429/5xx) must NOT
 				// burn the passage as a hard error. Flip it back to `pending`
@@ -608,5 +620,72 @@ class BizCity_KG_Triplet_Extractor {
 			}
 		}
 		return $salvaged;
+	}
+
+	/**
+	 * Build the text to send to the LLM for a passage.
+	 *
+	 * When the passage is shorter than MIN_EXTRACT_CHARS (typically a heading-section
+	 * stub of 90-150 chars), we fetch up to 2 adjacent passages from the same source
+	 * and concatenate them into a single context window (≤ 1500 chars).  This gives
+	 * the LLM enough factual density to extract Subject→Predicate→Object triplets.
+	 *
+	 * Triplets are still attributed to the original passage_id.  Adjacent passages
+	 * will receive their own LLM calls later (with their own context windows), so
+	 * some triplets may be extracted twice — upsert_entity/upsert_relation dedup
+	 * at the graph level handles the overlap cleanly.
+	 *
+	 * @param array $row  Row from tbl_passages (id, notebook_id, source_id, content).
+	 * @return string     Text to hand to call_llm().
+	 */
+	private function build_extract_context( array $row ): string {
+		$content = (string) $row['content'];
+		if ( mb_strlen( $content ) >= self::MIN_EXTRACT_CHARS ) {
+			return $content;
+		}
+
+		global $wpdb;
+		$db  = BizCity_KG_Database::instance();
+		$pid = (int) $row['id'];
+		$nb  = (int) $row['notebook_id'];
+		$sid = isset( $row['source_id'] ) ? (int) $row['source_id'] : 0;
+
+		$source_clause = $sid > 0 ? $wpdb->prepare( ' AND source_id = %d', $sid ) : '';
+
+		// R-LEARN §3 — neighbour passages may live in MD shards when
+		// storage_ver=2, so we SELECT the routing columns and hydrate via
+		// BizCity_KG_Content_Router. Reading `content` directly would return
+		// '' on filestore rows once Wave F4 cutover lands.
+		$select_cols = 'id, notebook_id, content, storage_ver, file_shard, file_offset, file_length';
+
+		// 2 passages before (reverse order → later we array_reverse to get ASC).
+		$prev_rows = $wpdb->get_results( $wpdb->prepare(
+			"SELECT {$select_cols} FROM {$db->tbl_passages()}
+			 WHERE notebook_id = %d{$source_clause} AND id < %d
+			 ORDER BY id DESC LIMIT 2",
+			$nb, $pid
+		), ARRAY_A ) ?: [];
+
+		// 2 passages after.
+		$next_rows = $wpdb->get_results( $wpdb->prepare(
+			"SELECT {$select_cols} FROM {$db->tbl_passages()}
+			 WHERE notebook_id = %d{$source_clause} AND id > %d
+			 ORDER BY id ASC LIMIT 2",
+			$nb, $pid
+		), ARRAY_A ) ?: [];
+
+		if ( class_exists( 'BizCity_KG_Content_Router' ) ) {
+			BizCity_KG_Content_Router::instance()->hydrate_passages( $prev_rows );
+			BizCity_KG_Content_Router::instance()->hydrate_passages( $next_rows );
+		}
+
+		$prev = array_column( $prev_rows, 'content' );
+		$next = array_column( $next_rows, 'content' );
+
+		$parts  = array_filter( array_merge( array_reverse( $prev ), [ $content ], $next ) );
+		$merged = implode( "\n\n", $parts );
+
+		// Cap to ~1500 chars to stay within the model's useful context budget.
+		return mb_substr( $merged, 0, 1500 );
 	}
 }

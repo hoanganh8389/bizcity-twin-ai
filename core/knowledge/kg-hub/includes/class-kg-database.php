@@ -39,12 +39,44 @@ class BizCity_KG_Database {
 	//                   `kg_sources.scope_type='notebook' + scope_id=<nb>` from legacy
 	//                   `project_id IN ('tc_<nb>','<nb>')` so resolve_sources() can
 	//                   drop the v1 OR-clause without losing pre-existing rows.
-	const SCHEMA_VERSION = '0.6.8';
+	// Bumped 0.21.0  — PHASE-0.21 Wave 1: Guru UUID namespace. Adds nullable
+	//                   `character_uuid CHAR(36)` to kg_source_chunks, kg_entities,
+	//                   kg_relations, kg_sources for instant-attach virtual merge
+	//                   (no row duplication when notebook attaches a guru). Plus
+	//                   bizcity_notebook_character_attachments table linking
+	//                   notebooks ↔ characters by guru_uuid (read-only by default).
+	// Bumped 0.22.0  — PHASE-0.3 §4.9 Wave 2 (Identity Algorithm, 2026-05-08):
+	//                   adds `id_kind`, `canonical_id`, `identity_source`,
+	//                   `identity_score` on kg_entities + new kg_passage_identities
+	//                   table to persist regex-extracted IDs (sku/order/customer/…).
+	//                   Backward-compatible: columns nullable, retrieval still
+	//                   ignores them; tool wrapper + prompt overlay simply prefer
+	//                   the persisted canonical_id over on-the-fly regex when
+	//                   present. Backfill runs via WP-CLI (see class-kg-identity-backfill.php).
+	// Bumped 0.23.0  — PHASE-0-RULE-SKELETON Sprint 0★ (Skeleton-First Rule, 2026-05-11):
+	//                   adds 4 columns to kg_notebooks for the per-notebook
+	//                   reflected skeleton (skeleton_json LONGTEXT, skeleton_version INT,
+	//                   skeleton_built_at DATETIME, skeleton_status VARCHAR(20)).
+	//                   Backward-compatible: nullable, retrieval ignores them. The
+	//                   skeleton is built async by BZKG_Notebook_Skeleton_Service
+	//                   on a debounced cron and consumed via BZKG_Skeleton_Adapter.
+	// Bumped 0.24.0  — PHASE-0.7-LEARN-VECTOR-FILE Wave F0 (2026-05-20):
+	//                   adds gating + offset columns for rolling content→filestore
+	//                   migration on kg_passages/kg_entities/kg_relations.
+	//                     - storage_ver TINYINT (1=inline legacy, 2=filestore)
+	//                     - file_shard INT, file_offset BIGINT, file_length INT
+	//                       (passages only — random-access O(1) into shard .md)
+	//                   Backward-compatible: nullable, default storage_ver=1 so
+	//                   legacy code continues reading from MySQL columns. Wave F1
+	//                   dual-writer flips to 2 only after file flush + sha256 verify.
+	const SCHEMA_VERSION = '0.27.0'; // 2026-05-28: bump to match JSON changelog; triggers create_tables() on blogs still at 0.24.0 (creates bizcity_kg_skeleton_history + perspective cols)
 	const OPTION_VERSION = 'bizcity_kg_db_version';
 
 	private static $instance        = null;
 	/** Per-blog migration cache — multisite cron walks many blogs in one request. */
 	private static $migrated_blogs  = [];
+	/** Per-request attached-guru cache, keyed by notebook_id. */
+	private $attached_guru_cache    = [];
 
 	/**
 	 * Singleton accessor — auto runs migration on every call to be multisite-safe
@@ -96,8 +128,199 @@ class BizCity_KG_Database {
 	public function tbl_sources()             { global $wpdb; return $wpdb->prefix . 'bizcity_kg_sources'; }
 	public function tbl_mentions()            { global $wpdb; return $wpdb->prefix . 'bizcity_kg_mentions'; }
 	public function tbl_xref()                { global $wpdb; return $wpdb->prefix . 'bizcity_kg_xref'; }
-	// Phase 0.6.5 — unified source chunks table (replaces kg_passages, kept as VIEW alias for 1 month).
-	public function tbl_source_chunks()       { global $wpdb; return $wpdb->prefix . 'bizcity_kg_source_chunks'; }
+	// Phase 0.6.5 — unified source chunks table.
+	// HOTFIX 2026-05-06: Phase 0.6.5 RENAME (kg_passages → kg_source_chunks) was rolled back on prod (blog 1258).
+	// Canonical truth on disk is `bizcity_kg_passages`. All Wave 3.x code calls tbl_source_chunks() —
+	// route it to the same table to avoid "Table doesn't exist" silent zeros.
+	// See /memories/repo/bizcity-twin-ai-schema.md.
+	public function tbl_source_chunks()       { global $wpdb; return $wpdb->prefix . 'bizcity_kg_passages'; }
+	// Phase 0.21 — Guru marketplace virtual-attach map (notebook ↔ character).
+	public function tbl_notebook_character_attachments() { global $wpdb; return $wpdb->prefix . 'bizcity_notebook_character_attachments'; }
+
+	// ─── Wave 1.3 helpers — virtual-merge retrieval ────────────────────
+
+	/**
+	 * Return guru_uuid list for all gurus attached to a notebook.
+	 * Used by build_virtual_merge_where() — cached once per request via static map.
+	 *
+	 * @param  int      $notebook_id
+	 * @return string[]
+	 */
+	public function get_attached_guru_uuids( $notebook_id ) {
+		$notebook_id = (int) $notebook_id;
+		if ( ! isset( $this->attached_guru_cache[ $notebook_id ] ) ) {
+			global $wpdb;
+			$this->attached_guru_cache[ $notebook_id ] = $wpdb->get_col( $wpdb->prepare(
+				"SELECT guru_uuid FROM {$this->tbl_notebook_character_attachments()} WHERE notebook_id = %d",
+				$notebook_id
+			) ) ?: [];
+		}
+		return $this->attached_guru_cache[ $notebook_id ];
+	}
+
+	/**
+	 * Bust the per-request attached-guru cache (call after attach/detach writes).
+	 *
+	 * @param int|null $notebook_id Specific notebook to flush, or null = flush all.
+	 */
+	public function flush_attached_guru_cache( $notebook_id = null ) {
+		if ( null === $notebook_id ) {
+			$this->attached_guru_cache = [];
+			return;
+		}
+		unset( $this->attached_guru_cache[ (int) $notebook_id ] );
+	}
+
+	// ─── Phase 0.21 Wave 3.1 — attach/detach guru API ───────────────────
+
+	/**
+	 * Attach a guru (character) to a notebook.
+	 *
+	 * @param  int    $notebook_id
+	 * @param  string $guru_uuid
+	 * @param  array  $args  { source?='self', read_only?=1, attached_by?=current_user, attached_version?='' }
+	 * @return array|WP_Error  { id, notebook_id, guru_uuid, source, read_only, attached_at, attached_by, attached_version }
+	 */
+	public function attach_guru( $notebook_id, $guru_uuid, array $args = [] ) {
+		global $wpdb;
+		$notebook_id = (int) $notebook_id;
+		$guru_uuid   = strtolower( trim( (string) $guru_uuid ) );
+		if ( $notebook_id <= 0 ) {
+			return new WP_Error( 'kg_attach_bad_notebook', 'notebook_id must be > 0' );
+		}
+		if ( ! preg_match( '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/', $guru_uuid ) ) {
+			return new WP_Error( 'kg_attach_bad_uuid', 'guru_uuid must be a UUIDv4' );
+		}
+		// Validate notebook exists.
+		$nb_exists = (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT id FROM {$this->tbl_notebooks()} WHERE id = %d", $notebook_id
+		) );
+		if ( ! $nb_exists ) {
+			return new WP_Error( 'kg_attach_notebook_missing', sprintf( 'notebook %d not found', $notebook_id ) );
+		}
+		// Validate guru exists in characters table.
+		$char_tbl = $wpdb->prefix . 'bizcity_characters';
+		$char_id  = (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT id FROM {$char_tbl} WHERE guru_uuid = %s LIMIT 1", $guru_uuid
+		) );
+		if ( ! $char_id ) {
+			return new WP_Error( 'kg_attach_guru_missing', sprintf( 'No character with guru_uuid %s', $guru_uuid ) );
+		}
+		$source = isset( $args['source'] ) ? sanitize_key( $args['source'] ) : 'self';
+		if ( ! in_array( $source, [ 'marketplace', 'share_link', 'self', 'imported' ], true ) ) {
+			$source = 'self';
+		}
+		$row = [
+			'notebook_id'      => $notebook_id,
+			'guru_uuid'        => $guru_uuid,
+			'attached_at'      => current_time( 'mysql' ),
+			'attached_by'      => isset( $args['attached_by'] ) ? (int) $args['attached_by'] : (int) get_current_user_id(),
+			'source'           => $source,
+			'read_only'        => isset( $args['read_only'] ) ? (int) (bool) $args['read_only'] : 1,
+			'attached_version' => isset( $args['attached_version'] ) ? substr( (string) $args['attached_version'], 0, 20 ) : null,
+		];
+		$tbl = $this->tbl_notebook_character_attachments();
+		// Idempotent — UNIQUE KEY (notebook_id, guru_uuid) prevents dup; on conflict update mutable fields.
+		$existing = $wpdb->get_row( $wpdb->prepare(
+			"SELECT id FROM {$tbl} WHERE notebook_id = %d AND guru_uuid = %s",
+			$notebook_id, $guru_uuid
+		), ARRAY_A );
+		if ( $existing ) {
+			$wpdb->update( $tbl, [
+				'source'           => $row['source'],
+				'read_only'        => $row['read_only'],
+				'attached_version' => $row['attached_version'],
+			], [ 'id' => (int) $existing['id'] ] );
+			$id = (int) $existing['id'];
+		} else {
+			$ok = $wpdb->insert( $tbl, $row );
+			if ( false === $ok ) {
+				return new WP_Error( 'kg_attach_db_error', 'Failed to insert attachment: ' . $wpdb->last_error );
+			}
+			$id = (int) $wpdb->insert_id;
+		}
+		$this->flush_attached_guru_cache( $notebook_id );
+		return array_merge( [ 'id' => $id ], $row );
+	}
+
+	/**
+	 * Detach a guru from a notebook.
+	 *
+	 * @param  int    $notebook_id
+	 * @param  string $guru_uuid
+	 * @return array|WP_Error  { deleted: int }
+	 */
+	public function detach_guru( $notebook_id, $guru_uuid ) {
+		global $wpdb;
+		$notebook_id = (int) $notebook_id;
+		$guru_uuid   = strtolower( trim( (string) $guru_uuid ) );
+		if ( $notebook_id <= 0 || $guru_uuid === '' ) {
+			return new WP_Error( 'kg_detach_bad_args', 'notebook_id + guru_uuid required' );
+		}
+		$deleted = (int) $wpdb->delete(
+			$this->tbl_notebook_character_attachments(),
+			[ 'notebook_id' => $notebook_id, 'guru_uuid' => $guru_uuid ]
+		);
+		$this->flush_attached_guru_cache( $notebook_id );
+		return [ 'deleted' => $deleted ];
+	}
+
+	/**
+	 * List gurus attached to a notebook with character meta (name/slug/version/bin info).
+	 *
+	 * @param  int $notebook_id
+	 * @return array<int, array>
+	 */
+	public function list_attached_gurus( $notebook_id ) {
+		global $wpdb;
+		$notebook_id = (int) $notebook_id;
+		if ( $notebook_id <= 0 ) return [];
+		$tbl  = $this->tbl_notebook_character_attachments();
+		$char = $wpdb->prefix . 'bizcity_characters';
+		$sql = $wpdb->prepare(
+			"SELECT a.id AS attachment_id, a.notebook_id, a.guru_uuid, a.source, a.read_only,
+			        a.attached_at, a.attached_by, a.attached_version,
+			        c.id AS character_id, c.name, c.slug, c.version, c.visibility,
+			        c.bin_path, c.bin_dim, c.bin_count, c.embed_model
+			   FROM {$tbl} a
+			   LEFT JOIN {$char} c ON c.guru_uuid = a.guru_uuid
+			  WHERE a.notebook_id = %d
+			  ORDER BY a.attached_at DESC",
+			$notebook_id
+		);
+		$rows = $wpdb->get_results( $sql, ARRAY_A );
+		return is_array( $rows ) ? $rows : [];
+	}
+
+	/**
+	 * Build SQL WHERE fragment implementing virtual-merge:
+	 *   in-house notebook rows  +  rows from attached-guru namespaces.
+	 *
+	 * Per PHASE-0.21 §2.4:
+	 *   WHERE (notebook_id = ? AND character_uuid IS NULL)
+	 *      OR character_uuid IN (attached_guru_uuids)
+	 *
+	 * The returned string is already fully escaped (via $wpdb->prepare).
+	 * Embed directly inside WHERE (...).
+	 *
+	 * @param  int    $notebook_id
+	 * @param  string $prefix  Optional table-alias with trailing dot, e.g. 'r.'.
+	 * @return string
+	 */
+	public function build_virtual_merge_where( $notebook_id, $prefix = '' ) {
+		global $wpdb;
+		$nb   = $prefix . 'notebook_id';
+		$uuid = $prefix . 'character_uuid';
+		$uuids = $this->get_attached_guru_uuids( (int) $notebook_id );
+		if ( empty( $uuids ) ) {
+			return $wpdb->prepare( "{$nb} = %d AND {$uuid} IS NULL", (int) $notebook_id );
+		}
+		$ph = implode( ',', array_fill( 0, count( $uuids ), '%s' ) );
+		return $wpdb->prepare(
+			"({$nb} = %d AND {$uuid} IS NULL) OR {$uuid} IN ({$ph})",
+			...array_merge( [ (int) $notebook_id ], $uuids )
+		);
+	}
 
 	/**
 	 * Create / upgrade all KG tables.
@@ -353,6 +576,252 @@ class BizCity_KG_Database {
 
 		// 15. Phase 0.6.5 — Wave A: unified sources schema (idempotent).
 		$this->migrate_v065_unified_sources();
+
+		// 16. Phase 0.21 — Wave 1: Guru UUID namespace + attachments (idempotent).
+		$this->migrate_v021_guru_namespace();
+
+		// 17. PHASE-0.3 §4.9 Wave 2 — identity columns + passage_identities (idempotent).
+		$this->migrate_v022_identity_columns();
+
+		// 18. PHASE-0-RULE-SKELETON Sprint 0★ — notebook skeleton columns (idempotent).
+		$this->migrate_v023_skeleton_columns();
+
+		// 19. PHASE-0.7-LEARN-VECTOR-FILE Wave F0 — filestore gating columns (idempotent).
+		$this->migrate_v024_filestore_columns();
+
+		// 20. PHASE-6.6-SKELETON-DOC S3.1 — skeleton history (per-version archive).
+		dbDelta( "CREATE TABLE IF NOT EXISTS {$wpdb->prefix}bizcity_kg_skeleton_history (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			notebook_id BIGINT UNSIGNED NOT NULL,
+			version INT UNSIGNED NOT NULL,
+			skeleton_json LONGTEXT NOT NULL,
+			trigger_reason VARCHAR(32) NOT NULL DEFAULT 'ingest' COMMENT 'ingest|notes_pinned|manual|backfill',
+			llm_model VARCHAR(64) DEFAULT NULL,
+			token_in INT UNSIGNED DEFAULT NULL,
+			token_out INT UNSIGNED DEFAULT NULL,
+			cost_cents INT UNSIGNED DEFAULT NULL,
+			built_at DATETIME NOT NULL,
+			PRIMARY KEY  (id),
+			UNIQUE KEY uk_notebook_version (notebook_id, version),
+			KEY idx_notebook_built (notebook_id, built_at)
+		) {$cs};" );
+	}
+
+	/**
+	 * PHASE-0.7-LEARN-VECTOR-FILE Wave F0 — gating columns for rolling
+	 * content→filestore migration on kg_passages / kg_entities / kg_relations.
+	 *
+	 * Adds (all NULLABLE / DEFAULT, additive only — rollback = DROP COLUMN):
+	 *
+	 *   kg_passages:
+	 *     storage_ver TINYINT UNSIGNED DEFAULT 1   (1=inline, 2=filestore)
+	 *     file_shard  INT UNSIGNED DEFAULT NULL    (shard idx = floor(id/SHARD_SIZE))
+	 *     file_offset BIGINT UNSIGNED DEFAULT NULL (body byte offset inside shard .md)
+	 *     file_length INT UNSIGNED DEFAULT NULL    (body byte length)
+	 *
+	 *   kg_entities:
+	 *     storage_ver TINYINT UNSIGNED DEFAULT 1
+	 *     jsonl_line  INT UNSIGNED DEFAULT NULL    (0-based line idx in entities.jsonl)
+	 *
+	 *   kg_relations:
+	 *     storage_ver TINYINT UNSIGNED DEFAULT 1
+	 *     jsonl_line  INT UNSIGNED DEFAULT NULL    (0-based line idx in relations.jsonl)
+	 *
+	 * DEFAULT storage_ver=1 is intentional — existing rows stay readable from
+	 * MySQL columns until Wave F2 backfill flips them to 2 atomically.
+	 *
+	 * Idempotent: suppress Duplicate-column errors (multisite shard re-migrate).
+	 *
+	 * @since 0.24.0 (2026-05-20)
+	 * @link  PHASE-0.7-LEARN-VECTOR-FILE.md §1.4 §3.1
+	 */
+	private function migrate_v024_filestore_columns() {
+		global $wpdb;
+
+		$add_col = function ( $table, $column, $ddl ) use ( $wpdb ) {
+			$prev = $wpdb->suppress_errors( true );
+			$wpdb->query( "ALTER TABLE `{$table}` ADD COLUMN {$ddl}" );
+			$err  = $wpdb->last_error;
+			$wpdb->suppress_errors( $prev );
+			if ( $err && false === strpos( $err, 'Duplicate column' ) ) {
+				error_log( "[KG DB 0.24] ALTER {$table} ADD COLUMN {$column}: {$err}" );
+			}
+		};
+		$add_index = function ( $table, $name, $cols ) use ( $wpdb ) {
+			$prev = $wpdb->suppress_errors( true );
+			$wpdb->query( "ALTER TABLE `{$table}` ADD KEY {$name} ({$cols})" );
+			$err  = $wpdb->last_error;
+			$wpdb->suppress_errors( $prev );
+			if ( $err && false === strpos( $err, 'Duplicate key name' ) ) {
+				error_log( "[KG DB 0.24] ALTER {$table} ADD KEY {$name}: {$err}" );
+			}
+		};
+
+		// ── A. Passages — gate + offset map. ─────────────────────────────
+		// tbl_passages() is canonically kg_passages (HOTFIX 2026-05-06) — BASE
+		// TABLE on most blogs. On blogs where Phase 0.6.5 ran AND was kept (rare),
+		// it may be a VIEW; ALTER VIEW fails → suppress handles it.
+		$p = $this->tbl_passages();
+		$add_col( $p, 'storage_ver',
+			"storage_ver TINYINT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'P0.7-LVF: 1=inline,2=filestore'" );
+		$add_col( $p, 'file_shard',
+			"file_shard INT UNSIGNED DEFAULT NULL COMMENT 'P0.7-LVF: passages/{shard}.md index'" );
+		$add_col( $p, 'file_offset',
+			"file_offset BIGINT UNSIGNED DEFAULT NULL COMMENT 'P0.7-LVF: body byte offset in shard'" );
+		$add_col( $p, 'file_length',
+			"file_length INT UNSIGNED DEFAULT NULL COMMENT 'P0.7-LVF: body byte length'" );
+		// Compound index for the backfill cron: WHERE storage_ver=1 LIMIT 500.
+		$add_index( $p, 'idx_storage_ver', 'storage_ver, id' );
+
+		// ── B. Entities — gate + jsonl line index. ───────────────────────
+		$e = $this->tbl_entities();
+		$add_col( $e, 'storage_ver',
+			"storage_ver TINYINT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'P0.7-LVF: 1=inline,2=filestore'" );
+		$add_col( $e, 'jsonl_line',
+			"jsonl_line INT UNSIGNED DEFAULT NULL COMMENT 'P0.7-LVF: 0-based line in entities.jsonl'" );
+		$add_index( $e, 'idx_storage_ver', 'storage_ver, id' );
+
+		// ── C. Relations — gate + jsonl line index. ──────────────────────
+		$r = $this->tbl_relations();
+		$add_col( $r, 'storage_ver',
+			"storage_ver TINYINT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'P0.7-LVF: 1=inline,2=filestore'" );
+		$add_col( $r, 'jsonl_line',
+			"jsonl_line INT UNSIGNED DEFAULT NULL COMMENT 'P0.7-LVF: 0-based line in relations.jsonl'" );
+		$add_index( $r, 'idx_storage_ver', 'storage_ver, id' );
+	}
+
+	/**
+	 * PHASE-0-RULE-SKELETON Sprint 0★ — add 4 nullable columns to kg_notebooks
+	 * so the reflection pipeline can persist a per-notebook skeleton + version.
+	 *
+	 * Idempotent (suppress + ignore Duplicate column).
+	 *
+	 * @since 2026-05-11
+	 */
+	private function migrate_v023_skeleton_columns() {
+		global $wpdb;
+
+		$add = function( $table, $column, $ddl ) use ( $wpdb ) {
+			$prev = $wpdb->suppress_errors( true );
+			$wpdb->query( "ALTER TABLE `{$table}` ADD COLUMN {$ddl}" );
+			$err  = $wpdb->last_error;
+			$wpdb->suppress_errors( $prev );
+			if ( $err && false === strpos( $err, 'Duplicate column' ) ) {
+				error_log( "[KG DB] ALTER {$table} ADD COLUMN {$column}: {$err}" );
+			}
+		};
+
+		$nb = $this->tbl_notebooks();
+
+		// Reflected skeleton JSON — see PHASE-0-RULE-SKELETON §13 for shape.
+		$add( $nb, 'skeleton_json',
+			"skeleton_json LONGTEXT NULL COMMENT 'Reflected notebook skeleton JSON (nucleus, skeleton[], key_points, entities, meta)'" );
+
+		// Monotonic counter — bumped each successful rebuild. Used by
+		// is_artifact_stale() so consumers can detect when their cached artifact
+		// was generated against an older skeleton.
+		$add( $nb, 'skeleton_version',
+			"skeleton_version INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Monotonic skeleton revision counter'" );
+
+		$add( $nb, 'skeleton_built_at',
+			"skeleton_built_at DATETIME NULL COMMENT 'When the current skeleton_json was persisted'" );
+
+		// Lifecycle status: pending | building | ready | stale | failed
+		$add( $nb, 'skeleton_status',
+			"skeleton_status VARCHAR(20) NOT NULL DEFAULT '' COMMENT 'Skeleton lifecycle: pending|building|ready|stale|failed'" );
+
+		// Index for selector dropdown queries ("notebooks with ready skeleton").
+		{
+			$prev = $wpdb->suppress_errors( true );
+			$wpdb->query( "ALTER TABLE `{$nb}` ADD KEY idx_nb_skeleton_status (skeleton_status)" );
+			$wpdb->suppress_errors( $prev );
+		}
+	}
+
+	/**
+	 * Per-blog table name for the identity cache populated by
+	 * BizCity_KG_Identity_Extractor (one row per (passage_id, id_kind, canonical_id)).
+	 */
+	public function tbl_passage_identities() { global $wpdb; return $wpdb->prefix . 'bizcity_kg_passage_identities'; }
+
+	/**
+	 * PHASE-0.3 §4.9 Wave 2 — Identity Algorithm.
+	 *
+	 * Adds 4 nullable columns to kg_entities so a regex-resolved identity
+	 * (e.g. {id_kind:'sku', canonical_id:'FS 369I'}) can be persisted alongside
+	 * the existing fuzzy `name_normalized` UNIQUE key, AND creates a per-passage
+	 * cache so the tool wrapper does not have to re-run regex on every query.
+	 *
+	 * Why columns NULLABLE + non-unique key (not generated UNIQUE identity_key):
+	 *   - One canonical_id can legitimately appear in multiple entity rows during
+	 *     transition (alias entities, mis-extracted variants).
+	 *   - Hard UNIQUE would BREAK existing INSERTs from triplet extractor on first
+	 *     boot before backfill completes. Nullable = additive, zero-risk.
+	 *   - Promotion to UNIQUE is a future, gated migration after backfill is verified.
+	 *
+	 * Idempotent. Safe to call on every boot.
+	 *
+	 * @since 0.22.0 (2026-05-08)
+	 */
+	private function migrate_v022_identity_columns() {
+		global $wpdb;
+		$cs = $wpdb->get_charset_collate();
+
+		$add_col = function ( $table, $column, $ddl ) use ( $wpdb ) {
+			$prev = $wpdb->suppress_errors( true );
+			$wpdb->query( "ALTER TABLE `{$table}` ADD COLUMN {$ddl}" );
+			$err  = $wpdb->last_error;
+			$wpdb->suppress_errors( $prev );
+			if ( $err && false === strpos( $err, 'Duplicate column' ) ) {
+				error_log( "[KG DB 0.22] ALTER {$table} ADD COLUMN {$column}: {$err}" );
+			}
+		};
+		$add_index = function ( $table, $name, $cols ) use ( $wpdb ) {
+			$prev = $wpdb->suppress_errors( true );
+			$wpdb->query( "ALTER TABLE `{$table}` ADD KEY {$name} ({$cols})" );
+			$err  = $wpdb->last_error;
+			$wpdb->suppress_errors( $prev );
+			if ( $err && false === strpos( $err, 'Duplicate key name' ) ) {
+				error_log( "[KG DB 0.22] ALTER {$table} ADD KEY {$name}: {$err}" );
+			}
+		};
+
+		// ── A. Identity columns on kg_entities. ──────────────────────────
+		$add_col( $this->tbl_entities(), 'id_kind',
+			"id_kind VARCHAR(32) DEFAULT NULL COMMENT 'PHASE-0.3: sku|order|invoice|contract|customer|employee|version|endpoint|campaign|location|tx'" );
+		$add_col( $this->tbl_entities(), 'canonical_id',
+			"canonical_id VARCHAR(190) DEFAULT NULL COMMENT 'PHASE-0.3: case-preserving canonical form, e.g. FS 369I'" );
+		$add_col( $this->tbl_entities(), 'identity_source',
+			"identity_source VARCHAR(20) NOT NULL DEFAULT 'none' COMMENT 'none|auto|user_confirmed|imported'" );
+		$add_col( $this->tbl_entities(), 'identity_score',
+			"identity_score DECIMAL(3,2) DEFAULT NULL COMMENT 'extractor confidence 0.00-1.00'" );
+
+		// Lookup index — non-unique on purpose (see method docblock).
+		// Use prefix(64) on canonical_id to stay under 767-byte InnoDB index limit
+		// when combined with notebook_id BIGINT.
+		$add_index( $this->tbl_entities(), 'idx_identity', 'notebook_id, id_kind, canonical_id(64)' );
+
+		// ── B. New table: per-passage identity cache. ────────────────────
+		// Populated by the backfill CLI and the auto-tag hook in the tool wrapper
+		// hot path. Read by `class-tool-search-kg.php` to skip on-the-fly regex.
+		dbDelta( "CREATE TABLE IF NOT EXISTS {$this->tbl_passage_identities()} (
+			id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			passage_id      BIGINT UNSIGNED NOT NULL,
+			notebook_id     BIGINT UNSIGNED NOT NULL,
+			id_kind         VARCHAR(32) NOT NULL,
+			canonical_id    VARCHAR(190) NOT NULL,
+			evidence_span   VARCHAR(255) DEFAULT NULL,
+			occurrences     SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+			score           DECIMAL(3,2) NOT NULL DEFAULT 1.00,
+			source          VARCHAR(20) NOT NULL DEFAULT 'auto' COMMENT 'auto|user_confirmed|imported',
+			extractor_ver   VARCHAR(20) NOT NULL DEFAULT 'regex_v1',
+			created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			PRIMARY KEY  (id),
+			UNIQUE KEY uq_pid_kind_canon (passage_id, id_kind, canonical_id),
+			KEY idx_notebook_canon (notebook_id, id_kind, canonical_id(64)),
+			KEY idx_passage (passage_id)
+		) {$cs};" );
 	}
 
 	/**
@@ -451,6 +920,18 @@ class BizCity_KG_Database {
 		// kg_notebooks — stable UUID for cross-plugin references.
 		$add( $this->tbl_notebooks(), 'uuid', "uuid CHAR(36) NULL AFTER id" );
 
+		// Ensure owner_id exists (may be missing on installations created before
+		// the column was added to the schema). DEFAULT 0 = unowned/system notebook.
+		$add( $this->tbl_notebooks(), 'owner_id',
+			"owner_id BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'WordPress user ID who owns this notebook'" );
+
+		// Ensure KEY exists for owner_id (safe: MySQL ignores duplicate key names).
+		{
+			$prev = $wpdb->suppress_errors( true );
+			$wpdb->query( "ALTER TABLE `{$this->tbl_notebooks()}` ADD KEY idx_nb_owner_id (owner_id)" );
+			$wpdb->suppress_errors( $prev );
+		}
+
 		// Vòng 4.5.5e (Rule 8g v2) — Universal artifact federation map.
 		// Replaces per-source `studio_id` + `plugin_name` columns on kg_sources.
 		// Shape: { "bizcity-doc": [ {id, title, edit_url, created_at}, … ],
@@ -548,6 +1029,54 @@ class BizCity_KG_Database {
 		$chunks_tbl   = $this->tbl_source_chunks();
 		$passages_tbl = $this->tbl_passages(); // physical name = bizcity_kg_passages
 
+		// HOTFIX 2026-05-08 — Self-healing for blogs corrupted by the
+		// pre-HOTFIX run of this migration.
+		//
+		// Background: HOTFIX 2026-05-06 aliased tbl_source_chunks() == tbl_passages()
+		// (both → bizcity_kg_passages). Blogs that successfully ran v0.6.5 BEFORE
+		// that hotfix have their data in physical `bizcity_kg_source_chunks` and
+		// `bizcity_kg_passages` as a VIEW over it. The original A2/A3 logic below
+		// — written when the two helpers returned distinct names — would on those
+		// blogs DROP VIEW kg_passages then CREATE VIEW kg_passages AS SELECT FROM
+		// kg_passages (self-recursive), nuking the only handle to the data and
+		// flooding error.log every request.
+		//
+		// Heal once: if the helpers now collide AND the canonical name is missing
+		// AND a stranded `bizcity_kg_source_chunks` exists with data, rename it
+		// back to the canonical name so subsequent ALTERs target a real BASE TABLE.
+		if ( $chunks_tbl === $passages_tbl ) {
+			$stranded = $wpdb->prefix . 'bizcity_kg_source_chunks';
+			$canonical_exists = ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $passages_tbl ) ) === $passages_tbl );
+			$stranded_exists  = ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $stranded ) ) === $stranded );
+			if ( ! $canonical_exists && $stranded_exists ) {
+				$prev = $wpdb->suppress_errors( true );
+				$wpdb->query( "RENAME TABLE `{$stranded}` TO `{$passages_tbl}`" );
+				$err = $wpdb->last_error;
+				$wpdb->suppress_errors( $prev );
+				if ( $err ) {
+					error_log( "[KG DB heal-2026-05-08] RENAME {$stranded} → {$passages_tbl}: {$err}" );
+				} else {
+					error_log( "[KG DB heal-2026-05-08] Restored {$passages_tbl} from stranded {$stranded}" );
+				}
+			} elseif ( $canonical_exists && $stranded_exists ) {
+				// Both exist (rare): canonical may be a VIEW pointing at stranded.
+				// Drop the VIEW first then RENAME — preserves base-table data.
+				$ttype = $wpdb->get_var( "SELECT TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '{$passages_tbl}' LIMIT 1" );
+				if ( $ttype === 'VIEW' ) {
+					$prev = $wpdb->suppress_errors( true );
+					$wpdb->query( "DROP VIEW IF EXISTS `{$passages_tbl}`" );
+					$wpdb->query( "RENAME TABLE `{$stranded}` TO `{$passages_tbl}`" );
+					$err = $wpdb->last_error;
+					$wpdb->suppress_errors( $prev );
+					if ( $err ) {
+						error_log( "[KG DB heal-2026-05-08] DROP VIEW + RENAME for {$passages_tbl}: {$err}" );
+					} else {
+						error_log( "[KG DB heal-2026-05-08] Replaced VIEW {$passages_tbl} with renamed BASE TABLE" );
+					}
+				}
+			}
+		}
+
 		// ── A1. ALTER kg_sources — add unified columns (idempotent). ──────
 		//
 		// Bug fix 2026-04-28: INFORMATION_SCHEMA.COLUMNS/STATISTICS queries are
@@ -627,7 +1156,9 @@ class BizCity_KG_Database {
 		}
 		$chunks_is_table = ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $chunks_tbl ) ) === $chunks_tbl );
 
-		if ( $passages_is_table && ! $chunks_is_table ) {
+		// HOTFIX 2026-05-08 — When helpers collide (post-2026-05-06 alias), the
+		// RENAME below would be `RENAME TABLE x TO x` which MySQL rejects. Skip.
+		if ( $chunks_tbl !== $passages_tbl && $passages_is_table && ! $chunks_is_table ) {
 			// Rename old kg_passages → kg_source_chunks. Preserves all data, FKs, embeddings.
 			$wpdb->query( "RENAME TABLE `{$passages_tbl}` TO `{$chunks_tbl}`" );
 			$chunks_is_table = true;
@@ -636,10 +1167,13 @@ class BizCity_KG_Database {
 		// dbDelta on canonical schema — creates table or fills missing cols if renamed.
 		// NOTE: dbDelta internally uses DESCRIBE which can lag on replica. We follow up
 		// with explicit suppress+ignore ALTERs for the most critical columns.
+		// HOTFIX 2026-05-14: source_id is DEFAULT NULL (not NOT NULL) because
+		// BizCity_KG_Auto_Promoter inserts chat:user / chat:assistant rows
+		// (origin=chat:*) where there is no parent kg_sources row → source_id=NULL.
 		dbDelta( "CREATE TABLE IF NOT EXISTS {$chunks_tbl} (
 			id                BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 			uuid              CHAR(36) DEFAULT NULL,
-			source_id         BIGINT UNSIGNED NOT NULL,
+			source_id         BIGINT UNSIGNED DEFAULT NULL,
 			blog_id           BIGINT UNSIGNED NOT NULL DEFAULT 1,
 			project_id        VARCHAR(250) NOT NULL DEFAULT '',
 			plugin_name       VARCHAR(64) NOT NULL DEFAULT '',
@@ -699,8 +1233,30 @@ class BizCity_KG_Database {
 			'source_table'      => "source_table VARCHAR(64) NOT NULL DEFAULT ''",
 			'meta'              => "meta LONGTEXT DEFAULT NULL",
 			'metadata'          => "metadata TEXT DEFAULT NULL",
+			// HOTFIX 2026-05-14 — when tbl_source_chunks() === tbl_passages() (i.e.
+			// HOTFIX 2026-05-06 collision: both helpers point at bizcity_kg_passages),
+			// the legacy `chunk_id` column from the original tbl_passages() CREATE
+			// in step 3 may be missing on blogs whose dbDelta DESCRIBE was stale due
+			// to replica lag. Auto_Promoter INSERT then errors with
+			// "Unknown column 'chunk_id'". Force-add via the suppress+ignore loop.
+			'chunk_id'          => "chunk_id BIGINT UNSIGNED DEFAULT NULL COMMENT 'FK → bizcity_knowledge_chunks if promoted'",
+			// source_id is added separately below via MODIFY to drop the NOT NULL constraint
+			// without losing data (add_col only handles ADD, not MODIFY).
 		] as $col => $ddl ) {
 			$add_col( $chunks_tbl, $col, $ddl );
+		}
+
+		// HOTFIX 2026-05-14 — Drop the NOT NULL constraint on source_id so chat
+		// session passages (origin=chat:*, source_id=NULL) stop failing with
+		// "Column 'source_id' cannot be null". Idempotent — MODIFY is safe to re-run.
+		{
+			$prev = $wpdb->suppress_errors( true );
+			$wpdb->query( "ALTER TABLE `{$chunks_tbl}` MODIFY COLUMN source_id BIGINT UNSIGNED DEFAULT NULL" );
+			$err = $wpdb->last_error;
+			$wpdb->suppress_errors( $prev );
+			if ( $err ) {
+				error_log( "[KG DB] ALTER {$chunks_tbl} MODIFY source_id nullable: {$err}" );
+			}
 		}
 		// Add chunk_index uniqueness for idempotent re-import (matches PHASE-0.6.5 spec).
 		$add_index( $chunks_tbl, 'idx_source_chunk', 'source_id, chunk_index' );
@@ -725,10 +1281,16 @@ class BizCity_KG_Database {
 		// ── A3. Re-create kg_passages as a VIEW alias (1-month backward-compat). ──
 		// Only create the view if the physical kg_passages table no longer exists.
 		// SHOW TABLES is master-safe (no INFORMATION_SCHEMA lag).
+		//
+		// HOTFIX 2026-05-08 — When helpers collide ($chunks_tbl === $passages_tbl)
+		// the VIEW would be self-referential: CREATE VIEW kg_passages AS
+		// SELECT … FROM kg_passages — MySQL accepts the parse then errors at
+		// resolution time, AND the prior DROP VIEW would have already nuked the
+		// only handle to the data. Skip the entire VIEW dance in that mode.
 		$passages_still_table = ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $passages_tbl ) ) === $passages_tbl )
 			&& ( $wpdb->get_var( "SELECT TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '{$passages_tbl}' LIMIT 1" ) === 'BASE TABLE' );
 
-		if ( ! $passages_still_table ) {
+		if ( ! $passages_still_table && $chunks_tbl !== $passages_tbl ) {
 			// Drop existing view (if any) before re-creating, in case schema added/removed columns.
 			$wpdb->query( "DROP VIEW IF EXISTS {$passages_tbl}" );
 			// VIEW exposes the columns code-base currently selects from kg_passages.
@@ -763,6 +1325,116 @@ class BizCity_KG_Database {
 	}
 
 	/**
+	 * Phase 0.21 — Wave 1: Guru UUID namespace + virtual-attach map.
+	 *
+	 * Adds nullable `character_uuid CHAR(36)` to the 4 KG core tables so a guru's
+	 * passages/entities/relations/sources can co-exist with user-owned rows in the
+	 * SAME tables. Retrieval queries virtual-merge via:
+	 *
+	 *     WHERE (scope_type='notebook' AND scope_id=:nb)
+	 *        OR character_uuid IN (SELECT guru_uuid FROM ..._attachments WHERE notebook_id=:nb)
+	 *
+	 * This avoids row duplication when a notebook attaches a guru. Read-only is
+	 * enforced at the facade layer (BizCity_KG_Source_Service / Graph_Service),
+	 * NOT by SQL trigger — to keep export/import portability.
+	 *
+	 * Idempotent. Safe to re-run on every boot.
+	 *
+	 * @since 0.21.0 (2026-05-06)
+	 */
+	private function migrate_v021_guru_namespace() {
+		global $wpdb;
+
+		$cs = $wpdb->get_charset_collate();
+
+		// ── A. Closures ─ same suppress+ignore-error pattern as 0.6.5. ────
+		$add_col = function ( $table, $column, $ddl ) use ( $wpdb ) {
+			$prev = $wpdb->suppress_errors( true );
+			$wpdb->query( "ALTER TABLE `{$table}` ADD COLUMN {$ddl}" );
+			$err  = $wpdb->last_error;
+			$wpdb->suppress_errors( $prev );
+			if ( $err && false === strpos( $err, 'Duplicate column' ) ) {
+				error_log( "[KG DB 0.21] ALTER {$table} ADD COLUMN {$column}: {$err}" );
+			}
+		};
+		$add_index = function ( $table, $name, $cols ) use ( $wpdb ) {
+			$prev = $wpdb->suppress_errors( true );
+			$wpdb->query( "ALTER TABLE `{$table}` ADD KEY {$name} ({$cols})" );
+			$err  = $wpdb->last_error;
+			$wpdb->suppress_errors( $prev );
+			if ( $err && false === strpos( $err, 'Duplicate key name' ) ) {
+				error_log( "[KG DB 0.21] ALTER {$table} ADD KEY {$name}: {$err}" );
+			}
+		};
+
+		// ── B. Add character_uuid to 4 core tables. ───────────────────────
+		// kg_source_chunks (replaces kg_passages physically; kg_passages is now a VIEW).
+		$add_col( $this->tbl_source_chunks(), 'character_uuid',
+			"character_uuid CHAR(36) DEFAULT NULL COMMENT 'PHASE-0.21 guru namespace: NULL=user-owned, set=guru-owned/read-only'" );
+		$add_col( $this->tbl_entities(),      'character_uuid',
+			"character_uuid CHAR(36) DEFAULT NULL COMMENT 'PHASE-0.21 guru namespace'" );
+		$add_col( $this->tbl_relations(),     'character_uuid',
+			"character_uuid CHAR(36) DEFAULT NULL COMMENT 'PHASE-0.21 guru namespace'" );
+		$add_col( $this->tbl_sources(),       'character_uuid',
+			"character_uuid CHAR(36) DEFAULT NULL COMMENT 'PHASE-0.21 guru namespace'" );
+
+		$add_index( $this->tbl_source_chunks(), 'idx_character_uuid', 'character_uuid' );
+		$add_index( $this->tbl_entities(),      'idx_character_uuid', 'character_uuid' );
+		$add_index( $this->tbl_relations(),     'idx_character_uuid', 'character_uuid' );
+		$add_index( $this->tbl_sources(),       'idx_character_uuid', 'character_uuid' );
+
+		// ── C. Drop+rebuild VIEW kg_passages so it exposes character_uuid. ──
+		// VIEW was created in migrate_v065_unified_sources() WITHOUT character_uuid;
+		// retriever code that reads via the legacy VIEW must see the new column.
+		$passages_tbl = $this->tbl_passages();
+		$ttype        = $wpdb->get_var( "SELECT TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '{$passages_tbl}' LIMIT 1" );
+		if ( $ttype === 'VIEW' ) {
+			$wpdb->query( "DROP VIEW IF EXISTS {$passages_tbl}" );
+			$chunks_tbl = $this->tbl_source_chunks();
+			$wpdb->query(
+				"CREATE OR REPLACE VIEW {$passages_tbl} AS
+				 SELECT
+					id,
+					notebook_id,
+					source_id,
+					uuid AS chunk_id,
+					origin,
+					content,
+					content_hash,
+					embedding,
+					token_count,
+					extraction_status,
+					extraction_error,
+					metadata,
+					scope_type,
+					scope_id,
+					source_table,
+					character_uuid,
+					created_at,
+					updated_at
+				 FROM {$chunks_tbl}"
+			);
+		}
+
+		// ── D. Create virtual-attach map (notebook ↔ character). ──────────
+		$att_tbl = $this->tbl_notebook_character_attachments();
+		dbDelta( "CREATE TABLE IF NOT EXISTS {$att_tbl} (
+			id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			notebook_id      BIGINT UNSIGNED NOT NULL,
+			guru_uuid        CHAR(36) NOT NULL,
+			attached_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+			attached_by      BIGINT UNSIGNED NOT NULL DEFAULT 0,
+			source           VARCHAR(20) NOT NULL DEFAULT 'self' COMMENT 'marketplace|share_link|self|imported',
+			read_only        TINYINT(1) NOT NULL DEFAULT 1,
+			attached_version VARCHAR(20) DEFAULT NULL,
+			PRIMARY KEY  (id),
+			UNIQUE KEY uq_nb_guru (notebook_id, guru_uuid),
+			KEY idx_guru (guru_uuid),
+			KEY idx_notebook (notebook_id)
+		) {$cs};" );
+	}
+
+	/**
 	 * Drop all KG tables — used by uninstall (NOT by deactivation).
 	 * Multisite-aware: caller is responsible for switch_to_blog if needed.
 	 */
@@ -771,6 +1443,8 @@ class BizCity_KG_Database {
 		// Phase 0.6.5 — drop the kg_passages VIEW first (if present) before its underlying table.
 		$wpdb->query( "DROP VIEW IF EXISTS {$this->tbl_passages()}" );
 		$tables = [
+			$this->tbl_notebook_character_attachments(), // 0.21 — guru attachments.
+			$this->tbl_passage_identities(),            // 0.22 — identity cache.
 			$this->tbl_triplet_queue(),
 			$this->tbl_passage_relations(),
 			$this->tbl_passage_entities(),

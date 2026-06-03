@@ -463,6 +463,8 @@ PROMPT;
                 'last_seen'   => current_time( 'mysql' ),
                 'metadata'    => $data['metadata'],
             ], [ 'id' => $existing->id ] );
+            // Wave 2.8d D5 — dual-write mirror into unified `bizcity_memory`.
+            do_action( 'bizcity_memory_mirror_write', 'episodic', array_merge( $data, [ 'id' => (int) $existing->id, 'importance' => $new_importance ] ), 'update' );
         } else {
             // Insert new
             $wpdb->insert( $this->table, [
@@ -482,6 +484,8 @@ PROMPT;
                 'last_seen'              => current_time( 'mysql' ),
                 'created_at'             => current_time( 'mysql' ),
             ] );
+            // Wave 2.8d D5 — dual-write mirror into unified `bizcity_memory`.
+            do_action( 'bizcity_memory_mirror_write', 'episodic', array_merge( $data, [ 'id' => (int) $wpdb->insert_id ] ), 'insert' );
         }
     }
 

@@ -23,7 +23,7 @@ if ( ! defined( 'BIZCITY_TWIN_AI_VERSION' ) ) {
 }
 
 /* ── Constants ── */
-define( 'BZCC_VERSION', '0.1.28' );
+define( 'BZCC_VERSION', '0.1.38' );
 define( 'BZCC_DIR',     __DIR__ . '/' );
 define( 'BZCC_FILE',    __FILE__ );
 define( 'BZCC_URL',     plugin_dir_url( __FILE__ ) );
@@ -31,6 +31,7 @@ define( 'BZCC_SLUG',    'bizcity-content-creator' );
 
 /* ── Autoload includes ── */
 require_once BZCC_DIR . 'includes/class-installer.php';
+require_once BZCC_DIR . 'includes/class-template-seeder.php';
 
 // Vòng 4.5.5e (Rule 8g v2 — 2026-05-02) — own our TwinShell agent.
 // Registers via add_filter( 'bizcity_register_agent', ... ); resolved lazily
@@ -53,11 +54,23 @@ require_once BZCC_DIR . 'includes/class-smart-input-pipeline.php';
 /* ── Canvas Bridge (Phase 1.20) ── */
 require_once BZCC_DIR . 'includes/class-canvas-bridge.php';
 
+/* ── Persona Tool Provider (Wave F7.0b — Producer plugin per R-MPRT §6.5) ── */
+require_once BZCC_DIR . 'includes/class-persona-provider.php';
+add_filter( 'bizcity_persona_tool_providers', function ( array $providers ): array {
+	if ( class_exists( 'BZCC_Persona_Provider' ) ) {
+		$providers['content-creator'] = new BZCC_Persona_Provider();
+	}
+	return $providers;
+}, 20 );
+
 /* ── Activation hook ── */
 register_activation_hook( __FILE__, [ 'BZCC_Installer', 'activate' ] );
 
 /* ── Self-healing: table creation for marketplace/AJAX activation ── */
 BZCC_Installer::maybe_create_tables();
+
+/* ── Auto-seed shipped JSON templates on version bump (per-site) ── */
+BZCC_Template_Seeder::init();
 
 /* ── Flush rewrite rules once after install (must-load won't trigger activation hook) ── */
 if ( ! get_option( 'bzcc_rewrite_version' ) || get_option( 'bzcc_rewrite_version' ) !== BZCC_VERSION ) {
@@ -86,7 +99,7 @@ add_action( 'bizcity_intent_register_providers', function ( $registry ) {
 	bizcity_intent_register_plugin( $registry, [
 
 		'id'   => 'content-creator',
-		'name' => 'BizCity Content Creator — Tạo nội dung sáng tạo',
+		'name' => 'Brain Factory — Nhà máy não số (tạo nội dung & kế hoạch với AI)',
 
 		/* ── PATTERNS ── */
 		'patterns' => bzcc_get_intent_patterns(),
@@ -135,8 +148,8 @@ add_action( 'bizcity_intent_register_providers', function ( $registry ) {
 add_filter( 'bizcity_agent_plugins', function ( $agents ) {
 	$agents[] = [
 		'slug' => 'content-creator',
-		'name' => 'Content Creator',
-		'icon' => '✨',
+		'name' => 'Brain Factory',
+		'icon' => '🧠',
 		'type' => 'agent',
 		'src'  => admin_url( 'admin.php?page=bizcity-creator' ),
 	];
@@ -149,15 +162,46 @@ add_filter( 'bizcity_agent_plugins', function ( $agents ) {
  *  Each active template becomes a virtual skill row so it appears in
  *  the SlashDialog, is discoverable by Pre-Rules, and feeds tool_refs
  *  to the Smart Classifier.
+ *
+ *  Trigger policy (Phase 1.20.1 — 2026-05-20):
+ *    • Template CRUD (insert/update/delete) → bzcc_invalidate_skill_sync()
+ *      runs the sync immediately on the same request.
+ *    • JSON seeder completion (`bzcc_seed_complete` action) → sync runs once.
+ *    • One-time bootstrap on first admin load after this version is deployed
+ *      (covers sites where transient was never populated).
+ *    • NO global `init` hook — sync no longer fires on every request.
  * ══════════════════════════════════════════════ */
-add_action( 'init', 'bzcc_sync_template_skills', 25 );
+
+// Fire after JSON template seeder imports new templates.
+add_action( 'bzcc_seed_complete', 'bzcc_sync_template_skills' );
+
+// One-time bootstrap: ensure sync runs once on existing sites after deploy.
+add_action( 'admin_init', function () {
+	if ( get_option( 'bzcc_skill_sync_bootstrapped' ) === BZCC_VERSION ) {
+		return;
+	}
+	bzcc_sync_template_skills();
+	update_option( 'bzcc_skill_sync_bootstrapped', BZCC_VERSION, false );
+}, 99 );
 
 /**
- * Invalidate the BZCC skill-sync transient so next init re-syncs.
- * Call this after any template insert / update / delete.
+ * Invalidate the BZCC skill-sync cache and run the sync.
+ *
+ * Called after any template insert / update / delete. The actual DB work is
+ * cheap (fingerprint check skips when nothing changed) but we defer to
+ * `shutdown` so the CRUD request returns to the user without extra latency.
  */
 function bzcc_invalidate_skill_sync(): void {
 	delete_transient( 'bzcc_skill_sync_hash' );
+
+	// Avoid double-scheduling within the same request.
+	static $scheduled = false;
+	if ( $scheduled ) {
+		return;
+	}
+	$scheduled = true;
+
+	add_action( 'shutdown', 'bzcc_sync_template_skills', 99 );
 }
 
 /**

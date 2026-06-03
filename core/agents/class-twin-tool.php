@@ -46,6 +46,16 @@ final class BizCity_TwinShell_Tool {
 	/** @var array JSON Schema for parameters */
 	public $parameters_schema;
 
+	/**
+	 * Tool taxonomy class per R-MPRT §6.5 (Producer / Distributor / Retriever).
+	 * Default 'producer' to keep legacy tools cite-able. Plugins SHOULD set
+	 * 'distributor' for outbound side-effects (FB post, email, PDF export) and
+	 * 'retriever' for fetchers bound to L6 Provider Registry.
+	 *
+	 * @var string  one of 'producer' | 'distributor' | 'retriever'
+	 */
+	public $tool_class = 'producer';
+
 	/** @var callable function(array $args, array $ctx): mixed */
 	private $execute_callback;
 
@@ -81,7 +91,8 @@ final class BizCity_TwinShell_Tool {
 		array $parameters_schema,
 		$execute_callback,
 		$is_enabled_callback = null,
-		$needs_approval = null
+		$needs_approval = null,
+		string $tool_class = 'producer'
 	) {
 		$this->name                    = $name;
 		$this->description             = $description;
@@ -89,6 +100,8 @@ final class BizCity_TwinShell_Tool {
 		$this->execute_callback        = $execute_callback;
 		$this->is_enabled_callback     = $is_enabled_callback;
 		$this->needs_approval_callback = $needs_approval;
+		$allowed = array( 'producer', 'distributor', 'retriever' );
+		$this->tool_class = in_array( $tool_class, $allowed, true ) ? $tool_class : 'producer';
 	}
 
 	/**

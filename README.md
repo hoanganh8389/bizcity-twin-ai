@@ -379,20 +379,20 @@ To enable optional Neo4j projection: set `BIZCITY_KG_NEO4J_URI`, `BIZCITY_KG_NEO
 
 | Phase | Summary | Status |
 |---|---|---|
-| **0.3** [KG-Hub](PHASE-0.3-KGHUB.md) | Graph schema (entity/relation/passage), 4-step Graph RAG | ✅ |
-| **0.6** [Central Brain](PHASE-0.6-KGHUB-CENTRAL-BRAIN.md) | Cortex federation, `kg_xref` axon, citation V2 | ✅ |
+| **0.3** [KG-Hub](docs/roadmaps/PHASE-0.3-KGHUB.md) | Graph schema (entity/relation/passage), 4-step Graph RAG | ✅ |
+| **0.6** [Central Brain](docs/roadmaps/PHASE-0.6-KGHUB-CENTRAL-BRAIN.md) | Cortex federation, `kg_xref` axon, citation V2 | ✅ |
 | **0.8** Multi-Perspective Reasoning | Notebook = lens | ✅ |
 | **0.11** Twin Shell | Universal `/twin/` Activity Bar | ✅ |
 | **0.12** Event Stream Unification | 1 table, 15 event types, 1 SSE channel | ✅ |
 | **0.13** TwinShell Primitives | Standardized UX layer, per-source learning progress | ✅ |
 | **0.15** Agents-as-Tools | OpenAI SDK pattern composition | ✅ |
 | **0.16** Intent Shell Migration | Intent flows through Shell | ✅ |
-| **0.17** [Brain Spine](PHASE-0.17-BRAIN-SPINE.md) | Memory citation, Thinking Timeline, Reasoning Ledger | ✅ |
+| **0.17** [Brain Spine](docs/roadmaps/PHASE-0.17-BRAIN-SPINE.md) | Memory citation, Thinking Timeline, Reasoning Ledger | ✅ |
 | **0.18** Notebook Persona | Character ↔ Notebook binding, 3-layer Guru pipeline | ✅ |
 | **0.18.1** Guru Research (Tavily) | L2 Knowledge Builder | 🔄 Draft |
-| **0.19** [Guru Surface Polish](PHASE-0.19-GURU-INDEX.md) | Observability, UI polish | 🟡 In progress |
+| **0.19** [Guru Surface Polish](docs/roadmaps/PHASE-0.19-GURU-INDEX.md) | Observability, UI polish | 🟡 In progress |
 
-Further reading: [GUIDE-00-COMPANION-TWIN.md](GUIDE-00-COMPANION-TWIN.md) · [ARCHITECTURE.md](ARCHITECTURE.md) · the `PHASE-0-RULE-*.md` files (pinned rules — read these before opening a PR).
+Further reading: [GUIDE-00-COMPANION-TWIN.md](GUIDE-00-COMPANION-TWIN.md) · [ARCHITECTURE.md](docs/roadmaps/ARCHITECTURE.md) · the `PHASE-0-RULE-*.md` files (pinned rules — read these before opening a PR).
 
 ---
 

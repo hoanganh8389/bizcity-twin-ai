@@ -16,13 +16,29 @@
  */
 defined( 'ABSPATH' ) || exit;
 
+// PHASE-0.41 L3 — trait is required for the `use` below; load defensively so
+// this file works even if core/diagnostics bootstrap hasn't fired yet.
+if ( ! trait_exists( 'BizCity_REST_Error' ) ) {
+    $__trait = dirname( __DIR__, 2 ) . '/diagnostics/includes/trait-rest-error.php';
+    if ( file_exists( $__trait ) ) {
+        require_once $__trait;
+    }
+}
+
 final class BizCity_Research_REST {
+
+    // Unified WP_Error builder (status/fix/ctx payload + telemetry recording).
+    use BizCity_REST_Error;
 
     const NS = 'bizcity/research/v1';
 
     private static ?self $instance = null;
     public static function instance(): self {
         return self::$instance ??= new self();
+    }
+
+    protected function rest_error_module(): string {
+        return 'research.rest';
     }
 
     public function register_routes(): void {
@@ -142,22 +158,22 @@ final class BizCity_Research_REST {
 
     public function auth_session( WP_REST_Request $req ) {
         if ( ! is_user_logged_in() ) {
-            return new WP_Error( 'rest_forbidden', __( 'Login required', 'bizcity-twin-ai' ), [ 'status' => 401 ] );
+            return $this->err_unauthorized( 'rest_forbidden', __( 'Login required', 'bizcity-twin-ai' ) );
         }
         $id = (int) $req['id'];
         if ( ! BizCity_Research_Store::user_can_session( $id ) ) {
-            return new WP_Error( 'rest_forbidden', __( 'Forbidden', 'bizcity-twin-ai' ), [ 'status' => 403 ] );
+            return $this->err_forbidden( 'rest_forbidden', __( 'Forbidden', 'bizcity-twin-ai' ), [ 'session_id' => $id ] );
         }
         return true;
     }
 
     public function auth_turn( WP_REST_Request $req ) {
         if ( ! is_user_logged_in() ) {
-            return new WP_Error( 'rest_forbidden', __( 'Login required', 'bizcity-twin-ai' ), [ 'status' => 401 ] );
+            return $this->err_unauthorized( 'rest_forbidden', __( 'Login required', 'bizcity-twin-ai' ) );
         }
         $turn = BizCity_Research_Store::get_turn( (int) $req['id'] );
         if ( ! $turn || ! BizCity_Research_Store::user_can_session( (int) $turn['session_id'] ) ) {
-            return new WP_Error( 'rest_forbidden', __( 'Forbidden', 'bizcity-twin-ai' ), [ 'status' => 403 ] );
+            return $this->err_forbidden( 'rest_forbidden', __( 'Forbidden', 'bizcity-twin-ai' ), [ 'turn_id' => (int) $req['id'] ] );
         }
         return true;
     }
@@ -169,7 +185,7 @@ final class BizCity_Research_REST {
         $scope_id   = max( 0, (int) $req['scope_id'] );
         $user_id    = get_current_user_id();
         if ( ! BizCity_Research_Store::user_can_access( $scope_type, $scope_id, $user_id ) ) {
-            return new WP_Error( 'rest_forbidden', __( 'Forbidden', 'bizcity-twin-ai' ), [ 'status' => 403 ] );
+            return $this->err_forbidden( 'rest_forbidden', __( 'Forbidden', 'bizcity-twin-ai' ), [ 'scope_type' => $scope_type, 'scope_id' => $scope_id ] );
         }
         return rest_ensure_response( [
             'items' => BizCity_Research_Store::list_sessions( $scope_type, $scope_id, $user_id ),
@@ -181,7 +197,32 @@ final class BizCity_Research_REST {
         $scope_id   = max( 0, (int) $req->get_param( 'scope_id' ) );
         $user_id    = get_current_user_id();
         if ( ! BizCity_Research_Store::user_can_access( $scope_type, $scope_id, $user_id ) ) {
-            return new WP_Error( 'rest_forbidden', __( 'Forbidden', 'bizcity-twin-ai' ), [ 'status' => 403 ] );
+            return $this->err_forbidden( 'rest_forbidden', __( 'Forbidden', 'bizcity-twin-ai' ), [ 'scope_type' => $scope_type, 'scope_id' => $scope_id ] );
+        }
+
+        // 2026-05-21 — Pre-flight: TwinSearch / Deep Research là feature gọi
+        // gateway bizcity.vn (Tavily search, LLM synthesise). Nếu site chưa
+        // cấu hình BizCity API key thì mọi tool call sẽ fail dưới tầng sâu
+        // với 403/404 khó hiểu (như ảnh `buudienlangson.btnet.vn`). Chặn
+        // sớm ở đây + trả URL của trang cấu hình để FE render link rõ ràng.
+        $api_key = trim( (string) get_site_option( 'bizcity_llm_api_key', '' ) );
+        if ( $api_key === '' ) {
+            $settings_url = admin_url( 'admin.php?page=bizcity-twinchat-settings' );
+            return new WP_Error(
+                'bizcity_api_key_missing',
+                'Site này chưa cấu hình BizCity API key — Deep Research cần key để gọi Tavily + LLM trên gateway bizcity.vn. Vào WP Admin → Twin → Settings → "BizCity API & Gateway" → bấm "Đăng ký nhanh key BizCity" (hoặc dán key có sẵn), Lưu cấu hình rồi thử lại.',
+                [
+                    'status'       => 412, // Precondition Failed
+                    'settings_url' => $settings_url,
+                    'settings_slug'=> 'bizcity-twinchat-settings',
+                    'how_to_fix'   => [
+                        '1. Mở: ' . $settings_url,
+                        '2. Bấm "Đăng ký nhanh key BizCity" (1-click email admin) HOẶC dán key bizcity sẵn có.',
+                        '3. Bấm "Lưu cấu hình", rồi "Test gateway" để xác nhận HTTP 200.',
+                        '4. Quay lại Twin Chat → bấm lại "Mở Deep Research".',
+                    ],
+                ]
+            );
         }
         $id = BizCity_Research_Store::create_session( [
             'scope_type' => $scope_type,
@@ -191,9 +232,32 @@ final class BizCity_Research_REST {
             'topic_tags' => (array)  $req->get_param( 'topic_tags' ),
             'agent_mode' => (string) ( $req->get_param( 'agent_mode' ) ?: 'deep' ),
         ] );
+
+        // 2026-05-21 — hard-fail when INSERT did not produce an id (DB
+        // migration missing, table corrupted, or column mismatch). Without
+        // this guard the endpoint silently returned `{session_id: null}` and
+        // the FE then POSTed to `/sessions/null/turns/stream` → 404 with
+        // no useful diagnostic. See PHASE-0-RULE-LEARNING-PIPELINE.md §6.
+        if ( $id <= 0 ) {
+            global $wpdb;
+            $tbl = BizCity_Research_DB::table_sessions();
+            $has = (string) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl ) );
+            $msg = $has === $tbl
+                ? sprintf( 'INSERT vào `%s` thất bại (lỗi SQL: %s).', $tbl, $wpdb->last_error ?: 'unknown' )
+                : sprintf( 'Bảng `%s` chưa tồn tại — chạy lại migration (deactivate + activate plugin) trên site này.', $tbl );
+            return new WP_Error( 'research_session_insert_failed', $msg, [ 'status' => 500 ] );
+        }
+
         $session = BizCity_Research_Store::get_session( $id );
+        if ( ! is_array( $session ) || empty( $session['id'] ) ) {
+            return new WP_Error(
+                'research_session_lookup_failed',
+                sprintf( 'Session #%d vừa tạo nhưng đọc lại không được.', $id ),
+                [ 'status' => 500 ]
+            );
+        }
         // Add session_id alias so FE client can read either .id or .session_id
-        $session['session_id'] = $session['id'];
+        $session['session_id'] = (int) $session['id'];
         return rest_ensure_response( $session );
     }
 
@@ -221,7 +285,7 @@ final class BizCity_Research_REST {
         $session    = BizCity_Research_Store::get_session( $session_id );
         $query      = trim( (string) $req->get_param( 'query' ) );
         if ( $query === '' ) {
-            return new WP_Error( 'rest_invalid_param', 'query is required', [ 'status' => 400 ] );
+            return $this->err_validation( 'rest_invalid_param', 'Vui lòng nhập câu hỏi nghiên cứu.', [ 'field' => 'query' ] );
         }
 
         $mode    = (string) ( $req->get_param( 'mode' ) ?: $session['agent_mode'] );
@@ -255,11 +319,11 @@ final class BizCity_Research_REST {
         $session = BizCity_Research_Store::get_session( $session_id );
         $turn    = BizCity_Research_Store::get_turn( $turn_id );
         if ( ! $session || ! $turn || (int) $turn['session_id'] !== $session_id ) {
-            return new WP_Error( 'rest_invalid', 'Invalid session/turn', [ 'status' => 404 ] );
+            return $this->err_not_found( 'rest_invalid', 'Session hoặc turn không tồn tại.', [ 'session_id' => $session_id, 'turn_id' => $turn_id ] );
         }
         // Prevent re-running a turn that has already been processed.
         if ( $turn['status'] !== 'pending' ) {
-            return new WP_Error( 'rest_conflict', 'Turn already processed (status: ' . $turn['status'] . ')', [ 'status' => 409 ] );
+            return $this->err( 'rest_conflict', 'Turn này đã được xử lý (trạng thái: ' . $turn['status'] . ').', 409, [ 'turn_id' => $turn_id, 'turn_status' => $turn['status'] ] );
         }
 
         // Disable any output buffering and prep streaming headers
@@ -306,7 +370,7 @@ final class BizCity_Research_REST {
         $session    = BizCity_Research_Store::get_session( $session_id );
         $query      = trim( (string) $req->get_param( 'query' ) );
         if ( $query === '' ) {
-            return new WP_Error( 'rest_invalid_param', 'query is required', [ 'status' => 400 ] );
+            return $this->err_validation( 'rest_invalid_param', 'Vui lòng nhập câu hỏi nghiên cứu.', [ 'field' => 'query' ] );
         }
         $mode    = (string) ( $req->get_param( 'mode' ) ?: ( $session['agent_mode'] ?? 'deep' ) );
         $turn_id = BizCity_Research_Store::create_turn( $session_id, $query, wp_generate_uuid4() );
@@ -360,11 +424,11 @@ final class BizCity_Research_REST {
         $turn_id = (int) $req['id'];
         $turn    = BizCity_Research_Store::get_turn( $turn_id );
         if ( ! $turn ) {
-            return new WP_Error( 'rest_invalid', 'Turn not found', [ 'status' => 404 ] );
+            return $this->err_not_found( 'rest_invalid', 'Turn không tồn tại.', [ 'turn_id' => (int) $req['id'] ] );
         }
         $urls = (array) $req->get_param( 'urls' );
         if ( empty( $urls ) ) {
-            return new WP_Error( 'rest_invalid_param', 'urls is required', [ 'status' => 400 ] );
+            return $this->err_validation( 'rest_invalid_param', 'Thiếu danh sách URLs cần ingest.', [ 'field' => 'urls' ] );
         }
         $r = BizCity_Research_Ingest_Service::ingest_urls( (int) $turn['session_id'], $turn_id, $urls );
         return rest_ensure_response( $r );
@@ -374,7 +438,7 @@ final class BizCity_Research_REST {
         $scope_type = BizCity_Research_Store::sanitize_scope( (string) $req->get_param( 'scope_type' ) );
         $scope_id   = max( 0, (int) $req->get_param( 'scope_id' ) );
         if ( ! BizCity_Research_Store::user_can_access( $scope_type, $scope_id ) ) {
-            return new WP_Error( 'rest_forbidden', 'Forbidden', [ 'status' => 403 ] );
+            return $this->err_forbidden( 'rest_forbidden', __( 'Forbidden', 'bizcity-twin-ai' ), [ 'scope_type' => $scope_type, 'scope_id' => $scope_id ] );
         }
         return rest_ensure_response( [
             'items' => BizCity_Research_Ingest_Service::list_for_scope( $scope_type, $scope_id ),
@@ -390,10 +454,10 @@ final class BizCity_Research_REST {
     public function get_capability( WP_REST_Request $req ) {
         $character_id = (int) $req['character_id'];
         if ( $character_id <= 0 ) {
-            return new WP_Error( 'rest_invalid', 'character_id required', [ 'status' => 400 ] );
+            return $this->err_validation( 'rest_invalid', 'character_id bắt buộc.', [ 'field' => 'character_id' ] );
         }
         if ( ! class_exists( 'BizCity_Persona_Registry' ) ) {
-            return new WP_Error( 'persona_registry_missing', 'Persona registry not loaded', [ 'status' => 500 ] );
+            return $this->err_server( 'persona_registry_missing', 'Persona registry chưa được nạp. Vui lòng tải lại trang.', [ 'character_id' => (int) $req->get_param( 'character_id' ) ] );
         }
         $capability = BizCity_Persona_Registry::instance()
             ->get_research_capability_for_character( $character_id );
@@ -420,10 +484,10 @@ final class BizCity_Research_REST {
         $scope_id   = max( 0, (int) $req->get_param( 'scope_id' ) );
 
         if ( $scope_id <= 0 ) {
-            return new WP_Error( 'rest_invalid', 'scope_id required', [ 'status' => 400 ] );
+            return $this->err_validation( 'rest_invalid', 'Thiếu scope_id (notebook/character).', [ 'field' => 'scope_id' ] );
         }
         if ( ! BizCity_Research_Store::user_can_access( $scope_type, $scope_id ) ) {
-            return new WP_Error( 'rest_forbidden', 'Forbidden', [ 'status' => 403 ] );
+            return $this->err_forbidden( 'rest_forbidden', __( 'Forbidden', 'bizcity-twin-ai' ), [ 'scope_type' => $scope_type, 'scope_id' => $scope_id ] );
         }
         return rest_ensure_response( [
             'turn_id'    => $turn_id,
@@ -443,13 +507,13 @@ final class BizCity_Research_REST {
         $scope_id   = max( 0, (int) $req->get_param( 'scope_id' ) );
 
         if ( $url === '' || ! filter_var( $url, FILTER_VALIDATE_URL ) ) {
-            return new WP_Error( 'rest_invalid', 'Valid url required', [ 'status' => 400 ] );
+            return $this->err_validation( 'rest_invalid', 'URL không hợp lệ.', [ 'field' => 'url', 'url' => $url ] );
         }
         if ( $scope_id <= 0 ) {
-            return new WP_Error( 'rest_invalid', 'scope_id required', [ 'status' => 400 ] );
+            return $this->err_validation( 'rest_invalid', 'Thiếu scope_id (notebook/character).', [ 'field' => 'scope_id' ] );
         }
         if ( ! BizCity_Research_Store::user_can_access( $scope_type, $scope_id ) ) {
-            return new WP_Error( 'rest_forbidden', 'Forbidden', [ 'status' => 403 ] );
+            return $this->err_forbidden( 'rest_forbidden', __( 'Forbidden', 'bizcity-twin-ai' ), [ 'scope_type' => $scope_type, 'scope_id' => $scope_id ] );
         }
         $r = BizCity_Research_Ingest_Service::attach_url( $turn_id, $url, $scope_type, $scope_id );
         return rest_ensure_response( $r );
@@ -465,13 +529,13 @@ final class BizCity_Research_REST {
         $scope_id   = max( 0, (int) $req->get_param( 'scope_id' ) );
 
         if ( $url === '' ) {
-            return new WP_Error( 'rest_invalid', 'url required', [ 'status' => 400 ] );
+            return $this->err_validation( 'rest_invalid', 'Thiếu URL cần detach.', [ 'field' => 'url' ] );
         }
         if ( $scope_id <= 0 ) {
-            return new WP_Error( 'rest_invalid', 'scope_id required', [ 'status' => 400 ] );
+            return $this->err_validation( 'rest_invalid', 'Thiếu scope_id (notebook/character).', [ 'field' => 'scope_id' ] );
         }
         if ( ! BizCity_Research_Store::user_can_access( $scope_type, $scope_id ) ) {
-            return new WP_Error( 'rest_forbidden', 'Forbidden', [ 'status' => 403 ] );
+            return $this->err_forbidden( 'rest_forbidden', __( 'Forbidden', 'bizcity-twin-ai' ), [ 'scope_type' => $scope_type, 'scope_id' => $scope_id ] );
         }
         $r = BizCity_Research_Ingest_Service::detach_url( $turn_id, $url, $scope_type, $scope_id );
         return rest_ensure_response( $r );
@@ -487,10 +551,10 @@ final class BizCity_Research_REST {
         $scope_id   = max( 0, (int) $req->get_param( 'scope_id' ) );
 
         if ( $scope_id <= 0 ) {
-            return new WP_Error( 'rest_invalid', 'scope_id required', [ 'status' => 400 ] );
+            return $this->err_validation( 'rest_invalid', 'Thiếu scope_id (notebook/character).', [ 'field' => 'scope_id' ] );
         }
         if ( ! BizCity_Research_Store::user_can_access( $scope_type, $scope_id ) ) {
-            return new WP_Error( 'rest_forbidden', 'Forbidden', [ 'status' => 403 ] );
+            return $this->err_forbidden( 'rest_forbidden', __( 'Forbidden', 'bizcity-twin-ai' ), [ 'scope_type' => $scope_type, 'scope_id' => $scope_id ] );
         }
         $r = BizCity_Research_Ingest_Service::attach_report( $turn_id, $scope_type, $scope_id );
         return rest_ensure_response( $r );

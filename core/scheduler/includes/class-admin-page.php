@@ -59,7 +59,15 @@ class BizCity_Scheduler_Admin_Page {
 	}
 
 	public function enqueue_assets( string $hook ): void {
-		if ( strpos( $hook, 'bizcity-scheduler' ) === false ) {
+		$is_legacy_page = ( strpos( $hook, 'bizcity-scheduler' ) !== false );
+
+		// Hub sub-page: admin.php?page=bizchat-gateway&group=integrations&sub=scheduler
+		// $hook is "toplevel_page_bizchat-gateway", so also detect via $_GET.
+		$page = isset( $_GET['page'] ) ? sanitize_key( wp_unslash( $_GET['page'] ) ) : '';
+		$sub  = isset( $_GET['sub'] )  ? sanitize_key( wp_unslash( $_GET['sub'] ) )  : '';
+		$is_hub_subpage = ( $page === 'bizchat-gateway' && $sub === 'scheduler' );
+
+		if ( ! $is_legacy_page && ! $is_hub_subpage ) {
 			return;
 		}
 
@@ -111,5 +119,12 @@ class BizCity_Scheduler_Admin_Page {
 		wp_dequeue_script( 'wc-settings' );
 		wp_dequeue_script( 'wc-entities' );
 		wp_dequeue_style( 'woocommerce_admin_styles' );
+
+		// Dequeue WP-core svg-painter on hub sub-page — its colour-scheme global
+		// isn't initialised when rendered through the gateway, throwing
+		// "Cannot read properties of undefined (reading 'init')".
+		if ( $is_hub_subpage ) {
+			wp_dequeue_script( 'svg-painter' );
+		}
 	}
 }

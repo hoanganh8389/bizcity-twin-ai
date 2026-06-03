@@ -1,0 +1,52 @@
+name: DCO
+
+# Enforce Developer Certificate of Origin (DCO) sign-off on every PR commit.
+# Reference: https://developercertificate.org/
+# See CONTRIBUTING.md §9 for contributor instructions.
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+jobs:
+  dco:
+    name: Verify DCO sign-off
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Signed-off-by trailer
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const pr = context.payload.pull_request;
+            const { data: commits } = await github.rest.pulls.listCommits({
+              owner, repo, pull_number: pr.number, per_page: 250,
+            });
+
+            const re = /^Signed-off-by:\s.+\s<.+@.+>\s*$/m;
+            const failures = [];
+
+            for (const c of commits) {
+              const msg = c.commit.message || '';
+              if (!re.test(msg)) {
+                failures.push({
+                  sha: c.sha.substring(0, 7),
+                  author: c.commit.author && c.commit.author.name,
+                  subject: msg.split('\n')[0].substring(0, 80),
+                });
+              }
+            }
+
+            if (failures.length) {
+              const lines = failures.map(f =>
+                `- \`${f.sha}\` by ${f.author}: ${f.subject}`
+              ).join('\n');
+              core.setFailed(
+                `DCO check failed. ${failures.length} commit(s) missing Signed-off-by:\n\n${lines}\n\n` +
+                `Fix: \`git rebase -i HEAD~${commits.length} --signoff\` then \`git push -f\`.\n` +
+                `See CONTRIBUTING.md §9.`
+              );
+            } else {
+              core.info(`DCO OK — ${commits.length} commit(s) all signed off.`);
+            }

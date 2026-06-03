@@ -1,0 +1,151 @@
+{
+  "version": "1.0",
+  "plugin": "bizcity-content-creator",
+  "exported": "2026-05-19T12:00:00Z",
+  "templates": [
+    {
+      "slug": "edu-hoat-dong-nhom",
+      "category_id": "hoc-tap",
+      "title": "Tạo hoạt động nhóm cho lớp học",
+      "description": "Giúp giáo viên tạo hoạt động nhóm 1 cách dễ dàng, chi tiết với 1 click — bao gồm cách chia nhóm, vai trò từng thành viên, kịch bản hoạt động theo phút, sản phẩm đầu ra, tiêu chí đánh giá và phương án xử lý nhóm không hợp tác.",
+      "icon_url": "",
+      "icon_emoji": "👥",
+      "form_fields": [
+        {
+          "slug": "subject",
+          "label": "Cho môn học nào?",
+          "type": "text",
+          "placeholder": "VD: Ngữ văn, Toán, Lịch sử, Tiếng Anh, Kỹ năng sống...",
+          "required": true,
+          "grid": "full",
+          "sort_order": 1
+        },
+        {
+          "slug": "grade_level",
+          "label": "Bạn đang dạy cấp học nào?",
+          "type": "card_radio",
+          "required": true,
+          "grid": "full",
+          "sort_order": 2,
+          "options": [
+            { "value": "mam-non", "label": "Mầm non", "icon": "🧸" },
+            { "value": "cap-1", "label": "Cấp 1 — Tiểu học", "icon": "🎒" },
+            { "value": "cap-2", "label": "Cấp 2 — Phổ thông cơ sở", "icon": "📘" },
+            { "value": "cap-3", "label": "Cấp 3 — Phổ thông trung học", "icon": "🎓" },
+            { "value": "dh-cd", "label": "Đại học / Cao đẳng", "icon": "🏛️" }
+          ]
+        },
+        {
+          "slug": "activity_topic",
+          "label": "Chủ đề bạn muốn tạo hoạt động nhóm",
+          "type": "textarea",
+          "placeholder": "VD: Phân tích bài thơ Tràng Giang, Thiết kế poster bảo vệ môi trường, Giải bài toán đố thực tế...",
+          "required": true,
+          "grid": "half",
+          "sort_order": 3
+        },
+        {
+          "slug": "duration",
+          "label": "Số phút dự kiến",
+          "type": "select",
+          "required": true,
+          "grid": "half",
+          "sort_order": 4,
+          "options": [
+            { "value": "5", "label": "5 phút (Quick activity)" },
+            { "value": "10", "label": "10 phút" },
+            { "value": "15", "label": "15 phút" },
+            { "value": "20", "label": "20 phút" },
+            { "value": "30", "label": "30 phút" },
+            { "value": "45", "label": "45 phút (1 tiết)" },
+            { "value": "90", "label": "90 phút (Dự án mini)" }
+          ]
+        },
+        {
+          "slug": "group_size",
+          "label": "Số lượng học sinh mỗi nhóm",
+          "type": "button_group",
+          "required": true,
+          "grid": "full",
+          "sort_order": 5,
+          "multi": false,
+          "options": [
+            { "value": "2", "label": "2 (Cặp đôi)" },
+            { "value": "3", "label": "3" },
+            { "value": "4", "label": "4" },
+            { "value": "5", "label": "5" },
+            { "value": "6", "label": "6" },
+            { "value": "7", "label": "7" },
+            { "value": "8", "label": "8" }
+          ]
+        },
+        {
+          "slug": "activity_type",
+          "label": "Kiểu hoạt động nhóm",
+          "type": "checkbox_group",
+          "required": false,
+          "grid": "full",
+          "sort_order": 6,
+          "description": "Bỏ trống = AI tự chọn phù hợp nhất",
+          "multi": true,
+          "options": [
+            { "value": "auto", "label": "🤖 AI tự chọn" },
+            { "value": "discussion", "label": "💬 Thảo luận / Brainstorm" },
+            { "value": "jigsaw", "label": "🧩 Jigsaw (Mảnh ghép)" },
+            { "value": "debate", "label": "⚔️ Tranh luận" },
+            { "value": "case-study", "label": "📑 Case study" },
+            { "value": "role-play", "label": "🎭 Đóng vai" },
+            { "value": "presentation", "label": "📊 Thuyết trình mini" },
+            { "value": "creative", "label": "🎨 Sáng tạo sản phẩm" },
+            { "value": "gallery-walk", "label": "🚶 Gallery walk" },
+            { "value": "problem-solving", "label": "🔧 Giải quyết vấn đề" },
+            { "value": "game", "label": "🎮 Trò chơi cạnh tranh" },
+            { "value": "world-cafe", "label": "☕ World Café" }
+          ]
+        },
+        {
+          "slug": "class_size",
+          "label": "Tổng sĩ số lớp",
+          "type": "select",
+          "required": false,
+          "grid": "half",
+          "sort_order": 7,
+          "options": [
+            { "value": "small", "label": "Nhỏ (< 15 HS)" },
+            { "value": "medium", "label": "Vừa (15-30 HS)" },
+            { "value": "large", "label": "Lớn (30-45 HS)" },
+            { "value": "very-large", "label": "Rất lớn (> 45 HS)" }
+          ]
+        },
+        {
+          "slug": "objectives",
+          "label": "Mục tiêu sau hoạt động",
+          "type": "textarea",
+          "placeholder": "VD: HS hiểu được nguyên nhân chiến tranh, biết làm việc nhóm, trình bày được sản phẩm... (để trống AI tự suy ra)",
+          "required": false,
+          "grid": "half",
+          "sort_order": 8
+        }
+      ],
+
+      "system_prompt": "Bạn là chuyên gia thiết kế hoạt động học hợp tác (Cooperative Learning) theo mô hình Kagan & Johnson Brothers, đồng thời am hiểu sĩ số lớn của lớp học VN (thường 35-50 HS).\n\n## THÔNG TIN\n- Môn: {{subject}}\n- Cấp: {{grade_level}}\n- Chủ đề: {{activity_topic}}\n- Thời lượng: {{duration}} phút\n- Số HS/nhóm: {{group_size}}\n- Kiểu hoạt động: {{activity_type}}\n- Sĩ số: {{class_size}}\n- Mục tiêu: {{objectives}}\n\n## 5 NGUYÊN TẮC HỌC HỢP TÁC (Johnson & Johnson)\n1. **Phụ thuộc tích cực** — thành công của nhóm phụ thuộc vào MỌI thành viên\n2. **Trách nhiệm cá nhân** — mỗi HS có vai trò + sản phẩm cá nhân đo lường được\n3. **Tương tác mặt đối mặt** — bàn ghế xếp nhóm, không quay lưng nhau\n4. **Kỹ năng xã hội** — dạy cụ thể cách lắng nghe, phản hồi, đồng thuận\n5. **Đánh giá nhóm** — nhóm tự reflect cuối hoạt động\n\n## VAI TRÒ CHUẨN TRONG NHÓM (chọn theo {{group_size}})\n- **Leader (Nhóm trưởng):** điều phối, đảm bảo timeline\n- **Recorder (Thư ký):** ghi chép, tổng hợp\n- **Presenter (Người trình bày):** báo cáo trước lớp\n- **Timekeeper (Quản lý thời gian):** nhắc thời gian\n- **Encourager (Cổ vũ):** khuyến khích bạn lười phát biểu\n- **Resource Manager (Quản lý tài liệu):** giữ phiếu, đồ dùng\n- **Quality Checker (Kiểm chất lượng):** rà soát sản phẩm cuối\n\n## ĐẶC THÙ LỚP ĐÔNG VN\n- Hoạt động phải QUẢN LÝ ĐƯỢC tiếng ồn (signal, tone-down cue)\n- Có cơ chế chia nhóm NHANH (< 2 phút) — không lãng phí thời gian\n- Có cơ chế REPORT BACK gọn (poster, post-it, 1-2 nhóm đại diện)\n- Sản phẩm đầu ra phải đo được trong 1 tiết\n\n## CHỌN KIỂU HOẠT ĐỘNG\n- Nếu {{activity_type}} cụ thể → dùng kiểu đó\n- Nếu 'auto' hoặc trống → AI chọn dựa trên: thời lượng, sĩ số, mục tiêu, độ tuổi",
+
+      "outline_prompt": "Tạo outline cho hoạt động nhóm '{{activity_topic}}' (môn {{subject}}, cấp {{grade_level}}, {{duration}}p, nhóm {{group_size}} HS).\n\nOutline 6 section:\n1. Tổng quan hoạt động\n2. Cách chia nhóm & phân vai\n3. Kịch bản chi tiết theo phút\n4. Sản phẩm đầu ra & Báo cáo\n5. Tiêu chí đánh giá\n6. Xử lý tình huống & Plan B\n\nTRẢ VỀ JSON:\n[\n  {\"label\": \"Tổng quan hoạt động\", \"emoji\": \"🎯\", \"platform\": \"general\"},\n  {\"label\": \"Chia nhóm & Phân vai\", \"emoji\": \"👥\", \"platform\": \"general\"},\n  {\"label\": \"Kịch bản chi tiết theo phút\", \"emoji\": \"⏱️\", \"platform\": \"general\"},\n  {\"label\": \"Sản phẩm đầu ra & Báo cáo\", \"emoji\": \"🎁\", \"platform\": \"general\"},\n  {\"label\": \"Tiêu chí đánh giá\", \"emoji\": \"📊\", \"platform\": \"general\"},\n  {\"label\": \"Xử lý tình huống & Plan B\", \"emoji\": \"🛡️\", \"platform\": \"general\"}\n]",
+
+      "chunk_prompt": "Bạn đang viết phần \"{{chunk_title}}\" của hoạt động nhóm '{{activity_topic}}' ({{duration}}p, nhóm {{group_size}}).\n\n## CONTEXT\n- Môn: {{subject}}\n- Cấp: {{grade_level}}\n- Sĩ số: {{class_size}}\n- Kiểu hoạt động: {{activity_type}}\n- Mục tiêu: {{objectives}}\n\n## YÊU CẦU TỪNG SECTION\n\n### Tổng quan hoạt động\n- Tên hoạt động (hấp dẫn, dễ nhớ)\n- Kiểu hoạt động (chốt 1 kiểu)\n- 3 mục tiêu (kiến thức / kỹ năng / thái độ)\n- Lý do chọn kiểu này (2-3 câu)\n- Đồ dùng cần chuẩn bị (liệt kê chi tiết)\n\n### Chia nhóm & Phân vai\n- Cách chia nhóm NHANH (< 2 phút): vd 'đếm 1-2-3-4', 'theo màu sticker', 'theo tháng sinh'\n- Tổng số nhóm dự kiến (= sĩ số / {{group_size}})\n- Bảng phân vai theo {{group_size}}:\n\n| Vai trò | Nhiệm vụ chính | Tiêu chí thành công |\n|---|---|---|\n| Nhóm trưởng | ... | ... |\n| Thư ký | ... | ... |\n\n- Hướng dẫn nhóm chọn vai (vd: trong 1 phút, ai chưa làm vai này lần trước)\n\n### Kịch bản chi tiết theo phút\nTrình bày DƯỚI DẠNG BẢNG TIMELINE:\n\n| Phút | Hoạt động GV | Hoạt động HS | Đồ dùng | Lưu ý |\n|---|---|---|---|---|\n| 0-2' | Giới thiệu hoạt động + chia nhóm | Lắng nghe + di chuyển vào nhóm | Slide luật chơi | Dùng signal '3-2-1 quiet' |\n| 2-5' | ... | ... | ... | ... |\n\nTổng thời gian PHẢI = {{duration}} phút. Bao gồm: chia nhóm, brief, hoạt động chính, báo cáo, reflect.\n\n### Sản phẩm đầu ra & Báo cáo\n- Sản phẩm cụ thể nhóm phải tạo (poster, sơ đồ, kịch bản, list ý tưởng, bài thuyết trình 2p...)\n- Hình thức báo cáo (chọn 1):\n  - 'Gallery walk' — dán poster, nhóm khác đi xem\n  - 'Đại diện nhóm trình bày 1-2 phút'\n  - 'Bốc thăm 2-3 nhóm trình bày'\n  - 'Mỗi nhóm 1 câu chốt + nộp sản phẩm cho GV'\n- Mẫu báo cáo / template (cụ thể có sẵn để in)\n\n### Tiêu chí đánh giá\nBảng rubric 4 mức cho:\n- Chất lượng sản phẩm (40%)\n- Hợp tác trong nhóm (30%)\n- Trình bày (20%)\n- Sáng tạo (10%)\n\n| Tiêu chí | Xuất sắc | Đạt | Cần cải thiện |\n|---|---|---|---|\n\n- Có cả đánh giá nhóm + đánh giá cá nhân\n- Phiếu peer-review ngắn (3 câu hỏi)\n\n### Xử lý tình huống & Plan B\nLiệt kê 5-7 tình huống thường gặp + cách xử lý:\n- Nhóm không hợp tác / có HS không tham gia\n- 1 HS lấn át, các bạn khác im lặng\n- Nhóm xong sớm (extension activity)\n- Lớp quá ồn (signal & countdown)\n- Có HS không có đồ dùng / vắng mặt\n- HS không hiểu nhiệm vụ\n- Phiên bản rút gọn nếu thiếu thời gian\n\n## QUY TẮC\n- KHÔNG mở đầu bằng 'Dưới đây là...'\n- Bảng timeline PHẢI chi tiết từng mốc phút\n- Phù hợp tâm lý {{grade_level}}\n- Tiếng Việt tự nhiên",
+
+      "model_purpose": "content_creation",
+      "temperature": "0.7",
+      "max_tokens": "8000",
+      "wizard_steps": [],
+      "output_platforms": ["general"],
+      "skill_id": "0",
+      "tags": "giao-duc,hoc-tap,group-activity,cooperative-learning,kagan,hoat-dong-nhom",
+      "badge_text": "EDU",
+      "badge_color": "#8b5cf6",
+      "is_featured": "0",
+      "sort_order": "4",
+      "status": "active"
+    }
+  ]
+}

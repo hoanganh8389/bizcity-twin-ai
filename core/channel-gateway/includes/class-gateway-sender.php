@@ -75,6 +75,16 @@ class BizCity_Gateway_Sender {
 			 */
 			do_action( 'bizcity_channel_after_send', $result, $chat_id, $platform );
 
+			do_action( 'bizcity_channel_outbound_logged', array(
+				'chat_id'  => $chat_id,
+				'platform' => $platform,
+				'message'  => $message,
+				'type'     => $type,
+				'extra'    => $extra,
+				'sent'     => (bool) $result['sent'],
+				'error'    => (string) $result['error'],
+			) );
+
 			$this->log_outbound( $chat_id, $message, $platform, $result['sent'] );
 			return $result;
 		}
@@ -83,6 +93,17 @@ class BizCity_Gateway_Sender {
 		$result = $this->send_legacy( $chat_id, $message, $type, $extra, $platform );
 
 		do_action( 'bizcity_channel_after_send', $result, $chat_id, $platform );
+
+		do_action( 'bizcity_channel_outbound_logged', array(
+			'chat_id'  => $chat_id,
+			'platform' => $result['platform'],
+			'message'  => $message,
+			'type'     => $type,
+			'extra'    => $extra,
+			'sent'     => (bool) $result['sent'],
+			'error'    => (string) $result['error'],
+		) );
+
 		$this->log_outbound( $chat_id, $message, $result['platform'], $result['sent'] );
 
 		return $result;
@@ -258,5 +279,124 @@ class BizCity_Gateway_Sender {
 			'created_at'    => current_time( 'mysql' ),
 			'blog_id'       => get_current_blog_id(),
 		] );
+	}
+
+	/* ═══════════════════════════════════════════
+	 *  PHASE 0.37 — Normalized Outbound API
+	 *
+	 *  send_envelope() is the R-CH-5 clean surface.
+	 *  All new code should call this instead of send().
+	 *  send() is preserved for backward compat.
+	 * ═══════════════════════════════════════════ */
+
+	/**
+	 * Send via canonical envelope.
+	 *
+	 * Resolves channel integration from platform + instance_id,
+	 * decrypts credentials, calls send_outbound().
+	 * Falls back to legacy send() if no registered channel integration.
+	 *
+	 * @param array $envelope {
+	 *   @type string $platform    Platform key, e.g. 'ZALO_BOT', 'FACEBOOK'. Required.
+	 *   @type string $instance_id OA ID / Page ID / channel instance. Required.
+	 *   @type string $recipient   Recipient user ID on the platform. Required.
+	 *   @type string $message     Message text. Required.
+	 *   @type string $type        Message type: text|image|file|video. Default 'text'.
+	 *   @type array  $meta        Extra platform-specific fields.
+	 * }
+	 * @return array|WP_Error ['sent'=>bool, 'error'=>string, 'platform'=>string, 'mid'=>string]
+	 */
+	public function send_envelope( array $envelope ) {
+		$platform    = strtoupper( trim( $envelope['platform'] ?? '' ) );
+		$instance_id = trim( $envelope['instance_id'] ?? '' );
+		$recipient   = trim( $envelope['recipient'] ?? '' );
+		$message     = trim( $envelope['message'] ?? '' );
+		$type        = sanitize_key( $envelope['type'] ?? 'text' ) ?: 'text';
+		$meta        = (array) ( $envelope['meta'] ?? [] );
+
+		if ( ! $platform || ! $recipient ) {
+			return new \WP_Error( 'missing_fields', 'send_envelope requires platform + recipient.' );
+		}
+
+		/**
+		 * Filter outbound envelope before send.
+		 *
+		 * @param array $envelope
+		 */
+		$envelope = apply_filters( 'bizcity_channel_envelope_before_send', $envelope );
+
+		// Look up BizCity_Channel_Integration for this platform.
+		$registry = class_exists( 'BizCity_Integration_Registry' ) ? BizCity_Integration_Registry::instance() : null;
+		$channel  = null;
+		$account  = [];
+
+		if ( $registry ) {
+			foreach ( $registry->get_all() as $integ ) {
+				if (
+					( $integ instanceof BizCity_Channel_Integration ) &&
+					strtoupper( $integ->inbound_platform() ) === $platform
+				) {
+					$channel = $integ;
+					break;
+				}
+			}
+
+			// Resolve account by instance_id.
+			if ( $channel ) {
+				$code     = $channel->get_code();
+				$accounts = $registry->get_accounts( $code );
+				foreach ( $accounts as $acc ) {
+					if (
+						( $acc['instance_id'] ?? '' ) === $instance_id ||
+						( $acc['oa_id'] ?? '' )       === $instance_id ||
+						( $acc['page_id'] ?? '' )      === $instance_id ||
+						( $acc['_uid'] ?? '' )         === $instance_id
+					) {
+						$account = $acc;
+						break;
+					}
+				}
+				// If still no match but there's only one account, use it.
+				if ( empty( $account ) && count( $accounts ) === 1 ) {
+					$account = $accounts[0];
+				}
+			}
+		}
+
+		if ( $channel && ! empty( $account ) ) {
+			// Decrypt credentials.
+			$clone = clone $channel;
+			$clone->set_account( $account );
+			$decrypted = $clone->get_decrypted_params();
+
+			$out_msg = [
+				'platform'    => $platform,
+				'instance_id' => $instance_id,
+				'recipient'   => $recipient,
+				'text'        => $message,
+				'type'        => $type,
+				'meta'        => $meta,
+			];
+
+			$result = $channel->send_outbound( $out_msg, $decrypted );
+
+			if ( is_wp_error( $result ) ) {
+				error_log( sprintf( '[Channel Gateway] 📤 send_envelope ERROR %s | %s', $platform, $result->get_error_message() ) );
+				return $result;
+			}
+
+			do_action( 'bizcity_channel_after_send', $result, $recipient, $platform );
+			$this->log_outbound( $recipient, $message, $platform, (bool) ( $result['sent'] ?? false ) );
+			return $result;
+		}
+
+		// Fallback: legacy send() — construct chat_id from prefix + recipient.
+		error_log( sprintf(
+			'[Channel Gateway] ⚠️ send_envelope fallback to legacy for platform=%s instance=%s (no channel integration found)',
+			$platform, $instance_id
+		) );
+		$prefix  = BizCity_Gateway_Bridge::instance()->get_prefix_for_platform( $platform );
+		$chat_id = $prefix ? $prefix . $recipient : $recipient;
+		return $this->send( $chat_id, $message, $type, $meta );
 	}
 }

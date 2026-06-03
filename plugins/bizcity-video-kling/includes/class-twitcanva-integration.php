@@ -303,7 +303,9 @@ class BizCity_TwitCanva_Integration {
         }
         $url = get_option( self::OPT_PREFIX . 'url', '' );
         if ( $url ) return $url;
-        // Production: use built dist if available
+        // ARCHIVED 2026-06-01 — twitcanva-dist/ moved to plugins/_archived/bizcity-video-kling-twitcanva-dist/.
+        // Build artifact (~3 MB) bị tách khỏi bundle chính (Phase 0.99 slim-down).
+        // Guard giữ nguyên: nếu admin copy lại build vào plugin folder, sẽ tự dùng local; ngược lại fallback dev backend.
         if ( file_exists( BIZCITY_VIDEO_KLING_DIR . 'twitcanva-dist/index.html' ) ) {
             return BIZCITY_VIDEO_KLING_URL . 'twitcanva-dist/index.html';
         }

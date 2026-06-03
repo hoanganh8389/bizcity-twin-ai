@@ -182,6 +182,21 @@ class BizCity_Skill_Context {
 		// Build match criteria
 		$mode    = $args['mode'] ?? '';
 		$message = $args['message'] ?? '';
+		// FIX (2026-05-10): Consumers (e.g. CRM AI Replier) often pass an
+		// already-augmented prompt as $message — that prompt embeds RAG
+		// passages whose words spuriously match skill trigger keywords
+		// (e.g. "video", "contract"), causing the LLM to be told it is
+		// "using skill X" when the user only said "hi". Allow consumers to
+		// declare the raw user message so trigger matching stays scoped
+		// to actual user input. Falls back to args.message for back-compat.
+		$raw_user_message = '';
+		if ( ! empty( $GLOBALS['_bizcity_skill_match_raw_message'] ) ) {
+			$raw_user_message = (string) $GLOBALS['_bizcity_skill_match_raw_message'];
+		}
+		$raw_user_message = (string) apply_filters( 'bizcity_skill_match_message', $raw_user_message, $message, $args );
+		if ( $raw_user_message !== '' ) {
+			$message = $raw_user_message;
+		}
 		$engine  = $args['engine_result'] ?? [];
 		$goal    = $engine['meta']['goal'] ?? $engine['goal'] ?? '';
 		// B6 fix: $tool should be goal/intent_key (e.g. 'write_article'), NOT action

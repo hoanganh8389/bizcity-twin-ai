@@ -221,6 +221,10 @@ class BizCity_TwinChat_Public_Page {
 			}
 		}
 
+		// Wave D — BizDesign embed integration (resolved by helper for consistency).
+		$bzdesign_embed_url = self::resolve_bzdesign_embed_url();
+		$bzdesign_rest_url  = esc_url_raw( rest_url( 'bzdesign/v1' ) );
+
 		$config = (string) wp_json_encode( [
 			'restRoot'     => esc_url_raw( rest_url( BIZCITY_TWINCHAT_REST_NS . '/' ) ),
 			'kgRoot'       => esc_url_raw( rest_url( 'bizcity-knowledge/v2/' ) ),
@@ -233,6 +237,17 @@ class BizCity_TwinChat_Public_Page {
 			'shellUrl'     => esc_url_raw( home_url( '/twin/' ) ),
 			'activityBar'  => self::get_activity_bar(),
 			'debug'        => class_exists( 'BizCity_Twin_Debug' ) ? BizCity_Twin_Debug::is_enabled() : false,
+			'bzdesignEmbedUrl' => $bzdesign_embed_url,
+			'bzdesignRestUrl'  => $bzdesign_rest_url,
+			// R-1API — Webchat AJAX (admin-ajax) bridge for ApiKey/Usage workspaces.
+			'ajaxUrl'        => esc_url_raw( admin_url( 'admin-ajax.php' ) ),
+			'webchatNonce'   => wp_create_nonce( 'bizcity_webchat' ),
+			'adminUrl'       => esc_url_raw( admin_url( 'admin.php' ) ),
+			// 2026-05-21 — expose BizCity API key health so the React UI can
+			// pop a setup dialog BEFORE the user triggers features (Deep
+			// Research, learning, etc.) instead of failing with a cryptic 404.
+			'apiKeyStatus'   => self::get_api_key_status(),
+			'settingsUrl'    => esc_url_raw( admin_url( 'admin.php?page=bizcity-twinchat-settings' ) ),
 		] );
 
 		wp_enqueue_script(
@@ -250,7 +265,7 @@ class BizCity_TwinChat_Public_Page {
 		wp_set_script_translations(
 			'bizcity-twinchat-app',
 			'bizcity-twin-ai',
-			BIZCITY_TWIN_AI_PATH . 'languages'
+			BIZCITY_TWIN_AI_DIR . 'languages'
 		);
 	}
 
@@ -409,9 +424,13 @@ class BizCity_TwinChat_Public_Page {
 			'shellUrl'     => esc_url_raw( home_url( '/twin/' ) ),
 			'activityBar'  => self::get_activity_bar(),
 			'debug'        => class_exists( 'BizCity_Twin_Debug' ) ? BizCity_Twin_Debug::is_enabled() : false,
+			// Wave D — BizDesign embed integration (resolved by helper for consistency).
+			'bzdesignEmbedUrl' => self::resolve_bzdesign_embed_url(),
+			'bzdesignRestUrl'  => esc_url_raw( rest_url( 'bzdesign/v1' ) ),
+			// 2026-05-21 — API key health for the React setup dialog.
+			'apiKeyStatus'   => self::get_api_key_status(),
+			'settingsUrl'    => esc_url_raw( admin_url( 'admin.php?page=bizcity-twinchat-settings' ) ),
 		] );
-
-		$ver       = BIZCITY_TWINCHAT_VERSION;
 		if ( file_exists( $manifest ) ) {
 			$ver .= '.' . filemtime( $manifest );
 		}
@@ -501,58 +520,152 @@ class BizCity_TwinChat_Public_Page {
 	}
 
 	/**
-	 * Build the Activity Bar items (left fixed sidebar, VS Code style).
+	 * Wave D — Resolve URL to bizcity-design embed bundle (assets/dist/design-embed.js).
 	 *
-	 * Plugins extend by hooking `bizcity_twinchat_activity_bar`:
+	 * Probes multiple disk locations so the URL resolves correctly regardless of:
+	 *   • plugin load order (BZDESIGN_URL may not yet be defined when this runs),
+	 *   • whether bizcity-design is the bundled sub-plugin under
+	 *     `bizcity-twin-ai/plugins/bizcity-design/` or activated standalone at
+	 *     `wp-content/plugins/bizcity-design/`.
 	 *
-	 *   add_filter( 'bizcity_twinchat_activity_bar', function ( $items ) {
-	 *       $items[] = [
-	 *           'id'      => 'my-tool',
-	 *           'label'   => __( 'My Tool', 'my-td' ),
-	 *           'icon'    => 'tools',                 // lucide id (see ActivityBar.tsx ICON_MAP)
-	 *           // 'emoji'  => '🧠',                    // optional, takes precedence over icon
-	 *           'mode'    => 'link',                  // 'home'|'workspace'|'route'|'link'|'embed'
-	 *           'target'  => home_url( '/my-tool/' ), // for route/link/embed
-	 *           'section' => 'top',                   // 'top'|'bottom'
-	 *       ];
-	 *       return $items;
-	 *   } );
+	 * Returns '' when the built file cannot be found anywhere — FE then renders
+	 * the "Design Studio chưa kích hoạt" hint.
+	 */
+	public static function resolve_bzdesign_embed_url(): string {
+		$candidates = [];
+		if ( defined( 'BZDESIGN_DIR' ) && defined( 'BZDESIGN_URL' ) ) {
+			$candidates[] = [
+				rtrim( BZDESIGN_DIR, '/' ) . '/assets/dist/design-embed.js',
+				rtrim( BZDESIGN_URL, '/' ) . '/assets/dist/design-embed.js',
+			];
+		}
+		if ( defined( 'BIZCITY_TWIN_AI_DIR' ) && defined( 'BIZCITY_TWIN_AI_URL' ) ) {
+			$candidates[] = [
+				rtrim( BIZCITY_TWIN_AI_DIR, '/' ) . '/plugins/bizcity-design/assets/dist/design-embed.js',
+				rtrim( BIZCITY_TWIN_AI_URL, '/' ) . '/plugins/bizcity-design/assets/dist/design-embed.js',
+			];
+		}
+		$candidates[] = [
+			WP_PLUGIN_DIR . '/bizcity-design/assets/dist/design-embed.js',
+			plugins_url( 'bizcity-design/assets/dist/design-embed.js' ),
+		];
+		foreach ( $candidates as [ $disk, $url ] ) {
+			if ( $disk && $url && file_exists( $disk ) ) {
+				return esc_url_raw( $url . '?ver=' . filemtime( $disk ) );
+			}
+		}
+		return '';
+	}
+
+	/**
+	 * 2026-05-21 — BizCity API key health snapshot for the React UI.
+	 *
+	 * Returned shape (kept stable for FE):
+	 *   [
+	 *     'configured'     => bool,    // option `bizcity_llm_api_key` non-empty
+	 *     'last_test_ok'   => bool,    // last `Test gateway` call returned HTTP 200
+	 *     'last_test_at'   => int,     // unix timestamp of last test (0 if never)
+	 *     'last_test_ms'   => int,     // round-trip ms of last test
+	 *     'gateway_url'    => string,  // active gateway (default https://bizcity.vn)
+	 *     'settings_url'   => string,  // admin link to the settings page
+	 *     'needs_setup'    => bool,    // true ⇒ FE must show the SetupApiKey dialog
+	 *   ]
+	 *
+	 * The "needs_setup" verdict is intentionally conservative: any of
+	 * (a) key empty, or (b) last test failed/never ⇒ true. The React UI uses
+	 * this to decide whether to gate features like Deep Research.
+	 */
+	public static function get_api_key_status(): array {
+		$key         = trim( (string) get_site_option( 'bizcity_llm_api_key', '' ) );
+		$gateway     = (string) get_site_option( 'bizcity_llm_gateway_url', '' );
+		if ( $gateway === '' ) {
+			$gateway = 'https://bizcity.vn';
+		}
+		$last_test   = get_site_option( 'bizcity_llm_last_test', [] );
+		$last_ok     = is_array( $last_test ) && ! empty( $last_test['ok'] );
+		$last_at     = is_array( $last_test ) ? (int) ( $last_test['ts']    ?? 0 ) : 0;
+		$last_ms     = is_array( $last_test ) ? (int) ( $last_test['ms']    ?? 0 ) : 0;
+		$configured  = $key !== '';
+		$needs_setup = ! $configured || ! $last_ok;
+
+		return [
+			'configured'   => $configured,
+			'last_test_ok' => $last_ok,
+			'last_test_at' => $last_at,
+			'last_test_ms' => $last_ms,
+			'gateway_url'  => esc_url_raw( $gateway ),
+			'settings_url' => esc_url_raw( admin_url( 'admin.php?page=bizcity-twinchat-settings' ) ),
+			'needs_setup'  => $needs_setup,
+		];
+	}
+
+	/**
+	 * Build the Activity Bar items from BizCity_Twin_Shell_Registry so
+	 * /twinchat/ and /twin/ always render identical sidebars.
+	 *
+	 * Falls back to a minimal inline list when the registry is not loaded.
 	 */
 	public static function get_activity_bar() {
+		// Primary: Twin Shell registry (same data source as /twin/).
+		if ( class_exists( 'BizCity_Twin_Shell_Registry' ) ) {
+			$plugins = BizCity_Twin_Shell_Registry::instance()->all();
+			if ( ! empty( $plugins ) ) {
+				$out = [];
+				foreach ( $plugins as $p ) {
+					$mode      = (string) $p['mode'];
+					$target    = ( $mode === 'link' ) ? (string) $p['target_url'] : '';
+					$plugin_id = ( $mode === 'embed' || $mode === 'home' || $mode === 'workspace' ) ? (string) $p['id'] : '';
+					$out[] = [
+						'id'       => (string) $p['id'],
+						'label'    => (string) $p['label'],
+						'icon'     => (string) $p['icon'],
+					'emoji'    => '', // Strip emoji — TwinChat uses lucide icons (monochrome), not colored emoji.
+						'mode'     => $mode,
+						'target'   => $target,
+						'pluginId' => $plugin_id,
+						'section'  => ( isset( $p['section'] ) && $p['section'] === 'bottom' ) ? 'bottom' : 'top',
+					];
+				}
+				if ( ! empty( $out ) ) {
+					return $out;
+				}
+			}
+		}
+
+		// Fallback — legacy inline list (kept for installs where twinshell isn't loaded).
+		$bizcity_account_url = 'https://bizcity.vn/my-account/';
+		$td = 'bizcity-twin-ai';
 		$items = [
-			[ 'id' => 'home',      'label' => __( 'Home',             'bizcity-twin-ai' ), 'icon' => 'home',      'mode' => 'home',      'section' => 'top' ],
-			[ 'id' => 'workspace', 'label' => __( 'Workspace',        'bizcity-twin-ai' ), 'icon' => 'workspace', 'mode' => 'workspace', 'section' => 'top' ],
-			[ 'id' => 'creator',   'label' => __( 'Plans & Scripts',  'bizcity-twin-ai' ), 'icon' => 'creator',   'mode' => 'embed', 'pluginId' => 'creator',   'section' => 'top' ],
-			[ 'id' => 'doc',       'label' => __( 'Documents',        'bizcity-twin-ai' ), 'icon' => 'doc',       'mode' => 'embed', 'pluginId' => 'doc',       'section' => 'top' ],
-			[ 'id' => 'image',     'label' => __( 'Product Images',   'bizcity-twin-ai' ), 'icon' => 'image',     'mode' => 'embed', 'pluginId' => 'image',     'section' => 'top' ],
-			[ 'id' => 'profile',   'label' => __( 'Portrait Studio',  'bizcity-twin-ai' ), 'icon' => 'image',     'mode' => 'embed', 'pluginId' => 'profile',   'section' => 'top' ],
-			[ 'id' => 'canva',     'label' => __( 'Banners & Flyers', 'bizcity-twin-ai' ), 'icon' => 'image',     'mode' => 'embed', 'pluginId' => 'canva',     'section' => 'top' ],
-			[ 'id' => 'video',     'label' => __( 'Video',            'bizcity-twin-ai' ), 'icon' => 'video',     'mode' => 'embed', 'pluginId' => 'video',     'section' => 'top' ],
-			[ 'id' => 'web',       'label' => __( 'Web Builder',      'bizcity-twin-ai' ), 'icon' => 'web',       'mode' => 'embed', 'pluginId' => 'web',       'section' => 'top' ],
-			[ 'id' => 'mindmap',   'label' => __( 'Mindmap',          'bizcity-twin-ai' ), 'icon' => 'notebook',  'mode' => 'embed', 'pluginId' => 'mindmap',   'section' => 'top' ],
-			[ 'id' => 'note',      'label' => __( 'Notebook',         'bizcity-twin-ai' ), 'icon' => 'notebook',  'mode' => 'embed', 'pluginId' => 'note',      'section' => 'top' ],
-			[ 'id' => 'tasks',     'label' => __( 'Tasks',            'bizcity-twin-ai' ), 'icon' => 'tools',     'mode' => 'embed', 'pluginId' => 'tasks',     'section' => 'bottom' ],
-			[ 'id' => 'sessions',  'label' => __( 'Chat Sessions',    'bizcity-twin-ai' ), 'icon' => 'tools',     'mode' => 'embed', 'pluginId' => 'sessions',  'section' => 'bottom' ],
-			[ 'id' => 'scheduler', 'label' => __( 'Reminders',        'bizcity-twin-ai' ), 'icon' => 'scheduler', 'mode' => 'embed', 'pluginId' => 'scheduler', 'section' => 'bottom' ],
-			[ 'id' => 'tools',     'label' => __( 'Tools',            'bizcity-twin-ai' ), 'icon' => 'tools',     'mode' => 'embed', 'pluginId' => 'tools',     'section' => 'bottom' ],
-			[ 'id' => 'skills',    'label' => __( 'Skills',           'bizcity-twin-ai' ), 'icon' => 'skills',    'mode' => 'embed', 'pluginId' => 'skills',    'section' => 'bottom' ],
-			[ 'id' => 'explore',   'label' => __( 'Marketplace',      'bizcity-twin-ai' ), 'icon' => 'explore',   'mode' => 'link',  'target'   => admin_url( 'admin.php?page=bizcity-marketplace' ), 'section' => 'bottom' ],
+			[ 'id' => 'home',         'label' => __( 'Home',             $td ), 'icon' => 'home',       'mode' => 'home',  'section' => 'top' ],
+			[ 'id' => 'creator',      'label' => __( 'Plans & Scripts',  $td ), 'icon' => 'creator',    'mode' => 'embed', 'pluginId' => 'creator',   'section' => 'top' ],
+			[ 'id' => 'doc',          'label' => __( 'Documents',        $td ), 'icon' => 'doc',        'mode' => 'embed', 'pluginId' => 'doc',       'section' => 'top' ],
+			[ 'id' => 'crm',          'label' => __( 'CRM Inbox',        $td ), 'icon' => 'gateway',    'mode' => 'embed', 'pluginId' => 'crm',       'section' => 'top' ],
+			[ 'id' => 'image',        'label' => __( 'Product Images',   $td ), 'icon' => 'image',      'mode' => 'embed', 'pluginId' => 'image',     'section' => 'top' ],
+			[ 'id' => 'video',        'label' => __( 'Video',            $td ), 'icon' => 'video',      'mode' => 'embed', 'pluginId' => 'video',     'section' => 'top' ],
+			[ 'id' => 'web',          'label' => __( 'Web Builder',      $td ), 'icon' => 'web',        'mode' => 'embed', 'pluginId' => 'web',       'section' => 'top' ],
+			[ 'id' => 'twin-builder', 'label' => __( 'TwinBuilder',      $td ), 'icon' => 'brain',      'mode' => 'link',  'target' => admin_url( 'admin.php?page=bizcity-twin-builder' ), 'section' => 'top' ],
+			[ 'id' => 'account',      'label' => __( 'Account & Billing',$td ), 'icon' => 'wallet',     'mode' => 'link',  'target' => $bizcity_account_url,                                'section' => 'bottom' ],
+			[ 'id' => 'scheduler',    'label' => __( 'Reminders',        $td ), 'icon' => 'scheduler',  'mode' => 'embed', 'pluginId' => 'scheduler', 'section' => 'bottom' ],
+			[ 'id' => 'workflow',     'label' => __( 'Automation',       $td ), 'icon' => 'automation', 'mode' => 'link',  'target' => admin_url( 'admin.php?page=bizcity-workspace&tab=workflow' ), 'section' => 'bottom' ],
+			[ 'id' => 'tools',        'label' => __( 'Tools',            $td ), 'icon' => 'tools',      'mode' => 'embed', 'pluginId' => 'tools',     'section' => 'bottom' ],
+			[ 'id' => 'skills',       'label' => __( 'Skills',           $td ), 'icon' => 'skills',     'mode' => 'embed', 'pluginId' => 'skills',    'section' => 'bottom' ],
+			[ 'id' => 'explore',      'label' => __( 'Marketplace',      $td ), 'icon' => 'explore',    'mode' => 'link',  'target' => admin_url( 'admin.php?page=bizcity-marketplace' ),  'section' => 'bottom' ],
 		];
 		$items = apply_filters( 'bizcity_twinchat_activity_bar', $items );
-		// Sanitize.
 		$out = [];
 		foreach ( (array) $items as $it ) {
 			if ( empty( $it['id'] ) || empty( $it['mode'] ) ) {
 				continue;
 			}
 			$out[] = [
-				'id'      => sanitize_key( $it['id'] ),
-				'label'   => isset( $it['label'] )   ? (string) $it['label'] : '',
-				'icon'    => isset( $it['icon'] )    ? (string) $it['icon']  : '',
-				'emoji'   => isset( $it['emoji'] )   ? (string) $it['emoji'] : '',
-				'mode'    => (string) $it['mode'],
-				'target'  => isset( $it['target'] )  ? (string) $it['target']  : '',
-				'section' => ( isset( $it['section'] ) && $it['section'] === 'bottom' ) ? 'bottom' : 'top',
+				'id'       => sanitize_key( $it['id'] ),
+				'label'    => isset( $it['label'] )    ? (string) $it['label']    : '',
+				'icon'     => isset( $it['icon'] )     ? (string) $it['icon']     : '',
+				'emoji'    => isset( $it['emoji'] )    ? (string) $it['emoji']    : '',
+				'mode'     => (string) $it['mode'],
+				'target'   => isset( $it['target'] )   ? (string) $it['target']   : '',
+				'pluginId' => isset( $it['pluginId'] ) ? (string) $it['pluginId'] : '',
+				'section'  => ( isset( $it['section'] ) && $it['section'] === 'bottom' ) ? 'bottom' : 'top',
 			];
 		}
 		return $out;

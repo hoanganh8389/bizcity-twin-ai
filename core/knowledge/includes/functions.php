@@ -440,8 +440,33 @@ function bizgpt_chatbot_run_guest_flows($question, $platform = 'webchat', $data_
             $ctxText .= $context;
         }
         
-        // Thử sử dụng Knowledge Character trước
-        $character_id = get_option('bizcity_knowledge_default_character');
+        // Resolve character_id:
+        //   1) Per-page binding (BizCity_Channel_Binding) — Facebook page_id, Zalo OA, etc.
+        //   2) Global option fallback (bizcity_knowledge_default_character).
+        // (PHASE 0.36 — Bug #7 fix: webhook reply must honor the Guru bound to
+        //  this specific Page via Inspector bindings, not the site-wide default.)
+        $character_id = 0;
+        if (class_exists('BizCity_Channel_Binding')) {
+            $bind_platform = '';
+            $bind_account  = '';
+            if ($is_fb && !empty($page_id)) {
+                // FE Inspector binds Facebook pages under 'FB_MESS'.
+                $bind_platform = 'FB_MESS';
+                $bind_account  = (string) $page_id;
+            } elseif (in_array((string) $platform, ['ZALO','ZALO_OA','zalo','zalo_oa'], true) && !empty($page_id)) {
+                $bind_platform = 'ZALO_OA';
+                $bind_account  = (string) $page_id;
+            }
+            if ($bind_platform !== '' && $bind_account !== '') {
+                $bind = BizCity_Channel_Binding::resolve($bind_platform, $bind_account);
+                if (is_array($bind) && !empty($bind['character_id'])) {
+                    $character_id = (int) $bind['character_id'];
+                }
+            }
+        }
+        if ($character_id <= 0) {
+            $character_id = (int) get_option('bizcity_knowledge_default_character');
+        }
         if ($character_id && class_exists('BizCity_Character')) {
             $result = bizcity_query_character($character_id, $question, [
                 'platform' => $platform,
@@ -487,8 +512,23 @@ function bizgpt_chatbot_run_guest_flows($question, $platform = 'webchat', $data_
     }
     
     // 6) Trả về
-    $msgs = apply_filters('bizgpt_after_handle_guest_flows', $msgs, $platform, $question);
-    
+    // Phase 0.99.3: canonical filter is `bizcity_after_handle_guest_flows`.
+    // Legacy `bizgpt_after_handle_guest_flows` is still applied (back-compat)
+    // and emits a deprecation notice via BizCity_Deprecation when listeners
+    // are attached. Will be removed in 2.0.0.
+    $msgs = apply_filters( 'bizcity_after_handle_guest_flows', $msgs, $platform, $question );
+    if ( has_filter( 'bizgpt_after_handle_guest_flows' ) ) {
+        if ( class_exists( 'BizCity_Deprecation' ) ) {
+            BizCity_Deprecation::notify_filter(
+                'bizgpt_after_handle_guest_flows',
+                'bizcity_after_handle_guest_flows',
+                '1.0.0',
+                'Legacy bizgpt_* prefix replaced by bizcity_* namespace.'
+            );
+        }
+        $msgs = apply_filters( 'bizgpt_after_handle_guest_flows', $msgs, $platform, $question );
+    }
+
     foreach ($msgs as &$m) {
         $m['transcript'] = $question;
     }

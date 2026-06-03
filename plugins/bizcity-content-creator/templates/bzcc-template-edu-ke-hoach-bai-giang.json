@@ -1,0 +1,133 @@
+{
+  "version": "1.0",
+  "plugin": "bizcity-content-creator",
+  "exported": "2026-05-19T12:00:00Z",
+  "templates": [
+    {
+      "slug": "edu-ke-hoach-bai-giang-toan-dien",
+      "category_id": "hoc-tap",
+      "title": "Tạo Kế hoạch bài giảng toàn diện",
+      "description": "Xây dựng giáo án chi tiết cho bất kỳ môn học, cấp học nào theo cấu trúc 5E (Engage → Explore → Explain → Elaborate → Evaluate) hoặc Khởi động → Khám phá → Luyện tập → Vận dụng → Đánh giá. Bao gồm timing, hoạt động học sinh, vai trò giáo viên, và đồ dùng cần thiết.",
+      "icon_url": "",
+      "icon_emoji": "📖",
+      "form_fields": [
+        {
+          "slug": "subject",
+          "label": "Môn học bạn giảng dạy?",
+          "type": "text",
+          "placeholder": "VD: Ngữ văn, Toán, Vật lý, Lịch sử, Tin học...",
+          "required": true,
+          "grid": "half",
+          "sort_order": 1
+        },
+        {
+          "slug": "lesson_topic",
+          "label": "Nội dung bài giảng bạn cần thiết kế",
+          "type": "textarea",
+          "placeholder": "VD: Bài 5 — Định luật II Newton; Phân tích nhân vật Chí Phèo; Câu điều kiện loại 2...",
+          "required": true,
+          "grid": "half",
+          "sort_order": 2
+        },
+        {
+          "slug": "grade_level",
+          "label": "Cấp học giảng dạy",
+          "type": "card_radio",
+          "required": true,
+          "grid": "full",
+          "sort_order": 3,
+          "options": [
+            { "value": "mam-non", "label": "Mầm non", "icon": "🧸" },
+            { "value": "cap-1", "label": "Cấp 1 — Tiểu học", "icon": "🎒" },
+            { "value": "cap-2", "label": "Cấp 2 — Phổ thông cơ sở", "icon": "📘" },
+            { "value": "cap-3", "label": "Cấp 3 — Phổ thông trung học", "icon": "🎓" },
+            { "value": "dh-cd", "label": "Đại học / Cao đẳng", "icon": "🏛️" },
+            { "value": "sau-dh", "label": "Sau đại học", "icon": "🎓" }
+          ]
+        },
+        {
+          "slug": "duration",
+          "label": "Thời lượng tiết học",
+          "type": "select",
+          "required": false,
+          "grid": "half",
+          "sort_order": 4,
+          "options": [
+            { "value": "35", "label": "35 phút (Tiểu học)" },
+            { "value": "45", "label": "45 phút (1 tiết chuẩn)" },
+            { "value": "60", "label": "60 phút" },
+            { "value": "90", "label": "90 phút (2 tiết)" },
+            { "value": "120", "label": "120 phút" }
+          ]
+        },
+        {
+          "slug": "framework",
+          "label": "Cấu trúc giáo án",
+          "type": "button_group",
+          "required": false,
+          "grid": "half",
+          "sort_order": 5,
+          "multi": false,
+          "options": [
+            { "value": "5e", "label": "🔄 5E (Engage-Explore-Explain-Elaborate-Evaluate)" },
+            { "value": "vn-5buoc", "label": "🇻🇳 5 bước VN (Khởi động-Khám phá-Luyện tập-Vận dụng-Đánh giá)" },
+            { "value": "ddh", "label": "🎯 Direct Instruction (Trực tiếp)" },
+            { "value": "flip", "label": "🔄 Lớp học đảo ngược (Flipped)" },
+            { "value": "auto", "label": "🤖 AI tự chọn phù hợp" }
+          ]
+        },
+        {
+          "slug": "objectives",
+          "label": "Mục tiêu bài học (nếu có)",
+          "type": "textarea",
+          "placeholder": "VD: HS hiểu được công thức F=ma, vận dụng giải bài tập đơn giản, có thái độ tích cực với môn học... (để trống AI tự đề xuất)",
+          "required": false,
+          "grid": "full",
+          "sort_order": 6
+        },
+        {
+          "slug": "class_size",
+          "label": "Sĩ số lớp",
+          "type": "select",
+          "required": false,
+          "grid": "half",
+          "sort_order": 7,
+          "options": [
+            { "value": "small", "label": "Nhỏ (< 15 HS)" },
+            { "value": "medium", "label": "Vừa (15-30 HS)" },
+            { "value": "large", "label": "Lớn (30-45 HS)" },
+            { "value": "very-large", "label": "Rất lớn (> 45 HS)" }
+          ]
+        },
+        {
+          "slug": "available_tools",
+          "label": "Thiết bị / đồ dùng sẵn có",
+          "type": "textarea",
+          "placeholder": "VD: Máy chiếu, bảng tương tác, dụng cụ thí nghiệm, sách giáo khoa, laptop HS...",
+          "required": false,
+          "grid": "half",
+          "sort_order": 8
+        }
+      ],
+
+      "system_prompt": "Bạn là chuyên gia thiết kế giáo án theo chuẩn Chương trình GDPT 2018 của Bộ GD&ĐT VN, đồng thời nắm vững các framework hiện đại (5E, Backward Design, Lớp học đảo ngược, Project-Based Learning). Bạn đã hỗ trợ hàng nghìn giáo viên VN xây dựng giáo án đạt chuẩn.\n\n## THÔNG TIN\n- Môn: {{subject}}\n- Bài: {{lesson_topic}}\n- Cấp: {{grade_level}}\n- Thời lượng: {{duration}} phút\n- Cấu trúc: {{framework}}\n- Mục tiêu: {{objectives}}\n- Sĩ số: {{class_size}}\n- Thiết bị: {{available_tools}}\n\n## NGUYÊN TẮC\n1. **Lấy học sinh làm trung tâm** — HS tham gia hoạt động chiếm > 60% thời lượng\n2. **Mục tiêu SMART** — cụ thể, đo lường được, khả thi, liên quan, có thời gian\n3. **Phù hợp tâm lý lứa tuổi** — hoạt động khớp với khả năng tập trung từng cấp (tiểu học ~15p, cấp 2 ~25p, cấp 3 ~40p)\n4. **Đa dạng phương pháp** — kết hợp thuyết trình, thảo luận, thực hành, trò chơi, công nghệ\n5. **Phân hoá** — có hoạt động cho HS yếu, trung bình, khá giỏi\n6. **Đánh giá tích hợp** — đánh giá thường xuyên (formative) lồng trong tiến trình, không chỉ cuối buổi\n7. **Liên hệ thực tế** — mọi khái niệm có ví dụ đời sống / nghề nghiệp / VN\n8. **Phát triển năng lực** — bám 5 phẩm chất + 10 năng lực theo GDPT 2018\n\n## CHUẨN ĐẦU RA THEO 3 CẤP\n- Kiến thức (HS biết / hiểu gì)\n- Kỹ năng (HS làm được gì)\n- Thái độ (HS cảm nhận / hành động gì)",
+
+      "outline_prompt": "Tạo outline giáo án '{{lesson_topic}}' (môn {{subject}}, cấp {{grade_level}}, {{duration}} phút, cấu trúc {{framework}}).\n\nOutline gồm 6 section:\n1. Tổng quan & Mục tiêu\n2. Chuẩn bị (đồ dùng, tài liệu)\n3. Tiến trình giảng dạy (chi tiết theo từng pha của framework)\n4. Phân hoá học sinh & Hoạt động dự phòng\n5. Đánh giá & Bài tập về nhà\n6. Phụ lục (slide gợi ý, tài liệu phát, hướng dẫn mở rộng)\n\nTRẢ VỀ JSON:\n[\n  {\"label\": \"Tổng quan & Mục tiêu\", \"emoji\": \"🎯\", \"platform\": \"general\"},\n  {\"label\": \"Chuẩn bị\", \"emoji\": \"📦\", \"platform\": \"general\"},\n  {\"label\": \"Tiến trình giảng dạy\", \"emoji\": \"🗺️\", \"platform\": \"general\"},\n  {\"label\": \"Phân hoá & Hoạt động dự phòng\", \"emoji\": \"🎨\", \"platform\": \"general\"},\n  {\"label\": \"Đánh giá & Bài tập về nhà\", \"emoji\": \"📝\", \"platform\": \"general\"},\n  {\"label\": \"Phụ lục\", \"emoji\": \"📎\", \"platform\": \"general\"}\n]",
+
+      "chunk_prompt": "Bạn đang viết phần \"{{chunk_title}}\" của giáo án '{{lesson_topic}}' ({{duration}}p, {{grade_level}}, framework {{framework}}).\n\n## CONTEXT\n- Môn: {{subject}}\n- Sĩ số: {{class_size}}\n- Thiết bị: {{available_tools}}\n- Mục tiêu: {{objectives}}\n\n## YÊU CẦU TỪNG SECTION\n\n### Tổng quan & Mục tiêu\n- Tên bài + vị trí trong chương trình\n- 3 nhóm mục tiêu (kiến thức / kỹ năng / thái độ) — viết theo Bloom's verb (HS sẽ NÊU được, PHÂN TÍCH được, ÁP DỤNG được...)\n- 2-3 phẩm chất + 3-4 năng lực phát triển (theo GDPT 2018)\n- Kết nối với bài trước & bài sau\n\n### Chuẩn bị\n- Giáo viên: tài liệu, slide, phiếu học tập, dụng cụ\n- Học sinh: chuẩn bị trước (đọc bài, dụng cụ cá nhân)\n- Không gian lớp (sắp xếp bàn ghế nếu cần)\n- Backup plan nếu thiếu thiết bị\n\n### Tiến trình giảng dạy — QUAN TRỌNG NHẤT\nTrình bày DƯỚI DẠNG BẢNG chi tiết:\n\n| Pha (Time) | Hoạt động GV | Hoạt động HS | Mục tiêu pha | Đồ dùng |\n|---|---|---|---|---|\n| Khởi động (5p) | ... | ... | ... | ... |\n\nMỗi pha theo framework {{framework}}:\n- Mô tả cụ thể GV nói gì / làm gì\n- HS làm gì / trả lời gì / kết quả mong đợi\n- Câu hỏi chốt của pha (key question)\n- Tiêu chí thành công\n- Lưu ý sư phạm (xử lý nếu HS không tham gia, nếu mất quá thời gian...)\n\nĐảm bảo tổng thời gian = {{duration}} phút.\n\n### Phân hoá & Hoạt động dự phòng\n- Hoạt động cho HS yếu (đơn giản hoá, hỗ trợ thêm)\n- Hoạt động cho HS khá-giỏi (mở rộng, thử thách)\n- Hoạt động dự phòng nếu kết thúc sớm (extension activity)\n- Hoạt động rút gọn nếu thiếu thời gian (cắt bỏ phần nào, gộp phần nào)\n\n### Đánh giá & Bài tập về nhà\n- Đánh giá quá trình (formative) — đã lồng trong tiến trình\n- Đánh giá cuối tiết — 3-5 câu hỏi nhanh (quiz, exit ticket, 1-minute paper)\n- Bài tập về nhà — phù hợp khả năng, không quá 30 phút\n- Hướng dẫn HS chuẩn bị bài kế tiếp\n\n### Phụ lục\n- Gợi ý slide (5-8 slide chính, mỗi slide 1 dòng nội dung)\n- Mẫu phiếu học tập (1 phiếu)\n- 3 nguồn tài liệu mở rộng (sách, video, website)\n- Câu chuyện / ví dụ gây ấn tượng để mở bài\n- Lưu ý xử lý các tình huống thường gặp\n\n## QUY TẮC\n- KHÔNG mở đầu bằng 'Dưới đây là...'\n- Bảng tiến trình PHẢI chi tiết, không tóm tắt\n- Ngôn ngữ chuyên môn sư phạm, phù hợp giáo viên VN\n- Tiếng Việt thuần",
+
+      "model_purpose": "content_creation",
+      "temperature": "0.65",
+      "max_tokens": "10000",
+      "wizard_steps": [],
+      "output_platforms": ["general"],
+      "skill_id": "0",
+      "tags": "giao-duc,hoc-tap,giao-an,bai-giang,5E,lesson-plan,gdpt-2018",
+      "badge_text": "HOT",
+      "badge_color": "#ef4444",
+      "is_featured": "1",
+      "sort_order": "2",
+      "status": "active"
+    }
+  ]
+}

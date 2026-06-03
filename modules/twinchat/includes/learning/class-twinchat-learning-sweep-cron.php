@@ -116,10 +116,37 @@ class BizCity_TwinChat_Learning_Sweep_Cron {
 			return;
 		}
 
+		// Force per-blog schema migration. On fresh blogs (e.g. multisite
+		// 1157/1149 that never opened a notebook) this CREATEs the KG tables
+		// on the master so the SELECT below has something to read.
+		// Cheap thanks to the static `$migrated_blogs` cache inside the class.
+		BizCity_KG_Database::instance();
+
 		$chunks_tbl = BizCity_KG_Database::instance()->tbl_source_chunks();
 		$jobs_tbl   = BizCity_TwinChat_Learning_Database::instance()->table_jobs();
 		$cap        = (int) self::MAX_PER_TICK;
 		$stale      = (int) self::STALE_AFTER_MIN;
+
+		// Bug fix 2026-05-08 — replica-missing-table guard.
+		// On read replicas (slave2) that lag or were never seeded for a fresh
+		// blog, `wp_<bid>_bizcity_kg_passages` may not exist yet even after
+		// migration ran on master. The router routes SELECT → replica, so the
+		// query below would emit a noisy "Table doesn't exist" every 15 min.
+		// SHOW TABLES on the same connection-class (read) is a cheap probe.
+		$prev = $wpdb->suppress_errors( true );
+		$exists = (string) $wpdb->get_var( $wpdb->prepare(
+			'SHOW TABLES LIKE %s',
+			$wpdb->esc_like( $chunks_tbl )
+		) );
+		$wpdb->suppress_errors( $prev );
+		if ( $exists !== $chunks_tbl ) {
+			// Reset last_error so the next caller does not see our suppressed
+			// "table doesn't exist" probe error and misclassify it.
+			$wpdb->last_error = '';
+			update_option( self::OPT_LAST_TS, time(), false );
+			update_option( self::OPT_LAST_COUNT, 0, false );
+			return;
+		}
 
 		// Stranded (notebook, source) pairs.
 		// PHASE-0.13 Wave 10d — exclude chat-promoted passages (`source_id IS NULL`).
@@ -171,6 +198,15 @@ class BizCity_TwinChat_Learning_Sweep_Cron {
 				$owner_id = (int) $wpdb->get_var( $wpdb->prepare(
 					"SELECT owner_id FROM {$nb_tbl} WHERE id = %d", $nb
 				) );
+			}
+
+			// PHASE-0.7 Pro-Tier: skip sweep enqueue when the owner is in
+			// quota cooldown (otherwise sweep keeps re-creating jobs that
+			// immediately pause, burning the singleton-guard slot).
+			if ( $owner_id > 0
+			     && class_exists( 'BizCity_TwinChat_Learning_Quota_Cooldown' )
+			     && BizCity_TwinChat_Learning_Quota_Cooldown::get_block( $owner_id ) ) {
+				continue;
 			}
 
 			$res = $queue->enqueue( [

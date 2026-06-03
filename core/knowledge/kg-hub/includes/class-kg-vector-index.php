@@ -98,6 +98,7 @@ class BizCity_KG_Vector_Index {
 
 	/**
 	 * Search entities in a notebook by query text.
+	 * Wave 1.3 — includes attached-guru entities via virtual-merge WHERE.
 	 *
 	 * @return array  [ ['id', 'name', 'type', 'score'], ... ]
 	 */
@@ -105,32 +106,35 @@ class BizCity_KG_Vector_Index {
 		global $wpdb;
 		$db    = BizCity_KG_Database::instance();
 		$table = $db->tbl_entities();
+		$where = $db->build_virtual_merge_where( (int) $notebook_id );
 
-		$rows = $wpdb->get_results( $wpdb->prepare(
+		$rows = $wpdb->get_results(
 			"SELECT id, name, type, embedding FROM {$table}
-			 WHERE notebook_id = %d AND status = 'approved' AND embedding IS NOT NULL
+			 WHERE ({$where}) AND status = 'approved' AND embedding IS NOT NULL
 			   AND deleted_at IS NULL",
-			$notebook_id
-		), ARRAY_A );
+			ARRAY_A
+		);
 
 		return $this->rank( $query_vec, $rows ?: [], $top_k, $threshold );
 	}
 
 	/**
 	 * Search relations in a notebook by query text.
+	 * Wave 1.3 — includes attached-guru relations via virtual-merge WHERE.
 	 */
 	public function search_relations( $notebook_id, $query_vec, $top_k = 20, $threshold = 0.0 ) {
 		global $wpdb;
 		$db    = BizCity_KG_Database::instance();
 		$table = $db->tbl_relations();
+		$where = $db->build_virtual_merge_where( (int) $notebook_id );
 
-		$rows = $wpdb->get_results( $wpdb->prepare(
+		$rows = $wpdb->get_results(
 			"SELECT id, head_entity_id, tail_entity_id, predicate, relation_text, embedding
 			 FROM {$table}
-			 WHERE notebook_id = %d AND status = 'approved' AND embedding IS NOT NULL
+			 WHERE ({$where}) AND status = 'approved' AND embedding IS NOT NULL
 			   AND deleted_at IS NULL",
-			$notebook_id
-		), ARRAY_A );
+			ARRAY_A
+		);
 
 		return $this->rank( $query_vec, $rows ?: [], $top_k, $threshold );
 	}
@@ -153,11 +157,16 @@ class BizCity_KG_Vector_Index {
 		// ingest) come BEFORE chat-promoted passages (source_id IS NULL). This
 		// keeps authoritative sources from being crowded out by conversational
 		// memory when a notebook accumulates many chat turns.
-		$sql = "SELECT DISTINCT p.id, p.content, p.source_id, p.notebook_id
+		$sql = "SELECT DISTINCT p.id, p.content, p.source_id, p.notebook_id, p.metadata,
+		                p.storage_ver, p.file_shard, p.file_offset, p.file_length
 				FROM {$db->tbl_passages()} p
 				INNER JOIN {$db->tbl_passage_relations()} pr ON pr.passage_id = p.id
 				WHERE pr.relation_id IN ({$ids_csv})
 				ORDER BY (p.source_id IS NULL) ASC, p.id DESC";
-		return $wpdb->get_results( $sql, ARRAY_A ) ?: [];
+		$rows = $wpdb->get_results( $sql, ARRAY_A ) ?: [];
+		if ( $rows && class_exists( 'BizCity_KG_Content_Router' ) ) {
+			BizCity_KG_Content_Router::instance()->hydrate_passages( $rows );
+		}
+		return $rows;
 	}
 }

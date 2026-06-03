@@ -1,0 +1,172 @@
+{
+  "$schema": "https://bizcity.vn/schema/diagnostics-changelog-v1.json",
+  "module_id": "core.knowledge.kg-hub",
+  "owner": "core/knowledge/kg-hub",
+  "installer_id": "kg_hub",
+  "current_version": "0.27.0",
+  "version_option": "bizcity_kg_db_version",
+  "tables": {
+    "bizcity_kg_notebooks": {
+      "since": "0.1.0",
+      "purpose": "Notebook = lăng kính độc lập trên một bộ nguồn (R-MPR/R-SK). Owns skeleton_json (Skeleton-First R-SK), perspective_embedding (TwinBrain notebook selector), artifacts_json (R-AF federation).",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":                    { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "0.1.0", "pk": true },
+        "uuid":                  { "type": "CHAR(36) NULL",                            "since": "0.20.0" },
+        "name":                  { "type": "VARCHAR(255) NOT NULL",                    "since": "0.1.0" },
+        "description":           { "type": "TEXT",                                     "since": "0.1.0" },
+        "character_id":          { "type": "BIGINT UNSIGNED DEFAULT NULL",             "since": "0.1.0" },
+        "owner_id":              { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",       "since": "0.1.0" },
+        "color":                 { "type": "VARCHAR(20) DEFAULT ''",                   "since": "0.1.0" },
+        "settings":              { "type": "TEXT",                                     "since": "0.1.0" },
+        "stats":                 { "type": "TEXT",                                     "since": "0.1.0" },
+        "created_at":            { "type": "DATETIME DEFAULT CURRENT_TIMESTAMP",       "since": "0.1.0" },
+        "updated_at":            { "type": "DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", "since": "0.1.0" },
+        "artifacts_json":        { "type": "LONGTEXT NULL",                            "since": "0.20.0" },
+        "skeleton_json":         { "type": "LONGTEXT NULL",                            "since": "0.23.0" },
+        "skeleton_version":      { "type": "INT UNSIGNED NOT NULL DEFAULT 0",          "since": "0.23.0" },
+        "skeleton_built_at":     { "type": "DATETIME NULL",                            "since": "0.23.0" },
+        "skeleton_status":       { "type": "VARCHAR(20) NOT NULL DEFAULT ''",          "since": "0.23.0" },
+        "perspective_label":     { "type": "VARCHAR(120) NULL",                        "since": "0.24.0" },
+        "perspective_summary":   { "type": "TEXT NULL",                                "since": "0.24.0" },
+        "perspective_embedding": { "type": "LONGTEXT NULL",                            "since": "0.24.0" },
+        "topic_keywords":        { "type": "TEXT NULL",                                "since": "0.24.0" },
+        "entity_pins":           { "type": "TEXT NULL",                                "since": "0.24.0" },
+        "user_priority":         { "type": "TINYINT NOT NULL DEFAULT 0",               "since": "0.24.0" }
+      },
+      "indexes": {
+        "owner_id":              { "cols": ["owner_id"],          "since": "0.1.0" },
+        "character_id":          { "cols": ["character_id"],      "since": "0.1.0" },
+        "uq_notebook_uuid":      { "cols": ["uuid"],              "unique": true, "since": "0.20.0" },
+        "idx_nb_owner_id":       { "cols": ["owner_id"],          "since": "0.20.0" },
+        "idx_nb_skeleton_status":{ "cols": ["skeleton_status"],   "since": "0.23.0" }
+      }
+    },
+    "bizcity_kg_skeleton_history": {
+      "since": "0.25.0",
+      "purpose": "Phase 6.6 S3.1 — immutable history of reflected skeletons per notebook (version-aware audit trail + LLM cost meta). Adapter reads via list_versions()/get_skeleton_at_version(); retention 20 latest + 5 milestone (every 10th).",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":              { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "0.25.0", "pk": true },
+        "notebook_id":     { "type": "BIGINT UNSIGNED NOT NULL",                "since": "0.25.0" },
+        "version":         { "type": "INT UNSIGNED NOT NULL",                   "since": "0.25.0" },
+        "skeleton_json":   { "type": "LONGTEXT NOT NULL",                       "since": "0.25.0" },
+        "trigger_reason":  { "type": "VARCHAR(40) NOT NULL DEFAULT 'ingest'",   "since": "0.25.0" },
+        "llm_model":       { "type": "VARCHAR(80) NULL",                        "since": "0.25.0" },
+        "token_in":        { "type": "INT UNSIGNED NULL",                       "since": "0.25.0" },
+        "token_out":       { "type": "INT UNSIGNED NULL",                       "since": "0.25.0" },
+        "cost_cents":      { "type": "INT UNSIGNED NULL",                       "since": "0.25.0" },
+        "built_at":        { "type": "DATETIME NOT NULL",                       "since": "0.25.0" }
+      },
+      "indexes": {
+        "uk_notebook_version": { "cols": ["notebook_id", "version"],  "unique": true, "since": "0.25.0" },
+        "idx_notebook_built":  { "cols": ["notebook_id", "built_at"], "since": "0.25.0" }
+      }
+    },
+    "bizcity_kg_sources": {
+      "since": "0.6.0",
+      "purpose": "Unified source layer (Phase 0.6) — canonical doc per artifact; consumed by Graph-RAG, TwinChat sources sidebar, persona provider.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":             { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "0.6.0", "pk": true },
+        "uuid":           { "type": "CHAR(36) NOT NULL",                       "since": "0.6.0" },
+        "blog_id":        { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 1",      "since": "0.6.0" },
+        "origin_plugin":  { "type": "VARCHAR(64) NOT NULL",                    "since": "0.6.0" },
+        "origin_kind":    { "type": "VARCHAR(32) NOT NULL",                    "since": "0.6.0" },
+        "origin_id":      { "type": "BIGINT UNSIGNED DEFAULT NULL",            "since": "0.6.0" },
+        "title":          { "type": "VARCHAR(512) DEFAULT NULL",               "since": "0.6.0" },
+        "origin_url":     { "type": "TEXT DEFAULT NULL",                       "since": "0.6.0" },
+        "content_text":   { "type": "LONGTEXT DEFAULT NULL",                   "since": "0.6.0" },
+        "status":         { "type": "VARCHAR(20) NOT NULL DEFAULT 'active'",   "since": "0.6.0" },
+        "scope_type":     { "type": "VARCHAR(32) NOT NULL DEFAULT 'notebook'", "since": "0.6.0" },
+        "scope_id":       { "type": "VARCHAR(64) NOT NULL DEFAULT ''",         "since": "0.6.0" },
+        "user_id":        { "type": "BIGINT UNSIGNED DEFAULT NULL",            "since": "0.6.0" },
+        "passage_count":  { "type": "INT UNSIGNED DEFAULT 0",                  "since": "0.6.0" },
+        "embed_model":    { "type": "VARCHAR(128) DEFAULT NULL",               "since": "0.6.0" },
+        "created_at":     { "type": "DATETIME DEFAULT CURRENT_TIMESTAMP",      "since": "0.6.0" },
+        "updated_at":     { "type": "DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", "since": "0.6.0" }
+      },
+      "indexes": {
+        "uq_uuid":         { "cols": ["uuid"],                       "unique": true, "since": "0.6.0" },
+        "idx_scope":       { "cols": ["scope_type", "scope_id"],     "since": "0.6.0" },
+        "idx_blog_origin": { "cols": ["blog_id", "origin_plugin"],   "since": "0.6.0" },
+        "idx_status":      { "cols": ["status"],                     "since": "0.6.0" }
+      }
+    },
+    "bizcity_kg_passages": {
+      "since": "0.6.0",
+      "purpose": "Promoted chunks / notes / chat snippets — primary embedding storage for KG retrieval.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":                 { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "0.6.0", "pk": true },
+        "notebook_id":        { "type": "BIGINT UNSIGNED NOT NULL",                "since": "0.6.0" },
+        "source_id":          { "type": "BIGINT UNSIGNED DEFAULT NULL",            "since": "0.6.0" },
+        "chunk_id":           { "type": "BIGINT UNSIGNED DEFAULT NULL",            "since": "0.6.0" },
+        "origin":             { "type": "VARCHAR(100) NOT NULL DEFAULT 'source'",  "since": "0.6.0" },
+        "content":            { "type": "TEXT NOT NULL",                            "since": "0.6.0" },
+        "content_hash":       { "type": "VARCHAR(64) NOT NULL DEFAULT ''",         "since": "0.6.0" },
+        "embedding":          { "type": "LONGTEXT",                                 "since": "0.6.0" },
+        "token_count":        { "type": "INT UNSIGNED DEFAULT 0",                  "since": "0.6.0" },
+        "extraction_status":  { "type": "ENUM('pending','processing','done','error','skipped') DEFAULT 'pending'", "since": "0.6.0" },
+        "extraction_error":   { "type": "TEXT",                                     "since": "0.6.0" },
+        "metadata":           { "type": "TEXT",                                     "since": "0.6.0" },
+        "storage_ver":        { "type": "TINYINT UNSIGNED NOT NULL DEFAULT 1",     "since": "0.24.0" },
+        "file_shard":         { "type": "INT UNSIGNED DEFAULT NULL",                "since": "0.24.0" },
+        "file_offset":        { "type": "BIGINT UNSIGNED DEFAULT NULL",             "since": "0.24.0" },
+        "file_length":        { "type": "INT UNSIGNED DEFAULT NULL",                "since": "0.24.0" },
+        "created_at":         { "type": "DATETIME DEFAULT CURRENT_TIMESTAMP",      "since": "0.6.0" },
+        "updated_at":         { "type": "DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", "since": "0.6.0" }
+      },
+      "indexes": {
+        "idx_notebook":          { "cols": ["notebook_id"],       "since": "0.6.0" },
+        "idx_source":            { "cols": ["source_id"],         "since": "0.6.0" },
+        "idx_chunk":             { "cols": ["chunk_id"],          "since": "0.6.0" },
+        "idx_hash":              { "cols": ["content_hash"],      "since": "0.6.0" },
+        "idx_extraction_status": { "cols": ["extraction_status"], "since": "0.6.0" },
+        "idx_storage_ver":       { "cols": ["storage_ver", "id"], "since": "0.24.0" }
+      }
+    },
+    "bizcity_kg_source_progress_log": {
+      "since": "0.26.0",
+      "purpose": "PHASE-0.13 Wave 10c — append-only per-source learning evidence trail (extract_started / passage_done / passage_error / batch_done / sweep_enqueued / force_reset / complete / aggregate_drop). Diagnoses the '100% → 0% reset → re-loop' loop bug. Owns its own version option (NOT bizcity_kg_db_version).",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "version_option_override": "bizcity_kg_source_progress_log_version",
+      "columns": {
+        "id":           { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "0.26.0", "pk": true },
+        "notebook_id":  { "type": "BIGINT UNSIGNED DEFAULT NULL",            "since": "0.26.0" },
+        "source_id":    { "type": "BIGINT UNSIGNED DEFAULT NULL",            "since": "0.26.0" },
+        "passage_id":   { "type": "BIGINT UNSIGNED DEFAULT NULL",            "since": "0.26.0" },
+        "event":        { "type": "VARCHAR(40) NOT NULL",                    "since": "0.26.0" },
+        "triggered_by": { "type": "VARCHAR(40) NOT NULL DEFAULT 'system'",   "since": "0.26.0" },
+        "counts_total": { "type": "INT UNSIGNED DEFAULT NULL",               "since": "0.26.0" },
+        "counts_done":  { "type": "INT UNSIGNED DEFAULT NULL",               "since": "0.26.0" },
+        "counts_error": { "type": "INT UNSIGNED DEFAULT NULL",               "since": "0.26.0" },
+        "payload":      { "type": "TEXT",                                    "since": "0.26.0" },
+        "created_at":   { "type": "DATETIME DEFAULT CURRENT_TIMESTAMP",      "since": "0.26.0" }
+      },
+      "indexes": {
+        "source_id":   { "cols": ["source_id"],   "since": "0.26.0" },
+        "notebook_id": { "cols": ["notebook_id"], "since": "0.26.0" },
+        "event":       { "cols": ["event"],       "since": "0.26.0" },
+        "created_at":  { "cols": ["created_at"],  "since": "0.26.0" }
+      }
+    }
+  },
+  "history": [
+    { "version": "0.6.0",  "date": "2026-04-01", "change": "Initial declaration of kg-hub unified source layer (kg_sources + kg_passages). Other 14 kg-hub tables to be added incrementally." },
+    { "version": "0.24.0", "date": "2026-05-20", "change": "Wave 0.7 LEARN-VECTOR-FILE F0: add storage_ver/file_shard/file_offset/file_length + idx_storage_ver to bizcity_kg_passages. Gating bit per-row for inline→filestore migration (R-LEARN §1). Idempotent ADD-only; storage_ver defaults to 1 so legacy rows remain readable from MySQL." },
+    { "version": "0.25.0", "date": "2026-05-24", "change": "Phase 6.6 S1.1 + S3.1 (R-SK-DOC): declare bizcity_kg_notebooks (base + skeleton_* + perspective_* + artifacts_json) — close R-DCL gap that allowed skeleton_json=NULL silent failures across prod; create bizcity_kg_skeleton_history for version-aware audit trail with LLM cost meta (R-CRON-META compatible)." },
+    { "version": "0.26.0", "date": "2026-05-25", "change": "Declare bizcity_kg_source_progress_log (PHASE-0.13 Wave 10c). Close R-DCL gap that allowed blog-1458 to keep flooding error_log with 'Table wp_1458_bizcity_kg_source_progress_log doesn't exist'. Owns its own version option (bizcity_kg_source_progress_log_version) — installer is BizCity_KG_Source_Progress_Log::maybe_install (NOT BizCity_KG_Database). Self-heal: maybe_install now verifies physical SHOW TABLES result before trusting the version option, retries dbDelta when option set but table missing." },
+    { "version": "0.27.0", "date": "2026-05-27", "change": "Phase 0.42 (LiteParse layout-preserving): no DDL change. kg_passages.meta_json + kg_sources.meta_json gain optional read-with-default keys: `engine` (smalot|pdftotext|builtin|liteparse|liteparse_http), `liteparse_version`, `screenshot_path` (relative to wp-content/uploads/twin-vectors/{blog}/screenshots/{sha256}/p{N}.png), `bbox_blocks[]` ({page, x1, y1, x2, y2, text}). New modalities: `pdf_layout`, `office_layout`, `image_layout` (sibling of pdf_text / office). Adapter registry prefers LiteParse for Pro tier via filter `bizcity_kg_source_adapters` — gated by BizCity_Entitlement::can($uid, 'learning.layout_parse'); fail-safe falls back to existing Smalot/pdftotext Tier-1 when CLI/sidecar unavailable. See modules/twinchat/docs/PHASE-0.42-LITEPARSE-LAYOUT-PRESERVING.md." }
+  ]
+}

@@ -22,9 +22,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 <!-- ── Header ── -->
 <div class="bzcc-header">
 	<div class="bzcc-header__left">
-		<span class="bzcc-header__icon">✨</span>
+		<span class="bzcc-header__icon">🧠</span>
 		<div>
-			<h1 class="bzcc-header__title">Content Creator</h1>
+			<h1 class="bzcc-header__title">Brain Factory <span class="bzcc-header__subtitle">— Nhà máy não số</span></h1>
 			<p class="bzcc-header__desc">Chọn công cụ và tạo nội dung chuyên nghiệp với AI</p>
 		</div>
 	</div>
@@ -34,44 +34,108 @@ if ( ! defined( 'ABSPATH' ) ) {
 	</div>
 </div>
 
-<?php if ( ! empty( $featured ) ) : ?>
-<!-- ── Featured Templates ── -->
-<section class="bzcc-section">
-	<h2 class="bzcc-section__title">
-		<span class="bzcc-section__emoji">⭐</span>
-		Công cụ nổi bật
-	</h2>
-	<div class="bzcc-featured-grid">
-		<?php foreach ( $featured as $tpl ) :
-			$form_url = BZCC_Frontend::get_template_url( (int) $tpl->id );
-
-			$badge_style = '';
-			if ( $tpl->badge_color ) {
-				$badge_style = 'background:' . esc_attr( $tpl->badge_color ) . ';color:#fff;';
-			}
-		?>
-		<a href="<?php echo esc_url( $form_url ); ?>" class="bzcc-featured-card" data-template-id="<?php echo (int) $tpl->id; ?>">
-			<?php if ( $tpl->badge_text ) : ?>
-				<span class="bzcc-featured-card__badge" style="<?php echo $badge_style; ?>"><?php echo esc_html( $tpl->badge_text ); ?></span>
-			<?php endif; ?>
-			<div class="bzcc-featured-card__icon">
-				<?php if ( $tpl->icon_url ) : ?>
-					<img src="<?php echo esc_url( $tpl->icon_url ); ?>" alt="" class="bzcc-icon-img">
-				<?php else : ?>
-					<span class="bzcc-icon-emoji"><?php echo esc_html( $tpl->icon_emoji ?: '📝' ); ?></span>
-				<?php endif; ?>
-			</div>
-			<h3 class="bzcc-featured-card__title"><?php echo esc_html( $tpl->title ); ?></h3>
-			<p class="bzcc-featured-card__desc"><?php echo esc_html( $tpl->description ); ?></p>
-			<div class="bzcc-featured-card__meta">
-				<span class="bzcc-use-count">
-					<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-					<?php echo number_format_i18n( $tpl->use_count ); ?> lượt dùng
-				</span>
-			</div>
-		</a>
-		<?php endforeach; ?>
+<?php
+$has_featured = ! empty( $featured );
+$has_results  = ! empty( $recent_results );
+$history_url  = home_url( 'creator/history/' );
+$status_emoji = [
+	'pending'       => '⏳',
+	'outline_draft' => '📝',
+	'generating'    => '⚡',
+	'completed'     => '✅',
+	'failed'        => '❌',
+];
+$default_tab  = $has_results ? 'results' : 'featured';
+?>
+<?php if ( $has_featured || $has_results ) : ?>
+<!-- ── Hero Tabs (Featured / Recent Results) ── -->
+<section class="bzcc-section bzcc-hero-tabs" data-active-tab="<?php echo esc_attr( $default_tab ); ?>">
+	<div class="bzcc-tabs">
+		<?php if ( $has_featured ) : ?>
+		<button type="button" class="bzcc-tab <?php echo 'featured' === $default_tab ? 'bzcc-tab--active' : ''; ?>" data-tab="featured">
+			<span class="bzcc-tab__emoji">⭐</span>
+			<span class="bzcc-tab__label">Công cụ nổi bật</span>
+		</button>
+		<?php endif; ?>
+		<?php if ( $has_results ) : ?>
+		<button type="button" class="bzcc-tab <?php echo 'results' === $default_tab ? 'bzcc-tab--active' : ''; ?>" data-tab="results">
+			<span class="bzcc-tab__emoji">📄</span>
+			<span class="bzcc-tab__label">Kết quả gần đây</span>
+			<span class="bzcc-tab__count"><?php echo (int) $recent_total; ?></span>
+		</button>
+		<?php endif; ?>
+		<?php if ( $has_results ) : ?>
+		<a href="<?php echo esc_url( $history_url ); ?>" class="bzcc-tabs__more">Xem tất cả →</a>
+		<?php endif; ?>
 	</div>
+
+	<?php if ( $has_featured ) : ?>
+	<div class="bzcc-tab-panel <?php echo 'featured' === $default_tab ? 'bzcc-tab-panel--active' : ''; ?>" data-panel="featured">
+		<div class="bzcc-featured-grid">
+			<?php foreach ( $featured as $tpl ) :
+				$form_url = BZCC_Frontend::get_template_url( (int) $tpl->id, $tpl->slug ?? null );
+
+				$badge_style = '';
+				if ( $tpl->badge_color ) {
+					$badge_style = 'background:' . esc_attr( $tpl->badge_color ) . ';color:#fff;';
+				}
+			?>
+			<a href="<?php echo esc_url( $form_url ); ?>" class="bzcc-featured-card" data-template-id="<?php echo (int) $tpl->id; ?>">
+				<?php if ( $tpl->badge_text ) : ?>
+					<span class="bzcc-featured-card__badge" style="<?php echo $badge_style; ?>"><?php echo esc_html( $tpl->badge_text ); ?></span>
+				<?php endif; ?>
+				<div class="bzcc-featured-card__icon">
+					<?php if ( $tpl->icon_url ) : ?>
+						<img src="<?php echo esc_url( $tpl->icon_url ); ?>" alt="" class="bzcc-icon-img">
+					<?php else : ?>
+						<span class="bzcc-icon-emoji"><?php echo esc_html( $tpl->icon_emoji ?: '📝' ); ?></span>
+					<?php endif; ?>
+				</div>
+				<h3 class="bzcc-featured-card__title"><?php echo esc_html( $tpl->title ); ?></h3>
+				<p class="bzcc-featured-card__desc"><?php echo esc_html( $tpl->description ); ?></p>
+				<div class="bzcc-featured-card__meta">
+					<span class="bzcc-use-count">
+						<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+						<?php echo number_format_i18n( $tpl->use_count ); ?> lượt dùng
+					</span>
+				</div>
+			</a>
+			<?php endforeach; ?>
+		</div>
+	</div>
+	<?php endif; ?>
+
+	<?php if ( $has_results ) : ?>
+	<div class="bzcc-tab-panel <?php echo 'results' === $default_tab ? 'bzcc-tab-panel--active' : ''; ?>" data-panel="results">
+		<div class="bzcc-results-grid">
+			<?php foreach ( $recent_results as $rf ) :
+				$rf_status = $rf->status ?: 'pending';
+				$rf_emoji  = $status_emoji[ $rf_status ] ?? '📄';
+				$rf_title  = $rf->title ?: ( $rf->template_title ?: 'File #' . (int) $rf->id );
+				$rf_url    = $rf_status === 'completed'
+					? home_url( 'creator/result/' . (int) $rf->id . '/' )
+					: home_url( 'creator/history/' . (int) $rf->id . '/' );
+				$rf_time   = $rf->updated_at ? human_time_diff( strtotime( $rf->updated_at ), current_time( 'timestamp' ) ) : '';
+			?>
+			<a href="<?php echo esc_url( $rf_url ); ?>" class="bzcc-result-card" data-status="<?php echo esc_attr( $rf_status ); ?>">
+				<div class="bzcc-result-card__icon"><?php echo esc_html( $rf->template_emoji ?: '📝' ); ?></div>
+				<div class="bzcc-result-card__body">
+					<h3 class="bzcc-result-card__title"><?php echo esc_html( $rf_title ); ?></h3>
+					<div class="bzcc-result-card__meta">
+						<span class="bzcc-result-card__status"><?php echo esc_html( $rf_emoji ); ?> <?php echo esc_html( $rf_status ); ?></span>
+						<?php if ( $rf->template_title ) : ?>
+							<span class="bzcc-result-card__tpl">· <?php echo esc_html( $rf->template_title ); ?></span>
+						<?php endif; ?>
+						<?php if ( $rf_time ) : ?>
+							<span class="bzcc-result-card__time">· <?php echo esc_html( $rf_time ); ?> trước</span>
+						<?php endif; ?>
+					</div>
+				</div>
+			</a>
+			<?php endforeach; ?>
+		</div>
+	</div>
+	<?php endif; ?>
 </section>
 <?php endif; ?>
 
@@ -134,7 +198,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 					break;
 				}
 			}
-		$form_url = BZCC_Frontend::get_template_url( (int) $tpl->id );
+		$form_url = BZCC_Frontend::get_template_url( (int) $tpl->id, $tpl->slug ?? null );
 		?>
 		<a href="<?php echo esc_url( $form_url ); ?>"
 		   class="bzcc-tpl-card"

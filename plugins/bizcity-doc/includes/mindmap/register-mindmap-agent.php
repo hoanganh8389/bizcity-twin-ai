@@ -65,6 +65,11 @@ $build_mindmap_tool = new BizCity_TwinShell_Tool(
 			return [ 'ok' => false, 'error' => 'bzdoc_bridge_unavailable', 'message' => 'Plugin BizCity Doc Studio chưa sẵn sàng (notebook bridge missing).' ];
 		}
 
+		// PHASE-6.4 Wave C3 (May 2026) — honour FE Auto-start checkbox like
+		// the doc & image agents. Default ON → instant kickstart in iframe.
+		$doc_opts  = isset( $ctx['doc_opts'] ) && is_array( $ctx['doc_opts'] ) ? $ctx['doc_opts'] : [];
+		$kickstart = array_key_exists( 'kickstart', $doc_opts ) ? (bool) $doc_opts['kickstart'] : true;
+
 		$nb_id = isset( $ctx['notebook_id'] ) ? (int) $ctx['notebook_id'] : 0;
 		$skeleton = [
 			'nucleus' => [
@@ -74,6 +79,7 @@ $build_mindmap_tool = new BizCity_TwinShell_Tool(
 			],
 			'project_id' => $nb_id > 0 ? ( 'tc_' . $nb_id ) : '',
 			'_raw_text'  => $topic,
+			'_kickstart' => $kickstart,
 		];
 
 		$result = BZDoc_Notebook_Bridge::generate_from_skeleton_public( $skeleton, 'mindmap' );
@@ -111,7 +117,12 @@ $build_mindmap_tool = new BizCity_TwinShell_Tool(
 		];
 	},
 	null,        // is_enabled — always
-	true         // needs_approval — ALWAYS, demo Vòng 2 HIL gate
+	// PHASE-6.4 Wave C3 (May 2026) — conditional HIL, parity with doc/image.
+	function ( array $args, array $ctx ): bool {
+		$opts = isset( $ctx['doc_opts'] ) && is_array( $ctx['doc_opts'] ) ? $ctx['doc_opts'] : [];
+		$kickstart = array_key_exists( 'kickstart', $opts ) ? (bool) $opts['kickstart'] : true;
+		return ! $kickstart;
+	}
 );
 
 /**

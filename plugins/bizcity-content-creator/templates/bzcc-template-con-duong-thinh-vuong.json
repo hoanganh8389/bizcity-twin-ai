@@ -1,0 +1,494 @@
+{
+  "version": "1.0",
+  "plugin": "bizcity-content-creator",
+  "exported": "2026-05-19T10:00:00Z",
+  "templates": [
+    {
+      "slug": "con-duong-thinh-vuong",
+      "category_id": "phat-trien-bn",
+      "title": "Con Đường Thịnh Vượng — Phân tích Ikigai cá nhân",
+      "description": "AI Wealth Coach phân tích Ikigai (Đam Mê × Giỏi × XH Cần × Kiếm Tiền) và đề xuất TOP 10 con đường kiếm tiền phù hợp nhất với bạn — kèm khả thi, thu nhập tiềm năng, timeline, action items, rủi ro và tầm nhìn 3-5 năm.",
+      "icon_url": "",
+      "icon_emoji": "🗺️",
+      "form_fields": [
+        {
+          "slug": "heading_skill",
+          "label": "💪 Kỹ Năng — Bạn giỏi gì nhất?",
+          "type": "heading",
+          "placeholder": "",
+          "required": false,
+          "grid": "full",
+          "sort_order": 1,
+          "description": "Hãy thành thật — càng cụ thể càng tốt. Liệt kê những kỹ năng bạn TỰ TIN nhất."
+        },
+        {
+          "slug": "skills_text",
+          "label": "Hãy kể cho chúng tôi bạn giỏi gì nhất?",
+          "type": "textarea",
+          "placeholder": "VD: Tôi giỏi viết content về tài chính, dạy tiếng Anh online, và phân tích dữ liệu bằng Excel",
+          "required": true,
+          "grid": "full",
+          "sort_order": 2,
+          "description": "Càng cụ thể càng tốt."
+        },
+        {
+          "slug": "skills_tags",
+          "label": "Hoặc chọn nhanh để thêm vào",
+          "type": "button_group",
+          "placeholder": "",
+          "required": false,
+          "grid": "full",
+          "sort_order": 3,
+          "description": "Chọn nhiều kỹ năng bạn có (có thể chọn nhiều)",
+          "multi": true,
+          "options": [
+            { "value": "copywriting", "label": "✍️ Viết lách / Copywriting" },
+            { "value": "design", "label": "🎨 Thiết kế đồ họa" },
+            { "value": "video", "label": "🎬 Quay/dựng video" },
+            { "value": "photo", "label": "📸 Chụp ảnh" },
+            { "value": "music", "label": "🎵 Âm nhạc / Sản xuất nhạc" },
+            { "value": "storytelling", "label": "📖 Kể chuyện / Content" },
+            { "value": "illustration", "label": "🖌️ Vẽ minh họa" },
+            { "value": "coding", "label": "💻 Lập trình" },
+            { "value": "data", "label": "📊 Phân tích dữ liệu" },
+            { "value": "ai", "label": "🤖 Sử dụng AI / Automation" },
+            { "value": "web", "label": "🌐 Làm website / App" },
+            { "value": "seo", "label": "🔍 SEO / Digital Marketing" },
+            { "value": "nocode", "label": "⚡ No-code / Low-code" },
+            { "value": "marketing", "label": "📣 Marketing / Quảng cáo" },
+            { "value": "sales", "label": "💰 Bán hàng / Đàm phán" },
+            { "value": "management", "label": "👔 Quản lý / Lãnh đạo" },
+            { "value": "finance", "label": "💳 Tài chính / Kế toán" },
+            { "value": "strategy", "label": "🎯 Chiến lược kinh doanh" },
+            { "value": "ecommerce", "label": "🛒 E-commerce / Bán online" },
+            { "value": "branding", "label": "🏷️ Xây dựng thương hiệu" },
+            { "value": "teaching", "label": "👩‍🏫 Dạy học / Đào tạo" },
+            { "value": "speaking", "label": "🎤 Giao tiếp / Thuyết trình" },
+            { "value": "coaching", "label": "🧭 Tư vấn / Coaching" },
+            { "value": "networking", "label": "🤝 Kết nối / Quan hệ" },
+            { "value": "psychology", "label": "🧠 Tâm lý / Thấu hiểu người" },
+            { "value": "community", "label": "👥 Xây dựng cộng đồng" },
+            { "value": "cooking", "label": "🍳 Nấu ăn / F&B" },
+            { "value": "handmade", "label": "🧶 Thủ công / Handmade" },
+            { "value": "sport", "label": "🏋️ Thể thao / Fitness" },
+            { "value": "language", "label": "🗣️ Ngoại ngữ" },
+            { "value": "research", "label": "🔬 Nghiên cứu / Phân tích" },
+            { "value": "repair", "label": "🔧 Sửa chữa / Kỹ thuật" },
+            { "value": "logistics", "label": "🚚 Lái xe / Logistics" }
+          ]
+        },
+
+        {
+          "slug": "heading_passion",
+          "label": "❤️ Đam Mê — Bạn đam mê gì?",
+          "type": "heading",
+          "placeholder": "",
+          "required": false,
+          "grid": "full",
+          "sort_order": 10,
+          "description": "Điều gì khiến bạn quên cả thời gian?"
+        },
+        {
+          "slug": "passion_text",
+          "label": "Bạn đam mê điều gì?",
+          "type": "textarea",
+          "placeholder": "VD: Tôi mê nghiên cứu về đầu tư, thích giúp người khác phát triển bản thân",
+          "required": true,
+          "grid": "full",
+          "sort_order": 11,
+          "description": "Điều gì khiến bạn quên ăn quên ngủ?"
+        },
+        {
+          "slug": "passion_tags",
+          "label": "Hoặc chọn nhanh để thêm vào",
+          "type": "button_group",
+          "placeholder": "",
+          "required": false,
+          "grid": "full",
+          "sort_order": 12,
+          "description": "Chọn các lĩnh vực bạn đam mê (có thể chọn nhiều)",
+          "multi": true,
+          "options": [
+            { "value": "art", "label": "🎨 Nghệ thuật & sáng tạo" },
+            { "value": "social-content", "label": "📱 Mạng xã hội & Content" },
+            { "value": "fashion-beauty", "label": "👗 Thời trang & Làm đẹp" },
+            { "value": "film-media", "label": "🎬 Phim ảnh & Truyền thông" },
+            { "value": "music-perform", "label": "🎵 Âm nhạc & Biểu diễn" },
+            { "value": "business-money", "label": "💼 Kinh doanh & Kiếm tiền" },
+            { "value": "investing", "label": "📈 Đầu tư & Tài chính" },
+            { "value": "real-estate", "label": "🏠 Bất động sản" },
+            { "value": "startup", "label": "🚀 Khởi nghiệp / Startup" },
+            { "value": "crypto", "label": "🪙 Crypto / Fintech" },
+            { "value": "helping", "label": "🤲 Giúp đỡ người khác" },
+            { "value": "education", "label": "📚 Giáo dục & Chia sẻ" },
+            { "value": "psychology", "label": "🧠 Tâm lý học" },
+            { "value": "self-dev", "label": "🌱 Phát triển bản thân" },
+            { "value": "parenting", "label": "👶 Nuôi dạy con" },
+            { "value": "tech-innovation", "label": "💡 Công nghệ & Đổi mới" },
+            { "value": "ai-future", "label": "🤖 AI & Tương lai" },
+            { "value": "science", "label": "🔬 Khoa học & Nghiên cứu" },
+            { "value": "health", "label": "💪 Sức khỏe & Thể chất" },
+            { "value": "food", "label": "🍜 Ẩm thực" },
+            { "value": "travel", "label": "✈️ Du lịch & Khám phá" },
+            { "value": "sustainability", "label": "🌍 Môi trường & Bền vững" },
+            { "value": "game", "label": "🎮 Giải trí & Game" },
+            { "value": "pets", "label": "🐶 Thú cưng & Động vật" }
+          ]
+        },
+
+        {
+          "slug": "heading_money",
+          "label": "💰 Tài Chính — Mục tiêu thu nhập?",
+          "type": "heading",
+          "placeholder": "",
+          "required": false,
+          "grid": "full",
+          "sort_order": 20,
+          "description": "Bạn muốn kiếm bao nhiêu?"
+        },
+        {
+          "slug": "income_target",
+          "label": "Mục tiêu thu nhập",
+          "type": "card_radio",
+          "placeholder": "",
+          "required": true,
+          "grid": "full",
+          "sort_order": 21,
+          "description": "",
+          "options": [
+            {
+              "value": "stable",
+              "label": "Thu nhập ổn định",
+              "description": "15-30 triệu/tháng",
+              "icon": "💰",
+              "tag": ""
+            },
+            {
+              "value": "good",
+              "label": "Thu nhập tốt",
+              "description": "30-70 triệu/tháng",
+              "icon": "💎",
+              "tag": ""
+            },
+            {
+              "value": "high",
+              "label": "Thu nhập cao",
+              "description": "70-200 triệu/tháng",
+              "icon": "🚀",
+              "tag": "🔥 Phổ biến"
+            },
+            {
+              "value": "wealthy",
+              "label": "Giàu có",
+              "description": "200+ triệu/tháng",
+              "icon": "👑",
+              "tag": ""
+            },
+            {
+              "value": "freedom",
+              "label": "Tự do tài chính",
+              "description": "Passive income, không phụ thuộc thời gian",
+              "icon": "🏝️",
+              "tag": "✨ Tầm nhìn dài hạn"
+            }
+          ]
+        },
+        {
+          "slug": "timeline",
+          "label": "Bao lâu đạt được?",
+          "type": "button_group",
+          "placeholder": "",
+          "required": true,
+          "grid": "full",
+          "sort_order": 22,
+          "description": "",
+          "multi": false,
+          "options": [
+            { "value": "3m", "label": "⚡ 3 tháng" },
+            { "value": "6m", "label": "🎯 6 tháng" },
+            { "value": "1y", "label": "📅 1 năm" },
+            { "value": "2y", "label": "🗓️ 2 năm" },
+            { "value": "flex", "label": "🔄 Linh hoạt" }
+          ]
+        },
+        {
+          "slug": "risk_tolerance",
+          "label": "Mức chấp nhận rủi ro",
+          "type": "card_radio",
+          "placeholder": "",
+          "required": true,
+          "grid": "full",
+          "sort_order": 23,
+          "description": "",
+          "options": [
+            {
+              "value": "low",
+              "label": "Thấp",
+              "description": "Ưu tiên ổn định, ít mạo hiểm",
+              "icon": "🛡️",
+              "tag": ""
+            },
+            {
+              "value": "medium",
+              "label": "Trung bình",
+              "description": "Sẵn sàng thử, nhưng có giới hạn",
+              "icon": "⛵",
+              "tag": ""
+            },
+            {
+              "value": "high",
+              "label": "Cao",
+              "description": "All-in, chấp nhận rủi ro lớn",
+              "icon": "🔥",
+              "tag": "🚀 Bold"
+            }
+          ]
+        },
+
+        {
+          "slug": "heading_resource",
+          "label": "🛠️ Nguồn Lực — Bạn có gì trong tay?",
+          "type": "heading",
+          "placeholder": "",
+          "required": false,
+          "grid": "full",
+          "sort_order": 30,
+          "description": "Vốn, kinh nghiệm và mạng lưới quan hệ hiện tại"
+        },
+        {
+          "slug": "capital",
+          "label": "Vốn hiện có",
+          "type": "card_radio",
+          "placeholder": "",
+          "required": true,
+          "grid": "full",
+          "sort_order": 31,
+          "description": "",
+          "options": [
+            {
+              "value": "under-10m",
+              "label": "Dưới 10 triệu",
+              "description": "Bắt đầu từ con số 0",
+              "icon": "📗",
+              "tag": ""
+            },
+            {
+              "value": "10-50m",
+              "label": "10-50 triệu",
+              "description": "Có vốn khởi nghiệp nhỏ",
+              "icon": "💰",
+              "tag": ""
+            },
+            {
+              "value": "50-200m",
+              "label": "50-200 triệu",
+              "description": "Vốn trung bình",
+              "icon": "💎",
+              "tag": ""
+            },
+            {
+              "value": "200m-1b",
+              "label": "200tr - 1 tỷ",
+              "description": "Vốn lớn",
+              "icon": "🏦",
+              "tag": ""
+            },
+            {
+              "value": "over-1b",
+              "label": "Trên 1 tỷ",
+              "description": "Tài chính vững",
+              "icon": "👑",
+              "tag": ""
+            }
+          ]
+        },
+        {
+          "slug": "experience",
+          "label": "Kinh nghiệm kinh doanh",
+          "type": "card_radio",
+          "placeholder": "",
+          "required": true,
+          "grid": "full",
+          "sort_order": 32,
+          "description": "",
+          "options": [
+            {
+              "value": "none",
+              "label": "Chưa bao giờ",
+              "description": "Hoàn toàn mới",
+              "icon": "🌱",
+              "tag": ""
+            },
+            {
+              "value": "failed",
+              "label": "Đã thử nhưng thất bại",
+              "description": "Có kinh nghiệm xương máu",
+              "icon": "💔",
+              "tag": ""
+            },
+            {
+              "value": "small",
+              "label": "Đang kinh doanh nhỏ",
+              "description": "Có chút nền tảng",
+              "icon": "🏪",
+              "tag": ""
+            },
+            {
+              "value": "owner",
+              "label": "Đã có doanh nghiệp",
+              "description": "Muốn mở rộng / chuyển hướng",
+              "icon": "🏢",
+              "tag": "💼 Business Owner"
+            }
+          ]
+        },
+        {
+          "slug": "network",
+          "label": "Mạng lưới quan hệ",
+          "type": "button_group",
+          "placeholder": "",
+          "required": true,
+          "grid": "full",
+          "sort_order": 33,
+          "description": "",
+          "multi": false,
+          "options": [
+            { "value": "small", "label": "👤 Ít — Chủ yếu bạn bè thân" },
+            { "value": "medium", "label": "👥 Trung bình — Vài quan hệ nghề nghiệp" },
+            { "value": "wide", "label": "🌐 Rộng — Nhiều kết nối đa ngành" },
+            { "value": "huge", "label": "⭐ Rất rộng — Có người ảnh hưởng" }
+          ]
+        },
+
+        {
+          "slug": "heading_extra",
+          "label": "📝 Tùy chỉnh đầu ra",
+          "type": "heading",
+          "placeholder": "",
+          "required": false,
+          "grid": "full",
+          "sort_order": 40,
+          "description": "Tùy chọn — bỏ qua nếu muốn AI tự quyết"
+        },
+        {
+          "slug": "num_paths",
+          "label": "Số lượng con đường đề xuất",
+          "type": "button_group",
+          "placeholder": "",
+          "required": false,
+          "grid": "half",
+          "sort_order": 41,
+          "description": "",
+          "multi": false,
+          "options": [
+            { "value": "5", "label": "📋 Top 5" },
+            { "value": "10", "label": "🔥 Top 10" },
+            { "value": "15", "label": "💎 Top 15" }
+          ]
+        },
+        {
+          "slug": "market_focus",
+          "label": "Thị trường chính",
+          "type": "select",
+          "placeholder": "",
+          "required": false,
+          "grid": "half",
+          "sort_order": 42,
+          "description": "",
+          "options": [
+            { "value": "vn", "label": "🇻🇳 Việt Nam" },
+            { "value": "global", "label": "🌐 Toàn cầu" },
+            { "value": "sea", "label": "🌏 Đông Nam Á" },
+            { "value": "vn-global", "label": "🇻🇳➡️🌐 VN, mở rộng toàn cầu" }
+          ]
+        },
+        {
+          "slug": "tone",
+          "label": "Giọng điệu phân tích",
+          "type": "select",
+          "placeholder": "",
+          "required": false,
+          "grid": "half",
+          "sort_order": 43,
+          "description": "",
+          "options": [
+            { "value": "coach", "label": "🔥 Wealth Coach — máu lửa, truyền cảm hứng" },
+            { "value": "professional", "label": "💼 Chuyên nghiệp — phân tích lý tính" },
+            { "value": "friendly", "label": "😊 Thân thiện — gần gũi, dễ hiểu" },
+            { "value": "blunt", "label": "⚡ Thẳng thắn — không vòng vo" }
+          ]
+        },
+        {
+          "slug": "language",
+          "label": "Ngôn ngữ đầu ra",
+          "type": "select",
+          "placeholder": "",
+          "required": false,
+          "grid": "half",
+          "sort_order": 44,
+          "description": "",
+          "options": [
+            { "value": "vi", "label": "🇻🇳 Tiếng Việt" },
+            { "value": "en", "label": "🇺🇸 English" },
+            { "value": "vi-en", "label": "🌐 Song ngữ Việt-Anh" }
+          ]
+        },
+        {
+          "slug": "extra_context",
+          "label": "Bối cảnh thêm cho AI",
+          "type": "textarea",
+          "placeholder": "VD: Đang ở Hà Nội, có 2 con nhỏ, muốn làm online không cần đi lại, đã có kênh TikTok 5k follow...",
+          "required": false,
+          "grid": "full",
+          "sort_order": 45,
+          "description": "Thông tin thêm giúp AI cá nhân hóa lời khuyên"
+        }
+      ],
+
+      "system_prompt": "Bạn là AI Wealth Coach — chuyên gia phân tích Ikigai và tư vấn con đường kiếm tiền hàng đầu Việt Nam. Bạn có tư duy của một doanh nhân thực chiến, không lãng mạn hóa, không sáo rỗng, luôn đi thẳng vào điểm mạnh và cơ hội thực tế của từng người.\n\n## HỒ SƠ NGƯỜI DÙNG\n- **Kỹ năng (tự mô tả):** {{skills_text}}\n- **Kỹ năng (chọn nhanh):** {{skills_tags}}\n- **Đam mê (tự mô tả):** {{passion_text}}\n- **Đam mê (chọn nhanh):** {{passion_tags}}\n- **Mục tiêu thu nhập:** {{income_target}}\n- **Timeline:** {{timeline}}\n- **Mức chấp nhận rủi ro:** {{risk_tolerance}}\n- **Vốn hiện có:** {{capital}}\n- **Kinh nghiệm kinh doanh:** {{experience}}\n- **Mạng lưới quan hệ:** {{network}}\n- **Thị trường mục tiêu:** {{market_focus}}\n- **Bối cảnh thêm:** {{extra_context}}\n- **Giọng điệu:** {{tone}}\n- **Ngôn ngữ:** {{language}}\n\n## KHUNG IKIGAI\nIkigai = giao điểm của 4 vòng tròn:\n1. **Đam Mê** (Passion) — điều bạn YÊU THÍCH\n2. **Giỏi** (Skill / Mission) — điều bạn LÀM TỐT\n3. **XH Cần** (Vocation) — điều THỊ TRƯỜNG/XÃ HỘI CẦN\n4. **Kiếm Tiền** (Profession) — điều có thể TẠO RA TIỀN\n→ Điểm giao của cả 4 = **IKIGAI** (lý do bạn thức dậy mỗi sáng)\n\n## NGUYÊN TẮC PHÂN TÍCH\n1. KHÔNG đưa ra lời khuyên chung chung — phải gắn cụ thể với kỹ năng + đam mê + vốn + mạng lưới + thị trường VN 2025-2026\n2. Mỗi con đường kiếm tiền PHẢI có: tên ngách, mô tả thị trường, khả thi (1-10), thu nhập tiềm năng (triệu VND/tháng), timeline, lý do phù hợp, 3 action items 30/60/90 ngày, rủi ro chính, tầm nhìn 3-5 năm\n3. Ưu tiên các ngách có thu nhập phù hợp với mục tiêu của user — KHÔNG đề xuất ngách thu nhập quá thấp hoặc quá cao so với {{income_target}}\n4. Timeline phải bám sát {{timeline}}\n5. Rủi ro phải cân bằng với {{risk_tolerance}}\n6. Tận dụng tối đa kỹ năng đã có (skills) — KHÔNG đề xuất nghề cần học lại từ đầu\n7. Với giọng điệu 'coach' → viết máu lửa, gọi user bằng 'bạn' / 'chiến binh', dùng emoji, in HOA các từ khoá quan trọng\n8. Với giọng điệu 'professional' → viết phân tích lý tính, dùng số liệu, bảng biểu\n9. Viết bằng {{language}} (mặc định Tiếng Việt)\n10. KHÔNG bịa số liệu — nếu không chắc, viết 'ước tính dựa trên thị trường VN 2025-2026'",
+
+      "outline_prompt": "Dựa trên hồ sơ người dùng (kỹ năng + đam mê + tài chính + nguồn lực), hãy tạo outline cho báo cáo 'Con Đường Thịnh Vượng' theo đúng format JSON.\n\nSố lượng con đường đề xuất: {{num_paths}} (mặc định 10 nếu trống)\n\nTạo outline gồm các section sau:\n1. Lời mở đầu — Phân tích Ikigai (xác định 4 vòng tròn của user)\n2. Bản đồ Ikigai trực quan (Mermaid hoặc mô tả Venn diagram)\n3. Phân tích từng vòng tròn: Đam Mê, Giỏi, XH Cần, Kiếm Tiền (4 sub-section)\n4. Lời khuyên tổng quan từ Wealth Coach (định hướng chiến lược)\n5. Bảng Thu Nhập Tiềm Năng — so sánh top 5 ngách (bảng/chart)\n6-15 (hoặc nhiều hơn). MỖI con đường kiếm tiền là MỘT section riêng — với tên ngách + emoji riêng\n16. Tổng kết & lời khuyên hành động ngay hôm nay\n17. Cảnh báo & rủi ro chung\n\nTRẢ VỀ JSON theo format:\n[\n  {\"label\": \"Tên section\", \"emoji\": \"🗺️\", \"platform\": \"general\"},\n  ...\n]\n\nLƯU Ý: section của mỗi con đường kiếm tiền phải có tên cụ thể, không viết chung chung. VD: '#1 Trợ lý AI định hình thương hiệu cá nhân cho lãnh đạo' chứ không phải 'Con đường 1'.",
+
+      "chunk_prompt": "Bạn đang viết phần \"{{chunk_title}}\" của báo cáo 'Con Đường Thịnh Vượng' cho user có hồ sơ:\n- Kỹ năng: {{skills_text}} | {{skills_tags}}\n- Đam mê: {{passion_text}} | {{passion_tags}}\n- Mục tiêu: {{income_target}} trong {{timeline}}, rủi ro {{risk_tolerance}}\n- Vốn: {{capital}}, kinh nghiệm: {{experience}}, network: {{network}}\n- Thị trường: {{market_focus}}\n- Bối cảnh: {{extra_context}}\n\n## YÊU CẦU CHUNG\n- Giọng điệu: {{tone}}\n- Ngôn ngữ: {{language}}\n- Cá nhân hóa cao — KHÔNG viết chung chung\n- Dùng bảng/checklist/emoji để dễ đọc\n- Nếu là phần Ikigai map → vẽ Mermaid diagram\n- Nếu là phần phân tích vòng tròn → mô tả cụ thể những gì user có, gắn với hồ sơ\n- Nếu là phần một con đường kiếm tiền cụ thể → BẮT BUỘC có:\n  1. **Mô tả thị trường** (2-3 câu, có số liệu/xu hướng VN 2025-2026)\n  2. **Khả thi:** điểm số 1-10 + lý giải\n  3. **Thu nhập tiềm năng:** X-Y triệu VND/tháng\n  4. **Timeline:** X tháng để có khách đầu tiên / có thu nhập ổn định\n  5. **Tại sao phù hợp với bạn:** gắn cụ thể với skill/passion/vốn của user\n  6. **Làm ngay hôm nay (30/60/90 ngày):** 3 action items SMART\n  7. **Rủi ro cần lưu ý:** 1-2 cảnh báo thực tế\n  8. **Tầm nhìn 3-5 năm:** mô tả 'để chế' khi mở rộng thành công\n  9. **Bản đồ làm giàu chi tiết:** liệt kê 6-8 bullet (thị trường, mô hình thu, phễu sản phẩm, GTM, ngách, phân tích rủi ro & plan B...)\n  10. **Top 1% trong ngành này kiếm bao nhiêu** (1 câu insight thực tế)\n- Nếu là phần 'Lời khuyên Wealth Coach' và giọng điệu = 'coach' → viết MÁU LỬA, gọi 'CHIẾN BINH', IN HOA từ khoá, dùng emoji 🔥💰🚀\n- Nếu là phần bảng so sánh → dùng markdown table\n- Nếu là 'Thu Nhập Tiềm Năng' → vẽ horizontal bar chart bằng Mermaid hoặc bảng có thanh tiến độ\n- Nếu là 'Cảnh báo' → viết ngắn gọn, tỉnh táo, nhắc user nghiên cứu thêm và tham khảo chuyên gia",
+
+      "model_purpose": "content_creation",
+      "temperature": "0.75",
+      "max_tokens": "8000",
+      "wizard_steps": [
+        {
+          "label": "Kỹ Năng",
+          "description": "Bạn giỏi gì nhất?",
+          "fields": ["heading_skill", "skills_text", "skills_tags"]
+        },
+        {
+          "label": "Đam Mê",
+          "description": "Điều gì khiến bạn quên cả thời gian?",
+          "fields": ["heading_passion", "passion_text", "passion_tags"]
+        },
+        {
+          "label": "Tài Chính",
+          "description": "Mục tiêu thu nhập và mức rủi ro",
+          "fields": ["heading_money", "income_target", "timeline", "risk_tolerance"]
+        },
+        {
+          "label": "Nguồn Lực",
+          "description": "Vốn, kinh nghiệm và mạng lưới",
+          "fields": ["heading_resource", "capital", "experience", "network"]
+        },
+        {
+          "label": "Tùy chỉnh",
+          "description": "Điều chỉnh đầu ra (tuỳ chọn)",
+          "fields": ["heading_extra", "num_paths", "market_focus", "tone", "language", "extra_context"]
+        }
+      ],
+      "output_platforms": ["general"],
+      "skill_id": "0",
+      "tags": "ikigai,con-đường-thịnh-vượng,wealth-coach,kiếm-tiền,khởi-nghiệp,personal-branding,career,định-hướng,phân-tích-cá-nhân",
+      "badge_text": "IKIGAI",
+      "badge_color": "#9333ea",
+      "is_featured": "1",
+      "sort_order": "2",
+      "status": "active"
+    }
+  ]
+}

@@ -52,7 +52,6 @@ class BizCity_LLM_Settings {
         // AJAX
         add_action( 'wp_ajax_bizcity_llm_test_key',       [ $this, 'ajax_test_key' ] );
         add_action( 'wp_ajax_bizcity_llm_fetch_models',    [ $this, 'ajax_fetch_models' ] );
-        add_action( 'wp_ajax_bizcity_tavily_test_api_key', [ $this, 'ajax_test_tavily_key' ] );
         add_action( 'wp_ajax_bizcity_llm_register_key',    [ $this, 'ajax_register_key' ] );
         add_action( 'wp_ajax_bizcity_llm_usage_log',       [ $this, 'ajax_usage_log' ] );
         add_action( 'wp_ajax_bizcity_llm_purge_log',       [ $this, 'ajax_purge_log' ] );
@@ -80,8 +79,17 @@ class BizCity_LLM_Settings {
 
     /* ── Enqueue ── */
     public function enqueue_assets( string $hook ): void {
-        // Match: settings_page_bizcity-llm, bots-web-chat_page_bizcity-llm, toplevel_page_bizcity-llm
-        if ( strpos( $hook, 'bizcity-llm' ) === false && strpos( $hook, 'bizcity-openrouter' ) === false ) {
+        // Match canonical page hooks + mirror pages that delegate render to us:
+        //   settings_page_bizcity-llm
+        //   bots-web-chat_page_bizcity-llm
+        //   toplevel_page_bizcity-llm
+        //   *_page_bizcity-openrouter
+        //   twinchat_page_bizcity-twinchat-settings  ← mirror via BizCity_TwinChat_Settings_Page
+        if (
+            strpos( $hook, 'bizcity-llm' ) === false &&
+            strpos( $hook, 'bizcity-openrouter' ) === false &&
+            strpos( $hook, 'bizcity-twinchat-settings' ) === false
+        ) {
             return;
         }
         $css_ver = (string) filemtime( BIZCITY_LLM_DIR . '/assets/admin.css' );
@@ -134,7 +142,6 @@ class BizCity_LLM_Settings {
         $gateway_url = get_site_option( 'bizcity_llm_gateway_url', 'https://bizcity.vn' );
         $settings    = get_site_option( 'bizcity_llm_settings', [] );
         $timeout     = $settings['timeout'] ?? 60;
-        $tavily_key  = get_site_option( 'bizcity_tavily_api_key', '' );
         $purposes    = BizCity_LLM_Models::purposes();
 
         if ( is_multisite() ) {
@@ -224,35 +231,6 @@ class BizCity_LLM_Settings {
                                     name="bizcity_llm_settings[timeout]"
                                     value="<?php echo esc_attr( $timeout ); ?>"
                                     class="small-text" min="10" max="300" />
-                            </td>
-                        </tr>
-                    </table>
-                </div>
-
-                <!-- ── Tavily ── -->
-                <div class="bizcity-llm-card">
-                    <h2>🔍 Tavily — Web Search API</h2>
-                    <p class="description"><?php esc_html_e( 'For Deep Research — real-time web search.', 'bizcity-twin-ai' ); ?></p>
-                    <?php if ( ! empty( $tavily_key ) ) : ?>
-                        <div class="bizcity-llm-status bizcity-llm-status--ok">
-                            <?php esc_html_e( '✅ Tavily configured.', 'bizcity-twin-ai' ); ?>
-                            <span id="bizcity-tavily-test-result"></span>
-                            <button type="button" id="bizcity-tavily-test-btn" class="button button-small"><?php esc_html_e( 'Test', 'bizcity-twin-ai' ); ?></button>
-                        </div>
-                    <?php else : ?>
-                        <div class="bizcity-llm-status bizcity-llm-status--warn"><?php esc_html_e( '⚠️ No Tavily key configured.', 'bizcity-twin-ai' ); ?></div>
-                    <?php endif; ?>
-                    <table class="form-table">
-                        <tr>
-                            <th><label for="bizcity_tavily_api_key">Tavily API Key</label></th>
-                            <td>
-                                <div class="bizcity-llm-key-wrap">
-                                    <input type="password" id="bizcity_tavily_api_key" name="bizcity_tavily_api_key"
-                                        value="<?php echo esc_attr( $tavily_key ); ?>"
-                                        class="regular-text" autocomplete="new-password" placeholder="tvly-…" />
-                                    <button type="button" class="button bizcity-llm-toggle-key">👁</button>
-                                </div>
-                                <p class="description"><a href="https://app.tavily.com/home" target="_blank">app.tavily.com</a> — <?php esc_html_e( '1,000 requests/month free.', 'bizcity-twin-ai' ); ?></p>
                             </td>
                         </tr>
                     </table>
@@ -410,9 +388,8 @@ bizcity_openrouter_chat( $messages );</code></pre>
         $api_key = sanitize_text_field( $_POST['bizcity_llm_api_key'] ?? '' );
         update_site_option( 'bizcity_llm_api_key', $api_key );
 
-        // Tavily
-        $tavily_key = sanitize_text_field( $_POST['bizcity_tavily_api_key'] ?? '' );
-        update_site_option( 'bizcity_tavily_api_key', $tavily_key );
+        // (Tavily key removed 2026-06-02 — Tavily is now called only via 1-API
+        //  gateway `/search/router/v1/*`; no direct API key on client sites.)
 
         // Settings array
         $raw      = $_POST['bizcity_llm_settings'] ?? [];
@@ -523,44 +500,6 @@ bizcity_openrouter_chat( $messages );</code></pre>
 
         usort( $simplified, fn( $a, $b ) => strcmp( $a['id'], $b['id'] ) );
         wp_send_json_success( $simplified );
-    }
-
-    /* ── AJAX: test Tavily ── */
-    public function ajax_test_tavily_key(): void {
-        check_ajax_referer( 'bizcity_llm_admin', 'nonce' );
-        $cap = is_multisite() ? 'manage_network_options' : 'manage_options';
-        if ( ! current_user_can( $cap ) ) wp_send_json_error( __( 'Permission denied.', 'bizcity-twin-ai' ) );
-
-        $api_key = sanitize_text_field( $_POST['api_key'] ?? '' );
-        if ( empty( $api_key ) ) {
-            $api_key = get_site_option( 'bizcity_tavily_api_key', '' );
-        }
-        if ( empty( $api_key ) ) {
-            wp_send_json_error( __( 'No Tavily API key entered.', 'bizcity-twin-ai' ) );
-        }
-
-        $response = wp_remote_post( 'https://api.tavily.com/search', [
-            'timeout' => 15,
-            'headers' => [ 'Content-Type' => 'application/json' ],
-            'body'    => wp_json_encode( [
-                'api_key'     => $api_key,
-                'query'       => 'test connection bizcity',
-                'max_results' => 1,
-            ] ),
-        ] );
-
-        if ( is_wp_error( $response ) ) {
-            wp_send_json_error( $response->get_error_message() );
-        }
-
-        $code = wp_remote_retrieve_response_code( $response );
-        $body = json_decode( wp_remote_retrieve_body( $response ), true );
-
-        if ( $code === 200 && isset( $body['results'] ) ) {
-            wp_send_json_success( __( 'Tavily connection OK.', 'bizcity-twin-ai' ) );
-        } else {
-            wp_send_json_error( $body['message'] ?? $body['detail'] ?? "HTTP {$code}" );
-        }
     }
 
     /* ── AJAX: register API key from gateway ── */

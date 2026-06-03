@@ -1,0 +1,44 @@
+{
+  "$schema": "https://bizcity.vn/schema/diagnostics-changelog-v1.json",
+  "module_id": "modules.twinchat.memory.notes",
+  "owner": "modules/twinchat",
+  "installer_id": "twinchat",
+  "current_version": "1.0.0",
+  "version_option": "bizcity_memory_notes_db_ver",
+  "tables": {
+    "bizcity_memory_notes": {
+      "since": "1.0.0",
+      "purpose": "Companion Notebook persistent storage — user-saved notes scoped to project/session/message. Owner: BizCity_TwinChat_Notes_Service (modules/twinchat/notebooklm/includes/class-twinchat-notes-service.php). Optional Tier in Memory_Recall (not currently wired); citation token `[mem:N#<id>]`.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":             { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",                            "since": "1.0.0", "pk": true },
+        "user_id":        { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",                                 "since": "1.0.0" },
+        "project_id":     { "type": "VARCHAR(50) NOT NULL DEFAULT ''",                                    "since": "1.0.0" },
+        "session_id":     { "type": "VARCHAR(128) NOT NULL DEFAULT ''",                                   "since": "1.0.0" },
+        "message_id":     { "type": "BIGINT UNSIGNED DEFAULT NULL",                                       "since": "1.0.0" },
+        "title":          { "type": "VARCHAR(255) NOT NULL DEFAULT ''",                                   "since": "1.0.0" },
+        "content":        { "type": "LONGTEXT",                                                            "since": "1.0.0" },
+        "source_excerpt": { "type": "TEXT",                                                                "since": "1.0.0" },
+        "tags":           { "type": "VARCHAR(500) NOT NULL DEFAULT '[]'",                                 "since": "1.0.0" },
+        "created_by":     { "type": "VARCHAR(10) NOT NULL DEFAULT 'user'",                                "since": "1.0.0" },
+        "note_type":      { "type": "VARCHAR(30) NOT NULL DEFAULT 'manual'",                              "since": "1.0.0" },
+        "is_starred":     { "type": "TINYINT(1) NOT NULL DEFAULT 0",                                      "since": "1.0.0" },
+        "metadata":       { "type": "LONGTEXT",                                                            "since": "1.0.0" },
+        "created_at":     { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",                        "since": "1.0.0" },
+        "updated_at":     { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", "since": "1.0.0" }
+      },
+      "indexes": {
+        "idx_project":   { "cols": ["project_id"], "since": "1.0.0" },
+        "idx_user":      { "cols": ["user_id"],    "since": "1.0.0" },
+        "idx_session":   { "cols": ["session_id"], "since": "1.0.0" },
+        "idx_message":   { "cols": ["message_id"], "since": "1.0.0" },
+        "idx_note_type": { "cols": ["note_type"],  "since": "1.0.0" }
+      }
+    }
+  },
+  "history": [
+    { "version": "1.0.0", "date": "2026-05-24", "change": "Baseline declaration for R-DCL compliance (Wave 2.8d TBR.MEM-D3). Schema matches DDL in modules/twinchat/notebooklm/includes/class-twinchat-notes-service.php (ported from archived BCN_Schema_Extend; back-declared as 1.0.0 baseline). Companion Notebook storage; deprecated alias bizcity_twinchat_notes registered as orphan in core/diagnostics/includes/class-diagnostics-table-registry.php. Future consolidation target: bizcity_memory (class='note') — see core/memory/PHASE-MEMORY-CONSOLIDATION.md." }
+  ]
+}

@@ -13,7 +13,7 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 
 $is_iframe   = isset( $_GET['bizcity_iframe'] );
 $template_id = absint( get_query_var( 'bzcc_template_id' ) );
-$page_title  = '✨ Content Creator — BizCity';
+$page_title  = '🧠 Brain Factory — Nhà máy não số';
 
 // Webchat iframe params: topic prefill + session linkage
 $prefill_topic = sanitize_text_field( $_GET['topic'] ?? '' );
@@ -22,7 +22,7 @@ $webchat_session_id = sanitize_text_field( $_GET['session_id'] ?? '' );
 if ( $template_id ) {
 	$tpl = BZCC_Template_Manager::get_by_id( $template_id );
 	if ( $tpl ) {
-		$page_title = esc_html( $tpl->title ) . ' — Content Creator';
+		$page_title = esc_html( $tpl->title ) . ' — Brain Factory';
 	}
 }
 
@@ -60,6 +60,9 @@ body { background: transparent; }
 <body>
 
 <?php
+/* Breadcrumb bar at top of every view */
+BZCC_Frontend::render_breadcrumb();
+
 /* Manually render shortcode content (enqueue_assets skipped — we load CSS/JS directly) */
 echo BZCC_Frontend::render_shortcode( [] );
 ?>

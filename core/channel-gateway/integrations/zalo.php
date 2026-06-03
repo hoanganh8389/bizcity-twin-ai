@@ -114,7 +114,8 @@ class BizCity_Integration_Zalo extends BizCity_Integration {
 	 * @param string $code
 	 * @return array|string  Token array on success, error string on failure.
 	 */
-	private function exchange_code( string $app_id, string $app_secret, string $code ): array|string {
+	/** @return array|string */
+	private function exchange_code( string $app_id, string $app_secret, string $code ) {
 		$resp = wp_remote_post( 'https://oauth.zaloapp.com/v4/oa/access_token', [
 			'headers' => [
 				'Content-Type' => 'application/x-www-form-urlencoded',

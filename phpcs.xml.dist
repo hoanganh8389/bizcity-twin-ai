@@ -1,0 +1,71 @@
+<?xml version="1.0"?>
+<ruleset name="BizCity Twin AI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/squizlabs/php_codesniffer/phpcs.xsd">
+
+    <description>WordPress + PHP 7.4 compatibility coding standards for bizcity-twin-ai.</description>
+
+    <!-- Scan these directories. -->
+    <file>core</file>
+    <file>modules</file>
+    <file>includes</file>
+    <file>bin</file>
+    <file>bizcity-twin-ai.php</file>
+
+    <!-- Exclude: generated, vendor, archived, bundled commercial verticals. -->
+    <exclude-pattern>*/vendor/*</exclude-pattern>
+    <exclude-pattern>*/node_modules/*</exclude-pattern>
+    <exclude-pattern>*/build/*</exclude-pattern>
+    <exclude-pattern>*/dist/*</exclude-pattern>
+    <exclude-pattern>*/_archived/*</exclude-pattern>
+    <exclude-pattern>*/_library/*</exclude-pattern>
+    <exclude-pattern>*/tests/fixtures/*</exclude-pattern>
+    <exclude-pattern>*/plugins/*</exclude-pattern>
+    <exclude-pattern>*/core/helper-legacy/*</exclude-pattern>
+
+    <!-- Run mode. -->
+    <arg name="basepath" value="."/>
+    <arg name="colors"/>
+    <arg name="extensions" value="php"/>
+    <arg name="parallel" value="8"/>
+    <arg value="sp"/> <!-- show sniff names + progress -->
+
+    <!-- Standards -->
+    <rule ref="WordPress-Core">
+        <!-- Allow short array syntax (modern) -->
+        <exclude name="Generic.Arrays.DisallowShortArraySyntax"/>
+        <!-- We file-name by class with hyphens, not always strict slug rules. -->
+        <exclude name="WordPress.Files.FileName.InvalidClassFileName"/>
+        <exclude name="WordPress.Files.FileName.NotHyphenatedLowercase"/>
+        <!-- Yoda comparisons not enforced. -->
+        <exclude name="WordPress.PHP.YodaConditions.NotYoda"/>
+        <!-- i18n texts on user-visible only — too noisy on internal logs. -->
+        <exclude name="WordPress.WP.I18n.MissingTranslatorsComment"/>
+        <exclude name="WordPress.WP.I18n.NonSingularStringLiteralText"/>
+        <exclude name="WordPress.WP.I18n.NonSingularStringLiteralDomain"/>
+    </rule>
+
+    <rule ref="WordPress-Docs">
+        <exclude name="Squiz.Commenting.FileComment.Missing"/>
+        <exclude name="Squiz.Commenting.ClassComment.Missing"/>
+        <exclude name="Squiz.Commenting.FunctionComment.Missing"/>
+        <exclude name="Squiz.Commenting.FunctionComment.MissingParamTag"/>
+        <exclude name="Squiz.Commenting.VariableComment.Missing"/>
+    </rule>
+
+    <!-- Text domain for i18n. -->
+    <rule ref="WordPress.WP.I18n">
+        <properties>
+            <property name="text_domain" type="array">
+                <element value="bizcity-twin-ai"/>
+            </property>
+        </properties>
+    </rule>
+
+    <!-- PHP 7.4 floor (matches composer.json platform lock). -->
+    <config name="testVersion" value="7.4-"/>
+    <rule ref="PHPCompatibilityWP"/>
+
+    <!-- WordPress minimum version (for deprecated function detection). -->
+    <config name="minimum_wp_version" value="6.4"/>
+
+</ruleset>

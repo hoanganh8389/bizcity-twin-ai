@@ -299,7 +299,7 @@ class BizCity_Twin_Context_Resolver {
 
         $kg_citations  = self::_build_kg_citations_from_subgraph( $subgraph );
         $sources       = self::_enrich_sources_for_citations( $passages );
-        $context_block = self::_format_context_block( $passages, $entities, $relations, $kg_citations );
+        $context_block = self::_format_context_block( $passages, $entities, $relations, $kg_citations, (string) $query );
 
         $result = [
             'passages'      => $passages,
@@ -321,11 +321,27 @@ class BizCity_Twin_Context_Resolver {
         array $passages,
         array $entities,
         array $relations,
-        array $kg_citations
+        array $kg_citations,
+        string $query = ''
     ): string {
         if ( empty( $passages ) && empty( $entities ) ) {
             return '';
         }
+
+        // ─────────────────────────────────────────────────────────────
+        // PHASE-0.3 §4.9 — TRANSPARENCY-FIRST IDENTITY OVERLAY
+        // Cheap regex tag (no DB, no LLM). Renders ✅/⚠️/❓ headers per
+        // passage and an anti-mix rules block when the QUERY contains a
+        // structured ID (sku / order / customer / …).
+        // ─────────────────────────────────────────────────────────────
+        $query_identities = [];
+        $query_primary    = null;
+        $passage_identity = []; // index-aligned with $passages, each: [status, identity, evidence]
+        if ( $query !== '' && class_exists( 'BizCity_KG_Identity_Extractor' ) ) {
+            $query_identities = BizCity_KG_Identity_Extractor::extract( $query );
+            $query_primary    = BizCity_KG_Identity_Extractor::primary( $query_identities );
+        }
+        $has_identity_overlay = ! empty( $query_primary );
 
         $lines = [];
 
@@ -336,6 +352,10 @@ class BizCity_Twin_Context_Resolver {
             // reframes hallucination as the disfavored option.
             $allowed_labels = [];
             $passage_lines  = [];
+            $bucket_matched     = [];
+            $bucket_related     = [];
+            $bucket_other       = [];
+            $bucket_unidentified = [];
             $idx            = 1;
             foreach ( $passages as $p ) {
                 $content = isset( $p['content'] ) ? (string) $p['content'] : '';
@@ -363,7 +383,67 @@ class BizCity_Twin_Context_Resolver {
                         if ( $hp !== '' ) $hpath .= ' › ' . $hp;
                     }
                 }
-                $header = $hpath !== '' ? sprintf( '%s — %s', $label, $hpath ) : $label;
+
+                // — Identity tagging for this passage (when overlay active).
+                $identity_tag    = '';
+                $identity_status = 'unidentified';
+                $identity_label  = '';
+                if ( $has_identity_overlay && class_exists( 'BizCity_KG_Identity_Extractor' ) ) {
+                    $p_ids = BizCity_KG_Identity_Extractor::extract( $content );
+                    if ( empty( $p_ids ) ) {
+                        $identity_status = 'unidentified';
+                        $identity_tag    = '❓';
+                    } else {
+                        $is_match = false;
+                        foreach ( $p_ids as $pi ) {
+                            if ( $pi['id_kind'] === $query_primary['id_kind']
+                                && $pi['canonical_id'] === $query_primary['canonical_id'] ) {
+                                $is_match        = true;
+                                $identity_status = 'matched';
+                                $identity_tag    = '✅';
+                                $identity_label  = $pi['canonical_id'];
+                                break;
+                            }
+                        }
+                        if ( ! $is_match ) {
+                            $is_related = false;
+                            foreach ( $p_ids as $pi ) {
+                                if ( BizCity_KG_Identity_Extractor::are_related( $query_primary, $pi ) ) {
+                                    $is_related      = true;
+                                    $identity_status = 'related';
+                                    $identity_tag    = '⚠️';
+                                    $identity_label  = $pi['canonical_id'];
+                                    break;
+                                }
+                            }
+                            if ( ! $is_related ) {
+                                $identity_status = 'other';
+                                $identity_tag    = '⚠️';
+                                $identity_label  = $p_ids[0]['canonical_id'];
+                            }
+                        }
+                    }
+                    $passage_identity[ $idx - 1 ] = [
+                        'status'   => $identity_status,
+                        'label'    => $identity_label,
+                        'p_ids'    => $p_ids,
+                    ];
+                    if      ( $identity_status === 'matched' )      $bucket_matched[]      = $idx;
+                    elseif  ( $identity_status === 'related' )      $bucket_related[]      = $idx;
+                    elseif  ( $identity_status === 'other' )        $bucket_other[]        = $idx;
+                    else                                            $bucket_unidentified[] = $idx;
+                }
+
+                // Render header — overlay version prepends ✅/⚠️/❓ + ID.
+                if ( $has_identity_overlay ) {
+                    $tag_part = $identity_tag !== '' ? ( ' ' . $identity_tag ) : '';
+                    $id_part  = $identity_label !== '' ? sprintf( ' [Mã: %s]', $identity_label ) : ' [Mã: KHÔNG CÓ]';
+                    $header   = $hpath !== ''
+                        ? sprintf( '%s%s%s — %s', $label, $tag_part, $id_part, $hpath )
+                        : sprintf( '%s%s%s', $label, $tag_part, $id_part );
+                } else {
+                    $header = $hpath !== '' ? sprintf( '%s — %s', $label, $hpath ) : $label;
+                }
                 $passage_lines[] = $header;
                 $passage_lines[] = $content;
                 $idx++;
@@ -376,6 +456,59 @@ class BizCity_Twin_Context_Resolver {
                 $lines[] = '';
                 $lines[] = '=== Allowed citation IDs ===';
                 $lines[] = '[' . implode( '], [', $allowed_labels ) . ']';
+            }
+
+            // PHASE-0.3 §4.9.3 — explicit identity-aware anti-mix rules.
+            if ( $has_identity_overlay ) {
+                $ql = $query_primary['canonical_id'];
+                $qk = $query_primary['id_kind'];
+                $lines[] = '';
+                $lines[] = '=== IDENTITY OVERLAY (TRÁNH NHẦM MÃ) ===';
+                $lines[] = sprintf( 'Câu hỏi nhắc tới mã: %s (kind=%s).', $ql, $qk );
+                $lines[] = sprintf( '✅ Trùng mã %s : %s',
+                    $ql,
+                    $bucket_matched ? '[' . implode( '][', $bucket_matched ) . ']' : '(không có)'
+                );
+                $lines[] = sprintf( '⚠️ Mã KHÁC – cùng họ: %s',
+                    $bucket_related ? '[' . implode( '][', $bucket_related ) . ']' : '(không có)'
+                );
+                $lines[] = sprintf( '⚠️ Mã KHÁC hẳn      : %s',
+                    $bucket_other ? '[' . implode( '][', $bucket_other ) . ']' : '(không có)'
+                );
+                $lines[] = sprintf( '❓ Không có mã      : %s',
+                    $bucket_unidentified ? '[' . implode( '][', $bucket_unidentified ) . ']' : '(không có)'
+                );
+                $lines[] = '';
+                $lines[] = 'QUY TẮC ANTI-MIX (BẮT BUỘC — ưu tiên cao hơn CITATION RULES):';
+                $matched_n   = count( $bucket_matched );
+                $other_n     = count( $bucket_related ) + count( $bucket_other );
+                if ( $matched_n > 0 ) {
+                    $lines[] = sprintf( '- Có %d passage ✅ cho "%s". TUYỆT ĐỐI KHÔNG được trích số liệu (giá, tồn, thông số) từ passage ⚠️ trong câu trả lời này.', $matched_n, $ql );
+                    $lines[] = '- CẤM tuyệt đối các cụm dẫn dắt sau — chúng cướp cột số của mã KHÁC vào câu trả lời:';
+                    $lines[] = '    "Ngoài ra, có một nguồn khác…"';
+                    $lines[] = '    "Một thông tin khác đề cập mã…"';
+                    $lines[] = '    "Lưu ý rằng có mã… có giá…"  ← (nều đã có ✅, KHÔNG viết dòng này)';
+                    $lines[] = sprintf( '- Nếu user hỏi về "%s" mà bạn thấy cả ✅ và ⚠️: TRẢ LỜI CHỈ từ ✅. Coi ⚠️ là NHIỀU KHỌI — bỏ qua hoàn toàn.', $ql );
+                    $lines[] = '- Chỉ được nhắc mã ⚠️ khi user hỏi trực tiếp về mã đó ở câu sau, hoặc hỏi so sánh.';
+                } else {
+                    // 2026-05-14 — SOFTENED forced-refusal.
+                    // Trước đây ép LLM trả lời nguyên văn "Mình chưa có dữ liệu..." rồi DỪNG,
+                    // nhưng identity-extractor đôi khi miss passage ❓ thực sự CÓ liên quan
+                    // (lowercase / no-space / SKU chỉ xuất hiện ở source_title, …) → user thấy
+                    // "không có" trong khi nguồn rõ ràng được retrieve. Cho phép dùng passage ❓
+                    // làm context ĐỊNH TÍNH (mô tả, tính năng, danh mục) nhưng VẪN CẤM bịa số liệu
+                    // định lượng từ passage ⚠️ (mã KHÁC).
+                    $lines[] = sprintf( '- Không có passage ✅ trùng mã "%s". Áp dụng quy tắc:', $ql );
+                    $lines[] = sprintf( '  • Được phép DÙNG passage ❓ (không xác định mã) để trả lời ĐỊNH TÍNH về %s nếu nội dung/tiêu đề rõ ràng liên quan (cùng tên sản phẩm, cùng dòng, mô tả tính năng).', $ql );
+                    $lines[] = sprintf( '  • TUYỆT ĐỐI KHÔNG suy diễn số liệu định lượng (giá, tồn kho, kích thước, thông số cụ thể) cho %s từ passage ⚠️ (mã KHÁC) hoặc passage ❓.', $ql );
+                    $lines[] = sprintf( '  • Nếu chỉ trả lời được định tính, hãy nói rõ phần nào CÓ và phần nào THIẾU (vd: "có mô tả tính năng nhưng chưa có giá niêm yết cụ thể trong nguồn").', $ql );
+                    $lines[] = sprintf( '  • Nếu KHÔNG passage nào dùng được kể cả định tính, trả lời: "Mình chưa có dữ liệu về %s trong cơ sở tri thức hiện tại — bạn có thể bổ sung nguồn để mình hỗ trợ tốt hơn."', $ql );
+                    if ( $other_n > 0 ) {
+                        $lines[] = sprintf( '  • Có thể gợi ý mã tương tự ở cuối: "Mình có dữ liệu cho mã tương tự (xem [%s]) — bạn có muốn mình trả lời về mã đó thay thế?"', implode( '][', array_merge( $bucket_related, $bucket_other ) ) );
+                    }
+                }
+                $lines[] = '- Passage ❓ (không có mã) chỉ dùng làm bối cảnh định tính (mô tả, tính năng), KHÔNG dùng cho số liệu định lượng.';
+                $lines[] = '- Mỗi câu vẫn chèn marker [N] đúng spec ở mục CITATION RULES bên dưới.';
             }
 
             // 2026-05-05 v2 — NexusRAG-proven citation rules. Key changes vs

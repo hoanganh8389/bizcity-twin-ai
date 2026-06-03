@@ -38,7 +38,7 @@ if ( ! defined( 'BIZCITY_WEBCHAT_URL' ) ) {
 
 // Constants — guarded to allow coexistence with legacy mu-plugin
 if ( ! defined( 'BIZCITY_WEBCHAT_VERSION' ) ) {
-    define('BIZCITY_WEBCHAT_VERSION', '3.1.0');
+    define('BIZCITY_WEBCHAT_VERSION', '3.1.2');
 }
 if ( ! defined( 'BIZCITY_WEBCHAT_INCLUDES' ) ) {
     define('BIZCITY_WEBCHAT_INCLUDES', BIZCITY_WEBCHAT_DIR . 'includes/');
@@ -87,8 +87,9 @@ add_action( 'init', function() {
 /* ═══════════════════════════════════════════════════════════════
  * HIDE ADMIN BAR ON ALL FRONTEND PAGES
  * [2026-04-18] Consistent with tool-image, kling-video, avatar standalone pages.
+ * [2026-05-15] DISABLED - Now respects WordPress user setting "Hiển thị thanh công cụ"
  * ═══════════════════════════════════════════════════════════════ */
-add_filter( 'show_admin_bar', '__return_false' );
+// add_filter( 'show_admin_bar', '__return_false' );
 
 /* ═══════════════════════════════════════════════════════════════
  * AGENT IFRAME MODE
@@ -212,6 +213,22 @@ add_action( 'wp_head', function() {
 
 // Load includes
 require_once BIZCITY_WEBCHAT_INCLUDES . 'class-webchat-database.php';
+
+// Register expected columns for diagnostics column-drift inspector.
+// Catches regressions where a shard's `bizcity_webchat_sources` is missing
+// columns that TwinChat's `insert_source()` writes — e.g. blog 1458 was
+// missing `content_hash` and INSERTs silently failed (Sprint 4.5d bridge).
+add_filter( 'bizcity_diagnostics_expected_columns', function ( array $map ) {
+    $map['bizcity_webchat_sources'] = [
+        'id', 'session_id', 'user_id', 'project_id',
+        'source_type', 'title', 'url', 'source_url',
+        'content', 'content_text', 'attachment_id',
+        'content_hash', 'char_count', 'token_estimate',
+        'chunk_count', 'embedding_model', 'embedding_status',
+        'error_message', 'metadata', 'created_at',
+    ];
+    return $map;
+} );
 require_once BIZCITY_WEBCHAT_INCLUDES . 'class-webchat-trigger.php';
 require_once BIZCITY_WEBCHAT_INCLUDES . 'class-webchat-widget.php';
 require_once BIZCITY_WEBCHAT_INCLUDES . 'class-webchat-timeline.php';
@@ -259,6 +276,65 @@ BizCity_Plugin_Gathering::instance();
 add_filter( 'bizcity_chat_system_prompt', array( 'BizCity_Session_Memory_Spec', 'inject_if_active' ), 12, 2 );
 // Refresh session spec after message processed @priority 12
 add_action( 'bizcity_chat_message_processed', array( 'BizCity_Session_Memory_Spec', 'refresh_on_message' ), 12, 1 );
+
+/* =====================================================================
+ * Wave 2.8b — TBR.MEM-N3: TwinBrain Memory Writer wire-up cho webchat
+ * ---------------------------------------------------------------------
+ * Sau khi message_processed fire, gọi Memory_Writer::extract_and_persist
+ * để: (a) Mode 1 regex "hãy nhớ X" → upsert vào bizcity_memory_users tier=explicit,
+ *      (b) Mode 2 LLM extractor (gated cost_guard) tier=extracted.
+ * Cùng singleton + cùng SSE event taxonomy với master Ask Brain (R-EVT-2).
+ * Idempotent: dedupe theo trace_id qua self::$seen của writer.
+ * Skip: guest no session_id, user_id <= 0 + session_id rỗng (helper xử lý).
+ * Feature flag: filter `bizcity_twinbrain_memory_enabled` (default TRUE).
+ * Priority 15 — sau Session Memory Spec @12, trước intent_engine post_process @10
+ *   (intent đã chạy trước vì priority thấp hơn? thực ra @15 chạy SAU @10, OK).
+ * ====================================================================*/
+add_action( 'bizcity_chat_message_processed', function( $args ) {
+	if ( ! is_array( $args ) ) {
+		return;
+	}
+	// Feature flag — cho phép tắt toàn bộ memory layer khi cần debug.
+	if ( ! apply_filters( 'bizcity_twinbrain_memory_enabled', true, $args ) ) {
+		return;
+	}
+	if ( ! class_exists( 'BizCity_TwinBrain_Memory_Writer' ) ) {
+		return;
+	}
+
+	$user_message = isset( $args['user_message'] ) ? (string) $args['user_message'] : '';
+	$bot_reply    = isset( $args['bot_reply'] )    ? (string) $args['bot_reply']    : '';
+	if ( $user_message === '' ) {
+		return; // không có prompt → không có gì để extract.
+	}
+
+	$user_id    = isset( $args['user_id'] )    ? (int)    $args['user_id']    : 0;
+	$session_id = isset( $args['session_id'] ) ? (string) $args['session_id'] : '';
+	// Guest webchat (anonymous visitor) thường có user_id=0 + session_id riêng — Writer sẽ tự
+	// skip nếu cả 2 đều rỗng (xem class-twinbrain-memory-writer.php empty_result no_owner).
+
+	// trace_id = session-scoped để dedupe trong cùng turn (FE có thể fire nhiều lần do retry).
+	$trace_id = 'webchat:' . md5( $session_id . '|' . md5( $user_message ) . '|' . substr( md5( $bot_reply ), 0, 8 ) );
+
+	try {
+		BizCity_TwinBrain_Memory_Writer::instance()->extract_and_persist(
+			$trace_id,
+			$user_message,
+			$bot_reply,
+			array(
+				'user_id'    => $user_id,
+				'session_id' => $session_id,
+				'surface'    => 'webchat',
+				'enable_llm' => apply_filters( 'bizcity_twinbrain_memory_llm_enabled', true, $args ),
+			)
+		);
+	} catch ( \Throwable $e ) {
+		// Never break chat pipeline because memory write failed.
+		if ( function_exists( 'error_log' ) ) {
+			error_log( '[TwinBrain.MemWriter.webchat] ' . $e->getMessage() );
+		}
+	}
+}, 15, 1 );
 
 // ── Phase 1.6 Sprint 2: Mode transition hooks ──
 // B1: Goal detected → escalate session mode chat→goal
@@ -538,9 +614,16 @@ class BizCity_WebChat_Bot {
         // Webhook handler
         add_action('template_redirect', [$this, 'handle_webhook'], 0);
         
-        // Frontend widget only (chủ yếu phục vụ trigger automation)
-        // [2026-04-18] Disabled bizchat float widget — /chat/ page is the main chat entry.
-        // add_action('wp_footer', [$this, 'render_chat_widget']);
+        // Frontend widget — bizchat float button
+        // [2026-04-18] Disabled in favor of /chat/ full-page route.
+        // [2026-05-25] Re-enabled: widget là kênh inbound chính cho Channel Gateway
+        //   (BizCity_WebChat_Adapter, platform='webchat'). Tắt widget = mất 1 channel
+        //   cho CRM Inbox. render_chat_widget() đã có guards riêng:
+        //     - is_widget_enabled() option
+        //     - blog_type === 'aiagent' skip
+        //     - page template === 'bizcity-aiagent-home' skip
+        //   nên không xung đột với /chat/ full-page route.
+        add_action('wp_footer', [$this, 'render_chat_widget']);
         add_action('wp_enqueue_scripts', [$this, 'enqueue_assets']);
         
             // Admin widget – disabled (BCA floating icon tạm tắt để gọn admin)
@@ -825,15 +908,41 @@ class BizCity_WebChat_Bot {
             return;
         }
         
-        // Log user message to database
-        $db = BizCity_WebChat_Database::instance();
+        // Log user message to database (assign deterministic message_id so we
+        // can return its row id back to the widget for pull dedupe).
+        $db        = BizCity_WebChat_Database::instance();
+        $user_mid  = uniqid('wcu_', true);
         $db->log_message([
-            'session_id' => $session_id,
-            'user_id' => get_current_user_id(),
+            'session_id'   => $session_id,
+            'user_id'      => get_current_user_id(),
+            'message_id'   => $user_mid,
             'message_text' => $message ?: '[Image]',
             'message_from' => 'user',
         ]);
-        
+        $user_row_id = $this->_lookup_msg_row_id( $session_id, $user_mid );
+
+        // PHASE 0.37 — Re-emit canonical `wu_webchat_message_received` trigger
+        // so it lands in Universal_Channel_Listener → `wp_bizcity_channel_messages`
+        // (unified ledger) + fires `bizcity_channel_normalized` envelope which
+        // CRM Inbox + Automation subscribe to. We bypass BizCity_WebChat_Trigger
+        // here to keep the AJAX path lean.
+        $site_id = (string) get_current_blog_id();
+        if ( $site_id !== '' && $session_id !== '' ) {
+            do_action( 'waic_twf_process_flow', 'wu_webchat_message_received', [
+                'site_id'     => $site_id,
+                'session_id'  => $session_id,
+                'message'     => $message,
+                'message_id'  => $user_mid,
+                'client_name' => $this->get_client_name(),
+                'user_id'     => get_current_user_id(),
+                'image_url'   => $image_data,
+                'raw'         => [
+                    'platform_type' => 'WEBCHAT',
+                    'session_id'    => $session_id,
+                ],
+            ] );
+        }
+
         // ── Unified path: delegate to BizCity_Admin_Chat (same as widget + knowledge chat) ──
         if (class_exists('BizCity_Admin_Chat')) {
             try {
@@ -850,16 +959,24 @@ class BizCity_WebChat_Bot {
                 $reply = $reply_data['message'] ?? '';
                 
                 // Log bot reply
+                $bot_row_id = 0;
                 if (!empty($reply)) {
+                    $bot_mid = uniqid('wcb_', true);
                     $db->log_message([
-                        'session_id' => $session_id,
-                        'user_id' => get_current_user_id(),
+                        'session_id'   => $session_id,
+                        'user_id'      => get_current_user_id(),
+                        'message_id'   => $bot_mid,
                         'message_text' => $reply,
                         'message_from' => 'bot',
                     ]);
+                    $bot_row_id = $this->_lookup_msg_row_id( $session_id, $bot_mid );
                 }
                 
-                wp_send_json_success(['reply' => $reply]);
+                wp_send_json_success([
+                    'reply'             => $reply,
+                    'user_message_id'   => $user_row_id,
+                    'bot_message_id'    => $bot_row_id,
+                ]);
                 exit;
             } catch (Exception $e) {
                 error_log('BizCity WebChat Error (unified path): ' . $e->getMessage());
@@ -873,16 +990,24 @@ class BizCity_WebChat_Bot {
             try {
                 $reply = bizcity_knowledge_chat($message, $character_id, $session_id, $image_data);
                 
+                $bot_row_id = 0;
                 if (!empty($reply)) {
+                    $bot_mid = uniqid('wcb_', true);
                     $db->log_message([
-                        'session_id' => $session_id,
-                        'user_id' => get_current_user_id(),
+                        'session_id'   => $session_id,
+                        'user_id'      => get_current_user_id(),
+                        'message_id'   => $bot_mid,
                         'message_text' => $reply,
                         'message_from' => 'bot',
                     ]);
+                    $bot_row_id = $this->_lookup_msg_row_id( $session_id, $bot_mid );
                 }
                 
-                wp_send_json_success(['reply' => $reply]);
+                wp_send_json_success([
+                    'reply'             => $reply,
+                    'user_message_id'   => $user_row_id,
+                    'bot_message_id'    => $bot_row_id,
+                ]);
                 exit;
             } catch (Exception $e) {
                 error_log('BizCity WebChat Error (legacy): ' . $e->getMessage());
@@ -1058,6 +1183,21 @@ class BizCity_WebChat_Bot {
         return get_option('bizcity_webchat_widget_enabled', true);
     }
     
+    /**
+     * Lookup messages row id by (session_id, message_id) — used to return
+     * row ids back to the widget so polling can dedupe locally-appended msgs.
+     */
+    private function _lookup_msg_row_id( $session_id, $message_id ) {
+        if ( $session_id === '' || $message_id === '' ) { return 0; }
+        global $wpdb;
+        $table  = $wpdb->prefix . 'bizcity_webchat_messages';
+        $row_id = $wpdb->get_var( $wpdb->prepare(
+            "SELECT id FROM {$table} WHERE session_id = %s AND message_id = %s ORDER BY id DESC LIMIT 1",
+            $session_id, $message_id
+        ) );
+        return $row_id ? (int) $row_id : 0;
+    }
+
     private function get_session_id() {
         // Use cookie instead of PHP session to avoid "headers already sent" warning
         if (isset($_COOKIE['bizcity_session_id'])) {

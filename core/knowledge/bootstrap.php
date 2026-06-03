@@ -23,7 +23,7 @@ if ( ! defined( 'BIZCITY_KNOWLEDGE_DIR' ) ) {
     define('BIZCITY_KNOWLEDGE_DIR', __DIR__ . '/');
 }
 if ( ! defined( 'BIZCITY_KNOWLEDGE_VERSION' ) ) {
-    define('BIZCITY_KNOWLEDGE_VERSION', '2.0.5');
+    define('BIZCITY_KNOWLEDGE_VERSION', '2.0.7');
 }
 if ( ! defined( 'BIZCITY_KNOWLEDGE_INCLUDES' ) ) {
     define('BIZCITY_KNOWLEDGE_INCLUDES', BIZCITY_KNOWLEDGE_DIR . 'includes/');
@@ -69,6 +69,7 @@ require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-character.php';
 require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-knowledge-source.php';
 require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-admin-menu.php';
 require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-api.php';
+require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-character-quick-edit-rest.php';
 require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-profile-context.php';
 require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-admin-chat.php';
 require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-chat-gateway.php';
@@ -159,26 +160,19 @@ if (is_admin()) {
 BizCity_Knowledge_API::instance();
 
 // ── Phase 5.2 — Legal AI Module ───────────────────────────────────────────
-// 2026-05-01 — DISABLED. Legal crawler/chunker/graph-builder không cần
-// trong giai đoạn hiện tại. Module sinh ra hàng nghìn embed call mỗi đợt
-// crawl ⇒ saturate OpenAI rate limit. Để bật lại, định nghĩa hằng số
-// `BIZCITY_LEGAL_ENABLED` = true trong wp-config.php hoặc mu-plugin.
-// Khi tắt, cron đã đăng ký trước đó cũng tự huỷ ở init priority 4.
-if ( defined( 'BIZCITY_LEGAL_ENABLED' ) && BIZCITY_LEGAL_ENABLED ) {
-    require_once BIZCITY_KNOWLEDGE_DIR . 'legal/bootstrap.php';
-} else {
-    add_action( 'init', function() {
-        // Idempotent unschedule of any cron events left over from a previous
-        // run when the module was active. Safe to call repeatedly.
-        foreach ( [ 'bizcity_legal_crawl_batch', 'bizcity_legal_discover', 'bizcity_legal_graph_batch' ] as $hook ) {
+// 2026-05-21 — REMOVED. Module `core/knowledge/legal/` đã bị xoá khỏi codebase
+// (crawler/chunker/graph-builder/REST/character/...). Cron events cũ vẫn được
+// unschedule idempotent dưới đây để không còn tick rỗng trên các site đã từng
+// bật `BIZCITY_LEGAL_ENABLED`.
+add_action( 'init', function() {
+    foreach ( [ 'bizcity_legal_crawl_batch', 'bizcity_legal_discover', 'bizcity_legal_graph_batch' ] as $hook ) {
+        $ts = wp_next_scheduled( $hook );
+        while ( $ts ) {
+            wp_unschedule_event( $ts, $hook );
             $ts = wp_next_scheduled( $hook );
-            while ( $ts ) {
-                wp_unschedule_event( $ts, $hook );
-                $ts = wp_next_scheduled( $hook );
-            }
         }
-    }, 4 );
-}
+    }
+}, 4 );
 
 /**
  * Main Plugin Class

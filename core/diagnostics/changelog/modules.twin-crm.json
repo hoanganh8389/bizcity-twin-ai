@@ -1,0 +1,171 @@
+{
+  "$schema": "https://bizcity.vn/schema/diagnostics-changelog-v1.json",
+  "module_id": "modules.twin-crm",
+  "owner": "plugins/bizcity-twin-crm",
+  "installer_id": "twin_crm",
+  "current_version": "1.18.0",
+  "version_option": "bizcity_crm_db_ver",
+  "tables": {
+    "bizcity_crm_broadcasts": {
+      "since": "1.18.0",
+      "purpose": "Broadcast job header. One row per campaign message blast. Segments by inbox, label, lead_score, segment. Dispatched via POST /broadcasts/{id}/send which enqueues individual messages.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":                   { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.18.0", "pk": true },
+        "title":                { "type": "VARCHAR(255) NOT NULL DEFAULT ''",        "since": "1.18.0" },
+        "inbox_ids_json":       { "type": "LONGTEXT NULL",                           "since": "1.18.0", "comment": "JSON array of inbox IDs to send from. NULL = all inboxes." },
+        "segment_filter_json":  { "type": "LONGTEXT NULL",                           "since": "1.18.0", "comment": "JSON filter: {label_ids, segments, lead_score_min, status_in}" },
+        "message_template":     { "type": "LONGTEXT NOT NULL",                       "since": "1.18.0", "comment": "Message body. Supports {{contact.name}} tokens." },
+        "status":               { "type": "VARCHAR(32) NOT NULL DEFAULT 'draft'",    "since": "1.18.0", "comment": "draft | scheduled | sending | sent | failed | cancelled" },
+        "scheduled_at":         { "type": "DATETIME NULL",                           "since": "1.18.0" },
+        "sent_at":              { "type": "DATETIME NULL",                           "since": "1.18.0" },
+        "total_count":          { "type": "INT UNSIGNED NOT NULL DEFAULT 0",         "since": "1.18.0" },
+        "sent_count":           { "type": "INT UNSIGNED NOT NULL DEFAULT 0",         "since": "1.18.0" },
+        "failed_count":         { "type": "INT UNSIGNED NOT NULL DEFAULT 0",         "since": "1.18.0" },
+        "created_by":           { "type": "BIGINT UNSIGNED NULL",                    "since": "1.18.0" },
+        "created_at":           { "type": "DATETIME NOT NULL",                       "since": "1.18.0" },
+        "updated_at":           { "type": "DATETIME NOT NULL",                       "since": "1.18.0" }
+      },
+      "indexes": {
+        "idx_status":      { "cols": ["status"],      "since": "1.18.0" },
+        "idx_scheduled":   { "cols": ["scheduled_at"], "since": "1.18.0" },
+        "idx_created_by":  { "cols": ["created_by"],  "since": "1.18.0" }
+      }
+    },
+    "bizcity_crm_broadcast_recipients": {
+      "since": "1.18.0",
+      "purpose": "Per-recipient send ledger for a broadcast. One row per (broadcast, contact). Tracks actual delivery status for bounce/retry reporting.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":              { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.18.0", "pk": true },
+        "broadcast_id":    { "type": "BIGINT UNSIGNED NOT NULL",               "since": "1.18.0" },
+        "contact_id":      { "type": "BIGINT UNSIGNED NOT NULL",               "since": "1.18.0" },
+        "conversation_id": { "type": "BIGINT UNSIGNED NULL",                   "since": "1.18.0", "comment": "Set when message is sent to an existing/new conversation." },
+        "status":          { "type": "VARCHAR(16) NOT NULL DEFAULT 'queued'",  "since": "1.18.0", "comment": "queued | sent | failed | skipped" },
+        "sent_at":         { "type": "DATETIME NULL",                          "since": "1.18.0" },
+        "error":           { "type": "VARCHAR(255) NULL",                      "since": "1.18.0" }
+      },
+      "indexes": {
+        "idx_broadcast":  { "cols": ["broadcast_id", "status"], "since": "1.18.0" },
+        "idx_contact":    { "cols": ["contact_id"],             "since": "1.18.0" },
+        "uniq_bc":        { "cols": ["broadcast_id", "contact_id"], "since": "1.18.0", "unique": true }
+      }
+    },
+    "bizcity_crm_audit_log": {
+      "since": "1.17.0",
+      "purpose": "Immutable audit trail for CRM entity mutations (leads/opportunities/contracts/contacts). Feeds AuditTimeline FE component via GET /audit. Written by BizCity_CRM_Audit_Log::log().",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":           { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.17.0", "pk": true },
+        "entity_type":  { "type": "VARCHAR(64) NOT NULL",                   "since": "1.17.0", "comment": "crm_lead | crm_opportunity | crm_contract | contact | crm_invoice | ..." },
+        "entity_id":    { "type": "BIGINT UNSIGNED NOT NULL",               "since": "1.17.0" },
+        "action":       { "type": "VARCHAR(32) NOT NULL DEFAULT 'updated'", "since": "1.17.0", "comment": "created | updated | deleted | restored | status_changed" },
+        "before_json":  { "type": "LONGTEXT NULL",                          "since": "1.17.0", "comment": "JSON of changed fields before mutation (null for created)" },
+        "after_json":   { "type": "LONGTEXT NULL",                          "since": "1.17.0", "comment": "JSON of changed fields after mutation (null for deleted)" },
+        "user_id":      { "type": "BIGINT UNSIGNED NULL",                   "since": "1.17.0" },
+        "user_label":   { "type": "VARCHAR(190) NULL",                      "since": "1.17.0", "comment": "WP display_name at time of action (denorm)" },
+        "event_uuid":   { "type": "VARCHAR(36) NULL",                       "since": "1.17.0", "comment": "Links to bizcity_twin_event_stream.event_uuid when emitted" },
+        "created_at":   { "type": "DATETIME NOT NULL",                      "since": "1.17.0" }
+      },
+      "indexes": {
+        "idx_entity":     { "cols": ["entity_type", "entity_id"], "since": "1.17.0" },
+        "idx_user":       { "cols": ["user_id"],                  "since": "1.17.0" },
+        "idx_created_at": { "cols": ["created_at"],               "since": "1.17.0" },
+        "idx_event_uuid": { "cols": ["event_uuid"],               "since": "1.17.0" }
+      }
+    },
+    "bizcity_crm_leads": {
+      "since": "1.0.0",
+      "purpose": "Raw inbound prospect (pre-qualified). Source of records for /bizcity-crm/v1/crm-leads.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":                       { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
+        "first_name":               { "type": "VARCHAR(120) NOT NULL DEFAULT ''",        "since": "1.0.0" },
+        "last_name":                { "type": "VARCHAR(120) NOT NULL DEFAULT ''",        "since": "1.0.0" },
+        "email":                    { "type": "VARCHAR(190) NULL",                       "since": "1.0.0" },
+        "phone":                    { "type": "VARCHAR(64) NULL",                        "since": "1.0.0" },
+        "company":                  { "type": "VARCHAR(190) NULL",                       "since": "1.0.0" },
+        "title":                    { "type": "VARCHAR(120) NULL",                       "since": "1.0.0" },
+        "source":                   { "type": "VARCHAR(64) NULL",                        "since": "1.0.0", "comment": "Adapter code: messenger | dino_tichdiem | user_points | manual | ..." },
+        "source_ref":               { "type": "VARCHAR(190) NULL",                       "since": "1.16.0", "comment": "External primary key inside source (FB PSID, phone, dino phone_number, user_points.id). UNIQUE with `source` for idempotent upsert by adapter sync." },
+        "status":                   { "type": "VARCHAR(32) NOT NULL DEFAULT 'new'",      "since": "1.0.0" },
+        "rating":                   { "type": "VARCHAR(16) NULL",                        "since": "1.0.0" },
+        "owner_id":                 { "type": "BIGINT UNSIGNED NULL",                    "since": "1.0.0" },
+        "account_id":               { "type": "BIGINT UNSIGNED NULL",                    "since": "1.0.0" },
+        "contact_id":               { "type": "BIGINT UNSIGNED NULL",                    "since": "1.0.0" },
+        "converted_at":             { "type": "DATETIME NULL",                           "since": "1.0.0" },
+        "converted_opportunity_id": { "type": "BIGINT UNSIGNED NULL",                    "since": "1.0.0" },
+        "notes":                    { "type": "LONGTEXT NULL",                           "since": "1.0.0" },
+        "custom_json":              { "type": "LONGTEXT NULL",                           "since": "1.0.0" },
+        "created_by":               { "type": "BIGINT UNSIGNED NULL",                    "since": "1.0.0" },
+        "created_at":               { "type": "DATETIME NOT NULL",                       "since": "1.0.0" },
+        "updated_at":               { "type": "DATETIME NOT NULL",                       "since": "1.0.0" },
+        "deleted_at":               { "type": "DATETIME NULL",                           "since": "1.0.0" }
+      },
+      "indexes": {
+        "idx_status":           { "cols": ["status"],                "since": "1.0.0" },
+        "idx_owner":            { "cols": ["owner_id"],              "since": "1.0.0" },
+        "idx_email":            { "cols": ["email"],                 "since": "1.0.0" },
+        "idx_phone":            { "cols": ["phone"],                 "since": "1.0.0" },
+        "idx_account":          { "cols": ["account_id"],            "since": "1.0.0" },
+        "uniq_source_ref":      { "cols": ["source", "source_ref"],  "since": "1.16.0", "unique": true, "comment": "Idempotent upsert key for Customer Source adapter sync." }
+      }
+    },
+    "bizcity_crm_opportunities": {
+      "since": "1.0.0",
+      "purpose": "Deal in pipeline. Kanban groups by `stage`. Adapter-synced rows carry (source, source_ref) for idempotent upsert; stage auto-promoted prospecting → qualification when contact phone captured.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":               { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",          "since": "1.0.0", "pk": true },
+        "name":             { "type": "VARCHAR(255) NOT NULL DEFAULT ''",                 "since": "1.0.0" },
+        "account_id":       { "type": "BIGINT UNSIGNED NULL",                             "since": "1.0.0" },
+        "contact_id":       { "type": "BIGINT UNSIGNED NULL",                             "since": "1.0.0" },
+        "lead_id":          { "type": "BIGINT UNSIGNED NULL",                             "since": "1.0.0" },
+        "owner_id":         { "type": "BIGINT UNSIGNED NULL",                             "since": "1.0.0" },
+        "stage":            { "type": "VARCHAR(32) NOT NULL DEFAULT 'qualification'",     "since": "1.0.0", "comment": "Enum: prospecting | qualification | proposal | negotiation | closed_won | closed_lost" },
+        "status":           { "type": "VARCHAR(32) NOT NULL DEFAULT 'open'",              "since": "1.0.0" },
+        "amount":           { "type": "DECIMAL(18,2) NOT NULL DEFAULT 0",                 "since": "1.0.0" },
+        "currency":         { "type": "VARCHAR(8) NOT NULL DEFAULT 'VND'",                "since": "1.0.0" },
+        "probability":      { "type": "TINYINT UNSIGNED NOT NULL DEFAULT 10",             "since": "1.0.0" },
+        "expected_revenue": { "type": "DECIMAL(18,2) NOT NULL DEFAULT 0",                 "since": "1.0.0" },
+        "close_date":       { "type": "DATE NULL",                                        "since": "1.0.0" },
+        "actual_close_date":{ "type": "DATE NULL",                                        "since": "1.0.0" },
+        "lost_reason":      { "type": "VARCHAR(190) NULL",                                "since": "1.0.0" },
+        "next_step":        { "type": "VARCHAR(255) NULL",                                "since": "1.0.0" },
+        "description":      { "type": "LONGTEXT NULL",                                    "since": "1.0.0" },
+        "custom_json":      { "type": "LONGTEXT NULL",                                    "since": "1.0.0" },
+        "source":           { "type": "VARCHAR(64) NULL",                                 "since": "1.16.0", "comment": "Customer Source adapter code that created this opp: messenger | dino_tichdiem | user_points." },
+        "source_ref":       { "type": "VARCHAR(190) NULL",                                "since": "1.16.0", "comment": "External primary key inside source. UNIQUE with `source`." },
+        "source_synced_at": { "type": "DATETIME NULL",                                    "since": "1.16.0", "comment": "Last time adapter sync touched this row (for stale detection)." },
+        "created_by":       { "type": "BIGINT UNSIGNED NULL",                             "since": "1.0.0" },
+        "created_at":       { "type": "DATETIME NOT NULL",                                "since": "1.0.0" },
+        "updated_at":       { "type": "DATETIME NOT NULL",                                "since": "1.0.0" },
+        "deleted_at":       { "type": "DATETIME NULL",                                    "since": "1.0.0" }
+      },
+      "indexes": {
+        "idx_stage":         { "cols": ["stage"],                "since": "1.0.0" },
+        "idx_status":        { "cols": ["status"],               "since": "1.0.0" },
+        "idx_owner":         { "cols": ["owner_id"],             "since": "1.0.0" },
+        "idx_account":       { "cols": ["account_id"],           "since": "1.0.0" },
+        "idx_close":         { "cols": ["close_date"],           "since": "1.0.0" },
+        "uniq_source_ref":   { "cols": ["source", "source_ref"], "since": "1.16.0", "unique": true, "comment": "Idempotent upsert key for Customer Source adapter sync." }
+      }
+    }
+  },
+  "history": [
+    { "version": "1.0.0",  "date": "2026-03-01", "change": "Baseline declaration of bizcity_crm_leads + bizcity_crm_opportunities. Existing schema as shipped in M-CRM.M1 (class-db-installer.php). Declared retroactively to satisfy R-DCL when v1.16.0 added Customer Source adapter columns." },
+    { "version": "1.16.0", "date": "2026-05-25", "change": "Add Customer Source adapter columns + UNIQUE upsert keys. Bizcity_CRM_Pipeline_Sync now upserts opportunities (and back-fills leads) from 3 sources via the new `bizcity_crm_register_customer_sources` filter: (1) inbox Messenger conversations (FB) → stage=prospecting; (2) bizgpt-dino-tichdiem `wp_dino_users`; (3) user-points `wp_user_points`. New cols: opportunities.{source, source_ref, source_synced_at} + UNIQUE(source, source_ref); leads.{source_ref} + UNIQUE(source, source_ref). Auto-promotion: when contact.phone gets captured (or external row already has phone), the opp jumps prospecting → qualification (probability 10 → 25) without overwriting downstream stages (proposal/negotiation/closed_*). Migration: `migrate_phase_042()` ADD-only — safe via BizCity_Diagnostics_Auto_Create." },
+    { "version": "1.17.0", "date": "2026-05-28", "change": "Add bizcity_crm_audit_log table (M-CRM.M1.W3). Captures create/update/delete actions on CRM entities (leads, opportunities, contracts, contacts) with before/after JSON diffs. New class BizCity_CRM_Audit_Log::log() + BizCity_CRM_Audit_Repository::find_by_entity(). REST GET /audit exposed for FE AuditTimeline component (replaces MOCK_AUDIT in SalesTab). Migration: migrate_phase_043() ADD-only." },
+    { "version": "1.18.0", "date": "2026-05-28", "change": "M-CRM.M4.Inbox — Broadcast + lead classification sprint. (1) Add bizcity_crm_broadcasts table (broadcast job header: title, inbox_ids_json, segment_filter_json, template, status, schedule, counters). (2) Add bizcity_crm_broadcast_recipients table (per-recipient send ledger: broadcast_id, contact_id, conversation_id, status, sent_at, error). (3) Add contacts.lead_score TINYINT + contacts.segment VARCHAR(32) columns for A/B/C/VIP classification. (4) REST: POST /broadcasts (create job), GET /broadcasts, GET /broadcasts/{id}, POST /broadcasts/{id}/send, GET /broadcasts/{id}/recipients, POST /conversations/bulk-label. (5) FE: BroadcastTab, InboxConversationFilter enhanced (assignee_id, priority, q), lead score badge + segment pills in SalesTab/ContactsTab. Migration: migrate_phase_044() ADD-only." }
+  ]
+}

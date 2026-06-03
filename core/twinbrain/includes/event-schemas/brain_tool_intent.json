@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "brain_tool_intent",
+  "description": "TwinBrain Stage 1B — tool/skill candidates suggested for this prompt.",
+  "type": "object",
+  "required": ["trace_id", "k", "candidates", "threshold"],
+  "properties": {
+    "trace_id":  { "type": "string" },
+    "k":         { "type": "integer", "minimum": 0 },
+    "threshold": { "type": "number" },
+    "candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["skill_slug", "score"],
+        "properties": {
+          "skill_slug": { "type": "string" },
+          "score":      { "type": "number", "minimum": 0, "maximum": 1 },
+          "reason":     { "type": "string" }
+        }
+      }
+    }
+  }
+}

@@ -161,10 +161,6 @@ add_filter( 'bizcity_twin_register_tool', function ( $registry ) use ( $twin_inc
 	return $registry;
 }, 5 );
 
-/* ── Maturity Dashboard (§29) ──────────────────────────────────── */
-require_once $twin_includes . '/class-maturity-calculator.php';
-require_once $twin_includes . '/class-maturity-dashboard.php';
-
 /* ── BizChat Menu — Unified Admin Menu Registry ───────────────── */
 require_once $twin_includes . '/class-bizchat-menu.php';
 BizChat_Menu::boot();
@@ -175,18 +171,11 @@ BizChat_Menu::boot();
 if ( is_admin() || ( defined( 'WP_CLI' ) && WP_CLI ) ) {
     BizCity_Memory_Table_Migration::maybe_migrate();
 }
-BizCity_Maturity_Calculator::ensure_table();
 BizCity_Twin_State_Schema::ensure_tables();  // Phase 2 — 7 state tables
 BizCity_Twin_Event_Stream_Schema::ensure_table();  // Phase 0.12 Wave A — canonical event stream
-BizCity_Maturity_Calculator::schedule_cron();
-BizCity_Maturity_Calculator::register_ajax();
-add_action( 'bizcity_maturity_daily_snapshot', [ 'BizCity_Maturity_Calculator', 'cron_save_snapshots' ] );
-add_action( 'bizcity_maturity_aggregate_refresh', [ 'BizCity_Maturity_Calculator', 'cron_refresh_all_aggregates' ] );
 
-// Frontend /maturity/ rewrite route
-BizCity_Maturity_Dashboard::register_frontend_route();
-
-// Admin UI
-if ( is_admin() ) {
-    BizCity_Maturity_Dashboard::instance();
-}
+// NOTE 2026-05-06: Maturity Dashboard + Calculator subsystem removed entirely
+// (admin menu, /maturity/ frontend route, daily/hourly cron, 11 AJAX endpoints,
+// snapshot table). Cron events bizcity_maturity_daily_snapshot &
+// bizcity_maturity_aggregate_refresh become no-op (no callback registered).
+// Stale wp_options 'cron' entries will self-clean on next reschedule cycle.

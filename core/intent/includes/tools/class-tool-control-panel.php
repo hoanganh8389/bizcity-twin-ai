@@ -62,16 +62,18 @@ class BizCity_Tool_Control_Panel {
 
     /**
      * Register admin menu — under Intent Monitor.
+     *
+     * Phase G (2026-05-19) — DISABLED with parent menu.
      */
     public function register_menu() {
-        add_submenu_page(
-            'bizcity-intent-monitor',
-            '🎛️ Tool Control Panel',
-            '🎛️ Control Panel',
-            'manage_options',
-            self::PAGE_SLUG,
-            [ $this, 'render_page' ]
-        );
+        // add_submenu_page(
+        //     'bizcity-intent-monitor',
+        //     '🎛️ Tool Control Panel',
+        //     '🎛️ Control Panel',
+        //     'manage_options',
+        //     self::PAGE_SLUG,
+        //     [ $this, 'render_page' ]
+        // );
     }
 
     /**

@@ -127,11 +127,18 @@ class BZDoc_Image_Pipeline {
 		/* ── Step b1: Persist a job row for audit + rate limit ─────── */
 		$job_id = self::insert_job_row( $doc_id, $user_id, $prompt_id, $final_prompt, $request, $aspect, $n );
 
-		/* ── Step c: generate variants via Router Proxy ────────────── */
-		if ( ! class_exists( 'BizCity_Router_Proxy' )
-			|| ! method_exists( 'BizCity_Router_Proxy', 'generate_image' ) ) {
-			self::mark_job_failed( $job_id, 'router_proxy_unavailable' );
-			return new \WP_Error( 'router_unavailable', 'BizCity LLM Router chưa cài hoặc thiếu generate_image.' );
+		/* ── Step c: generate variants qua BizCity_LLM_Client (R-GW-8) ──
+		 * Client KHÔNG cài bizcity-llm-router. Phải gọi qua LLM Client →
+		 * proxy REST https://bizcity.vn/wp-json/bizcity/v1/llm/images/generations
+		 * với Bearer biz-xxx. */
+		if ( ! class_exists( 'BizCity_LLM_Client' ) ) {
+			self::mark_job_failed( $job_id, 'llm_client_unavailable' );
+			return new \WP_Error( 'llm_client_unavailable', 'BizCity LLM client chưa load (core/bizcity-llm).' );
+		}
+		$llm_client = BizCity_LLM_Client::instance();
+		if ( ! $llm_client->is_ready() ) {
+			self::mark_job_failed( $job_id, 'api_key_missing' );
+			return new \WP_Error( 'api_key_missing', 'BizCity API key chưa cấu hình (Settings → BizCity TwinChat).' );
 		}
 
 		$size = self::SIZE_MAP[ $aspect ];
@@ -140,13 +147,13 @@ class BZDoc_Image_Pipeline {
 
 		for ( $i = 0; $i < $n; $i++ ) {
 			/**
-			 * Default to OpenAI GPT-5.4 Image 2 (multimodal: reasoning + image
-			 * generation, 272k context). User can override via UI picker; filter
-			 * to switch to alternatives like `google/gemini-2.5-flash-image-preview`
-			 * (best for character consistency) or `openai/gpt-image-1`.
+			 * Default to Nano Banana Pro (Gemini 3 Pro Image Preview) — best
+			 * character consistency + fast turnaround. User can override via UI
+			 * picker; filter to switch to alternatives like
+			 * `openai/gpt-5.4-image-2` or `openai/gpt-image-1`.
 			 */
 			$user_model = isset( $request['image_model'] ) ? (string) $request['image_model'] : '';
-			$default_model = $user_model !== '' ? $user_model : 'openai/gpt-5.4-image-2';
+			$default_model = $user_model !== '' ? $user_model : 'google/gemini-3-pro-image-preview';
 			$image_model = apply_filters(
 				'bzdoc_image_model',
 				$default_model,
@@ -154,39 +161,24 @@ class BZDoc_Image_Pipeline {
 				$request
 			);
 
-			// Per-variant progress callback — bumps a heartbeat transient keyed
-			// by doc_id so the polling endpoint can report "still working"
-			// without the browser ever seeing a stalled spinner.
-			$variant_index = $i;
-			$on_event = function ( $event_type, $data ) use ( $doc_id, $variant_index ) {
-				if ( $event_type === 'image' || $event_type === 'progress' ) {
-					self::touch_job_heartbeat( $doc_id, $variant_index, $event_type );
-				}
-			};
+			// Per-variant heartbeat — vẫn touch để polling endpoint không tưởng
+			// pipeline chết. Stream-event callback bỏ vì gateway client gọi qua
+			// REST blocking (server-side bizcity.vn tự stream tới OpenRouter rồi
+			// trả image_url/b64_json một lượt khi xong).
+			self::touch_job_heartbeat( $doc_id, $i, 'start' );
 
-			// Streaming variant: keeps the upstream socket alive with periodic
-			// SSE keep-alive events from OpenRouter, so cURL never trips its
-			// idle-read timeout (the cURL 28 we kept hitting). Falls back to
-			// blocking generate_image() if the streaming method is unavailable.
-			// NOTE: use $reference_images_gen (base64 data URIs) so the model
-			// always receives pixel data directly — avoids CDN fetch failures.
 			error_log( '[BZDoc Pipeline] Calling generate | model=' . $image_model . ' | input_images=' . count( $reference_images_gen ) . ' | prompt_len=' . strlen( $final_prompt ) );
-			$can_stream = method_exists( 'BizCity_Router_Proxy', 'generate_image_stream' );
-			$gen = $can_stream
-				? BizCity_Router_Proxy::generate_image_stream( $final_prompt, [
-					'model'        => $image_model,
-					'size'         => $size,
-					'n'            => 1,
-					'timeout'      => 600,
-					'input_images' => $reference_images_gen,
-				], $on_event )
-				: BizCity_Router_Proxy::generate_image( $final_prompt, [
-					'model'        => $image_model,
-					'size'         => $size,
-					'n'            => 1,
-					'timeout'      => 300,
-					'input_images' => $reference_images_gen,
-				] );
+
+			/* Gọi qua BizCity_LLM_Client → proxy REST tới gateway bizcity.vn.
+			 * Truyền stream=true để gateway tự keep-alive với OpenRouter (R-GW-8.3). */
+			$gen = $llm_client->generate_image( $final_prompt, [
+				'model'        => $image_model,
+				'size'         => $size,
+				'n'            => 1,
+				'timeout'      => 600,
+				'input_images' => $reference_images_gen,
+				'stream'       => true,
+			] );
 			if ( empty( $gen['success'] ) ) {
 				self::mark_job_failed( $job_id, $gen['error'] ?? 'image_gen_failed' );
 				if ( $i === 0 ) {
@@ -757,27 +749,29 @@ IMG_SYSPROMPT;
 			}
 		}
 
-		// 5. Call streaming router with input_images.
-		if ( ! method_exists( 'BizCity_Router_Proxy', 'generate_image_stream' ) ) {
-			self::mark_job_failed( $job_id, 'router_proxy_no_stream' );
-			return new \WP_Error( 'router_no_stream', 'Router chưa hỗ trợ streaming.' );
+		// 5. Call gateway via BizCity_LLM_Client (R-GW-8 — client KHÔNG có Router_Proxy).
+		if ( ! class_exists( 'BizCity_LLM_Client' ) ) {
+			self::mark_job_failed( $job_id, 'llm_client_unavailable' );
+			return new \WP_Error( 'llm_client_unavailable', 'BizCity LLM client chưa load.' );
+		}
+		$llm_edit = BizCity_LLM_Client::instance();
+		if ( ! $llm_edit->is_ready() ) {
+			self::mark_job_failed( $job_id, 'api_key_missing' );
+			return new \WP_Error( 'api_key_missing', 'BizCity API key chưa cấu hình.' );
 		}
 
 		$image_model = apply_filters( 'bzdoc_image_model', 'openai/gpt-5.4-image-2', $doc_id, $request );
 
-		$on_event = function ( $event_type ) use ( $doc_id ) {
-			if ( $event_type === 'image' || $event_type === 'progress' ) {
-				self::touch_job_heartbeat( $doc_id, 999, $event_type );
-			}
-		};
+		self::touch_job_heartbeat( $doc_id, 999, 'edit-start' );
 
-		$gen = BizCity_Router_Proxy::generate_image_stream( $edit_prompt, [
-			'model'         => $image_model,
-			'size'          => $size,
-			'n'             => 1,
-			'timeout'       => 600,
-			'input_images'  => $input_images,
-		], $on_event );
+		$gen = $llm_edit->generate_image( $edit_prompt, [
+			'model'        => $image_model,
+			'size'         => $size,
+			'n'            => 1,
+			'timeout'      => 600,
+			'input_images' => $input_images,
+			'stream'       => true,
+		] );
 
 		if ( empty( $gen['success'] ) ) {
 			self::mark_job_failed( $job_id, $gen['error'] ?? 'image_edit_failed' );

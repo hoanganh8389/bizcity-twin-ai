@@ -26,8 +26,8 @@ add_action( 'wp_enqueue_scripts', function () {
 	global $wp_styles, $wp_scripts;
 
 	// Whitelist: only our CSS (JS is output manually with type="module")
-	$keep_styles  = [ 'bzdoc-app' ];
-	$keep_scripts = [];
+	$keep_styles  = [ 'bzdoc-app', 'bztwin-skeleton' ];
+	$keep_scripts = [ 'bztwin-skeleton' ];
 
 	// Also remove WP block styles that pollute Tailwind
 	$nuke_styles = [ 'global-styles', 'wp-block-library', 'wp-block-library-theme', 'classic-theme-styles' ];
@@ -143,6 +143,28 @@ add_action( 'wp_enqueue_scripts', function () {
 
 	$js_file = BZDOC_DIR . 'assets/dist/doc-app.js';
 	$js_ver  = file_exists( $js_file ) ? filemtime( $js_file ) : BZDOC_VERSION;
+
+	// Sprint 0★ — manually print bztwin-skeleton (web components) because this
+	// template kills wp_footer(), so the wp_register_script(..., in_footer=true)
+	// declaration in BizCity_KG_Skeleton_Assets never reaches the page. We only
+	// need to emit the <script> tag + the BizTwinSkeletonConfig blob; the CSS
+	// already arrived via wp_head() (style is whitelisted in keep_styles).
+	if ( class_exists( 'BizCity_KG_Skeleton_Assets' )
+		&& defined( 'BIZCITY_TWIN_AI_URL' )
+		&& defined( 'BIZCITY_TWIN_AI_DIR' ) ) {
+		$skel_url  = BIZCITY_TWIN_AI_URL . 'core/knowledge/kg-hub/assets/bztwin-skeleton.js';
+		$skel_file = BIZCITY_TWIN_AI_DIR . 'core/knowledge/kg-hub/assets/bztwin-skeleton.js';
+		$skel_ver  = file_exists( $skel_file ) ? filemtime( $skel_file ) : BizCity_KG_Skeleton_Assets::VERSION;
+		$skel_cfg  = wp_json_encode( [
+			'restRoot' => esc_url_raw( rest_url() ),
+			'nonce'    => wp_create_nonce( 'wp_rest' ),
+			'blogId'   => (int) get_current_blog_id(),
+		] );
+		?>
+		<script>window.BizTwinSkeletonConfig = <?php echo $skel_cfg; ?>;</script>
+		<script src="<?php echo esc_url( $skel_url . '?ver=' . $skel_ver ); ?>"></script>
+		<?php
+	}
 	?>
 	<script type="module" src="<?php echo esc_url( BZDOC_URL . 'assets/dist/doc-app.js?ver=' . $js_ver ); ?>"></script>
 	<?php /* wp_footer intentionally omitted — full-page app, theme hooks removed above */ ?>

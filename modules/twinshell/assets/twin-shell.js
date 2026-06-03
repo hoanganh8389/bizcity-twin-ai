@@ -47,7 +47,16 @@
     scheduler: '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
     automation:'<polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>',
     gateway:   '<path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/>',
+    funnel:    '<path d="M22 3H2l8 9.46V19l4 2V12.46L22 3z"/>',
+    users:     '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
     explore:   '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+    // External-link icon (used when inside admin iframe → click to pop out to /twin/).
+    'external':'<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>',
+    // WP/admin (layout) icon (used when at standalone /twin/ → click to enter wp-admin).
+    'admin':   '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/>',
+    // Panel-left-close (used to collapse the wp-admin sidebar inside the active iframe).
+    'panel-left-close': '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/><polyline points="16 15 13 12 16 9"/>',
+    'panel-left-open':  '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/><polyline points="14 9 17 12 14 15"/>',
     default:   '<rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/>',
   };
 
@@ -68,7 +77,16 @@
 
   function buildIframeUrl(pluginId, paramsObj) {
     var p = findPlugin(pluginId);
-    if (!p || !p.public_slug) return '';
+    if (!p) return '';
+
+    // mode='link' — dùng target_url, chỉ thêm bizcity_iframe=1.
+    if (p.mode === 'link' && p.target_url) {
+      var sep = p.target_url.indexOf('?') === -1 ? '?' : '&';
+      return p.target_url + sep + 'bizcity_iframe=1';
+    }
+
+    // mode='embed' (default) — build từ public_slug.
+    if (!p.public_slug) return '';
     var base = window.location.origin + '/' + p.public_slug.replace(/^\/+|\/+$/g, '') + '/';
     var qs = [];
     var allowed = p.params && p.params.length ? p.params : null;
@@ -109,13 +127,38 @@
       try {
         var iu = new URL(iframeUrl, window.location.origin);
         if (iu.origin === window.location.origin) {
-          sp.set('_iurl', iu.pathname + iu.search);
+          // Always bake bizcity_iframe=1 into the stored path so that sub-page
+          // navigations (e.g. /creator/result/31/ with no query string) still
+          // load in iframe mode when restored via F5 or copy-paste.
+          var iusp = new URLSearchParams(iu.search);
+          iusp.set('bizcity_iframe', '1');
+          // Include hash fragment (#tab=inbox, etc.) so SPA deep-links survive reload.
+          sp.set('_iurl', iu.pathname + '?' + iusp.toString() + (iu.hash || ''));
         }
       } catch (e) {}
     }
     var newUrl = window.location.pathname + '?' + sp.toString();
     console.log('[twin-shell][writeShellUrl]', { pluginId: pluginId, params: paramsObj, iframeUrl: iframeUrl, newUrl: newUrl });
     window.history.replaceState({ pluginId: pluginId }, '', newUrl);
+
+    // ── Broadcast to ancestor (e.g. WP admin page hosting /twin/ in an iframe)
+    // so the OUTER address bar (admin.php?page=bizcity-twinchat&...) reflects
+    // the current deep-link. Receiver in class-twinchat-admin-menu.php updates
+    // history via replaceState.
+    try {
+      if (window.parent && window.parent !== window) {
+        var payload = {
+          source:   'bizcity-twin-shell',
+          type:     'url-change',
+          pluginId: pluginId,
+          params:   paramsObj || {},
+          iurl:     sp.get('_iurl') || '',
+          shellUrl: newUrl
+        };
+        console.log('[twin-shell][postMessage->parent]', payload);
+        window.parent.postMessage(payload, window.location.origin);
+      }
+    } catch (e) { console.warn('[twin-shell][postMessage->parent] err', e); }
   }
 
   function paramsFromIframeUrl(rawUrl) {
@@ -130,6 +173,155 @@
     } catch (e) {
       return {};
     }
+  }
+
+  function pluginIdFromWindow(win) {
+    if (!win) return '';
+    for (var pid in iframeCache) {
+      if (!Object.prototype.hasOwnProperty.call(iframeCache, pid)) continue;
+      var fr = iframeCache[pid];
+      try {
+        if (fr && fr.contentWindow === win) return pid;
+      } catch (e) {}
+    }
+    return '';
+  }
+
+  function syncAddressBarFromIframe(iframe, force) {
+    if (!iframe || !iframe.contentWindow) return;
+    var pid = iframe.dataset.pluginId || '';
+    if (!pid) return;
+
+    // Keep parent URL consistent with the currently active iframe only.
+    if (!force && current.pluginId && pid !== current.pluginId) return;
+
+    try {
+      var loc = iframe.contentWindow.location;
+      if (!loc || loc.origin !== window.location.origin) return;
+      var href = loc.href;
+      if (!href) return;
+      if (!force && iframe.__lastSyncedHref === href) return;
+      iframe.__lastSyncedHref = href;
+      writeShellUrl(pid, paramsFromIframeUrl(href), href);
+    } catch (e) {}
+  }
+
+  function installIframeDeepLinkSync(iframe) {
+    if (!iframe || !iframe.contentWindow) return;
+
+    // New navigation can recreate the inner document/window state.
+    if (iframe.__deepSyncCleanup) {
+      try { iframe.__deepSyncCleanup(); } catch (e) {}
+      iframe.__deepSyncCleanup = null;
+    }
+
+    var w;
+    try {
+      w = iframe.contentWindow;
+      if (!w || !w.location || w.location.origin !== window.location.origin) return;
+    } catch (e) {
+      return;
+    }
+
+    var onNav = function () {
+      syncAddressBarFromIframe(iframe, false);
+    };
+
+    var resolveClickedHref = function (ev) {
+      var target = ev && ev.target ? ev.target : null;
+      if (!target || !target.closest) return '';
+
+      var el = target.closest('a[href], [data-href], [data-url], [data-route], [data-path], [data-to]');
+      if (!el || !el.getAttribute) return '';
+
+      var raw =
+        el.getAttribute('href') ||
+        el.getAttribute('data-href') ||
+        el.getAttribute('data-url') ||
+        el.getAttribute('data-route') ||
+        el.getAttribute('data-path') ||
+        el.getAttribute('data-to') ||
+        '';
+
+      raw = String(raw || '').trim();
+      if (!raw || raw === '#') return '';
+      if (/^(javascript:|mailto:|tel:|data:)/i.test(raw)) return '';
+
+      try {
+        var next =
+          raw.charAt(0) === '#'
+            ? new URL((w.location.pathname || '/') + (w.location.search || '') + raw, w.location.origin)
+            : new URL(raw, w.location.href);
+        if (next.origin !== window.location.origin) return '';
+        return next.href;
+      } catch (e) {
+        return '';
+      }
+    };
+
+    var onClick = function (ev) {
+      // Some apps keep routing in internal state and do not update location
+      // immediately. Sync parent URL from clicked route hints first.
+      var clickedHref = resolveClickedHref(ev);
+      if (clickedHref) {
+        try {
+          var pid = pluginIdFromWindow(w) || state.current.pluginId;
+          if (pid) {
+            iframe.__lastSyncedHref = clickedHref;
+            writeShellUrl(pid, paramsFromIframeUrl(clickedHref), clickedHref);
+          }
+        } catch (e) {}
+      }
+
+      // UI actions in admin/SPA can resolve async after click.
+      setTimeout(onNav, 0);
+      setTimeout(onNav, 150);
+      setTimeout(onNav, 500);
+    };
+
+    try {
+      w.addEventListener('hashchange', onNav);
+      w.addEventListener('popstate', onNav);
+    } catch (e) {}
+
+    var doc = null;
+    try {
+      doc = w.document || null;
+      if (doc) {
+        doc.addEventListener('click', onClick, true);
+      }
+    } catch (e) {}
+
+    // Catch routes pushed by SPA code without hashchange/popstate listeners.
+    try {
+      if (w.history && !w.history.__twinShellDeepSyncPatched) {
+        var origPush = w.history.pushState;
+        var origReplace = w.history.replaceState;
+        if (typeof origPush === 'function') {
+          w.history.pushState = function () {
+            var out = origPush.apply(this, arguments);
+            setTimeout(onNav, 0);
+            return out;
+          };
+        }
+        if (typeof origReplace === 'function') {
+          w.history.replaceState = function () {
+            var out = origReplace.apply(this, arguments);
+            setTimeout(onNav, 0);
+            return out;
+          };
+        }
+        w.history.__twinShellDeepSyncPatched = true;
+      }
+    } catch (e) {}
+
+    iframe.__deepSyncCleanup = function () {
+      try { w.removeEventListener('hashchange', onNav); } catch (e) {}
+      try { w.removeEventListener('popstate', onNav); } catch (e) {}
+      try { if (doc) doc.removeEventListener('click', onClick, true); } catch (e) {}
+    };
+
+    syncAddressBarFromIframe(iframe, true);
   }
 
   // ── Rendering ──────────────────────────────────────────────────────────
@@ -165,11 +357,150 @@
   function renderActivityBar() {
     var top = root.querySelector('.ts-ab-top');
     var bottom = root.querySelector('.ts-ab-bottom');
+
+    // Context-toggle button — switches between standalone /twin/ and the
+    // wp-admin TwinChat page so the user has one click to flip surfaces.
+    top.appendChild(buildContextToggle());
+
+    // Fold-admin button — collapses the wp-admin sidebar inside the active iframe
+    // (when the embedded page is a wp-admin screen). No-op for non-admin iframes.
+    top.appendChild(buildFoldAdminToggle());
+
     cfg.plugins.forEach(function (p) {
       var item = buildItem(p);
       if (p.section === 'bottom') bottom.appendChild(item);
       else top.appendChild(item);
     });
+  }
+
+  // Detect whether we are loaded inside the WP admin iframe wrapper.
+  // The wrapper always appends ?bizcity_iframe=1, AND we are framed.
+  function isInsideAdminIframe() {
+    try {
+      if (window.top === window.self) return false;
+    } catch (e) { return true; /* cross-origin → assume framed */ }
+    var sp = new URLSearchParams(window.location.search);
+    return sp.get('bizcity_iframe') === '1';
+  }
+
+  function buildContextToggle() {
+    var inAdmin = isInsideAdminIframe();
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'ts-ab-item ts-ab-context-toggle';
+    btn.dataset.role = 'context-toggle';
+    btn.setAttribute('role', 'button');
+
+    if (inAdmin) {
+      btn.title = 'Mở /twin/ (thoát wp-admin)';
+      btn.setAttribute('aria-label', btn.title);
+      btn.innerHTML = renderIcon('external');
+    } else {
+      btn.title = 'Mở trong wp-admin';
+      btn.setAttribute('aria-label', btn.title);
+      btn.innerHTML = renderIcon('admin');
+    }
+
+    btn.addEventListener('click', function () {
+      var pluginId = current.pluginId || cfg.defaultPlugin || (cfg.plugins[0] && cfg.plugins[0].id) || '';
+      if (inAdmin) {
+        // Pop out: navigate the TOP window to standalone /twin/.
+        var url = '/twin/' + (pluginId ? '?plugin=' + encodeURIComponent(pluginId) : '');
+        try { window.top.location.href = url; }
+        catch (e) { window.location.href = url; }
+      } else {
+        // Enter wp-admin TwinChat page (which itself iframes /twin/).
+        var adminUrl = '/wp-admin/admin.php?page=bizcity-twinchat'
+                     + (pluginId ? '&plugin=' + encodeURIComponent(pluginId) : '');
+        window.location.href = adminUrl;
+      }
+    });
+    return btn;
+  }
+
+  // Check if this shell is running inside wp-admin (admin.php) by inspecting
+  // the parent frame URL — more reliable than DOM lookup which may fail if
+  // admin chrome hasn't painted yet.
+  function getAdminParentWindow() {
+    // Case A: this script runs directly on admin.php (no parent frame).
+    try {
+      if (document.getElementById('collapse-button')) return window;
+    } catch (e) {}
+
+    // Case B: walk parent chain, check URL for admin.php.
+    var win = window;
+    for (var i = 0; i < 6; i++) {
+      var p;
+      try { p = win.parent; } catch (e) { return null; }
+      if (!p || p === win) return null;
+      try {
+        var href = p.location.href;
+        if (href && href.indexOf('admin.php') !== -1 &&
+            p.location.origin === window.location.origin) {
+          return p;
+        }
+      } catch (e) { return null; }
+      win = p;
+    }
+    return null;
+  }
+
+  function syncFoldAdminBtnState(btn) {
+    var adminWin = getAdminParentWindow();
+    var has = !!adminWin;
+    btn.disabled = !has;
+    btn.style.opacity = has ? '' : '0.35';
+    btn.style.cursor  = has ? '' : 'not-allowed';
+
+    var folded = false;
+    if (has) {
+      try { folded = adminWin.document.body.classList.contains('folded'); } catch (e) {}
+    }
+    btn.innerHTML = renderIcon(folded ? 'panel-left-open' : 'panel-left-close');
+    var title = !has
+      ? 'Thu/mở wp-admin sidebar (chỉ khả dụng khi /twin/ chạy trong wp-admin)'
+      : (folded ? 'Mở wp-admin sidebar' : 'Thu gọn wp-admin sidebar');
+    btn.title = title;
+    btn.setAttribute('aria-label', title);
+    btn.setAttribute('aria-pressed', folded ? 'true' : 'false');
+  }
+
+  function buildFoldAdminToggle() {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'ts-ab-item ts-ab-fold-admin';
+    btn.dataset.role = 'fold-admin';
+    btn.setAttribute('role', 'button');
+    btn.innerHTML = renderIcon('panel-left-close');
+    btn.title = 'Thu gọn wp-admin sidebar';
+    btn.setAttribute('aria-label', btn.title);
+
+    btn.addEventListener('click', function () {
+      var adminWin = getAdminParentWindow();
+      if (!adminWin) return;
+      try {
+        // Click WP's native #collapse-button → persists folded state to user_meta.
+        var collapseBtn = adminWin.document.getElementById('collapse-button');
+        if (collapseBtn && typeof collapseBtn.click === 'function') {
+          collapseBtn.click();
+        } else {
+          // Fallback: toggle class directly.
+          adminWin.document.body.classList.toggle('folded');
+        }
+      } catch (e) { console.warn('[twin-shell][fold-admin] err', e); }
+      // Re-sync icon/state after WP toggles the class.
+      setTimeout(function () { syncFoldAdminBtnState(btn); }, 0);
+      setTimeout(function () { syncFoldAdminBtnState(btn); }, 300);
+    });
+
+    // Keep icon/state in sync (parent may toggle independently).
+    var refresh = function () { syncFoldAdminBtnState(btn); };
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    setInterval(refresh, 1500);
+    setTimeout(refresh, 200);
+
+    return btn;
   }
 
   function setActiveButton(pluginId) {
@@ -199,7 +530,7 @@
       try {
         var cur = new URL(existing.src, window.location.origin);
         var next = new URL(url, window.location.origin);
-        if (cur.pathname !== next.pathname || cur.search !== next.search) {
+        if (cur.pathname !== next.pathname || cur.search !== next.search || cur.hash !== next.hash) {
           existing.src = url;
         }
       } catch (e) {
@@ -223,27 +554,18 @@
       try {
         var loc = iframe.contentWindow && iframe.contentWindow.location;
         if (loc && loc.origin === window.location.origin) {
-          var fullUrl  = loc.pathname + loc.search + loc.hash;
-          var rparams  = paramsFromIframeUrl(loc.href);
-          var thisPid  = iframe.dataset.pluginId;
-          console.log('[twin-shell][load]', { pluginId: thisPid, iframeHref: loc.href, params: rparams });
-          if (thisPid) writeShellUrl(thisPid, rparams, loc.href);
-          // Also poll for in-page hash/history changes (covers SPAs that don't
-          // ship the bridge or where Cloudflare defers it).
+          var thisPid = iframe.dataset.pluginId;
+          console.log('[twin-shell][load]', { pluginId: thisPid, iframeHref: loc.href, params: paramsFromIframeUrl(loc.href) });
+
+          // 1) Immediate sync on full-page load.
+          syncAddressBarFromIframe(iframe, true);
+          // 2) Hook SPA/admin navigation events inside iframe.
+          installIframeDeepLinkSync(iframe);
+          // 3) Poll fallback for edge cases where pushState wrappers are bypassed.
           if (!iframe.__urlPoll) {
-            var lastHref = loc.href;
             iframe.__urlPoll = setInterval(function () {
-              try {
-                var l = iframe.contentWindow && iframe.contentWindow.location;
-                if (!l || l.origin !== window.location.origin) return;
-                if (l.href !== lastHref) {
-                  console.log('[twin-shell][poll] iframe url changed', { from: lastHref, to: l.href });
-                  lastHref = l.href;
-                  var pp = paramsFromIframeUrl(l.href);
-                  writeShellUrl(iframe.dataset.pluginId, pp, l.href);
-                }
-              } catch (e) { /* cross-origin or detached */ }
-            }, 500);
+              syncAddressBarFromIframe(iframe, false);
+            }, 300);
           }
         } else {
           console.log('[twin-shell][load] cross-origin or no loc, skipping');
@@ -267,6 +589,7 @@
       var dropId = lruOrder.pop();
       var fr = iframeCache[dropId];
       if (fr && fr.__urlPoll) { clearInterval(fr.__urlPoll); fr.__urlPoll = null; }
+      if (fr && fr.__deepSyncCleanup) { try { fr.__deepSyncCleanup(); } catch (e) {} fr.__deepSyncCleanup = null; }
       if (fr && fr.parentNode) fr.parentNode.removeChild(fr);
       delete iframeCache[dropId];
     }
@@ -307,11 +630,13 @@
     var data = ev.data;
     if (!data || data.source !== 'twin-plugin') return;
 
+    var senderPluginId = pluginIdFromWindow(ev.source) || current.pluginId;
+
     if (data.type === 'nav' && typeof data.url === 'string') {
       // Child tells us its URL changed — update parent shell URL + persist deep link.
-      if (!current.pluginId) return;
+      if (!senderPluginId) return;
       var params = paramsFromIframeUrl(data.url);
-      writeShellUrl(current.pluginId, params, data.url);
+      writeShellUrl(senderPluginId, params, data.url);
       if (data.title && typeof data.title === 'string') {
         document.title = data.title + ' — Twin';
       }
@@ -322,9 +647,9 @@
       showLoading(false);
       // Sync _iurl whenever the iframe finishes loading (covers full-page
       // navigations via window.location.href, e.g. BrainHome → notebook).
-      if (current.pluginId && data.url && typeof data.url === 'string') {
+      if (senderPluginId && data.url && typeof data.url === 'string') {
         var rparams = paramsFromIframeUrl(data.url);
-        writeShellUrl(current.pluginId, rparams, data.url);
+        writeShellUrl(senderPluginId, rparams, data.url);
       }
     } else if (data.type === 'navigate-shell' && typeof data.pluginId === 'string') {
       navigate(data.pluginId, data.params || {});

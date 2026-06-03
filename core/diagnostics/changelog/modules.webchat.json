@@ -1,0 +1,51 @@
+{
+  "$schema": "https://bizcity.vn/schema/diagnostics-changelog-v1.json",
+  "module_id": "modules.webchat",
+  "owner": "modules/webchat",
+  "installer_id": "webchat",
+  "current_version": "5.0.0",
+  "version_option": "bizcity_webchat_db_version",
+  "tables": {
+    "bizcity_webchat_sources": {
+      "since": "4.0.0",
+      "purpose": "Raw sources storage (UI sidebar); bridged from TwinChat via project_id",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":               { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "4.0.0", "pk": true },
+        "session_id":       { "type": "VARCHAR(128) NOT NULL DEFAULT ''",        "since": "4.0.0" },
+        "user_id":          { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",      "since": "4.0.0" },
+        "project_id":       { "type": "VARCHAR(50) NOT NULL DEFAULT ''",         "since": "5.0.0" },
+        "source_type":      { "type": "VARCHAR(32) NOT NULL DEFAULT 'url'",      "since": "4.0.0" },
+        "title":            { "type": "VARCHAR(500) NOT NULL DEFAULT ''",        "since": "4.0.0" },
+        "url":              { "type": "TEXT NULL",                               "since": "4.0.0", "deprecated_since": "5.0.0", "replaced_by": "source_url" },
+        "source_url":       { "type": "VARCHAR(1000) NOT NULL DEFAULT ''",       "since": "5.0.0" },
+        "content":          { "type": "LONGTEXT NULL",                           "since": "4.0.0", "deprecated_since": "5.0.0", "replaced_by": "content_text" },
+        "content_text":     { "type": "LONGTEXT NULL",                           "since": "5.0.0" },
+        "attachment_id":    { "type": "BIGINT UNSIGNED NULL DEFAULT NULL",       "since": "5.0.0" },
+        "content_hash":     { "type": "CHAR(64) NOT NULL DEFAULT ''",            "since": "3.11.0" },
+        "char_count":       { "type": "INT UNSIGNED NOT NULL DEFAULT 0",         "since": "3.11.0" },
+        "token_estimate":   { "type": "INT UNSIGNED NOT NULL DEFAULT 0",         "since": "3.11.0" },
+        "chunk_count":      { "type": "INT UNSIGNED NOT NULL DEFAULT 0",         "since": "4.0.0" },
+        "embedding_model":  { "type": "VARCHAR(64) NOT NULL DEFAULT ''",         "since": "3.11.0" },
+        "embedding_status": { "type": "VARCHAR(20) NOT NULL DEFAULT 'pending'",  "since": "4.0.0" },
+        "error_message":    { "type": "TEXT NULL",                               "since": "3.11.0" },
+        "metadata":         { "type": "LONGTEXT NULL",                           "since": "3.11.0" },
+        "created_at":       { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "4.0.0" }
+      },
+      "indexes": {
+        "idx_session":      { "cols": ["session_id"],                 "since": "4.0.0" },
+        "idx_user":         { "cols": ["user_id"],                    "since": "4.0.0" },
+        "idx_project":      { "cols": ["project_id"],                 "since": "5.0.0" },
+        "idx_status":       { "cols": ["embedding_status"],           "since": "4.0.0" },
+        "idx_project_hash": { "cols": ["project_id", "content_hash"], "since": "3.11.0" }
+      }
+    }
+  },
+  "history": [
+    { "version": "3.11.0", "date": "2026-05-21", "change": "Add 6 ingest columns (content_hash, char_count, token_estimate, embedding_model, error_message, metadata) — fixes wp_1458 INSERT failure" },
+    { "version": "5.0.0",  "date": "2025-12-10", "change": "Notebook/Chat split — add project_id, source_url, content_text, attachment_id (deprecates url, content)" },
+    { "version": "4.0.0",  "date": "2025-09-01", "change": "Create bizcity_webchat_sources (Phase 1.8 — sidebar reactive sources)" }
+  ]
+}

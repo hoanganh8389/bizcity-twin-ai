@@ -737,12 +737,17 @@ body{background:#0d1117;font-family:system-ui,-apple-system,sans-serif;color:#e6
         <span id="bvk-wf-bridge-status" style="font-size:11px;color:#8b949e;"></span>
     </div>
     <?php
-    $tc_cfg = array(
-        'ajaxUrl' => admin_url( 'admin-ajax.php' ),
-        'nonce'   => wp_create_nonce( 'bvk_nonce' ),
-    );
-    $tc_hash = '#wp=' . strtr( base64_encode( wp_json_encode( $tc_cfg ) ), '+/', '-_' );
-    $tc_src  = BIZCITY_VIDEO_KLING_URL . 'twitcanva-dist/index.html' . $tc_hash;
+    // ARCHIVED 2026-06-01 — twitcanva-dist/ moved to plugins/_archived/bizcity-video-kling-twitcanva-dist/
+    // (Phase 0.99 bundle slim-down, ~3 MB build artifact, chưa dùng đến trên client).
+    // Iframe chỉ render khi build artifact tồn tại; nếu thiếu, hiển thị placeholder thay vì 404.
+    $tc_index = BIZCITY_VIDEO_KLING_DIR . 'twitcanva-dist/index.html';
+    if ( file_exists( $tc_index ) ) :
+        $tc_cfg = array(
+            'ajaxUrl' => admin_url( 'admin-ajax.php' ),
+            'nonce'   => wp_create_nonce( 'bvk_nonce' ),
+        );
+        $tc_hash = '#wp=' . strtr( base64_encode( wp_json_encode( $tc_cfg ) ), '+/', '-_' );
+        $tc_src  = BIZCITY_VIDEO_KLING_URL . 'twitcanva-dist/index.html' . $tc_hash;
     ?>
     <iframe
         id="bvk-canva-frame"
@@ -752,10 +757,20 @@ body{background:#0d1117;font-family:system-ui,-apple-system,sans-serif;color:#e6
         sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads"
         loading="lazy"
     ></iframe>
+    <?php else : ?>
+    <div style="flex:1;display:flex;align-items:center;justify-content:center;padding:32px;color:#8b949e;font-size:13px;text-align:center;background:#0d1117;">
+        <div>
+            <div style="font-size:32px;margin-bottom:12px;">🎬</div>
+            <strong>TwitCanva Video Editor chưa được cài đặt</strong><br>
+            <span style="opacity:.7">Build artifact <code>twitcanva-dist/</code> đã được archive (2026-06-01).<br>Liên hệ admin nếu cần kích hoạt lại workflow editor.</span>
+        </div>
+    </div>
+    <?php endif; ?>
 </div>
 <script>
 (function(){
     var iframe = document.getElementById('bvk-canva-frame');
+    if ( ! iframe ) { return; } // Archived 2026-06-01 — twitcanva-dist/ may not exist.
     var cfg = {
         ajaxUrl: <?php echo wp_json_encode( admin_url( 'admin-ajax.php' ) ); ?>,
         nonce:   <?php echo wp_json_encode( wp_create_nonce( 'bvk_nonce' ) ); ?>
@@ -1082,6 +1097,7 @@ body{background:#0d1117;font-family:system-ui,-apple-system,sans-serif;color:#e6
                 }
                 var xhr = new XMLHttpRequest();
                 xhr.open('POST', BVK.ajax_url, true);
+                var lastErrMsg = '';
                 xhr.onload = function() {
                     completed++;
                     try {
@@ -1091,8 +1107,16 @@ body{background:#0d1117;font-family:system-ui,-apple-system,sans-serif;color:#e6
                             var emptyEl = document.getElementById('bvk-results-empty');
                             if (emptyEl) emptyEl.style.display = 'none';
                             logConsole('Job #' + (res.data.job_id || '?') + ': submitted (Scene ' + (idx + 1) + '/' + jobs.length + ')', 'ok');
+                        } else {
+                            // Surface backend error to user and console so we don't get a useless "Gửi thất bại".
+                            var serverMsg = (res && res.data && (res.data.message || res.data.error)) || res.message || ('HTTP ' + xhr.status);
+                            lastErrMsg = serverMsg;
+                            logConsole('Scene ' + (idx + 1) + ' failed: ' + serverMsg, 'error');
                         }
-                    } catch(e) {}
+                    } catch(e) {
+                        lastErrMsg = 'Invalid server response (HTTP ' + xhr.status + ')';
+                        logConsole('Scene ' + (idx + 1) + ' parse error: ' + (xhr.responseText || '').substring(0, 300), 'error');
+                    }
                     if (completed === jobs.length) {
                         isSubmitting = false;
                         updateCreateBtnLabel();
@@ -1103,7 +1127,7 @@ body{background:#0d1117;font-family:system-ui,-apple-system,sans-serif;color:#e6
                             if (!pollTimer) { pollTimer = setInterval(pollJobs, 10000); }
                             createScenes.querySelectorAll('.bvk-aiva-scene').forEach(function(s) { aivaClearScene(s); });
                         } else {
-                            showCreateStatus('Gửi thất bại, vui lòng thử lại.', 'error');
+                            showCreateStatus('Gửi thất bại: ' + (lastErrMsg || 'vui lòng thử lại.'), 'error');
                         }
                         updateCreateBtn();
                     }

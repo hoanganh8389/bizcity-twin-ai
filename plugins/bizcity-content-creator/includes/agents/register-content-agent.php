@@ -188,7 +188,8 @@ $content_creator_execute_tool = new BizCity_TwinShell_Tool(
 		];
 	},
 	null,
-	true /* needs_approval — writes to wp_1258_bzcc_files + spends LLM credit */
+	true, /* needs_approval — writes to wp_1258_bzcc_files + spends LLM credit */
+	'producer' /* R-MPRT-12 — emits artifact_created + render_to_passages via BZCC_Persona_Provider */
 );
 
 /* ─────────────────────────────────────────────────────────────

@@ -1,0 +1,75 @@
+{
+    "name": "bizcity/twin-ai",
+    "description": "BizCity Twin AI — WordPress AI Companion Framework. Personalized AI with Identity, Memory, and Intent.",
+    "type": "wordpress-plugin",
+    "license": "GPL-2.0-or-later",
+    "homepage": "https://bizcity.vn",
+    "keywords": ["wordpress", "plugin", "ai", "framework", "llm", "agent", "rag", "twin", "bizcity"],
+    "authors": [
+        {
+            "name": "Johnny Chu (Chu Hoàng Anh)",
+            "email": "Hoanganh.itm@gmail.com",
+            "homepage": "https://bizcity.vn",
+            "role": "Maintainer"
+        }
+    ],
+    "support": {
+        "issues": "https://github.com/bizcity/bizcity-twin-ai/issues",
+        "source": "https://github.com/bizcity/bizcity-twin-ai"
+    },
+    "require": {
+        "php": ">=7.4",
+        "ext-json": "*",
+        "ext-mbstring": "*",
+        "ext-curl": "*"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^9.5",
+        "squizlabs/php_codesniffer": "^3.7",
+        "wp-coding-standards/wpcs": "^3.0",
+        "phpcompatibility/phpcompatibility-wp": "^2.1",
+        "dealerdirect/phpcodesniffer-composer-installer": "^1.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "BizCity\\Twin\\": "src/"
+        },
+        "classmap": [
+            "core/twin-core/contracts/"
+        ],
+        "files": [
+            "core/bizcity-llm/includes/helpers-deprecation.php"
+        ]
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "BizCity\\Twin\\Tests\\": "tests/unit/"
+        }
+    },
+    "scripts": {
+        "lint": "phpcs --standard=phpcs.xml.dist",
+        "lint:fix": "phpcbf --standard=phpcs.xml.dist",
+        "test": "phpunit --configuration phpunit.xml.dist",
+        "diagnostics": "php bin/diagnostics-run.php",
+        "diagnostics:junit": "php bin/diagnostics-run.php --junit=build/junit.xml",
+        "compat:php74": [
+            "@php -r \"$exit=0; foreach(['core','modules','plugins'] as $d){foreach(new RecursiveIteratorIterator(new RecursiveDirectoryIterator(__DIR__.'/'.$d)) as $f){if($f->getExtension()!=='php')continue;$s=file_get_contents($f);if(preg_match('/\\\\bmatch\\\\s*\\\\(/',$s)||preg_match('/\\\\?->[a-zA-Z_]/',$s)||preg_match('/\\\\):\\\\s*[A-Za-z_]+\\\\|[A-Za-z_]+/',$s)||preg_match('/\\\\bstr_(contains|starts_with|ends_with)\\\\s*\\\\(/',$s)){echo 'PHP8+ syntax: '.$f.PHP_EOL;$exit=1;}}} exit($exit);\""
+        ]
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true,
+    "config": {
+        "sort-packages": true,
+        "optimize-autoloader": true,
+        "platform": {
+            "php": "7.4.33"
+        },
+        "allow-plugins": {
+            "dealerdirect/phpcodesniffer-composer-installer": true
+        }
+    },
+    "extra": {
+        "framework-version": "1.0.0-rc1",
+        "phase": "0.99 — Framework v1.0 Readiness"
+    }
+}

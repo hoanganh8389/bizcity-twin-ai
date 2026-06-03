@@ -41,12 +41,16 @@ class BizCity_TwinChat_Learning_Events {
 	 */
 	public function push( $notebook_id, $event, array $payload = [], $job_id = 0 ) {
 		global $wpdb;
+		$db = BizCity_TwinChat_Learning_Database::instance();
+		if ( ! $db->is_ready() ) {
+			return 0;
+		}
 		$notebook_id = (int) $notebook_id;
 		$event       = substr( (string) $event, 0, 32 );
 		if ( $notebook_id <= 0 || $event === '' ) {
 			return 0;
 		}
-		$tbl = BizCity_TwinChat_Learning_Database::instance()->table_events();
+		$tbl = $db->table_events();
 		$ok  = $wpdb->insert( $tbl, [
 			'notebook_id' => $notebook_id,
 			'job_id'      => $job_id > 0 ? (int) $job_id : null,
@@ -76,7 +80,11 @@ class BizCity_TwinChat_Learning_Events {
 	 */
 	public function read_since( $notebook_id, $last_id = 0, $limit = 200 ) {
 		global $wpdb;
-		$tbl = BizCity_TwinChat_Learning_Database::instance()->table_events();
+		$db = BizCity_TwinChat_Learning_Database::instance();
+		if ( ! $db->is_ready() ) {
+			return [];
+		}
+		$tbl = $db->table_events();
 
 		$rows = $wpdb->get_results( $wpdb->prepare(
 			"SELECT id, job_id, ts, event, payload
@@ -108,7 +116,11 @@ class BizCity_TwinChat_Learning_Events {
 	/** Latest event id for a notebook (for "since" cursor on first connect). */
 	public function latest_id( $notebook_id ) {
 		global $wpdb;
-		$tbl = BizCity_TwinChat_Learning_Database::instance()->table_events();
+		$db = BizCity_TwinChat_Learning_Database::instance();
+		if ( ! $db->is_ready() ) {
+			return 0;
+		}
+		$tbl = $db->table_events();
 		return (int) $wpdb->get_var( $wpdb->prepare(
 			"SELECT IFNULL(MAX(id),0) FROM {$tbl} WHERE notebook_id=%d",
 			(int) $notebook_id

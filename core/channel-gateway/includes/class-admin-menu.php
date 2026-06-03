@@ -24,8 +24,11 @@ class BizCity_Gateway_Admin {
 	}
 
 	private function __construct() {
-		// Register submenus via BizChat Menu system.
-		add_action( 'bizchat_register_menus', [ $this, 'register_menus' ] );
+		// PHASE 0.37 — Do NOT re-register a duplicate `bizchat-gateway` submenu via
+		// BizChat_Menu. The centralized BizCity_Admin_Menu already registers the
+		// page; adding it again here caused two render-callbacks to fire, producing
+		// the duplicate "Channel Gateway" block with tabs + cards on the page.
+		// add_action( 'bizchat_register_menus', [ $this, 'register_menus' ] );
 
 		// Enqueue assets on our pages only.
 		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_assets' ] );
@@ -80,6 +83,16 @@ class BizCity_Gateway_Admin {
 	 *  - Quick status indicators
 	 */
 	public function render_overview(): void {
+		// PHASE 0.37 M1.W2 — Hub mode: when navigating group/sub, delegate to Registry.
+		// This activates whenever the URL contains ?group= or ?sub= params, so the
+		// full Registry group-tab UI takes over. The legacy channel-cards overview
+		// still renders at ?page=bizchat-gateway (no group/sub) for backward compat.
+		if ( class_exists( 'BizCity_Channel_Menu_Registry' ) &&
+		     ( isset( $_GET['group'] ) || isset( $_GET['sub'] ) ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+			BizCity_Channel_Menu_Registry::instance()->render();
+			return;
+		}
+
 		$bridge   = BizCity_Gateway_Bridge::instance();
 		$adapters = $bridge->get_adapters();
 
@@ -111,8 +124,8 @@ class BizCity_Gateway_Admin {
 				'label'       => 'Facebook Messenger',
 				'desc'        => 'Kết nối Facebook Fanpage Messenger',
 				'icon'        => '📘',
-				'status'      => function_exists( 'fbm_send_text_to_user' ),
-				'admin_page'  => '',
+				'status'      => class_exists( 'BizCity_Facebook_Bot_Admin_Menu', false ),
+				'admin_page'  => 'bizcity-facebook-bots',
 			],
 			'webchat'   => [
 				'label'       => 'WebChat',

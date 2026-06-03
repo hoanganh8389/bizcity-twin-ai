@@ -69,14 +69,22 @@ class BizCity_Scheduler_Tools {
 					'trust_tier'    => 2,
 					'tool_type'     => 'atomic',
 					'input_fields'  => [
-						'title'        => [ 'required' => true, 'type' => 'text' ],
-						'start_at'     => [ 'required' => true, 'type' => 'text' ],
-						'end_at'       => [ 'required' => false, 'type' => 'text' ],
-						'description'  => [ 'required' => false, 'type' => 'text' ],
-						'all_day'      => [ 'required' => false, 'type' => 'choice' ],
-						'reminder_min' => [ 'required' => false, 'type' => 'number' ],
-						'source'       => [ 'required' => false, 'type' => 'text' ],
-						'ai_context'   => [ 'required' => false, 'type' => 'text' ],
+						'title'               => [ 'required' => true, 'type' => 'text' ],
+						'start_at'            => [ 'required' => true, 'type' => 'text' ],
+						'end_at'              => [ 'required' => false, 'type' => 'text' ],
+						'description'         => [ 'required' => false, 'type' => 'text' ],
+						'all_day'             => [ 'required' => false, 'type' => 'choice' ],
+						'reminder_min'        => [ 'required' => false, 'type' => 'number' ],
+						'source'              => [ 'required' => false, 'type' => 'text' ],
+						'ai_context'          => [ 'required' => false, 'type' => 'text' ],
+						// Phase 5 (M-CRM.M12 v2) — unified calendar fields:
+						'event_type'          => [ 'required' => false, 'type' => 'text' ],
+						'attendees'           => [ 'required' => false, 'type' => 'text' ],
+						'contact_id'          => [ 'required' => false, 'type' => 'number' ],
+						'conversation_id'     => [ 'required' => false, 'type' => 'number' ],
+						'related_entity_type' => [ 'required' => false, 'type' => 'text' ],
+						'related_entity_id'   => [ 'required' => false, 'type' => 'number' ],
+						'google_account_id'   => [ 'required' => false, 'type' => 'number' ],
 					],
 					'output_fields' => [
 						'id'              => [ 'type' => 'int' ],
@@ -101,16 +109,23 @@ class BizCity_Scheduler_Tools {
 					'trust_tier'    => 2,
 					'tool_type'     => 'atomic',
 					'input_fields'  => [
-						'event_ref'    => [ 'required' => true, 'type' => 'text' ],
-						'title'        => [ 'required' => false, 'type' => 'text' ],
-						'start_at'     => [ 'required' => false, 'type' => 'text' ],
-						'end_at'       => [ 'required' => false, 'type' => 'text' ],
-						'description'  => [ 'required' => false, 'type' => 'text' ],
-						'all_day'      => [ 'required' => false, 'type' => 'choice' ],
-						'reminder_min' => [ 'required' => false, 'type' => 'number' ],
-						'source'       => [ 'required' => false, 'type' => 'text' ],
-						'ai_context'   => [ 'required' => false, 'type' => 'text' ],
-						'status'       => [ 'required' => false, 'type' => 'text' ],
+						'event_ref'           => [ 'required' => true, 'type' => 'text' ],
+						'title'               => [ 'required' => false, 'type' => 'text' ],
+						'start_at'            => [ 'required' => false, 'type' => 'text' ],
+						'end_at'              => [ 'required' => false, 'type' => 'text' ],
+						'description'         => [ 'required' => false, 'type' => 'text' ],
+						'all_day'             => [ 'required' => false, 'type' => 'choice' ],
+						'reminder_min'        => [ 'required' => false, 'type' => 'number' ],
+						'source'              => [ 'required' => false, 'type' => 'text' ],
+						'ai_context'          => [ 'required' => false, 'type' => 'text' ],
+						'status'              => [ 'required' => false, 'type' => 'text' ],
+						'event_type'          => [ 'required' => false, 'type' => 'text' ],
+						'attendees'           => [ 'required' => false, 'type' => 'text' ],
+						'contact_id'          => [ 'required' => false, 'type' => 'number' ],
+						'conversation_id'     => [ 'required' => false, 'type' => 'number' ],
+						'related_entity_type' => [ 'required' => false, 'type' => 'text' ],
+						'related_entity_id'   => [ 'required' => false, 'type' => 'number' ],
+						'google_account_id'   => [ 'required' => false, 'type' => 'number' ],
 					],
 					'output_fields' => [
 						'id'           => [ 'type' => 'int' ],
@@ -382,15 +397,18 @@ class BizCity_Scheduler_Tools {
 		}
 
 		$event_id = BizCity_Scheduler_Manager::instance()->create_event( [
-			'user_id'      => $user_id,
-			'title'        => $slots['title'] ?? '',
-			'description'  => $slots['description'] ?? '',
-			'start_at'     => $start,
-			'end_at'       => $end,
-			'all_day'      => $all_day,
-			'reminder_min' => absint( $slots['reminder_min'] ?? 15 ),
-			'source'       => self::normalize_source( $slots['source'] ?? 'user' ),
-			'ai_context'   => isset( $slots['ai_context'] ) ? sanitize_text_field( (string) $slots['ai_context'] ) : '',
+			'user_id'           => $user_id,
+			'title'             => $slots['title'] ?? '',
+			'description'       => $slots['description'] ?? '',
+			'start_at'          => $start,
+			'end_at'            => $end,
+			'all_day'           => $all_day,
+			'reminder_min'      => absint( $slots['reminder_min'] ?? 15 ),
+			'source'            => self::normalize_source( $slots['source'] ?? 'user' ),
+			'ai_context'        => isset( $slots['ai_context'] ) ? sanitize_text_field( (string) $slots['ai_context'] ) : '',
+			'event_type'        => isset( $slots['event_type'] ) ? sanitize_text_field( (string) $slots['event_type'] ) : 'meeting',
+			'metadata'          => self::build_metadata_from_slots( $slots, $user_id ),
+			'google_account_id' => isset( $slots['google_account_id'] ) ? absint( $slots['google_account_id'] ) : null,
 		] );
 
 		if ( is_wp_error( $event_id ) ) {
@@ -459,6 +477,19 @@ class BizCity_Scheduler_Tools {
 		}
 		if ( isset( $slots['status'] ) && '' !== trim( (string) $slots['status'] ) ) {
 			$update['status'] = self::normalize_status( $slots['status'], (string) $event->status );
+		}
+		if ( isset( $slots['event_type'] ) && '' !== trim( (string) $slots['event_type'] ) ) {
+			$update['event_type'] = sanitize_text_field( (string) $slots['event_type'] );
+		}
+		if ( isset( $slots['google_account_id'] ) && '' !== (string) $slots['google_account_id'] ) {
+			$update['google_account_id'] = absint( $slots['google_account_id'] );
+		}
+		// Phase 5: merge incoming metadata fields with previously stored metadata.
+		$meta_inputs = self::build_metadata_from_slots( $slots, (int) $event->user_id );
+		if ( ! empty( $meta_inputs ) ) {
+			$prev = ! empty( $event->metadata ) ? json_decode( (string) $event->metadata, true ) : [];
+			if ( ! is_array( $prev ) ) { $prev = []; }
+			$update['metadata'] = array_merge( $prev, $meta_inputs );
 		}
 
 		if ( empty( $update ) ) {
@@ -816,9 +847,62 @@ class BizCity_Scheduler_Tools {
 
 	private static function normalize_source( $source ): string {
 		$source = sanitize_key( (string) $source );
-		$allowed = [ 'user', 'user_prompt', 'ai_plan', 'ai_task', 'ai_reminder', 'ai_memory', 'workflow', 'composite', 'google_sync', 'external_sync' ];
+		$allowed = [ 'user', 'user_prompt', 'ai_plan', 'ai_task', 'ai_reminder', 'ai_memory', 'workflow', 'composite', 'google_sync', 'external_sync', 'crm_calendar', 'crm_inbox' ];
 
 		return in_array( $source, $allowed, true ) ? $source : 'user';
+	}
+
+	/**
+	 * Phase 5: build the unified `metadata` JSON from tool slots.
+	 *
+	 * Recognised keys: attendees (CSV or array), contact_id, conversation_id,
+	 * related_entity_type, related_entity_id. Empty values are stripped.
+	 *
+	 * Other plugins can inject additional keys via the
+	 * `bizcity_scheduler_event_metadata` filter \u2014 e.g. the webchat
+	 * orchestrator pulling contact_id from the active conversation context.
+	 *
+	 * @param array $slots
+	 * @param int   $user_id
+	 * @return array  Metadata associative array (may be empty).
+	 */
+	private static function build_metadata_from_slots( array $slots, int $user_id ): array {
+		$meta = [];
+
+		if ( ! empty( $slots['attendees'] ) ) {
+			$att = $slots['attendees'];
+			if ( is_string( $att ) ) {
+				$att = array_filter( array_map( 'trim', preg_split( '/[\s,;]+/', $att ) ?: [] ) );
+			}
+			if ( is_array( $att ) ) {
+				$meta['attendees'] = array_values( array_filter( array_map( 'sanitize_text_field', $att ) ) );
+			}
+		}
+		if ( ! empty( $slots['contact_id'] ) ) {
+			$meta['contact_id'] = absint( $slots['contact_id'] );
+		}
+		if ( ! empty( $slots['conversation_id'] ) ) {
+			$meta['conversation_id'] = absint( $slots['conversation_id'] );
+		}
+		if ( ! empty( $slots['related_entity_type'] ) ) {
+			$meta['related_entity_type'] = sanitize_key( (string) $slots['related_entity_type'] );
+		}
+		if ( ! empty( $slots['related_entity_id'] ) ) {
+			$meta['related_entity_id'] = absint( $slots['related_entity_id'] );
+		}
+
+		/**
+		 * Filter: let other plugins add or override metadata fields.
+		 * Webchat/inbox orchestrators use this to inject contact_id and
+		 * conversation_id from the active session context automatically.
+		 *
+		 * @param array $meta    Metadata being built.
+		 * @param array $slots   Original tool slots.
+		 * @param int   $user_id Owner of the event.
+		 */
+		$meta = apply_filters( 'bizcity_scheduler_event_metadata', $meta, $slots, $user_id );
+
+		return is_array( $meta ) ? $meta : [];
 	}
 
 	private static function to_bool( $value ): bool {

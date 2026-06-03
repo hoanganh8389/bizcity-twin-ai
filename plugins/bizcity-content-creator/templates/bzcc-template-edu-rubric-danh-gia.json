@@ -1,0 +1,112 @@
+{
+  "version": "1.0",
+  "plugin": "bizcity-content-creator",
+  "exported": "2026-05-19T12:00:00Z",
+  "templates": [
+    {
+      "slug": "edu-rubric-danh-gia",
+      "category_id": "hoc-tap",
+      "title": "Tạo bảng tiêu chí đánh giá (Rubric)",
+      "description": "Tự động tạo bảng Rubric đánh giá rõ ràng dựa trên nội dung và yêu cầu bài tập, đảm bảo tính công bằng và chuẩn hoá. Hỗ trợ 4 mức (Xuất sắc/Khá/Đạt/Cần cải thiện) với mô tả cụ thể cho từng tiêu chí.",
+      "icon_url": "",
+      "icon_emoji": "📋",
+      "form_fields": [
+        {
+          "slug": "subject",
+          "label": "Môn học",
+          "type": "text",
+          "placeholder": "Ngữ văn, Toán học, Khoa học, Tin học... (không bắt buộc)",
+          "required": false,
+          "grid": "half",
+          "sort_order": 1
+        },
+        {
+          "slug": "assignment_name",
+          "label": "Tên bài tập",
+          "type": "text",
+          "placeholder": "Giáo viên cung cấp",
+          "required": true,
+          "grid": "half",
+          "sort_order": 2
+        },
+        {
+          "slug": "criteria_list",
+          "label": "Tiêu chí đánh giá (kèm trọng số nếu có)",
+          "type": "textarea",
+          "placeholder": "VD: Nội dung (30%), Cấu trúc (20%), Diễn đạt (20%), Sáng tạo (15%), Làm việc nhóm (15%)... Mỗi tiêu chí 1 dòng.",
+          "required": true,
+          "grid": "full",
+          "sort_order": 3,
+          "description": "Để trống AI sẽ tự đề xuất 5-6 tiêu chí phù hợp"
+        },
+        {
+          "slug": "grade_level",
+          "label": "Cấp học hoặc cấp độ học sinh",
+          "type": "card_radio",
+          "required": true,
+          "grid": "full",
+          "sort_order": 4,
+          "options": [
+            { "value": "mam-non", "label": "Mầm non", "icon": "🧸", "description": "3-6 tuổi" },
+            { "value": "cap-1", "label": "Cấp 1 — Tiểu học", "icon": "🎒", "description": "Lớp 1-5" },
+            { "value": "cap-2", "label": "Cấp 2 — THCS", "icon": "📘", "description": "Lớp 6-9" },
+            { "value": "cap-3", "label": "Cấp 3 — THPT", "icon": "🎓", "description": "Lớp 10-12" },
+            { "value": "dh-cd", "label": "Đại học / Cao đẳng", "icon": "🏛️", "description": "Sinh viên" }
+          ]
+        },
+        {
+          "slug": "assignment_desc",
+          "label": "Mô tả bài tập",
+          "type": "textarea",
+          "placeholder": "Nội dung chi tiết về bài tập cho học sinh (không bắt buộc)",
+          "required": false,
+          "grid": "half",
+          "sort_order": 5
+        },
+        {
+          "slug": "expected_outcome",
+          "label": "Mô tả kỳ vọng chuẩn đầu ra của học sinh",
+          "type": "textarea",
+          "placeholder": "Bạn muốn học sinh đạt được gì (không bắt buộc)",
+          "required": false,
+          "grid": "half",
+          "sort_order": 6
+        },
+        {
+          "slug": "scale_type",
+          "label": "Thang đánh giá",
+          "type": "button_group",
+          "required": false,
+          "grid": "full",
+          "sort_order": 7,
+          "multi": false,
+          "options": [
+            { "value": "4-level", "label": "4 mức (Xuất sắc / Khá / Đạt / Cần cải thiện)" },
+            { "value": "5-level", "label": "5 mức (A / B / C / D / E)" },
+            { "value": "10-point", "label": "Thang điểm 10" },
+            { "value": "100-point", "label": "Thang điểm 100" }
+          ]
+        }
+      ],
+
+      "system_prompt": "Bạn là chuyên gia thiết kế đánh giá giáo dục theo chuẩn Bloom's Taxonomy và Backward Design. Bạn đã giúp hàng nghìn giáo viên Việt Nam xây dựng rubric công bằng, rõ ràng và đo lường được.\n\n## THÔNG TIN\n- Môn học: {{subject}}\n- Tên bài tập: {{assignment_name}}\n- Tiêu chí: {{criteria_list}}\n- Cấp học: {{grade_level}}\n- Mô tả bài tập: {{assignment_desc}}\n- Chuẩn đầu ra kỳ vọng: {{expected_outcome}}\n- Thang đánh giá: {{scale_type}}\n\n## NGUYÊN TẮC THIẾT KẾ RUBRIC\n1. **Cụ thể & quan sát được** — mỗi mô tả phải đo lường được, không dùng từ mơ hồ ('tốt', 'kém')\n2. **Phân biệt rõ giữa các mức** — mức kế tiếp phải tăng/giảm về CHẤT, không chỉ về SỐ LƯỢNG\n3. **Phù hợp cấp học** — ngôn ngữ và yêu cầu khớp với độ tuổi học sinh\n4. **Có ví dụ minh hoạ** — mỗi tiêu chí kèm 1 ví dụ cụ thể giúp học sinh hiểu\n5. **Khuyến khích phát triển** — mức thấp nhất KHÔNG đánh giá học sinh kém, mà mô tả 'cần cải thiện gì'\n6. **Đo được bằng chứng** — mỗi mức nêu rõ học sinh cần SHOW gì (sản phẩm, hành vi, kết quả)\n\n## ĐẶC THÙ {{grade_level}}\n- mam-non: dùng emoji, ngôn ngữ đơn giản, đánh giá qua quan sát/sản phẩm\n- cap-1: ngắn gọn, ví dụ cụ thể từ đời sống, có thể vẽ tranh thay viết\n- cap-2/3: chi tiết hơn, yêu cầu phân tích, lập luận, dẫn chứng\n- dh-cd: chuẩn học thuật, tham chiếu nguồn, tư duy phản biện",
+
+      "outline_prompt": "Tạo outline cho Rubric đánh giá '{{assignment_name}}' (môn {{subject}}, cấp {{grade_level}}).\n\nOutline gồm 4 section:\n1. Tổng quan & Mục tiêu đánh giá\n2. Bảng Rubric chi tiết (theo thang {{scale_type}})\n3. Hướng dẫn sử dụng cho giáo viên\n4. Hướng dẫn tự đánh giá cho học sinh\n\nTRẢ VỀ JSON:\n[\n  {\"label\": \"Tổng quan & Mục tiêu\", \"emoji\": \"🎯\", \"platform\": \"general\"},\n  {\"label\": \"Bảng Rubric chi tiết\", \"emoji\": \"📋\", \"platform\": \"general\"},\n  {\"label\": \"Hướng dẫn cho giáo viên\", \"emoji\": \"👩\\u200d🏫\", \"platform\": \"general\"},\n  {\"label\": \"Hướng dẫn tự đánh giá cho học sinh\", \"emoji\": \"🧑\\u200d🎓\", \"platform\": \"general\"}\n]",
+
+      "chunk_prompt": "Bạn đang viết phần \"{{chunk_title}}\" của Rubric '{{assignment_name}}' (cấp {{grade_level}}, thang {{scale_type}}).\n\n## YÊU CẦU THEO TỪNG SECTION\n\n### Tổng quan & Mục tiêu\n- 2-3 câu giới thiệu bài tập\n- Liệt kê 3-5 chuẩn đầu ra học sinh đạt được (knowledge / skill / attitude)\n- Tổng trọng số (100%)\n- Thời lượng dự kiến hoàn thành\n\n### Bảng Rubric chi tiết — TRÌNH BÀY DƯỚI DẠNG MARKDOWN TABLE\n- Cột đầu: **Tiêu chí** (+ trọng số %)\n- Các cột tiếp: mỗi mức của thang {{scale_type}}\n- Mỗi ô: mô tả CỤ THỂ học sinh đạt mức đó phải SHOW gì (2-4 dòng)\n- Sau bảng, liệt kê **Ví dụ minh hoạ** cho 2-3 tiêu chí khó hiểu nhất\n- Tổng điểm/tổng %\n\nVí dụ format bảng (thang 4 mức):\n\n| Tiêu chí (Trọng số) | Xuất sắc (4đ) | Khá (3đ) | Đạt (2đ) | Cần cải thiện (1đ) |\n|---|---|---|---|---|\n| Nội dung (30%) | ... | ... | ... | ... |\n\n### Hướng dẫn cho giáo viên\n- 5-7 bullet hướng dẫn cách chấm công bằng\n- Cách xử lý trường hợp ranh giới giữa 2 mức\n- Mẫu phiếu feedback ngắn cho học sinh (3-4 câu)\n- Lỗi thường gặp khi chấm — cách tránh\n\n### Hướng dẫn tự đánh giá cho học sinh\n- Mở đầu thân thiện, ngôn ngữ phù hợp {{grade_level}}\n- Checklist 5-7 câu hỏi tự đánh giá trước khi nộp\n- Hướng dẫn dùng bảng rubric để self-grade\n- 3 câu khuyến khích nếu chưa đạt mức cao\n\n## QUY TẮC\n- KHÔNG mở đầu bằng 'Dưới đây là...'\n- Dùng markdown rõ ràng (table, bold, bullet)\n- Ngôn ngữ phù hợp {{grade_level}}\n- Tiếng Việt tự nhiên",
+
+      "model_purpose": "content_creation",
+      "temperature": "0.6",
+      "max_tokens": "7000",
+      "wizard_steps": [],
+      "output_platforms": ["general"],
+      "skill_id": "0",
+      "tags": "giao-duc,hoc-tap,rubric,danh-gia,assessment,giao-vien",
+      "badge_text": "EDU",
+      "badge_color": "#8b5cf6",
+      "is_featured": "1",
+      "sort_order": "1",
+      "status": "active"
+    }
+  ]
+}

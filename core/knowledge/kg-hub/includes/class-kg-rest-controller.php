@@ -165,6 +165,56 @@ class BizCity_KG_Rest_Controller {
 			'callback' => [ $this, 'notebook_progress_log' ],
 			'permission_callback' => $perm,
 		] );
+
+		// ── Phase 0.21 Wave 3.0 — Guru Builder (promote notebook → guru) ──
+		register_rest_route( $ns, '/notebooks/(?P<id>\d+)/promote-to-guru/preview', [
+			'methods'             => 'GET',
+			'callback'            => [ $this, 'guru_promote_preview' ],
+			'permission_callback' => $perm,
+		] );
+		register_rest_route( $ns, '/notebooks/(?P<id>\d+)/promote-to-guru', [
+			'methods'             => 'POST',
+			'callback'            => [ $this, 'guru_promote_notebook' ],
+			'permission_callback' => $perm,
+			'args'                => [
+				'name'          => [ 'required' => true,  'type' => 'string' ],
+				'slug'          => [ 'required' => false, 'type' => 'string' ],
+				'description'   => [ 'required' => false, 'type' => 'string' ],
+				'system_prompt' => [ 'required' => false, 'type' => 'string' ],
+				'mode'          => [ 'required' => false, 'type' => 'string', 'default' => 'clone' ],
+			],
+		] );
+
+		// ── Phase 0.21 Wave 3.1 — Notebook ↔ Guru attach API ──────────────
+		register_rest_route( $ns, '/notebooks/(?P<id>\d+)/attached-gurus', [
+			'methods'             => 'GET',
+			'callback'            => [ $this, 'list_attached_gurus' ],
+			'permission_callback' => $perm,
+		] );
+		register_rest_route( $ns, '/notebooks/(?P<id>\d+)/attached-gurus', [
+			'methods'             => 'POST',
+			'callback'            => [ $this, 'attach_guru' ],
+			'permission_callback' => $perm,
+			'args'                => [
+				'guru_uuid'        => [ 'required' => false, 'type' => 'string' ],
+				'character_id'     => [ 'required' => false, 'type' => 'integer' ],
+				'source'           => [ 'required' => false, 'type' => 'string', 'default' => 'self' ],
+				'read_only'        => [ 'required' => false, 'type' => 'boolean', 'default' => true ],
+				'attached_version' => [ 'required' => false, 'type' => 'string' ],
+			],
+		] );
+		register_rest_route( $ns, '/notebooks/(?P<id>\d+)/attached-gurus/(?P<uuid>[0-9a-fA-F-]{36})', [
+			'methods'             => 'DELETE',
+			'callback'            => [ $this, 'detach_guru' ],
+			'permission_callback' => $perm,
+		] );
+
+		// List candidate gurus (characters with guru_uuid stamped) — for attach picker.
+		register_rest_route( $ns, '/gurus', [
+			'methods'             => 'GET',
+			'callback'            => [ $this, 'list_gurus' ],
+			'permission_callback' => $perm,
+		] );
 	}
 
 	// ─── Notebook handlers ─────────────────────────────────────────────────
@@ -182,12 +232,33 @@ class BizCity_KG_Rest_Controller {
 		);
 	}
 
+	/**
+	 * Fetch a notebook and assert the current user is the owner (or site admin).
+	 * Returns the notebook row on success, WP_Error on failure.
+	 *
+	 * @param int $nb_id
+	 * @return array|WP_Error
+	 */
+	private function assert_notebook_owner( $nb_id ) {
+		$nb = BizCity_KG_Notebook_Service::instance()->get( (int) $nb_id );
+		if ( ! $nb ) {
+			return new WP_Error( 'not_found', 'Notebook not found', [ 'status' => 404 ] );
+		}
+		$owner = (int) ( $nb['owner_id'] ?? 0 );
+		if ( $owner !== get_current_user_id() && ! current_user_can( 'manage_options' ) ) {
+			return new WP_Error( 'forbidden', 'Access denied: you do not own this notebook', [ 'status' => 403 ] );
+		}
+		return $nb;
+	}
+
 	public function get_notebook( WP_REST_Request $req ) {
-		$nb = BizCity_KG_Notebook_Service::instance()->get( (int) $req['id'] );
-		return $nb ? rest_ensure_response( $nb ) : new WP_Error( 'not_found', 'Notebook not found', [ 'status' => 404 ] );
+		$nb = $this->assert_notebook_owner( (int) $req['id'] );
+		return is_wp_error( $nb ) ? $nb : rest_ensure_response( $nb );
 	}
 
 	public function update_notebook( WP_REST_Request $req ) {
+		$nb = $this->assert_notebook_owner( (int) $req['id'] );
+		if ( is_wp_error( $nb ) ) return $nb;
 		$data = $req->get_json_params() ?: $req->get_params();
 		return rest_ensure_response(
 			BizCity_KG_Notebook_Service::instance()->update( (int) $req['id'], (array) $data )
@@ -195,6 +266,8 @@ class BizCity_KG_Rest_Controller {
 	}
 
 	public function delete_notebook( WP_REST_Request $req ) {
+		$nb = $this->assert_notebook_owner( (int) $req['id'] );
+		if ( is_wp_error( $nb ) ) return $nb;
 		BizCity_KG_Notebook_Service::instance()->delete( (int) $req['id'] );
 		return rest_ensure_response( [ 'deleted' => true ] );
 	}
@@ -362,13 +435,37 @@ class BizCity_KG_Rest_Controller {
 	}
 
 	/**
-	 * Phase 4.5b — Global graph across all notebooks (BrainHome Nexus view).
-	 * No notebook_id filter; entities/relations include `notebook_id` for client-side grouping.
+	 * Phase 4.5b — Global graph scoped to the current user's notebooks.
+	 * (Admins with manage_options see ALL notebooks to allow cross-user debugging.)
 	 */
 	public function get_graph_global( WP_REST_Request $req ) {
-		$limit = (int) ( $req->get_param( 'limit' ) ?: 600 );
+		$limit   = (int) ( $req->get_param( 'limit' ) ?: 600 );
+		$user_id = get_current_user_id();
+
+		// TBR.F2-cite (2026-05-13) — caller can request must-include entity ids
+		// (e.g. cited nodes from Ask Brain) so the orange highlight always lands
+		// on a node that actually exists in the graph payload.
+		$include_raw = (string) $req->get_param( 'include' );
+		$include_ids = [];
+		if ( $include_raw !== '' ) {
+			foreach ( explode( ',', $include_raw ) as $tok ) {
+				$id = (int) trim( $tok );
+				if ( $id > 0 ) $include_ids[ $id ] = true;
+			}
+			$include_ids = array_keys( $include_ids );
+			if ( count( $include_ids ) > 500 ) $include_ids = array_slice( $include_ids, 0, 500 );
+		}
+
+		if ( current_user_can( 'manage_options' ) && $req->get_param( 'all' ) ) {
+			// Admin explicit opt-in: pass empty array → no notebook filter.
+			$nb_ids = [];
+		} else {
+			$notebooks = BizCity_KG_Notebook_Service::instance()->list_for_user( $user_id, [ 'limit' => 500 ] );
+			$nb_ids    = array_map( 'intval', array_column( $notebooks, 'id' ) );
+		}
+
 		return rest_ensure_response(
-			BizCity_KG_Graph_Service::instance()->get_global_graph( $limit )
+			BizCity_KG_Graph_Service::instance()->get_global_graph( $limit, $nb_ids, $include_ids )
 		);
 	}
 
@@ -439,8 +536,10 @@ class BizCity_KG_Rest_Controller {
 		// popups for any blog whose passages table never had those legacy cols.
 		if ( $ts ) {
 			$sql = $wpdb->prepare(
-				"SELECT DISTINCT p.id AS passage_id, p.content, p.metadata,
-				        p.source_id, s.title AS source_title
+				"SELECT DISTINCT p.id AS passage_id, p.id, p.content, p.metadata,
+				        p.source_id, p.notebook_id,
+				        p.storage_ver, p.file_shard, p.file_offset, p.file_length,
+				        s.title AS source_title
 				   FROM {$tp} p
 				   INNER JOIN {$tpe} pe ON pe.passage_id = p.id
 				   LEFT JOIN {$ts} s ON s.id = p.source_id
@@ -452,7 +551,8 @@ class BizCity_KG_Rest_Controller {
 			);
 		} else {
 			$sql = $wpdb->prepare(
-				"SELECT DISTINCT p.id AS passage_id, p.content, p.metadata, p.source_id
+				"SELECT DISTINCT p.id AS passage_id, p.id, p.content, p.metadata, p.source_id, p.notebook_id,
+				        p.storage_ver, p.file_shard, p.file_offset, p.file_length
 				   FROM {$tp} p
 				   INNER JOIN {$tpe} pe ON pe.passage_id = p.id
 				   WHERE pe.entity_id = %d {$where_nb}
@@ -465,6 +565,9 @@ class BizCity_KG_Rest_Controller {
 
 		$rows = $wpdb->get_results( $sql, ARRAY_A );
 		if ( ! is_array( $rows ) ) $rows = [];
+		if ( $rows && class_exists( 'BizCity_KG_Content_Router' ) ) {
+			BizCity_KG_Content_Router::instance()->hydrate_passages( $rows );
+		}
 
 		$out = array_map( static function ( $r ) {
 			$content = (string) ( $r['content'] ?? '' );
@@ -689,5 +792,135 @@ class BizCity_KG_Rest_Controller {
 			'notebook_id' => $nb,
 			'events'      => BizCity_KG_Source_Progress_Log::get_for_notebook( $nb, $limit ),
 		] );
+	}
+
+	// ── Phase 0.21 Wave 3.0 — Guru Builder handlers ───────────────────────
+
+	public function guru_promote_preview( WP_REST_Request $req ) {
+		if ( ! class_exists( 'BizCity_KG_Guru_Builder' ) ) {
+			return new WP_Error( 'not_available', 'Guru Builder unavailable.', [ 'status' => 503 ] );
+		}
+		$res = BizCity_KG_Guru_Builder::instance()->preview_notebook( (int) $req['id'] );
+		if ( is_wp_error( $res ) ) {
+			$res->add_data( [ 'status' => 400 ] );
+			return $res;
+		}
+		return rest_ensure_response( [ 'ok' => true ] + $res );
+	}
+
+	public function guru_promote_notebook( WP_REST_Request $req ) {
+		if ( ! class_exists( 'BizCity_KG_Guru_Builder' ) ) {
+			return new WP_Error( 'not_available', 'Guru Builder unavailable.', [ 'status' => 503 ] );
+		}
+		$args = [
+			'name'          => (string) $req->get_param( 'name' ),
+			'slug'          => (string) ( $req->get_param( 'slug' ) ?: '' ),
+			'description'   => (string) ( $req->get_param( 'description' ) ?: '' ),
+			'system_prompt' => (string) ( $req->get_param( 'system_prompt' ) ?: '' ),
+			'mode'          => (string) ( $req->get_param( 'mode' ) ?: 'clone' ),
+			'user_id'       => (int) get_current_user_id(),
+		];
+		$res = BizCity_KG_Guru_Builder::instance()->promote_notebook( (int) $req['id'], $args );
+		if ( is_wp_error( $res ) ) {
+			$res->add_data( [ 'status' => 400 ] );
+			return $res;
+		}
+		return rest_ensure_response( [ 'ok' => true ] + $res );
+	}
+
+	// ── Phase 0.21 Wave 3.1 — attach-guru handlers ────────────────────────
+
+	public function list_attached_gurus( WP_REST_Request $req ) {
+		$nb   = (int) $req['id'];
+		$rows = BizCity_KG_Database::instance()->list_attached_gurus( $nb );
+		return rest_ensure_response( [
+			'ok'          => true,
+			'notebook_id' => $nb,
+			'count'       => count( $rows ),
+			'attached'    => $rows,
+		] );
+	}
+
+	public function attach_guru( WP_REST_Request $req ) {
+		global $wpdb;
+		$nb        = (int) $req['id'];
+		$guru_uuid = strtolower( trim( (string) $req->get_param( 'guru_uuid' ) ) );
+		$char_id   = (int) $req->get_param( 'character_id' );
+		// Resolve guru_uuid from character_id if needed.
+		if ( $guru_uuid === '' && $char_id > 0 ) {
+			$char_tbl  = $wpdb->prefix . 'bizcity_characters';
+			$guru_uuid = strtolower( (string) $wpdb->get_var( $wpdb->prepare(
+				"SELECT guru_uuid FROM {$char_tbl} WHERE id = %d", $char_id
+			) ) );
+		}
+		if ( $guru_uuid === '' ) {
+			return new WP_Error( 'kg_attach_missing_uuid', 'Provide guru_uuid or character_id with a stamped guru_uuid.', [ 'status' => 400 ] );
+		}
+		$args = [
+			'source'           => (string) ( $req->get_param( 'source' ) ?: 'self' ),
+			'read_only'        => null !== $req->get_param( 'read_only' ) ? (bool) $req->get_param( 'read_only' ) : true,
+			'attached_version' => (string) ( $req->get_param( 'attached_version' ) ?: '' ),
+			'attached_by'      => (int) get_current_user_id(),
+		];
+		$res = BizCity_KG_Database::instance()->attach_guru( $nb, $guru_uuid, $args );
+		if ( is_wp_error( $res ) ) {
+			$res->add_data( [ 'status' => 400 ] );
+			return $res;
+		}
+		return rest_ensure_response( [ 'ok' => true, 'attachment' => $res ] );
+	}
+
+	public function detach_guru( WP_REST_Request $req ) {
+		$nb        = (int) $req['id'];
+		$guru_uuid = strtolower( (string) $req['uuid'] );
+		$res = BizCity_KG_Database::instance()->detach_guru( $nb, $guru_uuid );
+		if ( is_wp_error( $res ) ) {
+			$res->add_data( [ 'status' => 400 ] );
+			return $res;
+		}
+		return rest_ensure_response( [ 'ok' => true ] + $res );
+	}
+
+	/**
+	 * List candidate gurus (characters with guru_uuid stamped). Used by the
+	 * attach-guru picker in the React UI.
+	 *
+	 * Query params:
+	 *   search  string  Optional substring match on name/slug
+	 *   limit   int     Max rows (default 100, capped 200)
+	 */
+	public function list_gurus( WP_REST_Request $req ) {
+		global $wpdb;
+		$char_tbl = $wpdb->prefix . 'bizcity_characters';
+		$search   = trim( (string) $req->get_param( 'search' ) );
+		$limit    = (int) ( $req->get_param( 'limit' ) ?: 100 );
+		if ( $limit < 1 )   $limit = 100;
+		if ( $limit > 200 ) $limit = 200;
+
+		if ( $search !== '' ) {
+			$like = '%' . $wpdb->esc_like( $search ) . '%';
+			$sql  = $wpdb->prepare(
+				"SELECT id, name, slug, guru_uuid, version, visibility,
+				        bin_path, bin_dim, bin_count, embed_model, updated_at
+				   FROM {$char_tbl}
+				  WHERE guru_uuid IS NOT NULL AND guru_uuid <> ''
+				    AND ( name LIKE %s OR slug LIKE %s )
+				  ORDER BY id DESC
+				  LIMIT %d",
+				$like, $like, $limit
+			);
+		} else {
+			$sql = $wpdb->prepare(
+				"SELECT id, name, slug, guru_uuid, version, visibility,
+				        bin_path, bin_dim, bin_count, embed_model, updated_at
+				   FROM {$char_tbl}
+				  WHERE guru_uuid IS NOT NULL AND guru_uuid <> ''
+				  ORDER BY id DESC
+				  LIMIT %d",
+				$limit
+			);
+		}
+		$rows = $wpdb->get_results( $sql, ARRAY_A ) ?: [];
+		return rest_ensure_response( [ 'ok' => true, 'count' => count( $rows ), 'gurus' => $rows ] );
 	}
 }

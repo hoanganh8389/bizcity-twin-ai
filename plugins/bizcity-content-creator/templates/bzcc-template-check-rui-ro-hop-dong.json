@@ -1,0 +1,220 @@
+{
+  "version": "1.0",
+  "plugin": "bizcity-content-creator",
+  "exported": "2026-04-18T10:00:00Z",
+  "templates": [
+    {
+      "slug": "check-rui-ro-hop-dong",
+      "category_id": "phap-ly",
+      "category_slug": "legal",
+      "title": "Check rủi ro hợp đồng",
+      "description": "AI phân tích hợp đồng, phát hiện điều khoản bất lợi, rủi ro pháp lý, đề xuất chỉnh sửa — giúp bạn ký hợp đồng an toàn hơn.",
+      "icon_url": "",
+      "icon_emoji": "⚖️",
+      "form_fields": [
+        {
+          "slug": "heading_contract",
+          "label": "📄 Thông tin hợp đồng cần kiểm tra",
+          "type": "heading",
+          "placeholder": "",
+          "required": false,
+          "grid": "full",
+          "sort_order": 1,
+          "description": "Dán nội dung hợp đồng hoặc tải file lên để AI phân tích rủi ro"
+        },
+        {
+          "slug": "contract_type",
+          "label": "Loại hợp đồng",
+          "type": "select",
+          "placeholder": "",
+          "required": true,
+          "grid": "half",
+          "sort_order": 2,
+          "description": "",
+          "options": [
+            { "value": "lao_dong", "label": "📋 Hợp đồng lao động" },
+            { "value": "thue_nha", "label": "🏠 Hợp đồng thuê nhà / mặt bằng" },
+            { "value": "mua_ban", "label": "🤝 Hợp đồng mua bán" },
+            { "value": "dich_vu", "label": "🔧 Hợp đồng dịch vụ" },
+            { "value": "hop_tac", "label": "🤝 Hợp đồng hợp tác kinh doanh" },
+            { "value": "vay_von", "label": "💰 Hợp đồng vay vốn / tín dụng" },
+            { "value": "dai_ly", "label": "🏪 Hợp đồng đại lý / phân phối" },
+            { "value": "nhuong_quyen", "label": "🏢 Hợp đồng nhượng quyền" },
+            { "value": "xay_dung", "label": "🏗️ Hợp đồng xây dựng / thi công" },
+            { "value": "cong_nghe", "label": "💻 Hợp đồng phần mềm / công nghệ" },
+            { "value": "bao_hiem", "label": "🛡️ Hợp đồng bảo hiểm" },
+            { "value": "khac", "label": "📝 Loại khác" }
+          ]
+        },
+        {
+          "slug": "your_role",
+          "label": "Bạn là bên nào trong hợp đồng?",
+          "type": "select",
+          "placeholder": "",
+          "required": true,
+          "grid": "half",
+          "sort_order": 3,
+          "description": "Để AI đánh giá rủi ro từ góc nhìn của bạn",
+          "options": [
+            { "value": "ben_a", "label": "Bên A (bên thuê / bên mua / bên sử dụng dịch vụ)" },
+            { "value": "ben_b", "label": "Bên B (bên cho thuê / bên bán / bên cung cấp dịch vụ)" },
+            { "value": "ca_hai", "label": "Cả hai bên (tôi muốn đánh giá khách quan)" },
+            { "value": "khong_ro", "label": "Chưa rõ — AI tự xác định" }
+          ]
+        },
+        {
+          "slug": "contract_text",
+          "label": "Nội dung hợp đồng (dán toàn bộ hoặc phần cần kiểm tra)",
+          "type": "textarea",
+          "placeholder": "Dán nội dung hợp đồng vào đây...\n\nVí dụ:\nHỢP ĐỒNG LAO ĐỘNG\nSố: .../HĐLĐ\nCăn cứ Bộ luật Lao động số 45/2019/QH14...\n\nĐiều 1: Công việc và địa điểm làm việc\n...",
+          "required": false,
+          "grid": "full",
+          "sort_order": 4,
+          "description": "Dán toàn bộ nội dung hợp đồng. Nếu dài quá, bạn có thể tải file ở trường bên dưới."
+        },
+        {
+          "slug": "contract_file",
+          "label": "Hoặc tải file hợp đồng",
+          "type": "file",
+          "placeholder": "",
+          "required": false,
+          "grid": "half",
+          "sort_order": 5,
+          "description": "Hỗ trợ PDF, DOC, DOCX, TXT (tối đa 10MB)",
+          "max_rows": 2000
+        },
+        {
+          "slug": "contract_image",
+          "label": "Hoặc chụp ảnh hợp đồng",
+          "type": "image",
+          "placeholder": "",
+          "required": false,
+          "grid": "half",
+          "sort_order": 6,
+          "description": "Chụp ảnh các trang hợp đồng — AI sẽ đọc nội dung từ ảnh",
+          "enable_vision": true,
+          "vision_prompt": "Đọc và trích xuất TOÀN BỘ nội dung văn bản trong ảnh hợp đồng này. Giữ nguyên cấu trúc điều khoản, số hiệu, gạch đầu dòng. Nếu có bảng, giữ dạng bảng. Trả về dạng text thuần, KHÔNG bình luận hay phân tích."
+        },
+        {
+          "slug": "heading_context",
+          "label": "⚙️ Bối cảnh & mối quan tâm",
+          "type": "heading",
+          "placeholder": "",
+          "required": false,
+          "grid": "full",
+          "sort_order": 10,
+          "description": "Thông tin thêm giúp AI phân tích chính xác hơn",
+          "badge": "Tùy chọn"
+        },
+        {
+          "slug": "contract_value",
+          "label": "Giá trị hợp đồng (nếu có)",
+          "type": "text",
+          "placeholder": "VD: 500 triệu / 2 tỷ / 50.000 USD",
+          "required": false,
+          "grid": "half",
+          "sort_order": 11,
+          "description": ""
+        },
+        {
+          "slug": "contract_duration",
+          "label": "Thời hạn hợp đồng",
+          "type": "text",
+          "placeholder": "VD: 1 năm / 3 năm / không xác định",
+          "required": false,
+          "grid": "half",
+          "sort_order": 12,
+          "description": ""
+        },
+        {
+          "slug": "concern_areas",
+          "label": "Bạn lo ngại về vấn đề gì?",
+          "type": "button_group",
+          "placeholder": "",
+          "required": false,
+          "grid": "full",
+          "sort_order": 13,
+          "description": "Chọn các vấn đề bạn muốn AI tập trung phân tích (có thể chọn nhiều)",
+          "multi": true,
+          "options": [
+            { "value": "phat_vi_pham", "label": "⚠️ Phạt vi phạm / bồi thường" },
+            { "value": "cham_dut", "label": "🚪 Điều kiện chấm dứt hợp đồng" },
+            { "value": "thanh_toan", "label": "💸 Điều khoản thanh toán" },
+            { "value": "bao_mat", "label": "🔒 Bảo mật / NDA" },
+            { "value": "tranh_chap", "label": "⚖️ Giải quyết tranh chấp" },
+            { "value": "quyen_loi", "label": "🎯 Quyền lợi / nghĩa vụ mất cân đối" },
+            { "value": "bat_kha_khang", "label": "🌊 Bất khả kháng (Force Majeure)" },
+            { "value": "so_huu_tri_tue", "label": "💡 Sở hữu trí tuệ / bản quyền" },
+            { "value": "rang_buoc", "label": "🔗 Điều khoản ràng buộc / cạnh tranh" },
+            { "value": "gia_han", "label": "🔄 Gia hạn / tự động gia hạn" }
+          ]
+        },
+        {
+          "slug": "industry",
+          "label": "Ngành nghề / lĩnh vực",
+          "type": "text",
+          "placeholder": "VD: bất động sản, F&B, công nghệ, giáo dục...",
+          "required": false,
+          "grid": "half",
+          "sort_order": 14,
+          "description": "Giúp AI áp dụng luật chuyên ngành phù hợp"
+        },
+        {
+          "slug": "legal_experience",
+          "label": "Trình độ hiểu biết pháp lý của bạn",
+          "type": "select",
+          "placeholder": "",
+          "required": false,
+          "grid": "half",
+          "sort_order": 15,
+          "description": "Để AI điều chỉnh ngôn ngữ giải thích phù hợp",
+          "options": [
+            { "value": "beginner", "label": "👤 Người dân thường — giải thích dễ hiểu" },
+            { "value": "business", "label": "💼 Chủ doanh nghiệp — hiểu cơ bản" },
+            { "value": "professional", "label": "⚖️ Chuyên gia pháp lý — ngôn ngữ chuyên môn" }
+          ]
+        },
+        {
+          "slug": "extra_notes",
+          "label": "Ghi chú thêm cho AI",
+          "type": "textarea",
+          "placeholder": "VD: Tôi đã bị phạt hợp đồng lần trước nên muốn kiểm tra kỹ điều khoản phạt / Đối tác có tiền sử chậm thanh toán / Tôi muốn thêm điều khoản bảo hành...",
+          "required": false,
+          "grid": "full",
+          "sort_order": 16,
+          "description": ""
+        }
+      ],
+
+      "system_prompt": "Bạn là Luật sư AI chuyên phân tích rủi ro hợp đồng tại Việt Nam, với kiến thức sâu rộng về:\n- Bộ luật Dân sự 2015 (Luật số 91/2015/QH13)\n- Bộ luật Lao động 2019 (Luật số 45/2019/QH14)\n- Luật Thương mại 2005\n- Luật Nhà ở 2023, Luật Kinh doanh Bất động sản 2023\n- Luật Doanh nghiệp 2020\n- Các nghị định, thông tư hướng dẫn liên quan\n\n## THÔNG TIN HỢP ĐỒNG CẦN PHÂN TÍCH\n- Loại hợp đồng: {{contract_type}}\n- Vai trò của người dùng: {{your_role}}\n- Giá trị hợp đồng: {{contract_value}}\n- Thời hạn: {{contract_duration}}\n- Ngành nghề: {{industry}}\n- Trình độ pháp lý: {{legal_experience}}\n- Mối quan tâm đặc biệt: {{concern_areas}}\n- Ghi chú thêm: {{extra_notes}}\n\n## NỘI DUNG HỢP ĐỒNG\n{{contract_text}}\n\n{{__smart_context__}}\n\n## QUY TẮC PHÂN TÍCH\n1. Phân tích TỪNG ĐIỀU KHOẢN cụ thể trong hợp đồng — trích dẫn nguyên văn câu/đoạn có vấn đề\n2. Đánh giá rủi ro theo 3 MỨC ĐỘ: 🔴 Cao (cần sửa ngay) | 🟡 Trung bình (nên sửa) | 🟢 Thấp (lưu ý)\n3. Mỗi rủi ro phải có: (a) trích dẫn điều khoản gốc, (b) giải thích vì sao rủi ro, (c) viện dẫn luật liên quan, (d) đề xuất chỉnh sửa cụ thể\n4. Nếu THIẾU điều khoản quan trọng → cảnh báo và đề xuất bổ sung\n5. So sánh với thông lệ thị trường (market practice) khi phù hợp\n6. Viết bằng tiếng Việt, giọng tư vấn chuyên nghiệp nhưng dễ hiểu\n7. Dùng bảng để tổng hợp rủi ro, dùng emoji mức độ để dễ scan\n8. QUAN TRỌNG: Luôn ghi rõ \"Đây là phân tích tham khảo từ AI, KHÔNG thay thế tư vấn pháp lý chính thức\" ở đầu và cuối báo cáo\n9. Điều chỉnh ngôn ngữ theo trình độ pháp lý của người dùng ({{legal_experience}})",
+
+      "outline_prompt": "Dựa trên hợp đồng và thông tin đã cung cấp, tạo outline cho BÁO CÁO PHÂN TÍCH RỦI RO HỢP ĐỒNG.\n\nTạo 7-10 sections theo CẤU TRÚC:\n1. Tổng quan hợp đồng & Đánh giá sơ bộ (loại, các bên, giá trị, thời hạn + điểm rủi ro tổng thể)\n2. Bảng tổng hợp rủi ro (Risk Matrix — bảng tóm tắt toàn bộ rủi ro theo mức độ)\n3. Phân tích chi tiết: Chủ thể & Năng lực ký kết\n4. Phân tích chi tiết: Quyền & Nghĩa vụ các bên (cân đối hay mất cân đối?)\n5. Phân tích chi tiết: Điều khoản tài chính — thanh toán, phạt, bồi thường\n6. Phân tích chi tiết: Điều khoản chấm dứt, bất khả kháng, giải quyết tranh chấp\n7. Các điều khoản CÒN THIẾU cần bổ sung\n8. Đề xuất chỉnh sửa cụ thể (redline suggestions)\n9. Khuyến nghị hành động & Checklist trước khi ký\n\nĐiều chỉnh sections theo loại hợp đồng {{contract_type}} và mối quan tâm {{concern_areas}}.\nTên section phải MÔ TẢ CỤ THỂ nội dung, KHÔNG chung chung.",
+
+      "chunk_prompt": "Bạn đang viết phần \"{{chunk_title}}\" của báo cáo phân tích rủi ro hợp đồng.\n\n## BỐI CẢNH\n- Loại hợp đồng: {{contract_type}}\n- Vai trò người dùng: {{your_role}}\n- Giá trị: {{contract_value}}\n- Thời hạn: {{contract_duration}}\n- Ngành: {{industry}}\n- Mối quan tâm: {{concern_areas}}\n\n## NỘI DUNG HỢP ĐỒNG\n{{contract_text}}\n\n{{__smart_context__}}\n\n## YÊU CẦU CHO PHẦN NÀY\n- TRÍCH DẪN nguyên văn từ hợp đồng khi phân tích (dùng > blockquote)\n- Mỗi rủi ro: mức độ (🔴/🟡/🟢) + giải thích + viện dẫn luật + đề xuất sửa\n- Dùng bảng (table) khi tổng hợp nhiều rủi ro hoặc so sánh\n- Viết ít nhất 400 từ, chi tiết, có căn cứ pháp lý\n- Giọng tư vấn chuyên nghiệp, điều chỉnh theo trình độ {{legal_experience}}\n- Khi đề xuất sửa: viết cụ thể câu chữ thay thế, KHÔNG chỉ nói \"nên sửa lại\"",
+
+      "model_purpose": "content_creation",
+      "temperature": "0.40",
+      "max_tokens": "8000",
+      "wizard_steps": [
+        {
+          "label": "Hợp đồng",
+          "description": "Tải lên hoặc dán nội dung hợp đồng cần kiểm tra",
+          "fields": ["heading_contract", "contract_type", "your_role", "contract_text", "contract_file", "contract_image"]
+        },
+        {
+          "label": "Bối cảnh",
+          "description": "Thông tin thêm để phân tích chính xác hơn",
+          "fields": ["heading_context", "contract_value", "contract_duration", "concern_areas", "industry", "legal_experience", "extra_notes"]
+        }
+      ],
+      "output_platforms": ["general"],
+      "skill_id": "0",
+      "tags": "hợp-đồng,pháp-lý,rủi-ro,legal,contract,risk,review,kiểm-tra,luật",
+      "badge_text": "Pháp lý",
+      "badge_color": "#6366f1",
+      "is_featured": "1",
+      "sort_order": "1",
+      "status": "active"
+    }
+  ]
+}

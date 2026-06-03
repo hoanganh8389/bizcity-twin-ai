@@ -76,7 +76,8 @@ class BizCity_Integration_Gmail extends BizCity_Integration {
 		$this->account['_status_error'] = '';
 	}
 
-	private function get_access_token( string $client_id, string $secret, string $code, string $refresh ): array|string {
+	/** @return array|string */
+	private function get_access_token( string $client_id, string $secret, string $code, string $refresh ) {
 		$redirect_uri = $this->get_param( 'redirect_uri', home_url( '/wp-json/bizcity/v1/oauth2callback?provider=gmail' ) );
 
 		if ( ! empty( $refresh ) ) {

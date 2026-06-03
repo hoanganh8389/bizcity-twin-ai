@@ -163,6 +163,33 @@ final class BizCity_TwinShell_Agent {
 
 			$state = $runner->run( $target_agent_name, $input, $sub_ctx );
 
+			// PHASE-6.4 BUG-FIX (May 2026) — Canvas auto-open across agent-as-tool
+			// boundary. When a sub-agent (e.g. doc) calls a real tool (e.g.
+			// `draft_document`) that returns `artifact_created`, the runner emits
+			// `tool_executed` on the SUB-run's event stream — which the FE never
+			// polls (it only polls the parent run_id, plus a fixed list of known
+			// sub-agent names via TwinHilCards. Even those subscribe to the
+			// CHILD's stream, but only AFTER `subagent_started` lands; tight
+			// races + the fact that the artifact event fires INSIDE the sub-run
+			// before subagent_completed mean the parent FE may never see it).
+			//
+			// Fix: walk sub-run messages for any tool result containing
+			// `artifact_created` and re-emit a `tool_executed` event into the
+			// PARENT run stream. Existing FE handler in agentRuntimeStore.ts
+			// for `tool_executed` already opens Canvas idempotently (guarded
+			// by AUTO_OPENED_ARTIFACTS set keyed by plugin_name:studio_id).
+			$bubbled_artifact = null;
+			if ( is_array( $state->messages ) ) {
+				foreach ( $state->messages as $msg ) {
+					if ( ( $msg['role'] ?? '' ) !== 'tool' ) continue;
+					$payload = isset( $msg['content'] ) ? json_decode( (string) $msg['content'], true ) : null;
+					if ( ! is_array( $payload ) ) continue;
+					if ( ! empty( $payload['artifact_created'] ) && is_array( $payload['artifact_created'] ) ) {
+						$bubbled_artifact = $payload['artifact_created']; // last-wins
+					}
+				}
+			}
+
 			// Vòng 3 / Sprint 6 — Canvas activation bridge.
 			// Emit `subagent_started` + `subagent_completed` into the PARENT run
 			// stream so the FE (which polls parent run_id) can flip the child
@@ -179,6 +206,21 @@ final class BizCity_TwinShell_Agent {
 						'input'      => $input,
 					]
 				);
+				// PHASE-6.4 — Bubble the sub-agent's artifact to the parent stream
+				// BEFORE subagent_completed so FE handler runs while the run
+				// slice is still considered active.
+				if ( $bubbled_artifact !== null ) {
+					BizCity_TwinShell_Event_Bus::emit(
+						$parent_run_id,
+						BizCity_TwinShell_Event_Bus::TYPE_TOOL_EXECUTED,
+						[
+							'call_id'          => 'subagent_' . $state->run_id,
+							'tool_name'        => 'transfer_to_' . $target_agent_name,
+							'result_preview'   => '[bubbled artifact from sub-agent ' . $target_agent_name . ']',
+							'artifact_created' => $bubbled_artifact,
+						]
+					);
+				}
 				BizCity_TwinShell_Event_Bus::emit(
 					$parent_run_id,
 					BizCity_TwinShell_Event_Bus::TYPE_SUBAGENT_COMPLETED,
@@ -211,12 +253,21 @@ final class BizCity_TwinShell_Agent {
 				];
 			}
 
-			return [
+			$result = [
 				'sub_run_id' => $state->run_id,
 				'status'     => $state->status,
 				'output'     => is_string( $state->final_output ) ? $state->final_output : '',
 				'error'      => $state->error,
 			];
+			// PHASE-6.4 BUG-FIX — surface bubbled artifact in tool result too,
+			// so the parent runner's TYPE_TOOL_EXECUTED emission (which sees
+			// THIS callback's return value via $tool_result['artifact_created'])
+			// also pushes it onto the parent stream. Redundant with the direct
+			// emit above but covers any FE/event-bus race.
+			if ( $bubbled_artifact !== null ) {
+				$result['artifact_created'] = $bubbled_artifact;
+			}
+			return $result;
 		};
 
 		return new BizCity_TwinShell_Tool(

@@ -48,9 +48,15 @@ function bztimg_install_tables() {
         parent_id   BIGINT UNSIGNED NOT NULL DEFAULT 0,
         sort_order  INT             NOT NULL DEFAULT 0,
         status      VARCHAR(20)     NOT NULL DEFAULT 'active',
+        source              VARCHAR(20)  NOT NULL DEFAULT 'local',
+        hub_slug            VARCHAR(150) NOT NULL DEFAULT '',
+        hub_version         VARCHAR(20)  NOT NULL DEFAULT '',
+        hub_synced_at       DATETIME     NULL,
+        protected_from_sync TINYINT(1)   NOT NULL DEFAULT 0,
         created_at  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (id),
-        UNIQUE KEY slug (slug)
+        UNIQUE KEY slug (slug),
+        KEY idx_source (source)
     ) $charset;";
 
     /* ── Templates ── */
@@ -80,6 +86,11 @@ function bztimg_install_tables() {
         sort_order         INT             NOT NULL DEFAULT 0,
         status             VARCHAR(20)     NOT NULL DEFAULT 'active',
         author_id          BIGINT UNSIGNED NOT NULL DEFAULT 0,
+        source              VARCHAR(20)  NOT NULL DEFAULT 'local',
+        hub_slug            VARCHAR(150) NOT NULL DEFAULT '',
+        hub_version         VARCHAR(20)  NOT NULL DEFAULT '',
+        hub_synced_at       DATETIME     NULL,
+        protected_from_sync TINYINT(1)   NOT NULL DEFAULT 0,
         created_at         DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at         DATETIME        NULL,
         PRIMARY KEY (id),
@@ -87,7 +98,8 @@ function bztimg_install_tables() {
         KEY idx_category (category_id),
         KEY idx_status (status),
         KEY idx_featured (is_featured),
-        KEY idx_sort (sort_order)
+        KEY idx_sort (sort_order),
+        KEY idx_source (source)
     ) $charset;";
 
     /* ── Projects (design editor saves) ── */
@@ -212,9 +224,16 @@ function bztimg_install_editor_asset_tables() {
         attachment_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
         content_hash  VARCHAR(32)     NOT NULL DEFAULT '',
         sort_order    INT             NOT NULL DEFAULT 0,
+        status              VARCHAR(20)  NOT NULL DEFAULT 'active',
+        source              VARCHAR(20)  NOT NULL DEFAULT 'local',
+        hub_slug            VARCHAR(150) NOT NULL DEFAULT '',
+        hub_version         VARCHAR(20)  NOT NULL DEFAULT '',
+        hub_synced_at       DATETIME     NULL,
+        protected_from_sync TINYINT(1)   NOT NULL DEFAULT 0,
         created_at    DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (id),
         UNIQUE KEY uk_hash (content_hash),
+        KEY idx_source (source),
         FULLTEXT KEY ft_desc (description)
     ) $charset;";
 
@@ -229,9 +248,16 @@ function bztimg_install_editor_asset_tables() {
         attachment_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
         content_hash  VARCHAR(32)     NOT NULL DEFAULT '',
         sort_order    INT             NOT NULL DEFAULT 0,
+        status              VARCHAR(20)  NOT NULL DEFAULT 'active',
+        source              VARCHAR(20)  NOT NULL DEFAULT 'local',
+        hub_slug            VARCHAR(150) NOT NULL DEFAULT '',
+        hub_version         VARCHAR(20)  NOT NULL DEFAULT '',
+        hub_synced_at       DATETIME     NULL,
+        protected_from_sync TINYINT(1)   NOT NULL DEFAULT 0,
         created_at    DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (id),
         UNIQUE KEY uk_hash (content_hash),
+        KEY idx_source (source),
         FULLTEXT KEY ft_desc (description)
     ) $charset;";
 
@@ -241,9 +267,16 @@ function bztimg_install_editor_asset_tables() {
         family      VARCHAR(200)    NOT NULL,
         styles_json LONGTEXT        NOT NULL,
         sort_order  INT             NOT NULL DEFAULT 0,
+        status              VARCHAR(20)  NOT NULL DEFAULT 'active',
+        source              VARCHAR(20)  NOT NULL DEFAULT 'local',
+        hub_slug            VARCHAR(150) NOT NULL DEFAULT '',
+        hub_version         VARCHAR(20)  NOT NULL DEFAULT '',
+        hub_synced_at       DATETIME     NULL,
+        protected_from_sync TINYINT(1)   NOT NULL DEFAULT 0,
         created_at  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (id),
-        UNIQUE KEY uk_family (family)
+        UNIQUE KEY uk_family (family),
+        KEY idx_source (source)
     ) $charset;";
 
     /* ── Text presets ── */
@@ -257,9 +290,16 @@ function bztimg_install_editor_asset_tables() {
         attachment_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
         content_hash  VARCHAR(32)     NOT NULL DEFAULT '',
         sort_order    INT             NOT NULL DEFAULT 0,
+        status              VARCHAR(20)  NOT NULL DEFAULT 'active',
+        source              VARCHAR(20)  NOT NULL DEFAULT 'local',
+        hub_slug            VARCHAR(150) NOT NULL DEFAULT '',
+        hub_version         VARCHAR(20)  NOT NULL DEFAULT '',
+        hub_synced_at       DATETIME     NULL,
+        protected_from_sync TINYINT(1)   NOT NULL DEFAULT 0,
         created_at    DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (id),
         UNIQUE KEY uk_hash (content_hash),
+        KEY idx_source (source),
         FULLTEXT KEY ft_desc (description)
     ) $charset;";
 
@@ -275,9 +315,16 @@ function bztimg_install_editor_asset_tables() {
         attachment_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
         content_hash  VARCHAR(32)     NOT NULL DEFAULT '',
         sort_order    INT             NOT NULL DEFAULT 0,
+        status              VARCHAR(20)  NOT NULL DEFAULT 'active',
+        source              VARCHAR(20)  NOT NULL DEFAULT 'local',
+        hub_slug            VARCHAR(150) NOT NULL DEFAULT '',
+        hub_version         VARCHAR(20)  NOT NULL DEFAULT '',
+        hub_synced_at       DATETIME     NULL,
+        protected_from_sync TINYINT(1)   NOT NULL DEFAULT 0,
         created_at    DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (id),
         UNIQUE KEY uk_hash (content_hash),
+        KEY idx_source (source),
         FULLTEXT KEY ft_desc (description)
     ) $charset;";
 

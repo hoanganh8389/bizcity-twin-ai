@@ -62,19 +62,21 @@ if ( ! defined( 'BIZCITY_TWIN_AI_VERSION' ) ) {
 /* ═══════════════════════════════════════════════
    CONSTANTS
    ═══════════════════════════════════════════════ */
-define( 'BZDOC_VERSION',        '0.4.76' );
+define( 'BZDOC_VERSION',        '0.4.83' );
 define( 'BZDOC_DIR',            __DIR__ . '/' );
 define( 'BZDOC_FILE',           __FILE__ );
 define( 'BZDOC_URL',            plugin_dir_url( __FILE__ ) );
 define( 'BZDOC_SLUG',           'bizcity-doc' );
-define( 'BZDOC_SCHEMA_VERSION', '2.3' );
+define( 'BZDOC_SCHEMA_VERSION', '2.5' );
 
 /* ═══════════════════════════════════════════════
    AUTOLOAD INCLUDES
    ═══════════════════════════════════════════════ */
 require_once BZDOC_DIR . 'includes/class-installer.php';
+require_once BZDOC_DIR . 'includes/api-helpers.php';
 require_once BZDOC_DIR . 'includes/class-admin-menu.php';
 require_once BZDOC_DIR . 'includes/class-rest-api.php';
+require_once BZDOC_DIR . 'includes/class-documents-rest.php';
 require_once BZDOC_DIR . 'includes/class-frontend.php';
 require_once BZDOC_DIR . 'includes/class-canvas-bridge.php';
 require_once BZDOC_DIR . 'includes/class-sources.php';
@@ -113,6 +115,9 @@ if ( class_exists( 'BZDoc_Frontend' ) ) {
 /* ── REST API ── */
 if ( class_exists( 'BZDoc_Rest_API' ) ) {
 	BZDoc_Rest_API::init();
+}
+if ( class_exists( 'BZDoc_Documents_Rest' ) ) {
+	BZDoc_Documents_Rest::init();
 }
 
 /* ── Register WordPress upload filters for DOCX/XLSX support ── */

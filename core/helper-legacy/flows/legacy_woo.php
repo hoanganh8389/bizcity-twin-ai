@@ -9,8 +9,65 @@
 
 if (!defined('ABSPATH')) exit;
 
+/**
+ * TASK-UNIFY Phase 3 gate.
+ * When BizCity_Scheduler_Manager is available, parse product AI data and create a
+ * woo_product_create scheduler event instead of publishing immediately.
+ * Falls through to twf_handle_product_post_flow() when scheduler is not loaded.
+ */
 function biz_create_product($message, $chat_id, $arr = [], $image_url = '') {
+    if ( class_exists( 'BizCity_Scheduler_Manager' ) ) {
+        return _biz_create_product_via_scheduler( $message, $chat_id, $arr, $image_url );
+    }
     return twf_handle_product_post_flow($message, $chat_id, $arr, $image_url);
+}
+
+/**
+ * New path: AI-parse product info → create woo_product_create scheduler event.
+ * @internal
+ */
+function _biz_create_product_via_scheduler( array $message, string $chat_id, array $arr = [], string $image_url = '' ): int {
+    $user_input = $message['text'] ?? $message['caption'] ?? ( $arr['title'] ?? '' );
+    $api_key    = get_option( 'twf_openai_api_key' );
+
+    $info = function_exists( 'twf_parse_product_info_ai' )
+        ? twf_parse_product_info_ai( $api_key, $user_input )
+        : [];
+
+    $name     = sanitize_text_field( $info['title']       ?? $arr['title']       ?? $user_input );
+    $price    = sanitize_text_field( $info['price']       ?? $arr['price']       ?? '' );
+    $sale_p   = sanitize_text_field( $info['sale_price']  ?? $arr['sale_price']  ?? '' );
+    $desc     = wp_kses_post(        $info['description'] ?? $arr['description'] ?? '' );
+    $cat      = sanitize_text_field( $info['category']    ?? $arr['category']    ?? '' );
+
+    // Handle Telegram photo as image_url.
+    if ( empty( $image_url ) && isset( $message['photo'] ) && function_exists( 'twf_telegram_get_file_url' ) ) {
+        $photo     = end( $message['photo'] );
+        $image_url = twf_telegram_get_file_url( $photo['file_id'] );
+    }
+    if ( empty( $image_url ) && $name && function_exists( 'twf_generate_image_url' ) ) {
+        $image_url = twf_generate_image_url( $name );
+    }
+
+    return BizCity_Scheduler_Manager::instance()->create_event( [
+        'user_id'    => get_current_user_id(),
+        'title'      => $name ?: 'Sản phẩm mới',
+        'start_at'   => current_time( 'mysql' ),
+        'end_at'     => null,
+        'status'     => 'active',
+        'event_type' => 'woo_product_create',
+        'source'     => 'legacy_woo_wrapper',
+        'metadata'   => [
+            'woo_product_name'        => $name,
+            'woo_product_price'       => $price,
+            'woo_product_sale_price'  => $sale_p,
+            'woo_product_description' => $desc,
+            'woo_product_image_url'   => esc_url_raw( $image_url ),
+            'woo_product_category'    => $cat,
+            'woo_chat_id'             => $chat_id,
+            'woo_product_status'      => 'pending',
+        ],
+    ] );
 }
 
 //Hàm xử lý đăng sản phẩm (ví dụ đơn giản)

@@ -1,0 +1,44 @@
+{
+  "$schema": "https://bizcity.vn/schema/diagnostics-changelog-v1.json",
+  "module_id": "core.knowledge.memory",
+  "owner": "core/knowledge",
+  "installer_id": "knowledge",
+  "current_version": "1.0.0",
+  "version_option": "bizcity_knowledge_db_version",
+  "tables": {
+    "bizcity_memory_users": {
+      "since": "1.0.0",
+      "purpose": "Long-term user memory (2-tier: LLM-extracted + user-explicit). Primary R/W target for TwinBrain Memory Layer (Wave 2.8) Recall (Layer 0.5) and Writer (Layer 4.7). Also stores emotional-thread rows (memory_type='emotional_thread'). Injected into chat-gateway system prompt @ priority 99; cited via `[mem:U#<id>]`.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":             { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",                    "since": "1.0.0", "pk": true },
+        "blog_id":        { "type": "INT UNSIGNED NOT NULL DEFAULT 1",                            "since": "1.0.0" },
+        "user_id":        { "type": "BIGINT UNSIGNED DEFAULT 0",                                  "since": "1.0.0" },
+        "session_id":     { "type": "VARCHAR(191) DEFAULT ''",                                    "since": "1.0.0" },
+        "memory_tier":    { "type": "ENUM('extracted','explicit') NOT NULL DEFAULT 'extracted'", "since": "1.0.0" },
+        "memory_type":    { "type": "VARCHAR(50) NOT NULL DEFAULT 'fact'",                        "since": "1.0.0" },
+        "memory_key":     { "type": "VARCHAR(191) NOT NULL DEFAULT ''",                           "since": "1.0.0" },
+        "memory_text":    { "type": "TEXT NOT NULL",                                              "since": "1.0.0" },
+        "score":          { "type": "TINYINT UNSIGNED DEFAULT 50",                                "since": "1.0.0" },
+        "times_seen":     { "type": "INT UNSIGNED DEFAULT 1",                                     "since": "1.0.0" },
+        "source_log_ids": { "type": "VARCHAR(500) DEFAULT ''",                                    "since": "1.0.0" },
+        "metadata":       { "type": "TEXT",                                                        "since": "1.0.0" },
+        "last_seen":      { "type": "DATETIME DEFAULT CURRENT_TIMESTAMP",                          "since": "1.0.0" },
+        "created_at":     { "type": "DATETIME DEFAULT CURRENT_TIMESTAMP",                          "since": "1.0.0" },
+        "updated_at":     { "type": "DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", "since": "1.0.0" }
+      },
+      "indexes": {
+        "blog_user":    { "cols": ["blog_id", "user_id"],                              "since": "1.0.0" },
+        "blog_session": { "cols": ["blog_id", "session_id"],                           "since": "1.0.0" },
+        "memory_tier":  { "cols": ["memory_tier"],                                     "since": "1.0.0" },
+        "memory_type":  { "cols": ["memory_type"],                                     "since": "1.0.0" },
+        "unique_memory":{ "cols": ["blog_id", "user_id", "session_id", "memory_key"], "unique": true, "since": "1.0.0" }
+      }
+    }
+  },
+  "history": [
+    { "version": "1.0.0", "date": "2026-05-22", "change": "Baseline declaration of bizcity_memory_users for R-DCL compliance (Wave 2.8 TBR.MEM-11). Schema matches DDL in core/knowledge/includes/class-database.php (created prior to changelog ledger; back-declared as 1.0.0 baseline). TwinBrain Memory Layer reads (Memory_Recall::collect tier A+B) and writes (Memory_Writer::extract_and_persist via BizCity_User_Memory::upsert_public). Sibling tables bizcity_memory_episodic/_rolling/_notes are read-only optional (own changelog files TBD) and bizcity_memory_specs has its own owner (PHASE-1.15)." }
+  ]
+}

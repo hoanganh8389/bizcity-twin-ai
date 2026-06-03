@@ -79,11 +79,17 @@ add_action('plugins_loaded', function () {
 
     // Auto-sync agent plugins vào marketplace DB (throttled: 1 lần / 24h bằng transient)
     add_action( 'admin_init', [ 'BizCity_Market_Catalog', 'sync_agent_plugins' ] );
-    // Skip chỉnh UI plugins.php cho user cụ thể (debug/ẩn tính năng)
-    $u = function_exists('wp_get_current_user') ? wp_get_current_user() : null;
-    if ($u->user_login !== 'admin1') {
-      BizCity_Market_Hooks::boot(); // class-hooks.php ==> các hook chung
-      
+    // Chỉ giới hạn trên hệ thống bizcity.vn multisite (tránh ảnh hưởng bản cài của khách)
+    $is_bizcity_net = is_multisite() && false !== strpos( network_site_url(), 'bizcity.vn' );
+    if ( ! $is_bizcity_net ) {
+        BizCity_Market_Hooks::boot(); // khách tải về dùng — boot bình thường, không hạn chế
+    } else {
+        // Trên bizcity.vn: chỉ admin1 và nnhshu97 được thấy plugins.php nguyên bản
+        $u             = function_exists( 'wp_get_current_user' ) ? wp_get_current_user() : null;
+        $current_login = ( $u && ! empty( $u->user_login ) ) ? $u->user_login : '';
+        if ( ! in_array( $current_login, [ 'admin1', 'nnhshu97' ], true ) ) {
+            BizCity_Market_Hooks::boot(); // class-hooks.php ==> các hook chung
+        }
     }
 }, 1);
 

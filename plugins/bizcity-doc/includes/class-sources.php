@@ -249,7 +249,10 @@ class BZDoc_Sources {
 			$legacy_ids = array_map( static function ( $r ) { return (int) $r['id']; }, $rows );
 			$placeholders = implode( ',', array_fill( 0, count( $legacy_ids ), '%d' ) );
 			$kg_xref      = $wpdb->prefix . 'bizcity_kg_xref';
-			$kg_chunks    = $wpdb->prefix . 'bizcity_kg_source_chunks';
+			// HOTFIX 2026-05-06: use helper — `bizcity_kg_passages` on this install.
+			$kg_chunks    = class_exists( 'BizCity_KG_Database' )
+				? BizCity_KG_Database::instance()->tbl_source_chunks()
+				: ( $wpdb->prefix . 'bizcity_kg_passages' );
 			$legacy_table = self::table();
 
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared

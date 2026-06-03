@@ -123,6 +123,140 @@ class BizCity_LLM_Client {
     }
 
     /* ================================================================
+     *  Account — entitlement proxy (PHASE-0.41 / R-GW)
+     * ================================================================
+     *
+     * The canonical entitlement endpoint
+     * `GET https://bizcity.vn/wp-json/bizcity/v1/account/entitlement`
+     * lives in the `bizcity-llm-router` plugin on the BizCity gateway and
+     * MUST NEVER be called from client-side JS (R-GW: no cross-origin call,
+     * no provider key exposure). Client sites reach it via this server-side
+     * wrapper, which adds the Bearer API key and forwards the requesting
+     * user's identifier so the gateway can resolve their tier.
+     *
+     * Returns either a normalized payload array on success, or `WP_Error`
+     * on any failure (network / 4xx / 5xx / decode). Callers should treat
+     * a `WP_Error` as "degrade to free tier" rather than fatal.
+     *
+     * @param int   $user_id   WordPress user id on the calling site.
+     * @param array $options   { fresh?: bool, timeout?: int }
+     * @return array|WP_Error
+     */
+    public function get_entitlement( int $user_id, array $options = [] ) {
+        if ( $user_id <= 0 ) {
+            return new WP_Error( 'invalid_user', 'user_id must be > 0', [ 'status' => 400 ] );
+        }
+        $api_key = $this->get_api_key();
+        if ( $api_key === '' ) {
+            return new WP_Error( 'no_api_key', 'BizCity API key not configured.', [ 'status' => 503 ] );
+        }
+
+        $user = get_userdata( $user_id );
+        $email = $user ? (string) $user->user_email : '';
+        $login = $user ? (string) $user->user_login : '';
+
+        $base  = $this->get_gateway_url();
+        $path  = '/wp-json/bizcity/v1/account/entitlement';
+        $query = [
+            'site'      => home_url(),
+            'user_id'   => $user_id,
+            'user_email'=> $email,
+            'user_login'=> $login,
+        ];
+        if ( ! empty( $options['fresh'] ) ) {
+            $query['fresh'] = 1;
+        }
+        $url = $base . $path . '?' . http_build_query( $query );
+
+        $timeout = isset( $options['timeout'] ) ? max( 2, (int) $options['timeout'] ) : 6;
+
+        $response = wp_remote_get( $url, [
+            'timeout'     => $timeout,
+            'redirection' => 0,
+            'headers'     => [
+                'Accept'             => 'application/json',
+                'Authorization'      => 'Bearer ' . $api_key,
+                'X-Site-URL'         => home_url(),
+                'X-BizCity-User-Id'  => (string) $user_id,
+                'X-BizCity-User-Email' => $email,
+            ],
+        ] );
+
+        if ( is_wp_error( $response ) ) {
+            return $response;
+        }
+        $code = (int) wp_remote_retrieve_response_code( $response );
+        $body = (string) wp_remote_retrieve_body( $response );
+        if ( substr( $body, 0, 3 ) === "\xEF\xBB\xBF" ) {
+            $body = substr( $body, 3 );
+        }
+        $decoded = json_decode( trim( $body ), true );
+        if ( $code < 200 || $code >= 300 ) {
+            return new WP_Error(
+                'entitlement_upstream_error',
+                is_array( $decoded ) && isset( $decoded['message'] )
+                    ? (string) $decoded['message']
+                    : ( 'Upstream HTTP ' . $code ),
+                [ 'status' => $code, 'upstream_code' => $code ]
+            );
+        }
+        if ( ! is_array( $decoded ) ) {
+            return new WP_Error( 'entitlement_decode_failed', 'Invalid JSON from gateway.', [ 'status' => 502 ] );
+        }
+        return $decoded;
+    }
+
+    /* ================================================================
+     *  Account info — lightweight ping (R-1API, R-GW-API-CATALOG #9)
+     * ================================================================
+     *
+     * Wraps `GET https://bizcity.vn/wp-json/bizcity/v1/account/info`.
+     * Returns the gateway `data` object on success or WP_Error on failure.
+     * Caller (proxy/REST) is responsible for fail-OPEN handling.
+     *
+     * @param array $options { timeout?: int }
+     * @return array|WP_Error
+     */
+    public function get_account_info( array $options = [] ) {
+        $api_key = $this->get_api_key();
+        if ( $api_key === '' ) {
+            return new WP_Error( 'no_api_key', 'BizCity API key not configured.', [ 'status' => 503 ] );
+        }
+        $timeout = isset( $options['timeout'] ) ? max( 2, (int) $options['timeout'] ) : 8;
+        $url     = $this->get_gateway_url() . '/wp-json/bizcity/v1/account/info';
+
+        $response = wp_remote_get( $url, [
+            'timeout'     => $timeout,
+            'redirection' => 0,
+            'headers'     => [
+                'Accept'        => 'application/json',
+                'Authorization' => 'Bearer ' . $api_key,
+                'X-Site-URL'    => home_url(),
+            ],
+        ] );
+        if ( is_wp_error( $response ) ) {
+            return $response;
+        }
+        $code = (int) wp_remote_retrieve_response_code( $response );
+        $body = (string) wp_remote_retrieve_body( $response );
+        if ( substr( $body, 0, 3 ) === "\xEF\xBB\xBF" ) {
+            $body = substr( $body, 3 );
+        }
+        $decoded = json_decode( trim( $body ), true );
+        if ( $code < 200 || $code >= 300 ) {
+            $msg = is_array( $decoded ) && ! empty( $decoded['message'] )
+                ? (string) $decoded['message']
+                : ( is_array( $decoded ) && ! empty( $decoded['error'] ) ? (string) $decoded['error'] : 'HTTP ' . $code );
+            return new WP_Error( 'account_info_upstream_error', $msg, [ 'status' => $code, 'upstream_code' => $code ] );
+        }
+        if ( ! is_array( $decoded ) ) {
+            return new WP_Error( 'account_info_decode_failed', 'Invalid JSON from gateway.', [ 'status' => 502 ] );
+        }
+        $data = ( isset( $decoded['data'] ) && is_array( $decoded['data'] ) ) ? $decoded['data'] : $decoded;
+        return $data;
+    }
+
+    /* ================================================================
      *  Chat — delegates to gateway or direct based on mode
      * ================================================================ */
 
@@ -406,7 +540,7 @@ class BizCity_LLM_Client {
         }
 
         if ( isset( $decoded['success'] ) && $decoded['success'] ) {
-            return array_merge( $base, [
+            $merged = array_merge( $base, [
                 'success'       => true,
                 'message'       => $decoded['message'] ?? '',
                 'model'         => $decoded['model'] ?? $model,
@@ -414,6 +548,16 @@ class BizCity_LLM_Client {
                 'fallback_used' => $decoded['fallback_used'] ?? false,
                 'usage'         => $decoded['usage'] ?? [],
             ] );
+            // Pass through optional fields used by image-modality callers.
+            if ( ! empty( $decoded['images'] ) ) {
+                $merged['images'] = $decoded['images'];
+            }
+            if ( isset( $decoded['finish_reason'] ) ) {
+                $merged['finish_reason'] = $decoded['finish_reason'];
+            }
+            // Keep full upstream response for advanced consumers (e.g. extractors).
+            $merged['raw'] = $decoded;
+            return $merged;
         }
 
         $base['error'] = $decoded['error'] ?? $decoded['message'] ?? "HTTP {$code}";
@@ -1274,6 +1418,7 @@ class BizCity_LLM_Client {
             return;
         }
         BizCity_LLM_Usage_Log::log( [
+            'service'         => $options['service'] ?? '', // explicit override; defaults inferred from endpoint
             'mode'            => $this->get_mode(),
             'purpose'         => $options['purpose'] ?? 'chat',
             'endpoint'        => $endpoint,
@@ -1321,7 +1466,7 @@ class BizCity_LLM_Client {
             'model'   => $result['model'] ?? 'gpt-image-1',
             'usage'   => [],
             'error'   => $result['error'] ?? '',
-        ], array_merge( $options, [ 'purpose' => 'image' ] ), 'image', $options['model'] ?? 'gpt-image-1', $ms );
+        ], array_merge( $options, [ 'purpose' => 'image', 'service' => 'image' ] ), 'image', $options['model'] ?? 'gpt-image-1', $ms );
 
         return $result;
     }
@@ -1352,6 +1497,19 @@ class BizCity_LLM_Client {
             'timeout' => intval( $options['timeout'] ?? 120 ),
             'site_url' => home_url(),
         ];
+
+        // Optional reference images (HTTPS URL or data:image/...;base64,...).
+        // Gateway uses these to anchor / edit the output (e.g. QR Studio places a
+        // QR onto a template, doc image pipeline preserves brand style).
+        if ( ! empty( $options['input_images'] ) && is_array( $options['input_images'] ) ) {
+            $body['input_images'] = array_values( array_filter(
+                $options['input_images'],
+                'is_string'
+            ) );
+        }
+        if ( ! empty( $options['stream'] ) ) {
+            $body['stream'] = true;
+        }
 
         $endpoint = $this->get_gateway_url() . '/wp-json/bizcity/v1/llm/images/generations';
 

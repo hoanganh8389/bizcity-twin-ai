@@ -35,8 +35,30 @@
 	 *  Browse View
 	 * ═══════════════════════════════════════ */
 	function initBrowseView() {
+		initHeroTabs();
 		initCategoryFilter();
 		initSearch();
+	}
+
+	/* ── Hero Pill Tabs (Featured / Recent Results) ── */
+	function initHeroTabs() {
+		var wrap = document.querySelector('.bzcc-hero-tabs');
+		if (!wrap) return;
+		var tabs   = wrap.querySelectorAll('.bzcc-tab');
+		var panels = wrap.querySelectorAll('.bzcc-tab-panel');
+		if (!tabs.length) return;
+
+		tabs.forEach(function (tab) {
+			tab.addEventListener('click', function () {
+				var name = tab.getAttribute('data-tab');
+				tabs.forEach(function (t) { t.classList.remove('bzcc-tab--active'); });
+				tab.classList.add('bzcc-tab--active');
+				panels.forEach(function (p) {
+					p.classList.toggle('bzcc-tab-panel--active', p.getAttribute('data-panel') === name);
+				});
+				wrap.setAttribute('data-active-tab', name);
+			});
+		});
 	}
 
 	/* ── Category Filter ── */
@@ -713,7 +735,14 @@
 				try {
 					var res = JSON.parse(xhr.responseText);
 					if (res.success && res.data && res.data.redirect) {
-						window.location.href = res.data.redirect;
+						var redirectUrl = res.data.redirect;
+						// Preserve iframe mode through the navigation so the creator
+						// page doesn't lose shell context after form submit.
+						if (window.bzccFront && window.bzccFront.isIframe) {
+							var sep = redirectUrl.indexOf('?') === -1 ? '?' : '&';
+							redirectUrl += sep + 'bizcity_iframe=1';
+						}
+						window.location.href = redirectUrl;
 					} else if (res.success) {
 						alert('Nội dung đã được tạo thành công!');
 					} else {

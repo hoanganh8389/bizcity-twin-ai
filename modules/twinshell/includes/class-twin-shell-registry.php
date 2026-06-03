@@ -18,6 +18,11 @@
  *   section        string   'top' | 'bottom'
  *   params         array    Whitelisted query keys forwarded into the iframe URL
  *   desc           string   Optional one-line description
+ *   requires       array    Optional gating spec — keys: const|class|function|plugin.
+ *                           Missing/empty `requires` ⇒ entry is **core** (always shown).
+ *   is_core        bool     Computed (true when no `requires`).
+ *   available      bool     Computed (true when core OR requires met).
+ *   locked         bool     Computed (true when non-core AND requires unmet).
  *
  * @package Bizcity_Twin_AI
  * @subpackage Modules\TwinShell
@@ -82,11 +87,60 @@ class BizCity_Twin_Shell_Registry {
 				'section'     => ( isset( $entry['section'] ) && 'bottom' === $entry['section'] ) ? 'bottom' : 'top',
 				'params'      => isset( $entry['params'] ) && is_array( $entry['params'] ) ? array_values( array_unique( array_map( 'sanitize_key', $entry['params'] ) ) ) : [],
 				'desc'        => isset( $entry['desc'] ) ? (string) $entry['desc'] : '',
+				'requires'    => ( isset( $entry['requires'] ) && is_array( $entry['requires'] ) ) ? $entry['requires'] : [],
 			];
+		}
+
+		// Compute is_core / available / locked AFTER normalization so external
+		// filter additions get the same treatment.
+		foreach ( $out as $i => $p ) {
+			$is_core           = empty( $p['requires'] );
+			$avail             = $is_core ? true : self::requirement_met( $p['requires'] );
+			$out[ $i ]['is_core']   = $is_core;
+			$out[ $i ]['available'] = $avail;
+			$out[ $i ]['locked']    = ( ! $is_core ) && ( ! $avail );
 		}
 
 		$this->cache = $out;
 		return $out;
+	}
+
+	/**
+	 * Evaluate a `requires` spec. Returns true when the dependency is present.
+	 * Recognised keys (any matching one returns true):
+	 *   - const    → defined( CONST_NAME )
+	 *   - class    → class_exists( Class_Name )
+	 *   - function → function_exists( fn_name )
+	 *   - plugin   → is_plugin_active( 'slug/file.php' )
+	 *
+	 * @param array $req
+	 * @return bool
+	 */
+	public static function requirement_met( $req ) {
+		if ( ! is_array( $req ) || empty( $req ) ) {
+			return true;
+		}
+		if ( ! empty( $req['const'] ) && defined( (string) $req['const'] ) ) {
+			return true;
+		}
+		if ( ! empty( $req['class'] ) && class_exists( (string) $req['class'], false ) ) {
+			return true;
+		}
+		if ( ! empty( $req['function'] ) && function_exists( (string) $req['function'] ) ) {
+			return true;
+		}
+		if ( ! empty( $req['plugin'] ) ) {
+			if ( ! function_exists( 'is_plugin_active' ) ) {
+				$f = ABSPATH . 'wp-admin/includes/plugin.php';
+				if ( is_readable( $f ) ) {
+					require_once $f;
+				}
+			}
+			if ( function_exists( 'is_plugin_active' ) && is_plugin_active( (string) $req['plugin'] ) ) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/**
@@ -216,6 +270,11 @@ class BizCity_Twin_Shell_Registry {
 
 		foreach ( $this->all() as $p ) {
 			if ( ! current_user_can( $p['capability'] ?: 'read' ) ) {
+				continue;
+			}
+			// Hide locked (non-core, requirement unmet) entries from the
+			// legacy sidebar too — same UX as the Twin Shell ActivityBar.
+			if ( ! empty( $p['locked'] ) ) {
 				continue;
 			}
 

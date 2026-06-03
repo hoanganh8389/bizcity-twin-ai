@@ -165,10 +165,10 @@
             $('#bizchat-input').focus();
             this.scrollToBottom();
             localStorage.setItem('bizchat_is_closed', 'false');
-            
-            // Start polling - TẠM ẨN: chưa làm phần quản lý chatinbox tương tác từ admin ra ngoài
-            // this.startPolling();
-            
+
+            // PHASE 0.36 W3/W4: poll inbox cho admin reply real-time.
+            this.startPolling();
+
             // Show welcome message if no messages
             if ($('.bizchat-message').length === 0) {
                 this.showWelcomeMessage();
@@ -191,7 +191,7 @@
             }
         }
 
-        /* ========== Polling - TẠM ẨN: chưa làm phần quản lý chatinbox tương tác từ admin ra ngoài ==========
+        /* ========== Polling — admin reply push-back (PHASE 0.36 W3/W4) ========== */
         startPolling() {
             if (!this.options.enablePolling) return;
             
@@ -258,15 +258,6 @@
                     }
                 }
             });
-        }
-        ========== End Polling ========== */
-
-        // Stub method - polling is disabled
-        stopPolling() {
-            if (this.pollTimer) {
-                clearInterval(this.pollTimer);
-                this.pollTimer = null;
-            }
         }
 
         notifyNewMessage() {
@@ -472,6 +463,17 @@
                         // Handle response directly (no polling needed)
                         if (response.success && response.data && response.data.reply) {
                             const reply = response.data.reply;
+
+                            // BUG-FIX (pull dedupe): server logged the user + bot rows
+                            // BEFORE returning. Mark both ids so the 4s polling loop
+                            // skips them instead of re-rendering the bot reply.
+                            const userMid = parseInt(response.data.user_message_id || 0, 10);
+                            const botMid  = parseInt(response.data.bot_message_id  || 0, 10);
+                            if (userMid > 0) { self.displayedMsgIds.add(String(userMid)); }
+                            if (botMid  > 0) { self.displayedMsgIds.add(String(botMid));  }
+                            const maxMid = Math.max(userMid, botMid);
+                            if (maxMid > self.lastMessageId) { self.lastMessageId = maxMid; }
+
                             self.appendMessageTyping(reply, 'bot');
                         } else {
                             const errorMsg = response.data?.message || 'Có lỗi xảy ra. Vui lòng thử lại.';

@@ -128,16 +128,34 @@ class BizCity_WebChat_Trigger {
         
         // Log bot replies
         foreach ((array)$replies as $reply) {
+            $reply_mid = uniqid('bcm_');
             $db->log_message([
                 'session_id' => $session_id,
                 'user_id' => 0,
                 'client_name' => 'BizChat Bot',
-                'message_id' => uniqid('bcm_'),
+                'message_id' => $reply_mid,
                 'message_text' => $reply,
                 'message_from' => 'bot',
                 'attachments' => [],
                 'platform_type' => $platform_type,
             ]);
+
+            // PHASE 0.36 W1 — Stamp outbound into `_bizcity_channel_messages`
+            // so CRM Inbox shows the bot reply alongside FB/Zalo replies.
+            // Responder_Stamper picks up the context pushed by
+            // Universal_Channel_Listener::on_trigger() earlier in the same
+            // request (binding mode → kind=auto, character_id from binding).
+            if (class_exists('BizCity_Responder_Stamper') && is_string($reply) && $reply !== '') {
+                BizCity_Responder_Stamper::record_outbound([
+                    'platform'   => 'WEBCHAT',
+                    'chat_id'    => 'webchat_' . $session_id,
+                    'user_psid'  => $session_id,
+                    'message_id' => $reply_mid,
+                    'event_type' => 'message',
+                    'body'       => $reply,
+                    'status'     => 'sent',
+                ]);
+            }
         }
         
         return [
@@ -274,6 +292,27 @@ class BizCity_WebChat_Trigger {
         // Fire WAIC hooks — $args[0] PHẢI là trigger array để wu_gateway/wu_twf bắt được
         do_action('waic_twf_process_flow', $twf_trigger, is_array($raw_data) ? $raw_data : []);
         do_action('waic_twf_process_flow_webchat', $twf_trigger, $raw_data);
+
+        // PHASE 0.36 W1 — Channel Gateway inbound bridge.
+        // Universal_Channel_Listener::on_trigger() expects a STRING key matching
+        // its spec table. The line above passes an array as $trigger_key so the
+        // listener bails out. We re-emit with the canonical 'wu_webchat_message_received'
+        // key (account_field=site_id, user_field=session_id) so the message is
+        // mirrored into `_bizcity_channel_messages` and routed to the bound Guru.
+        if (class_exists('BizCity_WebChat_Binding_Bootstrap')) {
+            BizCity_WebChat_Binding_Bootstrap::ensure();
+        }
+        $site_id    = (string) get_current_blog_id();
+        $session_id = (string) ($twf_trigger['session_id'] ?? $twf_trigger['chat_id'] ?? '');
+        if ($site_id !== '' && $session_id !== '') {
+            do_action('waic_twf_process_flow', 'wu_webchat_message_received', [
+                'site_id'    => $site_id,
+                'session_id' => $session_id,
+                'message'    => (string) ($twf_trigger['text'] ?? ''),
+                'message_id' => (string) ($twf_trigger['message_id'] ?? ''),
+                'raw'        => $raw_data,
+            ]);
+        }
         
         // Fire hook để WAIC có thể bắt (boot hooked flows per-blog)
         if (function_exists('bizcity_aiwu_fire_twf_process_flow')) {

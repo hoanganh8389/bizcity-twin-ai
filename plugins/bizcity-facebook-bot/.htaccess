@@ -1,0 +1,11 @@
+# Protect plugin files
+<FilesMatch "\.(php|php5|php7)$">
+    Order Allow,Deny
+    Deny from all
+</FilesMatch>
+
+# Allow index.php and bootstrap.php
+<FilesMatch "^(index|bootstrap)\.php$">
+    Order Allow,Deny
+    Allow from all
+</FilesMatch>

@@ -1,0 +1,28 @@
+# Normalize line endings and strip BOM on commit
+* text=auto eol=lf
+
+# PHP — force UTF-8 without BOM
+*.php text eol=lf working-tree-encoding=UTF-8
+
+# JS/TS/CSS
+*.js   text eol=lf
+*.ts   text eol=lf
+*.tsx  text eol=lf
+*.css  text eol=lf
+*.json text eol=lf
+
+# Markdown
+*.md text eol=lf
+
+# Binary — do not modify
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.woff binary
+*.woff2 binary
+*.ttf  binary
+*.eot  binary
+*.zip  binary
+*.pack binary

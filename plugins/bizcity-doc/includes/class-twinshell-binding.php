@@ -144,7 +144,10 @@ class BZDoc_TwinShell_Binding {
 			: [];
 
 		// Aggregate counts across the notebook scope (chunks, entities, relations).
-		$chunks_tbl    = $wpdb->prefix . 'bizcity_kg_source_chunks';
+		// HOTFIX 2026-05-06: use helper — table is `bizcity_kg_passages` on this install (RENAME rolled back).
+		$chunks_tbl    = class_exists( 'BizCity_KG_Database' )
+			? BizCity_KG_Database::instance()->tbl_source_chunks()
+			: ( $wpdb->prefix . 'bizcity_kg_passages' );
 		$entities_tbl  = $wpdb->prefix . 'bizcity_kg_entities';
 		$relations_tbl = $wpdb->prefix . 'bizcity_kg_relations';
 

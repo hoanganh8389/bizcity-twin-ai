@@ -97,6 +97,16 @@ add_action( 'admin_menu', function() {
         'bztimg-profile-templates',
         'bztimg_admin_profile_templates_page'
     );
+
+    /* Phase QR — QR Studio (FE page link + admin info) */
+    add_submenu_page(
+        'bztimg-dashboard',
+        'QR Studio',
+        '🔳 QR Studio',
+        'manage_options',
+        'bztimg-qr-studio',
+        'bztimg_admin_qr_studio_page'
+    );
 } );
 
 function bztimg_admin_dashboard() {
@@ -392,7 +402,10 @@ function bztimg_character_studio_page() {
     $models_count = wp_count_posts( BizCity_Model_Manager::CPT );
     $published    = intval( $models_count->publish ?? 0 );
     $piapi_ready  = class_exists( 'BizCity_Video_API' ) && BizCity_Video_API::is_ready();
-    $router_ready = class_exists( 'BizCity_Router_Proxy' ) && BizCity_Router_Proxy::is_ready();
+    /* R-GW-8: client KHÔNG cài bizcity-llm-router. Phải check BizCity_LLM_Client
+     * (proxy về https://bizcity.vn). KHÔNG dùng BizCity_Router_Proxy (server-only). */
+    $router_ready = class_exists( 'BizCity_LLM_Client' )
+        && BizCity_LLM_Client::instance()->is_ready();
     ?>
     <div class="wrap">
         <h1>🧑 Character Studio — Nhân Vật AI</h1>
@@ -537,3 +550,54 @@ add_action( 'wp_ajax_bztimg_import', function() {
     }
     wp_send_json_success( array( 'imported' => $result ) );
 } );
+
+/* ═══════════════════════════════════════════════
+   QR STUDIO — Admin info page (FE link + diag)
+   ═══════════════════════════════════════════════ */
+function bztimg_admin_qr_studio_page() {
+    $fe_url    = home_url( '/qr-studio/' );
+    $proxy_ns  = rest_url( 'bizcity-channel/v1/qr-studio' );
+    $rules     = get_option( 'rewrite_rules', array() );
+    $has_rule  = is_array( $rules ) && isset( $rules['^qr-studio/?$'] );
+    ?>
+    <div class="wrap">
+        <h1>🔳 QR Studio</h1>
+        <p style="color:#555">Phase QR — FE page tạo QR có template đẹp. Templates lấy từ thư viện <code>bizcity-llm-router</code> qua proxy <code>bizcity-channel/v1/qr-studio</code> (R-GW-8).</p>
+
+        <p style="margin:20px 0">
+            <a href="<?php echo esc_url( $fe_url ); ?>" target="_blank" class="button button-primary button-hero">
+                🚀 Mở QR Studio (FE)
+            </a>
+        </p>
+
+        <table class="widefat striped" style="max-width:760px">
+            <tbody>
+                <tr>
+                    <th style="width:200px">Frontend URL</th>
+                    <td><a href="<?php echo esc_url( $fe_url ); ?>" target="_blank"><code><?php echo esc_html( $fe_url ); ?></code></a></td>
+                </tr>
+                <tr>
+                    <th>Rewrite rule</th>
+                    <td><?php echo $has_rule ? '✅ <code>^qr-studio/?$</code> đã đăng ký' : '❌ Chưa có. <a href="' . esc_url( admin_url( 'options-permalink.php' ) ) . '">Vào Permalinks &amp; Save</a> để flush.'; ?></td>
+                </tr>
+                <tr>
+                    <th>Proxy REST namespace</th>
+                    <td><code><?php echo esc_html( $proxy_ns ); ?></code></td>
+                </tr>
+                <tr>
+                    <th>Test list templates</th>
+                    <td><a href="<?php echo esc_url( $proxy_ns . '/templates' ); ?>" target="_blank">/templates →</a></td>
+                </tr>
+                <tr>
+                    <th>Test categories</th>
+                    <td><a href="<?php echo esc_url( $proxy_ns . '/categories' ); ?>" target="_blank">/categories →</a></td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h3 style="margin-top:30px">📚 Template Library Source</h3>
+        <p style="color:#555">Templates được quản lý tại trang admin <strong>QR Template Library</strong> của plugin <code>bizcity-llm-router</code> (chạy trên server BizCity).</p>
+        <p>FE QR Studio sẽ tự động hiển thị các templates đã được publish (status = <code>active</code>).</p>
+    </div>
+    <?php
+}

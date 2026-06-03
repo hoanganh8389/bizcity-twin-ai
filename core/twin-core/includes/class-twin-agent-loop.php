@@ -219,6 +219,47 @@ EOT;
 		if ( $tool_section !== '' ) $system_parts[] = $tool_section;
 		$system_prompt = implode( "\n\n", $system_parts );
 
+		/* Wave 2.8d D6.9g (2026-05-24) — Prompt visibility probe.
+		 * User reports memory block injected (SSE memory_recall block_len=265,
+		 * injected=true) but LLM still says "tôi không có khả năng ghi nhớ".
+		 * Dump system_prompt preview via error_log → BPS routes to
+		 * wp-content/bps-backup/logs/bps_php_error.log. Multi-line content is
+		 * split into chunks because PHP truncates long error_log lines at
+		 * `log_errors_max_len` (default 1024 → many hosts set 4096).
+		 * Disable: define('BIZCITY_TWIN_PROMPT_DEBUG', false) in wp-config. */
+		if ( ! defined( 'BIZCITY_TWIN_PROMPT_DEBUG' ) || BIZCITY_TWIN_PROMPT_DEBUG ) {
+			$_has_mem  = strpos( $system_prompt, 'BEGIN USER MEMORY' ) !== false;
+			$_has_guru = strpos( $system_prompt, 'Twin Guru' ) !== false || strpos( $system_prompt, 'character' ) !== false;
+			$_sp_len   = mb_strlen( $system_prompt );
+			error_log( sprintf(
+				'[TwinAgent][prompt_debug] user=%d session=%s purpose=%s model=%s sp_len=%d extra=%dB hard=%dB tools=%dB HAS_USER_MEMORY=%s HAS_GURU=%s user_msg=%s',
+				$user_id,
+				$session_id,
+				$purpose,
+				$model,
+				$_sp_len,
+				mb_strlen( $extra_system ),
+				mb_strlen( self::HARD_SYSTEM_PROMPT ),
+				mb_strlen( $tool_section ),
+				$_has_mem ? 'YES' : 'NO',
+				$_has_guru ? 'YES' : 'NO',
+				str_replace( [ "\r", "\n" ], ' ', mb_substr( (string) $user_message, 0, 200 ) )
+			) );
+			// Dump the extra_system fragment (chứa memory + KG + guru) — đây là
+			// phần cần kiểm tra. Split thành chunk ~900 chars để tránh truncate.
+			if ( $extra_system !== '' ) {
+				$_chunks = str_split( $extra_system, 900 );
+				$_n = count( $_chunks );
+				foreach ( $_chunks as $_i => $_c ) {
+					error_log( sprintf(
+						'[TwinAgent][prompt_debug][extra %d/%d] %s',
+						$_i + 1, $_n,
+						str_replace( [ "\r", "\n" ], [ '', ' \\n ' ], $_c )
+					) );
+				}
+			}
+		}
+
 		// Build messages.
 		$messages   = [];
 		$messages[] = [ 'role' => 'system', 'content' => $system_prompt ];

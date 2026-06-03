@@ -205,6 +205,25 @@ class BizCity_Rolling_Memory {
         }
 
         $wpdb->update( $this->table, $updates, [ 'id' => $row->id ] );
+
+        // Wave 2.8d D5 — dual-write mirror into unified `bizcity_memory`.
+        // Refetch latest row data so the mirror reflects post-update state.
+        $latest = $this->get_by_conversation( $conv_id );
+        if ( $latest ) {
+            do_action( 'bizcity_memory_mirror_write', 'rolling', [
+                'blog_id'                => get_current_blog_id(),
+                'user_id'                => (int) $latest->user_id,
+                'session_id'             => (string) $latest->session_id,
+                'conversation_id'        => (string) $latest->conversation_id,
+                'goal'                   => (string) $latest->goal,
+                'goal_label'             => (string) $latest->goal_label,
+                'window_summary'         => (string) $latest->window_summary,
+                'window_turn_count'      => (int) $latest->window_turn_count,
+                'user_goal_score'        => (int) $latest->user_goal_score,
+                'bot_satisfaction_score' => (int) $latest->bot_satisfaction_score,
+                'status'                 => (string) $latest->status,
+            ], 'update' );
+        }
     }
 
     /* ================================================================

@@ -134,8 +134,87 @@ add_action('pre_get_posts', function($query){
     }
 });
 
+/**
+ * TASK-UNIFY Phase 3 gate.
+ * When platform=zalo and BizCity_Scheduler_Manager is available, create a
+ * reminder_zalo scheduler event instead of a legacy biztask CPT post.
+ * Falls through to twf_create_biztask_from_ai() for Telegram or when scheduler
+ * is not yet loaded.
+ */
 function biz_create_task($chat_id, $message, $arr, $platform) {
+    if ( 'zalo' === $platform && class_exists( 'BizCity_Scheduler_Manager' ) ) {
+        return _biz_create_task_via_scheduler( $chat_id, $message, $arr );
+    }
     return twf_create_biztask_from_ai($chat_id, $message, $arr, $platform);
+}
+
+/**
+ * New path: parse task AI data → create reminder_zalo event in bizcity_crm_events.
+ * @internal
+ */
+function _biz_create_task_via_scheduler( string $chat_id, array $message, array $arr ): int {
+    // ── AI parse ──────────────────────────────────────────────────────
+    $user_text = $message['text'] ?? $message['caption'] ?? '';
+    $prompt    = function_exists( 'twf_parse_nhac_viec_prompt' )
+        ? twf_parse_nhac_viec_prompt( $user_text )
+        : $user_text;
+
+    $api_key = get_option( 'twf_openai_api_key' );
+    $json    = function_exists( 'chatbot_chatgpt_call_omni_tele' )
+        ? chatbot_chatgpt_call_omni_tele( $api_key, $prompt )
+        : '';
+
+    $parsed = [];
+    if ( $json ) {
+        if ( ( $pos = strpos( $json, '{' ) ) !== false ) $json = substr( $json, $pos );
+        if ( ( $pos = strrpos( $json, '}' ) ) !== false ) $json = substr( $json, 0, $pos + 1 );
+        $parsed = json_decode( $json, true ) ?: [];
+    }
+
+    $title       = sanitize_text_field( $parsed['title']   ?? $arr['info']['title']   ?? 'Nhắc việc mới' );
+    $remind_at   = sanitize_text_field( $parsed['remind_at'] ?? '' );
+    $zalo_text   = wp_strip_all_tags( $parsed['content'] ?? $title );
+
+    // ── Resolve bot_id (first available Zalo bot) ─────────────────────
+    global $wpdb;
+    $bot_id = (int) $wpdb->get_var( "SELECT id FROM {$wpdb->prefix}bizcity_zalo_bots LIMIT 1" );
+    if ( ! $bot_id ) {
+        // No bot configured — fall back to legacy biztask post.
+        return twf_create_biztask_from_ai( $chat_id, $message, $arr, 'zalo' );
+    }
+
+    // ── Build event ───────────────────────────────────────────────────
+    $start_at = $remind_at ?: current_time( 'mysql' );
+    $event_id = BizCity_Scheduler_Manager::instance()->create_event( [
+        'user_id'    => get_current_user_id(),
+        'title'      => $title,
+        'start_at'   => $start_at,
+        'end_at'     => null,
+        'status'     => 'active',
+        'event_type' => 'reminder_zalo',
+        'source'     => 'legacy_task_wrapper',
+        'metadata'   => [
+            'zalo_bot_id'          => $bot_id,
+            'zalo_user_id'         => $chat_id,
+            'zalo_text'            => $zalo_text,
+            'zalo_reminder_status' => 'pending',
+        ],
+    ] );
+
+    // ── Confirm to user (Zalo reply via channel_send) ─────────────────
+    $display_time = $remind_at ?: current_time( 'Y-m-d H:i' );
+    if ( function_exists( 'bizcity_channel_send' ) ) {
+        global $wpdb;
+        $oa_id = $wpdb->get_var( $wpdb->prepare(
+            "SELECT oa_id FROM {$wpdb->prefix}bizcity_zalo_bots WHERE id = %d", $bot_id
+        ) );
+        if ( $oa_id ) {
+            bizcity_channel_send( "zalobot_{$oa_id}_{$chat_id}",
+                "✅ Đã tạo nhắc việc!\n📝 {$title}\n📅 Nhắc lúc: {$display_time}" );
+        }
+    }
+
+    return $event_id;
 }
 
 
@@ -240,6 +319,13 @@ function twf_generate_friendly_reminder($context) {
     return wp_strip_all_tags($response);
 }
 
+/**
+ * @deprecated TASK-UNIFY Phase 3 (2026-05-30).
+ * New Zalo reminders go through BizCity_Zalo_Reminder (event_type='reminder_zalo').
+ * This cron continues to run only for existing legacy biztask CPT posts until they
+ * are fully migrated. New calls to biz_create_task() with platform='zalo' no longer
+ * create biztask posts when BizCity_Scheduler_Manager is available.
+ */
 function twf_check_and_remind_biztask() {
     $now = current_time('mysql');
     $current_time = strtotime($now);

@@ -35,9 +35,11 @@ require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-rest-api.php';
 require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-google.php';
 require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-cron.php';
 require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-tools.php';
+require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-automation.php';
 
 if ( is_admin() ) {
 	require_once BIZCITY_SCHEDULER_DIR . 'includes/class-admin-page.php';
+	require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-automation-lab.php';
 }
 
 /* ── Initialize ───────────────────────────────────────────────────── */
@@ -45,10 +47,20 @@ BizCity_Scheduler_Manager::instance();
 BizCity_Scheduler_REST_API::instance();
 BizCity_Scheduler_Google::instance();
 BizCity_Scheduler_Cron::instance();
+BizCity_Scheduler_Automation::instance();
 
 if ( is_admin() ) {
 	BizCity_Scheduler_Admin_Page::instance();
 }
+
+/**
+ * Run schema migration on every admin init — cheap (autoloaded option check),
+ * but guarantees v3 migrate (Calendar Unification, M-CRM.M12 v2 phase 2)
+ * lands the moment an admin loads any page after plugin update.
+ */
+add_action( 'admin_init', static function () {
+	BizCity_Scheduler_Manager::instance()->ensure_schema();
+}, 1 );
 
 /* ══════════════════════════════════════════════════════════════
  *  PUBLIC PAGE — /scheduler/

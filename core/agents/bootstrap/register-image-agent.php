@@ -88,7 +88,7 @@ $image_prompt_tool = new BizCity_TwinShell_Tool(
 
 $generate_image_tool = new BizCity_TwinShell_Tool(
 	'generate_image',
-	'Generate REAL image variants (1-4) via gpt-image-1. Use when the user explicitly asks to "tạo ảnh", "vẽ poster", "make image", "render". Opens a bzdoc-image canvas iframe; the FE shows variants for selection. Argument "topic" required.',
+	'Generate REAL image variants (1-4) via Nano Banana Pro (Gemini 3 Pro Image Preview). Use when the user explicitly asks to "tạo ảnh", "vẽ poster", "make image", "render". Opens a bzdoc-image canvas iframe; the FE shows variants for selection. Argument "topic" required.',
 	[
 		'type'       => 'object',
 		'properties' => [
@@ -136,6 +136,105 @@ $generate_image_tool = new BizCity_TwinShell_Tool(
 
 		$nb_id = isset( $ctx['notebook_id'] ) ? (int) $ctx['notebook_id'] : 0;
 
+		// PHASE-6.4 BUG-FIX (May 2026) — TRUSTED structured options come from
+		// FE (ImageStudioTab) via context_overrides.image_opts. We trust these
+		// over LLM-emitted args because:
+		//   • LLM rule#1 forces topic VERBATIM, leaving little budget to also
+		//     emit style/aspect/n_variants accurately;
+		//   • FE values come straight from the form selector — no hallucination;
+		//   • reference_images (dataURLs) and template_slug have NO place in the
+		//     LLM tool schema, so they MUST come via context.
+		// Fallback chain: $ctx_opts → $args → defaults.
+		$ctx_opts   = isset( $ctx['image_opts'] ) && is_array( $ctx['image_opts'] ) ? $ctx['image_opts'] : [];
+		$raw_style  = strtolower( trim( (string) ( $ctx_opts['style_preset'] ?? $args['style_preset'] ?? '' ) ) );
+		$aspect_in  = (string) ( $ctx_opts['aspect_ratio'] ?? $args['aspect_ratio'] ?? '1:1' );
+		$n_variants = max( 1, min( 4, (int) ( $ctx_opts['n_variants'] ?? $args['n_variants'] ?? 1 ) ) );
+		$tpl_slug   = (string) ( $ctx_opts['template_slug']  ?? '' );
+		$tpl_title  = (string) ( $ctx_opts['template_title'] ?? '' );
+
+		// reference_images: FE gửi mảng [{ name, url, attachment_id }, …]
+		// (May 2026: TwinChat upload sang WP Media trước → URL HTTPS, không
+		// còn truyền base64 dataURL qua agent payload). Vẫn accept legacy
+		// shape (string dataURL hoặc { dataUrl }) để không phá những flow cũ.
+		// Bzdoc pipeline (`upload_ref_images_to_media`) chấp nhận cả URL lẫn
+		// data URI — chỉ cần là string hợp lệ.
+		$refs_in = $ctx_opts['reference_images'] ?? [];
+		$refs    = [];
+		if ( is_array( $refs_in ) ) {
+			foreach ( $refs_in as $r ) {
+				$candidate = '';
+				if ( is_string( $r ) ) {
+					$candidate = $r;
+				} elseif ( is_array( $r ) ) {
+					if ( ! empty( $r['url'] ) && is_string( $r['url'] ) ) {
+						$candidate = $r['url'];
+					} elseif ( ! empty( $r['dataUrl'] ) && is_string( $r['dataUrl'] ) ) {
+						$candidate = $r['dataUrl'];
+					}
+				}
+				$ok = false;
+				if ( $candidate !== '' ) {
+					if ( strpos( $candidate, 'data:image/' ) === 0 ) {
+						$ok = true;
+					} elseif ( strpos( $candidate, 'https://' ) === 0 || strpos( $candidate, 'http://' ) === 0 ) {
+						$ok = true;
+					}
+				}
+				if ( $ok ) {
+					$refs[] = $candidate;
+				}
+				if ( count( $refs ) >= 4 ) break; // cap 4 (cùng UI cap)
+			}
+		}
+
+		// PHASE-6.4 BUG-FIX (May 2026) — map TwinChat ImageStudioTab style ids
+		// (auto/photo/illustration/cinematic/anime/3d/minimal) to bzdoc's
+		// STYLE_PRESETS values (photoreal/cinematic/editorial/flat_illustration/
+		// cyberpunk/studio_product/minimal_logo). Without this mapping the FE
+		// preset selector falls back to "Tự động" because no option matches.
+		$style_map = [
+			''               => '',
+			'auto'           => '',
+			'photo'          => 'photoreal',
+			'photoreal'      => 'photoreal',
+			'photorealistic' => 'photoreal',
+			'illustration'   => 'flat_illustration',
+			'flat'           => 'flat_illustration',
+			'flat_illustration' => 'flat_illustration',
+			'cinematic'      => 'cinematic',
+			'cinema'         => 'cinematic',
+			'editorial'      => 'editorial',
+			'anime'          => 'flat_illustration',
+			'3d'             => 'studio_product',
+			'studio_product' => 'studio_product',
+			'product'        => 'studio_product',
+			'minimal'        => 'minimal_logo',
+			'minimal_logo'   => 'minimal_logo',
+			'logo'           => 'minimal_logo',
+			'cyberpunk'      => 'cyberpunk',
+		];
+		$style_preset = $style_map[ $raw_style ] ?? '';
+
+		// PHASE-6.4 PROMPT-ARGS (May 2026) — TwinChat đã resolve preset slug
+		// → prompt_id và pre-fill prompt_args (default || placeholder cho
+		// từng argument). Pass through trực tiếp vào schema_json._autogen.
+		// Bzdoc DocApp seeds ImagePromptInput → kickstart fires ngay không
+		// cần user fill form thủ công.
+		$prompt_id_in = isset( $ctx_opts['prompt_id'] ) ? (int) $ctx_opts['prompt_id'] : 0;
+		$prompt_args_in = [];
+		if ( isset( $ctx_opts['prompt_args'] ) && is_array( $ctx_opts['prompt_args'] ) ) {
+			foreach ( $ctx_opts['prompt_args'] as $k => $v ) {
+				if ( is_string( $k ) && ( is_string( $v ) || is_numeric( $v ) ) ) {
+					$prompt_args_in[ $k ] = (string) $v;
+				}
+			}
+		}
+		// Default kickstart=true vì TwinChat luôn muốn auto-fire khi đã prefill
+		// đủ. Cho phép FE override (kickstart: false) cho trường hợp debug.
+		$kickstart_in = array_key_exists( 'kickstart', $ctx_opts )
+			? (bool) $ctx_opts['kickstart']
+			: true;
+
 		$skeleton = [
 			'nucleus' => [
 				'title'  => $topic,
@@ -144,11 +243,31 @@ $generate_image_tool = new BizCity_TwinShell_Tool(
 			],
 			'project_id' => $nb_id > 0 ? ( 'tc_' . $nb_id ) : '',
 			'image_opts' => [
-				'style_preset' => isset( $args['style_preset'] ) ? (string) $args['style_preset'] : '',
-				'aspect_ratio' => isset( $args['aspect_ratio'] ) ? (string) $args['aspect_ratio'] : '1:1',
-				'n_variants'   => max( 1, min( 4, (int) ( $args['n_variants'] ?? 1 ) ) ),
+				'style_preset'     => $style_preset,
+				'aspect_ratio'     => $aspect_in,
+				'n_variants'       => $n_variants,
+				// PHASE-6.4 NEW (May 2026) — reference_images (dataURL[]) +
+				// template metadata. Bridge stores as-is in
+				// schema_json._autogen.image_opts; bzdoc DocApp reads &
+				// seeds ImagePromptInput.referenceImages on mount.
+				'reference_images' => $refs,
+				'template_slug'    => $tpl_slug,
+				'template_title'   => $tpl_title,
+				// Resolved preset id + pre-filled args (from TwinChat).
+				'prompt_id'        => $prompt_id_in > 0 ? $prompt_id_in : null,
+				'prompt_args'      => ! empty( $prompt_args_in ) ? $prompt_args_in : null,
+				'kickstart'        => $kickstart_in,
 			],
 			'_raw_text'  => $topic,
+			// PHASE-6.4 BUG-FIX (May 2026) — Kickstart so the bzdoc image iframe
+			// auto-fires generation on load instead of waiting for a second click.
+			// Bridge stamps `kickstart: true` into _autogen + appends ?kickstart=1
+			// to the handoff URL; ImagePromptInput then triggers submit() on mount.
+			// Without this the user lands on /tool-doc/?id=X&autogen=1 with the
+			// form prefilled but stuck — "autogen" alone never fired the worker
+			// for image doc_type (kickstart handler in DocApp explicitly skips
+			// image because ImagePromptInput owns its own kickstart effect).
+			'_kickstart' => $kickstart_in,
 		];
 
 		$result = BZDoc_Notebook_Bridge::generate_from_skeleton_public( $skeleton, 'image' );
@@ -206,7 +325,10 @@ $generate_image_tool = new BizCity_TwinShell_Tool(
 	// needs_approval — HIL gate when n_variants > 1 (each gpt-image-1
 	// 1024x1024 ≈ $0.17, so 4 variants ≈ $0.68 — non-trivial cost).
 	function ( array $args, array $ctx ): bool {
-		return ( (int) ( $args['n_variants'] ?? 1 ) ) > 1;
+		// PHASE-6.4 BUG-FIX (May 2026) — check ctx first (FE truth) before LLM args.
+		$ctx_opts = isset( $ctx['image_opts'] ) && is_array( $ctx['image_opts'] ) ? $ctx['image_opts'] : [];
+		$n = (int) ( $ctx_opts['n_variants'] ?? $args['n_variants'] ?? 1 );
+		return $n > 1;
 	}
 );
 
@@ -218,7 +340,7 @@ add_filter( 'bizcity_register_agent', function ( array $agents ) use ( $image_pr
 		// System instructions
 		"You are the Image Agent. You create images and image prompts for the user.\n\n"
 		. "RULES:\n"
-		. "1. If the user asks to ACTUALLY create / draw / render / 'tạo ảnh', 'vẽ poster', 'render hình' → call the `generate_image` tool. Pass `topic` as the user's idea (translate gist to concrete visual subject if needed). If they specified style or aspect ratio, fill those args. Default n_variants=1 unless they explicitly want multiple options (then 2 or 4 — this requires HIL approval).\n"
+		. "1. If the user asks to ACTUALLY create / draw / render / 'tạo ảnh', 'vẽ poster', 'render hình' → call the `generate_image` tool. **CRITICAL — `topic` MUST preserve the user's prompt VERBATIM.** Do NOT translate, summarize, paraphrase, or convert Vietnamese ↔ English. If the user message contains a `<TOPIC>…</TOPIC>` block (sent by the Image Studio FE), pass the exact text between those tags as `topic` — character for character — including any 'Ngữ cảnh từ ghi chú đã ghim' / pinned-note context block inside it. Otherwise, if the message starts with a 'Tạo ảnh:' marker, pass everything after that marker as `topic` exactly as written. Only fill `style_preset` / `aspect_ratio` / `n_variants` from the explicit 'Phong cách:' / 'Tỉ lệ:' / 'Số variant:' lines if present. Default n_variants=1 unless the user explicitly asks for multiple options (then 2 or 4 — requires HIL approval).\n"
 		. "2. If the user only asks for a prompt text to copy → call `compose_image_prompt`.\n"
 		. "3. After `generate_image` succeeds, reply ONE short Vietnamese sentence telling them the image is ready in the Canvas (e.g. \"Đã tạo ảnh về <topic> — bạn xem ở khung Canvas bên phải.\"). Do NOT include the prompt or URL.\n"
 		. "4. After `compose_image_prompt` succeeds, present `result.prompt` inside a fenced ```text``` block.\n"

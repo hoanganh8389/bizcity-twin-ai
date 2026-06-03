@@ -23,8 +23,13 @@ class BizCity_Knowledge_Database {
     
     /**
      * Database schema version
+     *
+     * 3.0.3 — baseline.
+     * 3.21.0 — PHASE-0.21 Wave 1: guru marketplace columns on bizcity_characters
+     *           (guru_uuid, visibility, version, license, manifest_hash, bin_path,
+     *           bin_dim, bin_count, embed_model, origin_user, published_at).
      */
-    const SCHEMA_VERSION = '3.0.3';
+    const SCHEMA_VERSION = '3.21.0';
     
     public static function instance() {
         if (is_null(self::$instance)) {
@@ -103,6 +108,9 @@ class BizCity_Knowledge_Database {
         ) {$charset_collate};";
         
         dbDelta($sql_characters);
+
+        // PHASE-0.21 Wave 1 — Guru marketplace columns (idempotent ALTERs).
+        $this->ensure_phase_021_character_columns();
         
         // Knowledge Sources table
         $table_sources = $wpdb->prefix . 'bizcity_knowledge_sources';
@@ -291,7 +299,7 @@ class BizCity_Knowledge_Database {
         // Phase 0.18 — Add max_tokens override (NULL = use system default 3000).
         if (!in_array('max_tokens', $existing_columns)) {
             $result = $wpdb->query("ALTER TABLE {$table_characters} 
-                ADD COLUMN max_tokens INT UNSIGNED NULL DEFAULT NULL COMMENT 'Per-character max output tokens override; NULL = system default' AFTER creativity_level");
+                ADD COLUMN max_tokens INT UNSIGNED NULL DEFAULT NULL COMMENT 'Per-character max output tokens override (NULL = system default)' AFTER creativity_level");
             if ($result === false) {
                 error_log("BizCity Knowledge: Failed to add max_tokens column - " . $wpdb->last_error);
             }
@@ -512,7 +520,74 @@ class BizCity_Knowledge_Database {
 
         return is_wp_error( $char_id ) ? 0 : (int) $char_id;
     }
-    
+
+    /**
+     * PHASE-0.21 Wave 1 — Guru marketplace columns on bizcity_characters.
+     *
+     * Adds nullable columns so existing characters keep working untouched while
+     * future guru-published characters carry marketplace metadata. Backfills
+     * `guru_uuid` (UUIDv4) for any character that lacks one — guru_uuid is the
+     * single namespace key used across kg_* tables (PHASE-0.21 §2.1).
+     *
+     * Idempotent. Safe to re-run.
+     *
+     * @since 3.21.0 (2026-05-06)
+     */
+    public function ensure_phase_021_character_columns() {
+        global $wpdb;
+        $table = $wpdb->prefix . 'bizcity_characters';
+
+        $add = function ( $column, $ddl ) use ( $wpdb, $table ) {
+            $prev = $wpdb->suppress_errors( true );
+            $wpdb->query( "ALTER TABLE `{$table}` ADD COLUMN {$ddl}" );
+            $err  = $wpdb->last_error;
+            $wpdb->suppress_errors( $prev );
+            if ( $err && false === strpos( $err, 'Duplicate column' ) ) {
+                error_log( "[KNOWLEDGE DB 0.21] ALTER {$table} ADD COLUMN {$column}: {$err}" );
+            }
+        };
+        $add_index = function ( $name, $cols ) use ( $wpdb, $table ) {
+            $prev = $wpdb->suppress_errors( true );
+            $wpdb->query( "ALTER TABLE `{$table}` ADD KEY {$name} ({$cols})" );
+            $err  = $wpdb->last_error;
+            $wpdb->suppress_errors( $prev );
+            if ( $err && false === strpos( $err, 'Duplicate key name' ) ) {
+                error_log( "[KNOWLEDGE DB 0.21] ALTER {$table} ADD KEY {$name}: {$err}" );
+            }
+        };
+
+        // 11 nullable columns — backwards-compatible with all existing code paths.
+        $add( 'guru_uuid',     "guru_uuid CHAR(36) DEFAULT NULL COMMENT 'PHASE-0.21 namespace key across kg_* tables'" );
+        $add( 'visibility',    "visibility VARCHAR(16) NOT NULL DEFAULT 'private' COMMENT 'private|unlisted|marketplace'" );
+        $add( 'version',       "version VARCHAR(20) NOT NULL DEFAULT '1.0.0'" );
+        $add( 'license',       "license VARCHAR(20) NOT NULL DEFAULT 'proprietary' COMMENT 'proprietary|cc-by|mit'" );
+        $add( 'manifest_hash', "manifest_hash CHAR(64) DEFAULT NULL" );
+        $add( 'bin_path',      "bin_path VARCHAR(255) DEFAULT NULL COMMENT 'Relative path under uploads/bizcity-kg/ (no leading slash)'" );
+        $add( 'bin_dim',       "bin_dim INT UNSIGNED DEFAULT NULL" );
+        $add( 'bin_count',     "bin_count INT UNSIGNED DEFAULT NULL" );
+        $add( 'embed_model',   "embed_model VARCHAR(64) DEFAULT NULL COMMENT 'Pinned embedding model for bundle compatibility'" );
+        $add( 'origin_user',   "origin_user BIGINT UNSIGNED DEFAULT NULL COMMENT 'Author who built this guru'" );
+        $add( 'published_at',  "published_at DATETIME DEFAULT NULL" );
+
+        $add_index( 'uq_guru_uuid',   'guru_uuid' );           // not UNIQUE: backfill must complete first
+        $add_index( 'idx_visibility', 'visibility' );
+
+        // Backfill guru_uuid for existing characters (batch 500/run, idempotent).
+        $col_exists = (bool) $wpdb->get_var( "SHOW COLUMNS FROM `{$table}` LIKE 'guru_uuid'" );
+        if ( $col_exists ) {
+            $rows = $wpdb->get_col( "SELECT id FROM `{$table}` WHERE guru_uuid IS NULL OR guru_uuid = '' LIMIT 500" );
+            foreach ( $rows as $cid ) {
+                $wpdb->update(
+                    $table,
+                    [ 'guru_uuid' => wp_generate_uuid4() ],
+                    [ 'id' => (int) $cid ],
+                    [ '%s' ],
+                    [ '%d' ]
+                );
+            }
+        }
+    }
+
     /**
      * Legacy Knowledge Migration
      * Migrate from old quick_faq post type to new character-based knowledge system

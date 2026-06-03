@@ -780,6 +780,11 @@ class BizCity_User_Memory {
                 $now,
                 $exists_id
             ) );
+            /**
+             * Wave 2.8d D5 — dual-write mirror into unified `bizcity_memory`.
+             * NO-OP unless filter `bizcity_memory_unified_enabled` returns TRUE.
+             */
+            do_action( 'bizcity_memory_mirror_write', 'user', array_merge( $data, [ 'blog_id' => $blog_id ] ), 'update' );
             return 'update';
         }
 
@@ -819,7 +824,19 @@ class BizCity_User_Memory {
             'updated_at'     => $now,
         ] );
 
-        return $wpdb->insert_id ? 'insert' : false;
+        $inserted_id = (int) $wpdb->insert_id;
+        if ( $inserted_id > 0 ) {
+            /**
+             * Wave 2.8d D5 — dual-write mirror into unified `bizcity_memory`.
+             * NO-OP unless filter `bizcity_memory_unified_enabled` returns TRUE.
+             */
+            do_action( 'bizcity_memory_mirror_write', 'user', array_merge( $data, [
+                'blog_id' => $blog_id,
+                'id'      => $inserted_id,
+            ] ), 'insert' );
+        }
+
+        return $inserted_id ? 'insert' : false;
     }
 
     /* ================================================================

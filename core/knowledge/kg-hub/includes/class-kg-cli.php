@@ -279,6 +279,330 @@ class BizCity_KG_CLI {
 				WP_CLI::error( 'Unknown subcommand. Use: list | on | off | diff' );
 		}
 	}
+
+	// =====================================================================
+	// PHASE 0.21 Wave 2 — Vector File Store (.bin) operations
+	// =====================================================================
+
+	/**
+	 * Show .bin storage status for a scope (notebook or character/guru).
+	 *
+	 * ## OPTIONS
+	 *
+	 * --scope=<scope>
+	 * : 'notebook' or 'character'
+	 *
+	 * --id=<id>
+	 * : notebook id (int) or character_uuid (string)
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp bizcity kg bin-status --scope=notebook --id=21
+	 *     wp bizcity kg bin-status --scope=character --id=c5f60b56-1234-5678-9abc-...
+	 */
+	public function bin_status( $args, $assoc_args ) {
+		$scope = isset( $assoc_args['scope'] ) ? (string) $assoc_args['scope'] : '';
+		$id    = isset( $assoc_args['id'] )    ? $assoc_args['id']             : '';
+		if ( '' === $scope || '' === $id ) {
+			WP_CLI::error( 'Usage: --scope=notebook|character --id=<id|uuid>' );
+		}
+		if ( ! class_exists( 'BizCity_KG_Vector_File_Store' ) ) {
+			WP_CLI::error( 'BizCity_KG_Vector_File_Store not loaded.' );
+		}
+		$store = BizCity_KG_Vector_File_Store::instance();
+		$uuid  = $store->resolve_scope_uuid( $scope, $id );
+		if ( is_wp_error( $uuid ) ) {
+			WP_CLI::error( $uuid->get_error_message() );
+		}
+		$kind = ( 'character' === $scope ) ? 'gurus' : 'notebooks';
+		if ( ! function_exists( 'bizcity_kg_vector_bin_path' ) ) {
+			WP_CLI::error( 'bizcity_kg_vector_bin_path() not loaded.' );
+		}
+		$abs = bizcity_kg_vector_bin_path( $kind, $uuid );
+		WP_CLI::log( 'kind     : ' . $kind );
+		WP_CLI::log( 'uuid     : ' . $uuid );
+		WP_CLI::log( 'bin path : ' . $abs );
+		if ( ! $abs ) { WP_CLI::error( 'path resolution returned empty' ); }
+		WP_CLI::log( 'exists   : ' . ( file_exists( $abs ) ? 'YES' : 'no' ) );
+		if ( file_exists( $abs ) ) {
+			WP_CLI::log( 'size     : ' . number_format( filesize( $abs ) ) . ' bytes' );
+			$hdr = $store->header_validate( $abs );
+			if ( is_wp_error( $hdr ) ) {
+				WP_CLI::warning( 'header invalid: ' . $hdr->get_error_message() );
+			} else {
+				WP_CLI::log( 'header   : dim=' . $hdr['dim'] . ' count=' . $hdr['count'] . ' model=' . $hdr['model_id'] );
+			}
+			$idx_abs = $abs . '.idx.json';
+			WP_CLI::log( 'idx.json : ' . ( file_exists( $idx_abs ) ? 'present (' . filesize( $idx_abs ) . ' bytes)' : 'MISSING' ) );
+		}
+
+		// Compare against DB JSON column rowcount.
+		global $wpdb;
+		if ( class_exists( 'BizCity_KG_Database' ) ) {
+			$tbl = BizCity_KG_Database::instance()->tbl_source_chunks();
+			if ( 'character' === $scope ) {
+				$db_n = (int) $wpdb->get_var( $wpdb->prepare(
+					"SELECT COUNT(*) FROM {$tbl} WHERE character_uuid = %s AND embedding IS NOT NULL", $uuid
+				) );
+			} else {
+				$db_n = (int) $wpdb->get_var( $wpdb->prepare(
+					"SELECT COUNT(*) FROM {$tbl} WHERE notebook_id = %d AND character_uuid IS NULL AND embedding IS NOT NULL", (int) $id
+				) );
+			}
+			WP_CLI::log( 'db rows  : ' . $db_n . ' (with embedding)' );
+		}
+	}
+
+	/**
+	 * Backfill .bin from legacy JSON `embedding` column for a scope.
+	 *
+	 * ## OPTIONS
+	 *
+	 * --scope=<scope>
+	 * : 'notebook' or 'character'
+	 *
+	 * --id=<id>
+	 * : notebook id (int) or character_uuid (string)
+	 *
+	 * [--dry-run]
+	 * : Don't write the .bin, just report.
+	 *
+	 * [--verify]
+	 * : After write, run verify_bin_integrity() and report drift.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp bizcity kg migrate-embeddings-to-bin --scope=notebook --id=21 --verify
+	 */
+	public function migrate_embeddings_to_bin( $args, $assoc_args ) {
+		$scope = isset( $assoc_args['scope'] ) ? (string) $assoc_args['scope'] : '';
+		$id    = isset( $assoc_args['id'] )    ? $assoc_args['id']             : '';
+		$dry   = isset( $assoc_args['dry-run'] );
+		$verify = isset( $assoc_args['verify'] );
+
+		if ( '' === $scope || '' === $id ) {
+			WP_CLI::error( 'Usage: --scope=notebook|character --id=<id|uuid> [--dry-run] [--verify]' );
+		}
+		if ( ! class_exists( 'BizCity_KG_Vector_File_Store' ) ) {
+			WP_CLI::error( 'BizCity_KG_Vector_File_Store not loaded.' );
+		}
+		$store = BizCity_KG_Vector_File_Store::instance();
+
+		if ( $dry ) {
+			global $wpdb;
+			$uuid = $store->resolve_scope_uuid( $scope, $id );
+			if ( is_wp_error( $uuid ) ) { WP_CLI::error( $uuid->get_error_message() ); }
+			$tbl  = BizCity_KG_Database::instance()->tbl_source_chunks();
+			if ( 'character' === $scope ) {
+				$n = (int) $wpdb->get_var( $wpdb->prepare(
+					"SELECT COUNT(*) FROM {$tbl} WHERE character_uuid = %s AND embedding IS NOT NULL", $uuid
+				) );
+			} else {
+				$n = (int) $wpdb->get_var( $wpdb->prepare(
+					"SELECT COUNT(*) FROM {$tbl} WHERE notebook_id = %d AND character_uuid IS NULL AND embedding IS NOT NULL", (int) $id
+				) );
+			}
+			WP_CLI::success( "[DRY] Would write {$n} vectors for {$scope}:{$id} (uuid={$uuid})" );
+			return;
+		}
+
+		$res = $store->rebuild_from_scope( $scope, $id );
+		if ( is_wp_error( $res ) ) {
+			WP_CLI::error( '[' . $res->get_error_code() . '] ' . $res->get_error_message() );
+		}
+		WP_CLI::success( sprintf(
+			'Wrote %d vectors (dim=%d) → %s',
+			$res['count'], $res['dim'], $res['path']
+		) );
+
+		if ( $verify ) {
+			if ( 'character' !== $scope ) {
+				WP_CLI::warning( 'verify currently supported for character scope only (skipping)' );
+				return;
+			}
+			$v = $store->verify_bin_integrity( (string) $id );
+			if ( is_wp_error( $v ) ) {
+				WP_CLI::warning( 'verify failed: ' . $v->get_error_message() );
+				return;
+			}
+			WP_CLI::log( sprintf(
+				'verify: sampled=%d mismatches=%d max_drift=%g',
+				$v['sampled'], $v['mismatches'], $v['max_drift']
+			) );
+			if ( $v['mismatches'] > 0 ) { WP_CLI::warning( 'integrity issues detected' ); }
+			else { WP_CLI::success( 'integrity OK' ); }
+		}
+	}
+
+	/**
+	 * Probe end-to-end .bin write path for diagnostics.
+	 *
+	 * Inserts a synthetic 1536-dim zero vector and reports exactly where it lands
+	 * (or which step fails). Useful to debug "no .bin appears" issues.
+	 *
+	 * ## OPTIONS
+	 *
+	 * --notebook=<id>
+	 * : Notebook id to probe.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp bizcity kg bin-probe --notebook=21
+	 */
+	public function bin_probe( $args, $assoc_args ) {
+		$nb = isset( $assoc_args['notebook'] ) ? (int) $assoc_args['notebook'] : 0;
+		if ( $nb <= 0 ) { WP_CLI::error( 'Usage: --notebook=<id>' ); }
+		if ( ! class_exists( 'BizCity_KG_Embedding_Writer' ) ) {
+			WP_CLI::error( 'BizCity_KG_Embedding_Writer not loaded.' );
+		}
+		$vec = array_fill( 0, 1536, 0.0 );
+		$vec[0] = 1.0; // non-zero norm
+		$res = BizCity_KG_Embedding_Writer::instance()->register_chunk( $nb, 999999, $vec, null, 0 );
+		if ( is_wp_error( $res ) ) {
+			WP_CLI::error( '[' . $res->get_error_code() . '] ' . $res->get_error_message() );
+		}
+		WP_CLI::success( 'register_chunk OK — check your KG storage dir for the .bin file' );
+	}
+
+	/**
+	 * Phase 6.6 S1.6 — Backfill missing / failed skeletons.
+	 *
+	 * Walks bizcity_kg_notebooks rows whose `skeleton_status` matches the
+	 * given filter and (re)triggers the build for each. Synchronous: the
+	 * --async filter on trigger_now() is forced off so the CLI sees the
+	 * actual outcome and exit code reflects whether every row landed
+	 * in `ready` state.
+	 *
+	 * ## OPTIONS
+	 *
+	 * [--status=<csv>]
+	 * : CSV of skeleton_status values to target. Default: pending,failed,(empty).
+	 *   Use `all` to scan every notebook regardless of status.
+	 *
+	 * [--owner=<user_id>]
+	 * : Only operate on notebooks owned by this user.
+	 *
+	 * [--limit=<n>]
+	 * : Max notebooks to process. Default 50.
+	 *
+	 * [--dry-run]
+	 * : List candidates without triggering a rebuild.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp bizcity kg skeleton-backfill
+	 *     wp bizcity kg skeleton-backfill --status=failed --limit=10
+	 *     wp bizcity kg skeleton-backfill --status=all --owner=42 --dry-run
+	 */
+	public function skeleton_backfill( $args, $assoc_args ) {
+		if ( ! class_exists( 'BizCity_KG_Skeleton_Service' )
+		     || ! class_exists( 'BizCity_KG_Skeleton_Adapter' ) ) {
+			WP_CLI::error( 'Skeleton service / adapter not loaded.' );
+		}
+
+		global $wpdb;
+		$tbl = BizCity_KG_Database::instance()->tbl_notebooks();
+
+		$status_csv = (string) ( $assoc_args['status'] ?? 'pending,failed,(empty)' );
+		$limit      = max( 1, (int) ( $assoc_args['limit'] ?? 50 ) );
+		$owner      = isset( $assoc_args['owner'] ) ? (int) $assoc_args['owner'] : 0;
+		$dry        = isset( $assoc_args['dry-run'] );
+
+		$where = [];
+		$args_sql = [];
+
+		if ( strtolower( trim( $status_csv ) ) !== 'all' ) {
+			$tokens = array_filter( array_map( 'trim', explode( ',', $status_csv ) ) );
+			$or = [];
+			foreach ( $tokens as $tok ) {
+				if ( $tok === '(empty)' || $tok === '' ) {
+					$or[] = "(skeleton_status IS NULL OR skeleton_status = '')";
+				} else {
+					$or[]       = 'skeleton_status = %s';
+					$args_sql[] = $tok;
+				}
+			}
+			if ( $or ) {
+				$where[] = '(' . implode( ' OR ', $or ) . ')';
+			}
+		}
+		if ( $owner > 0 ) {
+			$where[]    = 'owner_id = %d';
+			$args_sql[] = $owner;
+		}
+
+		$where_sql = $where ? ( 'WHERE ' . implode( ' AND ', $where ) ) : '';
+		$args_sql[] = $limit;
+
+		$sql = "SELECT id, name, owner_id, skeleton_status, skeleton_version
+		          FROM {$tbl}
+		          {$where_sql}
+		         ORDER BY updated_at DESC
+		         LIMIT %d";
+		$rows = $wpdb->get_results( $wpdb->prepare( $sql, $args_sql ), ARRAY_A );
+
+		if ( ! $rows ) {
+			WP_CLI::success( 'No notebooks match the filter — nothing to backfill.' );
+			return;
+		}
+
+		WP_CLI::log( sprintf(
+			'Found %d notebook(s) to %s.',
+			count( $rows ),
+			$dry ? 'inspect' : 'backfill'
+		) );
+
+		if ( $dry ) {
+			\WP_CLI\Utils\format_items(
+				'table',
+				$rows,
+				[ 'id', 'name', 'owner_id', 'skeleton_status', 'skeleton_version' ]
+			);
+			return;
+		}
+
+		// Force synchronous trigger so the CLI sees the real outcome.
+		add_filter( 'bzkg_skeleton_trigger_async', '__return_false', 99 );
+
+		$ok = 0;
+		$bad = [];
+		foreach ( $rows as $r ) {
+			$nb = (int) $r['id'];
+			WP_CLI::log( sprintf( '→ notebook #%d (%s) status=%s', $nb, $r['name'], $r['skeleton_status'] ) );
+			try {
+				BizCity_KG_Skeleton_Service::trigger_now( $nb, 'backfill' );
+			} catch ( \Throwable $e ) {
+				$bad[] = $nb . ': ' . $e->getMessage();
+				WP_CLI::warning( '  exception: ' . $e->getMessage() );
+				continue;
+			}
+
+			// Refresh status after the synchronous run.
+			BizCity_KG_Skeleton_Adapter::flush_cache( $nb );
+			$final = $wpdb->get_var( $wpdb->prepare(
+				"SELECT skeleton_status FROM {$tbl} WHERE id = %d", $nb
+			) );
+			if ( $final === 'ready' ) {
+				$ok++;
+				WP_CLI::log( '  ✓ ready' );
+			} else {
+				$bad[] = $nb . ': ended status=' . (string) $final;
+				WP_CLI::warning( '  ended status=' . (string) $final );
+			}
+		}
+
+		remove_filter( 'bzkg_skeleton_trigger_async', '__return_false', 99 );
+
+		WP_CLI::log( '' );
+		WP_CLI::log( sprintf( 'Backfill complete: %d ok, %d failed', $ok, count( $bad ) ) );
+		if ( $bad ) {
+			foreach ( $bad as $line ) {
+				WP_CLI::log( '  - ' . $line );
+			}
+			WP_CLI::halt( 1 );
+		}
+		WP_CLI::success( 'All notebooks now have skeleton_status=ready.' );
+	}
 }
 
 WP_CLI::add_command( 'bizcity kg', 'BizCity_KG_CLI' );
