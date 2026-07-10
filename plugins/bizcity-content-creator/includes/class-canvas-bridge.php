@@ -92,7 +92,7 @@ class BZCC_Canvas_Bridge {
 
 		return [
 			'workshop'       => 'content-creator',
-			'workshop_label' => 'Brain Factory',
+			'workshop_label' => 'TwinPlanner',
 			'tool_type'      => 'content',
 			'title'          => $title,
 			'launch_url'     => $launch_url,
@@ -120,12 +120,12 @@ class BZCC_Canvas_Bridge {
 	private static function generic_handoff( array $context ): array {
 		return [
 			'workshop'       => 'content-creator',
-			'workshop_label' => 'Brain Factory',
+			'workshop_label' => 'TwinPlanner',
 			'tool_type'      => 'content',
-			'title'          => 'Brain Factory',
+			'title'          => 'TwinPlanner',
 			'launch_url'     => home_url( '/creator/' ),
 			'auto_execute'   => false,
-			'reply'          => 'Mở Brain Factory — hãy chọn template phù hợp.',
+			'reply'          => 'Mở TwinPlanner — hãy chọn template phù hợp.',
 			'job_data'       => [],
 		];
 	}
@@ -274,9 +274,9 @@ class BZCC_Canvas_Bridge {
 
 		return [
 			'success' => true,
-			'content' => sprintf( 'Mở Brain Factory để tạo nội dung: %s', $url ),
+			'content' => sprintf( 'Mở TwinPlanner để tạo nội dung: %s', $url ),
 			'data'    => [
-				'content'    => sprintf( '[Mở Brain Factory](%s)', $url ),
+				'content'    => sprintf( '[Mở TwinPlanner](%s)', $url ),
 				'action_url' => $url,
 			],
 		];

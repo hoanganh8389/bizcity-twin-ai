@@ -1,0 +1,72 @@
+{
+  "$schema": "https://bizcity.vn/schema/diagnostics-changelog-v1.json",
+  "module_id": "core.twinbrain",
+  "owner": "core/twinbrain",
+  "installer_id": "twinbrain",
+  "current_version": "1.1.0",
+  "version_option": "bizcity_twinbrain_schema_version",
+  "tables": {
+    "bizcity_twin_event_stream": {
+      "since": "1.0.0",
+      "purpose": "Canonical event bus store for all TwinBrain + TwinCore events (R-EVT-1). One row per event_type emission; immutable append-only log.",
+      "note": "Table owned by core/twin-core (class-twin-event-store.php). Listed here for cross-reference — changes must go through core.twin-core changelog.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":           { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
+        "event_uuid":   { "type": "VARCHAR(36) NOT NULL DEFAULT ''",         "since": "1.0.0" },
+        "event_type":   { "type": "VARCHAR(64) NOT NULL DEFAULT ''",         "since": "1.0.0" },
+        "event_source": { "type": "VARCHAR(32) NOT NULL DEFAULT 'system'",   "since": "1.0.0" },
+        "payload_json": { "type": "LONGTEXT NULL",                           "since": "1.0.0" },
+        "trace_id":     { "type": "VARCHAR(64) NOT NULL DEFAULT ''",         "since": "1.0.0" },
+        "user_id":      { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",      "since": "1.0.0" },
+        "blog_id":      { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 1",      "since": "1.0.0" },
+        "created_at":   { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.0.0" }
+      },
+      "indexes": {
+        "idx_event_type":   { "cols": ["event_type"],                  "since": "1.0.0" },
+        "idx_trace":        { "cols": ["trace_id"],                    "since": "1.0.0" },
+        "idx_user_created": { "cols": ["user_id", "created_at"],       "since": "1.0.0" },
+        "uniq_event_uuid":  { "cols": ["event_uuid"],                  "since": "1.0.0", "unique": true }
+      }
+    }
+  },
+  "event_types": {
+    "taxonomy_version": 7,
+    "added": {
+      "v1.1.0": [
+        {
+          "type": "workflow_started",
+          "required_fields": ["trace_id", "skill_slug", "node_count", "label"],
+          "emitter": "BizCity_TwinBrain_Workflow_Pipeline",
+          "description": "Emitted when a /skill workflow pipeline begins. node_count enables FE skeleton timeline. PHASE-TWB-WORKFLOW W1."
+        },
+        {
+          "type": "workflow_step",
+          "required_fields": ["trace_id", "skill_slug", "node_id", "node_kind", "label", "status", "idx", "total"],
+          "emitter": "BizCity_TwinBrain_Workflow_Pipeline",
+          "description": "Emitted twice per node (status=running, then status=done|error|skipped|timeout). FE updates row by idx. PHASE-TWB-WORKFLOW W1."
+        },
+        {
+          "type": "workflow_completed",
+          "required_fields": ["trace_id", "skill_slug", "artifacts_count", "total_ms"],
+          "emitter": "BizCity_TwinBrain_Workflow_Pipeline",
+          "description": "Emitted when pipeline finishes (success or partial failure). FE shows summary chip. PHASE-TWB-WORKFLOW W1."
+        }
+      ]
+    }
+  },
+  "history": [
+    {
+      "version": "1.0.0",
+      "date": "2026-05-10",
+      "change": "Initial changelog — TwinBrain module schema baseline. References bizcity_twin_event_stream owned by core/twin-core. TAXONOMY_VERSION 6 (brain_session_* added by BS-1)."
+    },
+    {
+      "version": "1.1.0",
+      "date": "2026-06-19",
+      "change": "[2026-06-19 Johnny Chu] PHASE-TWB-WORKFLOW W1 — Added 3 new event_types to taxonomy: workflow_started, workflow_step, workflow_completed. Bump TAXONOMY_VERSION 6 → 7. New files: class-twinbrain-workflow-pipeline.php, core/twin-core/includes/class-twin-artifact-normalizer.php. JSON schemas: core/twin-core/event-stream/schemas/events/workflow_{started,step,completed}.json. 'twinbrain' added to allowed_sources in class-twin-event-taxonomy.php."
+    }
+  ]
+}

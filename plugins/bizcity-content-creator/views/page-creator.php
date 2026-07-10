@@ -13,7 +13,7 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 
 $is_iframe   = isset( $_GET['bizcity_iframe'] );
 $template_id = absint( get_query_var( 'bzcc_template_id' ) );
-$page_title  = '🧠 Brain Factory — Nhà máy não số';
+$page_title  = '🧠 TwinPlanner — Tạo nội dung AI'; // [2026-06-06 Johnny Chu] BZCC-SKEL — rebrand
 
 // Webchat iframe params: topic prefill + session linkage
 $prefill_topic = sanitize_text_field( $_GET['topic'] ?? '' );
@@ -22,7 +22,7 @@ $webchat_session_id = sanitize_text_field( $_GET['session_id'] ?? '' );
 if ( $template_id ) {
 	$tpl = BZCC_Template_Manager::get_by_id( $template_id );
 	if ( $tpl ) {
-		$page_title = esc_html( $tpl->title ) . ' — Brain Factory';
+		$page_title = esc_html( $tpl->title ) . ' — TwinPlanner';
 	}
 }
 
@@ -67,6 +67,30 @@ BZCC_Frontend::render_breadcrumb();
 echo BZCC_Frontend::render_shortcode( [] );
 ?>
 
+<?php
+// [2026-06-06 Johnny Chu] BZCC-SKEL — manually emit bztwin-skeleton web component assets.
+// page-creator.php has no wp_head()/wp_footer(), so wp_enqueue_scripts never fires.
+// Mirror the same pattern used by bizcity-doc/views/page-doc-studio.php.
+if ( class_exists( 'BizCity_KG_Skeleton_Assets' )
+	&& defined( 'BIZCITY_TWIN_AI_URL' )
+	&& defined( 'BIZCITY_TWIN_AI_DIR' ) ) :
+	$skel_css_url  = BIZCITY_TWIN_AI_URL . 'core/knowledge/kg-hub/assets/bztwin-skeleton.css';
+	$skel_css_file = BIZCITY_TWIN_AI_DIR . 'core/knowledge/kg-hub/assets/bztwin-skeleton.css';
+	$skel_js_url   = BIZCITY_TWIN_AI_URL . 'core/knowledge/kg-hub/assets/bztwin-skeleton.js';
+	$skel_js_file  = BIZCITY_TWIN_AI_DIR . 'core/knowledge/kg-hub/assets/bztwin-skeleton.js';
+	$skel_ver      = file_exists( $skel_js_file ) ? filemtime( $skel_js_file ) : BizCity_KG_Skeleton_Assets::VERSION;
+	$skel_cfg      = wp_json_encode( [
+		'restRoot' => esc_url_raw( rest_url() ),
+		'nonce'    => wp_create_nonce( 'wp_rest' ),
+		'blogId'   => (int) get_current_blog_id(),
+	] );
+	if ( file_exists( $skel_css_file ) ) :
+?>
+<link rel="stylesheet" href="<?php echo esc_url( $skel_css_url . '?ver=' . $skel_ver ); ?>">
+<?php endif; ?>
+<script>window.BizTwinSkeletonConfig = <?php echo $skel_cfg; ?>;</script>
+<script src="<?php echo esc_url( $skel_js_url . '?ver=' . $skel_ver ); ?>"></script>
+<?php endif; ?>
 <script>var bzccFront = <?php echo $bzcc_front_data; ?>;</script>
 <script src="<?php echo esc_url( $js_url ); ?>?ver=<?php echo esc_attr( $js_ver ); ?>"></script>
 </body>

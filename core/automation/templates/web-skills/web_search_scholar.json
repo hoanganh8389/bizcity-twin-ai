@@ -1,0 +1,72 @@
+{
+  "skill_key": "web_search_scholar",
+  "version": "1.1",
+  "title": "Web Research · Scholar (Học thuật)",
+  "description": "Nghiên cứu học thuật bám allowlist (arxiv, doi, nature, sciencedirect, pubmed, ieee, acm, semanticscholar, ssrn, MIT, Stanford…) — 1 Tavily search advanced + 1 LLM synth. Cite (Author, Year) + [sch:N#URL]. Phân biệt pre-print vs peer-reviewed.",
+  "category": "web-research",
+  "triggers": [
+    "paper", "nghiên cứu", "arxiv", "doi", "meta-analysis",
+    "systematic review", "cohort", "rct", "thực nghiệm",
+    "literature review", "citation", "academic",
+    "scholar", "pubmed", "preprint", "peer-review"
+  ],
+  "slash_commands": ["/scholar", "/academic", "/web_scholar"],
+  "modes": ["research"],
+  "tools": ["search_web", "llm_chat"],
+  "priority": 41,
+  "scenarios": [
+    {
+      "id": "sch_find_paper",
+      "label": "Tìm paper / bài báo",
+      "example_query": "Paper về Large Language Models trong y tế 2025-2026 — có gì mới nổi bật?"
+    },
+    {
+      "id": "sch_meta",
+      "label": "Meta-analysis / systematic review",
+      "example_query": "Systematic review về hiệu quả CBT điều trị PTSD — kết quả tổng hợp?"
+    },
+    {
+      "id": "sch_preprint",
+      "label": "Pre-print vs peer-reviewed",
+      "example_query": "Nghiên cứu arxiv về protein folding mới nhất — đã được peer-reviewed chưa?"
+    },
+    {
+      "id": "sch_citation",
+      "label": "Tác giả / citation nổi tiếng",
+      "example_query": "Bài báo gốc về backpropagation của Hinton, Rumelhart, Williams là bài nào?"
+    },
+    {
+      "id": "sch_ml",
+      "label": "AI / Machine Learning research",
+      "example_query": "Transformer architecture — paper Attention is All You Need và các bài follow-up quan trọng"
+    }
+  ],
+  "content_lines": [
+    "# Web Research · Scholar (Học thuật)",
+    "",
+    "Bạn là **academic evidence synthesizer**. Tổng hợp paper từ allowlist (arxiv.org, doi.org, nature.com, sciencedirect.com, pubmed, ieee.org, acm.org, semanticscholar.org, jstor.org, ssrn.com, MIT/Stanford/Harvard, openreview, aclanthology…).",
+    "",
+    "## Quy tắc BẮT BUỘC",
+    "1. **Chỉ dùng snippets** — KHÔNG bịa kết quả, số liệu, n=, p-value.",
+    "2. **Citation**: trong text ghi `(Tác giả/Tổ chức, Năm)` NẾU snippet có; sau đó kèm `[sch:N#URL]`.",
+    "3. **Phân biệt rõ**: pre-print (medrxiv/biorxiv/arxiv) vs peer-reviewed journal. Nêu rõ trong câu trả lời.",
+    "4. **Xung đột nghiên cứu** → nêu rõ + cite cả 2 bên.",
+    "5. **KHÔNG** \"chắc chắn\". Dùng \"theo nghiên cứu X (Năm)\", \"meta-analysis Y cho thấy\".",
+    "6. ≤ 260 từ, Tiếng Việt nếu câu hỏi tiếng Việt.",
+    "",
+    "## Kịch bản mẫu",
+    "",
+    "| Kịch bản | Query điển hình | Xử lý |",
+    "|---|---|---|",
+    "| Tìm paper gốc | \"Bài báo Attention is All You Need\" | → cite doi + arxiv + năm + tác giả |",
+    "| Meta-analysis | \"Systematic review về CBT\" | → cite Cochrane / PubMed review; phân biệt RCT vs observational |",
+    "| Pre-print mới | \"Nghiên cứu arxiv protein folding\" | → ghi rõ \"chưa peer-reviewed\" nếu chỉ trên arxiv |",
+    "| Xung đột nghiên cứu | \"Vitamin D và bệnh tim\" | → nêu rõ cả nhóm ủng hộ và phản biện |",
+    "| AI/ML papers | \"RLHF cho LLM\" | → cite InstructGPT, Constitutional AI, arxiv 2022+ |",
+    "",
+    "## Anti-patterns CẤM",
+    "- ❌ Trích kết quả pre-print như đã peer-reviewed.",
+    "- ❌ Bịa tên tác giả / năm xuất bản nếu snippet không có.",
+    "- ❌ Generalize từ 1 paper nhỏ → \"đã được chứng minh\"."
+  ]
+}

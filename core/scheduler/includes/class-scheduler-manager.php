@@ -32,7 +32,7 @@ class BizCity_Scheduler_Manager {
 	/** @var string */
 	private $table;
 
-	const SCHEMA_VERSION     = 3;
+	const SCHEMA_VERSION     = 4;
 	const SCHEMA_VERSION_KEY = 'bizcity_scheduler_schema_ver';
 
 	/** Final unified table name (M-CRM.M12 v2 — phase 2). */
@@ -154,6 +154,10 @@ class BizCity_Scheduler_Manager {
 
 		if ( $from < 3 ) {
 			$this->migrate_to_3();
+		}
+
+		if ( $from < 4 ) {
+			$this->migrate_to_4();
 		}
 	}
 
@@ -314,11 +318,40 @@ class BizCity_Scheduler_Manager {
 		}
 	}
 
-	/** SHOW TABLES helper (used only in migrate paths). */
-	private function table_exists( string $table ): bool {
+	/**
+	 * Schema v4 — R-UNIFY Wave 2 (2026-06-15).
+	 *
+	 * ADD FK columns: contact_id, conversation_id, campaign_id
+	 * for Omni-Channel Unification.
+	 *
+	 * [2026-06-15 Johnny Chu] R-UNIFY Wave 2 — ADD-only, no data loss.
+	 */
+	private function migrate_to_4(): void {
 		global $wpdb;
-		$found = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) );
-		return $found === $table;
+		$t = $this->table;
+
+		// Guard: skip if columns already exist (idempotent re-run).
+		$has_contact_id = (bool) $wpdb->get_var( $wpdb->prepare(
+			"SELECT COUNT(*) FROM information_schema.COLUMNS
+			 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = 'contact_id'",
+			$wpdb->prefix . self::TABLE_NAME
+		) );
+		if ( $has_contact_id ) {
+			return;
+		}
+
+		$wpdb->query( "ALTER TABLE `{$t}`
+			ADD COLUMN contact_id      BIGINT UNSIGNED NULL DEFAULT NULL AFTER updated_at,
+			ADD COLUMN conversation_id BIGINT UNSIGNED NULL DEFAULT NULL AFTER contact_id,
+			ADD COLUMN campaign_id     BIGINT UNSIGNED NULL DEFAULT NULL AFTER conversation_id,
+			ADD KEY idx_contact_id  (contact_id),
+			ADD KEY idx_campaign_id (campaign_id)
+		" );
+	}
+
+	/** Table-existence helper (used only in migrate paths). */
+	private function table_exists( string $table ): bool {
+		return bizcity_tbl_exists( $table ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 	}
 
 	/* ================================================================
@@ -341,6 +374,19 @@ class BizCity_Scheduler_Manager {
 		$row = $this->sanitize_row( $data );
 		if ( is_wp_error( $row ) ) {
 			return $row;
+		}
+
+		// [2026-06-03 Johnny Chu] SCH-NC W3 — validate metadata qua adapter
+		// (fail-OPEN nếu adapter chưa register cho event_type này).
+		if ( class_exists( 'BizCity_Scheduler_Adapter_Registry' ) ) {
+			$validate_payload = array_merge( $data, [
+				'event_type' => $row['event_type'],
+				'metadata'   => isset( $row['metadata'] ) ? $row['metadata'] : ( $data['metadata'] ?? [] ),
+			] );
+			$ok = BizCity_Scheduler_Adapter_Registry::validate( $row['event_type'], $validate_payload );
+			if ( is_wp_error( $ok ) ) {
+				return $ok;
+			}
 		}
 
 		$inserted = $wpdb->insert( $this->table, $row );
@@ -401,6 +447,23 @@ class BizCity_Scheduler_Manager {
 			}
 		}
 
+		// [2026-06-04 Johnny Chu] R-SCH-REPLY — auto-encode metadata array để
+		// caller (FB_Publisher::write_metadata, Completion_Notifier::patch_delivery,
+		// Web_Post mirror, …) có thể truyền array thẳng mà không lo wpdb stringify
+		// thành 'Array' → mất block inbound{}/delivery{}.
+		if ( isset( $update['metadata'] ) ) {
+			if ( is_array( $update['metadata'] ) ) {
+				$update['metadata'] = wp_json_encode( $update['metadata'] );
+			} elseif ( is_string( $update['metadata'] ) && $update['metadata'] !== '' ) {
+				json_decode( $update['metadata'] );
+				if ( JSON_ERROR_NONE !== json_last_error() ) {
+					unset( $update['metadata'] ); // drop invalid JSON to preserve existing.
+				}
+			} elseif ( $update['metadata'] === null || $update['metadata'] === '' ) {
+				unset( $update['metadata'] );
+			}
+		}
+
 		if ( empty( $update ) ) {
 			return true;
 		}
@@ -419,6 +482,18 @@ class BizCity_Scheduler_Manager {
 		 * @param array  $changed   Changed field keys.
 		 */
 		do_action( 'bizcity_scheduler_event_updated', $event, $old, array_keys( $update ) );
+
+		// [2026-06-03 Johnny Chu] SCH-NC W3 — fire completion hook khi status
+		// chuyển active|draft → done. Completion Notifier (W4) listen hook này
+		// để reply-back về channel inbound.
+		$old_status = isset( $old->status ) ? (string) $old->status : '';
+		$new_status = isset( $event->status ) ? (string) $event->status : '';
+		if ( $new_status === 'done' && $old_status !== 'done' ) {
+			do_action( 'bizcity_scheduler_event_completed', (int) $id, $event );
+		}
+		if ( $new_status === 'cancelled' && $old_status !== 'cancelled' ) {
+			do_action( 'bizcity_scheduler_event_cancelled', (int) $id, $event );
+		}
 
 		return true;
 	}
@@ -750,7 +825,29 @@ class BizCity_Scheduler_Manager {
 			'meeting', 'workshop', 'training', 'internal', 'personal', 'task', 'reminder',
 			// PHASE-CG-SCHEDULER v0.2 — Facebook scheduled post (handled by BizCity_FB_Publisher).
 			'fb_post',
+			// TASK-UNIFY Phase 1/2 — Web post + Zalo reminder (core/channel-gateway handlers).
+			'web_post',
+			'reminder_zalo',
+			// TASK-UNIFY Phase 3 — Legacy migration: Woo + Lead Report (core/channel-gateway handlers).
+			'woo_product_create',
+			'woo_product_edit',
+			'woo_order_create',
+			'lead_report',
+			// AUTOMATION BE-4 — workflow trigger fire (handler in core/automation).
+			'automation_workflow',
+			// [2026-06-03 Johnny Chu] SCH-NC W2 — TwinBrain master + outbound channel.
+			'reminder_personal',
+			'telegram_send',
+			// [2026-06-13 Johnny Chu] ZA-1.2 — Zalo OA inbound message CRM tracking event.
+			'zalo_inbound',
+			// [2026-06-15 Johnny Chu] R-UNIFY Wave 2 — Omni-channel unification event types.
+			'broadcast_scheduled',    // Wave 6: broadcast campaign fire-time placeholder.
+			'crm_conversation_task',  // Inline task created from CRM inbox thread.
+			'qr_scan_followup',       // QR code scan entry point (campaign attribution).
 		];
+
+		$allowed_statuses = [ 'active', 'draft', 'done', 'cancelled' ];
+		$status_input     = (string) ( $data['status'] ?? 'active' );
 
 		$row = [
 			'user_id'       => (int) ( $data['user_id'] ?? get_current_user_id() ),
@@ -762,7 +859,7 @@ class BizCity_Scheduler_Manager {
 			'reminder_min'  => isset( $data['reminder_min'] ) ? absint( $data['reminder_min'] ) : 15,
 			'source'        => in_array( $source, $allowed_sources, true ) ? $source : 'user',
 			'ai_context'    => isset( $data['ai_context'] ) ? sanitize_text_field( $data['ai_context'] ) : null,
-			'status'        => 'active',
+			'status'        => in_array( $status_input, $allowed_statuses, true ) ? $status_input : 'active',
 			'event_type'    => in_array( $event_type, $allowed_event_types, true ) ? $event_type : 'meeting',
 		];
 
@@ -777,6 +874,17 @@ class BizCity_Scheduler_Manager {
 					$row['metadata'] = $data['metadata'];
 				}
 			}
+		}
+
+		// [2026-06-15 Johnny Chu] R-UNIFY Wave 2 — FK columns for Omni-Channel Unification.
+		if ( ! empty( $data['contact_id'] ) ) {
+			$row['contact_id'] = absint( $data['contact_id'] ) ?: null;
+		}
+		if ( ! empty( $data['conversation_id'] ) ) {
+			$row['conversation_id'] = absint( $data['conversation_id'] ) ?: null;
+		}
+		if ( ! empty( $data['campaign_id'] ) ) {
+			$row['campaign_id'] = absint( $data['campaign_id'] ) ?: null;
 		}
 
 		// Google account binding (Phase 4 will populate; Phase 2 only stores).

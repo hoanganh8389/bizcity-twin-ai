@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "brain_session_created",
+  "description": "TwinBrain master conversation thread created. Source of truth for session existence (R-EVT-3 projection). VIEW bizcity_brain_sessions groups by envelope.session_id; this event marks t0.",
+  "type": "object",
+  "required": ["session_id"],
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "pattern": "^brain_sess_[0-9]+_[0-9]+_[0-9a-f]{4}$",
+      "description": "brain_sess_{ts_ms}_{user_id}_{4hex}"
+    },
+    "title":      { "type": "string", "description": "Optional initial title; usually empty until first turn synthesizes one." },
+    "project_id": { "type": "string" },
+    "source":     { "type": "string", "enum": ["user", "twin_tool", "system"], "default": "user" },
+    "created_at": { "type": "string", "format": "date-time" }
+  }
+}

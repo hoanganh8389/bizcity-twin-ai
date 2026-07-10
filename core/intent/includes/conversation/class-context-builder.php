@@ -356,8 +356,13 @@ class BizCity_Context_Builder {
         }
         
         // Fallback to user_meta (legacy)
+        // [2026-06-11 Johnny Chu] R-PERF — via BizCity_User_Meta_Cache (no meta prime)
         if ( ! $project ) {
-            $projects = get_user_meta( $this->user_id, 'bizcity_projects', true );
+            if ( class_exists( 'BizCity_User_Meta_Cache' ) ) {
+                $projects = BizCity_User_Meta_Cache::get( $this->user_id, 'bizcity_projects', [] );
+            } else {
+                $projects = get_user_meta( $this->user_id, 'bizcity_projects', true );
+            }
             if ( is_array( $projects ) ) {
                 foreach ( $projects as $p ) {
                     if ( $p['id'] === $this->current_project_id ) {

@@ -252,6 +252,196 @@ class BizCity_Skill_Recipe_Parser {
 	}
 
 	/* ================================================================
+	 *  Workflow MD extraction (WF-AUTO W2 — Wave A)
+	 *  [2026-06-03 Johnny Chu] WF-AUTO W2 — extract block-graph steps
+	 *  from `.workflow.md` body + G1 archetype guard. Consumed by
+	 *  BizCity_Workflow_MD_Compiler (core/automation/includes/).
+	 *  KHÔNG dùng cho `.skill.md` (A/B/C — Twin Runner DUY NHẤT).
+	 * ================================================================ */
+
+	/**
+	 * Validate archetype frontmatter discriminator (Guardrail G1).
+	 *
+	 * Parser tier MUST reject `.workflow.md` compilation when frontmatter does
+	 * not declare `archetype: workflow`. Extension alone is a naming hint, not
+	 * a single source of truth. Same rule applies for `.skill.md`
+	 * (archetype must be `skill`).
+	 *
+	 * @param array  $frontmatter Parsed YAML frontmatter.
+	 * @param string $expected    'workflow' | 'skill'.
+	 * @return true|WP_Error true if archetype matches; WP_Error otherwise.
+	 */
+	public function require_archetype( array $frontmatter, string $expected ) {
+		$raw = isset( $frontmatter['archetype'] ) ? strtolower( trim( (string) $frontmatter['archetype'] ) ) : '';
+		if ( $raw === '' ) {
+			return new WP_Error(
+				'archetype_missing',
+				sprintf( 'Frontmatter thiếu field `archetype: %s` (Guardrail G1).', $expected )
+			);
+		}
+		if ( $raw !== strtolower( $expected ) ) {
+			return new WP_Error(
+				'archetype_mismatch',
+				sprintf( 'Frontmatter `archetype: %s` không khớp expected `%s` (Guardrail G1).', $raw, $expected )
+			);
+		}
+		return true;
+	}
+
+	/**
+	 * Extract block-graph steps from a `.workflow.md` body.
+	 *
+	 * Grammar (canonical, round-trippable with BizCity_Workflow_MD_Compiler):
+	 *
+	 *     ## Steps
+	 *
+	 *     ### 1. `trigger.manual` — Bắt đầu thủ công
+	 *
+	 *     ```yaml
+	 *     label: Bắt đầu
+	 *     ```
+	 *
+	 *     ### 2. `llm.compose_reply` — Soạn câu trả lời
+	 *
+	 *     ```yaml
+	 *     model: gpt-4o-mini
+	 *     prompt: |
+	 *       Trả lời ngắn gọn theo guru context.
+	 *     ```
+	 *
+	 * Heading pattern: `### <N>. \`<block_id>\` — <label>`
+	 *
+	 * @param string $body Markdown body WITHOUT frontmatter block.
+	 * @return array<int, array{id:string, block_id:string, label:string, config:array}>
+	 */
+	public function extract_workflow_steps( string $body ): array {
+		$out = array();
+
+		// Isolate "## Steps" section (case-insensitive, accept VI variants) — bail if absent.
+		if ( ! preg_match(
+			'/^##\s+(?:Steps|Quy\s*trình|B[ưu]ớc)[^\n]*\n((?:.|\n)*?)(?=^##\s|\z)/imu',
+			$body,
+			$section
+		) ) {
+			return $out;
+		}
+		$inner = (string) ( $section[1] ?? '' );
+
+		$re = '/^###\s+(\d+)\.\s+`([a-z0-9_.-]+)`\s*(?:[—\-:]\s*)?(.*)$/imu';
+		if ( ! preg_match_all( $re, $inner, $matches, PREG_OFFSET_CAPTURE ) ) {
+			return $out;
+		}
+
+		$count = count( $matches[0] );
+		for ( $i = 0; $i < $count; $i++ ) {
+			$heading_off = (int) $matches[0][ $i ][1];
+			$heading_len = strlen( $matches[0][ $i ][0] );
+			$next_off    = ( $i + 1 < $count ) ? (int) $matches[0][ $i + 1 ][1] : strlen( $inner );
+			$chunk       = substr( $inner, $heading_off + $heading_len, $next_off - ( $heading_off + $heading_len ) );
+
+			$step_no  = (int) $matches[1][ $i ][0];
+			$block_id = trim( (string) $matches[2][ $i ][0] );
+			$label    = trim( (string) $matches[3][ $i ][0] );
+
+			$config = $this->extract_yaml_block( $chunk );
+
+			$out[] = array(
+				'id'       => 'n' . $step_no,
+				'block_id' => $block_id,
+				'label'    => $label !== '' ? $label : $block_id,
+				'config'   => $config,
+			);
+		}
+
+		return $out;
+	}
+
+	/**
+	 * Naive YAML-subset extractor — grabs first ```yaml fenced block.
+	 *
+	 * Supported subset (PHP 7.4 floor, no `yaml` ext on shared hosting):
+	 *   - `key: scalar`
+	 *   - `key: |` followed by indented continuation lines (joined with \n).
+	 *   - `# comment` lines skipped.
+	 *
+	 * Anything more complex (nested objects/arrays/anchors) is dropped — the
+	 * compiler caller can pre-process with a real YAML lib if needed.
+	 *
+	 * @param string $chunk Step body chunk after the heading.
+	 * @return array<string, mixed>
+	 */
+	private function extract_yaml_block( string $chunk ): array {
+		if ( ! preg_match( '/```ya?ml\s*\n((?:.|\n)*?)\n```/i', $chunk, $m ) ) {
+			return array();
+		}
+		$lines = explode( "\n", (string) $m[1] );
+		$out   = array();
+
+		$pending_key   = '';
+		$pending_lines = array();
+
+		foreach ( $lines as $raw ) {
+			$line = rtrim( $raw, "\r" );
+
+			// Block-scalar continuation: indented line (≥2 spaces) while a pending key is open.
+			if ( $pending_key !== '' && $line !== '' && preg_match( '/^(\s{2,})(.*)$/', $line, $cm ) ) {
+				$pending_lines[] = $cm[2];
+				continue;
+			}
+
+			// Flush pending block scalar.
+			if ( $pending_key !== '' ) {
+				$out[ $pending_key ] = rtrim( implode( "\n", $pending_lines ), "\n" );
+				$pending_key   = '';
+				$pending_lines = array();
+			}
+
+			if ( $line === '' || strpos( ltrim( $line ), '#' ) === 0 ) {
+				continue;
+			}
+
+			if ( preg_match( '/^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*)$/', $line, $kv ) ) {
+				$k = $kv[1];
+				$v = $kv[2];
+
+				if ( $v === '|' || $v === '|-' || $v === '>' ) {
+					$pending_key   = $k;
+					$pending_lines = array();
+					continue;
+				}
+
+				// Strip surrounding quotes when present.
+				if ( strlen( $v ) >= 2
+					&& ( ( $v[0] === '"' && substr( $v, -1 ) === '"' )
+						|| ( $v[0] === "'" && substr( $v, -1 ) === "'" ) ) ) {
+					$v = substr( $v, 1, -1 );
+				}
+
+				// Cast trivial scalars.
+				$lower = strtolower( $v );
+				if ( $lower === 'true' ) {
+					$v = true;
+				} elseif ( $lower === 'false' ) {
+					$v = false;
+				} elseif ( $lower === 'null' || $v === '~' ) {
+					$v = null;
+				} elseif ( preg_match( '/^-?\d+$/', $v ) ) {
+					$v = (int) $v;
+				}
+
+				$out[ $k ] = $v;
+			}
+		}
+
+		// Final flush.
+		if ( $pending_key !== '' ) {
+			$out[ $pending_key ] = rtrim( implode( "\n", $pending_lines ), "\n" );
+		}
+
+		return $out;
+	}
+
+	/* ================================================================
 	 *  Skill context builder (for Data Contract v1 payload)
 	 * ================================================================ */
 

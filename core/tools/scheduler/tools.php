@@ -183,6 +183,21 @@ function bizcity_tool_scheduler_create_event( array $slots ): array {
 		$end_at = _bizcity_scheduler_normalize_datetime( $end_at, $date_hint );
 	}
 
+	// [2026-06-03 Johnny Chu] SCH-NC W5 — derive canonical inbound{} block từ
+	// TwinBrain ctx (slots._meta hoặc top-level _inbound) để Completion Notifier
+	// reply về đúng kênh.
+	$metadata = isset( $slots['metadata'] ) && is_array( $slots['metadata'] ) ? $slots['metadata'] : array();
+	if ( class_exists( 'BizCity_Scheduler_Inbound_Provenance' ) && empty( $metadata['inbound'] ) ) {
+		$turn_ctx = isset( $slots['_meta'] ) && is_array( $slots['_meta'] ) ? $slots['_meta'] : array();
+		if ( isset( $slots['_inbound'] ) && is_array( $slots['_inbound'] ) ) {
+			$turn_ctx = array_merge( $turn_ctx, $slots['_inbound'] );
+		}
+		$inbound = BizCity_Scheduler_Inbound_Provenance::from_twinbrain_ctx( $turn_ctx, 'reminder' );
+		if ( BizCity_Scheduler_Inbound_Provenance::is_valid( $inbound ) ) {
+			$metadata['inbound'] = $inbound;
+		}
+	}
+
 	$event_id = $mgr->create_event( [
 		'user_id'      => $slots['_meta']['user_id'] ?? get_current_user_id(),
 		'title'        => sanitize_text_field( $title ),
@@ -193,6 +208,7 @@ function bizcity_tool_scheduler_create_event( array $slots ): array {
 		'reminder_min' => (int) ( $slots['reminder_min'] ?? 15 ),
 		'source'       => sanitize_text_field( $slots['source'] ?? 'ai_plan' ),
 		'ai_context'   => $slots['ai_context'] ?? '',
+		'metadata'     => $metadata,
 	] );
 
 	if ( is_wp_error( $event_id ) ) {

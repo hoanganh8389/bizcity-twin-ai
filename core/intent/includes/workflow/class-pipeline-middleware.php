@@ -332,6 +332,43 @@ class BizCity_Pipeline_Middleware {
 			], 'error' );
 		}
 
+		// 2a. Phase 0.6 — KG xref: link evidence record to KG source/entity when output contains one.
+		try {
+			if ( $success && $evidence_id && class_exists( 'BizCity_KG' ) && is_array( $result_data ) ) {
+				$kg_src_id = 0;
+				if ( ! empty( $result_data['kg_source_id'] ) ) {
+					$kg_src_id = (int) $result_data['kg_source_id'];
+				} elseif ( ! empty( $result_data['source_id'] ) ) {
+					$kg_src_id = (int) $result_data['source_id'];
+				}
+				if ( $kg_src_id > 0 ) {
+					BizCity_KG::xref( [
+						'cortex'        => 'intent',
+						'cortex_table'  => $GLOBALS['wpdb']->prefix . 'bizcity_intent_evidence',
+						'cortex_ref_id' => $evidence_id,
+						'kg_ref_type'   => 'source',
+						'kg_ref_id'     => $kg_src_id,
+						'relation'      => 'produced',
+						'meta'          => [ 'pipeline_id' => $pipeline_id, 'node_code' => $node_code ],
+					] );
+				}
+				$kg_entity_id = ! empty( $result_data['entity_id'] ) ? (int) $result_data['entity_id'] : 0;
+				if ( $kg_entity_id > 0 ) {
+					BizCity_KG::xref( [
+						'cortex'        => 'intent',
+						'cortex_table'  => $GLOBALS['wpdb']->prefix . 'bizcity_intent_evidence',
+						'cortex_ref_id' => $evidence_id,
+						'kg_ref_type'   => 'entity',
+						'kg_ref_id'     => $kg_entity_id,
+						'relation'      => 'invoked',
+						'meta'          => [ 'pipeline_id' => $pipeline_id, 'node_code' => $node_code ],
+					] );
+				}
+			}
+		} catch ( \Throwable $e ) {
+			// Non-blocking — xref failure must never break the pipeline.
+		}
+
 		// 3. ToDos checkpoint (isolated try-catch)
 		try {
 			if ( class_exists( 'BizCity_Intent_Todos' ) ) {

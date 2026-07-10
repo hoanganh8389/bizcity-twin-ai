@@ -43,7 +43,11 @@ class BizCity_Site_Provisioner {
 	const LOG_OPTION        = 'bizcity_provisioner_log';
 	const LOG_MAX           = 50;
 	const SELF_HEAL_TRANS   = 'bizcity_provisioner_recent';
-	const SELF_HEAL_TTL     = 300; // 5 minutes between self-heal passes
+	// [2026-06-11 Johnny Chu] HOTFIX — tăng từ 300s (5 min) lên 3600s (1 hour).
+	// Sau khi version-gate + write_log guard được fix, steady-state self-heal
+	// không làm gì cả (100% skipped). Chỉ cần chạy đủ thường để phát hiện
+	// bảng bị miss trên shard mới — 1 tiếng là đủ an toàn.
+	const SELF_HEAL_TTL     = 3600; // 1 hour between self-heal passes
 	const FORCE_QUERY_ARG   = 'bizcity_provision';
 
 	/** Register WP hooks (idempotent). */
@@ -127,8 +131,17 @@ class BizCity_Site_Provisioner {
 			return; // recently ran on this blog
 		}
 
-		self::run_all( $force );
+		// [2026-06-04 Johnny Chu] SCH-BC W5 — set transient TR\u01af\u1edaC run_all() \u0111\u1ec3
+		// d\u1ed3n l\u1eafn ti\u1ebfng \u1ed5n duplicate khi admin_init fire nhi\u1ec1u l\u1ea7n trong c\u00f9ng
+		// 1 request (race window c\u0169 = th\u1eddi gian run_all() \u2248 50-500ms gi\u00e1
+		// b\u1eb1ng h\u00e0ng ch\u1ee5c duplicate SELECT t\u1eeb installers \u0111\u0103ng k\u00fd).
 		set_transient( self::SELF_HEAL_TRANS, time(), self::SELF_HEAL_TTL );
+		try {
+			self::run_all( $force );
+		} catch ( \Throwable $e ) {
+			delete_transient( self::SELF_HEAL_TRANS );
+			throw $e;
+		}
 	}
 
 	/**
@@ -185,11 +198,22 @@ class BizCity_Site_Provisioner {
 			$results[] = $row;
 		}
 
-		// Only log when something actually ran or errored — skip all-skipped passes
-		// to prevent updating the log option on every 5-minute throttle cycle.
+		// [2026-06-11 Johnny Chu] HOTFIX — Only log when schema actually changed
+		// (version option bumped) OR an error occurred. Pure noops ('ran' with
+		// ver_before === ver_after) mean the callback returned early via its own
+		// internal guard — no DB work was done, no point persisting an audit entry.
+		// This prevents the 1456ms UPDATE wp_options call every 5 minutes on
+		// steady-state installs where all schemas are already at expected version.
 		$has_action = false;
 		foreach ( $results as $r ) {
-			if ( $r['action'] !== 'skipped' && $r['action'] !== 'noop' ) {
+			if ( $r['action'] === 'error' ) {
+				$has_action = true;
+				break;
+			}
+			// 'ran' is meaningful only when the version option actually changed.
+			if ( $r['action'] === 'ran'
+				&& ( ( $r['ver_before'] ?? '' ) !== ( $r['ver_after'] ?? '' ) )
+			) {
 				$has_action = true;
 				break;
 			}
@@ -285,6 +309,10 @@ class BizCity_Site_Provisioner {
 		}
 		$row['took_ms']   = (int) round( ( microtime( true ) - $t0 ) * 1000 );
 		$row['ver_after'] = $opt ? (string) get_option( $opt, '' ) : '';
+
+		// [2026-06-04 Johnny Chu] SCH-BC W4 — fire post-run hook so listeners
+		// (e.g. backfill cache invalidator) can react to a fix-button click.
+		do_action( 'bizcity_run_installer_done', $found['id'], $row );
 
 		self::write_log( [
 			'ts'      => gmdate( 'Y-m-d H:i:s' ),

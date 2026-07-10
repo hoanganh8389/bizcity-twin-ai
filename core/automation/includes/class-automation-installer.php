@@ -35,13 +35,39 @@ final class BizCity_Automation_Installer {
 		'bizcity_automation_templates', // BE-7
 	);
 
-	private static bool $checked = false;
+	// [2026-06-13 Johnny Chu] HOTFIX — per-blog guard array so switch_to_blog() in multisite cron
+	// does not skip ensure() for sub-blogs whose tables were never provisioned.
+	private static $checked_blog_ids = array();
+
+	// [2026-06-21 Johnny Chu] HOTFIX — per-blog per-request SHOW TABLES cache.
+	// Avoids N×SHOW-TABLES on every cron tick for blogs that DO have tables.
+	private static $tables_present_cache = array();
+
+	/**
+	 * Check workflows table existence once per blog per request.
+	 * Result cached in static property — safe to call from every cron hook.
+	 */
+	public static function tables_present_cached(): bool {
+		$blog_id = (int) get_current_blog_id();
+		if ( ! array_key_exists( $blog_id, self::$tables_present_cache ) ) {
+			global $wpdb;
+			$tbl = $wpdb->prefix . 'bizcity_automation_workflows';
+			self::$tables_present_cache[ $blog_id ] = bizcity_tbl_exists( $tbl ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+		}
+		return self::$tables_present_cache[ $blog_id ];
+	}
+
+	/** Invalidate tables_present_cached() for current blog (call after ensure/install). */
+	public static function invalidate_tables_cache(): void {
+		$blog_id = (int) get_current_blog_id();
+		unset( self::$tables_present_cache[ $blog_id ] );
+	}
 
 	/**
 	 * Ensure all automation tables exist + version stamp is current.
 	 *
 	 * Cheap to call repeatedly:
-	 *  - In-process static `$checked` short-circuits within a single request.
+	 *  - Static `$checked` short-circuits within a single request.
 	 *  - Once `bizcity_automation_db_version` option == DB_VERSION, we trust
 	 *    the stamp and SKIP `SHOW TABLES LIKE` queries. The presence check
 	 *    only runs the FIRST time a new DB_VERSION is encountered (or after
@@ -51,10 +77,11 @@ final class BizCity_Automation_Installer {
 	 *   delete_option( 'bizcity_automation_db_version' );
 	 */
 	public static function ensure(): void {
-		if ( self::$checked ) {
+		$blog_id = (int) get_current_blog_id();
+		if ( isset( self::$checked_blog_ids[ $blog_id ] ) ) {
 			return;
 		}
-		self::$checked = true;
+		self::$checked_blog_ids[ $blog_id ] = true;
 
 		$stamped = get_option( self::DB_VERSION_OPTION, '' );
 		if ( $stamped === self::DB_VERSION ) {
@@ -62,9 +89,19 @@ final class BizCity_Automation_Installer {
 			return;
 		}
 		if ( ! class_exists( 'BizCity_Diagnostics_Auto_Create' ) ) {
-			// Auto-create not loaded yet (very early request). Defer to admin_init.
-			add_action( 'admin_init', array( __CLASS__, 'ensure_admin_init' ), 1 );
-			return;
+			// [2026-06-21 Johnny Chu] HOTFIX — In cron context admin_init never fires.
+			// If the diagnostics bootstrap is already loaded (BIZCITY_DIAGNOSTICS_DIR defined),
+			// require the two auto-create files directly instead of deferring uselessly.
+			if ( defined( 'BIZCITY_DIAGNOSTICS_DIR' ) ) {
+				if ( ! class_exists( 'BizCity_Diagnostics_Changelog_Loader' ) ) {
+					require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-changelog-loader.php';
+				}
+				require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-auto-create.php';
+			} else {
+				// Auto-create not loaded yet (very early request). Defer to admin_init.
+				add_action( 'admin_init', array( __CLASS__, 'ensure_admin_init' ), 1 );
+				return;
+			}
 		}
 		// First time at this DB_VERSION → verify + create missing tables.
 		foreach ( self::TABLE_SUFFIXES as $suffix ) {
@@ -72,11 +109,13 @@ final class BizCity_Automation_Installer {
 		}
 		if ( self::all_tables_present() ) {
 			update_option( self::DB_VERSION_OPTION, self::DB_VERSION, false );
+			self::invalidate_tables_cache(); // [2026-06-21 Johnny Chu] HOTFIX — refresh after install
 		}
 	}
 
 	public static function ensure_admin_init(): void {
-		self::$checked = false;
+		$blog_id = (int) get_current_blog_id();
+		unset( self::$checked_blog_ids[ $blog_id ] ); // reset so ensure() re-verifies for this blog
 		self::ensure();
 	}
 
@@ -84,8 +123,7 @@ final class BizCity_Automation_Installer {
 		global $wpdb;
 		foreach ( self::TABLE_SUFFIXES as $suffix ) {
 			$full = $wpdb->prefix . $suffix;
-			$exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $full ) );
-			if ( $exists !== $full ) {
+			if ( ! bizcity_tbl_exists( $full ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 				return false;
 			}
 		}

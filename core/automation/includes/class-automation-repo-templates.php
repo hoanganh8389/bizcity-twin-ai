@@ -21,8 +21,10 @@ final class BizCity_Automation_Repo_Templates {
 
 	const TABLE = 'bizcity_automation_templates';
 
-	const CATEGORIES = array( 'general', 'cskh', 'lead', 'report', 'webhook', 'mpr' );
-	const SOURCES    = array( 'builtin', 'user', 'imported' );
+	// [2026-06-07 Johnny Chu] CRM-PATH-1 — 'care' added as CRM-zone category alias.
+	const CATEGORIES = array( 'general', 'cskh', 'care', 'lead', 'report', 'webhook', 'mpr' );
+	// [2026-06-16 Johnny Chu] PHASE-ATH W5 — added 'hub_imported' for Hub-sourced templates.
+	const SOURCES    = array( 'builtin', 'user', 'imported', 'hub_imported' );
 
 	public static function table(): string {
 		return BizCity_Automation_Installer::table( self::TABLE );
@@ -186,6 +188,13 @@ final class BizCity_Automation_Repo_Templates {
 			'trigger_config_json' => is_string( $tpl['trigger_config_json'] ?? null ) ? $tpl['trigger_config_json'] : ( $tpl['trigger_config'] ? wp_json_encode( $tpl['trigger_config'] ) : null ),
 			'tags'                => (string) ( $tpl['tags'] ?? '' ),
 		);
+
+		// [2026-06-07 Johnny Chu] CRM-PATH-1 — zone override: CRM surface passes zone='crm'.
+		if ( isset( $overrides['zone'] ) ) {
+			$payload['zone'] = in_array( $overrides['zone'], array( 'admin', 'crm' ), true )
+				? (string) $overrides['zone']
+				: 'admin';
+		}
 
 		$wf = BizCity_Automation_Repo_Workflows::create( $payload );
 		if ( is_wp_error( $wf ) ) {

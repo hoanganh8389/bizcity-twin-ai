@@ -57,6 +57,12 @@ require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-kg-seeding.p
 // verify connect-URL builder + service catalog + status snapshot.
 require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-google-hub.php';
 
+// [2026-06-04 Johnny Chu] HOTFIX R-GW-8 — Account quota & entitlement probe.
+// 3-layer: disk + loader + 3 hub REST calls (account/info, account/limits,
+// account/entitlement). Shows credits, tier, KG quota config, service limits.
+// Helps diagnose learning jobs stuck on "quota hôm nay đã hết".
+require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-account-quota-entitlement.php';
+
 // Phase 0.36-UNIFIED TBR.W5 (2026-05-21) — Gateway-verified Web Search ping
 // cho Web Research Fallback Layer. R-GW: dùng BizCity_Search_Client thay vì
 // provider key client-side (probe cũ `class-probe-search-web.php` outdated).
@@ -110,6 +116,101 @@ unset( $bizcity_probe_agent_react );
 // end-to-end trước khi đụng FE work (TBR.W18).
 require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-final-compose.php';
 
+// [2026-06-04 Johnny Chu] PHASE-A C.0b — DDV probe for BizCoach Pro Astro Transit
+// Resolver (DB-first → cron prefetch fallback). Smoke check: class loaded,
+// resolve() shape valid, CAP filter `bizcity_twin_context_artifacts` wired.
+$bizcity_probe_astro_transit = BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-astro-transit-resolver.php';
+if ( file_exists( $bizcity_probe_astro_transit ) ) {
+	require_once $bizcity_probe_astro_transit;
+}
+unset( $bizcity_probe_astro_transit );
+
+// [2026-06-04 Johnny Chu] PHASE-A C.3b — DDV probe for TwinBrain Astro Mode
+// pipeline. 3 layers: Disk (runtime file), Loader (class + stream_astro_mode
+// method), Runtime (CAP filter subscriber + Final_Composer available).
+$bizcity_probe_astro_mode = BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-twinbrain-astro-mode.php';
+if ( file_exists( $bizcity_probe_astro_mode ) ) {
+	require_once $bizcity_probe_astro_mode;
+}
+unset( $bizcity_probe_astro_mode );
+
+// [2026-07-05 Johnny Chu] PHASE-FAA2-TWINBRAIN — DDV probes for readiness gate
+// and automation per-day message loop wiring.
+$bizcity_probe_astro_readiness_gate = BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-astro-readiness-gate.php';
+if ( file_exists( $bizcity_probe_astro_readiness_gate ) ) {
+	require_once $bizcity_probe_astro_readiness_gate;
+}
+unset( $bizcity_probe_astro_readiness_gate );
+
+$bizcity_probe_astro_per_day_loop = BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-astro-per-day-loop.php';
+if ( file_exists( $bizcity_probe_astro_per_day_loop ) ) {
+	require_once $bizcity_probe_astro_per_day_loop;
+}
+unset( $bizcity_probe_astro_per_day_loop );
+
+// [2026-07-09 Johnny Chu] PHASE-FAA2-TWINBRAIN A16 — DDV probe for
+// astro_data_action_required runtime evidence + payload contract.
+$bizcity_probe_astro_data_action_required = BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-astro-data-action-required.php';
+if ( file_exists( $bizcity_probe_astro_data_action_required ) ) {
+	require_once $bizcity_probe_astro_data_action_required;
+}
+unset( $bizcity_probe_astro_data_action_required );
+
+// [2026-07-04 Johnny Chu] PHASE-FAA2-DDV — DDV probe for FAA2 natal-wheel-chart
+// (url-only) pipeline. 3 layers: Disk (provider file in bizcity-llm-router),
+// Loader (class + supports + router), Runtime (live natal_wheel_chart call).
+$bizcity_probe_astro_faa2_svg = BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-astro-faa2-chart-svg.php';
+if ( file_exists( $bizcity_probe_astro_faa2_svg ) ) {
+	require_once $bizcity_probe_astro_faa2_svg;
+}
+unset( $bizcity_probe_astro_faa2_svg );
+
+// [2026-07-09 Johnny Chu] PHASE-A5 — DDV probe for pro charts wave
+// (synastry/composite/solar_return/lunar_return) across hub+client.
+$bizcity_probe_astro_pro_charts_a5 = BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-astro-pro-charts-a5.php';
+if ( file_exists( $bizcity_probe_astro_pro_charts_a5 ) ) {
+	require_once $bizcity_probe_astro_pro_charts_a5;
+}
+unset( $bizcity_probe_astro_pro_charts_a5 );
+
+// [2026-07-09 Johnny Chu] PHASE-A5 — DDV probe for tokenized anonymous share
+// on Relations/Ephemeris/Transits Timeline (/me/tools/share + /public/tools/share).
+$bizcity_probe_astro_tool_share_a5 = BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-astro-tool-share-a5.php';
+if ( file_exists( $bizcity_probe_astro_tool_share_a5 ) ) {
+	require_once $bizcity_probe_astro_tool_share_a5;
+}
+unset( $bizcity_probe_astro_tool_share_a5 );
+
+// [2026-07-10 Johnny Chu] PHASE-C-WOO-HUB — DDV probe for client plan sync
+// routes (/bizcity-client/v1/entitlement/sync + /bizcity-client/v1/me/plan).
+$bizcity_probe_client_plan_sync = BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-client-plan-sync.php';
+if ( file_exists( $bizcity_probe_client_plan_sync ) ) {
+	require_once $bizcity_probe_client_plan_sync;
+}
+unset( $bizcity_probe_client_plan_sync );
+
+// [2026-07-10 Johnny Chu] PHASE-C-WOO-HUB — DDV probes for Hub commerce and
+// license branches from Branch 18 API catalog.
+$bizcity_probe_commerce_hub_checkout = BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-commerce-hub-checkout.php';
+if ( file_exists( $bizcity_probe_commerce_hub_checkout ) ) {
+	require_once $bizcity_probe_commerce_hub_checkout;
+}
+unset( $bizcity_probe_commerce_hub_checkout );
+
+$bizcity_probe_license_hub_entitlement_issue = BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-license-hub-entitlement-issue.php';
+if ( file_exists( $bizcity_probe_license_hub_entitlement_issue ) ) {
+	require_once $bizcity_probe_license_hub_entitlement_issue;
+}
+unset( $bizcity_probe_license_hub_entitlement_issue );
+
+// [2026-07-07 Johnny Chu] PHASE-FAA2-NEXT — DDV probe for relation/ashtakoot path
+// (wrapper callsite contract + R-ERROR-UX payload shape in relation handlers).
+$bizcity_probe_astro_relation_ashtakoot = BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-astro-relation-ashtakoot.php';
+if ( file_exists( $bizcity_probe_astro_relation_ashtakoot ) ) {
+	require_once $bizcity_probe_astro_relation_ashtakoot;
+}
+unset( $bizcity_probe_astro_relation_ashtakoot );
+
 // PHASE-0.35 GURU-ZALO-BOT §1.8 (2026-05-26) — Real-call probe cho unified
 // Guru Runtime DTO contract. Verify reply() trả DTO hợp lệ + trace_id
 // + event stream. Skip nếu chưa có character nào.
@@ -120,6 +221,19 @@ require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-guru-runtime
 // __healthtest_ rows + cleanup; verify citation [mem:U#id] echo + idempotency
 // per trace_id. Mode 3 (MemGPT) deferred → no probe.
 require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-twinbrain-memory-recall.php';
+
+// [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-1 — foundation smoke (read-only).
+// Verify VIEW bizcity_brain_sessions + 5 brain_session_* event_types + 5 JSON schemas.
+require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-twinbrain-brain-sessions.php';
+
+// [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-2 — Sessions CRUD real-call probe.
+// Mint → VIEW → rename → list → archive cycle qua Sessions_Manager.
+require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-twinbrain-brain-sessions-crud.php';
+
+// [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-4 — Mood sampler real-call probe.
+// Synthesize cadence-3 turns → sample_mood() → verify event + VIEW.has_mood +
+// Sessions_Manager::latest_mood() + Memory_Recall Tier F render + idempotency.
+require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-twinbrain-mood-sampler.php';
 // R-TB-HYDRATE (2026-05-27) — Read-only probe guarding TwinBrain
 // Perspective_Runner fallback hydration (regression guard for P0 bug where
 // fetch_recent_passages / fetch_passages_by_keyword skipped Content_Router
@@ -186,6 +300,11 @@ require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-skeleton-cov
 // (3-layer: disk / loader / runtime). Để debug 404 cho /facebook/* SPA tabs.
 require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-channel-gateway-rest.php';
 
+// [2026-06-03 Johnny Chu] GURU-UI W0.4+W0.5 — channel binding stack probe.
+// 3-layer DDV: disk + class load + DB table + REST inspector routes +
+// listener resolve callable + orphan binding scan.
+require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-channel-binding.php';
+
 // PHASE-CG-SCHEDULER v0.2 (2026-05-23) — FB Publisher bridge probe
 // (3-layer: disk/loader/runtime + R-DCL changelog check + scheduler cron).
 require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-fb-publisher.php';
@@ -212,6 +331,12 @@ require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-automation.p
 // Synthetic FB referral payload → matched_ref event + run row; ref_unmatched fallthrough.
 require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-automation-matcher.php';
 
+// [2026-06-08 Johnny Chu] PHASE-0.43 R-ERROR-UX + R-DDV — Automation Runtime Error Report.
+// Reads bizcity_automation_runs (last 24h STATUS_FAIL) + bizcity_cron_runs meta,
+// maps reason_bucket → canonical ERROR-UX catalog, surfaces per-bucket WARN steps.
+// Spec: core/automation/docs/AUTOMATION-RUNTIME-ERRORS.md
+require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-automation-runtime.php';
+
 // SCENARIO BUILDER MVP (2026-06-01) — Ad-image proxy loopback (rest_do_request).
 // Verify route registered + permission pass + handler reachable (degraded path OK).
 require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-automation-ad-image.php';
@@ -220,6 +345,29 @@ require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-automation-a
 // (block → CRM Bridge → Scheduler Manager). R-DDV evidence cho bug
 // wf-14 step=4 RUN không có OK/FAIL. Tạo + xóa 1 scheduler event test.
 require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-automation-publish-fb.php';
+
+// WF-AUTO GURU W2/W3/W6 (2026-06-03) — Slash matcher dual-tier dispatch + W5 hardening
+// + Canvas import/export REST routes (Wave D). R-DDV evidence (read-only unit assertions).
+require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-slash-matcher.php';
+
+// WF-AUTO W7 (2026-06-03) — Community Gallery PoC (Wave E): GitHub raw fetch
+// allowlist + 3 REST routes (read-only PoC). R-DDV evidence (no external HTTP).
+require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-automation-community.php';
+
+// CRM-PATH (2026-06-07 PHASE-0.41) — dual-path zone isolation + recipe catalog
+// + crm-instantiate + bind_channel + ZALO_OA/ZALO_BOT zone isolation (R-ZONE-2).
+require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-automation-crm-path.php';
+
+// SCH-NC W2/W3/W4 (2026-06-03) — Scheduler Nerve Center smoke: adapter registry
+// + 6 built-in adapters + validate hook + completion-notifier listener + status
+// active→done fires bizcity_scheduler_event_completed. R-DDV evidence
+// (PHASE-SCHEDULER-AS-NERVE-CENTER §1 R-SCH).
+require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-scheduler-nerve-center.php';
+
+// SCH-NC W10 (2026-06-03) — Inbound provenance backfill probe: scans 6 cases of
+// legacy events missing metadata.inbound{}, exposes per-case "🔧 Fix" via
+// Site Provisioner installers (scheduler_backfill_inbound__<case>).
+require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-scheduler-inbound-backfill.php';
 
 // NOTE (2026-06-02) — `class-probe-qr-proxy.php` removed: client KHÔNG được phép
 // biết tồn tại của bizcity-llm-router (R-GW-8 client topology). QR proxy probe
@@ -266,6 +414,25 @@ require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-zalo-reminde
 // disk + loader + hook @5 + classifier unit tests (8 patterns) + REST route.
 require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-admin-router.php';
 
+// [2026-06-05 Johnny Chu] R-ERROR-UX — Error Payload helper + legacy anti-pattern audit.
+require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-error-ux.php';
+
+// [2026-06-05 Johnny Chu] PHASE-MEMBERSHIP M8 — Membership entitlement + plan registry probe.
+// Covers: class load, bizcity_membership_plans, 3 tables, expiry cron, PayPal v2 wiring, for_user() merge.
+require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-membership-entitlement.php';
+
+// [2026-06-05 Johnny Chu] PHASE-MEMBERSHIP BE-3A/3B — Membership REST /me + quota gates probe.
+// Covers: REST routes (/me, /me/payments, /me/cancel), AJAX handlers, enforcer hooks, profile fields, usage snapshot.
+require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-membership-rest.php';
+
+// [2026-07-09 Johnny Chu] PHASE-TWINSHELL-IMPL — TwinShell boundary R-DDV probe.
+// 3-layer: disk guards + loader hooks + runtime REST/registry/iframe contract.
+require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-twinshell-boundary.php';
+
+// [2026-07-10 Johnny Chu] PHASE-TWINSHELL-IMPL — consolidated runtime evidence
+// probe for checklist sections 2-5 (timeline/account-hub executable checks).
+require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-twinshell-runtime-evidence.php';
+
 // TASK-UNIFY Phase 3 (2026-05-30) — Woo Product + Lead Report + Woo Order handlers.
 // disk + loader + hook priorities + event_type whitelist + legacy wrapper gates.
 require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-phase3-handlers.php';
@@ -277,6 +444,42 @@ require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-crm-pipeline
 // M-CRM.M1.W3 (2026-05-28) — Audit Log BE smoke.
 // 3-layer + log_created/find_by_entity round-trip + auto-create via migrate_phase_043().
 require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-crm-audit-log.php';
+
+// [2026-06-07 Johnny Chu] PHASE-0.38.W1.7 — Create Woo Order action block DDV smoke.
+// 3-layer: file exists (Disk) + class+WooCommerce loaded (Loader) + synthetic order (Runtime).
+require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-crm-create-order.php';
+
+// [2026-06-07 Johnny Chu] PHASE-0.38.W2 — Recap Notifier DDV (order=40).
+require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-crm-recap-notifier.php';
+
+// [2026-06-07 Johnny Chu] PHASE-0.38.W3 — Public Tracking Page DDV (order=41).
+require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-crm-public-tracking.php';
+
+// [2026-06-07 Johnny Chu] PHASE-0.38.W4 — Shipping Tracker Cron DDV (order=42).
+require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-crm-shipping-tracker.php';
+
+// [2026-06-07 Johnny Chu] PHASE-0.40 G0.4 — Zone Isolation DDV (order=43).
+// Verifies R-ZONE-2: ZALO_BOT stays in Zone 2 (admin/automation); zalo_oa routes to Zone 1 (CRM).
+require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-channel-zone-isolation.php';
+
+// [2026-06-07 Johnny Chu] PHASE-0.40 G3.4+G4.5 — BizCity parity probe (order=44).
+// 3-layer: 6 report callbacks + broadcast dispatcher disk, class loader, runtime GET /reports/message.
+require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-crm-bizcity-parity.php';
+// [2026-06-07 Johnny Chu] PHASE-0.40 G7.4 — G7 Integration probe (order=45): Discord action block.
+require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-crm-g7-integration.php';
+// [2026-06-07 Johnny Chu] PHASE-0.43 M5 — Broadcast Mass-Send BizCity Parity probe (order=46).
+// 6 assertions: disk.schema_json (1.23.0), disk.dispatcher (pick_variant_full), loader.dispatcher,
+// loader.columns, runtime.rest_route (/bizcity-crm/v1/broadcasts), runtime.cron_hook.
+require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-crm-broadcast-bizcity.php';
+
+// [2026-06-07 Johnny Chu] PHASE-0.39 — Zalo Personal & OA channel gateway DDV (order=45).
+// 7-row probe: bridge health, catalog filter, integration registry, inbound emitter,
+// schema tables (3 bảng), OA window logic, zone isolation.
+$bizcity_probe_zalo_personal = BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-zalo-personal.php';
+if ( file_exists( $bizcity_probe_zalo_personal ) ) {
+	require_once $bizcity_probe_zalo_personal;
+}
+unset( $bizcity_probe_zalo_personal );
 
 // M-CRM.M4.Inbox (2026-05-28) — Broadcast + Lead Classification smoke.
 // 3-layer: tables (bizcity_crm_broadcasts, recipients), lead_score/segment cols, REST routes.

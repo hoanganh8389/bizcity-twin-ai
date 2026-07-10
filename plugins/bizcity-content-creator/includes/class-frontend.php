@@ -51,8 +51,8 @@ class BZCC_Frontend {
 		add_rewrite_rule( '^creator/history/?$', 'index.php?bzcc_page=history', 'top' );
 		add_rewrite_rule( '^creator/results/?$', 'index.php?bzcc_page=history', 'top' ); // alias
 		add_rewrite_rule( '^creator/result/(\d+)/?$', 'index.php?bzcc_page=result&bzcc_file_id=$matches[1]', 'top' );
-		// Slug-based template URL: /creator/t/{slug}/
-		add_rewrite_rule( '^creator/t/([a-z0-9\-]+)/?$', 'index.php?bzcc_page=form&bzcc_template_slug=$matches[1]', 'top' );
+		// Slug-based template URL: /creator/t/{slug}/ — [2026-06-08 Johnny Chu] HOTFIX allow underscore in slug (e.g. marketing_campaign)
+		add_rewrite_rule( '^creator/t/([a-z0-9_\-]+)/?$', 'index.php?bzcc_page=form&bzcc_template_slug=$matches[1]', 'top' );
 		// Legacy numeric URL: /creator/{id}/
 		add_rewrite_rule( '^creator/(\d+)/?$', 'index.php?bzcc_page=form&bzcc_template_id=$matches[1]', 'top' );
 		add_rewrite_rule( '^creator/?$', 'index.php?bzcc_page=browse', 'top' );
@@ -87,7 +87,7 @@ class BZCC_Frontend {
 	public static function add_sidebar_nav( array $nav ): array {
 		/*$nav[] = [
 			'slug'  => 'creator',
-			'label' => 'Brain Factory',
+			'label' => 'TwinPlanner',
 			'icon'  => '🧠',
 			'type'  => 'link',
 			'src'   => home_url( 'creator/' ),
@@ -814,11 +814,14 @@ class BZCC_Frontend {
 		}
 
 		// Create file record
-		$session_id = sanitize_text_field( $_POST['session_id'] ?? '' );
-		error_log( '[BZCC] ajax_submit_form: template_id=' . $template_id . ' session_id=' . ( $session_id ?: '(empty)' ) );
+		$session_id  = sanitize_text_field( $_POST['session_id'] ?? '' );
+		// [2026-06-06 Johnny Chu] BZCC-SKEL — accept notebook_id from FE form payload
+		$notebook_id = absint( $_POST['notebook_id'] ?? 0 );
+		error_log( '[BZCC] ajax_submit_form: template_id=' . $template_id . ' session_id=' . ( $session_id ?: '(empty)' ) . ' notebook_id=' . $notebook_id );
 		$file_id = BZCC_File_Manager::insert( [
 			'user_id'     => $user_id,
 			'template_id' => $template_id,
+			'notebook_id' => $notebook_id,
 			'form_data'   => wp_json_encode( $clean ),
 			'title'       => $template->title . ' — ' . wp_date( 'd/m/Y H:i' ),
 			'status'      => 'pending',

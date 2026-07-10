@@ -1,0 +1,203 @@
+[
+  {
+    "slug": "tpl_zalo_pilot_keyword_v1",
+    "name": "Pilot · Zalo keyword \"bảng giá\"",
+    "description": "Khi khách nhắn chứa \"bảng giá\" → tra KG → LLM soạn trả lời → gửi Zalo. Mẫu pilot keyword-based, không phải fallback.",
+    "category": "cskh", "source": "builtin", "trigger_type": "zalo_inbound", "icon": "MessageCircle",
+    "tags": "pilot,zalo,keyword,kg", "trigger_config": { "instance_id": "", "filter": "bảng giá", "is_fallback": false, "priority": 10 },
+    "graph": {
+      "meta": { "template": "tpl_zalo_pilot_keyword_v1" },
+      "nodes": [
+        { "id": "t1", "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.zalo_inbound", "label": "Zalo · keyword \"bảng giá\"", "instance_id": "", "filter": "bảng giá" } },
+        { "id": "a1", "type": "action",  "position": { "x": 320, "y": 80 }, "data": { "blockId": "action.search_kg", "label": "Tra KG — bảng giá", "query": "{{trigger.text}}", "top_k": 3 } },
+        { "id": "l1", "type": "llm",     "position": { "x": 640, "y": 80 }, "data": { "blockId": "llm.compose_reply", "label": "Soạn trả lời", "model": "gpt-4o-mini", "system": "Bạn là CSKH gửi bảng giá ngắn gọn, lịch sự.", "prompt": "Câu hỏi: {{trigger.text}}\nThông tin nội bộ: {{kg.snippet}}\nTrả lời ngắn 3-5 dòng." } },
+        { "id": "o1", "type": "action",  "position": { "x": 960, "y": 80 }, "data": { "blockId": "action.reply_zalo", "label": "Gửi Zalo", "text": "{{llm.output}}" } },
+        { "id": "c1", "type": "action",  "position": { "x": 960, "y": 240 }, "data": { "blockId": "action.create_crm_event", "label": "Ghi CRM", "event_type": "reminder_zalo", "title": "Pilot keyword · đã gửi bảng giá" } }
+      ],
+      "edges": [
+        { "id": "e_t1_a1", "source": "t1", "target": "a1" }, { "id": "e_a1_l1", "source": "a1", "target": "l1" },
+        { "id": "e_l1_o1", "source": "l1", "target": "o1" }, { "id": "e_l1_c1", "source": "l1", "target": "c1" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_zalo_pilot_fallback_brain_v1",
+    "name": "Pilot · Zalo fallback → TwinBrain notebook",
+    "description": "Khi tin Zalo KHÔNG match keyword workflow nào → chạy MPR Thinking với notebook user binding → gửi trả lời + log CRM.",
+    "category": "mpr", "source": "builtin", "trigger_type": "zalo_inbound", "icon": "Brain",
+    "tags": "pilot,zalo,fallback,twinbrain,notebook", "trigger_config": { "instance_id": "", "filter": "", "is_fallback": true, "priority": 0 },
+    "graph": {
+      "meta": { "template": "tpl_zalo_pilot_fallback_brain_v1" },
+      "nodes": [
+        { "id": "t1",  "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.zalo_inbound", "label": "Zalo · fallback (mọi tin không match keyword)", "instance_id": "", "filter": "" } },
+        { "id": "mpr", "type": "llm",     "position": { "x": 320, "y": 80 }, "data": { "blockId": "llm.mpr_think", "label": "TwinBrain · notebook user", "prompt": "{{trigger.text}}", "guru_id": 0, "tool_force": "", "k": 6 } },
+        { "id": "r1",  "type": "action",  "position": { "x": 640, "y": 80 }, "data": { "blockId": "action.reply_zalo", "label": "Gửi trả lời Zalo", "text": "{{mpr.answer_md}}" } },
+        { "id": "c1",  "type": "action",  "position": { "x": 640, "y": 240 }, "data": { "blockId": "action.create_crm_event", "label": "CRM · Fallback brain", "event_type": "reminder_zalo", "title": "Fallback TwinBrain — tin Zalo: {{trigger.text}}" } }
+      ],
+      "edges": [
+        { "id": "e_t1_mpr", "source": "t1", "target": "mpr" }, { "id": "e_mpr_r1", "source": "mpr", "target": "r1" },
+        { "id": "e_mpr_c1", "source": "mpr", "target": "c1" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_image_capture_v1",
+    "name": "Pilot · Lưu ảnh + hỏi mục đích",
+    "description": "Khi user gửi ảnh qua Zalo (không text) → lưu URL vào pending slot 15 phút → hỏi \"sếp muốn em làm gì?\". Pattern multi-turn slot.",
+    "category": "cskh", "source": "builtin", "trigger_type": "zalo_inbound", "icon": "Image",
+    "tags": "pilot,zalo,multi-turn,attachment,pending-state", "trigger_config": { "instance_id": "", "filter": "", "is_fallback": false, "priority": 12 },
+    "graph": {
+      "meta": { "template": "tpl_image_capture_v1" },
+      "nodes": [
+        { "id": "t1",      "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.zalo_inbound", "label": "Zalo · nhận ảnh", "instance_id": "", "filter": "" } },
+        { "id": "cap",     "type": "action",  "position": { "x": 320, "y": 80 }, "data": { "blockId": "action.capture_attachment", "label": "Lưu ảnh vào slot", "url": "{{trigger.media_url}}", "ttl_min": 15 } },
+        { "id": "pending", "type": "action",  "position": { "x": 640, "y": 80 }, "data": { "blockId": "action.set_pending_intent", "label": "Đặt slot chờ", "intent": "awaiting_image_purpose", "workflow_id": 0, "workflow_slug": "", "ttl_min": 15, "slots_json": "{}" } },
+        { "id": "reply",   "type": "action",  "position": { "x": 960, "y": 80 }, "data": { "blockId": "action.reply_zalo", "label": "Hỏi mục đích", "text": "✅ Em đã nhận được ảnh. Sếp muốn em làm gì với ảnh này?" } }
+      ],
+      "edges": [
+        { "id": "e_t1_cap", "source": "t1", "target": "cap" }, { "id": "e_cap_pending", "source": "cap", "target": "pending" },
+        { "id": "e_pending_reply", "source": "pending", "target": "reply" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_post_web_with_image_v1",
+    "name": "Pilot · Đăng bài WP kèm ảnh (multi-turn)",
+    "description": "Keyword \"đăng bài\" → nếu chưa có ảnh thì hỏi → nếu có rồi (turn resume) thì LLM gen title/content + đăng draft. Status=draft cho staff review.",
+    "category": "general", "source": "builtin", "trigger_type": "zalo_inbound", "icon": "FileText",
+    "tags": "pilot,zalo,multi-turn,wordpress,publish", "trigger_config": { "instance_id": "", "filter": "đăng bài", "is_fallback": false, "priority": 15 },
+    "graph": {
+      "meta": { "template": "tpl_post_web_with_image_v1" },
+      "nodes": [
+        { "id": "t1",      "type": "trigger",   "position": { "x": 0,    "y": 80  }, "data": { "blockId": "trigger.zalo_inbound", "label": "Zalo · keyword \"đăng bài\"", "instance_id": "", "filter": "đăng bài" } },
+        { "id": "cond",    "type": "condition", "position": { "x": 320,  "y": 80  }, "data": { "blockId": "logic.condition", "label": "Đã có ảnh từ turn trước?", "expression": "trigger._resume.attachment_url != ''" } },
+        { "id": "pending", "type": "action",    "position": { "x": 640,  "y": 240 }, "data": { "blockId": "action.set_pending_intent", "label": "Đặt slot chờ ảnh", "intent": "awaiting_post_image", "workflow_id": 0, "workflow_slug": "", "ttl_min": 15, "slots_json": "{\"title_hint\":\"{{trigger.text}}\"}" } },
+        { "id": "ask",     "type": "action",    "position": { "x": 960,  "y": 240 }, "data": { "blockId": "action.reply_zalo", "label": "Hỏi gửi ảnh", "text": "📸 Sếp gửi 1 ảnh kèm để em đăng bài nhé. Em sẽ đợi 15 phút." } },
+        { "id": "consume", "type": "action",    "position": { "x": 640,  "y": 80  }, "data": { "blockId": "action.consume_attachment", "label": "Lấy ảnh từ slot", "clear_slot": 1 } },
+        { "id": "gen",     "type": "llm",       "position": { "x": 960,  "y": 80  }, "data": { "blockId": "llm.compose_reply", "label": "Gen title + content", "model": "gpt-4o-mini", "system": "Bạn là copywriter. Trả về JSON {\"title\": \"...\", \"content\": \"<p>...</p>\"} từ yêu cầu user.", "prompt": "Yêu cầu: {{trigger._resume.slots.title_hint}}\nMessage hiện tại: {{trigger.text}}\nẢnh: {{consume.attachment_url}}\nTrả về JSON đúng schema." } },
+        { "id": "publish", "type": "action",    "position": { "x": 1280, "y": 80  }, "data": { "blockId": "action.publish_wp_post", "label": "Đăng web (draft)", "title": "{{gen.title}}", "content": "{{gen.output}}", "image_url": "{{consume.attachment_url}}", "status": "draft", "category": "", "tags": "automation", "author_id": 0 } },
+        { "id": "r1",      "type": "action",    "position": { "x": 1600, "y": 80  }, "data": { "blockId": "action.reply_zalo", "label": "Báo lại Zalo", "text": "✅ Đã tạo draft post #{{publish.post_id}}. Sếp duyệt: {{publish.edit_url}}" } }
+      ],
+      "edges": [
+        { "id": "e_t1_cond",           "source": "t1",      "target": "cond" },
+        { "id": "e_cond_pending_false", "source": "cond",    "target": "pending", "sourceHandle": "false" },
+        { "id": "e_pending_ask",        "source": "pending", "target": "ask" },
+        { "id": "e_cond_consume_true",  "source": "cond",    "target": "consume", "sourceHandle": "true" },
+        { "id": "e_consume_gen",        "source": "consume", "target": "gen" },
+        { "id": "e_gen_publish",        "source": "gen",     "target": "publish" },
+        { "id": "e_publish_r1",         "source": "publish", "target": "r1" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_post_web_image_first_v1",
+    "name": "Pilot · Đăng bài WP (linear, ảnh-trước)",
+    "description": "LINEAR: user gửi ảnh → MATCHER lưu + reply \"muốn làm gì\". User gõ \"đăng bài <chủ đề>\" → consume ảnh + LLM gen + publish draft + reply link.",
+    "category": "general", "source": "builtin", "trigger_type": "zalo_inbound", "icon": "Image",
+    "tags": "pilot,zalo,multi-turn,linear,wordpress,publish", "trigger_config": { "instance_id": "", "filter": "đăng bài", "is_fallback": false, "priority": 12 },
+    "graph": {
+      "meta": { "template": "tpl_post_web_image_first_v1" },
+      "nodes": [
+        { "id": "t1",      "type": "trigger", "position": { "x": 0,    "y": 80 }, "data": { "blockId": "trigger.zalo_inbound", "label": "Zalo · keyword \"đăng bài\"", "instance_id": "", "filter": "đăng bài" } },
+        { "id": "consume", "type": "action",  "position": { "x": 320,  "y": 80 }, "data": { "blockId": "action.consume_attachment", "label": "Đọc ảnh từ pending", "clear_slot": 1 } },
+        { "id": "gen",     "type": "llm",     "position": { "x": 640,  "y": 80 }, "data": { "blockId": "llm.compose_reply", "label": "Gen nội dung bài viết", "model": "gpt-4o-mini", "system": "Bạn là copywriter chuyên nghiệp. Trả về DUY NHẤT phần nội dung HTML của bài blog (200-400 từ, có <h2>, <p>, <ul> nếu phù hợp). KHÔNG kèm tiêu đề, KHÔNG markdown, KHÔNG ```html wrapper.", "prompt": "Yêu cầu đăng bài từ user: {{trigger.text}}\nẢnh minh hoạ (nếu cần chèn): {{consume.attachment_url}}\nViết HTML bài blog dài 200-400 từ." } },
+        { "id": "publish", "type": "action",  "position": { "x": 960,  "y": 80 }, "data": { "blockId": "action.publish_wp_post", "label": "Đăng web (draft)", "title": "", "content": "{{gen.output}}", "image_url": "{{consume.attachment_url}}", "status": "draft", "category": "", "tags": "automation,zalo-bot", "author_id": 0 } },
+        { "id": "r1",      "type": "action",  "position": { "x": 1280, "y": 80 }, "data": { "blockId": "action.reply_zalo", "label": "Báo lại Zalo", "text": "✅ Đã tạo draft #{{publish.post_id}}\n📝 {{publish.title}}\n🔗 Edit: {{publish.edit_url}}" } }
+      ],
+      "edges": [
+        { "id": "e_t1_consume", "source": "t1", "target": "consume" }, { "id": "e_consume_gen", "source": "consume", "target": "gen" },
+        { "id": "e_gen_publish", "source": "gen", "target": "publish" }, { "id": "e_publish_r1", "source": "publish", "target": "r1" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_post_fb_image_first_v1",
+    "name": "Pilot · Đăng FB Page (linear, ảnh-trước, caption ngắn)",
+    "description": "LINEAR: user gửi ảnh → matcher stash → user gõ \"đăng fb <chủ đề>\" → consume ảnh + LLM gen caption NGẮN (4-6 dòng + emoji + hashtag) → đặt lịch publish_fb_post +3 phút.",
+    "category": "general", "source": "builtin", "trigger_type": "zalo_inbound", "icon": "Facebook",
+    "tags": "pilot,zalo,linear,facebook,publish,caption-ngan", "trigger_config": { "instance_id": "", "filter": "đăng fb", "is_fallback": false, "priority": 14 },
+    "graph": {
+      "meta": { "template": "tpl_post_fb_image_first_v1" },
+      "nodes": [
+        { "id": "t1",      "type": "trigger", "position": { "x": 0,    "y": 80 }, "data": { "blockId": "trigger.zalo_inbound", "label": "Zalo · keyword \"đăng fb\"", "instance_id": "", "filter": "đăng fb" } },
+        { "id": "consume", "type": "action",  "position": { "x": 320,  "y": 80 }, "data": { "blockId": "action.consume_attachment", "label": "Đọc ảnh từ pending", "clear_slot": 1 } },
+        { "id": "gen",     "type": "llm",     "position": { "x": 640,  "y": 80 }, "data": { "blockId": "llm.compose_reply", "label": "Gen FB caption (ngắn)", "model": "gpt-4o-mini", "system": "Bạn là copywriter Facebook chuyên nghiệp. Viết caption NGẮN GỌN cho post FB Việt Nam: 4-6 dòng, có 2-4 emoji phù hợp, kết thúc bằng 3-5 hashtag liên quan. KHÔNG có tiêu đề riêng, KHÔNG markdown. Tone tự nhiên, gần gũi.", "prompt": "Yêu cầu đăng FB từ user: {{trigger.text}}\nẢnh đính kèm: {{consume.attachment_url}}\nViết caption FB ngắn 4-6 dòng đúng spec." } },
+        { "id": "publish", "type": "action",  "position": { "x": 960,  "y": 80 }, "data": { "blockId": "action.publish_fb_post", "label": "Đặt lịch đăng FB (+3 phút)", "fb_page_id": "", "fb_page_name": "", "content": "{{gen.output}}", "image_url": "{{consume.attachment_url}}", "mode": "scheduled", "delay_min": 3 } },
+        { "id": "r1",      "type": "action",  "position": { "x": 1280, "y": 80 }, "data": { "blockId": "action.reply_zalo", "label": "Báo lại Zalo", "text": "✅ Đã đặt lịch đăng FB sau 3 phút (event #{{publish.event_id}})\n📝 {{gen.output}}\n⏱️ Sếp muốn huỷ → vào Scheduler." } }
+      ],
+      "edges": [
+        { "id": "e_t1_consume", "source": "t1", "target": "consume" }, { "id": "e_consume_gen", "source": "consume", "target": "gen" },
+        { "id": "e_gen_publish", "source": "gen", "target": "publish" }, { "id": "e_publish_r1", "source": "publish", "target": "r1" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_reminder_calendar_v1",
+    "name": "Pilot · Nhắc lịch (Calendar reminder qua Zalo)",
+    "description": "Keyword \"nhắc\" → LLM extract title + when (strtotime) → tạo CRM event type reminder_zalo → cron tự gửi nhắc lại Zalo đúng giờ.",
+    "category": "general", "source": "builtin", "trigger_type": "zalo_inbound", "icon": "CalendarClock",
+    "tags": "pilot,zalo,linear,reminder,calendar,scheduler", "trigger_config": { "instance_id": "", "filter": "nhắc", "is_fallback": false, "priority": 11 },
+    "graph": {
+      "meta": { "template": "tpl_reminder_calendar_v1" },
+      "nodes": [
+        { "id": "t1",      "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.zalo_inbound", "label": "Zalo · keyword \"nhắc\"", "instance_id": "", "filter": "nhắc" } },
+        { "id": "extract", "type": "llm",     "position": { "x": 320, "y": 80 }, "data": { "blockId": "llm.compose_reply", "label": "Extract title + thời gian", "model": "gpt-4o-mini", "system": "Bạn là bộ trích xuất reminder. Đọc câu của user và trả về DUY NHẤT 1 dòng JSON (không markdown): {\"title\":\"<tiêu đề ngắn 5-10 từ>\",\"when\":\"<thời gian PHP strtotime hợp lệ>\"}. Quy tắc when: nếu user nói \"5h chiều mai\" → \"tomorrow 17:00\"; \"trong 30 phút\" → \"+30 minutes\". Nếu KHÔNG xác định được → \"+1 hour\".", "prompt": "Câu của user: {{trigger.text}}" } },
+        { "id": "sched",   "type": "action",  "position": { "x": 640, "y": 80 }, "data": { "blockId": "action.schedule_event", "label": "Tạo reminder (CRM event)", "event_type": "reminder_zalo", "title": "{{trigger.text}}", "description": "Tạo từ Zalo bot.\nExtract: {{extract.output}}", "start_at": "+1 hour", "reminder_min": 0, "zalo_bot_id": "", "zalo_user_id": "{{trigger.chat_id}}", "zalo_text": "⏰ Nhắc Sếp: {{trigger.text}}" } },
+        { "id": "r1",      "type": "action",  "position": { "x": 960, "y": 80 }, "data": { "blockId": "action.reply_zalo", "label": "Báo lại Zalo", "text": "✅ Đã tạo nhắc lịch (event #{{sched.event_id}})\n🕘 {{sched.start_at}}\n📋 Extract: {{extract.output}}\n💡 Em sẽ tự nhắn nhắc đúng giờ." } }
+      ],
+      "edges": [
+        { "id": "e_t1_extract", "source": "t1", "target": "extract" }, { "id": "e_extract_sched", "source": "extract", "target": "sched" },
+        { "id": "e_sched_r1", "source": "sched", "target": "r1" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_post_fb_with_image_v1",
+    "name": "Pilot · Đăng FB Page kèm ảnh (multi-turn)",
+    "description": "Keyword \"đăng fb\" → nếu chưa có ảnh hỏi → có rồi (resume) thì LLM gen caption + đặt scheduler event fb_post (delay 5 phút). Page ID staff điền lúc instantiate.",
+    "category": "general", "source": "builtin", "trigger_type": "zalo_inbound", "icon": "Facebook",
+    "tags": "pilot,zalo,multi-turn,facebook,publish", "trigger_config": { "instance_id": "", "filter": "đăng fb", "is_fallback": false, "priority": 15 },
+    "graph": {
+      "meta": { "template": "tpl_post_fb_with_image_v1" },
+      "nodes": [
+        { "id": "t1",      "type": "trigger",   "position": { "x": 0,    "y": 80  }, "data": { "blockId": "trigger.zalo_inbound", "label": "Zalo · keyword \"đăng fb\"", "instance_id": "", "filter": "đăng fb" } },
+        { "id": "cond",    "type": "condition", "position": { "x": 320,  "y": 80  }, "data": { "blockId": "logic.condition", "label": "Đã có ảnh?", "expression": "trigger._resume.attachment_url != ''" } },
+        { "id": "pending", "type": "action",    "position": { "x": 640,  "y": 240 }, "data": { "blockId": "action.set_pending_intent", "label": "Đặt slot chờ ảnh", "intent": "awaiting_fb_image", "workflow_id": 0, "workflow_slug": "", "ttl_min": 15, "slots_json": "{\"title_hint\":\"{{trigger.text}}\"}" } },
+        { "id": "ask",     "type": "action",    "position": { "x": 960,  "y": 240 }, "data": { "blockId": "action.reply_zalo", "label": "Hỏi gửi ảnh", "text": "📸 Sếp gửi ảnh kèm để em đăng FB nhé. Em đợi 15 phút." } },
+        { "id": "consume", "type": "action",    "position": { "x": 640,  "y": 80  }, "data": { "blockId": "action.consume_attachment", "label": "Lấy ảnh từ slot", "clear_slot": 1 } },
+        { "id": "gen",     "type": "llm",       "position": { "x": 960,  "y": 80  }, "data": { "blockId": "llm.compose_reply", "label": "Gen FB caption", "model": "gpt-4o-mini", "system": "Bạn là copywriter Facebook. Viết caption ngắn 4-6 dòng + emoji + 3-5 hashtag, KHÔNG có tiêu đề.", "prompt": "Yêu cầu: {{trigger._resume.slots.title_hint}}\nMessage hiện tại: {{trigger.text}}\nẢnh: {{consume.attachment_url}}" } },
+        { "id": "publish", "type": "action",    "position": { "x": 1280, "y": 80  }, "data": { "blockId": "action.publish_fb_post", "label": "Đăng FB (scheduled +5m)", "fb_page_id": "", "fb_page_name": "", "content": "{{gen.output}}", "image_url": "{{consume.attachment_url}}", "mode": "scheduled", "delay_min": 5 } },
+        { "id": "r1",      "type": "action",    "position": { "x": 1600, "y": 80  }, "data": { "blockId": "action.reply_zalo", "label": "Báo lại Zalo", "text": "✅ Đã đặt lịch đăng FB sau 5 phút (event #{{publish.event_id}}). Sếp huỷ ở Scheduler nếu cần." } }
+      ],
+      "edges": [
+        { "id": "e_t1_cond", "source": "t1", "target": "cond" },
+        { "id": "e_cond_pending_false", "source": "cond", "target": "pending", "sourceHandle": "false" },
+        { "id": "e_pending_ask", "source": "pending", "target": "ask" },
+        { "id": "e_cond_consume_true", "source": "cond", "target": "consume", "sourceHandle": "true" },
+        { "id": "e_consume_gen", "source": "consume", "target": "gen" },
+        { "id": "e_gen_publish", "source": "gen", "target": "publish" },
+        { "id": "e_publish_r1", "source": "publish", "target": "r1" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_schedule_event_v1",
+    "name": "Pilot · Lên lịch từ Zalo (CRM event)",
+    "description": "Keyword \"lên lịch\" → LLM extract title/when/kind → tạo row bizcity_crm_events (status=active) → Scheduler page hiển thị.",
+    "category": "general", "source": "builtin", "trigger_type": "zalo_inbound", "icon": "CalendarClock",
+    "tags": "pilot,zalo,scheduler,crm,reminder", "trigger_config": { "instance_id": "", "filter": "lên lịch", "is_fallback": false, "priority": 13 },
+    "graph": {
+      "meta": { "template": "tpl_schedule_event_v1" },
+      "nodes": [
+        { "id": "t1",      "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.zalo_inbound", "label": "Zalo · keyword \"lên lịch\"", "instance_id": "", "filter": "lên lịch" } },
+        { "id": "extract", "type": "llm",     "position": { "x": 320, "y": 80 }, "data": { "blockId": "llm.compose_reply", "label": "Extract slots", "model": "gpt-4o-mini", "system": "Bạn là bộ trích xuất lịch. Trả về 1 dòng JSON DUY NHẤT (không markdown): {\"title\":\"<tên việc ngắn>\",\"when\":\"<datetime string hợp lệ cho PHP strtotime>\",\"kind\":\"task|meeting|reminder\"}. Quy tắc \"when\": cùng ngày dùng \"today HH:MM:SS\", ngày mai dùng \"tomorrow HH:MM:SS\", không rõ thời gian → \"+1 hour\".", "prompt": "{{trigger.text}}" } },
+        { "id": "sched",   "type": "action",  "position": { "x": 640, "y": 80 }, "data": { "blockId": "action.schedule_event", "label": "Ghi vào Scheduler", "event_type": "{{extract.output.kind}}", "title": "{{extract.output.title}}", "description": "Tạo từ Zalo: {{trigger.text}}", "start_at": "{{extract.output.when}}", "reminder_min": 15 } },
+        { "id": "r1",      "type": "action",  "position": { "x": 960, "y": 80 }, "data": { "blockId": "action.reply_zalo", "label": "Báo lại", "text": "✅ Đã lên lịch: {{extract.output.title}} vào {{extract.output.when}} (event #{{sched.event_id}}). Xem tại Scheduler." } }
+      ],
+      "edges": [
+        { "id": "e_t1_extract", "source": "t1", "target": "extract" }, { "id": "e_extract_sched", "source": "extract", "target": "sched" },
+        { "id": "e_sched_r1", "source": "sched", "target": "r1" }
+      ]
+    }
+  }
+]

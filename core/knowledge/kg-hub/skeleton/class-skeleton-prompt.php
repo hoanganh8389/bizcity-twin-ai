@@ -109,15 +109,29 @@ TXT;
 	 */
 	public static function validate( string $raw ): ?array {
 		$raw = trim( $raw );
-		// Strip ``` fences if model wrapped despite instructions.
-		if ( strpos( $raw, '```' ) === 0 ) {
-			$raw = preg_replace( '/^```(?:json)?\s*|\s*```$/', '', $raw );
-			$raw = trim( $raw );
+		// [2026-06-05 Johnny Chu] SKEL-PARSE-ROBUST — more aggressive strip before decode.
+		// Case 1: ```json\n{...}\n``` or ```\n{...}\n``` (language tag or plain fence).
+		$raw = preg_replace( '/^```(?:json|JSON)?\r?\n?/u', '', $raw );
+		$raw = preg_replace( '/\r?\n?```\s*$/u', '', $raw );
+		// Case 2: leading prose like "Here is the JSON:" before the first {.
+		$brace = strpos( $raw, '{' );
+		if ( $brace !== false && $brace > 0 ) {
+			// Only strip if everything before '{' has no '{' pair (not nested).
+			$before = substr( $raw, 0, $brace );
+			if ( strpos( $before, '}' ) === false ) {
+				$raw = substr( $raw, $brace );
+			}
 		}
+		// Case 3: trailing text after closing } (model appended explanation).
+		$last_brace = strrpos( $raw, '}' );
+		if ( $last_brace !== false && $last_brace < strlen( $raw ) - 1 ) {
+			$raw = substr( $raw, 0, $last_brace + 1 );
+		}
+		$raw = trim( $raw );
 
 		$data = json_decode( $raw, true );
 		if ( ! is_array( $data ) ) {
-			// Try to extract first JSON object block.
+			// Fallback: extract first JSON object block.
 			if ( preg_match( '/\{.*\}/s', $raw, $m ) ) {
 				$data = json_decode( $m[0], true );
 			}

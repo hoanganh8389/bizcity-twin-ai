@@ -25,6 +25,12 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 
 require_once dirname( __DIR__ ) . '/interface-diagnostics-probe.php';
 
+
+// [2026-06-08 Johnny Chu] HOTFIX — double-load guard (bootstrap may include via filter AND direct require).
+if ( class_exists( 'BizCity_Probe_Skeleton_Coverage', false ) ) {
+	return;
+}
+
 final class BizCity_Probe_Skeleton_Coverage implements BizCity_Diagnostics_Probe {
 
 	public function id(): string          { return 'knowledge.skeleton.coverage'; }
@@ -45,8 +51,9 @@ final class BizCity_Probe_Skeleton_Coverage implements BizCity_Diagnostics_Probe
 		$tbl_nb   = $wpdb->prefix . 'bizcity_kg_notebooks';
 		$tbl_hist = $wpdb->prefix . 'bizcity_kg_skeleton_history';
 
-		$nb_ok   = (bool) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl_nb ) );
-		$hist_ok = (bool) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl_hist ) );
+		// [2026-07-09 Johnny Chu] HOTFIX — R-SHOW-TABLES compliance for diagnostics probes.
+		$nb_ok   = $this->table_exists( $tbl_nb );
+		$hist_ok = $this->table_exists( $tbl_hist );
 
 		$ctx->emit_step( [
 			'label'  => 'bizcity_kg_notebooks',
@@ -119,8 +126,24 @@ final class BizCity_Probe_Skeleton_Coverage implements BizCity_Diagnostics_Probe
 			}
 		}
 
-		$ready_pct  = $total > 0 ? round( $counts['ready']  / $total * 100, 1 ) : 0.0;
-		$failed_pct = $total > 0 ? round( $counts['failed'] / $total * 100, 1 ) : 0.0;
+		// [2026-07-09 Johnny Chu] HOTFIX — `(empty)` means notebook chưa vào lifecycle
+		// (chưa có source hoặc chưa trigger). Exclude from coverage denominator to
+		// avoid false FAIL when active pipeline itself is healthy.
+		$active_total = max( 0, $total - $counts['(empty)'] );
+		if ( $active_total === 0 ) {
+			$ctx->emit_step( [
+				'label'  => 'Coverage',
+				'status' => 'skip',
+				'detail' => sprintf( 'All notebooks are (empty): %d/%d — chưa có lifecycle để đo', $counts['(empty)'], $total ),
+			] );
+			return [
+				'status'  => 'skip',
+				'summary' => sprintf( 'All notebooks are empty (%d/%d) — coverage skipped.', $counts['(empty)'], $total ),
+			];
+		}
+
+		$ready_pct  = round( $counts['ready']  / $active_total * 100, 1 );
+		$failed_pct = round( $counts['failed'] / $active_total * 100, 1 );
 
 		// 2026-05-29: pending + building are work-in-progress (backfill cron will
 		// resolve them on next 15-min tick). Only `failed` is a genuine alert.
@@ -129,9 +152,7 @@ final class BizCity_Probe_Skeleton_Coverage implements BizCity_Diagnostics_Probe
 		// pending+building as "in-flight" so 1-2 stuck items don't flip RED.
 		$threshold        = (float) apply_filters( 'bizcity_kg_skeleton_coverage_threshold', 80.0 );
 		$failed_threshold = (float) apply_filters( 'bizcity_kg_skeleton_failed_threshold', 20.0 );
-		$in_flight_pct    = $total > 0
-			? round( ( $counts['ready'] + $counts['pending'] + $counts['building'] ) / $total * 100, 1 )
-			: 0.0;
+		$in_flight_pct    = round( ( $counts['ready'] + $counts['pending'] + $counts['building'] ) / $active_total * 100, 1 );
 		// Auto-trigger backfill if there's any work pending — non-blocking, no result wait.
 		if ( ( $counts['failed'] + $counts['pending'] + $counts['building'] ) > 0
 			&& class_exists( 'BizCity_KG_Skeleton_Backfill_Cron' )
@@ -148,8 +169,8 @@ final class BizCity_Probe_Skeleton_Coverage implements BizCity_Diagnostics_Probe
 			'label'  => sprintf( 'Coverage ≥ %.0f%% (ready+pending+building), failed ≤ %.0f%%', $threshold, $failed_threshold ),
 			'status' => $cov_ok ? 'pass' : 'fail',
 			'detail' => sprintf(
-				'%d/%d (%.1f%%) ready · %.1f%%%% in-flight · %.1f%%%% failed',
-				$counts['ready'], $total, $ready_pct, $in_flight_pct, $failed_pct
+				'%d/%d active (%.1f%%) ready · %.1f%%%% in-flight · %.1f%%%% failed · empty=%d/%d excluded',
+				$counts['ready'], $active_total, $ready_pct, $in_flight_pct, $failed_pct, $counts['(empty)'], $total
 			),
 		] );
 
@@ -202,19 +223,67 @@ final class BizCity_Probe_Skeleton_Coverage implements BizCity_Diagnostics_Probe
 			] );
 		}
 
-		// Surface the admin rebuild page so operator can click instead of
-		// hunting for `wp bizcity kg skeleton-backfill` CLI.
-		$admin_url = '';
-		if ( function_exists( 'admin_url' ) ) {
-			$admin_url = admin_url( 'admin.php?page=bizcity-kg-skeleton-diag' );
+		// [2026-06-04 Johnny Chu] SKEL-FAIL-REASON — surface per-notebook fail reasons
+		// for every failed notebook so operator knows exact root cause without log access.
+		if ( $counts['failed'] > 0
+			&& class_exists( 'BizCity_KG_Skeleton_Service' )
+			&& defined( 'BizCity_KG_Skeleton_Service::FAIL_OPT_PREFIX' ) ) {
+
+			$fail_lines = [];
+			$failed_rows = $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT id, name FROM {$tbl_nb}
+					  WHERE skeleton_status = 'failed'
+					  ORDER BY updated_at DESC
+					  LIMIT 15"
+				),
+				ARRAY_A
+			);
+			if ( is_array( $failed_rows ) ) {
+				foreach ( $failed_rows as $r ) {
+					$opt = get_option( BizCity_KG_Skeleton_Service::FAIL_OPT_PREFIX . (int) $r['id'] );
+					if ( $opt ) {
+						$d = json_decode( (string) $opt, true );
+						$reason = is_array( $d ) ? ( $d['reason'] ?? 'unknown' ) : 'unknown';
+						$detail = is_array( $d ) ? ( $d['detail'] ?? '' ) : '';
+						$ts     = is_array( $d ) ? ( $d['ts']     ?? '' ) : '';
+						$line   = sprintf( '#%d [%s] reason=%s ts=%s',
+							(int) $r['id'], (string) ( $r['name'] ?: '(unnamed)' ),
+							$reason, $ts
+						);
+						if ( $detail !== '' ) {
+							$line .= "\n    → " . mb_substr( $detail, 0, 150 );
+						}
+					} else {
+						// No option stored yet — legacy failure before SKEL-FAIL-REASON.
+						global $wpdb;
+						$tbl_pas = BizCity_KG_Database::instance()->tbl_passages();
+						$pc = (int) $wpdb->get_var(
+							$wpdb->prepare( "SELECT COUNT(*) FROM {$tbl_pas} WHERE notebook_id = %d", (int) $r['id'] )
+						);
+						$line = sprintf( '#%d [%s] reason=unknown (passages_count=%d — bấm Rebuild để ghi lại reason)',
+							(int) $r['id'], (string) ( $r['name'] ?: '(unnamed)' ), $pc
+						);
+					}
+					$fail_lines[] = $line;
+				}
+			}
+			if ( ! empty( $fail_lines ) ) {
+				$ctx->emit_step( [
+					'label'  => 'Fail reasons per notebook',
+					'status' => 'fail',
+					'detail' => implode( "\n\n", $fail_lines ),
+				] );
+			}
 		}
-		if ( $admin_url !== '' ) {
-			$ctx->emit_step( [
-				'label'  => 'Rebuild UI',
-				'status' => 'info',
-				'detail' => 'Mở: ' . $admin_url . ' → bấm "Rebuild stuck/failed" để re-queue qua Action Scheduler.',
-			] );
-		}
+
+		// [2026-06-03 Johnny Chu] CONSOLIDATION-M1 — slug `bizcity-kg-skeleton-diag`
+		// đã retire submenu (probe `kg.skeleton`). Surface CLI hint thay vì admin URL chết.
+		$ctx->emit_step( [
+			'label'  => 'Rebuild hint',
+			'status' => 'info',
+			'detail' => 'CLI: `wp bizcity diag skeleton-rebuild --stuck=1` (hoặc `--notebook=<id>`) để re-queue qua Action Scheduler.',
+		] );
 
 		// History depth — informational only.
 		if ( $hist_ok ) {
@@ -231,15 +300,16 @@ final class BizCity_Probe_Skeleton_Coverage implements BizCity_Diagnostics_Probe
 		}
 
 		if ( ! $cov_ok ) {
-			$hint = 'Backfill cron đã được trigger trong probe — chờ ~30s rồi Run lại. Hoặc chạy `wp bizcity kg skeleton-backfill --status=pending,failed` HOẶC mở '
-			        . ( $admin_url ?: '/wp-admin/admin.php?page=bizcity-kg-skeleton-diag' )
-			        . ' → bấm "Rebuild stuck/failed".';
+			// [2026-06-03 Johnny Chu] CONSOLIDATION-M1 — bỏ URL chết, giữ CLI hint.
+			$hint = 'Backfill cron đã được trigger trong probe — chờ ~30s rồi Run lại. '
+			        . 'Hoặc chạy `wp bizcity kg skeleton-backfill --status=pending,failed` hoặc '
+			        . '`wp bizcity diag skeleton-rebuild --stuck=1`.';
 			return [
 				'status'   => 'fail',
 				'summary'  => sprintf(
-					'Skeleton failed_pct=%.1f%% (> %.0f%%) hoặc in-flight=%.1f%% (< %.0f%%) — %d failed, %d pending',
+					'Skeleton failed_pct=%.1f%% (> %.0f%%) hoặc in-flight=%.1f%% (< %.0f%%) — %d failed, %d pending (active=%d, empty=%d)',
 					$failed_pct, $failed_threshold, $in_flight_pct, $threshold,
-					$counts['failed'], $counts['pending']
+					$counts['failed'], $counts['pending'], $active_total, $counts['(empty)']
 				),
 				'error'    => 'low_coverage',
 				'fix_hint' => $hint,
@@ -249,10 +319,21 @@ final class BizCity_Probe_Skeleton_Coverage implements BizCity_Diagnostics_Probe
 		return [
 			'status'  => 'pass',
 			'summary' => sprintf(
-				'Skeleton OK — %.1f%% ready (%d/%d), %d failed',
-				$ready_pct, $counts['ready'], $total, $counts['failed']
+				'Skeleton OK — %.1f%% ready (%d/%d active), %d failed (empty=%d/%d excluded)',
+				$ready_pct, $counts['ready'], $active_total, $counts['failed'], $counts['(empty)'], $total
 			),
 		];
+	}
+
+	private function table_exists( string $table_name ): bool {
+		global $wpdb;
+		if ( function_exists( 'bizcity_tbl_exists' ) ) {
+			return (bool) bizcity_tbl_exists( $table_name );
+		}
+		return (bool) $wpdb->get_var( $wpdb->prepare(
+			'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+			$table_name
+		) );
 	}
 
 	public function cleanup(): void {

@@ -181,6 +181,29 @@ final class BizCity_Twin_REST_Controller {
 	 * @return \WP_REST_Response|\WP_Error
 	 */
 	public function handle_run( \WP_REST_Request $request ) {
+		// ── Vòng 5 hardening 5.10 — Rate limit per user (OWASP) ──────
+		// 10 req / 60s rolling window via transient. Skips for admins.
+		$current_uid = (int) get_current_user_id();
+		if ( $current_uid > 0 && ! current_user_can( 'manage_options' ) ) {
+			$rl_window = (int) apply_filters( 'bizcity_twin_run_rate_window', 60 );
+			$rl_max    = (int) apply_filters( 'bizcity_twin_run_rate_max', 10 );
+			$rl_key    = 'bcty_run_rl_' . $current_uid;
+			$rl_count  = (int) get_transient( $rl_key );
+			if ( $rl_count >= $rl_max ) {
+				return new \WP_Error(
+					'bizcity_twin_rate_limited',
+					sprintf(
+						/* translators: 1: max requests, 2: window seconds */
+						__( 'Rate limit exceeded: %1$d requests per %2$d seconds.', 'bizcity-twin-ai' ),
+						$rl_max,
+						$rl_window
+					),
+					[ 'status' => 429, 'retry_after' => $rl_window ]
+				);
+			}
+			set_transient( $rl_key, $rl_count + 1, $rl_window );
+		}
+
 		// Read raw JSON body to avoid WP REST schema munging (esp. for typed object/array params).
 		$body = $request->get_json_params();
 		if ( ! is_array( $body ) || empty( $body ) ) {
@@ -194,6 +217,33 @@ final class BizCity_Twin_REST_Controller {
 		if ( ! is_array( $body ) ) $body = [];
 
 		$agent_name      = sanitize_text_field( (string) ( $body['agent_name'] ?? $request->get_param( 'agent_name' ) ?? '' ) );
+
+		// ── Vòng 5 hardening 5.12 — Agent name whitelist (prevent injection) ──
+		// Only accept agents registered via BizCity_Twin_Agent_Registry. Skip
+		// when resuming (run_id present) — registry resolved at run time.
+		$is_resume_check = ! empty( $body['run_id'] );
+		if ( ! $is_resume_check && $agent_name !== '' ) {
+			if ( ! preg_match( '/^[a-z0-9_]{1,64}$/', $agent_name ) ) {
+				return new \WP_Error(
+					'bizcity_twin_invalid_agent_name',
+					__( 'agent_name must match [a-z0-9_]{1,64}.', 'bizcity-twin-ai' ),
+					[ 'status' => 400 ]
+				);
+			}
+			if ( class_exists( 'BizCity_Twin_Agent_Registry' ) ) {
+				if ( ! BizCity_Twin_Agent_Registry::instance()->has( $agent_name ) ) {
+					return new \WP_Error(
+						'bizcity_twin_unknown_agent',
+						sprintf(
+							/* translators: %s: agent name */
+							__( 'Unknown agent: %s', 'bizcity-twin-ai' ),
+							$agent_name
+						),
+						[ 'status' => 404 ]
+					);
+				}
+			}
+		}
 		$messages        = $body['messages'] ?? null;
 		$conversation_id = sanitize_text_field( (string) ( $body['conversation_id'] ?? '' ) );
 		$ctx_overrides   = (array) ( $body['context_overrides'] ?? [] );
@@ -269,6 +319,55 @@ final class BizCity_Twin_REST_Controller {
 				BizCity_Twin_Agent_Registry::instance(),
 				$session
 			);
+
+			// ── Vòng 4.5.5b — Async resume (avoid Cloudflare 524) ──
+			// HIL resume can take 30–120s while the LLM drafts content. CF
+			// origin timeout = 100s. Solution: ack immediately with status
+			// 'running', then continue runner in the background. FE polls
+			// /events/{run_id} for the eventual `final` / `failed` event
+			// (events already streamed to bizcity_trace_tasks via Event Bus).
+			if ( $is_resume ) {
+				$ack = [
+					'run_id'          => $run_id,
+					'conversation_id' => $conversation_id,
+					'status'          => 'running',
+					'final_output'    => null,
+					'interruptions'   => [],
+					'events_url'      => rest_url( self::NAMESPACE . '/events/' . rawurlencode( $run_id ) ),
+					'error'           => null,
+				];
+
+				// Send ack synchronously, then detach client.
+				if ( ! headers_sent() ) {
+					nocache_headers();
+					@header( 'Content-Type: application/json; charset=utf-8' );
+				}
+				echo wp_json_encode( $ack );
+
+				// Flush + close connection (PHP-FPM); fall back to ob/flush.
+				if ( function_exists( 'fastcgi_finish_request' ) ) {
+					@fastcgi_finish_request();
+				} else {
+					while ( @ob_get_level() > 0 ) { @ob_end_flush(); }
+					@flush();
+				}
+
+				ignore_user_abort( true );
+				@set_time_limit( 0 );
+
+				try {
+					$runner->run( $agent_name, [], $ctx );
+				} catch ( \Throwable $e ) {
+					if ( class_exists( 'BizCity_TwinShell_Event_Bus' ) ) {
+						BizCity_TwinShell_Event_Bus::emit(
+							$run_id,
+							'failed',
+							[ 'error' => $e->getMessage() ]
+						);
+					}
+				}
+				exit;
+			}
 
 			$state = $runner->run( $agent_name, $messages, $ctx );
 

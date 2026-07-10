@@ -152,6 +152,28 @@ final class BizCity_Diagnostics_REST {
 			'permission_callback' => $admin_only,
 			'callback'            => [ $this, 'wizard_mark_seen' ],
 		] );
+
+		// [2026-06-05 Johnny Chu] R-ERROR-UX — Admin error-log viewer endpoints.
+
+		// GET /error-reports — paginated list of stored error reports (admin only).
+		register_rest_route( BIZCITY_DIAGNOSTICS_REST_NS, '/error-reports', [
+			'methods'             => 'GET',
+			'permission_callback' => $admin_only,
+			'callback'            => [ $this, 'get_error_reports' ],
+			'args'                => [
+				'page'     => [ 'type' => 'integer', 'default' => 1, 'minimum' => 1 ],
+				'per_page' => [ 'type' => 'integer', 'default' => 50, 'minimum' => 1, 'maximum' => 200 ],
+				'code'     => [ 'type' => 'string' ],
+				'module'   => [ 'type' => 'string' ],
+			],
+		] );
+
+		// DELETE /error-reports — clear all stored reports (admin only).
+		register_rest_route( BIZCITY_DIAGNOSTICS_REST_NS, '/error-reports', [
+			'methods'             => 'DELETE',
+			'permission_callback' => $admin_only,
+			'callback'            => [ $this, 'clear_error_reports' ],
+		] );
 	}
 
 	/**
@@ -220,7 +242,9 @@ final class BizCity_Diagnostics_REST {
 		$blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 1;
 		$user_id = get_current_user_id();
 		$meta_key = self::WIZARD_SEEN_META_PREFIX . $blog_id;
-		$seen     = (int) get_user_meta( $user_id, $meta_key, true );
+		// [2026-06-22 Johnny Chu] R-PERF — route via BizCity_User_Meta_Cache to avoid WP meta prime
+		$mc   = class_exists( 'BizCity_User_Meta_Cache' );
+		$seen = (int) ( $mc ? BizCity_User_Meta_Cache::get( $user_id, $meta_key, 0 ) : get_user_meta( $user_id, $meta_key, true ) );
 
 		// Critical regression check — only if table inspector is available.
 		$critical_missing = [];
@@ -242,7 +266,7 @@ final class BizCity_Diagnostics_REST {
 		}
 
 		if ( $critical_missing ) {
-			$last_shown = (int) get_user_meta( $user_id, self::WIZARD_CRITICAL_LAST_USERMETA, true );
+			$last_shown = (int) ( $mc ? BizCity_User_Meta_Cache::get( $user_id, self::WIZARD_CRITICAL_LAST_USERMETA, 0 ) : get_user_meta( $user_id, self::WIZARD_CRITICAL_LAST_USERMETA, true ) );
 			if ( ( time() - $last_shown ) > self::WIZARD_CRITICAL_CAP_SECONDS ) {
 				update_user_meta( $user_id, self::WIZARD_CRITICAL_LAST_USERMETA, time() );
 				return rest_ensure_response( [

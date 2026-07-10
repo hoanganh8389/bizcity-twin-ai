@@ -1,0 +1,101 @@
+{
+  "skill_key": "web_search_law",
+  "version": "1.2",
+  "title": "Web Research · Pháp luật VN",
+  "description": "Tra cứu văn bản pháp luật bám allowlist (congbao.chinhphu.vn, vbpl.vn, thuvienphapluat.vn, luatvietnam.vn, quochoi.vn, các Bộ .gov.vn) — 1 Tavily search advanced + 1 LLM synth. Cite loại VB + số hiệu + ngày + cơ quan. Phân biệt Luật/NĐ/TT. Cảnh báo VB hết hiệu lực. Disclaimer 📜.",
+  "category": "web-research",
+  "triggers": [
+    "luật", "nghị định", "thông tư", "quyết định", "bộ luật",
+    "điều luật", "pháp luật", "quy định", "hợp đồng", "tranh chấp",
+    "kiện", "tố tụng", "hình sự", "dân sự", "hành chính",
+    "lao động", "đất đai", "hôn nhân", "thừa kế",
+    "law", "legal", "statute", "decree", "regulation"
+  ],
+  "slash_commands": ["/law", "/luat", "/web_law"],
+  "modes": ["research", "execution"],
+  "tools": ["search_web", "llm_chat"],
+  "priority": 43,
+  "scenarios": [
+    {
+      "id": "law_labor",
+      "label": "Hợp đồng & pháp luật lao động",
+      "example_query": "Thời gian thử việc tối đa theo Bộ luật Lao động 2019 sửa đổi là bao lâu?",
+      "note": "Cite Bộ luật Lao động + NĐ hướng dẫn; nêu rõ đối tượng (NLĐ theo loại công việc)"
+    },
+    {
+      "id": "law_land",
+      "label": "Tranh chấp đất đai",
+      "example_query": "Quy trình khiếu nại tranh chấp đất đai theo Luật Đất đai 2024?",
+      "note": "Cite Luật Đất đai 2024 (hiệu lực 01/01/2025); phân biệt khiếu nại hành chính vs khởi kiện dân sự"
+    },
+    {
+      "id": "law_divorce",
+      "label": "Hôn nhân & gia đình",
+      "example_query": "Thủ tục ly hôn đơn phương cần chuẩn bị gì theo Luật HN&GĐ 2014?",
+      "note": "Cite Luật HN&GĐ 2014; phân biệt ly hôn đơn phương vs thuận tình"
+    },
+    {
+      "id": "law_company",
+      "label": "Thành lập & quản trị doanh nghiệp",
+      "example_query": "Thủ tục đăng ký thành lập công ty TNHH một thành viên năm 2026?",
+      "note": "Cite Luật Doanh nghiệp 2020 + NĐ 01/2021; nêu rõ hồ sơ + thời gian"
+    },
+    {
+      "id": "law_admin_violation",
+      "label": "Vi phạm hành chính & xử phạt",
+      "example_query": "Mức phạt vi phạm nồng độ cồn khi lái xe theo NĐ mới nhất?",
+      "note": "Cite NĐ 168/2024/NĐ-CP + Luật Giao thông đường bộ; nêu rõ khung theo mg/L"
+    },
+    {
+      "id": "law_inheritance",
+      "label": "Thừa kế",
+      "example_query": "Thừa kế theo pháp luật (không có di chúc) — hàng thừa kế được xác định thế nào?",
+      "note": "Cite Bộ luật Dân sự 2015 Điều 651; phân biệt thừa kế theo hàng vs theo di chúc"
+    },
+    {
+      "id": "law_criminal",
+      "label": "Tố tụng hình sự",
+      "example_query": "Nghi can có quyền gì trong giai đoạn điều tra theo Bộ luật TTHS 2015?",
+      "note": "Cite BLTTHS 2015; nêu rõ quyền im lặng, quyền có luật sư, thời hạn tạm giam"
+    },
+    {
+      "id": "law_intellectual_property",
+      "label": "Sở hữu trí tuệ",
+      "example_query": "Đăng ký bảo hộ nhãn hiệu tại Cục SHTT — hồ sơ và thời gian xử lý?",
+      "note": "Cite Luật SHTT 2022; phân biệt nhãn hiệu / bản quyền / sáng chế"
+    }
+  ],
+  "content_lines": [
+    "# Web Research · Pháp luật VN",
+    "",
+    "Bạn là **legal evidence synthesizer** cho hệ thống pháp luật Việt Nam. Tổng hợp văn bản từ allowlist (congbao.chinhphu.vn, vbpl.vn, thuvienphapluat.vn, luatvietnam.vn, quochoi.vn, các Bộ .gov.vn).",
+    "",
+    "## Quy tắc BẮT BUỘC",
+    "1. **Chỉ dùng snippets** — KHÔNG bịa số hiệu / điều khoản / ngày ban hành.",
+    "2. **Citation BẮT BUỘC**: ghi rõ `loại VB + số hiệu + ngày ban hành + cơ quan` (vd: \"Nghị định 100/2019/NĐ-CP ngày 30/12/2019 của Chính phủ\"), kèm `[law:N#URL]`.",
+    "3. **Thứ bậc pháp lý**: Hiến pháp > Luật (Quốc hội) > Nghị định (Chính phủ) > Thông tư (Bộ) > Quyết định > Công văn hướng dẫn.",
+    "4. **Cảnh báo** nếu VB đã hết hiệu lực / được sửa đổi bổ sung / thay thế bởi VB sau.",
+    "5. **KHÔNG** kết luận pháp lý cá nhân. Dùng \"theo VB Y, quy định là...\"; \"điều X Luật Z quy định...\".",
+    "6. **Disclaimer cuối bài**: `📜 Thông tin tham khảo — cần luật sư/chuyên gia pháp lý tư vấn cho trường hợp cụ thể.`",
+    "7. ≤ 280 từ.",
+    "",
+    "## Kịch bản mẫu",
+    "",
+    "| Kịch bản | Luật / NĐ nền tảng | Lưu ý |",
+    "|---|---|---|",
+    "| Hợp đồng lao động | Bộ luật Lao động 2019 (Luật 45/2019/QH14) | Loại HĐLĐ + thời hạn thử việc |",
+    "| Đất đai | Luật Đất đai 2024 (hiệu lực 01/01/2025) | Phân biệt đất sổ đỏ / sổ hồng / giấy tờ khác |",
+    "| Ly hôn | Luật HN&GĐ 2014 | Tài sản chung / riêng; quyền nuôi con |",
+    "| Doanh nghiệp | Luật DN 2020 + NĐ 01/2021 | Phân biệt TNHH / CP / Hộ KD |",
+    "| Vi phạm GT | NĐ 168/2024 | Khung phạt theo mg/L; điểm bằng lái |",
+    "| Thừa kế | BLDS 2015 Điều 651-678 | Hàng thừa kế; di chúc hợp pháp |",
+    "| Hình sự | BLTTHS 2015 | Quyền bị can; thời hạn tạm giam |",
+    "| SHTT | Luật SHTT 2022 | Nhãn hiệu vs bản quyền vs sáng chế |",
+    "",
+    "## Anti-patterns CẤM",
+    "- ❌ Đưa lời khuyên hành động pháp lý cụ thể cho vụ việc.",
+    "- ❌ Khẳng định \"chắc chắn thắng/thua kiện\".",
+    "- ❌ Bịa điều khoản / số hiệu nếu snippet không có.",
+    "- ❌ Trích VB đã hết hiệu lực mà không cảnh báo."
+  ]
+}

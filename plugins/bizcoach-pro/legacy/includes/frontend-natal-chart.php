@@ -347,17 +347,34 @@ function bccm_natal_chart_render_html($coachee, $astro_western, $astro_vedic, $f
         <h2 class="panel-title">🌟 Western Astrology</h2>
         <p class="panel-subtitle">Tropical - Placidus System</p>
         <?php
+        // [2026-06-08 Johnny Chu] HOTFIX — chart_svg can be URL / data: / inline <svg>.
+        // Old code used <img src=esc_url($chart_url)> which broke for inline SVG (esc_url
+        // strips angle brackets → empty src → broken image).
         $chart_url = $astro_western['chart_svg'] ?? $astro_summary['chart_url'] ?? '';
-        if ($chart_url):
+        $chart_kind = function_exists( 'bccm_chart_payload_kind' ) ? bccm_chart_payload_kind( $chart_url ) : 'empty';
+        if ( $chart_kind !== 'empty' ):
         ?>
         <div class="chart-image">
-          <img src="<?php echo esc_url($chart_url); ?>" alt="Western Natal Chart">
+          <?php
+          if ( function_exists( 'bccm_render_chart_inline' ) ) {
+              bccm_render_chart_inline( $chart_url, array(
+                  'alt'       => 'Western Natal Chart',
+                  'css_class' => 'chart-image-inner',
+                  'style'     => 'max-width:100%;height:auto;background:#ffffff;padding:12px;border-radius:12px;',
+              ) );
+          } else {
+              echo '<img src="' . esc_url( $chart_url ) . '" alt="Western Natal Chart">';
+          }
+          ?>
         </div>
         <?php endif; ?>
 
         <!-- Planets Table -->
         <?php
-        $positions = $astro_traits['positions'] ?? [];
+        // [2026-06-08 Johnny Chu] HOTFIX — normalize sign names for existing saved records.
+        $positions = function_exists('bccm_astro_normalize_positions')
+            ? bccm_astro_normalize_positions($astro_traits['positions'] ?? [])
+            : ($astro_traits['positions'] ?? []);
         if (!empty($positions)):
         ?>
         <div class="chart-table-wrap">
@@ -517,8 +534,11 @@ function bccm_natal_chart_render_html($coachee, $astro_western, $astro_vedic, $f
     <?php
     // ══════════════ ASPECTS TABLE (Góc Chiếu) ══════════════
     $aspects = $astro_traits['aspects'] ?? [];
-    $positions = $astro_traits['positions'] ?? [];
-    
+    // [2026-06-08 Johnny Chu] HOTFIX — normalize sign names for existing saved records.
+    $positions = function_exists('bccm_astro_normalize_positions')
+        ? bccm_astro_normalize_positions($astro_traits['positions'] ?? [])
+        : ($astro_traits['positions'] ?? []);
+
     if (!empty($aspects) && !empty($positions)):
       $enriched = function_exists('bccm_astro_enrich_aspects') ? bccm_astro_enrich_aspects($aspects, $positions) : [];
       $grouped  = function_exists('bccm_astro_group_aspects_by_planet') ? bccm_astro_group_aspects_by_planet($enriched) : [];

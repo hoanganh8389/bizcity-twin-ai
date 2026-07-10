@@ -73,6 +73,10 @@ class BizCity_CG_Debug_Logger {
 		add_action( 'bizcity_zalo_message_received',  array( __CLASS__, 'on_zalo_message_received' ), 1, 1 );
 		add_action( 'bizcity_zalo_bot_webhook_event', array( __CLASS__, 'on_zalo_bot_event' ),       1, 3 );
 
+		// [2026-06-19 Johnny Chu] PHASE-CG-CF7-LOG — CF7 form submission → cf7 channel file log
+		add_action( 'wpcf7_mail_sent',   array( __CLASS__, 'on_cf7_mail_sent' ),   1, 1 );
+		add_action( 'wpcf7_mail_failed', array( __CLASS__, 'on_cf7_mail_failed' ), 1, 1 );
+
 		// CRM event emitter dispatches actions: bizcity_crm_event_{name}.
 		add_action( 'bizcity_crm_event_crm_campaign_visit_recorded',     array( __CLASS__, 'on_campaign_visit' ),    1 );
 		add_action( 'bizcity_crm_event_crm_campaign_scenario_dispatched',array( __CLASS__, 'on_scenario_dispatch' ), 1 );
@@ -118,6 +122,78 @@ class BizCity_CG_Debug_Logger {
 		$file = $dir . '/' . gmdate( 'Y-m-d' ) . '.jsonl';
 		// LOCK_EX để tránh interleave khi 2 request đồng thời.
 		@file_put_contents( $file, $line, FILE_APPEND | LOCK_EX );
+
+		// [2026-06-19 Johnny Chu] PHASE-CG-CF7-LOG — R-CH-FILE-LOG: also write to per-channel file.
+		// This single call covers ALL channels (facebook/zalo_bot/zalo_oa/messenger/telegram/webchat/cf7).
+		// Requires class-channel-file-logger.php to be loaded before this file (bootstrap order).
+		if ( class_exists( 'BizCity_Channel_File_Logger', false ) ) {
+			$physical_ch = self::map_to_physical_channel( $channel, $data );
+			BizCity_Channel_File_Logger::write( $physical_ch, $level, $event, '', $row['data'] );
+		}
+	}
+
+	/**
+	 * Map a CG logger internal channel bucket to a canonical physical channel name.
+	 *
+	 * CG logger channel = an event-category string ('twf_flow.facebook', 'zalo_message_in', …).
+	 * Physical channel  = the platform folder name ('facebook', 'zalo_bot', 'zalo_oa', …).
+	 *
+	 * [2026-06-19 Johnny Chu] PHASE-CG-CF7-LOG — R-CH-FILE-LOG
+	 *
+	 * @param string $channel  CG logger internal channel string.
+	 * @param array  $data     Masked event data — may contain 'platform' hint.
+	 * @return string          One of BizCity_Channel_File_Logger::CH_* values.
+	 */
+	private static function map_to_physical_channel( string $channel, array $data ): string {
+		// Exact / prefix matches (fast path).
+		$exact_map = array(
+			'fb_webhook_raw'   => 'facebook',
+			'fb_referral'      => 'facebook',
+			'zalo_webhook_raw' => 'zalo_bot',
+			'zalo_message_in'  => 'zalo_bot',
+			'zalo_event'       => 'zalo_bot',
+			'bizhook'          => 'zalo_oa',
+			// [2026-06-25 Johnny Chu] PHASE-CG-CF7-ZNS — ZNS dedicated channel
+			'zalo_zns'         => 'zalo_zns',
+			'email'            => 'email',
+			'cf7'              => 'cf7',
+			'telegram'         => 'telegram',
+		);
+		if ( isset( $exact_map[ $channel ] ) ) {
+			return $exact_map[ $channel ];
+		}
+
+		// Substring matches for compound channel strings (twf_flow.*, twinchat.*).
+		if ( strpos( $channel, 'messenger' ) !== false )   { return 'messenger'; }
+		if ( strpos( $channel, 'twinchat' ) !== false )    { return 'webchat'; }
+		if ( strpos( $channel, 'webchat' ) !== false )     { return 'webchat'; }
+		if ( strpos( $channel, 'telegram' ) !== false )    { return 'telegram'; }
+		if ( strpos( $channel, 'facebook' ) !== false )    { return 'facebook'; }
+		if ( strpos( $channel, 'fb_' ) !== false )         { return 'facebook'; }
+		if ( strpos( $channel, 'zalo_oa' ) !== false )     { return 'zalo_oa'; }
+		// [2026-06-25 Johnny Chu] PHASE-CG-CF7-ZNS — match zalo_zns BEFORE generic zalo
+		if ( strpos( $channel, 'zalo_zns' ) !== false )    { return 'zalo_zns'; }
+		if ( strpos( $channel, 'zalo' ) !== false )        { return 'zalo_bot'; }
+		if ( strpos( $channel, 'email' ) !== false )       { return 'email'; }
+		if ( strpos( $channel, 'cf7' ) !== false )         { return 'cf7'; }
+
+		// Fallback: try platform hint in data
+		$platform = strtolower( (string) (
+			$data['platform']
+			?? ( is_array( $data['envelope'] ?? null ) ? ( $data['envelope']['platform'] ?? '' ) : '' )
+			?? ( is_array( $data['payload'] ?? null )  ? ( $data['payload']['platform']  ?? '' ) : '' )
+			?? ''
+		) );
+		if ( strpos( $platform, 'messenger' ) !== false )  { return 'messenger'; }
+		if ( strpos( $platform, 'facebook' ) !== false || strpos( $platform, 'fb_' ) !== false ) {
+			return 'facebook';
+		}
+		if ( strpos( $platform, 'zalo_oa' ) !== false )    { return 'zalo_oa'; }
+		if ( strpos( $platform, 'zalo' ) !== false )       { return 'zalo_bot'; }
+		if ( strpos( $platform, 'telegram' ) !== false )   { return 'telegram'; }
+		if ( strpos( $platform, 'webchat' ) !== false )    { return 'webchat'; }
+
+		return BizCity_Channel_File_Logger::CH_CHANNEL_GATEWAY;
 	}
 
 	/* ---------- Hook handlers ---------- */
@@ -195,14 +271,34 @@ class BizCity_CG_Debug_Logger {
 	 * $log_meta = { date, id }; $platform = 'FB_MESS'|...; $body = raw string.
 	 */
 	public static function on_webhook_router_intake( $log_meta, $platform, $body ): void {
+		// [2026-06-19 Johnny Chu] R-CH-FILE-LOG — map Router platform key to the correct
+		// internal channel bucket so map_to_physical_channel() routes JSONL to the right
+		// per-channel folder (facebook/, zalo_bot/, zalo_oa/, webchat/, telegram/).
+		// Before this fix every platform was logged as 'fb_webhook_raw' → all went to facebook/.
+		$platform_to_channel = array(
+			'FB_MESS'      => 'fb_webhook_raw',   // → facebook/
+			'ZALO_BOT'     => 'zalo_webhook_raw', // → zalo_bot/
+			'ZALO_HOTLINE' => 'bizhook',          // → zalo_oa/
+			'WEBCHAT'      => 'twinchat',         // → webchat/
+			'TELEGRAM'     => 'telegram',         // → telegram/
+		);
+		$channel = isset( $platform_to_channel[ $platform ] ) ? $platform_to_channel[ $platform ] : 'fb_webhook_raw';
+
 		$parsed = array();
 		if ( is_string( $body ) && $body !== '' ) {
 			$decoded = json_decode( $body, true );
 			$parsed  = is_array( $decoded ) ? self::trim_for_log( $decoded ) : array( '_raw_snippet' => substr( $body, 0, 500 ) );
 		}
-		self::log( 'fb_webhook_raw', 'webhook_router_intake', array(
+		self::log( $channel, 'webhook_router_intake', array(
 			'platform'    => $platform,
 			'log_row_id'  => is_array( $log_meta ) ? ( $log_meta['id'] ?? null ) : null,
+			// [2026-07-08 Johnny Chu] HOTFIX — keep request telemetry so we can
+			// distinguish empty-body webhook pings from real inbound payloads.
+			'body_len'    => is_string( $body ) ? strlen( $body ) : 0,
+			'method'      => isset( $_SERVER['REQUEST_METHOD'] ) ? (string) $_SERVER['REQUEST_METHOD'] : '',
+			'content_len' => isset( $_SERVER['CONTENT_LENGTH'] ) ? (string) $_SERVER['CONTENT_LENGTH'] : '',
+			'content_type'=> isset( $_SERVER['CONTENT_TYPE'] ) ? (string) $_SERVER['CONTENT_TYPE'] : '',
+			'user_agent'  => isset( $_SERVER['HTTP_USER_AGENT'] ) ? substr( (string) $_SERVER['HTTP_USER_AGENT'], 0, 255 ) : '',
 			'body_parsed' => $parsed,
 		) );
 	}
@@ -238,6 +334,35 @@ class BizCity_CG_Debug_Logger {
 	}
 
 	/**
+	 * CF7 form submission sent successfully.
+	 * [2026-06-19 Johnny Chu] PHASE-CG-CF7-LOG — cf7 channel
+	 */
+	public static function on_cf7_mail_sent( $cf7 ): void {
+		$form_id    = is_object( $cf7 ) && method_exists( $cf7, 'id' )    ? (int)    $cf7->id()    : 0;
+		$form_title = is_object( $cf7 ) && method_exists( $cf7, 'title' ) ? (string) $cf7->title() : '';
+		$sub        = class_exists( 'WPCF7_Submission' ) ? WPCF7_Submission::get_instance() : null;
+		$posted     = $sub ? self::trim_for_log( (array) $sub->get_posted_data() ) : array();
+		self::log( 'cf7', 'wpcf7_mail_sent', array(
+			'form_id'    => $form_id,
+			'form_title' => $form_title,
+			'posted'     => $posted,
+		), 'info' );
+	}
+
+	/**
+	 * CF7 form submission failed (mail send error).
+	 * [2026-06-19 Johnny Chu] PHASE-CG-CF7-LOG — cf7 channel
+	 */
+	public static function on_cf7_mail_failed( $cf7 ): void {
+		$form_id    = is_object( $cf7 ) && method_exists( $cf7, 'id' )    ? (int)    $cf7->id()    : 0;
+		$form_title = is_object( $cf7 ) && method_exists( $cf7, 'title' ) ? (string) $cf7->title() : '';
+		self::log( 'cf7', 'wpcf7_mail_failed', array(
+			'form_id'    => $form_id,
+			'form_title' => $form_title,
+		), 'error' );
+	}
+
+	/**
 	 * Generic Zalo webhook event router (follow / unfollow / submit_action ...).
 	 */
 	public static function on_zalo_bot_event( $bot, $event_name, $data ): void {
@@ -263,12 +388,56 @@ class BizCity_CG_Debug_Logger {
 		);
 		if ( ! $is_interesting ) { return $result; }
 
-		self::log( 'webhook', $request->get_method() . ' ' . $route, array(
-			'method'  => $request->get_method(),
-			'route'   => $route,
-			'params'  => self::trim_for_log( $request->get_params() ),
-			'headers' => self::pick_headers( $request->get_headers() ),
+		// [2026-06-19 Johnny Chu] R-CH-FILE-LOG — map REST webhook route to correct
+		// physical channel so JSONL goes to the right folder.
+		// Also write BizCity_Webhook_Log for inbound webhook POSTs so admin SPA shows them.
+		$method      = $request->get_method();
+		$is_inbound  = ( $method === 'POST' ) && ( strpos( $route, '/webhook/' ) !== false );
+
+		// Derive channel from route segments.
+		if ( strpos( $route, '/webhook/zalo_oa' ) !== false ) {
+			$channel  = 'zalo_oa_webhook';
+			$platform = 'ZALO_OA';
+		} elseif ( strpos( $route, '/webhook/telegram' ) !== false ) {
+			$channel  = 'telegram';
+			$platform = 'TELEGRAM';
+		} elseif ( strpos( $route, '/webhook/facebook' ) !== false || strpos( $route, '/webhook/fb_' ) !== false ) {
+			$channel  = 'fb_webhook_raw';
+			$platform = 'FB_MESS';
+		} elseif ( strpos( $route, '/webhook/webchat' ) !== false || strpos( $route, '/webhook/twinchat' ) !== false ) {
+			$channel  = 'twinchat';
+			$platform = 'WEBCHAT';
+		} elseif ( strpos( $route, '/webhook/zalo_bot' ) !== false ) {
+			$channel  = 'zalo_webhook_raw';
+			$platform = 'ZALO_BOT';
+		} else {
+			$channel  = 'webhook';
+			$platform = '';
+		}
+
+		self::log( $channel, $method . ' ' . $route, array(
+			'method'   => $method,
+			'route'    => $route,
+			'platform' => $platform,
+			'params'   => self::trim_for_log( $request->get_params() ),
+			'headers'  => self::pick_headers( $request->get_headers() ),
 		) );
+
+		// For genuine inbound webhook POSTs (not admin SPA calls), also write
+		// BizCity_Webhook_Log so the admin SPA (GET /logs?platform=...) shows them.
+		if ( $is_inbound && $platform !== '' && class_exists( 'BizCity_Webhook_Log', false ) ) {
+			BizCity_Webhook_Log::log( array(
+				'platform'      => $platform,
+				'endpoint'      => $route,
+				'method'        => 'POST',
+				'http_status'   => 200,
+				'verify_status' => 'pending',
+				'remote_ip'     => $_SERVER['REMOTE_ADDR'] ?? '',
+				'user_agent'    => substr( (string) ( $_SERVER['HTTP_USER_AGENT'] ?? '' ), 0, 200 ),
+				'body_raw'      => wp_json_encode( $request->get_params() ),
+			) );
+		}
+
 		return $result;
 	}
 
@@ -587,9 +756,10 @@ class BizCity_CG_Debug_Logger {
 	/* ---------- Admin page ---------- */
 
 	public static function register_admin_page(): void {
+		// [2026-06-10 Johnny Chu] HOTFIX — renamed 'BizCity Logs · CG' → 'BizCity Hook'.
 		add_management_page(
-			'BizCity Logs · Channel Gateway',
-			'BizCity Logs · CG',
+			'BizCity Hook — Channel Gateway Logs',
+			'BizCity Hook',
 			'manage_options',
 			'bizcity-cg-debug-logs',
 			array( __CLASS__, 'render_admin_page' )

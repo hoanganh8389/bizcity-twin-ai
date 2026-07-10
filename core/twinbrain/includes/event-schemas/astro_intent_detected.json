@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "astro_intent_detected",
+  "description": "TwinBrain Web_Astro engine — emitted after period classification (LLM mini → fallback regex bccm_transit_detect_intent → default 'day'). Drives Transit Resolver lookup window. PHASE-A C.3b (2026-06-04).",
+  "type": "object",
+  "required": ["trace_id", "period", "label", "source", "tokens", "ms"],
+  "properties": {
+    "trace_id": { "type": "string" },
+    "period":   { "type": "string", "enum": ["day", "week", "month", "year", "5year"] },
+    "label":    { "type": "string", "description": "Human-friendly Vietnamese label (e.g. 'Hôm nay', 'Tuần này')." },
+    "source":   { "type": "string", "enum": ["llm", "regex", "default"], "description": "Which strategy resolved the period." },
+    "tokens":   { "type": "integer", "minimum": 0, "description": "Total tokens consumed by the classify LLM call (0 if source != 'llm')." },
+    "ms":       { "type": "integer", "minimum": 0 }
+  }
+}

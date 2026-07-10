@@ -43,6 +43,17 @@ class BizCity_Intent_Tool_Index {
     /** @var string DB table name */
     private $table;
 
+    /**
+     * Cached result of table existence check — instance property (not static) so
+     * migrate_to_1() can reset it after dbDelta creates the table, allowing
+     * subsequent migrate_to_N() calls to correctly detect the new table.
+     *
+     * [2026-06-09 Johnny Chu] AUTOMATION BE-3
+     *
+     * @var bool|null
+     */
+    private $table_exists_cached = null;
+
     /** @var string Transient key for cached manifest */
     const MANIFEST_CACHE_KEY = 'bizcity_tool_manifest';
 
@@ -53,7 +64,9 @@ class BizCity_Intent_Tool_Index {
      * Schema version — bump this number when adding new migrations.
      * Stored in wp_options as `bizcity_tool_registry_schema_ver`.
      */
-    const SCHEMA_VERSION = 7;
+    // [2026-06-09 Johnny Chu] AUTOMATION BE-3 — migration 8: re-create table when missing on DB shard
+    // [2026-06-20 Johnny Chu] PHASE-TWB-WORKFLOW — migration 9: re-apply accepts_skill+content_tier on shards where ver=8 but column absent
+    const SCHEMA_VERSION = 9;
 
     /** @var string wp_options key for stored schema version */
     const SCHEMA_VERSION_KEY = 'bizcity_tool_registry_schema_ver';
@@ -82,22 +95,22 @@ class BizCity_Intent_Tool_Index {
     /**
      * Real table-existence check — used ONLY inside migrations (runs once per version bump).
      * Cached per request so multiple migrate_to_N() calls share one query.
+     * Uses an instance property (not static) so migrate_to_1() can reset after dbDelta.
      *
      * @return bool
      */
     private function table_exists_raw(): bool {
-        static $exists = null;
-        if ( $exists !== null ) {
-            return $exists;
+        if ( $this->table_exists_cached !== null ) {
+            return $this->table_exists_cached;
         }
         global $wpdb;
-        // Use DATABASE() (runtime current DB on shard) instead of DB_NAME
-        // constant (always the global DB in sharded multisite).
-        $exists = $wpdb->get_var( $wpdb->prepare(
-            "SELECT COUNT(1) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s",
+        $result = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s",
+            DB_NAME,
             $this->table
-        ) ) > 0;
-        return $exists;
+        ) );
+        $this->table_exists_cached = ( (int) $result > 0 );
+        return $this->table_exists_cached;
     }
 
     public static function instance() {
@@ -133,7 +146,10 @@ class BizCity_Intent_Tool_Index {
         $stored = (int) get_option( self::SCHEMA_VERSION_KEY, 0 );
 
         if ( $stored >= self::SCHEMA_VERSION ) {
-            return; // Already up-to-date — zero queries
+            // [2026-06-11 Johnny Chu] HOTFIX — trust version option; removed table_exists_raw()
+            // SHOW TABLES call that was firing on every plugins_loaded request. Version option
+            // is only written AFTER migrations complete successfully, so it's authoritative.
+            return;
         }
 
         $this->run_migrations( $stored );
@@ -196,6 +212,57 @@ class BizCity_Intent_Tool_Index {
             $this->migrate_to_5();
             $this->migrate_to_6();
         }
+
+        // [2026-06-09 Johnny Chu] AUTOMATION BE-3 — Migration 8: full table rebuild for shards
+        // where schema_ver option was set to 7 (on primary DB) but the table was never created
+        // on the current shard (slave DB). Re-runs full migration sequence from scratch.
+        if ( $from_version < 8 ) {
+            $this->migrate_to_8();
+        }
+
+        // [2026-06-20 Johnny Chu] PHASE-TWB-WORKFLOW — Migration 9: Re-apply accepts_skill +
+        // content_tier columns on shards where they were skipped (schema_ver=8 but ALTER never
+        // ran due to DB shard mismatch). migrate_to_6() is idempotent — checks SHOW COLUMNS first.
+        if ( $from_version < 9 ) {
+            $this->migrate_to_9();
+        }
+    }
+
+    /**
+     * Migration 8: Full shard repair — re-create table + all columns from scratch when
+     * the table is physically missing on the current DB shard despite the schema version
+     * option being already set (e.g. after DB clone, multisite shard provisioning, etc.).
+     *
+     * [2026-06-09 Johnny Chu] AUTOMATION BE-3
+     */
+    private function migrate_to_8() {
+        if ( ! $this->table_exists_raw() ) {
+            // Table completely missing — run full schema create.
+            // migrate_to_1() resets $this->table_exists_cached = null so subsequent
+            // migrate_to_N() calls (below) correctly detect the newly created table.
+            $this->migrate_to_1();
+        }
+
+        // Always (re-)apply column migrations to ensure all columns exist.
+        // These are idempotent — they check column existence before ALTER.
+        $this->migrate_to_3();
+        $this->migrate_to_4();
+        $this->migrate_to_5();
+        $this->migrate_to_6();
+    }
+
+    /**
+     * Migration 9: Re-apply accepts_skill + content_tier on shards where
+     * schema_ver was already at 8 but the columns were never actually added
+     * (DB shard mismatch: option written on primary, ALTER skipped on shard).
+     *
+     * migrate_to_6() is fully idempotent — it calls SHOW COLUMNS and only
+     * issues ALTER when the column is absent. Safe to run multiple times.
+     *
+     * [2026-06-20 Johnny Chu] PHASE-TWB-WORKFLOW
+     */
+    private function migrate_to_9() {
+        $this->migrate_to_6();
     }
 
     /**
@@ -247,6 +314,9 @@ class BizCity_Intent_Tool_Index {
 
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
         dbDelta( $sql );
+        // [2026-06-09 Johnny Chu] AUTOMATION BE-3 — reset instance cache so subsequent
+        // migrate_to_N() calls correctly detect the newly created table.
+        $this->table_exists_cached = null;
     }
 
     /**
@@ -706,6 +776,23 @@ class BizCity_Intent_Tool_Index {
         $tools = BizCity_Intent_Tools::instance();
         $all   = $tools->list_all();
 
+        // [2026-06-22 Johnny Chu] R-PERF — batch-load ALL existing builtin rows in 1 query
+        // instead of 1 SELECT per tool (was N queries in the loop below).
+        $version = defined( 'BIZCITY_INTENT_VERSION' ) ? BIZCITY_INTENT_VERSION : '3.4.0';
+        $existing_rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT id, tool_key, tool_name FROM {$this->table} WHERE plugin = 'builtin' OR tool_key LIKE %s",
+                'builtin:%'
+            ),
+            ARRAY_A
+        );
+        $existing_by_key  = [];
+        $existing_by_name = [];
+        foreach ( $existing_rows as $er ) {
+            $existing_by_key[ $er['tool_key'] ]   = (int) $er['id'];
+            $existing_by_name[ $er['tool_name'] ] = (int) $er['id'];
+        }
+
         foreach ( $all as $name => $schema ) {
             $tool_key = 'builtin:' . $name;
             // Skip if already synced by a provider
@@ -739,7 +826,7 @@ class BizCity_Intent_Tool_Index {
             $row = [
                 'tool_key'       => $tool_key,
                 'tool_name'      => $name,
-                'version'        => defined( 'BIZCITY_INTENT_VERSION' ) ? BIZCITY_INTENT_VERSION : '3.4.0',
+                'version'        => $version,
                 'plugin'         => 'builtin',
                 'title'          => $schema['description'] ?? $name,
                 'description'    => $schema['description'] ?? '',
@@ -756,11 +843,8 @@ class BizCity_Intent_Tool_Index {
                                         ? $schema['tool_type'] : 'atomic',
             ];
 
-            // Check by tool_key OR (tool_name + version) to avoid duplicate key on uk_tool_version
-            $existing_id = $wpdb->get_var( $wpdb->prepare(
-                "SELECT id FROM {$this->table} WHERE tool_key = %s OR (tool_name = %s AND version = %s) LIMIT 1",
-                $tool_key, $name, $row['version']
-            ) );
+            // [2026-06-22 Johnny Chu] R-PERF — use pre-loaded map; no per-tool SELECT
+            $existing_id = $existing_by_key[ $tool_key ] ?? $existing_by_name[ $name ] ?? null;
 
             if ( $existing_id ) {
                 unset( $row['tool_key'] );
@@ -779,6 +863,13 @@ class BizCity_Intent_Tool_Index {
      * Uses a fingerprint of tool names to skip re-sync when nothing changed.
      */
     public function sync_memory_tools() {
+        // [2026-06-22 Johnny Chu] R-PERF — static guard: prevents double-sync in same request
+        // (e.g. if called via boot() AND init:25 in the same execution)
+        static $done = false;
+        if ( $done ) {
+            return;
+        }
+
         $this->ensure_schema();
 
         // Build fingerprint of current in-memory tools to detect changes
@@ -794,6 +885,7 @@ class BizCity_Intent_Tool_Index {
 
         $stored_hash = get_option( self::MEMORY_SYNC_KEY );
         if ( $stored_hash === $current_hash ) {
+            $done = true; // [2026-06-22 Johnny Chu] R-PERF — mark done even on hash-match fast path
             return; // Tools unchanged — skip expensive DB upserts
         }
 
@@ -805,6 +897,7 @@ class BizCity_Intent_Tool_Index {
         }
 
         update_option( self::MEMORY_SYNC_KEY, $current_hash, true );
+        $done = true; // [2026-06-22 Johnny Chu] R-PERF — mark done after full sync
 
         if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
             error_log( '[Intent Tool Index] sync_memory_tools() — ' . count( $active_keys ) . ' tools synced' );

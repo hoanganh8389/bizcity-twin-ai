@@ -138,6 +138,27 @@ class BizCity_Zalo_Bot_Dashboard {
 
 		$db  = BizCity_Zalo_Bot_Database::instance();
 
+		// [2026-07-02 Johnny Chu] HOTFIX — detect missing table (clone without version reset), auto-create
+		$setup_notice = '';
+		global $wpdb;
+		$_bots_table  = $wpdb->prefix . 'bizcity_zalo_bots';
+		$_tbl_exists  = (int) $wpdb->get_var(
+			$wpdb->prepare(
+				'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+				$_bots_table
+			)
+		);
+		if ( ! $_tbl_exists ) {
+			BizCity_Zalo_Bot_Database::activate();
+			delete_option( 'bizcity_zalo_bot_db_version' );
+			error_log( '[BizCity Zalo Bot] Admin page: bots table missing on blog ' . get_current_blog_id() . ' — auto-created.' );
+			$_reload_url  = esc_url( add_query_arg( 'bzcz_setup', '1', remove_query_arg( 'bzcz_setup' ) ) );
+			$setup_notice = '<div class="notice notice-warning" style="padding:12px 16px;margin-bottom:14px;border-radius:6px;border-left:4px solid #f59e0b">'.
+				'<strong>⚠️ Bảng dữ liệu Zalo Bot chưa tồn tại trên site này.</strong><br>'.
+				'Hệ thống đã tự động tạo lại. Vui lòng <a href="' . $_reload_url . '">tải lại trang (F5)</a> để tiếp tục.'.
+				'</div>';
+		}
+
 		$active_tab = isset( $_GET['tab'] ) ? sanitize_key( $_GET['tab'] ) : 'bots';
 		$valid_tabs = array( 'bots', 'assign', 'test', 'logs' );
 		if ( ! in_array( $active_tab, $valid_tabs, true ) ) {
@@ -145,7 +166,7 @@ class BizCity_Zalo_Bot_Dashboard {
 		}
 
 		// ── Bots tab data ──
-		$all_bots = $this->get_all_bots();
+		$all_bots = $_tbl_exists ? $this->get_all_bots() : array();
 
 		$total_assignments = 0;
 		foreach ( $all_bots as $b ) {
@@ -523,7 +544,12 @@ class BizCity_Zalo_Bot_Dashboard {
 	 * @return array Array of WP user IDs assigned to this bot
 	 */
 	public static function get_users_for_bot( $bot_id ) {
+		// [2026-06-11 Johnny Chu] R-PERF — cache per-bot trong request (tránh N+1 trong vòng lặp)
+		static $cache = [];
 		$bot_id = (int) $bot_id;
+		if ( isset( $cache[ $bot_id ] ) ) {
+			return $cache[ $bot_id ];
+		}
 
 		$users = get_users( array(
 			'meta_key'   => '_bizcity_zalo_bot_' . $bot_id . '_assigned',
@@ -531,7 +557,8 @@ class BizCity_Zalo_Bot_Dashboard {
 			'fields'     => 'ID',
 		) );
 
-		return array_map( 'intval', $users );
+		$cache[ $bot_id ] = array_map( 'intval', $users );
+		return $cache[ $bot_id ];
 	}
 
 	/**
@@ -551,6 +578,12 @@ class BizCity_Zalo_Bot_Dashboard {
 	 * @return array
 	 */
 	public static function get_all_assignments() {
+		// [2026-06-11 Johnny Chu] R-PERF — cache assignments trong request (gọi 2 lần/render)
+		static $cached = null;
+		if ( null !== $cached ) {
+			return $cached;
+		}
+
 		global $wpdb;
 
 		$results = $wpdb->get_results(
@@ -592,6 +625,7 @@ class BizCity_Zalo_Bot_Dashboard {
 			}
 		}
 
+		$cached = $assignments;
 		return $assignments;
 	}
 
@@ -601,6 +635,16 @@ class BizCity_Zalo_Bot_Dashboard {
 	private function get_all_bots() {
 		global $wpdb;
 		$table = $wpdb->prefix . 'bizcity_zalo_bots';
+		// [2026-07-02 Johnny Chu] HOTFIX — guard missing table (post-clone)
+		$exists = (int) $wpdb->get_var(
+			$wpdb->prepare(
+				'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+				$table
+			)
+		);
+		if ( ! $exists ) {
+			return array();
+		}
 		return $wpdb->get_results( "SELECT * FROM $table ORDER BY id DESC" );
 	}
 }

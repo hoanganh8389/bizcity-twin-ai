@@ -115,8 +115,8 @@ class BizCity_Guru_Token_Parser {
 		$tbl = $wpdb->prefix . 'bizcity_characters';
 
 		$prev = $wpdb->suppress_errors( true );
-		$exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl ) );
-		if ( $exists !== $tbl ) {
+		$exists = bizcity_tbl_exists( $tbl ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+		if ( ! $exists ) {
 			$wpdb->suppress_errors( $prev );
 			return $cache[ $slug ] = array( 'id' => 0, 'label' => '' );
 		}

@@ -2201,6 +2201,9 @@ class BizCity_Video_Kling_Job_Monitor {
         $stats = BizCity_Video_Kling_Database::get_stats();
         
         $nonce = wp_create_nonce( 'bizcity_kling_nonce' );
+
+        // [2026-06-14 Johnny Chu] PHASE-0.41 VIDEO-VEO3 — pass highlight_job_id from ?job_id= for automation block deep-link
+        $highlight_job_id = isset( $_GET['job_id'] ) ? (int) $_GET['job_id'] : 0;
         
         include BIZCITY_VIDEO_KLING_DIR . 'views/monitor/index.php';
     }

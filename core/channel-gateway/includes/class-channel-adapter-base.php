@@ -23,7 +23,18 @@
 
 defined( 'ABSPATH' ) || exit;
 
-abstract class BizCity_Channel_Adapter_Base implements BizCity_Channel_Adapter {
+// [2026-06-13 Johnny Chu] HOTFIX — interface_exists guard: BizCity_Channel_Magic_Link_Capable
+// may not be present on server if deploy is partial. Fall back to base interface only.
+if ( ! interface_exists( 'BizCity_Channel_Magic_Link_Capable' ) ) {
+	$_bzc_magic_iface = __DIR__ . '/interface-channel-magic-link-capable.php';
+	if ( file_exists( $_bzc_magic_iface ) ) {
+		require_once $_bzc_magic_iface;
+	}
+	unset( $_bzc_magic_iface );
+}
+
+if ( interface_exists( 'BizCity_Channel_Magic_Link_Capable' ) ) {
+	abstract class BizCity_Channel_Adapter_Base implements BizCity_Channel_Adapter, BizCity_Channel_Magic_Link_Capable {
 
 	/* ═══════════════════════════════════════════
 	 *  Required interface stubs
@@ -62,6 +73,30 @@ abstract class BizCity_Channel_Adapter_Base implements BizCity_Channel_Adapter {
 	 */
 	public function send_outbound( string $chat_id, string $message, array $options = [] ): bool {
 		return false;
+	}
+
+	/* ═══════════════════════════════════════════
+	 *  PHASE 3.5-WD — BizCity_Channel_Magic_Link_Capable
+	 * ═══════════════════════════════════════════ */
+
+	/**
+	 * Default magic-link implementation: delegates to BizCity_CRM_Magic_Link::issue().
+	 * Subclasses may override to generate platform-specific deep-links
+	 * (e.g. tg://resolve… for Telegram, m.me/PAGE?ref=… for FB Messenger).
+	 *
+	 * [2026-06-13 Johnny Chu] PHASE-3.5-WD — generic fallback for all adapters
+	 *
+	 * @param string $chat_id
+	 * @param array  $args
+	 * @return array{token:string,url:string,expires_at:string,id:int}|WP_Error
+	 */
+	public function issue_magic_link( string $chat_id, array $args = array() ) {
+		if ( ! class_exists( 'BizCity_CRM_Magic_Link' ) ) {
+			return new WP_Error( 'bizcity_magic_link_unavailable', 'BizCity_CRM_Magic_Link class not loaded.' );
+		}
+		$args['platform'] = $this->get_platform();
+		$args['chat_id']  = $chat_id;
+		return BizCity_CRM_Magic_Link::issue( $args );
 	}
 
 	/* ═══════════════════════════════════════════
@@ -126,5 +161,30 @@ abstract class BizCity_Channel_Adapter_Base implements BizCity_Channel_Adapter {
 	 */
 	protected function make_wp_error( string $code, string $message ): \WP_Error {
 		return new \WP_Error( 'bizcity_adapter_' . $code, $message );
+	}
+}
+} else {
+	// [2026-06-13 Johnny Chu] HOTFIX — fallback: interface file missing on server, define without MagicLink.
+	abstract class BizCity_Channel_Adapter_Base implements BizCity_Channel_Adapter {
+		abstract public function get_platform(): string;
+		abstract public function get_prefix(): string;
+		abstract public function get_endpoints(): array;
+		public function verify_webhook( array $request ): bool { return true; }
+		public function normalize_inbound( array $raw_data ): array {
+			return array_merge( array(
+				'platform' => $this->get_platform(), 'chat_id' => '',
+				'user_id' => '', 'client_name' => '', 'message' => '',
+				'attachments' => array(), 'event_type' => 'message', 'raw' => $raw_data,
+			), $raw_data );
+		}
+		public function send_outbound( string $chat_id, string $message, array $options = array() ): bool { return false; }
+		public function health(): array {
+			return array( 'ok' => null, 'latency_ms' => 0, 'last_error' => 'MagicLink interface missing', 'last_success_at' => '', 'token_expires_at' => '' );
+		}
+		public function test_connection(): array { return array( 'success' => false, 'error' => 'interface_missing' ); }
+		public function describe_capabilities(): array { return array( 'inbound', 'outbound' ); }
+		protected function make_wp_error( string $code, string $message ): \WP_Error {
+			return new \WP_Error( 'bizcity_adapter_' . $code, $message );
+		}
 	}
 }

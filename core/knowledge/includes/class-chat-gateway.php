@@ -554,11 +554,44 @@ class BizCity_Chat_Gateway {
             exit;
         }
 
+        // [2026-06-13 Johnny Chu] HOTFIX — early check: API key not configured → clear user message instead of "Không rõ nguyên nhân"
+        if ( class_exists( 'BizCity_LLM_Client' ) && ! BizCity_LLM_Client::instance()->is_ready() ) {
+            wp_send_json_error( [
+                'message' => 'Trợ lý ảo chưa được cài đặt API key. Vui lòng liên hệ quản trị viên để cấu hình.',
+                'code'    => 'not_configured',
+            ] );
+            exit;
+        }
+
         try {
             $reply_data = $this->get_ai_response($character_id, $message, $images, $session_id, $history_json, $user_id, $platform_type);
         } catch (Exception $e) {
             error_log('[ChatGateway] Error: ' . $e->getMessage());
             wp_send_json_error(['message' => 'Có lỗi xảy ra: ' . $e->getMessage()]);
+            exit;
+        }
+
+        // [2026-06-09 Johnny Chu] PHASE-D D-EMPTY-REPLY — surface root cause when AI
+        // returns empty reply instead of showing generic "Có lỗi xảy ra".
+        if ( $reply_data['message'] === '' ) {
+            $ai_error = $reply_data['ai_error'] ?? '';
+            if ( ! empty( $reply_data['quota_exhausted'] ) ) {
+                $reason = 'Đã hết quota API. Vui lòng liên hệ admin để nạp thêm.';
+            } elseif ( $ai_error !== '' ) {
+                $reason = $ai_error;
+            } else {
+                $reason = 'Không rõ nguyên nhân. Model: ' . ( $reply_data['model'] ?: '?' ) . ', provider: ' . ( $reply_data['provider'] ?: '?' ) . '.';
+            }
+            error_log( '[ChatGateway] empty reply: model=' . ( $reply_data['model'] ?? '?' )
+                . ' provider=' . ( $reply_data['provider'] ?? '?' )
+                . ' quota=' . ( empty( $reply_data['quota_exhausted'] ) ? '0' : '1' )
+                . ' error=' . $ai_error );
+            wp_send_json_error( [
+                'message'  => 'AI trả về phản hồi trống: ' . $reason,
+                'code'     => 'empty_reply',
+                'provider' => $reply_data['provider'] ?? '',
+                'model'    => $reply_data['model'] ?? '',
+            ] );
             exit;
         }
 
@@ -713,7 +746,7 @@ class BizCity_Chat_Gateway {
         global $wpdb;
         $table = $wpdb->prefix . 'bizcity_webchat_messages';
 
-        if ($wpdb->get_var("SHOW TABLES LIKE '$table'") === $table) {
+        if (bizcity_tbl_exists( $table )) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
             $wpdb->delete($table, [
                 'session_id'    => $session_id,
                 'platform_type' => $platform_type,
@@ -721,7 +754,7 @@ class BizCity_Chat_Gateway {
         }
 
         $conv_table = $wpdb->prefix . 'bizcity_webchat_conversations';
-        if ($wpdb->get_var("SHOW TABLES LIKE '$conv_table'") === $conv_table) {
+        if (bizcity_tbl_exists( $conv_table )) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
             $wpdb->query($wpdb->prepare(
                 "UPDATE {$conv_table} SET status = 'closed', ended_at = NOW() WHERE session_id = %s AND platform_type = %s",
                 $session_id, $platform_type
@@ -1345,7 +1378,12 @@ class BizCity_Chat_Gateway {
         ) );
         if ( $__resolver_class && ! $__resolver_disabled ) {
 
-            $system_content = BizCity_Twin_Context_Resolver::build_system_prompt( 'chat', [
+            // [2026-06-09 Johnny Chu] PHASE-D D-BUNDLE-EXTRACT — build_system_prompt() returns
+            // a BUNDLE array {system_content, character, knowledge_context, ...}. Extract
+            // system_content string before using as the LLM system message.
+            // Previously the whole array was passed as 'content' → JSON object → LLM saw
+            // knowledge as {"knowledge_context":"..."} instead of plain text → ignored.
+            $bundle = BizCity_Twin_Context_Resolver::build_system_prompt( 'chat', [
                 'user_id'       => $wp_user_id ?: get_current_user_id(),
                 'session_id'    => $session_id,
                 'message'       => $message,
@@ -1357,6 +1395,15 @@ class BizCity_Chat_Gateway {
                 'mention_override'  => $mention_override ?? false,
                 'channel_role'     => $this->current_channel_role ?? [],
             ] );
+            // [2026-06-09 Johnny Chu] PHASE-D D-BUNDLE-EXTRACT — build_system_prompt() already
+            // returns a string (not array). $bundle is string; is_array() guard is a no-op safety net.
+            $system_content = is_array( $bundle ) ? (string) ( $bundle['system_content'] ?? '' ) : (string) $bundle;
+            error_log( sprintf(
+                '[WEBCHAT-TRACE] system_content length=%d | has_knowledge=%s | char_id=%d',
+                mb_strlen( $system_content ),
+                ( strpos( $system_content, "---\n\n## " ) !== false ) ? 'yes' : 'no',
+                $character_id
+            ) );
 
             // Detect model + vision support
             $model_id = ( $character && ! empty( $character->model_id ) ) ? $character->model_id : '';
@@ -1983,6 +2030,16 @@ class BizCity_Chat_Gateway {
         $result['provider'] = $reply_data['provider'] ?? '';
         $result['model']    = $reply_data['model'] ?? '';
         $result['usage']    = $reply_data['usage'] ?? [];
+        // [2026-06-09 Johnny Chu] PHASE-D D-EMPTY-REPLY — forward error fields so
+        // ajax_send() can surface quota/empty-reply reason instead of blank bubble.
+        if ( isset( $reply_data['ai_error'] ) && $reply_data['ai_error'] !== '' ) {
+            $result['ai_error'] = $reply_data['ai_error'];
+        } elseif ( isset( $reply_data['error'] ) && $reply_data['error'] !== '' ) {
+            $result['ai_error'] = $reply_data['error'];
+        }
+        if ( ! empty( $reply_data['quota_exhausted'] ) ) {
+            $result['quota_exhausted'] = true;
+        }
 
         return $result;
     }
@@ -2968,11 +3025,16 @@ class BizCity_Chat_Gateway {
             }
             // Gateway error → don't silently fallback to direct calls
             error_log( '[ChatGateway] bizcity_llm_chat error: ' . ( $result['error'] ?? 'unknown' ) );
+            // [2026-06-09 Johnny Chu] PHASE-D D-EMPTY-REPLY — use ?: so empty string also
+            // falls through to the error message (not just null).
+            $err_msg = $result['error'] ?: ( $result['message'] ?: 'Lỗi kết nối AI Gateway. Vui lòng thử lại.' );
             return [
-                'message'  => $result['message'] ?? ( $result['error'] ?? 'Lỗi kết nối AI Gateway. Vui lòng thử lại.' ),
-                'provider' => $result['provider'] ?? 'gateway',
-                'model'    => $result['model'] ?? ( $character->model_id ?? '' ),
-                'usage'    => $result['usage'] ?? [],
+                'message'         => $err_msg,
+                'provider'        => $result['provider'] ?? 'gateway',
+                'model'           => $result['model'] ?? ( $character->model_id ?? '' ),
+                'usage'           => $result['usage'] ?? [],
+                'ai_error'        => $result['error'] ?? '',
+                'quota_exhausted' => $result['quota_exhausted'] ?? false,
             ];
         }
 
@@ -3054,6 +3116,22 @@ class BizCity_Chat_Gateway {
      * Get default character ID
      */
     private function get_default_character_id() {
+        // [2026-06-09 Johnny Chu] PHASE-D D-BINDING-RESOLVE — check channel binding table first.
+        // If admin bound WEBCHAT → Connector via Channel tab, that binding wins over the legacy option.
+        if ( class_exists( 'BizCity_Channel_Binding' ) ) {
+            // [2026-06-10 Johnny Chu] R-CACHE HOTFIX — resolve() already falls back to account_id='*'
+            // internally when the exact match fails. Calling resolve('WEBCHAT','*') separately was
+            // duplicating that wildcard query (queries 3+4 in Query Monitor). One call is enough.
+            $binding = BizCity_Channel_Binding::resolve( 'WEBCHAT', (string) get_current_blog_id() );
+            if ( is_array( $binding ) && ! empty( $binding['character_id'] ) ) {
+                $cid = (int) $binding['character_id'];
+                if ( $cid > 0 ) {
+                    error_log( '[ChatGateway] get_default_character_id: resolved from channel binding: character_id=' . $cid );
+                    return $cid;
+                }
+            }
+        }
+
         $cid = intval(get_option('bizcity_webchat_default_character_id', 0));
 
         if (!$cid) {
@@ -3100,7 +3178,7 @@ class BizCity_Chat_Gateway {
         global $wpdb;
         $table = $wpdb->prefix . 'bizcity_webchat_messages';
 
-        if ($wpdb->get_var("SHOW TABLES LIKE '$table'") !== $table) {
+        if (! bizcity_tbl_exists( $table )) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
             return;
         }
 
@@ -3132,7 +3210,7 @@ class BizCity_Chat_Gateway {
         global $wpdb;
         $table = $wpdb->prefix . 'bizcity_webchat_messages';
 
-        if ($wpdb->get_var("SHOW TABLES LIKE '$table'") !== $table) {
+        if (! bizcity_tbl_exists( $table )) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
             return [];
         }
 
@@ -3176,6 +3254,229 @@ class BizCity_Chat_Gateway {
             ];
         }
 
+        // [2026-07-06 Johnny Chu] PHASE-0.48 ID-MEM — fallback to CRM history for canonical channel session keys.
+        if ( empty( $history ) && $this->should_try_crm_history_fallback( (string) $session_id ) ) {
+            $crm_history = $this->get_crm_history_by_session_id( (string) $session_id, (int) $limit );
+            if ( ! empty( $crm_history ) ) {
+                return $crm_history;
+            }
+        }
+
         return $history;
+    }
+
+    /**
+     * Should we attempt CRM fallback for this session id.
+     */
+    private function should_try_crm_history_fallback( string $session_id ): bool {
+        // [2026-07-06 Johnny Chu] PHASE-0.48 ID-MEM — recognize canonical channel-scoped session keys.
+        $session_id = trim( $session_id );
+        if ( $session_id === '' ) {
+            return false;
+        }
+        $prefixes = array( 'fb_', 'zalobot_', 'zalooa_', 'webchat_', 'tg_', 'hotline_' );
+        foreach ( $prefixes as $prefix ) {
+            if ( strpos( $session_id, $prefix ) === 0 ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Load latest CRM messages mapped into chat-gateway history shape.
+     */
+    private function get_crm_history_by_session_id( string $session_id, int $limit = 50 ): array {
+        // [2026-07-06 Johnny Chu] PHASE-0.48 ID-MEM — hydrate history from CRM store when webchat table has no rows.
+        if ( ! class_exists( 'BizCity_CRM_DB_Installer_V2' ) ) {
+            return array();
+        }
+
+        $conversation_id = $this->resolve_crm_conversation_id_by_session_id( $session_id );
+        if ( $conversation_id <= 0 ) {
+            return array();
+        }
+
+        global $wpdb;
+        $tbl_msg = BizCity_CRM_DB_Installer_V2::tbl_messages();
+        $limit   = max( 1, min( 200, (int) $limit ) );
+
+        $rows = $wpdb->get_results( $wpdb->prepare(
+            "SELECT id, external_source_id, content, message_type, sender_type, created_at, ai_metadata_json
+               FROM {$tbl_msg}
+              WHERE conversation_id = %d
+              ORDER BY id DESC
+              LIMIT %d",
+            $conversation_id,
+            $limit
+        ), ARRAY_A );
+        if ( ! is_array( $rows ) || empty( $rows ) ) {
+            return array();
+        }
+
+        $rows = array_reverse( $rows );
+        $history = array();
+        foreach ( $rows as $row ) {
+            $message_type = (string) ( $row['message_type'] ?? '' );
+            $sender_type  = (string) ( $row['sender_type'] ?? '' );
+            $from         = ( $message_type === 'incoming' || $sender_type === 'contact' ) ? 'user' : 'bot';
+            $meta         = ! empty( $row['ai_metadata_json'] ) ? json_decode( (string) $row['ai_metadata_json'], true ) : array();
+
+            $history[] = array(
+                'id'          => (int) ( $row['id'] ?? 0 ),
+                'message_id'  => (string) ( $row['external_source_id'] ?? '' ),
+                'msg'         => (string) ( $row['content'] ?? '' ),
+                'from'        => $from,
+                'client_name' => '',
+                'attachments' => array(),
+                'images'      => array(),
+                'time'        => (string) ( $row['created_at'] ?? '' ),
+                'meta'        => is_array( $meta ) ? $meta : array(),
+            );
+        }
+
+        return $history;
+    }
+
+    /**
+     * Resolve latest CRM conversation id from canonical session key.
+     */
+    private function resolve_crm_conversation_id_by_session_id( string $session_id ): int {
+        $identity = $this->parse_crm_identity_from_session_id( $session_id );
+        if ( empty( $identity['source_id'] ) || empty( $identity['channel_type'] ) ) {
+            return 0;
+        }
+
+        global $wpdb;
+        $tbl_conv = BizCity_CRM_DB_Installer_V2::tbl_conversations();
+        $tbl_ci   = BizCity_CRM_DB_Installer_V2::tbl_contact_inboxes();
+        $tbl_ibx  = BizCity_CRM_DB_Installer_V2::tbl_inboxes();
+
+        $channel_type = (string) $identity['channel_type'];
+        $account_id   = (string) ( $identity['account_id'] ?? '' );
+        $source_id    = (string) $identity['source_id'];
+
+        if ( $channel_type === 'facebook' ) {
+            $row = $wpdb->get_row( $wpdb->prepare(
+                "SELECT c.id
+                   FROM {$tbl_conv} c
+                   JOIN {$tbl_ci} ci ON ci.id = c.contact_inbox_id
+                   JOIN {$tbl_ibx} i ON i.id = c.inbox_id
+                  WHERE LOWER(i.channel_type) = 'facebook'
+                    AND ci.source_id = %s
+                    AND ( i.channel_ref_id = %s OR i.channel_ref_id = %s )
+                  ORDER BY c.last_activity_at DESC, c.id DESC
+                  LIMIT 1",
+                $source_id,
+                $account_id,
+                'fb_feed_' . $account_id
+            ), ARRAY_A );
+            return (int) ( $row['id'] ?? 0 );
+        }
+
+        if ( $channel_type === 'zalo_bot' ) {
+            $row = $wpdb->get_row( $wpdb->prepare(
+                "SELECT c.id
+                   FROM {$tbl_conv} c
+                   JOIN {$tbl_ci} ci ON ci.id = c.contact_inbox_id
+                   JOIN {$tbl_ibx} i ON i.id = c.inbox_id
+                  WHERE ( LOWER(i.channel_type) = 'zalo' OR LOWER(i.channel_type) = 'zalo_bot' )
+                    AND i.channel_ref_id = %s
+                    AND ci.source_id = %s
+                  ORDER BY c.last_activity_at DESC, c.id DESC
+                  LIMIT 1",
+                $account_id,
+                $source_id
+            ), ARRAY_A );
+            return (int) ( $row['id'] ?? 0 );
+        }
+
+        if ( $channel_type === 'webchat' ) {
+            $row = $wpdb->get_row( $wpdb->prepare(
+                "SELECT c.id
+                   FROM {$tbl_conv} c
+                   JOIN {$tbl_ci} ci ON ci.id = c.contact_inbox_id
+                   JOIN {$tbl_ibx} i ON i.id = c.inbox_id
+                  WHERE LOWER(i.channel_type) = 'webchat'
+                    AND ci.source_id = %s
+                  ORDER BY c.last_activity_at DESC, c.id DESC
+                  LIMIT 1",
+                $source_id
+            ), ARRAY_A );
+            return (int) ( $row['id'] ?? 0 );
+        }
+
+        $row = $wpdb->get_row( $wpdb->prepare(
+            "SELECT c.id
+               FROM {$tbl_conv} c
+               JOIN {$tbl_ci} ci ON ci.id = c.contact_inbox_id
+               JOIN {$tbl_ibx} i ON i.id = c.inbox_id
+              WHERE LOWER(i.channel_type) = %s
+                AND i.channel_ref_id = %s
+                AND ci.source_id = %s
+              ORDER BY c.last_activity_at DESC, c.id DESC
+              LIMIT 1",
+            $channel_type,
+            $account_id,
+            $source_id
+        ), ARRAY_A );
+
+        return (int) ( $row['id'] ?? 0 );
+    }
+
+    /**
+     * Parse canonical session key to channel tuple.
+     */
+    private function parse_crm_identity_from_session_id( string $session_id ): array {
+        // [2026-07-06 Johnny Chu] PHASE-0.48 ID-MEM — parse channel/account/source tuple from canonical session key.
+        $session_id = trim( $session_id );
+        if ( $session_id === '' ) {
+            return array();
+        }
+
+        if ( preg_match( '/^fb_(.+)_(.+)$/', $session_id, $m ) ) {
+            return array(
+                'channel_type' => 'facebook',
+                'account_id'   => (string) $m[1],
+                'source_id'    => (string) $m[2],
+            );
+        }
+        if ( preg_match( '/^zalobot_(.+)_(.+)$/', $session_id, $m ) ) {
+            return array(
+                'channel_type' => 'zalo_bot',
+                'account_id'   => (string) $m[1],
+                'source_id'    => (string) $m[2],
+            );
+        }
+        if ( preg_match( '/^zalooa_(.+)_(.+)$/', $session_id, $m ) ) {
+            return array(
+                'channel_type' => 'zalo_oa',
+                'account_id'   => (string) $m[1],
+                'source_id'    => (string) $m[2],
+            );
+        }
+        if ( preg_match( '/^webchat_(.+)$/', $session_id, $m ) ) {
+            return array(
+                'channel_type' => 'webchat',
+                'account_id'   => '',
+                'source_id'    => (string) $m[1],
+            );
+        }
+        if ( preg_match( '/^tg_(.+)_(.+)$/', $session_id, $m ) ) {
+            return array(
+                'channel_type' => 'telegram',
+                'account_id'   => (string) $m[1],
+                'source_id'    => (string) $m[2],
+            );
+        }
+        if ( preg_match( '/^hotline_(.+)_(.+)$/', $session_id, $m ) ) {
+            return array(
+                'channel_type' => 'zalo_hotline',
+                'account_id'   => (string) $m[1],
+                'source_id'    => (string) $m[2],
+            );
+        }
+
+        return array();
     }
 }

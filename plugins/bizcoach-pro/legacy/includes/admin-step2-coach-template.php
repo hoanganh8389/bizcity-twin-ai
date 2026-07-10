@@ -15,17 +15,18 @@ if (!defined('ABSPATH')) exit;
 /* =====================================================================
  * ADMIN MENU: Bước 2 – Chọn Coach Template
  * =====================================================================*/
-add_action('admin_menu', function () {
-  add_submenu_page(
-    'bccm_user_profiles',
-    'AI Coaching Style',
-    'AI Coaching Style',
-    'edit_posts',
-    'bccm_step2_coach_template',
-    'bccm_admin_step2_coach_template',
-    12
-  );
-}, 12);
+// [2026-06-10 Johnny Chu] HOTFIX — bccm_step2_coach_template menu removed per request.
+// add_action('admin_menu', function () {
+//   add_submenu_page(
+//     'bccm_user_profiles',
+//     'AI Coaching Style',
+//     'AI Coaching Style',
+//     'edit_posts',
+//     'bccm_step2_coach_template',
+//     'bccm_admin_step2_coach_template',
+//     12
+//   );
+// }, 12);
 
 /* =====================================================================
  * ADMIN PAGE: Bước 2 – Chọn Coach Template & Câu hỏi bổ sung

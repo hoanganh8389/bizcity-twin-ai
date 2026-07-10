@@ -205,7 +205,8 @@ final class BizCity_Research_REST {
         // cấu hình BizCity API key thì mọi tool call sẽ fail dưới tầng sâu
         // với 403/404 khó hiểu (như ảnh `buudienlangson.btnet.vn`). Chặn
         // sớm ở đây + trả URL của trang cấu hình để FE render link rõ ràng.
-        $api_key = trim( (string) get_site_option( 'bizcity_llm_api_key', '' ) );
+        // [2026-06-10 Johnny Chu] HOTFIX — per-site option
+        $api_key = trim( (string) get_option( 'bizcity_llm_api_key', '' ) );
         if ( $api_key === '' ) {
             $settings_url = admin_url( 'admin.php?page=bizcity-twinchat-settings' );
             return new WP_Error(

@@ -13,6 +13,7 @@
  *   - `[nb:17/p3]`         (notebook passage)
  *   - `[src:passage-7821]` (source chunk — opaque id)
  *   - `[ent:product-sku-A1]` (KG entity)
+ *   - `[astro:natal#2]` / `[astro:report#2/s1]` / `[astro:transit#2/2026-07-05]`
  *   - `[web:1#https://...]` (web result, W6/W7)
  *
  * Hard rules:
@@ -37,7 +38,7 @@ final class BizCity_Twin_Citation_Resolver {
 
 	const CACHE_GROUP    = 'bizcity_twin_citation_resolver';
 	const CACHE_TTL_SHORT= 60;   // mutable kinds (mem/faq/nb/ent/src)
-	const CACHE_TTL_LONG = 300;  // web (URL is immutable)
+	const CACHE_TTL_LONG = 300;  // web (URL is immupatble)
 	const REST_NS        = 'bizcity-twinbrain/v1';
 
 	private static $booted = false;
@@ -45,6 +46,7 @@ final class BizCity_Twin_Citation_Resolver {
 	public static function boot(): void {
 		if ( self::$booted ) return;
 		self::$booted = true;
+		// [2026-07-05 Johnny Chu] HOTFIX — fix malformed callback token causing PHP parse error.
 		add_action( 'rest_api_init', [ __CLASS__, 'register_routes' ] );
 	}
 
@@ -99,7 +101,7 @@ final class BizCity_Twin_Citation_Resolver {
 	 * @return string[] de-duplicated, normalized (with brackets) token list.
 	 */
 	public static function extract_tokens( string $answer_md ): array {
-		$pattern = '/\[(mem|faq|nb|src|ent|web):[^\]\s]+\]/i';
+		$pattern = '/\[(mem|faq|nb|src|ent|astro|web):[^\]\s]+\]/i';
 		if ( ! preg_match_all( $pattern, $answer_md, $m ) ) {
 			return [];
 		}
@@ -116,9 +118,11 @@ final class BizCity_Twin_Citation_Resolver {
 			return self::error_record( $token, 'unknown', 'invalid_token' );
 		}
 
+		// [2026-07-05 Johnny Chu] PHASE-FAA2-TWINBRAIN — add blog_id to cache key (multisite collision fix).
+		$blog_id   = (int) get_current_blog_id();
 		$cache_key = $kind === 'web'
-			? 'web:' . md5( $ref )                              // URL is stable; not user-gated
-			: $kind . ':' . $ref . ':u' . $user_id;             // permission-gated kinds keyed by user
+			? 'web:' . md5( $ref )                                                  // URL is immutable, not user-gated
+			: 'b' . $blog_id . ':' . $kind . ':' . $ref . ':u' . $user_id;         // permission-gated kinds keyed by blog+user
 
 		$cached = wp_cache_get( $cache_key, self::CACHE_GROUP );
 		if ( is_array( $cached ) ) {
@@ -126,6 +130,7 @@ final class BizCity_Twin_Citation_Resolver {
 		}
 
 		switch ( $kind ) {
+			case 'astro':$rec = self::resolve_astro( $token, $ref, $user_id );      break;
 			case 'web':  $rec = self::resolve_web( $token, $ref );                break;
 			case 'nb':   $rec = self::resolve_notebook( $token, $ref, $user_id ); break;
 			case 'faq':  $rec = self::resolve_faq( $token, $ref, $user_id );      break;
@@ -177,6 +182,475 @@ final class BizCity_Twin_Citation_Resolver {
 				'favicon'   => $valid_url ? ( 'https://www.google.com/s2/favicons?sz=32&domain=' . rawurlencode( $host ) ) : '',
 			],
 		];
+	}
+
+	/**
+	 * [2026-07-05 Johnny Chu] PHASE-FAA2-TWINBRAIN — resolve astro citation namespace.
+	 *
+	 * Supported refs:
+	 *   - natal#<coachee_id>
+	 *   - report#<coachee_id>/s<section_idx>
+	 *   - transit#<coachee_id>/<YYYY-MM-DD>
+	 *   - transit-range#<coachee_id>/<from>..<to>
+	 * Backward-compat:
+	 *   - [astro:<type>#https://...] (legacy URL-style token)
+	 */
+	private static function resolve_astro( string $token, string $ref, int $user_id ): array {
+		if ( ! preg_match( '/^([a-z_\-]+)#(.+)$/i', $ref, $m ) ) {
+			return self::error_record( $token, 'astro', 'invalid_ref' );
+		}
+
+		$astro_type = strtolower( (string) $m[1] );
+		$payload    = trim( (string) $m[2] );
+		if ( $payload === '' ) {
+			return self::error_record( $token, 'astro', 'invalid_ref' );
+		}
+
+		// [2026-07-05 Johnny Chu] PHASE-FAA2-TWINBRAIN — keep URL-style tokens working.
+		if ( filter_var( $payload, FILTER_VALIDATE_URL ) ) {
+			return self::build_astro_url_record( $token, $astro_type, $payload );
+		}
+
+		switch ( $astro_type ) {
+			case 'natal':
+				return self::resolve_astro_natal( $token, $payload, $user_id );
+			case 'report':
+				return self::resolve_astro_report( $token, $payload, $user_id );
+			case 'transit':
+			case 'transit_day':
+				return self::resolve_astro_transit( $token, $payload, $user_id, $astro_type );
+			case 'transit-range':
+			case 'transit_range':
+				return self::resolve_astro_transit_range( $token, $payload, $user_id );
+			default:
+				return self::error_record( $token, 'astro', 'unsupported_astro_type' );
+		}
+	}
+
+	private static function resolve_astro_natal( string $token, string $payload, int $user_id ): array {
+		$coachee_id = (int) $payload;
+		if ( $coachee_id <= 0 ) {
+			return self::error_record( $token, 'astro', 'invalid_coachee_id' );
+		}
+
+		$owner = self::lookup_astro_owner( $coachee_id );
+		if ( ! $owner['found'] ) {
+			return self::error_record( $token, 'astro', 'not_found' );
+		}
+		if ( ! self::can_view_astro_owner( (int) $owner['user_id'], $user_id ) ) {
+			return self::error_record( $token, 'astro', 'permission_denied' );
+		}
+
+		$name    = (string) $owner['full_name'];
+		$excerpt = self::lookup_astro_natal_excerpt( $coachee_id );
+		$url     = self::build_astro_natal_url( $coachee_id );
+
+		return [
+			'token'            => $token,
+			'kind'             => 'astro',
+			'label'            => 'Natal · ' . ( $name !== '' ? $name : ( '#' . $coachee_id ) ),
+			'ref_url'          => $url,
+			'evidence_excerpt' => $excerpt,
+			'can_edit'         => user_can( $user_id, 'manage_options' ),
+			'ttl'              => self::CACHE_TTL_SHORT,
+			'meta'             => [
+				'astro_type'    => 'natal',
+				'coachee_id'    => $coachee_id,
+				'owner_user_id' => (int) $owner['user_id'],
+			],
+		];
+	}
+
+	private static function resolve_astro_report( string $token, string $payload, int $user_id ): array {
+		if ( ! preg_match( '/^(\d+)\/s(\d+)$/i', $payload, $m ) ) {
+			return self::error_record( $token, 'astro', 'invalid_report_ref' );
+		}
+
+		$coachee_id  = (int) $m[1];
+		$section_idx = (int) $m[2];
+		if ( $coachee_id <= 0 || $section_idx < 0 ) {
+			return self::error_record( $token, 'astro', 'invalid_report_ref' );
+		}
+
+		$owner = self::lookup_astro_owner( $coachee_id );
+		if ( ! $owner['found'] ) {
+			return self::error_record( $token, 'astro', 'not_found' );
+		}
+		if ( ! self::can_view_astro_owner( (int) $owner['user_id'], $user_id ) ) {
+			return self::error_record( $token, 'astro', 'permission_denied' );
+		}
+
+		$report_meta = self::lookup_astro_report_section_excerpt( $coachee_id, $section_idx );
+		$label_title = (string) ( $report_meta['title'] ?? '' );
+		$excerpt     = (string) ( $report_meta['excerpt'] ?? '' );
+		$url         = self::build_astro_natal_url( $coachee_id );
+		if ( $url !== '' ) {
+			$url = add_query_arg( [ 'report_section' => $section_idx ], $url );
+		}
+
+		return [
+			'token'            => $token,
+			'kind'             => 'astro',
+			'label'            => $label_title !== ''
+				? ( 'Report · ' . $label_title )
+				: ( 'Report · s' . $section_idx ),
+			'ref_url'          => $url,
+			'evidence_excerpt' => $excerpt,
+			'can_edit'         => user_can( $user_id, 'manage_options' ),
+			'ttl'              => self::CACHE_TTL_SHORT,
+			'meta'             => [
+				'astro_type'    => 'report',
+				'coachee_id'    => $coachee_id,
+				'section_idx'   => $section_idx,
+				'owner_user_id' => (int) $owner['user_id'],
+			],
+		];
+	}
+
+	private static function resolve_astro_transit( string $token, string $payload, int $user_id, string $astro_type ): array {
+		if ( ! preg_match( '/^(\d+)\/(\d{4}-\d{2}-\d{2})$/', $payload, $m ) ) {
+			return self::error_record( $token, 'astro', 'invalid_transit_ref' );
+		}
+
+		$coachee_id = (int) $m[1];
+		$date       = (string) $m[2];
+		if ( $coachee_id <= 0 ) {
+			return self::error_record( $token, 'astro', 'invalid_transit_ref' );
+		}
+
+		$owner = self::lookup_astro_owner( $coachee_id );
+		if ( ! $owner['found'] ) {
+			return self::error_record( $token, 'astro', 'not_found' );
+		}
+		if ( ! self::can_view_astro_owner( (int) $owner['user_id'], $user_id ) ) {
+			return self::error_record( $token, 'astro', 'permission_denied' );
+		}
+
+		$transit_meta = self::lookup_astro_transit_excerpt( $coachee_id, $date );
+		$url          = self::build_astro_transit_day_url( $coachee_id, $date );
+
+		return [
+			'token'            => $token,
+			'kind'             => 'astro',
+			'label'            => 'Transit · ' . $date,
+			'ref_url'          => $url,
+			'evidence_excerpt' => (string) ( $transit_meta['excerpt'] ?? '' ),
+			'can_edit'         => user_can( $user_id, 'manage_options' ),
+			'ttl'              => self::CACHE_TTL_SHORT,
+			'meta'             => [
+				'astro_type'      => $astro_type,
+				'coachee_id'      => $coachee_id,
+				'date'            => $date,
+				'aspects_count'   => (int) ( $transit_meta['aspects_count'] ?? 0 ),
+				'retro_count'     => (int) ( $transit_meta['retro_count'] ?? 0 ),
+				'owner_user_id'   => (int) $owner['user_id'],
+			],
+		];
+	}
+
+	private static function resolve_astro_transit_range( string $token, string $payload, int $user_id ): array {
+		if ( ! preg_match( '/^(\d+)\/(\d{4}-\d{2}-\d{2})\.\.(\d{4}-\d{2}-\d{2})$/', $payload, $m ) ) {
+			return self::error_record( $token, 'astro', 'invalid_transit_range_ref' );
+		}
+
+		$coachee_id = (int) $m[1];
+		$from       = (string) $m[2];
+		$to         = (string) $m[3];
+		if ( $coachee_id <= 0 ) {
+			return self::error_record( $token, 'astro', 'invalid_transit_range_ref' );
+		}
+
+		$owner = self::lookup_astro_owner( $coachee_id );
+		if ( ! $owner['found'] ) {
+			return self::error_record( $token, 'astro', 'not_found' );
+		}
+		if ( ! self::can_view_astro_owner( (int) $owner['user_id'], $user_id ) ) {
+			return self::error_record( $token, 'astro', 'permission_denied' );
+		}
+
+		$url = self::build_astro_transit_day_url( $coachee_id, $from );
+		if ( $url !== '' ) {
+			$url = add_query_arg( [ 'period' => 'custom', 'from' => $from, 'to' => $to ], $url );
+		}
+
+		return [
+			'token'            => $token,
+			'kind'             => 'astro',
+			'label'            => 'Transit range · ' . $from . ' → ' . $to,
+			'ref_url'          => $url,
+			'evidence_excerpt' => 'Khoảng transit từ ' . $from . ' đến ' . $to,
+			'can_edit'         => user_can( $user_id, 'manage_options' ),
+			'ttl'              => self::CACHE_TTL_SHORT,
+			'meta'             => [
+				'astro_type'    => 'transit_range',
+				'coachee_id'    => $coachee_id,
+				'from'          => $from,
+				'to'            => $to,
+				'owner_user_id' => (int) $owner['user_id'],
+			],
+		];
+	}
+
+	private static function build_astro_url_record( string $token, string $astro_type, string $url ): array {
+		$host = '';
+		$h    = wp_parse_url( $url, PHP_URL_HOST );
+		if ( is_string( $h ) ) {
+			$host = preg_replace( '/^www\./', '', $h );
+		}
+		$label = self::astro_type_label( $astro_type );
+		if ( $host !== '' ) {
+			$label .= ' · ' . $host;
+		}
+
+		return [
+			'token'            => $token,
+			'kind'             => 'astro',
+			'label'            => $label,
+			'ref_url'          => $url,
+			'evidence_excerpt' => '',
+			'can_edit'         => false,
+			'ttl'              => self::CACHE_TTL_SHORT,
+			'meta'             => [
+				'astro_type'       => $astro_type,
+				'astro_url'        => $url,
+				'astro_host'       => $host,
+				'legacy_url_mode'  => true,
+			],
+		];
+	}
+
+	private static function astro_type_label( string $astro_type ): string {
+		$map = [
+			'natal'         => 'Natal',
+			'report'        => 'Báo cáo',
+			'en_report'     => 'Báo cáo EN',
+			'transit'       => 'Transit',
+			'transit_day'   => 'Transit ngày',
+			'transit-range' => 'Transit range',
+			'transit_range' => 'Transit range',
+		];
+		return $map[ $astro_type ] ?? ( 'Astro · ' . $astro_type );
+	}
+
+	/**
+	 * @return array{found:bool,user_id:int,full_name:string}
+	 */
+	private static function lookup_astro_owner( int $coachee_id ): array {
+		global $wpdb;
+		$table = $wpdb->prefix . 'bccm_coachees';
+		$exists = bizcity_tbl_exists( $table ); // [2026-07-05 Johnny Chu] PHASE-FAA2-TWINBRAIN — safe table guard.
+		if ( ! $exists ) {
+			return [ 'found' => false, 'user_id' => 0, 'full_name' => '' ];
+		}
+
+		$row = $wpdb->get_row( $wpdb->prepare(
+			"SELECT id, user_id, full_name FROM {$table} WHERE id = %d LIMIT 1",
+			$coachee_id
+		), ARRAY_A );
+
+		if ( ! is_array( $row ) ) {
+			return [ 'found' => false, 'user_id' => 0, 'full_name' => '' ];
+		}
+
+		return [
+			'found'     => true,
+			'user_id'   => (int) ( $row['user_id'] ?? 0 ),
+			'full_name' => (string) ( $row['full_name'] ?? '' ),
+		];
+	}
+
+	private static function can_view_astro_owner( int $owner_user_id, int $viewer_user_id ): bool {
+		if ( user_can( $viewer_user_id, 'manage_options' ) ) {
+			return true;
+		}
+		if ( $viewer_user_id <= 0 || $owner_user_id <= 0 ) {
+			return false;
+		}
+		return $viewer_user_id === $owner_user_id;
+	}
+
+	private static function lookup_astro_natal_excerpt( int $coachee_id ): string {
+		global $wpdb;
+		$table = $wpdb->prefix . 'bccm_astro';
+		$exists = bizcity_tbl_exists( $table ); // [2026-07-05 Johnny Chu] PHASE-FAA2-TWINBRAIN — safe table guard.
+		if ( ! $exists ) {
+			return '';
+		}
+
+		$row = $wpdb->get_row( $wpdb->prepare(
+			"SELECT summary FROM {$table} WHERE coachee_id = %d AND chart_type = 'western' ORDER BY id DESC LIMIT 1",
+			$coachee_id
+		), ARRAY_A );
+		if ( ! is_array( $row ) || empty( $row['summary'] ) ) {
+			return '';
+		}
+
+		$summary = json_decode( (string) $row['summary'], true );
+		if ( ! is_array( $summary ) ) {
+			return '';
+		}
+
+		if ( isset( $summary['big3'] ) && is_array( $summary['big3'] ) ) {
+			$parts = [];
+			foreach ( $summary['big3'] as $k => $v ) {
+				$val = trim( (string) $v );
+				if ( $val === '' ) { continue; }
+				$parts[] = ucfirst( (string) $k ) . ': ' . $val;
+			}
+			if ( ! empty( $parts ) ) {
+				return mb_substr( 'Big3 · ' . implode( ' · ', $parts ), 0, 220 );
+			}
+		}
+
+		if ( isset( $summary['summary'] ) && is_string( $summary['summary'] ) ) {
+			return mb_substr( trim( strip_tags( $summary['summary'] ) ), 0, 220 );
+		}
+
+		return '';
+	}
+
+	/**
+	 * @return array{title:string,excerpt:string}
+	 */
+	private static function lookup_astro_report_section_excerpt( int $coachee_id, int $section_idx ): array {
+		global $wpdb;
+		$table = $wpdb->prefix . 'bccm_astro';
+		$exists = bizcity_tbl_exists( $table ); // [2026-07-05 Johnny Chu] PHASE-FAA2-TWINBRAIN — safe table guard.
+		if ( ! $exists ) {
+			return [ 'title' => '', 'excerpt' => '' ];
+		}
+
+		$row = $wpdb->get_row( $wpdb->prepare(
+			"SELECT llm_report FROM {$table} WHERE coachee_id = %d AND chart_type = 'western' ORDER BY id DESC LIMIT 1",
+			$coachee_id
+		), ARRAY_A );
+		if ( ! is_array( $row ) || empty( $row['llm_report'] ) ) {
+			return [ 'title' => '', 'excerpt' => '' ];
+		}
+
+		$decoded = json_decode( (string) $row['llm_report'], true );
+		$sections = isset( $decoded['sections'] ) && is_array( $decoded['sections'] ) ? $decoded['sections'] : [];
+		$raw = isset( $sections[ $section_idx ] ) ? $sections[ $section_idx ] : '';
+		if ( ! is_string( $raw ) || $raw === '' ) {
+			return [ 'title' => '', 'excerpt' => '' ];
+		}
+
+		$lines = preg_split( '/\r\n|\r|\n/', trim( $raw ) );
+		$title = '';
+		if ( is_array( $lines ) && ! empty( $lines ) ) {
+			$title = trim( ltrim( (string) $lines[0], '# ' ) );
+		}
+		$excerpt = mb_substr( trim( strip_tags( $raw ) ), 0, 220 );
+		return [ 'title' => $title, 'excerpt' => $excerpt ];
+	}
+
+	/**
+	 * @return array{excerpt:string,aspects_count:int,retro_count:int}
+	 */
+	private static function lookup_astro_transit_excerpt( int $coachee_id, string $date ): array {
+		global $wpdb;
+		$table = $wpdb->prefix . 'bccm_transit_snapshots';
+		$exists = bizcity_tbl_exists( $table ); // [2026-07-05 Johnny Chu] PHASE-FAA2-TWINBRAIN — safe table guard.
+		if ( ! $exists ) {
+			return [ 'excerpt' => '', 'aspects_count' => 0, 'retro_count' => 0 ];
+		}
+
+		$date_col = '';
+		if ( self::has_table_column( $table, 'target_date' ) ) {
+			$date_col = 'target_date';
+		} elseif ( self::has_table_column( $table, 'snap_date' ) ) {
+			$date_col = 'snap_date';
+		}
+		if ( $date_col === '' ) {
+			return [ 'excerpt' => '', 'aspects_count' => 0, 'retro_count' => 0 ];
+		}
+
+		$row = $wpdb->get_row( $wpdb->prepare(
+			"SELECT planets_json, aspects_json FROM {$table} WHERE coachee_id = %d AND {$date_col} = %s LIMIT 1",
+			$coachee_id,
+			$date
+		), ARRAY_A );
+		if ( ! is_array( $row ) ) {
+			return [ 'excerpt' => '', 'aspects_count' => 0, 'retro_count' => 0 ];
+		}
+
+		$planets = ! empty( $row['planets_json'] ) ? json_decode( (string) $row['planets_json'], true ) : [];
+		$aspects = ! empty( $row['aspects_json'] ) ? json_decode( (string) $row['aspects_json'], true ) : [];
+		$aspects_count = is_array( $aspects ) ? count( $aspects ) : 0;
+		$retro_count = 0;
+		if ( is_array( $planets ) ) {
+			foreach ( $planets as $planet ) {
+				if ( ! is_array( $planet ) ) { continue; }
+				$is_retro = ! empty( $planet['is_retro'] )
+					|| ( isset( $planet['isRetro'] ) && strtolower( (string) $planet['isRetro'] ) === 'true' )
+					|| ! empty( $planet['retrograde'] );
+				if ( $is_retro ) {
+					$retro_count++;
+				}
+			}
+		}
+
+		$excerpt = 'Transit ' . $date . ' · ' . $aspects_count . ' aspects';
+		if ( $retro_count > 0 ) {
+			$excerpt .= ' · ℞ ' . $retro_count;
+		}
+		return [
+			'excerpt'       => $excerpt,
+			'aspects_count' => $aspects_count,
+			'retro_count'   => $retro_count,
+		];
+	}
+
+	private static function has_table_column( string $table_name, string $column_name ): bool {
+		$cache_key = 'col:' . md5( $table_name . '|' . $column_name );
+		$cached    = wp_cache_get( $cache_key, self::CACHE_GROUP );
+		if ( is_numeric( $cached ) ) {
+			return (int) $cached === 1;
+		}
+
+		global $wpdb;
+		$present = (int) (bool) $wpdb->get_var( $wpdb->prepare(
+			"SELECT 1
+			   FROM information_schema.COLUMNS
+			  WHERE TABLE_SCHEMA = DATABASE()
+			    AND TABLE_NAME   = %s
+			    AND COLUMN_NAME  = %s
+			  LIMIT 1",
+			$table_name,
+			$column_name
+		) );
+
+		wp_cache_set( $cache_key, $present, self::CACHE_GROUP, self::CACHE_TTL_SHORT );
+		return $present === 1;
+	}
+
+	private static function build_astro_natal_url( int $coachee_id ): string {
+		if ( $coachee_id <= 0 ) {
+			return '';
+		}
+		if ( function_exists( 'bccm_get_natal_chart_public_url' ) ) {
+			$url = (string) bccm_get_natal_chart_public_url( $coachee_id );
+			if ( $url !== '' ) {
+				return $url;
+			}
+		}
+		return home_url( '/my-western-astrology/?coachee_id=' . $coachee_id );
+	}
+
+	private static function build_astro_transit_day_url( int $coachee_id, string $date ): string {
+		if ( $coachee_id <= 0 || ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $date ) ) {
+			return '';
+		}
+
+		$base = '';
+		if ( function_exists( 'bcpro_get_transit_public_url' ) ) {
+			$base = (string) bcpro_get_transit_public_url( $coachee_id, 'day' );
+		}
+		if ( $base === '' ) {
+			$base = home_url( '/my-transit/?coachee_id=' . $coachee_id . '&period=day' );
+		}
+		$base = add_query_arg( [ 'period' => 'day' ], $base );
+		return add_query_arg( [ 'date' => $date ], $base );
 	}
 
 	private static function resolve_notebook( string $token, string $ref, int $user_id ): array {
@@ -267,8 +741,8 @@ final class BizCity_Twin_Citation_Resolver {
 		if ( $kind_letter === 'U' ) {
 			global $wpdb;
 			$table = $wpdb->prefix . 'bizcity_memory_users';
-			$exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) );
-			if ( $exists === $table ) {
+			$exists = bizcity_tbl_exists( $table ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+			if ( $exists ) {
 				$row = $wpdb->get_row( $wpdb->prepare(
 					"SELECT id, user_id, memory_tier, memory_type, memory_text FROM {$table} WHERE id = %d LIMIT 1",
 					$mem_id
@@ -357,9 +831,9 @@ final class BizCity_Twin_Citation_Resolver {
 		$table = $wpdb->prefix . 'bizcity_notebooks';
 		$cached = wp_cache_get( 'nb_title:' . $nb_id, self::CACHE_GROUP );
 		if ( is_string( $cached ) ) return $cached;
-		// SHOW TABLES guard — table may not exist in lean envs.
-		$exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) );
-		if ( $exists !== $table ) {
+		// Guard — table may not exist in lean envs.
+		$exists = bizcity_tbl_exists( $table ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+		if ( ! $exists ) {
 			wp_cache_set( 'nb_title:' . $nb_id, '', self::CACHE_GROUP, self::CACHE_TTL_SHORT );
 			return '';
 		}
@@ -374,8 +848,8 @@ final class BizCity_Twin_Citation_Resolver {
 	private static function lookup_passage_excerpt( int $nb_id, int $passage_id ): string {
 		global $wpdb;
 		$table = $wpdb->prefix . 'bizcity_passages';
-		$exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) );
-		if ( $exists !== $table ) return '';
+		$exists = bizcity_tbl_exists( $table ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+		if ( ! $exists ) return '';
 		$content = (string) $wpdb->get_var( $wpdb->prepare(
 			"SELECT content FROM {$table} WHERE id = %d AND notebook_id = %d LIMIT 1",
 			$passage_id, $nb_id
@@ -403,7 +877,7 @@ final class BizCity_Twin_Citation_Resolver {
 		if ( $raw[0] !== '[' ) $raw = '[' . $raw;
 		if ( substr( $raw, -1 ) !== ']' ) $raw .= ']';
 		// Sanity: must match `[kind:ref]`.
-		if ( ! preg_match( '/^\[(mem|faq|nb|src|ent|web):[^\]\s]+\]$/i', $raw ) ) return '';
+		if ( ! preg_match( '/^\[(mem|faq|nb|src|ent|astro|web):[^\]\s]+\]$/i', $raw ) ) return '';
 		return $raw;
 	}
 
@@ -411,7 +885,7 @@ final class BizCity_Twin_Citation_Resolver {
 	 * @return array{0:string,1:string} [kind, ref] or ['',''] on failure.
 	 */
 	private static function split_token( string $token ): array {
-		if ( ! preg_match( '/^\[(mem|faq|nb|src|ent|web):([^\]]+)\]$/i', $token, $m ) ) {
+		if ( ! preg_match( '/^\[(mem|faq|nb|src|ent|astro|web):([^\]]+)\]$/i', $token, $m ) ) {
 			return [ '', '' ];
 		}
 		return [ strtolower( $m[1] ), $m[2] ];

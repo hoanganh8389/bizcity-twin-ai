@@ -601,11 +601,19 @@ final class BizCity_Diagnostics_Admin_Page {
 								<br><span style="color:#b26a00">→ <?php echo esc_html( $res_for_view['fix_hint'] ); ?></span>
 							<?php endif; ?>
 							<?php if ( ! $is_persisted && ! empty( $res_for_view['steps'] ) && is_array( $res_for_view['steps'] ) ) : ?>
-								<details style="margin-top:4px">
+								<details style="margin-top:4px" open>
 									<summary style="cursor:pointer;color:#666;font-size:11px"><?php echo count( $res_for_view['steps'] ); ?> steps</summary>
 									<ol style="margin:4px 0 0 18px;padding:0;font-size:11px;color:#666">
-										<?php foreach ( $res_for_view['steps'] as $s ) : ?>
-											<li><?php echo esc_html( is_array( $s ) ? ( $s['label'] ?? wp_json_encode( $s ) ) : (string) $s ); ?></li>
+										<?php foreach ( $res_for_view['steps'] as $s ) :
+											$st_status = is_array( $s ) ? (string) ( $s['status'] ?? '' ) : '';
+											$st_label  = is_array( $s ) ? (string) ( $s['label'] ?? wp_json_encode( $s ) ) : (string) $s;
+											$st_detail = is_array( $s ) ? (string) ( $s['detail'] ?? '' ) : '';
+											$st_icon   = $st_status === 'pass'  ? '<span style="color:#3a7d44">✓</span>'
+												: ( $st_status === 'fail' ? '<span style="color:#b32d2e">✗</span>'
+												: '<span style="color:#888">·</span>' );
+											$st_color  = $st_status === 'fail' ? '#b32d2e' : '#666';
+										?>
+											<li style="color:<?php echo $st_color; ?>"><?php echo $st_icon; ?> <?php echo esc_html( $st_label ); ?><?php if ( $st_detail !== '' ) : ?> <span style="color:#888">— <?php echo esc_html( $st_detail ); ?></span><?php endif; ?></li>
 										<?php endforeach; ?>
 									</ol>
 								</details>

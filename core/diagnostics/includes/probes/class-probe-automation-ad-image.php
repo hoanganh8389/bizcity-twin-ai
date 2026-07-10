@@ -23,6 +23,12 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 
 require_once dirname( __DIR__ ) . '/interface-diagnostics-probe.php';
 
+
+// [2026-06-08 Johnny Chu] HOTFIX — double-load guard (bootstrap may include via filter AND direct require).
+if ( class_exists( 'BizCity_Probe_Automation_Ad_Image', false ) ) {
+	return;
+}
+
 final class BizCity_Probe_Automation_Ad_Image implements BizCity_Diagnostics_Probe {
 
 	const ROUTE_RE   = '/bizcity-automation/v1/workflows/(?P<id>\d+)/ad-image';

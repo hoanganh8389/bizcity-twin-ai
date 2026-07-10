@@ -24,6 +24,12 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 
 require_once dirname( __DIR__ ) . '/interface-diagnostics-probe.php';
 
+
+// [2026-06-08 Johnny Chu] HOTFIX — double-load guard (bootstrap may include via filter AND direct require).
+if ( class_exists( 'BizCity_Probe_KG_Seeding', false ) ) {
+	return;
+}
+
 final class BizCity_Probe_KG_Seeding implements BizCity_Diagnostics_Probe {
 
 	private const ORIGIN_TAG = '__healthtest__';
@@ -50,7 +56,7 @@ final class BizCity_Probe_KG_Seeding implements BizCity_Diagnostics_Probe {
 	public function precondition() {
 		global $wpdb;
 		$tbl = $wpdb->prefix . 'bizcity_kg_sources';
-		$exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl ) );
+		$exists = bizcity_tbl_exists( $tbl ) ? $tbl : null; // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 		if ( $exists !== $tbl ) {
 			return new WP_Error(
 				'table_missing',

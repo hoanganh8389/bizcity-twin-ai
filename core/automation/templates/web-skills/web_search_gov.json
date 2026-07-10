@@ -1,0 +1,93 @@
+{
+  "skill_key": "web_search_gov",
+  "version": "1.2",
+  "title": "Web Research · Chính sách / VBQPPL mới",
+  "description": "Tin chính sách / VBQPPL mới ban hành bám allowlist (chinhphu.vn, baochinhphu.vn, quochoi.vn, các Bộ .gov.vn, báo chính thống nhandan/vnexpress/tuoitre/thanhnien) — 1 Tavily news search + 1 LLM synth. Default time_range=week. Trung lập, factual.",
+  "category": "web-research",
+  "triggers": [
+    "chính sách", "nghị quyết", "thủ tướng", "chính phủ",
+    "quốc hội", "bộ trưởng", "công bố", "ban hành",
+    "hiệu lực", "kế hoạch", "chiến lược quốc gia",
+    "tin chính phủ", "thông cáo", "họp báo chính phủ",
+    "government policy", "cabinet", "decree announcement"
+  ],
+  "slash_commands": ["/gov", "/chinhsach", "/web_gov"],
+  "modes": ["research"],
+  "tools": ["search_web", "llm_chat"],
+  "priority": 45,
+  "scenarios": [
+    {
+      "id": "gov_new_policy",
+      "label": "Chính sách mới ban hành",
+      "example_query": "Chính sách hỗ trợ doanh nghiệp vừa và nhỏ mới nhất của Chính phủ năm 2026?",
+      "note": "Cite chinhphu.vn / baochinhphu.vn sơ cấp; nêu rõ số hiệu + ngày hiệu lực"
+    },
+    {
+      "id": "gov_resolution",
+      "label": "Nghị quyết / Nghị định mới",
+      "example_query": "Các Nghị quyết quan trọng được Quốc hội thông qua trong kỳ họp 2026?",
+      "note": "Cite quochoi.vn + congbao; phân biệt Nghị quyết QH vs NQ Chính phủ vs NQ UBTVQH"
+    },
+    {
+      "id": "gov_investment",
+      "label": "Chính sách đầu tư / phát triển",
+      "example_query": "Chính sách ưu đãi đầu tư vào khu công nghệ cao năm 2026 có gì mới?",
+      "note": "Cite Luật Đầu tư + NĐ / QĐ Thủ tướng; phân biệt ưu đãi thuế, đất, nhân lực"
+    },
+    {
+      "id": "gov_social",
+      "label": "Chính sách an sinh xã hội",
+      "example_query": "Mức lương tối thiểu vùng từ 01/07/2026 là bao nhiêu?",
+      "note": "Cite NĐ của Chính phủ về LMTV; phân biệt 4 vùng; hiệu lực"
+    },
+    {
+      "id": "gov_digital",
+      "label": "Chính sách kinh tế số / AI",
+      "example_query": "Chiến lược quốc gia về trí tuệ nhân tạo Việt Nam — mục tiêu và chính sách hỗ trợ?",
+      "note": "Cite QĐ 127/QĐ-TTg và các QĐ sửa đổi; kết hợp chinhphu.vn + mic.gov.vn"
+    },
+    {
+      "id": "gov_environment",
+      "label": "Chính sách môi trường / khí hậu",
+      "example_query": "Cam kết Net Zero của Việt Nam và các chính sách thực hiện trong 2026?",
+      "note": "Cite cam kết COP26/COP28 + Luật BVMT 2020 + NĐ thực hiện"
+    },
+    {
+      "id": "gov_foreign_trade",
+      "label": "Thương mại quốc tế / FTA",
+      "example_query": "EVFTA có hiệu lực những lợi ích nào cho xuất khẩu Việt Nam năm 2026?",
+      "note": "Cite Hiệp định + Nghị định thực thi; phân biệt cam kết cắt giảm thuế theo lộ trình"
+    }
+  ],
+  "content_lines": [
+    "# Web Research · Chính sách / VBQPPL mới",
+    "",
+    "Bạn là **gov policy synthesizer** cho VN. Tổng hợp tin chính sách / VBQPPL mới ban hành từ allowlist tier A-D (chinhphu.vn, baochinhphu.vn, congbao, quochoi.vn, các Bộ .gov.vn; báo chính thống nhandan/vnexpress/tuoitre/thanhnien/vov/vtv).",
+    "",
+    "## Quy tắc BẮT BUỘC",
+    "1. **Chỉ dùng snippets** — KHÔNG bịa số hiệu / ngày ban hành / nội dung điều khoản.",
+    "2. **Citation BẮT BUỘC**: ghi rõ `số hiệu + ngày ban hành + cơ quan` (vd \"Quyết định 1234/QĐ-TTg ngày 15/05/2026 của Thủ tướng Chính phủ\"), kèm `[gov:N#URL]`.",
+    "3. **Phân biệt NGUỒN**: sơ cấp (chinhphu.vn, congbao.chinhphu.vn, bộ .gov.vn) vs thứ cấp (nhandan/vnexpress). Ưu tiên trích nguồn sơ cấp.",
+    "4. **Nêu rõ HIỆU LỰC**: từ ngày nào, áp dụng cho đối tượng nào (nếu snippet có).",
+    "5. **Trung lập, factual** — KHÔNG bình luận chính trị, KHÔNG đánh giá chủ quan về chính sách.",
+    "6. ≤ 280 từ.",
+    "",
+    "## Kịch bản mẫu",
+    "",
+    "| Kịch bản | Nguồn ưu tiên | Lưu ý |",
+    "|---|---|---|",
+    "| Chính sách SME mới | chinhphu.vn + baochinhphu.vn | Số hiệu NĐ + ngày hiệu lực + đối tượng |",
+    "| Nghị quyết QH | quochoi.vn + congbao | Phân biệt NQ QH / NQ CP / NQ UBTVQH |",
+    "| Đầu tư / KCN | mpi.gov.vn + chinhphu.vn | Ưu đãi thuế + đất + lao động theo vùng |",
+    "| Lương tối thiểu | Nghị định CP | 4 vùng + ngày hiệu lực |",
+    "| Kinh tế số / AI | mic.gov.vn + chinhphu.vn | QĐ Thủ tướng về chiến lược quốc gia |",
+    "| Môi trường | monre.gov.vn + chinhphu.vn | Luật BVMT 2020 + cam kết COP |",
+    "| FTA | Nghị định thực thi FTA | Lộ trình cắt giảm thuế theo năm |",
+    "",
+    "## Anti-patterns CẤM",
+    "- ❌ Bình luận chính trị / dự đoán ý đồ chính sách.",
+    "- ❌ Trích báo thứ cấp khi nguồn sơ cấp có sẵn trong snippets.",
+    "- ❌ Bịa nội dung Quyết định / Chỉ thị.",
+    "- ❌ Nhầm hiệu lực (dự thảo vs đã ban hành vs đã sửa đổi)."
+  ]
+}

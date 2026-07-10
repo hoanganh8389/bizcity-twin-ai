@@ -38,6 +38,10 @@ class BizCity_Cron_Manager {
 	/** Retry dispatch hook (every 5 min). */
 	const RETRY_HOOK = 'bizcity_cron_retry_dispatch';
 
+	/** wp_options key for registry fingerprint cache (CRON-PERF-1). */
+	// [2026-06-09 Johnny Chu] CRON-PERF-1 — fingerprint option để skip batch write khi spec không đổi.
+	const REGISTRY_FP_OPTION = 'bizcity_cron_registry_fp';
+
 	private static ?self $instance = null;
 
 	/** @var array<string, array> in-memory copy of registered jobs (job_id => row). */
@@ -45,6 +49,12 @@ class BizCity_Cron_Manager {
 
 	/** @var array<string, int> active run ids keyed by job_id (for the wrap_end callback). */
 	private array $active_runs = array();
+
+	/**
+	 * @var array<string, array> static jobs pending deferred DB flush (job_id => row).
+	 * [2026-06-09 Johnny Chu] CRON-PERF-1 — deferred để batch-write thay vì ghi ngay trong register().
+	 */
+	private array $pending_rows = array();
 
 	public static function instance(): self {
 		if ( ! self::$instance ) {
@@ -61,6 +71,15 @@ class BizCity_Cron_Manager {
 		// Retry dispatcher (Phase 2).
 		add_action( self::RETRY_HOOK, [ $this, 'dispatch_retries' ] );
 		add_action( 'init', [ $this, 'ensure_retry_scheduled' ] );
+
+		// [2026-06-09 Johnny Chu] CRON-PERF-1 — flush pending registry rows sau khi tất cả module đã register().
+		// [2026-06-09 Johnny Chu] CRON-PERF-2 — CHỈ flush tại init:99, KHÔNG flush tại plugins_loaded.
+		// Lý do: plugins_loaded:99 chỉ thấy subset jobs (các module register sớm), tính fp_A và lưu vào DB.
+		// init:99 thấy full set (tất cả module), tính fp_B ≠ fp_A → INSERT lần 2. Request sau:
+		// plugins_loaded:99 lại tính fp_A ≠ stored fp_B → INSERT lần 3 → loop mỗi request.
+		// Với chỉ init:99: tất cả register() call (dù ở plugins_loaded hay init) đều đã vào pending_rows
+		// trước khi init:99 fires → 1 fingerprint duy nhất → INSERT đúng 1 lần, mọi request sau skip.
+		add_action( 'init', [ $this, 'flush_pending_registry' ], 99 );
 	}
 
 	public function ensure_gc_scheduled(): void {
@@ -96,6 +115,8 @@ class BizCity_Cron_Manager {
 		BizCity_Diagnostics_Auto_Create::run( self::TABLE_RUNS );
 		BizCity_Diagnostics_Auto_Create::run( self::TABLE_RETRIES );
 		update_option( self::DB_VERSION_OPTION, self::DB_VERSION, false );
+		// [2026-06-09 Johnny Chu] CRON-PERF-1 — invalidate fp khi bảng vừa được tạo lại để force re-seed.
+		delete_option( self::REGISTRY_FP_OPTION );
 	}
 
 	/**
@@ -129,11 +150,16 @@ class BizCity_Cron_Manager {
 
 		$this->jobs[ $job_id ] = $row + array( 'registered_at' => time() );
 
-		// Persist (best-effort; if table missing diagnostics auto-create will heal it).
-		$this->upsert_registry( $row );
+		$adopt_only = ! empty( $spec['adopt_only'] );
+		// [2026-06-09 Johnny Chu] CRON-PERF-1 — adopt_only (legacy/discover) writes DB ngay via IODKU;
+		// static code-registered jobs deferered vào pending_rows → batch flush tại plugins_loaded:99.
+		if ( $adopt_only ) {
+			$this->upsert_registry_one( $row );
+		} else {
+			$this->pending_rows[ $job_id ] = $row;
+		}
 
 		// Backward-compat: only auto-schedule if enabled + singleton AND not in adopt mode.
-		$adopt_only = ! empty( $spec['adopt_only'] );
 		if ( ! $adopt_only && $row['enabled'] && $row['singleton'] && ! wp_next_scheduled( $hook ) ) {
 			wp_schedule_event( time() + 5, $interval, $hook );
 		}
@@ -229,7 +255,8 @@ class BizCity_Cron_Manager {
 				if ( isset( $known_hooks[ $hook ] ) ) { continue; }
 				$match = false;
 				foreach ( $prefixes as $p ) {
-					if ( str_starts_with( $hook, $p ) ) { $match = true; break; }
+					// [2026-06-09 Johnny Chu] PHP74-COMPAT — str_starts_with là PHP 8.0+.
+					if ( strpos( $hook, $p ) === 0 ) { $match = true; break; }
 				}
 				if ( ! $match ) { continue; }
 				if ( ! is_array( $events ) ) { continue; }
@@ -250,20 +277,101 @@ class BizCity_Cron_Manager {
 
 	/* ───────────── internal ───────────── */
 
-	private function upsert_registry( array $row ): void {
+	/**
+	 * Deferred flush: batch-write all pending static registry rows.
+	 *
+	 * Chỉ ghi DB khi fingerprint (md5 của toàn bộ spec) khác với cached option.
+	 * Trường hợp bình thường (không đổi spec): 0 DB queries, chỉ đọc 1 autoloaded option.
+	 *
+	 * [2026-06-09 Johnny Chu] CRON-PERF-1 — Phase 2 fingerprint+batch optimization.
+	 */
+	public function flush_pending_registry(): void {
+		if ( empty( $this->pending_rows ) ) { return; }
+
+		$rows_sorted = $this->pending_rows;
+		ksort( $rows_sorted );
+		$fp_new = md5( serialize( $rows_sorted ) );
+		$fp_old = (string) get_option( self::REGISTRY_FP_OPTION, '' );
+		if ( $fp_new === $fp_old ) { return; } // spec không đổi → 0 queries.
+
+		$ok = $this->upsert_registry_batch( array_values( $rows_sorted ) );
+		if ( $ok ) {
+			// autoload=true vì được đọc mỗi request để so sánh.
+			update_option( self::REGISTRY_FP_OPTION, $fp_new, true );
+		}
+		// Nếu $ok=false (bảng chưa tồn tại), không cache fp → request sau sẽ retry.
+	}
+
+	/**
+	 * Batch INSERT … ON DUPLICATE KEY UPDATE cho nhiều rows.
+	 * Dùng cho flush_pending_registry() (Phase 1+2 CRON-PERF-1).
+	 *
+	 * [2026-06-09 Johnny Chu] CRON-PERF-1 — Strategy D: N rows → 1 query.
+	 *
+	 * @return bool true nếu query thành công (kể cả 0 rows affected), false nếu SQL error.
+	 */
+	private function upsert_registry_batch( array $rows ): bool {
+		global $wpdb;
+		if ( ! $wpdb || empty( $rows ) ) { return false; }
+		$t = $wpdb->prefix . self::TABLE_REGISTRY;
+
+		$placeholders = array();
+		$values       = array();
+		foreach ( $rows as $row ) {
+			$placeholders[] = '(%s,%s,%s,%s,%s,%d,%d,%d)';
+			$values[] = $row['job_id'];
+			$values[] = $row['hook'];
+			$values[] = $row['interval_key'];
+			$values[] = $row['owner'];
+			$values[] = $row['description'];
+			$values[] = (int) $row['singleton'];
+			$values[] = (int) $row['enabled'];
+			$values[] = (int) $row['retention_days'];
+		}
+
+		$sql = 'INSERT INTO ' . $t
+			 . ' (job_id,hook,interval_key,owner,description,singleton,enabled,retention_days) VALUES '
+			 . implode( ',', $placeholders )
+			 . ' ON DUPLICATE KEY UPDATE'
+			 . ' hook=VALUES(hook),interval_key=VALUES(interval_key),owner=VALUES(owner),'
+			 . 'description=VALUES(description),singleton=VALUES(singleton),'
+			 . 'enabled=VALUES(enabled),retention_days=VALUES(retention_days)';
+
+		$wpdb->suppress_errors( true );
+		// PHP 7.4 compat: spread array vào prepare() variadic (PHP 5.6+, WP 3.5+).
+		$result = $wpdb->query( $wpdb->prepare( $sql, ...$values ) );
+		$wpdb->suppress_errors( false );
+		return false !== $result;
+	}
+
+	/**
+	 * Single-row INSERT ON DUPLICATE KEY UPDATE (Strategy A).
+	 * Dùng cho adopt_only / legacy-discovered jobs (dynamic, không fingerprint).
+	 *
+	 * [2026-06-09 Johnny Chu] CRON-PERF-1 — thay 2 queries (SELECT+UPDATE) bằng 1 IODKU.
+	 */
+	private function upsert_registry_one( array $row ): void {
 		global $wpdb;
 		if ( ! $wpdb ) { return; }
 		$t = $wpdb->prefix . self::TABLE_REGISTRY;
-		// Suppress errors when table missing on first activation — auto-create will fix.
 		$wpdb->suppress_errors( true );
-		$exists = (int) $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$t} WHERE job_id=%s LIMIT 1", $row['job_id'] ) );
-		// Explicit format arrays prevent wpdb from issuing SHOW FULL COLUMNS to detect types.
-		$fmt = [ '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%d' ]; // job_id,hook,interval_key,owner,description,singleton,enabled,retention_days
-		if ( $exists ) {
-			$wpdb->update( $t, $row, array( 'id' => $exists ), $fmt, [ '%d' ] );
-		} else {
-			$wpdb->insert( $t, $row, $fmt );
-		}
+		$wpdb->query( $wpdb->prepare(
+			'INSERT INTO ' . $t
+			. ' (job_id,hook,interval_key,owner,description,singleton,enabled,retention_days)'
+			. ' VALUES (%s,%s,%s,%s,%s,%d,%d,%d)'
+			. ' ON DUPLICATE KEY UPDATE'
+			. ' hook=VALUES(hook),interval_key=VALUES(interval_key),owner=VALUES(owner),'
+			. 'description=VALUES(description),singleton=VALUES(singleton),'
+			. 'enabled=VALUES(enabled),retention_days=VALUES(retention_days)',
+			$row['job_id'],
+			$row['hook'],
+			$row['interval_key'],
+			$row['owner'],
+			$row['description'],
+			(int) $row['singleton'],
+			(int) $row['enabled'],
+			(int) $row['retention_days']
+		) );
 		$wpdb->suppress_errors( false );
 	}
 

@@ -50,14 +50,27 @@ require_once BIZCITY_LLM_DIR . '/includes/class-llm-usage-log.php';
 require_once BIZCITY_LLM_DIR . '/includes/class-llm-settings.php';
 require_once BIZCITY_LLM_DIR . '/includes/class-smart-gateway.php';
 require_once BIZCITY_LLM_DIR . '/includes/class-google-hub.php';
+// [2026-06-10 Johnny Chu] USAGE-ROLLUP-SPEC Phase 3 — same-origin proxy for /account/* analytics
+require_once BIZCITY_LLM_DIR . '/includes/class-usage-proxy-rest.php';
+// [2026-06-14 Johnny Chu] PHASE-0.41 VIDEO-VEO3 — BizCity_Video_Client (R-GW-8 standalone)
+require_once BIZCITY_LLM_DIR . '/includes/class-video-client.php';
 
 /* ── Boot ── */
 add_action( 'plugins_loaded', function () {
     BizCity_LLM_Client::instance();
     BizCity_Search_Client::instance();
     BizCity_LLM_Settings::instance();
-    BizCity_LLM_Usage_Log::maybe_install();
+    // [2026-06-10 Johnny Chu] R-LLM-USAGE — install per-blog clients table (not hub table).
+    // Hub (bizcity-llm-router) owns bizcity_llm_usage; client owns bizcity_llm_usage_clients.
+    BizCity_LLM_Usage_Clients::maybe_install();
 }, 1 );
+
+// [2026-06-10 Johnny Chu] USAGE-ROLLUP-SPEC Phase 3 — register proxy routes on rest_api_init
+add_action( 'rest_api_init', function () {
+    if ( class_exists( 'BizCity_Usage_Proxy_REST' ) ) {
+        BizCity_Usage_Proxy_REST::register_routes();
+    }
+} );
 
 /* ======================================================================
  * PUBLIC HELPER FUNCTIONS — Canonical API

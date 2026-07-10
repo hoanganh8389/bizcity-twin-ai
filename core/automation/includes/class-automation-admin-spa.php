@@ -32,6 +32,55 @@ final class BizCity_Automation_Admin_SPA {
 	private function __construct() {
 		add_action( 'admin_menu',            [ $this, 'register_menu' ], 35 );
 		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_assets' ] );
+
+		// [2026-06-03 Johnny Chu] HOTFIX — suppress admin chrome when loaded inside TwinShell iframe.
+		// Mirrors BizCity_Gateway_Admin_SPA::__construct() logic.
+		// Without this, pressing F5 after navigating to Automation causes duplicate
+		// admin menu + admin bar: the outer TwinChat page AND the inner automation
+		// iframe both render full WP chrome (because _iurl is forwarded with bizcity_iframe=1).
+		if ( $this->is_iframe_context() ) {
+			add_filter( 'show_admin_bar',    '__return_false', 999 );
+			add_filter( 'qm/dispatch/html',  '__return_false', 999 );
+			remove_action( 'admin_init',     'send_frame_options_header' );
+			add_action( 'send_headers', static function () {
+				header_remove( 'X-Frame-Options' );
+			}, 99 );
+			add_action( 'admin_head', [ $this, 'print_iframe_chrome_css' ], 1 );
+		}
+	}
+
+	/**
+	 * Detect that THIS specific page is being requested in iframe (TwinShell) mode.
+	 *
+	 * @return bool
+	 */
+	private function is_iframe_context(): bool {
+		// [2026-06-03 Johnny Chu] HOTFIX — check page slug first to avoid false positives.
+		$page = isset( $_GET['page'] ) ? (string) $_GET['page'] : '';
+		if ( $page !== self::MENU_SLUG ) {
+			return false;
+		}
+		if ( ! empty( $_GET['bizcity_iframe'] ) ) {
+			return true;
+		}
+		// Fallback: browser sends Sec-Fetch-Dest: iframe when loading as child frame.
+		return strtolower( (string) ( isset( $_SERVER['HTTP_SEC_FETCH_DEST'] ) ? $_SERVER['HTTP_SEC_FETCH_DEST'] : '' ) ) === 'iframe';
+	}
+
+	/**
+	 * Minimal CSS to hide any WP admin chrome that PHP filters didn't fully prevent.
+	 * Priority 1 on admin_head so it runs before plugin styles.
+	 */
+	public function print_iframe_chrome_css(): void {
+		// [2026-06-03 Johnny Chu] HOTFIX — belt-and-suspenders hide for any chrome WP still renders.
+		echo '<style id="bizcity-automation-iframe-chrome">'
+			. '#adminmenumain,#adminmenuback,#adminmenuwrap,'
+			. '#adminmenu,#collapse-menu,#wpadminbar,'
+			. '#wpfooter,#screen-meta,#screen-meta-links{display:none!important}'
+			. '#wpcontent{margin-left:0!important}'
+			. 'html.wp-toolbar{padding-top:0!important}'
+			. '#wpbody-content{padding-bottom:0!important}'
+			. '</style>' . "\n";
 	}
 
 	public function register_menu(): void {
@@ -50,8 +99,8 @@ final class BizCity_Automation_Admin_SPA {
 		if ( $parent ) {
 			add_submenu_page(
 				$parent,
-				__( 'Automation', 'bizcity-twin-ai' ),
-				__( 'Automation', 'bizcity-twin-ai' ),
+				__( 'Twin Workflow', 'bizcity-twin-ai' ),
+				__( 'Twin Workflow', 'bizcity-twin-ai' ),
 				'manage_options',
 				self::MENU_SLUG,
 				[ $this, 'render_page' ]
@@ -60,8 +109,8 @@ final class BizCity_Automation_Admin_SPA {
 		}
 
 		add_menu_page(
-			__( 'BizCity Automation', 'bizcity-twin-ai' ),
-			__( 'Automation', 'bizcity-twin-ai' ),
+			__( 'Twin Workflow', 'bizcity-twin-ai' ),
+			__( 'Twin Workflow', 'bizcity-twin-ai' ),
 			'manage_options',
 			self::MENU_SLUG,
 			[ $this, 'render_page' ],

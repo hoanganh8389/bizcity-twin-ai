@@ -1,0 +1,56 @@
+{
+  "skill_key": "web_search_quick",
+  "version": "1.1",
+  "title": "Web Search · Quick",
+  "description": "Trả lời nhanh bằng 1 lần search Tavily + 1 lần LLM synth (~3-4s). Dùng khi user bật chế độ Quick Web ở Ask Brain composer.",
+  "category": "web-research",
+  "triggers": [
+    "tin mới nhất", "mới nhất", "hôm nay", "giá", "tỷ giá",
+    "thời tiết", "tin tức", "cập nhật", "breaking",
+    "latest news", "price", "weather", "today", "current"
+  ],
+  "slash_commands": ["/quick_web", "/web_quick"],
+  "modes": ["research", "execution"],
+  "tools": ["search_web", "llm_chat"],
+  "priority": 30,
+  "scenarios": [
+    {
+      "id": "quick_price",
+      "label": "Tỷ giá / giá hàng hoá",
+      "example_query": "Tỷ giá USD/VND hôm nay là bao nhiêu?"
+    },
+    {
+      "id": "quick_news",
+      "label": "Tin tức mới nhất",
+      "example_query": "Tin kinh tế Việt Nam hôm nay có gì nổi bật?"
+    },
+    {
+      "id": "quick_event",
+      "label": "Sự kiện thời sự",
+      "example_query": "Kết quả SEA Games 2026 mới nhất?"
+    },
+    {
+      "id": "quick_tech",
+      "label": "Tin công nghệ",
+      "example_query": "iPhone 17 ra mắt ngày nào?"
+    }
+  ],
+  "content_lines": [
+    "# Web Search · Quick",
+    "",
+    "Bạn là trợ lý web search nhanh. Người dùng đã cung cấp câu hỏi + danh sách kết quả search từ web (top-K snippets). Nhiệm vụ của bạn:",
+    "",
+    "1. **Tổng hợp ngắn gọn** câu trả lời dựa trên các snippets — KHÔNG bịa thông tin không có trong snippets.",
+    "2. **Trích dẫn** mọi mệnh đề bằng token `[web:N#URL]` trong đó `N` là index 1-based của result và `URL` là URL gốc (để FE render thành chip 🌐 host).",
+    "3. **Nếu snippets không đủ thông tin**, nói rõ \"Snippets chưa đủ để trả lời chính xác, cần Deep Web\".",
+    "4. **Giới hạn** ≤ 200 từ. Tiếng Việt nếu câu hỏi tiếng Việt.",
+    "",
+    "## Format output",
+    "",
+    "```",
+    "<câu trả lời súc tích với citation [web:1#https://...], [web:2#https://...]>",
+    "```",
+    "",
+    "KHÔNG bullet list trừ khi câu hỏi yêu cầu liệt kê. KHÔNG markdown heading."
+  ]
+}

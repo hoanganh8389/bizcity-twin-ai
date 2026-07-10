@@ -23,7 +23,13 @@ if ( ! defined( 'BIZCITY_TWIN_AI_VERSION' ) ) {
 }
 
 /* ── Constants ── */
-define( 'BZCC_VERSION', '0.1.38' );
+define( 'BZCC_VERSION', '0.1.41' ); // [2026-06-08 Johnny Chu] HOTFIX — bump to flush rewrite rules (underscore slug fix)
+// [2026-06-11 Johnny Chu] R-PERF — DB schema version tách riêng khỏi BZCC_VERSION
+// Để bump BZCC_VERSION (rewrite flush) không vô tình invalidate db guard mỗi request.
+// Chỉ bump BZCC_DB_VERSION khi có thay đổi schema thực sự.
+if ( ! defined( 'BZCC_DB_VERSION' ) ) {
+	define( 'BZCC_DB_VERSION', '1.0' );
+}
 define( 'BZCC_DIR',     __DIR__ . '/' );
 define( 'BZCC_FILE',    __FILE__ );
 define( 'BZCC_URL',     plugin_dir_url( __FILE__ ) );
@@ -73,13 +79,12 @@ BZCC_Installer::maybe_create_tables();
 BZCC_Template_Seeder::init();
 
 /* ── Flush rewrite rules once after install (must-load won't trigger activation hook) ── */
-if ( ! get_option( 'bzcc_rewrite_version' ) || get_option( 'bzcc_rewrite_version' ) !== BZCC_VERSION ) {
-	add_action( 'init', function () {
-		BZCC_Frontend::register_rewrite_rules();
-		flush_rewrite_rules( false );
-		update_option( 'bzcc_rewrite_version', BZCC_VERSION );
-	}, 99 );
-}
+// [2026-06-09 Johnny Chu] HOTFIX — guard Transposh/WooCommerce wp_loaded flush loop:
+// flush_rewrite_rules() on init:99 saves rules BEFORE Transposh appends language patterns
+// [2026-06-09 Johnny Chu] R-CR — migrated to Central Rewrite Flush Registry.
+// Registry consolidates all module flushes into ONE flush_rewrite_rules(false) at admin_init:1.
+// Old per-plugin pending-flag pattern preserved as fallback in the registry class itself.
+BizCity_Rewrite_Flush_Registry::register( 'bizcity-content-creator', BZCC_VERSION );
 
 /* ── Admin ── */
 BZCC_Admin_Menu::init();
@@ -96,16 +101,29 @@ add_filter( 'bizcity_canvas_handlers', [ 'BZCC_Canvas_Bridge', 'register_handler
 /* ── Intent Provider (HIL + dual-path) ── */
 add_action( 'bizcity_intent_register_providers', function ( $registry ) {
 
+	// [2026-06-09 Johnny Chu] PERF-1 — Skip 341 KB template data on admin UI pages.
+	// bzcc_get_intent_patterns() AND bzcc_get_intent_plans() both call
+	// BZCC_Template_Manager::get_all_active() → 341 KB Redis deserialization per request.
+	// On admin UI pages that don't dispatch intents (TwinChat admin, Channel pages, etc.)
+	// this data is loaded but never used. Patterns and plans only needed during:
+	//   a) REST/webhook intent dispatch  b) WP-Cron  c) WP-CLI  d) frontend chat pages
+	// PHP 7.4 compat: defined() check before constant access.
+	$_bzcc_in_intent_ctx =
+		( ! is_admin() )
+		|| ( defined( 'REST_REQUEST' ) && REST_REQUEST )
+		|| ( defined( 'DOING_CRON' ) && DOING_CRON )
+		|| ( defined( 'WP_CLI' ) && WP_CLI );
+
 	bizcity_intent_register_plugin( $registry, [
 
 		'id'   => 'content-creator',
-		'name' => 'Brain Factory — Nhà máy não số (tạo nội dung & kế hoạch với AI)',
+		'name' => 'TwinPlanner — Tạo nội dung & kế hoạch với AI',  // [2026-06-06 Johnny Chu] BZCC-SKEL — rebrand to TwinPlanner
 
-		/* ── PATTERNS ── */
-		'patterns' => bzcc_get_intent_patterns(),
+		/* ── PATTERNS — skip on admin UI (no DB hit) ── */
+		'patterns' => $_bzcc_in_intent_ctx ? bzcc_get_intent_patterns() : [],
 
-		/* ── PLANS ── */
-		'plans' => bzcc_get_intent_plans(),
+		/* ── PLANS — skip on admin UI (no DB hit) ── */
+		'plans' => $_bzcc_in_intent_ctx ? bzcc_get_intent_plans() : [],
 
 		/* ── TOOLS ── */
 		'tools' => [
@@ -148,7 +166,7 @@ add_action( 'bizcity_intent_register_providers', function ( $registry ) {
 add_filter( 'bizcity_agent_plugins', function ( $agents ) {
 	$agents[] = [
 		'slug' => 'content-creator',
-		'name' => 'Brain Factory',
+		'name' => 'TwinPlanner', // [2026-06-06 Johnny Chu] BZCC-SKEL — rebrand
 		'icon' => '🧠',
 		'type' => 'agent',
 		'src'  => admin_url( 'admin.php?page=bizcity-creator' ),
@@ -225,9 +243,15 @@ function bzcc_sync_template_skills(): void {
 		return;
 	}
 
-	$row       = $wpdb->get_row(
-		"SELECT COUNT(*) AS cnt, MAX(updated_at) AS max_upd FROM {$tpl_table} WHERE status = 'active'"
-	);
+	// [2026-06-21 Johnny Chu] R-CACHE bzcc — cache fingerprint row; group bzcc, key skill_sync_fp, TTL 5min.
+	$fp_cache_key = 'skill_sync_fp';
+	$row          = BizCity_Cache::get( 'bzcc', $fp_cache_key );
+	if ( false === $row ) {
+		$row = $wpdb->get_row(
+			"SELECT COUNT(*) AS cnt, MAX(updated_at) AS max_upd FROM {$tpl_table} WHERE status = 'active'"
+		);
+		BizCity_Cache::set( 'bzcc', $fp_cache_key, $row, BizCity_Cache::TTL_MEDIUM );
+	}
 	$fingerprint = md5( BZCC_VERSION . ':' . ( $row->cnt ?? 0 ) . ':' . ( $row->max_upd ?? '' ) );
 
 	if ( get_transient( 'bzcc_skill_sync_hash' ) === $fingerprint ) {
@@ -313,8 +337,18 @@ function bzcc_get_intent_patterns(): array {
 		],
 	];
 
-	if ( ! BZCC_Installer::tables_exist() ) {
+	// [2026-06-03 Johnny Chu] HOTFIX — hard guard: class + table phải sẵn sàng.
+	// Trước đây chỉ check tables_exist() nhưng cache có thể bị set sai khi
+	// create_tables() fail silent → query xuống fatal. Giờ thêm self-heal:
+	// nếu thiếu table thì gọi maybe_create_tables() 1 lần rồi check lại.
+	if ( ! class_exists( 'BZCC_Installer' ) || ! class_exists( 'BZCC_Template_Manager' ) ) {
 		return $patterns;
+	}
+	if ( ! BZCC_Installer::tables_exist() ) {
+		BZCC_Installer::maybe_create_tables();
+		if ( ! BZCC_Installer::tables_exist() ) {
+			return $patterns;
+		}
 	}
 
 	$templates = BZCC_Template_Manager::get_all_active();
@@ -359,8 +393,15 @@ function bzcc_get_intent_plans(): array {
 		'date'         => 'text',
 	];
 
-	if ( ! BZCC_Installer::tables_exist() ) {
+	// [2026-06-03 Johnny Chu] HOTFIX — cùng pattern self-heal như get_intent_patterns.
+	if ( ! class_exists( 'BZCC_Installer' ) || ! class_exists( 'BZCC_Template_Manager' ) ) {
 		return $plans;
+	}
+	if ( ! BZCC_Installer::tables_exist() ) {
+		BZCC_Installer::maybe_create_tables();
+		if ( ! BZCC_Installer::tables_exist() ) {
+			return $plans;
+		}
 	}
 
 	$templates = BZCC_Template_Manager::get_all_active();

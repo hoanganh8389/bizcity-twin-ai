@@ -23,12 +23,43 @@ if (!defined('ABSPATH')) exit;
  * =====================================================================*/
 
 /**
+ * Extract life-topic slugs from a lowercase message string.
+ * [2026-07-04 Johnny Chu] PHASE-ASTRO-WORKFLOW — used by bccm_transit_detect_intent + action.run_astro.
+ *
+ * @param  string  $msg  mb_strtolower()'d message text
+ * @return string[]  Subset of: finance, career, love, health, study, family
+ */
+if ( ! function_exists( '_bccm_detect_astro_topics' ) ) {
+    function _bccm_detect_astro_topics( string $msg ): array {
+        $map = array(
+            'finance' => array( 'tài chính', 'tiền', 'thu nhập', 'đầu tư', 'kinh tế', 'lương', 'kinh doanh', 'tài sản' ),
+            'career'  => array( 'sự nghiệp', 'công việc', 'nghề nghiệp', 'thăng tiến', 'career', 'công ty', 'dự án' ),
+            'love'    => array( 'tình cảm', 'tình yêu', 'hôn nhân', 'quan hệ', 'bạn đời', 'crush', 'tình duyên', 'yêu đương' ),
+            'health'  => array( 'sức khỏe', 'bệnh', 'thể chất', 'tinh thần', 'health', 'năng lượng cơ thể' ),
+            'study'   => array( 'học tập', 'thi cử', 'du học', 'bằng cấp', 'học hành', 'thi' ),
+            'family'  => array( 'gia đình', 'con cái', 'bố mẹ', 'anh chị em', 'family' ),
+        );
+        $found = array();
+        foreach ( $map as $slug => $keywords ) {
+            foreach ( $keywords as $kw ) {
+                if ( mb_strpos( $msg, $kw ) !== false ) {
+                    $found[] = $slug;
+                    break;
+                }
+            }
+        }
+        return $found;
+    }
+}
+
+/**
  * Detect transit-related intent from user message
  *
  * Returns time range if detected, null otherwise.
  *
  * @param string $message  User message text
- * @return array|null  ['period' => 'week|month|year|5year|custom', 'days' => int, 'label' => string]
+ * @return array|null  ['period' => 'week|month|year|5year|custom', 'days' => int, 'label' => string,
+ *                         'start_offset' => int, 'topics' => string[]]
  */
 function bccm_transit_detect_intent($message) {
     $msg = mb_strtolower(trim($message));
@@ -117,47 +148,150 @@ function bccm_transit_detect_intent($message) {
     // If no astro trigger AND no life topic at all, skip
     if (!$has_astro_trigger && !$has_life_topic) return null;
 
+    // [2026-07-04 Johnny Chu] PHASE-ASTRO-WORKFLOW — detect topics once for all time-period branches
+    $topics = function_exists( '_bccm_detect_astro_topics' ) ? _bccm_detect_astro_topics( $msg ) : array();
+
     // Now check time period — differentiate "hôm nay" (days=0) vs "ngày mai" (days=1)
     $today_patterns = [ 'hôm nay', 'today', 'đêm nay', 'sáng nay', 'chiều nay', 'tối nay' ];
     foreach ( $today_patterns as $p ) {
         if ( mb_strpos( $msg, $p ) !== false ) {
-            return [ 'period' => 'day', 'days' => 0, 'label' => 'Hôm nay' ];
+            return [ 'period' => 'day', 'days' => 0, 'num_days' => 1,
+                     'label' => 'Hôm nay', 'render_mode' => 'daily',
+                     'start_offset' => 0, 'topics' => $topics ];
+        }
+    }
+
+    // [2026-07-04 Johnny Chu] PHASE-ASTRO-WORKFLOW — "ngày kia" / "ngày kìa" = 2 ngày nữa (day after tomorrow)
+    $dat_patterns = array( 'ngày kia', 'ngày kìa' );
+    foreach ( $dat_patterns as $p ) {
+        if ( mb_strpos( $msg, $p ) !== false ) {
+            return array( 'period' => 'day', 'days' => 2, 'num_days' => 1,
+                     'label' => 'Ngày kia (2 ngày nữa)', 'render_mode' => 'daily',
+                     'start_offset' => 2, 'topics' => $topics );
         }
     }
 
     $tomorrow_patterns = [ 'ngày mai', 'tomorrow', 'sáng mai', 'chiều mai', 'tối mai', 'ngày tới', 'ngày kế', '24 giờ tới' ];
     foreach ( $tomorrow_patterns as $p ) {
         if ( mb_strpos( $msg, $p ) !== false ) {
-            return [ 'period' => 'day', 'days' => 1, 'label' => 'Ngày mai' ];
+            return [ 'period' => 'day', 'days' => 1, 'num_days' => 1,
+                     'label' => 'Ngày mai', 'render_mode' => 'daily',
+                     'start_offset' => 1, 'topics' => $topics ];
+        }
+    }
+
+    // [2026-07-03 Johnny Chu] PHASE-ASTRO-MIGRATE — N-week pattern BEFORE week_patterns
+    // "2 tuần tới", "hai tuần", "3 tuần" → N * 7 days, render_mode=daily nếu ≤30
+    // Must come BEFORE week_patterns loop because "2 tuần tới" contains "tuần tới"
+    if ( preg_match( '/(\d+|hai|ba|bốn)\s*tuần/u', $msg, $m ) ) {
+        $wmap  = [ 'hai' => 2, 'ba' => 3, 'bốn' => 4 ];
+        $weeks = is_numeric( $m[1] ) ? (int) $m[1] : ( $wmap[ $m[1] ] ?? 1 );
+        $days  = $weeks * 7;
+        if ( $weeks >= 1 && $weeks <= 4 ) {
+            return [
+                'period'       => $days <= 7  ? 'week' : 'month',
+                'days'         => $days,
+                'num_days'     => $days,
+                'label'        => $weeks . ' tuần tới (' . $days . ' ngày)',
+                'render_mode'  => $days <= 30 ? 'daily' : 'overview',
+                'start_offset' => 0,
+                'topics'       => $topics,
+            ];
         }
     }
 
     foreach ($week_patterns as $p) {
         if (mb_strpos($msg, $p) !== false) {
-            return ['period' => 'week', 'days' => 7, 'label' => '7 ngày tới'];
+            return ['period' => 'week', 'days' => 7, 'num_days' => 7,
+                    'label' => '7 ngày tới', 'render_mode' => 'daily',
+                    'start_offset' => 0, 'topics' => $topics];
         }
     }
 
     foreach ($month_patterns as $p) {
         if (mb_strpos($msg, $p) !== false) {
-            return ['period' => 'month', 'days' => 30, 'label' => '1 tháng tới'];
+            return ['period' => 'month', 'days' => 30, 'num_days' => 30,
+                    'label' => '1 tháng tới', 'render_mode' => 'overview',
+                    'start_offset' => 0, 'topics' => $topics];
         }
     }
 
     foreach ($five_year_patterns as $p) {
         if (mb_strpos($msg, $p) !== false) {
-            // Extract actual years
             if (preg_match('/(\d+)\s*năm/', $msg, $m)) {
                 $years = intval($m[1]);
-                return ['period' => 'custom_year', 'days' => $years * 365, 'label' => $years . ' năm tới'];
+                return ['period' => 'custom_year', 'days' => $years * 365, 'num_days' => $years * 365,
+                        'label' => $years . ' năm tới', 'render_mode' => 'overview',
+                        'start_offset' => 0, 'topics' => $topics];
             }
-            return ['period' => '5year', 'days' => 1825, 'label' => '5 năm tới'];
+            return ['period' => '5year', 'days' => 1825, 'num_days' => 1825,
+                    'label' => '5 năm tới', 'render_mode' => 'overview',
+                    'start_offset' => 0, 'topics' => $topics];
         }
     }
 
     foreach ($year_patterns as $p) {
         if (mb_strpos($msg, $p) !== false) {
-            return ['period' => 'year', 'days' => 365, 'label' => '1 năm tới'];
+            return ['period' => 'year', 'days' => 365, 'label' => '1 năm tới',
+                    'num_days' => 365, 'render_mode' => 'overview',
+                    'start_offset' => 0, 'topics' => $topics];
+        }
+    }
+
+    // [2026-07-03 Johnny Chu] PHASE-ASTRO-MIGRATE — explicit N-day detection
+    // Matches: "5 ngày tới", "5 hôm tới", "10 ngày", "14 ngày tiếp", v.v.
+    // Also: "đến cuối năm", "hết năm", "cuối năm".
+    // render_mode:
+    //   'daily'    → num_days ≤ 30 → transit_range() day-by-day
+    //   'overview' → num_days > 30 → summary / yearly overview
+    //   'fallback' → num_days > 30 nhưng user muốn cụ thể → thông báo giới hạn 30
+
+    // Pattern: "đến cuối năm" / "hết năm" / "từ giờ đến cuối năm"
+    if ( preg_match( '/cuối năm|hết năm|đến cuối năm|tới cuối năm/', $msg ) ) {
+        $remaining = (int) ( strtotime( date( 'Y' ) . '-12-31' ) - strtotime( current_time( 'Y-m-d' ) ) ) / 86400;
+        $remaining = max( 1, $remaining );
+        return [
+            'period'      => $remaining <= 30 ? 'month' : 'year',
+            'days'        => $remaining,
+            'num_days'    => $remaining,
+            'label'       => 'Từ hôm nay đến cuối năm (' . $remaining . ' ngày)',
+            'render_mode' => 'overview',
+        ];
+    }
+
+    // Pattern: "tháng sau" / "next month" → overview, không day-by-day
+    if ( preg_match( '/tháng sau|next month/', $msg ) ) {
+        return [ 'period' => 'month', 'days' => 30, 'num_days' => 30,
+                 'label' => 'Tháng sau', 'render_mode' => 'overview' ];
+    }
+
+    // Pattern: "N ngày tới" / "N hôm tới" / "N ngày tiếp" / "N ngày kế"
+    if ( preg_match( '/(\d+)\s*(?:ngày|hôm)\s*(?:tới|tiếp|kế|sau|nữa|next)?/u', $msg, $m ) ) {
+        $n = (int) $m[1];
+        if ( $n >= 1 && $n <= 90 ) {
+            if ( $n <= 30 ) {
+                return [
+                    'period'      => $n <= 7 ? 'week' : 'month',
+                    'days'        => $n,
+                    'num_days'    => $n,
+                    'label'       => $n . ' ngày tới',
+                    'render_mode'  => 'daily',
+                    'start_offset' => 0,
+                    'topics'       => $topics,
+                ];
+            } else {
+                // > 30 ngày → fallback: thông báo chỉ lấy được 30 ngày cụ thể
+                return [
+                    'period'         => 'month',
+                    'days'           => 30,
+                    'num_days'       => 30,
+                    'label'          => $n . ' ngày tới (giới hạn 30 ngày)',
+                    'render_mode'    => 'fallback',
+                    'requested_days' => $n,
+                    'start_offset'   => 0,
+                    'topics'         => $topics,
+                ];
+            }
         }
     }
 
@@ -166,7 +300,9 @@ function bccm_transit_detect_intent($message) {
     if ($has_life_topic && !$has_astro_trigger) {
         return null; // "tài chính" alone without time context → skip
     }
-    return ['period' => 'month', 'days' => 30, 'label' => '1 tháng tới (mặc định)'];
+    return ['period' => 'month', 'days' => 30, 'num_days' => 30,
+            'label' => '1 tháng tới (mặc định)', 'render_mode' => 'overview',
+            'start_offset' => 0, 'topics' => $topics];
 }
 
 /* =====================================================================
@@ -205,9 +341,105 @@ function bccm_transit_fetch_planets($date = '', $latitude = 21.0285, $longitude 
         'timezone'  => $timezone,
     ];
 
-    // Sprint H (2026-05-16): prefer FAA V2 provider (api.freeastroapi.com,
-    // 80/day quota) over legacy `bccm_astro_get_planets` which hits the
-    // deprecated json.freeastrologyapi.com host (30/day → 429 storm).
+    // [2026-06-08 Johnny Chu] HOTFIX R-GW-8 — route transit prefetch through
+    // BizCoach_Pro_Astro_Client (client wrapper → gateway → api.freeastroapi.com)
+    // INSTEAD of the broken legacy path which hit deprecated
+    // json.freeastrologyapi.com directly (30/day → 429 storm).
+    // The old condition `class_exists('BizCity_Astro_Router')` checked a
+    // SERVER-SIDE class that NEVER exists on client sites (R-GW-8 standalone
+    // topology), so it always fell through to legacy direct-HTTP.
+    if ( class_exists( 'BizCoach_Pro_Astro_Client' ) ) {
+        $iso_date = sprintf( '%sT12:00', $date );
+        $tx_payload = array(
+            'transit_date' => $iso_date,
+            'tz_str'       => 'Asia/Ho_Chi_Minh',
+            'current_city' => 'Hanoi',
+            'current_lat'  => (float) $latitude,
+            'current_lng'  => (float) $longitude,
+            // Provide synthetic natal so the FAA transit endpoint has a
+            // reference frame (some providers require both blocks).
+            'natal' => array(
+                'year'         => (int) date( 'Y', $ts ),
+                'month'        => (int) date( 'n', $ts ),
+                'day'          => (int) date( 'j', $ts ),
+                'hour'         => 12,
+                'minute'       => 0,
+                'lat'          => (float) $latitude,
+                'lng'          => (float) $longitude,
+                'tz_str'       => 'Asia/Ho_Chi_Minh',
+                'house_system' => 'placidus',
+                'zodiac_type'  => 'tropical',
+                'city'         => 'Hanoi',
+            ),
+        );
+        $tx_res = BizCoach_Pro_Astro_Client::transits_western( $tx_payload, array( 'timeout' => 25 ) );
+
+        if ( ! empty( $tx_res['success'] ) ) {
+            $env = is_array( $tx_res['envelope'] ?? null ) ? $tx_res['envelope'] : array();
+            // V2 normalizer puts transit planets at envelope.transits (per
+            // BizCity_Astro_Normalizer_V2::normalize_western_transits).
+            $planets_raw = (array) ( $env['transits'] ?? $env['planets'] ?? array() );
+
+            $positions_norm = array();
+            foreach ( $planets_raw as $p ) {
+                $name = (string) ( $p['name_en'] ?? $p['id'] ?? '' );
+                if ( $name === '' ) continue;
+                $name = ucfirst( strtolower( trim( preg_replace( '/\s*\([NTnt]\)\s*$/', '', $name ) ) ) );
+                $abs  = (float) ( $p['absolute_degree'] ?? $p['fullDegree'] ?? 0 );
+                $sd   = (float) ( $p['sign_degree']     ?? $p['normDegree'] ?? 0 );
+                $sign = function_exists( '_bcpro_astro_v2_normalize_sign' )
+                    ? _bcpro_astro_v2_normalize_sign( (string) ( $p['sign_en'] ?? '' ) )
+                    : (string) ( $p['sign_en'] ?? '' );
+                $positions_norm[ $name ] = array(
+                    'sign'        => $sign,
+                    'sign_en'     => $sign,
+                    'sign_vi'     => (string) ( $p['sign_vi'] ?? '' ),
+                    'full_degree' => $abs,
+                    'fullDegree'  => $abs,
+                    'norm_degree' => $sd,
+                    'normDegree'  => $sd,
+                    'house'       => (int) ( $p['house'] ?? 0 ),
+                    'is_retro'    => (bool) ( $p['retrograde'] ?? false ),
+                    'isRetro'     => ! empty( $p['retrograde'] ) ? 'true' : 'false',
+                );
+            }
+
+            if ( ! empty( $positions_norm ) ) {
+                return array(
+                    'date'    => $date,
+                    'planets' => $planets_raw,
+                    'parsed'  => array( 'positions' => $positions_norm ),
+                    '_source' => 'gateway_transits_western',
+                );
+            }
+        }
+        // Gateway failed/empty → log so admins know, then refuse the legacy path
+        // (the deprecated json.freeastrologyapi.com host is dead per FAA notice).
+        // [2026-06-28 Johnny Chu] HOTFIX — log full response context to diagnose 'unknown'
+        $err_msg = 'unknown';
+        if ( is_array( $tx_res ) ) {
+            if ( ! empty( $tx_res['error'] ) ) {
+                $err_msg = (string) $tx_res['error'];
+            } elseif ( ! empty( $tx_res['message'] ) ) {
+                $err_msg = (string) $tx_res['message'];
+            } elseif ( ! empty( $tx_res['_degraded'] ) ) {
+                $err_msg = 'gateway_degraded:' . (string) $tx_res['_degraded'];
+            } else {
+                // Dump top-level keys to help diagnose
+                $err_msg = 'unknown (keys=' . implode( ',', array_keys( $tx_res ) ) . ')';
+            }
+        } else {
+            $err_msg = 'no_response (type=' . gettype( $tx_res ) . ')';
+        }
+        error_log( '[bccm_transit] Gateway transit fetch failed for date=' . $date . ': ' . $err_msg
+            . ' blog_id=' . (int) get_current_blog_id() );
+        return new WP_Error(
+            'transit_gateway_failed',
+            'Không thể lấy transit qua gateway: ' . $err_msg
+        );
+    }
+
+    // Legacy V2 router path (kept as last-resort fallback for in-process server use only).
     if ( function_exists( 'bcpro_astro_v2_available' ) && bcpro_astro_v2_available( 'western' )
         && function_exists( 'bcpro_astro_birth_to_v2_input' )
         && class_exists( 'BizCity_Astro_Router' ) ) {
@@ -381,17 +613,18 @@ function bccm_transit_build_context($coachee_id, $user_id = 0, $time_range = [])
     $t_astro = $wpdb->prefix . 'bccm_astro';
     if ($wpdb->get_var("SHOW TABLES LIKE '{$t_astro}'") !== $t_astro) return '';
 
+    // [2026-07-07 Johnny Chu] PHASE-FAA2-TL-PROFILE — prefer per-profile natal row.
     $natal_row = null;
-    if ($user_id) {
-        $natal_row = $wpdb->get_row($wpdb->prepare(
-            "SELECT * FROM {$t_astro} WHERE user_id = %d AND chart_type = 'western' AND (summary IS NOT NULL OR traits IS NOT NULL) ORDER BY updated_at DESC LIMIT 1",
-            $user_id
-        ));
-    }
-    if (!$natal_row && $coachee_id) {
+    if ($coachee_id) {
         $natal_row = $wpdb->get_row($wpdb->prepare(
             "SELECT * FROM {$t_astro} WHERE coachee_id = %d AND chart_type = 'western' ORDER BY updated_at DESC LIMIT 1",
             $coachee_id
+        ));
+    }
+    if (!$natal_row && $user_id) {
+        $natal_row = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$t_astro} WHERE user_id = %d AND chart_type = 'western' AND (summary IS NOT NULL OR traits IS NOT NULL) ORDER BY updated_at DESC LIMIT 1",
+            $user_id
         ));
     }
     if (!$natal_row || empty($natal_row->traits)) return '';
@@ -401,7 +634,9 @@ function bccm_transit_build_context($coachee_id, $user_id = 0, $time_range = [])
     if (empty($natal_positions)) return '';
 
     // ── Transient cache ──
-    $cache_id  = $user_id ?: $coachee_id;
+    // [2026-07-07 Johnny Chu] PHASE-FAA2-TL-PROFILE — cache key must be profile-scoped,
+    // not account-scoped, to prevent bleed between multiple coachees under same user.
+    $cache_id  = $coachee_id ?: $user_id;
     $cache_key = 'bccm_transit_' . $cache_id . '_' . $time_range['period'] . '_' . current_time('Y-m-d');
     $cached    = get_transient($cache_key);
     if ($cached !== false) return $cached;
@@ -416,18 +651,29 @@ function bccm_transit_build_context($coachee_id, $user_id = 0, $time_range = [])
         $needed_dates = bccm_transit_get_check_dates($time_range);
 
         // Load all snapshots for coachee in range today-7d to today+400d
-        $where_id = $user_id
-            ? $wpdb->prepare('(coachee_id = %d OR user_id = %d)', $coachee_id, $user_id)
-            : $wpdb->prepare('coachee_id = %d', $coachee_id);
-
+        // [2026-07-07 Johnny Chu] PHASE-FAA2-TL-PROFILE — timeline context must track selected coachee.
         $rows = $wpdb->get_results(
             "SELECT target_date, label, planets_json, aspects_json, fetched_at "
             . "FROM {$t_snap} "
-            . "WHERE {$where_id} "
+            . $wpdb->prepare('WHERE coachee_id = %d ', $coachee_id)
             . "  AND target_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY) "
             . "  AND target_date <= DATE_ADD(CURDATE(), INTERVAL 400 DAY) "
             . 'ORDER BY target_date ASC'
         );
+
+        if ( empty( $rows ) && $user_id ) {
+            // [2026-07-07 Johnny Chu] PHASE-FAA2-TL-PROFILE — legacy fallback only when
+            // coachee-scoped snapshots do not exist.
+            $rows = $wpdb->get_results( $wpdb->prepare(
+                "SELECT target_date, label, planets_json, aspects_json, fetched_at "
+                . "FROM {$t_snap} "
+                . "WHERE user_id = %d "
+                . "  AND target_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY) "
+                . "  AND target_date <= DATE_ADD(CURDATE(), INTERVAL 400 DAY) "
+                . 'ORDER BY target_date ASC',
+                $user_id
+            ) );
+        }
 
         // Map snapshots by date for nearest-match lookup
         $snap_by_date = [];
@@ -479,11 +725,18 @@ function bccm_transit_build_context($coachee_id, $user_id = 0, $time_range = [])
         }
     }
 
-    // ── No data in DB → schedule background prefetch + return GRACEFUL guidance for AI ──
+    // ── No data in DB → return graceful guidance (legacy prefetch scheduler disabled) ──
     if (empty($transit_snapshots)) {
-        error_log("[bccm_transit] No DB snapshots for coachee_id={$coachee_id}, user_id={$user_id}. Scheduling prefetch.");
-        if (!wp_next_scheduled('bccm_transit_prefetch_cron', [$coachee_id, $user_id])) {
-            wp_schedule_single_event(time() + 5, 'bccm_transit_prefetch_cron', [$coachee_id, $user_id]);
+        // [2026-07-06 Johnny Chu] HOTFIX — Transit writer unification:
+        // do not schedule legacy bccm_transit_prefetch_cron anymore.
+        // [2026-07-06 Johnny Chu] HOTFIX — default-disabled fallback; schedule only when explicitly enabled.
+        if ( ! defined( 'BCPRO_LEGACY_TRANSIT_PREFETCH_ENABLED' ) || ! BCPRO_LEGACY_TRANSIT_PREFETCH_ENABLED ) {
+            error_log("[bccm_transit] No DB snapshots for coachee_id={$coachee_id}, user_id={$user_id}. Legacy prefetch disabled.");
+        } else {
+            error_log("[bccm_transit] No DB snapshots for coachee_id={$coachee_id}, user_id={$user_id}. Scheduling prefetch.");
+            if (!wp_next_scheduled('bccm_transit_prefetch_cron', [$coachee_id, $user_id])) {
+                wp_schedule_single_event(time() + 5, 'bccm_transit_prefetch_cron', [$coachee_id, $user_id]);
+            }
         }
         return implode("\n", [
             '## ℹ️ Chế độ: Đang cập nhật dữ liệu vị trí sao transit (tạm thời dùng hồ sơ natal)',
@@ -526,51 +779,75 @@ function bccm_transit_build_context($coachee_id, $user_id = 0, $time_range = [])
 /**
  * Determine which dates to check based on time range
  */
-function bccm_transit_get_check_dates($time_range) {
+function bccm_transit_get_check_dates($time_range, $base_date = '') {
+    // [2026-07-06 Johnny Chu] HOTFIX — timezone-safe date math + optional exact base date.
     $dates = [];
-    $today = current_time('Y-m-d');
 
-    // Always include today
+    if ( function_exists('wp_timezone') ) {
+        $tz = wp_timezone();
+    } else {
+        $tz_str = function_exists('wp_timezone_string') ? (string) wp_timezone_string() : '';
+        $tz = new DateTimeZone( $tz_str !== '' ? $tz_str : 'UTC' );
+    }
+
+    $base_date = trim((string) $base_date);
+    if ($base_date !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $base_date)) {
+        try {
+            $cursor = new DateTimeImmutable($base_date, $tz);
+        } catch (Exception $e) {
+            $cursor = new DateTimeImmutable('now', $tz);
+        }
+    } else {
+        $cursor = new DateTimeImmutable('now', $tz);
+    }
+    $cursor = $cursor->setTime(0, 0, 0);
+    $today = $cursor->format('Y-m-d');
+
+    $plus_days = static function($dt, $days) {
+        return $dt->modify('+' . (int) $days . ' day')->format('Y-m-d');
+    };
+
+    // Always include base day.
     $dates[] = ['date' => $today, 'label' => 'Hôm nay'];
 
     switch ($time_range['period']) {
         case 'day':
-            // days=0 → just today (already added); days=1 → also tomorrow
+            // days=0 → just selected/base day; days>=1 → include next day.
             if ( ( $time_range['days'] ?? 1 ) >= 1 ) {
-                $dates[] = ['date' => date('Y-m-d', strtotime('+1 day')), 'label' => 'Ngày mai'];
+                $dates[] = ['date' => $plus_days($cursor, 1), 'label' => 'Ngày mai'];
             }
             break;
 
         case 'week':
-            $dates[] = ['date' => date('Y-m-d', strtotime('+3 days')), 'label' => '+3 ngày'];
-            $dates[] = ['date' => date('Y-m-d', strtotime('+7 days')), 'label' => '+7 ngày'];
+            $dates[] = ['date' => $plus_days($cursor, 3), 'label' => '+3 ngày'];
+            $dates[] = ['date' => $plus_days($cursor, 7), 'label' => '+7 ngày'];
             break;
 
         case 'month':
-            $dates[] = ['date' => date('Y-m-d', strtotime('+7 days')),  'label' => '+1 tuần'];
-            $dates[] = ['date' => date('Y-m-d', strtotime('+15 days')), 'label' => '+15 ngày'];
-            $dates[] = ['date' => date('Y-m-d', strtotime('+30 days')), 'label' => '+1 tháng'];
+            $dates[] = ['date' => $plus_days($cursor, 7),  'label' => '+1 tuần'];
+            $dates[] = ['date' => $plus_days($cursor, 15), 'label' => '+15 ngày'];
+            $dates[] = ['date' => $plus_days($cursor, 30), 'label' => '+1 tháng'];
             break;
 
         case 'year':
-            $dates[] = ['date' => date('Y-m-d', strtotime('+1 month')),  'label' => '+1 tháng'];
-            $dates[] = ['date' => date('Y-m-d', strtotime('+3 months')), 'label' => '+3 tháng'];
-            $dates[] = ['date' => date('Y-m-d', strtotime('+6 months')), 'label' => '+6 tháng'];
-            $dates[] = ['date' => date('Y-m-d', strtotime('+12 months')), 'label' => '+12 tháng'];
+            $dates[] = ['date' => $cursor->modify('+1 month')->format('Y-m-d'),  'label' => '+1 tháng'];
+            $dates[] = ['date' => $cursor->modify('+3 months')->format('Y-m-d'), 'label' => '+3 tháng'];
+            $dates[] = ['date' => $cursor->modify('+6 months')->format('Y-m-d'), 'label' => '+6 tháng'];
+            $dates[] = ['date' => $cursor->modify('+12 months')->format('Y-m-d'), 'label' => '+12 tháng'];
             break;
 
         case '5year':
         case 'custom_year':
             $days = $time_range['days'] ?? 1825;
             $years = max(1, intval($days / 365));
-            $dates[] = ['date' => date('Y-m-d', strtotime('+6 months')), 'label' => '+6 tháng'];
+            $dates[] = ['date' => $cursor->modify('+6 months')->format('Y-m-d'), 'label' => '+6 tháng'];
             for ($y = 1; $y <= min($years, 5); $y++) {
-                $dates[] = ['date' => date('Y-m-d', strtotime("+{$y} year")), 'label' => "+{$y} năm"];
+                $dates[] = ['date' => $cursor->modify('+' . (int) $y . ' year')->format('Y-m-d'), 'label' => '+' . (int) $y . ' năm'];
             }
             break;
 
         default:
-            $dates[] = ['date' => date('Y-m-d', strtotime('+7 days')), 'label' => '+7 ngày'];
+            $dates[] = ['date' => $plus_days($cursor, 7), 'label' => '+7 ngày'];
             break;
     }
 
@@ -850,11 +1127,19 @@ function bccm_transit_clear_cache($coachee_id) {
  * Insert on first call for a (coachee_id, target_date), update on subsequent calls.
  */
 function bccm_transit_save_snapshot($coachee_id, $user_id, $target_date, $label, $positions, $aspects) {
+    // [2026-07-06 Johnny Chu] HOTFIX — Transit writer unification: default-disabled unless explicitly enabled.
+    if ( ! defined( 'BCPRO_LEGACY_TRANSIT_PREFETCH_ENABLED' ) || ! BCPRO_LEGACY_TRANSIT_PREFETCH_ENABLED ) {
+        return false;
+    }
+
     global $wpdb;
     $table = $wpdb->prefix . 'bccm_transit_snapshots';
 
-    // Auto-create table if it doesn't exist yet (e.g. network-activate race condition)
-    if ($wpdb->get_var("SHOW TABLES LIKE '{$table}'") !== $table) {
+    // [2026-06-28 Johnny Chu] HOTFIX R-SHOW-TABLES — use information_schema instead of SHOW TABLES.
+    if ( ! $wpdb->get_var( $wpdb->prepare(
+        'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+        $table
+    ) ) ) {
         $charset_collate = $wpdb->get_charset_collate();
         $sql = "CREATE TABLE IF NOT EXISTS {$table} (
             id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -862,18 +1147,23 @@ function bccm_transit_save_snapshot($coachee_id, $user_id, $target_date, $label,
             user_id      BIGINT UNSIGNED NULL DEFAULT NULL,
             target_date  DATE NOT NULL,
             label        VARCHAR(64) NOT NULL DEFAULT '',
+            source_marker VARCHAR(32) NOT NULL DEFAULT '',
             planets_json LONGTEXT NULL,
             aspects_json LONGTEXT NULL,
             fetched_at   DATETIME NOT NULL,
             PRIMARY KEY (id),
             UNIQUE KEY uniq_coachee_date (coachee_id, target_date),
             KEY idx_user_id (user_id),
+            KEY idx_source_marker (source_marker),
             KEY idx_target_date (target_date)
         ) {$charset_collate};";
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
         dbDelta($sql);
-        // If still not created, abort
-        if ($wpdb->get_var("SHOW TABLES LIKE '{$table}'") !== $table) {
+        // If still not created, abort — use information_schema check.
+        if ( ! $wpdb->get_var( $wpdb->prepare(
+            'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+            $table
+        ) ) ) {
             error_log("[bccm_transit] Failed to auto-create table {$table}");
             return false;
         }
@@ -885,6 +1175,8 @@ function bccm_transit_save_snapshot($coachee_id, $user_id, $target_date, $label,
         'user_id'      => $user_id ? (int) $user_id : null,
         'target_date'  => $target_date,
         'label'        => $label,
+        // [2026-07-06 Johnny Chu] PHASE-FAA2-TWINBRAIN A10 — explicit `_v2` writer marker for audit trail.
+        'source_marker'=> 'legacy_prefetch_v2',
         'planets_json' => wp_json_encode($positions, JSON_UNESCAPED_UNICODE),
         'aspects_json' => wp_json_encode($aspects,   JSON_UNESCAPED_UNICODE),
         'fetched_at'   => current_time('mysql'),
@@ -900,6 +1192,12 @@ function bccm_transit_save_snapshot($coachee_id, $user_id, $target_date, $label,
     } else {
         $wpdb->insert($table, $data);
     }
+
+    // [2026-06-04 Johnny Chu] PHASE-A C.3b — fire cache invalidation so the
+    // public /my-transit/ router + legacy build_context transients refresh
+    // with the new snapshot. Listener: BizCoach_Pro_Transit_Public_Router::invalidate_for_coachee().
+    do_action('bccm_transit_snapshot_saved', (int) $coachee_id, $user_id ? (int) $user_id : 0, $target_date);
+
     return true;
 }
 
@@ -911,6 +1209,12 @@ function bccm_transit_save_snapshot($coachee_id, $user_id, $target_date, $label,
  * @param int $user_id
  */
 function bccm_transit_prefetch_for_coachee($coachee_id, $user_id = 0) {
+    // [2026-07-06 Johnny Chu] HOTFIX — Transit writer unification: default-disabled unless explicitly enabled.
+    if ( ! defined( 'BCPRO_LEGACY_TRANSIT_PREFETCH_ENABLED' ) || ! BCPRO_LEGACY_TRANSIT_PREFETCH_ENABLED ) {
+        error_log('[bccm_transit] Legacy prefetch runner skipped (BCPRO_LEGACY_TRANSIT_PREFETCH_ENABLED=false).');
+        return;
+    }
+
     global $wpdb;
 
     // Load natal chart row (needs traits/positions to compute aspects)
@@ -978,12 +1282,25 @@ function bccm_transit_prefetch_for_coachee($coachee_id, $user_id = 0) {
         $saved++;
     }
 
-    error_log("[bccm_transit] Prefetch done for coachee_id={$coachee_id}: saved={$saved}, failed={$failed}");
+    error_log( "[bccm_transit] Prefetch done for coachee_id={$coachee_id}: saved={$saved}, failed={$failed}"
+        . ' blog_id=' . (int) get_current_blog_id() );
+
+    // [2026-06-28 Johnny Chu] HOTFIX — set/refresh cooldown transient after cron run
+    // (even if all failed) so the report page won't re-schedule immediately on next visit.
+    // This is the server-side twin of the anti-spam guard in astro-transit-report.php.
+    $cd_key = 'bcpro_tr_pf_cd_' . (int) get_current_blog_id() . '_' . $coachee_id;
+    // If saved>0: cache for 1 hour (data exists, no rush). If saved=0: 30 min retry window.
+    $cd_ttl = $saved > 0 ? HOUR_IN_SECONDS : 30 * MINUTE_IN_SECONDS;
+    set_transient( $cd_key, 1, $cd_ttl );
 }
 
 /* =====================================================================
  * WP CRON: Background prefetch callback
  * =====================================================================*/
 add_action('bccm_transit_prefetch_cron', function ($coachee_id, $user_id = 0) {
+    // [2026-07-06 Johnny Chu] HOTFIX — hard guard: default-disabled, only run when explicitly enabled.
+    if ( ! defined( 'BCPRO_LEGACY_TRANSIT_PREFETCH_ENABLED' ) || ! BCPRO_LEGACY_TRANSIT_PREFETCH_ENABLED ) {
+        return;
+    }
     bccm_transit_prefetch_for_coachee((int) $coachee_id, (int) $user_id);
 }, 10, 2);

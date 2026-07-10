@@ -26,6 +26,12 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 
 require_once dirname( __DIR__ ) . '/interface-diagnostics-probe.php';
 
+
+// [2026-06-08 Johnny Chu] HOTFIX — double-load guard (bootstrap may include via filter AND direct require).
+if ( class_exists( 'BizCity_Probe_CRM_Pipeline', false ) ) {
+	return;
+}
+
 final class BizCity_Probe_CRM_Pipeline implements BizCity_Diagnostics_Probe {
 
 	const DISK_FILES_PHP = array(
@@ -174,7 +180,7 @@ final class BizCity_Probe_CRM_Pipeline implements BizCity_Diagnostics_Probe {
 			'contracts'     => $tbl_contracts,
 		) as $label => $tbl ) {
 			// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
-			$exists = ( (string) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl ) ) === $tbl );
+			$exists = ( bizcity_tbl_exists( $tbl ) ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			$steps[] = $s = array(
 				'label'  => 'Runtime · table ' . $label,
 				'status' => $exists ? 'pass' : 'fail',

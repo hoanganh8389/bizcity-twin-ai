@@ -127,19 +127,66 @@ final class BizCity_Error_Reporter {
 	/**
 	 * Map error code → suggested repair entry-point.
 	 *
+	 * [2026-06-05 Johnny Chu] R-ERROR-UX — extended with all 24 catalog codes.
+	 *
 	 * @return array{url:string,label:string,kind:string}|array{}
 	 */
 	public static function suggest_fix( string $code ): array {
-		$diag = admin_url( 'tools.php?page=bizcity-diagnostics' );
-		$map  = [
-			'table_missing'         => [ 'url' => add_query_arg( 'bizcity_provision', '1',   $diag ), 'label' => '🔧 Repair tables now',  'kind' => 'provision' ],
-			'database_unavailable'  => [ 'url' => add_query_arg( 'bizcity_provision', '1',   $diag ), 'label' => '🔧 Provision database',  'kind' => 'provision' ],
-			'scheduler_unavailable' => [ 'url' => add_query_arg( 'bizcity_provision', '1',   $diag ), 'label' => '🔧 Provision scheduler', 'kind' => 'provision' ],
-			'table_orphan'          => [ 'url' => add_query_arg( 'bzdiag_force_clean', '1',  $diag ), 'label' => '🧹 Clean orphans',       'kind' => 'orphan'    ],
-			'llm_quota_exhausted'   => [ 'url' => admin_url( 'admin.php?page=bizcity-llm-router' ),    'label' => '⚡ Top up credits',      'kind' => 'billing'   ],
-			'search_insufficient_credits' => [ 'url' => admin_url( 'admin.php?page=bizcity-llm-router' ), 'label' => '⚡ Top up credits', 'kind' => 'billing' ],
-			'smtp_fail'             => [ 'url' => admin_url( 'admin.php?page=bizcity-smtp' ),          'label' => '✉ Check SMTP',          'kind' => 'smtp'      ],
-			'tier_required'         => [ 'url' => admin_url( 'admin.php?page=bizcity-upgrade' ),       'label' => '⬆ Upgrade plan',         'kind' => 'upgrade'   ],
+		$diag     = admin_url( 'tools.php?page=bizcity-diagnostics' );
+		$settings = admin_url( 'admin.php?page=bizcity-twinchat-settings' );
+		$channels = admin_url( 'admin.php?page=bizcity-channel-gateway' );
+		$cron     = admin_url( 'tools.php?page=bizcity-cron' );
+		$upgrade  = admin_url( 'admin.php?page=bizcity-upgrade' );
+		$auto     = admin_url( 'admin.php?page=bizcity-automation' );
+
+		$map = [
+			// ── Legacy (pre-R-ERROR-UX) ──────────────────────────────────
+			'table_missing'               => [ 'url' => add_query_arg( 'bizcity_provision', '1', $diag ), 'label' => '🔧 Repair tables',        'kind' => 'provision' ],
+			'database_unavailable'        => [ 'url' => add_query_arg( 'bizcity_provision', '1', $diag ), 'label' => '🔧 Provision database',   'kind' => 'provision' ],
+			'scheduler_unavailable'       => [ 'url' => add_query_arg( 'bizcity_provision', '1', $diag ), 'label' => '🔧 Provision scheduler',  'kind' => 'provision' ],
+			'table_orphan'                => [ 'url' => add_query_arg( 'bzdiag_force_clean', '1', $diag ), 'label' => '🧹 Clean orphans',        'kind' => 'orphan'    ],
+			'llm_quota_exhausted'         => [ 'url' => $upgrade,                                         'label' => '⚡ Top up credits',       'kind' => 'billing'   ],
+			'search_insufficient_credits' => [ 'url' => $upgrade,                                         'label' => '⚡ Top up credits',       'kind' => 'billing'   ],
+			'smtp_fail'                   => [ 'url' => admin_url( 'admin.php?page=bizcity-smtp' ),       'label' => '✉ Check SMTP',           'kind' => 'smtp'      ],
+			'tier_required'               => [ 'url' => $upgrade,                                         'label' => '⬆ Upgrade plan',          'kind' => 'upgrade'   ],
+
+			// ── R-ERROR-UX catalog — Auth / AuthZ ────────────────────────
+			'auth_required'     => [ 'url' => wp_login_url(),                   'label' => '🔐 Đăng nhập lại',               'kind' => 'auth'      ],
+			'permission_denied' => [ 'url' => admin_url( 'users.php' ),         'label' => '👤 Quản lý quyền user',          'kind' => 'auth'      ],
+			'nonce_invalid'     => [ 'url' => '',                               'label' => '🔄 Tải lại trang',               'kind' => 'reload'    ],
+			'api_key_missing'   => [ 'url' => $settings,                        'label' => '⚙ Cấu hình API Key',            'kind' => 'settings'  ],
+			'api_key_invalid'   => [ 'url' => $settings,                        'label' => '⚙ Cập nhật API Key',            'kind' => 'settings'  ],
+
+			// ── Quota ─────────────────────────────────────────────────────
+			'rate_limited'               => [ 'url' => '',        'label' => '⏱ Đợi và thử lại',     'kind' => 'wait'    ],
+			'quota_exceeded'             => [ 'url' => $upgrade,  'label' => '⬆ Nâng gói',            'kind' => 'upgrade' ],
+			'quota_messages_exceeded'    => [ 'url' => $upgrade,  'label' => '⬆ Nâng gói',            'kind' => 'upgrade' ],
+
+			// ── Channel / Token ───────────────────────────────────────────
+			'token_invalid'          => [ 'url' => $channels, 'label' => '🔗 Cấp quyền lại kênh',   'kind' => 'channel' ],
+			'token_scope_missing'    => [ 'url' => $channels, 'label' => '🔗 Re-auth đầy đủ scope',  'kind' => 'channel' ],
+			'page_not_connected'     => [ 'url' => $channels, 'label' => '🔗 Kết nối Facebook Page', 'kind' => 'channel' ],
+			'channel_not_configured' => [ 'url' => $channels, 'label' => '⚙ Thiết lập kênh',        'kind' => 'channel' ],
+
+			// ── Module / Service ──────────────────────────────────────────
+			'module_not_loaded'  => [ 'url' => $diag,     'label' => '🔍 Xem Diagnostics',        'kind' => 'diagnostics' ],
+			'gateway_degraded'   => [ 'url' => $settings, 'label' => '⚙ Kiểm tra API Key',        'kind' => 'settings'   ],
+			'llm_error'          => [ 'url' => $diag,     'label' => '🔍 Xem Diagnostics',        'kind' => 'diagnostics' ],
+			'kg_empty'           => [ 'url' => admin_url( 'admin.php?page=bizcity-twinchat#sources' ), 'label' => '📚 Thêm nguồn', 'kind' => 'kg' ],
+			'retrieval_error'    => [ 'url' => $diag,     'label' => '🔍 Xem Diagnostics',        'kind' => 'diagnostics' ],
+			'skill_db_missing'   => [ 'url' => admin_url( 'admin.php?page=bizcity-guru#skills' ),     'label' => '🧠 Cấu hình Skill', 'kind' => 'guru' ],
+
+			// ── Data / Validation ─────────────────────────────────────────
+			'invalid_param'    => [ 'url' => '',      'label' => '🔄 Tải lại trang',     'kind' => 'reload' ],
+			'invalid_metadata' => [ 'url' => $diag,   'label' => '🔍 Xem Diagnostics',   'kind' => 'diagnostics' ],
+			'not_found'        => [ 'url' => '',      'label' => '🔄 Kiểm tra lại ID',   'kind' => 'reload' ],
+			'duplicate'        => [ 'url' => '',      'label' => '🔍 Tìm bản ghi trùng', 'kind' => 'reload' ],
+
+			// ── Agent / Automation ────────────────────────────────────────
+			'twin_agent_exception'   => [ 'url' => $diag, 'label' => '🔍 Xem Diagnostics',           'kind' => 'diagnostics' ],
+			'automation_run_failed'  => [ 'url' => $auto, 'label' => '⚙ Xem lịch sử Automation',    'kind' => 'automation'  ],
+			'cron_failed'            => [ 'url' => $cron, 'label' => '⏱ Xem BizCity Cron',           'kind' => 'cron'        ],
+			'workflow_not_found'     => [ 'url' => $auto, 'label' => '⚙ Kiểm tra Automation',        'kind' => 'automation'  ],
 		];
 
 		/**

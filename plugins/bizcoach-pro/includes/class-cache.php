@@ -197,6 +197,17 @@ class BizCoach_Pro_Cache {
 	}
 
 	/**
+	 * Flush caches related to a specific user. Falls back to flush_all() — per-user
+	 * granular flush requires a persistent backend that supports group flushing.
+	 * [2026-07-05 Johnny Chu] HOTFIX — method called in class-self-service-rest.php but was missing.
+	 *
+	 * @param int $uid WordPress user ID (currently unused — flush all groups for simplicity).
+	 */
+	public static function flush_user_caches( $uid ) {
+		return self::flush_all();
+	}
+
+	/**
 	 * Flush ALL bcpro cache groups. Used by admin "flush" button or upgrade.
 	 */
 	public static function flush_all() {

@@ -69,12 +69,19 @@ if ( ! function_exists( 'bcpro_astro_v2_available' ) ) :
  *              AND have an API key configured.
  */
 function bcpro_astro_v2_available( string $system = 'western' ): bool {
-	$class = ( $system === 'vedic' ) ? 'Astro_Provider_FAA_Vedic' : 'Astro_Provider_FAA_Western';
+	// [2026-06-29 Johnny Chu] PHASE-ASTRO-MIGRATE — check faa2_western for western natal (MANDATORY)
+	if ( $system === 'vedic' ) {
+		$class = 'Astro_Provider_FAA_Vedic';
+		$id    = 'faa_vedic';
+	} else {
+		// faa2_western is the MANDATORY natal provider (freeastrologyapi.com)
+		$class = 'Astro_Provider_FAA2_Western';
+		$id    = 'faa2_western';
+	}
 	if ( ! class_exists( $class ) || ! class_exists( 'BizCity_Astro_Router' ) ) {
 		return false;
 	}
-	$id = ( $system === 'vedic' ) ? 'faa_vedic' : 'faa_western';
-	$p  = BizCity_Astro_Router::get_provider( $id );
+	$p = BizCity_Astro_Router::get_provider( $id );
 	return $p && method_exists( $p, 'is_ready' ) && $p->is_ready();
 }
 endif;
@@ -209,7 +216,8 @@ function _bcpro_astro_v2_reshape_aspects( array $v2_aspects ): array {
 		$p1 = ucfirst( strtolower( (string) ( $a['p1'] ?? $a['planet1'] ?? '' ) ) );
 		$p2 = ucfirst( strtolower( (string) ( $a['p2'] ?? $a['planet2'] ?? '' ) ) );
 		// Capitalize aspect type so legend lookup ("Square", "Trine") works.
-		$type_raw = (string) ( $a['type_en'] ?? $a['type_key'] ?? $a['type'] ?? '' );
+		// [2026-06-29 Johnny Chu] PHASE-ASTRO-MIGRATE — add $a['aspect'] fallback for FAA2 normalized format
+		$type_raw = (string) ( $a['type_en'] ?? $a['type_key'] ?? $a['type'] ?? $a['aspect'] ?? '' );
 		$type     = $type_raw !== '' ? ucfirst( strtolower( $type_raw ) ) : '';
 		$orb = (float) ( $a['orb'] ?? $a['orbit'] ?? $a['delta'] ?? 0 );
 		$rows[] = array(
@@ -242,21 +250,26 @@ if ( ! function_exists( 'bccm_astro_fetch_full_chart_v2' ) ) :
  *                         bccm_astro_save_chart().
  */
 function bccm_astro_fetch_full_chart_v2( array $birth_data ) {
+	// [2026-06-29 Johnny Chu] PHASE-ASTRO-MIGRATE — natal MANDATORY via faa2_western (freeastrologyapi.com)
 	if ( ! bcpro_astro_v2_available( 'western' ) ) {
-		return new WP_Error( 'v2_unavailable', 'FAA V2 Western provider not loaded or missing API key. Configure in Network Admin → Settings → Astrology Gateway.' );
+		return new WP_Error( 'v2_unavailable', 'FAA2 Western provider not loaded or missing API key (bcr_astro_faa2_key). Configure in Network Admin → Settings → Astrology Gateway.' );
 	}
 
-	$provider = BizCity_Astro_Router::get_provider( 'faa_western' );
-	$input    = bcpro_astro_birth_to_v2_input( $birth_data );
+	// Natal (planets/houses/aspects): faa2_western — MANDATORY
+	// Chart SVG + transit enrichment: faa_western — supplement (null-safe)
+	$faa2_provider = BizCity_Astro_Router::get_provider( 'faa2_western' );
+	$provider      = BizCity_Astro_Router::get_provider( 'faa_western' );
+	$input         = bcpro_astro_birth_to_v2_input( $birth_data );
 	_bcpro_astro_v2_dbg( 'bridge.entry', array(
-		'fn'           => 'bccm_astro_fetch_full_chart_v2',
-		'provider'     => get_class( $provider ),
-		'has_chart_svg'=> method_exists( $provider, 'chart_svg' ),
-		'has_transits' => method_exists( $provider, 'transits' ),
-		'has_tr_chart' => method_exists( $provider, 'transit_chart_svg' ),
-		'coachee_id'   => (int) ( $birth_data['coachee_id'] ?? $birth_data['user_id'] ?? 0 ),
+		'fn'             => 'bccm_astro_fetch_full_chart_v2',
+		'natal_provider' => $faa2_provider ? get_class( $faa2_provider ) : 'NULL',
+		'svg_provider'   => $provider      ? get_class( $provider )      : 'NULL',
+		'has_chart_svg'  => $provider && method_exists( $provider, 'chart_svg' ),
+		'has_transits'   => $provider && method_exists( $provider, 'transits' ),
+		'has_tr_chart'   => $provider && method_exists( $provider, 'transit_chart_svg' ),
+		'coachee_id'     => (int) ( $birth_data['coachee_id'] ?? $birth_data['user_id'] ?? 0 ),
 	) );
-	$env      = $provider->natal( $input );
+	$env = $faa2_provider->natal( $input );
 	_bcpro_astro_v2_dbg( 'bridge.natal', array(
 		'success' => (int) ( $env['success'] ?? 0 ),
 		'planets' => count( (array) ( $env['planets'] ?? array() ) ),
@@ -267,8 +280,8 @@ function bccm_astro_fetch_full_chart_v2( array $birth_data ) {
 	) );
 
 	if ( empty( $env['success'] ) ) {
-		$msg = (string) ( $env['error'] ?? $env['message'] ?? 'FAA Western natal call failed' );
-		return new WP_Error( 'faa_western_failed', $msg, $env );
+		$msg = (string) ( $env['error'] ?? $env['message'] ?? 'FAA2 Western natal call failed' );
+		return new WP_Error( 'faa2_western_failed', $msg, $env );
 	}
 
 	$planets_by_name = _bcpro_astro_v2_reshape_western_planets( (array) ( $env['planets'] ?? array() ) );
@@ -315,6 +328,50 @@ function bccm_astro_fetch_full_chart_v2( array $birth_data ) {
 		);
 	}
 
+	// [2026-06-29 Johnny Chu] PHASE-ASTRO-MIGRATE — FAA2 natal has no angles{} block.
+	// Inject Ascendant (house 1 cusp) and Midheaven (house 10 cusp) from houses_rows
+	// so the renderer's Ascendant lookup and big3 asc_sign work correctly.
+	if ( empty( $planets_by_name['Ascendant'] ) && ! empty( $houses_rows ) ) {
+		$_house_angle_map = array(
+			1  => 'Ascendant',
+			10 => 'Midheaven',
+			4  => 'IC',
+			7  => 'Descendant',
+		);
+		foreach ( $houses_rows as $_hr ) {
+			$_hnum = (int) ( $_hr['house'] ?? 0 );
+			if ( ! isset( $_house_angle_map[ $_hnum ] ) ) { continue; }
+			$_dispname = $_house_angle_map[ $_hnum ];
+			if ( ! empty( $planets_by_name[ $_dispname ] ) ) { continue; }
+			$_sign_en2 = _bcpro_astro_v2_normalize_sign( (string) ( $_hr['sign_en'] ?? '' ) );
+			if ( $_sign_en2 === '' ) { continue; }
+			$_cusp2 = (float) ( $_hr['cusp_degree'] ?? 0 );
+			$_norm2 = (float) ( $_hr['norm_degree']  ?? fmod( $_cusp2, 30 ) );
+			$planets_by_name[ $_dispname ] = array(
+				'sign_en'         => $_sign_en2,
+				'sign_vi'         => (string) ( $_hr['sign_vi']  ?? '' ),
+				'sign_key'        => (string) ( $_hr['sign_key'] ?? '' ),
+				'sign_degree'     => $_norm2,
+				'norm_degree'     => $_norm2,
+				'absolute_degree' => $_cusp2,
+				'full_degree'     => $_cusp2,
+				'house'           => 0,
+				'house_number'    => 0,
+				'is_retro'        => false,
+				'retrograde'      => false,
+				'speed'           => 0,
+				'sign'            => $_sign_en2,
+				'normDegree'      => $_norm2,
+				'fullDegree'      => $_cusp2,
+				'isRetro'         => 'false',
+				'planet_en'       => $_dispname,
+				'planet_vi'       => '',
+				'_is_angle'       => true,
+				'_from_faa2_house'=> true,
+			);
+		}
+	}
+
 	// `parsed` block — mirrors bccm_astro_parse_planets() shape.
 	$big3      = (array) ( $env['big3']  ?? array() );
 	$sun_sign  = _bcpro_astro_v2_normalize_sign( (string) ( $big3['sun']['sign_en']  ?? ( $planets_by_name['Sun']['sign_en']  ?? '' ) ) );
@@ -339,11 +396,14 @@ function bccm_astro_fetch_full_chart_v2( array $birth_data ) {
 
 	$chart_url        = '';
 	$chart_svg_inline = '';
-	$svg_res = $provider->chart_svg( array_merge( $input, array(
-		'format'     => 'svg',
-		'theme_type' => 'light',
-		'size'       => 800,
-	) ) );
+	// [2026-06-29 Johnny Chu] PHASE-ASTRO-MIGRATE — SVG from faa_western (supplement; null-safe)
+	$svg_res = ( $provider && method_exists( $provider, 'chart_svg' ) )
+		? $provider->chart_svg( array_merge( $input, array(
+			'format'     => 'svg',
+			'theme_type' => 'light',
+			'size'       => 800,
+		) ) )
+		: array( 'success' => false, 'message' => 'faa_western provider not available for SVG' );
 	_bcpro_astro_v2_dbg( 'bridge.chart_svg', array(
 		'coachee_id'   => $coachee_id,
 		'success'      => (int) ( $svg_res['success'] ?? 0 ),
@@ -367,8 +427,48 @@ function bccm_astro_fetch_full_chart_v2( array $birth_data ) {
 		}
 	}
 
+	// [2026-07-09 Johnny Chu] PHASE-FAA2-FE — FAA2 natal-wheel-chart (dark theme S3 SVG URL)
+	// Try faa2_western.natal_wheel_chart() as primary source (BEFORE AstroViet fallback).
+	// Only runs if the legacy faa_western chart_svg failed (no overwrite of good existing SVG).
+	if ( empty( $chart_url ) && $faa2_provider && method_exists( $faa2_provider, 'natal_wheel_chart' ) ) {
+		$_faa2_wheel = $faa2_provider->natal_wheel_chart( $input );
+		_bcpro_astro_v2_dbg( 'bridge.faa2_wheel_chart', array(
+			'coachee_id' => $coachee_id,
+			'success'    => (int) ( $_faa2_wheel['success'] ?? 0 ),
+			'url'        => (string) ( $_faa2_wheel['url']     ?? '' ),
+			'message'    => (string) ( $_faa2_wheel['message'] ?? '' ),
+		) );
+		if ( ! empty( $_faa2_wheel['success'] ) && ! empty( $_faa2_wheel['url'] ) ) {
+			$chart_url = (string) $_faa2_wheel['url'];
+		}
+	}
+
+	// [2026-07-03 Johnny Chu] PHASE-ASTRO-MIGRATE — astroviet.com fallback URL
+	// If SVG save failed (e.g. upload dir not writable on sub-site), build
+	// the chart URL from planet positions using the AstroViet external renderer.
+	// This requires no local file writes and works on any host.
+	if ( empty( $chart_url ) && function_exists( 'bccm_build_astroviet_wheel_url' ) && ! empty( $planets_by_name ) ) {
+		$_av_name       = (string) ( $birth_data['name'] ?? '' );
+		$_av_birth      = array_merge( $birth_data, [
+			'birth_place' => (string) ( $birth_data['birth_place'] ?? '' ),
+			'latitude'    => (float)  ( $birth_data['latitude']    ?? 21.0285 ),
+			'longitude'   => (float)  ( $birth_data['longitude']   ?? 105.8542 ),
+		] );
+		$_av_url = bccm_build_astroviet_wheel_url(
+			$planets_by_name,
+			$env['houses'] ?? array(),
+			$_av_name,
+			$_av_birth
+		);
+		if ( $_av_url ) {
+			$chart_url = $_av_url;
+			_bcpro_astro_v2_dbg( 'bridge.chart_svg.astroviet', $chart_url );
+		}
+	}
+
 	$transits_data = array();
-	if ( method_exists( $provider, 'transits' ) ) {
+	// [2026-06-29 Johnny Chu] PHASE-ASTRO-MIGRATE — faa_western supplement; null-safe
+	if ( $provider && method_exists( $provider, 'transits' ) ) {
 		$tr_env = $provider->transits( $input );
 		_bcpro_astro_v2_dbg( 'bridge.transits', array(
 			'coachee_id'   => $coachee_id,
@@ -396,7 +496,8 @@ function bccm_astro_fetch_full_chart_v2( array $birth_data ) {
 
 	$transit_chart_url        = '';
 	$transit_chart_svg_inline = '';
-	if ( method_exists( $provider, 'transit_chart_svg' ) ) {
+	// [2026-06-29 Johnny Chu] PHASE-ASTRO-MIGRATE — faa_western supplement; null-safe
+	if ( $provider && method_exists( $provider, 'transit_chart_svg' ) ) {
 		$tr_svg = $provider->transit_chart_svg( array(
 			'natal'                => $input,
 			'current_city'         => (string) ( $birth_data['current_city'] ?? 'Hanoi' ),

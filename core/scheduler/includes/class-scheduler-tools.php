@@ -891,6 +891,25 @@ class BizCity_Scheduler_Tools {
 			$meta['related_entity_id'] = absint( $slots['related_entity_id'] );
 		}
 
+		// [2026-06-03 Johnny Chu] SCH-NC W5 — accept canonical inbound{} block
+		// từ TwinBrain tool ctx ($slots['_inbound'] hoặc $slots['inbound']).
+		// Helper validate platform whitelist + fill captured_at.
+		if ( class_exists( 'BizCity_Scheduler_Inbound_Provenance' ) ) {
+			$inbound_raw = isset( $slots['_inbound'] ) && is_array( $slots['_inbound'] )
+				? $slots['_inbound']
+				: ( isset( $slots['inbound'] ) && is_array( $slots['inbound'] ) ? $slots['inbound'] : null );
+			if ( $inbound_raw !== null && ! empty( $inbound_raw['platform'] ) && ! empty( $inbound_raw['chat_id'] ) ) {
+				$inbound = BizCity_Scheduler_Inbound_Provenance::build(
+					(string) $inbound_raw['platform'],
+					(string) $inbound_raw['chat_id'],
+					$inbound_raw
+				);
+				if ( BizCity_Scheduler_Inbound_Provenance::is_valid( $inbound ) ) {
+					$meta['inbound'] = $inbound;
+				}
+			}
+		}
+
 		/**
 		 * Filter: let other plugins add or override metadata fields.
 		 * Webchat/inbox orchestrators use this to inject contact_id and

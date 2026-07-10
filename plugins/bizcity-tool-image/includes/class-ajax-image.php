@@ -11,6 +11,33 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 
 class BizCity_Tool_Image_Ajax {
 
+    /**
+     * Load templates — delegates to BizCity_User_Meta_Cache (direct SQL, no WP meta prime).
+     * [2026-06-11 Johnny Chu] R-PERF — unified via core/runtime/class-user-meta-cache.php
+     */
+    private static function load_templates( $uid ) {
+        $uid = (int) $uid;
+        if ( class_exists( 'BizCity_User_Meta_Cache' ) ) {
+            $raw = BizCity_User_Meta_Cache::get( $uid, 'bztimg_templates', [] );
+        } else {
+            $raw = get_user_meta( $uid, 'bztimg_templates', true );
+        }
+        return is_array( $raw ) ? $raw : [];
+    }
+
+    /**
+     * Persist templates and update in-request cache.
+     * [2026-06-11 Johnny Chu] R-PERF — unified via BizCity_User_Meta_Cache::set()
+     */
+    private static function save_templates( $uid, array $templates ) {
+        $uid = (int) $uid;
+        if ( class_exists( 'BizCity_User_Meta_Cache' ) ) {
+            BizCity_User_Meta_Cache::set( $uid, 'bztimg_templates', $templates );
+        } else {
+            update_user_meta( $uid, 'bztimg_templates', $templates );
+        }
+    }
+
     public static function init() {
         add_action( 'wp_ajax_bztimg_upload_photo',    [ __CLASS__, 'handle_upload_photo' ] );
         add_action( 'wp_ajax_bztimg_generate',        [ __CLASS__, 'handle_generate' ] );
@@ -231,10 +258,7 @@ class BizCity_Tool_Image_Ajax {
             wp_send_json_error( [ 'message' => 'Vui lòng đăng nhập.' ] );
         }
 
-        $templates = get_user_meta( $user_id, 'bztimg_templates', true );
-        if ( ! is_array( $templates ) ) {
-            $templates = [];
-        }
+        $templates = self::load_templates( $user_id );
 
         // Mark all as user templates
         foreach ( $templates as &$tpl ) {
@@ -266,10 +290,7 @@ class BizCity_Tool_Image_Ajax {
             wp_send_json_error( [ 'message' => 'Dữ liệu template không hợp lệ.' ] );
         }
 
-        $templates = get_user_meta( $user_id, 'bztimg_templates', true );
-        if ( ! is_array( $templates ) ) {
-            $templates = [];
-        }
+        $templates = self::load_templates( $user_id );
 
         $id = 'utpl_' . uniqid();
         $templates[] = [
@@ -282,7 +303,7 @@ class BizCity_Tool_Image_Ajax {
             'created_at'     => current_time( 'mysql' ),
         ];
 
-        update_user_meta( $user_id, 'bztimg_templates', $templates );
+        self::save_templates( $user_id, $templates );
 
         wp_send_json_success( [ 'id' => $id, 'message' => 'Đã lưu template.' ] );
     }
@@ -303,16 +324,13 @@ class BizCity_Tool_Image_Ajax {
             wp_send_json_error( [ 'message' => 'Thiếu template ID.' ] );
         }
 
-        $templates = get_user_meta( $user_id, 'bztimg_templates', true );
-        if ( ! is_array( $templates ) ) {
-            $templates = [];
-        }
+        $templates = self::load_templates( $user_id );
 
         $templates = array_values( array_filter( $templates, function ( $t ) use ( $template_id ) {
             return $t['id'] !== $template_id;
         } ) );
 
-        update_user_meta( $user_id, 'bztimg_templates', $templates );
+        self::save_templates( $user_id, $templates );
 
         wp_send_json_success( [ 'message' => 'Đã xóa template.' ] );
     }

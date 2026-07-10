@@ -29,6 +29,12 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 
 require_once dirname( __DIR__ ) . '/interface-diagnostics-probe.php';
 
+
+// [2026-06-08 Johnny Chu] HOTFIX — double-load guard (bootstrap may include via filter AND direct require).
+if ( class_exists( 'BizCity_Probe_KG_Filestore_Learning', false ) ) {
+	return;
+}
+
 final class BizCity_Probe_KG_Filestore_Learning implements BizCity_Diagnostics_Probe {
 
 	/** The 16 KG-Hub tables surfaced on Repair Hub → knowledge group. */
@@ -83,7 +89,7 @@ final class BizCity_Probe_KG_Filestore_Learning implements BizCity_Diagnostics_P
 		$missing = [];
 		foreach ( self::KG_TABLES as $bare ) {
 			$full = $prefix . $bare;
-			$exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $full ) );
+			$exists = bizcity_tbl_exists( $full ) ? $full : null; // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			if ( $exists !== $full ) { $missing[] = $bare; }
 		}
 		if ( $missing ) {

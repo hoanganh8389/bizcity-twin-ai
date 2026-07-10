@@ -99,7 +99,10 @@ final class BizCity_Automation_Trigger_Matcher {
 		}
 
 		$trigger_type = '';
-		if ( strpos( $platform, 'ZALO' ) !== false ) {
+		// [2026-06-24 Johnny Chu] PHASE-0.40 — Distinguish ZALO_OA (Zone 1 customer) from ZALO_BOT (Zone 2 admin).
+		if ( $platform === 'ZALO_OA' || $platform === 'ZALO_PERSONAL' ) {
+			$trigger_type = 'zalo_oa_inbound';
+		} elseif ( strpos( $platform, 'ZALO' ) !== false ) {
 			$trigger_type = 'zalo_inbound';
 		} elseif ( strpos( $platform, 'TELEGRAM' ) !== false ) {
 			$trigger_type = 'telegram_inbound';
@@ -172,6 +175,15 @@ final class BizCity_Automation_Trigger_Matcher {
 			'raw'           => $payload['raw']        ?? null,
 			'_trigger'      => $trigger_type,
 		);
+
+		// [2026-06-03 Johnny Chu] SCH-NC W5 — attach canonical inbound provenance
+		// vào trigger payload để runner forward xuống CRM Bridge / final actions.
+		if ( class_exists( 'BizCity_Scheduler_Inbound_Provenance' ) ) {
+			$inbound = BizCity_Scheduler_Inbound_Provenance::from_channel_payload( $run_payload );
+			if ( is_array( $inbound ) ) {
+				$run_payload['inbound'] = $inbound;
+			}
+		}
 
 		// ─── BE-7.C — Resume rule (priority over keyword/fallback) ───────
 		// Multi-turn slot: nếu chat_id có pending_state với workflow_id thì
@@ -257,7 +269,15 @@ final class BizCity_Automation_Trigger_Matcher {
 			}
 		}
 
-		$wfs = $this->find_active_workflows( $trigger_type );
+		// [2026-06-07 Johnny Chu] CRM-PATH-4 — zone-based workflow isolation (R-ZONE-2).
+		// ZALO_OA / ZALO_PERSONAL → only zone=crm workflows.
+		// ZALO_BOT → only zone=admin (+ legacy no-zone) workflows.
+		// Other platforms → no zone filter (backward compat: FB, WebChat, Telegram).
+		$wf_zone = $this->platform_to_zone( $platform, $event_subtype );
+		if ( $wf_zone === 'crm' ) {
+			$run_payload['run_source'] = 'crm_care';
+		}
+		$wfs = $this->find_active_workflows( $trigger_type, $wf_zone );
 
 		// ─── BE-7.D — Ref-based rule (priority over keyword/fallback) ────
 		// Khi user click deep-link `m.me/<page>?ref=f.<uuid>` hoặc quét QR
@@ -303,6 +323,13 @@ final class BizCity_Automation_Trigger_Matcher {
 				}
 				// [2026-06-02 Johnny Chu] AUTOMATION ACK — gửi reply xác nhận match ref.
 				$this->send_match_ack( $run_payload, $ref_matched, 'ref' );
+				// [2026-07-05 Johnny Chu] HOTFIX-OLD-PIPELINE — same as keyword match: flag mid.
+				if ( $mid !== '' ) {
+					if ( ! isset( $GLOBALS['bizcity_automation_matched_mids'] ) ) {
+						$GLOBALS['bizcity_automation_matched_mids'] = array();
+					}
+					$GLOBALS['bizcity_automation_matched_mids'][ $mid ] = true;
+				}
 				return; // ref-based pre-empts keyword + fallback.
 			}
 			// Ref present nhưng không workflow nào claim → fall through sang keyword.
@@ -312,6 +339,32 @@ final class BizCity_Automation_Trigger_Matcher {
 				'trigger_type' => $trigger_type,
 				'detail'       => 'ref_uuid=' . $ref_uuid . ' no workflow claimed',
 			) );
+		}
+
+		// [2026-06-03 Johnny Chu] WF-AUTO GURU W2 — dual-tier slash dispatch.
+		// Trước keyword/fallback: nếu text bắt đầu bằng `/cmd` thì check
+		// (1) skill row qua bizcity_skills.slash_commands, (2) workflow
+		// trigger_type=slash_command. Hit bất kỳ tier nào → preempt keyword.
+		if ( $text !== '' && class_exists( 'BizCity_Skill_Slash_Matcher' ) ) {
+			$slash = BizCity_Skill_Slash_Matcher::instance()->try_dispatch( $run_payload, $text );
+			if ( ! empty( $slash['matched'] ) ) {
+				BizCity_Automation_Matcher_Trace::note( 'matched_slash', array(
+					'platform'     => $platform,
+					'chat_id'      => $chat_id,
+					'text'         => $text,
+					'trigger_type' => $trigger_type,
+					'detail'       => 'tier=' . (string) ( $slash['source'] ?? '?' ) . ' ' . (string) ( $slash['detail'] ?? '' ),
+				) );
+				if ( class_exists( 'BizCity_Automation_File_Logger' ) && ! empty( $slash['workflow_id'] ) ) {
+					BizCity_Automation_File_Logger::note_decision( (int) $slash['workflow_id'], 'matcher.matched_slash', array(
+						'platform' => $platform,
+						'chat_id'  => $chat_id,
+						'text'     => $text,
+						'detail'   => 'slash workflow tier-2',
+					) );
+				}
+				return; // slash preempts keyword + fallback.
+			}
 		}
 
 		// BE-7.B — Fallback rule: nếu KHÔNG workflow nào match keyword/filter,
@@ -324,8 +377,21 @@ final class BizCity_Automation_Trigger_Matcher {
 		foreach ( $wfs as $wf ) {
 			$cfg = $this->trigger_config( $wf );
 			// Instance filter — áp dụng cho cả matched lẫn fallback.
-			$wanted_inst = trim( (string) ( $cfg['instance_id'] ?? '' ) );
+			// [2026-06-07 Johnny Chu] CRM-PATH-4 — also check cfg['account_id'] for
+			// zone=crm workflows whose channel was bound via /bind REST endpoint
+			// (stores account_id, not instance_id).
+			$wanted_inst = trim( (string) ( $cfg['instance_id'] ?? $cfg['account_id'] ?? '' ) );
 			if ( $wanted_inst !== '' && $wanted_inst !== $inst ) { continue; }
+
+			// [2026-06-02 Johnny Chu] GURU W1 — guru_id filter cross-cutting,
+			// áp dụng cho cả matched lẫn fallback. Workflow đánh dấu
+			// trigger_config.guru_id=N chỉ chạy khi active guru = N (character_id
+			// resolve từ Channel Binding). guru_id=0 → shared cross-guru.
+			$wanted_guru = (int) ( $cfg['guru_id'] ?? 0 );
+			if ( $wanted_guru > 0 ) {
+				$active_guru = (int) ( $payload['character_id'] ?? 0 );
+				if ( $active_guru !== $wanted_guru ) { continue; }
+			}
 
 			$is_fallback = ! empty( $cfg['is_fallback'] );
 			if ( $is_fallback ) {
@@ -335,10 +401,41 @@ final class BizCity_Automation_Trigger_Matcher {
 			}
 			// Non-fallback → BẮT BUỘC pass filter.
 			if ( ! $this->channel_filter_match( $cfg, $text, $payload ) ) { continue; }
+
+			// [2026-07-05 Johnny Chu] PHASE-IMG-TPL — demote-to-fallback guard.
+			// Non-fallback workflow với keywords=[] VÀ filter='' là match-all ẩn (zombie).
+			// Chúng không có keyword rõ ràng nhưng is_fallback=false → cố tình chen vào
+			// $matched cùng keyword workflows → gây double-reply thừa LLM.
+			// Fix: nếu match chỉ do "wildcard empty" (không có keyword, không có filter)
+			// → tự động demote về $fallbacks, chỉ chạy khi không workflow keyword nào match.
+			$has_explicit_filter = $this->has_explicit_filter( $cfg );
+			if ( ! $has_explicit_filter ) {
+				$fallbacks[] = array( 'wf' => $wf, 'cfg' => $cfg,
+					'priority' => max( (int) ( $cfg['priority'] ?? 0 ), 1 ) ); // priority 1 > true-fallback 0
+				BizCity_Automation_Matcher_Trace::note( 'demoted_to_fallback', array(
+					'platform'     => $platform,
+					'chat_id'      => $chat_id,
+					'text'         => $text,
+					'trigger_type' => $trigger_type,
+					'wf_id'        => (int) $wf['id'],
+					'detail'       => 'wf_id=' . (int) $wf['id'] . ' has no keywords/filter → auto-demoted to fallback to avoid zombie match-all',
+				) );
+				continue;
+			}
+
 			$matched[] = array( 'wf' => $wf, 'cfg' => $cfg );
 		}
 
 		if ( ! empty( $matched ) ) {
+			// [2026-07-04 Johnny Chu] PHASE-ASTRO-WORKFLOW — exclusive: true wins when present in matched set.
+			// When ANY matched workflow has triggerConfig.exclusive=true, suppress all non-exclusive matches
+			// so they don't fire alongside the exclusive workflow (prevents cross-workflow contamination).
+			$exclusive_set = array_filter( $matched, function ( $r ) {
+				return ! empty( $r['cfg']['exclusive'] );
+			} );
+			if ( ! empty( $exclusive_set ) ) {
+				$matched = array_values( $exclusive_set );
+			}
 			foreach ( $matched as $row ) {
 				$this->enqueue_and_optionally_run( $row['wf'], $run_payload, false );
 			}
@@ -367,6 +464,22 @@ final class BizCity_Automation_Trigger_Matcher {
 			// để user biết yc đã vào đúng workflow (UX feedback ngay lập tức, không
 			// phải đợi workflow chạy xong mới thấy reply thật).
 			$this->send_match_ack( $run_payload, array_column( $matched, 'wf' ), 'keyword' );
+			// [2026-07-07 Johnny Chu] HOTFIX — explicit PHP-log marker for keyword match path.
+			error_log( sprintf(
+				'[automation][matcher] matched_keyword chat_id=%s trigger=%s wf_ids=%s',
+				$chat_id,
+				$trigger_type,
+				implode( ',', $ids )
+			) );
+			// [2026-07-05 Johnny Chu] HOTFIX-OLD-PIPELINE — Flag mid so bizcity-zalo-bizcity
+			// bootstrap waic_twf_process_flow handler skips bizgpt_chatbot_run_admin_flows
+			// (avoids double reply: ACK already sent above; old TwinBrain would send a 2nd).
+			if ( $mid !== '' ) {
+				if ( ! isset( $GLOBALS['bizcity_automation_matched_mids'] ) ) {
+					$GLOBALS['bizcity_automation_matched_mids'] = array();
+				}
+				$GLOBALS['bizcity_automation_matched_mids'][ $mid ] = true;
+			}
 			return;
 		}
 
@@ -378,6 +491,13 @@ final class BizCity_Automation_Trigger_Matcher {
 			// Filter cho phép site tắt nếu muốn im lặng.
 			if ( apply_filters( 'bizcity_automation_default_reply_enabled', true, $run_payload ) ) {
 				if ( class_exists( 'BizCity_Automation_Default_Reply' ) ) {
+					// [2026-07-07 Johnny Chu] HOTFIX — explicit marker for no-keyword default path.
+					error_log( sprintf(
+						'[automation][matcher] no_match_default_reply chat_id=%s trigger=%s text=%s',
+						$chat_id,
+						$trigger_type,
+						mb_substr( $text, 0, 120 )
+					) );
 					BizCity_Automation_Default_Reply::handle( $run_payload );
 					BizCity_Automation_Matcher_Trace::note( 'default_reply', array(
 						'platform'     => $platform,
@@ -415,6 +535,13 @@ final class BizCity_Automation_Trigger_Matcher {
 			$this->enqueue_and_optionally_run( $row['wf'], $payload_fb, false );
 			$fb_ids[] = (int) $row['wf']['id'];
 		}
+		// [2026-07-07 Johnny Chu] HOTFIX — explicit marker for fallback workflow fan-out.
+		error_log( sprintf(
+			'[automation][matcher] fallback_fired chat_id=%s trigger=%s wf_ids=%s',
+			$chat_id,
+			$trigger_type,
+			implode( ',', $fb_ids )
+		) );
 		BizCity_Automation_Matcher_Trace::note( 'fallback_fired', array(
 			'platform'     => $platform,
 			'chat_id'      => $chat_id,
@@ -631,10 +758,23 @@ final class BizCity_Automation_Trigger_Matcher {
 
 		// Run sync since we're already in cron context (scheduler cron handler).
 		$this->enqueue_and_optionally_run( $wf, $payload, true );
+
+		// [2026-06-14 Johnny Chu] GAP-3 — mark the crm_event as done so the calendar
+		// shows it as completed. Pass event_id to skip the extra lookup query.
+		if ( class_exists( 'BizCity_Automation_Schedule_Manager' ) ) {
+			BizCity_Automation_Schedule_Manager::instance()->mark_event_done( $wf_id, (int) $event['id'] );
+		}
 	}
 
 	// ─── (3) Cron scan trigger.cron ──────────────────────────────────────
 	public function on_cron_scan(): void {
+		// [2026-06-21 Johnny Chu] HOTFIX — guard missing tables on multisite blogs not yet
+		// provisioned (e.g. cloned sites where MUCD copied options but not bizcity_* tables).
+		// tables_present_cached() does ONE SHOW TABLES per blog per request, safe for every tick.
+		if ( class_exists( 'BizCity_Automation_Installer' ) && ! BizCity_Automation_Installer::tables_present_cached() ) {
+			BizCity_Automation_Installer::ensure(); // attempt provisioning; next tick will proceed
+			return;
+		}
 		$wfs = $this->find_active_workflows( 'cron' );
 		$now = time();
 		foreach ( $wfs as $wf ) {
@@ -652,6 +792,11 @@ final class BizCity_Automation_Trigger_Matcher {
 				'fired_at' => gmdate( 'c', $now ),
 				'schedule' => $schedule,
 			), true );
+
+			// [2026-06-14 Johnny Chu] AUTOMATION-CAL — mark crm_event done after cron fire
+			if ( class_exists( 'BizCity_Automation_Schedule_Manager' ) ) {
+				BizCity_Automation_Schedule_Manager::instance()->mark_event_done( (int) $wf['id'] );
+			}
 		}
 	}
 
@@ -705,12 +850,20 @@ final class BizCity_Automation_Trigger_Matcher {
 
 	// ─── Helpers ─────────────────────────────────────────────────────────
 
-	private function find_active_workflows( string $trigger_type ): array {
-		$out = BizCity_Automation_Repo_Workflows::query( array(
+	private function find_active_workflows( string $trigger_type, string $zone = '' ): array {
+		$args = array(
 			'trigger_type' => $trigger_type,
 			'enabled'      => 1,
 			'limit'        => 200,
-		) );
+		);
+		// [2026-06-07 Johnny Chu] CRM-PATH-4 — zone-scoped query.
+		// zone='crm' → SQL JSON_EXTRACT matches 'crm' only.
+		// zone='admin' → SQL includes NULL/empty rows (legacy no-zone = admin).
+		// zone='' → no filter (backward compat for FACEBOOK, WEBCHAT, TELEGRAM).
+		if ( $zone !== '' ) {
+			$args['zone'] = $zone;
+		}
+		$out = BizCity_Automation_Repo_Workflows::query( $args );
 		return $out['rows'] ?? array();
 	}
 
@@ -738,32 +891,164 @@ final class BizCity_Automation_Trigger_Matcher {
 		return array();
 	}
 
+	/**
+	 * [2026-07-05 Johnny Chu] PHASE-IMG-TPL — true khi workflow có ít nhất 1 filter
+	 * rõ ràng (keyword hoặc filter string). false = match-all "zombie".
+	 */
+	private function has_explicit_filter( array $cfg ): bool {
+		// [2026-07-06 Johnny Chu] HOTFIX — treat keywords/filter as normalized term lists.
+		$keywords = $this->extract_match_terms_from_keywords( $cfg );
+		if ( ! empty( $keywords ) ) { return true; }
+		$filter_terms = $this->extract_match_terms_from_filter( (string) ( $cfg['filter'] ?? '' ) );
+		return ! empty( $filter_terms );
+	}
+
 	private function channel_filter_match( array $cfg, string $text, array $payload ): bool {
-		// filter = empty → match all.
-		$filter = trim( (string) ( $cfg['filter'] ?? '' ) );
-		if ( $filter === '' ) { return true; }
+		// [2026-06-02 Johnny Chu] GURU W1 — cross-cutting guru_id filter.
+		// Doc: docs/PHASE-SEED-TEMPLATES-AND-GURU-TRIGGER.md §B.2.
+		// Nếu workflow.trigger_config.guru_id > 0 → chỉ match khi character_id
+		// (guru bind từ Channel Binding) khớp đúng. guru_id = 0 / missing →
+		// workflow dùng chung cross-guru (giữ behavior cũ).
+		$wanted_guru = (int) ( $cfg['guru_id'] ?? 0 );
+		if ( $wanted_guru > 0 ) {
+			$active_guru = (int) ( $payload['character_id'] ?? 0 );
+			if ( $active_guru !== $wanted_guru ) { return false; }
+		}
+
+		// [2026-07-06 Johnny Chu] HOTFIX — normalize lowercase + no-accent + multi-delimiter term split.
+		// Support patterns like: "vận hạn|chiêm tinh|bản đồ sao,..." and match từng term.
+		$keyword_terms = $this->extract_match_terms_from_keywords( $cfg );
+		$filter_terms  = $this->extract_match_terms_from_filter( (string) ( $cfg['filter'] ?? '' ) );
+		$haystack      = $this->normalize_match_text( $text );
+		// Không có keywords[] và filter rỗng → wildcard (giữ compat workflow cũ).
+		if ( empty( $keyword_terms ) && empty( $filter_terms ) ) { return true; }
 		// Per-page filter for FB.
 		$page_id = (string) ( $cfg['page_id'] ?? '' );
 		if ( $page_id !== '' ) {
 			$payload_page = (string) ( $payload['raw']['entry'][0]['id'] ?? $payload['page_id'] ?? '' );
 			if ( $payload_page !== '' && $payload_page !== $page_id ) { return false; }
 		}
-		// BE-7.D-keywords — OR-match cả mảng `keywords[]` (Bot-Bán-Hàng style).
-		// Mặc định fallback substring `filter` để giữ tương thích với data cũ.
-		$keywords = isset( $cfg['keywords'] ) && is_array( $cfg['keywords'] )
-			? array_filter( array_map( 'strval', $cfg['keywords'] ) )
-			: array();
-		if ( ! empty( $keywords ) ) {
-			$haystack = $text === '' ? '' : mb_strtolower( $text );
-			foreach ( $keywords as $kw ) {
-				$kw_norm = mb_strtolower( trim( (string) $kw ) );
-				if ( $kw_norm !== '' && $haystack !== '' && mb_strpos( $haystack, $kw_norm ) !== false ) {
+
+		$mode = strtolower( trim( (string) ( $cfg['mode'] ?? 'keyword_contains' ) ) );
+		// [2026-07-07 Johnny Chu] HOTFIX — honor filter even when keywords[] exists.
+		// Imported templates often carry both fields; old logic ignored `filter`
+		// once `keywords[]` was present, causing false fallback_fired.
+		$keyword_match = empty( $keyword_terms )
+			? false
+			: $this->match_terms_by_mode( $haystack, $keyword_terms, $mode );
+		$filter_match  = empty( $filter_terms )
+			? false
+			: $this->contains_any_match_term( $haystack, $filter_terms );
+
+		if ( ! empty( $keyword_terms ) && ! empty( $filter_terms ) ) {
+			return $keyword_match || $filter_match;
+		}
+		if ( ! empty( $keyword_terms ) ) {
+			return $keyword_match;
+		}
+		return $filter_match;
+	}
+
+	/**
+	 * Match terms using trigger mode semantics.
+	 */
+	private function match_terms_by_mode( string $haystack, array $terms, string $mode ): bool {
+		if ( $haystack === '' || empty( $terms ) ) { return false; }
+
+		if ( $mode === 'keyword_exact' ) {
+			foreach ( $terms as $term ) {
+				$term = (string) $term;
+				if ( $term !== '' && $haystack === $term ) {
 					return true;
 				}
 			}
 			return false;
 		}
-		return $text !== '' && stripos( $text, $filter ) !== false;
+
+		if ( $mode === 'keyword_start' ) {
+			foreach ( $terms as $term ) {
+				$term = (string) $term;
+				if ( $term !== '' && mb_strpos( $haystack, $term ) === 0 ) {
+					return true;
+				}
+			}
+			return false;
+		}
+
+		// Default: keyword_contains
+		return $this->contains_any_match_term( $haystack, $terms );
+	}
+
+	/**
+	 * Parse `keywords[]` from trigger config into normalized match terms.
+	 *
+	 * Accepts legacy style where one keywords row may still contain
+	 * pipe/comma-separated tokens.
+	 */
+	private function extract_match_terms_from_keywords( array $cfg ): array {
+		$raw_keywords = isset( $cfg['keywords'] ) && is_array( $cfg['keywords'] )
+			? $cfg['keywords']
+			: array();
+		if ( empty( $raw_keywords ) ) { return array(); }
+
+		$terms = array();
+		foreach ( $raw_keywords as $kw ) {
+			$parts = $this->extract_match_terms_from_filter( (string) $kw );
+			foreach ( $parts as $term ) {
+				$terms[ $term ] = true;
+			}
+		}
+		return array_keys( $terms );
+	}
+
+	/**
+	 * Parse a free-text filter into normalized terms.
+	 * Supports delimiters: `| , ;` + newlines + common fullwidth variants.
+	 */
+	private function extract_match_terms_from_filter( string $filter ): array {
+		$filter = trim( $filter );
+		if ( $filter === '' ) { return array(); }
+
+		$parts = preg_split( '/[\|,;；，｜•\r\n]+/u', $filter );
+		if ( ! is_array( $parts ) ) {
+			$parts = array( $filter );
+		}
+
+		$terms = array();
+		foreach ( $parts as $part ) {
+			$norm = $this->normalize_match_text( (string) $part );
+			if ( $norm === '' ) { continue; }
+			$terms[ $norm ] = true;
+		}
+		return array_keys( $terms );
+	}
+
+	/**
+	 * Normalize text for matching: lowercase + remove accents + collapse spaces.
+	 */
+	private function normalize_match_text( string $text ): string {
+		$text = trim( $text );
+		if ( $text === '' ) { return ''; }
+		$text = mb_strtolower( $text, 'UTF-8' );
+		if ( function_exists( 'remove_accents' ) ) {
+			$text = remove_accents( $text );
+		}
+		$text = preg_replace( '/\s+/u', ' ', $text );
+		return trim( (string) $text );
+	}
+
+	/**
+	 * True when any normalized term is contained in the normalized haystack.
+	 */
+	private function contains_any_match_term( string $haystack, array $terms ): bool {
+		if ( $haystack === '' || empty( $terms ) ) { return false; }
+		foreach ( $terms as $term ) {
+			$term = (string) $term;
+			if ( $term !== '' && mb_strpos( $haystack, $term ) !== false ) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/**
@@ -866,12 +1151,16 @@ final class BizCity_Automation_Trigger_Matcher {
 			$interval = max( 1, (int) $m[1] ) * MINUTE_IN_SECONDS;
 			return ( $now - $last_at ) >= $interval;
 		}
-		// Cron 0 H * * *  (daily at hour H, site timezone)
-		if ( preg_match( '#^0\s+(\d{1,2})\s+\*\s+\*\s+\*$#', $schedule, $m ) ) {
-			$target_hour = (int) $m[1];
+		// [2026-06-25 Johnny Chu] PHASE-TRENDING W1 FIX — M H * * * (daily at H:MM, site timezone).
+		// Replaces old '0 H * * *' only pattern. Handles any minute (e.g. '45 10 * * *' = 10:45).
+		if ( preg_match( '#^(\d{1,2})\s+(\d{1,2})\s+\*\s+\*\s+\*$#', $schedule, $m ) ) {
+			$target_min  = (int) $m[1];
+			$target_hour = (int) $m[2];
 			$now_hour    = (int) wp_date( 'G', $now );
-			if ( $now_hour !== $target_hour ) { return false; }
-			// Avoid double-fire within the same hour.
+			$now_min     = (int) wp_date( 'i', $now );
+			// Must be correct hour and have passed the target minute.
+			if ( $now_hour !== $target_hour || $now_min < $target_min ) { return false; }
+			// Avoid double-fire within the same hour (fire at most once per hour window).
 			return ( $now - $last_at ) >= ( HOUR_IN_SECONDS - MINUTE_IN_SECONDS );
 		}
 		// Fallback: daily.
@@ -908,6 +1197,41 @@ final class BizCity_Automation_Trigger_Matcher {
 	private function note_event( string $name, array $data ): void {
 		if ( ! class_exists( 'BizCity_Cron_Manager' ) ) { return; }
 		BizCity_Cron_Manager::instance()->note_event( $name, $data );
+	}
+
+	/**
+	 * [2026-06-07 Johnny Chu] CRM-PATH-4 — map inbound platform code to zone.
+	 *
+	 * Returns:
+	 *   'crm'   -> ZALO_OA / ZALO_PERSONAL (Zone 1, new channels from 0.39)
+	 *   'admin' -> ZALO_BOT (Zone 2 admin/automation)
+	 *   ''      -> no zone filter (FACEBOOK, WEBCHAT, TELEGRAM -- backward compat)
+	 *
+	 * FACEBOOK and WEBCHAT are Zone-1 channels per spec but have EXISTING legacy
+	 * zone=admin workflows. Filtering them to crm-only would break those until
+	 * a migration is run. Leaving them '' for now.
+	 *
+	 * @param string $platform Uppercase platform code (e.g. 'ZALO_OA').
+	 * @return string 'crm' | 'admin' | ''
+	 */
+	private function platform_to_zone( string $platform, string $event_subtype = '' ): string {
+		if ( $platform === 'ZALO_OA' || $platform === 'ZALO_PERSONAL' ) {
+			return 'crm';
+		}
+		// [2026-06-07 Johnny Chu] CRM-PATH-5 — FB Messenger (event_subtype=messaging)
+		// is Zone 1 CRM-care. FB_MESS is the UCL envelope code for Messenger.
+		// FACEBOOK+event_subtype=messenger (via on_channel_message path) also maps here.
+		// NOTE: FB_FEED (feed/comments) stays '' so legacy admin workflows still fire.
+		if ( $platform === 'FB_MESS' || $platform === 'MESSENGER' ) {
+			return 'crm';
+		}
+		if ( $platform === 'FACEBOOK' && $event_subtype === 'messenger' ) {
+			return 'crm';
+		}
+		if ( $platform === 'ZALO_BOT' || $platform === 'ZALO' ) {
+			return 'admin';
+		}
+		return ''; // FACEBOOK(feed), FB_FEED, WEBCHAT, TELEGRAM, etc. -- no zone filter.
 	}
 
 	/**

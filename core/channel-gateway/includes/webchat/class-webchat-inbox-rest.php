@@ -67,7 +67,7 @@ class BizCity_WebChat_Inbox_REST {
 		$table_s = $wpdb->prefix . 'bizcity_webchat_sessions';
 		$table_m = $wpdb->prefix . 'bizcity_webchat_messages';
 
-		$has_sessions = ( $wpdb->get_var( "SHOW TABLES LIKE '{$table_s}'" ) === $table_s );
+		$has_sessions = ( bizcity_tbl_exists( $table_s ) ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 
 		$rows = array();
 
@@ -98,7 +98,7 @@ class BizCity_WebChat_Inbox_REST {
 			$rows     = $wpdb->get_results( $prepared, ARRAY_A ) ?: array();
 		} else {
 			// Fallback: derive sessions from messages table when v3 sessions table absent.
-			if ( $wpdb->get_var( "SHOW TABLES LIKE '{$table_m}'" ) !== $table_m ) {
+			if ( ! bizcity_tbl_exists( $table_m ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 				return new WP_REST_Response( array( 'ok' => true, 'data' => array() ), 200 );
 			}
 			$rows = $wpdb->get_results( $wpdb->prepare(
@@ -170,7 +170,7 @@ class BizCity_WebChat_Inbox_REST {
 		}
 
 		$table = $wpdb->prefix . 'bizcity_webchat_messages';
-		if ( $wpdb->get_var( "SHOW TABLES LIKE '{$table}'" ) !== $table ) {
+		if ( ! bizcity_tbl_exists( $table ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			return new WP_REST_Response( array( 'ok' => true, 'data' => array() ), 200 );
 		}
 

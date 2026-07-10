@@ -22,7 +22,7 @@ global $wpdb;
 $_uid  = get_current_user_id();
 $_tbl  = $wpdb->prefix . 'bizcity_knowledge_sources';
 $_faqs = [];
-if ( $wpdb->get_var( "SHOW TABLES LIKE '{$_tbl}'" ) === $_tbl ) {
+if ( bizcity_tbl_exists( $_tbl ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 	$_rows = $wpdb->get_results( $wpdb->prepare(
 		"SELECT id, source_name AS title, content, status, updated_at
 		 FROM {$_tbl} WHERE user_id = %d AND source_type = 'quick_faq'
@@ -38,7 +38,7 @@ if ( $wpdb->get_var( "SHOW TABLES LIKE '{$_tbl}'" ) === $_tbl ) {
 }
 ?>
 <script>var bizcPageContext = 'training';</script>
-Pro<style>
+<style>
 /* ─── Training (Maturity-style) — scoped, retired bundle replacement ─── */
 .bizcity-mh { max-width:1200px; margin:0 auto; padding:16px 20px 32px;
 	font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Inter",sans-serif; color:#1f2937; }
@@ -100,7 +100,7 @@ Pro<style>
 	<!-- Header -->
 	<div class="maturity-header">
 		<div class="maturity-header__title">
-			<h1>Đào tạo AI</h1>
+			<h1>Twin Knowledge</h1>
 			<div class="maturity-header__overall">
 				<span class="overall-label">Dữ liệu huấn luyện chủ động</span>
 			</div>

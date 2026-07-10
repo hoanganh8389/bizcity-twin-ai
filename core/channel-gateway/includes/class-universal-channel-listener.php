@@ -85,6 +85,13 @@ class BizCity_Universal_Channel_Listener {
 	}
 
 	public static function bridge_zalo( $message_data ): void {
+		// [2026-06-07 Johnny Chu] PHASE-0.40 G0.1 R-ZONE-2 — discriminator: ZALO_BOT (Zone 2 admin)
+		// must NOT enter CRM Inbox (Zone 1). Bot messages go to automation/twinbrain ONLY.
+		$platform = is_array( $message_data ) ? (string) ( $message_data['platform'] ?? '' ) : '';
+		if ( $platform === 'ZALO_BOT' ) {
+			return;
+		}
+
 		// Avoid double-fire if Zalo plugin ever switches to workflow trigger.
 		static $seen = array();
 		$mid = is_array( $message_data ) ? (string) ( $message_data['msg_id'] ?? '' ) : '';

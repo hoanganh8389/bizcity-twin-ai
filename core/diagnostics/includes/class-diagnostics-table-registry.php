@@ -65,11 +65,13 @@ final class BizCity_Diagnostics_Table_Registry {
 			[ 'name' => 'bizcity_intent_turns',         'owner' => 'core/intent',  'group' => 'intent', 'critical' => true ],
 			[ 'name' => 'bizcity_intent_prompt_logs',   'owner' => 'core/intent',  'group' => 'intent' ],
 			[ 'name' => 'bizcity_intent_todos',         'owner' => 'core/intent',  'group' => 'intent' ],
-			[ 'name' => 'bizcity_intent_traces',        'owner' => 'core/intent',  'group' => 'intent', 'notes' => 'ORPHAN-CODE-EXISTS: no installer found; remove from registry OR add CREATE TABLE' ],
-			[ 'name' => 'bizcity_intent_tasks',         'owner' => 'core/intent',  'group' => 'intent', 'notes' => 'ORPHAN-CODE-EXISTS: no installer found; remove from registry OR add CREATE TABLE' ],
+			// [2026-06-10 Johnny Chu] HOTFIX — bizcity_intent_traces: orphan, no installer, no code references → removed.
+			// [2026-06-10 Johnny Chu] HOTFIX — bizcity_intent_tasks:  orphan, no installer, no code references → removed.
 			[ 'name' => 'bizcity_intent_classify_cache','owner' => 'core/intent',  'group' => 'intent' ],
-			[ 'name' => 'bizcity_intent_tool_index',    'owner' => 'core/intent',  'group' => 'intent', 'class' => 'BizCity_Intent_Tool_Index' ],
-			[ 'name' => 'bizcity_intent_logger',        'owner' => 'core/intent',  'group' => 'intent', 'class' => 'BizCity_Intent_Logger', 'notes' => 'NAME MISMATCH? class logs to bizcity_intent_logs per comments' ],
+			// [2026-06-10 Johnny Chu] HOTFIX — name was bizcity_intent_tool_index (wrong); BizCity_Intent_Tool_Index creates bizcity_tool_registry.
+			[ 'name' => 'bizcity_tool_registry',        'owner' => 'core/intent',  'group' => 'intent', 'class' => 'BizCity_Intent_Tool_Index' ],
+			// [2026-06-10 Johnny Chu] HOTFIX — name was bizcity_intent_logger (wrong); BizCity_Intent_Logger uses bizcity_intent_logs.
+			[ 'name' => 'bizcity_intent_logs',          'owner' => 'core/intent',  'group' => 'intent', 'class' => 'BizCity_Intent_Logger' ],
 			[ 'name' => 'bizcity_rolling_memory',       'owner' => 'core/intent',  'group' => 'memory' ],
 			[ 'name' => 'bizcity_episodic_memory',      'owner' => 'core/intent',  'group' => 'memory' ],
 
@@ -109,14 +111,13 @@ final class BizCity_Diagnostics_Table_Registry {
 			[ 'name' => 'bizcity_blog_resolver',    'owner' => 'core/channel-gateway', 'group' => 'channel', 'class' => 'BizCity_Blog_Resolver' ],
 
 			// ── core/bizcity-llm ──────────────────────────────────────────
-			[ 'name' => 'bizcity_llm_usage_log', 'owner' => 'core/bizcity-llm', 'group' => 'llm', 'class' => 'BizCity_LLM_Usage_Log' ],
+			// [2026-06-10 Johnny Chu] R-LLM-USAGE — 2-table pattern:
+			//   bizcity_llm_usage_logs    = hub table (base_prefix, owned by bizcity-llm-router). NOT created here.
+			//   bizcity_llm_usage_clients = per-blog client table (prefix, owned by core/bizcity-llm).
+			[ 'name' => 'bizcity_llm_usage_clients', 'owner' => 'core/bizcity-llm', 'group' => 'llm', 'class' => 'BizCity_LLM_Usage_Clients' ],
 
-			// ── core/bizcity-market ───────────────────────────────────────
-			[ 'name' => 'bizcity_market_plugins',     'owner' => 'core/bizcity-market', 'group' => 'market', 'class' => 'BizCity_Market_Install' ],
-			[ 'name' => 'bizcity_market_votes',       'owner' => 'core/bizcity-market', 'group' => 'market', 'class' => 'BizCity_Market_Install' ],
-			[ 'name' => 'bizcity_market_entitlements','owner' => 'core/bizcity-market', 'group' => 'market', 'class' => 'BizCity_Market_Install' ],
-			[ 'name' => 'bizcity_market_hub_rollups', 'owner' => 'core/bizcity-market', 'group' => 'market', 'class' => 'BizCity_Market_Install' ],
-			[ 'name' => 'bizcity_market_meta',        'owner' => 'core/bizcity-market', 'group' => 'market', 'class' => 'BizCity_Market_Install' ],
+			// ── core/bizcity-market — [2026-06-10 Johnny Chu] HOTFIX: module disabled, tables removed from registry.
+			// 5 tables (bizcity_market_plugins/votes/entitlements/hub_rollups/meta) no longer created on client sites.
 
 			// ── modules/twinchat — learning ───────────────────────────────
 			[ 'name' => 'bizcity_kg_learning_jobs',    'owner' => 'modules/twinchat/learning', 'group' => 'twinchat', 'critical' => true ],

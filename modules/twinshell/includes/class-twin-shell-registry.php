@@ -83,11 +83,19 @@ class BizCity_Twin_Shell_Registry {
 				'mode'        => isset( $entry['mode'] ) ? (string) $entry['mode'] : 'embed',
 				'public_slug' => isset( $entry['public_slug'] ) ? (string) $entry['public_slug'] : '',
 				'target_url'  => isset( $entry['target_url'] ) ? esc_url_raw( $entry['target_url'] ) : '',
+				// [2026-06-08 Johnny Chu] HOTFIX — nav_plugin/nav_iurl: when set, clicking
+				// the button navigates the shell to nav_plugin with nav_iurl deep-link
+				// instead of creating a new iframe for this plugin's id.
+				'nav_plugin'  => isset( $entry['nav_plugin'] ) ? sanitize_key( (string) $entry['nav_plugin'] ) : '',
+				'nav_iurl'    => isset( $entry['nav_iurl'] )   ? (string) $entry['nav_iurl']   : '',
 				'capability'  => isset( $entry['capability'] ) ? (string) $entry['capability'] : 'read',
 				'section'     => ( isset( $entry['section'] ) && 'bottom' === $entry['section'] ) ? 'bottom' : 'top',
 				'params'      => isset( $entry['params'] ) && is_array( $entry['params'] ) ? array_values( array_unique( array_map( 'sanitize_key', $entry['params'] ) ) ) : [],
 				'desc'        => isset( $entry['desc'] ) ? (string) $entry['desc'] : '',
 				'requires'    => ( isset( $entry['requires'] ) && is_array( $entry['requires'] ) ) ? $entry['requires'] : [],
+				// [2026-06-08 Johnny Chu] PHASE-MEMBERSHIP — plan gate: 'free'|'pro'|'plus'|'premium'.
+				// Entries with plan != '' are always visible in the ActivityBar (upgrade incentive).
+				'plan'        => isset( $entry['plan'] ) ? sanitize_key( strtolower( (string) $entry['plan'] ) ) : '',
 			];
 		}
 
@@ -103,6 +111,27 @@ class BizCity_Twin_Shell_Registry {
 
 		$this->cache = $out;
 		return $out;
+	}
+
+	/**
+	 * Numeric access tier for a plan slug (higher = more access).
+	 *
+	 * free=0  pro=1  plus/premium=2
+	 *
+	 * [2026-06-08 Johnny Chu] PHASE-MEMBERSHIP — plan tier order for gate comparison.
+	 *
+	 * @param string $plan_slug
+	 * @return int
+	 */
+	public static function plan_order( $plan_slug ) {
+		$tiers = array(
+			'free'    => 0,
+			'pro'     => 1,
+			'plus'    => 2,
+			'premium' => 2,
+		);
+		$k = sanitize_key( strtolower( (string) $plan_slug ) );
+		return isset( $tiers[ $k ] ) ? $tiers[ $k ] : 0;
 	}
 
 	/**

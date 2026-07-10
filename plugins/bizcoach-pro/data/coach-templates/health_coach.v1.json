@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "slug": "health_coach",
   "label": "HealthCoach",
   "base_type": "health_coach",
@@ -7,15 +7,183 @@
   "description": "Bản đồ sức khỏe toàn diện: tổng quan, Life Map, Health Map, lịch milestone 90 ngày.",
   "status": "active",
   "questions": [
-    { "key": "full_name",  "label": "Họ tên",         "type": "text",   "required": true },
-    { "key": "dob",        "label": "Ngày sinh",      "type": "date",   "required": false },
-    { "key": "height_cm",  "label": "Chiều cao (cm)", "type": "number", "required": true,  "step": "0.1" },
-    { "key": "weight_kg",  "label": "Cân nặng (kg)",  "type": "number", "required": true,  "step": "0.1" }
+    { "key": "full_name",     "label": "Họ tên",              "type": "text",   "required": true },
+    { "key": "dob",           "label": "Ngày sinh",           "type": "date",   "required": false },
+    { "key": "height_cm",     "label": "Chiều cao (cm)",       "type": "number", "required": true,  "step": "0.1" },
+    { "key": "weight_kg",     "label": "Cân nặng (kg)",        "type": "number", "required": true,  "step": "0.1" },
+    { "key": "health_goal",   "label": "Mục tiêu sức khỏe",   "type": "textarea", "required": false },
+    { "key": "health_issues", "label": "Vấn đề sức khỏe hiện tại", "type": "textarea", "required": false }
   ],
   "generators": [
-    { "key": "gen_overview",   "label": "Nhận xét tổng quan",                "output": "markdown", "legacy_fn": "bccm_generate_health_overview" },
-    { "key": "gen_lifemap",    "label": "Life Map - Bản đồ cuộc đời",        "output": "json",     "legacy_fn": "bccm_generate_life_map" },
-    { "key": "gen_health_map", "label": "Bản đồ sức khỏe toàn diện",         "output": "json",     "legacy_fn": "bccm_generate_health_map" },
-    { "key": "gen_milestone",  "label": "90-Days Milestone Calendar",        "output": "json",     "legacy_fn": "bccm_generate_health_milestone_calendar" }
+    {
+      "key": "gen_overview",
+      "label": "Tổng quan sức khỏe",
+      "output": "json",
+      "render": "health_overview",
+      "system": "Bạn là HealthCoach Wellness Specialist. Phân tích tổng quan sức khỏe cá nhân dựa trên thông tin cung cấp. Trả về DUY NHẤT một JSON hợp lệ (RFC 8259), KHÔNG markdown, KHÔNG code-fence. Tiếng Việt tự nhiên.",
+      "json_schema": {
+        "type": "object",
+        "required": ["summary", "bmi", "bmi_category", "health_score", "wellness_archetype", "strengths", "risk_areas", "priority_actions", "health_forecast"],
+        "properties": {
+          "summary":           { "type": "string", "description": "3-5 câu tổng quan, gọi tên người dùng" },
+          "bmi":               { "type": "number", "description": "Chỉ số BMI tính từ height/weight" },
+          "bmi_category":      { "type": "string", "description": "Thiếu cân | Bình thường | Thừa cân | Béo phì" },
+          "health_score":      { "type": "integer", "minimum": 0, "maximum": 100 },
+          "wellness_archetype":{ "type": "string", "description": "1 từ: Warrior | Nurturer | Explorer | Optimizer | Healer | Balancer | Builder | Seeker" },
+          "strengths":         { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4 },
+          "risk_areas":        { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4 },
+          "priority_actions":  { "type": "array", "items": { "type": "string" }, "minItems": 3, "maxItems": 5 },
+          "health_forecast": {
+            "type": "object",
+            "required": ["current_phase", "favorable_period", "caution_period"],
+            "properties": {
+              "current_phase":    { "type": "string" },
+              "favorable_period": { "type": "string" },
+              "caution_period":   { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "key": "gen_lifemap",
+      "label": "Life Map — Bản đồ cuộc đời sức khỏe",
+      "output": "json",
+      "render": "astro_lifemap",
+      "system": "Bạn là HealthCoach Life Map Builder. Xây dựng bản đồ sức khỏe theo hành trình cuộc đời. Trả về DUY NHẤT JSON hợp lệ.",
+      "json_schema": {
+        "type": "object",
+        "required": ["life_theme", "life_purpose", "soul_mission", "karmic_lessons", "peak_years", "life_chapters"],
+        "properties": {
+          "life_theme":     { "type": "string", "description": "Chủ đề sức khỏe xuyên suốt cuộc đời" },
+          "life_purpose":   { "type": "string", "description": "Mục đích sống gắn với sức khỏe" },
+          "soul_mission":   { "type": "string", "description": "Nhiệm vụ chăm sóc bản thân" },
+          "karmic_lessons": { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4, "description": "Bài học sức khỏe quan trọng cần học" },
+          "peak_years": {
+            "type": "array", "minItems": 2, "maxItems": 3,
+            "items": {
+              "type": "object",
+              "required": ["age_range", "theme", "opportunity"],
+              "properties": {
+                "age_range":   { "type": "string" },
+                "theme":       { "type": "string" },
+                "opportunity": { "type": "string" }
+              }
+            }
+          },
+          "life_chapters": {
+            "type": "array", "minItems": 3, "maxItems": 4,
+            "items": {
+              "type": "object",
+              "required": ["chapter", "theme", "lesson"],
+              "properties": {
+                "chapter": { "type": "string" },
+                "theme":   { "type": "string" },
+                "lesson":  { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "key": "gen_health_map",
+      "label": "Bản đồ sức khỏe toàn diện",
+      "output": "json",
+      "render": "health_detail_map",
+      "system": "Bạn là HealthCoach Holistic Analyst. Phân tích chi tiết các chiều sức khỏe thể chất, tinh thần, dinh dưỡng, vận động. Trả về DUY NHẤT JSON hợp lệ.",
+      "json_schema": {
+        "type": "object",
+        "required": ["physical_health", "mental_health", "nutrition_plan", "exercise_plan", "sleep_optimization", "stress_management"],
+        "properties": {
+          "physical_health": {
+            "type": "object",
+            "required": ["score", "issues", "recommendations"],
+            "properties": {
+              "score":           { "type": "integer", "minimum": 0, "maximum": 10 },
+              "issues":          { "type": "array", "items": { "type": "string" }, "minItems": 1, "maxItems": 5 },
+              "recommendations": { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4 }
+            }
+          },
+          "mental_health": {
+            "type": "object",
+            "required": ["score", "emotional_patterns", "recommendations"],
+            "properties": {
+              "score":              { "type": "integer", "minimum": 0, "maximum": 10 },
+              "emotional_patterns": { "type": "array", "items": { "type": "string" }, "minItems": 1, "maxItems": 4 },
+              "recommendations":    { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4 }
+            }
+          },
+          "nutrition_plan": {
+            "type": "object",
+            "required": ["daily_calories_target", "macros", "foods_to_eat", "foods_to_avoid"],
+            "properties": {
+              "daily_calories_target": { "type": "integer" },
+              "macros": {
+                "type": "object",
+                "required": ["protein_pct", "carb_pct", "fat_pct"],
+                "properties": {
+                  "protein_pct": { "type": "integer" },
+                  "carb_pct":    { "type": "integer" },
+                  "fat_pct":     { "type": "integer" }
+                }
+              },
+              "foods_to_eat":  { "type": "array", "items": { "type": "string" }, "minItems": 3, "maxItems": 6 },
+              "foods_to_avoid":{ "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 5 }
+            }
+          },
+          "exercise_plan": {
+            "type": "object",
+            "required": ["type", "frequency_per_week", "duration_min", "activities"],
+            "properties": {
+              "type":              { "type": "string" },
+              "frequency_per_week":{ "type": "integer" },
+              "duration_min":      { "type": "integer" },
+              "activities":        { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 5 }
+            }
+          },
+          "sleep_optimization": { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4 },
+          "stress_management":  { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4 }
+        }
+      }
+    },
+    {
+      "key": "gen_milestone",
+      "label": "90-Days Health Milestone Calendar",
+      "output": "json",
+      "render": "career_milestone",
+      "system": "Bạn là HealthCoach Progress Planner. Lập kế hoạch sức khỏe 90 ngày chia 3 giai đoạn. Trả về DUY NHẤT JSON hợp lệ.",
+      "json_schema": {
+        "type": "object",
+        "required": ["objective", "phases"],
+        "properties": {
+          "objective": { "type": "string" },
+          "phases": {
+            "type": "array", "minItems": 3, "maxItems": 3,
+            "items": {
+              "type": "object",
+              "required": ["phase_label", "theme", "weeks"],
+              "properties": {
+                "phase_label": { "type": "string" },
+                "theme":       { "type": "string" },
+                "weeks": {
+                  "type": "array", "minItems": 2, "maxItems": 4,
+                  "items": {
+                    "type": "object",
+                    "required": ["week", "focus", "tasks", "deliverable"],
+                    "properties": {
+                      "week":        { "type": "string" },
+                      "focus":       { "type": "string" },
+                      "tasks":       { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 5 },
+                      "deliverable": { "type": "string" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
   ]
 }

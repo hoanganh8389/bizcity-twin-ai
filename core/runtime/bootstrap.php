@@ -19,6 +19,20 @@ defined( 'ABSPATH' ) || exit;
 if ( defined( 'BIZCITY_TWIN_RUNTIME_LOADED' ) ) return;
 define( 'BIZCITY_TWIN_RUNTIME_LOADED', true );
 
+// [2026-06-09 Johnny Chu] R-CR — Central registries: load FIRST so all classes below
+// (and all satellite plugins loaded after) can call ::register() at file-load time.
+require_once __DIR__ . '/class-rewrite-flush-registry.php';
+require_once __DIR__ . '/class-schema-registry.php';
+
+// [2026-06-11 Johnny Chu] R-PERF — Unified in-request user_meta cache (avoids WP meta prime on large blobs).
+// file_exists guard: file may not exist on older deploys — degrade gracefully until deployed.
+if ( file_exists( __DIR__ . '/class-user-meta-cache.php' ) ) {
+	require_once __DIR__ . '/class-user-meta-cache.php';
+}
+
+// Boot flush registry: wires plugins_loaded:5 version check + admin_init:1 flush.
+BizCity_Rewrite_Flush_Registry::boot();
+
 // Runtime contracts + classes
 require_once __DIR__ . '/class-twin-db-installer.php';
 require_once __DIR__ . '/interface-twin-session.php';

@@ -895,7 +895,7 @@ final class BizCity_KG {
 		$kg_xref = $wpdb->prefix . 'bizcity_kg_xref';
 
 		// Guard: KG tables must exist on this blog.
-		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $kg_src ) ) !== $kg_src ) {
+		if ( ! bizcity_tbl_exists( $kg_src ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			return 0;
 		}
 
@@ -987,10 +987,10 @@ final class BizCity_KG {
 			: ( $wpdb->prefix . 'bizcity_kg_passages' );
 
 		// Guard: chunk tables must exist.
-		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $legacy_chunks_tbl ) ) !== $legacy_chunks_tbl ) {
+		if ( ! bizcity_tbl_exists( $legacy_chunks_tbl ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			return 0;
 		}
-		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $kg_chunks_tbl ) ) !== $kg_chunks_tbl ) {
+		if ( ! bizcity_tbl_exists( $kg_chunks_tbl ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			return 0;
 		}
 

@@ -1,9 +1,10 @@
 {
   "$schema": "https://bizcity.vn/schema/diagnostics-changelog-v1.json",
   "module_id": "twinbrain.sheets",
-  "owner": "core/twinbrain/sheets",
+  "owner": "core/twinbrain/tools/sheet",
   "installer_id": "twinbrain_sheets",
-  "current_version": "1.0.0",
+  "current_version": "1.0.1",
+  "_note_A0": "[2026-06-04 Johnny Chu] PHASE-A A.0 — canonical installer/enricher moved from sheets/includes/ to tools/sheet/. Old files are stubs. Version bumped to reflect path migration.",
   "version_option": "bizcity_twinbrain_sheets_db_ver",
   "tables": {
     "bizcity_sheets": {
@@ -75,6 +76,7 @@
     }
   },
   "history": [
-    { "version": "1.0.0", "date": "2026-05-24", "change": "Baseline schema cho Phase 0.36 Wave 2.8e TwinBrain Sheets (TBR.TOOL-S1). Hai bảng: `bizcity_sheets` (sheet metadata + aggregate cost) + `bizcity_sheet_cells` (per-cell value + sources_json + enrichment_trace). Owner: BizCity_TwinBrain_Sheets_Installer (core/twinbrain/sheets/includes/class-sheets-installer.php). Citation token `[sheet:S#<id>/r<row>c<col>]`. Spec: PHASE-0.36-TWINBRAIN-TOOLS-SHEETS.md." }
+    { "version": "1.0.0", "date": "2026-05-24", "change": "Baseline schema cho Phase 0.36 Wave 2.8e TwinBrain Sheets (TBR.TOOL-S1). Hai bảng: `bizcity_sheets` (sheet metadata + aggregate cost) + `bizcity_sheet_cells` (per-cell value + sources_json + enrichment_trace). Owner: BizCity_TwinBrain_Sheets_Installer (core/twinbrain/sheets/includes/class-sheets-installer.php). Citation token `[sheet:S#<id>/r<row>c<col>]`. Spec: PHASE-0.36-TWINBRAIN-TOOLS-SHEETS.md." },
+    { "version": "1.0.1", "date": "2026-06-04", "change": "[PHASE-A A.0] No schema change. Canonical installer+enricher moved from core/twinbrain/sheets/includes/ to core/twinbrain/tools/sheet/. Old files now stub-redirect. bootstrap.php updated to require new paths. Owner updated to core/twinbrain/tools/sheet." }
   ]
 }

@@ -69,6 +69,16 @@ if ( ! function_exists( 'str_starts_with' ) ) {
     require_once __DIR__ . '/includes/compat-php74.php';
 }
 
+// [2026-06-09 Johnny Chu] R-CR — Central registries must load BEFORE any module bootstrap
+// so ALL modules (including those loaded before core/runtime/bootstrap.php) can call
+// ::register() at file-load time. core/runtime/bootstrap.php will call boot() later.
+if ( ! class_exists( 'BizCity_Rewrite_Flush_Registry', false ) ) {
+    require_once __DIR__ . '/core/runtime/class-rewrite-flush-registry.php';
+}
+if ( ! class_exists( 'BizCity_Schema_Registry', false ) ) {
+    require_once __DIR__ . '/core/runtime/class-schema-registry.php';
+}
+
 // Infrastructure
 require_once __DIR__ . '/includes/helpers-table-cache.php';
 require_once __DIR__ . '/includes/class-module-loader.php';
@@ -123,9 +133,129 @@ if ( ! function_exists( 'bizcity_get_charset_collate' ) ) {
 require_once __DIR__ . '/core/twin-core/contracts/framework-contracts.php';
 // Phase 0.99.3 — Module registry (implements `bizcity_register_module` filter).
 require_once __DIR__ . '/core/twin-core/contracts/class-module-registry.php';
+// [2026-06-05 Johnny Chu] R-ERROR-UX — core/helper: BizCity_Error_Payload + shared helpers.
+// Must load before channel-gateway, automation, agents — so every REST controller
+// can call BizCity_Error_Payload::make() without a class_exists() guard.
+require_once __DIR__ . '/core/helper/bootstrap.php';
 require_once __DIR__ . '/core/bizcity-llm/bootstrap.php';
+
+// [2026-06-29 Johnny Chu] HOTFIX — $_bizcity_admin_ctx MUST be defined BEFORE core/knowledge/bootstrap.php
+// because knowledge bootstrap uses it immediately (file-scope) to gate class-chat-gateway.php.
+// Previously this was defined at line ~182 (AFTER knowledge loaded) → $__kg_admin_ctx fell back to
+// the inline check which excluded /bizhook/ and /bizfbhook/ → BizCity_Chat_Gateway never loaded
+// on Facebook webhook requests → CRM AI Replier couldn't apply character context → note=kg-rag-direct.
+if ( ! isset( $_bizcity_admin_ctx ) ) {
+	$_bizcity_admin_ctx =
+		is_admin()
+		|| ( defined( 'DOING_CRON' ) && DOING_CRON )
+		|| ( defined( 'WP_CLI' ) && WP_CLI )
+		|| (
+			! empty( $_SERVER['REQUEST_URI'] )
+			&& (
+				false !== strpos( $_SERVER['REQUEST_URI'], '/wp-json/' )
+				|| false !== strpos( $_SERVER['REQUEST_URI'], '/bizhook/' )
+				|| false !== strpos( $_SERVER['REQUEST_URI'], '/zalohook/' )
+				|| false !== strpos( $_SERVER['REQUEST_URI'], '/bizfbhook' )
+				|| false !== strpos( $_SERVER['REQUEST_URI'], 'fbhook=1' )
+				|| false !== strpos( $_SERVER['REQUEST_URI'], '/tool-' )
+				|| preg_match( '#^/doc/?(\?|$)#', $_SERVER['REQUEST_URI'] )
+				|| false !== strpos( $_SERVER['REQUEST_URI'], '/kling-video' )
+				|| false !== strpos( $_SERVER['REQUEST_URI'], '/product-studio' )
+				|| false !== strpos( (string) ( $_SERVER['QUERY_STRING'] ?? '' ), 'biz_fb_oauth' )
+				|| false !== strpos( (string) ( $_SERVER['QUERY_STRING'] ?? '' ), 'fb_callback=1' )
+				// [2026-07-02 Johnny Chu] HOTFIX R-PERF — CF7 old-style submission POSTs to
+				// the page URL (not /wp-admin/ajax or /wp-json/). Detect via _wpcf7 POST field
+				// so channel-gateway loads and BizCity_CF7_Submissions_Log is available.
+				|| ( ! empty( $_POST['_wpcf7'] ) )
+			)
+		);
+}
+
 require_once __DIR__ . '/core/knowledge/bootstrap.php';
-require_once __DIR__ . '/core/intent/bootstrap.php';
+
+// [2026-06-11 Johnny Chu] PERF-CRON-FIX — Register ALL custom cron schedule NAMES
+// unconditionally (every request, BEFORE the $_bizcity_admin_ctx gate below).
+//
+// ROOT CAUSE (incident 2026-06-10 19:30-19:36): PERF-1/PERF-2 moved the modules
+// that register these interval names (core/automation, core/content-ops, core/cron,
+// channel-gateway) BEHIND the $_bizcity_admin_ctx gate. But WP-Cron's
+// wp_reschedule_event() runs on EVERY frontend request (the default spawner fires
+// before DOING_CRON is set), where the gate is false → the module didn't load →
+// the schedule name was missing from wp_get_schedules() → reschedule returned
+// WP_Error('invalid_schedule') → the event stayed "due" and re-fired on every
+// request → per-blog shard query storm → MySQL 800/800 → cascade.
+//
+// Defining schedule names is just array additions (cheap, no DB/Redis), so they
+// MUST be registered unconditionally. The heavy runners/dispatchers stay gated.
+// PHP 7.4 compat: no arrow-fn capture issues, plain array.
+add_filter( 'cron_schedules', function ( $schedules ) {
+	if ( ! is_array( $schedules ) ) {
+		$schedules = array();
+	}
+	$bizcity_intervals = array(
+		'bizcity_automation_minute'       => array( 'interval' => 60,  'display' => 'Every Minute (BizCity Automation)' ),
+		'every_minute'                    => array( 'interval' => 60,  'display' => 'Every Minute' ),
+		'bizcity_5min'                    => array( 'interval' => 300, 'display' => 'Every 5 Minutes (Scheduler)' ),
+		'bizcity_kg_5min'                 => array( 'interval' => 300, 'display' => 'Every 5 Minutes (KG Filestore)' ),
+		'bizcity_twinchat_learning_15min' => array( 'interval' => 900, 'display' => 'Every 15 minutes (TwinChat learning sweep)' ),
+	);
+	foreach ( $bizcity_intervals as $name => $def ) {
+		if ( ! isset( $schedules[ $name ] ) ) {
+			$schedules[ $name ] = $def;
+		}
+	}
+	return $schedules;
+}, 1 );
+
+// [2026-06-09 Johnny Chu] PERF-1 — Define admin/REST/webhook context gate EARLY.
+// Must be before core/intent/bootstrap.php because that fires bizcity_intent_register_providers
+// at load time (not lazy), triggering provider callbacks like bzcc_get_intent_plans()
+// which load 341 KB of template data from Redis on every request.
+// PHP 7.4 compat: strpos() instead of str_contains(), no nullsafe.
+$_bizcity_admin_ctx =
+    is_admin()
+    || ( defined( 'DOING_CRON' ) && DOING_CRON )
+    || ( defined( 'WP_CLI' ) && WP_CLI )
+    || (
+        ! empty( $_SERVER['REQUEST_URI'] )
+        && (
+            false !== strpos( $_SERVER['REQUEST_URI'], '/wp-json/' )       // REST API
+            || false !== strpos( $_SERVER['REQUEST_URI'], '/bizhook/' )    // Zalo webhook (/bizhook/)
+            // [2026-06-09 Johnny Chu] R-CG-FB-WEBHOOK — FB Messenger webhook arrives at ?fbhook=1
+            // (legacy query-string) or /bizfbhook/ (pretty URL rewrite). Without these patterns
+            // core/channel-gateway (and thus BizCity_CG_Debug_Logger) would NOT load during FB
+            // webhook requests, making the referral → campaign dispatch flow unloggable.
+            || false !== strpos( $_SERVER['REQUEST_URI'], '/zalohook/' ) 
+            || false !== strpos( $_SERVER['REQUEST_URI'], '/bizfbhook' )   // Facebook pretty webhook
+            || false !== strpos( $_SERVER['REQUEST_URI'], 'fbhook=1' )     // Facebook legacy ?fbhook=1
+            // [2026-06-09 Johnny Chu] PERF-2 — bizcity agent tool pages so tool plugins still
+            // load when their URL is visited directly (rules stored in DB via add_rewrite_rule).
+            // /tool-image/, /tool-doc/, /tool-google/, /tool-pagebuilder/, /tool-content-creator/, etc.
+            || false !== strpos( $_SERVER['REQUEST_URI'], '/tool-' )
+            // [2026-06-22 Johnny Chu] PHASE-TWINWEB — /doc/ alias for Doc Studio (twinweb shortcut)
+            || preg_match( '#^/doc/?(\?|$)#', $_SERVER['REQUEST_URI'] )
+            || false !== strpos( $_SERVER['REQUEST_URI'], '/kling-video' )    // bizcity-video-kling
+            || false !== strpos( $_SERVER['REQUEST_URI'], '/product-studio' ) // tool-image product studio
+            // [2026-06-12 Johnny Chu] HOTFIX — Facebook OAuth public landing (?biz_fb_oauth=user_start)
+            // hits home_url (frontend), not wp-admin. bizcity-facebook-bot must load so
+            // BizCity_Facebook_OAuth::handle_user_start() can wp_redirect to facebook.com.
+            || false !== strpos( (string) ( $_SERVER['QUERY_STRING'] ?? '' ), 'biz_fb_oauth' )
+            // [2026-06-12 Johnny Chu] HOTFIX — support legacy callback style ?fb_callback=1
+            // so frontend callback requests still load channel-gateway/facebook handlers.
+            || false !== strpos( (string) ( $_SERVER['QUERY_STRING'] ?? '' ), 'fb_callback=1' )
+            // [2026-07-02 Johnny Chu] HOTFIX R-PERF — CF7 old-style submission POSTs to
+            // the page URL (not /wp-admin/ajax or /wp-json/). Detect via _wpcf7 POST field
+            // so channel-gateway loads and BizCity_CF7_Submissions_Log is available.
+            || ( ! empty( $_POST['_wpcf7'] ) )
+        )
+    );
+
+// Intent engine fires do_action('bizcity_intent_register_providers') at load time.
+// On plain frontend HTML pages this is wasted (intent only processes on REST/webhook/admin).
+// On REST/webhook/admin/cron: $_bizcity_admin_ctx=true → loads normally.
+if ( $_bizcity_admin_ctx ) {
+    require_once __DIR__ . '/core/intent/bootstrap.php';
+}
 // Phase 0.18 / Wave 0.18.0 — Persona Provider contract + registry.
 if ( file_exists( __DIR__ . '/core/persona/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/persona/bootstrap.php';
@@ -133,28 +263,75 @@ if ( file_exists( __DIR__ . '/core/persona/bootstrap.php' ) ) {
 if ( file_exists( __DIR__ . '/core/twin-core/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/twin-core/bootstrap.php';
 }
-require_once __DIR__ . '/core/bizcity-market/bootstrap.php';
-require_once __DIR__ . '/core/channel-gateway/bootstrap.php';
+// [2026-06-10 Johnny Chu] HOTFIX — core/bizcity-market disabled: module not yet implemented,
+// creates 5 unused DB tables on every client install (performance + DB clutter).
+// Re-enable when marketplace is production-ready.
+// require_once __DIR__ . '/core/bizcity-market/bootstrap.php';
+// [2026-06-12 Johnny Chu] HOTFIX — FB Chat Widget injector must fire on EVERY frontend request
+// (wp_footer hook) even when the full channel-gateway is gated. Load the single lightweight
+// class unconditionally here so the widget injects before </body> on all public pages.
+$_bzc_widget_file = __DIR__ . '/core/channel-gateway/includes/class-fb-chat-widget.php';
+if ( file_exists( $_bzc_widget_file ) && ! class_exists( 'BizCity_FB_Chat_Widget' ) ) {
+    require_once $_bzc_widget_file;
+}
+unset( $_bzc_widget_file );
+
+// [2026-06-30 Johnny Chu] HOTFIX — Tracking Codes injector (Meta Pixel, GA4, GTM, TikTok...)
+// must fire on EVERY frontend request via wp_head/wp_footer even when channel-gateway is gated.
+// Load the single lightweight class unconditionally; the class_exists guard prevents double-load
+// when channel-gateway bootstrap already loaded it in admin/REST context.
+$_bzc_tracking_file = __DIR__ . '/core/channel-gateway/includes/class-tracking-codes-rest.php';
+if ( file_exists( $_bzc_tracking_file ) && ! class_exists( 'BizCity_Tracking_Codes_REST' ) ) {
+    require_once $_bzc_tracking_file;
+    BizCity_Tracking_Codes_REST::init();
+}
+unset( $_bzc_tracking_file );
+
+// [2026-06-09 Johnny Chu] PERF-2 — channel-gateway: webhook routing + channel admin UI.
+// Not needed on plain frontend HTML renders — twinchat has its own REST routes.
+// Still loads on: REST (/wp-json/), /bizhook/ webhooks, wp-admin, cron, WP-CLI, /tool-* pages.
+if ( $_bizcity_admin_ctx ) {
+    require_once __DIR__ . '/core/channel-gateway/bootstrap.php';
+}
+
+// [2026-06-09 Johnny Chu] PERF-1 — Admin/cron context gate.
+// Modules below are NOT needed on regular frontend page renders (HTML, CSS, JS).
+// They only need to load for:
+//   a) wp-admin pages (is_admin())
+//   b) REST API requests (REQUEST_URI contains /wp-json/)
+//   c) WP-Cron execution (DOING_CRON)
+//   d) WP-CLI (WP_CLI)
+//   e) Channel webhooks (REQUEST_URI contains /bizhook/)
+// Skipping on frontend saves ~8-12 MB RAM + ~200-400ms startup per request.
+// PHP 7.4 compat: no nullsafe, no union types, no str_contains.
+// NOTE: $_bizcity_admin_ctx already defined above (early gate for intent bootstrap).
+
 // Phase AUTOMATION S0 — visual workflow builder (own SPA, own bundle).
-if ( file_exists( __DIR__ . '/core/automation/bootstrap.php' ) ) {
+// Admin UI + cron runner + REST → gate; not needed on frontend HTML render.
+if ( $_bizcity_admin_ctx && file_exists( __DIR__ . '/core/automation/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/automation/bootstrap.php';
 }
+// [2026-06-22 Johnny Chu] PHASE-TWINWEB — QUARANTINED: core/content-ops chưa sử dụng.
+// Uncomment khi sẵn sàng ship Content-Ops SPA (page=bizcity-content-ops).
 // Phase CO-1 — Content Ops (Layer 2: AI content + schedule + cross-channel publish)
-if ( file_exists( __DIR__ . '/core/content-ops/bootstrap.php' ) ) {
-    require_once __DIR__ . '/core/content-ops/bootstrap.php';
-}
+// if ( $_bizcity_admin_ctx && file_exists( __DIR__ . '/core/content-ops/bootstrap.php' ) ) {
+//     require_once __DIR__ . '/core/content-ops/bootstrap.php';
+// }
+// [2026-06-09 Johnny Chu] R-PERF — skills registers activity bar items → must load on all requests.
 if ( file_exists( __DIR__ . '/core/skills/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/skills/bootstrap.php';
 }
-if ( file_exists( __DIR__ . '/core/tools/bootstrap.php' ) ) {
+if ( $_bizcity_admin_ctx && file_exists( __DIR__ . '/core/tools/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/tools/bootstrap.php';
 }
 // Phase 1 — Unified cron registry & observability (see core/cron/PHASE-CRON.md).
-// Must load BEFORE any module that registers its own cron job so the manager
-// is available to wrap their hooks.
-if ( file_exists( __DIR__ . '/core/cron/bootstrap.php' ) ) {
+// [2026-06-09 Johnny Chu] PERF-2 — cron registry only needed on admin/REST/cron context.
+// Always-load modules (twinchat, knowledge) use wp_schedule_event() directly without BizCity_Cron_Manager.
+// WP cron fires via wp-cron.php which sets DOING_CRON=true → included in $_bizcity_admin_ctx.
+if ( $_bizcity_admin_ctx && file_exists( __DIR__ . '/core/cron/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/cron/bootstrap.php';
 }
+// [2026-06-09 Johnny Chu] R-PERF — scheduler registers activity bar items → must load on all requests.
 if ( file_exists( __DIR__ . '/core/scheduler/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/scheduler/bootstrap.php';
 }
@@ -170,6 +347,11 @@ if ( is_admin() && file_exists( __DIR__ . '/core/smtp/admin.php' ) ) {
 if ( file_exists( __DIR__ . '/core/memory/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/memory/bootstrap.php';
 }
+// [2026-06-04 Johnny Chu] PHASE-MEMBERSHIP M1 — client-side membership plans
+// (Free/Pro/Plus). Self-written lean core; PayPal self-billing in later phases.
+if ( file_exists( __DIR__ . '/core/membership/bootstrap.php' ) ) {
+    require_once __DIR__ . '/core/membership/bootstrap.php';
+}
 // Phase 0.13 / 0.15 — TwinShell Runtime (agents, runner, REST /run endpoint)
 if ( file_exists( __DIR__ . '/core/agents/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/agents/bootstrap.php';
@@ -178,24 +360,25 @@ if ( file_exists( __DIR__ . '/core/runtime/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/runtime/bootstrap.php';
 }
 // Phase 0.16 / Vòng 4 — Intent Shell (foundation only, not yet wired into Intent_Engine)
-if ( file_exists( __DIR__ . '/core/intent/shell/bootstrap.php' ) ) {
+if ( $_bizcity_admin_ctx && file_exists( __DIR__ . '/core/intent/shell/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/intent/shell/bootstrap.php';
 }
 
 // Phase 0.18.1 — Guru Research Studio (Tavily ReAct port; multi-scope: character | user)
-if ( file_exists( __DIR__ . '/core/research/bootstrap.php' ) ) {
+// REST routes only → admin_ctx (REST gate) is sufficient; not needed on HTML renders.
+if ( $_bizcity_admin_ctx && file_exists( __DIR__ . '/core/research/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/research/bootstrap.php';
 }
 
 // Diagnostics (PHASE-0.36) — multisite schema audit + repair + cron hygiene.
-// Registers WP-CLI `wp bizcity diag` and stays inert on web requests unless ?cmd= is set.
-if ( file_exists( __DIR__ . '/tools/class-diagnostics.php' ) ) {
+// WP-CLI `wp bizcity diag` — only load in admin/CLI context.
+if ( ( is_admin() || ( defined( 'WP_CLI' ) && WP_CLI ) ) && file_exists( __DIR__ . '/tools/class-diagnostics.php' ) ) {
     require_once __DIR__ . '/tools/class-diagnostics.php';
 }
 
-// Diagnostics Core (PHASE-0.40) — table inventory + soft-guard notices + REST.
-// Tools → BizCity Diagnostics + GET /wp-json/bizcity-diagnostics/v1/tables.
-if ( file_exists( __DIR__ . '/core/diagnostics/bootstrap.php' ) ) {
+// Diagnostics Core (PHASE-0.40) — table inventory + soft-guard notices + 81 probe classes.
+// Heaviest single module (957 KB / 101 files). Never needed on frontend HTML renders.
+if ( $_bizcity_admin_ctx && file_exists( __DIR__ . '/core/diagnostics/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/diagnostics/bootstrap.php';
 }
 
@@ -205,13 +388,20 @@ if ( file_exists( __DIR__ . '/core/diagnostics/bootstrap.php' ) ) {
 if ( file_exists( __DIR__ . '/modules/twinchat/bootstrap.php' ) ) {
     require_once __DIR__ . '/modules/twinchat/bootstrap.php';
 }
+// [2026-06-17 Johnny Chu] PHASE-TWINWEB Wave 1 — Public user frontend (ChatGPT-like SPA).
+// Always-load: serves /twin/ public page + bizcity-twinweb/v1 REST (needed for guests + WP REST).
+if ( file_exists( __DIR__ . '/modules/twinweb/bootstrap.php' ) ) {
+    require_once __DIR__ . '/modules/twinweb/bootstrap.php';
+}
 // Phase 0.11 — Twin Shell (universal /twin/ ActivityBar wrapper, iframe-based).
 if ( file_exists( __DIR__ . '/modules/twinshell/bootstrap.php' ) ) {
     require_once __DIR__ . '/modules/twinshell/bootstrap.php';
 }
 // Phase 6.1 — Twinsource (standard source-management panel for all plugins).
 // See PHASE-6.1-TWINSOURCE-STANDARD.md
-if ( file_exists( __DIR__ . '/modules/twinsource/bootstrap.php' ) ) {
+// enqueue() is called explicitly by host pages (not via wp_enqueue_scripts hook)
+// → safe to gate: only admin/REST callers need the REST routes.
+if ( $_bizcity_admin_ctx && file_exists( __DIR__ . '/modules/twinsource/bootstrap.php' ) ) {
     require_once __DIR__ . '/modules/twinsource/bootstrap.php';
 }
 // Phase 0.18.1.7 — TwinSearch (Tavily research input gate, retrieval family).
@@ -224,7 +414,9 @@ if ( file_exists( __DIR__ . '/modules/twinsearch/bootstrap.php' ) ) {
 // BE-only orchestrator; UI lives inside TwinChat (mode='brain'). Moved from
 // modules/twinbrain/ → core/twinbrain/ on 2026-05-10 (no SPA = no module).
 // See PHASE-0.36-TWINBRAIN-CENTRAL-BRAIN.md
-if ( file_exists( __DIR__ . '/core/twinbrain/bootstrap.php' ) ) {
+// [2026-06-09 Johnny Chu] PERF-2 — TwinBrain is REST-only (37 files). TwinChat uses
+// class_exists() guards for BizCity_TwinBrain_* — safe to skip on frontend HTML renders.
+if ( $_bizcity_admin_ctx && file_exists( __DIR__ . '/core/twinbrain/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/twinbrain/bootstrap.php';
 }
 
@@ -244,20 +436,42 @@ $_bizcity_bundled_must_load = [
     // 'bizcity-tool-facebook'       => 'BZTOOL_FB_VERSION',          // ARCHIVED 2026-05-24 → plugins/_archived/. Slug /tool-facebook/ now owned by core/channel-gateway (canonical /channel/).
     'bizcity-tool-image'          => 'BZTIMG_VERSION',             // Image Studio, templates, editor assets, product/image tools
     'bizcity-zalo-bot'            => 'BIZCITY_ZALO_BOT_VERSION',   // Zalo Bot — CG channel sub-plugin
+    // [2026-06-10 Johnny Chu] PHASE-0.39 — Zalo Personal & OA Gateway (ZP.x probes, R-ZONE-2 isolation).
+    'bizcity-zalo-personal'       => 'BIZCITY_ZALO_PERSONAL_VERSION', // Zalo Personal + OA channel via zca-bridge sidecar (PHASE-0.39)
     // 'bizcity-companion-notebook'  => 'BCN_VERSION',                // DISABLED — Companion Notebook (gitignored, không load mặc định)
     // 'bizcity-automation'          => 'BIZCITY_AUTOMATION_VERSION', // ARCHIVED 2026-06-01 → plugins/_archived/bizcity-automation/. Replaced by core/automation/ (native xyflow runtime, BE-1..BE-5 shipped).
     'bizcity-content-creator'     => 'BZCC_VERSION',               // Content Creator — template-driven AI content generation
     'bizcity-doc'                 => 'BZDOC_VERSION',              // Doc Studio — AI tạo Word, PowerPoint, Excel
     // 'bizcity-code'                => 'BZCODE_VERSION',             // Code Builder — AI tạo web & landing page (ARCHIVED)
     // 'bizcity-tool-mindmap'        => 'BZTOOL_MINDMAP_VERSION',     // ARCHIVED 2026-06-01 → plugins/_archived/bizcity-tool-mindmap/. Mindmap functionality moved to bizcity-doc (Phase 6.3 PHASE-0.7-DOCGEN).
-    // 'bizcity-twin-crm'            => 'BIZCITY_CRM_VERSION',        // PROPRIETARY (PHASE-0.98) — gitignored, commercial-only. Auto-loads when separately activated as regular WP plugin.
+    // [2026-06-14 Johnny Chu] HOTFIX — uncommented; foreach guard (is_dir + file_exists) ensures
+    // this only loads when the folder is deployed. Gitignored on public repo — safe to list here.
+    'bizcity-twin-crm'            => 'BIZCITY_CRM_VERSION',        // PROPRIETARY (PHASE-0.98) — gitignored, commercial-only. Loads when deployed under plugins/bizcity-twin-crm/.
     'bizcoach-pro'                => 'BCPRO_VERSION',              // BizCoach Pro — Producer hub flagship (PHASE-0.36 / R-PROD-HUB) — gitignored, in-house only
     'bizcity-video-kling'         => 'BIZCITY_VIDEO_KLING_VERSION', // B-roll Video — Kling/Sora/Veo3/SeeDance image-to-video via PiAPI
     'bizcity-pagebuilder'         => 'BZPB_VERSION',               // Page Builder — AI tạo website drag-and-drop, 19 block types, export HTML
+    // [2026-06-24 Johnny Chu] PHASE-HOME — Personal Assistant (Trợ lý cá nhân) — scheduler, budget, KG, journal
+    'bizcity-personal'            => 'BIZCITY_PERSONAL_VERSION',    // Personal Assistant — calendar, tasks, budget, journal at /personal/
+];
+// [2026-06-09 Johnny Chu] PERF-2 — Admin-only bundled plugins (no public shortcodes, no
+// public URL patterns outside /tool-* or /kling-video/ covered by $_bizcity_admin_ctx).
+// NOT listed: bizcoach-pro, bizcity-content-creator, bizcity-doc, bizcity-tool-image,
+// bizcity-pagebuilder — these register activity bar items and must load on all requests.
+$_bizcity_admin_only_slugs = [
+    'bizcity-admin-hook-zalo',  // Zalo Hotline + /bizhook/ webhook + admin
+    'bizcity-facebook-bot',     // FB Messenger webhook + admin
+    'bizcity-zalo-bot',         // Zalo Bot webhook + admin
+    // [2026-06-10 Johnny Chu] PHASE-0.39 — no public shortcodes; REST at /wp-json/bizcity-channel/v1/zalo-bridge/* covered by admin_ctx gate.
+    'bizcity-zalo-personal',    // Zalo Personal + OA gateway — admin + /wp-json/ only
+    'bizgpt-tool-google',       // Google Tools — /tool-google/ + admin REST
 ];
 foreach ( $_bizcity_bundled_must_load as $_slug => $_guard_const ) {
     if ( defined( $_guard_const ) ) {
         continue; // Already loaded (activated as regular plugin or by mu-plugin)
+    }
+    // [2026-06-09 Johnny Chu] PERF-2 — Skip admin-only plugins on plain frontend HTML renders.
+    if ( ! $_bizcity_admin_ctx && in_array( $_slug, $_bizcity_admin_only_slugs, true ) ) {
+        continue;
     }
     // Guard: only load if plugin folder exists — skip gracefully if not deployed
     $_bundled_dir  = __DIR__ . '/plugins/' . $_slug;
@@ -266,7 +480,7 @@ foreach ( $_bizcity_bundled_must_load as $_slug => $_guard_const ) {
         require_once $_bundled_file;
     }
 }
-unset( $_bizcity_bundled_must_load, $_slug, $_guard_const, $_bundled_dir, $_bundled_file );
+unset( $_bizcity_bundled_must_load, $_slug, $_guard_const, $_bundled_dir, $_bundled_file, $_bizcity_admin_ctx, $_bizcity_admin_only_slugs );
 
 // Translations — load Vietnamese (and other) .po files from /languages/
 add_action( 'init', function() {
@@ -375,56 +589,4 @@ function bizcity_twin_ai_maybe_copy_compat_loader(): void {
     exit;
 }
 
-// ── Module Debug Notice ──────────────────────────────────────────────────────
-// TEMPORARILY always visible for admins — remove after debugging.
-add_action( 'admin_notices', 'bizcity_twin_ai_notice_debug_modules' );
-function bizcity_twin_ai_notice_debug_modules(): void {
-    if ( ! current_user_can( 'manage_options' ) ) return;
-
-    $diag    = BizCity_Twin_AI::get_diag();
-    $loaded  = BizCity_Module_Loader::get_all_loaded();
-
-    echo '<div class="notice notice-info" style="padding:10px">';
-    echo '<strong>🔍 BizCity Twin AI v' . BIZCITY_TWIN_AI_VERSION . ' — Debug (PHP ' . PHP_VERSION . ')</strong><br>';
-
-    // boot() status
-    echo $diag['boot'] ? '✅ boot() ran' : '❌ boot() NOT called';
-    echo '<br>';
-
-    // Module load results
-    if ( ! empty( $diag['modules'] ) ) {
-        echo '<strong>Modules:</strong><br>';
-        foreach ( $diag['modules'] as $name => $status ) {
-            $icon = ( $status === 'OK' ) ? '✅' : '❌';
-            echo "&nbsp;&nbsp;{$icon} <code>{$name}</code>: {$status}<br>";
-        }
-    }
-
-    // Registered modules (via guard checks)
-    $reg_names = array_keys( $loaded );
-    echo '<strong>Registered:</strong> ' . ( $reg_names ? implode( ', ', $reg_names ) : 'NONE' ) . '<br>';
-
-    // Errors
-    if ( ! empty( $diag['errors'] ) ) {
-        echo '<strong style="color:#c62828">Errors:</strong><br>';
-        foreach ( $diag['errors'] as $err ) {
-            echo "&nbsp;&nbsp;⚠ <code>" . esc_html( $err ) . "</code><br>";
-        }
-    }
-
-    // Guard checks — show what exists
-    echo '<strong>Guard checks:</strong> ';
-    $guards = [
-        'BizCity_WebChat_Database' => class_exists( 'BizCity_WebChat_Database', false ),
-        'BCCM_DIR'                 => defined( 'BCCM_DIR' ),
-        'WaicFrame'                => class_exists( 'WaicFrame', false ),
-        'BCN_PLUGIN_FILE'          => defined( 'BCN_PLUGIN_FILE' ),
-    ];
-    $gparts = [];
-    foreach ( $guards as $g => $v ) {
-        $gparts[] = $g . '=' . ( $v ? 'YES' : 'NO' );
-    }
-    echo implode( ' | ', $gparts );
-
-    echo '</div>';
-}
+// [2026-06-04 Johnny Chu] HOTFIX — removed temporary debug notice (was always visible for admins).

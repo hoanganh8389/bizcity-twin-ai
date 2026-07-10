@@ -144,3 +144,20 @@ final class BizCity_Twin_DB_Installer {
 		return $wpdb->prefix . self::HIL_BASE;
 	}
 }
+
+// [2026-06-09 Johnny Chu] R-CR — Register runtime tables in central Schema Registry.
+// Reference impl: both tables share VERSION and VERSION_OPTION (single installer for both).
+BizCity_Schema_Registry::register(
+	BizCity_Twin_DB_Installer::RUNS_BASE,
+	'core.runtime',
+	BizCity_Twin_DB_Installer::VERSION,
+	BizCity_Twin_DB_Installer::VERSION_OPTION,
+	array( 'BizCity_Twin_DB_Installer', 'install' )
+);
+BizCity_Schema_Registry::register(
+	BizCity_Twin_DB_Installer::HIL_BASE,
+	'core.runtime',
+	BizCity_Twin_DB_Installer::VERSION,
+	BizCity_Twin_DB_Installer::VERSION_OPTION,
+	array( 'BizCity_Twin_DB_Installer', 'install' )
+);

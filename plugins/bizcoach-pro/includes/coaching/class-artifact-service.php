@@ -114,7 +114,7 @@ class BizCoach_Pro_Artifact_Service {
 		$row = $wpdb->get_row(
 			$wpdb->prepare(
 				"SELECT * FROM {$wpdb->prefix}bccm_astro
-				 WHERE coachee_id = %d AND chart_type = %s LIMIT 1",
+				 WHERE coachee_id = %d AND chart_type = %s ORDER BY id DESC LIMIT 1",
 				(int) $coachee_id, sanitize_key( $chart_type )
 			),
 			ARRAY_A
@@ -356,6 +356,18 @@ class BizCoach_Pro_Artifact_Service {
 			$out['natal_share'] = (string) bccm_get_natal_chart_public_url( $coachee_id );
 		}
 
+		// [2026-06-04 Johnny Chu] PHASE-A C.0a — transit URLs unified to /my-transit/ public router
+		// (HMAC hash, share-friendly). Available to ALL callers (twinchat agent, REST, FE) — KHÔNG
+		// gate bằng is_admin() vì share URL vốn không cần admin context. Natal-full vẫn giữ admin gate
+		// vì Western/Vedic/Chinese reports cần wp-admin nonce cho regenerate.
+		$transit_router_ok = class_exists( 'BizCoach_Pro_Transit_Public_Router' );
+		if ( $transit_router_ok ) {
+			$out['transit_day']   = BizCoach_Pro_Transit_Public_Router::get_public_url( $coachee_id, 'day' );
+			$out['transit_week']  = BizCoach_Pro_Transit_Public_Router::get_public_url( $coachee_id, 'week' );
+			$out['transit_month'] = BizCoach_Pro_Transit_Public_Router::get_public_url( $coachee_id, 'month' );
+			$out['transit_year']  = BizCoach_Pro_Transit_Public_Router::get_public_url( $coachee_id, 'year' );
+		}
+
 		if ( is_admin() && function_exists( 'wp_create_nonce' ) ) {
 			$natal_n   = wp_create_nonce( 'bccm_natal_report_full' );
 			$transit_n = wp_create_nonce( 'bccm_transit_report' );
@@ -373,9 +385,12 @@ class BizCoach_Pro_Artifact_Service {
 			$out['natal_full_chinese'] = $router_ok
 				? BizCoach_Pro_Astro_Public_Router::get_public_url( $coachee_id, 'chinese' )
 				: $base . '?action=bccm_natal_report_full&coachee_id=' . $coachee_id . '&chart_type=chinese&_wpnonce=' . $natal_n;
-			$out['transit_week']       = $base . '?action=bccm_transit_report&coachee_id=' . $coachee_id . '&period=week&_wpnonce='  . $transit_n;
-			$out['transit_month']      = $base . '?action=bccm_transit_report&coachee_id=' . $coachee_id . '&period=month&_wpnonce=' . $transit_n;
-			$out['transit_year']       = $base . '?action=bccm_transit_report&coachee_id=' . $coachee_id . '&period=year&_wpnonce='  . $transit_n;
+			// [2026-06-04 Johnny Chu] PHASE-A C.0a — transit_* fallback chỉ giữ khi router class chưa load.
+			if ( ! $transit_router_ok ) {
+				$out['transit_week']  = $base . '?action=bccm_transit_report&coachee_id=' . $coachee_id . '&period=week&_wpnonce='  . $transit_n;
+				$out['transit_month'] = $base . '?action=bccm_transit_report&coachee_id=' . $coachee_id . '&period=month&_wpnonce=' . $transit_n;
+				$out['transit_year']  = $base . '?action=bccm_transit_report&coachee_id=' . $coachee_id . '&period=year&_wpnonce='  . $transit_n;
+			}
 			$out['natal_pdf']          = $base . '?action=bccm_natal_pdf&coachee_id=' . $coachee_id . '&_wpnonce=' . $pdf_n;
 			$out['prokerala_pdf']      = $base . '?action=bccm_prokerala_natal_pdf&coachee_id=' . $coachee_id . '&_wpnonce=' . $prok_n;
 		}

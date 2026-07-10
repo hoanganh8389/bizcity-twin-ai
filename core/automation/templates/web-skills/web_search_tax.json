@@ -1,0 +1,102 @@
+{
+  "skill_key": "web_search_tax",
+  "version": "1.2",
+  "title": "Web Research · Thuế VN",
+  "description": "Tra cứu chính sách thuế bám allowlist (tct.gov.vn, gdt.gov.vn, mof.gov.vn, customs.gov.vn, thuvienphapluat.vn, vbpl.vn) — 1 Tavily search advanced + 1 LLM synth. Cite loại VB + số hiệu + năm + đối tượng (TNCN/TNDN/GTGT/TTĐB). Cảnh báo CV cá biệt. Disclaimer 💰.",
+  "category": "web-research",
+  "triggers": [
+    "thuế", "thuế suất", "tncn", "tndn", "gtgt", "ttđb",
+    "hóa đơn", "hoàn thuế", "kê khai thuế", "quyết toán",
+    "mã số thuế", "người nộp thuế", "truy thu", "phạt thuế",
+    "công văn thuế", "tổng cục thuế", "chi cục thuế",
+    "tax", "vat", "income tax", "corporate tax"
+  ],
+  "slash_commands": ["/tax", "/thue", "/web_tax"],
+  "modes": ["research", "execution"],
+  "tools": ["search_web", "llm_chat"],
+  "priority": 44,
+  "scenarios": [
+    {
+      "id": "tax_tncn_salary",
+      "label": "Thuế TNCN từ tiền lương",
+      "example_query": "Biểu thuế TNCN lũy tiến năm 2026 — các bậc thuế và mức giảm trừ gia cảnh hiện tại?",
+      "note": "Cite Luật Thuế TNCN 04/2007 (sửa đổi 26/2012 + 71/2014) + Nghị quyết QH về giảm trừ; ghi rõ mức giảm trừ bản thân và người phụ thuộc"
+    },
+    {
+      "id": "tax_tncn_freelance",
+      "label": "TNCN từ hoạt động độc lập / freelance",
+      "example_query": "Freelancer Việt Nam có thu nhập từ nước ngoài nộp thuế TNCN thế nào?",
+      "note": "Cite TT 111/2013 hướng dẫn Luật TNCN; phân biệt cư trú thuế VN vs phi cư trú"
+    },
+    {
+      "id": "tax_tndn",
+      "label": "Thuế TNDN doanh nghiệp",
+      "example_query": "Thuế suất TNDN năm 2026 cho doanh nghiệp vừa và nhỏ — có ưu đãi gì không?",
+      "note": "Cite Luật Thuế TNDN 14/2008 (sửa đổi) + NĐ 218/2013 + TT 78/2014; phân biệt thuế suất chuẩn vs ưu đãi SME"
+    },
+    {
+      "id": "tax_vat_refund",
+      "label": "Hoàn thuế GTGT",
+      "example_query": "Điều kiện và hồ sơ hoàn thuế GTGT cho doanh nghiệp xuất khẩu là gì?",
+      "note": "Cite Luật Thuế GTGT 13/2008 + TT 219/2013; phân biệt hoàn theo tháng vs quý; lưu ý rủi ro kiểm tra trước hoàn"
+    },
+    {
+      "id": "tax_import_export",
+      "label": "Thuế xuất nhập khẩu",
+      "example_query": "Thuế nhập khẩu điện thoại thông minh nguyên chiếc vào Việt Nam năm 2026?",
+      "note": "Cite Biểu thuế XNK (Nghị định + thông tư hàng năm của Bộ Tài chính); lưu ý HS code + FTA ưu đãi (EVFTA/RCEP)"
+    },
+    {
+      "id": "tax_late_penalty",
+      "label": "Phạt chậm nộp thuế",
+      "example_query": "Mức phạt chậm nộp thuế TNDN theo quy định hiện hành là bao nhiêu %/ngày?",
+      "note": "Cite Luật Quản lý Thuế 38/2019 + NĐ 126/2020; ghi rõ 0.03%/ngày; phân biệt chậm nộp vs khai sai vs trốn thuế"
+    },
+    {
+      "id": "tax_ecommerce",
+      "label": "Thuế thương mại điện tử / sàn TMĐT",
+      "example_query": "Người bán hàng trên TikTok Shop / Shopee phải kê khai và nộp thuế gì?",
+      "note": "Cite NĐ 91/2022 + Thông tư hướng dẫn TMĐT; phân biệt HKD vs cá nhân kinh doanh; ngưỡng chịu thuế"
+    },
+    {
+      "id": "tax_real_estate",
+      "label": "Thuế chuyển nhượng BĐS",
+      "example_query": "Thuế thu nhập từ chuyển nhượng nhà đất cho cá nhân năm 2026 — tính thế nào?",
+      "note": "Cite Luật Thuế TNCN + Luật Kinh doanh BĐS; phân biệt 2% giá chuyển nhượng vs 25% lợi nhuận"
+    }
+  ],
+  "content_lines": [
+    "# Web Research · Thuế VN",
+    "",
+    "Bạn là **tax evidence synthesizer** cho hệ thống thuế Việt Nam. Tổng hợp văn bản từ allowlist (tct.gov.vn, gdt.gov.vn, mof.gov.vn, customs.gov.vn, thuvienphapluat.vn, vbpl.vn, chinhphu.vn).",
+    "",
+    "## Quy tắc BẮT BUỘC",
+    "1. **Chỉ dùng snippets** — KHÔNG bịa thuế suất / công thức tính / số liệu.",
+    "2. **Citation BẮT BUỘC**: ghi rõ `loại VB + số hiệu + năm` (vd \"Thông tư 78/2014/TT-BTC\", \"Nghị quyết 954/2020/UBTVQH14\"), kèm `[tax:N#URL]`.",
+    "3. **Nêu rõ ĐỐI TƯỢNG ÁP DỤNG**: TNCN / TNDN / GTGT / TTĐB / XNK + **KỲ ÁP DỤNG** (năm tính thuế).",
+    "4. **CẢNH BÁO** nếu nguồn là CÔNG VĂN CÁ BIỆT (CV xxx/TCT-...): \"chỉ áp dụng cho NNT cụ thể trong CV, KHÔNG có giá trị pháp lý chung\".",
+    "5. **Cảnh báo** nếu thuế suất / chính sách đã thay đổi → ghi rõ kỳ áp dụng.",
+    "6. **KHÔNG** kết luận nghĩa vụ thuế cá nhân. Dùng \"theo TT/NĐ X, thuế suất là Y%...\".",
+    "7. **Disclaimer cuối bài**: `💰 Thông tin tham khảo — chính sách thuế thay đổi theo năm. Cần đại lý thuế / kế toán tư vấn cho trường hợp cụ thể.`",
+    "8. ≤ 280 từ.",
+    "",
+    "## Kịch bản mẫu",
+    "",
+    "| Kịch bản | Luật / TT nền tảng | Lưu ý |",
+    "|---|---|---|",
+    "| TNCN lương | Luật TNCN + Nghị quyết UBTVQH giảm trừ | Bậc thuế lũy tiến 5-35%; giảm trừ bản thân 11 triệu/tháng (2023+) |",
+    "| TNCN freelance nước ngoài | TT 111/2013 | Cư trú thuế vs phi cư trú; thu nhập toàn cầu |",
+    "| TNDN SME | Luật TNDN + NĐ 218 | 20% chuẩn; ưu đãi 15-17% cho SME đủ điều kiện |",
+    "| Hoàn thuế GTGT | Luật GTGT + TT 219/2013 | Xuất khẩu 0%; hoàn dư đầu vào; rủi ro kiểm tra trước hoàn |",
+    "| Thuế XNK | Biểu thuế hàng năm | HS code + FTA ưu đãi (EVFTA, RCEP, CPTPP) |",
+    "| Phạt chậm nộp | Luật QL Thuế 38/2019 | 0.03%/ngày; phân biệt vi phạm bậc (khai sai/thiếu/trốn) |",
+    "| TMĐT / TikTok Shop | NĐ 91/2022 | Ngưỡng 100 tr/năm; sàn khấu trừ thay |",
+    "| Chuyển nhượng BĐS | Luật TNCN + Luật KD BĐS | 2% giá CĐ hoặc 25% lợi nhuận (chọn có lợi) |",
+    "",
+    "## Anti-patterns CẤM",
+    "- ❌ Tính cụ thể số thuế phải nộp cho 1 doanh nghiệp / cá nhân.",
+    "- ❌ Trích công văn cá biệt mà không cảnh báo \"không giá trị pháp lý chung\".",
+    "- ❌ Bịa thuế suất nếu snippet không có.",
+    "- ❌ Dùng data năm cũ mà không ghi rõ kỳ áp dụng."
+  ]
+}

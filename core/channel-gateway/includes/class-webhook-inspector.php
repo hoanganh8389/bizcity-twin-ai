@@ -605,8 +605,38 @@ class BizCity_Webhook_Inspector {
 			'fallback_assignee' => isset( $body['fallback_assignee'] ) ? (int) $body['fallback_assignee'] : null,
 			'responder_pool'    => isset( $body['responder_pool'] ) && is_array( $body['responder_pool'] ) ? $body['responder_pool'] : array(),
 		);
+		// [2026-06-09 Johnny Chu] PHASE-D D-WEBCHAT-WILDCARD — WEBCHAT không cần account_id cụ thể;
+		// guest user không có OA/Page ID. Tự động dùng '*' (wildcard) khi bỏ trống.
+		if ( $args['platform'] === 'WEBCHAT' && $args['account_id'] === '' ) {
+			$args['account_id'] = '*';
+		}
 		if ( $args['platform'] === '' || $args['account_id'] === '' || $args['character_id'] <= 0 ) {
 			return new WP_REST_Response( array( 'ok' => false, 'message' => 'platform, account_id, character_id are required' ), 400 );
+		}
+		// [2026-06-03 Johnny Chu] GURU-UI W0.1 — R-GCB-7 reject bind tới Guru chưa publish.
+		if ( class_exists( 'BizCity_Knowledge_Database' ) ) {
+			$char = BizCity_Knowledge_Database::instance()->get_character( $args['character_id'] );
+			if ( ! $char ) {
+				return new WP_REST_Response( array(
+					'ok'      => false,
+					'code'    => 'guru_not_found',
+					'message' => sprintf( 'Guru #%d không tồn tại.', $args['character_id'] ),
+				), 404 );
+			}
+			$status = isset( $char->status ) ? strtolower( (string) $char->status ) : '';
+			$allowed_status = array( 'active', 'published' );
+			if ( ! in_array( $status, $allowed_status, true ) ) {
+				return new WP_REST_Response( array(
+					'ok'      => false,
+					'code'    => 'guru_not_publishable',
+					'message' => sprintf(
+						'Không thể bind kênh cho Guru #%d (status=%s). Yêu cầu status ∈ {active, published}.',
+						$args['character_id'],
+						$status !== '' ? $status : 'empty'
+					),
+					'data'    => array( 'character_id' => $args['character_id'], 'status' => $status ),
+				), 400 );
+			}
 		}
 		$id = BizCity_Channel_Binding::upsert( $args );
 		if ( ! $id ) {

@@ -24,7 +24,7 @@ $is_iframe = isset( $_GET['bizcity_iframe'] );
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>🎯 Nhiệm vụ — BizCity</title>
+<title><?php echo esc_html__( '🎯 Nhiệm vụ — BizCity', 'bizcity-twin-ai' ); ?></title>
 <style>
 :root {
     --bg: #0f172a; --surface: #1e293b; --border: #334155;
@@ -101,27 +101,27 @@ h1 { font-size: 24px; margin-bottom: 8px; }
 <body>
 <div class="container">
     <?php if ( ! $is_iframe ) : ?>
-    <a href="<?php echo esc_url( admin_url() ); ?>" class="back-link">← Quay lại Admin</a>
+    <a href="<?php echo esc_url( admin_url() ); ?>" class="back-link">← <?php echo esc_html__( 'Quay lại Admin', 'bizcity-twin-ai' ); ?></a>
     <?php endif; ?>
-    <h1>🎯 Nhiệm vụ</h1>
-    <p class="subtitle">Toàn bộ nhiệm vụ đã thực hiện — nhấn vào từng nhiệm vụ để xem chi tiết hội thoại</p>
+    <h1><?php echo esc_html__( '🎯 Nhiệm vụ', 'bizcity-twin-ai' ); ?></h1>
+    <p class="subtitle"><?php echo esc_html__( 'Toàn bộ nhiệm vụ đã thực hiện — nhấn vào từng nhiệm vụ để xem chi tiết hội thoại', 'bizcity-twin-ai' ); ?></p>
 
     <div class="stats-bar" id="stats-bar"></div>
 
     <div class="filters">
-        <input type="text" id="f-search" placeholder="Tìm kiếm nhiệm vụ...">
+        <input type="text" id="f-search" placeholder="<?php echo esc_attr__( 'Tìm kiếm nhiệm vụ...', 'bizcity-twin-ai' ); ?>">
         <select id="f-status">
-            <option value="all">Tất cả trạng thái</option>
-            <option value="ACTIVE">🔄 Đang thực hiện</option>
-            <option value="WAITING_USER">⏳ Chờ người dùng</option>
-            <option value="COMPLETED">✅ Hoàn thành</option>
-            <option value="CANCELLED">❌ Đã hủy</option>
-            <option value="EXPIRED">⌛ Hết hạn</option>
+            <option value="all"><?php echo esc_html__( 'Tất cả trạng thái', 'bizcity-twin-ai' ); ?></option>
+            <option value="ACTIVE">🔄 <?php echo esc_html__( 'Đang thực hiện', 'bizcity-twin-ai' ); ?></option>
+            <option value="WAITING_USER">⏳ <?php echo esc_html__( 'Chờ người dùng', 'bizcity-twin-ai' ); ?></option>
+            <option value="COMPLETED">✅ <?php echo esc_html__( 'Hoàn thành', 'bizcity-twin-ai' ); ?></option>
+            <option value="CANCELLED">❌ <?php echo esc_html__( 'Đã hủy', 'bizcity-twin-ai' ); ?></option>
+            <option value="EXPIRED">⌛ <?php echo esc_html__( 'Hết hạn', 'bizcity-twin-ai' ); ?></option>
         </select>
     </div>
 
     <div class="task-list" id="task-list">
-        <div class="loading">Đang tải...</div>
+        <div class="loading"><?php echo esc_html__( 'Đang tải...', 'bizcity-twin-ai' ); ?></div>
     </div>
 
     <div class="pagination" id="pagination"></div>
@@ -133,6 +133,27 @@ h1 { font-size: 24px; margin-bottom: 8px; }
     var NONCE = <?php echo wp_json_encode( $nonce ); ?>;
     var BASE  = <?php echo wp_json_encode( home_url( '/tasks/' ) ); ?>;
     var IFRAME_SUFFIX = <?php echo $is_iframe ? "'?bizcity_iframe=1'" : "''"; ?>;
+    var i18n  = <?php echo wp_json_encode([
+        'just_now'      => __( 'vừa xong', 'bizcity-twin-ai' ),
+        'minutes_ago'   => __( ' phút trước', 'bizcity-twin-ai' ),
+        'hours_ago'     => __( ' giờ trước', 'bizcity-twin-ai' ),
+        'days_ago'      => __( ' ngày trước', 'bizcity-twin-ai' ),
+        'all'           => __( 'Tất cả', 'bizcity-twin-ai' ),
+        'running'       => __( '🔄 Đang chạy', 'bizcity-twin-ai' ),
+        'completed'     => __( '✅ Hoàn thành', 'bizcity-twin-ai' ),
+        'cancelled'     => __( '❌ Đã hủy', 'bizcity-twin-ai' ),
+        'waiting'       => __( '⏳ Chờ', 'bizcity-twin-ai' ),
+        'expired'       => __( '⌛ Hết hạn', 'bizcity-twin-ai' ),
+        'closed'        => __( '🔒 Đóng', 'bizcity-twin-ai' ),
+        'loading'       => __( 'Đang tải...', 'bizcity-twin-ai' ),
+        'no_tasks'      => __( 'Chưa có nhiệm vụ nào', 'bizcity-twin-ai' ),
+        'matching'      => __( ' phù hợp', 'bizcity-twin-ai' ),
+        'prev'          => __( '← Trước', 'bizcity-twin-ai' ),
+        'page'          => __( 'Trang', 'bizcity-twin-ai' ),
+        'next'          => __( 'Sau →', 'bizcity-twin-ai' ),
+        'turns'         => __( ' lượt', 'bizcity-twin-ai' ),
+        'tasks'         => __( ' nhiệm vụ', 'bizcity-twin-ai' ),
+    ]); ?>;
 
     var state = { page: 1, per_page: 20, status: 'all', search: '' };
     var debounce;
@@ -155,10 +176,10 @@ h1 { font-size: 24px; margin-bottom: 8px; }
         if (!dt) return '';
         var d = new Date(dt.replace(' ', 'T') + 'Z');
         var diff = (Date.now() - d.getTime()) / 1000;
-        if (diff < 60) return 'vừa xong';
-        if (diff < 3600) return Math.floor(diff/60) + ' phút trước';
-        if (diff < 86400) return Math.floor(diff/3600) + ' giờ trước';
-        return Math.floor(diff/86400) + ' ngày trước';
+        if (diff < 60) return i18n.just_now;
+        if (diff < 3600) return Math.floor(diff/60) + i18n.minutes_ago;
+        if (diff < 86400) return Math.floor(diff/3600) + i18n.hours_ago;
+        return Math.floor(diff/86400) + i18n.days_ago;
     }
 
     function fetchAPI(path) {
@@ -170,8 +191,8 @@ h1 { font-size: 24px; margin-bottom: 8px; }
         fetchAPI('/tasks/stats').then(function(data) {
             var bar = document.getElementById('stats-bar');
             var total = 0; Object.values(data).forEach(function(v) { total += v; });
-            var html = '<div class="stat-chip' + (state.status === 'all' ? ' active' : '') + '" data-status="all">📊 Tất cả<span class="count">' + total + '</span></div>';
-            var labels = { ACTIVE: '🔄 Đang chạy', COMPLETED: '✅ Hoàn thành', CANCELLED: '❌ Đã hủy', WAITING_USER: '⏳ Chờ', EXPIRED: '⌛ Hết hạn', CLOSED: '🔒 Đóng' };
+            var html = '<div class="stat-chip' + (state.status === 'all' ? ' active' : '') + '" data-status="all">📊 ' + i18n.all + '<span class="count">' + total + '</span></div>';
+            var labels = { ACTIVE: i18n.running, COMPLETED: i18n.completed, CANCELLED: i18n.cancelled, WAITING_USER: i18n.waiting, EXPIRED: i18n.expired, CLOSED: i18n.closed };
             Object.keys(data).forEach(function(k) {
                 html += '<div class="stat-chip' + (state.status === k ? ' active' : '') + '" data-status="' + k + '">' + (labels[k] || k) + '<span class="count">' + data[k] + '</span></div>';
             });
@@ -189,14 +210,14 @@ h1 { font-size: 24px; margin-bottom: 8px; }
 
     function load() {
         var list = document.getElementById('task-list');
-        list.innerHTML = '<div class="loading">Đang tải...</div>';
+        list.innerHTML = '<div class="loading">' + i18n.loading + '</div>';
 
         var qs = '?page=' + state.page + '&per_page=' + state.per_page + '&status=' + encodeURIComponent(state.status);
         if (state.search) qs += '&search=' + encodeURIComponent(state.search);
 
         fetchAPI('/tasks' + qs).then(function(data) {
             if (!data.items || !data.items.length) {
-                list.innerHTML = '<div class="empty-state">Chưa có nhiệm vụ nào' + (state.search ? ' phù hợp' : '') + '</div>';
+                list.innerHTML = '<div class="empty-state">' + i18n.no_tasks + (state.search ? i18n.matching : '') + '</div>';
                 document.getElementById('pagination').innerHTML = '';
                 return;
             }
@@ -208,7 +229,7 @@ h1 { font-size: 24px; margin-bottom: 8px; }
                         '<div class="task-title">' + esc(t.title || t.goal) + '</div>' +
                         '<div class="task-meta">' +
                             '<span>🗂 ' + esc(t.goal) + '</span>' +
-                            '<span>💬 ' + t.turn_count + ' lượt</span>' +
+                            '<span>💬 ' + t.turn_count + i18n.turns + '</span>' +
                             '<span>' + timeAgo(t.last_activity_at) + '</span>' +
                         '</div>' +
                     '</div>' +
@@ -219,9 +240,9 @@ h1 { font-size: 24px; margin-bottom: 8px; }
             // Pagination
             var pg = document.getElementById('pagination');
             pg.innerHTML =
-                '<button id="pg-prev"' + (data.page <= 1 ? ' disabled' : '') + '>← Trước</button>' +
-                '<span class="pg-info">Trang ' + data.page + ' / ' + data.total_pages + ' (' + data.total + ' nhiệm vụ)</span>' +
-                '<button id="pg-next"' + (data.page >= data.total_pages ? ' disabled' : '') + '>Sau →</button>';
+                '<button id="pg-prev"' + (data.page <= 1 ? ' disabled' : '') + '>' + i18n.prev + '</button>' +
+                '<span class="pg-info">' + i18n.page + ' ' + data.page + ' / ' + data.total_pages + ' (' + data.total + i18n.tasks + ')</span>' +
+                '<button id="pg-next"' + (data.page >= data.total_pages ? ' disabled' : '') + '>' + i18n.next + '</button>';
             document.getElementById('pg-prev').addEventListener('click', function() { if (state.page > 1) { state.page--; load(); } });
             document.getElementById('pg-next').addEventListener('click', function() { if (state.page < data.total_pages) { state.page++; load(); } });
 

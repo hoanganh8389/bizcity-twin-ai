@@ -515,7 +515,7 @@ function twf_gateway_log_message($session_id, $user_id, $text, $from = 'user', $
     global $wpdb;
     $table = $wpdb->prefix . 'bizcity_webchat_messages';
 
-    if ($wpdb->get_var("SHOW TABLES LIKE '$table'") !== $table) return;
+    if (! bizcity_tbl_exists( $table )) return; // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 
     if (!$client_name) {
         if ($from === 'user' && $user_id) {

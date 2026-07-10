@@ -64,6 +64,10 @@ class BizCity_Listener_Bus {
 
 	private static $booted = false;
 
+	// [2026-06-11 Johnny Chu] R-PERF — in-request cache cho OPTION_RING (đọc 3-4x/webhook request)
+	// Shape: [ $key => mixed ]  (key = OPTION_RING hoặc OPTION_NEXT_ID)
+	private static $option_cache = array();
+
 	/**
 	 * Read a ring-storage option network-wide on multisite, blog-scoped on single site.
 	 *
@@ -71,15 +75,25 @@ class BizCity_Listener_Bus {
 	 * polls /listener/feed on the main site (blog 1). Without network scoping the
 	 * two sides read different option rows and the live tail stays empty even
 	 * though webhooks fire. See bizcity-zalo-bot/class-webhook-handler::handle_zalohook.
+	 *
+	 * [2026-06-11 Johnny Chu] R-PERF — added in-request static cache layer on top.
 	 */
 	private static function ring_get_option( string $key, $default ) {
-		if ( is_multisite() ) {
-			return get_network_option( null, $key, $default );
+		if ( array_key_exists( $key, self::$option_cache ) ) {
+			return self::$option_cache[ $key ];
 		}
-		return get_option( $key, $default );
+		if ( is_multisite() ) {
+			$val = get_network_option( null, $key, $default );
+		} else {
+			$val = get_option( $key, $default );
+		}
+		self::$option_cache[ $key ] = $val;
+		return $val;
 	}
 
 	private static function ring_update_option( string $key, $value ): bool {
+		// [2026-06-11 Johnny Chu] R-PERF — update cache khi write
+		self::$option_cache[ $key ] = $value;
 		if ( is_multisite() ) {
 			return (bool) update_network_option( null, $key, $value );
 		}
@@ -430,9 +444,13 @@ class BizCity_Listener_Bus {
 			// explicitly wants `twin` it must be in the kind list.
 			if ( $kinds && ! in_array( $ev_kind, $kinds, true ) ) { continue; }
 
-			// Twin/automation events are scope-less (synthetic platform=TWIN/AUTOMATION,
-			// no chat_id) — bypass per-conversation filters so playground panes
-			// see ALL of them regardless of channel-level scoping.
+			// Twin/automation events are SEMI-scope-less: platform is synthetic
+			// (TWIN/AUTOMATION) so platform filter is irrelevant, but chat_id /
+			// account_id / user_id ARE populated when the source pipeline knows
+			// them (twin tap inherits từ bridge_ctx, automation logger từ run).
+			// [2026-06-02 Johnny Chu] PG-MULTISITE-LEAK — fix cross-conversation
+			// rò: chỉ bypass conversation filter NẾU event không có scope field
+			// tương ứng. Nếu có chat_id=X mà caller hỏi chat_id=Y → skip.
 			$is_synthetic = ( $ev_kind === 'twin' || $ev_kind === 'automation' );
 
 			if ( ! $is_synthetic ) {
@@ -440,6 +458,13 @@ class BizCity_Listener_Bus {
 				if ( $account_id  !== '' && (string) ( $ev['account_id']  ?? '' ) !== $account_id  ) { continue; }
 				if ( $user_id     !== '' && (string) ( $ev['user_id']     ?? '' ) !== $user_id     ) { continue; }
 				if ( $chat_id     !== '' && (string) ( $ev['chat_id']     ?? '' ) !== $chat_id     ) { continue; }
+			} else {
+				$ev_acct = (string) ( $ev['account_id'] ?? '' );
+				$ev_user = (string) ( $ev['user_id']    ?? '' );
+				$ev_chat = (string) ( $ev['chat_id']    ?? '' );
+				if ( $account_id !== '' && $ev_acct !== '' && $ev_acct !== $account_id ) { continue; }
+				if ( $user_id    !== '' && $ev_user !== '' && $ev_user !== $user_id    ) { continue; }
+				if ( $chat_id    !== '' && $ev_chat !== '' && $ev_chat !== $chat_id    ) { continue; }
 			}
 			if ( $workflow_id  >  0 && (int)    ( $ev['workflow_id']  ?? 0 )  !== $workflow_id ) { continue; }
 			if ( $run_id      !== '' && (string) ( $ev['run_id']      ?? '' ) !== $run_id      ) { continue; }

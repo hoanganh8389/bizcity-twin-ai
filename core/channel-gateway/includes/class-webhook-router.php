@@ -97,10 +97,7 @@ class BizCity_Webhook_Router {
 
 		$req_uri = isset( $_SERVER['REQUEST_URI'] ) ? (string) $_SERVER['REQUEST_URI'] : '';
 		$method  = isset( $_SERVER['REQUEST_METHOD'] ) ? (string) $_SERVER['REQUEST_METHOD'] : 'GET';
-		$body    = file_get_contents( 'php://input' );
-		if ( ! is_string( $body ) ) {
-			$body = '';
-		}
+		$body    = self::read_raw_body_once();
 		// Cap body size in audit table to avoid 16MB blow-ups; keep first 256KB.
 		if ( strlen( $body ) > 262144 ) {
 			$body = substr( $body, 0, 262144 ) . "\n…[truncated by router]";
@@ -213,6 +210,24 @@ class BizCity_Webhook_Router {
 		return '';
 	}
 
+	/**
+	 * Read request body once and share it with downstream adapters/handlers.
+	 */
+	private static function read_raw_body_once(): string {
+		// [2026-07-08 Johnny Chu] HOTFIX — cache raw body globally so parse_request
+		// intake and template_redirect handlers don't race/consume php://input.
+		if ( isset( $GLOBALS['BIZCITY_WEBHOOK_RAW_INPUT'] ) && is_string( $GLOBALS['BIZCITY_WEBHOOK_RAW_INPUT'] ) ) {
+			return $GLOBALS['BIZCITY_WEBHOOK_RAW_INPUT'];
+		}
+
+		$raw = file_get_contents( 'php://input' );
+		if ( ! is_string( $raw ) ) {
+			$raw = '';
+		}
+		$GLOBALS['BIZCITY_WEBHOOK_RAW_INPUT'] = $raw;
+		return $raw;
+	}
+
 	/* ───────────────────────── Public introspection (for diag UI) ───────────────────────── */
 
 	public static function current(): ?array {
@@ -225,5 +240,14 @@ class BizCity_Webhook_Router {
 
 	public static function legacy_map(): array {
 		return self::$legacy_map;
+	}
+
+	/**
+	 * Expose cached raw body to adapter handlers.
+	 */
+	public static function raw_body(): string {
+		return isset( $GLOBALS['BIZCITY_WEBHOOK_RAW_INPUT'] ) && is_string( $GLOBALS['BIZCITY_WEBHOOK_RAW_INPUT'] )
+			? $GLOBALS['BIZCITY_WEBHOOK_RAW_INPUT']
+			: '';
 	}
 }

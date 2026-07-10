@@ -58,8 +58,8 @@ final class BizCity_TwinBrain_Web_Med {
 	const SEARCH_TIMEOUT_S = 10;
 	const LLM_TIMEOUT_S    = 16;
 	const LLM_TEMPERATURE  = 0.15;  // tighter than social (0.25) — fewer creative leaps
-	const LLM_MAX_TOKENS   = 900;
-	const SNIPPET_TRUNC    = 520;
+	const LLM_MAX_TOKENS   = 1350; // [2026-06-04 Johnny Chu] DEPTH-UP — 900→1350 (+50%)
+	const SNIPPET_TRUNC    = 700;  // [2026-06-04 Johnny Chu] DEPTH-UP — 520→700
 	const TITLE_TRUNC      = 180;
 	const DEFAULT_TIME     = 'year'; // y khoa: bằng chứng ổn định, ưu tiên reviews >6 tháng
 
@@ -459,7 +459,9 @@ final class BizCity_TwinBrain_Web_Med {
 
 		$out['http_status'] = (int) wp_remote_retrieve_response_code( $response );
 		$raw                = (string) wp_remote_retrieve_body( $response );
-		$decoded            = json_decode( $raw, true );
+		// [2026-06-24 Johnny Chu] HOTFIX-BOM — strip UTF-8 BOM; bizcity.vn gateway prepends 0xEF BB BF → json_decode null on HTTP 200 → gateway_failure:unknown
+		if ( substr( $raw, 0, 3 ) === "\xEF\xBB\xBF" ) { $raw = substr( $raw, 3 ); }
+		$decoded            = json_decode( trim( $raw ), true );
 
 		if ( ! is_array( $decoded ) || empty( $decoded['success'] ) ) {
 			$out['error']     = 'gateway_failure:' . ( $decoded['error'] ?? $decoded['message'] ?? 'unknown' );
@@ -515,7 +517,7 @@ final class BizCity_TwinBrain_Web_Med {
 
 		$user = "NGUỒN Y KHOA (top-" . count( $results ) . ", từ allowlist tier A-D):\n\n{$context}\nCÂU HỎI:\n{$query}\n\n"
 		      . "MỨC ĐỘ: {$severity_label}\n\n"
-		      . "Yêu cầu trả lời (≤260 từ, Tiếng Việt nếu câu hỏi tiếng Việt):\n"
+		      . "Yêu cầu trả lời (≤390 từ, Tiếng Việt nếu câu hỏi tiếng Việt — giải thích cơ chế sinh lý/bằng chứng lâm sàng khi snippet có đủ):\n" // [2026-06-04 Johnny Chu] DEPTH-UP
 		      . "1. Trả lời súc tích dựa CHÍNH XÁC trên snippets — KHÔNG bịa thông tin không có.\n"
 		      . "2. Citation BẮT BUỘC dạng `[med:N#URL]` cho MỌI mệnh đề có dữ kiện y học.\n"
 		      . "3. Nếu sources không nhất quán → nêu rõ \"sources có ý kiến khác nhau\" + cite cả 2 bên.\n"

@@ -55,21 +55,38 @@ class BizCity_LLM_Client {
      * Connection mode: 'gateway' or 'direct'.
      */
     public function get_mode(): string {
-        return get_site_option( 'bizcity_llm_mode', 'gateway' );
+        // [2026-06-10 Johnny Chu] HOTFIX — per-site option, not network-wide
+        return get_option( 'bizcity_llm_mode', 'gateway' );
     }
 
     /**
      * Gateway base URL (only used in gateway mode).
      */
     public function get_gateway_url(): string {
-        return rtrim( get_site_option( 'bizcity_llm_gateway_url', 'https://bizcity.vn' ), '/' );
+        // [2026-06-10 Johnny Chu] HOTFIX — per-site option, not network-wide
+        // [2026-06-24 Johnny Chu] HOTFIX-MULTISITE — fallback to main site option when sub-site url is default
+        $url = trim( (string) get_option( 'bizcity_llm_gateway_url', '' ) );
+        if ( $url === '' && is_multisite() && get_current_blog_id() !== get_main_site_id() ) {
+            switch_to_blog( get_main_site_id() );
+            $url = trim( (string) get_option( 'bizcity_llm_gateway_url', '' ) );
+            restore_current_blog();
+        }
+        return rtrim( $url ?: 'https://bizcity.vn', '/' );
     }
 
     /**
      * API key — gateway key in gateway mode, OpenRouter key in direct mode.
      */
     public function get_api_key(): string {
-        return trim( (string) get_site_option( 'bizcity_llm_api_key', '' ) );
+        // [2026-06-10 Johnny Chu] HOTFIX — per-site option, not network-wide
+        // [2026-06-24 Johnny Chu] HOTFIX-MULTISITE — fallback to main site option when sub-site key is empty
+        $key = trim( (string) get_option( 'bizcity_llm_api_key', '' ) );
+        if ( $key === '' && is_multisite() && get_current_blog_id() !== get_main_site_id() ) {
+            switch_to_blog( get_main_site_id() );
+            $key = trim( (string) get_option( 'bizcity_llm_api_key', '' ) );
+            restore_current_blog();
+        }
+        return $key;
     }
 
     /**
@@ -83,7 +100,8 @@ class BizCity_LLM_Client {
      * Get a setting value.
      */
     public function get_setting( string $key, $default = null ) {
-        $settings = get_site_option( 'bizcity_llm_settings', [] );
+        // [2026-06-10 Johnny Chu] HOTFIX — per-site option
+        $settings = get_option( 'bizcity_llm_settings', [] );
         return $settings[ $key ] ?? $default;
     }
 
@@ -203,6 +221,31 @@ class BizCity_LLM_Client {
         if ( ! is_array( $decoded ) ) {
             return new WP_Error( 'entitlement_decode_failed', 'Invalid JSON from gateway.', [ 'status' => 502 ] );
         }
+        // [2026-06-10 Johnny Chu] HOTFIX — per-site option (not network-wide sitemeta)
+        // sync hub KG quota to local option so BizCity_KG_Cost_Guard uses the hub-configured value.
+        if ( ! empty( $decoded['kg_config']['quota_per_user'] ) ) {
+            update_option( 'bizcity_hub_kg_quota_per_user', (int) $decoded['kg_config']['quota_per_user'] );
+        }
+        if ( ! empty( $decoded['kg_config']['batch_size'] ) ) {
+            update_option( 'bizcity_hub_kg_batch_size', (int) $decoded['kg_config']['batch_size'] );
+        }
+        $plugins_src = isset( $decoded['plugins_enabled'] ) ? $decoded['plugins_enabled']
+                     : ( isset( $decoded['features'] ) ? $decoded['features'] : null );
+        if ( is_array( $plugins_src ) ) {
+            update_option( 'bizcity_hub_plugins_enabled', json_encode( $plugins_src ) );
+        }
+        if ( isset( $decoded['master_level'] ) ) {
+            update_option( 'bizcity_hub_master_level', sanitize_key( $decoded['master_level'] ) );
+        }
+        if ( isset( $decoded['plan']['image_calls_day'] ) ) {
+            update_option( 'bizcity_hub_image_calls_day', (int) $decoded['plan']['image_calls_day'] );
+        }
+        if ( isset( $decoded['plan']['video_calls_day'] ) ) {
+            update_option( 'bizcity_hub_video_calls_day', (int) $decoded['plan']['video_calls_day'] );
+        }
+        if ( isset( $decoded['plan']['max_requests_day'] ) ) {
+            update_option( 'bizcity_hub_max_requests_day', (int) $decoded['plan']['max_requests_day'] );
+        }
         return $decoded;
     }
 
@@ -257,6 +300,284 @@ class BizCity_LLM_Client {
     }
 
     /* ================================================================
+     *  Account limits — per-service quota snapshot (R-GW-API-CATALOG #9)
+     * ================================================================
+     *
+     * [2026-06-04 Johnny Chu] R-GW-API-CATALOG — wrapper for
+     * GET /bizcity/v1/account/limits (Bearer server-to-server).
+     * Returns: { is_free, balance, services{video,faceswap,vto}, reset_at }
+     * or WP_Error on failure.
+     *
+     * @param array $options { timeout?: int }
+     * @return array|WP_Error
+     */
+    public function get_account_limits( array $options = [] ) {
+        $api_key = $this->get_api_key();
+        if ( $api_key === '' ) {
+            return new WP_Error( 'no_api_key', 'BizCity API key not configured.', [ 'status' => 503 ] );
+        }
+        $timeout  = isset( $options['timeout'] ) ? max( 2, (int) $options['timeout'] ) : 8;
+        $url      = $this->get_gateway_url() . '/wp-json/bizcity/v1/account/limits';
+
+        $response = wp_remote_get( $url, [
+            'timeout'     => $timeout,
+            'redirection' => 0,
+            'headers'     => [
+                'Accept'        => 'application/json',
+                'Authorization' => 'Bearer ' . $api_key,
+                'X-Site-URL'    => home_url(),
+            ],
+        ] );
+        if ( is_wp_error( $response ) ) {
+            return $response;
+        }
+        $code = (int) wp_remote_retrieve_response_code( $response );
+        $body = (string) wp_remote_retrieve_body( $response );
+        if ( substr( $body, 0, 3 ) === "\xEF\xBB\xBF" ) {
+            $body = substr( $body, 3 );
+        }
+        $decoded = json_decode( trim( $body ), true );
+        if ( $code < 200 || $code >= 300 ) {
+            $msg = is_array( $decoded ) && ! empty( $decoded['message'] )
+                ? (string) $decoded['message']
+                : ( is_array( $decoded ) && ! empty( $decoded['error'] ) ? (string) $decoded['error'] : 'HTTP ' . $code );
+            return new WP_Error( 'account_limits_upstream_error', $msg, [ 'status' => $code ] );
+        }
+        if ( ! is_array( $decoded ) ) {
+            return new WP_Error( 'account_limits_decode_failed', 'Invalid JSON from gateway.', [ 'status' => 502 ] );
+        }
+        $data = ( isset( $decoded['data'] ) && is_array( $decoded['data'] ) ) ? $decoded['data'] : $decoded;
+        return $data;
+    }
+
+    /* ================================================================
+     *  Master Plan Config — fetch + cache (R-GW-API-CATALOG #MASTER)
+     * ================================================================
+     *
+     * [2026-06-09 Johnny Chu] PHASE-MASTER-PLANS — wrapper for
+     * GET /bizcity/v1/master/config (Bearer server-to-server).
+     * Caches full plan data as site_options so settings page can render
+     * plan card without a live round-trip every page load.
+     *
+     * @param array $options { timeout?: int, force_refresh?: bool }
+     * @return array|WP_Error
+     */
+    public function get_plan_config( array $options = [] ) {
+        $api_key = $this->get_api_key();
+        if ( $api_key === '' ) {
+            return new WP_Error( 'no_api_key', 'BizCity API key not configured.', [ 'status' => 503 ] );
+        }
+
+        // Return cached version unless force_refresh requested (max 1 call per 5 min).
+        // [2026-06-10 Johnny Chu] HOTFIX — per-site transient (not network-wide)
+        $cache_key = 'bizcity_hub_plan_config_cache';
+        if ( empty( $options['force_refresh'] ) ) {
+            $cached = get_transient( $cache_key );
+            if ( is_array( $cached ) && ! empty( $cached['ok'] ) ) {
+                return $cached;
+            }
+        }
+
+        $timeout = isset( $options['timeout'] ) ? max( 5, (int) $options['timeout'] ) : 10;
+        $url     = $this->get_gateway_url() . '/wp-json/bizcity/v1/master/config';
+
+        $response = wp_remote_get( $url, [
+            'timeout'     => $timeout,
+            'redirection' => 0,
+            'headers'     => [
+                'Accept'        => 'application/json',
+                'Authorization' => 'Bearer ' . $api_key,
+                'X-Site-URL'    => home_url(),
+            ],
+        ] );
+
+        if ( is_wp_error( $response ) ) {
+            return $response;
+        }
+        $code = (int) wp_remote_retrieve_response_code( $response );
+        $body = (string) wp_remote_retrieve_body( $response );
+        if ( substr( $body, 0, 3 ) === "\xEF\xBB\xBF" ) {
+            $body = substr( $body, 3 );
+        }
+        $decoded = json_decode( trim( $body ), true );
+        if ( $code < 200 || $code >= 300 ) {
+            $msg = is_array( $decoded ) && ! empty( $decoded['message'] )
+                ? (string) $decoded['message']
+                : 'HTTP ' . $code;
+            return new WP_Error( 'plan_config_upstream_error', $msg, [ 'status' => $code ] );
+        }
+        if ( ! is_array( $decoded ) || empty( $decoded['ok'] ) ) {
+            return new WP_Error( 'plan_config_decode_failed', 'Invalid response from gateway.', [ 'status' => 502 ] );
+        }
+
+        // [2026-06-10 Johnny Chu] HOTFIX — per-site transient (not network-wide)
+        // Cache for 5 minutes.
+        set_transient( $cache_key, $decoded, 5 * MINUTE_IN_SECONDS );
+
+        // Persist individual options for server-side rendering without extra HTTP call.
+        // [2026-06-10 Johnny Chu] HOTFIX — per-site option (not network-wide sitemeta)
+        update_option( 'bizcity_hub_master_level',        sanitize_key( $decoded['master_level'] ?? 'free' ) );
+        update_option( 'bizcity_hub_master_label',        sanitize_text_field( $decoded['master_label'] ?? 'Free' ) );
+        update_option( 'bizcity_hub_price_usd',           (float) ( $decoded['plan']['price_usd'] ?? 0 ) );
+        update_option( 'bizcity_hub_monthly_credit_usd',  (float) ( $decoded['plan']['monthly_credit_usd'] ?? 0 ) );
+        update_option( 'bizcity_hub_daily_cap_usd',       (float) ( $decoded['plan']['daily_cap_usd'] ?? 1 ) );
+        update_option( 'bizcity_hub_max_requests_day',    (int)   ( $decoded['plan']['max_requests_day'] ?? 100 ) );
+        update_option( 'bizcity_hub_image_calls_day',     (int)   ( $decoded['plan']['image_calls_day'] ?? 5 ) );
+        update_option( 'bizcity_hub_video_calls_day',     (int)   ( $decoded['plan']['video_calls_day'] ?? 1 ) );
+        update_option( 'bizcity_hub_kg_batch_size',       (int)   ( $decoded['kg_config']['batch_size'] ?? 5 ) );
+        update_option( 'bizcity_hub_kg_quota_per_user',   (int)   ( $decoded['kg_config']['quota_per_user'] ?? 100 ) );
+        $plugins_src = isset( $decoded['plugins_enabled'] ) ? $decoded['plugins_enabled'] : ( $decoded['features'] ?? [] );
+        if ( is_array( $plugins_src ) ) {
+            update_option( 'bizcity_hub_plugins_enabled', json_encode( $plugins_src ) );
+        }
+
+        return $decoded;
+    }
+
+    /* ================================================================
+     *  Usage Stats — 6-dimension analytics from hub
+     * ================================================================ */
+
+    /**
+     * [2026-06-08 Johnny Chu] PHASE-MASTER-PLANS — fetch 6-dimension usage stats
+     * for the configured API key from hub GET /bizcity/v1/master/usage-stats.
+     *
+     * @param array $options { period?: 'today'|'7d'|'30d'|'all', timeout?: int, force_refresh?: bool }
+     * @return array|WP_Error
+     */
+    public function get_usage_stats( array $options = [] ) {
+        $api_key = $this->get_api_key();
+        if ( $api_key === '' ) {
+            return new WP_Error( 'no_api_key', 'BizCity API key not configured.', [ 'status' => 503 ] );
+        }
+
+        $period  = isset( $options['period'] ) ? (string) $options['period'] : '30d';
+        if ( ! in_array( $period, [ 'today', '7d', '30d', 'all' ], true ) ) {
+            $period = '30d';
+        }
+
+        // [2026-06-10 Johnny Chu] HOTFIX — per-site transient (not network-wide)
+        $cache_key = 'bizcity_hub_usage_stats_' . $period;
+        if ( empty( $options['force_refresh'] ) ) {
+            $cached = get_transient( $cache_key );
+            if ( is_array( $cached ) && ! empty( $cached['ok'] ) ) {
+                return $cached;
+            }
+        }
+
+        $timeout = isset( $options['timeout'] ) ? max( 5, (int) $options['timeout'] ) : 15;
+        $url     = $this->get_gateway_url() . '/wp-json/bizcity/v1/master/usage-stats?period=' . rawurlencode( $period );
+
+        $response = wp_remote_get( $url, [
+            'timeout'     => $timeout,
+            'redirection' => 0,
+            'headers'     => [
+                'Accept'        => 'application/json',
+                'Authorization' => 'Bearer ' . $api_key,
+                'X-Site-URL'    => home_url(),
+            ],
+        ] );
+
+        if ( is_wp_error( $response ) ) {
+            return $response;
+        }
+
+        $code = (int) wp_remote_retrieve_response_code( $response );
+        $body = (string) wp_remote_retrieve_body( $response );
+        // Strip BOM if present.
+        if ( substr( $body, 0, 3 ) === "\xEF\xBB\xBF" ) {
+            $body = substr( $body, 3 );
+        }
+        $decoded = json_decode( trim( $body ), true );
+
+        if ( $code < 200 || $code >= 300 ) {
+            $msg = ( is_array( $decoded ) && ! empty( $decoded['message'] ) )
+                ? (string) $decoded['message']
+                : 'HTTP ' . $code;
+            return new WP_Error( 'usage_stats_upstream_error', $msg, [ 'status' => $code ] );
+        }
+
+        if ( ! is_array( $decoded ) || empty( $decoded['ok'] ) ) {
+            return new WP_Error( 'usage_stats_decode_failed', 'Invalid response from gateway.', [ 'status' => 502 ] );
+        }
+
+        // [2026-06-10 Johnny Chu] HOTFIX — per-site transient
+        // Cache for 5 minutes.
+        set_transient( $cache_key, $decoded, 5 * MINUTE_IN_SECONDS );
+
+        return $decoded;
+    }
+
+    /**
+     * [2026-06-10 Johnny Chu] PHASE-LLM-ACTIVITY R7 — fetch unified activity rollup
+     * (request/day + meter) from hub GET /bizcity/v1/master/activity.
+     *
+     * Fail-OPEN: never throws — returns [ 'ok' => false, '_degraded' => true ]
+     * when the key is missing or the gateway is unreachable (R-GW-8). Caches the
+     * last good payload for 5 minutes per period.
+     *
+     * @param string $period today | 7d | 30d (default) | all
+     * @param bool   $force_refresh Skip the transient cache.
+     * @return array See docs/api/16-llm-activity.md.
+     */
+    public function get_activity_rollup( string $period = '30d', bool $force_refresh = false ): array {
+        if ( ! in_array( $period, [ 'today', '7d', '30d', 'all' ], true ) ) {
+            $period = '30d';
+        }
+
+        $api_key = $this->get_api_key();
+        if ( $api_key === '' ) {
+            return [ 'ok' => false, 'error' => 'no_api_key', '_degraded' => true ];
+        }
+
+        // [2026-06-10 Johnny Chu] HOTFIX — per-site transient
+        $cache_key = 'bizcity_hub_activity_' . $period;
+        if ( ! $force_refresh ) {
+            $cached = get_transient( $cache_key );
+            if ( is_array( $cached ) && ! empty( $cached['ok'] ) ) {
+                return $cached;
+            }
+        }
+
+        $url = $this->get_gateway_url() . '/wp-json/bizcity/v1/master/activity?period=' . rawurlencode( $period );
+
+        $response = wp_remote_get( $url, [
+            'timeout'     => 15,
+            'redirection' => 0,
+            'headers'     => [
+                'Accept'        => 'application/json',
+                'Authorization' => 'Bearer ' . $api_key,
+                'X-Site-URL'    => home_url(),
+            ],
+        ] );
+
+        if ( is_wp_error( $response ) ) {
+            return [ 'ok' => false, 'error' => $response->get_error_code(), '_degraded' => true ];
+        }
+
+        $code = (int) wp_remote_retrieve_response_code( $response );
+        $body = (string) wp_remote_retrieve_body( $response );
+        if ( substr( $body, 0, 3 ) === "\xEF\xBB\xBF" ) {
+            $body = substr( $body, 3 );
+        }
+        $decoded = json_decode( trim( $body ), true );
+
+        if ( $code < 200 || $code >= 300 || ! is_array( $decoded ) || empty( $decoded['ok'] ) ) {
+            // Fall back to last good cache if available, else degraded.
+            $stale = get_transient( $cache_key );
+            if ( is_array( $stale ) && ! empty( $stale['ok'] ) ) {
+                return $stale;
+            }
+            return [ 'ok' => false, 'error' => 'gateway_error', '_degraded' => true, 'http_code' => $code ];
+        }
+
+        // [2026-06-10 Johnny Chu] HOTFIX — per-site transient
+        set_transient( $cache_key, $decoded, 5 * MINUTE_IN_SECONDS );
+
+        return $decoded;
+    }
+
+    /* ================================================================
      *  Chat — delegates to gateway or direct based on mode
      * ================================================================ */
 
@@ -279,11 +600,26 @@ class BizCity_LLM_Client {
             'msg_count' => count( $messages ),
         ] );
 
+        // [2026-06-10 Johnny Chu] R-LLM-USAGE — log pending row before HTTP call to hub.
+        $_llm_pending_id = class_exists( 'BizCity_LLM_Usage_Clients' )
+            ? BizCity_LLM_Usage_Clients::log_pending( [
+                'service'         => $options['service'] ?? 'llm',
+                'mode'            => $this->get_mode(),
+                'purpose'         => $purpose,
+                'endpoint'        => 'chat',
+                'model_requested' => $model,
+            ] )
+            : 0;
+
         $result = $this->chat_gateway( $messages, $options );
 
         // ── Client-side fallback: retry with fallback model on failure ──
         $no_fallback    = ! empty( $options['no_fallback'] ) || ! empty( $options['_is_fallback'] );
-        $should_retry   = ! $result['success'] && ! $no_fallback;
+        // [2026-06-09 Johnny Chu] PHASE-D D-BE-QUOTA — skip fallback when the whole
+        // account quota is exhausted. A fallback model on the same gateway will also
+        // hit 429; retrying wastes latency and produces a misleading second error log.
+        $quota_exhausted = ! empty( $result['quota_exhausted'] );
+        $should_retry   = ! $result['success'] && ! $no_fallback && ! $quota_exhausted;
         if ( $should_retry ) {
             $fallback_model = $this->get_fallback_model( $purpose );
             if ( $fallback_model && $fallback_model !== $model ) {
@@ -332,7 +668,7 @@ class BizCity_LLM_Client {
             'reply_len' => mb_strlen( $result['message'] ?? '' ),
         ] );
 
-        $this->log_usage( $result, $options, 'chat', $model, $ms );
+        $this->log_usage( $result, $options, 'chat', $model, $ms, $_llm_pending_id );
 
         return $result;
     }
@@ -355,6 +691,17 @@ class BizCity_LLM_Client {
             'mode' => $mode, 'purpose' => $purpose, 'model' => $model,
             'api_key_set' => ! empty( $this->get_api_key() ),
         ] );
+
+        // [2026-06-10 Johnny Chu] R-LLM-USAGE — log pending row before HTTP call to hub.
+        $_llm_pending_id = class_exists( 'BizCity_LLM_Usage_Clients' )
+            ? BizCity_LLM_Usage_Clients::log_pending( [
+                'service'         => $options['service'] ?? 'llm',
+                'mode'            => $this->get_mode(),
+                'purpose'         => $purpose,
+                'endpoint'        => 'stream',
+                'model_requested' => $model,
+            ] )
+            : 0;
 
         $result = $this->chat_stream_gateway( $messages, $options, $on_chunk );
 
@@ -388,7 +735,7 @@ class BizCity_LLM_Client {
             'error' => $result['error'] ?? '',
         ] );
 
-        $this->log_usage( $result, $options, 'stream', $model, $ms );
+        $this->log_usage( $result, $options, 'stream', $model, $ms, $_llm_pending_id );
 
         return $result;
     }
@@ -521,18 +868,58 @@ class BizCity_LLM_Client {
             $remaining        = wp_remote_retrieve_header( $response, 'x-ratelimit-remaining-requests' );
             $reset            = wp_remote_retrieve_header( $response, 'x-ratelimit-reset-requests' );
             $tier             = $decoded['tier'] ?? '';
-            // Distinguish monthly quota exhaustion from transient rate limit
-            $is_quota         = stripos( $err_msg, 'quota' ) !== false
+            // [2026-06-10 Johnny Chu] R-QUOTA-KEY — new quota field from enriched 429 response.
+            // Hub now returns quota=true for actual quota exhaustion (not transient rate limit).
+            // Use that as primary signal; fall back to text heuristic for older router versions.
+            $is_quota         = ! empty( $decoded['quota'] )
+                             || stripos( $err_msg, 'quota' ) !== false
                              || stripos( $err_msg, 'monthly' ) !== false
+                             || stripos( $err_msg, 'daily' ) !== false
                              || ( $tier !== '' && $retry_after === '' );
+            // [2026-06-09 Johnny Chu] R-QUOTA-KEY — guard false-positive 0/0 block.
+            // A REAL quota always carries a positive cap (requests/day or USD).
+            // If the 429 is flagged quota but sends no usable cap (0/0), it is a
+            // transient rate-limit or a stale/older gateway response — do NOT hard-
+            // block the user with a misleading "0/0" message; treat as retryable.
+            if ( $is_quota ) {
+                $cap_r = is_array( $decoded ) ? (int)   ( $decoded['cap_requests_day'] ?? 0 ) : 0;
+                $cap_u = is_array( $decoded ) ? (float) ( $decoded['cap_usd'] ?? 0 )          : 0.0;
+                if ( $cap_r <= 0 && $cap_u <= 0 ) {
+                    $is_quota = false;
+                }
+            }
             $base['quota_exhausted'] = $is_quota;
+            // [2026-06-09 Johnny Chu] PHASE-D D-BE-QUOTA — label layer=hub (Layer 1 master)
+            // so callers and SSE emitters can distinguish from Layer 2 (local membership).
+            if ( $is_quota ) {
+                $base['quota_layer']        = 'hub';
+                $base['tier']               = $tier;
+                // [2026-06-10 Johnny Chu] R-QUOTA-KEY — forward usage counters from 429 body
+                // so FE can display used/limit bar in QuotaErrorBanner.
+                $base['used_requests']      = isset( $decoded['used_requests'] )      ? (int)   $decoded['used_requests']      : 0;
+                $base['cap_requests_day']   = isset( $decoded['cap_requests_day'] )   ? (int)   $decoded['cap_requests_day']   : 0;
+                $base['used_usd']           = isset( $decoded['used_usd'] )           ? (float) $decoded['used_usd']           : 0.0;
+                $base['cap_usd']            = isset( $decoded['cap_usd'] )            ? (float) $decoded['cap_usd']            : 0.0;
+                $base['reset_at']           = isset( $decoded['reset_at'] )           ? (string)$decoded['reset_at']           : '';
+                $base['quota_period']       = isset( $decoded['period'] )             ? (string)$decoded['period']             : 'day';
+                $base['master_level']       = isset( $decoded['master_level'] )       ? (string)$decoded['master_level']       : $tier;
+                // Cache usage to site_options for admin panel display.
+                update_site_option( 'bizcity_hub_quota_used_requests',  $base['used_requests'] );
+                update_site_option( 'bizcity_hub_quota_cap_requests',   $base['cap_requests_day'] );
+                update_site_option( 'bizcity_hub_quota_used_usd',       $base['used_usd'] );
+                update_site_option( 'bizcity_hub_quota_cap_usd',        $base['cap_usd'] );
+                update_site_option( 'bizcity_hub_quota_reset_at',       $base['reset_at'] );
+                update_site_option( 'bizcity_hub_quota_period',         $base['quota_period'] );
+            }
             error_log( sprintf(
-                '[bizcity-llm] 429 %s: model=%s purpose=%s tier=%s retry_after=%s remaining=%s reset=%s msg=%s raw=%s',
+                '[bizcity-llm] 429 %s layer=hub: model=%s purpose=%s tier=%s retry_after=%s remaining=%s reset=%s used=%d/%d usd=%.4f/%.4f msg=%s raw=%s',
                 $is_quota ? 'QUOTA_EXHAUSTED' : 'RATE_LIMIT',
                 $model, $purpose, $tier ?: 'n/a',
                 $retry_after ?: 'n/a',
                 $remaining   ?: 'n/a',
                 $reset       ?: 'n/a',
+                $base['used_requests'] ?? 0, $base['cap_requests_day'] ?? 0,
+                $base['used_usd'] ?? 0, $base['cap_usd'] ?? 0,
                 $err_msg,
                 substr( $raw_body, 0, 400 )
             ) );
@@ -540,9 +927,25 @@ class BizCity_LLM_Client {
         }
 
         if ( isset( $decoded['success'] ) && $decoded['success'] ) {
+            $msg    = $decoded['message'] ?? '';
+            $finish = $decoded['finish_reason'] ?? '';
+            // [2026-06-09 Johnny Chu] PHASE-D D-EMPTY-REPLY — Hub returned success:true
+            // but message is empty string. Possible causes: content_filter, safety block,
+            // provider returned empty choices[], or hub-side parsing issue.
+            // Demote to error so callers surface a specific reason instead of blank bubble.
+            if ( $msg === '' ) {
+                $reason = 'AI trả về phản hồi rỗng';
+                if ( $finish !== '' ) {
+                    $reason .= " (finish_reason: {$finish})";
+                }
+                $reason .= '. Model: ' . $model . '.';
+                error_log( "[bizcity-llm] chat_gateway WARN empty-reply: model={$model} purpose={$purpose} finish_reason={$finish} usage=" . wp_json_encode( $decoded['usage'] ?? [] ) . ' raw=' . substr( $raw_body, 0, 300 ) );
+                $base['error'] = $reason;
+                return $base; // success = false — triggers fallback / error path in callers
+            }
             $merged = array_merge( $base, [
                 'success'       => true,
-                'message'       => $decoded['message'] ?? '',
+                'message'       => $msg,
                 'model'         => $decoded['model'] ?? $model,
                 'model_primary' => $decoded['model_primary'] ?? $model,
                 'fallback_used' => $decoded['fallback_used'] ?? false,
@@ -560,9 +963,143 @@ class BizCity_LLM_Client {
             return $merged;
         }
 
-        $base['error'] = $decoded['error'] ?? $decoded['message'] ?? "HTTP {$code}";
-        error_log( "[bizcity-llm] chat_gateway error: HTTP {$code} model={$model} purpose={$purpose} error=" . $base['error'] );
+        // [2026-06-17 Johnny Chu] R-ERROR-UX — structured error with provider details
+        $error_msg = $decoded['error'] ?? $decoded['message'] ?? "HTTP {$code}";
+        $base['error'] = $error_msg;
+
+        // Forward provider_error block from hub for transparency
+        if ( ! empty( $decoded['provider_error'] ) && is_array( $decoded['provider_error'] ) ) {
+            $pe = $decoded['provider_error'];
+            $base['provider_error'] = $pe;
+
+            // Map to R-ERROR-UX fields
+            $base['error_code']    = $this->map_provider_error_code( $pe );
+            $base['error_hint']    = $this->get_provider_error_hint( $pe, $code );
+            $base['error_help']    = $this->get_provider_error_help( $pe, $code );
+
+            error_log( sprintf(
+                '[bizcity-llm] chat_gateway ERROR: HTTP %d | provider=%s provider_code=%d type=%s code=%s model=%s purpose=%s msg=%s',
+                $code,
+                $pe['provider'] ?? 'unknown',
+                $pe['http_code'] ?? 0,
+                $pe['type'] ?? '',
+                $pe['code'] ?? '',
+                $model,
+                $purpose,
+                substr( $pe['message'] ?? $error_msg, 0, 200 )
+            ) );
+        } else {
+            // No provider_error block — generic error
+            $base['error_code'] = $code >= 500 ? 'gateway_error' : 'llm_error';
+            $base['error_hint'] = $code >= 500
+                ? 'Máy chủ AI đang gặp sự cố. Thử lại sau vài phút.'
+                : 'Kiểm tra kết nối và thử lại.';
+            $base['error_help'] = 'llm_generic_error';
+
+            error_log( "[bizcity-llm] chat_gateway error: HTTP {$code} model={$model} purpose={$purpose} error={$error_msg}" );
+        }
+
         return $base;
+    }
+
+    /**
+     * Map provider error to R-ERROR-UX error code.
+     * [2026-06-17 Johnny Chu] R-ERROR-UX — provider error code mapping
+     *
+     * @param array $pe Provider error block
+     * @return string Error code for catalog
+     */
+    private function map_provider_error_code( array $pe ): string {
+        $http = (int) ( $pe['http_code'] ?? 0 );
+        $type = (string) ( $pe['type'] ?? '' );
+        $code = (string) ( $pe['code'] ?? '' );
+
+        // OpenRouter specific codes
+        if ( $http === 401 || $type === 'authentication_error' ) {
+            return 'api_key_invalid';
+        }
+        if ( $http === 402 ) {
+            return 'quota_exceeded';
+        }
+        if ( $http === 429 || $type === 'rate_limit_error' ) {
+            return 'rate_limited';
+        }
+        if ( $http === 400 || $type === 'invalid_request_error' ) {
+            return 'invalid_param';
+        }
+        if ( $http === 503 || $type === 'service_unavailable' ) {
+            return 'gateway_degraded';
+        }
+        if ( $http >= 500 ) {
+            return 'gateway_error';
+        }
+        if ( $code === 'content_filter' || stripos( $type, 'content' ) !== false ) {
+            return 'content_filtered';
+        }
+
+        return 'llm_error';
+    }
+
+    /**
+     * Get user-friendly hint for provider error.
+     * [2026-06-17 Johnny Chu] R-ERROR-UX — provider error hints
+     *
+     * @param array $pe Provider error block
+     * @param int   $http_code HTTP status code
+     * @return string Hint message in Vietnamese
+     */
+    private function get_provider_error_hint( array $pe, int $http_code ): string {
+        $type = (string) ( $pe['type'] ?? '' );
+        $pe_http = (int) ( $pe['http_code'] ?? $http_code );
+
+        if ( $pe_http === 401 || $type === 'authentication_error' ) {
+            return 'API key của BizCity không hợp lệ. Liên hệ hỗ trợ.';
+        }
+        if ( $pe_http === 402 ) {
+            return 'Tài khoản BizCity hết quota. Nâng cấp gói hoặc nạp thêm credit.';
+        }
+        if ( $pe_http === 429 || $type === 'rate_limit_error' ) {
+            return 'Đang có nhiều request. Chờ vài giây rồi thử lại.';
+        }
+        if ( $pe_http === 503 || $type === 'service_unavailable' ) {
+            return 'Máy chủ AI tạm ngưng. Thử lại sau 1-2 phút.';
+        }
+        if ( $pe_http === 502 || $pe_http === 504 ) {
+            return 'Máy chủ AI không phản hồi. Thử lại hoặc đổi model khác.';
+        }
+        if ( $pe_http >= 500 ) {
+            return 'Lỗi máy chủ AI. Thử lại sau vài phút.';
+        }
+
+        return 'Có lỗi xảy ra. Thử lại hoặc liên hệ hỗ trợ.';
+    }
+
+    /**
+     * Get help_code for provider error.
+     * [2026-06-17 Johnny Chu] R-ERROR-UX — provider error help codes
+     *
+     * @param array $pe Provider error block
+     * @param int   $http_code HTTP status code
+     * @return string Help code for HELP_CATALOG
+     */
+    private function get_provider_error_help( array $pe, int $http_code ): string {
+        $type = (string) ( $pe['type'] ?? '' );
+        $pe_http = (int) ( $pe['http_code'] ?? $http_code );
+
+        if ( $pe_http === 401 ) {
+            return 'llm_auth_error';
+        }
+        if ( $pe_http === 402 ) {
+            return 'llm_quota_exceeded';
+        }
+        if ( $pe_http === 429 ) {
+            return 'llm_rate_limited';
+        }
+        if ( $pe_http >= 500 ) {
+            return 'llm_server_error';
+        }
+
+        return 'llm_generic_error';
     }
 
     private function chat_stream_gateway( array $messages, array $options, $on_chunk = null ): array {
@@ -782,17 +1319,80 @@ class BizCity_LLM_Client {
                 if ( $real_err ) {
                     $base['error'] = $real_err;
                 }
-                $is_quota = stripos( $base['error'], 'quota' ) !== false
+                // [2026-06-10 Johnny Chu] R-QUOTA-KEY — use enriched quota fields from 429 response.
+                $is_quota = ! empty( $decoded_err['quota'] )
+                         || stripos( $base['error'], 'quota' ) !== false
                          || stripos( $base['error'], 'monthly' ) !== false
+                         || stripos( $base['error'], 'daily' ) !== false
                          || ( $tier !== '' && $retry_after === '' );
+                // [2026-06-09 Johnny Chu] R-QUOTA-KEY — guard false-positive 0/0 block.
+                // A REAL quota always carries a positive cap (requests/day or USD).
+                // If flagged quota but no usable cap (0/0) → transient/stale 429, not a
+                // hard block. Avoid the misleading "0/0" quota error on the user.
+                if ( $is_quota ) {
+                    $cap_r = is_array( $decoded_err ) ? (int)   ( $decoded_err['cap_requests_day'] ?? 0 ) : 0;
+                    $cap_u = is_array( $decoded_err ) ? (float) ( $decoded_err['cap_usd'] ?? 0 )          : 0.0;
+                    if ( $cap_r <= 0 && $cap_u <= 0 ) {
+                        $is_quota = false;
+                    }
+                }
                 $base['quota_exhausted'] = $is_quota;
+                // [2026-06-09 Johnny Chu] PHASE-D D-BE-QUOTA — label layer=hub (Layer 1 master)
+                if ( $is_quota ) {
+                    $base['quota_layer']      = 'hub';
+                    $base['tier']             = $tier;
+                    $base['used_requests']    = is_array( $decoded_err ) ? (int)   ( $decoded_err['used_requests']    ?? 0 ) : 0;
+                    $base['cap_requests_day'] = is_array( $decoded_err ) ? (int)   ( $decoded_err['cap_requests_day'] ?? 0 ) : 0;
+                    $base['used_usd']         = is_array( $decoded_err ) ? (float) ( $decoded_err['used_usd']         ?? 0 ) : 0.0;
+                    $base['cap_usd']          = is_array( $decoded_err ) ? (float) ( $decoded_err['cap_usd']          ?? 0 ) : 0.0;
+                    $base['reset_at']         = is_array( $decoded_err ) ? (string)( $decoded_err['reset_at']         ?? '' ) : '';
+                    $base['quota_period']     = is_array( $decoded_err ) ? (string)( $decoded_err['period']           ?? 'day' ) : 'day';
+                    $base['master_level']     = is_array( $decoded_err ) ? (string)( $decoded_err['master_level']     ?? $tier ) : $tier;
+                    update_site_option( 'bizcity_hub_quota_used_requests', $base['used_requests'] );
+                    update_site_option( 'bizcity_hub_quota_cap_requests',  $base['cap_requests_day'] );
+                    update_site_option( 'bizcity_hub_quota_used_usd',      $base['used_usd'] );
+                    update_site_option( 'bizcity_hub_quota_cap_usd',       $base['cap_usd'] );
+                    update_site_option( 'bizcity_hub_quota_reset_at',      $base['reset_at'] );
+                    update_site_option( 'bizcity_hub_quota_period',        $base['quota_period'] );
+                }
                 error_log( sprintf(
-                    '[bizcity-llm] STREAM 429 %s: model=%s stream_ms=%d tier=%s retry_after=%s msg=%s',
+                    '[bizcity-llm] STREAM 429 %s layer=hub: model=%s stream_ms=%d tier=%s retry_after=%s used=%d/%d usd=%.4f/%.4f msg=%s',
                     $is_quota ? 'QUOTA_EXHAUSTED' : 'RATE_LIMIT',
-                    $model, $stream_ms, $tier ?: 'n/a', $retry_after ?: 'n/a', mb_substr( $base['error'], 0, 200 )
+                    $model, $stream_ms, $tier ?: 'n/a', $retry_after ?: 'n/a',
+                    $base['used_requests'] ?? 0, $base['cap_requests_day'] ?? 0,
+                    $base['used_usd'] ?? 0, $base['cap_usd'] ?? 0,
+                    mb_substr( $base['error'], 0, 200 )
                 ) );
             } else {
-                error_log( "[bizcity-llm] chat_stream_gateway error: HTTP {$http_code} curl={$curl_err} model={$model} stream_ms={$stream_ms} full_text_len=" . strlen( $full_text ) . " body={$err_detail}" );
+                // [2026-06-17 Johnny Chu] R-ERROR-UX — structured error for non-429 stream errors
+                $decoded_err = json_decode( $err_detail, true );
+                if ( is_array( $decoded_err ) && ! empty( $decoded_err['provider_error'] ) ) {
+                    $pe = $decoded_err['provider_error'];
+                    $base['provider_error'] = $pe;
+                    $base['error_code']     = $this->map_provider_error_code( $pe );
+                    $base['error_hint']     = $this->get_provider_error_hint( $pe, $http_code );
+                    $base['error_help']     = $this->get_provider_error_help( $pe, $http_code );
+
+                    error_log( sprintf(
+                        '[bizcity-llm] STREAM ERROR: HTTP %d | provider=%s provider_http=%d type=%s model=%s stream_ms=%d msg=%s',
+                        $http_code,
+                        $pe['provider'] ?? 'unknown',
+                        $pe['http_code'] ?? 0,
+                        $pe['type'] ?? '',
+                        $model,
+                        $stream_ms,
+                        substr( $pe['message'] ?? $base['error'], 0, 200 )
+                    ) );
+                } else {
+                    // Generic error without provider_error block
+                    $base['error_code'] = $http_code >= 500 ? 'gateway_error' : 'llm_error';
+                    $base['error_hint'] = $http_code >= 500
+                        ? 'Máy chủ AI đang gặp sự cố. Thử lại sau vài phút.'
+                        : 'Kiểm tra kết nối và thử lại.';
+                    $base['error_help'] = 'llm_generic_error';
+
+                    error_log( "[bizcity-llm] chat_stream_gateway error: HTTP {$http_code} curl={$curl_err} model={$model} stream_ms={$stream_ms} full_text_len=" . strlen( $full_text ) . " body={$err_detail}" );
+                }
             }
             // CURLE_WRITE_ERROR (23) often means the client SSE connection dropped
             // while cURL was still receiving data. If we managed to collect text
@@ -1173,6 +1773,17 @@ class BizCity_LLM_Client {
 
         $this->debug_log( 'embeddings() START', [ 'mode' => $this->get_mode(), 'model' => $model ] );
 
+        // [2026-06-10 Johnny Chu] R-LLM-USAGE — log pending row before HTTP call to hub.
+        $_llm_pending_id = class_exists( 'BizCity_LLM_Usage_Clients' )
+            ? BizCity_LLM_Usage_Clients::log_pending( [
+                'service'         => 'embedding',
+                'mode'            => $this->get_mode(),
+                'purpose'         => 'embedding',
+                'endpoint'        => 'embeddings',
+                'model_requested' => $model,
+            ] )
+            : 0;
+
         if ( $this->get_mode() === 'direct' ) {
             // Direct mode disabled for IP protection — force gateway
             $result = $this->embeddings_gateway( $input, $options );
@@ -1188,7 +1799,7 @@ class BizCity_LLM_Client {
             'model'   => $result['model'] ?? $model,
             'usage'   => $result['usage'] ?? [],
             'error'   => $result['error'] ?? '',
-        ], $options, 'embeddings', $model, $ms );
+        ], $options, 'embeddings', $model, $ms, $_llm_pending_id );
 
         return $result;
     }
@@ -1332,8 +1943,9 @@ class BizCity_LLM_Client {
      * ================================================================ */
 
     public function get_available_models( ?string $category = null ): array {
+        // [2026-06-10 Johnny Chu] HOTFIX — per-site transient (not network-wide)
         $transient_key = 'bizcity_llm_models';
-        $cached = get_site_transient( $transient_key );
+        $cached = get_transient( $transient_key );
 
         if ( false === $cached ) {
             if ( $this->get_mode() === 'gateway' ) {
@@ -1342,7 +1954,7 @@ class BizCity_LLM_Client {
                 $cached = $this->fetch_openrouter_models();
             }
             if ( ! empty( $cached ) ) {
-                set_site_transient( $transient_key, $cached, DAY_IN_SECONDS );
+                set_transient( $transient_key, $cached, DAY_IN_SECONDS );
             }
         }
 
@@ -1390,7 +2002,8 @@ class BizCity_LLM_Client {
     }
 
     public function bust_models_cache(): void {
-        delete_site_transient( 'bizcity_llm_models' );
+        // [2026-06-10 Johnny Chu] HOTFIX — per-site transient
+        delete_transient( 'bizcity_llm_models' );
     }
 
     /* ================================================================
@@ -1413,12 +2026,15 @@ class BizCity_LLM_Client {
     /**
      * Record a usage log entry if the usage-log class is loaded.
      */
-    private function log_usage( array $result, array $options, string $endpoint, string $model_requested, int $ms ): void {
-        if ( ! class_exists( 'BizCity_LLM_Usage_Log' ) ) {
+    // [2026-06-10 Johnny Chu] R-LLM-USAGE — write to per-blog clients table, not hub table.
+    // Hub (bizcity-llm-router) owns bizcity_llm_usage (base_prefix).
+    // Client (this plugin) owns bizcity_llm_usage_clients (per-blog prefix).
+    private function log_usage( array $result, array $options, string $endpoint, string $model_requested, int $ms, int $pending_id = 0 ): void {
+        if ( ! class_exists( 'BizCity_LLM_Usage_Clients' ) ) {
             return;
         }
-        BizCity_LLM_Usage_Log::log( [
-            'service'         => $options['service'] ?? '', // explicit override; defaults inferred from endpoint
+        $log_data = [
+            'service'         => $options['service'] ?? '',
             'mode'            => $this->get_mode(),
             'purpose'         => $options['purpose'] ?? 'chat',
             'endpoint'        => $endpoint,
@@ -1429,7 +2045,12 @@ class BizCity_LLM_Client {
             'usage'           => $result['usage'] ?? [],
             'latency_ms'      => $ms,
             'error'           => $result['error'] ?? '',
-        ] );
+        ];
+        if ( $pending_id > 0 ) {
+            BizCity_LLM_Usage_Clients::log_done( $pending_id, $log_data );
+        } else {
+            BizCity_LLM_Usage_Clients::log( $log_data );
+        }
     }
 
     /* ================================================================
@@ -1450,6 +2071,17 @@ class BizCity_LLM_Client {
             'mode' => $this->get_mode(), 'model' => $options['model'] ?? 'gpt-image-1',
         ] );
 
+        // [2026-06-10 Johnny Chu] R-LLM-USAGE — log pending row before HTTP call to hub.
+        $_llm_pending_id = class_exists( 'BizCity_LLM_Usage_Clients' )
+            ? BizCity_LLM_Usage_Clients::log_pending( [
+                'service'         => 'image',
+                'mode'            => $this->get_mode(),
+                'purpose'         => 'image',
+                'endpoint'        => 'image',
+                'model_requested' => $options['model'] ?? 'gpt-image-1',
+            ] )
+            : 0;
+
         if ( $this->get_mode() === 'direct' ) {
             $result = $this->generate_image_direct( $prompt, $options );
         } else {
@@ -1466,7 +2098,7 @@ class BizCity_LLM_Client {
             'model'   => $result['model'] ?? 'gpt-image-1',
             'usage'   => [],
             'error'   => $result['error'] ?? '',
-        ], array_merge( $options, [ 'purpose' => 'image', 'service' => 'image' ] ), 'image', $options['model'] ?? 'gpt-image-1', $ms );
+        ], array_merge( $options, [ 'purpose' => 'image', 'service' => 'image' ] ), 'image', $options['model'] ?? 'gpt-image-1', $ms, $_llm_pending_id );
 
         return $result;
     }
@@ -1511,7 +2143,10 @@ class BizCity_LLM_Client {
             $body['stream'] = true;
         }
 
-        $endpoint = $this->get_gateway_url() . '/wp-json/bizcity/v1/llm/images/generations';
+        // [2026-06-06 Johnny Chu] PHASE-IMAGE-SIMPLE — fix 404: server only registers
+        // llm/router/v1/images/generations (class-router-rest.php:95). bizcity/v1/llm/images/generations
+        // has no matching route (Hub REST not deployed for image endpoint yet).
+        $endpoint = $this->get_gateway_url() . '/wp-json/llm/router/v1/images/generations';
 
         $response = wp_remote_post( $endpoint, [
             'timeout'     => intval( $options['timeout'] ?? 120 ) + 10,
@@ -1529,8 +2164,23 @@ class BizCity_LLM_Client {
             return $base;
         }
 
-        $code    = wp_remote_retrieve_response_code( $response );
-        $decoded = json_decode( wp_remote_retrieve_body( $response ), true );
+        $code     = wp_remote_retrieve_response_code( $response );
+        $raw_body = wp_remote_retrieve_body( $response );
+        $decoded  = json_decode( $raw_body, true );
+
+        // [2026-07-04 Johnny Chu] PHASE-IMG-TPL — log raw response so 502 HTML pages are visible.
+        if ( $code !== 200 ) {
+            $content_type = wp_remote_retrieve_header( $response, 'content-type' );
+            $is_json      = ( strpos( (string) $content_type, 'application/json' ) !== false );
+            error_log( sprintf(
+                '[BIZCITY][generate_image_gateway] HTTP %d content-type=%s decoded_success=%s decoded_error=%s raw_preview=%.200s',
+                $code,
+                (string) $content_type,
+                isset( $decoded['success'] ) ? ( $decoded['success'] ? 'true' : 'false' ) : 'n/a',
+                (string) ( $decoded['error'] ?? '' ),
+                $is_json ? '' : substr( strip_tags( $raw_body ), 0, 200 )
+            ) );
+        }
 
         if ( $code === 402 ) {
             $base['error'] = $decoded['error'] ?? 'Hết credit. Vui lòng nạp thêm tại bizcity.vn';
@@ -1613,5 +2263,94 @@ class BizCity_LLM_Client {
 
         $base['error'] = $decoded['error']['message'] ?? 'OpenAI image generation failed.';
         return $base;
+    }
+
+    // [2026-06-10 Johnny Chu] USAGE-ROLLUP-SPEC — generic gateway REST helper (fail-OPEN)
+    /**
+     * Make a GET or DELETE request to any /wp-json/bizcity/v1/* endpoint on the gateway.
+     * Always returns an array — WP_Error or HTTP failure yields ['ok'=>false,'_degraded'=>true].
+     *
+     * @param string $path     e.g. '/account/usage-by-type'
+     * @param array  $query    Query params to append.
+     * @param string $method   'GET' or 'DELETE'.
+     * @param int    $timeout  Seconds.
+     */
+    public function gateway_get( string $path, array $query = [], string $method = 'GET', int $timeout = 10 ) {
+        $api_key = $this->get_api_key();
+        if ( $api_key === '' ) {
+            return [ 'ok' => false, 'error' => 'no_api_key', '_degraded' => true ];
+        }
+        $url = rtrim( $this->get_gateway_url(), '/' ) . '/wp-json/bizcity/v1' . $path;
+        if ( ! empty( $query ) ) {
+            $url = add_query_arg( array_map( 'strval', $query ), $url );
+        }
+        $response = wp_remote_request( $url, [
+            'method'      => $method,
+            'timeout'     => $timeout,
+            'redirection' => 0,
+            'headers'     => [
+                'Accept'        => 'application/json',
+                'Authorization' => 'Bearer ' . $api_key,
+                'X-Site-URL'    => home_url(),
+            ],
+        ] );
+        if ( is_wp_error( $response ) ) {
+            return [ 'ok' => false, 'error' => $response->get_error_code(), '_degraded' => true ];
+        }
+        $code = (int) wp_remote_retrieve_response_code( $response );
+        $body = (string) wp_remote_retrieve_body( $response );
+        if ( substr( $body, 0, 3 ) === "\xEF\xBB\xBF" ) {
+            $body = substr( $body, 3 );
+        }
+        $decoded = json_decode( trim( $body ), true );
+        if ( ! is_array( $decoded ) ) {
+            return [ 'ok' => false, 'error' => 'decode_failed', '_degraded' => true, 'http_code' => $code ];
+        }
+        if ( $code < 200 || $code >= 300 ) {
+            return array_merge( [ '_degraded' => true, 'http_code' => $code ], $decoded );
+        }
+        return $decoded;
+    }
+
+    /**
+     * Make a POST request to any /wp-json/bizcity/v1/* endpoint on the gateway.
+     *
+     * @param string $path    e.g. '/account/api-keys'
+     * @param array  $body    JSON body.
+     * @param int    $timeout Seconds.
+     */
+    public function gateway_post( string $path, array $body = [], int $timeout = 10 ) {
+        $api_key = $this->get_api_key();
+        if ( $api_key === '' ) {
+            return [ 'ok' => false, 'error' => 'no_api_key', '_degraded' => true ];
+        }
+        $url = rtrim( $this->get_gateway_url(), '/' ) . '/wp-json/bizcity/v1' . $path;
+        $response = wp_remote_post( $url, [
+            'timeout'     => $timeout,
+            'redirection' => 0,
+            'headers'     => [
+                'Content-Type'  => 'application/json',
+                'Accept'        => 'application/json',
+                'Authorization' => 'Bearer ' . $api_key,
+                'X-Site-URL'    => home_url(),
+            ],
+            'body' => wp_json_encode( $body ),
+        ] );
+        if ( is_wp_error( $response ) ) {
+            return [ 'ok' => false, 'error' => $response->get_error_code(), '_degraded' => true ];
+        }
+        $code = (int) wp_remote_retrieve_response_code( $response );
+        $body_str = (string) wp_remote_retrieve_body( $response );
+        if ( substr( $body_str, 0, 3 ) === "\xEF\xBB\xBF" ) {
+            $body_str = substr( $body_str, 3 );
+        }
+        $decoded = json_decode( trim( $body_str ), true );
+        if ( ! is_array( $decoded ) ) {
+            return [ 'ok' => false, 'error' => 'decode_failed', '_degraded' => true, 'http_code' => $code ];
+        }
+        if ( $code < 200 || $code >= 300 ) {
+            return array_merge( [ '_degraded' => true, 'http_code' => $code ], $decoded );
+        }
+        return $decoded;
     }
 }

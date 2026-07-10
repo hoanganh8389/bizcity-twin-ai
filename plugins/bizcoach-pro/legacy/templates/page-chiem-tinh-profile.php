@@ -621,7 +621,10 @@ $is_logged_in = is_user_logged_in();
         <div class="bccm-postbox">
             <h3 style="color:#7c3aed">🕉️ Natal Wheel <small style="font-weight:400;color:#888;font-size:12px">(Sidereal — Indian)</small></h3>
             <?php
-            $positions   = $astro_traits['positions'] ?? [];
+            // [2026-06-08 Johnny Chu] HOTFIX — normalize sign names for existing saved records.
+            $positions   = function_exists('bccm_astro_normalize_positions')
+                ? bccm_astro_normalize_positions($astro_traits['positions'] ?? [])
+                : ($astro_traits['positions'] ?? []);
             $houses_data = $astro_traits['houses'] ?? [];
             $houses_raw  = [];
             if ( ! empty( $houses_data ) ) {
@@ -1065,7 +1068,8 @@ $is_logged_in = is_user_logged_in();
 
         <div class="bccm-pf-section">
             <h3>🔮 Hỏi Chuyên Gia Chiêm Tinh AI</h3>
-            <p style="color:#6b7280;font-size:13px;margin:0 0 14px;">Đặt câu hỏi cho chuyên gia chiêm tinh AI — với hơn 20 năm kinh nghiệm đọc bản đồ sao. AI sẽ phân tích dựa trên bản đồ sao Western + Vedic và vận hành transit của bạn.</p>
+            <?php // [2026-07-05 Johnny Chu] PHASE-NATAL-REPORT FIX — avoid self-promotional years-of-experience claim in UI copy. ?>
+            <p style="color:#6b7280;font-size:13px;margin:0 0 14px;">Đặt câu hỏi cho chuyên gia chiêm tinh AI. AI sẽ phân tích dựa trên bản đồ sao Western + Vedic và vận hành transit của bạn.</p>
 
             <?php if ( ! $has_profile ): ?>
             <div class="bccm-pf-notice bccm-pf-notice-warn">

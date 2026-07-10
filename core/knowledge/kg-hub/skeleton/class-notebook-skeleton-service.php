@@ -39,6 +39,12 @@ class BizCity_KG_Skeleton_Service {
 	/** Transient lock TTL (seconds) — F-3. */
 	const LOCK_TTL = 180;
 
+	// [2026-06-04 Johnny Chu] SKEL-FAIL-REASON — option prefix stores last fail detail per notebook.
+	const FAIL_OPT_PREFIX = 'bizcity_kg_skel_fail_';
+
+	/** Last build-fail reason set by sub-methods, read by run_job() for store_fail(). */
+	private static $_last_build_fail = '';
+
 	public static function bind(): void {
 		add_action( self::CRON_HOOK, [ __CLASS__, 'run_job' ], 10, 1 );
 
@@ -236,8 +242,8 @@ class BizCity_KG_Skeleton_Service {
 						'notebook_id' => $notebook_id,
 						'owner_id'    => $owner_id,
 						'reason'      => $msg,
-					] );
-					return;
+					] );				// [2026-06-04 Johnny Chu] SKEL-FAIL-REASON — store for REST status endpoint.
+				self::store_fail( $notebook_id, 'cost_guard_blocked', $msg );					return;
 				}
 			}
 
@@ -261,12 +267,15 @@ class BizCity_KG_Skeleton_Service {
 				//     (chunks_empty already logged inside build())
 				if ( $trigger_reason !== 'notes_pinned' ) {
 					self::set_status( $notebook_id, BizCity_KG_Skeleton_Adapter::STATUS_FAILED );
+					// [2026-06-04 Johnny Chu] SKEL-FAIL-REASON — use fine-grained reason from sub-methods.
+					$fail_reason = self::$_last_build_fail !== '' ? self::$_last_build_fail : 'build_returned_null';
+					self::store_fail( $notebook_id, $fail_reason, '' );
 					error_log( '[bizcity-kg-skeleton] build returned null notebook=' . $notebook_id
-					           . ' trigger=' . $trigger_reason );
+					           . ' trigger=' . $trigger_reason . ' reason=' . $fail_reason );
 					self::cron_meta_event( 'skeleton_build_failed', [
 						'notebook_id'    => $notebook_id,
 						'trigger_reason' => $trigger_reason,
-						'reason'         => 'build_returned_null',
+						'reason'         => $fail_reason,
 					] );
 				} else {
 					// notes_pinned + no chunks: restore previous status (don't mark failed)
@@ -275,6 +284,8 @@ class BizCity_KG_Skeleton_Service {
 			}
 		} catch ( \Throwable $e ) {
 			self::set_status( $notebook_id, BizCity_KG_Skeleton_Adapter::STATUS_FAILED );
+			// [2026-06-04 Johnny Chu] SKEL-FAIL-REASON.
+			self::store_fail( $notebook_id, 'exception', $e->getMessage() );
 			error_log( '[bizcity-kg-skeleton] exception notebook=' . $notebook_id
 			           . ' msg=' . $e->getMessage() );
 			self::cron_meta_event( 'skeleton_build_failed', [
@@ -341,11 +352,14 @@ class BizCity_KG_Skeleton_Service {
 			[ 'role' => 'user',   'content' => self::compose_chunks_message( $chunks, $pinned_notes ) ],
 		];
 
+		// [2026-06-05 Johnny Chu] SKEL-PARSE-ROBUST — json_object mode + correction retry.
 		$last_err = '';
+		$is_parse_fail = false;
 		for ( $attempt = 1; $attempt <= 2; $attempt++ ) {
 			$resp = bizcity_llm_chat( $messages, [
-				'purpose'     => self::LLM_PURPOSE,
-				'temperature' => 0.2,
+				'purpose'          => self::LLM_PURPOSE,
+				'temperature'      => 0.2,
+				'response_format'  => [ 'type' => 'json_object' ],
 			] );
 			if ( empty( $resp['success'] ) ) {
 				$last_err = $resp['error'] ?? 'llm_failed';
@@ -356,10 +370,19 @@ class BizCity_KG_Skeleton_Service {
 			$content = (string) ( $resp['message'] ?? '' );
 			$out = BizCity_KG_Skeleton_Prompt::validate( $content );
 			if ( $out ) { return $out; }
+			$is_parse_fail = true;
 			$last_err = 'validate_failed (len=' . strlen( $content ) . ')';
 			error_log( '[bizcity-kg-skeleton] single_pass parse failed attempt=' . $attempt . ' ' . $last_err );
 			self::cron_meta_event( 'skeleton_llm_parse_error', [ 'attempt' => $attempt, 'preview' => substr( $content, 0, 200 ) ] );
+			// On parse-fail, add a correction turn for the next attempt.
+			if ( $attempt === 1 ) {
+				$messages[] = [ 'role' => 'assistant', 'content' => $content ];
+				$messages[] = [ 'role' => 'user', 'content' =>
+					'Output của bạn không phải JSON hợp lệ. Hãy trả lại ĐÚNG JSON object theo schema đã yêu cầu, không có bất kỳ text nào khác bên ngoài JSON.' ];
+			}
 		}
+		// [2026-06-04 Johnny Chu] SKEL-FAIL-REASON — propagate to run_job.
+		self::$_last_build_fail = $is_parse_fail ? 'llm_parse_failed' : 'llm_failed';
 		return null;
 	}
 
@@ -374,9 +397,11 @@ class BizCity_KG_Skeleton_Service {
 				[ 'role' => 'system', 'content' => BizCity_KG_Skeleton_Prompt::system( $has_notes ) ],
 				[ 'role' => 'user',   'content' => self::compose_chunks_message( $group, $pinned_notes ) ],
 			];
+			// [2026-06-05 Johnny Chu] SKEL-PARSE-ROBUST — json_object mode for map step.
 			$resp = bizcity_llm_chat( $messages, [
-				'purpose'     => self::LLM_PURPOSE,
-				'temperature' => 0.2,
+				'purpose'         => self::LLM_PURPOSE,
+				'temperature'     => 0.2,
+				'response_format' => [ 'type' => 'json_object' ],
 			] );
 			if ( empty( $resp['success'] ) ) {
 				$map_err = $resp['error'] ?? 'llm_failed';
@@ -405,9 +430,11 @@ class BizCity_KG_Skeleton_Service {
 			[ 'role' => 'system', 'content' => BizCity_KG_Skeleton_Prompt::reduce_system() ],
 			[ 'role' => 'user',   'content' => $reduce_msg ],
 		];
+		// [2026-06-05 Johnny Chu] SKEL-PARSE-ROBUST — json_object mode for reduce step.
 		$resp = bizcity_llm_chat( $messages, [
-			'purpose'     => self::LLM_PURPOSE,
-			'temperature' => 0.2,
+			'purpose'         => self::LLM_PURPOSE,
+			'temperature'     => 0.2,
+			'response_format' => [ 'type' => 'json_object' ],
 		] );
 		if ( empty( $resp['success'] ) ) {
 			$reduce_err = $resp['error'] ?? 'llm_failed';
@@ -420,6 +447,8 @@ class BizCity_KG_Skeleton_Service {
 		if ( ! $out ) {
 			error_log( '[bizcity-kg-skeleton] reduce parse failed' );
 			self::cron_meta_event( 'skeleton_llm_parse_error', [ 'phase' => 'reduce' ] );
+			// [2026-06-04 Johnny Chu] SKEL-FAIL-REASON.
+			self::$_last_build_fail = 'llm_parse_failed';
 		}
 		return $out;
 	}
@@ -551,6 +580,11 @@ class BizCity_KG_Skeleton_Service {
 				$notebook_id, count( $chunks ), $dbg_empty, $dbg_ok
 			) );
 		}
+		// [2026-06-04 Johnny Chu] SKEL-FAIL-REASON — propagate fine-grained reason to run_job.
+		if ( empty( $out ) ) {
+			$db_rows_count = is_array( $rows ) ? count( $rows ) : 0;
+			self::$_last_build_fail = ( $db_rows_count === 0 ) ? 'no_passages' : 'passages_content_empty';
+		}
 		return $out;
 	}
 
@@ -666,6 +700,8 @@ class BizCity_KG_Skeleton_Service {
 			[ '%s', '%d', '%s', '%s' ],
 			[ '%d' ]
 		);
+		// [2026-06-04 Johnny Chu] SKEL-FAIL-REASON — clear stale fail detail on success.
+		self::clear_fail( $notebook_id );
 
 		// Phase 6.6 S3.2 — push immutable history row (idempotent: ignore if
 		// history table doesn't exist yet on legacy blogs).
@@ -711,6 +747,39 @@ class BizCity_KG_Skeleton_Service {
 			error_log( '[bizcity-kg-skeleton] history insert skipped notebook=' . $notebook_id
 			           . ' v=' . $version . ' err=' . $wpdb->last_error );
 		}
+	}
+
+	/* ──────────────────────────────────────────────────────────────────
+	 *  [2026-06-04 Johnny Chu] SKEL-FAIL-REASON — persist last fail detail
+	 *  so REST /skeleton/status and probe can surface actionable message.
+	 * ──────────────────────────────────────────────────────────────── */
+
+	/**
+	 * Store fail reason as a lightweight WP option (autoload=false).
+	 * Cleared on successful build via clear_fail().
+	 *
+	 * @param string $reason  One of: no_passages, passages_content_empty,
+	 *                        llm_failed, llm_parse_failed,
+	 *                        cost_guard_blocked, exception, build_returned_null.
+	 * @param string $detail  Extra context (error message, guard reason, etc.).
+	 */
+	private static function store_fail( int $notebook_id, string $reason, string $detail = '' ): void {
+		$val = wp_json_encode( [
+			'reason' => $reason,
+			'detail' => mb_substr( $detail, 0, 300 ),
+			'ts'     => gmdate( 'Y-m-d\TH:i:s\Z' ),
+		] );
+		if ( false === $val ) {
+			return;
+		}
+		update_option( self::FAIL_OPT_PREFIX . $notebook_id, $val, false );
+	}
+
+	/**
+	 * Remove the fail-detail option after a successful build.
+	 */
+	private static function clear_fail( int $notebook_id ): void {
+		delete_option( self::FAIL_OPT_PREFIX . $notebook_id );
 	}
 
 	private static function set_status( int $notebook_id, string $status ): void {

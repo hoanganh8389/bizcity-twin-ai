@@ -175,7 +175,10 @@ final class BizCity_TwinBrain_Web_Tax {
 		] );
 		if ( is_wp_error( $response ) ) { $out['error'] = 'http_error:' . $response->get_error_code(); $out['answer_md'] = $this->build_stub_answer( $results ); return $out; }
 		$out['http_status'] = (int) wp_remote_retrieve_response_code( $response );
-		$decoded = json_decode( (string) wp_remote_retrieve_body( $response ), true );
+		$raw     = (string) wp_remote_retrieve_body( $response );
+		// [2026-06-24 Johnny Chu] HOTFIX-BOM — strip UTF-8 BOM; bizcity.vn gateway prepends 0xEF BB BF → json_decode null on HTTP 200 → gateway_failure:unknown
+		if ( substr( $raw, 0, 3 ) === "\xEF\xBB\xBF" ) { $raw = substr( $raw, 3 ); }
+		$decoded = json_decode( trim( $raw ), true );
 		if ( ! is_array( $decoded ) || empty( $decoded['success'] ) ) { $out['error'] = 'gateway_failure:' . ( $decoded['error'] ?? $decoded['message'] ?? 'unknown' ); $out['answer_md'] = $this->build_stub_answer( $results ); return $out; }
 		$out['answer_md'] = trim( (string) ( $decoded['message'] ?? '' ) );
 		$out['tokens']    = (int) ( $decoded['usage']['total_tokens'] ?? 0 );

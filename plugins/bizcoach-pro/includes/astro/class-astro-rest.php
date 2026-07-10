@@ -51,6 +51,11 @@ class BizCoach_Pro_Astro_Rest {
 			'callback'            => [ __CLASS__, 'list_profiles' ],
 			'permission_callback' => [ __CLASS__, 'permission' ],
 		] );
+		register_rest_route( self::NAMESPACE, '/persona/transit-profiles', [
+			'methods'             => 'GET',
+			'callback'            => [ __CLASS__, 'list_transit_profiles' ],
+			'permission_callback' => [ __CLASS__, 'permission' ],
+		] );
 		register_rest_route( self::NAMESPACE, '/persona/links/(?P<coachee_id>\d+)', [
 			'methods'             => 'GET',
 			'callback'            => [ __CLASS__, 'get_links' ],
@@ -60,6 +65,20 @@ class BizCoach_Pro_Astro_Rest {
 			'methods'             => 'POST',
 			'callback'            => [ __CLASS__, 'ingest_link' ],
 			'permission_callback' => [ __CLASS__, 'permission' ],
+		] );
+
+		// [2026-06-09 Johnny Chu] PHASE-D D-BE-EN-REPORT — English natal report (LLM + option cache)
+		register_rest_route( self::NAMESPACE, '/astro/english-report/(?P<coachee_id>\d+)', [
+			[
+				'methods'             => 'GET',
+				'callback'            => [ __CLASS__, 'get_english_report' ],
+				'permission_callback' => [ __CLASS__, 'permission' ],
+			],
+			[
+				'methods'             => 'POST',
+				'callback'            => [ __CLASS__, 'generate_english_report' ],
+				'permission_callback' => [ __CLASS__, 'permission' ],
+			],
 		] );
 	}
 
@@ -164,6 +183,91 @@ class BizCoach_Pro_Astro_Rest {
 		return rest_ensure_response( [ 'ok' => true, 'data' => $out ] );
 	}
 
+	/**
+	 * GET /persona/transit-profiles
+	 *
+	 * Returns coachees that already have transit snapshots for the current
+	 * user in the requested horizon (default: next 30 days).
+	 */
+	public static function list_transit_profiles( WP_REST_Request $req ) {
+		global $wpdb;
+
+		$user_id = get_current_user_id();
+		$limit   = max( 1, min( 100, (int) ( $req->get_param( 'limit' ) ?: 50 ) ) );
+		$search  = trim( (string) $req->get_param( 'search' ) );
+		$days    = max( 1, min( 90, (int) ( $req->get_param( 'days' ) ?: 30 ) ) );
+		$start   = current_time( 'Y-m-d' );
+		$end     = gmdate( 'Y-m-d', strtotime( $start . ' +' . $days . ' days' ) );
+
+		$coachees_tbl = $wpdb->prefix . 'bccm_coachees';
+		$astro_tbl    = $wpdb->prefix . 'bccm_astro';
+		$snap_tbl     = $wpdb->prefix . 'bccm_transit_snapshots';
+
+		// [2026-07-06 Johnny Chu] HOTFIX — transit list must scope by current user_id in bccm_transit_snapshots.
+		$where  = array(
+			'c.user_id = %d',
+			's.user_id = %d',
+			's.target_date BETWEEN %s AND %s',
+		);
+		$params = array( $user_id, $user_id, $start, $end );
+		if ( $search !== '' ) {
+			$where[]  = '(c.full_name LIKE %s OR c.phone LIKE %s)';
+			$like     = '%' . $wpdb->esc_like( $search ) . '%';
+			$params[] = $like;
+			$params[] = $like;
+		}
+		$params[] = $limit;
+
+		$sql = "SELECT c.id, c.full_name, c.phone, c.dob, c.platform_type, c.updated_at,
+		               COUNT(DISTINCT s.target_date) AS transit_days
+		          FROM {$coachees_tbl} c
+		          INNER JOIN {$snap_tbl} s ON s.coachee_id = c.id
+		         WHERE " . implode( ' AND ', $where ) . "
+		      GROUP BY c.id, c.full_name, c.phone, c.dob, c.platform_type, c.updated_at
+		      ORDER BY transit_days DESC, c.updated_at DESC
+		         LIMIT %d";
+
+		$rows = $wpdb->get_results( $wpdb->prepare( $sql, $params ), ARRAY_A );
+		$rows = is_array( $rows ) ? $rows : array();
+		if ( empty( $rows ) ) {
+			return rest_ensure_response( array( 'ok' => true, 'data' => array() ) );
+		}
+
+		$ids       = array_map( 'intval', wp_list_pluck( $rows, 'id' ) );
+		$ids_csv   = implode( ',', $ids );
+		$chart_rows = $wpdb->get_results(
+			"SELECT coachee_id, chart_type FROM {$astro_tbl} WHERE coachee_id IN ({$ids_csv})",
+			ARRAY_A
+		);
+		$chart_map = array();
+		foreach ( (array) $chart_rows as $cr ) {
+			$cid = (int) $cr['coachee_id'];
+			$chart_map[ $cid ][] = (string) $cr['chart_type'];
+		}
+
+		$out = array();
+		foreach ( $rows as $r ) {
+			$cid   = (int) $r['id'];
+			$kinds = $chart_map[ $cid ] ?? array();
+			$out[] = array(
+				'id'            => $cid,
+				'full_name'     => (string) $r['full_name'],
+				'phone'         => (string) ( $r['phone'] ?? '' ),
+				'dob'           => (string) ( $r['dob'] ?? '' ),
+				'platform_type' => (string) ( $r['platform_type'] ?? '' ),
+				'updated_at'    => (string) ( $r['updated_at'] ?? '' ),
+				'has_natal'     => ! empty( $kinds ),
+				'chart_types'   => array_values( array_unique( $kinds ) ),
+				'transit_days'  => (int) ( $r['transit_days'] ?? 0 ),
+				'view_url'      => admin_url( 'admin.php?page=bccm_user_profiles&action=view&coachee_id=' . $cid ),
+				'edit_url'      => admin_url( 'admin.php?page=bccm_user_profiles&action=edit&coachee_id=' . $cid ),
+				'links'         => self::build_links_for( $cid ),
+			);
+		}
+
+		return rest_ensure_response( array( 'ok' => true, 'data' => $out ) );
+	}
+
 	public static function get_links( WP_REST_Request $req ) {
 		$cid = (int) $req['coachee_id'];
 		if ( ! $cid ) {
@@ -200,6 +304,15 @@ class BizCoach_Pro_Astro_Rest {
 		$transit_nonce = wp_create_nonce( 'bccm_transit_report' );
 		// Sprint H.6 — prefer hash-protected public URLs (shareable) over admin-ajax (admin-only).
 		$router_ok = class_exists( 'BizCoach_Pro_Astro_Public_Router' );
+		// [2026-06-04 Johnny Chu] PHASE-A C.0a — transit URLs unified to /my-transit/ public router
+		// (HMAC hash, share-friendly, no nonce). Falls back to admin-ajax only when router class missing.
+		$transit_router_ok = class_exists( 'BizCoach_Pro_Transit_Public_Router' );
+		$transit_url       = function ( $period ) use ( $transit_router_ok, $coachee_id, $transit_nonce ) {
+			if ( $transit_router_ok ) {
+				return BizCoach_Pro_Transit_Public_Router::get_public_url( $coachee_id, $period );
+			}
+			return admin_url( 'admin-ajax.php?action=bccm_transit_report&coachee_id=' . $coachee_id . '&period=' . $period . '&_wpnonce=' . $transit_nonce );
+		};
 
 		return [
 			'natal_chart_view' => [
@@ -228,19 +341,25 @@ class BizCoach_Pro_Astro_Rest {
 					: admin_url( 'admin-ajax.php?action=bccm_natal_report_full&coachee_id=' . $coachee_id . '&chart_type=chinese&_wpnonce=' . $report_nonce ),
 				'kind'  => 'astro_natal_chart',
 			],
+			// [2026-06-04 Johnny Chu] PHASE-A C.0a — transit_day added (use case astro "hôm nay").
+			'transit_day' => [
+				'label' => '🌅 Transit — Today',
+				'url'   => $transit_url( 'day' ),
+				'kind'  => 'astro_transit_report',
+			],
 			'transit_week' => [
 				'label' => '🔮 Transit — Next Week',
-				'url'   => admin_url( 'admin-ajax.php?action=bccm_transit_report&coachee_id=' . $coachee_id . '&period=week&_wpnonce=' . $transit_nonce ),
+				'url'   => $transit_url( 'week' ),
 				'kind'  => 'astro_transit_report',
 			],
 			'transit_month' => [
 				'label' => '🔮 Transit — Next Month',
-				'url'   => admin_url( 'admin-ajax.php?action=bccm_transit_report&coachee_id=' . $coachee_id . '&period=month&_wpnonce=' . $transit_nonce ),
+				'url'   => $transit_url( 'month' ),
 				'kind'  => 'astro_transit_report',
 			],
 			'transit_year' => [
 				'label' => '🔮 Transit — Next Year',
-				'url'   => admin_url( 'admin-ajax.php?action=bccm_transit_report&coachee_id=' . $coachee_id . '&period=year&_wpnonce=' . $transit_nonce ),
+				'url'   => $transit_url( 'year' ),
 				'kind'  => 'astro_transit_report',
 			],
 		];
@@ -453,6 +572,224 @@ class BizCoach_Pro_Astro_Rest {
 		) );
 
 		return rest_ensure_response( [ 'ok' => true, 'data' => $res ] );
+	}
+
+	// ──────────────────────────────────────────────────────────────────────────
+	// [2026-06-09 Johnny Chu] PHASE-D D-BE-EN-REPORT — English natal report
+	// ──────────────────────────────────────────────────────────────────────────
+
+	/**
+	 * GET /astro/english-report/{coachee_id}
+	 * Returns cached English natal report or null if not yet generated.
+	 *
+	 * @param WP_REST_Request $req
+	 * @return WP_REST_Response
+	 */
+	public static function get_english_report( WP_REST_Request $req ) {
+		$coachee_id = (int) $req->get_param( 'coachee_id' );
+		if ( ! $coachee_id ) {
+			return new WP_Error( 'bad_request', 'coachee_id required', [ 'status' => 400 ] );
+		}
+
+		if ( ! self::_can_access_coachee( $coachee_id ) ) {
+			return new WP_Error( 'forbidden', 'Access denied', [ 'status' => 403 ] );
+		}
+
+		$stored = get_option( 'bccm_natal_en_' . $coachee_id, null );
+		if ( ! is_array( $stored ) || empty( $stored['content'] ) ) {
+			return rest_ensure_response( [ 'ok' => true, 'data' => null ] );
+		}
+
+		return rest_ensure_response( [
+			'ok'   => true,
+			'data' => [
+				'content'      => (string) $stored['content'],
+				'generated_at' => (string) ( $stored['generated_at'] ?? '' ),
+			],
+		] );
+	}
+
+	/**
+	 * POST /astro/english-report/{coachee_id}
+	 * Generate (or regenerate) English natal report via LLM gateway, persist in options.
+	 *
+	 * Body (JSON, optional): { "regenerate": true }
+	 *
+	 * @param WP_REST_Request $req
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public static function generate_english_report( WP_REST_Request $req ) {
+		$coachee_id = (int) $req->get_param( 'coachee_id' );
+		if ( ! $coachee_id ) {
+			return new WP_Error( 'bad_request', 'coachee_id required', [ 'status' => 400 ] );
+		}
+
+		if ( ! self::_can_access_coachee( $coachee_id ) ) {
+			return new WP_Error( 'forbidden', 'Access denied', [ 'status' => 403 ] );
+		}
+
+		$regenerate = (bool) $req->get_param( 'regenerate' );
+
+		// Return cached unless regenerate requested.
+		if ( ! $regenerate ) {
+			$stored = get_option( 'bccm_natal_en_' . $coachee_id, null );
+			if ( is_array( $stored ) && ! empty( $stored['content'] ) ) {
+				return rest_ensure_response( [
+					'ok'   => true,
+					'data' => [
+						'content'      => (string) $stored['content'],
+						'generated_at' => (string) ( $stored['generated_at'] ?? '' ),
+						'cached'       => true,
+					],
+				] );
+			}
+		}
+
+		// Need LLM helpers from legacy/lib/astro-report-llm.php.
+		if ( ! function_exists( 'bccm_llm_build_chart_context' ) || ! function_exists( 'bccm_llm_call_openai' ) ) {
+			return new WP_Error(
+				'module_not_loaded',
+				'LLM report helpers are not loaded. Ensure legacy adopter has booted.',
+				[ 'status' => 503 ]
+			);
+		}
+
+		global $wpdb;
+		$coachee = $wpdb->get_row(
+			$wpdb->prepare( "SELECT * FROM {$wpdb->prefix}bccm_coachees WHERE id=%d", $coachee_id ),
+			ARRAY_A
+		);
+		if ( ! $coachee ) {
+			return new WP_Error( 'not_found', 'Coachee not found', [ 'status' => 404 ] );
+		}
+
+		// Load western astro row (English report is western-only).
+		$user_id   = (int) ( $coachee['user_id'] ?? 0 );
+		$astro_row = null;
+		if ( $user_id ) {
+			$astro_row = $wpdb->get_row(
+				$wpdb->prepare(
+					"SELECT * FROM {$wpdb->prefix}bccm_astro WHERE user_id=%d AND chart_type='western' AND traits IS NOT NULL",
+					$user_id
+				),
+				ARRAY_A
+			);
+		}
+		if ( ! $astro_row ) {
+			$astro_row = $wpdb->get_row(
+				$wpdb->prepare(
+					"SELECT * FROM {$wpdb->prefix}bccm_astro WHERE coachee_id=%d AND chart_type='western'",
+					$coachee_id
+				),
+				ARRAY_A
+			);
+		}
+		if ( ! $astro_row ) {
+			return new WP_Error(
+				'not_found',
+				'No western natal chart found for this coachee. Generate the chart first.',
+				[ 'status' => 404 ]
+			);
+		}
+
+		// Build chart context (Vietnamese helper — reuse for data, prompt will be in English).
+		$chart_ctx = bccm_llm_build_chart_context( $astro_row, $coachee );
+		$name      = sanitize_text_field( $coachee['full_name'] ?? 'the native' );
+
+		// [2026-07-05 Johnny Chu] PHASE-NATAL-REPORT FIX — remove years-of-experience
+		// claim from internal English system prompt.
+		$system = <<<'PROMPT'
+You are an expert Western astrologer writing detailed, professional English natal chart interpretations. Your reports are insightful, poetic yet grounded, and connect astrological symbolism to real-life patterns.
+
+WRITING STYLE:
+- Professional, warm, and empowering — never fatalistic
+- Clear English accessible to people unfamiliar with astrology
+- Rich in metaphor and psychological depth
+- Specific and personalized — always reference the actual chart data
+- Do not mention years of experience or self-promotional credentials
+
+FORMAT RULES:
+- Use Markdown: ## for main headings, ### for sub-headings, **bold**, *italic*, bullet lists
+- Write in full paragraphs — no bullet lists for interpretive content
+- Do NOT truncate or summarize — provide complete analysis
+PROMPT;
+
+		$user = "Write a comprehensive English natal chart report for **{$name}** based on the data below.\n\n"
+			. "Structure your report with these sections:\n"
+			. "## Overview & Birth Chart Signature\n"
+			. "## ☉ Sun — Core Identity & Life Purpose\n"
+			. "## ☽ Moon — Emotional Nature & Inner World\n"
+			. "## ↑ Ascendant — Outer Self & Approach to Life\n"
+			. "## ☿ Mercury & ♀ Venus — Mind, Communication & Love\n"
+			. "## ♂ Mars — Drive, Ambition & Action\n"
+			. "## ♃ Jupiter & ♄ Saturn — Growth, Wisdom & Life Lessons\n"
+			. "## 🌌 Outer Planets — Generational Themes & Transformation\n"
+			. "## 🏛️ House Emphases — Key Life Areas\n"
+			. "## 🔗 Major Aspects & Chart Patterns\n"
+			. "## 🌟 Soul Purpose & Life Guidance\n\n"
+			. "Write at least 2000 words total. Be specific and reference the actual planetary positions.\n\n"
+			. "CHART DATA:\n{$chart_ctx}";
+
+		$result = bccm_llm_call_openai( $system, $user, [
+			'max_tokens'  => 8000,
+			'temperature' => 0.72,
+			'timeout'     => 180,
+		] );
+
+		if ( is_wp_error( $result ) ) {
+			$code = $result->get_error_code();
+			$msg  = $result->get_error_message();
+			error_log( '[BizCoach-Pro] English report LLM error (' . $code . '): ' . $msg );
+			return new WP_Error(
+				$code,
+				$msg,
+				[ 'status' => 'quota_exhausted' === $code ? 429 : 502 ]
+			);
+		}
+
+		$content = (string) $result;
+		if ( $content === '' ) {
+			return new WP_Error( 'llm_error', 'LLM returned empty content.', [ 'status' => 502 ] );
+		}
+
+		$generated_at = gmdate( 'Y-m-d H:i:s' );
+		update_option(
+			'bccm_natal_en_' . $coachee_id,
+			[
+				'content'      => $content,
+				'generated_at' => $generated_at,
+			],
+			false // autoload=no — accessed only on demand
+		);
+
+		return rest_ensure_response( [
+			'ok'   => true,
+			'data' => [
+				'content'      => $content,
+				'generated_at' => $generated_at,
+				'cached'       => false,
+			],
+		] );
+	}
+
+	/**
+	 * Check whether the current user may access a coachee's data.
+	 *
+	 * @param int $coachee_id
+	 * @return bool
+	 */
+	private static function _can_access_coachee( $coachee_id ) {
+		if ( current_user_can( 'manage_options' ) ) {
+			return true;
+		}
+		global $wpdb;
+		$owner = (int) $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT user_id FROM {$wpdb->prefix}bccm_coachees WHERE id=%d",
+				$coachee_id
+			)
+		);
+		return $owner === get_current_user_id();
 	}
 }
 

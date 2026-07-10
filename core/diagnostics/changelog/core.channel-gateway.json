@@ -3,7 +3,7 @@
   "module_id": "core.channel-gateway",
   "owner": "core/channel-gateway",
   "installer_id": "blog_resolver_inbox",
-  "current_version": "1.0.0",
+  "current_version": "1.3.2",
   "version_option": "bizcity_blog_resolver_inbox_db_version",
   "tables": {
     "global_inbox_admin": {
@@ -29,6 +29,79 @@
         "meta":           { "type": "LONGTEXT",                 "since": "1.0.0" }
       },
       "indexes": {}
+    },
+    "bizcity_channel_messages": {
+      "since": "1.3.0",
+      "purpose": "Unified inbound + outbound message ledger across all channel adapters (Zalo OA, Facebook, WebChat, Telegram, Email). One row per message. Managed by BizCity_Channel_Messages::maybe_install() with OPTION bizcity_channel_messages_schema. R-DCL debt paid 2026-06-13 (Sprint ZA-5 probe). Schema version 1.2.0 in class.",
+      "owner_class": "BizCity_Channel_Messages",
+      "installer_option": "bizcity_channel_messages_schema",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":                { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.3.0", "pk": true },
+        "blog_id":           { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",      "since": "1.3.0" },
+        "platform":          { "type": "VARCHAR(40) NOT NULL DEFAULT ''",          "since": "1.3.0" },
+        "direction":         { "type": "TINYINT UNSIGNED NOT NULL DEFAULT 0",     "since": "1.3.0", "note": "1=inbound, 2=outbound" },
+        "chat_id":           { "type": "VARCHAR(190) NOT NULL DEFAULT ''",        "since": "1.3.0" },
+        "user_psid":         { "type": "VARCHAR(190) NOT NULL DEFAULT ''",        "since": "1.3.0" },
+        "message_id":        { "type": "VARCHAR(190) NOT NULL DEFAULT ''",        "since": "1.3.0" },
+        "thread_id":         { "type": "VARCHAR(190) NOT NULL DEFAULT ''",        "since": "1.3.0" },
+        "event_type":        { "type": "VARCHAR(40) NOT NULL DEFAULT 'message'",  "since": "1.3.0" },
+        "body":              { "type": "LONGTEXT NULL",                           "since": "1.3.0" },
+        "payload_json":      { "type": "LONGTEXT NULL",                           "since": "1.3.0" },
+        "webhook_log_id":    { "type": "BIGINT UNSIGNED NULL",                    "since": "1.3.1" },
+        "webhook_log_date":  { "type": "DATE NULL",                               "since": "1.3.1", "note": "partition pointer for wp_{Y_M_D}_webhook_log" },
+        "character_id":      { "type": "BIGINT UNSIGNED NULL",                    "since": "1.3.1", "note": "Guru routed for this message" },
+        "responder_kind":    { "type": "VARCHAR(10) NULL",                        "since": "1.3.2", "enum": ["auto","manual","hybrid","system"] },
+        "responder_user_id": { "type": "BIGINT UNSIGNED NULL",                    "since": "1.3.2", "note": "WP user who sent; NULL for auto" },
+        "status":            { "type": "VARCHAR(20) NOT NULL DEFAULT ''",         "since": "1.3.0", "enum": ["queued","sent","failed","received"] },
+        "error":             { "type": "VARCHAR(500) NOT NULL DEFAULT ''",        "since": "1.3.0" },
+        "created_at":        { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.3.0" },
+        "processed_at":      { "type": "DATETIME NULL",                           "since": "1.3.0" }
+      },
+      "indexes": {
+        "idx_blog_platform":    { "type": "KEY", "cols": ["blog_id", "platform"],          "since": "1.3.0" },
+        "idx_chat":             { "type": "KEY", "cols": ["chat_id"],                      "since": "1.3.0" },
+        "idx_user":             { "type": "KEY", "cols": ["user_psid"],                    "since": "1.3.0" },
+        "idx_msg":              { "type": "KEY", "cols": ["platform", "message_id"],       "since": "1.3.0" },
+        "idx_created":          { "type": "KEY", "cols": ["created_at"],                   "since": "1.3.0" },
+        "idx_character":        { "type": "KEY", "cols": ["character_id"],                 "since": "1.3.1" },
+        "idx_log":              { "type": "KEY", "cols": ["webhook_log_date", "webhook_log_id"], "since": "1.3.1" },
+        "idx_responder_user":   { "type": "KEY", "cols": ["responder_user_id"],            "since": "1.3.2" },
+        "idx_responder_kind":   { "type": "KEY", "cols": ["responder_kind"],               "since": "1.3.2" }
+      }
+    },
+    "bizcity_channel_bindings": {
+      "since": "1.1.0",
+      "purpose": "R-GCB SoT — Guru × Channel mapping. (platform, account_id) → character_id. Shipped Phase 0.33 M1 (2026-05-26), formalized in DCL 2026-06-03 alongside Wave 0 GURU-UI ship.",
+      "owner_class": "BizCity_Channel_Binding",
+      "installer_option": "bizcity_channel_bindings_schema",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":                  { "type": "BIGINT UNSIGNED AUTO_INCREMENT", "since": "1.1.0", "pk": true },
+        "blog_id":             { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "1.1.0" },
+        "platform":            { "type": "VARCHAR(40) NOT NULL DEFAULT ''", "since": "1.1.0" },
+        "account_id":          { "type": "VARCHAR(190) NOT NULL DEFAULT ''", "since": "1.1.0" },
+        "character_id":        { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "1.1.0" },
+        "status":              { "type": "TINYINT UNSIGNED NOT NULL DEFAULT 1", "since": "1.1.0" },
+        "auto_reply":          { "type": "TINYINT UNSIGNED NOT NULL DEFAULT 0", "since": "1.1.0" },
+        "mode":                { "type": "VARCHAR(20) NOT NULL DEFAULT 'auto'", "since": "1.2.0", "enum": ["auto","manual","hybrid","roundrobin"] },
+        "responder_pool_json": { "type": "LONGTEXT NULL", "since": "1.2.0" },
+        "current_pool_index":  { "type": "INT NOT NULL DEFAULT 0", "since": "1.2.0" },
+        "fallback_assignee":   { "type": "BIGINT UNSIGNED NULL", "since": "1.1.0" },
+        "meta_json":           { "type": "LONGTEXT NULL", "since": "1.1.0" },
+        "created_at":          { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.1.0" },
+        "updated_at":          { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.1.0" }
+      },
+      "indexes": {
+        "uniq_binding":   { "type": "UNIQUE KEY", "cols": ["blog_id", "platform", "account_id"], "since": "1.1.0" },
+        "idx_character":  { "type": "KEY",        "cols": ["character_id"], "since": "1.1.0" },
+        "idx_status":     { "type": "KEY",        "cols": ["status"], "since": "1.1.0" },
+        "idx_mode":       { "type": "KEY",        "cols": ["mode"], "since": "1.2.0" }
+      }
     }
   },
   "history": [
@@ -36,6 +109,31 @@
       "version": "1.0.0",
       "date": "2026-05-30",
       "change": "Initial changelog registration. Table predates R-DCL; adding version gate to prevent repeated dbDelta on every provisioner cycle."
+    },
+    {
+      "version": "1.1.0",
+      "date": "2026-06-03",
+      "change": "GURU-UI W0.1 — formalize bizcity_channel_bindings (R-GCB SoT) in DCL. Table itself shipped Phase 0.33 M1 (2026-05-26) via BizCity_Channel_Binding::maybe_install() with its own option-version gate; this entry pays back R-DCL debt as Wave 0 builds UI/REST gates around it. Columns matched to runtime schema."
+    },
+    {
+      "version": "1.2.0",
+      "date": "2026-06-03",
+      "change": "GURU-UI W0.1 — document Phase 0.33 M4.2 columns (mode, responder_pool_json, current_pool_index, idx_mode) that shipped 2026-05-31 in class-channel-binding.php v1.1.0 schema bump. Enum mode: auto|manual|hybrid|roundrobin."
+    },
+    {
+      "version": "1.3.0",
+      "date": "2026-06-13",
+      "change": "Sprint ZA-5 R-DCL — formalize bizcity_channel_messages (SCHEMA_VERSION 1.2.0 in class) in changelog. Table shipped PHASE 0.31 T-S6.1 (class-channel-messages.php) managed by BizCity_Channel_Messages::maybe_install() with own option gate bizcity_channel_messages_schema. Paying R-DCL debt as Sprint ZA-5 DDV probe (class-probe-zalo-oa-crm.php) starts checking this table. Core columns: id, blog_id, platform, direction, chat_id, user_psid, message_id, thread_id, event_type, body, payload_json, status, error, created_at, processed_at."
+    },
+    {
+      "version": "1.3.1",
+      "date": "2026-06-13",
+      "change": "Sprint ZA-5 R-DCL — document PHASE 0.33 M1 schema bump columns: webhook_log_id, webhook_log_date, character_id + indexes idx_character, idx_log. These shipped in class-channel-messages.php SCHEMA_VERSION 1.1.0 bump (2026-05-26)."
+    },
+    {
+      "version": "1.3.2",
+      "date": "2026-06-13",
+      "change": "Sprint ZA-5 R-DCL — document PHASE 0.34 traceability manifesto columns: responder_kind (VARCHAR 10, enum auto|manual|hybrid|system), responder_user_id (BIGINT UNSIGNED) + indexes idx_responder_user, idx_responder_kind. Shipped class-channel-messages.php SCHEMA_VERSION 1.2.0. R-DCL: no new DDL; validator exit 0 expected."
     }
   ]
 }

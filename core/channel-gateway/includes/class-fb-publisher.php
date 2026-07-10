@@ -100,6 +100,16 @@ class BizCity_FB_Publisher {
 			'prev_status'   => $publish_status,
 			'is_retry'      => $publish_status === 'failed',
 		) );
+		// [2026-06-19 Johnny Chu] PHASE-CG-CF7-LOG — R-CH-FILE-LOG: file-log before Graph API call
+		if ( class_exists( 'BizCity_Channel_File_Logger', false ) ) {
+			BizCity_Channel_File_Logger::write(
+				BizCity_Channel_File_Logger::CH_FACEBOOK,
+				BizCity_Channel_File_Logger::LEVEL_INFO,
+				'fb_publish_attempt',
+				'Publishing FB post for page #' . $page_id,
+				array( 'event_id' => $event_id, 'page_id' => $page_id, 'has_image' => $image !== '' )
+			);
+		}
 
 		if ( $page_id === '' || $content === '' ) {
 			$this->mark_failed( $event_id, $meta, 'Missing fb_page_id or fb_content in metadata.' );
@@ -131,6 +141,16 @@ class BizCity_FB_Publisher {
 				'reason'    => $err_code,
 				'error'     => $err_msg,
 			) );
+			// [2026-06-19 Johnny Chu] PHASE-CG-CF7-LOG — R-CH-FILE-LOG
+			if ( class_exists( 'BizCity_Channel_File_Logger', false ) ) {
+				BizCity_Channel_File_Logger::write(
+					BizCity_Channel_File_Logger::CH_FACEBOOK,
+					BizCity_Channel_File_Logger::LEVEL_ERROR,
+					'fb_publish_failed',
+					'FB publish failed: ' . $err_msg,
+					array( 'event_id' => $event_id, 'page_id' => $page_id, 'reason' => $err_code )
+				);
+			}
 			$this->cron_bump_counter( 'fb_failed' );
 			return;
 		}
@@ -149,6 +169,16 @@ class BizCity_FB_Publisher {
 			'post_id'   => $meta['fb_post_id'],
 			'permalink' => $meta['fb_permalink'],
 		) );
+		// [2026-06-19 Johnny Chu] PHASE-CG-CF7-LOG — R-CH-FILE-LOG
+		if ( class_exists( 'BizCity_Channel_File_Logger', false ) ) {
+			BizCity_Channel_File_Logger::write(
+				BizCity_Channel_File_Logger::CH_FACEBOOK,
+				BizCity_Channel_File_Logger::LEVEL_INFO,
+				'fb_publish_ok',
+				'FB post published OK: ' . $meta['fb_post_id'],
+				array( 'event_id' => $event_id, 'page_id' => $page_id, 'post_id' => $meta['fb_post_id'], 'permalink' => $meta['fb_permalink'] )
+			);
+		}
 		$this->cron_bump_counter( 'fb_published' );
 
 		// Audit log — reuse channel_messages table.

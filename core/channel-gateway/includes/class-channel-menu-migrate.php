@@ -219,12 +219,20 @@ add_action( 'bizchat_gateway_register_subpages', function ( $reg ) {
 	}
 
 	if ( class_exists( 'BizCity_Scheduler_Admin_Page', false ) ) {
+		// [2026-06-13 Johnny Chu] HOTFIX — use lazy closure so ::instance() is not called
+		// at registration time (avoids double-init if class loads later in the request).
 		$reg->add_subpage( [
 			'group'    => 'integrations',
 			'slug'     => 'scheduler',
 			'title'    => __( 'Scheduler', $td ),
 			'icon'     => '📅',
-			'callback' => [ BizCity_Scheduler_Admin_Page::instance(), 'render_page' ],
+			'callback' => static function () {
+				if ( class_exists( 'BizCity_Scheduler_Admin_Page' ) ) {
+					BizCity_Scheduler_Admin_Page::instance()->render_page();
+				} else {
+					echo '<div class="wrap"><div class="notice notice-warning"><p>Scheduler module chưa được nạp.</p></div></div>';
+				}
+			},
 			'order'    => 20,
 		] );
 	}
@@ -295,7 +303,10 @@ add_action( 'admin_init', function () {
 		// M1.W3 demotions
 		'bizcity-channels'             => 'group=channels',
 		'bzgoogle-settings'            => 'group=integrations&sub=google',
-		'bizcity-scheduler'            => 'group=integrations&sub=scheduler',
+		// [2026-06-13 Johnny Chu] HOTFIX — removed bizcity-scheduler from redirect map.
+		// Scheduler has its own React SPA admin page; redirecting into the Channel Gateway
+		// hub caused a blank page because the sub-page callback was not reliably registered
+		// at admin_init time. page=bizcity-scheduler now loads directly.
 	];
 
 	if ( isset( $redirect_map[ $page ] ) ) {

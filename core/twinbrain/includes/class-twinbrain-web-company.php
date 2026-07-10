@@ -476,7 +476,9 @@ final class BizCity_TwinBrain_Web_Company {
 
 		$out['http_status'] = (int) wp_remote_retrieve_response_code( $response );
 		$raw                = (string) wp_remote_retrieve_body( $response );
-		$decoded            = json_decode( $raw, true );
+		// [2026-06-24 Johnny Chu] HOTFIX-BOM — strip UTF-8 BOM; bizcity.vn gateway prepends 0xEF BB BF → json_decode null on HTTP 200 → gateway_failure:unknown
+		if ( substr( $raw, 0, 3 ) === "\xEF\xBB\xBF" ) { $raw = substr( $raw, 3 ); }
+		$decoded            = json_decode( trim( $raw ), true );
 
 		if ( ! is_array( $decoded ) || empty( $decoded['success'] ) ) {
 			$out['error']     = 'gateway_failure:' . ( $decoded['error'] ?? $decoded['message'] ?? 'unknown' );

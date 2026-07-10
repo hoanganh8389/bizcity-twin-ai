@@ -78,6 +78,14 @@ require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-synthesizer.php';
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-rest.php';
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-schema.php';
 
+// [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-2 — Conversation thread manager
+// + REST surface (/sessions CRUD). Spec:
+// core/twinbrain/docs/sessions/TWINBRAIN-FEATURE-BRAIN-SESSIONS.md §11.
+// Reorg 2026-06-03: BS group consolidated under includes/sessions/ for
+// discoverability (manager + REST + future companion-context controller).
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/sessions/class-twinbrain-sessions-manager.php';
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/sessions/class-twinbrain-sessions-rest.php';
+
 // Phase 0.36-UNIFIED TBR.W8 (2026-05-21) — Seed 2 global skills cho Web
 // Research Fallback Layer vào bizcity_skills (idempotent qua UNIQUE key).
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-web-skills-seeder.php';
@@ -120,6 +128,26 @@ require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-web-law.php';
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-web-tax.php';
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-web-gov.php';
 
+// [2026-06-04 Johnny Chu] PHASE-A C.3b — Web_Astro engine (multi-step astro
+// mode: LLM-classify period → CAP filter (natal+transit DB-first) → return
+// passages for Final_Composer). Parallel với web-deep/web-law nhưng KHÔNG
+// gọi Tavily — nguồn là artifact nội bộ qua bizcoach-pro CAP provider.
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-web-astro.php';
+
+// [2026-06-19 Johnny Chu] PHASE-TWB-WORKFLOW W1 — Workflow-Driven Brain Pipeline.
+// Generic engine: chạy bất kỳ automation workflow nào AS brain pipeline khi
+// user gõ /skill trong twinchat hoặc twinweb. Emits workflow_started /
+// workflow_step / workflow_completed SSE events; terminal llm.compose node
+// calls Final_Composer::compose_stream(). Requires BizCity_Twin_Artifact_Normalizer
+// (core/twin-core) and BizCity_Twin_Event_Taxonomy v7+.
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-workflow-pipeline.php';
+
+// [2026-06-19 Johnny Chu] PHASE-TWB-WORKFLOW W3 — Built-in skill seeder.
+// Contributes 3 defaults (web_research_quick, web_research_deep, astro_quick)
+// via filter 'bizcity_twinbrain_builtin_skills'. Tier 3 in 3-tier resolution.
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-builtin-skills.php';
+BizCity_TwinBrain_Builtin_Skills::init();
+
 // Phase 0.36-UNIFIED TBR.W11 (2026-05-21) — Guru `allow_web_fallback` flag:
 // schema migration + filter `bizcity_twinbrain_web_mode_effective` gate +
 // REST GET/POST `/guru/{id}/web-fallback` (manage_options only).
@@ -129,6 +157,22 @@ require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-guru-web-flag.php
 // (R-BRAIN-2). Single source of truth cho citation token → resolved record.
 // Cover 6 namespaces: mem|faq|nb|src|ent|web. REST GET /citations/resolve.
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-citation-resolver.php';
+
+// [2026-07-05 Johnny Chu] PHASE-FAA2-TWINBRAIN A1 — Astro Recall read layer.
+// Lightweight collector: user_id → primary coachee → natal/report/transit → context_md.
+// Injected into Final Composer extra_context_md for regular brain turns with astro keywords.
+// Does NOT require web_mode='astro' — runs as silent Layer 0.x enrichment.
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-astro-recall.php';
+
+// [2026-07-10 Johnny Chu] PHASE-FAA2-TWINBRAIN — unified subject profile
+// service shared by TwinBrain astro runtime and automation action.run_astro.
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-astro-subject-profile-service.php';
+
+// [2026-07-07 Johnny Chu] PHASE-FAA2-TWINBRAIN A13 — shared composer for
+// transit each-day outputs (LLM + deterministic fallback), reused by Web Astro
+// runtime and Automation action.run_astro_transit for consistent per-day tone
+// and final recommendation contract.
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-astro-transit-eachday-composer.php';
 
 // Phase 0.36-UNIFIED TBR.W16 (2026-05-21) — Final Composer (Layer 4.5).
 // Streams câu trả lời cuối cùng cho user qua SSE (`final_token` events) sau
@@ -158,6 +202,13 @@ unset( $bizcity_twinbrain_agent_runner );
 // "hãy nhớ ..." phrases after final_done and persists to memory_users.
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-memory-recall.php';
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-memory-writer.php';
+
+// [2026-06-04 Johnny Chu] PHASE-A C.3c — Mode Context Memory (Layer 4.8).
+// Reusable standard: bất kỳ mode nào (astro/web/law…) persist 1 context
+// summary của lượt hỏi vào memory tier gắn session_id + provenance source_url.
+// Spec: core/docs/CORE-PHASE-A-MODE-MEMORY.md. Reuse bizcity_memory_users
+// (tier=extracted) → KHÔNG đụng schema → R-DCL không phát sinh.
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-mode-memory.php';
 
 // Phase 0.36-UNIFIED Wave 2.8c (2026-05-24) TBR.MEM-C1 — Owner-self Memory
 // Hub REST endpoints (/memory/me) cho FE BrainMemoryButton + MemoryHubDrawer.
@@ -193,8 +244,9 @@ add_filter( 'bizcity_twin_register_tool', static function ( $registry ) {
 // → store) qua gateway `BizCity_Research_Tool_Router` (R-GW-1). Tool
 // `sheet_enrich` đăng ký vào registry để LLM emit text-tool block hoặc FE
 // gọi qua REST. Citation token format `[sheet:S#<id>/r<row>c<col>]`.
-require_once BIZCITY_TWINBRAIN_DIR . 'sheets/includes/class-sheets-installer.php';
-require_once BIZCITY_TWINBRAIN_DIR . 'sheets/includes/class-sheet-enricher.php';
+// [2026-06-04 Johnny Chu] PHASE-A A.0 — canonical paths after sheets→tools/sheet move.
+require_once BIZCITY_TWINBRAIN_DIR . 'tools/sheet/class-twinbrain-sheet-installer.php';
+require_once BIZCITY_TWINBRAIN_DIR . 'tools/sheet/class-twinbrain-sheet-enricher.php';
 require_once BIZCITY_TWINBRAIN_DIR . 'tools/sheet/class-twinbrain-sheet-tool-enrich.php';
 BizCity_TwinBrain_Sheets_Installer::instance();
 
@@ -204,9 +256,39 @@ add_filter( 'bizcity_twin_register_tool', static function ( $registry ) {
 	return $registry;
 }, 11 );
 
+// [2026-06-03 Johnny Chu] SCH-NC W6 — Scheduler HIL tool. LLM master xuất
+// `<tool name="scheduler_set_reminder">{...}</tool>` → tạo event status='draft'
+// → gửi confirm envelope qua Gateway Sender → user reply OK/Hủy/Sửa được match
+// bởi `BizCity_Scheduler_HIL_Router`. Reminder thật fire qua cron sau khi
+// status flip 'active'.
+require_once BIZCITY_TWINBRAIN_DIR . 'tools/scheduler/class-twinbrain-scheduler-tool-set-reminder.php';
+
+add_filter( 'bizcity_twin_register_tool', static function ( $registry ) {
+	if ( ! is_array( $registry ) ) $registry = [];
+	$registry['scheduler_set_reminder'] = new BizCity_TwinBrain_Scheduler_Tool_Set_Reminder();
+	return $registry;
+}, 12 );
+
+// [2026-06-13 Johnny Chu] PHASE-0.40 G3 P6 — ingest_document producer tool.
+// Allows admin/staff to ingest text or URL into the guru's attached notebook via chat.
+// tool_class = 'P' (Producer) — requires allow_producer in admin-chat grant.
+// [2026-06-21 Johnny Chu] HOTFIX — guard file_exists to prevent fatal cascade when file
+// is missing on server (caused twinweb routes to 404 via PHP crash on REST requests).
+if ( file_exists( BIZCITY_TWINBRAIN_DIR . 'tools/knowledge/class-twinbrain-tool-ingest-document.php' ) ) {
+	require_once BIZCITY_TWINBRAIN_DIR . 'tools/knowledge/class-twinbrain-tool-ingest-document.php';
+
+	add_filter( 'bizcity_twin_register_tool', static function ( $registry ) {
+		if ( ! is_array( $registry ) ) $registry = [];
+		$registry['ingest_document'] = new BizCity_TwinBrain_Tool_Ingest_Document();
+		return $registry;
+	}, 13 );
+}
+
 add_action( 'rest_api_init', static function () {
 	BizCity_TwinBrain_REST::instance()->register_routes();
 	BizCity_TwinBrain_REST_Memory_Me::instance()->register_routes();
+	// [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-2 — /sessions CRUD routes.
+	BizCity_TwinBrain_Sessions_REST::instance()->register_routes();
 } );
 
 // Ensure the bizcity_brain_turns VIEW + perspective columns exist per-blog
@@ -214,6 +296,8 @@ add_action( 'rest_api_init', static function () {
 add_action( 'init', static function () {
 	BizCity_TwinBrain_Schema::ensure_view();
 	BizCity_TwinBrain_Schema::ensure_notebook_perspective_columns();
+	// [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-1 — sessions VIEW projection.
+	BizCity_TwinBrain_Schema::ensure_sessions_view();
 }, 20 );
 
 // PHASE 0.36 v3 (2026-05-10) — TwinBrain has NO standalone SPA.

@@ -1,1 +1,0 @@
-import{c as s}from"./vendor-mermaid-CMiqNC-m.js";import{s as o}from"./vendor-graph-C2U_okeF.js";var c=s((t,e)=>{let n;return e==="sandbox"&&(n=o("#i"+t)),(e==="sandbox"?o(n.nodes()[0].contentDocument.body):o("body")).select(`[id="${t}"]`)},"getDiagramElement");export{c as g};

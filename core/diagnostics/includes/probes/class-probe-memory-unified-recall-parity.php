@@ -29,6 +29,12 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 
 require_once dirname( __DIR__ ) . '/interface-diagnostics-probe.php';
 
+
+// [2026-06-08 Johnny Chu] HOTFIX — double-load guard (bootstrap may include via filter AND direct require).
+if ( class_exists( 'BizCity_Probe_Memory_Unified_Recall_Parity', false ) ) {
+	return;
+}
+
 final class BizCity_Probe_Memory_Unified_Recall_Parity implements BizCity_Diagnostics_Probe {
 
 	const SENTINEL          = '__healthtest_recall_parity_token_quokka83';
@@ -79,7 +85,7 @@ final class BizCity_Probe_Memory_Unified_Recall_Parity implements BizCity_Diagno
 			$planted_ids = [];
 			$mem = BizCity_User_Memory::instance();
 			for ( $i = 1; $i <= 3; $i++ ) {
-				$result = $mem->upsert_public( [
+				$mem->upsert_public( [
 					'user_id'        => $user_id,
 					'session_id'     => '',
 					'memory_tier'    => 'explicit',
@@ -90,11 +96,14 @@ final class BizCity_Probe_Memory_Unified_Recall_Parity implements BizCity_Diagno
 					'source_log_ids' => '',
 					'metadata'       => '',
 				] );
-				if ( is_int( $result ) && $result > 0 ) {
-					$planted_ids[] = $result;
-				}
 			}
-			$planted_count = $this->count_legacy_sentinel( $user_id );
+			// [2026-07-09 Johnny Chu] HOTFIX — upsert_public() returns insert/update string,
+			// so derive planted ids from DB instead of expecting an integer return value.
+			$planted_ids    = $this->get_legacy_sentinel_ids( $user_id );
+			$planted_count  = count( $planted_ids );
+			$expected_tokens = array_map( static function ( $id ) {
+				return sprintf( '[mem:U#%d]', (int) $id );
+			}, $planted_ids );
 			$ctx->emit_step( [
 				'label'  => 'Planted 3 sentinel rows',
 				'status' => $planted_count === 3 ? 'pass' : 'fail',
@@ -127,11 +136,11 @@ final class BizCity_Probe_Memory_Unified_Recall_Parity implements BizCity_Diagno
 			remove_filter( 'bizcity_memory_unified_enabled', $flag_cb, 9999 );
 			$legacy_result  = BizCity_TwinBrain_Memory_Recall::instance()
 				->collect( $user_id, self::SENTINEL_PROMPT, [ 'session_id' => '' ] );
-			$legacy_tokens  = $this->extract_tokens( $legacy_result );
+			$legacy_tokens  = $this->extract_tokens( $legacy_result, $expected_tokens );
 			$legacy_source  = (string) ( $legacy_result['source'] ?? 'legacy' );
 			$ctx->emit_step( [
 				'label'  => 'Legacy read path',
-				'status' => ( count( $legacy_tokens ) >= 3 && $legacy_source === 'legacy' ) ? 'pass' : 'fail',
+				'status' => ( count( $legacy_tokens ) === count( $expected_tokens ) && $legacy_source === 'legacy' ) ? 'pass' : 'fail',
 				'detail' => sprintf( 'source=%s · tokens=%d · counts=%s',
 					$legacy_source, count( $legacy_tokens ),
 					wp_json_encode( $legacy_result['counts'] ?? [] ) ),
@@ -141,11 +150,11 @@ final class BizCity_Probe_Memory_Unified_Recall_Parity implements BizCity_Diagno
 			add_filter( 'bizcity_memory_unified_enabled', $flag_cb, 9999 );
 			$unified_result  = BizCity_TwinBrain_Memory_Recall::instance()
 				->collect( $user_id, self::SENTINEL_PROMPT, [ 'session_id' => '' ] );
-			$unified_tokens  = $this->extract_tokens( $unified_result );
+			$unified_tokens  = $this->extract_tokens( $unified_result, $expected_tokens );
 			$unified_source  = (string) ( $unified_result['source'] ?? 'unified' );
 			$ctx->emit_step( [
 				'label'  => 'Unified read path',
-				'status' => ( count( $unified_tokens ) >= 3 && $unified_source === 'unified' ) ? 'pass' : 'fail',
+				'status' => ( count( $unified_tokens ) === count( $expected_tokens ) && $unified_source === 'unified' ) ? 'pass' : 'fail',
 				'detail' => sprintf( 'source=%s · tokens=%d · counts=%s',
 					$unified_source, count( $unified_tokens ),
 					wp_json_encode( $unified_result['counts'] ?? [] ) ),
@@ -210,7 +219,7 @@ final class BizCity_Probe_Memory_Unified_Recall_Parity implements BizCity_Diagno
 
 		if ( class_exists( 'BizCity_Memory_Unified_Installer' ) ) {
 			$unified = BizCity_Memory_Unified_Installer::instance()->table();
-			$exists  = (bool) $wpdb->get_var( "SHOW TABLES LIKE '" . esc_sql( $unified ) . "'" );
+			$exists  = $this->table_exists( $unified );
 			if ( $exists ) {
 				$wpdb->query( $wpdb->prepare(
 					"DELETE FROM {$unified} WHERE memory_text LIKE %s",
@@ -218,6 +227,28 @@ final class BizCity_Probe_Memory_Unified_Recall_Parity implements BizCity_Diagno
 				) );
 			}
 		}
+	}
+
+	private function table_exists( string $table_name ): bool {
+		global $wpdb;
+		if ( function_exists( 'bizcity_tbl_exists' ) ) {
+			return (bool) bizcity_tbl_exists( $table_name );
+		}
+		// [2026-07-09 Johnny Chu] HOTFIX — fallback without SHOW TABLES (R-SHOW-TABLES).
+		return (bool) $wpdb->get_var( $wpdb->prepare(
+			'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+			$table_name
+		) );
+	}
+
+	private function get_legacy_sentinel_ids( int $user_id ): array {
+		global $wpdb;
+		$table = $wpdb->prefix . 'bizcity_memory_users';
+		$rows  = (array) $wpdb->get_col( $wpdb->prepare(
+			"SELECT id FROM {$table} WHERE blog_id = %d AND user_id = %d AND memory_text LIKE %s ORDER BY id ASC",
+			get_current_blog_id(), $user_id, '%' . $wpdb->esc_like( self::SENTINEL ) . '%'
+		) );
+		return array_values( array_filter( array_map( 'intval', $rows ) ) );
 	}
 
 	private function count_legacy_sentinel( int $user_id ): int {
@@ -242,18 +273,20 @@ final class BizCity_Probe_Memory_Unified_Recall_Parity implements BizCity_Diagno
 	 * Extract citation tokens that point at sentinel rows only.
 	 * Filters out unrelated `[mem:U#N]` tokens from other rows in the table.
 	 */
-	private function extract_tokens( array $result ): array {
+	private function extract_tokens( array $result, array $expected_tokens = [] ): array {
 		$citations = (array) ( $result['citations'] ?? [] );
 		$tokens    = [];
-		$block     = (string) ( $result['block'] ?? '' );
+		$expected  = [];
+		if ( ! empty( $expected_tokens ) ) {
+			$expected = array_fill_keys( $expected_tokens, true );
+		}
 		foreach ( $citations as $c ) {
 			$token = (string) ( $c['token'] ?? '' );
 			if ( $token === '' ) continue;
-			// Only consider tokens whose row text contains the sentinel.
-			// Block already filtered noise; cross-reference by presence in block.
-			if ( strpos( $block, $token ) !== false && strpos( $block, self::SENTINEL ) !== false ) {
-				$tokens[] = $token;
+			if ( ! empty( $expected ) && ! isset( $expected[ $token ] ) ) {
+				continue;
 			}
+			$tokens[] = $token;
 		}
 		return array_values( array_unique( $tokens ) );
 	}

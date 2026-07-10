@@ -253,6 +253,95 @@ class BizCity_Zalobot_User_Linker {
 	}
 
 	/**
+	 * [2026-06-18 Johnny Chu] ADMIN-GUIDE — Boot auto-login-link + welcome hooks.
+	 *
+	 * Priority 3 on bizcity_zalo_message_received — runs BEFORE Guru Bridge (5)
+	 * and Gateway Bridge (10). If user is not linked:
+	 *   1. Looks up the bot row from DB (need bot_token to send via API).
+	 *   2. Calls maybe_send_login_link() → sends link with 5-min cooldown.
+	 *   3. Sets a per-request global so Guru Bridge knows to skip processing
+	 *      (no point asking AI to answer when we don't know who the user is).
+	 *
+	 * Also registers a hook on bizcity_zalobot_user_linked to send a one-time
+	 * welcome/confirmation message back to the Zalo user.
+	 */
+	public static function boot_auto_login_link(): void {
+		add_action( 'bizcity_zalo_message_received', [ __CLASS__, 'maybe_auto_send_link' ], 3, 1 );
+		add_action( 'bizcity_zalobot_user_linked',    [ __CLASS__, 'send_welcome_after_link' ], 10, 3 );
+	}
+
+	/**
+	 * On every inbound message: if user not linked → send login link and mark
+	 * the request so downstream handlers (Guru Bridge) skip AI processing.
+	 *
+	 * @param array $msg  bizcity_zalo_message_received payload.
+	 */
+	public static function maybe_auto_send_link( $msg ): void {
+		if ( ! is_array( $msg ) ) { return; }
+
+		// Zone 2 only (ZALO_BOT). Zone 1 OA handled separately.
+		$code = (string) ( $msg['code'] ?? '' );
+		if ( $code !== 'zalo_bot' && $code !== '' ) { return; }
+
+		$bot_id      = (int)    ( $msg['bot_id']        ?? 0 );
+		$zalo_uid    = (string) ( $msg['from_user_id']  ?? '' );
+		$display     = (string) ( $msg['from_user_name'] ?? '' );
+
+		if ( $bot_id <= 0 || $zalo_uid === '' ) { return; }
+
+		// Already linked? Nothing to do.
+		if ( self::resolve_wp_user( $zalo_uid, $bot_id ) > 0 ) { return; }
+
+		// Fetch bot row so we can call the API.
+		global $wpdb;
+		$tbl = $wpdb->prefix . 'bizcity_zalo_bots';
+		$bot = $wpdb->get_row( $wpdb->prepare(
+			"SELECT * FROM {$tbl} WHERE id = %d LIMIT 1",
+			$bot_id
+		) );
+		if ( ! $bot ) { return; }
+
+		self::maybe_send_login_link( $zalo_uid, $bot_id, $bot, $display );
+
+		// Signal downstream: user is not linked, skip AI reply for this turn.
+		$GLOBALS['bizcity_zalobot_unlinked_skip'] = true;
+	}
+
+	/**
+	 * After a Zalo user successfully links (status becomes 'linked'),
+	 * send a one-time welcome message via the bot so they know they're set up.
+	 *
+	 * @param int    $bot_id        Bot instance ID.
+	 * @param string $zalo_user_id  Zalo platform user ID.
+	 * @param int    $wp_user_id    WordPress user ID.
+	 */
+	public static function send_welcome_after_link( $bot_id, $zalo_user_id, $wp_user_id ): void {
+		$bot_id       = (int) $bot_id;
+		$wp_user_id   = (int) $wp_user_id;
+		$zalo_user_id = (string) $zalo_user_id;
+
+		if ( $bot_id <= 0 || $wp_user_id <= 0 || $zalo_user_id === '' ) { return; }
+
+		$user = get_user_by( 'id', $wp_user_id );
+		$name = $user ? $user->display_name : '';
+
+		global $wpdb;
+		$tbl = $wpdb->prefix . 'bizcity_zalo_bots';
+		$bot = $wpdb->get_row( $wpdb->prepare(
+			"SELECT * FROM {$tbl} WHERE id = %d LIMIT 1",
+			$bot_id
+		) );
+		if ( ! $bot ) { return; }
+
+		$greeting = $name ? "Xin chào {$name}! " : 'Xin chào! ';
+		$text     = $greeting
+			. "Tài khoản Zalo của bạn đã được kết nối thành công với hệ thống. ✅\n"
+			. "Từ giờ bạn có thể ra lệnh cho AI qua đây: nhắc lịch, đăng Facebook, hỏi đáp, tìm kiếm, chiêm tinh… 🚀";
+
+		self::send_via_bot( $bot, $zalo_user_id, $text );
+	}
+
+	/**
 	 * PHASE 3.5 Wave A bridge — upsert the (zalo_user_id, bot_id) ↔ wp_user_id
 	 * mapping. Called by `BizCity_CRM_Magic_Link_Handler::on_consumed()` after
 	 * the new magic-link is successfully consumed.

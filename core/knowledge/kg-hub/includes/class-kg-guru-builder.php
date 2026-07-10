@@ -108,7 +108,7 @@ class BizCity_KG_Guru_Builder {
 		if ( $char_id <= 0 ) {
 			global $wpdb;
 			$char_tbl   = $wpdb->prefix . 'bizcity_characters';
-			$tbl_exists = (string) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $char_tbl ) ) === $char_tbl;
+			$tbl_exists = bizcity_tbl_exists( $char_tbl ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			$last_err   = $wpdb->last_error ?: '(empty)';
 			$last_query = $wpdb->last_query ?: '(empty)';
 			return new WP_Error(

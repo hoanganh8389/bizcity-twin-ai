@@ -1,0 +1,83 @@
+[
+  {
+    "slug": "tpl_daily_trending_digest_v1",
+    "name": "Xu Hướng Hàng Ngày → Zalo (4 tin)",
+    "description": "Cron hàng ngày (mặc định 9h, đổi giờ bằng time picker) → multi-source trending research (web + Reddit + TikTok) → 4 tin Zalo: nghiên cứu + nguồn + phân tích + kết luận. Sau import: chọn Zalo Bot + điền override_chat_id ở node r1.",
+    "category": "automation",
+    "source": "builtin",
+    "trigger_type": "cron",
+    "icon": "TrendingUp",
+    "tags": "cron,daily,trending,zalo,ai,social,reddit,tiktok",
+    "trigger_config": { "schedule": "0 9 * * *" },
+    "graph": {
+      "meta": { "template": "tpl_daily_trending_digest_v1" },
+      "nodes": [
+        { "id": "t1", "type": "trigger", "position": { "x": 0,    "y": 80 }, "data": { "blockId": "trigger.cron",              "label": "Cron · 09:00 mỗi ngày",  "schedule": "0 9 * * *" } },
+        { "id": "tr", "type": "action",  "position": { "x": 320,  "y": 80 }, "data": { "blockId": "action.trending_research", "label": "Tìm xu hướng hôm nay",    "topic": "xu hướng mạng xã hội Việt Nam hôm nay", "scope": "1d", "platforms": "web,reddit,tiktok", "language": "vi", "output": "full" } },
+        { "id": "r1", "type": "action",  "position": { "x": 640,  "y": 80 }, "data": { "blockId": "action.reply_zalo",        "label": "Gửi nghiên cứu",          "instance_id": "", "override_chat_id": "", "text": "{{tr.msg_1}}" } },
+        { "id": "r2", "type": "action",  "position": { "x": 960,  "y": 80 }, "data": { "blockId": "action.reply_zalo",        "label": "Gửi nguồn",               "text": "{{tr.msg_2}}" } },
+        { "id": "r3", "type": "action",  "position": { "x": 1280, "y": 80 }, "data": { "blockId": "action.reply_zalo",        "label": "Gửi phân tích",           "text": "{{tr.msg_3}}" } },
+        { "id": "r4", "type": "action",  "position": { "x": 1600, "y": 80 }, "data": { "blockId": "action.reply_zalo",        "label": "Gửi kết luận",            "text": "{{tr.msg_4}}" } }
+      ],
+      "edges": [
+        { "id": "e_t1_tr", "source": "t1", "target": "tr" },
+        { "id": "e_tr_r1", "source": "tr", "target": "r1" },
+        { "id": "e_r1_r2", "source": "r1", "target": "r2" },
+        { "id": "e_r2_r3", "source": "r2", "target": "r3" },
+        { "id": "e_r3_r4", "source": "r3", "target": "r4" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_ondemand_trending_zalo_v1",
+    "name": "Trending On-demand qua Zalo (@trending)",
+    "description": "Zalo Bot nhận \"@trending [topic]\" → multi-source research (7d, web+Reddit+TikTok+YouTube) → báo cáo compact + sources → reply ngay. Cần chọn channel_instance Zalo Bot sau khi import.",
+    "category": "automation",
+    "source": "builtin",
+    "trigger_type": "zalo_inbound",
+    "icon": "Search",
+    "tags": "zalo,trending,ondemand,reddit,tiktok,youtube,ai",
+    "trigger_config": { "keywords": ["@trending", "@trend"] },
+    "graph": {
+      "meta": { "template": "tpl_ondemand_trending_zalo_v1" },
+      "nodes": [
+        { "id": "t1",    "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.zalo_inbound",      "label": "Zalo Bot — \"@trending\"",  "keywords": ["@trending", "@trend", "trending:", "trend:"], "mode": "keyword_start" } },
+        { "id": "tr",    "type": "action",  "position": { "x": 320, "y": 80 }, "data": { "blockId": "action.trending_research", "label": "Nghiên cứu xu hướng",     "topic": "{{trigger.text}}", "scope": "7d", "platforms": "web,reddit,tiktok,youtube", "language": "vi", "output": "compact" } },
+        { "id": "reply", "type": "action",  "position": { "x": 640, "y": 80 }, "data": { "blockId": "action.reply_zalo",        "label": "Gửi kết quả",             "text": "🔍 KẾT QUẢ ({{tr.source_count}} nguồn — {{tr.scope}})\n────────────────────\n{{tr.answer_md}}\n\n📎 {{tr.sources_text}}" } }
+      ],
+      "edges": [
+        { "id": "e_t1_tr",    "source": "t1", "target": "tr" },
+        { "id": "e_tr_reply", "source": "tr", "target": "reply" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_zalo_trending_vn_v1",
+    "name": "Xu hướng hôm nay qua Zalo (từ khoá VN)",
+    "description": "Zalo Bot nhận tin có từ khoá \"xu hướng\", \"trend hôm nay\", \"hot nhất\"... → tìm xu hướng 1 ngày (web+Reddit+TikTok) → 4 tin: nghiên cứu + nguồn + phân tích + kết luận. Sau import: chọn Zalo Bot + người dùng nhận trong node r1.",
+    "category": "automation",
+    "source": "builtin",
+    "trigger_type": "zalo_inbound",
+    "icon": "TrendingUp",
+    "tags": "zalo,trending,xu-huong,test,tiktok,reddit,ai,vn",
+    "trigger_config": { "keywords": ["xu hướng", "trend hôm nay", "hot nhất", "@trending"] },
+    "graph": {
+      "meta": { "template": "tpl_zalo_trending_vn_v1" },
+      "nodes": [
+        { "id": "t1", "type": "trigger", "position": { "x": 0,    "y": 80 }, "data": { "blockId": "trigger.zalo_inbound",      "label": "Zalo Bot — Từ khoá xu hướng (VN)", "keywords": ["xu hướng","xu huong","xem trend","trend hôm nay","trend hom nay","hot nhất","hot nhat","hot hôm nay","hot hom nay","đang hot","dang hot","@trending","@trend"], "mode": "keyword_contains" } },
+        { "id": "tr", "type": "action",  "position": { "x": 320,  "y": 80 }, "data": { "blockId": "action.trending_research", "label": "Tìm xu hướng (1 ngày)",            "topic": "{{trigger.text}}", "scope": "1d", "platforms": "web,reddit,tiktok", "language": "vi", "output": "full" } },
+        { "id": "r1", "type": "action",  "position": { "x": 640,  "y": 80 }, "data": { "blockId": "action.reply_zalo",        "label": "Gửi nghiên cứu",                  "instance_id": "", "override_chat_id": "", "text": "{{tr.msg_1}}" } },
+        { "id": "r2", "type": "action",  "position": { "x": 960,  "y": 80 }, "data": { "blockId": "action.reply_zalo",        "label": "Gửi nguồn",                       "text": "{{tr.msg_2}}" } },
+        { "id": "r3", "type": "action",  "position": { "x": 1280, "y": 80 }, "data": { "blockId": "action.reply_zalo",        "label": "Gửi phân tích",                   "text": "{{tr.msg_3}}" } },
+        { "id": "r4", "type": "action",  "position": { "x": 1600, "y": 80 }, "data": { "blockId": "action.reply_zalo",        "label": "Gửi kết luận",                    "text": "{{tr.msg_4}}" } }
+      ],
+      "edges": [
+        { "id": "e_t1_tr", "source": "t1", "target": "tr" },
+        { "id": "e_tr_r1", "source": "tr", "target": "r1" },
+        { "id": "e_r1_r2", "source": "r1", "target": "r2" },
+        { "id": "e_r2_r3", "source": "r2", "target": "r3" },
+        { "id": "e_r3_r4", "source": "r3", "target": "r4" }
+      ]
+    }
+  }
+]

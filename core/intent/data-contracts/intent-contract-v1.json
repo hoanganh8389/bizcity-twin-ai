@@ -49,12 +49,10 @@
         "execution":     {
           "type": "object",
           "properties": {
-            "auto_execute":              { "type": "boolean" },
-            "confirm_required":          { "type": "boolean" },
-            "side_effects":              { "type": "array", "items": { "type": "string" } },
-            "idempotent":                { "type": "boolean" },
-            "content_generation":        { "type": "boolean" },
-            "response_needs_synthesis":  { "type": "boolean" }
+            "auto_execute":     { "type": "boolean" },
+            "confirm_required": { "type": "boolean" },
+            "side_effects":     { "type": "array", "items": { "type": "string" } },
+            "idempotent":       { "type": "boolean" }
           }
         },
         "provider": { "type": "string" }
@@ -134,12 +132,12 @@
 
     "response": {
       "type": "object",
-      "required": ["version", "action", "mode"],
+      "required": ["version", "action"],
       "properties": {
         "version": { "type": "string", "const": "1" },
-        "action":  { "type": "string", "enum": ["single", "multi", "ask_user", "confirm", "error"] },
-        "mode":    { "type": "string", "enum": ["single", "multi"] },
+        "action":  { "type": "string", "enum": ["execute_pipeline", "ask_user", "confirm", "passthrough"] },
         "depth":   { "type": "string", "enum": ["shallow", "standard", "deep"] },
+        "branch":  { "type": "string", "enum": ["knowledge", "single_step", "workflow"] },
         "tool":        { "type": "string" },
         "tool_type":   { "type": "string", "enum": ["atomic", "composite"] },
         "entities":    { "type": "object" },

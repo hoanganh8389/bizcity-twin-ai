@@ -54,7 +54,7 @@ class BizCity_KG_Source_Service {
 		foreach ( self::$source_meta_map as $entry ) {
 			list( $suffix, $title_col, $url_col, $type_col ) = $entry;
 			$tbl    = $wpdb->prefix . $suffix;
-			$exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl ) );
+			$exists = bizcity_tbl_exists( $tbl ) ? $tbl : null; // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			if ( ! $exists ) continue;
 			$row = $wpdb->get_row( $wpdb->prepare(
 				"SELECT id, `{$title_col}` AS title, `{$url_col}` AS source_url, `{$type_col}` AS source_type
@@ -88,7 +88,7 @@ class BizCity_KG_Source_Service {
 		foreach ( self::$source_meta_map as $entry ) {
 			list( $suffix, $title_col, $url_col, $type_col ) = $entry;
 			$tbl       = $wpdb->prefix . $suffix;
-			$tbl_check = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl ) );
+			$tbl_check = bizcity_tbl_exists( $tbl ) ? $tbl : null; // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			if ( ! $tbl_check ) continue;
 
 			// Determine chunk count table.
@@ -96,7 +96,7 @@ class BizCity_KG_Source_Service {
 				? 'bizcity_webchat_source_chunks'
 				: 'bizcity_knowledge_chunks';
 			$chunk_tbl = $wpdb->prefix . $chunk_suffix;
-			$has_chunks = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $chunk_tbl ) );
+			$chunk_check = bizcity_tbl_exists( $chunk_tbl ) ? $chunk_tbl : null; // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 
 			$where  = [];
 			$params = [];
@@ -167,8 +167,8 @@ class BizCity_KG_Source_Service {
 		foreach ( self::$chunk_table_map as $entry ) {
 			list( $suffix, $has_hash, $has_meta ) = $entry;
 			$tbl = $wpdb->prefix . $suffix;
-			// Check table exists first (SHOW TABLES is cheap).
-			$exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl ) );
+			// Check table exists first.
+			$exists = bizcity_tbl_exists( $tbl ) ? $tbl : null; // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			if ( ! $exists ) {
 				continue;
 			}
@@ -226,7 +226,7 @@ class BizCity_KG_Source_Service {
 		$db = BizCity_KG_Database::instance();
 
 		$src_tbl = $wpdb->prefix . 'bizcity_webchat_sources';
-		$exists  = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $src_tbl ) );
+		$exists = bizcity_tbl_exists( $src_tbl ) ? $src_tbl : null; // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 		if ( ! $exists ) {
 			return [ 'count' => 0, 'table' => null ];
 		}

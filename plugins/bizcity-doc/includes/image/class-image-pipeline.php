@@ -153,6 +153,7 @@ class BZDoc_Image_Pipeline {
 			 * `openai/gpt-5.4-image-2` or `openai/gpt-image-1`.
 			 */
 			$user_model = isset( $request['image_model'] ) ? (string) $request['image_model'] : '';
+			// [2026-06-06 Johnny Chu] PHASE-IMAGE-SIMPLE — Nano Banana Pro default.
 			$default_model = $user_model !== '' ? $user_model : 'google/gemini-3-pro-image-preview';
 			$image_model = apply_filters(
 				'bzdoc_image_model',
@@ -749,6 +750,40 @@ IMG_SYSPROMPT;
 			}
 		}
 
+		// [2026-06-06 Johnny Chu] PHASE-IMAGE-SIMPLE — extra reference images
+		// uploaded by the user in the edit strip UI. Appended after original refs
+		// (slots: parent → original refs → extra refs). These are strong identity
+		// anchors for the edit step (e.g. user attaches the real product photo to
+		// prevent drift). Validate they are data URIs or HTTPS URLs.
+		$extra_refs = isset( $request['extra_reference_images'] )
+			? (array) $request['extra_reference_images']
+			: [];
+		$remaining_slots = max( 0, 4 - count( $input_images ) );
+		foreach ( array_slice( $extra_refs, 0, $remaining_slots ) as $extra ) {
+			if ( is_string( $extra ) && $extra !== '' &&
+				( strpos( $extra, 'data:image/' ) === 0 || strpos( $extra, 'https://' ) === 0 ) ) {
+				$input_images[] = $extra;
+			}
+		}
+		// Also persist extra refs in schema so subsequent edits can re-use them.
+		if ( ! empty( $extra_refs ) ) {
+			global $wpdb;
+			$cur_row = $wpdb->get_row( $wpdb->prepare(
+				"SELECT schema_json FROM {$wpdb->prefix}bzdoc_documents WHERE id = %d", $doc_id
+			) );
+			if ( $cur_row ) {
+				$cur_schema = json_decode( (string) $cur_row->schema_json, true ) ?: [];
+				$existing   = (array) ( $cur_schema['reference_images'] ?? [] );
+				$merged     = array_values( array_unique( array_merge( $existing, $extra_refs ) ) );
+				$cur_schema['reference_images'] = array_slice( $merged, 0, 8 );
+				$wpdb->update(
+					$wpdb->prefix . 'bzdoc_documents',
+					[ 'schema_json' => wp_json_encode( $cur_schema, JSON_UNESCAPED_UNICODE ) ],
+					[ 'id' => $doc_id ]
+				);
+			}
+		}
+
 		// 5. Call gateway via BizCity_LLM_Client (R-GW-8 — client KHÔNG có Router_Proxy).
 		if ( ! class_exists( 'BizCity_LLM_Client' ) ) {
 			self::mark_job_failed( $job_id, 'llm_client_unavailable' );
@@ -760,7 +795,8 @@ IMG_SYSPROMPT;
 			return new \WP_Error( 'api_key_missing', 'BizCity API key chưa cấu hình.' );
 		}
 
-		$image_model = apply_filters( 'bzdoc_image_model', 'openai/gpt-5.4-image-2', $doc_id, $request );
+		// [2026-06-06 Johnny Chu] PHASE-IMAGE-SIMPLE — use same default as run().
+		$image_model = apply_filters( 'bzdoc_image_model', 'google/gemini-3-pro-image-preview', $doc_id, $request );
 
 		self::touch_job_heartbeat( $doc_id, 999, 'edit-start' );
 

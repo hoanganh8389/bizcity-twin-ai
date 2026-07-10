@@ -21,10 +21,11 @@ final class BizCity_TwinBrain_Web_Law {
 	// TBR.W17 Wave 1 hotfix (2026-05-28) — law prompt yêu cầu cite "số hiệu +
 	// ngày + cơ quan ban hành" → output dài hơn các vertical khác → 16s đôi
 	// khi http_request_failed. Bump 22s + max_tokens 1100.
-	const LLM_TIMEOUT_S    = 22;
+	// [2026-06-04 Johnny Chu] DEPTH-UP — max_tokens 1100→1650 (+50%), timeout 22→28s, snippet 600→800
+	const LLM_TIMEOUT_S    = 28;
 	const LLM_TEMPERATURE  = 0.15;
-	const LLM_MAX_TOKENS   = 1100;
-	const SNIPPET_TRUNC    = 600;  // VBQPPL cần text dài hơn
+	const LLM_MAX_TOKENS   = 1650;
+	const SNIPPET_TRUNC    = 800;  // VBQPPL cần text dài hơn
 	const TITLE_TRUNC      = 200;
 	const DEFAULT_TIME     = 'year';
 
@@ -177,7 +178,10 @@ final class BizCity_TwinBrain_Web_Law {
 		] );
 		if ( is_wp_error( $response ) ) { $out['error'] = 'http_error:' . $response->get_error_code(); $out['answer_md'] = $this->build_stub_answer( $results ); return $out; }
 		$out['http_status'] = (int) wp_remote_retrieve_response_code( $response );
-		$decoded = json_decode( (string) wp_remote_retrieve_body( $response ), true );
+		$raw     = (string) wp_remote_retrieve_body( $response );
+		// [2026-06-24 Johnny Chu] HOTFIX-BOM — strip UTF-8 BOM; bizcity.vn gateway prepends 0xEF BB BF → json_decode null on HTTP 200 → gateway_failure:unknown
+		if ( substr( $raw, 0, 3 ) === "\xEF\xBB\xBF" ) { $raw = substr( $raw, 3 ); }
+		$decoded = json_decode( trim( $raw ), true );
 		if ( ! is_array( $decoded ) || empty( $decoded['success'] ) ) { $out['error'] = 'gateway_failure:' . ( $decoded['error'] ?? $decoded['message'] ?? 'unknown' ); $out['answer_md'] = $this->build_stub_answer( $results ); return $out; }
 		$out['answer_md'] = trim( (string) ( $decoded['message'] ?? '' ) );
 		$out['tokens']    = (int) ( $decoded['usage']['total_tokens'] ?? 0 );
@@ -194,7 +198,7 @@ final class BizCity_TwinBrain_Web_Law {
 		}
 		if ( $context === '' ) $context = '_(no law results)_';
 		$user = "VĂN BẢN PHÁP LUẬT (top-" . count( $results ) . ", từ allowlist tier A-D):\n\n{$context}\nCÂU HỎI:\n{$query}\n\n"
-		      . "Yêu cầu (≤280 từ, Tiếng Việt):\n"
+		      . "Yêu cầu (≤420 từ, Tiếng Việt — chi tiết, có điều khoản cụ thể khi snippet cho phép):\n" // [2026-06-04 Johnny Chu] DEPTH-UP
 		      . "1. Tổng hợp CHÍNH XÁC từ snippets — KHÔNG bịa số hiệu / điều khoản.\n"
 		      . "2. Citation BẮT BUỘC: trong text ghi rõ \"loại VB + số hiệu + ngày ban hành + cơ quan\" (vd: \"Nghị định 100/2019/NĐ-CP ngày 30/12/2019 của Chính phủ\"), sau đó kèm `[law:N#URL]`.\n"
 		      . "3. Phân biệt rõ: Luật (Quốc hội) > Nghị định (Chính phủ) > Thông tư (Bộ).\n"

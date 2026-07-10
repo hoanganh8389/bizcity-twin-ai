@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "bizcity://events/workflow_started.json",
+  "title": "workflow_started",
+  "description": "Emitted by BizCity_TwinBrain_Workflow_Pipeline when a /skill workflow begins execution. FE uses node_count to render a skeleton timeline immediately. PHASE-TWB-WORKFLOW W1 (2026-06-19).",
+  "type": "object",
+  "required": ["trace_id", "skill_slug", "node_count", "label"],
+  "properties": {
+    "trace_id":    { "type": "string", "description": "Brain turn trace ID." },
+    "skill_slug":  { "type": "string", "description": "The /skill slug chosen by the user." },
+    "workflow_id": { "type": "integer", "description": "DB id from bizcity_automation_workflows; 0 for built-ins." },
+    "node_count":  { "type": "integer", "minimum": 0, "description": "Total nodes in the graph (enables FE skeleton)." },
+    "label":       { "type": "string", "description": "Human-readable workflow name." },
+    "surface":     { "type": "string", "enum": ["twinweb", "twinchat", "api"], "description": "Caller surface." }
+  },
+  "additionalProperties": true
+}

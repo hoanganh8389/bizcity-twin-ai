@@ -41,6 +41,12 @@ if ( ! interface_exists( 'BizCity_Diagnostics_Probe' ) ) {
 	require_once dirname( __DIR__ ) . '/interface-diagnostics-probe.php';
 }
 
+
+// [2026-06-08 Johnny Chu] HOTFIX — double-load guard (bootstrap may include via filter AND direct require).
+if ( class_exists( 'BizCity_Probe_Scheduler_Automation', false ) ) {
+	return;
+}
+
 final class BizCity_Probe_Scheduler_Automation implements BizCity_Diagnostics_Probe {
 
 	/* ── REST namespace of the scheduler module ── */

@@ -107,8 +107,8 @@ class BizCity_User_Memory {
         global $wpdb;
         $table = self::table();
 
-        // Quick check: does the table exist? (SHOW TABLES works across shards)
-        $found = $wpdb->get_var( $wpdb->prepare( "SHOW TABLES LIKE %s", $table ) );
+        // [2026-06-21 Johnny Chu] R-SHOW-TABLES — replaced SHOW TABLES with cached information_schema check
+        $found = bizcity_tbl_exists( $table );
 
         if ( $found ) {
             return; // Table already exists
@@ -153,7 +153,7 @@ class BizCity_User_Memory {
         dbDelta( $sql );
 
         // Verify table was actually created before logging success
-        $verify = $wpdb->get_var( $wpdb->prepare( "SHOW TABLES LIKE %s", $table ) );
+        $verify = bizcity_tbl_exists( $table ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
         if ( $verify ) {
             error_log( "[BizCity_User_Memory] Table {$table} created successfully." );
         } else {
@@ -289,7 +289,7 @@ class BizCity_User_Memory {
         ] );
 
         $table_msgs = $wpdb->prefix . 'bizcity_webchat_messages';
-        if ( $wpdb->get_var( "SHOW TABLES LIKE '$table_msgs'" ) !== $table_msgs ) {
+        if ( ! bizcity_tbl_exists( $table_msgs ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
             return [ 'ok' => false, 'error' => 'Messages table not found' ];
         }
 
@@ -1209,8 +1209,8 @@ Yêu cầu output:
         global $wpdb;
         $table = $wpdb->prefix . 'bizcity_characters';
 
-        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$table}'" ) !== $table ) {
-            $cached = 0;
+        // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+        if ( ! bizcity_tbl_exists( $table ) ) {
             return 0;
         }
 

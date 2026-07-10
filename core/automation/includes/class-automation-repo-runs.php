@@ -33,21 +33,32 @@ final class BizCity_Automation_Repo_Runs {
 	 * @param int                 $workflow_id
 	 * @param array|string|null   $payload         Trigger payload (raw or pre-encoded JSON).
 	 * @param string              $parent_run_id   PG-S6: link replay child → parent. Empty = top-level run.
+	 * @param array               $extra           R-UNIFY Wave 5: optional contact_id / conversation_id for CRM-originated runs.
 	 * @return string|WP_Error  The generated run_id on success.
 	 */
-	public static function enqueue( int $workflow_id, $payload = null, string $parent_run_id = '' ) {
+	public static function enqueue( int $workflow_id, $payload = null, string $parent_run_id = '', array $extra = array() ) {
 		global $wpdb;
 		BizCity_Automation_Installer::ensure();
 
 		$run_id = 'run_' . wp_generate_password( 12, false, false );
-		$ok = $wpdb->insert( self::table_runs(), array(
+
+		// [2026-06-15 Johnny Chu] R-UNIFY Wave 5 — accept contact_id / conversation_id from caller.
+		$insert = array(
 			'workflow_id'          => $workflow_id,
 			'run_id'               => $run_id,
 			'status'               => self::STATUS_QUEUED,
 			'trigger_payload_json' => $payload === null ? null : ( is_string( $payload ) ? $payload : wp_json_encode( $payload ) ),
 			'parent_run_id'        => substr( $parent_run_id, 0, 32 ),
 			'created_at'           => current_time( 'mysql' ),
-		) );
+		);
+		if ( ! empty( $extra['contact_id'] ) ) {
+			$insert['contact_id'] = (int) $extra['contact_id'];
+		}
+		if ( ! empty( $extra['conversation_id'] ) ) {
+			$insert['conversation_id'] = (int) $extra['conversation_id'];
+		}
+
+		$ok = $wpdb->insert( self::table_runs(), $insert );
 		if ( $ok === false ) {
 			return new WP_Error( 'db_insert_failed', $wpdb->last_error ?: 'enqueue failed', array( 'status' => 500 ) );
 		}
@@ -106,6 +117,28 @@ final class BizCity_Automation_Repo_Runs {
 		global $wpdb;
 		$data = array_merge( array( 'status' => $status ), $extra );
 		return $wpdb->update( self::table_runs(), $data, array( 'run_id' => $run_id ) ) !== false;
+	}
+
+	/**
+	 * [2026-06-25 Johnny Chu] PHASE-TRENDING W1 FIX — atomic CAS: QUEUED → RUNNING.
+	 * Returns true only if THIS caller successfully claimed the run.
+	 * Prevents double-execution when both on_cron_dispatch and bizcity_automation_run_async
+	 * race to execute the same QUEUED run in concurrent WP-Cron processes.
+	 *
+	 * @return bool true = claimed (caller may proceed); false = another process got there first.
+	 */
+	public static function try_claim_running( string $run_id, array $extra = array() ): bool {
+		global $wpdb;
+		$data = array_merge(
+			array( 'status' => self::STATUS_RUNNING ),
+			$extra
+		);
+		$affected = $wpdb->update(
+			self::table_runs(),
+			$data,
+			array( 'run_id' => $run_id, 'status' => self::STATUS_QUEUED )
+		);
+		return $affected > 0;
 	}
 
 	/**
@@ -170,6 +203,9 @@ final class BizCity_Automation_Repo_Runs {
 		$row['crm_event_id']  = (int) $row['crm_event_id'];
 		$row['debug_state']   = isset( $row['debug_state'] ) ? (string) $row['debug_state'] : '';
 		$row['parent_run_id'] = isset( $row['parent_run_id'] ) ? (string) $row['parent_run_id'] : '';
+		// [2026-06-15 Johnny Chu] R-UNIFY Wave 5 — cast new FK columns (default 0 before migration).
+		$row['contact_id']      = isset( $row['contact_id'] )      ? (int) $row['contact_id']      : 0;
+		$row['conversation_id'] = isset( $row['conversation_id'] ) ? (int) $row['conversation_id'] : 0;
 		$row['trigger_payload'] = isset( $row['trigger_payload_json'] ) && $row['trigger_payload_json'] !== null && $row['trigger_payload_json'] !== ''
 			? json_decode( $row['trigger_payload_json'], true ) : null;
 		$row['result']        = isset( $row['result_json'] ) && $row['result_json'] !== null && $row['result_json'] !== ''

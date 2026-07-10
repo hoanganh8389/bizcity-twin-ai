@@ -156,7 +156,7 @@ class BizCity_Memory_Unified_Installer {
 
 		dbDelta( $sql );
 
-		$exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) );
+		$exists = bizcity_tbl_exists( $table ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 		if ( ! $exists ) {
 			error_log( '[BizCity_Memory_Unified_Installer] dbDelta FAILED for ' . $table );
 			return false;

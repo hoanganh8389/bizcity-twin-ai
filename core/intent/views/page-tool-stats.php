@@ -21,7 +21,7 @@ global $wpdb;
 $table = $wpdb->prefix . 'bizcity_tool_stats';
 
 // Check table exists
-$table_exists = $wpdb->get_var( $wpdb->prepare( "SHOW TABLES LIKE %s", $table ) ) === $table;
+$table_exists = bizcity_tbl_exists( $table ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 
 $stats = [];
 $summary = [ 'total' => 0, 'total_calls' => 0, 'avg_success' => 0, 'tools_with_fails' => 0 ];

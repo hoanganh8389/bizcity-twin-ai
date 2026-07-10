@@ -291,11 +291,17 @@ class BizCity_Zalo_Bot_OA_Integration extends BizCity_Channel_Integration {
 
 		if ( ! $sent ) {
 			$err_msg = $decoded['message'] ?? "HTTP {$code} / Zalo error {$zalo_error}";
+			// [2026-06-13 Johnny Chu] ZA-1.3 — R-ERROR-UX: map known Zalo codes to structured error payload.
+			$_err_ux = self::map_zalo_error( $zalo_error );
 			return [
-				'sent'     => false,
-				'error'    => $err_msg,
-				'platform' => 'ZALO_BOT',
-				'mid'      => '',
+				'sent'      => false,
+				'error'     => $err_msg,
+				'platform'  => 'ZALO_BOT',
+				'mid'       => '',
+				'code'      => $_err_ux['code'],
+				'message'   => $_err_ux['message'],
+				'hint'      => $_err_ux['hint'],
+				'help_code' => $_err_ux['help_code'],
 			];
 		}
 
@@ -410,9 +416,18 @@ class BizCity_Zalo_Bot_OA_Integration extends BizCity_Channel_Integration {
 		// Attempt to refresh.
 		$new_token = $this->api_refresh_token( $refresh_token, $app_id, $app_secret );
 		if ( $new_token ) {
-			// Update stored account (persisted by caller via do_test() or next save).
-			$this->account['access_token']    = $new_token['access_token'];
+			$this->account['access_token']     = $new_token['access_token'];
 			$this->account['token_expires_at'] = gmdate( 'Y-m-d H:i:s', time() + (int) ( $new_token['expires_in'] ?? 3600 ) );
+			// [2026-06-13 Johnny Chu] ZA-1.1 — persist refreshed token to registry so it survives the next request.
+			// Before this fix the token was updated in-memory only and lost when the process ended.
+			$_uid = isset( $this->account['_uid'] ) ? (string) $this->account['_uid'] : '';
+			if ( $_uid !== '' && class_exists( 'BizCity_Integration_Registry' ) ) {
+				BizCity_Integration_Registry::instance()->update_channel_account_status(
+					$this->code,
+					$_uid,
+					$this->get_encrypted_params()
+				);
+			}
 			return $this->account['access_token'];
 		}
 
@@ -454,6 +469,43 @@ class BizCity_Zalo_Bot_OA_Integration extends BizCity_Channel_Integration {
 	}
 
 	/**
+	 * Map a Zalo API error code to structured R-ERROR-UX fields.
+	 *
+	 * [2026-06-13 Johnny Chu] ZA-1.3 — R-ERROR-UX error code catalog for Zalo OA.
+	 *
+	 * @param int $zalo_code Negative integer from Zalo API `error` field.
+	 * @return array{code:string,message:string,hint:string,help_code:string}
+	 */
+	private static function map_zalo_error( int $zalo_code ): array {
+		$map = [
+			-201 => [
+				'code'      => 'page_not_connected',
+				'message'   => 'Người dùng chưa quan tâm OA hoặc đã hủy theo dõi.',
+				'hint'      => 'Yêu cầu người dùng quan tâm Zalo OA trước khi gửi tin nhắn.',
+				'help_code' => 'zalo_no_follower',
+			],
+			-216 => [
+				'code'      => 'token_invalid',
+				'message'   => 'Access Token Zalo OA hết hạn hoặc không hợp lệ.',
+				'hint'      => 'Vào Cài đặt → Zalo OA → Làm mới access_token.',
+				'help_code' => 'zalo_bad_token',
+			],
+			-218 => [
+				'code'      => 'quota_exceeded',
+				'message'   => 'Đã hết hạn mức gửi tin Zalo OA hôm nay.',
+				'hint'      => 'Kiểm tra quota hàng ngày trên Zalo Developers Console.',
+				'help_code' => 'zalo_quota_exceeded',
+			],
+		];
+		return isset( $map[ $zalo_code ] ) ? $map[ $zalo_code ] : [
+			'code'      => 'gateway_degraded',
+			'message'   => 'Gửi tin Zalo OA thất bại.',
+			'hint'      => 'Kiểm tra access_token và trạng thái kết nối OA.',
+			'help_code' => 'zalo_send_error',
+		];
+	}
+
+	/**
 	 * Build Zalo OA message payload.
 	 */
 	private function build_message_payload( string $text, string $type, array $msg ): array {
@@ -472,5 +524,47 @@ class BizCity_Zalo_Bot_OA_Integration extends BizCity_Channel_Integration {
 		}
 		// Default: text message.
 		return [ 'text' => $text ];
+	}
+
+	/* ═══════════════════════════════════════════
+	 *  User Profile API — ZA-4
+	 * ═══════════════════════════════════════════ */
+
+	/**
+	 * Fetch Zalo user profile via GET /v3.0/oa/user/detail.
+	 *
+	 * [2026-06-13 Johnny Chu] ZA-4 — called after follow event to populate CRM contact.
+	 *
+	 * Response fields used:
+	 *   data.user_id, data.display_name, data.avatar, data.shared_info.phone,
+	 *   data.shared_info.address, data.tags_and_notes_info.notes
+	 *
+	 * @param string $user_id  Zalo user ID (sender.id from follow event).
+	 * @param array  $account  Decrypted account credentials.
+	 * @return array|null  Associative array with user fields, or null on failure.
+	 */
+	public function api_get_user_profile( string $user_id, array $account ) {
+		$token = $this->maybe_refresh_token( $account );
+		if ( ! $token || ! $user_id ) {
+			return null;
+		}
+
+		$url = add_query_arg(
+			array( 'user_id' => $user_id ),
+			self::ZALO_API_BASE . '/v3.0/oa/user/detail'
+		);
+		$resp = wp_remote_get( $url, array(
+			'timeout' => 8,
+			'headers' => array( 'access_token' => $token ),
+		) );
+
+		if ( is_wp_error( $resp ) ) {
+			return null;
+		}
+		$decoded = json_decode( wp_remote_retrieve_body( $resp ), true );
+		if ( ! is_array( $decoded ) || (int) ( $decoded['error'] ?? -1 ) !== 0 ) {
+			return null;
+		}
+		return is_array( $decoded['data'] ?? null ) ? $decoded['data'] : null;
 	}
 }

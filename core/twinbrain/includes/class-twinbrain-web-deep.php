@@ -50,10 +50,10 @@ final class BizCity_TwinBrain_Web_Deep {
 	// digest the entire history + citation map in a single call.
 	const FORCE_FINAL_TIMEOUT_S = 20;
 	const LLM_TEMPERATURE  = 0.3;
-	const LLM_MAX_TOKENS   = 800;
-	const SEARCH_MAX       = 5;
-	const SUMMARY_MAX_CHARS= 1200;
-	const OBSERVATION_TRUNC= 600;
+	const LLM_MAX_TOKENS   = 1200; // [2026-06-04 Johnny Chu] DEPTH-UP — 800→1200 (+50%)
+	const SEARCH_MAX       = 6;    // [2026-06-04 Johnny Chu] DEPTH-UP — 5→6 per iteration
+	const SUMMARY_MAX_CHARS= 1600; // [2026-06-04 Johnny Chu] DEPTH-UP — 1200→1600
+	const OBSERVATION_TRUNC= 800;  // [2026-06-04 Johnny Chu] DEPTH-UP — 600→800
 	const HISTORY_TRUNC    = 6000; // total chars cap for serialized history
 
 	private static $instance = null;
@@ -369,7 +369,15 @@ final class BizCity_TwinBrain_Web_Deep {
 			return [ 'content' => '', 'tokens' => 0, 'error' => $err ];
 		}
 		$raw     = (string) wp_remote_retrieve_body( $response );
-		$decoded = json_decode( $raw, true );
+		// [2026-06-24 Johnny Chu] HOTFIX-BOM — strip UTF-8 BOM before json_decode.
+		// bizcity.vn gateway prepends 0xEF 0xBB 0xBF → json_decode returns null on valid
+		// HTTP 200 → $decoded['success'] empty → error returned → $forced_final = true →
+		// forced_final:budget_or_iter_cap on the very first ReAct iteration.
+		// Same fix already applied in BizCity_LLM_Client::chat_gateway() and BizCity_Search_Client.
+		if ( substr( $raw, 0, 3 ) === "\xEF\xBB\xBF" ) {
+			$raw = substr( $raw, 3 );
+		}
+		$decoded = json_decode( trim( $raw ), true );
 		if ( ! is_array( $decoded ) || empty( $decoded['success'] ) ) {
 			$err = 'gateway:' . ( $decoded['error'] ?? $decoded['message'] ?? 'unknown' );
 			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
@@ -515,7 +523,8 @@ final class BizCity_TwinBrain_Web_Deep {
 
 		// First attempt: ReAct-style synthesis using the original template.
 		$user = sprintf(
-			"USER QUESTION:\n%s\n\nCITATION MAP:\n%s\nHISTORY (đã hết iteration budget):\n%s\n\nDùng những gì đã thu thập được, tổng hợp câu trả lời cuối cùng (≤400 từ, trích dẫn [web:N#URL]). Nếu thông tin không đủ, ghi rõ.",
+			// [2026-06-04 Johnny Chu] DEPTH-UP — 400→600 từ cho deep synthesis
+			"USER QUESTION:\n%s\n\nCITATION MAP:\n%s\nHISTORY (đã hết iteration budget):\n%s\n\nDùng những gì đã thu thập được, tổng hợp câu trả lời cuối cùng (≤600 từ, trích dẫn [web:N#URL]). Phân tích sâu: nguyên nhân, cơ chế, hệ quả, điểm còn tranh cãi. Nếu thông tin không đủ, ghi rõ phần còn thiếu.",
 			$query,
 			$citation_map ?: '  (no results gathered)',
 			$history_str ?: '(empty)'
@@ -539,8 +548,9 @@ final class BizCity_TwinBrain_Web_Deep {
 		}
 		if ( $snippets === '' ) return $out; // truly nothing to summarize
 
-		$retry_sys = "Bạn là trợ lý tổng hợp web. Tổng hợp câu trả lời ≤250 từ dựa CHᢀ trên snippets. Mỗi mệnh đề phải kèm [web:N#URL]. Tiếng Việt.";
-		$retry_usr = "WEB SNIPPETS:\n\n{$snippets}CÂU HỐI:\n{$query}\n\nTrả lời tổng hợp ≤250 từ với citation [web:N#URL].";
+		// [2026-06-04 Johnny Chu] DEPTH-UP — 250→380 từ retry prompt
+		$retry_sys = "Bạn là trợ lý tổng hợp web. Tổng hợp câu trả lời ≤380 từ dựa CHỈ trên snippets. Giải thích cơ chế/nguyên nhân khi có đủ dữ liệu. Mỗi mệnh đề phải kèm [web:N#URL]. Tiếng Việt.";
+		$retry_usr = "WEB SNIPPETS:\n\n{$snippets}CÂU HỐI:\n{$query}\n\nTrả lời tổng hợp ≤380 từ, phân tích sâu, citation [web:N#URL].";  
 
 		return $this->llm_call( $endpoint, $api_key, $site_url, $trace_id, $model, [
 			[ 'role' => 'system', 'content' => $retry_sys ],

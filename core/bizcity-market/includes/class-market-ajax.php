@@ -283,8 +283,9 @@ class BizCity_Market_Ajax {
      * @return bool
      */
     private static function validate_download_url( string $url ): bool {
+        // [2026-06-10 Johnny Chu] HOTFIX — per-site option
         $gateway_host = wp_parse_url(
-            get_site_option( 'bizcity_llm_gateway_url', 'https://bizcity.vn' ),
+            get_option( 'bizcity_llm_gateway_url', 'https://bizcity.vn' ),
             PHP_URL_HOST
         );
         $url_host = wp_parse_url( $url, PHP_URL_HOST );

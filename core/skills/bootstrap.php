@@ -43,6 +43,8 @@ require_once BIZCITY_SKILLS_DIR . 'includes/class-skill-tool-map.php';
 require_once BIZCITY_SKILLS_DIR . 'includes/class-skill-rest-api.php';
 require_once BIZCITY_SKILLS_DIR . 'includes/class-skill-recipe-parser.php';
 require_once BIZCITY_SKILLS_DIR . 'includes/class-skill-context.php';
+// [2026-06-03 Johnny Chu] WF-AUTO GURU W2 — dual-tier slash matcher.
+require_once BIZCITY_SKILLS_DIR . 'includes/class-skill-slash-matcher.php';
 require_once BIZCITY_SKILLS_DIR . 'includes/class-skill-pipeline-bridge.php';
 require_once BIZCITY_SKILLS_DIR . 'includes/class-admin-page.php';
 
@@ -62,31 +64,9 @@ if ( is_admin() ) {
 }
 
 /* ── Phase 1.12: Auto-scan plugin skills/ directories ─────────────
- * Runs once per admin session (transient-guarded, 1 hour TTL).
- * Loads skill-seeder.php from knowledge module and syncs .md files → DB.
+ * DISABLED — SkillSeeder auto-sync removed to reduce admin_init overhead.
+ * Skills are now managed manually via admin UI.
  * ──────────────────────────────────────────────────────────────── */
-add_action( 'admin_init', function () {
-    // Run at most once per hour per blog
-    $transient_key = 'bizcity_skill_scan_done_' . get_current_blog_id();
-    if ( get_transient( $transient_key ) ) {
-        return;
-    }
-
-    // Load seeder functions if not already loaded
-    $seeder_path = defined( 'BIZCITY_TWIN_AI_DIR' )
-        ? BIZCITY_TWIN_AI_DIR . '/core/knowledge/includes/skill-seeder.php'
-        : WP_PLUGIN_DIR . '/bizcity-twin-ai/core/knowledge/includes/skill-seeder.php';
-
-    if ( ! function_exists( 'bizcity_scan_plugin_skills' ) && file_exists( $seeder_path ) ) {
-        require_once $seeder_path;
-    }
-
-    if ( function_exists( 'bizcity_scan_plugin_skills' ) ) {
-        $results = bizcity_scan_plugin_skills();
-        error_log( '[BizCity Skills] admin_init auto-scan: ' . count( $results ) . ' skills processed' );
-        set_transient( $transient_key, 1, HOUR_IN_SECONDS );
-    }
-}, 99 );
 
 /* ══════════════════════════════════════════════════════════════
  *  PUBLIC PAGE — /skills/

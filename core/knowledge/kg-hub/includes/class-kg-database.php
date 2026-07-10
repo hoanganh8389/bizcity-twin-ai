@@ -972,7 +972,7 @@ class BizCity_KG_Database {
 		];
 		foreach ( $memory_tables as $mt ) {
 			// SHOW TABLES is a write-safe DDL check that doesn't go via INFORMATION_SCHEMA.
-			$tbl_exists = ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $mt ) ) === $mt );
+			$tbl_exists = ( bizcity_tbl_exists( $mt ) ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			if ( $tbl_exists ) {
 				$add( $mt, 'kg_source_uuid', "kg_source_uuid CHAR(36) DEFAULT NULL" );
 			}
@@ -1046,8 +1046,8 @@ class BizCity_KG_Database {
 		// back to the canonical name so subsequent ALTERs target a real BASE TABLE.
 		if ( $chunks_tbl === $passages_tbl ) {
 			$stranded = $wpdb->prefix . 'bizcity_kg_source_chunks';
-			$canonical_exists = ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $passages_tbl ) ) === $passages_tbl );
-			$stranded_exists  = ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $stranded ) ) === $stranded );
+			$canonical_exists = ( bizcity_tbl_exists( $passages_tbl ) ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+			$stranded_exists  = ( bizcity_tbl_exists( $stranded ) ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			if ( ! $canonical_exists && $stranded_exists ) {
 				$prev = $wpdb->suppress_errors( true );
 				$wpdb->query( "RENAME TABLE `{$stranded}` TO `{$passages_tbl}`" );
@@ -1146,7 +1146,7 @@ class BizCity_KG_Database {
 		// ── A2. CREATE kg_source_chunks (replaces kg_passages). ───────────
 		// Use SHOW TABLES LIKE — safe on replica/master because it checks local
 		// metadata server, not INFORMATION_SCHEMA which can lag.
-		$passages_is_table = ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $passages_tbl ) ) === $passages_tbl );
+		$passages_is_table = ( bizcity_tbl_exists( $passages_tbl ) ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 		// Also confirm it is a BASE TABLE, not an existing VIEW.
 		if ( $passages_is_table ) {
 			$ttype = $wpdb->get_var( "SELECT TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '{$passages_tbl}' LIMIT 1" );
@@ -1154,7 +1154,7 @@ class BizCity_KG_Database {
 				$passages_is_table = false;
 			}
 		}
-		$chunks_is_table = ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $chunks_tbl ) ) === $chunks_tbl );
+		$chunks_is_table = ( bizcity_tbl_exists( $chunks_tbl ) ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 
 		// HOTFIX 2026-05-08 — When helpers collide (post-2026-05-06 alias), the
 		// RENAME below would be `RENAME TABLE x TO x` which MySQL rejects. Skip.
@@ -1287,7 +1287,7 @@ class BizCity_KG_Database {
 		// SELECT … FROM kg_passages — MySQL accepts the parse then errors at
 		// resolution time, AND the prior DROP VIEW would have already nuked the
 		// only handle to the data. Skip the entire VIEW dance in that mode.
-		$passages_still_table = ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $passages_tbl ) ) === $passages_tbl )
+		$passages_still_table = ( bizcity_tbl_exists( $passages_tbl ) ) // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			&& ( $wpdb->get_var( "SELECT TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '{$passages_tbl}' LIMIT 1" ) === 'BASE TABLE' );
 
 		if ( ! $passages_still_table && $chunks_tbl !== $passages_tbl ) {

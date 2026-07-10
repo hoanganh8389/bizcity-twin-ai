@@ -1,0 +1,234 @@
+[
+  {
+    "slug": "tpl_woo_order_created_v1",
+    "name": "[Woo] Đơn hàng mới → Zalo notify",
+    "description": "WooCommerce tạo đơn hàng mới → webhook woo_order_created → ghi CRM order_new + gửi Zalo Bot thông báo ngay cho staff/admin.",
+    "category": "automation", "source": "builtin", "trigger_type": "webhook", "icon": "ShoppingCart",
+    "tags": "woo,webhook,order,crm,zalo-notify", "trigger_config": { "slug": "woo_order_created", "secret": "" },
+    "graph": {
+      "meta": { "template": "tpl_woo_order_created_v1" },
+      "nodes": [
+        { "id": "t1", "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.webhook", "label": "Webhook · woo_order_created", "slug": "woo_order_created", "secret": "" } },
+        { "id": "c1", "type": "action",  "position": { "x": 320, "y": 80 }, "data": { "blockId": "action.create_crm_event", "label": "Ghi CRM order_new", "event_type": "order_new", "title": "[Woo] Đơn mới #{{trigger.payload.order_id}} — {{trigger.payload.customer_name}}", "description": "Order: {{trigger.payload.order_id}}\nAmount: {{trigger.payload.total}}\nCustomer: {{trigger.payload.customer_name}}\nEmail: {{trigger.payload.email}}\nPhone: {{trigger.payload.phone}}" } },
+        { "id": "r1", "type": "action",  "position": { "x": 640, "y": 80 }, "data": { "blockId": "action.reply_zalo", "label": "Notify Zalo Bot", "text": "🛒 Đơn mới #{{trigger.payload.order_id}}\n👤 {{trigger.payload.customer_name}}\n💰 {{trigger.payload.total}}\n📦 {{trigger.payload.items_count}} sản phẩm\n⚡ Xử lý ngay trên WooCommerce!" } }
+      ],
+      "edges": [
+        { "id": "e_t1_c1", "source": "t1", "target": "c1" }, { "id": "e_c1_r1", "source": "c1", "target": "r1" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_woo_order_shipped_v1",
+    "name": "[Woo] Đơn hàng giao hàng → Notify khách",
+    "description": "WooCommerce giao hàng → webhook woo_order_shipped → reply Zalo/email với thông tin tracking + ghi CRM order_shipped.",
+    "category": "cskh", "source": "builtin", "trigger_type": "webhook", "icon": "Truck",
+    "tags": "woo,webhook,shipped,tracking,zalo-notify", "trigger_config": { "slug": "woo_order_shipped", "secret": "" },
+    "graph": {
+      "meta": { "template": "tpl_woo_order_shipped_v1" },
+      "nodes": [
+        { "id": "t1", "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.webhook", "label": "Webhook · woo_order_shipped", "slug": "woo_order_shipped", "secret": "" } },
+        { "id": "r1", "type": "action",  "position": { "x": 320, "y": 80 }, "data": { "blockId": "action.reply_zalo", "label": "Notify tracking Zalo", "text": "🚚 Đơn hàng #{{trigger.payload.order_id}} đã giao cho ĐVVC!\n\n📦 Mã vận đơn: {{trigger.payload.tracking_code}}\n🔗 Theo dõi: {{trigger.payload.tracking_url}}\n\nDự kiến: {{trigger.payload.estimated_delivery}}. Cảm ơn anh/chị! 💚" } },
+        { "id": "c1", "type": "action",  "position": { "x": 640, "y": 80 }, "data": { "blockId": "action.create_crm_event", "label": "CRM · order_shipped", "event_type": "order_shipped", "title": "[Woo] Giao hàng #{{trigger.payload.order_id}}", "description": "Tracking: {{trigger.payload.tracking_code}}\nCarrier: {{trigger.payload.carrier}}" } }
+      ],
+      "edges": [
+        { "id": "e_t1_r1", "source": "t1", "target": "r1" }, { "id": "e_r1_c1", "source": "r1", "target": "c1" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_woo_abandoned_cart_v1",
+    "name": "[Woo] Giỏ hàng bỏ quên → Nhắc nhẹ qua Zalo",
+    "description": "WooCommerce phát hiện giỏ hàng bỏ quên (webhook/cron) → LLM soạn tin nhắn nhắc nhẹ cá nhân hóa → gửi Zalo Bot.",
+    "category": "lead", "source": "builtin", "trigger_type": "webhook", "icon": "ShoppingBag",
+    "tags": "woo,webhook,abandoned-cart,recovery,llm,zalo", "trigger_config": { "slug": "woo_cart_abandoned", "secret": "" },
+    "graph": {
+      "meta": { "template": "tpl_woo_abandoned_cart_v1" },
+      "nodes": [
+        { "id": "t1", "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.webhook", "label": "Webhook · woo_cart_abandoned", "slug": "woo_cart_abandoned", "secret": "" } },
+        { "id": "l1", "type": "llm",     "position": { "x": 320, "y": 80 }, "data": { "blockId": "llm.compose_reply", "label": "Soạn tin nhắn nhắc", "model": "gpt-4o-mini", "system": "Bạn là CSKH thân thiện. Soạn tin nhắn Zalo NGẮN (3-4 dòng) nhắc nhẹ khách quay lại thanh toán. Tone ấm áp, không spam. Kèm link giỏ hàng.", "prompt": "Khách: {{trigger.payload.customer_name}}\nSản phẩm bỏ lại: {{trigger.payload.items_summary}}\nTổng: {{trigger.payload.cart_total}}\nLink giỏ hàng: {{trigger.payload.cart_url}}" } },
+        { "id": "r1", "type": "action",  "position": { "x": 640, "y": 80 }, "data": { "blockId": "action.reply_zalo", "label": "Gửi Zalo Bot", "text": "{{l1.output}}" } }
+      ],
+      "edges": [
+        { "id": "e_t1_l1", "source": "t1", "target": "l1" }, { "id": "e_l1_r1", "source": "l1", "target": "r1" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_woo_refund_notify_v1",
+    "name": "[Woo] Hoàn tiền → Notify admin + CRM",
+    "description": "WooCommerce xử lý hoàn tiền → webhook woo_order_refunded → ghi CRM order_refunded + notify Zalo admin.",
+    "category": "automation", "source": "builtin", "trigger_type": "webhook", "icon": "RefreshCcw",
+    "tags": "woo,webhook,refund,crm,notify", "trigger_config": { "slug": "woo_order_refunded", "secret": "" },
+    "graph": {
+      "meta": { "template": "tpl_woo_refund_notify_v1" },
+      "nodes": [
+        { "id": "t1", "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.webhook", "label": "Webhook · woo_order_refunded", "slug": "woo_order_refunded", "secret": "" } },
+        { "id": "c1", "type": "action",  "position": { "x": 320, "y": 80 }, "data": { "blockId": "action.create_crm_event", "label": "CRM · order_refunded", "event_type": "order_refunded", "title": "[Woo] Hoàn tiền #{{trigger.payload.order_id}} — {{trigger.payload.refund_amount}}", "description": "Order: {{trigger.payload.order_id}}\nRefund: {{trigger.payload.refund_amount}}\nReason: {{trigger.payload.reason}}" } },
+        { "id": "r1", "type": "action",  "position": { "x": 640, "y": 80 }, "data": { "blockId": "action.reply_zalo", "label": "Notify Zalo admin", "text": "💸 Hoàn tiền #{{trigger.payload.order_id}}\n💰 {{trigger.payload.refund_amount}}\n📋 Lý do: {{trigger.payload.reason}}\n⚠️ Kiểm tra trên WooCommerce + cập nhật kế toán." } }
+      ],
+      "edges": [
+        { "id": "e_t1_c1", "source": "t1", "target": "c1" }, { "id": "e_c1_r1", "source": "c1", "target": "r1" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_woo_low_stock_v1",
+    "name": "[Woo] Sắp hết hàng → Email cảnh báo",
+    "description": "WooCommerce kích hoạt low_stock alert → webhook woo_low_stock → gửi email ngay cho admin/kho.",
+    "category": "report", "source": "builtin", "trigger_type": "webhook", "icon": "AlertTriangle",
+    "tags": "woo,webhook,low-stock,email,alert", "trigger_config": { "slug": "woo_low_stock", "secret": "" },
+    "graph": {
+      "meta": { "template": "tpl_woo_low_stock_v1" },
+      "nodes": [
+        { "id": "t1", "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.webhook", "label": "Webhook · woo_low_stock", "slug": "woo_low_stock", "secret": "" } },
+        { "id": "m1", "type": "action",  "position": { "x": 320, "y": 80 }, "data": { "blockId": "action.send_email", "label": "Email cảnh báo tồn kho", "to": "{{site_admin_email}}", "subject": "[BizCity] ⚠️ Sắp hết: {{trigger.payload.product_name}}", "body": "Sản phẩm: {{trigger.payload.product_name}} (SKU: {{trigger.payload.sku}})\nTồn kho hiện tại: {{trigger.payload.stock_qty}}\nNgưỡng cảnh báo: {{trigger.payload.threshold}}\n\n👉 Vào WooCommerce để đặt hàng bổ sung ngay!" } }
+      ],
+      "edges": [
+        { "id": "e_t1_m1", "source": "t1", "target": "m1" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_crm_new_contact_welcome_v1",
+    "name": "[CRM] Contact mới → Chào mừng qua Zalo",
+    "description": "Khi CRM tạo contact mới (inbound hoặc import) → LLM soạn tin chào cá nhân hóa → reply Zalo Bot / notify channel.",
+    "category": "cskh", "source": "builtin", "trigger_type": "crm_event", "icon": "UserPlus",
+    "tags": "crm,contact,welcome,zalo,llm", "trigger_config": { "event_type": "contact_created" },
+    "graph": {
+      "meta": { "template": "tpl_crm_new_contact_welcome_v1" },
+      "nodes": [
+        { "id": "t1", "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.crm_event", "label": "CRM · contact_created", "event_type": "contact_created" } },
+        { "id": "l1", "type": "llm",     "position": { "x": 320, "y": 80 }, "data": { "blockId": "llm.compose_reply", "label": "Soạn tin chào mừng", "model": "gpt-4o-mini", "system": "Bạn là CSKH thân thiện. Soạn tin chào mừng cá nhân hóa cho khách mới. 3-4 dòng, có tên, ấm áp, đề xuất liên hệ kênh hỗ trợ.", "prompt": "Tên khách: {{trigger.contact_name}}\nEmail: {{trigger.contact_email}}\nNguồn: {{trigger.source}}" } },
+        { "id": "r1", "type": "action",  "position": { "x": 640, "y": 80 }, "data": { "blockId": "action.reply_zalo", "label": "Gửi Zalo Bot/OA", "text": "{{l1.output}}" } }
+      ],
+      "edges": [
+        { "id": "e_t1_l1", "source": "t1", "target": "l1" }, { "id": "e_l1_r1", "source": "l1", "target": "r1" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_crm_label_notify_v1",
+    "name": "[CRM] Gán nhãn → Notify channel",
+    "description": "Khi CRM gán nhãn hội thoại mới (label_assigned) → notify Zalo Bot staff với thông tin hội thoại + nhãn.",
+    "category": "cskh", "source": "builtin", "trigger_type": "crm_event", "icon": "Tag",
+    "tags": "crm,label,notify,zalo", "trigger_config": { "event_type": "label_assigned" },
+    "graph": {
+      "meta": { "template": "tpl_crm_label_notify_v1" },
+      "nodes": [
+        { "id": "t1", "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.crm_event", "label": "CRM · label_assigned", "event_type": "label_assigned" } },
+        { "id": "r1", "type": "action",  "position": { "x": 320, "y": 80 }, "data": { "blockId": "action.reply_zalo", "label": "Notify staff", "text": "🏷 Hội thoại mới được gán nhãn \"{{trigger.label_name}}\"\n👤 Khách: {{trigger.contact_name}}\n💬 Preview: {{trigger.message_preview}}\n🔗 Mở: {{trigger.inbox_url}}" } }
+      ],
+      "edges": [
+        { "id": "e_t1_r1", "source": "t1", "target": "r1" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_crm_sla_escalate_v1",
+    "name": "[CRM] SLA vi phạm → Escalate manager",
+    "description": "Hội thoại CRM bị SLA breach (chưa trả lời trong X phút) → email manager + Zalo Bot cảnh báo khẩn.",
+    "category": "cskh", "source": "builtin", "trigger_type": "crm_event", "icon": "Clock",
+    "tags": "crm,sla,escalate,manager,email,zalo", "trigger_config": { "event_type": "crm_sla_breached" },
+    "graph": {
+      "meta": { "template": "tpl_crm_sla_escalate_v1" },
+      "nodes": [
+        { "id": "t1", "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.crm_event", "label": "CRM · crm_sla_breached", "event_type": "crm_sla_breached" } },
+        { "id": "m1", "type": "action",  "position": { "x": 320, "y": 0  }, "data": { "blockId": "action.send_email", "label": "Email manager", "to": "{{site_admin_email}}", "subject": "[SLA] ⚠️ Hội thoại {{trigger.contact_name}} chưa phản hồi {{trigger.sla_minutes}} phút", "body": "SLA vi phạm!\n\nKhách: {{trigger.contact_name}}\nChưa phản hồi: {{trigger.sla_minutes}} phút\nChannel: {{trigger.channel}}\nMở: {{trigger.inbox_url}}" } },
+        { "id": "r1", "type": "action",  "position": { "x": 320, "y": 160 }, "data": { "blockId": "action.reply_zalo", "label": "Zalo Bot cảnh báo", "text": "⚠️ SLA vi phạm! Khách {{trigger.contact_name}} chưa được phản hồi {{trigger.sla_minutes}} phút.\n🔗 {{trigger.inbox_url}}" } }
+      ],
+      "edges": [
+        { "id": "e_t1_m1", "source": "t1", "target": "m1" }, { "id": "e_t1_r1", "source": "t1", "target": "r1" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_crm_csat_v1",
+    "name": "[CRM] Kết thúc hội thoại → CSAT (đánh giá 1-5)",
+    "description": "Hội thoại CRM resolved → gửi Zalo OA nhắn khách đánh giá chất lượng (1-5 sao). Kết quả reply lại được ghi vào CRM.",
+    "category": "cskh", "source": "builtin", "trigger_type": "crm_event", "icon": "Star",
+    "tags": "crm,csat,survey,feedback,zalo-oa", "trigger_config": { "event_type": "crm_conversation_resolved" },
+    "graph": {
+      "meta": { "template": "tpl_crm_csat_v1" },
+      "nodes": [
+        { "id": "t1", "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.crm_event", "label": "CRM · conversation_resolved", "event_type": "crm_conversation_resolved" } },
+        { "id": "r1", "type": "action",  "position": { "x": 320, "y": 80 }, "data": { "blockId": "action.reply_zalo", "label": "CSAT survey", "text": "💬 Cảm ơn anh/chị {{trigger.contact_name}} đã liên hệ!\n\nBạn có thể đánh giá chất lượng hỗ trợ lần này không?\n⭐ 1 = Rất kém  ⭐⭐⭐⭐⭐ 5 = Xuất sắc\n\nReply: 1 / 2 / 3 / 4 / 5 để cho chúng tôi biết nhé!" } }
+      ],
+      "edges": [
+        { "id": "e_t1_r1", "source": "t1", "target": "r1" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_crm_stale_lead_v1",
+    "name": "[CRM] Cron 8h · Lead cũ không có hoạt động",
+    "description": "Mỗi sáng 8h → query KG tìm lead có status=open và không có hoạt động 3+ ngày → notify Zalo Bot sales để follow-up.",
+    "category": "report", "source": "builtin", "trigger_type": "cron", "icon": "Clock",
+    "tags": "crm,cron,stale-lead,follow-up,zalo", "trigger_config": { "schedule": "0 8 * * *" },
+    "graph": {
+      "meta": { "template": "tpl_crm_stale_lead_v1" },
+      "nodes": [
+        { "id": "t1", "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.cron", "label": "Cron · 08:00 mỗi ngày", "schedule": "0 8 * * *" } },
+        { "id": "q1", "type": "action",  "position": { "x": 320, "y": 80 }, "data": { "blockId": "action.search_kg", "label": "Tìm lead cũ (KG)", "query": "lead status:open last_activity:<3d", "top_k": 5 } },
+        { "id": "r1", "type": "action",  "position": { "x": 640, "y": 80 }, "data": { "blockId": "action.reply_zalo", "label": "Notify sales", "text": "📋 Nhắc sales: Có {{q1.count}} lead chưa follow-up >3 ngày!\n\nTop lead:\n{{q1.snippet}}\n\n💡 Xem CRM Inbox để xử lý ngay." } }
+      ],
+      "edges": [
+        { "id": "e_t1_q1", "source": "t1", "target": "q1" }, { "id": "e_q1_r1", "source": "q1", "target": "r1" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_internal_standup_v1",
+    "name": "[Internal] Standup hàng ngày 9h (T2–T6)",
+    "description": "Mỗi sáng 9h T2–T6 → LLM soạn tin nhắn standup (goals/blockers/done hôm qua) → gửi Zalo Bot nhóm nội bộ.",
+    "category": "automation", "source": "builtin", "trigger_type": "cron", "icon": "Users",
+    "tags": "internal,standup,cron,daily,team,zalo", "trigger_config": { "schedule": "0 9 * * 1-5" },
+    "graph": {
+      "meta": { "template": "tpl_internal_standup_v1" },
+      "nodes": [
+        { "id": "t1", "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.cron", "label": "Cron · 09:00 T2–T6", "schedule": "0 9 * * 1-5" } },
+        { "id": "l1", "type": "llm",     "position": { "x": 320, "y": 80 }, "data": { "blockId": "llm.compose_reply", "label": "Soạn tin standup", "model": "gpt-4o-mini", "system": "Bạn là scrum master. Soạn tin nhắn standup ngắn cho team: nhắc họ chia sẻ (1) Hôm qua đã làm gì? (2) Hôm nay sẽ làm gì? (3) Có bị chặn bởi gì không? 3-4 dòng, tone vui vẻ.", "prompt": "Thời điểm: {{trigger.fired_at}}\nNgày: {{trigger.date_vn}}" } },
+        { "id": "r1", "type": "action",  "position": { "x": 640, "y": 80 }, "data": { "blockId": "action.reply_zalo", "label": "Gửi Zalo Bot team", "text": "{{l1.output}}" } }
+      ],
+      "edges": [
+        { "id": "e_t1_l1", "source": "t1", "target": "l1" }, { "id": "e_l1_r1", "source": "l1", "target": "r1" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_internal_weekly_v1",
+    "name": "[Internal] Báo cáo tuần · Thứ 2 8h",
+    "description": "Mỗi Thứ 2 8h → query KG tổng hợp hoạt động tuần trước → LLM soạn báo cáo ngắn → gửi Zalo Bot nhóm nội bộ.",
+    "category": "report", "source": "builtin", "trigger_type": "cron", "icon": "BarChart2",
+    "tags": "internal,weekly-report,cron,zalo", "trigger_config": { "schedule": "0 8 * * 1" },
+    "graph": {
+      "meta": { "template": "tpl_internal_weekly_v1" },
+      "nodes": [
+        { "id": "t1", "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.cron", "label": "Cron · Thứ 2 08:00", "schedule": "0 8 * * 1" } },
+        { "id": "q1", "type": "action",  "position": { "x": 320, "y": 80 }, "data": { "blockId": "action.search_kg", "label": "KG · hoạt động tuần trước", "query": "báo cáo tuần kết quả kinh doanh", "top_k": 5 } },
+        { "id": "l1", "type": "llm",     "position": { "x": 640, "y": 80 }, "data": { "blockId": "llm.compose_reply", "label": "Soạn báo cáo tuần", "model": "gpt-4o-mini", "system": "Bạn là assistant tổng hợp báo cáo. Soạn tin nhắn tóm tắt kết quả tuần trước: 5-8 dòng, bullet points, có điểm nổi bật và goal tuần mới.", "prompt": "Dữ liệu tuần trước từ KG:\n{{q1.snippet}}\n\nNgày hiện tại: {{trigger.date_vn}}" } },
+        { "id": "r1", "type": "action",  "position": { "x": 960, "y": 80 }, "data": { "blockId": "action.reply_zalo", "label": "Gửi Zalo Bot team", "text": "{{l1.output}}" } }
+      ],
+      "edges": [
+        { "id": "e_t1_q1", "source": "t1", "target": "q1" }, { "id": "e_q1_l1", "source": "q1", "target": "l1" },
+        { "id": "e_l1_r1", "source": "l1", "target": "r1" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_internal_task_overdue_v1",
+    "name": "[Internal] Cron 8h30 T2–T6 · Nhắc task quá hạn",
+    "description": "Mỗi sáng 8h30 T2–T6 → gửi Zalo Bot nhóm nội bộ nhắc kiểm tra task overdue. Không có LLM/AI.",
+    "category": "automation", "source": "builtin", "trigger_type": "cron", "icon": "AlertCircle",
+    "tags": "internal,task,overdue,reminder,cron,zalo,no-ai", "trigger_config": { "schedule": "30 8 * * 1-5" },
+    "graph": {
+      "meta": { "template": "tpl_internal_task_overdue_v1" },
+      "nodes": [
+        { "id": "t1", "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.cron", "label": "Cron · 08:30 T2–T6", "schedule": "30 8 * * 1-5" } },
+        { "id": "r1", "type": "action",  "position": { "x": 320, "y": 80 }, "data": { "blockId": "action.reply_zalo", "label": "Nhắc task quá hạn", "text": "⏰ Nhắc: kiểm tra task quá hạn!\n\n📋 Vào Scheduler → Lịch → lọc status=overdue\n👉 Cập nhật, giao lại hoặc đóng các task tồn đọng.\n\nNgày: {{trigger.date_vn}}" } }
+      ],
+      "edges": [
+        { "id": "e_t1_r1", "source": "t1", "target": "r1" }
+      ]
+    }
+  }
+]

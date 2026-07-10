@@ -23,6 +23,12 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 
 require_once dirname( __DIR__ ) . '/interface-diagnostics-probe.php';
 
+
+// [2026-06-08 Johnny Chu] HOTFIX — double-load guard (bootstrap may include via filter AND direct require).
+if ( class_exists( 'BizCity_Probe_CG_Web_Post_Publisher', false ) ) {
+	return;
+}
+
 final class BizCity_Probe_CG_Web_Post_Publisher implements BizCity_Diagnostics_Probe {
 
 	public function id(): string          { return 'cg.web-post-publisher'; }
@@ -120,7 +126,7 @@ final class BizCity_Probe_CG_Web_Post_Publisher implements BizCity_Diagnostics_P
 		$tbl = $wpdb->prefix . 'bizcity_crm_events';
 
 		// 3a. Table exists.
-		$exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl ) ) === $tbl;
+		$exists = bizcity_tbl_exists( $tbl ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 		if ( $exists ) {
 			$steps[] = [
 				'label'  => 'Runtime · bizcity_crm_events table exists',

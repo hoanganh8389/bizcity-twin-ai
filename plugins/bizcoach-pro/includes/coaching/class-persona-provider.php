@@ -180,6 +180,14 @@ class BizCoach_Pro_Persona_Provider extends BizCity_Persona_Tool_Provider {
 		}
 		$coachee_id = (int) $wpdb->insert_id;
 
+		// [2026-07-05 Johnny Chu] PHASE-FAA2-FE FIX — canonical unique-primary via shared manager.
+		if ( $coachee_id && $user_id > 0 && class_exists( 'BizCoach_Pro_Self_Profile_Manager' ) ) {
+			$want_self = ! empty( $payload['is_self'] );
+			if ( $want_self || ! BizCoach_Pro_Self_Profile_Manager::user_has_self( $user_id ) ) {
+				BizCoach_Pro_Self_Profile_Manager::set_self_coachee( $user_id, $coachee_id );
+			}
+		}
+
 		/**
 		 * Fires after a bizcoach_pro coachee row is created. Generator
 		 * runner (Sprint I) will iterate template.generators[] and call

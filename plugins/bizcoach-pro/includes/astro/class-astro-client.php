@@ -99,8 +99,41 @@ final class BizCoach_Pro_Astro_Client {
 		return self::call( 'POST', '/astrology/western/chart-svg', $payload, $opts );
 	}
 
+	// [2026-07-09 Johnny Chu] PHASE-A5 — Western PRO charts wrappers (same-origin client -> hub gateway).
+	public static function synastry_western( array $payload, array $opts = array() ): array {
+		if ( empty( $opts['timeout'] ) ) { $opts['timeout'] = 30; }
+		return self::call( 'POST', '/astrology/western/synastry', $payload, $opts );
+	}
+
+	// [2026-07-09 Johnny Chu] PHASE-A5 — Western PRO charts wrappers (same-origin client -> hub gateway).
+	public static function composite_western( array $payload, array $opts = array() ): array {
+		if ( empty( $opts['timeout'] ) ) { $opts['timeout'] = 30; }
+		return self::call( 'POST', '/astrology/western/composite', $payload, $opts );
+	}
+
+	// [2026-07-09 Johnny Chu] PHASE-A5 — Western PRO charts wrappers (same-origin client -> hub gateway).
+	public static function solar_return_western( array $payload, array $opts = array() ): array {
+		if ( empty( $opts['timeout'] ) ) { $opts['timeout'] = 30; }
+		return self::call( 'POST', '/astrology/western/solar-return', $payload, $opts );
+	}
+
+	// [2026-07-09 Johnny Chu] PHASE-A5 — Western PRO charts wrappers (same-origin client -> hub gateway).
+	public static function lunar_return_western( array $payload, array $opts = array() ): array {
+		if ( empty( $opts['timeout'] ) ) { $opts['timeout'] = 30; }
+		return self::call( 'POST', '/astrology/western/lunar-return', $payload, $opts );
+	}
+
 	public static function calculate_vedic( array $payload, array $opts = array() ): array {
 		return self::call( 'POST', '/astrology/vedic/calculate', $payload, $opts );
+	}
+
+	// [2026-07-05 Johnny Chu] HOTFIX — FAA2 Vedic full (planets + extended + navamsa).
+	// Calls /astrology/vedic/faa2/full which uses faa2_vedic provider (3 endpoints in 1).
+	// Prefer this over BizCity_Astro_Router direct call in fetch_all_astro — client has
+	// HTTP fallback to bizcity.vn when local FAA2 key not configured.
+	public static function natal_vedic_faa2_full( array $payload, array $opts = array() ): array {
+		if ( empty( $opts['timeout'] ) ) { $opts['timeout'] = 30; }
+		return self::call( 'POST', '/astrology/vedic/faa2/full', $payload, $opts );
 	}
 
 	public static function dasha_vedic( array $payload, array $opts = array() ): array {
@@ -125,6 +158,12 @@ final class BizCoach_Pro_Astro_Client {
 
 	public static function moon_month( array $params, array $opts = array() ): array {
 		return self::call( 'GET', '/astrology/utilities/moon-month', $params, $opts );
+	}
+
+	// [2026-07-04 Johnny Chu] PHASE-FAA2-NEXT BE-5 — Ashtakoot compatibility score wrapper
+	public static function ashtakoot( array $payload, array $opts = array() ): array {
+		if ( empty( $opts['timeout'] ) ) { $opts['timeout'] = 20; }
+		return self::call( 'POST', '/astrology/match/ashtakoot-score', $payload, $opts );
 	}
 
 	public static function quota( array $opts = array() ): array {
@@ -294,9 +333,22 @@ final class BizCoach_Pro_Astro_Client {
 			);
 		}
 
-		$status = (int) wp_remote_retrieve_response_code( $resp );
-		$body   = json_decode( (string) wp_remote_retrieve_body( $resp ), true );
+		$status    = (int) wp_remote_retrieve_response_code( $resp );
+		$raw_body  = (string) wp_remote_retrieve_body( $resp );
+		// [2026-06-28 Johnny Chu] HOTFIX — strip UTF-8 BOM if present.
+		// bizcity.vn router returns valid JSON but prefixed with \xEF\xBB\xBF (BOM),
+		// causing json_decode() to return null (JSON_ERROR_SYNTAX=4) even though body is valid.
+		if ( substr( $raw_body, 0, 3 ) === "\xEF\xBB\xBF" ) {
+			$raw_body = substr( $raw_body, 3 );
+		}
+		$body      = json_decode( $raw_body, true );
 		if ( ! is_array( $body ) ) {
+			error_log( '[BizCoach_Pro_Astro_Client] call_remote non-JSON response'
+				. ' status=' . $status
+				. ' path=' . $path
+				. ' json_last_error=' . json_last_error()
+				. ' body_len=' . strlen( $raw_body )
+				. ' body_preview=' . substr( $raw_body, 0, 500 ) );
 			$body = array( 'raw' => $body );
 		}
 

@@ -47,10 +47,14 @@ require_once __DIR__ . '/includes/blocks/triggers/class-trigger-telegram.php';  
 require_once __DIR__ . '/includes/blocks/triggers/class-trigger-twinbrain-intent.php';// BE-6.E
 require_once __DIR__ . '/includes/blocks/triggers/class-trigger-twinbrain-turn-completed.php';// BE-7.A
 require_once __DIR__ . '/includes/blocks/triggers/class-trigger-twinbrain-tool-decided.php';  // BE-7.A
+// [2026-06-03 Johnny Chu] WF-AUTO BRIDGE W2 — trigger.skill_intent (skill A/B/C invocation listener).
+require_once __DIR__ . '/includes/blocks/triggers/class-trigger-skill-intent.php';
 require_once __DIR__ . '/includes/blocks/triggers/class-trigger-cron.php';
 require_once __DIR__ . '/includes/blocks/triggers/class-trigger-webhook.php';
 require_once __DIR__ . '/includes/blocks/actions/class-action-search-kg.php';
 require_once __DIR__ . '/includes/blocks/actions/class-action-reply-zalo.php';
+// [2026-07-05 Johnny Chu] PHASE-FAA2-TWINBRAIN — action.reply_zalo_each_day block (independent day messages).
+require_once __DIR__ . '/includes/blocks/actions/class-action-reply-zalo-each-day.php';
 require_once __DIR__ . '/includes/blocks/actions/class-action-send-email.php';
 require_once __DIR__ . '/includes/blocks/actions/class-action-http.php';
 require_once __DIR__ . '/includes/blocks/actions/class-action-db-write.php';
@@ -62,6 +66,26 @@ require_once __DIR__ . '/includes/blocks/actions/class-action-consume-attachment
 require_once __DIR__ . '/includes/blocks/actions/class-action-publish-wp-post.php';      // BE-7.C
 require_once __DIR__ . '/includes/blocks/actions/class-action-publish-fb-post.php';      // BE-7.C
 require_once __DIR__ . '/includes/blocks/actions/class-action-schedule-event.php';       // BE-7.D
+// [2026-06-03 Johnny Chu] WF-AUTO BRIDGE W1 — action.invoke_skill bridge block.
+require_once __DIR__ . '/includes/blocks/actions/class-action-invoke-skill.php';
+// [2026-06-07 Johnny Chu] PHASE-0.38.W1.5 — action.create_woo_order block (Order Fulfillment Hub).
+require_once __DIR__ . '/includes/blocks/actions/class-action-create-woo-order.php';
+// [2026-06-07 Johnny Chu] PHASE-0.40 G7.2 — action.notify_discord block (Discord webhook).
+require_once __DIR__ . '/includes/blocks/actions/class-action-notify-discord.php';
+// [2026-06-18 Johnny Chu] PHASE-ZALOBOT-ASTRO — action.run_astro block (resolve coachee + natal chart)
+require_once __DIR__ . '/includes/blocks/actions/class-action-run-astro.php';
+// [2026-07-03 Johnny Chu] PHASE-ASTRO-WORKFLOW — action.run_astro_transit block (transit day-by-day)
+require_once __DIR__ . '/includes/blocks/actions/class-action-run-astro-transit.php';
+// [2026-07-05 Johnny Chu] PHASE-FAA2-TWINBRAIN — deterministic best-day selector.
+require_once __DIR__ . '/includes/blocks/actions/class-action-pick-best-day-for-intent.php';
+// [2026-07-04 Johnny Chu] HOTFIX — missing require_once for blocks that existed but were never loaded.
+require_once __DIR__ . '/includes/blocks/actions/class-action-trending-research.php';
+require_once __DIR__ . '/includes/blocks/actions/class-action-web-research.php';
+require_once __DIR__ . '/includes/blocks/actions/class-action-generate-content.php';
+require_once __DIR__ . '/includes/blocks/actions/class-action-video-submit.php';
+require_once __DIR__ . '/includes/blocks/actions/class-action-reply-fb-message.php';
+// [2026-07-05 Johnny Chu] PHASE-IMG-TPL — action.generate_image block
+require_once __DIR__ . '/includes/blocks/actions/class-action-generate-image.php';
 require_once __DIR__ . '/includes/blocks/llm/class-llm-compose.php';
 require_once __DIR__ . '/includes/blocks/llm/class-llm-mpr-think.php';   // BE-6.E
 require_once __DIR__ . '/includes/blocks/logic/class-logic-condition.php';
@@ -78,6 +102,9 @@ require_once __DIR__ . '/includes/class-automation-listener.php';        // BE-6
 require_once __DIR__ . '/includes/class-automation-twinbrain-bridge.php';// BE-6.E
 require_once __DIR__ . '/includes/class-automation-default-reply.php';   // R-CH-UNI 1.2
 require_once __DIR__ . '/includes/class-automation-twin-event-tap.php';  // PG-S3 (Playground MPR pane)
+require_once __DIR__ . '/includes/class-automation-skill-bridge.php';    // [2026-06-03 Johnny Chu] WF-AUTO BRIDGE W2 — skill_intent dispatcher
+require_once __DIR__ . '/includes/class-workflow-md-compiler.php';       // [2026-06-03 Johnny Chu] WF-AUTO W3 — .workflow.md round-trip compiler
+require_once __DIR__ . '/includes/class-automation-community.php';       // [2026-06-03 Johnny Chu] WF-AUTO W7 — Community gallery (GitHub raw fetch)
 
 BizCity_Automation_Admin_SPA::instance();
 BizCity_Automation_REST::init();
@@ -85,6 +112,7 @@ BizCity_Automation_Trigger_Matcher::init();
 BizCity_Automation_Listener::init();
 BizCity_Automation_TwinBrain_Bridge::init();
 BizCity_Automation_Twin_Event_Tap::init();
+BizCity_Automation_Skill_Bridge::init();
 BizCity_Automation_File_Logger::init();
 
 // BE-3 — Runner cron dispatcher (R-CRON-META compliant).

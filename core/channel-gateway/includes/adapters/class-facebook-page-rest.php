@@ -51,6 +51,12 @@ class BizCity_Facebook_Page_REST {
 			'permission_callback' => $perm,
 		) );
 
+		register_rest_route( self::NS, '/facebook/pages/(?P<page_id>[A-Za-z0-9_-]+)', array(
+			'methods'             => 'DELETE',
+			'callback'            => array( __CLASS__, 'delete_page' ),
+			'permission_callback' => $perm,
+		) );
+
 		register_rest_route( self::NS, '/facebook/bots', array(
 			'methods'             => 'GET',
 			'callback'            => array( __CLASS__, 'list_bots' ),
@@ -250,90 +256,243 @@ class BizCity_Facebook_Page_REST {
 	/* ─────────── Pages ─────────── */
 
 	public static function list_pages() {
-		$pages       = array();
-		$default_id  = (string) get_option( self::DEFAULT_PAGE_OPT, '' );
+		$pages            = array();
+		$allowed_page_ids = array();
+		$default_id       = (string) get_option( self::DEFAULT_PAGE_OPT, '' );
+		$current_app_id   = self::get_current_app_id();
 
-		// 1) Legacy plugin (bizcity-facebook-bot): bots + fb_pages_connected.
+		// 1) Bot DB rows (preferred source because it stores app_id per page).
 		if ( class_exists( 'BizCity_Facebook_Bot_Database' ) ) {
-			$db   = BizCity_Facebook_Bot_Database::instance();
-			$rows = (array) $db->get_connected_pages();
+			global $wpdb;
+			$table = $wpdb->prefix . 'bizcity_facebook_bots';
+			$wpdb->suppress_errors( true );
+			if ( $current_app_id !== '' ) {
+				// [2026-06-12 Johnny Chu] HOTFIX — filter pages by current App ID
+				// so old pages from previous app do not leak into the list.
+				$rows = (array) $wpdb->get_results( $wpdb->prepare(
+					"SELECT id AS bot_id, bot_name, page_id, page_access_token, app_id
+					 FROM {$table}
+					 WHERE status = 'active'
+					   AND page_id IS NOT NULL AND page_id != ''
+					   AND app_id = %s
+					 ORDER BY bot_name ASC",
+					$current_app_id
+				) );
+			} else {
+				$rows = (array) $wpdb->get_results(
+					"SELECT id AS bot_id, bot_name, page_id, page_access_token, app_id
+					 FROM {$table}
+					 WHERE status = 'active'
+					   AND page_id IS NOT NULL AND page_id != ''
+					 ORDER BY bot_name ASC"
+				);
+			}
+			$wpdb->suppress_errors( false );
+
 			foreach ( $rows as $r ) {
 				$pid = (string) ( $r->page_id ?? '' );
 				if ( $pid === '' ) {
 					continue;
 				}
+				$allowed_page_ids[ $pid ] = true;
 				$pages[ $pid ] = array(
-					'page_id'   => $pid,
-					'page_name' => (string) ( $r->bot_name ?? '' ),
-					'bot_id'    => (int)    ( $r->bot_id ?? 0 ),
-					'has_token' => ! empty( $r->page_access_token ),
-					'source'    => $r->bot_id ? 'bot' : 'legacy_option',
-					'is_default'=> $default_id !== '' && $default_id === $pid,
-				);
-			}
-		} else {
-			foreach ( (array) get_option( 'fb_pages_connected', array() ) as $p ) {
-				$pid = (string) ( $p['id'] ?? '' );
-				if ( $pid === '' ) { continue; }
-				$pages[ $pid ] = array(
-					'page_id'   => $pid,
-					'page_name' => (string) ( $p['name'] ?? '' ),
-					'bot_id'    => 0,
-					'has_token' => ! empty( $p['access_token'] ),
-					'source'    => 'legacy_option',
-					'is_default'=> $default_id !== '' && $default_id === $pid,
+					'page_id'    => $pid,
+					'page_name'  => (string) ( $r->bot_name ?? '' ),
+					'bot_id'     => (int) ( $r->bot_id ?? 0 ),
+					'has_token'  => ! empty( $r->page_access_token ),
+					'app_id'     => (string) ( $r->app_id ?? '' ),
+					'source'     => 'bot',
+					'is_default' => $default_id !== '' && $default_id === $pid,
 				);
 			}
 		}
 
-		// 2) Gateway accounts (bizcity_integ_facebook_page) — page_id from OAuth.
+		// 2) Legacy option pages.
+		foreach ( (array) get_option( 'fb_pages_connected', array() ) as $p ) {
+			$pid = (string) ( $p['id'] ?? '' );
+			if ( $pid === '' ) {
+				continue;
+			}
+			if ( $current_app_id !== '' && empty( $allowed_page_ids[ $pid ] ) ) {
+				continue;
+			}
+			if ( ! isset( $pages[ $pid ] ) ) {
+				$pages[ $pid ] = array(
+					'page_id'    => $pid,
+					'page_name'  => (string) ( $p['name'] ?? '' ),
+					'bot_id'     => 0,
+					'has_token'  => ! empty( $p['access_token'] ),
+					'app_id'     => '',
+					'source'     => 'legacy_option',
+					'is_default' => $default_id !== '' && $default_id === $pid,
+				);
+			} else {
+				$pages[ $pid ]['source'] .= '+legacy';
+				if ( empty( $pages[ $pid ]['page_name'] ) && ! empty( $p['name'] ) ) {
+					$pages[ $pid ]['page_name'] = (string) $p['name'];
+				}
+				if ( empty( $pages[ $pid ]['has_token'] ) && ! empty( $p['access_token'] ) ) {
+					$pages[ $pid ]['has_token'] = true;
+				}
+			}
+		}
+
+		// 3) Gateway accounts (bizcity_integ_facebook_page) — page_id from OAuth/manual.
 		if ( class_exists( 'BizCity_Integration_Registry' ) ) {
-			$reg = BizCity_Integration_Registry::instance();
+			$reg  = BizCity_Integration_Registry::instance();
 			$accs = method_exists( $reg, 'get_channel_accounts' )
 				? (array) $reg->get_channel_accounts( 'facebook_page' )
 				: array();
 			foreach ( $accs as $a ) {
 				$pid = (string) ( $a['page_id'] ?? '' );
-				if ( $pid === '' ) { continue; }
+				if ( $pid === '' ) {
+					continue;
+				}
+				$acc_app_id = (string) ( $a['app_id'] ?? '' );
+				if ( $current_app_id !== '' ) {
+					if ( $acc_app_id !== '' && $acc_app_id !== $current_app_id ) {
+						continue;
+					}
+					if ( $acc_app_id === '' && empty( $allowed_page_ids[ $pid ] ) ) {
+						continue;
+					}
+				}
+
 				if ( ! isset( $pages[ $pid ] ) ) {
 					$pages[ $pid ] = array(
-						'page_id'   => $pid,
-						'page_name' => (string) ( $a['page_name'] ?? '' ),
-						'bot_id'    => 0,
-						'has_token' => ! empty( $a['page_access_token'] ),
-						'source'    => 'gateway_account',
-						'is_default'=> $default_id !== '' && $default_id === $pid,
+						'page_id'    => $pid,
+						'page_name'  => (string) ( $a['page_name'] ?? '' ),
+						'bot_id'     => 0,
+						'has_token'  => ! empty( $a['page_access_token'] ),
+						'app_id'     => $acc_app_id,
+						'source'     => 'gateway_account',
+						'is_default' => $default_id !== '' && $default_id === $pid,
 					);
 				} else {
 					$pages[ $pid ]['source'] .= '+gateway';
 					if ( empty( $pages[ $pid ]['page_name'] ) && ! empty( $a['page_name'] ) ) {
 						$pages[ $pid ]['page_name'] = (string) $a['page_name'];
 					}
+					if ( empty( $pages[ $pid ]['has_token'] ) && ! empty( $a['page_access_token'] ) ) {
+						$pages[ $pid ]['has_token'] = true;
+					}
+					if ( empty( $pages[ $pid ]['app_id'] ) && $acc_app_id !== '' ) {
+						$pages[ $pid ]['app_id'] = $acc_app_id;
+					}
 				}
 				$pages[ $pid ]['account_uid'] = (string) ( $a['_uid'] ?? '' );
 			}
 		}
 
-		// Attach last_check stamp from option store.
+		// Attach last-check payload for status column.
 		foreach ( $pages as $pid => &$p ) {
 			$lc = self::get_last_check( (string) $pid );
 			if ( $lc ) {
-				$p['last_check_at'] = (int) ( $lc['at'] ?? 0 );
-				$p['last_check_ok'] = ! empty( $lc['ok'] );
+				$at = (int) ( $lc['at'] ?? 0 );
+				$p['last_check_at']  = $at;
+				$p['last_check_iso'] = $at > 0 ? gmdate( 'c', $at ) : '';
+				$p['last_check_ok']  = isset( $lc['ok'] ) ? (bool) $lc['ok'] : null;
 				if ( ! empty( $lc['message'] ) ) {
 					$p['last_check_err'] = (string) $lc['message'];
 				}
+				if ( isset( $lc['category'] ) ) {
+					$p['last_check_category'] = (string) $lc['category'];
+				}
+				if ( isset( $lc['fan_count'] ) ) {
+					$p['last_check_fan_count'] = (int) $lc['fan_count'];
+				}
+				if ( isset( $lc['http'] ) ) {
+					$p['last_check_http'] = (int) $lc['http'];
+				}
+				if ( empty( $p['page_name'] ) && ! empty( $lc['page_name'] ) ) {
+					$p['page_name'] = (string) $lc['page_name'];
+				}
 			} else {
-				$p['last_check_at'] = 0;
-				$p['last_check_ok'] = null;
+				$p['last_check_at']  = 0;
+				$p['last_check_iso'] = '';
+				$p['last_check_ok']  = null;
 			}
 		}
 		unset( $p );
 
 		return rest_ensure_response( array(
-			'pages'      => array_values( $pages ),
-			'default_id' => $default_id,
-			'count'      => count( $pages ),
+			'pages'         => array_values( $pages ),
+			'default_id'    => $default_id,
+			'count'         => count( $pages ),
+			'filter_app_id' => $current_app_id,
+		) );
+	}
+
+	/**
+	 * Delete a connected page across all storage layers.
+	 */
+	public static function delete_page( WP_REST_Request $req ) {
+		// [2026-06-12 Johnny Chu] HOTFIX — allow deleting stale pages from old app_id
+		// across bot table, gateway accounts, legacy options and test cache.
+		$page_id = (string) $req->get_param( 'page_id' );
+		if ( $page_id === '' ) {
+			return new WP_Error( 'bad_page_id', 'page_id is required.', array( 'status' => 400 ) );
+		}
+
+		$deleted = array(
+			'bot_rows'         => 0,
+			'gateway_accounts' => 0,
+			'legacy_rows'      => 0,
+			'last_check'       => false,
+			'default_unset'    => false,
+		);
+
+		if ( class_exists( 'BizCity_Facebook_Bot_Database' ) ) {
+			global $wpdb;
+			$table = $wpdb->prefix . 'bizcity_facebook_bots';
+			$wpdb->suppress_errors( true );
+			$result = $wpdb->query( $wpdb->prepare( "DELETE FROM {$table} WHERE page_id = %s", $page_id ) );
+			$wpdb->suppress_errors( false );
+			$deleted['bot_rows'] = is_numeric( $result ) ? (int) $result : 0;
+		}
+
+		if ( class_exists( 'BizCity_Integration_Registry' ) ) {
+			$reg  = BizCity_Integration_Registry::instance();
+			$accs = method_exists( $reg, 'get_channel_accounts' )
+				? (array) $reg->get_channel_accounts( 'facebook_page' )
+				: array();
+			foreach ( $accs as $acc ) {
+				$pid = (string) ( $acc['page_id'] ?? '' );
+				$uid = (string) ( $acc['_uid'] ?? '' );
+				if ( $pid !== $page_id || $uid === '' ) {
+					continue;
+				}
+				if ( $reg->delete_channel_account( 'facebook_page', $uid ) ) {
+					$deleted['gateway_accounts']++;
+				}
+			}
+		}
+
+		$legacy_before = (array) get_option( 'fb_pages_connected', array() );
+		$legacy_after  = array_values( array_filter( $legacy_before, function ( $row ) use ( $page_id ) {
+			return (string) ( $row['id'] ?? '' ) !== $page_id;
+		} ) );
+		$deleted['legacy_rows'] = max( 0, count( $legacy_before ) - count( $legacy_after ) );
+		if ( $deleted['legacy_rows'] > 0 ) {
+			update_option( 'fb_pages_connected', $legacy_after, false );
+		}
+
+		if ( (string) get_option( self::DEFAULT_PAGE_OPT, '' ) === $page_id ) {
+			delete_option( self::DEFAULT_PAGE_OPT );
+			$deleted['default_unset'] = true;
+		}
+
+		if ( (string) get_option( 'messenger_page_id', '' ) === $page_id ) {
+			delete_option( 'messenger_page_id' );
+			delete_option( 'messenger_page_token' );
+		}
+
+		$deleted['last_check'] = delete_option( 'bizcity_cg_fb_test_' . $page_id );
+
+		return rest_ensure_response( array(
+			'ok'      => true,
+			'page_id' => $page_id,
+			'deleted' => $deleted,
 		) );
 	}
 
@@ -427,25 +586,23 @@ class BizCity_Facebook_Page_REST {
 
 	public static function save_settings( WP_REST_Request $req ) {
 		$body = (array) $req->get_json_params();
-		// 2026-05-25 — Multisite: OAuth handler chạy ở sub-site (vd dinogpt.vn
-		// blog 418) khi user click "Kết nối FB". Nếu chỉ update_option (blog
-		// hiện tại của admin SPA) thì sub-site không đọc được → wp_die "Thiếu
-		// cấu hình". Ghi đồng thời site_option để mọi blog đều thấy.
+		// [2026-06-29 Johnny Chu] HOTFIX R-MULTISHARD — CẤM update_site_option cho bztfb_ keys.
+		// Multisite multishard: update_site_option() ghi vào shard chính (network sitemeta),
+		// còn get_option() trên mỗi blog đọc từ shard riêng → 2 giá trị diverge →
+		// App Secret đúng ở shard blog nhưng sai ở shard main → token exchange fail.
+		// Rule: mọi credentials per-plugin PHẢI dùng update_option/get_option (per-blog) only.
 		if ( isset( $body['app_id'] ) ) {
 			$v = sanitize_text_field( $body['app_id'] );
 			update_option( 'bztfb_app_id', $v );
-			update_site_option( 'bztfb_app_id', $v );
 		}
 		if ( isset( $body['app_secret'] ) && $body['app_secret'] !== '' ) {
 			$v = sanitize_text_field( $body['app_secret'] );
 			update_option( 'bztfb_app_secret', $v );
-			update_site_option( 'bztfb_app_secret', $v );
 		}
 		if ( isset( $body['verify_token'] ) ) {
 			$vt = sanitize_text_field( $body['verify_token'] );
 			$vt = $vt !== '' ? $vt : 'bizgpt';
 			update_option( 'bztfb_verify_token', $vt );
-			update_site_option( 'bztfb_verify_token', $vt );
 		}
 		return self::get_settings();
 	}
@@ -607,7 +764,11 @@ class BizCity_Facebook_Page_REST {
 		if ( $code < 200 || $code >= 300 || ! is_array( $data ) ) {
 			$err = is_array( $data ) && isset( $data['error']['message'] ) ? $data['error']['message'] : 'HTTP ' . $code;
 			// Persist failed-check stamp so UI can show "Lần cuối kiểm tra: ... (lỗi)".
+			// [2026-06-12 Johnny Chu] HOTFIX — include app_id + page_id in stamp so
+			// status column can show which app/context produced the latest probe.
 			update_option( 'bizcity_cg_fb_test_' . $page_id, array(
+				'page_id'  => $page_id,
+				'app_id'   => self::get_current_app_id(),
 				'at'      => time(),
 				'ok'      => false,
 				'http'    => $code,
@@ -617,6 +778,8 @@ class BizCity_Facebook_Page_REST {
 		}
 		// Persist success stamp.
 		$stamp = array(
+			'page_id'   => $page_id,
+			'app_id'    => self::get_current_app_id(),
 			'at'        => time(),
 			'ok'        => true,
 			'page_name' => (string) ( $data['name'] ?? '' ),
@@ -644,6 +807,24 @@ class BizCity_Facebook_Page_REST {
 	public static function get_last_check( string $page_id ): ?array {
 		$v = get_option( 'bizcity_cg_fb_test_' . $page_id, null );
 		return is_array( $v ) ? $v : null;
+	}
+
+	/**
+	 * Current App ID configured in Channel Gateway settings.
+	 */
+	private static function get_current_app_id(): string {
+		// [2026-06-12 Johnny Chu] HOTFIX — shared helper for app-aware page filter/token resolver.
+		$app_id = (string) get_option( 'bztfb_app_id', '' );
+		if ( $app_id === '' ) {
+			$app_id = (string) get_site_option( 'bztfb_app_id', '' );
+		}
+		if ( $app_id === '' ) {
+			$app_id = (string) get_site_option( 'bizcity_fb_app_id', '' );
+		}
+		if ( $app_id === '' ) {
+			$app_id = (string) get_option( 'fb_app_id', '' );
+		}
+		return trim( $app_id );
 	}
 
 	/**
@@ -1050,12 +1231,13 @@ class BizCity_Facebook_Page_REST {
 		$tbl       = BizCity_Channel_Messages::table();
 		$chat_a    = 'fb_' . $psid;
 		$chat_b    = 'fb_' . $page_id . '_' . $psid;
-		// Direct query (BizCity_Channel_Messages::query() supports only single chat_id).
+		// [2026-06-29 Johnny Chu] HOTFIX — inbound stored as platform='FB_MESS' (via UCL),
+		// outbound stored as 'FACEBOOK'. Must include both to show full conversation.
 		$sql  = $wpdb->prepare(
 			"SELECT id, direction, body, message_id, event_type, status, error, payload_json, responder_kind, responder_user_id, created_at "
-			. "FROM {$tbl} WHERE platform=%s AND (chat_id=%s OR chat_id=%s) "
+			. "FROM {$tbl} WHERE platform IN ('FACEBOOK','FB_MESS') AND (chat_id=%s OR chat_id=%s) "
 			. 'ORDER BY id DESC LIMIT %d',
-			'FACEBOOK', $chat_a, $chat_b, $limit
+			$chat_a, $chat_b, $limit
 		);
 		$rows = (array) $wpdb->get_results( $sql, ARRAY_A );
 		$rows = array_reverse( $rows ); // ASC for timeline
@@ -1123,11 +1305,12 @@ class BizCity_Facebook_Page_REST {
 		$payload_like = '%"page_id":"' . $wpdb->esc_like( $page_id ) . '"%';
 		$scan_limit  = max( 300, $limit * 25 );
 
+		// [2026-06-29 Johnny Chu] HOTFIX — inbound msgs stored as platform='FB_MESS' (via UCL),
+		// outbound stored as 'FACEBOOK'. Must include both to show the full conversation.
 		$sql = $wpdb->prepare(
 			"SELECT id, user_psid, chat_id, body, direction, event_type, status, error, payload_json, created_at "
-			. "FROM {$tbl} WHERE platform=%s AND (chat_id LIKE %s OR payload_json LIKE %s) "
+			. "FROM {$tbl} WHERE platform IN ('FACEBOOK','FB_MESS') AND (chat_id LIKE %s OR payload_json LIKE %s) "
 			. 'ORDER BY id DESC LIMIT %d',
-			'FACEBOOK',
 			$chat_like,
 			$payload_like,
 			$scan_limit
@@ -1222,7 +1405,28 @@ class BizCity_Facebook_Page_REST {
 	 */
 	private static function resolve_page_token( string $page_id ): string {
 		if ( $page_id === '' ) { return ''; }
-		// Bot DB.
+		$current_app_id = self::get_current_app_id();
+
+		// [2026-06-12 Johnny Chu] HOTFIX — prefer token from row bound to current app_id.
+		// Bot DB (prefer row bound to current app_id).
+		if ( $current_app_id !== '' && class_exists( 'BizCity_Facebook_Bot_Database' ) ) {
+			global $wpdb;
+			$table = $wpdb->prefix . 'bizcity_facebook_bots';
+			$wpdb->suppress_errors( true );
+			$tok = (string) $wpdb->get_var( $wpdb->prepare(
+				"SELECT page_access_token FROM {$table}
+				 WHERE page_id = %s AND status = 'active' AND app_id = %s
+				 ORDER BY id DESC LIMIT 1",
+				$page_id,
+				$current_app_id
+			) );
+			$wpdb->suppress_errors( false );
+			if ( $tok !== '' ) {
+				return $tok;
+			}
+		}
+
+		// Bot DB (generic fallback).
 		if ( class_exists( 'BizCity_Facebook_Bot_Database' ) ) {
 			$db  = BizCity_Facebook_Bot_Database::instance();
 			$bot = $db->get_bot_by_page_id( $page_id );
@@ -1244,6 +1448,8 @@ class BizCity_Facebook_Page_REST {
 				: array();
 			foreach ( $accs as $a ) {
 				if ( (string) ( $a['page_id'] ?? '' ) !== $page_id ) { continue; }
+				$acc_app_id = (string) ( $a['app_id'] ?? '' );
+				if ( $current_app_id !== '' && $acc_app_id !== '' && $acc_app_id !== $current_app_id ) { continue; }
 				$integ = $reg->get( 'facebook_page' );
 				if ( $integ && method_exists( $integ, 'set_account' ) && method_exists( $integ, 'get_decrypted_param' ) ) {
 					$clone = clone $integ;

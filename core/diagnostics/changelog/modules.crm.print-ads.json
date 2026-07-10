@@ -1,0 +1,70 @@
+{
+  "$schema": "https://bizcity.vn/schema/diagnostics-changelog-v1.json",
+  "module_id": "modules.crm.print-ads",
+  "owner": "plugins/bizcity-twin-crm",
+  "installer_id": "twin_crm_print_ads",
+  "current_version": "1.0.0",
+  "version_option": "bzcrm_print_ads_db_ver",
+  "tables": {
+    "bzcrm_print_templates": {
+      "since": "1.0.0",
+      "purpose": "Print-ads composer template library. Populated by 3 sources: local seed file (data/print-templates-seed.json), remote pull from bizcity.vn/wp-json/bizcity/v1/print-templates (W4), and user-defined custom templates. UNIQUE(source, remote_id) is the idempotent upsert key for remote sync; user_custom rows are never overwritten.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":                { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
+        "slug":              { "type": "VARCHAR(120) NOT NULL DEFAULT ''",        "since": "1.0.0", "comment": "Stable unique slug, e.g. 'voucher-classic-red'." },
+        "source":            { "type": "VARCHAR(20) NOT NULL DEFAULT 'local_seed'", "since": "1.0.0", "comment": "Enum: local_seed | bizcity_remote | user_custom." },
+        "remote_id":         { "type": "VARCHAR(64) NULL",                        "since": "1.0.0", "comment": "BizCity template id when source=bizcity_remote; NULL otherwise. UNIQUE with `source`." },
+        "template_type":     { "type": "VARCHAR(40) NOT NULL DEFAULT 'print_ad'", "since": "1.0.0", "comment": "Enum: voucher | print_ad | qr_card | business_card | event_invite." },
+        "title":             { "type": "VARCHAR(190) NOT NULL DEFAULT ''",        "since": "1.0.0" },
+        "description":       { "type": "TEXT NULL",                               "since": "1.0.0" },
+        "ref_image_url":     { "type": "TEXT NULL",                               "since": "1.0.0", "comment": "Optional composition reference image fed into LLM as img2img seed." },
+        "base_prompt":       { "type": "LONGTEXT NOT NULL",                       "since": "1.0.0", "comment": "Prompt template with {placeholders}: {campaign_title}, {cta_text}, {discount}, {brand_name}, {qr_url}, {custom_detail}." },
+        "qr_slot_json":      { "type": "LONGTEXT NULL",                           "since": "1.0.0", "comment": "JSON {x_pct,y_pct,size_pct} or null when template has no QR." },
+        "brand_slot_json":   { "type": "LONGTEXT NULL",                           "since": "1.0.0", "comment": "JSON logo/brand placement hint." },
+        "target_aspect":     { "type": "VARCHAR(20) NOT NULL DEFAULT '1:1'",      "since": "1.0.0", "comment": "1:1 | 4:5 | 9:16 | 16:9." },
+        "recommended_model": { "type": "VARCHAR(40) NOT NULL DEFAULT 'flux-pro'", "since": "1.0.0", "comment": "Maps to BizCity_Tool_Image::IMAGE_MODELS key." },
+        "sort_order":        { "type": "INT NOT NULL DEFAULT 0",                  "since": "1.0.0" },
+        "status":            { "type": "VARCHAR(20) NOT NULL DEFAULT 'active'",   "since": "1.0.0", "comment": "active | hidden | deprecated." },
+        "created_at":        { "type": "DATETIME NOT NULL",                       "since": "1.0.0" },
+        "updated_at":        { "type": "DATETIME NOT NULL",                       "since": "1.0.0" }
+      },
+      "indexes": {
+        "uniq_slug":        { "cols": ["slug"],                     "since": "1.0.0", "unique": true },
+        "uniq_source_remote": { "cols": ["source", "remote_id"],    "since": "1.0.0", "unique": true, "comment": "Idempotent upsert key for W4 remote sync." },
+        "idx_type_status":  { "cols": ["template_type", "status", "sort_order"], "since": "1.0.0" }
+      }
+    },
+    "bzcrm_print_generations": {
+      "since": "1.0.0",
+      "purpose": "Audit trail of every generated print-ad attachment. One row per successful BizCity_Tool_Image::generate() call from the composer. attachment_id points to WP Media Library item carrying meta {_bzcrm_campaign_id, _bzcrm_template_id, _bzcrm_generation_id}.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":             { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
+        "campaign_id":    { "type": "BIGINT UNSIGNED NOT NULL",                "since": "1.0.0" },
+        "template_id":    { "type": "BIGINT UNSIGNED NOT NULL",                "since": "1.0.0" },
+        "attachment_id":  { "type": "BIGINT UNSIGNED NULL",                    "since": "1.0.0", "comment": "WP attachment post id; NULL while generation pending or on failure." },
+        "model":          { "type": "VARCHAR(40) NOT NULL DEFAULT ''",         "since": "1.0.0" },
+        "merged_prompt":  { "type": "LONGTEXT NULL",                           "since": "1.0.0", "comment": "Final prompt after placeholder merge (debug / re-run)." },
+        "overrides_json": { "type": "LONGTEXT NULL",                           "since": "1.0.0" },
+        "status":         { "type": "VARCHAR(20) NOT NULL DEFAULT 'pending'",  "since": "1.0.0", "comment": "pending | ok | failed." },
+        "error":          { "type": "TEXT NULL",                               "since": "1.0.0" },
+        "created_by":     { "type": "BIGINT UNSIGNED NULL",                    "since": "1.0.0" },
+        "created_at":     { "type": "DATETIME NOT NULL",                       "since": "1.0.0" },
+        "updated_at":     { "type": "DATETIME NOT NULL",                       "since": "1.0.0" }
+      },
+      "indexes": {
+        "idx_campaign":     { "cols": ["campaign_id", "created_at"], "since": "1.0.0" },
+        "idx_template":     { "cols": ["template_id"],               "since": "1.0.0" },
+        "idx_attachment":   { "cols": ["attachment_id"],             "since": "1.0.0" }
+      }
+    }
+  },
+  "history": [
+    { "version": "1.0.0", "date": "2026-05-26", "change": "M-PA.W1 — initial schema for Campaign Print-Ads Composer. Two tables: bzcrm_print_templates (template library, 3 sources: local_seed / bizcity_remote / user_custom; UNIQUE(source, remote_id) as upsert key) + bzcrm_print_generations (audit of LLM image generations linked to campaign + template + WP attachment). Schema ships ready for W4 remote sync from bizcity.vn — no migration required." }
+  ]
+}

@@ -5460,6 +5460,36 @@ PROMPT;
     }
 
     /**
+     * Load projects for $user_id using BizCity_Project_Service when available
+     * (which has its own static in-request cache) or fall back to BizCity_User_Meta_Cache.
+     * [2026-06-11 Johnny Chu] R-PERF — unified via service/cache, no raw get_user_meta
+     *
+     * @return array
+     */
+    private function _load_projects( $user_id ) {
+        if ( class_exists( 'BizCity_Project_Service' ) ) {
+            return BizCity_Project_Service::instance()->list_projects( $user_id );
+        }
+        if ( class_exists( 'BizCity_User_Meta_Cache' ) ) {
+            $raw = BizCity_User_Meta_Cache::get( $user_id, $this->_projects_meta_key(), [] );
+        } else {
+            $raw = get_user_meta( $user_id, $this->_projects_meta_key(), true );
+        }
+        return is_array( $raw ) ? $raw : [];
+    }
+
+    /**
+     * Save projects for $user_id, invalidating BizCity_User_Meta_Cache.
+     * [2026-06-11 Johnny Chu] R-PERF — invalidate after write
+     */
+    private function _save_projects( $user_id, array $projects ) {
+        update_user_meta( $user_id, $this->_projects_meta_key(), $projects );
+        if ( class_exists( 'BizCity_User_Meta_Cache' ) ) {
+            BizCity_User_Meta_Cache::invalidate( $user_id, $this->_projects_meta_key() );
+        }
+    }
+
+    /**
      * Ensure V3 webchat tables exist (projects, sessions).
      * This is a fallback in case migration didn't run.
      */
@@ -5473,8 +5503,22 @@ PROMPT;
         $sessions_table = $wpdb->prefix . 'bizcity_webchat_sessions';
 
         // Quick check — if either V3 table doesn't exist, run create_tables()
-        $projects_exists = $wpdb->get_var( "SHOW TABLES LIKE '$projects_table'" );
-        $sessions_exists = $wpdb->get_var( "SHOW TABLES LIKE '$sessions_table'" );
+        // [2026-06-22 Johnny Chu] R-SHOW-TABLES — use information_schema + dual cache
+        $blog_id_key  = (int) get_current_blog_id();
+        $ck_proj      = 'bz_tbl_' . $blog_id_key . '_' . crc32( $projects_table );
+        $ck_sess      = 'bz_tbl_' . $blog_id_key . '_' . crc32( $sessions_table );
+        $p_cached     = wp_cache_get( $ck_proj, 'bizcity_tbl' );
+        $s_cached     = wp_cache_get( $ck_sess, 'bizcity_tbl' );
+        if ( false === $p_cached ) {
+            $p_cached = (int) (bool) $wpdb->get_var( $wpdb->prepare( 'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1', $projects_table ) );
+            wp_cache_set( $ck_proj, $p_cached, 'bizcity_tbl', HOUR_IN_SECONDS );
+        }
+        if ( false === $s_cached ) {
+            $s_cached = (int) (bool) $wpdb->get_var( $wpdb->prepare( 'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1', $sessions_table ) );
+            wp_cache_set( $ck_sess, $s_cached, 'bizcity_tbl', HOUR_IN_SECONDS );
+        }
+        $projects_exists = $p_cached ? $projects_table : null;
+        $sessions_exists = $s_cached ? $sessions_table : null;
 
         if ( $projects_exists !== $projects_table || $sessions_exists !== $sessions_table ) {
             if ( method_exists( $wc_db, 'create_tables' ) ) {
@@ -5493,12 +5537,10 @@ PROMPT;
         }
 
         $user_id  = get_current_user_id();
-        $projects = get_user_meta( $user_id, $this->_projects_meta_key(), true );
+        $projects = $this->_load_projects( $user_id );
         if ( ! is_array( $projects ) ) {
             $projects = [];
         }
-
-        // Count webchat sessions per project
         if ( class_exists( 'BizCity_WebChat_Database' ) ) {
             $wc_db = BizCity_WebChat_Database::instance();
             foreach ( $projects as &$p ) {
@@ -5526,7 +5568,7 @@ PROMPT;
             wp_send_json_error( [ 'message' => 'Project name is required' ] );
         }
 
-        $projects = get_user_meta( $user_id, $this->_projects_meta_key(), true );
+        $projects = $this->_load_projects( $user_id );
         if ( ! is_array( $projects ) ) {
             $projects = [];
         }
@@ -5539,7 +5581,7 @@ PROMPT;
         ];
 
         $projects[] = $new_project;
-        update_user_meta( $user_id, $this->_projects_meta_key(), $projects );
+        $this->_save_projects( $user_id, $projects );
 
         wp_send_json_success( $new_project );
     }
@@ -5561,7 +5603,7 @@ PROMPT;
             wp_send_json_error( [ 'message' => 'Missing parameters' ] );
         }
 
-        $projects = get_user_meta( $user_id, $this->_projects_meta_key(), true );
+        $projects = $this->_load_projects( $user_id );
         if ( ! is_array( $projects ) ) {
             wp_send_json_error( [ 'message' => 'No projects found' ] );
         }
@@ -5583,7 +5625,7 @@ PROMPT;
             wp_send_json_error( [ 'message' => 'Project not found' ] );
         }
 
-        update_user_meta( $user_id, $this->_projects_meta_key(), $projects );
+        $this->_save_projects( $user_id, $projects );
         wp_send_json_success( [ 'ok' => true ] );
     }
 
@@ -5603,7 +5645,7 @@ PROMPT;
             wp_send_json_error( [ 'message' => 'Missing project_id' ] );
         }
 
-        $projects = get_user_meta( $user_id, $this->_projects_meta_key(), true );
+        $projects = $this->_load_projects( $user_id );
         if ( ! is_array( $projects ) ) {
             wp_send_json_error( [ 'message' => 'No projects found' ] );
         }
@@ -5612,7 +5654,7 @@ PROMPT;
             return $p['id'] !== $project_id;
         } ) );
 
-        update_user_meta( $user_id, $this->_projects_meta_key(), $projects );
+        $this->_save_projects( $user_id, $projects );
 
         // Unassign webchat sessions from deleted project
         if ( class_exists( 'BizCity_WebChat_Database' ) ) {

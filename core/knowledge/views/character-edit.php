@@ -76,7 +76,7 @@ if ($id) {
                 <?php endif; ?>
             </div>
             <div class="bk-header-info">
-                <h1 id="header-title"><?php echo $is_new ? 'New Twin Guru' : esc_html($character->name); ?></h1>
+                <h1 id="header-title"><?php echo $is_new ? 'New Bind Connector' : esc_html($character->name); ?></h1>
                 <?php if (!$is_new): ?>
                     <div class="bk-character-meta">
                         <span class="bk-status bk-status-<?php echo esc_attr($character->status ?? 'draft'); ?>">
@@ -133,37 +133,24 @@ if ($id) {
                     ?>
                 </span>
             </button>
-            <button type="button" class="bk-tab-btn" data-tab="messages">
-                <span class="dashicons dashicons-format-chat"></span>
-                Messages
-                <span class="bk-tab-count" id="bk-messages-count">
-                    <?php
-                    global $wpdb;
-                    $tbl_msg = $wpdb->prefix . 'bizcity_channel_messages';
-                    echo (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$tbl_msg} WHERE character_id = %d", (int) $id ) );
-                    ?>
-                </span>
+            <?php endif; ?>
+            <?php if ( ! $is_new ): ?>
+            <!-- [2026-06-22 Johnny Chu] GURU-FINISH — removed standalone Messages + Cài đặt AI tabs; added Dashboard tab -->
+            <button type="button" class="bk-tab-btn" data-tab="channels">
+                <span class="dashicons dashicons-rss"></span>
+                Channels
+                <span class="bk-tab-count" id="bk-channels-count">0</span>
+            </button>
+            <button type="button" class="bk-tab-btn" data-tab="dashboard">
+                <span class="dashicons dashicons-chart-bar"></span>
+                Dashboard
+            </button>
+            <!-- [2026-06-24 Johnny Chu] GURU-KPI — Automations tab -->
+            <button type="button" class="bk-tab-btn" data-tab="automations">
+                <span class="dashicons dashicons-randomize"></span>
+                Automations
             </button>
             <?php endif; ?>
-            <button type="button" class="bk-tab-btn" data-tab="documents">
-                <span class="dashicons dashicons-media-document"></span>
-                Documents
-                <span class="bk-tab-count"><?php echo count($documents); ?></span>
-            </button>
-            <button type="button" class="bk-tab-btn" data-tab="websites">
-                <span class="dashicons dashicons-admin-site"></span>
-                Websites
-                <span class="bk-tab-count"><?php echo count($websites); ?></span>
-            </button>
-            <button type="button" class="bk-tab-btn" data-tab="model">
-                <span class="dashicons dashicons-admin-settings"></span>
-                Cài đặt AI
-            </button>
-            <button type="button" class="bk-tab-btn" data-tab="skills">
-                <span class="dashicons dashicons-superhero-alt"></span>
-                Skills
-                <span class="bk-tab-count" id="bk-skills-count">0</span>
-            </button>
         </div>
         
         <!-- Tab: General -->
@@ -319,38 +306,6 @@ if ($id) {
                     do_action( 'bizcity_knowledge_character_meta_rows', $character ?? null );
                     ?>
                     <tr>
-                        <th><label>Agent Skills</label></th>
-                        <td>
-                            <div class="bk-skills-grid">
-                                <label class="bk-skill-item">
-                                    <input type="checkbox" name="skills[]" value="web_tool" checked>
-                                    <span class="bk-skill-icon">🌐</span>
-                                    <span class="bk-skill-name">Web Tool</span>
-                                </label>
-                                <label class="bk-skill-item">
-                                    <input type="checkbox" name="skills[]" value="extract_text">
-                                    <span class="bk-skill-icon">📋</span>
-                                    <span class="bk-skill-name">Extract Text</span>
-                                </label>
-                                <label class="bk-skill-item">
-                                    <input type="checkbox" name="skills[]" value="send_emails">
-                                    <span class="bk-skill-icon">📧</span>
-                                    <span class="bk-skill-name">Send Emails</span>
-                                </label>
-                                <label class="bk-skill-item">
-                                    <input type="checkbox" name="skills[]" value="image_understanding">
-                                    <span class="bk-skill-icon">🖼️</span>
-                                    <span class="bk-skill-name">Deep Image Understanding</span>
-                                </label>
-                                <label class="bk-skill-item">
-                                    <input type="checkbox" name="skills[]" value="conversation_starters">
-                                    <span class="bk-skill-icon">💬</span>
-                                    <span class="bk-skill-name">Conversation Starters</span>
-                                </label>
-                            </div>
-                        </td>
-                    </tr>
-                    <tr>
                         <th><label for="status">Trạng thái</label></th>
                         <td>
                             <select name="status" id="status">
@@ -381,7 +336,7 @@ if ($id) {
                     }
                     ?>
                     <tr>
-                        <th><label for="persona-provider-id">🧩 Twin Guru Provider</label></th>
+                        <th><label for="persona-provider-id">🧩 Bind Connector Provider</label></th>
                         <td>
                             <select name="persona_provider_id" id="persona-provider-id" class="regular-text">
                                 <option value=""><?php esc_html_e( '— Không gắn provider (pure prompt) —', 'bizcity-twin-ai' ); ?></option>
@@ -402,6 +357,41 @@ if ($id) {
                                     <br><strong style="color:#b91c1c;">⚠ <?php esc_html_e( 'Chưa có persona provider nào được register. Cần activate plugin (vd: bizcoach-map).', 'bizcity-twin-ai' ); ?></strong>
                                 <?php endif; ?>
                             </p>
+                        </td>
+                    </tr>
+                    <?php
+                    // [2026-06-22 Johnny Chu] GURU-FINISH — moved from Cài đặt AI tab to Overview
+                    $creativity_level = $character->creativity_level ?? 0.7;
+                    $max_tokens_val   = $character->max_tokens ?? null;
+                    ?>
+                    <tr>
+                        <th><label for="creativity-level">Creativity Level</label></th>
+                        <td>
+                            <div class="bk-creativity-slider">
+                                <div class="bk-slider-labels">
+                                    <span class="bk-label-left">Precise</span>
+                                    <span class="bk-label-center">Balanced</span>
+                                    <span class="bk-label-right">Creative</span>
+                                </div>
+                                <input type="range" name="creativity_level" id="creativity-level"
+                                    min="0" max="1" step="0.1" value="<?php echo esc_attr( $creativity_level ); ?>"
+                                    class="bk-slider">
+                                <div class="bk-slider-value">
+                                    Temperature: <strong id="temperature-value"><?php echo esc_html( $creativity_level ); ?></strong>
+                                </div>
+                            </div>
+                            <p class="description">Temperature điều chỉnh độ sáng tạo của AI. Thấp = chính xác, Cao = sáng tạo.</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th><label for="max-tokens">Max Tokens (Output)</label></th>
+                        <td>
+                            <input type="number" name="max_tokens" id="max-tokens"
+                                min="0" max="32000" step="1"
+                                value="<?php echo esc_attr( $max_tokens_val !== null && $max_tokens_val !== '' ? (int) $max_tokens_val : '' ); ?>"
+                                placeholder="Mặc định: 3000"
+                                class="small-text">
+                            <p class="description">Giới hạn token đầu ra mỗi câu trả lời. <strong>Để trống</strong> = dùng mặc định hệ thống (<code>3000</code>).</p>
                         </td>
                     </tr>
                 </table>
@@ -538,16 +528,16 @@ if ($id) {
         ?>
         <div class="bk-tab-content" id="tab-notebooks">
             <div class="bk-tab-inner">
-                <h2>Notebooks (Knowledge Graph) <span class="bk-helper-tip">— gắn nhiều notebook làm nguồn kiến thức cho Guru</span></h2>
+                <h2>Notebooks (Knowledge Graph) <span class="bk-helper-tip">— gắn nhiều notebook làm nguồn kiến thức cho Connector</span></h2>
                 <p class="description">
-                    Mỗi notebook chứa documents/passages đã được embed vào KG. Khi Guru này được gọi (auto reply, Twin chat),
+                    Mỗi notebook chứa documents/passages đã được embed vào KG. Khi Connector này được gọi (auto reply, Twin chat),
                     hệ thống sẽ pull ưu tiên từ các notebook đính kèm dưới đây trước khi mở rộng sang KG chung.
                 </p>
                 <div id="bk-nb-notice" style="display:none;padding:8px 12px;margin-bottom:12px;border-radius:3px;font-weight:500"></div>
 
                 <h3 style="margin-top:24px">Đã gắn (<?php echo count( $attached ); ?>)</h3>
                 <?php if ( empty( $attached ) ): ?>
-                    <p style="padding:16px;background:#f8fafc;border:1px solid #f1f5f9;color:#64748b">Chưa có notebook nào gắn vào Guru này.</p>
+                    <p style="padding:16px;background:#f8fafc;border:1px solid #f1f5f9;color:#64748b">Chưa có notebook nào gắn vào Connector này.</p>
                 <?php else: ?>
                 <table class="widefat striped" style="margin-bottom:16px">
                     <thead>
@@ -649,7 +639,7 @@ if ($id) {
                     // Detach
                     document.querySelectorAll('.bk-nb-detach').forEach(function(btn){
                         btn.addEventListener('click', function(){
-                            if(!confirm('Gỡ notebook này khỏi Guru?')) return;
+                            if(!confirm('Gỡ notebook này khỏi Connector?')) return;
                             btn.disabled = true;
                             var fd = new FormData();
                             fd.append('action', 'bizcity_character_notebook_detach');
@@ -671,65 +661,7 @@ if ($id) {
         </div>
         <?php endif; ?>
 
-        <!-- Tab: Messages (PHASE 0.34.2 — outbound stamped với character_id) -->
-        <div class="bk-tab-content" id="tab-messages">
-            <div class="bk-tab-inner">
-                <h2>Tin nhắn đã trả lời <span class="bk-helper-tip">— stream outbound được Stamper gắn character_id = <?php echo (int) $id; ?></span></h2>
-                <p class="description">Hiển thị 200 tin nhắn outbound mới nhất mà Stamper đánh dấu thuộc Guru này. Trace ngược về CRM Inbox để mở conversation tương ứng.</p>
-                <?php
-                global $wpdb;
-                $tbl_msg  = $wpdb->prefix . 'bizcity_channel_messages';
-                $rows_msg = $wpdb->get_results( $wpdb->prepare(
-                    "SELECT id, platform, chat_id, body, status, responder_kind, responder_user_id, created_at
-                       FROM {$tbl_msg}
-                      WHERE character_id = %d
-                      ORDER BY id DESC
-                      LIMIT 200",
-                    (int) $id
-                ), ARRAY_A );
-                ?>
-                <?php if ( empty( $rows_msg ) ): ?>
-                    <p style="padding:16px;background:#f8fafc;border:1px solid #f1f5f9;color:#64748b">
-                        Guru này chưa có tin nhắn nào được Stamper gán <code>character_id=<?php echo (int) $id; ?></code>.
-                        Kiểm tra binding: vào CRM → Inbox → tab kênh → đảm bảo binding mode = AUTO + bind đúng character.
-                    </p>
-                <?php else: ?>
-                <table class="widefat striped">
-                    <thead>
-                        <tr><th>#</th><th>Time</th><th>Platform</th><th>Chat</th><th>Body</th><th>Kind</th><th>Status</th></tr>
-                    </thead>
-                    <tbody>
-                    <?php foreach ( $rows_msg as $r ): ?>
-                        <tr>
-                            <td><?php echo (int) $r['id']; ?></td>
-                            <td style="font-family:monospace;font-size:11px"><?php echo esc_html( $r['created_at'] ); ?></td>
-                            <td><span style="font-family:monospace;font-size:11px"><?php echo esc_html( $r['platform'] ); ?></span></td>
-                            <td style="font-family:monospace;font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis"><?php echo esc_html( $r['chat_id'] ); ?></td>
-                            <td><?php echo esc_html( wp_trim_words( (string) $r['body'], 30 ) ); ?></td>
-                            <td>
-                                <?php
-                                $kind = $r['responder_kind'] ?: 'auto';
-                                $bg   = $kind === 'manual' ? '#fee2e2' : ( $kind === 'hybrid' ? '#fef3c7' : '#d1fae5' );
-                                $fg   = $kind === 'manual' ? '#991b1b' : ( $kind === 'hybrid' ? '#92400e' : '#065f46' );
-                                ?>
-                                <span style="background:<?php echo $bg; ?>;color:<?php echo $fg; ?>;padding:2px 6px;font-size:10px;font-weight:600;text-transform:uppercase"><?php echo esc_html( $kind ); ?></span>
-                            </td>
-                            <td>
-                                <?php if ( $r['status'] === 'sent' ): ?>
-                                    <span style="color:#059669">✓ sent</span>
-                                <?php elseif ( $r['status'] === 'failed' ): ?>
-                                    <span style="color:#dc2626">✗ failed</span>
-                                <?php else: ?>
-                                    <?php echo esc_html( $r['status'] ); ?>
-                                <?php endif; ?>
-                            </td>
-                        </tr>
-                    <?php endforeach; ?>
-                    </tbody>
-                </table>
-                <?php endif; ?>
-            </div>
-        </div>
+        <!-- [2026-06-22 Johnny Chu] GURU-FINISH — Messages tab removed; content moved into Channels tab below -->
 
         <!-- Tab: Documents -->
         <div class="bk-tab-content" id="tab-documents">
@@ -1161,173 +1093,401 @@ if ($id) {
         </div>
         <?php endif; // end removed FAQs/Legacy tabs ?>
         
-        <!-- Tab: Model -->
-        <div class="bk-tab-content" id="tab-model">
+        <!-- [2026-06-22 Johnny Chu] GURU-FINISH — Tab Model (Cài đặt AI) removed; creativity_level + max_tokens moved to Overview tab -->
+
+        <!-- [2026-06-22 Johnny Chu] GURU-FINISH — Tab Skills removed from nav and div -->
+
+        <?php if ( ! $is_new ): ?>
+        <!-- [2026-06-03 Johnny Chu] GURU-UI W0.2 — Channels tab (R-GCB SoT, reuse bizcity-channel/v1/inspector/*) -->
+        <div class="bk-tab-content" id="tab-channels">
             <div class="bk-tab-inner">
-                <h2>🤖 AI Model Configuration (Tùy chọn)</h2>
+                <h2>📡 Channels bound to this Connector</h2>
                 <p class="description">
-                    <strong>Mặc định:</strong> Character sẽ sử dụng <strong>GPT-4o-mini</strong> (OpenAI) nếu không chọn model cụ thể.<br>
-                    <strong>Tùy chọn:</strong> Chọn model khác từ OpenRouter (Claude, Gemini, Llama, v.v.) nếu muốn sử dụng AI khác.
-                </p>
-                
-                <?php
-                $selected_model = $character->model_id ?? '';
-                $creativity_level = $character->creativity_level ?? 0.7;
-                $max_tokens_val = $character->max_tokens ?? null;
-                $greeting_messages = $character->greeting_messages ?? '[]';
-                if (is_string($greeting_messages)) {
-                    $greeting_messages = json_decode($greeting_messages, true) ?: [];
-                }
-                $openrouter_api_key = get_option('bizcity_knowledge_openrouter_api_key', '');
-                // PHASE-0-RULE-SMART-GATEWAY-MIGRATION: status hiển thị theo Router thay vì twf_openai_api_key.
-                $router_ready = class_exists( 'BizCity_LLM_Client' ) && BizCity_LLM_Client::instance()->is_ready();
-                ?>
-                
-                <div class="bk-api-status" style="background: #f0f0f1; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
-                    <h3 style="margin-top: 0;">📊 Trạng thái API</h3>
-                    <p style="margin: 5px 0;">
-                        <strong>BizCity LLM Router (Default):</strong>
-                        <?php if ( $router_ready ): ?>
-                            <span style="color: green;">✓ Đã cấu hình</span> - Sử dụng model <code>gpt-4o-mini</code> qua Router
-                        <?php else: ?>
-                            <span style="color: red;">✗ Chưa cấu hình</span> — set option <code>bizcity_llm_api_key</code>
-                        <?php endif; ?>
-                    </p>
-                    <p style="margin: 5px 0;">
-                        <strong>OpenRouter API (Optional):</strong> 
-                        <?php if (!empty($openrouter_api_key)): ?>
-                            <span style="color: green;">✓ Đã cấu hình</span> - Có thể chọn models khác
-                        <?php else: ?>
-                            <span style="color: gray;">ℹ Chưa cấu hình</span> - Vào <a href="<?php echo admin_url('admin.php?page=bizcity-knowledge-settings'); ?>">Settings</a> để cấu hình
-                        <?php endif; ?>
-                    </p>
-                </div>
-                
-                <table class="form-table">
-                    <tr>
-                        <th><label for="model-select">Choose Model (Optional)</label></th>
-                        <td>
-                            <div class="bk-model-selector">
-                                <select name="model_id" id="model-select" class="large-text" <?php echo empty($openrouter_api_key) ? 'disabled' : ''; ?>>
-                                    <option value="">-- Sử dụng OpenAI GPT-4o-mini (Mặc định) --</option>
-                                    <?php if (!empty($selected_model)): ?>
-                                        <option value="<?php echo esc_attr($selected_model); ?>" selected><?php echo esc_html($selected_model); ?></option>
-                                    <?php endif; ?>
-                                </select>
-                                <button type="button" class="button" id="refresh-models" <?php echo empty($openrouter_api_key) ? 'disabled' : ''; ?>>
-                                    <span class="dashicons dashicons-update"></span> Refresh Models
-                                </button>
-                            </div>
-                            <p class="description">
-                                <strong>Để trống</strong> = Sử dụng GPT-4o-mini (OpenAI mặc định)<br>
-                                <strong>Chọn model</strong> = Sử dụng OpenRouter với model đã chọn<br>
-                                <span id="model-info"></span>
-                                <span id="model-cost"></span>
-                            </p>
-                        </td>
-                    </tr>
-                    
-                    <tr>
-                        <th><label for="creativity-level">Creativity Level</label></th>
-                        <td>
-                            <div class="bk-creativity-slider">
-                                <div class="bk-slider-labels">
-                                    <span class="bk-label-left">Precise</span>
-                                    <span class="bk-label-center">Balanced</span>
-                                    <span class="bk-label-right">Creative</span>
-                                </div>
-                                <input type="range" name="creativity_level" id="creativity-level" 
-                                    min="0" max="1" step="0.1" value="<?php echo esc_attr($creativity_level); ?>"
-                                    class="bk-slider">
-                                <div class="bk-slider-value">
-                                    Temperature: <strong id="temperature-value"><?php echo esc_html($creativity_level); ?></strong>
-                                </div>
-                            </div>
-                            <p class="description">Temperature điều chỉnh độ sáng tạo của AI. Thấp = chính xác, Cao = sáng tạo.</p>
-                        </td>
-                    </tr>
-
-                    <tr>
-                        <th><label for="max-tokens">Max Tokens (Output)</label></th>
-                        <td>
-                            <input type="number" name="max_tokens" id="max-tokens"
-                                min="0" max="32000" step="1"
-                                value="<?php echo esc_attr( $max_tokens_val !== null && $max_tokens_val !== '' ? (int) $max_tokens_val : '' ); ?>"
-                                placeholder="Mặc định: 3000"
-                                class="small-text">
-                            <p class="description">
-                                Giới hạn token đầu ra cho mỗi câu trả lời của Guru này.
-                                <strong>Để trống</strong> = dùng mặc định hệ thống (<code>3000</code>).
-                                Giá trị lớn cho câu trả lời dài hơn nhưng tốn nhiều token & chậm hơn.
-                            </p>
-                        </td>
-                    </tr>
-
-                    <tr>
-                        <th><label for="greeting-messages">Greeting Messages</label></th>
-                        <td>
-                            <div class="bk-greeting-messages">
-                                <div id="greeting-messages-list">
-                                    <?php if (empty($greeting_messages)): ?>
-                                        <div class="bk-greeting-item">
-                                            <input type="text" class="regular-text bk-greeting-input" 
-                                                placeholder="Hi there! 👋 I'm Ada, your virtual guide!"
-                                                value="">
-                                            <button type="button" class="button bk-remove-greeting">×</button>
-                                        </div>
-                                    <?php else: ?>
-                                        <?php foreach ($greeting_messages as $msg): ?>
-                                            <div class="bk-greeting-item">
-                                                <input type="text" class="regular-text bk-greeting-input" 
-                                                    value="<?php echo esc_attr($msg); ?>">
-                                                <button type="button" class="button bk-remove-greeting">×</button>
-                                            </div>
-                                        <?php endforeach; ?>
-                                    <?php endif; ?>
-                                </div>
-                                <button type="button" class="button" id="add-greeting">
-                                    <span class="dashicons dashicons-plus-alt2"></span> Add greeting
-                                </button>
-                                <p class="description">
-                                    Character sẽ chọn ngẫu nhiên 1 trong các greeting messages khi bắt đầu hội thoại.
-                                    <span id="greeting-count">0/300</span> ký tự
-                                </p>
-                                <input type="hidden" name="greeting_messages" id="greeting-messages-data" value="">
-                            </div>
-                        </td>
-                    </tr>
-                </table>
-            </div>
-        </div>
-
-        <!-- Tab: Skills (Phase 0.20.2) -->
-        <div class="bk-tab-content" id="tab-skills">
-            <div class="bk-tab-inner">
-                <h2>🪄 Skills bound to this character</h2>
-                <p class="description">
-                    Skills là <strong>recipe markdown</strong> (frontmatter + nội dung) gắn với character.
-                    Khi user gõ <code>/slash_command</code> hoặc gửi message khớp triggers, TwinChat sẽ inject
-                    skill vào system prompt và mở khoá các tool tương ứng cho LLM gọi.
+                    Mỗi binding map <strong>(platform, account_id)</strong> → Connector này. Khi message inbound đến từ
+                    OA/Page/Bot/WebChat đó, Universal Channel Listener sẽ resolve về Connector này và pipe
+                    <code>character_id</code> vào pipeline LLM. R-GCB SoT: bảng <code>bizcity_channel_bindings</code>.
                 </p>
 
-                <div class="bk-skills-toolbar" style="margin:12px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-                    <button type="button" class="button button-secondary" id="bk-skills-refresh">
+                <div class="bk-channels-toolbar" style="margin:12px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                    <button type="button" class="button button-secondary" id="bk-channels-refresh">
                         <span class="dashicons dashicons-update"></span> Refresh
                     </button>
-                    <button type="button" class="button button-primary" id="bk-skills-clone-open">
-                        <span class="dashicons dashicons-plus-alt2"></span> Clone từ Skill Library
+                    <button type="button" class="button button-primary" id="bk-channels-bind-open">
+                        <span class="dashicons dashicons-plus-alt2"></span> Bind kênh mới
                     </button>
-                    <a href="<?php echo esc_url( admin_url( 'admin.php?page=bizcity-skills' ) ); ?>" target="_blank" class="button button-link">
-                        <span class="dashicons dashicons-external"></span> Mở Skill Library
-                    </a>
                 </div>
 
-                <div id="bk-skills-list" class="bk-skills-list" data-character-id="<?php echo (int) $id; ?>">
-                    <p class="description"><em>Đang tải skills…</em></p>
+                <div id="bk-channels-list" class="bk-channels-list" data-character-id="<?php echo (int) $id; ?>">
+                    <p class="description"><em>Đang tải bindings…</em></p>
+                </div>
+
+                <!-- Bind dialog (hidden) -->
+                <div id="bk-channels-dialog" class="bk-channels-dialog" style="display:none">
+                    <div class="bk-channels-dialog-bg"></div>
+                    <div class="bk-channels-dialog-box">
+                        <h3>Bind kênh cho Connector này</h3>
+                        <p>
+                            <label><strong>Platform</strong></label><br>
+                            <select id="bk-bind-platform" style="min-width:240px"></select>
+                        </p>
+                        <!-- [2026-06-22 Johnny Chu] GURU-FINISH W1.2 — account picker: auto-load accounts for platform -->
+                        <p id="bk-bind-account-wrap">
+                            <label><strong>Kênh / Account</strong></label><br>
+                            <!-- Dropdown auto-populated when platform is chosen (via /platform-accounts REST) -->
+                            <select id="bk-bind-account-select" style="width:100%;display:none" aria-label="Chọn fanpage/OA/bot">
+                                <option value="">— chọn tài khoản —</option>
+                            </select>
+                            <!-- Fallback manual input shown when no accounts found for chosen platform -->
+                            <input type="text" id="bk-bind-account-id" style="width:100%" placeholder="vd: 123456789 hoặc * để wildcard">
+                            <span id="bk-bind-account-loading" style="display:none;color:#646970;font-size:12px;margin-top:4px">⏳ Đang tải danh sách tài khoản…</span>
+                            <span id="bk-bind-account-hint" style="display:none;color:#646970;font-size:12px;margin-top:4px">
+                                💡 WEBCHAT: để trống = áp dụng cho <strong>tất cả khách guest</strong> (wildcard <code>*</code>). Nhập ID cụ thể nếu muốn giới hạn một session key nhất định.
+                            </span>
+                            <span id="bk-bind-account-manual-hint" style="display:none;color:#646970;font-size:12px;margin-top:4px">
+                                ℹ Chưa tìm thấy tài khoản cấu hình sẵn cho platform này. Nhập Account ID thủ công.
+                                <a href="<?php echo esc_url( admin_url('admin.php?page=bizcity-channel-gateway') ); ?>" target="_blank">Cấu hình kênh →</a>
+                            </span>
+                        </p>
+                        <p>
+                            <label><strong>Mode</strong></label><br>
+                            <select id="bk-bind-mode">
+                                <option value="auto" selected>auto (LLM trả tự động)</option>
+                                <option value="manual">manual (chỉ log inbound, chờ human)</option>
+                                <option value="hybrid">hybrid (LLM gợi ý → human duyệt)</option>
+                                <option value="roundrobin">roundrobin (pool responder xoay vòng)</option>
+                            </select>
+                        </p>
+                        <p>
+                            <label>
+                                <input type="checkbox" id="bk-bind-autoreply" checked>
+                                <strong>Auto-reply</strong> (cho phép Listener trả lời tự động)
+                            </label>
+                        </p>
+                        <p>
+                            <label><strong>Fallback assignee (WP user ID, optional)</strong></label><br>
+                            <input type="number" id="bk-bind-fallback" min="0" placeholder="0 = không có">
+                        </p>
+                        <p style="text-align:right;margin-top:18px">
+                            <button type="button" class="button" id="bk-bind-cancel">Hủy</button>
+                            <button type="button" class="button button-primary" id="bk-bind-save">Bind</button>
+                        </p>
+                    </div>
+                </div>
+
+                <!-- [2026-06-22 Johnny Chu] GURU-FINISH — Messages section embedded in Channels tab -->
+                <div id="bk-channels-messages-section" style="margin-top:28px">
+                    <h3 style="border-top:1px solid #dcdcde;padding-top:16px;margin-top:0">
+                        💬 Tin nhắn đã xử lý
+                    </h3>
+                    <div style="margin-bottom:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                        <label for="bk-msg-platform-filter" style="font-size:13px">Lọc kênh:</label>
+                        <select id="bk-msg-platform-filter" style="min-width:140px">
+                            <option value="">Tất cả</option>
+                        </select>
+                        <button type="button" class="button button-small" id="bk-msg-reload">
+                            <span class="dashicons dashicons-update" style="vertical-align:middle"></span>
+                        </button>
+                    </div>
+                    <?php
+                    // [2026-06-22 Johnny Chu] GURU-FINISH — messages embedded in channels tab
+                    global $wpdb;
+                    $tbl_msg  = $wpdb->prefix . 'bizcity_channel_messages';
+                    $rows_msg = $wpdb->get_results( $wpdb->prepare(
+                        "SELECT id, platform, chat_id, body, status, responder_kind, created_at
+                           FROM {$tbl_msg}
+                          WHERE character_id = %d
+                          ORDER BY id DESC
+                          LIMIT 300",
+                        (int) $id
+                    ), ARRAY_A );
+                    ?>
+                    <?php if ( empty( $rows_msg ) ): ?>
+                        <p style="padding:14px;background:#f8fafc;border:1px solid #f1f5f9;color:#64748b;border-radius:6px">
+                            Connector này chưa có tin nhắn nào. Đảm bảo binding mode = AUTO và đã bind đúng character.
+                        </p>
+                    <?php else: ?>
+                    <div id="bk-msg-table-wrap">
+                        <table class="widefat striped" id="bk-msg-table">
+                            <thead>
+                                <tr><th>Time</th><th>Platform</th><th>Chat ID</th><th>Nội dung</th><th>Kind</th><th>Status</th></tr>
+                            </thead>
+                            <tbody>
+                            <?php foreach ( $rows_msg as $r ):
+                                $kind = $r['responder_kind'] ? $r['responder_kind'] : 'auto';
+                                $bg   = $kind === 'manual' ? '#fee2e2' : ( $kind === 'hybrid' ? '#fef3c7' : '#d1fae5' );
+                                $fg   = $kind === 'manual' ? '#991b1b' : ( $kind === 'hybrid' ? '#92400e' : '#065f46' );
+                            ?>
+                                <tr data-platform="<?php echo esc_attr( $r['platform'] ); ?>">
+                                    <td style="font-size:11px;font-family:monospace;white-space:nowrap"><?php echo esc_html( $r['created_at'] ); ?></td>
+                                    <td><span style="font-family:monospace;font-size:11px"><?php echo esc_html( $r['platform'] ); ?></span></td>
+                                    <td style="font-size:11px;font-family:monospace;max-width:150px;overflow:hidden;text-overflow:ellipsis"><?php echo esc_html( $r['chat_id'] ); ?></td>
+                                    <td><?php echo esc_html( wp_trim_words( (string) $r['body'], 20 ) ); ?></td>
+                                    <td><span style="background:<?php echo esc_attr( $bg ); ?>;color:<?php echo esc_attr( $fg ); ?>;padding:2px 5px;font-size:10px;font-weight:600;text-transform:uppercase"><?php echo esc_html( $kind ); ?></span></td>
+                                    <td><?php echo $r['status'] === 'sent' ? '<span style="color:#059669">✓</span>' : ( $r['status'] === 'failed' ? '<span style="color:#dc2626">✗</span>' : esc_html( $r['status'] ) ); ?></td>
+                                </tr>
+                            <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                    <script>
+                    jQuery(function($){
+                        var platforms = {};
+                        $('#bk-msg-table tbody tr').each(function(){
+                            var p = $(this).data('platform');
+                            if(p) platforms[p] = true;
+                        });
+                        var $filter = $('#bk-msg-platform-filter');
+                        $.each(platforms, function(p){ $filter.append('<option value="'+p+'">'+p+'</option>'); });
+                        $filter.on('change', function(){
+                            var v = $(this).val();
+                            $('#bk-msg-table tbody tr').each(function(){
+                                $(this).toggle(!v || $(this).data('platform') === v);
+                            });
+                        });
+                        $('#bk-msg-reload').on('click', function(){ location.reload(); });
+                    });
+                    </script>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
-        <!-- /Tab: Skills -->
+        <!-- /Tab: Channels -->
+
+        <!-- [2026-06-22 Johnny Chu] GURU-FINISH — New Dashboard stats tab -->
+        <div class="bk-tab-content" id="tab-dashboard">
+            <div class="bk-tab-inner">
+                <h2>📊 Dashboard — Thống kê tin nhắn</h2>
+                <p class="description">Tổng quan về tin nhắn mà Connector này đã xử lý.</p>
+                <?php
+                // [2026-06-22 Johnny Chu] GURU-FINISH — dashboard stats queries
+                global $wpdb;
+                $tbl_msg   = $wpdb->prefix . 'bizcity_channel_messages';
+                $char_id   = (int) $id;
+
+                $total     = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$tbl_msg} WHERE character_id = %d", $char_id ) );
+                $total_7d  = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$tbl_msg} WHERE character_id = %d AND created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)", $char_id ) );
+                $total_30d = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$tbl_msg} WHERE character_id = %d AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)", $char_id ) );
+                $sent_count= (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$tbl_msg} WHERE character_id = %d AND status='sent'", $char_id ) );
+                $success_rate = $total > 0 ? round( $sent_count / $total * 100 ) : 0;
+                $last_msg  = $wpdb->get_var( $wpdb->prepare( "SELECT created_at FROM {$tbl_msg} WHERE character_id = %d ORDER BY id DESC LIMIT 1", $char_id ) );
+
+                $by_platform = $wpdb->get_results( $wpdb->prepare(
+                    "SELECT platform, COUNT(*) AS cnt FROM {$tbl_msg} WHERE character_id = %d GROUP BY platform ORDER BY cnt DESC",
+                    $char_id
+                ), ARRAY_A );
+
+                $by_kind = $wpdb->get_results( $wpdb->prepare(
+                    "SELECT IFNULL(responder_kind,'auto') AS kind, COUNT(*) AS cnt FROM {$tbl_msg} WHERE character_id = %d GROUP BY kind ORDER BY cnt DESC",
+                    $char_id
+                ), ARRAY_A );
+
+                $daily_trend = $wpdb->get_results( $wpdb->prepare(
+                    "SELECT DATE(created_at) AS day, COUNT(*) AS cnt FROM {$tbl_msg} WHERE character_id = %d AND created_at >= DATE_SUB(NOW(), INTERVAL 14 DAY) GROUP BY day ORDER BY day ASC",
+                    $char_id
+                ), ARRAY_A );
+                ?>
+
+                <!-- Stat cards -->
+                <div style="display:flex;flex-wrap:wrap;gap:14px;margin:16px 0 24px">
+                    <?php
+                    $cards = array(
+                        array( 'label' => 'Tổng tin nhắn', 'value' => number_format( $total ), 'color' => '#1d4ed8' ),
+                        array( 'label' => '7 ngày gần đây', 'value' => number_format( $total_7d ), 'color' => '#0369a1' ),
+                        array( 'label' => '30 ngày gần đây', 'value' => number_format( $total_30d ), 'color' => '#0284c7' ),
+                        array( 'label' => 'Tỷ lệ gửi thành công', 'value' => $success_rate . '%', 'color' => $success_rate >= 90 ? '#059669' : ( $success_rate >= 70 ? '#d97706' : '#dc2626' ) ),
+                    );
+                    foreach ( $cards as $card ):
+                    ?>
+                    <div style="background:#fff;border:1px solid #dcdcde;border-radius:8px;padding:16px 20px;min-width:150px;flex:1">
+                        <div style="font-size:11px;color:#646970;text-transform:uppercase;letter-spacing:.5px"><?php echo esc_html( $card['label'] ); ?></div>
+                        <div style="font-size:28px;font-weight:700;color:<?php echo esc_attr( $card['color'] ); ?>;margin-top:4px"><?php echo esc_html( $card['value'] ); ?></div>
+                    </div>
+                    <?php endforeach; ?>
+                </div>
+
+                <?php if ( $last_msg ): ?>
+                <p style="color:#646970;font-size:12px;margin-bottom:20px">
+                    Tin nhắn gần nhất: <strong><?php echo esc_html( $last_msg ); ?></strong>
+                </p>
+                <?php endif; ?>
+
+                <!-- By platform -->
+                <?php if ( ! empty( $by_platform ) ): ?>
+                <h3>Theo kênh (platform)</h3>
+                <table class="widefat" style="max-width:480px;margin-bottom:24px">
+                    <thead><tr><th>Platform</th><th>Số tin nhắn</th><th>Tỷ lệ</th></tr></thead>
+                    <tbody>
+                    <?php foreach ( $by_platform as $row ): ?>
+                        <tr>
+                            <td><code><?php echo esc_html( $row['platform'] ); ?></code></td>
+                            <td><?php echo number_format( (int) $row['cnt'] ); ?></td>
+                            <td><?php echo $total > 0 ? round( $row['cnt'] / $total * 100 ) . '%' : '—'; ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+                <?php endif; ?>
+
+                <!-- By responder kind -->
+                <?php if ( ! empty( $by_kind ) ): ?>
+                <h3>Theo loại phản hồi</h3>
+                <table class="widefat" style="max-width:480px;margin-bottom:24px">
+                    <thead><tr><th>Kind</th><th>Số tin nhắn</th><th>Tỷ lệ</th></tr></thead>
+                    <tbody>
+                    <?php foreach ( $by_kind as $row ):
+                        $k  = $row['kind'];
+                        $bg = $k === 'manual' ? '#fee2e2' : ( $k === 'hybrid' ? '#fef3c7' : '#d1fae5' );
+                        $fg = $k === 'manual' ? '#991b1b' : ( $k === 'hybrid' ? '#92400e' : '#065f46' );
+                    ?>
+                        <tr>
+                            <td><span style="background:<?php echo esc_attr($bg); ?>;color:<?php echo esc_attr($fg); ?>;padding:2px 8px;font-size:11px;font-weight:600;text-transform:uppercase;border-radius:3px"><?php echo esc_html( $k ); ?></span></td>
+                            <td><?php echo number_format( (int) $row['cnt'] ); ?></td>
+                            <td><?php echo $total > 0 ? round( $row['cnt'] / $total * 100 ) . '%' : '—'; ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+                <?php endif; ?>
+
+                <!-- 14-day trend -->
+                <?php if ( ! empty( $daily_trend ) ): ?>
+                <h3>Xu hướng 14 ngày gần đây</h3>
+                <div style="background:#fff;border:1px solid #dcdcde;border-radius:8px;padding:16px;max-width:600px">
+                    <?php
+                    $max_day = max( array_column( $daily_trend, 'cnt' ) );
+                    $max_day = max( $max_day, 1 );
+                    foreach ( $daily_trend as $day ):
+                        $pct = round( $day['cnt'] / $max_day * 100 );
+                    ?>
+                    <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+                        <span style="font-size:11px;font-family:monospace;width:80px;flex-shrink:0"><?php echo esc_html( $day['day'] ); ?></span>
+                        <div style="flex:1;background:#f0f0f1;border-radius:4px;height:16px;overflow:hidden">
+                            <div style="width:<?php echo $pct; ?>%;background:#2563eb;height:100%;border-radius:4px"></div>
+                        </div>
+                        <span style="font-size:11px;width:32px;text-align:right"><?php echo (int) $day['cnt']; ?></span>
+                    </div>
+                    <?php endforeach; ?>
+                </div>
+                <?php endif; ?>
+
+                <?php if ( $total === 0 ): ?>
+                <p style="padding:20px;background:#f8fafc;border:1px solid #f1f5f9;color:#64748b;border-radius:8px;text-align:center">
+                    Connector này chưa có dữ liệu tin nhắn. Bind kênh và bật mode AUTO để bắt đầu thu thập thống kê.
+                </p>
+                <?php endif; ?>
+            </div>
+        </div>
+        <!-- /Tab: Dashboard -->
+
+        <!-- Tab: Automations -->
+        <!-- [2026-06-24 Johnny Chu] GURU-KPI — show automation workflows bound to this Guru via trigger_config.guru_id -->
+        <div class="bk-tab-content" id="tab-automations">
+            <div class="bk-tab-inner">
+                <h2 style="display:flex;align-items:center;gap:8px;">
+                    <span class="dashicons dashicons-randomize" style="font-size:22px;color:#6366f1;"></span>
+                    Automation Workflows gắn với Guru này
+                </h2>
+                <p style="color:#6b7280;margin-bottom:20px;">
+                    Danh sách các Automation Workflow có trigger filter <code>Guru ID = <?php echo esc_html( $character->id ?? 0 ); ?></code>.
+                    Để gắn workflow mới, vào <a href="<?php echo esc_url( admin_url( 'admin.php?page=bizcity-automation' ) ); ?>">Automation Builder</a> và đặt <em>Guru ID</em> trong trigger config.
+                </p>
+                <?php
+                // [2026-06-24 Johnny Chu] GURU-KPI — query workflows bound to this guru
+                $guru_id_val = (int) ( $character->id ?? 0 );
+                $bound_workflows = array();
+                if ( $guru_id_val > 0 ) {
+                    global $wpdb;
+                    $tbl_wf2  = $wpdb->prefix . 'bizcity_automation_workflows';
+                    $tbl_run2 = $wpdb->prefix . 'bizcity_automation_runs';
+
+                    $wf2_exists = (bool) $wpdb->get_var(
+                        $wpdb->prepare(
+                            'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+                            $tbl_wf2
+                        )
+                    );
+
+                    if ( $wf2_exists ) {
+                        $bound_workflows = $wpdb->get_results(
+                            $wpdb->prepare(
+                                "SELECT id, name, enabled, trigger_type,
+                                        (SELECT COUNT(*) FROM {$tbl_run2} r WHERE r.workflow_id = w.id) AS run_total,
+                                        (SELECT COUNT(*) FROM {$tbl_run2} r WHERE r.workflow_id = w.id AND r.status = 2) AS run_ok,
+                                        (SELECT COUNT(*) FROM {$tbl_run2} r WHERE r.workflow_id = w.id AND r.status = 3) AS run_fail
+                                 FROM {$tbl_wf2} w
+                                 WHERE CAST( JSON_UNQUOTE( JSON_EXTRACT(trigger_config, '$.guru_id') ) AS UNSIGNED ) = %d
+                                 ORDER BY id DESC",
+                                $guru_id_val
+                            ),
+                            ARRAY_A
+                        );
+                    }
+                }
+                ?>
+                <?php if ( empty( $bound_workflows ) ) : ?>
+                <div style="padding:32px 20px;text-align:center;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:10px;color:#94a3b8;">
+                    <div style="font-size:36px;margin-bottom:8px;">⚙️</div>
+                    <p style="margin:0;">Chưa có workflow nào được gắn với Guru này.<br>
+                    Mở <a href="<?php echo esc_url( admin_url( 'admin.php?page=bizcity-automation' ) ); ?>">Automation Builder</a>, tạo workflow và đặt <strong>Guru ID = <?php echo esc_html( $character->id ?? 0 ); ?></strong> trong trigger.</p>
+                </div>
+                <?php else : ?>
+                <table class="wp-list-table widefat fixed striped">
+                    <thead>
+                        <tr>
+                            <th style="width:40px;">ID</th>
+                            <th>Tên Workflow</th>
+                            <th style="width:120px;">Trigger</th>
+                            <th style="width:80px;text-align:center;">Trạng thái</th>
+                            <th style="width:80px;text-align:center;">Tổng runs</th>
+                            <th style="width:120px;text-align:center;">OK / Fail</th>
+                            <th style="width:80px;">Hành động</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ( $bound_workflows as $wf ) :
+                            $run_total_wf = (int) $wf['run_total'];
+                            $run_ok_wf    = (int) $wf['run_ok'];
+                            $run_fail_wf  = (int) $wf['run_fail'];
+                            $enabled      = ! empty( $wf['enabled'] );
+                        ?>
+                        <tr>
+                            <td><?php echo (int) $wf['id']; ?></td>
+                            <td><strong><?php echo esc_html( $wf['name'] ); ?></strong></td>
+                            <td><code style="font-size:11px;"><?php echo esc_html( $wf['trigger_type'] ); ?></code></td>
+                            <td style="text-align:center;">
+                                <?php if ( $enabled ) : ?>
+                                <span style="color:#10b981;font-weight:600;">✓ ON</span>
+                                <?php else : ?>
+                                <span style="color:#9ca3af;">— OFF</span>
+                                <?php endif; ?>
+                            </td>
+                            <td style="text-align:center;"><?php echo esc_html( number_format( $run_total_wf ) ); ?></td>
+                            <td style="text-align:center;">
+                                <?php if ( $run_total_wf > 0 ) : ?>
+                                <span style="color:#10b981;">✓<?php echo esc_html( $run_ok_wf ); ?></span>
+                                &nbsp;/&nbsp;
+                                <span style="color:#ef4444;">✗<?php echo esc_html( $run_fail_wf ); ?></span>
+                                <?php else : ?>
+                                <span style="color:#d1d5db;">—</span>
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <a href="<?php echo esc_url( admin_url( 'admin.php?page=bizcity-automation&workflow_id=' . (int) $wf['id'] ) ); ?>" class="button button-small" target="_blank">
+                                    Mở Builder
+                                </a>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+                <p style="margin-top:12px;color:#9ca3af;font-size:12px;">
+                    Để thêm workflow mới cho Guru này: mở Automation Builder → chọn trigger → đặt <strong>Guru ID = <?php echo esc_html( $character->id ?? 0 ); ?></strong>.
+                </p>
+                <?php endif; ?>
+            </div>
+        </div>
+        <!-- /Tab: Automations -->
+        <?php endif; ?>
     </form>
     
     <!-- Hidden file input for imports -->
@@ -1448,3 +1608,291 @@ jQuery(function($){
     });
 });
 </script>
+
+<?php if ( ! $is_new ): ?>
+<style>
+/* [2026-06-03 Johnny Chu] GURU-UI W0.2 — Channels tab styles */
+.bk-channels-list{display:flex;flex-direction:column;gap:10px}
+.bk-channel-card{border:1px solid #dcdcde;border-radius:8px;padding:12px 14px;background:#fff;display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.bk-channel-card.is-disabled{opacity:.55;border-style:dashed}
+.bk-channel-card .bk-channel-meta{flex:1;min-width:0}
+.bk-channel-card h4{margin:0 0 4px 0;font-size:14px}
+.bk-channel-card .bk-channel-account{color:#646970;font-size:12px;font-family:Menlo,Monaco,monospace;word-break:break-all}
+.bk-channel-card .bk-channel-tags{margin-top:6px;display:flex;flex-wrap:wrap;gap:4px}
+.bk-channel-card .bk-channel-tag{background:#f0f0f1;border:1px solid #dcdcde;border-radius:999px;font-size:11px;padding:1px 8px;color:#1d2327}
+.bk-channel-card .bk-channel-tag.mode-auto{background:#ecfdf5;border-color:#a7f3d0;color:#065f46}
+.bk-channel-card .bk-channel-tag.mode-manual{background:#fef3c7;border-color:#fde68a;color:#92400e}
+.bk-channel-card .bk-channel-tag.mode-hybrid{background:#eff6ff;border-color:#bfdbfe;color:#1d4ed8}
+.bk-channel-card .bk-channel-tag.mode-roundrobin{background:#f3e8ff;border-color:#e9d5ff;color:#6b21a8}
+.bk-channel-card .bk-channel-actions{display:flex;flex-direction:column;gap:6px;align-items:flex-end}
+.bk-channels-empty{padding:18px;border:1px dashed #c3c4c7;border-radius:8px;text-align:center;color:#646970}
+.bk-channels-dialog{position:fixed;inset:0;z-index:100050}
+.bk-channels-dialog .bk-channels-dialog-bg{position:absolute;inset:0;background:rgba(15,23,42,.55)}
+.bk-channels-dialog .bk-channels-dialog-box{position:relative;max-width:480px;margin:80px auto;background:#fff;border-radius:10px;padding:20px 24px;box-shadow:0 20px 50px rgba(0,0,0,.2)}
+.bk-channels-dialog h3{margin-top:0}
+</style>
+
+<script>
+/* [2026-06-03 Johnny Chu] GURU-UI W0.2 — Channels tab JS (reuse bizcity-channel/v1/inspector/*) */
+jQuery(function($){
+    var $list = $('#bk-channels-list');
+    if(!$list.length) return;
+
+    var characterId = parseInt($list.attr('data-character-id') || '0', 10);
+    if(!characterId){ return; }
+
+    var REST_BASE  = <?php echo wp_json_encode( esc_url_raw( rest_url( 'bizcity-channel/v1' ) ) ); ?>;
+    var REST_NONCE = <?php echo wp_json_encode( wp_create_nonce( 'wp_rest' ) ); ?>;
+    var channelsCatalog = []; // [{key,label,kind}]
+
+    function api(method, path, body){
+        return $.ajax({
+            url: REST_BASE + path,
+            method: method,
+            contentType: 'application/json',
+            data: body ? JSON.stringify(body) : undefined,
+            beforeSend: function(xhr){ xhr.setRequestHeader('X-WP-Nonce', REST_NONCE); }
+        });
+    }
+
+    function esc(s){
+        return String(s == null ? '' : s)
+            .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+            .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    }
+
+    function platformLabel(key){
+        for(var i=0;i<channelsCatalog.length;i++){
+            // [2026-06-09 Johnny Chu] PHASE-D D-WEBCHAT-WILDCARD — API dùng c.platform, không phải c.key
+            var cat = channelsCatalog[i];
+            if((cat.platform || cat.key) === key) return cat.label || key;
+        }
+        return key;
+    }
+
+    function renderBinding(b){
+        var mode = (b.mode || 'auto').toLowerCase();
+        var status = String(b.status) === '0' || b.status === 0 ? 'is-disabled' : '';
+        return ''
+          + '<div class="bk-channel-card ' + status + '" data-binding-id="' + (b.id|0) + '">'
+          +   '<div class="bk-channel-meta">'
+          +     '<h4>' + esc(platformLabel(b.platform)) + '</h4>'
+          +     '<div class="bk-channel-account">' + esc(b.platform) + ' · account: ' + esc(b.account_id) + '</div>'
+          +     '<div class="bk-channel-tags">'
+          +       '<span class="bk-channel-tag mode-' + esc(mode) + '">mode: ' + esc(mode) + '</span>'
+          +       (b.auto_reply ? '<span class="bk-channel-tag">auto-reply</span>' : '<span class="bk-channel-tag">no auto-reply</span>')
+          +       (b.fallback_assignee ? '<span class="bk-channel-tag">fallback #' + (b.fallback_assignee|0) + '</span>' : '')
+          +       ((String(b.status)==='0'||b.status===0) ? '<span class="bk-channel-tag">disabled</span>' : '')
+          +     '</div>'
+          +   '</div>'
+          +   '<div class="bk-channel-actions">'
+          +     (String(b.status)==='0'||b.status===0
+                  ? ''
+                  : '<button type="button" class="button button-small bk-channel-disable" data-binding-id="' + (b.id|0) + '">Disable</button>')
+          +   '</div>'
+          + '</div>';
+    }
+
+    function loadChannels(){
+        return api('GET', '/inspector/channels').then(function(res){
+            channelsCatalog = (res && (res.data || res.channels)) || [];
+            // Populate dialog dropdown
+            // [2026-06-09 Johnny Chu] PHASE-D D-WEBCHAT-WILDCARD — API trả về c.platform (không phải c.key)
+            var $sel = $('#bk-bind-platform');
+            if($sel.length){
+                $sel.empty();
+                channelsCatalog.forEach(function(c){
+                    var val = c.platform || c.key || '';
+                    $sel.append('<option value="' + esc(val) + '">' + esc(c.label || val) + '</option>');
+                });
+                updateAccountIdHint();
+            }
+        });
+    }
+
+    function loadBindings(){
+        $list.html('<p class="description"><em>Đang tải bindings…</em></p>');
+        return api('GET', '/inspector/bindings?character_id=' + characterId).done(function(res){
+            var rows = (res && (res.data || res.bindings)) || [];
+            $('#bk-channels-count').text(rows.length);
+            if(!rows.length){
+                $list.html('<div class="bk-channels-empty">Connector này chưa bind kênh nào.<br>Nhấn <strong>Bind kênh mới</strong> để gắn Zalo OA / FB Page / WebChat / Telegram.</div>');
+                return;
+            }
+            $list.html(rows.map(renderBinding).join(''));
+        }).fail(function(xhr){
+            $list.html('<div class="notice notice-error"><p>Không tải được bindings: ' + esc(xhr.responseText || xhr.statusText) + '</p></div>');
+        });
+    }
+
+    function refresh(){
+        return loadChannels().then(loadBindings);
+    }
+
+    $('#bk-channels-refresh').on('click', refresh);
+
+    // Bind dialog
+    var $dlg = $('#bk-channels-dialog');
+
+    // [2026-06-22 Johnny Chu] GURU-FINISH W1.2 — Account picker: fetch available accounts for platform.
+    // Replaces static hint with dynamic dropdown when accounts are found.
+    function loadPlatformAccounts(platform) {
+        var $select   = $('#bk-bind-account-select');
+        var $input    = $('#bk-bind-account-id');
+        var $loading  = $('#bk-bind-account-loading');
+        var $hint     = $('#bk-bind-account-hint');
+        var $manualHint = $('#bk-bind-account-manual-hint');
+
+        // Reset state
+        $select.hide().empty().append('<option value="">— chọn tài khoản —</option>');
+        $input.show().val('').attr('placeholder', 'vd: 123456789 hoặc * để wildcard');
+        $hint.hide();
+        $manualHint.hide();
+
+        if (!platform) { return; }
+
+        var platUpper = platform.toUpperCase();
+
+        // WEBCHAT: show hint + keep text input
+        if (platUpper === 'WEBCHAT') {
+            $hint.show();
+            $input.attr('placeholder', '(để trống = tất cả khách guest)');
+            return;
+        }
+
+        $loading.show();
+        $input.hide();
+
+        $.ajax({
+            url: wpApiSettings.root + 'bizcity-channel/v1/platform-accounts',
+            method: 'GET',
+            data: { platform: platform.toLowerCase() },
+            beforeSend: function(xhr){ xhr.setRequestHeader('X-WP-Nonce', wpApiSettings.nonce); },
+            success: function(resp) {
+                $loading.hide();
+                var accounts = (resp && resp.accounts) ? resp.accounts : [];
+                if (accounts.length > 0) {
+                    // Populate dropdown
+                    accounts.forEach(function(acc) {
+                        var opt = $('<option>').val(acc.account_id).text(acc.label);
+                        $select.append(opt);
+                    });
+                    $select.show();
+                    // Auto-select first (most common case = 1 account)
+                    if (accounts.length === 1) {
+                        $select.val(accounts[0].account_id);
+                    }
+                } else {
+                    // No preconfigured accounts — fallback to manual
+                    $input.show();
+                    $manualHint.show();
+                }
+            },
+            error: function() {
+                $loading.hide();
+                // On REST error, fall back to manual input gracefully
+                $input.show();
+            }
+        });
+    }
+
+    // [2026-06-09 Johnny Chu] PHASE-D D-WEBCHAT-WILDCARD (superseded by GURU-FINISH W1.2 above)
+    $('#bk-bind-platform').on('change', function(){
+        loadPlatformAccounts($(this).val() || '');
+    });
+
+    $('#bk-channels-bind-open').on('click', function(){
+        $('#bk-bind-account-select').hide().empty().append('<option value="">— chọn tài khoản —</option>');
+        $('#bk-bind-account-id').show().val('');
+        $('#bk-bind-account-hint').hide();
+        $('#bk-bind-account-manual-hint').hide();
+        $('#bk-bind-mode').val('auto');
+        $('#bk-bind-autoreply').prop('checked', true);
+        $('#bk-bind-fallback').val('');
+        // Trigger account load for the currently selected platform
+        var currentPlatform = $('#bk-bind-platform').val() || '';
+        if (currentPlatform) { loadPlatformAccounts(currentPlatform); }
+        $dlg.show();
+    });
+    $('#bk-bind-cancel, .bk-channels-dialog-bg').on('click', function(){ $dlg.hide(); });
+
+    $('#bk-bind-save').on('click', function(){
+        var platform = ($('#bk-bind-platform').val() || '').toString();
+        // [2026-06-22 Johnny Chu] GURU-FINISH W1.2 — read from dropdown if visible, else text input.
+        var $sel = $('#bk-bind-account-select');
+        var accountId;
+        if ($sel.is(':visible')) {
+            accountId = ($sel.val() || '').toString().trim();
+        } else {
+            accountId = ($('#bk-bind-account-id').val() || '').toString().trim();
+        }
+        var mode = $('#bk-bind-mode').val();
+        var autoReply = $('#bk-bind-autoreply').is(':checked') ? 1 : 0;
+        var fallback = parseInt($('#bk-bind-fallback').val() || '0', 10) || 0;
+        // [2026-06-09 Johnny Chu] PHASE-D D-WEBCHAT-WILDCARD — WEBCHAT không cần account_id.
+        if(platform.toUpperCase() === 'WEBCHAT' && accountId === '') { accountId = '*'; }
+        if(!platform || !accountId){
+            alert('Cần chọn platform và nhập account_id'); return;
+        }
+        var $btn = $(this).prop('disabled', true).text('Đang lưu…');
+        api('POST', '/inspector/bindings', {
+            platform: platform,
+            account_id: accountId,
+            character_id: characterId,
+            mode: mode,
+            auto_reply: autoReply,
+            fallback_assignee: fallback || null
+        }).done(function(){
+            $dlg.hide();
+            loadBindings();
+        }).fail(function(xhr){
+            var msg = '';
+            try { msg = (JSON.parse(xhr.responseText || '{}').message) || xhr.responseText; }
+            catch(e){ msg = xhr.responseText || xhr.statusText; }
+            alert('Bind thất bại: ' + msg);
+        }).always(function(){
+            $btn.prop('disabled', false).text('Bind');
+        });
+    });
+
+    $list.on('click', '.bk-channel-disable', function(){
+        var id = parseInt($(this).attr('data-binding-id'), 10);
+        if(!id) return;
+        if(!confirm('Disable binding #' + id + '? Listener sẽ không route message của kênh này tới Connector nữa.')) return;
+        api('POST', '/inspector/bindings/' + id + '/disable').done(loadBindings).fail(function(xhr){
+            alert('Disable thất bại: ' + (xhr.responseText || xhr.statusText));
+        });
+    });
+
+    // Lazy-load when Channels tab activated
+    var chLoaded = false;
+    $(document).on('click', '.bk-tab-btn[data-tab="channels"]', function(){
+        if(chLoaded) return;
+        chLoaded = true;
+        refresh();
+    });
+});
+</script>
+<?php endif; ?>
+
+<?php
+// [2026-06-24 Johnny Chu] GURU-KPI — auto-open tab from URL ?tab= parameter (e.g. from KPI page "Chi tiết" link)
+$initial_tab = sanitize_key( $_GET['tab'] ?? '' );
+if ( $initial_tab ) :
+?>
+<script>
+jQuery(function($){
+    var tab = <?php echo wp_json_encode( $initial_tab ); ?>;
+    var allowed = ['general','quick-knowledge','notebooks','channels','dashboard','automations'];
+    if ( allowed.indexOf(tab) !== -1 ) {
+        // Wait for CharacterEdit to finish init then switch
+        setTimeout(function(){
+            $('.bk-tab-btn').removeClass('active');
+            $('.bk-tab-btn[data-tab="' + tab + '"]').addClass('active');
+            $('.bk-tab-content').removeClass('active');
+            $('#tab-' + tab).addClass('active');
+        }, 50);
+    }
+});
+</script>
+<?php endif; ?>

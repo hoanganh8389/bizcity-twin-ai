@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "astro_refetch_dispatched",
+  "description": "TwinBrain astro readiness gate emitted when transit artifacts are missing/degraded and runtime queues async refetch + retries once in-turn. PHASE-FAA2-TWINBRAIN W1 (2026-07-05).",
+  "type": "object",
+  "required": ["trace_id", "coachee_id", "owner_user_id", "reason", "queued", "retry_once", "retry_hit", "retry_count", "cap_source", "period", "_degraded"],
+  "properties": {
+    "trace_id":      { "type": "string" },
+    "coachee_id":    { "type": "integer", "minimum": 0 },
+    "owner_user_id": { "type": "integer", "minimum": 0 },
+    "reason":        { "type": "string" },
+    "queued":        { "type": "boolean" },
+    "retry_once":    { "type": "boolean" },
+    "retry_hit":     { "type": "boolean" },
+    "retry_count":   { "type": "integer", "minimum": 0 },
+    "cap_source":    {
+      "type": "string",
+      "enum": ["db", "filter", "prefetch_scheduled", "natal_only", "unavailable"]
+    },
+    "period":        { "type": "string" },
+    "_degraded":     { "type": "string" },
+    "quality_blocked":      { "type": "boolean", "description": "G5: checklist quality gate was blocked before refetch" },
+    "quality_failed_keys":  { "type": "array", "items": { "type": "string" }, "description": "G5: checklist keys that failed MIN_COUNT check" },
+    "quality_stale_keys":   { "type": "array", "items": { "type": "string" }, "description": "G5: checklist keys that exceeded freshness window" }
+  }
+}

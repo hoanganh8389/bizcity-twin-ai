@@ -428,7 +428,7 @@ class BizCity_Session_Service {
         global $wpdb;
         $table = $wpdb->prefix . 'bizcity_webchat_sessions_v3';
 
-        if ( $wpdb->get_var( "SHOW TABLES LIKE '$table'" ) === $table ) {
+        if ( bizcity_tbl_exists( $table ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
             return (int) $wpdb->query( $wpdb->prepare(
                 "UPDATE {$table} SET status = 'closed', ended_at = NOW() WHERE user_id = %d AND platform_type = %s AND status = 'active'",
                 $user_id,
@@ -438,7 +438,8 @@ class BizCity_Session_Service {
 
         // Legacy
         $conv_table = $wpdb->prefix . 'bizcity_webchat_conversations';
-        if ( $wpdb->get_var( "SHOW TABLES LIKE '$conv_table'" ) === $conv_table ) {
+        // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+        if ( bizcity_tbl_exists( $conv_table ) ) {
             return (int) $wpdb->query( $wpdb->prepare(
                 "UPDATE {$conv_table} SET status = 'closed', ended_at = NOW() WHERE user_id = %d AND platform_type = %s AND status = 'active'",
                 $user_id,

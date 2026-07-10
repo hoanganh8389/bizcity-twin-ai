@@ -82,12 +82,12 @@ final class BizCity_Memory_D7_Drop_Legacy {
 
 		/* ── Gate 2: unified table exists + has data ───────────────── */
 		$unified_tbl    = BizCity_Memory_Unified_Installer::table();
-		$unified_exists = ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $unified_tbl ) ) === $unified_tbl );
+		$unified_exists = bizcity_tbl_exists( $unified_tbl ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 		$unified_rows   = $unified_exists ? (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$unified_tbl}" ) : 0;
 		$legacy_total   = 0;
 		foreach ( self::LEGACY_TABLES as $suffix ) {
 			$tbl = $wpdb->prefix . $suffix;
-			if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl ) ) === $tbl ) {
+			if ( bizcity_tbl_exists( $tbl ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 				$legacy_total += (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$tbl}" );
 			}
 		}
@@ -147,7 +147,7 @@ final class BizCity_Memory_D7_Drop_Legacy {
 		foreach ( self::LEGACY_TABLES as $suffix ) {
 			$src = $wpdb->prefix . $suffix;
 			$dst = $src . self::BACKUP_SUFFIX;
-			$exists = ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $src ) ) === $src );
+			$exists = bizcity_tbl_exists( $src ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			$result['plan'][] = [
 				'sql'    => sprintf( 'RENAME TABLE `%s` TO `%s`', $src, $dst ),
 				'src'    => $src,
@@ -213,7 +213,7 @@ final class BizCity_Memory_D7_Drop_Legacy {
 		global $wpdb;
 		foreach ( self::LEGACY_TABLES as $suffix ) {
 			$tbl = $wpdb->prefix . $suffix . self::BACKUP_SUFFIX;
-			if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl ) ) === $tbl ) {
+			if ( bizcity_tbl_exists( $tbl ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 				$wpdb->query( "DROP TABLE `{$tbl}`" );
 			}
 		}

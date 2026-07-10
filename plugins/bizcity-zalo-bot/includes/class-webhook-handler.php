@@ -71,25 +71,60 @@ class BizCity_Zalo_Bot_Webhook_Handler {
 	 * Handle new Zalo Bot webhook endpoint
 	 */
 	private function handle_zalohook() {
-		// Get raw POST data
-		$raw_data = file_get_contents( 'php://input' );
-		$data = json_decode( $raw_data, true );
-		
-		// Debug: Check JSON decode result
-		$json_error = json_last_error();
-		if ( $json_error !== JSON_ERROR_NONE ) {
-			$this->log_zalohook_error( 'JSON decode error: ' . json_last_error_msg() . '. Raw data length: ' . strlen( $raw_data ) );
-			wp_send_json_error( array( 'message' => 'JSON decode error: ' . json_last_error_msg() ), 400 );
+		$raw_data = $this->get_cached_raw_input();
+
+		$data = array();
+
+		if ( $raw_data !== '' ) {
+			$decoded = json_decode( $raw_data, true );
+			if ( json_last_error() !== JSON_ERROR_NONE || ! is_array( $decoded ) ) {
+				$this->log_zalohook_error(
+					'JSON decode error: ' . json_last_error_msg() . '. Raw data length: ' . strlen( $raw_data ),
+					array(
+						'method'       => isset( $_SERVER['REQUEST_METHOD'] ) ? (string) $_SERVER['REQUEST_METHOD'] : '',
+						'content_type' => isset( $_SERVER['CONTENT_TYPE'] ) ? (string) $_SERVER['CONTENT_TYPE'] : '',
+					)
+				);
+				wp_send_json_error( array( 'message' => 'JSON decode error: ' . json_last_error_msg() ), 400 );
+				exit;
+			}
+			$data = $decoded;
+		} elseif ( isset( $_POST['data'] ) && is_string( $_POST['data'] ) && $_POST['data'] !== '' ) {
+			$decoded = json_decode( wp_unslash( $_POST['data'] ), true );
+			if ( json_last_error() !== JSON_ERROR_NONE || ! is_array( $decoded ) ) {
+				$this->log_zalohook_error( 'Invalid form payload in $_POST[data]' );
+				wp_send_json_error( array( 'message' => 'Invalid form payload' ), 400 );
+				exit;
+			}
+			$data = $decoded;
+		} elseif ( isset( $_POST['update'] ) && is_string( $_POST['update'] ) && $_POST['update'] !== '' ) {
+			$decoded = json_decode( wp_unslash( $_POST['update'] ), true );
+			if ( json_last_error() !== JSON_ERROR_NONE || ! is_array( $decoded ) ) {
+				$this->log_zalohook_error( 'Invalid form payload in $_POST[update]' );
+				wp_send_json_error( array( 'message' => 'Invalid form payload' ), 400 );
+				exit;
+			}
+			$data = $decoded;
+		} elseif ( ! empty( $_POST ) && ( isset( $_POST['event_name'] ) || isset( $_POST['message'] ) || isset( $_POST['event'] ) ) ) {
+			$data = wp_unslash( $_POST );
+		}
+
+		if ( ! is_array( $data ) || empty( $data ) ) {
+			// [2026-07-08 Johnny Chu] HOTFIX — do not treat empty-body webhook ping as a hard error.
+			$this->log_zalohook_info( 'Webhook ping/empty payload', array(
+				'method'       => isset( $_SERVER['REQUEST_METHOD'] ) ? (string) $_SERVER['REQUEST_METHOD'] : '',
+				'content_type' => isset( $_SERVER['CONTENT_TYPE'] ) ? (string) $_SERVER['CONTENT_TYPE'] : '',
+				'raw_length'   => strlen( $raw_data ),
+				'post_keys'    => array_keys( (array) $_POST ),
+			) );
+			wp_send_json_success( array(
+				'message'       => 'Webhook ping received',
+				'empty_payload' => true,
+			) );
 			exit;
 		}
-		
+
 		$this->log_zalohook_request( $data );
-		
-		if ( ! $data ) {
-			$this->log_zalohook_error( 'Invalid JSON payload - data is empty or null' );
-			wp_send_json_error( array( 'message' => 'Invalid JSON' ), 400 );
-			exit;
-		}
 		
 		// Verify secret token from header
 		$secret_token = isset( $_SERVER['HTTP_X_BOT_API_SECRET_TOKEN'] ) ? $_SERVER['HTTP_X_BOT_API_SECRET_TOKEN'] : '';
@@ -138,7 +173,7 @@ class BizCity_Zalo_Bot_Webhook_Handler {
 		}
 		*/
 		// Get raw input first
-		$raw_data = file_get_contents( 'php://input' );
+		$raw_data = $this->get_cached_raw_input();
 		
 		// Log incoming request
 		$this->log_zalohook_request( $raw_data, $provided_secret );
@@ -273,22 +308,26 @@ class BizCity_Zalo_Bot_Webhook_Handler {
 		
 		// Build message data for bizcity_zalo_message_received action
 		$message_data = array(
-			'bot_id' => $bot->id,
-			'bot_name' => $bot->bot_name,
-			'account_id' => $bot->id, // For compatibility with wu_zalo_message_received trigger
-			'account_name' => $bot->bot_name,
-			'event_name' => $event,
-			'from_user_id' => $client_id,
-			'from_user_name' => $data['client_name'] ?? '',
-			'message_id' => $message_id,
+			// [2026-06-07 Johnny Chu] PHASE-0.40 G0.3 R-ZONE-2 — explicit platform discriminator
+			// Universal Listener bails on ZALO_BOT so admin commands stay in Zone 2.
+			'platform'        => 'ZALO_BOT',
+			'code'            => 'zalo_bot',
+			'bot_id'          => $bot->id,
+			'bot_name'        => $bot->bot_name,
+			'account_id'      => $bot->id, // For compatibility with wu_zalo_message_received trigger
+			'account_name'    => $bot->bot_name,
+			'event_name'      => $event,
+			'from_user_id'    => $client_id,
+			'from_user_name'  => $data['client_name'] ?? '',
+			'message_id'      => $message_id,
 			'conversation_id' => $page_id,
-			'message_type' => $this->determine_message_type( $data ),
-			'message_text' => sanitize_text_field( $conversation['last_message'] ?? '' ),
-			'message_time' => current_time( 'mysql' ),
-			'image_url' => $this->extract_image_url( $data ),
-			'file_url' => $this->extract_file_url( $data ),
-			'file_name' => $this->extract_file_name( $data ),
-			'raw' => $data,
+			'message_type'    => $this->determine_message_type( $data ),
+			'message_text'    => sanitize_text_field( $conversation['last_message'] ?? '' ),
+			'message_time'    => current_time( 'mysql' ),
+			'image_url'       => $this->extract_image_url( $data ),
+			'file_url'        => $this->extract_file_url( $data ),
+			'file_name'       => $this->extract_file_name( $data ),
+			'raw'             => $data,
 		);
 		
 		$this->log_zalohook_data( 'Built message data for action', $message_data );
@@ -914,5 +953,31 @@ class BizCity_Zalo_Bot_Webhook_Handler {
 				}
 			}
 		}
+	}
+
+	/**
+	 * Read raw request body from shared cache when available.
+	 */
+	private function get_cached_raw_input() {
+		// [2026-07-08 Johnny Chu] HOTFIX — reuse router-cached raw body to avoid
+		// empty payload when php://input has already been consumed upstream.
+		if ( isset( $GLOBALS['BIZCITY_WEBHOOK_RAW_INPUT'] ) && is_string( $GLOBALS['BIZCITY_WEBHOOK_RAW_INPUT'] ) ) {
+			return $GLOBALS['BIZCITY_WEBHOOK_RAW_INPUT'];
+		}
+
+		if ( class_exists( 'BizCity_Webhook_Router' ) && method_exists( 'BizCity_Webhook_Router', 'raw_body' ) ) {
+			$cached = BizCity_Webhook_Router::raw_body();
+			if ( is_string( $cached ) && $cached !== '' ) {
+				$GLOBALS['BIZCITY_WEBHOOK_RAW_INPUT'] = $cached;
+				return $cached;
+			}
+		}
+
+		$raw = file_get_contents( 'php://input' );
+		if ( ! is_string( $raw ) ) {
+			$raw = '';
+		}
+		$GLOBALS['BIZCITY_WEBHOOK_RAW_INPUT'] = $raw;
+		return $raw;
 	}
 }

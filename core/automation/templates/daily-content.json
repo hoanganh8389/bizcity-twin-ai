@@ -1,0 +1,79 @@
+[
+  {
+    "slug": "tpl_daily_research_zalo_v1",
+    "name": "Web Research → Script Zalo (Cron 8h)",
+    "description": "Cron 8h → tìm kiếm web nhanh (TwinBrain Web Quick) → LLM tóm tắt thành script 300 từ → gửi Zalo Bot. Cần chọn channel_instance sau khi import.",
+    "category": "automation",
+    "source": "builtin",
+    "trigger_type": "cron",
+    "icon": "Globe",
+    "tags": "cron,daily,web_research,zalo,script,ai",
+    "trigger_config": { "schedule": "0 8 * * *" },
+    "graph": {
+      "meta": { "template": "tpl_daily_research_zalo_v1" },
+      "nodes": [
+        { "id": "t1",    "type": "trigger", "position": { "x": 0,    "y": 80 }, "data": { "blockId": "trigger.cron",              "label": "Cron · 08:00 mỗi ngày",          "schedule": "0 8 * * *" } },
+        { "id": "web",   "type": "action",  "position": { "x": 320,  "y": 80 }, "data": { "blockId": "action.web_research",       "label": "Tìm kiếm xu hướng hôm nay",      "query": "xu hướng nổi bật hôm nay {{trigger.fired_at}}", "mode": "quick", "max_results": 7 } },
+        { "id": "gen",   "type": "action",  "position": { "x": 640,  "y": 80 }, "data": { "blockId": "action.generate_content",   "label": "Tóm tắt thành script Zalo",      "content_type": "script", "notebook_id": 0, "prompt_template": "Tóm tắt các thông tin sau thành một đoạn tin nhắn Zalo ngắn gọn, hấp dẫn (tối đa 300 từ), phù hợp gửi cho nhóm nội bộ:\n\n{{web.answer_md}}", "tone": "professional", "max_words": 300, "character_id": 0 } },
+        { "id": "reply", "type": "action",  "position": { "x": 960,  "y": 80 }, "data": { "blockId": "action.reply_zalo",         "label": "Gửi Zalo Bot",                   "text": "{{gen.content}}" } },
+        { "id": "log",   "type": "action",  "position": { "x": 1280, "y": 80 }, "data": { "blockId": "action.log",                "label": "Ghi log",                         "message": "daily_research_zalo — citations={{web.citation_count}} tokens={{gen.tokens}}" } }
+      ],
+      "edges": [
+        { "id": "e_t1_web",     "source": "t1",    "target": "web" },
+        { "id": "e_web_gen",    "source": "web",   "target": "gen" },
+        { "id": "e_gen_reply",  "source": "gen",   "target": "reply" },
+        { "id": "e_reply_log",  "source": "reply", "target": "log" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_daily_notebook_fb_post_v1",
+    "name": "Notebook → Bài FB hàng ngày (Cron 8h)",
+    "description": "Cron 8h → action.generate_content dùng Notebook skeleton (R-SK) → soạn bài FB phong cách thương hiệu → đăng fanpage với delay 60 phút. Điền notebook_id và fb_page_id sau khi import.",
+    "category": "automation",
+    "source": "builtin",
+    "trigger_type": "cron",
+    "icon": "Sparkles",
+    "tags": "cron,daily,facebook,publish,ai,notebook,skeleton",
+    "trigger_config": { "schedule": "0 8 * * *" },
+    "graph": {
+      "meta": { "template": "tpl_daily_notebook_fb_post_v1" },
+      "nodes": [
+        { "id": "t1",      "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.cron",           "label": "Cron · 08:00 mỗi ngày",         "schedule": "0 8 * * *" } },
+        { "id": "gen",     "type": "action",  "position": { "x": 320, "y": 80 }, "data": { "blockId": "action.generate_content","label": "Tạo bài FB từ Notebook",         "content_type": "fb_post", "notebook_id": 0, "prompt_template": "Viết một bài đăng Facebook hấp dẫn, tiếng Việt, phong cách thương hiệu, dài 5-8 dòng, có 2-3 emoji, kết thúc bằng câu hỏi và 3-5 hashtag liên quan. Thời điểm đăng: sáng sớm {{trigger.fired_at}}.", "tone": "", "max_words": 400, "character_id": 0 } },
+        { "id": "publish", "type": "action",  "position": { "x": 640, "y": 80 }, "data": { "blockId": "action.publish_fb_post", "label": "Đăng Facebook (delay 60p)",      "fb_page_id": "", "fb_page_name": "", "content": "{{gen.content}}", "image_url": "", "mode": "scheduled", "delay_min": 60 } },
+        { "id": "log",     "type": "action",  "position": { "x": 960, "y": 80 }, "data": { "blockId": "action.log",             "label": "Ghi log",                         "message": "daily_notebook_fb_post — event_id={{publish.event_id}} tokens={{gen.tokens}}" } }
+      ],
+      "edges": [
+        { "id": "e_t1_gen",       "source": "t1",      "target": "gen" },
+        { "id": "e_gen_publish",  "source": "gen",     "target": "publish" },
+        { "id": "e_publish_log",  "source": "publish", "target": "log" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_daily_notebook_wp_post_v1",
+    "name": "Notebook → Bài WP hàng ngày (Cron 9h, Draft)",
+    "description": "Cron 9h → action.generate_content dùng Notebook skeleton (R-SK) → soạn bài blog 400-600 từ → tạo WP post (draft để review). Điền notebook_id sau khi import. Sửa title template nếu cần.",
+    "category": "automation",
+    "source": "builtin",
+    "trigger_type": "cron",
+    "icon": "Newspaper",
+    "tags": "cron,daily,wordpress,publish,ai,notebook,skeleton,blog",
+    "trigger_config": { "schedule": "0 9 * * *" },
+    "graph": {
+      "meta": { "template": "tpl_daily_notebook_wp_post_v1" },
+      "nodes": [
+        { "id": "t1",      "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.cron",            "label": "Cron · 09:00 mỗi ngày",         "schedule": "0 9 * * *" } },
+        { "id": "gen",     "type": "action",  "position": { "x": 320, "y": 80 }, "data": { "blockId": "action.generate_content", "label": "Tạo bài web từ Notebook",        "content_type": "web_post", "notebook_id": 0, "prompt_template": "Viết một bài blog tiếng Việt SEO-friendly, phong cách thương hiệu, khoảng 400-600 từ, có tiêu đề H1, 2-3 đoạn chính và phần kết luận ngắn. Ngày: {{trigger.fired_at}}.", "tone": "", "max_words": 600, "character_id": 0 } },
+        { "id": "publish", "type": "action",  "position": { "x": 640, "y": 80 }, "data": { "blockId": "action.publish_wp_post",  "label": "Đăng WP (draft)",                "title": "Bài viết AI {{trigger.fired_at}}", "content": "{{gen.content}}", "image_url": "", "status": "draft", "category": "", "tags": "ai-content", "author_id": 0 } },
+        { "id": "log",     "type": "action",  "position": { "x": 960, "y": 80 }, "data": { "blockId": "action.log",              "label": "Ghi log",                         "message": "daily_notebook_wp_post — post_id={{publish.post_id}} tokens={{gen.tokens}}" } }
+      ],
+      "edges": [
+        { "id": "e_t1_gen",       "source": "t1",      "target": "gen" },
+        { "id": "e_gen_publish",  "source": "gen",     "target": "publish" },
+        { "id": "e_publish_log",  "source": "publish", "target": "log" }
+      ]
+    }
+  }
+]

@@ -1,0 +1,12 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "brain_session_archived",
+  "description": "Soft-archive marker. Lifecycle is derived from events (R-EVT-3) — no status column. VIEW bizcity_brain_sessions can compute archived = EXISTS(this event for session_id).",
+  "type": "object",
+  "required": ["session_id"],
+  "properties": {
+    "session_id":  { "type": "string", "pattern": "^brain_sess_[0-9]+_[0-9]+_[0-9a-f]{4}$" },
+    "archived_at": { "type": "string", "format": "date-time" },
+    "reason":      { "type": "string", "description": "Free-text reason; 'user' / 'idle_30d' / 'cleanup'." }
+  }
+}

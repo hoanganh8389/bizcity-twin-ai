@@ -62,9 +62,10 @@ class BizCoach_Pro_Sprint_Diagnostic {
 	}
 
 	public function register(): void {
+		// [2026-06-10 Johnny Chu] HOTFIX — renamed 'BizCoach · Sprint Console' → 'Bizcoach Roadmap'.
 		add_management_page(
-			'BizCoach Pro — Sprint Console',
-			'BizCoach · Sprint Console',
+			'Bizcoach Roadmap',
+			'Bizcoach Roadmap',
 			'manage_options',
 			self::SLUG,
 			array( $this, 'render' )
@@ -92,6 +93,13 @@ class BizCoach_Pro_Sprint_Diagnostic {
 		self::render_section( 'F.14 — Astro Persona Dialog (bizcoach_astro → PersonalArtifactDialog)', self::compute_f14_tasks() );
 		self::render_section( 'F.15 — PHASE-0.1-ASTRO Multi-provider Gateway (bizcity-llm-router)', self::compute_f15_tasks() );
 		self::render_section( 'F.16 — Cache health (object cache + bcpro/cache/invalidate)', self::compute_f16_tasks() );
+
+		// [2026-06-06 Johnny Chu] PHASE-B B-BE-DDV — Phase B Self-Service REST surface
+		// [2026-06-06 Johnny Chu] PHASE-B B-FE-20/21 — added F.17.j (WPProfilesTable) + F.17.k (ProfileDetailPage)
+		self::render_section( 'F.17 — Phase B Self-Service (geo / coords / saved-calc / transit / profiles UI)', self::compute_f17_tasks() );
+
+		// [2026-06-07 Johnny Chu] PHASE-C C-BE-DDV — Phase C Usage REST + Membership admin (R-DDV)
+		self::render_section( 'F.18 — Phase C Auth/Usage/Billing (AuthModal · Usage REST · Revenue admin)', self::compute_f18_tasks() );
 
 		$run_live_g6 = isset( $_GET['bcpro_diag_g6'] ) && $_GET['bcpro_diag_g6'] === '1';
 		self::render_g6_header( $run_live_g6 );
@@ -448,7 +456,10 @@ class BizCoach_Pro_Sprint_Diagnostic {
 			$has_tbl ? "rows={$snap}" : 'table missing'
 		);
 
-		// Astro persona MUST be the legacy bizcoach (NOT bizcoach_pro) — guarantees no double-fetch
+		// [2026-06-04 Johnny Chu] PHASE-A C.3b — bizcoach-pro took ownership of astro_natal_chart
+		// via BizCoach_Pro_Astro_Provider (id=bizcoach_astro*). Accept any id prefixed 'bizcoach'
+		// (covers legacy='bizcoach', pro='bizcoach_astro', 'bizcoach_astro_western', etc.).
+		// R-NO-CONFLICT.5 intent: block non-bizcoach 3rd-party from claiming astro ownership.
 		$astro_owner = '';
 		foreach ( (array) apply_filters( 'bizcity_persona_tool_providers', array() ) as $p ) {
 			if ( ! is_object( $p ) || ! method_exists( $p, 'get_source_kinds' ) ) { continue; }
@@ -458,10 +469,11 @@ class BizCoach_Pro_Sprint_Diagnostic {
 				break;
 			}
 		}
-		$ok = ( $astro_owner === 'bizcoach' || $astro_owner === '' ); // empty acceptable when legacy not loaded
+		// PASS when: empty (no provider), 'bizcoach' (legacy), or any 'bizcoach_astro*' (pro).
+		$ok = ( $astro_owner === '' || substr( $astro_owner, 0, 8 ) === 'bizcoach' );
 		$out[] = self::row( 'T-BCPRO.F5.d',
 			$ok ? 'PASS' : 'FAIL',
-			'astro_natal_chart owned by legacy bizcoach persona (R-NO-CONFLICT.5)',
+			'astro_natal_chart owned by bizcoach persona family (R-NO-CONFLICT.5)',
 			$astro_owner !== '' ? "owner={$astro_owner}" : 'no provider claims astro_natal_chart'
 		);
 
@@ -794,12 +806,16 @@ class BizCoach_Pro_Sprint_Diagnostic {
 				$meta['label'] . ' (<code>' . $slug . '</code>)', $ev );
 		}
 
-		// R-NO-CONFLICT.6: bizcoach-pro must not register any bccm_* hooks.
+		// [2026-06-04 Johnny Chu] PHASE-A C.3b — tighten regex to add_action calls only;
+		// skip __FILE__ itself: sprint-diagnostic.php reads $wp_filter['wp_ajax_bccm_*']
+		// as string literals which triggered false-positive on the old broad pattern.
 		$bcpro_hooks_ok = true;
-		$dir = plugin_dir_path( __FILE__ );
+		$dir  = plugin_dir_path( __FILE__ );
+		$self = realpath( __FILE__ );
 		foreach ( (array) glob( $dir . 'class-*.php' ) as $f ) {
+			if ( realpath( $f ) === $self ) { continue; } // skip self
 			$src = (string) file_get_contents( $f );
-			if ( preg_match( '/[\'"](?:admin_post|wp_ajax)_bccm_/', $src ) ) {
+			if ( preg_match( '/add_action\s*\(\s*[\'"](?:admin_post|wp_ajax)_bccm_/', $src ) ) {
 				$bcpro_hooks_ok = false; break;
 			}
 		}
@@ -1577,7 +1593,18 @@ class BizCoach_Pro_Sprint_Diagnostic {
 		$tbl_u = $wpdb->base_prefix . 'bcr_astro_usage';
 		$gw_24h = 0; $gw_total = 0;
 		if ( $has_usage ) {
-			$gw_24h   = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$tbl_u} WHERE called_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)" );
+			// [2026-07-08 Johnny Chu] HOTFIX — bcr_astro_usage uses created_at in canonical schema; keep called_at fallback for older forks.
+			$usage_cols = (array) $wpdb->get_col( "SHOW COLUMNS FROM {$tbl_u}", 0 );
+			$usage_ts_col = '';
+			if ( in_array( 'created_at', $usage_cols, true ) ) {
+				$usage_ts_col = 'created_at';
+			} elseif ( in_array( 'called_at', $usage_cols, true ) ) {
+				$usage_ts_col = 'called_at';
+			}
+
+			if ( $usage_ts_col !== '' ) {
+				$gw_24h = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$tbl_u} WHERE `{$usage_ts_col}` >= DATE_SUB(NOW(), INTERVAL 24 HOUR)" );
+			}
 			$gw_total = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$tbl_u}" );
 		}
 		$out[] = self::row( 'T-BCPRO.F15.GW',
@@ -1745,6 +1772,443 @@ class BizCoach_Pro_Sprint_Diagnostic {
 			count( $log ) > 0
 				? ( 'total=' . count( $log ) . ' · last5=' . implode( ', ', $summary ) )
 				: 'no events recorded yet — write a coachee or ingest a link to populate'
+		);
+
+		return $out;
+	}
+
+	/* ============================================================
+	 * [2026-06-06 Johnny Chu] PHASE-B B-BE-DDV
+	 * F.17 — Phase B Self-Service REST + extra_fields_json (R-DDV)
+	 * ============================================================
+	 * Verifies Phase B BE handlers landed: geo/search, coords persistence
+	 * via bccm_coachees.extra_fields_json, saved-calculations list+delete
+	 * with ownership JOIN, transit refactor (no iframe round-trip), and
+	 * moon-month wrapper. Spec: docs/PHASE-B-BACKEND-SPECS.md §6.
+	 * ============================================================ */
+	public static function compute_f17_tasks(): array {
+		$out = array();
+
+		// a) Self-service REST class loaded.
+		$rest_loaded = class_exists( 'BizCoach_Pro_Self_Service_REST' );
+		$out[] = self::row( 'T-BCPRO.F17.a',
+			$rest_loaded ? 'PASS' : 'FAIL',
+			'BizCoach_Pro_Self_Service_REST loaded',
+			$rest_loaded ? 'yes' : 'missing — includes/frontend/class-self-service-rest.php not required'
+		);
+
+		// b) New Phase B routes registered.
+		$expected = array(
+			'/bizcity-bizcoach/v1/geo/search',
+			'/bizcity-bizcoach/v1/me/moon-month',
+			'/bizcity-bizcoach/v1/me/saved-calculations',
+		);
+		$present = array(); $missing = array();
+		if ( function_exists( 'rest_get_server' ) && rest_get_server() ) {
+			$routes = (array) rest_get_server()->get_routes();
+			foreach ( $expected as $path ) {
+				if ( isset( $routes[ $path ] ) ) { $present[] = $path; }
+				else { $missing[] = $path; }
+			}
+		}
+		$out[] = self::row( 'T-BCPRO.F17.b',
+			empty( $missing ) ? 'PASS' : 'FAIL',
+			'Phase B REST routes registered (geo/search, moon-month, saved-calculations)',
+			'present=' . count( $present ) . '/' . count( $expected )
+				. ( empty( $missing ) ? '' : ' · missing: ' . implode( ', ', $missing ) )
+		);
+
+		// c) Astro client wrapper exists for gateway calls.
+		$client_loaded = class_exists( 'BizCoach_Pro_Astro_Client' );
+		$methods       = $client_loaded ? array(
+			'geo_search'       => method_exists( 'BizCoach_Pro_Astro_Client', 'geo_search' ),
+			'moon_month'       => method_exists( 'BizCoach_Pro_Astro_Client', 'moon_month' ),
+			'transits_western' => method_exists( 'BizCoach_Pro_Astro_Client', 'transits_western' ),
+		) : array();
+		$all_ok = $client_loaded && ! in_array( false, $methods, true );
+		$out[] = self::row( 'T-BCPRO.F17.c',
+			$all_ok ? 'PASS' : 'FAIL',
+			'BizCoach_Pro_Astro_Client has geo_search/moon_month/transits_western',
+			$client_loaded
+				? json_encode( $methods )
+				: 'astro client class missing'
+		);
+
+		// d) Schema: bccm_coachees.extra_fields_json column exists (LONGTEXT).
+		global $wpdb;
+		$t_coach = $wpdb->prefix . 'bccm_coachees';
+		$col     = $wpdb->get_row( "SHOW COLUMNS FROM {$t_coach} LIKE 'extra_fields_json'", ARRAY_A );
+		$col_ok  = is_array( $col ) && stripos( (string) $col['Type'], 'text' ) !== false;
+		$out[] = self::row( 'T-BCPRO.F17.d',
+			$col_ok ? 'PASS' : 'FAIL',
+			'bccm_coachees.extra_fields_json column present (LONGTEXT/JSON)',
+			$col_ok
+				? "type={$col['Type']} · null={$col['Null']}"
+				: 'column missing — birth_coords cannot be persisted'
+		);
+
+		// e) Snapshot table exists for saved-calculations.
+		$t_snap = $wpdb->prefix . 'bccm_transit_snapshots';
+		$exists = (bool) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $t_snap ) );
+		$out[] = self::row( 'T-BCPRO.F17.e',
+			$exists ? 'PASS' : 'FAIL',
+			'bccm_transit_snapshots table exists (Saved Calculations source)',
+			$exists ? "table={$t_snap}" : "table missing — saved-calculations endpoint returns empty"
+		);
+
+		// f) Refactor signal: get_transit handler should not call wp_remote_get
+		//    on the same site's /my-transit/?format=json path anymore.
+		$src_path = defined( 'BCPRO_DIR' )
+			? BCPRO_DIR . 'includes/frontend/class-self-service-rest.php'
+			: WP_PLUGIN_DIR . '/bizcity-twin-ai/plugins/bizcoach-pro/includes/frontend/class-self-service-rest.php';
+		$src_ok   = file_exists( $src_path );
+		$still_iframe = false;
+		if ( $src_ok ) {
+			$src = (string) file_get_contents( $src_path );
+			$still_iframe = ( stripos( $src, 'my-transit/?format=json' ) !== false );
+		}
+		$out[] = self::row( 'T-BCPRO.F17.f',
+			( $src_ok && ! $still_iframe ) ? 'PASS' : 'FAIL',
+			'get_transit() no longer round-trips via /my-transit/?format=json',
+			$src_ok
+				? ( $still_iframe ? 'iframe URL still present — refactor incomplete' : 'direct-call refactor confirmed' )
+				: 'source file missing'
+		);
+
+		// [2026-06-06 Johnny Chu] PHASE-B B-BE-2 — g) generate_chart() passes proper birth_data array
+		$gen_ok = false;
+		if ( $src_ok ) {
+			$src_g = isset( $src ) ? $src : (string) file_get_contents( $src_path );
+			// Verify the fix: old code had bccm_astro_fetch_full_chart( $coachee_id, $chart_type )
+			// New code uses $birth_data array built from coachee row.
+			$old_broken  = (bool) preg_match( '~bccm_astro_fetch_full_chart\s*\(\s*\$coachee_id\s*,\s*\$chart_type\s*\)~', $src_g );
+			$new_correct = ( stripos( $src_g, "'timezone_str'" ) !== false || stripos( $src_g, '"timezone_str"' ) !== false )
+				&& ( stripos( $src_g, 'bccm_astro_save_chart(' ) !== false );
+			$gen_ok = ! $old_broken && $new_correct;
+		}
+		$out[] = self::row( 'T-BCPRO.F17.g',
+			$gen_ok ? 'PASS' : 'FAIL',
+			'generate_chart() builds birth_data array (not int) — fix for TypeError + wrong coords',
+			$src_ok
+				? ( $gen_ok
+					? 'timezone_str key present + bccm_astro_save_chart() called — correct'
+					: 'old integer pass pattern detected OR timezone_str/save_chart missing — fix not applied' )
+				: 'source file missing'
+		);
+
+		// [2026-06-06 Johnny Chu] PHASE-B B-FE-16 — h) TransitsPage calls real WP transit API (not mock)
+		$fe_dir  = defined( 'BCPRO_DIR' )
+			? BCPRO_DIR . 'fe/src/pages/'
+			: WP_PLUGIN_DIR . '/bizcity-twin-ai/plugins/bizcoach-pro/fe/src/pages/';
+		$transit_page = $fe_dir . 'TransitsPage.tsx';
+		$fe_src_ok   = file_exists( $transit_page );
+		$fe_wired    = false;
+		if ( $fe_src_ok ) {
+			$fe_src    = (string) file_get_contents( $transit_page );
+			// Must have useTransit hook import + isWPMode branch — no longer purely mock
+			$has_hook  = ( stripos( $fe_src, 'useTransit' ) !== false );
+			$has_branch = ( stripos( $fe_src, 'isWPMode' ) !== false );
+			$no_mock_only = ( stripos( $fe_src, 'DemoTransitsPage' ) !== false ); // renamed → demo isolated
+			$fe_wired  = $has_hook && $has_branch && $no_mock_only;
+		}
+		$out[] = self::row( 'T-BCPRO.F17.h',
+			$fe_wired ? 'PASS' : 'FAIL',
+			'TransitsPage WP mode calls /me/profiles/{id}/transit (not mock) — B-FE-16',
+			$fe_src_ok
+				? ( $fe_wired
+					? 'useTransit hook + isWPMode branch + DemoTransitsPage isolation confirmed'
+					: 'useTransit/isWPMode/DemoTransitsPage pattern missing — still mock-only' )
+				: 'TransitsPage.tsx not found'
+		);
+
+		// [2026-06-06 Johnny Chu] PHASE-B B-FE-17/18 — i) EphemerisPage merges real Moon column from moon-month
+		$eph_page   = $fe_dir . 'EphemerisPage.tsx';
+		$eph_ok     = file_exists( $eph_page );
+		$eph_wired  = false;
+		if ( $eph_ok ) {
+			$eph_src  = (string) file_get_contents( $eph_page );
+			$has_hook = ( stripos( $eph_src, 'useMoonMonth' ) !== false );
+			$has_merge = ( stripos( $eph_src, 'mergeRealMoon' ) !== false );
+			$has_override = ( stripos( $eph_src, 'overrideRows' ) !== false );
+			$eph_wired = $has_hook && $has_merge && $has_override;
+		}
+		$out[] = self::row( 'T-BCPRO.F17.i',
+			$eph_wired ? 'PASS' : 'FAIL',
+			'EphemerisPage WP mode merges real Moon column from /me/moon-month — B-FE-18',
+			$eph_ok
+				? ( $eph_wired
+					? 'useMoonMonth + mergeRealMoon + overrideRows pattern confirmed'
+					: 'useMoonMonth/mergeRealMoon/overrideRows missing — still full mock' )
+				: 'EphemerisPage.tsx not found'
+		);
+
+		// [2026-06-06 Johnny Chu] PHASE-B B-FE-20 — j) WPProfilesTable icon-only share buttons + primary badge
+		$subjects_comp = defined( 'BCPRO_DIR' )
+			? BCPRO_DIR . 'fe/src/components/subjects/WPProfilesTable.tsx'
+			: WP_PLUGIN_DIR . '/bizcity-twin-ai/plugins/bizcoach-pro/fe/src/components/subjects/WPProfilesTable.tsx';
+		$tbl_ok    = file_exists( $subjects_comp );
+		$tbl_wired = false;
+		if ( $tbl_ok ) {
+			$tbl_src     = (string) file_get_contents( $subjects_comp );
+			$has_share   = ( stripos( $tbl_src, 'SHARE_ACTIONS' ) !== false );
+			$has_primary = ( stripos( $tbl_src, 'isPrimary' ) !== false );
+			$has_nav     = ( stripos( $tbl_src, "navigate('/profiles/" ) !== false || stripos( $tbl_src, 'navigate(`/profiles/' ) !== false );
+			$tbl_wired   = $has_share && $has_primary && $has_nav;
+		}
+		$out[] = self::row( 'T-BCPRO.F17.j',
+			$tbl_wired ? 'PASS' : 'FAIL',
+			'WPProfilesTable icon-only share buttons + primary badge + Eye nav — B-FE-20',
+			$tbl_ok
+				? ( $tbl_wired
+					? 'SHARE_ACTIONS + isPrimary + navigate(/profiles/) confirmed'
+					: 'SHARE_ACTIONS/isPrimary/navigate pattern missing' )
+				: 'WPProfilesTable.tsx not found'
+		);
+
+		// [2026-06-06 Johnny Chu] PHASE-B B-FE-21 — k) ProfileDetailPage + /profiles/:id route wired in Router.tsx
+		$detail_page = $fe_dir . 'ProfileDetailPage.tsx';
+		$router_file = $fe_dir . 'Router.tsx';
+		$detail_ok   = file_exists( $detail_page );
+		$router_ok   = file_exists( $router_file );
+		$detail_wired = false;
+		if ( $detail_ok && $router_ok ) {
+			$detail_src  = (string) file_get_contents( $detail_page );
+			$router_src  = (string) file_get_contents( $router_file );
+			$has_share_defs  = ( stripos( $detail_src, 'SHARE_DEFS' ) !== false );
+			$has_persona_lnk = ( stripos( $detail_src, 'persona-links' ) !== false );
+			$has_route       = ( stripos( $router_src, 'ProfileDetailPage' ) !== false )
+				&& ( stripos( $router_src, "profiles/:id" ) !== false || stripos( $router_src, '/profiles/' ) !== false );
+			$detail_wired = $has_share_defs && $has_persona_lnk && $has_route;
+		}
+		$out[] = self::row( 'T-BCPRO.F17.k',
+			$detail_wired ? 'PASS' : 'FAIL',
+			'ProfileDetailPage labeled share buttons + /profiles/:id route in Router.tsx — B-FE-21',
+			( $detail_ok && $router_ok )
+				? ( $detail_wired
+					? 'SHARE_DEFS + persona-links query + Router.tsx route confirmed'
+					: 'SHARE_DEFS/persona-links/Router route pattern missing' )
+				: 'ProfileDetailPage.tsx or Router.tsx not found'
+		);
+
+		// [2026-06-06 Johnny Chu] PHASE-B B-BE-9 — F.17.l: sync-transit endpoint + cron
+		$rest_file = BCPRO_DIR . 'includes/frontend/class-self-service-rest.php';
+		$cron_file = BCPRO_DIR . 'includes/frontend/class-transit-cron.php';
+		$rest_src  = $rest_file && file_exists( $rest_file ) ? file_get_contents( $rest_file ) : '';
+		$cron_src  = $cron_file && file_exists( $cron_file ) ? file_get_contents( $cron_file ) : '';
+		$sync_method_ok  = $rest_src  && strpos( $rest_src,  'function sync_transit' )         !== false;
+		$do_fetch_ok     = $rest_src  && strpos( $rest_src,  'function do_transit_fetch' )      !== false;
+		$cron_class_ok   = $cron_src  && strpos( $cron_src,  'BizCoach_Pro_Transit_Cron' )     !== false;
+		$cron_hook_ok    = $cron_src  && strpos( $cron_src,  "HOOK = 'bcpro_transit_daily_sync'" ) !== false;
+		$cron_note_ok    = $cron_src  && strpos( $cron_src,  'transit_synced' )                !== false;
+		$be9_ok          = $sync_method_ok && $do_fetch_ok && $cron_class_ok && $cron_hook_ok && $cron_note_ok;
+		$be9_detail      = [];
+		if ( ! $sync_method_ok ) { $be9_detail[] = 'sync_transit() method missing in REST class'; }
+		if ( ! $do_fetch_ok )    { $be9_detail[] = 'do_transit_fetch() helper missing in REST class'; }
+		if ( ! $cron_class_ok )  { $be9_detail[] = 'class-transit-cron.php missing or class not found'; }
+		if ( ! $cron_hook_ok )   { $be9_detail[] = 'HOOK constant missing in transit cron'; }
+		if ( ! $cron_note_ok )   { $be9_detail[] = 'R-CRON-META note_event(transit_synced) missing'; }
+		$out[] = self::row( 'T-BCPRO.F17.l',
+			$be9_ok ? 'PASS' : 'FAIL',
+			'sync-transit REST endpoint + daily cron (R-CRON-META) — B-BE-9',
+			$be9_ok
+				? 'sync_transit() + do_transit_fetch() + Transit_Cron class + HOOK + note_event confirmed'
+				: implode( '; ', $be9_detail )
+		);
+
+		return $out;
+	}
+
+	/* ============================================================
+	 * F.18 — Phase C Auth/Usage/Billing (R-DDV)
+	 *
+	 * [2026-06-07 Johnny Chu] PHASE-C C-BE-DDV — verifies Phase C deliverables:
+	 * C-1 Auth (bcproSS auth fields + AuthModal FE), C-2 Usage REST + report,
+	 * C-3 Admin Revenue/Usage reports, C-4 refund flow.
+	 * Spec: docs/PHASE-C-ACCOUNT-USAGE-BILLING.md + APX-1 + APX-2.
+	 * ============================================================ */
+	public static function compute_f18_tasks(): array {
+		$out = array();
+
+		$rest_file = defined( 'BCPRO_DIR' )
+			? BCPRO_DIR . 'includes/frontend/class-self-service-rest.php'
+			: '';
+		$rest_src  = ( $rest_file && file_exists( $rest_file ) )
+			? (string) file_get_contents( $rest_file )
+			: '';
+
+		$sc_file = defined( 'BCPRO_DIR' )
+			? BCPRO_DIR . 'includes/frontend/class-self-service-shortcode.php'
+			: '';
+		$sc_src  = ( $sc_file && file_exists( $sc_file ) )
+			? (string) file_get_contents( $sc_file )
+			: '';
+
+		$usage_file = defined( 'BCPRO_DIR' )
+			? BCPRO_DIR . 'includes/usage/class-usage-report.php'
+			: '';
+
+		// a) bcproSS auth fields injected (webchatNonce + ajaxUrl + isLoggedIn)
+		$nonce_ok  = $sc_src && strpos( $sc_src, 'webchatNonce' ) !== false;
+		$ajax_ok   = $sc_src && strpos( $sc_src, 'ajaxUrl' )      !== false;
+		$login_ok  = $sc_src && strpos( $sc_src, 'isLoggedIn' )   !== false;
+		$sso_ok    = $sc_src && strpos( $sc_src, 'ssoGoogleUrl' ) !== false;
+		$c1_be_ok  = $nonce_ok && $ajax_ok && $login_ok && $sso_ok;
+		$out[] = self::row(
+			'T-BCPRO.F18.a',
+			$c1_be_ok ? 'PASS' : 'FAIL',
+			'bcproSS auth fields: webchatNonce + ajaxUrl + isLoggedIn + ssoGoogleUrl injected — C-1 BE',
+			$sc_src
+				? ( $c1_be_ok
+					? 'all 4 auth fields present'
+					: 'missing: ' . implode( ', ', array_filter( array(
+						$nonce_ok ? '' : 'webchatNonce',
+						$ajax_ok  ? '' : 'ajaxUrl',
+						$login_ok ? '' : 'isLoggedIn',
+						$sso_ok   ? '' : 'ssoGoogleUrl',
+					) ) ) )
+				: 'class-self-service-shortcode.php not found'
+		);
+
+		// b) AuthModal component exists (C-1 FE)
+		$fe_dir      = defined( 'BCPRO_DIR' ) ? BCPRO_DIR . 'fe/src/components/account/' : '';
+		$modal_ok    = $fe_dir && file_exists( $fe_dir . 'AuthModal.tsx' );
+		$acct_btn_ok = $fe_dir && file_exists( $fe_dir . 'AccountButton.tsx' );
+		$store_ok    = defined( 'BCPRO_DIR' ) && file_exists( BCPRO_DIR . 'fe/src/stores/authModalStore.ts' );
+		$c1_fe_ok    = $modal_ok && $acct_btn_ok && $store_ok;
+		$out[] = self::row(
+			'T-BCPRO.F18.b',
+			$c1_fe_ok ? 'PASS' : 'FAIL',
+			'AuthModal.tsx + AccountButton.tsx + authModalStore.ts present — C-1 FE',
+			$fe_dir
+				? ( $c1_fe_ok
+					? 'AuthModal + AccountButton + store confirmed'
+					: 'missing: ' . implode( ', ', array_filter( array(
+						$modal_ok    ? '' : 'AuthModal.tsx',
+						$acct_btn_ok ? '' : 'AccountButton.tsx',
+						$store_ok    ? '' : 'authModalStore.ts',
+					) ) ) )
+				: 'BCPRO_DIR not defined'
+		);
+
+		// c) BizCoach_Pro_Usage_Report class loaded (C-2 BE)
+		$usage_class_ok = class_exists( 'BizCoach_Pro_Usage_Report' );
+		$usage_file_ok  = $usage_file && file_exists( $usage_file );
+		$out[] = self::row(
+			'T-BCPRO.F18.c',
+			$usage_class_ok ? 'PASS' : 'FAIL',
+			'BizCoach_Pro_Usage_Report class loaded — C-2 BE',
+			$usage_class_ok
+				? 'class available'
+				: ( $usage_file_ok
+					? 'file exists but not required — check bizcoach-pro.php'
+					: 'class-usage-report.php missing' )
+		);
+
+		// d) REST GET /me/usage-summary route registered (C-2 BE)
+		$usage_route_ok = false;
+		if ( function_exists( 'rest_get_server' ) && rest_get_server() ) {
+			$routes = (array) rest_get_server()->get_routes();
+			$usage_route_ok = isset( $routes['/bizcity-bizcoach/v1/me/usage-summary'] );
+		}
+		$usage_method_ok = $rest_src && strpos( $rest_src, 'get_usage_summary' ) !== false;
+		$out[] = self::row(
+			'T-BCPRO.F18.d',
+			( $usage_route_ok && $usage_method_ok ) ? 'PASS' : ( $usage_method_ok ? 'WARN' : 'FAIL' ),
+			'REST GET /bizcity-bizcoach/v1/me/usage-summary registered — C-2 BE',
+			$usage_method_ok
+				? ( $usage_route_ok ? 'route registered' : 'method found but route not yet registered (init timing)' )
+				: 'get_usage_summary() callback missing in class-self-service-rest.php'
+		);
+
+		// e) UsagePage.tsx present (C-2 FE)
+		$usage_page_ok = defined( 'BCPRO_DIR' ) && file_exists( BCPRO_DIR . 'fe/src/pages/UsagePage.tsx' );
+		$usage_api_ok  = defined( 'BCPRO_DIR' ) && file_exists( BCPRO_DIR . 'fe/src/api/usage.ts' );
+		$usage_hook_ok = defined( 'BCPRO_DIR' ) && file_exists( BCPRO_DIR . 'fe/src/hooks/useUsage.ts' );
+		$c2_fe_ok      = $usage_page_ok && $usage_api_ok && $usage_hook_ok;
+		$out[] = self::row(
+			'T-BCPRO.F18.e',
+			$c2_fe_ok ? 'PASS' : 'FAIL',
+			'UsagePage.tsx + api/usage.ts + hooks/useUsage.ts present — C-2 FE',
+			$c2_fe_ok
+				? 'all 3 files confirmed'
+				: 'missing: ' . implode( ', ', array_filter( array(
+					$usage_page_ok ? '' : 'UsagePage.tsx',
+					$usage_api_ok  ? '' : 'api/usage.ts',
+					$usage_hook_ok ? '' : 'hooks/useUsage.ts',
+				) ) )
+		);
+
+		// f) Revenue Report class loaded (C-3 BE)
+		$rev_ok   = class_exists( 'BizCity_Membership_Revenue_Report' );
+		$usage_adm_ok = class_exists( 'BizCity_Membership_Usage_Report' );
+		$out[] = self::row(
+			'T-BCPRO.F18.f',
+			( $rev_ok && $usage_adm_ok ) ? 'PASS' : 'FAIL',
+			'BizCity_Membership_Revenue_Report + Usage_Report classes loaded — C-3 BE',
+			( $rev_ok && $usage_adm_ok )
+				? 'both report classes available'
+				: 'missing: ' . implode( ', ', array_filter( array(
+					$rev_ok       ? '' : 'Revenue_Report',
+					$usage_adm_ok ? '' : 'Usage_Report (admin)',
+				) ) )
+		);
+
+		// g) Admin page Revenue + Usage tabs present (C-3 admin)
+		$admin_file = WP_PLUGIN_DIR . '/bizcity-twin-ai/core/membership/includes/admin/class-membership-admin-page.php';
+		$admin_src  = file_exists( $admin_file ) ? (string) file_get_contents( $admin_file ) : '';
+		$rev_tab_ok  = $admin_src && strpos( $admin_src, "'dashboard'" ) !== false
+			&& strpos( $admin_src, 'tab_dashboard' ) !== false;
+		$usg_tab_ok  = $admin_src && strpos( $admin_src, "'usage'" ) !== false
+			&& strpos( $admin_src, 'tab_usage' ) !== false;
+		$out[] = self::row(
+			'T-BCPRO.F18.g',
+			( $rev_tab_ok && $usg_tab_ok ) ? 'PASS' : 'FAIL',
+			'Admin Revenue (dashboard) + Usage tabs in BizCity_Membership_Admin_Page — C-3',
+			$admin_src
+				? ( ( $rev_tab_ok && $usg_tab_ok )
+					? 'dashboard + usage tabs confirmed'
+					: 'missing: ' . implode( ', ', array_filter( array(
+						$rev_tab_ok ? '' : 'Revenue dashboard tab',
+						$usg_tab_ok ? '' : 'Usage tab',
+					) ) ) )
+				: 'class-membership-admin-page.php not found at expected path'
+		);
+
+		// h) PricingPage.tsx + api/membership.ts present (C-4 FE)
+		$pricing_ok = defined( 'BCPRO_DIR' ) && file_exists( BCPRO_DIR . 'fe/src/pages/PricingPage.tsx' );
+		$memb_api_ok = defined( 'BCPRO_DIR' ) && file_exists( BCPRO_DIR . 'fe/src/api/membership.ts' );
+		$paypal_ok   = $sc_src && strpos( $sc_src, 'paypalEnabled' ) !== false;
+		$c4_fe_ok    = $pricing_ok && $memb_api_ok && $paypal_ok;
+		$out[] = self::row(
+			'T-BCPRO.F18.h',
+			$c4_fe_ok ? 'PASS' : 'FAIL',
+			'PricingPage.tsx + api/membership.ts + bcproSS paypalEnabled injected — C-4',
+			$c4_fe_ok
+				? 'PricingPage + membership.ts + paypal config confirmed'
+				: 'missing: ' . implode( ', ', array_filter( array(
+					$pricing_ok  ? '' : 'PricingPage.tsx',
+					$memb_api_ok ? '' : 'api/membership.ts',
+					$paypal_ok   ? '' : 'bcproSS.paypalEnabled',
+				) ) )
+		);
+
+		// i) Refund flow: mark_refunded + refund_payment methods (C-4 BE)
+		$pay_file = WP_PLUGIN_DIR . '/bizcity-twin-ai/core/membership/includes/class-membership-payments.php';
+		$pay_src  = file_exists( $pay_file ) ? (string) file_get_contents( $pay_file ) : '';
+		$gw_file  = WP_PLUGIN_DIR . '/bizcity-twin-ai/core/membership/includes/class-membership-paypal-gateway.php';
+		$gw_src   = file_exists( $gw_file ) ? (string) file_get_contents( $gw_file ) : '';
+		$mark_ok   = $pay_src && strpos( $pay_src, 'mark_refunded' ) !== false;
+		$refund_ok = $gw_src  && strpos( $gw_src,  'refund_payment' ) !== false;
+		$out[] = self::row(
+			'T-BCPRO.F18.i',
+			( $mark_ok && $refund_ok ) ? 'PASS' : 'FAIL',
+			'mark_refunded() in Payments + refund_payment() in PayPal Gateway — C-4 BE',
+			( $mark_ok && $refund_ok )
+				? 'both refund methods confirmed'
+				: 'missing: ' . implode( ', ', array_filter( array(
+					$mark_ok   ? '' : 'Payments::mark_refunded()',
+					$refund_ok ? '' : 'PayPalGateway::refund_payment()',
+				) ) )
 		);
 
 		return $out;

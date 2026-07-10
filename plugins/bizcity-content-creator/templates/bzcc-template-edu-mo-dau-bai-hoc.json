@@ -45,7 +45,7 @@
           "description": "Bỏ trống = AI tự gợi ý 3 kiểu phù hợp nhất",
           "multi": true,
           "options": [
-            { "value": "ai-suggest", "label": "🤖 Brain Factory gợi ý cho tôi" },
+            { "value": "ai-suggest", "label": "🤖 TwinPlanner gợi ý cho tôi" },
             { "value": "question", "label": "❓ Câu hỏi tư duy" },
             { "value": "game", "label": "🎮 Trò chơi" },
             { "value": "real-situation", "label": "🌍 Tình huống thực tế" },

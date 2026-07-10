@@ -134,7 +134,7 @@ class BizCity_Twin_Data_Contract {
 	public static function table_exists( string $bare_name ): bool {
 		global $wpdb;
 		$full = $wpdb->prefix . $bare_name;
-		return $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $full ) ) === $full;
+		return bizcity_tbl_exists( $full ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 	}
 
 	/* ================================================================

@@ -358,12 +358,23 @@ add_action( 'plugins_loaded', function () {
         wp_schedule_event( time(), 'daily', 'bizcity_prompt_log_cleanup' );
     }
 
-    // Monitor dashboard (admin only)
-    if ( is_admin() ) {
-        BizCity_Intent_Monitor::instance();
-        BizCity_Intent_Data_Browser::instance();
-        BizCity_Tool_Control_Panel::instance();
-    }
+    // Monitor dashboard (admin only) — defer to current_screen to avoid
+    // [2026-06-09 Johnny Chu] PERF-1 — instantiating these on EVERY admin page.
+    // Intent Monitor / Data Browser / Tool Control Panel only needed on their own pages.
+    add_action( 'current_screen', function ( $screen ) {
+        if ( ! $screen ) {
+            return;
+        }
+        // Boot these on any bizcity-intent* page OR the tool control panel page.
+        if ( false !== strpos( $screen->id, 'bizcity-intent' )
+            || false !== strpos( $screen->id, 'bizcity-tool' )
+            || false !== strpos( $screen->id, 'bizcity-data-browser' )
+        ) {
+            BizCity_Intent_Monitor::instance();
+            BizCity_Intent_Data_Browser::instance();
+            BizCity_Tool_Control_Panel::instance();
+        }
+    }, 1 );
 
     // REST API for settings (mobile app ready)
     BizCity_Intent_Settings_API::instance();

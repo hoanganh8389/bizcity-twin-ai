@@ -205,18 +205,24 @@ class BizCity_Ajax_Content {
      */
     private static function get_wp_settings( int $user_id ): ?array {
         // Admin auto-uses local
+        // [2026-06-22 Johnny Chu] R-PERF — route via BizCity_User_Meta_Cache to avoid WP meta prime
+        $mc = class_exists( 'BizCity_User_Meta_Cache' );
         if ( current_user_can( 'manage_options' ) ) {
-            $force_external = get_user_meta( $user_id, 'bztc_force_external_wp', true );
+            $force_external = $mc
+                ? BizCity_User_Meta_Cache::get( $user_id, 'bztc_force_external_wp', '' )
+                : get_user_meta( $user_id, 'bztc_force_external_wp', true );
             if ( ! $force_external ) return null;
         }
 
-        $site_url = get_user_meta( $user_id, 'bztc_wp_site_url', true );
+        $site_url = $mc
+            ? BizCity_User_Meta_Cache::get( $user_id, 'bztc_wp_site_url', '' )
+            : get_user_meta( $user_id, 'bztc_wp_site_url', true );
         if ( empty( $site_url ) ) return null;
 
         return array(
             'site_url'     => $site_url,
-            'username'     => get_user_meta( $user_id, 'bztc_wp_username', true ),
-            'app_password' => get_user_meta( $user_id, 'bztc_wp_app_password', true ),
+            'username'     => $mc ? BizCity_User_Meta_Cache::get( $user_id, 'bztc_wp_username', '' )     : get_user_meta( $user_id, 'bztc_wp_username', true ),
+            'app_password' => $mc ? BizCity_User_Meta_Cache::get( $user_id, 'bztc_wp_app_password', '' ) : get_user_meta( $user_id, 'bztc_wp_app_password', true ),
         );
     }
 

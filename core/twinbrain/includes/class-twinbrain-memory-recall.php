@@ -142,6 +142,12 @@ final class BizCity_TwinBrain_Memory_Recall {
 		// ── Tier D — rolling summary (optional table) ──
 		$lines_d = $this->collect_rolling( $user_id, $session_id, $citations );
 
+		// [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-4 — Tier F (Feelings).
+		// Surfaces the latest sampled mood for the session so Final_Composer
+		// can stay empathically consistent across turns. No cost — single
+		// VIEW lookup. Empty when no session_id or no mood sampled yet.
+		$line_f = $this->collect_session_mood( $session_id );
+
 		// Build block. Sections only render when populated.
 		$parts = [];
 		$parts[] = "### 🧠 MEMORY (recall layer 0.5)";
@@ -156,6 +162,9 @@ final class BizCity_TwinBrain_Memory_Recall {
 		}
 		if ( ! empty( $lines_d ) ) {
 			$parts[] = "**🔁 Rolling summary:**\n" . implode( "\n", $lines_d );
+		}
+		if ( $line_f !== '' ) {
+			$parts[] = "**🌱 Trạng thái cảm xúc (latest):**\n" . $line_f;
 		}
 
 		$block = ( count( $parts ) > 1 ) ? implode( "\n\n", $parts ) : '';
@@ -173,6 +182,7 @@ final class BizCity_TwinBrain_Memory_Recall {
 				'B' => count( $lines_b ),
 				'C' => count( $lines_c ),
 				'D' => count( $lines_d ),
+				'F' => $line_f !== '' ? 1 : 0,
 			],
 			'latency_ms' => (int) ( ( microtime( true ) - $t0 ) * 1000 ),
 			'source'     => 'legacy',
@@ -227,7 +237,7 @@ final class BizCity_TwinBrain_Memory_Recall {
 	private function collect_episodic( int $user_id, string $session_id, array $tokens, array &$citations ): array {
 		global $wpdb;
 		$table = $wpdb->prefix . 'bizcity_memory_episodic';
-		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
+		if ( ! bizcity_tbl_exists( $table ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			return [];
 		}
 		$sql = "SELECT * FROM {$table}
@@ -263,7 +273,7 @@ final class BizCity_TwinBrain_Memory_Recall {
 	private function collect_rolling( int $user_id, string $session_id, array &$citations ): array {
 		global $wpdb;
 		$table = $wpdb->prefix . 'bizcity_memory_rolling';
-		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
+		if ( ! bizcity_tbl_exists( $table ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			return [];
 		}
 		/* Wave 2.8d D6.9g (2026-05-24) — schema-tolerant recall.
@@ -345,7 +355,7 @@ final class BizCity_TwinBrain_Memory_Recall {
 	private function collect_from_unified( int $user_id, string $session_id, array $tokens, float $t0 ) {
 		global $wpdb;
 		$table = BizCity_Memory_Unified_Installer::table();
-		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
+		if ( ! bizcity_tbl_exists( $table ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			return null; // table not provisioned → fall back to legacy
 		}
 
@@ -353,17 +363,28 @@ final class BizCity_TwinBrain_Memory_Recall {
 
 		// Single query pulls top 200 candidates across all 4 classes. We then
 		// bucket + filter in PHP. Indexed by idx_user_class + idx_class_score.
+		// [2026-07-09 Johnny Chu] HOTFIX — keep unified read scoping parity with
+		// legacy get_memories(): logged-in => user_id only; guest => session_id when provided.
+		$where_sql = 'blog_id = %d AND memory_class IN (\'user\',\'episodic\',\'rolling\')';
+		$params    = [ $blog_id ];
+		if ( $user_id > 0 ) {
+			$where_sql .= ' AND user_id = %d';
+			$params[]   = $user_id;
+		} elseif ( $session_id !== '' ) {
+			$where_sql .= ' AND session_id = %s';
+			$params[]   = $session_id;
+		}
+		$params[] = 200;
+
 		$sql = "SELECT id, legacy_id, memory_class, memory_tier, memory_type,
 		               memory_key, memory_text, score, importance,
 		               event_type, goal, goal_label, window_summary,
 		               window_turn_count, status, updated_at, created_at
 		         FROM {$table}
-		         WHERE blog_id = %d
-		           AND ( user_id = %d OR ( user_id = 0 AND session_id = %s ) )
-		           AND memory_class IN ('user','episodic','rolling')
+		         WHERE {$where_sql}
 		         ORDER BY score DESC, updated_at DESC
-		         LIMIT 200";
-		$rows = (array) $wpdb->get_results( $wpdb->prepare( $sql, $blog_id, $user_id, $session_id ) );
+		         LIMIT %d";
+		$rows = (array) $wpdb->get_results( $wpdb->prepare( $sql, $params ) );
 
 		$citations = [];
 		$lines_a   = [];
@@ -465,6 +486,12 @@ final class BizCity_TwinBrain_Memory_Recall {
 		if ( ! empty( $lines_c ) ) $parts[] = "**🎞️ Episodic:**\n" . implode( "\n", $lines_c );
 		if ( ! empty( $lines_d ) ) $parts[] = "**🔁 Rolling summary:**\n" . implode( "\n", $lines_d );
 
+		// [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-4 — Tier F (unified path).
+		$line_f = $this->collect_session_mood( $session_id );
+		if ( $line_f !== '' ) {
+			$parts[] = "**🌱 Trạng thái cảm xúc (latest):**\n" . $line_f;
+		}
+
 		$block = ( count( $parts ) > 1 ) ? implode( "\n\n", $parts ) : '';
 		if ( mb_strlen( $block ) > self::BLOCK_CAP_CHARS ) {
 			$block = mb_substr( $block, 0, self::BLOCK_CAP_CHARS - 1 ) . '…';
@@ -478,6 +505,7 @@ final class BizCity_TwinBrain_Memory_Recall {
 				'B' => count( $lines_b ),
 				'C' => count( $lines_c ),
 				'D' => count( $lines_d ),
+				'F' => $line_f !== '' ? 1 : 0,
 			],
 			'latency_ms' => (int) ( ( microtime( true ) - $t0 ) * 1000 ),
 			'source'     => 'unified',
@@ -505,5 +533,36 @@ final class BizCity_TwinBrain_Memory_Recall {
 			'type'  => (string) ( $row->memory_type ?? 'fact' ),
 			'tier'  => (string) ( $row->memory_tier ?? 'extracted' ),
 		];
+	}
+
+	/**
+	 * [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-4 — Tier F (Feelings).
+	 * Reads the latest sampled mood for the active session via
+	 * Sessions_Manager and renders a single bullet line. Returns '' when
+	 * no session_id, no Sessions_Manager, or no mood sampled yet.
+	 */
+	private function collect_session_mood( string $session_id ): string {
+		if ( $session_id === '' ) return '';
+		if ( ! class_exists( 'BizCity_TwinBrain_Sessions_Manager' ) ) return '';
+		try {
+			$mgr = BizCity_TwinBrain_Sessions_Manager::instance();
+			if ( ! method_exists( $mgr, 'latest_mood' ) ) return '';
+			$mood = $mgr->latest_mood( $session_id );
+		} catch ( \Throwable $e ) {
+			return '';
+		}
+		if ( ! is_array( $mood ) || empty( $mood ) ) return '';
+
+		$valence    = isset( $mood['valence'] ) ? (float) $mood['valence'] : 0.0;
+		$label      = (string) ( $mood['label'] ?? '' );
+		$turn_index = (int)    ( $mood['turn_index'] ?? 0 );
+		if ( $label === '' ) $label = 'neutral';
+
+		return sprintf(
+			'- valence=%s (%s) — sampled at turn %d',
+			number_format( $valence, 2 ),
+			$label,
+			$turn_index
+		);
 	}
 }

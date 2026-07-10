@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "bizcity://events/workflow_completed.json",
+  "title": "workflow_completed",
+  "description": "Emitted by BizCity_TwinBrain_Workflow_Pipeline when all nodes have finished (success or partial failure). FE shows a summary chip below the timeline. PHASE-TWB-WORKFLOW W1 (2026-06-19).",
+  "type": "object",
+  "required": ["trace_id", "skill_slug", "artifacts_count", "total_ms"],
+  "properties": {
+    "trace_id":       { "type": "string" },
+    "skill_slug":     { "type": "string" },
+    "artifacts_count":{ "type": "integer", "minimum": 0, "description": "Number of artifacts accumulated in the pool." },
+    "total_ms":       { "type": "integer", "minimum": 0, "description": "Wall-clock time from workflow_started to workflow_completed, in ms." },
+    "tokens":         { "type": "integer", "minimum": 0, "description": "Total LLM tokens consumed across all nodes." },
+    "answer_len":     { "type": "integer", "minimum": 0, "description": "Character length of the final composed answer." },
+    "error":          { "type": "string", "description": "Non-empty if pipeline ended in a degraded state (e.g. skill_not_found, pipeline_exception)." }
+  },
+  "additionalProperties": true
+}

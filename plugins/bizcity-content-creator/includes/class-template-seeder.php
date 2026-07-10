@@ -31,6 +31,8 @@ class BZCC_Template_Seeder {
 	const OPT_VERSION      = 'bzcc_seed_version';
 	const OPT_FINGERPRINTS = 'bzcc_seed_fingerprints';
 	const LOCK_TRANSIENT   = 'bzcc_seed_lock';
+	// [2026-06-22 Johnny Chu] R-PERF — flag set after successful seed; avoids SELECT COUNT(*) every request
+	const OPT_SEEDED_FLAG  = 'bzcc_seed_seeded';
 
 	/* ──────────────────────────────────────────────────────────────
 	 * CANONICAL CATEGORY LIST — Phase 0 Foundation
@@ -58,10 +60,32 @@ class BZCC_Template_Seeder {
 		add_action( 'init', [ __CLASS__, 'maybe_seed' ], 5 );
 	}
 
-	/** Run seeding when version differs. */
+	/** Run seeding when version differs OR when template table is empty. */
 	public static function maybe_seed(): void {
-		if ( get_option( self::OPT_VERSION ) === BZCC_VERSION ) {
-			return;
+		$version_ok = ( get_option( self::OPT_VERSION ) === BZCC_VERSION );
+
+		if ( $version_ok ) {
+			// [2026-06-22 Johnny Chu] R-PERF — fast path: if seeded flag is set, skip COUNT entirely.
+			// OPT_SEEDED_FLAG is set after every successful run() + version bump.
+			// Only falls through to COUNT when flag is absent (fresh install / manual row delete / multisite clone).
+			if ( get_option( self::OPT_SEEDED_FLAG ) ) {
+				return;
+			}
+
+			// [2026-06-11 Johnny Chu] HOTFIX — also re-seed when version matches but table is empty.
+			// Handles: rows deleted manually, option copied from another site, fresh multisite subsite.
+			if ( ! class_exists( 'BZCC_Installer' ) || ! BZCC_Installer::tables_exist() ) {
+				return; // Table not created yet — installer handles it later.
+			}
+			global $wpdb;
+			$t     = BZCC_Installer::table_templates();
+			$count = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$t}" ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+			if ( $count > 0 ) {
+				// [2026-06-22 Johnny Chu] R-PERF — data confirmed, set flag so next request skips COUNT
+				update_option( self::OPT_SEEDED_FLAG, 1, true );
+				return; // Version ok AND data exists — nothing to do.
+			}
+			// Fall through: version ok but table is empty → force re-seed.
 		}
 
 		// Cross-request lock — avoid concurrent seeds (e.g. multiple admin tabs).
@@ -76,6 +100,8 @@ class BZCC_Template_Seeder {
 			}
 			self::run();
 			update_option( self::OPT_VERSION, BZCC_VERSION );
+			// [2026-06-22 Johnny Chu] R-PERF — mark seed complete; prevents SELECT COUNT(*) on next request
+			update_option( self::OPT_SEEDED_FLAG, 1, true );
 		} finally {
 			delete_transient( self::LOCK_TRANSIENT );
 		}

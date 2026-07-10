@@ -290,29 +290,52 @@ if (!function_exists('bccm_astro_filter_row_to_existing_columns')) {
  */
 if (!function_exists('bccm_astro_fetch_by_user_chart')) {
   function bccm_astro_fetch_by_user_chart($user_id, $coachee_id, $chart_type = 'western') {
+    // [2026-06-10 Johnny Chu] R-CACHE — wrap DB read with BizCity_Cache::get/set (group=bcpro)
+    // Cache key includes all 3 discriminators to avoid collision between chart types.
+    $cache_key = 'astro_row_' . (int) $user_id . '_' . (int) $coachee_id . '_' . sanitize_key( $chart_type );
+    $cached    = class_exists( 'BizCity_Cache' ) ? BizCity_Cache::get( 'bcpro', $cache_key ) : false;
+    if ( false !== $cached ) { return $cached; }
+
     global $wpdb;
     $table  = $wpdb->prefix . 'bccm_astro';
     $has_uid = bccm_astro_supports_user_id();
     $has_ct  = bccm_astro_supports_chart_type();
 
-    if ($has_uid && $has_ct) {
-      return $wpdb->get_row($wpdb->prepare(
-        "SELECT * FROM $table WHERE user_id=%d AND chart_type=%s ORDER BY id DESC LIMIT 1",
-        (int) $user_id, $chart_type
+    $result = null;
+    // [2026-07-03 Johnny Chu] PHASE-ASTRO-MIGRATE — when user_id=0 (no-account coachee),
+    // skip the user_id query (WHERE user_id=0 is too broad / row may have user_id=NULL)
+    // and go straight to the reliable coachee_id lookup.
+    if ( $has_uid && $has_ct && (int) $user_id > 0 ) {
+      $result = $wpdb->get_row($wpdb->prepare(
+        "SELECT * FROM $table WHERE user_id=%d AND chart_type=%s
+         ORDER BY (coachee_id=%d) DESC,
+                  (((summary IS NOT NULL AND summary<>'') OR (traits IS NOT NULL AND traits<>'')) ) DESC,
+                  id DESC
+         LIMIT 1",
+        (int) $user_id, $chart_type, (int) $coachee_id
       ), ARRAY_A);
     }
-    if ($has_ct) {
-      return $wpdb->get_row($wpdb->prepare(
+    // Fallback (and primary path for user_id=0): lookup by coachee_id
+    if ( ! $result && $has_ct ) {
+      $result = $wpdb->get_row($wpdb->prepare(
         "SELECT * FROM $table WHERE coachee_id=%d AND chart_type=%s ORDER BY id DESC LIMIT 1",
         (int) $coachee_id, $chart_type
       ), ARRAY_A);
     }
-    // Schema legacy: không có chart_type → chỉ có 1 row/coachee
-    if ($chart_type === 'vedic') return null; // tránh trả lại row western nhầm
-    return $wpdb->get_row($wpdb->prepare(
-      "SELECT * FROM $table WHERE coachee_id=%d ORDER BY id DESC LIMIT 1",
-      (int) $coachee_id
-    ), ARRAY_A);
+    if ( ! $result && ! $has_ct && $chart_type !== 'vedic' ) {
+      // Schema legacy: không có chart_type → chỉ có 1 row/coachee
+      // vedic returns null on legacy schema (avoid returning wrong western row)
+      $result = $wpdb->get_row($wpdb->prepare(
+        "SELECT * FROM $table WHERE coachee_id=%d ORDER BY id DESC LIMIT 1",
+        (int) $coachee_id
+      ), ARRAY_A);
+    }
+
+    // Cache the result; skip caching null to avoid masking first-time chart generation.
+    if ( null !== $result && class_exists( 'BizCity_Cache' ) ) {
+      BizCity_Cache::set( 'bcpro', $cache_key, $result );
+    }
+    return $result;
   }
 }
 

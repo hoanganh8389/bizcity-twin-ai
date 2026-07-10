@@ -182,11 +182,13 @@ class BizCity_Facebook_Bot_Plugin {
 	 * @since 1.0.1 — optimized: skips instantly when db_version already set
 	 */
 	private function maybe_create_tables_on_init() {
-		static $checked = false;
-		if ( $checked ) {
+		// [2026-06-21 Johnny Chu] HOTFIX — per-blog static to avoid skip on multisite switch_to_blog.
+		static $checked_blogs = array();
+		$blog_id = (int) get_current_blog_id();
+		if ( isset( $checked_blogs[ $blog_id ] ) ) {
 			return;
 		}
-		$checked = true;
+		$checked_blogs[ $blog_id ] = true;
 		
 		// Fast bail if already installed
 		$db_version = get_option( 'bizcity_facebook_bot_db_version', '' );
@@ -194,16 +196,16 @@ class BizCity_Facebook_Bot_Plugin {
 			return;
 		}
 		
-		if ( empty( $db_version ) ) {
-			// First install — run migration + create tables
-			if ( class_exists( 'BizCity_Facebook_Bot_Migration' ) ) {
-				BizCity_Facebook_Bot_Migration::maybe_migrate();
-			}
-			if ( class_exists( 'BizCity_Facebook_Bot_Database' ) ) {
-				BizCity_Facebook_Bot_Database::activate();
-			}
-			update_option( 'bizcity_facebook_bot_db_version', self::DB_VERSION );
+		// [2026-06-21 Johnny Chu] HOTFIX — run activate() for BOTH first-install
+		// AND version-mismatch (e.g. blog cloned with old version option set,
+		// tables never created). Previous code only ran activate() when empty.
+		if ( class_exists( 'BizCity_Facebook_Bot_Migration' ) ) {
+			BizCity_Facebook_Bot_Migration::maybe_migrate();
 		}
+		if ( class_exists( 'BizCity_Facebook_Bot_Database' ) ) {
+			BizCity_Facebook_Bot_Database::activate();
+		}
+		update_option( 'bizcity_facebook_bot_db_version', self::DB_VERSION );
 	}
 	
 	/**

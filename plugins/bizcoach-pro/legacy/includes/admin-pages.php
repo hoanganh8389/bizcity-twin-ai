@@ -54,6 +54,21 @@ function bccm_admin_menu(){
 
 add_action('admin_menu','bccm_admin_menu');
 
+// [2026-06-28 Johnny Chu] HOTFIX — add /astro/ public page link to the "My AI Profile" submenu.
+// WordPress add_submenu_page() only supports admin slugs; for external URLs we inject directly
+// into $submenu. Priority 999 ensures it runs after all other submenu registrations.
+add_action( 'admin_menu', function () {
+    global $submenu;
+    if ( ! isset( $submenu['bccm_user_profiles'] ) ) { return; }
+    $astro_url = function_exists( 'home_url' ) ? home_url( '/astro/' ) : '/astro/';
+    $submenu['bccm_user_profiles'][] = array(
+        '🔮 Trang Chiêm tinh (/astro/)',
+        'edit_posts',
+        $astro_url,
+        '🔮 Trang Chiêm tinh (/astro/)',
+    );
+}, 999 );
+
 add_action('admin_menu', 'bccm_hide_phase71_admin_submenus', 99999);
 function bccm_hide_phase71_admin_submenus() {
   #remove_submenu_page('bccm_user_profiles', 'bccm_my_profile');

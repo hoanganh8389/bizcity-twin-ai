@@ -50,7 +50,9 @@ class BizCity_Twin_Event_Taxonomy {
 	// Bumped 2026-04-30 (Sprint 5.0+ housekeeping) — added memory_mutation (memory_logs cleanup, R-EVT-1 enforcement).
 	// Bumped 2026-05-10 (Phase 0.36 TBR.1) — added brain_perspective_selected, brain_perspective_answer, brain_tool_intent, system_diagnostic.
 	// Bumped 2026-05-13 (Phase 0.36 TBR.5) — added brain_synthesize (Stage 4 telemetry).
-	const TAXONOMY_VERSION = 5;
+	// [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-1 — added 5 brain_session_* event_types (created/renamed/archived/mood_sampled/carry_forward).
+	// [2026-06-19 Johnny Chu] PHASE-TWB-WORKFLOW W1 — added 3 workflow_* event_types (started/step/completed) for BizCity_TwinBrain_Workflow_Pipeline.
+	const TAXONOMY_VERSION = 7;
 
 	// ---- 15 canonical event types (Phase 0.12) --------------------------
 	const USER_MESSAGE              = 'user_message';
@@ -92,6 +94,24 @@ class BizCity_Twin_Event_Taxonomy {
 	const BRAIN_SYNTHESIZE           = 'brain_synthesize';
 	const SYSTEM_DIAGNOSTIC          = 'system_diagnostic';
 
+	// ---- Phase BRAIN-SESSIONS BS-1 (2026-06-03) — Conversation threads ---
+	// [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-1 — session lifecycle + empathic.
+	// Spec: core/twinbrain/docs/TWINBRAIN-FEATURE-BRAIN-SESSIONS.md §6.
+	// Schemas: core/twinbrain/includes/event-schemas/brain_session_*.json.
+	const BRAIN_SESSION_CREATED       = 'brain_session_created';
+	const BRAIN_SESSION_RENAMED       = 'brain_session_renamed';
+	const BRAIN_SESSION_ARCHIVED      = 'brain_session_archived';
+	const BRAIN_SESSION_MOOD_SAMPLED  = 'brain_session_mood_sampled';
+	const BRAIN_SESSION_CARRY_FORWARD = 'brain_session_carry_forward';
+
+	// ---- PHASE-TWB-WORKFLOW W1 (2026-06-19) — Workflow-Driven Brain Pipeline ---
+	// [2026-06-19 Johnny Chu] PHASE-TWB-WORKFLOW W1 — 3 SSE event types emitted by
+	// BizCity_TwinBrain_Workflow_Pipeline when user selects a /skill in twinchat or twinweb.
+	// Schemas: core/twin-core/event-stream/schemas/events/workflow_*.json.
+	const WORKFLOW_STARTED   = 'workflow_started';
+	const WORKFLOW_STEP      = 'workflow_step';
+	const WORKFLOW_COMPLETED = 'workflow_completed';
+
 	/**
 	 * Required payload fields per event type.
 	 * (Keep tight — extra fields go in payload freely.)
@@ -132,6 +152,23 @@ class BizCity_Twin_Event_Taxonomy {
 			self::BRAIN_TOOL_INTENT          => [ 'k', 'candidates', 'threshold' ],
 			self::BRAIN_SYNTHESIZE           => [ 'trace_id', 'ms' ],
 			self::SYSTEM_DIAGNOSTIC          => [ 'level', 'tag' ],
+
+			// [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-1 — session lifecycle.
+			// session_id field of envelope (opts/build_envelope) carries the
+			// brain_sess_* identifier; payload below is human-readable detail.
+			self::BRAIN_SESSION_CREATED       => [ 'session_id' ],
+			self::BRAIN_SESSION_RENAMED       => [ 'session_id', 'new_title' ],
+			self::BRAIN_SESSION_ARCHIVED      => [ 'session_id' ],
+			self::BRAIN_SESSION_MOOD_SAMPLED  => [ 'session_id', 'turn_index', 'valence' ],
+			self::BRAIN_SESSION_CARRY_FORWARD => [ 'session_id' ],
+
+			// [2026-06-19 Johnny Chu] PHASE-TWB-WORKFLOW W1 — workflow pipeline events.
+			// workflow_started: pipeline begins; node_count enables skeleton timeline on FE.
+			// workflow_step:    1 row update per node; status ∈ running|done|error|skipped|timeout.
+			// workflow_completed: final summary including artifacts_count, total_ms, tokens.
+			self::WORKFLOW_STARTED   => [ 'trace_id', 'skill_slug', 'node_count', 'label' ],
+			self::WORKFLOW_STEP      => [ 'trace_id', 'skill_slug', 'node_id', 'node_kind', 'label', 'status', 'idx', 'total' ],
+			self::WORKFLOW_COMPLETED => [ 'trace_id', 'skill_slug', 'artifacts_count', 'total_ms' ],
 		];
 	}
 
@@ -141,7 +178,8 @@ class BizCity_Twin_Event_Taxonomy {
 	 * @return string[]
 	 */
 	public static function allowed_sources(): array {
-		return [ 'twinchat', 'webchat', 'server', 'kg', 'tool', 'memory', 'notebook', 'system' ];
+		// [2026-06-19 Johnny Chu] PHASE-TWB-WORKFLOW W1 — added 'twinbrain' source for workflow pipeline events.
+		return [ 'twinchat', 'webchat', 'server', 'kg', 'tool', 'memory', 'notebook', 'system', 'twinbrain' ];
 	}
 
 	/**

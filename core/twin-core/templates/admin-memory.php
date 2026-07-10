@@ -23,7 +23,7 @@ global $wpdb;
 $_uid    = get_current_user_id();
 $_um_tbl = $wpdb->prefix . 'bizcity_memory_users';
 $_mems   = [];
-if ( $wpdb->get_var( "SHOW TABLES LIKE '{$_um_tbl}'" ) === $_um_tbl ) {
+if ( bizcity_tbl_exists( $_um_tbl ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 	$_mems = $wpdb->get_results( $wpdb->prepare(
 		"SELECT id, memory_type, memory_key, memory_text AS content,
 		        score AS importance, times_seen, updated_at
@@ -42,13 +42,13 @@ $_ep_count = 0;
 $_rl_count = 0;
 $_nt_count = 0;
 
-if ( $wpdb->get_var( "SHOW TABLES LIKE '{$_ep_tbl}'" ) === $_ep_tbl ) {
+if ( bizcity_tbl_exists( $_ep_tbl ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 	$_ep_count = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$_ep_tbl} WHERE user_id = %d", $_uid ) );
 }
-if ( $wpdb->get_var( "SHOW TABLES LIKE '{$_rl_tbl}'" ) === $_rl_tbl ) {
+if ( bizcity_tbl_exists( $_rl_tbl ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 	$_rl_count = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$_rl_tbl} WHERE user_id = %d", $_uid ) );
 }
-if ( $wpdb->get_var( "SHOW TABLES LIKE '{$_nt_tbl}'" ) === $_nt_tbl ) {
+if ( bizcity_tbl_exists( $_nt_tbl ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 	$_nt_count = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$_nt_tbl} WHERE user_id = %d", $_uid ) );
 }
 
@@ -56,7 +56,7 @@ if ( $wpdb->get_var( "SHOW TABLES LIKE '{$_nt_tbl}'" ) === $_nt_tbl ) {
 $_fl_tbl   = $wpdb->prefix . 'bzdoc_documents';
 $_fl_nb    = intval( $_GET['nb'] ?? 0 );   // optional ?nb=<notebook_id> filter
 $_fl_count = 0;
-if ( $wpdb->get_var( "SHOW TABLES LIKE '{$_fl_tbl}'" ) === $_fl_tbl ) {
+if ( bizcity_tbl_exists( $_fl_tbl ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 	if ( $_fl_nb > 0 ) {
 		$_fl_count = (int) $wpdb->get_var( $wpdb->prepare(
 			"SELECT COUNT(*) FROM {$_fl_tbl} WHERE user_id = %d AND notebook_id = %d",
@@ -73,7 +73,7 @@ if ( $wpdb->get_var( "SHOW TABLES LIKE '{$_fl_tbl}'" ) === $_fl_tbl ) {
 // Pre-load Quick FAQ (stored in knowledge_sources with source_type=quick_faq)
 $_faq_tbl = $wpdb->prefix . 'bizcity_knowledge_sources';
 $_faqs    = [];
-if ( $wpdb->get_var( "SHOW TABLES LIKE '{$_faq_tbl}'" ) === $_faq_tbl ) {
+if ( bizcity_tbl_exists( $_faq_tbl ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 	$_faq_rows = $wpdb->get_results( $wpdb->prepare(
 		"SELECT id, source_name AS title, content, status, updated_at
 		 FROM {$_faq_tbl} WHERE user_id = %d AND source_type = 'quick_faq'

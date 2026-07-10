@@ -89,6 +89,19 @@ final class BizCity_Automation_Default_Reply {
 
 		if ( ! function_exists( 'bizcity_channel_send' ) ) { return; }
 
-		bizcity_channel_send( $chat_id, $answer );
+		// [2026-07-07 Johnny Chu] HOTFIX — stamp no-match default reply for outbound trace.
+		$trace_id = 'auto-def-' . substr( sha1( $chat_id . '|' . $prompt . '|' . microtime( true ) ), 0, 12 );
+		error_log( sprintf(
+			'[automation][default-reply] send trace=%s chat_id=%s chars=%d reason=no_keyword_no_fallback',
+			$trace_id,
+			$chat_id,
+			mb_strlen( (string) $answer )
+		) );
+
+		bizcity_channel_send( $chat_id, $answer . '-AI-', 'text', array(
+			'_trace_source' => 'automation.default_reply',
+			'_trace_id'     => $trace_id,
+			'detail'        => 'no_keyword_no_fallback',
+		) );
 	}
 }

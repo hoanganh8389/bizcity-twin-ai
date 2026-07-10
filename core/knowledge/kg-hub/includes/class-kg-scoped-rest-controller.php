@@ -188,6 +188,35 @@ class BizCity_KG_Scoped_REST_Controller {
 			$payload['file'] = $files['file'];
 		}
 
+		// [2026-06-11 Johnny Chu] R-KG-FILE-TYPES — gate file ingestion against plan's accepted_file_types.
+		if ( $type === 'file' && ! empty( $payload['file']['name'] ) ) {
+			$ext = strtolower( pathinfo( (string) $payload['file']['name'], PATHINFO_EXTENSION ) );
+			$uid = get_current_user_id();
+			// [2026-07-02 Johnny Chu] HOTFIX R-KG-HUB-FIRST — admin bypass: manage_options users skip
+			// file type gate entirely (same pattern as BizCity_Membership_Enforcer::is_exempt_user()).
+			$skip_gate = $uid > 0 && user_can( $uid, 'manage_options' );
+			if ( ! $skip_gate ) {
+				$allowed = array( 'txt', 'md', 'docx', 'xlsx', 'pptx', 'rtf' ); // safe fallback
+				if ( class_exists( 'BizCity_Membership_Entitlement' ) ) {
+					$ent     = BizCity_Membership_Entitlement::instance()->for_user( $uid );
+					$allowed = isset( $ent['accepted_file_types'] ) && is_array( $ent['accepted_file_types'] )
+						? $ent['accepted_file_types']
+						: $allowed;
+				}
+				if ( $ext !== '' && ! in_array( $ext, $allowed, true ) ) {
+					$err_payload = class_exists( 'BizCity_Error_Payload' )
+						? BizCity_Error_Payload::make(
+							'unsupported_ext',
+							'Định dạng file .' . $ext . ' không được hỗ trợ trong gói của bạn.',
+							'Nâng cấp gói hoặc dùng định dạng khác được gói cho phép.',
+							'kg_file_type_not_allowed'
+						)
+						: array( 'success' => false, 'code' => 'unsupported_ext', 'message' => 'Định dạng file không được hỗ trợ.' );
+					return new WP_REST_Response( $err_payload, 415 );
+				}
+			}
+		}
+
 		$res = BizCity_KG::ingest( $scope, $payload );
 		if ( is_wp_error( $res ) ) return self::normalize_ingest_error( $res );
 		return rest_ensure_response( [ 'ok' => true, 'data' => $res ] );

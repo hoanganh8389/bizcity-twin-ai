@@ -318,7 +318,9 @@ SYS;
 			return $out;
 		}
 
-		$decoded = json_decode( $raw_body, true );
+		// [2026-06-24 Johnny Chu] HOTFIX-BOM — strip UTF-8 BOM; bizcity.vn gateway prepends 0xEF BB BF → json_decode null on HTTP 200 → gateway_failure
+		if ( substr( $raw_body, 0, 3 ) === "\xEF\xBB\xBF" ) { $raw_body = substr( $raw_body, 3 ); }
+		$decoded = json_decode( trim( $raw_body ), true );
 		if ( ! is_array( $decoded ) ) {
 			$out['error'] = 'invalid_json';
 			return $out;

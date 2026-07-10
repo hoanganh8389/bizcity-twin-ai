@@ -47,16 +47,13 @@ class BizCity_Twin_Shell_Learning_Page {
 	}
 
 	public function add_rewrite_rule() {
+		// [2026-06-09 Johnny Chu] HOTFIX — flush removed from init:10 (Transposh/WC loop).
+		// One-time flush is handled by admin_init guard in modules/twinshell/bootstrap.php.
 		add_rewrite_rule(
 			self::REWRITE_KEY,
 			'index.php?' . self::QUERY_VAR . '=1',
 			'top'
 		);
-
-		if ( ! get_option( self::OPTION_KEY ) ) {
-			flush_rewrite_rules( false );
-			update_option( self::OPTION_KEY, 1 );
-		}
 	}
 
 	public function add_query_var( $vars ) {

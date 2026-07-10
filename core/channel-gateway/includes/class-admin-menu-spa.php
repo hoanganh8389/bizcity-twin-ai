@@ -195,9 +195,29 @@ final class BizCity_Gateway_Admin_SPA {
 		if ( file_exists( $css_path ) ) {
 			wp_enqueue_style( self::STYLE_HANDLE, $dist_url . 'channel-gateway-app.css', [], $ver_css );
 		}
-		// Ensure WP Media library (wp.media) is available for image picker.
-		if ( function_exists( 'wp_enqueue_media' ) ) {
+		// [2026-06-29 Johnny Chu] HOTFIX — skip wp_enqueue_media() in iframe mode.
+		// wp_enqueue_media() pulls in wp-mediaelement + mediaelement-migrate which
+		// try to call HTMLDocument.initialize / MediaElementPlayer inside the iframe
+		// context and crash with "MediaElementPlayer is not defined" + language-code
+		// TypeError errors (visible in DevTools Console). The image picker feature is
+		// only used in the full-page (non-iframe) SPA context anyway.
+		if ( ! $this->is_spa_iframe_context() && function_exists( 'wp_enqueue_media' ) ) {
 			wp_enqueue_media();
+		}
+
+		// [2026-06-29 Johnny Chu] HOTFIX — forcibly dequeue mediaelement scripts in
+		// iframe mode in case another plugin or WP itself enqueued them as dependencies.
+		// wp-mediaelement + mediaelement-migrate crash inside the iframe with:
+		//   "Language code must have format 2-3 letters" + "MediaElementPlayer is not defined"
+		if ( $this->is_spa_iframe_context() ) {
+			add_action( 'admin_print_scripts', static function () {
+				wp_dequeue_script( 'wp-mediaelement' );
+				wp_dequeue_script( 'mediaelement' );
+				wp_dequeue_script( 'mediaelement-migrate' );
+			}, 99 );
+			add_action( 'admin_print_styles', static function () {
+				wp_dequeue_style( 'wp-mediaelement' );
+			}, 99 );
 		}
 		wp_enqueue_script( self::SCRIPT_HANDLE, $dist_url . 'channel-gateway-app.js', [], $ver_js, true );
 
@@ -227,6 +247,8 @@ final class BizCity_Gateway_Admin_SPA {
 			'platforms'    => $this->platform_catalog(),
 		];
 
+		// [2026-06-07 Johnny Chu] PHASE-0.39 — allow external plugins to inject BOOT extras (e.g. zaloBridge config).
+		$boot = apply_filters( 'bizcity_cg_boot_data', $boot );
 		wp_add_inline_script(
 			self::SCRIPT_HANDLE,
 			'window.BIZCITY_CG_BOOT = ' . wp_json_encode( $boot ) . ';',
@@ -265,18 +287,35 @@ JS;
 			return $registry && (bool) $registry->get( $code );
 		};
 
-		return [
-			[ 'code' => 'facebook_page',  'label' => 'Facebook Page',       'platform' => 'FACEBOOK',     'icon' => 'facebook',  'group' => 'social',    'ready' => $has( 'facebook_page' ) || $has( 'facebook_bot' ) || $has( 'facebook' ), 'desc' => 'Nhận & gửi tin nhắn từ Fanpage qua Messenger Platform.' ],
-			[ 'code' => 'facebook_messenger', 'label' => 'Facebook Messenger', 'platform' => 'FACEBOOK', 'icon' => 'messenger', 'group' => 'social',    'ready' => $has( 'facebook_page' ) || $has( 'facebook_bot' ) || $has( 'facebook' ), 'desc' => 'Channel Messenger 1-1 với khách hàng.' ],
-			[ 'code' => 'zalo_bot',       'label' => 'Zalo Bot OA',         'platform' => 'ZALO_BOT',     'icon' => 'zalo',      'group' => 'social',    'ready' => $has( 'zalo_bot' ),                          'desc' => 'Bot Zalo (bot.zapps.me) dùng Bot Token + webhook secret token — nhận webhook qua /zalohook/.' ],
-			[ 'code' => 'zalo_hotline',   'label' => 'Zalo BizCity (Hotline)', 'platform' => 'ZALO_HOTLINE', 'icon' => 'zalo',  'group' => 'social',    'ready' => function_exists( 'send_zalo_botbanhang' ) || function_exists( 'biz_send_message' ), 'desc' => 'Gửi tin nhắn qua tài khoản Zalo cá nhân (PA agent).' ],
-			[ 'code' => 'telegram',       'label' => 'Telegram',            'platform' => 'TELEGRAM',     'icon' => 'telegram',  'group' => 'social',    'ready' => function_exists( 'twf_telegram_send_message' ), 'desc' => 'Telegram Bot API — token từ @BotFather.' ],
-			[ 'code' => 'webchat',        'label' => 'WebChat',             'platform' => 'WEBCHAT',      'icon' => 'globe',     'group' => 'web',       'ready' => true,                                        'desc' => 'Widget chat trực tiếp trên website.' ],
-			[ 'code' => 'adminchat',      'label' => 'Admin Chat',          'platform' => 'ADMINCHAT',    'icon' => 'shield',    'group' => 'web',       'ready' => true,                                        'desc' => 'Kênh nội bộ giữa các quản trị viên.' ],
-			[ 'code' => 'email_smtp',     'label' => 'Email SMTP',          'platform' => 'EMAIL',        'icon' => 'mail',      'group' => 'email',     'ready' => true,                                        'desc' => 'Gửi mail outbound qua SMTP server.' ],
-			[ 'code' => 'gmail',          'label' => 'Gmail',               'platform' => 'GMAIL',        'icon' => 'gmail',     'group' => 'google',    'ready' => false,                                       'desc' => 'OAuth Gmail (read + send). Phase 2.' ],
-			[ 'code' => 'google_calendar', 'label' => 'Google Calendar',    'platform' => 'GOOGLE_CALENDAR', 'icon' => 'calendar', 'group' => 'google', 'ready' => false,                                       'desc' => 'OAuth Calendar (book / list). Phase 2.' ],
-			[ 'code' => 'google_drive',   'label' => 'Google Drive',        'platform' => 'GOOGLE_DRIVE', 'icon' => 'drive',     'group' => 'google',    'ready' => false,                                       'desc' => 'OAuth Drive (read / upload). Phase 2.' ],
+		// [2026-06-13 Johnny Chu] PHASE-0.40 G0-UI.1 R-ZONE — zone field added to every entry.
+		// Zone 1 = 'customer' (CRM Inbox / CSKH). Zone 2 = 'admin' (Automation / TwinBrain).
+		$catalog = [
+			// ── ZONE 1 — Kênh Khách Hàng ────────────────────────────────────────────
+			[ 'code' => 'facebook_page',  'label' => 'Facebook Page',       'platform' => 'FACEBOOK',     'icon' => 'facebook',  'group' => 'social',    'zone' => 'customer', 'ready' => $has( 'facebook_page' ) || $has( 'facebook_bot' ) || $has( 'facebook' ), 'desc' => 'Nhận & gửi tin nhắn từ Fanpage qua Messenger Platform.' ],
+			[ 'code' => 'facebook_messenger', 'label' => 'Facebook Messenger', 'platform' => 'FACEBOOK', 'icon' => 'messenger', 'group' => 'social',    'zone' => 'customer', 'ready' => $has( 'facebook_page' ) || $has( 'facebook_bot' ) || $has( 'facebook' ), 'desc' => 'Channel Messenger 1-1 với khách hàng.' ],
+			[ 'code' => 'zalo_oa',        'label' => 'Zalo Official Account', 'platform' => 'ZALO_OA',   'icon' => 'zalo',      'group' => 'social',    'zone' => 'customer', 'ready' => $has( 'zalo_oa' ) || $has( 'zalo_bot' ),     'desc' => 'Zalo OA — nhận & trả lời tin nhắn CSKH qua CRM Inbox.' ],
+			// [2026-06-14 Johnny Chu] HOTFIX — zalo_personal ẩn tạm, đánh dấu premium v2. Focus v1: Zalo OA + Facebook/Messenger + Zalo Bot.
+			[ 'code' => 'zalo_personal',  'label' => 'Zalo Cá Nhân (Sidecar)', 'platform' => 'ZALO_PERSONAL', 'icon' => 'zalo', 'group' => 'social',   'zone' => 'customer', 'ready' => false, 'premium' => true, 'premium_version' => 'v2', 'desc' => 'Zalo Personal sidecar — CSKH qua tài khoản cá nhân. Tính năng Premium, ra mắt phiên bản v2.' ],
+			[ 'code' => 'webchat',        'label' => 'WebChat',             'platform' => 'WEBCHAT',      'icon' => 'globe',     'group' => 'web',       'zone' => 'customer', 'ready' => true,                                        'desc' => 'Widget chat trực tiếp trên website.' ],
+			// [2026-06-13 Johnny Chu] PHASE-CG-CF7 — Contact Form 7 lead-capture channel tile.
+			[ 'code' => 'cf7',            'label' => 'Contact Form 7',      'platform' => 'CF7',          'icon' => 'form',      'group' => 'web',       'zone' => 'customer', 'ready' => class_exists( 'WPCF7' ) || class_exists( 'WPCF7_ContactForm' ), 'desc' => 'Tự động đưa lead từ CF7 vào CRM Contacts.' ],
+			// [2026-06-12 Johnny Chu] HOTFIX — adminchat removed from catalog (internal-only, no user-facing tile).
+			// [2026-06-12 Johnny Chu] HOTFIX — email_smtp renamed Gmail + SMTP (same backend, Gmail is the SMTP provider).
+			[ 'code' => 'email_smtp',     'label' => 'Gmail + SMTP',        'platform' => 'EMAIL',        'icon' => 'mail',      'group' => 'email',     'zone' => 'customer', 'ready' => true,                                        'desc' => 'Gửi mail outbound qua Gmail / SMTP server.' ],
+			// ── ZONE 2 — Kênh Quản Trị ──────────────────────────────────────────────
+			[ 'code' => 'zalo_bot',       'label' => 'Zalo Bot',            'platform' => 'ZALO_BOT',     'icon' => 'zalo',      'group' => 'admin',     'zone' => 'admin',    'ready' => $has( 'zalo_bot' ),                          'desc' => 'Bot Zalo — admin/NV giao việc cho AI, automation chạy nền.' ],
+			[ 'code' => 'zalo_hotline',   'label' => 'Zalo Hotline (PA)',   'platform' => 'ZALO_HOTLINE', 'icon' => 'zalo',      'group' => 'admin',     'zone' => 'admin',    'ready' => function_exists( 'send_zalo_botbanhang' ) || function_exists( 'biz_send_message' ), 'desc' => 'Zalo PA agent — quản trị viên gửi lệnh tới TwinBrain.' ],
+			[ 'code' => 'telegram',       'label' => 'Telegram',            'platform' => 'TELEGRAM',     'icon' => 'telegram',  'group' => 'admin',     'zone' => 'admin',    'ready' => function_exists( 'twf_telegram_send_message' ), 'desc' => 'Telegram Bot — admin giao việc, automation báo kết quả.' ],
+			// ── Tools (shared) ───────────────────────────────────────────────────────
+			// [2026-06-12 Johnny Chu] HOTFIX — gmail entry removed (merged into email_smtp above).
+			// [2026-06-12 Johnny Chu] HOTFIX — google_calendar now ready=true, links to core/scheduler FE.
+			[ 'code' => 'google_calendar', 'label' => 'Google Calendar',   'platform' => 'GOOGLE_CALENDAR', 'icon' => 'calendar', 'group' => 'google', 'zone' => 'tool',     'ready' => true,                                        'desc' => 'Lịch & Nhắc việc — powered by core/scheduler.', 'external_url' => admin_url( 'admin.php?page=bizcity-scheduler' ) ],
+			// [2026-06-27 Johnny Chu] PHASE-CG-TRACKING — Zalo ZNS + Tracking codes tiles.
+			[ 'code' => 'zalo_zns',       'label' => 'Zalo ZNS',           'platform' => 'ZALO_ZNS',        'icon' => 'zns',      'group' => 'zalo',   'zone' => 'tool',     'ready' => true,                                        'desc' => 'Gửi thông báo ZNS qua Zalo OA — tự động theo sự kiện CRM.' ],
+			[ 'code' => 'tracking_codes', 'label' => 'Mã Tracking & Analytics', 'platform' => 'TRACKING',   'icon' => 'pixel',    'group' => 'tools',  'zone' => 'tool',     'ready' => true,                                        'desc' => 'Meta Pixel, Google Analytics 4, GTM, TikTok Pixel — chèn vào toàn site hoặc từng trang.' ],
+			// [2026-06-12 Johnny Chu] HOTFIX — google_drive removed per user spec (not needed in Channel Gateway).
 		];
+		// [2026-06-07 Johnny Chu] PHASE-0.39 — open filter for external channel plugins to add platform tiles.
+		return apply_filters( 'bizcity_channel_platform_catalog', $catalog );
 	}
 }

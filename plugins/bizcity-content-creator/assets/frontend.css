@@ -145,6 +145,7 @@
 .bzcc-section__more:hover { text-decoration: underline; }
 
 /* ── Breadcrumb ── */
+/* [2026-06-06 Johnny Chu] BZCC-SKEL — left-align breadcrumb (remove auto-center margin) */
 .bzcc-breadcrumb {
 	position: sticky;
 	top: 0;
@@ -153,7 +154,7 @@
 	backdrop-filter: blur(8px);
 	-webkit-backdrop-filter: blur(8px);
 	border-bottom: 1px solid #e2e8f0;
-	padding: 10px 24px;
+	padding: 10px 16px;
 	font-size: 13px;
 }
 .bzcc-breadcrumb__list {
@@ -164,8 +165,129 @@
 	flex-wrap: wrap;
 	align-items: center;
 	gap: 4px;
-	max-width: 1400px;
-	margin: 0 auto;
+}
+
+/* ── Notebook Picker ── */
+/* [2026-06-06 Johnny Chu] BZCC-SKEL — notebook + skeleton picker styles */
+.bzcc-notebook-picker-wrap {
+	margin: 0 0 14px;
+}
+.bzcc-notebook-picker-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 8px 12px;
+	background: #f8fafc;
+	border: 1px solid #e2e8f0;
+	border-radius: 8px;
+}
+.bzcc-notebook-label {
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	font-size: 13px;
+	color: #475569;
+	font-weight: 500;
+	white-space: nowrap;
+	flex-shrink: 0;
+}
+.bzcc-notebook-select-wrap {
+	flex: 1;
+	min-width: 0;
+}
+.bzcc-skeleton-banner {
+	display: none;
+	margin-top: 6px;
+	padding: 10px 14px;
+	background: #eff6ff;
+	border: 1px solid #bfdbfe;
+	border-radius: 8px;
+	font-size: 13px;
+}
+.bzcc-skeleton-banner__head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin-bottom: 6px;
+}
+.bzcc-skeleton-banner__title {
+	font-weight: 600;
+	color: #1e40af;
+	display: flex;
+	align-items: center;
+	gap: 5px;
+}
+.bzcc-skeleton-banner__dismiss {
+	background: none;
+	border: none;
+	cursor: pointer;
+	font-size: 12px;
+	color: #64748b;
+	padding: 0;
+	line-height: 1;
+}
+.bzcc-skeleton-banner__dismiss:hover { color: #1e293b; }
+.bzcc-skeleton-nucleus {
+	color: #1e3a8a;
+	margin-bottom: 6px;
+	font-size: 13px;
+	line-height: 1.5;
+}
+.bzcc-skeleton-keypoints {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+}
+.bzcc-skeleton-kp-tag {
+	display: inline-block;
+	padding: 2px 8px;
+	background: #dbeafe;
+	border-radius: 4px;
+	font-size: 12px;
+	color: #1e40af;
+}
+/* Skeleton summary in result/generate view */
+.bzcc-skel-summary {
+	background: linear-gradient(135deg, #eff6ff 0%, #f0fdf4 100%);
+	border: 1px solid #bfdbfe;
+	border-radius: 10px;
+	padding: 12px 16px;
+	margin-bottom: 16px;
+	font-size: 13px;
+}
+.bzcc-skel-summary__head {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font-weight: 600;
+	color: #1e40af;
+	margin-bottom: 6px;
+}
+.bzcc-skel-summary__nb-title {
+	font-size: 12px;
+	color: #3b82f6;
+	background: #dbeafe;
+	padding: 1px 7px;
+	border-radius: 4px;
+	margin-left: 4px;
+}
+.bzcc-skel-summary__nucleus {
+	color: #1e3a8a;
+	margin-bottom: 6px;
+	line-height: 1.5;
+}
+.bzcc-skel-summary__tags {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+}
+.bzcc-skel-summary__tag {
+	display: inline-block;
+	padding: 2px 8px;
+	background: #dbeafe;
+	border-radius: 4px;
+	font-size: 12px;
+	color: #1e40af;
 }
 .bzcc-breadcrumb__item {
 	display: inline-flex;

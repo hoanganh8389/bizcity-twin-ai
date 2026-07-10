@@ -59,6 +59,7 @@ class BizCity_Output_Store {
     const WORKSHOP_IMAGE_STUDIO    = 'image-studio';
     const WORKSHOP_VIDEO_STUDIO    = 'video-studio';
     const WORKSHOP_CONTENT_CREATOR = 'content-creator';
+    const WORKSHOP_CODE_BUILDER    = 'code-builder';
 
     /* ─────────────────────────────────────────────────────────────────
      * Bootstrapper — call once from plugins_loaded or init.
@@ -276,7 +277,7 @@ class BizCity_Output_Store {
 
         global $wpdb;
         $sessions_table = $wpdb->prefix . 'bizcity_webchat_sessions';
-        if ( ! $wpdb->get_var( "SHOW TABLES LIKE '{$sessions_table}'" ) ) return '';
+        if ( ! bizcity_tbl_exists( $sessions_table ) ) return ''; // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 
         $project_id = $wpdb->get_var( $wpdb->prepare(
             "SELECT project_id FROM {$sessions_table} WHERE session_id = %s LIMIT 1",

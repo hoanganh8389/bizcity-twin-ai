@@ -231,16 +231,27 @@ class BZDoc_Rest_API {
 			'permission_callback' => [ __CLASS__, 'check_auth' ],
 		] );
 		/*
-		 * Async start/poll variant — image gen via slow models (e.g.
-		 * `openai/gpt-5.4-image-2`) routinely exceeds Cloudflare's 100s
-		 * edge timeout. The `start` route returns the doc_id immediately
-		 * and detaches via `fastcgi_finish_request()`, then runs the
-		 * pipeline in the background. The frontend polls `status/{id}`
-		 * until `schema_json.status` flips to `done` or `failed`.
+		 * Async start/poll variant — kept for backward compat. New code should
+		 * use /image/generate/direct instead (synchronous, no polling needed).
 		 */
 		register_rest_route( self::NAMESPACE, '/image/generate/start', [
 			'methods'             => 'POST',
 			'callback'            => [ __CLASS__, 'handle_image_generate_start' ],
+			'permission_callback' => [ __CLASS__, 'check_auth' ],
+		] );
+		/*
+		 * [2026-06-06 Johnny Chu] PHASE-IMAGE-SIMPLE — Direct synchronous route.
+		 * OpenRouter image generation does NOT support streaming/async — gateway
+		 * blocks until image is ready (6-60s). fastcgi_finish_request trick does
+		 * not work reliably on all hosts. This route runs the pipeline in the
+		 * same request and returns the full result immediately. WP_TIMEOUT must
+		 * be ≥ 120s (already set via set_time_limit). Cloudflare Pro/Business
+		 * customers can increase edge timeout; free tier will 524 on very slow
+		 * prompts — acceptable trade-off vs. unreliable async.
+		 */
+		register_rest_route( self::NAMESPACE, '/image/generate/direct', [
+			'methods'             => 'POST',
+			'callback'            => [ __CLASS__, 'handle_image_generate_direct' ],
 			'permission_callback' => [ __CLASS__, 'check_auth' ],
 		] );
 		register_rest_route( self::NAMESPACE, '/image/generate/status/(?P<id>\d+)', [
@@ -258,6 +269,17 @@ class BZDoc_Rest_API {
 		register_rest_route( self::NAMESPACE, '/image/edit/start', [
 			'methods'             => 'POST',
 			'callback'            => [ __CLASS__, 'handle_image_edit_start' ],
+			'permission_callback' => [ __CLASS__, 'check_auth' ],
+		] );
+		/*
+		 * [2026-06-06 Johnny Chu] PHASE-IMAGE-SIMPLE — Direct synchronous edit.
+		 * Same rationale as /image/generate/direct: OpenRouter does not support
+		 * async image gen. Accepts extra_reference_images (data URIs or HTTPS URLs)
+		 * uploaded by the user in the edit strip UI, forwarded to edit_variant().
+		 */
+		register_rest_route( self::NAMESPACE, '/image/edit/direct', [
+			'methods'             => 'POST',
+			'callback'            => [ __CLASS__, 'handle_image_edit_direct' ],
 			'permission_callback' => [ __CLASS__, 'check_auth' ],
 		] );
 		register_rest_route( self::NAMESPACE, '/image/prompts/featured', [
@@ -723,6 +745,14 @@ class BZDoc_Rest_API {
 		$slide_count = absint( $request->get_param( 'slide_count' ) ?: 10 );
 		$doc_id      = absint( $request->get_param( 'doc_id' ) ?: 0 );
 		$notebook_id      = absint( $request->get_param( 'notebook_id' ) ?: 0 );
+		// S0.11 fallback — Studio autogen flow: the notebook_bridge saves
+		// notebook_id to bzdoc_documents at creation time, but the FE's
+		// selectedNotebookId state may not be seeded yet when kickstart fires
+		// (React state update is async, 60 ms timeout isn't always enough).
+		// Fall back to the DB-bound value so skeleton injection always runs.
+		if ( $notebook_id === 0 && $doc_id > 0 ) {
+			$notebook_id = self::lookup_doc_notebook_id( $doc_id );
+		}
 		// Sprint 0★ FE handoff — user may edit the auto-generated summary in
 		// the “Tóm tắt notebook” textarea; if non-empty we use it verbatim and
 		// SKIP the auto Adapter::get_prompt_block() call (avoid double-inject).
@@ -1010,14 +1040,19 @@ class BZDoc_Rest_API {
 		$table   = $wpdb->prefix . 'bzdoc_documents';
 		$user_id = get_current_user_id();
 
-		$doc_type = sanitize_text_field( $request->get_param( 'doc_type' ) ?: '' );
-		$where    = $wpdb->prepare( "WHERE user_id = %d", $user_id );
+		$doc_type    = sanitize_text_field( $request->get_param( 'doc_type' ) ?: '' );
+		$notebook_id = intval( $request->get_param( 'notebook_id' ) ?: 0 );
+
+		$where = $wpdb->prepare( "WHERE user_id = %d", $user_id );
 		if ( $doc_type ) {
 			$where .= $wpdb->prepare( " AND doc_type = %s", $doc_type );
 		}
+		if ( $notebook_id > 0 ) {
+			$where .= $wpdb->prepare( " AND notebook_id = %d", $notebook_id );
+		}
 
 		$rows = $wpdb->get_results(
-			"SELECT id, doc_type, title, template_name, theme_name, status, created_at, updated_at FROM {$table} {$where} ORDER BY updated_at DESC LIMIT 50"
+			"SELECT id, doc_type, title, template_name, theme_name, status, notebook_id, created_at, updated_at FROM {$table} {$where} ORDER BY updated_at DESC LIMIT 50"
 		);
 
 		return rest_ensure_response( $rows ?: [] );
@@ -2084,8 +2119,9 @@ PROMPT;
 		// rơi về placeholder). Thay bằng curl_multi_exec gọi N HTTP requests
 		// song song trực tiếp tới LLM gateway, cùng PHP process. Hoạt động
 		// trên mọi hosting, không phụ thuộc loopback.
-		$gateway_url = trim( (string) get_site_option( 'bizcity_llm_gateway_url', '' ) );
-		$api_key     = trim( (string) get_site_option( 'bizcity_llm_api_key', '' ) );
+		// [2026-06-10 Johnny Chu] HOTFIX — per-site option (not network-wide sitemeta)
+		$gateway_url = trim( (string) get_option( 'bizcity_llm_gateway_url', '' ) );
+		$api_key     = trim( (string) get_option( 'bizcity_llm_api_key', '' ) );
 		if ( $gateway_url === '' || $api_key === '' ) {
 			self::sse_send( 'error', [ 'message' => 'LLM gateway chưa cấu hình.' ] );
 			return;
@@ -4576,6 +4612,144 @@ PROMPT;
 		self::run_image_job( (int) $doc_id, (array) $payload, (int) $blog_id );
 	}
 
+	// ─────────────────────────────────────────────────────────────────────────
+	// [2026-06-06 Johnny Chu] PHASE-IMAGE-SIMPLE — Direct (synchronous) route.
+	// OpenRouter image gen does NOT support async/streaming — the gateway call
+	// blocks until the image is ready. fastcgi_finish_request was unreliable on
+	// this host. This handler runs BZDoc_Image_Pipeline in the same request and
+	// returns the full result JSON immediately. No polling required.
+	// ─────────────────────────────────────────────────────────────────────────
+	public static function handle_image_generate_direct( \WP_REST_Request $request ) {
+		@set_time_limit( 300 );
+		@ignore_user_abort( true );
+
+		$user_id = get_current_user_id();
+		$doc_id  = absint( $request->get_param( 'doc_id' ) );
+
+		// Auto-create doc if not provided.
+		if ( $doc_id === 0 ) {
+			$topic_raw   = sanitize_text_field( (string) $request->get_param( 'topic' ) ?: 'Untitled Image' );
+			$title_short = function_exists( 'mb_substr' )
+				? mb_substr( $topic_raw, 0, 200, 'UTF-8' )
+				: substr( $topic_raw, 0, 200 );
+
+			$create = new \WP_REST_Request( 'POST' );
+			$create->set_param( 'doc_type', 'image' );
+			$create->set_param( 'title', $title_short );
+			$resp = self::handle_project_create( $create );
+			if ( is_wp_error( $resp ) ) {
+				return $resp;
+			}
+			$d      = $resp->get_data();
+			$doc_id = (int) ( $d['doc_id'] ?? 0 );
+			if ( ! $doc_id ) {
+				return new \WP_Error( 'create_failed', 'Không tạo được image doc.', [ 'status' => 500 ] );
+			}
+		} else {
+			global $wpdb;
+			$owner = (int) $wpdb->get_var( $wpdb->prepare(
+				"SELECT user_id FROM {$wpdb->prefix}bzdoc_documents WHERE id = %d", $doc_id
+			) );
+			if ( $owner !== $user_id ) {
+				return new \WP_Error( 'forbidden', 'Bạn không sở hữu doc này.', [ 'status' => 403 ] );
+			}
+		}
+
+		// Build payload (same shape as async variant).
+		$payload = [
+			'topic'        => sanitize_textarea_field( (string) $request->get_param( 'topic' ) ?: '' ),
+			'prompt_id'    => absint( $request->get_param( 'prompt_id' ) ),
+			'prompt_args'  => (array) ( $request->get_param( 'prompt_args' ) ?: [] ),
+			'style_preset' => sanitize_text_field( (string) $request->get_param( 'style_preset' ) ?: '' ),
+			'aspect_ratio' => sanitize_text_field( (string) $request->get_param( 'aspect_ratio' ) ?: '1:1' ),
+			'n_variants'   => max( 1, min( 4, absint( $request->get_param( 'n_variants' ) ?: 1 ) ) ),
+			'user_id'      => $user_id,
+		];
+
+		$payload['gen_id']     = self::log_generation( $doc_id, $user_id, 'generate', $payload['topic'] );
+		$payload['start_time'] = microtime( true );
+
+		// Reference images.
+		$refs_in = $request->get_param( 'reference_images' );
+		if ( is_array( $refs_in ) && ! empty( $refs_in ) ) {
+			$refs_b64 = [];
+			foreach ( array_slice( $refs_in, 0, 4 ) as $r ) {
+				if ( is_string( $r ) && $r !== '' &&
+					( strpos( $r, 'data:image/' ) === 0 || strpos( $r, 'https://' ) === 0 ) ) {
+					$refs_b64[] = $r;
+				}
+			}
+			if ( $refs_b64 ) {
+				$payload['reference_images_b64'] = $refs_b64;
+			}
+			$refs = self::upload_ref_images_to_media( $refs_in, $user_id );
+			if ( $refs ) {
+				$payload['reference_images'] = $refs;
+			}
+		}
+
+		// Model whitelist.
+		$model_in      = sanitize_text_field( (string) $request->get_param( 'image_model' ) );
+		$allowed_models = [
+			'openai/gpt-image-1',
+			'google/gemini-3-pro-image-preview',
+			'google/gemini-2.5-flash-image',
+			'google/gemini-2.5-flash-image-preview',
+		];
+		if ( $model_in && in_array( $model_in, $allowed_models, true ) ) {
+			$payload['image_model'] = $model_in;
+		}
+
+		// Mark doc pending before run.
+		global $wpdb;
+		$blog_id = (int) get_current_blog_id();
+		$wpdb->update(
+			$wpdb->prefix . 'bzdoc_documents',
+			[
+				'schema_json' => wp_json_encode( [
+					'doc_type'   => 'image',
+					'status'     => 'pending',
+					'started_at' => current_time( 'mysql' ),
+					'topic'      => $payload['topic'],
+				], JSON_UNESCAPED_UNICODE ),
+				'updated_at' => current_time( 'mysql' ),
+			],
+			[ 'id' => $doc_id ]
+		);
+
+		// Run pipeline synchronously — blocks until image ready.
+		self::run_image_job( $doc_id, $payload, $blog_id );
+
+		// Read back the persisted result from schema_json.
+		$row = $wpdb->get_row( $wpdb->prepare(
+			"SELECT schema_json FROM {$wpdb->prefix}bzdoc_documents WHERE id = %d", $doc_id
+		) );
+		$schema = $row ? json_decode( $row->schema_json, true ) : [];
+
+		if ( empty( $schema ) || ( $schema['status'] ?? '' ) === 'failed' ) {
+			$err = $schema['error'] ?? 'Không sinh được ảnh.';
+			return rest_ensure_response( [
+				'success'    => false,
+				'error'      => $err,
+				'error_code' => $schema['error_code'] ?? 'image_gen_failed',
+			] );
+		}
+
+		return rest_ensure_response( [
+			'success' => true,
+			'data'    => [
+				'doc_id'       => $doc_id,
+				'job_id'       => $schema['job_id'] ?? 0,
+				'aspect_ratio' => $schema['aspect_ratio'] ?? $payload['aspect_ratio'],
+				'n_variants'   => $schema['n_variants'] ?? count( (array) ( $schema['variants'] ?? [] ) ),
+				'final_prompt' => $schema['final_prompt'] ?? '',
+				'negative'     => $schema['negative'] ?? '',
+				'citations'    => $schema['citations'] ?? [],
+				'variants'     => $schema['variants'] ?? [],
+			],
+		] );
+	}
+
 	/**
 	 * Actual worker — runs `BZDoc_Image_Pipeline` and persists the result
 	 * (or error) into `schema_json` so the status endpoint can pick it up.
@@ -4817,6 +4991,153 @@ PROMPT;
 		if ( $switched ) {
 			restore_current_blog();
 		}
+	}
+
+	// ─────────────────────────────────────────────────────────────────────────
+	// [2026-06-06 Johnny Chu] PHASE-IMAGE-SIMPLE — Direct (synchronous) edit.
+	// Runs edit_variant() in the same request and returns the full result.
+	// Accepts extra_reference_images uploaded by the user in the edit strip.
+	// ─────────────────────────────────────────────────────────────────────────
+	public static function handle_image_edit_direct( \WP_REST_Request $request ) {
+		@set_time_limit( 300 );
+		@ignore_user_abort( true );
+
+		$user_id     = get_current_user_id();
+		$doc_id      = absint( $request->get_param( 'doc_id' ) );
+		$parent_idx  = (int) $request->get_param( 'parent_variant_index' );
+		$instruction = trim( (string) $request->get_param( 'instruction' ) );
+
+		if ( ! $doc_id ) {
+			return new \WP_Error( 'missing_doc_id', 'doc_id required.', [ 'status' => 400 ] );
+		}
+		if ( $instruction === '' ) {
+			return new \WP_Error( 'missing_instruction', 'Cần mô tả chỉnh sửa.', [ 'status' => 400 ] );
+		}
+
+		// Ownership check.
+		global $wpdb;
+		$owner = (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT user_id FROM {$wpdb->prefix}bzdoc_documents WHERE id = %d",
+			$doc_id
+		) );
+		if ( ! $owner ) {
+			return new \WP_Error( 'doc_not_found', 'Doc không tồn tại.', [ 'status' => 404 ] );
+		}
+		if ( $owner !== $user_id ) {
+			return new \WP_Error( 'forbidden', 'Bạn không sở hữu doc này.', [ 'status' => 403 ] );
+		}
+
+		$payload = [
+			'parent_variant_index' => max( 0, $parent_idx ),
+			'instruction'          => $instruction,
+			'user_id'              => $user_id,
+		];
+
+		$payload['gen_id']     = self::log_generation( $doc_id, $user_id, 'edit', $instruction );
+		$payload['start_time'] = microtime( true );
+
+		// Extra reference images uploaded by the user in the edit strip (data URIs
+		// or HTTPS URLs). These are forwarded to edit_variant() as
+		// `extra_reference_images` where the pipeline adds them to the input_images
+		// array alongside the parent variant and original generation refs.
+		$extra_refs_in = $request->get_param( 'extra_reference_images' );
+		if ( is_array( $extra_refs_in ) && ! empty( $extra_refs_in ) ) {
+			$extra_refs = [];
+			foreach ( array_slice( $extra_refs_in, 0, 3 ) as $r ) {
+				if ( is_string( $r ) && $r !== '' &&
+					( strpos( $r, 'data:image/' ) === 0 || strpos( $r, 'https://' ) === 0 ) ) {
+					$extra_refs[] = $r;
+				}
+			}
+			if ( $extra_refs ) {
+				$payload['extra_reference_images'] = $extra_refs;
+			}
+		}
+
+		// Run edit synchronously.
+		$blog_id  = (int) get_current_blog_id();
+		$switched = false;
+		if ( is_multisite() && $blog_id && $blog_id !== (int) get_current_blog_id() ) {
+			switch_to_blog( $blog_id );
+			$switched = true;
+		}
+
+		try {
+			$result = BZDoc_Image_Pipeline::edit_variant( $doc_id, $payload );
+		} catch ( \Throwable $e ) {
+			$result = new \WP_Error( 'image_edit_exception', $e->getMessage() );
+		}
+
+		$gen_id     = (int) ( $payload['gen_id'] ?? 0 );
+		$start_time = (float) ( $payload['start_time'] ?? microtime( true ) );
+
+		// Reload schema + merge result.
+		$row = $wpdb->get_row( $wpdb->prepare(
+			"SELECT schema_json FROM {$wpdb->prefix}bzdoc_documents WHERE id = %d",
+			$doc_id
+		) );
+		$schema = json_decode( (string) ( $row->schema_json ?? '{}' ), true ) ?: [];
+		unset( $schema['edit_in_progress'], $schema['edit_started_at'] );
+
+		if ( is_wp_error( $result ) ) {
+			$schema['status']     = 'failed';
+			$schema['error']      = $result->get_error_message();
+			$schema['error_code'] = $result->get_error_code();
+			$wpdb->update(
+				$wpdb->prefix . 'bzdoc_documents',
+				[
+					'schema_json' => wp_json_encode( $schema, JSON_UNESCAPED_UNICODE ),
+					'updated_at'  => current_time( 'mysql' ),
+				],
+				[ 'id' => $doc_id ]
+			);
+			if ( $gen_id ) {
+				self::complete_generation( $gen_id, 'failed', $start_time, $result->get_error_message() );
+			}
+			if ( $switched ) restore_current_blog();
+			return rest_ensure_response( [
+				'success'    => false,
+				'error'      => $result->get_error_message(),
+				'error_code' => $result->get_error_code(),
+			] );
+		}
+
+		$schema['doc_type']     = 'image';
+		$schema['status']       = 'done';
+		$schema['final_prompt'] = $result['final_prompt'] ?? ( $schema['final_prompt'] ?? '' );
+		$schema['aspect_ratio'] = $result['aspect_ratio'] ?? ( $schema['aspect_ratio'] ?? '1:1' );
+		$schema['variants']     = $result['variants'] ?? ( $schema['variants'] ?? [] );
+		$schema['citations']    = $result['citations'] ?? ( $schema['citations'] ?? [] );
+		$schema['job_id']       = $result['job_id'] ?? ( $schema['job_id'] ?? 0 );
+		$schema['n_variants']   = count( (array) $schema['variants'] );
+		$schema['finished_at']  = current_time( 'mysql' );
+
+		$wpdb->update(
+			$wpdb->prefix . 'bzdoc_documents',
+			[
+				'schema_json' => wp_json_encode( $schema, JSON_UNESCAPED_UNICODE ),
+				'updated_at'  => current_time( 'mysql' ),
+			],
+			[ 'id' => $doc_id ]
+		);
+		if ( $gen_id ) {
+			self::complete_generation( $gen_id, 'completed', $start_time, null, $doc_id, $schema );
+		}
+		if ( $switched ) restore_current_blog();
+
+		return rest_ensure_response( [
+			'success' => true,
+			'data'    => [
+				'doc_id'       => $doc_id,
+				'job_id'       => $schema['job_id'],
+				'aspect_ratio' => $schema['aspect_ratio'],
+				'n_variants'   => $schema['n_variants'],
+				'final_prompt' => $schema['final_prompt'],
+				'negative'     => $schema['negative'] ?? '',
+				'citations'    => $schema['citations'],
+				'variants'     => $schema['variants'],
+			],
+		] );
 	}
 
 	public static function handle_image_generate_status( \WP_REST_Request $request ) {

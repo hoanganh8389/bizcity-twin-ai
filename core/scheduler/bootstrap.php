@@ -31,11 +31,49 @@ if ( ! defined( 'BIZCITY_SCHEDULER_VERSION' ) ) {
 
 /* ── Includes ─────────────────────────────────────────────────────── */
 require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-manager.php';
+// [2026-06-15 Johnny Chu] R-UNIFY Wave 1 — multi-platform contact identity class.
+require_once BIZCITY_SCHEDULER_DIR . 'includes/class-crm-contact-identity.php';
 require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-rest-api.php';
 require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-google.php';
 require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-cron.php';
 require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-tools.php';
 require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-automation.php';
+
+// [2026-06-03 Johnny Chu] SCH-NC W2 — Adapter Registry + 6 built-in adapters.
+require_once BIZCITY_SCHEDULER_DIR . 'includes/interface-scheduler-event-adapter.php';
+require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-adapter-registry.php';
+require_once BIZCITY_SCHEDULER_DIR . 'includes/adapters/class-scheduler-adapter-base.php';
+require_once BIZCITY_SCHEDULER_DIR . 'includes/adapters/class-scheduler-adapter-fb-post.php';
+require_once BIZCITY_SCHEDULER_DIR . 'includes/adapters/class-scheduler-adapter-web-post.php';
+require_once BIZCITY_SCHEDULER_DIR . 'includes/adapters/class-scheduler-adapter-reminder-zalo.php';
+require_once BIZCITY_SCHEDULER_DIR . 'includes/adapters/class-scheduler-adapter-telegram-send.php';
+require_once BIZCITY_SCHEDULER_DIR . 'includes/adapters/class-scheduler-adapter-reminder-personal.php';
+require_once BIZCITY_SCHEDULER_DIR . 'includes/adapters/class-scheduler-adapter-automation-workflow.php';
+
+// [2026-06-03 Johnny Chu] SCH-NC W4 — Completion Notifier (reply-back unified).
+require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-completion-notifier.php';
+
+// [2026-06-03 Johnny Chu] SCH-NC W5 — Inbound Provenance helper (used by
+// channel-router, automation runner, twinbrain tools to build metadata.inbound).
+require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-inbound-provenance.php';
+
+// [2026-06-03 Johnny Chu] SCH-NC W10 — Inbound Backfiller (case-based repair
+// service for legacy events missing metadata.inbound{}). Consumed by the
+// `core.scheduler.inbound_backfill` probe + per-case Site Provisioner installers.
+require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-inbound-backfiller.php';
+
+// [2026-06-15 Johnny Chu] R-UNIFY — Reminder Personal Handler (fires reminder
+// message at start_at via Gateway Sender; suppresses generic done notification).
+require_once BIZCITY_SCHEDULER_DIR . 'includes/class-reminder-personal-handler.php';
+
+// [2026-06-15 Johnny Chu] R-UNIFY GAP-B — CRM Inbox Bridge (Zone 1 channel
+// messages → crm_conversations + crm_messages; Zone 2 bails early per R-ZONE).
+require_once BIZCITY_SCHEDULER_DIR . 'includes/class-crm-inbox-bridge.php';
+
+// [2026-06-03 Johnny Chu] SCH-NC W6 — HIL Router + timeout cron (Human-In-The-Loop
+// confirm flow cho reminder_personal từ TwinBrain master tool).
+require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-hil-router.php';
+require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-hil-cron.php';
 
 if ( is_admin() ) {
 	require_once BIZCITY_SCHEDULER_DIR . 'includes/class-admin-page.php';
@@ -49,9 +87,36 @@ BizCity_Scheduler_Google::instance();
 BizCity_Scheduler_Cron::instance();
 BizCity_Scheduler_Automation::instance();
 
+// [2026-06-03 Johnny Chu] SCH-NC W4 — bind completion-notifier listeners.
+BizCity_Scheduler_Completion_Notifier::init();
+
+// [2026-06-03 Johnny Chu] SCH-NC W6 — HIL listener (priority 5 trên
+// bizcity_channel_message_received) + timeout cron (every minute).
+BizCity_Scheduler_HIL_Router::init();
+BizCity_Scheduler_HIL_Cron::init();
+
+// [2026-06-15 Johnny Chu] R-UNIFY — Reminder Personal Handler.
+BizCity_Reminder_Personal_Handler::init();
+
+// [2026-06-15 Johnny Chu] R-UNIFY GAP-B — CRM Inbox Bridge (Zone 1 only).
+BizCity_CRM_Inbox_Bridge::init();
+
 if ( is_admin() ) {
 	BizCity_Scheduler_Admin_Page::instance();
 }
+
+// [2026-06-03 Johnny Chu] SCH-NC W2 — register built-in adapters via hook.
+// Registry triggers `bizcity_scheduler_register_adapters` lần đầu được get(),
+// nên các module khác (channel-gateway, automation, twinbrain) có thể subscribe
+// để register adapter của riêng họ.
+add_action( 'bizcity_scheduler_register_adapters', static function () {
+	BizCity_Scheduler_Adapter_Registry::register( new BizCity_Scheduler_Adapter_FB_Post() );
+	BizCity_Scheduler_Adapter_Registry::register( new BizCity_Scheduler_Adapter_Web_Post() );
+	BizCity_Scheduler_Adapter_Registry::register( new BizCity_Scheduler_Adapter_Reminder_Zalo() );
+	BizCity_Scheduler_Adapter_Registry::register( new BizCity_Scheduler_Adapter_Telegram_Send() );
+	BizCity_Scheduler_Adapter_Registry::register( new BizCity_Scheduler_Adapter_Reminder_Personal() );
+	BizCity_Scheduler_Adapter_Registry::register( new BizCity_Scheduler_Adapter_Automation_Workflow() );
+}, 5 );
 
 /**
  * Run schema migration on every admin init — cheap (autoloaded option check),
@@ -272,3 +337,38 @@ add_action( 'bizcity_intent_register_providers', function ( $registry ) {
 		},
 	] );
 } );
+// [2026-06-03 Johnny Chu] SCH-NC W10 — register one Site_Provisioner installer
+// per backfill case + an aggregate "all" id. Each callback maps the URL param
+// `bizcity_run_installer=scheduler_backfill_inbound__<case>` to
+// `BizCity_Scheduler_Inbound_Backfiller::apply($case)`. Idempotent.
+add_filter( 'bizcity_register_installers', static function ( $list ) {
+	if ( ! class_exists( 'BizCity_Scheduler_Inbound_Backfiller' ) ) {
+		return $list;
+	}
+	// [2026-06-04 Johnny Chu] SCH-BC W4 — register invalidation listeners once.
+	BizCity_Scheduler_Inbound_Backfiller::init();
+
+	$cases = BizCity_Scheduler_Inbound_Backfiller::cases();
+	foreach ( $cases as $cid => $meta ) {
+		$cid_local = $cid; // closure capture by value.
+		// [2026-06-04 Johnny Chu] SCH-BC W3 — version_opt gate per-case.
+		$opt_local = BizCity_Scheduler_Inbound_Backfiller::DONE_OPT_PREFIX . $cid_local;
+		$list[] = array(
+			'id'           => 'scheduler_backfill_inbound__' . $cid_local,
+			'label'        => 'Scheduler · Backfill inbound — ' . $meta['label'],
+			'version_opt'  => $opt_local,
+			'expected_ver' => '1',
+			'callback'     => static function () use ( $cid_local ) {
+				BizCity_Scheduler_Inbound_Backfiller::apply( $cid_local );
+			},
+		);
+	}
+	$list[] = array(
+		'id'       => 'scheduler_backfill_inbound__all',
+		'label'    => 'Scheduler · Backfill inbound — ALL cases',
+		'callback' => static function () {
+			BizCity_Scheduler_Inbound_Backfiller::apply_all();
+		},
+	);
+	return $list;
+}, 20, 1 );

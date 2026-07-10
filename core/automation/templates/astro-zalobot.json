@@ -1,0 +1,376 @@
+[
+  {
+    "slug": "tpl_astro_van_han_zalo_v1",
+    "name": "Chiêm Tinh — Xem Vận Hạn qua Zalo Bot",
+    "description": "User nhắn 'vận hạn ngày mai/tuần này/tháng 8' → Bot xác định chủ thể → tóm tắt natal → lấy transit day-by-day → reply link /my-transit/ → luận giải sự nghiệp · tài chính · tình duyên · tổng vận.",
+    "category": "astrology",
+    "source": "builtin",
+    "trigger_type": "zalo_inbound",
+    "icon": "Star",
+    "tags": "zalo,astro,transit,natal,van-han,su-nghiep,tinh-duyen",
+    "plan": "free",
+    "trigger_config": { "instance_id": "", "filter": "vận hạn|chiêm tinh|bản đồ sao|vận mệnh|transit|tử vi|xem vận|xem sao|cung hoàng đạo|sao chiếu|tarot|vận thế|dự báo|bói|natal", "exclusive": true },
+    "graph": {
+      "meta": { "template": "tpl_astro_van_han_zalo_v1" },
+      "nodes": [
+        {
+          "id": "t1", "type": "trigger",
+          "position": { "x": 0, "y": 200 },
+          "data": {
+            "blockId": "trigger.zalo_inbound",
+            "label": "Zalo Bot · hỏi vận hạn chiêm tinh",
+            "instance_id": "",
+            "filter": "vận hạn|chiêm tinh|bản đồ sao|vận mệnh|transit|tử vi|xem vận|xem sao|sao chiếu|tarot|vận thế|dự báo|bói|natal",
+            "exclusive": true
+          }
+        },
+        {
+          "id": "n1", "type": "action",
+          "position": { "x": 280, "y": 200 },
+          "data": {
+            "blockId": "action.run_astro",
+            "label": "Resolve chủ thể + Natal Chart",
+            "chat_id": "{{trigger.chat_id}}",
+            "instance_id": "{{trigger.instance_id}}",
+            "query": "{{trigger.text}}",
+            "compose": false
+          }
+        },
+        {
+          "id": "chk", "type": "condition",
+          "position": { "x": 560, "y": 200 },
+          "data": {
+            "blockId": "logic.condition",
+            "label": "Có bản đồ sao?",
+            "expression": "n1.has_chart == 1"
+          }
+        },
+        {
+          "id": "err", "type": "action",
+          "position": { "x": 560, "y": 400 },
+          "data": {
+            "blockId": "action.reply_zalo",
+            "label": "Thông báo chưa có bản đồ sao",
+            "text": "⚠️ Chưa tìm thấy bản đồ sao chiêm tinh của bạn.\n\nĐể xem vận hạn, bạn cần tạo bản đồ sao trước (cần ngày sinh, giờ sinh, nơi sinh).\n\n� Debug: {{n1.debug_info}}\n\n🔗 Tạo bản đồ sao tại: {{n1.create_chart_url}}"
+          }
+        },
+        {
+          "id": "n3", "type": "llm",
+          "position": { "x": 840, "y": 80 },
+          "data": {
+            "blockId": "llm.compose_reply",
+            "label": "LLM · Tổng quan chủ nhân natal chart",
+            "model": "gpt-4o-mini",
+            "system": "Bạn là chuyên gia chiêm tinh Tây phương. Dựa TRUNG THỰC vào dữ liệu natal chart được cung cấp, viết tổng quan ngắn (≤200 từ) về CHỦ NHÂN: (1) tính cách cốt lõi từ Sun/Moon/Ascendant — nêu rõ ở cung nào (Sign) và nhà nào (House); (2) điểm mạnh với dẫn chứng aspect cụ thể (Trine/Sextile/Conjunction + tên hành tinh); (3) điểm cần lưu ý với dẫn chứng Square/Opposition; (4) thông điệp cuộc đời chính. Không dùng markdown. Viết tiếng Việt, thân thiện.",
+            "prompt": "Chủ nhân: {{n1.coachee_name}} (coachee_id={{n1.coachee_id}}, user_id={{n1.user_id}})\nCâu hỏi: {{trigger.text}}\n\nDữ liệu natal chart (vị trí các hành tinh):\n{{n1.natal_positions_md}}\n\nDebug: {{n1.debug_info}}"
+          }
+        },
+        {
+          "id": "r1", "type": "action",
+          "position": { "x": 1120, "y": 80 },
+          "data": {
+            "blockId": "action.reply_zalo",
+            "label": "Reply 1 · Tổng quan chủ thể + Link bản đồ sao",
+            "text": "🌟 Bản đồ sao của {{n1.coachee_name}}\n(Coachee #{{n1.coachee_id}} — {{n1.passages_count}} passages dữ liệu)\n\n{{n3.output}}\n\n🔗 Xem bản đồ sao đầy đủ tại:\n{{n1.natal_url_full}}"
+          }
+        },
+        {
+          "id": "n4", "type": "action",
+          "position": { "x": 840, "y": 280 },
+          "data": {
+            "blockId": "action.run_astro_transit",
+            "label": "Lấy Transit Day-by-Day",
+            "coachee_id": "{{n1.coachee_id}}",
+            "chat_id": "{{trigger.chat_id}}",
+            "period": "{{n1.period}}",
+            "num_days": "{{n1.num_days}}",
+            "start_date": "{{n1.start_date}}",
+            "outer_only": true,
+            "format": "short"
+          }
+        },
+        {
+          "id": "r2", "type": "action",
+          "position": { "x": 1120, "y": 280 },
+          "data": {
+            "blockId": "action.reply_zalo",
+            "label": "Reply 2 · Bảng Transit + Link",
+            "text": "📅 Lịch chuyển động sao — {{n4.period_label}}\n({{n4.range_start}} → {{n4.range_end}}, {{n4.days_count}} ngày)\n\n{{n4.transit_text}}\n\nNghịch hành: {{n4.retrograde_planets}}\n\n{{n4.day_links_text}}\n\n🔗 Xem báo cáo transit chi tiết tại:\n{{n4.transit_url}}"
+          }
+        },
+        {
+          "id": "r2d", "type": "action",
+          "position": { "x": 1380, "y": 280 },
+          "data": {
+            "blockId": "action.reply_zalo_each_day",
+            "label": "Reply 2b · Từng ngày 1 block",
+            "days_json": "{{n4.days_json}}",
+            "header_text": "🧭 Chi tiết theo từng ngày ({{n4.period_label}})",
+            "footer_text": "✅ Đã gửi xong các block theo ngày. Tiếp theo là phần kết luận tổng hợp.",
+            "max_days": 0,
+            "stop_on_error": false
+          }
+        },
+        {
+          "id": "n6", "type": "action",
+          "position": { "x": 1620, "y": 480 },
+          "data": {
+            "blockId": "action.pick_best_day_for_intent",
+            "label": "Pick best day (deterministic)",
+            "days_json": "{{n4.days_json}}",
+            "topics": "{{n1.topics}}",
+            "question": "{{trigger.text}}",
+            "top_k": 3,
+            "retrograde_penalty": 2
+          }
+        },
+        {
+          "id": "n5", "type": "llm",
+          "position": { "x": 840, "y": 480 },
+          "data": {
+            "blockId": "llm.compose_reply",
+            "label": "LLM · Luận giải từng ngày + Kết luận",
+            "model": "gpt-4o-mini",
+            "system": "Bạn là thầy chiêm tinh có thâm niên 20+ năm về chiêm tinh học Tây phương, tử vi và huyền học. Bạn nói thẳng thắn, sâu sắc, từng trải — như một người thầy dày dạn kinh nghiệm chia sẻ thật lòng với học trò. Phong cách: khuyên nhủ chân thành, có chiều sâu tâm lý, gắn chiêm tinh với thực tế cuộc sống và sự nghiệp, không nói chung chung kiểu sách giáo khoa.\n\nNHIỆM VỤ BẮT BUỘC — thực hiện đúng thứ tự:\n1. PHÂN TÍCH TỪNG NGÀY: Mỗi ngày viết 1 đoạn riêng biệt bắt đầu bằng '📅 Ngày [dd/mm]:'. Mỗi ngày PHẢI nêu: (a) aspect đang kích hoạt (tên hành tinh transit + góc aspect + hành tinh natal + orb); (b) ý nghĩa thực tiễn liên quan trực tiếp tới CHỦ ĐỀ ƯU TIÊN; (c) 1 lời khuyên hành động cụ thể cho ngày đó.\n2. KẾT LUẬN CUỐI: Sau khi phân tích hết các ngày, viết 1 đoạn kết luận bắt đầu bằng '🔮 Kết luận:' — tổng hợp xu hướng chung, cơ hội/rủi ro lớn nhất, và 1 lời khuyên tổng thể sắc bén.\n\nKhi CHỦ ĐỀ ƯU TIÊN được chỉ định: PHẢI tập trung ≥70% nội dung vào chủ đề đó, dẫn chứng bằng aspect cụ thể. Viết tiếng Việt, không dùng markdown # heading, ≤500 từ tổng cộng.",
+            "prompt": "Chủ nhân: {{n1.coachee_name}} (coachee_id={{n1.coachee_id}})\nKỳ phân tích: {{n4.period_label}} ({{n4.range_start}} → {{n4.range_end}}, {{n4.days_count}} ngày)\nCHỦ ĐỀ ƯU TIÊN: {{n1.topic_label}}\nCâu hỏi gốc: {{trigger.text}}\n\nNghịch hành trong kỳ (℞): {{n4.retrograde_planets}}\n\nRANKING DETERMINISTIC (ưu tiên tham chiếu khi chốt ngày tốt nhất):\n{{n6.ranking_md}}\nNgày tốt nhất theo scoring: {{n6.best_day_label}} ({{n6.best_score}} điểm)\n\nDỮ LIỆU TRANSIT TỪNG NGÀY (dùng để phân tích theo thứ tự ngày):\n{{n4.transit_days_md}}\n\nHãy phân tích từng ngày (đúng thứ tự), rồi kết luận cuối cùng."
+          }
+        },
+        {
+          "id": "r3", "type": "action",
+          "position": { "x": 1120, "y": 480 },
+          "data": {
+            "blockId": "action.reply_zalo",
+            "label": "Reply 3 · Luận giải vận hạn chi tiết",
+            "text": "🔮 Phân tích vận hạn {{n4.period_label}} — {{n1.coachee_name}}\n\n⭐ Gợi ý ngày nổi bật: {{n6.best_day_label}} ({{n6.best_score}} điểm)\n\n{{n5.output}}\n\n🔗 Xem chi tiết tại:\n{{n4.transit_url}}"
+          }
+        }
+      ],
+      "edges": [
+        { "id": "e_t1_n1",   "source": "t1",  "target": "n1" },
+        { "id": "e_n1_chk",  "source": "n1",  "target": "chk" },
+        { "id": "e_chk_err", "source": "chk", "target": "err", "sourceHandle": "false" },
+        { "id": "e_chk_n3",  "source": "chk", "target": "n3",  "sourceHandle": "true" },
+        { "id": "e_n3_r1",   "source": "n3",  "target": "r1" },
+        { "id": "e_r1_n4",   "source": "r1",  "target": "n4" },
+        { "id": "e_n4_r2",   "source": "n4",  "target": "r2" },
+        { "id": "e_r2_r2d",  "source": "r2",  "target": "r2d" },
+        { "id": "e_r2d_n6",  "source": "r2d", "target": "n6" },
+        { "id": "e_n6_n5",   "source": "n6",  "target": "n5" },
+        { "id": "e_n5_r3",   "source": "n5",  "target": "r3" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_astro_quick_zalo_v1",
+    "name": "Chiêm Tinh — Nhanh (1 Reply Tổng Hợp)",
+    "description": "Zalo Bot — user hỏi vận hạn → 1 reply duy nhất: tóm tắt transit + lời khuyên + link bản đồ sao. Nhanh, gọn, phù hợp bot trả lời tự động.",
+    "category": "astrology",
+    "source": "builtin",
+    "trigger_type": "zalo_inbound",
+    "icon": "Zap",
+    "tags": "zalo,astro,transit,quick,van-han",
+    "plan": "free",
+    "trigger_config": { "instance_id": "", "filter": "vận hạn|chiêm tinh|bản đồ sao|vận mệnh|transit|tử vi|xem vận|xem sao|cung hoàng đạo|sao chiếu|tarot|vận thế|dự báo|bói|natal", "exclusive": true },
+    "graph": {
+      "meta": { "template": "tpl_astro_quick_zalo_v1" },
+      "nodes": [
+        {
+          "id": "t1", "type": "trigger",
+          "position": { "x": 0, "y": 80 },
+          "data": {
+            "blockId": "trigger.zalo_inbound",
+            "label": "Zalo Bot · hỏi chiêm tinh",
+            "instance_id": "",
+            "filter": "vận hạn|chiêm tinh|bản đồ sao|vận mệnh|transit|tử vi|xem vận|xem sao|sao chiếu|tarot|vận thế|dự báo|bói|natal",
+            "exclusive": true
+          }
+        },
+        {
+          "id": "n1", "type": "action",
+          "position": { "x": 280, "y": 80 },
+          "data": {
+            "blockId": "action.run_astro",
+            "label": "Resolve + Tóm tắt AI nhanh",
+            "chat_id": "{{trigger.chat_id}}",
+            "instance_id": "{{trigger.instance_id}}",
+            "query": "{{trigger.text}}",
+            "compose": true
+          }
+        },
+        {
+          "id": "r1", "type": "action",
+          "position": { "x": 560, "y": 80 },
+          "data": {
+            "blockId": "action.reply_zalo",
+            "label": "Reply tổng hợp",
+            "text": "🌟 {{n1.coachee_name}} — {{n1.period_label}}\n\n{{n1.analysis}}\n\n🔗 Bản đồ sao: {{n1.natal_url}}\n🔗 Transit chi tiết: {{n1.transit_url}}"
+          }
+        }
+      ],
+      "edges": [
+        { "id": "e_t1_n1", "source": "t1", "target": "n1" },
+        { "id": "e_n1_r1", "source": "n1", "target": "r1" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_astro_daily_cron_v1",
+    "name": "Chiêm Tinh — Gửi Transit Hàng Ngày (Cron 9:00)",
+    "description": "Cron 9h sáng mỗi ngày → lấy transit hôm nay → luận giải vận hạn, tài chính, công việc trong ngày → gửi Zalo tự động, không cần user hỏi lại. Sau import: điền cùng một chat_id ở node Transit (chat_id) và node Reply (override_chat_id).",
+    "category": "astrology",
+    "source": "builtin",
+    "trigger_type": "cron",
+    "icon": "Calendar",
+    "tags": "cron,daily,astro,transit,zalo,morning-brief",
+    "plan": "free",
+    "trigger_config": { "schedule": "0 9 * * *" },
+    "graph": {
+      "meta": { "template": "tpl_astro_daily_cron_v1" },
+      "nodes": [
+        {
+          "id": "t1", "type": "trigger",
+          "position": { "x": 0, "y": 80 },
+          "data": {
+            "blockId": "trigger.cron",
+            "label": "Cron · 09:00 hàng ngày",
+            "schedule": "0 9 * * *"
+          }
+        },
+        {
+          "id": "n4", "type": "action",
+          "position": { "x": 280, "y": 80 },
+          "data": {
+            "blockId": "action.run_astro_transit",
+            "label": "Transit hôm nay",
+            "coachee_id": 0,
+            "chat_id": "",
+            "period": "day",
+            "start_date": "",
+            "outer_only": true,
+            "format": "short"
+          }
+        },
+        {
+          "id": "n5", "type": "llm",
+          "position": { "x": 560, "y": 80 },
+          "data": {
+            "blockId": "llm.compose_reply",
+            "label": "LLM · Brief vận hạn/tài chính/công việc",
+            "model": "gpt-4o-mini",
+            "system": "Bạn là chuyên gia chiêm tinh ứng dụng thực tế. Viết bản tin ngắn gọn cho hôm nay (≤220 từ), tiếng Việt dễ hiểu, không dùng markdown heading. BẮT BUỘC chia 3 phần đánh số: 1) Vận hạn tổng quát, 2) Tài chính, 3) Công việc. Mỗi phần nêu: tín hiệu chính từ transit, rủi ro/cơ hội, 1 hành động cụ thể nên làm trong ngày. Kết thúc bằng 1 câu nhắc nhịp độ tích cực nhưng thực tế.",
+            "prompt": "Ngày phân tích: {{n4.range_start}}\n\nDữ liệu transit hôm nay:\n{{n4.transit_text}}\n\nNghịch hành: {{n4.retrograde_planets}}\nTransit chính: {{n4.key_aspects}}\n\nYêu cầu: bám sát dữ liệu ở trên, không suy đoán ngoài transit."
+          }
+        },
+        {
+          "id": "r1", "type": "action",
+          "position": { "x": 840, "y": 80 },
+          "data": {
+            "blockId": "action.reply_zalo",
+            "label": "Gửi morning brief Zalo",
+            "override_chat_id": "",
+            "text": "🌅 Bản tin chiêm tinh 09:00 — {{n4.range_start}}\n\n{{n5.output}}\n\n{{n4.day_links_text}}\n\n🔗 Xem chi tiết: {{n4.transit_url}}"
+          }
+        }
+      ],
+      "edges": [
+        { "id": "e_t1_n4", "source": "t1", "target": "n4" },
+        { "id": "e_n4_n5", "source": "n4", "target": "n5" },
+        { "id": "e_n5_r1", "source": "n5", "target": "r1" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_astro_relation_profile_zalo_v1",
+    "name": "[Master Lựu] Chiêm Tinh — Đánh Giá Độ Hợp Profile qua Zalo",
+    "description": "User hỏi profile này có hợp không -> resolve subject + partner -> đánh giá relation theo 4 trục: công việc, tình cảm, hợp tác làm ăn, nhân sự.",
+    "category": "astrology",
+    "source": "builtin",
+    "trigger_type": "zalo_inbound",
+    "icon": "Users",
+    "tags": "zalo,astro,relation,compatibility,profile",
+    "plan": "free",
+    "trigger_config": {
+      "instance_id": "",
+      "filter": "hợp|ho so|hồ sơ|đối tác|doi tac|nhân sự|nhan su|kết bạn|ket ban|hợp tác|hop tac",
+      "exclusive": false
+    },
+    "graph": {
+      "meta": { "template": "tpl_astro_relation_profile_zalo_v1" },
+      "nodes": [
+        {
+          "id": "t1", "type": "trigger",
+          "position": { "x": 0, "y": 140 },
+          "data": {
+            "blockId": "trigger.zalo_inbound",
+            "label": "Zalo Bot · hỏi độ hợp profile",
+            "instance_id": "",
+            "filter": "hợp|ho so|hồ sơ|đối tác|doi tac|nhân sự|nhan su|kết bạn|ket ban|hợp tác|hop tac",
+            "exclusive": false
+          }
+        },
+        {
+          "id": "n1", "type": "action",
+          "position": { "x": 280, "y": 140 },
+          "data": {
+            "blockId": "action.run_astro",
+            "label": "Resolve subject profile",
+            "chat_id": "{{trigger.chat_id}}",
+            "instance_id": "{{trigger.instance_id}}",
+            "query": "{{trigger.text}}",
+            "compose": false
+          }
+        },
+        {
+          "id": "n2", "type": "action",
+          "position": { "x": 560, "y": 140 },
+          "data": {
+            "blockId": "action.run_astro_relation_assessment",
+            "label": "Relation assessment (4 lenses)",
+            "subject_coachee_id": "{{n1.coachee_id}}",
+            "partner_coachee_id": "",
+            "partner_name": "",
+            "query": "{{trigger.text}}",
+            "relation_lenses": "work,love,business,hr",
+            "source_marker": "zalobot_chat",
+            "start_offset": 1,
+            "sync_days": 7
+          }
+        },
+        {
+          "id": "chk", "type": "condition",
+          "position": { "x": 840, "y": 140 },
+          "data": {
+            "blockId": "logic.condition",
+            "label": "Có kết quả relation?",
+            "expression": "n2.ok == 1"
+          }
+        },
+        {
+          "id": "r_ok", "type": "action",
+          "position": { "x": 1120, "y": 40 },
+          "data": {
+            "blockId": "action.reply_zalo",
+            "label": "Reply relation kết quả",
+            "text": "{{n2.final_answer_md}}"
+          }
+        },
+        {
+          "id": "r_err", "type": "action",
+          "position": { "x": 1120, "y": 260 },
+          "data": {
+            "blockId": "action.reply_zalo",
+            "label": "Reply relation lỗi",
+            "text": "⚠️ {{n2.error_message}}\n\nBạn vui lòng chọn lại hồ sơ đối tác hoặc cập nhật dữ liệu natal/transit rồi thử lại."
+          }
+        }
+      ],
+      "edges": [
+        { "id": "e_t1_n1", "source": "t1", "target": "n1" },
+        { "id": "e_n1_n2", "source": "n1", "target": "n2" },
+        { "id": "e_n2_chk", "source": "n2", "target": "chk" },
+        { "id": "e_chk_ok", "source": "chk", "target": "r_ok", "sourceHandle": "true" },
+        { "id": "e_chk_err", "source": "chk", "target": "r_err", "sourceHandle": "false" }
+      ]
+    }
+  }
+]

@@ -30,7 +30,7 @@ if ( ! interface_exists( 'BizCity_Channel_Adapter' ) ) {
 	return;
 }
 
-class BizCity_Facebook_Bot_Channel_Adapter implements BizCity_Channel_Adapter {
+class BizCity_Facebook_Bot_Channel_Adapter implements BizCity_Channel_Adapter, BizCity_Channel_Magic_Link_Capable {
 
 	public function get_platform(): string {
 		return 'FACEBOOK';
@@ -195,6 +195,60 @@ class BizCity_Facebook_Bot_Channel_Adapter implements BizCity_Channel_Adapter {
 			return (bool) fbm_send_text_to_user( $psid, $message );
 		}
 		return false;
+	}
+
+	/**
+	 * FB Messenger magic-link — builds m.me/{page_id}?ref=TOKEN deep-link.
+	 *
+	 * chat_id format expected: fb_{page_id}_{psid}  (or bare psid).
+	 * Resolves page_id from DB when not embedded in chat_id.
+	 *
+	 * The resulting URL uses the m.me link format:
+	 *   https://m.me/{page_id}?ref=BZ_{token_slug}
+	 *
+	 * [2026-06-13 Johnny Chu] PHASE-3.5-WD — FB Messenger magic-link
+	 *
+	 * @param string $chat_id
+	 * @param array  $args
+	 * @return array|WP_Error
+	 */
+	public function issue_magic_link( string $chat_id, array $args = array() ) {
+		if ( ! class_exists( 'BizCity_CRM_Magic_Link' ) ) {
+			return new WP_Error( 'bizcity_magic_link_unavailable', 'BizCity_CRM_Magic_Link class not loaded.' );
+		}
+
+		// Parse page_id + psid from composite chat_id.
+		$stripped = preg_replace( '/^(fb_|messenger_)/', '', $chat_id );
+		$page_id  = isset( $args['page_id'] ) ? (string) $args['page_id'] : '';
+
+		if ( preg_match( '/^(\d+)_(\d+)$/', $stripped, $m ) ) {
+			$page_id = $page_id ?: $m[1];
+		}
+
+		// Fallback: resolve page_id from first active bot when not embedded.
+		if ( $page_id === '' && class_exists( 'BizCity_Facebook_Bot_Database' ) ) {
+			$bots    = BizCity_Facebook_Bot_Database::instance()->get_active_bots();
+			$page_id = ! empty( $bots[0] ) ? (string) $bots[0]->page_id : '';
+		}
+
+		$args['platform'] = 'FB_MESS';
+		$args['chat_id']  = $chat_id;
+		unset( $args['page_id'] );
+
+		$result = BizCity_CRM_Magic_Link::issue( $args );
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		// Override url to m.me deep-link when page_id is available.
+		if ( $page_id !== '' ) {
+			$ref_param    = 'BZ_' . substr( $result['token'], 0, 60 );
+			$messenger_url = 'https://m.me/' . rawurlencode( $page_id ) . '?ref=' . rawurlencode( $ref_param );
+			$result['url']       = $messenger_url;
+			$result['deep_link'] = 'fb-messenger://user-thread/' . rawurlencode( $page_id ) . '?ref=' . rawurlencode( $ref_param );
+		}
+
+		return $result;
 	}
 }
 

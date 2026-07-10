@@ -291,11 +291,18 @@ class BizCity_Facebook_Page_OAuth_Bridge {
 		}
 
 		$page  = $pages[0];
+		// [2026-06-12 Johnny Chu] HOTFIX — persist current app_id on account row
+		// so page list can filter by active app and hide old app pages.
+		$app_id = (string) get_option( 'bztfb_app_id', '' );
+		if ( $app_id === '' ) {
+			$app_id = (string) get_site_option( 'bztfb_app_id', '' );
+		}
 		$patch = [
 			'_uid'              => $account_uid,
 			'page_id'           => (string) ( $page['id'] ?? '' ),
 			'page_name'         => (string) ( $page['name'] ?? '' ),
 			'page_access_token' => (string) ( $page['access_token'] ?? '' ),
+			'app_id'            => $app_id,
 			// Mirror page_id into instance_id so the gateway routes inbound
 			// webhooks to this account.
 			'instance_id'       => (string) ( $page['id'] ?? '' ),

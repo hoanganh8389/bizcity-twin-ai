@@ -51,9 +51,12 @@ function bccm_llm_call_openai($system, $user, $opts = []) {
     ] );
 
     if ( empty( $result['success'] ) ) {
-        $err = $result['error'] ?? 'Unknown error';
-        error_log( '[BCCM LLM] Router error: ' . $err );
-        return new WP_Error( 'router_error', $err );
+        $err  = $result['error'] ?? 'Unknown error';
+        // [2026-06-09 Johnny Chu] PHASE-D D-BE-QUOTA — distinguish quota exhaustion
+        // from transient errors so callers can show the right hint/message.
+        $code = ! empty( $result['quota_exhausted'] ) ? 'quota_exhausted' : 'router_error';
+        error_log( '[BCCM LLM] Router error (' . $code . '): ' . $err );
+        return new WP_Error( $code, $err );
     }
 
     return trim( (string) ( $result['message'] ?? '' ) );
@@ -105,7 +108,10 @@ function bccm_llm_md_to_html($md) {
 function bccm_llm_build_chart_context($astro_row, $coachee) {
     $summary   = json_decode($astro_row['summary']  ?? '{}', true) ?: [];
     $traits    = json_decode($astro_row['traits']    ?? '{}', true) ?: [];
-    $positions = $traits['positions'] ?? [];
+    // [2026-06-08 Johnny Chu] HOTFIX — normalize sign names for existing saved records.
+    $positions = function_exists('bccm_astro_normalize_positions')
+        ? bccm_astro_normalize_positions($traits['positions'] ?? [])
+        : ($traits['positions'] ?? []);
     $houses    = $traits['houses']    ?? [];
     $aspects   = $traits['aspects']   ?? [];
     $birth     = $traits['birth_data'] ?? [];
@@ -209,8 +215,10 @@ function bccm_llm_build_chart_context($astro_row, $coachee) {
  * =====================================================================*/
 
 function bccm_llm_system_prompt() {
+  // [2026-07-05 Johnny Chu] PHASE-NATAL-REPORT FIX — remove internal
+  // self-promotional years-of-experience claim from prompt persona.
     return <<<'PROMPT'
-Bạn là một nhà chiêm tinh phương Tây (Western Astrology) chuyên nghiệp với hơn 20 năm kinh nghiệm, chuyên viết báo cáo luận giải bản đồ sao cá nhân (Natal Chart Report) bằng tiếng Việt.
+Bạn là một nhà chiêm tinh phương Tây (Western Astrology) chuyên nghiệp, chuyên viết báo cáo luận giải bản đồ sao cá nhân (Natal Chart Report) bằng tiếng Việt.
 
 PHONG CÁCH VIẾT:
 - Chuyên nghiệp, sâu sắc, giàu cảm xúc nhưng mang tính khoa học chiêm tinh
@@ -219,6 +227,7 @@ PHONG CÁCH VIẾT:
 - Đưa lời khuyên cụ thể, hữu ích và có thể hành động
 - Sử dụng ví dụ minh họa sinh động, so sánh ẩn dụ đẹp
 - Giọng văn ấm áp, đồng cảm, truyền cảm hứng nhưng không mê tín
+- Không tự giới thiệu số năm kinh nghiệm hoặc thông tin tự quảng bá
 
 QUY TẮC VIẾT:
 - Viết hoàn toàn bằng tiếng Việt (trừ thuật ngữ chiêm tinh giữ nguyên tiếng Anh trong ngoặc)
@@ -307,7 +316,10 @@ function bccm_natal_report_full_handler() {
     /* ── Parse astro data (Western / Vedic share this schema) ── */
     $summary    = json_decode($astro_row['summary'] ?? '{}', true) ?: [];
     $traits     = json_decode($astro_row['traits'] ?? '{}', true) ?: [];
-    $positions  = $traits['positions'] ?? [];
+    // [2026-06-08 Johnny Chu] HOTFIX — normalize sign names for existing saved records.
+    $positions  = function_exists('bccm_astro_normalize_positions')
+        ? bccm_astro_normalize_positions($traits['positions'] ?? [])
+        : ($traits['positions'] ?? []);
     $houses_data= $traits['houses'] ?? [];
     $aspects    = $traits['aspects'] ?? [];
     $birth_data = $traits['birth_data'] ?? [];
@@ -550,10 +562,28 @@ tr:nth-child(even) td { background: #fafbfc; }
 <!-- ═══════════ DATA SECTIONS (instant) ═══════════ -->
 <div class="data-section">
 
-  <?php if ($chart_url): ?>
-  <div class="chart-img">
-    <img src="<?php echo esc_url($chart_url); ?>" alt="Natal Wheel Chart"/>
-    <div style="font-size:9px;color:#9ca3af;margin-top:4px"><?php echo $chart_type === 'vedic' ? 'Rashi Chart — Vedic / Sidereal (Free Astrology API)' : 'Natal Wheel Chart — Hệ thống Placidus (Free Astrology API)'; ?></div>
+  <?php
+  // [2026-06-08 Johnny Chu] HOTFIX — chart_svg payload kind: URL / data: / inline <svg>.
+  $chart_kind = function_exists( 'bccm_chart_payload_kind' ) ? bccm_chart_payload_kind( $chart_url ) : 'empty';
+  if ( $chart_kind !== 'empty' ): ?>
+  <div class="chart-img" style="<?php echo (strpos($chart_url,'s3.') !== false || strpos($chart_url,'amazonaws') !== false) ? 'background:#1e1e24;border-radius:10px;padding:8px;' : ''; ?>">
+    <?php
+    // [2026-07-09 Johnny Chu] PHASE-FAA2-FE — FAA2 S3 dark wheel → use img tag directly (dark bg)
+    $is_s3_svg = ( strpos( $chart_url, 'amazonaws.com' ) !== false || strpos( $chart_url, 's3.' ) !== false )
+                  && substr( $chart_url, -4 ) === '.svg';
+    if ( $is_s3_svg ) {
+        echo '<img src="' . esc_url( $chart_url ) . '" alt="FAA2 Natal Wheel Chart" style="max-width:100%;height:auto;border-radius:8px;"/>';
+    } elseif ( function_exists( 'bccm_render_chart_inline' ) ) {
+        bccm_render_chart_inline( $chart_url, array(
+            'alt'       => 'Natal Wheel Chart',
+            'css_class' => 'natal-wheel-img',
+            'style'     => 'max-width:100%;height:auto;background:#ffffff;padding:12px;border-radius:8px;',
+        ) );
+    } else {
+        echo '<img src="' . esc_url( $chart_url ) . '" alt="Natal Wheel Chart"/>';
+    }
+    ?>
+    <div style="font-size:9px;color:#9ca3af;margin-top:4px"><?php echo $is_s3_svg ? 'FAA2 Natal Wheel Chart — Placidus · Tropical (freeastrologyapi.com)' : ( $chart_type === 'vedic' ? 'Rashi Chart — Vedic / Sidereal (Free Astrology API)' : 'Natal Wheel Chart — Hệ thống Placidus (Free Astrology API)' ); ?></div>
   </div>
   <?php endif; ?>
 

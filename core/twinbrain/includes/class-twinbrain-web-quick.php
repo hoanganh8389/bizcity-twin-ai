@@ -33,12 +33,12 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 final class BizCity_TwinBrain_Web_Quick {
 
 	const SKILL_KEY        = 'web_search_quick';
-	const DEFAULT_MAX      = 5;
+	const DEFAULT_MAX      = 7;    // [2026-06-04 Johnny Chu] DEPTH-UP — 5→7 sources cho câu trả lời đủ chiều sâu
 	const SEARCH_TIMEOUT_S = 6;
-	const LLM_TIMEOUT_S    = 12;
+	const LLM_TIMEOUT_S    = 16;   // [2026-06-04 Johnny Chu] DEPTH-UP — bump timeout theo max_tokens tăng
 	const LLM_TEMPERATURE  = 0.2;
-	const LLM_MAX_TOKENS   = 600;
-	const SNIPPET_TRUNC    = 480;
+	const LLM_MAX_TOKENS   = 900;  // [2026-06-04 Johnny Chu] DEPTH-UP — 600→900 (+50% output depth)
+	const SNIPPET_TRUNC    = 640;  // [2026-06-04 Johnny Chu] DEPTH-UP — 480→640 more context per source
 	const TITLE_TRUNC      = 160;
 
 	private static $instance = null;
@@ -289,7 +289,9 @@ final class BizCity_TwinBrain_Web_Quick {
 
 		$out['http_status'] = (int) wp_remote_retrieve_response_code( $response );
 		$raw                = (string) wp_remote_retrieve_body( $response );
-		$decoded            = json_decode( $raw, true );
+		// [2026-06-24 Johnny Chu] HOTFIX-BOM — strip UTF-8 BOM; bizcity.vn gateway prepends 0xEF BB BF → json_decode null on HTTP 200 → gateway_failure:unknown
+		if ( substr( $raw, 0, 3 ) === "\xEF\xBB\xBF" ) { $raw = substr( $raw, 3 ); }
+		$decoded            = json_decode( trim( $raw ), true );
 
 		if ( ! is_array( $decoded ) || empty( $decoded['success'] ) ) {
 			$out['error']     = 'gateway_failure:' . ( $decoded['error'] ?? $decoded['message'] ?? 'unknown' );
@@ -343,7 +345,8 @@ final class BizCity_TwinBrain_Web_Quick {
 			$context = '_(no search results)_';
 		}
 
-		$user = "WEB SEARCH RESULTS (top-" . count( $results ) . "):\n\n{$context}\nCÂU HỎI:\n{$query}\n\nTrả lời bằng tổng hợp ≤200 từ, citation bắt buộc dạng [web:N#URL] cho mọi mệnh đề.";
+		// [2026-06-04 Johnny Chu] DEPTH-UP — 200→300 từ để trả lời sâu hơn
+		$user = "WEB SEARCH RESULTS (top-" . count( $results ) . "):\n\n{$context}\nCÂU HỎI:\n{$query}\n\nTrả lời tổng hợp ≤300 từ (chi tiết, có phân mục ngắn nếu cần), citation bắt buộc dạng [web:N#URL] cho mọi mệnh đề. Ưu tiên giải thích cơ chế/lý do, không chỉ liệt kê sự kiện.";
 
 		return [
 			[ 'role' => 'system', 'content' => $system ],
@@ -365,7 +368,8 @@ final class BizCity_TwinBrain_Web_Quick {
 			} catch ( \Throwable $e ) { /* fallthrough */ }
 		}
 		// Fallback minimal prompt — vẫn enforce citation contract.
-		return "Bạn là trợ lý web search nhanh. Tổng hợp câu trả lời ≤200 từ dựa CHỈ trên snippets cung cấp. Mọi mệnh đề phải có citation [web:N#URL]. KHÔNG bịa thông tin ngoài snippets. Nếu snippets không đủ, nói rõ 'Snippets chưa đủ, cần Deep Web'.";
+		// [2026-06-04 Johnny Chu] DEPTH-UP — cap 200→300 từ trong fallback prompt
+		return "Bạn là trợ lý web search nhanh. Tổng hợp câu trả lời ≤300 từ dựa CHỈ trên snippets cung cấp. Giải thích cơ chế/nguyên nhân/hệ quả khi snippets có đủ dữ liệu. Mọi mệnh đề phải có citation [web:N#URL]. KHÔNG bịa thông tin ngoài snippets. Nếu snippets không đủ, nói rõ 'Snippets chưa đủ, cần Deep Web'.";
 	}
 
 	/* =================================================================

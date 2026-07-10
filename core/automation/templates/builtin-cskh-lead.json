@@ -1,0 +1,130 @@
+[
+  {
+    "slug": "tpl_zalo_cskh_v1",
+    "name": "Zalo CSKH — Hỏi & đáp tự động",
+    "description": "Khách nhắn Zalo → tra Knowledge Graph → LLM soạn câu trả lời → gửi lại + ghi CRM.",
+    "category": "cskh", "source": "builtin", "trigger_type": "zalo_inbound", "icon": "MessageCircle",
+    "tags": "zalo,cskh,kg,llm", "trigger_config": { "instance_id": "", "filter": "" },
+    "graph": {
+      "meta": { "template": "tpl_zalo_cskh_v1" },
+      "nodes": [
+        { "id": "t1", "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.zalo_inbound", "label": "Zalo · tin nhắn", "instance_id": "", "filter": "" } },
+        { "id": "a1", "type": "action",  "position": { "x": 320, "y": 80 }, "data": { "blockId": "action.search_kg", "label": "Tra cứu KG", "query": "{{trigger.text}}", "top_k": 5 } },
+        { "id": "l1", "type": "llm",     "position": { "x": 640, "y": 80 }, "data": { "blockId": "llm.compose_reply", "label": "Soạn câu trả lời", "model": "gpt-4o-mini", "system": "Bạn là CSKH thân thiện.", "prompt": "Câu hỏi: {{trigger.text}}\nThông tin nội bộ: {{kg.snippet}}\nTrả lời ngắn gọn, lịch sự." } },
+        { "id": "o1", "type": "action",  "position": { "x": 960, "y": 80 }, "data": { "blockId": "action.reply_zalo", "label": "Gửi Zalo", "text": "{{llm.output}}" } },
+        { "id": "c1", "type": "action",  "position": { "x": 960, "y": 240 }, "data": { "blockId": "action.create_crm_event", "label": "Ghi CRM", "event_type": "reminder_zalo", "title": "Đã trả lời Zalo CSKH" } }
+      ],
+      "edges": [
+        { "id": "e_t1_a1", "source": "t1", "target": "a1" }, { "id": "e_a1_l1", "source": "a1", "target": "l1" },
+        { "id": "e_l1_o1", "source": "l1", "target": "o1" }, { "id": "e_l1_c1", "source": "l1", "target": "c1" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_fb_lead_capture_v1",
+    "name": "Facebook Lead — Capture & notify",
+    "description": "Comment FB mới → ghi nhận lead vào CRM + email sales + phản hồi tự động.",
+    "category": "lead", "source": "builtin", "trigger_type": "fb_comment", "icon": "Zap",
+    "tags": "facebook,lead,crm,email", "trigger_config": { "instance_id": "", "filter": "" },
+    "graph": {
+      "meta": { "template": "tpl_fb_lead_capture_v1" },
+      "nodes": [
+        { "id": "t1", "type": "trigger",   "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.fb_comment", "label": "FB · comment mới", "instance_id": "", "filter": "" } },
+        { "id": "g1", "type": "condition", "position": { "x": 320, "y": 80 }, "data": { "blockId": "logic.condition", "label": "Là lead?", "expression": "trigger.comment != ''" } },
+        { "id": "c1", "type": "action",    "position": { "x": 640, "y": 0  }, "data": { "blockId": "action.create_crm_event", "label": "Tạo CRM lead", "event_type": "lead_report", "title": "Lead FB: {{trigger.comment}}" } },
+        { "id": "m1", "type": "action",    "position": { "x": 640, "y": 160 }, "data": { "blockId": "action.send_email", "label": "Email sales", "to": "{{site_admin_email}}", "subject": "Lead mới từ Facebook", "body": "Comment: {{trigger.comment}}" } },
+        { "id": "r1", "type": "action",    "position": { "x": 940, "y": 80 }, "data": { "blockId": "action.reply_zalo", "label": "Phản hồi (placeholder)", "text": "Cảm ơn anh/chị! Sales sẽ liên hệ sớm." } }
+      ],
+      "edges": [
+        { "id": "e_t1_g1", "source": "t1", "target": "g1" },
+        { "id": "e_g1_c1_true", "source": "g1", "target": "c1", "sourceHandle": "true" },
+        { "id": "e_g1_m1_true", "source": "g1", "target": "m1", "sourceHandle": "true" },
+        { "id": "e_c1_r1", "source": "c1", "target": "r1" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_mpr_auto_reply_v1",
+    "name": "TwinBrain Intent → MPR Thinking",
+    "description": "Khi TwinBrain phát hiện intent (vd tạo bảng tính) → chạy MPR Thinking 9 lớp → log + ghi CRM.",
+    "category": "mpr", "source": "builtin", "trigger_type": "twinbrain_intent", "icon": "Brain",
+    "tags": "twinbrain,mpr,llm,intent", "trigger_config": { "intent_id": "create_spreadsheet" },
+    "graph": {
+      "meta": { "template": "tpl_mpr_auto_reply_v1" },
+      "nodes": [
+        { "id": "t1",  "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.twinbrain_intent", "label": "TB intent · tạo bảng tính", "intent_id": "create_spreadsheet" } },
+        { "id": "l1",  "type": "llm",     "position": { "x": 320, "y": 80 }, "data": { "blockId": "llm.mpr_think", "label": "MPR Thinking", "prompt": "{{trigger.prompt}}", "guru_id": 0, "k": 8 } },
+        { "id": "log", "type": "action",  "position": { "x": 640, "y": 80 }, "data": { "blockId": "action.log", "label": "Log MPR result", "message": "Layers: {{mpr.layers_count}} — Answer: {{mpr.answer_md}}" } },
+        { "id": "c1",  "type": "action",  "position": { "x": 640, "y": 240 }, "data": { "blockId": "action.create_crm_event", "label": "CRM event", "event_type": "reminder_zalo", "title": "MPR đã chạy (intent={{trigger.intent_id}})" } }
+      ],
+      "edges": [
+        { "id": "e_t1_l1", "source": "t1", "target": "l1" }, { "id": "e_l1_log", "source": "l1", "target": "log" },
+        { "id": "e_l1_c1", "source": "l1", "target": "c1" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_cron_daily_report_v1",
+    "name": "Cron · Báo cáo mỗi sáng 08:00",
+    "description": "Mỗi sáng 8h → gọi HTTP fetch dashboard → log → tạo CRM event nhắc nhân viên xem.",
+    "category": "report", "source": "builtin", "trigger_type": "cron", "icon": "Clock",
+    "tags": "cron,report,daily,http", "trigger_config": { "schedule": "0 8 * * *" },
+    "graph": {
+      "meta": { "template": "tpl_cron_daily_report_v1" },
+      "nodes": [
+        { "id": "t1",  "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.cron", "label": "Cron · 08:00", "schedule": "0 8 * * *" } },
+        { "id": "h1",  "type": "action",  "position": { "x": 320, "y": 80 }, "data": { "blockId": "action.http_request", "label": "Fetch dashboard API", "method": "GET", "url": "{{site_url}}/wp-json/wp/v2/posts?per_page=1", "body": "" } },
+        { "id": "log", "type": "action",  "position": { "x": 640, "y": 80 }, "data": { "blockId": "action.log", "label": "Log raw", "message": "Status: {{http.status}}" } },
+        { "id": "c1",  "type": "action",  "position": { "x": 940, "y": 80 }, "data": { "blockId": "action.create_crm_event", "label": "CRM daily report", "event_type": "lead_report", "title": "Daily report 08:00" } }
+      ],
+      "edges": [
+        { "id": "e_t1_h1", "source": "t1", "target": "h1" }, { "id": "e_h1_log", "source": "h1", "target": "log" },
+        { "id": "e_log_c1", "source": "log", "target": "c1" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_webhook_crm_v1",
+    "name": "Webhook · Nhận lead từ form ngoài",
+    "description": "Form ngoài POST → /wp-json/bizcity-automation/v1/webhook/lead_form → validate email → ghi DB + CRM event.",
+    "category": "webhook", "source": "builtin", "trigger_type": "webhook", "icon": "Globe",
+    "tags": "webhook,lead,crm,external", "trigger_config": { "slug": "lead_form", "secret": "" },
+    "graph": {
+      "meta": { "template": "tpl_webhook_crm_v1" },
+      "nodes": [
+        { "id": "t1",  "type": "trigger",   "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.webhook", "label": "Webhook inbound", "slug": "lead_form", "secret": "" } },
+        { "id": "g1",  "type": "condition", "position": { "x": 320, "y": 80 }, "data": { "blockId": "logic.condition", "label": "Có email?", "expression": "trigger.payload.email != ''" } },
+        { "id": "db",  "type": "action",    "position": { "x": 640, "y": 0  }, "data": { "blockId": "action.db_write", "label": "Ghi DB lead", "table": "bizcity_crm_events", "payload": "{\"event_type\":\"lead_report\",\"title\":\"Webhook lead: {{trigger.payload.email}}\"}" } },
+        { "id": "c1",  "type": "action",    "position": { "x": 640, "y": 160 }, "data": { "blockId": "action.create_crm_event", "label": "CRM event", "event_type": "lead_report", "title": "Webhook lead: {{trigger.payload.email}}", "due_at": "" } },
+        { "id": "log", "type": "action",    "position": { "x": 940, "y": 80 }, "data": { "blockId": "action.log", "label": "Log skipped", "message": "Skipped lead — no email" } }
+      ],
+      "edges": [
+        { "id": "e_t1_g1", "source": "t1", "target": "g1" },
+        { "id": "e_g1_db_true",  "source": "g1", "target": "db",  "sourceHandle": "true" },
+        { "id": "e_g1_c1_true",  "source": "g1", "target": "c1",  "sourceHandle": "true" },
+        { "id": "e_g1_log_false","source": "g1", "target": "log", "sourceHandle": "false" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_tb_web_search_alert_v1",
+    "name": "TwinBrain cần web.search → cảnh báo admin",
+    "description": "Khi Stage 3 của TwinBrain quyết định gọi web.search = câu hỏi vượt KG. Gửi Zalo admin + email + CRM event để bổ sung Guru Knowledge.",
+    "category": "mpr", "source": "builtin", "trigger_type": "twinbrain_tool_decided", "icon": "Wand2",
+    "tags": "twinbrain,tool,web-search,alert,kg-gap", "trigger_config": { "skill_slug": "web.search" },
+    "graph": {
+      "meta": { "template": "tpl_tb_web_search_alert_v1" },
+      "nodes": [
+        { "id": "t1",  "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.twinbrain_tool_decided", "label": "TB tool · web.search", "skill_slug": "web.search" } },
+        { "id": "log", "type": "action",  "position": { "x": 320, "y": 80 }, "data": { "blockId": "action.log", "label": "Log trace", "message": "TB đề xuất web.search — trace={{trigger.trace_id}} skill={{trigger.skill_slug}}" } },
+        { "id": "z1",  "type": "action",  "position": { "x": 640, "y": 0  }, "data": { "blockId": "action.reply_zalo", "label": "Zalo báo admin", "chat_id": "", "text": "⚠ TwinBrain gợi ý web.search cho 1 câu hỏi — trace {{trigger.trace_id}}. Có thể cần bổ sung Knowledge Graph." } },
+        { "id": "m1",  "type": "action",  "position": { "x": 640, "y": 160 }, "data": { "blockId": "action.send_email", "label": "Email admin", "to": "{{site_admin_email}}", "subject": "[BizCity] TwinBrain cần web.search — bổ sung KG?", "body": "Trace ID: {{trigger.trace_id}}\nSkill: {{trigger.skill_slug}}\nArgs: {{trigger.args}}" } },
+        { "id": "c1",  "type": "action",  "position": { "x": 940, "y": 80 }, "data": { "blockId": "action.create_crm_event", "label": "CRM · KG gap", "event_type": "lead_report", "title": "KG gap — TwinBrain cần web.search (trace {{trigger.trace_id}})" } }
+      ],
+      "edges": [
+        { "id": "e_t1_log", "source": "t1",  "target": "log" }, { "id": "e_log_z1", "source": "log", "target": "z1" },
+        { "id": "e_log_m1", "source": "log", "target": "m1" }, { "id": "e_z1_c1",  "source": "z1",  "target": "c1" }
+      ]
+    }
+  }
+]

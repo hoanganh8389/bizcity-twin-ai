@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "astro_research_started",
+  "description": "TwinBrain Web_Astro engine — emitted when stream_astro_mode() delegates to BizCity_TwinBrain_Web_Astro::run(). Signals start of the astro pipeline. PHASE-A C.3b (2026-06-04).",
+  "type": "object",
+  "required": ["trace_id", "mode", "query", "user_id"],
+  "properties": {
+    "trace_id": { "type": "string" },
+    "mode":     { "type": "string", "const": "astro" },
+    "query":    { "type": "string", "description": "Raw user prompt (un-truncated, but engine logs only summary)." },
+    "user_id":  { "type": "integer", "minimum": 0 }
+  }
+}

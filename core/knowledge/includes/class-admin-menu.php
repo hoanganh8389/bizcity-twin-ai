@@ -654,8 +654,8 @@ class BizCity_Knowledge_Admin_Menu {
         $characters = $db->get_characters(['limit' => 100]);
         ?>
         <div class="wrap">
-            <h1 class="wp-heading-inline"><?php esc_html_e( 'Twin Guru', 'bizcity-twin-ai' ); ?></h1>
-            <a href="<?php echo admin_url('admin.php?page=bizcity-knowledge-character-edit' . $iframe_suffix); ?>" class="page-title-action"><?php esc_html_e( 'New Twin Guru', 'bizcity-twin-ai' ); ?></a>
+            <h1 class="wp-heading-inline"><?php esc_html_e( 'Twin Connector', 'bizcity-twin-ai' ); ?></h1>
+            <a href="<?php echo admin_url('admin.php?page=bizcity-knowledge-character-edit' . $iframe_suffix); ?>" class="page-title-action"><?php esc_html_e( 'New Twin Connector', 'bizcity-twin-ai' ); ?></a>
             <button type="button" class="page-title-action bk-import-json-btn" id="import-character-json-btn" style="background:#3b82f6;color:white;border-color:#2563eb;">
                 <span class="dashicons dashicons-upload" style="color:white;"></span> Import JSON
             </button>
@@ -679,7 +679,7 @@ class BizCity_Knowledge_Admin_Menu {
                 </thead>
                 <tbody>
                     <?php if (empty($characters)): ?>
-                    <tr><td colspan="11"><?php esc_html_e( 'No Twin Gurus yet.', 'bizcity-twin-ai' ); ?> <a href="<?php echo admin_url('admin.php?page=bizcity-knowledge-character-edit' . $iframe_suffix); ?>"><?php esc_html_e( 'Create new', 'bizcity-twin-ai' ); ?></a></td></tr>
+                    <tr><td colspan="11"><?php esc_html_e( 'No Twin Connectors yet.', 'bizcity-twin-ai' ); ?> <a href="<?php echo admin_url('admin.php?page=bizcity-knowledge-character-edit' . $iframe_suffix); ?>"><?php esc_html_e( 'Create new', 'bizcity-twin-ai' ); ?></a></td></tr>
                     <?php endif; ?>
                 </tbody>
             </table>
@@ -689,8 +689,8 @@ class BizCity_Knowledge_Admin_Menu {
             <div class="bk-empty-characters">
                 <div style="text-align:center;padding:60px 20px;color:#9ca3af;">
                     <div style="font-size:48px;margin-bottom:12px;">🤖</div>
-                    <p><?php esc_html_e( 'No Twin Gurus yet.', 'bizcity-twin-ai' ); ?></p>
-                    <a href="<?php echo admin_url('admin.php?page=bizcity-knowledge-character-edit' . $iframe_suffix); ?>" class="button button-primary"><?php esc_html_e( 'New Twin Guru', 'bizcity-twin-ai' ); ?></a>
+                    <p><?php esc_html_e( 'No Twin Connectors yet.', 'bizcity-twin-ai' ); ?></p>
+                    <a href="<?php echo admin_url('admin.php?page=bizcity-knowledge-character-edit' . $iframe_suffix); ?>" class="button button-primary"><?php esc_html_e( 'New Twin Connector', 'bizcity-twin-ai' ); ?></a>
                 </div>
             </div>
             <?php else: ?>
@@ -1110,6 +1110,14 @@ class BizCity_Knowledge_Admin_Menu {
         // Load view file
         require_once BIZCITY_KNOWLEDGE_DIR . 'views/character-edit.php';
     }
+
+    /**
+     * Render Guru KPI Dashboard Page
+     * [2026-06-24 Johnny Chu] GURU-KPI — Submenu thống kê KPI tất cả Guru
+     */
+    public function render_guru_kpi_page() {
+        require_once BIZCITY_KNOWLEDGE_DIR . 'views/guru-kpi.php';
+    }
     
     /**
      * OLD Render Character Edit Page - BACKUP
@@ -1148,7 +1156,7 @@ class BizCity_Knowledge_Admin_Menu {
                         <?php endif; ?>
                     </div>
                     <div class="bk-header-info">
-                        <h1><?php echo $is_new ? esc_html__( 'New Twin Guru', 'bizcity-twin-ai' ) : esc_html($character->name); ?></h1>
+                        <h1><?php echo $is_new ? esc_html__( 'New Twin Connector', 'bizcity-twin-ai' ) : esc_html($character->name); ?></h1>
                         <?php if (!$is_new): ?>
                             <div class="bk-character-meta">
                                 <span class="bk-status bk-status-<?php echo esc_attr($character->status); ?>">
@@ -3481,7 +3489,8 @@ class BizCity_Knowledge_Admin_Menu {
         global $wpdb;
         $table = $wpdb->prefix . 'bizcity_memory_users';
 
-        if ( ! class_exists( 'BizCity_User_Memory' ) || $wpdb->get_var( "SHOW TABLES LIKE '{$table}'" ) !== $table ) {
+        // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+        if ( ! class_exists( 'BizCity_User_Memory' ) || ! bizcity_tbl_exists( $table ) ) {
             wp_send_json_error( [ 'message' => 'table_unavailable' ] );
         }
 
@@ -3523,7 +3532,8 @@ class BizCity_Knowledge_Admin_Menu {
         global $wpdb;
         $uid   = get_current_user_id();
         $table = $wpdb->prefix . 'bizcity_memory_episodic';
-        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$table}'" ) !== $table ) {
+        // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+        if ( ! bizcity_tbl_exists( $table ) ) {
             wp_send_json_success( [ 'rows' => [] ] );
         }
 
@@ -3584,7 +3594,8 @@ class BizCity_Knowledge_Admin_Menu {
         global $wpdb;
         $uid   = get_current_user_id();
         $table = $wpdb->prefix . 'bizcity_memory_rolling';
-        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$table}'" ) !== $table ) {
+        // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+        if ( ! bizcity_tbl_exists( $table ) ) {
             wp_send_json_success( [ 'rows' => [] ] );
         }
 
@@ -3645,7 +3656,8 @@ class BizCity_Knowledge_Admin_Menu {
         global $wpdb;
         $uid   = get_current_user_id();
         $table = $wpdb->prefix . 'bizcity_memory_notes';
-        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$table}'" ) !== $table ) {
+        // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+        if ( ! bizcity_tbl_exists( $table ) ) {
             wp_send_json_success( [ 'rows' => [] ] );
         }
 
@@ -3759,7 +3771,8 @@ class BizCity_Knowledge_Admin_Menu {
         $notebook_id = intval( $_POST['notebook_id'] ?? 0 );
         $doc_type    = sanitize_text_field( $_POST['doc_type'] ?? '' );
 
-        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$table}'" ) !== $table ) {
+        // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+        if ( ! bizcity_tbl_exists( $table ) ) {
             wp_send_json_success( [ 'rows' => [], 'total' => 0 ] );
         }
 

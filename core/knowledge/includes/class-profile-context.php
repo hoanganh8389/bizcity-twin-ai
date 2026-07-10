@@ -345,12 +345,15 @@ class BizCity_Profile_Context {
                 if (!empty($wp_user->user_email)) {
                     $wp_lines[] = "- **Email:** {$wp_user->user_email}";
                 }
-                $first = get_user_meta($user_id, 'first_name', true);
-                $last  = get_user_meta($user_id, 'last_name', true);
+                // [2026-06-22 Johnny Chu] R-PERF — route via BizCity_User_Meta_Cache to avoid WP meta prime
+                // (loading all user_meta including 5MB bztimg_templates blob on every chat request).
+                $mc    = class_exists( 'BizCity_User_Meta_Cache' );
+                $first = $mc ? BizCity_User_Meta_Cache::get( $user_id, 'first_name', '' )     : get_user_meta($user_id, 'first_name', true);
+                $last  = $mc ? BizCity_User_Meta_Cache::get( $user_id, 'last_name', '' )      : get_user_meta($user_id, 'last_name', true);
                 if ($first || $last) {
                     $wp_lines[] = "- **Tên đầy đủ:** " . trim($first . ' ' . $last);
                 }
-                $desc = get_user_meta($user_id, 'description', true);
+                $desc = $mc ? BizCity_User_Meta_Cache::get( $user_id, 'description', '' ) : get_user_meta($user_id, 'description', true);
                 if ($desc) {
                     $wp_lines[] = "- **Giới thiệu:** {$desc}";
                 }
@@ -408,10 +411,10 @@ class BizCity_Profile_Context {
         $table = $this->wpdb->prefix . 'bccm_coachees';
 
         // Check table exists
-        if ($this->wpdb->get_var("SHOW TABLES LIKE '{$table}'") !== $table) {
+        // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+        if (! bizcity_tbl_exists( $table )) {
             return null;
         }
-
         // Strategy 1: by user_id (most reliable) — auto-heal legacy schema first.
         $has_user_id_column = $this->ensure_coachees_user_id_column($table);
         if ($user_id && $has_user_id_column) {
@@ -442,7 +445,8 @@ class BizCity_Profile_Context {
         // (Useful for WEBCHAT guests who don't have a user_id but were matched to a coachee)
         if ($session_id && !$user_id) {
             $conv_table = $this->wpdb->prefix . 'bizcity_webchat_conversations';
-            if ($this->wpdb->get_var("SHOW TABLES LIKE '{$conv_table}'") === $conv_table) {
+            // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+            if (bizcity_tbl_exists( $conv_table )) {
                 // Check if conversation has a linked coachee_id
                 $coachee_id = $this->wpdb->get_var($this->wpdb->prepare(
                     "SELECT coachee_id FROM {$conv_table} WHERE session_id = %s AND coachee_id IS NOT NULL AND coachee_id > 0 ORDER BY id DESC LIMIT 1",
@@ -653,7 +657,8 @@ class BizCity_Profile_Context {
     private function build_astro_context($coachee_id, $user_id = 0) {
         $table = $this->wpdb->prefix . 'bccm_astro';
 
-        if ($this->wpdb->get_var("SHOW TABLES LIKE '{$table}'") !== $table) {
+        // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+        if (! bizcity_tbl_exists( $table )) {
             return '';
         }
 
@@ -842,7 +847,8 @@ class BizCity_Profile_Context {
     private function build_answers_from_table($coachee_id) {
         $table = $this->wpdb->prefix . 'bccm_answers';
 
-        if ($this->wpdb->get_var("SHOW TABLES LIKE '{$table}'") !== $table) {
+        // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+        if (! bizcity_tbl_exists( $table )) {
             return '';
         }
 
@@ -902,7 +908,8 @@ class BizCity_Profile_Context {
     private function build_gen_results_context($coachee_id, $user_id = 0, $limit = 10) {
         $table = $this->wpdb->prefix . 'bccm_gen_results';
 
-        if ($this->wpdb->get_var("SHOW TABLES LIKE '{$table}'") !== $table) {
+        // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+        if (! bizcity_tbl_exists( $table )) {
             return '';
         }
 
@@ -963,7 +970,8 @@ class BizCity_Profile_Context {
         $user_id = (int) $user_id;
         $table = $this->wpdb->prefix . 'bccm_coachees';
 
-        if ($this->wpdb->get_var("SHOW TABLES LIKE '{$table}'") !== $table) {
+        // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+        if (! bizcity_tbl_exists( $table )) {
             return [];
         }
 

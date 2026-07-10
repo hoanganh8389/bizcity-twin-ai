@@ -1179,7 +1179,7 @@ PROMPT;
         // Static cache: avoid SHOW TABLES on every call
         static $table_exists = null;
         if ( $table_exists === null ) {
-            $table_exists = ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) === $table );
+            $table_exists = ( bizcity_tbl_exists( $table ) ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
         }
         if ( ! $table_exists ) {
             return '';

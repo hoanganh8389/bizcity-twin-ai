@@ -201,10 +201,12 @@ CSS;
 					CHANNELS.map(function(c){
 						return '<option value="' + esc(c.platform) + '">' + esc(c.platform) + '</option>';
 					}).join('');
+				// [2026-06-09 Johnny Chu] PHASE-D D-WEBCHAT-WILDCARD — bỏ required trên account_id,
+				// WEBCHAT không cần account_id (guest không có OA/Page ID), tự điền * khi để trống.
 				host.innerHTML =
 					'<form class="bk-bind-form">' +
 						'<select name="platform" required>' + platOpts + '</select>' +
-						'<input type="text" name="account_id" placeholder="' + esc(T.account) + ' (or *)" required style="width:140px">' +
+						'<input type="text" name="account_id" placeholder="' + esc(T.account) + ' (or *)" style="width:140px">' +
 						'<select name="mode" title="reply mode">' +
 							'<option value="auto">auto</option>' +
 							'<option value="manual">manual</option>' +
@@ -216,15 +218,31 @@ CSS;
 						'<span class="bk-bind-msg" style="font-size:11px;margin-left:6px"></span>' +
 					'</form>';
 				var form = host.querySelector('form');
+				var platSel   = form.querySelector('[name="platform"]');
+				var acctInput = form.querySelector('[name="account_id"]');
+				// Update placeholder & hint when platform changes
+				platSel.addEventListener('change', function(){
+					if((platSel.value || '').toUpperCase() === 'WEBCHAT'){
+						acctInput.placeholder = '(để trống = tất cả khách guest)';
+					} else {
+						acctInput.placeholder = esc(T.account) + ' (or *)';
+					}
+				});
 				host.querySelector('.bk-cancel').addEventListener('click', function(){ host.innerHTML = ''; });
 				form.addEventListener('submit', function(e){
 					e.preventDefault();
 					var fd = new FormData(form);
+					var platform   = fd.get('platform') || '';
+					var accountRaw = (fd.get('account_id') || '').trim();
+					// WEBCHAT: nếu để trống → wildcard *, các platform khác bắt buộc có giá trị
+					if(platform.toUpperCase() === 'WEBCHAT' && accountRaw === ''){ accountRaw = '*'; }
+					if(!platform){ alert('Vui lòng chọn platform'); return; }
+					if(!accountRaw){ alert('Vui lòng nhập Account ID (hoặc * để wildcard)'); return; }
 					var msg = host.querySelector('.bk-bind-msg');
 					msg.textContent = T.saving;
 					api(REST + '/inspector/bindings', { method:'POST', body: JSON.stringify({
-						platform:     fd.get('platform'),
-						account_id:   (fd.get('account_id') || '*').trim(),
+						platform:     platform,
+						account_id:   accountRaw,
 						character_id: parseInt(cid, 10),
 						mode:         fd.get('mode') || 'auto',
 						auto_reply:   (fd.get('mode') === 'manual') ? 0 : 1

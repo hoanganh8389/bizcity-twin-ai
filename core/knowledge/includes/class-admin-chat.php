@@ -202,7 +202,7 @@ class BizCity_Admin_Chat {
         $table = $wpdb->prefix . 'bizcity_webchat_messages';
 
         // Check table exists
-        if ($wpdb->get_var("SHOW TABLES LIKE '$table'") === $table) {
+        if (bizcity_tbl_exists( $table )) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
             $wpdb->delete($table, [
                 'session_id'    => $session_id,
                 'platform_type' => 'ADMINCHAT',
@@ -211,7 +211,7 @@ class BizCity_Admin_Chat {
 
         // Also clear conversation record
         $conv_table = $wpdb->prefix . 'bizcity_webchat_conversations';
-        if ($wpdb->get_var("SHOW TABLES LIKE '$conv_table'") === $conv_table) {
+        if (bizcity_tbl_exists( $conv_table )) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
             $wpdb->query($wpdb->prepare(
                 "UPDATE {$conv_table} SET status = 'closed', ended_at = NOW() WHERE session_id = %s AND platform_type = 'ADMINCHAT'",
                 $session_id
@@ -558,7 +558,8 @@ class BizCity_Admin_Chat {
         global $wpdb;
         $table = $wpdb->prefix . 'bizcity_webchat_messages';
 
-        if ($wpdb->get_var("SHOW TABLES LIKE '$table'") !== $table) {
+        // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+        if (! bizcity_tbl_exists( $table )) {
             return; // Table doesn't exist
         }
 
@@ -584,7 +585,8 @@ class BizCity_Admin_Chat {
         global $wpdb;
         $table = $wpdb->prefix . 'bizcity_webchat_messages';
 
-        if ($wpdb->get_var("SHOW TABLES LIKE '$table'") !== $table) {
+        // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+        if (! bizcity_tbl_exists( $table )) {
             return [];
         }
 

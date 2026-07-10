@@ -97,7 +97,13 @@ class BizCoach_Pro_Astro_Provider extends BizCity_Persona_Tool_Provider {
 
 	public function get_tool_definitions(): array {
 		$all = $this->all_tool_definitions();
-		if ( $this->system === 'all' ) { return $all; }
+		if ( $this->system === 'all' ) {
+			// [2026-07-06 Johnny Chu] HOTFIX — hide Vedic/BaZi creation tools from the default Astromap connector.
+			return array_values( array_filter( $all, function ( $t ) {
+				$name = isset( $t['name'] ) ? (string) $t['name'] : '';
+				return $name !== 'create_vedic_chart' && $name !== 'create_bazi_chart';
+			} ) );
+		}
 		$allowed = $this->allowed_tool_names_for_system();
 		return array_values( array_filter( $all, function ( $t ) use ( $allowed ) {
 			return in_array( $t['name'], $allowed, true );
@@ -117,7 +123,8 @@ class BizCoach_Pro_Astro_Provider extends BizCity_Persona_Tool_Provider {
 		return [
 			[
 				'name'          => 'create_natal_chart',
-				'label'         => __( 'Tạo bản đồ sao', 'bizcoach-pro' ),
+				// [2026-07-06 Johnny Chu] HOTFIX — align tool naming to list-first UX in Twin workspace.
+				'label'         => __( 'Danh sách các bản đồ', 'bizcoach-pro' ),
 				'description'   => __( 'Sinh natal chart từ họ tên, ngày, giờ, nơi sinh.', 'bizcoach-pro' ),
 				'slot_schema'   => [
 					'full_name'   => 'text',
@@ -134,7 +141,8 @@ class BizCoach_Pro_Astro_Provider extends BizCity_Persona_Tool_Provider {
 			],
 			[
 				'name'          => 'create_transit_map',
-				'label'         => __( 'Tạo bản đồ vận hạn', 'bizcoach-pro' ),
+				// [2026-07-06 Johnny Chu] HOTFIX — transit tool now opens 30-day transit map list.
+				'label'         => __( 'Danh sách bản đồ vận hạn', 'bizcoach-pro' ),
 				'description'   => __( 'Tạo transit chart cho khoảng thời gian (tuần/tháng/năm).', 'bizcoach-pro' ),
 				'slot_schema'   => [
 					'time_range' => 'choice',
@@ -202,7 +210,13 @@ class BizCoach_Pro_Astro_Provider extends BizCity_Persona_Tool_Provider {
 
 	public function get_smart_source_chips(): array {
 		$all = $this->all_smart_source_chips();
-		if ( $this->system === 'all' ) { return $all; }
+		if ( $this->system === 'all' ) {
+			// [2026-07-06 Johnny Chu] HOTFIX — keep only Western list tools in default Astromap chips.
+			return array_values( array_filter( $all, function ( $c ) {
+				$tool = isset( $c['tool'] ) ? (string) $c['tool'] : '';
+				return $tool !== 'create_vedic_chart' && $tool !== 'create_bazi_chart';
+			} ) );
+		}
 		$allowed = $this->allowed_tool_names_for_system();
 		return array_values( array_filter( $all, function ( $c ) use ( $allowed ) {
 			return in_array( $c['tool'], $allowed, true );
@@ -213,7 +227,8 @@ class BizCoach_Pro_Astro_Provider extends BizCity_Persona_Tool_Provider {
 		return [
 			[
 				'tool'               => 'create_natal_chart',
-				'label'              => __( 'Tạo bản đồ sao', 'bizcoach-pro' ),
+				// [2026-07-06 Johnny Chu] HOTFIX — keep chip title consistent with provider tool label.
+				'label'              => __( 'Danh sách các bản đồ', 'bizcoach-pro' ),
 				'icon'               => '🔮',
 				'action'             => 'persona_artifact_dialog',
 				'requires_user_data' => [ 'dob', 'birth_time', 'birth_place' ],
@@ -232,7 +247,8 @@ class BizCoach_Pro_Astro_Provider extends BizCity_Persona_Tool_Provider {
 			],
 			[
 				'tool'               => 'create_transit_map',
-				'label'              => __( 'Bản đồ vận hạn', 'bizcoach-pro' ),
+				// [2026-07-06 Johnny Chu] HOTFIX — highlight 30-day transit listing flow.
+				'label'              => __( 'Danh sách bản đồ vận hạn', 'bizcoach-pro' ),
 				'icon'               => '🌀',
 				'action'             => 'persona_artifact_dialog',
 				'requires_user_data' => [ 'natal_chart' ],

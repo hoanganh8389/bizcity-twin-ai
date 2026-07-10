@@ -45,7 +45,7 @@ class BizCity_Probe_Cron_Registry implements BizCity_Diagnostics_Probe {
 		global $wpdb;
 		$t = $wpdb->prefix . BizCity_Cron_Manager::TABLE_REGISTRY;
 		$wpdb->suppress_errors( true );
-		$exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $t ) );
+		$exists = bizcity_tbl_exists( $t ) ? $t : null; // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 		$wpdb->suppress_errors( false );
 		if ( ! $exists ) {
 			return new WP_Error( 'no_table', "Bảng {$t} không tồn tại — cần chạy diagnostics Site Provisioner." );

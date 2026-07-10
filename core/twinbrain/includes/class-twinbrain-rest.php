@@ -51,6 +51,8 @@ class BizCity_TwinBrain_REST {
 				'force_tools'      => [ 'type' => 'array',   'required' => false ],
 				'skip_tool_intent' => [ 'type' => 'boolean', 'required' => false ],
 				'auto_complete'    => [ 'type' => 'boolean', 'required' => false, 'default' => true ],
+				// [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-2 — thread session_id.
+				'session_id'       => [ 'type' => 'string',  'required' => false ],
 			],
 			'callback'            => [ $this, 'handle_turn' ],
 		] );
@@ -68,11 +70,22 @@ class BizCity_TwinBrain_REST {
 				// — Web Research toggle. Values: 'off' (default), 'quick' (W6),
 				// 'deep' (W7), 'social' (W14), 'company' (W15), 'med' (W17), 'scholar'
 				// (W17), 'nutri' (W17), 'law' (W17), 'tax' (W17), 'gov' (W17).
-				'web_mode'         => [ 'type' => 'string',  'required' => false, 'enum' => [ 'off', 'quick', 'deep', 'social', 'company', 'med', 'scholar', 'nutri', 'law', 'tax', 'gov' ] ],
+				// [2026-06-03 Johnny Chu] HOTFIX — companion 'chat' mode: skip MPR
+				// perspectives + web research, dùng memory_block + companion system
+				// prompt (tâm sự / đồng hành / cảm xúc).
+				// [2026-06-04 Johnny Chu] PHASE-A C.3b — 'astro' mode: bypass MPR,
+				// inject transit passages qua CAP filter, compose final với astro context.
+				'web_mode'         => [ 'type' => 'string',  'required' => false, 'enum' => [ 'off', 'chat', 'astro', 'quick', 'deep', 'social', 'company', 'med', 'scholar', 'nutri', 'law', 'tax', 'gov' ] ],
 				// TBR.W20 (2026-05-28) — Agent mode toggle. 'brain' (default) =
 				// full MPR pipeline (perspectives + synthesis); 'agent' = bypass
 				// perspectives, run ReAct loop over Tool_Registry instead.
 				'mode'             => [ 'type' => 'string',  'required' => false, 'enum' => [ 'brain', 'agent' ] ],
+				// [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-2 — thread session_id.
+				// Auto-mint on first turn when omitted; FE picks up session_id from
+				// the streamed `started` SSE frame.
+				'session_id'       => [ 'type' => 'string',  'required' => false ],
+				// [2026-06-19 Johnny Chu] PHASE-TWB-WORKFLOW W1 — /skill param routes to Workflow Pipeline.
+				'skill'            => [ 'type' => 'string',  'required' => false, 'default' => '' ],
 			],
 			'callback'            => [ $this, 'handle_turn_stream' ],
 		] );
@@ -106,7 +119,11 @@ class BizCity_TwinBrain_REST {
 	 */
 	private function sanitize_web_mode( $raw ): string {
 		$v = strtolower( trim( (string) $raw ) );
-		return in_array( $v, [ 'quick', 'deep', 'social', 'company', 'med', 'scholar', 'nutri', 'law', 'tax', 'gov' ], true ) ? $v : 'off';
+		// [2026-06-03 Johnny Chu] HOTFIX — accept 'chat' (companion mode).
+		// [2026-06-04 Johnny Chu] PHASE-A C.3b — accept 'astro' (transit mode).
+		// MISSING from whitelist trước đây → astro request bị fallback 'off' →
+		// chạy full MPR pipeline (notebook perspectives) thay vì stream_astro_mode.
+		return in_array( $v, [ 'chat', 'astro', 'quick', 'deep', 'social', 'company', 'med', 'scholar', 'nutri', 'law', 'tax', 'gov' ], true ) ? $v : 'off';
 	}
 
 	/**
@@ -119,17 +136,45 @@ class BizCity_TwinBrain_REST {
 		return $v === 'agent' ? 'agent' : 'brain';
 	}
 
+	/**
+	 * [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-2 — Resolve session_id from
+	 * the request, validating ownership when supplied. Mints a fresh session
+	 * (with brain_session_created event) when missing or invalid. Returns
+	 * the canonical session_id to thread into runtime opts.
+	 */
+	private function resolve_session_id( WP_REST_Request $req, int $user_id ): string {
+		if ( ! class_exists( 'BizCity_TwinBrain_Sessions_Manager' ) ) {
+			return '';
+		}
+		$mgr = BizCity_TwinBrain_Sessions_Manager::instance();
+		$raw = trim( (string) $req->get_param( 'session_id' ) );
+		if ( $raw !== '' && BizCity_TwinBrain_Sessions_Manager::is_valid_session_id( $raw ) ) {
+			$existing = $mgr->get( $raw, $user_id );
+			if ( ! empty( $existing ) ) {
+				return $raw;
+			}
+			// Caller passed a fresh id we haven't seen — honour it and mint.
+			$res = $mgr->create( [ 'user_id' => $user_id, 'session_id' => $raw, 'source' => 'user' ] );
+			return (string) ( $res['session_id'] ?? $raw );
+		}
+		$res = $mgr->create( [ 'user_id' => $user_id, 'source' => 'user' ] );
+		return (string) ( $res['session_id'] ?? '' );
+	}
+
 	public function handle_turn( WP_REST_Request $req ) {
 		$prompt = trim( (string) $req->get_param( 'prompt' ) );
 		if ( $prompt === '' ) {
 			return $this->err_validation( 'twinbrain_empty_prompt', 'Prompt bắt buộc không được để trống.' );
 		}
+		// [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-2 — resolve / mint session.
+		$session_id = $this->resolve_session_id( $req, get_current_user_id() );
 		$opts = [
 			'user_id'          => get_current_user_id(),
 			'k'                => $req->get_param( 'k' ) ?: BIZCITY_TWINBRAIN_K_DEFAULT,
 			'force_notebooks'  => (array) $req->get_param( 'force_notebooks' ),
 			'force_tools'      => (array) $req->get_param( 'force_tools' ),
 			'skip_tool_intent' => (bool)  $req->get_param( 'skip_tool_intent' ),
+			'session_id'       => $session_id,
 		];
 
 		$runtime = BizCity_TwinBrain_Runtime::instance();
@@ -146,9 +191,9 @@ class BizCity_TwinBrain_REST {
 					'tool_force' => (string) ( $start['tool_force'] ?? '' ),
 				)
 			);
-			return rest_ensure_response( array_merge( $start, $done ) );
+			return rest_ensure_response( array_merge( $start, $done, [ 'session_id' => $session_id ] ) );
 		}
-		return rest_ensure_response( $start );
+		return rest_ensure_response( array_merge( $start, [ 'session_id' => $session_id ] ) );
 	}
 
 	/**
@@ -178,14 +223,51 @@ class BizCity_TwinBrain_REST {
 			'web_mode'         => $this->sanitize_web_mode( $req->get_param( 'web_mode' ) ),
 			// TBR.W20 (2026-05-28) — propagate agent-mode toggle.
 			'mode'             => $this->sanitize_mode( $req->get_param( 'mode' ) ),
+			// [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-2 — resolve / mint session.
+			'session_id'       => $this->resolve_session_id( $req, get_current_user_id() ),
 		];
 
 		$sse = new BizCity_Twin_SSE_Writer( true );
 
+		// [2026-06-19 Johnny Chu] PHASE-TWB-WORKFLOW W1 — route /skill → Workflow Pipeline.
+		// When AskBrainPanel sends `skill` param, bypass normal MPR pipeline and
+		// run the workflow-driven pipeline instead. Fail-OPEN if class missing.
+		$skill = trim( (string) $req->get_param( 'skill' ) );
+		if ( $skill !== '' && class_exists( 'BizCity_TwinBrain_Workflow_Pipeline' ) ) {
+			$pipeline = BizCity_TwinBrain_Workflow_Pipeline::instance();
+			// Inject SSE emitter that mirrors BizCity_Twin_SSE_Writer->emit().
+			$pipeline->set_sse_emitter( static function ( string $ev, array $data ) use ( $sse ) {
+				$sse->emit( $ev, $data );
+			} );
+			$trace_id = 'tb_' . wp_generate_uuid4();
+			$sse->emit( 'started', array(
+				'trace_id'   => $trace_id,
+				'session_id' => (string) ( $opts['session_id'] ?? '' ),
+			) );
+			try {
+				$pipeline->run( $trace_id, $prompt, array(
+					'skill'      => $skill,
+					'user_id'    => (int) ( $opts['user_id'] ?? 0 ),
+					'guest_sid'  => '',
+					'session_id' => (string) ( $opts['session_id'] ?? '' ),
+					'surface'    => 'twinchat',
+					'history'    => array(),
+					'on_token'   => static function ( $delta, $acc ) use ( $sse ) {
+						$sse->emit( 'final_token', array( 'delta' => (string) $delta ) );
+					},
+				) );
+				$sse->close( array() );
+			} catch ( \Throwable $e ) {
+				error_log( '[TwinBrain][twinbrain-rest] workflow pipeline threw: ' . $e->getMessage() );
+				$sse->error( $e->getMessage(), 'twin_agent_exception' );
+			}
+			exit;
+		}
+
 		try {
 			$runtime = BizCity_TwinBrain_Runtime::instance();
 
-			$sse->emit( 'started', [ 'prompt' => $prompt ] );
+			$sse->emit( 'started', [ 'prompt' => $prompt, 'session_id' => (string) ( $opts['session_id'] ?? '' ) ] );
 			$start = $runtime->start_turn( $prompt, $opts );
 			$trace_id = (string) ( $start['trace_id'] ?? '' );
 
@@ -267,8 +349,8 @@ class BizCity_TwinBrain_REST {
 		$trace_id = (string) $req['trace_id'];
 		$tbl      = $wpdb->prefix . 'bizcity_twin_event_stream';
 		$prev     = $wpdb->suppress_errors( true );
-		$exists   = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl ) );
-		if ( $exists !== $tbl ) {
+		$exists_row = bizcity_tbl_exists( $tbl ) ? $tbl : null; // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+		if ( $exists_row !== $tbl ) {
 			$wpdb->suppress_errors( $prev );
 			return $this->err_table_missing( $tbl, 'twinbrain' );
 		}

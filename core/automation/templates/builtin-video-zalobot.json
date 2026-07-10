@@ -1,0 +1,123 @@
+[
+  {
+    "slug": "tpl_zalobot_img_capture_v1",
+    "name": "Zalo Bot · Lưu ảnh + hỏi lệnh video/khác",
+    "description": "Zalo Bot nhận ảnh (attachment:image) → capture vào pending slot 60 phút → set_pending_intent chờ lệnh video (workflow tpl_zalobot_video_veo3_v1) → reply hỏi \"muốn làm gì?\".",
+    "category": "general", "source": "builtin", "trigger_type": "zalo_inbound", "icon": "Image",
+    "tags": "zalo-bot,video,kling,veo3,image,pending-state,multi-turn", "trigger_config": { "instance_id": "", "filter": "__attachment:image", "is_fallback": false, "priority": 10 },
+    "graph": {
+      "meta": { "template": "tpl_zalobot_img_capture_v1" },
+      "nodes": [
+        { "id": "t1",    "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.zalo_inbound", "label": "Zalo Bot · nhận ảnh", "instance_id": "", "filter": "__attachment:image" } },
+        { "id": "cap",   "type": "action",  "position": { "x": 320, "y": 80 }, "data": { "blockId": "action.capture_attachment", "label": "Lưu ảnh vào slot (60 phút)", "url": "{{trigger.media_url}}", "ttl_min": 60 } },
+        { "id": "pin",   "type": "action",  "position": { "x": 640, "y": 80 }, "data": { "blockId": "action.set_pending_intent", "label": "Chờ lệnh video", "intent": "awaiting_video_command", "workflow_id": 0, "workflow_slug": "tpl_zalobot_video_veo3_v1", "ttl_min": 60, "slots_json": "{}" } },
+        { "id": "reply", "type": "action",  "position": { "x": 960, "y": 80 }, "data": { "blockId": "action.reply_zalo", "label": "Hỏi lệnh tiếp theo", "text": "✅ Đã nhận được ảnh! Sếp muốn em làm gì?\n\n🎬 Nhắn \"tạo video\" để tạo video AI từ ảnh này (Kling)\n✏️ Nhắn \"đăng fb\" để gen caption và đăng Facebook\n📝 Nhắn \"đăng bài\" để tạo bài viết web\n\n(Hiệu lực trong 60 phút)" } }
+      ],
+      "edges": [
+        { "id": "e_t1_cap", "source": "t1", "target": "cap" }, { "id": "e_cap_pin", "source": "cap", "target": "pin" },
+        { "id": "e_pin_reply", "source": "pin", "target": "reply" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_zalobot_video_veo3_v1",
+    "name": "Zalo Bot · Tạo video AI từ ảnh (Kling i2v-pro)",
+    "description": "Keyword \"tạo video\" → nếu có ảnh từ pending slot → LLM mở rộng prompt EN → gửi Kling i2v-pro. Nếu chưa có ảnh → hỏi gửi ảnh trước. Trả về video_url khi render xong.",
+    "category": "general", "source": "builtin", "trigger_type": "zalo_inbound", "icon": "Video",
+    "tags": "zalo-bot,video,kling,veo3,i2v,ai,multi-turn", "trigger_config": { "instance_id": "", "filter": "tạo video", "is_fallback": false, "priority": 8 },
+    "graph": {
+      "meta": { "template": "tpl_zalobot_video_veo3_v1" },
+      "nodes": [
+        { "id": "t1",    "type": "trigger",   "position": { "x": 0,    "y": 80  }, "data": { "blockId": "trigger.zalo_inbound", "label": "Zalo Bot · keyword \"tạo video\"", "instance_id": "", "filter": "tạo video" } },
+        { "id": "g1",    "type": "condition", "position": { "x": 320,  "y": 80  }, "data": { "blockId": "logic.condition", "label": "Đã có ảnh từ turn trước?", "expression": "trigger._resume.attachment_url != ''" } },
+        { "id": "l1",    "type": "llm",       "position": { "x": 640,  "y": 0   }, "data": { "blockId": "llm.compose_reply", "label": "Mở rộng prompt EN cho Kling", "model": "gpt-4o-mini", "system": "You are a professional video prompt engineer. Expand the user's Vietnamese request into a detailed English cinematic prompt for Kling i2v model. Max 200 chars. Focus on: motion direction, camera style, mood, lighting.", "prompt": "User request (Vietnamese): {{trigger.text}}\nImage: {{trigger._resume.attachment_url}}\nWrite English Kling prompt:" } },
+        { "id": "vs1",   "type": "action",    "position": { "x": 960,  "y": 0   }, "data": { "blockId": "action.video_submit", "label": "Submit Kling i2v-pro", "model": "kling/v1-5/i2v-pro", "prompt": "{{l1.output}}", "duration": 5, "aspect_ratio": "16:9", "image_url": "{{trigger._resume.attachment_url}}" } },
+        { "id": "r_ask", "type": "action",    "position": { "x": 640,  "y": 200 }, "data": { "blockId": "action.reply_zalo", "label": "Hỏi gửi ảnh trước", "text": "🖼️ Để tạo video, sếp cần gửi ảnh trước!\n\n1. Gửi ảnh (JPG/PNG)\n2. Sau đó nhắn \"tạo video [mô tả chuyển động]\"\n\nAI sẽ tạo video từ ảnh tĩnh của sếp 🎬" } },
+        { "id": "pin2",  "type": "action",    "position": { "x": 960,  "y": 200 }, "data": { "blockId": "action.set_pending_intent", "label": "Lưu text, chờ ảnh", "intent": "awaiting_video_image", "workflow_id": 0, "workflow_slug": "", "ttl_min": 30, "slots_json": "{\"original_text\":\"{{trigger.text}}\"}" } }
+      ],
+      "edges": [
+        { "id": "e_t1_g1",          "source": "t1",    "target": "g1" },
+        { "id": "e_g1_l1_true",     "source": "g1",    "target": "l1",    "sourceHandle": "true" },
+        { "id": "e_l1_vs1",         "source": "l1",    "target": "vs1" },
+        { "id": "e_g1_r_ask_false", "source": "g1",    "target": "r_ask", "sourceHandle": "false" },
+        { "id": "e_r_ask_pin2",     "source": "r_ask", "target": "pin2" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_reminder_personal_zalo_bot_v1",
+    "name": "Zalo Bot · Nhắc lịch cá nhân (reminder_personal)",
+    "description": "Admin nhắn \"nhắc tôi [thời gian] [việc gì]\" qua Zalo Bot → LLM extract title+when → tạo reminder_personal → cron fires → Zalo Bot gửi nhắc đúng giờ. Cần bind Zalo Bot chat_id qua PUT /bizcity-scheduler/v1/me/notify-channel.",
+    "category": "personal", "source": "builtin", "trigger_type": "zalo_inbound", "icon": "BellRing",
+    "tags": "zalo-bot,reminder,personal,calendar,admin,r-unify", "trigger_config": { "instance_id": "", "filter": "nhắc tôi", "is_fallback": false, "priority": 12 },
+    "graph": {
+      "meta": { "template": "tpl_reminder_personal_zalo_bot_v1" },
+      "nodes": [
+        { "id": "t1",      "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.zalo_inbound", "label": "Zalo Bot · \"nhắc tôi\"", "instance_id": "", "filter": "nhắc tôi" } },
+        { "id": "extract", "type": "llm",     "position": { "x": 320, "y": 80 }, "data": { "blockId": "llm.compose_reply", "label": "Extract title + khi nào", "model": "gpt-4o-mini", "system": "Bạn là bộ trích xuất nhắc nhở. Đọc câu của user và trả về 1 dòng JSON DUY NHẤT (không markdown), dạng: {\"title\":\"<tên việc>\",\"when\":\"<ISO datetime hoặc strtotime: +1 hour | 2026-06-15 10:00:00>\"}. Ví dụ input: \"nhắc tôi 10h dự tiệc\" → {\"title\":\"Dự tiệc\",\"when\":\"today 10:00:00\"}. Nếu không xác định được thời gian thì dùng \"+1 hour\".", "prompt": "{{trigger.text}}" } },
+        { "id": "sched",   "type": "action",  "position": { "x": 640, "y": 80 }, "data": { "blockId": "action.schedule_event", "label": "Tạo reminder_personal", "event_type": "reminder_personal", "title": "{{trigger.text}}", "description": "Nhắc lịch từ Zalo Bot", "start_at": "+1 hour", "reminder_min": 0, "reminder_text": "{{trigger.text}}" } },
+        { "id": "r1",      "type": "action",  "position": { "x": 960, "y": 80 }, "data": { "blockId": "action.reply_zalo", "label": "Xác nhận đặt nhắc", "text": "⏰ Đã đặt nhắc: event #{{sched.event_id}} — sẽ gửi Zalo Bot khi đến giờ." } }
+      ],
+      "edges": [
+        { "id": "e_t1_extract", "source": "t1", "target": "extract" }, { "id": "e_extract_sched", "source": "extract", "target": "sched" },
+        { "id": "e_sched_r1", "source": "sched", "target": "r1" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_zalobot_web_research_steps_v1",
+    "name": "Zalo Bot · Nghiên cứu web 3 bước",
+    "description": "Nhắn \"nghiên cứu <chủ đề>\" qua Zalo Bot → AI trả lời 3 tin: (1) ack xác nhận; (2) danh sách nguồn tham khảo; (3) tổng hợp kết luận. Không cần KG, tra cứu trực tiếp từ web.",
+    "category": "ai", "source": "builtin", "trigger_type": "zalo_inbound", "icon": "Globe",
+    "tags": "zalo-bot,web-research,3-step,tax,law,no-kg", "trigger_config": { "instance_id": "", "filter": "nghiên cứu", "is_fallback": false, "priority": 20 },
+    "plan": "free",
+    "graph": {
+      "meta": { "template": "tpl_zalobot_web_research_steps_v1" },
+      "nodes": [
+        { "id": "t1",       "type": "trigger", "position": { "x": 0,    "y": 80  }, "data": { "blockId": "trigger.zalo_inbound", "label": "Zalo Bot · nhận lệnh nghiên cứu", "instance_id": "", "filter": "nghiên cứu" } },
+        { "id": "ack",      "type": "action",  "position": { "x": 320,  "y": 80  }, "data": { "blockId": "action.reply_zalo", "label": "Ack: đang nghiên cứu", "instance_id": "{{trigger.instance_id}}", "chat_id": "{{trigger.chat_id}}", "text": "🔍 Đang nghiên cứu \"{{trigger.text}}\"... Đợi tôi giây lát nhé!" } },
+        { "id": "research", "type": "action",  "position": { "x": 640,  "y": 80  }, "data": { "blockId": "action.web_research", "label": "Web Research", "query": "{{trigger.text}}", "vertical": "auto", "mode": "quick", "max_results": 7 } },
+        { "id": "g1",       "type": "condition","position": { "x": 960,  "y": 80  }, "data": { "blockId": "logic.condition", "label": "Tìm thấy kết quả?", "expression": "research.ok == 1" } },
+        { "id": "step1",    "type": "action",  "position": { "x": 1280, "y": 20  }, "data": { "blockId": "action.reply_zalo", "label": "Reply: danh sách nguồn", "instance_id": "{{trigger.instance_id}}", "chat_id": "{{trigger.chat_id}}", "text": "{{research.sources_text}}" } },
+        { "id": "step2",    "type": "action",  "position": { "x": 1600, "y": 20  }, "data": { "blockId": "action.reply_zalo", "label": "Reply: tổng hợp kết quả", "instance_id": "{{trigger.instance_id}}", "chat_id": "{{trigger.chat_id}}", "text": "💡 Tổng hợp nhận định:\n\n{{research.answer_md}}" } },
+        { "id": "err",      "type": "action",  "position": { "x": 1280, "y": 200 }, "data": { "blockId": "action.reply_zalo", "label": "Reply: không tìm được", "instance_id": "{{trigger.instance_id}}", "chat_id": "{{trigger.chat_id}}", "text": "😕 Không tìm được thông tin về \"{{trigger.text}}\". Thử lại với từ khoá khác nhé." } }
+      ],
+      "edges": [
+        { "id": "e_t1_ack",           "source": "t1",       "target": "ack" },
+        { "id": "e_ack_research",     "source": "ack",      "target": "research" },
+        { "id": "e_research_g1",      "source": "research", "target": "g1" },
+        { "id": "e_g1_step1_true",    "source": "g1",       "target": "step1", "sourceHandle": "true" },
+        { "id": "e_step1_step2",      "source": "step1",    "target": "step2" },
+        { "id": "e_g1_err_false",     "source": "g1",       "target": "err",   "sourceHandle": "false" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_zalobot_astro_steps_v1",
+    "name": "Zalo Bot · Chiêm tinh 3 bước",
+    "description": "Nhắn \"chiêm tinh\" qua Zalo Bot → AI tra cứu bản đồ sao và trả lời 3 tin: (1) ack; (2) link bản đồ sao + transit; (3) nhận định AI. Nếu chưa có bản đồ → gửi link tạo mới. Yêu cầu module bizcoach-pro đã kích hoạt.",
+    "category": "ai", "source": "builtin", "trigger_type": "zalo_inbound", "icon": "Star",
+    "tags": "zalo-bot,astro,chiemtinh,3-step,bizcoach", "trigger_config": { "instance_id": "", "filter": "chiêm tinh", "is_fallback": false, "priority": 21 },
+    "plan": "pro",
+    "graph": {
+      "meta": { "template": "tpl_zalobot_astro_steps_v1" },
+      "nodes": [
+        { "id": "t1",       "type": "trigger",  "position": { "x": 0,    "y": 80  }, "data": { "blockId": "trigger.zalo_inbound", "label": "Zalo Bot · nhận lệnh chiêm tinh", "instance_id": "", "filter": "chiêm tinh" } },
+        { "id": "ack",      "type": "action",   "position": { "x": 320,  "y": 80  }, "data": { "blockId": "action.reply_zalo", "label": "Ack: đang tra bản đồ sao", "instance_id": "{{trigger.instance_id}}", "chat_id": "{{trigger.chat_id}}", "text": "🔭 Đang tra cứu bản đồ sao của bạn... Đợi tôi chút!" } },
+        { "id": "astro",    "type": "action",   "position": { "x": 640,  "y": 80  }, "data": { "blockId": "action.run_astro", "label": "TwinBrain Astro", "chat_id": "{{trigger.chat_id}}", "instance_id": "{{trigger.instance_id}}", "query": "{{trigger.text}}", "compose": true } },
+        { "id": "g1",       "type": "condition","position": { "x": 960,  "y": 80  }, "data": { "blockId": "logic.condition", "label": "Có bản đồ sao?", "expression": "astro.passages_count > 0" } },
+        { "id": "links",    "type": "action",   "position": { "x": 1280, "y": 20  }, "data": { "blockId": "action.reply_zalo", "label": "Reply: links chart", "instance_id": "{{trigger.instance_id}}", "chat_id": "{{trigger.chat_id}}", "text": "✨ Đã tìm thấy bản đồ sao của {{astro.coachee_name}}!\n\n📊 Bản đồ sao: {{astro.natal_url}}\n\n🌀 Transit {{astro.period_label}}: {{astro.transit_url}}" } },
+        { "id": "reading",  "type": "action",   "position": { "x": 1600, "y": 20  }, "data": { "blockId": "action.reply_zalo", "label": "Reply: nhận định chiêm tinh", "instance_id": "{{trigger.instance_id}}", "chat_id": "{{trigger.chat_id}}", "text": "🔮 Nhận định {{astro.period_label}}:\n\n{{astro.analysis}}" } },
+        { "id": "fallback", "type": "action",   "position": { "x": 1280, "y": 260 }, "data": { "blockId": "action.reply_zalo", "label": "Reply: chưa có bản đồ sao", "instance_id": "{{trigger.instance_id}}", "chat_id": "{{trigger.chat_id}}", "text": "🌟 Bạn chưa có bản đồ sao trong hệ thống.\n\n👉 Tạo bản đồ sao tại:\n{{astro.create_chart_url}}\n\nSau khi tạo xong, nhắn \"chiêm tinh\" để nhận phân tích ngay qua Zalo! ✨" } }
+      ],
+      "edges": [
+        { "id": "e_t1_ack",           "source": "t1",    "target": "ack" },
+        { "id": "e_ack_astro",        "source": "ack",   "target": "astro" },
+        { "id": "e_astro_g1",         "source": "astro", "target": "g1" },
+        { "id": "e_g1_links_true",    "source": "g1",    "target": "links",    "sourceHandle": "true" },
+        { "id": "e_links_reading",    "source": "links", "target": "reading" },
+        { "id": "e_g1_fallback_false","source": "g1",    "target": "fallback", "sourceHandle": "false" }
+      ]
+    }
+  }
+]

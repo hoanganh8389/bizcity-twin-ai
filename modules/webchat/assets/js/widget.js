@@ -476,7 +476,15 @@
 
                             self.appendMessageTyping(reply, 'bot');
                         } else {
-                            const errorMsg = response.data?.message || 'Có lỗi xảy ra. Vui lòng thử lại.';
+                            const errCode = (response.data && response.data.code) ? response.data.code : '';
+                            let errorMsg;
+                            if (errCode === 'not_configured') {
+                                errorMsg = 'Trợ lý ảo chưa được kích hoạt. Vui lòng liên hệ quản trị viên để cấu hình API key.';
+                            } else if (errCode === 'empty_reply') {
+                                errorMsg = 'Trợ lý ảo không phản hồi được lúc này. Vui lòng thử lại sau.';
+                            } else {
+                                errorMsg = (response.data && response.data.message) ? response.data.message : 'Có lỗi xảy ra. Vui lòng thử lại.';
+                            }
                             self.appendMessage('❌ ' + errorMsg, 'bot');
                         }
                     } catch (e) {

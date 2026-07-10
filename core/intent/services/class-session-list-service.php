@@ -54,7 +54,7 @@ class BizCity_Session_List_Service {
         global $wpdb;
 
         $table = $wpdb->prefix . 'bizcity_webchat_sessions';
-        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$table}'" ) !== $table ) {
+        if ( ! bizcity_tbl_exists( $table ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
             return $this->empty_paged();
         }
 
@@ -272,7 +272,7 @@ class BizCity_Session_List_Service {
         global $wpdb;
         $table = $wpdb->prefix . 'bizcity_webchat_sessions';
 
-        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$table}'" ) !== $table ) {
+        if ( ! bizcity_tbl_exists( $table ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
             return [];
         }
 

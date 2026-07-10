@@ -211,71 +211,93 @@ add_action( 'wp_head', function() {
     <?php
 }, 1 );
 
-// Load includes
-require_once BIZCITY_WEBCHAT_INCLUDES . 'class-webchat-database.php';
+// [2026-06-11 Johnny Chu] R-PERF — Admin/REST/webhook context gate (~547 KB source, ~1.5 MB PHP heap saved on frontend)
+// Frontend HTML page renders (/chat/, /app/, blog posts) load only the minimal subset.
+$_wc_admin_ctx = is_admin()
+    || ( defined( 'DOING_CRON' ) && DOING_CRON )
+    || ( defined( 'WP_CLI' ) && WP_CLI )
+    || ( isset( $_SERVER['REQUEST_URI'] ) && (
+        strpos( $_SERVER['REQUEST_URI'], '/wp-json/' ) !== false ||
+        strpos( $_SERVER['REQUEST_URI'], '/bizhook/' ) !== false ||
+        strpos( $_SERVER['REQUEST_URI'], 'webchat-hook' ) !== false
+    ) );
 
-// Register expected columns for diagnostics column-drift inspector.
-// Catches regressions where a shard's `bizcity_webchat_sources` is missing
-// columns that TwinChat's `insert_source()` writes — e.g. blog 1458 was
-// missing `content_hash` and INSERTs silently failed (Sprint 4.5d bridge).
-add_filter( 'bizcity_diagnostics_expected_columns', function ( array $map ) {
-    $map['bizcity_webchat_sources'] = [
-        'id', 'session_id', 'user_id', 'project_id',
-        'source_type', 'title', 'url', 'source_url',
-        'content', 'content_text', 'attachment_id',
-        'content_hash', 'char_count', 'token_estimate',
-        'chunk_count', 'embedding_model', 'embedding_status',
-        'error_message', 'metadata', 'created_at',
-    ];
-    return $map;
-} );
-require_once BIZCITY_WEBCHAT_INCLUDES . 'class-webchat-trigger.php';
+// Always load — float widget, shortcodes, login page (needed on every frontend page)
 require_once BIZCITY_WEBCHAT_INCLUDES . 'class-webchat-widget.php';
-require_once BIZCITY_WEBCHAT_INCLUDES . 'class-webchat-timeline.php';
-require_once BIZCITY_WEBCHAT_INCLUDES . 'class-webchat-memory.php';
-require_once BIZCITY_WEBCHAT_INCLUDES . 'class-webchat-api.php';
-require_once BIZCITY_WEBCHAT_INCLUDES . 'class-admin-menu.php';
-require_once BIZCITY_WEBCHAT_INCLUDES . 'class-admin-dashboard.php'; // Admin dashboard with chat
-// require_once BIZCITY_WEBCHAT_INCLUDES . 'class-working-panel.php'; // DEPRECATED v4.9.3 — old floating bwp-wrap panel, replaced by React bizc-working-panel
-// require_once BIZCITY_WEBCHAT_INCLUDES . 'class-working-panel-context.php'; // DEPRECATED v4.9.3 — old Working Panel Context tab
 require_once BIZCITY_WEBCHAT_INCLUDES . 'class-chatbot-shortcode.php'; // New chatbot shortcode
-require_once BIZCITY_WEBCHAT_INCLUDES . 'class-ajax-handlers.php'; // V3 Project/Session AJAX handlers
-require_once BIZCITY_WEBCHAT_INCLUDES . 'class-plugin-suggestion-api.php'; // v3.1.0 Plugin @mention suggestions
-require_once BIZCITY_WEBCHAT_INCLUDES . 'class-plugin-gathering.php';     // v3.2.0 Plugin Gathering (@ mention slot filling)
-require_once BIZCITY_WEBCHAT_INCLUDES . 'class-automation-provider.php';   // v3.3.0 Automation Bridge (bc_ blocks + it_ intent tools)
 require_once BIZCITY_WEBCHAT_INCLUDES . 'class-auth-ajax.php';              // AJAX Login/Register for React modal
 require_once BIZCITY_WEBCHAT_INCLUDES . 'class-login-page.php';             // AIQuill-style wp-login.php
-require_once BIZCITY_WEBCHAT_INCLUDES . 'class-session-memory-spec.php';    // Phase 1.6 Session Memory Spec
 require_once BIZCITY_WEBCHAT_INCLUDES . 'functions.php';
 
 // Load lib
 require_once BIZCITY_WEBCHAT_LIB . 'class-webchat-ai.php';
 
-// Initialize classes
+// Admin / REST / AJAX / webhook context only — gate heavy files (~547 KB source)
+if ( $_wc_admin_ctx ) {
+    require_once BIZCITY_WEBCHAT_INCLUDES . 'class-webchat-database.php';
+    // Register expected columns for diagnostics column-drift inspector.
+    // Catches regressions where a shard's `bizcity_webchat_sources` is missing
+    // columns that TwinChat's `insert_source()` writes — e.g. blog 1458 was
+    // missing `content_hash` and INSERTs silently failed (Sprint 4.5d bridge).
+    add_filter( 'bizcity_diagnostics_expected_columns', function ( array $map ) {
+        $map['bizcity_webchat_sources'] = [
+            'id', 'session_id', 'user_id', 'project_id',
+            'source_type', 'title', 'url', 'source_url',
+            'content', 'content_text', 'attachment_id',
+            'content_hash', 'char_count', 'token_estimate',
+            'chunk_count', 'embedding_model', 'embedding_status',
+            'error_message', 'metadata', 'created_at',
+        ];
+        return $map;
+    } );
+    require_once BIZCITY_WEBCHAT_INCLUDES . 'class-webchat-trigger.php';
+    require_once BIZCITY_WEBCHAT_INCLUDES . 'class-webchat-timeline.php';
+    require_once BIZCITY_WEBCHAT_INCLUDES . 'class-webchat-memory.php';
+    require_once BIZCITY_WEBCHAT_INCLUDES . 'class-webchat-api.php';
+    require_once BIZCITY_WEBCHAT_INCLUDES . 'class-admin-menu.php';
+    require_once BIZCITY_WEBCHAT_INCLUDES . 'class-admin-dashboard.php'; // Admin dashboard with chat
+    // require_once BIZCITY_WEBCHAT_INCLUDES . 'class-working-panel.php'; // DEPRECATED v4.9.3 — old floating bwp-wrap panel, replaced by React bizc-working-panel
+    // require_once BIZCITY_WEBCHAT_INCLUDES . 'class-working-panel-context.php'; // DEPRECATED v4.9.3 — old Working Panel Context tab
+    require_once BIZCITY_WEBCHAT_INCLUDES . 'class-ajax-handlers.php'; // V3 Project/Session AJAX handlers
+    require_once BIZCITY_WEBCHAT_INCLUDES . 'class-plugin-suggestion-api.php'; // v3.1.0 Plugin @mention suggestions
+    require_once BIZCITY_WEBCHAT_INCLUDES . 'class-plugin-gathering.php';     // v3.2.0 Plugin Gathering (@ mention slot filling)
+    require_once BIZCITY_WEBCHAT_INCLUDES . 'class-automation-provider.php';   // v3.3.0 Automation Bridge (bc_ blocks + it_ intent tools)
+    require_once BIZCITY_WEBCHAT_INCLUDES . 'class-session-memory-spec.php';    // Phase 1.6 Session Memory Spec
+}
+
+// Initialize classes — admin context
 if ( is_admin() ) {
-    BizCity_WebChat_Admin_Menu::instance();
-    BizCity_WebChat_Admin_Dashboard::instance(); // Chat dashboard
-    BizCity_WebChat_Ajax_Handlers::instance(); // V3 AJAX handlers
+    if ( class_exists( 'BizCity_WebChat_Admin_Menu' ) )     BizCity_WebChat_Admin_Menu::instance();
+    if ( class_exists( 'BizCity_WebChat_Admin_Dashboard' ) ) BizCity_WebChat_Admin_Dashboard::instance(); // Chat dashboard
+    if ( class_exists( 'BizCity_WebChat_Ajax_Handlers' ) )  BizCity_WebChat_Ajax_Handlers::instance(); // V3 AJAX handlers
     BizCity_WebChat_Auth_Ajax::boot(); // AJAX Login/Register for guest modal
 }
 
-// Initialize REST API
-BizCity_WebChat_API::instance();
-
-// Initialize Automation Provider (bc_ blocks + it_ intent tools bridge)
-BizCity_WebChat_Automation_Provider::instance();
+// [2026-06-11 Johnny Chu] R-PERF — REST API, Automation Provider, Plugin Gathering: admin/REST context only
+if ( $_wc_admin_ctx ) {
+    // Initialize REST API
+    if ( class_exists( 'BizCity_WebChat_API' ) )                BizCity_WebChat_API::instance();
+    // Initialize Automation Provider (bc_ blocks + it_ intent tools bridge)
+    if ( class_exists( 'BizCity_WebChat_Automation_Provider' ) ) BizCity_WebChat_Automation_Provider::instance();
+    // Initialize Plugin Gathering (v3.2.0 — hooks into bizcity_chat_pre_ai_response @2)
+    if ( class_exists( 'BizCity_Plugin_Gathering' ) )           BizCity_Plugin_Gathering::instance();
+}
 
 // AIQuill-style login page (wp-login.php, not admin context)
 BizCity_Login_Page::boot();
 
-// Initialize Plugin Gathering (v3.2.0 — hooks into bizcity_chat_pre_ai_response @2)
-BizCity_Plugin_Gathering::instance();
+// ── Phase 1.6: Session Memory Spec hooks — only fires during AJAX/REST chat processing ──
+// [2026-06-11 Johnny Chu] R-PERF — gated behind $_wc_admin_ctx (hooks + class_exists cheap, closures not needed on frontend)
+if ( $_wc_admin_ctx && class_exists( 'BizCity_Session_Memory_Spec' ) ) {
+    // Inject session context into system prompt @priority 12 (after Focus Gate @1, before Task Spec @15)
+    add_filter( 'bizcity_chat_system_prompt', array( 'BizCity_Session_Memory_Spec', 'inject_if_active' ), 12, 2 );
+    // Refresh session spec after message processed @priority 12
+    add_action( 'bizcity_chat_message_processed', array( 'BizCity_Session_Memory_Spec', 'refresh_on_message' ), 12, 1 );
+}
 
-// ── Phase 1.6: Session Memory Spec hooks ──
-// Inject session context into system prompt @priority 12 (after Focus Gate @1, before Task Spec @15)
-add_filter( 'bizcity_chat_system_prompt', array( 'BizCity_Session_Memory_Spec', 'inject_if_active' ), 12, 2 );
-// Refresh session spec after message processed @priority 12
-add_action( 'bizcity_chat_message_processed', array( 'BizCity_Session_Memory_Spec', 'refresh_on_message' ), 12, 1 );
+// [2026-06-11 Johnny Chu] R-PERF — TwinBrain memory writer + mode transition hooks: admin/REST only
+// Closures stored in PHP memory even if never called; no-op on frontend HTML renders.
+if ( $_wc_admin_ctx ) {
 
 /* =====================================================================
  * Wave 2.8b — TBR.MEM-N3: TwinBrain Memory Writer wire-up cho webchat
@@ -352,6 +374,8 @@ add_action( 'bizcity_pipeline_completed', function( $task_id, $state ) {
     $session_id = isset( $state['session_id'] ) ? $state['session_id'] : '';
     BizCity_Session_Memory_Spec::on_task_completed( $session_id, $task_id, $state );
 }, 12, 2 );
+
+} // end if $_wc_admin_ctx
 
 /* =====================================================================
  * Auth cookie lifetime: 1 year (365 days)
@@ -525,15 +549,17 @@ function bizcity_aiagent_ajax_register() {
 } // end if function_exists bizcity_aiagent_ajax_register
 
 /**
- * Buffer raw input sớm (để webhook có thể đọc)
+ * Buffer raw input lazily so other channels keep request body intact.
  */
-if (!isset($GLOBALS['BIZCITY_WEBCHAT_RAW_INPUT'])) {
-    $GLOBALS['BIZCITY_WEBCHAT_RAW_INPUT'] = file_get_contents('php://input');
-}
-
 if (!function_exists('bizcity_webchat_get_raw_input')) {
     function bizcity_webchat_get_raw_input(): string {
-        return (string)($GLOBALS['BIZCITY_WEBCHAT_RAW_INPUT'] ?? '');
+        // [2026-07-08 Johnny Chu] HOTFIX — do not consume php://input at file load time.
+        if (!array_key_exists('BIZCITY_WEBCHAT_RAW_INPUT', $GLOBALS)) {
+            $raw = file_get_contents('php://input');
+            $GLOBALS['BIZCITY_WEBCHAT_RAW_INPUT'] = is_string($raw) ? $raw : '';
+        }
+
+        return (string) $GLOBALS['BIZCITY_WEBCHAT_RAW_INPUT'];
     }
 }
 
@@ -568,6 +594,10 @@ class BizCity_WebChat_Bot {
      * Luôn kiểm tra page tồn tại — tự khôi phục nếu bị xóa/trash.
      */
     public function ensure_chat_page_exists() {
+        // [2026-06-11 Johnny Chu] R-PERF — option guard, tránh 2x get_page_by_path() DB query mỗi request
+        if ( get_option( 'bizcity_webchat_pages_ensured', '' ) === '1' ) {
+            return;
+        }
         $slugs = [ 'chat' => 'Chat', 'app' => 'App' ];
         $needs_flush = false;
 
@@ -602,6 +632,8 @@ class BizCity_WebChat_Bot {
         if ( $needs_flush ) {
             flush_rewrite_rules();
         }
+        // [2026-06-11 Johnny Chu] R-PERF — set flag so next request skips the 2x get_page_by_path() queries
+        update_option( 'bizcity_webchat_pages_ensured', '1', false ); // autoload=false
     }
     
     private function init_hooks() {

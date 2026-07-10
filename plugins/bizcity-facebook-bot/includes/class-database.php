@@ -29,16 +29,21 @@ class BizCity_Facebook_Bot_Database {
 		return self::$instance;
 	}
 	
+	// [2026-06-21 Johnny Chu] HOTFIX — per-blog guard for multisite cron/switch_to_blog contexts.
+	private static $activated_blog_ids = array();
+
 	/**
 	 * Activation hook - create tables
 	 * Only runs dbDelta if schema version changed
 	 */
 	public static function activate() {
-		// Prevent multiple runs in same request
-		if ( self::$tables_created ) {
+		// [2026-06-21 Johnny Chu] HOTFIX — use per-blog guard instead of request-wide bool
+		// so switch_to_blog() in multisite does not skip un-provisioned sub-sites.
+		$blog_id = (int) get_current_blog_id();
+		if ( isset( self::$activated_blog_ids[ $blog_id ] ) ) {
 			return;
 		}
-		self::$tables_created = true;
+		self::$activated_blog_ids[ $blog_id ] = true;
 		
 		global $wpdb;
 		

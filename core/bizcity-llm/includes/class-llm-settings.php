@@ -55,6 +55,8 @@ class BizCity_LLM_Settings {
         add_action( 'wp_ajax_bizcity_llm_register_key',    [ $this, 'ajax_register_key' ] );
         add_action( 'wp_ajax_bizcity_llm_usage_log',       [ $this, 'ajax_usage_log' ] );
         add_action( 'wp_ajax_bizcity_llm_purge_log',       [ $this, 'ajax_purge_log' ] );
+        // [2026-06-10 Johnny Chu] R-GW-API-CATALOG — inline key save from SetupApiKeyDialog
+        add_action( 'wp_ajax_bizcity_llm_save_key',        [ $this, 'ajax_save_key' ] );
     }
 
     /* ── Menus ── */
@@ -132,23 +134,23 @@ class BizCity_LLM_Settings {
 
     /* ── Render settings page ── */
     public function render_page(): void {
-        $cap = is_multisite() ? 'manage_network_options' : 'manage_options';
-        if ( ! current_user_can( $cap ) ) {
+        // [2026-06-09 Johnny Chu] HOTFIX — allow manage_options (site admin) on multisite client sites;
+        // manage_network_options was blocking site admins from viewing settings (R-GW-8).
+        if ( ! current_user_can( 'manage_options' ) ) {
             wp_die( esc_html__( 'You do not have permission to access this page.', 'bizcity-twin-ai' ) );
         }
 
         $mode        = 'gateway';
-        $api_key     = get_site_option( 'bizcity_llm_api_key', '' );
-        $gateway_url = get_site_option( 'bizcity_llm_gateway_url', 'https://bizcity.vn' );
-        $settings    = get_site_option( 'bizcity_llm_settings', [] );
+        // [2026-06-10 Johnny Chu] HOTFIX — per-site option (not network-wide sitemeta)
+        $api_key     = get_option( 'bizcity_llm_api_key', '' );
+        $gateway_url = get_option( 'bizcity_llm_gateway_url', 'https://bizcity.vn' );
+        $settings    = get_option( 'bizcity_llm_settings', [] );
         $timeout     = $settings['timeout'] ?? 60;
         $purposes    = BizCity_LLM_Models::purposes();
 
-        if ( is_multisite() ) {
-            $form_action = esc_url( network_admin_url( 'edit.php?action=bizcity_llm_save' ) );
-        } else {
-            $form_action = '';
-        }
+        // [2026-06-09 Johnny Chu] HOTFIX — always post to current admin URL (not network_admin_url)
+        // so site admins on multisite can submit the form. handle_save_single() uses manage_options.
+        $form_action = '';
         ?>
         <div class="wrap bizcity-llm-wrap">
             <h1>⚡ BizCity LLM — <?php echo esc_html__( 'AI Gateway Configuration', 'bizcity-twin-ai' ); ?></h1>
@@ -173,14 +175,13 @@ class BizCity_LLM_Settings {
                 </div>
             <?php endif; ?>
 
-            <!-- ── Usage Stats Dashboard ── -->
-            <?php $this->render_usage_dashboard(); ?>
+            <!-- [2026-06-08 Johnny Chu] PHASE-MASTER-PLANS — Usage dashboard moved to
+                 dedicated tab "📊 Thống kê" in class-twinchat-settings-page.php. -->
 
             <form method="post" action="<?php echo $form_action; ?>">
                 <?php wp_nonce_field( 'bizcity_llm_settings', '_wpnonce_llm' ); ?>
-                <?php if ( ! is_multisite() ) : ?>
-                    <input type="hidden" name="bizcity_llm_save" value="1" />
-                <?php endif; ?>
+                <!-- [2026-06-09 Johnny Chu] HOTFIX — always include hidden field so handle_save_single() fires on multisite too -->
+                <input type="hidden" name="bizcity_llm_save" value="1" />
 
                 <!-- ── Gateway Settings ── -->
                 <div class="bizcity-llm-card">
@@ -207,13 +208,13 @@ class BizCity_LLM_Settings {
                                 </div>
                                 <p class="description"><?php esc_html_e( 'Tạo API key tại Tài khoản của tôi trên bizcity.vn', 'bizcity-twin-ai' ); ?></p>
                                 <div id="bizcity-llm-register-wrap" style="margin-top:8px">
-                                    <button type="button" id="bizcity-llm-register-btn" class="button button-secondary">
-                                        🔑 <?php esc_html_e( 'Auto-register API Key', 'bizcity-twin-ai' ); ?>
-                                    </button>
                                     <span id="bizcity-llm-register-result"></span>
                                     <p class="description" style="margin-top:4px">
                                         <?php printf( esc_html__( 'Or register manually at %s', 'bizcity-twin-ai' ), '<a href="https://bizcity.vn/my-account/api-keys/" target="_blank">bizcity.vn/my-account/api-keys/</a>' ); ?>
                                     </p>
+                                </div>
+                                <div style="margin-top:12px">
+                                    <?php submit_button( __( 'Save Settings', 'bizcity-twin-ai' ), 'primary', 'bizcity_llm_submit_inline' ); ?>
                                 </div>
                             </td>
                         </tr>
@@ -294,33 +295,9 @@ class BizCity_LLM_Settings {
                     <div id="bizcity-llm-model-list"></div>
                 </div>
 
-                <!-- ── API Reference ── -->
-                <div class="bizcity-llm-card bizcity-llm-info">
-                    <h2>📖 API Reference</h2>
-                    <pre><code>// Chat (auto-fallback, purpose-based routing)
-$result = bizcity_llm_chat( $messages );
-$result = bizcity_llm_chat( $messages, ['purpose' => 'vision'] );
-
-// Streaming
-bizcity_llm_chat_stream( $messages, $opts, function($delta, $full) {
-    echo $delta;
-});
-
-// Embeddings
-$result = bizcity_llm_embeddings( 'Hello world' );
-
-// Get model
-$model = bizcity_llm_get_model( 'chat' );
-
-// Check mode
-bizcity_llm_mode();    // 'gateway' | 'direct'
-bizcity_llm_is_ready(); // true | false
-
-// Backward compat — still works:
-bizcity_openrouter_chat( $messages );</code></pre>
+                <div class="bizcity-llm-card">
+                    <?php submit_button( __( 'Save Settings', 'bizcity-twin-ai' ), 'primary', 'bizcity_llm_submit' ); ?>
                 </div>
-
-                <?php submit_button( __( 'Save Settings', 'bizcity-twin-ai' ), 'primary', 'bizcity_llm_submit' ); ?>
             </form>
         </div>
         <?php
@@ -378,15 +355,16 @@ bizcity_openrouter_chat( $messages );</code></pre>
     }
 
     private function do_save(): void {
+        // [2026-06-10 Johnny Chu] HOTFIX — per-site option (not network-wide sitemeta)
         // Always gateway mode in free version
-        update_site_option( 'bizcity_llm_mode', 'gateway' );
+        update_option( 'bizcity_llm_mode', 'gateway' );
 
         $gateway_url = esc_url_raw( $_POST['bizcity_llm_gateway_url'] ?? 'https://bizcity.vn' );
-        update_site_option( 'bizcity_llm_gateway_url', $gateway_url );
+        update_option( 'bizcity_llm_gateway_url', $gateway_url );
 
         // API key — always from gateway field
         $api_key = sanitize_text_field( $_POST['bizcity_llm_api_key'] ?? '' );
-        update_site_option( 'bizcity_llm_api_key', $api_key );
+        update_option( 'bizcity_llm_api_key', $api_key );
 
         // (Tavily key removed 2026-06-02 — Tavily is now called only via 1-API
         //  gateway `/search/router/v1/*`; no direct API key on client sites.)
@@ -407,7 +385,7 @@ bizcity_openrouter_chat( $messages );</code></pre>
             $settings[ 'no_fallback_' . $purpose ] = ! empty( $raw[ 'no_fallback_' . $purpose ] ) ? 1 : 0;
         }
 
-        update_site_option( 'bizcity_llm_settings', $settings );
+        update_option( 'bizcity_llm_settings', $settings );
         BizCity_LLM_Client::instance()->bust_models_cache();
     }
 
@@ -420,10 +398,10 @@ bizcity_openrouter_chat( $messages );</code></pre>
     /* ── AJAX: test key ── */
     public function ajax_test_key(): void {
         check_ajax_referer( 'bizcity_llm_admin', 'nonce' );
-        $cap = is_multisite() ? 'manage_network_options' : 'manage_options';
-        if ( ! current_user_can( $cap ) ) wp_send_json_error( __( 'Permission denied.', 'bizcity-twin-ai' ) );
+        // [2026-06-09 Johnny Chu] HOTFIX — manage_options instead of multisite conditional
+        if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( __( 'Permission denied.', 'bizcity-twin-ai' ) );
 
-        $key  = get_site_option( 'bizcity_llm_api_key', '' );
+        $key  = get_option( 'bizcity_llm_api_key', '' );
 
         if ( empty( $key ) ) {
             wp_send_json_error( __( 'No API key entered.', 'bizcity-twin-ai' ) );
@@ -486,8 +464,8 @@ bizcity_openrouter_chat( $messages );</code></pre>
     /* ── AJAX: fetch models ── */
     public function ajax_fetch_models(): void {
         check_ajax_referer( 'bizcity_llm_admin', 'nonce' );
-        $cap = is_multisite() ? 'manage_network_options' : 'manage_options';
-        if ( ! current_user_can( $cap ) ) wp_send_json_error( __( 'Permission denied.', 'bizcity-twin-ai' ) );
+        // [2026-06-09 Johnny Chu] HOTFIX — manage_options instead of multisite conditional
+        if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( __( 'Permission denied.', 'bizcity-twin-ai' ) );
 
         BizCity_LLM_Client::instance()->bust_models_cache();
         $models = BizCity_LLM_Client::instance()->get_available_models();
@@ -500,6 +478,25 @@ bizcity_openrouter_chat( $messages );</code></pre>
 
         usort( $simplified, fn( $a, $b ) => strcmp( $a['id'], $b['id'] ) );
         wp_send_json_success( $simplified );
+    }
+
+    /* ── AJAX: save API key inline (from SetupApiKeyDialog) ── */
+    // [2026-06-10 Johnny Chu] R-GW-API-CATALOG — inline save, no page navigation needed.
+    public function ajax_save_key(): void {
+        check_ajax_referer( 'bizcity_llm_admin', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( 'Permission denied.' );
+        }
+        $api_key = sanitize_text_field( wp_unslash( $_POST['api_key'] ?? '' ) );
+        if ( empty( $api_key ) ) {
+            wp_send_json_error( 'API key không được để trống.' );
+        }
+        if ( 0 !== strpos( $api_key, 'biz' ) ) {
+            wp_send_json_error( 'API key không hợp lệ (phải bắt đầu bằng biz…).' );
+        }
+        update_option( 'bizcity_llm_api_key', $api_key );
+        update_option( 'bizcity_llm_mode', 'gateway' );
+        wp_send_json_success( [ 'message' => 'Đã lưu API key thành công.' ] );
     }
 
     /* ── AJAX: register API key from gateway ── */
@@ -537,8 +534,9 @@ bizcity_openrouter_chat( $messages );</code></pre>
         $body = json_decode( wp_remote_retrieve_body( $response ), true );
 
         if ( $code === 200 && ! empty( $body['api_key'] ) ) {
-            update_site_option( 'bizcity_llm_api_key', sanitize_text_field( $body['api_key'] ) );
-            update_site_option( 'bizcity_llm_mode', 'gateway' );
+            // [2026-06-10 Johnny Chu] HOTFIX — per-site option
+            update_option( 'bizcity_llm_api_key', sanitize_text_field( $body['api_key'] ) );
+            update_option( 'bizcity_llm_mode', 'gateway' );
             wp_send_json_success( [
                 'message' => __( 'API key created and saved automatically!', 'bizcity-twin-ai' ),
                 'key_preview' => substr( $body['api_key'], 0, 12 ) . '…',
@@ -555,13 +553,14 @@ bizcity_openrouter_chat( $messages );</code></pre>
             wp_send_json_error( __( 'Permission denied.', 'bizcity-twin-ai' ) );
         }
 
-        if ( ! class_exists( 'BizCity_LLM_Usage_Log' ) ) {
+        if ( ! class_exists( 'BizCity_LLM_Usage_Clients' ) ) {
             wp_send_json_error( __( 'Usage log not installed.', 'bizcity-twin-ai' ) );
         }
 
         $page  = max( 1, intval( $_POST['page'] ?? 1 ) );
         $limit = 50;
-        $rows  = BizCity_LLM_Usage_Log::get_recent( $limit, ( $page - 1 ) * $limit );
+        // [2026-06-10 Johnny Chu] R-LLM-USAGE — read from per-blog clients table.
+        $rows  = BizCity_LLM_Usage_Clients::get_recent( $limit, ( $page - 1 ) * $limit );
 
         wp_send_json_success( [
             'rows' => $rows,
@@ -572,17 +571,18 @@ bizcity_openrouter_chat( $messages );</code></pre>
     /* ── AJAX: purge old log entries ── */
     public function ajax_purge_log(): void {
         check_ajax_referer( 'bizcity_llm_admin', 'nonce' );
-        $cap = is_multisite() ? 'manage_network_options' : 'manage_options';
-        if ( ! current_user_can( $cap ) ) {
+        // [2026-06-09 Johnny Chu] HOTFIX — manage_options instead of multisite conditional
+        if ( ! current_user_can( 'manage_options' ) ) {
             wp_send_json_error( __( 'Permission denied.', 'bizcity-twin-ai' ) );
         }
 
-        if ( ! class_exists( 'BizCity_LLM_Usage_Log' ) ) {
+        if ( ! class_exists( 'BizCity_LLM_Usage_Clients' ) ) {
             wp_send_json_error( __( 'Usage log not installed.', 'bizcity-twin-ai' ) );
         }
 
         $days    = max( 7, intval( $_POST['days'] ?? 90 ) );
-        $deleted = BizCity_LLM_Usage_Log::purge( $days );
+        // [2026-06-10 Johnny Chu] R-LLM-USAGE — purge per-blog clients table.
+        $deleted = BizCity_LLM_Usage_Clients::purge( $days );
         /* translators: 1: number of deleted records, 2: number of days */
         wp_send_json_success( sprintf( __( 'Deleted %1$d records older than %2$d days.', 'bizcity-twin-ai' ), $deleted, $days ) );
     }
@@ -592,14 +592,15 @@ bizcity_openrouter_chat( $messages );</code></pre>
      * ================================================================ */
 
     private function render_usage_dashboard(): void {
-        if ( ! class_exists( 'BizCity_LLM_Usage_Log' ) ) {
+        // [2026-06-10 Johnny Chu] R-LLM-USAGE — read from per-blog clients table.
+        if ( ! class_exists( 'BizCity_LLM_Usage_Clients' ) ) {
             return;
         }
 
-        $stats_24h = BizCity_LLM_Usage_Log::get_stats( '24h' );
-        $stats_7d  = BizCity_LLM_Usage_Log::get_stats( '7d' );
-        $top       = BizCity_LLM_Usage_Log::get_top_models( 5, '7d' );
-        $recent    = BizCity_LLM_Usage_Log::get_recent( 20 );
+        $stats_24h = BizCity_LLM_Usage_Clients::get_stats( '24h' );
+        $stats_7d  = BizCity_LLM_Usage_Clients::get_stats( '7d' );
+        $top       = BizCity_LLM_Usage_Clients::get_top_models( 5, '7d' );
+        $recent    = BizCity_LLM_Usage_Clients::get_recent( 20 );
         ?>
         <div class="bizcity-llm-card">
             <h2>📊 Usage Dashboard</h2>

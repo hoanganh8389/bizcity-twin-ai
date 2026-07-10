@@ -83,6 +83,90 @@ function bccm_vedic_enrich_positions( array $positions ) {
 }
 endif;
 
+if ( ! function_exists( 'bccm_vedic_map_positions_by_name' ) ) :
+/**
+ * [2026-07-11 Johnny Chu] PHASE-VEDIC-FAA2 — normalize list/map planets to a
+ * keyed-by-name map (Ascendant/Sun/Moon/...) for legacy render loops.
+ */
+function bccm_vedic_map_positions_by_name( array $rows ) {
+  $mapped = array();
+  foreach ( $rows as $row_key => $row_val ) {
+    if ( ! is_array( $row_val ) ) {
+      continue;
+    }
+    $name = (string) ( $row_val['name'] ?? $row_val['planet'] ?? ( is_string( $row_key ) ? $row_key : '' ) );
+    if ( $name === '' ) {
+      continue;
+    }
+    $sign_num = (int) ( $row_val['sign_number'] ?? $row_val['sign_num'] ?? $row_val['current_sign'] ?? 0 );
+    $norm_deg = (float) ( $row_val['norm_degree'] ?? $row_val['sign_degree'] ?? $row_val['normDegree'] ?? 0 );
+    $full_deg = (float) ( $row_val['full_degree'] ?? $row_val['absolute_degree'] ?? $row_val['fullDegree'] ?? 0 );
+    $is_retro_raw = $row_val['is_retro'] ?? $row_val['retrograde'] ?? $row_val['isRetro'] ?? false;
+    $is_retro = is_string( $is_retro_raw )
+      ? in_array( strtolower( trim( $is_retro_raw ) ), array( '1', 'true', 'yes' ), true )
+      : ! empty( $is_retro_raw );
+
+    $mapped[ $name ] = array(
+      'planet_en'       => $name,
+      'sign_en'         => (string) ( $row_val['sign_en'] ?? $row_val['sign'] ?? '' ),
+      'sign'            => (string) ( $row_val['sign_en'] ?? $row_val['sign'] ?? '' ),
+      'sign_number'     => $sign_num,
+      'norm_degree'     => $norm_deg,
+      'sign_degree'     => $norm_deg,
+      'full_degree'     => $full_deg,
+      'absolute_degree' => $full_deg,
+      'house'           => (int) ( $row_val['house'] ?? $row_val['house_number'] ?? 0 ),
+      'house_number'    => (int) ( $row_val['house'] ?? $row_val['house_number'] ?? 0 ),
+      'is_retro'        => $is_retro,
+      'retrograde'      => $is_retro,
+      'nakshatra'       => (string) ( $row_val['nakshatra'] ?? $row_val['nakshatra_name'] ?? '' ),
+      'nakshatra_pada'  => (int) ( $row_val['nakshatra_pada'] ?? 0 ),
+      'sign_lord'       => (string) ( $row_val['sign_lord'] ?? $row_val['zodiac_sign_lord'] ?? '' ),
+      'dignity'         => (string) ( $row_val['dignity'] ?? '' ),
+    );
+  }
+  return $mapped;
+}
+endif;
+
+if ( ! function_exists( 'bccm_vedic_resolve_chart_url' ) ) :
+/**
+ * [2026-07-11 Johnny Chu] PHASE-VEDIC-FAA2 — avoid wrong Western chart image
+ * on Vedic page; prefer explicit Vedic chart URL or local _vedic.svg.
+ */
+function bccm_vedic_resolve_chart_url( array $traits, array $summary, array $astro_row ) {
+  $candidates = array(
+    (string) ( $traits['chart_url'] ?? '' ),
+    (string) ( $summary['chart_url'] ?? '' ),
+  );
+  foreach ( $candidates as $url ) {
+    if ( $url === '' || ! filter_var( $url, FILTER_VALIDATE_URL ) ) {
+      continue;
+    }
+    $lower = strtolower( $url );
+    if ( strpos( $lower, '_vedic.svg' ) !== false || strpos( $lower, '/vedic' ) !== false ) {
+      return $url;
+    }
+  }
+
+  $coachee_id = (int) ( $astro_row['coachee_id'] ?? 0 );
+  if ( $coachee_id > 0 && function_exists( 'wp_upload_dir' ) ) {
+    $uploads   = wp_upload_dir();
+    $base_dir  = (string) ( $uploads['basedir'] ?? '' );
+    $base_url  = (string) ( $uploads['baseurl'] ?? '' );
+    $file_name = $coachee_id . '_vedic.svg';
+    if ( $base_dir !== '' && $base_url !== '' ) {
+      $file_path = trailingslashit( $base_dir ) . 'bizcoach-astro-charts/' . $file_name;
+      if ( file_exists( $file_path ) ) {
+        return trailingslashit( $base_url ) . 'bizcoach-astro-charts/' . $file_name;
+      }
+    }
+  }
+
+  return '';
+}
+endif;
+
 if ( ! function_exists( 'bccm_vedic_extract_traits' ) ) :
 function bccm_vedic_extract_traits( $astro_row ) {
     $summary = is_array( $astro_row['summary'] ?? null )
@@ -92,18 +176,19 @@ function bccm_vedic_extract_traits( $astro_row ) {
         ? $astro_row['traits']
         : ( json_decode( $astro_row['traits']  ?? '{}', true ) ?: array() );
 
-    // Prefer traits.planets; fall back to traits.positions.
-    $planets = (array) ( $traits['planets']   ?? $traits['positions'] ?? array() );
+    // [2026-07-11 Johnny Chu] PHASE-VEDIC-FAA2 — accept both list and map shapes.
+    $planets = bccm_vedic_map_positions_by_name( (array) ( $traits['planets'] ?? $traits['positions'] ?? array() ) );
     // If the row was saved via v2-bridge, traits['positions'] == traits['planets'].
     // Always enrich with sign_number so SVG + context work.
     $planets = bccm_vedic_enrich_positions( $planets );
+    $navamsa = bccm_vedic_enrich_positions( bccm_vedic_map_positions_by_name( (array) ( $traits['navamsa'] ?? array() ) ) );
 
     return array(
         'summary'       => $summary,
         'traits'        => $traits,
         'positions'     => $planets,   // enriched, by-name map
         'houses'        => (array) ( $traits['houses']       ?? array() ),
-        'navamsa'       => (array) ( $traits['navamsa']      ?? array() ),
+      'navamsa'       => $navamsa,
         'vargas'        => (array) ( $traits['vargas']       ?? array() ),
         'lagna'         => (array) ( $traits['lagna']        ?? array() ),
         'dasha'         => (array) ( $traits['dasha']        ?? array() ),
@@ -112,7 +197,7 @@ function bccm_vedic_extract_traits( $astro_row ) {
         'shadbala'      => (array) ( $traits['shadbala']     ?? array() ),
         'ashtakavarga'  => (array) ( $traits['ashtakavarga'] ?? array() ),
         'birth'         => (array) ( $traits['birth_data']   ?? array() ),
-        'chart_url'     => (string) ( $traits['chart_url']   ?? $summary['chart_url'] ?? $astro_row['chart_svg'] ?? '' ),
+      'chart_url'     => (string) bccm_vedic_resolve_chart_url( $traits, $summary, is_array( $astro_row ) ? $astro_row : array() ),
         'navamsa_url'   => (string) ( $summary['navamsa_chart_url'] ?? '' ),
     );
 }
@@ -588,6 +673,17 @@ td { padding: 6px; border: 1px solid #ede9fe; vertical-align: middle; }
         $dasha_seq = (array) $dasha['dasha_sequence'];
     } elseif ( isset( $dasha['maha_dasha'] ) ) {
         $dasha_seq = is_array( $dasha['maha_dasha'] ) ? $dasha['maha_dasha'] : array();
+    } elseif ( isset( $dasha['vimshottari'] ) && is_array( $dasha['vimshottari'] ) ) {
+      $_vim = (array) $dasha['vimshottari'];
+      if ( isset( $_vim['maha'] ) && is_array( $_vim['maha'] ) ) {
+        $dasha_seq = (array) $_vim['maha'];
+      } elseif ( isset( $_vim['mahadasha'] ) && is_array( $_vim['mahadasha'] ) ) {
+        $dasha_seq = (array) $_vim['mahadasha'];
+      } elseif ( isset( $_vim['maha_dasha'] ) && is_array( $_vim['maha_dasha'] ) ) {
+        $dasha_seq = (array) $_vim['maha_dasha'];
+      }
+    } elseif ( isset( $dasha['maha'] ) && is_array( $dasha['maha'] ) ) {
+      $dasha_seq = (array) $dasha['maha'];
     } elseif ( isset( $dasha[0] ) ) {
         $dasha_seq = $dasha;
     }
@@ -597,9 +693,34 @@ td { padding: 6px; border: 1px solid #ede9fe; vertical-align: middle; }
     }
     if ( ! empty( $dasha_seq ) ):
     $today_year = (int) date( 'Y' );
+    $active_maha  = (string) ( $dasha['active_periods']['Mahadasha']['lord']
+        ?? $dasha['active_periods']['mahadasha']['lord']
+        ?? $dasha['active_periods']['mahadasha']['name']
+        ?? $dasha['current']['maha']['lord']
+        ?? '' );
+    $active_antar = (string) ( $dasha['active_periods']['Antardasha']['lord']
+        ?? $dasha['active_periods']['antardasha']['lord']
+        ?? $dasha['active_periods']['antardasha']['name']
+        ?? $dasha['current']['antar']['lord']
+        ?? '' );
+    $active_start = (string) ( $dasha['active_periods']['Mahadasha']['start_date']
+        ?? $dasha['active_periods']['mahadasha']['start_date']
+        ?? '' );
+    $active_end   = (string) ( $dasha['active_periods']['Mahadasha']['end_date']
+        ?? $dasha['active_periods']['mahadasha']['end_date']
+        ?? '' );
   ?>
   <div class="section">
     <h2>⏳ Vimshottari Dasha — Chu Kỳ Vận Mệnh</h2>
+    <?php if ( $active_maha !== '' || $active_antar !== '' ): ?>
+    <p style="font-size:10.5px;margin:0 0 8px;color:#5b21b6">
+      Hiện tại: <strong><?php echo esc_html( $active_maha !== '' ? $active_maha : '—' ); ?></strong>
+      <?php if ( $active_antar !== '' ): ?> → <strong><?php echo esc_html( $active_antar ); ?></strong><?php endif; ?>
+      <?php if ( $active_start !== '' || $active_end !== '' ): ?>
+        (<?php echo esc_html( $active_start ?: '?' ); ?> → <?php echo esc_html( $active_end ?: '?' ); ?>)
+      <?php endif; ?>
+    </p>
+    <?php endif; ?>
     <table>
       <thead><tr><th>#</th><th>Mahadasha</th><th>Bắt đầu</th><th>Kết thúc</th><th>Năm</th><th>Ghi chú</th></tr></thead>
       <tbody>

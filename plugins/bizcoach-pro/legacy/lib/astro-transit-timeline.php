@@ -62,16 +62,16 @@ function bccm_transit_timeline_handler() {
 
 	$user_id = (int) ( $coachee['user_id'] ?? 0 );
 	$astro_row = null;
+	// [2026-07-07 Johnny Chu] PHASE-FAA2-TL-PROFILE — choose natal row by coachee_id first
+	// so month/year timeline follows selected profile, not just account-level user_id.
+	$astro_row = $wpdb->get_row( $wpdb->prepare(
+		"SELECT * FROM {$wpdb->prefix}bccm_astro WHERE coachee_id=%d AND chart_type='western'",
+		$coachee_id
+	), ARRAY_A );
 	if ( $user_id ) {
-		$astro_row = $wpdb->get_row( $wpdb->prepare(
+		$astro_row = $astro_row ?: $wpdb->get_row( $wpdb->prepare(
 			"SELECT * FROM {$wpdb->prefix}bccm_astro WHERE user_id=%d AND chart_type='western' AND (summary IS NOT NULL OR traits IS NOT NULL)",
 			$user_id
-		), ARRAY_A );
-	}
-	if ( ! $astro_row ) {
-		$astro_row = $wpdb->get_row( $wpdb->prepare(
-			"SELECT * FROM {$wpdb->prefix}bccm_astro WHERE coachee_id=%d AND chart_type='western'",
-			$coachee_id
 		), ARRAY_A );
 	}
 	if ( ! $astro_row || empty( $astro_row['traits'] ) ) {

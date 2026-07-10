@@ -11,6 +11,12 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 
 require_once dirname( __DIR__ ) . '/interface-diagnostics-probe.php';
 
+
+// [2026-06-08 Johnny Chu] HOTFIX — double-load guard (bootstrap may include via filter AND direct require).
+if ( class_exists( 'BizCity_Probe_TwinBrain_Web_Nutri', false ) ) {
+	return;
+}
+
 final class BizCity_Probe_TwinBrain_Web_Nutri implements BizCity_Diagnostics_Probe {
 
 	const PROBE_QUERY = 'protein hằng ngày cho người trưởng thành';

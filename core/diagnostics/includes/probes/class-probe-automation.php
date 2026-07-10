@@ -29,6 +29,12 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 
 require_once dirname( __DIR__ ) . '/interface-diagnostics-probe.php';
 
+
+// [2026-06-08 Johnny Chu] HOTFIX — double-load guard (bootstrap may include via filter AND direct require).
+if ( class_exists( 'BizCity_Probe_Automation', false ) ) {
+	return;
+}
+
 final class BizCity_Probe_Automation implements BizCity_Diagnostics_Probe {
 
 	const DISK_FILES = array(
@@ -192,7 +198,7 @@ final class BizCity_Probe_Automation implements BizCity_Diagnostics_Probe {
 		BizCity_Automation_Installer::ensure();
 		foreach ( self::EXPECTED_TABLES as $suffix ) {
 			$full   = BizCity_Automation_Installer::table( $suffix );
-			$exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $full ) ) === $full;
+			$exists = bizcity_tbl_exists( $full ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			$step = array(
 				'label'  => 'Runtime · table ' . $suffix,
 				'status' => $exists ? 'pass' : 'fail',
@@ -491,9 +497,23 @@ final class BizCity_Probe_Automation implements BizCity_Diagnostics_Probe {
 
 		// ─── BE-7 — Templates library smoke ────────────────────────────────
 		if ( class_exists( 'BizCity_Automation_Repo_Templates' ) && class_exists( 'BizCity_Automation_Templates_Seeder' ) ) {
-			$builtins = BizCity_Automation_Repo_Templates::query( array( 'source' => 'builtin', 'limit' => 50 ) );
+			$builtins = BizCity_Automation_Repo_Templates::query( array( 'source' => 'builtin', 'limit' => 200 ) );
 			$found    = (int) $builtins['total'];
-			$expected = count( BizCity_Automation_Templates_Seeder::blueprints() );
+
+			// [2026-07-10 Johnny Chu] PHASE-ATH — expected must count unique builtin slugs only
+			// (blueprints() can include non-builtin rows and historical duplicates by slug).
+			$expected_slugs = array();
+			foreach ( BizCity_Automation_Templates_Seeder::blueprints() as $bp ) {
+				if ( ! is_array( $bp ) || empty( $bp['slug'] ) ) {
+					continue;
+				}
+				$source = isset( $bp['source'] ) ? (string) $bp['source'] : 'builtin';
+				if ( $source !== 'builtin' ) {
+					continue;
+				}
+				$expected_slugs[ (string) $bp['slug'] ] = true;
+			}
+			$expected = count( $expected_slugs );
 			$steps[]  = $bs = array(
 				'label'  => 'Runtime · BE-7 builtin templates seeded',
 				'status' => $found >= $expected ? 'pass' : 'fail',

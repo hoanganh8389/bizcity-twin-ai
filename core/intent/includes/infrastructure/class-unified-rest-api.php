@@ -661,7 +661,8 @@ class BizCity_Unified_REST_API {
                 'email'        => $user->user_email,
                 'avatar_url'   => get_avatar_url( $user->ID, [ 'size' => 96 ] ),
                 'roles'        => $user->roles,
-                'phone'        => get_user_meta( $user->ID, 'phone', true ),
+                // [2026-06-22 Johnny Chu] R-PERF — route via BizCity_User_Meta_Cache to avoid WP meta prime
+                'phone'        => class_exists( 'BizCity_User_Meta_Cache' ) ? (string) BizCity_User_Meta_Cache::get( $user->ID, 'phone', '' ) : (string) get_user_meta( $user->ID, 'phone', true ),
             ],
         ] );
     }
@@ -867,14 +868,16 @@ class BizCity_Unified_REST_API {
         $tbl_conv = $wpdb->prefix . 'bizcity_webchat_conversations';
 
         $deleted = 0;
-        if ( $wpdb->get_var( $wpdb->prepare( "SHOW TABLES LIKE %s", $tbl_msg ) ) === $tbl_msg ) {
+        // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+        if ( bizcity_tbl_exists( $tbl_msg ) ) {
             $deleted = (int) $wpdb->delete( $tbl_msg, [
                 'session_id'    => $session_id,
                 'platform_type' => $platform_type,
             ] );
         }
 
-        if ( $wpdb->get_var( $wpdb->prepare( "SHOW TABLES LIKE %s", $tbl_conv ) ) === $tbl_conv ) {
+        // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+        if ( bizcity_tbl_exists( $tbl_conv ) ) {
             $wpdb->query( $wpdb->prepare(
                 "UPDATE `{$tbl_conv}` SET status = 'closed', ended_at = NOW() WHERE session_id = %s AND platform_type = %s",
                 $session_id, $platform_type
@@ -894,7 +897,7 @@ class BizCity_Unified_REST_API {
         global $wpdb;
         $table = $wpdb->prefix . 'bizcity_webchat_messages';
 
-        if ( $wpdb->get_var( $wpdb->prepare( "SHOW TABLES LIKE %s", $table ) ) !== $table ) {
+        if ( ! bizcity_tbl_exists( $table ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
             return rest_ensure_response( [ 'success' => true, 'data' => [ 'messages' => [] ] ] );
         }
 
@@ -1496,7 +1499,8 @@ class BizCity_Unified_REST_API {
                 'display_name' => $user->display_name,
                 'email'        => $user->user_email,
                 'avatar_url'   => get_avatar_url( $user->ID, [ 'size' => 96 ] ),
-                'phone'        => get_user_meta( $user->ID, 'phone', true ),
+                // [2026-06-22 Johnny Chu] R-PERF — route via BizCity_User_Meta_Cache to avoid WP meta prime
+                'phone'        => class_exists( 'BizCity_User_Meta_Cache' ) ? (string) BizCity_User_Meta_Cache::get( $user->ID, 'phone', '' ) : (string) get_user_meta( $user->ID, 'phone', true ),
                 'registered'   => $user->user_registered,
             ],
         ] );
@@ -1535,7 +1539,8 @@ class BizCity_Unified_REST_API {
         $user_id = $this->require_user();
         if ( is_wp_error( $user_id ) ) return $user_id;
 
-        $settings = get_user_meta( $user_id, 'bizcity_app_settings', true );
+        // [2026-06-22 Johnny Chu] R-PERF — route via BizCity_User_Meta_Cache to avoid WP meta prime
+        $settings = class_exists( 'BizCity_User_Meta_Cache' ) ? BizCity_User_Meta_Cache::get( $user_id, 'bizcity_app_settings', array() ) : get_user_meta( $user_id, 'bizcity_app_settings', true );
         if ( ! is_array( $settings ) ) {
             $settings = [
                 'theme'         => 'dark',
@@ -1558,7 +1563,8 @@ class BizCity_Unified_REST_API {
         }
 
         // Merge with existing
-        $existing = get_user_meta( $user_id, 'bizcity_app_settings', true );
+        // [2026-06-22 Johnny Chu] R-PERF — route via BizCity_User_Meta_Cache to avoid WP meta prime
+        $existing = class_exists( 'BizCity_User_Meta_Cache' ) ? BizCity_User_Meta_Cache::get( $user_id, 'bizcity_app_settings', array() ) : get_user_meta( $user_id, 'bizcity_app_settings', true );
         if ( ! is_array( $existing ) ) {
             $existing = [];
         }
@@ -1572,6 +1578,10 @@ class BizCity_Unified_REST_API {
         }
 
         update_user_meta( $user_id, 'bizcity_app_settings', $existing );
+        // [2026-06-22 Johnny Chu] R-PERF — sync cache after write
+        if ( class_exists( 'BizCity_User_Meta_Cache' ) ) {
+            BizCity_User_Meta_Cache::set( $user_id, 'bizcity_app_settings', $existing );
+        }
 
         return rest_ensure_response( [ 'success' => true, 'data' => $existing ] );
     }
@@ -1694,7 +1704,7 @@ class BizCity_Unified_REST_API {
         global $wpdb;
         $table = $wpdb->prefix . 'bizcity_webchat_messages';
 
-        if ( $wpdb->get_var( $wpdb->prepare( "SHOW TABLES LIKE %s", $table ) ) !== $table ) {
+        if ( ! bizcity_tbl_exists( $table ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
             return;
         }
 
@@ -1720,7 +1730,7 @@ class BizCity_Unified_REST_API {
         global $wpdb;
         $table = $wpdb->prefix . 'bizcity_webchat_messages';
 
-        if ( $wpdb->get_var( $wpdb->prepare( "SHOW TABLES LIKE %s", $table ) ) !== $table ) {
+        if ( ! bizcity_tbl_exists( $table ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
             return [];
         }
 

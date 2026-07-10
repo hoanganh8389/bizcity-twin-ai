@@ -59,16 +59,13 @@ class BizCity_Twin_Shell_Page {
 	}
 
 	public function add_rewrite_rule() {
+		// [2026-06-09 Johnny Chu] HOTFIX — flush removed from init:10 (Transposh/WC loop).
+		// One-time flush is handled by admin_init guard in modules/twinshell/bootstrap.php.
 		add_rewrite_rule(
 			self::REWRITE_KEY,
 			'index.php?' . self::QUERY_VAR . '=1',
 			'top'
 		);
-
-		if ( ! get_option( self::OPTION_KEY ) ) {
-			flush_rewrite_rules( false );
-			update_option( self::OPTION_KEY, 1 );
-		}
 	}
 
 	public function add_query_var( $vars ) {
@@ -109,22 +106,103 @@ class BizCity_Twin_Shell_Page {
 		// silent fallback to TwinChat.
 		$visible    = [];
 		$locked_map = [];
+
+		// [2026-06-08 Johnny Chu] PHASE-MEMBERSHIP — resolve current user's plan for gate check.
+		// [2026-06-09 Johnny Chu] HOTFIX — also consider hub master_level (site API key tier).
+		// Two independent money tiers:
+		//   - master_level (site tier from hub API key: free|pro|master_pro|master_premium)
+		//   - user_plan (local membership: free|pro|plus)
+		// If the hub has set this site to pro/premium, admin users should not see features
+		// gated behind "pro" as locked. Use whichever tier is higher.
+		$user_plan = 'free';
+		if ( class_exists( 'BizCity_Membership_Manager' ) ) {
+			$user_plan = BizCity_Membership_Manager::instance()->plan_for_user( get_current_user_id() );
+		}
+		// Map hub master_level → local plan slug for comparison.
+		// [2026-06-10 Johnny Chu] HOTFIX — per-site option
+		$hub_level        = (string) get_option( 'bizcity_hub_master_level', 'free' );
+		$hub_level_map    = array(
+			'free'             => 'free',
+			'pro'              => 'pro',
+			'master_pro'       => 'pro',
+			'master_premium'   => 'plus',
+			'premium'          => 'plus',
+			'master_plus'      => 'plus',
+			'plus'             => 'plus',
+		);
+		$hub_plan         = isset( $hub_level_map[ $hub_level ] ) ? $hub_level_map[ $hub_level ] : 'free';
+		// Use whichever grants more access.
+		if ( BizCity_Twin_Shell_Registry::plan_order( $hub_plan ) > BizCity_Twin_Shell_Registry::plan_order( $user_plan ) ) {
+			$user_plan = $hub_plan;
+		}
+
 		foreach ( $plugins as $p ) {
 			if ( ! empty( $p['capability'] ) && ! current_user_can( $p['capability'] ) ) {
 				continue;
 			}
+
+			$has_plan_gate = ! empty( $p['plan'] ) && 'free' !== $p['plan'];
+
+			if ( $has_plan_gate ) {
+				// Plan-gated entries are ALWAYS shown in ActivityBar (upgrade incentive).
+				// plan_locked  = user tier is below required tier.
+				// plugin_locked = plan ok but plugin (requires) not installed.
+				$plan_locked = BizCity_Twin_Shell_Registry::plan_order( $user_plan )
+				               < BizCity_Twin_Shell_Registry::plan_order( $p['plan'] );
+
+				// [2026-06-09 Johnny Chu] HOTFIX — if hub_plan covers the plan requirement,
+				// bypass plugin_locked (don't require the add-on class to be present).
+				// Rationale: master_pro site = plugin is provisioned server-side; if the class
+				// doesn't exist the /crm/ iframe will give its own error — not TwinShell's job.
+				$hub_covers_plan = BizCity_Twin_Shell_Registry::plan_order( $hub_plan )
+				                   >= BizCity_Twin_Shell_Registry::plan_order( $p['plan'] );
+
+				$plugin_locked = ( ! $plan_locked )
+				                 && ( ! $hub_covers_plan )
+				                 && ( ! empty( $p['requires'] ) )
+				                 && ( ! BizCity_Twin_Shell_Registry::requirement_met( $p['requires'] ) );
+
+				$p['plan_locked']   = $plan_locked;
+				$p['plan_badge']    = strtoupper( $p['plan'] ); // e.g. 'PRO', 'PLUS'
+				$p['plugin_locked'] = $plugin_locked;
+				$visible[] = $p;
+				continue;
+			}
+
+			// Non-plan-gated: original requires gate.
 			if ( ! empty( $p['locked'] ) ) {
 				$locked_map[ $p['id'] ] = $p;
 				continue;
 			}
+			$p['plan_locked']   = false;
+			$p['plan_badge']    = '';
+			$p['plugin_locked'] = false;
 			$visible[] = $p;
 		}
 
 		// Resolve initial plugin from ?plugin=, falling back to default.
 		$req_plugin = isset( $_GET['plugin'] ) ? sanitize_key( wp_unslash( $_GET['plugin'] ) ) : '';
 
-		// Bookmarked URL hitting a locked plugin → short-circuit with a Pro
-		// notice page instead of silently loading the default plugin.
+		// [2026-06-08 Johnny Chu] PHASE-MEMBERSHIP — bookmarked URL hitting a
+		// plan-locked or plugin-locked entry → short-circuit with the appropriate notice.
+		if ( '' !== $req_plugin ) {
+			foreach ( $visible as $p_entry ) {
+				if ( $p_entry['id'] !== $req_plugin ) {
+					continue;
+				}
+				if ( ! empty( $p_entry['plan_locked'] ) ) {
+					$this->render_plan_locked_notice( $p_entry );
+					return;
+				}
+				if ( ! empty( $p_entry['plugin_locked'] ) ) {
+					$this->render_locked_notice( $p_entry );
+					return;
+				}
+				break;
+			}
+		}
+
+		// Bookmarked URL hitting a (plugin not installed) locked entry.
 		if ( '' !== $req_plugin && isset( $locked_map[ $req_plugin ] ) ) {
 			$this->render_locked_notice( $locked_map[ $req_plugin ] );
 			return;
@@ -267,6 +345,78 @@ class BizCity_Twin_Shell_Page {
 		echo '<div class="actions">' . "\n";
 		echo '<a class="btn btn-primary" href="' . esc_url( $account_url ) . '" target="_blank" rel="noopener">'
 			. esc_html__( 'Nâng cấp / Quản lý gói', 'bizcity-twin-ai' ) . '</a>' . "\n";
+		echo '<a class="btn btn-ghost" href="' . $shell_url . '">'
+			. esc_html__( '← Quay lại Twin', 'bizcity-twin-ai' ) . '</a>' . "\n";
+		echo '</div></div></div>' . "\n";
+		echo '</body></html>' . "\n";
+	}
+
+	/**
+	 * Render the "Plan required" notice when a plan-gated plugin is accessed
+	 * without the required membership tier.
+	 *
+	 * [2026-06-08 Johnny Chu] PHASE-MEMBERSHIP — plan gate notice.
+	 *
+	 * @param array $p Plugin entry (from registry, with plan_badge set).
+	 */
+	private function render_plan_locked_notice( $p ) {
+		$shell_url   = esc_url( self::shell_url() );
+		$account_url = 'https://bizcity.vn/my-account/';
+		$label       = isset( $p['label'] ) ? (string) $p['label'] : (string) $p['id'];
+		$emoji       = isset( $p['emoji'] ) && '' !== $p['emoji'] ? (string) $p['emoji'] : '⭐';
+		$desc        = isset( $p['desc'] ) ? (string) $p['desc'] : '';
+		$plan_badge  = isset( $p['plan_badge'] ) ? strtoupper( (string) $p['plan_badge'] ) : 'PRO';
+		$lang        = esc_attr( get_bloginfo( 'language' ) );
+		$site_name   = esc_html( get_bloginfo( 'name' ) );
+
+		// Badge gradient: PRO = gold, PLUS/PREMIUM = purple.
+		$badge_bg = ( 'PRO' === $plan_badge )
+			? 'linear-gradient(135deg,#f59e0b,#d97706)'
+			: 'linear-gradient(135deg,#8b5cf6,#6d28d9)';
+
+		header( 'Content-Type: text/html; charset=utf-8' );
+		echo '<!DOCTYPE html>' . "\n";
+		echo '<html lang="' . $lang . '">' . "\n";
+		echo '<head>' . "\n";
+		echo '<meta charset="utf-8">' . "\n";
+		echo '<meta name="viewport" content="width=device-width, initial-scale=1">' . "\n";
+		echo '<title>' . esc_html( $label ) . ' — ' . $site_name . '</title>' . "\n";
+		echo '<style>'
+			. 'html,body{margin:0;padding:0;height:100%;background:#0f1115;color:#e6e6e6;'
+			. 'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}'
+			. '.wrap{min-height:100%;display:flex;align-items:center;justify-content:center;padding:24px;}'
+			. '.card{max-width:520px;width:100%;background:#171a21;border:1px solid #262b36;'
+			. 'border-radius:16px;padding:32px;box-shadow:0 8px 32px rgba(0,0,0,.4);text-align:center;}'
+			. '.emoji{font-size:48px;line-height:1;margin-bottom:12px;}'
+			. 'h1{font-size:22px;font-weight:600;margin:0 0 8px;color:#fff;}'
+			. '.badge{display:inline-flex;align-items:center;gap:4px;padding:4px 12px;border-radius:999px;'
+			. 'font-size:11px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;'
+			. 'color:#fff;margin-bottom:16px;background:' . esc_attr( $badge_bg ) . ';}'
+			. 'p{font-size:14px;line-height:1.6;color:#a1a8b7;margin:0 0 8px;}'
+			. '.perks{margin:16px 0;padding:12px 16px;background:#0d1117;border-radius:10px;'
+			. 'text-align:left;font-size:13px;color:#8a8f9b;line-height:1.8;}'
+			. '.actions{margin-top:24px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap;}'
+			. '.btn{display:inline-flex;align-items:center;justify-content:center;padding:10px 18px;'
+			. 'border-radius:10px;font-size:14px;font-weight:500;text-decoration:none;transition:.15s;}'
+			. '.btn-primary{background:' . esc_attr( $badge_bg ) . ';color:#fff;}'
+			. '.btn-ghost{background:transparent;color:#a1a8b7;border:1px solid #2a3040;}'
+			. '.btn-ghost:hover{color:#fff;border-color:#3a4257;}'
+			. '</style>' . "\n";
+		echo '</head><body>' . "\n";
+		echo '<div class="wrap"><div class="card">' . "\n";
+		echo '<div class="emoji">' . esc_html( $emoji ) . '</div>' . "\n";
+		echo '<div class="badge">⭐ ' . esc_html( $plan_badge ) . '</div>' . "\n";
+		echo '<h1>' . esc_html( $label ) . '</h1>' . "\n";
+		/* translators: 1: plan badge label e.g. PRO */
+		echo '<p>' . sprintf( esc_html__( 'Tính năng này yêu cầu gói %s. Nâng cấp để sử dụng ngay.', 'bizcity-twin-ai' ), '<strong>' . esc_html( $plan_badge ) . '</strong>' ) . '</p>' . "\n";
+		if ( '' !== $desc ) {
+			echo '<p style="margin-top:8px;color:#7b8294;">' . esc_html( $desc ) . '</p>' . "\n";
+		}
+		echo '<div class="actions">' . "\n";
+		echo '<a class="btn btn-primary" href="' . esc_url( $account_url ) . '" target="_blank" rel="noopener">'
+			/* translators: %s: plan name e.g. PRO */
+			. sprintf( esc_html__( 'Nâng cấp lên %s', 'bizcity-twin-ai' ), esc_html( $plan_badge ) )
+			. '</a>' . "\n";
 		echo '<a class="btn btn-ghost" href="' . $shell_url . '">'
 			. esc_html__( '← Quay lại Twin', 'bizcity-twin-ai' ) . '</a>' . "\n";
 		echo '</div></div></div>' . "\n";

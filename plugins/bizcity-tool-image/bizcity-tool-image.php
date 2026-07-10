@@ -614,15 +614,30 @@ register_deactivation_hook( __FILE__, function() {
     flush_rewrite_rules();
 } );
 
+/* ── Flush rewrite rules once per version (Central Registry) ── */
+// [2026-06-09 Johnny Chu] R-CR — migrated to Central Rewrite Flush Registry.
+// Registry consolidates all module version checks into ONE flush_rewrite_rules(false) at admin_init:1.
+BizCity_Rewrite_Flush_Registry::register( 'bizcity-tool-image', BZTIMG_VERSION );
+
 /* ── DB migration — runs on every request until schema is current ── */
 add_action( 'init', function() {
-    // Auto-flush rewrite rules when /canva/ or /product-studio/ rule is missing
-    $rules = get_option( 'rewrite_rules', array() );
-    if ( is_array( $rules ) && ( ! isset( $rules['^canva/?$'] ) || ! isset( $rules['^product-studio/?$'] ) || ! isset( $rules['^qr-studio/?$'] ) ) ) {
-        flush_rewrite_rules( false );
+    if ( get_option( 'bztimg_schema_version' ) === BZTIMG_SCHEMA_VERSION ) {
+        // [2026-06-11 Johnny Chu] HOTFIX — also re-seed when version matches but template table is empty.
+        // Handles: rows deleted manually, option copied from another site, fresh multisite subsite.
+        global $wpdb;
+        // [2026-06-21 Johnny Chu] R-CACHE bztimg — cache COUNT check; group bztimg, key seed_check, TTL 5min.
+        $count = BizCity_Cache::get( 'bztimg', 'seed_count' );
+        if ( false === $count ) {
+            $count = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}bztimg_templates" ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+            BizCity_Cache::set( 'bztimg', 'seed_count', $count, BizCity_Cache::TTL_MEDIUM );
+        }
+        $count = (int) $count;
+        if ( $count > 0 ) return; // Schema ok AND data exists — nothing to do.
+        // Table empty → fast re-seed path (no full migration needed).
+        bztimg_seed_categories();
+        bztimg_seed_json_templates();
+        return;
     }
-
-    if ( get_option( 'bztimg_schema_version' ) === BZTIMG_SCHEMA_VERSION ) return;
     bztimg_install_tables();
     bztimg_seed_categories(); // 3.6 — idempotent, adds accessory-tryon + any missing categories
     bztimg_seed_json_templates(); // Re-seed all JSON templates + library items on schema bump

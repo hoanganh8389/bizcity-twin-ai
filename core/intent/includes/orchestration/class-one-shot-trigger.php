@@ -59,8 +59,9 @@ class BizCity_One_Shot_Trigger {
         $table   = $wpdb->prefix . 'bizcity_' . self::TABLE_SUFFIX;
         $charset = $wpdb->get_charset_collate();
 
-        if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) === $table ) {
-            return;
+        // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+        if ( bizcity_tbl_exists( $table ) ) {
+            return; // already exists — skip dbDelta
         }
 
         $sql = "CREATE TABLE {$table} (
@@ -247,7 +248,8 @@ class BizCity_One_Shot_Trigger {
         global $wpdb;
         $table = $wpdb->prefix . ( defined( 'WAIC_DB_PREF' ) ? WAIC_DB_PREF : 'bizcity_' ) . 'tasks';
 
-        if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
+        // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+        if ( ! bizcity_tbl_exists( $table ) ) {
             return;
         }
 

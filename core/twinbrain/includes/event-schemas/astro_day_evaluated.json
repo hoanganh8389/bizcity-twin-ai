@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "astro_day_evaluated",
+  "description": "TwinBrain Astro W6 per-day deterministic scoring event.",
+  "type": "object",
+  "required": ["trace_id", "index", "total_days", "date", "score", "good_hits", "bad_hits", "topic_hits", "retro_count", "aspects_count", "reason"],
+  "properties": {
+    "trace_id":      { "type": "string" },
+    "index":         { "type": "integer", "minimum": 1 },
+    "total_days":    { "type": "integer", "minimum": 0 },
+    "topics":        { "type": "array", "items": { "type": "string" } },
+    "date":          { "type": "string" },
+    "date_label":    { "type": "string" },
+    "score":         { "type": "number" },
+    "good_hits":     { "type": "integer", "minimum": 0 },
+    "bad_hits":      { "type": "integer", "minimum": 0 },
+    "topic_hits":    { "type": "integer", "minimum": 0 },
+    "retro_count":   { "type": "integer", "minimum": 0 },
+    "aspects_count": { "type": "integer", "minimum": 0 },
+    "reason":        { "type": "string" }
+  }
+}

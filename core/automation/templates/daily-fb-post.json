@@ -1,0 +1,83 @@
+[
+  {
+    "slug": "tpl_daily_fb_post_8h_v1",
+    "name": "Đăng FB hàng ngày 08:00 (Cron + LLM)",
+    "description": "Cron 8h mỗi ngày → tra KG tìm chủ đề → LLM soạn caption FB (4-6 dòng + emoji + hashtag) → đăng ngay qua BizCity_FB_Publisher. Cần điền fb_page_id sau khi instantiate.",
+    "category": "automation",
+    "source": "builtin",
+    "trigger_type": "cron",
+    "icon": "Facebook",
+    "tags": "cron,daily,facebook,publish,llm,kg,8h",
+    "trigger_config": { "schedule": "0 8 * * *" },
+    "graph": {
+      "meta": { "template": "tpl_daily_fb_post_8h_v1" },
+      "nodes": [
+        { "id": "t1",      "type": "trigger", "position": { "x": 0,    "y": 80 }, "data": { "blockId": "trigger.cron",            "label": "Cron · 08:00 mỗi ngày",                         "schedule": "0 8 * * *" } },
+        { "id": "kg",      "type": "action",  "position": { "x": 320,  "y": 80 }, "data": { "blockId": "action.search_kg",         "label": "Tìm chủ đề hôm nay (KG)",                       "query": "chủ đề đăng Facebook hôm nay", "top_k": 3 } },
+        { "id": "gen",     "type": "llm",     "position": { "x": 640,  "y": 80 }, "data": { "blockId": "llm.compose_reply",         "label": "Soạn caption FB buổi sáng", "model": "gpt-4o-mini", "system": "Bạn là copywriter Facebook chuyên nghiệp. Viết caption FB tiếng Việt: 4-6 dòng, 2-4 emoji, kết thúc bằng 3-5 hashtag liên quan. Tone tự nhiên, gần gũi, thân thiện. KHÔNG markdown, KHÔNG ```. Nếu KG không có chủ đề cụ thể, hãy tạo post truyền cảm hứng buổi sáng phù hợp với lĩnh vực kinh doanh.", "prompt": "Thời điểm đăng: 08:00 hôm nay\nChủ đề từ KG: {{kg.snippet}}\nViết caption Facebook ngắn gọn, hấp dẫn, kêu gọi tương tác." } },
+        { "id": "publish", "type": "action",  "position": { "x": 960,  "y": 80 }, "data": { "blockId": "action.publish_fb_post",   "label": "Đăng Facebook 8h",                               "fb_page_id": "", "fb_page_name": "", "content": "{{gen.output}}", "image_url": "", "mode": "now", "delay_min": 0 } },
+        { "id": "log",     "type": "action",  "position": { "x": 1280, "y": 80 }, "data": { "blockId": "action.log",               "label": "Ghi audit log",                                  "message": "Daily FB 8h — event_id={{publish.event_id}}" } }
+      ],
+      "edges": [
+        { "id": "e_t1_kg",      "source": "t1",      "target": "kg" },
+        { "id": "e_kg_gen",     "source": "kg",      "target": "gen" },
+        { "id": "e_gen_publish","source": "gen",     "target": "publish" },
+        { "id": "e_publish_log","source": "publish", "target": "log" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_daily_fb_post_9h_v1",
+    "name": "Đăng FB hàng ngày 09:00 (Cron + LLM)",
+    "description": "Cron 9h mỗi ngày (giờ vàng) → tra KG sản phẩm/dịch vụ → LLM soạn caption FB với CTA mạnh → đăng ngay. Cần điền fb_page_id sau khi instantiate.",
+    "category": "automation",
+    "source": "builtin",
+    "trigger_type": "cron",
+    "icon": "Facebook",
+    "tags": "cron,daily,facebook,publish,llm,kg,9h",
+    "trigger_config": { "schedule": "0 9 * * *" },
+    "graph": {
+      "meta": { "template": "tpl_daily_fb_post_9h_v1" },
+      "nodes": [
+        { "id": "t1",      "type": "trigger", "position": { "x": 0,    "y": 80 }, "data": { "blockId": "trigger.cron",            "label": "Cron · 09:00 mỗi ngày",                          "schedule": "0 9 * * *" } },
+        { "id": "kg",      "type": "action",  "position": { "x": 320,  "y": 80 }, "data": { "blockId": "action.search_kg",         "label": "Tìm chủ đề 9h (KG)",                             "query": "sản phẩm dịch vụ nổi bật hôm nay", "top_k": 3 } },
+        { "id": "gen",     "type": "llm",     "position": { "x": 640,  "y": 80 }, "data": { "blockId": "llm.compose_reply",         "label": "Soạn caption FB giờ vàng 9h", "model": "gpt-4o-mini", "system": "Bạn là copywriter Facebook chuyên nghiệp. Viết caption FB tiếng Việt về sản phẩm/dịch vụ: 5-7 dòng, 2-4 emoji, nêu rõ giá trị/lợi ích, kết thúc bằng CTA (comment hoặc inbox) và 3-5 hashtag. Tone tự nhiên, thuyết phục nhẹ. KHÔNG markdown. Nếu KG không có thông tin, tạo post về dịch vụ tư vấn/hỗ trợ khách hàng.", "prompt": "Thời điểm đăng: 09:00 hôm nay (giờ vàng)\nThông tin sản phẩm/dịch vụ từ KG: {{kg.snippet}}\nViết caption Facebook hấp dẫn, kêu gọi tương tác mạnh." } },
+        { "id": "publish", "type": "action",  "position": { "x": 960,  "y": 80 }, "data": { "blockId": "action.publish_fb_post",   "label": "Đăng Facebook 9h",                               "fb_page_id": "", "fb_page_name": "", "content": "{{gen.output}}", "image_url": "", "mode": "now", "delay_min": 0 } },
+        { "id": "log",     "type": "action",  "position": { "x": 1280, "y": 80 }, "data": { "blockId": "action.log",               "label": "Ghi audit log",                                  "message": "Daily FB 9h — event_id={{publish.event_id}}" } }
+      ],
+      "edges": [
+        { "id": "e_t1_kg",      "source": "t1",      "target": "kg" },
+        { "id": "e_kg_gen",     "source": "kg",      "target": "gen" },
+        { "id": "e_gen_publish","source": "gen",     "target": "publish" },
+        { "id": "e_publish_log","source": "publish", "target": "log" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_daily_fb_post_10h_v1",
+    "name": "Đăng FB hàng ngày 10:00 (Cron + LLM)",
+    "description": "Cron 10h mỗi ngày → tra KG mẹo/kiến thức → LLM soạn bài chia sẻ FB (5-8 dòng + câu hỏi CTA + hashtag) → đăng ngay. Cần điền fb_page_id sau khi instantiate.",
+    "category": "automation",
+    "source": "builtin",
+    "trigger_type": "cron",
+    "icon": "Facebook",
+    "tags": "cron,daily,facebook,publish,llm,kg,10h",
+    "trigger_config": { "schedule": "0 10 * * *" },
+    "graph": {
+      "meta": { "template": "tpl_daily_fb_post_10h_v1" },
+      "nodes": [
+        { "id": "t1",      "type": "trigger", "position": { "x": 0,    "y": 80 }, "data": { "blockId": "trigger.cron",            "label": "Cron · 10:00 mỗi ngày",                          "schedule": "0 10 * * *" } },
+        { "id": "kg",      "type": "action",  "position": { "x": 320,  "y": 80 }, "data": { "blockId": "action.search_kg",         "label": "Tìm kiến thức/tips (KG)",                         "query": "mẹo hay kiến thức chia sẻ khách hàng", "top_k": 3 } },
+        { "id": "gen",     "type": "llm",     "position": { "x": 640,  "y": 80 }, "data": { "blockId": "llm.compose_reply",         "label": "Soạn caption FB chia sẻ kiến thức", "model": "gpt-4o-mini", "system": "Bạn là copywriter Facebook chuyên nghiệp viết nội dung giáo dục / chia sẻ. Viết caption FB tiếng Việt: 5-8 dòng (có thể dùng danh sách ngắn với số thứ tự), 2-3 emoji, kết thúc bằng câu hỏi kêu gọi bình luận và 3-5 hashtag. Tone chuyên nghiệp nhưng gần gũi. KHÔNG markdown. Nếu KG không có nội dung, chia sẻ 3 mẹo nhỏ hữu ích về chủ đề kinh doanh/cuộc sống.", "prompt": "Thời điểm đăng: 10:00 hôm nay\nNội dung kiến thức từ KG: {{kg.snippet}}\nViết bài chia sẻ kiến thức/tips hữu ích, kêu gọi độc giả bình luận kinh nghiệm." } },
+        { "id": "publish", "type": "action",  "position": { "x": 960,  "y": 80 }, "data": { "blockId": "action.publish_fb_post",   "label": "Đăng Facebook 10h",                              "fb_page_id": "", "fb_page_name": "", "content": "{{gen.output}}", "image_url": "", "mode": "now", "delay_min": 0 } },
+        { "id": "log",     "type": "action",  "position": { "x": 1280, "y": 80 }, "data": { "blockId": "action.log",               "label": "Ghi audit log",                                  "message": "Daily FB 10h — event_id={{publish.event_id}}" } }
+      ],
+      "edges": [
+        { "id": "e_t1_kg",      "source": "t1",      "target": "kg" },
+        { "id": "e_kg_gen",     "source": "kg",      "target": "gen" },
+        { "id": "e_gen_publish","source": "gen",     "target": "publish" },
+        { "id": "e_publish_log","source": "publish", "target": "log" }
+      ]
+    }
+  }
+]

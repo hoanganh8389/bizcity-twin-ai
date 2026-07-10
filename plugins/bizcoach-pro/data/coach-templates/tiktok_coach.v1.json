@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "slug": "tiktok_coach",
   "label": "TiktokCoach",
   "base_type": "tiktok_coach",
@@ -10,14 +10,182 @@
     { "key": "full_name",            "label": "Họ tên",                  "type": "text", "required": true },
     { "key": "company_name",         "label": "Tên công ty / kênh",      "type": "text", "required": true,  "placeholder": "Công ty ABC" },
     { "key": "company_industry",     "label": "Ngành nghề",              "type": "text", "required": true,  "placeholder": "FMCG, F&B..." },
-    { "key": "company_founded_date", "label": "Ngày thành lập",          "type": "date", "required": false }
+    { "key": "company_founded_date", "label": "Ngày thành lập",          "type": "date", "required": false },
+    { "key": "tiktok_followers",     "label": "Số followers hiện tại",   "type": "number", "required": false, "placeholder": "10000" },
+    { "key": "content_goal",         "label": "Mục tiêu TikTok",         "type": "textarea", "required": false }
   ],
   "generators": [
-    { "key": "gen_overview",       "label": "Nhận xét tổng quan",                            "output": "markdown", "legacy_fn": "bccm_generate_overview" },
-    { "key": "gen_iqmap",          "label": "Bản đồ IQ (Leadership Map)",                    "output": "json",     "legacy_fn": "bccm_generate_leadership_iqmap" },
-    { "key": "gen_vision",         "label": "Mission • Vision Map",                          "output": "json",     "legacy_fn": "bccm_generate_vision_map" },
-    { "key": "gen_customer",       "label": "Customer Insights",                             "output": "json",     "legacy_fn": "bccm_generate_customer_insight_map" },
-    { "key": "gen_winning",        "label": "Winning Model (What • Why • How • Who)",        "output": "json",     "legacy_fn": "bccm_generate_winning_model" },
-    { "key": "gen_action_plan_90", "label": "90-Days TikTok Action Plan",                    "output": "json",     "legacy_fn": "bccm_generate_90day_tiktokcoach_ai" }
+    {
+      "key": "gen_overview",
+      "label": "Nhận xét tổng quan TikTok",
+      "output": "json",
+      "render": "biz_overview",
+      "system": "Bạn là TikTokCoach Content Strategist. Phân tích tổng quan chiến lược TikTok của doanh nghiệp/kênh. Trả về DUY NHẤT một JSON hợp lệ (RFC 8259), KHÔNG markdown, KHÔNG code-fence, KHÔNG giải thích. Tiếng Việt tự nhiên, súc tích.",
+      "json_schema": {
+        "type": "object",
+        "required": ["summary", "biz_score", "biz_archetype", "growth_stage", "key_strengths", "key_risks", "market_fit", "biz_timing"],
+        "properties": {
+          "summary":       { "type": "string", "description": "3-5 câu phân tích tiềm năng kênh TikTok, gọi tên kênh/founder" },
+          "biz_score":     { "type": "integer", "minimum": 0, "maximum": 100, "description": "Điểm tiềm năng TikTok 0-100" },
+          "biz_archetype": { "type": "string", "description": "1 từ: Entertainer | Educator | Storyteller | Influencer | Seller | Creator | Connector | Curator" },
+          "growth_stage":  { "type": "string", "description": "Nascent | Growing | Viral | Monetizing | Established | Saturated" },
+          "key_strengths": { "type": "array", "items": { "type": "string" }, "minItems": 3, "maxItems": 5 },
+          "key_risks":     { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4 },
+          "market_fit":    { "type": "string", "description": "Nhận định về niche phù hợp và đối thủ" },
+          "biz_timing": {
+            "type": "object",
+            "required": ["current_phase", "favorable_period", "caution_period"],
+            "properties": {
+              "current_phase":    { "type": "string" },
+              "favorable_period": { "type": "string" },
+              "caution_period":   { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "key": "gen_iqmap",
+      "label": "Bản đồ IQ Người sáng tạo",
+      "output": "json",
+      "render": "biz_iqmap",
+      "system": "Bạn là TikTokCoach Creator Analyst. Đánh giá 8 chiều IQ sáng tạo nội dung TikTok. Trả về DUY NHẤT JSON hợp lệ.",
+      "json_schema": {
+        "type": "object",
+        "required": ["iq_scores", "dominant_iq", "blind_spots", "iq_strategy"],
+        "properties": {
+          "iq_scores": {
+            "type": "object",
+            "required": ["visionary_iq", "strategic_iq", "execution_iq", "people_iq", "financial_iq", "sales_iq", "innovation_iq", "resilience_iq"],
+            "properties": {
+              "visionary_iq":   { "type": "integer", "minimum": 1, "maximum": 10, "description": "Tầm nhìn nội dung" },
+              "strategic_iq":   { "type": "integer", "minimum": 1, "maximum": 10, "description": "Chiến lược phân phối" },
+              "execution_iq":   { "type": "integer", "minimum": 1, "maximum": 10, "description": "Thực thi sản xuất" },
+              "people_iq":      { "type": "integer", "minimum": 1, "maximum": 10, "description": "Tương tác cộng đồng" },
+              "financial_iq":   { "type": "integer", "minimum": 1, "maximum": 10, "description": "Monetization" },
+              "sales_iq":       { "type": "integer", "minimum": 1, "maximum": 10, "description": "Chuyển đổi & bán hàng" },
+              "innovation_iq":  { "type": "integer", "minimum": 1, "maximum": 10, "description": "Sáng tạo format mới" },
+              "resilience_iq":  { "type": "integer", "minimum": 1, "maximum": 10, "description": "Bền bỉ algorithm-proof" }
+            }
+          },
+          "dominant_iq":  { "type": "string" },
+          "blind_spots":  { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4 },
+          "iq_strategy":  { "type": "string" }
+        }
+      }
+    },
+    {
+      "key": "gen_vision",
+      "label": "Mission • Vision Map",
+      "output": "json",
+      "render": "biz_vision",
+      "system": "Bạn là TikTokCoach Brand Builder. Xây dựng mission/vision và brand identity cho kênh TikTok. Trả về DUY NHẤT JSON hợp lệ.",
+      "json_schema": {
+        "type": "object",
+        "required": ["mission_statement", "vision_statement", "core_values", "strategic_goals", "brand_promise"],
+        "properties": {
+          "mission_statement": { "type": "string", "description": "Lý do tồn tại của kênh" },
+          "vision_statement":  { "type": "string", "description": "Kênh muốn trở thành gì trong 2 năm" },
+          "core_values": {
+            "type": "array", "minItems": 3, "maxItems": 5,
+            "items": { "type": "object", "required": ["name", "description"], "properties": { "name": { "type": "string" }, "description": { "type": "string" } } }
+          },
+          "strategic_goals": {
+            "type": "array", "minItems": 3, "maxItems": 3,
+            "items": { "type": "object", "required": ["year_label", "goal"], "properties": { "year_label": { "type": "string" }, "goal": { "type": "string" } } }
+          },
+          "brand_promise": { "type": "string", "description": "1 câu người xem nhớ về kênh" }
+        }
+      }
+    },
+    {
+      "key": "gen_customer",
+      "label": "Audience Insights",
+      "output": "json",
+      "render": "biz_customer",
+      "system": "Bạn là TikTokCoach Audience Analyst. Phân tích chân dung khán giả và insight nội dung. Trả về DUY NHẤT JSON hợp lệ.",
+      "json_schema": {
+        "type": "object",
+        "required": ["ideal_customer", "pain_points", "desires", "buying_triggers", "customer_journey_stages", "retention_insight"],
+        "properties": {
+          "ideal_customer": {
+            "type": "object",
+            "required": ["description", "demographics", "psychographics"],
+            "properties": {
+              "description":    { "type": "string", "description": "Chân dung khán giả lý tưởng" },
+              "demographics":   { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4 },
+              "psychographics": { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4 }
+            }
+          },
+          "pain_points":             { "type": "array", "items": { "type": "string" }, "minItems": 3, "maxItems": 5, "description": "Vấn đề khán giả đang gặp" },
+          "desires":                 { "type": "array", "items": { "type": "string" }, "minItems": 3, "maxItems": 5, "description": "Điều khán giả muốn đạt được" },
+          "buying_triggers":         { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4, "description": "Yếu tố kích hoạt hành động mua" },
+          "customer_journey_stages": { "type": "array", "items": { "type": "string" }, "minItems": 3, "maxItems": 6, "description": "Hành trình từ viewer → buyer" },
+          "retention_insight":       { "type": "string", "description": "Cách giữ chân khán giả quay lại" }
+        }
+      }
+    },
+    {
+      "key": "gen_winning",
+      "label": "Winning Model TikTok",
+      "output": "json",
+      "render": "career_winning",
+      "system": "Bạn là TikTokCoach Winning Strategist. Xây dựng mô hình thắng cuộc cho kênh TikTok. Trả về DUY NHẤT JSON hợp lệ.",
+      "json_schema": {
+        "type": "object",
+        "required": ["winning_formula", "what", "why", "how", "who", "competitive_advantages", "success_patterns", "execution_principles"],
+        "properties": {
+          "winning_formula":       { "type": "string" },
+          "what":                  { "type": "string", "description": "Content format / loại nội dung cốt lõi" },
+          "why":                   { "type": "string", "description": "Mục đích tồn tại của kênh" },
+          "how":                   { "type": "string", "description": "Cách sản xuất và phân phối nội dung" },
+          "who":                   { "type": "string", "description": "Đối tượng khán giả mục tiêu" },
+          "competitive_advantages":{ "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4 },
+          "success_patterns": {
+            "type": "array", "minItems": 2, "maxItems": 4,
+            "items": { "type": "object", "required": ["pattern", "action"], "properties": { "pattern": { "type": "string" }, "action": { "type": "string" } } }
+          },
+          "execution_principles": { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4 }
+        }
+      }
+    },
+    {
+      "key": "gen_action_plan_90",
+      "label": "90-Days TikTok Action Plan",
+      "output": "json",
+      "render": "career_milestone",
+      "system": "Bạn là TikTokCoach Growth Planner. Lập kế hoạch tăng trưởng TikTok 90 ngày chia 3 giai đoạn. Trả về DUY NHẤT JSON hợp lệ.",
+      "json_schema": {
+        "type": "object",
+        "required": ["objective", "phases"],
+        "properties": {
+          "objective": { "type": "string" },
+          "phases": {
+            "type": "array", "minItems": 3, "maxItems": 3,
+            "items": {
+              "type": "object",
+              "required": ["phase_label", "theme", "weeks"],
+              "properties": {
+                "phase_label": { "type": "string" },
+                "theme":       { "type": "string" },
+                "weeks": {
+                  "type": "array", "minItems": 2, "maxItems": 4,
+                  "items": {
+                    "type": "object",
+                    "required": ["week", "focus", "tasks", "deliverable"],
+                    "properties": {
+                      "week":        { "type": "string" },
+                      "focus":       { "type": "string" },
+                      "tasks":       { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 5 },
+                      "deliverable": { "type": "string" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
   ]
 }

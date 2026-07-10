@@ -28,6 +28,13 @@ class BizCity_TwinBrain_Schema {
 	const KG_NB_ALTER_VERSION = '0.36.4.1';
 	const KG_NB_ALTER_OPTION  = 'bizcity_twinbrain_kg_nb_alter_ver';
 
+	// [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-1 — sessions VIEW projection.
+	// Aggregates bizcity_twin_event_stream by envelope.session_id (already
+	// shipped in event-stream-schema v0.12.1, no ALTER needed). Spec:
+	// core/twinbrain/docs/TWINBRAIN-FEATURE-BRAIN-SESSIONS.md §5.2.
+	const SESSIONS_VIEW_VERSION        = '1.0.0';
+	const SESSIONS_VIEW_VERSION_OPTION = 'bizcity_twinbrain_sessions_view_ver';
+
 	public static function view_name(): string {
 		global $wpdb;
 		return $wpdb->prefix . 'bizcity_brain_turns';
@@ -51,7 +58,7 @@ class BizCity_TwinBrain_Schema {
 
 		$evt = self::event_stream_table();
 		$prev = $wpdb->suppress_errors( true );
-		$exists = ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $evt ) ) === $evt );
+		$exists = bizcity_tbl_exists( $evt ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 		$wpdb->suppress_errors( $prev );
 		if ( ! $exists ) {
 			return;
@@ -102,6 +109,78 @@ class BizCity_TwinBrain_Schema {
 		delete_option( self::VIEW_VERSION_OPTION );
 	}
 
+	// ---- Brain Sessions VIEW (BS-1) -----------------------------------
+
+	public static function sessions_view_name(): string {
+		global $wpdb;
+		return $wpdb->prefix . 'bizcity_brain_sessions';
+	}
+
+	/**
+	 * [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-1 — Idempotent CREATE OR
+	 * REPLACE VIEW projection grouped by envelope.session_id. Per R-EVT-3
+	 * lifecycle (created/renamed/archived) is derived, never stored as a
+	 * column. Title + latest mood NOT projected (LONGTEXT JSON kills VIEW
+	 * perf); REST handler enriches per-row.
+	 */
+	public static function ensure_sessions_view(): void {
+		if ( get_option( self::SESSIONS_VIEW_VERSION_OPTION ) === self::SESSIONS_VIEW_VERSION ) {
+			return;
+		}
+		global $wpdb;
+
+		$evt  = self::event_stream_table();
+		$prev = $wpdb->suppress_errors( true );
+		$exists = ( bizcity_tbl_exists( $evt ) ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+		if ( ! $exists ) {
+			$wpdb->suppress_errors( $prev );
+			return;
+		}
+
+		$view = self::sessions_view_name();
+		$sql  = "CREATE OR REPLACE VIEW {$view} AS
+			SELECT
+				session_id,
+				MIN(blog_id)                                                                       AS blog_id,
+				MIN(user_id)                                                                       AS user_id,
+				MIN(created_at)                                                                    AS started_at,
+				MAX(created_at)                                                                    AS last_activity_at,
+				CAST(MAX(created_epoch_ms) - MIN(created_epoch_ms) AS SIGNED)                      AS duration_ms,
+				SUM(CASE WHEN event_type = 'user_message'                THEN 1 ELSE 0 END)        AS turn_count,
+				SUM(CASE WHEN event_type = 'assistant_message'           THEN 1 ELSE 0 END)        AS assistant_count,
+				COUNT(*)                                                                           AS k_total_events,
+				MAX(CASE WHEN event_type = 'brain_session_created'       THEN 1 ELSE 0 END)        AS has_created,
+				MAX(CASE WHEN event_type = 'brain_session_archived'      THEN 1 ELSE 0 END)        AS has_archived,
+				MAX(CASE WHEN event_type = 'brain_session_renamed'       THEN 1 ELSE 0 END)        AS has_renamed,
+				MAX(CASE WHEN event_type = 'brain_session_mood_sampled'  THEN 1 ELSE 0 END)        AS has_mood,
+				MAX(CASE WHEN event_type = 'brain_session_carry_forward' THEN 1 ELSE 0 END)        AS has_carry_forward
+			FROM {$evt}
+			WHERE session_id IS NOT NULL AND session_id <> ''
+			GROUP BY session_id";
+
+		$ok  = $wpdb->query( $sql );
+		$err = $wpdb->last_error;
+		$wpdb->suppress_errors( $prev );
+
+		if ( false === $ok ) {
+			error_log( '[TwinBrain][Schema] sessions VIEW create failed: ' . $err );
+			return;
+		}
+		update_option( self::SESSIONS_VIEW_VERSION_OPTION, self::SESSIONS_VIEW_VERSION );
+	}
+
+	/**
+	 * [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-1 — drop sessions VIEW.
+	 */
+	public static function drop_sessions_view(): void {
+		global $wpdb;
+		$view = self::sessions_view_name();
+		$prev = $wpdb->suppress_errors( true );
+		$wpdb->query( "DROP VIEW IF EXISTS {$view}" );
+		$wpdb->suppress_errors( $prev );
+		delete_option( self::SESSIONS_VIEW_VERSION_OPTION );
+	}
+
 	/**
 	 * Sprint TBR.4 / Notebook_Selector cosine — extend `kg_notebooks` with the
 	 * 7 perspective columns + supporting index. Per-blog idempotent: each
@@ -135,7 +214,7 @@ class BizCity_TwinBrain_Schema {
 
 		$prev = $wpdb->suppress_errors( true );
 		// Bail if the parent table itself doesn't exist on this blog yet.
-		$exists = ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl ) ) === $tbl );
+		$exists = ( bizcity_tbl_exists( $tbl ) ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 		if ( ! $exists ) {
 			$wpdb->suppress_errors( $prev );
 			return;

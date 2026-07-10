@@ -1,0 +1,95 @@
+{
+  "$schema": "https://bizcity.vn/schema/diagnostics-changelog-v1.json",
+  "module_id": "core.membership",
+  "owner": "core/membership",
+  "installer_id": "membership",
+  "current_version": "1.2.0",
+  "version_option": "bizcity_membership_db_version",
+  "tables": {
+    "bizcity_member_subscriptions": {
+      "since": "1.0.0",
+      "purpose": "One row per user subscription to a local membership plan. Source of truth for plan_for_user() resolution (active + not expired). Populated by PayPal webhook, admin manual assign, or WooCommerce/PMS bridge.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":                     { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",                "since": "1.0.0", "pk": true },
+        "user_id":                { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",                     "since": "1.0.0" },
+        "plan_slug":              { "type": "VARCHAR(64) NOT NULL DEFAULT ''",                        "since": "1.0.0" },
+        "status":                 { "type": "VARCHAR(32) NOT NULL DEFAULT 'pending'",                 "since": "1.0.0" },
+        "start_date":             { "type": "DATETIME NULL DEFAULT NULL",                             "since": "1.0.0" },
+        "expiration_date":        { "type": "DATETIME NULL DEFAULT NULL",                             "since": "1.0.0" },
+        "paypal_subscription_id": { "type": "VARCHAR(64) NOT NULL DEFAULT ''",                        "since": "1.0.0" },
+        "source":                 { "type": "VARCHAR(32) NOT NULL DEFAULT 'admin'",                   "since": "1.0.0" },
+        "created_at":             { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",            "since": "1.0.0" },
+        "updated_at":             { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", "since": "1.0.0" }
+      },
+      "indexes": {
+        "idx_user":   { "cols": ["user_id"],   "since": "1.0.0" },
+        "idx_status": { "cols": ["status"],    "since": "1.0.0" },
+        "idx_plan":   { "cols": ["plan_slug"], "since": "1.0.0" }
+      }
+    },
+    "bizcity_member_usage": {
+      "since": "1.1.0",
+      "purpose": "Per-user, per-day, per-feature request counter (chat | image | kg | ...). Source of truth for the membership Usage gate (can/incr/remaining). Resets daily by UTC date column, mirroring bizcity_kg_usage_log.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":      { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.1.0", "pk": true },
+        "user_id": { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",      "since": "1.1.0" },
+        "day":     { "type": "DATE NOT NULL",                          "since": "1.1.0" },
+        "feature": { "type": "VARCHAR(32) NOT NULL DEFAULT ''",        "since": "1.1.0" },
+        "count":   { "type": "INT UNSIGNED NOT NULL DEFAULT 0",        "since": "1.1.0" }
+      },
+      "indexes": {
+        "user_day_feature": { "cols": ["user_id", "day", "feature"], "unique": true, "since": "1.1.0" }
+      }
+    },
+    "bizcity_member_payments": {
+      "since": "1.2.0",
+      "purpose": "Immutable ledger of one-time PayPal payments captured locally (client-side membership revenue, NOT hub LLM credit). Each captured PayPal order writes exactly one row; transaction_id is unique to guarantee webhook idempotency. Drives the admin Payments list + revenue totals.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":              { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",                 "since": "1.2.0", "pk": true },
+        "user_id":         { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",                      "since": "1.2.0" },
+        "subscription_id": { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",                      "since": "1.2.0" },
+        "plan_slug":       { "type": "VARCHAR(64) NOT NULL DEFAULT ''",                         "since": "1.2.0" },
+        "status":          { "type": "VARCHAR(32) NOT NULL DEFAULT 'pending'",                  "since": "1.2.0" },
+        "amount":          { "type": "DECIMAL(10,2) NOT NULL DEFAULT 0.00",                     "since": "1.2.0" },
+        "currency":        { "type": "VARCHAR(8) NOT NULL DEFAULT 'USD'",                       "since": "1.2.0" },
+        "gateway":         { "type": "VARCHAR(32) NOT NULL DEFAULT 'paypal'",                   "since": "1.2.0" },
+        "transaction_id":  { "type": "VARCHAR(128) NOT NULL DEFAULT ''",                        "since": "1.2.0" },
+        "payer_email":     { "type": "VARCHAR(190) NOT NULL DEFAULT ''",                        "since": "1.2.0" },
+        "paid_at":         { "type": "DATETIME NULL DEFAULT NULL",                              "since": "1.2.0" },
+        "meta":            { "type": "LONGTEXT NULL",                                           "since": "1.2.0" },
+        "created_at":      { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",             "since": "1.2.0" }
+      },
+      "indexes": {
+        "uq_transaction": { "cols": ["transaction_id"], "unique": true, "since": "1.2.0" },
+        "idx_user":       { "cols": ["user_id"],        "since": "1.2.0" },
+        "idx_status":     { "cols": ["status"],         "since": "1.2.0" }
+      }
+    }
+  },
+  "history": [
+    {
+      "version": "1.0.0",
+      "date": "2026-06-04",
+      "change": "M1 — create bizcity_member_subscriptions (assignment + lifecycle). Plan registry stored in option bizcity_membership_plans. Payments + usage tables to follow in M3/M4."
+    },
+    {
+      "version": "1.1.0",
+      "date": "2026-06-04",
+      "change": "M3 — create bizcity_member_usage (per-user per-day per-feature request counter) for the Usage gate. Daily reset via day DATE (UTC)."
+    },
+    {
+      "version": "1.2.0",
+      "date": "2026-06-04",
+      "change": "M4 — create bizcity_member_payments (one-time PayPal capture ledger). transaction_id UNIQUE for webhook idempotency. Local membership revenue, distinct from hub LLM credit (R-GW-8)."
+    }
+  ]
+}

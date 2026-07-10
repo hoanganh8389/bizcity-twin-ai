@@ -23,6 +23,12 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 
 require_once dirname( __DIR__ ) . '/interface-diagnostics-probe.php';
 
+
+// [2026-06-08 Johnny Chu] HOTFIX — double-load guard (bootstrap may include via filter AND direct require).
+if ( class_exists( 'BizCity_Probe_TwinBrain_Memory_Recall', false ) ) {
+	return;
+}
+
 final class BizCity_Probe_TwinBrain_Memory_Recall implements BizCity_Diagnostics_Probe {
 
 	const PROBE_TOKEN  = '__healthtest_recall_token_zebra47';

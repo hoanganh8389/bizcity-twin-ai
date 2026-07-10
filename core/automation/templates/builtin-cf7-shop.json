@@ -1,0 +1,137 @@
+[
+  {
+    "slug": "tpl_cf7_ebook_autoresponder_v1",
+    "name": "[CF7] Tự gửi ebook khi khách điền form (SMTP + CRM)",
+    "description": "Khách điền Contact Form 7 → kiểm tra có email → gửi ebook đính kèm qua SMTP (cấu hình trong Channel Gateway) + ghi CRM lead_report. Staff điền attachment_url = URL file ebook từ WP Media sau khi import.",
+    "category": "lead", "source": "builtin", "trigger_type": "cf7_submit", "icon": "FileText",
+    "tags": "cf7,form,ebook,email,smtp,autoresponder,lead,no-ai", "trigger_config": { "form_id": 0, "filter_email": "" },
+    "graph": {
+      "meta": { "template": "tpl_cf7_ebook_autoresponder_v1" },
+      "nodes": [
+        { "id": "t1",        "type": "trigger",   "position": { "x": 0,   "y": 80  }, "data": { "blockId": "trigger.cf7_submit", "label": "CF7 · form submit", "form_id": 0, "filter_email": "" } },
+        { "id": "g1",        "type": "condition", "position": { "x": 320, "y": 80  }, "data": { "blockId": "logic.condition", "label": "Email có giá trị?", "expression": "trigger.email != ''" } },
+        { "id": "send_email","type": "action",    "position": { "x": 640, "y": 0   }, "data": { "blockId": "action.send_email", "label": "Gửi ebook qua email (SMTP)", "to": "{{trigger.email}}", "subject": "Ebook tặng bạn từ {{site.name}}", "body": "Xin chào {{trigger.name}},\n\nCảm ơn bạn đã quan tâm! Đây là ebook chúng tôi muốn tặng bạn theo yêu cầu.\n\nChúc bạn đọc vui! 🎁\n\n— {{site.name}}", "attachment_url": "" } },
+        { "id": "crm",       "type": "action",    "position": { "x": 960, "y": 0   }, "data": { "blockId": "action.create_crm_event", "label": "Ghi CRM lead (CF7)", "event_type": "lead_report", "title": "[CF7/ebook] {{trigger.name}} — {{trigger.email}}", "description": "Nguồn: CF7 form\nTên: {{trigger.name}}\nEmail: {{trigger.email}}\nSĐT: {{trigger.phone}}\nURL: {{trigger.source_url}}\nForm: {{trigger.form_title}}" } },
+        { "id": "log_ok",    "type": "action",    "position": { "x": 960, "y": 160 }, "data": { "blockId": "action.log", "label": "Log ebook gửi OK", "message": "[CF7 Ebook] OK — email={{trigger.email}} name={{trigger.name}} form={{trigger.form_title}}" } },
+        { "id": "log_skip",  "type": "action",    "position": { "x": 640, "y": 240 }, "data": { "blockId": "action.log", "label": "Bỏ qua (không có email)", "message": "[CF7 Ebook] Bỏ qua — không có email. Form: {{trigger.form_title}}" } }
+      ],
+      "edges": [
+        { "id": "e_t1_g1",             "source": "t1",        "target": "g1" },
+        { "id": "e_g1_send_true",       "source": "g1",        "target": "send_email", "sourceHandle": "true" },
+        { "id": "e_send_crm",           "source": "send_email","target": "crm" },
+        { "id": "e_crm_log_ok",         "source": "crm",       "target": "log_ok" },
+        { "id": "e_g1_log_skip_false",  "source": "g1",        "target": "log_skip", "sourceHandle": "false" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_deplao_keyword_chain_v1",
+    "name": "Keyword chain (giá/địa chỉ/giờ làm việc)",
+    "description": "Phân loại tin nhắn Zalo theo keyword bằng 3 lớp condition: giá → địa chỉ → giờ làm việc → default. Dùng cho cửa hàng nhỏ không cần AI.",
+    "category": "cskh", "source": "builtin", "trigger_type": "zalo_inbound", "icon": "MessageSquare",
+    "tags": "zalo,keyword,chain,no-ai", "trigger_config": { "instance_id": "", "filter": "", "is_fallback": false, "priority": 5 },
+    "graph": {
+      "meta": { "template": "tpl_deplao_keyword_chain_v1" },
+      "nodes": [
+        { "id": "t1",       "type": "trigger",   "position": { "x": 0,    "y": 140 }, "data": { "blockId": "trigger.zalo_inbound", "label": "Zalo · tin nhắn khách (mọi loại)", "instance_id": "", "filter": "" } },
+        { "id": "c_price",  "type": "condition", "position": { "x": 320,  "y": 140 }, "data": { "blockId": "logic.condition", "label": "Hỏi về giá?", "expression": "contains(trigger.text, 'giá')" } },
+        { "id": "r_price",  "type": "action",    "position": { "x": 640,  "y": 0   }, "data": { "blockId": "action.reply_zalo", "label": "Gửi bảng giá", "text": "Dạ bảng giá hiện tại của cửa hàng:\n• Sản phẩm A: 100.000đ\n• Sản phẩm B: 150.000đ\nAnh/chị inbox để được tư vấn thêm ạ!" } },
+        { "id": "c_addr",   "type": "condition", "position": { "x": 640,  "y": 180 }, "data": { "blockId": "logic.condition", "label": "Hỏi địa chỉ?", "expression": "contains(trigger.text, 'địa chỉ')" } },
+        { "id": "r_addr",   "type": "action",    "position": { "x": 960,  "y": 100 }, "data": { "blockId": "action.reply_zalo", "label": "Gửi địa chỉ", "text": "Dạ cửa hàng của chúng em ở: [Điền địa chỉ cửa hàng ở đây]. Google Maps: [link]\nMở cửa T2–CN, 8h–21h ạ!" } },
+        { "id": "c_hours",  "type": "condition", "position": { "x": 960,  "y": 260 }, "data": { "blockId": "logic.condition", "label": "Hỏi giờ làm việc?", "expression": "contains(trigger.text, 'giờ')" } },
+        { "id": "r_hours",  "type": "action",    "position": { "x": 1280, "y": 180 }, "data": { "blockId": "action.reply_zalo", "label": "Gửi giờ làm việc", "text": "Dạ cửa hàng mở cửa từ 8h–21h, Thứ 2 – Chủ nhật ạ! Anh/chị cứ ghé thoải mái." } },
+        { "id": "r_default","type": "action",    "position": { "x": 1280, "y": 340 }, "data": { "blockId": "action.reply_zalo", "label": "Trả lời mặc định", "text": "Dạ cảm ơn anh/chị đã nhắn! Để được hỗ trợ nhanh nhất, anh/chị vui lòng gọi hotline [số điện thoại] hoặc để lại tên và SĐT để nhân viên tư vấn ạ." } }
+      ],
+      "edges": [
+        { "id": "e_t1_c_price",      "source": "t1",      "target": "c_price" },
+        { "id": "e_c_price_r_true",  "source": "c_price", "target": "r_price",   "sourceHandle": "true" },
+        { "id": "e_c_price_c_addr",  "source": "c_price", "target": "c_addr",    "sourceHandle": "false" },
+        { "id": "e_c_addr_r_true",   "source": "c_addr",  "target": "r_addr",    "sourceHandle": "true" },
+        { "id": "e_c_addr_c_hours",  "source": "c_addr",  "target": "c_hours",   "sourceHandle": "false" },
+        { "id": "e_c_hours_r_true",  "source": "c_hours", "target": "r_hours",   "sourceHandle": "true" },
+        { "id": "e_c_hours_default", "source": "c_hours", "target": "r_default", "sourceHandle": "false" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_deplao_lead_collect_v1",
+    "name": "Thu thập lead tư vấn Zalo",
+    "description": "Keyword \"tư vấn\" → hỏi thông tin (tên, SĐT, nhu cầu) + ghi ngay CRM event lead_report → sales nhận trong Inbox để follow-up.",
+    "category": "lead", "source": "builtin", "trigger_type": "zalo_inbound", "icon": "UserPlus",
+    "tags": "zalo,lead,crm,no-ai", "trigger_config": { "instance_id": "", "filter": "tư vấn", "is_fallback": false, "priority": 8 },
+    "graph": {
+      "meta": { "template": "tpl_deplao_lead_collect_v1" },
+      "nodes": [
+        { "id": "t1",   "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.zalo_inbound", "label": "Zalo · keyword \"tư vấn\"", "instance_id": "", "filter": "tư vấn" } },
+        { "id": "reply","type": "action",  "position": { "x": 320, "y": 80 }, "data": { "blockId": "action.reply_zalo", "label": "Hỏi thông tin lead", "text": "Dạ cảm ơn anh/chị đã quan tâm! Anh/chị vui lòng cho em biết:\n1️⃣ Tên anh/chị?\n2️⃣ Số điện thoại?\n3️⃣ Anh/chị cần tư vấn về sản phẩm/dịch vụ nào?\n\nNhân viên sẽ liên hệ trong 15 phút ạ!" } },
+        { "id": "lead", "type": "action",  "position": { "x": 640, "y": 80 }, "data": { "blockId": "action.create_crm_event", "label": "Ghi CRM lead (tư vấn)", "event_type": "lead_report", "title": "[lead/tư vấn] {{trigger.text}}", "description": "Chat: {{trigger.chat_id}}\nMessage: {{trigger.text}}\nPlatform: Zalo OA" } }
+      ],
+      "edges": [
+        { "id": "e_t1_reply", "source": "t1", "target": "reply" }, { "id": "e_reply_lead", "source": "reply", "target": "lead" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_deplao_fb_comment_lead_v1",
+    "name": "Facebook Comment → Lead capture",
+    "description": "Có comment mới trên FB Page → kiểm tra comment rỗng → ghi CRM lead_report + log ngay lập tức. Comment rỗng (reaction chỉ) → log skip.",
+    "category": "lead", "source": "builtin", "trigger_type": "fb_comment", "icon": "Facebook",
+    "tags": "facebook,comment,lead,crm,no-ai", "trigger_config": { "instance_id": "", "filter": "" },
+    "graph": {
+      "meta": { "template": "tpl_deplao_fb_comment_lead_v1" },
+      "nodes": [
+        { "id": "t1",   "type": "trigger",   "position": { "x": 0,   "y": 80  }, "data": { "blockId": "trigger.fb_comment", "label": "FB · comment mới", "instance_id": "", "filter": "" } },
+        { "id": "g1",   "type": "condition", "position": { "x": 320, "y": 80  }, "data": { "blockId": "logic.condition", "label": "Có text comment?", "expression": "trigger.comment != ''" } },
+        { "id": "lead", "type": "action",    "position": { "x": 640, "y": 0   }, "data": { "blockId": "action.create_crm_event", "label": "Ghi CRM lead (FB comment)", "event_type": "lead_report", "title": "[FB comment] {{trigger.comment}}", "description": "Nguồn: Facebook Comment\nComment: {{trigger.comment}}\nPost: {{trigger.post_id}}\nUser: {{trigger.sender_id}}" } },
+        { "id": "log",  "type": "action",    "position": { "x": 960, "y": 0   }, "data": { "blockId": "action.log", "label": "Log comment OK", "message": "[FB Lead] OK — comment={{trigger.comment}} post={{trigger.post_id}}" } },
+        { "id": "skip", "type": "action",    "position": { "x": 640, "y": 200 }, "data": { "blockId": "action.log", "label": "Log skip (comment rỗng)", "message": "[FB Lead] Skip — empty comment. Post: {{trigger.post_id}}" } }
+      ],
+      "edges": [
+        { "id": "e_t1_g1",          "source": "t1",   "target": "g1" },
+        { "id": "e_g1_lead_true",   "source": "g1",   "target": "lead", "sourceHandle": "true" },
+        { "id": "e_g1_skip_false",  "source": "g1",   "target": "skip", "sourceHandle": "false" },
+        { "id": "e_lead_log",       "source": "lead", "target": "log" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_deplao_out_of_hours_v1",
+    "name": "Ngoài giờ làm việc — trả lời tự động",
+    "description": "Fallback cuối cùng (priority=1) cho mọi tin Zalo không match workflow nào. Gửi tin nhắn ngoài giờ làm việc. Thường kết hợp với time-based condition để kiểm soát khung giờ.",
+    "category": "cskh", "source": "builtin", "trigger_type": "zalo_inbound", "icon": "MoonStar",
+    "tags": "zalo,fallback,out-of-hours,no-ai", "trigger_config": { "instance_id": "", "filter": "", "is_fallback": true, "priority": 1 },
+    "graph": {
+      "meta": { "template": "tpl_deplao_out_of_hours_v1" },
+      "nodes": [
+        { "id": "t1",    "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.zalo_inbound", "label": "Zalo · fallback (ngoài giờ)", "instance_id": "", "filter": "" } },
+        { "id": "reply", "type": "action",  "position": { "x": 320, "y": 80 }, "data": { "blockId": "action.reply_zalo", "label": "Tin nhắn ngoài giờ", "text": "Cảm ơn anh/chị đã nhắn tin!\n\n⏰ Hiện tại đã ngoài giờ làm việc (8h–21h, T2–CN).\n\nChúng tôi sẽ phản hồi vào sáng hôm sau. Hoặc anh/chị có thể gọi ngay: [hotline] để được hỗ trợ khẩn cấp.\n\nXin lỗi vì sự bất tiện!" } }
+      ],
+      "edges": [
+        { "id": "e_t1_reply", "source": "t1", "target": "reply" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_deplao_order_confirm_v1",
+    "name": "Webhook thanh toán thành công → Xác nhận đơn hàng",
+    "description": "Webhook payment_success → kiểm tra amount > 0 → ghi CRM order + log. Amount = 0 hoặc không có → log skip.",
+    "category": "webhook", "source": "builtin", "trigger_type": "webhook", "icon": "ShoppingCart",
+    "tags": "webhook,payment,crm,no-ai", "trigger_config": { "slug": "payment_success", "secret": "" },
+    "graph": {
+      "meta": { "template": "tpl_deplao_order_confirm_v1" },
+      "nodes": [
+        { "id": "t1",       "type": "trigger",   "position": { "x": 0,   "y": 80  }, "data": { "blockId": "trigger.webhook", "label": "Webhook · payment_success", "slug": "payment_success", "secret": "" } },
+        { "id": "g1",       "type": "condition", "position": { "x": 320, "y": 80  }, "data": { "blockId": "logic.condition", "label": "Số tiền hợp lệ?", "expression": "trigger.payload.amount > 0" } },
+        { "id": "crm",      "type": "action",    "position": { "x": 640, "y": 0   }, "data": { "blockId": "action.create_crm_event", "label": "Ghi CRM order confirm", "event_type": "order_new", "title": "[order] Thanh toán #{{trigger.payload.order_id}} — {{trigger.payload.amount}}", "description": "Order: {{trigger.payload.order_id}}\nAmount: {{trigger.payload.amount}}\nCustomer: {{trigger.payload.customer_name}}\nEmail: {{trigger.payload.email}}" } },
+        { "id": "log_ok",   "type": "action",    "position": { "x": 960, "y": 0   }, "data": { "blockId": "action.log", "label": "Log OK", "message": "[Order] OK — order={{trigger.payload.order_id}} amount={{trigger.payload.amount}}" } },
+        { "id": "log_skip", "type": "action",    "position": { "x": 640, "y": 200 }, "data": { "blockId": "action.log", "label": "Log skip (amount=0)", "message": "[Order] Skip — amount không hợp lệ. Payload: {{trigger.payload}}" } }
+      ],
+      "edges": [
+        { "id": "e_t1_g1",          "source": "t1",  "target": "g1" },
+        { "id": "e_g1_crm_true",    "source": "g1",  "target": "crm",      "sourceHandle": "true" },
+        { "id": "e_g1_skip_false",  "source": "g1",  "target": "log_skip", "sourceHandle": "false" },
+        { "id": "e_crm_log_ok",     "source": "crm", "target": "log_ok" }
+      ]
+    }
+  }
+]

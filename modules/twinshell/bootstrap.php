@@ -21,9 +21,7 @@ if ( ! defined( 'BIZCITY_TWIN_SHELL_URL' ) ) {
 	define( 'BIZCITY_TWIN_SHELL_URL', plugin_dir_url( __FILE__ ) );
 }
 if ( ! defined( 'BIZCITY_TWIN_SHELL_VERSION' ) ) {
-	// DEV: dùng time() để invalidate cache asset (CSS/JS) mỗi request, đỡ phải bump version thủ công.
-	// TODO(prod): khi release chính thức, đổi lại thành chuỗi version cố định, ví dụ '0.13.38'.
-	define( 'BIZCITY_TWIN_SHELL_VERSION', '1.5.1' . (string) time() );
+	define( 'BIZCITY_TWIN_SHELL_VERSION', '0.13.38' );
 }
 
 require_once BIZCITY_TWIN_SHELL_DIR . 'includes/class-twin-shell-registry.php';
@@ -62,14 +60,7 @@ BizCity_Twin_Shell_Learning_Page::instance()->register();
 // Auto-inject bridge JS into any page whose URL matches a registered plugin slug.
 BizCity_Twin_Shell_Bridge::instance()->register();
 
-// One-time rewrite flush — covers /twin/ and /learning-hub/.
-add_action( 'admin_init', static function () {
-	if ( ! get_option( BizCity_Twin_Shell_Page::OPTION_KEY ) ) {
-		flush_rewrite_rules( false );
-		update_option( BizCity_Twin_Shell_Page::OPTION_KEY, 1 );
-	}
-	if ( ! get_option( BizCity_Twin_Shell_Learning_Page::OPTION_KEY ) ) {
-		flush_rewrite_rules( false );
-		update_option( BizCity_Twin_Shell_Learning_Page::OPTION_KEY, 1 );
-	}
-} );
+// [2026-06-09 Johnny Chu] R-CR — migrated to Central Rewrite Flush Registry.
+// [2026-06-26 Johnny Chu] R-PERF — removed legacy admin_init guards (2× non-autoloaded
+// get_option per admin request). Registry handles version-based flush at admin_init:1.
+BizCity_Rewrite_Flush_Registry::register( 'twinshell', BIZCITY_TWIN_SHELL_VERSION );

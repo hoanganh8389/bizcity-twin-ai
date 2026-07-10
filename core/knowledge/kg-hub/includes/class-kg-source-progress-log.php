@@ -60,7 +60,8 @@ class BizCity_KG_Source_Progress_Log {
 		$table = self::table();
 
 		// Version mismatch — check physical existence to decide CREATE vs additive ALTER.
-		$table_exists = ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) === $table );
+		// [2026-06-21 Johnny Chu] R-SHOW-TABLES
+		$table_exists = bizcity_tbl_exists( $table );
 
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 		$cs = $wpdb->get_charset_collate();
@@ -88,7 +89,8 @@ class BizCity_KG_Source_Progress_Log {
 		// Post-verify: only mark cache + bump option when the table is actually
 		// present, so dbDelta silent failures retry on the next request instead
 		// of poisoning the request with insert errors forever.
-		$created = ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) === $table );
+		// [2026-06-21 Johnny Chu] R-SHOW-TABLES
+		$created = bizcity_tbl_exists( $table );
 		if ( ! $created ) {
 			error_log( '[KG Source Progress Log] dbDelta failed to create ' . $table
 			           . ' on blog ' . $blog_id . ' — will retry next request.' );

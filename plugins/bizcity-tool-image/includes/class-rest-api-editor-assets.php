@@ -1,4 +1,4 @@
- <?php
+<?php
 /**
  * REST API — Design Editor asset endpoints (shapes, frames, fonts, texts, images, suggestions).
  *

@@ -52,7 +52,6 @@ if ( ! function_exists( 'bizcity_default_installers_filter' ) ) {
 				'label'        => 'Intent (NLU registry)',
 				'callback'     => [ 'BizCity_Intent_Database', 'maybe_create_tables' ],
 				'version_opt'  => 'bizcity_intent_db_version',
-				'expected_ver' => '',
 			];
 		}
 		if ( class_exists( 'BizCity_Intent_Shadow_Diff_Installer' ) ) {
@@ -67,29 +66,32 @@ if ( ! function_exists( 'bizcity_default_installers_filter' ) ) {
 		// Memory uses lazy constructor: instance() → __construct() → maybe_create_tables().
 		if ( class_exists( 'BizCity_Memory_Database' ) ) {
 			$list[] = [
-				'id'       => 'memory',
-				'label'    => 'Memory (episodes/embeddings)',
-				'callback' => [ 'BizCity_Memory_Database', 'instance' ],
+				'id'           => 'memory',
+				'label'        => 'Memory (episodes/embeddings)',
+				'callback'     => [ 'BizCity_Memory_Database', 'instance' ],
+
 			];
 		}
 
 		// ── Research ──────────────────────────────────────────────────
 		if ( class_exists( 'BizCity_Research_DB' ) ) {
 			$list[] = [
-				'id'          => 'research',
-				'label'       => 'Research (jobs/sources/results)',
-				'callback'    => [ 'BizCity_Research_DB', 'install' ],
-				'version_opt' => 'bizcity_research_db_version',
+				'id'           => 'research',
+				'label'        => 'Research (jobs/sources/results)',
+				'callback'     => [ 'BizCity_Research_DB', 'install' ],
+				'version_opt'  => BizCity_Research_DB::VERSION_OPTION,
+
 			];
 		}
 
 		// ── Runtime (twin trace) ──────────────────────────────────────
 		if ( class_exists( 'BizCity_Twin_DB_Installer' ) ) {
 			$list[] = [
-				'id'          => 'runtime',
-				'label'       => 'Runtime (twin trace)',
-				'callback'    => [ 'BizCity_Twin_DB_Installer', 'maybe_install' ],
-				'version_opt' => 'bizcity_twin_db_version',
+				'id'           => 'runtime',
+				'label'        => 'Runtime (twin trace)',
+				'callback'     => [ 'BizCity_Twin_DB_Installer', 'maybe_install' ],
+				'version_opt'  => BizCity_Twin_DB_Installer::VERSION_OPTION,
+
 			];
 		}
 
@@ -143,28 +145,29 @@ if ( ! function_exists( 'bizcity_default_installers_filter' ) ) {
 		// ── Market ────────────────────────────────────────────────────
 		if ( class_exists( 'BizCity_Market_Install' ) ) {
 			$list[] = [
-				'id'          => 'market',
-				'label'       => 'Market (offers/leads)',
-				'callback'    => [ 'BizCity_Market_Install', 'maybe_install' ],
-				'version_opt' => 'bizcity_market_db_version',
+				'id'           => 'market',
+				'label'        => 'Market (offers/leads)',
+				'callback'     => [ 'BizCity_Market_Install', 'maybe_install' ],
+				'version_opt'  => 'bizcity_market_db_version',
+
 			];
 		}
 
 		// ── Skills (core/skills) ──────────────────────────────────────
 		if ( class_exists( 'BizCity_Skill_Database' ) ) {
 			$list[] = [
-				'id'          => 'skills',
-				'label'       => 'Skills (library/logs)',
-				'callback'    => [ 'BizCity_Skill_Database', 'maybe_create_tables' ],
-				'version_opt' => 'bizcity_skills_db_version',
+				'id'           => 'skills',
+				'label'        => 'Skills (library/logs)',
+				'callback'     => [ 'BizCity_Skill_Database', 'maybe_create_tables' ],
+				'version_opt'  => BizCity_Skill_Database::SCHEMA_VERSION_KEY,
 			];
 		}
 		if ( class_exists( 'BizCity_Skill_Tool_Map' ) ) {
 			$list[] = [
-				'id'          => 'skill_tool_map',
-				'label'       => 'Skills — Tool map',
-				'callback'    => [ 'BizCity_Skill_Tool_Map', 'maybe_create_tables' ],
-				'version_opt' => 'bizcity_skill_tool_map_db_version',
+				'id'           => 'skill_tool_map',
+				'label'        => 'Skills — Tool map',
+				'callback'     => [ 'BizCity_Skill_Tool_Map', 'maybe_create_tables' ],
+				'version_opt'  => BizCity_Skill_Tool_Map::SCHEMA_VERSION_KEY,
 			];
 		}
 
@@ -197,10 +200,10 @@ if ( ! function_exists( 'bizcity_default_installers_filter' ) ) {
 		// ── Twin core state ───────────────────────────────────────────
 		if ( class_exists( 'BizCity_Twin_State_Schema' ) ) {
 			$list[] = [
-				'id'          => 'twin_state',
-				'label'       => 'Twin Core — State schema',
-				'callback'    => [ 'BizCity_Twin_State_Schema', 'maybe_install' ],
-				'version_opt' => 'bizcity_twin_state_db_ver',
+				'id'           => 'twin_state',
+				'label'        => 'Twin Core — State schema',
+				'callback'     => [ 'BizCity_Twin_State_Schema', 'maybe_install' ],
+				'version_opt'  => BizCity_Twin_State_Schema::DB_VERSION_OPTION,
 			];
 		}
 
@@ -219,29 +222,48 @@ if ( ! function_exists( 'bizcity_default_installers_filter' ) ) {
 			];
 		}
 
+		// ── TwinBrain Tools ───────────────────────────────────────────
+		// [2026-06-04 Johnny Chu] PHASE-A A.0 — register sheets installer so
+		// Site Provisioner creates bizcity_sheets + bizcity_sheet_cells on new
+		// shards (wp_initialize_site) and self-heals on admin_init.
+		if ( class_exists( 'BizCity_TwinBrain_Sheets_Installer' ) ) {
+			$list[] = [
+				'id'           => 'twinbrain_sheets',
+				'label'        => 'TwinBrain — Sheets (bizcity_sheets/sheet_cells)',
+				'callback'     => static function () {
+					if ( class_exists( 'BizCity_TwinBrain_Sheets_Installer' ) ) {
+						BizCity_TwinBrain_Sheets_Installer::instance()->install();
+					}
+				},
+				'version_opt'  => 'bizcity_twinbrain_sheets_db_ver',
+				'expected_ver' => '1.0.0',
+			];
+		}
+
 		// ── WebChat ───────────────────────────────────────────────────
 		if ( class_exists( 'BizCity_WebChat_Database' ) ) {
 			$list[] = [
-				'id'          => 'webchat',
-				'label'       => 'WebChat (sessions/messages)',
-				'callback'    => [ 'BizCity_WebChat_Database', 'ensure_tables_exist' ],
-				'version_opt' => 'bizcity_webchat_db_version',
+				'id'           => 'webchat',
+				'label'        => 'WebChat (sessions/messages)',
+				'callback'     => [ 'BizCity_WebChat_Database', 'ensure_tables_exist' ],
+				'version_opt'  => 'bizcity_webchat_db_version',
+
 			];
 		}
 
 		// ── Channel Gateway ───────────────────────────────────────────
 		if ( class_exists( 'BizCity_Channel_Messages' ) ) {
 			$list[] = [
-				'id'       => 'channel_messages',
-				'label'    => 'Channel Gateway — Messages',
-				'callback' => [ 'BizCity_Channel_Messages', 'maybe_install' ],
+				'id'           => 'channel_messages',
+				'label'        => 'Channel Gateway — Messages',
+				'callback'     => [ 'BizCity_Channel_Messages', 'maybe_install' ],
 			];
 		}
 		if ( class_exists( 'BizCity_Channel_Binding' ) ) {
 			$list[] = [
-				'id'       => 'channel_binding',
-				'label'    => 'Channel Gateway — Binding',
-				'callback' => [ 'BizCity_Channel_Binding', 'maybe_install' ],
+				'id'           => 'channel_binding',
+				'label'        => 'Channel Gateway — Binding',
+				'callback'     => [ 'BizCity_Channel_Binding', 'maybe_install' ],
 			];
 		}
 		if ( class_exists( 'BizCity_User_Resolver' ) ) {
@@ -273,9 +295,10 @@ if ( ! function_exists( 'bizcity_default_installers_filter' ) ) {
 		// ── Persona guru bridge ───────────────────────────────────────
 		if ( class_exists( 'BizCity_Guru_Bridge_Installer' ) ) {
 			$list[] = [
-				'id'       => 'persona_guru_bridge',
-				'label'    => 'Persona — Guru bridge',
-				'callback' => [ 'BizCity_Guru_Bridge_Installer', 'maybe_install' ],
+				'id'           => 'persona_guru_bridge',
+				'label'        => 'Persona — Guru bridge',
+				'callback'     => [ 'BizCity_Guru_Bridge_Installer', 'maybe_install' ],
+
 			];
 		}
 

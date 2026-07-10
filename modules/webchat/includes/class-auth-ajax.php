@@ -20,8 +20,14 @@ defined('ABSPATH') or die();
 class BizCity_WebChat_Auth_Ajax {
 
     public static function boot() {
-        add_action('wp_ajax_nopriv_bizcity_ajax_login',    [__CLASS__, 'handle_login']);
-        add_action('wp_ajax_nopriv_bizcity_ajax_register', [__CLASS__, 'handle_register']);
+        add_action('wp_ajax_nopriv_bizcity_ajax_login',           [__CLASS__, 'handle_login']);
+        add_action('wp_ajax_nopriv_bizcity_ajax_register',        [__CLASS__, 'handle_register']);
+        // [2026-06-04 Johnny Chu] PHASE-MEMBERSHIP FE-4 — forgot password AJAX handler
+        add_action('wp_ajax_nopriv_bizcity_ajax_forgot_password', [__CLASS__, 'handle_forgot_password']);
+        add_action('wp_ajax_bizcity_ajax_forgot_password',        [__CLASS__, 'handle_forgot_password']);
+        // [2026-06-04 Johnny Chu] PHASE-MEMBERSHIP BE-3A — change password + update profile AJAX handlers
+        add_action('wp_ajax_bizcity_ajax_change_password', [__CLASS__, 'handle_change_password']);
+        add_action('wp_ajax_bizcity_ajax_update_profile',  [__CLASS__, 'handle_update_profile']);
     }
 
     /**
@@ -110,5 +116,102 @@ class BizCity_WebChat_Auth_Ajax {
         do_action('woocommerce_created_customer', $user_id, [], $password);
 
         wp_send_json_success(['message' => 'OK', 'user_id' => $user_id]);
+    }
+
+    /**
+     * AJAX Forgot Password — send WP password-reset email.
+     *
+     * [2026-06-04 Johnny Chu] PHASE-MEMBERSHIP FE-4 — forgot password handler.
+     * Calls retrieve_password() (WP core) which sends the reset email.
+     * Registered for both nopriv (guests) and priv (logged-in) contexts.
+     *
+     * @return void Sends JSON and exits.
+     */
+    public static function handle_forgot_password() {
+        check_ajax_referer('bizcity_webchat', '_ajax_nonce');
+
+        $user_login = sanitize_text_field(wp_unslash($_POST['user_login'] ?? ''));
+        if (empty($user_login)) {
+            wp_send_json_error(['message' => 'Vui lòng nhập email hoặc tên đăng nhập.']);
+        }
+
+        $result = retrieve_password($user_login);
+        if (is_wp_error($result)) {
+            $msg = wp_strip_all_tags($result->get_error_message());
+            wp_send_json_error(['message' => $msg ?: 'Không thể gửi email đặt lại mật khẩu.']);
+        }
+
+        wp_send_json_success(['message' => 'OK']);
+    }
+
+    /**
+     * AJAX change password — verified via current password before updating.
+     */
+    public static function handle_change_password() {
+        // [2026-06-04 Johnny Chu] PHASE-MEMBERSHIP BE-3A — change password handler
+        check_ajax_referer('bizcity_webchat', '_ajax_nonce');
+
+        if (!is_user_logged_in()) {
+            wp_send_json_error(['message' => 'Bạn chưa đăng nhập.']);
+        }
+
+        $current_pass = isset($_POST['current_pass']) ? $_POST['current_pass'] : '';
+        $new_pass     = sanitize_text_field(wp_unslash(isset($_POST['new_pass']) ? $_POST['new_pass'] : ''));
+
+        if (strlen($new_pass) < 8) {
+            wp_send_json_error(['message' => 'Mật khẩu mới phải có ít nhất 8 ký tự.']);
+        }
+
+        $user = wp_get_current_user();
+        if (!wp_check_password($current_pass, $user->user_pass, $user->ID)) {
+            wp_send_json_error(['message' => 'Mật khẩu hiện tại không đúng.']);
+        }
+
+        wp_set_password($new_pass, $user->ID);
+        wp_send_json_success(['message' => 'OK']);
+    }
+
+    /**
+     * AJAX update display name, first/last name, phone, bio.
+     */
+    public static function handle_update_profile() {
+        // [2026-06-05 Johnny Chu] PHASE-MEMBERSHIP BE-3A — extend profile: first_name/last_name/phone/bio
+        check_ajax_referer('bizcity_webchat', '_ajax_nonce');
+
+        if (!is_user_logged_in()) {
+            wp_send_json_error(['message' => 'Bạn chưa đăng nhập.']);
+        }
+
+        $uid          = get_current_user_id();
+        $display_name = sanitize_text_field(wp_unslash(isset($_POST['display_name']) ? $_POST['display_name'] : ''));
+        $first_name   = sanitize_text_field(wp_unslash(isset($_POST['first_name'])   ? $_POST['first_name']   : ''));
+        $last_name    = sanitize_text_field(wp_unslash(isset($_POST['last_name'])    ? $_POST['last_name']    : ''));
+        $phone        = sanitize_text_field(wp_unslash(isset($_POST['phone'])        ? $_POST['phone']        : ''));
+        $bio          = sanitize_textarea_field(wp_unslash(isset($_POST['bio'])      ? $_POST['bio']          : ''));
+
+        if (empty($display_name)) {
+            wp_send_json_error(['message' => 'Tên hiển thị không được để trống.']);
+        }
+
+        $user_data = ['ID' => $uid, 'display_name' => $display_name];
+        if ($first_name !== '') $user_data['first_name']   = $first_name;
+        if ($last_name  !== '') $user_data['last_name']    = $last_name;
+        if ($bio        !== '') $user_data['description']  = $bio;
+
+        $result = wp_update_user($user_data);
+
+        if (is_wp_error($result)) {
+            $msg = wp_strip_all_tags($result->get_error_message());
+            wp_send_json_error(['message' => $msg ? $msg : 'Không thể lưu thay đổi.']);
+        }
+
+        // Save phone to usermeta (+ WooCommerce billing_phone compat)
+        update_user_meta($uid, 'phone', $phone);
+        update_user_meta($uid, 'billing_phone', $phone);
+        // Also sync first/last if sent
+        if ($first_name !== '') update_user_meta($uid, 'first_name', $first_name);
+        if ($last_name  !== '') update_user_meta($uid, 'last_name',  $last_name);
+
+        wp_send_json_success(['message' => 'OK']);
     }
 }

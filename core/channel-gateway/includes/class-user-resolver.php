@@ -96,9 +96,19 @@ class BizCity_User_Resolver {
 		$table = $db->base_prefix . 'global_user_admin';
 
 		// Check table exists (once per request)
+		// [2026-06-22 Johnny Chu] R-SHOW-TABLES — use information_schema + dual cache
 		static $table_exists = null;
 		if ( null === $table_exists ) {
-			$table_exists = $db->get_var( "SHOW TABLES LIKE '{$table}'" ) === $table;
+			$ck           = 'bz_tbl_' . (int) get_current_blog_id() . '_' . crc32( $table );
+			$cached       = wp_cache_get( $ck, 'bizcity_tbl' );
+			if ( false === $cached ) {
+				$cached = (int) (bool) $db->get_var( $db->prepare(
+					'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+					$table
+				) );
+				wp_cache_set( $ck, $cached, 'bizcity_tbl', HOUR_IN_SECONDS );
+			}
+			$table_exists = (bool) $cached;
 		}
 		if ( ! $table_exists ) {
 			return 0;

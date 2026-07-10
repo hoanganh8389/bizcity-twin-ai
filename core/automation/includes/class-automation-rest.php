@@ -80,6 +80,14 @@ final class BizCity_Automation_REST {
 			'permission_callback' => array( __CLASS__, 'admin_only' ),
 		) );
 
+		// [2026-06-20 Johnny Chu] PHASE-TWB-WORKFLOW W5 — Brain-mode skill validator.
+		// GET /workflows/{id}/validate-skill → {valid, slug, checks{}, issues[], score}
+		register_rest_route( self::NS, '/workflows/(?P<id>\d+)/validate-skill', array(
+			'methods'             => WP_REST_Server::READABLE,
+			'callback'            => array( __CLASS__, 'validate_skill_mode' ),
+			'permission_callback' => array( __CLASS__, 'admin_only' ),
+		) );
+
 		// PG-S9-fix v6 — Per-workflow JSONL file log (debug aid).
 		register_rest_route( self::NS, '/workflows/(?P<id>\d+)/file-log', array(
 			array(
@@ -115,6 +123,17 @@ final class BizCity_Automation_REST {
 			'methods'             => WP_REST_Server::CREATABLE,
 			'callback'            => array( __CLASS__, 'generate_ad_image' ),
 			'permission_callback' => array( __CLASS__, 'admin_only' ),
+		) );
+
+		// [2026-06-13 Johnny Chu] PHASE-0.40 G2.7 — AI Builder: prompt → workflow graph (nodes+edges)
+		register_rest_route( self::NS, '/ai-build', array(
+			'methods'             => WP_REST_Server::CREATABLE,
+			'callback'            => array( __CLASS__, 'ai_build_workflow' ),
+			'permission_callback' => array( __CLASS__, 'admin_only' ),
+			'args'                => array(
+				'prompt' => array( 'type' => 'string', 'required' => true, 'sanitize_callback' => 'sanitize_text_field' ),
+				'lang'   => array( 'type' => 'string', 'default' => 'vi' ),
+			),
 		) );
 
 		register_rest_route( self::NS, '/runs', array(
@@ -186,6 +205,15 @@ final class BizCity_Automation_REST {
 		register_rest_route( self::NS, '/channel-registry', array(
 			'methods'             => WP_REST_Server::READABLE,
 			'callback'            => array( __CLASS__, 'channel_registry' ),
+			'permission_callback' => array( __CLASS__, 'admin_only' ),
+		) );
+
+		// [2026-06-25 Johnny Chu] PHASE-REPLY-ZALO-FIX — Zalo user links picker.
+		// GET /bizcity-automation/v1/zalo-users?instance_id=<bot_id>
+		// Returns linked users for a specific Zalo Bot (for reply_zalo action field).
+		register_rest_route( self::NS, '/zalo-users', array(
+			'methods'             => WP_REST_Server::READABLE,
+			'callback'            => array( __CLASS__, 'zalo_users' ),
 			'permission_callback' => array( __CLASS__, 'admin_only' ),
 		) );
 
@@ -267,6 +295,20 @@ final class BizCity_Automation_REST {
 			'callback'            => array( __CLASS__, 'get_template' ),
 			'permission_callback' => array( __CLASS__, 'admin_only' ),
 		) );
+		// [2026-06-07 Johnny Chu] CRM-PATH-1 — CRM-safe template instantiate (zone=crm, category gate).
+		register_rest_route( self::NS, '/templates/(?P<id>\d+)/crm-instantiate', array(
+			'methods'             => WP_REST_Server::CREATABLE,
+			'callback'            => array( __CLASS__, 'crm_instantiate_template' ),
+			'permission_callback' => array( __CLASS__, 'crm_care_or_admin' ),
+		) );
+
+		// [2026-06-07 Johnny Chu] CRM-PATH-1 — bind recipe to Zone-1 channel.
+		register_rest_route( self::NS, '/workflows/(?P<id>\d+)/bind', array(
+			'methods'             => WP_REST_Server::CREATABLE,
+			'callback'            => array( __CLASS__, 'bind_workflow' ),
+			'permission_callback' => array( __CLASS__, 'crm_care_or_admin' ),
+		) );
+
 		register_rest_route( self::NS, '/templates/(?P<id>\d+)/instantiate', array(
 			'methods'             => WP_REST_Server::CREATABLE,
 			'callback'            => array( __CLASS__, 'instantiate_template' ),
@@ -282,6 +324,73 @@ final class BizCity_Automation_REST {
 			'callback'            => array( __CLASS__, 'reseed_templates' ),
 			'permission_callback' => array( __CLASS__, 'admin_only' ),
 		) );
+
+		// [2026-06-03 Johnny Chu] WF-AUTO W6 — Canvas import/export (.workflow.md round-trip).
+		register_rest_route( self::NS, '/workflows/(?P<id>\d+)/export-md', array(
+			'methods'             => WP_REST_Server::READABLE,
+			'callback'            => array( __CLASS__, 'export_workflow_md' ),
+			'permission_callback' => array( __CLASS__, 'admin_only' ),
+		) );
+		register_rest_route( self::NS, '/workflows/import-md', array(
+			'methods'             => WP_REST_Server::CREATABLE,
+			'callback'            => array( __CLASS__, 'import_workflow_md' ),
+			'permission_callback' => array( __CLASS__, 'admin_only' ),
+		) );
+
+		// [2026-06-03 Johnny Chu] WF-AUTO W7 — Community gallery (GitHub raw fetch read-only PoC).
+		register_rest_route( self::NS, '/community/workflows', array(
+			'methods'             => WP_REST_Server::READABLE,
+			'callback'            => array( __CLASS__, 'community_list' ),
+			'permission_callback' => array( __CLASS__, 'admin_only' ),
+		) );
+		register_rest_route( self::NS, '/community/workflow', array(
+			'methods'             => WP_REST_Server::READABLE,
+			'callback'            => array( __CLASS__, 'community_preview' ),
+			'permission_callback' => array( __CLASS__, 'admin_only' ),
+		) );
+		register_rest_route( self::NS, '/community/workflows/import', array(
+			'methods'             => WP_REST_Server::CREATABLE,
+			'callback'            => array( __CLASS__, 'community_import' ),
+			'permission_callback' => array( __CLASS__, 'admin_only' ),
+		) );
+
+		// [2026-06-16 Johnny Chu] PHASE-ATH W2 — Hub template library proxy (Branch #17 stub).
+		// browse — GET /hub-templates?category=&plan=&search=&page=&per_page=
+		register_rest_route( self::NS, '/hub-templates', array(
+			'methods'             => WP_REST_Server::READABLE,
+			'callback'            => array( __CLASS__, 'hub_templates_browse' ),
+			'permission_callback' => array( __CLASS__, 'admin_only' ),
+		) );
+		// categories — GET /hub-templates/categories
+		register_rest_route( self::NS, '/hub-templates/categories', array(
+			'methods'             => WP_REST_Server::READABLE,
+			'callback'            => array( __CLASS__, 'hub_templates_categories' ),
+			'permission_callback' => array( __CLASS__, 'admin_only' ),
+		) );
+		// submit — POST /hub-templates/submit  body { template_id, description?, tags? }
+		register_rest_route( self::NS, '/hub-templates/submit', array(
+			'methods'             => WP_REST_Server::CREATABLE,
+			'callback'            => array( __CLASS__, 'hub_templates_submit' ),
+			'permission_callback' => array( __CLASS__, 'admin_only' ),
+		) );
+		// detail — GET /hub-templates/{id}
+		register_rest_route( self::NS, '/hub-templates/(?P<id>\d+)', array(
+			'methods'             => WP_REST_Server::READABLE,
+			'callback'            => array( __CLASS__, 'hub_templates_get' ),
+			'permission_callback' => array( __CLASS__, 'admin_only' ),
+			'args'                => array(
+				'id' => array( 'required' => true, 'sanitize_callback' => 'absint' ),
+			),
+		) );
+		// import — POST /hub-templates/{id}/import  body { name? }
+		register_rest_route( self::NS, '/hub-templates/(?P<id>\d+)/import', array(
+			'methods'             => WP_REST_Server::CREATABLE,
+			'callback'            => array( __CLASS__, 'hub_templates_import' ),
+			'permission_callback' => array( __CLASS__, 'admin_only' ),
+			'args'                => array(
+				'id' => array( 'required' => true, 'sanitize_callback' => 'absint' ),
+			),
+		) );
 	}
 
 	// ─── Permission helper ───────────────────────────────────────────────
@@ -289,8 +398,18 @@ final class BizCity_Automation_REST {
 		return current_user_can( 'manage_options' );
 	}
 
+	// [2026-06-07 Johnny Chu] CRM-PATH-1 — CRM-care OR admin (Path B routes).
+	public static function crm_care_or_admin(): bool {
+		return current_user_can( 'manage_options' ) || current_user_can( 'bizcity_crm_manage' );
+	}
+
 	// ─── Workflow handlers ───────────────────────────────────────────────
 	public static function list_workflows( WP_REST_Request $req ): WP_REST_Response {
+		// [2026-06-07 Johnny Chu] CRM-PATH-1 — zone scope: CRM-only users see zone=crm only.
+		$zone = (string) ( $req->get_param( 'zone' ) ?: '' );
+		if ( ! current_user_can( 'manage_options' ) && current_user_can( 'bizcity_crm_manage' ) ) {
+			$zone = 'crm';
+		}
 		$out = BizCity_Automation_Repo_Workflows::query( array(
 			'enabled'      => $req->get_param( 'enabled' ),
 			'trigger_type' => $req->get_param( 'trigger_type' ),
@@ -298,6 +417,7 @@ final class BizCity_Automation_REST {
 			'search'       => $req->get_param( 'search' ),
 			'limit'        => $req->get_param( 'limit' ),
 			'offset'       => $req->get_param( 'offset' ),
+			'zone'         => $zone !== '' ? $zone : null,
 		) );
 		return new WP_REST_Response( array(
 			'ok'    => true,
@@ -307,7 +427,15 @@ final class BizCity_Automation_REST {
 	}
 
 	public static function create_workflow( WP_REST_Request $req ) {
-		$row = BizCity_Automation_Repo_Workflows::create( (array) $req->get_json_params() );
+		$body = (array) $req->get_json_params();
+		// [2026-06-03 Johnny Chu] WF-AUTO GURU W3 — G2 cross-tier slash collision.
+		$collision = self::check_slash_collision( $body, 0 );
+		if ( $collision ) { return $collision; }
+		$row = BizCity_Automation_Repo_Workflows::create( $body );
+		// [2026-06-14 Johnny Chu] AUTOMATION-CAL — sync crm_events after create
+		if ( is_array( $row ) && class_exists( 'BizCity_Automation_Schedule_Manager' ) ) {
+			BizCity_Automation_Schedule_Manager::instance()->sync_workflow_events( $row );
+		}
 		return self::respond( $row, 201 );
 	}
 
@@ -318,8 +446,47 @@ final class BizCity_Automation_REST {
 	}
 
 	public static function update_workflow( WP_REST_Request $req ) {
-		$row = BizCity_Automation_Repo_Workflows::update( (int) $req['id'], (array) $req->get_json_params() );
+		$id   = (int) $req['id'];
+		$body = (array) $req->get_json_params();
+		// [2026-06-03 Johnny Chu] WF-AUTO GURU W3 — G2 cross-tier slash collision.
+		$collision = self::check_slash_collision( $body, $id );
+		if ( $collision ) { return $collision; }
+		$row = BizCity_Automation_Repo_Workflows::update( $id, $body );
+		// [2026-06-14 Johnny Chu] AUTOMATION-CAL — re-sync crm_events after update
+		if ( is_array( $row ) && class_exists( 'BizCity_Automation_Schedule_Manager' ) ) {
+			BizCity_Automation_Schedule_Manager::instance()->sync_workflow_events( $row );
+		}
 		return self::respond( $row );
+	}
+
+	/**
+	 * G2 collision check — return WP_REST_Response 409 if workflow body claims
+	 * a slash already owned by a skill row.
+	 *
+	 * @return WP_REST_Response|null Null = no conflict.
+	 */
+	private static function check_slash_collision( array $body, int $exclude_wf_id ) {
+		// [2026-06-03 Johnny Chu] WF-AUTO GURU W3 — returns 409 WP_REST_Response if /cmd claimed by a skill.
+		if ( ! class_exists( 'BizCity_Skill_Slash_Matcher' ) ) { return null; }
+		$tt = (string) ( $body['trigger_type'] ?? '' );
+		if ( $tt !== 'slash_command' ) { return null; }
+		$cfg_raw = $body['trigger_config'] ?? ( $body['trigger_config_json'] ?? null );
+		$cfg     = is_array( $cfg_raw ) ? $cfg_raw : ( is_string( $cfg_raw ) ? ( json_decode( $cfg_raw, true ) ?: array() ) : array() );
+		$cmd     = (string) ( $cfg['slash_command'] ?? '' );
+		if ( $cmd === '' ) { return null; }
+		$conflict = BizCity_Skill_Slash_Matcher::detect_collision( array( $cmd ), 'workflow', $exclude_wf_id );
+		if ( ! $conflict ) { return null; }
+		return new WP_REST_Response( array(
+			'ok'       => false,
+			'error'    => 'slash_collision',
+			'message'  => sprintf(
+				'Slash %s đã được skill #%d "%s" sở hữu — đổi /cmd hoặc xóa skill trước khi lưu workflow.',
+				(string) $conflict['cmd'],
+				(int) $conflict['conflict_id'],
+				(string) $conflict['conflict_label']
+			),
+			'conflict' => $conflict,
+		), 409 );
 	}
 
 	public static function delete_workflow( WP_REST_Request $req ): WP_REST_Response {
@@ -335,6 +502,10 @@ final class BizCity_Automation_REST {
 			if ( $ok && class_exists( 'BizCity_Automation_File_Logger' ) ) {
 				BizCity_Automation_File_Logger::clear( $id );
 			}
+		}
+		// [2026-06-14 Johnny Chu] AUTOMATION-CAL — cancel crm_events on delete/disable
+		if ( $ok && class_exists( 'BizCity_Automation_Schedule_Manager' ) ) {
+			BizCity_Automation_Schedule_Manager::instance()->cancel_workflow_events( $id );
 		}
 		return new WP_REST_Response( array( 'ok' => (bool) $ok, 'mode' => $soft ? 'soft' : 'hard' ), $ok ? 200 : 500 );
 	}
@@ -434,6 +605,154 @@ final class BizCity_Automation_REST {
 	 *   { ok: true,  image_url, b64_json, model, preset, size, prompt }
 	 *   { ok: false, _degraded: true, code, message, preset }
 	 */
+	// [2026-06-13 Johnny Chu] PHASE-0.40 G2.7 — AI Builder: prompt → ReactFlow graph
+	public static function ai_build_workflow( WP_REST_Request $req ) {
+		$prompt = trim( (string) $req->get_param( 'prompt' ) );
+		if ( $prompt === '' ) {
+			return new WP_REST_Response( array(
+				'ok' => false, '_degraded' => true,
+				'code' => 'prompt_required',
+				'message' => 'Vui lòng nhập mô tả workflow.',
+			), 200 );
+		}
+
+		if ( ! class_exists( 'BizCity_LLM_Client' ) ) {
+			return new WP_REST_Response( array(
+				'ok' => false, '_degraded' => true,
+				'code' => 'client_missing',
+				'message' => 'BizCity LLM client chưa được nạp.',
+			), 200 );
+		}
+
+		$llm = BizCity_LLM_Client::instance();
+		if ( method_exists( $llm, 'is_ready' ) && ! $llm->is_ready() ) {
+			return new WP_REST_Response( array(
+				'ok' => false, '_degraded' => true,
+				'code' => 'gateway_not_ready',
+				'message' => 'BizCity API key chưa được cấu hình.',
+			), 200 );
+		}
+
+		// Node type + blockId catalogue (whitelist cho LLM).
+		$catalogue_json = wp_json_encode( array(
+			'node_types'  => array( 'trigger', 'action', 'llm', 'output', 'condition' ),
+			'trigger_blockIds' => array(
+				'trigger.manual', 'trigger.zalo_inbound', 'trigger.fb_message',
+				'trigger.fb_comment', 'trigger.telegram_inbound', 'trigger.webhook',
+				'trigger.cron', 'trigger.scheduler', 'trigger.twinbrain_intent',
+			),
+			'action_blockIds'  => array(
+				'action.reply_zalo', 'action.reply_facebook', 'action.reply_telegram',
+				'action.reply_webchat', 'action.send_email', 'action.http_request',
+				'action.create_crm_contact', 'action.update_crm_contact',
+				'action.create_crm_task', 'action.create_crm_event',
+				'action.add_crm_label', 'action.schedule_event',
+				'action.publish_fb_post', 'action.publish_wp_post',
+				'action.set_variable', 'action.wait', 'action.condition_branch',
+			),
+			'llm_blockIds'     => array( 'llm.chat', 'llm.classify', 'llm.summarize', 'llm.extract' ),
+			'output_blockIds'  => array( 'output.end', 'output.log' ),
+			'condition_blockIds' => array( 'condition.if_else' ),
+		) );
+
+		$system = 'You are a workflow automation assistant for BizCity CRM. '
+			. 'Given a Vietnamese natural language description, you MUST return ONLY valid JSON — no markdown, no explanation. '
+			. 'The JSON must follow this exact schema: '
+			. '{"nodes":[{"id":"n1","type":"trigger","position":{"x":100,"y":100},"data":{"label":"...","blockId":"trigger.manual","config":{}}}],'
+			. '"edges":[{"id":"e1","source":"n1","target":"n2","sourceHandle":"default","targetHandle":"default"}],'
+			. '"name":"Workflow name in Vietnamese"} '
+			. 'Node type catalogue: ' . $catalogue_json . '. '
+			. 'Position nodes in a left-to-right DAG layout starting at x=100, spacing x+=280, y=200. '
+			. 'Use "condition" node for if/else branching with sourceHandle "true"/"false". '
+			. 'For LLM nodes use blockId from llm_blockIds. '
+			. 'Use Vietnamese for labels and workflow name. '
+			. 'Keep the graph simple (3-8 nodes). Return ONLY JSON.';
+
+		$messages = array(
+			array( 'role' => 'system', 'content' => $system ),
+			array( 'role' => 'user',   'content' => $prompt ),
+		);
+
+		$resp = $llm->chat( $messages, array(
+			'purpose'     => 'reasoning',
+			'temperature' => 0.3,
+			'max_tokens'  => 2000,
+		) );
+
+		if ( empty( $resp['success'] ) ) {
+			return new WP_REST_Response( array(
+				'ok' => false, '_degraded' => true,
+				'code' => 'llm_error',
+				'message' => (string) ( $resp['error'] ?? 'LLM trả về lỗi.' ),
+			), 200 );
+		}
+
+		$raw_content = (string) ( $resp['content'] ?? '' );
+		// Strip markdown code fences if LLM wrapped in ```json ... ```
+		$raw_content = preg_replace( '/^```(?:json)?\s*/i', '', trim( $raw_content ) );
+		$raw_content = preg_replace( '/```\s*$/', '', $raw_content );
+
+		$graph = json_decode( trim( $raw_content ), true );
+		if ( ! is_array( $graph ) || empty( $graph['nodes'] ) ) {
+			return new WP_REST_Response( array(
+				'ok'      => false,
+				'_degraded' => true,
+				'code'    => 'parse_error',
+				'message' => 'AI không trả về JSON workflow hợp lệ. Hãy thử lại với mô tả rõ ràng hơn.',
+				'raw'     => substr( $raw_content, 0, 500 ),
+			), 200 );
+		}
+
+		// Sanitize + normalize nodes.
+		$valid_types = array( 'trigger', 'action', 'llm', 'output', 'condition' );
+		$nodes = array();
+		foreach ( (array) $graph['nodes'] as $idx => $n ) {
+			$type = ( isset( $n['type'] ) && in_array( $n['type'], $valid_types, true ) ) ? $n['type'] : 'action';
+			$nodes[] = array(
+				'id'       => 'ai_' . sanitize_key( (string) ( $n['id'] ?? ( 'n' . $idx ) ) ),
+				'type'     => $type,
+				'position' => array(
+					'x' => (int) ( $n['position']['x'] ?? ( 100 + $idx * 280 ) ),
+					'y' => (int) ( $n['position']['y'] ?? 200 ),
+				),
+				'data'     => array(
+					'label'   => sanitize_text_field( (string) ( $n['data']['label'] ?? '' ) ),
+					'blockId' => sanitize_key( (string) ( $n['data']['blockId'] ?? '' ) ),
+					'config'  => is_array( $n['data']['config'] ?? null ) ? $n['data']['config'] : array(),
+				),
+			);
+		}
+
+		// Sanitize + normalize edges.
+		$node_ids = array_column( $nodes, 'id' );
+		$edges = array();
+		foreach ( (array) ( $graph['edges'] ?? array() ) as $idx => $e ) {
+			$src = 'ai_' . sanitize_key( (string) ( $e['source'] ?? '' ) );
+			$tgt = 'ai_' . sanitize_key( (string) ( $e['target'] ?? '' ) );
+			if ( ! in_array( $src, $node_ids, true ) || ! in_array( $tgt, $node_ids, true ) ) {
+				continue; // Skip edges referencing unknown nodes.
+			}
+			$edges[] = array(
+				'id'           => 'ae_' . $idx,
+				'source'       => $src,
+				'target'       => $tgt,
+				// [2026-07-03 Johnny Chu] GAP-BRANCH-P1-3 — preserve true/false handles from AI output;
+				// never default to 'default' which is not a valid runner handle.
+				'sourceHandle' => sanitize_key( (string) ( $e['sourceHandle'] ?? 'out' ) ),
+				'targetHandle' => sanitize_key( (string) ( $e['targetHandle'] ?? 'default' ) ),
+				'type'         => 'smoothstep',
+			);
+		}
+
+		return new WP_REST_Response( array(
+			'ok'    => true,
+			'name'  => sanitize_text_field( (string) ( $graph['name'] ?? $prompt ) ),
+			'nodes' => $nodes,
+			'edges' => $edges,
+			'model' => (string) ( $resp['model'] ?? '' ),
+		), 200 );
+	}
+
 	public static function generate_ad_image( WP_REST_Request $req ): WP_REST_Response {
 		$id = (int) $req['id'];
 		$wf = BizCity_Automation_Repo_Workflows::find( $id );
@@ -534,6 +853,95 @@ final class BizCity_Automation_REST {
 	public static function duplicate_workflow( WP_REST_Request $req ) {
 		$row = BizCity_Automation_Repo_Workflows::duplicate( (int) $req['id'] );
 		return self::respond( $row, 201 );
+	}
+
+	// [2026-06-07 Johnny Chu] CRM-PATH-1 — CRM-safe instantiate: category gate + force zone=crm.
+	public static function crm_instantiate_template( WP_REST_Request $req ) {
+		$tpl = BizCity_Automation_Repo_Templates::find( (int) $req['id'] );
+		if ( ! $tpl ) {
+			return new WP_Error( 'not_found', 'Template không tồn tại.', array( 'status' => 404 ) );
+		}
+		// CRM users (non-admin) can only instantiate cskh/care categories.
+		if ( ! current_user_can( 'manage_options' ) ) {
+			$crm_cats = array( 'cskh', 'care' );
+			if ( ! in_array( (string) ( $tpl['category'] ?? '' ), $crm_cats, true ) ) {
+				if ( class_exists( 'BizCity_Error_Payload' ) ) {
+					return BizCity_Error_Payload::make(
+						'permission_denied',
+						'Template này không thuộc nhóm CSKH/Care.',
+						'Chọn template trong mục Chăm sóc khách hàng.',
+						'permission_denied'
+					);
+				}
+				return new WP_Error( 'permission_denied', 'Template không thuộc nhóm CSKH/Care.', array( 'status' => 403 ) );
+			}
+		}
+		$body = (array) $req->get_json_params();
+		$row  = BizCity_Automation_Repo_Templates::instantiate( (int) $req['id'], array(
+			'name'    => isset( $body['name'] )    ? wp_strip_all_tags( (string) $body['name'] )    : '',
+			'slug'    => isset( $body['slug'] )    ? sanitize_title_with_dashes( (string) $body['slug'] ) : '',
+			'enabled' => isset( $body['enabled'] ) ? (int) (bool) $body['enabled'] : 0,
+			'zone'    => 'crm', // Always zone=crm when instantiated via CRM path.
+		) );
+		return self::respond( $row, 201 );
+	}
+
+	// [2026-06-07 Johnny Chu] CRM-PATH-1 — bind zone=crm workflow to a Zone-1 channel.
+	public static function bind_workflow( WP_REST_Request $req ) {
+		$wf = BizCity_Automation_Repo_Workflows::find( (int) $req['id'] );
+		if ( ! $wf ) {
+			return new WP_Error( 'not_found', 'Workflow không tồn tại.', array( 'status' => 404 ) );
+		}
+		// Only zone=crm workflows allowed on CRM path (R-ZONE-5).
+		if ( $wf['zone'] !== 'crm' && ! current_user_can( 'manage_options' ) ) {
+			if ( class_exists( 'BizCity_Error_Payload' ) ) {
+				return BizCity_Error_Payload::make(
+					'permission_denied',
+					'Chỉ workflow zone=crm mới được bind qua CRM path.',
+					'Tạo workflow từ template CSKH/Care trước khi bind.',
+					'permission_denied'
+				);
+			}
+			return new WP_Error( 'permission_denied', 'Chỉ workflow zone=crm mới được bind.', array( 'status' => 403 ) );
+		}
+		$body       = (array) $req->get_json_params();
+		$platform   = strtoupper( sanitize_key( (string) ( $body['platform']   ?? '' ) ) );
+		$account_id = sanitize_text_field( (string) ( $body['account_id'] ?? '' ) );
+		$enabled    = isset( $body['enabled'] ) ? (int) (bool) $body['enabled'] : 1;
+		if ( ! $platform || ! $account_id ) {
+			if ( class_exists( 'BizCity_Error_Payload' ) ) {
+				return BizCity_Error_Payload::make(
+					'invalid_param',
+					'platform và account_id là bắt buộc.',
+					'Cung cấp platform (vd ZALO_OA) và account_id của kênh.',
+					'invalid_param_generic'
+				);
+			}
+			return new WP_Error( 'invalid_param', 'platform và account_id là bắt buộc.', array( 'status' => 400 ) );
+		}
+		// R-ZONE-2: Zone-1 platforms only (ZALO_BOT is Zone 2 — forbidden).
+		$zone1 = array( 'ZALO_OA', 'ZALO_PERSONAL', 'FACEBOOK', 'MESSENGER', 'WEBCHAT', 'EMAIL' );
+		if ( ! in_array( $platform, $zone1, true ) ) {
+			if ( class_exists( 'BizCity_Error_Payload' ) ) {
+				return BizCity_Error_Payload::make(
+					'invalid_param',
+					'Platform không thuộc Zone 1 (ZALO_BOT là Zone 2 admin).',
+					'Dùng ZALO_OA, ZALO_PERSONAL, FACEBOOK, MESSENGER, WEBCHAT hoặc EMAIL.',
+					'invalid_param_generic'
+				);
+			}
+			return new WP_Error( 'invalid_param', 'Platform không thuộc Zone 1.', array( 'status' => 400 ) );
+		}
+		// Update trigger_config to bind channel; set zone=crm; enable/disable.
+		$cfg                = is_array( $wf['trigger_config'] ) ? $wf['trigger_config'] : array();
+		$cfg['platform']    = $platform;
+		$cfg['account_id']  = $account_id;
+		$cfg['zone']        = 'crm';
+		$updated = BizCity_Automation_Repo_Workflows::update( (int) $wf['id'], array(
+			'trigger_config_json' => wp_json_encode( $cfg ),
+			'enabled'             => $enabled,
+		) );
+		return self::respond( $updated );
 	}
 
 	// ─── Run handlers ────────────────────────────────────────────────────
@@ -993,6 +1401,64 @@ final class BizCity_Automation_REST {
 		return array(); // Reserved — strategy chained inside channel_registry().
 	}
 
+	// [2026-06-25 Johnny Chu] PHASE-REPLY-ZALO-FIX — Return linked Zalo users for a bot instance.
+	// Used by ZaloUserPicker.jsx in the reply_zalo action Inspector field.
+	// GET /bizcity-automation/v1/zalo-users?instance_id=<bot_db_id>
+	public static function zalo_users( WP_REST_Request $req ): WP_REST_Response {
+		global $wpdb;
+
+		$instance_id = (int) $req->get_param( 'instance_id' );
+		if ( $instance_id <= 0 ) {
+			return new WP_REST_Response( array( 'ok' => false, 'rows' => array(), 'error' => 'instance_id required' ), 400 );
+		}
+
+		// Table bizcity_zalobot_user_links uses base_prefix (network-wide).
+		$table = $wpdb->base_prefix . 'bizcity_zalobot_user_links';
+
+		// Guard: table may not exist on sites without Zalo Bot plugin.
+		$exists = (int) $wpdb->get_var( $wpdb->prepare(
+			'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+			$table
+		) );
+		if ( ! $exists ) {
+			return new WP_REST_Response( array( 'ok' => true, 'rows' => array(), '_note' => 'zalobot_user_links table not found' ), 200 );
+		}
+
+		$rows = $wpdb->get_results( $wpdb->prepare(
+			"SELECT zalo_user_id, display_name, wp_user_id, status, linked_at
+			   FROM {$table}
+			  WHERE bot_id = %d AND status = 'linked'
+			  ORDER BY display_name ASC, zalo_user_id ASC
+			  LIMIT 200",
+			$instance_id
+		), ARRAY_A );
+
+		if ( ! is_array( $rows ) ) { $rows = array(); }
+
+		$out = array();
+		foreach ( $rows as $r ) {
+			$zid   = (string) ( $r['zalo_user_id'] ?? '' );
+			$dname = (string) ( $r['display_name'] ?? '' );
+			$wp_id = (int) ( $r['wp_user_id'] ?? 0 );
+			// Resolve WP user display name if display_name empty
+			if ( $dname === '' && $wp_id > 0 ) {
+				$wp_user = get_user_by( 'id', $wp_id );
+				if ( $wp_user ) { $dname = $wp_user->display_name; }
+			}
+			$label   = $dname !== '' ? $dname . ' (' . $zid . ')' : $zid;
+			$chat_id = 'zalobot_' . $instance_id . '_' . $zid;
+			$out[]   = array(
+				'zalo_user_id' => $zid,
+				'chat_id'      => $chat_id,
+				'display_name' => $dname,
+				'label'        => $label,
+				'wp_user_id'   => $wp_id,
+			);
+		}
+
+		return new WP_REST_Response( array( 'ok' => true, 'rows' => $out ), 200 );
+	}
+
 	// ─── BE-6.C — Cron health ────────────────────────────────────────────
 	public static function cron_health( WP_REST_Request $req ): WP_REST_Response {
 		$hook = BizCity_Automation_Runner::CRON_HOOK;
@@ -1200,6 +1666,12 @@ final class BizCity_Automation_REST {
 
 	// ─── BE-7 — Workflow Templates ───────────────────────────────────────
 	public static function list_templates( WP_REST_Request $req ): WP_REST_Response {
+		// [2026-07-10 Johnny Chu] PHASE-ATH — auto-check seed on REST list so newly deployed JSON templates
+		// appear without requiring manual "Reseed" click.
+		if ( class_exists( 'BizCity_Automation_Templates_Seeder' ) ) {
+			BizCity_Automation_Templates_Seeder::maybe_seed();
+		}
+
 		$out = BizCity_Automation_Repo_Templates::query( array(
 			'category'  => $req->get_param( 'category' ),
 			'source'    => $req->get_param( 'source' ),
@@ -1256,6 +1728,610 @@ final class BizCity_Automation_REST {
 			'ok'      => true,
 			'seeded'  => $out,
 			'version' => BizCity_Automation_Templates_Seeder::SEED_VERSION,
+		), 200 );
+	}
+
+	/**
+	 * GET /workflows/:id/export-md
+	 *
+	 * Xuất workflow dưới dạng .workflow.md (Canvas Canvas export W6).
+	 * Fail-OPEN: nếu compiler chưa load → 200 + _degraded:true.
+	 */
+	public static function export_workflow_md( WP_REST_Request $req ): WP_REST_Response {
+		// [2026-06-03 Johnny Chu] WF-AUTO W6 — export workflow as .workflow.md.
+		if ( ! class_exists( 'BizCity_Workflow_MD_Compiler' ) ) {
+			return new WP_REST_Response( array(
+				'ok'        => false,
+				'_degraded' => true,
+				'message'   => 'BizCity_Workflow_MD_Compiler chưa load.',
+			), 200 );
+		}
+		$id  = (int) $req->get_param( 'id' );
+		$row = BizCity_Automation_Repo_Workflows::get( $id );
+		if ( ! $row || is_wp_error( $row ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'error' => 'workflow_not_found' ), 404 );
+		}
+		$md = BizCity_Workflow_MD_Compiler::instance()->workflow_to_md( $row );
+		$slug = isset( $row['slug'] ) ? sanitize_file_name( $row['slug'] ) : 'workflow-' . $id;
+		return new WP_REST_Response( array(
+			'ok'       => true,
+			'md'       => $md,
+			'filename' => $slug . '.workflow.md',
+		), 200 );
+	}
+
+	/**
+	 * POST /workflows/import-md
+	 *
+	 * Nhập workflow từ .workflow.md body (Canvas import W6).
+	 * Body: { md: string }.
+	 * Tạo workflow mới với enabled=0 (import = tắt mặc định).
+	 * Fail-OPEN: compiler missing → 200 + _degraded.
+	 */
+	public static function import_workflow_md( WP_REST_Request $req ): WP_REST_Response {
+		// [2026-06-03 Johnny Chu] WF-AUTO W6 — import workflow from .workflow.md.
+		if ( ! class_exists( 'BizCity_Workflow_MD_Compiler' ) ) {
+			return new WP_REST_Response( array(
+				'ok'        => false,
+				'_degraded' => true,
+				'message'   => 'BizCity_Workflow_MD_Compiler chưa load.',
+			), 200 );
+		}
+		$body = $req->get_json_params();
+		$md   = isset( $body['md'] ) ? (string) $body['md'] : '';
+		if ( $md === '' ) {
+			return new WP_REST_Response( array( 'ok' => false, 'error' => 'md_empty' ), 422 );
+		}
+		$data = BizCity_Workflow_MD_Compiler::instance()->md_to_workflow( $md );
+		if ( is_wp_error( $data ) ) {
+			return new WP_REST_Response( array(
+				'ok'      => false,
+				'error'   => $data->get_error_code(),
+				'message' => $data->get_error_message(),
+			), 422 );
+		}
+		// Guard slash collision before insert.
+		if (
+			isset( $data['trigger_type'] ) && $data['trigger_type'] === 'slash_command'
+			&& isset( $data['trigger_config']['slash_command'] )
+		) {
+			$slash_cfg = $data['trigger_config'];
+			$slash_list = array( isset( $slash_cfg['slash_command'] ) ? $slash_cfg['slash_command'] : '' );
+			$collision  = self::check_slash_collision( $slash_list, 'workflow', 0 );
+			if ( $collision ) { return $collision; }
+		}
+		$create_body = array(
+			'name'           => isset( $data['name'] )           ? (string) $data['name']        : 'Imported workflow',
+			'description'    => isset( $data['description'] )    ? (string) $data['description'] : '',
+			'trigger_type'   => isset( $data['trigger_type'] )   ? (string) $data['trigger_type'] : 'manual',
+			'trigger_config' => isset( $data['trigger_config'] ) ? $data['trigger_config']        : array(),
+			'graph'          => isset( $data['graph'] )          ? $data['graph']                 : array( 'nodes' => array(), 'edges' => array() ),
+			'enabled'        => 0,
+			'slug'           => isset( $data['slug'] )           ? sanitize_title( $data['slug'] ) : '',
+			'icon'           => isset( $data['icon'] )           ? (string) $data['icon']         : 'FileText',
+			'tags'           => isset( $data['tags'] )           ? (string) $data['tags']         : 'imported',
+		);
+		$row = BizCity_Automation_Repo_Workflows::create( $create_body );
+		if ( is_wp_error( $row ) ) {
+			return new WP_REST_Response( array(
+				'ok'      => false,
+				'error'   => $row->get_error_code(),
+				'message' => $row->get_error_message(),
+			), 500 );
+		}
+		return new WP_REST_Response( array( 'ok' => true, 'workflow' => $row ), 201 );
+	}
+
+	/**
+	 * GET /community/workflows?manifest_url=…
+	 *
+	 * Wave E W7 — fetch GitHub raw manifest, return list of templates.
+	 * Fail-OPEN: bất kỳ lỗi (HTTP / parse / SSRF reject) → 200 + ok:false +
+	 * `_degraded:true` + `error` code → FE hiển thị error banner, không crash.
+	 */
+	public static function community_list( WP_REST_Request $req ): WP_REST_Response {
+		// [2026-06-03 Johnny Chu] WF-AUTO W7 — community gallery list.
+		if ( ! class_exists( 'BizCity_Automation_Community' ) ) {
+			return new WP_REST_Response( array(
+				'ok' => false, '_degraded' => true,
+				'message' => 'Community service chưa load.',
+			), 200 );
+		}
+		$svc = BizCity_Automation_Community::instance();
+		$url = (string) $req->get_param( 'manifest_url' );
+		if ( $url === '' ) { $url = $svc->default_manifest_url(); }
+
+		$data = $svc->fetch_manifest( $url );
+		if ( is_wp_error( $data ) ) {
+			return new WP_REST_Response( array(
+				'ok'        => false,
+				'_degraded' => true,
+				'error'     => $data->get_error_code(),
+				'message'   => $data->get_error_message(),
+				'manifest_url' => $url,
+			), 200 );
+		}
+		return new WP_REST_Response( array(
+			'ok'       => true,
+			'manifest' => $data,
+		), 200 );
+	}
+
+	/**
+	 * GET /community/workflow?url=<raw_md_url>
+	 *
+	 * Wave E W7 — fetch + compile single `.workflow.md` for canvas preview.
+	 * KHÔNG ghi DB.
+	 */
+	public static function community_preview( WP_REST_Request $req ): WP_REST_Response {
+		// [2026-06-03 Johnny Chu] WF-AUTO W7 — community gallery preview.
+		if ( ! class_exists( 'BizCity_Automation_Community' ) ) {
+			return new WP_REST_Response( array(
+				'ok' => false, '_degraded' => true,
+				'message' => 'Community service chưa load.',
+			), 200 );
+		}
+		$url = (string) $req->get_param( 'url' );
+		if ( $url === '' ) {
+			return new WP_REST_Response( array( 'ok' => false, 'error' => 'url_empty' ), 422 );
+		}
+		$preview = BizCity_Automation_Community::instance()->preview_workflow( $url );
+		if ( is_wp_error( $preview ) ) {
+			return new WP_REST_Response( array(
+				'ok'        => false,
+				'_degraded' => true,
+				'error'     => $preview->get_error_code(),
+				'message'   => $preview->get_error_message(),
+				'source'    => $url,
+			), 200 );
+		}
+		return new WP_REST_Response( array(
+			'ok'      => true,
+			'preview' => $preview,
+		), 200 );
+	}
+
+	/**
+	 * POST /community/workflows/import   body { url }
+	 *
+	 * Wave E W7 — fetch remote `.workflow.md` → compile → create workflow
+	 * `enabled=0`. Reuse slash collision guard từ import_workflow_md.
+	 */
+	public static function community_import( WP_REST_Request $req ): WP_REST_Response {
+		// [2026-06-03 Johnny Chu] WF-AUTO W7 — community gallery import (creates workflow).
+		if ( ! class_exists( 'BizCity_Automation_Community' ) ) {
+			return new WP_REST_Response( array(
+				'ok' => false, '_degraded' => true,
+				'message' => 'Community service chưa load.',
+			), 200 );
+		}
+		$body = $req->get_json_params();
+		$url  = isset( $body['url'] ) ? (string) $body['url'] : '';
+		if ( $url === '' ) {
+			return new WP_REST_Response( array( 'ok' => false, 'error' => 'url_empty' ), 422 );
+		}
+		$preview = BizCity_Automation_Community::instance()->preview_workflow( $url );
+		if ( is_wp_error( $preview ) ) {
+			return new WP_REST_Response( array(
+				'ok'      => false,
+				'error'   => $preview->get_error_code(),
+				'message' => $preview->get_error_message(),
+			), 422 );
+		}
+		$data = isset( $preview['workflow'] ) && is_array( $preview['workflow'] ) ? $preview['workflow'] : array();
+		// Slash collision guard (mirror import_workflow_md).
+		if (
+			isset( $data['trigger_type'] ) && $data['trigger_type'] === 'slash_command'
+			&& isset( $data['trigger_config']['slash_command'] )
+		) {
+			$slash_list = array( (string) $data['trigger_config']['slash_command'] );
+			$collision  = self::check_slash_collision( $slash_list, 'workflow', 0 );
+			if ( $collision ) { return $collision; }
+		}
+		$create_body = array(
+			'name'           => isset( $data['name'] )           ? (string) $data['name']        : 'Community workflow',
+			'description'    => isset( $data['description'] )    ? (string) $data['description'] : '',
+			'trigger_type'   => isset( $data['trigger_type'] )   ? (string) $data['trigger_type'] : 'manual',
+			'trigger_config' => isset( $data['trigger_config'] ) ? $data['trigger_config']        : array(),
+			'graph'          => isset( $data['graph'] )          ? $data['graph']                 : array( 'nodes' => array(), 'edges' => array() ),
+			'enabled'        => 0,
+			'slug'           => isset( $data['slug'] )           ? sanitize_title( $data['slug'] ) : '',
+			'icon'           => isset( $data['icon'] )           ? (string) $data['icon']         : 'FileText',
+			'tags'           => isset( $data['tags'] )           ? (string) $data['tags'] . ',community' : 'community',
+		);
+		$row = BizCity_Automation_Repo_Workflows::create( $create_body );
+		if ( is_wp_error( $row ) ) {
+			return new WP_REST_Response( array(
+				'ok'      => false,
+				'error'   => $row->get_error_code(),
+				'message' => $row->get_error_message(),
+			), 500 );
+		}
+		return new WP_REST_Response( array(
+			'ok'       => true,
+			'workflow' => $row,
+			'source'   => $url,
+		), 201 );
+	}
+
+	// ─── Hub template library proxy ─────────────────────────────────────────
+
+	/**
+	 * GET /hub-templates — Browse hub template library.
+	 * Fail-OPEN: _degraded=true + rows=[] when hub offline.
+	 *
+	 * [2026-06-16 Johnny Chu] PHASE-ATH W2 — proxy stub (Branch #17 pending).
+	 */
+	public static function hub_templates_browse( WP_REST_Request $req ): WP_REST_Response {
+		if ( ! class_exists( 'BizCity_Automation_Hub_Client' ) ) {
+			return new WP_REST_Response( array(
+				'_degraded' => true, 'rows' => array(), 'total' => 0, 'categories' => array(),
+			), 200 );
+		}
+		$args = array(
+			'category' => sanitize_key( (string) ( $req->get_param( 'category' ) ?: '' ) ),
+			'plan'     => sanitize_key( (string) ( $req->get_param( 'plan' )     ?: '' ) ),
+			'search'   => sanitize_text_field( (string) ( $req->get_param( 'search' ) ?: '' ) ),
+			'page'     => max( 1, (int) ( $req->get_param( 'page' )     ?: 1 ) ),
+			'per_page' => min( 50, max( 1, (int) ( $req->get_param( 'per_page' ) ?: 18 ) ) ),
+		);
+		$result = BizCity_Automation_Hub_Client::instance()->browse( $args );
+		return new WP_REST_Response( $result, 200 );
+	}
+
+	/**
+	 * GET /hub-templates/categories — Category list from hub.
+	 * Fail-OPEN: _degraded=true + categories=[] when hub offline.
+	 *
+	 * [2026-06-16 Johnny Chu] PHASE-ATH W2 — proxy stub.
+	 */
+	public static function hub_templates_categories( WP_REST_Request $req ): WP_REST_Response {
+		if ( ! class_exists( 'BizCity_Automation_Hub_Client' ) ) {
+			return new WP_REST_Response( array( '_degraded' => true, 'categories' => array() ), 200 );
+		}
+		$result = BizCity_Automation_Hub_Client::instance()->categories();
+		return new WP_REST_Response( $result, 200 );
+	}
+
+	/**
+	 * GET /hub-templates/{id} — Detail for one hub template.
+	 *
+	 * [2026-06-16 Johnny Chu] PHASE-ATH W2 — proxy stub.
+	 */
+	public static function hub_templates_get( WP_REST_Request $req ): WP_REST_Response {
+		if ( ! class_exists( 'BizCity_Automation_Hub_Client' ) ) {
+			return new WP_REST_Response( array( '_degraded' => true, 'template' => null ), 200 );
+		}
+		$id     = (int) $req->get_param( 'id' );
+		$result = BizCity_Automation_Hub_Client::instance()->get_detail( $id );
+		if ( $result['_degraded'] ) {
+			return new WP_REST_Response( $result, 200 );
+		}
+		if ( empty( $result['template'] ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'error' => 'template_not_found' ), 404 );
+		}
+		return new WP_REST_Response( array( 'ok' => true, 'template' => $result['template'] ), 200 );
+	}
+
+	/**
+	 * POST /hub-templates/{id}/import — Fetch hub template + create local workflow.
+	 * Returns workflow row (enabled=0).
+	 *
+	 * [2026-06-16 Johnny Chu] PHASE-ATH W2 — proxy stub.
+	 * [2026-06-16 Johnny Chu] PHASE-ATH W5 — also saves template entry with source='hub_imported' for audit trail (R-AUTO-HUB).
+	 */
+	public static function hub_templates_import( WP_REST_Request $req ): WP_REST_Response {
+		if ( ! class_exists( 'BizCity_Automation_Hub_Client' ) ) {
+			return new WP_REST_Response( array( '_degraded' => true, 'message' => 'Hub client chưa load.' ), 200 );
+		}
+		$id     = (int) $req->get_param( 'id' );
+		$body   = (array) ( $req->get_json_params() ?: array() );
+		$result = BizCity_Automation_Hub_Client::instance()->get_detail( $id );
+
+		if ( $result['_degraded'] ) {
+			return new WP_REST_Response( array(
+				'_degraded' => true,
+				'message'   => 'Hub BizCity chưa kết nối.',
+			), 200 );
+		}
+
+		$tpl = $result['template'];
+		if ( empty( $tpl ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'error' => 'template_not_found' ), 404 );
+		}
+
+		// Build workflow payload from hub template data.
+		$graph = array( 'nodes' => array(), 'edges' => array() );
+		if ( ! empty( $tpl['graph_json'] ) ) {
+			$decoded = json_decode( (string) $tpl['graph_json'], true );
+			if ( is_array( $decoded ) ) { $graph = $decoded; }
+		}
+
+		$wf_name = isset( $body['name'] ) && $body['name'] !== ''
+			? sanitize_text_field( (string) $body['name'] )
+			: ( isset( $tpl['name'] ) ? (string) $tpl['name'] . ' (hub)' : 'Hub template' );
+
+		// Save template entry with source='hub_imported' for audit trail (R-AUTO-HUB).
+		if ( class_exists( 'BizCity_Automation_Repo_Templates' ) ) {
+			$hub_slug = 'hub_' . ( isset( $tpl['slug'] ) ? sanitize_key( (string) $tpl['slug'] ) : 'tpl_' . $id );
+			BizCity_Automation_Repo_Templates::upsert( array(
+				'slug'         => $hub_slug,
+				'name'         => isset( $tpl['name'] )        ? (string) $tpl['name']        : $wf_name,
+				'description'  => isset( $tpl['description'] ) ? (string) $tpl['description'] : '',
+				'category'     => 'general',
+				'source'       => 'hub_imported',
+				'is_active'    => 1,
+				'trigger_type' => isset( $tpl['trigger_type'] ) ? (string) $tpl['trigger_type'] : 'manual',
+				'graph'        => $graph,
+				'tags'         => 'hub,hub_id_' . $id,
+			) );
+		}
+
+		$row = BizCity_Automation_Repo_Workflows::create( array(
+			'name'           => $wf_name,
+			'description'    => isset( $tpl['description'] )  ? (string) $tpl['description']  : '',
+			'trigger_type'   => isset( $tpl['trigger_type'] ) ? (string) $tpl['trigger_type'] : 'manual',
+			'trigger_config' => array(),
+			'graph'          => $graph,
+			'enabled'        => 0,
+			'slug'           => '',
+			'tags'           => isset( $tpl['tags'] ) ? (string) $tpl['tags'] . ',hub' : 'hub',
+			'icon'           => isset( $tpl['icon'] ) ? (string) $tpl['icon'] : 'FileText',
+		) );
+
+		if ( is_wp_error( $row ) ) {
+			return new WP_REST_Response( array(
+				'ok'      => false,
+				'error'   => $row->get_error_code(),
+				'message' => $row->get_error_message(),
+			), 500 );
+		}
+
+		return new WP_REST_Response( array( 'ok' => true, 'row' => $row, 'hub_template_id' => $id ), 201 );
+	}
+
+	/**
+	 * POST /hub-templates/submit — Submit a local template to hub.
+	 * Body: { template_id: int (workflow_id from builder), slug, name, description,
+	 *         category, plan, trigger_type, graph_json, author }
+	 *
+	 * [2026-06-16 Johnny Chu] PHASE-ATH W6 — use body payload directly (FE sends workflow_id,
+	 * not template_id; all fields already in body so no repo lookup needed).
+	 */
+	public static function hub_templates_submit( WP_REST_Request $req ): WP_REST_Response {
+		if ( ! class_exists( 'BizCity_Automation_Hub_Client' ) ) {
+			return new WP_REST_Response( array( '_degraded' => true, 'message' => 'Hub client chưa load.' ), 200 );
+		}
+		$body = (array) ( $req->get_json_params() ?: array() );
+
+		// [2026-06-19 Johnny Chu] PHASE-ATH W10 — support batch submit from local seeded templates by slug.
+		$requested_slugs = isset( $body['template_slugs'] ) && is_array( $body['template_slugs'] )
+			? array_values( array_filter( array_map( 'sanitize_key', $body['template_slugs'] ) ) )
+			: array();
+		if ( isset( $body['preset'] ) && (string) $body['preset'] === 'w10' && empty( $requested_slugs ) ) {
+			$requested_slugs = self::w10_default_template_slugs();
+		}
+		if ( ! empty( $requested_slugs ) ) {
+			$rows      = array();
+			$submitted = 0;
+			$failed    = 0;
+			foreach ( $requested_slugs as $slug ) {
+				$tpl = class_exists( 'BizCity_Automation_Repo_Templates' )
+					? BizCity_Automation_Repo_Templates::find_by_slug( $slug )
+					: null;
+				if ( ! is_array( $tpl ) ) {
+					$failed++;
+					$rows[] = array(
+						'slug'   => $slug,
+						'ok'     => false,
+						'error'  => 'template_not_found',
+						'message'=> 'Không tìm thấy template local theo slug.',
+					);
+					continue;
+				}
+
+				$payload = self::build_hub_payload_from_template( $tpl, $body );
+				$result  = BizCity_Automation_Hub_Client::instance()->submit( $payload );
+				$ok      = empty( $result['_degraded'] ) && ! empty( $result['hub_id'] );
+
+				if ( $ok ) {
+					$submitted++;
+				} else {
+					$failed++;
+				}
+
+				$rows[] = array(
+					'slug'      => $slug,
+					'ok'        => $ok,
+					'_degraded' => ! empty( $result['_degraded'] ),
+					'hub_id'    => isset( $result['hub_id'] ) ? (int) $result['hub_id'] : 0,
+					'status'    => isset( $result['status'] ) ? (string) $result['status'] : 'pending_review',
+				);
+			}
+
+			return new WP_REST_Response( array(
+				'ok'        => $failed === 0,
+				'mode'      => 'batch',
+				'total'     => count( $requested_slugs ),
+				'submitted' => $submitted,
+				'failed'    => $failed,
+				'rows'      => $rows,
+			), 200 );
+		}
+
+		// All required fields must be present in body (FE sends them directly).
+		$slug = sanitize_key( (string) ( $body['slug'] ?? '' ) );
+		if ( ! $slug ) {
+			return new WP_REST_Response( array( 'ok' => false, 'error' => 'slug_required' ), 422 );
+		}
+
+		$graph_json = (string) ( $body['graph_json'] ?? '' );
+		if ( $graph_json ) {
+			// Validate JSON before sending upstream.
+			$decoded = json_decode( $graph_json, true );
+			if ( null === $decoded ) {
+				return new WP_REST_Response( array( 'ok' => false, 'error' => 'invalid_graph_json' ), 422 );
+			}
+		}
+
+		$tags_raw = $body['tags'] ?? '';
+		if ( is_array( $tags_raw ) ) {
+			$tags_raw = implode( ',', $tags_raw );
+		}
+
+		$payload = array(
+			'slug'         => $slug,
+			'name'         => sanitize_text_field( (string) ( $body['name']         ?? $slug ) ),
+			'description'  => wp_kses_post( (string) ( $body['description']  ?? '' ) ),
+			'category'     => sanitize_key( (string) ( $body['category']     ?? 'social' ) ),
+			'trigger_type' => sanitize_key( (string) ( $body['trigger_type'] ?? '' ) ),
+			'tags'         => sanitize_text_field( (string) $tags_raw ),
+			'plan'         => sanitize_key( (string) ( $body['plan']         ?? 'free' ) ),
+			'author'       => sanitize_text_field( (string) ( $body['author']       ?? '' ) ),
+			'graph_json'   => $graph_json,
+		);
+
+		$result = BizCity_Automation_Hub_Client::instance()->submit( $payload );
+		return new WP_REST_Response( $result, 200 );
+	}
+
+	/**
+	 * Build hub payload from one local template row.
+	 *
+	 * @param array<string,mixed> $tpl
+	 * @param array<string,mixed> $body
+	 * @return array<string,mixed>
+	 */
+	private static function build_hub_payload_from_template( array $tpl, array $body ): array {
+		$graph_json = isset( $tpl['graph_json'] ) ? (string) $tpl['graph_json'] : '';
+		$trigger    = isset( $tpl['trigger_type'] ) ? sanitize_key( (string) $tpl['trigger_type'] ) : 'manual';
+		$category   = isset( $tpl['category'] ) ? sanitize_key( (string) $tpl['category'] ) : 'general';
+		$name       = isset( $tpl['name'] ) ? sanitize_text_field( (string) $tpl['name'] ) : '';
+		$desc       = isset( $tpl['description'] ) ? wp_kses_post( (string) $tpl['description'] ) : '';
+		$tags       = isset( $tpl['tags'] ) ? sanitize_text_field( (string) $tpl['tags'] ) : '';
+		$slug       = isset( $tpl['slug'] ) ? sanitize_key( (string) $tpl['slug'] ) : '';
+
+		// [2026-06-19 Johnny Chu] PHASE-ATH W10 — allow request-level overrides for batch submit.
+		$plan   = isset( $body['plan'] ) ? sanitize_key( (string) $body['plan'] ) : 'free';
+		$author = isset( $body['author'] ) ? sanitize_text_field( (string) $body['author'] ) : 'Johnny Chu';
+
+		return array(
+			'slug'         => $slug,
+			'name'         => $name !== '' ? $name : $slug,
+			'description'  => $desc,
+			'category'     => $category !== '' ? $category : 'general',
+			'trigger_type' => $trigger,
+			'tags'         => $tags,
+			'plan'         => $plan,
+			'author'       => $author,
+			'graph_json'   => $graph_json,
+		);
+	}
+
+	/**
+	 * Default W10 template slugs to submit in one call.
+	 *
+	 * @return array<int,string>
+	 */
+	private static function w10_default_template_slugs(): array {
+		return array(
+			'tpl_daily_research_zalo_v1',
+			'tpl_daily_notebook_fb_post_v1',
+			'tpl_daily_notebook_wp_post_v1',
+		);
+	}
+
+	// ─── Skill mode validator ─────────────────────────────────────────────────
+
+	/**
+	 * GET /workflows/{id}/validate-skill
+	 *
+	 * Returns brain-mode readiness for a workflow:
+	 *   {valid, slug, score, checks{has_slug,has_work_node,has_compose_terminal,is_enabled}, issues[]}
+	 *
+	 * score = number of checks that pass (0-4).
+	 * valid = score >= 3 (slug + work node + compose; enabled is bonus).
+	 *
+	 * [2026-06-20 Johnny Chu] PHASE-TWB-WORKFLOW W5 — brain-mode skill validator.
+	 *
+	 * @param WP_REST_Request $req
+	 * @return WP_REST_Response
+	 */
+	public static function validate_skill_mode( WP_REST_Request $req ) {
+		// [2026-06-20 Johnny Chu] PHASE-TWB-WORKFLOW W5
+		$id = (int) $req->get_param( 'id' );
+		if ( ! $id ) {
+			return new WP_REST_Response( array( 'ok' => false, 'error' => 'invalid_id' ), 400 );
+		}
+
+		if ( ! class_exists( 'BizCity_Automation_Repo_Workflows' ) ) {
+			return new WP_REST_Response( array( '_degraded' => true, 'message' => 'Repo chưa load.' ), 200 );
+		}
+
+		// [2026-06-24 Johnny Chu] PHP74-COMPAT — ::get() does not exist, correct method is ::find()
+		$wf = BizCity_Automation_Repo_Workflows::find( $id );
+		if ( ! $wf || is_wp_error( $wf ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'error' => 'not_found' ), 404 );
+		}
+
+		$slug    = (string) ( $wf['slug'] ?? '' );
+		$enabled = ! empty( $wf['enabled'] );
+		$graph   = json_decode( (string) ( $wf['graph_json'] ?? '' ), true );
+		$nodes   = is_array( $graph ) ? (array) ( $graph['nodes'] ?? array() ) : array();
+
+		// ── Determine node kinds ──────────────────────────────────────────
+		// Nodes can be in builder format (data.blockId) or simplified (kind).
+		// [2026-06-20 Johnny Chu] PHASE-TWB-WORKFLOW W6-BUG — accept both compose block IDs.
+		$has_compose  = false;
+		$has_work     = false;
+		foreach ( $nodes as $n ) {
+			$kind = '';
+			if ( ! empty( $n['kind'] ) ) {
+				$kind = (string) $n['kind'];
+			} elseif ( ! empty( $n['data']['blockId'] ) ) {
+				$kind = (string) $n['data']['blockId'];
+			}
+			if ( $kind === 'llm.compose' || $kind === 'llm.compose_reply' ) {
+				$has_compose = true;
+			} elseif ( $kind !== '' && strpos( $kind, 'trigger.' ) !== 0 ) {
+				$has_work = true;
+			}
+		}
+
+		// ── Build checks ─────────────────────────────────────────────────
+		$checks = array(
+			'has_slug'             => $slug !== '',
+			'has_work_node'        => $has_work,
+			'has_compose_terminal' => $has_compose || $has_work,
+			// auto-append guard: if no compose but has work nodes → pipeline will inject one.
+			'is_enabled'           => $enabled,
+		);
+
+		$issues = array();
+		if ( ! $checks['has_slug'] ) {
+			$issues[] = 'Chưa đặt slug — cấu hình trong Cài đặt workflow → Slug.';
+		}
+		if ( ! $checks['has_work_node'] ) {
+			$issues[] = 'Workflow cần ≥1 node xử lý (search_kg, web_search, mpr_think, …).';
+		}
+		if ( ! $checks['has_compose_terminal'] ) {
+			$issues[] = 'Cần node llm.compose ở cuối để tạo câu trả lời. Pipeline sẽ tự inject nếu thiếu.';
+		}
+		if ( ! $checks['is_enabled'] ) {
+			$issues[] = 'Workflow đang TẮT — bật lên để dùng qua /skill trong chat.';
+		}
+
+		$score = count( array_filter( $checks ) );
+		// valid when ≥3: slug + work node + compose (enabled is bonus but not blocking).
+		$valid = $checks['has_slug'] && $checks['has_work_node'] && $checks['has_compose_terminal'];
+
+		return new WP_REST_Response( array(
+			'ok'     => true,
+			'valid'  => $valid,
+			'slug'   => $slug,
+			'score'  => $score,
+			'checks' => $checks,
+			'issues' => $issues,
 		), 200 );
 	}
 }

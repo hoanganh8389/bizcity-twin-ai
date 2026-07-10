@@ -249,9 +249,12 @@ class BizCity_Network_Admin_Facebook {
 					</thead>
 					<tbody>
 						<?php foreach ( $tester_requests as $tester ) :
-							$fb_profile  = get_user_meta( $tester->ID, 'bztfb_facebook_profile', true );
-							$requested_at = get_user_meta( $tester->ID, 'bztfb_tester_requested_at', true );
-							$blog_id_req  = (int) get_user_meta( $tester->ID, 'bztfb_tester_blog_id', true );
+$uid_int      = (int) $tester->ID;
+				$mc_avail     = class_exists( 'BizCity_User_Meta_Cache' );
+				// [2026-06-22 Johnny Chu] R-PERF — route via BizCity_User_Meta_Cache to avoid per-user meta prime in loop
+				$fb_profile   = $mc_avail ? BizCity_User_Meta_Cache::get( $uid_int, 'bztfb_facebook_profile', '' )       : get_user_meta( $tester->ID, 'bztfb_facebook_profile', true );
+				$requested_at = $mc_avail ? BizCity_User_Meta_Cache::get( $uid_int, 'bztfb_tester_requested_at', '' )   : get_user_meta( $tester->ID, 'bztfb_tester_requested_at', true );
+				$blog_id_req  = (int) ( $mc_avail ? BizCity_User_Meta_Cache::get( $uid_int, 'bztfb_tester_blog_id', 0 ) : get_user_meta( $tester->ID, 'bztfb_tester_blog_id', true ) );
 							$site_url = $blog_id_req ? get_site_url( $blog_id_req ) : '—';
 
 							// Build Facebook link

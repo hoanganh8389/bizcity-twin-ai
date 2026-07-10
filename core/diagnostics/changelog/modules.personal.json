@@ -1,0 +1,236 @@
+{
+  "$schema": "https://bizcity.vn/schema/diagnostics-changelog-v1.json",
+  "module_id": "modules.personal",
+  "owner": "plugins/bizcity-personal",
+  "installer_id": "personal",
+  "current_version": "1.4.0",
+  "version_option": "bizcity_personal_db_version",
+  "tables": {
+    "bizcity_home_finance_categories": {
+      "since": "1.0.0",
+      "note": "Table was renamed bizcity_personal_finance_categories in v1.2.0",
+      "purpose": "Per-user finance categories (income or expense). Pre-seeded with defaults on first install.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":         { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",                               "since": "1.0.0", "pk": true },
+        "user_id":    { "type": "BIGINT UNSIGNED NOT NULL",                                              "since": "1.0.0" },
+        "name":       { "type": "VARCHAR(80) NOT NULL DEFAULT ''",                                       "since": "1.0.0" },
+        "kind":       { "type": "ENUM('income','expense') NOT NULL DEFAULT 'expense'",                  "since": "1.0.0" },
+        "icon":       { "type": "VARCHAR(16) NOT NULL DEFAULT '💰'",                                     "since": "1.0.0" },
+        "color":      { "type": "VARCHAR(16) NOT NULL DEFAULT '#6366f1'",                               "since": "1.0.0" },
+        "sort_order": { "type": "SMALLINT UNSIGNED NOT NULL DEFAULT 0",                                  "since": "1.0.0" },
+        "created_at": { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",                          "since": "1.0.0" }
+      },
+      "indexes": {
+        "idx_user_kind": { "cols": ["user_id", "kind"], "unique": false, "since": "1.0.0" }
+      }
+    },
+    "bizcity_home_finance_entries": {
+      "since": "1.0.0",
+      "note": "Table was renamed bizcity_personal_finance_entries in v1.2.0",
+      "purpose": "Per-user finance transactions (income or expense). Supports manual entry, Zalo Bot automation, and future import.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":           { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",                             "since": "1.0.0", "pk": true },
+        "user_id":      { "type": "BIGINT UNSIGNED NOT NULL",                                            "since": "1.0.0" },
+        "category_id":  { "type": "BIGINT UNSIGNED NULL DEFAULT NULL",                                  "since": "1.0.0" },
+        "kind":         { "type": "ENUM('income','expense') NOT NULL DEFAULT 'expense'",                "since": "1.0.0" },
+        "amount_vnd":   { "type": "BIGINT NOT NULL DEFAULT 0",                                          "since": "1.0.0" },
+        "title":        { "type": "VARCHAR(191) NOT NULL DEFAULT ''",                                   "since": "1.0.0" },
+        "note":         { "type": "TEXT NULL",                                                           "since": "1.0.0" },
+        "occurred_at":  { "type": "DATE NOT NULL",                                                      "since": "1.0.0" },
+        "recurring":    { "type": "TINYINT(1) NOT NULL DEFAULT 0",                                      "since": "1.0.0" },
+        "source":       { "type": "VARCHAR(32) NOT NULL DEFAULT 'user'",                                "since": "1.0.0" },
+        "created_at":   { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",                        "since": "1.0.0" },
+        "journal_id":   { "type": "BIGINT UNSIGNED NULL DEFAULT NULL",                                  "since": "1.1.0" }
+      },
+      "indexes": {
+        "idx_user_date":     { "cols": ["user_id", "occurred_at"], "unique": false, "since": "1.0.0" },
+        "idx_user_kind":     { "cols": ["user_id", "kind"],        "unique": false, "since": "1.0.0" },
+        "idx_category":      { "cols": ["category_id"],            "unique": false, "since": "1.0.0" }
+      }
+    },
+    "bizcity_home_journal": {
+      "since": "1.1.0",
+      "note": "Table was renamed bizcity_personal_journal in v1.2.0",
+      "purpose": "Per-user journal entries (daily notes, markdown). Ingested into KG Hub for daily RAG context.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":          { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",                              "since": "1.1.0", "pk": true },
+        "user_id":     { "type": "BIGINT UNSIGNED NOT NULL",                                             "since": "1.1.0" },
+        "entry_date":  { "type": "DATE NOT NULL",                                                        "since": "1.1.0" },
+        "content":     { "type": "LONGTEXT NOT NULL",                                                    "since": "1.1.0" },
+        "mood":        { "type": "VARCHAR(8) NULL DEFAULT NULL",                                         "since": "1.1.0" },
+        "kg_passage_id": { "type": "BIGINT UNSIGNED NULL DEFAULT NULL",                                  "since": "1.1.0" },
+        "created_at":  { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",                          "since": "1.1.0" },
+        "updated_at":  { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", "since": "1.1.0" }
+      },
+      "indexes": {
+        "uniq_user_date": { "cols": ["user_id", "entry_date"], "unique": true, "since": "1.1.0" }
+      }
+    },
+    "bizcity_personal_notebooks": {
+      "since": "1.3.0",
+      "purpose": "Notebook collection metadata per user. Parent container for note pages. Color/icon configurable.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":          { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",                              "since": "1.3.0", "pk": true },
+        "user_id":     { "type": "BIGINT UNSIGNED NOT NULL",                                             "since": "1.3.0" },
+        "title":       { "type": "VARCHAR(191) NOT NULL DEFAULT 'Ghi chú'",                             "since": "1.3.0" },
+        "description": { "type": "TEXT NULL",                                                            "since": "1.3.0" },
+        "icon":        { "type": "VARCHAR(16) NOT NULL DEFAULT '📓'",                                    "since": "1.3.0" },
+        "color":       { "type": "VARCHAR(16) NOT NULL DEFAULT '#6366f1'",                              "since": "1.3.0" },
+        "is_default":  { "type": "TINYINT(1) NOT NULL DEFAULT 0",                                       "since": "1.3.0" },
+        "page_count":  { "type": "INT NOT NULL DEFAULT 0",                                              "since": "1.3.0" },
+        "sort_order":  { "type": "SMALLINT UNSIGNED NOT NULL DEFAULT 0",                                "since": "1.3.0" },
+        "created_at":  { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",                         "since": "1.3.0" },
+        "updated_at":  { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", "since": "1.3.0" }
+      },
+      "indexes": {
+        "idx_user": { "cols": ["user_id"], "unique": false, "since": "1.3.0" }
+      }
+    },
+    "bizcity_personal_notebook_pages": {
+      "since": "1.3.0",
+      "purpose": "Individual note pages. DB stores metadata/index; full content stored in .md file on disk. kg_source_id links to KG Hub passage after ingest.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":           { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",                             "since": "1.3.0", "pk": true },
+        "notebook_id":  { "type": "BIGINT UNSIGNED NOT NULL",                                           "since": "1.3.0" },
+        "user_id":      { "type": "BIGINT UNSIGNED NOT NULL",                                           "since": "1.3.0" },
+        "title":        { "type": "VARCHAR(191) NOT NULL DEFAULT 'Trang mới'",                         "since": "1.3.0" },
+        "content":      { "type": "LONGTEXT NULL",                                                      "since": "1.3.0" },
+        "excerpt":      { "type": "VARCHAR(255) NULL DEFAULT NULL",                                     "since": "1.3.0" },
+        "file_path":    { "type": "VARCHAR(500) NULL DEFAULT NULL",                                     "since": "1.3.0" },
+        "tags":         { "type": "TEXT NULL",                                                          "since": "1.3.0" },
+        "mood":         { "type": "VARCHAR(32) NULL DEFAULT NULL",                                      "since": "1.3.0" },
+        "word_count":   { "type": "INT NOT NULL DEFAULT 0",                                             "since": "1.3.0" },
+        "kg_source_id": { "type": "BIGINT UNSIGNED NULL DEFAULT NULL",                                  "since": "1.3.0" },
+        "created_at":   { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",                        "since": "1.3.0" },
+        "updated_at":   { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", "since": "1.3.0" }
+      },
+      "indexes": {
+        "idx_notebook": { "cols": ["notebook_id"], "unique": false, "since": "1.3.0" },
+        "idx_user":     { "cols": ["user_id"],     "unique": false, "since": "1.3.0" },
+        "idx_updated":  { "cols": ["updated_at"],  "unique": false, "since": "1.3.0" }
+      }
+    },
+    "bizcity_personal_notebook_chunks": {
+      "since": "1.4.0",
+      "purpose": "KG ingest chunks for notebook pages (Smart Sources Standard schema). Owned by BizCity_Personal_KG_Service. Feeds bizcity_kg_passages with scope_type='personal_notebook'. Allows TwinChat to attach personal notebooks as KG sources.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":              { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",                          "since": "1.4.0", "pk": true },
+        "source_id":       { "type": "BIGINT UNSIGNED NOT NULL",                                        "since": "1.4.0", "note": "FK → bizcity_personal_notebook_pages.id" },
+        "notebook_id":     { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",                              "since": "1.4.0" },
+        "user_id":         { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",                              "since": "1.4.0" },
+        "chunk_index":     { "type": "SMALLINT UNSIGNED NOT NULL DEFAULT 0",                            "since": "1.4.0" },
+        "content":         { "type": "LONGTEXT NOT NULL",                                               "since": "1.4.0" },
+        "token_count":     { "type": "INT NOT NULL DEFAULT 0",                                          "since": "1.4.0" },
+        "embedding":       { "type": "LONGBLOB NULL DEFAULT NULL",                                      "since": "1.4.0", "note": "JSON-encoded float[] from text-embedding-3-small" },
+        "embedding_model": { "type": "VARCHAR(64) NOT NULL DEFAULT ''",                                 "since": "1.4.0" },
+        "heading_path":    { "type": "TEXT NULL DEFAULT NULL",                                          "since": "1.4.0", "note": "JSON array of heading breadcrumbs" },
+        "content_hash":    { "type": "VARCHAR(64) NOT NULL DEFAULT ''",                                 "since": "1.4.0", "note": "SHA-256 of chunk content for dedup" },
+        "created_at":      { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",                     "since": "1.4.0" }
+      },
+      "indexes": {
+        "idx_source":   { "cols": ["source_id"],   "unique": false, "since": "1.4.0" },
+        "idx_notebook": { "cols": ["notebook_id"], "unique": false, "since": "1.4.0" },
+        "idx_hash":     { "cols": ["content_hash"],"unique": false, "since": "1.4.0" }
+      }
+    }
+  },
+  "history": [
+    { "version": "1.0.0", "date": "2026-06-24", "change": "Initial schema: bizcity_home_finance_categories + bizcity_home_finance_entries (PHASE-HOME W6)" },
+    { "version": "1.1.0", "date": "2026-06-24", "change": "Add bizcity_home_journal table + journal_id FK on entries (PHASE-HOME W4)" },
+    { "version": "1.2.0", "date": "2026-06-24", "change": "Rename tables bizcity_home_* → bizcity_personal_* (PHASE-HOME-ARCH)" },
+    { "version": "1.3.0", "date": "2026-06-24", "change": "Add bizcity_personal_notebooks + bizcity_personal_notebook_pages (PHASE-HOME-NOTEBOOKS)" },
+    { "version": "1.4.0", "date": "2026-06-24", "change": "Add bizcity_personal_notebook_chunks for KG ingest pipeline — BizCity_Personal_KG_Service, scope_type=personal_notebook (PHASE-HOME-NOTEBOOKS PATH-B)" }
+  ]
+}
+
+  "tables": {
+    "bizcity_home_finance_categories": {
+      "since": "1.0.0",
+      "purpose": "Per-user finance categories (income or expense). Pre-seeded with defaults on first install.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":         { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",                               "since": "1.0.0", "pk": true },
+        "user_id":    { "type": "BIGINT UNSIGNED NOT NULL",                                              "since": "1.0.0" },
+        "name":       { "type": "VARCHAR(80) NOT NULL DEFAULT ''",                                       "since": "1.0.0" },
+        "kind":       { "type": "ENUM('income','expense') NOT NULL DEFAULT 'expense'",                  "since": "1.0.0" },
+        "icon":       { "type": "VARCHAR(16) NOT NULL DEFAULT '💰'",                                     "since": "1.0.0" },
+        "color":      { "type": "VARCHAR(16) NOT NULL DEFAULT '#6366f1'",                               "since": "1.0.0" },
+        "sort_order": { "type": "SMALLINT UNSIGNED NOT NULL DEFAULT 0",                                  "since": "1.0.0" },
+        "created_at": { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",                          "since": "1.0.0" }
+      },
+      "indexes": {
+        "idx_user_kind": { "cols": ["user_id", "kind"], "unique": false, "since": "1.0.0" }
+      }
+    },
+    "bizcity_home_finance_entries": {
+      "since": "1.0.0",
+      "purpose": "Per-user finance transactions (income or expense). Supports manual entry, Zalo Bot automation, and future import.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":           { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",                             "since": "1.0.0", "pk": true },
+        "user_id":      { "type": "BIGINT UNSIGNED NOT NULL",                                            "since": "1.0.0" },
+        "category_id":  { "type": "BIGINT UNSIGNED NULL DEFAULT NULL",                                  "since": "1.0.0" },
+        "kind":         { "type": "ENUM('income','expense') NOT NULL DEFAULT 'expense'",                "since": "1.0.0" },
+        "amount_vnd":   { "type": "BIGINT NOT NULL DEFAULT 0",                                          "since": "1.0.0" },
+        "title":        { "type": "VARCHAR(191) NOT NULL DEFAULT ''",                                   "since": "1.0.0" },
+        "note":         { "type": "TEXT NULL",                                                           "since": "1.0.0" },
+        "occurred_at":  { "type": "DATE NOT NULL",                                                      "since": "1.0.0" },
+        "recurring":    { "type": "TINYINT(1) NOT NULL DEFAULT 0",                                      "since": "1.0.0" },
+        "source":       { "type": "VARCHAR(32) NOT NULL DEFAULT 'user'",                                "since": "1.0.0" },
+        "created_at":   { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",                        "since": "1.0.0" },
+        "journal_id":   { "type": "BIGINT UNSIGNED NULL DEFAULT NULL",                                  "since": "1.1.0" }
+      },
+      "indexes": {
+        "idx_user_date":     { "cols": ["user_id", "occurred_at"], "unique": false, "since": "1.0.0" },
+        "idx_user_kind":     { "cols": ["user_id", "kind"],        "unique": false, "since": "1.0.0" },
+        "idx_category":      { "cols": ["category_id"],            "unique": false, "since": "1.0.0" }
+      }
+    },
+    "bizcity_home_journal": {
+      "since": "1.1.0",
+      "purpose": "Per-user journal entries (daily notes, markdown). Ingested into KG Hub for daily RAG context.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":          { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",                              "since": "1.1.0", "pk": true },
+        "user_id":     { "type": "BIGINT UNSIGNED NOT NULL",                                             "since": "1.1.0" },
+        "entry_date":  { "type": "DATE NOT NULL",                                                        "since": "1.1.0" },
+        "content":     { "type": "LONGTEXT NOT NULL",                                                    "since": "1.1.0" },
+        "mood":        { "type": "VARCHAR(8) NULL DEFAULT NULL",                                         "since": "1.1.0" },
+        "kg_passage_id": { "type": "BIGINT UNSIGNED NULL DEFAULT NULL",                                  "since": "1.1.0" },
+        "created_at":  { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",                          "since": "1.1.0" },
+        "updated_at":  { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", "since": "1.1.0" }
+      },
+      "indexes": {
+        "uniq_user_date": { "cols": ["user_id", "entry_date"], "unique": true, "since": "1.1.0" }
+      }
+    }
+  },
+  "history": [
+    { "version": "1.0.0", "date": "2026-06-24", "change": "Initial schema: bizcity_home_finance_categories + bizcity_home_finance_entries (PHASE-HOME W6)" },
+    { "version": "1.1.0", "date": "2026-06-24", "change": "Add bizcity_home_journal table + journal_id FK on entries (PHASE-HOME W4)" }
+  ]
+}

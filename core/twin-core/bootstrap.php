@@ -72,6 +72,10 @@ require_once $twin_includes . '/class-twin-data-contract.php';
 // Phase 2 Priority 3–5 — State Schema (7 state tables DDL + migration)
 require_once $twin_includes . '/class-twin-state-schema.php';
 
+// [2026-06-19 Johnny Chu] PHASE-TWB-WORKFLOW W1 — Artifact Normalizer.
+// Stateless utility; convert block execute() output → standardized artifact pool entry.
+require_once $twin_includes . '/class-twin-artifact-normalizer.php';
+
 // Phase 0.12 Wave A — Twin Event Stream foundation
 //   Spec:  PHASE-0.12-TWIN-EVENT-STREAM-UNIFICATION.md
 //   Rule:  PHASE-0-RULE-EVENT-STREAM.md (R-EVT-1..7)

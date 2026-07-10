@@ -82,8 +82,6 @@ class BizCity_Guru_Bridge_Installer {
 	}
 
 	public static function table_exists( string $table ): bool {
-		global $wpdb;
-		$found = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) );
-		return ( $found === $table );
+		return bizcity_tbl_exists( $table ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 	}
 }

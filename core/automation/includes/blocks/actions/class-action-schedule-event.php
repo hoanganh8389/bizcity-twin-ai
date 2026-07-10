@@ -17,7 +17,8 @@ defined( 'ABSPATH' ) || exit;
 
 final class BizCity_Automation_Action_Schedule_Event extends BizCity_Automation_Block_Base {
 
-	const EVENT_TYPES = array( 'task', 'meeting', 'reminder', 'reminder_zalo' );
+	// [2026-06-15 Johnny Chu] R-UNIFY — thêm reminder_personal cho admin reminder qua bất kỳ kênh nào.
+	const EVENT_TYPES = array( 'task', 'meeting', 'reminder', 'reminder_zalo', 'reminder_personal' );
 
 	public function id(): string   { return 'action.schedule_event'; }
 	public function kind(): string { return 'action'; }
@@ -30,33 +31,38 @@ final class BizCity_Automation_Action_Schedule_Event extends BizCity_Automation_
 			'color'    => '#9333ea',
 			'icon'     => 'calendar-clock',
 			'defaults' => array(
-				'label'        => 'schedule_event',
-				'event_type'   => 'task',
-				'title'        => '{{trigger.text}}',
-				'description'  => '',
-				'start_at'     => '+1 hour',
-				'reminder_min' => 15,
+				'label'         => 'schedule_event',
+				'event_type'    => 'task',
+				'title'         => '{{trigger.text}}',
+				'description'   => '',
+				'start_at'      => '+1 hour',
+				'reminder_min'  => 15,
+				// reminder_personal specifics (optional).
+				// [2026-06-15 Johnny Chu] R-UNIFY — reminder_personal inbound auto-forwarded.
+				'reminder_text' => '',
 				// reminder_zalo specifics (optional, only used if event_type=reminder_zalo).
-				'zalo_bot_id'  => '',
-				'zalo_user_id' => '{{trigger.sender_id}}',
-				'zalo_text'    => '{{trigger.text}}',
+				'zalo_bot_id'   => '',
+				'zalo_user_id'  => '{{trigger.sender_id}}',
+				'zalo_text'     => '{{trigger.text}}',
 			),
 			'fields' => array(
-				array( 'name' => 'label',       'label' => 'Tên hiển thị',                            'type' => 'text' ),
-				array( 'name' => 'event_type',  'label' => 'Loại event',                              'type' => 'select', 'options' => self::EVENT_TYPES ),
-				array( 'name' => 'title',       'label' => 'Tiêu đề',                                  'type' => 'text' ),
-				array( 'name' => 'description', 'label' => 'Mô tả',                                    'type' => 'textarea' ),
-				array( 'name' => 'start_at',    'label' => 'Bắt đầu (ISO hoặc strtotime: +1 hour)',    'type' => 'text' ),
-				array( 'name' => 'reminder_min','label' => 'Reminder trước (phút)',                    'type' => 'number' ),
-				array( 'name' => 'zalo_bot_id', 'label' => '[reminder_zalo] Bot ID',                   'type' => 'text' ),
-				array( 'name' => 'zalo_user_id','label' => '[reminder_zalo] Zalo user ID',             'type' => 'text' ),
-				array( 'name' => 'zalo_text',   'label' => '[reminder_zalo] Nội dung gửi',             'type' => 'textarea' ),
+				array( 'name' => 'label',        'label' => 'Tên hiển thị',                            'type' => 'text' ),
+				array( 'name' => 'event_type',   'label' => 'Loại event',                              'type' => 'select', 'options' => self::EVENT_TYPES ),
+				array( 'name' => 'title',        'label' => 'Tiêu đề',                                  'type' => 'text' ),
+				array( 'name' => 'description',  'label' => 'Mô tả',                                    'type' => 'textarea' ),
+				array( 'name' => 'start_at',     'label' => 'Bắt đầu (ISO hoặc strtotime: +1 hour)',    'type' => 'text' ),
+				array( 'name' => 'reminder_min', 'label' => 'Reminder trước (phút)',                    'type' => 'number' ),
+				array( 'name' => 'reminder_text','label' => '[reminder_personal] Nội dung nhắc nhở',    'type' => 'textarea' ),
+				array( 'name' => 'zalo_bot_id',  'label' => '[reminder_zalo] Bot ID',                   'type' => 'text' ),
+				array( 'name' => 'zalo_user_id', 'label' => '[reminder_zalo] Zalo user ID',             'type' => 'text' ),
+				array( 'name' => 'zalo_text',    'label' => '[reminder_zalo] Nội dung gửi',             'type' => 'textarea' ),
 			),
 		);
 	}
 
 	public function execute( array $ctx, array $data ) {
-		$event_type = (string) ( $data['event_type'] ?? 'task' );
+		// [2026-06-15 Johnny Chu] PHASE-0 — resolve event_type qua {{}} (hỗ trợ {{extract.output.kind}}).
+		$event_type = (string) $this->resolve( $data['event_type'] ?? 'task', $ctx );
 		if ( ! in_array( $event_type, self::EVENT_TYPES, true ) ) {
 			$event_type = 'task';
 		}
@@ -68,11 +74,26 @@ final class BizCity_Automation_Action_Schedule_Event extends BizCity_Automation_
 			return new WP_Error( 'no_title', 'schedule_event: thiếu title.' );
 		}
 
-		// strtotime tolerates ISO + relative ("+1 hour", "tomorrow 9am").
+		// [2026-06-15 Johnny Chu] PHASE-0 — handle time-only string "HH:MM" hoặc "HH:MM:SS"
+		// từ LLM output. strtotime("10:00") = false trong PHP → prepend today's date.
+		if ( $start_raw !== '' && preg_match( '/^\d{1,2}:\d{2}(:\d{2})?$/', trim( $start_raw ) ) ) {
+			$start_raw = gmdate( 'Y-m-d', current_time( 'timestamp' ) ) . ' ' . $start_raw;
+		}
+
+		// strtotime tolerates ISO + relative ("+1 hour", "tomorrow 9am", "today 10:00:00").
 		$ts       = $start_raw !== '' ? strtotime( $start_raw, current_time( 'timestamp' ) ) : ( current_time( 'timestamp' ) + HOUR_IN_SECONDS );
 		$start_at = $ts ? gmdate( 'Y-m-d H:i:s', $ts ) : current_time( 'mysql' );
 
 		$metadata = array();
+		// [2026-06-15 Johnny Chu] R-UNIFY — reminder_personal: reminder_text từ field, inbound forwarded qua build_event_metadata.
+		if ( $event_type === 'reminder_personal' ) {
+			$reminder_text = (string) $this->resolve( $data['reminder_text'] ?? '', $ctx );
+			if ( $reminder_text !== '' ) {
+				$metadata['reminder_text'] = $reminder_text;
+			}
+			// notify.enabled = true để completion notifier + handler đều biết cần fire.
+			$metadata['notify'] = array( 'enabled' => true );
+		}
 		if ( $event_type === 'reminder_zalo' ) {
 			$bot_id  = trim( (string) $this->resolve( $data['zalo_bot_id'] ?? '', $ctx ) );
 			$user_id = trim( (string) $this->resolve( $data['zalo_user_id'] ?? '', $ctx ) );
@@ -88,6 +109,14 @@ final class BizCity_Automation_Action_Schedule_Event extends BizCity_Automation_
 			);
 		}
 
+		// [2026-06-15 Johnny Chu] PHASE-0 — forward wp_user_id từ trigger để event
+		// gán đúng user (automation chạy trong cron → get_current_user_id()=0).
+		$wp_user_id = (int) (
+			$ctx['trigger']['wp_user_id']
+			?? $ctx['wp_user_id']
+			?? get_current_user_id()
+		);
+
 		$payload = array(
 			'event_type'   => $event_type,
 			'title'        => $title,
@@ -96,9 +125,11 @@ final class BizCity_Automation_Action_Schedule_Event extends BizCity_Automation_
 			'reminder_min' => max( 0, (int) ( $data['reminder_min'] ?? 15 ) ),
 			'status'       => 'active',
 			'source'       => 'workflow',
+			'user_id'      => $wp_user_id,
 			'related_id'   => $ctx['_run_id'] ?? '',
 			'workflow_id'  => $ctx['_workflow_id'] ?? 0,
-			'metadata'     => $metadata,
+			// [2026-06-03 Johnny Chu] R-SCH-REPLY — forward inbound{} qua helper.
+			'metadata'     => $this->build_event_metadata( $ctx, $metadata ),
 		);
 
 		$event_id = BizCity_Automation_CRM_Bridge::create_event( $payload );

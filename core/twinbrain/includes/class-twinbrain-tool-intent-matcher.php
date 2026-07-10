@@ -232,7 +232,7 @@ class BizCity_TwinBrain_Tool_Intent_Matcher {
 		global $wpdb;
 		$tbl = $wpdb->prefix . 'bizcity_skills';
 		$prev = $wpdb->suppress_errors( true );
-		$found = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl ) );
+		$found = bizcity_tbl_exists( $tbl ) ? $tbl : null; // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 		if ( $found !== $tbl ) {
 			$wpdb->suppress_errors( $prev );
 			return [];

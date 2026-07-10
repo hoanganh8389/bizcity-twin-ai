@@ -289,9 +289,7 @@ class BizCity_Intent_Settings_API {
         $table = $wpdb->prefix . 'bizcity_tool_registry';
 
         // Check table exists
-        $table_exists = $wpdb->get_var(
-            $wpdb->prepare( 'SHOW TABLES LIKE %s', $table )
-        );
+        $table_exists = bizcity_tbl_exists( $table ) ? $table : null; // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 
         if ( ! $table_exists ) {
             return new WP_REST_Response( array(

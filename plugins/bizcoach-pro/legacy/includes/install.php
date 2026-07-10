@@ -188,7 +188,7 @@ class BCCM_Installer {
       timezone    DECIMAL(4,1) NULL DEFAULT 7.0,
       summary     LONGTEXT NULL,
       traits      LONGTEXT NULL,
-      chart_svg   TEXT NULL,
+      chart_svg   LONGTEXT NULL,
       llm_report  LONGTEXT NULL,
       created_at  DATETIME NOT NULL,
       updated_at  DATETIME NOT NULL,
@@ -240,13 +240,39 @@ class BCCM_Installer {
       user_id      BIGINT UNSIGNED NULL DEFAULT NULL,
       target_date  DATE NOT NULL,
       label        VARCHAR(64) NOT NULL DEFAULT '',
+      source_marker VARCHAR(32) NOT NULL DEFAULT '',
       planets_json LONGTEXT NULL,
       aspects_json LONGTEXT NULL,
       fetched_at   DATETIME NOT NULL,
       PRIMARY KEY (id),
       UNIQUE KEY uniq_coachee_date (coachee_id, target_date),
       KEY idx_user_id (user_id),
+      KEY idx_source_marker (source_marker),
       KEY idx_target_date (target_date)
+    ) $charset;";
+
+    // [2026-07-04 Johnny Chu] PHASE-FAA2-NEXT BE-4 — Ashtakoot relation scores
+    // 12. Astro relations — compatibility scores between chính-chủ and other subjects
+    $sqls[] = "CREATE TABLE IF NOT EXISTS {$prefix}bccm_astro_relations (
+      id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      user_id         BIGINT UNSIGNED NOT NULL DEFAULT 0,
+      owner_coachee   BIGINT UNSIGNED NOT NULL,
+      subject_coachee BIGINT UNSIGNED NOT NULL,
+      system          VARCHAR(32)  NOT NULL DEFAULT 'ashtakoot',
+      relation_type   VARCHAR(48)  NOT NULL DEFAULT 'general',
+      total_score     DECIMAL(5,2) NULL,
+      out_of          DECIMAL(5,2) NULL DEFAULT 36,
+      score_json      LONGTEXT     NULL,
+      interpretation  LONGTEXT     NULL,
+      status          VARCHAR(16)  NOT NULL DEFAULT 'active',
+      computed_at     DATETIME     NULL,
+      created_at      DATETIME     NOT NULL,
+      updated_at      DATETIME     NOT NULL,
+      PRIMARY KEY (id),
+      UNIQUE KEY uniq_pair_system (owner_coachee, subject_coachee, system),
+      KEY idx_user (user_id),
+      KEY idx_owner (owner_coachee),
+      KEY idx_subject (subject_coachee)
     ) $charset;";
 
     foreach ($sqls as $sql) {
@@ -288,6 +314,20 @@ class BCCM_Installer {
       // were ever added. Symptom: wp_bccm_astro stuck at the original 6-col
       // schema; /my-{system}-astrology/?id=&hash= returns "No astro data".
       '0.1.0.42' => 'migrate_0_1_0_42',
+      // v0.1.0.43 (2026-06-08): bump chart_svg TEXT→MEDIUMTEXT so FAA V2 inline
+      // SVG payloads (~120KB) no longer get silently truncated by MySQL at
+      // the 65,535-byte TEXT limit. Symptom: "Sinh lại biểu đồ" succeeds
+      // (gateway returns 200 OK + 120KB SVG) but DB row chart_svg ends up
+      // empty/clipped → chart never renders on FE.
+      '0.1.0.43' => 'migrate_0_1_0_43',
+      // [2026-07-04 Johnny Chu] PHASE-FAA2-NEXT BE-2/BE-4 — R-COACHEE.2:
+      //   bccm_coachees.is_self (TINYINT) + idx_user_self
+      //   bccm_astro_relations (new table — Ashtakoot compatibility scores)
+      //   Backfill: oldest coachee per user_id → is_self=1
+      '0.1.0.44' => 'migrate_0_1_0_44',
+      // [2026-07-06 Johnny Chu] HOTFIX — Transit writer unification:
+      //   bccm_transit_snapshots.source_marker + label normalization + planets_json normalization tick.
+      '0.1.0.45' => 'migrate_0_1_0_45',
     ];
   }
 
@@ -796,9 +836,138 @@ class BCCM_Installer {
     $this->migrate_0_1_0_40();
   }
 
+  /**
+   * v0.1.0.43 (2026-06-08): Bump chart_svg TEXT → MEDIUMTEXT.
+   *
+   * FAA V2 inline SVG payloads (theme=dark, size=760, full chart_config) are
+   * routinely 80-150 KB, well past the 65,535-byte TEXT column ceiling. MySQL
+   * silently truncates oversize values into TEXT columns (no error raised, just
+   * data loss), so users who clicked "Sinh lại biểu đồ" got a 200 OK from the
+   * gateway, an apparently successful save, but a clipped/empty chart_svg row
+   * → blank chart on FE. Bumping to MEDIUMTEXT (16 MB) eliminates the ceiling
+   * for any realistic SVG. Idempotent — uses MODIFY COLUMN which is safe even
+   * if column is already MEDIUMTEXT.
+   *
+   * R-DCL note: bccm_astro lives under bizcoach-pro/ (not core/diagnostics/
+   * changelog/) so no JSON changelog row required, but stamping here per
+   * R-STAMP so future devs see why TEXT was abandoned.
+   */
+  private function migrate_0_1_0_43(): void {
+    // [2026-06-08 Johnny Chu] HOTFIX — TEXT truncation cuts 120KB SVG to 65KB.
+    $t_astro = $this->wpdb->prefix . 'bccm_astro';
+    if (!$this->table_exists($t_astro)) {
+      $this->install_tables();
+      return;
+    }
+    $cols = $this->get_columns($t_astro);
+    if (!in_array('chart_svg', $cols, true)) {
+      // Defensive: chart_svg should exist by now (added in 0.1.0.8 / 0.1.0.40),
+      // but if it's missing, add as LONGTEXT directly.
+      $this->wpdb->query("ALTER TABLE `$t_astro` ADD COLUMN `chart_svg` LONGTEXT NULL AFTER `traits`");
+      return;
+    }
+    // MODIFY COLUMN is idempotent — MySQL accepts the change even if column
+    // is already LONGTEXT. Suppress wpdb errors for the duration so the
+    // query doesn't trip on RDS / managed-MySQL ACL edge-cases.
+    $prev_suppress = $this->wpdb->suppress_errors(true);
+    $this->wpdb->query("ALTER TABLE `$t_astro` MODIFY COLUMN `chart_svg` LONGTEXT NULL");
+    $this->wpdb->suppress_errors($prev_suppress);
+  }
+
   private function add_column_if_missing( string $table, array $cols, string $column, string $def, string $after ): void {
     if (!in_array($column, $cols, true)) {
       $this->wpdb->query("ALTER TABLE `$table` ADD COLUMN `$column` $def AFTER `$after`");
+    }
+  }
+
+  /**
+   * v0.1.0.44 (2026-07-04): R-COACHEE.2 — is_self + idx_user_self + bccm_astro_relations.
+   * [2026-07-04 Johnny Chu] PHASE-FAA2-NEXT BE-2/BE-4
+   */
+  private function migrate_0_1_0_44(): void {
+    $prefix    = $this->wpdb->prefix;
+    $t_coaches = $prefix . 'bccm_coachees';
+    $t_rel     = $prefix . 'bccm_astro_relations';
+    $charset   = $this->wpdb->get_charset_collate();
+
+    // 1. ADD is_self column + index to bccm_coachees (ADD-only, idempotent)
+    if ( $this->table_exists( $t_coaches ) ) {
+      $cols = $this->get_columns( $t_coaches );
+      $this->add_column_if_missing( $t_coaches, $cols, 'is_self', 'TINYINT(1) NOT NULL DEFAULT 0', 'user_id' );
+
+      // Add index idx_user_self if missing (suppress error if exists)
+      $has_idx = $this->wpdb->get_results( "SHOW INDEX FROM `{$t_coaches}` WHERE Key_name = 'idx_user_self'" );
+      if ( empty( $has_idx ) ) {
+        $this->wpdb->query( "ALTER TABLE `{$t_coaches}` ADD KEY idx_user_self (user_id, is_self)" );
+      }
+
+      // 2. Backfill: oldest coachee per user_id (user_id>0) → is_self=1
+      // Uses MIN(id) per user — idempotent because any already-1 rows won't change score
+      $this->wpdb->query( "
+        UPDATE `{$t_coaches}` c
+        INNER JOIN (
+          SELECT user_id, MIN(id) AS min_id FROM `{$t_coaches}` WHERE user_id > 0 GROUP BY user_id
+        ) m ON c.id = m.min_id
+        SET c.is_self = 1
+        WHERE c.is_self = 0
+      " );
+    }
+
+    // 3. CREATE bccm_astro_relations (install_tables already has CREATE IF NOT EXISTS)
+    $this->install_tables();
+  }
+
+  /**
+   * v0.1.0.45 (2026-07-06): Transit snapshot schema unification.
+   * [2026-07-06 Johnny Chu] HOTFIX
+   * - ADD bccm_transit_snapshots.source_marker (+idx_source_marker)
+   * - Normalize legacy labels to canonical period token ('day')
+  * - Backfill source_marker_v2 for audit trail (legacy_prefetch_v2 / do_transit_fetch_v2)
+   * - Trigger planets_json normalization tick via canonical writer helper
+   */
+  private function migrate_0_1_0_45(): void {
+    $t_snap = $this->wpdb->prefix . 'bccm_transit_snapshots';
+    if ( ! $this->table_exists( $t_snap ) ) {
+      $this->install_tables();
+      return;
+    }
+
+    $cols = $this->get_columns( $t_snap );
+    $this->add_column_if_missing( $t_snap, $cols, 'source_marker', "VARCHAR(32) NOT NULL DEFAULT ''", 'label' );
+
+    $has_idx = $this->wpdb->get_results( "SHOW INDEX FROM `{$t_snap}` WHERE Key_name = 'idx_source_marker'" );
+    if ( empty( $has_idx ) ) {
+      $this->wpdb->query( "ALTER TABLE `{$t_snap}` ADD KEY idx_source_marker (source_marker)" );
+    }
+
+    // [2026-07-06 Johnny Chu] PHASE-FAA2-TWINBRAIN A10 — migrate source marker to `_v2`.
+    // 1) upgrade explicit v1 markers.
+    $this->wpdb->query( "UPDATE `{$t_snap}` SET source_marker = 'legacy_prefetch_v2' WHERE source_marker = 'legacy_prefetch'" );
+    $this->wpdb->query( "UPDATE `{$t_snap}` SET source_marker = 'do_transit_fetch_v2' WHERE source_marker = 'do_transit_fetch'" );
+
+    // 2) backfill blank rows using pre-normalized legacy labels/shape clues.
+    $this->wpdb->query( "UPDATE `{$t_snap}`
+      SET source_marker = 'legacy_prefetch_v2'
+      WHERE source_marker = ''
+        AND (
+          LOWER(label) NOT IN ('day','week','month','year','5year','custom_year')
+          OR planets_json LIKE '{%'
+        )" );
+
+    $this->wpdb->query( "UPDATE `{$t_snap}`
+      SET source_marker = 'do_transit_fetch_v2'
+      WHERE source_marker = ''" );
+
+    // Canonical label for date-keyed snapshots.
+    $this->wpdb->query( "UPDATE `{$t_snap}`
+      SET label = 'day'
+      WHERE LOWER(label) NOT IN ('day','week','month','year','5year','custom_year')
+         OR label = ''" );
+
+    // Kick one migration batch for planets_json normalization.
+    if ( class_exists( 'BizCoach_Pro_Self_Service_REST' )
+      && method_exists( 'BizCoach_Pro_Self_Service_REST', 'migrate_transit_snapshots_batch' ) ) {
+      BizCoach_Pro_Self_Service_REST::migrate_transit_snapshots_batch( $t_snap );
     }
   }
 }

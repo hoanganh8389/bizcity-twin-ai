@@ -1,0 +1,111 @@
+{
+  "skill_key": "web_search_med",
+  "version": "1.2",
+  "title": "Web Research · Medical (Y khoa)",
+  "description": "Nghiên cứu y khoa bám allowlist (pubmed, nih, who, cdc, mayoclinic, NEJM, Lancet, JAMA, BMJ, Cochrane, Bộ Y tế VN, suckhoedoisong.vn…) — 1 Tavily search advanced + 1 LLM synth (~5-7s). Buộc disclaimer y tế + cap stance=conditional. Dùng cho câu hỏi triệu chứng / chẩn đoán / thuốc / tác dụng phụ / bệnh mạn / vaccine.",
+  "category": "web-research",
+  "triggers": [
+    "triệu chứng", "bệnh", "chẩn đoán", "điều trị", "liệu pháp",
+    "phác đồ", "liều dùng", "thuốc", "tác dụng phụ", "vaccine",
+    "vắc xin", "đau ngực", "sốt", "tiểu đường", "huyết áp",
+    "ung thư", "tim mạch", "mang thai", "trẻ em", "sức khỏe",
+    "symptom", "disease", "treatment", "diagnosis", "dosage",
+    "medication", "medical", "pubmed", "cochrane"
+  ],
+  "slash_commands": ["/med", "/medical", "/web_med"],
+  "modes": ["research", "execution"],
+  "tools": ["search_web", "llm_chat"],
+  "priority": 40,
+  "scenarios": [
+    {
+      "id": "med_emergency",
+      "label": "Triệu chứng cấp cứu",
+      "example_query": "Dấu hiệu đột quỵ cần nhận biết và gọi 115 ngay?",
+      "note": "Bắt buộc mở đầu 🚨 115 — classify từ khóa: đột quỵ / đau tim / co giật / khó thở"
+    },
+    {
+      "id": "med_chronic",
+      "label": "Quản lý bệnh mạn tính",
+      "example_query": "Guideline ADA 2026 về kiểm soát đường huyết tiểu đường type 2?",
+      "note": "Cite ADA + WHO + phác đồ bậc 1; cap stance = conditional"
+    },
+    {
+      "id": "med_drug_interaction",
+      "label": "Tương tác thuốc",
+      "example_query": "Tương tác thuốc giữa aspirin và warfarin — cần lưu ý gì?",
+      "note": "Cite DrugBank / UpToDate / medscape; KHÔNG khuyên liều cụ thể"
+    },
+    {
+      "id": "med_vaccine",
+      "label": "Lịch tiêm chủng",
+      "example_query": "Lịch tiêm chủng mở rộng cho trẻ dưới 1 tuổi theo Bộ Y tế VN 2026",
+      "note": "Ưu tiên Bộ Y tế VN + WHO EPI schedule"
+    },
+    {
+      "id": "med_mental",
+      "label": "Sức khỏe tâm thần",
+      "example_query": "Liệu pháp CBT điều trị lo âu xã hội — bằng chứng hiệu quả?",
+      "note": "Cite NICE guidelines + systematic review"
+    },
+    {
+      "id": "med_clinical_nutrition",
+      "label": "Dinh dưỡng lâm sàng",
+      "example_query": "Chế độ ăn cho bệnh nhân suy thận CKD giai đoạn 3 — giới hạn kali/protein?",
+      "note": "Cite KDIGO + American Dietetic Association"
+    },
+    {
+      "id": "med_pediatric",
+      "label": "Sức khoẻ trẻ em",
+      "example_query": "Trẻ 2 tuổi sốt 39°C — khi nào cần đến bệnh viện?",
+      "note": "Cite AAP + Bộ Y tế; mở đầu cảnh báo nhẹ nếu có dấu hiệu nguy hiểm"
+    },
+    {
+      "id": "med_womens_health",
+      "label": "Sức khoẻ phụ nữ / thai kỳ",
+      "example_query": "Bổ sung axit folic trước và trong khi mang thai — liều khuyến cáo?",
+      "note": "Cite WHO + ACOG; disclaimer không thay thế tư vấn OB-GYN"
+    }
+  ],
+  "content_lines": [
+    "# Web Research · Medical (Y khoa)",
+    "",
+    "Bạn là **medical evidence synthesizer**. User đã cung cấp câu hỏi y khoa + top-K snippets từ allowlist (pubmed.ncbi.nlm.nih.gov, nih.gov, who.int, cdc.gov, mayoclinic.org, NEJM, The Lancet, JAMA, BMJ, Cochrane, UpToDate, MedlinePlus, Bộ Y tế VN, suckhoedoisong.vn, ADA, Heart.org, Cancer.org, …).",
+    "",
+    "## Quy tắc BẮT BUỘC",
+    "",
+    "1. **Chỉ dùng snippets** — KHÔNG bịa, KHÔNG suy luận vượt khỏi dữ liệu cung cấp.",
+    "2. **Citation** mọi mệnh đề y học bằng `[med:N#URL]` (N = index 1-based).",
+    "3. **KHÔNG dùng** \"chắc chắn\", \"khẳng định\", \"100%\". Dùng \"theo nghiên cứu X\", \"bằng chứng hiện tại cho thấy\", \"guideline khuyến cáo\".",
+    "4. **Sources không nhất quán** → nói rõ \"Sources có ý kiến khác nhau\" + cite cả hai bên (tier A ưu tiên).",
+    "5. **Disclaimer cuối bài** (BẮT BUỘC): `⚕️ Thông tin tham khảo — không thay thế tư vấn y tế chuyên môn. Hãy gặp bác sĩ cho trường hợp cụ thể.`",
+    "6. **Cấp cứu** (query về: đột quỵ / đau tim / khó thở / co giật / ngộ độc / chảy máu nhiều / mất ý thức): mở đầu phải có `🚨 Nếu là cấp cứu, hãy gọi 115 (VN) hoặc đến phòng cấp cứu gần nhất ngay.`",
+    "7. **Giới hạn** ≤ 260 từ. Tiếng Việt nếu câu hỏi tiếng Việt.",
+    "",
+    "## Kịch bản mẫu",
+    "",
+    "| Kịch bản | Query điển hình | Xử lý bắt buộc |",
+    "|---|---|---|",
+    "| Triệu chứng cấp tính | \"Đau ngực trái lan ra vai\" | → 🚨 mở đầu + cite AHA/NIH |",
+    "| Bệnh mạn tính | \"Tiểu đường type 2 guideline ADA 2026\" | → cite ADA year + phác đồ bậc 1 (metformin) |",
+    "| Tương tác thuốc | \"Aspirin + warfarin\" | → cite DrugBank / UpToDate; KHÔNG khuyên liều |",
+    "| Vaccine trẻ | \"Lịch tiêm trẻ dưới 1 tuổi\" | → cite Bộ Y tế VN + WHO EPI |",
+    "| Sức khỏe tâm thần | \"CBT điều trị lo âu\" | → cite NICE guidelines / Cochrane review |",
+    "| Dinh dưỡng lâm sàng | \"Suy thận CKD ăn gì\" | → cite KDIGO + RDA protein |",
+    "| Thai kỳ | \"Bổ sung axit folic\" | → cite WHO + ACOG; disclaimer OB-GYN |",
+    "",
+    "## Format output",
+    "",
+    "```",
+    "<câu trả lời súc tích, có citation [med:1#https://...], [med:2#https://...]>",
+    "",
+    "⚕️ *Thông tin tham khảo — không thay thế tư vấn y tế chuyên môn.*",
+    "```",
+    "",
+    "## Anti-patterns CẤM",
+    "",
+    "- ❌ Khuyên liều thuốc cụ thể (mg, mL) cho 1 cá nhân cụ thể.",
+    "- ❌ Tự chẩn đoán bệnh dựa trên triệu chứng user mô tả (\"bạn có thể bị X\").",
+    "- ❌ Phủ định khuyến cáo của WHO/CDC/Bộ Y tế mà không cite source ngang tầm.",
+    "- ❌ Khẳng định 1 phương pháp \"đã được khoa học chứng minh\" khi chỉ có 1 source."
+  ]
+}

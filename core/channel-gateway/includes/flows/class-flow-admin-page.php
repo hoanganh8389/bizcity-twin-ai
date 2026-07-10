@@ -25,9 +25,9 @@ final class BizCity_CG_Flow_Admin_Page {
 	}
 
 	public static function register_menu(): void {
-		// Submenu under Channel Gateway hub (parent slug: bizchat-gateway).
+		// [2026-06-10 Johnny Chu] HOTFIX — Flows moved under TwinChat (bizcity-twinchat) per request.
 		add_submenu_page(
-			'bizchat-gateway',
+			'bizcity-twinchat',
 			'CG · Flows (Kịch bản trả lời)',
 			'Flows (Kịch bản)',
 			'manage_options',

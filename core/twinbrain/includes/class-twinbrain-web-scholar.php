@@ -23,10 +23,10 @@ final class BizCity_TwinBrain_Web_Scholar {
 	const SKILL_KEY        = 'web_search_scholar';
 	const DEFAULT_MAX      = 8;
 	const SEARCH_TIMEOUT_S = 10;
-	const LLM_TIMEOUT_S    = 16;
+	const LLM_TIMEOUT_S    = 20;   // [2026-06-04 Johnny Chu] DEPTH-UP — 16→20s cho output dài hơn
 	const LLM_TEMPERATURE  = 0.2;
-	const LLM_MAX_TOKENS   = 900;
-	const SNIPPET_TRUNC    = 520;
+	const LLM_MAX_TOKENS   = 1350; // [2026-06-04 Johnny Chu] DEPTH-UP — 900→1350 (+50%)
+	const SNIPPET_TRUNC    = 700;  // [2026-06-04 Johnny Chu] DEPTH-UP — 520→700
 	const TITLE_TRUNC      = 180;
 	const DEFAULT_TIME     = 'year';
 
@@ -193,7 +193,10 @@ final class BizCity_TwinBrain_Web_Scholar {
 		] );
 		if ( is_wp_error( $response ) ) { $out['error'] = 'http_error:' . $response->get_error_code(); $out['answer_md'] = $this->build_stub_answer( $results ); return $out; }
 		$out['http_status'] = (int) wp_remote_retrieve_response_code( $response );
-		$decoded = json_decode( (string) wp_remote_retrieve_body( $response ), true );
+		$raw     = (string) wp_remote_retrieve_body( $response );
+		// [2026-06-24 Johnny Chu] HOTFIX-BOM — strip UTF-8 BOM; bizcity.vn gateway prepends 0xEF BB BF → json_decode null on HTTP 200 → gateway_failure:unknown
+		if ( substr( $raw, 0, 3 ) === "\xEF\xBB\xBF" ) { $raw = substr( $raw, 3 ); }
+		$decoded = json_decode( trim( $raw ), true );
 		if ( ! is_array( $decoded ) || empty( $decoded['success'] ) ) { $out['error'] = 'gateway_failure:' . ( $decoded['error'] ?? $decoded['message'] ?? 'unknown' ); $out['answer_md'] = $this->build_stub_answer( $results ); return $out; }
 		$out['answer_md'] = trim( (string) ( $decoded['message'] ?? '' ) );
 		$out['tokens']    = (int) ( $decoded['usage']['total_tokens'] ?? 0 );
@@ -210,7 +213,7 @@ final class BizCity_TwinBrain_Web_Scholar {
 		}
 		if ( $context === '' ) $context = '_(no scholar results)_';
 		$user = "NGUỒN HỌC THUẬT (top-" . count( $results ) . ", từ allowlist tier A-D):\n\n{$context}\nCÂU HỎI:\n{$query}\n\n"
-		      . "Yêu cầu (≤260 từ, Tiếng Việt nếu câu hỏi tiếng Việt):\n"
+		      . "Yêu cầu (≤390 từ, Tiếng Việt nếu câu hỏi tiếng Việt — bao gồm methodology, sample size, confidence interval nếu snippet cung cấp):\n" // [2026-06-04 Johnny Chu] DEPTH-UP
 		      . "1. Tổng hợp CHÍNH XÁC từ snippets — KHÔNG bịa kết quả/số liệu.\n"
 		      . "2. Citation BẮT BUỘC: trong text ghi (Tác giả/Tổ chức, Năm) NẾU snippet có; sau đó kèm `[sch:N#URL]`.\n"
 		      . "3. Nếu paper xung đột → nêu rõ + cite cả 2 bên.\n"

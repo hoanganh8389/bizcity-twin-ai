@@ -144,7 +144,17 @@ class BizCity_Twin_Snapshot_Builder {
         if ( class_exists( 'BizCity_Intent_Database' ) ) {
             global $wpdb;
             $table = $wpdb->prefix . 'bizcity_intent_conversations';
-            if ( $wpdb->get_var( "SHOW TABLES LIKE '{$table}'" ) ) {
+            // [2026-06-28 Johnny Chu] R-SHOW-TABLES — information_schema + wp_cache dual cache
+            $_ck_ic = 'bz_tbl_' . (int) get_current_blog_id() . '_' . crc32( $table );
+            $_p_ic  = wp_cache_get( $_ck_ic, 'bizcity_tbl' );
+            if ( false === $_p_ic ) {
+                $_p_ic = (int) (bool) $wpdb->get_var( $wpdb->prepare(
+                    'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+                    $table
+                ) );
+                wp_cache_set( $_ck_ic, $_p_ic, 'bizcity_tbl', HOUR_IN_SECONDS );
+            }
+            if ( $_p_ic ) {
                 $active = $wpdb->get_results( $wpdb->prepare(
                     "SELECT id, goal, status, created_at
                      FROM {$table}
@@ -191,7 +201,17 @@ class BizCity_Twin_Snapshot_Builder {
 
         // Recent messages as today_context
         $table = $wpdb->prefix . 'bizcity_webchat_messages';
-        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$table}'" ) ) {
+        // [2026-06-28 Johnny Chu] R-SHOW-TABLES — information_schema + wp_cache dual cache
+        $_ck_wm = 'bz_tbl_' . (int) get_current_blog_id() . '_' . crc32( $table );
+        $_p_wm  = wp_cache_get( $_ck_wm, 'bizcity_tbl' );
+        if ( false === $_p_wm ) {
+            $_p_wm = (int) (bool) $wpdb->get_var( $wpdb->prepare(
+                'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+                $table
+            ) );
+            wp_cache_set( $_ck_wm, $_p_wm, 'bizcity_tbl', HOUR_IN_SECONDS );
+        }
+        if ( $_p_wm ) {
             $today = current_time( 'Y-m-d' );
             $rows = $wpdb->get_results( $wpdb->prepare(
                 "SELECT message_from, LEFT(message_text, 80) AS preview, created_at

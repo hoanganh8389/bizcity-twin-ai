@@ -179,6 +179,42 @@ class BizCity_Scheduler_REST_API {
 			'callback'            => [ $this, 'automation_tools' ],
 			'permission_callback' => [ $this, 'check_admin' ],
 		] );
+
+		// [2026-06-03 Johnny Chu] SCH-NC W7 — Stats dashboard endpoint.
+		// GET /stats?from=&to=&scope=user|site → counters by status / type / source.
+		register_rest_route( self::API_NAMESPACE, '/stats', [
+			'methods'             => 'GET',
+			'callback'            => [ $this, 'stats' ],
+			'permission_callback' => [ $this, 'check_logged_in' ],
+			'args'                => [
+				'from'  => [ 'type' => 'string', 'required' => false, 'sanitize_callback' => 'sanitize_text_field' ],
+				'to'    => [ 'type' => 'string', 'required' => false, 'sanitize_callback' => 'sanitize_text_field' ],
+				'scope' => [ 'type' => 'string', 'required' => false, 'default' => 'user', 'enum' => [ 'user', 'site' ] ],
+			],
+		] );
+
+		// [2026-06-15 Johnny Chu] R-UNIFY — notify channel binding per user.
+		// GET  /me/notify-channel  → trả về kênh thông báo mặc định của current user.
+		// PUT  /me/notify-channel  → lưu kênh thông báo mặc định cho current user.
+		// Dùng để admin bind Zalo Bot chat_id cho reminder_personal.
+		register_rest_route( self::API_NAMESPACE, '/me/notify-channel', [
+			'methods'             => 'GET',
+			'callback'            => [ $this, 'get_notify_channel' ],
+			'permission_callback' => [ $this, 'check_logged_in' ],
+		] );
+		register_rest_route( self::API_NAMESPACE, '/me/notify-channel', [
+			'methods'             => 'PUT',
+			'callback'            => [ $this, 'set_notify_channel' ],
+			'permission_callback' => [ $this, 'check_logged_in' ],
+		] );
+
+		// [2026-06-15 Johnny Chu] R-UNIFY — quick reminder_personal creation.
+		// POST /events/reminders  → tạo reminder_personal event nhanh (không cần JSON phức tạp).
+		register_rest_route( self::API_NAMESPACE, '/events/reminders', [
+			'methods'             => 'POST',
+			'callback'            => [ $this, 'create_reminder' ],
+			'permission_callback' => [ $this, 'check_logged_in' ],
+		] );
 	}
 
 	/* ================================================================
@@ -373,6 +409,117 @@ class BizCity_Scheduler_REST_API {
 
 	public function check_admin(): bool {
 		return current_user_can( 'manage_options' );
+	}
+
+	/* ================================================================
+	 *  Stats (SCH-NC W7)
+	 * ================================================================ */
+
+	/**
+	 * GET /stats — dashboard counters.
+	 *
+	 * @param \WP_REST_Request $req
+	 * @return \WP_REST_Response
+	 */
+	public function stats( \WP_REST_Request $req ) {
+		// [2026-06-03 Johnny Chu] SCH-NC W7 — counters dashboard endpoint.
+		global $wpdb;
+		$mgr = BizCity_Scheduler_Manager::instance();
+		$tbl = $mgr->get_table();
+
+		$scope = $req->get_param( 'scope' ) === 'site' ? 'site' : 'user';
+		if ( $scope === 'site' && ! current_user_can( 'manage_options' ) ) {
+			$scope = 'user';
+		}
+
+		$from = (string) ( $req->get_param( 'from' ) ?: gmdate( 'Y-m-d 00:00:00', strtotime( '-30 days' ) ) );
+		$to   = (string) ( $req->get_param( 'to' )   ?: gmdate( 'Y-m-d 23:59:59' ) );
+
+		$where_extras = array();
+		$args         = array( $from, $to );
+		if ( $scope === 'user' ) {
+			$where_extras[] = 'user_id = %d';
+			$args[]         = get_current_user_id();
+		}
+		$extra_sql = empty( $where_extras ) ? '' : ' AND ' . implode( ' AND ', $where_extras );
+
+		// ── Totals by status ─────────────────────────────────────────
+		$sql = "SELECT status, COUNT(*) AS c FROM {$tbl}
+		        WHERE start_at BETWEEN %s AND %s {$extra_sql}
+		        GROUP BY status";
+		$rows = $wpdb->get_results( $wpdb->prepare( $sql, $args ), ARRAY_A );
+		$by_status = array( 'active' => 0, 'done' => 0, 'cancelled' => 0, 'draft' => 0 );
+		$total = 0;
+		foreach ( (array) $rows as $r ) {
+			$st = (string) $r['status'];
+			$c  = (int) $r['c'];
+			$by_status[ $st ] = $c;
+			$total += $c;
+		}
+
+		// ── Failed (cancelled với delivery.status='failed' hoặc reason in metadata.notify) ──
+		$failed_sql = "SELECT COUNT(*) FROM {$tbl}
+		               WHERE start_at BETWEEN %s AND %s {$extra_sql}
+		                 AND status = 'cancelled'
+		                 AND (
+		                      JSON_EXTRACT(metadata, '$.delivery.status') = 'failed'
+		                   OR JSON_EXTRACT(metadata, '$.hil.reason')      = 'timeout'
+		                 )";
+		$failed = (int) $wpdb->get_var( $wpdb->prepare( $failed_sql, $args ) );
+
+		// ── By event_type ────────────────────────────────────────────
+		$type_sql  = "SELECT event_type, COUNT(*) AS c FROM {$tbl}
+		              WHERE start_at BETWEEN %s AND %s {$extra_sql}
+		              GROUP BY event_type
+		              ORDER BY c DESC
+		              LIMIT 20";
+		$type_rows = $wpdb->get_results( $wpdb->prepare( $type_sql, $args ), ARRAY_A );
+		$by_type = array();
+		foreach ( (array) $type_rows as $r ) {
+			$by_type[ (string) $r['event_type'] ] = (int) $r['c'];
+		}
+
+		// ── By source ────────────────────────────────────────────────
+		$src_sql  = "SELECT source, COUNT(*) AS c FROM {$tbl}
+		             WHERE start_at BETWEEN %s AND %s {$extra_sql}
+		             GROUP BY source
+		             ORDER BY c DESC
+		             LIMIT 20";
+		$src_rows = $wpdb->get_results( $wpdb->prepare( $src_sql, $args ), ARRAY_A );
+		$by_source = array();
+		foreach ( (array) $src_rows as $r ) {
+			$by_source[ (string) $r['source'] ] = (int) $r['c'];
+		}
+
+		// ── Inbox count (events có metadata.inbound) ─────────────────
+		$inbox_sql = "SELECT COUNT(*) FROM {$tbl}
+		              WHERE start_at BETWEEN %s AND %s {$extra_sql}
+		                AND JSON_EXTRACT(metadata, '$.inbound.platform') IS NOT NULL";
+		$inbox = (int) $wpdb->get_var( $wpdb->prepare( $inbox_sql, $args ) );
+
+		$done    = (int) $by_status['done'];
+		$active  = (int) $by_status['active'];
+		$pending = (int) $by_status['draft'];
+		$pct_done = $total > 0 ? (int) round( $done * 100 / $total ) : 0;
+
+		return new \WP_REST_Response( array(
+			'ok'    => true,
+			'scope' => $scope,
+			'range' => array( 'from' => $from, 'to' => $to ),
+			'stats' => array(
+				'total'      => $total,
+				'done'       => $done,
+				'active'     => $active,
+				'pending'    => $pending,
+				'cancelled'  => (int) $by_status['cancelled'],
+				'failed'     => $failed,
+				'inbox'      => $inbox,
+				'percent_done' => $pct_done,
+				'by_status'  => $by_status,
+				'by_type'    => $by_type,
+				'by_source'  => $by_source,
+			),
+		), 200 );
 	}
 
 	/* ================================================================
@@ -671,5 +818,162 @@ class BizCity_Scheduler_REST_API {
 		 * @return array  Parsed event data.
 		 */
 		return apply_filters( 'bizcity_scheduler_parse_quick', $parsed, $text );
+	}
+
+	/* ================================================================
+	 *  Notify Channel Callbacks (R-UNIFY 2026-06-15)
+	 * ================================================================ */
+
+	/**
+	 * GET /me/notify-channel — current user's default notify channel binding.
+	 *
+	 * @param \WP_REST_Request $req
+	 * @return \WP_REST_Response
+	 */
+	public function get_notify_channel( \WP_REST_Request $req ) {
+		// [2026-06-15 Johnny Chu] R-UNIFY — admin đọc Zalo Bot binding.
+		$user_id = get_current_user_id();
+		// [2026-06-22 Johnny Chu] R-PERF — route via BizCity_User_Meta_Cache to avoid WP meta prime
+		$pref    = class_exists( 'BizCity_User_Meta_Cache' )
+			? BizCity_User_Meta_Cache::get( $user_id, 'bizcity_default_notify_channel', array() )
+			: get_user_meta( $user_id, 'bizcity_default_notify_channel', true );
+		if ( ! is_array( $pref ) ) {
+			$pref = array();
+		}
+		return new \WP_REST_Response( array(
+			'ok'           => true,
+			'user_id'      => $user_id,
+			'notify_channel' => array(
+				'platform' => isset( $pref['platform'] ) ? (string) $pref['platform'] : '',
+				'chat_id'  => isset( $pref['chat_id'] ) ? (string) $pref['chat_id'] : '',
+			),
+		), 200 );
+	}
+
+	/**
+	 * PUT /me/notify-channel — set current user's default notify channel binding.
+	 *
+	 * Request JSON:
+	 *   { "platform": "ZALO_BOT", "chat_id": "zalobot_<bot_id>_<zalo_uid>" }
+	 *
+	 * @param \WP_REST_Request $req
+	 * @return \WP_REST_Response
+	 */
+	public function set_notify_channel( \WP_REST_Request $req ) {
+		// [2026-06-15 Johnny Chu] R-UNIFY — admin lưu Zalo Bot chat_id vào user_meta.
+		$data     = is_array( $req->get_json_params() ) ? $req->get_json_params() : array();
+		$platform = strtoupper( sanitize_text_field( (string) ( $data['platform'] ?? '' ) ) );
+		$chat_id  = sanitize_text_field( (string) ( $data['chat_id'] ?? '' ) );
+
+		$allowed = array( 'ZALO_BOT', 'ZALO', 'FACEBOOK', 'TELEGRAM', 'WEBCHAT', 'TWINBRAIN', 'ADMIN' );
+		if ( $platform === '' || $chat_id === '' ) {
+			return new \WP_REST_Response( array( 'ok' => false, 'error' => 'platform và chat_id là bắt buộc.' ), 400 );
+		}
+		if ( ! in_array( $platform, $allowed, true ) ) {
+			return new \WP_REST_Response( array(
+				'ok'    => false,
+				'error' => 'Platform không hợp lệ. Cho phép: ' . implode( ', ', $allowed ),
+			), 400 );
+		}
+
+		$user_id = get_current_user_id();
+		update_user_meta( $user_id, 'bizcity_default_notify_channel', array(
+			'platform' => $platform,
+			'chat_id'  => $chat_id,
+		) );
+
+		return new \WP_REST_Response( array(
+			'ok'      => true,
+			'message' => 'Đã lưu kênh thông báo mặc định.',
+			'notify_channel' => array(
+				'platform' => $platform,
+				'chat_id'  => $chat_id,
+			),
+		), 200 );
+	}
+
+	/**
+	 * POST /events/reminders — quick create a reminder_personal event.
+	 *
+	 * Request JSON:
+	 *   {
+	 *     "title":         "Dự tiệc",        // required
+	 *     "start_at":      "2026-06-15 10:00:00", // required, MySQL datetime or strtotime
+	 *     "reminder_text": "Nhắc: dự tiệc lúc 10h", // optional
+	 *     "reminder_min":  0,                // optional, default 0
+	 *     "inbound":       { "platform": "ZALO_BOT", "chat_id": "zalobot_..." } // optional, overrides user_meta
+	 *   }
+	 *
+	 * Response: { event, event_id }
+	 *
+	 * @param \WP_REST_Request $req
+	 * @return \WP_REST_Response
+	 */
+	public function create_reminder( \WP_REST_Request $req ) {
+		// [2026-06-15 Johnny Chu] R-UNIFY — quick reminder_personal creation endpoint.
+		$data  = is_array( $req->get_json_params() ) ? $req->get_json_params() : array();
+		$title = sanitize_text_field( (string) ( $data['title'] ?? '' ) );
+		if ( $title === '' ) {
+			return new \WP_REST_Response( array( 'ok' => false, 'error' => 'title là bắt buộc.' ), 400 );
+		}
+
+		$start_raw = (string) ( $data['start_at'] ?? '' );
+		if ( $start_raw === '' ) {
+			return new \WP_REST_Response( array( 'ok' => false, 'error' => 'start_at là bắt buộc.' ), 400 );
+		}
+		$ts       = strtotime( $start_raw, current_time( 'timestamp' ) );
+		$start_at = $ts ? gmdate( 'Y-m-d H:i:s', $ts ) : '';
+		if ( $start_at === '' ) {
+			return new \WP_REST_Response( array( 'ok' => false, 'error' => 'start_at không hợp lệ.' ), 400 );
+		}
+
+		$reminder_text = sanitize_text_field( (string) ( $data['reminder_text'] ?? '' ) );
+		$reminder_min  = max( 0, (int) ( $data['reminder_min'] ?? 0 ) );
+
+		// Build metadata.
+		$metadata = array(
+			'notify' => array( 'enabled' => true ),
+		);
+		if ( $reminder_text !== '' ) {
+			$metadata['reminder_text'] = $reminder_text;
+		}
+		// Explicit inbound override (optional).
+		if ( isset( $data['inbound'] ) && is_array( $data['inbound'] ) ) {
+			$inbound_platform = strtoupper( sanitize_text_field( (string) ( $data['inbound']['platform'] ?? '' ) ) );
+			$inbound_chat_id  = sanitize_text_field( (string) ( $data['inbound']['chat_id'] ?? '' ) );
+			if ( $inbound_platform !== '' && $inbound_chat_id !== '' ) {
+				$metadata['inbound'] = array(
+					'platform' => $inbound_platform,
+					'chat_id'  => $inbound_chat_id,
+					'user_id'  => (string) ( $data['inbound']['user_id'] ?? get_current_user_id() ),
+				);
+			}
+		}
+
+		$payload = array(
+			'event_type'   => 'reminder_personal',
+			'title'        => $title,
+			'start_at'     => $start_at,
+			'reminder_min' => $reminder_min,
+			'status'       => 'active',
+			'source'       => 'user',
+			'user_id'      => get_current_user_id(),
+			'metadata'     => $metadata,
+		);
+
+		$mgr    = BizCity_Scheduler_Manager::instance();
+		$result = $mgr->create_event( $payload );
+
+		if ( is_wp_error( $result ) ) {
+			return new \WP_REST_Response( array( 'ok' => false, 'error' => $result->get_error_message() ), 400 );
+		}
+
+		$event = $mgr->get_event( (int) $result );
+		return new \WP_REST_Response( array(
+			'ok'       => true,
+			'event_id' => (int) $result,
+			'event'    => $event,
+			'hint'     => 'Reminder sẽ được gửi vào ' . $start_at . '. Đảm bảo kênh thông báo đã được cấu hình (PUT /me/notify-channel).',
+		), 201 );
 	}
 }

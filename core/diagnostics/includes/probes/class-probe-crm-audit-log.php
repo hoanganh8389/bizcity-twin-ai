@@ -25,6 +25,12 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 
 require_once dirname( __DIR__ ) . '/interface-diagnostics-probe.php';
 
+
+// [2026-06-08 Johnny Chu] HOTFIX — double-load guard (bootstrap may include via filter AND direct require).
+if ( class_exists( 'BizCity_Probe_CRM_Audit_Log', false ) ) {
+	return;
+}
+
 final class BizCity_Probe_CRM_Audit_Log implements BizCity_Diagnostics_Probe {
 
 	const DISK_FILES_PHP = array(
@@ -196,7 +202,7 @@ final class BizCity_Probe_CRM_Audit_Log implements BizCity_Diagnostics_Probe {
 		}
 
 		$tbl = BizCity_CRM_DB_Installer_V2::tbl_crm_audit_log();
-		$exists = ( (string) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl ) ) === $tbl );
+		$exists = ( bizcity_tbl_exists( $tbl ) ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 		$steps[] = $s = array(
 			'label'  => 'Runtime · table bizcity_crm_audit_log',
 			'status' => $exists ? 'pass' : 'fail',
@@ -206,7 +212,7 @@ final class BizCity_Probe_CRM_Audit_Log implements BizCity_Diagnostics_Probe {
 		if ( ! $exists ) {
 			// AUTO-FIX: trigger idempotent migration.
 			BizCity_CRM_DB_Installer_V2::migrate_phase_043();
-			$exists = ( (string) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl ) ) === $tbl );
+			$exists = ( bizcity_tbl_exists( $tbl ) ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			$steps[] = $s = array(
 				'label'  => 'Runtime · auto-create via migrate_phase_043()',
 				'status' => $exists ? 'pass' : 'fail',

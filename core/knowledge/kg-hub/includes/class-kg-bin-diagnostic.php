@@ -65,14 +65,8 @@ class BizCity_KG_Bin_Diagnostic {
 	}
 
 	public function register_menu() {
-		add_submenu_page(
-			'tools.php',
-			'BizCity KG · .bin Browser & Repair',
-			'BizCity KG · .bin',
-			'manage_options',
-			'bizcity-kg-bin-diagnostic',
-			[ $this, 'render_page' ]
-		);
+		// [2026-06-10 Johnny Chu] HOTFIX — bizcity-kg-bin-diagnostic menu removed per request.
+		// Direct URL /wp-admin/tools.php?page=bizcity-kg-bin-diagnostic still works.
 	}
 
 	/**
@@ -500,7 +494,7 @@ class BizCity_KG_Bin_Diagnostic {
 		$chunks_tbl = $wpdb->prefix . 'bizcity_kg_source_chunks';
 		$state = array();
 		foreach ( array( 'passages' => $psg_tbl, 'chunks' => $chunks_tbl ) as $key => $tbl ) {
-			$exists = (string) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl ) ) === $tbl;
+			$exists = bizcity_tbl_exists( $tbl ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			$type   = $exists
 				? (string) $wpdb->get_var( $wpdb->prepare(
 					"SELECT TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1",
@@ -536,7 +530,7 @@ class BizCity_KG_Bin_Diagnostic {
 		$chunks_tbl = $wpdb->prefix . 'bizcity_kg_source_chunks';
 		$state = [];
 		foreach ( [ 'passages' => $psg_tbl, 'chunks' => $chunks_tbl ] as $key => $tbl ) {
-			$exists = (string) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl ) ) === $tbl;
+			$exists = bizcity_tbl_exists( $tbl ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			$type   = $exists
 				? (string) $wpdb->get_var( $wpdb->prepare(
 					"SELECT TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1",
@@ -662,12 +656,12 @@ class BizCity_KG_Bin_Diagnostic {
 		$psg_tbl    = $wpdb->prefix . 'bizcity_kg_passages';
 		$chunks_tbl = $wpdb->prefix . 'bizcity_kg_source_chunks';
 
-		$psg_exists = (string) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $psg_tbl ) ) === $psg_tbl;
+		$psg_exists = bizcity_tbl_exists( $psg_tbl ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 		$psg_type   = $psg_exists ? (string) $wpdb->get_var( $wpdb->prepare(
 			"SELECT TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1",
 			$psg_tbl
 		) ) : '';
-		$ck_exists  = (string) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $chunks_tbl ) ) === $chunks_tbl;
+		$ck_exists  = bizcity_tbl_exists( $chunks_tbl ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 		$ck_type    = $ck_exists ? (string) $wpdb->get_var( $wpdb->prepare(
 			"SELECT TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1",
 			$chunks_tbl
@@ -1206,7 +1200,7 @@ class BizCity_KG_Bin_Diagnostic {
 		echo '<h4>Sibling tables — recent activity</h4>';
 		echo '<table class="widefat striped" style="max-width:900px"><thead><tr><th>table</th><th>exists</th><th>row count</th><th>max id</th></tr></thead><tbody>';
 		foreach ( $candidates as $t ) {
-			$exists = (string) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $t ) );
+			$exists = bizcity_tbl_exists( $t ) ? $t : null; // [2026-06-21 R-SHOW-TABLES]
 			if ( $exists === $t ) {
 				$cnt = (int) $wpdb->get_var( "SELECT COUNT(*) FROM `{$t}`" );
 				$max = (int) $wpdb->get_var( "SELECT IFNULL(MAX(id),0) FROM `{$t}`" );
@@ -3576,8 +3570,8 @@ class BizCity_KG_Bin_Diagnostic {
 		$tbl_snap = $wpdb->prefix . 'bizcity_twin_maturity_snapshots';
 		$tbl_agg  = $wpdb->prefix . 'bizcity_twin_aggregate_metrics';
 
-		$snap_exists = (string) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl_snap ) ) === $tbl_snap;
-		$agg_exists  = (string) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl_agg ) )  === $tbl_agg;
+		$snap_exists = bizcity_tbl_exists( $tbl_snap ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+		$agg_exists  = bizcity_tbl_exists( $tbl_agg ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 		$snap_rows   = $snap_exists ? (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$tbl_snap}" ) : 0;
 		$agg_rows    = $agg_exists  ? (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$tbl_agg}" )  : 0;
 
@@ -3635,7 +3629,7 @@ class BizCity_KG_Bin_Diagnostic {
 
 		// 1. Drop tables.
 		foreach ( [ $tbl_snap, $tbl_agg ] as $tbl ) {
-			$exists = (string) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl ) ) === $tbl;
+			$exists = bizcity_tbl_exists( $tbl ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			if ( $exists ) {
 				$rows = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$tbl}" );
 				$wpdb->query( "DROP TABLE IF EXISTS {$tbl}" );

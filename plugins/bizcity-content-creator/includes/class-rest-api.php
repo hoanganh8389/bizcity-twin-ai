@@ -129,6 +129,35 @@ class BZCC_Rest_API {
 			],
 		] );
 
+		// [2026-06-11 Johnny Chu] STUDIO-LIBRARY — list active templates for Studio Library panel
+		/* ── Templates: list active (Studio Library) ── */
+		register_rest_route( self::NAMESPACE, '/templates', [
+			'methods'             => 'GET',
+			'callback'            => [ __CLASS__, 'list_templates' ],
+			'permission_callback' => [ __CLASS__, 'check_auth' ],
+			'args'                => [
+				'category' => [ 'type' => 'string', 'default' => '' ],
+				'search'   => [ 'type' => 'string', 'default' => '' ],
+				'limit'    => [ 'type' => 'integer', 'default' => 100 ],
+			],
+		] );
+
+		// [2026-06-11 Johnny Chu] STUDIO-LIBRARY — create file record from Studio Library click
+		/* ── File: start (create file record from Library) ── */
+		register_rest_route( self::NAMESPACE, '/file/start', [
+			'methods'             => 'POST',
+			'callback'            => [ __CLASS__, 'start_file' ],
+			'permission_callback' => [ __CLASS__, 'check_auth' ],
+			'args'                => [
+				'template_id'      => [ 'type' => 'integer', 'required' => true ],
+				'form_data'        => [ 'type' => 'object',  'default' => [] ],
+				'notebook_id'      => [ 'type' => 'integer', 'default' => 0 ],
+				'title'            => [ 'type' => 'string',  'default' => '' ],
+				// [2026-06-11 Johnny Chu] STUDIO-LIBRARY — skeleton context từ notebook
+				'notebook_context' => [ 'type' => 'object',  'default' => [] ],
+			],
+		] );
+
 		/* ── Video: poll job status ── */
 		register_rest_route( self::NAMESPACE, '/video/poll', [
 			'methods'             => 'GET',
@@ -436,6 +465,25 @@ class BZCC_Rest_API {
 			}
 		}
 
+		// [2026-06-06 Johnny Chu] BZCC-SKEL — inject skeleton into outline_system when notebook selected
+		$notebook_id = (int) ( $file->notebook_id ?? 0 );
+		if ( $notebook_id > 0 && class_exists( 'BizCity_KG_Skeleton_Adapter' ) ) {
+			try {
+				$skel_block = (string) BizCity_KG_Skeleton_Adapter::get_prompt_block( $notebook_id );
+				if ( $skel_block !== '' ) {
+					$outline_system = $skel_block . "\n\n---\n\nDựa trên khung kiến thức trên, " . $outline_system;
+					$skel_ver = 0;
+					if ( method_exists( 'BizCity_KG_Skeleton_Adapter', 'get_version' ) ) {
+						$skel_ver = (int) BizCity_KG_Skeleton_Adapter::get_version( $notebook_id );
+					}
+					BZCC_File_Manager::update( $file_id, [ 'skeleton_version' => $skel_ver ] );
+					error_log( '[BZCC][SKEL] Injected skeleton for notebook #' . $notebook_id . ' | skel_ver=' . $skel_ver );
+				}
+			} catch ( \Exception $e ) {
+				error_log( '[BZCC][SKEL] outline inject failed: ' . $e->getMessage() );
+			}
+		}
+
 		// Build user message for outline LLM call
 		$outline_user = "BỐI CẢNH:\n" . $system_prompt . "\n\nYÊU CẦU OUTLINE:\n" . $outline_prompt
 			. "\n\nNHẮC LẠI: CHỈ trả JSON, KHÔNG viết nội dung. Bắt đầu bằng { kết thúc bằng }";
@@ -737,6 +785,20 @@ class BZCC_Rest_API {
 			$str_val     = is_array( $val ) ? implode( ', ', $val ) : (string) $val;
 			$system_prompt = str_replace( $placeholder, $str_val, $system_prompt );
 			$chunk_prompt  = str_replace( $placeholder, $str_val, $chunk_prompt );
+		}
+
+		// [2026-06-06 Johnny Chu] BZCC-SKEL — inject compact skeleton into chunk system_prompt when notebook selected
+		$skel_notebook_id = (int) ( $file->notebook_id ?? 0 );
+		if ( $skel_notebook_id > 0 && class_exists( 'BizCity_KG_Skeleton_Adapter' ) ) {
+			try {
+				$skel_block = (string) BizCity_KG_Skeleton_Adapter::get_prompt_block( $skel_notebook_id, 'compact' );
+				if ( $skel_block !== '' ) {
+					$system_prompt = $skel_block . "\n\n---\n\n" . $system_prompt;
+					error_log( '[BZCC][SKEL] Injected compact skeleton for notebook #' . $skel_notebook_id );
+				}
+			} catch ( \Exception $e ) {
+				error_log( '[BZCC][SKEL] chunk inject failed: ' . $e->getMessage() );
+			}
 		}
 
 		// Enforce content creation rules (not strategy analysis)
@@ -2128,6 +2190,221 @@ class BZCC_Rest_API {
 			'id'      => $new_id,
 			'title'   => $new_tpl ? $new_tpl->title : '',
 			'slug'    => $new_tpl ? $new_tpl->slug : '',
+		] );
+	}
+
+	/* ═══════════════════════════════════════════════════════════
+	 *  GET /templates — List active templates for Studio Library
+	 *  [2026-06-11 Johnny Chu] STUDIO-LIBRARY
+	 * ═══════════════════════════════════════════════════════════ */
+	/**
+	 * @param WP_REST_Request $request
+	 * @return WP_REST_Response
+	 */
+	public static function list_templates( WP_REST_Request $request ): WP_REST_Response {
+		// [2026-06-11 Johnny Chu] STUDIO-LIBRARY — return templates + categories for Studio Library panel
+		if ( ! class_exists( 'BZCC_Template_Manager' ) || ! class_exists( 'BZCC_Category_Manager' ) ) {
+			return new WP_REST_Response( [ 'templates' => [], 'categories' => [] ] );
+		}
+
+		$category_slug = sanitize_key( (string) ( $request->get_param( 'category' ) ?: '' ) );
+		$search        = sanitize_text_field( (string) ( $request->get_param( 'search' ) ?: '' ) );
+		$limit         = min( 200, max( 1, (int) $request->get_param( 'limit' ) ) );
+
+		$all_templates = BZCC_Template_Manager::get_all_active();
+		$all_cats      = BZCC_Category_Manager::get_all_active();
+
+		// Build slug map: category_id => slug
+		$cat_id_map = [];
+		foreach ( $all_cats as $cat ) {
+			$cat_id_map[ (int) $cat->id ] = $cat->slug;
+		}
+
+		$templates = [];
+		foreach ( $all_templates as $tpl ) {
+			$tpl_cat_slug = isset( $cat_id_map[ (int) $tpl->category_id ] )
+				? $cat_id_map[ (int) $tpl->category_id ]
+				: '';
+
+			// Filter by category
+			if ( $category_slug && $tpl_cat_slug !== $category_slug ) {
+				continue;
+			}
+
+			// Filter by search keyword
+			if ( $search ) {
+				$haystack = mb_strtolower( $tpl->title . ' ' . $tpl->description . ' ' . $tpl->tags );
+				if ( mb_strpos( $haystack, mb_strtolower( $search ) ) === false ) {
+					continue;
+				}
+			}
+
+			$form_fields = json_decode( isset( $tpl->form_fields ) ? $tpl->form_fields : '', true );
+			if ( ! is_array( $form_fields ) ) {
+				$form_fields = [];
+			}
+
+			$templates[] = [
+				'id'            => (int) $tpl->id,
+				'slug'          => $tpl->slug,
+				'title'         => $tpl->title,
+				'description'   => isset( $tpl->description ) ? $tpl->description : '',
+				'icon_emoji'    => isset( $tpl->icon_emoji ) ? $tpl->icon_emoji : '📝',
+				'tags'          => isset( $tpl->tags ) ? $tpl->tags : '',
+				'category_id'   => (int) $tpl->category_id,
+				'category_slug' => $tpl_cat_slug,
+				'form_fields'   => $form_fields,
+			];
+
+			if ( count( $templates ) >= $limit ) {
+				break;
+			}
+		}
+
+		$cat_data = [];
+		foreach ( $all_cats as $cat ) {
+			$cat_data[] = [
+				'id'         => (int) $cat->id,
+				'slug'       => $cat->slug,
+				'title'      => $cat->title,
+				'icon_emoji' => isset( $cat->icon_emoji ) ? $cat->icon_emoji : '',
+			];
+		}
+
+		return new WP_REST_Response( [
+			'templates'  => $templates,
+			'categories' => $cat_data,
+		] );
+	}
+
+	/* ═══════════════════════════════════════════════════════════
+	 *  POST /file/start — Create file record from Studio Library click
+	 *  [2026-06-11 Johnny Chu] STUDIO-LIBRARY
+	 * ═══════════════════════════════════════════════════════════ */
+	/**
+	 * @param WP_REST_Request $request
+	 * @return WP_REST_Response
+	 */
+	public static function start_file( WP_REST_Request $request ): WP_REST_Response {
+		// [2026-06-11 Johnny Chu] STUDIO-LIBRARY — create file record and return launch URL
+		if ( ! class_exists( 'BZCC_Template_Manager' ) || ! class_exists( 'BZCC_File_Manager' ) ) {
+			return new WP_REST_Response(
+				[ 'success' => false, 'error' => 'Content Creator plugin chưa sẵn sàng.' ],
+				503
+			);
+		}
+
+		$template_id      = (int) $request->get_param( 'template_id' );
+		$form_data        = $request->get_param( 'form_data' );
+		$notebook_id      = (int) $request->get_param( 'notebook_id' );
+		$notebook_context = $request->get_param( 'notebook_context' ); // [2026-06-11 Johnny Chu] STUDIO-LIBRARY — skeleton context
+		$title_param      = sanitize_text_field( (string) ( $request->get_param( 'title' ) ?: '' ) );
+		$user_id          = get_current_user_id();
+
+		if ( ! is_array( $form_data ) ) {
+			$form_data = [];
+		}
+
+		$template = BZCC_Template_Manager::get_by_id( $template_id );
+		if ( ! $template ) {
+			return new WP_REST_Response(
+				[ 'success' => false, 'error' => 'Template không tồn tại.' ],
+				404
+			);
+		}
+
+		// Title: from request param → fallback to template title
+		$title = $title_param ? $title_param : $template->title;
+
+		// Sanitize user-filled form_data values (text fields only)
+		$safe_form = [];
+		foreach ( $form_data as $k => $v ) {
+			$key = sanitize_key( (string) $k );
+			if ( ! $key ) {
+				continue;
+			}
+			if ( is_array( $v ) ) {
+				$safe_form[ $key ] = array_map( 'sanitize_text_field', $v );
+			} else {
+				$safe_form[ $key ] = sanitize_textarea_field( (string) $v );
+			}
+		}
+
+		// [2026-06-11 Johnny Chu] STUDIO-LIBRARY — embed notebook skeleton context into
+		// form_data.__notebook__ so the LLM generation pipeline has full context:
+		// thesis, outline sections, key_points, and notebook_id for reference.
+		// notebook_context is a structured object from FE's useNotebookSkeleton hook.
+		if ( is_array( $notebook_context ) && ! empty( $notebook_context ) ) {
+			$safe_nb = [];
+
+			if ( $notebook_id > 0 ) {
+				$safe_nb['id'] = $notebook_id;
+			}
+
+			// thesis / summary
+			if ( isset( $notebook_context['thesis'] ) ) {
+				$safe_nb['thesis'] = sanitize_textarea_field( (string) $notebook_context['thesis'] );
+			}
+
+			// outline: array of {label, summary, children[]}
+			if ( isset( $notebook_context['outline'] ) && is_array( $notebook_context['outline'] ) ) {
+				$safe_nb['outline'] = $notebook_context['outline']; // kept as-is (array of objects)
+			}
+
+			// key_points: array of strings
+			if ( isset( $notebook_context['key_points'] ) && is_array( $notebook_context['key_points'] ) ) {
+				$safe_nb['key_points'] = array_map( 'sanitize_text_field', $notebook_context['key_points'] );
+			}
+
+			// keywords: array of strings
+			if ( isset( $notebook_context['keywords'] ) && is_array( $notebook_context['keywords'] ) ) {
+				$safe_nb['keywords'] = array_map( 'sanitize_text_field', $notebook_context['keywords'] );
+			}
+
+			$safe_form['__notebook__'] = $safe_nb;
+		} elseif ( $notebook_id > 0 ) {
+			// Fallback: at minimum record the notebook_id even without skeleton
+			$safe_form['__notebook__'] = [ 'id' => $notebook_id ];
+		}
+
+		$insert_data = [
+			'template_id' => $template_id,
+			'user_id'     => $user_id,
+			'title'       => mb_substr( $title, 0, 255 ),
+			'form_data'   => wp_json_encode( $safe_form, JSON_UNESCAPED_UNICODE ),
+			'status'      => 'pending',
+		];
+
+		$file_id = BZCC_File_Manager::insert( $insert_data );
+
+		if ( ! $file_id ) {
+			return new WP_REST_Response(
+				[ 'success' => false, 'error' => 'Không thể tạo file record.' ],
+				500
+			);
+		}
+
+		$launch_url = home_url( '/creator/result/' . $file_id . '/' );
+
+		// Federation stamp (if available)
+		if ( class_exists( 'BizCity_Artifact_Source_Federation' ) ) {
+			BizCity_Artifact_Source_Federation::stamp(
+				'bizcity-content-creator',
+				$file_id,
+				$notebook_id,
+				$title,
+				$launch_url
+			);
+		}
+
+		error_log( '[BZCC-Library] start_file: template=' . $template->slug . ' file=' . $file_id . ' url=' . $launch_url );
+
+		return new WP_REST_Response( [
+			'success'     => true,
+			'file_id'     => $file_id,
+			'title'       => $title,
+			'launch_url'  => $launch_url,
+			'plugin_name' => 'bizcity-content-creator',
 		] );
 	}
 }

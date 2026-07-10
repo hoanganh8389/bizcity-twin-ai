@@ -87,13 +87,17 @@ add_action( 'init', function () {
  *
  * Flag is bumped on each adopter version so a code change can re-flush.
  * -------------------------------------------------- */
-add_action( 'init', function () {
+// [2026-06-09 Johnny Chu] HOTFIX — use BCPRO_REWRITE_VERSION (stable) instead of BCPRO_VERSION
+// (which contains time() → $current changes every request → guard NEVER matched → flush every req).
+// Also moved from init:99 → admin_init:99 (prevents Transposh/WC wp_loaded flush loop on frontend).
+// update_option() set BEFORE flush_rewrite_rules() so guard persists even if flush throws.
+add_action( 'admin_init', function () {
 	$flag    = 'bcpro_adopter_flushed_v1';
-	$current = '1.' . ( defined( 'BCPRO_VERSION' ) ? BCPRO_VERSION : '0' );
+	$current = '1.' . ( defined( 'BCPRO_REWRITE_VERSION' ) ? BCPRO_REWRITE_VERSION : '0.3.23' );
 	if ( get_option( $flag ) === $current ) { return; }
 
-	flush_rewrite_rules( false );
 	update_option( $flag, $current );
+	flush_rewrite_rules( false );
 }, 99 );
 
 /* ----------------------------------------------------

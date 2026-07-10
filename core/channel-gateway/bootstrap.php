@@ -23,9 +23,29 @@ if ( defined( 'BIZCITY_CHANNEL_GATEWAY_LOADED' ) ) {
 }
 define( 'BIZCITY_CHANNEL_GATEWAY_LOADED', true );
 
+// [2026-06-11 Johnny Chu] HOTFIX — Legacy compat functions ported from mu-plugins/backup/.
+// All functions/shortcodes use function_exists()/shortcode_exists() guards so
+// old mu-plugin copies still active on some installs won't cause fatal conflicts.
+$_bizcity_legacy_dir = __DIR__ . '/legacy/';
+if ( file_exists( $_bizcity_legacy_dir . 'legacy-messenger-compat.php' ) ) {
+	require_once $_bizcity_legacy_dir . 'legacy-messenger-compat.php';
+}
+if ( file_exists( $_bizcity_legacy_dir . 'legacy-zalo-compat.php' ) ) {
+	require_once $_bizcity_legacy_dir . 'legacy-zalo-compat.php';
+}
+if ( file_exists( $_bizcity_legacy_dir . 'legacy-zalo-shortcodes.php' ) ) {
+	require_once $_bizcity_legacy_dir . 'legacy-zalo-shortcodes.php';
+}
+if ( file_exists( $_bizcity_legacy_dir . 'legacy-gateway-functions.php' ) ) {
+	require_once $_bizcity_legacy_dir . 'legacy-gateway-functions.php';
+}
+unset( $_bizcity_legacy_dir );
+
 $gateway_dir = __DIR__ . '/includes/';
 
 require_once $gateway_dir . 'interface-channel-adapter.php';
+// [2026-06-13 Johnny Chu] PHASE-3.5-WD — Wave D multi-channel magic-link interface
+require_once $gateway_dir . 'interface-channel-magic-link-capable.php';
 require_once $gateway_dir . 'class-gateway-bridge.php';
 require_once $gateway_dir . 'class-gateway-sender.php';
 require_once $gateway_dir . 'class-user-resolver.php';
@@ -33,6 +53,10 @@ require_once $gateway_dir . 'class-blog-resolver.php';
 require_once $gateway_dir . 'class-channel-role.php';
 require_once $gateway_dir . 'class-integration.php';
 require_once $gateway_dir . 'class-integration-registry.php';
+// [2026-06-10 Johnny Chu] PHASE-0.31 T-S1.1 — Standalone WaicIntegration + WaicChannelIntegration
+// compat layer so channel plugins (bizcity-facebook-bot, bizcity-zalo-bot …) can extend
+// WaicChannelIntegration WITHOUT depending on the archived bizcity-automation plugin.
+require_once $gateway_dir . 'class-waic-channel-integration.php';
 
 // PHASE 0.37 — Shared Channel API (load BEFORE admin-menu so menu sees channels).
 require_once $gateway_dir . 'class-channel-adapter-base.php';
@@ -48,6 +72,17 @@ require_once $adapters_dir . 'class-adminchat-adapter.php';
 require_once $adapters_dir . 'class-email-smtp-adapter.php';
 require_once $adapters_dir . 'class-zalo-hotline-adapter.php';
 
+// [2026-06-10 Johnny Chu] PHASE-CG-SMTP-INTEGRATION — Full Email SMTP channel integration + REST.
+// [2026-06-11 Johnny Chu] HOTFIX — file_exists guard: files deployed via rsync; guard prevents fatal on stale server.
+$_bzc_smtp_integ = $adapters_dir . 'class-email-smtp-integration.php';
+$_bzc_smtp_rest  = $gateway_dir  . 'class-email-smtp-rest.php';
+if ( file_exists( $_bzc_smtp_integ ) && file_exists( $_bzc_smtp_rest ) ) {
+	require_once $_bzc_smtp_integ;
+	require_once $_bzc_smtp_rest;
+	BizCity_Email_SMTP_REST::init();
+}
+unset( $_bzc_smtp_integ, $_bzc_smtp_rest );
+
 // PHASE 0.36 W1 — WebChat-as-Channel auto-binding bootstrap.
 // Ensures `_bizcity_channel_bindings` has a row for (blog_id, WEBCHAT, blog_id)
 // on first webchat message so Universal Listener can resolve a Guru.
@@ -55,6 +90,14 @@ require_once $webchat_dir . 'class-webchat-binding-bootstrap.php';
 
 // PHASE 0.36 W4 — WebChat Inbox REST (admin SPA bubble UI backend).
 require_once $webchat_dir . 'class-webchat-inbox-rest.php';
+
+// [2026-07-02 Johnny Chu] PHASE-TWINWEB — WebChat widget settings REST (system prompt, float toggle, appearance).
+$_bzc_wc_settings = $gateway_dir . 'class-webchat-settings-rest.php';
+if ( file_exists( $_bzc_wc_settings ) ) {
+	require_once $_bzc_wc_settings;
+	BizCity_Webchat_Settings_REST::init();
+}
+unset( $_bzc_wc_settings );
 
 // PHASE 0.37 M4 — Full BizCity_Channel_Integration adapters (credential storage + send + webhook).
 require_once $adapters_dir . 'class-facebook-page-integration.php';
@@ -67,6 +110,20 @@ require_once $adapters_dir . 'class-facebook-page-oauth-bridge.php';
 // Phase 5 — Facebook SPA tab system bridge REST (pages/bots/history/test-send/post).
 require_once $adapters_dir . 'class-facebook-page-rest.php';
 BizCity_Facebook_Page_REST::init(); // Always call after require_once — file-scope init() at end of file won't run on second require_once.
+
+// [2026-06-19 Johnny Chu] PHASE-0.39 — Zalo OA direct PHP integration (no bridge).
+require_once $adapters_dir . 'class-zalo-oa-integration.php';
+// [2026-06-19 Johnny Chu] PHASE-0.39 — Zalo OA OAuth v4 REST (connect-url + callback).
+require_once $adapters_dir . 'class-zalo-oa-oauth-rest.php';
+BizCity_Zalo_OA_OAuth_REST::init();
+
+// [2026-06-13 Johnny Chu] ZA-3 — Zalo OA admin CRM REST (recent-users, conversation, admin-send).
+require_once $adapters_dir . 'class-zalo-oa-rest.php';
+BizCity_Zalo_OA_REST::init();
+
+// [2026-06-13 Johnny Chu] ZA-4 — Zalo OA follow/unfollow CRM contact sync.
+require_once $adapters_dir . 'class-zalo-oa-contact-sync.php';
+BizCity_Zalo_OA_Contact_Sync::init();
 
 // PHASE 0.37 M1.W2 — Migrate 13 bizcity-channels submenus → bizchat-gateway hub.
 require_once $gateway_dir . 'class-channel-menu-migrate.php';
@@ -84,6 +141,115 @@ require_once $gateway_dir . 'class-channel-messages.php';
 
 // PHASE CG-SCHEDULER v0.2 — FB Publisher bridge to core/scheduler reminder cron.
 require_once $gateway_dir . 'class-fb-publisher.php';
+
+// [2026-06-12 Johnny Chu] HOTFIX — Facebook Customer Chat Widget auto-injector.
+// Allows admins to enable the Messenger chat bubble sitewide via toggle (no page-builder editing needed).
+require_once $gateway_dir . 'class-fb-chat-widget.php';
+
+// [2026-06-13 Johnny Chu] PHASE-CG-NOTIFY-BINDINGS — Notification Center REST + dispatcher.
+$_bzc_notify_rest = $gateway_dir . 'class-notify-settings-rest.php';
+$_bzc_notify_disp = $gateway_dir . 'class-notify-dispatcher.php';
+if ( file_exists( $_bzc_notify_rest ) && file_exists( $_bzc_notify_disp ) ) {
+	require_once $_bzc_notify_rest;
+	require_once $_bzc_notify_disp;
+	BizCity_Notify_Settings_REST::init();
+	BizCity_Notify_Dispatcher::init();
+}
+unset( $_bzc_notify_rest, $_bzc_notify_disp );
+
+// [2026-06-13 Johnny Chu] PHASE-CG-CF7 — Contact Form 7 lead-capture channel.
+$_bzc_cf7_dir = $gateway_dir . 'cf7/';
+if ( is_dir( $_bzc_cf7_dir ) ) {
+	require_once $_bzc_cf7_dir . 'class-cf7-installer.php';
+	require_once $_bzc_cf7_dir . 'class-cf7-submissions-log.php';
+	require_once $_bzc_cf7_dir . 'class-cf7-crm-sync.php';
+	require_once $_bzc_cf7_dir . 'class-cf7-channel-listener.php';
+	require_once $_bzc_cf7_dir . 'class-cf7-rest.php';
+	// [2026-06-24 Johnny Chu] PHASE-CF7-RESP — per-form custom success message
+	require_once $_bzc_cf7_dir . 'class-cf7-response-config.php';
+	// [2026-06-25 Johnny Chu] PHASE-CG-CF7-ZNS — Zalo ZNS auto-reply via eSMS
+	require_once $_bzc_cf7_dir . 'class-cf7-zns-config.php';
+	require_once $_bzc_cf7_dir . 'class-cf7-zns-sender.php';
+	// [2026-06-28 Johnny Chu] PHASE-CG-ZNS-TEMPLATE-CATALOG — ZNS template catalog (options-based)
+	require_once $_bzc_cf7_dir . 'class-cf7-zns-templates.php';
+	require_once $_bzc_cf7_dir . 'class-cf7-zns-templates-rest.php';
+	BizCity_CF7_ZNS_Templates_REST::init();
+	// [2026-06-27 Johnny Chu] PHASE-PB-LEADFORM Wave 4 — CF7 client-side tracking event injector
+	require_once $_bzc_cf7_dir . 'class-cf7-tracking-frontend.php';
+	BizCity_CF7_Tracking_Frontend::init();
+	// [2026-07-02 Johnny Chu] PHASE-0.46 M1 — Lead source tracker (UTM/referrer/device)
+	// Loaded here (inside CF7 block, unconditional) so the JS is injected on all public pages.
+	require_once $gateway_dir . 'class-lead-source-tracker.php';
+	BizCity_Lead_Source_Tracker::init();
+	// Install table on first load (idempotent: skips if version matches).
+	BizCity_CF7_Installer::maybe_install();
+	// Register Schema for diagnostics (R-CR.2).
+	if ( class_exists( 'BizCity_Schema_Registry' ) ) {
+		BizCity_Schema_Registry::register(
+			'bizcity_cf7_submissions',
+			'modules.cf7-channel',
+			BizCity_CF7_Installer::SCHEMA_VERSION,
+			BizCity_CF7_Installer::VERSION_OPTION,
+			array( 'BizCity_CF7_Installer', 'install' )
+		);
+	}
+	// [2026-06-13 Johnny Chu] PHASE-CG-CF7 — defer listener init to plugins_loaded:20 so CF7
+	// (which registers at plugins_loaded:10) is guaranteed available when we check class_exists.
+	add_action( 'plugins_loaded', function () {
+		if ( class_exists( 'WPCF7' ) || class_exists( 'WPCF7_ContactForm' ) ) {
+			BizCity_CF7_Channel_Listener::init();
+			// [2026-06-24 Johnny Chu] PHASE-CF7-RESP — hook wpcf7_ajax_json_echo
+			BizCity_CF7_Response_Config::init();
+		}
+	}, 20 );
+	BizCity_CF7_REST::init();
+}
+unset( $_bzc_cf7_dir );
+
+// [2026-06-27 Johnny Chu] PHASE-CG-ZNS-AUTO — ZNS Automation Hub (event-driven rules).
+$_bzc_zns_dir = $gateway_dir . 'zns/';
+if ( is_dir( $_bzc_zns_dir ) ) {
+	require_once $_bzc_zns_dir . 'class-zns-event-registry.php';
+	require_once $_bzc_zns_dir . 'class-zns-rules-repo.php';
+	require_once $_bzc_zns_dir . 'class-zns-general-sender.php';
+	require_once $_bzc_zns_dir . 'class-zns-send-tracker.php';
+	require_once $_bzc_zns_dir . 'class-zns-dispatcher.php';
+	// REST class chỉ load khi cần (REST/admin context) theo R-PERF.
+	if ( $_bizcity_admin_ctx ) {
+		require_once $_bzc_zns_dir . 'class-zns-automation-rest.php';
+		add_action( 'rest_api_init', array( 'BizCity_ZNS_Automation_REST', 'register_routes' ) );
+	}
+	// Dispatcher hooks đăng ký lúc init:20 (sau WooCommerce init:10).
+	add_action( 'init', function () {
+		BizCity_ZNS_Dispatcher::init();
+	}, 20 );
+}
+unset( $_bzc_zns_dir );
+// [2026-06-30 Johnny Chu] HOTFIX — guard against double init() when the class was already
+// loaded unconditionally from bizcity-twin-ai.php (frontend context). require_once prevents
+// double-include but init() would still fire twice without this check.
+$_bzc_tracking = $gateway_dir . 'class-tracking-codes-rest.php';
+if ( file_exists( $_bzc_tracking ) && ! class_exists( 'BizCity_Tracking_Codes_REST' ) ) {
+	require_once $_bzc_tracking;
+	BizCity_Tracking_Codes_REST::init();
+}
+unset( $_bzc_tracking );
+
+// [2026-06-27 Johnny Chu] PHASE-CG-BROADCAST — Broadcast mass-send module (ZNS + Email).
+$_bzc_bcast_dir = $gateway_dir . 'broadcast/';
+if ( is_dir( $_bzc_bcast_dir ) ) {
+	require_once $_bzc_bcast_dir . 'class-broadcast-installer.php';
+	require_once $_bzc_bcast_dir . 'class-broadcast-manager.php';
+	require_once $_bzc_bcast_dir . 'class-broadcast-dispatcher.php';
+	require_once $_bzc_bcast_dir . 'class-broadcast-rest.php';
+	// Install tables (idempotent).
+	BizCity_Broadcast_Installer::maybe_upgrade();
+	// Register cron at file-load time (ngoài mọi hook — R-CR.1).
+	BizCity_Broadcast_Dispatcher::init_cron();
+	// Register REST routes.
+	BizCity_Broadcast_REST::init();
+}
+unset( $_bzc_bcast_dir );
 
 // PHASE CG-TASK-UNIFY v0.1 — Web Post Publisher: event_type='web_post' →
 // wp_insert_post. Mirrors FB Publisher pattern (same hook, same metadata
@@ -106,6 +272,15 @@ require_once $gateway_dir . 'class-cg-admin-router.php';
 require_once $gateway_dir . 'class-woo-product-handler.php';
 require_once $gateway_dir . 'class-lead-report-handler.php';
 require_once $gateway_dir . 'class-woo-order-handler.php';
+
+// [2026-06-07 Johnny Chu] PHASE-0.38.W3.5 — Public order tracking REST (bizcity-channel/v1 GET+POST /order-tracking/{token}).
+require_once $gateway_dir . 'class-cg-order-tracking-rest.php';
+BizCity_CG_Order_Tracking_REST::init();
+
+// [2026-06-19 Johnny Chu] PHASE-CG-CF7-LOG — Per-channel JSONL file logger.
+// MUST load before class-cg-debug-logger so ::log() can delegate to it.
+// Full spec: core/channel-gateway/docs/RULE-CHANNEL-FILE-LOG.md
+require_once $gateway_dir . 'class-channel-file-logger.php';
 
 // Debug Logger — JSON-Lines pipeline tracer (uploads/[sites/{id}/]bizcity-cg-logs/).
 require_once $gateway_dir . 'class-cg-debug-logger.php';
@@ -164,6 +339,10 @@ add_action( 'bizcity_register_channel', function ( $bridge ) {
 add_action( 'bizcity_register_integrations', function ( $registry ) {
 	( new BizCity_Facebook_Page_Integration() )->register_with_gateway( $registry );
 	( new BizCity_Zalo_Bot_OA_Integration() )->register_with_gateway( $registry );
+	// [2026-06-19 Johnny Chu] PHASE-0.39 — Zalo OA direct PHP (Zone 1, no bridge).
+	( new BizCity_CG_Zalo_OA_Integration() )->register_with_gateway( $registry );
+	// [2026-06-10 Johnny Chu] PHASE-CG-SMTP-INTEGRATION — Email SMTP full integration.
+	( new BizCity_Email_SMTP_Integration() )->register_with_gateway( $registry );
 }, 20 );
 
 // Inject channel-binding pills into Twin Guru character cards (admin-only).
@@ -238,6 +417,8 @@ if ( is_admin() ) {
 
 // Sprint 5.5 (T-S5b.2) — Test-Run single block AJAX endpoint.
 require_once $gateway_dir . 'class-test-run-block-api.php';
+// [2026-06-10 Johnny Chu] PHASE-0.31 T-S5b.2a — register wp_ajax_waic_test_run_block hook (was missing, causing T-S5b.2a FAIL).
+BizCity_Test_Run_Block_API::init();
 
 // PHASE 0.37 — Channel REST API (bizcity-channel/v1).
 require_once $gateway_dir . 'class-channel-rest-api.php';

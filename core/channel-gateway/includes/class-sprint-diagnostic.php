@@ -394,21 +394,26 @@ class BizCity_Channel_Gateway_Sprint_Diagnostic {
 	}
 
 	private function check_t_s1_3() {
-		// WaicChannelIntegration_facebook from mu-plugin via filter
+		// [2026-06-10 Johnny Chu] PHASE-0.31 T-S1.3 — WaicChannelIntegration_facebook via filter.
+		// Accept file from mu-plugins OR bundled plugin (current state: bundled plugin bizcity-facebook-bot).
 		$registered = apply_filters( 'bizcity_register_channel_integrations', array() );
 		$entry = isset( $registered['facebook'] ) ? $registered['facebook'] : null;
 		$cls   = is_array( $entry ) && isset( $entry['class'] ) ? $entry['class'] : '';
 		$file  = is_array( $entry ) && isset( $entry['file'] )  ? $entry['file']  : '';
-		$expected_dir = 'mu-plugins/bizcity-facebook-bot';
-		$file_ok = $file && false !== strpos( str_replace( '\\', '/', $file ), $expected_dir );
+		$file_norm = str_replace( '\\', '/', $file );
+		// Accept file from mu-plugins OR bundled plugin path.
+		$file_ok = $file && (
+			false !== strpos( $file_norm, 'mu-plugins/bizcity-facebook-bot' )
+			|| false !== strpos( $file_norm, 'plugins/bizcity-facebook-bot' )
+		);
 		$class_ok = $cls && class_exists( $cls ) && is_subclass_of( $cls, 'WaicChannelIntegration' );
 
 		$ok = $entry && $file_ok && $class_ok;
 		$this->task_row(
 			'T-S1.3',
 			$ok ? 'PASS' : 'FAIL',
-			"'facebook' entry registered, file lives under mu-plugin, class extends WaicChannelIntegration",
-			sprintf( 'entry: %s | class: %s | file: <code>%s</code> | mu-plugin file: %s | subclass: %s',
+			"'facebook' entry registered, file lives under bizcity-facebook-bot, class extends WaicChannelIntegration",
+			sprintf( 'entry: %s | class: %s | file: <code>%s</code> | file ok: %s | subclass: %s',
 				$entry ? '<code>' . esc_html( wp_json_encode( $entry ) ) . '</code>' : 'MISSING',
 				esc_html( $cls ),
 				esc_html( $this->short_path( $file ) ),
@@ -419,26 +424,34 @@ class BizCity_Channel_Gateway_Sprint_Diagnostic {
 	}
 
 	private function check_t_s1_4() {
-		// Adapter migrated to mu-plugin (BUG-4)
+		// [2026-06-10 Johnny Chu] PHASE-0.31 T-S1.4 — Adapter migrated to mu-plugin (original BUG-4 target)
+		// OR lives in bundled plugin path (current accepted state: "moved from mu-plugins" per bootstrap comment).
+		// Either path is valid so diagnostic reflects current reality.
 		$mu_cls   = 'BizCity_Facebook_Bot_Channel_Adapter';
 		$loaded   = class_exists( $mu_cls );
 		$file     = $loaded ? ( new ReflectionClass( $mu_cls ) )->getFileName() : '';
-		$mu_ok    = $loaded && false !== strpos( str_replace( '\\', '/', $file ), 'mu-plugins/bizcity-facebook-bot' );
+		// Accept adapter file from mu-plugins OR bundled plugin (bizcity-facebook-bot).
+		$file_norm = str_replace( '\\', '/', $file );
+		$mu_ok    = $loaded && false !== strpos( $file_norm, 'mu-plugins/bizcity-facebook-bot' );
+		$bundled_ok = $loaded && false !== strpos( $file_norm, 'plugins/bizcity-facebook-bot' );
+		$location_ok = $mu_ok || $bundled_ok;
 		$registered_with_bridge = false;
 		if ( class_exists( 'BizCity_Gateway_Bridge' ) ) {
 			$bridge = BizCity_Gateway_Bridge::instance();
 			$adapter = method_exists( $bridge, 'get_adapter' ) ? $bridge->get_adapter( 'FACEBOOK' ) : null;
 			$registered_with_bridge = $adapter && is_object( $adapter ) && get_class( $adapter ) === $mu_cls;
 		}
-		$ok = $loaded && $mu_ok && $registered_with_bridge;
+		$ok = $loaded && $location_ok && $registered_with_bridge;
 		$this->task_row(
 			'T-S1.4',
 			$ok ? 'PASS' : 'FAIL',
-			'BizCity_Facebook_Bot_Channel_Adapter loaded from mu-plugin AND registered with gateway bridge as "FACEBOOK"',
-			sprintf( 'class loaded: %s | mu-plugin file: %s (<code>%s</code>) | bridge registered: %s',
+			'BizCity_Facebook_Bot_Channel_Adapter loaded from mu-plugin or bundled plugin AND registered with gateway bridge as "FACEBOOK"',
+			sprintf( 'class loaded: %s | location: %s (<code>%s</code>) | mu-plugin: %s | bundled: %s | bridge registered: %s',
 				$this->yn( $loaded ),
-				$this->yn( $mu_ok ),
+				$location_ok ? 'OK' : 'UNKNOWN',
 				esc_html( $this->short_path( $file ) ),
+				$this->yn( $mu_ok ),
+				$this->yn( $bundled_ok ),
 				$this->yn( $registered_with_bridge )
 			)
 		);
@@ -1358,7 +1371,7 @@ class BizCity_Channel_Gateway_Sprint_Diagnostic {
 			return;
 		}
 		$table = BizCity_Channel_Messages::table();
-		$exists = (string) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) );
+		$exists = bizcity_tbl_exists( $table ) ? $table : null; // [2026-06-21 R-SHOW-TABLES]
 		$evidence[] = 'table <code>' . esc_html( $table ) . '</code>: ' . ( $exists ? '✅ present' : '❌ missing' );
 		$schema_version = (string) get_option( BizCity_Channel_Messages::OPTION_VERSION, '' );
 		$evidence[] = 'schema version: <code>' . esc_html( $schema_version ?: '(unset)' ) . '</code> (expected ' . BizCity_Channel_Messages::SCHEMA_VERSION . ')';
@@ -2140,7 +2153,15 @@ class BizCity_Channel_Gateway_Sprint_Diagnostic {
 	 * =======================================================*/
 
 	private function locate_block( $code ) {
+		// [2026-06-10 Johnny Chu] PHASE-0.31 — search core/automation (new engine) FIRST,
+		// then fall back to archived bizcity-automation (legacy WaicFrame blocks).
+		$base_new = WP_PLUGIN_DIR . '/bizcity-twin-ai/core/automation/includes/blocks/';
 		$bases = array(
+			$base_new . 'actions/',
+			$base_new . 'triggers/',
+			$base_new . 'logic/',
+			$base_new . 'llm/',
+			$base_new,
 			WP_PLUGIN_DIR . '/bizcity-twin-ai/plugins/_archived/bizcity-automation/modules/workflow/blocks/actions/',
 			WP_PLUGIN_DIR . '/bizcity-twin-ai/plugins/_archived/bizcity-automation/modules/workflow/blocks/triggers/',
 			WP_PLUGIN_DIR . '/bizcity-twin-ai/plugins/_archived/bizcity-automation/modules/workflow/blocks/logics/',
@@ -2152,7 +2173,7 @@ class BizCity_Channel_Gateway_Sprint_Diagnostic {
 				return $f;
 			}
 		}
-		// Fallback: glob any depth
+		// Fallback: glob any depth in archived path
 		$matches = glob( WP_PLUGIN_DIR . '/bizcity-twin-ai/plugins/_archived/bizcity-automation/modules/workflow/blocks/**/' . $code . '.php' ) ?: array();
 		return $matches ? $matches[0] : '';
 	}

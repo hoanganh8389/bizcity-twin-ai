@@ -68,10 +68,27 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 			'public_slug' => '/twinchat/',
 			'capability'  => 'read',
 			'section'     => 'top',
-			'params'      => [ 'session', 'notebook', 'notebook_id', 'thread' ],
+			// [2026-06-04 Johnny Chu] BS-12 — thêm `session_id` vào allowlist để
+			// twin-shell forward param này khi rebuild iframe URL + sync address
+			// bar (admin.php?page=bizcity-twinchat&plugin=twinchat&session_id=…),
+			// y như cách `notebook_id` đang hoạt động cho notebook deep-link.
+			'params'      => [ 'session', 'session_id', 'notebook', 'notebook_id', 'thread' ],
 			'desc'        => __( 'Workspace chat & notebooks.',   $td ),
-		],
-		// ── Authoring ─────────────────────────────────────────────────
+		],	// [2026-07-04 Johnny Chu] PHASE-FAA2-FE — BizCoach Pro Astrology (/astro/) in ActivityBar.
+	// Placed right after twinchat so it's the second icon from top.
+	[
+		'id'          => 'astro',
+		'label'       => __( 'Astrology',                     $td ),
+		'icon'        => 'astro',
+		'emoji'       => '🌙',
+		'mode'        => 'embed',
+		'public_slug' => '/astro/',
+		'capability'  => 'read',
+		'section'     => 'top',
+		'params'      => [ 'id', 'tab', 'hash' ],
+		'desc'        => __( 'Western & Vedic natal charts, transit calendar.', $td ),
+		'requires'    => [ 'class' => 'BizCoach_Pro_Self_Service_Page' ],
+	],		// ── Authoring ─────────────────────────────────────────────────
 		[
 			'id'          => 'creator',
 			'label'       => __( 'Brain Factory',                $td ),
@@ -82,7 +99,8 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 			'capability'  => 'read',
 			'section'     => 'top',
 			'params'      => [ 'id', 'tab', 'session_id' ],
-			'requires'    => [ 'class' => 'BizCity_Content_Creator' ],
+			// [2026-06-03 Johnny Chu] HOTFIX — gate bằng hằng BZCC_VERSION (plugin dùng prefix BZCC_*, không có class BizCity_Content_Creator) để menu Brain Factory không bị ẩn.
+			'requires'    => [ 'const' => 'BZCC_VERSION' ],
 		],
 		[
 			'id'          => 'doc',
@@ -107,9 +125,22 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 			'capability'  => 'read',
 			'section'     => 'top',
 		],
+		// [2026-06-27 Johnny Chu] HOTFIX — moved Web Builder before CRM per UX request
+		[
+			'id'          => 'web',
+			'label'       => __( 'Web Builder',                   $td ),
+			'icon'        => 'web',
+			'emoji'       => '🌐',
+			'mode'        => 'embed',
+			'public_slug' => '/tool-pagebuilder/',
+			'capability'  => 'read',
+			'section'     => 'top',
+			'params'      => [ 'id', 'page' ],
+			'requires'    => [ 'class' => 'BZPB_Rest_API' ],
+		],
 		[
 			'id'          => 'crm',
-			'label'       => __( 'CRM Inbox',                     $td ),
+			'label'       => __( 'Twin CRM',                       $td ),
 			'icon'        => 'funnel',
 			'emoji'       => '📥',
 			'mode'        => 'embed',
@@ -118,6 +149,10 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 			'section'     => 'top',
 			'params'      => [ 'id', 'tab', 'inbox', 'thread', 'contact_id' ],
 			'desc'        => __( 'Unified multi-channel inbox (Facebook / Zalo / WebChat) with Twin Brain trace.', $td ),
+			// [2026-06-08 Johnny Chu] PHASE-MEMBERSHIP — plan gate: PRO badge in ActivityBar,
+			// clicking shows upgrade notice when user plan < pro.
+			// `requires` is evaluated only when plan gate passes (plugin_locked check).
+			'plan'        => 'pro',
 			'requires'    => [ 'class' => 'BizCity_Twin_CRM' ],
 		],
 		// ── Visual / Design ───────────────────────────────────────────
@@ -136,7 +171,8 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 		[
 			'id'          => 'profile',
 			'label'       => __( 'Portrait Studio',               $td ),
-			'icon'        => 'image',
+			// [2026-06-27 Johnny Chu] HOTFIX — was 'image' (same icon as Product Images); changed to 'profile' (user silhouette)
+			'icon'        => 'profile',
 			'emoji'       => '🧑‍🎨',
 			'mode'        => 'embed',
 			'public_slug' => '/profile-studio/',
@@ -157,39 +193,27 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 			'params'      => [ 'id', 'tab', 'mode' ],
 			'requires'    => [ 'const' => 'BIZCITY_VIDEO_KLING_VERSION' ],
 		],
-		// ── Web ───────────────────────────────────────────────────────
-		[
-			'id'          => 'web',
-			'label'       => __( 'Web Builder',                   $td ),
-			'icon'        => 'web',
-			'emoji'       => '🌐',
-			'mode'        => 'embed',
-			'public_slug' => '/tool-pagebuilder/',
-			'capability'  => 'read',
-			'section'     => 'top',
-			'params'      => [ 'id', 'page' ],
-			'requires'    => [ 'class' => 'BizCity_Pagebuilder' ],
-		],
 		// ── Knowledge ─────────────────────────────────────────────────
 		// Mindmap & Notebook entries removed from ActivityBar (still reachable
 		// from Workspace / inline tools); keep registry lean per UX feedback.
 		// 2026-05-13 — twin-builder removed from ActivityBar per UX feedback
 		// (still reachable via /wp-admin/?page=bizcity-twin-builder direct URL).
-		// ── Operations (bottom — utilities & system links) ────────────
+		// [2026-06-24 Johnny Chu] PHASE-HOME — Trợ lý cá nhân (bizcity-personal)
 		[
-			'id'          => 'account',
-			'label'       => __( 'Account & Billing',             $td ),
-			'icon'        => 'wallet',
-			'emoji'       => '💳',
-			'mode'        => 'link',
-			// Unified BizCity API key registration — works on every client install
-			// even when local plugins (bizcity-llm-router, mu bizcity-openrouter)
-			// are NOT present. One key serves every BizCity JSON service.
-			'target_url'  => 'https://bizcity.vn/my-account/',
+			'id'          => 'personal',
+			'label'       => __( 'Personal Assistant',            $td ),
+			'icon'        => 'home',
+			'emoji'       => '🏠',
+			'mode'        => 'embed',
+			'public_slug' => '/personal/',
 			'capability'  => 'read',
-			'section'     => 'bottom',
-			'desc'        => __( 'Register the unified BizCity API key, top-up & PayPal billing.', $td ),
+			'section'     => 'top',
+			'params'      => [ 'ref' ],
+			'desc'        => __( 'Personal calendar, tasks, budget & journal.', $td ),
+			'requires'    => [ 'const' => 'BIZCITY_PERSONAL_VERSION' ],
 		],
+		// ── Operations (bottom — utilities & system links) ────────────
+		// [2026-06-17 Johnny Chu] UX — removed Account & Billing button from ActivityBar
 		[
 			'id'          => 'scheduler',
 			'label'       => __( 'Reminders',                     $td ),

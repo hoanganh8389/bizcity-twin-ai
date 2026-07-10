@@ -106,28 +106,43 @@ function bccm_astro_api_call($endpoint, $payload, $timeout = 30) {
  * @internal Sprint E.1 (2026-05-16)
  */
 function _bccm_astro_api_call_via_gateway( $endpoint, $payload, $timeout ) {
+    // [2026-06-08 Johnny Chu] HOTFIX R-GW-8 — host json.freeastrologyapi.com đã
+    // bị huỷ. Path này dù tên là "via_gateway" thực ra vẫn `wp_remote_post`
+    // thẳng đến host chết → mỗi call = 429 "Limit Exceeded". Trả WP_Error rõ
+    // ràng để caller biết phải dùng `BizCoach_Pro_Astro_Client::*_western()`
+    // mới (route qua gateway → api.freeastroapi.com).
     $user_id = (int) get_current_user_id();
-    // Map raw endpoint to a logical label for quota/usage logs.
     $logical_endpoint = 'legacy:' . ltrim( (string) $endpoint, '/' );
+    if ( class_exists( 'BizCity_Astro_Quota_Guard' ) ) {
+        // Vẫn record để diag thấy có call thử.
+        BizCity_Astro_Quota_Guard::record( $user_id, $logical_endpoint, 'freeastrology', 410, 0 );
+    }
+    _bccm_astro_bump_e1_counter( $endpoint, 'host_deprecated' );
+    error_log( '[BCCM Astro API][E1-BLOCKED] freeastrologyapi.com ' . $endpoint . ' — host deprecated, refusing.' );
 
+    return new WP_Error(
+        'astro_legacy_host_deprecated',
+        'Endpoint legacy `' . $endpoint . '` chỉ chạy được trên host json.freeastrologyapi.com đã bị huỷ. Refactor caller sang BizCoach_Pro_Astro_Client (gateway → api.freeastroapi.com).',
+        array(
+            'http_code' => 410,
+            'endpoint'  => (string) $endpoint,
+        )
+    );
+
+    /* === DEAD CODE — kept for reference, NEVER reached =====================
     // Quota check (skipped for system/cron context — user_id = 0).
     if ( $user_id > 0 ) {
         $check = BizCity_Astro_Quota_Guard::check( $user_id, $logical_endpoint );
         if ( is_wp_error( $check ) ) {
-            // Surface 429 to caller — bccm_astro_get_planets / fetch_full_chart
-            // already propagate WP_Error correctly.
             return $check;
         }
     }
-
     $api_key = bccm_get_astro_api_key();
     if ( empty( $api_key ) ) {
-        return new WP_Error( 'no_api_key', 'Chưa cấu hình API key cho Free Astrology API. Vào Network Admin → Settings → Astrology Gateway để nhập.' );
+        return new WP_Error( 'no_api_key', 'Chưa cấu hình API key cho Free Astrology API.' );
     }
-
     $url     = BCCM_ASTRO_API_BASE . '/' . ltrim( $endpoint, '/' );
     $started = microtime( true );
-
     $response = wp_remote_post( $url, array(
         'timeout' => $timeout,
         'headers' => array(
@@ -136,35 +151,28 @@ function _bccm_astro_api_call_via_gateway( $endpoint, $payload, $timeout ) {
         ),
         'body'    => wp_json_encode( $payload ),
     ) );
-
     $latency_ms = (int) round( ( microtime( true ) - $started ) * 1000 );
-
-    // Always record — success OR failure counts toward quota.
     if ( is_wp_error( $response ) ) {
         BizCity_Astro_Quota_Guard::record( $user_id, $logical_endpoint, 'freeastrology', 0, $latency_ms );
         _bccm_astro_bump_e1_counter( $endpoint, 'http_error' );
         error_log( '[BCCM Astro API][E1] HTTP error: ' . $response->get_error_message() );
         return $response;
     }
-
     $code = (int) wp_remote_retrieve_response_code( $response );
     $body = wp_remote_retrieve_body( $response );
     $data = json_decode( $body, true );
-
     BizCity_Astro_Quota_Guard::record( $user_id, $logical_endpoint, 'freeastrology', $code, $latency_ms );
     _bccm_astro_bump_e1_counter( $endpoint, $code === 200 ? 'ok' : ( 'http_' . $code ) );
-
     if ( $code !== 200 ) {
         $msg = $data['message'] ?? $data['error'] ?? "HTTP $code";
         error_log( "[BCCM Astro API][E1] HTTP $code: $msg" );
         return new WP_Error( 'api_error', "Astrology API lỗi: $msg", array( 'http_code' => $code ) );
     }
-
     if ( ! is_array( $data ) ) {
         return new WP_Error( 'invalid_response', 'Dữ liệu trả về không hợp lệ.' );
     }
-
     return $data;
+    ====================================================================== */
 }
 
 /**
@@ -172,6 +180,12 @@ function _bccm_astro_api_call_via_gateway( $endpoint, $payload, $timeout ) {
  * counter so F.15.LEG diag row flags the violation.
  *
  * @internal Sprint E.1 (2026-05-16)
+ *
+ * [2026-06-08 Johnny Chu] HOTFIX R-GW-8 — DEPRECATED host kill-switch.
+ * freeastrologyapi.com đã bị huỷ (xem https://freeastrologyapi.com),
+ * còn lại 30/day → 429 storm. KHÔNG được gọi nữa. Trả WP_Error rõ ràng
+ * để FE/admin biết phải bật gateway. Đoạn wp_remote_post bên dưới đã
+ * comment-out — giữ làm tham chiếu lịch sử.
  */
 function _bccm_astro_api_call_direct( $endpoint, $payload, $timeout, $reason = 'gateway_unavailable' ) {
     $legacy_count = (int) get_site_option( 'bcr_astro_legacy_call_count', 0 );
@@ -179,15 +193,22 @@ function _bccm_astro_api_call_direct( $endpoint, $payload, $timeout, $reason = '
     update_site_option( 'bcr_astro_legacy_last_at', time() );
     update_site_option( 'bcr_astro_legacy_last_endpoint', (string) $endpoint );
     update_site_option( 'bcr_astro_legacy_last_source', 'bcpro_adopter_shadow:' . $reason );
-    if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-        error_log( '[BIZCITY-ASTRO][LEGACY-DIRECT] freeastrologyapi.com ' . $endpoint . ' reason=' . $reason . ' — gateway BYPASSED' );
-    }
+    error_log( '[BIZCITY-ASTRO][LEGACY-DIRECT-BLOCKED] freeastrologyapi.com ' . $endpoint . ' reason=' . $reason . ' — host deprecated, refusing.' );
 
+    return new WP_Error(
+        'astro_legacy_host_deprecated',
+        'Host json.freeastrologyapi.com đã bị huỷ. Bật BizCity LLM Gateway (cấu hình bizcity_llm_gateway_url + bizcity_llm_api_key) để route qua api.freeastroapi.com.',
+        array(
+            'endpoint' => (string) $endpoint,
+            'reason'   => $reason,
+        )
+    );
+
+    /* === DEAD CODE — kept for reference, NEVER reached =====================
     $api_key = bccm_get_astro_api_key();
     if ( empty( $api_key ) ) {
-        return new WP_Error( 'no_api_key', 'Chưa cấu hình API key cho Free Astrology API. Vào Settings → Astrology để nhập.' );
+        return new WP_Error( 'no_api_key', 'Chưa cấu hình API key cho Free Astrology API.' );
     }
-
     $url      = BCCM_ASTRO_API_BASE . '/' . ltrim( $endpoint, '/' );
     $response = wp_remote_post( $url, array(
         'timeout' => $timeout,
@@ -197,27 +218,23 @@ function _bccm_astro_api_call_direct( $endpoint, $payload, $timeout, $reason = '
         ),
         'body'    => wp_json_encode( $payload ),
     ) );
-
     if ( is_wp_error( $response ) ) {
         error_log( '[BCCM Astro API] Error: ' . $response->get_error_message() );
         return $response;
     }
-
     $code = wp_remote_retrieve_response_code( $response );
     $body = wp_remote_retrieve_body( $response );
     $data = json_decode( $body, true );
-
     if ( $code !== 200 ) {
         $msg = $data['message'] ?? $data['error'] ?? "HTTP $code";
         error_log( "[BCCM Astro API] HTTP $code: $msg" );
         return new WP_Error( 'api_error', "Astrology API lỗi: $msg", array( 'http_code' => $code ) );
     }
-
     if ( ! is_array( $data ) ) {
         return new WP_Error( 'invalid_response', 'Dữ liệu trả về không hợp lệ.' );
     }
-
     return $data;
+    ====================================================================== */
 }
 
 /**
@@ -260,6 +277,97 @@ function bccm_astro_build_payload($birth_data, $extra_config = []) {
     ];
 
     return $payload;
+}
+
+/* =====================================================================
+ * CHART RENDERING HELPERS
+ *
+ * [2026-06-08 Johnny Chu] HOTFIX — chart_svg column can hold THREE different
+ * payload kinds depending on which provider/format the gateway returned:
+ *
+ *   1. Remote URL    →  "https://..." or "http://..." (legacy Prokerala / external host)
+ *   2. data: URI     →  "data:image/png;base64,..." (when only base64 was returned)
+ *   3. Inline SVG    →  "<svg ...>...</svg>" (NEW default from FAA V2 / openastro)
+ *
+ * The old templates assumed #1 unconditionally and ran the value through
+ * `esc_url()`, which strips angle-brackets to '' for case #3 → broken <img>.
+ * Worse, several pages echoed the same value back through `esc_html()` as a
+ * "debug breadcrumb" → the 120KB inline SVG became a 200KB wall of escaped
+ * markup text rendered as plain content on the page.
+ *
+ * `bccm_render_chart_inline()` is the canonical replacement:
+ *   - URL  → <img src="...">
+ *   - SVG  → echoes the raw <svg> markup so the browser renders it natively.
+ *   - data:→ <img src="data:...">
+ *   - else → graceful empty-state message.
+ *
+ * The legacy `esc_url()` call MUST be replaced site-wide; do NOT add new
+ * <img src> tags that take chart_svg/chart_url directly.
+ * =====================================================================*/
+
+/**
+ * Detect the kind of chart payload stored in `chart_svg` / `chart_url`.
+ *
+ * @param string $value Raw payload.
+ * @return string One of 'url', 'data_uri', 'svg', 'empty'.
+ */
+function bccm_chart_payload_kind( $value ) {
+    $value = is_string( $value ) ? trim( $value ) : '';
+    if ( $value === '' ) {
+        return 'empty';
+    }
+    if ( stripos( $value, 'http://' ) === 0 || stripos( $value, 'https://' ) === 0 ) {
+        return 'url';
+    }
+    if ( stripos( $value, 'data:' ) === 0 ) {
+        return 'data_uri';
+    }
+    // Some providers prefix XML declarations or DOCTYPE in front of <svg>.
+    if ( stripos( $value, '<svg' ) !== false ) {
+        return 'svg';
+    }
+    return 'empty';
+}
+
+/**
+ * Render chart payload inline. Echoes safe markup.
+ *
+ * @param string $value      Raw payload from chart_svg / chart_url.
+ * @param array  $args       Optional: alt, css_class, max_width, style.
+ */
+function bccm_render_chart_inline( $value, $args = array() ) {
+    $kind = bccm_chart_payload_kind( $value );
+    $alt  = isset( $args['alt'] )       ? (string) $args['alt']       : 'Natal Chart';
+    $cls  = isset( $args['css_class'] ) ? (string) $args['css_class'] : 'bccm-chart-img';
+    // [2026-06-08 Johnny Chu] HOTFIX — force WHITE background on the wrapper.
+    // FAA SVG ships `chart_background="#00000000"` (transparent), so without an
+    // explicit white wrapper the chart inherits the page colour and looks dark
+    // when embedded in dark-themed templates (admin profile, dashboard cards).
+    // The light "Demo Chart" preset needs a #fff canvas to render correctly.
+    $style = isset( $args['style'] )    ? (string) $args['style']     : 'max-width:100%;height:auto;background:#ffffff;padding:12px;border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,0.12);';
+
+    switch ( $kind ) {
+        case 'url':
+        case 'data_uri':
+            echo '<img src="' . esc_url( $value ) . '" alt="' . esc_attr( $alt )
+               . '" class="' . esc_attr( $cls ) . '" loading="lazy" style="' . esc_attr( $style ) . '" />';
+            return;
+
+        case 'svg':
+            // Inline SVG. FAA V2 server-rendered output is trusted (gateway
+            // strips scripts via openastro renderer). Wrap in a div so the
+            // outer style (max-width) constrains the SVG viewBox.
+            echo '<div class="' . esc_attr( $cls ) . '" style="' . esc_attr( $style ) . '">'
+               . $value
+               . '</div>';
+            return;
+
+        case 'empty':
+        default:
+            echo '<div class="bccm-chart-empty" style="padding:24px;background:#fef3c7;border:1px dashed #f59e0b;border-radius:8px;color:#92400e;text-align:center;">'
+               . '⚠️ Chưa có dữ liệu bản đồ. Hãy bấm <strong>"Sinh lại biểu đồ"</strong> để tạo.</div>';
+            return;
+    }
 }
 
 /* =====================================================================
@@ -414,9 +522,39 @@ function bccm_astro_fetch_full_chart($birth_data) {
         if ( ! is_wp_error( $via_v2 ) ) {
             return $via_v2;
         }
-        // Fall through to legacy 4-call path on gateway failure so the
-        // admin "Generate chart" button never goes dark.
         error_log( '[BCCM Astro][G.2] Gateway V2 path failed, falling back: ' . $via_v2->get_error_message() );
+
+        // [2026-07-04 Johnny Chu] PHASE-FAA2-NEXT — khi hub trả HTTP 5xx (502 server down,
+        // 503 provider not configured), KHÔNG rớt xuống legacy kill-switch. Legacy chỉ gọi
+        // json.freeastrologyapi.com trực tiếp — đã bị block bởi kill-switch (_bccm_astro_api_call_direct).
+        // Trả lỗi rõ ràng thay vì thông báo misleading "Host json.freeastrologyapi.com đã bị huỷ".
+        $_v2_data       = $via_v2->get_error_data();
+        $_hub_http_code = is_array( $_v2_data ) && isset( $_v2_data['http']['status'] )
+            ? (int) $_v2_data['http']['status'] : 0;
+        // [2026-07-04 Johnny Chu] R-GW-8 fail-OPEN — hub now returns HTTP 200 + _degraded:true
+        // instead of 502/503 (Cloudflare was replacing 5xx JSON with HTML). Detect both:
+        //  a) legacy: HTTP 5xx still possible on direct/uncached calls
+        //  b) new:    HTTP 200 but envelope contains _degraded:true
+        $_hub_degraded  = ! empty( $_v2_data['envelope']['_degraded'] );
+        if ( $_hub_http_code >= 500 || $_hub_degraded || strpos( $via_v2->get_error_message(), 'http_5' ) !== false ) {
+            if ( $_hub_degraded ) {
+                // Hub is up but provider call failed — use the actual error from envelope.
+                $_env_code = (string) ( $_v2_data['envelope']['code'] ?? '' );
+                $_env_msg  = (string) ( $_v2_data['envelope']['message'] ?? $via_v2->get_error_message() );
+                if ( $_env_code === 'rate_limited' ) {
+                    $friendly_msg = 'Dịch vụ chiêm tinh đang bị giới hạn lượt gọi (rate limit). Vui lòng thử lại sau 1-2 phút.';
+                } elseif ( $_env_code === 'provider_not_ready' || $_env_code === 'provider_not_registered' ) {
+                    $friendly_msg = 'Dịch vụ chiêm tinh chưa được cấu hình trên máy chủ. Liên hệ admin để kích hoạt API key FAA2.';
+                } else {
+                    $friendly_msg = 'Dịch vụ chiêm tinh tạm thời không khả dụng: ' . ( $_env_msg ?: 'lỗi không xác định' ) . '. Vui lòng thử lại.';
+                }
+            } elseif ( $_hub_http_code >= 500 ) {
+                $friendly_msg = 'Máy chủ BizCity LLM tạm thời không khả dụng (HTTP ' . $_hub_http_code . '). Vui lòng thử lại sau vài phút.';
+            } else {
+                $friendly_msg = 'Kết nối đến máy chủ BizCity LLM thất bại. Vui lòng thử lại sau vài phút.';
+            }
+            return new WP_Error( 'hub_unavailable', $friendly_msg, $_v2_data );
+        }
     }
 
     // Step 1: Planets
@@ -565,6 +703,27 @@ function bccm_astro_save_chart($coachee_id, $chart_data, $birth_input = [], $pas
 
     $parsed = $chart_data['parsed'] ?? [];
 
+    // [2026-07-04 Johnny Chu] PHASE-FAA2-FE FIX — S3 URLs from FAA2 natal_wheel_chart() have
+    // short TTL (typically <24h). Download SVG content immediately and persist as a permanent
+    // local file (uploads/bizcoach-astro-charts/{id}_natal.svg) so <img src="..."> never
+    // breaks after the S3 pre-signed URL expires.
+    // Only runs for external URLs (not already-local uploads URLs); skips if download fails
+    // (keeps raw S3 URL as best-effort fallback).
+    $_raw_chart_url = (string) ( $chart_data['chart_url'] ?? '' );
+    if ( $_raw_chart_url !== ''
+         && strpos( $_raw_chart_url, 'https://' ) === 0
+         && strpos( $_raw_chart_url, (string) ( wp_upload_dir()['baseurl'] ?? '' ) ) === false
+         && function_exists( 'bccm_astro_save_svg_file' ) ) {
+        $_s3_fetch = wp_remote_get( $_raw_chart_url, array( 'timeout' => 15, 'sslverify' => false ) );
+        if ( ! is_wp_error( $_s3_fetch ) && 200 === (int) wp_remote_retrieve_response_code( $_s3_fetch ) ) {
+            $_svg_body = (string) wp_remote_retrieve_body( $_s3_fetch );
+            $_saved    = bccm_astro_save_svg_file( (int) $coachee_id, 'natal', $_svg_body );
+            if ( ! is_wp_error( $_saved ) ) {
+                $chart_data['chart_url'] = (string) $_saved; // replace raw S3 URL with local permanent URL
+            }
+        }
+    }
+
     // Build summary
     $summary = [
         'sun_sign'          => $parsed['sun_sign'] ?? '',
@@ -584,35 +743,45 @@ function bccm_astro_save_chart($coachee_id, $chart_data, $birth_input = [], $pas
         'aspects'           => $chart_data['aspects'] ?? [],
         'positions'         => $parsed['positions'] ?? [],
         'angles'            => $chart_data['angles'] ?? [],
+        'angles_details'    => $chart_data['angles_details'] ?? [],
         'big3'              => $chart_data['big3'] ?? [],
         'chart_url'         => $chart_data['chart_url'] ?? '',
         'transits'          => $chart_data['transits'] ?? [],
         'transit_chart_url' => $chart_data['transit_chart_url'] ?? '',
+        // [2026-06-08 Johnny Chu] HOTFIX — persist stelliums + interpretation from V2 natal
+        'stelliums'         => $chart_data['stelliums'] ?? [],
+        'interpretation'    => $chart_data['interpretation'] ?? null,
         'birth_data'        => $chart_data['birth_data'] ?? $birth_input,
         '_source'           => $chart_data['_source'] ?? '',
     ];
 
     $now = current_time('mysql');
 
-    // Use passed user_id if available, otherwise resolve from coachee profile
-    $user_id = $passed_user_id ?: $wpdb->get_var($wpdb->prepare("SELECT user_id FROM {$t['profiles']} WHERE id=%d", $coachee_id));
+    // [2026-07-03 Johnny Chu] PHASE-ASTRO-MIGRATE — preserve user_id=0 (no-account coachee).
+    // Old: $passed_user_id ?: ... converts 0 to null via ?: falsy check.
+    $user_id = ( $passed_user_id !== null )
+        ? (int) $passed_user_id
+        : (int) $wpdb->get_var( $wpdb->prepare( "SELECT user_id FROM {$t['profiles']} WHERE id=%d", $coachee_id ) );
 
     $chart_type     = 'western';
     $has_user_id    = function_exists('bccm_astro_supports_user_id') ? bccm_astro_supports_user_id() : true;
     $has_chart_type = function_exists('bccm_astro_supports_chart_type') ? bccm_astro_supports_chart_type() : true;
     $existing       = null;
 
-    // Schema-aware lookup of an existing row for this chart_type.
-    if ($user_id && $has_user_id && $has_chart_type) {
+    // [2026-06-08 Johnny Chu] HOTFIX — coachee_id lookup FIRST (most reliable),
+    // then fall back to user_id match. This fixes admin-gen where $user_id is
+    // the coachee OWNER, not the acting user, but the existing row was inserted
+    // with a different user_id (e.g. first inserted via legacy path).
+    if ($has_chart_type) {
+        $existing = $wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM $t_astro WHERE coachee_id=%d AND chart_type=%s ORDER BY id DESC LIMIT 1",
+            $coachee_id, $chart_type
+        ));
+    }
+    if (!$existing && $user_id && $has_user_id && $has_chart_type) {
         $existing = $wpdb->get_var($wpdb->prepare(
             "SELECT id FROM $t_astro WHERE user_id=%d AND chart_type=%s",
             $user_id, $chart_type
-        ));
-    }
-    if (!$existing && $has_chart_type) {
-        $existing = $wpdb->get_var($wpdb->prepare(
-            "SELECT id FROM $t_astro WHERE coachee_id=%d AND chart_type=%s",
-            $coachee_id, $chart_type
         ));
     }
     if (!$existing && !$has_chart_type) {
@@ -625,7 +794,7 @@ function bccm_astro_save_chart($coachee_id, $chart_data, $birth_input = [], $pas
 
     if ($existing) {
         $update_data = [
-            'user_id'     => $user_id ?: null,
+            'user_id'     => $user_id, // [2026-07-03 Johnny Chu] PHASE-ASTRO-MIGRATE — keep 0, not NULL
             'birth_place' => sanitize_text_field($birth_input['birth_place'] ?? ''),
             'birth_time'  => sanitize_text_field($birth_input['birth_time'] ?? ''),
             'latitude'    => floatval($birth_input['latitude'] ?? 0),
@@ -633,9 +802,13 @@ function bccm_astro_save_chart($coachee_id, $chart_data, $birth_input = [], $pas
             'timezone'    => floatval($birth_input['timezone'] ?? 7),
             'summary'     => wp_json_encode($summary, JSON_UNESCAPED_UNICODE),
             'traits'      => wp_json_encode($traits, JSON_UNESCAPED_UNICODE),
-            'chart_svg'   => $chart_data['chart_url'] ?? '',
             'updated_at'  => $now,
         ];
+        // [2026-06-08 Johnny Chu] HOTFIX — preserve existing chart_svg URL when
+        // new SVG fetch fails (429 / timeout). Only overwrite when non-empty.
+        if ( ! empty( $chart_data['chart_url'] ) ) {
+            $update_data['chart_svg'] = $chart_data['chart_url'];
+        }
         if (function_exists('bccm_astro_filter_row_to_existing_columns')) {
             $update_data = bccm_astro_filter_row_to_existing_columns($update_data);
         }
@@ -643,7 +816,7 @@ function bccm_astro_save_chart($coachee_id, $chart_data, $birth_input = [], $pas
     } else {
         $insert_data = [
             'coachee_id'  => $coachee_id,
-            'user_id'     => $user_id ?: null,
+            'user_id'     => $user_id, // [2026-07-03 Johnny Chu] PHASE-ASTRO-MIGRATE — keep 0, not NULL
             'chart_type'  => $chart_type,
             'birth_place' => sanitize_text_field($birth_input['birth_place'] ?? ''),
             'birth_time'  => sanitize_text_field($birth_input['birth_time'] ?? ''),
@@ -662,6 +835,12 @@ function bccm_astro_save_chart($coachee_id, $chart_data, $birth_input = [], $pas
         $wpdb->insert($t_astro, $insert_data);
     }
 
+    // [2026-06-10 Johnny Chu] R-CACHE — flush bcpro group after every write so
+    // bccm_astro_fetch_by_user_chart() callers see fresh data on next load.
+    if ( class_exists( 'BizCity_Cache' ) ) {
+        BizCity_Cache::flush_group( 'bcpro' );
+    }
+
     // Update coachee profile with zodiac sign — schema-aware (cột zodiac_sign
     // có thể chưa được migrate trên subsite cũ).
     $sun_sign = strtolower($parsed['sun_sign'] ?? '');
@@ -675,15 +854,19 @@ function bccm_astro_save_chart($coachee_id, $chart_data, $birth_input = [], $pas
         }
     }
 
-    // Schedule background transit pre-fetch (stores today/+7/+30/+90/+365 snapshots in DB,
-    // so AI can answer transit questions without calling the external API at chat time).
-    // Always reschedule on chart create/update so data stays fresh.
-    $prefetch_user_id = $user_id ? (int) $user_id : 0;
-    $existing_cron = wp_next_scheduled('bccm_transit_prefetch_cron', [$coachee_id, $prefetch_user_id]);
-    if ($existing_cron) {
-        wp_unschedule_event($existing_cron, 'bccm_transit_prefetch_cron', [$coachee_id, $prefetch_user_id]);
+    // [2026-07-06 Johnny Chu] HOTFIX — Transit writer unification:
+    // legacy bccm_transit_prefetch_cron is disabled; do_transit_fetch is canonical writer.
+    if ( ! defined( 'BCPRO_LEGACY_TRANSIT_PREFETCH_ENABLED' ) || BCPRO_LEGACY_TRANSIT_PREFETCH_ENABLED ) {
+        // Schedule background transit pre-fetch (stores today/+7/+30/+90/+365 snapshots in DB,
+        // so AI can answer transit questions without calling the external API at chat time).
+        // Always reschedule on chart create/update so data stays fresh.
+        $prefetch_user_id = $user_id ? (int) $user_id : 0;
+        $existing_cron = wp_next_scheduled('bccm_transit_prefetch_cron', [$coachee_id, $prefetch_user_id]);
+        if ($existing_cron) {
+            wp_unschedule_event($existing_cron, 'bccm_transit_prefetch_cron', [$coachee_id, $prefetch_user_id]);
+        }
+        wp_schedule_single_event(time() + 30, 'bccm_transit_prefetch_cron', [$coachee_id, $prefetch_user_id]);
     }
-    wp_schedule_single_event(time() + 30, 'bccm_transit_prefetch_cron', [$coachee_id, $prefetch_user_id]);
 
     return true;
 }
@@ -704,6 +887,11 @@ function bccm_astro_save_to_user_meta($user_id, $astro_data) {
     }
     // Full chart JSON
     update_user_meta($user_id, 'bccm_astro_full_chart', $astro_data);
+    // [2026-06-22 Johnny Chu] R-PERF — bust BizCity_User_Meta_Cache so next load gets fresh data
+    if ( class_exists( 'BizCity_User_Meta_Cache' ) ) {
+        BizCity_User_Meta_Cache::set( $user_id, 'bccm_astro_full_chart', $astro_data );
+        BizCity_User_Meta_Cache::invalidate( $user_id, 'bccm_astro_birth_data' );
+    }
 }
 
 /**
@@ -713,10 +901,19 @@ function bccm_astro_save_to_user_meta($user_id, $astro_data) {
  * @return array|null
  */
 function bccm_astro_load_from_user_meta($user_id) {
-    $full = get_user_meta($user_id, 'bccm_astro_full_chart', true);
+    // [2026-06-22 Johnny Chu] R-PERF — use BizCity_User_Meta_Cache for heavy JSON blob
+    if ( class_exists( 'BizCity_User_Meta_Cache' ) ) {
+        $full = BizCity_User_Meta_Cache::get( $user_id, 'bccm_astro_full_chart', null );
+    } else {
+        $full = get_user_meta($user_id, 'bccm_astro_full_chart', true);
+    }
     if (!empty($full) && is_array($full)) return $full;
 
-    $birth = get_user_meta($user_id, 'bccm_astro_birth_data', true);
+    if ( class_exists( 'BizCity_User_Meta_Cache' ) ) {
+        $birth = BizCity_User_Meta_Cache::get( $user_id, 'bccm_astro_birth_data', null );
+    } else {
+        $birth = get_user_meta($user_id, 'bccm_astro_birth_data', true);
+    }
     if (!empty($birth) && is_array($birth)) return ['birth_data' => $birth];
 
     return null;
@@ -909,7 +1106,10 @@ function bccm_natal_pdf_handler() {
 
     $summary = json_decode($astro_row['summary'] ?? '{}', true) ?: [];
     $traits  = json_decode($astro_row['traits'] ?? '{}', true) ?: [];
-    $positions = $traits['positions'] ?? [];
+    // [2026-06-08 Johnny Chu] HOTFIX — normalize sign names for existing saved records.
+    $positions = function_exists('bccm_astro_normalize_positions')
+        ? bccm_astro_normalize_positions($traits['positions'] ?? [])
+        : ($traits['positions'] ?? []);
     $houses_data = $traits['houses'] ?? [];
     $aspects = $traits['aspects'] ?? [];
     $birth_data = $traits['birth_data'] ?? [];
@@ -1336,8 +1536,33 @@ setTimeout(function(){ /* window.print(); */ }, 500);
  * call instead of 4.
  * =====================================================================*/
 
+/**
+ * [2026-06-08 Johnny Chu] HOTFIX — dedicated debug logger for chart fetch.
+ * Writes one JSON line per event to wp-content/uploads/bcpro-astro-debug.log
+ * AND to PHP error_log (debug.log when WP_DEBUG_LOG is on).
+ * Tail:  tail -f wp-content/uploads/bcpro-astro-debug.log
+ */
+if ( ! function_exists( 'bcpro_astro_debug_log' ) ) {
+    function bcpro_astro_debug_log( $tag, array $ctx = array() ) {
+        $line = '[' . gmdate( 'Y-m-d H:i:s' ) . 'Z][' . (string) $tag . '] '
+              . wp_json_encode( $ctx, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
+        error_log( '[BCPRO-ASTRO] ' . $line );
+        $upload = wp_upload_dir();
+        if ( ! empty( $upload['basedir'] ) ) {
+            $path = trailingslashit( $upload['basedir'] ) . 'bcpro-astro-debug.log';
+            // Best-effort; ignore filesystem errors.
+            @file_put_contents( $path, $line . "\n", FILE_APPEND | LOCK_EX );
+        }
+    }
+}
+
 function bccm_astro_fetch_full_chart_via_gateway_v2( array $birth_data ) {
     if ( ! class_exists( 'BizCoach_Pro_Astro_Client' ) ) {
+        bcpro_astro_debug_log( 'gen-chart.no_client', array( 'birth' => array(
+            'year' => $birth_data['year'] ?? null,
+            'month' => $birth_data['month'] ?? null,
+            'day' => $birth_data['day'] ?? null,
+        ) ) );
         return new WP_Error( 'no_client', 'BizCoach_Pro_Astro_Client not loaded.' );
     }
 
@@ -1370,20 +1595,63 @@ function bccm_astro_fetch_full_chart_via_gateway_v2( array $birth_data ) {
         'lat'             => $lat,
         'lng'             => $lon,
         'tz_str'          => $tz,
-        'house_system'    => 'P',    // Placidus
+        // [2026-06-08 Johnny Chu] HOTFIX — FAA accepts canonical names ('placidus',
+        // 'koch', 'whole_sign', 'equal'…) NOT short codes ('P'). 'P' silently
+        // degraded to equal-house → ASC/MC misaligned → wheel rendered with all
+        // planets clumped in one quadrant. Use 'placidus' per reference impl
+        // (_library/open-chart-main/lib/schemas/astro.ts: house_system: z.literal("placidus")).
+        'house_system'    => 'placidus',
         'zodiac_type'     => 'tropical',
         'name'            => (string) ( $birth_data['name'] ?? '' ),
+        // City required by FAA chart endpoint; harmless for natal/calculate.
+        'city'            => ! empty( $birth_data['birth_place'] ) ? (string) $birth_data['birth_place'] : 'Hanoi',
+        'time_known'      => true,
         'include_speed'   => true,
         'include_dignity' => true,
+        // [2026-06-08 Johnny Chu] HOTFIX — full open-chart parity:
+        // include_dominants → element/modality/polarity dominance blocks; asc/mc
+        // in include_features → angles_details + ASC/MC sign metadata for wheel.
+        'include_features'   => array( 'asc', 'mc', 'chiron', 'lilith', 'true_node', 'mean_node' ),
+        'include_stelliums'  => true,
+        'include_dominants'  => true,
+        'interpretation'     => array( 'enable' => true, 'style' => 'improved' ),
     );
+
+    bcpro_astro_debug_log( 'gen-chart.natal.req', array(
+        'year' => $payload['year'], 'month' => $payload['month'], 'day' => $payload['day'],
+        'hour' => $payload['hour'], 'minute' => $payload['minute'],
+        'lat' => $payload['lat'], 'lng' => $payload['lng'], 'tz_str' => $payload['tz_str'],
+        'house_system' => $payload['house_system'], 'city' => $payload['city'],
+        'name' => $payload['name'],
+    ) );
 
     $result = BizCoach_Pro_Astro_Client::natal_western( $payload, array( 'timeout' => 30 ) );
 
+    $natal_env_keys = is_array( $result['envelope'] ?? null ) ? array_keys( $result['envelope'] ) : array();
+    bcpro_astro_debug_log( 'gen-chart.natal.res', array(
+        'success'  => ! empty( $result['success'] ),
+        'http'     => $result['http']     ?? null,
+        'error'    => $result['error']    ?? null,
+        'env_keys' => $natal_env_keys,
+        'planets_n'=> isset( $result['envelope']['planets'] ) ? count( (array) $result['envelope']['planets'] ) : 0,
+        'houses_n' => isset( $result['envelope']['houses'] )  ? count( (array) $result['envelope']['houses'] )  : 0,
+        'aspects_n'=> isset( $result['envelope']['aspects'] ) ? count( (array) $result['envelope']['aspects'] ) : 0,
+    ) );
+
     if ( empty( $result['success'] ) ) {
+        // Dump envelope (truncated) for first-call diagnosis.
+        bcpro_astro_debug_log( 'gen-chart.natal.fail.env', array(
+            'envelope_excerpt' => substr( (string) wp_json_encode( $result['envelope'] ?? null ), 0, 1500 ),
+        ) );
         return new WP_Error(
             'gateway_natal_failed',
             'Gateway natal call failed: ' . (string) ( $result['error'] ?? 'unknown' ),
-            array( 'http' => $result['http'] ?? array() )
+            array(
+                'http'     => $result['http']     ?? array(),
+                // [2026-07-04 Johnny Chu] R-GW-8 fail-OPEN — include envelope so caller can detect _degraded:true.
+                // Hub now returns 200 + _degraded:true instead of 5xx (Cloudflare intercepts 5xx and replaces JSON with HTML).
+                'envelope' => $result['envelope'] ?? array(),
+            )
         );
     }
 
@@ -1400,31 +1668,258 @@ function bccm_astro_fetch_full_chart_via_gateway_v2( array $birth_data ) {
     // Build legacy `parsed` block.
     $parsed = bccm_astro_parse_planets( $legacy_planets );
 
-    // Wheel SVG: try chart-svg endpoint, non-fatal.
+    // [2026-06-08 Johnny Chu] HOTFIX — chart_svg_western root cause fix:
+    // 1. FAA /api/v1/natal/chart/ requires 'city' (required field) — without it → 422.
+    //    We derive city from birth_place or fall back to 'Hanoi' so lat/lng still take effect.
+    // 2. The REST layer returns svg/image_url directly on the response root (not in 'envelope').
+    // 3. Send full display_settings + chart_config for sharp/styled chart output.
     $chart_url = '';
-    $svg_res = BizCoach_Pro_Astro_Client::chart_svg_western( array_merge( $payload, array(
-        'format'     => 'svg',
-        'theme_type' => 'classic',
-    ) ), array( 'timeout' => 30 ) );
-    if ( ! empty( $svg_res['success'] ) ) {
-        $env2 = (array) $svg_res['envelope'];
-        $chart_url = (string) ( $env2['image_url'] ?? '' );
-        if ( $chart_url === '' && ! empty( $env2['svg'] ) ) {
-            // Inline SVG → data URL for compatibility with existing <img src="..."/> consumers.
-            $chart_url = 'data:image/svg+xml;base64,' . base64_encode( (string) $env2['svg'] );
+    $chart_svg_payload = array(
+        // Core birth fields from payload
+        'year'          => $payload['year'],
+        'month'         => $payload['month'],
+        'day'           => $payload['day'],
+        'hour'          => $payload['hour'],
+        'minute'        => $payload['minute'],
+        'lat'           => $payload['lat'],
+        'lng'           => $payload['lng'],
+        'tz_str'        => $payload['tz_str'],
+        'name'          => $payload['name'],
+        'house_system'  => 'placidus',
+        'zodiac_type'   => 'tropical',
+        'time_known'    => true,
+        // FAA requires 'city' — use birth_place or fallback
+        'city'          => ! empty( $birth_data['birth_place'] ) ? (string) $birth_data['birth_place'] : 'Hanoi',
+        'format'        => 'svg',
+        'size'          => 760,
+        'show_metadata' => false,
+        // [2026-06-09 Johnny Chu] HOTFIX — switch to LIGHT theme matching the
+        // user-approved reference (image 2 / openastro-suite "Demo Chart"
+        // preset). White-page friendly: transparent canvas, soft monochrome
+        // ink (#111-#333) for signs/houses/planets, classic AstrologerStudio
+        // aspect colour palette. Output renders identically whether embedded
+        // in admin profile, /my-natal-chart/, or /my-western-astrology/.
+        'theme_type'    => 'light',
+        // Full display_settings — show major points only (no S.Node/Eris/asteroids).
+        'display_settings' => array(
+            'sun' => true, 'moon' => true, 'mercury' => true, 'venus' => true,
+            'mars' => true, 'jupiter' => true, 'saturn' => true, 'uranus' => true,
+            'neptune' => true, 'pluto' => true, 'north_node' => true,
+            'south_node' => false, 'chiron' => true, 'lilith' => true,
+            'true_lilith' => false, 'eris' => false, 'eros' => false,
+            'ceres' => false, 'pallas' => false, 'juno' => false, 'vesta' => false,
+            'asc' => true, 'dsc' => false, 'mc' => true, 'ic' => false,
+            'part_of_fortune' => false,
+        ),
+        // [2026-06-09 Johnny Chu] HOTFIX — chart_background must be FFFFFF (opaque white),
+        // NOT '#00000000'. FAA API strips alpha and treats '#00000000' as '#000000' (black),
+        // so the SVG gets a solid black background rect that covers the page/wrapper bg.
+        // Using '#FFFFFF' forces the API to render a white rect → chart always looks light
+        // regardless of the surrounding page theme.
+        'chart_config' => array(
+            'chart_background'                  => '#FFFFFF',
+            'custom_planet_color'               => '#262626',
+            'custom_sign_color'                 => '#111111',
+            'custom_house_color'                => '#333333',
+            'degree_label_color'                => '#262626',
+            'custom_sign_bg_color'              => '#00000000',
+            'custom_house_bg_color'             => '#00000000',
+            'custom_sign_colors'                => array(
+                '#00000000', '#00000000', '#00000000', '#00000000',
+                '#00000000', '#00000000', '#00000000', '#00000000',
+                '#00000000', '#00000000', '#00000000', '#00000000',
+            ),
+            'custom_sign_glyph_colors'          => new \stdClass(),
+            'custom_planet_colors'              => new \stdClass(),
+            'custom_house_colors'               => array(
+                '#00000000', '#00000000', '#00000000', '#00000000',
+                '#00000000', '#00000000', '#00000000', '#00000000',
+                '#00000000', '#00000000', '#00000000', '#00000000',
+            ),
+            'sign_line_color'                   => '#2F2F2F',
+            'house_line_color'                  => '#6B7280',
+            'sign_ring_inner_color'             => '#111111',
+            'sign_ring_outer_color'             => '#111111',
+            'house_ring_inner_color'            => '#9CA3AF',
+            'house_ring_outer_color'            => '#6B7280',
+            'asc_line_color'                    => '#111111',
+            'dsc_line_color'                    => '#111111',
+            'mc_line_color'                     => '#111111',
+            'ic_line_color'                     => '#111111',
+            'sign_tick_color'                   => '#111111',
+            'long_tick_color'                   => '#111111',
+            'short_tick_color'                  => '#111111',
+            'planet_connector_color'            => '#EDE8F8',
+            'aspect_conjunction_color'          => '#C08430',
+            'aspect_opposition_color'           => '#B91C1C',
+            'aspect_trine_color'                => '#2563EB',
+            'aspect_square_color'               => '#DC2626',
+            'aspect_sextile_color'              => '#15803D',
+            'aspect_quincunx_color'             => '#7C3AED',
+            'sign_ring_thickness_fraction'      => 0.2,
+            'house_ring_thickness_fraction'     => 0.1,
+            'center_disk_fraction'              => 0.38,
+            'planet_symbol_scale'               => 0.62,
+            'planet_radius_offset'              => 0,
+            'round_planet_glyphs'               => false,
+            'sign_symbol_scale'                 => 0.72,
+            'round_sign_wheel_glyphs'           => false,
+            'house_number_scale'                => 0.38,
+            'degree_label_scale'                => 0.58,
+            'degree_label_degree_scale'         => 1,
+            'degree_label_minute_scale'         => 1,
+            'degree_label_sign_scale'           => 1.25,
+            'degree_label_row_gap'              => 1.55,
+            'french_planet_radius_offset'       => 0,
+            'long_sign_tick_length'             => 8,
+            'short_sign_tick_length'            => 3,
+            'sign_line_width'                   => 1,
+            'house_line_width'                  => 0.75,
+            'sign_ring_inner_width'             => 1,
+            'sign_ring_outer_width'             => 1,
+            'house_ring_inner_width'            => 0.75,
+            'house_ring_outer_width'            => 0.75,
+            'asc_line_width'                    => 1.5,
+            'dsc_line_width'                    => 1.5,
+            'mc_line_width'                     => 1.5,
+            'ic_line_width'                     => 1.5,
+            'sign_tick_width'                   => 0.35,
+            'long_sign_tick_width'              => 1,
+            'short_sign_tick_width'             => 0.35,
+            'planet_connector_width'            => 1,
+            'aspect_conjunction_width'          => 1.5,
+            'aspect_opposition_width'           => 1.5,
+            'aspect_trine_width'                => 1.25,
+            'aspect_square_width'               => 1.35,
+            'aspect_sextile_width'              => 1.15,
+            'aspect_quincunx_width'             => 1,
+            'sign_background_opacity'           => 0.18,
+            'house_background_opacity'          => 0.1,
+            'show_planet_connectors'            => true,
+            'planet_connector_opacity'          => 0.6,
+            'show_aspect_symbols'               => false,
+            'show_aspect_lines'                 => true,
+            'show_house_ring'                   => true,
+            'show_house_numbers'                => true,
+            'show_house_separators'             => true,
+            'show_house_ring_circles'           => true,
+            'show_sign_ticks'                   => false,
+            'show_retrograde_markers'           => true,
+            'show_degree_labels'                => true,
+            'show_angle_labels'                 => true,
+            'show_horoscope_shape'              => false,
+            'horoscope_shape_style'             => 'subtle',
+            'horoscope_shape_color'             => '#D97706',
+            'horoscope_shape_label'             => true,
+            'embed_horoscope_shape_metadata'    => true,
+            'show_pattern_overlays'             => false,
+            'pattern_overlay_style'             => 'subtle',
+            'pattern_overlay_labels'            => false,
+            'pattern_overlay_max_items'         => 4,
+            'embed_pattern_metadata'            => false,
+            'retrograde_marker_style'           => 'R',
+            'degree_label_format'               => 'minutes',
+            'degree_label_precision'            => 0,
+            'houses_inside_planets'             => true,
+            'french_style'                      => true,
+            'show_color_background'             => false,
+        ),
+    );
+
+    bcpro_astro_debug_log( 'gen-chart.svg.req', array(
+        'payload_keys' => array_keys( $chart_svg_payload ),
+        'theme_type'   => $chart_svg_payload['theme_type']   ?? null,
+        'house_system' => $chart_svg_payload['house_system'] ?? null,
+        'city'         => $chart_svg_payload['city']         ?? null,
+        'size'         => $chart_svg_payload['size']         ?? null,
+        'format'       => $chart_svg_payload['format']       ?? null,
+        'cfg_keys_n'   => isset( $chart_svg_payload['chart_config'] ) ? count( (array) $chart_svg_payload['chart_config'] ) : 0,
+    ) );
+
+    $svg_res = BizCoach_Pro_Astro_Client::chart_svg_western( $chart_svg_payload, array( 'timeout' => 30 ) );
+
+    $svg_env_keys = is_array( $svg_res['envelope'] ?? null ) ? array_keys( (array) $svg_res['envelope'] ) : array();
+    $svg_str_len  = isset( $svg_res['envelope']['svg'] ) ? strlen( (string) $svg_res['envelope']['svg'] ) : 0;
+    // [2026-07-04 Johnny Chu] PHASE-FAA2-NEXT — FAA2 wheel can return `url` instead of `image_url`.
+    $img_url_str  = isset( $svg_res['envelope']['image_url'] )
+        ? (string) $svg_res['envelope']['image_url']
+        : ( isset( $svg_res['envelope']['url'] ) ? (string) $svg_res['envelope']['url'] : '' );
+    bcpro_astro_debug_log( 'gen-chart.svg.res', array(
+        'success'      => ! empty( $svg_res['success'] ),
+        'http'         => $svg_res['http']  ?? null,
+        'error'        => $svg_res['error'] ?? null,
+        'env_keys'     => $svg_env_keys,
+        'svg_len'      => $svg_str_len,
+        'image_url'    => $img_url_str,
+        'image_url_ok' => $img_url_str !== '',
+    ) );
+
+    $svg_env = is_array( $svg_res['envelope'] ?? null ) ? $svg_res['envelope'] : array();
+    // [2026-07-04 Johnny Chu] PHASE-FAA2-NEXT FIX — hub returns HTTP 200 fail-OPEN even when
+    // natal_wheel_chart() fails (envelope.success=false + _degraded:true). The outer
+    // $svg_res['success'] can be true (HTTP 200, no 'code' key) while envelope.success=false.
+    // Must check envelope.success too to avoid entering the extraction branch with empty url.
+    if ( ! empty( $svg_res['success'] ) && ! empty( $svg_env['success'] ) ) {
+        // [2026-06-08 Johnny Chu] HOTFIX — BizCoach_Pro_Astro_Client::call() wraps the API
+        // response body in 'envelope' key: { success, envelope: { svg, image_url, ... }, http }.
+        // Must read svg/image_url from envelope, NOT from root of $svg_res.
+        // NOTE: use a SEPARATE var ($svg_env) — do NOT overwrite $env, which still holds the
+        // natal envelope (angles/stelliums/interpretation) consumed by the return block below.
+        // [2026-06-08 Johnny Chu] HOTFIX — `??` does NOT fall back when value is empty string.
+        // FAA V2 envelope routinely returns `image_url: ""` (provider renders inline SVG, no
+        // remote URL). Old code `$svg_env['image_url'] ?? $svg_env['svg']` therefore picked
+        // the empty string and dropped the 120KB SVG payload silently → DB column chart_svg
+        // stayed empty after every "Sinh lại biểu đồ" click. Use explicit empty() check.
+        $chart_url = '';
+        // [2026-07-04 Johnny Chu] PHASE-FAA2-NEXT — accept FAA2 wheel `url` key.
+        if ( ! empty( $svg_env['image_url'] ) ) {
+            $chart_url = (string) $svg_env['image_url'];
+        } elseif ( ! empty( $svg_env['url'] ) ) {
+            $chart_url = (string) $svg_env['url'];
+        } elseif ( ! empty( $svg_env['svg'] ) ) {
+            $chart_url = (string) $svg_env['svg'];
+        } elseif ( ! empty( $svg_env['image_base64'] ) ) {
+            // Last resort: data: URI so <img src="..."> still renders.
+            $ct        = (string) ( $svg_env['content_type'] ?? 'image/png' );
+            $chart_url = 'data:' . $ct . ';base64,' . (string) $svg_env['image_base64'];
         }
+        if ( $chart_url === '' ) {
+            // SVG endpoint returned 2xx but body has neither image_url nor svg.
+            // Common cause: FAA validation accepted but provider rendered empty.
+            bcpro_astro_debug_log( 'gen-chart.svg.empty', array(
+                'envelope_excerpt' => substr( (string) wp_json_encode( $svg_env ), 0, 1500 ),
+            ) );
+        } else {
+            bcpro_astro_debug_log( 'gen-chart.svg.picked', array(
+                'source'    => ! empty( $svg_env['image_url'] ) ? 'image_url'
+                              : ( ! empty( $svg_env['url'] ) ? 'url'
+                              : ( ! empty( $svg_env['svg'] ) ? 'svg' : 'base64' ) ),
+                'chart_len' => strlen( $chart_url ),
+            ) );
+        }
+    } else {
+        bcpro_astro_debug_log( 'gen-chart.svg.fail.env', array(
+            'envelope_excerpt' => substr( (string) wp_json_encode( $svg_res['envelope'] ?? null ), 0, 1500 ),
+        ) );
     }
 
+    // [2026-07-05 Johnny Chu] HOTFIX — add 'success' => true so callers that check
+    // `! empty( $result['success'] )` can distinguish a valid array from a WP_Error.
     return array(
-        'birth_data' => $birth_data,
-        'planets'    => $legacy_planets,
-        'houses'     => $legacy_houses,
-        'aspects'    => $legacy_aspects,
-        'chart_url'  => $chart_url,
-        'parsed'     => $parsed,
-        'fetched_at' => current_time( 'mysql' ),
-        '_source'    => 'gateway_v2',
-        '_latency'   => (int) ( $result['http']['latency_ms'] ?? 0 ),
+        'success'        => true,
+        'birth_data'     => $birth_data,
+        'planets'        => $legacy_planets,
+        'houses'         => $legacy_houses,
+        'aspects'        => $legacy_aspects,
+        'chart_url'      => $chart_url,
+        'parsed'         => $parsed,
+        'angles'         => $env['angles']         ?? array(),
+        'angles_details' => $env['angles_details'] ?? array(),
+        'stelliums'      => $env['stelliums']      ?? array(),
+        'interpretation' => $env['interpretation'] ?? null,
+        'fetched_at'     => current_time( 'mysql' ),
+        '_source'        => 'gateway_v2',
+        '_latency'       => (int) ( $result['http']['latency_ms'] ?? 0 ),
     );
 }
 
@@ -1460,12 +1955,28 @@ function _bccm_g2_v2house_to_legacy( array $h ): array {
 
 /** V2 normalized aspect → legacy FAA-shape aspect row. @internal G.2 */
 function _bccm_g2_v2aspect_to_legacy( array $a ): array {
+    // [2026-07-04 Johnny Chu] PHASE-VEDIC-FAA2 FIX — live_handler_v2() returns the raw FAA2
+    // provider response WITHOUT V2 normalization. FAA2 Western uses keys:
+    //   planet1 (TitleCase), planet2, aspect (TitleCase), orb
+    // V2-normalized format would use: p1 (lowercase key), p2, type_en.
+    // Read BOTH shapes so this adapter works regardless of hub normalization.
+    $p1_raw   = (string) ( $a['p1']      ?? $a['planet1']           ?? '' );
+    $p2_raw   = (string) ( $a['p2']      ?? $a['planet2']           ?? '' );
+    $type_raw = (string) ( $a['type_en'] ?? $a['aspect']            ?? $a['type'] ?? '' );
+    // Normalize to TitleCase: V2 p1='sun' → 'Sun'; FAA2 planet1='Sun' stays 'Sun'.
+    $p1 = ucwords( strtolower( $p1_raw ) );
+    $p2 = ucwords( strtolower( $p2_raw ) );
     return array(
-        'aspecting_planet' => array( 'en' => (string) ( $a['p1'] ?? '' ) ),
-        'aspected_planet'  => array( 'en' => (string) ( $a['p2'] ?? '' ) ),
-        'type'             => (string) ( $a['type_en']  ?? '' ),
-        'orb'              => (float)  ( $a['orb']      ?? 0 ),
-        'aspect_degree'    => (float)  ( $a['angle']    ?? 0 ),
+        // Direct keys read first by bccm_astro_enrich_aspects() — no fallback chain needed.
+        'planet_1_en'      => $p1,
+        'planet_2_en'      => $p2,
+        'aspect_en'        => $type_raw,
+        // Legacy compat aliases (PDF renderer, bccm_astro_enrich_aspects fallbacks).
+        'aspecting_planet' => array( 'en' => $p1 ),
+        'aspected_planet'  => array( 'en' => $p2 ),
+        'type'             => $type_raw,
+        'orb'              => (float) ( $a['orb']   ?? 0 ),
+        'aspect_degree'    => (float) ( $a['angle'] ?? $a['aspect_degree'] ?? 0 ),
     );
 }
 
@@ -1477,6 +1988,59 @@ function _bccm_g2_sign_number( string $sign_en ): int {
         foreach ( bccm_zodiac_signs() as $i => $s ) {
             $map[ strtolower( (string) ( $s['en'] ?? '' ) ) ] = (int) $i;
         }
+        // [2026-06-08 Johnny Chu] HOTFIX — 3-letter abbreviations (FAA/gateway
+        // sometimes returns "Gem", "Sco", "Cap", "Sag" etc. instead of full name).
+        $abbrevs = array(
+            'ari' => 1, 'tau' => 2, 'gem' => 3, 'can' => 4,
+            'vir' => 6, 'lib' => 7, 'sco' => 8, 'sag' => 9,
+            'cap' => 10, 'aqu' => 11, 'pis' => 12,
+        );
+        foreach ( $abbrevs as $abbr => $num ) {
+            if ( ! isset( $map[ $abbr ] ) ) {
+                $map[ $abbr ] = $num;
+            }
+        }
     }
     return (int) ( $map[ strtolower( $sign_en ) ] ?? 0 );
+}
+
+/**
+ * Re-enrich a positions array — repair sign_vi, sign_symbol, sign_number
+ * for entries that were saved before the 3-letter abbreviation fix.
+ *
+ * Call this right after loading $positions from traits to fix display of
+ * existing records without requiring a full chart re-fetch.
+ *
+ * [2026-06-08 Johnny Chu] HOTFIX — runtime normalization for saved data.
+ *
+ * @param array $positions  Keyed by planet name, as stored in traits['positions'].
+ * @return array  Same structure with corrected sign fields.
+ */
+function bccm_astro_normalize_positions( array $positions ) {
+    $signs = bccm_zodiac_signs();
+    foreach ( $positions as $pname => &$p ) {
+        $sign_num = (int) ( $p['sign_number'] ?? 0 );
+        // If number is 0, try to resolve from sign_en abbreviation or full name.
+        if ( $sign_num === 0 && ! empty( $p['sign_en'] ) ) {
+            $sign_num = _bccm_g2_sign_number( (string) $p['sign_en'] );
+            if ( $sign_num > 0 ) {
+                $p['sign_number'] = $sign_num;
+            }
+        }
+        if ( $sign_num > 0 && isset( $signs[ $sign_num ] ) ) {
+            $sign_data     = $signs[ $sign_num ];
+            $current_vi    = (string) ( $p['sign_vi'] ?? '' );
+            $current_sym   = (string) ( $p['sign_symbol'] ?? '' );
+            // Overwrite sign_vi when empty or equals the raw abbreviated sign_en.
+            if ( $current_vi === '' || $current_vi === (string) ( $p['sign_en'] ?? '' ) ) {
+                $p['sign_vi'] = $sign_data['vi'];
+            }
+            // Always fill empty symbol.
+            if ( $current_sym === '' ) {
+                $p['sign_symbol'] = $sign_data['symbol'];
+            }
+        }
+    }
+    unset( $p );
+    return $positions;
 }

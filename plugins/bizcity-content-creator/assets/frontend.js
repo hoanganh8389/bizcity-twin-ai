@@ -170,6 +170,8 @@
 		initRangeOutput();
 		prefillFromWebchat();
 		listenAutoGenerate();
+		// [2026-06-06 Johnny Chu] BZCC-SKEL — init optional notebook picker
+		initNotebookPicker();
 	}
 
 	/* ── Listen for postMessage from parent (webchat iframe) to auto-submit form ── */
@@ -641,6 +643,89 @@
 		return !invalid;
 	}
 
+	/* ── [2026-06-06 Johnny Chu] BZCC-SKEL — Optional Notebook Picker (bztwin-notebook-selector web component) ── */
+	function initNotebookPicker() {
+		var selector  = document.getElementById('bzcc-notebook-selector');
+		var hiddenIn  = document.getElementById('bzcc-notebook-id-hidden');
+		var banner    = document.getElementById('bzcc-skeleton-banner');
+		var nucleus   = document.getElementById('bzcc-skeleton-nucleus');
+		var keypoints = document.getElementById('bzcc-skeleton-keypoints');
+		var nbNameSpan = document.getElementById('bzcc-skeleton-nb-name');
+		var dismiss   = document.getElementById('bzcc-skeleton-dismiss');
+
+		if (!selector || !hiddenIn) return;
+
+		function clearBanner() {
+			hiddenIn.value = 0;
+			if (banner) banner.style.display = 'none';
+			if (nucleus) nucleus.textContent = '';
+			if (keypoints) keypoints.innerHTML = '';
+			if (nbNameSpan) nbNameSpan.textContent = '';
+		}
+
+		// Listen for notebook selection change (CustomEvent from bztwin-notebook-selector)
+		selector.addEventListener('change', function (e) {
+			var nbId = (e.detail && e.detail.notebookId) ? parseInt(e.detail.notebookId, 10) : 0;
+			hiddenIn.value = nbId || 0;
+
+			if (!nbId || nbId <= 0) {
+				clearBanner();
+				return;
+			}
+
+			// Fetch skeleton to show context banner
+			var nonce   = (window.bzccFront && window.bzccFront.nonce) || '';
+			var baseUrl = (window.bzccFront && window.bzccFront.restUrl)
+				? window.bzccFront.restUrl.replace(/\/bzcc\/v1\/?$/, '')
+				: '/wp-json';
+			var url = baseUrl + '/bizcity/kg/v1/notebook/' + nbId + '/skeleton';
+
+			var xhr = new XMLHttpRequest();
+			xhr.open('GET', url);
+			if (nonce) xhr.setRequestHeader('X-WP-Nonce', nonce);
+			xhr.onload = function () {
+				try {
+					var data = JSON.parse(xhr.responseText);
+					if (data && data.skeleton) {
+						var skel = data.skeleton;
+						if (nucleus) nucleus.textContent = skel.nucleus || '';
+						if (keypoints && skel.key_points) {
+							keypoints.innerHTML = '';
+							(skel.key_points || []).slice(0, 8).forEach(function (kp) {
+								var tag = document.createElement('span');
+								tag.className = 'bzcc-skeleton-kp-tag';
+								tag.textContent = kp;
+								keypoints.appendChild(tag);
+							});
+						}
+						if (banner) banner.style.display = '';
+					} else {
+						// No skeleton yet — show minimal banner
+						if (nucleus) nucleus.textContent = 'Notebook chưa có skeleton. AI sẽ tạo dựa trên nội dung tổng quát.';
+						if (keypoints) keypoints.innerHTML = '';
+						if (banner) banner.style.display = '';
+					}
+				} catch (err) {
+					// Fail silently — skeleton banner is informational only
+				}
+			};
+			xhr.onerror = function () { /* silently ignore */ };
+			xhr.send();
+		});
+
+		// Dismiss button clears notebook selection
+		if (dismiss) {
+			dismiss.addEventListener('click', function () {
+				clearBanner();
+				if (typeof selector.reset === 'function') {
+					selector.reset();
+				} else {
+					selector.dispatchEvent(new CustomEvent('clear', { bubbles: true }));
+				}
+			});
+		}
+	}
+
 	/* ── Form Submission ── */
 	function initFormSubmit() {
 		var form = document.getElementById('bzcc-form');
@@ -726,6 +811,13 @@
 			var sessionId = (window.bzccFront && window.bzccFront.sessionId) || '';
 			if (sessionId) {
 				body += '&session_id=' + encodeURIComponent(sessionId);
+			}
+
+			// [2026-06-06 Johnny Chu] BZCC-SKEL — include notebook_id from hidden field
+			var notebookIdField = document.getElementById('bzcc-notebook-id-hidden');
+			var notebookId = notebookIdField ? parseInt(notebookIdField.value, 10) || 0 : 0;
+			if (notebookId > 0) {
+				body += '&notebook_id=' + notebookId;
 			}
 
 			xhr.onload = function () {

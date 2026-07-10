@@ -35,10 +35,13 @@
   // ── SVG icon map (Lucide-compatible, 24×24 viewBox) ────────────────────
   var ICON_PATHS = {
     home:      '<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
+    // [2026-07-04 Johnny Chu] PHASE-FAA2-FE — astro (crescent moon) icon for bizcoach-pro /astro/
+    astro:     '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
     workspace: '<path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><line x1="8" y1="10" x2="8" y2="14"/><line x1="12" y1="10" x2="12" y2="12"/><line x1="16" y1="10" x2="16" y2="16"/>',
     creator:   '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>',
     doc:       '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>',
     image:     '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>',
+    profile:   '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',  // single user silhouette
     video:     '<polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/>',
     web:       '<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>',
     notebook:  '<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>',
@@ -113,7 +116,16 @@
     return { pluginId: pluginId, params: params, iurl: iurl };
   }
 
-  function writeShellUrl(pluginId, paramsObj, iframeUrl) {
+  // [2026-06-29 Johnny Chu] HOTFIX — debounce writeShellUrl to prevent rapid-fire
+  // concurrent React re-renders that cause insertBefore NotFoundError.
+  // onClick fires writeShellUrl immediately + 3 more times via setTimeout(onNav).
+  // Each call does history.replaceState which React 18 HashRouter treats as a
+  // navigation → concurrent re-renders race → stale nextSibling reference.
+  // Debounce to 1 unique call per 80 ms; last call wins (captures final URL).
+  var _writeShellUrlTimer = null;
+  var _writeShellUrlPending = null;
+
+  function _doWriteShellUrl(pluginId, paramsObj, iframeUrl) {
     var sp = new URLSearchParams();
     sp.set('plugin', pluginId);
     if (paramsObj) {
@@ -159,6 +171,18 @@
         window.parent.postMessage(payload, window.location.origin);
       }
     } catch (e) { console.warn('[twin-shell][postMessage->parent] err', e); }
+  }
+
+  // Debounced public wrapper — coalesces rapid calls into 1 per 80 ms.
+  function writeShellUrl(pluginId, paramsObj, iframeUrl) {
+    _writeShellUrlPending = { pluginId: pluginId, paramsObj: paramsObj, iframeUrl: iframeUrl };
+    if (_writeShellUrlTimer) { clearTimeout(_writeShellUrlTimer); }
+    _writeShellUrlTimer = setTimeout(function () {
+      _writeShellUrlTimer = null;
+      var p = _writeShellUrlPending;
+      _writeShellUrlPending = null;
+      if (p) { _doWriteShellUrl(p.pluginId, p.paramsObj, p.iframeUrl); }
+    }, 80);
   }
 
   function paramsFromIframeUrl(rawUrl) {
@@ -343,13 +367,37 @@
     var btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'ts-ab-item';
+    // [2026-06-08 Johnny Chu] PHASE-MEMBERSHIP — dim plan/plugin-locked items.
+    if (p.plan_locked || p.plugin_locked) {
+      btn.className += ' is-plan-locked';
+    }
     btn.dataset.pluginId = p.id;
-    btn.title = p.label || p.id;
+    var titleSuffix = p.plan_badge ? ' [' + p.plan_badge + ']' : '';
+    btn.title = (p.label || p.id) + titleSuffix;
     btn.setAttribute('role', 'tab');
-    btn.setAttribute('aria-label', p.label || p.id);
-    btn.innerHTML = renderIcon(p.icon || '');
+    btn.setAttribute('aria-label', btn.title);
+    // Render icon + optional plan badge chip.
+    var iconHtml = renderIcon(p.icon || '');
+    if (p.plan_badge) {
+      iconHtml += '<span class="ts-ab-plan-badge ts-ab-plan-badge--' +
+        p.plan_badge.toLowerCase() + '">' + p.plan_badge + '</span>';
+    }
+    btn.innerHTML = iconHtml;
     btn.addEventListener('click', function () {
-      navigate(p.id, {});
+      // Plan-locked or plugin-locked: navigate to notice page (PHP renders it).
+      if (p.plan_locked || p.plugin_locked) {
+        var shellUrl = cfg.shellUrl || '/twin/';
+        var sep = shellUrl.indexOf('?') !== -1 ? '&' : '?';
+        window.location.href = shellUrl + sep + 'plugin=' + encodeURIComponent(p.id);
+        return;
+      }
+      // [2026-06-08 Johnny Chu] HOTFIX — nav_plugin/nav_iurl: redirect to another
+      // plugin + deep-link instead of creating an iframe for this button's own id.
+      if (p.nav_plugin) {
+        navigate(p.nav_plugin, {}, { iurl: p.nav_iurl || '' });
+      } else {
+        navigate(p.id, {});
+      }
     });
     return btn;
   }

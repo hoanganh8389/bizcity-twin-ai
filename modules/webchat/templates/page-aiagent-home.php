@@ -49,7 +49,13 @@ $char_name = $character ? $character->name : ($blog_name ?: 'AI Assistant');
  * =====================================================================*/
 
 // Enqueue React dashboard assets BEFORE wp_head() so they appear in <head>
-BizCity_WebChat_Admin_Dashboard::instance()->do_enqueue_react_assets();
+// [2026-07-06 Johnny Chu] HOTFIX — guard dashboard class to avoid fatal when webchat frontend module is not loaded.
+$dashboard = class_exists( 'BizCity_WebChat_Admin_Dashboard' )
+    ? BizCity_WebChat_Admin_Dashboard::instance()
+    : null;
+if ( $dashboard && method_exists( $dashboard, 'do_enqueue_react_assets' ) ) {
+    $dashboard->do_enqueue_react_assets();
+}
 
 // Force type="module" — replace any existing type attribute or add it
 add_filter('script_loader_tag', function ($tag, $handle) {
@@ -172,7 +178,17 @@ add_action('wp_enqueue_scripts', function () {
 <body class="aiagent-home-body">
 
 <!-- React Dashboard -->
-<?php BizCity_WebChat_Admin_Dashboard::instance()->render_dashboard_react(); ?>
+<?php
+if ( $dashboard && method_exists( $dashboard, 'render_dashboard_react' ) ) {
+    $dashboard->render_dashboard_react();
+} else {
+    // [2026-07-06 Johnny Chu] HOTFIX — graceful fallback so this template does not hard-crash if dashboard class is unavailable.
+    echo '<div id="root"><div style="max-width:720px;margin:48px auto;padding:24px;background:#fff;border:1px solid #e5e7eb;border-radius:12px;font-family:Arial,sans-serif;color:#111827;line-height:1.6;">';
+    echo '<h1 style="margin:0 0 10px;font-size:22px;">AI Agent tam thoi khong kha dung</h1>';
+    echo '<p style="margin:0;">Trang nay dang su dung mau webchat cu, nhung module webchat hien tai khong duoc nap. Vui long doi template trang hoac bat lai module neu can dung.</p>';
+    echo '</div></div>';
+}
+?>
 
 <?php if (!$is_logged_in): ?>
 <!-- WC Login Dialog (shown when guest message limit reached) -->

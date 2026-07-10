@@ -48,6 +48,10 @@ class BizCity_KG_Settings_Page {
 			update_option( BizCity_KG_Cost_Guard::OPT_CAP_USD,    max( 0.1, (float) $_POST['cg_cap']   ), false );
 			update_option( BizCity_KG_Cost_Guard::OPT_DEDUPE_TH,  max( 0.5, min( 1.0, (float) $_POST['cg_dedupe'] ) ), false );
 			update_option( BizCity_KG_Cost_Guard::OPT_BATCH_SIZE, max( 1, min( 20, (int) $_POST['cg_batch'] ) ), false );
+			// [2026-06-08 Johnny Chu] HOTFIX — local exemption fields
+			update_option( BizCity_KG_Cost_Guard::OPT_LOCAL_EXEMPT_USER_IDS, sanitize_text_field( wp_unslash( $_POST['cg_exempt_users'] ?? '' ) ), false );
+			update_option( BizCity_KG_Cost_Guard::OPT_LOCAL_EXEMPT_BLOG_IDS, sanitize_text_field( wp_unslash( $_POST['cg_exempt_blogs'] ?? '' ) ), false );
+			update_option( BizCity_KG_Cost_Guard::OPT_LOCAL_EXEMPT_DOMAINS,  sanitize_text_field( wp_unslash( $_POST['cg_exempt_domains'] ?? '' ) ), false );
 			$saved = true;
 		}
 
@@ -57,6 +61,10 @@ class BizCity_KG_Settings_Page {
 		$cap     = $guard->daily_cap_usd();
 		$dedupe  = $guard->dedupe_threshold();
 		$batch   = $guard->batch_size();
+		// [2026-06-08 Johnny Chu] HOTFIX — local exemption values
+		$exempt_users   = (string) get_option( BizCity_KG_Cost_Guard::OPT_LOCAL_EXEMPT_USER_IDS, '' );
+		$exempt_blogs   = (string) get_option( BizCity_KG_Cost_Guard::OPT_LOCAL_EXEMPT_BLOG_IDS, '' );
+		$exempt_domains = (string) get_option( BizCity_KG_Cost_Guard::OPT_LOCAL_EXEMPT_DOMAINS,  '' );
 
 		$pct      = (int) round( $summary['pct'] * 100 );
 		$bar_col  = $pct >= 80 ? '#dc2626' : ( $pct >= 50 ? '#f59e0b' : '#10b981' );
@@ -120,6 +128,30 @@ class BizCity_KG_Settings_Page {
 							<th><label for="cg_batch">Extract batch size</label></th>
 							<td><input type="number" id="cg_batch" name="cg_batch" value="<?php echo (int) $batch; ?>" min="1" max="20" class="small-text" />
 								<span style="color:#6b7280;">passages per single LLM call (higher = cheaper but riskier)</span></td>
+						</tr>
+						<?php
+						// [2026-06-08 Johnny Chu] HOTFIX — local exemption fields
+						$cur_blog = function_exists( 'get_current_blog_id' ) ? get_current_blog_id() : 1;
+						?>
+						<tr><td colspan="2"><hr style="margin:4px 0;"><strong>Nơị lẹ quota cục bọ (Local Exemption)</strong>
+						<span style="color:#6b7280;font-size:12px;"> — cài trên site này, không cần bì đọng hộ từ bizcity.vn</span></td></tr>
+						<tr>
+							<th><label for="cg_exempt_users">User ID nơị lẹ</label></th>
+							<td><input type="text" id="cg_exempt_users" name="cg_exempt_users"
+									value="<?php echo esc_attr( $exempt_users ); ?>" class="regular-text" />
+								<p class="description">WP User ID cách nhau bằng dấu phẩy. Những user này bỏ qua quota hoàn toàn (không cần balance). Ví dụ: <code>1, 5, 12</code></p></td>
+						</tr>
+						<tr>
+							<th><label for="cg_exempt_blogs">Blog ID nơị lẹ</label></th>
+							<td><input type="text" id="cg_exempt_blogs" name="cg_exempt_blogs"
+									value="<?php echo esc_attr( $exempt_blogs ); ?>" class="regular-text" />
+								<p class="description">Multisite blog ID cách nhau bằng dấu phẩy. Site hiện tại: <code><?php echo (int) $cur_blog; ?></code>. Mọi user trên site này sẽ bỏ qua quota.</p></td>
+						</tr>
+						<tr>
+							<th><label for="cg_exempt_domains">Domain nơị lẹ</label></th>
+							<td><input type="text" id="cg_exempt_domains" name="cg_exempt_domains"
+									value="<?php echo esc_attr( $exempt_domains ); ?>" class="regular-text" />
+								<p class="description">Tên miền cách nhau bằng dấu phẩy (không cần https://). Ví dụ: <code>huongnguyen.vibeyeu.com.vn, demo.bizcity.vn</code></p></td>
 						</tr>
 					</table>
 

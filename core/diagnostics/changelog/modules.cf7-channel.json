@@ -1,0 +1,42 @@
+{
+  "module_id": "modules.cf7-channel",
+  "current_version": "1.0.0",
+  "tables": [
+    {
+      "name": "bizcity_cf7_submissions",
+      "since": "1.0.0",
+      "description": "Log of all CF7 form submissions with mapped fields and CRM sync result.",
+      "columns": [
+        { "name": "id",             "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0" },
+        { "name": "form_id",        "type": "BIGINT UNSIGNED NOT NULL",                "since": "1.0.0" },
+        { "name": "form_title",     "type": "VARCHAR(190) NOT NULL DEFAULT ''",        "since": "1.0.0" },
+        { "name": "raw_data",       "type": "LONGTEXT NOT NULL",                       "since": "1.0.0" },
+        { "name": "mapped_data",    "type": "LONGTEXT NULL",                           "since": "1.0.0" },
+        { "name": "email",          "type": "VARCHAR(190) NULL",                       "since": "1.0.0" },
+        { "name": "phone",          "type": "VARCHAR(32) NULL",                        "since": "1.0.0" },
+        { "name": "crm_contact_id", "type": "BIGINT UNSIGNED NULL",                   "since": "1.0.0" },
+        { "name": "crm_action",     "type": "VARCHAR(16) NULL",                        "since": "1.0.0" },
+        { "name": "crm_error",      "type": "TEXT NULL",                               "since": "1.0.0" },
+        { "name": "source_url",     "type": "TEXT NULL",                               "since": "1.0.0" },
+        { "name": "user_agent",     "type": "VARCHAR(255) NULL",                       "since": "1.0.0" },
+        { "name": "ip_address",     "type": "VARCHAR(45) NULL",                        "since": "1.0.0" },
+        { "name": "submitted_at",   "type": "DATETIME NOT NULL",                       "since": "1.0.0" }
+      ],
+      "indexes": [
+        { "name": "PRIMARY", "columns": ["id"] },
+        { "name": "idx_form",      "columns": ["form_id"] },
+        { "name": "idx_email",     "columns": ["email"] },
+        { "name": "idx_phone",     "columns": ["phone"] },
+        { "name": "idx_contact",   "columns": ["crm_contact_id"] },
+        { "name": "idx_submitted", "columns": ["submitted_at"] }
+      ]
+    }
+  ],
+  "history": [
+    {
+      "version": "1.0.0",
+      "date": "2026-06-13",
+      "change": "Initial table bizcity_cf7_submissions — CF7 lead capture channel"
+    }
+  ]
+}

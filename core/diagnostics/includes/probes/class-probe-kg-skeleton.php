@@ -21,6 +21,12 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 
 require_once dirname( __DIR__ ) . '/interface-diagnostics-probe.php';
 
+
+// [2026-06-08 Johnny Chu] HOTFIX — double-load guard (bootstrap may include via filter AND direct require).
+if ( class_exists( 'BizCity_Probe_KG_Skeleton', false ) ) {
+	return;
+}
+
 final class BizCity_Probe_KG_Skeleton implements BizCity_Diagnostics_Probe {
 
 	public function id(): string          { return 'kg.skeleton'; }
@@ -70,22 +76,49 @@ final class BizCity_Probe_KG_Skeleton implements BizCity_Diagnostics_Probe {
 		// ── Layer 3 · RUNTIME · audit_blog() ──────────────────────────
 		$diag  = BizCity_KG_Skeleton_Diagnostic::instance();
 		$audit = $diag->audit_blog( 0 );
-		$ok    = is_array( $audit ) && ! empty( $audit['ok'] );
+		// [2026-07-09 Johnny Chu] HOTFIX — foundation probe should fail only for
+		// structural issues (schema/class/index), not transient failed/stuck backlog.
+		$audit_is_array   = is_array( $audit );
+		$reason           = $audit_is_array ? (string) ( $audit['reason'] ?? '' ) : 'invalid_payload';
+		$missing_columns  = $audit_is_array ? (array) ( $audit['missing_columns'] ?? [] ) : [];
+		$index_present    = $audit_is_array ? (bool) ( $audit['schema']['index_present'] ?? true ) : false;
+		$table_missing    = $reason !== '' && strpos( $reason, 'table missing' ) !== false;
+		$foundation_ok    = $audit_is_array && ! $table_missing && empty( $missing_columns ) && $index_present;
 
 		$steps[] = $s = array(
-			'label'  => 'Runtime · audit_blog(current)',
-			'status' => $ok ? 'pass' : 'fail',
-			'detail' => $ok
-				? 'ok=true · blog_id=' . ( $audit['blog_id'] ?? '?' )
-				: ( 'reason=' . ( is_array( $audit ) ? ( $audit['reason'] ?? 'n/a' ) : 'n/a' ) ),
+			'label'  => 'Runtime · audit_blog structural checks',
+			'status' => $foundation_ok ? 'pass' : 'fail',
+			'detail' => $foundation_ok
+				? 'schema/index/class checks pass · blog_id=' . ( $audit['blog_id'] ?? '?' )
+				: ( 'reason=' . ( $reason !== '' ? $reason : 'n/a' ) ),
 		);
 		$ctx->emit_step( $s );
-		if ( ! $ok ) {
-			$hint = is_array( $audit ) && ! empty( $audit['missing_columns'] )
-				? 'Missing columns: ' . implode( ',', $audit['missing_columns'] ) . ' — bump KG SCHEMA_VERSION + repair via BizCity Diagnostics.'
-				: 'Run wp bizcity diag skeleton-audit cho chi tiết.';
+		if ( ! $foundation_ok ) {
+			if ( ! empty( $missing_columns ) ) {
+				$hint = 'Missing columns: ' . implode( ',', $missing_columns ) . ' — bump KG SCHEMA_VERSION + repair via BizCity Diagnostics.';
+			} elseif ( ! $index_present ) {
+				$hint = 'Index idx_nb_skeleton_status missing — run schema repair via BizCity Diagnostics.';
+			} elseif ( $table_missing ) {
+				$hint = 'kg_notebooks table missing — run wp bizcity diag repair.';
+			} else {
+				$hint = 'Run wp bizcity diag skeleton-audit cho chi tiết.';
+			}
 			return self::fail( $steps, 'KG skeleton audit FAIL.', 'audit_failed', $hint );
 		}
+
+		$failed_count = (int) ( $audit['failed']['count'] ?? 0 );
+		$stuck_count  = (int) ( $audit['stuck']['count'] ?? 0 );
+		$steps[] = $s = array(
+			'label'  => 'Runtime · lifecycle backlog snapshot',
+			'status' => 'pass',
+			'detail' => sprintf(
+				'failed=%d · stuck=%d%s',
+				$failed_count,
+				$stuck_count,
+				( $failed_count + $stuck_count ) > 0 ? ' (non-blocking for foundation probe)' : ''
+			),
+		);
+		$ctx->emit_step( $s );
 
 		// ── Optional · totals summary (notebooks + status histogram) ──
 		if ( is_array( $audit ) && isset( $audit['totals'] ) && is_array( $audit['totals'] ) ) {
@@ -98,9 +131,18 @@ final class BizCity_Probe_KG_Skeleton implements BizCity_Diagnostics_Probe {
 			);
 		}
 
+		$summary = 'KG notebook skeleton foundation OK (classes + schema + audit).';
+		if ( ( $failed_count + $stuck_count ) > 0 ) {
+			$summary = sprintf(
+				'KG notebook skeleton foundation OK; backlog: failed=%d, stuck=%d (see skeleton-audit for ops details).',
+				$failed_count,
+				$stuck_count
+			);
+		}
+
 		return array(
 			'status'  => 'pass',
-			'summary' => 'KG notebook skeleton foundation OK (classes + schema + audit).',
+			'summary' => $summary,
 			'steps'   => $steps,
 		);
 	}

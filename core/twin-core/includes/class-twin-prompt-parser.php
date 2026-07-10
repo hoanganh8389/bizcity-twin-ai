@@ -361,7 +361,7 @@ class BizCity_Twin_Prompt_Parser {
 		$table = BizCity_Twin_State_Schema::prompt_specs_table();
 
 		// Safety: ensure table exists
-		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
+		if ( ! bizcity_tbl_exists( $table ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			return 0;
 		}
 

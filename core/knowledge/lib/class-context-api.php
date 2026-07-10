@@ -127,6 +127,13 @@ class BizCity_Knowledge_Context_API {
      * @return array Context result with text and metadata
      */
     public function build_context($character_id, $query, $options = []) {
+        // [2026-06-29 Johnny Chu] HOTFIX — CRM AI replier sets this global to the raw user
+        // question so quick_faq LIKE keyword search uses the actual question words,
+        // not the RAG-augmented $prompt_aug which contains notebook passages.
+        if ( ! empty( $GLOBALS['_bizcity_knowledge_query_override'] ) ) {
+            $query = (string) $GLOBALS['_bizcity_knowledge_query_override'];
+        }
+
         // Start timing
         $build_start = microtime( true );
 

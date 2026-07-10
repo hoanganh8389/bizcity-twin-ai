@@ -728,3 +728,14 @@ class BizCity_Template_Manager {
         return $slug;
     }
 }
+
+// [2026-06-21 Johnny Chu] R-CACHE — Register bztimg group in central Cache Registry.
+if ( class_exists( 'BizCity_Cache_Registry' ) ) {
+	BizCity_Cache_Registry::register( 'bztimg', 'plugins.bizcity-tool-image', array(
+		'seed_count'            => array( 'ttl' => BizCity_Cache::TTL_MEDIUM, 'desc' => 'COUNT(*) check for seeding guard' ),
+		'templates_all_{args}'  => array( 'ttl' => BizCity_Cache::TTL_MEDIUM, 'desc' => 'get_all() paginated result set' ),
+		'count_{args}'          => array( 'ttl' => BizCity_Cache::TTL_MEDIUM, 'desc' => 'count() result for given args' ),
+		'by_id_{id}'            => array( 'ttl' => BizCity_Cache::TTL_MEDIUM, 'desc' => 'Single template by ID' ),
+		'by_slug_{slug}'        => array( 'ttl' => BizCity_Cache::TTL_MEDIUM, 'desc' => 'Single template by slug' ),
+	) );
+}

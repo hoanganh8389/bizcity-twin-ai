@@ -498,4 +498,8 @@ function bztimg_seed_json_templates() {
             }
         }
     }
+    // [2026-06-21 Johnny Chu] R-CACHE bztimg — flush seed_count cache after seeding
+    if ( class_exists( 'BizCity_Cache' ) ) {
+        BizCity_Cache::flush_group( 'bztimg' );
+    }
 }

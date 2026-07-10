@@ -26,6 +26,14 @@ final class BizCity_TwinBrain_Memory_Writer {
 	const LLM_DEDUPE_TTL      = 86400; // 24h transient TTL
 	const LLM_MAX_MEMORIES    = 6;    // hard cap rows persisted per turn
 
+	// [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-4 — empathic mood sampler.
+	// Samples valence (-1..+1) every Nth user turn and emits
+	// `brain_session_mood_sampled`. N is configurable via filter
+	// `bizcity_twinbrain_mood_sample_cadence` (default 3).
+	const MOOD_DEFAULT_CADENCE = 3;
+	/** @var array<string,bool> trace_id → mood_sampled (in-process idempotency) */
+	private static $mood_seen = [];
+
 	/** @var self|null */
 	private static $instance = null;
 
@@ -359,5 +367,148 @@ final class BizCity_TwinBrain_Memory_Writer {
 			$out[] = [ 'text' => $text, 'type' => $type, 'score' => $score ];
 		}
 		return $out;
+	}
+
+	/* =================================================================
+	 *  [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-4 — Mood sampler (Mode 4).
+	 *
+	 *  Cheap heuristic-first valence sampler invoked once every Nth user turn
+	 *  (cadence default 3, tunable via filter
+	 *  `bizcity_twinbrain_mood_sample_cadence`). Emits the canonical
+	 *  `brain_session_mood_sampled` event so:
+	 *    • Sessions VIEW flips `has_mood = 1`
+	 *    • Memory_Recall Tier F surfaces the latest valence/label to
+	 *      Final_Composer (empathic continuity across turns).
+	 *
+	 *  Caller contract (from Runtime, after final compose):
+	 *    sample_mood([
+	 *      'trace_id'   => ...,
+	 *      'session_id' => 'brain_sess_…',
+	 *      'user_id'    => 7,
+	 *      'turn_index' => N (1-based count of user_message events),
+	 *      'prompt'     => $prompt,
+	 *      'answer'     => $final_text,
+	 *    ]);
+	 *
+	 *  Returns ['status'=>'sampled'|'skipped:<reason>', 'valence'=>float,
+	 *           'label'=>string, 'event_uuid'=>string].
+	 * ================================================================ */
+	public function sample_mood( array $args ): array {
+		$trace_id   = (string) ( $args['trace_id']   ?? '' );
+		$session_id = (string) ( $args['session_id'] ?? '' );
+		$user_id    = (int)    ( $args['user_id']    ?? 0 );
+		$turn_index = (int)    ( $args['turn_index'] ?? 0 );
+		$prompt     = (string) ( $args['prompt']     ?? '' );
+		$answer     = (string) ( $args['answer']     ?? '' );
+
+		if ( $session_id === '' )    return [ 'status' => 'skipped:no_session', 'valence' => 0.0, 'label' => '' ];
+		if ( $trace_id !== '' && isset( self::$mood_seen[ $trace_id ] ) ) {
+			return [ 'status' => 'skipped:cached', 'valence' => 0.0, 'label' => '' ];
+		}
+		$cadence = (int) apply_filters( 'bizcity_twinbrain_mood_sample_cadence', self::MOOD_DEFAULT_CADENCE, $user_id );
+		if ( $cadence < 1 ) $cadence = self::MOOD_DEFAULT_CADENCE;
+		if ( $turn_index < 1 || ( $turn_index % $cadence ) !== 0 ) {
+			return [ 'status' => 'skipped:cadence', 'valence' => 0.0, 'label' => '' ];
+		}
+		if ( ! class_exists( 'BizCity_Twin_Event_Bus' ) ) {
+			return [ 'status' => 'skipped:no_bus', 'valence' => 0.0, 'label' => '' ];
+		}
+
+		list( $valence, $label ) = $this->derive_mood_heuristic( $prompt, $answer );
+
+		$payload = [
+			'session_id' => $session_id,
+			'turn_index' => $turn_index,
+			'valence'    => round( $valence, 3 ),
+			'label'      => $label,
+			'source'     => 'heuristic.mode4',
+			'sampled_at' => time(),
+		];
+
+		try {
+			$uuid = BizCity_Twin_Event_Bus::dispatch_v2(
+				'brain_session_mood_sampled',
+				$payload,
+				[
+					'session_id'   => $session_id,
+					'user_id'      => $user_id,
+					'event_source' => 'system',
+					'trace_id'     => $trace_id,
+				]
+			);
+		} catch ( \Throwable $e ) {
+			return [ 'status' => 'skipped:dispatch_error', 'valence' => $valence, 'label' => $label, 'error' => $e->getMessage() ];
+		}
+
+		if ( $trace_id !== '' ) self::$mood_seen[ $trace_id ] = true;
+		return [
+			'status'     => 'sampled',
+			'valence'    => $valence,
+			'label'      => $label,
+			'turn_index' => $turn_index,
+			'event_uuid' => (string) $uuid,
+		];
+	}
+
+	/**
+	 * Cheap deterministic valence heuristic — VN + EN cue lists. Returns
+	 * tuple (valence ∈ [-1,+1], label). Designed to be fast & free; users
+	 * who want LLM-grade nuance can override via filter
+	 * `bizcity_twinbrain_mood_derive` (return [valence,label]).
+	 */
+	private function derive_mood_heuristic( string $prompt, string $answer ): array {
+		$override = apply_filters( 'bizcity_twinbrain_mood_derive', null, $prompt, $answer );
+		if ( is_array( $override ) && count( $override ) >= 2 ) {
+			$v = (float) $override[0];
+			$l = (string) $override[1];
+			return [ max( -1.0, min( 1.0, $v ) ), $l !== '' ? $l : 'override' ];
+		}
+
+		$text = mb_strtolower( $prompt . "\n" . $answer, 'UTF-8' );
+
+		// Cue lexicons — kept tiny so heuristic stays cheap. Each hit ±1.
+		$pos_cues = [
+			'tuyệt', 'cảm ơn', 'cám ơn', 'thanks', 'thank you', 'awesome', 'great',
+			'happy', 'vui', 'thích', 'love', 'yêu', 'tốt', 'ổn', 'hay quá', 'good job',
+			'hoàn hảo', 'perfect', 'mừng', 'tự hào', 'biết ơn',
+		];
+		$neg_cues = [
+			'bực', 'tức', 'khó chịu', 'thất vọng', 'frustrated', 'angry', 'sad',
+			'buồn', 'lo', 'lo lắng', 'anxious', 'stress', 'mệt', 'chán', 'hate', 'ghét',
+			'sợ', 'afraid', 'worried', 'overwhelmed', 'kiệt sức', 'burned out',
+			'không hiểu', 'sai', 'lỗi', 'bug',
+		];
+		$urgent_cues = [ 'gấp', 'urgent', 'asap', 'ngay', 'lập tức', 'khẩn' ];
+
+		$pos = 0;
+		$neg = 0;
+		$urg = 0;
+		foreach ( $pos_cues as $c )    if ( mb_strpos( $text, $c ) !== false ) $pos++;
+		foreach ( $neg_cues as $c )    if ( mb_strpos( $text, $c ) !== false ) $neg++;
+		foreach ( $urgent_cues as $c ) if ( mb_strpos( $text, $c ) !== false ) $urg++;
+
+		// Question marks / exclamation density — proxy for emotional charge.
+		$q = substr_count( $text, '?' );
+		$ex = substr_count( $text, '!' );
+
+		$valence = 0.0;
+		if ( $pos + $neg > 0 ) {
+			$valence = ( $pos - $neg ) / max( 1, $pos + $neg );
+		}
+		// Urgency drags valence slightly negative (stressful).
+		$valence -= 0.15 * min( 2, $urg );
+		// Cap.
+		$valence = max( -1.0, min( 1.0, $valence ) );
+
+		$label = 'neutral';
+		if ( $valence >= 0.5 )       $label = 'positive';
+		elseif ( $valence >= 0.2 )   $label = 'mildly_positive';
+		elseif ( $valence <= -0.5 )  $label = $urg > 0 ? 'frustrated' : 'negative';
+		elseif ( $valence <= -0.2 )  $label = 'concerned';
+		elseif ( $urg > 0 )          $label = 'urgent';
+		elseif ( $q >= 3 )           $label = 'curious';
+		elseif ( $ex >= 2 )          $label = 'energetic';
+
+		return [ $valence, $label ];
 	}
 }

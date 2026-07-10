@@ -2,26 +2,26 @@
 /**
  * @package    Bizcity_Twin_AI
  * @subpackage Core\Intent
- * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
- * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
+ * @author     Johnny Chu (Chu HoÃ ng Anh) <Hoanganh.itm@gmail.com>
+ * @copyright  2024-2026 BizCity â€” Made in Vietnam ðŸ‡»ðŸ‡³
  * @license    GPL-2.0-or-later
  * @link       https://bizcity.vn
  */
 
 /**
- * BizCity Intent — Data Browser
+ * BizCity Intent â€” Data Browser
  *
  * Admin sub-menu pages for browsing:
- *   • Intent tables  (conversations, turns, prompt_logs, debug_logs)
- *   • Planner tables (candidates, playbooks, experiments, stats, reviews, patches, cache)
+ *   â€¢ Intent tables  (conversations, turns, prompt_logs, debug_logs)
+ *   â€¢ Planner tables (candidates, playbooks, experiments, stats, reviews, patches, cache)
  *
  * Replicates the Executor Data Browser pattern with:
- *   • Paginated list with filters & free-text search
- *   • Column sorting
- *   • Export JSON (filtered / full)
- *   • Click-through links between related tables
- *   • Checkbox select + bulk delete
- *   • Record detail modal
+ *   â€¢ Paginated list with filters & free-text search
+ *   â€¢ Column sorting
+ *   â€¢ Export JSON (filtered / full)
+ *   â€¢ Click-through links between related tables
+ *   â€¢ Checkbox select + bulk delete
+ *   â€¢ Record detail modal
  *
  * @package BizCity_Intent
  * @since   3.4.0
@@ -53,30 +53,30 @@ class BizCity_Intent_Data_Browser {
         add_action( 'wp_ajax_bizcity_intent_expand',        [ $this, 'ajax_expand' ] );
     }
 
-    /* ══════════════════════════════════════════════════════════════
+    /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
      *  PAGE DEFINITIONS
-     * ══════════════════════════════════════════════════════════════ */
+     * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 
     /**
      * Data browser page definitions.
      *
      * Each entry maps to a DB table with display config:
-     *   title   — page <title> / heading
-     *   menu    — admin menu label
-     *   table   — DB table name (without wp_ prefix)
-     *   columns — visible columns in list view
-     *   filters — filterable columns (input fields)
-     *   order   — default ORDER BY clause
-     *   links   — cross-table links { column => target_page_slug }
+     *   title   â€” page <title> / heading
+     *   menu    â€” admin menu label
+     *   table   â€” DB table name (without wp_ prefix)
+     *   columns â€” visible columns in list view
+     *   filters â€” filterable columns (input fields)
+     *   order   â€” default ORDER BY clause
+     *   links   â€” cross-table links { column => target_page_slug }
      */
     public static function get_browser_pages() {
         return [
 
-            /* ── Intent Tables ────────────────────────────── */
+            /* â”€â”€ Intent Tables â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
             'int-conversations' => [
-                'title'   => 'Intent — Conversations',
-                'menu'    => '💬 Conversations',
+                'title'   => 'Intent â€” Conversations',
+                'menu'    => 'ðŸ’¬ Conversations',
                 'table'   => 'bizcity_intent_conversations',
                 'columns' => [
                     'id', 'conversation_id', 'user_id', 'session_id', 'channel',
@@ -96,8 +96,8 @@ class BizCity_Intent_Data_Browser {
             ],
 
             'int-turns' => [
-                'title'   => 'Intent — Turns',
-                'menu'    => '🔄 Turns',
+                'title'   => 'Intent â€” Turns',
+                'menu'    => 'ðŸ”„ Turns',
                 'table'   => 'bizcity_intent_turns',
                 'columns' => [
                     'id', 'conversation_id', 'turn_index', 'role', 'content',
@@ -112,8 +112,8 @@ class BizCity_Intent_Data_Browser {
             ],
 
             'int-prompt-logs' => [
-                'title'   => 'Intent — Prompt Logs',
-                'menu'    => '📝 Prompt Logs',
+                'title'   => 'Intent â€” Prompt Logs',
+                'menu'    => 'ðŸ“ Prompt Logs',
                 'table'   => 'bizcity_intent_prompt_logs',
                 'columns' => [
                     'id', 'session_id', 'conversation_id', 'user_id', 'channel',
@@ -135,8 +135,8 @@ class BizCity_Intent_Data_Browser {
             ],
 
             'int-logs' => [
-                'title'   => 'Intent — Debug Logs',
-                'menu'    => '🐛 Debug Logs',
+                'title'   => 'Intent â€” Debug Logs',
+                'menu'    => 'ðŸ› Debug Logs',
                 'table'   => 'bizcity_intent_logs',
                 'columns' => [
                     'id', 'trace_id', 'conversation_id', 'turn_index', 'step',
@@ -153,11 +153,11 @@ class BizCity_Intent_Data_Browser {
                 ],
             ],
 
-            /* ── Planner Tables ───────────────────────────── */
+            /* â”€â”€ Planner Tables â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
             'plan-candidates' => [
-                'title'   => 'Planner — Intent Candidates',
-                'menu'    => '🎯 Candidates',
+                'title'   => 'Planner â€” Intent Candidates',
+                'menu'    => 'ðŸŽ¯ Candidates',
                 'table'   => 'bizcity_intent_candidates',
                 'columns' => [
                     'id', 'intent_key', 'tool_key', 'base_weight', 'role',
@@ -169,8 +169,8 @@ class BizCity_Intent_Data_Browser {
             ],
 
             'plan-playbooks' => [
-                'title'   => 'Planner — Playbooks',
-                'menu'    => '📖 Playbooks',
+                'title'   => 'Planner â€” Playbooks',
+                'menu'    => 'ðŸ“– Playbooks',
                 'table'   => 'bizcity_playbooks',
                 'columns' => [
                     'id', 'playbook_key', 'intent_key', 'domain', 'title',
@@ -184,8 +184,8 @@ class BizCity_Intent_Data_Browser {
             ],
 
             'plan-experiments' => [
-                'title'   => 'Planner — Experiments',
-                'menu'    => '🧪 Experiments',
+                'title'   => 'Planner â€” Experiments',
+                'menu'    => 'ðŸ§ª Experiments',
                 'table'   => 'bizcity_tool_experiments',
                 'columns' => [
                     'id', 'experiment_key', 'intent_key', 'status',
@@ -200,8 +200,8 @@ class BizCity_Intent_Data_Browser {
             ],
 
             'plan-tool-stats' => [
-                'title'   => 'Planner — Tool Stats',
-                'menu'    => '📊 Tool Stats',
+                'title'   => 'Planner â€” Tool Stats',
+                'menu'    => 'ðŸ“Š Tool Stats',
                 'table'   => 'bizcity_tool_stats',
                 'columns' => [
                     'id', 'tool_key', 'env', 'window_days', 'n_calls',
@@ -214,8 +214,8 @@ class BizCity_Intent_Data_Browser {
             ],
 
             'plan-reviews' => [
-                'title'   => 'Planner — Trace Reviews',
-                'menu'    => '✅ Reviews',
+                'title'   => 'Planner â€” Trace Reviews',
+                'menu'    => 'âœ… Reviews',
                 'table'   => 'bizcity_trace_reviews',
                 'columns' => [
                     'id', 'trace_id', 'intent_key', 'playbook_key', 'variant',
@@ -234,8 +234,8 @@ class BizCity_Intent_Data_Browser {
             ],
 
             'plan-patches' => [
-                'title'   => 'Planner — Registry Patches',
-                'menu'    => '🩹 Patches',
+                'title'   => 'Planner â€” Registry Patches',
+                'menu'    => 'ðŸ©¹ Patches',
                 'table'   => 'bizcity_registry_patches',
                 'columns' => [
                     'id', 'target_type', 'target_key', 'patch_type', 'reason',
@@ -248,8 +248,8 @@ class BizCity_Intent_Data_Browser {
             ],
 
             'plan-cache' => [
-                'title'   => 'Planner — Plan Cache',
-                'menu'    => '💾 Plan Cache',
+                'title'   => 'Planner â€” Plan Cache',
+                'menu'    => 'ðŸ’¾ Plan Cache',
                 'table'   => 'bizcity_planner_cache',
                 'columns' => [
                     'id', 'intent_hash', 'intent_key', 'playbook_key',
@@ -264,14 +264,14 @@ class BizCity_Intent_Data_Browser {
         ];
     }
 
-    /* ══════════════════════════════════════════════════════════════
+    /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
      *  MENU REGISTRATION
-     * ══════════════════════════════════════════════════════════════ */
+     * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 
     /**
      * Register data browser sub-menus under Intent Monitor parent.
      *
-     * Phase G (2026-05-19) — DISABLED. Parent menu is gone; submenus
+     * Phase G (2026-05-19) â€” DISABLED. Parent menu is gone; submenus
      * skipped to avoid orphans. Method body kept commented for reference.
      */
     public function register_menus() {
@@ -288,9 +288,9 @@ class BizCity_Intent_Data_Browser {
         // }
     }
 
-    /* ══════════════════════════════════════════════════════════════
+    /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
      *  ASSETS
-     * ══════════════════════════════════════════════════════════════ */
+     * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 
     public function enqueue_assets( $hook ) {
         // Only load on our data browser pages
@@ -337,9 +337,9 @@ class BizCity_Intent_Data_Browser {
         ] );
     }
 
-    /* ══════════════════════════════════════════════════════════════
+    /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
      *  PAGE RENDER
-     * ══════════════════════════════════════════════════════════════ */
+     * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 
     public function render_page() {
         if ( ! current_user_can( 'manage_options' ) ) {
@@ -348,9 +348,9 @@ class BizCity_Intent_Data_Browser {
         require_once BIZCITY_INTENT_DIR . '/views/data-browser.php';
     }
 
-    /* ══════════════════════════════════════════════════════════════
+    /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
      *  AJAX: Browse (paginated list with filters)
-     * ══════════════════════════════════════════════════════════════ */
+     * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 
     public function ajax_browse() {
         check_ajax_referer( 'bizcity_intent_browser', 'nonce' );
@@ -367,9 +367,9 @@ class BizCity_Intent_Data_Browser {
         wp_send_json_success( $result );
     }
 
-    /* ══════════════════════════════════════════════════════════════
+    /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
      *  AJAX: Export JSON
-     * ══════════════════════════════════════════════════════════════ */
+     * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 
     public function ajax_export_json() {
         check_ajax_referer( 'bizcity_intent_browser', 'nonce' );
@@ -419,9 +419,9 @@ class BizCity_Intent_Data_Browser {
         wp_die();
     }
 
-    /* ══════════════════════════════════════════════════════════════
+    /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
      *  AJAX: Record Detail
-     * ══════════════════════════════════════════════════════════════ */
+     * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 
     public function ajax_record_detail() {
         check_ajax_referer( 'bizcity_intent_browser', 'nonce' );
@@ -462,9 +462,9 @@ class BizCity_Intent_Data_Browser {
         wp_send_json_success( [ 'record' => $row, 'related' => $related ] );
     }
 
-    /* ══════════════════════════════════════════════════════════════
+    /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
      *  AJAX: Bulk Delete
-     * ══════════════════════════════════════════════════════════════ */
+     * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 
     public function ajax_delete() {
         check_ajax_referer( 'bizcity_intent_browser', 'nonce' );
@@ -508,19 +508,19 @@ class BizCity_Intent_Data_Browser {
         ] );
     }
 
-    /* ══════════════════════════════════════════════════════════════
-     *  AJAX: Inline Expand — related data by FK columns
-     * ══════════════════════════════════════════════════════════════ */
+    /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+     *  AJAX: Inline Expand â€” related data by FK columns
+     * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 
     /**
      * Expand a row inline: fetch related records from intent, planner, and executor tables.
      *
      * Lookup paths:
-     *   conversation_id → turns, prompt_logs, debug_logs, conversations, executor traces + tasks
-     *   executor_trace_id → executor traces + trace_tasks
-     *   message_id → executor traces (by message_id) + trace_tasks
-     *   session_id → conversations, prompt_logs
-     *   intent_key → candidates, playbooks
+     *   conversation_id â†’ turns, prompt_logs, debug_logs, conversations, executor traces + tasks
+     *   executor_trace_id â†’ executor traces + trace_tasks
+     *   message_id â†’ executor traces (by message_id) + trace_tasks
+     *   session_id â†’ conversations, prompt_logs
+     *   intent_key â†’ candidates, playbooks
      */
     public function ajax_expand() {
         check_ajax_referer( 'bizcity_intent_browser', 'nonce' );
@@ -562,7 +562,7 @@ class BizCity_Intent_Data_Browser {
         $intent_key        = $row['intent_key']        ?? '';
         $trace_id_field    = $row['trace_id']          ?? '';
 
-        /* ── By conversation_id ──────────────────────────── */
+        /* â”€â”€ By conversation_id â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
         if ( $conv_id ) {
             if ( $table_key !== 'bizcity_intent_conversations' ) {
                 $sections['conversation'] = [
@@ -614,7 +614,8 @@ class BizCity_Intent_Data_Browser {
 
             // Executor traces by conv_id
             $exec_table = $prefix . 'bizcity_traces';
-            if ( $wpdb->get_var( $wpdb->prepare( "SHOW TABLES LIKE %s", $exec_table ) ) === $exec_table ) {
+            // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+            if ( bizcity_tbl_exists( $exec_table ) ) {
                 $exec_rows = $wpdb->get_results( $wpdb->prepare(
                     "SELECT id, trace_id, message_id, session_id, conv_id, intent_key, title, status, created_at, ended_at
                      FROM `{$exec_table}`
@@ -647,10 +648,11 @@ class BizCity_Intent_Data_Browser {
             }
         }
 
-        /* ── By executor_trace_id (from prompt_logs) ────── */
+        /* â”€â”€ By executor_trace_id (from prompt_logs) â”€â”€â”€â”€â”€â”€ */
         if ( $executor_trace_id && empty( $sections['executor_traces'] ) ) {
             $exec_table = $prefix . 'bizcity_traces';
-            if ( $wpdb->get_var( $wpdb->prepare( "SHOW TABLES LIKE %s", $exec_table ) ) === $exec_table ) {
+            // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+            if ( bizcity_tbl_exists( $exec_table ) ) {
                 $sections['executor_traces'] = [
                     'label' => "\xE2\x9A\x99 Executor Trace",
                     'link'  => '?page=bizcity-exec-traces&f_trace_id=' . urlencode( $executor_trace_id ),
@@ -674,10 +676,11 @@ class BizCity_Intent_Data_Browser {
             }
         }
 
-        /* ── By message_id ───────────────────────────────── */
+        /* â”€â”€ By message_id â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
         if ( $message_id && empty( $sections['executor_traces'] ) ) {
             $exec_table = $prefix . 'bizcity_traces';
-            if ( $wpdb->get_var( $wpdb->prepare( "SHOW TABLES LIKE %s", $exec_table ) ) === $exec_table ) {
+            // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+            if ( bizcity_tbl_exists( $exec_table ) ) {
                 $exec_rows = $wpdb->get_results( $wpdb->prepare(
                     "SELECT id, trace_id, message_id, session_id, conv_id, intent_key, title, status, created_at, ended_at
                      FROM `{$exec_table}`
@@ -709,7 +712,7 @@ class BizCity_Intent_Data_Browser {
             }
         }
 
-        /* ── By session_id ───────────────────────────────── */
+        /* â”€â”€ By session_id â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
         if ( $session_id && empty( $sections['conversation'] ) ) {
             if ( $table_key !== 'bizcity_intent_conversations' ) {
                 $sections['session_convs'] = [
@@ -724,7 +727,7 @@ class BizCity_Intent_Data_Browser {
             }
         }
 
-        /* ── By intent_key (planner relations) ──────────── */
+        /* â”€â”€ By intent_key (planner relations) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
         if ( $intent_key ) {
             if ( $table_key !== 'bizcity_intent_candidates' ) {
                 $sections['candidates'] = [
@@ -750,10 +753,11 @@ class BizCity_Intent_Data_Browser {
             }
         }
 
-        /* ── By trace_id (debug logs → executor link) ─── */
+        /* â”€â”€ By trace_id (debug logs â†’ executor link) â”€â”€â”€ */
         if ( $trace_id_field && empty( $sections['executor_traces'] ) ) {
             $exec_table = $prefix . 'bizcity_traces';
-            if ( $wpdb->get_var( $wpdb->prepare( "SHOW TABLES LIKE %s", $exec_table ) ) === $exec_table ) {
+            // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+            if ( bizcity_tbl_exists( $exec_table ) ) {
                 $exec_rows = $wpdb->get_results( $wpdb->prepare(
                     "SELECT id, trace_id, message_id, session_id, conv_id, intent_key, title, status, created_at, ended_at
                      FROM `{$exec_table}`
@@ -788,9 +792,9 @@ class BizCity_Intent_Data_Browser {
         wp_send_json_success( [ 'sections' => $sections ] );
     }
 
-    /* ══════════════════════════════════════════════════════════════
+    /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
      *  QUERY BUILDER
-     * ══════════════════════════════════════════════════════════════ */
+     * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 
     private function query_browser_data( array $params ) {
         global $wpdb;
@@ -889,9 +893,9 @@ class BizCity_Intent_Data_Browser {
         ];
     }
 
-    /* ══════════════════════════════════════════════════════════════
+    /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
      *  HELPERS
-     * ══════════════════════════════════════════════════════════════ */
+     * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 
     /**
      * Extract filter params from request (f_col = val).
@@ -915,7 +919,7 @@ class BizCity_Intent_Data_Browser {
         $related = [];
         $prefix  = $wpdb->prefix;
 
-        // ── Intent cross-links ──
+        // â”€â”€ Intent cross-links â”€â”€
         $conv_id = $row['conversation_id'] ?? '';
 
         if ( $conv_id && $table_key !== 'bizcity_intent_conversations' ) {
@@ -945,12 +949,13 @@ class BizCity_Intent_Data_Browser {
             ), ARRAY_A );
         }
 
-        // ── Executor trace link ──
+        // â”€â”€ Executor trace link â”€â”€
         $executor_trace_id = $row['executor_trace_id'] ?? '';
         if ( $executor_trace_id ) {
             // Check if executor tables exist
             $exec_table = $prefix . 'bizcity_executor_traces';
-            if ( $wpdb->get_var( "SHOW TABLES LIKE '{$exec_table}'" ) === $exec_table ) {
+            // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+            if ( bizcity_tbl_exists( $exec_table ) ) {
                 $related['executor_trace'] = $wpdb->get_row( $wpdb->prepare(
                     "SELECT id, trace_id, title, status, intent_key, created_at, ended_at
                      FROM `{$exec_table}` WHERE `trace_id` = %s LIMIT 1",
@@ -959,7 +964,7 @@ class BizCity_Intent_Data_Browser {
             }
         }
 
-        // ── Planner cross-links ──
+        // â”€â”€ Planner cross-links â”€â”€
         $playbook_key = $row['playbook_key'] ?? '';
         if ( $playbook_key && $table_key !== 'bizcity_playbooks' ) {
             $related['playbook'] = $wpdb->get_row( $wpdb->prepare(
@@ -1074,3 +1079,4 @@ class BizCity_Intent_Data_Browser {
         return $row;
     }
 }
+

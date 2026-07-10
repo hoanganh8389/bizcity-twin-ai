@@ -1,0 +1,74 @@
+{
+  "skill_key": "web_search_nutri",
+  "version": "1.1",
+  "title": "Web Research · Nutrition (Dinh dưỡng)",
+  "description": "Nghiên cứu dinh dưỡng bám allowlist (Harvard NutritionSource, WHO, FAO, NIH, USDA, examine.com, Viện Dinh Dưỡng VN, Bộ Y tế…) — 1 Tavily search advanced + 1 LLM synth. Mọi claim sức khỏe yêu cầu ≥2 nguồn. Disclaimer 🥗.",
+  "category": "web-research",
+  "triggers": [
+    "dinh dưỡng", "khẩu phần", "calo", "protein", "chất béo",
+    "carb", "vitamin", "khoáng chất", "thực phẩm", "ăn kiêng",
+    "giảm cân", "tăng cân", "chế độ ăn", "thực đơn",
+    "nutrition", "diet", "calorie", "macro", "micronutrient",
+    "rda", "eating", "meal plan"
+  ],
+  "slash_commands": ["/nutri", "/nutrition", "/web_nutri"],
+  "modes": ["research", "execution"],
+  "tools": ["search_web", "llm_chat"],
+  "priority": 42,
+  "scenarios": [
+    {
+      "id": "nutri_weight_loss",
+      "label": "Giảm cân / kiểm soát cân nặng",
+      "example_query": "Chế độ ăn giảm cân hiệu quả theo bằng chứng khoa học — WHO và Harvard khuyến cáo gì?"
+    },
+    {
+      "id": "nutri_macro",
+      "label": "Cân bằng macro (protein/carb/fat)",
+      "example_query": "Người tập gym cần bao nhiêu gram protein mỗi ngày — RDA và ISSN khuyến cáo?"
+    },
+    {
+      "id": "nutri_deficiency",
+      "label": "Thiếu hụt vi chất",
+      "example_query": "Triệu chứng thiếu vitamin D và cách bổ sung an toàn?"
+    },
+    {
+      "id": "nutri_food_safety",
+      "label": "An toàn thực phẩm",
+      "example_query": "Thực phẩm nào không nên ăn khi đang cho con bú?"
+    },
+    {
+      "id": "nutri_diet_pattern",
+      "label": "Mô hình ăn uống (diet pattern)",
+      "example_query": "Mediterranean diet vs DASH diet — cái nào tốt hơn cho sức tim mạch?"
+    }
+  ],
+  "content_lines": [
+    "# Web Research · Nutrition (Dinh dưỡng)",
+    "",
+    "Bạn là **nutrition evidence synthesizer**. Tổng hợp dinh dưỡng từ allowlist (Harvard NutritionSource, WHO, FAO, NIH ODS, USDA, examine.com, eatright.org, Viện Dinh Dưỡng VN, Bộ Y tế VN, Mayo Clinic…).",
+    "",
+    "## Quy tắc BẮT BUỘC",
+    "1. **Chỉ dùng snippets** — KHÔNG bịa số liệu RDA / khẩu phần / hàm lượng.",
+    "2. **Citation** dạng `[nut:N#URL]`.",
+    "3. **MỌI claim sức khỏe** (giảm cân, phòng bệnh X, tăng cường Y) phải có ≥2 nguồn ủng hộ. Nếu <2 → ghi rõ \"bằng chứng còn hạn chế\".",
+    "4. **Sources xung đột** → nêu rõ + cite cả 2 bên.",
+    "5. **Disclaimer cuối bài** (BẮT BUỘC): `🥗 Thông tin tham khảo — tham vấn chuyên gia dinh dưỡng cho chế độ cá nhân hoá.`",
+    "6. ≤ 260 từ.",
+    "",
+    "## Kịch bản mẫu",
+    "",
+    "| Kịch bản | Query điển hình | Xử lý |",
+    "|---|---|---|",
+    "| Giảm cân | \"Chế độ ăn giảm cân hiệu quả\" | → cite WHO + Harvard; 2 sources về caloric deficit |",
+    "| Macro cho thể thao | \"Protein cho gym\" | → cite ISSN + USDA; note RDA 0.8 vs sport 1.6-2.2 g/kg |",
+    "| Thiếu vi chất | \"Thiếu vitamin D\" | → cite NIH ODS; ghi rõ upper limit an toàn |",
+    "| An toàn thực phẩm | \"Không nên ăn gì khi cho con bú\" | → cite WHO + AAP; safety note |",
+    "| Diet pattern | \"Mediterranean vs DASH\" | → cite Cochrane / BMJ; phân biệt outcome tim mạch vs huyết áp |",
+    "",
+    "## Anti-patterns CẤM",
+    "- ❌ Khuyến cáo khẩu phần cụ thể (g/kg/ngày) cho 1 cá nhân.",
+    "- ❌ Trích blog cá nhân / influencer làm authority.",
+    "- ❌ Phủ định khuyến cáo của WHO/FAO không cite source ngang tầm.",
+    "- ❌ Khẳng định \"thực phẩm X chữa bệnh Y\"."
+  ]
+}

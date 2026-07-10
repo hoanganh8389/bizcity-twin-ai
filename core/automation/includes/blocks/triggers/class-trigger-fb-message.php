@@ -26,11 +26,14 @@ final class BizCity_Automation_Trigger_FB_Message extends BizCity_Automation_Blo
 				'label'       => 'FB · Messenger',
 				'instance_id' => '',
 				'filter'      => '',
+				'guru_id'     => 0,
 			),
 			'fields'   => array(
 				array( 'name' => 'label',       'label' => 'Tên hiển thị',          'type' => 'text' ),
 				array( 'name' => 'instance_id', 'label' => 'Page ID (bỏ trống = mọi page)', 'type' => 'channel_instance_picker', 'platform' => 'FACEBOOK' ),
 				array( 'name' => 'filter',      'label' => 'Substring filter (optional)',   'type' => 'text' ),
+				// [2026-06-02 Johnny Chu] GURU W1 — cross-cutting guru filter.
+				array( 'name' => 'guru_id',     'label' => 'Guru ID (0 = mọi guru)', 'type' => 'number', 'hint' => 'chỉ chạy khi character_id binding = guru này' ),
 			),
 		);
 	}

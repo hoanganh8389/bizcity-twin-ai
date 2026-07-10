@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "bizcity://events/workflow_step.json",
+  "title": "workflow_step",
+  "description": "Emitted twice per node: once when status=running (node begins), once when status∈done|error|skipped|timeout (node ends). FE updates the matching row by idx. PHASE-TWB-WORKFLOW W1 (2026-06-19).",
+  "type": "object",
+  "required": ["trace_id", "skill_slug", "node_id", "node_kind", "label", "status", "idx", "total"],
+  "properties": {
+    "trace_id":       { "type": "string" },
+    "skill_slug":     { "type": "string" },
+    "node_id":        { "type": "string", "description": "Unique node identifier within the graph." },
+    "node_kind":      { "type": "string", "description": "Block kind, e.g. action.search_kg, llm.compose, trigger.manual." },
+    "label":          { "type": "string", "description": "Human-readable step label." },
+    "status":         { "type": "string", "enum": ["running", "done", "error", "skipped", "timeout"], "description": "Current step status." },
+    "idx":            { "type": "integer", "minimum": 0, "description": "0-based index of this node in topological order." },
+    "total":          { "type": "integer", "minimum": 1, "description": "Total node count (same as workflow_started.node_count)." },
+    "ms":             { "type": "integer", "minimum": 0, "description": "Execution time of this node in milliseconds (only on final status)." },
+    "output_summary": { "type": "string", "maxLength": 120, "description": "Short human-readable summary of node output (≤120 chars)." },
+    "error":          { "type": "string", "description": "Error message if status=error." }
+  },
+  "additionalProperties": true
+}

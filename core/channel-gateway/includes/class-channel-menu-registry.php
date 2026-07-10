@@ -356,7 +356,9 @@ class BizCity_Channel_Menu_Registry {
 			echo '<p>Chưa có gán role. Mặc định theo platform.</p>';
 		}
 
-		echo '<p style="margin-top:16px;"><a href="' . esc_url( admin_url( 'tools.php?page=bizcity-channel-phase-037-diag' ) ) . '" class="button">🩺 PHASE 0.37 Diagnostic</a></p>';
+		// [2026-06-03 Johnny Chu] CONSOLIDATION-M3 — repoint lên canonical diag page;
+		// slug `bizcity-channel-phase-037-diag` đã retire (probe `channel.phase_037`).
+		echo '<p style="margin-top:16px;"><a href="' . esc_url( admin_url( 'tools.php?page=bizcity-diagnostics#probe-channel.phase_037' ) ) . '" class="button">🩺 PHASE 0.37 Diagnostic</a></p>';
 		echo '</div>'; // tab content
 	}
 

@@ -19,9 +19,9 @@ class BizCity_Market_Marketplace {
         // Handle sync BEFORE output (wp_redirect needs headers not sent yet)
         add_action('admin_init', [__CLASS__, 'handle_sync_early']);
 
-        // Deferred flush: on NEXT request after plugin activate/deactivate,
-        // all init hooks have fired so rewrite rules are properly registered.
-        add_action( 'init', [ __CLASS__, 'maybe_flush_rewrite_rules' ], 999 );
+        // [2026-06-09 Johnny Chu] HOTFIX — changed from init:999 to admin_init (Transposh/WC flush loop).
+        // [2026-06-26 Johnny Chu] R-PERF — removed per-class admin_init guard; callers now use
+        // BizCity_Rewrite_Flush_Registry::queue_flush('marketplace') directly.
 
         // ajax load plugin detail
         add_action('wp_ajax_bizcity_market_plugin_detail', [__CLASS__, 'ajax_plugin_detail']);
@@ -54,18 +54,6 @@ class BizCity_Market_Marketplace {
         $redirect = add_query_arg( $base_args, admin_url( 'index.php' ) );
         wp_safe_redirect( $redirect );
         exit;
-    }
-
-    /**
-     * Deferred flush: runs on the FIRST request after a plugin was activated/deactivated
-     * via marketplace AJAX. By this point, init has fired with the new plugin loaded,
-     * so all add_rewrite_rule() calls are registered before flushing.
-     */
-    public static function maybe_flush_rewrite_rules(): void {
-        if ( get_option( 'bizcity_flush_rewrite_pending' ) ) {
-            delete_option( 'bizcity_flush_rewrite_pending' );
-            flush_rewrite_rules();
-        }
     }
 
     public static function menu() {
@@ -237,10 +225,13 @@ JS;
             wp_send_json(['ok'=>false, 'msg'=> sprintf( __( 'Kích hoạt thất bại: %s', 'bizcity-twin-ai' ), $result->get_error_message() )]);
         }
 
-        // ✅ Schedule deferred rewrite flush on NEXT request.
+        // ✅ Schedule deferred rewrite flush on NEXT request via central registry.
         // During AJAX, init has already fired — the new plugin's add_rewrite_rule()
         // hooks don't run in this request. Flushing now would miss them.
-        update_option( 'bizcity_flush_rewrite_pending', 1 );
+        // [2026-06-26 Johnny Chu] R-PERF — use queue_flush() instead of own pending option.
+        if ( class_exists( 'BizCity_Rewrite_Flush_Registry' ) ) {
+            BizCity_Rewrite_Flush_Registry::queue_flush( 'marketplace' );
+        }
 
         // ✅ Notify system — Tool Registry + other listeners
         do_action( 'bizcity_market_plugin_activated', $slug, $plugin_file, (int) get_current_blog_id() );
@@ -321,8 +312,11 @@ JS;
 
         deactivate_plugins($plugin_file);
 
-        // ✅ Schedule deferred rewrite flush on NEXT request
-        update_option( 'bizcity_flush_rewrite_pending', 1 );
+        // ✅ Schedule deferred rewrite flush on NEXT request via central registry.
+        // [2026-06-26 Johnny Chu] R-PERF — use queue_flush() instead of own pending option.
+        if ( class_exists( 'BizCity_Rewrite_Flush_Registry' ) ) {
+            BizCity_Rewrite_Flush_Registry::queue_flush( 'marketplace' );
+        }
 
         // ✅ Notify system — Tool Registry + other listeners
         do_action( 'bizcity_market_plugin_deactivated', $slug, $plugin_file, (int) get_current_blog_id() );

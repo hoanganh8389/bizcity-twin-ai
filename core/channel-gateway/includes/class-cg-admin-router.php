@@ -61,6 +61,9 @@ class BizCity_CG_Admin_Router {
 
 		// REST: web admin confirm/cancel.
 		add_action( 'rest_api_init', array( $inst, 'register_rest' ) );
+
+		// [2026-06-13 Johnny Chu] PHASE-0.40 G3 Wave-C — send confirm prompt when skill needs HIL.
+		add_action( 'bizcity_crm_admin_skill_confirm_needed', array( $inst, 'on_skill_confirm_needed' ), 10, 3 );
 	}
 
 	/* ═══════════════════════════════════════════════════════════
@@ -92,6 +95,16 @@ class BizCity_CG_Admin_Router {
 	 * @param array $msg Message data from bizcity_zalo_message_received.
 	 */
 	public function on_message( array $msg ): void {
+		// [2026-06-13 Johnny Chu] PHASE-0.40 G0.2 R-ZONE-2 — Zone discriminator.
+		// Admin router chỉ xử lý ZALO_BOT (Zone 2). zalo_oa / zalo_personal là Zone 1
+		// (CRM care) — tin khách hàng KHÔNG được phép kích admin router.
+		$_code     = (string) ( $msg['code']     ?? '' );
+		$_platform = (string) ( $msg['platform'] ?? '' );
+		if ( $_code === 'zalo_oa' || $_code === 'zalo_personal'
+			|| $_platform === 'ZALO_OA' || $_platform === 'ZALO_PERSONAL' ) {
+			return;
+		}
+
 		$bot_id       = (int) ( $msg['bot_id'] ?? 0 );
 		$zalo_user_id = (string) ( $msg['from_user_id'] ?? '' );
 		$text         = (string) ( $msg['message_text'] ?? '' );
@@ -182,6 +195,18 @@ class BizCity_CG_Admin_Router {
 			return false;
 		}
 
+		// [2026-06-13 Johnny Chu] PHASE-0.40 G3 Wave-C — check skill confirm token FIRST.
+		if ( $is_confirm && class_exists( 'BizCity_CRM_Admin_Chat_Confirm' ) ) {
+			$has_skill_token = get_transient( 'bizcity_crm_skill_confirm_' . $wp_user_id );
+			if ( false !== $has_skill_token ) {
+				$resolved = BizCity_CRM_Admin_Chat_Confirm::resolve( $wp_user_id );
+				if ( $resolved ) {
+					// Reply sent by on_confirmed() — just stop propagation.
+					return true;
+				}
+			}
+		}
+
 		$pending = $this->get_pending_confirm( $wp_user_id );
 		if ( ! $pending ) {
 			// No pending task — let normal pipeline handle the keyword.
@@ -242,6 +267,22 @@ class BizCity_CG_Admin_Router {
 			'origin_zalo_user_id' => $zalo_user_id,
 			'origin_input_text'   => $raw_text,
 		];
+
+		// [2026-06-03 Johnny Chu] SCH-NC W5 — canonical inbound{} block (parallel
+		// origin_* legacy keys giữ backward-compat). Completion Notifier sẽ đọc
+		// metadata.inbound để fallback target khi notify.target chưa set.
+		if ( class_exists( 'BizCity_Scheduler_Inbound_Provenance' ) ) {
+			$metadata['inbound'] = BizCity_Scheduler_Inbound_Provenance::build(
+				'ZALO',
+				$zalo_user_id,
+				array(
+					'user_id'    => $zalo_user_id,
+					'account_id' => (int) $bot_id,
+					'raw_text'   => $raw_text,
+					'intent_tag' => (string) $type,
+				)
+			);
+		}
 
 		switch ( $type ) {
 			case 'web_post':
@@ -370,6 +411,24 @@ class BizCity_CG_Admin_Router {
 		}
 	}
 
+	/**
+	 * [2026-06-13 Johnny Chu] PHASE-0.40 G3 Wave-C — sends "🔔 Xác nhận?" message
+	 * to the admin user when a skill requires HIL confirm before executing.
+	 *
+	 * @param int    $user_id   WP user ID.
+	 * @param string $tool_slug Skill/tool slug.
+	 * @param string $chat_id   Channel chat_id to reply on (may be empty for FE-only sessions).
+	 */
+	public function on_skill_confirm_needed( int $user_id, string $tool_slug, string $chat_id ): void {
+		if ( ! $chat_id ) {
+			return; // FE session — the FE will show a confirm modal instead.
+		}
+		$msg = "🔔 Xác nhận: chạy skill *{$tool_slug}*?\n"
+			. "Reply \"OK\" để tiến hành hoặc \"hủy\" để bỏ qua.\n"
+			. "(Hết hạn trong 10 phút)";
+		bizcity_channel_send( $chat_id, $msg );
+	}
+
 	/* ═══════════════════════════════════════════════════════════
 	 *  REST endpoint (bizcity-channel/v1/tasks/{id}/confirm)
 	 * ═══════════════════════════════════════════════════════════ */
@@ -386,6 +445,17 @@ class BizCity_CG_Admin_Router {
 					'type'     => 'string',
 					'enum'     => [ 'confirm', 'cancel' ],
 				],
+			],
+		] );
+
+		// [2026-06-13 Johnny Chu] PHASE-0.40 G7 CG-SCHEDULER-P7 — FB post retry endpoint.
+		// Resets fb_publish_status from 'failed' back to 'pending' so the next cron tick retries.
+		register_rest_route( self::NS, '/fb-posts/(?P<id>\d+)/retry', [
+			'methods'             => 'POST',
+			'callback'            => array( $this, 'rest_retry_fb_post' ),
+			'permission_callback' => array( $this, 'rest_permission' ),
+			'args'                => [
+				'id' => [ 'required' => true, 'type' => 'integer', 'minimum' => 1 ],
 			],
 		] );
 	}
@@ -416,6 +486,74 @@ class BizCity_CG_Admin_Router {
 			'success'  => true,
 			'event_id' => $event_id,
 			'status'   => $new_status,
+		], 200 );
+	}
+
+	/**
+	 * [2026-06-13 Johnny Chu] PHASE-0.40 G7 CG-SCHEDULER-P7
+	 * POST /bizcity-channel/v1/fb-posts/{id}/retry
+	 *
+	 * Resets fb_publish_status from 'failed' → 'pending' so the next cron tick
+	 * re-attempts publishing. Event status is kept 'active' (FB Publisher already
+	 * does this on mark_failed; we just flip the publish sub-status).
+	 */
+	public function rest_retry_fb_post( WP_REST_Request $request ): WP_REST_Response {
+		$event_id = (int) $request->get_param( 'id' );
+		$user_id  = get_current_user_id();
+
+		if ( ! class_exists( 'BizCity_Scheduler_Manager' ) ) {
+			return new WP_REST_Response( [ 'success' => false, 'message' => 'Scheduler không khả dụng.' ], 503 );
+		}
+
+		$mgr   = BizCity_Scheduler_Manager::instance();
+		$event = $mgr->get_event( $event_id );
+
+		if ( ! $event ) {
+			return new WP_REST_Response( [ 'success' => false, 'message' => 'Event không tồn tại.' ], 404 );
+		}
+
+		// Ownership check — must be owner or have manage_options.
+		if ( (int) $event->user_id !== $user_id && ! current_user_can( 'manage_options' ) ) {
+			return new WP_REST_Response( [ 'success' => false, 'message' => 'Không có quyền.' ], 403 );
+		}
+
+		if ( (string) $event->event_type !== 'fb_post' ) {
+			return new WP_REST_Response( [ 'success' => false, 'message' => 'Event không phải loại fb_post.' ], 400 );
+		}
+
+		// Decode → merge → encode (R-SCH-REPLY pattern: never overwrite whole metadata).
+		$meta = array();
+		if ( ! empty( $event->metadata ) ) {
+			$decoded = json_decode( (string) $event->metadata, true );
+			if ( is_array( $decoded ) ) {
+				$meta = $decoded;
+			}
+		}
+
+		$current_publish_status = (string) ( $meta['fb_publish_status'] ?? 'pending' );
+		if ( $current_publish_status !== 'failed' ) {
+			return new WP_REST_Response( [
+				'success' => false,
+				'message' => "fb_publish_status hiện tại là '{$current_publish_status}', không thể retry.",
+			], 400 );
+		}
+
+		$meta['fb_publish_status'] = 'pending';
+		unset( $meta['fb_error'] ); // clear previous error message.
+
+		$ok = $mgr->update_event( $event_id, [
+			'status'   => 'active', // ensure event is active for cron pick-up.
+			'metadata' => $meta,    // Scheduler_Manager handles array→JSON encode.
+		] );
+
+		if ( is_wp_error( $ok ) ) {
+			return new WP_REST_Response( [ 'success' => false, 'message' => $ok->get_error_message() ], 400 );
+		}
+
+		return new WP_REST_Response( [
+			'success'  => true,
+			'event_id' => $event_id,
+			'message'  => 'Đã đặt lại trạng thái — sẽ đăng lại trong lần cron kế tiếp.',
 		], 200 );
 	}
 

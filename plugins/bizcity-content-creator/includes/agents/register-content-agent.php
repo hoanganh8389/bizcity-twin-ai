@@ -28,6 +28,13 @@
 
 defined( 'ABSPATH' ) || exit;
 
+// [2026-06-11 Johnny Chu] HOTFIX — guard against loading before core/agents/bootstrap.php
+// defines BizCity_TwinShell_Tool. Rare but happens when the file is included out-of-order
+// (e.g. standalone deploy, OPcache stale state, or test runner without full bootstrap).
+if ( ! class_exists( 'BizCity_TwinShell_Tool', false ) ) {
+	return; // Agents bootstrap not loaded yet — skip gracefully, agent won't register.
+}
+
 /* ─────────────────────────────────────────────────────────────
  * Tool 1 — content_creator_execute  (HIL: needs_approval=true)
  * ───────────────────────────────────────────────────────────── */
@@ -236,7 +243,10 @@ $list_templates_tool = new BizCity_TwinShell_Tool(
 			];
 		}
 		return [ 'ok' => true, 'count' => count( $out ), 'templates' => $out ];
-	}
+	},
+	null,  /* is_enabled_callback */
+	false, /* needs_approval — read-only catalog */
+	'retriever' /* R-MPRT-12 — read-only template catalog, no artifact emission */
 );
 
 /* ─────────────────────────────────────────────────────────────

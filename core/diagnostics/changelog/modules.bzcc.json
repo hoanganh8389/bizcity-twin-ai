@@ -1,0 +1,84 @@
+{
+  "$schema": "https://bizcity.vn/schema/diagnostics-changelog-v1.json",
+  "module_id": "modules.bzcc",
+  "owner": "plugins/bizcity-content-creator",
+  "installer_id": "bzcc",
+  "current_version": "0.1.38",
+  "version_option": "bzcc_db_version",
+  "tables": {
+    "bizcity_creator_files": {
+      "since": "0.1.0",
+      "purpose": "Content generation file records — per-user, per-template. Stores form_data, outline, chunk_count, status.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":                     { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "0.1.0", "pk": true },
+        "user_id":                { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",      "since": "0.1.0" },
+        "template_id":            { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",      "since": "0.1.0" },
+        "notebook_id":            { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",      "since": "0.1.38", "note": "Optional KG-Hub notebook reference for skeleton injection. 0 = no notebook." },
+        "skeleton_version":       { "type": "INT NOT NULL DEFAULT 0",                  "since": "0.1.38", "note": "Snapshot of BizCity_KG_Skeleton_Adapter::get_version() at generate time. Used for stale detection." },
+        "project_id":             { "type": "VARCHAR(50) NOT NULL DEFAULT ''",         "since": "0.1.0" },
+        "session_id":             { "type": "VARCHAR(100) NOT NULL DEFAULT ''",        "since": "0.1.0" },
+        "intent_conversation_id": { "type": "VARCHAR(64) NOT NULL DEFAULT ''",         "since": "0.1.0" },
+        "form_data":              { "type": "LONGTEXT NOT NULL",                        "since": "0.1.0" },
+        "outline":                { "type": "LONGTEXT NOT NULL",                        "since": "0.1.0" },
+        "outline_status":         { "type": "VARCHAR(20) NOT NULL DEFAULT 'pending'",  "since": "0.1.0" },
+        "memory_spec_id":         { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",      "since": "0.1.0" },
+        "title":                  { "type": "VARCHAR(500) NOT NULL DEFAULT ''",        "since": "0.1.0" },
+        "status":                 { "type": "VARCHAR(20) NOT NULL DEFAULT 'pending'",  "since": "0.1.0" },
+        "chunk_count":            { "type": "INT NOT NULL DEFAULT 0",                  "since": "0.1.0" },
+        "chunk_done":             { "type": "INT NOT NULL DEFAULT 0",                  "since": "0.1.0" },
+        "created_at":             { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "0.1.0" },
+        "updated_at":             { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", "since": "0.1.0" }
+      },
+      "indexes": {
+        "PRIMARY":      { "columns": ["id"],                  "since": "0.1.0" },
+        "idx_user":     { "columns": ["user_id"],             "since": "0.1.0" },
+        "idx_template": { "columns": ["template_id"],         "since": "0.1.0" },
+        "idx_notebook": { "columns": ["notebook_id"],         "since": "0.1.38" },
+        "idx_project":  { "columns": ["project_id"],          "since": "0.1.0" },
+        "idx_status":   { "columns": ["status"],              "since": "0.1.0" }
+      }
+    },
+    "bizcity_creator_templates": {
+      "since": "0.1.0",
+      "purpose": "Template definitions — system_prompt, outline_prompt, chunk_prompt, form_fields JSON.",
+      "columns": {
+        "id":               { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "0.1.0", "pk": true },
+        "category_id":      { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",      "since": "0.1.0" },
+        "slug":             { "type": "VARCHAR(200) NOT NULL",                   "since": "0.1.0" },
+        "title":            { "type": "VARCHAR(500) NOT NULL DEFAULT ''",        "since": "0.1.0" },
+        "description":      { "type": "TEXT NOT NULL",                           "since": "0.1.0" },
+        "icon_emoji":       { "type": "VARCHAR(20) NOT NULL DEFAULT ''",         "since": "0.1.0" },
+        "form_fields":      { "type": "LONGTEXT NOT NULL",                       "since": "0.1.0" },
+        "system_prompt":    { "type": "LONGTEXT NOT NULL",                       "since": "0.1.0" },
+        "outline_prompt":   { "type": "LONGTEXT NOT NULL",                       "since": "0.1.0" },
+        "chunk_prompt":     { "type": "LONGTEXT NOT NULL",                       "since": "0.1.0" },
+        "model_purpose":    { "type": "VARCHAR(50) NOT NULL DEFAULT ''",         "since": "0.1.0" },
+        "temperature":      { "type": "DECIMAL(3,2) NOT NULL DEFAULT 0.65",     "since": "0.1.0" },
+        "max_tokens":       { "type": "INT NOT NULL DEFAULT 8000",               "since": "0.1.0" },
+        "status":           { "type": "VARCHAR(20) NOT NULL DEFAULT 'active'",   "since": "0.1.0" },
+        "sort_order":       { "type": "INT NOT NULL DEFAULT 0",                  "since": "0.1.0" },
+        "created_at":       { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "0.1.0" },
+        "updated_at":       { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", "since": "0.1.0" }
+      }
+    },
+    "bizcity_creator_categories": {
+      "since": "0.1.0",
+      "purpose": "Template taxonomy categories.",
+      "columns": {
+        "id":         { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "0.1.0", "pk": true },
+        "slug":       { "type": "VARCHAR(100) NOT NULL",                   "since": "0.1.0" },
+        "title":      { "type": "VARCHAR(200) NOT NULL DEFAULT ''",        "since": "0.1.0" },
+        "icon_emoji": { "type": "VARCHAR(20) NOT NULL DEFAULT ''",         "since": "0.1.0" },
+        "sort_order": { "type": "INT NOT NULL DEFAULT 0",                  "since": "0.1.0" },
+        "tool_count": { "type": "INT NOT NULL DEFAULT 0",                  "since": "0.1.0" }
+      }
+    }
+  },
+  "history": [
+    { "version": "0.1.0",  "date": "2026-04-01", "change": "Initial schema: files, templates, categories" },
+    { "version": "0.1.38", "date": "2026-06-06", "change": "bizcity_creator_files: ADD notebook_id (BIGINT DEFAULT 0) + skeleton_version (INT DEFAULT 0) + idx_notebook for skeleton injection (BZCC-SKEL)" }
+  ]
+}

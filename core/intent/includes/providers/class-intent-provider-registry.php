@@ -186,21 +186,26 @@ class BizCity_Intent_Provider_Registry {
 
         // 5. Tool Registry: initial seed (only if table is empty — e.g., fresh install).
         //    Normal updates happen via activated_plugin / deactivated_plugin hooks in bootstrap.
-        if ( class_exists( 'BizCity_Intent_Tool_Index' ) ) {
-            BizCity_Intent_Tool_Index::instance()->sync_all( $this->providers );
-        }
+        // [2026-06-22 Johnny Chu] R-PERF — commented out: sync_all() + sync_memory_tools() cause
+        // N×UPDATE queries per request (1 UPDATE per tool in DB). Re-enable when tool registry
+        // UI is actively used. Activate/deactivate hooks in bootstrap.php still work normally.
+        // if ( class_exists( 'BizCity_Intent_Tool_Index' ) ) {
+        //     BizCity_Intent_Tool_Index::instance()->sync_all( $this->providers );
+        // }
 
         // 6. Fire bizcity_intent_tools_ready AFTER built-in tools registered (init:25 > init_builtin at init:20).
         //    External plugins hook into this to register additional tools.
-        //    Then re-sync DB to include late registrations.
+        //    sync_memory_tools() disabled — see comment above.
         add_action( 'init', function () {
             $tools = BizCity_Intent_Tools::instance();
             do_action( 'bizcity_intent_tools_ready', $tools );
 
-            // Re-sync in-memory tools to DB (picks up tools registered by the hook above)
-            if ( class_exists( 'BizCity_Intent_Tool_Index' ) ) {
-                BizCity_Intent_Tool_Index::instance()->sync_memory_tools();
-            }
+            // [2026-06-22 Johnny Chu] R-PERF — commented out: sync_memory_tools() chạy mỗi
+            // request ở init:25, gọi $wpdb->update() cho từng tool khi hash thay đổi
+            // → gây UPDATE:93 (số tool × 1 UPDATE/tool). Bỏ comment khi cần dùng tool registry.
+            // if ( class_exists( 'BizCity_Intent_Tool_Index' ) ) {
+            //     BizCity_Intent_Tool_Index::instance()->sync_memory_tools();
+            // }
         }, 25 );
     }
 

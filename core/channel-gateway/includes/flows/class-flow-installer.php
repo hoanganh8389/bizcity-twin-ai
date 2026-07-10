@@ -93,7 +93,7 @@ final class BizCity_CG_Flow_Installer {
 
 	public static function table_exists( string $tbl ): bool {
 		global $wpdb;
-		return (string) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl ) ) === $tbl;
+		return bizcity_tbl_exists( $tbl ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 	}
 
 	/**
@@ -160,6 +160,17 @@ final class BizCity_CG_Flow_Installer {
 			return array( 'ok' => true, 'copied' => 0, 'reason' => 'version_current', 'from' => self::DB_VERSION, 'to' => self::DB_VERSION );
 		}
 
+		// [2026-06-11 Johnny Chu] PERF-CRON-FIX — Failure cooldown guard.
+		// ROOT CAUSE (incident 2026-06-10): when the legacy table lacks column
+		// `message_khong_dau` the INSERT...SELECT errors, we return BEFORE the
+		// version stamp, so read_db_version() never reaches DB_VERSION → migration
+		// retried on EVERY init request → a failing query on every page load that
+		// piled onto the MySQL connection storm. Back off for 1h after a failure.
+		$cooldown_key = 'bizcity_cg_flow_migrate_cooldown';
+		if ( get_transient( $cooldown_key ) ) {
+			return array( 'ok' => false, 'copied' => 0, 'reason' => 'cooldown_active' );
+		}
+
 		$from_version = self::read_db_version();
 		$dst          = self::table();
 		$interim      = self::interim_table();
@@ -169,6 +180,7 @@ final class BizCity_CG_Flow_Installer {
 			self::ensure_table();
 		}
 		if ( ! self::table_exists( $dst ) ) {
+			set_transient( $cooldown_key, 1, HOUR_IN_SECONDS );
 			return array( 'ok' => false, 'copied' => 0, 'reason' => 'dst_missing', 'from' => $from_version );
 		}
 
@@ -187,6 +199,7 @@ final class BizCity_CG_Flow_Installer {
 				self::ensure_table();
 				$copied_i = $wpdb->query( "INSERT INTO {$dst} SELECT * FROM {$interim}" ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 				if ( false === $copied_i ) {
+					set_transient( $cooldown_key, 1, HOUR_IN_SECONDS );
 					return array( 'ok' => false, 'copied' => 0, 'reason' => 'rename_and_copy_failed: ' . $wpdb->last_error, 'from' => $from_version );
 				}
 				$wpdb->query( "DROP TABLE {$interim}" ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
@@ -204,17 +217,38 @@ final class BizCity_CG_Flow_Installer {
 		}
 		// === Path C: no interim, dst empty, legacy bizgpt table exists → COPY ===
 		elseif ( $dst_count === 0 && self::table_exists( $src ) ) {
+			// [2026-06-11 Johnny Chu] PERF-CRON-FIX — Build the SELECT from columns that
+			// ACTUALLY exist in the legacy table. Some blogs' wp_N_bizgpt_custom_flows
+			// predate `message_khong_dau` → the old fixed SELECT errored every init and
+			// (because we returned before the version stamp) retried forever. Now we
+			// detect the column and fall back to a normalized empty value when absent.
+			$src_cols = $wpdb->get_col( "SHOW COLUMNS FROM {$src}" ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+			$src_cols = is_array( $src_cols ) ? $src_cols : array();
+			$has      = function ( $col ) use ( $src_cols ) {
+				return in_array( $col, $src_cols, true );
+			};
+			$sel_khong_dau    = $has( 'message_khong_dau' ) ? 'message_khong_dau' : "'' AS message_khong_dau";
+			$sel_shortcode    = $has( 'shortcode' ) ? 'shortcode' : "'' AS shortcode";
+			$sel_action_type  = $has( 'action_type' ) ? 'action_type' : "'' AS action_type";
+			$sel_action_cfg   = $has( 'action_config' ) ? 'action_config' : "'' AS action_config";
+			$sel_prompt       = $has( 'prompt' ) ? 'prompt' : "'' AS prompt";
+			$sel_rem_delay    = $has( 'reminder_delay' ) ? 'COALESCE(reminder_delay, 0)' : '0';
+			$sel_rem_unit     = $has( 'reminder_unit' ) ? "COALESCE(reminder_unit, 'minutes')" : "'minutes'";
+			$sel_rem_text     = $has( 'reminder_text' ) ? 'reminder_text' : "'' AS reminder_text";
+			$sel_delay_only   = $has( 'delay_only' ) ? 'COALESCE(delay_only, 0)' : '0';
+			$sel_updated_at   = $has( 'updated_at' ) ? 'updated_at' : 'NOW()';
 			$sql = "INSERT INTO {$dst}
 			          (id, message, message_khong_dau, shortcode, action_type, action_config,
 			           prompt, reply_mode, reminder_delay, reminder_unit, reminder_text, delay_only, updated_at)
-			        SELECT id, message, message_khong_dau, shortcode, action_type, action_config,
-			               prompt, 'direct' AS reply_mode,
-			               COALESCE(reminder_delay, 0), COALESCE(reminder_unit, 'minutes'),
-			               reminder_text, COALESCE(delay_only, 0), updated_at
+			        SELECT id, message, {$sel_khong_dau}, {$sel_shortcode}, {$sel_action_type}, {$sel_action_cfg},
+			               {$sel_prompt}, 'direct' AS reply_mode,
+			               {$sel_rem_delay}, {$sel_rem_unit},
+			               {$sel_rem_text}, {$sel_delay_only}, {$sel_updated_at}
 			          FROM {$src}";
 			// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 			$copied = $wpdb->query( $sql );
 			if ( false === $copied ) {
+				set_transient( $cooldown_key, 1, HOUR_IN_SECONDS );
 				return array( 'ok' => false, 'copied' => 0, 'reason' => 'sql_error: ' . $wpdb->last_error, 'from' => $from_version );
 			}
 			$result['copied'] = (int) $copied;

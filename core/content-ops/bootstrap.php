@@ -32,7 +32,14 @@ require_once $inc . 'class-cpt-bridge.php';
 require_once $inc . 'class-channel-readiness.php';
 require_once $inc . 'class-rest-api.php';
 require_once $inc . 'class-admin-menu-spa.php';
-require_once $inc . 'class-sprint-diagnostic.php';
+
+// [2026-06-03 Johnny Chu] CONSOLIDATION-M8 — Sprint diagnostic migrated sang
+// canonical probe `content_ops.co1`. Standalone tools.php?page=bizcity-content-ops-sprint-diag
+// đã bị retire (DIAGNOSTIC-CONSOLIDATION-PLAN.md §3.2 M8). Probe class self-registers
+// qua filter `bizcity_diagnostics_register_probes`; ownership = module này (R-DDV).
+if ( defined( 'BIZCITY_DIAGNOSTICS_DIR' ) ) {
+	require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-content-ops-co1.php';
+}
 
 // Boot subsystems
 add_action( 'plugins_loaded', static function () {
@@ -45,7 +52,6 @@ BizCity_Content_Scheduler::init();
 
 if ( is_admin() ) {
 	BizCity_Content_Admin_SPA::instance();
-	BizCity_Content_Ops_Sprint_Diagnostic::init();
 }
 
 // Activation hook for schema install on plugin activate.

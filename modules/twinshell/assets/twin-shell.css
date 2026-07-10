@@ -70,6 +70,36 @@
   border-radius: 0 2px 2px 0;
 }
 
+/* [2026-06-08 Johnny Chu] PHASE-MEMBERSHIP — plan tier badge chip on ActivityBar items. */
+.ts-ab-plan-badge {
+  position: absolute;
+  bottom: 5px;
+  right: 3px;
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  padding: 1px 4px;
+  border-radius: 3px;
+  line-height: 1.5;
+  pointer-events: none;
+  color: #fff;
+  background: linear-gradient(135deg, #f59e0b, #d97706); /* gold — PRO */
+}
+.ts-ab-plan-badge--plus,
+.ts-ab-plan-badge--premium {
+  background: linear-gradient(135deg, #8b5cf6, #6d28d9); /* purple — PLUS / PREMIUM */
+}
+
+/* Dim locked items slightly; brighten on hover to invite interaction. */
+.ts-ab-item.is-plan-locked {
+  opacity: 0.65;
+}
+.ts-ab-item.is-plan-locked:hover {
+  opacity: 1;
+  color: var(--ts-fg);
+}
+
 /* Context-toggle (admin ⇄ standalone) — sits at very top, visually separated. */
 .ts-ab-context-toggle {
   margin-bottom: 6px;

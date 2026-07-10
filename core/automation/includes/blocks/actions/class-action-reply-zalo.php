@@ -27,10 +27,13 @@ final class BizCity_Automation_Action_Reply_Zalo extends BizCity_Automation_Bloc
 			'category' => 'output',
 			'color'    => '#15803d',
 			'icon'     => 'reply',
-			'defaults' => array( 'label' => 'reply_zalo', 'text' => '{{llm.output}}' ),
+			// [2026-06-25 Johnny Chu] PHASE-REPLY-ZALO-FIX — added instance_id + override_chat_id
+			'defaults' => array( 'label' => 'reply_zalo', 'text' => '{{llm.output}}', 'instance_id' => '', 'override_chat_id' => '' ),
 			'fields'   => array(
-				array( 'name' => 'label', 'label' => 'Tên hiển thị', 'type' => 'text' ),
-				array( 'name' => 'text',  'label' => 'Nội dung',     'type' => 'textarea' ),
+				array( 'name' => 'label',            'label' => 'Tên hiển thị',        'type' => 'text' ),
+				array( 'name' => 'instance_id',      'label' => 'Zalo Bot',             'type' => 'channel_instance_picker', 'platform' => 'ZALO_BOT', 'hint' => 'Chọn bot để gửi tin. Để trống = dùng bot từ trigger context.' ),
+				array( 'name' => 'override_chat_id', 'label' => 'Gửi đến người dùng',  'type' => 'zalo_user_picker',        'hint' => 'Chọn user đã linked, hoặc để trống = lấy từ trigger context (khi trigger là Zalo Bot inbound).' ),
+				array( 'name' => 'text',             'label' => 'Nội dung',             'type' => 'textarea' ),
 			),
 		);
 	}
@@ -54,6 +57,24 @@ final class BizCity_Automation_Action_Reply_Zalo extends BizCity_Automation_Bloc
 			$user_id = (string) ( $trigger['user_id']    ?? $trigger['sender_id'] ?? '' );
 			if ( $bot_id !== '' && $user_id !== '' ) {
 				$chat_id = 'zalobot_' . $bot_id . '_' . $user_id;
+			}
+		}
+
+		// [2026-06-25 Johnny Chu] PHASE-REPLY-ZALO-FIX — override_chat_id + instance_id fields.
+		// For cron/scheduled workflows there is no trigger context carrying a chat_id.
+		// User must explicitly set instance_id (Zalo Bot) + override_chat_id (linked user).
+		// override_chat_id is the canonical chat_id string (zalobot_<bot>_<user>) from ZaloUserPicker.
+		$override_chat_id = trim( (string) $this->resolve( $data['override_chat_id'] ?? '', $ctx ) );
+		if ( $override_chat_id !== '' ) {
+			$chat_id = $override_chat_id;
+		}
+
+		// If override_chat_id is not set but instance_id is — try to fall back to instance+user combo.
+		// This handles cases where user types a raw zalo_user_id (not the full chat_id).
+		if ( $chat_id === '' ) {
+			$instance_id = trim( (string) ( $data['instance_id'] ?? '' ) );
+			if ( $instance_id !== '' && $override_chat_id !== '' ) {
+				$chat_id = 'zalobot_' . $instance_id . '_' . $override_chat_id;
 			}
 		}
 
@@ -90,10 +111,16 @@ final class BizCity_Automation_Action_Reply_Zalo extends BizCity_Automation_Bloc
 		if ( is_wp_error( $result ) ) { return $result; }
 		if ( is_array( $result ) )    { return $result; }
 
+		// [2026-06-29 Johnny Chu] PHASE-REPLY-ZALO-FIX — actionable error: include bot name + guide.
 		if ( $chat_id === '' ) {
+			$inst_label = '';
+			$inst       = trim( (string) ( $data['instance_id'] ?? '' ) );
+			if ( $inst !== '' ) {
+				$inst_label = "Bot #{$inst} ";
+			}
 			return new WP_Error(
 				'no_chat_id',
-				'reply_zalo: thiếu chat_id (cần trigger.chat_id hoặc account_id+user_id).'
+				"reply_zalo: {$inst_label}chưa có người nhận. Mở cấu hình node \"Trả lời Zalo\" → trường \"Gửi đến người dùng\" → chọn user đã linked. (Hướng dẫn: người dùng nhắn \"chatid\" cho bot → nhận chat_id → vào Channel Gateway → Bot → User links → Bind.)"
 			);
 		}
 

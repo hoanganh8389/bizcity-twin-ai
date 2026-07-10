@@ -53,8 +53,22 @@ class BizCity_Zalo_Bot_Guru_Bridge {
     public function maybe_handle( $message_data ) {
         if ( ! is_array( $message_data ) || empty( $message_data ) ) { return; }
 
-        // Feature gate.
-        if ( (int) get_option( 'bizcity_zalo_guru_enabled', 0 ) !== 1 ) { return; }
+        // [2026-06-07 Johnny Chu] PHASE-0.40 G0.2 R-ZONE-2 — discriminator bail.
+        // zalo_oa and zalo_personal carry customer messages (Zone 1 CRM care).
+        // This bridge is Zone 2 only — bail so customers don’t trigger admin automation.
+        $code = (string) ( $message_data['code'] ?? '' );
+        if ( $code === 'zalo_oa' || $code === 'zalo_personal' ) {
+            return;
+        }
+
+        // [2026-06-18 Johnny Chu] ADMIN-GUIDE — Skip AI reply when user is not linked yet.
+        // BizCity_Zalobot_User_Linker::maybe_auto_send_link() (priority 3) sets this flag
+        // and already sent a login-link message; no point replying with AI noise.
+        if ( ! empty( $GLOBALS['bizcity_zalobot_unlinked_skip'] ) ) { return; }
+
+        // Feature gate: default ON (1), admin can flip to 0 to disable.
+        // [2026-06-18 Johnny Chu] ADMIN-GUIDE — default changed from 0 to 1
+        if ( (int) get_option( 'bizcity_zalo_guru_enabled', 1 ) !== 1 ) { return; }
 
         // Runtime + formatter must be present.
         if ( ! class_exists( 'BizCity_Guru_Runtime' ) || ! class_exists( 'BizCity_Channel_Formatter' ) ) {
@@ -134,6 +148,9 @@ class BizCity_Zalo_Bot_Guru_Bridge {
         $sent = $this->dispatch_zalo( $bot_id, $user_z, $send );
 
         if ( $sent ) {
+            // [2026-06-19 Johnny Chu] ADMIN-GUIDE — set global so process_new_zalo_format
+            // skips bizcity_gateway_fire_trigger (prevents double-response to user).
+            $GLOBALS['bizcity_zalobot_guru_handled'] = true;
             // Suppress legacy bridge for this turn.
             $this->suppress_legacy_bridge();
         }

@@ -57,6 +57,11 @@ final class BizCity_Automation_Listener {
 		add_action( 'bizcity_facebook_message_received',  array( __CLASS__, 'on_fb_message_direct' ), 1, 1 );
 		add_action( 'bizcity_facebook_comment_received',  array( __CLASS__, 'on_fb_comment_direct' ), 1, 1 );
 		add_action( 'bizcity_facebook_image_received',    array( __CLASS__, 'on_fb_image_direct' ),   1, 1 );
+		// [2026-07-07 Johnny Chu] HOTFIX — keep FE listener in sync with matcher path.
+		// Matcher subscribes `bizcity_zalo_webhook_intake` to catch real inbound
+		// on sites where normalized/direct hooks may be skipped. Listener must
+		// capture same intake path, otherwise canvas stays loading at trigger.
+		add_action( 'bizcity_zalo_webhook_intake', array( __CLASS__, 'on_zalo_intake' ), 1, 3 );
 
 		// (D) Capture webhook fire BEFORE matcher's dispatch (REST callback).
 		add_action( 'bizcity_automation_webhook_received', array( __CLASS__, 'on_webhook_capture' ), 1, 2 );
@@ -261,8 +266,20 @@ final class BizCity_Automation_Listener {
 	 */
 	public static function on_zalo_direct( $message_data ): void {
 		if ( ! is_array( $message_data ) ) { return; }
+		// [2026-06-13 Johnny Chu] PHASE-0.40 G0.2 R-ZONE-2 — Zone discriminator.
+		// zalo_oa / zalo_personal = Zone 1 (CRM care). KHÔNG fire automation-admin từ
+		// tin khách hàng. Chỉ ZALO_BOT (Zone 2) mới được phép kích automation.
+		$_code     = (string) ( $message_data['code']     ?? '' );
+		$_platform = (string) ( $message_data['platform'] ?? '' );
+		if ( $_code === 'zalo_oa' || $_code === 'zalo_personal'
+			|| $_platform === 'ZALO_OA' || $_platform === 'ZALO_PERSONAL' ) {
+			return;
+		}
 		$mid = (string) ( $message_data['message_id'] ?? $message_data['msg_id'] ?? '' );
 		if ( $mid !== '' && self::seen( 'zalo_inbound', $mid ) ) { return; }
+		// [2026-06-14 Johnny Chu] PHASE-0.41 VIDEO-VEO3 — forward media_url from image_url/file_url
+		// so trigger.media_url is populated for capture_attachment + video_submit blocks.
+		$_media_url = (string) ( $message_data['image_url'] ?? $message_data['file_url'] ?? $message_data['media_url'] ?? '' );
 		self::capture_for( 'zalo_inbound', array(
 			'channel'       => 'ZALO_BOT',
 			'event_subtype' => 'message',
@@ -271,8 +288,57 @@ final class BizCity_Automation_Listener {
 			'sender_id'     => (string) ( $message_data['from_user_id']    ?? $message_data['user_id'] ?? '' ),
 			'chat_id'       => (string) ( $message_data['chat_id']         ?? '' ),
 			'mid'           => $mid,
+			'media_url'     => $_media_url,
+			'media_kind'    => $_media_url !== '' ? ( ( $message_data['image_url'] ?? '' ) !== '' ? 'image' : 'file' ) : '',
 			'raw'           => $message_data,
 			'_source'       => 'zalo_direct',
+		) );
+	}
+
+	/**
+	 * [2026-07-07 Johnny Chu] HOTFIX — capture direct Zalo webhook intake.
+	 *
+	 * Mirrors matcher's intake path so FE test-listen can capture inbound even
+	 * when only `bizcity_zalo_webhook_intake` fires in this environment.
+	 */
+	public static function on_zalo_intake( $data, $secret_token = '', $intake_bot = null ): void {
+		if ( ! is_array( $data ) ) { return; }
+		$event_name = (string) ( $data['event_name'] ?? '' );
+		if ( strpos( $event_name, 'message.' ) !== 0 ) { return; }
+
+		$message = is_array( $data['message'] ?? null ) ? $data['message'] : array();
+		if ( empty( $message ) ) { return; }
+
+		$bot_id  = $intake_bot && isset( $intake_bot->id ) ? (string) $intake_bot->id : '';
+		$user_id = (string) ( $message['from']['id'] ?? '' );
+		if ( $bot_id === '' || $user_id === '' ) { return; }
+
+		$text = (string) ( $message['text'] ?? $message['caption'] ?? '' );
+		$mid  = (string) ( $message['message_id'] ?? '' );
+		if ( $mid !== '' && self::seen( 'zalo_inbound', $mid ) ) { return; }
+
+		$media_url = '';
+		if ( ! empty( $message['photo_url'] ) ) {
+			$media_url = (string) $message['photo_url'];
+		} elseif ( ! empty( $message['file_url'] ) ) {
+			$media_url = (string) $message['file_url'];
+		} elseif ( ! empty( $message['attachments'][0]['payload']['url'] ) ) {
+			$media_url = (string) $message['attachments'][0]['payload']['url'];
+		}
+
+		if ( trim( $text ) === '' && $media_url === '' ) { return; }
+
+		self::capture_for( 'zalo_inbound', array(
+			'channel'       => 'ZALO_BOT',
+			'event_subtype' => 'message',
+			'text'          => $text,
+			'instance_id'   => $bot_id,
+			'sender_id'     => $user_id,
+			'chat_id'       => 'zalobot_' . $bot_id . '_' . $user_id,
+			'mid'           => $mid,
+			'media_url'     => $media_url,
+			'raw'           => $data,
+			'_source'       => 'zalo_intake',
 		) );
 	}
 

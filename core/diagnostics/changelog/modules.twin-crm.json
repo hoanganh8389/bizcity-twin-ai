@@ -3,8 +3,13 @@
   "module_id": "modules.twin-crm",
   "owner": "plugins/bizcity-twin-crm",
   "installer_id": "twin_crm",
-  "current_version": "1.18.0",
+  "current_version": "1.25.0",
   "version_option": "bizcity_crm_db_ver",
+  "history": [
+    { "version": "1.25.0", "date": "2026-07-05", "change": "R-UNIFY GAP-B: ADD platform/platform_uid/source to bizcity_crm_contacts; ADD platform/channel_thread_id/chat_id/contact_id/account_id/blog_id to bizcity_crm_conversations; ADD platform/platform_msg_id/body/payload_json to bizcity_crm_messages. Fix: Unknown column 'platform' in INSERT/WHERE." },
+    { "version": "1.24.0", "date": "2026-07-03", "change": "PHASE-0.46 M1: ADD bizcity_crm_activities + bizcity_crm_submissions tables." },
+    { "version": "1.23.0", "date": "2026-06-25", "change": "ADD action_flags_json + delay_sec to bizcity_crm_broadcasts; ADD scheduled_send_at + idx_scheduled_send to bizcity_crm_broadcast_recipients." }
+  ],
   "tables": {
     "bizcity_crm_broadcasts": {
       "since": "1.18.0",
@@ -26,7 +31,9 @@
         "failed_count":         { "type": "INT UNSIGNED NOT NULL DEFAULT 0",         "since": "1.18.0" },
         "created_by":           { "type": "BIGINT UNSIGNED NULL",                    "since": "1.18.0" },
         "created_at":           { "type": "DATETIME NOT NULL",                       "since": "1.18.0" },
-        "updated_at":           { "type": "DATETIME NOT NULL",                       "since": "1.18.0" }
+        "updated_at":           { "type": "DATETIME NOT NULL",                       "since": "1.18.0" },
+        "action_flags_json":    { "type": "LONGTEXT NULL",                           "since": "1.23.0", "comment": "JSON: {send_message, send_friend_request, invite_group, group_id}. NULL = fallback {send_message:true}." },
+        "delay_sec":            { "type": "SMALLINT UNSIGNED NOT NULL DEFAULT 5",    "since": "1.23.0", "comment": "Seconds between consecutive recipient sends. Range 5–180." }
       },
       "indexes": {
         "idx_status":      { "cols": ["status"],      "since": "1.18.0" },
@@ -47,12 +54,14 @@
         "conversation_id": { "type": "BIGINT UNSIGNED NULL",                   "since": "1.18.0", "comment": "Set when message is sent to an existing/new conversation." },
         "status":          { "type": "VARCHAR(16) NOT NULL DEFAULT 'queued'",  "since": "1.18.0", "comment": "queued | sent | failed | skipped" },
         "sent_at":         { "type": "DATETIME NULL",                          "since": "1.18.0" },
-        "error":           { "type": "VARCHAR(255) NULL",                      "since": "1.18.0" }
+        "error":           { "type": "VARCHAR(255) NULL",                      "since": "1.18.0" },
+        "scheduled_send_at": { "type": "DATETIME NULL",                        "since": "1.23.0", "comment": "Calculated as enqueue time + (row_index * delay_sec). Dispatcher only processes rows WHERE scheduled_send_at <= NOW()." }
       },
       "indexes": {
         "idx_broadcast":  { "cols": ["broadcast_id", "status"], "since": "1.18.0" },
         "idx_contact":    { "cols": ["contact_id"],             "since": "1.18.0" },
-        "uniq_bc":        { "cols": ["broadcast_id", "contact_id"], "since": "1.18.0", "unique": true }
+        "uniq_bc":        { "cols": ["broadcast_id", "contact_id"], "since": "1.18.0", "unique": true },
+        "idx_scheduled_send": { "cols": ["status", "scheduled_send_at"], "since": "1.23.0", "comment": "Tick query: WHERE status='queued' AND scheduled_send_at <= NOW()" }
       }
     },
     "bizcity_crm_audit_log": {
@@ -160,12 +169,553 @@
         "idx_close":         { "cols": ["close_date"],           "since": "1.0.0" },
         "uniq_source_ref":   { "cols": ["source", "source_ref"], "since": "1.16.0", "unique": true, "comment": "Idempotent upsert key for Customer Source adapter sync." }
       }
+    },
+
+    "bizcity_crm_contacts": {
+      "since": "1.0.0",
+      "purpose": "Unified contact entity. Primary CRM record across all channels (FB, Zalo, Web, IG, WA, Telegram, Email). Deduped by (email, phone, platform uid). v1.18.0 adds lead_score + segment for broadcast segmentation.",
+      "engine": "InnoDB", "charset": "utf8mb4", "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":              { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
+        "name":            { "type": "VARCHAR(255) NOT NULL DEFAULT ''",        "since": "1.0.0" },
+        "email":           { "type": "VARCHAR(190) NULL",                       "since": "1.0.0" },
+        "phone":           { "type": "VARCHAR(32) NULL",                        "since": "1.0.0" },
+        "avatar_url":      { "type": "VARCHAR(512) NULL",                       "since": "1.0.0" },
+        "platform":        { "type": "VARCHAR(32) NOT NULL DEFAULT 'unknown'",  "since": "1.0.0", "comment": "FACEBOOK | ZALO | WEBCHAT | WEB | EMAIL | IG | WA | TELEGRAM" },
+        "platform_uid":    { "type": "VARCHAR(190) NULL",                       "since": "1.0.0" },
+        "additional_json": { "type": "LONGTEXT NULL",                           "since": "1.0.0" },
+        "source":          { "type": "VARCHAR(64) NULL",                        "since": "1.0.0" },
+        "created_by":      { "type": "BIGINT UNSIGNED NULL",                    "since": "1.0.0" },
+        "lead_score":      { "type": "TINYINT UNSIGNED NOT NULL DEFAULT 0",     "since": "1.18.0", "comment": "0-100 scoring for broadcast segment targeting" },
+        "segment":         { "type": "VARCHAR(32) NULL",                        "since": "1.18.0", "comment": "A | B | C | VIP — broadcast audience classification" },
+        "created_at":      { "type": "DATETIME NOT NULL",                       "since": "1.0.0" },
+        "updated_at":      { "type": "DATETIME NOT NULL",                       "since": "1.0.0" },
+        "deleted_at":      { "type": "DATETIME NULL",                           "since": "1.0.0" }
+      },
+      "indexes": {
+        "idx_platform_uid": { "cols": ["platform", "platform_uid"], "since": "1.0.0", "unique": true },
+        "idx_email":        { "cols": ["email"],   "since": "1.0.0" },
+        "idx_phone":        { "cols": ["phone"],   "since": "1.0.0" },
+        "idx_segment":      { "cols": ["segment"], "since": "1.18.0" }
+      }
+    },
+
+    "bizcity_crm_accounts": {
+      "since": "1.0.0",
+      "purpose": "B2B company/account entity. Multiple contacts can belong to one account. B2B deals track account-level revenue.",
+      "engine": "InnoDB", "charset": "utf8mb4", "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":          { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
+        "name":        { "type": "VARCHAR(255) NOT NULL DEFAULT ''",        "since": "1.0.0" },
+        "website":     { "type": "VARCHAR(512) NULL",                       "since": "1.0.0" },
+        "industry":    { "type": "VARCHAR(100) NULL",                       "since": "1.0.0" },
+        "phone":       { "type": "VARCHAR(32) NULL",                        "since": "1.0.0" },
+        "email":       { "type": "VARCHAR(190) NULL",                       "since": "1.0.0" },
+        "custom_json": { "type": "LONGTEXT NULL",                           "since": "1.0.0" },
+        "owner_id":    { "type": "BIGINT UNSIGNED NULL",                    "since": "1.0.0" },
+        "created_at":  { "type": "DATETIME NOT NULL",                       "since": "1.0.0" },
+        "updated_at":  { "type": "DATETIME NOT NULL",                       "since": "1.0.0" },
+        "deleted_at":  { "type": "DATETIME NULL",                           "since": "1.0.0" }
+      },
+      "indexes": { "idx_name": { "cols": ["name"], "since": "1.0.0" } }
+    },
+
+    "bizcity_crm_inboxes": {
+      "since": "1.0.0",
+      "purpose": "Inbox configuration per channel (one inbox = one page/OA/email account). Adapters register inboxes on connect. Admin can set auto_assignment, working hours link, SLA policy.",
+      "engine": "InnoDB", "charset": "utf8mb4", "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":                { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
+        "name":              { "type": "VARCHAR(255) NOT NULL DEFAULT ''",        "since": "1.0.0" },
+        "channel_type":      { "type": "VARCHAR(32) NOT NULL",                   "since": "1.0.0", "comment": "FACEBOOK | ZALO | WEBCHAT | TELEGRAM | IG | WA | EMAIL" },
+        "channel_id":        { "type": "VARCHAR(190) NOT NULL",                  "since": "1.0.0", "comment": "Page ID / OA ID / email address" },
+        "credentials_json":  { "type": "LONGTEXT NULL",                          "since": "1.0.0", "comment": "Encrypted tokens. Server-side only." },
+        "settings_json":     { "type": "LONGTEXT NULL",                          "since": "1.0.0" },
+        "working_hours_id":  { "type": "BIGINT UNSIGNED NULL",                   "since": "1.0.0" },
+        "sla_policy_id":     { "type": "BIGINT UNSIGNED NULL",                   "since": "1.0.0" },
+        "status":            { "type": "VARCHAR(16) NOT NULL DEFAULT 'active'",  "since": "1.0.0" },
+        "created_at":        { "type": "DATETIME NOT NULL",                      "since": "1.0.0" },
+        "updated_at":        { "type": "DATETIME NOT NULL",                      "since": "1.0.0" }
+      },
+      "indexes": {
+        "idx_channel": { "cols": ["channel_type", "channel_id"], "since": "1.0.0", "unique": true }
+      }
+    },
+
+    "bizcity_crm_conversations": {
+      "since": "1.0.0",
+      "purpose": "Omni-channel conversation (thread) between 1 contact and agents. One conversation = one continuous interaction session in inbox. Supports labels, custom attributes, SLA, snooze.",
+      "engine": "InnoDB", "charset": "utf8mb4", "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":                  { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",   "since": "1.0.0", "pk": true },
+        "inbox_id":            { "type": "BIGINT UNSIGNED NOT NULL",                  "since": "1.0.0" },
+        "contact_id":          { "type": "BIGINT UNSIGNED NOT NULL",                  "since": "1.0.0" },
+        "assignee_id":         { "type": "BIGINT UNSIGNED NULL",                      "since": "1.0.0" },
+        "status":              { "type": "VARCHAR(16) NOT NULL DEFAULT 'open'",       "since": "1.0.0", "comment": "open | resolved | pending | snoozed" },
+        "priority":            { "type": "VARCHAR(16) NOT NULL DEFAULT 'none'",       "since": "1.0.0", "comment": "none | low | medium | high | urgent" },
+        "channel_conversation_id": { "type": "VARCHAR(190) NULL",                    "since": "1.0.0", "comment": "Platform-side thread id for dedup" },
+        "snoozed_until":       { "type": "DATETIME NULL",                             "since": "1.0.0" },
+        "first_reply_at":      { "type": "DATETIME NULL",                             "since": "1.0.0" },
+        "resolved_at":         { "type": "DATETIME NULL",                             "since": "1.0.0" },
+        "acquisition_source":  { "type": "VARCHAR(128) NULL",                        "since": "1.0.0", "comment": "campaign:camp_X | organic | direct" },
+        "custom_json":         { "type": "LONGTEXT NULL",                             "since": "1.0.0" },
+        "created_at":          { "type": "DATETIME NOT NULL",                         "since": "1.0.0" },
+        "updated_at":          { "type": "DATETIME NOT NULL",                         "since": "1.0.0" }
+      },
+      "indexes": {
+        "idx_inbox":    { "cols": ["inbox_id", "status"],  "since": "1.0.0" },
+        "idx_contact":  { "cols": ["contact_id"],          "since": "1.0.0" },
+        "idx_assignee": { "cols": ["assignee_id"],         "since": "1.0.0" },
+        "idx_priority": { "cols": ["priority", "status"],  "since": "1.0.0" }
+      }
+    },
+
+    "bizcity_crm_messages": {
+      "since": "1.0.0",
+      "purpose": "Per-message log for a conversation. Stores inbound + outbound messages with platform metadata. Agent notes (private=1) visible only in admin.",
+      "engine": "InnoDB", "charset": "utf8mb4", "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":              { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
+        "conversation_id": { "type": "BIGINT UNSIGNED NOT NULL",               "since": "1.0.0" },
+        "contact_id":      { "type": "BIGINT UNSIGNED NULL",                   "since": "1.0.0" },
+        "author_id":       { "type": "BIGINT UNSIGNED NULL",                   "since": "1.0.0", "comment": "wp_user id; NULL for inbound platform messages" },
+        "direction":       { "type": "TINYINT NOT NULL DEFAULT 1",             "since": "1.0.0", "comment": "1=inbound, 2=outbound" },
+        "body":            { "type": "LONGTEXT NULL",                          "since": "1.0.0" },
+        "content_type":    { "type": "VARCHAR(32) NOT NULL DEFAULT 'text'",    "since": "1.0.0", "comment": "text | image | audio | video | file | template | activity" },
+        "private":         { "type": "TINYINT NOT NULL DEFAULT 0",             "since": "1.0.0", "comment": "1=agent note, not sent to customer" },
+        "meta_json":       { "type": "LONGTEXT NULL",                          "since": "1.0.0", "comment": "Platform message_id, attachments, buttons, etc." },
+        "platform_msg_id": { "type": "VARCHAR(190) NULL",                      "since": "1.0.0" },
+        "created_at":      { "type": "DATETIME NOT NULL",                      "since": "1.0.0" }
+      },
+      "indexes": {
+        "idx_conversation": { "cols": ["conversation_id", "created_at"], "since": "1.0.0" },
+        "idx_platform_msg": { "cols": ["platform_msg_id"],               "since": "1.0.0" }
+      }
+    },
+
+    "bizcity_crm_labels": {
+      "since": "1.0.0",
+      "purpose": "Global label definitions used to tag conversations. Color + identifier + description. M3.W1.",
+      "engine": "InnoDB", "charset": "utf8mb4", "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":          { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
+        "title":       { "type": "VARCHAR(100) NOT NULL DEFAULT ''",        "since": "1.0.0" },
+        "slug":        { "type": "VARCHAR(100) NOT NULL DEFAULT ''",        "since": "1.0.0" },
+        "color":       { "type": "VARCHAR(16) NOT NULL DEFAULT '#3b82f6'",  "since": "1.0.0" },
+        "description": { "type": "VARCHAR(255) NULL",                       "since": "1.0.0" },
+        "created_at":  { "type": "DATETIME NOT NULL",                       "since": "1.0.0" },
+        "updated_at":  { "type": "DATETIME NOT NULL",                       "since": "1.0.0" }
+      },
+      "indexes": { "uniq_slug": { "cols": ["slug"], "since": "1.0.0", "unique": true } }
+    },
+
+    "bizcity_crm_conversation_labels": {
+      "since": "1.0.0",
+      "purpose": "Many-to-many join between conversations and labels. M3.W1.",
+      "engine": "InnoDB", "charset": "utf8mb4", "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":              { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
+        "conversation_id": { "type": "BIGINT UNSIGNED NOT NULL",               "since": "1.0.0" },
+        "label_id":        { "type": "BIGINT UNSIGNED NOT NULL",               "since": "1.0.0" },
+        "created_at":      { "type": "DATETIME NOT NULL",                      "since": "1.0.0" }
+      },
+      "indexes": {
+        "uniq_cv_lb": { "cols": ["conversation_id", "label_id"], "since": "1.0.0", "unique": true },
+        "idx_label":  { "cols": ["label_id"], "since": "1.0.0" }
+      }
+    },
+
+    "bizcity_crm_custom_attribute_definitions": {
+      "since": "1.0.0",
+      "purpose": "Admin-defined custom attribute schemas for conversations or contacts. M3.W3. Types: text | number | date | select | checkbox.",
+      "engine": "InnoDB", "charset": "utf8mb4", "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":           { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
+        "entity_type":  { "type": "VARCHAR(32) NOT NULL",                   "since": "1.0.0", "comment": "conversation | contact" },
+        "key":          { "type": "VARCHAR(100) NOT NULL",                  "since": "1.0.0" },
+        "label":        { "type": "VARCHAR(190) NOT NULL DEFAULT ''",       "since": "1.0.0" },
+        "attr_type":    { "type": "VARCHAR(32) NOT NULL DEFAULT 'text'",    "since": "1.0.0", "comment": "text | number | date | select | checkbox | phone | email | list | link" },
+        "options_json": { "type": "LONGTEXT NULL",                          "since": "1.0.0", "comment": "JSON array of {value, label} for select type" },
+        "default_val":  { "type": "VARCHAR(512) NULL",                      "since": "1.0.0" },
+        "position":     { "type": "INT NOT NULL DEFAULT 0",                 "since": "1.0.0" },
+        "created_at":   { "type": "DATETIME NOT NULL",                      "since": "1.0.0" },
+        "updated_at":   { "type": "DATETIME NOT NULL",                      "since": "1.0.0" }
+      },
+      "indexes": {
+        "uniq_entity_key": { "cols": ["entity_type", "key"], "since": "1.0.0", "unique": true }
+      }
+    },
+
+    "bizcity_crm_macros": {
+      "since": "1.0.0",
+      "purpose": "Saved message macros (canned responses) used by agents in the Composer. Supports {{token}} variables. M3.W5.",
+      "engine": "InnoDB", "charset": "utf8mb4", "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":         { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
+        "name":       { "type": "VARCHAR(255) NOT NULL DEFAULT ''",        "since": "1.0.0" },
+        "shortcut":   { "type": "VARCHAR(64) NULL",                        "since": "1.0.0" },
+        "body":       { "type": "LONGTEXT NOT NULL",                       "since": "1.0.0" },
+        "visibility": { "type": "VARCHAR(16) NOT NULL DEFAULT 'all'",      "since": "1.0.0", "comment": "all | private (owner only)" },
+        "owner_id":   { "type": "BIGINT UNSIGNED NULL",                    "since": "1.0.0" },
+        "created_at": { "type": "DATETIME NOT NULL",                       "since": "1.0.0" },
+        "updated_at": { "type": "DATETIME NOT NULL",                       "since": "1.0.0" }
+      },
+      "indexes": { "idx_shortcut": { "cols": ["shortcut"], "since": "1.0.0" } }
+    },
+
+    "bizcity_crm_working_hours": {
+      "since": "1.0.0",
+      "purpose": "Working hours schedule per inbox. Controls SLA pause/resume + auto-responder outside-hours. M4.W1.",
+      "engine": "InnoDB", "charset": "utf8mb4", "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":          { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
+        "name":        { "type": "VARCHAR(255) NOT NULL DEFAULT ''",        "since": "1.0.0" },
+        "timezone":    { "type": "VARCHAR(64) NOT NULL DEFAULT 'Asia/Ho_Chi_Minh'", "since": "1.0.0" },
+        "schedule_json": { "type": "LONGTEXT NOT NULL",                    "since": "1.0.0", "comment": "JSON {mon:[{open,close}],tue:...}" },
+        "closed_dates_json": { "type": "LONGTEXT NULL",                    "since": "1.0.0", "comment": "JSON array of YYYY-MM-DD holiday dates" },
+        "created_at":  { "type": "DATETIME NOT NULL",                      "since": "1.0.0" },
+        "updated_at":  { "type": "DATETIME NOT NULL",                      "since": "1.0.0" }
+      },
+      "indexes": {}
+    },
+
+    "bizcity_crm_sla_policies": {
+      "since": "1.0.0",
+      "purpose": "SLA policy definitions. First response + resolution deadlines in seconds. M4.W2.",
+      "engine": "InnoDB", "charset": "utf8mb4", "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":                   { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
+        "name":                 { "type": "VARCHAR(255) NOT NULL DEFAULT ''",        "since": "1.0.0" },
+        "first_response_sec":   { "type": "INT UNSIGNED NOT NULL DEFAULT 3600",     "since": "1.0.0" },
+        "resolution_sec":       { "type": "INT UNSIGNED NOT NULL DEFAULT 86400",    "since": "1.0.0" },
+        "consider_working_hrs": { "type": "TINYINT NOT NULL DEFAULT 1",             "since": "1.0.0" },
+        "working_hours_id":     { "type": "BIGINT UNSIGNED NULL",                   "since": "1.0.0" },
+        "created_at":           { "type": "DATETIME NOT NULL",                      "since": "1.0.0" },
+        "updated_at":           { "type": "DATETIME NOT NULL",                      "since": "1.0.0" }
+      },
+      "indexes": {}
+    },
+
+    "bizcity_crm_automation_rules": {
+      "since": "1.0.0",
+      "purpose": "Automation rule definitions (trigger + conditions + actions). Evaluated by BizCity_CRM_Automation_Engine. M2.W5.",
+      "engine": "InnoDB", "charset": "utf8mb4", "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":              { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
+        "name":            { "type": "VARCHAR(255) NOT NULL DEFAULT ''",        "since": "1.0.0" },
+        "event_name":      { "type": "VARCHAR(100) NOT NULL",                  "since": "1.0.0", "comment": "conversation_created | message_created | label_added | sla_breach | ..." },
+        "conditions_json": { "type": "LONGTEXT NULL",                          "since": "1.0.0", "comment": "Array of {attr, operator, value} conditions" },
+        "actions_json":    { "type": "LONGTEXT NOT NULL",                      "since": "1.0.0", "comment": "Array of {action_name, action_params} to execute" },
+        "active":          { "type": "TINYINT NOT NULL DEFAULT 1",             "since": "1.0.0" },
+        "run_count":       { "type": "INT UNSIGNED NOT NULL DEFAULT 0",        "since": "1.0.0" },
+        "created_by":      { "type": "BIGINT UNSIGNED NULL",                   "since": "1.0.0" },
+        "created_at":      { "type": "DATETIME NOT NULL",                      "since": "1.0.0" },
+        "updated_at":      { "type": "DATETIME NOT NULL",                      "since": "1.0.0" }
+      },
+      "indexes": { "idx_event": { "cols": ["event_name", "active"], "since": "1.0.0" } }
+    },
+
+    "bizcity_crm_contracts": {
+      "since": "1.0.0",
+      "purpose": "Contract lifecycle (draft → active → expired → terminated). Linked to opportunity + account + contact. Supports line items.",
+      "engine": "InnoDB", "charset": "utf8mb4", "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":              { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
+        "title":           { "type": "VARCHAR(255) NOT NULL DEFAULT ''",        "since": "1.0.0" },
+        "status":          { "type": "VARCHAR(32) NOT NULL DEFAULT 'draft'",    "since": "1.0.0", "comment": "draft | sent | active | expired | terminated" },
+        "opportunity_id":  { "type": "BIGINT UNSIGNED NULL",                   "since": "1.0.0" },
+        "account_id":      { "type": "BIGINT UNSIGNED NULL",                   "since": "1.0.0" },
+        "contact_id":      { "type": "BIGINT UNSIGNED NULL",                   "since": "1.0.0" },
+        "start_date":      { "type": "DATE NULL",                              "since": "1.0.0" },
+        "end_date":        { "type": "DATE NULL",                              "since": "1.0.0" },
+        "value":           { "type": "DECIMAL(18,2) NOT NULL DEFAULT 0",       "since": "1.0.0" },
+        "currency":        { "type": "VARCHAR(8) NOT NULL DEFAULT 'VND'",      "since": "1.0.0" },
+        "body":            { "type": "LONGTEXT NULL",                          "since": "1.0.0" },
+        "custom_json":     { "type": "LONGTEXT NULL",                          "since": "1.0.0" },
+        "owner_id":        { "type": "BIGINT UNSIGNED NULL",                   "since": "1.0.0" },
+        "created_at":      { "type": "DATETIME NOT NULL",                      "since": "1.0.0" },
+        "updated_at":      { "type": "DATETIME NOT NULL",                      "since": "1.0.0" },
+        "deleted_at":      { "type": "DATETIME NULL",                          "since": "1.0.0" }
+      },
+      "indexes": {
+        "idx_status":     { "cols": ["status"],        "since": "1.0.0" },
+        "idx_account":    { "cols": ["account_id"],    "since": "1.0.0" },
+        "idx_contact":    { "cols": ["contact_id"],    "since": "1.0.0" }
+      }
+    },
+
+    "bizcity_crm_invoices": {
+      "since": "1.0.0",
+      "purpose": "Invoice lifecycle (draft → sent → paid → overdue → voided → refunded). Full state machine in BizCity_CRM_Invoice_Repository. M-CRM.M2. v1.11.0 adds wc_order_id for Woo bridge (M-CRM.M8.W4).",
+      "engine": "InnoDB", "charset": "utf8mb4", "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":            { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",      "since": "1.0.0", "pk": true },
+        "invoice_number":{ "type": "VARCHAR(64) NOT NULL DEFAULT ''",              "since": "1.0.0" },
+        "status":        { "type": "VARCHAR(32) NOT NULL DEFAULT 'draft'",         "since": "1.0.0", "comment": "draft | sent | paid | overdue | voided | refunded" },
+        "contact_id":    { "type": "BIGINT UNSIGNED NULL",                         "since": "1.0.0" },
+        "account_id":    { "type": "BIGINT UNSIGNED NULL",                         "since": "1.0.0" },
+        "opportunity_id":{ "type": "BIGINT UNSIGNED NULL",                         "since": "1.0.0" },
+        "wc_order_id":   { "type": "BIGINT UNSIGNED NULL",                         "since": "1.11.0", "comment": "Woo order id link (nullable). Set by Woo Invoice Bridge auto-invoice or manual link." },
+        "subtotal":      { "type": "DECIMAL(18,2) NOT NULL DEFAULT 0",             "since": "1.0.0" },
+        "tax_total":     { "type": "DECIMAL(18,2) NOT NULL DEFAULT 0",             "since": "1.0.0" },
+        "discount_total":{ "type": "DECIMAL(18,2) NOT NULL DEFAULT 0",             "since": "1.0.0" },
+        "total":         { "type": "DECIMAL(18,2) NOT NULL DEFAULT 0",             "since": "1.0.0" },
+        "amount_paid":   { "type": "DECIMAL(18,2) NOT NULL DEFAULT 0",             "since": "1.0.0" },
+        "amount_due":    { "type": "DECIMAL(18,2) NOT NULL DEFAULT 0",             "since": "1.0.0" },
+        "currency":      { "type": "VARCHAR(8) NOT NULL DEFAULT 'VND'",            "since": "1.0.0" },
+        "issue_date":    { "type": "DATE NULL",                                    "since": "1.0.0" },
+        "due_date":      { "type": "DATE NULL",                                    "since": "1.0.0" },
+        "sent_at":       { "type": "DATETIME NULL",                                "since": "1.0.0" },
+        "paid_at":       { "type": "DATETIME NULL",                                "since": "1.0.0" },
+        "notes":         { "type": "LONGTEXT NULL",                                "since": "1.0.0" },
+        "meta_json":     { "type": "LONGTEXT NULL",                                "since": "1.0.0" },
+        "owner_id":      { "type": "BIGINT UNSIGNED NULL",                         "since": "1.0.0" },
+        "created_at":    { "type": "DATETIME NOT NULL",                            "since": "1.0.0" },
+        "updated_at":    { "type": "DATETIME NOT NULL",                            "since": "1.0.0" },
+        "deleted_at":    { "type": "DATETIME NULL",                                "since": "1.0.0" }
+      },
+      "indexes": {
+        "idx_status":     { "cols": ["status"],        "since": "1.0.0" },
+        "idx_contact":    { "cols": ["contact_id"],    "since": "1.0.0" },
+        "idx_due":        { "cols": ["due_date"],      "since": "1.0.0" },
+        "idx_wc_order":   { "cols": ["wc_order_id"],   "since": "1.11.0" }
+      }
+    },
+
+    "bizcity_crm_invoice_lines": {
+      "since": "1.0.0",
+      "purpose": "Invoice line items. Each row = one product/service on an invoice. Totals recomputed in BizCity_CRM_Invoice_Repository::replace_lines().",
+      "engine": "InnoDB", "charset": "utf8mb4", "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":          { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
+        "invoice_id":  { "type": "BIGINT UNSIGNED NOT NULL",               "since": "1.0.0" },
+        "description": { "type": "VARCHAR(512) NOT NULL DEFAULT ''",       "since": "1.0.0" },
+        "quantity":    { "type": "DECIMAL(12,3) NOT NULL DEFAULT 1",       "since": "1.0.0" },
+        "unit_price":  { "type": "DECIMAL(18,2) NOT NULL DEFAULT 0",       "since": "1.0.0" },
+        "discount":    { "type": "DECIMAL(18,2) NOT NULL DEFAULT 0",       "since": "1.0.0" },
+        "tax_rate":    { "type": "DECIMAL(5,2) NOT NULL DEFAULT 0",        "since": "1.0.0" },
+        "total":       { "type": "DECIMAL(18,2) NOT NULL DEFAULT 0",       "since": "1.0.0" },
+        "sku":         { "type": "VARCHAR(100) NULL",                      "since": "1.0.0" },
+        "product_id":  { "type": "BIGINT UNSIGNED NULL",                   "since": "1.0.0", "comment": "Woo product_id if applicable" },
+        "created_at":  { "type": "DATETIME NOT NULL",                      "since": "1.0.0" }
+      },
+      "indexes": { "idx_invoice": { "cols": ["invoice_id"], "since": "1.0.0" } }
+    },
+
+    "bizcity_crm_invoice_payments": {
+      "since": "1.0.0",
+      "purpose": "Payment ledger per invoice. Multiple partial payments allowed. Triggers amount_paid / amount_due recompute. M-CRM.M2.W3.",
+      "engine": "InnoDB", "charset": "utf8mb4", "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":         { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
+        "invoice_id": { "type": "BIGINT UNSIGNED NOT NULL",               "since": "1.0.0" },
+        "amount":     { "type": "DECIMAL(18,2) NOT NULL DEFAULT 0",       "since": "1.0.0" },
+        "paid_at":    { "type": "DATETIME NOT NULL",                      "since": "1.0.0" },
+        "method":     { "type": "VARCHAR(64) NOT NULL DEFAULT 'manual'",  "since": "1.0.0", "comment": "manual | bank_transfer | momo | vnpay | zalopay | payos | cash" },
+        "gateway_txn":{ "type": "VARCHAR(190) NULL",                      "since": "1.0.0", "comment": "Payment gateway transaction id for reconciliation" },
+        "note":       { "type": "VARCHAR(512) NULL",                      "since": "1.0.0" },
+        "created_by": { "type": "BIGINT UNSIGNED NULL",                   "since": "1.0.0" },
+        "created_at": { "type": "DATETIME NOT NULL",                      "since": "1.0.0" }
+      },
+      "indexes": { "idx_invoice": { "cols": ["invoice_id", "paid_at"], "since": "1.0.0" } }
+    },
+
+    "bizcity_crm_campaigns": {
+      "since": "1.0.0",
+      "purpose": "Campaign definitions for QR/ref-link lead generation. Stores trigger keyword, action config, QR data, UTM params, visit counter. M6.W1.",
+      "engine": "InnoDB", "charset": "utf8mb4", "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":              { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
+        "name":            { "type": "VARCHAR(255) NOT NULL DEFAULT ''",        "since": "1.0.0" },
+        "code":            { "type": "VARCHAR(100) NOT NULL DEFAULT ''",        "since": "1.0.0", "comment": "Slug for ref param: camp_<base62(id)>" },
+        "channel_type":    { "type": "VARCHAR(32) NOT NULL DEFAULT 'FACEBOOK'", "since": "1.0.0" },
+        "inbox_id":        { "type": "BIGINT UNSIGNED NULL",                   "since": "1.0.0" },
+        "scenario_config": { "type": "LONGTEXT NULL",                          "since": "1.0.0", "comment": "JSON: {welcome_template, character_id, notebook_id, steps[]}" },
+        "qr_data_url":     { "type": "MEDIUMTEXT NULL",                        "since": "1.0.0", "comment": "Base64 PNG or SVG string of QR code" },
+        "utm_json":        { "type": "LONGTEXT NULL",                          "since": "1.0.0" },
+        "visit_count":     { "type": "INT UNSIGNED NOT NULL DEFAULT 0",        "since": "1.0.0" },
+        "conversion_count":{ "type": "INT UNSIGNED NOT NULL DEFAULT 0",        "since": "1.0.0" },
+        "status":          { "type": "VARCHAR(16) NOT NULL DEFAULT 'active'",  "since": "1.0.0" },
+        "created_by":      { "type": "BIGINT UNSIGNED NULL",                   "since": "1.0.0" },
+        "created_at":      { "type": "DATETIME NOT NULL",                      "since": "1.0.0" },
+        "updated_at":      { "type": "DATETIME NOT NULL",                      "since": "1.0.0" },
+        "variants_json":   { "type": "LONGTEXT NULL", "since": "1.21.0", "comment": "Phase 0.40 G1 — JSON array of {content, media_url, delay_ms} for multi-variant random campaign (Deplao parity)." }
+      },
+      "indexes": {
+        "uniq_code": { "cols": ["code"], "since": "1.0.0", "unique": true },
+        "idx_inbox":  { "cols": ["inbox_id"], "since": "1.0.0" }
+      }
+    },
+
+    "bizcity_crm_campaign_visits": {
+      "since": "1.0.0",
+      "purpose": "Per-visit ledger for campaign QR/link interactions. Tracks contact linkage, conversion, acquisition source for funnel analytics. M6.W3.",
+      "engine": "InnoDB", "charset": "utf8mb4", "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":             { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
+        "campaign_id":    { "type": "BIGINT UNSIGNED NOT NULL",               "since": "1.0.0" },
+        "contact_id":     { "type": "BIGINT UNSIGNED NULL",                   "since": "1.0.0", "comment": "Resolved after chat initiation" },
+        "visitor_cookie": { "type": "VARCHAR(64) NULL",                       "since": "1.0.0", "comment": "Pre-link cookie for anonymous visit dedup" },
+        "ip":             { "type": "VARCHAR(45) NULL",                       "since": "1.0.0" },
+        "is_converted":   { "type": "TINYINT NOT NULL DEFAULT 0",             "since": "1.0.0" },
+        "converted_at":   { "type": "DATETIME NULL",                          "since": "1.0.0" },
+        "ref_param":      { "type": "VARCHAR(190) NULL",                      "since": "1.0.0" },
+        "visited_at":     { "type": "DATETIME NOT NULL",                      "since": "1.0.0" }
+      },
+      "indexes": {
+        "idx_campaign":  { "cols": ["campaign_id", "visited_at"], "since": "1.0.0" },
+        "idx_contact":   { "cols": ["contact_id"],                "since": "1.0.0" }
+      }
+    },
+
+    "bizcity_crm_order_recap_log": {
+      "since": "1.20.0",
+      "purpose": "Phase 0.38 W2 — Per-recap-send audit log. One row per attempted recap message. Tracks send status, platform, message_id, retry info. Enables resend-recap endpoint.",
+      "engine": "InnoDB", "charset": "utf8mb4", "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":             { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",   "since": "1.20.0", "pk": true },
+        "order_id":       { "type": "BIGINT UNSIGNED NOT NULL",                  "since": "1.20.0", "comment": "Woo order id (wp_wc_orders.id for HPOS or wp_posts.ID for legacy)" },
+        "recap_type":     { "type": "VARCHAR(32) NOT NULL DEFAULT 'new_order'",  "since": "1.20.0", "comment": "new_order | payment_received | shipment_started | shipment_update | refund" },
+        "platform":       { "type": "VARCHAR(32) NOT NULL",                      "since": "1.20.0", "comment": "FACEBOOK | ZALO | WEBCHAT | EMAIL" },
+        "chat_id":        { "type": "VARCHAR(190) NOT NULL",                     "since": "1.20.0", "comment": "_bizcity_inbound_chat_id from Woo order meta" },
+        "gateway_msg_id": { "type": "VARCHAR(190) NULL",                         "since": "1.20.0", "comment": "Platform message_id returned by Gateway Sender" },
+        "status":         { "type": "VARCHAR(16) NOT NULL DEFAULT 'sent'",       "since": "1.20.0", "comment": "sent | failed | skipped | no_inbound" },
+        "error":          { "type": "VARCHAR(512) NULL",                         "since": "1.20.0" },
+        "sent_at":        { "type": "DATETIME NOT NULL",                         "since": "1.20.0" }
+      },
+      "indexes": {
+        "idx_order_type": { "cols": ["order_id", "recap_type"], "since": "1.20.0" },
+        "idx_sent":       { "cols": ["sent_at"],                "since": "1.20.0" },
+        "idx_status":     { "cols": ["status"],                 "since": "1.20.0" }
+      }
+    },
+
+    "bizcity_crm_order_csat": {
+      "since": "1.20.0",
+      "purpose": "Phase 0.38 W3 — Customer satisfaction feedback submitted via public order tracking page CSAT widget. 1-5 star rating + optional text comment.",
+      "engine": "InnoDB", "charset": "utf8mb4", "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":           { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.20.0", "pk": true },
+        "order_id":     { "type": "BIGINT UNSIGNED NOT NULL",               "since": "1.20.0" },
+        "contact_id":   { "type": "BIGINT UNSIGNED NULL",                   "since": "1.20.0", "comment": "NULL for guest (no account linked)" },
+        "rating":       { "type": "TINYINT UNSIGNED NOT NULL DEFAULT 5",    "since": "1.20.0", "comment": "1-5 star rating" },
+        "comment":      { "type": "VARCHAR(512) NULL",                      "since": "1.20.0" },
+        "source":       { "type": "VARCHAR(32) NOT NULL DEFAULT 'public_tracking'", "since": "1.20.0" },
+        "ip":           { "type": "VARCHAR(45) NULL",                       "since": "1.20.0" },
+        "submitted_at": { "type": "DATETIME NOT NULL",                      "since": "1.20.0" }
+      },
+      "indexes": {
+        "idx_order":    { "cols": ["order_id"],      "since": "1.20.0" },
+        "idx_rating":   { "cols": ["rating"],        "since": "1.20.0" },
+        "idx_submitted":{ "cols": ["submitted_at"],  "since": "1.20.0" }
+      }
+    },
+
+    "bizcity_crm_shipment_status_log": {
+      "since": "1.20.0",
+      "purpose": "Phase 0.38 W4 — Shipping status changelog detected by the cron tracker. One row per status change per order. Feeds shipment_update recap and public tracking timeline.",
+      "engine": "InnoDB", "charset": "utf8mb4", "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":             { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.20.0", "pk": true },
+        "order_id":       { "type": "BIGINT UNSIGNED NOT NULL",               "since": "1.20.0" },
+        "tracking_number":{ "type": "VARCHAR(100) NULL",                      "since": "1.20.0" },
+        "provider":       { "type": "VARCHAR(32) NULL",                       "since": "1.20.0", "comment": "ghn | ghtk | vtp | jnt | best | other" },
+        "old_status":     { "type": "VARCHAR(64) NULL",                       "since": "1.20.0" },
+        "new_status":     { "type": "VARCHAR(64) NOT NULL",                   "since": "1.20.0", "comment": "pending | confirmed | processing | shipped | in_transit | delivered | returned | failed" },
+        "raw_payload":    { "type": "LONGTEXT NULL",                          "since": "1.20.0", "comment": "Full meta snapshot from Woo at detection time" },
+        "changed_at":     { "type": "DATETIME NOT NULL",                      "since": "1.20.0" }
+      },
+      "indexes": {
+        "idx_order":    { "cols": ["order_id", "changed_at"], "since": "1.20.0" },
+        "idx_tracking": { "cols": ["tracking_number"],        "since": "1.20.0" }
+      }
+    },
+
+    "bizcity_crm_tasks": {
+      "since": "1.0.0",
+      "purpose": "Internal task management for CRM operators. Linked to CRM entities (contacts, conversations, events). Phase 0.40 G1 adds checklist_json for sub-tasks (Deplao ERP parity).",
+      "engine": "InnoDB", "charset": "utf8mb4", "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":                  { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
+        "title":               { "type": "VARCHAR(255) NOT NULL DEFAULT ''",        "since": "1.0.0" },
+        "status":              { "type": "VARCHAR(32) NOT NULL DEFAULT 'open'",     "since": "1.0.0", "comment": "open | todo | doing | review | done | cancelled" },
+        "priority":            { "type": "VARCHAR(16) NOT NULL DEFAULT 'medium'",   "since": "1.0.0", "comment": "low | medium | high | urgent" },
+        "due_date":            { "type": "DATE NULL",                               "since": "1.0.0" },
+        "assignee_id":         { "type": "BIGINT UNSIGNED NULL",                    "since": "1.0.0" },
+        "related_entity_type": { "type": "VARCHAR(32) NULL",                        "since": "1.0.0" },
+        "related_entity_id":   { "type": "BIGINT UNSIGNED NULL",                    "since": "1.0.0" },
+        "notes":               { "type": "LONGTEXT NULL",                           "since": "1.0.0" },
+        "checklist_json":      { "type": "LONGTEXT NULL",                           "since": "1.21.0", "comment": "Phase 0.40 G1 — JSON array of {text, done} sub-task items (Deplao ERP board parity)." },
+        "completed":           { "type": "TINYINT(1) NOT NULL DEFAULT 0",           "since": "1.0.0" },
+        "completed_at":        { "type": "DATETIME NULL",                           "since": "1.0.0" },
+        "created_by":          { "type": "BIGINT UNSIGNED NULL",                    "since": "1.0.0" },
+        "created_at":          { "type": "DATETIME NOT NULL",                       "since": "1.0.0" },
+        "updated_at":          { "type": "DATETIME NOT NULL",                       "since": "1.0.0" },
+        "deleted_at":          { "type": "DATETIME NULL",                           "since": "1.0.0" }
+      },
+      "indexes": {
+        "idx_assignee_status": { "cols": ["assignee_id", "status"],                  "since": "1.0.0" },
+        "idx_due_date":        { "cols": ["due_date"],                               "since": "1.0.0" },
+        "idx_related":         { "cols": ["related_entity_type", "related_entity_id"], "since": "1.0.0" }
+      }
+    },
+
+    "bizcity_crm_notes_doc": {
+      "since": "1.21.0",
+      "purpose": "Phase 0.40 G1 — Internal document notes for operators. Folder-organised rich text notes with per-item share scope (private/team/public). Deplao ERP Note parity.",
+      "engine": "InnoDB", "charset": "utf8mb4", "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":          { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.21.0", "pk": true },
+        "folder":      { "type": "VARCHAR(120) NOT NULL DEFAULT 'General'", "since": "1.21.0", "comment": "Logical grouping label — no FK, free-form." },
+        "title":       { "type": "VARCHAR(255) NOT NULL DEFAULT ''",        "since": "1.21.0" },
+        "content":     { "type": "LONGTEXT NULL",                           "since": "1.21.0", "comment": "Rich-text HTML or Markdown body." },
+        "tags_json":   { "type": "LONGTEXT NULL",                           "since": "1.21.0", "comment": "JSON string array of tag labels." },
+        "share_scope": { "type": "VARCHAR(16) NOT NULL DEFAULT 'private'",  "since": "1.21.0", "comment": "private | team | public" },
+        "owner_id":    { "type": "BIGINT UNSIGNED NULL",                    "since": "1.21.0", "comment": "WP user_id of note author." },
+        "pinned":      { "type": "TINYINT(1) NOT NULL DEFAULT 0",           "since": "1.21.0" },
+        "created_at":  { "type": "DATETIME NOT NULL",                       "since": "1.21.0" },
+        "updated_at":  { "type": "DATETIME NOT NULL",                       "since": "1.21.0" },
+        "deleted_at":  { "type": "DATETIME NULL",                           "since": "1.21.0" }
+      },
+      "indexes": {
+        "idx_owner_folder": { "cols": ["owner_id", "folder"], "since": "1.21.0" },
+        "idx_share":        { "cols": ["share_scope"],        "since": "1.21.0" }
+      }
+    },
+    "bizcity_crm_admin_chat_audit": {
+      "since": "1.22.0",
+      "purpose": "Phase 3.5 Wave C — Admin-chat audit log. Records every action attempted or executed via admin-chat grant (skill invocation, confirm-token flow, ingest, etc.) for security audit and non-repudiation. See PHASE-3.5-CRM-ADMIN.md Wave C.",
+      "engine": "InnoDB", "charset": "utf8mb4", "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":          { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",   "since": "1.22.0", "pk": true },
+        "user_id":     { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",        "since": "1.22.0", "comment": "WP user_id performing the action." },
+        "chat_id":     { "type": "VARCHAR(255) NOT NULL DEFAULT ''",          "since": "1.22.0", "comment": "Canonical chat_id that triggered the action." },
+        "guru_id":     { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",        "since": "1.22.0", "comment": "Character/Guru ID context." },
+        "grant_id":    { "type": "BIGINT UNSIGNED NULL",                      "since": "1.22.0", "comment": "FK bizcity_crm_chat_magic_links.id (or admin_chat_grants.id) — null for legacy." },
+        "action":      { "type": "VARCHAR(80) NOT NULL DEFAULT ''",           "since": "1.22.0", "comment": "Skill slug or action identifier, e.g. ingest_document, post_facebook." },
+        "status":      { "type": "VARCHAR(20) NOT NULL DEFAULT 'attempted'",  "since": "1.22.0", "comment": "attempted | success | denied | confirm_pending | confirm_expired." },
+        "input_json":  { "type": "LONGTEXT NULL",                             "since": "1.22.0", "comment": "Sanitised action input params (no PII). OWASP A09: no raw passwords/tokens." },
+        "result_json": { "type": "LONGTEXT NULL",                             "since": "1.22.0", "comment": "Outcome summary — success payload or error code. No full LLM output." },
+        "ip":          { "type": "VARCHAR(45) NULL",                          "since": "1.22.0", "comment": "Requestor IP (OWASP A09 audit trail). IPv4/IPv6." },
+        "created_at":  { "type": "DATETIME NOT NULL",                         "since": "1.22.0" }
+      },
+      "indexes": {
+        "idx_user_created":  { "cols": ["user_id",  "created_at"], "since": "1.22.0" },
+        "idx_chat_created":  { "cols": ["chat_id",  "created_at"], "since": "1.22.0" },
+        "idx_action_status": { "cols": ["action",   "status"],     "since": "1.22.0" },
+        "idx_guru":          { "cols": ["guru_id"],                "since": "1.22.0" }
+      }
     }
   },
   "history": [
     { "version": "1.0.0",  "date": "2026-03-01", "change": "Baseline declaration of bizcity_crm_leads + bizcity_crm_opportunities. Existing schema as shipped in M-CRM.M1 (class-db-installer.php). Declared retroactively to satisfy R-DCL when v1.16.0 added Customer Source adapter columns." },
     { "version": "1.16.0", "date": "2026-05-25", "change": "Add Customer Source adapter columns + UNIQUE upsert keys. Bizcity_CRM_Pipeline_Sync now upserts opportunities (and back-fills leads) from 3 sources via the new `bizcity_crm_register_customer_sources` filter: (1) inbox Messenger conversations (FB) → stage=prospecting; (2) bizgpt-dino-tichdiem `wp_dino_users`; (3) user-points `wp_user_points`. New cols: opportunities.{source, source_ref, source_synced_at} + UNIQUE(source, source_ref); leads.{source_ref} + UNIQUE(source, source_ref). Auto-promotion: when contact.phone gets captured (or external row already has phone), the opp jumps prospecting → qualification (probability 10 → 25) without overwriting downstream stages (proposal/negotiation/closed_*). Migration: `migrate_phase_042()` ADD-only — safe via BizCity_Diagnostics_Auto_Create." },
     { "version": "1.17.0", "date": "2026-05-28", "change": "Add bizcity_crm_audit_log table (M-CRM.M1.W3). Captures create/update/delete actions on CRM entities (leads, opportunities, contracts, contacts) with before/after JSON diffs. New class BizCity_CRM_Audit_Log::log() + BizCity_CRM_Audit_Repository::find_by_entity(). REST GET /audit exposed for FE AuditTimeline component (replaces MOCK_AUDIT in SalesTab). Migration: migrate_phase_043() ADD-only." },
-    { "version": "1.18.0", "date": "2026-05-28", "change": "M-CRM.M4.Inbox — Broadcast + lead classification sprint. (1) Add bizcity_crm_broadcasts table (broadcast job header: title, inbox_ids_json, segment_filter_json, template, status, schedule, counters). (2) Add bizcity_crm_broadcast_recipients table (per-recipient send ledger: broadcast_id, contact_id, conversation_id, status, sent_at, error). (3) Add contacts.lead_score TINYINT + contacts.segment VARCHAR(32) columns for A/B/C/VIP classification. (4) REST: POST /broadcasts (create job), GET /broadcasts, GET /broadcasts/{id}, POST /broadcasts/{id}/send, GET /broadcasts/{id}/recipients, POST /conversations/bulk-label. (5) FE: BroadcastTab, InboxConversationFilter enhanced (assignee_id, priority, q), lead score badge + segment pills in SalesTab/ContactsTab. Migration: migrate_phase_044() ADD-only." }
+    { "version": "1.18.0", "date": "2026-05-28", "change": "M-CRM.M4.Inbox — Broadcast + lead classification sprint. (1) Add bizcity_crm_broadcasts table (broadcast job header: title, inbox_ids_json, segment_filter_json, template, status, schedule, counters). (2) Add bizcity_crm_broadcast_recipients table (per-recipient send ledger: broadcast_id, contact_id, conversation_id, status, sent_at, error). (3) Add contacts.lead_score TINYINT + contacts.segment VARCHAR(32) columns for A/B/C/VIP classification. (4) REST: POST /broadcasts (create job), GET /broadcasts, GET /broadcasts/{id}, POST /broadcasts/{id}/send, GET /broadcasts/{id}/recipients, POST /conversations/bulk-label. (5) FE: BroadcastTab, InboxConversationFilter enhanced (assignee_id, priority, q), lead score badge + segment pills in SalesTab/ContactsTab. Migration: migrate_phase_044() ADD-only." },
+    { "version": "1.19.0", "date": "2026-06-07", "change": "R-DCL backfill — Phase 0.38 W1.1. Declare all tables shipped since v1.0.0 that were missing from this changelog: bizcity_crm_contacts (with lead_score/segment since 1.18.0), bizcity_crm_accounts, bizcity_crm_inboxes, bizcity_crm_conversations, bizcity_crm_messages, bizcity_crm_labels, bizcity_crm_conversation_labels, bizcity_crm_custom_attribute_definitions, bizcity_crm_macros, bizcity_crm_working_hours, bizcity_crm_sla_policies, bizcity_crm_automation_rules, bizcity_crm_contracts, bizcity_crm_invoices (with wc_order_id since 1.11.0), bizcity_crm_invoice_lines, bizcity_crm_invoice_payments, bizcity_crm_campaigns, bizcity_crm_campaign_visits. No new columns — retroactive declaration only. Validator compliant." },
+    { "version": "1.20.0", "date": "2026-06-07", "change": "Phase 0.38 W1.2 — Add 3 new Order Fulfillment Hub tables: (1) bizcity_crm_order_recap_log — per-recap-send audit (W2, notifier); (2) bizcity_crm_order_csat — public tracking page CSAT feedback (W3); (3) bizcity_crm_shipment_status_log — shipping status change history detected by cron tracker (W4). Migration: migrate_phase_045() ADD-only via BizCity_CRM_DB_Installer_V2 dbDelta." },
+    { "version": "1.21.0", "date": "2026-06-07", "change": "Phase 0.40 G1 — Deplao Parity schema foundation. (1) bizcity_crm_campaigns: ADD variants_json LONGTEXT — JSON array of {content, media_url, delay_ms} for multi-variant random campaign send (Deplao CampaignCreateModal parity). (2) bizcity_crm_tasks: retroactive declaration (existed since 1.0.0) + ADD checklist_json LONGTEXT for sub-task items (ERP task board parity). (3) NEW bizcity_crm_notes_doc — folder-organised internal notes with share_scope (private|team|public), tags_json, pinned (Deplao ErpNoteService parity). Migration: migrate_phase_046() ADD-only." },
+    { "version": "1.22.0", "date": "2026-06-07", "change": "Phase 3.5 Wave C — NEW bizcity_crm_admin_chat_audit. Security audit log for every action attempted/executed via admin-chat grant (skill invocations, confirm-token flow, ingest, etc.). Columns: id, user_id, chat_id, guru_id, grant_id, action, status (attempted|success|denied|confirm_pending|confirm_expired), input_json (sanitised), result_json (no PII/token), ip, created_at. Indexed on (user_id,created_at), (chat_id,created_at), (action,status), (guru_id). Migration: migrate_phase_047() ADD-only." },
+    { "version": "1.23.0", "date": "2026-06-07", "change": "Phase 0.43 — Broadcast Mass-Send Deplao Parity 2. (1) bizcity_crm_broadcasts: ADD action_flags_json LONGTEXT — JSON {send_message, send_friend_request, invite_group, group_id} for action-type broadcast (Tin nhan / Ket ban / Moi nhom / Hon hop). NULL = fallback {send_message:true}. ADD delay_sec SMALLINT UNSIGNED DEFAULT 5 — per-send delay 5-180s. (2) bizcity_crm_broadcast_recipients: ADD scheduled_send_at DATETIME NULL — per-recipient time = enqueue_time + (idx * delay_sec); Dispatcher filters WHERE scheduled_send_at <= NOW(). ADD INDEX idx_scheduled_send ON (status, scheduled_send_at). (3) Dispatcher extension: pick_variant_full() with weighted random + images[] + friend_invite_text; tick() filter by scheduled_send_at; send_one() dispatch per action_flag. Migration: migrate_phase_048() ADD-only." }
   ]
 }

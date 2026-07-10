@@ -75,7 +75,61 @@ class BizCity_Smart_Gateway {
         }
 
         // ── User Memory Context ──
-        if ( class_exists( 'BizCity_User_Memory' ) ) {
+        //
+        // Wave 2.8d TBR.MEM-D6.5 — Legacy/Unified bridge.
+        //
+        // When unified memory flag is enabled AND Memory_Recall is available,
+        // route the memory context through the unified Layer 0.5 collector so
+        // we (a) get identical citation contract `[mem:U#id]` / `[mem:E#id]` /
+        // `[mem:R#id]`, (b) survive D7 drop of legacy `bizcity_memory_users/
+        // episodic/rolling` tables without crashing this gateway.
+        //
+        // Legacy classes still get called when flag OFF — preserves current
+        // behaviour for production until founder flips the flag.
+        $use_unified_memory = (
+            class_exists( 'BizCity_Memory_Unified_Installer' )
+            && BizCity_Memory_Unified_Installer::is_enabled()
+            && class_exists( 'BizCity_TwinBrain_Memory_Recall' )
+        );
+        /**
+         * Filter: force-skip every legacy memory block in Smart_Gateway.
+         *
+         * Operators may use this to disable the legacy `BizCity_User_Memory` /
+         * `BizCity_Episodic_Memory` / `BizCity_Rolling_Memory` calls below
+         * independent of the unified flag — e.g. for staging migrations or
+         * incident response. When TRUE, the gateway falls back to whatever
+         * Memory_Recall returns (or empty arrays if recall is unavailable).
+         *
+         * @since Wave 2.8d
+         * @param bool   $skip         Default = $use_unified_memory.
+         * @param array  $params       Original resolve() params.
+         * @param string $context      'smart_gateway'.
+         */
+        $skip_legacy_memory = (bool) apply_filters(
+            'bizcity_smart_gateway_skip_legacy_memory',
+            $use_unified_memory,
+            $params,
+            'smart_gateway'
+        );
+
+        if ( $skip_legacy_memory && class_exists( 'BizCity_TwinBrain_Memory_Recall' ) ) {
+            try {
+                $recall = BizCity_TwinBrain_Memory_Recall::instance()
+                    ->collect( (int) $user_id, (string) $message, [ 'session_id' => $session_id ] );
+                $context['user_memory_context'] = (string) ( $recall['block'] ?? '' );
+                $context['memory_recall_meta']  = [
+                    'source'     => (string) ( $recall['source'] ?? 'unknown' ),
+                    'counts'     => (array)  ( $recall['counts'] ?? [] ),
+                    'citations'  => (array)  ( $recall['citations'] ?? [] ),
+                    'latency_ms' => (int)    ( $recall['latency_ms'] ?? 0 ),
+                ];
+            } catch ( \Throwable $e ) {
+                error_log( '[BizCity_Smart_Gateway] Memory_Recall failed — falling back to legacy: ' . $e->getMessage() );
+                $skip_legacy_memory = false;
+            }
+        }
+
+        if ( ! $skip_legacy_memory && class_exists( 'BizCity_User_Memory' ) ) {
             $mem = BizCity_User_Memory::instance();
             $context['user_memory_context'] = $mem->build_memory_context(
                 $user_id, $session_id, $session_id
@@ -222,18 +276,22 @@ class BizCity_Smart_Gateway {
         }
 
         // ── Episodic + Rolling Memory (for suggest engine) ──
-        if ( class_exists( 'BizCity_Episodic_Memory' ) ) {
+        //
+        // Wave 2.8d TBR.MEM-D6.5 — guarded by `bizcity_smart_gateway_skip_legacy_memory`.
+        // When skipped, suggest engine receives empty arrays — it already
+        // handles missing keys gracefully (degraded suggestions vs crash).
+        if ( ! $skip_legacy_memory && class_exists( 'BizCity_Episodic_Memory' ) ) {
             $context['episodic_habits'] = BizCity_Episodic_Memory::instance()
                 ->get_habits( $user_id );
         }
-        if ( class_exists( 'BizCity_Rolling_Memory' ) ) {
+        if ( ! $skip_legacy_memory && class_exists( 'BizCity_Rolling_Memory' ) ) {
             $rm = BizCity_Rolling_Memory::instance();
             $context['rolling_active']    = $rm->get_active_for_user( $user_id, $session_id );
             $context['rolling_completed'] = $rm->get_recently_completed( $user_id, 60 );
         }
 
         // ── User Memories Typed (for suggest engine) ──
-        if ( class_exists( 'BizCity_User_Memory' ) ) {
+        if ( ! $skip_legacy_memory && class_exists( 'BizCity_User_Memory' ) ) {
             $context['user_memories_typed'] = BizCity_User_Memory::instance()
                 ->get_memories( [
                     'user_id'    => $user_id,

@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "brain_session_carry_forward",
+  "description": "Continuity bundle emitted at session_archived OR scheduler tick (idle > N hours). Lists unresolved questions / promises / followups that the next session should remember. Memory_Recall Tier F surfaces these to Final_Composer system prompt for cross-session 'em vẫn nhớ' behaviour.",
+  "type": "object",
+  "required": ["session_id"],
+  "properties": {
+    "session_id":  { "type": "string", "pattern": "^brain_sess_[0-9]+_[0-9]+_[0-9a-f]{4}$" },
+    "unresolved":  { "type": "array", "items": { "type": "string" }, "description": "Questions user raised that didn't get a confident answer." },
+    "promises":    { "type": "array", "items": { "type": "string" }, "description": "Things the assistant promised to do/check later." },
+    "followups":   { "type": "array", "items": { "type": "string" }, "description": "Suggested next-session topics." },
+    "summary":     { "type": "string", "description": "≤ 280 chars Vietnamese summary." },
+    "expires_at":  { "type": "string", "format": "date-time" }
+  }
+}

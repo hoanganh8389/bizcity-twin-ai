@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "brain_session_mood_sampled",
+  "description": "Empathic Layer F sample. Memory_Writer Mode 4 emits every ~3 turns (cost-guarded). Drives tier='session_empathic' UPSERT in bizcity_memory_users for cross-session companion recall (Memory_Recall Tier F).",
+  "type": "object",
+  "required": ["session_id", "turn_index", "valence"],
+  "properties": {
+    "session_id": { "type": "string", "pattern": "^brain_sess_[0-9]+_[0-9]+_[0-9a-f]{4}$" },
+    "turn_index": { "type": "integer", "minimum": 1 },
+    "valence":    { "type": "number",  "minimum": -1, "maximum": 1, "description": "-1 negative ↔ +1 positive sentiment." },
+    "label":      { "type": "string", "description": "Short Vietnamese label (e.g. 'lo lắng', 'yên tâm')." },
+    "signals":    { "type": "array", "items": { "type": "string" }, "description": "Cue tokens / phrases supporting the score." },
+    "model":      { "type": "string", "description": "Cheap LLM model id used (audit)." }
+  }
+}

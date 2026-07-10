@@ -120,6 +120,13 @@ class BizCity_Zalo_Bot_REST_API {
 			'permission_callback' => array( $this, 'check_admin' ),
 		) );
 
+		// [2026-07-02 Johnny Chu] HOTFIX — manual repair-tables endpoint (for post-clone recovery)
+		register_rest_route( self::NS, '/zalo-bot/repair-tables', array(
+			'methods'             => 'POST',
+			'callback'            => array( $this, 'mgmt_repair_tables' ),
+			'permission_callback' => array( $this, 'check_admin' ),
+		) );
+
 		// List notebooks (site-scoped, read-only) for binding dropdown.
 		register_rest_route( self::NS, '/zalo-bot/notebooks', array(
 			'methods'             => 'GET',
@@ -217,6 +224,18 @@ class BizCity_Zalo_Bot_REST_API {
 			'methods'             => 'GET',
 			'callback'            => array( $this, 'mgmt_recipient_diagnose' ),
 			'permission_callback' => array( $this, 'check_admin' ),
+		) );
+
+		// [2026-06-29 Johnny Chu] PHASE-0 — Admin force-resend login link to unlinked Zalo user.
+		// Deletes cooldown transient first so admin can bypass the 5-min rate limit.
+		register_rest_route( self::NS, '/zalo-bot/bots/(?P<id>\d+)/resend-link', array(
+			'methods'             => 'POST',
+			'callback'            => array( $this, 'mgmt_resend_link' ),
+			'permission_callback' => array( $this, 'check_admin' ),
+			'args'                => array(
+				'zalo_user_id'  => array( 'required' => true, 'sanitize_callback' => 'sanitize_text_field' ),
+				'display_name'  => array( 'default' => '', 'sanitize_callback' => 'sanitize_text_field' ),
+			),
 		) );
 	}
 
@@ -322,7 +341,58 @@ class BizCity_Zalo_Bot_REST_API {
 	 * Management handlers (admin only)
 	 * ════════════════════════════════════════════════ */
 
+	/**
+	 * [2026-07-02 Johnny Chu] HOTFIX — manual repair endpoint: force-recreate all tables.
+	 * Used by admin "Tạo lại bảng" button in post-clone recovery flow.
+	 */
+	public function mgmt_repair_tables( $request ) {
+		if ( ! class_exists( 'BizCity_Zalo_Bot_Database' ) ) {
+			return new WP_Error( 'unavailable', 'BizCity_Zalo_Bot_Database class not found.', array( 'status' => 500 ) );
+		}
+		BizCity_Zalo_Bot_Database::activate();
+		delete_option( 'bizcity_zalo_bot_db_version' );
+		error_log( '[BizCity Zalo Bot] mgmt_repair_tables: tables recreated on blog ' . get_current_blog_id() . ' by user ' . get_current_user_id() );
+		return rest_ensure_response( array(
+			'success' => true,
+			'message' => 'Bảng dữ liệu đã được tạo lại thành công. Vui lòng tải lại trang.',
+		) );
+	}
+
+	/**
+	 * [2026-07-02 Johnny Chu] HOTFIX — auto-create tables when missing (clone without version reset)
+	 * Returns setup_required:true so FE shows "table created, F5 to continue" banner.
+	 */
+	private function ensure_tables_exist() {
+		global $wpdb;
+		$table = $wpdb->prefix . 'bizcity_zalo_bots';
+		$exists = (int) $wpdb->get_var(
+			$wpdb->prepare(
+				'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+				$table
+			)
+		);
+		if ( $exists ) {
+			return false; // all good
+		}
+		// Table missing — auto-create
+		error_log( '[BizCity Zalo Bot] Table ' . $table . ' missing on blog ' . get_current_blog_id() . ' — running auto-install.' );
+		if ( class_exists( 'BizCity_Zalo_Bot_Database' ) ) {
+			BizCity_Zalo_Bot_Database::activate();
+		}
+		// Reset version gate so next admin_init will also re-verify
+		delete_option( 'bizcity_zalo_bot_db_version' );
+		return true; // caller should return setup_required response
+	}
+
 	public function mgmt_list_bots( $request ) {
+		// [2026-07-02 Johnny Chu] HOTFIX — guard missing table (post-clone)
+		if ( $this->ensure_tables_exist() ) {
+			return rest_ensure_response( array(
+				'bots'           => array(),
+				'setup_required' => true,
+				'message'        => 'Bảng dữ liệu Zalo Bot chưa tồn tại và đã được tự động tạo. Vui lòng tải lại trang (F5) để tiếp tục.',
+			) );
+		}
 		global $wpdb;
 		$table = $wpdb->prefix . 'bizcity_zalo_bots';
 		$logs  = $wpdb->prefix . 'bizcity_zalo_bot_logs';
@@ -345,6 +415,14 @@ class BizCity_Zalo_Bot_REST_API {
 	}
 
 	public function mgmt_save_bot( $request ) {
+		// [2026-07-02 Johnny Chu] HOTFIX — guard missing table (post-clone)
+		if ( $this->ensure_tables_exist() ) {
+			return new WP_Error(
+				'setup_required',
+				'Bảng dữ liệu Zalo Bot vừa được tự động tạo. Vui lòng tải lại trang (F5) và thử lại.',
+				array( 'status' => 503, 'setup_required' => true )
+			);
+		}
 		$id    = (int) $request->get_param( 'id' );
 		$body  = (array) $request->get_json_params();
 		if ( empty( $body ) ) { $body = $request->get_params(); }
@@ -437,7 +515,14 @@ class BizCity_Zalo_Bot_REST_API {
 			   FROM {$logs}
 			  WHERE bot_id = %d
 			    AND user_id <> ''
-			    AND event_name IN ( 'message.text.received', 'message.image.received' )
+			    -- [2026-07-08 Johnny Chu] HOTFIX — avoid strict whitelist that can
+			    -- hide valid inbound rows when Zalo sends alternative message event names.
+			    AND event_name <> 'bot.reply'
+			    AND (
+			        event_name IN ( 'message.text.received', 'message.image.received' )
+			        OR event_name LIKE 'message.%'
+			        OR event_name LIKE 'user.send.%'
+			    )
 			  GROUP BY user_id
 			  ORDER BY last_seen DESC
 			  LIMIT %d",
@@ -448,7 +533,11 @@ class BizCity_Zalo_Bot_REST_API {
 
 		// Annotate with link status + notebook
 		$nb_table  = $wpdb->prefix . 'bizcity_kg_notebooks';
-		$nb_exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $nb_table ) ) === $nb_table;
+		// [2026-06-29 Johnny Chu] R-SHOW-TABLES — SHOW TABLES forbidden on multisite; use information_schema
+		$nb_exists = (bool) $wpdb->get_var( $wpdb->prepare(
+			'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+			$nb_table
+		) );
 		$link_tbl  = class_exists( 'BizCity_Zalobot_User_Linker' ) ? BizCity_Zalobot_User_Linker::table() : '';
 
 		$out = array();
@@ -502,7 +591,43 @@ class BizCity_Zalo_Bot_REST_API {
 			$out[] = $r;
 		}
 
-		return rest_ensure_response( array( 'users' => $out ) );
+		$debug = array(
+			'selected_bot_id' => $bot_id,
+			'user_count'      => count( $out ),
+		);
+
+		if ( empty( $out ) ) {
+			// [2026-07-08 Johnny Chu] HOTFIX — when selected bot has no rows, expose
+			// inbound activity from other bots so admin can spot wrong-bot listening.
+			$other_rows = $wpdb->get_results(
+				"SELECT bot_id,
+				        COUNT(*) AS inbound_count,
+				        MAX(created_at) AS last_seen
+				   FROM {$logs}
+				  WHERE event_name <> 'bot.reply'
+				    AND ( event_name LIKE 'message.%' OR event_name LIKE 'user.send.%' )
+				  GROUP BY bot_id
+				  ORDER BY last_seen DESC
+				  LIMIT 5",
+				ARRAY_A
+			) ?: array();
+
+			$debug['other_bot_activity'] = array_map(
+				static function( $row ) {
+					return array(
+						'bot_id'        => (int) ( $row['bot_id'] ?? 0 ),
+						'inbound_count' => (int) ( $row['inbound_count'] ?? 0 ),
+						'last_seen'     => (string) ( $row['last_seen'] ?? '' ),
+					);
+				},
+				$other_rows
+			);
+		}
+
+		return rest_ensure_response( array(
+			'users'  => $out,
+			'debug'  => $debug,
+		) );
 	}
 
 	public function mgmt_list_links( $request ) {
@@ -584,17 +709,21 @@ class BizCity_Zalo_Bot_REST_API {
 			$zalo_user_id, $bot_id
 		) );
 
+		// [2026-06-29 Johnny Chu] PHASE-0 — check DB errors so FE can detect failures.
 		if ( $existing ) {
-			$wpdb->update( $table, array(
+			$result = $wpdb->update( $table, array(
 				'wp_user_id'   => $wp_user_id,
 				'display_name' => $display_name,
 				'status'       => 'linked',
 				'linked_at'    => current_time( 'mysql' ),
 			), array( 'id' => $existing->id ) );
+			if ( false === $result ) {
+				return new WP_Error( 'db_error', 'Không thể cập nhật link: ' . $wpdb->last_error, array( 'status' => 500 ) );
+			}
 			return rest_ensure_response( array( 'success' => true, 'id' => (int) $existing->id, 'action' => 'updated' ) );
 		}
 
-		$wpdb->insert( $table, array(
+		$rows = $wpdb->insert( $table, array(
 			'zalo_user_id' => $zalo_user_id,
 			'bot_id'       => $bot_id,
 			'blog_id'      => $blog_id,
@@ -603,6 +732,9 @@ class BizCity_Zalo_Bot_REST_API {
 			'display_name' => $display_name,
 			'linked_at'    => current_time( 'mysql' ),
 		) );
+		if ( false === $rows ) {
+			return new WP_Error( 'db_error', 'Không thể tạo link: ' . $wpdb->last_error, array( 'status' => 500 ) );
+		}
 		return rest_ensure_response( array( 'success' => true, 'id' => (int) $wpdb->insert_id, 'action' => 'created' ) );
 	}
 
@@ -615,6 +747,45 @@ class BizCity_Zalo_Bot_REST_API {
 		$table = BizCity_Zalobot_User_Linker::table();
 		$wpdb->delete( $table, array( 'id' => $id ) );
 		return rest_ensure_response( array( 'success' => true ) );
+	}
+
+	/**
+	 * [2026-06-29 Johnny Chu] PHASE-0 — Admin force-resend login link to unlinked Zalo user.
+	 * Bypasses the 5-minute cooldown by deleting the cooldown transient first.
+	 */
+	public function mgmt_resend_link( $request ) {
+		global $wpdb;
+		$bot_id       = (int) $request->get_param( 'id' );
+		$zalo_user_id = sanitize_text_field( (string) $request->get_param( 'zalo_user_id' ) );
+		$display_name = sanitize_text_field( (string) ( $request->get_param( 'display_name' ) ?: '' ) );
+
+		if ( ! $bot_id || ! $zalo_user_id ) {
+			return new WP_Error( 'invalid_input', 'bot_id and zalo_user_id required', array( 'status' => 400 ) );
+		}
+		if ( ! class_exists( 'BizCity_Zalobot_User_Linker' ) ) {
+			return new WP_Error( 'no_linker', 'User linker not available', array( 'status' => 500 ) );
+		}
+
+		$bot = $wpdb->get_row( $wpdb->prepare(
+			"SELECT * FROM {$wpdb->prefix}bizcity_zalo_bots WHERE id = %d LIMIT 1",
+			$bot_id
+		) );
+		if ( ! $bot ) {
+			return new WP_Error( 'not_found', 'Bot not found', array( 'status' => 404 ) );
+		}
+
+		// Admin force-resend: delete cooldown transient so maybe_send_login_link proceeds.
+		$cooldown_key = 'bzzalolink_cd_' . md5( $zalo_user_id . '_' . $bot_id );
+		delete_transient( $cooldown_key );
+
+		$sent = BizCity_Zalobot_User_Linker::maybe_send_login_link(
+			$zalo_user_id,
+			$bot_id,
+			$bot,
+			$display_name
+		);
+
+		return rest_ensure_response( array( 'success' => true, 'sent' => $sent ) );
 	}
 
 	public function mgmt_set_link_role( $request ) {
@@ -1605,6 +1776,7 @@ class BizCity_Zalo_Bot_REST_API {
 	public function mgmt_setup_status( $request ) {
 		$ctx = $this->load_bot_with_api( $request->get_param( 'id' ) );
 		if ( is_wp_error( $ctx ) ) { return $ctx; }
+		global $wpdb; // [2026-07-08 Johnny Chu] HOTFIX — required for db_counts queries below.
 		$bot = $ctx['bot'];
 		$api = $ctx['api'];
 
@@ -1692,6 +1864,38 @@ class BizCity_Zalo_Bot_REST_API {
 		$out['log_counts'] = $counts;
 		$out['log_total']  = $log_total;
 		$out['log_date']   = $today;
+
+		// [2026-07-08 Johnny Chu] HOTFIX — per-bot inbound counters from DB so
+		// admin can detect "UI polling works but selected bot has no inbound rows".
+		$tbl_logs = $wpdb->prefix . 'bizcity_zalo_bot_logs';
+		$db_total = (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT COUNT(*) FROM {$tbl_logs} WHERE bot_id = %d",
+			(int) $bot->id
+		) );
+		$db_inbound = (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT COUNT(*)
+			   FROM {$tbl_logs}
+			  WHERE bot_id = %d
+			    AND event_name <> 'bot.reply'
+			    AND ( event_name LIKE 'message.%%' OR event_name LIKE 'user.send.%%' )",
+			(int) $bot->id
+		) );
+		$db_last_at = (string) $wpdb->get_var( $wpdb->prepare(
+			"SELECT MAX(created_at) FROM {$tbl_logs} WHERE bot_id = %d",
+			(int) $bot->id
+		) );
+
+		$out['checks'][] = array(
+			'id'     => 'bot_inbound_db',
+			'label'  => 'Inbound message vào DB theo bot đang chọn',
+			'status' => $db_inbound > 0 ? 'pass' : 'warn',
+			'detail' => 'inbound=' . $db_inbound . ', total=' . $db_total . ', last=' . ( $db_last_at ?: 'never' ),
+		);
+		$out['db_counts'] = array(
+			'bot_total'   => $db_total,
+			'bot_inbound' => $db_inbound,
+			'bot_last_at' => $db_last_at,
+		);
 
 		// Overall verdict
 		$has_fail = false;

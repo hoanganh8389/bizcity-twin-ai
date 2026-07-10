@@ -61,15 +61,14 @@ function waic_kling_get_api_config(array $settings = []): array {
         ], $settings );
     }
 
-    // BizCity Gateway mode — use LLM Router API key as bearer token
-    // Use get_site_option for multisite compatibility (network-level option)
-    $gateway_key = get_site_option( 'bizcity_llm_api_key', '' );
+    // [2026-06-10 Johnny Chu] HOTFIX — per-site option (not network-wide sitemeta)
+    $gateway_key = get_option( 'bizcity_llm_api_key', '' );
     if ( empty( $gateway_key ) ) {
-        $gateway_key = get_option( 'bizcity_llm_api_key', '' );
+        $gateway_key = '';
     }
-    $gateway_url = get_site_option( 'bizcity_llm_gateway_url', '' );
+    $gateway_url = get_option( 'bizcity_llm_gateway_url', '' );
     if ( empty( $gateway_url ) ) {
-        $gateway_url = get_option( 'bizcity_llm_gateway_url', '' );
+        $gateway_url = '';
     }
 
     // Use Hub namespace (bizcity/llmhub/v1) — always available via mu-plugin bizcity-openrouter.

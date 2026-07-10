@@ -1,0 +1,207 @@
+[
+  {
+    "slug": "tpl_test_smoke_manual_v1",
+    "name": "[TEST] Smoke · Manual → LLM → CRM",
+    "description": "Template ngắn nhất để verify runner: trigger.manual → llm.compose_reply → action.create_crm_event. Dùng để debug realtime per-node status + SSE logs nhanh.",
+    "category": "test", "source": "builtin", "trigger_type": "manual", "icon": "Play",
+    "tags": "test,smoke,debug,manual", "trigger_config": {},
+    "graph": {
+      "meta": { "template": "tpl_test_smoke_manual_v1" },
+      "nodes": [
+        { "id": "t1", "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.manual", "label": "Manual · trigger" } },
+        { "id": "l1", "type": "llm",     "position": { "x": 320, "y": 80 }, "data": { "blockId": "llm.compose_reply", "label": "LLM · echo", "model": "gpt-4o-mini", "system": "Bạn là smoke-test bot. Trả lời ngắn 1 câu.", "prompt": "Hãy chào bằng tiếng Việt và in ra timestamp hiện tại." } },
+        { "id": "c1", "type": "action",  "position": { "x": 640, "y": 80 }, "data": { "blockId": "action.create_crm_event", "label": "CRM · log run", "event_type": "task", "title": "[Smoke] Test runner OK", "description": "Reply: {{llm.output}}", "start_at": "+1 minute", "status": "done" } }
+      ],
+      "edges": [
+        { "id": "e_t1_l1", "source": "t1", "target": "l1" }, { "id": "e_l1_c1", "source": "l1", "target": "c1" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_test_smoke_branch_v1",
+    "name": "[TEST] Smoke · Manual → IF → 2 CRM branches",
+    "description": "Verify condition branch routing + per-node skip status. Gửi {\"text\":\"ok\"} → branch TRUE chạy, FALSE skip. Gửi {\"text\":\"no\"} → ngược lại.",
+    "category": "test", "source": "builtin", "trigger_type": "manual", "icon": "GitBranch",
+    "tags": "test,smoke,branch,condition", "trigger_config": {},
+    "graph": {
+      "meta": { "template": "tpl_test_smoke_branch_v1" },
+      "nodes": [
+        { "id": "t1",    "type": "trigger",   "position": { "x": 0,   "y": 140 }, "data": { "blockId": "trigger.manual", "label": "Manual · trigger" } },
+        { "id": "x1",    "type": "condition", "position": { "x": 320, "y": 140 }, "data": { "blockId": "logic.condition", "label": "IF · text chứa \"ok\"", "expression": "contains({{trigger.text}}, \"ok\")" } },
+        { "id": "a_ok",  "type": "action",    "position": { "x": 640, "y": 40  }, "data": { "blockId": "action.create_crm_event", "label": "CRM · branch TRUE", "event_type": "task", "title": "[Smoke] Branch TRUE hit", "start_at": "+1 minute", "status": "done" } },
+        { "id": "a_fail","type": "action",    "position": { "x": 640, "y": 240 }, "data": { "blockId": "action.create_crm_event", "label": "CRM · branch FALSE", "event_type": "task", "title": "[Smoke] Branch FALSE hit", "start_at": "+1 minute", "status": "done" } }
+      ],
+      "edges": [
+        { "id": "e_t1_x1", "source": "t1", "target": "x1" },
+        { "id": "e_x1_ok_true",   "source": "x1", "target": "a_ok",   "sourceHandle": "true" },
+        { "id": "e_x1_fail_false","source": "x1", "target": "a_fail", "sourceHandle": "false" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_knowledge_router_v1",
+    "name": "SEED W1 · Knowledge Router (@hỏi → TwinBrain)",
+    "description": "Keyword \"@hỏi\" qua Zalo → llm.mpr_think route sang TwinBrain MPR → reply kèm citations + ghi audit row vào CRM (event_type=task, metadata.kind=knowledge_query).",
+    "category": "mpr", "source": "builtin", "trigger_type": "zalo_inbound", "icon": "BookOpen",
+    "tags": "seed-w1,r-final-action,twinbrain,mpr,knowledge,router", "trigger_config": { "instance_id": "", "filter": "@hỏi", "is_fallback": false, "priority": 13 },
+    "graph": {
+      "meta": { "template": "tpl_knowledge_router_v1" },
+      "nodes": [
+        { "id": "t1",    "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.zalo_inbound", "label": "Zalo · keyword \"@hỏi\"", "instance_id": "", "filter": "@hỏi" } },
+        { "id": "think", "type": "llm",     "position": { "x": 320, "y": 80 }, "data": { "blockId": "llm.mpr_think", "label": "TwinBrain MPR · domain router", "prompt": "{{trigger.text}}", "guru_id": 0, "tool_force": "", "k": 8 } },
+        { "id": "reply", "type": "action",  "position": { "x": 640, "y": 80 }, "data": { "blockId": "action.reply_zalo", "label": "Trả lời + citations", "text": "{{think.answer_md}}\n\n— TwinBrain (trace {{think.trace_id}})" } },
+        { "id": "audit", "type": "action",  "position": { "x": 640, "y": 240 }, "data": { "blockId": "action.create_crm_event", "label": "Audit · knowledge_query", "event_type": "task", "title": "[knowledge] {{trigger.text}}", "description": "kind=knowledge_query\nQ: {{trigger.text}}\nTrace: {{think.trace_id}}\nLayers: {{think.layers_count}}", "start_at": "+0 minutes" } }
+      ],
+      "edges": [
+        { "id": "e_t1_think", "source": "t1", "target": "think" }, { "id": "e_think_reply", "source": "think", "target": "reply" },
+        { "id": "e_think_audit", "source": "think", "target": "audit" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_remember_this_v1",
+    "name": "SEED W1 · Remember this (@nhớ → memory note)",
+    "description": "Keyword \"@nhớ\" → LLM extract title/tags/content → tạo CRM event (event_type=task, metadata.kind=memory_note) → reply Zalo confirm với event_id.",
+    "category": "general", "source": "builtin", "trigger_type": "zalo_inbound", "icon": "BrainCircuit",
+    "tags": "seed-w1,r-final-action,memory,twinbrain,recall", "trigger_config": { "instance_id": "", "filter": "@nhớ", "is_fallback": false, "priority": 13 },
+    "graph": {
+      "meta": { "template": "tpl_remember_this_v1" },
+      "nodes": [
+        { "id": "t1",       "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.zalo_inbound", "label": "Zalo · keyword \"@nhớ\"", "instance_id": "", "filter": "@nhớ" } },
+        { "id": "extract",  "type": "llm",     "position": { "x": 320, "y": 80 }, "data": { "blockId": "llm.compose_reply", "label": "Extract memory title + tags", "model": "gpt-4o-mini", "system": "Bạn là bộ trích xuất memory note. Đọc câu của user và trả về DUY NHẤT 1 dòng JSON (không markdown): {\"title\":\"<tiêu đề 5-10 từ>\",\"tags\":\"<csv tag>\",\"content\":\"<nội dung gọn rõ ràng>\"}.", "prompt": "Câu của user: {{trigger.text}}" } },
+        { "id": "remember", "type": "action",  "position": { "x": 640, "y": 80 }, "data": { "blockId": "action.create_crm_event", "label": "Ghi memory (CRM event)", "event_type": "task", "title": "[memory] {{trigger.text}}", "description": "kind=memory_note\nExtract: {{extract.output}}\nOriginal: {{trigger.text}}\nChat: {{trigger.chat_id}}", "start_at": "+3 minutes" } },
+        { "id": "reply",    "type": "action",  "position": { "x": 960, "y": 80 }, "data": { "blockId": "action.reply_zalo", "label": "Confirm Zalo", "text": "🧠 Đã nhớ (event #{{remember.event_id}})\n📝 {{extract.output}}\n🔍 Recall sau bằng @recall hoặc xem trên Scheduler." } }
+      ],
+      "edges": [
+        { "id": "e_t1_extract", "source": "t1", "target": "extract" }, { "id": "e_extract_remember", "source": "extract", "target": "remember" },
+        { "id": "e_remember_reply", "source": "remember", "target": "reply" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_slash_kg_query_v1",
+    "name": "/kg — Hỏi Knowledge Graph qua slash",
+    "description": "User gõ /kg <câu hỏi> → tra Knowledge Graph → LLM soạn câu trả lời → reply Zalo. Mẫu chuẩn cho GURU W2 slash_command trigger.",
+    "category": "cskh", "source": "builtin", "trigger_type": "slash_command", "icon": "Search",
+    "tags": "slash,kg,llm,zalo,guru-w2", "trigger_config": { "slash_command": "/kg" },
+    "graph": {
+      "meta": { "template": "tpl_slash_kg_query_v1" },
+      "nodes": [
+        { "id": "t1", "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.slash_command", "label": "/kg — hỏi Knowledge Graph", "slash_command": "/kg", "description": "User gõ /kg <câu hỏi> để tra nội bộ." } },
+        { "id": "a1", "type": "action",  "position": { "x": 320, "y": 80 }, "data": { "blockId": "action.search_kg", "label": "Tra cứu KG", "query": "{{trigger.slash_args}}", "top_k": 5 } },
+        { "id": "l1", "type": "llm",     "position": { "x": 640, "y": 80 }, "data": { "blockId": "llm.compose_reply", "label": "LLM soạn câu trả lời", "model": "gpt-4o-mini", "system": "Bạn là trợ lý thân thiện của doanh nghiệp.", "prompt": "Câu hỏi: {{trigger.slash_args}}\nKiến thức nội bộ: {{kg.snippet}}\nTrả lời ngắn gọn, lịch sự." } },
+        { "id": "o1", "type": "action",  "position": { "x": 960, "y": 80 }, "data": { "blockId": "action.reply_zalo", "label": "Gửi Zalo", "text": "{{llm.output}}" } }
+      ],
+      "edges": [
+        { "id": "e_t1_a1", "source": "t1", "target": "a1" }, { "id": "e_a1_l1", "source": "a1", "target": "l1" },
+        { "id": "e_l1_o1", "source": "l1", "target": "o1" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_skill_intent_invoke_v1",
+    "name": "Skill Intent → Invoke & Log (Bridge W2)",
+    "description": "Khi skill pipeline fire (archetype C/D) → workflow bắt skill_intent → invoke_skill trong context → log output. Mẫu demo cho trigger.skill_intent (GURU Bridge W2).",
+    "category": "mpr", "source": "builtin", "trigger_type": "skill_intent", "icon": "Zap",
+    "tags": "skill,intent,bridge,invoke,guru-w2", "trigger_config": { "skill_slug": "", "archetype": "any" },
+    "graph": {
+      "meta": { "template": "tpl_skill_intent_invoke_v1" },
+      "nodes": [
+        { "id": "t1",  "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.skill_intent", "label": "Skill Intent fired (any)", "skill_slug": "", "archetype": "any" } },
+        { "id": "a1",  "type": "action",  "position": { "x": 320, "y": 80 }, "data": { "blockId": "action.invoke_skill", "label": "Invoke skill", "skill_slug": "{{trigger.skill_key}}", "prompt_template": "{{trigger.prompt}}", "character_id": 0, "timeout_seconds": 30 } },
+        { "id": "log", "type": "action",  "position": { "x": 640, "y": 80 }, "data": { "blockId": "action.log", "label": "Log kết quả", "message": "Skill {{trigger.skill_key}} done — output: {{a1.skill_output}}" } }
+      ],
+      "edges": [
+        { "id": "e_t1_a1", "source": "t1", "target": "a1" }, { "id": "e_a1_log", "source": "a1", "target": "log" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_zalo_oa_auto_reply_v1",
+    "name": "[Care] Zalo OA · Tự động trả lời CSKH",
+    "description": "Khách nhắn Zalo OA → tra Knowledge Graph → LLM soạn câu trả lời chăm sóc → reply ngay + ghi CRM. Dùng cho Path B (zone=crm).",
+    "category": "cskh", "source": "builtin", "trigger_type": "zalo_inbound", "icon": "MessageCircle",
+    "tags": "care,crm-path,zalo-oa,cskh,kg,llm,auto-reply", "trigger_config": { "instance_id": "", "filter": "", "zone": "crm" },
+    "graph": {
+      "meta": { "template": "tpl_zalo_oa_auto_reply_v1", "zone": "crm" },
+      "nodes": [
+        { "id": "t1", "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.zalo_inbound", "label": "Zalo OA · tin nhắn khách", "instance_id": "", "filter": "" } },
+        { "id": "a1", "type": "action",  "position": { "x": 320, "y": 80 }, "data": { "blockId": "action.search_kg", "label": "Tra cứu sản phẩm / FAQ", "query": "{{trigger.text}}", "top_k": 5 } },
+        { "id": "l1", "type": "llm",     "position": { "x": 640, "y": 80 }, "data": { "blockId": "llm.compose_reply", "label": "Soạn câu trả lời CSKH", "model": "gpt-4o-mini", "system": "Bạn là nhân viên chăm sóc khách hàng thân thiện, chuyên nghiệp. Trả lời ngắn gọn, đúng vào vấn đề, xưng \"shop\" với khách.", "prompt": "Câu hỏi khách: {{trigger.text}}\nThông tin nội bộ: {{kg.snippet}}\nTrả lời:" } },
+        { "id": "o1", "type": "action",  "position": { "x": 960, "y": 80 }, "data": { "blockId": "action.reply_zalo", "label": "Trả lời Zalo OA", "text": "{{llm.output}}" } },
+        { "id": "c1", "type": "action",  "position": { "x": 960, "y": 240 }, "data": { "blockId": "action.create_crm_event", "label": "Ghi CRM · auto_reply", "event_type": "reminder_zalo", "title": "[care] Tự động trả lời: {{trigger.text}}" } }
+      ],
+      "edges": [
+        { "id": "e_t1_a1", "source": "t1", "target": "a1" }, { "id": "e_a1_l1", "source": "a1", "target": "l1" },
+        { "id": "e_l1_o1", "source": "l1", "target": "o1" }, { "id": "e_l1_c1", "source": "l1", "target": "c1" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_zalo_classify_route_v1",
+    "name": "[Care] Zalo OA · Phân loại ý định → Route phòng ban",
+    "description": "Khách nhắn Zalo OA → LLM phân loại ý định (mua hàng / khiếu nại / kỹ thuật / khác) → tạo CRM event với tag tương ứng + reply xác nhận tiếp nhận.",
+    "category": "cskh", "source": "builtin", "trigger_type": "zalo_inbound", "icon": "GitBranch",
+    "tags": "care,crm-path,zalo-oa,classify,route,cskh", "trigger_config": { "instance_id": "", "filter": "", "zone": "crm" },
+    "graph": {
+      "meta": { "template": "tpl_zalo_classify_route_v1", "zone": "crm" },
+      "nodes": [
+        { "id": "t1",    "type": "trigger",   "position": { "x": 0,    "y": 80 }, "data": { "blockId": "trigger.zalo_inbound", "label": "Zalo OA · tin nhắn khách", "instance_id": "", "filter": "" } },
+        { "id": "clf",   "type": "llm",       "position": { "x": 320,  "y": 80 }, "data": { "blockId": "llm.compose_reply", "label": "Phân loại ý định", "model": "gpt-4o-mini", "system": "Phân loại ý định khách hàng thành 1 trong 4 nhãn duy nhất: MUA_HANG, KHIEU_NAI, KY_THUAT, KHAC. Chỉ trả về nhãn, không giải thích.", "prompt": "Tin nhắn: {{trigger.text}}" } },
+        { "id": "gate",  "type": "condition", "position": { "x": 640,  "y": 80 }, "data": { "blockId": "logic.condition", "label": "Route theo ý định", "expression": "clf.output == 'MUA_HANG'" } },
+        { "id": "c_buy", "type": "action",    "position": { "x": 960,  "y": 0  }, "data": { "blockId": "action.create_crm_event", "label": "CRM · Mua hàng", "event_type": "task", "title": "[care/mua_hang] {{trigger.text}}" } },
+        { "id": "c_oth", "type": "action",    "position": { "x": 960,  "y": 200 }, "data": { "blockId": "action.create_crm_event", "label": "CRM · Khác / chuyển tiếp", "event_type": "task", "title": "[care/{{clf.output}}] {{trigger.text}}" } },
+        { "id": "reply", "type": "action",    "position": { "x": 1280, "y": 80 }, "data": { "blockId": "action.reply_zalo", "label": "Xác nhận tiếp nhận", "text": "Cảm ơn anh/chị đã liên hệ! Chúng tôi đã ghi nhận và sẽ phản hồi sớm nhất." } }
+      ],
+      "edges": [
+        { "id": "e_t1_clf",    "source": "t1",   "target": "clf" },
+        { "id": "e_clf_gate",  "source": "clf",  "target": "gate" },
+        { "id": "e_gate_buy_true",  "source": "gate",  "target": "c_buy", "sourceHandle": "true" },
+        { "id": "e_gate_oth_false", "source": "gate",  "target": "c_oth", "sourceHandle": "false" },
+        { "id": "e_c_buy_reply",    "source": "c_buy", "target": "reply" },
+        { "id": "e_c_oth_reply",    "source": "c_oth", "target": "reply" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_zalo_tag_assign_v1",
+    "name": "[Care] Zalo OA · Tag khách + Assign nhân viên",
+    "description": "Khách nhắn Zalo OA → LLM phân tích tag (VIP/new/churn_risk) và độ ưu tiên → ghi CRM event với JSON tag analysis + reply xác nhận.",
+    "category": "care", "source": "builtin", "trigger_type": "zalo_inbound", "icon": "Tags",
+    "tags": "care,crm-path,zalo-oa,tag,assign,cskh", "trigger_config": { "instance_id": "", "filter": "", "zone": "crm" },
+    "graph": {
+      "meta": { "template": "tpl_zalo_tag_assign_v1", "zone": "crm" },
+      "nodes": [
+        { "id": "t1",   "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.zalo_inbound", "label": "Zalo OA · tin nhắn khách", "instance_id": "", "filter": "" } },
+        { "id": "tag",  "type": "llm",     "position": { "x": 320, "y": 80 }, "data": { "blockId": "llm.compose_reply", "label": "Gợi ý tag khách", "model": "gpt-4o-mini", "system": "Phân tích tin nhắn khách và trả về JSON (không markdown): {\"tag\":\"vip|new|churn_risk|regular\",\"priority\":\"high|medium|low\",\"note\":\"<lý do ngắn>\"}.", "prompt": "Tin nhắn khách: {{trigger.text}}" } },
+        { "id": "c1",   "type": "action",  "position": { "x": 640, "y": 80 }, "data": { "blockId": "action.create_crm_event", "label": "Ghi CRM · tag + assign", "event_type": "task", "title": "[care/tag] {{trigger.text}}", "description": "Tag analysis: {{tag.output}}\nChat: {{trigger.chat_id}}\nChannel: {{trigger.platform}}" } },
+        { "id": "reply","type": "action",  "position": { "x": 960, "y": 80 }, "data": { "blockId": "action.reply_zalo", "label": "Xác nhận + ưu tiên chăm sóc", "text": "Cảm ơn anh/chị! Yêu cầu đã được ghi nhận và chuyển tới bộ phận phụ trách." } }
+      ],
+      "edges": [
+        { "id": "e_t1_tag", "source": "t1", "target": "tag" }, { "id": "e_tag_c1", "source": "tag", "target": "c1" },
+        { "id": "e_c1_reply", "source": "c1", "target": "reply" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_fb_messenger_auto_reply_v1",
+    "name": "[Care] Facebook Messenger · CSKH Tự động",
+    "description": "Khách nhắn Facebook Messenger → tra KG nội bộ → LLM soạn câu trả lời thân thiện → gửi Messenger + ghi CRM. Dùng cho Path B (zone=crm, Zone 1 CRM-care).",
+    "category": "cskh", "source": "builtin", "trigger_type": "fb_message", "icon": "MessageCircle",
+    "tags": "care,crm-path,facebook,messenger,cskh,auto-reply", "trigger_config": { "instance_id": "", "filter": "", "zone": "crm" },
+    "graph": {
+      "meta": { "template": "tpl_fb_messenger_auto_reply_v1", "zone": "crm" },
+      "nodes": [
+        { "id": "t1", "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.fb_message", "label": "Facebook Messenger · tin nhắn khách", "instance_id": "", "filter": "" } },
+        { "id": "a1", "type": "action",  "position": { "x": 320, "y": 80 }, "data": { "blockId": "action.search_kg", "label": "Tra cứu KG", "query": "{{trigger.text}}", "top_k": 5 } },
+        { "id": "l1", "type": "llm",     "position": { "x": 640, "y": 80 }, "data": { "blockId": "llm.compose_reply", "label": "Soạn câu trả lời CSKH", "model": "gpt-4o-mini", "system": "Bạn là nhân viên CSKH thân thiện. Trả lời ngắn gọn, lịch sự, tiếng Việt.", "prompt": "Câu hỏi khách: {{trigger.text}}\nThông tin sản phẩm/dịch vụ: {{kg.snippet}}\nTrả lời phù hợp cho Facebook Messenger." } },
+        { "id": "r1", "type": "action",  "position": { "x": 960, "y": 80 }, "data": { "blockId": "action.reply_fb_message", "label": "Trả lời FB Messenger", "text": "{{llm.output}}" } },
+        { "id": "c1", "type": "action",  "position": { "x": 960, "y": 240 }, "data": { "blockId": "action.create_crm_event", "label": "Ghi CRM · hội thoại FB", "event_type": "task", "title": "[care/fb] {{trigger.text}}", "description": "Trả lời: {{llm.output}}\nPage: {{trigger.account_id}}\nUser: {{trigger.sender_id}}" } }
+      ],
+      "edges": [
+        { "id": "e_t1_a1", "source": "t1", "target": "a1" }, { "id": "e_a1_l1", "source": "a1", "target": "l1" },
+        { "id": "e_l1_r1", "source": "l1", "target": "r1" }, { "id": "e_l1_c1", "source": "l1", "target": "c1" }
+      ]
+    }
+  }
+]

@@ -102,7 +102,16 @@
 						}, reject);
 					} else if (st === 'failed') {
 						stopped = true;
-						reject(new Error('skeleton-failed'));
+					// [2026-06-04 Johnny Chu] SKEL-FAIL-REASON — surface actionable hint.
+					var hint = (state && state.fail_hint)
+						? state.fail_hint
+						: (state && state.fail_reason
+							? 'Skeleton build lỗi: ' + state.fail_reason + '. Bấm Rebuild để thử lại.'
+							: 'Skeleton build thất bại. Bấm ♻ Dựng lại để thử lại.');
+					var err = new Error(hint);
+					err.failReason = state && state.fail_reason;
+					err.passagesCount = state && state.passages_count;
+					reject(err);
 					} else {
 						timerId = setTimeout(tick, intervalMs);
 					}

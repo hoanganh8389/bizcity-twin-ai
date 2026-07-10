@@ -28,6 +28,29 @@ if ( is_admin() ) {
 	BizCity_CG_Flow_Admin_Page::init();
 }
 
+/**
+ * Register `bizcity_crm_flows` vào diagnostics Table Registry để:
+ *   1. Hiện trong Tools → BizCity Diagnostics inventory.
+ *   2. Auto-Fix-All sweep (`BizCity_Diagnostics_Smoke_Runner::auto_fix_all()`)
+ *      gọi `BizCity_CG_Flow_Installer::ensure_table()` qua class-fallback
+ *      khi bảng missing (step 4 của orchestrator).
+ *
+ * Trước 2026-06-01 bảng không được register → Auto-Fix-All skip → probe
+ * `channel-gateway.flows` báo `table_missing` kể cả sau khi bấm Auto-Fix-All.
+ */
+add_filter( 'bizcity_diagnostics_register_tables', static function ( $tables ) {
+	$tables   = is_array( $tables ) ? $tables : array();
+	$tables[] = array(
+		'name'      => 'bizcity_crm_flows',
+		'owner'     => 'core/channel-gateway/flows',
+		'group'     => 'channel-gateway',
+		'critical'  => true,
+		'class'     => 'BizCity_CG_Flow_Installer',
+		'installer' => 'cg_flows',
+	);
+	return $tables;
+}, 10 );
+
 /* ============================================================
  * Backward-compat function wrappers — DISABLED 2026-05-25.
  *

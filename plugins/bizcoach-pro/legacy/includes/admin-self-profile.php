@@ -89,6 +89,93 @@ function bccm_get_or_create_user_coachee($user_id, $platform = 'WEBCHAT', $coach
 }
 
 /* =====================================================================
+ * [2026-07-04 Johnny Chu] PHASE-FAA2-NEXT BE-2 — R-COACHEE.2 helpers
+ * =====================================================================*/
+
+/**
+ * Resolve the "chính chủ" (is_self=1) coachee for a WP user.
+ * Falls back to oldest coachee and self-promotes it (one-time fix).
+ *
+ * @param int $user_id
+ * @return array|null coachee row or null if none found
+ */
+function bccm_get_self_coachee( $user_id ) {
+	global $wpdb;
+	$user_id = (int) $user_id;
+	if ( $user_id <= 0 ) { return null; }
+
+	$t = bccm_tables();
+
+	// 1. Try the canonical is_self=1 row first
+	$cols = $wpdb->get_col( "SHOW COLUMNS FROM `{$t['profiles']}`", 0 );
+	if ( in_array( 'is_self', $cols, true ) ) {
+		$row = $wpdb->get_row( $wpdb->prepare(
+			"SELECT * FROM {$t['profiles']} WHERE user_id = %d AND is_self = 1 LIMIT 1",
+			$user_id
+		), ARRAY_A );
+		if ( $row ) { return $row; }
+	}
+
+	// 2. Fallback: oldest coachee (ASC), auto-promote to stable canonical
+	$row = $wpdb->get_row( $wpdb->prepare(
+		"SELECT * FROM {$t['profiles']} WHERE user_id = %d ORDER BY id ASC LIMIT 1",
+		$user_id
+	), ARRAY_A );
+
+	if ( $row && in_array( 'is_self', $cols, true ) ) {
+		bccm_set_self_coachee( $user_id, (int) $row['id'] );
+	}
+	return $row;
+}
+
+/**
+ * Set exactly one coachee as is_self=1 for a user; demote all others.
+ * Atomic: demote all → promote target (two UPDATEs, no transaction needed on InnoDB row-lock).
+ *
+ * @param int $user_id
+ * @param int $coachee_id
+ * @return bool true on success
+ */
+function bccm_set_self_coachee( $user_id, $coachee_id ) {
+	global $wpdb;
+	$user_id    = (int) $user_id;
+	$coachee_id = (int) $coachee_id;
+	if ( $user_id <= 0 || $coachee_id <= 0 ) { return false; }
+
+	$t    = bccm_tables();
+	$cols = $wpdb->get_col( "SHOW COLUMNS FROM `{$t['profiles']}`", 0 );
+	if ( ! in_array( 'is_self', $cols, true ) ) { return false; } // column not yet added
+
+	// Demote all, then promote target
+	$wpdb->update( $t['profiles'], array( 'is_self' => 0 ), array( 'user_id' => $user_id ) );
+	$ok = $wpdb->update( $t['profiles'], array( 'is_self' => 1 ), array( 'id' => $coachee_id, 'user_id' => $user_id ) );
+
+  // [2026-07-05 Johnny Chu] HOTFIX — guard flush_group method to avoid fatal on older cache class.
+  if ( class_exists( 'BizCoach_Pro_Cache' ) && method_exists( 'BizCoach_Pro_Cache', 'flush_group' ) ) {
+    BizCoach_Pro_Cache::flush_group( 'bcpro_self', "self:user:{$user_id}" );
+  }
+	return $ok !== false;
+}
+
+/**
+ * Returns true if the user already has a coachee marked is_self=1.
+ */
+function bccm_user_has_self( $user_id ) {
+	global $wpdb;
+	$user_id = (int) $user_id;
+	if ( $user_id <= 0 ) { return false; }
+
+	$t    = bccm_tables();
+	$cols = $wpdb->get_col( "SHOW COLUMNS FROM `{$t['profiles']}`", 0 );
+	if ( ! in_array( 'is_self', $cols, true ) ) { return false; }
+
+	return (bool) $wpdb->get_var( $wpdb->prepare(
+		"SELECT 1 FROM {$t['profiles']} WHERE user_id = %d AND is_self = 1 LIMIT 1",
+		$user_id
+	) );
+}
+
+/* =====================================================================
  * ADMIN PAGE: Bước 1 – Hồ sơ cá nhân + Chiêm tinh
  * =====================================================================*/
 function bccm_admin_my_profile() {
@@ -136,6 +223,11 @@ function bccm_admin_my_profile() {
     }
 
     $coachee_id = bccm_upsert_profile($data, $coachee_id);
+
+    // [2026-07-04 Johnny Chu] PHASE-FAA2-NEXT BE-2 — auto-promote my profile to is_self
+    if ( $coachee_id && function_exists( 'bccm_set_self_coachee' ) ) {
+      bccm_set_self_coachee( $user_id, $coachee_id );
+    }
 
     // ── Save astro birth data to bccm_astro table ──
     $birth_place = sanitize_text_field($_POST['birth_place'] ?? '');
@@ -353,7 +445,8 @@ function bccm_admin_my_profile() {
   echo '<button class="button" name="bccm_action" value="gen_free_chart" style="background:#3b82f6;color:#fff;border-color:#2563eb" title="Tạo bản đồ Western Astrology">🌟 Tạo theo Western Astrology</button>';
   echo '<button class="button" name="bccm_action" value="gen_vedic_chart" style="background:#7c3aed;color:#fff;border-color:#6d28d9" title="Tạo bản đồ Vedic/Indian Astrology">🕉️ Tạo theo Vedic Astrology</button>';
   echo '<button class="button" name="bccm_action" value="gen_both_charts" style="background:#059669;color:#fff;border-color:#047857" title="Tạo cả 2 bản đồ song song">⚡ Tạo cả 2 bản đồ</button>';
-  echo '<a href="' . esc_url(admin_url('admin.php?page=bccm_step2_coach_template')) . '" class="button button-hero" style="margin-left:auto">Bước 2: Chọn Coach Template →</a>';
+  // [2026-07-07 Johnny Chu] PHASE-FAA2-NEXT — step2 menu was removed; avoid dead link.
+  echo '<a href="' . esc_url(admin_url('admin.php?page=bccm_step3_character')) . '" class="button button-hero" style="margin-left:auto">Bước tiếp theo: Tạo Character →</a>';
   echo '</p>';
   echo '<p class="description" style="margin-top:4px;color:#6b7280">💡 Tạo 2 bộ bản đồ chiêm tinh (Western + Vedic) để AI Agent có cái nhìn đa chiều và hiểu bạn toàn diện hơn.</p>';
 
@@ -534,7 +627,10 @@ function bccm_admin_my_profile() {
     }
     echo '</div></div>';
      // ══════════════ ASTROVIET CHARTS (from Free API data) ══════════════
-    $positions = $astro_traits['positions'] ?? [];
+    // [2026-06-08 Johnny Chu] HOTFIX — normalize sign names for existing saved records.
+    $positions = function_exists('bccm_astro_normalize_positions')
+        ? bccm_astro_normalize_positions($astro_traits['positions'] ?? [])
+        : ($astro_traits['positions'] ?? []);
     $houses_data = $astro_traits['houses'] ?? [];
     $houses_raw = [];
     if (!empty($houses_data)) {
@@ -999,10 +1095,10 @@ function bccm_admin_my_profile() {
   // Quick links → Step 2
   echo '<div style="margin-top:20px;padding:16px;background:#f0f4ff;border-radius:8px;border-left:4px solid #6366f1">';
   echo '<h3 style="margin-top:0">🚀 Bước tiếp theo</h3>';
-  echo '<p style="margin-bottom:8px">Sau khi hoàn thành hồ sơ và tạo bản đồ chiêm tinh, hãy tiến tới Bước 2 để chọn Coach Template phù hợp.</p>';
+  // [2026-07-07 Johnny Chu] PHASE-FAA2-NEXT — update next-step guidance after step2 deprecation.
+  echo '<p style="margin-bottom:8px">Sau khi hoàn thành hồ sơ và tạo bản đồ chiêm tinh, hãy chuyển sang Bước 3 để tạo Character đồng hành.</p>';
   echo '<p>';
-  echo '<a href="' . esc_url(admin_url('admin.php?page=bccm_step2_coach_template')) . '" class="button button-primary button-hero">📋 Bước 2: Chọn Coach Template →</a> ';
-  echo '<a href="' . esc_url(admin_url('admin.php?page=bccm_step3_character')) . '" class="button">🤖 Bước 3: Tạo Character</a> ';
+  echo '<a href="' . esc_url(admin_url('admin.php?page=bccm_step3_character')) . '" class="button button-primary button-hero">🤖 Bước 3: Tạo Character →</a> ';
   echo '<a href="' . esc_url(admin_url('admin.php?page=bccm_step4_success_plan')) . '" class="button">🎯 Bước 4: Success Plan</a>';
   echo '</p>';
   echo '</div>';

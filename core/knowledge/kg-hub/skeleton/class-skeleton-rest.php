@@ -179,12 +179,49 @@ class BizCity_KG_Skeleton_REST {
 	public static function get_status( WP_REST_Request $req ) {
 		$nb = (int) $req->get_param( 'id' );
 		try {
-			return new WP_REST_Response( [
+			$status  = self::status_string( $nb );
+			$version = BizCity_KG_Skeleton_Adapter::get_version( $nb );
+			$ready   = BizCity_KG_Skeleton_Adapter::is_ready( $nb );
+
+			$resp = [
 				'notebook_id' => $nb,
-				'status'      => self::status_string( $nb ),
-				'version'     => BizCity_KG_Skeleton_Adapter::get_version( $nb ),
-				'ready'       => BizCity_KG_Skeleton_Adapter::is_ready( $nb ),
-			], 200 );
+				'status'      => $status,
+				'version'     => $version,
+				'ready'       => $ready,
+			];
+
+			// [2026-06-04 Johnny Chu] SKEL-FAIL-REASON — enrich response when failed.
+			if ( $status === 'failed' ) {
+				global $wpdb;
+				$tbl_pas = BizCity_KG_Database::instance()->tbl_passages();
+				$passages_count = (int) $wpdb->get_var(
+					$wpdb->prepare( "SELECT COUNT(*) FROM {$tbl_pas} WHERE notebook_id = %d", $nb )
+				);
+				$resp['passages_count'] = $passages_count;
+
+				$fail_opt = get_option( BizCity_KG_Skeleton_Service::FAIL_OPT_PREFIX . $nb );
+				if ( $fail_opt ) {
+					$fail_data = json_decode( (string) $fail_opt, true );
+					if ( is_array( $fail_data ) ) {
+						$reason = (string) ( $fail_data['reason'] ?? 'unknown' );
+						$detail = (string) ( $fail_data['detail'] ?? '' );
+						$resp['fail_reason'] = $reason;
+						$resp['fail_detail'] = $detail;
+						$resp['fail_ts']     = (string) ( $fail_data['ts'] ?? '' );
+						$resp['fail_hint']   = self::fail_hint( $reason, $passages_count );
+					}
+				} elseif ( $passages_count === 0 ) {
+					$resp['fail_reason'] = 'no_passages';
+					$resp['fail_hint']   = self::fail_hint( 'no_passages', 0 );
+				} else {
+					// [2026-06-05 Johnny Chu] SKEL-FAIL-REASON — legacy failure: passages exist but no option stored.
+					// Happens when the first failure occurred before SKEL-FAIL-REASON was deployed.
+					$resp['fail_reason'] = 'build_returned_null';
+					$resp['fail_hint']   = self::fail_hint( 'build_returned_null', $passages_count );
+				}
+			}
+
+			return new WP_REST_Response( $resp, 200 );
 		} catch ( \Throwable $e ) {
 			return new WP_REST_Response( [
 				'notebook_id' => $nb,
@@ -193,6 +230,27 @@ class BizCity_KG_Skeleton_REST {
 				'error_file'  => $e->getFile() . ':' . $e->getLine(),
 			], 500 );
 		}
+	}
+
+	/**
+	 * [2026-06-04 Johnny Chu] SKEL-FAIL-REASON — human-readable action hint per reason.
+	 */
+	private static function fail_hint( string $reason, int $passages_count ): string {
+		$hints = [
+			'no_passages'            => 'Notebook chưa có đoạn văn bản nào. Upload thêm nguồn và đợi ingest hoàn tất (vài phút) rồi bấm Rebuild.',
+			'passages_content_empty' => 'Nguồn đã upload nhưng nội dung chưa được index đúng. Thử xóa và upload lại nguồn, sau đó bấm Rebuild.',
+			'llm_failed'             => 'LLM gateway lỗi khi build skeleton. Kiểm tra API key trong Settings → LLM Gateway, sau đó bấm Rebuild.',
+			'llm_parse_failed'       => 'LLM trả về định dạng không hợp lệ. Bấm Rebuild để thử lại — thường tự khỏi sau 1-2 lần.',
+			'cost_guard_blocked'     => 'Đã vượt giới hạn LLM hàng ngày. Chờ hết ngày hoặc liên hệ admin nâng hạn mức, sau đó bấm Rebuild.',
+			'exception'              => 'Lỗi nội bộ khi build skeleton. Xem PHP error log để biết chi tiết, sau đó bấm Rebuild.',
+			'build_returned_null'    => 'Build thất bại (nguyên nhân chưa xác định). Kiểm tra PHP error log với tag [bizcity-kg-skeleton], sau đó bấm Rebuild.',
+		];
+		if ( isset( $hints[ $reason ] ) ) {
+			return $hints[ $reason ];
+		}
+		return $passages_count === 0
+			? $hints['no_passages']
+			: 'Skeleton build thất bại. Bấm Rebuild để thử lại.';
 	}
 
 	public static function post_rebuild( WP_REST_Request $req ) {

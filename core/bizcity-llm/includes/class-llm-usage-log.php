@@ -39,13 +39,24 @@ class BizCity_LLM_Usage_Log {
         $installed = (int) get_site_option( 'bizcity_llm_usage_db_ver', 0 );
         global $wpdb;
         $table  = self::table();
-        $exists = $wpdb->get_var( "SHOW TABLES LIKE '{$table}'" );
+        // [2026-06-28 Johnny Chu] R-SHOW-TABLES — information_schema + wp_cache dual cache (no SHOW TABLES)
+        $_ck_llm = 'bz_tbl_' . (int) get_current_blog_id() . '_' . crc32( $table );
+        $_p_llm  = wp_cache_get( $_ck_llm, 'bizcity_tbl' );
+        if ( false === $_p_llm ) {
+            $_p_llm = (int) (bool) $wpdb->get_var( $wpdb->prepare(
+                'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+                $table
+            ) );
+            wp_cache_set( $_ck_llm, $_p_llm, 'bizcity_tbl', HOUR_IN_SECONDS );
+        }
+        $exists = (bool) $_p_llm;
         if ( $installed >= self::DB_VER && $exists ) {
             return;
         }
         self::install();
         self::migrate( $installed );
         update_site_option( 'bizcity_llm_usage_db_ver', self::DB_VER );
+        wp_cache_delete( $_ck_llm, 'bizcity_tbl' ); // flush after table created/migrated
     }
 
     public static function install(): void {
@@ -333,6 +344,300 @@ class BizCity_LLM_Usage_Log {
 
     /**
      * Purge old entries.
+     */
+    public static function purge( int $days = 90 ): int {
+        global $wpdb;
+        $table = self::table();
+        return (int) $wpdb->query( $wpdb->prepare(
+            "DELETE FROM `{$table}` WHERE created_at < DATE_SUB(NOW(), INTERVAL %d DAY)",
+            $days
+        ) );
+    }
+}
+
+/**
+ * BizCity LLM — Per-Blog Client Usage Log
+ *
+ * Two-table architecture (R-LLM-USAGE, 2026-06-10):
+ *
+ *   CLIENT SIDE — this class:
+ *     Table: {prefix}bizcity_llm_usage_clients  (per-blog, $wpdb->prefix)
+ *     Owner: core/bizcity-llm  (bizcity-twin-ai, client plugin)
+ *     Purpose: Record every LLM API call initiated from this blog, per user_id.
+ *              Enables Twin master to track per-member usage and enforce
+ *              membership quotas via core/membership rules.
+ *     Flow:
+ *       1. Before HTTP call → log_pending() inserts row with status='pending'.
+ *       2. After HTTP response → log_done() updates status='done'/'failed' + tokens.
+ *
+ *   HUB SIDE — BizCity_Router_Usage (DO NOT use on client):
+ *     Table: {base_prefix}bizcity_llm_usage_logs  (network-shared, $wpdb->base_prefix)
+ *     Owner: bizcity-llm-router  (hub plugin, only on bizcity.vn/bizcity.ai)
+ *     Purpose: Aggregate usage across all client sites at the hub level.
+ *              Written by hub when it processes the forwarded call.
+ *              Has extra columns: api_key_id, site_url, cost_usd, commission_usd,
+ *              provider, domain, finish_reason, is_stream, is_error.
+ *
+ * On multisite (bizcity.vn): both tables co-exist.
+ * On standalone client site: only bizcity_llm_usage_clients exists.
+ *
+ * @package BizCity_LLM
+ * @since   2026-06-10 R-LLM-USAGE
+ */
+// [2026-06-10 Johnny Chu] R-LLM-USAGE — per-blog client usage log class.
+class BizCity_LLM_Usage_Clients {
+
+    const TABLE_SUFFIX = 'bizcity_llm_usage_clients';
+
+    /** Schema version — bump when adding columns/indexes. */
+    const DB_VER = 1;
+
+    /** Per-blog option key for installed schema version. */
+    const DB_VER_OPT = 'bizcity_llm_usage_clients_db_ver';
+
+    /**
+     * Per-blog table name (uses $wpdb->prefix, NOT base_prefix).
+     */
+    private static function table(): string {
+        global $wpdb;
+        return $wpdb->prefix . self::TABLE_SUFFIX;
+    }
+
+    /**
+     * Create the per-blog table if needed. Called on plugin boot.
+     */
+    public static function maybe_install(): void {
+        $installed = (int) get_option( self::DB_VER_OPT, 0 );
+        if ( $installed >= self::DB_VER ) {
+            return;
+        }
+        self::install();
+        update_option( self::DB_VER_OPT, self::DB_VER, false );
+    }
+
+    public static function install(): void {
+        global $wpdb;
+        $table   = self::table();
+        $charset = $wpdb->get_charset_collate();
+
+        $sql = "CREATE TABLE IF NOT EXISTS `{$table}` (
+            id                BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            blog_id           BIGINT UNSIGNED NOT NULL DEFAULT 1,
+            user_id           BIGINT UNSIGNED NOT NULL DEFAULT 0,
+            created_at        DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at        DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            status            VARCHAR(10)     NOT NULL DEFAULT 'pending' COMMENT 'pending|done|failed',
+            service           VARCHAR(20)     NOT NULL DEFAULT 'llm' COMMENT 'llm|embedding|search|video|image|astro|market|tools',
+            mode              VARCHAR(20)     NOT NULL DEFAULT 'gateway',
+            purpose           VARCHAR(50)     NOT NULL DEFAULT 'chat',
+            endpoint          VARCHAR(20)     NOT NULL DEFAULT 'chat' COMMENT 'chat|stream|embeddings|search|video|image|astro|tool',
+            model_requested   VARCHAR(200)    NOT NULL DEFAULT '',
+            model_used        VARCHAR(200)    NOT NULL DEFAULT '',
+            fallback_used     TINYINT(1)      NOT NULL DEFAULT 0,
+            success           TINYINT(1)      NOT NULL DEFAULT 0,
+            tokens_prompt     INT             NOT NULL DEFAULT 0,
+            tokens_completion INT             NOT NULL DEFAULT 0,
+            latency_ms        INT             NOT NULL DEFAULT 0,
+            error             VARCHAR(500)    NOT NULL DEFAULT '',
+            KEY idx_created (created_at),
+            KEY idx_user_created (user_id, created_at),
+            KEY idx_blog_user (blog_id, user_id),
+            KEY idx_status (status),
+            KEY idx_service_created (service, created_at)
+        ) {$charset};";
+
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        dbDelta( $sql );
+    }
+
+    /**
+     * Insert a 'pending' row BEFORE the HTTP call is sent to the hub.
+     * Returns insert_id (0 on failure) — pass to log_done() after response.
+     *
+     * @param array $data { service, mode, purpose, endpoint, model_requested }
+     * @return int
+     */
+    public static function log_pending( array $data ): int {
+        global $wpdb;
+        $service = sanitize_text_field( $data['service'] ?? '' );
+        if ( $service === '' ) {
+            $service = self::infer_service( sanitize_text_field( $data['endpoint'] ?? 'chat' ) );
+        }
+        $wpdb->insert( self::table(), [
+            'blog_id'         => get_current_blog_id(),
+            'user_id'         => get_current_user_id(),
+            'status'          => 'pending',
+            'service'         => $service,
+            'mode'            => sanitize_text_field( $data['mode']            ?? 'gateway' ),
+            'purpose'         => sanitize_text_field( $data['purpose']         ?? 'chat' ),
+            'endpoint'        => sanitize_text_field( $data['endpoint']        ?? 'chat' ),
+            'model_requested' => sanitize_text_field( $data['model_requested'] ?? '' ),
+        ], [ '%d', '%d', '%s', '%s', '%s', '%s', '%s', '%s' ] );
+        return (int) $wpdb->insert_id;
+    }
+
+    /**
+     * Update a pending row after the API response is received.
+     *
+     * @param int   $id     Row ID returned by log_pending().
+     * @param array $result { success, model_used, fallback_used, usage, latency_ms, error }
+     */
+    public static function log_done( int $id, array $result ): void {
+        if ( $id <= 0 ) {
+            return;
+        }
+        global $wpdb;
+        $usage = $result['usage'] ?? [];
+        $wpdb->update(
+            self::table(),
+            [
+                'status'            => ! empty( $result['success'] ) ? 'done' : 'failed',
+                'model_used'        => sanitize_text_field( $result['model_used'] ?? '' ),
+                'fallback_used'     => ! empty( $result['fallback_used'] ) ? 1 : 0,
+                'success'           => ! empty( $result['success'] ) ? 1 : 0,
+                'tokens_prompt'     => intval( $usage['prompt_tokens'] ?? 0 ),
+                'tokens_completion' => intval( $usage['completion_tokens'] ?? 0 ),
+                'latency_ms'        => intval( $result['latency_ms'] ?? 0 ),
+                'error'             => mb_substr( sanitize_text_field( $result['error'] ?? '' ), 0, 500 ),
+            ],
+            [ 'id' => $id ],
+            [ '%s', '%s', '%d', '%d', '%d', '%d', '%d', '%s' ],
+            [ '%d' ]
+        );
+    }
+
+    /**
+     * Single-shot log for callers that don't split pending/done (e.g. search client).
+     *
+     * @param array $data Same shape as BizCity_LLM_Usage_Log::log().
+     */
+    public static function log( array $data ): void {
+        $id = self::log_pending( $data );
+        self::log_done( $id, [
+            'model_used'    => $data['model_used']    ?? ( $data['model_requested'] ?? '' ),
+            'latency_ms'    => $data['latency_ms']    ?? 0,
+            'fallback_used' => $data['fallback_used'] ?? false,
+            'success'       => $data['success']       ?? false,
+            'usage'         => $data['usage']         ?? [],
+            'error'         => $data['error']         ?? '',
+        ] );
+    }
+
+    /**
+     * Heuristic endpoint → service bucket (mirrors BizCity_LLM_Usage_Log).
+     */
+    private static function infer_service( string $endpoint ): string {
+        $endpoint = strtolower( $endpoint );
+        if ( $endpoint === 'embeddings' || $endpoint === 'embedding' ) return 'embedding';
+        if ( $endpoint === 'search' )                                   return 'search';
+        if ( $endpoint === 'video' )                                    return 'video';
+        if ( $endpoint === 'image' || $endpoint === 'image_generation' )return 'image';
+        if ( $endpoint === 'astro' || $endpoint === 'astrology' )       return 'astro';
+        if ( $endpoint === 'market' || $endpoint === 'marketplace' )    return 'market';
+        if ( $endpoint === 'tool'   || $endpoint === 'tools' )          return 'tools';
+        return 'llm';
+    }
+
+    /**
+     * Get recent log entries for this blog.
+     *
+     * @param int $limit   Max rows (cap 200).
+     * @param int $offset  Pagination offset.
+     * @param int $user_id Filter by user (0 = all).
+     * @return array
+     */
+    public static function get_recent( int $limit = 50, int $offset = 0, int $user_id = 0 ): array {
+        global $wpdb;
+        $table  = self::table();
+        $limit  = min( $limit, 200 );
+        $offset = max( $offset, 0 );
+        if ( $user_id > 0 ) {
+            return $wpdb->get_results( $wpdb->prepare(
+                "SELECT * FROM `{$table}` WHERE user_id = %d ORDER BY id DESC LIMIT %d OFFSET %d",
+                $user_id, $limit, $offset
+            ), ARRAY_A ) ?: [];
+        }
+        return $wpdb->get_results( $wpdb->prepare(
+            "SELECT * FROM `{$table}` ORDER BY id DESC LIMIT %d OFFSET %d",
+            $limit, $offset
+        ), ARRAY_A ) ?: [];
+    }
+
+    /**
+     * Aggregated stats for this blog.
+     *
+     * @param string $period '1h'|'24h'|'7d'|'30d'|'all'
+     */
+    public static function get_stats( string $period = '24h' ): array {
+        global $wpdb;
+        $table = self::table();
+        $where = '';
+        switch ( $period ) {
+            case '1h':  $where = "WHERE created_at >= DATE_SUB(NOW(), INTERVAL 1 HOUR)";  break;
+            case '24h': $where = "WHERE created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)"; break;
+            case '7d':  $where = "WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)";   break;
+            case '30d': $where = "WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)";  break;
+        }
+        $row = $wpdb->get_row(
+            "SELECT COUNT(*) as total_calls, SUM(success) as success_count,
+                    SUM(tokens_prompt + tokens_completion) as total_tokens, AVG(latency_ms) as avg_latency
+             FROM `{$table}` {$where}",
+            ARRAY_A
+        );
+        return $row ?: [ 'total_calls' => 0, 'success_count' => 0, 'total_tokens' => 0, 'avg_latency' => 0 ];
+    }
+
+    /**
+     * Stats broken down by user_id — for Twin master membership quota reporting.
+     *
+     * @param string $period '24h'|'7d'|'30d'
+     * @return array [ { user_id, display_name, total_calls, success_count, total_tokens, avg_latency } ]
+     */
+    public static function get_stats_by_user( string $period = '7d' ): array {
+        global $wpdb;
+        $table = self::table();
+        $where = '';
+        switch ( $period ) {
+            case '1h':  $where = "WHERE l.created_at >= DATE_SUB(NOW(), INTERVAL 1 HOUR)";  break;
+            case '24h': $where = "WHERE l.created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)"; break;
+            case '7d':  $where = "WHERE l.created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)";   break;
+            case '30d': $where = "WHERE l.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)";  break;
+        }
+        return $wpdb->get_results(
+            "SELECT l.user_id, u.display_name,
+                    COUNT(*) AS total_calls, SUM(l.success) AS success_count,
+                    SUM(l.tokens_prompt + l.tokens_completion) AS total_tokens,
+                    AVG(l.latency_ms) AS avg_latency
+             FROM `{$table}` l
+             LEFT JOIN {$wpdb->users} u ON u.ID = l.user_id
+             {$where}
+             GROUP BY l.user_id ORDER BY total_tokens DESC LIMIT 100",
+            ARRAY_A
+        ) ?: [];
+    }
+
+    /**
+     * Top models by call count for this blog.
+     */
+    public static function get_top_models( int $limit = 10, string $period = '7d' ): array {
+        global $wpdb;
+        $table = self::table();
+        $where = '';
+        switch ( $period ) {
+            case '24h': $where = "WHERE created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)"; break;
+            case '7d':  $where = "WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)";   break;
+            case '30d': $where = "WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)";  break;
+        }
+        $limit = min( $limit, 50 );
+        return $wpdb->get_results( $wpdb->prepare(
+            "SELECT model_used, COUNT(*) as call_count, SUM(tokens_prompt + tokens_completion) as total_tokens
+             FROM `{$table}` {$where} GROUP BY model_used ORDER BY call_count DESC LIMIT %d",
+            $limit
+        ), ARRAY_A ) ?: [];
+    }
+
+    /**
+     * Purge old entries for this blog.
      */
     public static function purge( int $days = 90 ): int {
         global $wpdb;

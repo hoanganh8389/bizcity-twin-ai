@@ -1,0 +1,195 @@
+[
+  {
+    "slug": "tpl_generate_image_v1",
+    "name": "Tạo Ảnh AI On-demand (@tạo ảnh)",
+    "description": "Zalo Bot nhận \"@tạo ảnh [mô tả]\" → tạo ảnh bằng GPT Image 1 (1024×1024) → lưu vào WP Media → gửi link ảnh qua Zalo. Sau import: chọn Zalo Bot trong node reply.",
+    "category": "automation",
+    "source": "builtin",
+    "trigger_type": "zalo_inbound",
+    "icon": "Image",
+    "tags": "zalo,ai,image,generate,ondemand,gpt-image",
+    "trigger_config": { "keywords": ["@tạo ảnh", "@anh", "@image", "tạo ảnh", "vẽ"] },
+    "graph": {
+      "meta": { "template": "tpl_generate_image_v1" },
+      "nodes": [
+        { "id": "t1",    "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.zalo_inbound", "label": "Zalo Bot — \"@tạo ảnh\"", "keywords": ["@tạo ảnh", "@anh", "@image", "tạo ảnh", "vẽ"], "mode": "keyword_start" } },
+        { "id": "img",   "type": "action",  "position": { "x": 320, "y": 80 }, "data": { "blockId": "action.generate_image", "label": "Tạo ảnh AI",            "prompt": "{{trigger.text}}", "model": "gpt-image-1", "size": "1024x1024", "sideload_to_wp": true } },
+        { "id": "reply", "type": "action",  "position": { "x": 640, "y": 80 }, "data": { "blockId": "action.reply_zalo",    "label": "Gửi link ảnh qua Zalo", "instance_id": "", "override_chat_id": "", "text": "🎨 Ảnh đã tạo xong!\n\n📎 Xem ảnh: {{img.image_url}}\n\nModel: {{img.model_used}} · {{img.ms}}ms" } },
+        { "id": "log",   "type": "action",  "position": { "x": 960, "y": 80 }, "data": { "blockId": "action.log",           "label": "Ghi log",               "message": "generate_image — ok={{img.ok}} model={{img.model_used}} ms={{img.ms}}" } }
+      ],
+      "edges": [
+        { "id": "e_t1_img",    "source": "t1",    "target": "img" },
+        { "id": "e_img_reply", "source": "img",   "target": "reply" },
+        { "id": "e_reply_log", "source": "reply", "target": "log" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_fb_post_with_auto_image_v1",
+    "name": "Đăng FB On-demand + Ảnh Auto (@đăng fb)",
+    "description": "Zalo Bot nhận \"@đăng fb [nội dung]\" → LLM soạn caption FB → Tạo ảnh minh họa (GPT Image 1, sideload vào WP) → Đăng Facebook Page kèm ảnh. Sau import: chọn Zalo Bot + điền fb_page_id.",
+    "category": "automation",
+    "source": "builtin",
+    "trigger_type": "zalo_inbound",
+    "icon": "Facebook",
+    "tags": "zalo,facebook,publish,ai,image,generate,ondemand",
+    "trigger_config": { "keywords": ["@đăng fb", "@dangfb", "đăng fb", "post fb"] },
+    "graph": {
+      "meta": { "template": "tpl_fb_post_with_auto_image_v1" },
+      "nodes": [
+        { "id": "t1",      "type": "trigger", "position": { "x": 0,    "y": 80 }, "data": { "blockId": "trigger.zalo_inbound",      "label": "Zalo Bot — \"@đăng fb\"",       "keywords": ["@đăng fb", "@dangfb", "đăng fb", "post fb"], "mode": "keyword_start" } },
+        { "id": "gen",     "type": "action",  "position": { "x": 320,  "y": 80 }, "data": { "blockId": "action.generate_content",    "label": "Soạn caption FB",              "content_type": "fb_post", "notebook_id": 0, "prompt_template": "{{trigger.text}}", "tone": "", "max_words": 300, "character_id": 0 } },
+        { "id": "img",     "type": "action",  "position": { "x": 640,  "y": 80 }, "data": { "blockId": "action.generate_image",      "label": "Tạo ảnh minh họa",             "prompt": "Create a professional social media illustration for this Facebook post: {{gen.content}}", "model": "gpt-image-1", "size": "1024x1024", "sideload_to_wp": true } },
+        { "id": "publish", "type": "action",  "position": { "x": 960,  "y": 80 }, "data": { "blockId": "action.publish_fb_post",     "label": "Đăng Facebook Page",          "fb_page_id": "", "fb_page_name": "", "content": "{{gen.content}}", "image_url": "{{img.image_url}}", "mode": "now", "delay_min": 0 } },
+        { "id": "reply",   "type": "action",  "position": { "x": 1280, "y": 80 }, "data": { "blockId": "action.reply_zalo",          "label": "Báo kết quả qua Zalo",        "text": "✅ Đã đăng Facebook!\n\nNội dung: {{gen.content}}\n📎 Ảnh: {{img.image_url}}" } }
+      ],
+      "edges": [
+        { "id": "e_t1_gen",       "source": "t1",      "target": "gen" },
+        { "id": "e_gen_img",      "source": "gen",     "target": "img" },
+        { "id": "e_img_publish",  "source": "img",     "target": "publish" },
+        { "id": "e_publish_reply","source": "publish", "target": "reply" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_wp_post_with_auto_image_v1",
+    "name": "Đăng WP On-demand + Ảnh Auto (@đăng web)",
+    "description": "Zalo Bot nhận \"@đăng web [chủ đề]\" → Tìm kiếm web → LLM soạn bài blog → Tạo ảnh featured image (sideload vào WP) → Tạo WP post (draft). Sau import: chọn Zalo Bot.",
+    "category": "automation",
+    "source": "builtin",
+    "trigger_type": "zalo_inbound",
+    "icon": "Newspaper",
+    "tags": "zalo,wordpress,publish,ai,image,generate,web_research,ondemand",
+    "trigger_config": { "keywords": ["@đăng web", "@dangweb", "đăng web", "viết bài"] },
+    "graph": {
+      "meta": { "template": "tpl_wp_post_with_auto_image_v1" },
+      "nodes": [
+        { "id": "t1",      "type": "trigger", "position": { "x": 0,    "y": 80 }, "data": { "blockId": "trigger.zalo_inbound",      "label": "Zalo Bot — \"@đăng web\"",      "keywords": ["@đăng web", "@dangweb", "đăng web", "viết bài"], "mode": "keyword_start" } },
+        { "id": "web",     "type": "action",  "position": { "x": 320,  "y": 80 }, "data": { "blockId": "action.web_research",        "label": "Tìm kiếm tài liệu",           "query": "{{trigger.text}}", "mode": "quick", "max_results": 7 } },
+        { "id": "gen",     "type": "action",  "position": { "x": 640,  "y": 80 }, "data": { "blockId": "action.generate_content",    "label": "Soạn bài blog",               "content_type": "web_post", "notebook_id": 0, "prompt_template": "Viết bài blog tiếng Việt SEO-friendly dựa trên nghiên cứu:\n\n{{web.answer_md}}\n\nNguồn: {{web.sources_text}}\n\nChủ đề: {{trigger.text}}", "tone": "", "max_words": 600, "character_id": 0 } },
+        { "id": "img",     "type": "action",  "position": { "x": 960,  "y": 80 }, "data": { "blockId": "action.generate_image",      "label": "Tạo ảnh featured image",     "prompt": "Professional blog post featured image for article about: {{trigger.text}}. Clean, modern, minimalist style.", "model": "gpt-image-1", "size": "1536x1024", "sideload_to_wp": true } },
+        { "id": "publish", "type": "action",  "position": { "x": 1280, "y": 80 }, "data": { "blockId": "action.publish_wp_post",     "label": "Đăng WP (draft)",            "title": "{{trigger.text}}", "content": "{{gen.content}}", "image_url": "{{img.image_url}}", "status": "draft", "category": "", "tags": "ai-content", "author_id": 0 } },
+        { "id": "reply",   "type": "action",  "position": { "x": 1600, "y": 80 }, "data": { "blockId": "action.reply_zalo",          "label": "Báo kết quả qua Zalo",       "text": "✅ Đã tạo bài viết nháp!\n\n📝 Tiêu đề: {{trigger.text}}\n📰 Citations: {{web.citation_count}} nguồn\n📎 Ảnh: {{img.image_url}}\n🔗 Xem và duyệt: {{publish.edit_url}}" } }
+      ],
+      "edges": [
+        { "id": "e_t1_web",       "source": "t1",      "target": "web" },
+        { "id": "e_web_gen",      "source": "web",     "target": "gen" },
+        { "id": "e_gen_img",      "source": "gen",     "target": "img" },
+        { "id": "e_img_publish",  "source": "img",     "target": "publish" },
+        { "id": "e_publish_reply","source": "publish", "target": "reply" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_daily_fb_content_image_v1",
+    "name": "Đăng FB Hàng Ngày 08:00 + Ảnh Auto (Cron)",
+    "description": "Cron 8h → LLM soạn caption FB từ KG → Tạo ảnh minh họa tự động (GPT Image 1, sideload vào WP Media) → Đăng Facebook Page kèm ảnh. Cần điền fb_page_id sau khi import.",
+    "category": "automation",
+    "source": "builtin",
+    "trigger_type": "cron",
+    "icon": "Facebook",
+    "tags": "cron,daily,facebook,publish,ai,image,generate,8h,featured-image",
+    "trigger_config": { "schedule": "0 8 * * *" },
+    "graph": {
+      "meta": { "template": "tpl_daily_fb_content_image_v1" },
+      "nodes": [
+        { "id": "t1",      "type": "trigger", "position": { "x": 0,    "y": 80 }, "data": { "blockId": "trigger.cron",            "label": "Cron · 08:00 mỗi ngày",              "schedule": "0 8 * * *" } },
+        { "id": "kg",      "type": "action",  "position": { "x": 320,  "y": 80 }, "data": { "blockId": "action.search_kg",         "label": "Tìm chủ đề từ KG",                  "query": "chủ đề đăng Facebook hôm nay", "top_k": 3 } },
+        { "id": "gen",     "type": "action",  "position": { "x": 640,  "y": 80 }, "data": { "blockId": "action.generate_content",   "label": "Soạn caption FB",                   "content_type": "fb_post", "notebook_id": 0, "prompt_template": "Viết caption Facebook tiếng Việt 4-6 dòng, 2-4 emoji, 3-5 hashtag. Chủ đề từ KG: {{kg.snippet}}. Ngày: {{trigger.fired_at}}.", "tone": "", "max_words": 300, "character_id": 0 } },
+        { "id": "img",     "type": "action",  "position": { "x": 960,  "y": 80 }, "data": { "blockId": "action.generate_image",     "label": "Tạo ảnh minh họa",                  "prompt": "Vietnamese social media post image, professional illustration for: {{gen.content}}. Clean modern style, no text overlay.", "model": "gpt-image-1", "size": "1024x1024", "sideload_to_wp": true } },
+        { "id": "publish", "type": "action",  "position": { "x": 1280, "y": 80 }, "data": { "blockId": "action.publish_fb_post",   "label": "Đăng Facebook 8h kèm ảnh",          "fb_page_id": "", "fb_page_name": "", "content": "{{gen.content}}", "image_url": "{{img.image_url}}", "mode": "now", "delay_min": 0 } },
+        { "id": "log",     "type": "action",  "position": { "x": 1600, "y": 80 }, "data": { "blockId": "action.log",               "label": "Ghi audit log",                      "message": "daily_fb_image — event_id={{publish.event_id}} img_ok={{img.ok}} img_ms={{img.ms}}" } }
+      ],
+      "edges": [
+        { "id": "e_t1_kg",        "source": "t1",      "target": "kg" },
+        { "id": "e_kg_gen",       "source": "kg",      "target": "gen" },
+        { "id": "e_gen_img",      "source": "gen",     "target": "img" },
+        { "id": "e_img_publish",  "source": "img",     "target": "publish" },
+        { "id": "e_publish_log",  "source": "publish", "target": "log" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_daily_wp_content_image_v1",
+    "name": "Đăng WP Hàng Ngày 09:00 + Ảnh Auto (Cron, Draft)",
+    "description": "Cron 9h → Tìm kiếm web nhanh (xu hướng hôm nay) → LLM soạn bài blog 400 từ → Tạo ảnh featured (1536×1024 landscape, sideload vào WP) → Tạo WP post (draft để review). Cần đổi query và notebook_id sau khi import.",
+    "category": "automation",
+    "source": "builtin",
+    "trigger_type": "cron",
+    "icon": "Newspaper",
+    "tags": "cron,daily,wordpress,publish,ai,image,generate,blog,featured-image,draft",
+    "trigger_config": { "schedule": "0 9 * * *" },
+    "graph": {
+      "meta": { "template": "tpl_daily_wp_content_image_v1" },
+      "nodes": [
+        { "id": "t1",      "type": "trigger", "position": { "x": 0,    "y": 80 }, "data": { "blockId": "trigger.cron",              "label": "Cron · 09:00 mỗi ngày",             "schedule": "0 9 * * *" } },
+        { "id": "web",     "type": "action",  "position": { "x": 320,  "y": 80 }, "data": { "blockId": "action.web_research",        "label": "Tìm xu hướng hôm nay",             "query": "xu hướng nổi bật hôm nay tin tức", "mode": "quick", "max_results": 7 } },
+        { "id": "gen",     "type": "action",  "position": { "x": 640,  "y": 80 }, "data": { "blockId": "action.generate_content",    "label": "Soạn bài blog",                    "content_type": "web_post", "notebook_id": 0, "prompt_template": "Viết bài blog tiếng Việt SEO-friendly 400-500 từ dựa trên nghiên cứu sau:\n\n{{web.answer_md}}\n\nBài cần: tiêu đề H1 hấp dẫn, 2-3 đoạn nội dung, kết luận ngắn. Ngày {{trigger.fired_at}}.", "tone": "", "max_words": 500, "character_id": 0 } },
+        { "id": "img",     "type": "action",  "position": { "x": 960,  "y": 80 }, "data": { "blockId": "action.generate_image",      "label": "Tạo ảnh featured image (landscape)","prompt": "Professional blog featured image, landscape orientation, modern minimalist design, Vietnamese business context, no text. Topic: {{web.answer_md}}", "model": "gpt-image-1", "size": "1536x1024", "sideload_to_wp": true } },
+        { "id": "publish", "type": "action",  "position": { "x": 1280, "y": 80 }, "data": { "blockId": "action.publish_wp_post",     "label": "Tạo WP post (draft + ảnh)",        "title": "Tin tức {{trigger.fired_at}}", "content": "{{gen.content}}", "image_url": "{{img.image_url}}", "status": "draft", "category": "", "tags": "ai-content,tin-tuc", "author_id": 0 } },
+        { "id": "log",     "type": "action",  "position": { "x": 1600, "y": 80 }, "data": { "blockId": "action.log",                 "label": "Ghi log",                           "message": "daily_wp_image — post_id={{publish.post_id}} img_ok={{img.ok}} citations={{web.citation_count}}" } }
+      ],
+      "edges": [
+        { "id": "e_t1_web",       "source": "t1",      "target": "web" },
+        { "id": "e_web_gen",      "source": "web",     "target": "gen" },
+        { "id": "e_gen_img",      "source": "gen",     "target": "img" },
+        { "id": "e_img_publish",  "source": "img",     "target": "publish" },
+        { "id": "e_publish_log",  "source": "publish", "target": "log" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_trending_with_link_zalo_v1",
+    "name": "Xu Hướng + Link Đọc Thêm → Zalo (Cron 9h)",
+    "description": "Cron 9h → trending research (web+Reddit+TikTok) → gửi 4 tin Zalo: phân tích + nguồn + link đầu tiên + kết luận. Zalo nhận plain URL (không href/markdown) nên link tap-to-open bình thường. Sau import: chọn Zalo Bot + điền override_chat_id.",
+    "category": "automation",
+    "source": "builtin",
+    "trigger_type": "cron",
+    "icon": "TrendingUp",
+    "tags": "cron,daily,trending,zalo,ai,reddit,tiktok,link",
+    "trigger_config": { "schedule": "0 9 * * *" },
+    "graph": {
+      "meta": { "template": "tpl_trending_with_link_zalo_v1" },
+      "nodes": [
+        { "id": "t1", "type": "trigger", "position": { "x": 0,    "y": 80 }, "data": { "blockId": "trigger.cron",              "label": "Cron · 09:00",            "schedule": "0 9 * * *" } },
+        { "id": "tr", "type": "action",  "position": { "x": 320,  "y": 80 }, "data": { "blockId": "action.trending_research", "label": "Tìm xu hướng hôm nay",    "topic": "xu hướng mạng xã hội Việt Nam hôm nay", "scope": "1d", "platforms": "web,reddit,tiktok", "language": "vi", "output": "full" } },
+        { "id": "r1", "type": "action",  "position": { "x": 640,  "y": 80 }, "data": { "blockId": "action.reply_zalo",        "label": "Gửi phần nghiên cứu",     "instance_id": "", "override_chat_id": "", "text": "{{tr.msg_1}}" } },
+        { "id": "r2", "type": "action",  "position": { "x": 960,  "y": 80 }, "data": { "blockId": "action.reply_zalo",        "label": "Gửi nguồn + link",        "text": "{{tr.msg_2}}\n\n📖 Đọc thêm: {{tr.top_url}}" } },
+        { "id": "r3", "type": "action",  "position": { "x": 1280, "y": 80 }, "data": { "blockId": "action.reply_zalo",        "label": "Gửi phân tích",           "text": "{{tr.msg_3}}" } },
+        { "id": "r4", "type": "action",  "position": { "x": 1600, "y": 80 }, "data": { "blockId": "action.reply_zalo",        "label": "Gửi kết luận",            "text": "{{tr.msg_4}}" } }
+      ],
+      "edges": [
+        { "id": "e_t1_tr", "source": "t1", "target": "tr" },
+        { "id": "e_tr_r1", "source": "tr", "target": "r1" },
+        { "id": "e_r1_r2", "source": "r1", "target": "r2" },
+        { "id": "e_r2_r3", "source": "r2", "target": "r3" },
+        { "id": "e_r3_r4", "source": "r3", "target": "r4" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_news_research_with_link_zalo_v1",
+    "name": "Đọc Báo On-demand + Link → Zalo (@news)",
+    "description": "Zalo Bot nhận \"@news [chủ đề]\" → web research → reply 3 tin: tổng hợp + nguồn + link URL đọc thêm. Không dùng href/markdown — Zalo hiển thị plain URL thành link tap-to-open. Sau import: chọn Zalo Bot.",
+    "category": "automation",
+    "source": "builtin",
+    "trigger_type": "zalo_inbound",
+    "icon": "Newspaper",
+    "tags": "zalo,news,web_research,ondemand,link,ai",
+    "trigger_config": { "keywords": ["@news", "@báo", "@doc bao", "@đọc báo", "đọc báo"] },
+    "graph": {
+      "meta": { "template": "tpl_news_research_with_link_zalo_v1" },
+      "nodes": [
+        { "id": "t1",    "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.zalo_inbound",      "label": "Zalo Bot — \"@news\"",      "keywords": ["@news", "@báo", "@doc bao", "@đọc báo", "đọc báo"], "mode": "keyword_start" } },
+        { "id": "web",   "type": "action",  "position": { "x": 320, "y": 80 }, "data": { "blockId": "action.web_research",        "label": "Tìm kiếm tin tức",        "query": "{{trigger.text}}", "mode": "quick", "max_results": 8, "vertical": "auto" } },
+        { "id": "r1",    "type": "action",  "position": { "x": 640, "y": 80 }, "data": { "blockId": "action.reply_zalo",          "label": "Gửi tổng hợp",            "text": "📰 ĐỌC BÁO: {{trigger.text}}\n────────────────────\n{{web.answer_md}}" } },
+        { "id": "r2",    "type": "action",  "position": { "x": 960, "y": 80 }, "data": { "blockId": "action.reply_zalo",          "label": "Gửi nguồn + link",        "text": "🔗 NGUỒN THAM KHẢO ({{web.citation_count}} nguồn):\n{{web.sources_text}}\n\n📖 Đọc thêm: {{web.top_url}}" } }
+      ],
+      "edges": [
+        { "id": "e_t1_web", "source": "t1",  "target": "web" },
+        { "id": "e_web_r1", "source": "web", "target": "r1" },
+        { "id": "e_r1_r2",  "source": "r1",  "target": "r2" }
+      ]
+    }
+  }
+]

@@ -1,0 +1,73 @@
+{
+  "skill_key": "web_research_deep",
+  "version": "1.1",
+  "title": "Web Research · Deep",
+  "description": "Nghiên cứu sâu bằng ReAct agent (search + extract + reasoning, max 5 iters, ~8-12s). Dùng khi user bật chế độ Deep Web ở Ask Brain composer.",
+  "category": "web-research",
+  "triggers": [
+    "so sánh", "phân tích", "nghiên cứu", "tổng hợp",
+    "review", "đánh giá", "điểm khác biệt", "pros and cons",
+    "compare", "analyze", "research", "deep dive",
+    "investigation", "comprehensive"
+  ],
+  "slash_commands": ["/deep_web", "/web_deep", "/deep_research_web"],
+  "modes": ["research"],
+  "tools": ["search_web", "extract_web", "crawl_web", "llm_chat"],
+  "priority": 35,
+  "scenarios": [
+    {
+      "id": "deep_compare",
+      "label": "So sánh sản phẩm / framework",
+      "example_query": "So sánh React vs Vue vs Angular năm 2026 — điểm mạnh yếu của từng cái?"
+    },
+    {
+      "id": "deep_market",
+      "label": "Phân tích thị trường",
+      "example_query": "Phân tích thị trường bất động sản Hà Nội Q2 2026 — xu hướng giá, cung cầu"
+    },
+    {
+      "id": "deep_review",
+      "label": "Điều tra / tổng hợp review",
+      "example_query": "Tổng hợp đánh giá dòng laptop Dell XPS 16 2026 từ nhiều nguồn"
+    },
+    {
+      "id": "deep_strategy",
+      "label": "Nghiên cứu chiến lược",
+      "example_query": "Chiến lược marketing thành công của Duolingo trong 2025-2026"
+    }
+  ],
+  "content_lines": [
+    "# Web Research · Deep (ReAct)",
+    "",
+    "Bạn là một agent nghiên cứu web sâu (ReAct pattern). Bạn có 3 tools:",
+    "",
+    "- `search(query: string, max: int=5)` — Tavily search, trả top-K snippets.",
+    "- `extract(url: string)` — lấy full content + summary của 1 URL.",
+    "- `crawl(url: string, limit: int=10)` — crawl subpages của 1 site.",
+    "",
+    "Quy trình mỗi iteration:",
+    "",
+    "```",
+    "Thought: <suy nghĩ về step tiếp theo>",
+    "Action: search | extract | crawl | final",
+    "Action Input: <query hoặc URL>",
+    "Observation: <kết quả tool, tự động điền>",
+    "```",
+    "",
+    "Khi đủ thông tin (≥ 3 sources chất lượng, hoặc đã reach max 5 iters), output:",
+    "",
+    "```",
+    "Thought: Đã đủ thông tin để trả lời.",
+    "Action: final",
+    "Action Input: <câu trả lời chi tiết với citation [web:N#URL], [web:N#pP] nếu có page>",
+    "```",
+    "",
+    "## Rules",
+    "",
+    "1. **Tối đa 5 iterations**. Vượt → force `final` với những gì có.",
+    "2. **Trích dẫn bắt buộc** mọi claim bằng `[web:N#URL]`. KHÔNG citation = unverified.",
+    "3. **Tiếng Việt** nếu câu hỏi tiếng Việt; **English** nếu câu hỏi English.",
+    "4. **Nếu tools fail** (search/extract trả empty): nói rõ \"Web sources không khả dụng cho query này\" và `final` ngay.",
+    "5. **TENSIONS** với nguồn local (notebook perspectives): nếu phát hiện web nói khác local, ghi rõ \"Web vs Local TENSION: ...\" — Synthesizer cấp trên sẽ xử lý."
+  ]
+}

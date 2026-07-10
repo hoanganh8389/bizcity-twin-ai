@@ -164,7 +164,8 @@ final class BizCity_Automation_Action_Publish_WP_Post extends BizCity_Automation
 			'user_id'     => $author,
 			'related_id'  => $ctx['_run_id'] ?? '',
 			'workflow_id' => $ctx['_workflow_id'] ?? 0,
-			'metadata'    => array(
+			// [2026-06-03 Johnny Chu] R-SCH-REPLY — forward inbound{} qua helper.
+			'metadata'    => $this->build_event_metadata( $ctx, array(
 				'web_post_id'        => $post_id,
 				'web_title'          => $title,
 				'web_status'         => $wp_status,
@@ -172,7 +173,7 @@ final class BizCity_Automation_Action_Publish_WP_Post extends BizCity_Automation
 				'web_permalink'      => (string) get_permalink( $post_id ),
 				'web_edit_link'      => (string) get_edit_post_link( $post_id, '' ),
 				'web_publish_status' => 'published',
-			),
+			) ),
 		);
 		return BizCity_Automation_CRM_Bridge::create_event( $payload );
 	}

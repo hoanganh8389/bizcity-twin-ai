@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "astro_artifacts_loaded",
+  "description": "TwinBrain Web_Astro engine — emitted after CAP filter bizcity_twin_context_artifacts returns natal+transit passages from BizCoach_Pro_Astro_Transit_Resolver. PHASE-A C.3b (2026-06-04).",
+  "type": "object",
+  "required": ["trace_id", "passage_count", "cap_source", "_degraded", "ms"],
+  "properties": {
+    "trace_id":      { "type": "string" },
+    "passage_count": { "type": "integer", "minimum": 0 },
+    "cap_source":    {
+      "type": "string",
+      "enum": ["db", "filter", "prefetch_scheduled", "natal_only", "unavailable"],
+      "description": "Where transit data came from (per resolver). 'db'=cache hit, 'filter'=third-party pre_fetch, 'prefetch_scheduled'=cron queued + graceful natal-only block, 'natal_only'=no birth data, 'unavailable'=hard miss."
+    },
+    "_degraded":     {
+      "type": "string",
+      "description": "Empty when fully OK. Known reasons: empty_query, astro_artifacts_empty, astro_cap_exception, astro_transit_unavailable, transit_pending, astro_birth_data_missing, transit_no_subject, transit_engine_missing, transit_build_context_missing."
+    },
+    "ms":            { "type": "integer", "minimum": 0 }
+  }
+}

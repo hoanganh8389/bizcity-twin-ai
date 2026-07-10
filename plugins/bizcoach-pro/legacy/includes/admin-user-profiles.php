@@ -11,6 +11,72 @@
 
 if ( ! defined( 'ABSPATH' ) ) exit;
 
+// [2026-06-29 Johnny Chu] PHASE-A — AJAX single-day transit fetch handler (file scope — mới được register sớm).
+add_action( 'wp_ajax_bccm_transit_fetch_day', 'bccm_ajax_transit_fetch_day' );
+function bccm_ajax_transit_fetch_day() {
+    if ( ! current_user_can( 'manage_options' ) ) {
+        wp_send_json_error( array( 'message' => 'Không có quyền.' ), 403 );
+    }
+    check_ajax_referer( 'bccm_transit_fetch_day', 'nonce' );
+
+    $coachee_id   = isset( $_POST['coachee_id'] ) ? (int) $_POST['coachee_id'] : 0;
+    $transit_date = isset( $_POST['date'] ) ? sanitize_text_field( $_POST['date'] ) : '';
+
+    if ( ! $coachee_id || ! $transit_date || ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $transit_date ) ) {
+        wp_send_json_error( array( 'message' => 'Tham số không hợp lệ.' ), 400 );
+    }
+
+    global $wpdb;
+    $t_profiles = $wpdb->prefix . 'bccm_profiles';
+    $t_astro    = $wpdb->prefix . 'bccm_astro';
+    $coachee = $wpdb->get_row( $wpdb->prepare(
+        "SELECT * FROM {$t_profiles} WHERE id = %d LIMIT 1", $coachee_id
+    ), ARRAY_A );
+    if ( ! $coachee ) {
+        wp_send_json_error( array( 'message' => 'Không tìm thấy coachee #' . $coachee_id ) );
+    }
+
+    $astro_row = null;
+    if ( function_exists( 'bccm_astro_supports_chart_type' ) && bccm_astro_supports_chart_type() ) {
+        $astro_row = $wpdb->get_row( $wpdb->prepare(
+            "SELECT * FROM {$t_astro} WHERE coachee_id = %d AND chart_type = 'western' ORDER BY id DESC LIMIT 1", $coachee_id
+        ), ARRAY_A );
+    } else {
+        $astro_row = $wpdb->get_row( $wpdb->prepare(
+            "SELECT * FROM {$t_astro} WHERE coachee_id = %d ORDER BY id DESC LIMIT 1", $coachee_id
+        ), ARRAY_A );
+    }
+
+    if ( ! $astro_row || empty( $astro_row['birth_time'] ) ) {
+        wp_send_json_error( array( 'message' => 'Thiếu giờ sinh hoặc bản đồ sao.' ) );
+    }
+    if ( ! class_exists( 'BizCoach_Pro_Self_Service_REST' ) ) {
+        wp_send_json_error( array( 'message' => 'BizCoach_Pro_Self_Service_REST chưa load.' ) );
+    }
+
+    $res = BizCoach_Pro_Self_Service_REST::do_transit_fetch(
+        $coachee,
+        array(
+            'birth_time'  => $astro_row['birth_time'],
+            'birth_place' => isset( $astro_row['birth_place'] ) ? $astro_row['birth_place'] : '',
+        ),
+        $transit_date,
+        'day'
+    );
+
+    if ( ! empty( $res['success'] ) ) {
+        if ( class_exists( 'BizCity_Cache' ) ) {
+            BizCity_Cache::flush_group( 'bcpro' );
+        }
+        wp_send_json_success( array( 'date' => $transit_date, 'message' => 'OK' ) );
+    } else {
+        wp_send_json_error( array(
+            'date'    => $transit_date,
+            'message' => isset( $res['message'] ) ? (string) $res['message'] : 'Lỗi không xác định.',
+        ) );
+    }
+}
+
 /* ── Register submenu ── */
 add_action( 'admin_menu', function() {
     add_submenu_page(
@@ -28,15 +94,28 @@ add_action( 'admin_menu', function() {
  * Admin page: User Profiles List
  */
 function bccm_admin_user_profiles_page() {
+    // [2026-06-05 Johnny Chu] PHASE-A S.1 — guard: only admins may view the full member list
+    if ( ! current_user_can( 'manage_options' ) ) {
+        // Non-admin users redirected to their own self-service profile page.
+        $self_page = admin_url( 'admin.php?page=bccm_my_profile' );
+        wp_safe_redirect( $self_page );
+        exit;
+    }
+
     global $wpdb;
     $t       = bccm_tables();
     $t_astro = $wpdb->prefix . 'bccm_astro';
 
+    // [2026-06-05 Johnny Chu] PHASE-A S.1 — current admin for "chính chủ" highlight
+    $current_uid = (int) get_current_user_id();
+
     wp_enqueue_style( 'bccm-admin' );
 
     // ── Detail view redirect ──
-    if ( ! empty( $_GET['action'] ) && $_GET['action'] === 'view' && ! empty( $_GET['user_id'] ) ) {
-        bccm_admin_user_profile_detail( (int) $_GET['user_id'] );
+    // [2026-07-03 Johnny Chu] PHASE-ASTRO-MIGRATE — accept user_id=0 when coachee_id is present (no-account coachee)
+    if ( ! empty( $_GET['action'] ) && $_GET['action'] === 'view'
+         && ( isset( $_GET['user_id'] ) && $_GET['user_id'] !== '' || ! empty( $_GET['coachee_id'] ) ) ) {
+        bccm_admin_user_profile_detail( (int) ( $_GET['user_id'] ?? 0 ) );
         return;
     }
 
@@ -73,12 +152,27 @@ function bccm_admin_user_profiles_page() {
         $astro_join .= "        LEFT JOIN {$t_astro} a_v ON a_v.coachee_id = p.id AND 1=0";
     }
 
-    // Count & fetch — GROUP BY user_id to de-duplicate (one user may have multiple coachees)
+    // Count & fetch — GROUP BY user_id to de-duplicate (one user may have multiple coachees).
+    // [2026-07-03 Johnny Chu] PHASE-ASTRO-MIGRATE — include user_id=0 (no-account coachees) per their own id.
     $count_sql = "
-        SELECT COUNT(DISTINCT p.user_id) FROM {$t['profiles']} p {$where} AND p.user_id IS NOT NULL AND p.user_id > 0
+        SELECT COUNT(DISTINCT CASE WHEN p.user_id > 0 THEN p.user_id ELSE CONCAT('c', p.id) END)
+        FROM {$t['profiles']} p {$where}
     ";
     $total = (int) $wpdb->get_var( $count_sql );
     $pages = $total ? ceil( $total / $per_page ) : 1;
+
+    // [2026-06-17 Johnny Chu] HOTFIX — subquery to prefer coachee with astro data over MAX(id)
+    // Old logic: MAX(p3.id) always picked newest coachee, even if no astro data.
+    // New logic: prefer coachee that has western astro data, then fallback to updated_at DESC.
+    // [2026-07-03 Johnny Chu] PHASE-ASTRO-MIGRATE — user_id>0: group-pick best coachee; user_id=0: show each coachee individually.
+    $prefer_astro_subquery = bccm_astro_supports_chart_type()
+        ? "SELECT p3.id FROM {$t['profiles']} p3
+           LEFT JOIN {$t_astro} a3 ON a3.coachee_id = p3.id AND a3.chart_type = 'western'
+           WHERE p3.user_id = p.user_id AND p3.user_id > 0
+           ORDER BY (a3.summary IS NOT NULL AND a3.summary <> '' OR a3.traits IS NOT NULL AND a3.traits <> '') DESC,
+                    p3.updated_at DESC
+           LIMIT 1"
+        : "SELECT MAX(p3.id) FROM {$t['profiles']} p3 WHERE p3.user_id = p.user_id AND p3.user_id > 0";
 
     $profiles = $wpdb->get_results( "
         SELECT p.*,
@@ -88,16 +182,15 @@ function bccm_admin_user_profiles_page() {
             a_w.summary     AS western_summary,
             a_w.traits      AS western_traits,
             a_v.summary     AS vedic_summary,
-            (SELECT COUNT(*) FROM {$t['profiles']} p2 WHERE p2.user_id = p.user_id) AS profile_count
+            (CASE WHEN p.user_id > 0 THEN (SELECT COUNT(*) FROM {$t['profiles']} p2 WHERE p2.user_id = p.user_id) ELSE 1 END) AS profile_count
         FROM {$t['profiles']} p
         {$astro_join}
         {$where}
-        AND p.user_id IS NOT NULL AND p.user_id > 0
-        AND p.id = (
-            SELECT MAX(p3.id) FROM {$t['profiles']} p3
-            WHERE p3.user_id = p.user_id
+        AND (
+            (p.user_id > 0 AND p.id = ({$prefer_astro_subquery}))
+            OR (p.user_id = 0 OR p.user_id IS NULL)
         )
-        ORDER BY p.updated_at DESC
+        ORDER BY (p.user_id = {$current_uid}) DESC, p.updated_at DESC
         LIMIT {$per_page} OFFSET {$offset}
     ", ARRAY_A );
 
@@ -163,12 +256,12 @@ function bccm_admin_user_profiles_page() {
             <thead>
                 <tr>
                     <th style="width:36px;">#</th>
+                    <th style="width:80px;">User ID</th>
                     <th>Họ tên</th>
                     <th style="width:95px;">Ngày sinh</th>
                     <th style="width:90px;">Platform</th>
                     <th style="width:110px;">Giờ/Nơi sinh</th>
                     <th style="width:70px;">Western</th>
-                    <th style="width:70px;">Vedic</th>
                     <th style="width:120px;">Cập nhật</th>
                     <th style="width:200px;">Thao tác</th>
                 </tr>
@@ -176,20 +269,29 @@ function bccm_admin_user_profiles_page() {
             <tbody>
             <?php if ( empty( $profiles ) ): ?>
                 <tr><td colspan="9" style="text-align:center;color:#9ca3af;padding:40px;">Chưa có hồ sơ nào.</td></tr>
-            <?php else: foreach ( $profiles as $i => $p ):
+            <?php else:
+            // [2026-06-05 Johnny Chu] PHASE-A S.1 — own-profile separator tracking
+            $shown_own_separator  = false;
+            $shown_other_separator = false;
+            foreach ( $profiles as $i => $p ):
                 $idx           = $offset + $i + 1;
                 $has_birth     = ! empty( $p['western_birth_time'] );
-                $has_western   = ! empty( $p['western_summary'] );
-                $has_vedic     = ! empty( $p['vedic_summary'] );
+                // [2026-06-17 Johnny Chu] HOTFIX — check cả summary VÀ traits để detect Western data
+                $has_western   = ! empty( $p['western_summary'] ) || ! empty( $p['western_traits'] );
                 $user          = $p['user_id'] ? get_userdata( $p['user_id'] ) : null;
                 $display_name  = $p['full_name'] ?: ( $user ? $user->display_name : '—' );
                 $platform_type = $p['platform_type'] ?? 'WEB';
                 $is_admin      = $user && in_array( 'administrator', $user->roles ?? [] );
-                $detail_url    = admin_url( 'admin.php?page=bccm_user_profiles&action=view&user_id=' . $p['user_id'] );
+                // [2026-07-03 Johnny Chu] PHASE-ASTRO-MIGRATE — no-account coachee (user_id=0) uses coachee_id in URL
+                $is_no_account = ( (int) $p['user_id'] === 0 );
+                $detail_url    = admin_url( 'admin.php?page=bccm_user_profiles&action=view&user_id=' . $p['user_id']
+                    . ( $is_no_account ? '&coachee_id=' . (int) $p['id'] : '' ) );
                 $profile_count = (int) ( $p['profile_count'] ?? 1 );
+                $is_own        = ( (int) $p['user_id'] === $current_uid );
 
                 // Quick-gen URL for chart generation
-                $gen_url = admin_url( 'admin.php?page=bccm_user_profiles&action=view&user_id=' . $p['user_id'] );
+                $gen_url = admin_url( 'admin.php?page=bccm_user_profiles&action=view&user_id=' . $p['user_id']
+                    . ( $is_no_account ? '&coachee_id=' . (int) $p['id'] : '' ) );
 
                 // Platform badge colors
                 $plt_colors = [
@@ -198,9 +300,33 @@ function bccm_admin_user_profiles_page() {
                     'ZALO'      => 'background:#dcfce7;color:#166534;',
                 ];
                 $plt_style = $plt_colors[ $platform_type ] ?? 'background:#f3f4f6;color:#374151;';
+
+                // Section separator rows
+                if ( $is_own && ! $shown_own_separator ) :
+                    $shown_own_separator = true;
             ?>
-                <tr>
+                <tr style="background:#f0f9ff;">
+                    <td colspan="9" style="padding:6px 12px;font-size:11px;font-weight:700;color:#0369a1;letter-spacing:.04em;border-top:2px solid #bae6fd;">👤 HỒ SƠ CỦA BẠN (Chính chủ)</td>
+                </tr>
+            <?php elseif ( ! $is_own && ! $shown_other_separator ) :
+                    $shown_other_separator = true;
+            ?>
+                <tr style="background:#f8fafc;">
+                    <td colspan="9" style="padding:6px 12px;font-size:11px;font-weight:700;color:#64748b;letter-spacing:.04em;border-top:2px solid #e2e8f0;">👥 HỒ SƠ THÀNH VIÊN KHÁC</td>
+                </tr>
+            <?php endif; ?>
+                <tr style="<?php echo $is_own ? 'background:#eff6ff;' : ''; ?>">
                     <td><?php echo $idx; ?></td>
+                    <td style="font-size:11px;">
+                        <?php if ( $p['user_id'] ) : ?>
+                            <code style="background:#f1f5f9;padding:1px 5px;border-radius:3px;">#<?php echo (int) $p['user_id']; ?></code>
+                            <?php if ( $is_own ) : ?>
+                                <br><span style="background:#0ea5e9;color:#fff;padding:1px 5px;border-radius:4px;font-size:9px;font-weight:700;">Chính chủ</span>
+                            <?php endif; ?>
+                        <?php else : ?>
+                            <span style="color:#ccc;">—</span>
+                        <?php endif; ?>
+                    </td>
                     <td>
                         <a href="<?php echo esc_url( $detail_url ); ?>" style="text-decoration:none;color:#1e40af;">
                             <strong><?php echo esc_html( $display_name ); ?></strong>
@@ -229,16 +355,12 @@ function bccm_admin_user_profiles_page() {
                         <?php endif; ?>
                     </td>
                     <td><?php echo $has_western ? '<span style="color:#22c55e;font-weight:600;">🌟 Có</span>' : '<span style="color:#9ca3af;">—</span>'; ?></td>
-                    <td><?php echo $has_vedic ? '<span style="color:#7c3aed;font-weight:600;">🕉️ Có</span>' : '<span style="color:#9ca3af;">—</span>'; ?></td>
                     <td style="font-size:12px;color:#6b7280;"><?php echo esc_html( $p['updated_at'] ?? $p['created_at'] ?? '—' ); ?></td>
                     <td>
                         <div style="display:flex;gap:4px;flex-wrap:wrap;">
                             <a href="<?php echo esc_url( $detail_url ); ?>" class="button button-small button-primary" title="Xem chi tiết">👁️ Chi tiết</a>
                             <?php if ( $has_birth && ! $has_western ): ?>
                                 <a href="<?php echo esc_url( $gen_url . '&auto_gen=western' ); ?>" class="button button-small" style="background:#3b82f6;color:#fff;border-color:#2563eb;" title="Tạo Western chart">🌟</a>
-                            <?php endif; ?>
-                            <?php if ( $has_birth && ! $has_vedic ): ?>
-                                <a href="<?php echo esc_url( $gen_url . '&auto_gen=vedic' ); ?>" class="button button-small" style="background:#7c3aed;color:#fff;border-color:#6d28d9;" title="Tạo Vedic chart">🕉️</a>
                             <?php endif; ?>
                             <?php if ( $has_western ): ?>
                                 <?php
@@ -436,6 +558,12 @@ function bccm_admin_user_profile_detail( $view_uid ) {
             }
         }
 
+        // [2026-06-10 Johnny Chu] R-CACHE — flush bcpro group after birth data upsert
+        // so bccm_astro_fetch_by_user_chart() re-queries fresh rows below.
+        if ( class_exists( 'BizCity_Cache' ) ) {
+            BizCity_Cache::flush_group( 'bcpro' );
+        }
+
         echo '<div class="updated notice is-dismissible"><p>✅ Đã cập nhật thông tin cá nhân và dữ liệu sinh.</p></div>';
 
         // Refresh in-memory rows
@@ -486,6 +614,8 @@ function bccm_admin_user_profile_detail( $view_uid ) {
             $birth_input = array_merge( $birth_data, [
                 'birth_place' => $birth_place,
                 'birth_time'  => $birth_time_val,
+                // [2026-07-03 Johnny Chu] PHASE-ASTRO-MIGRATE — pass name for astroviet chart labels
+                'name'        => $coachee['full_name'] ?? '',
             ] );
 
             if ( $action === 'gen_free_chart' || $action === 'gen_both_charts' ) {
@@ -508,7 +638,19 @@ function bccm_admin_user_profile_detail( $view_uid ) {
                 if ( $chart_result === null ) {
                     echo '<div class="error"><p>❌ Không có provider Astrology nào khả dụng.</p></div>';
                 } elseif ( is_wp_error( $chart_result ) ) {
-                    echo '<div class="error"><p>❌ Western API: ' . esc_html( $chart_result->get_error_message() ) . '</p></div>';
+                    $err_msg  = $chart_result->get_error_message();
+                    $has_data = ! empty( $astro_row['traits'] ) || ! empty( $astro_row['summary'] );
+                    // [2026-06-08 Johnny Chu] HOTFIX — khi 502/429/503 + data đã có, gợi ý SVG-only.
+                    $is_upstream_err = ( strpos( $err_msg, 'http_5' ) !== false
+                        || strpos( $err_msg, 'http_429' ) !== false
+                        || strpos( $err_msg, '429' ) !== false
+                        || strpos( $err_msg, '502' ) !== false
+                        || strpos( $err_msg, '503' ) !== false );
+                    echo '<div class="error"><p>❌ Western API: ' . esc_html( $err_msg ) . '</p>';
+                    if ( $has_data && $is_upstream_err ) {
+                        echo '<p style="margin-top:6px;">💡 <strong>Dữ liệu natal đã có sẵn trong DB.</strong> Bấm nút <strong>🖼️ Tạo lại SVG Chart</strong> để chỉ retry phần ảnh (1 call, không cần full natal).</p>';
+                    }
+                    echo '</div>';
                 } else {
                     bccm_astro_save_chart( $coachee_id, $chart_result, $birth_input, $view_uid );
                     echo '<div class="updated"><p>✅ Đã tạo bản đồ Western Astrology'
@@ -629,6 +771,268 @@ function bccm_admin_user_profile_detail( $view_uid ) {
         }
     }
 
+    // [2026-06-08 Johnny Chu] HOTFIX — regen_svg_only: retry only the chart SVG call
+    // (1 API call instead of 3). Two paths:
+    //   A. Direct: local FAA provider (main site / bizcity.vn where providers are loaded)
+    //   B. Gateway: BizCoach_Pro_Astro_Client::chart_svg_western() (subsite fallback)
+    if ( $action === 'regen_svg_only' ) {
+        $can_regen_svg = $astro_row
+            && ! empty( $astro_row['birth_time'] )
+            && ! empty( $coachee['dob'] )
+            && function_exists( 'bccm_astro_save_svg_file' )
+            && (
+                ( function_exists( 'bcpro_astro_v2_available' ) && bcpro_astro_v2_available( 'western' )
+                  && class_exists( 'BizCity_Astro_Router' ) && function_exists( 'bcpro_astro_birth_to_v2_input' ) )
+                || class_exists( 'BizCoach_Pro_Astro_Client' )
+            );
+        if ( $can_regen_svg ) {
+            // [2026-06-17 Johnny Chu] HOTFIX — use astro row's coachee_id (not $coachee_id from coachee[0])
+            // If user has multiple coachees, $astro_row may come from a different coachee than $coachee[0].
+            $_astro_coachee_id = (int) ( $astro_row['coachee_id'] ?? $coachee_id );
+
+            $dob_p  = explode( '-', $coachee['dob'] );
+            $time_p = explode( ':', $astro_row['birth_time'] );
+            $off    = floatval( $astro_row['timezone'] ?? 7 );
+            $tz_str = 'Asia/Ho_Chi_Minh';
+            if ( abs( $off - 7.0 ) > 0.01 ) {
+                $tz_str = 'Etc/GMT' . ( $off >= 0 ? ( '-' . (int) $off ) : ( '+' . (int) abs( $off ) ) );
+            }
+            $svg_birth = array(
+                'year'       => intval( $dob_p[0] ?? 1990 ),
+                'month'      => intval( $dob_p[1] ?? 1 ),
+                'day'        => intval( $dob_p[2] ?? 1 ),
+                'hour'       => intval( $time_p[0] ?? 12 ),
+                'minute'     => intval( $time_p[1] ?? 0 ),
+                'lat'        => floatval( $astro_row['latitude']  ?? 0 ),
+                'lng'        => floatval( $astro_row['longitude'] ?? 0 ),
+                'tz_str'     => $tz_str,
+                // [2026-06-08 Johnny Chu] HOTFIX — FAA /api/v1/natal/chart/ requires 'city' (422 without it)
+                'city'       => ! empty( $astro_row['birth_place'] ) ? (string) $astro_row['birth_place'] : 'Hanoi',
+                // [2026-06-17 Johnny Chu] HOTFIX — use $_astro_coachee_id instead of $coachee_id
+                'coachee_id' => $_astro_coachee_id,
+                'format'     => 'svg',
+                'theme_type' => 'light',
+                'size'       => 800,
+            );
+
+            // [2026-06-09 Johnny Chu] HOTFIX — trace: dump birth input going into regen_svg_only
+            echo '<div class="notice notice-info" style="margin:8px 0"><p>'
+                . '<strong>🔍 regen_svg_only input:</strong> '
+                . esc_html( $svg_birth['year'] ) . '-' . esc_html( zeroise( $svg_birth['month'], 2 ) ) . '-' . esc_html( zeroise( $svg_birth['day'], 2 ) )
+                . ' ' . esc_html( zeroise( $svg_birth['hour'], 2 ) ) . ':' . esc_html( zeroise( $svg_birth['minute'], 2 ) )
+                . ' | lat=' . esc_html( $svg_birth['lat'] ) . ' lng=' . esc_html( $svg_birth['lng'] )
+                . ' | city=<code>' . esc_html( $svg_birth['city'] ) . '</code>'
+                . ' tz_str=<code>' . esc_html( $svg_birth['tz_str'] ) . '</code>'
+                . ' coachee_id=' . esc_html( $svg_birth['coachee_id'] )
+                . '</p></div>';
+
+            $svg_inline = '';
+            // --- Path A: direct local FAA provider ---
+            if ( function_exists( 'bcpro_astro_v2_available' ) && bcpro_astro_v2_available( 'western' )
+                 && class_exists( 'BizCity_Astro_Router' ) && function_exists( 'bcpro_astro_birth_to_v2_input' ) ) {
+                $bd_v2  = array_merge( array(
+                    'latitude' => $svg_birth['lat'], 'longitude' => $svg_birth['lng'],
+                    'timezone' => $off,
+                    'year' => $svg_birth['year'], 'month' => $svg_birth['month'], 'day' => $svg_birth['day'],
+                    'hour' => $svg_birth['hour'], 'minute' => $svg_birth['minute'],
+                ) );
+                $input    = bcpro_astro_birth_to_v2_input( $bd_v2 );
+                $provider = BizCity_Astro_Router::get_provider( 'faa_western' );
+                $direct   = $provider->chart_svg( array_merge( $input, array( 'format' => 'svg', 'theme_type' => 'light', 'size' => 800 ) ) );
+                // [2026-06-09 Johnny Chu] HOTFIX — trace Path A result
+                if ( ! empty( $direct['success'] ) && ! empty( $direct['svg'] ) ) {
+                    $svg_inline = (string) $direct['svg'];
+                    echo '<div class="notice notice-success" style="margin:8px 0"><p>'
+                        . '✅ <strong>Path A (FAA direct):</strong> svg_len=' . strlen( $svg_inline )
+                        . '</p></div>';
+                } else {
+                    $_pa_err = is_array( $direct ?? null )
+                        ? esc_html( 'success=' . ( ! empty( $direct['success'] ) ? 'true' : 'false' )
+                            . ' svg_len=' . ( isset( $direct['svg'] ) ? strlen( (string) $direct['svg'] ) : 'n/a' )
+                            . ' error=' . ( $direct['error'] ?? 'n/a' )
+                            . ' http=' . ( $direct['http']['status'] ?? '?' ) )
+                        : 'provider không trả về array';
+                    echo '<div class="notice notice-warning" style="margin:8px 0"><p>'
+                        . '⚠️ <strong>Path A (FAA direct) bỏ qua / thất bại:</strong> ' . $_pa_err
+                        . '</p></div>';
+                }
+            } else {
+                echo '<div class="notice notice-info" style="margin:8px 0"><p>'
+                    . 'ℹ️ <strong>Path A:</strong> bcpro_astro_v2_available / BizCity_Astro_Router không khả dụng trên site này — bỏ qua.'
+                    . '</p></div>';
+            }
+            // --- Path B: gateway BizCoach_Pro_Astro_Client (subsite) ---
+            // [2026-06-08 Johnny Chu] HOTFIX — add 'city' (FAA required field → 422 without it)
+            // [2026-06-09 Johnny Chu] HOTFIX — fix envelope reading: BizCoach_Pro_Astro_Client::call()
+            //   wraps API response in 'envelope' key → must read svg/image_url from $gw_res['envelope'],
+            //   NOT from $gw_res root. Mirror of fix already done in bccm_astro_fetch_full_chart_v2().
+            if ( $svg_inline === '' && class_exists( 'BizCoach_Pro_Astro_Client' ) ) {
+                $gw_payload = array_merge( $svg_birth, array(
+                    'city' => ! empty( $astro_row['birth_place'] ) ? (string) $astro_row['birth_place'] : 'Hanoi',
+                ) );
+                $gw_res = BizCoach_Pro_Astro_Client::chart_svg_western( $gw_payload, array( 'timeout' => 30 ) );
+
+                // [2026-06-09 Johnny Chu] HOTFIX — trace: dump full gateway response structure
+                $_gw_env      = is_array( $gw_res['envelope'] ?? null ) ? $gw_res['envelope'] : array();
+                $_gw_env_keys = array_keys( $_gw_env );
+                $_gw_img_url  = (string) ( $_gw_env['image_url'] ?? '' );
+                $_gw_svg_len  = isset( $_gw_env['svg'] ) ? strlen( (string) $_gw_env['svg'] ) : 0;
+                $_gw_b64_len  = isset( $_gw_env['image_base64'] ) ? strlen( (string) $_gw_env['image_base64'] ) : 0;
+                echo '<div class="notice notice-info" style="margin:8px 0"><p>'
+                    . '<strong>🔍 Path B gateway response:</strong> '
+                    . 'success=' . ( ! empty( $gw_res['success'] ) ? '<strong style="color:green">true</strong>' : '<strong style="color:red">false</strong>' ) . ' | '
+                    . 'http=' . esc_html( (string) ( $gw_res['http']['status'] ?? '?' ) ) . ' | '
+                    . 'envelope_keys=[<code>' . esc_html( implode( ', ', $_gw_env_keys ) ) . '</code>] | '
+                    . 'image_url="<code>' . esc_html( substr( $_gw_img_url, 0, 120 ) ) . ( strlen( $_gw_img_url ) > 120 ? '…' : '' ) . '</code>" | '
+                    . 'svg_len=' . esc_html( (string) $_gw_svg_len ) . ' | '
+                    . 'b64_len=' . esc_html( (string) $_gw_b64_len )
+                    . ( ! empty( $gw_res['error'] ) ? ' | error=<code>' . esc_html( (string) $gw_res['error'] ) . '</code>' : '' )
+                    . '</p></div>';
+
+                if ( ! empty( $gw_res['success'] ) ) {
+                    // Read svg/image_url from ENVELOPE (BizCoach_Pro_Astro_Client::call() wraps body here)
+                    $svg_inline = (string) ( $_gw_env['svg'] ?? '' );
+                    if ( $svg_inline === '' && $_gw_img_url !== '' ) {
+                        // image_url = S3-hosted SVG file → fetch and store as local SVG
+                        $fetch      = wp_remote_get( $_gw_img_url, array( 'timeout' => 20, 'sslverify' => false ) );
+                        $fetch_code = is_wp_error( $fetch ) ? 0 : wp_remote_retrieve_response_code( $fetch );
+                        $fetch_len  = is_wp_error( $fetch ) ? 0 : strlen( (string) wp_remote_retrieve_body( $fetch ) );
+                        // [2026-06-09 Johnny Chu] HOTFIX — trace S3 fetch result
+                        echo '<div class="notice notice-info" style="margin:8px 0"><p>'
+                            . '<strong>🔍 S3 fetch:</strong> '
+                            . 'url=<code>' . esc_html( substr( $_gw_img_url, 0, 100 ) ) . '</code> | '
+                            . 'http=' . esc_html( (string) $fetch_code ) . ' | '
+                            . 'body_len=' . esc_html( (string) $fetch_len )
+                            . ( is_wp_error( $fetch ) ? ' | wp_error=' . esc_html( $fetch->get_error_message() ) : '' )
+                            . '</p></div>';
+                        if ( ! is_wp_error( $fetch ) && $fetch_code === 200 ) {
+                            $svg_inline = (string) wp_remote_retrieve_body( $fetch );
+                        }
+                    } elseif ( $svg_inline === '' && $_gw_b64_len > 0 ) {
+                        // Last resort: base64 — store as data URI (no local file save needed)
+                        $_ct        = (string) ( $_gw_env['content_type'] ?? 'image/png' );
+                        $svg_inline = 'data:' . $_ct . ';base64,' . (string) $_gw_env['image_base64'];
+                    }
+                    if ( $svg_inline === '' ) {
+                        echo '<div class="notice notice-warning" style="margin:8px 0"><p>'
+                            . '⚠️ <strong>Path B:</strong> gateway trả success=true nhưng envelope không có svg/image_url/base64. '
+                            . 'Kiểm tra FAA quota hoặc cấu hình gateway.'
+                            . '</p></div>';
+                    }
+                } else {
+                    $gw_err = (string) ( $gw_res['error'] ?? ( 'http_' . ( $gw_res['http']['status'] ?? '?' ) ) );
+                    echo '<div class="error"><p>❌ Gateway chart-svg thất bại: <code>' . esc_html( $gw_err ) . '</code>. Thử lại sau vài phút.</p></div>';
+                }
+            } elseif ( $svg_inline === '' ) {
+                echo '<div class="notice notice-warning" style="margin:8px 0"><p>'
+                    . '⚠️ <strong>Path B:</strong> class BizCoach_Pro_Astro_Client không tồn tại — không thể dùng gateway.'
+                    . '</p></div>';
+            }
+
+            if ( $svg_inline !== '' ) {
+                // [2026-06-17 Johnny Chu] HOTFIX — use $_astro_coachee_id for file save and DB update
+                $saved = bccm_astro_save_svg_file( $_astro_coachee_id, 'natal', $svg_inline );
+                if ( is_wp_error( $saved ) ) {
+                    echo '<div class="error"><p>❌ Lưu SVG thất bại: ' . esc_html( $saved->get_error_message() ) . '</p></div>';
+                } else {
+                    $new_url     = (string) $saved;
+                    $t_astro_tmp = $wpdb->prefix . 'bccm_astro';
+                    $row_id = (int) $wpdb->get_var( $wpdb->prepare(
+                        "SELECT id FROM {$t_astro_tmp} WHERE coachee_id=%d AND chart_type='western' ORDER BY id DESC LIMIT 1",
+                        $_astro_coachee_id
+                    ) );
+                    if ( $row_id ) {
+                        $row_tmp = $wpdb->get_row( $wpdb->prepare(
+                            "SELECT summary, traits FROM {$t_astro_tmp} WHERE id=%d", $row_id
+                        ), ARRAY_A );
+                        $upd = array( 'chart_svg' => $new_url, 'updated_at' => current_time( 'mysql' ) );
+                        if ( ! empty( $row_tmp['summary'] ) ) {
+                            $s = json_decode( $row_tmp['summary'], true );
+                            if ( is_array( $s ) ) { $s['chart_url'] = $new_url; $upd['summary'] = wp_json_encode( $s, JSON_UNESCAPED_UNICODE ); }
+                        }
+                        if ( ! empty( $row_tmp['traits'] ) ) {
+                            $tr = json_decode( $row_tmp['traits'], true );
+                            if ( is_array( $tr ) ) { $tr['chart_url'] = $new_url; $upd['traits'] = wp_json_encode( $tr, JSON_UNESCAPED_UNICODE ); }
+                        }
+                        $wpdb->update( $t_astro_tmp, $upd, array( 'id' => $row_id ) );
+                        // [2026-06-17 Johnny Chu] HOTFIX — flush cache after DB update so re-fetch gets fresh data
+                        if ( class_exists( 'BizCity_Cache' ) ) {
+                            BizCity_Cache::flush_group( 'bcpro' );
+                        }
+                    }
+                    echo '<div class="updated"><p>✅ Đã tạo lại SVG chart: <code>' . esc_html( $new_url ) . '</code></p></div>';
+                    $astro_row = bccm_astro_fetch_by_user_chart( $view_uid, $coachee_id, 'western' );
+                }
+            } elseif ( $action === 'regen_svg_only' ) {
+                // Only show generic error if no specific one was printed above.
+                echo '<div class="error"><p>❌ Không lấy được SVG từ cả hai nguồn (FAA direct + gateway). Kiểm tra debug log.</p></div>';
+            }
+        } else {
+            echo '<div class="error"><p>⚠️ Chưa đủ điều kiện tạo lại SVG: cần giờ sinh + ngày sinh.</p></div>';
+        }
+    }
+
+    // [2026-07-09 Johnny Chu] PHASE-FAA2-FE — gen_wheel_chart: call faa2_western::natal_wheel_chart() → dark S3 URL
+    if ( $action === 'gen_wheel_chart' ) {
+        if ( $astro_row && ! empty( $astro_row['birth_time'] ) && ! empty( $coachee['dob'] )
+             && function_exists( 'bcpro_astro_v2_available' ) && bcpro_astro_v2_available( 'faa2_western' )
+             && class_exists( 'BizCity_Astro_Router' ) && function_exists( 'bcpro_astro_birth_to_v2_input' ) ) {
+
+            $_astro_coachee_id = (int) ( $astro_row['coachee_id'] ?? $coachee_id );
+            $dob_p  = explode( '-', $coachee['dob'] );
+            $time_p = explode( ':', $astro_row['birth_time'] );
+            $off    = floatval( $astro_row['timezone'] ?? 7 );
+
+            $bd_v2 = array(
+                'latitude'  => floatval( $astro_row['latitude']  ?? 0 ),
+                'longitude' => floatval( $astro_row['longitude'] ?? 0 ),
+                'timezone'  => $off,
+                'year'      => intval( $dob_p[0] ?? 1990 ),
+                'month'     => intval( $dob_p[1] ?? 1 ),
+                'day'       => intval( $dob_p[2] ?? 1 ),
+                'hour'      => intval( $time_p[0] ?? 12 ),
+                'minute'    => intval( $time_p[1] ?? 0 ),
+            );
+            $input    = bcpro_astro_birth_to_v2_input( $bd_v2 );
+            $provider = BizCity_Astro_Router::get_provider( 'faa2_western' );
+            $result   = $provider->natal_wheel_chart( $input );
+
+            if ( ! empty( $result['success'] ) && ! empty( $result['url'] ) ) {
+                $wheel_url   = (string) $result['url'];
+                $t_astro_tmp = $wpdb->prefix . 'bccm_astro';
+                $row_id = (int) $wpdb->get_var( $wpdb->prepare(
+                    "SELECT id FROM {$t_astro_tmp} WHERE coachee_id=%d AND chart_type='western' ORDER BY id DESC LIMIT 1",
+                    $_astro_coachee_id
+                ) );
+                if ( $row_id ) {
+                    $row_tmp = $wpdb->get_row( $wpdb->prepare(
+                        "SELECT summary, traits FROM {$t_astro_tmp} WHERE id=%d", $row_id
+                    ), ARRAY_A );
+                    $upd = array( 'chart_svg' => $wheel_url, 'updated_at' => current_time( 'mysql' ) );
+                    if ( ! empty( $row_tmp['summary'] ) ) {
+                        $s = json_decode( $row_tmp['summary'], true );
+                        if ( is_array( $s ) ) { $s['chart_url'] = $wheel_url; $upd['summary'] = wp_json_encode( $s, JSON_UNESCAPED_UNICODE ); }
+                    }
+                    if ( ! empty( $row_tmp['traits'] ) ) {
+                        $tr = json_decode( $row_tmp['traits'], true );
+                        if ( is_array( $tr ) ) { $tr['chart_url'] = $wheel_url; $upd['traits'] = wp_json_encode( $tr, JSON_UNESCAPED_UNICODE ); }
+                    }
+                    $wpdb->update( $t_astro_tmp, $upd, array( 'id' => $row_id ) );
+                    if ( class_exists( 'BizCity_Cache' ) ) { BizCity_Cache::flush_group( 'bcpro' ); }
+                }
+                echo '<div class="updated"><p>✅ FAA2 Natal Wheel Chart: <a href="' . esc_url( $wheel_url ) . '" target="_blank"><code>' . esc_html( $wheel_url ) . '</code></a></p></div>';
+                $astro_row = bccm_astro_fetch_by_user_chart( $view_uid, $coachee_id, 'western' );
+            } else {
+                $_err = isset( $result['error'] ) ? (string) $result['error'] : 'provider không trả về url';
+                echo '<div class="error"><p>❌ FAA2 natal_wheel_chart thất bại: <code>' . esc_html( $_err ) . '</code>. Kiểm tra API key / quota.</p></div>';
+            }
+        } elseif ( ! ( class_exists( 'BizCity_Astro_Router' ) && function_exists( 'bcpro_astro_v2_available' ) && bcpro_astro_v2_available( 'faa2_western' ) ) ) {
+            echo '<div class="error"><p>⚠️ FAA2 Wheel Chart chỉ khả dụng trên site chính (bizcity.vn). Trên subsite dùng nút "🌟 Tạo Western Astrology" thay thế.</p></div>';
+        } else {
+            echo '<div class="error"><p>⚠️ Chưa đủ điều kiện tạo FAA2 wheel: cần giờ sinh + ngày sinh.</p></div>';
+        }
+    }
+
     // Data for display
     $astro_summary   = ! empty( $astro_row['summary'] )   ? json_decode( $astro_row['summary'], true )   : [];
     $astro_traits    = ! empty( $astro_row['traits'] )    ? json_decode( $astro_row['traits'], true )    : [];
@@ -666,7 +1070,17 @@ function bccm_admin_user_profile_detail( $view_uid ) {
     // Chat message count
     $chat_table = $wpdb->prefix . 'bizcity_webchat_messages';
     $msg_count  = 0;
-    if ( $wpdb->get_var( "SHOW TABLES LIKE '{$chat_table}'" ) === $chat_table ) {
+    // [2026-06-28 Johnny Chu] R-SHOW-TABLES — information_schema + wp_cache dual cache (no SHOW TABLES)
+    $_ck_chat = 'bz_tbl_' . (int) get_current_blog_id() . '_' . crc32( $chat_table );
+    $_p_chat  = wp_cache_get( $_ck_chat, 'bizcity_tbl' );
+    if ( false === $_p_chat ) {
+        $_p_chat = (int) (bool) $wpdb->get_var( $wpdb->prepare(
+            'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+            $chat_table
+        ) );
+        wp_cache_set( $_ck_chat, $_p_chat, 'bizcity_tbl', HOUR_IN_SECONDS );
+    }
+    if ( $_p_chat ) {
         $msg_count = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$chat_table} WHERE user_id=%d", $view_uid ) );
     }
 
@@ -831,8 +1245,6 @@ function bccm_admin_user_profile_detail( $view_uid ) {
                     <tr><td style="color:#6b7280;">Tọa độ</td><td><?php echo esc_html( ( $astro_row['latitude'] ?? '?' ) . ', ' . ( $astro_row['longitude'] ?? '?' ) ); ?></td></tr>
                     <tr><td style="color:#6b7280;">Timezone</td><td>UTC<?php echo ( $astro_row['timezone'] >= 0 ? '+' : '' ) . $astro_row['timezone']; ?></td></tr>
                     <tr><td style="color:#6b7280;">Western</td><td><?php echo $has_western ? '<span style="color:#22c55e;font-weight:600;">✅ Có dữ liệu</span>' : '<span style="color:#d97706;">⚠️ Chưa tạo</span>'; ?></td></tr>
-                    <tr><td style="color:#6b7280;">Vedic</td><td><?php echo $has_vedic ? '<span style="color:#7c3aed;font-weight:600;">✅ Có dữ liệu</span>' : '<span style="color:#d97706;">⚠️ Chưa tạo</span>'; ?></td></tr>
-                    <tr><td style="color:#6b7280;">Chinese (BaZi)</td><td><?php echo $has_chinese ? '<span style="color:#dc2626;font-weight:600;">✅ Có dữ liệu</span>' : '<span style="color:#d97706;">⚠️ Chưa tạo</span>'; ?></td></tr>
                 </table>
             <?php else: ?>
                 <p style="color:#d97706;margin:0;font-size:13px;">⚠️ Chưa có dữ liệu chiêm tinh.</p>
@@ -848,15 +1260,182 @@ function bccm_admin_user_profile_detail( $view_uid ) {
                 <button type="submit" name="bccm_action" value="gen_free_chart" class="button" style="background:#3b82f6;color:#fff;border-color:#2563eb;text-align:left;padding:8px 14px;" <?php echo ( ! $astro_row || ! $astro_row['birth_time'] ) ? 'disabled title="Cần giờ sinh"' : ''; ?>>
                     🌟 Tạo Western Astrology
                 </button>
-                <button type="submit" name="bccm_action" value="gen_vedic_chart" class="button" style="background:#7c3aed;color:#fff;border-color:#6d28d9;text-align:left;padding:8px 14px;" <?php echo ( ! $astro_row || ! $astro_row['birth_time'] ) ? 'disabled title="Cần giờ sinh"' : ''; ?>>
-                    🕉️ Tạo Vedic Astrology
+                <?php // [2026-07-09 Johnny Chu] PHASE-FAA2-FE — FAA2 natal wheel chart button (dark SVG S3 URL) ?>
+                <button type="submit" name="bccm_action" value="gen_wheel_chart" class="button"
+                    style="background:#4c1d95;color:#fff;border-color:#6d28d9;text-align:left;padding:8px 14px;"
+                    <?php echo ( ! $astro_row || ! $astro_row['birth_time'] ) ? 'disabled title="Cần giờ sinh"' : ''; ?>
+                    title="Tạo FAA2 Natal Wheel Chart (dark theme · Placidus · Tropical) — lưu S3 URL vào bccm_astro.chart_svg">
+                    🌌 FAA2 Natal Wheel (Dark)
                 </button>
-                <button type="submit" name="bccm_action" value="gen_chinese_chart" class="button" style="background:#dc2626;color:#fff;border-color:#b91c1c;text-align:left;padding:8px 14px;" <?php echo ( ! $astro_row || ! $astro_row['birth_time'] ) ? 'disabled title="Cần giờ sinh"' : ''; ?>>
-                    🐲 Tạo Chinese Astrology (BaZi / Tứ Trụ)
+                <?php // [2026-07-03 Johnny Chu] PHASE-ASTRO-MIGRATE — removed "Tạo lại SVG Chart" button; AstroViet URL built from planet data, no SVG file needed ?>
+                <?php // [2026-06-29 Johnny Chu] PHASE-A — AJAX transit 30 ngày, từng ngày một, progress trong console ?>
+                <?php
+                $ajax_nonce    = wp_create_nonce( 'bccm_transit_fetch_day' );
+                $ajax_disabled = ( ! $astro_row || ! $astro_row['birth_time'] || ! $has_western ) ? 'disabled' : '';
+                ?>
+                <button type="button" id="bccm-fetch-month-transit"
+                        data-coachee="<?php echo (int) $coachee_id; ?>"
+                        data-nonce="<?php echo esc_attr( $ajax_nonce ); ?>"
+                        data-ajaxurl="<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>"
+                        class="button"
+                        style="background:#7c3aed;color:#fff;border-color:#6d28d9;text-align:left;padding:8px 14px;"
+                        title="Lấy transit từng ngày cho 30 ngày tới — progress hiện trong Console (F12)"
+                        <?php echo $ajax_disabled; ?>>
+                    📥 Lấy Transit Cả Tháng
                 </button>
-                <button type="submit" name="bccm_action" value="gen_both_charts" class="button" style="background:#059669;color:#fff;border-color:#047857;text-align:left;padding:8px 14px;" <?php echo ( ! $astro_row || ! $astro_row['birth_time'] ) ? 'disabled title="Cần giờ sinh"' : ''; ?>>
-                    ⚡ Tạo cả 2 (Western + Vedic)
+                <div id="bccm-transit-progress" style="display:none;margin-top:6px;font-size:12px;color:#374151;background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:8px 12px;">
+                    <strong>⏳ Đang lấy transit...</strong>
+                    <div id="bccm-transit-bar" style="height:8px;background:#e5e7eb;border-radius:4px;margin:6px 0;overflow:hidden;">
+                        <div id="bccm-transit-fill" style="height:100%;width:0%;background:#7c3aed;transition:width .3s;"></div>
+                    </div>
+                    <span id="bccm-transit-status">0 / 30 ngày</span>
+                </div>
+                <script>
+                (function(){
+                    var btn = document.getElementById('bccm-fetch-month-transit');
+                    if (!btn) return;
+                    btn.addEventListener('click', function(){
+                        var coacheeId  = btn.dataset.coachee;
+                        var nonce      = btn.dataset.nonce;
+                        var ajaxUrl    = btn.dataset.ajaxurl;
+                        var totalDays  = 30;
+                        var today      = new Date();
+                        var dates      = [];
+                        for (var i = 0; i < totalDays; i++) {
+                            var d = new Date(today);
+                            d.setDate(today.getDate() + i);
+                            dates.push(d.toISOString().slice(0,10));
+                        }
+                        btn.disabled = true;
+                        var prog = document.getElementById('bccm-transit-progress');
+                        var fill = document.getElementById('bccm-transit-fill');
+                        var stat = document.getElementById('bccm-transit-status');
+                        prog.style.display = 'block';
+                        console.group('[BCCM Transit] Lấy transit cả tháng — coachee #' + coacheeId);
+                        console.log('Danh sách ngày:', dates);
+                        var ok = 0, fail = 0, idx = 0;
+                        function fetchNext() {
+                            if (idx >= dates.length) {
+                                console.groupEnd();
+                                fill.style.background = fail > 0 ? '#dc2626' : '#059669';
+                                stat.textContent = '✅ Xong! ' + ok + ' thành công, ' + fail + ' thất bại / ' + totalDays + ' ngày.';
+                                btn.disabled = false;
+                                btn.textContent = '📥 Lấy Transit Cả Tháng';
+                                return;
+                            }
+                            var date = dates[idx];
+                            idx++;
+                            btn.textContent = '⏳ ' + idx + '/' + totalDays + '...';
+                            var pct = Math.round(idx / totalDays * 100);
+                            fill.style.width = pct + '%';
+                            stat.textContent = idx + ' / ' + totalDays + ' ngày (' + date + ')';
+                            var fd = new FormData();
+                            fd.append('action', 'bccm_transit_fetch_day');
+                            fd.append('nonce', nonce);
+                            fd.append('coachee_id', coacheeId);
+                            fd.append('date', date);
+                            fetch(ajaxUrl, {method:'POST', body:fd})
+                                .then(function(r){ return r.json(); })
+                                .then(function(j){
+                                    if (j.success) {
+                                        ok++;
+                                        console.log('%c✅ ' + date + ' — OK', 'color:green');
+                                    } else {
+                                        fail++;
+                                        console.warn('❌ ' + date + ' — ' + (j.data && j.data.message ? j.data.message : JSON.stringify(j)));
+                                    }
+                                    fetchNext();
+                                })
+                                .catch(function(e){
+                                    fail++;
+                                    console.error('🔥 ' + date + ' — network error:', e);
+                                    fetchNext();
+                                });
+                        }
+                        fetchNext();
+                    });
+                })();
+                </script>
+                <?php
+                // [2026-07-05 Johnny Chu] PHASE-FAA2-NEXT — Tạo Đầy Đủ Dữ Liệu (fetch-all-astro 8 bước)
+                $faa_nonce    = wp_create_nonce( 'wp_rest' );
+                $faa_disabled = ( ! $astro_row || ! $astro_row['birth_time'] ) ? 'disabled' : '';
+                $faa_rest_url = rest_url( 'bizcity-bizcoach/v1/me/profiles/' . (int) $coachee_id . '/fetch-all-astro' );
+                ?>
+                <hr style="border:none;border-top:1px solid #e5e7eb;margin:4px 0;">
+                <button type="button" id="bccm-fetch-all-astro"
+                        data-nonce="<?php echo esc_attr( $faa_nonce ); ?>"
+                        data-url="<?php echo esc_url( $faa_rest_url ); ?>"
+                        class="button"
+                        style="background:#065f46;color:#fff;border-color:#047857;text-align:left;padding:8px 14px;font-weight:600;"
+                        title="Chạy 8 bước: Western planets + Houses + Aspects + Wheel Chart + Vedic (3 hệ) + Transit"
+                        <?php echo $faa_disabled; ?>>
+                    🚀 Tạo Đầy Đủ Dữ Liệu (8 bước)
                 </button>
+                <div id="bccm-faa-progress" style="display:none;margin-top:8px;font-size:12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 12px;">
+                    <strong id="bccm-faa-title">⏳ Đang tạo dữ liệu... (có thể mất 30-60 giây)</strong>
+                    <div style="margin-top:8px;" id="bccm-faa-steps"></div>
+                </div>
+                <script>
+                (function(){
+                    var btn = document.getElementById('bccm-fetch-all-astro');
+                    if (!btn) return;
+                    btn.addEventListener('click', function(){
+                        btn.disabled = true;
+                        btn.textContent = '⏳ Đang xử lý...';
+                        var prog  = document.getElementById('bccm-faa-progress');
+                        var title = document.getElementById('bccm-faa-title');
+                        var steps = document.getElementById('bccm-faa-steps');
+                        prog.style.display = 'block';
+                        steps.innerHTML = '';
+                        title.textContent = '⏳ Đang gọi API... (30–60 giây)';
+
+                        fetch(btn.dataset.url, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-WP-Nonce': btn.dataset.nonce
+                            },
+                            body: JSON.stringify({})
+                        })
+                        .then(function(r){ return r.json(); })
+                        .then(function(j){
+                            if (j && j.success && Array.isArray(j.steps)) {
+                                var icons = {done:'✅',partial:'⚠️',failed:'❌',pending:'⏳',skipped:'⏭️'};
+                                var html = '';
+                                j.steps.forEach(function(s){
+                                    var icon = icons[s.status] || '•';
+                                    html += '<div style="padding:2px 0;display:flex;gap:6px;">';
+                                    html += '<span style="min-width:20px;">' + icon + '</span>';
+                                    html += '<span><strong>' + (s.label || s.key) + '</strong>';
+                                    if (s.detail) html += ' <span style="color:#6b7280;">— ' + s.detail + '</span>';
+                                    html += '</span></div>';
+                                });
+                                steps.innerHTML = html;
+                                var failCount = j.steps.filter(function(s){ return s.status === 'failed'; }).length;
+                                title.textContent = failCount > 0
+                                    ? '⚠️ Hoàn tất — ' + failCount + ' bước thất bại. Xem log PHP.'
+                                    : '✅ Hoàn tất! Tải lại trang để xem kết quả.';
+                                prog.style.background = failCount > 0 ? '#fef9c3' : '#f0fdf4';
+                                prog.style.borderColor = failCount > 0 ? '#fde047' : '#bbf7d0';
+                            } else {
+                                title.textContent = '❌ Lỗi: ' + (j && j.message ? j.message : JSON.stringify(j));
+                                prog.style.background = '#fef2f2';
+                                prog.style.borderColor = '#fca5a5';
+                            }
+                            btn.disabled = false;
+                            btn.textContent = '🚀 Tạo Đầy Đủ Dữ Liệu (8 bước)';
+                        })
+                        .catch(function(e){
+                            title.textContent = '❌ Network error: ' + e.message;
+                            prog.style.background = '#fef2f2';
+                            prog.style.borderColor = '#fca5a5';
+                            btn.disabled = false;
+                            btn.textContent = '🚀 Tạo Đầy Đủ Dữ Liệu (8 bước)';
+                        });
+                    });
+                })();
+                </script>
                 <?php if ( ! $astro_row || ! $astro_row['birth_time'] ): ?>
                     <p style="color:#dc2626;font-size:11px;margin:0;">⚠️ User chưa khai báo giờ sinh. Bấm "✏️ Sửa" ở thẻ bên cạnh để bổ sung.</p>
                 <?php endif; ?>
@@ -870,7 +1449,15 @@ function bccm_admin_user_profile_detail( $view_uid ) {
     <div style="margin-bottom:20px;padding:14px 18px;background:#fff;border:1px solid #e5e7eb;border-radius:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
         <?php
         // Public Natal Chart link
-        $natal_url = function_exists( 'bccm_get_natal_chart_url_by_user' ) ? bccm_get_natal_chart_url_by_user( $view_uid ) : '';
+        // [2026-07-03 Johnny Chu] PHASE-ASTRO-MIGRATE — for user_id=0 (no-account coachees)
+        // bccm_get_natal_chart_url_by_user(0) returns false; use coachee_id directly instead.
+        if ( $view_uid > 0 && function_exists( 'bccm_get_natal_chart_url_by_user' ) ) {
+            $natal_url = bccm_get_natal_chart_url_by_user( $view_uid );
+        } elseif ( function_exists( 'bccm_get_natal_chart_public_url' ) ) {
+            $natal_url = bccm_get_natal_chart_public_url( $coachee_id );
+        } else {
+            $natal_url = '';
+        }
         if ( $natal_url ):
         ?>
             <a href="<?php echo esc_url( $natal_url ); ?>" target="_blank" class="button" style="background:#10b981;color:#fff;border-color:#059669;">🌟 Xem Bản Đồ Sao</a>
@@ -898,26 +1485,35 @@ function bccm_admin_user_profile_detail( $view_uid ) {
             <a href="<?php echo esc_url( $western_regen ); ?>" target="_blank" class="button" style="background:#f59e0b;color:#fff;border-color:#d97706;" title="Tạo lại báo cáo Western (xóa cache)">🔄 Tạo lại</a>
         <?php endif; ?>
 
-        <?php if ( $has_vedic ): ?>
-            <a href="<?php echo esc_url( $vedic_url ); ?>" target="_blank" class="button" style="background:#7c3aed;color:#fff;border-color:#6d28d9;">🕉️ Luận Giải AI — Vedic</a>
-        <?php endif; ?>
-
-        <?php if ( ! empty( $chinese_row ) ): ?>
-            <a href="<?php echo esc_url( $chinese_url ); ?>" target="_blank" class="button" style="background:#dc2626;color:#fff;border-color:#b91c1c;">☯️ Luận Giải AI — Chinese (Tứ Trụ)</a>
-        <?php endif; ?>
-
         <?php if ( $has_western ):
             $transit_nonce = wp_create_nonce( 'bccm_transit_report' );
             // New share-link for public transit page.
             $transit_share_url = function_exists( 'bcpro_get_transit_public_url' )
                 ? bcpro_get_transit_public_url( $coachee_id, 'month' )
                 : '';
+
+            // [2026-06-04 Johnny Chu] PHASE-A A — render 4 period buttons via
+            // public /my-transit/?id=&hash=&period= when router helper available
+            // (shareable, no admin-login). Fall back to admin-ajax otherwise.
+            $bcpro_transit_router_ok = function_exists( 'bcpro_get_transit_public_url' );
+            $transit_url_day = $bcpro_transit_router_ok
+                ? bcpro_get_transit_public_url( $coachee_id, 'day' )
+                : admin_url( 'admin-ajax.php?action=bccm_transit_report&coachee_id=' . $coachee_id . '&period=day&_wpnonce=' . $transit_nonce );
+            $transit_url_week = $bcpro_transit_router_ok
+                ? bcpro_get_transit_public_url( $coachee_id, 'week' )
+                : admin_url( 'admin-ajax.php?action=bccm_transit_report&coachee_id=' . $coachee_id . '&period=week&_wpnonce=' . $transit_nonce );
+            $transit_url_month = $bcpro_transit_router_ok
+                ? bcpro_get_transit_public_url( $coachee_id, 'month' )
+                : admin_url( 'admin-ajax.php?action=bccm_transit_report&coachee_id=' . $coachee_id . '&period=month&_wpnonce=' . $transit_nonce );
+            $transit_url_year = $bcpro_transit_router_ok
+                ? bcpro_get_transit_public_url( $coachee_id, 'year' )
+                : admin_url( 'admin-ajax.php?action=bccm_transit_report&coachee_id=' . $coachee_id . '&period=year&_wpnonce=' . $transit_nonce );
         ?>
             <span style="border-left:2px solid #e5e7eb;height:24px;"></span>
-            <a href="<?php echo esc_url( admin_url( 'admin-ajax.php?action=bccm_transit_report&coachee_id=' . $coachee_id . '&period=day&_wpnonce=' . $transit_nonce ) ); ?>" target="_blank" class="button" style="background:#06b6d4;color:#fff;border-color:#0891b2;">🌅 Transit Hôm nay</a>
-            <a href="<?php echo esc_url( admin_url( 'admin-ajax.php?action=bccm_transit_report&coachee_id=' . $coachee_id . '&period=week&_wpnonce=' . $transit_nonce ) ); ?>" target="_blank" class="button" style="background:#0ea5e9;color:#fff;border-color:#0284c7;">🔮 Transit Tuần tới</a>
-            <a href="<?php echo esc_url( admin_url( 'admin-ajax.php?action=bccm_transit_report&coachee_id=' . $coachee_id . '&period=month&_wpnonce=' . $transit_nonce ) ); ?>" target="_blank" class="button" style="background:#8b5cf6;color:#fff;border-color:#7c3aed;">📅 Transit Tháng (Gantt)</a>
-            <a href="<?php echo esc_url( admin_url( 'admin-ajax.php?action=bccm_transit_report&coachee_id=' . $coachee_id . '&period=year&_wpnonce=' . $transit_nonce ) ); ?>" target="_blank" class="button" style="background:#059669;color:#fff;border-color:#047857;">📊 Transit 12 Tháng</a>
+            <a href="<?php echo esc_url( $transit_url_day ); ?>" target="_blank" class="button" style="background:#06b6d4;color:#fff;border-color:#0891b2;">🌅 Transit Hôm nay</a>
+            <a href="<?php echo esc_url( $transit_url_week ); ?>" target="_blank" class="button" style="background:#0ea5e9;color:#fff;border-color:#0284c7;">🔮 Transit Tuần tới</a>
+            <a href="<?php echo esc_url( $transit_url_month ); ?>" target="_blank" class="button" style="background:#8b5cf6;color:#fff;border-color:#7c3aed;">📅 Transit Tháng (Gantt)</a>
+            <a href="<?php echo esc_url( $transit_url_year ); ?>" target="_blank" class="button" style="background:#059669;color:#fff;border-color:#047857;">📊 Transit 12 Tháng</a>
         <?php endif; ?>
     </div>
 
@@ -982,34 +1578,97 @@ function bccm_admin_user_profile_detail( $view_uid ) {
     </div>
     <?php endif; ?>
 
-    <!-- ══════════ NATAL CHART SVG (V2 enrichment) ══════════ -->
+    <!-- ══════════ BẢN ĐỒ ASTROVIET (2026-07-03 refactor) ══════════ -->
     <?php
-    $natal_chart_url = $astro_summary['chart_url']
-        ?? $astro_traits['chart_url']
-        ?? ( $astro_row['chart_svg'] ?? '' );
-    $natal_source    = $astro_summary['_source'] ?? $astro_traits['_source'] ?? '—';
-    $natal_log_file  = trailingslashit( wp_upload_dir()['baseurl'] ) . 'bcr-astro-debug.log';
+    // [2026-07-03 Johnny Chu] PHASE-ASTRO-MIGRATE — replaced SVG/diagnostic section
+    // with direct AstroViet chart URLs built from FAA2 planet positions + house data.
+    // No local file write required — external renderer works on any host/sub-site.
+
+    // [2026-07-09 Johnny Chu] PHASE-FAA2-FE — FAA2 natal wheel chart (dark theme)
+    // Displayed BEFORE AstroViet charts. Uses chart_svg / chart_url from bccm_astro.
+    // Populated automatically during natal chart generation (astro-v2-bridge FAA2 path).
+    $_faa2_chart_url = '';
+    if ( ! empty( $astro_row ) ) {
+        $_stored_sv = (string) ( $astro_row['chart_svg'] ?? '' );
+        // S3 URL or https:// URL = FAA2 natal wheel chart or other hosted SVG
+        if ( strpos( $_stored_sv, 'https://' ) === 0 || strpos( $_stored_sv, 'http://' ) === 0 ) {
+            $_faa2_chart_url = $_stored_sv;
+        }
+        // Explicit chart_url column (if exists)
+        if ( $_faa2_chart_url === '' && ! empty( $astro_row['chart_url'] ) ) {
+            $_faa2_chart_url = (string) $astro_row['chart_url'];
+        }
+    }
+
+    if ( $_faa2_chart_url !== '' ) :
+    ?>
+    <!-- [2026-07-09 Johnny Chu] PHASE-FAA2-FE — FAA2 Natal Wheel Chart (dark) -->
+    <div class="postbox" style="margin-bottom:16px;"><div class="inside" style="text-align:center;background:#1e1e24;border-radius:6px;padding:16px;">
+        <h2 style="margin:0 0 8px;font-size:18px;color:#fff;">🪐 Bản Đồ Hành Tinh (FAA2 Natal Wheel)</h2>
+        <p style="margin:0 0 12px;font-size:11px;color:#9ca3af;">Placidus · Tropical · Dark Theme — freeastrologyapi.com</p>
+        <img src="<?php echo esc_url( $_faa2_chart_url ); ?>" alt="FAA2 Natal Wheel Chart"
+             loading="lazy" style="max-width:560px;width:100%;border-radius:8px;box-shadow:0 4px 20px rgba(0,0,0,0.4);">
+        <div style="margin-top:6px;">
+            <a href="<?php echo esc_url( $_faa2_chart_url ); ?>" target="_blank"
+               style="font-size:11px;color:#6366f1;text-decoration:none;">🔗 Mở ảnh gốc (S3)</a>
+        </div>
+    </div></div>
+    <?php endif; ?>
+
+    <?php
+    $_av_positions  = function_exists( 'bccm_astro_normalize_positions' )
+        ? bccm_astro_normalize_positions( $astro_traits['positions'] ?? array() )
+        : ( $astro_traits['positions'] ?? array() );
+    $_av_houses_src = $astro_traits['houses'] ?? array();
+    $_av_houses_raw = array();
+    if ( ! empty( $_av_houses_src ) ) {
+        if ( isset( $_av_houses_src[0]['House'] ) || isset( $_av_houses_src[0]['house'] ) ) {
+            $_av_houses_raw = $_av_houses_src;
+        } elseif ( isset( $_av_houses_src['Houses'] ) ) {
+            $_av_houses_raw = $_av_houses_src['Houses'];
+        }
+    }
+    // [2026-07-05 Johnny Chu] HOTFIX — normalize birth_data to array before merge (avoid PHP warning).
+    $_av_birth_seed = is_array( $birth_data ) ? $birth_data : array();
+    $_av_birth      = array_merge( $_av_birth_seed, array( 'birth_place' => $birth_place ) );
+    $_av_name       = (string) ( $coachee['full_name'] ?? '' );
+    $_av_wheel_url  = ( function_exists( 'bccm_build_astroviet_wheel_url' ) && ! empty( $_av_positions ) && ! empty( $_av_houses_raw ) )
+        ? bccm_build_astroviet_wheel_url( $_av_positions, $_av_houses_raw, $_av_name, $_av_birth )
+        : '';
+    $_av_grid_url   = ( function_exists( 'bccm_build_astroviet_aspect_grid_url' ) && ! empty( $_av_positions ) && ! empty( $_av_houses_raw ) )
+        ? bccm_build_astroviet_aspect_grid_url( $_av_positions, $_av_houses_raw, $_av_birth )
+        : '';
     ?>
     <div class="postbox" style="margin-bottom:16px;"><div class="inside" style="text-align:center;">
-        <h3 style="margin-top:0;">🪐 Bản đồ sao Natal (Western)</h3>
-        <p style="font-size:11px;color:#6b7280;margin:0 0 8px;">Nguồn: <code><?php echo esc_html( $natal_source ); ?></code> — api.freeastroapi.com · <a href="<?php echo esc_url( $natal_log_file ); ?>" target="_blank">debug log</a></p>
-        <?php if ( ! empty( $natal_chart_url ) ): ?>
-        <img src="<?php echo esc_url( $natal_chart_url ); ?>"
-             alt="Natal Wheel Chart"
-             loading="lazy"
-             style="max-width:100%;height:auto;border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,0.12);" />
-        <p style="font-size:11px;color:#10b981;margin-top:6px;">✅ chart_url: <code><?php echo esc_html( $natal_chart_url ); ?></code></p>
-        <?php else: ?>
-        <div style="padding:24px;background:#fef3c7;border:1px dashed #f59e0b;border-radius:8px;color:#92400e;">
-            <strong>⚠️ Chưa có bản đồ SVG.</strong><br>
-            Ô dữ liệu <code>chart_url</code> rỗng. Có thể do: (1) chưa flush OpCache nên code enrichment chưa chạy, (2) endpoint <code>/api/v1/natal/chart/</code> bị 429/timeout. Mở <a href="<?php echo esc_url( $natal_log_file ); ?>" target="_blank">debug log</a> để kiểm tra <code>bridge.chart_svg</code>.
+        <h2 style="margin:0 0 12px;font-size:18px;">🗺️ Bản Đồ AstroViet</h2>
+        <?php if ( $_av_wheel_url || $_av_grid_url ) : ?>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center;margin-bottom:8px;">
+            <?php if ( $_av_wheel_url ) : ?>
+            <div style="text-align:center;">
+                <img src="<?php echo esc_url( $_av_wheel_url ); ?>" alt="AstroViet Natal Wheel"
+                     loading="lazy" style="max-width:480px;width:100%;border-radius:8px;">
+                <div style="font-size:9px;color:#9ca3af;margin-top:4px;">Natal Wheel — AstroViet</div>
+            </div>
+            <?php endif; ?>
+            <?php if ( $_av_grid_url ) : ?>
+            <div style="text-align:center;">
+                <img src="<?php echo esc_url( $_av_grid_url ); ?>" alt="AstroViet Aspect Grid"
+                     loading="lazy" style="max-width:480px;width:100%;border-radius:8px;">
+                <div style="font-size:9px;color:#9ca3af;margin-top:4px;">Aspect Grid — AstroViet</div>
+            </div>
+            <?php endif; ?>
         </div>
+        <?php else : ?>
+        <p style="color:#6b7280;padding:16px;">⚠️ Chưa có dữ liệu vị trí hành tinh. Bấm <strong>🌟 Tạo Western Astrology</strong> ở trên để tính.</p>
         <?php endif; ?>
     </div></div>
 
     <!-- ══════════ PLANET POSITIONS TABLE ══════════ -->
     <?php
-    $positions = $astro_traits['positions'] ?? [];
+    // [2026-06-08 Johnny Chu] HOTFIX — normalize sign names for existing saved records.
+    $positions = function_exists('bccm_astro_normalize_positions')
+        ? bccm_astro_normalize_positions($astro_traits['positions'] ?? [])
+        : ($astro_traits['positions'] ?? []);
     if ( ! empty( $positions ) ):
         $planet_vi = function_exists( 'bccm_planet_names_vi' ) ? bccm_planet_names_vi() : [];
         $planet_order = [ 'Sun','Moon','Mercury','Venus','Mars','Jupiter','Saturn','Uranus','Neptune','Pluto','Chiron','Lilith','True Node','Mean Node','Ascendant','Descendant','MC','IC' ];
@@ -1041,13 +1700,27 @@ function bccm_admin_user_profile_detail( $view_uid ) {
             $vi_name   = $planet_vi[ $pname ] ?? $pname;
 
             // Resolve Vietnamese sign label + symbol from local map (DB sign_vi may be mojibake).
+            // [2026-06-10 Johnny Chu] PHASE-REPORT RPT-FIX — prefer the normalized
+            // sign_vi/sign_symbol (set by bccm_astro_normalize_positions); fall back
+            // to an abbreviation-aware sign-number lookup so 3-letter codes
+            // (Ari/Aqu/Pis) resolve to Vietnamese instead of showing "Ari (Ari)".
             $sign_sym   = $pdata['sign_symbol'] ?? '';
-            $sign_label = $sign;
-            foreach ( $signs_data as $sd ) {
-                if ( strcasecmp( $sd['en'] ?? '', $sign ) === 0 ) {
+            $sign_label = (string) ( $pdata['sign_vi'] ?? '' );
+            if ( $sign_label === '' || strcasecmp( $sign_label, (string) $sign ) === 0 ) {
+                $sign_num_disp = function_exists( '_bccm_g2_sign_number' ) ? _bccm_g2_sign_number( (string) $sign ) : 0;
+                if ( $sign_num_disp > 0 && isset( $signs_data[ $sign_num_disp ] ) ) {
+                    $sd = $signs_data[ $sign_num_disp ];
                     if ( $sign_sym === '' ) { $sign_sym = $sd['symbol'] ?? ''; }
-                    $sign_label = $sd['vi'] ?? $sign;
-                    break;
+                    $sign_label = $sd['vi'] ?? (string) $sign;
+                } else {
+                    $sign_label = (string) $sign;
+                    foreach ( $signs_data as $sd ) {
+                        if ( strcasecmp( $sd['en'] ?? '', (string) $sign ) === 0 ) {
+                            if ( $sign_sym === '' ) { $sign_sym = $sd['symbol'] ?? ''; }
+                            $sign_label = $sd['vi'] ?? (string) $sign;
+                            break;
+                        }
+                    }
                 }
             }
 
@@ -1096,11 +1769,20 @@ function bccm_admin_user_profile_detail( $view_uid ) {
             $meaning   = $house_meanings[ (int) $house_num ] ?? '';
             $h_sym     = $h['sign_symbol'] ?? '';
             $h_label   = $h_sign;
-            foreach ( $signs_all as $sd ) {
-                if ( strcasecmp( $sd['en'] ?? '', $h_sign ) === 0 ) {
-                    if ( $h_sym === '' ) { $h_sym = $sd['symbol'] ?? ''; }
-                    $h_label = $sd['vi'] ?? $h_sign;
-                    break;
+            // [2026-06-10 Johnny Chu] PHASE-REPORT RPT-FIX — abbreviation-aware
+            // sign resolution (Ari/Aqu/Pis → Vietnamese) for house cusp signs.
+            $h_num_disp = function_exists( '_bccm_g2_sign_number' ) ? _bccm_g2_sign_number( (string) $h_sign ) : 0;
+            if ( $h_num_disp > 0 && isset( $signs_all[ $h_num_disp ] ) ) {
+                $sd = $signs_all[ $h_num_disp ];
+                if ( $h_sym === '' ) { $h_sym = $sd['symbol'] ?? ''; }
+                $h_label = $sd['vi'] ?? $h_sign;
+            } else {
+                foreach ( $signs_all as $sd ) {
+                    if ( strcasecmp( $sd['en'] ?? '', $h_sign ) === 0 ) {
+                        if ( $h_sym === '' ) { $h_sym = $sd['symbol'] ?? ''; }
+                        $h_label = $sd['vi'] ?? $h_sign;
+                        break;
+                    }
                 }
             }
         ?>
@@ -1183,229 +1865,6 @@ function bccm_admin_user_profile_detail( $view_uid ) {
         endif; ?>
         </tbody></table>
     </div></div>
-    <?php endif; ?>
-
-    <!-- ══════════ VEDIC (Jyotish) — Bản đồ + Luận giải Vedic riêng ══════════ -->
-    <?php
-    $vedic_chart_url = (string) ( $vedic_summary['chart_url'] ?? $vedic_traits['chart_url'] ?? '' );
-    $vedic_planets   = (array)  ( $vedic_traits['planets']    ?? [] );
-    $vedic_houses    = (array)  ( $vedic_traits['houses']     ?? [] );
-    $vedic_lagna     = (array)  ( $vedic_traits['lagna']      ?? [] );
-    $vedic_dasha     = (array)  ( $vedic_traits['dasha']      ?? [] );
-    $vedic_yogas     = (array)  ( $vedic_traits['yogas']      ?? [] );
-    $vedic_panchang  = (array)  ( $vedic_traits['panchang']   ?? [] );
-    $vedic_vargas    = (array)  ( $vedic_traits['vargas']     ?? [] );
-    if ( $vedic_chart_url || ! empty( $vedic_planets ) || ! empty( $vedic_lagna ) ):
-    ?>
-    <div style="margin-top:32px;border:2px solid #7c3aed;border-radius:12px;background:linear-gradient(135deg,#faf5ff 0%,#f5f3ff 100%);padding:20px;box-shadow:0 4px 16px rgba(124,58,237,0.08);">
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;border-bottom:2px solid #ddd6fe;padding-bottom:12px;">
-            <span style="font-size:32px;">🕉️</span>
-            <div>
-                <h2 style="margin:0;color:#6d28d9;font-size:22px;">Bản đồ Vedic (Jyotish)</h2>
-                <p style="margin:2px 0 0;color:#7c3aed;font-size:13px;">
-                    Hệ thống: <?php echo esc_html( $vedic_summary['system'] ?? 'Vedic (Lahiri Ayanamsha)' ); ?>
-                    · Nguồn: <code style="background:#ede9fe;padding:1px 6px;border-radius:4px;"><?php echo esc_html( $vedic_summary['_source'] ?? 'faa_vedic_v2' ); ?></code>
-                    <?php if ( ! empty( $vedic_summary['fetched_at'] ) ): ?>
-                    · Cập nhật: <?php echo esc_html( $vedic_summary['fetched_at'] ); ?>
-                    <?php endif; ?>
-                </p>
-            </div>
-        </div>
-
-        <div style="display:grid;grid-template-columns: 1fr 1fr;gap:20px;">
-            <!-- LEFT: Chart SVG -->
-            <div style="background:#fff;border:1px solid #ddd6fe;border-radius:8px;padding:12px;text-align:center;">
-                <?php if ( $vedic_chart_url ): ?>
-                    <img src="<?php echo esc_url( $vedic_chart_url ); ?>" alt="Vedic Chart" style="max-width:100%;height:auto;" />
-                    <p style="margin:8px 0 0;font-size:12px;color:#6b7280;">D1 Rasi Chart · Sidereal (Lahiri) · Whole-sign</p>
-                <?php else: ?>
-                    <p style="color:#9ca3af;padding:60px 0;">Chưa có bản đồ. Bấm nút 🕉️ ở danh sách để tạo.</p>
-                <?php endif; ?>
-            </div>
-
-            <!-- RIGHT: BIG-3 Vedic + Lagna nakshatra -->
-            <div>
-                <div style="display:grid;grid-template-columns: repeat(3,1fr);gap:8px;margin-bottom:12px;">
-                    <div style="background:#fff;border:1px solid #ddd6fe;border-radius:6px;padding:10px;text-align:center;">
-                        <div style="font-size:11px;color:#7c3aed;font-weight:600;">SURYA (Mặt trời)</div>
-                        <div style="font-size:18px;font-weight:700;color:#1f2937;margin-top:4px;"><?php echo esc_html( $vedic_summary['sun_sign'] ?? '?' ); ?></div>
-                    </div>
-                    <div style="background:#fff;border:1px solid #ddd6fe;border-radius:6px;padding:10px;text-align:center;">
-                        <div style="font-size:11px;color:#7c3aed;font-weight:600;">CHANDRA (Mặt trăng)</div>
-                        <div style="font-size:18px;font-weight:700;color:#1f2937;margin-top:4px;"><?php echo esc_html( $vedic_summary['moon_sign'] ?? '?' ); ?></div>
-                    </div>
-                    <div style="background:#fff;border:1px solid #ddd6fe;border-radius:6px;padding:10px;text-align:center;">
-                        <div style="font-size:11px;color:#7c3aed;font-weight:600;">LAGNA (Cung mọc)</div>
-                        <div style="font-size:18px;font-weight:700;color:#1f2937;margin-top:4px;"><?php echo esc_html( $vedic_summary['ascendant_sign'] ?? '?' ); ?></div>
-                    </div>
-                </div>
-
-                <?php if ( ! empty( $vedic_lagna ) ): ?>
-                <div style="background:#fff;border:1px solid #ddd6fe;border-radius:6px;padding:12px;">
-                    <h4 style="margin:0 0 8px;color:#6d28d9;font-size:14px;">📍 Lagna Details</h4>
-                    <table style="width:100%;font-size:13px;">
-                        <tr><td style="padding:3px 0;color:#6b7280;">Sign:</td><td><strong><?php echo esc_html( $vedic_lagna['sign_en'] ?? $vedic_lagna['sign'] ?? '' ); ?></strong></td></tr>
-                        <tr><td style="padding:3px 0;color:#6b7280;">Degree:</td><td><?php echo isset( $vedic_lagna['degree_in_sign'] ) ? number_format( (float) $vedic_lagna['degree_in_sign'], 2 ) . '°' : ( isset( $vedic_lagna['absolute_degree'] ) ? number_format( (float) $vedic_lagna['absolute_degree'], 2 ) . '°' : '—' ); ?></td></tr>
-                        <tr><td style="padding:3px 0;color:#6b7280;">Nakshatra:</td><td><strong><?php echo esc_html( is_array( $vedic_lagna['nakshatra'] ?? null ) ? ( $vedic_lagna['nakshatra']['name'] ?? '' ) : ( $vedic_lagna['nakshatra'] ?? '' ) ); ?></strong>
-                            <?php $n = $vedic_lagna['nakshatra'] ?? []; if ( is_array( $n ) && isset( $n['pada'] ) ): ?> · Pada <?php echo (int) $n['pada']; endif; ?>
-                        </td></tr>
-                        <tr><td style="padding:3px 0;color:#6b7280;">Lord:</td><td><?php echo esc_html( $vedic_lagna['nakshatra_lord'] ?? ( is_array( $vedic_lagna['nakshatra'] ?? null ) ? ( $vedic_lagna['nakshatra']['lord'] ?? '' ) : '' ) ); ?></td></tr>
-                    </table>
-                </div>
-                <?php endif; ?>
-            </div>
-        </div>
-
-        <!-- VEDIC PLANETS (sidereal) -->
-        <?php if ( ! empty( $vedic_planets ) ): ?>
-        <h3 style="margin:24px 0 8px;color:#6d28d9;font-size:16px;">🪐 Vị trí các hành tinh (Sidereal)</h3>
-        <div style="overflow-x:auto;background:#fff;border:1px solid #ddd6fe;border-radius:8px;">
-        <table class="widefat striped" style="margin:0;">
-            <thead><tr style="background:#ede9fe;">
-                <th>Graha</th><th>Rasi (Sign)</th><th>Độ</th><th>Bhava (Nhà)</th><th>Nakshatra</th><th>Pada</th><th>Lord</th><th>Retrograde</th>
-            </tr></thead>
-            <tbody>
-            <?php foreach ( $vedic_planets as $pname => $pdata ): if ( ! is_array( $pdata ) ) continue; ?>
-                <?php
-                    $nak = $pdata['nakshatra'] ?? '';
-                    $nak_name = is_array( $nak ) ? ( $nak['name'] ?? '' ) : (string) $nak;
-                    $pada     = is_array( $nak ) ? ( $nak['pada'] ?? '' ) : ( $pdata['pada'] ?? '' );
-                    $nak_lord = is_array( $nak ) ? ( $nak['lord'] ?? '' ) : ( $pdata['nakshatra_lord'] ?? '' );
-                    $deg      = $pdata['sign_degree'] ?? $pdata['degree_in_sign'] ?? $pdata['norm_degree'] ?? 0;
-                    $is_retro = ! empty( $pdata['is_retro'] ) || ! empty( $pdata['retrograde'] ) || ( ( $pdata['isRetro'] ?? 'false' ) === 'true' );
-                ?>
-                <tr>
-                    <td><strong><?php echo esc_html( $pname ); ?></strong></td>
-                    <td><?php echo esc_html( $pdata['sign_en'] ?? $pdata['sign'] ?? '' ); ?>
-                        <?php if ( ! empty( $pdata['sign_vi'] ) ): ?><span style="color:#9ca3af;font-size:11px;">(<?php echo esc_html( $pdata['sign_vi'] ); ?>)</span><?php endif; ?>
-                    </td>
-                    <td><?php echo number_format( (float) $deg, 2 ); ?>°</td>
-                    <td><?php echo esc_html( (string) ( $pdata['house'] ?? $pdata['house_number'] ?? '' ) ); ?></td>
-                    <td><?php echo esc_html( $nak_name ); ?></td>
-                    <td><?php echo esc_html( (string) $pada ); ?></td>
-                    <td><?php echo esc_html( (string) $nak_lord ); ?></td>
-                    <td><?php echo $is_retro ? '<span style="color:#dc2626;">℞</span>' : '—'; ?></td>
-                </tr>
-            <?php endforeach; ?>
-            </tbody>
-        </table>
-        </div>
-        <?php endif; ?>
-
-        <!-- VEDIC HOUSES (Whole-sign) -->
-        <?php if ( ! empty( $vedic_houses ) ): ?>
-        <h3 style="margin:24px 0 8px;color:#6d28d9;font-size:16px;">🏛️ 12 Bhava (Whole-sign)</h3>
-        <div style="display:grid;grid-template-columns: repeat(4, 1fr);gap:6px;">
-            <?php foreach ( $vedic_houses as $h ): if ( ! is_array( $h ) ) continue; ?>
-            <div style="background:#fff;border:1px solid #ddd6fe;border-radius:6px;padding:8px;font-size:12px;">
-                <div style="font-weight:700;color:#6d28d9;">Bhava <?php echo (int) ( $h['house'] ?? $h['House'] ?? 0 ); ?></div>
-                <div><?php echo esc_html( $h['sign_en'] ?? $h['sign'] ?? $h['Sign'] ?? '' ); ?></div>
-                <?php if ( isset( $h['degree_cusp'] ) ): ?><div style="color:#6b7280;font-size:11px;"><?php echo number_format( (float) $h['degree_cusp'], 2 ); ?>°</div><?php endif; ?>
-            </div>
-            <?php endforeach; ?>
-        </div>
-        <?php endif; ?>
-
-        <!-- VIMSHOTTARI DASHA -->
-        <?php
-        $dasha_timeline = (array) ( $vedic_dasha['timeline'] ?? [] );
-        $dasha_active   = (array) ( $vedic_dasha['active_periods'] ?? [] );
-        if ( ! empty( $dasha_timeline ) || ! empty( $dasha_active ) ):
-        ?>
-        <h3 style="margin:24px 0 8px;color:#6d28d9;font-size:16px;">⏳ Vimshottari Dasha (đang vận hành)</h3>
-        <div style="background:#fff;border:1px solid #ddd6fe;border-radius:8px;padding:12px;">
-            <?php if ( ! empty( $dasha_active ) ): ?>
-            <table class="widefat striped" style="margin:0;font-size:13px;">
-                <thead><tr style="background:#ede9fe;"><th>Cấp</th><th>Lord</th><th>Bắt đầu</th><th>Kết thúc</th><th>Thời lượng</th></tr></thead>
-                <tbody>
-                <?php foreach ( $dasha_active as $period ): if ( ! is_array( $period ) ) continue; ?>
-                    <tr>
-                        <td><strong>L<?php echo (int) ( $period['level'] ?? 0 ); ?></strong>
-                            <?php $lvl = (int) ( $period['level'] ?? 0 ); $lvl_name = [ 1 => 'Maha', 2 => 'Antar', 3 => 'Pratyantar' ][ $lvl ] ?? ''; ?>
-                            <span style="color:#7c3aed;font-size:11px;"><?php echo esc_html( $lvl_name ); ?></span>
-                        </td>
-                        <td><strong><?php echo esc_html( $period['lord'] ?? '' ); ?></strong></td>
-                        <td><?php echo esc_html( substr( (string) ( $period['start'] ?? '' ), 0, 10 ) ); ?></td>
-                        <td><?php echo esc_html( substr( (string) ( $period['end'] ?? '' ), 0, 10 ) ); ?></td>
-                        <td><?php echo isset( $period['duration_years'] ) ? number_format( (float) $period['duration_years'], 2 ) . ' năm' : '—'; ?></td>
-                    </tr>
-                <?php endforeach; ?>
-                </tbody>
-            </table>
-            <?php else: ?>
-            <p style="color:#6b7280;margin:0;">Có <?php echo count( $dasha_timeline ); ?> Mahadasha periods trong dữ liệu.</p>
-            <?php endif; ?>
-            <?php if ( ! empty( $vedic_dasha['moon_nakshatra'] ) ): ?>
-                <p style="margin:8px 0 0;color:#6b7280;font-size:12px;">Birth Moon Nakshatra: <strong><?php echo esc_html( $vedic_dasha['moon_nakshatra'] ); ?></strong>
-                <?php if ( isset( $vedic_dasha['birth_balance'] ) ): ?> · Balance: <?php echo esc_html( (string) $vedic_dasha['birth_balance'] ); ?><?php endif; ?>
-                </p>
-            <?php endif; ?>
-        </div>
-        <?php endif; ?>
-
-        <!-- YOGAS -->
-        <?php
-        $yogas_list = (array) ( $vedic_yogas['yogas'] ?? $vedic_yogas );
-        $active_yogas = array_values( array_filter( $yogas_list, function( $y ) { return is_array( $y ) && ! empty( $y['active'] ); } ) );
-        if ( ! empty( $active_yogas ) ):
-        ?>
-        <h3 style="margin:24px 0 8px;color:#6d28d9;font-size:16px;">✨ Yogas đang kích hoạt (<?php echo count( $active_yogas ); ?>)</h3>
-        <div style="display:grid;grid-template-columns: 1fr 1fr;gap:10px;">
-            <?php foreach ( $active_yogas as $y ): ?>
-            <div style="background:#fff;border-left:3px solid #7c3aed;border-radius:4px;padding:10px;font-size:13px;">
-                <div style="font-weight:700;color:#1f2937;"><?php echo esc_html( $y['name'] ?? $y['id'] ?? '' ); ?>
-                    <?php if ( ! empty( $y['strength'] ) ): ?><span style="color:#7c3aed;font-size:11px;">· strength: <?php echo esc_html( (string) $y['strength'] ); ?></span><?php endif; ?>
-                </div>
-                <?php if ( ! empty( $y['category'] ) || ! empty( $y['type'] ) ): ?>
-                <div style="color:#7c3aed;font-size:11px;margin-top:2px;">
-                    <?php echo esc_html( $y['type'] ?? '' ); ?><?php if ( ! empty( $y['type'] ) && ! empty( $y['category'] ) ) echo ' · '; ?><?php echo esc_html( $y['category'] ?? '' ); ?>
-                </div>
-                <?php endif; ?>
-                <?php if ( ! empty( $y['description'] ) ): ?>
-                <div style="color:#6b7280;font-size:12px;margin-top:4px;"><?php echo esc_html( $y['description'] ); ?></div>
-                <?php endif; ?>
-            </div>
-            <?php endforeach; ?>
-        </div>
-        <?php endif; ?>
-
-        <!-- PANCHANG -->
-        <?php if ( ! empty( $vedic_panchang ) ):
-            $tithi    = $vedic_panchang['tithi']     ?? [];
-            $nak_p    = $vedic_panchang['nakshatra'] ?? [];
-            $yoga_p   = $vedic_panchang['yoga']      ?? [];
-            $kar_p    = $vedic_panchang['karanas']   ?? ( $vedic_panchang['karana'] ?? [] );
-        ?>
-        <h3 style="margin:24px 0 8px;color:#6d28d9;font-size:16px;">📅 Panchang (Lịch ngày sinh)</h3>
-        <div style="background:#fff;border:1px solid #ddd6fe;border-radius:8px;padding:12px;display:grid;grid-template-columns: repeat(4, 1fr);gap:10px;font-size:13px;">
-            <div><strong style="color:#6d28d9;">Tithi:</strong><br><?php echo esc_html( is_array( $tithi ) ? ( $tithi['name'] ?? '' ) : (string) $tithi ); ?></div>
-            <div><strong style="color:#6d28d9;">Nakshatra:</strong><br><?php echo esc_html( is_array( $nak_p ) ? ( $nak_p['name'] ?? '' ) : (string) $nak_p ); ?></div>
-            <div><strong style="color:#6d28d9;">Yoga:</strong><br><?php echo esc_html( is_array( $yoga_p ) ? ( $yoga_p['name'] ?? '' ) : (string) $yoga_p ); ?></div>
-            <div><strong style="color:#6d28d9;">Karana:</strong><br>
-                <?php
-                if ( is_array( $kar_p ) && isset( $kar_p[0] ) && is_array( $kar_p[0] ) ) {
-                    echo esc_html( $kar_p[0]['name'] ?? '' );
-                } elseif ( is_array( $kar_p ) ) {
-                    echo esc_html( $kar_p['name'] ?? '' );
-                } else {
-                    echo esc_html( (string) $kar_p );
-                }
-                ?>
-            </div>
-        </div>
-        <?php endif; ?>
-
-        <!-- AI BUTTON -->
-        <div style="margin-top:20px;text-align:center;">
-            <a href="<?php echo esc_url( class_exists( 'BizCoach_Pro_Astro_Public_Router' )
-                ? BizCoach_Pro_Astro_Public_Router::get_public_url( $coachee_id, 'vedic' )
-                : admin_url( 'admin-ajax.php?action=bccm_natal_report_full&coachee_id=' . $coachee_id . '&chart_type=vedic&_wpnonce=' . wp_create_nonce( 'bccm_natal_report_full' ) ) ); ?>"
-               target="_blank" class="button button-large"
-               style="background:#7c3aed;color:#fff;border-color:#6d28d9;padding:8px 24px;font-size:14px;">
-                🕉️ Tạo bản luận giải Vedic (AI)
-            </a>
-        </div>
-    </div>
     <?php endif; ?>
 
     <!-- ══════════ TRANSITS (V2 enrichment: bi-wheel SVG + transit aspects) ══════════ -->
@@ -1656,87 +2115,149 @@ function bccm_admin_user_profile_add_new() {
 
     // ── Sticky form values ──
     $f = [
-        'phone'       => '',
-        'password'    => '',
-        'full_name'   => '',
-        'dob'         => '',
-        'birth_time'  => '',
-        'birth_place' => '',
-        'coach_type'  => 'astro_coach',
-        'auto_chart'  => 'both',
+        'create_account' => false,
+        'phone'          => '',
+        'password'       => '',
+        'full_name'      => '',
+        'dob'            => '',
+        'birth_time'     => '',
+        'birth_place'    => '',
+        'coach_type'     => 'astro_coach',
+        'auto_chart'     => 'both',
     ];
 
     /* ==================== HANDLE POST ==================== */
     if ( ! empty( $_POST['bccm_add_new_user'] ) && check_admin_referer( 'bccm_add_new_user' ) ) {
 
         // Sanitize
-        $f['phone']       = preg_replace( '/[^0-9]/', '', sanitize_text_field( $_POST['phone'] ?? '' ) );
-        $f['password']    = $_POST['password'] ?? '';
-        $f['full_name']   = sanitize_text_field( $_POST['full_name'] ?? '' );
-        $f['dob']         = sanitize_text_field( $_POST['dob'] ?? '' );
-        $f['birth_time']  = sanitize_text_field( $_POST['birth_time'] ?? '' );
-        $f['birth_place'] = sanitize_text_field( $_POST['birth_place'] ?? '' );
-        $f['coach_type']  = sanitize_text_field( $_POST['coach_type'] ?? 'astro_coach' );
-        $f['auto_chart']  = sanitize_text_field( $_POST['auto_chart'] ?? '' );
+        // [2026-07-03 Johnny Chu] PHASE-ASTRO-MIGRATE — create_account checkbox
+        $f['create_account'] = ! empty( $_POST['create_account'] );
+        // [2026-07-04 Johnny Chu] PHASE-FAA2-NEXT BE-2 — is_self checkbox
+        $f['is_self'] = ! empty( $_POST['is_self'] );
+        $f['phone']          = preg_replace( '/[^0-9]/', '', sanitize_text_field( $_POST['phone'] ?? '' ) );
+        $f['password']       = $_POST['password'] ?? '';
+        $f['full_name']      = sanitize_text_field( $_POST['full_name'] ?? '' );
+        $f['dob']            = sanitize_text_field( $_POST['dob'] ?? '' );
+        $f['birth_time']     = sanitize_text_field( $_POST['birth_time'] ?? '' );
+        $f['birth_place']    = sanitize_text_field( $_POST['birth_place'] ?? '' );
+        $f['coach_type']     = 'astro_coach';
+        $f['auto_chart']     = sanitize_text_field( $_POST['auto_chart'] ?? '' );
 
-        // Normalize phone: +84 / 84 → 0
-        $phone = $f['phone'];
-        if ( substr( $phone, 0, 2 ) === '84' && strlen( $phone ) > 9 ) {
-            $phone = '0' . substr( $phone, 2 );
-            $f['phone'] = $phone;
-        }
+        if ( $f['create_account'] ) {
+            // ── Path A: Tạo tài khoản WP ──────────────────────────────────────
 
-        // Validate
-        if ( strlen( $phone ) < 10 ) {
-            $msg = '⚠️ Số điện thoại không hợp lệ (tối thiểu 10 số).';
-            $msg_type = 'error';
-        } elseif ( strlen( $f['password'] ) < 6 ) {
-            $msg = '⚠️ Mật khẩu tối thiểu 6 ký tự.';
-            $msg_type = 'error';
-        } else {
-            // Check if phone (username) already exists
-            $existing_uid = username_exists( $phone );
-            if ( $existing_uid ) {
-                $detail_url = admin_url( 'admin.php?page=bccm_user_profiles&action=view&user_id=' . $existing_uid );
-                $msg = '⚠️ Số điện thoại <strong>' . esc_html( $phone ) . '</strong> đã có tài khoản (user #' . $existing_uid . '). <a href="' . esc_url( $detail_url ) . '">👉 Xem hồ sơ</a>';
+            // Normalize phone: +84 / 84 → 0
+            $phone = $f['phone'];
+            if ( substr( $phone, 0, 2 ) === '84' && strlen( $phone ) > 9 ) {
+                $phone = '0' . substr( $phone, 2 );
+                $f['phone'] = $phone;
+            }
+
+            if ( strlen( $phone ) < 10 ) {
+                $msg = '⚠️ Số điện thoại không hợp lệ (tối thiểu 10 số).';
+                $msg_type = 'error';
+            } elseif ( strlen( $f['password'] ) < 6 ) {
+                $msg = '⚠️ Mật khẩu tối thiểu 6 ký tự.';
                 $msg_type = 'error';
             } else {
-                // ── Create WP user ──
-                $email   = $phone . '@bizcity.vn';
-                $user_id = wp_create_user( $phone, $f['password'], $email );
-
-                if ( is_wp_error( $user_id ) ) {
-                    $msg = '❌ Lỗi tạo tài khoản: ' . $user_id->get_error_message();
+                $existing_uid = username_exists( $phone );
+                if ( $existing_uid ) {
+                    $detail_url = admin_url( 'admin.php?page=bccm_user_profiles&action=view&user_id=' . $existing_uid );
+                    $msg = '⚠️ Số điện thoại <strong>' . esc_html( $phone ) . '</strong> đã có tài khoản (user #' . $existing_uid . '). <a href="' . esc_url( $detail_url ) . '">👉 Xem hồ sơ</a>';
                     $msg_type = 'error';
                 } else {
-                    // Update display name
-                    wp_update_user( [
-                        'ID'           => $user_id,
-                        'display_name' => $f['full_name'] ?: $phone,
-                        'first_name'   => $f['full_name'],
-                    ] );
-                    // Save phone to billing meta
-                    update_user_meta( $user_id, 'billing_phone', $phone );
+                    $email   = $phone . '@bizcity.vn';
+                    $user_id = wp_create_user( $phone, $f['password'], $email );
 
-                    // ── Create coachee profile ──
-                    $coachee_id = 0;
-                    if ( function_exists( 'bccm_upsert_profile' ) ) {
-                        $coachee_id = bccm_upsert_profile( [
-                            'coach_type'    => $f['coach_type'],
-                            'full_name'     => $f['full_name'],
-                            'phone'         => $phone,
-                            'dob'           => $f['dob'],
-                            'user_id'       => $user_id,
-                            'platform_type' => 'WEBCHAT',
+                    if ( is_wp_error( $user_id ) ) {
+                        $msg = '❌ Lỗi tạo tài khoản: ' . $user_id->get_error_message();
+                        $msg_type = 'error';
+                    } else {
+                        wp_update_user( [
+                            'ID'           => $user_id,
+                            'display_name' => $f['full_name'] ?: $phone,
+                            'first_name'   => $f['full_name'],
                         ] );
-                    }
+                        update_user_meta( $user_id, 'billing_phone', $phone );
 
-                    // ── Save astro birth data ──
-                    if ( $f['birth_time'] && $f['dob'] && $coachee_id ) {
+                        $coachee_id = 0;
+                        if ( function_exists( 'bccm_upsert_profile' ) ) {
+                            $coachee_id = bccm_upsert_profile( [
+                                'coach_type'    => $f['coach_type'],
+                                'full_name'     => $f['full_name'],
+                                'phone'         => $phone,
+                                'dob'           => $f['dob'],
+                                'user_id'       => $user_id,
+                                'platform_type' => 'WEBCHAT',
+                            ] );
+                        }
+
+                        if ( $f['birth_time'] && $f['dob'] && $coachee_id ) {
+                            $geo = bccm_admin_simple_geocode( $f['birth_place'] );
+                            $astro_row = [
+                                'coachee_id'  => $coachee_id,
+                                'user_id'     => $user_id,
+                                'chart_type'  => 'western',
+                                'birth_time'  => $f['birth_time'],
+                                'birth_place' => $f['birth_place'],
+                                'latitude'    => $geo['lat'],
+                                'longitude'   => $geo['lon'],
+                                'timezone'    => $geo['tz'],
+                                'created_at'  => current_time( 'mysql' ),
+                                'updated_at'  => current_time( 'mysql' ),
+                            ];
+                            if ( function_exists( 'bccm_astro_filter_row_to_existing_columns' ) ) {
+                                $astro_row = bccm_astro_filter_row_to_existing_columns( $astro_row );
+                            }
+                            $wpdb->insert( $t_astro, $astro_row );
+                        }
+
+                        // [2026-07-04 Johnny Chu] PHASE-FAA2-NEXT BE-2 — set is_self after account+coachee creation
+                        if ( $coachee_id && $f['is_self'] && function_exists( 'bccm_set_self_coachee' ) ) {
+                            bccm_set_self_coachee( $user_id, $coachee_id );
+                        } elseif ( $coachee_id && ! function_exists( 'bccm_user_has_self' ) ) {
+                            // fallback: auto-promote if no helper loaded yet
+                        } elseif ( $coachee_id && function_exists( 'bccm_user_has_self' ) && ! bccm_user_has_self( $user_id ) ) {
+                            bccm_set_self_coachee( $user_id, $coachee_id );
+                        }
+                        $redirect = admin_url( 'admin.php?page=bccm_user_profiles&action=view&user_id=' . $user_id . '&coachee_id=' . (int) $coachee_id . '&created=1' );
+                        if ( $f['auto_chart'] && $f['birth_time'] && $f['dob'] ) {
+                            $redirect .= '&auto_gen=' . $f['auto_chart'];
+                        }
+                        wp_safe_redirect( $redirect );
+                        exit;
+                    }
+                }
+            }
+
+        } else {
+            // ── Path B: Chỉ tạo hồ sơ (không tạo tài khoản WP) ───────────────
+            // [2026-07-03 Johnny Chu] PHASE-ASTRO-MIGRATE — no-account path
+
+            if ( empty( $f['full_name'] ) ) {
+                $msg = '⚠️ Vui lòng nhập tên khách hàng.';
+                $msg_type = 'error';
+            } else {
+                $coachee_id = 0;
+                if ( function_exists( 'bccm_upsert_profile' ) ) {
+                    $coachee_id = bccm_upsert_profile( [
+                        'coach_type'    => $f['coach_type'],
+                        'full_name'     => $f['full_name'],
+                        'dob'           => $f['dob'],
+                        'user_id'       => 0,
+                        'platform_type' => 'ADMIN',
+                    ] );
+                }
+
+                if ( ! $coachee_id ) {
+                    $msg = '❌ Không thể tạo hồ sơ. Vui lòng thử lại.';
+                    $msg_type = 'error';
+                } else {
+                    if ( $f['birth_time'] && $f['dob'] ) {
                         $geo = bccm_admin_simple_geocode( $f['birth_place'] );
                         $astro_row = [
                             'coachee_id'  => $coachee_id,
-                            'user_id'     => $user_id,
+                            'user_id'     => 0,
                             'chart_type'  => 'western',
                             'birth_time'  => $f['birth_time'],
                             'birth_place' => $f['birth_place'],
@@ -1752,10 +2273,11 @@ function bccm_admin_user_profile_add_new() {
                         $wpdb->insert( $t_astro, $astro_row );
                     }
 
-                    // ── Redirect to detail view (optionally auto-generate chart) ──
-                    // Pass coachee_id along so the detail page never has to look
-                    // up user_id→profile (avoids HyperDB read-replica lag).
-                    $redirect = admin_url( 'admin.php?page=bccm_user_profiles&action=view&user_id=' . $user_id . '&coachee_id=' . (int) $coachee_id . '&created=1' );
+                    // [2026-07-04 Johnny Chu] PHASE-FAA2-NEXT BE-2 — set is_self for no-account path (user_id=0 skip)
+                    if ( $coachee_id && $f['is_self'] && function_exists( 'bccm_set_self_coachee' ) ) {
+                        bccm_set_self_coachee( 0, $coachee_id );
+                    }
+                    $redirect = admin_url( 'admin.php?page=bccm_user_profiles&action=view&user_id=0&coachee_id=' . (int) $coachee_id . '&created=1' );
                     if ( $f['auto_chart'] && $f['birth_time'] && $f['dob'] ) {
                         $redirect .= '&auto_gen=' . $f['auto_chart'];
                     }
@@ -1785,45 +2307,66 @@ function bccm_admin_user_profile_add_new() {
         </div>
     <?php endif; ?>
 
+    <?php
+    // ── Inline JS for create_account toggle ──────────────────────────────────
+    // [2026-07-03 Johnny Chu] PHASE-ASTRO-MIGRATE — checkbox toggle
+    ?>
+    <script>
+    document.addEventListener('DOMContentLoaded', function () {
+        var cb  = document.getElementById('bccm_create_account_cb');
+        var sec = document.getElementById('bccm_account_section');
+        var lbl = document.getElementById('bccm_col1_title');
+        function toggle() {
+            var create = cb.checked;
+            sec.style.display = create ? '' : 'none';
+            lbl.textContent   = create ? '📱 Tài khoản đăng nhập' : '👤 Thông tin khách hàng';
+        }
+        cb.addEventListener('change', toggle);
+        toggle();
+    });
+    </script>
+
     <form method="post" style="max-width:900px;">
         <?php wp_nonce_field( 'bccm_add_new_user' ); ?>
 
+        <!-- ═══ Checkbox tạo tài khoản ═══ -->
+        <div style="background:#fef9c3;border:1px solid #fde68a;border-radius:10px;padding:12px 18px;margin-bottom:16px;display:flex;align-items:center;gap:12px;font-size:14px;">
+            <input type="checkbox" id="bccm_create_account_cb" name="create_account" value="1" style="width:18px;height:18px;cursor:pointer;"
+                   <?php checked( $f['create_account'] ); ?> />
+            <label for="bccm_create_account_cb" style="margin:0;font-weight:700;cursor:pointer;">
+                Tạo tài khoản đăng nhập cho khách hàng (username = số điện thoại)
+            </label>
+        </div>
+
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;">
 
-            <!-- ═══ Column 1: Tài khoản ═══ -->
+            <!-- ═══ Column 1: Tài khoản / Thông tin ═══ -->
             <div style="background:#f8fafc;padding:20px;border-radius:12px;border:1px solid #e5e7eb;">
-                <h3 style="margin:0 0 16px;font-size:15px;color:#1e40af;">📱 Tài khoản đăng nhập</h3>
+                <h3 id="bccm_col1_title" style="margin:0 0 16px;font-size:15px;color:#1e40af;">� Thông tin khách hàng</h3>
 
+                <!-- Họ tên — luôn hiển thị, field duy nhất -->
                 <p style="margin:0 0 12px;">
-                    <label style="display:block;font-weight:700;margin-bottom:4px;">Số điện thoại <span style="color:#dc2626;">*</span></label>
-                    <input type="text" name="phone" value="<?php echo esc_attr( $f['phone'] ); ?>" placeholder="VD: 0901234567" required
-                           style="width:100%;padding:10px 14px;border:1px solid #d1d5db;border-radius:10px;font-size:14px;" inputmode="numeric" />
-                    <small style="color:#6b7280;">Số điện thoại sẽ là tên đăng nhập (username)</small>
-                </p>
-
-                <p style="margin:0 0 12px;">
-                    <label style="display:block;font-weight:700;margin-bottom:4px;">Mật khẩu <span style="color:#dc2626;">*</span></label>
-                    <input type="text" name="password" value="<?php echo esc_attr( $f['password'] ); ?>" placeholder="Tối thiểu 6 ký tự" required
-                           style="width:100%;padding:10px 14px;border:1px solid #d1d5db;border-radius:10px;font-size:14px;" />
-                    <small style="color:#6b7280;">Hiện rõ để admin ghi nhớ / gửi cho khách</small>
-                </p>
-
-                <p style="margin:0 0 12px;">
-                    <label style="display:block;font-weight:700;margin-bottom:4px;">Họ tên khách hàng</label>
+                    <label style="display:block;font-weight:700;margin-bottom:4px;">Họ tên khách hàng <span style="color:#dc2626;">*</span></label>
                     <input type="text" name="full_name" value="<?php echo esc_attr( $f['full_name'] ); ?>" placeholder="VD: Nguyễn Văn A"
                            style="width:100%;padding:10px 14px;border:1px solid #d1d5db;border-radius:10px;font-size:14px;" />
                 </p>
 
-                <p style="margin:0;">
-                    <label style="display:block;font-weight:700;margin-bottom:4px;">Loại Coach</label>
-                    <select name="coach_type" style="width:100%;padding:10px 14px;border:1px solid #d1d5db;border-radius:10px;font-size:14px;">
-                        <?php foreach ( $all_types as $slug => $meta ): ?>
-                            <option value="<?php echo esc_attr( $slug ); ?>" <?php selected( $f['coach_type'], $slug ); ?>>
-                                <?php echo esc_html( $meta['label'] ?? $slug ); ?>
-                            </option>
-                        <?php endforeach; ?>
-                    </select>
-                </p>
+                <!-- Account fields (shown only when create_account is checked) -->
+                <div id="bccm_account_section" style="display:none;">
+                    <p style="margin:0 0 12px;">
+                        <label style="display:block;font-weight:700;margin-bottom:4px;">Số điện thoại <span style="color:#dc2626;">*</span></label>
+                        <input type="text" name="phone" value="<?php echo esc_attr( $f['phone'] ); ?>" placeholder="VD: 0901234567"
+                               style="width:100%;padding:10px 14px;border:1px solid #d1d5db;border-radius:10px;font-size:14px;" inputmode="numeric" />
+                        <small style="color:#6b7280;">Số điện thoại sẽ là tên đăng nhập (username)</small>
+                    </p>
+
+                    <p style="margin:0;">
+                        <label style="display:block;font-weight:700;margin-bottom:4px;">Mật khẩu <span style="color:#dc2626;">*</span></label>
+                        <input type="text" name="password" value="<?php echo esc_attr( $f['password'] ); ?>" placeholder="Tối thiểu 6 ký tự"
+                               style="width:100%;padding:10px 14px;border:1px solid #d1d5db;border-radius:10px;font-size:14px;" />
+                        <small style="color:#6b7280;">Hiện rõ để admin ghi nhớ / gửi cho khách</small>
+                    </p>
+                </div>
             </div>
 
             <!-- ═══ Column 2: Dữ liệu sinh ═══ -->
@@ -1866,12 +2409,38 @@ function bccm_admin_user_profile_add_new() {
         <!-- ═══ Info box ═══ -->
         <div style="background:#fefce8;border:1px solid #fde68a;border-radius:10px;padding:14px 18px;margin-bottom:20px;font-size:13px;color:#92400e;">
             <strong>ℹ️ Quy trình:</strong>
-            Tạo tài khoản WP (username = SĐT, email = SĐT@bizcity.vn) → Tạo hồ sơ coachee → Lưu giờ/nơi sinh → Tự động gọi API tạo bản đồ sao → Chuyển sang trang chi tiết.
+            <span id="bccm_info_with_acc">Tạo tài khoản WP (username = SĐT, email = SĐT@bizcity.vn) → Tạo hồ sơ coachee → Lưu giờ/nơi sinh → Tự động gọi API tạo bản đồ sao → Chuyển sang trang chi tiết.</span>
+            <span id="bccm_info_no_acc" style="display:none;">Tạo hồ sơ coachee (không cần tài khoản) → Lưu ngày/giờ/nơi sinh → Tự động gọi API tạo bản đồ sao → Chuyển sang trang chi tiết.</span>
+        </div>
+        <script>
+        (function(){
+            var cb = document.getElementById('bccm_create_account_cb');
+            var ia = document.getElementById('bccm_info_with_acc');
+            var ib = document.getElementById('bccm_info_no_acc');
+            var btn = document.getElementById('bccm_submit_btn');
+            function syncInfo() {
+                if (!cb) return;
+                ia.style.display = cb.checked ? '' : 'none';
+                ib.style.display = cb.checked ? 'none' : '';
+                if (btn) btn.textContent = cb.checked ? '✨ Tạo tài khoản & Bản đồ sao' : '✨ Tạo hồ sơ & Bản đồ sao';
+            }
+            if (cb) { cb.addEventListener('change', syncInfo); syncInfo(); }
+        })();
+        </script>
+
+        <!-- ═══ Hồ sơ chính chủ ═══ -->
+        <!-- [2026-07-04 Johnny Chu] PHASE-FAA2-NEXT BE-2 — is_self checkbox in add_new form -->
+        <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:12px 18px;margin-bottom:16px;display:flex;align-items:center;gap:12px;font-size:14px;">
+            <input type="checkbox" id="bccm_is_self_cb" name="is_self" value="1" style="width:18px;height:18px;cursor:pointer;" />
+            <label for="bccm_is_self_cb" style="margin:0;font-weight:700;cursor:pointer;color:#1e40af;">
+                ⭐ Đặt làm hồ sơ chính chủ (is_self)
+                <small style="font-weight:400;color:#6b7280;display:block;">Tự động chọn khi user chưa có hồ sơ chính chủ nào</small>
+            </label>
         </div>
 
         <!-- ═══ Submit ═══ -->
         <div style="display:flex;gap:10px;">
-            <button type="submit" name="bccm_add_new_user" value="1" class="button button-primary" style="background:#059669;border-color:#047857;border-radius:10px;padding:10px 28px;font-size:14px;font-weight:700;">
+            <button id="bccm_submit_btn" type="submit" name="bccm_add_new_user" value="1" class="button button-primary" style="background:#059669;border-color:#047857;border-radius:10px;padding:10px 28px;font-size:14px;font-weight:700;">
                 ✨ Tạo tài khoản & Bản đồ sao
             </button>
             <a href="<?php echo admin_url( 'admin.php?page=bccm_user_profiles' ); ?>" class="button" style="border-radius:10px;padding:10px 20px;font-size:14px;">Hủy</a>

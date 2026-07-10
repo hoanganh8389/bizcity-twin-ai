@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "astro_final_recommendation",
+  "description": "TwinBrain Astro W6 final best-day recommendation event before compose.",
+  "type": "object",
+  "required": ["trace_id", "period", "best_day", "best_score", "reason"],
+  "properties": {
+    "trace_id":    { "type": "string" },
+    "period":      { "type": "string" },
+    "best_day":    { "type": "string" },
+    "best_score":  { "type": "number" },
+    "reason":      { "type": "string" },
+    "source_url":  { "type": "string" },
+    "_degraded":   { "type": ["string", "null"] }
+  }
+}

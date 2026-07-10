@@ -1,0 +1,367 @@
+[
+  {
+    "slug": "tpl_zalobot_law_v1",
+    "name": "Zalo Bot · Tra cứu Luật & Pháp lý (3 bước)",
+    "description": "Nhắn \"@luật [câu hỏi]\" qua Zalo Bot → ack ngay → TwinBrain Luật tra cứu từ Cổng VBPL / thuvienphapluat / các Bộ .gov.vn → 2 tin: danh sách nguồn + nhận định pháp lý kèm disclaimer. Sau import: chọn Zalo Bot instance.",
+    "category": "ai",
+    "source": "builtin",
+    "trigger_type": "zalo_inbound",
+    "icon": "Scale",
+    "tags": "zalo-bot,law,luat,legal,phapluat,vertical,3-step,ondemand",
+    "plan": "free",
+    "trigger_config": { "filter": "@luật", "is_fallback": false, "priority": 15 },
+    "graph": {
+      "meta": { "template": "tpl_zalobot_law_v1" },
+      "nodes": [
+        { "id": "t1",  "type": "trigger",   "position": { "x": 0,    "y": 80  }, "data": { "blockId": "trigger.zalo_inbound",  "label": "Zalo Bot · \"@luật\"",          "instance_id": "", "filter": "@luật", "keywords": ["@luật","@luat","@law","/luat","/law","hỏi luật","tra luật"], "mode": "keyword_start" } },
+        { "id": "ack", "type": "action",    "position": { "x": 320,  "y": 80  }, "data": { "blockId": "action.reply_zalo",     "label": "Ack: đang tra luật",           "instance_id": "{{trigger.instance_id}}", "chat_id": "{{trigger.chat_id}}", "text": "⚖️ Đang tra cứu văn bản pháp luật...\n(Cổng VBPL, thuvienphapluat, congbao.chinhphu.vn)" } },
+        { "id": "wr",  "type": "action",    "position": { "x": 640,  "y": 80  }, "data": { "blockId": "action.web_research",   "label": "TwinBrain Luật",               "query": "{{trigger.text}}", "vertical": "law", "mode": "quick", "max_results": 7 } },
+        { "id": "g1",  "type": "condition", "position": { "x": 960,  "y": 80  }, "data": { "blockId": "logic.condition",       "label": "Tìm thấy?",                    "expression": "wr.ok == 1" } },
+        { "id": "src", "type": "action",    "position": { "x": 1280, "y": 0   }, "data": { "blockId": "action.reply_zalo",     "label": "Gửi nguồn văn bản",           "instance_id": "{{trigger.instance_id}}", "chat_id": "{{trigger.chat_id}}", "text": "{{wr.sources_text}}" } },
+        { "id": "ans", "type": "action",    "position": { "x": 1600, "y": 0   }, "data": { "blockId": "action.reply_zalo",     "label": "Gửi nhận định pháp lý",       "instance_id": "{{trigger.instance_id}}", "chat_id": "{{trigger.chat_id}}", "text": "⚖️ Nhận định pháp lý:\n\n{{wr.answer_md}}\n\n📜 Thông tin chỉ mang tính tham khảo, không thay thế tư vấn pháp lý chuyên nghiệp." } },
+        { "id": "err", "type": "action",    "position": { "x": 1280, "y": 220 }, "data": { "blockId": "action.reply_zalo",     "label": "Không tìm thấy",              "instance_id": "{{trigger.instance_id}}", "chat_id": "{{trigger.chat_id}}", "text": "😕 Không tìm thấy thông tin pháp lý cho câu hỏi này. Thử hỏi cụ thể hơn, ví dụ: \"@luật lao động về thời gian thử việc\"." } }
+      ],
+      "edges": [
+        { "id": "e_t1_ack",       "source": "t1",  "target": "ack" },
+        { "id": "e_ack_wr",       "source": "ack", "target": "wr" },
+        { "id": "e_wr_g1",        "source": "wr",  "target": "g1" },
+        { "id": "e_g1_src_true",  "source": "g1",  "target": "src", "sourceHandle": "true" },
+        { "id": "e_src_ans",      "source": "src", "target": "ans" },
+        { "id": "e_g1_err_false", "source": "g1",  "target": "err", "sourceHandle": "false" }
+      ]
+    }
+  },
+
+  {
+    "slug": "tpl_zalobot_tax_v1",
+    "name": "Zalo Bot · Tra cứu Thuế (3 bước)",
+    "description": "Nhắn \"@thuế [câu hỏi]\" qua Zalo Bot → ack → TwinBrain Thuế tra cứu từ TCT / GDT / MOF / thuvienphapluat → 2 tin: nguồn + nhận định kèm disclaimer. Hỗ trợ: TNCN, TNDN, GTGT, TTĐB, hoàn thuế, xuất nhập khẩu. Sau import: chọn Zalo Bot instance.",
+    "category": "ai",
+    "source": "builtin",
+    "trigger_type": "zalo_inbound",
+    "icon": "Receipt",
+    "tags": "zalo-bot,tax,thue,tncn,tndn,gtgt,vertical,3-step,ondemand",
+    "plan": "free",
+    "trigger_config": { "filter": "@thuế", "is_fallback": false, "priority": 15 },
+    "graph": {
+      "meta": { "template": "tpl_zalobot_tax_v1" },
+      "nodes": [
+        { "id": "t1",  "type": "trigger",   "position": { "x": 0,    "y": 80  }, "data": { "blockId": "trigger.zalo_inbound",  "label": "Zalo Bot · \"@thuế\"",          "instance_id": "", "filter": "@thuế", "keywords": ["@thuế","@thue","@tax","/thue","/tax","hỏi thuế","tra thuế"], "mode": "keyword_start" } },
+        { "id": "ack", "type": "action",    "position": { "x": 320,  "y": 80  }, "data": { "blockId": "action.reply_zalo",     "label": "Ack: đang tra thuế",           "instance_id": "{{trigger.instance_id}}", "chat_id": "{{trigger.chat_id}}", "text": "💰 Đang tra cứu chính sách thuế...\n(Tổng cục Thuế, Bộ Tài chính, thuvienphapluat)" } },
+        { "id": "wr",  "type": "action",    "position": { "x": 640,  "y": 80  }, "data": { "blockId": "action.web_research",   "label": "TwinBrain Thuế",               "query": "{{trigger.text}}", "vertical": "tax", "mode": "quick", "max_results": 7 } },
+        { "id": "g1",  "type": "condition", "position": { "x": 960,  "y": 80  }, "data": { "blockId": "logic.condition",       "label": "Tìm thấy?",                    "expression": "wr.ok == 1" } },
+        { "id": "src", "type": "action",    "position": { "x": 1280, "y": 0   }, "data": { "blockId": "action.reply_zalo",     "label": "Gửi nguồn văn bản thuế",      "instance_id": "{{trigger.instance_id}}", "chat_id": "{{trigger.chat_id}}", "text": "{{wr.sources_text}}" } },
+        { "id": "ans", "type": "action",    "position": { "x": 1600, "y": 0   }, "data": { "blockId": "action.reply_zalo",     "label": "Gửi nhận định thuế",          "instance_id": "{{trigger.instance_id}}", "chat_id": "{{trigger.chat_id}}", "text": "💰 Nhận định về thuế:\n\n{{wr.answer_md}}\n\n⚠️ Thông tin mang tính tham khảo. Vui lòng xác nhận với cơ quan thuế hoặc chuyên gia kế toán." } },
+        { "id": "err", "type": "action",    "position": { "x": 1280, "y": 220 }, "data": { "blockId": "action.reply_zalo",     "label": "Không tìm thấy",              "instance_id": "{{trigger.instance_id}}", "chat_id": "{{trigger.chat_id}}", "text": "😕 Không tìm thấy thông tin thuế. Thử hỏi cụ thể, ví dụ: \"@thuế TNCN freelancer thu nhập nước ngoài\"." } }
+      ],
+      "edges": [
+        { "id": "e_t1_ack",       "source": "t1",  "target": "ack" },
+        { "id": "e_ack_wr",       "source": "ack", "target": "wr" },
+        { "id": "e_wr_g1",        "source": "wr",  "target": "g1" },
+        { "id": "e_g1_src_true",  "source": "g1",  "target": "src", "sourceHandle": "true" },
+        { "id": "e_src_ans",      "source": "src", "target": "ans" },
+        { "id": "e_g1_err_false", "source": "g1",  "target": "err", "sourceHandle": "false" }
+      ]
+    }
+  },
+
+  {
+    "slug": "tpl_zalobot_med_v1",
+    "name": "Zalo Bot · Hỏi Y tế & Thuốc (3 bước)",
+    "description": "Nhắn \"@y tế [triệu chứng/câu hỏi]\" → ack → TwinBrain Y tế tra cứu từ PubMed / WHO / NIH / Bộ Y tế VN → 2 tin: nguồn y khoa + nhận định kèm disclaimer y tế bắt buộc. Tự nhận biết triệu chứng cấp cứu → nhắc gọi 115. Sau import: chọn Zalo Bot instance.",
+    "category": "ai",
+    "source": "builtin",
+    "trigger_type": "zalo_inbound",
+    "icon": "Stethoscope",
+    "tags": "zalo-bot,med,yte,thuoc,benh,vertical,3-step,ondemand,pubmed",
+    "plan": "free",
+    "trigger_config": { "filter": "@y tế", "is_fallback": false, "priority": 15 },
+    "graph": {
+      "meta": { "template": "tpl_zalobot_med_v1" },
+      "nodes": [
+        { "id": "t1",  "type": "trigger",   "position": { "x": 0,    "y": 80  }, "data": { "blockId": "trigger.zalo_inbound",  "label": "Zalo Bot · \"@y tế\"",          "instance_id": "", "filter": "@y tế", "keywords": ["@y tế","@yte","@med","@bệnh","hỏi bệnh","tra thuốc","/med","/yte"], "mode": "keyword_start" } },
+        { "id": "ack", "type": "action",    "position": { "x": 320,  "y": 80  }, "data": { "blockId": "action.reply_zalo",     "label": "Ack: đang tra y tế",           "instance_id": "{{trigger.instance_id}}", "chat_id": "{{trigger.chat_id}}", "text": "🏥 Đang tra cứu thông tin y tế...\n(PubMed, WHO, Bộ Y tế VN)\n\n🚨 Khẩn cấp: gọi 115 ngay!" } },
+        { "id": "wr",  "type": "action",    "position": { "x": 640,  "y": 80  }, "data": { "blockId": "action.web_research",   "label": "TwinBrain Y tế",               "query": "{{trigger.text}}", "vertical": "med", "mode": "quick", "max_results": 7 } },
+        { "id": "g1",  "type": "condition", "position": { "x": 960,  "y": 80  }, "data": { "blockId": "logic.condition",       "label": "Tìm thấy?",                    "expression": "wr.ok == 1" } },
+        { "id": "src", "type": "action",    "position": { "x": 1280, "y": 0   }, "data": { "blockId": "action.reply_zalo",     "label": "Gửi nguồn y khoa",             "instance_id": "{{trigger.instance_id}}", "chat_id": "{{trigger.chat_id}}", "text": "{{wr.sources_text}}" } },
+        { "id": "ans", "type": "action",    "position": { "x": 1600, "y": 0   }, "data": { "blockId": "action.reply_zalo",     "label": "Gửi nhận định y tế",          "instance_id": "{{trigger.instance_id}}", "chat_id": "{{trigger.chat_id}}", "text": "🏥 Nhận định y tế:\n\n{{wr.answer_md}}\n\n⚠️ Thông tin chỉ mang tính tham khảo. Vui lòng tham vấn bác sĩ trước khi dùng thuốc hoặc điều trị." } },
+        { "id": "err", "type": "action",    "position": { "x": 1280, "y": 220 }, "data": { "blockId": "action.reply_zalo",     "label": "Không tìm thấy",              "instance_id": "{{trigger.instance_id}}", "chat_id": "{{trigger.chat_id}}", "text": "😕 Không tìm thấy thông tin y tế. Thử hỏi cụ thể hơn, ví dụ: \"@y tế triệu chứng đột quỵ\".\n\n🚨 Khẩn cấp: gọi 115 ngay!" } }
+      ],
+      "edges": [
+        { "id": "e_t1_ack",       "source": "t1",  "target": "ack" },
+        { "id": "e_ack_wr",       "source": "ack", "target": "wr" },
+        { "id": "e_wr_g1",        "source": "wr",  "target": "g1" },
+        { "id": "e_g1_src_true",  "source": "g1",  "target": "src", "sourceHandle": "true" },
+        { "id": "e_src_ans",      "source": "src", "target": "ans" },
+        { "id": "e_g1_err_false", "source": "g1",  "target": "err", "sourceHandle": "false" }
+      ]
+    }
+  },
+
+  {
+    "slug": "tpl_zalobot_nutri_v1",
+    "name": "Zalo Bot · Dinh dưỡng & Thực phẩm (3 bước)",
+    "description": "Nhắn \"@dinh dưỡng [câu hỏi]\" → ack → TwinBrain Dinh dưỡng tra cứu từ NIH / WHO / Viện Dinh dưỡng Quốc gia / nghiên cứu clinical → 2 tin: nguồn + nhận định. Hỗ trợ: calo, macro, ăn kiêng, thực phẩm theo bệnh mạn, dinh dưỡng trẻ em. Sau import: chọn Zalo Bot instance.",
+    "category": "ai",
+    "source": "builtin",
+    "trigger_type": "zalo_inbound",
+    "icon": "Apple",
+    "tags": "zalo-bot,nutri,dinhdung,food,health,vertical,3-step,ondemand",
+    "plan": "free",
+    "trigger_config": { "filter": "@dinh dưỡng", "is_fallback": false, "priority": 15 },
+    "graph": {
+      "meta": { "template": "tpl_zalobot_nutri_v1" },
+      "nodes": [
+        { "id": "t1",  "type": "trigger",   "position": { "x": 0,    "y": 80  }, "data": { "blockId": "trigger.zalo_inbound",  "label": "Zalo Bot · \"@dinh dưỡng\"",    "instance_id": "", "filter": "@dinh dưỡng", "keywords": ["@dinh dưỡng","@nutri","@ăn gì","hỏi dinh dưỡng","/nutri"], "mode": "keyword_start" } },
+        { "id": "ack", "type": "action",    "position": { "x": 320,  "y": 80  }, "data": { "blockId": "action.reply_zalo",     "label": "Ack: đang tra dinh dưỡng",     "instance_id": "{{trigger.instance_id}}", "chat_id": "{{trigger.chat_id}}", "text": "🥗 Đang tra cứu thông tin dinh dưỡng...\n(NIH, WHO, Viện Dinh dưỡng Quốc gia VN)" } },
+        { "id": "wr",  "type": "action",    "position": { "x": 640,  "y": 80  }, "data": { "blockId": "action.web_research",   "label": "TwinBrain Dinh dưỡng",         "query": "{{trigger.text}}", "vertical": "nutri", "mode": "quick", "max_results": 7 } },
+        { "id": "g1",  "type": "condition", "position": { "x": 960,  "y": 80  }, "data": { "blockId": "logic.condition",       "label": "Tìm thấy?",                    "expression": "wr.ok == 1" } },
+        { "id": "src", "type": "action",    "position": { "x": 1280, "y": 0   }, "data": { "blockId": "action.reply_zalo",     "label": "Gửi nguồn dinh dưỡng",         "instance_id": "{{trigger.instance_id}}", "chat_id": "{{trigger.chat_id}}", "text": "{{wr.sources_text}}" } },
+        { "id": "ans", "type": "action",    "position": { "x": 1600, "y": 0   }, "data": { "blockId": "action.reply_zalo",     "label": "Gửi nhận định dinh dưỡng",     "instance_id": "{{trigger.instance_id}}", "chat_id": "{{trigger.chat_id}}", "text": "🥗 Nhận định dinh dưỡng:\n\n{{wr.answer_md}}\n\n⚠️ Thông tin tham khảo. Trường hợp có bệnh lý, tham vấn bác sĩ / chuyên gia dinh dưỡng." } },
+        { "id": "err", "type": "action",    "position": { "x": 1280, "y": 220 }, "data": { "blockId": "action.reply_zalo",     "label": "Không tìm thấy",              "instance_id": "{{trigger.instance_id}}", "chat_id": "{{trigger.chat_id}}", "text": "😕 Không tìm thấy thông tin dinh dưỡng. Thử hỏi cụ thể hơn, ví dụ: \"@dinh dưỡng thực phẩm tốt cho tiểu đường type 2\"." } }
+      ],
+      "edges": [
+        { "id": "e_t1_ack",       "source": "t1",  "target": "ack" },
+        { "id": "e_ack_wr",       "source": "ack", "target": "wr" },
+        { "id": "e_wr_g1",        "source": "wr",  "target": "g1" },
+        { "id": "e_g1_src_true",  "source": "g1",  "target": "src", "sourceHandle": "true" },
+        { "id": "e_src_ans",      "source": "src", "target": "ans" },
+        { "id": "e_g1_err_false", "source": "g1",  "target": "err", "sourceHandle": "false" }
+      ]
+    }
+  },
+
+  {
+    "slug": "tpl_zalobot_deep_v1",
+    "name": "Zalo Bot · Phân tích sâu (@deep)",
+    "description": "Nhắn \"@deep [chủ đề]\" → ack → TwinBrain Deep Research (ReAct agent: search + extract + reasoning, max 5 iterations, ~8-15s) → 2 tin: danh sách nguồn + phân tích sâu. Dùng cho: so sánh, đánh giá chiến lược, nghiên cứu thị trường, điều tra review. Sau import: chọn Zalo Bot instance.",
+    "category": "ai",
+    "source": "builtin",
+    "trigger_type": "zalo_inbound",
+    "icon": "Brain",
+    "tags": "zalo-bot,deep,analysis,research,react,3-step,ondemand",
+    "plan": "free",
+    "trigger_config": { "filter": "@deep", "is_fallback": false, "priority": 14 },
+    "graph": {
+      "meta": { "template": "tpl_zalobot_deep_v1" },
+      "nodes": [
+        { "id": "t1",  "type": "trigger",   "position": { "x": 0,    "y": 80  }, "data": { "blockId": "trigger.zalo_inbound",  "label": "Zalo Bot · \"@deep\"",          "instance_id": "", "filter": "@deep", "keywords": ["@deep","@phân tích sâu","phân tích sâu","@so sánh","/deep"], "mode": "keyword_start" } },
+        { "id": "ack", "type": "action",    "position": { "x": 320,  "y": 80  }, "data": { "blockId": "action.reply_zalo",     "label": "Ack: đang nghiên cứu sâu",     "instance_id": "{{trigger.instance_id}}", "chat_id": "{{trigger.chat_id}}", "text": "🧠 Đang nghiên cứu sâu...\n(ReAct agent: search → extract → reasoning, ~8-15 giây)" } },
+        { "id": "wr",  "type": "action",    "position": { "x": 640,  "y": 80  }, "data": { "blockId": "action.web_research",   "label": "TwinBrain Deep Research",      "query": "{{trigger.text}}", "vertical": "auto", "mode": "deep", "max_results": 10 } },
+        { "id": "g1",  "type": "condition", "position": { "x": 960,  "y": 80  }, "data": { "blockId": "logic.condition",       "label": "Tìm thấy?",                    "expression": "wr.ok == 1" } },
+        { "id": "src", "type": "action",    "position": { "x": 1280, "y": 0   }, "data": { "blockId": "action.reply_zalo",     "label": "Gửi nguồn tham khảo",          "instance_id": "{{trigger.instance_id}}", "chat_id": "{{trigger.chat_id}}", "text": "{{wr.sources_text}}" } },
+        { "id": "ans", "type": "action",    "position": { "x": 1600, "y": 0   }, "data": { "blockId": "action.reply_zalo",     "label": "Gửi phân tích sâu",            "instance_id": "{{trigger.instance_id}}", "chat_id": "{{trigger.chat_id}}", "text": "🧠 Phân tích sâu:\n\n{{wr.answer_md}}" } },
+        { "id": "err", "type": "action",    "position": { "x": 1280, "y": 220 }, "data": { "blockId": "action.reply_zalo",     "label": "Không tìm thấy",              "instance_id": "{{trigger.instance_id}}", "chat_id": "{{trigger.chat_id}}", "text": "😕 Không tìm thấy kết quả nghiên cứu cho \"{{trigger.text}}\". Thử diễn đạt lại, ví dụ: \"@deep so sánh React vs Vue vs Angular 2026\"." } }
+      ],
+      "edges": [
+        { "id": "e_t1_ack",       "source": "t1",  "target": "ack" },
+        { "id": "e_ack_wr",       "source": "ack", "target": "wr" },
+        { "id": "e_wr_g1",        "source": "wr",  "target": "g1" },
+        { "id": "e_g1_src_true",  "source": "g1",  "target": "src", "sourceHandle": "true" },
+        { "id": "e_src_ans",      "source": "src", "target": "ans" },
+        { "id": "e_g1_err_false", "source": "g1",  "target": "err", "sourceHandle": "false" }
+      ]
+    }
+  },
+
+  {
+    "slug": "tpl_zalobot_news_v1",
+    "name": "Zalo Bot · Đọc báo & Thời sự (@news)",
+    "description": "Nhắn \"đọc báo\", \"thời sự\", \"@news [chủ đề]\" qua Zalo Bot → multi-source news research (web + Reddit, scope 1d) → 4 tin: tổng quan + nguồn báo + phân tích sự kiện + nhận định. Sau import: chọn Zalo Bot instance.",
+    "category": "automation",
+    "source": "builtin",
+    "trigger_type": "zalo_inbound",
+    "icon": "Newspaper",
+    "tags": "zalo-bot,news,baochi,thoisu,ondemand,trending,4-step",
+    "plan": "free",
+    "trigger_config": { "filter": "đọc báo", "keywords": ["đọc báo","thời sự","@news","@báo","/news","tin tức"], "is_fallback": false, "priority": 13 },
+    "graph": {
+      "meta": { "template": "tpl_zalobot_news_v1" },
+      "nodes": [
+        { "id": "t1", "type": "trigger", "position": { "x": 0,    "y": 80 }, "data": { "blockId": "trigger.zalo_inbound",      "label": "Zalo Bot · đọc báo / thời sự",  "instance_id": "", "filter": "đọc báo", "keywords": ["đọc báo","doc bao","thời sự","thoi su","@news","@báo","tin tức","tin hôm nay","/news"], "mode": "keyword_contains" } },
+        { "id": "tr", "type": "action",  "position": { "x": 320,  "y": 80 }, "data": { "blockId": "action.trending_research", "label": "Tìm tin tức & thời sự",         "topic": "{{trigger.text}}", "scope": "1d", "platforms": "web,reddit", "language": "vi", "output": "full" } },
+        { "id": "r1", "type": "action",  "position": { "x": 640,  "y": 80 }, "data": { "blockId": "action.reply_zalo",        "label": "Gửi tổng quan tin tức",         "instance_id": "{{trigger.instance_id}}", "chat_id": "{{trigger.chat_id}}", "text": "{{tr.msg_1}}" } },
+        { "id": "r2", "type": "action",  "position": { "x": 960,  "y": 80 }, "data": { "blockId": "action.reply_zalo",        "label": "Gửi nguồn báo",                  "text": "{{tr.msg_2}}" } },
+        { "id": "r3", "type": "action",  "position": { "x": 1280, "y": 80 }, "data": { "blockId": "action.reply_zalo",        "label": "Gửi phân tích sự kiện",          "text": "{{tr.msg_3}}" } },
+        { "id": "r4", "type": "action",  "position": { "x": 1600, "y": 80 }, "data": { "blockId": "action.reply_zalo",        "label": "Gửi nhận định",                  "text": "{{tr.msg_4}}" } }
+      ],
+      "edges": [
+        { "id": "e_t1_tr", "source": "t1", "target": "tr" },
+        { "id": "e_tr_r1", "source": "tr", "target": "r1" },
+        { "id": "e_r1_r2", "source": "r1", "target": "r2" },
+        { "id": "e_r2_r3", "source": "r2", "target": "r3" },
+        { "id": "e_r3_r4", "source": "r3", "target": "r4" }
+      ]
+    }
+  },
+
+  {
+    "slug": "tpl_daily_law_update_v1",
+    "name": "Cập nhật Pháp luật Hàng ngày → Zalo",
+    "description": "Cron hàng ngày (mặc định 7h) → TwinBrain Luật tổng hợp văn bản pháp luật mới nhất Việt Nam hôm nay (NĐ, TT, QĐ vừa ban hành) → 2 tin Zalo: danh sách nguồn + tổng hợp. Sau import: chọn Zalo Bot + điền override_chat_id ở node r1.",
+    "category": "automation",
+    "source": "builtin",
+    "trigger_type": "cron",
+    "icon": "Scale",
+    "tags": "cron,daily,law,luat,phapluat,morning,7h,zalo,ai",
+    "plan": "free",
+    "trigger_config": { "schedule": "0 7 * * *" },
+    "graph": {
+      "meta": { "template": "tpl_daily_law_update_v1" },
+      "nodes": [
+        { "id": "t1", "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.cron",          "label": "Cron · 07:00 mỗi ngày",        "schedule": "0 7 * * *" } },
+        { "id": "wr", "type": "action",  "position": { "x": 320, "y": 80 }, "data": { "blockId": "action.web_research",   "label": "TwinBrain Luật — cập nhật",    "query": "văn bản pháp luật mới nhất Việt Nam hôm nay nghị định thông tư quyết định", "vertical": "law", "mode": "quick", "max_results": 7 } },
+        { "id": "r1", "type": "action",  "position": { "x": 640, "y": 80 }, "data": { "blockId": "action.reply_zalo",     "label": "Gửi nguồn văn bản mới",        "instance_id": "", "override_chat_id": "", "text": "⚖️ PHÁP LUẬT HÔM NAY — {{wr.citation_count}} nguồn\n────────────────────\n{{wr.sources_text}}" } },
+        { "id": "r2", "type": "action",  "position": { "x": 960, "y": 80 }, "data": { "blockId": "action.reply_zalo",     "label": "Gửi tổng hợp pháp luật",      "text": "📋 Tổng hợp:\n\n{{wr.answer_md}}" } }
+      ],
+      "edges": [
+        { "id": "e_t1_wr", "source": "t1", "target": "wr" },
+        { "id": "e_wr_r1", "source": "wr", "target": "r1" },
+        { "id": "e_r1_r2", "source": "r1", "target": "r2" }
+      ]
+    }
+  },
+
+  {
+    "slug": "tpl_daily_tax_update_v1",
+    "name": "Cập nhật Thuế Hàng ngày → Zalo",
+    "description": "Cron hàng ngày (mặc định 7h30) → TwinBrain Thuế tổng hợp tin thuế + chính sách tài chính mới nhất hôm nay → 2 tin Zalo: nguồn + tổng hợp. Sau import: chọn Zalo Bot + điền override_chat_id ở node r1.",
+    "category": "automation",
+    "source": "builtin",
+    "trigger_type": "cron",
+    "icon": "Receipt",
+    "tags": "cron,daily,tax,thue,morning,730h,zalo,ai,tct,mof",
+    "plan": "free",
+    "trigger_config": { "schedule": "30 7 * * *" },
+    "graph": {
+      "meta": { "template": "tpl_daily_tax_update_v1" },
+      "nodes": [
+        { "id": "t1", "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.cron",          "label": "Cron · 07:30 mỗi ngày",        "schedule": "30 7 * * *" } },
+        { "id": "wr", "type": "action",  "position": { "x": 320, "y": 80 }, "data": { "blockId": "action.web_research",   "label": "TwinBrain Thuế — cập nhật",    "query": "tin tức thuế chính sách tài chính mới nhất Việt Nam hôm nay Tổng cục Thuế Bộ Tài chính", "vertical": "tax", "mode": "quick", "max_results": 7 } },
+        { "id": "r1", "type": "action",  "position": { "x": 640, "y": 80 }, "data": { "blockId": "action.reply_zalo",     "label": "Gửi nguồn tin thuế mới",       "instance_id": "", "override_chat_id": "", "text": "💰 THUẾ & TÀI CHÍNH HÔM NAY — {{wr.citation_count}} nguồn\n────────────────────\n{{wr.sources_text}}" } },
+        { "id": "r2", "type": "action",  "position": { "x": 960, "y": 80 }, "data": { "blockId": "action.reply_zalo",     "label": "Gửi tổng hợp tin thuế",        "text": "📊 Tổng hợp:\n\n{{wr.answer_md}}" } }
+      ],
+      "edges": [
+        { "id": "e_t1_wr", "source": "t1", "target": "wr" },
+        { "id": "e_wr_r1", "source": "wr", "target": "r1" },
+        { "id": "e_r1_r2", "source": "r1", "target": "r2" }
+      ]
+    }
+  },
+
+  {
+    "slug": "tpl_daily_news_morning_v1",
+    "name": "Đọc Báo Sáng Hàng Ngày → Zalo (4 tin)",
+    "description": "Cron 6h sáng → multi-source news research (web + Reddit, scope 1d) → 4 tin Zalo: tổng quan sự kiện + nguồn báo + phân tích + nhận định. Sau import: chọn Zalo Bot + điền override_chat_id ở node r1.",
+    "category": "automation",
+    "source": "builtin",
+    "trigger_type": "cron",
+    "icon": "Newspaper",
+    "tags": "cron,daily,news,baochi,morning,6h,zalo,thoisu",
+    "plan": "free",
+    "trigger_config": { "schedule": "0 6 * * *" },
+    "graph": {
+      "meta": { "template": "tpl_daily_news_morning_v1" },
+      "nodes": [
+        { "id": "t1", "type": "trigger", "position": { "x": 0,    "y": 80 }, "data": { "blockId": "trigger.cron",              "label": "Cron · 06:00 sáng mỗi ngày",   "schedule": "0 6 * * *" } },
+        { "id": "tr", "type": "action",  "position": { "x": 320,  "y": 80 }, "data": { "blockId": "action.trending_research", "label": "Tìm tin tức sáng nay",          "topic": "tin tức Việt Nam nổi bật hôm nay thời sự kinh tế xã hội", "scope": "1d", "platforms": "web,reddit", "language": "vi", "output": "full" } },
+        { "id": "r1", "type": "action",  "position": { "x": 640,  "y": 80 }, "data": { "blockId": "action.reply_zalo",        "label": "Gửi tổng quan tin tức",         "instance_id": "", "override_chat_id": "", "text": "{{tr.msg_1}}" } },
+        { "id": "r2", "type": "action",  "position": { "x": 960,  "y": 80 }, "data": { "blockId": "action.reply_zalo",        "label": "Gửi nguồn báo sáng",            "text": "{{tr.msg_2}}" } },
+        { "id": "r3", "type": "action",  "position": { "x": 1280, "y": 80 }, "data": { "blockId": "action.reply_zalo",        "label": "Gửi phân tích sự kiện",         "text": "{{tr.msg_3}}" } },
+        { "id": "r4", "type": "action",  "position": { "x": 1600, "y": 80 }, "data": { "blockId": "action.reply_zalo",        "label": "Gửi nhận định buổi sáng",       "text": "{{tr.msg_4}}" } }
+      ],
+      "edges": [
+        { "id": "e_t1_tr", "source": "t1", "target": "tr" },
+        { "id": "e_tr_r1", "source": "tr", "target": "r1" },
+        { "id": "e_r1_r2", "source": "r1", "target": "r2" },
+        { "id": "e_r2_r3", "source": "r2", "target": "r3" },
+        { "id": "e_r3_r4", "source": "r3", "target": "r4" }
+      ]
+    }
+  },
+
+  {
+    "slug": "tpl_daily_news_evening_v1",
+    "name": "Thời Sự Chiều Hàng Ngày → Zalo (4 tin)",
+    "description": "Cron 18h → multi-source news research (web + Reddit, scope 12h) → 4 tin Zalo tổng hợp sự kiện trong ngày. Sau import: chọn Zalo Bot + điền override_chat_id ở node r1.",
+    "category": "automation",
+    "source": "builtin",
+    "trigger_type": "cron",
+    "icon": "Newspaper",
+    "tags": "cron,daily,news,baochi,evening,18h,zalo,thoisu,tondoi",
+    "plan": "free",
+    "trigger_config": { "schedule": "0 18 * * *" },
+    "graph": {
+      "meta": { "template": "tpl_daily_news_evening_v1" },
+      "nodes": [
+        { "id": "t1", "type": "trigger", "position": { "x": 0,    "y": 80 }, "data": { "blockId": "trigger.cron",              "label": "Cron · 18:00 mỗi ngày",         "schedule": "0 18 * * *" } },
+        { "id": "tr", "type": "action",  "position": { "x": 320,  "y": 80 }, "data": { "blockId": "action.trending_research", "label": "Tìm thời sự chiều nay",          "topic": "sự kiện nổi bật Việt Nam trong ngày hôm nay kinh tế chính trị xã hội", "scope": "12h", "platforms": "web,reddit", "language": "vi", "output": "full" } },
+        { "id": "r1", "type": "action",  "position": { "x": 640,  "y": 80 }, "data": { "blockId": "action.reply_zalo",        "label": "Gửi tổng quan thời sự",          "instance_id": "", "override_chat_id": "", "text": "{{tr.msg_1}}" } },
+        { "id": "r2", "type": "action",  "position": { "x": 960,  "y": 80 }, "data": { "blockId": "action.reply_zalo",        "label": "Gửi nguồn báo chiều",            "text": "{{tr.msg_2}}" } },
+        { "id": "r3", "type": "action",  "position": { "x": 1280, "y": 80 }, "data": { "blockId": "action.reply_zalo",        "label": "Gửi phân tích sự kiện trong ngày","text": "{{tr.msg_3}}" } },
+        { "id": "r4", "type": "action",  "position": { "x": 1600, "y": 80 }, "data": { "blockId": "action.reply_zalo",        "label": "Gửi nhận định cuối ngày",        "text": "{{tr.msg_4}}" } }
+      ],
+      "edges": [
+        { "id": "e_t1_tr", "source": "t1", "target": "tr" },
+        { "id": "e_tr_r1", "source": "tr", "target": "r1" },
+        { "id": "e_r1_r2", "source": "r1", "target": "r2" },
+        { "id": "e_r2_r3", "source": "r2", "target": "r3" },
+        { "id": "e_r3_r4", "source": "r3", "target": "r4" }
+      ]
+    }
+  },
+
+  {
+    "slug": "tpl_weekly_deep_analysis_v1",
+    "name": "Phân tích Thị trường Tuần → Zalo (Deep Research)",
+    "description": "Cron Thứ 2 hàng tuần (mặc định 8h) → TwinBrain Deep Research (ReAct agent, ~10-15s) phân tích thị trường + kinh doanh tuần mới → 2 tin Zalo: nguồn + phân tích sâu. Sau import: điều chỉnh query phân tích + chọn Zalo Bot + điền override_chat_id.",
+    "category": "automation",
+    "source": "builtin",
+    "trigger_type": "cron",
+    "icon": "BarChart2",
+    "tags": "cron,weekly,deep,analysis,market,monday,8h,zalo,ai,react",
+    "plan": "free",
+    "trigger_config": { "schedule": "0 8 * * 1" },
+    "graph": {
+      "meta": { "template": "tpl_weekly_deep_analysis_v1" },
+      "nodes": [
+        { "id": "t1", "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.cron",          "label": "Cron · Thứ 2 · 08:00",           "schedule": "0 8 * * 1" } },
+        { "id": "wr", "type": "action",  "position": { "x": 320, "y": 80 }, "data": { "blockId": "action.web_research",   "label": "Deep Research thị trường tuần",   "query": "phân tích tổng hợp thị trường kinh doanh Việt Nam tuần này xu hướng đáng chú ý", "vertical": "auto", "mode": "deep", "max_results": 10 } },
+        { "id": "r1", "type": "action",  "position": { "x": 640, "y": 80 }, "data": { "blockId": "action.reply_zalo",     "label": "Gửi nguồn tham khảo",             "instance_id": "", "override_chat_id": "", "text": "📊 PHÂN TÍCH THỊ TRƯỜNG TUẦN — {{wr.citation_count}} nguồn\n────────────────────\n{{wr.sources_text}}" } },
+        { "id": "r2", "type": "action",  "position": { "x": 960, "y": 80 }, "data": { "blockId": "action.reply_zalo",     "label": "Gửi phân tích sâu",               "text": "🧠 Phân tích sâu:\n\n{{wr.answer_md}}" } }
+      ],
+      "edges": [
+        { "id": "e_t1_wr", "source": "t1", "target": "wr" },
+        { "id": "e_wr_r1", "source": "wr", "target": "r1" },
+        { "id": "e_r1_r2", "source": "r1", "target": "r2" }
+      ]
+    }
+  },
+
+  {
+    "slug": "tpl_daily_health_morning_v1",
+    "name": "Tin Y tế & Sức khỏe Sáng → Zalo",
+    "description": "Cron 6h30 sáng → TwinBrain Y tế tổng hợp tin sức khỏe + y tế Việt Nam hôm nay (bệnh dịch, vaccine, chính sách y tế, nghiên cứu mới) → 2 tin Zalo: nguồn + tổng hợp kèm disclaimer. Sau import: chọn Zalo Bot + điền override_chat_id.",
+    "category": "automation",
+    "source": "builtin",
+    "trigger_type": "cron",
+    "icon": "Heart",
+    "tags": "cron,daily,med,health,suckhoe,morning,630h,zalo,ai",
+    "plan": "free",
+    "trigger_config": { "schedule": "30 6 * * *" },
+    "graph": {
+      "meta": { "template": "tpl_daily_health_morning_v1" },
+      "nodes": [
+        { "id": "t1", "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.cron",          "label": "Cron · 06:30 sáng mỗi ngày",    "schedule": "30 6 * * *" } },
+        { "id": "wr", "type": "action",  "position": { "x": 320, "y": 80 }, "data": { "blockId": "action.web_research",   "label": "TwinBrain Y tế — tin sức khỏe", "query": "tin tức y tế sức khỏe Việt Nam mới nhất hôm nay bệnh dịch vaccine chính sách y tế", "vertical": "med", "mode": "quick", "max_results": 7 } },
+        { "id": "r1", "type": "action",  "position": { "x": 640, "y": 80 }, "data": { "blockId": "action.reply_zalo",     "label": "Gửi nguồn tin y tế",            "instance_id": "", "override_chat_id": "", "text": "🏥 Y TẾ & SỨC KHỎE HÔM NAY — {{wr.citation_count}} nguồn\n────────────────────\n{{wr.sources_text}}" } },
+        { "id": "r2", "type": "action",  "position": { "x": 960, "y": 80 }, "data": { "blockId": "action.reply_zalo",     "label": "Gửi tổng hợp tin sức khỏe",     "text": "💊 Tổng hợp:\n\n{{wr.answer_md}}\n\n⚠️ Thông tin tham khảo, không thay thế khuyến cáo của bác sĩ." } }
+      ],
+      "edges": [
+        { "id": "e_t1_wr", "source": "t1", "target": "wr" },
+        { "id": "e_wr_r1", "source": "wr", "target": "r1" },
+        { "id": "e_r1_r2", "source": "r1", "target": "r2" }
+      ]
+    }
+  }
+]

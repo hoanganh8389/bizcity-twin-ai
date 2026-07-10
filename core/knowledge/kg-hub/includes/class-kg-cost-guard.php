@@ -26,6 +26,11 @@ class BizCity_KG_Cost_Guard {
 	const OPT_BATCH_SIZE = 'bizcity_kg_extract_batch_size';     // passages per LLM call
 	const OPT_ENABLED    = 'bizcity_kg_cost_guard_enabled';
 
+	// [2026-06-08 Johnny Chu] HOTFIX — local exemption for debug (no server round-trip)
+	const OPT_LOCAL_EXEMPT_USER_IDS = 'bizcity_kg_local_exempt_user_ids'; // comma-sep WP user IDs
+	const OPT_LOCAL_EXEMPT_BLOG_IDS = 'bizcity_kg_local_exempt_blog_ids'; // comma-sep blog IDs (multisite)
+	const OPT_LOCAL_EXEMPT_DOMAINS  = 'bizcity_kg_local_exempt_domains';  // comma-sep domains
+
 	const DEFAULT_QUOTA_USER = 50;
 	const DEFAULT_CAP_USD    = 5.0;
 	const DEFAULT_DEDUPE_TH  = 0.92;
@@ -51,6 +56,59 @@ class BizCity_KG_Cost_Guard {
 	public function table() {
 		global $wpdb;
 		return $wpdb->prefix . 'bizcity_kg_usage_log';
+	}
+
+	/**
+	 * [2026-06-08 Johnny Chu] HOTFIX — Check if a user/blog/domain is locally exempt
+	 * from quota (stored in local WP options, no server round-trip to bizcity.vn).
+	 *
+	 * Priority:
+	 *   1. User ID in OPT_LOCAL_EXEMPT_USER_IDS (comma-separated)
+	 *   2. Current blog_id in OPT_LOCAL_EXEMPT_BLOG_IDS (comma-separated)
+	 *   3. Current site domain in OPT_LOCAL_EXEMPT_DOMAINS (comma-separated)
+	 *
+	 * @param  int $user_id
+	 * @return bool
+	 */
+	public function is_locally_exempt( $user_id ) {
+		$user_id = (int) $user_id;
+
+		// 1. Per-user local list (option on this blog).
+		$raw_users = (string) get_option( self::OPT_LOCAL_EXEMPT_USER_IDS, '' );
+		if ( $raw_users !== '' ) {
+			$ids = array_map( 'intval', array_filter( array_map( 'trim', explode( ',', $raw_users ) ) ) );
+			if ( $user_id > 0 && in_array( $user_id, $ids, true ) ) {
+				return true;
+			}
+		}
+
+		// 2. Per-blog_id list (site option so network admin can set it for all).
+		$blog_id   = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 1;
+		$raw_blogs = (string) get_option( self::OPT_LOCAL_EXEMPT_BLOG_IDS, '' );
+		if ( $raw_blogs !== '' ) {
+			$bids = array_map( 'intval', array_filter( array_map( 'trim', explode( ',', $raw_blogs ) ) ) );
+			if ( in_array( $blog_id, $bids, true ) ) {
+				return true;
+			}
+		}
+
+		// 3. Per-domain list — match HTTP_HOST or the site's configured URL.
+		$raw_domains = (string) get_option( self::OPT_LOCAL_EXEMPT_DOMAINS, '' );
+		if ( $raw_domains !== '' ) {
+			$domains = array_map( 'trim', array_filter( array_map( 'trim', explode( ',', strtolower( $raw_domains ) ) ) ) );
+			// HTTP_HOST of the current request.
+			$http_host = isset( $_SERVER['HTTP_HOST'] ) ? strtolower( (string) sanitize_text_field( wp_unslash( $_SERVER['HTTP_HOST'] ) ) ) : '';
+			if ( $http_host !== '' && in_array( $http_host, $domains, true ) ) {
+				return true;
+			}
+			// Configured site URL (reliable in cron where HTTP_HOST may be empty).
+			$site_host = strtolower( (string) wp_parse_url( get_site_url(), PHP_URL_HOST ) );
+			if ( $site_host !== '' && in_array( $site_host, $domains, true ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**
@@ -92,7 +150,13 @@ class BizCity_KG_Cost_Guard {
 	}
 
 	public function quota_per_user(): int {
-		return max( 1, (int) apply_filters( 'bizcity_kg_quota_per_user', self::DEFAULT_QUOTA_USER ) );
+		// [2026-06-04 Johnny Chu] R-GW-API-CATALOG — prefer hub-synced value if available.
+		// get_entitlement() stores this after each successful entitlement fetch from bizcity.vn.
+		// Falls back to DEFAULT_QUOTA_USER (50) when no sync has occurred yet.
+		// [2026-06-10 Johnny Chu] HOTFIX — per-site option
+		$hub_quota = (int) get_option( 'bizcity_hub_kg_quota_per_user', 0 );
+		$default   = $hub_quota > 0 ? $hub_quota : self::DEFAULT_QUOTA_USER;
+		return max( 1, (int) apply_filters( 'bizcity_kg_quota_per_user', $default ) );
 	}
 
 	public function daily_cap_usd(): float {
@@ -104,7 +168,12 @@ class BizCity_KG_Cost_Guard {
 	}
 
 	public function batch_size(): int {
-		return max( 1, min( 20, (int) apply_filters( 'bizcity_kg_extract_batch_size', self::DEFAULT_BATCH_SIZE ) ) );
+		// [2026-06-08 Johnny Chu] HOTFIX — prefer hub-synced value (stored by BizCity_LLM_Client::get_entitlement())
+		// so the client respects the hub admin setting (e.g. 20) instead of always defaulting to 5.
+		// [2026-06-10 Johnny Chu] HOTFIX — per-site option
+		$hub_batch = (int) get_option( 'bizcity_hub_kg_batch_size', 0 );
+		$default   = $hub_batch > 0 ? $hub_batch : self::DEFAULT_BATCH_SIZE;
+		return max( 1, min( 20, (int) apply_filters( 'bizcity_kg_extract_batch_size', $default ) ) );
 	}
 
 	/**
@@ -129,6 +198,14 @@ class BizCity_KG_Cost_Guard {
 			return true;
 		}
 
+		// [2026-06-08 Johnny Chu] HOTFIX — local exemption: blog_id / domain / user ID
+		// stored in local WP options. Works offline, no bizcity.vn round-trip needed.
+		// Useful when bizcity_kg_user_is_exempt filter is not hooked (no llm-router on site)
+		// and entitlement API is unreachable or user has $0 balance.
+		if ( $this->is_locally_exempt( $user_id ) ) {
+			return true;
+		}
+
 		// R-GW-8 fallback: when bizcity-llm-router is NOT on this client site
 		// the `bizcity_kg_user_is_exempt` filter is never hooked, so the central
 		// exception list never applies. Fetch entitlement from bizcity.vn (cached
@@ -142,24 +219,45 @@ class BizCity_KG_Cost_Guard {
 		// 1. Site-wide USD cap
 		$spent = $this->spent_today_usd();
 		if ( $spent >= $this->daily_cap_usd() ) {
-			$msg  = sprintf( 'Site-wide daily cap reached: $%.2f / $%.2f', $spent, $this->daily_cap_usd() );
-			$msg .= "\n" . $this->compose_diagnostic_hint( $diag );
+			// [2026-06-08 Johnny Chu] R-TRAINING-QUOTA — Layer 2 (Agent site cap).
+			// End-user sees generic maintenance message; admin sees full detail.
+			$msg = 'Hệ thống tạm dừng đào tạo do đạt ngưỡng chi phí AI hôm nay.';
 			return new WP_Error( 'cap_exceeded', $msg, array_merge( $diag, [
-				'spent_usd' => $spent,
-				'cap_usd'   => $this->daily_cap_usd(),
-				'user_id'   => $user_id,
+				'layer'       => 'site_cap',
+				'spent_usd'   => $spent,
+				'cap_usd'     => $this->daily_cap_usd(),
+				'user_id'     => $user_id,
+				'admin_msg'   => sprintf( 'Site-wide daily cap đạt: $%.4f / $%.2f. Vào KG Settings để tăng ngưỡng hoặc nạp credit tại bizcity.vn.', $spent, $this->daily_cap_usd() ),
+				'admin_url'   => admin_url( 'admin.php?page=bizcity-kg-hub-settings' ),
+				'hub_url'     => 'https://bizcity.vn/account/credits',
 			] ) );
 		}
 
 		// 2. Per-user quota
 		$used = $this->user_passages_today( $user_id );
 		if ( $used + $estimated_passages > $this->quota_per_user() ) {
-			$msg  = sprintf( 'User #%d: %d / %d passages today', $user_id, $used, $this->quota_per_user() );
-			$msg .= "\n" . $this->compose_diagnostic_hint( $diag );
+			// [2026-06-08 Johnny Chu] R-TRAINING-QUOTA — Layer 3 (End-user plan quota).
+			// Resolve plan label for actionable CTA in FE banner.
+			$plan_slug  = class_exists( 'BizCity_Membership_Manager' )
+				? (string) BizCity_Membership_Manager::instance()->plan_for_user( $user_id )
+				: 'free';
+			$plan_label = class_exists( 'BizCity_Membership_Plan_Registry' )
+				? (string) ( BizCity_Membership_Plan_Registry::instance()->plan( $plan_slug )['label'] ?? ucfirst( $plan_slug ) )
+				: ucfirst( $plan_slug );
+			$retry_ts   = BizCity_TwinChat_Learning_Quota_Cooldown::seconds_until_daily_reset() + time();
+			$msg = sprintf(
+				'Gói %s cho phép đào tạo %d đoạn/ngày. Hôm nay đã dùng %d/%d. Nâng cấp gói để tiếp tục.',
+				$plan_label, $this->quota_per_user(), $used, $this->quota_per_user()
+			);
 			return new WP_Error( 'quota_exceeded', $msg, array_merge( $diag, [
-				'used'    => $used,
-				'cap'     => $this->quota_per_user(),
-				'user_id' => $user_id,
+				'layer'       => 'end_user',
+				'used'        => $used,
+				'cap'         => $this->quota_per_user(),
+				'user_id'     => $user_id,
+				'user_plan'   => $plan_slug,
+				'plan_label'  => $plan_label,
+				'retry_after' => $retry_ts,
+				'upgrade_url' => home_url( '/pricing' ),
 			] ) );
 		}
 

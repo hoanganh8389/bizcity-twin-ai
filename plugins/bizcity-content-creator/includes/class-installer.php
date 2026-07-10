@@ -15,7 +15,11 @@ if ( ! defined( 'ABSPATH' ) ) {
 class BZCC_Installer {
 
 	/** Cached result of the SHOW TABLES check — null = not checked yet. */
-	private static ?bool $tables_exist_cache = null;
+	private static $tables_exist_cache = null;
+
+	// [2026-06-11 Johnny Chu] R-PERF — in-request cache cho get_option('bzcc_db_version')
+	// Tránh gọi get_option() mỗi request khi maybe_create_tables() được gọi ở file scope.
+	private static $db_version_cache = null;
 
 	/**
 	 * Returns true if the creator tables exist for the current site prefix.
@@ -23,7 +27,7 @@ class BZCC_Installer {
 	 */
 	public static function tables_exist(): bool {
 		if ( self::$tables_exist_cache !== null ) {
-			return self::$tables_exist_cache;
+			return (bool) self::$tables_exist_cache;
 		}
 		global $wpdb;
 		$tbl                      = self::table_templates();
@@ -63,8 +67,14 @@ class BZCC_Installer {
 	/* ── Self-healing ── */
 
 	public static function maybe_create_tables(): void {
+		// [2026-06-11 Johnny Chu] R-PERF — cache get_option('bzcc_db_version') để không query DB mỗi request.
+		// Dùng BZCC_DB_VERSION (schema-only) thay vì BZCC_VERSION (plugin ver) — tách biệt hoàn toàn.
+		if ( self::$db_version_cache === null ) {
+			self::$db_version_cache = (string) get_option( 'bzcc_db_version', '' );
+		}
+		$target = defined( 'BZCC_DB_VERSION' ) ? BZCC_DB_VERSION : BZCC_VERSION;
 		// Version matches AND table physically exists for the current site prefix → skip.
-		if ( get_option( 'bzcc_db_version' ) === BZCC_VERSION && self::tables_exist() ) {
+		if ( self::$db_version_cache === $target && self::tables_exist() ) {
 			return;
 		}
 		self::create_tables();
@@ -141,6 +151,8 @@ CREATE TABLE {$t_file} (
   id                      BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   user_id                 BIGINT UNSIGNED NOT NULL DEFAULT 0,
   template_id             BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  notebook_id             BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  skeleton_version        INT NOT NULL DEFAULT 0,
   project_id              VARCHAR(50) NOT NULL DEFAULT '',
   session_id              VARCHAR(100) NOT NULL DEFAULT '',
   intent_conversation_id  VARCHAR(64) NOT NULL DEFAULT '',
@@ -157,6 +169,7 @@ CREATE TABLE {$t_file} (
   PRIMARY KEY (id),
   KEY idx_user (user_id),
   KEY idx_template (template_id),
+  KEY idx_notebook (notebook_id),
   KEY idx_project (project_id),
   KEY idx_intent_conv (intent_conversation_id),
   KEY idx_status (status)
@@ -209,8 +222,14 @@ CREATE TABLE {$t_chunk} (
 			$wpdb->gwpdb->suppress_errors( false );
 		}
 
-		update_option( 'bzcc_db_version', BZCC_VERSION );
-		self::$tables_exist_cache = true; // Tables now exist — update cache.
+		update_option( 'bzcc_db_version', defined( 'BZCC_DB_VERSION' ) ? BZCC_DB_VERSION : BZCC_VERSION );
+		// [2026-06-11 Johnny Chu] R-PERF — bust db_version_cache sau khi update
+		self::$db_version_cache = defined( 'BZCC_DB_VERSION' ) ? BZCC_DB_VERSION : BZCC_VERSION;
+		// [2026-06-03 Johnny Chu] HOTFIX — invalidate cache, KHÔNG set true mù.
+		// dbDelta() có thể fail silent (permission, charset, dual-DB gwpdb) →
+		// nếu cache true mà bảng thật chưa có → query downstream fatal.
+		// Set null → tables_exist() lần sau sẽ SHOW TABLES re-verify.
+		self::$tables_exist_cache = null;
 	}
 
 	/* ── Seed defaults ── */

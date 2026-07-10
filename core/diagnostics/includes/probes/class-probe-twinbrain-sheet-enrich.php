@@ -22,6 +22,12 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 
 require_once dirname( __DIR__ ) . '/interface-diagnostics-probe.php';
 
+
+// [2026-06-08 Johnny Chu] HOTFIX — double-load guard (bootstrap may include via filter AND direct require).
+if ( class_exists( 'BizCity_Probe_TwinBrain_Sheet_Enrich', false ) ) {
+	return;
+}
+
 final class BizCity_Probe_TwinBrain_Sheet_Enrich implements BizCity_Diagnostics_Probe {
 
 	const SENTINEL = '__healthtest_sheet_kookaburra51';
@@ -59,7 +65,7 @@ final class BizCity_Probe_TwinBrain_Sheet_Enrich implements BizCity_Diagnostics_
 		$cells_table  = BizCity_TwinBrain_Sheets_Installer::cells_table();
 		$missing = [];
 		foreach ( [ $sheets_table, $cells_table ] as $t ) {
-			$found = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $t ) );
+			$found = bizcity_tbl_exists( $t ) ? $t : null; // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			if ( $found !== $t ) $missing[] = $t;
 		}
 		if ( ! empty( $missing ) ) {

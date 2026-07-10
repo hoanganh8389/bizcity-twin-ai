@@ -202,4 +202,48 @@ class BizCity_Channel_Binding {
 		// auto / hybrid (or roundrobin with empty pool fallback) → the primary Guru.
 		return array( 'kind' => 'guru', 'id' => $cid, 'character_id' => $cid ?: null, 'user_id' => null, 'mode' => $mode );
 	}
+
+	/**
+	 * [2026-06-07 Johnny Chu] PHASE-3.5 WB — resolve_id_by_chat() helper.
+	 *
+	 * Resolve a binding row from a canonical chat_id.
+	 * Canonical chat_id format (R-CH-UNI): `<platform>_<account_id>_<user_id>`
+	 * Examples: `zalobot_5_2845f9add3e23abc63f3`, `facebook_123_abc456`
+	 *
+	 * Parses the chat_id to extract platform + account_id, then delegates to resolve().
+	 *
+	 * @param  string $chat_id Canonical chat ID.
+	 * @return array|null      Binding row or null if not found.
+	 */
+	public static function resolve_id_by_chat( $chat_id ) {
+		// [2026-06-07 Johnny Chu] PHASE-3.5 WB — parse chat_id → (platform, account_id)
+		$chat_id = (string) $chat_id;
+		if ( $chat_id === '' ) {
+			return null;
+		}
+
+		// Format: <platform>_<account_id>_<user_id>
+		// account_id may itself contain underscores (e.g. "12345_abcde") — use first segment as
+		// platform, second as account_id, remainder as user_id. However account_id is captured
+		// as everything between the first and last underscore groups.
+		// Canonical: "zalobot_<bot_id>_<uid>" → platform=zalobot, account_id=<bot_id>.
+		// Facebook:  "facebook_<page_id>_<psid>" → platform=facebook, account_id=<page_id>.
+		$parts = explode( '_', $chat_id );
+		if ( count( $parts ) < 3 ) {
+			// Malformed chat_id: try treating entire string as platform lookup with wildcard.
+			$platform = strtoupper( $parts[0] );
+			return self::resolve( $platform, '*' );
+		}
+
+		$platform   = strtoupper( $parts[0] );
+		// account_id = parts[1], user_id = implode('_', parts[2..])
+		$account_id = $parts[1];
+
+		$row = self::resolve( $platform, $account_id );
+		if ( $row ) {
+			return $row;
+		}
+		// Fallback: wildcard account.
+		return self::resolve( $platform, '*' );
+	}
 }

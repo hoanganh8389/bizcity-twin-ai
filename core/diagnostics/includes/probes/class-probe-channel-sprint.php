@@ -19,6 +19,12 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 
 require_once dirname( __DIR__ ) . '/interface-diagnostics-probe.php';
 
+
+// [2026-06-08 Johnny Chu] HOTFIX — double-load guard (bootstrap may include via filter AND direct require).
+if ( class_exists( 'BizCity_Probe_Channel_Sprint', false ) ) {
+	return;
+}
+
 final class BizCity_Probe_Channel_Sprint implements BizCity_Diagnostics_Probe {
 
 	public function id(): string          { return 'channel.sprint'; }
@@ -54,12 +60,34 @@ final class BizCity_Probe_Channel_Sprint implements BizCity_Diagnostics_Probe {
 
 		$totals = array( 'PASS' => 0, 'FAIL' => 0, 'SKIP' => 0, 'WARN' => 0 );
 		$fails  = array();
+		$waic_runtime_retired = ! class_exists( 'WaicAction', false ) && ! class_exists( 'WaicTrigger', false );
+		$downgraded_fails = array();
 		foreach ( $rows as $r ) {
 			$st = isset( $r['status'] ) ? strtoupper( (string) $r['status'] ) : '';
+
+			$task = (string) ( $r['task'] ?? '' );
+			$check = (string) ( $r['check'] ?? '' );
+			// [2026-07-09 Johnny Chu] HOTFIX — PHASE-0.31 T-S* tasks are WAIC-legacy.
+			// In slim-down mode (XYFlow supersedes WAIC), treat these as non-blocking
+			// instead of hard FAIL to avoid stale red matrix.
+			if ( $st === 'FAIL' && $waic_runtime_retired && preg_match( '/^T-S[0-9]+\./', $task ) ) {
+				$st = 'SKIP';
+				$downgraded_fails[] = $task . ': ' . $check;
+			}
+
 			if ( isset( $totals[ $st ] ) ) { $totals[ $st ]++; }
 			if ( $st === 'FAIL' ) {
 				$fails[] = ( $r['task'] ?? '?' ) . ': ' . ( $r['check'] ?? '' );
 			}
+		}
+
+		if ( ! empty( $downgraded_fails ) ) {
+			$steps[] = $s = array(
+				'label'  => 'Runtime · WAIC legacy downgrade',
+				'status' => 'warn',
+				'detail' => sprintf( '%d T-S* FAIL rows downgraded to SKIP (WaicAction/WaicTrigger not loaded).', count( $downgraded_fails ) ),
+			);
+			$ctx->emit_step( $s );
 		}
 
 		$steps[] = $s = array(

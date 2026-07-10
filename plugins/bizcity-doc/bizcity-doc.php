@@ -294,10 +294,12 @@ add_action( 'bizcity_intent_register_providers', function ( $registry ) {
 } );
 
 /* ══════════════════════════════════════════════════════════════
- *  PILLAR 1 — Profile View Route: /tool-doc/
+ *  PILLAR 1 — Profile View Route: /tool-doc/ AND /doc/
  * ══════════════════════════════════════════════════════════════ */
 add_action( 'init', function () {
 	add_rewrite_rule( '^tool-doc/?$', 'index.php?bizcity_agent_page=tool-doc', 'top' );
+	// [2026-06-22 Johnny Chu] PHASE-TWINWEB — /doc/ alias for twinweb sidebar shortcut
+	add_rewrite_rule( '^doc/?$', 'index.php?bizcity_agent_page=tool-doc', 'top' );
 } );
 add_filter( 'query_vars', function ( $vars ) {
 	if ( ! in_array( 'bizcity_agent_page', $vars, true ) ) {
@@ -313,9 +315,5 @@ add_action( 'template_redirect', function () {
 } );
 
 /* ── Flush rewrite rules once ── */
-if ( ! get_option( 'bzdoc_rewrite_version' ) || get_option( 'bzdoc_rewrite_version' ) !== BZDOC_VERSION ) {
-	add_action( 'init', function () {
-		flush_rewrite_rules( false );
-		update_option( 'bzdoc_rewrite_version', BZDOC_VERSION );
-	}, 99 );
-}
+// [2026-06-09 Johnny Chu] R-CR — migrated to Central Rewrite Flush Registry.
+BizCity_Rewrite_Flush_Registry::register( 'bizcity-doc', BZDOC_VERSION );

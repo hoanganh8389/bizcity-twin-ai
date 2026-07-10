@@ -46,7 +46,12 @@ class BizCity_Memory_Table_Migration {
 		'bizcity_episodic_memory'       => 'bizcity_memory_episodic',
 		'bizcity_webchat_memory'        => 'bizcity_memory_session',
 		'bizcity_webchat_notes'         => 'bizcity_memory_notes',
-		'bizcity_webchat_research_jobs' => 'bizcity_memory_research',
+		// Wave 2.8d (TBR.MEM-D2 2026-05-24): bizcity_webchat_research_jobs → bizcity_memory_research
+		// REMOVED — `_research` declared DEAD (no INSERT/SELECT in active code). Migration
+		// no longer renames it; legacy table (if exists) is flagged orphan via
+		// core/diagnostics/includes/class-diagnostics-table-registry.php deprecated list.
+		// Drop scheduled via Site Provisioner manual migration after founder sign-off.
+		// See core/memory/PHASE-MEMORY-CONSOLIDATION.md §3 (M2).
 	];
 
 	/**
@@ -65,13 +70,13 @@ class BizCity_Memory_Table_Migration {
 			$new_table = $wpdb->prefix . $new_suffix;
 
 			// Skip if old table doesn't exist
-			$old_exists = $wpdb->get_var( $wpdb->prepare( "SHOW TABLES LIKE %s", $old_table ) );
+			$old_exists = bizcity_tbl_exists( $old_table ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			if ( ! $old_exists ) {
 				continue;
 			}
 
 			// Skip if new table already exists (avoid collision)
-			$new_exists = $wpdb->get_var( $wpdb->prepare( "SHOW TABLES LIKE %s", $new_table ) );
+			$new_exists = bizcity_tbl_exists( $new_table ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			if ( $new_exists ) {
 				error_log( "[BizCity_Memory_Migration] Skipping {$old_table} — target {$new_table} already exists." );
 				continue;

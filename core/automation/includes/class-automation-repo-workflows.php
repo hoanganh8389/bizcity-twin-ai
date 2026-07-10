@@ -23,6 +23,8 @@ final class BizCity_Automation_Repo_Workflows {
 	const TRIGGER_TYPES = array(
 		'manual',
 		'zalo_inbound',
+		// [2026-06-24 Johnny Chu] PHASE-0.40 — Zone 1 Zalo OA (customer-facing, distinct from zalo_inbound Zone 2).
+		'zalo_oa_inbound',
 		'fb_message',      // BE-6.D — Facebook Messenger DM (was fb_comment alias).
 		'fb_comment',      // Facebook Page feed comment.
 		'telegram_inbound',// BE-6.D — Telegram bot inbound.
@@ -31,6 +33,10 @@ final class BizCity_Automation_Repo_Workflows {
 		'twinbrain_intent',// BE-6.E hook — chat intent from TwinBrain runtime.
 		'twinbrain_turn_completed', // BE-7.A — synthesis_done / final_done / agent_loop_done.
 		'twinbrain_tool_decided',   // BE-7.A — Stage 3 tool suggestion fired.
+		// [2026-06-03 Johnny Chu] WF-AUTO BRIDGE W2 — listen on skill A/B/C invocations.
+		'skill_intent',
+		// [2026-06-03 Johnny Chu] WF-AUTO GURU W2 — workflow-tier slash dispatch (Tier 2).
+		'slash_command',
 	);
 
 	public static function table(): string {
@@ -171,6 +177,20 @@ final class BizCity_Automation_Repo_Workflows {
 			$params[] = $like;
 			$params[] = $like;
 		}
+
+		// [2026-06-07 Johnny Chu] CRM-PATH-1 — zone filter via JSON_EXTRACT (MySQL 5.7+).
+		// admin zone also covers legacy rows (no zone key → treated as admin).
+		if ( isset( $args['zone'] ) && $args['zone'] !== '' && $args['zone'] !== null ) {
+			if ( $args['zone'] === 'admin' ) {
+				$where[] = "( JSON_UNQUOTE( JSON_EXTRACT( trigger_config_json, '$.zone' ) ) = 'admin'"
+					. " OR JSON_EXTRACT( trigger_config_json, '$.zone' ) IS NULL"
+					. " OR trigger_config_json IS NULL OR trigger_config_json = '' )";
+			} else {
+				$where[]  = "JSON_UNQUOTE( JSON_EXTRACT( trigger_config_json, '$.zone' ) ) = %s";
+				$params[] = (string) $args['zone'];
+			}
+		}
+
 		$limit  = max( 1, min( 200, (int) ( $args['limit']  ?? 50 ) ) );
 		$offset = max( 0, (int) ( $args['offset'] ?? 0 ) );
 
@@ -259,6 +279,17 @@ final class BizCity_Automation_Repo_Workflows {
 			$raw = (string) $in['debug_breakpoints_json'];
 			$row['debug_breakpoints_json'] = $raw !== '' ? $raw : null;
 		}
+
+		// [2026-06-07 Johnny Chu] CRM-PATH-1 — zone flag stored inside trigger_config_json.
+		if ( isset( $in['zone'] ) ) {
+			$z = in_array( $in['zone'], array( 'admin', 'crm' ), true ) ? (string) $in['zone'] : 'admin';
+			$cfg = ( $row['trigger_config_json'] !== null && $row['trigger_config_json'] !== '' )
+				? ( json_decode( (string) $row['trigger_config_json'], true ) ?: array() )
+				: array();
+			$cfg['zone']                = $z;
+			$row['trigger_config_json'] = wp_json_encode( $cfg );
+		}
+
 		return $row;
 	}
 
@@ -310,6 +341,10 @@ final class BizCity_Automation_Repo_Workflows {
 		$row['created_by']     = (int) $row['created_by'];
 		$row['graph']          = isset( $row['graph_json'] )         && $row['graph_json']         !== null && $row['graph_json']         !== '' ? json_decode( $row['graph_json'], true )         : null;
 		$row['trigger_config'] = isset( $row['trigger_config_json'] ) && $row['trigger_config_json'] !== null && $row['trigger_config_json'] !== '' ? json_decode( $row['trigger_config_json'], true ) : null;
+		// [2026-06-07 Johnny Chu] CRM-PATH-1 — expose zone as top-level field (lives in trigger_config_json.zone).
+		$row['zone'] = ( is_array( $row['trigger_config'] ) && isset( $row['trigger_config']['zone'] ) )
+			? (string) $row['trigger_config']['zone']
+			: 'admin'; // legacy rows without zone = admin.
 		$row['debug_breakpoints'] = isset( $row['debug_breakpoints_json'] ) && $row['debug_breakpoints_json'] !== null && $row['debug_breakpoints_json'] !== ''
 			? ( json_decode( (string) $row['debug_breakpoints_json'], true ) ?: array() )
 			: array();

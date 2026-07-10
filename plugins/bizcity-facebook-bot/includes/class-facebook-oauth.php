@@ -160,20 +160,16 @@ class BizCity_Facebook_OAuth {
 
 		$user_id = get_current_user_id();
 
-		// 2026-05-25 — SINGLE SOURCE OF TRUTH: đọc trực tiếp từ option `bztfb_app_id` /
-		// `bztfb_app_secret` (nơi "Lưu App Config" trong Channel-Gateway UI ghi vào).
-		// Bỏ toàn bộ fallback (user_meta + WAIC integration) vì chúng giữ giá trị
-		// cũ từ flow twinchat và ghi đè app_id người dùng vừa lưu.
+		// [2026-06-29 Johnny Chu] HOTFIX R-MULTISHARD — đọc per-blog option ONLY.
+		// get_site_option() trong multishard trả giá trị từ shard chính (network sitemeta)
+		// — không phải shard của blog này. Nếu shard chính có App Secret cũ/sai
+		// → transient stash sai → Facebook "Error validating client secret".
+		// Rule: mọi credentials PHẢI đọc từ get_option() (per-blog) only.
 		$app_id     = (string) get_option( 'bztfb_app_id', '' );
 		$app_secret = (string) get_option( 'bztfb_app_secret', '' );
 		$config_id  = '';
 
-		// Fallback: multisite network-wide option (sub-site mà main site save).
-		if ( $app_id === '' )     { $app_id     = (string) get_site_option( 'bztfb_app_id', '' ); }
-		if ( $app_secret === '' ) { $app_secret = (string) get_site_option( 'bztfb_app_secret', '' ); }
-		// Legacy keys (bizcity-facebook-bot original).
-		if ( $app_id === '' )     { $app_id     = (string) get_site_option( 'bizcity_fb_app_id', '' ); }
-		if ( $app_secret === '' ) { $app_secret = (string) get_site_option( 'bizcity_fb_app_secret', '' ); }
+		// Legacy key fallback (per-blog only — không get_site_option).
 		if ( $app_id === '' )     { $app_id     = (string) get_option( 'fb_app_id', '' ); }
 		if ( $app_secret === '' ) { $app_secret = (string) get_option( 'fb_app_secret', '' ); }
 
@@ -196,21 +192,29 @@ class BizCity_Facebook_OAuth {
 		// state includes app_source=user to distinguish from admin flow
 		$state = $this->encode_state( $blog_id, $user_id, 'user' );
 
+		// [2026-06-29 Johnny Chu] HOTFIX — store redirect_uri in transient so
+		// handle_callback() uses the EXACT same URL in the token exchange.
+		// Previously home_url() was called again in the callback which could
+		// resolve differently (http vs https, www mismatch, multisite context)
+		// causing Facebook "Error validating client secret" (redirect_uri mismatch
+		// under the hood).
 		// BizCity PHASE 0.31 Sprint 6 — stash the resolved app_id/app_secret
 		// in the transient so handle_callback() can reuse them without a second
 		// WAIC lookup (state has no num and user_meta may still be empty).
-		set_site_transient( 'biz_fb_oauth_' . $this->state_key( $state ), [
-			'blog_id'    => $blog_id,
-			'user_id'    => $user_id,
-			'app_source' => 'user',
-			'app_id'     => $app_id,
-			'app_secret' => $app_secret,
-			'config_id'  => $config_id,
-			'time'       => time(),
-		], 5 * MINUTE_IN_SECONDS );
 
 		// User's own app → redirect_uri = current site (user must configure this in their app)
 		$redirect_uri = home_url( '/?biz_fb_oauth=callback' );
+
+		set_site_transient( 'biz_fb_oauth_' . $this->state_key( $state ), [
+			'blog_id'      => $blog_id,
+			'user_id'      => $user_id,
+			'app_source'   => 'user',
+			'app_id'       => $app_id,
+			'app_secret'   => $app_secret,
+			'config_id'    => $config_id,
+			'redirect_uri' => $redirect_uri, // [2026-06-29 Johnny Chu] HOTFIX — store for exact replay
+			'time'         => time(),
+		], 5 * MINUTE_IN_SECONDS );
 		$scopes       = implode( ',', self::SCOPES );
 
 		// BizCity PHASE 0.31 Sprint 6 — Facebook Login for Business (Business
@@ -324,8 +328,13 @@ class BizCity_Facebook_OAuth {
 				} catch ( \Throwable $e ) { /* fall through */ }
 			}
 
-			// User flow: use home_url() (guaranteed absolute URI with scheme)
-			$callback_url = home_url( '/?biz_fb_oauth=callback' );
+			// [2026-06-29 Johnny Chu] HOTFIX — use the redirect_uri stored in the
+			// transient (set during user_start) so token exchange uses the EXACT
+			// same URL as the authorization request. Fallback to home_url() only
+			// for old transients that pre-date this fix.
+			$callback_url = ! empty( $saved['redirect_uri'] )
+				? (string) $saved['redirect_uri']
+				: home_url( '/?biz_fb_oauth=callback' );
 		} else {
 			$app_id     = $this->get_app_id();
 			$app_secret = $this->get_app_secret();
@@ -336,12 +345,15 @@ class BizCity_Facebook_OAuth {
 		// why the callback fails on production. Safe: only logs presence
 		// (lengths), never the actual secret value.
 		if ( function_exists( 'error_log' ) ) {
+			// [2026-06-29 Johnny Chu] HOTFIX — log redirect_uri source for debugging
 			error_log( sprintf(
-				'[BizCity FB OAuth] callback: app_source=%s, blog_id=%d, user_id=%d, app_id_len=%d, secret_len=%d, transient_has_creds=%s, code_len=%d',
+				'[BizCity FB OAuth] callback: app_source=%s, blog_id=%d, user_id=%d, app_id_len=%d, secret_len=%d, transient_has_creds=%s, code_len=%d, callback_url=%s, redirect_uri_from_transient=%s',
 				$app_source, $blog_id, $user_id,
 				strlen( (string) $app_id ), strlen( (string) $app_secret ),
 				( ! empty( $saved['app_id'] ) ? 'yes' : 'no' ),
-				strlen( (string) $code )
+				strlen( (string) $code ),
+				isset( $callback_url ) ? $callback_url : '(not set yet)',
+				! empty( $saved['redirect_uri'] ) ? 'yes:' . $saved['redirect_uri'] : 'no(fallback)'
 			) );
 		}
 

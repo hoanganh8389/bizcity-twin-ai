@@ -2,24 +2,24 @@
 /**
  * @package    Bizcity_Twin_AI
  * @subpackage Core\Intent
- * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
- * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
+ * @author     Johnny Chu (Chu HoÃ ng Anh) <Hoanganh.itm@gmail.com>
+ * @copyright  2024-2026 BizCity â€” Made in Vietnam ðŸ‡»ðŸ‡³
  * @license    GPL-2.0-or-later
  * @link       https://bizcity.vn
  */
 
 /**
- * BizCity Intent — Stream Adapter
+ * BizCity Intent â€” Stream Adapter
  *
  * Two output adapters consuming the same engine:
  *
  *   1. SSE Adapter  (webchat / admin dashboard)
- *      → Streams chunks directly to browser via Server-Sent Events.
- *      → Endpoint: wp_ajax_bizcity_chat_stream / wp_ajax_nopriv_bizcity_chat_stream
+ *      â†’ Streams chunks directly to browser via Server-Sent Events.
+ *      â†’ Endpoint: wp_ajax_bizcity_chat_stream / wp_ajax_nopriv_bizcity_chat_stream
  *
  *   2. Batch Adapter  (Zalo / Telegram / Facebook hooks)
- *      → Accumulates full response internally, then sends 1–2 messages via channel API.
- *      → Called programmatically from hook handlers.
+ *      â†’ Accumulates full response internally, then sends 1â€“2 messages via channel API.
+ *      â†’ Called programmatically from hook handlers.
  *
  * Both use BizCity_OpenRouter::chat_stream() under the hood.
  *
@@ -68,7 +68,7 @@ class BizCity_Intent_Stream {
     }
 
     /* ================================================================
-     *  SSE Adapter — Stream to browser
+     *  SSE Adapter â€” Stream to browser
      * ================================================================ */
 
     /**
@@ -86,7 +86,7 @@ class BizCity_Intent_Stream {
         // Disable output buffering for real-time streaming
         $this->prepare_stream_headers();
 
-        // ── Hook: send thinking status to client via SSE ──
+        // â”€â”€ Hook: send thinking status to client via SSE â”€â”€
         $self = $this;
         $already_streamed = false;
         add_action( 'bizcity_intent_status', function ( $status_text ) use ( $self ) {
@@ -95,7 +95,7 @@ class BizCity_Intent_Stream {
             ] );
         }, 10, 1 );
 
-        // ── Hook: allow pipelines/tools to stream chunks directly via SSE ──
+        // â”€â”€ Hook: allow pipelines/tools to stream chunks directly via SSE â”€â”€
         // Plugins call: do_action('bizcity_intent_stream_chunk', $delta, $full_text)
         // when using bizcity_openrouter_chat_stream() for real-time token delivery.
         $streamed_full_text = '';
@@ -108,7 +108,7 @@ class BizCity_Intent_Stream {
             ] );
         }, 10, 2 );
 
-        // ── Hook: forward pipeline logger entries to client via SSE ──
+        // â”€â”€ Hook: forward pipeline logger entries to client via SSE â”€â”€
         add_action( 'bizcity_intent_pipeline_log', function ( $step, $data, $level, $elapsed_ms ) use ( $self ) {
             // Skip noisy trace_begin/trace_end and chunk events to reduce bandwidth
             if ( in_array( $step, [ 'trace_begin' ], true ) ) return;
@@ -125,7 +125,7 @@ class BizCity_Intent_Stream {
         $character_id = intval( $_REQUEST['character_id'] ?? 0 );
         $session_id   = sanitize_text_field( $_REQUEST['session_id'] ?? '' );
 
-        // ── Concurrent request lock (per session) ──
+        // â”€â”€ Concurrent request lock (per session) â”€â”€
         // Prevent processing duplicate requests when user double-clicks
         // or sends rapidly. Uses a short transient lock (15s) keyed on
         // session + message hash. If the same message arrives while
@@ -133,23 +133,23 @@ class BizCity_Intent_Stream {
         if ( $session_id && $message ) {
             $lock_key = 'bizc_stream_lock_' . md5( $session_id . '|' . $message );
             if ( get_transient( $lock_key ) ) {
-                $this->send_sse_event( 'error', [ 'message' => 'Tin nhắn đang được xử lý, vui lòng đợi.' ] );
+                $this->send_sse_event( 'error', [ 'message' => 'Tin nháº¯n Ä‘ang Ä‘Æ°á»£c xá»­ lÃ½, vui lÃ²ng Ä‘á»£i.' ] );
                 $this->send_sse_done();
                 exit;
             }
             set_transient( $lock_key, true, 15 );
         }
 
-        // ── API key guard — bail early with helpful message if not configured ──
+        // â”€â”€ API key guard â€” bail early with helpful message if not configured â”€â”€
         if ( class_exists( 'BizCity_LLM_Client' ) && ! BizCity_LLM_Client::instance()->is_ready() ) {
             $settings_url = admin_url( 'admin.php?page=bizcity-llm' );
             $create_url   = 'https://bizcity.vn/my-account/';
-            $message_text = "⚠️ **Chưa kết nối API BizCity**\n\n"
-                . "Bot chưa có API key để xử lý tin nhắn của bạn.\n\n"
-                . "**Cách kết nối:**\n"
-                . "1. Truy cập [bizcity.vn/my-account/]({$create_url}) để lấy API key miễn phí\n"
-                . "2. Dán key vào trang [LLM Settings]({$settings_url})\n\n"
-                . "_Sau khi lưu, bot sẽ hoạt động ngay lập tức._";
+            $message_text = "âš ï¸ **ChÆ°a káº¿t ná»‘i API BizCity**\n\n"
+                . "Bot chÆ°a cÃ³ API key Ä‘á»ƒ xá»­ lÃ½ tin nháº¯n cá»§a báº¡n.\n\n"
+                . "**CÃ¡ch káº¿t ná»‘i:**\n"
+                . "1. Truy cáº­p [bizcity.vn/my-account/]({$create_url}) Ä‘á»ƒ láº¥y API key miá»…n phÃ­\n"
+                . "2. DÃ¡n key vÃ o trang [LLM Settings]({$settings_url})\n\n"
+                . "_Sau khi lÆ°u, bot sáº½ hoáº¡t Ä‘á»™ng ngay láº­p tá»©c._";
 
             $this->send_sse_event( 'done', [
                 'message'         => $message_text,
@@ -188,21 +188,21 @@ class BizCity_Intent_Stream {
         $platform_type = sanitize_text_field( $_REQUEST['platform_type'] ?? 'WEBCHAT' );
         $user_id       = get_current_user_id();
         $provider_hint = sanitize_text_field( $_REQUEST['provider_hint'] ?? '' );
-        // Resolve market slug → provider ID (e.g. 'bizcity-tarot' → 'tarot')
+        // Resolve market slug â†’ provider ID (e.g. 'bizcity-tarot' â†’ 'tarot')
         if ( $provider_hint && class_exists( 'BizCity_Intent_Provider_Registry' ) ) {
             $provider_hint = BizCity_Intent_Provider_Registry::instance()->resolve_slug( $provider_hint );
         }
         $tool_goal     = sanitize_text_field( $_REQUEST['tool_goal'] ?? '' ); // Slash command: direct tool goal
 
-        // ── Logic 2: Parse /tool_name from message text ──
+        // â”€â”€ Logic 2: Parse /tool_name from message text â”€â”€
         // If message starts with /some_slug, extract the tool goal from it.
-        // This is the universal mechanism — works across all channels (Telegram, Zalo, REST, etc.)
+        // This is the universal mechanism â€” works across all channels (Telegram, Zalo, REST, etc.)
         // and serves as self-documenting history. FormData tool_goal takes precedence.
         if ( ! $tool_goal && preg_match( '/^\/([a-z0-9_]+)(?:\s+(.*))?$/si', $message, $slash_match ) ) {
             $slash_slug    = strtolower( $slash_match[1] );
             $slash_message = trim( $slash_match[2] ?? '' );
 
-            // L2-a: Primary — check bizcity_tool_registry DB (handles tool_name ≠ goal)
+            // L2-a: Primary â€” check bizcity_tool_registry DB (handles tool_name â‰  goal)
             global $wpdb;
             $reg_table = $wpdb->prefix . 'bizcity_tool_registry';
             $reg_row   = $wpdb->get_row( $wpdb->prepare(
@@ -213,15 +213,15 @@ class BizCity_Intent_Stream {
             if ( $reg_row && ! empty( $reg_row['goal'] ) ) {
                 $tool_goal = $reg_row['goal'];
                 $message   = $slash_message;
-                error_log( '[bizcity-intent-stream] Logic 2: /slash → tool_goal=' . $tool_goal . ' (registry, slug=' . $slash_slug . ')' );
+                error_log( '[bizcity-intent-stream] Logic 2: /slash â†’ tool_goal=' . $tool_goal . ' (registry, slug=' . $slash_slug . ')' );
             }
-            // L2-b: Fallback — check goal_patterns (pattern-only goals without DB entry)
+            // L2-b: Fallback â€” check goal_patterns (pattern-only goals without DB entry)
             elseif ( class_exists( 'BizCity_Intent_Router' ) ) {
                 foreach ( BizCity_Intent_Router::instance()->get_goal_patterns() as $cfg ) {
                     if ( ( $cfg['goal'] ?? '' ) === $slash_slug ) {
                         $tool_goal = $cfg['goal'];
                         $message   = $slash_message;
-                        error_log( '[bizcity-intent-stream] Logic 2: /slash → tool_goal=' . $tool_goal . ' (patterns)' );
+                        error_log( '[bizcity-intent-stream] Logic 2: /slash â†’ tool_goal=' . $tool_goal . ' (patterns)' );
                         break;
                     }
                 }
@@ -229,7 +229,7 @@ class BizCity_Intent_Stream {
             // If neither matched, leave message as-is (user typed /hello casually)
         }
 
-        // Nonce check for admin channels — accept all known nonce actions
+        // Nonce check for admin channels â€” accept all known nonce actions
         if ( in_array( $platform_type, [ 'ADMINCHAT', 'ADMIN' ], true ) ) {
             $nonce = $_REQUEST['_wpnonce'] ?? $_REQUEST['nonce'] ?? '';
             $valid = wp_verify_nonce( $nonce, 'bizcity_webchat' )
@@ -244,12 +244,12 @@ class BizCity_Intent_Stream {
         }
 
         if ( empty( $message ) && empty( $images ) ) {
-            $this->send_sse_event( 'error', [ 'message' => 'Tin nhắn trống' ] );
+            $this->send_sse_event( 'error', [ 'message' => 'Tin nháº¯n trá»‘ng' ] );
             $this->send_sse_done();
             exit;
         }
 
-        // ── Log user message to webchat_messages (unified history) ──
+        // â”€â”€ Log user message to webchat_messages (unified history) â”€â”€
         // Skip if BCN (Notebook) already saved the user message to avoid duplicates.
         $bcn_user_msg_id = absint( $_REQUEST['_bcn_user_msg_id'] ?? 0 );
         if ( ! $bcn_user_msg_id ) {
@@ -269,9 +269,9 @@ class BizCity_Intent_Stream {
             ] );
         }
 
-        // ── Early workflow trigger: fire BEFORE intent processing ──
+        // â”€â”€ Early workflow trigger: fire BEFORE intent processing â”€â”€
         // If an automation workflow handles this message, skip intent engine entirely.
-        // WEBCHAT: skip workflow triggers — WEBCHAT must always go through knowledge pipeline.
+        // WEBCHAT: skip workflow triggers â€” WEBCHAT must always go through knowledge pipeline.
         if ( function_exists( 'bizcity_gateway_fire_trigger' ) && $platform_type !== 'WEBCHAT' ) {
             $GLOBALS['waic_twf_process_flow_handled'] = false;
             bizcity_gateway_fire_trigger( [
@@ -287,11 +287,11 @@ class BizCity_Intent_Stream {
                 'attachments'  => $images,
             ] );
             if ( ! empty( $GLOBALS['waic_twf_process_flow_handled'] ) ) {
-                error_log( '[bizcity-intent-stream] Workflow handled message — skipping intent engine' );
+                error_log( '[bizcity-intent-stream] Workflow handled message â€” skipping intent engine' );
                 // Use the streamed text if tool already streamed via SSE chunks
                 $done_msg = $already_streamed && $streamed_full_text !== ''
                     ? $streamed_full_text
-                    : '✅ Đã xử lý bởi Workflow Automation.';
+                    : 'âœ… ÄÃ£ xá»­ lÃ½ bá»Ÿi Workflow Automation.';
                 $this->send_sse_event( 'done', [
                     'message'         => $done_msg,
                     'conversation_id' => '',
@@ -303,8 +303,8 @@ class BizCity_Intent_Stream {
             }
         }
 
-        // ── Pre-process: check if executor bridge needs to intercept ──
-        // Preflight + Planner plugins removed — only executor bridge may intercept
+        // â”€â”€ Pre-process: check if executor bridge needs to intercept â”€â”€
+        // Preflight + Planner plugins removed â€” only executor bridge may intercept
         // for async workflow tools (video, SEO multi-step, etc.)
         $pre_ctx = [
             'message'       => $message,
@@ -336,7 +336,7 @@ class BizCity_Intent_Stream {
             exit;
         }
 
-        // ── Capability query: "bạn có thể làm gì?" → list active tools ──
+        // â”€â”€ Capability query: "báº¡n cÃ³ thá»ƒ lÃ m gÃ¬?" â†’ list active tools â”€â”€
         if ( $this->is_capability_query( $message ) ) {
             $cap_reply = $this->build_capability_response();
             $bot_db_id = $this->log_webchat_message( [
@@ -363,7 +363,7 @@ class BizCity_Intent_Stream {
             exit;
         }
 
-        // ── Process through Intent Engine (get context + slots) ──
+        // â”€â”€ Process through Intent Engine (get context + slots) â”€â”€
         // Send keepalive comment to prevent proxy from closing idle SSE connection
         // during the potentially slow intent classification call.
         echo ": keepalive\n\n";
@@ -372,10 +372,10 @@ class BizCity_Intent_Stream {
 
         $intent_conv_id_hint = sanitize_text_field( $_REQUEST['intent_conversation_id'] ?? '' );
 
-        // ── KCI Ratio: load per-session and set for Mode Classifier ──
+        // â”€â”€ KCI Ratio: load per-session and set for Mode Classifier â”€â”€
         // Chat Gateway (priority 20) normally handles this, but Intent Stream
         // handles at priority 10 and exits first, so KCI is never set.
-        // Without this, default KCI=80 → exec_ratio=20 → strong knowledge bias.
+        // Without this, default KCI=80 â†’ exec_ratio=20 â†’ strong knowledge bias.
         if ( class_exists( 'BizCity_Mode_Classifier' ) ) {
             $kci_ratio = 80; // default
             if ( $session_id && class_exists( 'BizCity_WebChat_Database' ) ) {
@@ -402,7 +402,7 @@ class BizCity_Intent_Stream {
             }
         }
 
-        // bizcity_intent_process() was a legacy wrapper — call Intent Engine directly
+        // bizcity_intent_process() was a legacy wrapper â€” call Intent Engine directly
         if ( class_exists( 'BizCity_Intent_Engine' ) ) {
             $engine_result = BizCity_Intent_Engine::instance()->process( [
                 'message'                 => $message,
@@ -417,7 +417,7 @@ class BizCity_Intent_Stream {
                 'intent_conversation_id'  => $intent_conv_id_hint,
             ] );
         } else {
-            // Intent Engine not loaded — return passthrough so Chat Gateway handles it
+            // Intent Engine not loaded â€” return passthrough so Chat Gateway handles it
             $engine_result = [
                 'reply'           => '',
                 'action'          => 'passthrough',
@@ -430,21 +430,21 @@ class BizCity_Intent_Stream {
             ];
         }
 
-        // ═══ EXTRACT UNIFIED TRACKING FIELDS FROM ENGINE RESULT ═══
+        // â•â•â• EXTRACT UNIFIED TRACKING FIELDS FROM ENGINE RESULT â•â•â•
         // These are propagated to every SSE done event + log_webchat_message call
         // so the frontend can display plugin badges and the DB has full traceability.
         $intent_conv_id = $engine_result['conversation_id'] ?? '';
         $intent_goal    = $engine_result['goal'] ?? '';
         $intent_label   = $engine_result['goal_label'] ?? '';
 
-        // Resolve plugin_slug: knowledge pipeline meta → engine goal → provider_hint
+        // Resolve plugin_slug: knowledge pipeline meta â†’ engine goal â†’ provider_hint
         $intent_plugin_slug = '';
         if ( ! empty( $engine_result['meta']['pipeline']['provider'] ) ) {
             $intent_plugin_slug = $engine_result['meta']['pipeline']['provider'];
         } elseif ( ! empty( $engine_result['meta']['provider_id'] ) ) {
             $intent_plugin_slug = $engine_result['meta']['provider_id'];
         } elseif ( $intent_goal ) {
-            // Map goal → provider: ask registry for the owning plugin
+            // Map goal â†’ provider: ask registry for the owning plugin
             if ( class_exists( 'BizCity_Intent_Provider_Registry' ) ) {
                 $owner = BizCity_Intent_Provider_Registry::instance()->get_provider_for_goal( $intent_goal );
                 if ( $owner ) {
@@ -456,7 +456,7 @@ class BizCity_Intent_Stream {
             $intent_plugin_slug = $provider_hint;
         }
 
-        // ═══ RETROACTIVELY UPDATE USER MESSAGE with tracking fields ═══
+        // â•â•â• RETROACTIVELY UPDATE USER MESSAGE with tracking fields â•â•â•
         // The user message was logged BEFORE engine processing (L121).
         // Now that we have intent_conversation_id + plugin_slug, stamp the row
         // so both user AND bot messages are scoped to the same intent conversation.
@@ -474,10 +474,10 @@ class BizCity_Intent_Stream {
             }
         }
 
-        // ═══ COMPUTE FOCUS MODE for frontend plugin context lifecycle ═══
-        // 'active'    → inside HIL loop (ask_user) — enter/keep plugin focus banner
-        // 'completed' → goal finished (complete) — auto-exit plugin focus banner
-        // 'none'      → no goal context — no focus UI
+        // â•â•â• COMPUTE FOCUS MODE for frontend plugin context lifecycle â•â•â•
+        // 'active'    â†’ inside HIL loop (ask_user) â€” enter/keep plugin focus banner
+        // 'completed' â†’ goal finished (complete) â€” auto-exit plugin focus banner
+        // 'none'      â†’ no goal context â€” no focus UI
         $engine_action = $engine_result['action'] ?? '';
         if ( $engine_action === 'ask_user' ) {
             $focus_mode = 'active';
@@ -489,7 +489,7 @@ class BizCity_Intent_Stream {
             $focus_mode = 'none';
         }
 
-        // If engine handled it directly (ask_user only → send as-is)
+        // If engine handled it directly (ask_user only â†’ send as-is)
         if ( ( $engine_result['action'] ?? '' ) === 'ask_user' ) {
             // Log bot reply FIRST so syncLastMsgId() picks up the DB id
             // before the frontend starts polling (prevents duplicate display).
@@ -540,7 +540,7 @@ class BizCity_Intent_Stream {
             exit;
         }
 
-        // ── S8: Pipeline execution → send reply directly, include task_id for frontend trigger ──
+        // â”€â”€ S8: Pipeline execution â†’ send reply directly, include task_id for frontend trigger â”€â”€
         if ( ( $engine_result['action'] ?? '' ) === 'execute_pipeline' && ! empty( $engine_result['reply'] ) ) {
             $bot_db_id = $this->log_webchat_message( [
                 'session_id'              => $session_id,
@@ -584,8 +584,8 @@ class BizCity_Intent_Stream {
             exit;
         }
 
-        // ── Tool completion → send tool's reply directly (contains URLs, structured content) ──
-        // Also handles executor ack (contains trace_id) — must NOT be rephrased by LLM.
+        // â”€â”€ Tool completion â†’ send tool's reply directly (contains URLs, structured content) â”€â”€
+        // Also handles executor ack (contains trace_id) â€” must NOT be rephrased by LLM.
         $is_tool_complete = ( $engine_result['action'] ?? '' ) === 'complete'
             && ! empty( $engine_result['meta']['tool_name'] );
         $is_executor_ack  = ( $engine_result['action'] ?? '' ) === 'complete'
@@ -644,14 +644,14 @@ class BizCity_Intent_Stream {
             exit;
         }
 
-        // ── Completion messages → route through AI brain to apply memory override (xưng hô, phong cách) ──
+        // â”€â”€ Completion messages â†’ route through AI brain to apply memory override (xÆ°ng hÃ´, phong cÃ¡ch) â”€â”€
         if ( ( $engine_result['action'] ?? '' ) === 'complete' ) {
             $engine_result['meta']['completion_hint'] = $engine_result['reply'];
         }
 
-        // ── Pipeline direct reply (action='reply') → send as-is ──
+        // â”€â”€ Pipeline direct reply (action='reply') â†’ send as-is â”€â”€
         // Any mode pipeline (emotion safety, knowledge, etc.) can produce a complete answer.
-        // Do NOT re-process through LLM — send directly to frontend.
+        // Do NOT re-process through LLM â€” send directly to frontend.
         if ( ( $engine_result['action'] ?? '' ) === 'reply' && ! empty( $engine_result['reply'] ) ) {
             $pipeline_meta   = $engine_result['meta']['pipeline'] ?? [];
             $knowledge_prov  = $pipeline_meta['provider'] ?? $intent_plugin_slug;
@@ -707,7 +707,7 @@ class BizCity_Intent_Stream {
             exit;
         }
 
-        // ── Need AI response → stream it ──
+        // â”€â”€ Need AI response â†’ stream it â”€â”€
         $this->stream_ai_response( $message, $character_id, $session_id, $images, $user_id, $platform_type, $engine_result );
 
         exit;
@@ -725,7 +725,7 @@ class BizCity_Intent_Stream {
      * @param array  $engine_result
      */
     private function stream_ai_response( $message, $character_id, $session_id, $images, $user_id, $platform_type, $engine_result ) {
-        // ═══ Extract unified tracking fields (same logic as handle_sse) ═══
+        // â•â•â• Extract unified tracking fields (same logic as handle_sse) â•â•â•
         $sr_conv_id     = $engine_result['conversation_id'] ?? '';
         $sr_goal        = $engine_result['goal'] ?? '';
         $sr_goal_label  = $engine_result['goal_label'] ?? '';
@@ -740,7 +740,7 @@ class BizCity_Intent_Stream {
             if ( $owner ) $sr_plugin_slug = $owner->get_id();
         }
 
-        // ═══ COMPUTE FOCUS MODE (same logic as handle_sse) ═══
+        // â•â•â• COMPUTE FOCUS MODE (same logic as handle_sse) â•â•â•
         $engine_action = $engine_result['action'] ?? '';
         if ( $engine_action === 'ask_user' ) {
             $sr_focus_mode = 'active';
@@ -755,12 +755,12 @@ class BizCity_Intent_Stream {
         // Build messages using the Chat Gateway brain
         if ( ! class_exists( 'BizCity_Chat_Gateway' ) ) {
             error_log( '[bizcity-intent-stream] BizCity_Chat_Gateway class not found' );
-            $this->send_sse_event( 'error', [ 'message' => 'Chat Gateway chưa sẵn sàng.' ] );
+            $this->send_sse_event( 'error', [ 'message' => 'Chat Gateway chÆ°a sáºµn sÃ ng.' ] );
             $this->send_sse_done();
             return;
         }
 
-        // Resolve the best streaming function — prefer bizcity_llm_chat_stream (routes through LLM Router)
+        // Resolve the best streaming function â€” prefer bizcity_llm_chat_stream (routes through LLM Router)
         $stream_fn = null;
         if ( function_exists( 'bizcity_llm_chat_stream' ) ) {
             $stream_fn = 'bizcity_llm_chat_stream';
@@ -776,7 +776,7 @@ class BizCity_Intent_Stream {
             try {
                 $reply_data = $gateway->get_ai_response( $character_id, $message, $images, $session_id, '[]', $user_id, $platform_type );
 
-                // Persist the reply (skip if 'complete' — engine already added turn)
+                // Persist the reply (skip if 'complete' â€” engine already added turn)
                 $conv_id = $engine_result['conversation_id'] ?? '';
                 if ( $conv_id && ! empty( $reply_data['message'] ) && ( $engine_result['action'] ?? '' ) !== 'complete' ) {
                     BizCity_Intent_Conversation::instance()->add_turn( $conv_id, 'assistant', $reply_data['message'], [
@@ -838,7 +838,7 @@ class BizCity_Intent_Stream {
             return;
         }
 
-        // ── Build the message array that the Gateway normally builds ──
+        // â”€â”€ Build the message array that the Gateway normally builds â”€â”€
         // We'll replicate the key parts of get_ai_response for streaming
         $messages = $this->build_llm_messages( $message, $character_id, $session_id, $images, $user_id, $platform_type, $engine_result );
         $model_options = $this->get_model_options( $character_id );
@@ -859,8 +859,8 @@ class BizCity_Intent_Stream {
             }
         );
 
-        // ── Persist the AI reply as a turn so history is loadable ──
-        // Skip if 'complete' action — engine already persisted a turn; AI just personalizes the SSE output
+        // â”€â”€ Persist the AI reply as a turn so history is loadable â”€â”€
+        // Skip if 'complete' action â€” engine already persisted a turn; AI just personalizes the SSE output
         $bot_reply = $result['message'] ?? '';
         $conv_id   = $engine_result['conversation_id'] ?? '';
         if ( $conv_id && $bot_reply && ( $engine_result['action'] ?? '' ) !== 'complete' ) {
@@ -878,15 +878,15 @@ class BizCity_Intent_Stream {
             if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
                 error_log( '[bizcity-intent-stream] Stream completed with error: ' . $err );
             }
-            // HTTP 403 = invalid/missing API key — surface a helpful message instead of silence
+            // HTTP 403 = invalid/missing API key â€” surface a helpful message instead of silence
             if ( strpos( $err, '403' ) !== false || strpos( $err, '401' ) !== false ) {
                 $settings_url = admin_url( 'admin.php?page=bizcity-llm' );
                 $create_url   = 'https://bizcity.vn/my-account/';
-                $bot_reply = "⚠️ **Không thể kết nối đến API BizCity (lỗi xác thực)**\n\n"
-                    . "API key hiện tại không hợp lệ hoặc chưa được cấu hình.\n\n"
-                    . "**Cách khắc phục:**\n"
-                    . "1. Truy cập [bizcity.vn/my-account/]({$create_url}) để lấy API key\n"
-                    . "2. Cập nhật key tại trang [LLM Settings]({$settings_url})";
+                $bot_reply = "âš ï¸ **KhÃ´ng thá»ƒ káº¿t ná»‘i Ä‘áº¿n API BizCity (lá»—i xÃ¡c thá»±c)**\n\n"
+                    . "API key hiá»‡n táº¡i khÃ´ng há»£p lá»‡ hoáº·c chÆ°a Ä‘Æ°á»£c cáº¥u hÃ¬nh.\n\n"
+                    . "**CÃ¡ch kháº¯c phá»¥c:**\n"
+                    . "1. Truy cáº­p [bizcity.vn/my-account/]({$create_url}) Ä‘á»ƒ láº¥y API key\n"
+                    . "2. Cáº­p nháº­t key táº¡i trang [LLM Settings]({$settings_url})";
             }
         } else {
             if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
@@ -894,7 +894,7 @@ class BizCity_Intent_Stream {
             }
         }
 
-        // ── Log bot reply to webchat_messages (unified history) ──
+        // â”€â”€ Log bot reply to webchat_messages (unified history) â”€â”€
         $bot_db_id = 0;
         if ( $bot_reply ) {
             $char_name = 'AI Assistant';
@@ -950,18 +950,18 @@ class BizCity_Intent_Stream {
         if ( $bcn_user_msg_id ) {
             $done_payload['_bcn_user_msg_id'] = $bcn_user_msg_id;
         }
-        // v4.3.1→v5.0: suggest_tool disabled — no longer pushing tool activation cards
+        // v4.3.1â†’v5.0: suggest_tool disabled â€” no longer pushing tool activation cards
         // if ( $this->_suggest_tool_data ) {
         //     $done_payload['suggest_tool'] = $this->_suggest_tool_data;
         //     $this->_suggest_tool_data = null;
         // }
-        // v4.3.5→v5.0: suggest_tools disabled — no longer pushing tool suggestions
+        // v4.3.5â†’v5.0: suggest_tools disabled â€” no longer pushing tool suggestions
         // if ( ! empty( $engine_result['meta']['suggest_tools'] ) ) {
         //     $done_payload['suggest_tools'] = $engine_result['meta']['suggest_tools'];
         // }
         $this->send_sse_event( 'done', $done_payload );
 
-        // ── Fire post-response hook — enables Emotional Memory extraction + bond scoring ──
+        // â”€â”€ Fire post-response hook â€” enables Emotional Memory extraction + bond scoring â”€â”€
         if ( $bot_reply ) {
             do_action( 'bizcity_chat_after_response', $message, $bot_reply, [
                 'user_id'      => $user_id,
@@ -972,7 +972,7 @@ class BizCity_Intent_Stream {
             ] );
         }
 
-        // ── Fire automation trigger bridge ──
+        // â”€â”€ Fire automation trigger bridge â”€â”€
         $this->fire_chat_processed( $message, $bot_reply ?: '', [
             'platform_type' => $platform_type,
             'session_id'    => $session_id,
@@ -988,7 +988,7 @@ class BizCity_Intent_Stream {
     }
 
     /* ================================================================
-     *  Batch Adapter — For hook channels (Zalo/Telegram/FB)
+     *  Batch Adapter â€” For hook channels (Zalo/Telegram/FB)
      * ================================================================ */
 
     /**
@@ -1010,7 +1010,7 @@ class BizCity_Intent_Stream {
      * }
      */
     public function batch_response( $message, $character_id, $session_id, $images = [], $user_id = 0, $platform_type = 'ZALO', $engine_result = [] ) {
-        // ── Tool completion / executor ack → return reply directly (URLs, structured content, trace ack) ──
+        // â”€â”€ Tool completion / executor ack â†’ return reply directly (URLs, structured content, trace ack) â”€â”€
         $is_tool_complete = ( $engine_result['action'] ?? '' ) === 'complete'
             && ! empty( $engine_result['meta']['tool_name'] );
         $is_executor_ack  = ( $engine_result['action'] ?? '' ) === 'complete'
@@ -1025,7 +1025,7 @@ class BizCity_Intent_Stream {
             ];
         }
 
-        // ── Completion messages → add hint for AI to personalize with memory override ──
+        // â”€â”€ Completion messages â†’ add hint for AI to personalize with memory override â”€â”€
         if ( ( $engine_result['action'] ?? '' ) === 'complete' && ! empty( $engine_result['reply'] ) ) {
             $engine_result['meta']['completion_hint'] = $engine_result['reply'];
         }
@@ -1039,16 +1039,16 @@ class BizCity_Intent_Stream {
                     $character_id, $message, $images, $session_id, '[]', $user_id, $platform_type
                 );
             }
-            return [ 'message' => 'AI gateway chưa sẵn sàng.', 'provider' => '', 'model' => '' ];
+            return [ 'message' => 'AI gateway chÆ°a sáºµn sÃ ng.', 'provider' => '', 'model' => '' ];
         }
 
         $messages      = $this->build_llm_messages( $message, $character_id, $session_id, $images, $user_id, $platform_type, $engine_result );
         $model_options = $this->get_model_options( $character_id );
 
-        // Stream internally but don't output — just accumulate
+        // Stream internally but don't output â€” just accumulate
         $result = $batch_stream_fn( $messages, $model_options, null );
 
-        // ── Persist the AI reply as a turn (skip if 'complete' — engine already added turn) ──
+        // â”€â”€ Persist the AI reply as a turn (skip if 'complete' â€” engine already added turn) â”€â”€
         $bot_reply = $result['message'] ?? '';
         $conv_id   = $engine_result['conversation_id'] ?? '';
         if ( $conv_id && $bot_reply && ( $engine_result['action'] ?? '' ) !== 'complete' ) {
@@ -1061,7 +1061,7 @@ class BizCity_Intent_Stream {
             ] );
         }
 
-        // ── Fire post-response hook — enables Emotional Memory extraction + bond scoring ──
+        // â”€â”€ Fire post-response hook â€” enables Emotional Memory extraction + bond scoring â”€â”€
         if ( $bot_reply ) {
             do_action( 'bizcity_chat_after_response', $message, $bot_reply, [
                 'user_id'      => $user_id,
@@ -1099,7 +1099,7 @@ class BizCity_Intent_Stream {
      */
     private function build_llm_messages( $message, $character_id, $session_id, $images, $user_id, $platform_type, $engine_result = [] ) {
 
-        // ── TWIN CONTEXT RESOLVER: single-call delegation ──
+        // â”€â”€ TWIN CONTEXT RESOLVER: single-call delegation â”€â”€
         if ( defined( 'BIZCITY_TWIN_RESOLVER_ENABLED' ) && BIZCITY_TWIN_RESOLVER_ENABLED
              && class_exists( 'BizCity_Twin_Context_Resolver' ) ) {
 
@@ -1114,15 +1114,15 @@ class BizCity_Intent_Stream {
                 'engine_result' => $engine_result,
             ] );
 
-            // Completion hint — AI personalizes completion message using memory
+            // Completion hint â€” AI personalizes completion message using memory
             if ( ! empty( $engine_result['meta']['completion_hint'] ) ) {
                 $hint_label = $engine_result['goal_label'] ?? $engine_result['goal'] ?? '';
-                $system_content .= "\n\n# 🎯 NHIỆM VỤ HIỆN TẠI — TRẢ LỜI XÁC NHẬN HOÀN THÀNH:\n";
-                $system_content .= "User vừa hoàn thành một tác vụ" . ( $hint_label ? " (\"" . $hint_label . "\")" : '' ) . ".\n";
-                $system_content .= "Hãy tạo lời xác nhận hoàn thành NGẮN GỌN (1-2 câu).\n";
-                $system_content .= "BẮT BUỘC sử dụng đúng cách xưng hô và phong cách từ KÝ ỨC USER ở trên.\n";
-                $system_content .= "Bắt đầu bằng ✅, giữ thông điệp tích cực, thân thiện.\n";
-                $system_content .= "KHÔNG dùng 'bạn' nếu user đã dặn cách xưng hô khác.\n";
+                $system_content .= "\n\n# ðŸŽ¯ NHIá»†M Vá»¤ HIá»†N Táº I â€” TRáº¢ Lá»œI XÃC NHáº¬N HOÃ€N THÃ€NH:\n";
+                $system_content .= "User vá»«a hoÃ n thÃ nh má»™t tÃ¡c vá»¥" . ( $hint_label ? " (\"" . $hint_label . "\")" : '' ) . ".\n";
+                $system_content .= "HÃ£y táº¡o lá»i xÃ¡c nháº­n hoÃ n thÃ nh NGáº®N Gá»ŒN (1-2 cÃ¢u).\n";
+                $system_content .= "Báº®T BUá»˜C sá»­ dá»¥ng Ä‘Ãºng cÃ¡ch xÆ°ng hÃ´ vÃ  phong cÃ¡ch tá»« KÃ á»¨C USER á»Ÿ trÃªn.\n";
+                $system_content .= "Báº¯t Ä‘áº§u báº±ng âœ…, giá»¯ thÃ´ng Ä‘iá»‡p tÃ­ch cá»±c, thÃ¢n thiá»‡n.\n";
+                $system_content .= "KHÃ”NG dÃ¹ng 'báº¡n' náº¿u user Ä‘Ã£ dáº·n cÃ¡ch xÆ°ng hÃ´ khÃ¡c.\n";
             }
 
             $openai_messages = [ [ 'role' => 'system', 'content' => $system_content ] ];
@@ -1167,7 +1167,7 @@ class BizCity_Intent_Stream {
             // Current user message (with vision support)
             if ( ! empty( $images ) ) {
                 $content   = [];
-                $content[] = [ 'type' => 'text', 'text' => $message ?: 'Hãy mô tả hoặc phân tích hình ảnh này.' ];
+                $content[] = [ 'type' => 'text', 'text' => $message ?: 'HÃ£y mÃ´ táº£ hoáº·c phÃ¢n tÃ­ch hÃ¬nh áº£nh nÃ y.' ];
                 foreach ( $images as $img ) {
                     $url = is_string( $img ) ? $img : ( $img['url'] ?? $img['data'] ?? '' );
                     if ( $url ) {
@@ -1182,8 +1182,8 @@ class BizCity_Intent_Stream {
             return $openai_messages;
         }
 
-        // ── LEGACY FALLBACK — context definitions consolidated in Twin Context Resolver ──
-        $system_content = "Bạn là trợ lý Team Leader AI cá nhân. Trả lời bằng tiếng Việt, tự nhiên.";
+        // â”€â”€ LEGACY FALLBACK â€” context definitions consolidated in Twin Context Resolver â”€â”€
+        $system_content = "Báº¡n lÃ  trá»£ lÃ½ Team Leader AI cÃ¡ nhÃ¢n. Tráº£ lá»i báº±ng tiáº¿ng Viá»‡t, tá»± nhiÃªn.";
         $pre_mode = $engine_result['meta']['mode'] ?? 'knowledge';
         $routing_branch = $engine_result['meta']['routing_branch'] ?? 'knowledge';
         $system_content = apply_filters( 'bizcity_chat_system_prompt', $system_content, [
@@ -1205,7 +1205,7 @@ class BizCity_Intent_Stream {
             }
         }
         if ( ! empty( $images ) ) {
-            $content = [ [ 'type' => 'text', 'text' => $message ?: 'Hãy mô tả hoặc phân tích hình ảnh này.' ] ];
+            $content = [ [ 'type' => 'text', 'text' => $message ?: 'HÃ£y mÃ´ táº£ hoáº·c phÃ¢n tÃ­ch hÃ¬nh áº£nh nÃ y.' ] ];
             foreach ( $images as $img ) {
                 $url = is_string( $img ) ? $img : ( $img['url'] ?? $img['data'] ?? '' );
                 if ( $url ) { $content[] = [ 'type' => 'image_url', 'image_url' => [ 'url' => $url, 'detail' => 'auto' ] ]; }
@@ -1216,11 +1216,11 @@ class BizCity_Intent_Stream {
         }
         return $openai_messages;
 
-        // @codeCoverageIgnoreStart — Legacy inline context building (unreachable)
+        // @codeCoverageIgnoreStart â€” Legacy inline context building (unreachable)
         $system_content = '';
         $openai_messages = [];
 
-        // ── Character ──
+        // â”€â”€ Character â”€â”€
         $character = null;
         if ( $character_id && class_exists( 'BizCity_Knowledge_Database' ) ) {
             $db        = BizCity_Knowledge_Database::instance();
@@ -1231,14 +1231,14 @@ class BizCity_Intent_Stream {
             $system_content = $character->system_prompt;
         }
 
-        // ══════════════════════════════════════════════════════════════════
-        // 🧠 LAYER 0: USER MEMORY — ƯU TIÊN SỐ 1, INJECT TRƯỚC TẤT CẢ
-        // Ghi nhớ cách xưng hô, tên gọi, sở thích — ghi đè mọi pipeline khác
-        // ══════════════════════════════════════════════════════════════════
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+        // ðŸ§  LAYER 0: USER MEMORY â€” Æ¯U TIÃŠN Sá» 1, INJECT TRÆ¯á»šC Táº¤T Cáº¢
+        // Ghi nhá»› cÃ¡ch xÆ°ng hÃ´, tÃªn gá»i, sá»Ÿ thÃ­ch â€” ghi Ä‘Ã¨ má»i pipeline khÃ¡c
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
         $memory_context = '';
         if ( class_exists( 'BizCity_User_Memory' ) ) {
             $mem = BizCity_User_Memory::instance();
-            // Logged-in → query by user_id only (global). Anonymous → by session_id.
+            // Logged-in â†’ query by user_id only (global). Anonymous â†’ by session_id.
             $q_uid = $user_id > 0 ? $user_id : 0;
             $q_sid = $user_id > 0 ? ''       : $session_id;
             $memory_context = $mem->build_memory_context( $q_uid, $q_sid, $session_id );
@@ -1247,11 +1247,11 @@ class BizCity_Intent_Stream {
             $system_content .= $memory_context;
         }
 
-        // ── Profile + Transit context — build & inject directly into base prompt ──
+        // â”€â”€ Profile + Transit context â€” build & inject directly into base prompt â”€â”€
         $bizcoach_profile = '';
         $bizcoach_transit = '';
 
-        // ── TWIN CONTEXT RESOLVER (Sprint 0B): single-call delegation ──
+        // â”€â”€ TWIN CONTEXT RESOLVER (Sprint 0B): single-call delegation â”€â”€
         $twin_resolver_used = false;
         if ( defined( 'BIZCITY_TWIN_RESOLVER_ENABLED' ) && BIZCITY_TWIN_RESOLVER_ENABLED
              && class_exists( 'BizCity_Twin_Context_Resolver' ) ) {
@@ -1272,7 +1272,7 @@ class BizCity_Intent_Stream {
             $profile_ctx = BizCity_Profile_Context::instance();
             $bizcoach_profile = $profile_ctx->build_user_context( $user_id, $session_id, $platform_type );
 
-            // ── TWIN CORE: Ensure focus profile resolved BEFORE inline gate checks ──
+            // â”€â”€ TWIN CORE: Ensure focus profile resolved BEFORE inline gate checks â”€â”€
             if ( class_exists( 'BizCity_Focus_Gate' ) ) {
                 BizCity_Focus_Gate::ensure_resolved( $message, [
                     'user_id'       => $user_id,
@@ -1286,13 +1286,13 @@ class BizCity_Intent_Stream {
                 BizCity_Focus_Gate::amend_for_goal( $engine_result['goal'] ?? '' );
             }
 
-            // Transit context — Focus Gate gated (Sprint 0A)
+            // Transit context â€” Focus Gate gated (Sprint 0A)
             $twin_build_transit = ! class_exists( 'BizCity_Focus_Gate' ) || BizCity_Focus_Gate::should_inject( 'transit' );
             if ( $twin_build_transit ) {
                 $active_goal_for_transit = $engine_result['goal'] ?? '';
                 $bizcoach_transit = $profile_ctx->build_transit_context( $message, $user_id, $session_id, $platform_type, $active_goal_for_transit );
                 if ( empty( $bizcoach_transit ) && ! empty( $images ) ) {
-                    $bizcoach_transit = $profile_ctx->build_transit_context( 'chiêm tinh tháng này', $user_id, $session_id, $platform_type, $active_goal_for_transit );
+                    $bizcoach_transit = $profile_ctx->build_transit_context( 'chiÃªm tinh thÃ¡ng nÃ y', $user_id, $session_id, $platform_type, $active_goal_for_transit );
                 }
             }
         }
@@ -1304,7 +1304,7 @@ class BizCity_Intent_Stream {
             $system_content .= "\n\n---\n\n" . $bizcoach_transit;
         }
 
-        // ── Provider Profile Context — inject per-plugin profile data ──
+        // â”€â”€ Provider Profile Context â€” inject per-plugin profile data â”€â”€
         // Each intent provider can declare get_profile_context() with user-specific
         // data (preferences, birth info, etc.) to personalize AI responses.
         $provider_profiles = [];     // collected for logging
@@ -1328,19 +1328,19 @@ class BizCity_Intent_Stream {
                     'url'      => $provider->get_profile_page_url(),
                 ];
                 if ( ! empty( $profile['context'] ) ) {
-                    $system_content .= "\n\n---\n\n### 👤 Hồ sơ người dùng (" . $provider->get_name() . "):\n" . $profile['context'];
+                    $system_content .= "\n\n---\n\n### ðŸ‘¤ Há»“ sÆ¡ ngÆ°á»i dÃ¹ng (" . $provider->get_name() . "):\n" . $profile['context'];
                 }
                 if ( ! $profile['complete'] && ! empty( $profile['fallback'] ) ) {
-                    $system_content .= "\n\n⚠️ " . $profile['fallback'];
+                    $system_content .= "\n\nâš ï¸ " . $profile['fallback'];
                 }
             }
             $provider_profile_ms = round( ( microtime( true ) - $pp_start ) * 1000, 2 );
 
-            // ── Log provider_profile_build step ──
+            // â”€â”€ Log provider_profile_build step â”€â”€
             if ( class_exists( 'BizCity_User_Memory' ) ) {
                 $pp_pipeline = [];
                 foreach ( $provider_profiles as $pid => $pp ) {
-                    $status = $pp['complete'] ? '✅' : ( $pp['has_fb'] ? '⚠️fallback' : '—' );
+                    $status = $pp['complete'] ? 'âœ…' : ( $pp['has_fb'] ? 'âš ï¸fallback' : 'â€”' );
                     $pp_pipeline[] = "{$pid}: {$status} ({$pp['ctx_len']} chars)";
                 }
                 BizCity_User_Memory::log_router_event( [
@@ -1350,7 +1350,7 @@ class BizCity_Intent_Stream {
                     'functions_called' => 'BizCity_Intent_Provider::get_profile_context()',
                     'pipeline'         => $pp_pipeline,
                     'file_line'        => 'class-intent-stream.php::provider_profile_build',
-                    'active_goal'      => $active_goal ?: '(none — all providers)',
+                    'active_goal'      => $active_goal ?: '(none â€” all providers)',
                     'providers_count'  => count( $provider_profiles ),
                     'providers'        => $provider_profiles,
                     'total_chars'      => array_sum( array_column( $provider_profiles, 'ctx_len' ) ),
@@ -1359,7 +1359,7 @@ class BizCity_Intent_Stream {
             }
         }
 
-        // ── Knowledge context ──
+        // â”€â”€ Knowledge context â”€â”€
         if ( class_exists( 'BizCity_Knowledge_Context_API' ) ) {
             $ctx = BizCity_Knowledge_Context_API::instance()->build_context( $character_id, $message, [
                 'max_tokens' => 3000,
@@ -1368,45 +1368,45 @@ class BizCity_Intent_Stream {
             ] );
             $knowledge = $ctx['context'] ?? '';
             if ( $knowledge ) {
-                $system_content .= "\n\n---\n\n## Kiến thức tham khảo:\n" . $knowledge;
+                $system_content .= "\n\n---\n\n## Kiáº¿n thá»©c tham kháº£o:\n" . $knowledge;
             }
         }
 
-        // ── Conversation context (rolling summary + slots) ──
+        // â”€â”€ Conversation context (rolling summary + slots) â”€â”€
         if ( ! empty( $engine_result['conversation_id'] ) ) {
             $conv = $engine_result;
             if ( ! empty( $conv['rolling_summary'] ) ) {
-                $system_content .= "\n\n---\n\n### 🧵 Tóm tắt hội thoại hiện tại:\n" . $conv['rolling_summary'];
+                $system_content .= "\n\n---\n\n### ðŸ§µ TÃ³m táº¯t há»™i thoáº¡i hiá»‡n táº¡i:\n" . $conv['rolling_summary'];
             }
             if ( ! empty( $conv['goal'] ) ) {
-                $system_content .= "\n\n### 🎯 Mục tiêu hiện tại: " . ( $conv['goal_label'] ?? $conv['goal'] );
+                $system_content .= "\n\n### ðŸŽ¯ Má»¥c tiÃªu hiá»‡n táº¡i: " . ( $conv['goal_label'] ?? $conv['goal'] );
                 if ( ! empty( $conv['slots'] ) ) {
-                    $system_content .= "\nThông tin đã thu thập: " . wp_json_encode( $conv['slots'], JSON_UNESCAPED_UNICODE );
+                    $system_content .= "\nThÃ´ng tin Ä‘Ã£ thu tháº­p: " . wp_json_encode( $conv['slots'], JSON_UNESCAPED_UNICODE );
                 }
             }
         }
 
-        // ── Knowledge Pipeline Expansion — Hybrid C ──
+        // â”€â”€ Knowledge Pipeline Expansion â€” Hybrid C â”€â”€
         // When the knowledge pipeline (Gemini/ChatGPT) already produced a direct answer (action=reply),
         // inject it as context so the Team Leader LLM can reference it after the marketplace redirect.
         $has_knowledge_expansion = ( isset( $engine_result['action'] ) && $engine_result['action'] === 'reply' && ! empty( $engine_result['reply'] ) );
         if ( $has_knowledge_expansion ) {
-            $system_content .= "\n\n---\n\n## 🔍 KIẾN THỨC MỞ RỘNG (trả lời từ AI kiến thức nội bộ):\n";
+            $system_content .= "\n\n---\n\n## ðŸ” KIáº¾N THá»¨C Má»ž Rá»˜NG (tráº£ lá»i tá»« AI kiáº¿n thá»©c ná»™i bá»™):\n";
             $system_content .= $engine_result['reply'];
             $system_content .= "\n";
         }
 
-        // ── Base instruction — Team Leader role ──
-        $role_block  = "\n\n## 🧑‍💼 VAI TRÒ CỦA BẠN:\n";
-        $role_block .= "Bạn là **Trợ lý Team Leader cá nhân** của Chủ Nhân (người đang trò chuyện).\n";
-        $role_block .= "- Bạn điều phối, tư vấn và hỗ trợ Chủ Nhân quản lý công việc, cuộc sống.\n";
-        $role_block .= "- Trong hệ thống BizCity còn có NHIỀU AI Agent chuyên biệt khác (viết nội dung, chiêm tinh, marketing, kế toán, thiết kế, lập trình...) có thể giúp Chủ Nhân thực thi công việc cụ thể.\n";
+        // â”€â”€ Base instruction â€” Team Leader role â”€â”€
+        $role_block  = "\n\n## ðŸ§‘â€ðŸ’¼ VAI TRÃ’ Cá»¦A Báº N:\n";
+        $role_block .= "Báº¡n lÃ  **Trá»£ lÃ½ Team Leader cÃ¡ nhÃ¢n** cá»§a Chá»§ NhÃ¢n (ngÆ°á»i Ä‘ang trÃ² chuyá»‡n).\n";
+        $role_block .= "- Báº¡n Ä‘iá»u phá»‘i, tÆ° váº¥n vÃ  há»— trá»£ Chá»§ NhÃ¢n quáº£n lÃ½ cÃ´ng viá»‡c, cuá»™c sá»‘ng.\n";
+        $role_block .= "- Trong há»‡ thá»‘ng BizCity cÃ²n cÃ³ NHIá»€U AI Agent chuyÃªn biá»‡t khÃ¡c (viáº¿t ná»™i dung, chiÃªm tinh, marketing, káº¿ toÃ¡n, thiáº¿t káº¿, láº­p trÃ¬nh...) cÃ³ thá»ƒ giÃºp Chá»§ NhÃ¢n thá»±c thi cÃ´ng viá»‡c cá»¥ thá»ƒ.\n";
         if ( $has_knowledge_expansion ) {
-            $role_block .= "- 🔍 **QUAN TRỌNG**: Trong prompt có phần **KIẾN THỨC MỞ RỘNG** — đây là câu trả lời chính xác từ AI kiến thức nội bộ. HÃY SỬ DỤNG kiến thức này làm NỘI DUNG CHÍNH cho câu trả lời của bạn.\n";
-            $role_block .= "- KHÔNG gợi ý Chủ Nhân vào Chợ AI Agent. KHÔNG nói 'mình chưa có trợ lý chuyên về...'. Kiến thức đã có sẵn.\n";
-            $role_block .= "- Trình bày lại KIẾN THỨC MỞ RỘNG một cách tự nhiên, thân thiện, có cá nhân hóa theo phong cách Team Leader.\n";
+            $role_block .= "- ðŸ” **QUAN TRá»ŒNG**: Trong prompt cÃ³ pháº§n **KIáº¾N THá»¨C Má»ž Rá»˜NG** â€” Ä‘Ã¢y lÃ  cÃ¢u tráº£ lá»i chÃ­nh xÃ¡c tá»« AI kiáº¿n thá»©c ná»™i bá»™. HÃƒY Sá»¬ Dá»¤NG kiáº¿n thá»©c nÃ y lÃ m Ná»˜I DUNG CHÃNH cho cÃ¢u tráº£ lá»i cá»§a báº¡n.\n";
+            $role_block .= "- KHÃ”NG gá»£i Ã½ Chá»§ NhÃ¢n vÃ o Chá»£ AI Agent. KHÃ”NG nÃ³i 'mÃ¬nh chÆ°a cÃ³ trá»£ lÃ½ chuyÃªn vá»...'. Kiáº¿n thá»©c Ä‘Ã£ cÃ³ sáºµn.\n";
+            $role_block .= "- TrÃ¬nh bÃ y láº¡i KIáº¾N THá»¨C Má»ž Rá»˜NG má»™t cÃ¡ch tá»± nhiÃªn, thÃ¢n thiá»‡n, cÃ³ cÃ¡ nhÃ¢n hÃ³a theo phong cÃ¡ch Team Leader.\n";
         } else {
-            // ── v4.2: Answer-first approach with conversation context ──
+            // â”€â”€ v4.2: Answer-first approach with conversation context â”€â”€
             // Instead of redirecting to marketplace, pull intent conversation
             // messages from webchat_messages as context and answer directly.
             // Mention that deeper/specialized analysis is possible with marketplace tools.
@@ -1418,7 +1418,7 @@ class BizCity_Intent_Stream {
                 if ( ! empty( $ic_msgs ) ) {
                     $ic_lines = [];
                     foreach ( $ic_msgs as $ic_row ) {
-                        $ic_who  = ( $ic_row->message_from === 'user' ) ? 'Chủ Nhân (User)' : 'AI Trợ lý (Bạn)';
+                        $ic_who  = ( $ic_row->message_from === 'user' ) ? 'Chá»§ NhÃ¢n (User)' : 'AI Trá»£ lÃ½ (Báº¡n)';
                         $ic_text = mb_substr( $ic_row->message_text, 0, 500, 'UTF-8' );
                         $ic_lines[] = "- {$ic_who}: {$ic_text}";
                     }
@@ -1427,34 +1427,34 @@ class BizCity_Intent_Stream {
             }
 
             if ( ! empty( $intent_conv_ctx ) ) {
-                $system_content .= "\n\n---\n\n## 💬 NGỮ CẢNH HỘI THOẠI HIỆN TẠI:\n";
-                $system_content .= "_(Chủ Nhân = Người dùng đang nói chuyện. AI Trợ lý = Bạn, chatbot.)_\n";
+                $system_content .= "\n\n---\n\n## ðŸ’¬ NGá»® Cáº¢NH Há»˜I THOáº I HIá»†N Táº I:\n";
+                $system_content .= "_(Chá»§ NhÃ¢n = NgÆ°á»i dÃ¹ng Ä‘ang nÃ³i chuyá»‡n. AI Trá»£ lÃ½ = Báº¡n, chatbot.)_\n";
                 $system_content .= $intent_conv_ctx . "\n";
             }
 
-            $role_block .= "- HÃY TRẢ LỜI dựa trên hiểu biết và ngữ cảnh hội thoại hiện có. KHÔNG từ chối trả lời. KHÔNG nói 'mình chưa có trợ lý chuyên về...'.\n";
-            $role_block .= "- Luôn ưu tiên GIẢI THÍCH và TRẢ LỜI thay vì chuyển hướng.\n";
-            $role_block .= "- KHÔNG gợi ý công cụ, KHÔNG gợi ý Chợ AI Agent. Chỉ tập trung trả lời câu hỏi.\n";
+            $role_block .= "- HÃƒY TRáº¢ Lá»œI dá»±a trÃªn hiá»ƒu biáº¿t vÃ  ngá»¯ cáº£nh há»™i thoáº¡i hiá»‡n cÃ³. KHÃ”NG tá»« chá»‘i tráº£ lá»i. KHÃ”NG nÃ³i 'mÃ¬nh chÆ°a cÃ³ trá»£ lÃ½ chuyÃªn vá»...'.\n";
+            $role_block .= "- LuÃ´n Æ°u tiÃªn GIáº¢I THÃCH vÃ  TRáº¢ Lá»œI thay vÃ¬ chuyá»ƒn hÆ°á»›ng.\n";
+            $role_block .= "- KHÃ”NG gá»£i Ã½ cÃ´ng cá»¥, KHÃ”NG gá»£i Ã½ Chá»£ AI Agent. Chá»‰ táº­p trung tráº£ lá»i cÃ¢u há»i.\n";
         }
 
         if ( empty( trim( $system_content ) ) ) {
-            $system_content = "Bạn là trợ lý Team Leader AI cá nhân. Trả lời bằng tiếng Việt, tự nhiên, giàu cảm xúc.";
+            $system_content = "Báº¡n lÃ  trá»£ lÃ½ Team Leader AI cÃ¡ nhÃ¢n. Tráº£ lá»i báº±ng tiáº¿ng Viá»‡t, tá»± nhiÃªn, giÃ u cáº£m xÃºc.";
         }
         $system_content .= $role_block;
 
-        $system_content .= "\n### ⛔ RANH GIỚI VAI TRÒ BẮT BUỘC:\n";
-        $system_content .= "- Bạn là AI Trợ lý. Chủ Nhân là NGƯỜI DÙNG đang nhắn tin cho bạn.\n";
-        $system_content .= "- KHÔNG BAO GIỜ tự xưng bằng tên Chủ Nhân (VD: không nói \"Chu đây!\", không nói \"Anh Chu đẹp trai đây\").\n";
-        $system_content .= "- KHÔNG nhập vai thành Chủ Nhân. KHÔNG nói như thể BẠN là người dùng.\n";
-        $system_content .= "- Khi xưng hô 'mày tao': Chủ Nhân xưng 'tao', gọi AI là 'mày'. AI KHÔNG xưng 'tao' — AI xưng phù hợp với vai trợ lý.\n\n";
+        $system_content .= "\n### â›” RANH GIá»šI VAI TRÃ’ Báº®T BUá»˜C:\n";
+        $system_content .= "- Báº¡n lÃ  AI Trá»£ lÃ½. Chá»§ NhÃ¢n lÃ  NGÆ¯á»œI DÃ™NG Ä‘ang nháº¯n tin cho báº¡n.\n";
+        $system_content .= "- KHÃ”NG BAO GIá»œ tá»± xÆ°ng báº±ng tÃªn Chá»§ NhÃ¢n (VD: khÃ´ng nÃ³i \"Chu Ä‘Ã¢y!\", khÃ´ng nÃ³i \"Anh Chu Ä‘áº¹p trai Ä‘Ã¢y\").\n";
+        $system_content .= "- KHÃ”NG nháº­p vai thÃ nh Chá»§ NhÃ¢n. KHÃ”NG nÃ³i nhÆ° thá»ƒ Báº N lÃ  ngÆ°á»i dÃ¹ng.\n";
+        $system_content .= "- Khi xÆ°ng hÃ´ 'mÃ y tao': Chá»§ NhÃ¢n xÆ°ng 'tao', gá»i AI lÃ  'mÃ y'. AI KHÃ”NG xÆ°ng 'tao' â€” AI xÆ°ng phÃ¹ há»£p vá»›i vai trá»£ lÃ½.\n\n";
 
-        $system_content .= "\n### 🗣️ Ngôn ngữ: Trả lời bằng tiếng Việt, thân thiện, tự nhiên.\n";
+        $system_content .= "\n### ðŸ—£ï¸ NgÃ´n ngá»¯: Tráº£ lá»i báº±ng tiáº¿ng Viá»‡t, thÃ¢n thiá»‡n, tá»± nhiÃªn.\n";
 
-        // ══════════════════════════════════════════════════════════════════
-        // 🎯 PROVIDER SYSTEM INSTRUCTIONS — Inject domain-specific AI instructions
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+        // ðŸŽ¯ PROVIDER SYSTEM INSTRUCTIONS â€” Inject domain-specific AI instructions
         // from the intent provider that owns the current goal (e.g. BizCoach astro).
         // These are computed by the engine in compose_answer flow.
-        // ══════════════════════════════════════════════════════════════════
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
         if ( ! empty( $engine_result['meta']['system_instructions'] ) ) {
             $system_content .= "\n\n" . $engine_result['meta']['system_instructions'];
         }
@@ -1462,10 +1462,10 @@ class BizCity_Intent_Stream {
             $system_content .= "\n\n" . $engine_result['meta']['provider_context'];
         }
 
-        // ── Log context assembly BEFORE filters — architecture step tracking ──
+        // â”€â”€ Log context assembly BEFORE filters â€” architecture step tracking â”€â”€
         $has_conversation    = ! empty( $engine_result['conversation_id'] );
-        $knowledge_built     = ( strpos( $system_content, 'Kiến thức tham khảo' ) !== false )
-                            || ( strpos( $system_content, 'KIẾN THỨC MỞ RỘNG' ) !== false );
+        $knowledge_built     = ( strpos( $system_content, 'Kiáº¿n thá»©c tham kháº£o' ) !== false )
+                            || ( strpos( $system_content, 'KIáº¾N THá»¨C Má»ž Rá»˜NG' ) !== false );
         $has_knowledge_expansion_log = isset( $has_knowledge_expansion ) && $has_knowledge_expansion;
         $has_provider_profile = ! empty( $provider_profiles ) && array_sum( array_column( $provider_profiles, 'ctx_len' ) ) > 0;
         if ( class_exists( 'BizCity_User_Memory' ) ) {
@@ -1473,20 +1473,20 @@ class BizCity_Intent_Stream {
                 'step'             => 'context_build',
                 'message'          => mb_substr( $message, 0, 120, 'UTF-8' ),
                 'mode'             => 'intent_stream',
-                'functions_called' => 'build_llm_messages() [LEGACY — chưa delegate build_system_prompt]',
+                'functions_called' => 'build_llm_messages() [LEGACY â€” chÆ°a delegate build_system_prompt]',
                 'pipeline'         => [
-                    '0:Character'        . ( $character                       ? ' ✓' : ' —' ),
-                    '1:Memory'           . ( ! empty( $memory_context )       ? ' ✓' : ' —' ),
-                    '2:Profile'          . ( ! empty( $bizcoach_profile )     ? ' ✓' : ' —' ),
-                    '3:Transit'          . ( ! empty( $bizcoach_transit )     ? ' ✓' : ' —' ),
-                    '3.5:ProviderProfile'. ( $has_provider_profile            ? ' ✓' : ' —' ),
-                    '4:Knowledge'        . ( $knowledge_built                 ? ' ✓' : ' —' ),
-                    '4.5:KnowledgeExp'   . ( $has_knowledge_expansion_log     ? ' ✓ HybridC' : ' —' ),
-                    '5:Conversation'     . ( $has_conversation                ? ' ✓' : ' —' ),
-                    '6:Rules —',
-                    '7:Role ✓',
-                    '→ 8:Filters',
-                    '→ 9:EndReminder',
+                    '0:Character'        . ( $character                       ? ' âœ“' : ' â€”' ),
+                    '1:Memory'           . ( ! empty( $memory_context )       ? ' âœ“' : ' â€”' ),
+                    '2:Profile'          . ( ! empty( $bizcoach_profile )     ? ' âœ“' : ' â€”' ),
+                    '3:Transit'          . ( ! empty( $bizcoach_transit )     ? ' âœ“' : ' â€”' ),
+                    '3.5:ProviderProfile'. ( $has_provider_profile            ? ' âœ“' : ' â€”' ),
+                    '4:Knowledge'        . ( $knowledge_built                 ? ' âœ“' : ' â€”' ),
+                    '4.5:KnowledgeExp'   . ( $has_knowledge_expansion_log     ? ' âœ“ HybridC' : ' â€”' ),
+                    '5:Conversation'     . ( $has_conversation                ? ' âœ“' : ' â€”' ),
+                    '6:Rules â€”',
+                    '7:Role âœ“',
+                    'â†’ 8:Filters',
+                    'â†’ 9:EndReminder',
                 ],
                 'file_line'        => 'class-intent-stream.php::build_llm_messages',
                 'via'              => 'intent_stream',
@@ -1501,23 +1501,23 @@ class BizCity_Intent_Stream {
                 'provider_profile_ms' => $provider_profile_ms,
                 'missing_vs_arch'  => array_filter( [
                     ( ! empty( $bizcoach_profile ) && empty( $bizcoach_transit ) ) ? '3:Transit MISSING' : null,
-                    '6:Rules MISSING — intent_stream thiếu astro grounding/tarot fusion/response depth',
+                    '6:Rules MISSING â€” intent_stream thiáº¿u astro grounding/tarot fusion/response depth',
                 ] ),
             ], $session_id );
         }
 
-        // ══════════════════════════════════════════════════════════════════
-        // 🔴 CRITICAL: Apply all registered filters — this enables:
-        //    • Memory injection (priority 99) — BizCity_User_Memory
-        //    • BizCoach profile/transit (priority 95) — added above
-        //    • Context Builder layers (priority 90) — BizCity_Context_Builder
-        //    • Companion Context / Layer 1.7 (priority 97) — BizCity_Companion_Context
-        //    • Response Texture Engine (priority 48) — BizCity_Response_Texture_Engine
-        //    • Mode pipelines (priority 45) — Intent Engine
-        //    • Provider context (priority 50) — Intent Providers
-        // ══════════════════════════════════════════════════════════════════
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+        // ðŸ”´ CRITICAL: Apply all registered filters â€” this enables:
+        //    â€¢ Memory injection (priority 99) â€” BizCity_User_Memory
+        //    â€¢ BizCoach profile/transit (priority 95) â€” added above
+        //    â€¢ Context Builder layers (priority 90) â€” BizCity_Context_Builder
+        //    â€¢ Companion Context / Layer 1.7 (priority 97) â€” BizCity_Companion_Context
+        //    â€¢ Response Texture Engine (priority 48) â€” BizCity_Response_Texture_Engine
+        //    â€¢ Mode pipelines (priority 45) â€” Intent Engine
+        //    â€¢ Provider context (priority 50) â€” Intent Providers
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
-        // ── Pre-compute intensity + mode + routing_branch for Texture Engine & Companion Context ──
+        // â”€â”€ Pre-compute intensity + mode + routing_branch for Texture Engine & Companion Context â”€â”€
         // estimate_emotion() is a fast keyword scan (0 LLM cost).
         // Returns { intensity, valence, emotion, empathy_level }.
         // Texture Engine (pri 48) and Companion Context (pri 97) both read these from $args.
@@ -1539,7 +1539,7 @@ class BizCity_Intent_Stream {
                           && in_array( $pre_mode, [ 'emotion', 'reflection' ], true );
         }
 
-        // ── Phase 13: Activate Tool Context mode for slash command / execution ──
+        // â”€â”€ Phase 13: Activate Tool Context mode for slash command / execution â”€â”€
         // When user selected a tool via / command, use compact Tool Context (~800 chars)
         // instead of full 6-layer Emotion Context (~3000+ chars) for faster LLM response.
         $engine_method = $engine_result['meta']['method'] ?? '';
@@ -1564,7 +1564,7 @@ class BizCity_Intent_Stream {
             'engine_result'  => $engine_result, // B11 fix: pass engine_result for skill matching
         ] );
 
-        // ── Log final system prompt for debugging ──
+        // â”€â”€ Log final system prompt for debugging â”€â”€
         if ( class_exists( 'BizCity_User_Memory' ) ) {
             $prompt_len   = mb_strlen( $system_content, 'UTF-8' );
             $word_count   = str_word_count( strip_tags( $system_content ) );
@@ -1579,13 +1579,13 @@ class BizCity_Intent_Stream {
                 'file_line'        => 'class-intent-stream.php::build_llm_messages',
                 'prompt_length'    => $prompt_len,
                 'word_count'       => $word_count,
-                'has_bizcoach'     => ( strpos( $system_content, 'TRANSIT CHIÊM TINH' ) !== false || strpos( $system_content, 'BẢN ĐỒ SAO' ) !== false || strpos( $system_content, 'BIZCOACH CONTEXT' ) !== false || ! empty( $engine_result['meta']['system_instructions'] ) ),
-                'has_memory'       => ( strpos( $system_content, 'KÝ ỨC USER' ) !== false || strpos( $system_content, 'USER MEMORY' ) !== false ),
-                'has_context_chain'=> ( strpos( $system_content, 'CONTEXT CHAIN' ) !== false || strpos( $system_content, 'PHIÊN CHAT' ) !== false ),
-                'has_provider_profile' => ( strpos( $system_content, 'Hồ sơ người dùng' ) !== false ),
+                'has_bizcoach'     => ( strpos( $system_content, 'TRANSIT CHIÃŠM TINH' ) !== false || strpos( $system_content, 'Báº¢N Äá»’ SAO' ) !== false || strpos( $system_content, 'BIZCOACH CONTEXT' ) !== false || ! empty( $engine_result['meta']['system_instructions'] ) ),
+                'has_memory'       => ( strpos( $system_content, 'KÃ á»¨C USER' ) !== false || strpos( $system_content, 'USER MEMORY' ) !== false ),
+                'has_context_chain'=> ( strpos( $system_content, 'CONTEXT CHAIN' ) !== false || strpos( $system_content, 'PHIÃŠN CHAT' ) !== false ),
+                'has_provider_profile' => ( strpos( $system_content, 'Há»“ sÆ¡ ngÆ°á»i dÃ¹ng' ) !== false ),
                 // Phase 4.5: Companion Intelligence visibility
-                'has_relationship_ctx' => ( strpos( $system_content, 'RELATIONSHIP CONTEXT' ) !== false || strpos( $system_content, '💛' ) !== false ),
-                'has_response_texture' => ( strpos( $system_content, 'RESPONSE TEXTURE' ) !== false || strpos( $system_content, '🎨' ) !== false ),
+                'has_relationship_ctx' => ( strpos( $system_content, 'RELATIONSHIP CONTEXT' ) !== false || strpos( $system_content, 'ðŸ’›' ) !== false ),
+                'has_response_texture' => ( strpos( $system_content, 'RESPONSE TEXTURE' ) !== false || strpos( $system_content, 'ðŸŽ¨' ) !== false ),
                 // Phase 4: Branch-specific texture detection
                 'has_branch_texture' => ( strpos( $system_content, '**BRANCH:' ) !== false ),
                 'routing_branch'   => $routing_branch,
@@ -1597,39 +1597,39 @@ class BizCity_Intent_Stream {
             ], $session_id );
         }
 
-        // ══════════════════════════════════════════════════════════════════
-        // 🔴 CRITICAL END REMINDER — positioned LAST in system prompt
-        // This is closest to user message → highest attention from LLM
-        // ══════════════════════════════════════════════════════════════════
-        $end_reminder  = "\n\n# ⚠️ NHẮC NHỞ QUAN TRỌNG (BẮT BUỘC ĐỌC TRƯỚC KHI TRẢ LỜI):\n";
-        $end_reminder .= "\n## 🚫 DANH SÁCH CÂU BỊ CẤM — KHÔNG BAO GIỜ ĐƯỢC NÓI:\n";
-        $end_reminder .= "- 'tôi không có quyền truy cập thông tin cá nhân'\n";
-        $end_reminder .= "- 'tôi không có quyền truy cập vào thông tin cá nhân hoặc hồ sơ'\n";
-        $end_reminder .= "- 'hãy liên hệ bộ phận hỗ trợ'\n";
-        $end_reminder .= "- 'tôi không biết thông tin về bạn'\n";
-        $end_reminder .= "- 'tôi không có khả năng truy cập'\n";
-        $end_reminder .= "- 'tôi là AI nên không thể truy cập'\n";
-        $end_reminder .= "- 'liên hệ email/hotline/admin để được hỗ trợ'\n";
-        $end_reminder .= "- Bất kỳ biến thể nào của các câu trên\n";
-        $end_reminder .= "Nếu bạn sắp nói bất kỳ câu nào giống như trên → DỪNG LẠI và dùng mẫu fallback bên dưới.\n";
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+        // ðŸ”´ CRITICAL END REMINDER â€” positioned LAST in system prompt
+        // This is closest to user message â†’ highest attention from LLM
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+        $end_reminder  = "\n\n# âš ï¸ NHáº®C NHá»ž QUAN TRá»ŒNG (Báº®T BUá»˜C Äá»ŒC TRÆ¯á»šC KHI TRáº¢ Lá»œI):\n";
+        $end_reminder .= "\n## ðŸš« DANH SÃCH CÃ‚U Bá»Š Cáº¤M â€” KHÃ”NG BAO GIá»œ ÄÆ¯á»¢C NÃ“I:\n";
+        $end_reminder .= "- 'tÃ´i khÃ´ng cÃ³ quyá»n truy cáº­p thÃ´ng tin cÃ¡ nhÃ¢n'\n";
+        $end_reminder .= "- 'tÃ´i khÃ´ng cÃ³ quyá»n truy cáº­p vÃ o thÃ´ng tin cÃ¡ nhÃ¢n hoáº·c há»“ sÆ¡'\n";
+        $end_reminder .= "- 'hÃ£y liÃªn há»‡ bá»™ pháº­n há»— trá»£'\n";
+        $end_reminder .= "- 'tÃ´i khÃ´ng biáº¿t thÃ´ng tin vá» báº¡n'\n";
+        $end_reminder .= "- 'tÃ´i khÃ´ng cÃ³ kháº£ nÄƒng truy cáº­p'\n";
+        $end_reminder .= "- 'tÃ´i lÃ  AI nÃªn khÃ´ng thá»ƒ truy cáº­p'\n";
+        $end_reminder .= "- 'liÃªn há»‡ email/hotline/admin Ä‘á»ƒ Ä‘Æ°á»£c há»— trá»£'\n";
+        $end_reminder .= "- Báº¥t ká»³ biáº¿n thá»ƒ nÃ o cá»§a cÃ¡c cÃ¢u trÃªn\n";
+        $end_reminder .= "Náº¿u báº¡n sáº¯p nÃ³i báº¥t ká»³ cÃ¢u nÃ o giá»‘ng nhÆ° trÃªn â†’ Dá»ªNG Láº I vÃ  dÃ¹ng máº«u fallback bÃªn dÆ°á»›i.\n";
         if ( ! empty( $bizcoach_profile ) ) {
-            $end_reminder .= "\n## ✅ BẠN ĐÃ CÓ HỒ SƠ CHỦ NHÂN:\n";
-            $end_reminder .= "- Hồ sơ người dùng đã được cung cấp ở phần trên của prompt này.\n";
-            $end_reminder .= "- HÃY sử dụng hồ sơ để cá nhân hóa câu trả lời.\n";
-            $end_reminder .= "- HÃY gọi người dùng bằng TÊN (nếu có trong hồ sơ).\n";
+            $end_reminder .= "\n## âœ… Báº N ÄÃƒ CÃ“ Há»’ SÆ  CHá»¦ NHÃ‚N:\n";
+            $end_reminder .= "- Há»“ sÆ¡ ngÆ°á»i dÃ¹ng Ä‘Ã£ Ä‘Æ°á»£c cung cáº¥p á»Ÿ pháº§n trÃªn cá»§a prompt nÃ y.\n";
+            $end_reminder .= "- HÃƒY sá»­ dá»¥ng há»“ sÆ¡ Ä‘á»ƒ cÃ¡ nhÃ¢n hÃ³a cÃ¢u tráº£ lá»i.\n";
+            $end_reminder .= "- HÃƒY gá»i ngÆ°á»i dÃ¹ng báº±ng TÃŠN (náº¿u cÃ³ trong há»“ sÆ¡).\n";
         }
         if ( ! $has_knowledge_expansion ) {
-            // ── v3.8.2: When provider system instructions exist (compose_answer from
+            // â”€â”€ v3.8.2: When provider system instructions exist (compose_answer from
             // an active goal like tarot_interpret), the AI already has domain-specific
-            // instructions. Suppress the "Chợ AI Agent" fallback — the provider IS
+            // instructions. Suppress the "Chá»£ AI Agent" fallback â€” the provider IS
             // the specialist. Without this, the generic fallback template overrides
-            // the provider instructions and the LLM says "chưa có trợ lý".
+            // the provider instructions and the LLM says "chÆ°a cÃ³ trá»£ lÃ½".
             $has_provider_instructions = ! empty( $engine_result['meta']['system_instructions'] );
 
-            // ── v4.3: Tool Registry Verification — before using "chưa có trợ lý"
+            // â”€â”€ v4.3: Tool Registry Verification â€” before using "chÆ°a cÃ³ trá»£ lÃ½"
             // fallback template, check if the user's request matches an EXISTING tool
             // in bizcity_tool_registry. If it does, don't tell the user the tool doesn't
-            // exist — instead inform LLM the tool IS available and guide the user to use it.
+            // exist â€” instead inform LLM the tool IS available and guide the user to use it.
             // v4.3.4: Reuse Router's search result when available (same data, better scoring).
             $matching_tool_in_registry = null;
             $router_reg = $engine_result['meta']['_router_registry_search'] ?? null;
@@ -1646,7 +1646,7 @@ class BizCity_Intent_Stream {
                     }
                 }
             } elseif ( ! $has_provider_instructions && ! $router_reg && class_exists( 'BizCity_Intent_Tool_Index' ) ) {
-                // Router didn't run registry search (e.g. LLM/regex found a goal) → fallback keyword scan
+                // Router didn't run registry search (e.g. LLM/regex found a goal) â†’ fallback keyword scan
                 $msg_lower = mb_strtolower( trim( $message ), 'UTF-8' );
                 $msg_words = array_filter(
                     preg_split( '/[\s,;.!?]+/u', $msg_lower ),
@@ -1671,13 +1671,13 @@ class BizCity_Intent_Stream {
                 }
             }
 
-            // ── v4.3: Log tool_registry_verify pipe step for Intent Monitor ──
+            // â”€â”€ v4.3: Log tool_registry_verify pipe step for Intent Monitor â”€â”€
             if ( class_exists( 'BizCity_User_Memory' ) ) {
                 $verify_outcome = 'skip';
                 $verify_detail  = '';
                 if ( $has_provider_instructions ) {
                     $verify_outcome = 'provider_mode';
-                    $verify_detail  = 'Provider instructions active — no fallback needed';
+                    $verify_detail  = 'Provider instructions active â€” no fallback needed';
                 } elseif ( $matching_tool_in_registry ) {
                     $match_label = $matching_tool_in_registry['goal_label']
                         ?: $matching_tool_in_registry['title']
@@ -1686,21 +1686,21 @@ class BizCity_Intent_Stream {
                     $verify_detail  = $match_label . ' (plugin: ' . ( $matching_tool_in_registry['plugin'] ?? '' ) . ')';
                 } else {
                     $verify_outcome = 'no_match';
-                    $verify_detail  = 'No tool found → using "chưa có trợ lý" fallback template';
+                    $verify_detail  = 'No tool found â†’ using "chÆ°a cÃ³ trá»£ lÃ½" fallback template';
                 }
                 BizCity_User_Memory::log_router_event( [
                     'step'             => 'tool_registry_verify',
                     'message'          => mb_substr( $message, 0, 120, 'UTF-8' ),
-                    'mode'             => 'stream → end_reminder',
+                    'mode'             => 'stream â†’ end_reminder',
                     'method'           => 'keyword_scan',
-                    'functions_called' => 'BizCity_Intent_Tool_Index::get_all_active() → keyword match',
+                    'functions_called' => 'BizCity_Intent_Tool_Index::get_all_active() â†’ keyword match',
                     'pipeline'         => [
                         'check_provider_instructions',
                         'extract_keywords',
                         'scan_tool_registry',
                         'outcome:' . $verify_outcome,
                     ],
-                    'response_preview' => $verify_outcome . ( $verify_detail ? ' → ' . $verify_detail : '' ),
+                    'response_preview' => $verify_outcome . ( $verify_detail ? ' â†’ ' . $verify_detail : '' ),
                     'outcome'          => $verify_outcome,
                     'matched_tool'     => $matching_tool_in_registry ? [
                         'goal'       => $matching_tool_in_registry['goal'] ?? '',
@@ -1713,36 +1713,36 @@ class BizCity_Intent_Stream {
             }
 
             if ( $has_provider_instructions ) {
-                $end_reminder .= "\n## 📋 HƯỚNG DẪN:\n";
-                $end_reminder .= "→ BẠN ĐANG TRONG CHẾ ĐỘ CHUYÊN GIA — hãy thực hiện ĐÚNG vai trò chuyên gia đã được giao ở phần trên.\n";
-                $end_reminder .= "→ KHÔNG gợi ý Chợ AI Agent. KHÔNG nói 'mình chưa có trợ lý'. Chức năng ĐÃ CÓ SẴN.\n";
+                $end_reminder .= "\n## ðŸ“‹ HÆ¯á»šNG DáºªN:\n";
+                $end_reminder .= "â†’ Báº N ÄANG TRONG CHáº¾ Äá»˜ CHUYÃŠN GIA â€” hÃ£y thá»±c hiá»‡n ÄÃšNG vai trÃ² chuyÃªn gia Ä‘Ã£ Ä‘Æ°á»£c giao á»Ÿ pháº§n trÃªn.\n";
+                $end_reminder .= "â†’ KHÃ”NG gá»£i Ã½ Chá»£ AI Agent. KHÃ”NG nÃ³i 'mÃ¬nh chÆ°a cÃ³ trá»£ lÃ½'. Chá»©c nÄƒng ÄÃƒ CÃ“ Sáº´N.\n";
             } elseif ( $matching_tool_in_registry ) {
-                // v4.3→v5.0: Tool EXISTS in registry but classification failed.
+                // v4.3â†’v5.0: Tool EXISTS in registry but classification failed.
                 // Instead of suggesting the tool, answer the question and add follow-up questions.
-                $end_reminder .= "\n## 📋 HƯỚNG DẪN:\n";
-                $end_reminder .= "→ TUYỆT ĐỐI KHÔNG nói 'mình chưa có trợ lý chuyên về...'.\n";
-                $end_reminder .= "→ HÃY TRẢ LỜI câu hỏi dựa trên hiểu biết của bạn.\n";
-                $end_reminder .= "→ KHÔNG gợi ý công cụ, KHÔNG gợi ý Chợ AI Agent, KHÔNG hỏi 'Bạn có muốn dùng công cụ X không?'.\n";
-                $end_reminder .= "→ Cuối câu trả lời, hãy đặt 1-2 câu hỏi gợi mở để Chủ Nhân đào sâu thêm vào vấn đề đang thảo luận.\n";
+                $end_reminder .= "\n## ðŸ“‹ HÆ¯á»šNG DáºªN:\n";
+                $end_reminder .= "â†’ TUYá»†T Äá»I KHÃ”NG nÃ³i 'mÃ¬nh chÆ°a cÃ³ trá»£ lÃ½ chuyÃªn vá»...'.\n";
+                $end_reminder .= "â†’ HÃƒY TRáº¢ Lá»œI cÃ¢u há»i dá»±a trÃªn hiá»ƒu biáº¿t cá»§a báº¡n.\n";
+                $end_reminder .= "â†’ KHÃ”NG gá»£i Ã½ cÃ´ng cá»¥, KHÃ”NG gá»£i Ã½ Chá»£ AI Agent, KHÃ”NG há»i 'Báº¡n cÃ³ muá»‘n dÃ¹ng cÃ´ng cá»¥ X khÃ´ng?'.\n";
+                $end_reminder .= "â†’ Cuá»‘i cÃ¢u tráº£ lá»i, hÃ£y Ä‘áº·t 1-2 cÃ¢u há»i gá»£i má»Ÿ Ä‘á»ƒ Chá»§ NhÃ¢n Ä‘Ã o sÃ¢u thÃªm vÃ o váº¥n Ä‘á» Ä‘ang tháº£o luáº­n.\n";
 
-                error_log( '[bizcity-intent-stream] v5.0: Tool registry match — suppressed tool suggestion, using follow-up questions instead' );
+                error_log( '[bizcity-intent-stream] v5.0: Tool registry match â€” suppressed tool suggestion, using follow-up questions instead' );
             } else {
-                $end_reminder .= "\n## 📋 MẪU TRẢ LỜI FALLBACK — khi chức năng CHƯA CÓ trên hệ thống:\n";
-                $end_reminder .= "Ví dụ: nghe nhạc, phát nhạc, xem phim, đặt hàng, chuyển khoản, gọi điện, tra thời tiết, giá cổ phiếu, tìm đường, đặt lịch, gửi email, quản lý kho, thiết kế ảnh...\n";
-                $end_reminder .= "→ Trả lời ĐÚNG mẫu sau (thay [chức năng] bằng tên chức năng user yêu cầu):\n";
-                $end_reminder .= "  'Hiện tại mình chưa có trợ lý chuyên về [chức năng]. Nhưng bạn có thể vào **Chợ AI Agent** của BizCity để chọn một trợ lý phù hợp — sau khi kích hoạt, mình sẽ phối hợp với Agent đó để giúp bạn thực hiện công việc này! 🚀'\n";
-                $end_reminder .= "→ KHÔNG nói 'không có quyền', KHÔNG nói 'liên hệ hỗ trợ', KHÔNG đổ lỗi cho người dùng.\n";
-                $end_reminder .= "→ Luôn thể hiện tinh thần: 'Mình là Team Leader của bạn — việc gì cũng có cách giải quyết!'\n";
+                $end_reminder .= "\n## ðŸ“‹ MáºªU TRáº¢ Lá»œI FALLBACK â€” khi chá»©c nÄƒng CHÆ¯A CÃ“ trÃªn há»‡ thá»‘ng:\n";
+                $end_reminder .= "VÃ­ dá»¥: nghe nháº¡c, phÃ¡t nháº¡c, xem phim, Ä‘áº·t hÃ ng, chuyá»ƒn khoáº£n, gá»i Ä‘iá»‡n, tra thá»i tiáº¿t, giÃ¡ cá»• phiáº¿u, tÃ¬m Ä‘Æ°á»ng, Ä‘áº·t lá»‹ch, gá»­i email, quáº£n lÃ½ kho, thiáº¿t káº¿ áº£nh...\n";
+                $end_reminder .= "â†’ Tráº£ lá»i ÄÃšNG máº«u sau (thay [chá»©c nÄƒng] báº±ng tÃªn chá»©c nÄƒng user yÃªu cáº§u):\n";
+                $end_reminder .= "  'Hiá»‡n táº¡i mÃ¬nh chÆ°a cÃ³ trá»£ lÃ½ chuyÃªn vá» [chá»©c nÄƒng]. NhÆ°ng báº¡n cÃ³ thá»ƒ vÃ o **Chá»£ AI Agent** cá»§a BizCity Ä‘á»ƒ chá»n má»™t trá»£ lÃ½ phÃ¹ há»£p â€” sau khi kÃ­ch hoáº¡t, mÃ¬nh sáº½ phá»‘i há»£p vá»›i Agent Ä‘Ã³ Ä‘á»ƒ giÃºp báº¡n thá»±c hiá»‡n cÃ´ng viá»‡c nÃ y! ðŸš€'\n";
+                $end_reminder .= "â†’ KHÃ”NG nÃ³i 'khÃ´ng cÃ³ quyá»n', KHÃ”NG nÃ³i 'liÃªn há»‡ há»— trá»£', KHÃ”NG Ä‘á»• lá»—i cho ngÆ°á»i dÃ¹ng.\n";
+                $end_reminder .= "â†’ LuÃ´n thá»ƒ hiá»‡n tinh tháº§n: 'MÃ¬nh lÃ  Team Leader cá»§a báº¡n â€” viá»‡c gÃ¬ cÅ©ng cÃ³ cÃ¡ch giáº£i quyáº¿t!'\n";
             }
         } else {
-            $end_reminder .= "\n## 📋 HƯỚNG DẪN TRẢ LỜI VỚI KIẾN THỨC MỞ RỘNG:\n";
-            $end_reminder .= "→ BẮT BUỘC sử dụng nội dung từ phần **🔍 KIẾN THỨC MỞ RỘNG** ở trên làm câu trả lời CHÍNH.\n";
-            $end_reminder .= "→ Trình bày lại tự nhiên, có cảm xúc, phù hợp phong cách Team Leader.\n";
-            $end_reminder .= "→ KHÔNG gợi ý Chợ AI Agent. KHÔNG nói 'mình chưa có trợ lý'. Kiến thức ĐÃ CÓ.\n";
+            $end_reminder .= "\n## ðŸ“‹ HÆ¯á»šNG DáºªN TRáº¢ Lá»œI Vá»šI KIáº¾N THá»¨C Má»ž Rá»˜NG:\n";
+            $end_reminder .= "â†’ Báº®T BUá»˜C sá»­ dá»¥ng ná»™i dung tá»« pháº§n **ðŸ” KIáº¾N THá»¨C Má»ž Rá»˜NG** á»Ÿ trÃªn lÃ m cÃ¢u tráº£ lá»i CHÃNH.\n";
+            $end_reminder .= "â†’ TrÃ¬nh bÃ y láº¡i tá»± nhiÃªn, cÃ³ cáº£m xÃºc, phÃ¹ há»£p phong cÃ¡ch Team Leader.\n";
+            $end_reminder .= "â†’ KHÃ”NG gá»£i Ã½ Chá»£ AI Agent. KHÃ”NG nÃ³i 'mÃ¬nh chÆ°a cÃ³ trá»£ lÃ½'. Kiáº¿n thá»©c ÄÃƒ CÃ“.\n";
         }
         $system_content .= $end_reminder;
 
-        // ── v5.0: Twin Suggest — follow-up questions based on memory + session context ──
+        // â”€â”€ v5.0: Twin Suggest â€” follow-up questions based on memory + session context â”€â”€
         if ( class_exists( 'BizCity_Twin_Suggest' ) && ! $has_provider_instructions ) {
             $twin_mode = $engine_result['meta']['focus_mode'] ?? $engine_result['mode'] ?? '';
             $twin_suggest_block = BizCity_Twin_Suggest::build( [
@@ -1757,29 +1757,29 @@ class BizCity_Intent_Stream {
             }
         }
 
-        // ══════════════════════════════════════════════════════════════════
-        // 🎯 COMPLETION HINT — AI personalizes completion message using memory
-        // When a tool/task is completed, instead of hardcoded "Cảm ơn bạn",
-        // AI generates a response that respects user memory (xưng hô, phong cách)
-        // ══════════════════════════════════════════════════════════════════
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+        // ðŸŽ¯ COMPLETION HINT â€” AI personalizes completion message using memory
+        // When a tool/task is completed, instead of hardcoded "Cáº£m Æ¡n báº¡n",
+        // AI generates a response that respects user memory (xÆ°ng hÃ´, phong cÃ¡ch)
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
         if ( ! empty( $engine_result['meta']['completion_hint'] ) ) {
             $hint_label = $engine_result['goal_label'] ?? $engine_result['goal'] ?? '';
-            $system_content .= "\n\n# 🎯 NHIỆM VỤ HIỆN TẠI — TRẢ LỜI XÁC NHẬN HOÀN THÀNH:\n";
-            $system_content .= "User vừa hoàn thành một tác vụ" . ( $hint_label ? " (\"" . $hint_label . "\")" : '' ) . ".\n";
-            $system_content .= "Hãy tạo lời xác nhận hoàn thành NGẮN GỌN (1-2 câu).\n";
-            $system_content .= "BẮT BUỘC sử dụng đúng cách xưng hô và phong cách từ KÝ ỨC USER ở trên.\n";
-            $system_content .= "Bắt đầu bằng ✅, giữ thông điệp tích cực, thân thiện.\n";
-            $system_content .= "KHÔNG dùng 'bạn' nếu user đã dặn cách xưng hô khác (ví dụ: anh/em).\n";
+            $system_content .= "\n\n# ðŸŽ¯ NHIá»†M Vá»¤ HIá»†N Táº I â€” TRáº¢ Lá»œI XÃC NHáº¬N HOÃ€N THÃ€NH:\n";
+            $system_content .= "User vá»«a hoÃ n thÃ nh má»™t tÃ¡c vá»¥" . ( $hint_label ? " (\"" . $hint_label . "\")" : '' ) . ".\n";
+            $system_content .= "HÃ£y táº¡o lá»i xÃ¡c nháº­n hoÃ n thÃ nh NGáº®N Gá»ŒN (1-2 cÃ¢u).\n";
+            $system_content .= "Báº®T BUá»˜C sá»­ dá»¥ng Ä‘Ãºng cÃ¡ch xÆ°ng hÃ´ vÃ  phong cÃ¡ch tá»« KÃ á»¨C USER á»Ÿ trÃªn.\n";
+            $system_content .= "Báº¯t Ä‘áº§u báº±ng âœ…, giá»¯ thÃ´ng Ä‘iá»‡p tÃ­ch cá»±c, thÃ¢n thiá»‡n.\n";
+            $system_content .= "KHÃ”NG dÃ¹ng 'báº¡n' náº¿u user Ä‘Ã£ dáº·n cÃ¡ch xÆ°ng hÃ´ khÃ¡c (vÃ­ dá»¥: anh/em).\n";
         }
 
         $openai_messages[] = [ 'role' => 'system', 'content' => $system_content ];
 
-        // ── Conversation history ──
+        // â”€â”€ Conversation history â”€â”€
         if ( ! empty( $engine_result['conversation_id'] ) ) {
             $conv_mgr = BizCity_Intent_Conversation::instance();
             $turns    = $conv_mgr->get_turns( $engine_result['conversation_id'], 10 );
 
-            // Find the last user turn index — this is the CURRENT message
+            // Find the last user turn index â€” this is the CURRENT message
             // being processed. It will be re-added below with proper
             // image/multimodal formatting, so skip it to avoid duplication.
             $last_user_idx = null;
@@ -1794,10 +1794,10 @@ class BizCity_Intent_Stream {
                     continue;
                 }
                 if ( $i === $last_user_idx ) {
-                    continue; // Current message — added below with images
+                    continue; // Current message â€” added below with images
                 }
 
-                // ── v3.7: Include image attachments in historical user turns ──
+                // â”€â”€ v3.7: Include image attachments in historical user turns â”€â”€
                 // Previously only text was included, so the LLM couldn't see
                 // images sent in earlier turns (e.g. tarot card photos).
                 $turn_attachments = $turn['attachments'] ?? [];
@@ -1820,11 +1820,11 @@ class BizCity_Intent_Stream {
             }
         }
 
-        // ── Current user message ──
-        $supports_vision = true; // Assume true — model registry will validate
+        // â”€â”€ Current user message â”€â”€
+        $supports_vision = true; // Assume true â€” model registry will validate
         if ( ! empty( $images ) && $supports_vision ) {
             $content   = [];
-            $content[] = [ 'type' => 'text', 'text' => $message ?: 'Hãy mô tả hoặc phân tích hình ảnh này.' ];
+            $content[] = [ 'type' => 'text', 'text' => $message ?: 'HÃ£y mÃ´ táº£ hoáº·c phÃ¢n tÃ­ch hÃ¬nh áº£nh nÃ y.' ];
             foreach ( $images as $img ) {
                 $url = is_string( $img ) ? $img : ( $img['url'] ?? $img['data'] ?? '' );
                 if ( $url ) {
@@ -1871,7 +1871,7 @@ class BizCity_Intent_Stream {
     }
 
     /* ================================================================
-     *  OpenAI Direct Streaming — fallback when OpenRouter is unavailable
+     *  OpenAI Direct Streaming â€” fallback when OpenRouter is unavailable
      *
      *  Uses cURL + SSE to stream from api.openai.com directly,
      *  with the site's twf_openai_api_key.
@@ -1891,7 +1891,7 @@ class BizCity_Intent_Stream {
     private function openai_direct_stream( array $messages, array $model_options, string $api_key ): array {
         $model = $model_options['model'] ?? get_option( 'openai_model', 'gpt-4o-mini' );
 
-        // OpenRouter model IDs have a prefix (e.g. 'openai/gpt-4o') → strip for direct OpenAI calls
+        // OpenRouter model IDs have a prefix (e.g. 'openai/gpt-4o') â†’ strip for direct OpenAI calls
         if ( strpos( $model, '/' ) !== false ) {
             $parts = explode( '/', $model );
             $model = end( $parts );
@@ -1982,7 +1982,7 @@ class BizCity_Intent_Stream {
             $base_result['error'] = $curl_err ?: "HTTP {$http_code}";
             error_log( '[bizcity-intent-stream] OpenAI direct cURL error: ' . $base_result['error'] );
             if ( ! empty( $full_text ) ) {
-                // Partial success — return what we got
+                // Partial success â€” return what we got
                 $base_result['success'] = true;
                 $base_result['message'] = $full_text;
                 $base_result['usage']   = $usage;
@@ -1997,11 +1997,11 @@ class BizCity_Intent_Stream {
     }
 
     /* ================================================================
-     *  Automation Bridge — fire bizcity_chat_message_processed
+     *  Automation Bridge â€” fire bizcity_chat_message_processed
      *
      *  The SSE handler exits before Chat Gateway (priority 20) runs,
      *  so bizcity_chat_message_processed is never fired from the
-     *  streaming path. This helper bridges intent SSE → automation
+     *  streaming path. This helper bridges intent SSE â†’ automation
      *  triggers (waic_twf_process_flow) via the existing gateway
      *  bridge in bizcity-admin-hook-zalo/gateway-functions.php.
      * ================================================================ */
@@ -2039,7 +2039,7 @@ class BizCity_Intent_Stream {
      * Prepare HTTP headers for SSE streaming.
      */
     private function prepare_stream_headers() {
-        // ── Disable PHP output compression (gzip) that would buffer everything ──
+        // â”€â”€ Disable PHP output compression (gzip) that would buffer everything â”€â”€
         @ini_set( 'zlib.output_compression', 'Off' );
         @ini_set( 'implicit_flush', 1 );
 
@@ -2063,12 +2063,12 @@ class BizCity_Intent_Stream {
         // Prevent PHP timeout
         set_time_limit( 120 );
 
-        // MUST be true — if false, PHP aborts mid-curl-callback when proxy
+        // MUST be true â€” if false, PHP aborts mid-curl-callback when proxy
         // closes the idle connection, causing "Failure writing output to
         // destination, passed N returned 0".
         ignore_user_abort( true );
 
-        // Suppress display_errors during SSE — stray warning output (e.g.
+        // Suppress display_errors during SSE â€” stray warning output (e.g.
         // session_start from 3rd-party plugins) corrupts the event-stream
         // format and makes the browser EventSource disconnect.
         @ini_set( 'display_errors', '0' );
@@ -2078,8 +2078,8 @@ class BizCity_Intent_Stream {
             @apache_setenv( 'no-gzip', '1' );
         }
 
-        // ── Flush proxy buffers ──
-        // LiteSpeed / FastCGI proxies buffer 4–8 KB before forwarding to client.
+        // â”€â”€ Flush proxy buffers â”€â”€
+        // LiteSpeed / FastCGI proxies buffer 4â€“8 KB before forwarding to client.
         // Send a large SSE comment to fill that buffer and force the first flush,
         // so subsequent smaller events stream through immediately.
         echo ': stream-start' . str_repeat( ' ', 8192 ) . "\n\n";
@@ -2186,7 +2186,7 @@ class BizCity_Intent_Stream {
             // Fallback: direct insert
             global $wpdb;
             $table = $wpdb->prefix . 'bizcity_webchat_messages';
-            if ( $wpdb->get_var( "SHOW TABLES LIKE '$table'" ) !== $table ) {
+            if ( ! bizcity_tbl_exists( $table ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
                 return 0;
             }
             $wpdb->insert( $table, [
@@ -2220,12 +2220,12 @@ class BizCity_Intent_Stream {
 
         $patterns = [
             // Vietnamese
-            'bạn (có thể|biết) làm (gì|những gì)',
-            'bạn làm được (gì|những gì)',
-            'có (những )?công cụ (gì|nào)',
-            'có (những )?tính năng (gì|nào)',
-            'danh sách (công cụ|tính năng|chức năng)',
-            'giúp (tôi|mình) (được )?(gì|những gì)',
+            'báº¡n (cÃ³ thá»ƒ|biáº¿t) lÃ m (gÃ¬|nhá»¯ng gÃ¬)',
+            'báº¡n lÃ m Ä‘Æ°á»£c (gÃ¬|nhá»¯ng gÃ¬)',
+            'cÃ³ (nhá»¯ng )?cÃ´ng cá»¥ (gÃ¬|nÃ o)',
+            'cÃ³ (nhá»¯ng )?tÃ­nh nÄƒng (gÃ¬|nÃ o)',
+            'danh sÃ¡ch (cÃ´ng cá»¥|tÃ­nh nÄƒng|chá»©c nÄƒng)',
+            'giÃºp (tÃ´i|mÃ¬nh) (Ä‘Æ°á»£c )?(gÃ¬|nhá»¯ng gÃ¬)',
             'menu',
             // English
             'what can you do',
@@ -2249,12 +2249,12 @@ class BizCity_Intent_Stream {
         }
 
         if ( empty( $tools ) ) {
-            return 'Hiện tại chưa có công cụ nào được kích hoạt. Bạn có thể trò chuyện bình thường với tôi!';
+            return 'Hiá»‡n táº¡i chÆ°a cÃ³ cÃ´ng cá»¥ nÃ o Ä‘Æ°á»£c kÃ­ch hoáº¡t. Báº¡n cÃ³ thá»ƒ trÃ² chuyá»‡n bÃ¬nh thÆ°á»ng vá»›i tÃ´i!';
         }
 
         $colors = [ '#4A90D9', '#D94A7A', '#4AD99B', '#D9A84A', '#9B4AD9', '#4AD9D9', '#D95A4A', '#7AD94A' ];
         $html   = '<div class="bizc-tool-caps">';
-        $html  .= '<p>Tôi có thể hỗ trợ bạn với các công cụ sau:</p>';
+        $html  .= '<p>TÃ´i cÃ³ thá»ƒ há»— trá»£ báº¡n vá»›i cÃ¡c cÃ´ng cá»¥ sau:</p>';
 
         foreach ( $tools as $i => $tool ) {
             $goal  = esc_attr( $tool['goal'] ?? $tool['tool_key'] ?? '' );
@@ -2269,7 +2269,8 @@ class BizCity_Intent_Stream {
         }
 
         $html .= '</div>';
-        $html .= '<p>Bấm vào công cụ bạn muốn sử dụng, hoặc mô tả yêu cầu bằng lời!</p>';
+        $html .= '<p>Báº¥m vÃ o cÃ´ng cá»¥ báº¡n muá»‘n sá»­ dá»¥ng, hoáº·c mÃ´ táº£ yÃªu cáº§u báº±ng lá»i!</p>';
         return $html;
     }
 }
+

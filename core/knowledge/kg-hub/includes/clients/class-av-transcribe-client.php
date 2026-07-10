@@ -168,7 +168,8 @@ class BizCity_AV_Transcribe_Client {
                 return rtrim( (string) $url, '/' );
             }
         }
-        return rtrim( (string) get_site_option( 'bizcity_llm_gateway_url', '' ), '/' );
+        // [2026-06-10 Johnny Chu] HOTFIX — per-site option fallback
+        return rtrim( (string) get_option( 'bizcity_llm_gateway_url', '' ), '/' );
     }
 
     private function api_key(): string {
@@ -178,6 +179,7 @@ class BizCity_AV_Transcribe_Client {
                 return (string) $key;
             }
         }
-        return trim( (string) get_site_option( 'bizcity_llm_api_key', '' ) );
+        // [2026-06-10 Johnny Chu] HOTFIX — per-site option fallback
+        return trim( (string) get_option( 'bizcity_llm_api_key', '' ) );
     }
 }

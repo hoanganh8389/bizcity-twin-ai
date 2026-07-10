@@ -16,6 +16,8 @@ class BizCity_Gateway_Sender {
 
 	/** @var self|null */
 	private static $instance = null;
+	/** @var array<int,mixed> */
+	private $trace_stack = array();
 
 	private function __construct() {}
 
@@ -53,60 +55,151 @@ class BizCity_Gateway_Sender {
 		 */
 		$message = apply_filters( 'bizcity_channel_before_send', $message, $chat_id, $platform );
 
+		// [2026-07-07 Johnny Chu] HOTFIX — stamp outbound with trace source so ops can
+		// distinguish CRM autoreply vs automation fallback vs explicit workflow actions.
+		$trace = $this->build_trace_context( $chat_id, $platform, $type, $message, $extra );
+		$this->push_trace_context( $trace );
+
 		error_log( sprintf( '[Channel Gateway] 📤 Sending to %s | platform=%s | type=%s', $chat_id, $platform, $type ) );
+		error_log( sprintf(
+			'[Channel Gateway TRACE] id=%s source=%s platform=%s chat_id=%s len=%d hash=%s',
+			(string) ( $trace['trace_id'] ?? '' ),
+			(string) ( $trace['source'] ?? 'unknown' ),
+			$platform,
+			$chat_id,
+			(int) ( $trace['message_len'] ?? 0 ),
+			(string) ( $trace['message_hash'] ?? '' )
+		) );
 
-		// Try registered adapter first
-		$adapter = $bridge->get_adapter( $platform );
-		if ( $adapter ) {
-			$options = array_merge( $extra, [ 'type' => $type ] );
-			$sent    = $adapter->send_outbound( $chat_id, $message, $options );
-			$result  = [
-				'sent'     => $sent,
-				'error'    => $sent ? '' : 'Adapter send_outbound returned false',
-				'platform' => $platform,
-			];
+		try {
 
-			/**
-			 * Fires after an outbound message is sent.
-			 *
-			 * @param array  $result   Send result.
-			 * @param string $chat_id  Target chat ID.
-			 * @param string $platform Platform identifier.
-			 */
+			// Try registered adapter first
+			$adapter = $bridge->get_adapter( $platform );
+			if ( $adapter ) {
+				$options = array_merge( $extra, [ 'type' => $type ] );
+				$sent    = $adapter->send_outbound( $chat_id, $message, $options );
+				$result  = [
+					'sent'     => $sent,
+					'error'    => $sent ? '' : 'Adapter send_outbound returned false',
+					'platform' => $platform,
+				];
+
+				/**
+				 * Fires after an outbound message is sent.
+				 *
+				 * @param array  $result   Send result.
+				 * @param string $chat_id  Target chat ID.
+				 * @param string $platform Platform identifier.
+				 */
+				do_action( 'bizcity_channel_after_send', $result, $chat_id, $platform );
+
+				do_action( 'bizcity_channel_outbound_logged', array(
+					'chat_id'  => $chat_id,
+					'platform' => $platform,
+					'message'  => $message,
+					'type'     => $type,
+					'extra'    => array_merge( $extra, array( '_trace' => $trace ) ),
+					'sent'     => (bool) $result['sent'],
+					'error'    => (string) $result['error'],
+				) );
+
+				$this->log_outbound( $chat_id, $message, $platform, $result['sent'] );
+				return $result;
+			}
+
+			// No adapter registered — use legacy send
+			$result = $this->send_legacy( $chat_id, $message, $type, $extra, $platform );
+
 			do_action( 'bizcity_channel_after_send', $result, $chat_id, $platform );
 
 			do_action( 'bizcity_channel_outbound_logged', array(
 				'chat_id'  => $chat_id,
-				'platform' => $platform,
+				'platform' => $result['platform'],
 				'message'  => $message,
 				'type'     => $type,
-				'extra'    => $extra,
+				'extra'    => array_merge( $extra, array( '_trace' => $trace ) ),
 				'sent'     => (bool) $result['sent'],
 				'error'    => (string) $result['error'],
 			) );
 
-			$this->log_outbound( $chat_id, $message, $platform, $result['sent'] );
+			$this->log_outbound( $chat_id, $message, $result['platform'], $result['sent'] );
+
 			return $result;
+		} finally {
+			$this->pop_trace_context();
+		}
+	}
+
+	/**
+	 * [2026-07-07 Johnny Chu] HOTFIX — build one trace envelope per outbound send.
+	 */
+	private function build_trace_context( string $chat_id, string $platform, string $type, string $message, array $extra ): array {
+		$ctx = isset( $GLOBALS['_bizcity_outbound_trace_ctx'] ) && is_array( $GLOBALS['_bizcity_outbound_trace_ctx'] )
+			? (array) $GLOBALS['_bizcity_outbound_trace_ctx']
+			: array();
+
+		$source = trim( (string) ( $extra['_trace_source'] ?? $extra['source'] ?? $ctx['source'] ?? '' ) );
+		if ( $source === '' ) {
+			$source = $this->detect_trace_source_from_backtrace();
 		}
 
-		// No adapter registered — use legacy send
-		$result = $this->send_legacy( $chat_id, $message, $type, $extra, $platform );
+		$trace_id = trim( (string) ( $extra['_trace_id'] ?? $ctx['trace_id'] ?? '' ) );
+		if ( $trace_id === '' ) {
+			$trace_id = 'cg-' . substr( sha1( $chat_id . '|' . microtime( true ) . '|' . mt_rand() ), 0, 12 );
+		}
 
-		do_action( 'bizcity_channel_after_send', $result, $chat_id, $platform );
+		return array(
+			'trace_id'     => $trace_id,
+			'source'       => $source,
+			'chat_id'      => $chat_id,
+			'platform'     => $platform,
+			'type'         => $type,
+			'message_len'  => mb_strlen( $message ),
+			'message_hash' => substr( sha1( $message ), 0, 12 ),
+			'ctx'          => $ctx,
+		);
+	}
 
-		do_action( 'bizcity_channel_outbound_logged', array(
-			'chat_id'  => $chat_id,
-			'platform' => $result['platform'],
-			'message'  => $message,
-			'type'     => $type,
-			'extra'    => $extra,
-			'sent'     => (bool) $result['sent'],
-			'error'    => (string) $result['error'],
-		) );
+	/**
+	 * [2026-07-07 Johnny Chu] HOTFIX — best-effort caller fingerprint for outbound origin.
+	 */
+	private function detect_trace_source_from_backtrace(): string {
+		$frames = debug_backtrace( DEBUG_BACKTRACE_IGNORE_ARGS, 16 );
+		foreach ( $frames as $f ) {
+			$cls  = strtolower( (string) ( $f['class'] ?? '' ) );
+			$func = strtolower( (string) ( $f['function'] ?? '' ) );
+			$file = strtolower( (string) ( $f['file'] ?? '' ) );
 
-		$this->log_outbound( $chat_id, $message, $result['platform'], $result['sent'] );
+			if ( strpos( $cls, 'bizcity_crm_ai_replier' ) !== false ) { return 'crm.ai_replier'; }
+			if ( strpos( $cls, 'bizcity_automation_default_reply' ) !== false ) { return 'automation.default_reply'; }
+			if ( strpos( $cls, 'bizcity_automation_trigger_matcher' ) !== false ) { return 'automation.matcher'; }
+			if ( strpos( $cls, 'bizcity_automation_action_' ) !== false ) { return 'automation.action'; }
+			if ( strpos( $file, 'class-ai-autoreply-listener.php' ) !== false ) { return 'crm.autoreply_listener'; }
+			if ( $func === 'bizcity_channel_send' ) { continue; }
+		}
+		return 'unknown';
+	}
 
-		return $result;
+	/**
+	 * [2026-07-07 Johnny Chu] HOTFIX — expose current send trace to downstream adapters/APIs.
+	 */
+	private function push_trace_context( array $trace ): void {
+		$this->trace_stack[] = array_key_exists( '_bizcity_channel_send_trace', $GLOBALS )
+			? $GLOBALS['_bizcity_channel_send_trace']
+			: null;
+		$GLOBALS['_bizcity_channel_send_trace'] = $trace;
+	}
+
+	/**
+	 * [2026-07-07 Johnny Chu] HOTFIX — restore previous trace after send.
+	 */
+	private function pop_trace_context(): void {
+		$prev = array_pop( $this->trace_stack );
+		if ( $prev === null ) {
+			unset( $GLOBALS['_bizcity_channel_send_trace'] );
+			return;
+		}
+		$GLOBALS['_bizcity_channel_send_trace'] = $prev;
 	}
 
 	/**
@@ -147,7 +240,66 @@ class BizCity_Gateway_Sender {
 					$raw_user_id   = $m[2];
 				}
 
-				// Resolve blog for zalo bot
+				// [2026-06-13 Johnny Chu] ZA-2 — Try BizCity_Channel_Integration (Zalo OA via
+				// BizCity_Integration_Registry) FIRST.  The new OA adapter stores tokens in the
+				// Integration Registry; the legacy BizCity_Zalo_Bot_Database path below is for
+				// the old bizcity-zalo-bot plugin and will fail to find OA accounts.
+				if (
+					class_exists( 'BizCity_Integration_Registry' ) &&
+					class_exists( 'BizCity_Channel_Integration' )
+				) {
+					$_oa_registry = BizCity_Integration_Registry::instance();
+					$_oa_channel  = null;
+					$_oa_account  = array();
+					foreach ( $_oa_registry->get_all() as $_integ ) {
+						if (
+							( $_integ instanceof BizCity_Channel_Integration ) &&
+							strtoupper( $_integ->inbound_platform() ) === 'ZALO_BOT'
+						) {
+							$_oa_channel = $_integ;
+							break;
+						}
+					}
+					if ( $_oa_channel ) {
+						$_oa_accounts = $_oa_registry->get_accounts( $_oa_channel->get_code() );
+						foreach ( $_oa_accounts as $_acc ) {
+							if (
+								(string) ( $_acc['oa_id'] ?? '' ) === (string) $parsed_bot_id ||
+								(string) ( $_acc['_uid']  ?? '' ) === (string) $parsed_bot_id
+							) {
+								$_oa_account = $_acc;
+								break;
+							}
+						}
+						// Single-account fallback.
+						if ( empty( $_oa_account ) && count( $_oa_accounts ) === 1 ) {
+							$_oa_account = $_oa_accounts[0];
+						}
+					}
+					if ( $_oa_channel && ! empty( $_oa_account ) ) {
+						$_clone = clone $_oa_channel;
+						$_clone->set_account( $_oa_account );
+						$_decrypted = $_clone->get_decrypted_params();
+						$_result    = $_oa_channel->send_outbound(
+							array(
+								'recipient' => $raw_user_id,
+								'text'      => $message,
+								'type'      => $type,
+							),
+							$_decrypted
+						);
+						unset( $_oa_registry, $_oa_channel, $_oa_account, $_oa_accounts, $_clone, $_decrypted );
+						if ( is_array( $_result ) ) {
+							return $_result;
+						}
+						if ( is_wp_error( $_result ) ) {
+							return array( 'sent' => false, 'error' => $_result->get_error_message(), 'platform' => 'ZALO_BOT' );
+						}
+					}
+					unset( $_oa_registry, $_oa_channel, $_oa_account );
+				}
+
+				// Resolve blog for zalo bot (legacy bizcity-zalo-bot plugin path)
 				$target_blog_id = 0;
 				if ( class_exists( 'BizCity_Blog_Resolver' ) ) {
 					$target_blog_id = BizCity_Blog_Resolver::instance()->resolve_bot_blog( $parsed_bot_id );
@@ -264,7 +416,7 @@ class BizCity_Gateway_Sender {
 		// Only log if table exists (checked once per request)
 		static $table_exists = null;
 		if ( null === $table_exists ) {
-			$table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$table}'" ) === $table;
+			$table_exists = bizcity_tbl_exists( $table ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 		}
 		if ( ! $table_exists ) {
 			return;

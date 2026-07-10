@@ -26,6 +26,12 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 
 require_once dirname( __DIR__ ) . '/interface-diagnostics-probe.php';
 
+
+// [2026-06-08 Johnny Chu] HOTFIX — double-load guard (bootstrap may include via filter AND direct require).
+if ( class_exists( 'BizCity_Probe_Automation_Matcher', false ) ) {
+	return;
+}
+
 final class BizCity_Probe_Automation_Matcher implements BizCity_Diagnostics_Probe {
 
 	const SLUG_PREFIX = '__healthtest_matcher_';

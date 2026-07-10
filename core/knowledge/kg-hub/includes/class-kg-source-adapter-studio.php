@@ -246,7 +246,7 @@ class BizCity_KG_Source_Adapter_Studio {
 		}
 		global $wpdb;
 		$candidate = $wpdb->prefix . 'bizcity_webchat_studio_outputs';
-		$exists = (string) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $candidate ) );
+		$exists = bizcity_tbl_exists( $candidate ) ? $candidate : null; // [2026-06-21 R-SHOW-TABLES]
 		return $exists === $candidate ? $candidate : '';
 	}
 

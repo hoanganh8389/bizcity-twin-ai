@@ -81,8 +81,9 @@ final class BizCoach_Pro_Astro_Admin_Settings {
 		if ( ! current_user_can( 'manage_options' ) ) { return; }
 
 		$canon      = self::canonical_url();
-		$legacy_key = (string) get_site_option( BizCoach_Pro_Astro_Client::OPT_API_KEY, '' );
-		$canon_key  = (string) get_site_option( 'bizcity_llm_api_key', '' );
+		$legacy_key = (string) get_option( BizCoach_Pro_Astro_Client::OPT_API_KEY, '' );
+		// [2026-06-10 Johnny Chu] HOTFIX — per-site option
+		$canon_key  = (string) get_option( 'bizcity_llm_api_key', '' );
 
 		?>
 		<div class="wrap">

@@ -298,7 +298,10 @@ class BizCity_KG_Rest_Controller {
 	public function list_workspaces( WP_REST_Request $req ) {
 		$user_id  = get_current_user_id();
 		$meta_key = $this->workspaces_meta_key();
-		$raw = get_user_meta( $user_id, $meta_key, true );
+		// [2026-06-22 Johnny Chu] R-PERF — route via BizCity_User_Meta_Cache to avoid WP meta prime
+		$raw = class_exists( 'BizCity_User_Meta_Cache' )
+			? BizCity_User_Meta_Cache::get( $user_id, $meta_key, '' )
+			: get_user_meta( $user_id, $meta_key, true );
 		$list = is_string( $raw ) && $raw !== '' ? json_decode( $raw, true ) : $raw;
 		if ( ! is_array( $list ) || empty( $list ) ) {
 			$list = $this->default_workspaces();
@@ -390,9 +393,12 @@ class BizCity_KG_Rest_Controller {
 	}
 
 	public function extract_pending( WP_REST_Request $req ) {
-		$data  = $req->get_json_params() ?: [];
-		$limit = (int) ( $data['limit'] ?? 5 );
-		$force = ! empty( $data['force'] );
+		$data          = $req->get_json_params() ?: [];
+		// [2026-06-08 Johnny Chu] HOTFIX — use hub-synced batch_size (via BizCity_KG_Cost_Guard) as default
+		// instead of hardcoded 5 so the client respects hub admin setting (e.g. 20).
+		$default_limit = class_exists( 'BizCity_KG_Cost_Guard' ) ? BizCity_KG_Cost_Guard::instance()->batch_size() : 5;
+		$limit         = (int) ( $data['limit'] ?? $default_limit );
+		$force         = ! empty( $data['force'] );
 		return rest_ensure_response(
 			BizCity_KG_Triplet_Extractor::instance()->extract_notebook_pending( (int) $req['id'], $limit, $force )
 		);

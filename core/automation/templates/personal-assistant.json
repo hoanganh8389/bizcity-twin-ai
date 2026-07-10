@@ -1,0 +1,113 @@
+[
+  {
+    "slug": "tpl_personal_task_zalo_v1",
+    "name": "Personal — Tạo Task từ Zalo Bot",
+    "description": "Zalo Bot nhận tin nhắn bắt đầu bằng \"việc:\" → tạo task trong lịch cá nhân → reply xác nhận. Yêu cầu plugin bizcity-personal đã kích hoạt.",
+    "category": "personal",
+    "source": "builtin",
+    "trigger_type": "zalo_inbound",
+    "icon": "CheckSquare",
+    "tags": "zalo,personal,task,calendar,quick-add",
+    "trigger_config": { "instance_id": "", "filter": "việc:" },
+    "graph": {
+      "meta": { "template": "tpl_personal_task_zalo_v1" },
+      "nodes": [
+        { "id": "t1", "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.zalo_inbound",         "label": "Zalo Bot · \"việc:\"",       "instance_id": "", "filter": "việc:" } },
+        { "id": "a1", "type": "action",  "position": { "x": 320, "y": 80 }, "data": { "blockId": "action.personal_create_task", "label": "Tạo task cá nhân",            "title": "{{trigger.text}}", "description": "", "due_at": "+1 day", "priority": "medium", "user_id": 0, "source": "zalo_bot" } },
+        { "id": "o1", "type": "action",  "position": { "x": 640, "y": 80 }, "data": { "blockId": "action.reply_zalo",           "label": "Xác nhận tạo task",           "text": "✅ Đã tạo task: {{a1.title}} (hạn {{a1.due_at}}). Xem lịch tại trang Personal của bạn." } }
+      ],
+      "edges": [
+        { "id": "e_t1_a1", "source": "t1", "target": "a1" },
+        { "id": "e_a1_o1", "source": "a1", "target": "o1" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_personal_finance_zalo_v1",
+    "name": "Personal — Ghi Thu/Chi từ Zalo Bot",
+    "description": "Zalo Bot nhận \"chi: [số tiền] [mô tả]\" hoặc \"thu: ...\" → ghi vào sổ tài chính cá nhân → reply xác nhận. Yêu cầu plugin bizcity-personal đã kích hoạt.",
+    "category": "personal",
+    "source": "builtin",
+    "trigger_type": "zalo_inbound",
+    "icon": "Wallet",
+    "tags": "zalo,personal,finance,expense,income,quick-add",
+    "trigger_config": { "instance_id": "", "filter": "chi:|thu:" },
+    "graph": {
+      "meta": { "template": "tpl_personal_finance_zalo_v1" },
+      "nodes": [
+        { "id": "t1", "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.zalo_inbound",            "label": "Zalo Bot · \"chi:\" / \"thu:\"", "instance_id": "", "filter": "chi:|thu:" } },
+        { "id": "a1", "type": "action",  "position": { "x": 320, "y": 80 }, "data": { "blockId": "action.personal_save_finance",   "label": "Ghi thu/chi",                  "kind": "expense", "amount": "{{trigger.text}}", "title": "{{trigger.text}}", "note": "", "category_id": 0, "occurred_at": "", "source": "zalo_bot", "user_id": 0 } },
+        { "id": "o1", "type": "action",  "position": { "x": 640, "y": 80 }, "data": { "blockId": "action.reply_zalo",               "label": "Xác nhận ghi chi/thu",         "text": "💰 Đã ghi {{a1.kind}}: {{a1.amount}} — {{a1.title}}" } }
+      ],
+      "edges": [
+        { "id": "e_t1_a1", "source": "t1", "target": "a1" },
+        { "id": "e_a1_o1", "source": "a1", "target": "o1" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_personal_journal_evening_v1",
+    "name": "Personal — Nhắc Nhật Ký Buổi Tối (21h)",
+    "description": "Cron 21h mỗi ngày → gửi tin nhắn Zalo Bot nhắc nhở user ghi nhật ký. Cần điền instance_id Zalo Bot + user chat_id sau khi import. Yêu cầu plugin bizcity-personal đã kích hoạt.",
+    "category": "personal",
+    "source": "builtin",
+    "trigger_type": "cron",
+    "icon": "BookOpen",
+    "tags": "cron,daily,personal,journal,evening,reminder",
+    "trigger_config": { "schedule": "0 21 * * *" },
+    "graph": {
+      "meta": { "template": "tpl_personal_journal_evening_v1" },
+      "nodes": [
+        { "id": "t1", "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.cron",       "label": "Cron · 21:00 mỗi ngày",   "schedule": "0 21 * * *" } },
+        { "id": "o1", "type": "action",  "position": { "x": 320, "y": 80 }, "data": { "blockId": "action.reply_zalo", "label": "Nhắc ghi nhật ký",         "text": "📔 Hôm nay thế nào? Hãy ghi lại cảm xúc và khoảnh khắc đáng nhớ.\nNhắn: nhật ký: [nội dung] để lưu vào nhật ký cá nhân." } }
+      ],
+      "edges": [
+        { "id": "e_t1_o1", "source": "t1", "target": "o1" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_personal_daily_summary_v1",
+    "name": "Personal — Morning Summary (7h)",
+    "description": "Cron 7h mỗi sáng → gửi tin nhắn Zalo chào buổi sáng + gợi ý lệnh nhanh (việc:/chi:). Cần điền instance_id Zalo Bot + user chat_id sau khi import.",
+    "category": "personal",
+    "source": "builtin",
+    "trigger_type": "cron",
+    "icon": "Sun",
+    "tags": "cron,daily,personal,morning,summary,reminder",
+    "trigger_config": { "schedule": "0 7 * * *" },
+    "graph": {
+      "meta": { "template": "tpl_personal_daily_summary_v1" },
+      "nodes": [
+        { "id": "t1", "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.cron",       "label": "Cron · 07:00 mỗi ngày",   "schedule": "0 7 * * *" } },
+        { "id": "o1", "type": "action",  "position": { "x": 320, "y": 80 }, "data": { "blockId": "action.reply_zalo", "label": "Tóm tắt buổi sáng",        "text": "☀️ Chào buổi sáng!\nGợi ý: gõ \"việc: [tên task]\" để thêm nhanh công việc hôm nay.\nGõ \"chi: [số tiền] [mô tả]\" để ghi chi tiêu." } }
+      ],
+      "edges": [
+        { "id": "e_t1_o1", "source": "t1", "target": "o1" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_personal_note_zalo_v1",
+    "name": "Personal — Ghi Chú qua Zalo (note:)",
+    "description": "Zalo Bot nhận \"note: [nội dung]\" → lưu vào notebook mặc định dưới dạng .md → ingest vào KG Hub → reply xác nhận. Cần điền instance_id Zalo Bot sau khi import.",
+    "category": "personal",
+    "source": "builtin",
+    "trigger_type": "zalo_inbound",
+    "icon": "NotebookPen",
+    "tags": "zalo,note,notebook,kg,personal,auto",
+    "trigger_config": { "keywords": ["note:", "ghi:", "note :", "ghi :"] },
+    "graph": {
+      "meta": { "template": "tpl_personal_note_zalo_v1" },
+      "nodes": [
+        { "id": "t1", "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.zalo_inbound",          "label": "Zalo Bot — \"note:\"",  "keywords": ["note:", "ghi:", "note :", "ghi :"], "mode": "keyword_start" } },
+        { "id": "a1", "type": "action",  "position": { "x": 320, "y": 80 }, "data": { "blockId": "action.personal_save_note",     "label": "Lưu ghi chú",          "content": "{{trigger.text_stripped}}", "title": "", "notebook_id": 0, "tags": "zalo,auto", "mood": "", "ingest_kg": 1, "user_id": 0 } },
+        { "id": "o1", "type": "action",  "position": { "x": 640, "y": 80 }, "data": { "blockId": "action.reply_zalo",             "label": "Xác nhận ghi chú",     "text": "📓 Đã lưu ghi chú vào notebook của bạn.\nGhi chú cũng được cập nhật vào KG Hub để AI có thể tham chiếu." } }
+      ],
+      "edges": [
+        { "id": "e_t1_a1", "source": "t1", "target": "a1" },
+        { "id": "e_a1_o1", "source": "a1", "target": "o1" }
+      ]
+    }
+  }
+]

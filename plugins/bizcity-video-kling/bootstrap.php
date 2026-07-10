@@ -95,7 +95,10 @@ require_once BIZCITY_VIDEO_KLING_DIR . 'includes/class-gateway-video-proxy.php';
 
 // ── 4c. TwitCanva AJAX bridge (frontend SPA → PHP) ──
 require_once BIZCITY_VIDEO_KLING_DIR . 'includes/class-twitcanva-ajax.php';
-BizCity_TwitCanva_Ajax::init();
+// [2026-06-11 Johnny Chu] HOTFIX — guard: class may not be defined if file failed to load
+if ( class_exists( 'BizCity_TwitCanva_Ajax', false ) ) {
+	BizCity_TwitCanva_Ajax::init();
+}
 
 // ── 4d. Standalone Video Editor page at /video-editor/ ──
 require_once BIZCITY_VIDEO_KLING_DIR . 'includes/class-video-editor-page.php';

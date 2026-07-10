@@ -108,6 +108,21 @@ class BizCity_TwinBrain_Final_Composer {
 		}
 
 		$has_guru = ! empty( $opts['guru_id'] );
+		// [2026-07-07 Johnny Chu] PHASE-FAA2-TWINBRAIN A13 — allow per-call
+		// temperature/max_tokens override so astro mode can widen output depth.
+		$temperature = isset( $opts['final_compose_temperature'] )
+			? (float) $opts['final_compose_temperature']
+			: self::TEMPERATURE;
+		if ( $temperature < 0 ) {
+			$temperature = 0;
+		} elseif ( $temperature > 1.5 ) {
+			$temperature = 1.5;
+		}
+
+		$max_tokens = $has_guru ? self::MAX_TOKENS_GURU : self::MAX_TOKENS;
+		if ( isset( $opts['final_compose_max_tokens'] ) ) {
+			$max_tokens = max( 200, (int) $opts['final_compose_max_tokens'] );
+		}
 
 		// Accumulator wrapper so we capture full text even if caller passes
 		// no on_token (probe mode).
@@ -126,9 +141,12 @@ class BizCity_TwinBrain_Final_Composer {
 			[
 				'purpose'     => self::PURPOSE,
 				'model'       => $model,
-				'temperature' => self::TEMPERATURE,
-				'max_tokens'  => $has_guru ? self::MAX_TOKENS_GURU : self::MAX_TOKENS,
+				'temperature' => $temperature,
+				'max_tokens'  => $max_tokens,
 				'timeout'     => self::TIMEOUT_S,
+				// [2026-07-07 Johnny Chu] HOTFIX — forward keepalive callback so
+				// runtime can emit `final_keepalive` SSE while waiting next token.
+				'on_keepalive' => isset( $opts['on_keepalive'] ) ? $opts['on_keepalive'] : null,
 				// Trace id propagation lets the gateway link this stream to
 				// the parent turn in usage / debug logs.
 				'extra_body'  => [
@@ -157,25 +175,41 @@ class BizCity_TwinBrain_Final_Composer {
 					. ' synth_len=' . mb_strlen( $fallback_text )
 				);
 			}
+			// [2026-06-09 Johnny Chu] PHASE-D D-BE-QUOTA — pass quota_exhausted + quota_layer
+			// through so runtime can emit SSE error event for FE QuotaErrorBanner.
+			// [2026-06-10 Johnny Chu] R-QUOTA-KEY — also forward usage counters.
 			return [
-				'success'   => $fallback_text !== '',
-				'answer_md' => $fallback_text,
-				'model'     => (string) ( $result['model'] ?? $model ),
-				'tokens'    => (int) ( $result['usage']['total_tokens'] ?? 0 ),
-				'ms'        => $elapsed,
-				'fallback'  => 'stream_empty:' . ( $result['error'] ?? 'unknown' ),
-				'error'     => (string) ( $result['error'] ?? '' ),
+				'success'           => $fallback_text !== '',
+				'answer_md'         => $fallback_text,
+				'model'             => (string) ( $result['model'] ?? $model ),
+				'tokens'            => (int) ( $result['usage']['total_tokens'] ?? 0 ),
+				'ms'                => $elapsed,
+				'fallback'          => 'stream_empty:' . ( $result['error'] ?? 'unknown' ),
+				'error'             => (string) ( $result['error'] ?? '' ),
+				'quota_exhausted'   => ! empty( $result['quota_exhausted'] ),
+				'quota_layer'       => isset( $result['quota_layer'] )     ? (string) $result['quota_layer']     : '',
+				'tier'              => isset( $result['tier'] )             ? (string) $result['tier']             : '',
+				'used_requests'     => isset( $result['used_requests'] )    ? (int)    $result['used_requests']    : 0,
+				'cap_requests_day'  => isset( $result['cap_requests_day'] ) ? (int)    $result['cap_requests_day'] : 0,
+				'used_usd'          => isset( $result['used_usd'] )         ? (float)  $result['used_usd']         : 0.0,
+				'cap_usd'           => isset( $result['cap_usd'] )          ? (float)  $result['cap_usd']          : 0.0,
+				'reset_at'          => isset( $result['reset_at'] )         ? (string) $result['reset_at']         : '',
+				'quota_period'      => isset( $result['quota_period'] )     ? (string) $result['quota_period']     : 'day',
+				'master_level'      => isset( $result['master_level'] )     ? (string) $result['master_level']     : '',
 			];
 		}
 
 		return [
-			'success'   => true,
-			'answer_md' => $final_text,
-			'model'     => (string) ( $result['model'] ?? $model ),
-			'tokens'    => (int) ( $result['usage']['total_tokens'] ?? 0 ),
-			'ms'        => $elapsed,
-			'fallback'  => '',
-			'error'     => '',
+			'success'         => true,
+			'answer_md'       => $final_text,
+			'model'           => (string) ( $result['model'] ?? $model ),
+			'tokens'          => (int) ( $result['usage']['total_tokens'] ?? 0 ),
+			'ms'              => $elapsed,
+			'fallback'        => '',
+			'error'           => '',
+			'quota_exhausted' => false,
+			'quota_layer'     => '',
+			'tier'            => '',
 		];
 	}
 
@@ -186,6 +220,11 @@ class BizCity_TwinBrain_Final_Composer {
 	private function build_messages( string $prompt, array $synth, array $answers, array $opts ): array {
 		$has_guru = ! empty( $opts['guru_id'] );
 		$ans_cap  = $has_guru ? 700 : 450;
+		// [2026-07-07 Johnny Chu] PHASE-FAA2-TWINBRAIN A13 — per-call answer
+		// cap override for long-form astro each-day replies.
+		if ( isset( $opts['final_compose_ans_cap'] ) ) {
+			$ans_cap = max( 300, (int) $opts['final_compose_ans_cap'] );
+		}
 
 		// Split answers same as Synthesizer for symmetry.
 		$nb_lines  = [];
@@ -275,6 +314,99 @@ SYS;
 			"## C\u00c2U H\u1ed0I C\u1ee6A USER\n" . $prompt,
 			$synth_block,
 		];
+
+		/* [2026-06-04 Johnny Chu] PHASE-A C.3b — Full-context injection.
+		 * Astro (và các mode cần ngữ cảnh dài) truyền `extra_context_md` để
+		 * đưa NGUYÊN dữ liệu (vd transit markdown 8KB) vào prompt mà KHÔNG bị
+		 * cắt bởi ANS_TRUNC=1200 như nhánh synthesizer. Cap rộng (12KB) để
+		 * tránh prompt nổ token; filter cho phép tuỳ chỉnh. */
+		$extra_ctx = trim( (string) ( $opts['extra_context_md'] ?? '' ) );
+		if ( $extra_ctx !== '' ) {
+			$extra_cap = (int) apply_filters(
+				'bizcity_twinbrain_final_compose_extra_ctx_cap',
+				12000,
+				$opts
+			);
+			$extra_label = (string) ( $opts['extra_context_label'] ?? 'FULL CONTEXT DATA (read carefully)' );
+			$user_parts[] = "### " . $extra_label . "\n"
+				. mb_substr( $extra_ctx, 0, max( 1000, $extra_cap ) );
+
+			// [2026-06-10 Johnny Chu] ASTRO-CITE 3 — inject explicit citation rule
+			// into system prompt when astro token URLs are present in context.
+			// Without this, LLM treats [astro:*#URL] as data, not as citable links.
+			if ( strpos( $extra_ctx, '[astro:' ) !== false ) {
+				$astro_subject_line_min = isset( $opts['astro_subject_line_min'] )
+					? max( 8, (int) $opts['astro_subject_line_min'] )
+					: 20;
+				$astro_subject_line_max = isset( $opts['astro_subject_line_max'] )
+					? max( $astro_subject_line_min, (int) $opts['astro_subject_line_max'] )
+					: max( $astro_subject_line_min, 24 );
+				$astro_subject_mode = isset( $opts['astro_subject_mode'] )
+					? sanitize_key( (string) $opts['astro_subject_mode'] )
+					: 'temporal_signal';
+				$astro_deep_analysis_requested = ! empty( $opts['astro_deep_analysis_requested'] );
+				$astro_focus_domains = isset( $opts['astro_focus_domains'] ) && is_array( $opts['astro_focus_domains'] )
+					? array_values( array_unique( array_filter( array_map( 'sanitize_key', $opts['astro_focus_domains'] ) ) ) )
+					: array();
+
+				$system .= "\n10. Trong phần DỮ LIỆU CHIÊM TINH đầu context có các token dạng `[astro:natal#URL]` và `[astro:transit#URL]`. "
+					. "KHI đề cập bản đồ sao cá nhân hoặc lịch quá cảnh trong câu trả lời, BẮT BUỘC copy nguyên token đó vào đúng vị trí câu văn. "
+					. "Ví dụ: \"...ảnh hưởng đến bản đồ sao của bạn [astro:natal#https://...]\". "
+					. "KHÔNG viết lại URL, KHÔNG bỏ token, KHÔNG thay bằng dấu ngoặc vuông khác.";
+				// [2026-07-05 Johnny Chu] PHASE-FAA2-TWINBRAIN — astro response contract: 3 blocks + citation boundary.
+				$system .= "\n11. Đây là chế độ ASTRO. BẮT BUỘC chia câu trả lời thành ĐÚNG 3 block, theo thứ tự:\n"
+					. "- `## 1) Chủ thể` : xác định người được luận + thông tin natal/birth liên quan, có [astro:natal#URL] nếu dùng dữ liệu bản đồ sao.\n"
+					. "- `## 2) Transit` : phân tích ảnh hưởng theo cửa sổ thời gian đã parse (không đảo lộn ngày), có [astro:transit#URL] hoặc [astro:transit_day#URL] cho từng luận điểm.\n"
+					. "- `## 3) Kết luận` : kết luận ngắn gọn và hành động gợi ý.\n"
+					. "Không thêm block thứ 4, không gộp 3 block vào một đoạn.";
+				$system .= "\n12. Ranh giới citation bắt buộc: token `[mem:*]` chỉ dùng cho dữ kiện memory; token `[astro:*]` chỉ dùng cho dữ kiện chiêm tinh. "
+					. "Không được dùng chéo namespace trong cùng luận điểm.";
+			}
+			if ( strpos( $extra_ctx, '## PHÂN TÍCH TRANSIT THEO TỪNG NGÀY (DETERMINISTIC)' ) !== false ) {
+				$system .= "\n13. Với câu hỏi transit nhiều ngày, BẮT BUỘC trả lời theo thứ tự từng ngày trong cửa sổ (đủ tất cả ngày), "
+					. "mỗi ngày có nhận định ngắn. Sau đó mới có mục 'Kết luận cuối' chọn 1 ngày tốt nhất dựa trên dữ liệu từng ngày. "
+					. "KHÔNG được bỏ qua phần foreach theo ngày.";
+			}
+				// [2026-07-08 Johnny Chu] PHASE-FAA2-TWINBRAIN A16 — enforce subject depth contract.
+				$system .= "\n14. Block `## 1) Chủ thể` BẮT BUỘC dài khoảng {$astro_subject_line_min}-{$astro_subject_line_max} dòng. "
+					. "Không rút gọn còn vài câu. Ưu tiên diễn giải natal + tính cách + động lực sự nghiệp + xu hướng hành vi, "
+					. "và gắn token [astro:natal#...] / [mem:*] đúng namespace khi dùng dữ kiện.";
+				if ( strpos( $astro_subject_mode, 'subject_default_tomorrow' ) === 0 ) {
+					$system .= "\n15. Mode này là KHÔNG có tín hiệu thời gian trong câu hỏi: "
+						. "Block `## 2) Transit` mặc định nói về ngày mai (start_offset=1), giữ ngắn gọn hơn block Chủ thể, "
+						. "và vẫn phải có [astro:transit_day#...] hoặc [astro:transit#...] cho kết luận transit.";
+				} else {
+					$system .= "\n15. Mode này có tín hiệu thời gian/tương lai: vẫn giữ block Chủ thể ở độ dài yêu cầu trên, "
+						. "sau đó mới mở rộng block Transit theo đúng cửa sổ thời gian đã parse.";
+				}
+				// [2026-07-08 Johnny Chu] PHASE-FAA2-TWINBRAIN A17 — hard rule for
+				// deep-analysis prompts (chi tiết/kỹ lưỡng/phân tích sâu).
+				if ( $astro_deep_analysis_requested ) {
+					$domain_labels = array(
+						'career'  => 'sự nghiệp/công việc',
+						'finance' => 'tài chính/tiền bạc',
+						'love'    => 'tình duyên/tình cảm',
+						'family'  => 'gia đình',
+						'life'    => 'cuộc đời/đường đời',
+					);
+					$focus_label_rows = array();
+					foreach ( $astro_focus_domains as $_d ) {
+						if ( isset( $domain_labels[ $_d ] ) ) {
+							$focus_label_rows[] = $domain_labels[ $_d ];
+						}
+					}
+					if ( empty( $focus_label_rows ) ) {
+						$focus_label_rows = array_values( $domain_labels );
+					}
+					$system .= "\n16. User đang yêu cầu phân tích sâu/chi tiết: trong block `## 1) Chủ thể`, "
+						. "bắt buộc triển khai thành nhiều đoạn rõ ràng theo các trục: "
+						. implode( '; ', $focus_label_rows )
+						. ". Mỗi trục nêu hiện trạng + điểm mạnh + rủi ro + hành động gợi ý ngắn.";
+					$system .= "\n17. Khi có mode deep, tuyệt đối không trả lời chung chung. "
+						. "Nếu thiếu dữ kiện cho một trục, phải nói rõ giả định và mức chắc chắn; "
+						. "không được bỏ qua trục user đã hỏi.";
+				}
+		}
 
 		/* Wave 2.8 (TBR.MEM-3) — prepend Memory Recall block to user message
 		 * so the LLM sees user identity / preferences / explicit "hãy nhớ"
@@ -397,7 +529,26 @@ SYS;
 			? "\n6. Giữ giọng persona/guru đang được bind — không dùng giọng báo cáo trung tính."
 			: '';
 
-		$system = <<<SYS
+		// [2026-06-03 Johnny Chu] HOTFIX — Companion mode: empathic system
+		// prompt khi user chọn pill `Chat` (web_mode='chat'). Dùng memory để
+		// thấu cảm / tâm sự / đồng hành, không phải đưa kiến thức.
+		$companion = ! empty( $opts['companion_mode'] );
+
+		if ( $companion ) {
+			$system = <<<SYS
+Bạn là **người bạn đồng hành** của user — một presence ấm áp, lắng nghe, biết ghi nhớ những gì user đã chia sẻ. KHÔNG có notebook / web research / tool nào cho turn này, và đó là chủ đích — user muốn TRÒ CHUYỆN, không cần tra cứu kiến thức.
+
+NGUYÊN TẮC GIAO TIẾP:
+1. Giọng văn ấm, gần gũi, tự nhiên như nhắn tin với một người bạn thân. Tiếng Việt. Tối đa {$ans_cap} từ.
+2. Ưu tiên **lắng nghe và phản chiếu cảm xúc** trước, gợi ý / lời khuyên sau (và chỉ khi user thực sự xin). Đặt câu hỏi mở khi phù hợp để user mở lòng tiếp.
+3. Dùng MEMORY BLOCK để nhớ tên / sở thích / chuyện cũ user đã kể — gọi đúng tên, nhắc lại context cũ một cách tinh tế (không liệt kê dài dòng). Khi nhắc tới fact từ memory, vẫn echo `[mem:U#<id>]` / `[mem:E#<id>]` / `[mem:R#<id>]` ngay cạnh câu văn.
+4. KHÔNG bịa fact ngoài MEMORY BLOCK. Nếu user hỏi info cụ thể không có trong memory → thành thật "mình chưa biết phần này", và quay lại dòng cảm xúc / câu chuyện chính.
+5. KHÔNG dùng heading lớn / bullet list / fence code / JSON. Văn xuôi, 1-3 đoạn ngắn. Có thể dùng emoji nhẹ nhàng (1-2 cái) khi phù hợp tâm trạng.{$persona_hint}
+
+NHỚ: User mở chế độ này vì cần một người bạn, không cần một trợ lý kiến thức.
+SYS;
+		} else {
+			$system = <<<SYS
 Bạn là TwinBrain ở **chế độ trò chuyện** — không có notebook / web research / tool nào cho turn này. Chỉ có MEMORY BLOCK (lịch sử ngắn + ghi chú user dặn) và câu hỏi hiện tại.
 
 NGUYÊN TẮC:
@@ -407,6 +558,7 @@ NGUYÊN TẮC:
 4. KHÔNG dùng heading lớn / bullet list trừ khi câu trả lời thực sự là enumerate. Ưu tiên 1-3 đoạn văn ngắn.
 5. KHÔNG xuất JSON, KHÔNG ```fence.{$persona_hint}
 SYS;
+		}
 
 		// Memory tool schema (opt-in) — same filter as compose_stream.
 		$tools_enabled = (bool) apply_filters(
@@ -464,10 +616,13 @@ SYS;
 				'temperature' => self::TEMPERATURE,
 				'max_tokens'  => $has_guru ? self::MAX_TOKENS_GURU : self::MAX_TOKENS,
 				'timeout'     => self::TIMEOUT_S,
+				// [2026-07-07 Johnny Chu] HOTFIX — forward keepalive callback so
+				// runtime can emit `final_keepalive` SSE while waiting next token.
+				'on_keepalive' => isset( $opts['on_keepalive'] ) ? $opts['on_keepalive'] : null,
 				'extra_body'  => [
 					'site_url' => home_url(),
 					'trace_id' => $trace_id,
-					'mode'     => 'chat_auto_degrade',
+					'mode'     => $companion ? 'chat_companion' : 'chat_auto_degrade',
 				],
 			],
 			$relay
@@ -489,25 +644,32 @@ SYS;
 					. ' deltas=' . $delta_n
 				);
 			}
+			// [2026-06-09 Johnny Chu] PHASE-D D-BE-QUOTA — pass quota_exhausted + quota_layer through.
 			return [
-				'success'   => $fallback_text !== '',
-				'answer_md' => $fallback_text,
-				'model'     => (string) ( $result['model'] ?? $model ),
-				'tokens'    => (int) ( $result['usage']['total_tokens'] ?? 0 ),
-				'ms'        => $elapsed,
-				'fallback'  => 'chat_stream_empty:' . ( $result['error'] ?? 'unknown' ),
-				'error'     => (string) ( $result['error'] ?? '' ),
+				'success'         => $fallback_text !== '',
+				'answer_md'       => $fallback_text,
+				'model'           => (string) ( $result['model'] ?? $model ),
+				'tokens'          => (int) ( $result['usage']['total_tokens'] ?? 0 ),
+				'ms'              => $elapsed,
+				'fallback'        => 'chat_stream_empty:' . ( $result['error'] ?? 'unknown' ),
+				'error'           => (string) ( $result['error'] ?? '' ),
+				'quota_exhausted' => ! empty( $result['quota_exhausted'] ),
+				'quota_layer'     => isset( $result['quota_layer'] ) ? (string) $result['quota_layer'] : '',
+				'tier'            => isset( $result['tier'] ) ? (string) $result['tier'] : '',
 			];
 		}
 
 		return [
-			'success'   => true,
-			'answer_md' => $final_text,
-			'model'     => (string) ( $result['model'] ?? $model ),
-			'tokens'    => (int) ( $result['usage']['total_tokens'] ?? 0 ),
-			'ms'        => $elapsed,
-			'fallback'  => '',
-			'error'     => '',
+			'success'         => true,
+			'answer_md'       => $final_text,
+			'model'           => (string) ( $result['model'] ?? $model ),
+			'tokens'          => (int) ( $result['usage']['total_tokens'] ?? 0 ),
+			'ms'              => $elapsed,
+			'fallback'        => '',
+			'error'           => '',
+			'quota_exhausted' => false,
+			'quota_layer'     => '',
+			'tier'            => '',
 		];
 	}
 

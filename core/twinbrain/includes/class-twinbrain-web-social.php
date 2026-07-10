@@ -45,7 +45,8 @@ final class BizCity_TwinBrain_Web_Social {
 	const SEARCH_TIMEOUT_S = 8;
 	const LLM_TIMEOUT_S    = 14;
 	const LLM_TEMPERATURE  = 0.25;
-	const LLM_MAX_TOKENS   = 700;
+	// [2026-06-24 Johnny Chu] PHASE-SOCIAL-MPR — bumped from 700 to allow KEY PATTERNS section.
+	const LLM_MAX_TOKENS   = 900;
 	const SNIPPET_TRUNC    = 480;
 	const TITLE_TRUNC      = 160;
 	const DEFAULT_TIME     = 'month'; // matches cookbook default
@@ -101,6 +102,7 @@ final class BizCity_TwinBrain_Web_Social {
 			'extracts'       => [],
 			'iterations'     => [],
 			'answer_md'      => '',
+			'key_patterns'   => [],   // [2026-06-24 Johnny Chu] PHASE-SOCIAL-MPR — structured KEY PATTERNS from synthesis
 			'citations'      => [],
 			'citation_count' => 0,
 			'tokens'         => 0,
@@ -147,6 +149,14 @@ final class BizCity_TwinBrain_Web_Social {
 
 		$row['results'] = $this->normalize_results( $results );
 
+		// [2026-06-24 Johnny Chu] PHASE-SOCIAL-MPR — Reddit enrichment + engagement scoring.
+		// Pattern: trending_research L1-L2 adapted for social context.
+		// Reddit gives upvote signal that editorial social search lacks entirely.
+		$reddit_items   = ( $platform === 'combined' ) ? $this->fetch_reddit_enrichment( $query, $time_range ) : [];
+		$merged_items   = array_merge( $row['results'], $reddit_items );
+		$scored_items   = $this->score_and_ground( $merged_items, $query );
+		$row['results'] = $scored_items;
+
 		$this->emit( 'web_search_done', [
 			'trace_id' => $trace_id,
 			'mode'     => 'social',
@@ -178,6 +188,7 @@ final class BizCity_TwinBrain_Web_Social {
 		$synth_ms    = (int) round( ( microtime( true ) - $synth_start ) * 1000 );
 
 		$row['answer_md']      = (string) $synth['answer_md'];
+		$row['key_patterns']   = (array)  ( $synth['key_patterns'] ?? [] ); // [2026-06-24 Johnny Chu] PHASE-SOCIAL-MPR
 		$row['tokens']         = (int) $synth['tokens'];
 		$row['http_status']    = (int) $synth['http_status'];
 		$row['citations']      = $this->extract_citations( $row['answer_md'], $row['results'] );
@@ -301,10 +312,11 @@ final class BizCity_TwinBrain_Web_Social {
 
 	private function do_synthesize( string $trace_id, string $query, array $results, string $platform ): array {
 		$out = [
-			'answer_md'   => '',
-			'tokens'      => 0,
-			'http_status' => 0,
-			'error'       => '',
+			'answer_md'    => '',
+			'key_patterns' => [],  // [2026-06-24 Johnny Chu] PHASE-SOCIAL-MPR
+			'tokens'       => 0,
+			'http_status'  => 0,
+			'error'        => '',
 		];
 
 		if ( ! class_exists( 'BizCity_LLM_Client' ) ) {
@@ -355,7 +367,9 @@ final class BizCity_TwinBrain_Web_Social {
 
 		$out['http_status'] = (int) wp_remote_retrieve_response_code( $response );
 		$raw                = (string) wp_remote_retrieve_body( $response );
-		$decoded            = json_decode( $raw, true );
+		// [2026-06-24 Johnny Chu] HOTFIX-BOM — strip UTF-8 BOM; bizcity.vn gateway prepends 0xEF BB BF → json_decode null on HTTP 200 → gateway_failure:unknown
+		if ( substr( $raw, 0, 3 ) === "\xEF\xBB\xBF" ) { $raw = substr( $raw, 3 ); }
+		$decoded            = json_decode( trim( $raw ), true );
 
 		if ( ! is_array( $decoded ) || empty( $decoded['success'] ) ) {
 			$out['error']     = 'gateway_failure:' . ( $decoded['error'] ?? $decoded['message'] ?? 'unknown' );
@@ -363,8 +377,10 @@ final class BizCity_TwinBrain_Web_Social {
 			return $out;
 		}
 
-		$out['answer_md'] = trim( (string) ( $decoded['message'] ?? '' ) );
-		$out['tokens']    = (int) ( $decoded['usage']['total_tokens'] ?? 0 );
+		$out['answer_md']    = trim( (string) ( $decoded['message'] ?? '' ) );
+		$out['tokens']       = (int) ( $decoded['usage']['total_tokens'] ?? 0 );
+		// [2026-06-24 Johnny Chu] PHASE-SOCIAL-MPR — extract KEY PATTERNS into structured array.
+		$out['key_patterns'] = $this->extract_key_patterns( $out['answer_md'] );
 
 		if ( $out['answer_md'] === '' ) {
 			$out['answer_md'] = $this->build_stub_answer( $results );
@@ -383,33 +399,36 @@ final class BizCity_TwinBrain_Web_Social {
 		return (string) apply_filters( 'bizcity_twinbrain_web_social_model', $model );
 	}
 
+	// [2026-06-24 Johnny Chu] PHASE-SOCIAL-MPR — Voice Contract prompt (pattern: trending_research LAWs 1-10).
 	private function build_messages( string $query, array $results, string $platform ): array {
-		$system = $this->load_prompt_template();
+		$scope    = $platform === 'combined' ? 'TẤT CẢ social platforms (TikTok, Reddit, Instagram, X, Facebook, LinkedIn)' : strtoupper( $platform );
+		$n        = count( $results );
+		$evidence = $this->build_evidence_block( $results );
 
-		$context = '';
-		foreach ( $results as $i => $r ) {
-			$idx = $i + 1;
-			$context .= sprintf(
-				"[social:%d#%s] (%s) %s\nDomain: %s\nSnippet: %s\n\n",
-				$idx,
-				$r['url'],
-				$r['platform'] ?: 'web',
-				$r['title'],
-				$r['domain'],
-				trim( $r['snippet'] )
-			);
-		}
-		if ( $context === '' ) {
-			$context = '_(no social results)_';
-		}
+		$system = "Bạn là social listening analyst. "
+			. "NHIỆM VỤ: tổng hợp signal từ social posts thành báo cáo ngắn gọn, dễ đọc.\n"
+			. "Reddit = honest opinions (upvotes = engagement signal mạnh). TikTok = viral trends. X = real-time reactions. LinkedIn = professional takes.\n\n"
+			. "CÁC NGUYÊN TẮC BẮT BUỘC (không được vi phạm):\n"
+			. "1. KHÔNG có block 'Nguồn:' / 'Sources:' ở cuối bài.\n"
+			. "2. KHÔNG có '## Section headers' trong prose.\n"
+			. "3. Mọi trích dẫn PHẢI là inline link [tên ngắn](url) — URL lấy từ [social:N#URL] trong evidence.\n"
+			. "4. Mở bài PHẢI là 'Điều tôi tìm hiểu được:' — không đặt tiêu đề tùy ý.\n"
+			. "5. Mỗi đoạn văn có mở đầu in đậm (**...** 1-5 từ) thay vì subheading.\n"
+			. "6. Post có upvotes nhiều = signal đáng tin hơn editorial — ưu tiên dẫn chứng từ reddit khi có.\n"
+			. "7. KHÔNG bịa đặt; chỉ dùng dữ liệu trong evidence.\n"
+			. "8. Tiếng Việt tự nhiên; tên riêng/kỹ thuật giữ nguyên.";
 
-		$scope = $platform === 'combined' ? 'TẤT CẢ social platforms' : strtoupper( $platform );
-		$user  = "SOCIAL POSTS (top-" . count( $results ) . ", scope={$scope}):\n\n{$context}\nCÂU HỎI:\n{$query}\n\n"
-		      . "Yêu cầu trả lời (≤220 từ):\n"
-		      . "1. Tóm tắt sentiment chung (positive / negative / mixed) và lý do.\n"
-		      . "2. Liệt kê 2-4 chủ đề / opinion clusters nổi bật. Mỗi cluster ghi rõ platform nguồn.\n"
-		      . "3. Citation BẮT BUỘC dạng [social:N#URL] cho mọi mệnh đề có dữ kiện.\n"
-		      . "4. Nếu posts không đủ tin cậy (vd quá ít, off-topic), nói rõ.";
+		$user = "SOCIAL EVIDENCE (top-{$n}, scope={$scope}):\n\n{$evidence}\n"
+			. "CÂU HỎI: {$query}\n\n"
+			. "Yêu cầu (≤260 từ):\n"
+			. "1. Dòng đầu: 'Điều tôi tìm hiểu được: [1-2 câu insight nổi bật].'\n"
+			. "2. 2-4 đoạn văn: bold lead-in + sentiment/opinion cluster + platform nguồn + inline citation [tên](url).\n"
+			. "3. Kết thúc bằng:\n"
+			. "   KEY PATTERNS từ social listening:\n"
+			. "   1. [pattern ngắn 1 câu]\n"
+			. "   2. ...\n"
+			. "   (3-5 patterns)\n"
+			. "4. Nếu data không đủ tin cậy, nói rõ trong bài.";
 
 		return [
 			[ 'role' => 'system', 'content' => $system ],
@@ -500,5 +519,158 @@ final class BizCity_TwinBrain_Web_Social {
 		if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 			error_log( '[TwinBrain][web-social][noop-bus] ' . $event_key );
 		}
+	}
+
+	/* =================================================================
+	 *  PHASE-SOCIAL-MPR helpers (2026-06-24 Johnny Chu)
+	 *  Pattern: adapted from action.trending_research pipeline L1-L3.
+	 * ================================================================ */
+
+	/**
+	 * Fetch Reddit posts as engagement-signal enrichment for the social query.
+	 * Uses public JSON API (keyless) — same approach as trending_research::fetch_reddit().
+	 */
+	private function fetch_reddit_enrichment( string $query, string $time_range ): array {
+		$scope_t = $time_range === 'day' ? 'day' : ( $time_range === 'week' ? 'week' : 'month' );
+
+		// Infer subreddits from query
+		$q_lower    = strtolower( $query );
+		$subreddits = [ 'vietnam', 'VietNam' ];
+		if ( strpos( $q_lower, 'tiktok' ) !== false ) {
+			$subreddits = [ 'TikTok', 'tiktokmarketing' ];
+		} elseif ( strpos( $q_lower, 'facebook' ) !== false ) {
+			$subreddits = [ 'facebook', 'socialmedia' ];
+		} elseif ( strpos( $q_lower, 'instagram' ) !== false ) {
+			$subreddits = [ 'Instagram', 'socialmedia' ];
+		} elseif ( strpos( $q_lower, 'linkedin' ) !== false ) {
+			$subreddits = [ 'linkedin', 'socialmedia' ];
+		} elseif ( strpos( $q_lower, 'marketing' ) !== false || strpos( $q_lower, 'xu hướng' ) !== false ) {
+			$subreddits = [ 'marketing', 'socialmedia', 'vietnam' ];
+		} elseif ( strpos( $q_lower, ' x ' ) !== false || strpos( $q_lower, 'twitter' ) !== false ) {
+			$subreddits = [ 'Twitter', 'socialmedia' ];
+		}
+
+		$results = [];
+		foreach ( array_slice( $subreddits, 0, 2 ) as $sub ) {
+			$url = 'https://www.reddit.com/r/' . urlencode( $sub ) . '/search.json'
+				. '?q=' . urlencode( $query )
+				. '&sort=top&t=' . $scope_t . '&limit=5&restrict_sr=1';
+
+			$resp = wp_remote_get( $url, [
+				'timeout'    => 6,
+				'user-agent' => 'BizCity TwinBrain/1.0 (social listening; +https://bizcity.vn)',
+				'headers'    => [ 'Accept' => 'application/json' ],
+			] );
+			if ( is_wp_error( $resp ) ) { continue; }
+
+			$body = (string) wp_remote_retrieve_body( $resp );
+			if ( substr( $body, 0, 3 ) === "\xEF\xBB\xBF" ) { $body = substr( $body, 3 ); }
+			$decoded = json_decode( trim( $body ), true );
+
+			if ( ! is_array( $decoded ) || empty( $decoded['data']['children'] ) ) { continue; }
+
+			foreach ( $decoded['data']['children'] as $child ) {
+				$post = (array) ( $child['data'] ?? [] );
+				if ( empty( $post['title'] ) ) { continue; }
+				$results[] = [
+					'url'         => 'https://reddit.com' . ( (string) ( $post['permalink'] ?? '' ) ),
+					'title'       => mb_substr( (string) ( $post['title'] ?? '' ), 0, self::TITLE_TRUNC ),
+					'snippet'     => mb_substr( (string) ( $post['selftext'] ?? $post['title'] ?? '' ), 0, self::SNIPPET_TRUNC ),
+					'score'       => min( 1.0, (float) ( $post['score'] ?? 0 ) / 1000.0 ),
+					'engagement'  => (int) ( $post['score'] ?? 0 ),  // Reddit upvotes = real engagement signal
+					'domain'      => 'reddit.com',
+					'platform'    => 'reddit',
+					'published_at'=> '',
+				];
+			}
+		}
+		return $results;
+	}
+
+	/**
+	 * Engagement scoring + entity grounding.
+	 * Pattern: trending_research L2 (lib/relevance.py + lib/grounding.py).
+	 * final_score = 0.6 × relevance + 0.4 × engagement_normalized.
+	 * Head-token miss → ×0.3 demotion (decisive, same as last30days grounding.py).
+	 */
+	private function score_and_ground( array $items, string $query ): array {
+		$primary_words = preg_split( '/\s+/u', mb_strtolower( $query ), 3 );
+		$head_token    = $primary_words[0] ?? '';
+
+		$max_eng = 1;
+		foreach ( $items as $r ) {
+			if ( isset( $r['engagement'] ) && $r['engagement'] > $max_eng ) {
+				$max_eng = $r['engagement'];
+			}
+		}
+
+		$scored = [];
+		$seen   = [];
+		foreach ( $items as $r ) {
+			$url = (string) ( $r['url'] ?? '' );
+			if ( $url === '' || isset( $seen[ $url ] ) ) { continue; }
+			$seen[ $url ] = true;
+
+			$eng_norm = $max_eng > 0 ? (float) ( $r['engagement'] ?? 0 ) / $max_eng : 0.0;
+			$rel      = (float) ( $r['score'] ?? 0.5 );
+			$final    = 0.6 * $rel + 0.4 * $eng_norm;
+
+			if ( $head_token !== '' ) {
+				$combined = mb_strtolower( ( $r['title'] ?? '' ) . ' ' . ( $r['snippet'] ?? '' ) );
+				if ( strpos( $combined, $head_token ) === false ) {
+					$final *= 0.3;  // decisive demotion — off-topic post
+				}
+			}
+
+			$r['_final_score'] = round( $final, 4 );
+			$scored[] = $r;
+		}
+
+		usort( $scored, function ( $a, $b ) {
+			return $b['_final_score'] <=> $a['_final_score'];
+		} );
+
+		return $scored;
+	}
+
+	/**
+	 * Build ranked evidence block for LLM synthesis context.
+	 * Includes engagement signal in metadata so LLM can weight accordingly.
+	 * Pattern: trending_research build_evidence_block().
+	 */
+	private function build_evidence_block( array $results ): string {
+		if ( empty( $results ) ) { return '_(no social results)_'; }
+		$lines = [];
+		foreach ( array_slice( $results, 0, 12 ) as $i => $r ) {
+			$idx      = $i + 1;
+			$url      = (string) ( $r['url']     ?? '' );
+			$title    = (string) ( $r['title']   ?? '' );
+			$snippet  = mb_substr( (string) ( $r['snippet'] ?? '' ), 0, 280 );
+			$platform = (string) ( $r['platform'] ?? 'web' );
+			$eng      = (int) ( $r['engagement'] ?? 0 );
+			$score    = number_format( (float) ( $r['_final_score'] ?? $r['score'] ?? 0 ), 3 );
+			$eng_str  = $eng > 0 ? ", upvotes:{$eng}" : '';
+			$lines[]  = "[social:{$idx}#{$url}] ({$platform}, score:{$score}{$eng_str}) {$title}";
+			if ( $snippet !== '' ) { $lines[] = "  Snippet: {$snippet}"; }
+			$lines[] = '';
+		}
+		return implode( "\n", $lines );
+	}
+
+	/**
+	 * Extract KEY PATTERNS numbered list from synthesis text.
+	 * Pattern: trending_research extract_key_patterns().
+	 */
+	private function extract_key_patterns( string $text ): array {
+		$patterns = [];
+		if ( preg_match( '/KEY PATTERNS[^:]*:(.*?)(?:\n\n|\Z)/si', $text, $m ) ) {
+			foreach ( explode( "\n", trim( $m[1] ) ) as $line ) {
+				$line = trim( $line );
+				$line = preg_replace( '/^[\d]+\.\s*/', '', $line );
+				$line = preg_replace( '/^[-*•]\s*/', '', $line );
+				if ( strlen( $line ) > 5 ) { $patterns[] = $line; }
+			}
+		}
+		return $patterns;
 	}
 }

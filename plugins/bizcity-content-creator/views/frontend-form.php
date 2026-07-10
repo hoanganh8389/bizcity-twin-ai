@@ -76,10 +76,44 @@ $step_count   = $has_wizard ? count( $wizard_steps ) + ( $has_confirm ? 1 : 0 ) 
 </div>
 <?php endif; ?>
 
+<?php /* [2026-06-06 Johnny Chu] BZCC-SKEL — Notebook + Skeleton picker bar */ ?>
+<!-- ── Notebook Picker Bar ── -->
+<div id="bzcc-notebook-picker-wrap" class="bzcc-notebook-picker-wrap">
+	<div class="bzcc-notebook-picker-row">
+		<span class="bzcc-notebook-label">
+			<span>📒</span>
+			<span>Notebook:</span>
+		</span>
+		<div class="bzcc-notebook-select-wrap">
+			<bztwin-notebook-selector
+				id="bzcc-notebook-selector"
+				placeholder="— Chọn notebook tham chiếu để bám skeleton —"
+				style="width:100%;"
+			></bztwin-notebook-selector>
+		</div>
+	</div>
+
+	<!-- Skeleton Context Banner (shown after notebook selected) -->
+	<div id="bzcc-skeleton-banner" class="bzcc-skeleton-banner">
+		<div class="bzcc-skeleton-banner__head">
+			<span class="bzcc-skeleton-banner__title">
+				<span>🧬</span>
+				<span>Skeleton đã chọn</span>
+				<span id="bzcc-skeleton-nb-name" class="bzcc-skel-summary__nb-title"></span>
+			</span>
+			<button type="button" id="bzcc-skeleton-dismiss" class="bzcc-skeleton-banner__dismiss" title="Bỏ chọn notebook">✕ Bỏ chọn</button>
+		</div>
+		<div id="bzcc-skeleton-nucleus" class="bzcc-skeleton-nucleus"></div>
+		<div id="bzcc-skeleton-keypoints" class="bzcc-skeleton-keypoints"></div>
+	</div>
+</div>
+
 <!-- ── Form ── -->
 <form id="bzcc-form" class="bzcc-form" data-template-id="<?php echo (int) $template->id; ?>">
 	<?php wp_nonce_field( 'bzcc_frontend', 'bzcc_nonce' ); ?>
 	<input type="hidden" name="template_id" value="<?php echo (int) $template->id; ?>">
+	<?php /* [2026-06-06 Johnny Chu] BZCC-SKEL — hidden field synced by JS from bztwin-notebook-selector web component */ ?>
+	<input type="hidden" name="notebook_id" id="bzcc-notebook-id-hidden" value="0">
 
 	<?php if ( $has_wizard ) : ?>
 		<!-- Wizard mode: group fields by step -->

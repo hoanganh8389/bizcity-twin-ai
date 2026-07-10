@@ -291,11 +291,24 @@ class BizCity_Gateway_Admin {
 	/* ─────────────────── AJAX: Save Roles ─────────────────── */
 
 	public function ajax_save_roles(): void {
+		// [2026-06-05 Johnny Chu] R-ERROR-UX — migrate to BizCity_Error_Payload
 		if ( ! current_user_can( 'manage_options' ) ) {
-			wp_send_json_error( 'Forbidden', 403 );
+			wp_send_json_success( BizCity_Error_Payload::make(
+				'permission_denied',
+				'Bạn không có quyền thực hiện thao tác này.',
+				'Liên hệ quản trị viên để được cấp quyền manage_options.',
+				'permission_denied'
+			) );
+			wp_die();
 		}
 		if ( ! wp_verify_nonce( $_POST['_nonce'] ?? '', 'bizchat_roles_save' ) ) {
-			wp_send_json_error( 'Invalid nonce', 403 );
+			wp_send_json_success( BizCity_Error_Payload::make(
+				'nonce_invalid',
+				'Mã bảo mật hết hạn.',
+				'Tải lại trang và thử lại.',
+				'nonce_expired'
+			) );
+			wp_die();
 		}
 
 		// 1. Update focus_override for each role definition.
@@ -775,27 +788,53 @@ class BizCity_Gateway_Admin {
 	/* ─────────────────── AJAX: Save Integration ─────────────────── */
 
 	public function ajax_save_integration(): void {
+		// [2026-06-05 Johnny Chu] R-ERROR-UX — migrate to BizCity_Error_Payload
 		if ( ! current_user_can( 'manage_options' ) ) {
-			wp_send_json_error( 'Forbidden', 403 );
+			wp_send_json_success( BizCity_Error_Payload::make(
+				'permission_denied',
+				'Bạn không có quyền thực hiện thao tác này.',
+				'Liên hệ quản trị viên để được cấp quyền manage_options.',
+				'permission_denied'
+			) );
+			wp_die();
 		}
 		if ( ! wp_verify_nonce( $_POST['_nonce'] ?? '', 'bizchat_integ_save' ) ) {
-			wp_send_json_error( 'Invalid nonce', 403 );
+			wp_send_json_success( BizCity_Error_Payload::make(
+				'nonce_invalid',
+				'Mã bảo mật hết hạn.',
+				'Tải lại trang và thử lại.',
+				'nonce_expired'
+			) );
+			wp_die();
 		}
 
 		$code     = sanitize_key( $_POST['code'] ?? '' );
 		$accounts = json_decode( wp_unslash( $_POST['accounts'] ?? '[]' ), true );
 
 		if ( ! $code || ! is_array( $accounts ) ) {
-			wp_send_json_error( 'Invalid data' );
+			wp_send_json_success( BizCity_Error_Payload::make(
+				'invalid_param',
+				'Dữ liệu gửi lên không hợp lệ.',
+				'Tải lại trang và thử lại.',
+				'invalid_param_generic'
+			) );
+			wp_die();
 		}
 
 		if ( ! class_exists( 'BizCity_Integration_Registry' ) ) {
-			wp_send_json_error( 'Registry not loaded' );
+			wp_send_json_success( BizCity_Error_Payload::module_not_loaded( 'Integration Registry' ) );
+			wp_die();
 		}
 
 		$registry = BizCity_Integration_Registry::instance();
 		if ( ! $registry->get( $code ) ) {
-			wp_send_json_error( 'Unknown integration: ' . $code );
+			wp_send_json_success( BizCity_Error_Payload::make(
+				'not_found',
+				'Không tìm thấy integration: ' . esc_html( $code ) . '.',
+				'Kiểm tra lại code integration trong cấu hình.',
+				'not_found'
+			) );
+			wp_die();
 		}
 
 		$result = $registry->save_accounts( $code, $accounts );

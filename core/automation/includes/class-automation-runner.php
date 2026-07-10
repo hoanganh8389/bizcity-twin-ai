@@ -79,7 +79,15 @@ final class BizCity_Automation_Runner {
 		$skip_break_once_for = '';
 
 		if ( $cur_status === BizCity_Automation_Repo_Runs::STATUS_QUEUED ) {
-			// fresh start — fall through.
+			// [2026-06-25 Johnny Chu] PHASE-TRENDING W1 FIX — atomic CAS QUEUED→RUNNING.
+			// Prevents double-execution race: on_cron_dispatch + bizcity_automation_run_async
+			// both seeing STATUS_QUEUED in concurrent WP-Cron processes.
+			$claimed = BizCity_Automation_Repo_Runs::try_claim_running( $run_id, array(
+				'started_at' => current_time( 'mysql' ),
+			) );
+			if ( ! $claimed ) {
+				return new WP_Error( 'run_already_claimed', 'run đã được process khác lấy', array( 'run_id' => $run_id ) );
+			}
 		} elseif ( $cur_status === BizCity_Automation_Repo_Runs::STATUS_RUNNING && ( strpos( $debug, 'paused_before:' ) === 0 || $debug === 'stepping' || $debug === 'pausing' || $debug === '' ) ) {
 			$is_resume = true;
 			if ( strpos( $debug, 'paused_before:' ) === 0 ) {
@@ -102,11 +110,15 @@ final class BizCity_Automation_Runner {
 		$nodes = isset( $graph['nodes'] ) && is_array( $graph['nodes'] ) ? $graph['nodes'] : array();
 		$edges = isset( $graph['edges'] ) && is_array( $graph['edges'] ) ? $graph['edges'] : array();
 
-		// Mark running (skip if resuming — already RUNNING).
-		if ( ! $is_resume ) {
+		// Mark running (skip if resuming — already RUNNING; also skip if just claimed above which already set it).
+		if ( ! $is_resume && $cur_status !== BizCity_Automation_Repo_Runs::STATUS_QUEUED ) {
+			// Only for resume path — QUEUED path already claimed via try_claim_running().
 			BizCity_Automation_Repo_Runs::set_status( $run_id, BizCity_Automation_Repo_Runs::STATUS_RUNNING, array(
 				'started_at' => current_time( 'mysql' ),
 			) );
+			do_action( 'bizcity_automation_run_started', $run_id, $wf );
+		} elseif ( $cur_status === BizCity_Automation_Repo_Runs::STATUS_QUEUED ) {
+			// QUEUED path: hook fired after atomic claim.
 			do_action( 'bizcity_automation_run_started', $run_id, $wf );
 		} else {
 			// On resume, clear `paused_before:*` immediately so a concurrent /pause
@@ -156,9 +168,15 @@ final class BizCity_Automation_Runner {
 			'trigger'      => $run['trigger_payload'] ?? array(),
 			'_run_id'      => $run_id,
 			'_workflow_id' => (int) $wf['id'],
+			// [2026-06-02 Johnny Chu] AUTOMATION SCHED-OWNER — propagate
+			// workflow owner xuống ctx để action block (publish_fb_post,
+			// scheduler_*) attach event vào đúng user_id thay vì user_id=0
+			// (cron context không có current user → calendar UI trống lốc).
+			'_owner_user_id' => (int) ( $wf['created_by'] ?? 0 ),
 			'_meta'        => array(
 				'workflow_slug' => $wf['slug'],
 				'workflow_name' => $wf['name'],
+				'created_by'    => (int) ( $wf['created_by'] ?? 0 ),
 			),
 			// PG-S9 — dry-run flag bay theo ctx top-level. Block side-effect
 			// (reply_zalo, send_email, http_request, db_write…) check cờ này
@@ -320,8 +338,18 @@ final class BizCity_Automation_Runner {
 				$branch    = (string) $out['branch'];
 				$kept      = array(); // edges to follow
 				$discarded = array();
+				// [2026-07-03 Johnny Chu] GAP-BRANCH-P0-3 — when explicit true/false branch edges
+				// exist, ignore any stale 'out' edges to prevent both branches firing simultaneously.
+				$has_explicit_branch = false;
 				foreach ( $succ[ $node_id ] ?? array() as $s ) {
-					if ( $s['handle'] === $branch || $s['handle'] === 'out' ) {
+					if ( $s['handle'] === 'true' || $s['handle'] === 'false' ) {
+						$has_explicit_branch = true;
+						break;
+					}
+				}
+				foreach ( $succ[ $node_id ] ?? array() as $s ) {
+					$qualifies_out = ( ! $has_explicit_branch && $s['handle'] === 'out' );
+					if ( $s['handle'] === $branch || $qualifies_out ) {
 						$kept[] = $s['target'];
 					} else {
 						$discarded[] = $s['target'];
@@ -343,7 +371,8 @@ final class BizCity_Automation_Runner {
 		) );
 		BizCity_Automation_Repo_Runs::set_debug_state( $run_id, '' );
 		do_action( 'bizcity_automation_run_ended', $run_id, true, $ctx );
-		$this->emit_crm_bridge( $run_id, $wf, true, $result );
+		// [2026-06-03 Johnny Chu] SCH-NC W5 — pass ctx so emit_crm_bridge forwards inbound.
+		$this->emit_crm_bridge( $run_id, $wf, true, $result, $ctx );
 
 		return array( 'status' => 'ok', 'ctx' => $ctx, 'steps' => $step );
 	}
@@ -421,16 +450,34 @@ final class BizCity_Automation_Runner {
 			'error'    => substr( $msg, 0, 500 ),
 			'ended_at' => current_time( 'mysql' ),
 		) );
-		$wf = BizCity_Automation_Repo_Workflows::find( (int) ( BizCity_Automation_Repo_Runs::find( $run_id )['workflow_id'] ?? 0 ) );
+		$run = BizCity_Automation_Repo_Runs::find( $run_id );
+		$wf  = BizCity_Automation_Repo_Workflows::find( (int) ( $run['workflow_id'] ?? 0 ) );
 		do_action( 'bizcity_automation_run_ended', $run_id, false, array( 'error' => $msg ) );
-		$this->emit_crm_bridge( $run_id, $wf, false, array( 'error' => $msg, 'reason' => $reason_bucket ) );
+		// [2026-06-03 Johnny Chu] SCH-NC W5 — synth ctx.trigger từ run's trigger_payload
+		// để emit_crm_bridge forward inbound block xuống Bridge.
+		$ctx_failed = array( 'trigger' => is_array( $run ) ? ( $run['trigger_payload'] ?? array() ) : array() );
+		$this->emit_crm_bridge( $run_id, $wf, false, array( 'error' => $msg, 'reason' => $reason_bucket ), $ctx_failed );
 
 		// R-CRON-META — when called in cron context, the dispatcher handles
 		// note_event. For inline runs there's nothing to note.
 	}
 
-	private function emit_crm_bridge( string $run_id, $wf, bool $ok, array $result ): void {
+	private function emit_crm_bridge( string $run_id, $wf, bool $ok, array $result, array $ctx = array() ): void {
 		if ( ! $wf ) { return; }
+		// [2026-06-03 Johnny Chu] SCH-NC W5 — forward canonical inbound block từ
+		// trigger payload xuống Bridge → Manager. Block đã được matcher inject
+		// vào ctx.trigger.inbound (xem class-automation-trigger-matcher.php W5).
+		$metadata = array(
+			'automation_kind' => 'run_summary',
+			'workflow_slug'   => (string) ( $wf['slug'] ?? '' ),
+			'ok'              => $ok,
+		);
+		$inbound = isset( $ctx['trigger']['inbound'] ) ? $ctx['trigger']['inbound'] : null;
+		if ( is_array( $inbound )
+			&& class_exists( 'BizCity_Scheduler_Inbound_Provenance' )
+			&& BizCity_Scheduler_Inbound_Provenance::is_valid( $inbound ) ) {
+			$metadata['inbound'] = $inbound;
+		}
 		$payload = array(
 			'event_type'  => 'task', // 'automation_run' is not in scheduler whitelist
 			'title'       => sprintf( '[%s] %s', $wf['name'] ?? $wf['slug'] ?? 'workflow', $ok ? 'OK' : 'FAIL' ),
@@ -440,11 +487,7 @@ final class BizCity_Automation_Runner {
 			'status'      => $ok ? 'done' : 'cancelled',
 			'source'      => 'workflow',
 			'start_at'    => current_time( 'mysql' ),
-			'metadata'    => array(
-				'automation_kind' => 'run_summary',
-				'workflow_slug'   => (string) ( $wf['slug'] ?? '' ),
-				'ok'              => $ok,
-			),
+			'metadata'    => $metadata,
 		);
 		$event_id = BizCity_Automation_CRM_Bridge::create_event( $payload );
 		if ( $event_id > 0 ) {
@@ -479,22 +522,12 @@ final class BizCity_Automation_Runner {
 	public function on_cron_dispatch(): void {
 		global $wpdb;
 
-		// Guard: tables may be missing on multisite subsites cloned without bizcity_*
-		// tables (MUCD skips them). Use the same version-stamp logic as the installer
-		// so we only run the heavyweight SHOW TABLES when the stamp is absent/stale —
-		// not on every cron tick. get_option() is served from WP object cache → free.
-		if ( class_exists( 'BizCity_Automation_Installer' ) ) {
-			$stamped = get_option( BizCity_Automation_Installer::DB_VERSION_OPTION, '' );
-			if ( $stamped !== BizCity_Automation_Installer::DB_VERSION ) {
-				$tbl_check = BizCity_Automation_Repo_Runs::table_runs();
-				if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl_check ) ) !== $tbl_check ) {
-					delete_option( BizCity_Automation_Installer::DB_VERSION_OPTION );
-					BizCity_Automation_Installer::ensure_admin_init();
-					return;
-				}
-				// Tables present but stamp was stale — let installer stamp it now.
-				BizCity_Automation_Installer::ensure_admin_init();
-			}
+		// [2026-06-21 Johnny Chu] HOTFIX — replaces stale-stamp-only guard (missed blogs where
+		// stamp=='1.7.0' but tables were never created, e.g. cloned/new multisite sub-sites).
+		// tables_present_cached() does ONE SHOW TABLES per blog per request regardless of stamp.
+		if ( class_exists( 'BizCity_Automation_Installer' ) && ! BizCity_Automation_Installer::tables_present_cached() ) {
+			BizCity_Automation_Installer::ensure(); // attempt provisioning; next tick will run
+			return;
 		}
 
 		$tbl = BizCity_Automation_Repo_Runs::table_runs();

@@ -1,0 +1,244 @@
+﻿[
+  {
+    "slug": "tpl_cmd_fb_post_v1",
+    "name": "Ra lá»‡nh Zalo: ÄÄƒng FB theo chá»§ Ä‘á»",
+    "description": "Zalo Bot nháº­n \"Ä‘Äƒng fb [chá»§ Ä‘á»]\" â†’ soáº¡n caption â†’ preview â†’ táº¡o áº£nh AI â†’ gá»­i link áº£nh qua Zalo â†’ táº¡o WP draft (KPI) â†’ Ä‘Äƒng FB Page â†’ bÃ¡o link bÃ i. Sau import: Ä‘iá»n fb_page_id trong node publish_fb.",
+    "category": "automation",
+    "source": "builtin",
+    "trigger_type": "zalo_inbound",
+    "icon": "Facebook",
+    "tags": "zalo,facebook,publish,ai,image,generate,command,ondemand,kpi,wp-draft",
+    "trigger_config": { "keywords": ["Ä‘Äƒng fb", "dang fb", "post fb", "Ä‘Äƒng facebook", "dang facebook"] },
+    "graph": {
+      "meta": { "template": "tpl_cmd_fb_post_v1" },
+      "nodes": [
+        {
+          "id": "t1",
+          "type": "trigger",
+          "position": { "x": 0, "y": 80 },
+          "data": {
+            "blockId": "trigger.zalo_inbound",
+            "label": "Zalo â€” \"Ä‘Äƒng fb [chá»§ Ä‘á»]\"",
+            "keywords": ["Ä‘Äƒng fb", "dang fb", "post fb", "Ä‘Äƒng facebook", "dang facebook"],
+            "mode": "keyword_start"
+          }
+        },
+        {
+          "id": "gen",
+          "type": "action",
+          "position": { "x": 320, "y": 80 },
+          "data": {
+            "blockId": "action.generate_content",
+            "label": "TrÃ­ch chá»§ Ä‘á» â†’ Soáº¡n caption FB",
+            "content_type": "fb_post",
+            "notebook_id": 0,
+            "prompt_template": "Tin nháº¯n nháº­n Ä‘Æ°á»£c: \"{{trigger.text}}\"\n\nBÆ°á»›c 1 â€” TrÃ­ch xuáº¥t chá»§ Ä‘á»: Bá» cÃ¡c tá»« lá»‡nh á»Ÿ Ä‘áº§u (nhÆ° 'Ä‘Äƒng fb', 'Ä‘Äƒng facebook', 'post fb', 'dang fb'...) Ä‘á»ƒ láº¥y chá»§ Ä‘á» thuáº§n tÃºy.\n\nBÆ°á»›c 2 â€” Viáº¿t caption Facebook tiáº¿ng Viá»‡t vá» chá»§ Ä‘á» Ä‘Ã³:\n- DÃ i 4-6 dÃ²ng\n- DÃ¹ng 2-4 emoji phÃ¹ há»£p\n- Káº¿t thÃºc báº±ng cÃ¢u há»i hoáº·c CTA nháº¹ nhÃ ng\n- ThÃªm 3-5 hashtag liÃªn quan\n- KhÃ´ng dÃ¹ng markdown, khÃ´ng dÃ¹ng ```\n\nChá»‰ tráº£ vá» bÃ i caption, khÃ´ng cÃ³ tiÃªu Ä‘á» hay giáº£i thÃ­ch thÃªm.",
+            "tone": "",
+            "max_words": 300,
+            "character_id": 0
+          }
+        },
+        {
+          "id": "ack",
+          "type": "action",
+          "position": { "x": 640, "y": 80 },
+          "data": {
+            "blockId": "action.reply_zalo",
+            "label": "Gá»­i preview caption qua Zalo",
+            "instance_id": "",
+            "override_chat_id": "",
+            "text": "âœï¸ ÄÃ£ soáº¡n caption:\nâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€\n{{gen.content}}\n\nâ³ Äang táº¡o áº£nh minh há»a, chá» xÃ­u..."
+          }
+        },
+        {
+          "id": "img",
+          "type": "action",
+          "position": { "x": 960, "y": 80 },
+          "data": {
+            "blockId": "action.generate_image",
+            "label": "Táº¡o áº£nh AI (sideload WP)",
+            "prompt": "Create a professional Vietnamese social media illustration. NO text, NO words, NO letters, NO labels anywhere in the image. Visual subject: {{trigger.text}}. Style: vibrant modern flat design, clean composition, conceptual visuals only.",
+            "model": "nano-banana",
+            "size": "1024x1024",
+            "sideload_to_wp": true
+          }
+        },
+        {
+          "id": "img_reply",
+          "type": "action",
+          "position": { "x": 1240, "y": 80 },
+          "data": {
+            "blockId": "action.reply_zalo",
+            "label": "Gá»­i link áº£nh + lá»—i â†’ Zalo",
+            "instance_id": "",
+            "override_chat_id": "",
+            "text": "ðŸ–¼ï¸ Káº¿t quáº£ áº£nh AI:\n{{img.image_url}}\n{{img.error}}\nModel: {{img.model_used}}\n\nâ³ Äang táº¡o WP draft + Ä‘Äƒng FB..."
+          }
+        },
+        {
+          "id": "wp_track",
+          "type": "action",
+          "position": { "x": 1520, "y": 80 },
+          "data": {
+            "blockId": "action.publish_wp_post",
+            "label": "Táº¡o WP draft (KPI content-ops)",
+            "title": "{{trigger.text}}",
+            "content": "{{gen.content}}",
+            "image_url": "{{img.image_url}}",
+            "status": "draft",
+            "category": "",
+            "tags": "fb-post,ai-content,automation",
+            "author_id": 0
+          }
+        },
+        {
+          "id": "publish_fb",
+          "type": "action",
+          "position": { "x": 1800, "y": 80 },
+          "data": {
+            "blockId": "action.publish_fb_post",
+            "label": "ÄÄƒng Facebook Page",
+            "fb_page_id": "",
+            "fb_page_name": "",
+            "content": "{{gen.content}}",
+            "image_url": "{{img.image_url}}",
+            "mode": "now",
+            "delay_min": 0
+          }
+        },
+        {
+          "id": "done",
+          "type": "action",
+          "position": { "x": 2080, "y": 80 },
+          "data": {
+            "blockId": "action.reply_zalo",
+            "label": "BÃ¡o káº¿t quáº£ + link FB",
+            "text": "âœ… ÄÃ£ Ä‘Äƒng Facebook!\n\nðŸ”— Xem bÃ i FB: {{publish_fb.permalink}}\nðŸ“ WP draft: {{wp_track.edit_url}}"
+          }
+        }
+      ],
+      "edges": [
+        { "id": "e_t1_gen",    "source": "t1",        "target": "gen" },
+        { "id": "e_gen_ack",   "source": "gen",       "target": "ack" },
+        { "id": "e_ack_img",   "source": "ack",       "target": "img" },
+        { "id": "e_img_imgr",  "source": "img",       "target": "img_reply" },
+        { "id": "e_imgr_wpt",  "source": "img_reply", "target": "wp_track" },
+        { "id": "e_wpt_pfb",   "source": "wp_track",  "target": "publish_fb" },
+        { "id": "e_pfb_done",  "source": "publish_fb","target": "done" }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_cmd_wp_post_v1",
+    "name": "Ra lá»‡nh Zalo: ÄÄƒng Web theo chá»§ Ä‘á»",
+    "description": "Zalo Bot nháº­n \"Ä‘Äƒng web [chá»§ Ä‘á»]\" â†’ LLM trÃ­ch chá»§ Ä‘á» + soáº¡n bÃ i blog â†’ gá»­i preview qua Zalo â†’ táº¡o áº£nh featured (1536Ã—1024, sideload WP) â†’ táº¡o WP post (draft) â†’ gá»­i link sá»­a + link xem. Sau import: chá»n Zalo Bot.",
+    "category": "automation",
+    "source": "builtin",
+    "trigger_type": "zalo_inbound",
+    "icon": "Newspaper",
+    "tags": "zalo,wordpress,publish,ai,image,generate,command,ondemand,draft",
+    "trigger_config": { "keywords": ["Ä‘Äƒng web", "dang web", "viáº¿t bÃ i", "viet bai", "post web"] },
+    "graph": {
+      "meta": { "template": "tpl_cmd_wp_post_v1" },
+      "nodes": [
+        {
+          "id": "t1",
+          "type": "trigger",
+          "position": { "x": 0, "y": 80 },
+          "data": {
+            "blockId": "trigger.zalo_inbound",
+            "label": "Zalo â€” \"Ä‘Äƒng web [chá»§ Ä‘á»]\"",
+            "keywords": ["Ä‘Äƒng web", "dang web", "viáº¿t bÃ i", "viet bai", "post web"],
+            "mode": "keyword_start"
+          }
+        },
+        {
+          "id": "gen",
+          "type": "action",
+          "position": { "x": 320, "y": 80 },
+          "data": {
+            "blockId": "action.generate_content",
+            "label": "TrÃ­ch chá»§ Ä‘á» â†’ Soáº¡n bÃ i blog",
+            "content_type": "web_post",
+            "notebook_id": 0,
+            "prompt_template": "Tin nháº¯n nháº­n Ä‘Æ°á»£c: \"{{trigger.text}}\"\n\nBÆ°á»›c 1 â€” TrÃ­ch xuáº¥t chá»§ Ä‘á»: Bá» cÃ¡c tá»« lá»‡nh á»Ÿ Ä‘áº§u (nhÆ° 'Ä‘Äƒng web', 'viáº¿t bÃ i', 'post web', 'dang web'...) Ä‘á»ƒ láº¥y chá»§ Ä‘á» thuáº§n tÃºy.\n\nBÆ°á»›c 2 â€” Viáº¿t bÃ i blog tiáº¿ng Viá»‡t SEO-friendly vá» chá»§ Ä‘á» Ä‘Ã³:\n- DÃ²ng Ä‘áº§u tiÃªn: tiÃªu Ä‘á» H1 háº¥p dáº«n (dáº¡ng: # TiÃªu Ä‘á» bÃ i viáº¿t)\n- Intro 2-3 cÃ¢u\n- 2-3 Ä‘oáº¡n ná»™i dung chÃ­nh cÃ³ heading H2\n- Káº¿t luáº­n ngáº¯n\n- Tá»•ng 400-500 tá»«\n- DÃ¹ng Markdown\n\nChá»‰ tráº£ vá» bÃ i viáº¿t, khÃ´ng cÃ³ giáº£i thÃ­ch thÃªm.",
+            "tone": "",
+            "max_words": 500,
+            "character_id": 0
+          }
+        },
+        {
+          "id": "ack",
+          "type": "action",
+          "position": { "x": 640, "y": 80 },
+          "data": {
+            "blockId": "action.reply_zalo",
+            "label": "Gá»­i preview bÃ i viáº¿t qua Zalo",
+            "instance_id": "",
+            "override_chat_id": "",
+            "text": "ðŸ“ ÄÃ£ soáº¡n xong bÃ i viáº¿t:\nâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€\n{{gen.content}}\n\nâ³ Äang táº¡o áº£nh featured image..."
+          }
+        },
+        {
+          "id": "img",
+          "type": "action",
+          "position": { "x": 960, "y": 80 },
+          "data": {
+            "blockId": "action.generate_image",
+            "label": "Táº¡o áº£nh featured (landscape)",
+            "prompt": "Create a professional blog featured image illustration, landscape format. NO text, NO words, NO letters, NO labels anywhere in the image. Visual subject: {{trigger.text}}. Style: modern minimalist, clean composition, conceptual visuals only.",
+            "model": "nano-banana",
+            "size": "1536x1024",
+            "sideload_to_wp": true
+          }
+        },
+        {
+          "id": "img_reply",
+          "type": "action",
+          "position": { "x": 1240, "y": 80 },
+          "data": {
+            "blockId": "action.reply_zalo",
+            "label": "Gá»­i link áº£nh + lá»—i â†’ Zalo",
+            "instance_id": "",
+            "override_chat_id": "",
+            "text": "ðŸ–¼ï¸ Káº¿t quáº£ áº£nh AI:\n{{img.image_url}}\n{{img.error}}\nModel: {{img.model_used}}\n\nâ³ Äang Ä‘Äƒng lÃªn web..."
+          }
+        },
+        {
+          "id": "publish",
+          "type": "action",
+          "position": { "x": 1520, "y": 80 },
+          "data": {
+            "blockId": "action.publish_wp_post",
+            "label": "Táº¡o WP post (draft + featured image)",
+            "title": "{{trigger.text}}",
+            "content": "{{gen.content}}",
+            "image_url": "{{img.image_url}}",
+            "status": "draft",
+            "category": "",
+            "tags": "ai-content,automation",
+            "author_id": 0
+          }
+        },
+        {
+          "id": "done",
+          "type": "action",
+          "position": { "x": 1800, "y": 80 },
+          "data": {
+            "blockId": "action.reply_zalo",
+            "label": "BÃ¡o káº¿t quáº£ + link bÃ i",
+            "text": "âœ… BÃ i viáº¿t Ä‘Ã£ táº¡o!\n\nðŸ“Ž áº¢nh: {{img.image_url}}\nâœï¸ Sá»­a bÃ i: {{publish.edit_url}}\nðŸŒ Xem bÃ i: {{publish.permalink}}"
+          }
+        }
+      ],
+      "edges": [
+        { "id": "e_t1_gen",   "source": "t1",        "target": "gen" },
+        { "id": "e_gen_ack",  "source": "gen",       "target": "ack" },
+        { "id": "e_ack_img",  "source": "ack",       "target": "img" },
+        { "id": "e_img_imgr", "source": "img",       "target": "img_reply" },
+        { "id": "e_imgr_pub", "source": "img_reply", "target": "publish" },
+        { "id": "e_pub_done", "source": "publish",   "target": "done" }
+      ]
+    }
+  }
+]

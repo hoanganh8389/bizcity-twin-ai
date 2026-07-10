@@ -1,0 +1,287 @@
+/*
+ * BizCoach Pro — Self-Service Astrology Profile styles
+ * PHASE-A A-FE-1 (2026-06-05)
+ * Scoped to #bcpro-self-service — no global leaks.
+ */
+
+/* ── Wrap ─────────────────────────────────────────────────── */
+#bcpro-self-service,
+.bcpro-ss-wrap {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 15px;
+    color: #1e293b;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 0 16px;
+}
+
+[x-cloak] { display: none !important; }
+
+/* ── Header ───────────────────────────────────────────────── */
+.bcpro-ss-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 20px;
+    padding-bottom: 14px;
+    border-bottom: 2px solid #e2e8f0;
+}
+.bcpro-ss-header h2 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 700;
+    color: #0f172a;
+}
+
+/* ── Buttons ──────────────────────────────────────────────── */
+.bcpro-ss-btn-primary {
+    background: #6366f1;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 18px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    transition: background .15s;
+}
+.bcpro-ss-btn-primary:hover { background: #4f46e5; }
+.bcpro-ss-btn-primary:disabled { opacity: .6; cursor: not-allowed; }
+
+.bcpro-ss-btn-sm {
+    background: #f1f5f9;
+    color: #334155;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    padding: 5px 12px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background .15s;
+}
+.bcpro-ss-btn-sm:hover { background: #e2e8f0; }
+.bcpro-ss-btn-sm:disabled { opacity: .5; cursor: not-allowed; }
+
+.bcpro-ss-btn-danger {
+    background: #fee2e2;
+    color: #b91c1c;
+    border-color: #fca5a5;
+}
+.bcpro-ss-btn-danger:hover { background: #fecaca; }
+
+/* ── Cards ────────────────────────────────────────────────── */
+.bcpro-ss-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+}
+
+.bcpro-ss-card {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 18px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    transition: box-shadow .15s;
+}
+.bcpro-ss-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,.1); }
+
+.bcpro-ss-card-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 8px;
+}
+.bcpro-ss-card-top strong { font-size: 15px; color: #0f172a; }
+.bcpro-ss-card-dob { font-size: 12px; color: #64748b; white-space: nowrap; }
+
+.bcpro-ss-card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    font-size: 12px;
+    color: #64748b;
+}
+
+.bcpro-ss-card-status { font-size: 12px; }
+
+.bcpro-ss-badge-ok   { color: #15803d; background: #dcfce7; padding: 2px 8px; border-radius: 20px; font-weight: 600; }
+.bcpro-ss-badge-warn { color: #b45309; background: #fef3c7; padding: 2px 8px; border-radius: 20px; font-weight: 600; }
+
+.bcpro-ss-card-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 4px;
+}
+
+.bcpro-ss-tag {
+    font-size: 11px;
+    background: #ede9fe;
+    color: #5b21b6;
+    padding: 2px 7px;
+    border-radius: 20px;
+    font-weight: 600;
+    margin-left: 6px;
+}
+
+/* ── Empty state ──────────────────────────────────────────── */
+.bcpro-ss-empty {
+    text-align: center;
+    padding: 56px 20px;
+    background: #f8fafc;
+    border: 2px dashed #cbd5e1;
+    border-radius: 12px;
+    color: #64748b;
+}
+.bcpro-ss-empty p { margin-bottom: 16px; font-size: 15px; }
+
+/* ── Form ─────────────────────────────────────────────────── */
+.bcpro-ss-form {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    max-width: 520px;
+}
+.bcpro-ss-form label {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    font-weight: 600;
+    font-size: 14px;
+    color: #334155;
+}
+.bcpro-ss-form input[type="text"],
+.bcpro-ss-form input[type="date"],
+.bcpro-ss-form input[type="time"],
+.bcpro-ss-form input[type="tel"] {
+    padding: 9px 12px;
+    border: 1.5px solid #cbd5e1;
+    border-radius: 8px;
+    font-size: 14px;
+    transition: border-color .15s;
+    width: 100%;
+    box-sizing: border-box;
+}
+.bcpro-ss-form input:focus {
+    outline: none;
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99,102,241,.15);
+}
+.bcpro-ss-form small { font-size: 11px; font-weight: 400; color: #94a3b8; }
+
+.bcpro-ss-radio-group {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    font-weight: 400;
+}
+.bcpro-ss-radio-group label {
+    flex-direction: row;
+    align-items: center;
+    gap: 5px;
+    font-weight: 400;
+    cursor: pointer;
+}
+.bcpro-ss-radio-group input { width: auto; }
+
+.bcpro-ss-form-actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    padding-top: 8px;
+}
+
+/* ── Chart view ───────────────────────────────────────────── */
+.bcpro-ss-chart-wrap {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 24px;
+}
+.bcpro-ss-chart-meta {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-bottom: 16px;
+    font-size: 14px;
+    color: #475569;
+}
+.bcpro-ss-chart-meta strong { font-size: 17px; color: #0f172a; }
+.bcpro-ss-chart-summary { color: #334155; line-height: 1.7; }
+.bcpro-ss-chart-share { margin-top: 20px; display: flex; gap: 10px; flex-wrap: wrap; }
+
+/* ── Loading + error ──────────────────────────────────────── */
+.bcpro-ss-loading {
+    text-align: center;
+    padding: 48px 0;
+    color: #64748b;
+}
+.bcpro-ss-spinner {
+    display: inline-block;
+    width: 32px;
+    height: 32px;
+    border: 3px solid #e2e8f0;
+    border-top-color: #6366f1;
+    border-radius: 50%;
+    animation: bcpro-spin .7s linear infinite;
+    margin-bottom: 10px;
+}
+@keyframes bcpro-spin { to { transform: rotate(360deg); } }
+
+.bcpro-ss-error {
+    background: #fef2f2;
+    border: 1px solid #fca5a5;
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 18px;
+    color: #b91c1c;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.bcpro-ss-error button { align-self: flex-end; margin-top: 4px; }
+
+/* ── Copy toast ───────────────────────────────────────────── */
+.bcpro-ss-toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #0f172a;
+    color: #fff;
+    padding: 10px 24px;
+    border-radius: 30px;
+    font-size: 14px;
+    font-weight: 600;
+    z-index: 9999;
+    pointer-events: none;
+    box-shadow: 0 4px 16px rgba(0,0,0,.2);
+}
+
+/* ── Login prompt ─────────────────────────────────────────── */
+.bcpro-login-prompt {
+    padding: 32px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    text-align: center;
+    color: #475569;
+}
+.bcpro-login-prompt a { color: #6366f1; font-weight: 600; }
+
+/* ── Responsive ───────────────────────────────────────────── */
+@media (max-width: 500px) {
+    .bcpro-ss-cards { grid-template-columns: 1fr; }
+    .bcpro-ss-header { flex-direction: column; align-items: flex-start; }
+    .bcpro-ss-form { max-width: 100%; }
+}

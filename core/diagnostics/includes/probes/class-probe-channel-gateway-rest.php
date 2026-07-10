@@ -29,6 +29,12 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 
 require_once dirname( __DIR__ ) . '/interface-diagnostics-probe.php';
 
+
+// [2026-06-08 Johnny Chu] HOTFIX — double-load guard (bootstrap may include via filter AND direct require).
+if ( class_exists( 'BizCity_Probe_Channel_Gateway_REST', false ) ) {
+	return;
+}
+
 final class BizCity_Probe_Channel_Gateway_REST implements BizCity_Diagnostics_Probe {
 
 	const EXPECTED_ROUTES = [

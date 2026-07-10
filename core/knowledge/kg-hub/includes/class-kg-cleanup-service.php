@@ -260,7 +260,7 @@ class BizCity_KG_Cleanup_Service {
 		}
 		$prev_supp = $wpdb->suppress_errors( true );
 		foreach ( $required as $tbl ) {
-			$found = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl ) );
+			$found = bizcity_tbl_exists( $tbl ) ? $tbl : null; // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			if ( $found !== $tbl ) {
 				$wpdb->suppress_errors( $prev_supp );
 				return $cache[ $cache_key ] = false;
@@ -323,6 +323,11 @@ class BizCity_KG_Cleanup_Service {
 		}
 
 		// A2 — relations with no evidence → soft delete.
+		// [2026-06-20 Johnny Chu] HOTFIX — guard: skip weight>1 + user_verified relations.
+		// Rationale: weight>1 = relation confirmed from multiple passages; even if ALL
+		// provenance links were removed (e.g. source batch-deleted), the knowledge is
+		// still valid. user_verified=1 = operator explicitly approved, never auto-clean.
+		// Only weight=1 + unverified + no provenance = safe to soft-delete as true orphan.
 		$rows = $wpdb->get_results( $wpdb->prepare(
 			"SELECT r.id
 			 FROM {$rel_tbl} r
@@ -330,22 +335,27 @@ class BizCity_KG_Cleanup_Service {
 			 WHERE r.deleted_at IS NULL
 			   AND r.status = 'approved'
 			   AND pr.relation_id IS NULL
+			   AND r.weight <= 1
+			   AND r.user_verified = 0
 			 LIMIT %d",
 			self::BATCH_SIZE
 		), ARRAY_A );
 		foreach ( $rows ?: [] as $r ) {
 			$id = (int) $r['id'];
 			$wpdb->update( $rel_tbl, [ 'deleted_at' => current_time( 'mysql', true ) ], [ 'id' => $id ] );
-			$this->log( $run_id, $trigger, $by, 'detect', 'kg_relations', $id, 'soft_delete', 'no_evidence' );
+			$this->log( $run_id, $trigger, $by, 'detect', 'kg_relations', $id, 'soft_delete', 'no_evidence_w1' );
 			$out['relations']++;
 		}
 
 		// A3 — entities with no mention + no live relation → soft delete.
+		// [2026-06-20 Johnny Chu] HOTFIX — guard: skip user_verified entities.
+		// If operator verified an entity it must not be auto-cleaned regardless of mentions.
 		$rows = $wpdb->get_results( $wpdb->prepare(
 			"SELECT e.id
 			 FROM {$ent_tbl} e
 			 WHERE e.deleted_at IS NULL
 			   AND e.status = 'approved'
+			   AND e.user_verified = 0
 			   AND NOT EXISTS (
 			       SELECT 1 FROM {$pe_tbl} pe WHERE pe.entity_id = e.id
 			   )
@@ -360,7 +370,7 @@ class BizCity_KG_Cleanup_Service {
 		foreach ( $rows ?: [] as $r ) {
 			$id = (int) $r['id'];
 			$wpdb->update( $ent_tbl, [ 'deleted_at' => current_time( 'mysql', true ) ], [ 'id' => $id ] );
-			$this->log( $run_id, $trigger, $by, 'detect', 'kg_entities', $id, 'soft_delete', 'no_mentions' );
+			$this->log( $run_id, $trigger, $by, 'detect', 'kg_entities', $id, 'soft_delete', 'no_mentions_unverified' );
 			$out['entities']++;
 		}
 

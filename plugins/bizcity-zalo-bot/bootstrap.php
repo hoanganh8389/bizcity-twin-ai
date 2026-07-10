@@ -136,6 +136,11 @@ class BizCity_Zalo_Bot_Plugin {
 			require_once BIZCITY_ZALO_BOT_DIR . '/includes/class-guru-bridge.php';
 		}
 
+		// [2026-06-19 Johnny Chu] ADMIN-GUIDE — explicit keyword command triggers.
+		if ( file_exists( BIZCITY_ZALO_BOT_DIR . '/includes/class-command-router.php' ) ) {
+			require_once BIZCITY_ZALO_BOT_DIR . '/includes/class-command-router.php';
+		}
+
 		// Library files
 		if ( file_exists( BIZCITY_ZALO_BOT_DIR . '/lib/class-zalo-bot-api.php' ) ) {
 			require_once BIZCITY_ZALO_BOT_DIR . '/lib/class-zalo-bot-api.php';
@@ -235,6 +240,13 @@ class BizCity_Zalo_Bot_Plugin {
 		if ( class_exists( 'BizCity_Zalobot_User_Linker' ) ) {
 			BizCity_Zalobot_User_Linker::install();
 			BizCity_Zalobot_User_Linker::boot_callback();
+			// [2026-06-18 Johnny Chu] ADMIN-GUIDE — auto login-link + welcome message hooks
+			BizCity_Zalobot_User_Linker::boot_auto_login_link();
+		}
+
+		// [2026-06-19 Johnny Chu] ADMIN-GUIDE — keyword command router (priority 4)
+		if ( class_exists( 'BizCity_Zalobot_Command_Router' ) ) {
+			BizCity_Zalobot_Command_Router::boot();
 		}
 		
 		// Load text domain

@@ -917,7 +917,12 @@ class BizCity_WebChat_Admin_Dashboard {
         $tools_catalog = $this->build_tools_catalog();
 
         // ── User plan ──
-        $user_plan = $current_uid ? get_user_meta($current_uid, '_bizcity_plan', true) : '';
+        // [2026-06-22 Johnny Chu] R-PERF — route via BizCity_User_Meta_Cache to avoid 1.90 MB meta prime
+        $user_plan = $current_uid ? (
+            class_exists( 'BizCity_User_Meta_Cache' )
+                ? (string) BizCity_User_Meta_Cache::get( $current_uid, '_bizcity_plan', '' )
+                : (string) get_user_meta( $current_uid, '_bizcity_plan', true )
+        ) : '';
         if (!$user_plan) $user_plan = 'free';
 
         // ── Shop products from blog 1065 ──

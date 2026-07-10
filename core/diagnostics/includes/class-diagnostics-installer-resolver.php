@@ -37,8 +37,9 @@ final class BizCity_Diagnostics_Installer_Resolver {
 		'core/research'              => 'research',
 		'core/scheduler'             => 'scheduler',
 		'core/channel-gateway'       => 'channel_messages',
-		'core/bizcity-llm'           => 'llm_usage_log',
-		'core/bizcity-market'        => 'market',
+		'core/bizcity-llm'           => 'llm_usage_clients',
+		// [2026-06-10 Johnny Chu] HOTFIX — core/bizcity-market disabled: removed from installer resolver.
+		// 'core/bizcity-market'     => 'market',
 		'modules/twinchat/learning'  => 'kg_hub',
 		'modules/twinchat/studio'    => 'studio_job',
 		'modules/webchat'            => 'webchat',

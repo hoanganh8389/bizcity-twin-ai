@@ -5,9 +5,10 @@
  * Eval KHÔNG dùng PHP eval(). Chỉ support:
  *   - tokens `a.b.c` (resolve từ ctx)
  *   - operators: `==`, `!=`, `>`, `<`, `>=`, `<=`, `contains`
- *   - boolean ops: `&&`, `||` (đơn giản; eval trái sang phải, không
- *                 precedence — user phải dùng paren KHÔNG hỗ trợ → khuyên
- *                 viết 1 vế / 1 condition).
+ *   - boolean ops: `&&`, `||` — hỗ trợ multi-chain (a || b || c),
+ *     KHÔNG mix `&&` và `||` trong cùng expression — chỉ 1 loại op / expression.
+ *     Infix syntax bắt buộc: `trigger.text contains 'từ khoá'`.
+ *     KHÔNG hỗ trợ function-call style `contains(a, b)` hay keyword `AND`/`OR`.
  * Phức tạp hơn → user dùng action.http hoặc block custom.
  *
  * @package    Bizcity_Twin_AI
@@ -42,13 +43,14 @@ final class BizCity_Automation_Logic_Condition extends BizCity_Automation_Block_
 			return array( 'branch' => 'true', 'matched' => true );
 		}
 
-		// Tokenize on && / || keeping order; for simple v1, only first
-		// boolean op is honoured (single AND or single OR).
+		// Tokenize on && / || keeping order.
+		// [2026-06-07 Johnny Chu] SEED-DEPLAO — remove limit-2 from explode to support
+		// multi-chain: a || b || c now evaluates all 3 atoms correctly.
 		$op = null;
 		foreach ( array( '&&', '||' ) as $candidate ) {
 			if ( strpos( $expr, $candidate ) !== false ) { $op = $candidate; break; }
 		}
-		$parts = $op ? array_map( 'trim', explode( $op, $expr, 2 ) ) : array( $expr );
+		$parts = $op ? array_map( 'trim', explode( $op, $expr ) ) : array( $expr );
 		$results = array();
 		foreach ( $parts as $part ) {
 			$results[] = $this->evaluate_atom( $part, $ctx );

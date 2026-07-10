@@ -528,7 +528,7 @@ Guidelines:
             if (!$row || !$row.length) return;
             const charId = parseInt($('#character-id').val(), 10) || 0;
             if (charId <= 0) {
-                this.showMessage('Please save the Twin Guru first (Save Changes) to generate an ID.', 'warning');
+                this.showMessage('Please save the Twin Connector first (Save Changes) to generate an ID.', 'warning');
                 return;
             }
 
@@ -956,7 +956,7 @@ Guidelines:
             console.log('Character ID:', characterId);
 
             if (!characterId || characterId === '0') {
-                this.showMessage('Please save the Twin Guru before uploading files!', 'error');
+                this.showMessage('Please save the Twin Connector before uploading files!', 'error');
                 return;
             }
 
@@ -1086,7 +1086,7 @@ Guidelines:
             }
 
             if (!characterId || characterId === '0') {
-                this.wsConsole('error', 'No character_id — save the Twin Guru first.');
+                this.wsConsole('error', 'No character_id — save the Twin Connector first.');
                 return;
             }
 

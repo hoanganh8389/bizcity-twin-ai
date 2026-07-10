@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "brain_session_renamed",
+  "description": "Session title updated. Auto-LLM rename happens after first assistant_message (reason='auto_llm'); user PATCH happens via REST (reason='user').",
+  "type": "object",
+  "required": ["session_id", "new_title"],
+  "properties": {
+    "session_id": { "type": "string", "pattern": "^brain_sess_[0-9]+_[0-9]+_[0-9a-f]{4}$" },
+    "new_title":  { "type": "string", "minLength": 1, "maxLength": 200 },
+    "old_title":  { "type": "string" },
+    "reason":     { "type": "string", "enum": ["user", "auto_llm"], "default": "user" }
+  }
+}

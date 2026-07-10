@@ -526,6 +526,12 @@ class BizCity_Facebook_Bot_Webhook_Handler {
 		if ( empty( $ref ) ) {
 			return;
 		}
+
+		// [2026-06-09 Johnny Chu] R-CG-FB-WEBHOOK — Always error_log so referral
+		// events leave a trace even before the CG debug logger is initialized.
+		if ( defined( 'WP_DEBUG_LOG' ) && WP_DEBUG_LOG ) {
+			error_log( '[bizcity-fb-bot] handle_referral page_id=' . $page_id . ' client_id=' . $client_id . ' ref=' . $ref );
+		}
 		
 		$this->log_info( '=== HANDLE REFERRAL START ===' );
 		

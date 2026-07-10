@@ -61,6 +61,8 @@ final class BizCity_Automation_Action_Create_CRM_Event extends BizCity_Automatio
 			'workflow_id' => $ctx['_workflow_id'] ?? 0,
 			'status'      => 'active',
 			'source'      => 'workflow',
+			// [2026-06-03 Johnny Chu] R-SCH-REPLY — forward inbound{} qua helper.
+			'metadata'    => $this->build_event_metadata( $ctx, array() ),
 		);
 
 		$event_id = BizCity_Automation_CRM_Bridge::create_event( $payload );

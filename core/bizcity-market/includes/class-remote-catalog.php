@@ -25,7 +25,8 @@ class BizCity_Remote_Catalog {
      * @return string e.g. https://bizcity.vn/wp-json/market/v1
      */
     public static function api_base(): string {
-        $gateway = rtrim( get_site_option( 'bizcity_llm_gateway_url', 'https://bizcity.vn' ), '/' );
+        // [2026-06-10 Johnny Chu] HOTFIX — per-site option
+        $gateway = rtrim( get_option( 'bizcity_llm_gateway_url', 'https://bizcity.vn' ), '/' );
         return $gateway . '/wp-json/market/v1';
     }
 
@@ -35,7 +36,8 @@ class BizCity_Remote_Catalog {
      * @return string
      */
     public static function api_key(): string {
-        return trim( (string) get_site_option( 'bizcity_llm_api_key', '' ) );
+        // [2026-06-10 Johnny Chu] HOTFIX — per-site option
+        return trim( (string) get_option( 'bizcity_llm_api_key', '' ) );
     }
 
     /**

@@ -126,6 +126,16 @@ final class BizCity_Automation_Action_Publish_FB_Post extends BizCity_Automation
 		}
 
 		foreach ( $targets as $t ) {
+			// [2026-06-03 Johnny Chu] R-SCH-REPLY — forward inbound{} qua helper
+			// để Scheduler Completion Notifier reply về đúng kênh khi publish xong.
+			$metadata = $this->build_event_metadata( $ctx, array(
+				'fb_page_id'        => $t['page_id'],
+				'fb_page_name'      => $t['page_name'],
+				'fb_content'        => $content,
+				'fb_image_url'      => $image,
+				'fb_publish_status' => 'pending',
+			) );
+
 			$payload = array(
 				'event_type'  => 'fb_post',
 				'title'       => '[automation] FB post → ' . $t['page_id'],
@@ -133,15 +143,14 @@ final class BizCity_Automation_Action_Publish_FB_Post extends BizCity_Automation
 				'start_at'    => $due_at,
 				'related_id'  => $ctx['_run_id'] ?? '',
 				'workflow_id' => $ctx['_workflow_id'] ?? 0,
+				// [2026-06-02 Johnny Chu] AUTOMATION SCHED-OWNER — gán event
+				// vào owner của workflow để hiện trên calendar UI của họ.
+				// Fallback get_current_user_id() = 0 trong cron context → event
+				// mồ côi, calendar trống. Runner đã inject _owner_user_id.
+				'user_id'     => (int) ( $ctx['_owner_user_id'] ?? $ctx['trigger']['wp_user_id'] ?? 0 ),
 				'status'      => 'active',
 				'source'      => 'workflow',
-				'metadata'    => array(
-					'fb_page_id'        => $t['page_id'],
-					'fb_page_name'      => $t['page_name'],
-					'fb_content'        => $content,
-					'fb_image_url'      => $image,
-					'fb_publish_status' => 'pending',
-				),
+				'metadata'    => $metadata,
 			);
 
 			$t0  = microtime( true );

@@ -1,25 +1,263 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "slug": "biz_coach",
   "label": "BizCoach",
   "base_type": "biz_coach",
-  "icon": "💼",
+  "icon": "🏢",
   "description": "Bản đồ điều hành doanh nghiệp: tổng quan, IQ Map lãnh đạo, Mission/Vision, SWOT, Customer Insight, Value Map, Winning Model, kế hoạch hành động 90 ngày.",
   "status": "active",
   "questions": [
-    { "key": "full_name",            "label": "Họ tên người sáng lập", "type": "text",   "required": true },
-    { "key": "company_name",         "label": "Tên công ty",            "type": "text",   "required": true,  "placeholder": "Công ty ABC" },
-    { "key": "company_industry",     "label": "Ngành nghề",             "type": "text",   "required": true,  "placeholder": "FMCG, F&B..." },
-    { "key": "company_founded_date", "label": "Ngày thành lập",         "type": "date",   "required": false }
+    { "key": "full_name",            "label": "Họ tên người sáng lập",    "type": "text",   "required": true },
+    { "key": "company_name",         "label": "Tên công ty",               "type": "text",   "required": true,  "placeholder": "Công ty ABC" },
+    { "key": "company_industry",     "label": "Ngành nghề",                "type": "text",   "required": true,  "placeholder": "FMCG, F&B..." },
+    { "key": "company_founded_date", "label": "Ngày thành lập",            "type": "date",   "required": false },
+    { "key": "company_size",         "label": "Quy mô nhân sự",            "type": "select", "required": false,
+      "choices": { "solo": "1 người", "micro": "2-10", "small": "11-50", "medium": "51-200", "large": "200+" } },
+    { "key": "biggest_challenge",    "label": "Thách thức lớn nhất hiện tại", "type": "textarea", "required": false }
   ],
   "generators": [
-    { "key": "gen_overview",       "label": "Nhận xét tổng quan",                            "output": "markdown", "legacy_fn": "bccm_generate_overview" },
-    { "key": "gen_iqmap",          "label": "Bản đồ IQ (Leadership Map)",                    "output": "json",     "legacy_fn": "bccm_generate_leadership_iqmap" },
-    { "key": "gen_vision",         "label": "Mission • Vision Map",                          "output": "json",     "legacy_fn": "bccm_generate_vision_map" },
-    { "key": "gen_swot",           "label": "SWOT Analysis",                                 "output": "json",     "legacy_fn": "bccm_generate_swot_map" },
-    { "key": "gen_customer",       "label": "Customer Insights",                             "output": "json",     "legacy_fn": "bccm_generate_customer_insight_map" },
-    { "key": "gen_value",          "label": "Bản đồ chuỗi giá trị",                          "output": "json",     "legacy_fn": "bccm_generate_value_map" },
-    { "key": "gen_winning",        "label": "Winning Model (What • Why • How • Who)",        "output": "json",     "legacy_fn": "bccm_generate_winning_model" },
-    { "key": "gen_action_plan_90", "label": "90-Days Business Action Plan",                  "output": "json",     "legacy_fn": "bccm_generate_90day_action_plan_ai" }
+    {
+      "key": "gen_overview",
+      "label": "Nhận xét tổng quan",
+      "output": "json",
+      "render": "biz_overview",
+      "system": "Bạn là BizCoach Business Strategist. Phân tích tổng quan sức mạnh kinh doanh dựa trên profile. Trả về DUY NHẤT một JSON hợp lệ (RFC 8259), KHÔNG markdown, KHÔNG code-fence, KHÔNG giải thích. Tiếng Việt tự nhiên, súc tích nhưng giàu insight.",
+      "json_schema": {
+        "type": "object",
+        "required": ["summary", "biz_score", "biz_archetype", "growth_stage", "key_strengths", "key_risks", "market_fit", "biz_timing"],
+        "properties": {
+          "summary":       { "type": "string", "description": "3-5 câu, gọi tên founder và công ty" },
+          "biz_score":     { "type": "integer", "minimum": 0, "maximum": 100 },
+          "biz_archetype": { "type": "string", "description": "1 từ: Visionary | Executor | Connector | Innovator | Optimizer | Disruptor | Builder | Custodian" },
+          "growth_stage":  { "type": "string", "description": "Ideation | Validation | Early Growth | Scaling | Mature | Pivot" },
+          "key_strengths": { "type": "array", "items": { "type": "string" }, "minItems": 3, "maxItems": 5 },
+          "key_risks":     { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4 },
+          "market_fit":    { "type": "string", "description": "Nhận định PMF / market position" },
+          "biz_timing": {
+            "type": "object",
+            "required": ["current_phase", "favorable_period", "caution_period"],
+            "properties": {
+              "current_phase":    { "type": "string" },
+              "favorable_period": { "type": "string" },
+              "caution_period":   { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "key": "gen_iqmap",
+      "label": "Bản đồ IQ Lãnh đạo",
+      "output": "json",
+      "render": "biz_iqmap",
+      "system": "Bạn là BizCoach Leadership Analyst. Đánh giá 8 chiều IQ điều hành. Trả về DUY NHẤT JSON hợp lệ.",
+      "json_schema": {
+        "type": "object",
+        "required": ["iq_scores", "dominant_iq", "blind_spots", "iq_strategy"],
+        "properties": {
+          "iq_scores": {
+            "type": "object",
+            "required": ["visionary_iq", "strategic_iq", "execution_iq", "people_iq", "financial_iq", "sales_iq", "innovation_iq", "resilience_iq"],
+            "properties": {
+              "visionary_iq":   { "type": "integer", "minimum": 1, "maximum": 10 },
+              "strategic_iq":   { "type": "integer", "minimum": 1, "maximum": 10 },
+              "execution_iq":   { "type": "integer", "minimum": 1, "maximum": 10 },
+              "people_iq":      { "type": "integer", "minimum": 1, "maximum": 10 },
+              "financial_iq":   { "type": "integer", "minimum": 1, "maximum": 10 },
+              "sales_iq":       { "type": "integer", "minimum": 1, "maximum": 10 },
+              "innovation_iq":  { "type": "integer", "minimum": 1, "maximum": 10 },
+              "resilience_iq":  { "type": "integer", "minimum": 1, "maximum": 10 }
+            }
+          },
+          "dominant_iq":  { "type": "string" },
+          "blind_spots":  { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4 },
+          "iq_strategy":  { "type": "string", "description": "1-2 câu hành động ưu tiên dựa trên điểm yếu" }
+        }
+      }
+    },
+    {
+      "key": "gen_vision",
+      "label": "Mission • Vision Map",
+      "output": "json",
+      "render": "biz_vision",
+      "system": "Bạn là BizCoach Vision Builder. Xây dựng mission/vision và core values cho doanh nghiệp. Trả về DUY NHẤT JSON hợp lệ.",
+      "json_schema": {
+        "type": "object",
+        "required": ["mission_statement", "vision_statement", "core_values", "strategic_goals", "brand_promise"],
+        "properties": {
+          "mission_statement": { "type": "string" },
+          "vision_statement":  { "type": "string" },
+          "core_values": {
+            "type": "array", "minItems": 3, "maxItems": 5,
+            "items": {
+              "type": "object",
+              "required": ["name", "description"],
+              "properties": {
+                "name":        { "type": "string" },
+                "description": { "type": "string" }
+              }
+            }
+          },
+          "strategic_goals": {
+            "type": "array", "minItems": 3, "maxItems": 3,
+            "items": {
+              "type": "object",
+              "required": ["year_label", "goal"],
+              "properties": {
+                "year_label": { "type": "string" },
+                "goal":       { "type": "string" }
+              }
+            }
+          },
+          "brand_promise": { "type": "string" }
+        }
+      }
+    },
+    {
+      "key": "gen_swot",
+      "label": "SWOT Doanh nghiệp",
+      "output": "json",
+      "render": "career_swot",
+      "system": "Bạn là BizCoach SWOT Analyst. Phân tích SWOT của doanh nghiệp — Mỗi điểm có tiêu đề + mô tả + hành động. Trả về DUY NHẤT JSON hợp lệ.",
+      "json_schema": {
+        "type": "object",
+        "required": ["strengths", "weaknesses", "opportunities", "threats", "swot_strategy"],
+        "properties": {
+          "strengths":     { "type": "array", "minItems": 2, "maxItems": 4, "items": { "type": "object", "required": ["title", "description", "action"], "properties": { "title": { "type": "string" }, "description": { "type": "string" }, "action": { "type": "string" } } } },
+          "weaknesses":    { "type": "array", "minItems": 2, "maxItems": 4, "items": { "type": "object", "required": ["title", "description", "action"], "properties": { "title": { "type": "string" }, "description": { "type": "string" }, "action": { "type": "string" } } } },
+          "opportunities": { "type": "array", "minItems": 2, "maxItems": 4, "items": { "type": "object", "required": ["title", "description", "action", "timing"], "properties": { "title": { "type": "string" }, "description": { "type": "string" }, "action": { "type": "string" }, "timing": { "type": "string" } } } },
+          "threats":       { "type": "array", "minItems": 2, "maxItems": 4, "items": { "type": "object", "required": ["title", "description", "mitigation", "severity"], "properties": { "title": { "type": "string" }, "description": { "type": "string" }, "mitigation": { "type": "string" }, "severity": { "type": "string", "enum": ["thấp", "trung bình", "cao"] } } } },
+          "swot_strategy": { "type": "string" }
+        }
+      }
+    },
+    {
+      "key": "gen_customer",
+      "label": "Customer Insights",
+      "output": "json",
+      "render": "biz_customer",
+      "system": "Bạn là BizCoach Customer Strategist. Phân tích chân dung khách hàng và insight thị trường. Trả về DUY NHẤT JSON hợp lệ.",
+      "json_schema": {
+        "type": "object",
+        "required": ["ideal_customer", "pain_points", "desires", "buying_triggers", "customer_journey_stages", "retention_insight"],
+        "properties": {
+          "ideal_customer": {
+            "type": "object",
+            "required": ["description", "demographics", "psychographics"],
+            "properties": {
+              "description":    { "type": "string" },
+              "demographics":   { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4 },
+              "psychographics": { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4 }
+            }
+          },
+          "pain_points":             { "type": "array", "items": { "type": "string" }, "minItems": 3, "maxItems": 5 },
+          "desires":                 { "type": "array", "items": { "type": "string" }, "minItems": 3, "maxItems": 5 },
+          "buying_triggers":         { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4 },
+          "customer_journey_stages": { "type": "array", "items": { "type": "string" }, "minItems": 3, "maxItems": 6 },
+          "retention_insight":       { "type": "string" }
+        }
+      }
+    },
+    {
+      "key": "gen_value",
+      "label": "Bản đồ Chuỗi Giá trị",
+      "output": "json",
+      "render": "biz_value_chain",
+      "system": "Bạn là BizCoach Value Chain Analyst. Phân tích chuỗi giá trị doanh nghiệp. Trả về DUY NHẤT JSON hợp lệ.",
+      "json_schema": {
+        "type": "object",
+        "required": ["value_proposition", "primary_activities", "support_activities", "competitive_differentiation", "value_gaps"],
+        "properties": {
+          "value_proposition": { "type": "string" },
+          "primary_activities": {
+            "type": "array", "minItems": 3, "maxItems": 6,
+            "items": {
+              "type": "object",
+              "required": ["name", "description", "maturity"],
+              "properties": {
+                "name":        { "type": "string" },
+                "description": { "type": "string" },
+                "maturity":    { "type": "string", "description": "Yếu | Trung bình | Mạnh" }
+              }
+            }
+          },
+          "support_activities": {
+            "type": "array", "minItems": 2, "maxItems": 4,
+            "items": {
+              "type": "object",
+              "required": ["name", "description"],
+              "properties": {
+                "name":        { "type": "string" },
+                "description": { "type": "string" }
+              }
+            }
+          },
+          "competitive_differentiation": { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4 },
+          "value_gaps":                  { "type": "array", "items": { "type": "string" }, "minItems": 1, "maxItems": 3 }
+        }
+      }
+    },
+    {
+      "key": "gen_winning",
+      "label": "Winning Model (What • Why • How • Who)",
+      "output": "json",
+      "render": "career_winning",
+      "system": "Bạn là BizCoach Winning Model Strategist. Xây dựng mô hình thắng cuộc cho doanh nghiệp. Trả về DUY NHẤT JSON hợp lệ.",
+      "json_schema": {
+        "type": "object",
+        "required": ["winning_formula", "what", "why", "how", "who", "competitive_advantages", "success_patterns", "execution_principles"],
+        "properties": {
+          "winning_formula":       { "type": "string" },
+          "what":                  { "type": "string" },
+          "why":                   { "type": "string" },
+          "how":                   { "type": "string" },
+          "who":                   { "type": "string" },
+          "competitive_advantages":{ "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4 },
+          "success_patterns": {
+            "type": "array", "minItems": 2, "maxItems": 4,
+            "items": { "type": "object", "required": ["pattern", "action"], "properties": { "pattern": { "type": "string" }, "action": { "type": "string" } } }
+          },
+          "execution_principles": { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4 }
+        }
+      }
+    },
+    {
+      "key": "gen_action_plan_90",
+      "label": "90-Days Business Action Plan",
+      "output": "json",
+      "render": "career_milestone",
+      "system": "Bạn là BizCoach Execution Planner. Lập kế hoạch hành động kinh doanh 90 ngày chia 3 giai đoạn. Trả về DUY NHẤT JSON hợp lệ.",
+      "json_schema": {
+        "type": "object",
+        "required": ["objective", "phases"],
+        "properties": {
+          "objective": { "type": "string" },
+          "phases": {
+            "type": "array", "minItems": 3, "maxItems": 3,
+            "items": {
+              "type": "object",
+              "required": ["phase_label", "theme", "weeks"],
+              "properties": {
+                "phase_label": { "type": "string" },
+                "theme":       { "type": "string" },
+                "weeks": {
+                  "type": "array", "minItems": 2, "maxItems": 4,
+                  "items": {
+                    "type": "object",
+                    "required": ["week", "focus", "tasks", "deliverable"],
+                    "properties": {
+                      "week":        { "type": "string" },
+                      "focus":       { "type": "string" },
+                      "tasks":       { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 5 },
+                      "deliverable": { "type": "string" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
   ]
 }

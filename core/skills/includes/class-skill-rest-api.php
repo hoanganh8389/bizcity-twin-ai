@@ -1027,6 +1027,27 @@ SYSTEM;
 		$db        = BizCity_Skill_Database::instance();
 		$skill_key = $fm['name'] ?? '';
 
+		// [2026-06-03 Johnny Chu] WF-AUTO GURU W3 — G2 cross-tier slash collision.
+		// Nếu frontmatter.slash_commands chứa `/cmd` đã claimed bởi 1 workflow
+		// trigger_type=slash_command → 409 Conflict (machine-readable code
+		// `slash_collision`) để FE hiển thị conflict trước khi user lưu.
+		if ( class_exists( 'BizCity_Skill_Slash_Matcher' ) ) {
+			$slash_list = (array) ( $fm['slash_commands'] ?? array() );
+			$conflict   = BizCity_Skill_Slash_Matcher::detect_collision( $slash_list, 'skill', $id );
+			if ( $conflict ) {
+				return new \WP_REST_Response( array(
+					'error'    => 'slash_collision',
+					'message'  => sprintf(
+						'Slash %s đã được workflow #%d "%s" sở hữu — đổi tên hoặc xóa workflow trước khi lưu skill.',
+						(string) $conflict['cmd'],
+						(int) $conflict['conflict_id'],
+						(string) $conflict['conflict_label']
+					),
+					'conflict' => $conflict,
+				), 409 );
+			}
+		}
+
 		$upsert_data = [
 			'title'         => $fm['title'] ?? '',
 			'description'   => $fm['description'] ?? '',

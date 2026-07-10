@@ -40,14 +40,23 @@ class BizCity_Search_Client {
      * Gateway base URL (same as LLM: bizcity.vn or bizcity.ai).
      */
     public function get_gateway_url(): string {
-        return rtrim( (string) get_site_option( 'bizcity_llm_gateway_url', 'https://bizcity.vn' ), '/' );
+        // [2026-06-10 Johnny Chu] HOTFIX — per-site option
+        return rtrim( (string) get_option( 'bizcity_llm_gateway_url', 'https://bizcity.vn' ), '/' );
     }
 
     /**
      * BizCity API key (same key for LLM + Search + all services).
      */
     public function get_api_key(): string {
-        return trim( (string) get_site_option( 'bizcity_llm_api_key', '' ) );
+        // [2026-06-10 Johnny Chu] HOTFIX — per-site option
+        // [2026-06-24 Johnny Chu] HOTFIX-MULTISITE — fallback to main site when sub-site key is empty
+        $key = trim( (string) get_option( 'bizcity_llm_api_key', '' ) );
+        if ( $key === '' && is_multisite() && get_current_blog_id() !== get_main_site_id() ) {
+            switch_to_blog( get_main_site_id() );
+            $key = trim( (string) get_option( 'bizcity_llm_api_key', '' ) );
+            restore_current_blog();
+        }
+        return $key;
     }
 
     /**
@@ -62,9 +71,10 @@ class BizCity_Search_Client {
      * Record a search-service call into the unified usage log (R-1API Phase B).
      * Best-effort: silently no-ops if the log class is unavailable.
      */
+    // [2026-06-10 Johnny Chu] R-LLM-USAGE — write to per-blog clients table.
     private function record_usage( string $endpoint, bool $success, int $ms, string $error = '', string $model = '' ): void {
-        if ( ! class_exists( 'BizCity_LLM_Usage_Log' ) ) return;
-        BizCity_LLM_Usage_Log::log( [
+        if ( ! class_exists( 'BizCity_LLM_Usage_Clients' ) ) return;
+        BizCity_LLM_Usage_Clients::log( [
             'service'    => 'search',
             'mode'       => 'gateway',
             'purpose'    => $endpoint, // search|extract|crawl
@@ -155,8 +165,15 @@ class BizCity_Search_Client {
             return $response;
         }
 
-        $code = intval( wp_remote_retrieve_response_code( $response ) );
-        $data = json_decode( wp_remote_retrieve_body( $response ), true );
+        $code     = intval( wp_remote_retrieve_response_code( $response ) );
+        // [2026-06-24 Johnny Chu] HOTFIX — strip BOM + trim before json_decode;
+        // bizcity.vn may prepend UTF-8 BOM causing json_decode to return null on HTTP 200
+        // → empty($data['success']) = true → false error "Search gateway HTTP 200".
+        $raw_body = wp_remote_retrieve_body( $response );
+        if ( substr( $raw_body, 0, 3 ) === "\xEF\xBB\xBF" ) {
+            $raw_body = substr( $raw_body, 3 );
+        }
+        $data     = json_decode( trim( $raw_body ), true );
 
         if ( $code === 401 ) {
             return new WP_Error( 'search_auth_failed', $data['error'] ?? 'API key không hợp lệ.' );
@@ -235,8 +252,13 @@ class BizCity_Search_Client {
             return $response;
         }
 
-        $code = intval( wp_remote_retrieve_response_code( $response ) );
-        $data = json_decode( wp_remote_retrieve_body( $response ), true );
+        $code     = intval( wp_remote_retrieve_response_code( $response ) );
+        // [2026-06-24 Johnny Chu] HOTFIX — strip BOM + trim before json_decode (extract)
+        $raw_body = wp_remote_retrieve_body( $response );
+        if ( substr( $raw_body, 0, 3 ) === "\xEF\xBB\xBF" ) {
+            $raw_body = substr( $raw_body, 3 );
+        }
+        $data     = json_decode( trim( $raw_body ), true );
 
         if ( in_array( $code, [ 401, 402, 429 ], true ) ) {
             return new WP_Error( 'search_gateway_' . $code, $data['error'] ?? "HTTP {$code}" );
@@ -301,8 +323,13 @@ class BizCity_Search_Client {
             return $response;
         }
 
-        $code = intval( wp_remote_retrieve_response_code( $response ) );
-        $data = json_decode( wp_remote_retrieve_body( $response ), true );
+        $code     = intval( wp_remote_retrieve_response_code( $response ) );
+        // [2026-06-24 Johnny Chu] HOTFIX — strip BOM + trim before json_decode (crawl)
+        $raw_body = wp_remote_retrieve_body( $response );
+        if ( substr( $raw_body, 0, 3 ) === "\xEF\xBB\xBF" ) {
+            $raw_body = substr( $raw_body, 3 );
+        }
+        $data     = json_decode( trim( $raw_body ), true );
 
         if ( in_array( $code, [ 401, 402, 429 ], true ) ) {
             return new WP_Error( 'search_gateway_' . $code, $data['error'] ?? "HTTP {$code}" );

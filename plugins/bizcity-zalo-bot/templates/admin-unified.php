@@ -88,6 +88,7 @@ if ( ! in_array( $active_tab, array( 'bots', 'assign', 'test', 'logs' ), true ) 
 </style>
 
 <div class="wrap bzz-wrap">
+	<?php if ( ! empty( $setup_notice ) ) echo $setup_notice; ?>
 	<h1>
 		<span class="dashicons dashicons-format-chat" style="font-size:24px;width:24px;height:24px;color:#0068ff"></span>
 		Bots - Zalo
@@ -128,7 +129,34 @@ if ( ! in_array( $active_tab, array( 'bots', 'assign', 'test', 'logs' ), true ) 
 		<!-- Quick actions -->
 		<div class="bzz-actions">
 			<a href="<?php echo esc_url( admin_url( 'admin.php?page=bizcity-zalo-bots&action=add' ) ); ?>" class="bzz-btn bzz-btn-primary">➕ Tạo Bot mới</a>
+			<?php /* [2026-07-02 Johnny Chu] HOTFIX — manual repair button for post-clone recovery */ ?>
+			<button type="button" id="bzz-btn-repair-tables" class="bzz-btn bzz-btn-ghost" title="Tạo lại bảng DB nếu bảng bị thiếu (sau khi clone site)">🔧 Tạo lại bảng DB</button>
 		</div>
+		<script>
+		(function(){
+			var btn = document.getElementById('bzz-btn-repair-tables');
+			if(!btn) return;
+			btn.addEventListener('click', function(){
+				if(!confirm('Xác nhận tạo lại bảng dữ liệu Zalo Bot? Thao tác này an toàn (CREATE TABLE IF NOT EXISTS) và không xóa dữ liệu hiện có.')) return;
+				btn.disabled = true; btn.textContent = '⏳ Đang tạo...';
+				fetch('<?php echo esc_url( rest_url( 'bizcity-channel/v1/zalo-bot/repair-tables' ) ); ?>', {
+					method: 'POST',
+					headers: {'X-WP-Nonce': '<?php echo esc_js( wp_create_nonce( 'wp_rest' ) ); ?>', 'Content-Type': 'application/json'}
+				})
+				.then(function(r){ return r.json(); })
+				.then(function(d){
+					if(d.success){
+						alert('✅ ' + (d.message || 'Tạo lại bảng thành công. Tải lại trang.'));
+						location.reload();
+					} else {
+						alert('❌ Lỗi: ' + (d.message || JSON.stringify(d)));
+						btn.disabled = false; btn.textContent = '🔧 Tạo lại bảng DB';
+					}
+				})
+				.catch(function(e){ alert('❌ Network error: ' + e.message); btn.disabled = false; btn.textContent = '🔧 Tạo lại bảng DB'; });
+			});
+		})();
+		</script>
 
 		<!-- Bots table -->
 		<div class="bzz-card" style="margin-bottom:14px">

@@ -122,7 +122,7 @@ class BizCity_Blog_Resolver {
 
 		// Priority 2: Current blog
 		$table_current = $wpdb->prefix . 'bizcity_zalo_bots';
-		$table_exists  = $wpdb->get_var( "SHOW TABLES LIKE '{$table_current}'" ) === $table_current;
+		$table_exists  = bizcity_tbl_exists( $table_current ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 		if ( $table_exists ) {
 			$exists = $wpdb->get_var( $wpdb->prepare(
 				"SELECT id FROM {$table_current} WHERE id = %d",
@@ -138,7 +138,10 @@ class BizCity_Blog_Resolver {
 		if ( class_exists( 'BizCity_Zalo_Bot_Dashboard' ) ) {
 			$wp_user_id = BizCity_Zalo_Bot_Dashboard::resolve_user_for_bot( $bot_id );
 			if ( $wp_user_id ) {
-				$primary_blog = get_user_meta( $wp_user_id, 'primary_blog', true );
+				// [2026-06-22 Johnny Chu] R-PERF — route via BizCity_User_Meta_Cache to avoid WP meta prime
+				$primary_blog = class_exists( 'BizCity_User_Meta_Cache' )
+					? BizCity_User_Meta_Cache::get( $wp_user_id, 'primary_blog', 0 )
+					: get_user_meta( $wp_user_id, 'primary_blog', true );
 				if ( $primary_blog ) {
 					$this->cache[ 'bot:' . $bot_id ] = (int) $primary_blog;
 					return (int) $primary_blog;
@@ -153,7 +156,7 @@ class BizCity_Blog_Resolver {
 			);
 			foreach ( $blogs as $blog_id ) {
 				$table_name   = $wpdb->get_blog_prefix( $blog_id ) . 'bizcity_zalo_bots';
-				$table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$table_name}'" ) === $table_name;
+				$table_exists = bizcity_tbl_exists( $table_name ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 				if ( ! $table_exists ) {
 					continue;
 				}
@@ -190,7 +193,17 @@ class BizCity_Blog_Resolver {
 
 		static $table_exists = null;
 		if ( null === $table_exists ) {
-			$table_exists = $db->get_var( "SHOW TABLES LIKE '{$table}'" ) === $table;
+			// [2026-06-22 Johnny Chu] R-SHOW-TABLES — use information_schema + dual cache
+			$ck     = 'bz_tbl_' . (int) get_current_blog_id() . '_' . crc32( $table );
+			$cached = wp_cache_get( $ck, 'bizcity_tbl' );
+			if ( false === $cached ) {
+				$cached = (int) (bool) $db->get_var( $db->prepare(
+					'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+					$table
+				) );
+				wp_cache_set( $ck, $cached, 'bizcity_tbl', HOUR_IN_SECONDS );
+			}
+			$table_exists = (bool) $cached;
 		}
 		if ( ! $table_exists ) {
 			return 0;

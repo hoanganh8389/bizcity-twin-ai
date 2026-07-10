@@ -214,8 +214,8 @@ if ( is_admin() ) {
 		BizCity_KG_Admin_Menu::instance()->register_subpage(
 			'bizcity-twinchat',
 			BizCity_KG_Admin_Menu::PAGE_SLUG_GURUS,
-			__( 'Phong cấp Guru', 'bizcity-knowledge' ),
-			__( 'Phong cấp Guru', 'bizcity-knowledge' ),
+			__( 'Nâng cấp Connector', 'bizcity-knowledge' ),
+			__( 'Nâng cấp Connector', 'bizcity-knowledge' ),
 			'read',
 			'gurus'
 		);

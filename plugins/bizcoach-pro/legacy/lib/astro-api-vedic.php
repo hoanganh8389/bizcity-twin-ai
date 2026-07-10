@@ -427,6 +427,11 @@ function bccm_vedic_save_chart($coachee_id, $chart_data, $birth_input = [], $pas
         $wpdb->insert($t_astro, $insert_data);
     }
 
+    // [2026-06-10 Johnny Chu] R-CACHE — flush bcpro group after every write.
+    if ( class_exists( 'BizCity_Cache' ) ) {
+        BizCity_Cache::flush_group( 'bcpro' );
+    }
+
     return true;
 }
 

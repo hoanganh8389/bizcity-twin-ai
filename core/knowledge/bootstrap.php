@@ -49,6 +49,58 @@ if ( ! defined( 'BIZCITY_KNOWLEDGE_SERVICES' ) ) {
 if ( class_exists( 'BizCity_Knowledge_Database' ) ) {
     return;
 }
+
+// [2026-06-21 Johnny Chu] R-SHOW-TABLES — polyfill bizcity_tbl_exists() for early-load paths
+// (e.g. activation hook, WP-CLI, or any path that loads knowledge without core/helper first).
+if ( ! function_exists( 'bizcity_tbl_exists' ) ) {
+    function bizcity_tbl_exists( $table_name ) {
+        static $s = array();
+        if ( isset( $s[ $table_name ] ) ) { return $s[ $table_name ]; }
+        global $wpdb;
+        $result = (bool) $wpdb->get_var( $wpdb->prepare(
+            'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+            $table_name
+        ) );
+        $s[ $table_name ] = $result;
+        return $result;
+    }
+}
+
+// [2026-06-11 Johnny Chu] R-PERF — Admin/REST/AJAX context gate (same pattern as bizcity-twin-ai.php)
+// Frontend HTML renders (GET /chat/, GET /app/) do NOT need admin menus, REST controllers,
+// or chat gateway — those only fire during wp_ajax_* or /wp-json/ requests.
+// [2026-06-29 Johnny Chu] HOTFIX — fallback gate extended to cover ALL webhook URL patterns.
+// Facebook webhook is /?fbhook=1 or /bizfbhook/ — NOT /wp-json/. Without these patterns,
+// $_kg_admin_ctx=false → class-chat-gateway.php NOT loaded → system_prompt + quick_faq
+// never injected. This fix also covers the case when mu-plugin loads this file before
+// $_bizcity_admin_ctx is set in bizcity-twin-ai.php.
+$_kg_admin_ctx = isset( $_bizcity_admin_ctx )
+    ? $_bizcity_admin_ctx
+    : (
+        is_admin()
+        || ( defined( 'DOING_CRON' ) && DOING_CRON )
+        || ( defined( 'WP_CLI' ) && WP_CLI )
+        || (
+            ! empty( $_SERVER['REQUEST_URI'] )
+            && (
+                false !== strpos( $_SERVER['REQUEST_URI'], '/wp-json/' )
+                || false !== strpos( $_SERVER['REQUEST_URI'], '/bizhook/' )
+                || false !== strpos( $_SERVER['REQUEST_URI'], '/zalohook/' )
+                || false !== strpos( $_SERVER['REQUEST_URI'], '/bizfbhook' )
+                || false !== strpos( $_SERVER['REQUEST_URI'], '/tool-' )
+                || preg_match( '#^/doc/?(\?|$)#', $_SERVER['REQUEST_URI'] )
+            )
+        )
+        || (
+            ! empty( $_SERVER['QUERY_STRING'] )
+            && (
+                false !== strpos( (string) $_SERVER['QUERY_STRING'], 'fbhook=1' )
+                || false !== strpos( (string) $_SERVER['QUERY_STRING'], 'biz_fb_oauth' )
+                || false !== strpos( (string) $_SERVER['QUERY_STRING'], 'fb_callback=1' )
+            )
+        )
+    );
+
 require_once BIZCITY_KNOWLEDGE_SERVICES . 'class-auth-service.php';
 require_once BIZCITY_KNOWLEDGE_SERVICES . 'class-chat-history-service.php';
 require_once BIZCITY_KNOWLEDGE_SERVICES . 'class-session-service.php';
@@ -67,23 +119,30 @@ if (is_admin()) {
 
 require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-character.php';
 require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-knowledge-source.php';
-require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-admin-menu.php';
-require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-api.php';
-require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-character-quick-edit-rest.php';
 require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-profile-context.php';
-require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-admin-chat.php';
-require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-chat-gateway.php';
 require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-user-memory.php';
+
+// [2026-06-11 Johnny Chu] R-PERF — Admin-only (~277 KB): admin menu + admin chat
+if ( is_admin() ) {
+    require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-admin-menu.php';
+    require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-admin-chat.php';
+}
+
+// [2026-06-11 Johnny Chu] R-PERF — REST/AJAX-only (~247 KB): chat gateway + REST controllers
+// All wp_ajax_nopriv_* handlers go through admin-ajax.php (is_admin()=true) → gating is safe.
+if ( $_kg_admin_ctx ) {
+    require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-api.php';
+    require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-character-quick-edit-rest.php';
+    require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-chat-gateway.php';
+    require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-chat-rest-api.php';
+    require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-agent-rest-api.php';
+}
 // Phase 4.5 — Companion Intelligence (§12)
 require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-emotional-memory.php';
 require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-emotional-thread-tracker.php';
 require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-companion-context.php';
 require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-response-texture-engine.php';
 require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-agent-binding.php';
-// Phase 5.0 — Chat REST API (AJAX→REST migration)
-require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-chat-rest-api.php';
-// Phase 5.1 — Agent REST API (full API for React SPA / mobile)
-require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-agent-rest-api.php';
 require_once BIZCITY_KNOWLEDGE_INCLUDES . 'functions.php';
 // Knowledge Fabric Intent Provider — loaded conditionally after Intent Engine boots
 if ( class_exists( 'BizCity_Intent_Provider' ) ) {
@@ -141,23 +200,28 @@ if ( ! wp_next_scheduled( 'bizcity_knowledge_fabric_cleanup' ) ) {
     wp_schedule_event( time(), 'twicedaily', 'bizcity_knowledge_fabric_cleanup' );
 }
 
-// Initialize Chat Gateway (unified endpoint — works for both admin and public)
-BizCity_Chat_Gateway::instance();
+// Initialize Chat Gateway, REST controllers (gated — only loaded in admin/REST/AJAX context)
+// [2026-06-11 Johnny Chu] R-PERF — class_exists guards match the require_once gates above
+if ( class_exists( 'BizCity_Chat_Gateway' ) ) {
+    BizCity_Chat_Gateway::instance();
+}
+if ( class_exists( 'BizCity_Chat_REST_API' ) ) {
+    BizCity_Chat_REST_API::instance();
+}
+if ( class_exists( 'BizCity_Agent_REST_API' ) ) {
+    BizCity_Agent_REST_API::instance();
+}
 
-// Initialize Chat REST API (AJAX→REST migration layer)
-BizCity_Chat_REST_API::instance();
-
-// Initialize Agent REST API (full API for React SPA / mobile)
-BizCity_Agent_REST_API::instance();
-
-// Initialize Admin Menu
-if (is_admin()) {
-    BizCity_Knowledge_Admin_Menu::instance();
-    BizCity_Admin_Chat::instance();
+// Initialize Admin Menu (admin context only)
+if ( is_admin() ) {
+    if ( class_exists( 'BizCity_Knowledge_Admin_Menu' ) ) BizCity_Knowledge_Admin_Menu::instance();
+    if ( class_exists( 'BizCity_Admin_Chat' ) )           BizCity_Admin_Chat::instance();
 }
 
 // Initialize REST API
-BizCity_Knowledge_API::instance();
+if ( class_exists( 'BizCity_Knowledge_API' ) ) {
+    BizCity_Knowledge_API::instance();
+}
 
 // ── Phase 5.2 — Legal AI Module ───────────────────────────────────────────
 // 2026-05-21 — REMOVED. Module `core/knowledge/legal/` đã bị xoá khỏi codebase

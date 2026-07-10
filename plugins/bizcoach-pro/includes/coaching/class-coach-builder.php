@@ -35,8 +35,8 @@ class BizCoach_Pro_Coach_Builder {
 		add_action( 'template_redirect', array( __CLASS__, 'maybe_render_landing' ) );
 		add_action( 'rest_api_init',     array( __CLASS__, 'register_routes' ) );
 
-		// One-shot rewrite flush so /coach-builder/ works without manual flush.
-		add_action( 'init', array( __CLASS__, 'maybe_flush_rewrite' ), 99 );
+		// [2026-06-09 Johnny Chu] HOTFIX — moved init:99 → admin_init:99 (prevent frontend flush loop)
+		add_action( 'admin_init', array( __CLASS__, 'maybe_flush_rewrite' ), 99 );
 
 		// Inject AI-fill assets into legacy admin Step 2 page.
 		add_action( 'admin_enqueue_scripts', array( __CLASS__, 'maybe_enqueue_admin_assets' ) );
@@ -60,10 +60,13 @@ class BizCoach_Pro_Coach_Builder {
 		return $vars;
 	}
 	public static function maybe_flush_rewrite() {
-		$cur = '1.' . ( defined( 'BCPRO_VERSION' ) ? BCPRO_VERSION : '0' );
+		// [2026-06-09 Johnny Chu] HOTFIX — use BCPRO_REWRITE_VERSION (stable '0.3.23') instead of
+		// BCPRO_VERSION which contains time() → guard NEVER matched → flush on every request.
+		// update_option() set BEFORE flush_rewrite_rules() so guard persists even if flush throws.
+		$cur = '1.' . ( defined( 'BCPRO_REWRITE_VERSION' ) ? BCPRO_REWRITE_VERSION : '0.3.23' );
 		if ( get_option( self::FLUSH_FLAG ) === $cur ) { return; }
-		flush_rewrite_rules( false );
 		update_option( self::FLUSH_FLAG, $cur );
+		flush_rewrite_rules( false );
 	}
 	public static function maybe_render_landing() {
 		if ( ! get_query_var( self::QV ) ) { return; }

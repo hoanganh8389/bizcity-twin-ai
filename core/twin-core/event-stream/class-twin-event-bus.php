@@ -134,7 +134,7 @@ class BizCity_Twin_Event_Bus {
 		global $wpdb;
 		$table = BizCity_Twin_State_Schema::milestones_table();
 
-		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
+		if ( ! bizcity_tbl_exists( $table ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			return 0;
 		}
 
@@ -211,7 +211,7 @@ class BizCity_Twin_Event_Bus {
 		global $wpdb;
 		$table = BizCity_Twin_State_Schema::context_logs_table();
 
-		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
+		if ( ! bizcity_tbl_exists( $table ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			return 0;
 		}
 
@@ -307,7 +307,7 @@ class BizCity_Twin_Event_Bus {
 		$table   = BizCity_Twin_State_Schema::milestones_table();
 		$blog_id = get_current_blog_id();
 
-		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
+		if ( ! bizcity_tbl_exists( $table ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			return [];
 		}
 
@@ -335,7 +335,7 @@ class BizCity_Twin_Event_Bus {
 		global $wpdb;
 		$table = BizCity_Twin_State_Schema::context_logs_table();
 
-		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
+		if ( ! bizcity_tbl_exists( $table ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			return [];
 		}
 
@@ -357,7 +357,7 @@ class BizCity_Twin_Event_Bus {
 		$table   = BizCity_Twin_State_Schema::context_logs_table();
 		$blog_id = get_current_blog_id();
 
-		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
+		if ( ! bizcity_tbl_exists( $table ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			return [];
 		}
 

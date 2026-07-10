@@ -487,7 +487,8 @@ function twf_telegram_send_message($chat_id, $text, $parse_mode = 'HTML', $reply
     // Log trả lời bot
     if (function_exists('bizgpt_log_chat_message')) bizgpt_log_chat_message($chat_id, $text, 'bot','', 'telegram');
     // 🔒 Nếu user thuộc blog hiện tại dùng Zalo → override gửi Zalo
-    if ($client_id = twf_check_client_use_zalo($chat_id)) {
+    // [2026-06-09 Johnny Chu] HOTFIX — guard undefined function when bizcity-zalo-bizcity plugin is not loaded
+    if ( function_exists( 'twf_check_client_use_zalo' ) && ( $client_id = twf_check_client_use_zalo($chat_id) ) ) {
         return send_zalo_botbanhang(bizgpt_zalo_format($text), $client_id, 'text');
     }
 

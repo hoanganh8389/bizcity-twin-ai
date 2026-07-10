@@ -40,7 +40,8 @@ class BizCity_Chat_History_Service {
         $table = $wpdb->prefix . 'bizcity_webchat_messages';
 
         // Cached qua `bizcity_known_tables` — chỉ hit DB 1 lần / blog.
-        if ( function_exists( 'bizcity_table_exists' ) ? ! bizcity_table_exists( $table ) : ( $wpdb->get_var( "SHOW TABLES LIKE '$table'" ) !== $table ) ) {
+        // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+        if ( function_exists( 'bizcity_table_exists' ) ? ! bizcity_table_exists( $table ) : ( ! bizcity_tbl_exists( $table ) ) ) {
             return [];
         }
 
@@ -116,7 +117,8 @@ class BizCity_Chat_History_Service {
         global $wpdb;
         $table = $wpdb->prefix . 'bizcity_webchat_messages';
 
-        if ( function_exists( 'bizcity_table_exists' ) ? ! bizcity_table_exists( $table ) : ( $wpdb->get_var( "SHOW TABLES LIKE '$table'" ) !== $table ) ) {
+        // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+        if ( function_exists( 'bizcity_table_exists' ) ? ! bizcity_table_exists( $table ) : ( ! bizcity_tbl_exists( $table ) ) ) {
             return false;
         }
 
@@ -155,9 +157,8 @@ class BizCity_Chat_History_Service {
         $table = $wpdb->prefix . 'bizcity_webchat_messages';
 
         $deleted = 0;
-        $msg_exists = function_exists( 'bizcity_table_exists' )
-            ? bizcity_table_exists( $table )
-            : ( $wpdb->get_var( "SHOW TABLES LIKE '$table'" ) === $table );
+        // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+        $msg_exists = function_exists( 'bizcity_table_exists' ) ? bizcity_table_exists( $table ) : bizcity_tbl_exists( $table );
         if ( $msg_exists ) {
             $deleted = $wpdb->delete( $table, [
                 'session_id'    => $session_id,
@@ -167,9 +168,8 @@ class BizCity_Chat_History_Service {
 
         // Close conversation
         $conv_table = $wpdb->prefix . 'bizcity_webchat_conversations';
-        $conv_exists = function_exists( 'bizcity_table_exists' )
-            ? bizcity_table_exists( $conv_table )
-            : ( $wpdb->get_var( "SHOW TABLES LIKE '$conv_table'" ) === $conv_table );
+        // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+        $conv_exists = function_exists( 'bizcity_table_exists' ) ? bizcity_table_exists( $conv_table ) : bizcity_tbl_exists( $conv_table );
         if ( $conv_exists ) {
             $wpdb->query( $wpdb->prepare(
                 "UPDATE {$conv_table} SET status = 'closed', ended_at = NOW() WHERE session_id = %s AND platform_type = %s",

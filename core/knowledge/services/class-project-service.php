@@ -20,6 +20,9 @@ class BizCity_Project_Service {
 
     private static $instance = null;
 
+    // [2026-06-11 Johnny Chu] R-PERF — In-request cache cho legacy bizcity_projects user_meta
+    private static $legacy_project_cache = [];
+
     public static function instance() {
         if ( null === self::$instance ) {
             self::$instance = new self();
@@ -66,7 +69,14 @@ class BizCity_Project_Service {
         }
 
         // Legacy: user_meta
-        $projects = get_user_meta( $user_id, 'bizcity_projects', true );
+        // [2026-06-11 Johnny Chu] R-PERF — cache trong request tránh nhiều lần gọi từ context-builder + intent-engine
+        if ( isset( self::$legacy_project_cache[ $user_id ] ) ) {
+            return self::$legacy_project_cache[ $user_id ];
+        }
+        // [2026-06-22 Johnny Chu] R-PERF — route via BizCity_User_Meta_Cache to avoid WP meta prime
+        $projects = class_exists( 'BizCity_User_Meta_Cache' )
+            ? BizCity_User_Meta_Cache::get( $user_id, 'bizcity_projects', array() )
+            : get_user_meta( $user_id, 'bizcity_projects', true );
         if ( ! is_array( $projects ) ) {
             return [];
         }
@@ -81,6 +91,7 @@ class BizCity_Project_Service {
             $p['session_count'] = (int) $count;
         }
 
+        self::$legacy_project_cache[ $user_id ] = $projects;
         return $projects;
     }
 
@@ -163,7 +174,10 @@ class BizCity_Project_Service {
         }
 
         // Legacy: user_meta
-        $projects = get_user_meta( $user_id, 'bizcity_projects', true );
+        // [2026-06-22 Johnny Chu] R-PERF — route via BizCity_User_Meta_Cache to avoid WP meta prime
+        $projects = class_exists( 'BizCity_User_Meta_Cache' )
+            ? BizCity_User_Meta_Cache::get( $user_id, 'bizcity_projects', array() )
+            : get_user_meta( $user_id, 'bizcity_projects', true );
         if ( ! is_array( $projects ) ) {
             $projects = [];
         }
@@ -176,6 +190,11 @@ class BizCity_Project_Service {
             'created'      => current_time( 'mysql' ),
         ];
         update_user_meta( $user_id, 'bizcity_projects', $projects );
+        unset( self::$legacy_project_cache[ $user_id ] ); // [2026-06-11 Johnny Chu] R-PERF — bust cache sau khi write
+        // [2026-06-22 Johnny Chu] R-PERF — also bust BizCity_User_Meta_Cache
+        if ( class_exists( 'BizCity_User_Meta_Cache' ) ) {
+            BizCity_User_Meta_Cache::invalidate( $user_id, 'bizcity_projects' );
+        }
 
         return [
             'id'           => $project_id,

@@ -1,0 +1,18 @@
+{
+  "_vendor-react-nf7bT_Uh.js": {
+    "file": "assets/vendor-react-nf7bT_Uh.js",
+    "name": "vendor-react"
+  },
+  "index.html": {
+    "file": "assets/index-CeXhxIFv.js",
+    "name": "index",
+    "src": "index.html",
+    "isEntry": true,
+    "imports": [
+      "_vendor-react-nf7bT_Uh.js"
+    ],
+    "css": [
+      "assets/index-4iS-TbFd.css"
+    ]
+  }
+}

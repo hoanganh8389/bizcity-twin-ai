@@ -37,10 +37,33 @@ function bccm_transit_report_handler() {
     $allowed = ['day', 'week', 'month', 'year', 'custom'];
     if (!in_array($period, $allowed, true)) $period = 'week';
 
+    // [2026-07-06 Johnny Chu] HOTFIX — support exact day links from /my-transit/?period=day&date=YYYY-MM-DD.
+    $day_param  = isset($_GET['day'])  ? sanitize_text_field(wp_unslash($_GET['day']))  : '';
+    $date_param = isset($_GET['date']) ? sanitize_text_field(wp_unslash($_GET['date'])) : '';
+    if ($day_param !== '' && $date_param === '') {
+        $date_param = $day_param;
+    }
+    $requested_date = '';
+    if ($date_param !== '') {
+        $date_param = str_replace('/', '-', $date_param);
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $date_param)) {
+            try {
+                $_date_dt = new DateTimeImmutable($date_param, new DateTimeZone('UTC'));
+                if ($_date_dt->format('Y-m-d') === $date_param) {
+                    $requested_date = $date_param;
+                }
+            } catch (Exception $e) {
+                $requested_date = '';
+            }
+        }
+    }
+
     // Month / year / custom → try professional Gantt timeline (FAA HIGH plan).
     // On API failure the handler returns without exiting, so we fall through to the
     // DB-snapshot renderer and show a 🌟 Pro-plan notice at the top.
-    if (in_array($period, ['month', 'year', 'custom'], true)) {
+    // [2026-07-06 Johnny Chu] HOTFIX — keep custom+date links in day snapshot path (skip timeline).
+    if (in_array($period, ['month', 'year', 'custom'], true)
+        && !($period === 'custom' && $requested_date !== '')) {
         if (!function_exists('bccm_transit_timeline_handler')) {
             $tl_file = dirname(__FILE__) . '/astro-transit-timeline.php';
             if (file_exists($tl_file)) { require_once $tl_file; }
@@ -60,19 +83,19 @@ function bccm_transit_report_handler() {
     ), ARRAY_A);
     if (!$coachee) wp_die('Coachee not found');
 
-    // ── Load natal chart (western) - query by user_id first, fallback to coachee_id ──
+    // [2026-07-07 Johnny Chu] PHASE-FAA2-TL-PROFILE — prefer coachee-scoped natal row
+    // to avoid cross-profile bleed when one user has multiple bccm_astro records.
+    // ── Load natal chart (western) - query by coachee_id first, fallback to user_id ──
     $user_id = $coachee['user_id'] ?? 0;
     $astro_row = null;
+    $astro_row = $wpdb->get_row($wpdb->prepare(
+        "SELECT * FROM {$wpdb->prefix}bccm_astro WHERE coachee_id=%d AND chart_type='western'",
+        $coachee_id
+    ), ARRAY_A);
     if ($user_id) {
-        $astro_row = $wpdb->get_row($wpdb->prepare(
+        $astro_row = $astro_row ?: $wpdb->get_row($wpdb->prepare(
             "SELECT * FROM {$wpdb->prefix}bccm_astro WHERE user_id=%d AND chart_type='western' AND (summary IS NOT NULL OR traits IS NOT NULL)",
             $user_id
-        ), ARRAY_A);
-    }
-    if (!$astro_row) {
-        $astro_row = $wpdb->get_row($wpdb->prepare(
-            "SELECT * FROM {$wpdb->prefix}bccm_astro WHERE coachee_id=%d AND chart_type='western'",
-            $coachee_id
         ), ARRAY_A);
     }
     if (!$astro_row || empty($astro_row['traits'])) {
@@ -100,13 +123,25 @@ function bccm_transit_report_handler() {
     // Map 'custom' to month or year for snapshot check_dates.
     $snap_period = $period;
     if ($period === 'custom') {
-        $cs = isset($_GET['start']) ? sanitize_text_field(wp_unslash($_GET['start'])) : '';
-        $ce = isset($_GET['end'])   ? sanitize_text_field(wp_unslash($_GET['end']))   : '';
-        $cdays = ($cs && $ce) ? max(1, (int) round((strtotime($ce) - strtotime($cs)) / DAY_IN_SECONDS)) : 30;
-        $snap_period = $cdays <= 45 ? 'month' : 'year';
+        if ($requested_date !== '') {
+            // [2026-07-06 Johnny Chu] HOTFIX — exact date should use day snapshot flow.
+            $snap_period = 'day';
+        } else {
+            $cs = isset($_GET['start']) ? sanitize_text_field(wp_unslash($_GET['start'])) : '';
+            $ce = isset($_GET['end'])   ? sanitize_text_field(wp_unslash($_GET['end']))   : '';
+            $cdays = ($cs && $ce) ? max(1, (int) round((strtotime($ce) - strtotime($cs)) / DAY_IN_SECONDS)) : 30;
+            $snap_period = $cdays <= 45 ? 'month' : 'year';
+        }
     }
     $time_range = $time_configs[$snap_period] ?? $time_configs['week'];
-    $check_dates = bccm_transit_get_check_dates($time_range);
+    if ($requested_date !== '') {
+        // [2026-07-06 Johnny Chu] HOTFIX — keep heading + lookup aligned to selected date.
+        $time_range['period'] = 'day';
+        $time_range['days'] = 0;
+        $time_range['label'] = 'Ngày ' . date_i18n('d/m/Y', strtotime($requested_date));
+        $time_range['label_short'] = 'Ngày được chọn';
+    }
+    $check_dates = bccm_transit_get_check_dates($time_range, $requested_date);
 
     // ── Read pre-fetched transit data from DB (no live API calls) ──
     $snapshots   = [];
@@ -114,21 +149,39 @@ function bccm_transit_report_handler() {
     $no_data_msg = '';
 
     $t_snap = $wpdb->prefix . 'bccm_transit_snapshots';
-    $snap_table_exists = ($wpdb->get_var("SHOW TABLES LIKE '{$t_snap}'") === $t_snap);
+    // [2026-06-28 Johnny Chu] HOTFIX R-SHOW-TABLES — use information_schema instead of SHOW TABLES
+    // (SHOW TABLES causes full metadata scan on multisite with 1400+ blogs; also returns wrong
+    // result on read replicas before replication of new rows completes).
+    $snap_table_exists = (bool) $wpdb->get_var( $wpdb->prepare(
+        'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+        $t_snap
+    ) );
 
     if ($snap_table_exists) {
-        $where_id = $user_id
-            ? $wpdb->prepare('(coachee_id = %d OR user_id = %d)', $coachee_id, $user_id)
-            : $wpdb->prepare('coachee_id = %d', $coachee_id);
-
+        // [2026-07-07 Johnny Chu] PHASE-FAA2-TL-PROFILE — transit timeline must be scoped to
+        // selected coachee_id; do not merge with user_id rows (causes profile mixing).
         $db_rows = $wpdb->get_results(
             "SELECT target_date, label, planets_json, aspects_json, fetched_at "
             . "FROM {$t_snap} "
-            . "WHERE {$where_id} "
+            . $wpdb->prepare( 'WHERE coachee_id = %d ', $coachee_id )
             . "  AND target_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY) "
             . "  AND target_date <= DATE_ADD(CURDATE(), INTERVAL 400 DAY) "
             . 'ORDER BY target_date ASC'
         );
+
+        if ( empty( $db_rows ) && $user_id ) {
+            // [2026-07-07 Johnny Chu] PHASE-FAA2-TL-PROFILE — back-compat fallback for legacy
+            // snapshots that were written without coachee_id in old builds.
+            $db_rows = $wpdb->get_results( $wpdb->prepare(
+                "SELECT target_date, label, planets_json, aspects_json, fetched_at "
+                . "FROM {$t_snap} "
+                . "WHERE user_id = %d "
+                . "  AND target_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY) "
+                . "  AND target_date <= DATE_ADD(CURDATE(), INTERVAL 400 DAY) "
+                . 'ORDER BY target_date ASC',
+                $user_id
+            ) );
+        }
 
         // Map by date for nearest-match lookup
         $snap_by_date = [];
@@ -176,11 +229,78 @@ function bccm_transit_report_handler() {
     // If no snapshots in DB → schedule background prefetch and show notice
     if (empty($snapshots)) {
         $prefetch_user_id = $user_id ? (int) $user_id : 0;
-        $existing_cron = wp_next_scheduled('bccm_transit_prefetch_cron', [$coachee_id, $prefetch_user_id]);
-        if (!$existing_cron) {
-            wp_schedule_single_event(time() + 5, 'bccm_transit_prefetch_cron', [$coachee_id, $prefetch_user_id]);
+
+        // [2026-06-28 Johnny Chu] HOTFIX — anti-spam: cooldown transient (multisite: keyed by
+        // blog_id) prevents re-scheduling when the prefetch cron ran but ALL API calls failed.
+        $cd_key = 'bcpro_tr_pf_cd_' . (int) get_current_blog_id() . '_' . $coachee_id;
+        if ( ! get_transient( $cd_key ) ) {
+            // [2026-07-06 Johnny Chu] HOTFIX — Transit writer unification:
+            // disable legacy bccm_transit_prefetch_cron scheduling.
+            // [2026-07-06 Johnny Chu] HOTFIX — default-disabled guard: schedule only when explicitly enabled.
+            if ( defined( 'BCPRO_LEGACY_TRANSIT_PREFETCH_ENABLED' ) && BCPRO_LEGACY_TRANSIT_PREFETCH_ENABLED ) {
+                $existing_cron = wp_next_scheduled('bccm_transit_prefetch_cron', [$coachee_id, $prefetch_user_id]);
+                if (!$existing_cron) {
+                    wp_schedule_single_event(time() + 5, 'bccm_transit_prefetch_cron', [$coachee_id, $prefetch_user_id]);
+                    error_log( '[bccm_transit] Scheduled prefetch cron for coachee_id=' . $coachee_id
+                        . ' blog_id=' . (int) get_current_blog_id() );
+                } else {
+                    error_log( '[bccm_transit] Prefetch cron already pending for coachee_id=' . $coachee_id
+                        . ' blog_id=' . (int) get_current_blog_id() . ' next_at=' . $existing_cron );
+                }
+            } else {
+                error_log( '[bccm_transit] Legacy prefetch disabled; skip scheduling bccm_transit_prefetch_cron'
+                    . ' coachee_id=' . $coachee_id . ' blog_id=' . (int) get_current_blog_id() );
+            }
+            set_transient( $cd_key, 1, 30 * MINUTE_IN_SECONDS );
+        } else {
+            error_log( '[bccm_transit] Skipping re-schedule (cooldown active) coachee_id=' . $coachee_id
+                . ' blog_id=' . (int) get_current_blog_id() );
         }
-        $no_data_msg = 'Dữ liệu transit chưa được tạo cho hồ sơ này. Hệ thống đang cập nhật trong nền — vui lòng thử lại sau 1-2 phút.';
+
+        // [2026-06-28 Johnny Chu] HOTFIX — verbose diagnostic: show exactly WHY data is empty.
+        // On multisite the table prefix differs per blog — admin on blog1 saves to wp_bccm_transit_snapshots,
+        // but /my-transit/ on blog2 reads from wp_2_bccm_transit_snapshots → always empty.
+        $diag_blog_id    = (int) get_current_blog_id();
+        $diag_table      = $t_snap; // already set above: $wpdb->prefix . 'bccm_transit_snapshots'
+        $diag_tbl_exists = $snap_table_exists;
+        $diag_row_count  = 0;
+        $diag_any_count  = 0; // total rows for this coachee regardless of date filter
+        if ( $diag_tbl_exists ) {
+            $diag_row_count = (int) $wpdb->get_var( $wpdb->prepare(
+                "SELECT COUNT(*) FROM {$diag_table} WHERE (coachee_id=%d OR user_id=%d)",
+                $coachee_id, $user_id ?: 0
+            ) );
+            $diag_any_count = (int) $wpdb->get_var(
+                "SELECT COUNT(*) FROM {$diag_table}"
+            );
+        }
+        $diag_check_dates_str = implode( ', ', array_column( $check_dates, 'date' ) );
+        error_log( '[bccm_transit] DIAG empty_snapshots'
+            . ' blog_id=' . $diag_blog_id
+            . ' table=' . $diag_table
+            . ' table_exists=' . ( $diag_tbl_exists ? 'YES' : 'NO' )
+            . ' rows_for_coachee=' . $diag_row_count
+            . ' total_rows_in_table=' . $diag_any_count
+            . ' coachee_id=' . $coachee_id
+            . ' user_id=' . $user_id
+            . ' period=' . $period
+            . ' check_dates=[' . $diag_check_dates_str . ']' );
+
+        $no_data_msg  = '⚠️ Dữ liệu transit chưa sẵn sàng — Thông tin chẩn đoán:<br>';
+        $no_data_msg .= '<code style="font-size:12px;line-height:1.8;">'
+            . 'Blog ID: ' . $diag_blog_id . '<br>'
+            . 'Table: ' . esc_html( $diag_table ) . '<br>'
+            . 'Table tồn tại: ' . ( $diag_tbl_exists ? '✅ CÓ' : '❌ KHÔNG — bảng chưa được tạo trên blog này' ) . '<br>'
+            . 'Rows cho coachee #' . $coachee_id . ': ' . $diag_row_count . '<br>'
+            . 'Tổng rows trong bảng: ' . $diag_any_count . '<br>'
+            . 'Period: ' . esc_html( $period ) . ' → cần ngày: ' . esc_html( $diag_check_dates_str ) . '<br>'
+            . ( $diag_row_count === 0 && $diag_any_count > 0
+                ? '⚠️ Bảng có dữ liệu nhưng KHÔNG khớp coachee_id=' . $coachee_id . ' / user_id=' . $user_id . ' — kiểm tra ID đúng chưa.'
+                : '' )
+            . ( $diag_any_count === 0 && $diag_tbl_exists
+                ? '⚠️ Bảng RỖNG hoàn toàn — nút "Lấy Transit Cả Tuần" phải chạy trên CÙNG blog_id=' . $diag_blog_id . ' này.'
+                : '' )
+            . '</code>';
     }
 
     // Deduplicate aspects (same transit-natal-aspect → keep closest orb)
@@ -223,6 +343,9 @@ function bccm_transit_report_handler() {
         return ['vi' => $name, 'symbol' => '?', 'en' => $name];
     };
 
+    // [2026-07-06 Johnny Chu] HOTFIX — keep retrograde scope identical to the sky snapshot list.
+    $sky_key_planets = ['Sun','Moon','Mercury','Venus','Mars','Jupiter','Saturn','Uranus','Neptune','Pluto'];
+
     // ── Coachee display info ──
     $name_esc = esc_html($coachee['full_name'] ?? 'Natal Chart');
     $dob_display = '';
@@ -232,20 +355,21 @@ function bccm_transit_report_handler() {
         $dob_display = date('d/m/Y', strtotime($coachee['dob']));
     }
 
-    // Retrograde planets across all snapshots
+    // Retrograde planets across all snapshots (limited to sky snapshot key planets)
     $retro_planets = [];
     foreach ($snapshots as $snap) {
         foreach ($snap['positions'] as $pname => $pos) {
-            if (!empty($pos['is_retro']) && !in_array($pname, ['Ascendant','MC','IC','Descendant','Mean Node','True Node'])) {
-                if (!isset($retro_planets[$pname])) {
-                    $retro_planets[$pname] = [
-                        'name_vi' => $planet_vi[$pname] ?? $pname,
-                        'sign'    => $pos['sign_vi'] ?? ($pos['sign_en'] ?? ''),
-                        'dates'   => [],
-                    ];
-                }
-                $retro_planets[$pname]['dates'][] = $snap['label'];
+            if (!in_array($pname, $sky_key_planets, true) || empty($pos['is_retro'])) {
+                continue;
             }
+            if (!isset($retro_planets[$pname])) {
+                $retro_planets[$pname] = [
+                    'name_vi' => $planet_vi[$pname] ?? $pname,
+                    'sign'    => $pos['sign_vi'] ?? ($pos['sign_en'] ?? ''),
+                    'dates'   => [],
+                ];
+            }
+            $retro_planets[$pname]['dates'][] = $snap['label'];
         }
     }
 
@@ -256,8 +380,61 @@ function bccm_transit_report_handler() {
     // Nonce for other period links
     $transit_nonce = wp_create_nonce('bccm_transit_report');
 
-    // Pro notice: set when timeline Gantt was attempted but API returned an error.
-    $show_pro_notice = ! empty($GLOBALS['bccm_transit_tl_api_failed']);
+    // [2026-07-03 Johnny Chu] PHASE-ASTRO-MIGRATE — pro-notice removed; always false.
+    $show_pro_notice = false;
+
+    // [2026-07-05 Johnny Chu] PHASE-FAA2-NEXT — prefer the new saved wheel SVG URL
+    // (uploads/.../bizcoach-astro-charts/{id}_natal.svg) for /my-transit/ preview.
+    $_wheel_svg_url = '';
+    $_chart_svg_raw = isset( $astro_row['chart_svg'] ) ? trim( (string) $astro_row['chart_svg'] ) : '';
+    if ( $_chart_svg_raw !== '' && strpos( ltrim( $_chart_svg_raw ), '<svg' ) !== 0 ) {
+        $_wheel_svg_url = $_chart_svg_raw;
+    }
+    if ( $_wheel_svg_url === '' ) {
+        $_sum_chart_url = isset( $natal_summary['chart_url'] ) ? trim( (string) $natal_summary['chart_url'] ) : '';
+        if ( $_sum_chart_url !== '' && strpos( ltrim( $_sum_chart_url ), '<svg' ) !== 0 ) {
+            $_wheel_svg_url = $_sum_chart_url;
+        }
+    }
+    if ( $_wheel_svg_url === '' ) {
+        $_traits_chart_url = isset( $natal_traits['chart_url'] ) ? trim( (string) $natal_traits['chart_url'] ) : '';
+        if ( $_traits_chart_url !== '' && strpos( ltrim( $_traits_chart_url ), '<svg' ) !== 0 ) {
+            $_wheel_svg_url = $_traits_chart_url;
+        }
+    }
+    if ( $_wheel_svg_url === '' ) {
+        $ud = wp_upload_dir();
+        $candidate_file = trailingslashit( $ud['basedir'] ) . 'bizcoach-astro-charts/' . (int) $coachee_id . '_natal.svg';
+        if ( file_exists( $candidate_file ) ) {
+            $_wheel_svg_url = trailingslashit( $ud['baseurl'] ) . 'bizcoach-astro-charts/' . (int) $coachee_id . '_natal.svg';
+        }
+    }
+
+    // AstroViet fallback URLs — kept as backup when new wheel SVG URL is missing.
+    $_av_natal_positions = function_exists( 'bccm_astro_normalize_positions' )
+        ? bccm_astro_normalize_positions( $natal_positions )
+        : $natal_positions;
+    $_av_houses_src = $natal_traits['houses'] ?? array();
+    $_av_houses_raw = array();
+    if ( ! empty( $_av_houses_src ) ) {
+        if ( isset( $_av_houses_src[0]['House'] ) || isset( $_av_houses_src[0]['house'] ) ) {
+            $_av_houses_raw = $_av_houses_src;
+        } elseif ( isset( $_av_houses_src['Houses'] ) ) {
+            $_av_houses_raw = $_av_houses_src['Houses'];
+        }
+    }
+    $_av_birth_data  = array_merge( $birth_data, array(
+        'birth_place' => (string) ( $astro_row['birth_place'] ?? '' ),
+        'latitude'    => (float) ( $astro_row['latitude']    ?? 21.0285 ),
+        'longitude'   => (float) ( $astro_row['longitude']   ?? 105.8542 ),
+    ) );
+    $_av_name        = (string) ( $coachee['full_name'] ?? '' );
+    $_av_wheel_url   = ( function_exists( 'bccm_build_astroviet_wheel_url' ) && ! empty( $_av_natal_positions ) && ! empty( $_av_houses_raw ) )
+        ? bccm_build_astroviet_wheel_url( $_av_natal_positions, $_av_houses_raw, $_av_name, $_av_birth_data )
+        : '';
+    $_av_grid_url    = ( function_exists( 'bccm_build_astroviet_aspect_grid_url' ) && ! empty( $_av_natal_positions ) && ! empty( $_av_houses_raw ) )
+        ? bccm_build_astroviet_aspect_grid_url( $_av_natal_positions, $_av_houses_raw, $_av_birth_data )
+        : '';
 
     // Smart nav URLs — use public share links when in public context.
     $ctx = $GLOBALS['bcpro_public_astro_ctx'] ?? [];
@@ -408,25 +585,40 @@ tr:nth-child(even) td { background: #fafbfc; }
     <div class="period-badge">🔮 <?php echo esc_html($time_range['label']); ?></div>
 </div>
 
-<?php if ($show_pro_notice): ?>
-<div class="pro-notice">
-    <div class="pro-icon">🌟</div>
-    <div class="pro-content">
-        <strong>Biểu đồ Gantt Timeline cần nâng cấp FAA API lên HIGH plan</strong>
-        <p>Bạn đang xem <strong>Transit cơ bản (Snapshot)</strong> — dữ liệu từ DB cache. Nâng cấp để mở khoá:<br>
-        📊 Gantt theo ngày &nbsp;·&nbsp; 🎯 Exact hits &nbsp;·&nbsp; ℞ Retrograde patterns &nbsp;·&nbsp; 🤖 AI interpretation chi tiết theo từng chủ đề.</p>
+<?php if ( $_wheel_svg_url || $_av_wheel_url || $_av_grid_url ) : ?>
+<div class="section" style="text-align:center">
+    <h2>🗺️ Wheel Chart (SVG)</h2>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center">
+        <?php if ( $_wheel_svg_url ) : ?>
+        <div style="text-align:center">
+            <img src="<?php echo esc_url( $_wheel_svg_url ); ?>" alt="Natal Wheel SVG" style="max-width:100%;border-radius:8px">
+            <div style="font-size:9px;color:#9ca3af;margin-top:4px">Natal Wheel — FAA2 SVG</div>
+        </div>
+        <?php elseif ( $_av_wheel_url ) : ?>
+        <div style="text-align:center">
+            <img src="<?php echo esc_url( $_av_wheel_url ); ?>" alt="AstroViet" style="max-width:100%;border-radius:8px">
+            <div style="font-size:9px;color:#9ca3af;margin-top:4px">Natal Wheel — AstroViet (fallback)</div>
+        </div>
+        <?php endif; ?>
+        <?php if ( $_av_grid_url ) : ?>
+        <div style="text-align:center">
+            <img src="<?php echo esc_url( $_av_grid_url ); ?>" alt="AstroViet Grid" style="max-width:100%;border-radius:8px">
+            <div style="font-size:9px;color:#9ca3af;margin-top:4px">Aspect Grid — AstroViet</div>
+        </div>
+        <?php endif; ?>
     </div>
-    <a href="https://freeastroapi.com/pricing" target="_blank" class="pro-cta">✨ Xem gói Pro</a>
 </div>
 <?php endif; ?>
 
 <div class="content">
 
 <?php if (empty($snapshots)): ?>
-    <div style="text-align:center;padding:60px 20px;color:#9ca3af">
+    <div style="text-align:center;padding:40px 20px;color:#9ca3af">
         <p style="font-size:40px">⏳</p>
         <p style="font-size:16px;margin-top:12px;color:#1e293b;font-weight:600">Dữ liệu transit chưa sẵn sàng</p>
-        <p style="margin-top:8px;color:#475569"><?php echo esc_html($no_data_msg); ?></p>
+        <div style="margin-top:12px;text-align:left;max-width:560px;margin-left:auto;margin-right:auto;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px;font-size:13px;color:#374151;line-height:1.9;">
+            <?php echo wp_kses( $no_data_msg, array( 'br' => array(), 'code' => array( 'style' => array() ), '⚠️' => array() ) ); ?>
+        </div>
         <p style="margin-top:16px;font-size:11px;color:#94a3b8">Dữ liệu được tự động tạo sau khi bản đồ sao được tạo/cập nhật.</p>
         <p style="margin-top:12px"><a href="<?php echo esc_url(admin_url('admin.php?page=bccm_my_profile')); ?>" style="background:#6366f1;color:#fff;padding:8px 20px;border-radius:8px;text-decoration:none;font-size:12px">← Quay lại hồ sơ</a></p>
     </div>
@@ -461,7 +653,8 @@ tr:nth-child(even) td { background: #fafbfc; }
         <h2>🌌 Bầu Trời Qua Các Thời Điểm</h2>
         <div class="snapshot-grid">
         <?php
-        $key_planets = ['Sun','Moon','Mercury','Venus','Mars','Jupiter','Saturn','Uranus','Neptune','Pluto'];
+        // [2026-07-06 Johnny Chu] HOTFIX — share the same key-planet scope with retrograde cards.
+        $key_planets = $sky_key_planets;
         foreach ($snapshots as $snap):
         ?>
             <div class="snapshot-card">

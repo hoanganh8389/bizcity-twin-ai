@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "astro_day_ranked",
+  "description": "TwinBrain Astro W6 ranking summary for evaluated days.",
+  "type": "object",
+  "required": ["trace_id", "total_days", "ranking", "best_day", "best_score"],
+  "properties": {
+    "trace_id":   { "type": "string" },
+    "total_days": { "type": "integer", "minimum": 0 },
+    "topics":     { "type": "array", "items": { "type": "string" } },
+    "ranking": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "date":        { "type": "string" },
+          "date_label":  { "type": "string" },
+          "score":       { "type": "number" },
+          "reason":      { "type": "string" },
+          "good_hits":   { "type": "integer" },
+          "bad_hits":    { "type": "integer" },
+          "topic_hits":  { "type": "integer" },
+          "retro_count": { "type": "integer" }
+        }
+      }
+    },
+    "best_day":   { "type": "string" },
+    "best_score": { "type": "number" },
+    "_degraded":  { "type": ["string", "null"] }
+  }
+}

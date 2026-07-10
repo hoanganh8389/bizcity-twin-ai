@@ -17,6 +17,12 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 
 require_once dirname( __DIR__ ) . '/interface-diagnostics-probe.php';
 
+
+// [2026-06-08 Johnny Chu] HOTFIX — double-load guard (bootstrap may include via filter AND direct require).
+if ( class_exists( 'BizCity_Probe_CRM_Broadcast', false ) ) {
+	return;
+}
+
 final class BizCity_Probe_CRM_Broadcast implements BizCity_Diagnostics_Probe {
 
 	public function id(): string          { return 'crm.broadcast'; }
@@ -136,8 +142,8 @@ final class BizCity_Probe_CRM_Broadcast implements BizCity_Diagnostics_Probe {
 		$tbl_rcpt     = $wpdb->prefix . 'bizcity_crm_broadcast_recipients';
 		$tbl_contacts = $wpdb->prefix . 'bizcity_crm_contacts';
 		$need_migrate =
-			( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl_bc ) ) !== $tbl_bc )
-			|| ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl_rcpt ) ) !== $tbl_rcpt )
+			( ! bizcity_tbl_exists( $tbl_bc ) ) // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+			|| ( ! bizcity_tbl_exists( $tbl_rcpt ) ) // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			|| ! $wpdb->get_row( $wpdb->prepare( "SHOW COLUMNS FROM `{$tbl_contacts}` LIKE %s", 'lead_score' ) )
 			|| ! $wpdb->get_row( $wpdb->prepare( "SHOW COLUMNS FROM `{$tbl_contacts}` LIKE %s", 'segment' ) );
 		if ( $need_migrate && method_exists( $cls, 'migrate_phase_044' ) ) {
@@ -149,7 +155,7 @@ final class BizCity_Probe_CRM_Broadcast implements BizCity_Diagnostics_Probe {
 		}
 
 		// 3a. bizcity_crm_broadcasts table.
-		$exists  = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl_bc ) ) === $tbl_bc;
+		$exists  = bizcity_tbl_exists( $tbl_bc ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 		$steps[] = [
 			'label'  => 'Runtime · table bizcity_crm_broadcasts',
 			'status' => $exists ? 'PASS' : 'FAIL',
@@ -157,7 +163,7 @@ final class BizCity_Probe_CRM_Broadcast implements BizCity_Diagnostics_Probe {
 		];
 
 		// 3b. bizcity_crm_broadcast_recipients table.
-		$exists2  = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl_rcpt ) ) === $tbl_rcpt;
+		$exists2  = bizcity_tbl_exists( $tbl_rcpt ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 		$steps[]  = [
 			'label'  => 'Runtime · table bizcity_crm_broadcast_recipients',
 			'status' => $exists2 ? 'PASS' : 'FAIL',

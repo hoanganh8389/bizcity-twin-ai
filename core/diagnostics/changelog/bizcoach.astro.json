@@ -1,0 +1,170 @@
+{
+  "$schema": "https://bizcity.vn/schema/diagnostics-changelog-v1.json",
+  "module_id": "bizcoach.astro",
+  "owner": "plugins/bizcoach-pro/legacy/includes/install.php",
+  "installer_id": "bccm_db_version",
+  "current_version": "1.2.0",
+  "_note_A0": "[2026-07-06 Johnny Chu] HOTFIX — add transit snapshot schema catalog + source_marker",
+
+  "tables": {
+    "bccm_coachees": {
+      "since": "1.0.0",
+      "purpose": "Coachee/subject profiles. One user_id -> many coachees. is_self=1 marks the primary (chính chủ) profile.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":                       { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
+        "user_id":                  { "type": "BIGINT UNSIGNED NULL DEFAULT NULL",       "since": "1.0.0" },
+        "is_self":                  { "type": "TINYINT(1) NOT NULL DEFAULT 0",           "since": "1.1.0", "_note": "R-COACHEE.2 — 1=chính chủ, exactly-one per user_id" },
+        "platform_type":            { "type": "VARCHAR(32) NOT NULL DEFAULT 'WEBCHAT'",  "since": "1.0.0" },
+        "coach_type":               { "type": "VARCHAR(64) NOT NULL",                    "since": "1.0.0" },
+        "full_name":                { "type": "VARCHAR(255) NOT NULL",                   "since": "1.0.0" },
+        "phone":                    { "type": "VARCHAR(64) NULL",                        "since": "1.0.0" },
+        "address":                  { "type": "VARCHAR(255) NULL",                       "since": "1.0.0" },
+        "company_name":             { "type": "VARCHAR(255) NULL",                       "since": "1.0.0" },
+        "company_founded_date":     { "type": "DATE NULL",                               "since": "1.0.0" },
+        "company_industry":         { "type": "VARCHAR(255) NULL",                       "since": "1.0.0" },
+        "company_product":          { "type": "VARCHAR(255) NULL",                       "since": "1.0.0" },
+        "dob":                      { "type": "DATE NULL",                               "since": "1.0.0" },
+        "ai_summary":               { "type": "LONGTEXT NULL",                           "since": "1.0.0" },
+        "numeric_json":             { "type": "LONGTEXT NULL",                           "since": "1.0.0" },
+        "answer_json":              { "type": "LONGTEXT NULL",                           "since": "1.0.0" },
+        "vision_json":              { "type": "LONGTEXT NULL",                           "since": "1.0.0" },
+        "swot_json":                { "type": "LONGTEXT NULL",                           "since": "1.0.0" },
+        "customer_json":            { "type": "LONGTEXT NULL",                           "since": "1.0.0" },
+        "winning_json":             { "type": "LONGTEXT NULL",                           "since": "1.0.0" },
+        "value_json":               { "type": "LONGTEXT NULL",                           "since": "1.0.0" },
+        "bizcoach_json":            { "type": "LONGTEXT NULL",                           "since": "1.0.0" },
+        "baby_name":                { "type": "VARCHAR(255) NULL",                       "since": "1.0.0" },
+        "baby_gender":              { "type": "VARCHAR(16) NULL",                        "since": "1.0.0" },
+        "baby_gestational_weeks":   { "type": "TINYINT NULL",                            "since": "1.0.0" },
+        "baby_weight_kg":           { "type": "DECIMAL(5,2) NULL",                       "since": "1.0.0" },
+        "baby_height_cm":           { "type": "DECIMAL(5,2) NULL",                       "since": "1.0.0" },
+        "baby_json":                { "type": "LONGTEXT NULL",                           "since": "1.0.0" },
+        "iqmap_json":               { "type": "LONGTEXT NULL",                           "since": "1.0.0" },
+        "health_json":              { "type": "LONGTEXT NULL",                           "since": "1.0.0" },
+        "mental_json":              { "type": "LONGTEXT NULL",                           "since": "1.0.0" },
+        "zodiac_sign":              { "type": "VARCHAR(32) NULL DEFAULT ''",             "since": "1.0.0" },
+        "extra_fields_json":        { "type": "LONGTEXT NULL",                           "since": "1.0.0" },
+        "public_url":               { "type": "TEXT NULL",                               "since": "1.0.0" },
+        "created_at":               { "type": "DATETIME NOT NULL",                       "since": "1.0.0" },
+        "updated_at":               { "type": "DATETIME NOT NULL",                       "since": "1.0.0" }
+      },
+      "indexes": {
+        "PRIMARY":          { "cols": ["id"],              "since": "1.0.0" },
+        "coach_type":       { "cols": ["coach_type"],      "since": "1.0.0" },
+        "phone":            { "cols": ["phone"],           "since": "1.0.0" },
+        "user_id":          { "cols": ["user_id"],         "since": "1.0.0" },
+        "platform_type":    { "cols": ["platform_type"],   "since": "1.0.0" },
+        "idx_user_self":    { "cols": ["user_id","is_self"], "since": "1.1.0", "_note": "Fast lookup for bccm_get_self_coachee()" }
+      }
+    },
+
+    "bccm_astro": {
+      "since": "1.0.0",
+      "purpose": "Astrology chart data per coachee. UNIQUE(coachee_id, chart_type) — western/vedic/chinese.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":          { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
+        "coachee_id":  { "type": "BIGINT UNSIGNED NOT NULL",                "since": "1.0.0" },
+        "user_id":     { "type": "BIGINT UNSIGNED NULL DEFAULT NULL",        "since": "1.0.0", "_note": "denormal cache of coachee.user_id" },
+        "chart_type":  { "type": "VARCHAR(32) NOT NULL DEFAULT 'western'",   "since": "1.0.0" },
+        "birth_place": { "type": "VARCHAR(191) DEFAULT ''",                  "since": "1.0.0" },
+        "birth_time":  { "type": "VARCHAR(32)  DEFAULT ''",                  "since": "1.0.0" },
+        "latitude":    { "type": "DECIMAL(10,7) NULL DEFAULT NULL",          "since": "1.0.0" },
+        "longitude":   { "type": "DECIMAL(10,7) NULL DEFAULT NULL",          "since": "1.0.0" },
+        "timezone":    { "type": "DECIMAL(4,1) NULL DEFAULT 7.0",            "since": "1.0.0" },
+        "summary":     { "type": "LONGTEXT NULL",                            "since": "1.0.0" },
+        "traits":      { "type": "LONGTEXT NULL",                            "since": "1.0.0" },
+        "chart_svg":   { "type": "MEDIUMTEXT NULL",                          "since": "1.0.0" },
+        "llm_report":  { "type": "LONGTEXT NULL",                            "since": "1.0.0" },
+        "created_at":  { "type": "DATETIME NOT NULL",                        "since": "1.0.0" },
+        "updated_at":  { "type": "DATETIME NOT NULL",                        "since": "1.0.0" }
+      },
+      "indexes": {
+        "PRIMARY":             { "cols": ["id"],                          "since": "1.0.0" },
+        "uniq_coachee_chart":  { "cols": ["coachee_id","chart_type"],     "since": "1.0.0", "unique": true },
+        "idx_user_id":         { "cols": ["user_id"],                     "since": "1.0.0" },
+        "idx_chart_type":      { "cols": ["chart_type"],                  "since": "1.0.0" }
+      }
+    },
+
+    "bccm_transit_snapshots": {
+      "since": "1.2.0",
+      "purpose": "Date-keyed transit cache snapshots. Canonical writer is do_transit_fetch; source_marker keeps legacy-vs-modern audit trail.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":            { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.2.0", "pk": true },
+        "coachee_id":    { "type": "BIGINT UNSIGNED NOT NULL",                "since": "1.2.0" },
+        "user_id":       { "type": "BIGINT UNSIGNED NULL DEFAULT NULL",        "since": "1.2.0" },
+        "target_date":   { "type": "DATE NOT NULL",                            "since": "1.2.0" },
+        "label":         { "type": "VARCHAR(64) NOT NULL DEFAULT ''",          "since": "1.2.0", "_note": "Normalized token; canonical rows use 'day'." },
+        "source_marker": { "type": "VARCHAR(32) NOT NULL DEFAULT ''",          "since": "1.2.0", "_note": "legacy_prefetch | do_transit_fetch" },
+        "planets_json":  { "type": "LONGTEXT NULL",                            "since": "1.2.0" },
+        "aspects_json":  { "type": "LONGTEXT NULL",                            "since": "1.2.0" },
+        "fetched_at":    { "type": "DATETIME NOT NULL",                        "since": "1.2.0" }
+      },
+      "indexes": {
+        "PRIMARY":            { "cols": ["id"],                    "since": "1.2.0" },
+        "uniq_coachee_date":  { "cols": ["coachee_id","target_date"], "since": "1.2.0", "unique": true },
+        "idx_user_id":        { "cols": ["user_id"],               "since": "1.2.0" },
+        "idx_source_marker":  { "cols": ["source_marker"],         "since": "1.2.0" },
+        "idx_target_date":    { "cols": ["target_date"],           "since": "1.2.0" }
+      }
+    },
+
+    "bccm_astro_relations": {
+      "since": "1.1.0",
+      "purpose": "Compatibility scores between a primary (is_self=1) coachee and other subjects. score_json = full FAA2 Ashtakoot envelope (8 kootams, /36).",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":               { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",     "since": "1.1.0", "pk": true },
+        "user_id":          { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",          "since": "1.1.0", "_note": "owner WP user — scope guard" },
+        "owner_coachee":    { "type": "BIGINT UNSIGNED NOT NULL",                    "since": "1.1.0", "_note": "FK bccm_coachees.id; MUST be is_self=1 at creation time" },
+        "subject_coachee":  { "type": "BIGINT UNSIGNED NOT NULL",                    "since": "1.1.0" },
+        "system":           { "type": "VARCHAR(32) NOT NULL DEFAULT 'ashtakoot'",    "since": "1.1.0" },
+        "relation_type":    { "type": "VARCHAR(48) NOT NULL DEFAULT 'general'",      "since": "1.1.0" },
+        "total_score":      { "type": "DECIMAL(5,2) NULL",                           "since": "1.1.0" },
+        "out_of":           { "type": "DECIMAL(5,2) NULL DEFAULT 36",                "since": "1.1.0" },
+        "score_json":       { "type": "LONGTEXT NULL",                               "since": "1.1.0" },
+        "interpretation":   { "type": "LONGTEXT NULL",                               "since": "1.1.0" },
+        "status":           { "type": "VARCHAR(16) NOT NULL DEFAULT 'active'",       "since": "1.1.0" },
+        "computed_at":      { "type": "DATETIME NULL",                               "since": "1.1.0" },
+        "created_at":       { "type": "DATETIME NOT NULL",                           "since": "1.1.0" },
+        "updated_at":       { "type": "DATETIME NOT NULL",                           "since": "1.1.0" }
+      },
+      "indexes": {
+        "PRIMARY":          { "cols": ["id"],                                           "since": "1.1.0" },
+        "uniq_pair_system": { "cols": ["owner_coachee","subject_coachee","system"],     "since": "1.1.0", "unique": true },
+        "idx_user":         { "cols": ["user_id"],                                      "since": "1.1.0" },
+        "idx_owner":        { "cols": ["owner_coachee"],                                "since": "1.1.0" },
+        "idx_subject":      { "cols": ["subject_coachee"],                              "since": "1.1.0" }
+      }
+    }
+  },
+
+  "history": [
+    {
+      "version": "1.0.0",
+      "date": "2026-07-04",
+      "change": "Baseline schema documentation — bccm_coachees + bccm_astro existing tables. Spec: PHASE-FAA2-NEXT-RELATIONSHIP.md"
+    },
+    {
+      "version": "1.1.0",
+      "date": "2026-07-04",
+      "change": "[PHASE-FAA2-NEXT BE-2/BE-4] ADD bccm_coachees.is_self (TINYINT) + idx_user_self. NEW TABLE bccm_astro_relations (Ashtakoot score + LLM interpretation). R-COACHEE.2"
+    },
+    {
+      "version": "1.2.0",
+      "date": "2026-07-06",
+      "change": "[HOTFIX] Catalog bccm_transit_snapshots schema + source_marker. Normalize label/source and migrate legacy planets_json to canonical list shape via batch tick."
+    }
+  ]
+}

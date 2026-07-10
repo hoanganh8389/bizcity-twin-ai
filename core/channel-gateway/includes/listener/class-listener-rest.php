@@ -207,12 +207,27 @@ class BizCity_Listener_REST {
 				|| ! empty( $filters['chat_id'] )
 				|| ! empty( $filters['workflow_id'] )
 				|| ! empty( $filters['run_id'] );
-			if ( ! $has_channel_scope ) {
-				// Bare query → keep legacy per-blog default to avoid leaking
-				// other sites' system/inbound noise into a general admin tail.
+
+			// [2026-06-02 Johnny Chu] PG-MULTISITE-LEAK — twin/automation kind
+			// PHẢI scope blog. Trước đây has_channel_scope=true → bỏ blog filter,
+			// nhưng twin tap emit `platform=TWIN` không khớp channel webhook blog
+			// → events từ blog X lọt vào playground blog Y. Khi caller yêu cầu
+			// twin hoặc automation kind, default scope theo current blog.
+			$kinds_req = array();
+			if ( isset( $filters['kind'] ) ) {
+				$kinds_req = is_array( $filters['kind'] )
+					? $filters['kind']
+					: array_filter( array_map( 'trim', explode( ',', (string) $filters['kind'] ) ) );
+			}
+			$wants_synthetic = (bool) array_intersect( $kinds_req, array( 'twin', 'automation' ) );
+
+			if ( ! $has_channel_scope || $wants_synthetic ) {
+				// Bare query HOẶC twin/automation pane → scope current blog để
+				// tránh leak system/twin noise từ subsite khác.
 				$filters['blog_id'] = (int) get_current_blog_id();
 			}
-			// else: scoped query → cross-blog by design (Zalo bot blog ≠ admin blog).
+			// else: pure channel scope (inbound/outbound only) → cross-blog by
+			// design (admin blog 1 tail bot blog 1258 Zalo events).
 		}
 		return $filters;
 	}

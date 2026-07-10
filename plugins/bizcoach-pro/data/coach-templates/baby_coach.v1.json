@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "slug": "baby_coach",
   "label": "BabyCoach",
   "base_type": "baby_coach",
@@ -16,8 +16,133 @@
     { "key": "baby_height_cm",         "label": "Chiều cao hiện tại (cm)", "type": "number", "required": false, "placeholder": "72.5" }
   ],
   "generators": [
-    { "key": "gen_baby_overview", "label": "Nhận xét tổng quan",            "output": "markdown", "legacy_fn": "bccm_generate_baby_overview" },
-    { "key": "baby_json",         "label": "Bản đồ tăng trưởng (WHO/CDC)",  "output": "json",     "legacy_fn": "bccm_generate_baby_growth_map" },
-    { "key": "gen_milestone",     "label": "90-Days Milestone Calendar",    "output": "json",     "legacy_fn": "bccm_generate_health_milestone_calendar" }
+    {
+      "key": "gen_baby_overview",
+      "label": "Tổng quan phát triển bé",
+      "output": "json",
+      "render": "baby_overview",
+      "system": "Bạn là BabyCoach Pediatric Development Expert (theo chuẩn WHO/CDC). Phân tích tổng quan phát triển của bé. Trả về DUY NHẤT một JSON hợp lệ (RFC 8259), KHÔNG markdown, KHÔNG code-fence. Tiếng Việt dịu dàng, khích lệ.",
+      "json_schema": {
+        "type": "object",
+        "required": ["summary", "age_months", "age_corrected_months", "growth_status", "development_score", "milestones_reached", "milestones_upcoming", "parenting_tips", "health_watch"],
+        "properties": {
+          "summary":               { "type": "string", "description": "3-4 câu nhận xét trực tiếp gọi tên bé" },
+          "age_months":            { "type": "number", "description": "Tuổi theo tháng tính từ ngày sinh" },
+          "age_corrected_months":  { "type": "number", "description": "Tuổi hiệu chỉnh (nếu sinh non)" },
+          "growth_status": {
+            "type": "object",
+            "required": ["weight_percentile", "height_percentile", "overall_status"],
+            "properties": {
+              "weight_percentile": { "type": "string", "description": "VD: P50 (bình thường)" },
+              "height_percentile": { "type": "string" },
+              "overall_status":    { "type": "string", "description": "Tốt | Cần theo dõi | Cần tư vấn BS" }
+            }
+          },
+          "development_score":  { "type": "integer", "minimum": 0, "maximum": 100 },
+          "milestones_reached": { "type": "array", "items": { "type": "string" }, "minItems": 3, "maxItems": 6 },
+          "milestones_upcoming":{ "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4 },
+          "parenting_tips":     { "type": "array", "items": { "type": "string" }, "minItems": 3, "maxItems": 5 },
+          "health_watch":       { "type": "array", "items": { "type": "string" }, "minItems": 1, "maxItems": 4 }
+        }
+      }
+    },
+    {
+      "key": "baby_json",
+      "label": "Bản đồ tăng trưởng (WHO/CDC)",
+      "output": "json",
+      "render": "baby_growth_map",
+      "system": "Bạn là BabyCoach Growth Analyst. Phân tích chi tiết 4 chiều phát triển của bé theo WHO/CDC. Trả về DUY NHẤT JSON hợp lệ.",
+      "json_schema": {
+        "type": "object",
+        "required": ["physical_development", "cognitive_development", "social_emotional", "language_development", "stimulation_activities", "nutrition_guide"],
+        "properties": {
+          "physical_development": {
+            "type": "object",
+            "required": ["gross_motor", "fine_motor", "status", "tips"],
+            "properties": {
+              "gross_motor": { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4 },
+              "fine_motor":  { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4 },
+              "status":      { "type": "string" },
+              "tips":        { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4 }
+            }
+          },
+          "cognitive_development": {
+            "type": "object",
+            "required": ["milestones", "activities", "tips"],
+            "properties": {
+              "milestones":  { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4 },
+              "activities":  { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4 },
+              "tips":        { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 3 }
+            }
+          },
+          "social_emotional": {
+            "type": "object",
+            "required": ["behaviors", "bonding_tips"],
+            "properties": {
+              "behaviors":    { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4 },
+              "bonding_tips": { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4 }
+            }
+          },
+          "language_development": {
+            "type": "object",
+            "required": ["current_stage", "sounds_words", "activities"],
+            "properties": {
+              "current_stage": { "type": "string" },
+              "sounds_words":  { "type": "array", "items": { "type": "string" }, "minItems": 1, "maxItems": 4 },
+              "activities":    { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4 }
+            }
+          },
+          "stimulation_activities": { "type": "array", "items": { "type": "string" }, "minItems": 3, "maxItems": 6 },
+          "nutrition_guide": {
+            "type": "object",
+            "required": ["feeding_type", "foods_appropriate", "foods_avoid", "schedule"],
+            "properties": {
+              "feeding_type":     { "type": "string" },
+              "foods_appropriate":{ "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 6 },
+              "foods_avoid":      { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 5 },
+              "schedule":         { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "key": "gen_milestone",
+      "label": "90-Days Milestone Calendar",
+      "output": "json",
+      "render": "career_milestone",
+      "system": "Bạn là BabyCoach Milestone Planner. Lập lịch phát triển bé 90 ngày chia 3 giai đoạn. Trả về DUY NHẤT JSON hợp lệ.",
+      "json_schema": {
+        "type": "object",
+        "required": ["objective", "phases"],
+        "properties": {
+          "objective": { "type": "string" },
+          "phases": {
+            "type": "array", "minItems": 3, "maxItems": 3,
+            "items": {
+              "type": "object",
+              "required": ["phase_label", "theme", "weeks"],
+              "properties": {
+                "phase_label": { "type": "string" },
+                "theme":       { "type": "string" },
+                "weeks": {
+                  "type": "array", "minItems": 2, "maxItems": 4,
+                  "items": {
+                    "type": "object",
+                    "required": ["week", "focus", "tasks", "deliverable"],
+                    "properties": {
+                      "week":        { "type": "string" },
+                      "focus":       { "type": "string" },
+                      "tasks":       { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 5 },
+                      "deliverable": { "type": "string" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
   ]
 }

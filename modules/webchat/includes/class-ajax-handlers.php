@@ -229,7 +229,10 @@ class BizCity_WebChat_Ajax_Handlers {
         }
         
         // Legacy: user_meta
-        $projects = get_user_meta( $user_id, 'bizcity_projects', true );
+        // [2026-06-22 Johnny Chu] R-PERF — route via BizCity_User_Meta_Cache to avoid WP meta prime
+        $projects = class_exists( 'BizCity_User_Meta_Cache' )
+            ? BizCity_User_Meta_Cache::get( $user_id, 'bizcity_projects', array() )
+            : get_user_meta( $user_id, 'bizcity_projects', true );
         if ( ! is_array( $projects ) ) {
             $projects = [];
         }
@@ -336,7 +339,10 @@ class BizCity_WebChat_Ajax_Handlers {
         }
 
         // Legacy: user_meta
-        $projects = get_user_meta( $user_id, 'bizcity_projects', true );
+        // [2026-06-22 Johnny Chu] R-PERF — route via BizCity_User_Meta_Cache to avoid WP meta prime
+        $projects = class_exists( 'BizCity_User_Meta_Cache' )
+            ? BizCity_User_Meta_Cache::get( $user_id, 'bizcity_projects', array() )
+            : get_user_meta( $user_id, 'bizcity_projects', true );
         if ( ! is_array( $projects ) ) {
             $projects = [];
         }
@@ -351,6 +357,9 @@ class BizCity_WebChat_Ajax_Handlers {
         ];
 
         update_user_meta( $user_id, 'bizcity_projects', $projects );
+        if ( class_exists( 'BizCity_User_Meta_Cache' ) ) {
+            BizCity_User_Meta_Cache::invalidate( $user_id, 'bizcity_projects' );
+        }
 
         wp_send_json_success( [
             'id'           => $project_id,
@@ -419,7 +428,10 @@ class BizCity_WebChat_Ajax_Handlers {
         }
 
         // Legacy: user_meta
-        $projects = get_user_meta( $user_id, 'bizcity_projects', true );
+        // [2026-06-22 Johnny Chu] R-PERF — route via BizCity_User_Meta_Cache to avoid WP meta prime
+        $projects = class_exists( 'BizCity_User_Meta_Cache' )
+            ? BizCity_User_Meta_Cache::get( $user_id, 'bizcity_projects', array() )
+            : get_user_meta( $user_id, 'bizcity_projects', true );
         if ( ! is_array( $projects ) ) {
             wp_send_json_error( [ 'message' => 'No projects found' ] );
             return;
@@ -433,6 +445,10 @@ class BizCity_WebChat_Ajax_Handlers {
         }
 
         update_user_meta( $user_id, 'bizcity_projects', $projects );
+        // [2026-06-22 Johnny Chu] R-PERF — invalidate cache after rename write
+        if ( class_exists( 'BizCity_User_Meta_Cache' ) ) {
+            BizCity_User_Meta_Cache::invalidate( $user_id, 'bizcity_projects' );
+        }
         wp_send_json_success();
     }
 
@@ -527,7 +543,10 @@ class BizCity_WebChat_Ajax_Handlers {
         }
 
         // Legacy: user_meta
-        $projects = get_user_meta( $user_id, 'bizcity_projects', true );
+        // [2026-06-22 Johnny Chu] R-PERF — route via BizCity_User_Meta_Cache to avoid WP meta prime
+        $projects = class_exists( 'BizCity_User_Meta_Cache' )
+            ? BizCity_User_Meta_Cache::get( $user_id, 'bizcity_projects', array() )
+            : get_user_meta( $user_id, 'bizcity_projects', true );
         if ( ! is_array( $projects ) ) {
             wp_send_json_success();
             return;
@@ -538,6 +557,10 @@ class BizCity_WebChat_Ajax_Handlers {
         } );
 
         update_user_meta( $user_id, 'bizcity_projects', array_values( $projects ) );
+        // [2026-06-22 Johnny Chu] R-PERF — invalidate cache after delete write
+        if ( class_exists( 'BizCity_User_Meta_Cache' ) ) {
+            BizCity_User_Meta_Cache::invalidate( $user_id, 'bizcity_projects' );
+        }
 
         // Unassign sessions from this project (legacy)
         global $wpdb;
@@ -1176,11 +1199,12 @@ class BizCity_WebChat_Ajax_Handlers {
     public function ajax_llm_get_settings(): void {
         if ( ! $this->verify_llm_admin() ) return;
 
-        $mode        = get_site_option( 'bizcity_llm_mode', 'gateway' );
-        $api_key     = get_site_option( 'bizcity_llm_api_key', '' );
-        $gateway_url = get_site_option( 'bizcity_llm_gateway_url', 'https://bizcity.vn' );
-        $tavily_key  = get_site_option( 'bizcity_tavily_api_key', '' );
-        $settings    = get_site_option( 'bizcity_llm_settings', [] );
+        // [2026-06-10 Johnny Chu] HOTFIX — per-site option (not network-wide sitemeta)
+        $mode        = get_option( 'bizcity_llm_mode', 'gateway' );
+        $api_key     = get_option( 'bizcity_llm_api_key', '' );
+        $gateway_url = get_option( 'bizcity_llm_gateway_url', 'https://bizcity.vn' );
+        $tavily_key  = get_option( 'bizcity_tavily_api_key', '' );
+        $settings    = get_option( 'bizcity_llm_settings', [] );
 
         // Purpose-model mapping
         $models = [];
@@ -1241,24 +1265,25 @@ class BizCity_WebChat_Ajax_Handlers {
     public function ajax_llm_save_settings(): void {
         if ( ! $this->verify_llm_admin() ) return;
 
+        // [2026-06-10 Johnny Chu] HOTFIX — per-site option (not network-wide sitemeta)
         // Direct mode removed — always force gateway for IP protection
-        update_site_option( 'bizcity_llm_mode', 'gateway' );
+        update_option( 'bizcity_llm_mode', 'gateway' );
 
         if ( ! empty( $_POST['gateway_url'] ) ) {
-            update_site_option( 'bizcity_llm_gateway_url', esc_url_raw( $_POST['gateway_url'] ) );
+            update_option( 'bizcity_llm_gateway_url', esc_url_raw( $_POST['gateway_url'] ) );
         }
 
         // Only update API key if a new one is explicitly provided (not the masked preview)
         if ( ! empty( $_POST['api_key'] ) && strpos( $_POST['api_key'], '••' ) === false ) {
-            update_site_option( 'bizcity_llm_api_key', sanitize_text_field( $_POST['api_key'] ) );
+            update_option( 'bizcity_llm_api_key', sanitize_text_field( $_POST['api_key'] ) );
         }
 
         if ( isset( $_POST['tavily_key'] ) && strpos( $_POST['tavily_key'], '••' ) === false ) {
-            update_site_option( 'bizcity_tavily_api_key', sanitize_text_field( $_POST['tavily_key'] ) );
+            update_option( 'bizcity_tavily_api_key', sanitize_text_field( $_POST['tavily_key'] ) );
         }
 
         // Settings array
-        $settings = get_site_option( 'bizcity_llm_settings', [] );
+        $settings = get_option( 'bizcity_llm_settings', [] );
         if ( isset( $_POST['site_name'] ) ) {
             $settings['site_name'] = sanitize_text_field( $_POST['site_name'] );
         }
@@ -1283,7 +1308,7 @@ class BizCity_WebChat_Ajax_Handlers {
             }
         }
 
-        update_site_option( 'bizcity_llm_settings', $settings );
+        update_option( 'bizcity_llm_settings', $settings );
 
         if ( class_exists( 'BizCity_LLM_Client' ) ) {
             BizCity_LLM_Client::instance()->bust_models_cache();
@@ -1298,8 +1323,9 @@ class BizCity_WebChat_Ajax_Handlers {
     public function ajax_llm_test_connection(): void {
         if ( ! $this->verify_llm_admin() ) return;
 
-        $mode = get_site_option( 'bizcity_llm_mode', 'gateway' );
-        $key  = get_site_option( 'bizcity_llm_api_key', '' );
+        // [2026-06-10 Johnny Chu] HOTFIX — per-site option
+        $mode = get_option( 'bizcity_llm_mode', 'gateway' );
+        $key  = get_option( 'bizcity_llm_api_key', '' );
 
         if ( empty( $key ) ) {
             wp_send_json_error( [ 'message' => 'Chưa có API key. Hãy nhập hoặc đăng ký key trước.' ] );
@@ -1309,7 +1335,8 @@ class BizCity_WebChat_Ajax_Handlers {
         if ( $mode === 'gateway' ) {
             $gateway = class_exists( 'BizCity_LLM_Client' )
                 ? BizCity_LLM_Client::instance()->get_gateway_url()
-                : get_site_option( 'bizcity_llm_gateway_url', 'https://bizcity.vn' );
+                // [2026-06-10 Johnny Chu] HOTFIX — per-site option
+                : get_option( 'bizcity_llm_gateway_url', 'https://bizcity.vn' );
             // [2026-03-25] Unified API namespace: migrate llm/router/v1/models → bizcity/v1/llm/models
             // $url = $gateway . '/wp-json/llm/router/v1/models';
             $url = $gateway . '/wp-json/bizcity/v1/llm/models';
@@ -1418,9 +1445,10 @@ class BizCity_WebChat_Ajax_Handlers {
         $body = json_decode( wp_remote_retrieve_body( $response ), true );
 
         if ( $code === 200 && ! empty( $body['api_key'] ) ) {
-            update_site_option( 'bizcity_llm_api_key', sanitize_text_field( $body['api_key'] ) );
-            update_site_option( 'bizcity_llm_mode', 'gateway' );
-            update_site_option( 'bizcity_llm_gateway_url', esc_url_raw( $gateway ) );
+            // [2026-06-10 Johnny Chu] HOTFIX — per-site option
+            update_option( 'bizcity_llm_api_key', sanitize_text_field( $body['api_key'] ) );
+            update_option( 'bizcity_llm_mode', 'gateway' );
+            update_option( 'bizcity_llm_gateway_url', esc_url_raw( $gateway ) );
             wp_send_json_success( [
                 'message'    => 'API key đã được tạo và lưu tự động!',
                 'keyPreview' => substr( $body['api_key'], 0, 12 ) . '…',

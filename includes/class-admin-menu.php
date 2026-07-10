@@ -44,8 +44,9 @@ class BizCity_Admin_Menu {
 	const SLUG_KNOWLEDGE = 'bizcity-knowledge';         // Đào tạo kiến thức — characters, memory, legal
 	const SLUG_SKILLS    = 'bizcity-skills-hub';        // Đào tạo kỹ năng — content, image, notebook
 	const SLUG_INTENT    = 'bizcity-intent-monitor';    // Intent Monitor
-	const SLUG_GOOGLE    = 'bzgoogle-settings';         // Google Tools
-	const SLUG_LEGACY    = 'bizlife_dashboard';         // Legacy Zalo
+	const SLUG_GOOGLE       = 'bzgoogle-settings';          // Google Tools
+	const SLUG_LEGACY       = 'bizlife_dashboard';          // Legacy Zalo
+	const SLUG_DIAGNOSTICS  = 'bizcity-twin-diagnostics';   // Twin Diagnostics — Control Panel
 
 	/**
 	 * Boot — wire all admin_menu hooks.
@@ -122,25 +123,30 @@ class BizCity_Admin_Menu {
 			28
 		);
 
-		/* ── Đào tạo kết nối — Zalo, Facebook, Google, Scheduler (pos 29 → reorder to 5) ── */
+		/* ── Twin's Integration — Channel Gateway SPA (pos 29 → reorder to 5) ── */
+		// [2026-06-10 Johnny Chu] R-CH-NS — renamed Đào tạo kết nối → Twin Channel; main page delegates to bizchat-gateway-spa.
+		// [2026-06-11 Johnny Chu] HOTFIX — renamed Twin Channel → Twin's Integration; SPA is now main page (no redirect).
 		add_menu_page(
-			__( 'Đào tạo kết nối', $td ),
-			__( 'Đào tạo kết nối', $td ),
+			__( 'Twin\'s Integration', $td ),
+			__( 'Twin\'s Integration', $td ),
 			'read',
 			self::SLUG_GATEWAY,
-			[ __CLASS__, 'render_gateway_page' ],
+			class_exists( 'BizCity_Gateway_Admin_SPA', false )
+				? [ BizCity_Gateway_Admin_SPA::instance(), 'render_page' ]
+				: [ __CLASS__, 'render_gateway_page' ],
 			'dashicons-share-alt2',
 			29
 		);
 
-		/* ── PHASE 0.31 T-S4.1 — Channels parent (Zalo Bot, FB Bot, Zalo Hotline) (pos 29.5) ── */
+		/* ── Twin CRM — Channel admin parent (Zalo Bot, FB Bot, Zalo Hotline) (pos 29.5) ── */
+		// [2026-06-11 Johnny Chu] HOTFIX — renamed Channels → Twin CRM.
 		add_menu_page(
-			__( 'Channels', $td ),
-			__( 'Channels', $td ),
+			__( 'Twin CRM', $td ),
+			__( 'Twin CRM', $td ),
 			'manage_options',
 			self::SLUG_CHANNELS,
 			[ __CLASS__, 'render_channels_page' ],
-			'dashicons-networking',
+			'dashicons-groups',
 			29
 		);
 
@@ -157,6 +163,18 @@ class BizCity_Admin_Menu {
 			[ __CLASS__, 'render_overview_page' ],
 			'dashicons-admin-generic',
 			88
+		);
+
+		/* ── Twin Diagnostics — Control Panel (pos 89) ── */
+		// [2026-06-11 Johnny Chu] HOTFIX — new Twin Diagnostics menu with dashboard linking to all diagnostic tools.
+		add_menu_page(
+			__( 'Twin Diagnostics', $td ),
+			__( 'Twin Diagnostics', $td ),
+			'manage_options',
+			self::SLUG_DIAGNOSTICS,
+			[ __CLASS__, 'render_diagnostics_hub_page' ],
+			'dashicons-chart-bar',
+			89
 		);
 
 		/* ── Intent Monitor — DISABLED 2026-05-19 (Phase G).
@@ -263,11 +281,13 @@ class BizCity_Admin_Menu {
 
 		add_submenu_page(
 			self::SLUG_GATEWAY,
-			__( 'Đào tạo kết nối', $td ),
+			__( 'Twin\'s Integration', $td ),
 			__( 'Tổng quan', $td ),
 			'read',
 			self::SLUG_GATEWAY,
-			[ __CLASS__, 'render_gateway_page' ]
+			class_exists( 'BizCity_Gateway_Admin_SPA', false )
+				? [ BizCity_Gateway_Admin_SPA::instance(), 'render_page' ]
+				: [ __CLASS__, 'render_gateway_page' ]
 		);
 
 		// PHASE 0.31 Sprint 6 — Standalone Integrations page (moved from Workflow tab)
@@ -279,6 +299,28 @@ class BizCity_Admin_Menu {
 			self::SLUG_INTEGRATIONS,
 			[ __CLASS__, 'render_integrations_page' ]
 		);
+
+		// [2026-06-22 Johnny Chu] PHASE-TWINWEB — moved from TwinChat to SLUG_GATEWAY
+		if ( class_exists( 'BizCity_Gateway_Admin_SPA', false ) ) {
+			add_submenu_page( self::SLUG_GATEWAY,
+				__( 'Channel Gateway', $td ), __( 'Channel Gateway', $td ),
+				'manage_options', 'bizchat-gateway-spa',
+				[ BizCity_Gateway_Admin_SPA::instance(), 'render_page' ] );
+		}
+
+		if ( class_exists( 'BizCity_Automation_Admin_SPA', false ) ) {
+			add_submenu_page( self::SLUG_GATEWAY,
+				__( 'Twin Workflow', $td ), __( 'Twin Workflow', $td ),
+				'manage_options', 'bizcity-automation',
+				[ BizCity_Automation_Admin_SPA::instance(), 'render_page' ] );
+		}
+
+		if ( class_exists( 'BizCity_CG_Flow_Admin_Page', false ) ) {
+			add_submenu_page( self::SLUG_GATEWAY,
+				__( 'CG · Flows (Kịch bản trả lời)', $td ), __( 'Flows (Kịch bản)', $td ),
+				'manage_options', 'bizcity-cg-flows',
+				[ 'BizCity_CG_Flow_Admin_Page', 'render' ] );
+		}
 
 		/* ── Channel submenus → moved to SLUG_CHANNELS (T-S4.1) ── */
 		if ( class_exists( 'BizCity_Zalo_Bot_Dashboard', false ) ) {
@@ -389,39 +431,45 @@ class BizCity_Admin_Menu {
 			$km = BizCity_Knowledge_Admin_Menu::instance();
 
 			add_submenu_page( self::SLUG_KNOWLEDGE,
-				__( 'Đào tạo kiến thức', $td ), __( 'Tổng quan', $td ),
+				__( 'Twin Knowledge', $td ), __( 'Tổng quan', $td ),
 				'manage_options', self::SLUG_KNOWLEDGE,
 				[ $km, 'render_training_page' ] );
 
-			// Twin Guru — 2026-05-21: moved to Twin (bizcity-twinchat) parent so
-			// the Guru list is visible alongside Knowledge Graph & Phong cấp Guru.
-			// Slug `bizcity-knowledge-characters` preserved verbatim.
-			add_submenu_page( self::SLUG_CHAT,
-				__( 'Twin Guru', $td ), __( 'Guru list', $td ),
+			// [2026-06-11 Johnny Chu] HOTFIX — renamed Twin Connector → Bind Connectors; moved under SLUG_KNOWLEDGE.
+			// slug `bizcity-knowledge-characters` giữ nguyên để không vỡ bookmark/URL cũ.
+			add_submenu_page( self::SLUG_KNOWLEDGE,
+				__( 'Bind Connectors', $td ), __( 'Bind Connectors', $td ),
 				'manage_options', 'bizcity-knowledge-characters',
 				[ $km, 'render_characters_page' ] );
 
+			// [2026-06-24 Johnny Chu] GURU-KPI — Guru KPI dashboard submenu
 			add_submenu_page( self::SLUG_KNOWLEDGE,
-				__( 'Lưu trữ tài liệu, ghi nhớ', $td ), __( 'Tài liệu & Ghi nhớ', $td ),
+				__( 'Guru KPI', $td ), __( 'Guru KPI', $td ),
+				'manage_options', 'bizcity-guru-kpi',
+				[ $km, 'render_guru_kpi_page' ] );
+
+			// [2026-06-11 Johnny Chu] HOTFIX — bizcity-knowledge-memory-hub moved back here as "Twin Memory".
+			add_submenu_page( self::SLUG_KNOWLEDGE,
+				__( 'Twin Memory', $td ), __( 'Twin Memory', $td ),
 				'manage_options', 'bizcity-knowledge-memory-hub',
 				[ $km, 'render_memory_hub_page' ] );
+
+			// [2026-06-22 Johnny Chu] PHASE-TWINWEB — KG Hub moved from TwinChat to Đào tạo kiến thức
+			add_submenu_page( self::SLUG_KNOWLEDGE,
+				__( 'Knowledge Graph', $td ), __( 'Knowledge Graph', $td ),
+				'manage_options', 'bizcity-kg-hub',
+				[ BizCity_KG_Admin_Menu::instance(), 'render_page' ] );
 
 			// Hidden legacy direct-URL pages
 			add_submenu_page( null, __( 'Training FAQ', $td ), __( 'Training FAQ', $td ),
 				'manage_options', 'bizcity-knowledge-training', [ $km, 'render_training_page' ] );
 			add_submenu_page( null, __( 'Dạy AI bằng sổ tay', $td ), __( 'Dạy AI bằng sổ tay', $td ),
 				'read', 'bizcity-knowledge-notebook', [ $km, 'render_notebook_page' ] );
-			add_submenu_page( null, __( 'Edit Twin Guru', $td ), __( 'Edit Twin Guru', $td ),
+			add_submenu_page( null, __( 'Edit Bind Connector', $td ), __( 'Edit Bind Connector', $td ),
 				'manage_options', 'bizcity-knowledge-character-edit', [ $km, 'render_character_edit_page' ] );
 		}
 
-		// Memory Specs
-		if ( class_exists( 'BizCity_Memory_Admin_Page', false ) ) {
-			add_submenu_page( self::SLUG_KNOWLEDGE,
-				__( 'Chỉnh sửa trí nhớ', $td ), __( 'Chỉnh sửa trí nhớ', $td ),
-				'manage_options', 'bizcity-memory',
-				[ BizCity_Memory_Admin_Page::instance(), 'render_page' ] );
-		}
+		// Memory Specs — [2026-06-10 Johnny Chu] HOTFIX — bizcity-memory menu removed per user request.
 
 		// Legal module — removed 2026-05-21 (core/knowledge/legal/ deleted).
 
@@ -442,10 +490,12 @@ class BizCity_Admin_Menu {
 				[ new BCN_Admin_Page(), 'render_page' ] );
 		}
 
-		// Content Creator
+		// Twin Writer (bizcity-content-creator) — [2026-06-10 Johnny Chu] HOTFIX — renamed Content Creator → Twin Writer.
+		// [2026-06-11 Johnny Chu] HOTFIX — bizcity-knowledge-memory-hub moved to SLUG_KNOWLEDGE as "Twin Memory".
+
 		if ( class_exists( 'BZCC_Admin_Menu', false ) ) {
 			add_submenu_page( self::SLUG_SKILLS,
-				'Content Creator', 'Content Creator',
+				'Twin Writer', 'Twin Writer',
 				'read', self::SLUG_CREATOR,
 				[ 'BZCC_Admin_Menu', 'render_page' ] );
 			add_submenu_page( self::SLUG_SKILLS,
@@ -559,6 +609,15 @@ class BizCity_Admin_Menu {
 		 *
 		 * @since 1.4.0
 		 */
+		/* ─────────────────────────────────────────────
+		 *  I. Twin Diagnostics — Control Panel
+		 * ───────────────────────────────────────────── */
+		// [2026-06-11 Johnny Chu] HOTFIX — dashboard page linking to all diagnostic tools.
+		add_submenu_page( self::SLUG_DIAGNOSTICS,
+			__( 'Twin Diagnostics', $td ), __( 'Control Panel', $td ),
+			'manage_options', self::SLUG_DIAGNOSTICS,
+			[ __CLASS__, 'render_diagnostics_hub_page' ] );
+
 		do_action( 'bizcity_register_admin_menus' );
 	}
 
@@ -567,11 +626,12 @@ class BizCity_Admin_Menu {
 	 *     Chat → Notebook → BizCity AI → rest of WP
 	 * ══════════════════════════════════════ */
 	public static function reorder_sidebar(): void {
-		self::move_menu_item( self::SLUG_ADMIN,     4 );
-		self::move_menu_item( self::SLUG_GATEWAY,   5 );
-		self::move_menu_item( self::SLUG_CHANNELS,  6 );
-		self::move_menu_item( self::SLUG_KNOWLEDGE, 7 );
-		self::move_menu_item( self::SLUG_SKILLS,    8 );
+		self::move_menu_item( self::SLUG_ADMIN,        4 );
+		self::move_menu_item( self::SLUG_GATEWAY,      5 );
+		self::move_menu_item( self::SLUG_CHANNELS,     6 );
+		self::move_menu_item( self::SLUG_KNOWLEDGE,    7 );
+		self::move_menu_item( self::SLUG_SKILLS,       8 );
+		self::move_menu_item( self::SLUG_DIAGNOSTICS,  9 );
 	}
 
 	/**
@@ -624,6 +684,14 @@ class BizCity_Admin_Menu {
 		remove_submenu_page( self::SLUG_CHAT, 'bizcity-zalo-bot-logs' );
 		remove_submenu_page( self::SLUG_CHAT, 'bizcity-zalo-bot-memory' );
 		remove_submenu_page( self::SLUG_CHAT, 'bizcity-knowledge-monitor' );
+		// [2026-06-11 Johnny Chu] HOTFIX — Bind Connectors moved to SLUG_KNOWLEDGE; remove from TwinChat menu.
+		remove_submenu_page( self::SLUG_CHAT, 'bizcity-knowledge-characters' );
+		// [2026-06-22 Johnny Chu] PHASE-TWINWEB — remove menus relocated to SLUG_GATEWAY/SLUG_KNOWLEDGE
+		remove_submenu_page( 'bizcity-twinchat', 'bizcity-twinchat-gurus' );   // removed entirely
+		remove_submenu_page( 'bizcity-twinchat', 'bizcity-kg-hub' );            // moved → SLUG_KNOWLEDGE
+		remove_submenu_page( 'bizcity-twinchat', 'bizchat-gateway-spa' );       // moved → SLUG_GATEWAY
+		remove_submenu_page( 'bizcity-twinchat', 'bizcity-automation' );        // moved → SLUG_GATEWAY
+		remove_submenu_page( 'bizcity-twinchat', 'bizcity-cg-flows' );          // moved → SLUG_GATEWAY
 	}
 
 	/**
@@ -637,6 +705,44 @@ class BizCity_Admin_Menu {
 		<div class="wrap">
 			<h1><?php esc_html_e( 'Đào tạo kiến thức', $td ); ?></h1>
 			<p><?php esc_html_e( 'Quản lý Trợ lý AI, trí nhớ, tài liệu học và thư viện pháp luật.', $td ); ?></p>
+		</div>
+		<?php
+	}
+
+	/**
+	 * ══════════════════════════════════════
+	 *  Render: Twin Diagnostics — Control Panel dashboard
+	 * ══════════════════════════════════════
+	 */
+	// [2026-06-11 Johnny Chu] HOTFIX — Twin Diagnostics hub page.
+	public static function render_diagnostics_hub_page(): void {
+		$td    = 'bizcity-twin-ai';
+		$items = [
+			[ 'title' => 'CRM Webhook',         'icon' => '🔗', 'desc' => 'Kiểm tra webhook CRM đang hoạt động',        'url' => admin_url( 'admin.php?page=bizcity-crm-webhook' ) ],
+			[ 'title' => 'KG Filestore',         'icon' => '📁', 'desc' => 'Knowledge Graph file storage inspector',     'url' => admin_url( 'tools.php?page=bizcity-kg-filestore' ) ],
+			[ 'title' => 'Channel Gateway Logs', 'icon' => '📋', 'desc' => 'Debug logs của Channel Gateway',             'url' => admin_url( 'tools.php?page=bizcity-cg-debug-logs' ) ],
+			[ 'title' => 'Cron Manager',         'icon' => '⏱️', 'desc' => 'Theo dõi và quản lý cron jobs',             'url' => admin_url( 'tools.php?page=bizcity-cron' ) ],
+			[ 'title' => 'BizCity Diagnostics',  'icon' => '🩺', 'desc' => 'Diagnostics tổng hợp toàn platform',        'url' => admin_url( 'tools.php?page=bizcity-diagnostics' ) ],
+			[ 'title' => 'BizCoach Pro Diag',    'icon' => '🔍', 'desc' => 'Chẩn đoán BizCoach Pro module',             'url' => admin_url( 'tools.php?page=bizcoach-pro-diag' ) ],
+			[ 'title' => 'CRM Sprint Diag',      'icon' => '🏃', 'desc' => 'Sprint diagnostic cho module CRM',          'url' => admin_url( 'tools.php?page=bizcity-crm-sprint-diag' ) ],
+		];
+		?>
+		<div class="wrap">
+			<h1><?php esc_html_e( 'Twin Diagnostics', $td ); ?></h1>
+			<p style="color:#50575e;"><?php esc_html_e( 'Control Panel — liên kết đến tất cả công cụ chẩn đoán hệ thống.', $td ); ?></p>
+			<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;margin-top:24px;">
+				<?php foreach ( $items as $item ) : ?>
+				<a href="<?php echo esc_url( $item['url'] ); ?>"
+				   style="display:block;text-decoration:none;color:inherit;background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:18px;box-shadow:0 2px 6px rgba(0,0,0,.04);transition:box-shadow .2s,transform .2s;"
+				   onmouseover="this.style.boxShadow='0 6px 18px rgba(0,0,0,.10)';this.style.transform='translateY(-2px)'"
+				   onmouseout="this.style.boxShadow='0 2px 6px rgba(0,0,0,.04)';this.style.transform='none'">
+					<div style="font-size:28px;margin-bottom:8px;"><?php echo esc_html( $item['icon'] ); ?></div>
+					<h3 style="margin:0 0 6px;font-size:15px;font-weight:600;"><?php echo esc_html( $item['title'] ); ?></h3>
+					<p style="margin:0;color:#666;font-size:13px;line-height:1.5;"><?php echo esc_html( $item['desc'] ); ?></p>
+					<div style="margin-top:10px;color:#2271b1;font-size:12px;"><?php esc_html_e( 'Mở trang →', $td ); ?></div>
+				</a>
+				<?php endforeach; ?>
+			</div>
 		</div>
 		<?php
 	}
@@ -688,11 +794,19 @@ class BizCity_Admin_Menu {
 	 * still respects `wp-config.php` constants if present (constants > option > none).
 	 */
 	public static function render_gateway_page(): void {
+		// [2026-06-10 Johnny Chu] R-CH-NS — Twin Channel primary UI is now bizchat-gateway-spa SPA.
+		// Redirect ?page=bizchat-gateway → ?page=bizchat-gateway-spa.
+		wp_safe_redirect( admin_url( 'admin.php?page=bizchat-gateway-spa' ) );
+		exit;
+	}
+
+	/**
+	 * @deprecated Legacy gateway page — kept for reference only, replaced by redirect above.
+	 * @internal
+	 */
+	private static function render_gateway_page_legacy(): void {
 		$td = 'bizcity-twin-ai';
 
-		// PHASE 0.37 M1.W2 — Delegate to Channel Menu Registry when navigating
-		// inside the hub (?group=...&sub=...). The legacy cards-overview only
-		// shows on the bare ?page=bizchat-gateway URL.
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
 		if ( ( isset( $_GET['group'] ) || isset( $_GET['sub'] ) )
 		     && class_exists( 'BizCity_Channel_Menu_Registry' ) ) {

@@ -57,6 +57,14 @@ class BizCity_Zalo_Bot_Gateway_Bridge {
 			return;
 		}
 
+		// [2026-06-07 Johnny Chu] PHASE-0.40 G0.2 R-ZONE-2 — discriminator bail.
+		// zalo_oa and zalo_personal carry customer messages (Zone 1 CRM care).
+		// This bridge is Zone 2 only — bail so customers don’t trigger admin automation.
+		$code = (string) ( $message_data['code'] ?? '' );
+		if ( $code === 'zalo_oa' || $code === 'zalo_personal' ) {
+			return;
+		}
+
 		$bot_id    = isset( $message_data['bot_id'] )    ? (int) $message_data['bot_id'] : 0;
 		$bot_name  = isset( $message_data['bot_name'] )  ? $message_data['bot_name']     : '';
 		$user_id_z = isset( $message_data['from_user_id'] ) ? $message_data['from_user_id'] : '';

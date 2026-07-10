@@ -6,6 +6,7 @@
  * - $jobs: array of job objects
  * - $stats: stats object with job counts
  * - $nonce: security nonce
+ * - $highlight_job_id: int|0 — scroll-to and highlight this job row on load (from ?job_id=)
  * 
  * @package BizCity_Video_Kling
  */
@@ -14,8 +15,53 @@
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
+$highlight_job_id = isset( $highlight_job_id ) ? (int) $highlight_job_id : 0;
 ?>
 <div class="wrap bizcity-kling-wrap">
+    <?php if ( $highlight_job_id > 0 ): ?>
+    <?php
+        // [2026-06-14 Johnny Chu] PHASE-0.41 VIDEO-VEO3 — deep-link banner: show job details at top of page
+        $hl_job = BizCity_Video_Kling_Database::get_job( $highlight_job_id );
+    ?>
+    <?php if ( $hl_job ): ?>
+    <div id="job-deeplink-banner" style="background:#f0f8ff;border:2px solid #2271b1;border-radius:6px;padding:14px 18px;margin-bottom:16px;display:flex;gap:18px;align-items:flex-start;">
+        <span style="font-size:28px;line-height:1;">🎬</span>
+        <div style="flex:1;min-width:0;">
+            <strong style="font-size:15px;">Job #<?php echo (int) $hl_job->id; ?> — theo dõi từ Zalo Bot</strong>
+            <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:10px;font-size:13px;">
+                <?php if ( $hl_job->prompt ): ?>
+                <span><b>Prompt:</b> <?php echo esc_html( mb_substr( $hl_job->prompt, 0, 100 ) ); ?></span>
+                <?php endif; ?>
+                <?php if ( $hl_job->image_url ): ?>
+                <span><b>Ảnh:</b> <a href="<?php echo esc_url( $hl_job->image_url ); ?>" target="_blank">Xem ảnh gốc</a></span>
+                <?php endif; ?>
+                <span><b>Model:</b> <?php echo esc_html( $hl_job->model ); ?></span>
+                <span><b>Status:</b>
+                    <span class="status-badge status-<?php echo esc_attr( $hl_job->status ); ?>"><?php echo esc_html( ucfirst( $hl_job->status ) ); ?></span>
+                </span>
+                <span><b>Progress:</b> <?php echo (int) $hl_job->progress; ?>%</span>
+                <?php if ( $hl_job->task_id ): ?>
+                <span><b>Task ID:</b> <code><?php echo esc_html( $hl_job->task_id ); ?></code></span>
+                <?php endif; ?>
+                <span><b>Tạo lúc:</b> <?php echo esc_html( $hl_job->created_at ); ?></span>
+            </div>
+            <?php if ( in_array( $hl_job->status, array( 'completed' ), true ) && ( $hl_job->media_url || $hl_job->video_url ) ): ?>
+            <div style="margin-top:8px;">
+                <a href="<?php echo esc_url( $hl_job->media_url ?: $hl_job->video_url ); ?>" target="_blank" class="button button-primary" style="font-size:13px;">▶ Xem / tải video</a>
+            </div>
+            <?php elseif ( $hl_job->status === 'failed' && $hl_job->error_message ): ?>
+            <div style="margin-top:6px;color:#b32d2e;"><b>Lỗi:</b> <?php echo esc_html( $hl_job->error_message ); ?></div>
+            <?php endif; ?>
+        </div>
+        <?php if ( in_array( $hl_job->status, array( 'queued', 'processing' ), true ) ): ?>
+        <div style="text-align:center;white-space:nowrap;">
+            <button class="button check-status-btn" data-job-id="<?php echo (int) $hl_job->id; ?>" style="font-size:12px;">🔄 Poll ngay</button>
+            <div style="font-size:11px;color:#777;margin-top:4px;">Cron tự poll mỗi 60s</div>
+        </div>
+        <?php endif; ?>
+    </div>
+    <?php endif; ?>
+    <?php endif; ?>
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
         <h1 style="margin: 0;"><?php _e( 'Video Jobs Monitor', 'bizcity-video-kling' ); ?></h1>
         <div class="header-actions">
@@ -710,6 +756,25 @@ jQuery(document).ready(function($) {
     $('#refresh-page-btn').on('click', function() {
         location.reload();
     });
+
+    // [2026-06-14 Johnny Chu] PHASE-0.41 VIDEO-VEO3 — deep-link: scroll to & highlight job row from ?job_id=
+    var hlJobId = <?php echo (int) $highlight_job_id; ?>;
+    if (hlJobId > 0) {
+        var $hlRow = $('#job-row-' + hlJobId);
+        if ($hlRow.length) {
+            $hlRow.css({
+                'outline': '3px solid #2271b1',
+                'background': '#e8f4fd',
+                'transition': 'background 1.5s ease'
+            });
+            setTimeout(function() {
+                $('html, body').animate({ scrollTop: $hlRow.offset().top - 120 }, 500);
+            }, 300);
+            setTimeout(function() {
+                $hlRow.css('background', '');
+            }, 4000);
+        }
+    }
 });
 </script>
 

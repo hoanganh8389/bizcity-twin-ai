@@ -100,8 +100,7 @@ class BizCity_Memory_Unified_Admin {
 		$filter_active  = $effective !== $opt_enabled;
 
 		$unified_tbl    = BizCity_Memory_Unified_Installer::table();
-		$unified_exists = ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $unified_tbl ) ) === $unified_tbl );
-		$unified_rows   = $unified_exists ? (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$unified_tbl}" ) : 0;
+		$unified_exists = bizcity_tbl_exists( $unified_tbl ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 
 		$legacy_tables = [
 			'bizcity_memory_users'    => 'User memory (facts/preferences)',
@@ -113,7 +112,7 @@ class BizCity_Memory_Unified_Admin {
 		$legacy_status = [];
 		foreach ( $legacy_tables as $suffix => $label ) {
 			$tbl = $wpdb->prefix . $suffix;
-			$exists = ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl ) ) === $tbl );
+			$exists = bizcity_tbl_exists( $tbl ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			$legacy_status[ $suffix ] = [
 				'label'  => $label,
 				'table'  => $tbl,

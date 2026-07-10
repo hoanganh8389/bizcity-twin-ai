@@ -1,0 +1,71 @@
+{
+  "module_id": "modules.zalo-personal",
+  "description": "Zalo Personal + OA Channel Gateway — mapping & account tables (PHASE-0.39)",
+  "current_version": "1.0.0",
+  "history": [
+    {
+      "version": "1.0.0",
+      "date": "2026-06-07",
+      "change": "Initial schema: bizcity_zalo_accounts, bizcity_zalo_message_map, bizcity_zalo_oa_window"
+    }
+  ],
+  "tables": {
+    "bizcity_zalo_accounts": {
+      "since": "1.0.0",
+      "description": "Zalo account registry (personal QR-login or OA OAuth) — links bridge sidecar account to CRM inbox",
+      "columns": {
+        "id":                 { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0" },
+        "kind":               { "type": "VARCHAR(16) NOT NULL DEFAULT 'personal'",  "since": "1.0.0", "note": "personal|oa" },
+        "label":              { "type": "VARCHAR(190) NOT NULL DEFAULT ''",          "since": "1.0.0" },
+        "bridge_account_id":  { "type": "VARCHAR(64) NOT NULL DEFAULT ''",           "since": "1.0.0", "note": "account id on sidecar" },
+        "zalo_uid":           { "type": "VARCHAR(64) NULL DEFAULT NULL",             "since": "1.0.0", "note": "personal: zalo user id after login" },
+        "zalo_oa_id":         { "type": "VARCHAR(64) NULL DEFAULT NULL",             "since": "1.0.0", "note": "oa: zalo official account id" },
+        "crm_inbox_id":       { "type": "BIGINT UNSIGNED NULL DEFAULT NULL",         "since": "1.0.0", "note": "FK bizcity_crm_inboxes.id (lazy-set on first inbound)" },
+        "status":             { "type": "VARCHAR(16) NOT NULL DEFAULT 'pending_qr'", "since": "1.0.0", "note": "pending_qr|connected|expired|logged_out" },
+        "created_at":         { "type": "DATETIME NOT NULL",                         "since": "1.0.0" },
+        "updated_at":         { "type": "DATETIME NOT NULL",                         "since": "1.0.0" }
+      },
+      "indexes": {
+        "PRIMARY":             { "columns": ["id"],                      "since": "1.0.0" },
+        "uniq_kind_bridge_id": { "columns": ["kind", "bridge_account_id"], "unique": true, "since": "1.0.0" },
+        "idx_status":          { "columns": ["status"],                  "since": "1.0.0" }
+      }
+    },
+    "bizcity_zalo_message_map": {
+      "since": "1.0.0",
+      "description": "Idempotency mapping between Zalo message IDs and CRM message IDs, plus quote source for reply threading",
+      "columns": {
+        "id":             { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0" },
+        "account_id":     { "type": "BIGINT UNSIGNED NOT NULL",                "since": "1.0.0", "note": "FK bizcity_zalo_accounts.id" },
+        "zalo_msg_id":    { "type": "VARCHAR(190) NOT NULL DEFAULT ''",        "since": "1.0.0", "note": "Zalo message ID" },
+        "zalo_thread_id": { "type": "VARCHAR(190) NOT NULL DEFAULT ''",        "since": "1.0.0", "note": "Zalo user/group/oa-user thread ID" },
+        "thread_kind":    { "type": "VARCHAR(12) NOT NULL DEFAULT 'user'",     "since": "1.0.0", "note": "user|group|oa-user" },
+        "crm_message_id": { "type": "BIGINT UNSIGNED NULL DEFAULT NULL",       "since": "1.0.0", "note": "FK bizcity_crm_messages.id" },
+        "direction":      { "type": "VARCHAR(4) NOT NULL DEFAULT 'in'",        "since": "1.0.0", "note": "in|out" },
+        "quote_src_json": { "type": "LONGTEXT NULL DEFAULT NULL",              "since": "1.0.0", "note": "QuoteSource JSON for reply reconstruction" },
+        "created_at":     { "type": "DATETIME NOT NULL",                       "since": "1.0.0" }
+      },
+      "indexes": {
+        "PRIMARY":            { "columns": ["id"],                        "since": "1.0.0" },
+        "uniq_account_msg":   { "columns": ["account_id", "zalo_msg_id"], "unique": true, "since": "1.0.0" },
+        "idx_crm_message":    { "columns": ["crm_message_id"],           "since": "1.0.0" }
+      }
+    },
+    "bizcity_zalo_oa_window": {
+      "since": "1.0.0",
+      "description": "OA CSKH 7-day reply window tracking — Zalo code -230 prevention",
+      "columns": {
+        "id":              { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0" },
+        "account_id":      { "type": "BIGINT UNSIGNED NOT NULL",                "since": "1.0.0", "note": "FK bizcity_zalo_accounts.id (oa kind)" },
+        "zalo_uid":        { "type": "VARCHAR(64) NOT NULL DEFAULT ''",         "since": "1.0.0", "note": "OA follower uid" },
+        "last_inbound_at": { "type": "DATETIME NULL DEFAULT NULL",              "since": "1.0.0", "note": "reset 7-day window on each inbound" },
+        "cs_sent_count":   { "type": "INT UNSIGNED NOT NULL DEFAULT 0",         "since": "1.0.0", "note": "replies sent within current window" },
+        "created_at":      { "type": "DATETIME NOT NULL",                       "since": "1.0.0" }
+      },
+      "indexes": {
+        "PRIMARY":           { "columns": ["id"],                       "since": "1.0.0" },
+        "uniq_account_uid":  { "columns": ["account_id", "zalo_uid"],  "unique": true, "since": "1.0.0" }
+      }
+    }
+  }
+}

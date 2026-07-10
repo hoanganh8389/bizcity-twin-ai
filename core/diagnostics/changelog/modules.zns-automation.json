@@ -1,0 +1,31 @@
+{
+    "module_id": "modules.zns-automation",
+    "current_version": "1.0.0",
+    "tables": [
+        {
+            "name": "bizcity_zns_event_rules",
+            "since": "1.0.0",
+            "columns": [
+                { "name": "id",             "type": "bigint unsigned", "since": "1.0.0" },
+                { "name": "name",           "type": "varchar(190)",    "since": "1.0.0" },
+                { "name": "event_key",      "type": "varchar(100)",    "since": "1.0.0" },
+                { "name": "oa_id",          "type": "varchar(64)",     "since": "1.0.0" },
+                { "name": "temp_id",        "type": "varchar(64)",     "since": "1.0.0" },
+                { "name": "temp_vars_json", "type": "longtext",        "since": "1.0.0" },
+                { "name": "sandbox",        "type": "tinyint(1)",      "since": "1.0.0" },
+                { "name": "campaign_id",    "type": "varchar(254)",    "since": "1.0.0" },
+                { "name": "enabled",        "type": "tinyint(1)",      "since": "1.0.0" },
+                { "name": "sort_order",     "type": "int",             "since": "1.0.0" },
+                { "name": "last_fired_at",  "type": "datetime",        "since": "1.0.0" },
+                { "name": "fire_count",     "type": "int unsigned",    "since": "1.0.0" },
+                { "name": "last_error",     "type": "text",            "since": "1.0.0" },
+                { "name": "created_at",     "type": "datetime",        "since": "1.0.0" },
+                { "name": "updated_at",     "type": "datetime",        "since": "1.0.0" },
+                { "name": "deleted_at",     "type": "datetime",        "since": "1.0.0" }
+            ]
+        }
+    ],
+    "history": [
+        { "version": "1.0.0", "date": "2026-06-27", "change": "Initial table bizcity_zns_event_rules — ZNS Automation Hub event-driven rules" }
+    ]
+}

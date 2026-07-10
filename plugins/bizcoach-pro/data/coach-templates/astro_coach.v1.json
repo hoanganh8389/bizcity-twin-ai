@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "slug": "astro_coach",
   "label": "AstroCoach",
   "base_type": "astro_coach",
@@ -7,17 +7,142 @@
   "description": "Bản đồ chiêm tinh cá nhân: tổng quan, Life Map, sức khỏe & mối quan hệ, lịch transformation 90 ngày.",
   "status": "active",
   "questions": [
-    { "key": "full_name",   "label": "Họ tên",        "type": "text", "required": true },
-    { "key": "dob",         "label": "Ngày sinh",     "type": "date", "required": true },
-    { "key": "birth_time",  "label": "Giờ sinh",      "type": "time", "required": false },
-    { "key": "birth_place", "label": "Nơi sinh",      "type": "text", "required": true,  "placeholder": "TP.HCM, Việt Nam" },
-    { "key": "gender",      "label": "Giới tính",     "type": "select", "required": false,
+    { "key": "full_name",   "label": "Họ tên",        "type": "text",     "required": true },
+    { "key": "dob",         "label": "Ngày sinh",     "type": "date",     "required": true },
+    { "key": "birth_time",  "label": "Giờ sinh",      "type": "time",     "required": false },
+    { "key": "birth_place", "label": "Nơi sinh",      "type": "text",     "required": true,  "placeholder": "TP.HCM, Việt Nam" },
+    { "key": "gender",      "label": "Giới tính",     "type": "select",   "required": false,
       "choices": { "male": "Nam", "female": "Nữ", "other": "Khác" } }
   ],
   "generators": [
-    { "key": "gen_overview",   "label": "Nhận xét tổng quan",                       "output": "markdown", "legacy_fn": "bccm_generate_overview" },
-    { "key": "gen_lifemap",    "label": "Life Map - Bản đồ cuộc đời",               "output": "json",     "legacy_fn": "bccm_generate_life_map" },
-    { "key": "gen_health_map", "label": "Bản đồ sức khỏe & Mối quan hệ",            "output": "json",     "legacy_fn": "bccm_generate_health_map" },
-    { "key": "gen_milestone",  "label": "90-Days Transformation Plan",              "output": "json",     "legacy_fn": "bccm_generate_health_milestone_calendar" }
+    {
+      "key": "gen_overview",
+      "label": "Tổng quan chiêm tinh",
+      "output": "json",
+      "render": "astro_overview",
+      "system": "Bạn là AstroCoach Vedic & Western Astrologer. Phân tích tổng quan bản đồ sao cá nhân. Trả về DUY NHẤT một JSON hợp lệ (RFC 8259), KHÔNG markdown, KHÔNG code-fence, KHÔNG giải thích. Tiếng Việt tự nhiên, truyền cảm hứng.",
+      "json_schema": {
+        "type": "object",
+        "required": ["summary", "sun_sign", "moon_sign", "rising_sign", "dominant_element", "life_path_number", "core_gifts", "life_lessons", "energy_forecast"],
+        "properties": {
+          "summary":           { "type": "string", "description": "3-5 câu cảm nhận tổng thể, gọi tên người dùng" },
+          "sun_sign":          { "type": "string" },
+          "moon_sign":         { "type": "string" },
+          "rising_sign":       { "type": "string" },
+          "dominant_element":  { "type": "string", "description": "Fire | Earth | Air | Water" },
+          "life_path_number":  { "type": "integer", "minimum": 1, "maximum": 9 },
+          "core_gifts":        { "type": "array", "items": { "type": "string" }, "minItems": 3, "maxItems": 5 },
+          "life_lessons":      { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4 },
+          "energy_forecast": {
+            "type": "object",
+            "required": ["current_phase", "favorable_period", "caution_period"],
+            "properties": {
+              "current_phase":    { "type": "string" },
+              "favorable_period": { "type": "string" },
+              "caution_period":   { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "key": "gen_lifemap",
+      "label": "Life Map — Bản đồ cuộc đời",
+      "output": "json",
+      "render": "astro_lifemap",
+      "system": "Bạn là AstroCoach Life Coach. Xây dựng bản đồ cuộc đời dựa trên vị trí sao. Trả về DUY NHẤT JSON hợp lệ.",
+      "json_schema": {
+        "type": "object",
+        "required": ["life_theme", "life_purpose", "soul_mission", "karmic_lessons", "peak_years", "life_chapters"],
+        "properties": {
+          "life_theme":     { "type": "string", "description": "Chủ đề cuộc đời xuyên suốt" },
+          "life_purpose":   { "type": "string", "description": "2-3 câu mục đích sống sâu xa" },
+          "soul_mission":   { "type": "string" },
+          "karmic_lessons": { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4 },
+          "peak_years": {
+            "type": "array", "minItems": 2, "maxItems": 3,
+            "items": {
+              "type": "object",
+              "required": ["age_range", "theme", "opportunity"],
+              "properties": {
+                "age_range":   { "type": "string" },
+                "theme":       { "type": "string" },
+                "opportunity": { "type": "string" }
+              }
+            }
+          },
+          "life_chapters": {
+            "type": "array", "minItems": 3, "maxItems": 4,
+            "items": {
+              "type": "object",
+              "required": ["chapter", "theme", "lesson"],
+              "properties": {
+                "chapter": { "type": "string" },
+                "theme":   { "type": "string" },
+                "lesson":  { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "key": "gen_health_map",
+      "label": "Bản đồ sức khỏe & Mối quan hệ",
+      "output": "json",
+      "render": "astro_health_relation",
+      "system": "Bạn là AstroCoach Holistic Health Analyst. Phân tích sức khỏe và các mối quan hệ theo góc nhìn chiêm tinh. Trả về DUY NHẤT JSON hợp lệ.",
+      "json_schema": {
+        "type": "object",
+        "required": ["health_strengths", "health_vulnerabilities", "wellness_practices", "relationship_style", "compatible_signs", "growth_relationships", "love_language_astro"],
+        "properties": {
+          "health_strengths":       { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4 },
+          "health_vulnerabilities": { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4 },
+          "wellness_practices":     { "type": "array", "items": { "type": "string" }, "minItems": 3, "maxItems": 5 },
+          "relationship_style":     { "type": "string" },
+          "compatible_signs":       { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 4 },
+          "growth_relationships":   { "type": "array", "items": { "type": "string" }, "minItems": 1, "maxItems": 3 },
+          "love_language_astro":    { "type": "string" }
+        }
+      }
+    },
+    {
+      "key": "gen_milestone",
+      "label": "90-Days Transformation Plan",
+      "output": "json",
+      "render": "career_milestone",
+      "system": "Bạn là AstroCoach Transformation Planner. Lập kế hoạch chuyển hóa năng lượng 90 ngày theo nhịp chiêm tinh. Trả về DUY NHẤT JSON hợp lệ.",
+      "json_schema": {
+        "type": "object",
+        "required": ["objective", "phases"],
+        "properties": {
+          "objective": { "type": "string" },
+          "phases": {
+            "type": "array", "minItems": 3, "maxItems": 3,
+            "items": {
+              "type": "object",
+              "required": ["phase_label", "theme", "weeks"],
+              "properties": {
+                "phase_label": { "type": "string" },
+                "theme":       { "type": "string" },
+                "weeks": {
+                  "type": "array", "minItems": 2, "maxItems": 4,
+                  "items": {
+                    "type": "object",
+                    "required": ["week", "focus", "tasks", "deliverable"],
+                    "properties": {
+                      "week":        { "type": "string" },
+                      "focus":       { "type": "string" },
+                      "tasks":       { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 5 },
+                      "deliverable": { "type": "string" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
   ]
 }

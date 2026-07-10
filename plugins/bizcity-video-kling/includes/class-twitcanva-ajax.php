@@ -40,6 +40,8 @@ class BizCity_TwitCanva_Ajax {
     const WF_OPTION  = 'bzvideo_tc_workflows';
     const LIB_OPTION = 'bzvideo_tc_library';
 
+    // [2026-06-11 Johnny Chu] R-PERF — caches removed; delegated to BizCity_User_Meta_Cache (core/runtime)
+
     /* ─── Register all AJAX hooks ─── */
     public static function init() {
         $actions = [
@@ -530,13 +532,45 @@ class BizCity_TwitCanva_Ajax {
      *  WORKFLOW CRUD — Stored in wp_options as JSON
      * ════════════════════════════════════════════════════════════ */
 
+    /**
+     * [2026-06-11 Johnny Chu] R-PERF — delegated to BizCity_User_Meta_Cache (direct SQL, no meta prime).
+     */
     private static function get_workflows(): array {
-        $user_id = get_current_user_id();
-        return get_user_meta( $user_id, self::WF_OPTION, true ) ?: [];
+        $uid = get_current_user_id();
+        if ( class_exists( 'BizCity_User_Meta_Cache' ) ) {
+            $raw = BizCity_User_Meta_Cache::get( $uid, self::WF_OPTION, [] );
+        } else {
+            $raw = get_user_meta( $uid, self::WF_OPTION, true ) ?: [];
+        }
+        return is_array( $raw ) ? $raw : [];
     }
 
     private static function save_workflows( array $workflows ) {
-        update_user_meta( get_current_user_id(), self::WF_OPTION, $workflows );
+        $uid = get_current_user_id();
+        if ( class_exists( 'BizCity_User_Meta_Cache' ) ) {
+            BizCity_User_Meta_Cache::set( $uid, self::WF_OPTION, $workflows );
+        } else {
+            update_user_meta( $uid, self::WF_OPTION, $workflows );
+        }
+    }
+
+    private static function get_library(): array {
+        $uid = get_current_user_id();
+        if ( class_exists( 'BizCity_User_Meta_Cache' ) ) {
+            $raw = BizCity_User_Meta_Cache::get( $uid, self::LIB_OPTION, [] );
+        } else {
+            $raw = get_user_meta( $uid, self::LIB_OPTION, true ) ?: [];
+        }
+        return is_array( $raw ) ? $raw : [];
+    }
+
+    private static function save_library( array $library ) {
+        $uid = get_current_user_id();
+        if ( class_exists( 'BizCity_User_Meta_Cache' ) ) {
+            BizCity_User_Meta_Cache::set( $uid, self::LIB_OPTION, $library );
+        } else {
+            update_user_meta( $uid, self::LIB_OPTION, $library );
+        }
     }
 
     /**
@@ -1039,7 +1073,7 @@ class BizCity_TwitCanva_Ajax {
 
     public static function handle_tc_list_library() {
         self::verify();
-        $library = get_user_meta( get_current_user_id(), self::LIB_OPTION, true ) ?: [];
+        $library = self::get_library();
         wp_send_json_success( array_values( $library ) );
     }
 
@@ -1061,7 +1095,7 @@ class BizCity_TwitCanva_Ajax {
 
         $id = 'lib_' . time() . '_' . wp_generate_password( 6, false );
 
-        $library = get_user_meta( get_current_user_id(), self::LIB_OPTION, true ) ?: [];
+        $library = self::get_library();
         $library[ $id ] = [
             'id'        => $id,
             'name'      => $name,
@@ -1071,7 +1105,7 @@ class BizCity_TwitCanva_Ajax {
             'createdAt' => gmdate( 'c' ),
             'metadata'  => $meta,
         ];
-        update_user_meta( get_current_user_id(), self::LIB_OPTION, $library );
+        self::save_library( $library );
 
         wp_send_json_success( $library[ $id ] );
     }
@@ -1081,9 +1115,9 @@ class BizCity_TwitCanva_Ajax {
         $p  = self::payload();
         $id = sanitize_text_field( $p['id'] ?? '' );
 
-        $library = get_user_meta( get_current_user_id(), self::LIB_OPTION, true ) ?: [];
+        $library = self::get_library();
         unset( $library[ $id ] );
-        update_user_meta( get_current_user_id(), self::LIB_OPTION, $library );
+        self::save_library( $library );
 
         wp_send_json_success( [ 'ok' => true ] );
     }

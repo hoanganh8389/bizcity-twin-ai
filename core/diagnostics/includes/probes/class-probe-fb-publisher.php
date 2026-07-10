@@ -33,6 +33,12 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 
 require_once dirname( __DIR__ ) . '/interface-diagnostics-probe.php';
 
+
+// [2026-06-08 Johnny Chu] HOTFIX — double-load guard (bootstrap may include via filter AND direct require).
+if ( class_exists( 'BizCity_Probe_FB_Publisher', false ) ) {
+	return;
+}
+
 final class BizCity_Probe_FB_Publisher implements BizCity_Diagnostics_Probe {
 
 	const PUBLISHER_FILE    = 'core/channel-gateway/includes/class-fb-publisher.php';
@@ -214,7 +220,7 @@ final class BizCity_Probe_FB_Publisher implements BizCity_Diagnostics_Probe {
 
 		// Scheduler table present?
 		$tbl    = $wpdb->prefix . self::SCHEDULER_TABLE;
-		$exists = (string) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl ) );
+		$exists = bizcity_tbl_exists( $tbl ) ? $tbl : null; // [2026-06-21 R-SHOW-TABLES]
 		$ctx->emit_step( [
 			'label'  => 'Loader · scheduler table',
 			'status' => $exists === $tbl ? 'pass' : 'fail',

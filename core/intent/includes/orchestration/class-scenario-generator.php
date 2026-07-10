@@ -870,7 +870,8 @@ class BizCity_Scenario_Generator {
         $table = $wpdb->prefix . ( defined( 'WAIC_DB_PREF' ) ? WAIC_DB_PREF : 'bizcity_' ) . 'tasks';
 
         // Check table exists
-        if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
+        // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+        if ( ! bizcity_tbl_exists( $table ) ) {
             return false;
         }
 
