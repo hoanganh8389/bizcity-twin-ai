@@ -128,6 +128,8 @@ class BizCity_Membership_Enforcer {
 	 */
 	public function chat_can_send( $default, $user_id ) {
 		// [2026-06-05 Johnny Chu] PHASE-MEMBERSHIP BE-3B — chat gate
+		// [2026-07-09 Johnny Chu] PHASE-TWINSHELL-IMPL — use canonical feature key
+		// for usage API; keep error payload.feature as chat_msgs_per_day for FE contract.
 		$user_id = (int) $user_id;
 		if ( $user_id <= 0 || ! class_exists( 'BizCity_Membership_Usage' ) ) {
 			return $default;
@@ -137,12 +139,12 @@ class BizCity_Membership_Enforcer {
 			return $default;
 		}
 		$usage = BizCity_Membership_Usage::instance();
-		if ( ! $usage->can( $user_id, 'chat_msgs_per_day' ) ) {
+		if ( ! $usage->can( $user_id, 'chat' ) ) {
 			$plan      = BizCity_Membership_Manager::instance()->plan_for_user( $user_id );
 			// [2026-06-09 Johnny Chu] PHASE-D D-BE-QUOTA — R-MEMBERSHIP-QUOTA-ERROR-UX:
 			// error_data phải đủ 8 fields để FE render QuotaErrorBanner đúng chuẩn.
-			$limit     = $usage->limit_for( $user_id, 'chat_msgs_per_day' );
-			$used      = $usage->used( $user_id, 'chat_msgs_per_day' );
+			$limit     = $usage->limit_for( $user_id, 'chat' );
+			$used      = $usage->used( $user_id, 'chat' );
 			$registry  = class_exists( 'BizCity_Membership_Plan_Registry' )
 				? BizCity_Membership_Plan_Registry::instance()
 				: null;
@@ -174,6 +176,7 @@ class BizCity_Membership_Enforcer {
 	 */
 	public function chat_incr( $user_id ) {
 		// [2026-06-05 Johnny Chu] PHASE-MEMBERSHIP BE-3B — increment chat usage
+		// [2026-07-09 Johnny Chu] PHASE-TWINSHELL-IMPL — canonical usage feature key.
 		$user_id = (int) $user_id;
 		if ( $user_id <= 0 || ! class_exists( 'BizCity_Membership_Usage' ) ) {
 			return;
@@ -182,6 +185,6 @@ class BizCity_Membership_Enforcer {
 		if ( self::is_exempt_user( $user_id ) ) {
 			return;
 		}
-		BizCity_Membership_Usage::instance()->incr( $user_id, 'chat_msgs_per_day' );
+		BizCity_Membership_Usage::instance()->incr( $user_id, 'chat' );
 	}
 }

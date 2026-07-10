@@ -29,6 +29,18 @@ class BizCity_Membership_Usage {
 		'chat'  => 'chat_msgs_per_day',
 		'image' => 'image_per_day',
 		'kg'    => 'kg_passages_per_day',
+		'video' => 'video_per_day',
+	);
+
+	/**
+	 * [2026-07-09 Johnny Chu] PHASE-TWINSHELL-IMPL — support both canonical
+	 * feature keys and legacy limit keys from older callers.
+	 */
+	const FEATURE_ALIASES = array(
+		'chat_msgs_per_day'   => 'chat',
+		'image_per_day'       => 'image',
+		'kg_passages_per_day' => 'kg',
+		'video_per_day'       => 'video',
 	);
 
 	/** @var BizCity_Membership_Usage|null */
@@ -81,6 +93,43 @@ class BizCity_Membership_Usage {
 	}
 
 	/**
+	 * Normalize incoming feature/limit-key into canonical feature key.
+	 *
+	 * @param string $feature
+	 * @return string
+	 */
+	private function normalize_feature( $feature ) {
+		$feature = sanitize_key( (string) $feature );
+		if ( isset( self::FEATURE_ALIASES[ $feature ] ) ) {
+			return self::FEATURE_ALIASES[ $feature ];
+		}
+		return $feature;
+	}
+
+	/**
+	 * Read tokens for SQL lookup (canonical + legacy alias) so old rows remain visible.
+	 *
+	 * @param string $feature
+	 * @return string[]
+	 */
+	private function feature_tokens_for_read( $feature ) {
+		$canonical = $this->normalize_feature( $feature );
+		if ( $canonical === '' ) {
+			return array();
+		}
+
+		$tokens = array( $canonical );
+		if ( isset( self::LIMIT_MAP[ $canonical ] ) ) {
+			$legacy = (string) self::LIMIT_MAP[ $canonical ];
+			if ( $legacy !== '' ) {
+				$tokens[] = $legacy;
+			}
+		}
+
+		return array_values( array_unique( $tokens ) );
+	}
+
+	/**
 	 * Effective daily limit for a feature (0 = blocked, < 0 = unlimited).
 	 *
 	 * @param int    $user_id
@@ -88,7 +137,7 @@ class BizCity_Membership_Usage {
 	 * @return int
 	 */
 	public function limit_for( $user_id, $feature ) {
-		$feature = sanitize_key( (string) $feature );
+		$feature = $this->normalize_feature( $feature );
 		if ( ! isset( self::LIMIT_MAP[ $feature ] ) ) {
 			return -1; // unknown feature = not gated.
 		}
@@ -109,15 +158,29 @@ class BizCity_Membership_Usage {
 	public function used( $user_id, $feature ) {
 		global $wpdb;
 		$t = $this->table();
+		$tokens = $this->feature_tokens_for_read( $feature );
+		if ( empty( $tokens ) ) {
+			return 0;
+		}
+
+		if ( count( $tokens ) === 1 ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$val = $wpdb->get_var(
+				$wpdb->prepare(
+					"SELECT count FROM {$t} WHERE user_id = %d AND day = %s AND feature = %s LIMIT 1",
+					(int) $user_id,
+					$this->today(),
+					$tokens[0]
+				)
+			);
+			return $val ? (int) $val : 0;
+		}
+
+		$placeholders = implode( ',', array_fill( 0, count( $tokens ), '%s' ) );
+		$params       = array_merge( array( (int) $user_id, $this->today() ), $tokens );
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-		$val = $wpdb->get_var(
-			$wpdb->prepare(
-				"SELECT count FROM {$t} WHERE user_id = %d AND day = %s AND feature = %s LIMIT 1",
-				(int) $user_id,
-				$this->today(),
-				sanitize_key( (string) $feature )
-			)
-		);
+		$sql = "SELECT COALESCE(SUM(count),0) FROM {$t} WHERE user_id = %d AND day = %s AND feature IN ({$placeholders})";
+		$val = $wpdb->get_var( $wpdb->prepare( $sql, $params ) );
 		return $val ? (int) $val : 0;
 	}
 
@@ -167,7 +230,7 @@ class BizCity_Membership_Usage {
 	 */
 	public function incr( $user_id, $feature, $units = 1 ) {
 		$user_id = (int) $user_id;
-		$feature = sanitize_key( (string) $feature );
+		$feature = $this->normalize_feature( $feature );
 		$units   = max( 1, (int) $units );
 		if ( $user_id <= 0 || $feature === '' ) {
 			return;
@@ -199,14 +262,19 @@ class BizCity_Membership_Usage {
 	 */
 	public function snapshot( $user_id ) {
 		$out = array();
-		foreach ( array_keys( self::LIMIT_MAP ) as $feature ) {
+		foreach ( self::LIMIT_MAP as $feature => $limit_key ) {
 			$limit = $this->limit_for( $user_id, $feature );
 			$used  = $this->used( $user_id, $feature );
-			$out[ $feature ] = array(
+			$row = array(
 				'used'      => $used,
 				'limit'     => $limit,
 				'remaining' => $limit < 0 ? -1 : max( 0, $limit - $used ),
 			);
+
+			// Canonical key used by internal callers.
+			$out[ $feature ] = $row;
+			// Legacy/contract key used by existing FE and diagnostics.
+			$out[ $limit_key ] = $row;
 		}
 		return $out;
 	}

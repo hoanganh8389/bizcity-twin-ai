@@ -70,11 +70,18 @@ require_once BCPRO_DIR . 'includes/astro/class-relation-manager.php';
 require_once BCPRO_DIR . 'includes/frontend/class-self-service-shortcode.php';
 // [2026-06-07 Johnny Chu] PHASE-C C-BE-2 — per-user usage report helper.
 require_once BCPRO_DIR . 'includes/usage/class-usage-report.php';
+// [2026-07-10 Johnny Chu] PHASE-C-WOO-HUB — client billing proxy + plan sync service.
+require_once BCPRO_DIR . 'includes/frontend/class-bcpro-plan-service.php';
+require_once BCPRO_DIR . 'includes/frontend/class-bcpro-billing-proxy-rest.php';
 if ( class_exists( 'BizCoach_Pro_Self_Service_REST' ) ) {
 	BizCoach_Pro_Self_Service_REST::init();
 }
 if ( class_exists( 'BizCoach_Pro_Self_Service_Shortcode' ) ) {
 	BizCoach_Pro_Self_Service_Shortcode::init();
+}
+if ( class_exists( 'BizCoach_Pro_Billing_Proxy_REST' ) ) {
+	// [2026-07-10 Johnny Chu] PHASE-C-WOO-HUB — expose /bizcity-client/v1/* routes.
+	BizCoach_Pro_Billing_Proxy_REST::init();
 }
 
 // [2026-06-06 Johnny Chu] PHASE-B B-BE-9 — daily transit sync cron

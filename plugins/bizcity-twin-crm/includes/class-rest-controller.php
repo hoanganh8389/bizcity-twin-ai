@@ -1694,6 +1694,27 @@ class BizCity_CRM_REST_Controller {
 			'callback'            => array( __CLASS__, 'broadcasts_recipients' ),
 			'permission_callback' => array( __CLASS__, 'can_read' ),
 		) );
+		// [2026-07-10 Johnny Chu] PHASE-0.47 — checklist operations: dispatch/retry + per-recipient retry + console.
+		register_rest_route( $ns, '/broadcasts/(?P<id>\d+)/recipients/dispatch', array(
+			'methods'             => WP_REST_Server::CREATABLE,
+			'callback'            => array( __CLASS__, 'broadcasts_recipients_dispatch' ),
+			'permission_callback' => array( __CLASS__, 'can_write' ),
+		) );
+		register_rest_route( $ns, '/broadcasts/(?P<id>\d+)/recipients/retry', array(
+			'methods'             => WP_REST_Server::CREATABLE,
+			'callback'            => array( __CLASS__, 'broadcasts_recipients_retry' ),
+			'permission_callback' => array( __CLASS__, 'can_write' ),
+		) );
+		register_rest_route( $ns, '/broadcasts/(?P<id>\d+)/recipients/(?P<rid>\d+)/retry', array(
+			'methods'             => WP_REST_Server::CREATABLE,
+			'callback'            => array( __CLASS__, 'broadcasts_recipient_retry_one' ),
+			'permission_callback' => array( __CLASS__, 'can_write' ),
+		) );
+		register_rest_route( $ns, '/broadcasts/(?P<id>\d+)/console', array(
+			'methods'             => WP_REST_Server::READABLE,
+			'callback'            => array( __CLASS__, 'broadcasts_console' ),
+			'permission_callback' => array( __CLASS__, 'can_read' ),
+		) );
 		// [2026-06-07 Johnny Chu] PHASE-0.43 M3 — Broadcast Mass-Send: enqueue/progress/pause/cancel
 		register_rest_route( $ns, '/broadcasts/(?P<id>\d+)/enqueue', array(
 			'methods'             => WP_REST_Server::CREATABLE,
@@ -1715,6 +1736,18 @@ class BizCity_CRM_REST_Controller {
 			'callback'            => array( __CLASS__, 'broadcasts_cancel' ),
 			'permission_callback' => array( __CLASS__, 'can_write' ),
 		) );
+		// [2026-07-10 Johnny Chu] PHASE-0.47 — restart route parity for BroadcastTab action.
+		register_rest_route( $ns, '/broadcasts/(?P<id>\d+)/restart', array(
+			'methods'             => WP_REST_Server::CREATABLE,
+			'callback'            => array( __CLASS__, 'broadcasts_restart' ),
+			'permission_callback' => array( __CLASS__, 'can_write' ),
+		) );
+		// [2026-07-10 Johnny Chu] PHASE-0.47 — cron console parity for API slice polling endpoint.
+		register_rest_route( $ns, '/broadcasts/cron-console', array(
+			'methods'             => WP_REST_Server::READABLE,
+			'callback'            => array( __CLASS__, 'broadcasts_cron_console' ),
+			'permission_callback' => array( __CLASS__, 'can_read' ),
+		) );
 		// [2026-07-03 Johnny Chu] PHASE-0.46 FIX — contacts picker for broadcast recipients
 		register_rest_route( $ns, '/broadcasts/contacts', array(
 			'methods'             => WP_REST_Server::READABLE,
@@ -1724,6 +1757,27 @@ class BizCity_CRM_REST_Controller {
 				'limit'  => array( 'sanitize_callback' => 'absint', 'default' => 100 ),
 				'offset' => array( 'sanitize_callback' => 'absint', 'default' => 0 ),
 				'search' => array( 'sanitize_callback' => 'sanitize_text_field', 'default' => '' ),
+			),
+		) );
+		// [2026-07-10 Johnny Chu] PHASE-0.47 — proxy parse-file for CRM broadcast wizard.
+		register_rest_route( $ns, '/broadcasts/parse-file', array(
+			'methods'             => WP_REST_Server::CREATABLE,
+			'callback'            => array( __CLASS__, 'broadcasts_parse_file' ),
+			'permission_callback' => array( __CLASS__, 'can_write' ),
+		) );
+		// [2026-07-10 Johnny Chu] PHASE-0.47 — create ZNS broadcast from CRM wizard payload.
+		register_rest_route( $ns, '/broadcasts/create-zns', array(
+			'methods'             => WP_REST_Server::CREATABLE,
+			'callback'            => array( __CLASS__, 'broadcasts_create_zns' ),
+			'permission_callback' => array( __CLASS__, 'can_write' ),
+		) );
+		// [2026-07-10 Johnny Chu] PHASE-0.47 — sample template download for broadcast import wizard (csv/xlsx/xls).
+		register_rest_route( $ns, '/broadcasts/template', array(
+			'methods'             => WP_REST_Server::READABLE,
+			'callback'            => array( __CLASS__, 'broadcasts_csv_template' ),
+			'permission_callback' => array( __CLASS__, 'can_read' ),
+			'args'                => array(
+				'format' => array( 'sanitize_callback' => 'sanitize_text_field', 'default' => 'csv' ),
 			),
 		) );
 		// [2026-07-03 Johnny Chu] PHASE-0.46 FIX — ZNS templates proxy (R-CH-NS: CRM SPA must not call -channel directly)
@@ -2823,7 +2877,7 @@ class BizCity_CRM_REST_Controller {
 			$filter     = isset( $body['segment_filter'] ) && is_array( $body['segment_filter'] ) ? $body['segment_filter'] : null;
 			$now        = current_time( 'mysql' );
 			$tbl        = BizCity_CRM_DB_Installer_V2::tbl_broadcasts();
-			$wpdb->insert( $tbl, array(
+			$id = self::broadcasts_insert_row_compat( $tbl, array(
 				'title'               => $title,
 				'inbox_ids_json'      => $inbox_ids ? wp_json_encode( $inbox_ids ) : null,
 				'segment_filter_json' => $filter ? wp_json_encode( $filter ) : null,
@@ -2836,8 +2890,7 @@ class BizCity_CRM_REST_Controller {
 				'action_flags_json'   => $action_flags,
 				'delay_sec'           => $delay_sec,
 				'campaign_id'         => $campaign_id > 0 ? $campaign_id : null,
-			), array( '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%s', '%s', '%s', '%d', '%d' ) );
-			$id = (int) $wpdb->insert_id;
+			) );
 			if ( ! $id ) { throw new \RuntimeException( 'insert_failed' ); }
 			$row = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM `{$tbl}` WHERE id=%d", $id ), ARRAY_A );
 			return self::shape_broadcast( (array) $row );
@@ -2908,6 +2961,20 @@ class BizCity_CRM_REST_Controller {
 			$bc_tbl = BizCity_CRM_DB_Installer_V2::tbl_broadcasts();
 			$row    = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM `{$bc_tbl}` WHERE id=%d", $id ), ARRAY_A );
 			if ( ! $row ) { throw new \RuntimeException( 'broadcast_not_found' ); }
+
+			// [2026-07-10 Johnny Chu] PHASE-0.47 — linked channel broadcast: delegate start to canonical channel-gateway.
+			$link = self::broadcasts_channel_link( $row );
+			if ( ! empty( $link['id'] ) ) {
+				self::broadcasts_channel_proxy( 'POST', 'broadcasts/' . (int) $link['id'] . '/start' );
+				self::broadcasts_sync_local_from_channel( $id, (int) $link['id'] );
+				$updated = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM `{$bc_tbl}` WHERE id=%d", $id ), ARRAY_A );
+				return array_merge( self::shape_broadcast( (array) $updated ), array(
+					'queued'    => 0,
+					'skipped'   => 0,
+					'_degraded' => true,
+				) );
+			}
+
 			if ( in_array( $row['status'], array( 'sending', 'sent' ), true ) ) {
 				throw new \RuntimeException( 'already_sent' );
 			}
@@ -2992,20 +3059,146 @@ class BizCity_CRM_REST_Controller {
 	public static function broadcasts_recipients( WP_REST_Request $req ) {
 		return self::wrap( static function () use ( $req ) {
 			global $wpdb;
-			$id     = (int) $req['id'];
-			$tbl    = BizCity_CRM_DB_Installer_V2::tbl_broadcast_recipients();
-			$limit  = max( 1, min( (int) ( $req->get_param( 'limit' ) ?: 50 ), 200 ) );
-			$offset = max( 0, (int) $req->get_param( 'offset' ) );
-			$rows   = $wpdb->get_results( $wpdb->prepare(
-				"SELECT * FROM `{$tbl}` WHERE broadcast_id=%d ORDER BY id ASC LIMIT %d OFFSET %d",
-				$id, $limit, $offset
-			), ARRAY_A ) ?: array();
-			$total  = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM `{$tbl}` WHERE broadcast_id=%d", $id ) );
+			$id      = (int) $req['id'];
+			$bc_tbl  = BizCity_CRM_DB_Installer_V2::tbl_broadcasts();
+			$tbl     = BizCity_CRM_DB_Installer_V2::tbl_broadcast_recipients();
+			$ct_tbl  = BizCity_CRM_DB_Installer_V2::tbl_contacts();
+			$limit   = max( 1, min( (int) ( $req->get_param( 'limit' ) ?: 50 ), 200 ) );
+			$offset  = max( 0, (int) $req->get_param( 'offset' ) );
+			$status  = sanitize_key( (string) $req->get_param( 'status' ) );
+			$search  = sanitize_text_field( (string) $req->get_param( 'search' ) );
+			$activity = (int) $req->get_param( 'activity' ) === 1;
+
+			$allowed_status = array( 'queued', 'sending', 'sent', 'failed', 'skipped' );
+			if ( ! in_array( $status, $allowed_status, true ) ) {
+				$status = '';
+			}
+
+			$bc_row = $wpdb->get_row( $wpdb->prepare( "SELECT id, message_template FROM `{$bc_tbl}` WHERE id=%d", $id ), ARRAY_A );
+			if ( ! $bc_row ) {
+				throw new \RuntimeException( 'broadcast_not_found' );
+			}
+
+			// [2026-07-10 Johnny Chu] PHASE-0.47 — linked channel broadcast: load recipients from channel source of truth.
+			$link = self::broadcasts_channel_link( $bc_row );
+			if ( ! empty( $link['id'] ) ) {
+				$page = (int) floor( $offset / $limit ) + 1;
+				$data = self::broadcasts_channel_proxy( 'GET', 'broadcasts/' . (int) $link['id'] . '/recipients', array(
+					'q'        => $search,
+					'status'   => $status,
+					'page'     => $page,
+					'per_page' => $limit,
+					'activity' => $activity ? 1 : 0,
+				) );
+
+				$counts = array(
+					'total'   => 0,
+					'queued'  => 0,
+					'sending' => 0,
+					'sent'    => 0,
+					'failed'  => 0,
+					'skipped' => 0,
+				);
+				if ( isset( $data['counts'] ) && is_array( $data['counts'] ) ) {
+					foreach ( array_keys( $counts ) as $k ) {
+						if ( isset( $data['counts'][ $k ] ) ) {
+							$counts[ $k ] = (int) $data['counts'][ $k ];
+						}
+					}
+				}
+
+				$total = isset( $data['total'] ) ? (int) $data['total'] : 0;
+				if ( $counts['total'] <= 0 ) {
+					$counts['total'] = $total;
+				}
+
+				$items = array();
+				foreach ( (array) ( isset( $data['items'] ) ? $data['items'] : array() ) as $r ) {
+					$items[] = array(
+						'id'                => isset( $r['id'] ) ? (int) $r['id'] : 0,
+						'contact_id'        => 0,
+						'name'              => isset( $r['name'] ) ? (string) $r['name'] : '',
+						'phone'             => isset( $r['phone'] ) ? (string) $r['phone'] : '',
+						'email'             => isset( $r['email'] ) ? (string) $r['email'] : '',
+						'conversation_id'   => null,
+						'status'            => isset( $r['status'] ) ? (string) $r['status'] : 'queued',
+						'sent_at'           => isset( $r['sent_at'] ) ? $r['sent_at'] : null,
+						'scheduled_send_at' => isset( $r['scheduled_send_at'] ) ? $r['scheduled_send_at'] : null,
+						'error'             => isset( $r['error'] ) ? (string) $r['error'] : '',
+					);
+				}
+
+				return array(
+					'items'   => $items,
+					'total'   => $total,
+					'counts'  => $counts,
+					'limit'   => $limit,
+					'offset'  => $offset,
+					'_degraded' => true,
+				);
+			}
+
+			$where  = array( 'r.broadcast_id=%d' );
+			$params = array( $id );
+
+			if ( $activity ) {
+				$where[] = "r.status IN ('sent','failed')";
+			} elseif ( $status !== '' ) {
+				$where[] = 'r.status=%s';
+				$params[] = $status;
+			}
+
+			if ( $search !== '' ) {
+				// [2026-07-10 Johnny Chu] PHASE-0.47 — checklist quick search by name/phone/email.
+				$like = '%' . $wpdb->esc_like( $search ) . '%';
+				$where[] = '(c.name LIKE %s OR c.phone LIKE %s OR c.email LIKE %s)';
+				$params[] = $like;
+				$params[] = $like;
+				$params[] = $like;
+			}
+
+			$order = $activity ? 'r.sent_at DESC, r.id DESC' : 'r.id ASC';
+			$sql_base = " FROM `{$tbl}` r LEFT JOIN `{$ct_tbl}` c ON c.id = r.contact_id WHERE " . implode( ' AND ', $where );
+
+			$params_items = $params;
+			$params_items[] = $limit;
+			$params_items[] = $offset;
+			$rows = $wpdb->get_results(
+				$wpdb->prepare( "SELECT r.*, c.name AS contact_name, c.phone AS contact_phone, c.email AS contact_email {$sql_base} ORDER BY {$order} LIMIT %d OFFSET %d", ...$params_items ),
+				ARRAY_A
+			) ?: array();
+
+			$total = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) {$sql_base}", ...$params ) );
+
+			$count_rows = $wpdb->get_results(
+				$wpdb->prepare( "SELECT status, COUNT(*) AS cnt FROM `{$tbl}` WHERE broadcast_id=%d GROUP BY status", $id ),
+				ARRAY_A
+			) ?: array();
+			$counts = array(
+				'total'   => 0,
+				'queued'  => 0,
+				'sending' => 0,
+				'sent'    => 0,
+				'failed'  => 0,
+				'skipped' => 0,
+			);
+			foreach ( $count_rows as $cr ) {
+				$st = (string) ( isset( $cr['status'] ) ? $cr['status'] : '' );
+				$ct = (int) ( isset( $cr['cnt'] ) ? $cr['cnt'] : 0 );
+				$counts['total'] += $ct;
+				if ( isset( $counts[ $st ] ) ) {
+					$counts[ $st ] = $ct;
+				}
+			}
+
 			$items  = array();
 			foreach ( $rows as $r ) {
 				$items[] = array(
 					'id'                => (int) $r['id'],
 					'contact_id'        => (int) $r['contact_id'],
+					'name'              => isset( $r['contact_name'] ) ? (string) $r['contact_name'] : '',
+					'phone'             => isset( $r['contact_phone'] ) ? (string) $r['contact_phone'] : '',
+					'email'             => isset( $r['contact_email'] ) ? (string) $r['contact_email'] : '',
 					'conversation_id'   => isset( $r['conversation_id'] ) ? (int) $r['conversation_id'] : null,
 					'status'            => (string) $r['status'],
 					'sent_at'           => $r['sent_at'],
@@ -3013,7 +3206,400 @@ class BizCity_CRM_REST_Controller {
 					'error'             => $r['error'],
 				);
 			}
-			return array( 'items' => $items, 'total' => $total );
+			return array(
+				'items'  => $items,
+				'total'  => $total,
+				'counts' => $counts,
+				'limit'  => $limit,
+				'offset' => $offset,
+			);
+		} );
+	}
+
+	/**
+	 * [2026-07-10 Johnny Chu] PHASE-0.47 — POST /broadcasts/{id}/recipients/dispatch
+	 * Resume dispatch for queued recipients (all or selected IDs).
+	 */
+	public static function broadcasts_recipients_dispatch( WP_REST_Request $req ) {
+		return self::wrap( static function () use ( $req ) {
+			global $wpdb;
+			$id     = (int) $req['id'];
+			$body   = (array) $req->get_json_params();
+			$rc_tbl = BizCity_CRM_DB_Installer_V2::tbl_broadcast_recipients();
+			$bc_tbl = BizCity_CRM_DB_Installer_V2::tbl_broadcasts();
+			$bc_row = $wpdb->get_row( $wpdb->prepare( "SELECT id, message_template FROM `{$bc_tbl}` WHERE id=%d", $id ), ARRAY_A );
+			if ( ! $bc_row ) {
+				throw new \RuntimeException( 'broadcast_not_found' );
+			}
+
+			// [2026-07-10 Johnny Chu] PHASE-0.47 — linked channel broadcast: dispatch selected recipients in channel ledger.
+			$link = self::broadcasts_channel_link( $bc_row );
+			if ( ! empty( $link['id'] ) ) {
+				$payload = array();
+				if ( isset( $body['recipient_ids'] ) && is_array( $body['recipient_ids'] ) ) {
+					$payload['recipient_ids'] = array_values( array_filter( array_map( 'absint', $body['recipient_ids'] ) ) );
+				}
+				if ( isset( $body['phones'] ) && is_array( $body['phones'] ) ) {
+					$payload['phones'] = array_values( array_filter( array_map( 'sanitize_text_field', $body['phones'] ) ) );
+				}
+				if ( ! empty( $body['all_failed'] ) ) {
+					$payload['all_failed'] = 1;
+				}
+
+				try {
+					$data = self::broadcasts_channel_proxy( 'POST', 'broadcasts/' . (int) $link['id'] . '/recipients/dispatch', array(), $payload );
+				} catch ( \RuntimeException $e ) {
+					// [2026-07-10 Johnny Chu] PHASE-0.47 — selected rows may already be queued; still resume channel dispatcher.
+					if ( (string) $e->getMessage() !== 'no_rows_updated' ) {
+						throw $e;
+					}
+					$data = self::broadcasts_channel_proxy( 'POST', 'broadcasts/' . (int) $link['id'] . '/start' );
+				}
+				self::broadcasts_sync_local_from_channel( $id, (int) $link['id'] );
+				$pg = isset( $data['progress'] ) && is_array( $data['progress'] ) ? $data['progress'] : array();
+				return array(
+					'broadcast_id'         => $id,
+					'dispatched'           => isset( $data['updated'] ) ? (int) $data['updated'] : 0,
+					'queued'               => isset( $pg['queued'] ) ? (int) $pg['queued'] : 0,
+					'channel_broadcast_id' => (int) $link['id'],
+					'_degraded'            => true,
+				);
+			}
+
+			$ids = array();
+			if ( isset( $body['recipient_ids'] ) && is_array( $body['recipient_ids'] ) ) {
+				$ids = array_values( array_unique( array_filter( array_map( 'absint', $body['recipient_ids'] ) ) ) );
+				$ids = array_slice( $ids, 0, 1000 );
+			}
+
+			$queued = 0;
+			if ( ! empty( $ids ) ) {
+				$ph = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+				$params = array_merge( array( $id ), $ids );
+				$queued = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM `{$rc_tbl}` WHERE broadcast_id=%d AND status='queued' AND id IN ({$ph})", ...$params ) );
+			} else {
+				$queued = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM `{$rc_tbl}` WHERE broadcast_id=%d AND status='queued'", $id ) );
+			}
+
+			if ( $queued <= 0 ) {
+				return array( 'broadcast_id' => $id, 'dispatched' => 0, 'queued' => 0 );
+			}
+
+			// [2026-07-10 Johnny Chu] PHASE-0.47 — mark active before triggering worker tick.
+			$wpdb->update(
+				$bc_tbl,
+				array( 'status' => 'sending', 'updated_at' => current_time( 'mysql' ) ),
+				array( 'id' => $id ),
+				array( '%s', '%s' ),
+				array( '%d' )
+			);
+
+			if ( class_exists( 'BizCity_CRM_Broadcast_Dispatcher' ) ) {
+				update_option( BizCity_CRM_Broadcast_Dispatcher::OPT_PAUSED, '0' );
+			}
+			do_action( 'bizcity_crm_broadcast_dispatch', $id );
+
+			return array( 'broadcast_id' => $id, 'dispatched' => $queued, 'queued' => $queued );
+		} );
+	}
+
+	/**
+	 * [2026-07-10 Johnny Chu] PHASE-0.47 — POST /broadcasts/{id}/recipients/retry
+	 * Requeue failed recipients (all or selected IDs), then dispatch.
+	 */
+	public static function broadcasts_recipients_retry( WP_REST_Request $req ) {
+		return self::wrap( static function () use ( $req ) {
+			global $wpdb;
+			$id     = (int) $req['id'];
+			$body   = (array) $req->get_json_params();
+			$rc_tbl = BizCity_CRM_DB_Installer_V2::tbl_broadcast_recipients();
+			$bc_tbl = BizCity_CRM_DB_Installer_V2::tbl_broadcasts();
+			$bc_row = $wpdb->get_row( $wpdb->prepare( "SELECT id, message_template FROM `{$bc_tbl}` WHERE id=%d", $id ), ARRAY_A );
+			if ( ! $bc_row ) {
+				throw new \RuntimeException( 'broadcast_not_found' );
+			}
+
+			// [2026-07-10 Johnny Chu] PHASE-0.47 — linked channel broadcast: retry through channel recipient ledger.
+			$link = self::broadcasts_channel_link( $bc_row );
+			if ( ! empty( $link['id'] ) ) {
+				$payload = array();
+				if ( isset( $body['recipient_ids'] ) && is_array( $body['recipient_ids'] ) ) {
+					$payload['recipient_ids'] = array_values( array_filter( array_map( 'absint', $body['recipient_ids'] ) ) );
+				}
+				if ( isset( $body['phones'] ) && is_array( $body['phones'] ) ) {
+					$payload['phones'] = array_values( array_filter( array_map( 'sanitize_text_field', $body['phones'] ) ) );
+				}
+				if ( ! empty( $body['all_failed'] ) ) {
+					$payload['all_failed'] = 1;
+				}
+
+				$data = self::broadcasts_channel_proxy( 'POST', 'broadcasts/' . (int) $link['id'] . '/recipients/retry', array(), $payload );
+				self::broadcasts_sync_local_from_channel( $id, (int) $link['id'] );
+				return array(
+					'broadcast_id'         => $id,
+					'retried'              => isset( $data['updated'] ) ? (int) $data['updated'] : 0,
+					'channel_broadcast_id' => (int) $link['id'],
+					'_degraded'            => true,
+				);
+			}
+
+			$has_scheduled_send = BizCity_CRM_DB_Installer_V2::column_exists( $rc_tbl, 'scheduled_send_at' );
+			$set_clause = $has_scheduled_send
+				? "status='queued', sent_at=NULL, error=NULL, scheduled_send_at=NULL"
+				: "status='queued', sent_at=NULL, error=NULL";
+
+			$ids = array();
+			if ( isset( $body['recipient_ids'] ) && is_array( $body['recipient_ids'] ) ) {
+				$ids = array_values( array_unique( array_filter( array_map( 'absint', $body['recipient_ids'] ) ) ) );
+				$ids = array_slice( $ids, 0, 1000 );
+			}
+
+			if ( ! empty( $ids ) ) {
+				$ph = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+				$params = array_merge( array( $id ), $ids );
+				$wpdb->query( $wpdb->prepare(
+					"UPDATE `{$rc_tbl}` SET {$set_clause} WHERE broadcast_id=%d AND status='failed' AND id IN ({$ph})",
+					...$params
+				) );
+			} else {
+				$wpdb->query( $wpdb->prepare(
+					"UPDATE `{$rc_tbl}` SET {$set_clause} WHERE broadcast_id=%d AND status='failed'",
+					$id
+				) );
+			}
+
+			$retried = (int) $wpdb->rows_affected;
+			if ( $retried > 0 ) {
+				$wpdb->update(
+					$bc_tbl,
+					array( 'status' => 'sending', 'updated_at' => current_time( 'mysql' ) ),
+					array( 'id' => $id ),
+					array( '%s', '%s' ),
+					array( '%d' )
+				);
+				if ( class_exists( 'BizCity_CRM_Broadcast_Dispatcher' ) ) {
+					update_option( BizCity_CRM_Broadcast_Dispatcher::OPT_PAUSED, '0' );
+				}
+				do_action( 'bizcity_crm_broadcast_dispatch', $id );
+			}
+
+			return array( 'broadcast_id' => $id, 'retried' => $retried );
+		} );
+	}
+
+	/**
+	 * [2026-07-10 Johnny Chu] PHASE-0.47 — POST /broadcasts/{id}/recipients/{rid}/retry
+	 * Requeue a single failed recipient and resume dispatch.
+	 */
+	public static function broadcasts_recipient_retry_one( WP_REST_Request $req ) {
+		return self::wrap( static function () use ( $req ) {
+			global $wpdb;
+			$id     = (int) $req['id'];
+			$rid    = (int) $req['rid'];
+			$rc_tbl = BizCity_CRM_DB_Installer_V2::tbl_broadcast_recipients();
+			$bc_tbl = BizCity_CRM_DB_Installer_V2::tbl_broadcasts();
+			$bc_row = $wpdb->get_row( $wpdb->prepare( "SELECT id, message_template FROM `{$bc_tbl}` WHERE id=%d", $id ), ARRAY_A );
+			if ( ! $bc_row ) {
+				throw new \RuntimeException( 'broadcast_not_found' );
+			}
+
+			// [2026-07-10 Johnny Chu] PHASE-0.47 — linked channel broadcast: one-click retry on channel recipient id.
+			$link = self::broadcasts_channel_link( $bc_row );
+			if ( ! empty( $link['id'] ) ) {
+				$data = self::broadcasts_channel_proxy( 'POST', 'broadcasts/' . (int) $link['id'] . '/recipients/' . $rid . '/retry' );
+				self::broadcasts_sync_local_from_channel( $id, (int) $link['id'] );
+				return array(
+					'broadcast_id'         => $id,
+					'recipient_id'         => $rid,
+					'retried'              => ! empty( $data['updated'] ),
+					'channel_broadcast_id' => (int) $link['id'],
+					'_degraded'            => true,
+				);
+			}
+
+			$has_scheduled_send = BizCity_CRM_DB_Installer_V2::column_exists( $rc_tbl, 'scheduled_send_at' );
+			$set_clause = $has_scheduled_send
+				? "status='queued', sent_at=NULL, error=NULL, scheduled_send_at=NULL"
+				: "status='queued', sent_at=NULL, error=NULL";
+
+			$wpdb->query( $wpdb->prepare(
+				"UPDATE `{$rc_tbl}` SET {$set_clause} WHERE broadcast_id=%d AND id=%d AND status='failed'",
+				$id,
+				$rid
+			) );
+			$retried = (int) $wpdb->rows_affected;
+
+			if ( $retried > 0 ) {
+				$wpdb->update(
+					$bc_tbl,
+					array( 'status' => 'sending', 'updated_at' => current_time( 'mysql' ) ),
+					array( 'id' => $id ),
+					array( '%s', '%s' ),
+					array( '%d' )
+				);
+				if ( class_exists( 'BizCity_CRM_Broadcast_Dispatcher' ) ) {
+					update_option( BizCity_CRM_Broadcast_Dispatcher::OPT_PAUSED, '0' );
+				}
+				do_action( 'bizcity_crm_broadcast_dispatch', $id );
+			}
+
+			return array( 'broadcast_id' => $id, 'recipient_id' => $rid, 'retried' => $retried > 0 );
+		} );
+	}
+
+	/**
+	 * [2026-07-10 Johnny Chu] PHASE-0.47 — GET /broadcasts/{id}/console
+	 * Checklist console payload: counters + recent sent/failed logs.
+	 */
+	public static function broadcasts_console( WP_REST_Request $req ) {
+		return self::wrap( static function () use ( $req ) {
+			global $wpdb;
+			$id      = (int) $req['id'];
+			$limit   = max( 1, min( (int) ( $req->get_param( 'limit' ) ?: 30 ), 200 ) );
+			$bc_tbl  = BizCity_CRM_DB_Installer_V2::tbl_broadcasts();
+			$rc_tbl  = BizCity_CRM_DB_Installer_V2::tbl_broadcast_recipients();
+			$ct_tbl  = BizCity_CRM_DB_Installer_V2::tbl_contacts();
+
+			$bc_row = $wpdb->get_row( $wpdb->prepare( "SELECT id, title, status, total_count, sent_count, failed_count, updated_at, message_template FROM `{$bc_tbl}` WHERE id=%d", $id ), ARRAY_A );
+			if ( ! $bc_row ) {
+				throw new \RuntimeException( 'broadcast_not_found' );
+			}
+
+			// [2026-07-10 Johnny Chu] PHASE-0.47 — linked channel broadcast: console data from channel source of truth.
+			$link = self::broadcasts_channel_link( $bc_row );
+			if ( ! empty( $link['id'] ) ) {
+				$data = self::broadcasts_channel_proxy( 'GET', 'broadcasts/' . (int) $link['id'] . '/console', array( 'limit' => $limit ) );
+
+				$counts = array(
+					'total'   => 0,
+					'queued'  => 0,
+					'sending' => 0,
+					'sent'    => 0,
+					'failed'  => 0,
+					'skipped' => 0,
+				);
+				if ( isset( $data['counts'] ) && is_array( $data['counts'] ) ) {
+					foreach ( array_keys( $counts ) as $k ) {
+						if ( isset( $data['counts'][ $k ] ) ) {
+							$counts[ $k ] = (int) $data['counts'][ $k ];
+						}
+					}
+				}
+
+				$pg = isset( $data['progress'] ) && is_array( $data['progress'] ) ? $data['progress'] : array();
+				$total = isset( $pg['total'] ) ? (int) $pg['total'] : (int) $counts['total'];
+				$done  = isset( $pg['sent'] ) ? (int) $pg['sent'] : ( (int) $counts['sent'] + (int) $counts['failed'] + (int) $counts['skipped'] );
+
+				$items = array();
+				foreach ( (array) ( isset( $data['activity'] ) ? $data['activity'] : array() ) as $r ) {
+					$items[] = array(
+						'id'         => isset( $r['id'] ) ? (int) $r['id'] : 0,
+						'contact_id' => 0,
+						'name'       => isset( $r['name'] ) ? (string) $r['name'] : '',
+						'phone'      => isset( $r['phone'] ) ? (string) $r['phone'] : '',
+						'email'      => isset( $r['email'] ) ? (string) $r['email'] : '',
+						'status'     => isset( $r['status'] ) ? (string) $r['status'] : '',
+						'sent_at'    => isset( $r['sent_at'] ) ? (string) $r['sent_at'] : null,
+						'error'      => isset( $r['error'] ) ? (string) $r['error'] : '',
+					);
+				}
+
+				self::broadcasts_sync_local_from_channel( $id, (int) $link['id'] );
+
+				return array(
+					'broadcast' => array(
+						'id'           => (int) $bc_row['id'],
+						'title'        => (string) $bc_row['title'],
+						'status'       => isset( $data['broadcast_status'] ) ? (string) $data['broadcast_status'] : (string) $bc_row['status'],
+						'total_count'  => $total,
+						'sent_count'   => isset( $pg['sent'] ) ? (int) $pg['sent'] : (int) $counts['sent'],
+						'failed_count' => isset( $pg['failed'] ) ? (int) $pg['failed'] : (int) $counts['failed'],
+						'updated_at'   => (string) $bc_row['updated_at'],
+					),
+					'counts'    => $counts,
+					'progress'  => array(
+						'total'   => $total,
+						'done'    => $done,
+						'percent' => $total > 0 ? round( ( $done / $total ) * 100, 1 ) : 0,
+					),
+					'logs'      => $items,
+					'now'       => current_time( 'mysql' ),
+					'_degraded' => true,
+				);
+			}
+
+			$raw_counts = $wpdb->get_results(
+				$wpdb->prepare( "SELECT status, COUNT(*) AS cnt FROM `{$rc_tbl}` WHERE broadcast_id=%d GROUP BY status", $id ),
+				ARRAY_A
+			) ?: array();
+
+			$counts = array(
+				'total'   => 0,
+				'queued'  => 0,
+				'sending' => 0,
+				'sent'    => 0,
+				'failed'  => 0,
+				'skipped' => 0,
+			);
+			foreach ( $raw_counts as $c ) {
+				$st = (string) ( isset( $c['status'] ) ? $c['status'] : '' );
+				$ct = (int) ( isset( $c['cnt'] ) ? $c['cnt'] : 0 );
+				$counts['total'] += $ct;
+				if ( isset( $counts[ $st ] ) ) {
+					$counts[ $st ] = $ct;
+				}
+			}
+
+			$logs = $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT r.id, r.contact_id, r.status, r.sent_at, r.error, c.name AS contact_name, c.phone AS contact_phone, c.email AS contact_email
+					 FROM `{$rc_tbl}` r
+					 LEFT JOIN `{$ct_tbl}` c ON c.id = r.contact_id
+					 WHERE r.broadcast_id=%d AND r.status IN ('sent','failed')
+					 ORDER BY r.sent_at DESC, r.id DESC
+					 LIMIT %d",
+					$id,
+					$limit
+				),
+				ARRAY_A
+			) ?: array();
+
+			$items = array();
+			foreach ( $logs as $r ) {
+				$items[] = array(
+					'id'         => (int) $r['id'],
+					'contact_id' => (int) $r['contact_id'],
+					'name'       => isset( $r['contact_name'] ) ? (string) $r['contact_name'] : '',
+					'phone'      => isset( $r['contact_phone'] ) ? (string) $r['contact_phone'] : '',
+					'email'      => isset( $r['contact_email'] ) ? (string) $r['contact_email'] : '',
+					'status'     => (string) $r['status'],
+					'sent_at'    => isset( $r['sent_at'] ) ? (string) $r['sent_at'] : null,
+					'error'      => isset( $r['error'] ) ? (string) $r['error'] : '',
+				);
+			}
+
+			$total = max( (int) $bc_row['total_count'], (int) $counts['total'] );
+			$done  = (int) $counts['sent'] + (int) $counts['failed'] + (int) $counts['skipped'];
+
+			return array(
+				'broadcast' => array(
+					'id'           => (int) $bc_row['id'],
+					'title'        => (string) $bc_row['title'],
+					'status'       => (string) $bc_row['status'],
+					'total_count'  => (int) $bc_row['total_count'],
+					'sent_count'   => (int) $bc_row['sent_count'],
+					'failed_count' => (int) $bc_row['failed_count'],
+					'updated_at'   => (string) $bc_row['updated_at'],
+				),
+				'counts'    => $counts,
+				'progress'  => array(
+					'total'   => $total,
+					'done'    => $done,
+					'percent' => $total > 0 ? round( ( $done / $total ) * 100, 1 ) : 0,
+				),
+				'logs'      => $items,
+				'now'       => current_time( 'mysql' ),
+			);
 		} );
 	}
 
@@ -3052,6 +3638,29 @@ class BizCity_CRM_REST_Controller {
 			$rc_tbl = BizCity_CRM_DB_Installer_V2::tbl_broadcast_recipients();
 			$row    = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM `{$bc_tbl}` WHERE id=%d", $id ), ARRAY_A );
 			if ( ! $row ) { throw new \RuntimeException( 'broadcast_not_found' ); }
+
+			// [2026-07-10 Johnny Chu] PHASE-0.47 — linked channel broadcast: progress from channel manager contract.
+			$link = self::broadcasts_channel_link( $row );
+			if ( ! empty( $link['id'] ) ) {
+				$data = self::broadcasts_channel_proxy( 'GET', 'broadcasts/' . (int) $link['id'] . '/progress' );
+				$pg   = isset( $data['progress'] ) && is_array( $data['progress'] ) ? $data['progress'] : array();
+				self::broadcasts_sync_local_from_channel( $id, (int) $link['id'] );
+				$total  = isset( $pg['total'] ) ? (int) $pg['total'] : (int) $row['total_count'];
+				$sent   = isset( $pg['sent'] ) ? (int) $pg['sent'] : 0;
+				$failed = isset( $pg['failed'] ) ? (int) $pg['failed'] : 0;
+				$queued = isset( $pg['queued'] ) ? (int) $pg['queued'] : 0;
+				return array(
+					'id'      => $id,
+					'status'  => isset( $data['status'] ) ? (string) $data['status'] : (string) $row['status'],
+					'total'   => $total,
+					'sent'    => $sent,
+					'failed'  => $failed,
+					'queued'  => $queued,
+					'percent' => $total > 0 ? round( ( $sent + $failed ) / $total * 100, 1 ) : 0,
+					'_degraded' => true,
+				);
+			}
+
 			$total   = (int) $row['total_count'];
 			$sent    = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM `{$rc_tbl}` WHERE broadcast_id=%d AND status='sent'", $id ) );
 			$failed  = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM `{$rc_tbl}` WHERE broadcast_id=%d AND status='failed'", $id ) );
@@ -3073,7 +3682,22 @@ class BizCity_CRM_REST_Controller {
 	 */
 	public static function broadcasts_pause( WP_REST_Request $req ) {
 		return self::wrap( static function () use ( $req ) {
+			global $wpdb;
 			$id = (int) $req['id'];
+			$bc_tbl = BizCity_CRM_DB_Installer_V2::tbl_broadcasts();
+			$row = $wpdb->get_row( $wpdb->prepare( "SELECT id, message_template FROM `{$bc_tbl}` WHERE id=%d", $id ), ARRAY_A );
+			if ( ! $row ) {
+				throw new \RuntimeException( 'broadcast_not_found' );
+			}
+
+			// [2026-07-10 Johnny Chu] PHASE-0.47 — linked channel broadcast: pause canonical channel dispatch.
+			$link = self::broadcasts_channel_link( $row );
+			if ( ! empty( $link['id'] ) ) {
+				self::broadcasts_channel_proxy( 'POST', 'broadcasts/' . (int) $link['id'] . '/pause' );
+				self::broadcasts_sync_local_from_channel( $id, (int) $link['id'] );
+				return array( 'broadcast_id' => $id, 'paused' => true, '_degraded' => true );
+			}
+
 			if ( class_exists( 'BizCity_CRM_Broadcast_Dispatcher' ) ) {
 				update_option( BizCity_CRM_Broadcast_Dispatcher::OPT_PAUSED, '1' );
 			}
@@ -3091,12 +3715,124 @@ class BizCity_CRM_REST_Controller {
 			$id     = (int) $req['id'];
 			$bc_tbl = BizCity_CRM_DB_Installer_V2::tbl_broadcasts();
 			$rc_tbl = BizCity_CRM_DB_Installer_V2::tbl_broadcast_recipients();
-			$row    = $wpdb->get_row( $wpdb->prepare( "SELECT id, status FROM `{$bc_tbl}` WHERE id=%d", $id ), ARRAY_A );
+			$row    = $wpdb->get_row( $wpdb->prepare( "SELECT id, status, message_template FROM `{$bc_tbl}` WHERE id=%d", $id ), ARRAY_A );
 			if ( ! $row ) { throw new \RuntimeException( 'broadcast_not_found' ); }
+
+			// [2026-07-10 Johnny Chu] PHASE-0.47 — linked channel broadcast: cancel canonical channel job.
+			$link = self::broadcasts_channel_link( $row );
+			if ( ! empty( $link['id'] ) ) {
+				self::broadcasts_channel_proxy( 'POST', 'broadcasts/' . (int) $link['id'] . '/cancel' );
+				self::broadcasts_sync_local_from_channel( $id, (int) $link['id'] );
+				$wpdb->update( $bc_tbl, array( 'status' => 'cancelled', 'updated_at' => current_time( 'mysql' ) ), array( 'id' => $id ), array( '%s', '%s' ), array( '%d' ) );
+				return array( 'broadcast_id' => $id, 'cancelled' => true, '_degraded' => true );
+			}
+
 			if ( $row['status'] === 'sent' ) { throw new \RuntimeException( 'already_sent' ); }
 			$wpdb->update( $bc_tbl, array( 'status' => 'cancelled', 'updated_at' => current_time( 'mysql' ) ), array( 'id' => $id ), array( '%s', '%s' ), array( '%d' ) );
 			$wpdb->update( $rc_tbl, array( 'status' => 'skipped' ), array( 'broadcast_id' => $id, 'status' => 'queued' ), array( '%s' ), array( '%d', '%s' ) );
 			return array( 'broadcast_id' => $id, 'cancelled' => true );
+		} );
+	}
+
+	/**
+	 * [2026-07-10 Johnny Chu] PHASE-0.47 — POST /broadcasts/{id}/restart
+	 * Reset all recipients to queued and resume sending from start.
+	 */
+	public static function broadcasts_restart( WP_REST_Request $req ) {
+		return self::wrap( static function () use ( $req ) {
+			global $wpdb;
+			$id     = (int) $req['id'];
+			$bc_tbl = BizCity_CRM_DB_Installer_V2::tbl_broadcasts();
+			$rc_tbl = BizCity_CRM_DB_Installer_V2::tbl_broadcast_recipients();
+			$has_scheduled_send = BizCity_CRM_DB_Installer_V2::column_exists( $rc_tbl, 'scheduled_send_at' );
+
+			$row = $wpdb->get_row( $wpdb->prepare( "SELECT id, status FROM `{$bc_tbl}` WHERE id=%d", $id ), ARRAY_A );
+			if ( ! $row ) {
+				throw new \RuntimeException( 'broadcast_not_found' );
+			}
+
+			$total = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM `{$rc_tbl}` WHERE broadcast_id=%d", $id ) );
+			if ( $total <= 0 ) {
+				throw new \RuntimeException( 'no_recipients' );
+			}
+
+			// [2026-07-10 Johnny Chu] PHASE-0.47 — full reset so dispatcher can replay the whole broadcast.
+			// [2026-07-10 Johnny Chu] HOTFIX — tolerate sites missing scheduled_send_at in legacy schema.
+			$reset_sql = $has_scheduled_send
+				? "UPDATE `{$rc_tbl}` SET status='queued', sent_at=NULL, error=NULL, scheduled_send_at=NULL WHERE broadcast_id=%d"
+				: "UPDATE `{$rc_tbl}` SET status='queued', sent_at=NULL, error=NULL WHERE broadcast_id=%d";
+			$wpdb->query( $wpdb->prepare( $reset_sql, $id ) );
+
+			$now = current_time( 'mysql' );
+			$wpdb->update(
+				$bc_tbl,
+				array(
+					'status'       => 'sending',
+					'total_count'  => $total,
+					'sent_count'   => 0,
+					'failed_count' => 0,
+					'sent_at'      => $now,
+					'updated_at'   => $now,
+				),
+				array( 'id' => $id ),
+				array( '%s', '%d', '%d', '%d', '%s', '%s' ),
+				array( '%d' )
+			);
+
+			if ( class_exists( 'BizCity_CRM_Broadcast_Dispatcher' ) ) {
+				update_option( BizCity_CRM_Broadcast_Dispatcher::OPT_PAUSED, '0' );
+			}
+
+			do_action( 'bizcity_crm_broadcast_dispatch', $id );
+
+			return array(
+				'broadcast_id' => $id,
+				'restarted'    => true,
+				'total_count'  => $total,
+				'status'       => 'sending',
+			);
+		} );
+	}
+
+	/**
+	 * [2026-07-10 Johnny Chu] PHASE-0.47 — GET /broadcasts/cron-console
+	 * Lightweight polling payload for console widgets.
+	 */
+	public static function broadcasts_cron_console( WP_REST_Request $req ) {
+		return self::wrap( static function () {
+			global $wpdb;
+			$bc_tbl = BizCity_CRM_DB_Installer_V2::tbl_broadcasts();
+			$rows   = $wpdb->get_results(
+				"SELECT id, title, status, total_count, sent_count, failed_count, updated_at
+				 FROM `{$bc_tbl}`
+				 ORDER BY updated_at DESC, id DESC
+				 LIMIT 50",
+				ARRAY_A
+			) ?: array();
+
+			$items = array();
+			foreach ( $rows as $r ) {
+				$items[] = array(
+					'id'          => (int) $r['id'],
+					'title'       => (string) $r['title'],
+					'status'      => (string) $r['status'],
+					'total_count' => (int) $r['total_count'],
+					'sent_count'  => (int) $r['sent_count'],
+					'failed_count'=> (int) $r['failed_count'],
+					'updated_at'  => (string) $r['updated_at'],
+				);
+			}
+
+			$paused = false;
+			if ( class_exists( 'BizCity_CRM_Broadcast_Dispatcher' ) ) {
+				$paused = (bool) get_option( BizCity_CRM_Broadcast_Dispatcher::OPT_PAUSED, false );
+			}
+
+			return array(
+				'items'  => $items,
+				'paused' => $paused,
+				'now'    => current_time( 'mysql' ),
+			);
 		} );
 	}
 
@@ -3130,6 +3866,571 @@ class BizCity_CRM_REST_Controller {
 		} );
 	}
 
+	/**
+	 * POST /broadcasts/parse-file — proxy parse endpoint to channel-gateway and normalize shape for CRM FE.
+	 *
+	 * @param WP_REST_Request $req Request.
+	 * @return array
+	 */
+	public static function broadcasts_parse_file( WP_REST_Request $req ) {
+		return self::wrap( static function () use ( $req ) {
+			// [2026-07-10 Johnny Chu] PHASE-0.47 — route lives in CRM namespace but parser is canonical in bizcity-channel/v1.
+			$inner = new WP_REST_Request( 'POST', '/bizcity-channel/v1/broadcasts/parse-file' );
+
+			$source_kind = (string) $req->get_param( 'source_kind' );
+			$source_url  = (string) $req->get_param( 'source_url' );
+			if ( $source_kind !== '' ) {
+				$inner->set_param( 'source_kind', sanitize_text_field( $source_kind ) );
+			}
+			if ( $source_url !== '' ) {
+				$inner->set_param( 'source_url', esc_url_raw( $source_url ) );
+			}
+
+			$files = $req->get_file_params();
+			if ( ! empty( $files ) ) {
+				$inner->set_file_params( $files );
+			}
+
+			$res  = rest_do_request( $inner );
+			$data = $res instanceof WP_REST_Response ? $res->get_data() : null;
+
+			if ( ! is_array( $data ) ) {
+				throw new \RuntimeException( 'parse_file_unavailable' );
+			}
+
+			if ( isset( $data['success'] ) && ! $data['success'] ) {
+				throw new \RuntimeException( (string) ( $data['error'] ?? 'parse_failed' ) );
+			}
+
+			$rows = array();
+			if ( isset( $data['rows'] ) && is_array( $data['rows'] ) ) {
+				$rows = $data['rows'];
+			} elseif ( isset( $data['recipients'] ) && is_array( $data['recipients'] ) ) {
+				$rows = $data['recipients'];
+			}
+
+			return array(
+				'success' => true,
+				'rows'    => array_values( $rows ),
+				'count'   => isset( $data['count'] ) ? (int) $data['count'] : count( $rows ),
+			);
+		} );
+	}
+
+	/**
+	 * POST /broadcasts/create-zns — create campaign in CRM broadcast tables, then enqueue/dispatch.
+	 *
+	 * @param WP_REST_Request $req Request.
+	 * @return array
+	 */
+	public static function broadcasts_create_zns( WP_REST_Request $req ) {
+		return self::wrap( static function () use ( $req ) {
+			// [2026-07-10 Johnny Chu] PHASE-0.47 — keep create-zns in CRM storage so list/reload reads the same data source.
+			global $wpdb;
+			$body  = (array) $req->get_json_params();
+			$title = sanitize_text_field( (string) ( isset( $body['title'] ) ? $body['title'] : ( isset( $body['name'] ) ? $body['name'] : '' ) ) );
+			if ( $title === '' ) {
+				throw new \RuntimeException( 'invalid_param: title required' );
+			}
+
+			$temp_id = sanitize_text_field( (string) ( isset( $body['temp_id'] ) ? $body['temp_id'] : '' ) );
+			if ( $temp_id === '' ) {
+				throw new \RuntimeException( 'invalid_param: temp_id required' );
+			}
+
+			$recipients_in = isset( $body['recipients'] ) && is_array( $body['recipients'] ) ? $body['recipients'] : array();
+			$recipients    = array();
+			foreach ( $recipients_in as $r ) {
+				if ( ! is_array( $r ) ) {
+					continue;
+				}
+				$name  = sanitize_text_field( (string) ( isset( $r['name'] ) ? $r['name'] : '' ) );
+				$phone = sanitize_text_field( (string) ( isset( $r['phone'] ) ? $r['phone'] : '' ) );
+				$email = sanitize_email( (string) ( isset( $r['email'] ) ? $r['email'] : '' ) );
+				$cid   = isset( $r['contact_id'] ) ? (int) $r['contact_id'] : ( isset( $r['id'] ) ? (int) $r['id'] : 0 );
+				if ( $phone === '' && $email === '' ) {
+					continue;
+				}
+				$recipients[] = array(
+					'contact_id' => $cid,
+					'name'  => $name,
+					'phone' => $phone,
+					'email' => $email,
+				);
+			}
+			if ( empty( $recipients ) ) {
+				throw new \RuntimeException( 'invalid_param: recipients required' );
+			}
+
+			$contact_ids = self::resolve_broadcast_contact_ids( $recipients );
+
+			$temp_data = isset( $body['temp_data'] ) && is_array( $body['temp_data'] ) ? $body['temp_data'] : array();
+			$temp_vars = array();
+			if ( isset( $body['temp_vars'] ) && is_array( $body['temp_vars'] ) ) {
+				foreach ( $body['temp_vars'] as $tv ) {
+					if ( ! is_array( $tv ) ) {
+						continue;
+					}
+					$var_name = sanitize_text_field( (string) ( isset( $tv['k'] ) ? $tv['k'] : ( isset( $tv['var_name'] ) ? $tv['var_name'] : '' ) ) );
+					if ( $var_name === '' ) {
+						continue;
+					}
+					$val = (string) ( isset( $tv['v'] ) ? $tv['v'] : ( isset( $tv['value'] ) ? $tv['value'] : '' ) );
+					$temp_vars[] = array(
+						'var_name' => $var_name,
+						'value'    => $val,
+						'source'   => sanitize_key( (string) ( isset( $tv['source'] ) ? $tv['source'] : 'recipient' ) ),
+					);
+				}
+			}
+
+			$meta = array(
+				'temp_id'   => $temp_id,
+				'oa_id'     => sanitize_text_field( (string) ( isset( $body['oa_id'] ) ? $body['oa_id'] : '' ) ),
+				'temp_data' => $temp_data,
+				'temp_vars' => $temp_vars,
+			);
+
+			$allowed_delays = array( 0, 5, 15, 30, 60, 120, 180 );
+			$delay_sec      = isset( $body['delay_sec'] ) ? (int) $body['delay_sec'] : 5;
+			if ( ! in_array( $delay_sec, $allowed_delays, true ) ) {
+				$delay_sec = 5;
+			}
+
+			if ( empty( $contact_ids ) ) {
+				// [2026-07-10 Johnny Chu] PHASE-0.47 — CSV may contain non-CRM contacts; fallback to channel create (phone-based ZNS) and mirror to CRM list.
+				$payload = array(
+					'name'       => $title,
+					'type'       => 'zns',
+					'meta'       => $meta,
+					'recipients' => $recipients,
+					'batch_size' => max( 1, min( 100, (int) ( isset( $body['batch_size'] ) ? $body['batch_size'] : 10 ) ) ),
+					'delay_sec'  => $delay_sec,
+					'auto_start' => ! array_key_exists( 'auto_start', $body ) || ! empty( $body['auto_start'] ),
+				);
+
+				$inner = new WP_REST_Request( 'POST', '/bizcity-channel/v1/broadcasts' );
+				$inner->set_body_params( $payload );
+				$res  = rest_do_request( $inner );
+				$data = $res instanceof WP_REST_Response ? $res->get_data() : null;
+				if ( ! is_array( $data ) || empty( $data['success'] ) ) {
+					throw new \RuntimeException( (string) ( is_array( $data ) && isset( $data['error'] ) ? $data['error'] : 'create_broadcast_failed' ) );
+				}
+
+				$status = sanitize_key( (string) ( isset( $data['status'] ) ? $data['status'] : 'queued' ) );
+				if ( ! in_array( $status, array( 'draft', 'queued', 'sending', 'paused', 'sent', 'failed', 'cancelled', 'done' ), true ) ) {
+					$status = 'queued';
+				}
+
+				$now       = current_time( 'mysql' );
+				$bc_tbl    = BizCity_CRM_DB_Installer_V2::tbl_broadcasts();
+				$total_cnt = isset( $data['imported'] ) ? (int) $data['imported'] : count( $recipients );
+				$id = self::broadcasts_insert_row_compat( $bc_tbl, array(
+					'title'               => $title,
+					'inbox_ids_json'      => null,
+					'segment_filter_json' => null,
+					'message_template'    => wp_json_encode( array(
+						'broadcast_type'       => 'zns',
+						'zns'                  => $meta,
+						'channel_broadcast_id' => isset( $data['id'] ) ? (int) $data['id'] : 0,
+						'channel_source'       => 'bizcity-channel/v1',
+					) ),
+					'status'              => $status,
+					'scheduled_at'        => null,
+					'sent_at'             => in_array( $status, array( 'sending', 'sent', 'done' ), true ) ? $now : null,
+					'total_count'         => $total_cnt,
+					'sent_count'          => 0,
+					'failed_count'        => 0,
+					'created_by'          => get_current_user_id(),
+					'created_at'          => $now,
+					'updated_at'          => $now,
+					'action_flags_json'   => wp_json_encode( array(
+						'send_message'        => false,
+						'send_friend_request' => false,
+						'invite_group'        => false,
+						'group_id'            => '',
+					) ),
+					'delay_sec'           => $delay_sec,
+					'campaign_id'         => null,
+				) );
+				if ( $id <= 0 ) {
+					throw new \RuntimeException( $wpdb->last_error ? $wpdb->last_error : 'insert_failed' );
+				}
+
+				return array(
+					'id'          => $id,
+					'title'       => $title,
+					'status'      => $status,
+					'total_count' => $total_cnt,
+					'_degraded'   => true,
+				);
+			}
+
+			$auto_start = ! array_key_exists( 'auto_start', $body ) || ! empty( $body['auto_start'] );
+			$status     = $auto_start ? 'sending' : 'queued';
+			$now        = current_time( 'mysql' );
+			$bc_tbl     = BizCity_CRM_DB_Installer_V2::tbl_broadcasts();
+
+			$id = self::broadcasts_insert_row_compat( $bc_tbl, array(
+				'title'               => $title,
+				'inbox_ids_json'      => null,
+				'segment_filter_json' => wp_json_encode( array( 'contact_ids' => $contact_ids ) ),
+				'message_template'    => wp_json_encode( array(
+					'broadcast_type' => 'zns',
+					'zns'            => $meta,
+				) ),
+				'status'              => $status,
+				'scheduled_at'        => null,
+				'sent_at'             => $auto_start ? $now : null,
+				'total_count'         => count( $contact_ids ),
+				'sent_count'          => 0,
+				'failed_count'        => 0,
+				'created_by'          => get_current_user_id(),
+				'created_at'          => $now,
+				'updated_at'          => $now,
+				'action_flags_json'   => wp_json_encode( array(
+					'send_message'        => true,
+					'send_friend_request' => false,
+					'invite_group'        => false,
+					'group_id'            => '',
+				) ),
+				'delay_sec'           => $delay_sec,
+				'campaign_id'         => null,
+			) );
+			if ( $id <= 0 ) {
+				throw new \RuntimeException( $wpdb->last_error ? $wpdb->last_error : 'insert_failed' );
+			}
+
+			$queued     = 0;
+			$skipped    = 0;
+			$_degraded  = false;
+			if ( $auto_start ) {
+				if ( class_exists( 'BizCity_CRM_Broadcast_Dispatcher' ) ) {
+					$result = BizCity_CRM_Broadcast_Dispatcher::enqueue( $id, $contact_ids );
+					$queued = isset( $result['enqueued'] ) ? (int) $result['enqueued'] : 0;
+					$skipped = isset( $result['skipped'] ) ? (int) $result['skipped'] : 0;
+					do_action( 'bizcity_crm_broadcast_dispatch', $id );
+				} else {
+					$_degraded = true;
+					$wpdb->update( $bc_tbl, array( 'status' => 'queued', 'updated_at' => current_time( 'mysql' ) ), array( 'id' => $id ), array( '%s', '%s' ), array( '%d' ) );
+					$status = 'queued';
+				}
+			}
+
+			return array(
+				'id'          => $id,
+				'title'       => $title,
+				'status'      => $status,
+				'total_count' => count( $contact_ids ),
+				'queued'      => $queued,
+				'skipped'     => $skipped,
+				'_degraded'   => $_degraded,
+			);
+		} );
+	}
+
+	/**
+	 * Insert one broadcast row while tolerating schema drift on optional columns.
+	 *
+	 * @param string $table Broadcasts table name.
+	 * @param array  $row   Associative row.
+	 * @return int Inserted ID, 0 on failure.
+	 */
+	private static function broadcasts_insert_row_compat( $table, array $row ) {
+		global $wpdb;
+
+		// [2026-07-10 Johnny Chu] HOTFIX — some sites haven't migrated optional cols yet.
+		foreach ( array( 'action_flags_json', 'delay_sec', 'campaign_id' ) as $optional_col ) {
+			if ( array_key_exists( $optional_col, $row ) && ! BizCity_CRM_DB_Installer_V2::column_exists( $table, $optional_col ) ) {
+				unset( $row[ $optional_col ] );
+			}
+		}
+
+		$format_map = array(
+			'title'               => '%s',
+			'inbox_ids_json'      => '%s',
+			'segment_filter_json' => '%s',
+			'message_template'    => '%s',
+			'status'              => '%s',
+			'scheduled_at'        => '%s',
+			'sent_at'             => '%s',
+			'total_count'         => '%d',
+			'sent_count'          => '%d',
+			'failed_count'        => '%d',
+			'created_by'          => '%d',
+			'created_at'          => '%s',
+			'updated_at'          => '%s',
+			'action_flags_json'   => '%s',
+			'delay_sec'           => '%d',
+			'campaign_id'         => '%d',
+		);
+
+		$formats = array();
+		foreach ( array_keys( $row ) as $col ) {
+			$formats[] = isset( $format_map[ $col ] ) ? $format_map[ $col ] : '%s';
+		}
+
+		$ok = $wpdb->insert( $table, $row, $formats );
+		return $ok ? (int) $wpdb->insert_id : 0;
+	}
+
+	/**
+	 * Resolve recipients payload into unique CRM contact IDs.
+	 *
+	 * @param array $recipients Rows from wizard payload.
+	 * @return int[]
+	 */
+	private static function resolve_broadcast_contact_ids( array $recipients ): array {
+		global $wpdb;
+		$ct_tbl      = BizCity_CRM_DB_Installer_V2::tbl_contacts();
+		$contact_ids = array();
+		$need        = array();
+
+		foreach ( $recipients as $r ) {
+			if ( ! is_array( $r ) ) {
+				continue;
+			}
+			$cid = isset( $r['contact_id'] ) ? (int) $r['contact_id'] : ( isset( $r['id'] ) ? (int) $r['id'] : 0 );
+			if ( $cid > 0 ) {
+				$contact_ids[] = $cid;
+				continue;
+			}
+			$need[] = array(
+				'phone' => sanitize_text_field( (string) ( isset( $r['phone'] ) ? $r['phone'] : '' ) ),
+				'email' => sanitize_email( (string) ( isset( $r['email'] ) ? $r['email'] : '' ) ),
+			);
+		}
+
+		if ( ! empty( $need ) ) {
+			$phones = array();
+			$emails = array();
+			foreach ( $need as $n ) {
+				if ( $n['phone'] !== '' ) {
+					$phones[ $n['phone'] ] = true;
+				}
+				if ( $n['email'] !== '' ) {
+					$emails[ strtolower( $n['email'] ) ] = true;
+				}
+			}
+
+			$phone_map = array();
+			if ( ! empty( $phones ) ) {
+				$phone_keys = array_keys( $phones );
+				$ph         = implode( ',', array_fill( 0, count( $phone_keys ), '%s' ) );
+				$rows       = $wpdb->get_results(
+					$wpdb->prepare( "SELECT id, phone FROM `{$ct_tbl}` WHERE deleted_at IS NULL AND phone IN ({$ph}) ORDER BY id DESC", ...$phone_keys ),
+					ARRAY_A
+				) ?: array();
+				foreach ( $rows as $row ) {
+					$p = (string) ( isset( $row['phone'] ) ? $row['phone'] : '' );
+					if ( $p !== '' && ! isset( $phone_map[ $p ] ) ) {
+						$phone_map[ $p ] = (int) $row['id'];
+					}
+				}
+			}
+
+			$email_map = array();
+			if ( ! empty( $emails ) ) {
+				$email_keys = array_keys( $emails );
+				$ph         = implode( ',', array_fill( 0, count( $email_keys ), '%s' ) );
+				$rows       = $wpdb->get_results(
+					$wpdb->prepare( "SELECT id, email FROM `{$ct_tbl}` WHERE deleted_at IS NULL AND email IN ({$ph}) ORDER BY id DESC", ...$email_keys ),
+					ARRAY_A
+				) ?: array();
+				foreach ( $rows as $row ) {
+					$e = strtolower( (string) ( isset( $row['email'] ) ? $row['email'] : '' ) );
+					if ( $e !== '' && ! isset( $email_map[ $e ] ) ) {
+						$email_map[ $e ] = (int) $row['id'];
+					}
+				}
+			}
+
+			foreach ( $need as $n ) {
+				$resolved = 0;
+				if ( $n['phone'] !== '' && isset( $phone_map[ $n['phone'] ] ) ) {
+					$resolved = (int) $phone_map[ $n['phone'] ];
+				} elseif ( $n['email'] !== '' ) {
+					$key = strtolower( $n['email'] );
+					if ( isset( $email_map[ $key ] ) ) {
+						$resolved = (int) $email_map[ $key ];
+					}
+				}
+				if ( $resolved > 0 ) {
+					$contact_ids[] = $resolved;
+				}
+			}
+		}
+
+		$contact_ids = array_values( array_unique( array_map( 'intval', $contact_ids ) ) );
+		return array_values( array_filter( $contact_ids ) );
+	}
+
+	/**
+	 * Build a minimal XLSX binary content for broadcast recipient template.
+	 *
+	 * @param array $rows Template rows.
+	 * @return string
+	 */
+	private static function _broadcast_template_xlsx_binary( array $rows ) {
+		// [2026-07-10 Johnny Chu] PHASE-0.47 — native XLSX template generation in canonical CRM REST controller.
+		if ( ! class_exists( 'ZipArchive' ) ) {
+			return '';
+		}
+
+		$tmp = wp_tempnam( 'broadcast-template.xlsx' );
+		if ( ! $tmp ) {
+			return '';
+		}
+
+		$zip = new \ZipArchive();
+		if ( true !== $zip->open( $tmp, \ZipArchive::CREATE | \ZipArchive::OVERWRITE ) ) {
+			@unlink( $tmp );
+			return '';
+		}
+
+		$sheet_rows = '';
+		foreach ( $rows as $row_idx => $row ) {
+			$sheet_rows .= self::_broadcast_template_xlsx_row_xml( $row_idx + 1, $row );
+		}
+
+		$max_row   = max( 1, count( $rows ) );
+		$sheet_xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+			. '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+			. '<dimension ref="A1:C' . $max_row . '"/>'
+			. '<sheetViews><sheetView workbookViewId="0"/></sheetViews>'
+			. '<sheetFormatPr defaultRowHeight="15"/>'
+			. '<sheetData>' . $sheet_rows . '</sheetData>'
+			. '</worksheet>';
+
+		$zip->addFromString( '[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+			. '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+			. '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+			. '<Default Extension="xml" ContentType="application/xml"/>'
+			. '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+			. '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+			. '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+			. '</Types>' );
+		$zip->addFromString( '_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+			. '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+			. '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+			. '</Relationships>' );
+		$zip->addFromString( 'xl/workbook.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+			. '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+			. '<sheets><sheet name="Recipients" sheetId="1" r:id="rId1"/></sheets>'
+			. '</workbook>' );
+		$zip->addFromString( 'xl/_rels/workbook.xml.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+			. '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+			. '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+			. '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+			. '</Relationships>' );
+		$zip->addFromString( 'xl/styles.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+			. '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+			. '<fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts>'
+			. '<fills count="1"><fill><patternFill patternType="none"/></fill></fills>'
+			. '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>'
+			. '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+			. '<cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs>'
+			. '</styleSheet>' );
+		$zip->addFromString( 'xl/worksheets/sheet1.xml', $sheet_xml );
+		$zip->close();
+
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+		$binary = file_get_contents( $tmp );
+		@unlink( $tmp );
+		if ( $binary === false ) {
+			return '';
+		}
+		return $binary;
+	}
+
+	/**
+	 * Build an XML row for XLSX inline strings.
+	 *
+	 * @param int   $row_num Row number.
+	 * @param array $values  Row values.
+	 * @return string
+	 */
+	private static function _broadcast_template_xlsx_row_xml( $row_num, array $values ) {
+		$cells = '';
+		foreach ( array_values( $values ) as $idx => $value ) {
+			$col = self::_broadcast_template_xlsx_col_name( (int) $idx );
+			$ref = $col . (int) $row_num;
+			$txt = htmlspecialchars( (string) $value, ENT_QUOTES | ENT_XML1, 'UTF-8' );
+			$cells .= '<c r="' . $ref . '" t="inlineStr"><is><t>' . $txt . '</t></is></c>';
+		}
+		return '<row r="' . (int) $row_num . '">' . $cells . '</row>';
+	}
+
+	/**
+	 * Convert zero-based index to XLSX column name.
+	 *
+	 * @param int $index Column index.
+	 * @return string
+	 */
+	private static function _broadcast_template_xlsx_col_name( $index ) {
+		$index = (int) $index;
+		$col   = '';
+		do {
+			$col   = chr( 65 + ( $index % 26 ) ) . $col;
+			$index = (int) floor( $index / 26 ) - 1;
+		} while ( $index >= 0 );
+		return $col;
+	}
+
+	/**
+	 * GET /broadcasts/template — serve sample recipient file in csv/xlsx/xls format.
+	 */
+	public static function broadcasts_csv_template( WP_REST_Request $req ) {
+		// [2026-07-10 Johnny Chu] PHASE-0.47 — serve sample files for CRM broadcast import UI links.
+		$format = strtolower( trim( (string) $req->get_param( 'format' ) ) );
+		if ( ! in_array( $format, array( '', 'csv', 'xlsx', 'xls' ), true ) ) {
+			$format = 'csv';
+		}
+		if ( $format === '' ) {
+			$format = 'csv';
+		}
+
+		$rows = array(
+			array( 'Tên', 'Số điện thoại', 'Email' ),
+			array( 'Nguyễn Văn A', '0901234567', 'a@example.com' ),
+			array( 'Trần Thị B', '0912345678', 'b@example.com' ),
+		);
+
+		if ( $format === 'xlsx' ) {
+			$binary = self::_broadcast_template_xlsx_binary( $rows );
+			if ( $binary !== '' ) {
+				header( 'Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' );
+				header( 'Content-Disposition: attachment; filename="broadcast-template.xlsx"' );
+				echo $binary; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+				exit;
+			}
+			$format = 'csv';
+		}
+
+		if ( $format === 'xls' ) {
+			$tsv = "\xEF\xBB\xBF" . implode( "\n", array(
+				"Tên\tSố điện thoại\tEmail",
+				"Nguyễn Văn A\t0901234567\ta@example.com",
+				"Trần Thị B\t0912345678\tb@example.com",
+			) );
+			header( 'Content-Type: application/vnd.ms-excel; charset=utf-8' );
+			header( 'Content-Disposition: attachment; filename="broadcast-template.xls"' );
+			echo $tsv; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+			exit;
+		}
+
+		$lines = array(
+			"Tên;Số điện thoại;Email",
+			"Nguyễn Văn A;0901234567;a@example.com",
+			"Trần Thị B;0912345678;b@example.com",
+		);
+		$csv = "\xEF\xBB\xBF" . implode( "\n", $lines );
+		header( 'Content-Type: text/csv; charset=utf-8' );
+		header( 'Content-Disposition: attachment; filename="broadcast-template.csv"' );
+		echo $csv; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+		exit;
+	}
+
 	// [2026-07-03 Johnny Chu] PHASE-0.46 FIX — ZNS templates proxy (R-CH-NS)
 	public static function get_zns_templates_proxy( WP_REST_Request $req ) {
 		return self::wrap( static function () use ( $req ) {
@@ -3152,7 +4453,7 @@ class BizCity_CRM_REST_Controller {
 
 	private static function shape_broadcast( array $r ): array {
 		// [2026-06-07 Johnny Chu] PHASE-0.43 M3.7 — include action_flags + delay_sec + campaign_id
-		return array(
+		$out = array(
 			'id'              => (int) $r['id'],
 			'title'           => (string) $r['title'],
 			'campaign_id'     => isset( $r['campaign_id'] ) ? (int) $r['campaign_id'] : null,
@@ -3171,6 +4472,146 @@ class BizCity_CRM_REST_Controller {
 			'created_at'      => isset( $r['created_at'] ) ? $r['created_at'] : null,
 			'updated_at'      => isset( $r['updated_at'] ) ? $r['updated_at'] : null,
 		);
+
+		// [2026-07-10 Johnny Chu] PHASE-0.47 — sync linked channel counters/status so list UI reflects real dispatch progress.
+		$link = self::broadcasts_channel_link( $r );
+		if ( ! empty( $link['id'] ) ) {
+			$out['channel_source']       = isset( $link['source'] ) ? (string) $link['source'] : 'bizcity-channel/v1';
+			$out['channel_broadcast_id'] = (int) $link['id'];
+			if ( class_exists( 'BizCity_Broadcast_Manager' ) ) {
+				$cb = BizCity_Broadcast_Manager::get_one( (int) $link['id'] );
+				$pg = BizCity_Broadcast_Manager::get_progress( (int) $link['id'] );
+				if ( is_array( $cb ) && isset( $cb['status'] ) ) {
+					$out['status'] = (string) $cb['status'];
+				}
+				if ( is_array( $pg ) ) {
+					$out['total_count']  = isset( $pg['total'] ) ? (int) $pg['total'] : $out['total_count'];
+					$out['sent_count']   = isset( $pg['sent'] ) ? (int) $pg['sent'] : $out['sent_count'];
+					$out['failed_count'] = isset( $pg['failed'] ) ? (int) $pg['failed'] : $out['failed_count'];
+				}
+			}
+		}
+
+		return $out;
+	}
+
+	/**
+	 * Parse channel-linked metadata from CRM broadcast row.
+	 *
+	 * @param  array $row
+	 * @return array
+	 */
+	private static function broadcasts_channel_link( array $row ) {
+		// [2026-07-10 Johnny Chu] PHASE-0.47 — detect mirrored channel broadcast rows (phone-list fallback path).
+		$raw = isset( $row['message_template'] ) ? (string) $row['message_template'] : '';
+		if ( $raw === '' ) {
+			return array();
+		}
+		$mt = json_decode( $raw, true );
+		if ( ! is_array( $mt ) ) {
+			return array();
+		}
+		$src = isset( $mt['channel_source'] ) ? (string) $mt['channel_source'] : '';
+		$cid = isset( $mt['channel_broadcast_id'] ) ? (int) $mt['channel_broadcast_id'] : 0;
+		if ( $cid <= 0 || $src !== 'bizcity-channel/v1' ) {
+			return array();
+		}
+		return array(
+			'source' => $src,
+			'id'     => $cid,
+		);
+	}
+
+	/**
+	 * Dispatch one internal REST request to channel-gateway and normalize failures.
+	 *
+	 * @param  string     $method
+	 * @param  string     $path
+	 * @param  array      $params
+	 * @param  array|null $body
+	 * @return array
+	 */
+	private static function broadcasts_channel_proxy( $method, $path, array $params = array(), $body = null ) {
+		// [2026-07-10 Johnny Chu] PHASE-0.47 — canonical channel proxy helper for linked broadcast operations.
+		$route = '/bizcity-channel/v1/' . ltrim( (string) $path, '/' );
+		$req   = new WP_REST_Request( strtoupper( (string) $method ), $route );
+
+		foreach ( $params as $k => $v ) {
+			if ( $v === null || $v === '' ) {
+				continue;
+			}
+			$req->set_param( (string) $k, $v );
+		}
+		if ( is_array( $body ) ) {
+			$req->set_body_params( $body );
+		}
+
+		$res  = rest_do_request( $req );
+		$data = $res instanceof WP_REST_Response ? $res->get_data() : null;
+		if ( ! is_array( $data ) ) {
+			throw new \RuntimeException( 'channel_proxy_failed' );
+		}
+		if ( ! empty( $data['success'] ) ) {
+			return $data;
+		}
+
+		$err = isset( $data['error'] ) ? (string) $data['error'] : 'channel_proxy_failed';
+		throw new \RuntimeException( $err );
+	}
+
+	/**
+	 * Sync local CRM broadcast counters/status from linked channel broadcast state.
+	 *
+	 * @param int $broadcast_id         CRM broadcast id.
+	 * @param int $channel_broadcast_id Channel broadcast id.
+	 */
+	private static function broadcasts_sync_local_from_channel( $broadcast_id, $channel_broadcast_id ) {
+		// [2026-07-10 Johnny Chu] PHASE-0.47 — keep CRM list counters aligned with linked channel dispatch progress.
+		if ( ! class_exists( 'BizCity_Broadcast_Manager' ) ) {
+			return;
+		}
+
+		$broadcast_id         = (int) $broadcast_id;
+		$channel_broadcast_id = (int) $channel_broadcast_id;
+		if ( $broadcast_id <= 0 || $channel_broadcast_id <= 0 ) {
+			return;
+		}
+
+		$cb = BizCity_Broadcast_Manager::get_one( $channel_broadcast_id );
+		$pg = BizCity_Broadcast_Manager::get_progress( $channel_broadcast_id );
+		if ( ! is_array( $cb ) && ! is_array( $pg ) ) {
+			return;
+		}
+
+		global $wpdb;
+		$tbl = BizCity_CRM_DB_Installer_V2::tbl_broadcasts();
+		$upd = array(
+			'updated_at' => current_time( 'mysql' ),
+		);
+		$fmt = array( '%s' );
+
+		if ( is_array( $cb ) && isset( $cb['status'] ) ) {
+			$upd['status'] = sanitize_key( (string) $cb['status'] );
+			$fmt[]         = '%s';
+		}
+		if ( is_array( $pg ) ) {
+			if ( isset( $pg['total'] ) ) {
+				$upd['total_count'] = (int) $pg['total'];
+				$fmt[] = '%d';
+			}
+			if ( isset( $pg['sent'] ) ) {
+				$upd['sent_count'] = (int) $pg['sent'];
+				$fmt[] = '%d';
+			}
+			if ( isset( $pg['failed'] ) ) {
+				$upd['failed_count'] = (int) $pg['failed'];
+				$fmt[] = '%d';
+			}
+		}
+
+		if ( count( $upd ) > 1 ) {
+			$wpdb->update( $tbl, $upd, array( 'id' => $broadcast_id ), $fmt, array( '%d' ) );
+		}
 	}
 
 	/** POST /conversations/bulk-label */

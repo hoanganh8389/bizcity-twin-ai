@@ -2211,6 +2211,212 @@ class BizCoach_Pro_Sprint_Diagnostic {
 				) ) )
 		);
 
+		// [2026-07-09 Johnny Chu] R-DDV — account-hub bootstrap keys parity for FE contract.
+		$restbase_ok    = $sc_src && strpos( $sc_src, 'restBase' )       !== false;
+		$memberbase_ok  = $sc_src && strpos( $sc_src, 'membershipBase' ) !== false;
+		$wpnonce_ok     = $sc_src && strpos( $sc_src, "'nonce'" )       !== false;
+		$current_uid_ok = $sc_src && strpos( $sc_src, 'currentUserId' )  !== false;
+		$f18j_ok        = $restbase_ok && $memberbase_ok && $wpnonce_ok && $current_uid_ok;
+		$out[] = self::row(
+			'T-BCPRO.F18.j',
+			$f18j_ok ? 'PASS' : 'FAIL',
+			'bcproSS account bootstrap keys: restBase + membershipBase + nonce + currentUserId',
+			$f18j_ok
+				? 'all 4 keys present in class-self-service-shortcode.php'
+				: 'missing: ' . implode( ', ', array_filter( array(
+					$restbase_ok    ? '' : 'restBase',
+					$memberbase_ok  ? '' : 'membershipBase',
+					$wpnonce_ok     ? '' : 'nonce',
+					$current_uid_ok ? '' : 'currentUserId',
+				) ) )
+		);
+
+		// [2026-07-09 Johnny Chu] R-DDV — account hub route + FE file readiness.
+		$routes_ready = false;
+		$missing_routes = array();
+		if ( function_exists( 'rest_get_server' ) && rest_get_server() ) {
+			$routes = (array) rest_get_server()->get_routes();
+			$expect = array(
+				'/bizcity-membership/v1/me',
+				'/bizcity-membership/v1/me/profile',
+				'/bizcity-membership/v1/me/payments',
+				'/bizcity-membership/v1/me/cancel',
+				'/bizcity-membership/v1/me/change-password',
+				'/bizcity-membership/v1/me/invoice/(?P<id>[A-Za-z0-9_\-]+)',
+			);
+			foreach ( $expect as $r ) {
+				if ( ! isset( $routes[ $r ] ) ) {
+					$missing_routes[] = $r;
+				}
+			}
+			$routes_ready = empty( $missing_routes );
+		}
+
+		$acc_page_ok  = defined( 'BCPRO_DIR' ) && file_exists( BCPRO_DIR . 'fe/src/pages/AccountPage.tsx' );
+		$acc_api_ok   = defined( 'BCPRO_DIR' ) && file_exists( BCPRO_DIR . 'fe/src/api/account.ts' );
+		$price_ok     = defined( 'BCPRO_DIR' ) && file_exists( BCPRO_DIR . 'fe/src/pages/PricingPage.tsx' );
+		$usage_ok     = defined( 'BCPRO_DIR' ) && file_exists( BCPRO_DIR . 'fe/src/pages/UsagePage.tsx' );
+		$fe_ready     = $acc_page_ok && $acc_api_ok && $price_ok && $usage_ok;
+
+		$f18k_status = ( $routes_ready && $fe_ready ) ? 'PASS' : ( $fe_ready ? 'WARN' : 'FAIL' );
+		$out[] = self::row(
+			'T-BCPRO.F18.k',
+			$f18k_status,
+			'Account hub readiness: /me* routes + Account/Pricing/Usage FE files',
+			( $routes_ready ? 'routes ready' : 'missing routes=' . implode( ', ', $missing_routes ) )
+			. ' · '
+			. ( $fe_ready
+				? 'FE files ready'
+				: 'missing FE=' . implode( ', ', array_filter( array(
+					$acc_page_ok ? '' : 'AccountPage.tsx',
+					$acc_api_ok  ? '' : 'api/account.ts',
+					$price_ok    ? '' : 'PricingPage.tsx',
+					$usage_ok    ? '' : 'UsagePage.tsx',
+				) ) ) )
+		);
+
+		// [2026-07-09 Johnny Chu] PHASE-TWINSHELL-IMPL — DDV runtime method parity
+		// for account hub + pricing membership routes.
+		$method_expect = array(
+			'/bizcity-membership/v1/me' => array( 'GET' ),
+			'/bizcity-membership/v1/me/profile' => array( 'POST' ),
+			'/bizcity-membership/v1/me/payments' => array( 'GET' ),
+			'/bizcity-membership/v1/me/cancel' => array( 'POST' ),
+			'/bizcity-membership/v1/me/change-password' => array( 'POST' ),
+			'/bizcity-membership/v1/me/invoice/(?P<id>[A-Za-z0-9_\-]+)' => array( 'GET' ),
+			'/bizcity-membership/v1/checkout' => array( 'POST' ),
+			'/bizcity-membership/v1/capture' => array( 'POST' ),
+		);
+		$method_missing = array();
+		$method_detail  = array();
+		$f18l_status    = 'WARN';
+		if ( function_exists( 'rest_get_server' ) && rest_get_server() ) {
+			$all_routes = (array) rest_get_server()->get_routes();
+			foreach ( $method_expect as $route => $expect_methods ) {
+				if ( ! isset( $all_routes[ $route ] ) ) {
+					$method_missing[] = $route . ' (route missing)';
+					continue;
+				}
+				$have_methods = array();
+				foreach ( (array) $all_routes[ $route ] as $endpoint ) {
+					if ( ! is_array( $endpoint ) || empty( $endpoint['methods'] ) || ! is_array( $endpoint['methods'] ) ) {
+						continue;
+					}
+					foreach ( $endpoint['methods'] as $method => $enabled ) {
+						if ( $enabled ) {
+							$have_methods[] = strtoupper( (string) $method );
+						}
+					}
+				}
+				$have_methods = array_values( array_unique( $have_methods ) );
+				sort( $have_methods );
+				$method_detail[] = $route . '=' . ( empty( $have_methods ) ? 'none' : implode( '|', $have_methods ) );
+				foreach ( (array) $expect_methods as $must_method ) {
+					$must_method = strtoupper( (string) $must_method );
+					if ( ! in_array( $must_method, $have_methods, true ) ) {
+						$method_missing[] = $route . ' missing ' . $must_method;
+					}
+				}
+			}
+			$f18l_status = empty( $method_missing ) ? 'PASS' : 'FAIL';
+		} else {
+			$method_missing[] = 'rest_get_server unavailable at probe time';
+		}
+
+		$out[] = self::row(
+			'T-BCPRO.F18.l',
+			$f18l_status,
+			'Runtime route-method parity: account hub (/me*) + pricing (/checkout,/capture)',
+			empty( $method_missing )
+				? 'all expected methods present'
+				: 'issues=' . implode( '; ', $method_missing )
+			)
+		;
+
+		// [2026-07-09 Johnny Chu] PHASE-TWINSHELL-IMPL — DDV parity for self-service
+		// usage + entitlement endpoints consumed by UsagePage/Auth gating.
+		$self_expect = array(
+			'/bizcity-bizcoach/v1/me/usage-summary' => array( 'GET' ),
+			'/bizcity-bizcoach/v1/me/entitlement' => array( 'GET' ),
+		);
+		$self_missing = array();
+		$f18m_status  = 'WARN';
+		if ( function_exists( 'rest_get_server' ) && rest_get_server() ) {
+			$all_routes = (array) rest_get_server()->get_routes();
+			foreach ( $self_expect as $route => $expect_methods ) {
+				if ( ! isset( $all_routes[ $route ] ) ) {
+					$self_missing[] = $route . ' (route missing)';
+					continue;
+				}
+				$have_methods = array();
+				foreach ( (array) $all_routes[ $route ] as $endpoint ) {
+					if ( ! is_array( $endpoint ) || empty( $endpoint['methods'] ) || ! is_array( $endpoint['methods'] ) ) {
+						continue;
+					}
+					foreach ( $endpoint['methods'] as $method => $enabled ) {
+						if ( $enabled ) {
+							$have_methods[] = strtoupper( (string) $method );
+						}
+					}
+				}
+				$have_methods = array_values( array_unique( $have_methods ) );
+				foreach ( (array) $expect_methods as $must_method ) {
+					$must_method = strtoupper( (string) $must_method );
+					if ( ! in_array( $must_method, $have_methods, true ) ) {
+						$self_missing[] = $route . ' missing ' . $must_method;
+					}
+				}
+			}
+			$f18m_status = empty( $self_missing ) ? 'PASS' : 'FAIL';
+		} else {
+			$self_missing[] = 'rest_get_server unavailable at probe time';
+		}
+
+		$out[] = self::row(
+			'T-BCPRO.F18.m',
+			$f18m_status,
+			'Runtime route-method parity: self-service usage/entitlement endpoints',
+			empty( $self_missing )
+				? 'usage-summary + entitlement GET routes ready'
+				: 'issues=' . implode( '; ', $self_missing )
+		);
+
+		// [2026-07-09 Johnny Chu] PHASE-TWINSHELL-IMPL — FE guard readiness for
+		// UsagePage degrade/range/quota rendering contract.
+		$usage_page_file = defined( 'BCPRO_DIR' ) ? BCPRO_DIR . 'fe/src/pages/UsagePage.tsx' : '';
+		$usage_api_file  = defined( 'BCPRO_DIR' ) ? BCPRO_DIR . 'fe/src/api/usage.ts' : '';
+		$usage_page_src  = ( $usage_page_file && file_exists( $usage_page_file ) ) ? (string) file_get_contents( $usage_page_file ) : '';
+		$usage_api_src   = ( $usage_api_file && file_exists( $usage_api_file ) ) ? (string) file_get_contents( $usage_api_file ) : '';
+
+		$usage_page_range_ok = $usage_page_src
+			&& strpos( $usage_page_src, "value: '7d'" ) !== false
+			&& strpos( $usage_page_src, "value: '30d'" ) !== false
+			&& strpos( $usage_page_src, "value: '90d'" ) !== false;
+		$usage_page_quota_ok = $usage_page_src
+			&& strpos( $usage_page_src, 'FeatureMeter' ) !== false
+			&& strpos( $usage_page_src, 'data.today.by_feature' ) !== false;
+		$usage_page_degrade_ok = $usage_page_src
+			&& strpos( $usage_page_src, 'data?._degraded' ) !== false;
+		$usage_api_guard_ok = $usage_api_src
+			&& strpos( $usage_api_src, 'normalizeUsageSummary' ) !== false
+			&& strpos( $usage_api_src, 'emptyUsage' ) !== false
+			&& strpos( $usage_api_src, '_degraded' ) !== false;
+
+		$f18n_ok = $usage_page_range_ok && $usage_page_quota_ok && $usage_page_degrade_ok && $usage_api_guard_ok;
+		$out[] = self::row(
+			'T-BCPRO.F18.n',
+			$f18n_ok ? 'PASS' : 'FAIL',
+			'Usage FE contract guards: range switch + quota meter + degraded banner + API normalizer',
+			$f18n_ok
+				? 'UsagePage + api/usage guard markers confirmed'
+				: 'missing: ' . implode( ', ', array_filter( array(
+					$usage_page_range_ok ? '' : 'UsagePage range 7d/30d/90d',
+					$usage_page_quota_ok ? '' : 'UsagePage FeatureMeter/by_feature',
+					$usage_page_degrade_ok ? '' : 'UsagePage degraded banner',
+					$usage_api_guard_ok ? '' : 'api/usage normalizer/degraded guard',
+				) ) )
+		);
+
 		return $out;
 	}
 

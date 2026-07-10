@@ -327,6 +327,12 @@ class BizCity_Membership_Manager {
 		update_user_meta( $user_id, self::META_VALID_UNTIL, $valid_until );
 		update_user_meta( $user_id, self::META_SOURCE, $source );
 
+		// [2026-07-09 Johnny Chu] PHASE-TWINSHELL-IMPL — keep entitlement snapshot
+		// consistent after plan mutation within same request.
+		if ( class_exists( 'BizCity_Membership_Entitlement' ) ) {
+			BizCity_Membership_Entitlement::instance()->flush_cache( $user_id );
+		}
+
 		/**
 		 * Fires after a membership plan is assigned to a user.
 		 *
@@ -402,6 +408,12 @@ class BizCity_Membership_Manager {
 		delete_user_meta( $user_id, self::META_PLAN );
 		delete_user_meta( $user_id, self::META_VALID_UNTIL );
 		delete_user_meta( $user_id, self::META_SOURCE );
+
+		// [2026-07-09 Johnny Chu] PHASE-TWINSHELL-IMPL — invalidate entitlement cache
+		// so `/me` immediately reflects downgrade/cancel in same request.
+		if ( class_exists( 'BizCity_Membership_Entitlement' ) ) {
+			BizCity_Membership_Entitlement::instance()->flush_cache( $user_id );
+		}
 
 		/**
 		 * Fires after a user's membership plan is cleared.

@@ -1,26 +1,27 @@
 {
-  "_vendor-query-G8YxeL76.js": {
-    "file": "assets/vendor-query-G8YxeL76.js",
+  "_bcpro-vendor-query.js": {
+    "file": "assets/bcpro-vendor-query.js",
     "name": "vendor-query"
   },
-  "_vendor-react-CYz8-YIn.js": {
-    "file": "assets/vendor-react-CYz8-YIn.js",
+  "_bcpro-vendor-react.js": {
+    "file": "assets/bcpro-vendor-react.js",
     "name": "vendor-react",
     "imports": [
-      "_vendor-query-G8YxeL76.js"
+      "_bcpro-vendor-query.js"
     ]
   },
-  "index.html": {
-    "file": "assets/index-DHkiK9R4.js",
-    "name": "index",
-    "src": "index.html",
+  "src/main.tsx": {
+    "file": "assets/bcpro-self-service.js",
+    "name": "main",
+    "src": "src/main.tsx",
     "isEntry": true,
     "imports": [
-      "_vendor-query-G8YxeL76.js",
-      "_vendor-react-CYz8-YIn.js"
-    ],
-    "css": [
-      "assets/index-2LvLc7nZ.css"
+      "_bcpro-vendor-query.js",
+      "_bcpro-vendor-react.js"
     ]
+  },
+  "style.css": {
+    "file": "assets/bcpro-self-service.css",
+    "src": "style.css"
   }
 }

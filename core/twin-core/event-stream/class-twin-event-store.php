@@ -138,4 +138,97 @@ class BizCity_Twin_Event_Store {
 		}
 		return $rows;
 	}
+
+	/**
+	 * [2026-07-09 Johnny Chu] PHASE-TWINSHELL-IMPL — user-scoped activity reader
+	 * used by /events/my_activity for consistent filtering and pagination.
+	 *
+	 * @param int   $user_id
+	 * @param int   $blog_id
+	 * @param array $opts {
+	 *   @type int    $limit
+	 *   @type int    $before_id
+	 *   @type string $event_type
+	 *   @type string $surface
+	 *   @type string $action
+	 *   @type string $outcome
+	 *   @type string $plugin_id
+	 * }
+	 * @return array<int,array>
+	 */
+	public static function fetch_for_user_activity( int $user_id, int $blog_id, array $opts = [] ): array {
+		global $wpdb;
+		$table = BizCity_Twin_Event_Stream_Schema::table();
+
+		$limit      = max( 1, min( 500, (int) ( $opts['limit'] ?? 100 ) ) );
+		$before_id  = max( 0, (int) ( $opts['before_id'] ?? 0 ) );
+		$event_type = sanitize_key( (string) ( $opts['event_type'] ?? '' ) );
+		$surface    = sanitize_key( (string) ( $opts['surface'] ?? '' ) );
+
+		$action_raw = strtolower( (string) ( $opts['action'] ?? '' ) );
+		$action     = preg_replace( '/[^a-z0-9._-]/', '', $action_raw );
+
+		$outcome_raw = strtolower( (string) ( $opts['outcome'] ?? '' ) );
+		$outcome     = preg_replace( '/[^a-z0-9._-]/', '', $outcome_raw );
+
+		$plugin_id = sanitize_key( (string) ( $opts['plugin_id'] ?? '' ) );
+
+		$where  = array( 'user_id = %d', 'blog_id = %d' );
+		$params = array( $user_id, $blog_id );
+
+		if ( '' !== $event_type ) {
+			$where[]  = 'event_type = %s';
+			$params[] = $event_type;
+		}
+
+		if ( $before_id > 0 ) {
+			$where[]  = 'id < %d';
+			$params[] = $before_id;
+		}
+
+		if ( '' !== $surface ) {
+			$needle   = '"surface":"' . $surface . '"';
+			$where[]  = 'payload_json LIKE %s';
+			$params[] = '%' . $wpdb->esc_like( $needle ) . '%';
+		}
+
+		if ( '' !== $action ) {
+			$needle   = '"action":"' . $action . '"';
+			$where[]  = 'payload_json LIKE %s';
+			$params[] = '%' . $wpdb->esc_like( $needle ) . '%';
+		}
+
+		if ( '' !== $outcome ) {
+			$needle   = '"outcome":"' . $outcome . '"';
+			$where[]  = 'payload_json LIKE %s';
+			$params[] = '%' . $wpdb->esc_like( $needle ) . '%';
+		}
+
+		if ( '' !== $plugin_id ) {
+			$needle   = '"plugin_id":"' . $plugin_id . '"';
+			$where[]  = 'payload_json LIKE %s';
+			$params[] = '%' . $wpdb->esc_like( $needle ) . '%';
+		}
+
+		$sql = "SELECT * FROM {$table} WHERE " . implode( ' AND ', $where )
+			 . ' ORDER BY id DESC LIMIT %d';
+		$params[] = $limit;
+
+		$rows = $wpdb->get_results( $wpdb->prepare( $sql, $params ), ARRAY_A );
+		if ( ! is_array( $rows ) ) {
+			return array();
+		}
+
+		foreach ( $rows as &$r ) {
+			$r['id']               = (int) $r['id'];
+			$r['user_id']          = (int) $r['user_id'];
+			$r['blog_id']          = (int) $r['blog_id'];
+			$r['schema_version']   = (int) $r['schema_version'];
+			$r['created_epoch_ms'] = (int) $r['created_epoch_ms'];
+			$r['payload']          = json_decode( (string) $r['payload_json'], true ) ?: array();
+			unset( $r['payload_json'] );
+		}
+
+		return $rows;
+	}
 }

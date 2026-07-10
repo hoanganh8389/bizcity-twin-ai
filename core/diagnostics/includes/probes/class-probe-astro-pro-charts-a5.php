@@ -95,12 +95,26 @@ final class BizCity_Probe_Astro_Pro_Charts_A5 implements BizCity_Diagnostics_Pro
 		 * Layer 2 — Loader
 		 * ----------------------------------------------------------------- */
 		// [2026-07-09 Johnny Chu] PHASE-A5 — resolve canonical REST class (current: BizCity_Astrology_REST).
+		// Some environments may load probe before hub REST file gets included, so we eagerly require_once.
+		$route_class_candidates = array( 'BizCity_Astrology_REST', 'BizCity_Astro_REST_API' );
 		$route_class = '';
-		if ( class_exists( 'BizCity_Astrology_REST' ) ) {
-			$route_class = 'BizCity_Astrology_REST';
-		} elseif ( class_exists( 'BizCity_Astro_REST_API' ) ) {
-			// Backward-compat alias for older builds.
-			$route_class = 'BizCity_Astro_REST_API';
+
+		foreach ( $route_class_candidates as $candidate ) {
+			if ( class_exists( $candidate ) ) {
+				$route_class = $candidate;
+				break;
+			}
+		}
+
+		if ( $route_class === '' && file_exists( $hub_rest_file ) ) {
+			// [2026-07-09 Johnny Chu] PHASE-A5 — bootstrap fallback for diagnostics context.
+			require_once $hub_rest_file;
+			foreach ( $route_class_candidates as $candidate ) {
+				if ( class_exists( $candidate ) ) {
+					$route_class = $candidate;
+					break;
+				}
+			}
 		}
 
 		$route_class_ok = ( $route_class !== '' );

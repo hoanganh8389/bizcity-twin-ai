@@ -41,6 +41,32 @@ final class BizCity_CRM_Broadcast_Dispatcher {
 		return $wpdb->prefix . 'bizcity_crm_broadcast_recipients';
 	}
 
+	/**
+	 * [2026-07-10 Johnny Chu] PHASE-0.47 — R-SHOW-TABLES safe table existence check (static + wp_cache).
+	 */
+	private static function table_exists_cached( $table_name ) {
+		static $memo = array();
+		if ( isset( $memo[ $table_name ] ) ) {
+			return $memo[ $table_name ];
+		}
+
+		$cache_key = 'bz_tbl_' . (int) get_current_blog_id() . '_' . crc32( $table_name );
+		$present   = wp_cache_get( $cache_key, 'bizcity_tbl' );
+		if ( false === $present ) {
+			global $wpdb;
+			$present = (int) (bool) $wpdb->get_var(
+				$wpdb->prepare(
+					'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+					$table_name
+				)
+			);
+			wp_cache_set( $cache_key, $present, 'bizcity_tbl', HOUR_IN_SECONDS );
+		}
+
+		$memo[ $table_name ] = (bool) $present;
+		return $memo[ $table_name ];
+	}
+
 	/* ------------------------------------------------------------------
 	 * Bootstrap
 	 * ------------------------------------------------------------------ */
@@ -98,28 +124,8 @@ final class BizCity_CRM_Broadcast_Dispatcher {
 		}
 		global $wpdb;
 		$queue_tbl = self::recipients_tbl();
-		// [2026-06-27 Johnny Chu] PHASE-CG-BROADCAST R-SHOW-TABLES — use information_schema instead of SHOW TABLES
-		$tbl_exists = (int) $wpdb->get_var( $wpdb->prepare(
-			"SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1",
-			$queue_tbl
-		) );
-		if ( ! $tbl_exists ) {
+		if ( ! self::table_exists_cached( $queue_tbl ) ) {
 			return; // Table not yet provisioned — fail-open.
-		}
-
-		// [2026-06-14 Johnny Chu] HOTFIX — lazy-add scheduled_send_at on subsites where
-		// migrate_phase_048() hasn't run yet (multisite network, new sub-blogs).
-		// [2026-06-27 Johnny Chu] PHASE-CG-BROADCAST — also lazy-add phone/email columns if migrate_054 hasn't run.
-		$cols = $wpdb->get_col( "SHOW COLUMNS FROM `{$queue_tbl}`" );
-		if ( ! in_array( 'scheduled_send_at', $cols, true ) ) {
-			$wpdb->query( "ALTER TABLE `{$queue_tbl}` ADD COLUMN `scheduled_send_at` DATETIME NULL" );
-			$wpdb->query( "ALTER TABLE `{$queue_tbl}` ADD INDEX `idx_scheduled_send` (`status`, `scheduled_send_at`)" );
-		}
-		if ( ! in_array( 'phone', $cols, true ) ) {
-			$wpdb->query( "ALTER TABLE `{$queue_tbl}` ADD COLUMN `phone` VARCHAR(30) NOT NULL DEFAULT '' AFTER error" );
-		}
-		if ( ! in_array( 'email', $cols, true ) ) {
-			$wpdb->query( "ALTER TABLE `{$queue_tbl}` ADD COLUMN `email` VARCHAR(254) NOT NULL DEFAULT '' AFTER phone" );
 		}
 
 		$batch   = (int) apply_filters( 'bizcity_crm_broadcast_batch', self::BATCH_PER_MINUTE );
@@ -132,30 +138,34 @@ final class BizCity_CRM_Broadcast_Dispatcher {
 		), ARRAY_A );
 
 		if ( empty( $pending ) ) {
+			// [2026-07-10 Johnny Chu] PHASE-0.47 — reconcile stale sending campaigns even when no pending rows.
+			self::reconcile_sending_broadcasts();
 			return;
 		}
 
 		$counters = array( 'queued' => count( $pending ), 'sent' => 0, 'failed' => 0 );
 		$cron_mgr = class_exists( 'BizCity_Cron_Manager' ) ? BizCity_Cron_Manager::instance() : null;
+		$touched  = array();
 
 		foreach ( $pending as $item ) {
+			$broadcast_id = isset( $item['broadcast_id'] ) ? (int) $item['broadcast_id'] : 0;
+			if ( $broadcast_id > 0 ) {
+				$touched[ $broadcast_id ] = true;
+			}
+
 			$sent = self::send_one( $item );
 			if ( $sent === true ) {
 				$counters['sent']++;
 				$wpdb->update( $queue_tbl, array( 'status' => 'sent', 'sent_at' => current_time( 'mysql' ) ), array( 'id' => (int) $item['id'] ) );
 			} else {
 				$counters['failed']++;
-				// [2026-06-28 Johnny Chu] PHASE-CG-ZNS-TEMPLATE-CATALOG — error may be JSON (ZNS) or plain string (other types)
-				$error_raw = is_string( $sent ) ? $sent : 'unknown_error';
-				$wpdb->update( $queue_tbl, array( 'status' => 'failed', 'error' => $error_raw ), array( 'id' => (int) $item['id'] ) );
-				// Decode short reason for cron meta (don't store full JSON blob in note_event)
-				$parsed    = json_decode( $error_raw, true );
-				$reason    = ( is_array( $parsed ) && isset( $parsed['reason'] ) ) ? $parsed['reason'] : $error_raw;
+				$reason  = is_string( $sent ) ? $sent : 'unknown_error';
+				$wpdb->update( $queue_tbl, array( 'status' => 'failed', 'error' => $reason ), array( 'id' => (int) $item['id'] ) );
 				// R-CRON-META: note_event on fail
 				if ( $cron_mgr ) {
 					$cron_mgr->note_event( 'broadcast_send_failed', array(
 						'queue_id'    => (int) $item['id'],
-						'campaign_id' => (int) $item['campaign_id'],
+						'broadcast_id'=> (int) $broadcast_id,
 						'contact_id'  => (int) $item['contact_id'],
 						'reason'      => $reason,
 					) );
@@ -168,39 +178,92 @@ final class BizCity_CRM_Broadcast_Dispatcher {
 			$cron_mgr->note( array( 'counters' => $counters ) );
 		}
 
-		// [2026-06-27 Johnny Chu] PHASE-CG-BROADCAST — auto-mark broadcasts as 'done' when no
-		// queued recipients remain. Collect unique broadcast_ids from this batch, then check each.
-		$bc_tbl      = $wpdb->prefix . 'bizcity_crm_broadcasts';
-		$bc_ids      = array_unique( array_map( 'intval', array_column( $pending, 'broadcast_id' ) ) );
-		$done_now    = current_time( 'mysql' );
-		foreach ( $bc_ids as $bc_id ) {
-			if ( $bc_id <= 0 ) { continue; }
-			$still_queued = (int) $wpdb->get_var( $wpdb->prepare(
-				"SELECT COUNT(*) FROM `{$queue_tbl}` WHERE broadcast_id=%d AND status='queued'",
-				$bc_id
-			) );
-			// [2026-06-28 Johnny Chu] PHASE-CG-ZNS-TEMPLATE-CATALOG — sync live sent/failed counts on every batch
-			$rc_sent   = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM `{$queue_tbl}` WHERE broadcast_id=%d AND status='sent'", $bc_id ) );
-			$rc_failed = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM `{$queue_tbl}` WHERE broadcast_id=%d AND status='failed'", $bc_id ) );
-			if ( $still_queued === 0 ) {
-				// Mark done regardless of current status (draft or sending) — guards against auto_start broadcasts stuck as draft
-				$wpdb->update(
-					$bc_tbl,
-					array( 'status' => 'done', 'sent_count' => $rc_sent, 'failed_count' => $rc_failed, 'updated_at' => $done_now ),
-					array( 'id' => $bc_id ),
-					array( '%s', '%d', '%d', '%s' ),
-					array( '%d' )
-				);
-			} else {
-				// Still processing — update counts so progress bar reflects current state
-				$wpdb->update(
-					$bc_tbl,
-					array( 'sent_count' => $rc_sent, 'failed_count' => $rc_failed, 'updated_at' => $done_now ),
-					array( 'id' => $bc_id ),
-					array( '%d', '%d', '%s' ),
-					array( '%d' )
-				);
+		// [2026-07-10 Johnny Chu] PHASE-0.47 — keep broadcast header counters/status in sync after each tick.
+		if ( ! empty( $touched ) ) {
+			foreach ( array_keys( $touched ) as $bid ) {
+				self::reconcile_broadcast( (int) $bid );
 			}
+		}
+	}
+
+	/**
+	 * [2026-07-10 Johnny Chu] PHASE-0.47 — reconcile one broadcast header from recipient ledger.
+	 */
+	private static function reconcile_broadcast( $broadcast_id ) {
+		global $wpdb;
+		$broadcast_id = (int) $broadcast_id;
+		if ( $broadcast_id <= 0 ) {
+			return;
+		}
+
+		$queue_tbl = self::recipients_tbl();
+		$bc_tbl    = $wpdb->prefix . 'bizcity_crm_broadcasts';
+
+		$rows = $wpdb->get_results(
+			$wpdb->prepare( "SELECT status, COUNT(*) AS cnt FROM `{$queue_tbl}` WHERE broadcast_id=%d GROUP BY status", $broadcast_id ),
+			ARRAY_A
+		) ?: array();
+
+		$sent    = 0;
+		$failed  = 0;
+		$queued  = 0;
+		$skipped = 0;
+		$total   = 0;
+		foreach ( $rows as $r ) {
+			$st = (string) ( isset( $r['status'] ) ? $r['status'] : '' );
+			$ct = (int) ( isset( $r['cnt'] ) ? $r['cnt'] : 0 );
+			$total += $ct;
+			if ( $st === 'sent' ) {
+				$sent = $ct;
+			} elseif ( $st === 'failed' ) {
+				$failed = $ct;
+			} elseif ( $st === 'queued' ) {
+				$queued = $ct;
+			} elseif ( $st === 'skipped' ) {
+				$skipped = $ct;
+			}
+		}
+
+		$bc_row = $wpdb->get_row( $wpdb->prepare( "SELECT id, status FROM `{$bc_tbl}` WHERE id=%d", $broadcast_id ), ARRAY_A );
+		if ( ! $bc_row ) {
+			return;
+		}
+
+		$status = (string) $bc_row['status'];
+		$done   = ( $total > 0 && $queued <= 0 );
+		if ( $done && in_array( $status, array( 'sending', 'queued', 'paused' ), true ) ) {
+			$status = 'sent';
+		} elseif ( ! $done && in_array( $status, array( 'queued', 'paused', 'sent' ), true ) ) {
+			$status = 'sending';
+		}
+
+		$wpdb->update(
+			$bc_tbl,
+			array(
+				'status'       => $status,
+				'total_count'  => $total,
+				'sent_count'   => $sent,
+				'failed_count' => $failed,
+				'updated_at'   => current_time( 'mysql' ),
+			),
+			array( 'id' => $broadcast_id ),
+			array( '%s', '%d', '%d', '%d', '%s' ),
+			array( '%d' )
+		);
+	}
+
+	/**
+	 * [2026-07-10 Johnny Chu] PHASE-0.47 — sweep active broadcasts to fix stale sending badge.
+	 */
+	private static function reconcile_sending_broadcasts() {
+		global $wpdb;
+		$bc_tbl = $wpdb->prefix . 'bizcity_crm_broadcasts';
+		$rows   = $wpdb->get_col( "SELECT id FROM `{$bc_tbl}` WHERE status IN ('sending','queued','paused') ORDER BY id DESC LIMIT 100" );
+		if ( empty( $rows ) ) {
+			return;
+		}
+		foreach ( $rows as $bid ) {
+			self::reconcile_broadcast( (int) $bid );
 		}
 	}
 
@@ -217,47 +280,10 @@ final class BizCity_CRM_Broadcast_Dispatcher {
 	private static function send_one( array $item ) {
 		// [2026-06-07 Johnny Chu] PHASE-0.40 G4.2 — pick variant + send
 		// [2026-06-07 Johnny Chu] PHASE-0.43 M1.3 — action_flags dispatch (send_message/send_friend_request/invite_group)
-		// [2026-06-27 Johnny Chu] PHASE-CG-BROADCAST — fetch bc_row FIRST to check broadcast_type (ZNS vs personal)
 		$contact_id   = (int) $item['contact_id'];
 		$broadcast_id = (int) $item['broadcast_id'];
 
-		if ( $broadcast_id <= 0 ) {
-			return 'invalid_param';
-		}
-
-		// Fetch broadcast header (need message_template to detect broadcast_type).
-		// [2026-06-27 Johnny Chu] PHASE-CG-BROADCAST — use SELECT * to avoid missing-column errors when
-		// action_flags_json / campaign_id haven't been added yet by migrations on a given subsite.
-		global $wpdb;
-		$bc_tbl = $wpdb->prefix . 'bizcity_crm_broadcasts';
-		$bc_row = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM `{$bc_tbl}` WHERE id=%d", $broadcast_id ), ARRAY_A );
-		if ( ! $bc_row ) {
-			return 'not_found';
-		}
-
-		// [2026-06-27 Johnny Chu] PHASE-CG-BROADCAST — detect broadcast_type from message_template JSON.
-		// ZNS broadcasts use phone + eSMS ZNS API; personal/chat use Zalo UID + gateway sender.
-		$broadcast_type = 'personal'; // default — existing Zalo Personal path
-		$zns_meta       = array();
-		if ( ! empty( $bc_row['message_template'] ) ) {
-			$mt = json_decode( $bc_row['message_template'], true );
-			if ( is_array( $mt ) ) {
-				if ( isset( $mt['broadcast_type'] ) ) {
-					$broadcast_type = (string) $mt['broadcast_type'];
-				}
-				if ( isset( $mt['meta'] ) && is_array( $mt['meta'] ) ) {
-					$zns_meta = $mt['meta'];
-				}
-			}
-		}
-
-		// Route ZNS broadcasts to dedicated sender (phone-based, no chat_id needed).
-		if ( $broadcast_type === 'zns' ) {
-			return self::send_one_zns( $item, $zns_meta );
-		}
-
-		// ── Personal / chat path (original logic) ───────────────────────────
-		if ( $contact_id <= 0 ) {
+		if ( $contact_id <= 0 || $broadcast_id <= 0 ) {
 			return 'invalid_param'; // R-CRON-META bucket
 		}
 
@@ -273,6 +299,14 @@ final class BizCity_CRM_Broadcast_Dispatcher {
 		}
 		if ( $chat_id === '' ) {
 			return 'invalid_param';
+		}
+
+		// Get campaign + action_flags from broadcast header.
+		global $wpdb;
+		$bc_tbl = $wpdb->prefix . 'bizcity_crm_broadcasts';
+		$bc_row = $wpdb->get_row( $wpdb->prepare( "SELECT campaign_id, action_flags_json, message_template FROM `{$bc_tbl}` WHERE id=%d", $broadcast_id ), ARRAY_A );
+		if ( ! $bc_row ) {
+			return 'not_found';
 		}
 
 		// Parse action_flags (NULL-safe fallback: send_message only).
@@ -382,126 +416,6 @@ final class BizCity_CRM_Broadcast_Dispatcher {
 
 		// best-effort: return true if at least one action attempted, partial fail still logged
 		return $any_failed ? 'http_error' : true;
-	}
-
-	/* ------------------------------------------------------------------
-	 * ZNS send path (phone-based, eSMS API)
-	 * ------------------------------------------------------------------ */
-
-	/**
-	 * [2026-06-27 Johnny Chu] PHASE-CG-BROADCAST — Send one ZNS notification via eSMS API.
-	 * Used when broadcast_type === 'zns'. Gets phone from recipient row (CSV) or contacts table (DB).
-	 *
-	 * @param array $item     Row from broadcast_recipients.
-	 * @param array $zns_meta Meta from message_template JSON: {zns_temp_id, oa_id, temp_data}.
-	 * @return true|string
-	 */
-	private static function send_one_zns( array $item, array $zns_meta ) {
-		// Get phone: priority = r.phone (CSV recipients), fallback = contacts table (DB recipients)
-		$phone      = isset( $item['phone'] ) ? trim( (string) $item['phone'] ) : '';
-		$contact_id = (int) $item['contact_id'];
-		if ( $phone === '' && $contact_id > 0 && class_exists( 'BizCity_CRM_Contact_Repository' ) ) {
-			$contact = BizCity_CRM_Contact_Repository::get( $contact_id );
-			if ( is_array( $contact ) ) {
-				$phone = (string) ( isset( $contact['phone'] ) ? $contact['phone'] : '' );
-			}
-		}
-		if ( $phone === '' ) {
-			return 'invalid_param'; // no phone number — ZNS cannot send
-		}
-		if ( ! class_exists( 'BizCity_CF7_ZNS_Sender' ) || ! class_exists( 'BizCity_CF7_ZNS_Config' ) ) {
-			return 'gateway_degraded'; // ZNS sender not loaded
-		}
-		$phone = BizCity_CF7_ZNS_Sender::normalize_phone( $phone );
-		if ( empty( $phone ) ) {
-			return 'invalid_param';
-		}
-		$temp_id   = (string) ( isset( $zns_meta['zns_temp_id'] ) ? $zns_meta['zns_temp_id'] : ( isset( $zns_meta['template_id'] ) ? $zns_meta['template_id'] : '' ) );
-		$oa_id     = (string) ( isset( $zns_meta['oa_id'] ) ? $zns_meta['oa_id'] : '' );
-		$temp_data = isset( $zns_meta['temp_data'] ) && is_array( $zns_meta['temp_data'] ) ? $zns_meta['temp_data'] : array();
-		$global    = BizCity_CF7_ZNS_Config::get_global_settings();
-		if ( empty( $global['api_key'] ) || empty( $global['secret_key'] ) ) {
-			return 'api_key_missing';
-		}
-		if ( empty( $oa_id ) ) {
-			$oa_id = isset( $global['oa_id'] ) ? (string) $global['oa_id'] : '';
-		}
-		if ( empty( $oa_id ) || empty( $temp_id ) ) {
-			return 'invalid_param'; // ZNS requires OA ID + Template ID
-		}
-		// Build TempData: substitute {name}/{phone}/{email} tokens per-recipient.
-		// For DB contacts (contact_id > 0): resolve from BizCity_CRM_Contact_Repository.
-		// For CSV recipients (contact_id = 0): resolve from item row directly (phone/name columns).
-		// Fallback chain for {name}: item.name → item.phone (so user always gets something meaningful).
-		// [2026-06-28 Johnny Chu] PHASE-CG-ZNS-TEMPLATE-CATALOG — extend substitution to CSV contacts + fallback
-		if ( ! empty( $temp_data ) ) {
-			$resolved_name  = '';
-			$resolved_email = (string) ( isset( $item['email'] ) ? $item['email'] : '' );
-
-			if ( $contact_id > 0 && class_exists( 'BizCity_CRM_Contact_Repository' ) ) {
-				$contact       = BizCity_CRM_Contact_Repository::get( $contact_id );
-				$resolved_name = is_array( $contact ) ? (string) ( isset( $contact['name'] ) ? $contact['name'] : '' ) : '';
-				if ( $resolved_email === '' && is_array( $contact ) ) {
-					$resolved_email = (string) ( isset( $contact['email'] ) ? $contact['email'] : '' );
-				}
-			} else {
-				// CSV recipient: name may be stored in item row (recipient_data column or name key)
-				$resolved_name = (string) ( isset( $item['name'] ) ? $item['name'] : ( isset( $item['recipient_name'] ) ? $item['recipient_name'] : '' ) );
-			}
-
-			// Fallback: if name is still empty, use phone number
-			if ( $resolved_name === '' ) {
-				$resolved_name = $phone;
-			}
-
-			foreach ( $temp_data as $k => $v ) {
-				if ( $v === '{name}' )  { $temp_data[ $k ] = $resolved_name; }
-				if ( $v === '{phone}' ) { $temp_data[ $k ] = $phone; }
-				if ( $v === '{email}' ) { $temp_data[ $k ] = $resolved_email; }
-			}
-			// [2026-06-28 Johnny Chu] PHASE-CG-ZNS-TEMPLATE-CATALOG — any variable still empty → fallback to phone
-			foreach ( $temp_data as $k => $v ) {
-				if ( $v === '' || $v === null ) { $temp_data[ $k ] = $phone; }
-			}
-		}
-		$result = BizCity_CF7_ZNS_Sender::send( array(
-			'ApiKey'      => $global['api_key'],
-			'SecretKey'   => $global['secret_key'],
-			'OAID'        => $oa_id,
-			'Phone'       => $phone,
-			'TempData'    => empty( $temp_data ) ? (object) array() : $temp_data,
-			'TempID'      => $temp_id,
-			'SendingMode' => '1',
-			'campaignid'  => 'broadcast_' . (int) $item['broadcast_id'],
-			'Sandbox'     => '0',
-		) );
-		if ( $result['sent'] ) {
-			return true;
-		}
-		// [2026-06-28 Johnny Chu] PHASE-CG-ZNS-TEMPLATE-CATALOG — reason bucket 799 + known eSMS codes
-		// [2026-06-28 Johnny Chu] PHASE-CG-ZNS-TEMPLATE-CATALOG — store rich error JSON for diagnosis
-		$code        = isset( $result['code'] ) ? (string) $result['code'] : '';
-		$reason_map  = array(
-			'799' => 'oaid_not_config',
-			'103' => 'token_invalid',
-			'104' => 'token_invalid',
-			'102' => 'invalid_param',
-			'101' => 'invalid_param',
-		);
-		$reason = isset( $reason_map[ $code ] ) ? $reason_map[ $code ]
-			: ( ( $code === '100' || $code === '99' ) ? 'rate_limited'
-			: ( ( strpos( $code, '4' ) === 0 && strlen( $code ) === 3 ) ? 'invalid_param' : 'http_error' ) );
-		$esms_error = isset( $result['error'] ) ? (string) $result['error'] : '';
-		// Return JSON string with full context so FE can display diagnostics
-		return wp_json_encode( array(
-			'reason'       => $reason,
-			'esms_code'    => $code,
-			'esms_error'   => $esms_error ?: $reason,
-			'temp_id'      => $temp_id,
-			'oa_id'        => $oa_id,
-			'temp_data'    => $temp_data,
-			'phone'        => $phone,
-		) );
 	}
 
 	/* ------------------------------------------------------------------

@@ -100,6 +100,13 @@
   color: var(--ts-fg);
 }
 
+.ts-ab-activity-log {
+  color: #7bc7ff;
+}
+.ts-ab-activity-log:hover {
+  color: #eaf7ff;
+}
+
 /* Context-toggle (admin ⇄ standalone) — sits at very top, visually separated. */
 .ts-ab-context-toggle {
   margin-bottom: 6px;
@@ -223,4 +230,238 @@
 @keyframes ts-hint-in {
   from { opacity: 0; transform: translateX(-4px); }
   to   { opacity: 1; transform: translateX(0); }
+}
+
+/* TwinShell activity timeline panel (Phase activity roadmap) */
+.ts-activity-panel {
+  width: 340px;
+  flex: 0 0 340px;
+  border-left: 1px solid var(--ts-bar-border);
+  background: #12161d;
+  color: #d8dee9;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* [2026-07-10 Johnny Chu] PHASE-TWINSHELL-IMPL — ensure panel can stay hidden by default and when user clicks close/hide. */
+.ts-activity-panel[hidden] {
+  display: none !important;
+}
+
+.ts-activity-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ts-activity-title {
+  margin: 0;
+  font-size: 13px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: #9fb5cc;
+}
+
+.ts-activity-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ts-activity-hide {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  color: #cfd9e6;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  padding: 5px 8px;
+}
+
+.ts-activity-hide:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+.ts-activity-close {
+  border: 0;
+  background: transparent;
+  color: #8ea0b5;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 4px;
+}
+
+.ts-activity-close:hover {
+  color: #ffffff;
+}
+
+.ts-activity-filters {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.ts-activity-filter-label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 11px;
+  color: #90a2b7;
+  letter-spacing: 0.2px;
+}
+
+.ts-activity-filter-label--full {
+  grid-column: 1 / -1;
+}
+
+.ts-activity-filter-plugin,
+.ts-activity-filter-outcome,
+.ts-activity-filter-action {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: #0f1319;
+  color: #dce8f7;
+  border-radius: 7px;
+  font-size: 12px;
+  padding: 7px 8px;
+  outline: none;
+}
+
+.ts-activity-filter-plugin:focus,
+.ts-activity-filter-outcome:focus,
+.ts-activity-filter-action:focus {
+  border-color: rgba(123, 199, 255, 0.55);
+  box-shadow: 0 0 0 2px rgba(123, 199, 255, 0.12);
+}
+
+.ts-activity-filter-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 8px;
+}
+
+.ts-activity-filter-apply,
+.ts-activity-filter-reset {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: #171d26;
+  color: #d6e5f7;
+  border-radius: 7px;
+  font-size: 12px;
+  padding: 7px 10px;
+  cursor: pointer;
+}
+
+.ts-activity-filter-apply {
+  border-color: rgba(123, 199, 255, 0.48);
+  background: rgba(123, 199, 255, 0.14);
+}
+
+.ts-activity-filter-apply:hover,
+.ts-activity-filter-reset:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.ts-activity-state {
+  padding: 10px 14px 0;
+  font-size: 12px;
+  color: #9aa4b4;
+  min-height: 16px;
+}
+
+.ts-activity-list {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 10px 10px 14px;
+}
+
+.ts-activity-item {
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 10px;
+  padding: 9px 10px;
+  margin-bottom: 8px;
+}
+
+.ts-activity-item-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ts-activity-action {
+  font-size: 12px;
+  color: #dce7f5;
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.ts-activity-outcome {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  border-radius: 999px;
+  padding: 2px 7px;
+  border: 1px solid transparent;
+  flex: 0 0 auto;
+}
+
+.ts-activity-outcome--success {
+  color: #8ee6b6;
+  border-color: rgba(82, 198, 127, 0.35);
+  background: rgba(82, 198, 127, 0.12);
+}
+
+.ts-activity-outcome--blocked,
+.ts-activity-outcome--failed {
+  color: #ffb3a9;
+  border-color: rgba(240, 107, 89, 0.4);
+  background: rgba(240, 107, 89, 0.13);
+}
+
+.ts-activity-outcome--degraded {
+  color: #ffd28d;
+  border-color: rgba(230, 174, 81, 0.4);
+  background: rgba(230, 174, 81, 0.14);
+}
+
+.ts-activity-meta {
+  margin-top: 5px;
+  font-size: 11px;
+  color: #8f9baa;
+}
+
+.ts-activity-foot {
+  padding: 8px 12px 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.ts-activity-load-more {
+  width: 100%;
+  border: 1px solid rgba(123, 199, 255, 0.45);
+  background: rgba(123, 199, 255, 0.12);
+  color: #dff2ff;
+  font-size: 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  padding: 8px 10px;
+}
+
+.ts-activity-load-more:hover:not(:disabled) {
+  background: rgba(123, 199, 255, 0.2);
+}
+
+.ts-activity-load-more:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }

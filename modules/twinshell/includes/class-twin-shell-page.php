@@ -19,6 +19,7 @@ class BizCity_Twin_Shell_Page {
 	const OPTION_KEY  = 'bizcity_twin_shell_rewrite_flushed_v2';
 
 	private static $instance = null;
+	private $registered = false;
 
 	public static function instance() {
 		if ( null === self::$instance ) {
@@ -50,6 +51,12 @@ class BizCity_Twin_Shell_Page {
 	}
 
 	public function register() {
+		// [2026-07-09 Johnny Chu] PHASE-TWINSHELL-IMPL — idempotent register.
+		if ( $this->registered ) {
+			return;
+		}
+		$this->registered = true;
+
 		add_action( 'init',              [ $this, 'add_rewrite_rule' ] );
 		add_filter( 'query_vars',        [ $this, 'add_query_var' ] );
 		add_action( 'template_redirect', [ $this, 'maybe_render' ] );
@@ -79,6 +86,11 @@ class BizCity_Twin_Shell_Page {
 		}
 
 		if ( ! is_user_logged_in() ) {
+			// [2026-07-09 Johnny Chu] PHASE-TWINSHELL-ACTIVITY-LOG — audit unauthenticated shell access.
+			$this->emit_activity_event( 'shell.guard.not_logged_in', array(
+				'outcome' => 'blocked',
+				'route'   => home_url( add_query_arg( null, null ) ),
+			) );
 			$redirect = home_url( add_query_arg( null, null ) );
 			wp_safe_redirect( wp_login_url( $redirect ) );
 			exit;
@@ -93,6 +105,50 @@ class BizCity_Twin_Shell_Page {
 			return false;
 		}
 		return $val;
+	}
+
+	/**
+	 * Emit TwinShell activity into canonical event stream as milestone rows.
+	 *
+	 * Fail-open: shell rendering must continue even if telemetry fails.
+	 *
+	 * @param string $milestone_type Shell action code (e.g. shell.nav.open_plugin).
+	 * @param array  $payload        Extra payload fields.
+	 */
+	private function emit_activity_event( $milestone_type, array $payload = array() ) {
+		if ( ! class_exists( 'BizCity_Twin_Event_Bus' ) || ! class_exists( 'BizCity_Twin_Event_Taxonomy' ) ) {
+			return;
+		}
+		if ( ! method_exists( 'BizCity_Twin_Event_Bus', 'dispatch_v2' ) ) {
+			return;
+		}
+
+		$event_payload = array_merge(
+			array(
+				'milestone_type' => (string) $milestone_type,
+				'surface'        => 'twinshell',
+				'action'         => (string) $milestone_type,
+				'outcome'        => isset( $payload['outcome'] ) ? (string) $payload['outcome'] : 'success',
+			),
+			$payload
+		);
+
+		// [2026-07-09 Johnny Chu] PHASE-TWINSHELL-ACTIVITY-LOG — stable session grouping for shell events.
+		$session_id = 'shell_' . (int) get_current_blog_id() . '_' . (int) get_current_user_id();
+
+		try {
+			BizCity_Twin_Event_Bus::dispatch_v2(
+				BizCity_Twin_Event_Taxonomy::MILESTONE,
+				$event_payload,
+				array(
+					'event_source' => 'system',
+					'user_id'      => (int) get_current_user_id(),
+					'session_id'   => $session_id,
+				)
+			);
+		} catch ( \Throwable $e ) {
+			error_log( '[TwinShell] activity emit failed: ' . $e->getMessage() );
+		}
 	}
 
 	private function render() {
@@ -191,10 +247,24 @@ class BizCity_Twin_Shell_Page {
 					continue;
 				}
 				if ( ! empty( $p_entry['plan_locked'] ) ) {
+					// [2026-07-09 Johnny Chu] PHASE-TWINSHELL-ACTIVITY-LOG — track plan gate blocks.
+					$this->emit_activity_event( 'shell.guard.plan_locked', array(
+						'outcome'       => 'blocked',
+						'plugin_id'     => (string) $p_entry['id'],
+						'route'         => self::shell_url( array( 'plugin' => (string) $p_entry['id'] ) ),
+						'user_plan'     => (string) $user_plan,
+						'required_plan' => isset( $p_entry['plan'] ) ? (string) $p_entry['plan'] : 'free',
+					) );
 					$this->render_plan_locked_notice( $p_entry );
 					return;
 				}
 				if ( ! empty( $p_entry['plugin_locked'] ) ) {
+					// [2026-07-09 Johnny Chu] PHASE-TWINSHELL-ACTIVITY-LOG — track unavailable plugin blocks.
+					$this->emit_activity_event( 'shell.guard.plugin_locked', array(
+						'outcome'   => 'blocked',
+						'plugin_id' => (string) $p_entry['id'],
+						'route'     => self::shell_url( array( 'plugin' => (string) $p_entry['id'] ) ),
+					) );
 					$this->render_locked_notice( $p_entry );
 					return;
 				}
@@ -204,6 +274,12 @@ class BizCity_Twin_Shell_Page {
 
 		// Bookmarked URL hitting a (plugin not installed) locked entry.
 		if ( '' !== $req_plugin && isset( $locked_map[ $req_plugin ] ) ) {
+			// [2026-07-09 Johnny Chu] PHASE-TWINSHELL-ACTIVITY-LOG — locked plugin reached via deep-link.
+			$this->emit_activity_event( 'shell.guard.plugin_locked', array(
+				'outcome'   => 'blocked',
+				'plugin_id' => (string) $req_plugin,
+				'route'     => self::shell_url( array( 'plugin' => (string) $req_plugin ) ),
+			) );
 			$this->render_locked_notice( $locked_map[ $req_plugin ] );
 			return;
 		}
@@ -228,6 +304,26 @@ class BizCity_Twin_Shell_Page {
 		}
 
 		$initial_url = $initial ? $registry->build_iframe_url( $initial, $_GET ) : '';
+
+		// [2026-07-09 Johnny Chu] PHASE-TWINSHELL-ACTIVITY-LOG — core shell navigation activity evidence.
+		$open_route = '' !== $req_plugin
+			? self::shell_url( array( 'plugin' => (string) $req_plugin ) )
+			: self::shell_url();
+		$this->emit_activity_event( 'shell.nav.open_shell', array(
+			'route'   => $open_route,
+			'target'  => 'shell',
+			'outcome' => 'success',
+		) );
+
+		if ( '' !== $initial ) {
+			$nav_action = '' !== $req_plugin ? 'shell.nav.open_deep_link' : 'shell.nav.open_plugin';
+			$this->emit_activity_event( $nav_action, array(
+				'plugin_id' => (string) $initial,
+				'route'     => (string) $initial_url,
+				'target'    => (string) $initial,
+				'outcome'   => 'success',
+			) );
+		}
 
 		$config = (string) wp_json_encode( [
 			'restRoot'      => esc_url_raw( rest_url( 'bizcity-twinchat/v1/' ) ),

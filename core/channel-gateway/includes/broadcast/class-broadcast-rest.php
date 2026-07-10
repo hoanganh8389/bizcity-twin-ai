@@ -1299,11 +1299,17 @@ class BizCity_Broadcast_REST {
 	 * @return string
 	 */
 	private static function normalize_header_key( $header ) {
-		$k = strtolower( trim( (string) $header ) );
+		// [2026-07-10 Johnny Chu] PHASE-0.47 — accept real-world VN headers (NBSP, punctuation, BOM).
+		$k = str_replace( "\xEF\xBB\xBF", '', (string) $header );
+		$k = strtolower( trim( $k ) );
 		if ( function_exists( 'remove_accents' ) ) {
 			$k = remove_accents( $k );
 		}
+		$k = preg_replace( '/[\x{00A0}\x{2000}-\x{200D}\x{202F}\x{2060}\x{FEFF}]+/u', ' ', $k );
 		$k = str_replace( array( '-', ' ', '.' ), '_', $k );
+		$k = preg_replace( '/[^a-z0-9_]/', '', $k );
+		$k = preg_replace( '/_+/', '_', $k );
+		$k = trim( (string) $k, '_' );
 		return $k;
 	}
 
@@ -1330,12 +1336,32 @@ class BizCity_Broadcast_REST {
 	 * @return array { name, phone, email, custom_data }
 	 */
 	private static function normalize_row( array $row ) {
+		// [2026-07-10 Johnny Chu] PHASE-0.47 — normalize keys again to avoid parser/source inconsistencies.
+		$normalized = array();
+		foreach ( $row as $k => $v ) {
+			$nk = self::normalize_header_key( (string) $k );
+			if ( $nk === '' ) {
+				continue;
+			}
+			if ( ! isset( $normalized[ $nk ] ) || (string) $normalized[ $nk ] === '' ) {
+				$normalized[ $nk ] = is_scalar( $v ) ? (string) $v : '';
+			}
+		}
+		$row = $normalized;
+
 		$name  = '';
 		$phone = '';
 		$email = '';
+		$name_keys = array( 'name', 'ten', 'ho_ten', 'hoten', 'full_name', 'fullname', 'customer_name', 'ten_khach_hang' );
+		$phone_keys = array(
+			'phone', 'phone_number', 'mobile', 'mobile_number', 'tel', 'telephone',
+			'sdt', 'so_dien_thoai', 'sodienthoai', 'so_dt', 'dien_thoai', 'dt',
+			'dien_thoai_lien_he', 'dien_thoai_khach_hang', 'so_dien_thoai_lien_he', 'so_dien_thoai_khach_hang',
+		);
+		$email_keys = array( 'email', 'mail', 'email_address', 'email_khach_hang' );
 
 		// Detect name
-		foreach ( array( 'name', 'ten', 'họ tên', 'ho ten', 'ho_ten', 'full_name', 'fullname', 'customer_name', 'ten_khach_hang' ) as $k ) {
+		foreach ( $name_keys as $k ) {
 			if ( isset( $row[ $k ] ) && $row[ $k ] !== '' ) {
 				$name = $row[ $k ];
 				break;
@@ -1343,25 +1369,37 @@ class BizCity_Broadcast_REST {
 		}
 
 		// Detect phone
-		foreach ( array( 'phone', 'sdt', 'so_dien_thoai', 'so dien thoai', 'tel', 'mobile', 'điện thoại', 'dien thoai', 'phone_number' ) as $k ) {
+		foreach ( $phone_keys as $k ) {
 			if ( isset( $row[ $k ] ) && $row[ $k ] !== '' ) {
 				$phone = $row[ $k ];
 				break;
 			}
 		}
 
+		if ( $phone === '' ) {
+			foreach ( $row as $k => $v ) {
+				if ( $v === '' ) {
+					continue;
+				}
+				if ( strpos( $k, 'phone' ) !== false || strpos( $k, 'sdt' ) !== false || strpos( $k, 'dien_thoai' ) !== false || strpos( $k, 'so_dt' ) !== false ) {
+					$phone = $v;
+					break;
+				}
+			}
+		}
+
 		// Detect email
-		foreach ( array( 'email', 'mail', 'e-mail', 'email_address' ) as $k ) {
+		foreach ( $email_keys as $k ) {
 			if ( isset( $row[ $k ] ) && $row[ $k ] !== '' ) {
 				$email = $row[ $k ];
 				break;
 			}
 		}
 
+		$phone = self::normalize_phone_value( $phone );
+
 		// Anything else goes to custom_data
-		$known = array( 'name', 'ten', 'ho ten', 'ho_ten', 'họ tên', 'full_name', 'fullname', 'customer_name', 'ten_khach_hang',
-			'phone', 'sdt', 'so_dien_thoai', 'so dien thoai', 'tel', 'mobile', 'điện thoại', 'dien thoai', 'phone_number',
-			'email', 'mail', 'e-mail', 'email_address' );
+		$known = array_merge( $name_keys, $phone_keys, $email_keys );
 		$custom = array();
 		foreach ( $row as $k => $v ) {
 			if ( ! in_array( $k, $known, true ) && $v !== '' ) {
@@ -1375,6 +1413,40 @@ class BizCity_Broadcast_REST {
 			'email'       => sanitize_email( $email ),
 			'custom_data' => $custom,
 		);
+	}
+
+	/**
+	 * Normalize imported phone value from CSV/XLS/XLSX.
+	 *
+	 * @param  string $phone
+	 * @return string
+	 */
+	private static function normalize_phone_value( $phone ) {
+		// [2026-07-10 Johnny Chu] PHASE-0.47 — trim Excel artifacts (.0), separators, and +84/84 forms.
+		$v = trim( (string) $phone );
+		if ( $v === '' ) {
+			return '';
+		}
+
+		if ( preg_match( '/^[0-9]+(?:\.0+)?$/', $v ) ) {
+			$v = preg_replace( '/\.0+$/', '', $v );
+		}
+
+		$v = preg_replace( '/[\x{00A0}\s]+/u', '', $v );
+		$v = str_replace( array( '(', ')', '-', '.' ), '', $v );
+		$v = preg_replace( '/[^0-9+]/', '', $v );
+
+		if ( strpos( $v, '+84' ) === 0 ) {
+			$v = '0' . substr( $v, 3 );
+		} elseif ( strpos( $v, '84' ) === 0 && strlen( $v ) >= 10 && strlen( $v ) <= 12 ) {
+			$v = '0' . substr( $v, 2 );
+		}
+
+		if ( strlen( $v ) === 9 && preg_match( '/^[35789]/', $v ) ) {
+			$v = '0' . $v;
+		}
+
+		return $v;
 	}
 
 	// ── Contacts ─────────────────────────────────────────────────────────────

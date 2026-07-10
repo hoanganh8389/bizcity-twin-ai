@@ -31,6 +31,19 @@
   };
   var iframeCache = Object.create(null); // pluginId → iframe element (LRU keep 2)
   var lruOrder = [];                     // most-recent first
+  var activityState = {
+    open: false,
+    loading: false,
+    loaded: false,
+    events: [],
+    nextBeforeId: 0,
+    error: '',
+    filters: {
+      action: '',
+      outcome: '',
+      plugin_id: '',
+    },
+  };
 
   // ── SVG icon map (Lucide-compatible, 24×24 viewBox) ────────────────────
   var ICON_PATHS = {
@@ -68,6 +81,261 @@
     return '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"' +
            ' fill="none" stroke="currentColor" stroke-width="1.75"' +
            ' stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + p + '</svg>';
+  }
+
+  function getActivityApiBase() {
+    var base = String(cfg.restRoot || '');
+    if (base.indexOf('/bizcity-twinchat/v1/') !== -1) {
+      return base.replace('/bizcity-twinchat/v1/', '/bizcity-twin/v1/');
+    }
+    if (base.indexOf('/wp-json/') !== -1) {
+      var m = base.match(/^(https?:\/\/[^/]+)(\/wp-json\/)/i);
+      if (m && m[1]) {
+        return m[1] + '/wp-json/bizcity-twin/v1/';
+      }
+    }
+    return window.location.origin + '/wp-json/bizcity-twin/v1/';
+  }
+
+  function formatActivityTime(ms) {
+    var ts = Number(ms || 0);
+    if (!ts) return '--';
+    try {
+      var d = new Date(ts);
+      return d.toLocaleString();
+    } catch (e) {
+      return '--';
+    }
+  }
+
+  function normalizeActivityFilterValue(v) {
+    var raw = String(v || '').trim().toLowerCase();
+    return raw.replace(/[^a-z0-9._-]/g, '');
+  }
+
+  function populateActivityPluginFilter() {
+    var panel = root.querySelector('.ts-activity-panel');
+    if (!panel) return;
+    var pluginSel = panel.querySelector('.ts-activity-filter-plugin');
+    if (!pluginSel) return;
+
+    pluginSel.innerHTML = '';
+
+    var allOpt = document.createElement('option');
+    allOpt.value = '';
+    allOpt.textContent = 'Tất cả plugin';
+    pluginSel.appendChild(allOpt);
+
+    cfg.plugins.forEach(function (p) {
+      var pid = String((p && p.id) || '').trim();
+      if (!pid) return;
+      var opt = document.createElement('option');
+      opt.value = pid;
+      opt.textContent = String((p && p.label) || pid);
+      pluginSel.appendChild(opt);
+    });
+  }
+
+  function getActivityPanelFilters() {
+    var panel = root.querySelector('.ts-activity-panel');
+    if (!panel) {
+      return {
+        action: '',
+        outcome: '',
+        plugin_id: '',
+      };
+    }
+
+    var actionInput = panel.querySelector('.ts-activity-filter-action');
+    var outcomeSel = panel.querySelector('.ts-activity-filter-outcome');
+    var pluginSel = panel.querySelector('.ts-activity-filter-plugin');
+
+    return {
+      action: normalizeActivityFilterValue(actionInput ? actionInput.value : ''),
+      outcome: normalizeActivityFilterValue(outcomeSel ? outcomeSel.value : ''),
+      plugin_id: normalizeActivityFilterValue(pluginSel ? pluginSel.value : ''),
+    };
+  }
+
+  function setActivityPanelFilters(filters) {
+    var panel = root.querySelector('.ts-activity-panel');
+    if (!panel) return;
+
+    var f = filters || {};
+    var actionInput = panel.querySelector('.ts-activity-filter-action');
+    var outcomeSel = panel.querySelector('.ts-activity-filter-outcome');
+    var pluginSel = panel.querySelector('.ts-activity-filter-plugin');
+
+    if (actionInput) actionInput.value = String(f.action || '');
+    if (outcomeSel) outcomeSel.value = String(f.outcome || '');
+    if (pluginSel) pluginSel.value = String(f.plugin_id || '');
+  }
+
+  function applyActivityFilters() {
+    activityState.filters = getActivityPanelFilters();
+    activityState.loaded = false;
+    if (activityState.open) {
+      fetchActivityTimeline(true);
+    }
+  }
+
+  function resetActivityFilters() {
+    activityState.filters = {
+      action: '',
+      outcome: '',
+      plugin_id: '',
+    };
+    setActivityPanelFilters(activityState.filters);
+    activityState.loaded = false;
+    if (activityState.open) {
+      fetchActivityTimeline(true);
+    }
+  }
+
+  function renderActivityPanel() {
+    var panel = root.querySelector('.ts-activity-panel');
+    if (!panel) return;
+    var list = panel.querySelector('.ts-activity-list');
+    var state = panel.querySelector('.ts-activity-state');
+    var loadMoreBtn = panel.querySelector('.ts-activity-load-more');
+    if (!list || !state || !loadMoreBtn) return;
+
+    list.innerHTML = '';
+    state.textContent = '';
+
+    if (activityState.loading) {
+      state.textContent = 'Đang tải activity...';
+      loadMoreBtn.disabled = true;
+      loadMoreBtn.hidden = true;
+      return;
+    }
+    if (activityState.error) {
+      state.textContent = activityState.error;
+      loadMoreBtn.disabled = true;
+      loadMoreBtn.hidden = true;
+      return;
+    }
+    if (!activityState.events.length) {
+      state.textContent = 'Chưa có activity TwinShell.';
+      loadMoreBtn.disabled = true;
+      loadMoreBtn.hidden = true;
+      return;
+    }
+
+    activityState.events.forEach(function (ev) {
+      var payload = ev && ev.payload ? ev.payload : {};
+      var action = payload.action || payload.milestone_type || 'milestone';
+      var outcome = payload.outcome || 'success';
+      var pluginId = payload.plugin_id || '';
+
+      var item = document.createElement('div');
+      item.className = 'ts-activity-item';
+
+      var head = document.createElement('div');
+      head.className = 'ts-activity-item-head';
+
+      var actionEl = document.createElement('span');
+      actionEl.className = 'ts-activity-action';
+      actionEl.textContent = String(action);
+
+      var outcomeEl = document.createElement('span');
+      outcomeEl.className = 'ts-activity-outcome ts-activity-outcome--' + String(outcome);
+      outcomeEl.textContent = String(outcome);
+
+      head.appendChild(actionEl);
+      head.appendChild(outcomeEl);
+
+      var meta = document.createElement('div');
+      meta.className = 'ts-activity-meta';
+      var timeText = formatActivityTime(ev.created_epoch_ms);
+      meta.textContent = pluginId ? (timeText + ' · ' + pluginId) : timeText;
+
+      item.appendChild(head);
+      item.appendChild(meta);
+      list.appendChild(item);
+    });
+
+    loadMoreBtn.hidden = !(activityState.nextBeforeId > 0);
+    loadMoreBtn.disabled = false;
+  }
+
+  function setActivityPanelOpen(on) {
+    var panel = root.querySelector('.ts-activity-panel');
+    var btn = root.querySelector('.ts-ab-activity-log');
+    if (!panel) return;
+
+    activityState.open = !!on;
+    panel.hidden = !activityState.open;
+    panel.classList.toggle('is-open', activityState.open);
+    setActivityPanelFilters(activityState.filters);
+    if (btn) {
+      btn.classList.toggle('is-active', activityState.open);
+      btn.setAttribute('aria-pressed', activityState.open ? 'true' : 'false');
+    }
+
+    if (activityState.open && !activityState.loaded) {
+      fetchActivityTimeline(true);
+    }
+  }
+
+  function fetchActivityTimeline(reset) {
+    if (activityState.loading) return;
+    activityState.loading = true;
+    if (reset) {
+      activityState.events = [];
+      activityState.nextBeforeId = 0;
+      activityState.error = '';
+    }
+    renderActivityPanel();
+
+    var base = getActivityApiBase();
+    var q = new URLSearchParams();
+    q.set('surface', 'twinshell');
+    q.set('event_type', 'milestone');
+    q.set('limit', '30');
+
+    var filters = activityState.filters || {};
+    if (filters.action) {
+      q.set('action', filters.action);
+    }
+    if (filters.outcome) {
+      q.set('outcome', filters.outcome);
+    }
+    if (filters.plugin_id) {
+      q.set('plugin_id', filters.plugin_id);
+    }
+
+    if (!reset && activityState.nextBeforeId > 0) {
+      q.set('before_id', String(activityState.nextBeforeId));
+    }
+
+    fetch(base + 'events/my_activity?' + q.toString(), {
+      method: 'GET',
+      credentials: 'same-origin',
+      headers: {
+        'X-WP-Nonce': String(cfg.nonce || ''),
+      },
+    }).then(function (res) {
+      if (!res.ok) {
+        throw new Error('HTTP ' + res.status);
+      }
+      return res.json();
+    }).then(function (json) {
+      var rows = Array.isArray(json && json.events) ? json.events : [];
+      if (reset) {
+        activityState.events = rows;
+      } else {
+        activityState.events = activityState.events.concat(rows);
+      }
+      activityState.nextBeforeId = Number(json && json.next_before_id ? json.next_before_id : 0);
+      activityState.loaded = true;
+      activityState.error = '';
+    }).catch(function (err) {
+      activityState.error = 'Không tải được activity. ' + (err && err.message ? err.message : 'Unknown error');
+    }).finally(function () {
+      activityState.loading = false;
+      renderActivityPanel();
+    });
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────
@@ -289,7 +557,7 @@
       var clickedHref = resolveClickedHref(ev);
       if (clickedHref) {
         try {
-          var pid = pluginIdFromWindow(w) || state.current.pluginId;
+          var pid = pluginIdFromWindow(w) || current.pluginId;
           if (pid) {
             iframe.__lastSyncedHref = clickedHref;
             writeShellUrl(pid, paramsFromIframeUrl(clickedHref), clickedHref);
@@ -360,7 +628,104 @@
         '<div class="ts-loading" hidden>' +
           '<div class="ts-spinner"></div>' +
         '</div>' +
-      '</main>';
+      '</main>' +
+      '<aside class="ts-activity-panel" hidden>' +
+        '<div class="ts-activity-panel-head">' +
+          '<h3 class="ts-activity-title">Activity</h3>' +
+          '<div class="ts-activity-head-actions">' +
+            '<button type="button" class="ts-activity-hide" aria-label="Ẩn Activity">Ẩn</button>' +
+            '<button type="button" class="ts-activity-close" aria-label="Đóng">✕</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="ts-activity-filters">' +
+          '<label class="ts-activity-filter-label">Plugin' +
+            '<select class="ts-activity-filter-plugin"></select>' +
+          '</label>' +
+          '<label class="ts-activity-filter-label">Outcome' +
+            '<select class="ts-activity-filter-outcome">' +
+              '<option value="">Tất cả outcome</option>' +
+              '<option value="success">success</option>' +
+              '<option value="blocked">blocked</option>' +
+              '<option value="failed">failed</option>' +
+              '<option value="degraded">degraded</option>' +
+            '</select>' +
+          '</label>' +
+          '<label class="ts-activity-filter-label ts-activity-filter-label--full">Action' +
+            '<input type="text" class="ts-activity-filter-action" placeholder="shell.nav.open_plugin" />' +
+          '</label>' +
+          '<div class="ts-activity-filter-actions">' +
+            '<button type="button" class="ts-activity-filter-apply">Lọc</button>' +
+            '<button type="button" class="ts-activity-filter-reset">Reset</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="ts-activity-state"></div>' +
+        '<div class="ts-activity-list"></div>' +
+        '<div class="ts-activity-foot">' +
+          '<button type="button" class="ts-activity-load-more" hidden>Tải thêm</button>' +
+        '</div>' +
+      '</aside>';
+
+    var closeBtn = root.querySelector('.ts-activity-close');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', function () {
+        setActivityPanelOpen(false);
+      });
+    }
+
+    var hideBtn = root.querySelector('.ts-activity-hide');
+    if (hideBtn) {
+      hideBtn.addEventListener('click', function () {
+        setActivityPanelOpen(false);
+      });
+    }
+
+    populateActivityPluginFilter();
+    setActivityPanelFilters(activityState.filters);
+
+    var pluginSel = root.querySelector('.ts-activity-filter-plugin');
+    if (pluginSel) {
+      pluginSel.addEventListener('change', function () {
+        applyActivityFilters();
+      });
+    }
+
+    var outcomeSel = root.querySelector('.ts-activity-filter-outcome');
+    if (outcomeSel) {
+      outcomeSel.addEventListener('change', function () {
+        applyActivityFilters();
+      });
+    }
+
+    var actionInput = root.querySelector('.ts-activity-filter-action');
+    if (actionInput) {
+      actionInput.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Enter') {
+          ev.preventDefault();
+          applyActivityFilters();
+        }
+      });
+    }
+
+    var applyBtn = root.querySelector('.ts-activity-filter-apply');
+    if (applyBtn) {
+      applyBtn.addEventListener('click', function () {
+        applyActivityFilters();
+      });
+    }
+
+    var resetBtn = root.querySelector('.ts-activity-filter-reset');
+    if (resetBtn) {
+      resetBtn.addEventListener('click', function () {
+        resetActivityFilters();
+      });
+    }
+
+    var loadMoreBtn = root.querySelector('.ts-activity-load-more');
+    if (loadMoreBtn) {
+      loadMoreBtn.addEventListener('click', function () {
+        fetchActivityTimeline(false);
+      });
+    }
   }
 
   function buildItem(p) {
@@ -402,9 +767,30 @@
     return btn;
   }
 
+  function buildActivityToggle() {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'ts-ab-item ts-ab-activity-log';
+    btn.dataset.role = 'activity-log';
+    btn.setAttribute('role', 'button');
+    btn.setAttribute('aria-pressed', 'false');
+    btn.title = 'Xem activity TwinShell';
+    btn.setAttribute('aria-label', btn.title);
+    btn.innerHTML = renderIcon('explore');
+
+    btn.addEventListener('click', function () {
+      setActivityPanelOpen(!activityState.open);
+    });
+
+    return btn;
+  }
+
   function renderActivityBar() {
     var top = root.querySelector('.ts-ab-top');
     var bottom = root.querySelector('.ts-ab-bottom');
+
+    // Activity timeline toggle.
+    top.appendChild(buildActivityToggle());
 
     // Context-toggle button — switches between standalone /twin/ and the
     // wp-admin TwinChat page so the user has one click to flip surfaces.
@@ -554,7 +940,9 @@
   function setActiveButton(pluginId) {
     var btns = root.querySelectorAll('.ts-ab-item');
     for (var i = 0; i < btns.length; i++) {
-      var on = btns[i].dataset.pluginId === pluginId;
+      var pid = btns[i].dataset.pluginId || '';
+      if (!pid) continue;
+      var on = pid === pluginId;
       btns[i].classList.toggle('is-active', on);
       btns[i].setAttribute('aria-selected', on ? 'true' : 'false');
     }
@@ -666,6 +1054,13 @@
 
     setActiveButton(pluginId);
     focusFrame(pluginId);
+
+    if (activityState.open && !activityState.loading) {
+      // Refresh timeline shortly after nav to pick up newly emitted shell events.
+      setTimeout(function () {
+        fetchActivityTimeline(true);
+      }, 250);
+    }
 
     if (!opts.skipUrlWrite) {
       writeShellUrl(pluginId, paramsObj);

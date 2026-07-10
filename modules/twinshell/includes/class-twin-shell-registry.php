@@ -96,6 +96,10 @@ class BizCity_Twin_Shell_Registry {
 				// [2026-06-08 Johnny Chu] PHASE-MEMBERSHIP — plan gate: 'free'|'pro'|'plus'|'premium'.
 				// Entries with plan != '' are always visible in the ActivityBar (upgrade incentive).
 				'plan'        => isset( $entry['plan'] ) ? sanitize_key( strtolower( (string) $entry['plan'] ) ) : '',
+				// [2026-07-09 Johnny Chu] PHASE-TWINSHELL-IMPL — explicit metadata for
+				// FE badges/visibility mapping without recomputing plan gate state.
+				'plan_badge'  => '',
+				'has_plan_gate' => false,
 			];
 		}
 
@@ -104,9 +108,13 @@ class BizCity_Twin_Shell_Registry {
 		foreach ( $out as $i => $p ) {
 			$is_core           = empty( $p['requires'] );
 			$avail             = $is_core ? true : self::requirement_met( $p['requires'] );
+			$plan_slug         = isset( $p['plan'] ) ? (string) $p['plan'] : '';
+			$has_plan_gate     = $plan_slug !== '' && $plan_slug !== 'free';
 			$out[ $i ]['is_core']   = $is_core;
 			$out[ $i ]['available'] = $avail;
 			$out[ $i ]['locked']    = ( ! $is_core ) && ( ! $avail );
+			$out[ $i ]['has_plan_gate'] = $has_plan_gate;
+			$out[ $i ]['plan_badge']    = $has_plan_gate ? strtoupper( $plan_slug ) : '';
 		}
 
 		$this->cache = $out;

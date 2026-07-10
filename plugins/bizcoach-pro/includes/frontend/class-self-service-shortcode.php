@@ -67,6 +67,16 @@ class BizCoach_Pro_Self_Service_Shortcode {
 					}
 				}
 
+				// [2026-07-10 Johnny Chu] HOTFIX — support manifests that emit standalone CSS entries (e.g. style.css) without entry['css'].
+				if ( empty( $entry_css ) ) {
+					foreach ( $json as $entry ) {
+						if ( isset( $entry['file'] ) && substr( (string) $entry['file'], -4 ) === '.css' ) {
+							$entry_css[] = $fe_url . $entry['file'];
+						}
+					}
+				}
+				$entry_css = array_values( array_unique( $entry_css ) );
+
 				if ( $entry_js ) {
 					foreach ( $entry_css as $i => $css_url ) {
 						wp_enqueue_style( 'bcpro-self-service-' . $i, $css_url, array(), $ver );
@@ -105,6 +115,8 @@ class BizCoach_Pro_Self_Service_Shortcode {
 						'ssoGoogleUrl'   => esc_url_raw( site_url( '?auth=sso' ) ),
 						// membership same-origin REST
 						'membershipBase' => esc_url_raw( rest_url( 'bizcity-membership/v1' ) ),
+						// [2026-07-10 Johnny Chu] PHASE-C-WOO-HUB — same-origin billing proxy base for FE pricing flow.
+						'clientBase'     => esc_url_raw( rest_url( 'bizcity-client/v1' ) ),
 						'siteTitle'      => get_bloginfo( 'name' ),
 						'siteIcon'       => esc_url_raw( (string) get_site_icon_url( 64 ) ),
 						// [2026-06-07 Johnny Chu] PHASE-C C-FE-5 — PayPal in-place Buttons config.
@@ -158,6 +170,8 @@ class BizCoach_Pro_Self_Service_Shortcode {
 			'currentUser'    => $uid > 0 ? self::build_current_user( $uid ) : null,
 			'ssoGoogleUrl'   => esc_url_raw( site_url( '?auth=sso' ) ),
 			'membershipBase' => esc_url_raw( rest_url( 'bizcity-membership/v1' ) ),
+			// [2026-07-10 Johnny Chu] PHASE-C-WOO-HUB — same-origin billing proxy base for FE pricing flow.
+			'clientBase'     => esc_url_raw( rest_url( 'bizcity-client/v1' ) ),
 			'siteTitle'      => get_bloginfo( 'name' ),
 			'siteIcon'       => esc_url_raw( (string) get_site_icon_url( 64 ) ),
 			// [2026-06-07 Johnny Chu] PHASE-C C-FE-5 — PayPal in-place Buttons config.

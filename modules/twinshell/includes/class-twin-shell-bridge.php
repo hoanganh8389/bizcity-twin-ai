@@ -20,6 +20,7 @@ class BizCity_Twin_Shell_Bridge {
 	const HANDLE = 'bizcity-twin-shell-bridge';
 
 	private static $instance = null;
+	private $registered = false;
 
 	public static function instance() {
 		if ( null === self::$instance ) {
@@ -29,6 +30,12 @@ class BizCity_Twin_Shell_Bridge {
 	}
 
 	public function register() {
+		// [2026-07-09 Johnny Chu] PHASE-TWINSHELL-IMPL — idempotent register.
+		if ( $this->registered ) {
+			return;
+		}
+		$this->registered = true;
+
 		// Priority 5 so we run before most theme/plugin enqueue hooks.
 		add_action( 'wp_enqueue_scripts',    [ $this, 'maybe_enqueue' ], 5 );
 		add_action( 'admin_enqueue_scripts', [ $this, 'maybe_enqueue' ], 5 );
@@ -51,6 +58,12 @@ class BizCity_Twin_Shell_Bridge {
 			return;
 		}
 
+		// [2026-07-09 Johnny Chu] PHASE-TWINSHELL-IMPL — do not inject bridge on
+		// normal standalone page loads; inject only for explicit iframe/embed intent.
+		if ( ! $this->is_embed_intent_request() ) {
+			return;
+		}
+
 		$src = BIZCITY_TWIN_SHELL_URL . 'assets/twin-shell-bridge.js';
 		wp_enqueue_script(
 			self::HANDLE,
@@ -61,9 +74,15 @@ class BizCity_Twin_Shell_Bridge {
 		);
 
 		// Tell the bridge which plugin id this page belongs to.
+		$uid        = (int) get_current_user_id();
+		$session_id = 'shell_' . (int) get_current_blog_id() . '_' . $uid;
+		$trace_id   = 'tsb_' . substr( md5( $session_id . '|' . (string) microtime( true ) ), 0, 16 );
 		$bridge_cfg = (string) wp_json_encode( [
 			'pluginId' => $matched['id'],
 			'shellUrl' => esc_url_raw( class_exists( 'BizCity_Twin_Shell_Page' ) ? BizCity_Twin_Shell_Page::shell_url() : home_url( '/twin/' ) ),
+			'userId'   => $uid,
+			'sessionId'=> $session_id,
+			'traceId'  => $trace_id,
 		] );
 		wp_add_inline_script( self::HANDLE, 'window.BIZCITY_TWIN_SHELL_BRIDGE=' . $bridge_cfg . ';', 'before' );
 
@@ -72,5 +91,29 @@ class BizCity_Twin_Shell_Bridge {
 		if ( class_exists( 'BizCity_Twin_Shell_Primitives' ) ) {
 			BizCity_Twin_Shell_Primitives::instance()->enqueue( $matched );
 		}
+	}
+
+	/**
+	 * [2026-07-09 Johnny Chu] PHASE-TWINSHELL-IMPL — strict embed intent check.
+	 *
+	 * @return bool
+	 */
+	private function is_embed_intent_request() {
+		$embed = isset( $_GET['bizcity_iframe'] ) ? (string) wp_unslash( $_GET['bizcity_iframe'] ) : '';
+		if ( '1' === $embed ) {
+			return true;
+		}
+
+		$legacy = isset( $_GET['_embed'] ) ? (string) wp_unslash( $_GET['_embed'] ) : '';
+		if ( '1' === $legacy ) {
+			return true;
+		}
+
+		$ref = isset( $_SERVER['HTTP_REFERER'] ) ? (string) wp_unslash( $_SERVER['HTTP_REFERER'] ) : '';
+		if ( $ref !== '' && false !== strpos( $ref, '/twin/' ) ) {
+			return true;
+		}
+
+		return false;
 	}
 }

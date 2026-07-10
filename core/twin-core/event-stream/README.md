@@ -19,7 +19,7 @@ This folder is the **single backbone** for every observable side-effect in BizCi
 | `class-twin-event-bus.php` | `BizCity_Twin_Event_Bus` | Public `dispatch_v2($type, $payload, $opts)` + `ingest_remote()` (only sanctioned write path). Fires `do_action('bizcity_twin_event_v2', $event)` for projectors. |
 | `class-twin-event-trace-projector.php` | `BizCity_Twin_Event_Trace_Projector` | Materializes legacy `traces` view from event stream (read-only consumer code unchanged) |
 | `class-router-event-ingester.php` | `BizCity_Router_Event_Ingester` | Parses `_twin_events[]` from `bizcity-llm-router` HTTP responses → `Event_Bus::ingest_remote()` (R-EVT-5) |
-| `class-twin-event-stream-rest.php` | `BizCity_Twin_Event_Stream_REST` | Read-only `GET /wp-json/bizcity-twin/v1/events` for the Inspector drawer |
+| `class-twin-event-stream-rest.php` | `BizCity_Twin_Event_Stream_REST` | Read-only `GET /wp-json/bizcity-twin/v1/events` (Inspector) + `GET /wp-json/bizcity-twin/v1/events/my_activity` (user timeline, surface-filtered) |
 | `class-twin-event-inspector-page.php` | `BizCity_Twin_Event_Inspector_Page` | Admin UI (debug / replay / search) — admin-only |
 
 ## `schemas/events/`
