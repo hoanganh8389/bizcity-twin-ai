@@ -360,6 +360,273 @@ class BizCity_Broadcast_Manager {
 		) );
 	}
 
+	/**
+	 * Get paginated recipients of one broadcast.
+	 *
+	 * @param  int   $broadcast_id
+	 * @param  array $args { q, status, page, per_page, activity }
+	 * @return array { items[], total, page, per_page, counts }
+	 */
+	public static function get_recipients( $broadcast_id, array $args = array() ) {
+		// [2026-07-10 Johnny Chu] PHASE-0.47 — recipient list with search/pagination/activity filter.
+		$broadcast_id = (int) $broadcast_id;
+		if ( $broadcast_id <= 0 ) {
+			return array( 'items' => array(), 'total' => 0, 'page' => 1, 'per_page' => 50, 'counts' => array() );
+		}
+
+		$q         = sanitize_text_field( (string) ( $args['q'] ?? '' ) );
+		$status    = sanitize_key( (string) ( $args['status'] ?? '' ) );
+		$page      = max( 1, (int) ( $args['page'] ?? 1 ) );
+		$per_page  = max( 1, min( 200, (int) ( $args['per_page'] ?? 50 ) ) );
+		$activity  = ! empty( $args['activity'] );
+		$offset    = ( $page - 1 ) * $per_page;
+
+		global $wpdb;
+		$table = $wpdb->prefix . 'bizcity_cg_broadcast_recipients';
+
+		$where_parts = array( 'broadcast_id = %d' );
+		$where_vals  = array( $broadcast_id );
+
+		if ( $status !== '' ) {
+			$where_parts[] = 'status = %s';
+			$where_vals[]  = $status;
+		}
+		if ( $q !== '' ) {
+			$like = '%' . $wpdb->esc_like( $q ) . '%';
+			$where_parts[] = '(name LIKE %s OR phone LIKE %s OR email LIKE %s OR error LIKE %s)';
+			array_push( $where_vals, $like, $like, $like, $like );
+		}
+		if ( $activity ) {
+			$where_parts[] = "(status <> 'queued' OR sent_at IS NOT NULL OR COALESCE(error,'') <> '')";
+		}
+
+		$where_sql = implode( ' AND ', $where_parts );
+
+		$count_sql = $wpdb->prepare( "SELECT COUNT(*) FROM `{$table}` WHERE {$where_sql}", $where_vals );
+		$list_sql  = $wpdb->prepare(
+			"SELECT id, name, phone, email, status, error, sent_at FROM `{$table}` WHERE {$where_sql} ORDER BY id DESC LIMIT %d OFFSET %d",
+			array_merge( $where_vals, array( $per_page, $offset ) )
+		);
+
+		$total = (int) $wpdb->get_var( $count_sql );
+		$items = $wpdb->get_results( $list_sql, ARRAY_A );
+
+		$counts_raw = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT status, COUNT(*) AS cnt FROM `{$table}` WHERE broadcast_id = %d GROUP BY status",
+				$broadcast_id
+			),
+			ARRAY_A
+		);
+		$counts = array( 'queued' => 0, 'sent' => 0, 'failed' => 0, 'skipped' => 0 );
+		foreach ( (array) $counts_raw as $row ) {
+			$st = (string) ( $row['status'] ?? '' );
+			if ( ! isset( $counts[ $st ] ) ) {
+				$counts[ $st ] = 0;
+			}
+			$counts[ $st ] = (int) ( $row['cnt'] ?? 0 );
+		}
+
+		return array(
+			'items'    => is_array( $items ) ? $items : array(),
+			'total'    => $total,
+			'page'     => $page,
+			'per_page' => $per_page,
+			'counts'   => $counts,
+		);
+	}
+
+	/**
+	 * Get one recipient row by broadcast and recipient id.
+	 *
+	 * @param  int $broadcast_id
+	 * @param  int $recipient_id
+	 * @return array|null
+	 */
+	public static function get_recipient( $broadcast_id, $recipient_id ) {
+		// [2026-07-10 Johnny Chu] PHASE-0.47 — load single recipient for one-click retry.
+		$broadcast_id = (int) $broadcast_id;
+		$recipient_id = (int) $recipient_id;
+		if ( $broadcast_id <= 0 || $recipient_id <= 0 ) {
+			return null;
+		}
+
+		global $wpdb;
+		$table = $wpdb->prefix . 'bizcity_cg_broadcast_recipients';
+		$row   = $wpdb->get_row(
+			$wpdb->prepare(
+				"SELECT id, broadcast_id, name, phone, email, status, error, sent_at FROM `{$table}` WHERE broadcast_id = %d AND id = %d LIMIT 1",
+				$broadcast_id,
+				$recipient_id
+			),
+			ARRAY_A
+		);
+		return is_array( $row ) ? $row : null;
+	}
+
+	/**
+	 * Reset recipient rows to queued by recipient IDs.
+	 *
+	 * @param  int    $broadcast_id
+	 * @param  array  $recipient_ids
+	 * @param  bool   $failed_only
+	 * @return int    Number of rows updated.
+	 */
+	public static function queue_recipients_by_ids( $broadcast_id, array $recipient_ids, $failed_only = true ) {
+		// [2026-07-10 Johnny Chu] PHASE-0.47 — bulk retry by selected recipient IDs.
+		$broadcast_id = (int) $broadcast_id;
+		if ( $broadcast_id <= 0 || empty( $recipient_ids ) ) {
+			return 0;
+		}
+
+		$recipient_ids = array_values( array_filter( array_map( 'absint', $recipient_ids ) ) );
+		if ( empty( $recipient_ids ) ) {
+			return 0;
+		}
+
+		global $wpdb;
+		$table   = $wpdb->prefix . 'bizcity_cg_broadcast_recipients';
+		$updated = 0;
+
+		foreach ( array_chunk( $recipient_ids, 500 ) as $chunk ) {
+			$in_placeholders = implode( ',', array_fill( 0, count( $chunk ), '%d' ) );
+			$where_sql       = "broadcast_id = %d AND id IN ({$in_placeholders})";
+			$args            = array_merge( array( $broadcast_id ), $chunk );
+			if ( $failed_only ) {
+				$where_sql .= " AND status = 'failed'";
+			}
+
+			$sql = "UPDATE `{$table}` SET status='queued', error=NULL, sent_at=NULL WHERE {$where_sql}";
+			$result = $wpdb->query( $wpdb->prepare( $sql, $args ) );
+			if ( $result ) {
+				$updated += (int) $result;
+			}
+		}
+
+		if ( $updated > 0 ) {
+			self::sync_counters( $broadcast_id );
+			self::flush();
+		}
+
+		return $updated;
+	}
+
+	/**
+	 * Reset recipient rows to queued by phone numbers.
+	 *
+	 * @param  int   $broadcast_id
+	 * @param  array $phones
+	 * @param  bool  $failed_only
+	 * @return int
+	 */
+	public static function queue_recipients_by_phones( $broadcast_id, array $phones, $failed_only = true ) {
+		// [2026-07-10 Johnny Chu] PHASE-0.47 — retry by phone list (resume/retry by phone).
+		$ids = self::find_recipient_ids_by_phones( $broadcast_id, $phones );
+		if ( empty( $ids ) ) {
+			return 0;
+		}
+		return self::queue_recipients_by_ids( $broadcast_id, $ids, $failed_only );
+	}
+
+	/**
+	 * Reset all failed recipients to queued in one broadcast.
+	 *
+	 * @param  int $broadcast_id
+	 * @return int
+	 */
+	public static function queue_all_failed( $broadcast_id ) {
+		// [2026-07-10 Johnny Chu] PHASE-0.47 — quick retry all failed recipients.
+		$broadcast_id = (int) $broadcast_id;
+		if ( $broadcast_id <= 0 ) {
+			return 0;
+		}
+
+		global $wpdb;
+		$table  = $wpdb->prefix . 'bizcity_cg_broadcast_recipients';
+		$result = $wpdb->query(
+			$wpdb->prepare(
+				"UPDATE `{$table}` SET status='queued', error=NULL, sent_at=NULL WHERE broadcast_id = %d AND status = 'failed'",
+				$broadcast_id
+			)
+		);
+
+		$updated = $result ? (int) $result : 0;
+		if ( $updated > 0 ) {
+			self::sync_counters( $broadcast_id );
+			self::flush();
+		}
+
+		return $updated;
+	}
+
+	/**
+	 * Find recipient IDs from phone numbers (normalized compare).
+	 *
+	 * @param  int   $broadcast_id
+	 * @param  array $phones
+	 * @return int[]
+	 */
+	private static function find_recipient_ids_by_phones( $broadcast_id, array $phones ) {
+		$broadcast_id = (int) $broadcast_id;
+		if ( $broadcast_id <= 0 || empty( $phones ) ) {
+			return array();
+		}
+
+		$needle = array();
+		foreach ( $phones as $phone ) {
+			$norm = self::normalize_phone( (string) $phone );
+			if ( $norm !== '' ) {
+				$needle[ $norm ] = true;
+			}
+		}
+		if ( empty( $needle ) ) {
+			return array();
+		}
+
+		global $wpdb;
+		$table = $wpdb->prefix . 'bizcity_cg_broadcast_recipients';
+		$rows  = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT id, phone FROM `{$table}` WHERE broadcast_id = %d AND COALESCE(phone,'') <> ''",
+				$broadcast_id
+			),
+			ARRAY_A
+		);
+
+		$ids = array();
+		foreach ( (array) $rows as $row ) {
+			$norm_phone = self::normalize_phone( (string) ( $row['phone'] ?? '' ) );
+			if ( $norm_phone !== '' && isset( $needle[ $norm_phone ] ) ) {
+				$ids[] = (int) $row['id'];
+			}
+		}
+
+		return array_values( array_unique( array_filter( $ids ) ) );
+	}
+
+	/**
+	 * Normalize VN phone for robust matching in retry-by-phone flow.
+	 *
+	 * @param  string $phone
+	 * @return string
+	 */
+	private static function normalize_phone( $phone ) {
+		$phone = preg_replace( '/[^0-9+]/', '', (string) $phone );
+		if ( $phone === '' ) {
+			return '';
+		}
+		if ( strpos( $phone, '+84' ) === 0 ) {
+			$phone = '0' . substr( $phone, 3 );
+		}
+		if ( strpos( $phone, '84' ) === 0 && strlen( $phone ) >= 10 ) {
+			$phone = '0' . substr( $phone, 2 );
+		}
+		if ( preg_match( '/^[3-9][0-9]{8}$/', $phone ) ) {
+			$phone = '0' . $phone;
+		}
+		return $phone;
+	}
+
 	// ── Helpers ──────────────────────────────────────────────────────────────
 
 	/**

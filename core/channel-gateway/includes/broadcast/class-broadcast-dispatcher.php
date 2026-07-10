@@ -169,6 +169,15 @@ class BizCity_Broadcast_Dispatcher {
 			$custom['phone'] = $phone;
 			$custom['email'] = $email;
 
+			// [2026-07-10 Johnny Chu] PHASE-0.47 — per-recipient attempt evidence for checklist console.
+			self::file_log( 'recipient_attempt', 'INFO', 'Recipient #' . $rcpt_id . ' dispatch attempt', array(
+				'broadcast_id' => $bc_id,
+				'recipient_id' => $rcpt_id,
+				'type'         => $type,
+				'phone'        => $phone ? self::mask_phone( $phone ) : '',
+				'email'        => $email ? self::mask_email( $email ) : '',
+			) );
+
 			if ( 'zns' === $type ) {
 				$result = self::send_zns( $meta, $phone, $custom );
 			} elseif ( 'email' === $type ) {
@@ -180,6 +189,12 @@ class BizCity_Broadcast_Dispatcher {
 			if ( ! empty( $result['success'] ) ) {
 				BizCity_Broadcast_Manager::mark_recipient( $rcpt_id, true );
 				$sent++;
+				// [2026-07-10 Johnny Chu] PHASE-0.47 — per-recipient success evidence for console timeline.
+				self::file_log( 'recipient_sent', 'INFO', 'Recipient #' . $rcpt_id . ' sent', array(
+					'broadcast_id' => $bc_id,
+					'recipient_id' => $rcpt_id,
+					'type'         => $type,
+				) );
 			} else {
 				$err = (string) ( $result['error'] ?? 'send_failed' );
 				BizCity_Broadcast_Manager::mark_recipient( $rcpt_id, false, $err );

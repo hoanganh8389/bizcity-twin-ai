@@ -12,7 +12,7 @@
  *   POST   /broadcasts/{id}/pause    — pause
  *   POST   /broadcasts/{id}/cancel   — cancel
  *   GET    /broadcasts/{id}/progress — live counters
- *   POST   /broadcasts/parse-file    — parse CSV/XLSX → recipient preview
+	 *   POST   /broadcasts/parse-file    — parse csv/xls/xlsx/google_sheet_url → recipient preview
  *   GET    /broadcasts/contacts      — CRM contacts for recipient selector
  *
  * Security: manage_options + WP Nonce (R-GW-8).
@@ -61,7 +61,8 @@ class BizCity_Broadcast_REST {
 			),
 		) );
 
-		// GET /broadcasts/template — download CSV mẫu (no auth required — public asset)
+		// [2026-07-10 Johnny Chu] PHASE-0.47 — template download supports csv/xlsx/gsheet modes.
+		// GET /broadcasts/template — download template assets (public read).
 		register_rest_route( self::NS, '/broadcasts/template', array(
 			'methods'             => 'GET',
 			'callback'            => array( __CLASS__, 'download_template' ),
@@ -79,11 +80,51 @@ class BizCity_Broadcast_REST {
 			),
 		) );
 
-		// POST /broadcasts/parse-file — parse CSV/XLSX
+		// [2026-07-10 Johnny Chu] PHASE-0.47 — parse source_kind=google_sheet_url in addition to file upload.
+		// POST /broadcasts/parse-file — parse CSV/XLS/XLSX or Google Sheet URL
 		register_rest_route( self::NS, '/broadcasts/parse-file', array(
 			'methods'             => 'POST',
 			'callback'            => array( __CLASS__, 'parse_file' ),
 			'permission_callback' => array( __CLASS__, 'auth' ),
+		) );
+
+		// [2026-07-10 Johnny Chu] PHASE-0.47 — recipient console APIs (search/pagination/retry/dispatch).
+		register_rest_route( self::NS, '/broadcasts/(?P<id>\\d+)/recipients', array(
+			'methods'             => 'GET',
+			'callback'            => array( __CLASS__, 'get_recipients' ),
+			'permission_callback' => array( __CLASS__, 'auth' ),
+			'args'                => array(
+				'q'        => array( 'required' => false, 'sanitize_callback' => 'sanitize_text_field', 'default' => '' ),
+				'status'   => array( 'required' => false, 'sanitize_callback' => 'sanitize_key',        'default' => '' ),
+				'page'     => array( 'required' => false, 'sanitize_callback' => 'absint',               'default' => 1 ),
+				'per_page' => array( 'required' => false, 'sanitize_callback' => 'absint',               'default' => 50 ),
+				'activity' => array( 'required' => false, 'sanitize_callback' => 'absint',               'default' => 0 ),
+			),
+		) );
+		register_rest_route( self::NS, '/broadcasts/(?P<id>\\d+)/recipients/dispatch', array(
+			'methods'             => 'POST',
+			'callback'            => array( __CLASS__, 'dispatch_recipients' ),
+			'permission_callback' => array( __CLASS__, 'auth' ),
+		) );
+		register_rest_route( self::NS, '/broadcasts/(?P<id>\\d+)/recipients/retry', array(
+			'methods'             => 'POST',
+			'callback'            => array( __CLASS__, 'retry_recipients' ),
+			'permission_callback' => array( __CLASS__, 'auth' ),
+		) );
+		register_rest_route( self::NS, '/broadcasts/(?P<id>\\d+)/recipients/(?P<rid>\\d+)/retry', array(
+			'methods'             => 'POST',
+			'callback'            => array( __CLASS__, 'retry_one_recipient' ),
+			'permission_callback' => array( __CLASS__, 'auth' ),
+		) );
+		register_rest_route( self::NS, '/broadcasts/(?P<id>\\d+)/console', array(
+			'methods'             => 'GET',
+			'callback'            => array( __CLASS__, 'get_console' ),
+			'permission_callback' => array( __CLASS__, 'auth' ),
+			'args'                => array(
+				'limit'  => array( 'required' => false, 'sanitize_callback' => 'absint', 'default' => 50 ),
+				'offset' => array( 'required' => false, 'sanitize_callback' => 'absint', 'default' => 0 ),
+				'level'  => array( 'required' => false, 'sanitize_callback' => 'sanitize_key', 'default' => '' ),
+			),
 		) );
 
 		// GET /broadcasts/{id}
@@ -126,20 +167,83 @@ class BizCity_Broadcast_REST {
 	// ── Endpoints ─────────────────────────────────────────────────────────────
 
 	/**
-	 * GET /broadcasts/template — stream CSV sample file.
+	 * GET /broadcasts/template — stream sample file / guide.
+	 *
+	 * Query params:
+	 *   format=csv|xlsx|gsheet
+	 *
 	 * [2026-06-27 Johnny Chu] PHASE-CG-BROADCAST — sample file download.
 	 */
-	public static function download_template() {
+	public static function download_template( $request = null ) {
+		// [2026-07-10 Johnny Chu] PHASE-0.47 — support gsheet guide download.
+		$format = 'csv';
+		if ( $request instanceof WP_REST_Request ) {
+			$format = sanitize_key( (string) $request->get_param( 'format' ) );
+		}
+		if ( $format === '' ) {
+			$format = 'csv';
+		}
+
+		if ( $format === 'gsheet' ) {
+			$md = "# Broadcast Recipients Template (Google Sheet)\n\n"
+				. "## Required columns\n"
+				. "- name\n"
+				. "- phone\n"
+				. "- email\n"
+				. "- external_id (optional)\n"
+				. "- tags (optional)\n\n"
+				. "## Sample rows\n"
+				. "| name | phone | email | external_id | tags |\n"
+				. "|---|---|---|---|---|\n"
+				. "| Nguyen Van A | 0901234567 | a@example.com | KH001 | vip,new |\n"
+				. "| Tran Thi B | 0912345678 | b@example.com | KH002 | retarget |\n\n"
+				. "## Publish Google Sheet as CSV\n"
+				. "1. Open your Google Sheet\n"
+				. "2. Share as Anyone with the link (Viewer)\n"
+				. "3. Use URL pattern:\n"
+				. "   https://docs.google.com/spreadsheets/d/<SHEET_ID>/export?format=csv&gid=<GID>\n";
+
+			header( 'Content-Type: text/markdown; charset=utf-8' );
+			header( 'Content-Disposition: attachment; filename="broadcast-template-gsheet.md"' );
+			echo $md; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+			exit;
+		}
+
+		// [2026-07-10 Johnny Chu] PHASE-0.47 — add xlsx template download.
+		if ( $format === 'xlsx' ) {
+			$tmp = '';
+			if ( function_exists( 'wp_tempnam' ) ) {
+				$tmp = (string) wp_tempnam( 'broadcast-template.xlsx' );
+			}
+			if ( $tmp === '' ) {
+				$tmp = (string) tempnam( sys_get_temp_dir(), 'bzcast_tpl_' );
+			}
+
+			if ( $tmp !== '' && self::build_template_xlsx( $tmp ) ) {
+				header( 'Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' );
+				header( 'Content-Disposition: attachment; filename="broadcast-template.xlsx"' );
+				header( 'Content-Length: ' . filesize( $tmp ) );
+				readfile( $tmp ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_read_readfile
+				@unlink( $tmp );
+				exit;
+			}
+
+			if ( $tmp !== '' && file_exists( $tmp ) ) {
+				@unlink( $tmp );
+			}
+		}
+
 		$path = plugin_dir_path( __FILE__ ) . '../../../assets/broadcast-template.csv';
 		$path = realpath( $path );
 
 		if ( ! $path || ! file_exists( $path ) ) {
 			// Fallback: build inline
-			$csv = "name,phone,email\n"
-				. "\xEF\xBB\xBF" // UTF-8 BOM ở đầu để Excel mở không bị lỗi tiếng Việt
-				. "Nguyễn Văn An,0901234567,an@example.com\n"
-				. "Trần Thị Bình,0912345678,binh@example.com\n"
-				. "Lê Văn Cường,0923456789,cuong@example.com\n";
+			// [2026-07-10 Johnny Chu] PHASE-0.47 — semicolon template for Vietnamese Excel locale.
+			$csv = "\xEF\xBB\xBF"
+				. "name;phone;email;external_id;tags\n"
+				. "Nguyen Van An;0901234567;an@example.com;KH001;vip,new\n"
+				. "Tran Thi Binh;0912345678;binh@example.com;KH002;retarget\n"
+				. "Le Van Cuong;0923456789;cuong@example.com;KH003;followup\n";
 			header( 'Content-Type: text/csv; charset=utf-8' );
 			header( 'Content-Disposition: attachment; filename="broadcast-template.csv"' );
 			echo $csv;
@@ -335,46 +439,430 @@ class BizCity_Broadcast_REST {
 		) );
 	}
 
+	/**
+	 * GET /broadcasts/{id}/recipients — recipient list for checklist console.
+	 */
+	public static function get_recipients( $request ) {
+		// [2026-07-10 Johnny Chu] PHASE-0.47 — recipient list with q/status/page/per_page/activity.
+		$id = (int) $request['id'];
+		$bc = BizCity_Broadcast_Manager::get_one( $id );
+		if ( ! $bc ) {
+			return rest_ensure_response( array( 'success' => false, 'error' => 'not_found' ) );
+		}
+
+		$list = BizCity_Broadcast_Manager::get_recipients( $id, array(
+			'q'        => $request->get_param( 'q' ),
+			'status'   => $request->get_param( 'status' ),
+			'page'     => $request->get_param( 'page' ),
+			'per_page' => $request->get_param( 'per_page' ),
+			'activity' => $request->get_param( 'activity' ),
+		) );
+
+		// [2026-07-10 Johnny Chu] PHASE-0.47 — append attempt_count + last_attempt_at from JSONL logs.
+		$recipient_ids = array();
+		foreach ( (array) $list['items'] as $row ) {
+			$rid = (int) ( $row['id'] ?? 0 );
+			if ( $rid > 0 ) {
+				$recipient_ids[] = $rid;
+			}
+		}
+		$attempt_stats = self::get_recipient_attempt_stats( $id, $recipient_ids );
+
+		$items = array();
+		foreach ( (array) $list['items'] as $row ) {
+			$rid = (int) ( $row['id'] ?? 0 );
+			$st  = isset( $attempt_stats[ $rid ] ) ? $attempt_stats[ $rid ] : array();
+			$row['attempt_count']   = (int) ( $st['attempt_count'] ?? 0 );
+			$row['last_attempt_at'] = (string) ( $st['last_attempt_at'] ?? '' );
+			if ( $row['last_attempt_at'] === '' ) {
+				$row['last_attempt_at'] = (string) ( $row['sent_at'] ?? '' );
+			}
+			$items[] = $row;
+		}
+
+		return rest_ensure_response( array(
+			'success'          => true,
+			'broadcast_id'     => $id,
+			'broadcast_status' => (string) $bc['status'],
+			'items'            => $items,
+			'total'            => (int) $list['total'],
+			'page'             => (int) $list['page'],
+			'per_page'         => (int) $list['per_page'],
+			'counts'           => is_array( $list['counts'] ) ? $list['counts'] : array(),
+		) );
+	}
+
+	/**
+	 * POST /broadcasts/{id}/recipients/dispatch — queue selected recipients and resume campaign.
+	 */
+	public static function dispatch_recipients( $request ) {
+		// [2026-07-10 Johnny Chu] PHASE-0.47 — dispatch selected rows from checklist.
+		$id   = (int) $request['id'];
+		$bc   = BizCity_Broadcast_Manager::get_one( $id );
+		if ( ! $bc ) {
+			return rest_ensure_response( array( 'success' => false, 'error' => 'not_found' ) );
+		}
+
+		$body = $request->get_json_params();
+		if ( ! is_array( $body ) ) {
+			$body = $request->get_params();
+		}
+
+		$ids       = isset( $body['recipient_ids'] ) && is_array( $body['recipient_ids'] ) ? array_values( array_filter( array_map( 'absint', $body['recipient_ids'] ) ) ) : array();
+		$phones    = isset( $body['phones'] ) && is_array( $body['phones'] ) ? array_values( array_filter( array_map( 'sanitize_text_field', $body['phones'] ) ) ) : array();
+		$all_failed= ! empty( $body['all_failed'] );
+
+		$updated = 0;
+		if ( ! empty( $ids ) ) {
+			$updated = BizCity_Broadcast_Manager::queue_recipients_by_ids( $id, $ids, false );
+		} elseif ( ! empty( $phones ) ) {
+			$updated = BizCity_Broadcast_Manager::queue_recipients_by_phones( $id, $phones, false );
+		} elseif ( $all_failed ) {
+			$updated = BizCity_Broadcast_Manager::queue_all_failed( $id );
+		}
+
+		if ( $updated <= 0 ) {
+			return rest_ensure_response( array( 'success' => false, 'error' => 'no_rows_updated' ) );
+		}
+
+		$bc = self::force_resume_broadcast( $id );
+
+		return rest_ensure_response( array(
+			'success'  => true,
+			'updated'  => $updated,
+			'status'   => (string) ( $bc['status'] ?? 'sending' ),
+			'progress' => BizCity_Broadcast_Manager::get_progress( $id ),
+		) );
+	}
+
+	/**
+	 * POST /broadcasts/{id}/recipients/retry — retry selected failed recipients.
+	 */
+	public static function retry_recipients( $request ) {
+		// [2026-07-10 Johnny Chu] PHASE-0.47 — retry selected/all-failed recipients.
+		$id = (int) $request['id'];
+		$bc = BizCity_Broadcast_Manager::get_one( $id );
+		if ( ! $bc ) {
+			return rest_ensure_response( array( 'success' => false, 'error' => 'not_found' ) );
+		}
+
+		$body = $request->get_json_params();
+		if ( ! is_array( $body ) ) {
+			$body = $request->get_params();
+		}
+
+		$ids        = isset( $body['recipient_ids'] ) && is_array( $body['recipient_ids'] ) ? array_values( array_filter( array_map( 'absint', $body['recipient_ids'] ) ) ) : array();
+		$phones     = isset( $body['phones'] ) && is_array( $body['phones'] ) ? array_values( array_filter( array_map( 'sanitize_text_field', $body['phones'] ) ) ) : array();
+		$all_failed = ! empty( $body['all_failed'] ) || ( empty( $ids ) && empty( $phones ) );
+
+		$updated = 0;
+		if ( ! empty( $ids ) ) {
+			$updated = BizCity_Broadcast_Manager::queue_recipients_by_ids( $id, $ids, true );
+		} elseif ( ! empty( $phones ) ) {
+			$updated = BizCity_Broadcast_Manager::queue_recipients_by_phones( $id, $phones, true );
+		} elseif ( $all_failed ) {
+			$updated = BizCity_Broadcast_Manager::queue_all_failed( $id );
+		}
+
+		if ( $updated <= 0 ) {
+			return rest_ensure_response( array( 'success' => false, 'error' => 'no_rows_updated' ) );
+		}
+
+		$resume = ! isset( $body['resume'] ) || ! empty( $body['resume'] );
+		if ( $resume ) {
+			$bc = self::force_resume_broadcast( $id );
+		}
+
+		return rest_ensure_response( array(
+			'success'  => true,
+			'updated'  => $updated,
+			'status'   => (string) ( $bc['status'] ?? 'sending' ),
+			'progress' => BizCity_Broadcast_Manager::get_progress( $id ),
+		) );
+	}
+
+	/**
+	 * POST /broadcasts/{id}/recipients/{rid}/retry — one-click retry by recipient id.
+	 */
+	public static function retry_one_recipient( $request ) {
+		// [2026-07-10 Johnny Chu] PHASE-0.47 — quick retry single row.
+		$id  = (int) $request['id'];
+		$rid = (int) $request['rid'];
+		$bc  = BizCity_Broadcast_Manager::get_one( $id );
+		if ( ! $bc ) {
+			return rest_ensure_response( array( 'success' => false, 'error' => 'not_found' ) );
+		}
+
+		$row = BizCity_Broadcast_Manager::get_recipient( $id, $rid );
+		if ( ! $row ) {
+			return rest_ensure_response( array( 'success' => false, 'error' => 'recipient_not_found' ) );
+		}
+
+		$updated = BizCity_Broadcast_Manager::queue_recipients_by_ids( $id, array( $rid ), false );
+		if ( $updated <= 0 ) {
+			return rest_ensure_response( array( 'success' => false, 'error' => 'no_rows_updated' ) );
+		}
+
+		$bc = self::force_resume_broadcast( $id );
+
+		return rest_ensure_response( array(
+			'success'      => true,
+			'updated'      => $updated,
+			'recipient_id' => $rid,
+			'status'       => (string) ( $bc['status'] ?? 'sending' ),
+			'progress'     => BizCity_Broadcast_Manager::get_progress( $id ),
+		) );
+	}
+
+	/**
+	 * GET /broadcasts/{id}/console — checklist snapshot for UI.
+	 */
+	public static function get_console( $request ) {
+		// [2026-07-10 Johnny Chu] PHASE-0.47 — checklist + activity logs for broadcast console.
+		$id     = (int) $request['id'];
+		$limit  = max( 1, min( 200, (int) $request->get_param( 'limit' ) ) );
+		$offset = max( 0, (int) $request->get_param( 'offset' ) );
+		$level  = strtoupper( sanitize_key( (string) $request->get_param( 'level' ) ) );
+		if ( ! in_array( $level, array( '', 'INFO', 'WARN', 'ERROR' ), true ) ) {
+			$level = '';
+		}
+		$bc     = BizCity_Broadcast_Manager::get_one( $id );
+		if ( ! $bc ) {
+			return rest_ensure_response( array( 'success' => false, 'error' => 'not_found' ) );
+		}
+
+		$progress = BizCity_Broadcast_Manager::get_progress( $id );
+		$page     = (int) floor( $offset / $limit ) + 1;
+		$activity = BizCity_Broadcast_Manager::get_recipients( $id, array(
+			'activity' => 1,
+			'page'     => $page,
+			'per_page' => $limit,
+		) );
+
+		$logs_all = array();
+		if ( class_exists( 'BizCity_Channel_File_Logger' ) ) {
+			$dates = BizCity_Channel_File_Logger::list_dates( 'broadcast', 7 );
+			foreach ( (array) $dates as $date ) {
+				$rows = BizCity_Channel_File_Logger::read( 'broadcast', $date, 800, $level );
+				foreach ( (array) $rows as $row ) {
+					$ctx_bc = (int) ( $row['ctx']['broadcast_id'] ?? 0 );
+					if ( $ctx_bc !== $id ) {
+						continue;
+					}
+					$logs_all[] = array(
+						'ts'      => (string) ( $row['ts'] ?? '' ),
+						'level'   => (string) ( $row['level'] ?? '' ),
+						'event'   => (string) ( $row['event'] ?? '' ),
+						'message' => (string) ( $row['message'] ?? '' ),
+						'ctx'     => is_array( $row['ctx'] ?? null ) ? $row['ctx'] : array(),
+					);
+					if ( count( $logs_all ) >= 2000 ) {
+						break 2;
+					}
+				}
+			}
+		}
+
+		$logs = array_slice( $logs_all, $offset, $limit );
+
+		$checklist = array(
+			array( 'key' => 'has_recipients', 'pass' => ( $progress['total'] > 0 ), 'label' => 'Danh sach nguoi nhan' ),
+			array( 'key' => 'has_progress', 'pass' => ( $progress['sent'] + $progress['failed'] ) > 0, 'label' => 'Da co tien trinh xu ly' ),
+			array( 'key' => 'has_activity_logs', 'pass' => ! empty( $logs_all ), 'label' => 'Co activity log trong JSONL' ),
+			array( 'key' => 'has_failed', 'pass' => (int) $progress['failed'] > 0, 'label' => 'Co ban ghi loi de retry' ),
+		);
+
+		return rest_ensure_response( array(
+			'success'          => true,
+			'broadcast_id'     => $id,
+			'broadcast_status' => (string) ( $bc['status'] ?? 'draft' ),
+			'progress'         => $progress,
+			'counts'           => is_array( $activity['counts'] ?? null ) ? $activity['counts'] : array(),
+			'checklist'        => $checklist,
+			'activity'         => is_array( $activity['items'] ?? null ) ? $activity['items'] : array(),
+			'activity_total'   => (int) ( $activity['total'] ?? 0 ),
+			'logs'             => $logs,
+			'logs_total'       => count( $logs_all ),
+			'offset'           => $offset,
+			'limit'            => $limit,
+			'level'            => $level,
+		) );
+	}
+
+	/**
+	 * Build recipient attempt stats from channel JSONL logs.
+	 *
+	 * @param  int   $broadcast_id
+	 * @param  int[] $recipient_ids
+	 * @return array<int,array{attempt_count:int,last_attempt_at:string}>
+	 */
+	private static function get_recipient_attempt_stats( $broadcast_id, array $recipient_ids ) {
+		// [2026-07-10 Johnny Chu] PHASE-0.47 — attempt_count/last_attempt_at computed from file logs.
+		$broadcast_id = (int) $broadcast_id;
+		if ( $broadcast_id <= 0 || empty( $recipient_ids ) || ! class_exists( 'BizCity_Channel_File_Logger' ) ) {
+			return array();
+		}
+
+		$rid_map = array();
+		foreach ( $recipient_ids as $rid ) {
+			$rid = (int) $rid;
+			if ( $rid > 0 ) {
+				$rid_map[ $rid ] = true;
+			}
+		}
+		if ( empty( $rid_map ) ) {
+			return array();
+		}
+
+		$stats = array();
+		foreach ( array_keys( $rid_map ) as $rid ) {
+			$stats[ $rid ] = array(
+				'attempt_count'   => 0,
+				'last_attempt_at' => '',
+			);
+		}
+
+		$dates = BizCity_Channel_File_Logger::list_dates( 'broadcast', 7 );
+		foreach ( (array) $dates as $date ) {
+			$rows = BizCity_Channel_File_Logger::read( 'broadcast', $date, 2500 );
+			foreach ( (array) $rows as $row ) {
+				$ctx_bc = (int) ( $row['ctx']['broadcast_id'] ?? 0 );
+				if ( $ctx_bc !== $broadcast_id ) {
+					continue;
+				}
+
+				$rid = (int) ( $row['ctx']['recipient_id'] ?? 0 );
+				if ( $rid <= 0 || ! isset( $stats[ $rid ] ) ) {
+					continue;
+				}
+
+				$event = (string) ( $row['event'] ?? '' );
+				$ts    = (string) ( $row['ts'] ?? '' );
+
+				if ( $event === 'recipient_attempt' ) {
+					$stats[ $rid ]['attempt_count']++;
+				} elseif ( in_array( $event, array( 'recipient_failed', 'recipient_sent' ), true ) && $stats[ $rid ]['attempt_count'] === 0 ) {
+					// Backward compatibility: old logs may not have recipient_attempt.
+					$stats[ $rid ]['attempt_count'] = 1;
+				}
+
+				if ( $ts !== '' && ( $stats[ $rid ]['last_attempt_at'] === '' || strcmp( $ts, $stats[ $rid ]['last_attempt_at'] ) > 0 ) ) {
+					$stats[ $rid ]['last_attempt_at'] = $ts;
+				}
+			}
+		}
+
+		return $stats;
+	}
+
+	/**
+	 * Resume a broadcast after retry/dispatch operations.
+	 *
+	 * @param  int $broadcast_id
+	 * @return array|null
+	 */
+	private static function force_resume_broadcast( $broadcast_id ) {
+		// [2026-07-10 Johnny Chu] PHASE-0.47 — auto-resume campaign after queueing recipients.
+		$broadcast_id = (int) $broadcast_id;
+		if ( $broadcast_id <= 0 ) {
+			return null;
+		}
+
+		$bc = BizCity_Broadcast_Manager::get_one( $broadcast_id );
+		if ( ! $bc ) {
+			return null;
+		}
+
+		if ( (string) ( $bc['status'] ?? '' ) !== 'sending' ) {
+			BizCity_Broadcast_Manager::update( $broadcast_id, array(
+				'status'     => 'sending',
+				'done_at'    => null,
+				'started_at' => ! empty( $bc['started_at'] ) ? $bc['started_at'] : current_time( 'mysql' ),
+			) );
+		}
+
+		if ( class_exists( 'BizCity_Broadcast_Dispatcher' ) ) {
+			do_action( BizCity_Broadcast_Dispatcher::CRON_HOOK );
+		}
+
+		return BizCity_Broadcast_Manager::get_one( $broadcast_id );
+	}
+
 	// ── File parsing ─────────────────────────────────────────────────────────
 
 	/**
-	 * POST /broadcasts/parse-file — parse uploaded CSV or XLSX.
-	 * Returns preview of recipients (max 5000 rows).
+	 * POST /broadcasts/parse-file — parse source into recipients.
+	 * Returns preview rows (max 5000).
 	 *
-	 * Multipart form field: file (CSV or XLSX)
+	 * Supported sources:
+	 * - multipart file upload: csv, xls, xlsx
+	 * - params: source_kind=google_sheet_url + source_url=<google sheet url>
 	 */
 	public static function parse_file( $request ) {
-		// [2026-06-27 Johnny Chu] PHASE-CG-BROADCAST — parse CSV/XLSX
-		$files = $request->get_file_params();
-		if ( empty( $files['file'] ) ) {
-			return rest_ensure_response( array( 'success' => false, 'error' => 'no_file_uploaded' ) );
+		// [2026-07-10 Johnny Chu] PHASE-0.47 — parse csv/xls/xlsx/google_sheet_url via one endpoint.
+		$source_kind = sanitize_key( (string) $request->get_param( 'source_kind' ) );
+		$source_url  = trim( (string) $request->get_param( 'source_url' ) );
+		if ( in_array( $source_kind, array( 'google_sheet', 'gsheet', 'sheet' ), true ) ) {
+			// [2026-07-10 Johnny Chu] PHASE-0.47 — alias source_kind for Google Sheet import.
+			$source_kind = 'google_sheet_url';
 		}
 
-		$file = $files['file'];
-		if ( ! empty( $file['error'] ) ) {
-			return rest_ensure_response( array( 'success' => false, 'error' => 'upload_error_' . $file['error'] ) );
+		$rows = null;
+		if ( $source_kind === '' && $source_url !== '' && strpos( $source_url, 'docs.google.com/spreadsheets/' ) !== false ) {
+			$source_kind = 'google_sheet_url';
 		}
 
-		$tmp_path  = (string) ( $file['tmp_name'] ?? '' );
-		$file_name = strtolower( (string) ( $file['name'] ?? '' ) );
-
-		if ( ! $tmp_path || ! file_exists( $tmp_path ) ) {
-			return rest_ensure_response( array( 'success' => false, 'error' => 'tmp_file_missing' ) );
-		}
-
-		// Determine format
-		$ext = pathinfo( $file_name, PATHINFO_EXTENSION );
-		if ( in_array( $ext, array( 'xlsx', 'xls' ), true ) ) {
-			$rows = self::parse_xlsx( $tmp_path );
+		if ( $source_kind === 'google_sheet_url' ) {
+			$rows = self::parse_google_sheet_url( $source_url );
+			if ( is_wp_error( $rows ) ) {
+				return rest_ensure_response( array( 'success' => false, 'error' => $rows->get_error_code() ) );
+			}
 		} else {
-			$rows = self::parse_csv( $tmp_path );
+			$files = $request->get_file_params();
+			if ( empty( $files['file'] ) ) {
+				return rest_ensure_response( array( 'success' => false, 'error' => 'no_file_uploaded' ) );
+			}
+
+			$file = $files['file'];
+			if ( ! empty( $file['error'] ) ) {
+				return rest_ensure_response( array( 'success' => false, 'error' => 'upload_error_' . $file['error'] ) );
+			}
+
+			$tmp_path  = (string) ( $file['tmp_name'] ?? '' );
+			$file_name = strtolower( (string) ( $file['name'] ?? '' ) );
+
+			if ( ! $tmp_path || ! file_exists( $tmp_path ) ) {
+				return rest_ensure_response( array( 'success' => false, 'error' => 'tmp_file_missing' ) );
+			}
+
+			$parse_kind = $source_kind;
+			if ( $parse_kind === '' ) {
+				$parse_kind = strtolower( (string) pathinfo( $file_name, PATHINFO_EXTENSION ) );
+			}
+			if ( ! in_array( $parse_kind, array( 'csv', 'xls', 'xlsx' ), true ) ) {
+				return rest_ensure_response( array( 'success' => false, 'error' => 'unsupported_source_kind' ) );
+			}
+
+			switch ( $parse_kind ) {
+				case 'csv':
+					$rows = self::parse_csv( $tmp_path );
+					break;
+				case 'xlsx':
+					$rows = self::parse_xlsx( $tmp_path );
+					break;
+				case 'xls':
+					if ( ! class_exists( '\\PhpOffice\\PhpSpreadsheet\\IOFactory' ) ) {
+						return rest_ensure_response( array( 'success' => false, 'error' => 'xls_parser_unavailable' ) );
+					}
+					$rows = self::parse_xls( $tmp_path );
+					break;
+			}
 		}
 
 		if ( ! is_array( $rows ) ) {
 			return rest_ensure_response( array( 'success' => false, 'error' => 'parse_failed' ) );
 		}
 
-		// Cap at 5000
 		$rows = array_slice( $rows, 0, 5000 );
 
 		return rest_ensure_response( array(
@@ -391,27 +879,92 @@ class BizCity_Broadcast_REST {
 	 * @return array|null
 	 */
 	private static function parse_csv( $path ) {
-		$handle = fopen( $path, 'r' );
-		if ( ! $handle ) {
+		// [2026-07-10 Johnny Chu] PHASE-0.47 — robust CSV parser for Vietnamese Excel exports.
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+		$content = file_get_contents( $path );
+		if ( ! is_string( $content ) || $content === '' ) {
+			return null;
+		}
+		return self::parse_csv_content( $content );
+	}
+
+	/**
+	 * Parse CSV content string (encoding + delimiter autodetect).
+	 *
+	 * @param  string $content
+	 * @return array|null
+	 */
+	private static function parse_csv_content( $content ) {
+		if ( ! is_string( $content ) || $content === '' ) {
 			return null;
 		}
 
-		// Detect BOM
-		$bom = fread( $handle, 3 );
-		if ( $bom !== "\xEF\xBB\xBF" ) {
-			rewind( $handle );
+		if ( substr( $content, 0, 3 ) === "\xEF\xBB\xBF" ) {
+			$content = substr( $content, 3 );
 		}
+
+		if ( function_exists( 'mb_check_encoding' ) && ! mb_check_encoding( $content, 'UTF-8' ) ) {
+			$best       = '';
+			$best_score = -1;
+			foreach ( array( 'CP1258', 'CP1252', 'ISO-8859-1' ) as $enc ) {
+				$try = @iconv( $enc, 'UTF-8//IGNORE', $content );
+				if ( ! is_string( $try ) || $try === '' ) {
+					if ( function_exists( 'mb_convert_encoding' ) ) {
+						$try = @mb_convert_encoding( $content, 'UTF-8', $enc );
+					}
+				}
+				if ( ! is_string( $try ) || $try === '' ) {
+					continue;
+				}
+				if ( function_exists( 'mb_check_encoding' ) && ! mb_check_encoding( $try, 'UTF-8' ) ) {
+					continue;
+				}
+				$score = preg_match_all( '/[\xC0-\xFF]/', $try );
+				if ( $score > $best_score ) {
+					$best       = $try;
+					$best_score = $score;
+				}
+			}
+			if ( $best !== '' ) {
+				$content = $best;
+			}
+		}
+
+		$first_line = strtok( $content, "\n" );
+		$sep        = ',';
+		if ( is_string( $first_line ) && substr_count( $first_line, ';' ) >= substr_count( $first_line, ',' ) ) {
+			$sep = ';';
+		}
+
+		$handle = fopen( 'php://temp', 'r+' );
+		if ( ! $handle ) {
+			return null;
+		}
+		fwrite( $handle, $content );
+		rewind( $handle );
 
 		$headers = null;
 		$rows    = array();
 
-		while ( ( $line = fgetcsv( $handle, 4096, ',' ) ) !== false ) {
-			if ( null === $headers ) {
-				$headers = array_map( 'strtolower', array_map( 'trim', $line ) );
+		while ( ( $line = fgetcsv( $handle, 0, $sep ) ) !== false ) {
+			if ( $headers === null ) {
+				$headers = array_map( array( __CLASS__, 'normalize_header_key' ), $line );
 				continue;
 			}
-			$row = array_combine( $headers, array_pad( $line, count( $headers ), '' ) );
-			$rows[] = self::normalize_row( $row );
+
+			if ( ! is_array( $headers ) || empty( $headers ) ) {
+				continue;
+			}
+
+			$assoc = array();
+			foreach ( $headers as $i => $h ) {
+				$assoc[ $h ] = isset( $line[ $i ] ) ? (string) $line[ $i ] : '';
+			}
+
+			$norm = self::normalize_row( $assoc );
+			if ( $norm['phone'] !== '' || $norm['email'] !== '' ) {
+				$rows[] = $norm;
+			}
 		}
 
 		fclose( $handle );
@@ -493,7 +1046,7 @@ class BizCity_Broadcast_REST {
 			}
 
 			if ( null === $headers ) {
-				$headers = array_map( 'strtolower', array_map( 'trim', $cells ) );
+				$headers = array_map( array( __CLASS__, 'normalize_header_key' ), $cells );
 				continue;
 			}
 
@@ -504,10 +1057,254 @@ class BizCity_Broadcast_REST {
 			foreach ( $headers as $i => $h ) {
 				$assoc[ $h ] = isset( $cells[ $i ] ) ? (string) $cells[ $i ] : '';
 			}
-			$rows[] = self::normalize_row( $assoc );
+			$norm = self::normalize_row( $assoc );
+			if ( $norm['phone'] !== '' || $norm['email'] !== '' ) {
+				$rows[] = $norm;
+			}
 		}
 
 		return $rows;
+	}
+
+	/**
+	 * Parse legacy XLS file via PhpSpreadsheet when available.
+	 *
+	 * @param  string $path
+	 * @return array|null
+	 */
+	private static function parse_xls( $path ) {
+		// [2026-07-10 Johnny Chu] PHASE-0.47 — support parser switch-case for xls files.
+		if ( ! class_exists( '\\PhpOffice\\PhpSpreadsheet\\IOFactory' ) ) {
+			return null;
+		}
+
+		try {
+			$reader = \PhpOffice\PhpSpreadsheet\IOFactory::createReader( 'Xls' );
+			$reader->setReadDataOnly( true );
+			$sheet  = $reader->load( $path )->getActiveSheet();
+			$matrix = $sheet->toArray( '', true, true, false );
+			if ( ! is_array( $matrix ) || empty( $matrix ) ) {
+				return array();
+			}
+
+			$header_raw = array_shift( $matrix );
+			$headers    = array_map( array( __CLASS__, 'normalize_header_key' ), is_array( $header_raw ) ? $header_raw : array() );
+
+			$rows = array();
+			foreach ( array_slice( $matrix, 0, 5000 ) as $line ) {
+				$assoc = array();
+				foreach ( $headers as $i => $h ) {
+					$assoc[ $h ] = isset( $line[ $i ] ) ? (string) $line[ $i ] : '';
+				}
+				$norm = self::normalize_row( $assoc );
+				if ( $norm['phone'] !== '' || $norm['email'] !== '' ) {
+					$rows[] = $norm;
+				}
+			}
+
+			return $rows;
+		} catch ( \Throwable $e ) {
+			return null;
+		}
+	}
+
+	/**
+	 * Parse Google Sheet URL by exporting it as CSV.
+	 *
+	 * @param  string $source_url
+	 * @return array|WP_Error
+	 */
+	private static function parse_google_sheet_url( $source_url ) {
+		// [2026-07-10 Johnny Chu] PHASE-0.47 — import recipients from Google Sheet link.
+		$csv_url = self::normalize_google_sheet_csv_url( $source_url );
+		if ( $csv_url === '' ) {
+			return new WP_Error( 'invalid_google_sheet_url', 'Invalid Google Sheet URL' );
+		}
+
+		$response = wp_remote_get( $csv_url, array(
+			// [2026-07-10 Johnny Chu] PHASE-0.47 — align with import rule: 10s timeout.
+			'timeout'     => 10,
+			'redirection' => 5,
+		) );
+		if ( is_wp_error( $response ) ) {
+			return new WP_Error( 'google_sheet_fetch_failed', $response->get_error_message() );
+		}
+
+		$status_code = (int) wp_remote_retrieve_response_code( $response );
+		if ( $status_code < 200 || $status_code >= 300 ) {
+			return new WP_Error( 'google_sheet_http_error', 'Google Sheet HTTP ' . $status_code );
+		}
+
+		$body = (string) wp_remote_retrieve_body( $response );
+		if ( $body === '' ) {
+			return new WP_Error( 'google_sheet_empty', 'Google Sheet returned empty CSV' );
+		}
+		if ( strlen( $body ) > 5 * 1024 * 1024 ) {
+			return new WP_Error( 'google_sheet_too_large', 'Google Sheet CSV is too large' );
+		}
+
+		$rows = self::parse_csv_content( $body );
+		if ( ! is_array( $rows ) ) {
+			return new WP_Error( 'google_sheet_parse_failed', 'Failed to parse Google Sheet CSV' );
+		}
+
+		return $rows;
+	}
+
+	/**
+	 * Normalize Google Sheet URL to export CSV endpoint.
+	 *
+	 * @param  string $source_url
+	 * @return string
+	 */
+	private static function normalize_google_sheet_csv_url( $source_url ) {
+		$url = trim( (string) $source_url );
+		if ( $url === '' ) {
+			return '';
+		}
+
+		if ( strpos( $url, 'http://' ) !== 0 && strpos( $url, 'https://' ) !== 0 ) {
+			$url = 'https://' . ltrim( $url, '/' );
+		}
+
+		$parts = wp_parse_url( $url );
+		$host  = strtolower( (string) ( $parts['host'] ?? '' ) );
+		$path  = (string) ( $parts['path'] ?? '' );
+		// [2026-07-10 Johnny Chu] PHASE-0.47 — strict host match to avoid substring host bypass.
+		if ( $host !== 'docs.google.com' || strpos( $path, '/spreadsheets/d/' ) === false ) {
+			return '';
+		}
+
+		if ( ! preg_match( '#/spreadsheets/d/([a-zA-Z0-9_-]+)#', $path, $m ) ) {
+			return '';
+		}
+
+		$sheet_id = (string) $m[1];
+		$gid      = '0';
+
+		if ( ! empty( $parts['query'] ) ) {
+			$qv = array();
+			parse_str( (string) $parts['query'], $qv );
+			if ( isset( $qv['gid'] ) && preg_match( '/^[0-9]+$/', (string) $qv['gid'] ) ) {
+				$gid = (string) $qv['gid'];
+			}
+		}
+		if ( ! empty( $parts['fragment'] ) && preg_match( '/(?:^|&)gid=([0-9]+)/', (string) $parts['fragment'], $fm ) ) {
+			$gid = (string) $fm[1];
+		}
+
+		return 'https://docs.google.com/spreadsheets/d/' . rawurlencode( $sheet_id ) . '/export?format=csv&gid=' . rawurlencode( $gid );
+	}
+
+	/**
+	 * Build XLSX template file (minimal OpenXML package).
+	 *
+	 * @param  string $tmp_file
+	 * @return bool
+	 */
+	private static function build_template_xlsx( $tmp_file ) {
+		if ( ! class_exists( 'ZipArchive' ) || ! is_string( $tmp_file ) || $tmp_file === '' ) {
+			return false;
+		}
+
+		$rows_matrix = array(
+			array( 'name', 'phone', 'email', 'external_id', 'tags' ),
+			array( 'Nguyen Van An', '0901234567', 'an@example.com', 'KH001', 'vip,new' ),
+			array( 'Tran Thi Binh', '0912345678', 'binh@example.com', 'KH002', 'retarget' ),
+			array( 'Le Van Cuong', '0923456789', 'cuong@example.com', 'KH003', 'followup' ),
+		);
+
+		$string_index = array();
+		$shared       = array();
+		$sheet_rows   = array();
+		$letters      = array( 'A', 'B', 'C', 'D', 'E' );
+
+		foreach ( $rows_matrix as $row_idx => $cells ) {
+			$r_num   = $row_idx + 1;
+			$cells_x = array();
+			foreach ( $cells as $col_idx => $value ) {
+				$key = (string) $value;
+				if ( ! isset( $string_index[ $key ] ) ) {
+					$string_index[ $key ] = count( $shared );
+					$shared[] = $key;
+				}
+				$ref     = $letters[ $col_idx ] . $r_num;
+				$s_index = (int) $string_index[ $key ];
+				$cells_x[] = '<c r="' . $ref . '" t="s"><v>' . $s_index . '</v></c>';
+			}
+			$sheet_rows[] = '<row r="' . $r_num . '">' . implode( '', $cells_x ) . '</row>';
+		}
+
+		$shared_xml_items = array();
+		foreach ( $shared as $str ) {
+			$shared_xml_items[] = '<si><t>' . htmlspecialchars( (string) $str, ENT_XML1, 'UTF-8' ) . '</t></si>';
+		}
+
+		$xml_content_types = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+			. '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+			. '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+			. '<Default Extension="xml" ContentType="application/xml"/>'
+			. '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+			. '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+			. '<Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>'
+			. '</Types>';
+
+		$xml_rels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+			. '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+			. '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+			. '</Relationships>';
+
+		$xml_workbook = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+			. '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+			. '<sheets><sheet name="Recipients" sheetId="1" r:id="rId1"/></sheets>'
+			. '</workbook>';
+
+		$xml_workbook_rels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+			. '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+			. '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+			. '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/>'
+			. '</Relationships>';
+
+		$xml_sheet = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+			. '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+			. '<sheetData>' . implode( '', $sheet_rows ) . '</sheetData>'
+			. '</worksheet>';
+
+		$xml_shared = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+			. '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="' . count( $shared ) . '" uniqueCount="' . count( $shared ) . '">'
+			. implode( '', $shared_xml_items )
+			. '</sst>';
+
+		$zip = new ZipArchive();
+		$ok  = $zip->open( $tmp_file, ZipArchive::OVERWRITE );
+		if ( true !== $ok ) {
+			return false;
+		}
+
+		$zip->addFromString( '[Content_Types].xml', $xml_content_types );
+		$zip->addFromString( '_rels/.rels', $xml_rels );
+		$zip->addFromString( 'xl/workbook.xml', $xml_workbook );
+		$zip->addFromString( 'xl/_rels/workbook.xml.rels', $xml_workbook_rels );
+		$zip->addFromString( 'xl/worksheets/sheet1.xml', $xml_sheet );
+		$zip->addFromString( 'xl/sharedStrings.xml', $xml_shared );
+		$zip->close();
+
+		return file_exists( $tmp_file ) && filesize( $tmp_file ) > 0;
+	}
+
+	/**
+	 * Normalize imported header key to canonical lowercase_underscore format.
+	 *
+	 * @param  string $header
+	 * @return string
+	 */
+	private static function normalize_header_key( $header ) {
+		$k = strtolower( trim( (string) $header ) );
+		if ( function_exists( 'remove_accents' ) ) {
+			$k = remove_accents( $k );
+		}
+		$k = str_replace( array( '-', ' ', '.' ), '_', $k );
+		return $k;
 	}
 
 	/**
@@ -538,7 +1335,7 @@ class BizCity_Broadcast_REST {
 		$email = '';
 
 		// Detect name
-		foreach ( array( 'name', 'ten', 'họ tên', 'ho ten', 'full_name', 'fullname', 'customer_name' ) as $k ) {
+		foreach ( array( 'name', 'ten', 'họ tên', 'ho ten', 'ho_ten', 'full_name', 'fullname', 'customer_name', 'ten_khach_hang' ) as $k ) {
 			if ( isset( $row[ $k ] ) && $row[ $k ] !== '' ) {
 				$name = $row[ $k ];
 				break;
@@ -562,7 +1359,7 @@ class BizCity_Broadcast_REST {
 		}
 
 		// Anything else goes to custom_data
-		$known = array( 'name', 'ten', 'ho ten', 'họ tên', 'full_name', 'fullname', 'customer_name',
+		$known = array( 'name', 'ten', 'ho ten', 'ho_ten', 'họ tên', 'full_name', 'fullname', 'customer_name', 'ten_khach_hang',
 			'phone', 'sdt', 'so_dien_thoai', 'so dien thoai', 'tel', 'mobile', 'điện thoại', 'dien thoai', 'phone_number',
 			'email', 'mail', 'e-mail', 'email_address' );
 		$custom = array();

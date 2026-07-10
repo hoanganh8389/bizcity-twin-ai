@@ -472,6 +472,10 @@ require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-crm-g7-integ
 // loader.columns, runtime.rest_route (/bizcity-crm/v1/broadcasts), runtime.cron_hook.
 require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-crm-broadcast-bizcity.php';
 
+// [2026-07-10 Johnny Chu] PHASE-0.47 — Broadcast import smoke matrix probe
+// for csv/xls/xlsx/google_sheet_url REST path.
+require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-channel-broadcast-import-matrix.php';
+
 // [2026-06-07 Johnny Chu] PHASE-0.39 — Zalo Personal & OA channel gateway DDV (order=45).
 // 7-row probe: bridge health, catalog filter, integration registry, inbound emitter,
 // schema tables (3 bảng), OA window logic, zone isolation.

@@ -1,0 +1,4 @@
+name;phone;email;external_id;tags
+Nguyen Van A;0901234567;a@example.com;KH001;vip,new
+Tran Thi B;0912345678;b@example.com;KH002;vip
+Le Van C;0931576886;c@example.com;KH003;retry-list
