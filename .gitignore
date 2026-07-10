@@ -21,7 +21,6 @@ vendor/
 /plugins/bizcity-tarot/
 /plugins/bizcity-admin-hook-zalo/
 /plugins/bizcity-tool-content/
-/plugins/bizcity-tool-facebook/
 /plugins/bizcity-tool-mindmap/
 /plugins/bizcity-tool-pdf/
 /plugins/bizcity-agent-calo/
@@ -31,8 +30,8 @@ vendor/
 
 
 # bizcity-twin-crm — CRM Inbox Hub (Phase 0.32) — proprietary commercial vertical (PHASE-0.98).
-/plugins/bizcity-twin-crm/
 
+/plugins/bizcity-zalo-personal/
 /core/intent/includes/backup-legacy/
 /core/intent/logs/
 # Env

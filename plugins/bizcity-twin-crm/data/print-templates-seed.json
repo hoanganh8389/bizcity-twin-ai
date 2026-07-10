@@ -1,0 +1,150 @@
+[
+  {
+    "slug": "voucher-classic-red",
+    "template_type": "voucher",
+    "title": "Voucher cổ điển — viền nét đứt đỏ",
+    "description": "Coupon giấy phong cách truyền thống, viền nét đứt, tông đỏ-trắng dễ đọc.",
+    "base_prompt": "Vietnamese discount voucher in classic coupon style: bold dashed red border on white background, large title '{campaign_title}' in centered serif Vietnamese typography, prominent discount badge showing '{discount}' in bright red, brand name '{brand_name}' at top, call-to-action text '{cta_text}' at bottom, QR code embedded at bottom-right corner showing this URL: {qr_url}, clean print-ready layout, high contrast, sharp text, photorealistic paper texture. {custom_detail}",
+    "target_aspect": "4:5",
+    "recommended_model": "flux-pro",
+    "qr_slot_json": {"x_pct": 78, "y_pct": 78, "size_pct": 18},
+    "brand_slot_json": {"x_pct": 50, "y_pct": 8, "align": "center"},
+    "sort_order": 10
+  },
+  {
+    "slug": "voucher-modern-gradient",
+    "template_type": "voucher",
+    "title": "Voucher hiện đại — gradient tím-hồng",
+    "description": "Voucher phong cách modern SaaS, gradient tím sang hồng, QR slot góc phải.",
+    "base_prompt": "Modern Vietnamese promotional voucher with smooth purple-to-pink gradient background, geometric shapes, large headline '{campaign_title}' in clean sans-serif white typography, huge discount label '{discount}' with subtle glow, brand '{brand_name}' top-left in minimal logo style, CTA pill button '{cta_text}' in white at bottom-center, QR code in bottom-right corner pointing to {qr_url}, premium SaaS aesthetic, soft shadows. {custom_detail}",
+    "target_aspect": "4:5",
+    "recommended_model": "flux-pro",
+    "qr_slot_json": {"x_pct": 82, "y_pct": 80, "size_pct": 16},
+    "brand_slot_json": {"x_pct": 12, "y_pct": 10, "align": "left"},
+    "sort_order": 20
+  },
+  {
+    "slug": "voucher-luxury-gold",
+    "template_type": "voucher",
+    "title": "Voucher cao cấp — đen vàng kim",
+    "description": "Phong cách luxury: nền đen sâu, chữ vàng kim, typography serif sang trọng.",
+    "base_prompt": "Luxury Vietnamese gift voucher: deep matte black background, ornate gold filigree border, elegant serif Vietnamese typography in gold for title '{campaign_title}', refined discount line '{discount}' rendered as engraved gold script, brand name '{brand_name}' in classy small caps at top, subtle CTA '{cta_text}' at bottom, small QR code lower-right linking {qr_url}, jewelry-store premium aesthetic, photorealistic gold foil texture. {custom_detail}",
+    "target_aspect": "4:5",
+    "recommended_model": "flux-pro",
+    "qr_slot_json": {"x_pct": 82, "y_pct": 82, "size_pct": 14},
+    "brand_slot_json": {"x_pct": 50, "y_pct": 8, "align": "center"},
+    "sort_order": 30
+  },
+
+  {
+    "slug": "print-ad-product-hero",
+    "template_type": "print_ad",
+    "title": "Ảnh QC sản phẩm — hero vuông",
+    "description": "Sản phẩm trung tâm, tagline ngắn gọn, layout 1:1 cho Facebook/Instagram feed.",
+    "base_prompt": "Vietnamese product hero advertisement, square format: featured product centered with dramatic 3-point studio lighting on clean pastel background, brand '{brand_name}' top-left, large punchy headline '{campaign_title}' top-right in bold Vietnamese sans-serif, short tagline '{cta_text}' bottom-center, optional discount badge '{discount}' top-right corner, small QR code bottom-right pointing to {qr_url}, magazine-quality commercial photography. {custom_detail}",
+    "target_aspect": "1:1",
+    "recommended_model": "seedream",
+    "qr_slot_json": {"x_pct": 85, "y_pct": 88, "size_pct": 12},
+    "brand_slot_json": {"x_pct": 10, "y_pct": 8, "align": "left"},
+    "sort_order": 110
+  },
+  {
+    "slug": "print-ad-event-poster",
+    "template_type": "print_ad",
+    "title": "Poster sự kiện — dọc 9:16",
+    "description": "Poster sự kiện dạng story dọc: ngày, địa điểm, CTA, QR cuối poster.",
+    "base_prompt": "Vertical Vietnamese event poster, 9:16 portrait orientation: bold modern background composition, top section displays event title '{campaign_title}' in massive impactful Vietnamese display font, middle section shows event details and CTA '{cta_text}', bottom section features brand '{brand_name}' alongside a clearly-readable QR code linking to {qr_url}, vivid color palette, suitable for Facebook story / printed A4 portrait poster. {custom_detail}",
+    "target_aspect": "9:16",
+    "recommended_model": "flux-pro",
+    "qr_slot_json": {"x_pct": 75, "y_pct": 90, "size_pct": 18},
+    "brand_slot_json": {"x_pct": 20, "y_pct": 92, "align": "left"},
+    "sort_order": 120
+  },
+  {
+    "slug": "print-ad-promo-banner",
+    "template_type": "print_ad",
+    "title": "Banner khuyến mãi — ngang 16:9",
+    "description": "Banner web/Facebook cover ngang, chữ to dễ đọc trên màn hình nhỏ.",
+    "base_prompt": "Horizontal 16:9 promotional banner for Vietnamese small business: split layout with vibrant brand color on left third showing brand '{brand_name}' and small QR code linking {qr_url}, right two-thirds displays huge attention-grabbing headline '{campaign_title}' with discount '{discount}' rendered as oversized number, CTA button '{cta_text}' bottom-right, modern flat design with one accent illustration, optimized for Facebook cover and website hero. {custom_detail}",
+    "target_aspect": "16:9",
+    "recommended_model": "flux-pro",
+    "qr_slot_json": {"x_pct": 15, "y_pct": 78, "size_pct": 14},
+    "brand_slot_json": {"x_pct": 15, "y_pct": 20, "align": "left"},
+    "sort_order": 130
+  },
+
+  {
+    "slug": "qr-card-minimal",
+    "template_type": "qr_card",
+    "title": "Thẻ QR tối giản",
+    "description": "Thẻ QR đặt giữa, brand bên dưới, hợp in standee và menu bàn.",
+    "base_prompt": "Minimalist Vietnamese QR scan card, 1:1 square: clean off-white background, large prominent QR code centered (occupying ~55% of frame) encoding the URL {qr_url}, short call-to-action '{cta_text}' above QR in friendly Vietnamese sans-serif, brand '{brand_name}' below QR in small refined typography, subtle accent line. Ultra-clean Apple-style minimalism, print-ready 300dpi. {custom_detail}",
+    "target_aspect": "1:1",
+    "recommended_model": "flux-pro",
+    "qr_slot_json": {"x_pct": 50, "y_pct": 50, "size_pct": 55},
+    "brand_slot_json": {"x_pct": 50, "y_pct": 85, "align": "center"},
+    "sort_order": 210
+  },
+  {
+    "slug": "qr-card-menu-table",
+    "template_type": "qr_card",
+    "title": "Thẻ QR menu bàn — quán cafe",
+    "description": "Thẻ để bàn nhà hàng/cafe: 'Quét để xem menu', tone ấm gỗ.",
+    "base_prompt": "Vietnamese restaurant/cafe table QR card, 4:5 portrait: warm cream background with subtle wood texture, top text 'QUÉT MÃ ĐỂ XEM MENU' in elegant Vietnamese serif, large QR code centered (45% size) encoding URL {qr_url}, restaurant name '{brand_name}' bottom in handwritten-style script, small CTA '{cta_text}' below QR, photorealistic light shadow at base suggesting card stands on table. {custom_detail}",
+    "target_aspect": "4:5",
+    "recommended_model": "seedream",
+    "qr_slot_json": {"x_pct": 50, "y_pct": 50, "size_pct": 45},
+    "brand_slot_json": {"x_pct": 50, "y_pct": 88, "align": "center"},
+    "sort_order": 220
+  },
+  {
+    "slug": "qr-card-wifi-style",
+    "template_type": "qr_card",
+    "title": "Thẻ QR phong cách Wi-Fi",
+    "description": "Thẻ QR thiết kế kiểu thẻ Wi-Fi: dễ đọc, đầy đủ thông tin.",
+    "base_prompt": "Vietnamese WiFi-style information card 1:1: rounded card with soft drop shadow on pastel background, header strip with WiFi/connect icon plus brand '{brand_name}' in modern Vietnamese sans-serif, large central QR code (50% size) encoding URL {qr_url}, instruction line '{cta_text}' below QR, optional discount badge '{discount}' as tag in top-right corner, vibrant friendly colors, looks like the QR Wi-Fi cards found in trendy cafes. {custom_detail}",
+    "target_aspect": "1:1",
+    "recommended_model": "flux-pro",
+    "qr_slot_json": {"x_pct": 50, "y_pct": 55, "size_pct": 50},
+    "brand_slot_json": {"x_pct": 50, "y_pct": 12, "align": "center"},
+    "sort_order": 230
+  },
+
+  {
+    "slug": "business-card-modern",
+    "template_type": "business_card",
+    "title": "Name card hiện đại 16:9",
+    "description": "Name card tiêu chuẩn 85x55mm, layout 2 cột, QR mặt sau.",
+    "base_prompt": "Modern Vietnamese business card, 16:9 landscape, clean minimal layout: left side features brand '{brand_name}' in large bold Vietnamese sans-serif typography with thin accent line, right side stacks contact info derived from '{cta_text}' (name, role, phone, email) plus a small QR code in bottom-right corner linking {qr_url}, premium matte paper texture, balanced typography hierarchy, white background with single brand accent color. {custom_detail}",
+    "target_aspect": "16:9",
+    "recommended_model": "flux-pro",
+    "qr_slot_json": {"x_pct": 85, "y_pct": 80, "size_pct": 18},
+    "brand_slot_json": {"x_pct": 18, "y_pct": 50, "align": "left"},
+    "sort_order": 310
+  },
+  {
+    "slug": "business-card-creative",
+    "template_type": "business_card",
+    "title": "Name card sáng tạo — màu khối",
+    "description": "Name card phong cách màu khối táo bạo cho ngành sáng tạo.",
+    "base_prompt": "Creative Vietnamese business card 16:9: bold color-block design with diagonal split between two vibrant brand colors, oversized brand initial of '{brand_name}' on color side, contact info '{cta_text}' and QR code linking {qr_url} on the lighter side, modern sans-serif typography, premium textured paper feel, perfect for creative agency / designer / photographer. {custom_detail}",
+    "target_aspect": "16:9",
+    "recommended_model": "flux-pro",
+    "qr_slot_json": {"x_pct": 80, "y_pct": 80, "size_pct": 16},
+    "brand_slot_json": {"x_pct": 25, "y_pct": 50, "align": "center"},
+    "sort_order": 320
+  },
+
+  {
+    "slug": "event-invite-elegant",
+    "template_type": "event_invite",
+    "title": "Thiệp mời sang trọng 4:5",
+    "description": "Thiệp mời event tone elegant — phù hợp grand opening, tiệc khai trương.",
+    "base_prompt": "Elegant Vietnamese event invitation card, 4:5 portrait: ivory background with delicate gold botanical illustrations in corners, refined serif Vietnamese typography for title '{campaign_title}' centered top, event details and date in middle, host name '{brand_name}' in italic script, RSVP CTA '{cta_text}' at bottom along with small classy QR code linking {qr_url}, high-end wedding/grand-opening stationery aesthetic, soft warm lighting. {custom_detail}",
+    "target_aspect": "4:5",
+    "recommended_model": "flux-pro",
+    "qr_slot_json": {"x_pct": 82, "y_pct": 88, "size_pct": 12},
+    "brand_slot_json": {"x_pct": 50, "y_pct": 70, "align": "center"},
+    "sort_order": 410
+  }
+]

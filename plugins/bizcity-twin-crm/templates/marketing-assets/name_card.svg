@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- PHASE 0.35 M6.W18 — name_card (1004×638 — 85×54mm @300dpi business card) -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1004" height="638" viewBox="0 0 1004 638">
+  <rect width="1004" height="638" fill="#ffffff"/>
+  <rect x="0" y="0" width="14" height="638" fill="{{BRAND_PRIMARY}}"/>
+  <image href="{{BRAND_LOGO}}" x="60" y="60" width="140" height="140" preserveAspectRatio="xMidYMid meet"/>
+  <text x="60" y="240" font-family="sans-serif" font-size="32" font-weight="700" fill="{{BRAND_PRIMARY}}">{{BRAND_NAME}}</text>
+  <text x="60" y="290" font-family="sans-serif" font-size="20" font-weight="500" fill="#0f172a">{{HEADLINE}}</text>
+  <text x="60" y="340" font-family="sans-serif" font-size="16" fill="#475569">{{CTA_TEXT}}</text>
+  <text x="60" y="500" font-family="sans-serif" font-size="14" fill="#64748b">Hotline</text>
+  <text x="60" y="528" font-family="sans-serif" font-size="20" font-weight="600" fill="#0f172a">{{HOTLINE}}</text>
+  <text x="60" y="580" font-family="sans-serif" font-size="14" fill="#64748b">Code: <tspan font-weight="700" fill="{{BRAND_PRIMARY}}">{{VOUCHER_CODE}}</tspan></text>
+  <rect x="700" y="100" width="260" height="260" fill="#ffffff" stroke="{{BRAND_PRIMARY}}" stroke-width="2"/>
+  <image href="{{QR_IMG}}" x="710" y="110" width="240" height="240" preserveAspectRatio="xMidYMid meet"/>
+  <text x="830" y="400" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#475569">Quét QR · m.me</text>
+</svg>

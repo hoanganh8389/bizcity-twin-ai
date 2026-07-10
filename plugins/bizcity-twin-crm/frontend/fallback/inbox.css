@@ -1,0 +1,152 @@
+/* BizCity CRM — fallback inbox styles. Scoped under .bizcity-crm-root. */
+.bizcity-crm-root {
+	display: grid;
+	grid-template-columns: 220px 320px 1fr;
+	gap: 0;
+	height: calc(100vh - 140px);
+	min-height: 560px;
+	background: #f5f6f8;
+	border: 1px solid #d4d6da;
+	border-radius: 6px;
+	overflow: hidden;
+	font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+	color: #1d2327;
+}
+.bizcity-crm-root .crm-sidebar,
+.bizcity-crm-root .crm-convlist {
+	background: #fff;
+	border-right: 1px solid #e3e4e7;
+	overflow-y: auto;
+}
+.bizcity-crm-root .crm-sidebar__title,
+.bizcity-crm-root .crm-convlist__title {
+	font-weight: 600;
+	padding: 12px 14px;
+	border-bottom: 1px solid #eaecef;
+	background: #fafbfc;
+	position: sticky;
+	top: 0;
+	z-index: 1;
+}
+.bizcity-crm-root .crm-sidebar__group { padding: 8px 0 12px; }
+.bizcity-crm-root .crm-sidebar__group-title {
+	font-size: 11px;
+	color: #6b7280;
+	letter-spacing: 0.05em;
+	padding: 4px 14px;
+	text-transform: uppercase;
+}
+.bizcity-crm-root .crm-sidebar__item {
+	padding: 8px 14px;
+	cursor: pointer;
+	border-left: 3px solid transparent;
+}
+.bizcity-crm-root .crm-sidebar__item:hover { background: #f3f4f6; }
+.bizcity-crm-root .crm-sidebar__item.is-active {
+	background: #eef2ff;
+	border-left-color: #4f46e5;
+	font-weight: 600;
+}
+.bizcity-crm-root .crm-empty {
+	padding: 24px 14px;
+	color: #6b7280;
+	font-size: 12px;
+}
+.bizcity-crm-root .crm-convitem {
+	display: grid;
+	grid-template-columns: 36px 1fr auto;
+	gap: 10px;
+	padding: 10px 14px;
+	cursor: pointer;
+	border-bottom: 1px solid #f1f2f4;
+}
+.bizcity-crm-root .crm-convitem:hover { background: #f9fafb; }
+.bizcity-crm-root .crm-convitem.is-active { background: #eef2ff; }
+.bizcity-crm-root .crm-convitem__avatar {
+	width: 36px; height: 36px;
+	border-radius: 50%;
+	background: #c7d2fe; color: #312e81;
+	display: flex; align-items: center; justify-content: center;
+	font-weight: 600;
+	overflow: hidden;
+}
+.bizcity-crm-root .crm-convitem__avatar img { width: 100%; height: 100%; object-fit: cover; }
+.bizcity-crm-root .crm-convitem__name {
+	font-weight: 600;
+	white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.bizcity-crm-root .crm-convitem__preview {
+	color: #6b7280;
+	font-size: 12px;
+	white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.bizcity-crm-root .crm-badge {
+	font-size: 10px; padding: 2px 6px;
+	border-radius: 3px; text-transform: uppercase;
+	background: #e5e7eb; color: #374151;
+}
+.bizcity-crm-root .crm-badge--open    { background: #dcfce7; color: #166534; }
+.bizcity-crm-root .crm-badge--pending { background: #fef3c7; color: #92400e; }
+.bizcity-crm-root .crm-badge--resolved{ background: #e5e7eb; color: #374151; }
+
+.bizcity-crm-root .crm-detail {
+	display: flex;
+	flex-direction: column;
+	background: #fff;
+	overflow: hidden;
+}
+.bizcity-crm-root .crm-detail--empty {
+	display: flex; align-items: center; justify-content: center;
+	color: #9ca3af; font-style: italic;
+}
+.bizcity-crm-root .crm-detail__header {
+	padding: 12px 16px;
+	border-bottom: 1px solid #eaecef;
+	font-weight: 600;
+	background: #fafbfc;
+}
+.bizcity-crm-root .crm-detail__messages {
+	flex: 1;
+	overflow-y: auto;
+	padding: 14px;
+	background: #f9fafb;
+}
+.bizcity-crm-root .crm-msg {
+	display: flex;
+	margin-bottom: 8px;
+}
+.bizcity-crm-root .crm-msg--in  { justify-content: flex-start; }
+.bizcity-crm-root .crm-msg--out { justify-content: flex-end; }
+.bizcity-crm-root .crm-msg__bubble {
+	max-width: 70%;
+	padding: 8px 12px;
+	border-radius: 12px;
+	background: #fff;
+	border: 1px solid #e3e4e7;
+}
+.bizcity-crm-root .crm-msg--out .crm-msg__bubble {
+	background: #4f46e5;
+	color: #fff;
+	border-color: #4338ca;
+}
+.bizcity-crm-root .crm-msg__content { word-wrap: break-word; white-space: pre-wrap; }
+.bizcity-crm-root .crm-msg__img { max-width: 240px; border-radius: 6px; margin-top: 6px; display: block; }
+.bizcity-crm-root .crm-msg__meta {
+	font-size: 10px;
+	color: #6b7280;
+	margin-top: 4px;
+}
+.bizcity-crm-root .crm-msg--out .crm-msg__meta { color: #c7d2fe; }
+.bizcity-crm-root .crm-msg__ai { font-weight: 600; }
+
+.bizcity-crm-root .crm-detail__reply {
+	display: flex; gap: 8px;
+	padding: 10px 12px;
+	border-top: 1px solid #eaecef;
+	background: #fff;
+}
+.bizcity-crm-root .crm-reply__input {
+	flex: 1; padding: 8px 10px;
+	border: 1px solid #d4d6da;
+	border-radius: 4px;
+}

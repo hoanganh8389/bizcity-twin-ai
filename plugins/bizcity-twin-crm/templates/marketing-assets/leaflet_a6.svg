@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- PHASE 0.35 M6.W18 — leaflet_a6 (1240×1748 — A6 @300dpi printed handout) -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="1748" viewBox="0 0 1240 1748">
+  <rect width="1240" height="1748" fill="#ffffff"/>
+  <rect x="0" y="0" width="1240" height="280" fill="{{BRAND_PRIMARY}}"/>
+  <image href="{{BRAND_LOGO}}" x="80" y="80" width="120" height="120" preserveAspectRatio="xMidYMid meet"/>
+  <text x="240" y="140" font-family="sans-serif" font-size="36" font-weight="700" fill="#ffffff">{{BRAND_NAME}}</text>
+  <text x="240" y="190" font-family="sans-serif" font-size="20" fill="#ffffff" fill-opacity="0.9">{{HOTLINE}}</text>
+  <text x="80" y="400" font-family="sans-serif" font-size="64" font-weight="800" fill="#0f172a">{{HEADLINE}}</text>
+  <text x="80" y="490" font-family="sans-serif" font-size="28" fill="#475569">{{CTA_TEXT}}</text>
+  <circle cx="100" cy="600" r="10" fill="{{BRAND_PRIMARY}}"/>
+  <text x="130" y="610" font-family="sans-serif" font-size="22" fill="#0f172a">Ưu đãi áp dụng cho khách quét QR đầu tiên</text>
+  <circle cx="100" cy="660" r="10" fill="{{BRAND_PRIMARY}}"/>
+  <text x="130" y="670" font-family="sans-serif" font-size="22" fill="#0f172a">Mã voucher: <tspan font-weight="700" fill="{{BRAND_PRIMARY}}">{{VOUCHER_CODE}}</tspan></text>
+  <circle cx="100" cy="720" r="10" fill="{{BRAND_PRIMARY}}"/>
+  <text x="130" y="730" font-family="sans-serif" font-size="22" fill="#0f172a">Liên hệ: {{HOTLINE}}</text>
+  <rect x="320" y="900" width="600" height="600" rx="24" ry="24" fill="#ffffff" stroke="{{BRAND_PRIMARY}}" stroke-width="4"/>
+  <image href="{{QR_IMG}}" x="360" y="940" width="520" height="520" preserveAspectRatio="xMidYMid meet"/>
+  <text x="620" y="1580" text-anchor="middle" font-family="sans-serif" font-size="32" font-weight="600" fill="{{BRAND_PRIMARY}}">Quét để chat ngay</text>
+  <text x="620" y="1670" text-anchor="middle" font-family="sans-serif" font-size="20" fill="#64748b">Mở Messenger / Zalo và nhận ưu đãi</text>
+</svg>

@@ -1,0 +1,469 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { Inbox, Send, Reply, Plus, RefreshCw, Settings, Trash2, Mail, Zap, Wifi } from 'lucide-react';
+import { Button } from '../../components/ui/button.jsx';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetBody, SheetFooter } from '../../components/ui/sheet.jsx';
+import { Input, Textarea, Label } from '../../components/ui/input.jsx';
+import { Badge } from '../../components/ui/card.jsx';
+import {
+	useGetCrmEmailAccountsQuery,
+	useCreateCrmEmailAccountMutation,
+	useUpdateCrmEmailAccountMutation,
+	useDeleteCrmEmailAccountMutation,
+	useSyncCrmEmailAccountMutation,
+	useGetCrmEmailThreadsQuery,
+	useGetCrmEmailThreadQuery,
+	useMarkCrmEmailThreadReadMutation,
+	useSendCrmEmailMutation,
+	useGetCrmSmtpStatusQuery,
+	useImportCrmEmailAccountFromSmtpMutation,
+	useTestCrmEmailAccountImapMutation,
+} from '../../redux/api/crmApi.js';
+
+function fmtTime( iso ) {
+	if ( ! iso ) { return ''; }
+	const d = new Date( iso.replace( ' ', 'T' ) + 'Z' );
+	if ( isNaN( d.getTime() ) ) { return iso; }
+	const today = new Date();
+	if ( d.toDateString() === today.toDateString() ) {
+		return d.toLocaleTimeString( 'vi-VN', { hour: '2-digit', minute: '2-digit' } );
+	}
+	return d.toLocaleDateString( 'vi-VN', { day: '2-digit', month: '2-digit' } );
+}
+
+function ComposeForm( { accounts, defaultAccountId, initial, onSubmit, onCancel, busy } ) {
+	const [ accountId, setAccountId ] = useState( defaultAccountId || ( accounts[ 0 ]?.id ?? '' ) );
+	const [ to, setTo ] = useState( initial?.to || '' );
+	const [ cc, setCc ] = useState( initial?.cc || '' );
+	const [ bcc, setBcc ] = useState( '' );
+	const [ subject, setSubject ] = useState( initial?.subject || '' );
+	const [ body, setBody ] = useState( initial?.body || '' );
+
+	useEffect( () => { if ( ! accountId && accounts.length ) { setAccountId( accounts[ 0 ].id ); } }, [ accounts, accountId ] );
+
+	return (
+		<form className="bzc-form" onSubmit={ ( e ) => {
+			e.preventDefault();
+			onSubmit( {
+				account_id: Number( accountId ),
+				to,
+				cc: cc || undefined,
+				bcc: bcc || undefined,
+				subject,
+				body_html: body,
+				thread_id: initial?.thread_id,
+				in_reply_to: initial?.in_reply_to,
+			} );
+		} }>
+			<div><Label>Từ</Label>
+				<select className="bzc-input" value={ accountId } onChange={ ( e ) => setAccountId( e.target.value ) } required>
+					<option value="">— chọn account —</option>
+					{ accounts.map( ( a ) => <option key={ a.id } value={ a.id }>{ a.label || a.email }</option> ) }
+				</select>
+			</div>
+			<div><Label>To</Label><Input value={ to } onChange={ ( e ) => setTo( e.target.value ) } placeholder="recipient@example.com (csv ok)" required /></div>
+			<div className="bzc-form-grid-2">
+				<div><Label>Cc</Label><Input value={ cc } onChange={ ( e ) => setCc( e.target.value ) } /></div>
+				<div><Label>Bcc</Label><Input value={ bcc } onChange={ ( e ) => setBcc( e.target.value ) } /></div>
+			</div>
+			<div><Label>Subject</Label><Input value={ subject } onChange={ ( e ) => setSubject( e.target.value ) } required /></div>
+			<div><Label>Nội dung (HTML)</Label><Textarea rows={ 14 } value={ body } onChange={ ( e ) => setBody( e.target.value ) } /></div>
+			<div className="bzc-form-actions">
+				<Button type="button" onClick={ onCancel } disabled={ busy }>Huỷ</Button>
+				<Button type="submit" variant="primary" disabled={ busy || ! accountId }>{ busy ? 'Đang gửi…' : 'Gửi' }</Button>
+			</div>
+		</form>
+	);
+}
+
+function AccountForm( { initial, onSubmit, onCancel, busy, smtpStatus } ) {
+	const [ d, setD ] = useState( {
+		label: '', email: '',
+		imap_host: '', imap_port: 993, imap_secure: 'ssl', imap_user: '', imap_pass: '', imap_folder: 'INBOX',
+		smtp_use_global: 1,
+		smtp_host: '', smtp_port: 587, smtp_secure: 'tls', smtp_user: '', smtp_pass: '',
+		...( initial || {} ),
+	} );
+	const set = ( k, v ) => setD( ( prev ) => ( { ...prev, [ k ]: v } ) );
+
+	const smtpAdminUrl = ( () => {
+		try {
+			const base = window?.bzCrmVars?.adminUrl || '/wp-admin/admin.php';
+			return base + ( base.includes( '?' ) ? '&' : '?' ) + 'page=bizcity-smtp-settings';
+		} catch ( e ) { return '#'; }
+	} )();
+
+	return (
+		<form className="bzc-form" onSubmit={ ( e ) => { e.preventDefault(); onSubmit( d ); } }>
+			<div className="bzc-form-grid-2">
+				<div><Label>Nhãn</Label><Input value={ d.label } onChange={ ( e ) => set( 'label', e.target.value ) } placeholder="VD: Gmail công ty" /></div>
+				<div><Label>Email</Label><Input type="email" value={ d.email } onChange={ ( e ) => set( 'email', e.target.value ) } required placeholder="you@gmail.com" /></div>
+			</div>
+
+			<h4 className="bzc-section-title">IMAP (nhận thư)</h4>
+			<details className="bzc-guide-details" style={ { marginBottom: 10 } }>
+				<summary style={ { cursor: 'pointer', fontWeight: 500 } }>📌 Hướng dẫn Gmail IMAP</summary>
+				<ol style={ { margin: '8px 0 0', paddingLeft: 18, lineHeight: 1.8, fontSize: 13 } }>
+					<li>Trong Gmail → <strong>Cài đặt</strong> → <strong>Xem tất cả cài đặt</strong> → tab <strong>Chuyển tiếp và POP/IMAP</strong> → bật <strong>Quyền truy cập IMAP</strong>.</li>
+					<li>Bật <strong>Xác minh 2 bước</strong> trên Tài khoản Google (bắt buộc để dùng App Password).</li>
+					<li>Tạo App Password tại <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener noreferrer">myaccount.google.com/apppasswords</a> → chọn app <strong>"Mail"</strong>.</li>
+					<li>Điền: <strong>Host</strong> = <code>imap.gmail.com</code>, <strong>Port</strong> = <code>993</code>, <strong>Bảo mật</strong> = SSL, <strong>Password</strong> = App Password (16 ký tự, bỏ dấu cách).</li>
+				</ol>
+			</details>
+			<div className="bzc-form-grid-2">
+				<div><Label>Host</Label><Input value={ d.imap_host } placeholder="imap.gmail.com" onChange={ ( e ) => set( 'imap_host', e.target.value ) } /></div>
+				<div><Label>Port</Label><Input type="number" value={ d.imap_port } onChange={ ( e ) => set( 'imap_port', Number( e.target.value ) ) } /></div>
+				<div><Label>Bảo mật</Label>
+					<select className="bzc-input" value={ d.imap_secure } onChange={ ( e ) => set( 'imap_secure', e.target.value ) }>
+						<option value="ssl">SSL</option><option value="tls">TLS</option><option value="notls">none</option>
+					</select>
+				</div>
+				<div><Label>Folder</Label><Input value={ d.imap_folder } onChange={ ( e ) => set( 'imap_folder', e.target.value ) } /></div>
+				<div><Label>User</Label><Input value={ d.imap_user } placeholder="you@gmail.com" onChange={ ( e ) => set( 'imap_user', e.target.value ) } /></div>
+				<div><Label>Password</Label><Input type="password" value={ d.imap_pass === '***' ? '' : ( d.imap_pass || '' ) } placeholder={ initial ? '(giữ nguyên — nhập để đổi)' : 'App Password Gmail' } onChange={ ( e ) => set( 'imap_pass', e.target.value ) } /></div>
+			</div>
+
+			<h4 className="bzc-section-title">SMTP (gửi thư)</h4>
+			<div>
+				<label className="bzc-checkbox">
+					<input type="checkbox" checked={ !! d.smtp_use_global } onChange={ ( e ) => set( 'smtp_use_global', e.target.checked ? 1 : 0 ) } />
+					Dùng SMTP global của site (BizCity SMTP bridge)
+				</label>
+			</div>
+			{ !! d.smtp_use_global && (
+				<div style={ { margin: '8px 0', padding: '10px 14px', background: smtpStatus?.configured ? '#f0fdf4' : '#fffbeb', border: '1px solid ' + ( smtpStatus?.configured ? '#86efac' : '#fcd34d' ), borderRadius: 6, fontSize: 13 } }>
+					{ smtpStatus?.configured ? (
+						<span>✅ <strong>BizCity SMTP đã cấu hình:</strong> { smtpStatus.preview?.host }:{ smtpStatus.preview?.port } ({smtpStatus.preview?.secure?.toUpperCase() || 'TLS'}) · From: { smtpStatus.preview?.from || smtpStatus.preview?.from_name }</span>
+					) : smtpStatus === undefined ? (
+						<span style={ { color: '#999' } }>Đang kiểm tra cấu hình SMTP global…</span>
+					) : (
+						<span>⚠️ BizCity SMTP chưa cấu hình. <a href={ smtpAdminUrl } target="_blank" rel="noopener noreferrer" style={ { fontWeight: 600 } }>Vào cài đặt SMTP →</a></span>
+					) }
+				</div>
+			) }
+			{ ! d.smtp_use_global && (
+				<>
+					<details className="bzc-guide-details" style={ { margin: '10px 0' } }>
+						<summary style={ { cursor: 'pointer', fontWeight: 500 } }>📌 Hướng dẫn Gmail SMTP (App Password)</summary>
+						<ol style={ { margin: '8px 0 0', paddingLeft: 18, lineHeight: 1.8, fontSize: 13 } }>
+							<li>Đăng nhập Gmail muốn dùng để gửi mail.</li>
+							<li>Vào <strong>Tài khoản Google</strong> → <strong>Bảo mật</strong> → bật <strong>Xác minh 2 bước</strong> (bắt buộc).</li>
+							<li>Truy cập <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener noreferrer">myaccount.google.com/apppasswords</a> → chọn app <strong>"Mail"</strong>, thiết bị <strong>"Máy tính khác"</strong> → nhấn <strong>Tạo</strong>.</li>
+							<li>Google hiển thị 16 ký tự — chép toàn bộ, <strong>bỏ dấu cách</strong>, dán vào ô "Password / App password" bên dưới.</li>
+							<li>Điền: <strong>SMTP Host</strong> = <code>smtp.gmail.com</code>, <strong>Port</strong> = <code>587</code>, <strong>Mã hoá</strong> = TLS, <strong>Username</strong> = địa chỉ Gmail.</li>
+						</ol>
+						<p style={ { margin: '6px 0 0', fontSize: 12, color: '#666' } }>💡 App Password chỉ hiển thị <u>một lần duy nhất</u>. Nếu quên, hãy xoá và tạo lại.</p>
+					</details>
+					<div className="bzc-form-grid-2">
+						<div>
+							<Label>SMTP Host</Label>
+							<Input value={ d.smtp_host } placeholder="smtp.gmail.com" onChange={ ( e ) => set( 'smtp_host', e.target.value ) } />
+							<p className="bzc-field-hint" style={ { fontSize: 12, color: '#888', marginTop: 3 } }>VD: smtp.gmail.com, smtp.sendgrid.net…</p>
+						</div>
+						<div>
+							<Label>SMTP Port</Label>
+							<Input type="number" value={ d.smtp_port } onChange={ ( e ) => set( 'smtp_port', Number( e.target.value ) ) } />
+							<p className="bzc-field-hint" style={ { fontSize: 12, color: '#888', marginTop: 3 } }>587 (TLS) · 465 (SSL)</p>
+						</div>
+						<div>
+							<Label>Mã hoá</Label>
+							<select className="bzc-input" value={ d.smtp_secure } onChange={ ( e ) => set( 'smtp_secure', e.target.value ) }>
+								<option value="tls">TLS</option><option value="ssl">SSL</option><option value="none">none</option>
+							</select>
+						</div>
+						<div></div>
+						<div><Label>Username</Label><Input value={ d.smtp_user } placeholder="you@gmail.com" onChange={ ( e ) => set( 'smtp_user', e.target.value ) } /></div>
+						<div><Label>Password / App password</Label><Input type="password" value={ d.smtp_pass === '***' ? '' : ( d.smtp_pass || '' ) } placeholder={ initial ? '(giữ nguyên — nhập để đổi)' : 'App Password Gmail' } onChange={ ( e ) => set( 'smtp_pass', e.target.value ) } /></div>
+					</div>
+				</>
+			) }
+			<div className="bzc-form-actions">
+				<Button type="button" onClick={ onCancel } disabled={ busy }>Huỷ</Button>
+				<Button type="submit" variant="primary" disabled={ busy }>{ busy ? 'Đang lưu…' : 'Lưu' }</Button>
+			</div>
+		</form>
+	);
+}
+
+export default function EmailTab() {
+	const { data: accounts = [], isLoading: accLoading } = useGetCrmEmailAccountsQuery();
+	const { data: smtpStatus } = useGetCrmSmtpStatusQuery();
+	const [ accountId, setAccountId ] = useState( null );
+	const [ unreadOnly, setUnreadOnly ] = useState( false );
+	const [ search, setSearch ] = useState( '' );
+	const [ selectedThreadId, setSelectedThreadId ] = useState( null );
+	const [ composeOpen, setComposeOpen ] = useState( false );
+	const [ composeInitial, setComposeInitial ] = useState( null );
+	const [ accountFormOpen, setAccountFormOpen ] = useState( false );
+	const [ editingAccount, setEditingAccount ] = useState( null );
+
+	useEffect( () => {
+		if ( ! accountId && accounts.length ) { setAccountId( accounts[ 0 ].id ); }
+	}, [ accounts, accountId ] );
+
+	const { data: threads = [], isFetching: threadsLoading } = useGetCrmEmailThreadsQuery(
+		accountId ? { account_id: accountId, unread_only: unreadOnly ? 1 : 0, search: search || undefined, limit: 100 } : undefined,
+		{ skip: ! accountId }
+	);
+	const { data: thread } = useGetCrmEmailThreadQuery( selectedThreadId, { skip: ! selectedThreadId } );
+
+	const [ syncAccount, { isLoading: syncing } ] = useSyncCrmEmailAccountMutation();
+	const [ markRead ] = useMarkCrmEmailThreadReadMutation();
+	const [ sendEmail, { isLoading: sending } ] = useSendCrmEmailMutation();
+	const [ createAccount, { isLoading: cBusy } ] = useCreateCrmEmailAccountMutation();
+	const [ updateAccount, { isLoading: uBusy } ] = useUpdateCrmEmailAccountMutation();
+	const [ deleteAccount ] = useDeleteCrmEmailAccountMutation();
+	const [ importFromSmtp, { isLoading: importing } ] = useImportCrmEmailAccountFromSmtpMutation();
+	const [ testImap, { isLoading: testing } ] = useTestCrmEmailAccountImapMutation();
+
+	const messages = useMemo( () => thread?.messages || [], [ thread ] );
+
+	const handleSelectThread = ( id, isUnread ) => {
+		setSelectedThreadId( id );
+		if ( isUnread ) { markRead( id ); }
+	};
+
+	const handleSync = async () => {
+		if ( ! accountId ) { return; }
+		try {
+			const res = await syncAccount( accountId ).unwrap();
+			alert( 'Sync xong. Fetched: ' + ( res?.fetched ?? 0 ) + ', inserted: ' + ( res?.inserted ?? 0 ) );
+		} catch ( e ) { alert( 'Lỗi sync: ' + ( e?.data?.error?.message || e.message ) ); }
+	};
+
+	const handleImportFromSmtp = async () => {
+		try {
+			const res = await importFromSmtp().unwrap();
+			if ( res ) {
+				const acc = res.account;
+				alert( ( res.action === 'created' ? '✅ Đã tạo account' : '✅ Đã cập nhật account' ) + ': ' + ( acc?.email || '' ) + '\nNhấn "Sync IMAP" để tải email về.' );
+			} else {
+				alert( 'Không lấy được dữ liệu SMTP. Kiểm tra cấu hình BizCity SMTP.' );
+			}
+		} catch ( e ) {
+			alert( 'Lỗi import: ' + ( e?.data?.error?.message || e.message ) );
+		}
+	};
+
+	const handleTestImap = async ( id ) => {
+		try {
+			const res = await testImap( id ).unwrap();
+			if ( res?.ok ) {
+				alert( '✅ ' + ( res.message || 'Kết nối IMAP thành công!' ) );
+			} else {
+				alert( '❌ ' + ( res?.message || 'Kết nối thất bại.' ) );
+			}
+		} catch ( e ) {
+			alert( 'Lỗi test: ' + ( e?.data?.error?.message || e.message ) );
+		}
+	};
+
+	const handleSend = async ( payload ) => {
+		try {
+			await sendEmail( payload ).unwrap();
+			setComposeOpen( false );
+			setComposeInitial( null );
+		} catch ( e ) { alert( 'Lỗi gửi: ' + ( e?.data?.error?.message || e.message ) ); }
+	};
+
+	const handleReply = () => {
+		if ( ! thread || messages.length === 0 ) { return; }
+		const last = messages[ messages.length - 1 ];
+		setComposeInitial( {
+			to: last.from_email || '',
+			subject: thread.subject?.match( /^re:/i ) ? thread.subject : 'Re: ' + ( thread.subject || '' ),
+			thread_id: thread.id,
+			in_reply_to: last.message_id_header || undefined,
+		} );
+		setComposeOpen( true );
+	};
+
+	const handleSaveAccount = async ( data ) => {
+		try {
+			if ( editingAccount?.id ) {
+				const payload = { id: editingAccount.id, ...data };
+				if ( payload.imap_pass === '' ) { delete payload.imap_pass; }
+				if ( payload.smtp_pass === '' ) { delete payload.smtp_pass; }
+				await updateAccount( payload ).unwrap();
+			} else {
+				await createAccount( data ).unwrap();
+			}
+			setAccountFormOpen( false );
+			setEditingAccount( null );
+		} catch ( e ) { alert( 'Lỗi lưu account: ' + ( e?.data?.error?.message || e.message ) ); }
+	};
+
+	const handleDeleteAccount = async ( id ) => {
+		if ( ! window.confirm( 'Xoá account này?' ) ) { return; }
+		try {
+			await deleteAccount( id ).unwrap();
+			if ( accountId === id ) { setAccountId( null ); }
+		} catch ( e ) { alert( 'Không xoá được: ' + ( e?.data?.error?.message || e.message ) ); }
+	};
+
+	return (
+		<div className="bzc-tabpane">
+			<header className="bzc-tabpane-header">
+				<div>
+					<h2 className="bzc-tabpane-title">Email Client</h2>
+					<p className="bzc-tabpane-subtitle">IMAP + SMTP, threading, hỗ trợ nhiều account (live API · M-CRM.M3).</p>
+				</div>
+				<div style={ { display: 'flex', gap: 6 } }>
+					<Button onClick={ () => { setEditingAccount( null ); setAccountFormOpen( true ); } }><Plus size={ 12 } /> Thêm account</Button>
+					<Button variant="primary" disabled={ ! accountId } onClick={ () => { setComposeInitial( null ); setComposeOpen( true ); } }><Mail size={ 12 } /> Soạn thư</Button>
+				</div>
+			</header>
+
+			<div className="bzc-email-grid">
+				{ /* Sidebar: accounts */ }
+				<aside className="bzc-email-folders">
+					{ accLoading && <div className="bzc-muted">Đang tải…</div> }
+					{ ! accLoading && accounts.length === 0 && (
+						<div className="bzc-empty bzc-muted">
+							Chưa có account nào.
+						<div style={ { marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 } }>
+							{ smtpStatus?.configured && (
+								<Button size="sm" disabled={ importing } onClick={ handleImportFromSmtp } title={ 'Import từ: ' + ( smtpStatus.preview?.from || smtpStatus.preview?.host || '' ) }>
+									<Zap size={ 12 } /> { importing ? 'Đang import…' : 'Import từ SMTP' }
+								</Button>
+							) }
+							<Button size="sm" onClick={ () => { setEditingAccount( null ); setAccountFormOpen( true ); } }><Plus size={ 12 } /> Thêm thủ công</Button>
+							</div>
+						</div>
+					) }
+				{ smtpStatus?.configured && accounts.length > 0 && (
+					<div style={ { marginBottom: 6 } }>
+						<Button size="sm" style={ { width: '100%' } } disabled={ importing } onClick={ handleImportFromSmtp } title={ 'Import từ: ' + ( smtpStatus.preview?.from || smtpStatus.preview?.host || '' ) }>
+							<Zap size={ 12 } /> { importing ? 'Đang import…' : 'Sync từ SMTP' }
+						</Button>
+					</div>
+				) }
+				{ accounts.map( ( a ) => (
+					<div key={ a.id } className={ 'bzc-email-folder ' + ( accountId === a.id ? 'is-active' : '' ) }>
+						<button type="button" className="bzc-link" style={ { flex: 1, textAlign: 'left' } } onClick={ () => { setAccountId( a.id ); setSelectedThreadId( null ); } }>
+							<Inbox size={ 14 } /> <span className="bzc-email-folder-label">{ a.label || a.email }</span>
+						</button>
+						<button type="button" className="bzc-icon-btn" title="Test IMAP" disabled={ testing } onClick={ () => handleTestImap( a.id ) }><Wifi size={ 12 } /></button>
+							<button type="button" className="bzc-icon-btn" title="Sửa" onClick={ () => { setEditingAccount( a ); setAccountFormOpen( true ); } }><Settings size={ 12 } /></button>
+							<button type="button" className="bzc-icon-btn" title="Xoá" onClick={ () => handleDeleteAccount( a.id ) }><Trash2 size={ 12 } /></button>
+						</div>
+					) ) }
+					{ accountId && (
+						<div style={ { marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 } }>
+							<Button size="sm" disabled={ syncing } onClick={ handleSync }><RefreshCw size={ 12 } /> { syncing ? 'Đang sync…' : 'Sync IMAP' }</Button>
+							<label className="bzc-checkbox" style={ { fontSize: 12 } }>
+								<input type="checkbox" checked={ unreadOnly } onChange={ ( e ) => setUnreadOnly( e.target.checked ) } /> Chỉ chưa đọc
+							</label>
+						</div>
+					) }
+				</aside>
+
+				{ /* Thread list */ }
+				<div className="bzc-email-list">
+					<div style={ { padding: 6 } }>
+						<Input placeholder="Tìm theo subject…" value={ search } onChange={ ( e ) => setSearch( e.target.value ) } />
+					</div>
+					{ threadsLoading && threads.length === 0 && <div className="bzc-empty bzc-muted">Đang tải…</div> }
+					{ ! threadsLoading && threads.length === 0 && <div className="bzc-empty bzc-muted">Không có thread nào.</div> }
+					{ threads.map( ( t ) => {
+						const isUnread = Number( t.unread_count || 0 ) > 0;
+						const participants = ( () => {
+							try { const arr = JSON.parse( t.participants_json || '[]' ); return Array.isArray( arr ) ? arr.join( ', ' ) : ''; }
+							catch ( e ) { return ''; }
+						} )();
+						return (
+							<button
+								key={ t.id }
+								type="button"
+								className={ 'bzc-email-msg ' + ( selectedThreadId === t.id ? 'is-selected' : '' ) + ( isUnread ? ' is-unread' : '' ) }
+								onClick={ () => handleSelectThread( t.id, isUnread ) }
+							>
+								<div className="bzc-email-msg-row">
+									<strong className="bzc-email-msg-from">{ participants || '—' }</strong>
+									<span className="bzc-muted">{ fmtTime( t.last_message_at ) }</span>
+								</div>
+								<div className="bzc-email-msg-subject">{ t.subject || '(no subject)' }</div>
+								<div className="bzc-email-msg-preview bzc-muted">
+									{ t.message_count } msg
+									{ isUnread && <Badge variant="warn" style={ { marginLeft: 6 } }>{ t.unread_count }</Badge> }
+								</div>
+							</button>
+						);
+					} ) }
+				</div>
+
+				{ /* Reader */ }
+				<div className="bzc-email-preview">
+					{ thread ? (
+						<>
+							<div className="bzc-email-preview-head">
+								<h3>{ thread.subject || '(no subject)' }</h3>
+								<div className="bzc-muted">{ messages.length } message(s) · cập nhật { fmtTime( thread.last_message_at ) }</div>
+								<div className="bzc-email-preview-actions">
+									<Button size="sm" onClick={ handleReply }><Reply size={ 12 } /> Trả lời</Button>
+								</div>
+							</div>
+							<div className="bzc-email-preview-body">
+								{ messages.map( ( m ) => {
+									const toList = ( () => { try { return ( JSON.parse( m.to_json || '[]' ) || [] ).join( ', ' ); } catch ( e ) { return ''; } } )();
+									const ccList = ( () => { try { return ( JSON.parse( m.cc_json || '[]' ) || [] ).join( ', ' ); } catch ( e ) { return ''; } } )();
+									return (
+										<div key={ m.id } className="bzc-email-message" style={ { borderBottom: '1px solid #eee', padding: '12px 0' } }>
+											<div className="bzc-muted" style={ { fontSize: 12, marginBottom: 6 } }>
+												<strong>{ m.direction === 'out' ? 'Bạn' : ( m.from_name || m.from_email ) }</strong>
+												{ m.from_email && m.direction !== 'out' ? ' <' + m.from_email + '>' : '' }
+												{ ' · ' }{ fmtTime( m.received_at || m.sent_at ) }
+											</div>
+											<div style={ { fontSize: 12, color: '#999', marginBottom: 6 } }>
+												To: { toList || '—' }
+												{ ccList ? ' · Cc: ' + ccList : '' }
+											</div>
+											{ m.body_html
+												? <div dangerouslySetInnerHTML={ { __html: m.body_html } } />
+												: <pre style={ { whiteSpace: 'pre-wrap', fontFamily: 'inherit' } }>{ m.body_text || '' }</pre>
+											}
+										</div>
+									);
+								} ) }
+							</div>
+						</>
+					) : (
+						<div className="bzc-empty bzc-muted">
+							{ selectedThreadId ? 'Đang tải thread…' : 'Chọn một thread để xem.' }
+						</div>
+					) }
+				</div>
+			</div>
+
+			<Sheet open={ composeOpen } onOpenChange={ ( v ) => { setComposeOpen( v ); if ( ! v ) { setComposeInitial( null ); } } }>
+				<SheetContent className="bzc-sheet-wide">
+					<SheetHeader><SheetTitle>{ composeInitial?.thread_id ? 'Trả lời' : 'Soạn thư' }</SheetTitle></SheetHeader>
+					<SheetBody>
+						<ComposeForm
+							accounts={ accounts }
+							defaultAccountId={ accountId }
+							initial={ composeInitial }
+							onSubmit={ handleSend }
+							onCancel={ () => { setComposeOpen( false ); setComposeInitial( null ); } }
+							busy={ sending }
+						/>
+					</SheetBody>
+				</SheetContent>
+			</Sheet>
+
+			<Sheet open={ accountFormOpen } onOpenChange={ ( v ) => { setAccountFormOpen( v ); if ( ! v ) { setEditingAccount( null ); } } }>
+				<SheetContent className="bzc-sheet-wide">
+					<SheetHeader><SheetTitle>{ editingAccount ? 'Sửa account' : 'Thêm account' }</SheetTitle></SheetHeader>
+					<SheetBody>
+						<AccountForm
+							initial={ editingAccount }
+							onSubmit={ handleSaveAccount }
+							onCancel={ () => { setAccountFormOpen( false ); setEditingAccount( null ); } }
+							busy={ cBusy || uBusy }
+							smtpStatus={ smtpStatus }
+						/>
+					</SheetBody>
+				</SheetContent>
+			</Sheet>
+		</div>
+	);
+}
