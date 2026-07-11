@@ -78,7 +78,8 @@ final class BizCity_Probe_Automation_CRM_Path implements BizCity_Diagnostics_Pro
 			'name'           => '__healthtest crm-path zone=crm',
 			'trigger_type'   => 'zalo_inbound',
 			'trigger_config' => array( 'zone' => 'crm', 'instance_id' => '', 'filter' => '' ),
-			'graph_json'     => wp_json_encode( array( 'nodes' => array(), 'edges' => array() ) ),
+			// [2026-07-11 Johnny Chu] HOTFIX — workflow validator now requires >=1 trigger node in graph_json.
+			'graph_json'     => self::probe_graph_json( 'trigger.zalo_inbound' ),
 			'enabled'        => 1,
 		) );
 		if ( is_wp_error( $wf_crm ) ) {
@@ -92,7 +93,7 @@ final class BizCity_Probe_Automation_CRM_Path implements BizCity_Diagnostics_Pro
 			'name'           => '__healthtest crm-path zone=admin',
 			'trigger_type'   => 'zalo_inbound',
 			'trigger_config' => array( 'instance_id' => '', 'filter' => '' ),
-			'graph_json'     => wp_json_encode( array( 'nodes' => array(), 'edges' => array() ) ),
+			'graph_json'     => self::probe_graph_json( 'trigger.zalo_inbound' ),
 			'enabled'        => 1,
 		) );
 		if ( is_wp_error( $wf_admin ) ) {
@@ -189,7 +190,7 @@ final class BizCity_Probe_Automation_CRM_Path implements BizCity_Diagnostics_Pro
 			'name'           => '__healthtest crm-path bind',
 			'trigger_type'   => 'zalo_inbound',
 			'trigger_config' => array( 'zone' => 'crm', 'instance_id' => '', 'filter' => '' ),
-			'graph_json'     => wp_json_encode( array( 'nodes' => array(), 'edges' => array() ) ),
+			'graph_json'     => self::probe_graph_json( 'trigger.zalo_inbound' ),
 			'enabled'        => 0,
 		) );
 		$bind_pass   = false;
@@ -233,7 +234,7 @@ final class BizCity_Probe_Automation_CRM_Path implements BizCity_Diagnostics_Pro
 			'name'           => '__healthtest crmpath iso crm',
 			'trigger_type'   => 'zalo_inbound',
 			'trigger_config' => array( 'zone' => 'crm', 'instance_id' => '', 'filter' => '' ),
-			'graph_json'     => wp_json_encode( array( 'nodes' => array(), 'edges' => array() ) ),
+			'graph_json'     => self::probe_graph_json( 'trigger.zalo_inbound' ),
 			'enabled'        => 1,
 		) );
 		$wf_adm2 = BizCity_Automation_Repo_Workflows::create( array(
@@ -241,7 +242,7 @@ final class BizCity_Probe_Automation_CRM_Path implements BizCity_Diagnostics_Pro
 			'name'           => '__healthtest crmpath iso admin',
 			'trigger_type'   => 'zalo_inbound',
 			'trigger_config' => array( 'instance_id' => '', 'filter' => '' ),
-			'graph_json'     => wp_json_encode( array( 'nodes' => array(), 'edges' => array() ) ),
+			'graph_json'     => self::probe_graph_json( 'trigger.zalo_inbound' ),
 			'enabled'        => 1,
 		) );
 		$iso_pass   = false;
@@ -317,6 +318,20 @@ final class BizCity_Probe_Automation_CRM_Path implements BizCity_Diagnostics_Pro
 		$caps['bizcity_crm_manage'] = true;
 		$caps['manage_options']     = true;
 		return $caps;
+	}
+
+	// [2026-07-11 Johnny Chu] HOTFIX — build a minimal valid graph accepted by Repo_Workflows::validate_graph().
+	private static function probe_graph_json( string $trigger_block ): string {
+		return wp_json_encode( array(
+			'nodes' => array(
+				array(
+					'id'   => 't1',
+					'type' => 'trigger',
+					'data' => array( 'blockId' => $trigger_block ),
+				),
+			),
+			'edges' => array(),
+		) );
 	}
 
 	private static function zalo_payload( string $platform, string $text ): array {

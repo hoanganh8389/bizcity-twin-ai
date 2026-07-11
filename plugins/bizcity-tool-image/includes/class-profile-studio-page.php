@@ -19,6 +19,155 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 class BizCity_Profile_Studio_Page {
 
     const SLUG = 'profile-studio';
+    const OPT_PROFILE_SEED_VERSION = 'bztimg_profile_seed_version';
+    const OPT_PROFILE_SEEDED_FLAG  = 'bztimg_profile_seeded';
+    const PROFILE_SEED_VERSION     = '2026.07.11.1';
+    const PROFILE_SEED_LOCK        = 'bztimg_profile_seed_lock';
+
+    /** @var array<string,bool> */
+    private static $table_exists_cache = array();
+
+    /**
+     * Build cache key for table existence.
+     */
+    private static function table_exists_cache_key( string $table_name ): string {
+        $blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+        return 'bz_tbl_' . $blog_id . '_' . crc32( $table_name );
+    }
+
+    /**
+     * Check table existence via information_schema with dual cache.
+     */
+    private static function table_exists( string $table_name ): bool {
+        if ( isset( self::$table_exists_cache[ $table_name ] ) ) {
+            return (bool) self::$table_exists_cache[ $table_name ];
+        }
+
+        $ck     = self::table_exists_cache_key( $table_name );
+        $cached = wp_cache_get( $ck, 'bizcity_tbl' );
+        if ( false === $cached ) {
+            global $wpdb;
+            // [2026-07-11 Johnny Chu] R-SHOW-TABLES — avoid SHOW TABLES metadata scan on multisite.
+            $cached = (int) (bool) $wpdb->get_var( $wpdb->prepare(
+                'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+                $table_name
+            ) );
+            wp_cache_set( $ck, $cached, 'bizcity_tbl', HOUR_IN_SECONDS );
+        }
+
+        self::$table_exists_cache[ $table_name ] = (bool) $cached;
+        return self::$table_exists_cache[ $table_name ];
+    }
+
+    /**
+     * Reset table existence cache for current request and persistent cache.
+     */
+    private static function invalidate_table_exists_cache( string $table_name ): void {
+        unset( self::$table_exists_cache[ $table_name ] );
+        wp_cache_delete( self::table_exists_cache_key( $table_name ), 'bizcity_tbl' );
+    }
+
+    /**
+     * Ensure profile template table has data on first run / clone installs.
+     */
+    public static function maybe_seed_templates(): void {
+        global $wpdb;
+        $table = $wpdb->prefix . 'bztimg_profile_templates';
+
+        if ( ! self::table_exists( $table ) ) {
+            // [2026-07-11 Johnny Chu] HOTFIX — clone/new installs may miss profile table until admin page is opened.
+            self::create_tables();
+            if ( ! self::table_exists( $table ) ) {
+                return;
+            }
+        }
+
+        $active_count = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table} WHERE status = 'active'" ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        if ( $active_count > 0 ) {
+            update_option( self::OPT_PROFILE_SEEDED_FLAG, 1, true );
+            update_option( self::OPT_PROFILE_SEED_VERSION, self::PROFILE_SEED_VERSION, true );
+            return;
+        }
+
+        if ( get_transient( self::PROFILE_SEED_LOCK ) ) {
+            return;
+        }
+        set_transient( self::PROFILE_SEED_LOCK, 1, MINUTE_IN_SECONDS );
+
+        try {
+            self::seed_templates_from_file();
+            $active_after = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table} WHERE status = 'active'" ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+
+            if ( $active_after > 0 ) {
+                update_option( self::OPT_PROFILE_SEEDED_FLAG, 1, true );
+                update_option( self::OPT_PROFILE_SEED_VERSION, self::PROFILE_SEED_VERSION, true );
+            } else {
+                delete_option( self::OPT_PROFILE_SEEDED_FLAG );
+            }
+        } finally {
+            delete_transient( self::PROFILE_SEED_LOCK );
+        }
+    }
+
+    /**
+     * Seed default profile templates from bundled JSON.
+     */
+    private static function seed_templates_from_file(): void {
+        $seed_path = BZTIMG_DIR . 'data/profile-templates-seed.json';
+        if ( ! file_exists( $seed_path ) ) {
+            return;
+        }
+
+        $raw   = file_get_contents( $seed_path );
+        $items = json_decode( (string) $raw, true );
+        if ( ! is_array( $items ) ) {
+            return;
+        }
+
+        global $wpdb;
+        $table       = $wpdb->prefix . 'bztimg_profile_templates';
+        $valid_cates = array( 'all', 'man', 'woman', 'professional', 'creative' );
+
+        foreach ( $items as $idx => $item ) {
+            if ( ! is_array( $item ) ) {
+                continue;
+            }
+
+            $title = sanitize_text_field( $item['title'] ?? '' );
+            $thumb = esc_url_raw( $item['thumbnail_url'] ?? '' );
+            if ( $title === '' || $thumb === '' ) {
+                continue;
+            }
+
+            $exists = (int) $wpdb->get_var( $wpdb->prepare(
+                "SELECT COUNT(*) FROM {$table} WHERE title = %s AND thumbnail_url = %s",
+                $title,
+                $thumb
+            ) );
+            if ( $exists > 0 ) {
+                continue;
+            }
+
+            $category = sanitize_key( $item['category'] ?? 'all' );
+            if ( ! in_array( $category, $valid_cates, true ) ) {
+                $category = 'all';
+            }
+
+            $wpdb->insert(
+                $table,
+                array(
+                    'title'         => $title,
+                    'thumbnail_url' => $thumb,
+                    'reference_url' => esc_url_raw( $item['reference_url'] ?? '' ) ?: $thumb,
+                    'category'      => $category,
+                    'style_prompt'  => sanitize_textarea_field( $item['style_prompt'] ?? '' ),
+                    'sort_order'    => (int) ( $item['sort_order'] ?? $idx ),
+                    'status'        => in_array( (string) ( $item['status'] ?? '' ), array( 'active', 'draft' ), true ) ? (string) $item['status'] : 'active',
+                ),
+                array( '%s', '%s', '%s', '%s', '%s', '%d', '%s' )
+            );
+        }
+    }
 
     public static function init() {
         add_action( 'init',              array( __CLASS__, 'register_rewrite' ) );
@@ -65,6 +214,9 @@ class BizCity_Profile_Studio_Page {
             wp_redirect( wp_login_url( home_url( '/' . self::SLUG . '/' ) ) );
             exit;
         }
+
+        // [2026-07-11 Johnny Chu] HOTFIX — ensure bundled profile templates exist before rendering studio UI.
+        self::maybe_seed_templates();
 
         $view = BZTIMG_DIR . 'views/page-profile-studio.php';
         if ( file_exists( $view ) ) {
@@ -131,8 +283,10 @@ class BizCity_Profile_Studio_Page {
         global $wpdb;
         $table = $wpdb->prefix . 'bztimg_profile_templates';
 
-        // Check if table exists
-        if ( $wpdb->get_var( $wpdb->prepare( "SHOW TABLES LIKE %s", $table ) ) !== $table ) {
+        // [2026-07-11 Johnny Chu] HOTFIX — self-heal table+seed when profile studio is opened directly.
+        self::maybe_seed_templates();
+
+        if ( ! self::table_exists( $table ) ) {
             wp_send_json_success( array( 'templates' => array(), 'total' => 0 ) );
         }
 
@@ -151,13 +305,13 @@ class BizCity_Profile_Studio_Page {
                 "SELECT COUNT(*) FROM {$table} {$where}", ...$params
             ) );
             $rows = $wpdb->get_results( $wpdb->prepare(
-                "SELECT id, title, thumbnail_url, category, style_prompt FROM {$table} {$where} ORDER BY sort_order ASC, id DESC LIMIT %d OFFSET %d",
+                "SELECT id, title, thumbnail_url, reference_url, category, style_prompt FROM {$table} {$where} ORDER BY sort_order ASC, id DESC LIMIT %d OFFSET %d",
                 ...array_merge( $params, array( $per_page, $offset ) )
             ), ARRAY_A );
         } else {
             $total = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table} {$where}" );
             $rows = $wpdb->get_results( $wpdb->prepare(
-                "SELECT id, title, thumbnail_url, category, style_prompt FROM {$table} {$where} ORDER BY sort_order ASC, id DESC LIMIT %d OFFSET %d",
+                "SELECT id, title, thumbnail_url, reference_url, category, style_prompt FROM {$table} {$where} ORDER BY sort_order ASC, id DESC LIMIT %d OFFSET %d",
                 $per_page, $offset
             ), ARRAY_A );
         }
@@ -207,7 +361,7 @@ class BizCity_Profile_Studio_Page {
         global $wpdb;
         $table = $wpdb->prefix . 'bztimg_jobs';
 
-        if ( $wpdb->get_var( $wpdb->prepare( "SHOW TABLES LIKE %s", $table ) ) !== $table ) {
+        if ( ! self::table_exists( $table ) ) {
             wp_send_json_success( array( 'images' => array(), 'total' => 0 ) );
         }
 
@@ -391,7 +545,7 @@ class BizCity_Profile_Studio_Page {
         global $wpdb;
         $table = $wpdb->prefix . 'bztimg_jobs';
 
-        if ( $wpdb->get_var( $wpdb->prepare( "SHOW TABLES LIKE %s", $table ) ) !== $table ) {
+        if ( ! self::table_exists( $table ) ) {
             wp_send_json_success( array( 'jobs' => array(), 'total' => 0 ) );
         }
 
@@ -769,5 +923,6 @@ class BizCity_Profile_Studio_Page {
         ) {$charset};";
 
         dbDelta( $sql );
+        self::invalidate_table_exists_cache( $table );
     }
 }

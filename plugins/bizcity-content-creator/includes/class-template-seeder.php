@@ -63,27 +63,36 @@ class BZCC_Template_Seeder {
 	/** Run seeding when version differs OR when template table is empty. */
 	public static function maybe_seed(): void {
 		$version_ok = ( get_option( self::OPT_VERSION ) === BZCC_VERSION );
+		$seeded_ok  = (bool) get_option( self::OPT_SEEDED_FLAG );
+
+		// [2026-07-11 Johnny Chu] HOTFIX — always verify physical table before trusting seed flags.
+		// Clone/migrate can copy options but miss table/data on target blog.
+		if ( ! class_exists( 'BZCC_Installer' ) ) {
+			return;
+		}
+		if ( ! BZCC_Installer::tables_exist() ) {
+			BZCC_Installer::maybe_create_tables();
+			if ( ! BZCC_Installer::tables_exist() ) {
+				return;
+			}
+		}
 
 		if ( $version_ok ) {
-			// [2026-06-22 Johnny Chu] R-PERF — fast path: if seeded flag is set, skip COUNT entirely.
-			// OPT_SEEDED_FLAG is set after every successful run() + version bump.
-			// Only falls through to COUNT when flag is absent (fresh install / manual row delete / multisite clone).
-			if ( get_option( self::OPT_SEEDED_FLAG ) ) {
+			$count = self::template_count();
+
+			// [2026-07-11 Johnny Chu] HOTFIX — stale seeded flag must not block reseed when table is empty.
+			if ( $seeded_ok && $count > 0 ) {
 				return;
 			}
 
-			// [2026-06-11 Johnny Chu] HOTFIX — also re-seed when version matches but table is empty.
-			// Handles: rows deleted manually, option copied from another site, fresh multisite subsite.
-			if ( ! class_exists( 'BZCC_Installer' ) || ! BZCC_Installer::tables_exist() ) {
-				return; // Table not created yet — installer handles it later.
-			}
-			global $wpdb;
-			$t     = BZCC_Installer::table_templates();
-			$count = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$t}" ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
 			if ( $count > 0 ) {
-				// [2026-06-22 Johnny Chu] R-PERF — data confirmed, set flag so next request skips COUNT
 				update_option( self::OPT_SEEDED_FLAG, 1, true );
-				return; // Version ok AND data exists — nothing to do.
+				return;
+			}
+
+			// [2026-07-11 Johnny Chu] HOTFIX — clear stale flag so next request cannot fast-skip on empty data.
+			if ( $seeded_ok ) {
+				delete_option( self::OPT_SEEDED_FLAG );
 			}
 			// Fall through: version ok but table is empty → force re-seed.
 		}
@@ -95,16 +104,29 @@ class BZCC_Template_Seeder {
 		set_transient( self::LOCK_TRANSIENT, 1, 60 );
 
 		try {
-			if ( ! class_exists( 'BZCC_Installer' ) || ! BZCC_Installer::tables_exist() ) {
+			if ( ! BZCC_Installer::tables_exist() ) {
 				return;
 			}
 			self::run();
 			update_option( self::OPT_VERSION, BZCC_VERSION );
-			// [2026-06-22 Johnny Chu] R-PERF — mark seed complete; prevents SELECT COUNT(*) on next request
-			update_option( self::OPT_SEEDED_FLAG, 1, true );
+			// [2026-07-11 Johnny Chu] HOTFIX — mark seeded only when data really exists.
+			if ( self::template_count() > 0 ) {
+				update_option( self::OPT_SEEDED_FLAG, 1, true );
+			} else {
+				delete_option( self::OPT_SEEDED_FLAG );
+			}
 		} finally {
 			delete_transient( self::LOCK_TRANSIENT );
 		}
+	}
+
+	/**
+	 * Return current template row count.
+	 */
+	private static function template_count(): int {
+		global $wpdb;
+		$t = BZCC_Installer::table_templates();
+		return (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$t}" ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
 	}
 
 	/** Scan template directories and import. Always seeds categories first. */
@@ -144,7 +166,12 @@ class BZCC_Template_Seeder {
 				}
 
 				$hash = sha1( $raw );
-				$key  = basename( $file );
+				// [2026-07-11 Johnny Chu] HOTFIX — use relative path key to avoid basename collisions
+				// between /templates and /templates/seed files with same filename.
+				$key  = ltrim( str_replace( BZCC_DIR, '', $file ), '/\\' );
+				if ( $key === '' ) {
+					$key = basename( $file );
+				}
 
 				$data = json_decode( $raw, true );
 				if ( ! is_array( $data ) || empty( $data['templates'] ) || ! is_array( $data['templates'] ) ) {

@@ -42,17 +42,20 @@ final class BizCity_Probe_Zalo_Personal implements BizCity_Diagnostics_Probe {
 		$pass = true;
 
 		$plugin_dir  = WP_PLUGIN_DIR . '/bizcity-twin-ai/plugins/bizcity-zalo-personal/';
-		$inc         = $plugin_dir . 'includes/';
+		// [2026-07-11 Johnny Chu] PHASE-0.39 HOTFIX — plugin includes moved to {shared,personal,oa} subfolders.
+		$inc_shared  = $plugin_dir . 'includes/shared/';
+		$inc_personal = $plugin_dir . 'includes/personal/';
+		$inc_oa      = $plugin_dir . 'includes/oa/';
 		$changelog   = WP_PLUGIN_DIR . '/bizcity-twin-ai/core/diagnostics/changelog/modules.zalo-personal.json';
 
 		// ── ROW 1: zp.bridge.health ───────────────────────────────────────────
 
-		$disk_bridge = file_exists( $inc . 'class-zalo-bridge-client.php' );
+		$disk_bridge = file_exists( $inc_shared . 'class-zalo-bridge-client.php' );
 		if ( ! $disk_bridge ) { $pass = false; }
 		$rows[] = array(
 			'label'  => 'zp.bridge.health — Disk: class-zalo-bridge-client.php',
 			'status' => $disk_bridge ? 'pass' : 'fail',
-			'detail' => $disk_bridge ? 'File exists' : 'Missing: plugins/bizcity-zalo-personal/includes/class-zalo-bridge-client.php',
+			'detail' => $disk_bridge ? 'File exists' : 'Missing: plugins/bizcity-zalo-personal/includes/shared/class-zalo-bridge-client.php',
 		);
 
 		$loader_bridge = class_exists( 'BizCity_Zalo_Bridge_Client' );
@@ -112,8 +115,8 @@ final class BizCity_Probe_Zalo_Personal implements BizCity_Diagnostics_Probe {
 
 		// ── ROW 3: zp.integration.registered ─────────────────────────────────
 
-		$class_pi_ok = file_exists( $inc . 'class-zalo-personal-integration.php' );
-		$class_oa_ok = file_exists( $inc . 'class-zalo-oa-integration.php' );
+		$class_pi_ok = file_exists( $inc_personal . 'class-zalo-personal-integration.php' );
+		$class_oa_ok = file_exists( $inc_oa . 'class-zalo-oa-integration.php' );
 		$disk_int    = $class_pi_ok && $class_oa_ok;
 		if ( ! $disk_int ) { $pass = false; }
 		$rows[] = array(
@@ -156,7 +159,7 @@ final class BizCity_Probe_Zalo_Personal implements BizCity_Diagnostics_Probe {
 
 		// ── ROW 4: zp.inbound.bridge ──────────────────────────────────────────
 
-		$disk_emit = file_exists( $inc . 'class-zalo-inbound-emitter.php' );
+		$disk_emit = file_exists( $inc_shared . 'class-zalo-inbound-emitter.php' );
 		if ( ! $disk_emit ) { $pass = false; }
 		$rows[] = array(
 			'label'  => 'zp.inbound.bridge — Disk: class-zalo-inbound-emitter.php',
@@ -229,7 +232,17 @@ final class BizCity_Probe_Zalo_Personal implements BizCity_Diagnostics_Probe {
 			);
 			$tables_in_db = array();
 			foreach ( $expected as $tbl ) {
-				$exists = bizcity_tbl_exists( $tbl ) ? $tbl : null; // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+				// [2026-07-11 Johnny Chu] R-SHOW-TABLES — fallback to information_schema when helper is not loaded.
+				if ( function_exists( 'bizcity_tbl_exists' ) ) {
+					$exists = bizcity_tbl_exists( $tbl );
+				} else {
+					$exists = (int) $wpdb->get_var(
+						$wpdb->prepare(
+							'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+							$tbl
+						)
+					) === 1;
+				}
 				if ( $exists ) {
 					$tables_in_db[] = $tbl;
 				}
@@ -247,7 +260,7 @@ final class BizCity_Probe_Zalo_Personal implements BizCity_Diagnostics_Probe {
 
 		// ── ROW 6: zp.oa.window ───────────────────────────────────────────────
 
-		$disk_window = file_exists( $inc . 'class-zalo-mapping-repo.php' );
+		$disk_window = file_exists( $inc_shared . 'class-zalo-mapping-repo.php' );
 		$rows[] = array(
 			'label'  => 'zp.oa.window — Disk: BizCity_Zalo_Mapping_Repo (OA window methods)',
 			'status' => $disk_window ? 'pass' : 'fail',
@@ -335,8 +348,8 @@ final class BizCity_Probe_Zalo_Personal implements BizCity_Diagnostics_Probe {
 		// ── ROW 8: zp.test.connection ─────────────────────────────────────────
 		// [2026-06-07 Johnny Chu] PHASE-0.39 — DDV row cho /zalo-bridge/test + hook-log tooling.
 
-		$disk_rest     = file_exists( $inc . 'class-zalo-bridge-rest.php' );
-		$disk_hook_log = file_exists( $inc . 'class-zalo-hook-log.php' );
+		$disk_rest     = file_exists( $inc_shared . 'class-zalo-bridge-rest.php' );
+		$disk_hook_log = file_exists( $inc_shared . 'class-zalo-hook-log.php' );
 		$disk_test     = $disk_rest && $disk_hook_log;
 		if ( ! $disk_test ) { $pass = false; }
 		$rows[] = array(

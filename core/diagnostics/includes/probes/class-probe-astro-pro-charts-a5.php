@@ -138,7 +138,8 @@ final class BizCity_Probe_Astro_Pro_Charts_A5 implements BizCity_Diagnostics_Pro
 
 		$provider_ok = false;
 		$provider = null;
-		if ( class_exists( 'BizCity_Astro_Router' ) ) {
+		$hub_router_loaded = class_exists( 'BizCity_Astro_Router' );
+		if ( $hub_router_loaded ) {
 			BizCity_Astro_Router::boot();
 			$provider = BizCity_Astro_Router::get_provider( 'faa2_western' );
 			$provider_ok = is_object( $provider )
@@ -154,12 +155,14 @@ final class BizCity_Probe_Astro_Pro_Charts_A5 implements BizCity_Diagnostics_Pro
 		}
 		$ctx->emit_step( array(
 			'label'  => 'Layer 2 · Loader · FAA2 provider',
-			'status' => $provider_ok ? 'pass' : 'fail',
-			'detail' => $provider_ok
-				? 'faa2_western loaded with A5 methods and supports().'
-				: 'faa2_western missing or incomplete A5 method wiring.',
+			'status' => $hub_router_loaded ? ( $provider_ok ? 'pass' : 'fail' ) : 'skip',
+			'detail' => $hub_router_loaded
+				? ( $provider_ok
+					? 'faa2_western loaded with A5 methods and supports().'
+					: 'faa2_western missing or incomplete A5 method wiring.' )
+				: 'BizCity_Astro_Router not loaded on this site — skip hub provider check (standalone client topology).',
 		) );
-		if ( ! $provider_ok ) {
+		if ( $hub_router_loaded && ! $provider_ok ) {
 			$failures[] = 'loader_provider_missing';
 		}
 
@@ -185,6 +188,15 @@ final class BizCity_Probe_Astro_Pro_Charts_A5 implements BizCity_Diagnostics_Pro
 				'summary'  => 'A5 Disk/Loader checks failed: ' . implode( ', ', $failures ),
 				'error'    => implode( '; ', $failures ),
 				'fix_hint' => 'Verify hub REST routes, provider methods, and client wrappers for A5 are loaded.',
+			);
+		}
+
+		if ( ! $hub_router_loaded ) {
+			return array(
+				// [2026-07-11 Johnny Chu] R-GW-8 — router plugin is server-only; client site should skip hub provider checks.
+				'status'  => 'skip',
+				'summary' => 'A5 Disk/Loader (client side) passed. Hub FAA2 provider checks skipped on standalone client topology (R-GW-8).',
+				'reason'  => 'standalone_client_topology',
 			);
 		}
 

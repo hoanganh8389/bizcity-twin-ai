@@ -622,20 +622,41 @@ BizCity_Rewrite_Flush_Registry::register( 'bizcity-tool-image', BZTIMG_VERSION )
 /* ── DB migration — runs on every request until schema is current ── */
 add_action( 'init', function() {
     if ( get_option( 'bztimg_schema_version' ) === BZTIMG_SCHEMA_VERSION ) {
-        // [2026-06-11 Johnny Chu] HOTFIX — also re-seed when version matches but template table is empty.
-        // Handles: rows deleted manually, option copied from another site, fresh multisite subsite.
+        // [2026-07-11 Johnny Chu] HOTFIX — schema option can be copied during clone while table/data is missing.
+        // Always verify physical table existence before deciding to skip seed.
         global $wpdb;
-        // [2026-06-21 Johnny Chu] R-CACHE bztimg — cache COUNT check; group bztimg, key seed_check, TTL 5min.
-        $count = BizCity_Cache::get( 'bztimg', 'seed_count' );
-        if ( false === $count ) {
-            $count = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}bztimg_templates" ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
-            BizCity_Cache::set( 'bztimg', 'seed_count', $count, BizCity_Cache::TTL_MEDIUM );
+        $tpl_table = $wpdb->prefix . 'bztimg_templates';
+        $exists    = (int) (bool) $wpdb->get_var( $wpdb->prepare(
+            'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+            $tpl_table
+        ) );
+
+        if ( ! $exists ) {
+            bztimg_install_tables();
+            $exists = (int) (bool) $wpdb->get_var( $wpdb->prepare(
+                'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+                $tpl_table
+            ) );
+            if ( ! $exists ) {
+                return;
+            }
         }
-        $count = (int) $count;
-        if ( $count > 0 ) return; // Schema ok AND data exists — nothing to do.
-        // Table empty → fast re-seed path (no full migration needed).
+
+        $count = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$tpl_table}" ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        if ( $count > 0 ) return; // Schema/table/data ok — nothing to do.
+
+        // [2026-07-11 Johnny Chu] HOTFIX — empty templates must self-heal without manual reseed click.
         bztimg_seed_categories();
+        if ( function_exists( 'bztimg_seed_templates' ) ) {
+            bztimg_seed_templates();
+        }
         bztimg_seed_json_templates();
+
+        // Last-resort self-heal: ensure install+seed runs once more if still empty.
+        $count_after = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$tpl_table}" ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        if ( $count_after <= 0 ) {
+            bztimg_install_tables();
+        }
         return;
     }
     bztimg_install_tables();

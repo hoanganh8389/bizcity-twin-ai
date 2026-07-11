@@ -14,12 +14,36 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class BZCC_Installer {
 
-	/** Cached result of the SHOW TABLES check — null = not checked yet. */
+	/** Cached result of the table existence check — null = not checked yet. */
 	private static $tables_exist_cache = null;
 
 	// [2026-06-11 Johnny Chu] R-PERF — in-request cache cho get_option('bzcc_db_version')
 	// Tránh gọi get_option() mỗi request khi maybe_create_tables() được gọi ở file scope.
 	private static $db_version_cache = null;
+
+	/**
+	 * Build cache key for table existence check.
+	 */
+	private static function table_exists_cache_key( string $table_name ): string {
+		$blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+		return 'bz_tbl_' . $blog_id . '_' . crc32( $table_name );
+	}
+
+	/**
+	 * Invalidate per-table existence cache after schema changes.
+	 */
+	private static function invalidate_tables_cache(): void {
+		$tables = array(
+			self::table_categories(),
+			self::table_templates(),
+			self::table_files(),
+			self::table_chunk_meta(),
+		);
+		foreach ( $tables as $table_name ) {
+			wp_cache_delete( self::table_exists_cache_key( $table_name ), 'bizcity_tbl' );
+		}
+		self::$tables_exist_cache = null;
+	}
 
 	/**
 	 * Returns true if the creator tables exist for the current site prefix.
@@ -30,8 +54,18 @@ class BZCC_Installer {
 			return (bool) self::$tables_exist_cache;
 		}
 		global $wpdb;
-		$tbl                      = self::table_templates();
-		self::$tables_exist_cache = ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl ) ) === $tbl );
+		$tbl     = self::table_templates();
+		$ck      = self::table_exists_cache_key( $tbl );
+		$present = wp_cache_get( $ck, 'bizcity_tbl' );
+		if ( false === $present ) {
+			// [2026-07-11 Johnny Chu] R-SHOW-TABLES — avoid SHOW TABLES metadata scans on multisite.
+			$present = (int) (bool) $wpdb->get_var( $wpdb->prepare(
+				'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+				$tbl
+			) );
+			wp_cache_set( $ck, $present, 'bizcity_tbl', HOUR_IN_SECONDS );
+		}
+		self::$tables_exist_cache = (bool) $present;
 		return self::$tables_exist_cache;
 	}
 
@@ -225,11 +259,8 @@ CREATE TABLE {$t_chunk} (
 		update_option( 'bzcc_db_version', defined( 'BZCC_DB_VERSION' ) ? BZCC_DB_VERSION : BZCC_VERSION );
 		// [2026-06-11 Johnny Chu] R-PERF — bust db_version_cache sau khi update
 		self::$db_version_cache = defined( 'BZCC_DB_VERSION' ) ? BZCC_DB_VERSION : BZCC_VERSION;
-		// [2026-06-03 Johnny Chu] HOTFIX — invalidate cache, KHÔNG set true mù.
-		// dbDelta() có thể fail silent (permission, charset, dual-DB gwpdb) →
-		// nếu cache true mà bảng thật chưa có → query downstream fatal.
-		// Set null → tables_exist() lần sau sẽ SHOW TABLES re-verify.
-		self::$tables_exist_cache = null;
+		// [2026-07-11 Johnny Chu] HOTFIX — invalidate table existence caches after dbDelta.
+		self::invalidate_tables_cache();
 	}
 
 	/* ── Seed defaults ── */

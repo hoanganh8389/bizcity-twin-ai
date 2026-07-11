@@ -117,6 +117,13 @@ class BZCC_Rest_API {
 			'methods'             => 'POST',
 			'callback'            => [ __CLASS__, 'import_templates' ],
 			'permission_callback' => [ __CLASS__, 'check_admin' ],
+			'args'                => [
+				// [2026-07-11 Johnny Chu] PHASE-ATH — import endpoint supports explicit mode selection.
+				'mode' => [
+					'type'    => 'string',
+					'default' => 'create_only',
+				],
+			],
 		] );
 
 		/* ── Template: duplicate ── */
@@ -2121,8 +2128,15 @@ class BZCC_Rest_API {
 
 		$results  = [];
 		$imported = 0;
+		$updated  = 0;
 		$skipped  = 0;
 		$renamed  = 0;
+
+		// [2026-07-11 Johnny Chu] PHASE-ATH — validate import mode for deterministic create/update behavior.
+		$mode = isset( $body['mode'] ) ? sanitize_key( (string) $body['mode'] ) : 'create_only';
+		if ( ! in_array( $mode, [ 'create_only', 'skip_if_exists', 'upsert_by_slug' ], true ) ) {
+			return new WP_REST_Response( [ 'error' => 'Invalid import mode. Allowed: create_only, skip_if_exists, upsert_by_slug.' ], 400 );
+		}
 
 		foreach ( $body['templates'] as $tpl_data ) {
 			if ( ! is_array( $tpl_data ) || empty( $tpl_data['slug'] ) || empty( $tpl_data['title'] ) ) {
@@ -2140,10 +2154,32 @@ class BZCC_Rest_API {
 			// Remove internal fields that shouldn't be imported
 			unset( $tpl_data['id'], $tpl_data['use_count'], $tpl_data['created_at'], $tpl_data['updated_at'] );
 
-			// Check if slug already exists — auto-rename with (1), (2), etc.
+			// [2026-07-11 Johnny Chu] PHASE-ATH — import mode: create_only | skip_if_exists | upsert_by_slug.
 			$base_slug  = sanitize_title( $tpl_data['slug'] );
 			$base_title = $tpl_data['title'];
+			$tpl_data['slug'] = $base_slug;
 			$existing   = BZCC_Template_Manager::get_by_slug( $base_slug );
+
+			if ( $existing && $mode === 'skip_if_exists' ) {
+				$results[] = [ 'slug' => $base_slug, 'action' => 'skipped_exists', 'id' => (int) $existing->id ];
+				$skipped++;
+				continue;
+			}
+
+			if ( $existing && $mode === 'upsert_by_slug' ) {
+				// [2026-07-11 Johnny Chu] PHASE-ATH — keep local ownership on update.
+				unset( $tpl_data['author_id'] );
+				$ok = BZCC_Template_Manager::update( (int) $existing->id, $tpl_data );
+				if ( $ok ) {
+					$results[] = [ 'slug' => $base_slug, 'action' => 'updated', 'id' => (int) $existing->id ];
+					$updated++;
+					$imported++;
+				} else {
+					$results[] = [ 'slug' => $base_slug, 'action' => 'update_failed', 'id' => (int) $existing->id ];
+					$skipped++;
+				}
+				continue;
+			}
 
 			if ( $existing ) {
 				$n = 1;
@@ -2158,16 +2194,22 @@ class BZCC_Rest_API {
 			}
 
 			$new_id = BZCC_Template_Manager::insert( $tpl_data );
-			$results[] = [ 'slug' => $tpl_data['slug'], 'action' => $existing ? 'renamed' : 'created', 'id' => $new_id ];
-
-			if ( $existing ) {
-				$renamed++;
+			if ( $new_id ) {
+				$results[] = [ 'slug' => $tpl_data['slug'], 'action' => $existing ? 'renamed' : 'created', 'id' => $new_id ];
+				$imported++;
+				if ( $existing ) {
+					$renamed++;
+				}
+			} else {
+				$results[] = [ 'slug' => $tpl_data['slug'], 'action' => 'insert_failed', 'id' => 0 ];
+				$skipped++;
 			}
-			$imported++;
 		}
 
 		return new WP_REST_Response( [
+			'mode'     => $mode,
 			'imported' => $imported,
+			'updated'  => $updated,
 			'renamed'  => $renamed,
 			'skipped'  => $skipped,
 			'results'  => $results,

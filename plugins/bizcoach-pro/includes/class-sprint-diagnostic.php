@@ -747,13 +747,24 @@ class BizCoach_Pro_Sprint_Diagnostic {
 		global $menu, $submenu;
 		$out = array();
 
-		// Use shadow dir when adopter is active (legacy plugin moved/deleted).
-		$adopting = class_exists( 'BizCoach_Pro_Legacy_Adopter' )
-			&& get_option( 'bcpro_adopt_legacy_pages' )
-			&& ! file_exists( WP_PLUGIN_DIR . '/bizcity-twin-ai/plugins/bizcoach-map/bizcoach-map.php' );
-		$base_dir = $adopting
-			? BizCoach_Pro_Legacy_Adopter::shadow_dir() . 'includes/'
-			: WP_PLUGIN_DIR . '/bizcity-twin-ai/plugins/bizcoach-map/includes/';
+		// [2026-07-11 Johnny Chu] HOTFIX — legacy adoption is now static (no option toggle).
+		// Prefer active adopter shadow, then legacy plugin includes, then bcpro/legacy snapshot.
+		$legacy_plugin_inc = WP_PLUGIN_DIR . '/bizcity-twin-ai/plugins/bizcoach-map/includes/';
+		$bcpro_legacy_inc  = defined( 'BCPRO_DIR' ) ? rtrim( (string) BCPRO_DIR, '/\\' ) . '/legacy/includes/' : '';
+		$adopted_shadow    = class_exists( 'BizCoach_Pro_Legacy_Adopter' )
+			&& defined( 'BCCM_VERSION' )
+			&& BCCM_VERSION === '0.0.0-adopted'
+			&& is_dir( BizCoach_Pro_Legacy_Adopter::shadow_dir() . 'includes/' );
+
+		if ( $adopted_shadow ) {
+			$base_dir = BizCoach_Pro_Legacy_Adopter::shadow_dir() . 'includes/';
+		} elseif ( is_dir( $legacy_plugin_inc ) ) {
+			$base_dir = $legacy_plugin_inc;
+		} elseif ( $bcpro_legacy_inc !== '' && is_dir( $bcpro_legacy_inc ) ) {
+			$base_dir = $bcpro_legacy_inc;
+		} else {
+			$base_dir = $legacy_plugin_inc;
+		}
 
 		$pages = array(
 			'bccm_user_profiles'        => array(
@@ -1427,6 +1438,10 @@ class BizCoach_Pro_Sprint_Diagnostic {
 	 * ============================================================ */
 	public static function compute_f15_tasks(): array {
 		$out = array();
+		$is_standalone_client = ! class_exists( 'BizCity_Astro_Router' )
+			&& ( class_exists( 'BizCoach_Pro_Astro_Client' )
+				|| class_exists( 'BizCity_LLM_Client' )
+				|| (string) get_option( 'bizcity_llm_gateway_url', '' ) !== '' );
 
 		/* ── Sprint A · Foundation ─────────────────────────────────── */
 		$schema_ok = class_exists( 'BizCity_Astro_REST' ) || class_exists( 'BizCity_Astrology_REST' );
@@ -1438,7 +1453,17 @@ class BizCoach_Pro_Sprint_Diagnostic {
 
 		global $wpdb;
 		$tbl_usage = $wpdb->base_prefix . 'bcr_astro_usage';
-		$has_usage = (string) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl_usage ) ) === $tbl_usage;
+		// [2026-07-11 Johnny Chu] R-SHOW-TABLES — avoid SHOW TABLES in diagnostics.
+		if ( function_exists( 'bizcity_tbl_exists' ) ) {
+			$has_usage = bizcity_tbl_exists( $tbl_usage );
+		} else {
+			$has_usage = (int) $wpdb->get_var(
+				$wpdb->prepare(
+					'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+					$tbl_usage
+				)
+			) === 1;
+		}
 		$rows      = $has_usage ? (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$tbl_usage}" ) : 0;
 		$out[] = self::row( 'T-BCPRO.F15.A2',
 			$has_usage ? 'PASS' : 'FAIL',
@@ -1680,6 +1705,26 @@ class BizCoach_Pro_Sprint_Diagnostic {
 			"count={$e1_count} last={$e1_when} endpoint={$e1_ep} result={$e1_res}"
 				. ( $e1_status === 'WARN' ? ' — some calls still falling back direct, see F.15.LEG' : '' )
 		);
+
+		if ( $is_standalone_client ) {
+			// [2026-07-11 Johnny Chu] R-GW-8 — on client sites, hub router/provider checks are informative, not hard FAIL.
+			$hub_only_ids = array(
+				'T-BCPRO.F15.A1', 'T-BCPRO.F15.A2', 'T-BCPRO.F15.A3', 'T-BCPRO.F15.A4',
+				'T-BCPRO.F15.B1', 'T-BCPRO.F15.B2', 'T-BCPRO.F15.B3', 'T-BCPRO.F15.B4',
+				'T-BCPRO.F15.B5', 'T-BCPRO.F15.B6',
+			);
+			foreach ( $out as &$row ) {
+				if ( ! in_array( (string) ( $row['id'] ?? '' ), $hub_only_ids, true ) ) {
+					continue;
+				}
+				if ( strtoupper( (string) ( $row['status'] ?? '' ) ) !== 'FAIL' ) {
+					continue;
+				}
+				$row['status'] = 'WARN';
+				$row['evidence'] = (string) ( $row['evidence'] ?? '' ) . ' · standalone client (R-GW-8): hub plugin may be absent on this site.';
+			}
+			unset( $row );
+		}
 
 		return $out;
 	}

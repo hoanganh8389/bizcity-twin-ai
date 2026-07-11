@@ -73,7 +73,11 @@ final class BizCity_Probe_Automation_Matcher implements BizCity_Diagnostics_Prob
 			'slug'           => self::SLUG_PREFIX . 'ref_' . wp_generate_password( 6, false, false ),
 			'name'           => '__healthtest matcher ref-based',
 			'trigger_type'   => 'fb_message',
-			'trigger_config' => array( 'scenario_uuid' => $uuid_ref ),
+			// [2026-07-11 Johnny Chu] HOTFIX — FB Messenger now maps to zone=crm in matcher; probe wf must opt into crm zone.
+			'trigger_config' => array(
+				'scenario_uuid' => $uuid_ref,
+				'zone'          => 'crm',
+			),
 			'graph_json'     => wp_json_encode( array(
 				'nodes' => array( array( 'id' => 't1', 'type' => 'trigger', 'data' => array( 'blockId' => 'trigger.fb_message' ) ) ),
 				'edges' => array(),
@@ -88,7 +92,11 @@ final class BizCity_Probe_Automation_Matcher implements BizCity_Diagnostics_Prob
 			'slug'           => self::SLUG_PREFIX . 'kw_' . wp_generate_password( 6, false, false ),
 			'name'           => '__healthtest matcher keywords',
 			'trigger_type'   => 'fb_message',
-			'trigger_config' => array( 'keywords' => array( 'xin chao', 'hello' ) ),
+			// [2026-07-11 Johnny Chu] HOTFIX — keep keyword probe in Zone 1 (crm) for FB messenger path.
+			'trigger_config' => array(
+				'keywords' => array( 'xin chao', 'hello' ),
+				'zone'     => 'crm',
+			),
 			'graph_json'     => wp_json_encode( array(
 				'nodes' => array( array( 'id' => 't1', 'type' => 'trigger', 'data' => array( 'blockId' => 'trigger.fb_message' ) ) ),
 				'edges' => array(),
