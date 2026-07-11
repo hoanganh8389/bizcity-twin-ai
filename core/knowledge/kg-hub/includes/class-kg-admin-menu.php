@@ -133,7 +133,17 @@ class BizCity_KG_Admin_Menu {
 		// CSS — Vite hashes filenames already, but mtime gives us extra safety
 		// (and forces a refresh if the same hash is somehow re-served stale).
 		$last_css_handle = null;
-		foreach ( (array) ( $entry['css'] ?? [] ) as $css ) {
+		$entry_css = (array) ( $entry['css'] ?? [] );
+		// [2026-07-11 Johnny Chu] HOTFIX — support standalone CSS entries in manifest (e.g. style.css) when entry['css'] is absent.
+		if ( empty( $entry_css ) ) {
+			foreach ( (array) $manifest as $manifest_row ) {
+				if ( isset( $manifest_row['file'] ) && substr( (string) $manifest_row['file'], -4 ) === '.css' ) {
+					$entry_css[] = (string) $manifest_row['file'];
+				}
+			}
+		}
+		$entry_css = array_values( array_unique( $entry_css ) );
+		foreach ( $entry_css as $css ) {
 			$css_file = $dist_dir . $css;
 			$css_ver  = file_exists( $css_file ) ? (string) filemtime( $css_file ) : $build_ver;
 			$handle   = 'bizcity-kg-hub-css-' . md5( $css );
