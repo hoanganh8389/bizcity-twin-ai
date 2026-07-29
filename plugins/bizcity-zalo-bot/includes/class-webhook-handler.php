@@ -362,6 +362,12 @@ class BizCity_Zalo_Bot_Webhook_Handler {
 		$chat_id = isset( $message['chat']['id'] ) ? $message['chat']['id'] : '';
 		$message_id = isset( $message['message_id'] ) ? $message['message_id'] : '';
 		$display_name = isset( $message['from']['display_name'] ) ? $message['from']['display_name'] : '';
+
+		// [2026-07-17 Johnny Chu] PHASE-TWINWEB F4 — fail closed: inbound without sender identity must not continue into automation owner chain.
+		if ( $user_id === '' ) {
+			$this->log_zalohook_error( 'Missing message.from.id in webhook payload', $data );
+			return false;
+		}
 		
 		// Verify secret token from header
 		$secret_token = isset( $_SERVER['HTTP_X_BOT_API_SECRET_TOKEN'] ) ? $_SERVER['HTTP_X_BOT_API_SECRET_TOKEN'] : '';
@@ -463,10 +469,15 @@ class BizCity_Zalo_Bot_Webhook_Handler {
 		$this->log_zalohook_info( "Cached source_blog_id={$source_blog_id} for bot #{$bot->id}" );
 		
 		// Prepare trigger data for workflow automation
-		// chat_id format: zalobot_{bot_id}_{zalo_user_id} → enables gateway send override routing
-		$bot_chat_id = 'zalobot_' . $bot->id . '_' . $chat_id;
-		$client_id   = $bot_chat_id;
-		$platform    = 'zalo_bot';
+		// [2026-07-21 Johnny Chu] PHASE-ZALOBOT-GROUP W6 — route replies by conversation target, not sender identity.
+		$identity_user_id     = (string) $user_id;
+		$provider_chat_id     = $chat_id !== '' ? (string) $chat_id : $identity_user_id;
+		$provider_chat_type   = isset( $message['chat']['chat_type'] ) ? strtoupper( (string) $message['chat']['chat_type'] ) : 'PRIVATE';
+		$chat_kind            = $provider_chat_type === 'GROUP' ? 'group' : 'private';
+		$conversation_chat_id = 'zalobot_' . $bot->id . '_' . ( $chat_kind === 'group' ? 'group_' : 'private_' ) . $provider_chat_id;
+		$bot_chat_id          = $conversation_chat_id;
+		$client_id            = $conversation_chat_id;
+		$platform             = 'zalo_bot';
 		
 		// ── Resolve WordPress user_id: per-user link (Linker) → bot assignment fallback ──
 		// PHASE-0-RULE-CHANNEL-UNIFY (2026-05-30) — adapter KHÔNG được auto-send
@@ -485,15 +496,27 @@ class BizCity_Zalo_Bot_Webhook_Handler {
 		switch ( $event_name ) {
 			case 'message.text.received':
 				$text = isset( $message['text'] ) ? $message['text'] : '';
+				$mention_detected     = $this->zalobot_text_mentions_bot( $text, $bot );
+				$reply_to_bot_message = $this->zalobot_message_replies_to_bot( $message );
+				$message_text_clean   = $mention_detected ? $this->zalobot_strip_bot_mention( $text, $bot ) : $text;
 				
 				$trigger = array(
 					'platform'        => $platform,
 					'client_id'       => $client_id,
 					'chat_id'         => $bot_chat_id,
+					'conversation_chat_id' => $conversation_chat_id,
+					'provider_chat_id' => $provider_chat_id,
+					'provider_chat_type' => $provider_chat_type,
+					'chat_kind'       => $chat_kind,
+					'sender_user_id'  => $identity_user_id,
 					'user_id'         => $user_id,
 					'wp_user_id'      => $wp_user_id,
 					'message_id'      => $message_id,
-					'text'            => $text,
+					'text'            => $message_text_clean,
+					'raw_text'        => $text,
+					'message_text_clean' => $message_text_clean,
+					'mention_detected' => $mention_detected,
+					'reply_to_bot_message' => $reply_to_bot_message,
 					'display_name'    => $display_name,
 					'attachment_type'  => 'text',
 					'attachment_url'   => '',
@@ -505,10 +528,22 @@ class BizCity_Zalo_Bot_Webhook_Handler {
 					'twf_platform'    => $platform,
 					'twf_client_id'   => $client_id,
 					'twf_chat_id'     => $bot_chat_id,
-					'twf_text'        => $text,
+					'twf_text'        => $message_text_clean,
 					'twf_image_url'   => '',
 					'twf_file_url'    => '',
 				);
+				
+				// [2026-07-21 Johnny Chu] PHASE-TWINWEB W3 — new Bot Platform payloads must also fire the canonical ZaloBot action so command router /link can bind users without duplicating the workflow path.
+				do_action( 'bizcity_zalo_message_received', array_merge( $trigger, array(
+					'platform'       => 'ZALO_BOT',
+					'code'           => 'zalo_bot',
+					'account_id'     => (string) ( $bot ? $bot->id : '' ),
+					'account_name'   => $bot ? (string) $bot->bot_name : '',
+					'from_user_id'   => $identity_user_id,
+					'from_user_name' => $display_name,
+					'conversation_id'=> (string) ( $bot ? $bot->id : '' ),
+					'message_text'   => $message_text_clean,
+				) ) );
 				
 				// Fire workflow trigger (prefer gateway if available)
 				if ( function_exists( 'bizcity_gateway_fire_trigger' ) ) {
@@ -520,6 +555,9 @@ class BizCity_Zalo_Bot_Webhook_Handler {
 				$this->log_zalohook_info( 'Text message processed', array(
 					'user_id'  => $user_id,
 					'chat_id'  => $bot_chat_id,
+					'conversation_chat_id' => $conversation_chat_id,
+					'provider_chat_id' => $provider_chat_id,
+					'chat_kind' => $chat_kind,
 					'text'     => $text,
 				) );
 				break;
@@ -527,15 +565,27 @@ class BizCity_Zalo_Bot_Webhook_Handler {
 			case 'message.image.received':
 				$photo_url = isset( $message['photo_url'] ) ? $message['photo_url'] : '';
 				$caption = isset( $message['caption'] ) ? $message['caption'] : '';
+				$mention_detected     = $this->zalobot_text_mentions_bot( $caption, $bot );
+				$reply_to_bot_message = $this->zalobot_message_replies_to_bot( $message );
+				$message_text_clean   = $mention_detected ? $this->zalobot_strip_bot_mention( $caption, $bot ) : $caption;
 				
 				$trigger = array(
 					'platform'        => $platform,
 					'client_id'       => $client_id,
 					'chat_id'         => $bot_chat_id,
+					'conversation_chat_id' => $conversation_chat_id,
+					'provider_chat_id' => $provider_chat_id,
+					'provider_chat_type' => $provider_chat_type,
+					'chat_kind'       => $chat_kind,
+					'sender_user_id'  => $identity_user_id,
 					'user_id'         => $user_id,
 					'wp_user_id'      => $wp_user_id,
 					'message_id'      => $message_id,
-					'text'            => $caption,
+					'text'            => $message_text_clean,
+					'raw_text'        => $caption,
+					'message_text_clean' => $message_text_clean,
+					'mention_detected' => $mention_detected,
+					'reply_to_bot_message' => $reply_to_bot_message,
 					'display_name'    => $display_name,
 					'attachment_type'  => 'image',
 					'attachment_url'   => $photo_url,
@@ -548,10 +598,22 @@ class BizCity_Zalo_Bot_Webhook_Handler {
 					'twf_platform'    => $platform,
 					'twf_client_id'   => $client_id,
 					'twf_chat_id'     => $bot_chat_id,
-					'twf_text'        => $caption,
+					'twf_text'        => $message_text_clean,
 					'twf_image_url'   => $photo_url,
 					'twf_file_url'    => '',
 				);
+				
+				// [2026-07-21 Johnny Chu] PHASE-TWINWEB W3 — keep image/caption payloads on the same canonical ZaloBot listener bus as text messages without duplicating the workflow path.
+				do_action( 'bizcity_zalo_message_received', array_merge( $trigger, array(
+					'platform'       => 'ZALO_BOT',
+					'code'           => 'zalo_bot',
+					'account_id'     => (string) ( $bot ? $bot->id : '' ),
+					'account_name'   => $bot ? (string) $bot->bot_name : '',
+					'from_user_id'   => $identity_user_id,
+					'from_user_name' => $display_name,
+					'conversation_id'=> (string) ( $bot ? $bot->id : '' ),
+					'message_text'   => $message_text_clean,
+				) ) );
 				
 				// Fire workflow trigger (prefer gateway if available)
 				if ( function_exists( 'bizcity_gateway_fire_trigger' ) ) {
@@ -563,11 +625,283 @@ class BizCity_Zalo_Bot_Webhook_Handler {
 				$this->log_zalohook_info( 'Image message processed', array(
 					'user_id'   => $user_id,
 					'chat_id'   => $bot_chat_id,
+					'conversation_chat_id' => $conversation_chat_id,
+					'provider_chat_id' => $provider_chat_id,
+					'chat_kind' => $chat_kind,
 					'photo_url' => $photo_url,
 				) );
 				break;
 				
+			// [2026-07-24 Johnny Chu] PHASE-0.46 W1 — HOTFIX: message.file.received
+			// previously fell through to `default:` ("Unknown event type") and
+			// produced ZERO downstream action — uploaded PDF/Word/Excel/MD files
+			// never reached automation, command router, or Guru AI. Mirrors the
+			// message.image.received case above. Field names (file_url/file_name)
+			// are inferred from the existing (previously-unused) extract_file_url()/
+			// extract_file_name() helper naming and the photo_url convention used
+			// by message.image.received; confirm against a live payload sample and
+			// adjust the isset() fallbacks below if the real Bot API uses different
+			// keys (e.g. document_url/document_name).
+			case 'message.file.received':
+				$file_url  = isset( $message['file_url'] ) ? $message['file_url'] : ( isset( $message['document_url'] ) ? $message['document_url'] : '' );
+				$file_name = isset( $message['file_name'] ) ? $message['file_name'] : ( isset( $message['document_name'] ) ? $message['document_name'] : '' );
+				$caption   = isset( $message['caption'] ) ? $message['caption'] : '';
+				$mention_detected     = $this->zalobot_text_mentions_bot( $caption, $bot );
+				$reply_to_bot_message = $this->zalobot_message_replies_to_bot( $message );
+				$message_text_clean   = $mention_detected ? $this->zalobot_strip_bot_mention( $caption, $bot ) : $caption;
+				
+				$trigger = array(
+					'platform'        => $platform,
+					'client_id'       => $client_id,
+					'chat_id'         => $bot_chat_id,
+					'conversation_chat_id' => $conversation_chat_id,
+					'provider_chat_id' => $provider_chat_id,
+					'provider_chat_type' => $provider_chat_type,
+					'chat_kind'       => $chat_kind,
+					'sender_user_id'  => $identity_user_id,
+					'user_id'         => $user_id,
+					'wp_user_id'      => $wp_user_id,
+					'message_id'      => $message_id,
+					'text'            => $message_text_clean,
+					'raw_text'        => $caption,
+					'message_text_clean' => $message_text_clean,
+					'mention_detected' => $mention_detected,
+					'reply_to_bot_message' => $reply_to_bot_message,
+					'display_name'    => $display_name,
+					'attachment_type'  => 'file',
+					'attachment_url'   => $file_url,
+					'file_url'         => $file_url,
+					'file_name'        => $file_name,
+					'bot_id'          => $bot ? $bot->id : '',
+					'bot_name'        => $bot ? $bot->bot_name : '',
+					'source_blog_id'  => $source_blog_id,
+					'raw'             => $data,
+					// Backward-compat: twf_ prefix fields required by workflow actions
+					'twf_platform'    => $platform,
+					'twf_client_id'   => $client_id,
+					'twf_chat_id'     => $bot_chat_id,
+					'twf_text'        => $message_text_clean,
+					'twf_image_url'   => '',
+					'twf_file_url'    => $file_url,
+				);
+				
+				do_action( 'bizcity_zalo_message_received', array_merge( $trigger, array(
+					'platform'       => 'ZALO_BOT',
+					'code'           => 'zalo_bot',
+					'account_id'     => (string) ( $bot ? $bot->id : '' ),
+					'account_name'   => $bot ? (string) $bot->bot_name : '',
+					'from_user_id'   => $identity_user_id,
+					'from_user_name' => $display_name,
+					'conversation_id'=> (string) ( $bot ? $bot->id : '' ),
+					'message_text'   => $message_text_clean,
+				) ) );
+				
+				// Fire workflow trigger (prefer gateway if available)
+				if ( function_exists( 'bizcity_gateway_fire_trigger' ) ) {
+					bizcity_gateway_fire_trigger( $trigger, $data );
+				} else {
+					do_action( 'waic_twf_process_flow', $trigger, $data );
+				}
+				
+				$this->log_zalohook_info( 'File message processed', array(
+					'user_id'   => $user_id,
+					'chat_id'   => $bot_chat_id,
+					'conversation_chat_id' => $conversation_chat_id,
+					'provider_chat_id' => $provider_chat_id,
+					'chat_kind' => $chat_kind,
+					'file_url'  => $file_url,
+					'file_name' => $file_name,
+				) );
+				break;
+				
+			// [2026-07-24 Johnny Chu] PHASE-0.46 W4 S4.1 — real payload confirmed
+			// from live bizcity-channel-logs/zalo_bot/2026-07-24.jsonl (log_row_id=24):
+			//   { event_name:"message.voice.received", message:{ voice_url, chat:{chat_type,id},
+			//     message_id, message_type:"CHAT_VOICE", from:{id,is_bot,display_name} } }
+			// NOTE: unlike message.image.received, there is NO caption field on voice
+			// messages — confirmed absent in the live payload. Do not invent one.
+			case 'message.voice.received':
+				$voice_url = isset( $message['voice_url'] ) ? $message['voice_url'] : '';
+				
+				$trigger = array(
+					'platform'        => $platform,
+					'client_id'       => $client_id,
+					'chat_id'         => $bot_chat_id,
+					'conversation_chat_id' => $conversation_chat_id,
+					'provider_chat_id' => $provider_chat_id,
+					'provider_chat_type' => $provider_chat_type,
+					'chat_kind'       => $chat_kind,
+					'sender_user_id'  => $identity_user_id,
+					'user_id'         => $user_id,
+					'wp_user_id'      => $wp_user_id,
+					'message_id'      => $message_id,
+					'text'            => '',
+					'raw_text'        => '',
+					'message_text_clean' => '',
+					'mention_detected' => false,
+					'reply_to_bot_message' => false,
+					'display_name'    => $display_name,
+					'attachment_type'  => 'audio',
+					'attachment_url'   => $voice_url,
+					'voice_url'        => $voice_url,
+					'bot_id'          => $bot ? $bot->id : '',
+					'bot_name'        => $bot ? $bot->bot_name : '',
+					'source_blog_id'  => $source_blog_id,
+					'raw'             => $data,
+					// Backward-compat: twf_ prefix fields required by workflow actions
+					'twf_platform'    => $platform,
+					'twf_client_id'   => $client_id,
+					'twf_chat_id'     => $bot_chat_id,
+					'twf_text'        => '',
+					'twf_image_url'   => '',
+					'twf_file_url'    => '',
+				);
+				
+				do_action( 'bizcity_zalo_message_received', array_merge( $trigger, array(
+					'platform'       => 'ZALO_BOT',
+					'code'           => 'zalo_bot',
+					'account_id'     => (string) ( $bot ? $bot->id : '' ),
+					'account_name'   => $bot ? (string) $bot->bot_name : '',
+					'from_user_id'   => $identity_user_id,
+					'from_user_name' => $display_name,
+					'conversation_id'=> (string) ( $bot ? $bot->id : '' ),
+					'message_text'   => '',
+				) ) );
+				
+				// Fire workflow trigger (prefer gateway if available)
+				if ( function_exists( 'bizcity_gateway_fire_trigger' ) ) {
+					bizcity_gateway_fire_trigger( $trigger, $data );
+				} else {
+					do_action( 'waic_twf_process_flow', $trigger, $data );
+				}
+				
+				$this->log_zalohook_info( 'Voice message processed', array(
+					'user_id'   => $user_id,
+					'chat_id'   => $bot_chat_id,
+					'conversation_chat_id' => $conversation_chat_id,
+					'provider_chat_id' => $provider_chat_id,
+					'chat_kind' => $chat_kind,
+					'voice_url' => $voice_url,
+				) );
+				break;
+				
 			default:
+				// [2026-07-25 Johnny Chu] PHASE-0.46 W4.6 — Bot Platform can emit
+				// `message.unsupported.received` for new/rolling attachment shapes.
+				// Fail-open by mapping any detectable media URL into the canonical
+				// trigger envelope so pending media queues + @ghichu capture still work.
+				$fallback = $this->build_unknown_message_trigger_payload(
+					$message,
+					$event_name,
+					$platform,
+					$client_id,
+					$bot_chat_id,
+					$conversation_chat_id,
+					$provider_chat_id,
+					$provider_chat_type,
+					$chat_kind,
+					$identity_user_id,
+					$user_id,
+					$wp_user_id,
+					$message_id,
+					$display_name,
+					$bot,
+					$source_blog_id,
+					$data
+				);
+				if ( is_array( $fallback ) && ! empty( $fallback['attachment_url'] ) ) {
+					do_action( 'bizcity_zalo_message_received', array_merge( $fallback, array(
+						'platform'       => 'ZALO_BOT',
+						'code'           => 'zalo_bot',
+						'account_id'     => (string) ( $bot ? $bot->id : '' ),
+						'account_name'   => $bot ? (string) $bot->bot_name : '',
+						'from_user_id'   => $identity_user_id,
+						'from_user_name' => $display_name,
+						'conversation_id'=> (string) ( $bot ? $bot->id : '' ),
+						'message_text'   => (string) ( $fallback['message_text_clean'] ?? '' ),
+					) ) );
+
+					if ( function_exists( 'bizcity_gateway_fire_trigger' ) ) {
+						bizcity_gateway_fire_trigger( $fallback, $data );
+					} else {
+						do_action( 'waic_twf_process_flow', $fallback, $data );
+					}
+
+					$this->log_zalohook_info( 'Unknown message event fallback processed', array(
+						'event_name'      => $event_name,
+						'attachment_type' => (string) ( $fallback['attachment_type'] ?? '' ),
+						'attachment_url'  => (string) ( $fallback['attachment_url'] ?? '' ),
+						'chat_id'         => $bot_chat_id,
+						'provider_chat_id'=> $provider_chat_id,
+						'message_id'      => $message_id,
+					) );
+					break;
+				}
+
+				// [2026-07-26 Johnny Chu] PHASE-0.46 W5 HOTFIX — when Zalo emits
+				// `message.unsupported.received` WITHOUT any media URL (common for
+				// desktop/rolling file payloads), still emit a canonical internal
+				// event so the notebook listener can proactively reply "chưa lấy
+				// được file" instead of failing silently.
+				if ( $event_name === 'message.unsupported.received' ) {
+					$unsupported = array(
+						'platform'        => $platform,
+						'client_id'       => $client_id,
+						'chat_id'         => $bot_chat_id,
+						'conversation_chat_id' => $conversation_chat_id,
+						'provider_chat_id' => $provider_chat_id,
+						'provider_chat_type' => $provider_chat_type,
+						'chat_kind'       => $chat_kind,
+						'sender_user_id'  => $identity_user_id,
+						'user_id'         => $user_id,
+						'wp_user_id'      => $wp_user_id,
+						'message_id'      => $message_id,
+						'text'            => '',
+						'raw_text'        => '',
+						'message_text_clean' => '',
+						'mention_detected' => false,
+						'reply_to_bot_message' => false,
+						'display_name'    => $display_name,
+						'attachment_type'  => 'unsupported',
+						'attachment_url'   => '',
+						'unsupported_event' => $event_name,
+						'bot_id'          => $bot ? $bot->id : '',
+						'bot_name'        => $bot ? $bot->bot_name : '',
+						'source_blog_id'  => $source_blog_id,
+						'raw'             => $data,
+						'twf_platform'    => $platform,
+						'twf_client_id'   => $client_id,
+						'twf_chat_id'     => $bot_chat_id,
+						'twf_text'        => '',
+						'twf_image_url'   => '',
+						'twf_file_url'    => '',
+					);
+
+					do_action( 'bizcity_zalo_message_received', array_merge( $unsupported, array(
+						'platform'       => 'ZALO_BOT',
+						'code'           => 'zalo_bot',
+						'account_id'     => (string) ( $bot ? $bot->id : '' ),
+						'account_name'   => $bot ? (string) $bot->bot_name : '',
+						'from_user_id'   => $identity_user_id,
+						'from_user_name' => $display_name,
+						'conversation_id'=> (string) ( $bot ? $bot->id : '' ),
+						'message_text'   => '',
+					) ) );
+
+					// [2026-07-26 Johnny Chu] PHASE-0.46 W5 HOTFIX — fail-open UX:
+					// if listener chain is skipped for any reason, still send one
+					// direct guidance reply for unsupported file payloads.
+					$this->maybe_send_unsupported_file_guidance( $bot, $provider_chat_id, $message_id );
+
+					$this->log_zalohook_info( 'Unsupported message emitted to internal listener bus', array(
+						'event_name'       => $event_name,
+						'chat_id'          => $bot_chat_id,
+						'provider_chat_id' => $provider_chat_id,
+						'message_id'       => $message_id,
+					) );
+					break;
+				}
+
 				$this->log_zalohook_info( 'Unknown event type: ' . $event_name, $data );
 				break;
 		}
@@ -576,6 +910,118 @@ class BizCity_Zalo_Bot_Webhook_Handler {
 		do_action( 'bizcity_zalo_bot_webhook_event', $bot, $event_name, $data );
 		
 		return true;
+	}
+
+	/**
+	 * [2026-07-25 Johnny Chu] PHASE-0.46 W4.6 — normalize unknown Bot Platform
+	 * message events that still carry media URLs (e.g. message.unsupported.received)
+	 * into the canonical trigger envelope so pending-media and notebook capture
+	 * pipelines keep working.
+	 */
+	private function build_unknown_message_trigger_payload(
+		array $message,
+		$event_name,
+		$platform,
+		$client_id,
+		$bot_chat_id,
+		$conversation_chat_id,
+		$provider_chat_id,
+		$provider_chat_type,
+		$chat_kind,
+		$identity_user_id,
+		$user_id,
+		$wp_user_id,
+		$message_id,
+		$display_name,
+		$bot,
+		$source_blog_id,
+		array $raw_data
+	) {
+		$attachment_type = '';
+		$attachment_url  = '';
+		$file_name       = '';
+		$voice_url       = '';
+
+		if ( ! empty( $message['photo_url'] ) ) {
+			$attachment_type = 'image';
+			$attachment_url  = (string) $message['photo_url'];
+		} elseif ( ! empty( $message['file_url'] ) || ! empty( $message['document_url'] ) ) {
+			$attachment_type = 'file';
+			$attachment_url  = (string) ( $message['file_url'] ?? $message['document_url'] );
+			$file_name       = sanitize_file_name( (string) ( $message['file_name'] ?? $message['document_name'] ?? '' ) );
+		} elseif ( ! empty( $message['voice_url'] ) ) {
+			$attachment_type = 'audio';
+			$attachment_url  = (string) $message['voice_url'];
+			$voice_url       = (string) $message['voice_url'];
+		} else {
+			// Legacy OA-style payload fallback (`message_attachments[].payload.url`).
+			$image_fallback = (string) $this->extract_image_url( $raw_data );
+			$file_fallback  = (string) $this->extract_file_url( $raw_data );
+			if ( $image_fallback !== '' ) {
+				$attachment_type = 'image';
+				$attachment_url  = $image_fallback;
+			} elseif ( $file_fallback !== '' ) {
+				$attachment_type = 'file';
+				$attachment_url  = $file_fallback;
+				$file_name       = sanitize_file_name( (string) $this->extract_file_name( $raw_data ) );
+			}
+		}
+
+		$attachment_url = trim( $attachment_url );
+		if ( $attachment_url === '' ) {
+			return array();
+		}
+
+		$text                = (string) ( $message['caption'] ?? $message['text'] ?? '' );
+		$mention_detected    = $this->zalobot_text_mentions_bot( $text, $bot );
+		$reply_to_bot_message = $this->zalobot_message_replies_to_bot( $message );
+		$message_text_clean  = $mention_detected ? $this->zalobot_strip_bot_mention( $text, $bot ) : $text;
+
+		$payload = array(
+			'platform'            => $platform,
+			'client_id'           => $client_id,
+			'chat_id'             => $bot_chat_id,
+			'conversation_chat_id'=> $conversation_chat_id,
+			'provider_chat_id'    => $provider_chat_id,
+			'provider_chat_type'  => $provider_chat_type,
+			'chat_kind'           => $chat_kind,
+			'sender_user_id'      => $identity_user_id,
+			'user_id'             => $user_id,
+			'wp_user_id'          => $wp_user_id,
+			'message_id'          => $message_id,
+			'text'                => $message_text_clean,
+			'raw_text'            => $text,
+			'message_text_clean'  => $message_text_clean,
+			'mention_detected'    => $mention_detected,
+			'reply_to_bot_message'=> $reply_to_bot_message,
+			'display_name'        => $display_name,
+			'attachment_type'     => $attachment_type,
+			'attachment_url'      => $attachment_url,
+			'bot_id'              => $bot ? $bot->id : '',
+			'bot_name'            => $bot ? $bot->bot_name : '',
+			'source_blog_id'      => $source_blog_id,
+			'raw'                 => $raw_data,
+			'twf_platform'        => $platform,
+			'twf_client_id'       => $client_id,
+			'twf_chat_id'         => $bot_chat_id,
+			'twf_text'            => $message_text_clean,
+			'twf_image_url'       => $attachment_type === 'image' ? $attachment_url : '',
+			'twf_file_url'        => $attachment_type === 'file' ? $attachment_url : '',
+			'event_name'          => (string) $event_name,
+		);
+
+		if ( $attachment_type === 'image' ) {
+			$payload['image_url'] = $attachment_url;
+		}
+		if ( $attachment_type === 'file' ) {
+			$payload['file_url']  = $attachment_url;
+			$payload['file_name'] = $file_name;
+		}
+		if ( $attachment_type === 'audio' ) {
+			$payload['voice_url'] = $voice_url !== '' ? $voice_url : $attachment_url;
+		}
+
+		return $payload;
 	}
 	
 	private function log_zalohook_request( $data ) {
@@ -604,6 +1050,83 @@ class BizCity_Zalo_Bot_Webhook_Handler {
 			'data' => $data 
 		);
 		$this->write_zalohook_log( 'data', $log_data );
+	}
+
+	/**
+	 * [2026-07-26 Johnny Chu] PHASE-0.46 W5 HOTFIX — direct webhook-level
+	 * fallback reply for unsupported payloads with no media URL.
+	 */
+	private function maybe_send_unsupported_file_guidance( $bot, $provider_chat_id, $message_id ) {
+		$bot_id   = is_object( $bot ) && isset( $bot->id ) ? (int) $bot->id : 0;
+		$chat_id  = (string) $provider_chat_id;
+		$msg_id   = (string) $message_id;
+
+		if ( $bot_id <= 0 || $chat_id === '' || $msg_id === '' ) {
+			return;
+		}
+
+		// Shared key with notebook listener to prevent duplicate notices.
+		$key = 'bizcity_nb_unsupported_notice_' . md5( $bot_id . '|' . $msg_id );
+		if ( get_transient( $key ) ) {
+			return;
+		}
+		set_transient( $key, 1, DAY_IN_SECONDS );
+
+		if ( ! function_exists( 'bizcity_get_zalo_bot_api' ) ) {
+			$this->log_zalohook_info( 'Unsupported guidance skipped: API factory missing', array(
+				'bot_id'      => $bot_id,
+				'chat_id'     => $chat_id,
+				'message_id'  => $msg_id,
+			) );
+			return;
+		}
+
+		$api = bizcity_get_zalo_bot_api( $bot_id );
+		if ( ! $api || ! method_exists( $api, 'send_message' ) ) {
+			$this->log_zalohook_info( 'Unsupported guidance skipped: API unavailable', array(
+				'bot_id'      => $bot_id,
+				'chat_id'     => $chat_id,
+				'message_id'  => $msg_id,
+			) );
+			return;
+		}
+
+		$result = $api->send_message(
+			$chat_id,
+			"⚠️ Em nhận được file nhưng Zalo chưa cung cấp link tải hợp lệ (message.unsupported.received), nên chưa thể lưu vào hàng đợi học.\nSếp thử gửi lại dưới dạng ảnh/PDF/ghi âm hoặc gửi lại file trực tiếp từ điện thoại, rồi nhắn @ghichu để em lưu tiếp nhé."
+		);
+		if ( is_wp_error( $result ) ) {
+			$this->log_zalohook_error( 'Unsupported guidance send failed', array(
+				'bot_id'      => $bot_id,
+				'chat_id'     => $chat_id,
+				'message_id'  => $msg_id,
+				'error_code'  => $result->get_error_code(),
+				'error_msg'   => $result->get_error_message(),
+			) );
+			if ( class_exists( 'BizCity_Zalo_Bot_Database' ) ) {
+				$db = BizCity_Zalo_Bot_Database::instance();
+				$db->log_event( $bot_id, 'unsupported.guidance.failed', array(
+					'chat_id'    => $chat_id,
+					'message_id' => $msg_id,
+					'error_code' => $result->get_error_code(),
+					'error_msg'  => $result->get_error_message(),
+				), $chat_id, $msg_id, '', '' );
+			}
+			return;
+		}
+
+		$this->log_zalohook_info( 'Unsupported guidance sent to user', array(
+			'bot_id'      => $bot_id,
+			'chat_id'     => $chat_id,
+			'message_id'  => $msg_id,
+		) );
+		if ( class_exists( 'BizCity_Zalo_Bot_Database' ) ) {
+			$db = BizCity_Zalo_Bot_Database::instance();
+			$db->log_event( $bot_id, 'unsupported.guidance.sent', array(
+				'chat_id'    => $chat_id,
+				'message_id' => $msg_id,
+			), $chat_id, $msg_id, '', '' );
+		}
 	}
 	
 	private function log_zalohook_response( $response_data, $http_status = 200 ) {
@@ -640,6 +1163,33 @@ class BizCity_Zalo_Bot_Webhook_Handler {
 			json_encode( $log_entry, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) . "\n", 
 			FILE_APPEND 
 		);
+	}
+
+	private function zalobot_text_mentions_bot( $text, $bot ) {
+		// [2026-07-21 Johnny Chu] PHASE-ZALOBOT-GROUP W6 — detect group mention before selector matching.
+		$text = (string) $text;
+		if ( strpos( $text, '@' ) === false ) { return false; }
+		$bot_name = is_object( $bot ) && isset( $bot->bot_name ) ? trim( (string) $bot->bot_name ) : '';
+		if ( $bot_name !== '' && mb_stripos( $text, '@' . $bot_name, 0, 'UTF-8' ) !== false ) { return true; }
+		return preg_match( '/@\s*bot\b/iu', $text ) === 1;
+	}
+
+	private function zalobot_strip_bot_mention( $text, $bot ) {
+		// [2026-07-21 Johnny Chu] PHASE-ZALOBOT-GROUP W6 — remove bot mention from prompt text but keep raw_text for audit.
+		$text = (string) $text;
+		$bot_name = is_object( $bot ) && isset( $bot->bot_name ) ? trim( (string) $bot->bot_name ) : '';
+		if ( $bot_name !== '' ) {
+			$text = preg_replace( '/@\s*' . preg_quote( $bot_name, '/' ) . '\b\s*/iu', '', $text );
+		}
+		$text = preg_replace( '/@\s*bot\s+[^\s]+\s*/iu', '', $text );
+		$text = preg_replace( '/\s+/u', ' ', (string) $text );
+		return trim( (string) $text );
+	}
+
+	private function zalobot_message_replies_to_bot( $message ) {
+		// [2026-07-21 Johnny Chu] PHASE-ZALOBOT-GROUP W6 — Bot Platform only delivers group quote/reply events to the bot.
+		if ( ! is_array( $message ) ) { return false; }
+		return ! empty( $message['reply_to_message'] ) || ! empty( $message['quoted_message'] ) || ! empty( $message['quote'] );
 	}
 
 	/**

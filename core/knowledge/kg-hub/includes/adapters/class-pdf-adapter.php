@@ -323,8 +323,16 @@ class BizCity_KG_Pdf_Adapter implements BizCity_KG_Source_Adapter {
 					[ 'status' => 402, 'feature' => 'learning.pdf_scan' ]
 				);
 			}
-		} elseif ( class_exists( 'BizCity_Router_Auth' ) ) {
-			$tier = BizCity_Router_Auth::get_user_tier( $user_id );
+		} elseif ( class_exists( 'BizCity_LLM_Client' ) ) {
+			// [2026-07-23 Johnny Chu] R-LLM-KEY-ONLY — read this site's OWN synced
+			// plan level (populated by BizCity_LLM_Client from the Hub's key-based
+			// entitlement response — see bizcity_hub_master_level option), instead of
+			// reaching into the Hub-internal BizCity_Router_Auth::get_user_tier($user_id),
+			// which resolves plan via WP user_id/user-meta. The Router Hub distinguishes
+			// plan SOLELY by API key, never by a local WP user id — see the R-LLM-KEY-ONLY
+			// rule block in bizcity-llm-router/includes/class-router-auth.php's file header.
+			$master_level = sanitize_key( (string) get_option( 'bizcity_hub_master_level', 'free' ) );
+			$tier         = BizCity_LLM_Client::tier_bucket_from_master_level( $master_level );
 			if ( 'free' === $tier ) {
 				if ( class_exists( 'BizCity_Entitlement' ) && method_exists( 'BizCity_Entitlement', 'record_blocked' ) ) {
 					BizCity_Entitlement::record_blocked( $user_id, [

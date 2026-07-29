@@ -2,11 +2,11 @@
 /**
  * BizCity Zalo Bot – Gateway Bridge
  *
- * Tích hợp bizcity-zalo-bot với bizcity-admin-hook-zalo gateway.
+ * Tích hợp bizcity-zalo-bot với Channel Gateway standalone của bizcity-twin-ai.
  *
  * Chức năng:
  *   1. Khi webhook nhận tin nhắn → resolve WP user_id từ bot assignment
- *   2. Normalize trigger qua bizcity_gateway_normalize_trigger()
+ *   2. Normalize trigger qua bizcity_gateway_normalize_trigger() legacy compat khi cần
  *   3. Fire unified trigger qua bizcity_gateway_fire_trigger()
  *   4. Override send message cho zalobot_ prefix chat_id
  *   5. Bridge: bizcity_zalo_message_received → gateway trigger
@@ -69,8 +69,21 @@ class BizCity_Zalo_Bot_Gateway_Bridge {
 		$bot_name  = isset( $message_data['bot_name'] )  ? $message_data['bot_name']     : '';
 		$user_id_z = isset( $message_data['from_user_id'] ) ? $message_data['from_user_id'] : '';
 		$text      = isset( $message_data['message_text'] ) ? $message_data['message_text'] : '';
+		$clean_text = isset( $message_data['message_text_clean'] ) ? (string) $message_data['message_text_clean'] : $text;
 		$msg_id    = isset( $message_data['message_id'] )   ? $message_data['message_id']   : '';
 		$img_url   = isset( $message_data['image_url'] )    ? $message_data['image_url']    : '';
+		// [2026-07-21 Johnny Chu] PHASE-ZALOBOT-GROUP W6 — bridge conversation target separately from sender identity.
+		$chat_kind = isset( $message_data['chat_kind'] ) ? sanitize_key( (string) $message_data['chat_kind'] ) : 'private';
+		if ( $chat_kind !== 'group' ) { $chat_kind = 'private'; }
+		$provider_chat_id = isset( $message_data['provider_chat_id'] ) ? (string) $message_data['provider_chat_id'] : '';
+		if ( $provider_chat_id === '' ) {
+			$provider_chat_id = isset( $message_data['conversation_id'] ) ? (string) $message_data['conversation_id'] : $user_id_z;
+		}
+		$provider_chat_type = isset( $message_data['provider_chat_type'] ) ? (string) $message_data['provider_chat_type'] : ( $chat_kind === 'group' ? 'GROUP' : 'PRIVATE' );
+		$conversation_chat_id = isset( $message_data['conversation_chat_id'] ) ? (string) $message_data['conversation_chat_id'] : '';
+		if ( $conversation_chat_id === '' ) {
+			$conversation_chat_id = 'zalobot_' . $bot_id . '_' . ( $chat_kind === 'group' ? 'group_' : 'private_' ) . $provider_chat_id;
+		}
 
 		// Resolve WordPress user_id — per-user link takes priority over bot-owner assignment
 		$wp_user_id = 0;
@@ -96,16 +109,25 @@ class BizCity_Zalo_Bot_Gateway_Bridge {
 		if ( class_exists( 'BizCity_Gateway_Bridge' ) ) {
 			$payload = [
 				'platform'    => 'ZALO_BOT',
-				'chat_id'     => 'zalobot_' . $bot_id . '_' . $user_id_z,
+				'chat_id'     => $conversation_chat_id,
+				'conversation_chat_id' => $conversation_chat_id,
+				'provider_chat_id' => $provider_chat_id,
+				'provider_chat_type' => $provider_chat_type,
+				'chat_kind'   => $chat_kind,
 				'user_id'     => $user_id_z,
+				'sender_user_id' => $user_id_z,
 				'client_name' => $display_name,
-				'message'     => $text,
+				'message'     => $clean_text,
+				'raw_text'    => $text,
+				'message_text_clean' => $clean_text,
 				'message_id'  => $msg_id,
 				'attachments' => [],
 				'event_type'  => 'message',
 				'bot_id'      => (string) $bot_id,
 				'bot_name'    => $bot_name,
 				'wp_user_id'  => $wp_user_id,
+				'mention_detected' => ! empty( $message_data['mention_detected'] ),
+				'reply_to_bot_message' => ! empty( $message_data['reply_to_bot_message'] ),
 				'image_url'   => $img_url,
 				'raw'         => $message_data,
 			];
@@ -118,17 +140,26 @@ class BizCity_Zalo_Bot_Gateway_Bridge {
 		if ( function_exists( 'bizcity_gateway_normalize_trigger' ) ) {
 			$data = array(
 				'from_user_id'   => $user_id_z,
-				'client_id'      => $user_id_z,
-				'chat_id'        => 'zalobot_' . $bot_id . '_' . $user_id_z,
+				'client_id'      => $conversation_chat_id,
+				'chat_id'        => $conversation_chat_id,
+				'conversation_chat_id' => $conversation_chat_id,
+				'provider_chat_id' => $provider_chat_id,
+				'provider_chat_type' => $provider_chat_type,
+				'chat_kind'      => $chat_kind,
+				'sender_user_id' => $user_id_z,
 				'user_id'        => $wp_user_id ? (string) $wp_user_id : $user_id_z,
-				'message_text'   => $text,
-				'text'           => $text,
+				'message_text'   => $clean_text,
+				'raw_text'       => $text,
+				'message_text_clean' => $clean_text,
+				'text'           => $clean_text,
 				'message_id'     => $msg_id,
 				'display_name'   => $display_name,
 				'bot_id'         => (string) $bot_id,
 				'bot_name'       => $bot_name,
 				'image_url'      => $img_url,
 				'wp_user_id'     => $wp_user_id,
+				'mention_detected' => ! empty( $message_data['mention_detected'] ),
+				'reply_to_bot_message' => ! empty( $message_data['reply_to_bot_message'] ),
 				'message_type'   => isset( $message_data['message_type'] ) ? $message_data['message_type'] : 'text',
 			);
 
@@ -179,7 +210,7 @@ class BizCity_Zalo_Bot_Gateway_Bridge {
 		}
 
 		$bot_id       = $parsed['bot_id'];
-		$zalo_user_id = $parsed['zalo_user_id'];
+		$zalo_user_id = $parsed['zalo_user_id']; // [2026-07-21 Johnny Chu] PHASE-ZALOBOT-GROUP W3 — provider chat id; can be user or group id.
 
 		// Resolve blog_id from bot assignment và switch context
 		$target_blog_id = $this->resolve_bot_blog_id( $bot_id );
@@ -217,7 +248,7 @@ class BizCity_Zalo_Bot_Gateway_Bridge {
 			return false;
 		}
 
-		error_log( sprintf( '[Zalo Bot Gateway] ✅ Sent text to bot #%d user %s', $bot_id, $zalo_user_id ) );
+		error_log( sprintf( '[Zalo Bot Gateway] ✅ Sent text to bot #%d %s %s', $bot_id, $parsed['chat_kind'], $zalo_user_id ) );
 		return true;
 	}
 
@@ -235,7 +266,7 @@ class BizCity_Zalo_Bot_Gateway_Bridge {
 		}
 
 		$bot_id       = $parsed['bot_id'];
-		$zalo_user_id = $parsed['zalo_user_id'];
+		$zalo_user_id = $parsed['zalo_user_id']; // [2026-07-21 Johnny Chu] PHASE-ZALOBOT-GROUP W3 — provider chat id; can be user or group id.
 
 		// Resolve blog_id from bot assignment và switch context
 		$target_blog_id = $this->resolve_bot_blog_id( $bot_id );
@@ -267,7 +298,7 @@ class BizCity_Zalo_Bot_Gateway_Bridge {
 			return false;
 		}
 
-		error_log( sprintf( '[Zalo Bot Gateway] ✅ Sent photo to bot #%d user %s', $bot_id, $zalo_user_id ) );
+		error_log( sprintf( '[Zalo Bot Gateway] ✅ Sent photo to bot #%d %s %s', $bot_id, $parsed['chat_kind'], $zalo_user_id ) );
 		return true;
 	}
 
@@ -377,7 +408,9 @@ class BizCity_Zalo_Bot_Gateway_Bridge {
 	/**
 	 * Parse zalobot_ prefix chat_id
 	 *
-	 * Format: zalobot_{bot_id}_{zalo_user_id}
+	 * Format: zalobot_{bot_id}_{zalo_user_id} (legacy private)
+	 *         zalobot_{bot_id}_private_{zalo_user_id}
+	 *         zalobot_{bot_id}_group_{zalo_group_id}
 	 *
 	 * @param string $chat_id
 	 * @return array|false ['bot_id' => int, 'zalo_user_id' => string]
@@ -398,6 +431,16 @@ class BizCity_Zalo_Bot_Gateway_Bridge {
 
 		$bot_id       = intval( substr( $rest, 0, $pos ) );
 		$zalo_user_id = substr( $rest, $pos + 1 );
+		$chat_kind    = 'private';
+
+		// [2026-07-21 Johnny Chu] PHASE-ZALOBOT-GROUP W3 — explicit private/group conversation targets.
+		if ( strpos( $zalo_user_id, 'private_' ) === 0 ) {
+			$zalo_user_id = substr( $zalo_user_id, 8 );
+			$chat_kind    = 'private';
+		} elseif ( strpos( $zalo_user_id, 'group_' ) === 0 ) {
+			$zalo_user_id = substr( $zalo_user_id, 6 );
+			$chat_kind    = 'group';
+		}
 
 		if ( $bot_id <= 0 || empty( $zalo_user_id ) ) {
 			return false;
@@ -406,6 +449,7 @@ class BizCity_Zalo_Bot_Gateway_Bridge {
 		return array(
 			'bot_id'       => $bot_id,
 			'zalo_user_id' => $zalo_user_id,
+			'chat_kind'    => $chat_kind,
 		);
 	}
 }

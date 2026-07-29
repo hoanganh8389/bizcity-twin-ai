@@ -83,12 +83,14 @@ class BizCity_Memory_Unified_Writer {
 	/* ─── Class-specific mirrors ────────────────────────────────── */
 
 	private function mirror_user( array $row ): void {
+		// [2026-07-28 Johnny Chu] R-CH-IDMEM — mirror the durable identity owner with legacy memory rows.
 		$this->upsert_unified( [
 			'memory_class' => 'user',
 			'legacy_id'    => (int) ( $row['id'] ?? 0 ),
 			'blog_id'      => (int) ( $row['blog_id']    ?? get_current_blog_id() ),
 			'user_id'      => (int) ( $row['user_id']    ?? 0 ),
 			'session_id'   => (string) ( $row['session_id'] ?? '' ),
+			'identity_uuid' => (string) ( $row['identity_uuid'] ?? '' ),
 			'memory_tier'  => (string) ( $row['memory_tier'] ?? 'extracted' ),
 			'memory_type'  => (string) ( $row['memory_type'] ?? 'fact' ),
 			'memory_key'   => (string) ( $row['memory_key']  ?? '' ),
@@ -196,8 +198,10 @@ class BizCity_Memory_Unified_Writer {
 		$blog_id    = (int) ( $data['blog_id']    ?? get_current_blog_id() );
 		$user_id    = (int) ( $data['user_id']    ?? 0 );
 		$session_id = (string) ( $data['session_id'] ?? '' );
+		$identity_uuid = (string) ( $data['identity_uuid'] ?? '' );
+		// [2026-07-28 Johnny Chu] R-CH-IDMEM — keep mirror dedupe and lookup scoped to identity UUID.
 
-		$dedupe_key = $blog_id . '|' . $user_id . '|' . $session_id . '|' . $class . '|' . $key;
+		$dedupe_key = $blog_id . '|' . $user_id . '|' . $session_id . '|' . $identity_uuid . '|' . $class . '|' . $key;
 		if ( isset( $this->seen[ $dedupe_key ] ) ) return;
 		$this->seen[ $dedupe_key ] = true;
 
@@ -208,6 +212,7 @@ class BizCity_Memory_Unified_Writer {
 			'blog_id'         => $blog_id,
 			'user_id'         => $user_id,
 			'session_id'      => $session_id,
+			'identity_uuid'   => $identity_uuid,
 			'conversation_id' => (string) ( $data['conversation_id'] ?? '' ),
 			'notebook_id'     => (int) ( $data['notebook_id'] ?? 0 ),
 			'memory_class'    => $class,
@@ -234,8 +239,8 @@ class BizCity_Memory_Unified_Writer {
 
 		// Check existing via unique key.
 		$exists_id = (int) $wpdb->get_var( $wpdb->prepare(
-			"SELECT id FROM {$table} WHERE blog_id=%d AND user_id=%d AND session_id=%s AND memory_class=%s AND memory_key=%s LIMIT 1",
-			$blog_id, $user_id, $session_id, $class, $key
+			"SELECT id FROM {$table} WHERE blog_id=%d AND user_id=%d AND session_id=%s AND identity_uuid=%s AND memory_class=%s AND memory_key=%s LIMIT 1",
+			$blog_id, $user_id, $session_id, $identity_uuid, $class, $key
 		) );
 
 		if ( $exists_id > 0 ) {

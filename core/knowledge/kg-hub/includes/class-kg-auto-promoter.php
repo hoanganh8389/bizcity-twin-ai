@@ -122,6 +122,14 @@ class BizCity_KG_Auto_Promoter {
 				(int) $notebook_id, $pid, $vec, null, null
 			);
 		}
+
+		if ( $pid && class_exists( 'BizCity_KG_Filestore_Dispatcher' ) ) {
+			// [2026-07-15 Johnny Chu] PHASE-FILE-PRIMARY — auto-promote path must
+			// also write shard body so v07 file-primary can scrub SQL inline content.
+			BizCity_KG_Filestore_Dispatcher::instance()->after_passage_insert(
+				$pid, (int) $notebook_id, $content
+			);
+		}
 	}
 
 	/**

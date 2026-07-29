@@ -189,12 +189,12 @@ class BizCity_Project_Service {
             'character_id' => $character_id,
             'created'      => current_time( 'mysql' ),
         ];
-        update_user_meta( $user_id, 'bizcity_projects', $projects );
-        unset( self::$legacy_project_cache[ $user_id ] ); // [2026-06-11 Johnny Chu] R-PERF — bust cache sau khi write
-        // [2026-06-22 Johnny Chu] R-PERF — also bust BizCity_User_Meta_Cache
         if ( class_exists( 'BizCity_User_Meta_Cache' ) ) {
-            BizCity_User_Meta_Cache::invalidate( $user_id, 'bizcity_projects' );
+            BizCity_User_Meta_Cache::set( $user_id, 'bizcity_projects', $projects );
+        } else {
+            update_user_meta( $user_id, 'bizcity_projects', $projects );
         }
+        unset( self::$legacy_project_cache[ $user_id ] ); // [2026-06-11 Johnny Chu] R-PERF — bust cache sau khi write
 
         return [
             'id'           => $project_id,

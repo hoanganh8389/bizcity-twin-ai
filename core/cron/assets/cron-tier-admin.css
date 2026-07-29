@@ -1,0 +1,50 @@
+.bz-cron-tier-summary-table {
+	max-width: 960px;
+	margin: 12px 0 16px;
+}
+
+.bz-cron-tier-summary-note {
+	max-width: 960px;
+	margin: 0 0 12px;
+}
+
+.bz-cron-tier-badge {
+	display: inline-block;
+	padding: 2px 8px;
+	border: 1px solid #8c8f94;
+	border-radius: 10px;
+	font-weight: 600;
+	line-height: 1.4;
+	color: #50575e;
+	background: #fff;
+}
+
+.bz-cron-tier-badge--fresh {
+	color: #007017;
+	border-color: #0a7f3f;
+	background: #eefaf2;
+}
+
+.bz-cron-tier-badge--stale {
+	color: #8a2424;
+	border-color: #a00;
+	background: #fff1f1;
+}
+
+.bz-cron-tier-sync-desc {
+	margin-left: 8px;
+}
+
+.bz-cron-tier-hint-icon {
+	margin-left: 6px;
+	font-size: 16px;
+	line-height: 1;
+	vertical-align: text-bottom;
+	color: #646970;
+	cursor: help;
+}
+
+.bz-cron-tier-hint-icon:hover,
+.bz-cron-tier-hint-icon:focus {
+	color: #2271b1;
+}

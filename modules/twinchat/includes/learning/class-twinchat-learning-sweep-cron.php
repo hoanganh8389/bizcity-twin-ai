@@ -25,6 +25,8 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 class BizCity_TwinChat_Learning_Sweep_Cron {
 
 	const HOOK            = 'bizcity_kg_learning_sweep';
+	const JOB_ID          = 'kg.learning_sweep';
+	// [2026-07-15 Johnny Chu] R-CRON-TIER Wave 2 — legacy 15m key kept as fallback only.
 	const SCHEDULE_KEY    = 'bizcity_twinchat_learning_15min';
 	const SCHEDULE_S      = 900; // 15 min
 	const STALE_AFTER_MIN = 5;   // chunks older than 5 min still pending → ghost candidate
@@ -33,6 +35,46 @@ class BizCity_TwinChat_Learning_Sweep_Cron {
 	const LOCK_TTL_S      = 120;
 	const OPT_LAST_TS     = 'bizcity_twinchat_learning_last_sweep';
 	const OPT_LAST_COUNT  = 'bizcity_twinchat_learning_last_sweep_count';
+
+	/**
+	 * [2026-07-23 Johnny Chu] PHASE-0.44 — unify sweep logs into the
+	 * dedicated learning log file (uploads/.../bizcity_learning_logs/YYYY-MM-DD.log)
+	 * instead of global PHP error logs.
+	 *
+	 * @param string $message
+	 */
+	protected static function write_learning_log( $message ) {
+		$msg = '[sweep] ' . (string) $message;
+
+		if ( function_exists( 'bizcity_tc_learning_debug_log' ) ) {
+			bizcity_tc_learning_debug_log( $msg );
+			return;
+		}
+
+		$path = '';
+		if ( function_exists( 'bizcity_tc_learning_debug_log_path' ) ) {
+			$path = (string) bizcity_tc_learning_debug_log_path( '', true );
+		} else {
+			$uploads  = function_exists( 'wp_upload_dir' ) ? wp_upload_dir( null, true, false ) : array();
+			$base_dir = ( is_array( $uploads ) && ! empty( $uploads['basedir'] ) )
+				? (string) $uploads['basedir']
+				: WP_CONTENT_DIR . '/uploads';
+			$log_dir  = trailingslashit( wp_normalize_path( $base_dir ) ) . 'bizcity_learning_logs';
+			if ( ! is_dir( $log_dir ) ) {
+				@wp_mkdir_p( $log_dir );
+			}
+			$path = trailingslashit( $log_dir ) . gmdate( 'Y-m-d' ) . '.log';
+		}
+
+		if ( $path !== '' ) {
+			$line = sprintf( "[%s UTC] [TC-Learning] %s\n", gmdate( 'd-M-Y H:i:s' ), $msg );
+			@file_put_contents( $path, $line, FILE_APPEND | LOCK_EX );
+		}
+
+		if ( apply_filters( 'bizcity_twinchat_learning_sweep_mirror_error_log', false ) && function_exists( 'error_log' ) ) {
+			error_log( '[TwinChat Learning Sweep] ' . (string) $message );
+		}
+	}
 
 	public static function bind() {
 		add_filter( 'cron_schedules', [ __CLASS__, 'register_schedule' ] );
@@ -52,9 +94,107 @@ class BizCity_TwinChat_Learning_Sweep_Cron {
 
 	/** Per-blog scheduling — uses get_option so each multisite blog ticks independently. */
 	public static function maybe_schedule() {
-		if ( ! wp_next_scheduled( self::HOOK ) ) {
-			wp_schedule_event( time() + 60, self::SCHEDULE_KEY, self::HOOK );
+		// [2026-07-15 Johnny Chu] R-CRON-TIER Wave 2 — tier-based interval
+		// (free 10m / pro 5m / premium 1m), reschedule only when changed.
+		$want = self::desired_schedule();
+		$ts   = wp_next_scheduled( self::HOOK );
+		if ( $ts ) {
+			$cur = wp_get_schedule( self::HOOK );
+			if ( $cur !== $want ) {
+				wp_unschedule_event( $ts, self::HOOK );
+				$ts = false;
+			}
 		}
+
+		if ( class_exists( 'BizCity_Cron_Manager' ) ) {
+			// [2026-07-25 Johnny Chu] PHASE-0.46 W4.5 — register in core/cron so sweep runs are visible in cron registry/logs.
+			BizCity_Cron_Manager::instance()->register( array(
+				'id'          => self::JOB_ID,
+				'hook'        => self::HOOK,
+				'interval'    => $want,
+				'owner'       => 'modules/twinchat/learning',
+				'description' => 'Sweep pending KG chunks and enqueue missing learning jobs.',
+				'retention'   => 7,
+			) );
+		} elseif ( ! $ts ) {
+			wp_schedule_event( time() + 60, $want, self::HOOK );
+		}
+
+		// [2026-07-15 Johnny Chu] R-CRON-TIER Wave 2 — legacy compatibility:
+		// if old hook `bizcity_kg_broadcast_tick` still exists on this site, align
+		// it to tier interval; if hook has no handlers, leave unchanged for safety.
+		self::sync_legacy_broadcast_hook( $want );
+	}
+
+	/**
+	 * Keep legacy hook in sync for upgraded sites.
+	 *
+	 * @param string $want_schedule Desired schedule key.
+	 */
+	protected static function sync_legacy_broadcast_hook( $want_schedule ) {
+		$hook = 'bizcity_kg_broadcast_tick';
+		$ts   = wp_next_scheduled( $hook );
+		if ( ! $ts ) {
+			return;
+		}
+
+		if ( ! has_action( $hook ) ) {
+			return;
+		}
+
+		$cur = wp_get_schedule( $hook );
+		if ( $cur !== $want_schedule ) {
+			wp_unschedule_event( $ts, $hook );
+			wp_schedule_event( time() + 60, $want_schedule, $hook );
+		}
+	}
+
+	/**
+	 * Resolve schedule name for current license tier.
+	 *
+	 * Priority:
+	 *   1) BizCity_Cron_Tier_Settings (if loaded)
+	 *   2) Direct option read (network-aware) → bizcity_tier_{N}min
+	 *   3) Legacy fallback self::SCHEDULE_KEY (15 min)
+	 */
+	protected static function desired_schedule() {
+		if ( class_exists( 'BizCity_Cron_Tier_Settings' ) ) {
+			return (string) BizCity_Cron_Tier_Settings::current_schedule_name();
+		}
+
+		$tier = strtolower( trim( (string) get_option( 'bizcity_hub_master_level', 'free' ) ) );
+		$map  = array(
+			'free'       => 10,
+			'pro'        => 5,
+			'premium'    => 1,
+			'enterprise' => 1,
+		);
+
+		$stored = is_multisite()
+			? get_site_option( 'bizcity_cron_tier_minutes', array() )
+			: get_option( 'bizcity_cron_tier_minutes', array() );
+		if ( is_array( $stored ) ) {
+			foreach ( $map as $k => $def ) {
+				if ( isset( $stored[ $k ] ) ) {
+					$m = (int) $stored[ $k ];
+					if ( $m < 1 ) { $m = 1; }
+					if ( $m > 1440 ) { $m = 1440; }
+					$map[ $k ] = $m;
+				}
+			}
+		}
+
+		if ( ! isset( $map[ $tier ] ) ) {
+			$tier = 'free';
+		}
+
+		$name      = 'bizcity_tier_' . (int) $map[ $tier ] . 'min';
+		$schedules = wp_get_schedules();
+		if ( isset( $schedules[ $name ] ) ) {
+			return $name;
+		}
+
+		return self::SCHEDULE_KEY;
 	}
 
 	/**
@@ -127,19 +267,10 @@ class BizCity_TwinChat_Learning_Sweep_Cron {
 		$cap        = (int) self::MAX_PER_TICK;
 		$stale      = (int) self::STALE_AFTER_MIN;
 
-		// Bug fix 2026-05-08 — replica-missing-table guard.
-		// On read replicas (slave2) that lag or were never seeded for a fresh
-		// blog, `wp_<bid>_bizcity_kg_passages` may not exist yet even after
-		// migration ran on master. The router routes SELECT → replica, so the
-		// query below would emit a noisy "Table doesn't exist" every 15 min.
-		// SHOW TABLES on the same connection-class (read) is a cheap probe.
-		$prev = $wpdb->suppress_errors( true );
-		$exists = (string) $wpdb->get_var( $wpdb->prepare(
-			'SHOW TABLES LIKE %s',
-			$wpdb->esc_like( $chunks_tbl )
-		) );
-		$wpdb->suppress_errors( $prev );
-		if ( $exists !== $chunks_tbl ) {
+		// [2026-07-27 Johnny Chu] R-SHOW-TABLES — information_schema probe
+		// via learning DB helper to avoid SHOW TABLES full-scan behavior.
+		$exists = BizCity_TwinChat_Learning_Database::instance()->table_exists( $chunks_tbl );
+		if ( ! $exists ) {
 			// Reset last_error so the next caller does not see our suppressed
 			// "table doesn't exist" probe error and misclassify it.
 			$wpdb->last_error = '';
@@ -174,6 +305,7 @@ class BizCity_TwinChat_Learning_Sweep_Cron {
 		}
 
 		$enqueued = 0;
+		$prev_cnt = (int) get_option( self::OPT_LAST_COUNT, -1 );
 		$queue    = BizCity_TwinChat_Learning_Job_Queue::instance();
 
 		foreach ( $pairs as $p ) {
@@ -240,8 +372,10 @@ class BizCity_TwinChat_Learning_Sweep_Cron {
 		update_option( self::OPT_LAST_TS, time(), false );
 		update_option( self::OPT_LAST_COUNT, $enqueued, false );
 
-		if ( $enqueued > 0 && function_exists( 'error_log' ) ) {
-			error_log( sprintf( '[TwinChat Learning Sweep] enqueued %d sweep job(s) on blog %d', $enqueued, get_current_blog_id() ) );
+		// [2026-07-23 Johnny Chu] PHASE-0.44 — avoid noisy duplicate sweep logs every minute when count is unchanged.
+		$verbose = (bool) apply_filters( 'bizcity_twinchat_learning_sweep_verbose_log', false, $enqueued, $prev_cnt );
+		if ( $enqueued > 0 && ( $verbose || $enqueued !== $prev_cnt ) ) {
+			self::write_learning_log( sprintf( 'enqueued %d sweep job(s) on blog %d', $enqueued, get_current_blog_id() ) );
 		}
 	}
 }

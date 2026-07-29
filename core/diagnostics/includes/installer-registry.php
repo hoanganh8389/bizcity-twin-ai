@@ -132,15 +132,8 @@ if ( ! function_exists( 'bizcity_default_installers_filter' ) ) {
 				'expected_ver' => BizCity_KG_Database::SCHEMA_VERSION,
 			];
 		}
-		if ( class_exists( 'BizCity_KG_Source_Progress_Log' ) ) {
-			$list[] = [
-				'id'           => 'kg_source_progress_log',
-				'label'        => 'KG — Source progress log',
-				'callback'     => [ 'BizCity_KG_Source_Progress_Log', 'maybe_install' ],
-				'version_opt'  => BizCity_KG_Source_Progress_Log::OPTION_VERSION,
-				'expected_ver' => BizCity_KG_Source_Progress_Log::SCHEMA_VERSION,
-			];
-		}
+		// [2026-07-27 Johnny Chu] PHASE-0.49-KG-PROGRESS-FILELOG — source progress
+		// moved to uploads JSONL; no SQL installer row is needed in diagnostics.
 
 		// ── Market ────────────────────────────────────────────────────
 		if ( class_exists( 'BizCity_Market_Install' ) ) {
@@ -264,6 +257,25 @@ if ( ! function_exists( 'bizcity_default_installers_filter' ) ) {
 				'id'           => 'channel_binding',
 				'label'        => 'Channel Gateway — Binding',
 				'callback'     => [ 'BizCity_Channel_Binding', 'maybe_install' ],
+			];
+		}
+		// [2026-07-28 Johnny Chu] R-MSDB — provision durable identity tables on each tenant shard, including new blogs.
+		if ( class_exists( 'BizCity_Identity_Hub' ) ) {
+			$list[] = [
+				'id'           => 'channel_identity_hub',
+				'label'        => 'Channel Gateway — Durable identity hub',
+				'callback'     => [ 'BizCity_Identity_Hub', 'maybe_install' ],
+				'version_opt'  => BizCity_Identity_Hub::OPTION_VERSION,
+				'expected_ver' => BizCity_Identity_Hub::SCHEMA_VERSION,
+			];
+		}
+		if ( class_exists( 'BizCity_Channel_User_Linker' ) ) {
+			$list[] = [
+				'id'           => 'channel_user_linker',
+				'label'        => 'Channel Gateway — Tenant channel links',
+				'callback'     => [ 'BizCity_Channel_User_Linker', 'maybe_install' ],
+				'version_opt'  => BizCity_Channel_User_Linker::OPTION_VERSION,
+				'expected_ver' => BizCity_Channel_User_Linker::SCHEMA_VERSION,
 			];
 		}
 		if ( class_exists( 'BizCity_User_Resolver' ) ) {

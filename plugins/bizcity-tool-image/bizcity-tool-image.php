@@ -622,6 +622,16 @@ BizCity_Rewrite_Flush_Registry::register( 'bizcity-tool-image', BZTIMG_VERSION )
 /* ── DB migration — runs on every request until schema is current ── */
 add_action( 'init', function() {
     if ( get_option( 'bztimg_schema_version' ) === BZTIMG_SCHEMA_VERSION ) {
+        // [2026-07-24 Johnny Chu] PHASE-DIAG-PERF — this block used to run an uncached
+        // information_schema.TABLES lookup + SELECT COUNT(*) on EVERY 'init' (every single
+        // frontend/admin/REST request, not just admin) even when the schema was already
+        // healthy. Bound the re-verify to a TTL so healthy sites only pay this cost once
+        // per window. See core/diagnostics/docs/PHASE-DIAG-PERF-AUTO-CREATE-AUDIT.md.
+        $last_checked = (int) get_option( 'bztimg_seed_last_checked', 0 );
+        if ( ( time() - $last_checked ) < 6000 ) {
+            return;
+        }
+
         // [2026-07-11 Johnny Chu] HOTFIX — schema option can be copied during clone while table/data is missing.
         // Always verify physical table existence before deciding to skip seed.
         global $wpdb;
@@ -643,7 +653,10 @@ add_action( 'init', function() {
         }
 
         $count = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$tpl_table}" ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
-        if ( $count > 0 ) return; // Schema/table/data ok — nothing to do.
+        if ( $count > 0 ) {
+            update_option( 'bztimg_seed_last_checked', time(), false ); // [2026-07-24 Johnny Chu] PHASE-DIAG-PERF
+            return; // Schema/table/data ok — nothing to do.
+        }
 
         // [2026-07-11 Johnny Chu] HOTFIX — empty templates must self-heal without manual reseed click.
         bztimg_seed_categories();
@@ -657,6 +670,7 @@ add_action( 'init', function() {
         if ( $count_after <= 0 ) {
             bztimg_install_tables();
         }
+        update_option( 'bztimg_seed_last_checked', time(), false ); // [2026-07-24 Johnny Chu] PHASE-DIAG-PERF
         return;
     }
     bztimg_install_tables();
@@ -705,6 +719,7 @@ add_action( 'init', function() {
     }
     update_option( 'bztimg_db_version',    BZTIMG_VERSION );    // legacy compat
     update_option( 'bztimg_schema_version', BZTIMG_SCHEMA_VERSION );
+    update_option( 'bztimg_seed_last_checked', time(), false ); // [2026-07-24 Johnny Chu] PHASE-DIAG-PERF — avoid immediate re-check next request
 }, 1 ); // priority 1 — before REST/rewrite rules
 
 /* ═══════════════════════════════════════════════

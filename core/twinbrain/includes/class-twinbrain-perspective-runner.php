@@ -38,6 +38,7 @@ class BizCity_TwinBrain_Perspective_Runner {
 	const CONNECT_TIMEOUT_S     = 3;
 	const PER_NOTEBOOK_PASSAGES = 5;
 	const PASSAGE_TRUNC_CHARS   = 600;
+	const PASSAGE_TRUNC_DEEP    = 1200; // [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT — richer Notebook evidence for deep/audit final synthesis.
 	const SYNTH_TEMPERATURE     = 0.3;
 	const MAX_TOKENS            = 600;
 	/* PHASE-0.35 / F7.E3 — deeper budget when guru bound (persona
@@ -82,8 +83,9 @@ class BizCity_TwinBrain_Perspective_Runner {
 		}
 
 		$guru_id   = isset( $opts['guru_id'] ) ? (int) $opts['guru_id'] : 0;
+		$evidence_budget = $this->resolve_evidence_budget( $prompt, $opts );
 		$guru_meta = $this->resolve_guru_meta( $guru_id, isset( $opts['guru_meta'] ) ? (array) $opts['guru_meta'] : array() );
-		$max_tok   = ( $guru_id > 0 ) ? self::MAX_TOKENS_GURU : self::MAX_TOKENS;
+		$max_tok   = isset( $evidence_budget['perspective_max_tokens'] ) ? (int) $evidence_budget['perspective_max_tokens'] : ( ( $guru_id > 0 ) ? self::MAX_TOKENS_GURU : self::MAX_TOKENS );
 
 		// Capability + config gates — fall back to stub on any miss so the
 		// turn still completes (synthesizer will see all 'unknown' stances
@@ -114,8 +116,8 @@ class BizCity_TwinBrain_Perspective_Runner {
 				continue;
 			}
 			$label    = (string) ( $cand['label'] ?? '' );
-			$passages = $this->fetch_recent_passages( $nb_id, self::PER_NOTEBOOK_PASSAGES );
-			$messages = $this->build_messages( $label, $prompt, $passages, $guru_meta );
+			$passages = $this->fetch_recent_passages( $nb_id, (int) $evidence_budget['passage_limit'] );
+			$messages = $this->build_messages( $label, $prompt, $passages, $guru_meta, $evidence_budget );
 
 			$body = wp_json_encode( [
 				'model'       => $model,
@@ -224,9 +226,11 @@ class BizCity_TwinBrain_Perspective_Runner {
 	 * ================================================================ */
 
 	private function build_messages( string $label, string $prompt, array $passages, array $guru_meta = array() ): array {
+		$evidence_budget = func_num_args() >= 5 && is_array( func_get_arg( 4 ) ) ? func_get_arg( 4 ) : $this->resolve_evidence_budget( $prompt, array() );
+		$trunc_chars = isset( $evidence_budget['passage_trunc_chars'] ) ? (int) $evidence_budget['passage_trunc_chars'] : self::PASSAGE_TRUNC_CHARS;
 		$context = '';
 		foreach ( $passages as $i => $p ) {
-			$snippet = mb_substr( (string) $p['content'], 0, self::PASSAGE_TRUNC_CHARS );
+			$snippet = mb_substr( (string) $p['content'], 0, max( 240, $trunc_chars ) );
 			$context .= sprintf( "[nb:%d/p%d] %s\n\n", (int) $p['notebook_id'], (int) $p['id'], trim( $snippet ) );
 		}
 		if ( $context === '' ) {
@@ -378,6 +382,9 @@ SYS;
 	private function run_sources_only( string $trace_id, string $prompt, array $candidates, array $opts = array() ): array {
 		$answers = [];
 		$turn_start = microtime( true );
+		$evidence_budget = $this->resolve_evidence_budget( $prompt, $opts );
+		$passage_limit = (int) ( $evidence_budget['passage_limit'] ?? self::PER_NOTEBOOK_PASSAGES );
+		$trunc_chars   = (int) ( $evidence_budget['passage_trunc_chars'] ?? self::PASSAGE_TRUNC_CHARS );
 
 		// TBR.SEL-LEX (2026-05-22) — receive prompt tokens from runtime;
 		// recompute if absent (defensive) so direct callers still work.
@@ -391,13 +398,13 @@ SYS;
 			if ( $nb_id <= 0 ) continue;
 
 			$started   = microtime( true );
-			$passages  = $this->fetch_passages( $nb_id, $prompt, self::PER_NOTEBOOK_PASSAGES );
+			$passages  = $this->fetch_passages( $nb_id, $prompt, $passage_limit );
 
 			// TBR.SEL-LEX — when retriever returns nothing (no embedding /
 			// notebook empty), try keyword-LIKE pass to grab any passages
 			// containing user tokens. Better than empty perspective.
 			if ( empty( $passages ) && ! empty( $tokens ) ) {
-				$passages = $this->fetch_passages_by_keyword( $nb_id, $tokens, self::PER_NOTEBOOK_PASSAGES );
+				$passages = $this->fetch_passages_by_keyword( $nb_id, $tokens, $passage_limit );
 			}
 
 			// TBR.SEL-LEX — rerank: passages matching more tokens go first.
@@ -406,22 +413,39 @@ SYS;
 				$passages = $this->annotate_and_rerank_passages( $passages, $tokens );
 			}
 
+			// [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT — expand deep/audit hits with neighboring chunks for section-level meaning.
+			$passages = $this->expand_passage_neighborhood( $nb_id, $passages, $evidence_budget );
+			// [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT — add same-source siblings, then diversify so one source does not crowd out the answer.
+			$passages = $this->expand_source_siblings( $nb_id, $passages, $tokens, $evidence_budget );
+			$passages = $this->diversify_expanded_passages( $passages, $evidence_budget );
+
 			$ms = (int) round( ( microtime( true ) - $started ) * 1000 );
 
 			$citations = [];
 			$lines     = [];
+			$expanded_count = 0;
+			$sibling_count = 0;
 			foreach ( $passages as $p ) {
 				$pid = (int) ( $p['id'] ?? 0 );
 				if ( $pid <= 0 ) continue;
 				$body  = trim( (string) ( $p['content'] ?? '' ) );
-				$snip  = mb_substr( $body, 0, self::PASSAGE_TRUNC_CHARS );
+				$snip  = mb_substr( $body, 0, max( 240, $trunc_chars ) );
 				$token = sprintf( '[nb:%d/p%d]', $nb_id, $pid );
 				$lines[] = $token . ' ' . $snip;
+				$rank_reason = (string) ( $p['rank_reason'] ?? 'primary_hit' );
+				if ( $rank_reason === 'neighbor_context' ) {
+					$expanded_count++;
+				} elseif ( $rank_reason === 'source_sibling_context' ) {
+					$sibling_count++;
+				}
 				$citations[] = [
 					'token'          => $token,
 					'kind'           => 'nb',
 					'notebook_id'    => $nb_id,
 					'passage_id'     => $pid,
+					'source_id'      => (int) ( $p['source_id'] ?? 0 ),
+					'chunk_id'       => (int) ( $p['chunk_id'] ?? 0 ),
+					'rank_reason'    => $rank_reason,
 					'matched_tokens' => isset( $p['matched_tokens'] ) ? (array) $p['matched_tokens'] : array(),
 				];
 			}
@@ -440,6 +464,10 @@ SYS;
 				'answer_md'      => $answer_md,
 				'citations'      => $citations,
 				'keyword_tokens' => $tokens,
+				'notebook_evidence_budget' => $evidence_budget,
+				'neighborhood_expanded_count' => $expanded_count,
+				'source_sibling_expanded_count' => $sibling_count,
+				'diversity_rerank_applied' => (int) ( $evidence_budget['diversity_per_source_cap'] ?? 0 ) > 0,
 				'tokens'         => 0,
 				'ms'             => $ms,
 				'http_status'    => 0,
@@ -460,6 +488,421 @@ SYS;
 		}
 
 		return $answers;
+	}
+
+	/**
+	 * Resolve Notebook evidence budget before final synthesis.
+	 *
+	 * @param string $prompt
+	 * @param array  $opts
+	 * @return array{profile:string,passage_limit:int,passage_trunc_chars:int,keyword_overfetch_cap:int,perspective_max_tokens:int,reason:string}
+	 */
+	public function resolve_evidence_budget( string $prompt, array $opts = array() ): array {
+		// [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT — evidence depth must grow with answer-depth profile, not just final output tokens.
+		$profile = '';
+		foreach ( array( 'notebook_answer_depth', 'notebook_depth_profile', 'answer_depth_profile' ) as $key ) {
+			if ( isset( $opts[ $key ] ) && (string) $opts[ $key ] !== '' ) {
+				$profile = sanitize_key( (string) $opts[ $key ] );
+				break;
+			}
+		}
+		$reason = $profile !== '' ? 'explicit_option' : 'default';
+		if ( $profile === '' ) {
+			$prompt_lc = function_exists( 'mb_strtolower' ) ? mb_strtolower( $prompt ) : strtolower( $prompt );
+			$audit_markers = array( 'audit', 'kiểm chứng', 'kiem chung', 'trace nguồn', 'trace nguon', 'đối chiếu nguồn', 'doi chieu nguon', 'training gap', 'gap report' );
+			$deep_markers  = array( 'phân tích sâu', 'phan tich sau', 'chi tiết', 'chi tiet', 'kỹ lưỡng', 'ky luong', 'đào sâu', 'dao sau', 'deep dive', 'long-form', 'dài hơn', 'dai hon' );
+			foreach ( $audit_markers as $marker ) {
+				if ( strpos( $prompt_lc, $marker ) !== false ) {
+					$profile = 'audit';
+					$reason  = 'prompt_audit_marker';
+					break;
+				}
+			}
+			if ( $profile === '' ) {
+				foreach ( $deep_markers as $marker ) {
+					if ( strpos( $prompt_lc, $marker ) !== false ) {
+						$profile = 'deep';
+						$reason  = 'prompt_deep_marker';
+						break;
+					}
+				}
+			}
+			if ( $profile === '' && ! empty( $opts['guru_id'] ) ) {
+				$profile = 'deep';
+				$reason  = 'guru_default_deep';
+			}
+		}
+		if ( ! in_array( $profile, array( 'brief', 'normal', 'deep', 'audit' ), true ) ) {
+			$profile = 'normal';
+		}
+
+		$budgets = array(
+			'brief'  => array( 'passage_limit' => 4,  'passage_trunc_chars' => 420,  'keyword_overfetch_cap' => 36,  'perspective_max_tokens' => self::MAX_TOKENS, 'neighbor_radius' => 0, 'expanded_passage_limit' => 4, 'source_sibling_limit' => 0, 'source_sibling_scan_cap' => 0, 'diversity_per_source_cap' => 0 ),
+			'normal' => array( 'passage_limit' => self::PER_NOTEBOOK_PASSAGES, 'passage_trunc_chars' => self::PASSAGE_TRUNC_CHARS, 'keyword_overfetch_cap' => 60, 'perspective_max_tokens' => ! empty( $opts['guru_id'] ) ? self::MAX_TOKENS_GURU : self::MAX_TOKENS, 'neighbor_radius' => 0, 'expanded_passage_limit' => self::PER_NOTEBOOK_PASSAGES, 'source_sibling_limit' => 0, 'source_sibling_scan_cap' => 0, 'diversity_per_source_cap' => 0 ),
+			'deep'   => array( 'passage_limit' => 10, 'passage_trunc_chars' => self::PASSAGE_TRUNC_DEEP, 'keyword_overfetch_cap' => 90,  'perspective_max_tokens' => 1800, 'neighbor_radius' => 1, 'expanded_passage_limit' => 18, 'source_sibling_limit' => 4, 'source_sibling_scan_cap' => 24, 'diversity_per_source_cap' => 8 ),
+			'audit'  => array( 'passage_limit' => 14, 'passage_trunc_chars' => 1400, 'keyword_overfetch_cap' => 120, 'perspective_max_tokens' => 2200, 'neighbor_radius' => 2, 'expanded_passage_limit' => 28, 'source_sibling_limit' => 8, 'source_sibling_scan_cap' => 40, 'diversity_per_source_cap' => 10 ),
+		);
+		$budget = $budgets[ $profile ];
+		$budget['profile'] = $profile;
+		$budget['reason']  = $reason;
+
+		return (array) apply_filters( 'bizcity_twinbrain_notebook_evidence_budget', $budget, $prompt, $opts );
+	}
+
+	/**
+	 * Expand strong passage hits with neighboring chunks from the same source.
+	 *
+	 * @param int                  $notebook_id
+	 * @param array<int,array>     $passages
+	 * @param array<string,mixed>  $budget
+	 * @return array<int,array>
+	 */
+	private function expand_passage_neighborhood( int $notebook_id, array $passages, array $budget ): array {
+		// [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT — source-file sibling expansion without new schema.
+		$radius = isset( $budget['neighbor_radius'] ) ? max( 0, (int) $budget['neighbor_radius'] ) : 0;
+		$cap    = isset( $budget['expanded_passage_limit'] ) ? max( 1, (int) $budget['expanded_passage_limit'] ) : count( $passages );
+		if ( $radius <= 0 || empty( $passages ) || $notebook_id <= 0 ) {
+			return array_slice( $passages, 0, $cap );
+		}
+
+		$base_ids = array();
+		foreach ( $passages as $p ) {
+			$pid = (int) ( $p['id'] ?? 0 );
+			if ( $pid > 0 ) {
+				$base_ids[] = $pid;
+			}
+		}
+		$base_ids = array_values( array_unique( $base_ids ) );
+		if ( empty( $base_ids ) ) {
+			return array_slice( $passages, 0, $cap );
+		}
+
+		$base_meta = $this->fetch_passage_records_by_ids( $notebook_id, $base_ids );
+		if ( empty( $base_meta ) ) {
+			return array_slice( $passages, 0, $cap );
+		}
+
+		$seed = array();
+		foreach ( $passages as $p ) {
+			$pid = (int) ( $p['id'] ?? 0 );
+			if ( $pid > 0 && isset( $base_meta[ $pid ] ) ) {
+				$p = array_merge( $base_meta[ $pid ], $p );
+			}
+			$p['rank_reason'] = isset( $p['rank_reason'] ) ? (string) $p['rank_reason'] : 'primary_hit';
+			$seed[] = $p;
+		}
+
+		$neighbors = $this->fetch_neighbor_passages( $notebook_id, $base_meta, $radius, $cap );
+		if ( empty( $neighbors ) ) {
+			// [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT — keep hydrated source_id/chunk_id on primary hits so sibling expansion can still run.
+			return array_slice( $seed, 0, $cap );
+		}
+
+		$out  = array();
+		$seen = array();
+		foreach ( array_merge( $seed, $neighbors ) as $row ) {
+			$pid = (int) ( $row['id'] ?? 0 );
+			if ( $pid <= 0 || isset( $seen[ $pid ] ) ) {
+				continue;
+			}
+			$seen[ $pid ] = true;
+			$out[] = $row;
+			if ( count( $out ) >= $cap ) {
+				break;
+			}
+		}
+
+		return $out;
+	}
+
+	/**
+	 * Pull additional high-signal siblings from the same source files as primary hits.
+	 *
+	 * @param int                 $notebook_id
+	 * @param array<int,array>    $passages
+	 * @param array<int,string>   $tokens
+	 * @param array<string,mixed> $budget
+	 * @return array<int,array>
+	 */
+	private function expand_source_siblings( int $notebook_id, array $passages, array $tokens, array $budget ): array {
+		// [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT — source-file sibling expansion for deep Notebook synthesis.
+		$limit = isset( $budget['source_sibling_limit'] ) ? max( 0, (int) $budget['source_sibling_limit'] ) : 0;
+		$cap   = isset( $budget['expanded_passage_limit'] ) ? max( 1, (int) $budget['expanded_passage_limit'] ) : count( $passages );
+		if ( $limit <= 0 || empty( $passages ) || $notebook_id <= 0 || count( $passages ) >= $cap ) {
+			return array_slice( $passages, 0, $cap );
+		}
+
+		$source_ids = array();
+		$seen_ids   = array();
+		foreach ( $passages as $row ) {
+			$pid = (int) ( $row['id'] ?? 0 );
+			if ( $pid > 0 ) {
+				$seen_ids[ $pid ] = true;
+			}
+			$source_id = (int) ( $row['source_id'] ?? 0 );
+			if ( $source_id > 0 ) {
+				$source_ids[ $source_id ] = true;
+			}
+		}
+		if ( empty( $source_ids ) ) {
+			return array_slice( $passages, 0, $cap );
+		}
+
+		$siblings = $this->fetch_source_sibling_passages(
+			$notebook_id,
+			array_keys( $source_ids ),
+			array_keys( $seen_ids ),
+			$tokens,
+			$limit,
+			isset( $budget['source_sibling_scan_cap'] ) ? (int) $budget['source_sibling_scan_cap'] : 0
+		);
+		if ( empty( $siblings ) ) {
+			return array_slice( $passages, 0, $cap );
+		}
+
+		return array_slice( array_merge( $passages, $siblings ), 0, $cap );
+	}
+
+	/**
+	 * @param int               $notebook_id
+	 * @param array<int,int>    $source_ids
+	 * @param array<int,int>    $exclude_ids
+	 * @param array<int,string> $tokens
+	 * @param int               $limit
+	 * @param int               $scan_cap
+	 * @return array<int,array<string,mixed>>
+	 */
+	private function fetch_source_sibling_passages( int $notebook_id, array $source_ids, array $exclude_ids, array $tokens, int $limit, int $scan_cap ): array {
+		global $wpdb;
+		if ( $limit <= 0 || empty( $source_ids ) || ! class_exists( 'BizCity_KG_Database' ) ) {
+			return array();
+		}
+		$db = BizCity_KG_Database::instance();
+		if ( ! method_exists( $db, 'tbl_passages' ) ) {
+			return array();
+		}
+		$source_ids = array_values( array_unique( array_filter( array_map( 'intval', $source_ids ) ) ) );
+		$exclude_ids = array_values( array_unique( array_filter( array_map( 'intval', $exclude_ids ) ) ) );
+		if ( empty( $source_ids ) ) {
+			return array();
+		}
+		$scan_cap = max( $limit, $scan_cap > 0 ? $scan_cap : $limit * 6 );
+		$tbl = $db->tbl_passages();
+		$source_ph = implode( ',', array_fill( 0, count( $source_ids ), '%d' ) );
+		$params = array_merge( array( $notebook_id ), $source_ids );
+		$exclude_sql = '';
+		if ( ! empty( $exclude_ids ) ) {
+			$exclude_sql = ' AND id NOT IN (' . implode( ',', array_fill( 0, count( $exclude_ids ), '%d' ) ) . ')';
+			$params = array_merge( $params, $exclude_ids );
+		}
+		$params[] = $scan_cap;
+
+		$prev = $wpdb->suppress_errors( true );
+		$rows = $wpdb->get_results( $wpdb->prepare(
+			"SELECT id, notebook_id, source_id, chunk_id, origin, content, metadata,
+			        storage_ver, file_shard, file_offset, file_length
+			 FROM {$tbl}
+			 WHERE notebook_id = %d
+			   AND source_id IN ({$source_ph}){$exclude_sql}
+			 ORDER BY id DESC
+			 LIMIT %d",
+			$params
+		), ARRAY_A );
+		$wpdb->suppress_errors( $prev );
+		if ( empty( $rows ) || ! is_array( $rows ) ) {
+			return array();
+		}
+		if ( class_exists( 'BizCity_KG_Content_Router' ) ) {
+			BizCity_KG_Content_Router::instance()->hydrate_passages( $rows );
+		}
+
+		if ( ! empty( $tokens ) ) {
+			$rows = $this->annotate_and_rerank_passages( $rows, $tokens );
+		}
+		$out = array();
+		foreach ( $rows as $row ) {
+			$row['rank_reason'] = 'source_sibling_context';
+			if ( ! isset( $row['matched_tokens'] ) ) {
+				$row['matched_tokens'] = array();
+			}
+			$out[] = $row;
+			if ( count( $out ) >= $limit ) {
+				break;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * @param array<int,array>    $passages
+	 * @param array<string,mixed> $budget
+	 * @return array<int,array>
+	 */
+	private function diversify_expanded_passages( array $passages, array $budget ): array {
+		// [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT — lightweight MMR-style source diversity for expanded Notebook context.
+		$cap = isset( $budget['expanded_passage_limit'] ) ? max( 1, (int) $budget['expanded_passage_limit'] ) : count( $passages );
+		$per_source_cap = isset( $budget['diversity_per_source_cap'] ) ? max( 0, (int) $budget['diversity_per_source_cap'] ) : 0;
+		if ( empty( $passages ) || $per_source_cap <= 0 ) {
+			return array_slice( $passages, 0, $cap );
+		}
+
+		usort( $passages, static function ( $a, $b ) {
+			$rank_weight = array( 'primary_hit' => 40, 'neighbor_context' => 25, 'source_sibling_context' => 15 );
+			$a_reason = (string) ( $a['rank_reason'] ?? 'primary_hit' );
+			$b_reason = (string) ( $b['rank_reason'] ?? 'primary_hit' );
+			$a_score = (int) ( $rank_weight[ $a_reason ] ?? 0 ) + count( (array) ( $a['matched_tokens'] ?? array() ) );
+			$b_score = (int) ( $rank_weight[ $b_reason ] ?? 0 ) + count( (array) ( $b['matched_tokens'] ?? array() ) );
+			if ( $a_score !== $b_score ) {
+				return $b_score - $a_score;
+			}
+			return ( (int) ( $a['id'] ?? 0 ) ) - ( (int) ( $b['id'] ?? 0 ) );
+		} );
+
+		$out = array();
+		$seen = array();
+		$source_counts = array();
+		$deferred = array();
+		foreach ( $passages as $row ) {
+			$pid = (int) ( $row['id'] ?? 0 );
+			if ( $pid <= 0 || isset( $seen[ $pid ] ) ) {
+				continue;
+			}
+			$source_key = (string) ( (int) ( $row['source_id'] ?? 0 ) ?: ( 0 - $pid ) );
+			$count = (int) ( $source_counts[ $source_key ] ?? 0 );
+			if ( $count >= $per_source_cap ) {
+				$deferred[] = $row;
+				continue;
+			}
+			$seen[ $pid ] = true;
+			$source_counts[ $source_key ] = $count + 1;
+			$out[] = $row;
+			if ( count( $out ) >= $cap ) {
+				return $out;
+			}
+		}
+		foreach ( $deferred as $row ) {
+			$pid = (int) ( $row['id'] ?? 0 );
+			if ( $pid <= 0 || isset( $seen[ $pid ] ) ) {
+				continue;
+			}
+			$seen[ $pid ] = true;
+			$out[] = $row;
+			if ( count( $out ) >= $cap ) {
+				break;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * @param int              $notebook_id
+	 * @param array<int,int>   $ids
+	 * @return array<int,array<string,mixed>> keyed by passage id
+	 */
+	private function fetch_passage_records_by_ids( int $notebook_id, array $ids ): array {
+		global $wpdb;
+		if ( ! class_exists( 'BizCity_KG_Database' ) || empty( $ids ) ) {
+			return array();
+		}
+		$db = BizCity_KG_Database::instance();
+		if ( ! method_exists( $db, 'tbl_passages' ) ) {
+			return array();
+		}
+		$ids = array_values( array_unique( array_filter( array_map( 'intval', $ids ) ) ) );
+		if ( empty( $ids ) ) {
+			return array();
+		}
+		$tbl = $db->tbl_passages();
+		$ph  = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+		$prev = $wpdb->suppress_errors( true );
+		$rows = $wpdb->get_results( $wpdb->prepare(
+			"SELECT id, notebook_id, source_id, chunk_id, origin, content, metadata,
+			        storage_ver, file_shard, file_offset, file_length
+			 FROM {$tbl}
+			 WHERE notebook_id = %d AND id IN ({$ph})",
+			array_merge( array( $notebook_id ), $ids )
+		), ARRAY_A );
+		$wpdb->suppress_errors( $prev );
+		if ( empty( $rows ) || ! is_array( $rows ) ) {
+			return array();
+		}
+		if ( class_exists( 'BizCity_KG_Content_Router' ) ) {
+			BizCity_KG_Content_Router::instance()->hydrate_passages( $rows );
+		}
+		$out = array();
+		foreach ( $rows as $row ) {
+			$pid = (int) ( $row['id'] ?? 0 );
+			if ( $pid > 0 ) {
+				$out[ $pid ] = $row;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * @param int                         $notebook_id
+	 * @param array<int,array<string,mixed>> $base_meta keyed by passage id
+	 * @param int                         $radius
+	 * @param int                         $cap
+	 * @return array<int,array<string,mixed>>
+	 */
+	private function fetch_neighbor_passages( int $notebook_id, array $base_meta, int $radius, int $cap ): array {
+		global $wpdb;
+		if ( $radius <= 0 || empty( $base_meta ) || ! class_exists( 'BizCity_KG_Database' ) ) {
+			return array();
+		}
+		$db = BizCity_KG_Database::instance();
+		if ( ! method_exists( $db, 'tbl_passages' ) ) {
+			return array();
+		}
+		$tbl = $db->tbl_passages();
+		$out = array();
+		$seen = array();
+		foreach ( $base_meta as $base ) {
+			$base_id   = (int) ( $base['id'] ?? 0 );
+			$source_id = (int) ( $base['source_id'] ?? 0 );
+			$chunk_id  = (int) ( $base['chunk_id'] ?? 0 );
+			if ( $base_id <= 0 || $source_id <= 0 || $chunk_id <= 0 ) {
+				continue;
+			}
+			$prev = $wpdb->suppress_errors( true );
+			$rows = $wpdb->get_results( $wpdb->prepare(
+				"SELECT id, notebook_id, source_id, chunk_id, origin, content, metadata,
+				        storage_ver, file_shard, file_offset, file_length
+				 FROM {$tbl}
+				 WHERE notebook_id = %d
+				   AND source_id = %d
+				   AND chunk_id BETWEEN %d AND %d
+				 ORDER BY chunk_id ASC, id ASC
+				 LIMIT %d",
+				$notebook_id,
+				$source_id,
+				max( 0, $chunk_id - $radius ),
+				$chunk_id + $radius,
+				max( 1, min( $cap, ( $radius * 2 ) + 1 ) )
+			), ARRAY_A );
+			$wpdb->suppress_errors( $prev );
+			if ( empty( $rows ) || ! is_array( $rows ) ) {
+				continue;
+			}
+			if ( class_exists( 'BizCity_KG_Content_Router' ) ) {
+				BizCity_KG_Content_Router::instance()->hydrate_passages( $rows );
+			}
+			foreach ( $rows as $row ) {
+				$pid = (int) ( $row['id'] ?? 0 );
+				if ( $pid <= 0 || $pid === $base_id || isset( $seen[ $pid ] ) ) {
+					continue;
+				}
+				$row['rank_reason'] = 'neighbor_context';
+				$row['matched_tokens'] = array();
+				$seen[ $pid ] = true;
+				$out[] = $row;
+				if ( count( $out ) >= $cap ) {
+					return $out;
+				}
+			}
+		}
+		return $out;
 	}
 
 	/**
@@ -484,7 +927,7 @@ SYS;
 		// Overfetch hydrated rows from recency window. Cap at 60 to keep
 		// shard reads bounded (Content_Router caches per-passage body so a
 		// follow-up turn on the same notebook stays cheap).
-		$overfetch_cap = max( 30, min( 60, $limit * 6 ) );
+		$overfetch_cap = max( 30, min( 120, $limit * 6 ) );
 		$rows = $this->fetch_recent_passages( $notebook_id, $overfetch_cap );
 		if ( empty( $rows ) ) return array();
 

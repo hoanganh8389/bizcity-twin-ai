@@ -1,0 +1,74 @@
+[
+  {
+    "template_uuid": "00000000-0000-7000-8000-000000000000",
+    "template_version": "1.0.0",
+    "visibility": "global",
+    "slug": "tpl_example_global_zalobot_v1",
+    "name": "[global] Zalo Bot · Example public automation",
+    "description": "Trigger Zalo Bot public/global inbound -> run safe public workflow -> reply to exact private or group conversation.",
+    "category": "ai",
+    "source": "builtin",
+    "trigger_type": "zalo_inbound",
+    "icon": "MessageCircle",
+    "tags": "global,zalo,zalobot,public,example",
+    "plan": "free",
+    "trigger_config": {
+      "selector_mode": "global",
+      "visibility": "global",
+      "instance_id": "",
+      "chat_kind": "any",
+      "require_mention": true,
+      "match_all": true,
+      "owner_required": false,
+      "priority": 0,
+      "is_fallback": true
+    },
+    "graph": {
+      "meta": {
+        "template": "tpl_example_global_zalobot_v1",
+        "template_uuid": "00000000-0000-7000-8000-000000000000",
+        "template_version": "1.0.0",
+        "visibility": "global"
+      },
+      "nodes": [
+        {
+          "id": "tr",
+          "type": "trigger",
+          "position": { "x": 0, "y": 80 },
+          "data": {
+            "blockId": "trigger.zalo_inbound",
+            "label": "Zalo Bot · global inbound",
+            "selector_mode": "global",
+            "chat_kind": "any",
+            "require_mention": true
+          }
+        },
+        {
+          "id": "compose",
+          "type": "llm",
+          "position": { "x": 320, "y": 80 },
+          "data": {
+            "blockId": "llm.compose_reply",
+            "label": "Compose safe public reply",
+            "prompt": "User asked: {{trigger.message_text_clean}}. Answer using public-safe knowledge only."
+          }
+        },
+        {
+          "id": "reply",
+          "type": "action",
+          "position": { "x": 640, "y": 80 },
+          "data": {
+            "blockId": "action.reply_zalo",
+            "label": "Reply exact conversation",
+            "chat_id": "{{trigger.conversation_chat_id}}",
+            "text": "{{compose.output}}"
+          }
+        }
+      ],
+      "edges": [
+        { "id": "e_tr_compose", "source": "tr", "target": "compose" },
+        { "id": "e_compose_reply", "source": "compose", "target": "reply" }
+      ]
+    }
+  }
+]

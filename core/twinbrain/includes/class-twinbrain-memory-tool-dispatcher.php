@@ -42,7 +42,7 @@ final class BizCity_TwinBrain_Memory_Tool_Dispatcher {
 	 * Parse + dispatch all memory tool blocks in $final_text.
 	 *
 	 * @param string $final_text Final Composer output (raw, có thể chứa tool blocks).
-	 * @param array  $ctx { trace_id, user_id, session_id, surface, on_event? callable($event_key,$payload) }
+	 * @param array  $ctx { trace_id, user_id, session_id, identity_uuid, identity_is_stable, surface, on_event? callable($event_key,$payload) }
 	 * @return array {
 	 *   rewritten_text: string,
 	 *   ops: array<int,array>,
@@ -86,6 +86,8 @@ final class BizCity_TwinBrain_Memory_Tool_Dispatcher {
 			'trace_id'   => (string) ( $ctx['trace_id']   ?? '' ),
 			'user_id'    => (int)    ( $ctx['user_id']    ?? get_current_user_id() ),
 			'session_id' => (string) ( $ctx['session_id'] ?? '' ),
+			'identity_uuid' => (string) ( $ctx['identity_uuid'] ?? '' ),
+			'identity_is_stable' => ! empty( $ctx['identity_is_stable'] ),
 			'surface'    => (string) ( $ctx['surface']    ?? 'twinbrain' ),
 		];
 

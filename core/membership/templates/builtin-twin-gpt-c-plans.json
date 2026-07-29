@@ -1,0 +1,75 @@
+{
+  "schema": "bizcity.membership.policy.v1",
+  "template_id": "twin_gpt_c_default_v1",
+  "label": "Twin GPT C Default Plans",
+  "version": "1.0.0",
+  "phase_id": "PHASE-TWIN-GPT-C-ENDUSER",
+  "plans": [
+    {
+      "slug": "free",
+      "label": "Free",
+      "rank": 0,
+      "audience": "trial",
+      "consumes_seat": false,
+      "limits": {
+        "chat_msgs_per_day": 30,
+        "kg_passages_per_day": 20,
+        "image_per_day": 0,
+        "video_per_day": 0,
+        "thinking_runs_per_day": 0,
+        "deep_runs_per_day": 1,
+        "max_output_tokens": 2200,
+        "monthly_output_tokens": 120000
+      },
+      "features": ["chat", "kg.text"],
+      "models": ["auto", "fast"],
+      "answer_modes": ["instant", "deep_research_preview"],
+      "retention_days": 30,
+      "support_level": "community"
+    },
+    {
+      "slug": "plus",
+      "label": "Plus",
+      "rank": 100,
+      "audience": "individual_paid",
+      "consumes_seat": true,
+      "limits": {
+        "chat_msgs_per_day": 500,
+        "kg_passages_per_day": 200,
+        "image_per_day": 20,
+        "video_per_day": 0,
+        "thinking_runs_per_day": 10,
+        "deep_runs_per_day": 3,
+        "max_output_tokens": 4000,
+        "monthly_output_tokens": 900000
+      },
+      "features": ["chat", "kg.text", "kg.office", "image", "search"],
+      "models": ["auto", "fast", "balanced", "reasoning"],
+      "answer_modes": ["instant", "thinking", "deep_research"],
+      "retention_days": 180,
+      "support_level": "standard"
+    },
+    {
+      "slug": "pro",
+      "label": "Pro",
+      "rank": 200,
+      "audience": "premium_power_user",
+      "consumes_seat": true,
+      "limits": {
+        "chat_msgs_per_day": 3000,
+        "kg_passages_per_day": 1000,
+        "image_per_day": 100,
+        "video_per_day": 10,
+        "thinking_runs_per_day": 30,
+        "deep_runs_per_day": 30,
+        "max_output_tokens": 7000,
+        "monthly_output_tokens": 3000000
+      },
+      "features": ["chat", "kg.text", "kg.office", "kg.av", "image", "video", "search", "astrology", "deep_research"],
+      "models": ["auto", "fast", "balanced", "reasoning", "premium_reasoning", "premium_long_context"],
+      "answer_modes": ["instant", "thinking", "deep_research"],
+      "retention_days": 365,
+      "support_level": "priority"
+    }
+  ]
+}

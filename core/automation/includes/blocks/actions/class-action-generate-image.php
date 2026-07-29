@@ -110,6 +110,21 @@ final class BizCity_Automation_Action_Generate_Image extends BizCity_Automation_
 
 	public function execute( array $ctx, array $data ) {
 		// [2026-07-05 Johnny Chu] PHASE-IMG-TPL — execute generate_image block.
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-MY-CONTENT-TRACE — attach image generation lifecycle to My Content artifact.
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-MY-CONTENT-TRACE — image output belongs to the post plan by default so My Plan shows it immediately after image generation.
+		$content_type = function_exists( 'sanitize_key' ) ? sanitize_key( (string) ( $data['content_type'] ?? 'fb_post' ) ) : preg_replace( '/[^a-z0-9_\-]/', '', strtolower( (string) ( $data['content_type'] ?? 'fb_post' ) ) );
+		if ( $content_type === '' ) { $content_type = 'fb_post'; }
+		$content_artifact_id = class_exists( 'BizCity_Content_Artifact_Service' )
+			? BizCity_Content_Artifact_Service::create_or_get_from_ctx( $ctx, array( 'content_type' => $content_type ) )
+			: 0;
+		if ( $content_artifact_id > 0 ) {
+			BizCity_Content_Artifact_Service::mark_stage( $content_artifact_id, 'image_generating' );
+			BizCity_Content_Artifact_Service::append_trace( $content_artifact_id, array(
+				'stage' => 'image_generating', 'source' => 'automation', 'block_id' => $this->id(), 'status' => 'start',
+				'run_id' => (string) ( $ctx['_run_id'] ?? '' ), 'workflow_id' => (int) ( $ctx['_workflow_id'] ?? 0 ),
+				'message' => 'Generating image.',
+			) );
+		}
 		$prompt      = trim( (string) $this->resolve( $data['prompt'] ?? '{{trigger.text}}', $ctx ) );
 		// [2026-07-04 Johnny Chu] PHASE-IMG-TPL — strip trigger command keywords so "đăng fb", "đăng web"
 		// don't leak into image prompt and cause the AI to render Vietnamese command text in the image.
@@ -126,7 +141,7 @@ final class BizCity_Automation_Action_Generate_Image extends BizCity_Automation_
 
 		if ( $prompt === '' ) {
 			error_log( '[BIZCITY][generate_image] FAIL: prompt rỗng.' );
-			return $this->_fail( 'invalid_param', 'Prompt tạo ảnh không được rỗng.' );
+			return $this->_fail( 'invalid_param', 'Prompt tạo ảnh không được rỗng.', $content_artifact_id, $ctx );
 		}
 
 		if ( ! in_array( $model, self::VALID_MODELS, true ) ) { $model = 'nano-banana'; }
@@ -135,12 +150,12 @@ final class BizCity_Automation_Action_Generate_Image extends BizCity_Automation_
 		// ── R-GW-8: BizCity_LLM_Client gate ─────────────────────────────────
 		if ( ! class_exists( 'BizCity_LLM_Client' ) ) {
 			error_log( '[BIZCITY][generate_image] FAIL: BizCity_LLM_Client class not found.' );
-			return $this->_fail( 'gateway_missing', 'BizCity LLM client chưa nạp.' );
+			return $this->_fail( 'gateway_missing', 'BizCity LLM client chưa nạp.', $content_artifact_id, $ctx );
 		}
 		$llm = BizCity_LLM_Client::instance();
 		if ( ! $llm->is_ready() ) {
 			error_log( '[BIZCITY][generate_image] FAIL: LLM client not ready (API key missing?).' );
-			return $this->_fail( 'gateway_not_ready', 'BizCity API key chưa cấu hình.' );
+			return $this->_fail( 'gateway_not_ready', 'BizCity API key chưa cấu hình.', $content_artifact_id, $ctx );
 		}
 
 		// [2026-07-04 Johnny Chu] PHASE-IMG-TPL — model fallback list: try primary, then fallbacks on server error.
@@ -202,7 +217,7 @@ final class BizCity_Automation_Action_Generate_Image extends BizCity_Automation_
 		if ( empty( $result['success'] ) ) {
 			$err = (string) ( $result['error'] ?? 'generate_image failed' );
 			error_log( '[BIZCITY][generate_image] FAIL (API) after all models: ' . $err );
-			return $this->_fail( 'llm_error', $err );
+			return $this->_fail( 'llm_error', $err, $content_artifact_id, $ctx );
 		}
 
 		$image_url = (string) ( $result['image_url'] ?? '' );
@@ -223,13 +238,13 @@ final class BizCity_Automation_Action_Generate_Image extends BizCity_Automation_
 				error_log( '[BIZCITY][generate_image] b64 saved → ' . $image_url );
 			} else {
 				error_log( '[BIZCITY][generate_image] FAIL: save_b64_to_media returned empty.' );
-				return $this->_fail( 'save_failed', 'Không lưu được ảnh b64 vào WP uploads.' );
+				return $this->_fail( 'save_failed', 'Không lưu được ảnh b64 vào WP uploads.', $content_artifact_id, $ctx );
 			}
 		}
 
 		if ( $image_url === '' ) {
 			error_log( '[BIZCITY][generate_image] FAIL: both image_url and b64_json are empty after API call.' );
-			return $this->_fail( 'empty_url', 'Gateway không trả về URL ảnh.' );
+			return $this->_fail( 'empty_url', 'Gateway không trả về URL ảnh.', $content_artifact_id, $ctx );
 		}
 
 		// ── Optional: sideload URL vào WP Media Library ──────────────────────
@@ -270,8 +285,28 @@ final class BizCity_Automation_Action_Generate_Image extends BizCity_Automation_
 			'ms'        => $ms,
 		) );
 
+		if ( $content_artifact_id > 0 ) {
+			// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-MY-CONTENT-TRACE — keep My Plan card complete as soon as image is generated, before publish_fb_post runs.
+			$caption = $this->find_existing_caption_from_ctx( $ctx );
+			$meta = array(
+				'_bizcity_content_type' => $content_type,
+				'_bizcity_image_url'    => $image_url,
+			);
+			if ( $caption !== '' ) {
+				$meta['_bizcity_caption'] = $caption;
+				wp_update_post( array( 'ID' => $content_artifact_id, 'post_content' => $caption, 'post_excerpt' => wp_trim_words( wp_strip_all_tags( $caption ), 28, '...' ) ) );
+			}
+			BizCity_Content_Artifact_Service::mark_stage( $content_artifact_id, 'image_ready', $meta );
+			BizCity_Content_Artifact_Service::append_trace( $content_artifact_id, array(
+				'stage' => 'image_ready', 'source' => 'automation', 'block_id' => $this->id(), 'status' => 'ok',
+				'run_id' => (string) ( $ctx['_run_id'] ?? '' ), 'workflow_id' => (int) ( $ctx['_workflow_id'] ?? 0 ),
+				'message' => 'Image generated and saved to My Plan.', 'ctx' => array( 'image_url' => $image_url, 'model' => $model, 'ms' => $ms, 'content_id' => $content_artifact_id ),
+			) );
+		}
+
 		return array(
 			'ok'         => true,
+			'content_id' => $content_artifact_id,
 			'image_url'  => $image_url,
 			'model_used' => (string) ( $result['model'] ?? $model ),
 			'width'      => $width,
@@ -365,6 +400,23 @@ final class BizCity_Automation_Action_Generate_Image extends BizCity_Automation_
 		return $wp_url;
 	}
 
+	private function find_existing_caption_from_ctx( array $ctx ): string {
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-MY-CONTENT-TRACE — reuse generated caption from predecessor nodes for immediate My Plan display.
+		foreach ( array( 'generate_content', 'content', 'caption' ) as $key ) {
+			if ( ! isset( $ctx[ $key ] ) || ! is_array( $ctx[ $key ] ) ) { continue; }
+			foreach ( array( 'content', 'caption', 'message', 'text' ) as $field ) {
+				$value = trim( (string) ( $ctx[ $key ][ $field ] ?? '' ) );
+				if ( $value !== '' ) { return $value; }
+			}
+		}
+		foreach ( $ctx as $value ) {
+			if ( ! is_array( $value ) ) { continue; }
+			$candidate = trim( (string) ( $value['content'] ?? $value['caption'] ?? '' ) );
+			if ( $candidate !== '' ) { return $candidate; }
+		}
+		return '';
+	}
+
 	/**
 	 * Strip Vietnamese command-trigger prefixes from image generation prompt.
 	 * Prevents "đăng fb", "đăng web", "viết bài"… leaking into the image prompt
@@ -396,9 +448,18 @@ final class BizCity_Automation_Action_Generate_Image extends BizCity_Automation_
 		return $prompt;
 	}
 
-	private function _fail( string $reason, string $detail = '' ): array {
+	private function _fail( string $reason, string $detail = '', int $content_artifact_id = 0, array $ctx = array() ): array {
 		// [2026-07-05 Johnny Chu] PHASE-IMG-TPL — always error_log on fail.
 		error_log( '[BIZCITY][generate_image] _fail reason=' . $reason . ( $detail !== '' ? ' detail=' . $detail : '' ) );
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-MY-CONTENT-TRACE — persist image failure on content artifact.
+		if ( $content_artifact_id > 0 && class_exists( 'BizCity_Content_Artifact_Service' ) ) {
+			BizCity_Content_Artifact_Service::mark_stage( $content_artifact_id, 'failed', array( '_bizcity_error_code' => $reason, '_bizcity_error_message' => $detail ) );
+			BizCity_Content_Artifact_Service::append_trace( $content_artifact_id, array(
+				'stage' => 'failed', 'source' => 'automation', 'block_id' => $this->id(), 'status' => 'fail',
+				'run_id' => (string) ( $ctx['_run_id'] ?? '' ), 'workflow_id' => (int) ( $ctx['_workflow_id'] ?? 0 ),
+				'error_code' => $reason, 'message' => $detail,
+			) );
+		}
 		$this->note_event( 'generate_image_failed', array(
 			'reason' => $reason,
 			'detail' => $detail,

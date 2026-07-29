@@ -198,12 +198,15 @@ class BizCity_TwinChat_Learning_Notifier {
 		$db      = BizCity_TwinChat_Database::instance();
 		$ses_tbl = $db->table_sessions();
 		$msg_tbl = $db->table_messages();
+		$ldb     = class_exists( 'BizCity_TwinChat_Learning_Database' )
+			? BizCity_TwinChat_Learning_Database::instance()
+			: null;
 
 		// Try sessions table first (filtered by user when possible).
-		$ses_exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $ses_tbl ) );
-		if ( $ses_exists === $ses_tbl ) {
-			$cols = $wpdb->get_col( "DESCRIBE {$ses_tbl}", 0 ) ?: [];
-			$has_user = in_array( 'user_id', $cols, true );
+		// [2026-07-27 Johnny Chu] R-SHOW-TABLES — avoid SHOW TABLES/DESCRIBE.
+		$ses_exists = $ldb ? $ldb->table_exists( $ses_tbl ) : false;
+		if ( $ses_exists ) {
+			$has_user = $ldb ? $ldb->column_exists( $ses_tbl, 'user_id' ) : false;
 			if ( $has_user && $user_id > 0 ) {
 				$sid = $wpdb->get_var( $wpdb->prepare(
 					"SELECT session_id FROM {$ses_tbl} WHERE project_id=%s AND platform_type='twinchat' AND user_id=%d ORDER BY last_message_at DESC LIMIT 1",
@@ -220,8 +223,8 @@ class BizCity_TwinChat_Learning_Notifier {
 		}
 
 		// Fallback: latest session_id from messages table.
-		$msg_exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $msg_tbl ) );
-		if ( $msg_exists === $msg_tbl ) {
+		$msg_exists = $ldb ? $ldb->table_exists( $msg_tbl ) : false;
+		if ( $msg_exists ) {
 			$sid = $wpdb->get_var( $wpdb->prepare(
 				"SELECT session_id FROM {$msg_tbl} WHERE project_id=%s AND platform_type='twinchat' AND session_id<>'' ORDER BY id DESC LIMIT 1",
 				(string) $notebook_id

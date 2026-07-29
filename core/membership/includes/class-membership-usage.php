@@ -79,6 +79,8 @@ class BizCity_Membership_Usage {
 			PRIMARY KEY  (id),
 			UNIQUE KEY user_day_feature (user_id, day, feature)
 		) {$cs};" );
+		// [2026-07-14 Johnny Chu] HOTFIX — invalidate table-exists cache after dbDelta create.
+		wp_cache_delete( 'bz_tbl_' . (int) get_current_blog_id() . '_' . crc32( $t ), 'bizcity_tbl' );
 	}
 
 	/* ── Gate API ───────────────────────────────────────────────────────── */
@@ -90,6 +92,50 @@ class BizCity_Membership_Usage {
 	 */
 	private function today() {
 		return gmdate( 'Y-m-d' );
+	}
+
+	/**
+	 * [2026-07-14 Johnny Chu] HOTFIX — guard usage reads/writes when a shard blog
+	 * has not been provisioned yet. Try one self-heal create, else fail-open.
+	 */
+	private function table_ready() {
+		$t = $this->table();
+		$exists = function_exists( 'bizcity_tbl_exists' )
+			? bizcity_tbl_exists( $t )
+			: $this->table_exists_fallback( $t );
+
+		if ( ! $exists ) {
+			$this->ensure_table();
+			$exists = function_exists( 'bizcity_tbl_exists' )
+				? bizcity_tbl_exists( $t )
+				: $this->table_exists_fallback( $t );
+		}
+
+		return (bool) $exists;
+	}
+
+	/**
+	 * Fallback table existence check when helper isn't loaded yet.
+	 */
+	private function table_exists_fallback( $table_name ) {
+		static $s = array();
+		if ( isset( $s[ $table_name ] ) ) {
+			return $s[ $table_name ];
+		}
+
+		global $wpdb;
+		$ck      = 'bz_tbl_' . (int) get_current_blog_id() . '_' . crc32( $table_name );
+		$present = wp_cache_get( $ck, 'bizcity_tbl' );
+		if ( false === $present ) {
+			$present = (int) (bool) $wpdb->get_var( $wpdb->prepare(
+				'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+				$table_name
+			) );
+			wp_cache_set( $ck, $present, 'bizcity_tbl', HOUR_IN_SECONDS );
+		}
+
+		$s[ $table_name ] = (bool) $present;
+		return $s[ $table_name ];
 	}
 
 	/**
@@ -158,6 +204,9 @@ class BizCity_Membership_Usage {
 	public function used( $user_id, $feature ) {
 		global $wpdb;
 		$t = $this->table();
+		if ( ! $this->table_ready() ) {
+			return 0;
+		}
 		$tokens = $this->feature_tokens_for_read( $feature );
 		if ( empty( $tokens ) ) {
 			return 0;
@@ -233,6 +282,9 @@ class BizCity_Membership_Usage {
 		$feature = $this->normalize_feature( $feature );
 		$units   = max( 1, (int) $units );
 		if ( $user_id <= 0 || $feature === '' ) {
+			return;
+		}
+		if ( ! $this->table_ready() ) {
 			return;
 		}
 		global $wpdb;

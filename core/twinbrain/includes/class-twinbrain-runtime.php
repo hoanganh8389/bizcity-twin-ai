@@ -46,6 +46,220 @@ class BizCity_TwinBrain_Runtime {
 	}
 
 	/**
+	 * Resolve the memory/profile subject without granting implicit cross-user access.
+	 *
+	 * @param int   $actor_user_id User who initiated the turn.
+	 * @param array $opts Runtime options.
+	 * @return int
+	 */
+	private function resolve_subject_id( $actor_user_id, array $opts ) {
+		$actor_user_id = (int) $actor_user_id;
+		$requested     = (int) ( $opts['subject_id'] ?? 0 );
+		if ( $requested <= 0 || $requested === $actor_user_id ) {
+			return $actor_user_id;
+		}
+		// [2026-07-27 Johnny Chu] PHASE-0.52 W3 — cross-user subject access requires an explicit server-side authorization decision.
+		$allowed = (bool) apply_filters(
+			'bizcity_twinbrain_can_access_subject',
+			false,
+			$requested,
+			$actor_user_id,
+			$opts
+		);
+		return $allowed ? $requested : $actor_user_id;
+	}
+
+	/**
+	 * Resolve the durable customer identity before subject, memory, KG, or tools.
+	 */
+	private function resolve_identity_context( array $opts, int $actor_user_id ): array {
+		// [2026-07-28 Johnny Chu] R-CH-IDMEM — one runtime boundary resolves identity for every TwinBrain surface.
+		if ( ! class_exists( 'BizCity_Identity_Hub' ) ) {
+			return $opts;
+		}
+		$identity = BizCity_Identity_Hub::resolve_from_opts( $opts, (int) get_current_blog_id() );
+		if ( ! $identity && $actor_user_id > 0 ) {
+			$identity = BizCity_Identity_Hub::bind(
+				BizCity_Identity_Hub::PLATFORM_WP,
+				(string) get_current_blog_id(),
+				(string) $actor_user_id,
+				$actor_user_id,
+				(int) get_current_blog_id(),
+				true
+			);
+		}
+		if ( is_wp_error( $identity ) || ! is_array( $identity ) || empty( $identity['identity_uuid'] ) ) {
+			return $opts;
+		}
+		$opts['identity_uuid']      = (string) $identity['identity_uuid'];
+		$opts['contact_id']         = (int) ( $identity['contact_id'] ?? 0 );
+		$opts['identity_is_stable'] = true;
+		$opts['identity_state']     = 'stable';
+		return $opts;
+	}
+
+	/**
+	 * Resolve customer subject profile context for Notebook/vertical turns.
+	 *
+	 * @param string      $trace_id Trace ID.
+	 * @param string      $prompt User prompt.
+	 * @param array       $opts Runtime options.
+	 * @param object|null $sse Optional SSE writer.
+	 * @return array
+	 */
+	private function collect_subject_profile_context( $trace_id, $prompt, array $opts, $sse = null ) {
+		if ( ! empty( $opts['_subject_profile_resolved'] ) ) {
+			return $opts;
+		}
+		// [2026-07-19 Johnny Chu] PHASE-TWIN-GPT-PROFILE-GROUNDING — generic profile layer must not override Astro's natal/transit subject contract.
+		$web_mode = sanitize_key( (string) ( $opts['web_mode'] ?? '' ) );
+		if ( 'astro' === $web_mode ) {
+			// [2026-07-27 Johnny Chu] PHASE-0.52 W3 — mark the profile stage complete when Astro owns subject resolution.
+			$opts['_subject_profile_resolved'] = true;
+			return $opts;
+		}
+		// [2026-07-19 Johnny Chu] PHASE-TWIN-GPT-PROFILE-GROUNDING — silent Astro Recall also owns subject context for astro-intent prompts.
+		if ( class_exists( 'BizCity_TwinBrain_Astro_Recall' ) && BizCity_TwinBrain_Astro_Recall::prompt_has_astro_intent( (string) $prompt ) ) {
+			// [2026-07-27 Johnny Chu] PHASE-0.52 W3 — avoid re-entering the generic profile stage after Astro intent detection.
+			$opts['_subject_profile_resolved'] = true;
+			return $opts;
+		}
+
+		$user_id = isset( $opts['subject_id'] ) ? (int) $opts['subject_id'] : ( isset( $opts['user_id'] ) ? (int) $opts['user_id'] : (int) get_current_user_id() );
+		if ( $user_id <= 0 || ! class_exists( 'BizCity_TwinBrain_Subject_Profile_Layer' ) ) {
+			// [2026-07-27 Johnny Chu] PHASE-0.52 W3 — record the intentional skip so later stages do not retry profile lookup.
+			$opts['_subject_profile_resolved'] = true;
+			return $opts;
+		}
+
+		$event_base = array(
+			'trace_id' => (string) $trace_id,
+			'surface'  => self::SURFACE,
+			'user_id'  => $user_id,
+			'blog_id'  => (int) get_current_blog_id(),
+		);
+		$resolving = array_merge( $event_base, array(
+			'template_slug' => sanitize_key( (string) ( $opts['profile_template_slug'] ?? '' ) ),
+		) );
+		if ( is_object( $sse ) && method_exists( $sse, 'emit' ) ) {
+			$sse->emit( 'subject_profile_resolving', $resolving );
+		}
+		$this->emit_event( 'subject_profile_resolving', $resolving );
+
+		try {
+			$ctx = BizCity_TwinBrain_Subject_Profile_Layer::instance()->collect_for_user( $user_id, $prompt, $opts );
+			if ( ! empty( $ctx['active'] ) && ! empty( $ctx['context_md'] ) ) {
+				$opts['subject_context_md']    = (string) $ctx['context_md'];
+				$opts['subject_context_label'] = 'HỒ SƠ CUSTOMER — xác định chủ thể trước khi trả lời';
+				$opts['subject_profile_meta']  = $ctx;
+			} elseif ( 'profile_missing_required' === (string) ( $ctx['degraded_reason'] ?? '' ) && '' !== trim( (string) ( $ctx['context_md'] ?? '' ) ) ) {
+				// [2026-07-19 Johnny Chu] PHASE-TWIN-GPT-PROFILE-GROUNDING — tell composer that the subject is not resolved; never let WP display name stand in for a baby/customer casefile.
+				$opts['subject_context_md'] = "## CHƯA XÁC ĐỊNH ĐƯỢC CHỦ THỂ CỤ THỂ\n"
+					. "- Hồ sơ AI của template đang chọn chưa có câu trả lời thực tế.\n"
+					. "- Không dùng tên tài khoản WordPress hoặc display_name làm chủ thể thay cho hồ sơ em bé/customer.\n"
+					. "- Nếu câu hỏi cần cá nhân hóa, nói rõ chưa đủ hồ sơ và gợi ý user hoàn tất Hồ sơ AI.\n\n"
+					. (string) $ctx['context_md'];
+				$opts['subject_context_label'] = 'HỒ SƠ CUSTOMER — chưa xác định được chủ thể';
+				$opts['subject_profile_meta']  = $ctx;
+			}
+
+			$event_name = ! empty( $ctx['active'] ) ? 'subject_profile_resolved' : 'subject_profile_degraded';
+			$event = array_merge( $event_base, array(
+				'active'           => ! empty( $ctx['active'] ),
+				'template_slug'    => (string) ( $ctx['template_slug'] ?? '' ),
+				'facts_count'      => (int) ( $ctx['facts_count'] ?? 0 ),
+				'missing_required' => (array) ( $ctx['missing_required'] ?? array() ),
+				'degraded_reason'  => (string) ( $ctx['degraded_reason'] ?? '' ),
+				'latency_ms'       => (int) ( $ctx['latency_ms'] ?? 0 ),
+			) );
+			if ( is_object( $sse ) && method_exists( $sse, 'emit' ) ) {
+				$sse->emit( $event_name, $event );
+			}
+			$this->emit_event( $event_name, $event );
+		} catch ( \Throwable $e ) {
+			$event = array_merge( $event_base, array(
+				'active'          => false,
+				'template_slug'   => '',
+				'facts_count'     => 0,
+				'degraded_reason' => 'profile_layer_exception',
+				'error'           => $e->getMessage(),
+			) );
+			if ( is_object( $sse ) && method_exists( $sse, 'emit' ) ) {
+				$sse->emit( 'subject_profile_degraded', $event );
+			}
+			$this->emit_event( 'subject_profile_degraded', $event );
+			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+				error_log( '[TwinBrain][subject_profile_layer] trace=' . $trace_id . ' ' . $e->getMessage() );
+			}
+		}
+
+		// [2026-07-27 Johnny Chu] PHASE-0.52 W3 — mark profile resolution complete so later stages do not re-read user meta.
+		$opts['_subject_profile_resolved'] = true;
+		return $opts;
+	}
+
+	/**
+	 * Run the default multimodal intake layer before Notebook/RAG/final compose.
+	 *
+	 * @param string                 $trace_id Trace ID.
+	 * @param string                 $prompt User prompt.
+	 * @param array                  $opts Runtime options.
+	 * @param BizCity_Twin_SSE_Writer|null $sse SSE writer.
+	 * @return array
+	 */
+	private function collect_multimodal_intake_context( $trace_id, $prompt, array $opts, $sse = null ) {
+		// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MULTIMODAL — subject -> attachment/vision/file -> downstream core flow.
+		if ( ! class_exists( 'BizCity_TwinBrain_Multimodal_Intake_Layer' ) ) {
+			// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MULTIMODAL — runtime may be included directly; self-load intake instead of silently skipping Vision.
+			$intake_file = __DIR__ . '/class-twinbrain-multimodal-intake-layer.php';
+			if ( is_readable( $intake_file ) ) {
+				require_once $intake_file;
+			}
+		}
+		if ( ! class_exists( 'BizCity_TwinBrain_Multimodal_Intake_Layer' ) ) {
+			$has_attachment_context = ! empty( $opts['attachments'] ) || false !== strpos( (string) $prompt, '[TWIN_GPT_ATTACHMENTS]' );
+			if ( $has_attachment_context ) {
+				$payload = array(
+					'trace_id'      => (string) $trace_id,
+					'degraded'      => true,
+					'reason_bucket' => 'multimodal_intake_class_missing',
+				);
+				if ( is_object( $sse ) && method_exists( $sse, 'emit' ) ) {
+					$sse->emit( 'multimodal_ingest_degraded', $payload );
+				}
+				$this->emit_event( 'multimodal_ingest_degraded', array_merge( array( 'surface' => self::SURFACE ), $payload ) );
+			}
+			return $opts;
+		}
+
+		$emit = function ( $event_key, array $payload ) use ( $sse ) {
+			if ( is_object( $sse ) && method_exists( $sse, 'emit' ) ) {
+				$sse->emit( (string) $event_key, $payload );
+			}
+			$this->emit_event( (string) $event_key, array_merge( array( 'surface' => self::SURFACE ), $payload ) );
+		};
+
+		try {
+			return BizCity_TwinBrain_Multimodal_Intake_Layer::instance()->collect( $trace_id, $prompt, $opts, $emit );
+		} catch ( \Throwable $e ) {
+			$payload = array(
+				'trace_id'      => (string) $trace_id,
+				'degraded'      => true,
+				'reason_bucket' => 'multimodal_intake_exception',
+				'error'         => $e->getMessage(),
+			);
+			if ( is_object( $sse ) && method_exists( $sse, 'emit' ) ) {
+				$sse->emit( 'multimodal_ingest_degraded', $payload );
+			}
+			$this->emit_event( 'multimodal_ingest_degraded', array_merge( array( 'surface' => self::SURFACE ), $payload ) );
+			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+				error_log( '[TwinBrain][multimodal_intake] trace=' . $trace_id . ' ' . $e->getMessage() );
+			}
+			return $opts;
+		}
+	}
+
+	/**
 	 * Begin a brain turn. Returns a trace_id the caller can subscribe to via SSE.
 	 *
 	 * @param string $prompt
@@ -54,9 +268,15 @@ class BizCity_TwinBrain_Runtime {
 	 */
 	public function start_turn( string $prompt, array $opts = [] ): array {
 		$trace_id = $this->new_trace_id();
-		$user_id  = isset( $opts['user_id'] ) ? (int) $opts['user_id'] : get_current_user_id();
+		$actor_user_id = isset( $opts['user_id'] ) ? (int) $opts['user_id'] : get_current_user_id();
+		$subject_id    = $this->resolve_subject_id( $actor_user_id, $opts );
+		$opts['subject_id'] = $subject_id;
+		$user_id       = $actor_user_id;
+		$opts = $this->resolve_identity_context( $opts, $actor_user_id );
 		// [2026-06-04 Johnny Chu] BS-12 — bind session for durable turn persist.
 		$this->current_session_id = (string) ( $opts['session_id'] ?? '' );
+		// [2026-07-27 Johnny Chu] PHASE-0.52 W3 — resolve subject profile before notebook selection and memory recall.
+		$opts = $this->collect_subject_profile_context( $trace_id, $prompt, $opts );
 		$k        = max( 3, min( BIZCITY_TWINBRAIN_K_MAX, (int) ( $opts['k'] ?? BIZCITY_TWINBRAIN_K_DEFAULT ) ) );
 
 		/* ============================================================
@@ -153,10 +373,30 @@ class BizCity_TwinBrain_Runtime {
 			'count'    => count( $keyword_tokens ),
 		] );
 
+		/* [2026-07-24 Johnny Chu] PHASE-0.46 W5 S5.2 — "trong ghi chú hôm nay"
+		 * scoped querying. If the caller didn't already force specific
+		 * notebooks (explicit @notebook UI pin, automation, etc.) AND the
+		 * prompt itself asks about "today's notebook/note" in plain Vietnamese,
+		 * force-scope retrieval to exactly what the channel-capture bridge
+		 * (PHASE-0.46 Wave 1-4) auto-created for this user today — no new
+		 * retrieval mechanism, just an explicit override already supported by
+		 * Notebook_Selector::select()'s `force_ids` opt (§2.5 Wave 5 design).
+		 * Falls through to normal cosine/keyword/recency selection when the
+		 * phrase isn't detected or nothing was captured today. */
+		$force_notebooks = (array) ( $opts['force_notebooks'] ?? [] );
+		if ( empty( $force_notebooks ) && class_exists( 'BizCity_KG_Channel_Notebook_Bridge' ) ) {
+			if ( $this->is_day_notebook_summary_query( $prompt_eff ) ) {
+				$today_ids = BizCity_KG_Channel_Notebook_Bridge::find_day_notebooks( $user_id );
+				if ( ! empty( $today_ids ) ) {
+					$force_notebooks = $today_ids;
+				}
+			}
+		}
+
 		// Stage 1A — notebook selector (parallel-conceptually; sequential in PHP).
 		$selector   = BizCity_TwinBrain_Notebook_Selector::instance();
 		$candidates = $selector->select( $prompt_eff, $user_id, $k, [
-			'force_ids' => $opts['force_notebooks'] ?? [],
+			'force_ids' => $force_notebooks,
 			// PHASE-0.35 / F7.D2 — forward guru context so selector can
 			// prioritise notebooks bound to the active guru (character_id =
 			// guru_id) before falling through cosine → density → recency.
@@ -244,8 +484,17 @@ class BizCity_TwinBrain_Runtime {
 		$memory_citations  = [];
 		if ( class_exists( 'BizCity_TwinBrain_Memory_Recall' ) ) {
 			try {
-				$mem_res = BizCity_TwinBrain_Memory_Recall::instance()->collect( $user_id, $prompt_eff, [
+				$mem_res = BizCity_TwinBrain_Memory_Recall::instance()->collect( $subject_id, $prompt_eff, [
 					'keyword_tokens' => $keyword_tokens,
+					// [2026-07-28 Johnny Chu] R-CH-IDMEM — preserve the active turn session through Layer 0.5 recall.
+					'session_id'     => (string) ( $opts['session_id'] ?? '' ),
+					'identity_uuid'  => (string) ( $opts['identity_uuid'] ?? '' ),
+					// [2026-07-28 Johnny Chu] PHASE-0.52 W2 — preserve channel identity for no-owner link UX on agent turns.
+					'platform'          => (string) ( $opts['platform'] ?? $opts['channel'] ?? '' ),
+					'channel'           => (string) ( $opts['channel'] ?? '' ),
+					'account_id'        => (string) ( $opts['account_id'] ?? '' ),
+					'external_user_id'  => (string) ( $opts['external_user_id'] ?? '' ),
+					'chat_id'           => (string) ( $opts['chat_id'] ?? '' ),
 				] );
 				$memory_block     = (string) ( $mem_res['block']     ?? '' );
 				$memory_citations = (array)  ( $mem_res['citations'] ?? [] );
@@ -283,6 +532,11 @@ class BizCity_TwinBrain_Runtime {
 			/* PHASE 0.36-UNIFIED Wave 2.8 — memory recall block + telemetry. */
 			'memory_block'    => $memory_block,
 			'memory_recall'   => $memory_recall_evt,
+			// [2026-07-27 Johnny Chu] PHASE-0.52 W3 — carry resolved profile context into stage 2 without another meta read.
+			'subject_context_md'    => (string) ( $opts['subject_context_md'] ?? '' ),
+			'subject_context_label' => (string) ( $opts['subject_context_label'] ?? '' ),
+			'subject_id'            => $subject_id,
+			'_subject_profile_resolved' => ! empty( $opts['_subject_profile_resolved'] ),
 		];
 	}
 
@@ -294,8 +548,75 @@ class BizCity_TwinBrain_Runtime {
 	public function complete_turn( string $trace_id, string $prompt, array $candidates, array $tool_candidates = [], array $opts = [] ): array {
 		// [2026-06-04 Johnny Chu] BS-12 — bind session for durable turn persist.
 		$this->current_session_id = (string) ( $opts['session_id'] ?? '' );
+		$opts = $this->resolve_identity_context( $opts, (int) ( $opts['user_id'] ?? get_current_user_id() ) );
 		$runner       = BizCity_TwinBrain_Perspective_Runner::instance();
 		$answers      = $runner->run( $trace_id, $prompt, $candidates, $opts );
+
+		// [2026-07-19 Johnny Chu] PHASE-TWIN-GPT-PROFILE-GROUNDING — resolve customer subject before Notebook Source Layer.
+		$opts = $this->collect_subject_profile_context( $trace_id, $prompt, $opts );
+
+		$notebook_source_payload = array(
+			'notebook_source_map'      => array(),
+			'notebook_source_block_md' => '',
+			'notebook_source_counts'   => array( 'notebook_count' => 0, 'passage_count' => 0, 'strong_count' => 0, 'weak_count' => 0 ),
+			'source_file_briefs'       => array(),
+			'source_file_counts'       => array( 'source_file_count' => 0, 'with_relations_count' => 0, 'weak_count' => 0 ),
+			'search_context'           => array( 'query' => '', 'scope' => '', 'total' => 0, 'top_n' => 0, 'tokens' => array(), 'results' => array() ),
+		);
+		// [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT — non-stream parity for Notebook Source Layer.
+		if ( class_exists( 'BizCity_TwinBrain_Notebook_Source_Layer' ) ) {
+			try {
+				// [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT W0.9 — pass user prompt into Notebook Source Layer so Search Core can enrich LLM context.
+				$opts['notebook_search_context_query'] = $prompt;
+				$notebook_source_payload = BizCity_TwinBrain_Notebook_Source_Layer::instance()->build_from_turn( $candidates, $answers, $opts );
+				$opts['notebook_source_map']      = (array) ( $notebook_source_payload['notebook_source_map'] ?? array() );
+				$opts['notebook_source_block_md'] = (string) ( $notebook_source_payload['notebook_source_block_md'] ?? '' );
+				$opts['notebook_source_counts']   = (array) ( $notebook_source_payload['notebook_source_counts'] ?? array() );
+				// [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT — non-stream parity for W0.7 source-file briefs.
+				$opts['source_file_briefs']       = (array) ( $notebook_source_payload['source_file_briefs'] ?? array() );
+				$opts['source_file_counts']       = (array) ( $notebook_source_payload['source_file_counts'] ?? array() );
+				// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MOAT W0.10 — non-stream parity for top TwinSearch context hits.
+				$opts['search_context']           = (array) ( $notebook_source_payload['search_context'] ?? array() );
+				$opts['search_context_results']   = (array) ( $notebook_source_payload['search_context_results'] ?? array() );
+				$opts['search_context_total']     = (int) ( $notebook_source_payload['search_context_total'] ?? 0 );
+				// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MOAT W0.12 — non-stream parity for N4 cross-notebook links.
+				$opts['cross_notebook_links']     = (array) ( $notebook_source_payload['cross_notebook_links'] ?? array() );
+				// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MOAT W0.13 — non-stream parity for N5 training gap report.
+				$opts['training_gap_report']      = (array) ( $notebook_source_payload['training_gap_report'] ?? array() );
+				$source_counts = (array) $opts['notebook_source_counts'];
+				$source_file_counts = (array) $opts['source_file_counts'];
+				$search_context = (array) $opts['search_context'];
+				if ( (int) ( $source_counts['notebook_count'] ?? 0 ) > 0 ) {
+					$this->emit_event( 'notebook_source_layer_ready', array(
+						'trace_id'                 => $trace_id,
+						'surface'                  => self::SURFACE,
+						'notebook_count'           => (int) ( $source_counts['notebook_count'] ?? 0 ),
+						'passage_count'            => (int) ( $source_counts['passage_count'] ?? 0 ),
+						'strong_count'             => (int) ( $source_counts['strong_count'] ?? 0 ),
+						'weak_count'               => (int) ( $source_counts['weak_count'] ?? 0 ),
+						'source_file_count'        => (int) ( $source_file_counts['source_file_count'] ?? 0 ),
+						'source_file_with_relations_count' => (int) ( $source_file_counts['with_relations_count'] ?? 0 ),
+						'search_context_total'     => (int) ( $search_context['total'] ?? $opts['search_context_total'] ?? 0 ),
+						'search_context_top_n'     => (int) ( $search_context['top_n'] ?? 0 ),
+						'search_context_query'     => (string) ( $search_context['query'] ?? '' ),
+						'search_context_scope'     => (string) ( $search_context['scope'] ?? '' ),
+						'search_context_tokens'    => (array) ( $search_context['tokens'] ?? array() ),
+						'search_context_results'   => (array) ( $search_context['results'] ?? $opts['search_context_results'] ?? array() ),
+						'notebook_source_map'      => (array) $opts['notebook_source_map'],
+						'source_file_briefs'       => (array) $opts['source_file_briefs'],
+						'notebook_source_block_md' => (string) $opts['notebook_source_block_md'],
+						// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MOAT W0.12 — N4 cross-notebook links in non-stream event.
+						'cross_notebook_links'     => (array) $opts['cross_notebook_links'],
+						// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MOAT W0.13 — N5 training gap report in non-stream event.
+						'training_gap_report'      => (array) $opts['training_gap_report'],
+					) );
+				}
+			} catch ( \Throwable $e ) {
+				if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+					error_log( '[TwinBrain][notebook_source_layer][nonstream][error] trace=' . $trace_id . ' ' . $e->getMessage() );
+				}
+			}
+		}
 
 		/* PHASE-0.35 / F7.C4 — Layer 5 Tool_Decision (no dispatch yet; that's F7.C5). */
 		$tool_decision = $this->decide_tool(
@@ -310,7 +631,15 @@ class BizCity_TwinBrain_Runtime {
 		) );
 
 		/* PHASE-0.35 / F7.C5 — Layer 6 Tool_Dispatch (non-stream). */
+		// [2026-07-20 Johnny Chu] PHASE-TWIN-GPT-AGENT-TOOLS — pass the user prompt into tool args builder before dispatch.
+		$opts['tool_prompt'] = $prompt;
 		$dispatch     = $this->dispatch_tool( $trace_id, $tool_decision, $opts );
+		if ( ! empty( $dispatch['artifact_created'] ) && is_array( $dispatch['artifact_created'] ) ) {
+			$this->emit_event( 'artifact_created', array_merge( array( 'trace_id' => $trace_id, 'surface' => self::SURFACE ), $dispatch['artifact_created'] ) );
+		}
+		if ( ! empty( $dispatch['artifact_ready'] ) && is_array( $dispatch['artifact_ready'] ) ) {
+			$this->emit_event( 'artifact_ready', array_merge( array( 'trace_id' => $trace_id, 'surface' => self::SURFACE ), $dispatch['artifact_ready'] ) );
+		}
 		$this->emit_event( 'tool_done', $this->tool_done_payload( $trace_id, $dispatch, $tool_decision ) );
 		$tool_results = ! empty( $dispatch['skipped'] )
 			? $this->planned_tool_results( $tool_decision )
@@ -318,8 +647,22 @@ class BizCity_TwinBrain_Runtime {
 
 		$synth     = BizCity_TwinBrain_Synthesizer::instance();
 		$synth_t0  = microtime( true );
-		$synthesis = $synth->synthesize( $trace_id, $prompt, $answers, $tool_results );
-		$synth_ms  = (int) ( ( microtime( true ) - $synth_t0 ) * 1000 );
+		// [2026-07-24 Johnny Chu] PHASE-0.46 W5 S5.3 — reuse the S5.2 day-notebook
+		// phrase detector to flag "meeting/day summary" framing for the
+		// Synthesizer, instead of building a parallel summarizer.
+		if ( ! isset( $opts['day_scope_summary'] ) ) {
+			$opts['day_scope_summary'] = $this->is_day_notebook_summary_query( $prompt );
+		}
+		$synthesis = $synth->synthesize( $trace_id, $prompt, $answers, $tool_results, $opts );
+		if ( class_exists( 'BizCity_TwinBrain_Notebook_Source_Layer' ) && ! empty( $opts['notebook_source_map'] ) && ! empty( $opts['notebook_source_block_md'] ) ) {
+			$nonstream_answer = trim( (string) ( $synthesis['answer_md'] ?? '' ) );
+			if ( $nonstream_answer !== '' && strpos( $nonstream_answer, '### Nguồn từ Notebook' ) === false ) {
+				$nonstream_answer .= "\n\n" . (string) $opts['notebook_source_block_md'];
+			}
+			$clean = BizCity_TwinBrain_Notebook_Source_Layer::instance()->strip_invalid_citations( $nonstream_answer, (array) $opts['notebook_source_map'] );
+			$synthesis['answer_md'] = (string) ( $clean['answer_md'] ?? $nonstream_answer );
+			$synthesis['invalid_notebook_citations_stripped'] = (int) ( $clean['invalid_count'] ?? 0 );
+		}
 
 		// Resolve cited passages → KG entity ids so the visual panel can light
 		// the matching nodes orange (R-BRAIN-1 + parity with notebook editor).
@@ -345,6 +688,8 @@ class BizCity_TwinBrain_Runtime {
 			'consensus_count'    => isset( $synthesis['consensus'] ) ? count( $synthesis['consensus'] ) : 0,
 			'tensions_count'     => isset( $synthesis['tensions']  ) ? count( $synthesis['tensions']  ) : 0,
 			'citation_count'     => isset( $synthesis['citations'] ) ? count( $synthesis['citations'] ) : 0,
+			'notebook_source_counts' => (array) ( $opts['notebook_source_counts'] ?? array() ),
+			'source_file_counts' => (array) ( $opts['source_file_counts'] ?? array() ),
 			'cited_entity_count' => count( $cited_entity_ids ),
 			'cited_passage_count'=> count( $cited_passages ),
 			'fallback'           => (string) ( $synthesis['fallback'] ?? '' ),
@@ -361,6 +706,14 @@ class BizCity_TwinBrain_Runtime {
 				'recommendation'    => $synthesis['recommendation'] ?? '',
 				'citations'         => $synthesis['citations']      ?? [],
 				'citation_count'    => isset( $synthesis['citations'] ) ? count( $synthesis['citations'] ) : 0,
+				'notebook_source_map'      => (array) ( $opts['notebook_source_map'] ?? array() ),
+				'notebook_source_block_md' => (string) ( $opts['notebook_source_block_md'] ?? '' ),
+				'notebook_source_counts'   => (array) ( $opts['notebook_source_counts'] ?? array() ),
+				'source_file_briefs'       => (array) ( $opts['source_file_briefs'] ?? array() ),
+				'source_file_counts'       => (array) ( $opts['source_file_counts'] ?? array() ),
+				'search_context'           => (array) ( $opts['search_context'] ?? array() ),
+				'search_context_results'   => (array) ( $opts['search_context_results'] ?? array() ),
+				'search_context_total'     => (int) ( $opts['search_context_total'] ?? 0 ),
 				'cited_entity_ids'  => $cited_entity_ids,
 				'cited_passages'    => $cited_passages,
 				'model'             => (string) ( $synthesis['model'] ?? '' ),
@@ -374,6 +727,16 @@ class BizCity_TwinBrain_Runtime {
 			'ok'                => true,
 			'synthesis'         => $synthesis,
 			'answers'           => $answers,
+			'notebook_source'   => array(
+				'map'      => (array) ( $opts['notebook_source_map'] ?? array() ),
+				'block_md' => (string) ( $opts['notebook_source_block_md'] ?? '' ),
+				'counts'   => (array) ( $opts['notebook_source_counts'] ?? array() ),
+				'source_file_briefs' => (array) ( $opts['source_file_briefs'] ?? array() ),
+				'source_file_counts' => (array) ( $opts['source_file_counts'] ?? array() ),
+				'search_context'     => (array) ( $opts['search_context'] ?? array() ),
+				'search_context_results' => (array) ( $opts['search_context_results'] ?? array() ),
+				'search_context_total' => (int) ( $opts['search_context_total'] ?? 0 ),
+			),
 			'cited_entity_ids'  => $cited_entity_ids,
 			'cited_passages'    => $cited_passages,
 		];
@@ -411,6 +774,18 @@ class BizCity_TwinBrain_Runtime {
 		// [2026-06-04 Johnny Chu] BS-12 — bind session for durable turn persist
 		// (covers agent / astro / degrade sub-stream modes delegated below).
 		$this->current_session_id = (string) ( $opts['session_id'] ?? '' );
+		$opts = $this->resolve_identity_context( $opts, (int) ( $opts['user_id'] ?? get_current_user_id() ) );
+
+		// [2026-07-18 Johnny Chu] PHASE-TWIN-GPT-C-ENDUSER — apply server-owned TwinWeb runtime preset caps before any mode dispatch.
+		if ( isset( $opts['twinweb_runtime_budget'] ) && is_array( $opts['twinweb_runtime_budget'] ) ) {
+			$_budget = $opts['twinweb_runtime_budget'];
+			if ( isset( $_budget['max_iterations'] ) ) {
+				$opts['max_iterations'] = max( 1, min( 8, (int) $_budget['max_iterations'] ) );
+			}
+			if ( isset( $_budget['search_result_budget'] ) ) {
+				$opts['search_result_budget'] = max( 1, min( 20, (int) $_budget['search_result_budget'] ) );
+			}
+		}
 
 		/* PHASE 0.36-UNIFIED TBR.W20 (2026-05-28) — Agent ReAct mode.
 		 * When REST request sets `mode=agent`, bypass the entire MPR
@@ -440,6 +815,14 @@ class BizCity_TwinBrain_Runtime {
 		// resolve transit via CAP filter, compose final answer with transit context.
 		if ( strtolower( (string) ( $opts['web_mode'] ?? 'off' ) ) === 'astro' ) {
 			return $this->stream_astro_mode( $trace_id, $prompt, $sse, $opts, $wall_t0 );
+		}
+
+		// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MULTIMODAL — resolve subject and attachments before any core Notebook/RAG/final flow.
+		$opts = $this->collect_subject_profile_context( $trace_id, $prompt, $opts, $sse );
+		$opts = $this->collect_multimodal_intake_context( $trace_id, $prompt, $opts, $sse );
+		$prompt_for_reasoning = trim( (string) ( $opts['multimodal_enriched_query'] ?? '' ) );
+		if ( '' === $prompt_for_reasoning ) {
+			$prompt_for_reasoning = $prompt;
 		}
 
 		/* PHASE 0.36-UNIFIED TBR.W18 (2026-05-28) — Brain auto-degrade.
@@ -490,7 +873,7 @@ class BizCity_TwinBrain_Runtime {
 
 		$persp_t0  = microtime( true );
 		$runner    = BizCity_TwinBrain_Perspective_Runner::instance();
-		$answers   = $runner->run( $trace_id, $prompt, $candidates, $opts );
+		$answers   = $runner->run( $trace_id, $prompt_for_reasoning, $candidates, $opts );
 		$persp_ms  = (int) ( ( microtime( true ) - $persp_t0 ) * 1000 );
 
 		// Re-emit each answer individually so FE can fill timeline rows even
@@ -506,6 +889,11 @@ class BizCity_TwinBrain_Runtime {
 				'tokens'      => (int)    ( $a['tokens']      ?? 0 ),
 				'answer_md'   => (string) ( $a['answer_md']   ?? '' ),
 				'reason'      => (string) ( $a['reason']      ?? '' ),
+				// [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT — expose evidence budget for Notebook depth diagnostics.
+				'notebook_evidence_budget' => (array) ( $a['notebook_evidence_budget'] ?? array() ),
+				'neighborhood_expanded_count' => (int) ( $a['neighborhood_expanded_count'] ?? 0 ),
+				'source_sibling_expanded_count' => (int) ( $a['source_sibling_expanded_count'] ?? 0 ),
+				'diversity_rerank_applied' => ! empty( $a['diversity_rerank_applied'] ),
 			] );
 			$sse->maybe_heartbeat();
 		}
@@ -522,6 +910,124 @@ class BizCity_TwinBrain_Runtime {
 		// always defined (function scope) at the assistant_message snapshot site.
 		$persp_snapshot = $answers;
 		$web_row        = array();
+
+		$notebook_source_payload = array(
+			'notebook_source_map'      => array(),
+			'notebook_source_block_md' => '',
+			'notebook_source_counts'   => array( 'notebook_count' => 0, 'passage_count' => 0, 'strong_count' => 0, 'weak_count' => 0 ),
+			'search_context'           => array( 'query' => '', 'scope' => '', 'total' => 0, 'top_n' => 0, 'tokens' => array(), 'results' => array() ),
+		);
+		// [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT — build first-class notebook source map before web/tool rows are appended.
+		if ( class_exists( 'BizCity_TwinBrain_Notebook_Source_Layer' ) ) {
+			try {
+				// [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT W0.9 — pass user prompt into Notebook Source Layer so Search Core can enrich LLM context.
+				$opts['notebook_search_context_query'] = $prompt_for_reasoning;
+				$notebook_source_payload = BizCity_TwinBrain_Notebook_Source_Layer::instance()->build_from_turn( $candidates, $persp_snapshot, $opts );
+				$opts['notebook_source_map']      = (array) ( $notebook_source_payload['notebook_source_map'] ?? array() );
+				$opts['notebook_source_block_md'] = (string) ( $notebook_source_payload['notebook_source_block_md'] ?? '' );
+				$opts['notebook_source_counts']   = (array) ( $notebook_source_payload['notebook_source_counts'] ?? array() );
+				// [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT — pass W0.7 source-file briefs to Final Composer and replay snapshots.
+				$opts['source_file_briefs']       = (array) ( $notebook_source_payload['source_file_briefs'] ?? array() );
+				$opts['source_file_counts']       = (array) ( $notebook_source_payload['source_file_counts'] ?? array() );
+				// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MOAT W0.10 — pass top TwinSearch context hits to Final Composer, SSE and replay snapshots.
+				$opts['search_context']           = (array) ( $notebook_source_payload['search_context'] ?? array() );
+				$opts['search_context_results']   = (array) ( $notebook_source_payload['search_context_results'] ?? array() );
+				$opts['search_context_total']     = (int) ( $notebook_source_payload['search_context_total'] ?? 0 );
+				// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MOAT W0.12 — pass N4 cross-notebook links to Final Composer, SSE and replay snapshots.
+				$opts['cross_notebook_links']     = (array) ( $notebook_source_payload['cross_notebook_links'] ?? array() );
+				// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MOAT W0.20 — pass canonical Graph/vector/rerank evidence pack across all surfaces.
+				$opts['graph_vector_rerank_pack'] = (array) ( $notebook_source_payload['graph_vector_rerank_pack'] ?? array() );
+				$opts['graph_entities']           = (array) ( $notebook_source_payload['graph_entities'] ?? array() );
+				$opts['retrieval_candidates']      = (array) ( $notebook_source_payload['retrieval_candidates'] ?? array() );
+				$opts['final_context_chunks']      = (array) ( $notebook_source_payload['final_context_chunks'] ?? array() );
+				// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MOAT W0.20.2/W0.20.3 — expose vector/rerank degraded state for FE trace and DDV.
+				$opts['retrieval_candidate_count'] = (int) ( $notebook_source_payload['retrieval_candidate_count'] ?? count( $opts['retrieval_candidates'] ) );
+				$opts['final_context_count']       = (int) ( $notebook_source_payload['final_context_count'] ?? count( $opts['final_context_chunks'] ) );
+				$opts['rerank_method']             = (string) ( $notebook_source_payload['rerank_method'] ?? '' );
+				$opts['rerank_degraded']           = ! empty( $notebook_source_payload['rerank_degraded'] );
+				$opts['rerank_error']              = (string) ( $notebook_source_payload['rerank_error'] ?? '' );
+				$opts['vector_status']             = (string) ( $notebook_source_payload['vector_status'] ?? '' );
+				$opts['vector_candidate_count']    = (int) ( $notebook_source_payload['vector_candidate_count'] ?? 0 );
+				$opts['vector_degraded_reason']    = (string) ( $notebook_source_payload['vector_degraded_reason'] ?? '' );
+				// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MOAT W0.21 — forward graph/selector hardening evidence to SSE/replay.
+				$opts['graph_candidate_count']     = (int) ( $notebook_source_payload['graph_candidate_count'] ?? 0 );
+				$opts['selector_hardening_applied'] = ! empty( $notebook_source_payload['selector_hardening_applied'] );
+				$opts['selector_hardening_reason'] = (string) ( $notebook_source_payload['selector_hardening_reason'] ?? '' );
+				$opts['selector_hardening_count']  = (int) ( $notebook_source_payload['selector_hardening_count'] ?? 0 );
+				$opts['selector_hardening_scope']  = (string) ( $notebook_source_payload['selector_hardening_scope'] ?? '' );
+				// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MOAT W0.13 — pass N5 training gap report to Final Composer, SSE and replay snapshots.
+				$opts['training_gap_report']      = (array) ( $notebook_source_payload['training_gap_report'] ?? array() );
+				// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MOAT W0.15 — pass concrete product entities to Final Composer, SSE and replay snapshots.
+				$opts['product_entities']         = (array) ( $notebook_source_payload['product_entities'] ?? array() );
+				$opts['product_entity_count']     = (int) ( $notebook_source_payload['product_entity_count'] ?? count( $opts['product_entities'] ) );
+				// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MOAT W0.16 — distinguish true product-name rows from category/claim rows.
+				$opts['product_name_entity_count'] = (int) ( $notebook_source_payload['product_name_entity_count'] ?? 0 );
+
+				$source_counts = (array) $opts['notebook_source_counts'];
+				$source_file_counts = (array) $opts['source_file_counts'];
+				$search_context = (array) $opts['search_context'];
+				$source_event  = array(
+					'trace_id'                 => $trace_id,
+					'notebook_count'           => (int) ( $source_counts['notebook_count'] ?? 0 ),
+					'passage_count'            => (int) ( $source_counts['passage_count'] ?? 0 ),
+					'strong_count'             => (int) ( $source_counts['strong_count'] ?? 0 ),
+					'weak_count'               => (int) ( $source_counts['weak_count'] ?? 0 ),
+					'source_file_count'        => (int) ( $source_file_counts['source_file_count'] ?? 0 ),
+					'source_file_with_relations_count' => (int) ( $source_file_counts['with_relations_count'] ?? 0 ),
+					'search_context_total'     => (int) ( $search_context['total'] ?? $opts['search_context_total'] ?? 0 ),
+					'search_context_top_n'     => (int) ( $search_context['top_n'] ?? 0 ),
+					'search_context_query'     => (string) ( $search_context['query'] ?? '' ),
+					'search_context_scope'     => (string) ( $search_context['scope'] ?? '' ),
+					'search_context_tokens'    => (array) ( $search_context['tokens'] ?? array() ),
+					'search_context_results'   => (array) ( $search_context['results'] ?? $opts['search_context_results'] ?? array() ),
+					'product_entity_count'     => (int) $opts['product_entity_count'],
+					'product_name_entity_count' => (int) $opts['product_name_entity_count'],
+					'product_entities'         => (array) $opts['product_entities'],
+					'notebook_source_map'      => (array) $opts['notebook_source_map'],
+					'source_file_briefs'       => (array) $opts['source_file_briefs'],
+					'notebook_source_block_md' => (string) $opts['notebook_source_block_md'],
+					// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MOAT W0.12 — N4 cross-notebook links in stream event.
+					'cross_notebook_links'     => (array) $opts['cross_notebook_links'],
+					// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MOAT W0.20 — Graph/vector/rerank canonical pack in stream event.
+					'graph_vector_rerank_pack' => (array) $opts['graph_vector_rerank_pack'],
+					'graph_entities'           => (array) $opts['graph_entities'],
+					'retrieval_candidates'      => (array) $opts['retrieval_candidates'],
+					'final_context_chunks'      => (array) $opts['final_context_chunks'],
+					'retrieval_candidate_count' => (int) $opts['retrieval_candidate_count'],
+					'final_context_count'       => (int) $opts['final_context_count'],
+					'rerank_method'             => (string) $opts['rerank_method'],
+					'rerank_degraded'           => ! empty( $opts['rerank_degraded'] ),
+					'rerank_error'              => (string) $opts['rerank_error'],
+					'vector_status'             => (string) $opts['vector_status'],
+					'vector_candidate_count'    => (int) $opts['vector_candidate_count'],
+					'vector_degraded_reason'    => (string) $opts['vector_degraded_reason'],
+					// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MOAT W0.21 — stream selector hardening and graph expansion counters.
+					'graph_candidate_count'     => (int) $opts['graph_candidate_count'],
+					'selector_hardening_applied' => ! empty( $opts['selector_hardening_applied'] ),
+					'selector_hardening_reason' => (string) $opts['selector_hardening_reason'],
+					'selector_hardening_count'  => (int) $opts['selector_hardening_count'],
+					'selector_hardening_scope'  => (string) $opts['selector_hardening_scope'],
+					// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MOAT W0.13 — N5 training gap report in stream event.
+					'training_gap_report'      => (array) $opts['training_gap_report'],
+				);
+				// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MOAT W0.17 — always stream TwinSearch/source-layer evidence, including zero-result searches, before final conclusion.
+				$sse->emit( 'notebook_source_layer_ready', $source_event );
+				$this->emit_event( 'notebook_source_layer_ready', array_merge( array( 'surface' => self::SURFACE ), $source_event ) );
+				// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MULTIMODAL — expose Graph/retrieval rerank checkpoint after multimodal query enrichment.
+				$rerank_event = array(
+					'trace_id'        => $trace_id,
+					'candidate_count' => count( (array) $opts['retrieval_candidates'] ),
+					'top_n'           => count( (array) $opts['final_context_chunks'] ),
+					'query'           => $prompt_for_reasoning,
+				);
+				$sse->emit( 'rerank_done', $rerank_event );
+				$this->emit_event( 'rerank_done', array_merge( array( 'surface' => self::SURFACE ), $rerank_event ) );
+			} catch ( \Throwable $e ) {
+				if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+					error_log( '[TwinBrain][notebook_source_layer][error] trace=' . $trace_id . ' ' . $e->getMessage() );
+				}
+			}
+		}
 
 		/* PHASE 0.36-UNIFIED / TBR.W9 (2026-05-21) — Stage 2.5 Web Research
 		 * Fallback Layer. Dispatched only when FE composer toggle is
@@ -544,11 +1050,13 @@ class BizCity_TwinBrain_Runtime {
 			'bizcity_twinbrain_web_mode_effective',
 			$web_mode,
 			$guru_id_eff,
-			[ 'trace_id' => $trace_id, 'prompt' => $prompt ]
+			// [2026-07-17 Johnny Chu] PHASE-TWINWEB — pass surface/requested mode context so policy filters can apply surface-specific gates.
+			[ 'trace_id' => $trace_id, 'prompt' => $prompt, 'surface' => (string) ( $opts['surface'] ?? '' ), 'requested_mode' => $web_mode ]
 		);
 
-		if ( $web_mode === 'quick' || $web_mode === 'deep' || $web_mode === 'social' || $web_mode === 'company' || $web_mode === 'med' || $web_mode === 'scholar' || $web_mode === 'nutri' || $web_mode === 'law' || $web_mode === 'tax' || $web_mode === 'gov' ) {
-			$web_row = $this->dispatch_web_research( $trace_id, $prompt, $web_mode, $sse, $opts );
+		// [2026-07-15 Johnny Chu] PHASE-TWB-PRODUCTS - include products in Stage 2.5 web dispatch list.
+		if ( $web_mode === 'quick' || $web_mode === 'deep' || $web_mode === 'social' || $web_mode === 'company' || $web_mode === 'med' || $web_mode === 'scholar' || $web_mode === 'nutri' || $web_mode === 'law' || $web_mode === 'tax' || $web_mode === 'gov' || $web_mode === 'products' ) {
+			$web_row = $this->dispatch_web_research( $trace_id, $prompt_for_reasoning, $web_mode, $sse, $opts );
 			if ( ! empty( $web_row ) ) {
 				// Append as an extra perspective row so synthesizer sees it
 				// alongside notebook perspectives. The synthesizer treats
@@ -574,22 +1082,43 @@ class BizCity_TwinBrain_Runtime {
 		) );
 
 		/* PHASE-0.35 / F7.C5 — Layer 6 Tool_Dispatch (stream).
-		 * Emit `tool_done` between tool_decided and synthesis_started so the
-		 * Synthesizer prompt can include real tool output (vs the PLANNED
-		 * placeholder) and the FE Timeline gets a Layer-6 row in real time. */
-		$dispatch = $this->dispatch_tool( $trace_id, $tool_decision, $opts );
-		$tool_done_payload = $this->tool_done_payload( $trace_id, $dispatch, $tool_decision );
-		$sse->emit( 'tool_done', $tool_done_payload );
-		$this->emit_event( 'tool_done', $tool_done_payload );
-		$tool_results = ! empty( $dispatch['skipped'] )
-			? $this->planned_tool_results( $tool_decision )
-			: $this->dispatched_tool_results( $dispatch );
+		 * Non-artifact tools still dispatch before synthesis. Producer artifacts
+		 * are deferred until after Layer 4.5 final_done so BZDoc receives the
+		 * trusted AskBrain final answer as priority context. */
+		// [2026-07-20 Johnny Chu] PHASE-TWIN-GPT-AGENT-TOOLS — use multimodal-enriched prompt as canonical tool args source.
+		$opts['tool_prompt'] = $prompt_for_reasoning;
+		// [2026-07-20 Johnny Chu] PHASE-1-TWIN-GPT-AGENT-TOOLS — defer producer artifacts until final answer is available for BZDoc handoff.
+		$defer_artifact_dispatch = $this->should_defer_stream_artifact_dispatch( $tool_decision );
+		$dispatch = array();
+		if ( $defer_artifact_dispatch ) {
+			$deferred_payload = array(
+				'trace_id' => $trace_id,
+				'surface'  => self::SURFACE,
+				'tool_slug'=> (string) ( $tool_decision['tool']['slug'] ?? '' ),
+				'reason'   => 'await_final_answer',
+				'priority' => array( 'request.user_prompt', 'request.final_answer', 'spec_trace' ),
+			);
+			$sse->emit( 'tool_dispatch_deferred', $deferred_payload );
+			$this->emit_event( 'tool_dispatch_deferred', $deferred_payload );
+			$tool_results = $this->planned_tool_results( $tool_decision );
+		} else {
+			$dispatch = $this->dispatch_tool( $trace_id, $tool_decision, $opts, $sse );
+			$this->emit_dispatch_artifacts_and_done( $trace_id, $dispatch, $tool_decision, $sse );
+			$tool_results = ! empty( $dispatch['skipped'] )
+				? $this->planned_tool_results( $tool_decision )
+				: $this->dispatched_tool_results( $dispatch );
+		}
 
 		$sse->emit( 'synthesis_started', [ 'trace_id' => $trace_id ] );
 
 		$synth     = BizCity_TwinBrain_Synthesizer::instance();
 		$synth_t0  = microtime( true );
-		$synthesis = $synth->synthesize( $trace_id, $prompt, $answers, $tool_results, $opts );
+		// [2026-07-24 Johnny Chu] PHASE-0.46 W5 S5.3 — same day-notebook framing
+		// flag as complete_turn(), keyed off the reasoning-enriched prompt.
+		if ( ! isset( $opts['day_scope_summary'] ) ) {
+			$opts['day_scope_summary'] = $this->is_day_notebook_summary_query( $prompt_for_reasoning );
+		}
+		$synthesis = $synth->synthesize( $trace_id, $prompt_for_reasoning, $answers, $tool_results, $opts );
 		$synth_ms  = (int) ( ( microtime( true ) - $synth_t0 ) * 1000 );
 
 		$sse->emit( 'synthesis_done', [
@@ -599,6 +1128,7 @@ class BizCity_TwinBrain_Runtime {
 			'tensions'        => (array)  ( $synthesis['tensions']       ?? [] ),
 			'recommendation'  => (string) ( $synthesis['recommendation'] ?? '' ),
 			'citations'       => (array)  ( $synthesis['citations']      ?? [] ),
+			'notebook_source_counts' => (array) ( $opts['notebook_source_counts'] ?? array() ),
 			'tokens'          => (int)    ( $synthesis['tokens']         ?? 0 ),
 			'ms'              => $synth_ms,
 			'fallback'        => (string) ( $synthesis['fallback']       ?? '' ),
@@ -629,7 +1159,8 @@ class BizCity_TwinBrain_Runtime {
 		) {
 			try {
 				$astro_ctx = BizCity_TwinBrain_Astro_Recall::collect_for_user(
-					(int) ( $opts['user_id'] ?? get_current_user_id() ),
+					// [2026-07-27 Johnny Chu] PHASE-0.52 W3 — Astro recall follows the already-authorized subject; coachee resolution remains Astro-owned.
+					(int) ( $opts['subject_id'] ?? $opts['user_id'] ?? get_current_user_id() ),
 					$prompt
 				);
 				$astro_recall_ms = (int) ( ( microtime( true ) - $astro_recall_t0 ) * 1000 );
@@ -674,6 +1205,25 @@ class BizCity_TwinBrain_Runtime {
 				$sse->maybe_heartbeat();
 			},
 		) );
+		// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MULTIMODAL — visible prompt compiler checkpoint before final model/tool call.
+		$prompt_compiler_tool_slug = '';
+		if ( isset( $tool_decision['tool'] ) && is_array( $tool_decision['tool'] ) ) {
+			$prompt_compiler_tool_slug = (string) ( $tool_decision['tool']['slug'] ?? '' );
+		} elseif ( isset( $tool_decision['tool'] ) && is_string( $tool_decision['tool'] ) ) {
+			$prompt_compiler_tool_slug = (string) $tool_decision['tool'];
+		} elseif ( isset( $tool_decision['tool_slug'] ) ) {
+			$prompt_compiler_tool_slug = (string) $tool_decision['tool_slug'];
+		}
+		$prompt_compiler_event = array(
+			'trace_id'         => $trace_id,
+			'intent'           => (string) ( $opts['multimodal_intent'] ?? $final_opts['answer_intent'] ?? 'answer' ),
+			'model_alias'      => (string) ( $final_opts['model'] ?? '' ),
+			'evidence_chunks'  => count( (array) ( $opts['final_context_chunks'] ?? array() ) ),
+			'attachment_facts' => ! empty( $opts['multimodal_ingest_pack'] ) ? count( (array) ( $opts['multimodal_ingest_pack']['query_expansion'] ?? array() ) ) : 0,
+			'tool_slug'        => $prompt_compiler_tool_slug,
+		);
+		$sse->emit( 'prompt_compiler_ready', $prompt_compiler_event );
+		$this->emit_event( 'prompt_compiler_ready', array_merge( array( 'surface' => self::SURFACE ), $prompt_compiler_event ) );
 		$final    = $composer->compose_stream(
 			$trace_id,
 			$prompt,
@@ -736,7 +1286,39 @@ class BizCity_TwinBrain_Runtime {
 			'chunks'    => $final_seq,
 			'fallback'  => (string) ( $final['fallback'] ?? '' ),
 			'success'   => ! empty( $final['success'] ),
+			// [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT — expose Notebook answer-depth profile to timeline/FE diagnostics.
+			'notebook_depth_profile' => (string) ( $final['notebook_depth_profile'] ?? '' ),
+			'notebook_depth_budget'  => (array) ( $final['notebook_depth_budget'] ?? array() ),
+			'llm_purpose'     => (string) ( $final['llm_purpose'] ?? '' ),
+			// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MOAT W0.14 — expose answer-intent/list-products contract activation.
+			'answer_intent'   => (string) ( $final['answer_intent'] ?? '' ),
+			'named_evidence_count' => (int) ( $final['named_evidence_count'] ?? 0 ),
+			'product_entity_count' => (int) ( $final['product_entity_count'] ?? $opts['product_entity_count'] ?? 0 ),
+			'product_name_entity_count' => (int) ( $final['product_name_entity_count'] ?? $opts['product_name_entity_count'] ?? 0 ),
+			'notebook_source_counts'   => (array) ( $opts['notebook_source_counts'] ?? array() ),
+			// [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT — expose W0.7 source-file brief counts in final timeline event.
+			'source_file_counts'       => (array) ( $opts['source_file_counts'] ?? array() ),
+			'notebook_source_block_md' => (string) ( $opts['notebook_source_block_md'] ?? '' ),
+			'invalid_notebook_citations_stripped' => (int) ( $final['invalid_notebook_citations_stripped'] ?? 0 ),
 		] );
+
+		if ( $defer_artifact_dispatch ) {
+			// [2026-07-20 Johnny Chu] PHASE-1-TWIN-GPT-AGENT-TOOLS — dispatch BZDoc/image/slide artifacts only after final answer stream is complete.
+			$deferred_opts = $opts;
+			$deferred_opts['tool_prompt'] = $prompt_for_reasoning;
+			$deferred_opts['final_answer_md'] = $final_text;
+			$deferred_opts['artifact_dispatch_priority'] = array( 'request.user_prompt', 'request.final_answer', 'spec_trace' );
+			$start_payload = array(
+				'trace_id' => $trace_id,
+				'surface'  => self::SURFACE,
+				'tool_slug'=> (string) ( $tool_decision['tool']['slug'] ?? '' ),
+				'priority' => $deferred_opts['artifact_dispatch_priority'],
+			);
+			$sse->emit( 'tool_dispatch_deferred_start', $start_payload );
+			$this->emit_event( 'tool_dispatch_deferred_start', $start_payload );
+			$deferred_dispatch = $this->dispatch_tool( $trace_id, $tool_decision, $deferred_opts, $sse );
+			$this->emit_dispatch_artifacts_and_done( $trace_id, $deferred_dispatch, $tool_decision, $sse );
+		}
 
 		/* PHASE 0.36-UNIFIED Wave 2.8 TBR.MEM-6 (2026-05-24) — Mode 3 function-
 		 * call tools. After final_done, scan $final_text for inline
@@ -754,8 +1336,10 @@ class BizCity_TwinBrain_Runtime {
 					$final_text,
 					[
 						'trace_id'   => $trace_id,
-						'user_id'    => (int)    ( $opts['user_id']    ?? get_current_user_id() ),
+						'user_id'    => (int)    ( $opts['subject_id'] ?? $opts['user_id'] ?? get_current_user_id() ),
 						'session_id' => (string) ( $opts['session_id'] ?? '' ),
+						'identity_uuid' => (string) ( $opts['identity_uuid'] ?? '' ),
+						'identity_is_stable' => ! empty( $opts['identity_is_stable'] ),
 						'surface'    => self::SURFACE,
 						'on_event'   => function ( string $event_key, array $payload ) use ( $sse ) {
 							$sse->emit( $event_key, $payload );
@@ -799,8 +1383,17 @@ class BizCity_TwinBrain_Runtime {
 					$prompt,
 					$final_text,
 					[
-						'user_id'    => (int)    ( $opts['user_id']    ?? get_current_user_id() ),
+						'user_id'    => (int)    ( $opts['subject_id'] ?? $opts['user_id'] ?? get_current_user_id() ),
 						'session_id' => (string) ( $opts['session_id'] ?? '' ),
+						'identity_uuid' => (string) ( $opts['identity_uuid'] ?? '' ),
+						// [2026-07-28 Johnny Chu] R-CH-IDMEM — preserve stable UUID ownership on the primary writer path.
+						'identity_is_stable' => ! empty( $opts['identity_is_stable'] ),
+						// [2026-07-27 Johnny Chu] PHASE-0.52 W2 — preserve channel context for no-owner UX only.
+						'platform'   => (string) ( $opts['platform'] ?? $opts['channel'] ?? '' ),
+						'channel'    => (string) ( $opts['channel'] ?? '' ),
+						'account_id' => (string) ( $opts['account_id'] ?? '' ),
+						'external_user_id' => (string) ( $opts['external_user_id'] ?? '' ),
+						'chat_id'    => (string) ( $opts['chat_id'] ?? '' ),
 					]
 				);
 				$write_payload = [
@@ -829,7 +1422,7 @@ class BizCity_TwinBrain_Runtime {
 					$mood = BizCity_TwinBrain_Memory_Writer::instance()->sample_mood( [
 						'trace_id'   => $trace_id,
 						'session_id' => $session_id,
-						'user_id'    => (int) ( $opts['user_id'] ?? get_current_user_id() ),
+						'user_id'    => (int) ( $opts['subject_id'] ?? $opts['user_id'] ?? get_current_user_id() ),
 						'turn_index' => $turn_index,
 						'prompt'     => (string) $prompt,
 						'answer'     => (string) $final_text,
@@ -897,6 +1490,15 @@ class BizCity_TwinBrain_Runtime {
 				'recommendation'   => $synthesis['recommendation'] ?? '',
 				'citations'        => $synthesis['citations']      ?? [],
 				'citation_count'   => isset( $synthesis['citations'] ) ? count( $synthesis['citations'] ) : 0,
+				'notebook_source_map'      => (array) ( $opts['notebook_source_map'] ?? array() ),
+				'notebook_source_block_md' => (string) ( $opts['notebook_source_block_md'] ?? '' ),
+				'notebook_source_counts'   => (array) ( $opts['notebook_source_counts'] ?? array() ),
+				// [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT — persist W0.7 source-file briefs for admin replay.
+				'source_file_briefs'       => (array) ( $opts['source_file_briefs'] ?? array() ),
+				'source_file_counts'       => (array) ( $opts['source_file_counts'] ?? array() ),
+				'search_context'           => (array) ( $opts['search_context'] ?? array() ),
+				'search_context_results'   => (array) ( $opts['search_context_results'] ?? array() ),
+				'search_context_total'     => (int) ( $opts['search_context_total'] ?? 0 ),
 				'cited_entity_ids' => $cited_entity_ids,
 				'cited_passages'   => $cited_passages,
 				'model'            => (string) ( $synthesis['model'] ?? '' ),
@@ -914,6 +1516,14 @@ class BizCity_TwinBrain_Runtime {
 					'chunks'   => $final_seq,
 					'fallback' => (string) ( $final['fallback'] ?? '' ),
 					'success'  => ! empty( $final['success'] ),
+					'notebook_depth_profile' => (string) ( $final['notebook_depth_profile'] ?? '' ),
+					'notebook_depth_budget'  => (array) ( $final['notebook_depth_budget'] ?? array() ),
+					'llm_purpose' => (string) ( $final['llm_purpose'] ?? '' ),
+					// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MOAT W0.14 — preserve list-products contract metadata.
+					'answer_intent' => (string) ( $final['answer_intent'] ?? '' ),
+					'named_evidence_count' => (int) ( $final['named_evidence_count'] ?? 0 ),
+					'product_entity_count' => (int) ( $final['product_entity_count'] ?? $opts['product_entity_count'] ?? 0 ),
+					'product_name_entity_count' => (int) ( $final['product_name_entity_count'] ?? $opts['product_name_entity_count'] ?? 0 ),
 				],
 			],
 			// [2026-06-04 Johnny Chu] BS-12 — persist full turn result_snapshot
@@ -926,6 +1536,19 @@ class BizCity_TwinBrain_Runtime {
 				'web_mode'        => $web_mode,
 				'mode'            => 'brain',
 				'perspectives'    => $persp_snapshot,
+				'notebook_source' => array(
+					'map'       => (array) ( $opts['notebook_source_map'] ?? array() ),
+					'block_md'  => (string) ( $opts['notebook_source_block_md'] ?? '' ),
+					'counts'    => (array) ( $opts['notebook_source_counts'] ?? array() ),
+					'source_file_briefs' => (array) ( $opts['source_file_briefs'] ?? array() ),
+					'source_file_counts' => (array) ( $opts['source_file_counts'] ?? array() ),
+					'search_context'     => (array) ( $opts['search_context'] ?? array() ),
+					'search_context_results' => (array) ( $opts['search_context_results'] ?? array() ),
+					'search_context_total' => (int) ( $opts['search_context_total'] ?? 0 ),
+					'product_entities' => (array) ( $opts['product_entities'] ?? array() ),
+					'product_entity_count' => (int) ( $opts['product_entity_count'] ?? 0 ),
+					'product_name_entity_count' => (int) ( $opts['product_name_entity_count'] ?? 0 ),
+				),
 				'synthesis'       => array(
 					'answer_md'      => (string) ( $synthesis['answer_md_synth'] ?? ( $synthesis['answer_md'] ?? '' ) ),
 					'consensus'      => $synthesis['consensus']      ?? array(),
@@ -944,6 +1567,14 @@ class BizCity_TwinBrain_Runtime {
 					'ms'        => $final_ms,
 					'fallback'  => (string) ( $final['fallback'] ?? '' ),
 					'success'   => ! empty( $final['success'] ),
+					'notebook_depth_profile' => (string) ( $final['notebook_depth_profile'] ?? '' ),
+					'notebook_depth_budget'  => (array) ( $final['notebook_depth_budget'] ?? array() ),
+					'llm_purpose' => (string) ( $final['llm_purpose'] ?? '' ),
+					// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MOAT W0.14 — replay W0.14 intent evidence metadata.
+					'answer_intent' => (string) ( $final['answer_intent'] ?? '' ),
+					'named_evidence_count' => (int) ( $final['named_evidence_count'] ?? 0 ),
+					'product_entity_count' => (int) ( $final['product_entity_count'] ?? $opts['product_entity_count'] ?? 0 ),
+					'product_name_entity_count' => (int) ( $final['product_name_entity_count'] ?? $opts['product_name_entity_count'] ?? 0 ),
 				),
 				'web_research'    => $web_row,
 				'tool_dispatch'   => $tool_done_payload,
@@ -988,6 +1619,7 @@ class BizCity_TwinBrain_Runtime {
 			'web_mode'        => (string) ( $parts['web_mode'] ?? strtolower( (string) ( $opts['web_mode'] ?? 'off' ) ) ),
 			'mode'            => (string) ( $parts['mode'] ?? 'brain' ),
 			'perspectives'    => array(),
+			'notebook_source' => array(),
 			'synthesis'       => array(),
 			'final'           => array(),
 			'web_research'    => array(),
@@ -997,6 +1629,21 @@ class BizCity_TwinBrain_Runtime {
 			'cited_passages'  => array_values( (array) ( $parts['cited_passages'] ?? array() ) ),
 			'duration_ms'     => (int) ( $parts['duration_ms'] ?? 0 ),
 		);
+
+		if ( ! empty( $parts['notebook_source'] ) && is_array( $parts['notebook_source'] ) ) {
+			// [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT — preserve source map and W0.7 source-file briefs for session replay.
+			$snap['notebook_source'] = array(
+				'map'                => array_values( (array) ( $parts['notebook_source']['map'] ?? array() ) ),
+				'block_md'           => (string) ( $parts['notebook_source']['block_md'] ?? '' ),
+				'counts'             => (array) ( $parts['notebook_source']['counts'] ?? array() ),
+				'source_file_briefs' => array_values( (array) ( $parts['notebook_source']['source_file_briefs'] ?? array() ) ),
+				'source_file_counts' => (array) ( $parts['notebook_source']['source_file_counts'] ?? array() ),
+				// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MOAT W0.10 — preserve top TwinSearch hits for session replay.
+				'search_context'     => (array) ( $parts['notebook_source']['search_context'] ?? array() ),
+				'search_context_results' => array_values( (array) ( $parts['notebook_source']['search_context_results'] ?? array() ) ),
+				'search_context_total' => (int) ( $parts['notebook_source']['search_context_total'] ?? 0 ),
+			);
+		}
 
 		foreach ( (array) ( $parts['perspectives'] ?? array() ) as $a ) {
 			if ( ! is_array( $a ) ) {
@@ -1121,11 +1768,12 @@ class BizCity_TwinBrain_Runtime {
 		};
 
 		$agent_opts = [
-			'user_id'      => (int)    ( $opts['user_id']      ?? get_current_user_id() ),
+			'user_id'      => (int)    ( $opts['subject_id'] ?? $opts['user_id'] ?? get_current_user_id() ),
 			'session_id'   => (string) ( $opts['session_id']   ?? '' ),
 			'guru_id'      => (int)    ( $opts['guru_id']      ?? 0 ),
 			'memory_block' => (string) ( $opts['memory_block'] ?? '' ),
 			'notebook_id'  => (int)    ( $opts['notebook_id']  ?? 0 ),
+			'max_iterations' => (int)  ( $opts['max_iterations'] ?? 0 ),
 			'scope'        => isset( $opts['scope'] ) && is_array( $opts['scope'] ) ? $opts['scope'] : null,
 		];
 		$agent_res = $agent->run( $trace_id, $prompt, $agent_opts, $relay );
@@ -1173,8 +1821,10 @@ class BizCity_TwinBrain_Runtime {
 					$final_text,
 					[
 						'trace_id'   => $trace_id,
-						'user_id'    => (int)    ( $opts['user_id']    ?? get_current_user_id() ),
+						'user_id'    => (int)    ( $opts['subject_id'] ?? $opts['user_id'] ?? get_current_user_id() ),
 						'session_id' => (string) ( $opts['session_id'] ?? '' ),
+						'identity_uuid' => (string) ( $opts['identity_uuid'] ?? '' ),
+						'identity_is_stable' => ! empty( $opts['identity_is_stable'] ),
 						'surface'    => self::SURFACE,
 						'on_event'   => function ( string $event_key, array $payload ) use ( $sse ) {
 							$sse->emit( $event_key, $payload );
@@ -1213,8 +1863,11 @@ class BizCity_TwinBrain_Runtime {
 					$prompt,
 					$final_text,
 					[
-						'user_id'    => (int)    ( $opts['user_id']    ?? get_current_user_id() ),
+						'user_id'    => (int)    ( $opts['subject_id'] ?? $opts['user_id'] ?? get_current_user_id() ),
 						'session_id' => (string) ( $opts['session_id'] ?? '' ),
+						// [2026-07-28 Johnny Chu] R-CH-IDMEM — keep UUID ownership on the agent memory-writer path.
+						'identity_uuid' => (string) ( $opts['identity_uuid'] ?? '' ),
+						'identity_is_stable' => ! empty( $opts['identity_is_stable'] ),
 					]
 				);
 				$write_payload = [
@@ -2225,8 +2878,17 @@ class BizCity_TwinBrain_Runtime {
 					$prompt,
 					$final_text,
 					[
-						'user_id'    => $user_id,
+						'user_id'    => (int) ( $opts['subject_id'] ?? $user_id ),
 						'session_id' => (string) ( $opts['session_id'] ?? '' ),
+						'identity_uuid' => (string) ( $opts['identity_uuid'] ?? '' ),
+						// [2026-07-28 Johnny Chu] R-CH-IDMEM — preserve stable UUID ownership on the Astro writer path.
+						'identity_is_stable' => ! empty( $opts['identity_is_stable'] ),
+						// [2026-07-28 Johnny Chu] PHASE-0.52 W2 — preserve channel identity for no-owner link UX on Astro turns.
+						'platform'   => (string) ( $opts['platform'] ?? $opts['channel'] ?? '' ),
+						'channel'    => (string) ( $opts['channel'] ?? '' ),
+						'account_id' => (string) ( $opts['account_id'] ?? '' ),
+						'external_user_id' => (string) ( $opts['external_user_id'] ?? '' ),
+						'chat_id'    => (string) ( $opts['chat_id'] ?? '' ),
 					]
 				);
 				$write_payload = [
@@ -2267,7 +2929,7 @@ class BizCity_TwinBrain_Runtime {
 				$mm = BizCity_TwinBrain_Mode_Memory::instance()->persist( array(
 					'mode'       => 'astro',
 					'trace_id'   => $trace_id,
-					'user_id'    => $user_id,
+					'user_id'    => (int) ( $opts['subject_id'] ?? $user_id ),
 					'session_id' => (string) ( $opts['session_id'] ?? '' ),
 					'title'      => 'Chiêm tinh — quá cảnh (' . $period . ') · coachee #' . $mm_coachee_id,
 					'summary'    => $mm_summary,
@@ -2645,8 +3307,18 @@ class BizCity_TwinBrain_Runtime {
 					$prompt,
 					$final_text,
 					array(
-						'user_id' => $user_id,
+						// [2026-07-27 Johnny Chu] PHASE-0.52 W3 — persist relation-mode memory under the resolved subject, not the actor fallback.
+						'user_id' => (int) ( $opts['subject_id'] ?? $user_id ),
 						'session_id' => (string) ( $opts['session_id'] ?? '' ),
+						'identity_uuid' => (string) ( $opts['identity_uuid'] ?? '' ),
+						// [2026-07-28 Johnny Chu] R-CH-IDMEM — preserve stable UUID ownership on the relation writer path.
+						'identity_is_stable' => ! empty( $opts['identity_is_stable'] ),
+						// [2026-07-28 Johnny Chu] PHASE-0.52 W2 — preserve channel identity for no-owner link UX on relation turns.
+						'platform' => (string) ( $opts['platform'] ?? $opts['channel'] ?? '' ),
+						'channel' => (string) ( $opts['channel'] ?? '' ),
+						'account_id' => (string) ( $opts['account_id'] ?? '' ),
+						'external_user_id' => (string) ( $opts['external_user_id'] ?? '' ),
+						'chat_id' => (string) ( $opts['chat_id'] ?? '' ),
 					)
 				);
 				$write_payload = array(
@@ -3134,6 +3806,22 @@ class BizCity_TwinBrain_Runtime {
 		}
 
 		return false;
+	}
+
+	/**
+	 * [2026-07-24 Johnny Chu] PHASE-0.46 W5 S5.2/S5.3 — shared phrase heuristic:
+	 * does this prompt ask about "today's notebook/note/meeting"? Extracted out
+	 * of start_turn() (was inline) so complete_turn()/complete_turn_stream() can
+	 * reuse the exact same detection to flag `opts['day_scope_summary']` for
+	 * the Synthesizer's meeting-summary framing hint (S5.3) — one detector,
+	 * two consumers, no drift between retrieval scoping and prompt framing.
+	 */
+	private function is_day_notebook_summary_query( string $prompt ): bool {
+		$prompt_lc = mb_strtolower( $prompt );
+		return ( strpos( $prompt_lc, 'hôm nay' ) !== false || strpos( $prompt_lc, 'hom nay' ) !== false )
+			&& ( strpos( $prompt_lc, 'ghi chú' ) !== false || strpos( $prompt_lc, 'ghi chu' ) !== false
+				|| strpos( $prompt_lc, 'notebook' ) !== false || strpos( $prompt_lc, 'note' ) !== false
+				|| strpos( $prompt_lc, 'cuộc họp' ) !== false || strpos( $prompt_lc, 'cuoc hop' ) !== false );
 	}
 
 	/**
@@ -4776,8 +5464,10 @@ class BizCity_TwinBrain_Runtime {
 					$final_text,
 					[
 						'trace_id'   => $trace_id,
-						'user_id'    => (int)    ( $opts['user_id']    ?? get_current_user_id() ),
+						'user_id'    => (int)    ( $opts['subject_id'] ?? $opts['user_id'] ?? get_current_user_id() ),
 						'session_id' => (string) ( $opts['session_id'] ?? '' ),
+						'identity_uuid' => (string) ( $opts['identity_uuid'] ?? '' ),
+						'identity_is_stable' => ! empty( $opts['identity_is_stable'] ),
 						'surface'    => self::SURFACE,
 						'on_event'   => function ( string $event_key, array $payload ) use ( $sse ) {
 							$sse->emit( $event_key, $payload );
@@ -4817,8 +5507,11 @@ class BizCity_TwinBrain_Runtime {
 					$prompt,
 					$final_text,
 					[
-						'user_id'    => (int)    ( $opts['user_id']    ?? get_current_user_id() ),
+						'user_id'    => (int)    ( $opts['subject_id'] ?? $opts['user_id'] ?? get_current_user_id() ),
 						'session_id' => (string) ( $opts['session_id'] ?? '' ),
+						// [2026-07-28 Johnny Chu] R-CH-IDMEM — keep UUID ownership on the auto-degrade memory-writer path.
+						'identity_uuid' => (string) ( $opts['identity_uuid'] ?? '' ),
+						'identity_is_stable' => ! empty( $opts['identity_is_stable'] ),
 					]
 				);
 				$write_payload = [
@@ -4844,7 +5537,7 @@ class BizCity_TwinBrain_Runtime {
 					$mood = BizCity_TwinBrain_Memory_Writer::instance()->sample_mood( [
 						'trace_id'   => $trace_id,
 						'session_id' => $session_id,
-						'user_id'    => (int) ( $opts['user_id'] ?? get_current_user_id() ),
+						'user_id'    => (int) ( $opts['subject_id'] ?? $opts['user_id'] ?? get_current_user_id() ),
 						'turn_index' => $turn_index,
 						'prompt'     => (string) $prompt,
 						'answer'     => (string) $final_text,
@@ -4973,7 +5666,7 @@ class BizCity_TwinBrain_Runtime {
 	 *
 	 * @param string                  $trace_id Brain turn trace id.
 	 * @param string                  $prompt   User prompt.
-	 * @param string                  $mode     'quick' | 'deep' | 'social' | 'company' | 'med' | 'scholar' | 'nutri' | 'law' | 'tax' | 'gov'.
+	 * @param string                  $mode     'quick' | 'deep' | 'social' | 'company' | 'med' | 'scholar' | 'nutri' | 'law' | 'tax' | 'gov' | 'products'.
 	 * @param BizCity_Twin_SSE_Writer $sse      Live SSE writer.
 	 * @param array                   $opts     Runtime opts (guru_id, web_mode, …).
 	 * @return array Web perspective row (or empty array on engine missing).
@@ -4985,6 +5678,12 @@ class BizCity_TwinBrain_Runtime {
 			'web_extract_done',
 			'web_react_step',
 			'web_synthesize_done',
+			// [2026-07-15 Johnny Chu] PHASE-TWB-PRODUCTS - optional product-specific timeline taxonomy events.
+			'product_research_started',
+			'product_intent_detected',
+			'product_needs_decomposed',
+			'product_react_step',
+			'product_synthesize_done',
 		];
 		$web_events_lookup = array_flip( $web_events );
 
@@ -5061,7 +5760,9 @@ class BizCity_TwinBrain_Runtime {
 					}
 				} else {
 					$row = BizCity_TwinBrain_Web_Deep::instance()->run( $trace_id, $prompt, [
-						'guru_id' => (int) ( $opts['guru_id'] ?? 0 ),
+						'guru_id'              => (int) ( $opts['guru_id'] ?? 0 ),
+						'max_iterations'       => (int) ( $opts['max_iterations'] ?? 0 ),
+						'search_result_budget' => (int) ( $opts['search_result_budget'] ?? 0 ),
 					] );
 				}
 			} elseif ( $mode === 'med' ) {
@@ -5120,6 +5821,20 @@ class BizCity_TwinBrain_Runtime {
 					$row = BizCity_TwinBrain_Web_Gov::instance()->run( $trace_id, $prompt, [
 						'guru_id'    => (int) ( $opts['guru_id']    ?? 0 ),
 						'time_range' => (string) ( $opts['gov_time_range'] ?? 'week' ),
+					] );
+				}
+			} elseif ( $mode === 'products' ) {
+				if ( ! class_exists( 'BizCity_TwinBrain_Web_Products' ) ) {
+					$sse->emit( 'web_research_error', [ 'trace_id' => $trace_id, 'mode' => 'products', 'error' => 'engine_missing' ] );
+				} else {
+					// [2026-07-15 Johnny Chu] PHASE-TWB-PRODUCTS - delegate to shared products vertical engine.
+					$row = BizCity_TwinBrain_Web_Products::instance()->run( $trace_id, $prompt, [
+						'guru_id'          => (int) ( $opts['guru_id'] ?? 0 ),
+						'intent_hint'      => (string) ( $opts['products_intent_hint'] ?? '' ),
+						'want_enrichment'  => ! isset( $opts['products_enrichment'] ) || ! empty( $opts['products_enrichment'] ),
+						'max'              => (int) ( $opts['products_max'] ?? 10 ),
+						'max_items'        => (int) ( $opts['products_max_items'] ?? 15 ),
+						'source_marker'    => (string) ( $opts['source_marker'] ?? 'twinbrain_chat' ),
 					] );
 				}
 			}
@@ -5419,9 +6134,14 @@ class BizCity_TwinBrain_Runtime {
 
 		// Best-effort schema + approval lookup. Tool may not be in twin tool
 		// registry (some skills live only as bizcity_skills rows for matching).
-		$schema     = null;
-		$needs_ap   = false;
-		$tool_class = '';
+		// [2026-07-19 Johnny Chu] PHASE-TWIN-GPT-AGENT-TOOLS — preserve contract-only catalog metadata for visible tool evaluation even before real executors exist.
+		$schema        = isset( $top['parameters_schema'] ) && is_array( $top['parameters_schema'] ) ? (array) $top['parameters_schema'] : null;
+		$needs_ap      = ! empty( $top['needs_approval'] );
+		$tool_class    = (string) ( $top['tool_class'] ?? '' );
+		$artifact_type = (string) ( $top['artifact_type'] ?? '' );
+		$execution     = (string) ( $top['execution'] ?? '' );
+		$plan_min      = (string) ( $top['plan_min'] ?? '' );
+		$capability    = (string) ( $top['capability'] ?? '' );
 		if ( class_exists( 'BizCity_Twin_Tool_Registry' ) ) {
 			$tool = BizCity_Twin_Tool_Registry::instance()->get( $slug );
 			if ( $tool ) {
@@ -5451,6 +6171,10 @@ class BizCity_TwinBrain_Runtime {
 				'schema'         => $schema,
 				'needs_approval' => $needs_ap,
 				'tool_class'     => $tool_class,
+				'artifact_type'  => $artifact_type,
+				'execution'      => $execution,
+				'plan_min'       => $plan_min,
+				'capability'     => $capability,
 				'guru_id'        => $guru_id,
 			),
 		);
@@ -5477,6 +6201,44 @@ class BizCity_TwinBrain_Runtime {
 		);
 	}
 
+	private function should_defer_stream_artifact_dispatch( array $decision ): bool {
+		// [2026-07-20 Johnny Chu] PHASE-1-TWIN-GPT-AGENT-TOOLS — producer artifacts need final_answer before owner-service handoff.
+		if ( empty( $decision['tool'] ) || ( $decision['decision'] ?? '' ) !== 'await_dispatch' ) {
+			return false;
+		}
+		$tool = (array) $decision['tool'];
+		$slug = sanitize_key( (string) ( $tool['slug'] ?? '' ) );
+		$artifact_type = (string) ( $tool['artifact_type'] ?? '' );
+		if ( '' === $slug || '' === $artifact_type ) {
+			return false;
+		}
+		$producer_slugs = array( 'create_doc', 'create_xlsx', 'create_pptx', 'create_mindmap', 'generate_image' );
+		return in_array( $slug, $producer_slugs, true ) || (string) ( $tool['tool_class'] ?? '' ) === 'producer';
+	}
+
+	private function emit_dispatch_artifacts_and_done( string $trace_id, array $dispatch, array $tool_decision, $sse = null ): void {
+		// [2026-07-20 Johnny Chu] PHASE-1-TWIN-GPT-AGENT-TOOLS — shared artifact/tool_done emission for eager and post-final dispatch.
+		if ( ! empty( $dispatch['artifact_created'] ) && is_array( $dispatch['artifact_created'] ) ) {
+			$artifact_payload = array_merge( array( 'trace_id' => $trace_id, 'surface' => self::SURFACE ), $dispatch['artifact_created'] );
+			if ( is_object( $sse ) && method_exists( $sse, 'emit' ) ) {
+				$sse->emit( 'artifact_created', $artifact_payload );
+			}
+			$this->emit_event( 'artifact_created', $artifact_payload );
+		}
+		if ( ! empty( $dispatch['artifact_ready'] ) && is_array( $dispatch['artifact_ready'] ) ) {
+			$artifact_ready_payload = array_merge( array( 'trace_id' => $trace_id, 'surface' => self::SURFACE ), $dispatch['artifact_ready'] );
+			if ( is_object( $sse ) && method_exists( $sse, 'emit' ) ) {
+				$sse->emit( 'artifact_ready', $artifact_ready_payload );
+			}
+			$this->emit_event( 'artifact_ready', $artifact_ready_payload );
+		}
+		$tool_done_payload = $this->tool_done_payload( $trace_id, $dispatch, $tool_decision );
+		if ( is_object( $sse ) && method_exists( $sse, 'emit' ) ) {
+			$sse->emit( 'tool_done', $tool_done_payload );
+		}
+		$this->emit_event( 'tool_done', $tool_done_payload );
+	}
+
 	/**
 	 * PHASE-0.35 / F7.C5 — Layer 6 Tool_Dispatch.
 	 *
@@ -5500,13 +6262,17 @@ class BizCity_TwinBrain_Runtime {
 	 *   canvas_open: array|null
 	 * }
 	 */
-	private function dispatch_tool( string $trace_id, array $decision, array $opts = [] ): array {
+	private function dispatch_tool( string $trace_id, array $decision, array $opts = [], $sse = null ): array {
 		$base = array(
 			'ok'           => false,
 			'skipped'      => true,
 			'skip_reason'  => '',
 			'tool_slug'    => '',
 			'tool_class'   => '',
+			'artifact_type'=> '',
+			'execution'    => '',
+			'plan_min'     => '',
+			'capability'   => '',
 			'ms'           => 0,
 			'summary'      => '',
 			'error'        => '',
@@ -5514,6 +6280,11 @@ class BizCity_TwinBrain_Runtime {
 			'sources'      => array(),
 			'citation_ids' => array(),
 			'canvas_open'  => null,
+			'args'         => array(),
+			'args_status'  => '',
+			'job'          => null,
+			'artifact_created' => null,
+			'artifact_ready'   => null,
 		);
 
 		if ( empty( $decision['tool'] ) || ( $decision['decision'] ?? '' ) !== 'await_dispatch' ) {
@@ -5525,6 +6296,10 @@ class BizCity_TwinBrain_Runtime {
 		$slug                 = (string) ( $tool_meta['slug'] ?? '' );
 		$base['tool_slug']    = $slug;
 		$base['tool_class']   = (string) ( $tool_meta['tool_class'] ?? '' );
+		$base['artifact_type']= (string) ( $tool_meta['artifact_type'] ?? '' );
+		$base['execution']    = (string) ( $tool_meta['execution'] ?? '' );
+		$base['plan_min']     = (string) ( $tool_meta['plan_min'] ?? '' );
+		$base['capability']   = (string) ( $tool_meta['capability'] ?? '' );
 
 		if ( $slug === '' ) {
 			$base['skip_reason'] = 'empty_slug';
@@ -5572,24 +6347,59 @@ class BizCity_TwinBrain_Runtime {
 			return $base;
 		}
 
-		// Build minimal context for the tool. Tool-specific args are NOT
-		// extracted from prompt yet (Wave 0) — call with empty args; tools
-		// that need args will gracefully error and the user can retry with
-		// `#tool` token + future arg-builder.
+		// [2026-07-20 Johnny Chu] PHASE-TWIN-GPT-AGENT-TOOLS — build owner/thread context; deterministic args are built below before registry execute.
 		$ctx = array(
 			'trace_id'   => $trace_id,
 			'user_id'    => (int) ( $opts['user_id']    ?? get_current_user_id() ),
+			'guest_sid'  => (string) ( $opts['guest_sid'] ?? '' ),
 			'session_id' => (string) ( $opts['session_id'] ?? '' ),
 			'scope'      => (array) ( $opts['scope']    ?? array() ),
 			'surface'    => self::SURFACE,
+			'request_surface' => (string) ( $opts['surface'] ?? '' ),
 			'guru_id'    => (int) ( $tool_meta['guru_id'] ?? ( $opts['guru_id'] ?? 0 ) ),
+			'project_id' => (string) ( $opts['project_id'] ?? '' ),
+			'attachments'=> (array) ( $opts['attachments'] ?? array() ),
+			'attachment_ids' => (array) ( $opts['attachment_ids'] ?? array() ),
 		);
+
+		// [2026-07-20 Johnny Chu] PHASE-TWIN-GPT-AGENT-TOOLS — build structured tool args before registry execute; no extra LLM roundtrip yet.
+		$this->emit_tool_event( 'tool_args_started', array(
+			'trace_id'      => $trace_id,
+			'surface'       => self::SURFACE,
+			'tool_slug'     => $slug,
+			'artifact_type' => (string) $base['artifact_type'],
+		), $sse );
+		$args = $this->build_tool_args( $slug, $tool_meta, $opts );
+		$base['args']        = $args;
+		$base['args_status'] = empty( $args['missing_required'] ) ? 'ready' : 'missing_required';
+		$this->emit_tool_event( 'tool_args_ready', array(
+			'trace_id'         => $trace_id,
+			'surface'          => self::SURFACE,
+			'tool_slug'        => $slug,
+			'artifact_type'    => (string) $base['artifact_type'],
+			'status'           => (string) $base['args_status'],
+			'attachment_count' => isset( $args['attachment_ids'] ) && is_array( $args['attachment_ids'] ) ? count( $args['attachment_ids'] ) : 0,
+			'title'            => (string) ( $args['title'] ?? '' ),
+			'missing_required' => (array) ( $args['missing_required'] ?? array() ),
+		), $sse );
+		if ( ! empty( $args['missing_required'] ) ) {
+			$base['skip_reason'] = 'tool_args_missing';
+			return $base;
+		}
+		// [2026-07-20 Johnny Chu] PHASE-TWIN-GPT-AGENT-TOOLS — make dispatch execution visible before the adapter runs.
+		$this->emit_tool_event( 'tool_dispatch_started', array(
+			'trace_id'      => $trace_id,
+			'surface'       => self::SURFACE,
+			'tool_slug'     => $slug,
+			'artifact_type' => (string) $base['artifact_type'],
+			'execution'     => (string) $base['execution'],
+		), $sse );
 
 		$base['skipped'] = false;
 		$t0  = microtime( true );
 		$ret = array();
 		try {
-			$ret = (array) $tool->execute( array(), $ctx );
+			$ret = (array) $tool->execute( $args, $ctx );
 		} catch ( \Throwable $e ) {
 			$base['ms']    = (int) round( ( microtime( true ) - $t0 ) * 1000 );
 			$base['ok']    = false;
@@ -5603,6 +6413,17 @@ class BizCity_TwinBrain_Runtime {
 		$base['result']       = isset( $ret['result'] ) ? $ret['result'] : null;
 		$base['sources']      = isset( $ret['sources'] )      && is_array( $ret['sources'] )      ? $ret['sources']      : array();
 		$base['citation_ids'] = isset( $ret['citation_ids'] ) && is_array( $ret['citation_ids'] ) ? $ret['citation_ids'] : array();
+		if ( isset( $ret['job'] ) && is_array( $ret['job'] ) ) {
+			$base['job'] = $ret['job'];
+		}
+		if ( isset( $ret['artifact_created'] ) && is_array( $ret['artifact_created'] ) ) {
+			$base['artifact_created'] = $ret['artifact_created'];
+		}
+		if ( isset( $ret['artifact_ready'] ) && is_array( $ret['artifact_ready'] ) ) {
+			$base['artifact_ready'] = $ret['artifact_ready'];
+		}
+		// [2026-07-20 Johnny Chu] PHASE-TWIN-GPT-AGENT-TOOLS — persist AT-7 durable job and attach job_id to Canvas events.
+		$base = $this->attach_artifact_job_state( $trace_id, $base, $ret, $args, $ctx );
 
 		// canvas_open passthrough (R-MPRT §11): tool may attach
 		// `{url, type, output_id}` for FE inline panel flip. Also derive a
@@ -5621,6 +6442,393 @@ class BizCity_TwinBrain_Runtime {
 			}
 		}
 		return $base;
+	}
+
+	/**
+	 * Persist durable TwinWeb artifact job state when the public tool store is loaded.
+	 *
+	 * @param string $trace_id Runtime trace ID.
+	 * @param array  $dispatch Normalized dispatch payload.
+	 * @param array  $raw_return Raw tool adapter return.
+	 * @param array  $args Tool args.
+	 * @param array  $ctx Tool context.
+	 * @return array Dispatch payload with job metadata attached.
+	 */
+	private function attach_artifact_job_state( $trace_id, array $dispatch, array $raw_return, array $args, array $ctx ) {
+		// [2026-07-20 Johnny Chu] PHASE-TWIN-GPT-AGENT-TOOLS — only TwinWeb loads this store; other surfaces keep old behavior.
+		if ( ! class_exists( 'BizCity_TwinWeb_Artifact_Jobs' ) || (string) ( $ctx['request_surface'] ?? '' ) !== 'twinweb' ) {
+			return $dispatch;
+		}
+		if ( empty( $dispatch['artifact_created'] ) && empty( $dispatch['artifact_ready'] ) && empty( $dispatch['artifact_type'] ) ) {
+			return $dispatch;
+		}
+
+		$artifact = is_array( $dispatch['artifact_ready'] ) ? $dispatch['artifact_ready'] : ( is_array( $dispatch['artifact_created'] ) ? $dispatch['artifact_created'] : array() );
+		$status = ! empty( $dispatch['ok'] ) ? 'ready' : 'failed';
+		$progress = ! empty( $dispatch['ok'] ) ? 100 : 0;
+		if ( is_array( $dispatch['artifact_created'] ) && empty( $dispatch['artifact_ready'] ) && ! empty( $dispatch['ok'] ) ) {
+			$status = 'waiting_owner';
+			$progress = isset( $dispatch['artifact_created']['progress'] ) ? absint( $dispatch['artifact_created']['progress'] ) : 10;
+		}
+
+		$job = BizCity_TwinWeb_Artifact_Jobs::create( array(
+			'identity'      => array(
+				'user_id'   => (int) ( $ctx['user_id'] ?? 0 ),
+				'guest_sid' => (string) ( $ctx['guest_sid'] ?? '' ),
+			),
+			'run_id'        => $trace_id,
+			'thread_id'     => (string) ( $ctx['session_id'] ?? '' ),
+			'tool_slug'     => (string) ( $dispatch['tool_slug'] ?? '' ),
+			'artifact_type' => (string) ( $dispatch['artifact_type'] ?: ( $artifact['artifact_type'] ?? $artifact['type'] ?? '' ) ),
+			'status'        => $status,
+			'progress'      => $progress,
+			'reason_bucket' => ! empty( $dispatch['ok'] ) ? '' : 'tool_dispatch_error',
+			'owner_job_id'  => (string) ( $raw_return['job']['id'] ?? $raw_return['job']['job_id'] ?? $artifact['owner_job_id'] ?? '' ),
+			'artifact_id'   => (string) ( $artifact['artifact_id'] ?? $artifact['studio_id'] ?? $artifact['output_id'] ?? '' ),
+			'status_url'    => (string) ( $artifact['status_url'] ?? $artifact['statusUrl'] ?? '' ),
+			'preview_url'   => (string) ( $artifact['preview_url'] ?? $artifact['url'] ?? $artifact['edit_url'] ?? '' ),
+			'download_url'  => (string) ( $artifact['download_url'] ?? $artifact['downloadUrl'] ?? $artifact['preview_url'] ?? $artifact['url'] ?? '' ),
+			'input'         => array( 'args' => $args ),
+			'result'        => array(
+				'summary'          => (string) ( $dispatch['summary'] ?? '' ),
+				'result'           => isset( $dispatch['result'] ) ? $dispatch['result'] : null,
+				'artifact_created' => $dispatch['artifact_created'],
+				'artifact_ready'   => $dispatch['artifact_ready'],
+			),
+			'error_payload' => ! empty( $dispatch['ok'] ) ? null : array(
+				'code'      => 'tool_dispatch_error',
+				'message'   => (string) ( $dispatch['error'] ?: 'Tool artifact failed.' ),
+				'hint'      => 'Thử tạo lại artifact hoặc kiểm tra owner service.',
+				'help_code' => 'automation_run_failed',
+			),
+		) );
+
+		if ( is_wp_error( $job ) || ! is_array( $job ) || empty( $job['job_id'] ) ) {
+			return $dispatch;
+		}
+
+		$job_id = (string) $job['job_id'];
+		$status_url = function_exists( 'rest_url' ) ? rest_url( 'bizcity-twinweb/v1/artifacts/jobs/' . rawurlencode( $job_id ) ) : '';
+		$dispatch['job'] = array(
+			'job_id'      => $job_id,
+			'status'      => (string) $job['status'],
+			'status_url'  => $status_url,
+			'progress'    => (int) $job['progress'],
+			'is_terminal' => ! empty( $job['is_terminal'] ),
+		);
+		foreach ( array( 'artifact_created', 'artifact_ready' ) as $key ) {
+			if ( isset( $dispatch[ $key ] ) && is_array( $dispatch[ $key ] ) ) {
+				$dispatch[ $key ]['job_id'] = $job_id;
+				if ( $status_url !== '' && empty( $dispatch[ $key ]['status_url'] ) ) {
+					$dispatch[ $key ]['status_url'] = $status_url;
+				}
+			}
+		}
+
+		return $dispatch;
+	}
+
+	private function emit_tool_event( string $event_key, array $payload, $sse = null ): void {
+		if ( is_object( $sse ) && method_exists( $sse, 'emit' ) ) {
+			$sse->emit( $event_key, $payload );
+		}
+		$this->emit_event( $event_key, $payload );
+	}
+
+	private function build_tool_args( string $slug, array $tool_meta, array $opts ): array {
+		// [2026-07-20 Johnny Chu] PHASE-TWIN-GPT-AGENT-TOOLS — preserve visible user command as priority; keep enriched reasoning as secondary context.
+		$tool_prompt = trim( (string) ( $opts['tool_prompt'] ?? $opts['multimodal_enriched_query'] ?? $opts['prompt'] ?? '' ) );
+		$user_prompt = trim( (string) ( $opts['visible_prompt'] ?? $opts['user_prompt'] ?? $opts['prompt'] ?? '' ) );
+		$prompt = '' !== $user_prompt ? $user_prompt : $tool_prompt;
+		$attachment_ids = array();
+		foreach ( (array) ( $opts['attachment_ids'] ?? array() ) as $attachment_id ) {
+			$attachment_id = absint( $attachment_id );
+			if ( $attachment_id > 0 ) {
+				$attachment_ids[] = $attachment_id;
+			}
+		}
+
+		$args = array(
+			'prompt'         => $prompt,
+			'title'          => $this->derive_tool_title( $slug, $prompt ),
+			'attachment_ids' => $attachment_ids,
+			'thread_id'      => (string) ( $opts['session_id'] ?? '' ),
+			'project_id'     => (string) ( $opts['project_id'] ?? '' ),
+			'artifact_type'  => (string) ( $tool_meta['artifact_type'] ?? '' ),
+			'tool_spec'      => $this->build_tool_spec_pack( $slug, $tool_meta, $prompt, $tool_prompt, $opts, $attachment_ids ),
+		);
+
+		if ( 'create_xlsx' === $slug ) {
+			$args['sheets'] = array();
+		} elseif ( 'create_pptx' === $slug ) {
+			$args['slides'] = array();
+		} elseif ( 'generate_image' === $slug ) {
+			$args['input_images'] = $attachment_ids;
+			$args['aspect_ratio'] = '1:1';
+		}
+
+		if ( '' === $prompt && '' === $tool_prompt ) {
+			$args['missing_required'] = array( 'prompt' );
+		}
+
+		return $args;
+	}
+
+	private function build_tool_spec_pack( string $slug, array $tool_meta, string $user_prompt, string $tool_prompt, array $opts, array $attachment_ids ): array {
+		// [2026-07-20 Johnny Chu] PHASE-TWIN-GPT-AGENT-TOOLS — canonical layered spec: request first, thread context second, file context third.
+		$thread_history = $this->summarize_tool_history( (array) ( $opts['history'] ?? array() ) );
+		// [2026-07-20 Johnny Chu] PHASE-TWIN-GPT-AGENT-TOOLS — carry real multimodal intake evidence into owner tools, not only attachment filenames.
+		$raw_attachments = (array) ( $opts['attachments'] ?? array() );
+		if ( empty( $raw_attachments ) && isset( $opts['multimodal_ingest_pack']['attachments'] ) && is_array( $opts['multimodal_ingest_pack']['attachments'] ) ) {
+			$raw_attachments = (array) $opts['multimodal_ingest_pack']['attachments'];
+		}
+		$attachments = $this->summarize_tool_attachments( $raw_attachments, $attachment_ids, $opts );
+		$files_ingest = $this->build_tool_files_ingest_summary( $opts );
+
+		return array(
+			'schema'       => 'bizcity.twinweb.tool_spec.v1',
+			'surface'      => (string) ( $opts['surface'] ?? '' ),
+			'tool_slug'    => $slug,
+			'artifact_type'=> (string) ( $tool_meta['artifact_type'] ?? '' ),
+			'request'      => array(
+				'user_prompt'     => $this->limit_tool_text( $user_prompt, 3000 ),
+				// [2026-07-20 Johnny Chu] PHASE-1-TWIN-GPT-AGENT-TOOLS — completed AskBrain answer becomes BZDoc's priority downstream content packet.
+				'final_answer'    => $this->limit_tool_text( (string) ( $opts['final_answer_md'] ?? '' ), 12000 ),
+				'enriched_prompt' => $this->limit_tool_text( $tool_prompt, 8000 ),
+				'title'           => $this->derive_tool_title( $slug, $user_prompt !== '' ? $user_prompt : $tool_prompt ),
+			),
+			'thread'       => array(
+				'session_id' => (string) ( $opts['session_id'] ?? '' ),
+				'summary'    => $this->build_history_summary_text( $thread_history ),
+				'recent'     => $thread_history,
+			),
+			'files'        => array(
+				'attachment_ids' => $attachment_ids,
+				'items'          => $attachments,
+				'summary'        => $this->build_attachment_summary_text( $attachments ),
+				'ingest'         => $files_ingest,
+				'context_md'     => $this->limit_tool_text( (string) ( $opts['multimodal_context_md'] ?? '' ), 7000 ),
+			),
+			// [2026-07-20 Johnny Chu] PHASE-1-TWIN-GPT-AGENT-TOOLS — explicit acceptance gates for doc/image/pdf/slide handoff parity.
+			'quality_gates' => array(
+				'user_prompt_priority' => 'The generated artifact must satisfy request.user_prompt before using thread/file context.',
+				'thread_context'       => 'Use thread.summary and thread.recent only as supporting context, not as a replacement for the latest prompt.',
+				'file_context'         => 'If files/media are present, use files.summary, files.ingest and files.items evidence in the artifact skeleton.',
+				'output_contract'      => 'Respect artifact_type and owner app export path: document/docx/pdf, pptx/slide, xlsx, image or mindmap.',
+				'traceability'         => 'Persist this tool_spec and downstream spec_trace so chat-side and bizcity-doc-side JSON can be compared.',
+			),
+			'priority'     => array( 'request.user_prompt', 'request.final_answer', 'spec_trace', 'thread.summary', 'files.summary', 'request.enriched_prompt' ),
+		);
+	}
+
+	private function summarize_tool_history( array $history ): array {
+		$out = array();
+		$history = array_slice( $history, -10 );
+		foreach ( $history as $item ) {
+			if ( ! is_array( $item ) ) {
+				continue;
+			}
+			$role = sanitize_key( (string) ( $item['role'] ?? $item['type'] ?? 'message' ) );
+			$content = (string) ( $item['content'] ?? $item['text'] ?? $item['message'] ?? '' );
+			$content = trim( wp_strip_all_tags( $content ) );
+			if ( '' === $content ) {
+				continue;
+			}
+			$out[] = array(
+				'role'    => $role !== '' ? $role : 'message',
+				'content' => $this->limit_tool_text( $content, 900 ),
+			);
+		}
+		return $out;
+	}
+
+	private function summarize_tool_attachments( array $attachments, array $attachment_ids, array $opts ): array {
+		$out = array();
+		$idx = 0;
+		$ingest_pack = isset( $opts['multimodal_ingest_pack'] ) && is_array( $opts['multimodal_ingest_pack'] ) ? $opts['multimodal_ingest_pack'] : array();
+		foreach ( $attachments as $attachment ) {
+			if ( ! is_array( $attachment ) ) {
+				continue;
+			}
+			$mime = sanitize_text_field( (string) ( $attachment['mime_type'] ?? '' ) );
+			$kind = 0 === strpos( strtolower( $mime ), 'image/' ) ? 'image' : ( 0 === strpos( strtolower( $mime ), 'audio/' ) ? 'audio' : 'file' );
+			$attachment_id = isset( $attachment['id'] ) ? absint( $attachment['id'] ) : ( isset( $attachment_ids[ $idx ] ) ? absint( $attachment_ids[ $idx ] ) : 0 );
+			$filename = sanitize_file_name( (string) ( $attachment['filename'] ?? '' ) );
+			$intake = $this->build_tool_attachment_intake( array(
+				'id'       => $attachment_id,
+				'filename' => $filename,
+				'kind'     => $kind,
+			), $ingest_pack );
+			$out[] = array(
+				'id'       => $attachment_id,
+				'filename' => $filename,
+				'kind'     => $kind,
+				'mime'     => $mime,
+				'size'     => isset( $attachment['size'] ) ? absint( $attachment['size'] ) : 0,
+				'url'      => isset( $attachment['url'] ) ? esc_url_raw( (string) $attachment['url'] ) : '',
+				'summary'  => $this->limit_tool_text( (string) ( $attachment['summary'] ?? $attachment['analysis'] ?? $attachment['vision_summary'] ?? $intake['summary'] ?? '' ), 1600 ),
+				'intake'   => $intake,
+			);
+			$idx++;
+		}
+		return $out;
+	}
+
+	private function build_tool_files_ingest_summary( array $opts ): array {
+		// [2026-07-20 Johnny Chu] PHASE-TWIN-GPT-AGENT-TOOLS — compact multimodal pack audit for downstream artifact generators.
+		$pack = isset( $opts['multimodal_ingest_pack'] ) && is_array( $opts['multimodal_ingest_pack'] ) ? $opts['multimodal_ingest_pack'] : array();
+		if ( empty( $pack ) ) {
+			return array();
+		}
+
+		$vision_summaries = array();
+		foreach ( (array) ( $pack['vision'] ?? array() ) as $vision ) {
+			if ( is_array( $vision ) && ! empty( $vision['summary'] ) ) {
+				$vision_summaries[] = $this->limit_tool_text( (string) $vision['summary'], 1200 );
+			}
+		}
+
+		return array(
+			'schema'          => (string) ( $pack['schema'] ?? '' ),
+			'intent'          => (string) ( $pack['intent'] ?? '' ),
+			'confidence'      => (string) ( $pack['confidence'] ?? '' ),
+			'degraded'        => ! empty( $pack['degraded'] ),
+			'reason_bucket'   => (string) ( $pack['reason_bucket'] ?? '' ),
+			'vision_summary'  => $this->limit_tool_text( implode( "\n", $vision_summaries ), 2500 ),
+			'ocr_text'        => $this->list_tool_values( $pack['ocr'] ?? array(), 12 ),
+			'entities'        => $this->list_tool_values( $pack['entities'] ?? array(), 16 ),
+			'query_expansion' => $this->list_tool_values( $pack['query_expansion'] ?? array(), 20 ),
+			'file_text_count' => count( (array) ( $pack['file_text'] ?? array() ) ),
+			'audio_count'     => count( (array) ( $pack['audio_transcript'] ?? array() ) ),
+		);
+	}
+
+	private function build_tool_attachment_intake( array $attachment, array $pack ): array {
+		$id = absint( $attachment['id'] ?? 0 );
+		$filename = sanitize_file_name( (string) ( $attachment['filename'] ?? '' ) );
+		$kind = (string) ( $attachment['kind'] ?? 'file' );
+		$intake = array(
+			'status'          => empty( $pack ) ? 'not_run' : ( ! empty( $pack['degraded'] ) ? 'degraded' : 'ok' ),
+			'reason_bucket'   => (string) ( $pack['reason_bucket'] ?? '' ),
+			'summary'         => '',
+			'text_excerpt'    => '',
+			'transcript'      => '',
+			'ocr_text'        => array(),
+			'entities'        => array(),
+			'confidence'      => (string) ( $pack['confidence'] ?? '' ),
+		);
+
+		if ( 'image' === $kind ) {
+			$vision_summaries = array();
+			foreach ( (array) ( $pack['vision'] ?? array() ) as $vision ) {
+				if ( is_array( $vision ) && ! empty( $vision['summary'] ) ) {
+					$vision_summaries[] = (string) $vision['summary'];
+				}
+			}
+			$intake['summary'] = $this->limit_tool_text( implode( "\n", $vision_summaries ), 1800 );
+			$intake['ocr_text'] = $this->list_tool_values( $pack['ocr'] ?? array(), 10 );
+			$intake['entities'] = $this->list_tool_values( $pack['entities'] ?? array(), 12 );
+			return $intake;
+		}
+
+		if ( 'audio' === $kind ) {
+			$segment = $this->find_tool_multimodal_segment( (array) ( $pack['audio_transcript'] ?? array() ), $id, $filename );
+			$intake['transcript'] = $this->limit_tool_text( (string) ( $segment['text'] ?? '' ), 2500 );
+			$intake['summary'] = $intake['transcript'];
+			return $intake;
+		}
+
+		$segment = $this->find_tool_multimodal_segment( (array) ( $pack['file_text'] ?? array() ), $id, $filename );
+		$intake['text_excerpt'] = $this->limit_tool_text( (string) ( $segment['text'] ?? '' ), 3000 );
+		$intake['summary'] = $intake['text_excerpt'];
+		return $intake;
+	}
+
+	private function find_tool_multimodal_segment( array $segments, int $attachment_id, string $filename ): array {
+		foreach ( $segments as $segment ) {
+			if ( ! is_array( $segment ) ) {
+				continue;
+			}
+			$segment_id = absint( $segment['attachment_id'] ?? $segment['id'] ?? 0 );
+			$segment_filename = sanitize_file_name( (string) ( $segment['filename'] ?? '' ) );
+			if ( $attachment_id > 0 && $segment_id === $attachment_id ) {
+				return $segment;
+			}
+			if ( $filename !== '' && $segment_filename !== '' && strtolower( $filename ) === strtolower( $segment_filename ) ) {
+				return $segment;
+			}
+		}
+		return array();
+	}
+
+	private function list_tool_values( $value, int $limit ): array {
+		$out = array();
+		foreach ( (array) $value as $item ) {
+			if ( is_array( $item ) || is_object( $item ) ) {
+				$item = wp_json_encode( $item );
+			}
+			$item = trim( wp_strip_all_tags( (string) $item ) );
+			if ( '' === $item ) {
+				continue;
+			}
+			$out[] = $this->limit_tool_text( $item, 300 );
+			if ( count( $out ) >= max( 1, $limit ) ) {
+				break;
+			}
+		}
+		return $out;
+	}
+
+	private function build_history_summary_text( array $history ): string {
+		$lines = array();
+		foreach ( $history as $item ) {
+			$lines[] = strtoupper( (string) ( $item['role'] ?? 'message' ) ) . ': ' . (string) ( $item['content'] ?? '' );
+		}
+		return $this->limit_tool_text( implode( "\n", $lines ), 5000 );
+	}
+
+	private function build_attachment_summary_text( array $attachments ): string {
+		$lines = array();
+		foreach ( $attachments as $item ) {
+			$line = '- ' . (string) ( $item['filename'] ?? '' ) . ' | ' . (string) ( $item['kind'] ?? 'file' ) . ' | ' . (string) ( $item['mime'] ?? '' );
+			if ( ! empty( $item['summary'] ) ) {
+				$line .= ' | ' . (string) $item['summary'];
+			}
+			$lines[] = $line;
+		}
+		return $this->limit_tool_text( implode( "\n", $lines ), 3000 );
+	}
+
+	private function limit_tool_text( $text, $max ): string {
+		$text = trim( (string) $text );
+		$max = max( 1, absint( $max ) );
+		if ( function_exists( 'mb_strlen' ) && mb_strlen( $text, 'UTF-8' ) > $max ) {
+			return mb_substr( $text, 0, $max - 1, 'UTF-8' ) . '...';
+		}
+		if ( ! function_exists( 'mb_strlen' ) && strlen( $text ) > $max ) {
+			return substr( $text, 0, $max - 1 ) . '...';
+		}
+		return $text;
+	}
+
+	private function derive_tool_title( string $slug, string $prompt ): string {
+		$title = trim( wp_strip_all_tags( $prompt ) );
+		if ( function_exists( 'mb_strlen' ) && mb_strlen( $title, 'UTF-8' ) > 96 ) {
+			$title = mb_substr( $title, 0, 96, 'UTF-8' );
+		} elseif ( strlen( $title ) > 96 ) {
+			$title = substr( $title, 0, 96 );
+		}
+		if ( '' !== $title ) {
+			return $title;
+		}
+		$labels = array(
+			'create_doc'     => 'Tài liệu Twin GPT',
+			'create_xlsx'    => 'Bảng tính Twin GPT',
+			'create_pptx'    => 'Slide Twin GPT',
+			'create_mindmap' => 'Mindmap Twin GPT',
+			'generate_image' => 'Ảnh Twin GPT',
+		);
+		return isset( $labels[ $slug ] ) ? $labels[ $slug ] : 'Twin GPT Artifact';
 	}
 
 	/**
@@ -5661,6 +6869,10 @@ class BizCity_TwinBrain_Runtime {
 			'surface'         => self::SURFACE,
 			'tool_slug'       => (string) $dispatch['tool_slug'],
 			'tool_class'      => (string) $dispatch['tool_class'],
+			'artifact_type'   => (string) $dispatch['artifact_type'],
+			'execution'       => (string) $dispatch['execution'],
+			'plan_min'        => (string) $dispatch['plan_min'],
+			'capability'      => (string) $dispatch['capability'],
 			'status'          => $status,
 			'skipped'         => (bool) $dispatch['skipped'],
 			'skip_reason'     => (string) $dispatch['skip_reason'],
@@ -5670,6 +6882,10 @@ class BizCity_TwinBrain_Runtime {
 			'sources_count'   => is_array( $dispatch['sources'] )      ? count( $dispatch['sources'] )      : 0,
 			'citation_count'  => is_array( $dispatch['citation_ids'] ) ? count( $dispatch['citation_ids'] ) : 0,
 			'canvas_open'     => $dispatch['canvas_open'],
+			'job'             => $dispatch['job'],
+			'artifact_created'=> $dispatch['artifact_created'],
+			'artifact_ready'  => $dispatch['artifact_ready'],
+			'args_status'     => (string) ( $dispatch['args_status'] ?? '' ),
 			'decision_reason' => (string) ( $decision['reason'] ?? '' ),
 		);
 	}

@@ -23,6 +23,19 @@ class BizCoach_Pro_Transit_Cron {
 	const HOOK = 'bcpro_transit_daily_sync';
 	const JOB_ID = 'bcpro.transit.daily_sync';
 
+	/**
+	 * [2026-07-26 Johnny Chu] CRON-OVERLOAD-PHASE-B — this job used to loop EVERY
+	 * coachee unconditionally in one tick (25-30s observed on blog 1513), which
+	 * (a) risks hitting PHP max_execution_time on shared hosting and (b) widens
+	 * the double-fire race window that CRON-LOCK-PHASE-A guards against. Now
+	 * capped per tick + self-reschedules a short continuation until the whole
+	 * day's coachee list is drained. See core/cron/docs/TRACE-CRON-OVERLOAD-2026-07-26.md.
+	 */
+	const CHUNK_SIZE               = 100;
+	const MAX_CONTINUATIONS_PER_DAY = 50; // safety cap: 100 * 50 = 5,000 coachees/day max.
+	const CONTINUATION_DELAY        = 15; // seconds before the next chunk fires.
+	const CURSOR_OPTION              = 'bcpro_transit_daily_sync_cursor';
+
 	/** Boot: register cron job + wire hook handler. Idempotent. */
 	public static function init() {
 		// Register via BizCity_Cron_Manager if available (preferred).
@@ -60,6 +73,13 @@ class BizCoach_Pro_Transit_Cron {
 		$cron_ok = class_exists( 'BizCity_Cron_Manager' );
 		$cron    = $cron_ok ? BizCity_Cron_Manager::instance() : null;
 
+		// [2026-07-26 Johnny Chu] CRON-LOCK-PHASE-A — bail immediately if another
+		// in-flight run already holds the lock for this job (duplicate concurrent
+		// fire from WP pseudo-cron). See TRACE-CRON-OVERLOAD-2026-07-26.md.
+		if ( $cron && $cron->is_locked_out( self::JOB_ID ) ) {
+			return;
+		}
+
 		if ( ! class_exists( 'BizCoach_Pro_Astro_Client' ) ) {
 			if ( $cron ) {
 				$cron->note( array( 'error' => 'astro_client_missing' ) );
@@ -80,16 +100,36 @@ class BizCoach_Pro_Transit_Cron {
 		$t_astro = $wpdb->prefix . 'bccm_astro';
 		$date    = current_time( 'Y-m-d' );
 
-		// Fetch all coachees that have at least one Western natal chart (data_json not empty).
-		$rows = $wpdb->get_results(
+		// [2026-07-26 Johnny Chu] CRON-OVERLOAD-PHASE-B — resume cursor: a fresh
+		// pass starts every new calendar day; within the same day, pick up where
+		// the previous chunk (this tick or a self-rescheduled continuation) left off.
+		$cursor = get_option( self::CURSOR_OPTION, array() );
+		if ( ! is_array( $cursor ) || ( (string) ( $cursor['date'] ?? '' ) ) !== $date ) {
+			$cursor = array(
+				'date'          => $date,
+				'last_id'       => 0,
+				'continuations' => 0,
+				'synced'        => 0,
+				'skipped'       => 0,
+				'failed'        => 0,
+			);
+		}
+		$last_id = (int) $cursor['last_id'];
+
+		// Fetch the next chunk of coachees (id > cursor) that have at least one
+		// Western natal chart (data_json not empty), ordered so the cursor is stable.
+		$rows = $wpdb->get_results( $wpdb->prepare(
 			"SELECT c.id, c.user_id, c.full_name, c.dob, c.extra_fields_json,
 			        a.birth_time, a.birth_place
 			 FROM {$t_coach} c
 			 INNER JOIN {$t_astro} a ON a.coachee_id = c.id AND a.chart_type = 'western'
 			        AND a.summary IS NOT NULL AND a.summary <> ''
-			 ORDER BY c.id ASC",
-			ARRAY_A
-		);
+			 WHERE c.id > %d
+			 ORDER BY c.id ASC
+			 LIMIT %d",
+			$last_id,
+			self::CHUNK_SIZE
+		), ARRAY_A );
 
 		$total   = is_array( $rows ) ? count( $rows ) : 0;
 		$synced  = 0;
@@ -99,6 +139,7 @@ class BizCoach_Pro_Transit_Cron {
 		foreach ( (array) $rows as $row ) {
 			$coachee_id = (int) $row['id'];
 			$coachee    = $row; // already has all needed keys
+			$last_id    = $coachee_id; // [2026-07-26 Johnny Chu] CRON-OVERLOAD-PHASE-B — advance cursor as we go.
 
 			// [2026-07-10 Johnny Chu] PHASE-FAA2 — tag daily cron save source for JSONL history.
 			$result = BizCoach_Pro_Self_Service_REST::do_transit_fetch(
@@ -143,14 +184,63 @@ class BizCoach_Pro_Transit_Cron {
 			}
 		}
 
-		// [2026-06-06 Johnny Chu] PHASE-B B-BE-9 R-CRON-META — write final counters
+		// [2026-06-06 Johnny Chu] PHASE-B B-BE-9 R-CRON-META — write chunk counters
+		// [2026-07-26 Johnny Chu] CRON-OVERLOAD-PHASE-B — persist cursor + self-reschedule
+		// a short continuation while the day's coachee list isn't fully drained yet,
+		// instead of looping everyone in one long tick. Capped by MAX_CONTINUATIONS_PER_DAY
+		// so a runaway query can't schedule single events forever.
+		$cursor['last_id']       = $last_id;
+		$cursor['synced']       += $synced;
+		$cursor['skipped']      += $skipped;
+		$cursor['failed']       += $failed;
+		$has_more                = ( $total === self::CHUNK_SIZE );
+
+		if ( $has_more && (int) $cursor['continuations'] < self::MAX_CONTINUATIONS_PER_DAY ) {
+			$cursor['continuations']++;
+			update_option( self::CURSOR_OPTION, $cursor, false );
+			wp_schedule_single_event( time() + self::CONTINUATION_DELAY, self::HOOK );
+			if ( $cron ) {
+				$cron->note( array(
+					'counters' => array(
+						'transit_total'   => $total,
+						'transit_synced'  => $synced,
+						'transit_skipped' => $skipped,
+						'transit_failed'  => $failed,
+					),
+				) );
+				$cron->note_event( 'transit_sync_continuation', array(
+					'last_id'       => $last_id,
+					'continuations' => $cursor['continuations'],
+				) );
+			}
+			return;
+		}
+
+		if ( $has_more ) {
+			// Hit the safety cap — remaining coachees for today will be picked up in
+			// tomorrow's fresh pass (cursor resets on date change); no data is lost,
+			// just delayed by a day for the overflow portion.
+			if ( $cron ) {
+				$cron->note_event( 'transit_sync_day_capped', array(
+					'last_id'       => $last_id,
+					'continuations' => $cursor['continuations'],
+				) );
+			}
+		}
+
+		// Day fully drained (or capped) — clear the cursor option and report cumulative day totals.
+		delete_option( self::CURSOR_OPTION );
 		if ( $cron ) {
 			$cron->note( array(
 				'counters' => array(
-					'transit_total'   => $total,
-					'transit_synced'  => $synced,
-					'transit_skipped' => $skipped,
-					'transit_failed'  => $failed,
+					'transit_total'        => $total,
+					'transit_synced'       => $synced,
+					'transit_skipped'      => $skipped,
+					'transit_failed'       => $failed,
+					'transit_day_synced'   => $cursor['synced'],
+					'transit_day_skipped'  => $cursor['skipped'],
+					'transit_day_failed'   => $cursor['failed'],
+					'transit_day_continuations' => $cursor['continuations'],
 				),
 			) );
 		}

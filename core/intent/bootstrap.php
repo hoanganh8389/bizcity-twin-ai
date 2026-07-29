@@ -233,8 +233,18 @@ add_action( 'plugins_loaded', function () {
     BizCity_Context_Builder::instance();
 
     // Memory services (Rolling + Episodic) — always needed (Smart Gateway uses them)
-    BizCity_Rolling_Memory::instance();
-    BizCity_Episodic_Memory::instance();
+    // [2026-07-28 Johnny Chu] HOTFIX P0 — a partial/invalid deploy of one memory class must
+    // degrade that service instead of turning every intent request into Class-not-found fatal.
+    if ( class_exists( 'BizCity_Rolling_Memory' ) ) {
+        BizCity_Rolling_Memory::instance();
+    } else {
+        error_log( '[BizCity_Intent] BizCity_Rolling_Memory unavailable after require_once — skipping rolling memory boot; verify deployment artifact.' );
+    }
+    if ( class_exists( 'BizCity_Episodic_Memory' ) ) {
+        BizCity_Episodic_Memory::instance();
+    } else {
+        error_log( '[BizCity_Intent] BizCity_Episodic_Memory unavailable after require_once — skipping episodic memory boot; verify deployment artifact.' );
+    }
 
     // Main intent engine orchestrator
     BizCity_Intent_Engine::instance();

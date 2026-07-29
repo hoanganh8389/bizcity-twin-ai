@@ -1287,6 +1287,9 @@ class BizCoach_Pro_Self_Service_REST {
 			return rest_ensure_response( array( 'success' => false, 'message' => 'Checklist module chưa load.', '_degraded' => true ) );
 		}
 
+		// [2026-07-21 Johnny Chu] PHASE-FAA2-CHECKLIST — reconcile stale/missing checklist rows from saved bccm_astro artifacts.
+		BizCoach_Astro_Checklist::reconcile_from_stored_data( $coachee_id );
+
 		$checklist = BizCoach_Astro_Checklist::get_for_coachee( $coachee_id );
 		$summary   = BizCoach_Astro_Checklist::get_summary( $coachee_id );
 

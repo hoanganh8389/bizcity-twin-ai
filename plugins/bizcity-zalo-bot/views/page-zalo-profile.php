@@ -29,6 +29,8 @@ $tabs = array(
 	'connections' => array( '🔗 Kết nối Zalo',     'render_connections_page' ),
 	'logs'        => array( '📜 Nhật ký',          'render_logs_page' ),
 	'hotline'     => array( '📞 Hotline (ZNS)',    null ),
+	// [2026-07-08 Johnny Chu] HOTFIX — firewall/blocking guide tab
+	'firewall'    => array( '🛡️ Bị chặn?',         null ),
 );
 ?>
 <style>
@@ -123,6 +125,20 @@ $tabs = array(
 .bzz-admin-embed .description { color: #64748b; font-size: 12px; }
 .bzz-admin-embed .notice { padding: 12px 16px; border-radius: 6px; background: #fef3c7; border-left: 4px solid #f59e0b; margin: 12px 0; }
 .bzz-admin-embed .dashicons { vertical-align: middle; }
+
+/* ── Firewall tab ── */
+.bzz-fw-section { margin-bottom:28px; }
+.bzz-fw-section h3 { font-size:16px; color:#0f172a; margin:0 0 8px; display:flex; align-items:center; gap:8px; }
+.bzz-fw-badge { display:inline-block; padding:2px 10px; border-radius:99px; font-size:12px; font-weight:700; }
+.bzz-fw-badge-warn { background:#fef3c7; color:#92400e; }
+.bzz-fw-badge-ok   { background:#dcfce7; color:#15803d; }
+.bzz-fw-steps { margin:12px 0 0 0; padding-left:0; list-style:none; }
+.bzz-fw-steps li { padding:10px 14px; background:#f8fafc; border-left:3px solid #cbd5e1; border-radius:0 6px 6px 0; margin-bottom:8px; font-size:13px; line-height:1.6; }
+.bzz-fw-steps li strong { color:#0f172a; }
+.bzz-fw-steps code { background:#e2e8f0; padding:1px 6px; border-radius:4px; font-size:12px; }
+.bzz-fw-cf-img { max-width:100%; border-radius:8px; border:1px solid #e2e8f0; margin-top:12px; }
+.bzz-fw-tip { background:#eff6ff; border-left:4px solid #3b82f6; padding:12px 16px; border-radius:0 8px 8px 0; font-size:13px; margin-top:12px; color:#1e3a5f; }
+.bzz-fw-danger { background:#fef2f2; border-left:4px solid #ef4444; padding:12px 16px; border-radius:0 8px 8px 0; font-size:13px; margin-top:12px; color:#7f1d1d; }
 </style>
 
 <div class="bzz-wrap">
@@ -145,7 +161,90 @@ $tabs = array(
 		<?php endforeach; ?>
 	</div>
 
-	<?php if ( $tab === 'hotline' ) : ?>
+	<?php if ( $tab === 'firewall' ) : ?>
+
+		<div class="bzz-card">
+			<h2>🛡️ Hướng dẫn xử lý khi webhook Zalo bị chặn</h2>
+			<p style="color:#64748b;font-size:14px;margin-top:0">Webhook Zalo Bot gửi <code>POST /zalohook/</code> từ server Zalo về site bạn. Nếu request bị chặn ở tầng CDN, firewall hoặc security plugin, bot sẽ không nhận được tin nhắn dù Ping / setWebhook vẫn OK.</p>
+
+			<!-- ============ Cloudflare ============ -->
+			<div class="bzz-fw-section">
+				<h3>☁️ Cloudflare WAF <span class="bzz-fw-badge bzz-fw-badge-warn">Thường gặp nhất</span></h3>
+				<p style="font-size:13px;color:#475569">Cloudflare kích hoạt <strong>Browser Integrity Check</strong> mặc định. Request từ Zalo server không có browser fingerprint nên bị block 403/1010 âm thầm.</p>
+				<ul class="bzz-fw-steps">
+					<li>1️⃣ Vào <strong>Cloudflare Dashboard</strong> → chọn domain → <strong>Security → WAF → Custom rules</strong></li>
+					<li>2️⃣ Nhấn <strong>Create rule</strong> (hoặc Edit nếu đã có rule):<br>
+						<code>Rule name</code>: <strong>Allow Zalo Webhook</strong></li>
+					<li>3️⃣ Cấu hình điều kiện:<br>
+						<code>Field</code>: <strong>URI Path</strong> &nbsp;|&nbsp;
+						<code>Operator</code>: <strong>contains</strong> &nbsp;|&nbsp;
+						<code>Value</code>: <strong>zalo</strong></li>
+					<li>4️⃣ <code>Then take action</code>: chọn <strong>Skip</strong></li>
+					<li>5️⃣ Trong danh sách "<em>WAF components to skip</em>" → mở "<em>More components to skip</em>" → tick ☑ <strong>Browser Integrity Check</strong></li>
+					<li>6️⃣ <em>(Tuỳ chọn nâng cao)</em> Nếu vẫn bị block: tick thêm <strong>All managed rules</strong> để tắt toàn bộ managed rules cho path <code>/zalohook/</code></li>
+					<li>7️⃣ Nhấn <strong>Deploy</strong> → chờ ~30 giây → test lại bằng tab <strong>Test API</strong></li>
+				</ul>
+				<div class="bzz-fw-tip">💡 <strong>Mẹo:</strong> Nếu site dùng nhiều webhook (Facebook, Telegram, …) hãy đặt value là <code>/zalohook</code> (full path) thay vì <code>zalo</code> để rule chính xác hơn.</div>
+				<div class="bzz-fw-tip">🔍 <strong>Cách kiểm tra nhanh:</strong> Tắt Cloudflare proxy (chuyển cloud sang DNS only ⚪) → test webhook → nếu bot nhận tin thì đúng là Cloudflare chặn → bật lại proxy và cấu hình rule như trên.</div>
+			</div>
+
+			<!-- ============ Rate Limiting ============ -->
+			<div class="bzz-fw-section">
+				<h3>⏱️ Cloudflare Rate Limiting</h3>
+				<p style="font-size:13px;color:#475569">Khi Zalo server gửi nhiều sự kiện liên tiếp (broadcast, nhóm đông), rate limit có thể kick-in.</p>
+				<ul class="bzz-fw-steps">
+					<li>Vào <strong>Security → WAF → Rate limiting rules</strong> → kiểm tra rule nào đang áp dụng cho <code>/zalohook/</code></li>
+					<li>Tạo exception hoặc tăng threshold riêng cho path <code>/zalohook/</code></li>
+				</ul>
+			</div>
+
+			<!-- ============ Hosting / Server Firewall ============ -->
+			<div class="bzz-fw-section">
+				<h3>🖥️ Firewall server / Hosting</h3>
+				<ul class="bzz-fw-steps">
+					<li><strong>ModSecurity (cPanel/Plesk):</strong> Vào cPanel → <em>ModSecurity</em> → <em>Disable</em> tạm thời → test → nếu OK thì thêm whitelist rule cho User-Agent của Zalo (<code>ZaloBot</code>) hoặc IP range của Zalo</li>
+					<li><strong>ConfigServer Firewall (CSF):</strong> Thêm IP server Zalo vào <code>/etc/csf/csf.allow</code>. IP Zalo thay đổi theo thời gian — cách bền hơn là whitelist User-Agent ở tầng Nginx/Apache</li>
+					<li><strong>Fail2ban:</strong> Kiểm tra <code>/var/log/fail2ban.log</code> xem IP Zalo có bị ban không (<code>grep zalohook /var/log/nginx/access.log</code>)</li>
+				</ul>
+			</div>
+
+			<!-- ============ WordPress Security Plugins ============ -->
+			<div class="bzz-fw-section">
+				<h3>🔌 Security plugin WordPress</h3>
+				<ul class="bzz-fw-steps">
+					<li><strong>Wordfence:</strong> Wordfence → <em>Firewall → Brute Force Protection</em> → whitelist URL <code>/zalohook/</code> trong mục "Allowlisted URLs". Nếu dùng Learning Mode hãy gửi thử ít nhất 1 request thật để Wordfence học pattern.</li>
+					<li><strong>iThemes Security / Solid Security:</strong> Security → <em>Network Brute Force / Local Brute Force</em> → thêm <code>/zalohook/</code> vào danh sách ngoại lệ</li>
+					<li><strong>All-In-One Security (AIOS):</strong> WP Security → <em>Firewall → Block Suspicious Requests</em> → thêm ngoại lệ cho <code>zalohook</code></li>
+					<li><strong>Jetpack Protect:</strong> Kiểm tra <em>Security → Protect → Allowlist IPs</em> → thêm IP range Zalo</li>
+				</ul>
+			</div>
+
+			<!-- ============ Dấu hiệu nhận biết ============ -->
+			<div class="bzz-fw-section">
+				<h3>🔍 Dấu hiệu nhận biết đang bị chặn</h3>
+				<ul class="bzz-fw-steps">
+					<li>Tab <strong>Webhook Listener</strong> → không có user nào dù đã nhắn tin từ app Zalo</li>
+					<li>Log trong <code>uploads/sites/{id}/bizcity-cg-logs/YYYY-MM-DD.jsonl</code> không có dòng <code>webhook_router_intake</code> với <code>body_len &gt; 0</code></li>
+					<li>Ping / setWebhook trả về <strong>OK</strong> nhưng không có tin nào về — đây là dấu hiệu đặc trưng của block tầng CDN (Cloudflare vẫn cho phép GET nhưng chặn POST body từ bot server)</li>
+					<li>HTTP status 403, 1010, 503 trong Cloudflare Security Events</li>
+				</ul>
+			</div>
+
+			<!-- ============ Quy trình debug nhanh ============ -->
+			<div class="bzz-fw-section">
+				<h3>🧪 Quy trình debug nhanh (5 phút)</h3>
+				<ul class="bzz-fw-steps">
+					<li>1️⃣ Tab <strong>Test API</strong> → <em>Probe webhook</em> → xem log có <code>body_len &gt; 0</code> không → nếu không có thì body bị nuốt trước PHP</li>
+					<li>2️⃣ Cloudflare → <strong>Security → Events</strong> → lọc theo domain → tìm action <code>block / challenge</code> gần thời điểm gửi tin</li>
+					<li>3️⃣ Tạm tắt Cloudflare proxy (<em>DNS Only</em>) → test lại → nếu OK → lỗi ở Cloudflare</li>
+					<li>4️⃣ Tạm deactivate security plugin → test lại → nếu OK → lỗi ở plugin</li>
+					<li>5️⃣ SSH vào server: <code>tail -f /var/log/nginx/access.log | grep zalohook</code> → xem request có tới server không</li>
+				</ul>
+				<div class="bzz-fw-danger">⚠️ <strong>Lưu ý bảo mật:</strong> Sau khi cấu hình whitelist, Zalo đã tích hợp xác thực bằng <code>X-Bot-Api-Secret-Token</code> header. Mỗi bot có một secret riêng (cấu hình trong tab Bots OA). Webhook chỉ được xử lý khi secret khớp — whitelist Cloudflare chỉ cho request đi qua tới PHP, PHP vẫn kiểm tra secret nên an toàn.</div>
+			</div>
+		</div>
+
+	<?php elseif ( $tab === 'hotline' ) : ?>
 
 		<div class="bzz-card">
 			<h2>📞 Cấu hình Zalo Hotline (ZNS Template)</h2>
@@ -155,8 +254,9 @@ $tabs = array(
 
 			<?php if ( empty( $hotline_settings ) ) : ?>
 				<div class="bzz-status-warn">
+					<?php // [2026-07-21 Johnny Chu] R-GW-8 — do not tell standalone clients to activate legacy mu-plugin. ?>
 					⚠ WAIC integration <code>WaicChannelIntegration_zalo_hotline</code> chưa load.
-					Kiểm tra plugin <code>bizcity-admin-hook-zalo</code> đã active chưa.
+					Kiểm tra Channel Gateway / Zalo Hotline adapter trong <code>bizcity-twin-ai</code> đã load chưa.
 				</div>
 			<?php else : ?>
 				<form method="post" action="<?php echo esc_url( $post_url ); ?>">

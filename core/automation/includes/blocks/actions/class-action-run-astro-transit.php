@@ -130,6 +130,20 @@ final class BizCity_Automation_Action_Run_Astro_Transit extends BizCity_Automati
 		$start_raw   = (string) $this->resolve( $data['start_date'] ?? '', $ctx );
 		$outer_only  = ! empty( $data['outer_only'] );
 		$format      = (string) ( $data['format'] ?? 'short' );
+		// [2026-07-16 Johnny Chu] PHASE-TWINWEB F4 — canonical owner for Astro workflows; never infer from current session fallback.
+		$owner_user_id = $this->resolve_owner_user_id( $ctx );
+
+		// [2026-07-21 Johnny Chu] PHASE-ASTRO-WORKFLOW v1.13 — when chat_id is a Zalo Bot identity key,
+		// resolve the actual sender's wp_user_id to use as owner_user_id. Without this, owner_user_id
+		// stays as wf.created_by (admin=5), the ownership check then overrides coachee_id=2 back to
+		// admin's coachee (coachee_id=1), and the transit URL gets the wrong id.
+		if ( $chat_id !== '' && strpos( $chat_id, 'zalobot_' ) === 0 && class_exists( 'BizCity_User_Resolver' ) ) {
+			$_transit_zalo_resolved = (int) BizCity_User_Resolver::instance()->resolve( $chat_id );
+			if ( $_transit_zalo_resolved > 0 && $_transit_zalo_resolved !== $owner_user_id ) {
+				error_log( '[bizcity-automation][run_astro_transit] chat_id_resolver override: owner_chain=' . $owner_user_id . ' → zalo_resolved=' . $_transit_zalo_resolved . ' chat_id=' . $chat_id );
+				$owner_user_id = $_transit_zalo_resolved;
+			}
+		}
 
 		// [2026-07-06 Johnny Chu] HOTFIX — infer flexible horizon from trigger text:
 		// supports "3 ngày tới", "5 ngày tới", "tuần tới", "ngày 07/07".
@@ -154,14 +168,12 @@ final class BizCity_Automation_Action_Run_Astro_Transit extends BizCity_Automati
 			$coachee_id = (int) ( $ctx['n1']['coachee_id'] ?? 0 );
 		}
 		if ( $coachee_id <= 0 ) {
-			$owner_user_id = (int) ( $ctx['_owner_user_id'] ?? $ctx['trigger']['wp_user_id'] ?? get_current_user_id() );
 			if ( $owner_user_id > 0 ) {
 				$coachee_id = $this->resolve_self_coachee_id( $owner_user_id );
 			}
 		}
 
 		// [2026-07-06 Johnny Chu] HOTFIX — enforce ownership: incoming coachee_id phải thuộc owner.
-		$owner_user_id = (int) ( $ctx['_owner_user_id'] ?? $ctx['trigger']['wp_user_id'] ?? get_current_user_id() );
 		if ( $owner_user_id > 0 && $coachee_id > 0 && ! $this->coachee_belongs_to_user( $coachee_id, $owner_user_id ) ) {
 			$incoming = $coachee_id;
 			$coachee_id = $this->resolve_self_coachee_id( $owner_user_id );
@@ -539,9 +551,43 @@ final class BizCity_Automation_Action_Run_Astro_Transit extends BizCity_Automati
 			$aspects = json_decode( (string) ( $row['aspects_json'] ?? '' ), true );
 			$out[ $row['target_date'] ] = array(
 				'date'    => $row['target_date'],
-				'planets' => is_array( $planets ) ? $planets : array(),
+				// [2026-07-21 Johnny Chu] PHASE-ASTRO-WORKFLOW v1.14 — normalize dict snapshots
+				// saved as {"Sun":{...}} so downstream automation sees planet names.
+				'planets' => is_array( $planets ) ? $this->normalize_snapshot_planets_for_read( $planets ) : array(),
 				'aspects' => is_array( $aspects ) ? $aspects : array(),
 			);
+		}
+		return $out;
+	}
+
+	/**
+	 * [2026-07-21 Johnny Chu] PHASE-ASTRO-WORKFLOW v1.14 — normalize mixed transit
+	 * planet shapes for automation readers. DB cache may store a list, or an assoc
+	 * map keyed by canonical planet name (Sun => row) from /my-transit/ renderer.
+	 */
+	private function normalize_snapshot_planets_for_read( array $planets ): array {
+		$out = array();
+		foreach ( $planets as $key => $row ) {
+			if ( ! is_array( $row ) ) { continue; }
+			$name = '';
+			if ( isset( $row['name'] ) && (string) $row['name'] !== '' ) {
+				$name = (string) $row['name'];
+			} elseif ( isset( $row['name_en'] ) && (string) $row['name_en'] !== '' ) {
+				$name = (string) $row['name_en'];
+			} elseif ( isset( $row['planet_en'] ) && (string) $row['planet_en'] !== '' ) {
+				$name = (string) $row['planet_en'];
+			} elseif ( isset( $row['planet'] ) && is_array( $row['planet'] ) ) {
+				$name = (string) ( $row['planet']['en'] ?? $row['planet']['name'] ?? '' );
+			} elseif ( is_string( $key ) && $key !== '' ) {
+				$name = (string) $key;
+			}
+
+			if ( $name === '' ) { continue; }
+			$row['name'] = $name;
+			if ( ! isset( $row['is_retro'] ) && isset( $row['retrograde'] ) ) {
+				$row['is_retro'] = (bool) $row['retrograde'];
+			}
+			$out[] = $row;
 		}
 		return $out;
 	}
@@ -868,7 +914,10 @@ final class BizCity_Automation_Action_Run_Astro_Transit extends BizCity_Automati
 		if ( $hint['num_days'] > 0 && ( $num_days <= 0 || $period_is_tpl || isset( $ctx['n1'] ) ) ) {
 			$num_days = (int) $hint['num_days'];
 		}
-		if ( $hint['period'] !== '' && ( $period === '' || $period_is_tpl || $num_days <= 0 ) ) {
+		// [2026-07-21 Johnny Chu] PHASE-ASTRO-WORKFLOW v1.15 — raw user text must be allowed
+		// to override n1's LLM/classifier horizon. Example: "3 hôm tới" may leave n1.period=day,
+		// n1.num_days=1, but transit foreach must still expand to 3 days.
+		if ( $hint['period'] !== '' && ( $period === '' || $period_is_tpl || $num_days <= 0 || isset( $ctx['n1'] ) ) ) {
 			$period = (string) $hint['period'];
 		}
 
@@ -913,7 +962,9 @@ final class BizCity_Automation_Action_Run_Astro_Transit extends BizCity_Automati
 			$out['start_date'] = date( 'Y-m-d', strtotime( $today . ' +1 day' ) );
 		}
 
-		if ( preg_match( '/(\d{1,3})\s*ngay/u', $txt, $m ) ) {
+		// [2026-07-21 Johnny Chu] PHASE-ASTRO-WORKFLOW v1.15 — support colloquial
+		// Vietnamese horizon phrases: "3 hôm tới", "3 bữa tới", besides "3 ngày tới".
+		if ( preg_match( '/(\d{1,3})\s*(?:ngay|hom|bua)(?:\s*(?:toi|tiep|nua|sau))?/u', $txt, $m ) ) {
 			$n = (int) $m[1];
 			if ( $n > 0 ) {
 				$out['num_days'] = min( 365, $n );
@@ -1058,8 +1109,32 @@ final class BizCity_Automation_Action_Run_Astro_Transit extends BizCity_Automati
 				if ( $outer_only && ! in_array( $tp_raw, self::OUTER_PLANETS, true ) ) { continue; }
 				return true;
 			}
+
+			// [2026-07-21 Johnny Chu] PHASE-ASTRO-WORKFLOW v1.14 — report links can
+			// render from planet positions even when aspect rows are empty/unfiltered.
+			// Do not send the "sync 30 days" fallback if usable Sun..Pluto positions exist.
+			if ( $this->has_usable_transit_planets_for_read( is_array( $snap['planets'] ?? null ) ? $snap['planets'] : array() ) ) {
+				return true;
+			}
 		}
 		return false;
+	}
+
+	private function has_usable_transit_planets_for_read( array $planets ): bool {
+		if ( count( $planets ) < 5 ) { return false; }
+		$core = array( 'sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune', 'pluto' );
+		$seen = array();
+		foreach ( $planets as $row ) {
+			if ( ! is_array( $row ) ) { continue; }
+			$name = strtolower( trim( (string) ( $row['name'] ?? $row['name_en'] ?? $row['planet_en'] ?? '' ) ) );
+			if ( $name === '' && isset( $row['planet'] ) && is_array( $row['planet'] ) ) {
+				$name = strtolower( trim( (string) ( $row['planet']['en'] ?? $row['planet']['name'] ?? '' ) ) );
+			}
+			if ( in_array( $name, $core, true ) ) {
+				$seen[ $name ] = true;
+			}
+		}
+		return count( $seen ) >= 5;
 	}
 
 	/**
@@ -1283,7 +1358,8 @@ final class BizCity_Automation_Action_Run_Astro_Transit extends BizCity_Automati
 		$lines = array( "## Transit {$range['label']} ({$range['start']} → {$range['end']})" );
 		foreach ( $snapshots as $date => $snap ) {
 			$lines[] = "\n### {$date}";
-			foreach ( (array) ( $snap['aspects'] ?? array() ) as $asp ) {
+			$aspects = (array) ( $snap['aspects'] ?? array() );
+			foreach ( $aspects as $asp ) {
 				$lines[] = sprintf(
 					'- **%s** %s → natal %s (orb %.1f°)',
 					$asp['transit_planet'] ?? '',
@@ -1291,6 +1367,24 @@ final class BizCity_Automation_Action_Run_Astro_Transit extends BizCity_Automati
 					$asp['natal_planet']   ?? '',
 					(float) ( $asp['orb']  ?? 0 )
 				);
+			}
+			if ( empty( $aspects ) ) {
+				// [2026-07-21 Johnny Chu] PHASE-ASTRO-WORKFLOW v1.14 — when snapshot has
+				// planet positions but no aspects, still feed LLM deterministic context.
+				$planet_lines = array();
+				foreach ( (array) ( $snap['planets'] ?? array() ) as $planet ) {
+					if ( ! is_array( $planet ) ) { continue; }
+					$name = (string) ( $planet['name'] ?? $planet['name_en'] ?? $planet['planet_en'] ?? '' );
+					if ( $name === '' ) { continue; }
+					$sign = (string) ( $planet['sign_en'] ?? $planet['sign'] ?? '' );
+					$degree = isset( $planet['full_degree'] ) ? (float) $planet['full_degree'] : ( isset( $planet['abs_pos'] ) ? (float) $planet['abs_pos'] : 0.0 );
+					$planet_lines[] = sprintf( '- %s: %s %.1f°', $name, $sign, $degree );
+					if ( count( $planet_lines ) >= 10 ) { break; }
+				}
+				if ( ! empty( $planet_lines ) ) {
+					$lines[] = 'Transit planet positions:';
+					foreach ( $planet_lines as $line ) { $lines[] = $line; }
+				}
 			}
 		}
 		return implode( "\n", $lines );

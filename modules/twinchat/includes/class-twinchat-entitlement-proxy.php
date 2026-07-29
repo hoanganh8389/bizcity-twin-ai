@@ -248,15 +248,23 @@ class BizCity_TwinChat_Entitlement_Proxy {
 	 *   {
 	 *     key_set, key_masked, gateway_url, settings_url,
 	 *     success, status, latency_ms, error?,
-	 *     tier, plan, balance_usd, requests_today, requests_limit,
+	 *     tier, plan, master_level, balance_usd, requests_today, requests_limit,
 	 *     requests_remaining, is_free_tier, my_account_url, register_url
 	 *   }
 	 *
 	 * Fail-OPEN: luôn HTTP 200 + success boolean để FE không retry-loop.
 	 */
 	public function handle_account_info( WP_REST_Request $request ): WP_REST_Response {
-		// [2026-06-10 Johnny Chu] HOTFIX — per-site option
-		$api_key      = (string) get_option( 'bizcity_llm_api_key', '' );
+		// [2026-07-27 Johnny Chu] PHASE-0.49-MASTER-CONFIG-401 — read normalized
+		// canonical key so status payload (key_set/key_masked) matches runtime behavior.
+		$api_key      = '';
+		if ( class_exists( 'BizCity_LLM_Client' ) ) {
+			$api_key = BizCity_LLM_Client::instance()->get_api_key();
+		}
+		if ( $api_key === '' ) {
+			// [2026-06-10 Johnny Chu] HOTFIX — per-site option
+			$api_key = (string) get_option( 'bizcity_llm_api_key', '' );
+		}
 		$gateway_url  = rtrim( (string) get_option( 'bizcity_llm_gateway_url', 'https://bizcity.vn' ), '/' );
 		$masked       = '';
 		if ( $api_key !== '' ) {
@@ -275,6 +283,8 @@ class BizCity_TwinChat_Entitlement_Proxy {
 			'error'              => null,
 			'tier'               => '',
 			'plan'               => '',
+			// [2026-07-14 Johnny Chu] PHASE-MEMBERSHIP FE-ACCOUNTINFO — expose master_level for concrete paid-plan mapping on FE.
+			'master_level'       => (string) get_option( 'bizcity_hub_master_level', '' ),
 			'balance_usd'        => null,
 			'requests_today'     => null,
 			'requests_limit'     => null,
@@ -312,6 +322,8 @@ class BizCity_TwinChat_Entitlement_Proxy {
 		$out['status']             = 200;
 		$out['tier']               = (string) ( $result['tier'] ?? '' );
 		$out['plan']               = (string) ( $result['plan'] ?? '' );
+		// [2026-07-14 Johnny Chu] PHASE-MEMBERSHIP FE-ACCOUNTINFO — prefer upstream master_level, fallback to cached site option.
+		$out['master_level']       = (string) ( $result['master_level'] ?? $out['master_level'] );
 		$out['balance_usd']        = isset( $result['balance_usd'] )        ? (float) $result['balance_usd']        : null;
 		$out['requests_today']     = isset( $result['requests_today'] )     ? (int)   $result['requests_today']     : null;
 		$out['requests_limit']     = isset( $result['requests_limit'] )     ? (int)   $result['requests_limit']     : null;
@@ -324,19 +336,58 @@ class BizCity_TwinChat_Entitlement_Proxy {
 			$out['register_url'] = (string) $result['register_url'];
 		}
 
-		// [2026-06-04 Johnny Chu] R-GW-API-CATALOG — KG quota config snapshot.
-		// hub-synced value (written by get_entitlement) preferred over default 50.
-		// [2026-06-10 Johnny Chu] HOTFIX — per-site option
+		// [2026-07-14 Johnny Chu] R-GW-API-CATALOG — prefer upstream KG config from account/info; fallback to local cached options.
 		$hub_quota = (int) get_option( 'bizcity_hub_kg_quota_per_user', 0 );
+		$hub_batch = (int) get_option( 'bizcity_hub_kg_batch_size', 0 );
+		$hub_cap   = (float) get_option( 'bizcity_hub_daily_cap_usd', 0 );
+		$up_plan   = ( isset( $result['plan'] ) && is_array( $result['plan'] ) ) ? $result['plan'] : [];
+		$up_kg     = ( isset( $result['kg_config'] ) && is_array( $result['kg_config'] ) ) ? $result['kg_config'] : [];
+
+		$has_up_quota  = array_key_exists( 'quota_per_user', $up_kg ) || array_key_exists( 'quota_per_user', $result );
+		$has_up_batch  = array_key_exists( 'batch_size', $up_kg ) || array_key_exists( 'batch_size', $result );
+		$has_up_cap    = array_key_exists( 'daily_cap_usd', $up_kg ) || array_key_exists( 'daily_cap_usd', $up_plan ) || array_key_exists( 'daily_cap_usd', $result );
+		$has_up_dedupe = array_key_exists( 'dedupe_threshold', $up_kg ) || array_key_exists( 'dedupe_threshold', $result );
+		$has_up_guard  = array_key_exists( 'cost_guard_on', $up_kg ) || array_key_exists( 'cost_guard_on', $result );
+
+		$up_quota  = array_key_exists( 'quota_per_user', $up_kg )
+			? (int) $up_kg['quota_per_user']
+			: ( array_key_exists( 'quota_per_user', $result ) ? (int) $result['quota_per_user'] : 0 );
+		$up_batch  = array_key_exists( 'batch_size', $up_kg )
+			? (int) $up_kg['batch_size']
+			: ( array_key_exists( 'batch_size', $result ) ? (int) $result['batch_size'] : 0 );
+		$up_cap    = array_key_exists( 'daily_cap_usd', $up_kg )
+			? (float) $up_kg['daily_cap_usd']
+			: ( array_key_exists( 'daily_cap_usd', $up_plan )
+				? (float) $up_plan['daily_cap_usd']
+				: ( array_key_exists( 'daily_cap_usd', $result ) ? (float) $result['daily_cap_usd'] : 0.0 ) );
+		$up_dedupe = array_key_exists( 'dedupe_threshold', $up_kg )
+			? (float) $up_kg['dedupe_threshold']
+			: ( array_key_exists( 'dedupe_threshold', $result ) ? (float) $result['dedupe_threshold'] : 0.0 );
+		$up_guard  = array_key_exists( 'cost_guard_on', $up_kg )
+			? (bool) $up_kg['cost_guard_on']
+			: ( array_key_exists( 'cost_guard_on', $result ) ? (bool) $result['cost_guard_on'] : false );
+
 		$out['kg_config'] = [
-			'quota_per_user'   => $hub_quota > 0
-				? $hub_quota
-				: (int) apply_filters( 'bizcity_kg_quota_per_user', 50 ),
-			'hub_quota_synced' => $hub_quota > 0,
-			'daily_cap_usd'    => (float) apply_filters( 'bizcity_kg_daily_cap_usd', 5.0 ),
-			'batch_size'       => class_exists( 'BizCity_KG_Cost_Guard' ) ? BizCity_KG_Cost_Guard::instance()->batch_size() : (int) apply_filters( 'bizcity_kg_extract_batch_size', 5 ),
-			'dedupe_threshold' => (float) apply_filters( 'bizcity_kg_dedupe_cosine_threshold', 0.92 ),
-			'cost_guard_on'    => (bool) apply_filters( 'bizcity_kg_cost_guard_enabled', true ),
+			'quota_per_user'   => $has_up_quota
+				? $up_quota
+				: ( $hub_quota > 0 ? $hub_quota : (int) apply_filters( 'bizcity_kg_quota_per_user', 50 ) ),
+			'hub_quota_synced' => $has_up_quota || $hub_quota > 0,
+			'daily_cap_usd'    => $has_up_cap
+				? $up_cap
+				: ( $hub_cap > 0
+					? $hub_cap
+					: (float) apply_filters( 'bizcity_kg_daily_cap_usd', 5.0 ) ),
+			'batch_size'       => $has_up_batch
+				? $up_batch
+				: ( $hub_batch > 0
+					? $hub_batch
+					: ( class_exists( 'BizCity_KG_Cost_Guard' ) ? BizCity_KG_Cost_Guard::instance()->batch_size() : (int) apply_filters( 'bizcity_kg_extract_batch_size', 5 ) ) ),
+			'dedupe_threshold' => $has_up_dedupe
+				? $up_dedupe
+				: (float) apply_filters( 'bizcity_kg_dedupe_cosine_threshold', 0.92 ),
+			'cost_guard_on'    => $has_up_guard
+				? $up_guard
+				: (bool) apply_filters( 'bizcity_kg_cost_guard_enabled', true ),
 		];
 
 		return new WP_REST_Response( $out, 200 );

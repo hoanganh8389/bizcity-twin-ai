@@ -28,7 +28,7 @@ class BizCity_Channel_Role {
 		'ZALO_BOT'       => 'zalo_bot',  // dedicated: full context (via user_id link) + knowledge + skill
 		'ZALO_PERSONAL'  => 'user',
 		'TELEGRAM'       => 'user',
-		'FACEBOOK'       => 'facebook',  // dedicated role: knowledge + skill, no memory
+		'FACEBOOK'       => 'facebook',  // dedicated role: knowledge + skill + identity-scoped memory
 		'NOTEBOOK'       => 'admin',
 	];
 
@@ -215,8 +215,8 @@ class BizCity_Channel_Role {
 					// ✅ Knowledge RAG + Skills — đọc KB và skill instructions
 					'knowledge'         => true,
 					'skill'             => true,
-					// ❌ Memory — tắt hoàn toàn (Messenger/comment không cần user memory)
-					'memory'            => false,
+					// [2026-07-28 Johnny Chu] R-CH-IDMEM — allow only relevant UUID-scoped memory; profile/Astro layers remain disabled below.
+					'memory'            => 'relevant',
 					// ❌ Tắt các layer cá nhân hóa không liên quan kênh public
 					'notes'             => false,
 					'astro'             => false,

@@ -28,9 +28,19 @@ class BizCity_Cron_Manager {
 	const TABLE_REGISTRY = 'bizcity_cron_registry';
 	const TABLE_RUNS     = 'bizcity_cron_runs';
 	const TABLE_RETRIES  = 'bizcity_cron_retries';
+	// [2026-07-26 Johnny Chu] CRON-LOCK-PHASE-A — new lock table (see TRACE-CRON-OVERLOAD-2026-07-26.md).
+	const TABLE_LOCKS    = 'bizcity_cron_locks';
 
-	const DB_VERSION        = '1.2.0';
+	const DB_VERSION        = '1.3.0';
 	const DB_VERSION_OPTION = 'bizcity_cron_db_version';
+
+	/**
+	 * [2026-07-26 Johnny Chu] CRON-LOCK-PHASE-A — safety-net lock TTL. Not the
+	 * expected job runtime — it's the max time before an orphaned lock
+	 * (crashed/killed PHP process that never reached wrap_end) is auto-released
+	 * so the job isn't stuck forever. Real completion always unlocks immediately.
+	 */
+	const LOCK_TTL_SECONDS = 15 * MINUTE_IN_SECONDS;
 
 	/** Internal nightly GC hook. */
 	const GC_HOOK = 'bizcity_cron_runs_gc';
@@ -41,6 +51,10 @@ class BizCity_Cron_Manager {
 	/** wp_options key for registry fingerprint cache (CRON-PERF-1). */
 	// [2026-06-09 Johnny Chu] CRON-PERF-1 — fingerprint option để skip batch write khi spec không đổi.
 	const REGISTRY_FP_OPTION = 'bizcity_cron_registry_fp';
+	// [2026-07-27 Johnny Chu] CRON-PERF-ADOPT — per-job fingerprints for adopt-only registry rows.
+	const ADOPT_FP_OPTION_PREFIX = 'bizcity_cron_adopt_fp_';
+	// [2026-07-27 Johnny Chu] CRON-PERF-ADOPT — invalidate adopt fingerprints after registry provisioning.
+	const REGISTRY_GENERATION_OPTION = 'bizcity_cron_registry_generation';
 
 	private static ?self $instance = null;
 
@@ -49,6 +63,27 @@ class BizCity_Cron_Manager {
 
 	/** @var array<string, int> active run ids keyed by job_id (for the wrap_end callback). */
 	private array $active_runs = array();
+
+	/** @var array<string, float> */
+	private array $active_started_at = array();
+
+	/** @var array<string, array> */
+	private array $active_meta = array();
+
+	/** @var int */
+	private int $last_virtual_run_id = 0;
+
+	/**
+	 * [2026-07-26 Johnny Chu] CRON-LOCK-PHASE-A
+	 * @var array<string, bool> whether THIS request acquired the runtime lock for job_id (so wrap_end knows it owns the release).
+	 */
+	private array $lock_owned = array();
+
+	/**
+	 * [2026-07-26 Johnny Chu] CRON-LOCK-PHASE-A
+	 * @var array<string, bool> whether job_id was locked-out (duplicate concurrent fire) THIS request — handlers may call is_locked_out() to bail early.
+	 */
+	private array $locked_out = array();
 
 	/**
 	 * @var array<string, array> static jobs pending deferred DB flush (job_id => row).
@@ -114,9 +149,12 @@ class BizCity_Cron_Manager {
 		BizCity_Diagnostics_Auto_Create::run( self::TABLE_REGISTRY );
 		BizCity_Diagnostics_Auto_Create::run( self::TABLE_RUNS );
 		BizCity_Diagnostics_Auto_Create::run( self::TABLE_RETRIES );
+		// [2026-07-26 Johnny Chu] CRON-LOCK-PHASE-A — provision lock table.
+		BizCity_Diagnostics_Auto_Create::run( self::TABLE_LOCKS );
 		update_option( self::DB_VERSION_OPTION, self::DB_VERSION, false );
 		// [2026-06-09 Johnny Chu] CRON-PERF-1 — invalidate fp khi bảng vừa được tạo lại để force re-seed.
 		delete_option( self::REGISTRY_FP_OPTION );
+		update_option( self::REGISTRY_GENERATION_OPTION, microtime( true ), false );
 	}
 
 	/**
@@ -151,10 +189,19 @@ class BizCity_Cron_Manager {
 		$this->jobs[ $job_id ] = $row + array( 'registered_at' => time() );
 
 		$adopt_only = ! empty( $spec['adopt_only'] );
-		// [2026-06-09 Johnny Chu] CRON-PERF-1 — adopt_only (legacy/discover) writes DB ngay via IODKU;
-		// static code-registered jobs deferered vào pending_rows → batch flush tại plugins_loaded:99.
+		// [2026-07-27 Johnny Chu] CRON-PERF-ADOPT — keep adopt-only jobs out of recurring scheduling,
+		// but skip the registry upsert when this job specification is unchanged.
 		if ( $adopt_only ) {
-			$this->upsert_registry_one( $row );
+			$fp_option = self::ADOPT_FP_OPTION_PREFIX . md5( $job_id );
+			$generation = (string) get_option( self::REGISTRY_GENERATION_OPTION, '' );
+			$fp_new    = md5( serialize( $row ) . '|' . $generation );
+			$fp_old    = (string) get_option( $fp_option, '' );
+			if ( $fp_new !== $fp_old ) {
+				$upserted = $this->upsert_registry_one( $row );
+				if ( $upserted ) {
+					update_option( $fp_option, $fp_new, true );
+				}
+			}
 		} else {
 			$this->pending_rows[ $job_id ] = $row;
 		}
@@ -346,16 +393,16 @@ class BizCity_Cron_Manager {
 
 	/**
 	 * Single-row INSERT ON DUPLICATE KEY UPDATE (Strategy A).
-	 * Dùng cho adopt_only / legacy-discovered jobs (dynamic, không fingerprint).
+	 * Dùng cho adopt_only / legacy-discovered jobs khi spec fingerprint thay đổi.
 	 *
 	 * [2026-06-09 Johnny Chu] CRON-PERF-1 — thay 2 queries (SELECT+UPDATE) bằng 1 IODKU.
 	 */
-	private function upsert_registry_one( array $row ): void {
+	private function upsert_registry_one( array $row ): bool {
 		global $wpdb;
-		if ( ! $wpdb ) { return; }
+		if ( ! $wpdb ) { return false; }
 		$t = $wpdb->prefix . self::TABLE_REGISTRY;
 		$wpdb->suppress_errors( true );
-		$wpdb->query( $wpdb->prepare(
+		$result = $wpdb->query( $wpdb->prepare(
 			'INSERT INTO ' . $t
 			. ' (job_id,hook,interval_key,owner,description,singleton,enabled,retention_days)'
 			. ' VALUES (%s,%s,%s,%s,%s,%d,%d,%d)'
@@ -373,11 +420,73 @@ class BizCity_Cron_Manager {
 			(int) $row['retention_days']
 		) );
 		$wpdb->suppress_errors( false );
+		return false !== $result;
 	}
 
 	private function wrap_start( string $job_id ): void {
 		global $wpdb;
 		if ( ! $wpdb ) { return; }
+
+		// [2026-07-26 Johnny Chu] CRON-LOCK-PHASE-A — acquire atomic per-job lock BEFORE
+		// allowing the run to start. Prevents duplicate concurrent execution when WP
+		// pseudo-cron double-fires the same due event (see TRACE-CRON-OVERLOAD-2026-07-26.md
+		// root cause #2). `singleton` in register() only guards duplicate wp_schedule_event()
+		// registration — it does NOT guard runtime concurrency, hence this separate lock.
+		$acquired                    = $this->try_lock( $job_id );
+		$this->lock_owned[ $job_id ] = $acquired;
+		$this->locked_out[ $job_id ] = ! $acquired;
+
+		if ( ! $acquired ) {
+			if ( $this->is_filelog_primary_mode() && class_exists( 'BizCity_Cron_File_Logger' ) ) {
+				// [2026-07-27 Johnny Chu] PHASE-0.50-CRON-FILELOG-PRIMARY — emit skipped
+				// run directly to filelog when SQL run-log is disabled.
+				BizCity_Cron_File_Logger::append( array(
+					'type'        => 'end',
+					'ts'          => gmdate( 'Y-m-d\TH:i:s\Z' ),
+					'run_id'      => $this->next_virtual_run_id(),
+					'job_id'      => $job_id,
+					'status'      => 'skipped',
+					'duration_ms' => 0,
+					'error'       => 'duplicate run skipped — lock already held by an in-flight run',
+				) );
+			} else {
+				$t = $wpdb->prefix . self::TABLE_RUNS;
+				$wpdb->suppress_errors( true );
+				$wpdb->insert( $t, array(
+					'job_id'      => $job_id,
+					'started_at'  => current_time( 'mysql', true ),
+					'ended_at'    => current_time( 'mysql', true ),
+					'duration_ms' => 0,
+					'status'      => 'skipped',
+					'error'       => 'duplicate run skipped — lock already held by an in-flight run',
+				) );
+				$wpdb->suppress_errors( false );
+			}
+			// Intentionally do NOT set active_runs[$job_id] — note()/note_event() become
+			// silent no-ops for this tick (current_run_id() returns 0), and the real
+			// handler (priority 10, fires after this priority-1 hook) can call
+			// is_locked_out($job_id) to bail out immediately instead of doing real work.
+			return;
+		}
+
+		if ( $this->is_filelog_primary_mode() ) {
+			// [2026-07-27 Johnny Chu] PHASE-0.50-CRON-FILELOG-PRIMARY —
+			// disable SQL run-log writes when JSONL logger is ready.
+			$run_id = $this->next_virtual_run_id();
+			$this->active_runs[ $job_id ]       = $run_id;
+			$this->active_started_at[ $job_id ] = microtime( true );
+			$this->active_meta[ $job_id ]       = array();
+
+			if ( isset( $this->jobs[ $job_id ] ) ) {
+				$job_row = $this->jobs[ $job_id ];
+				do_action( 'bizcity_cron_run_started', $run_id, $job_id, array(
+					'hook'  => (string) ( $job_row['hook']  ?? '' ),
+					'owner' => (string) ( $job_row['owner'] ?? '' ),
+				) );
+			}
+			return;
+		}
+
 		$t = $wpdb->prefix . self::TABLE_RUNS;
 		$wpdb->suppress_errors( true );
 		$ok = $wpdb->insert( $t, array(
@@ -389,13 +498,50 @@ class BizCity_Cron_Manager {
 			$this->active_runs[ $job_id ] = (int) $wpdb->insert_id;
 		}
 		$wpdb->suppress_errors( false );
+
+		// [2026-06-14 Johnny Chu] CRON-FILE-LOGGER — emit hook so file logger can write start line
+		if ( $ok && isset( $this->jobs[ $job_id ] ) ) {
+			$run_id  = $this->active_runs[ $job_id ];
+			$job_row = $this->jobs[ $job_id ];
+			do_action( 'bizcity_cron_run_started', $run_id, $job_id, array(
+				'hook'  => (string) ( $job_row['hook']  ?? '' ),
+				'owner' => (string) ( $job_row['owner'] ?? '' ),
+			) );
+		}
 	}
 
 	private function wrap_end( string $job_id, ?\Throwable $err ): void {
 		global $wpdb;
+
+		// [2026-07-26 Johnny Chu] CRON-LOCK-PHASE-A — release the lock only if THIS request
+		// acquired it (a locked-out duplicate run must never release a lock it doesn't own).
+		if ( ! empty( $this->lock_owned[ $job_id ] ) ) {
+			$this->unlock( $job_id );
+		}
+		unset( $this->lock_owned[ $job_id ], $this->locked_out[ $job_id ] );
+
 		if ( ! $wpdb || empty( $this->active_runs[ $job_id ] ) ) { return; }
 		$run_id = (int) $this->active_runs[ $job_id ];
 		unset( $this->active_runs[ $job_id ] );
+
+		if ( $this->is_filelog_primary_mode() ) {
+			$started_at_ts = isset( $this->active_started_at[ $job_id ] ) ? (float) $this->active_started_at[ $job_id ] : 0.0;
+			unset( $this->active_started_at[ $job_id ] );
+			$duration_ms = $started_at_ts > 0 ? max( 0, (int) round( ( microtime( true ) - $started_at_ts ) * 1000 ) ) : null;
+			$status = $err ? 'error' : 'ok';
+			$error_msg = $err ? $err->getMessage() : null;
+
+			if ( class_exists( 'BizCity_Cron_File_Logger' ) ) {
+				$meta = isset( $this->active_meta[ $job_id ] ) && is_array( $this->active_meta[ $job_id ] ) ? $this->active_meta[ $job_id ] : array();
+				if ( ! empty( $meta ) ) {
+					BizCity_Cron_File_Logger::append_meta( $run_id, $job_id, $meta );
+				}
+			}
+			unset( $this->active_meta[ $job_id ] );
+
+			do_action( 'bizcity_cron_run_ended', $run_id, $job_id, $status, $duration_ms, (string) ( $error_msg ?? '' ) );
+			return;
+		}
 
 		$t = $wpdb->prefix . self::TABLE_RUNS;
 		$wpdb->suppress_errors( true );
@@ -407,14 +553,19 @@ class BizCity_Cron_Manager {
 				$duration_ms = max( 0, (int) ( ( microtime( true ) - $dt ) * 1000 ) );
 			}
 		}
+		$status = $err ? 'error' : 'ok';
+		$error_msg = $err ? $err->getMessage() : null;
 		$wpdb->update( $t, array(
 			'ended_at'    => current_time( 'mysql', true ),
 			'duration_ms' => $duration_ms,
-			'status'      => $err ? 'error' : 'ok',
-			'error'       => $err ? $err->getMessage() : null,
+			'status'      => $status,
+			'error'       => $error_msg,
 			'trace'       => $err ? mb_substr( (string) $err->getTraceAsString(), 0, 4000 ) : null,
 		), array( 'id' => $run_id ) );
 		$wpdb->suppress_errors( false );
+
+		// [2026-06-14 Johnny Chu] CRON-FILE-LOGGER — emit hook so file logger can write end line
+		do_action( 'bizcity_cron_run_ended', $run_id, $job_id, $status, $duration_ms, (string) ( $error_msg ?? '' ) );
 	}
 
 	/**
@@ -441,6 +592,72 @@ class BizCity_Cron_Manager {
 		$this->wrap_end( $job_id, $err );
 		if ( $err ) { throw $err; }
 		return $run_id;
+	}
+
+	/**
+	 * [2026-07-26 Johnny Chu] CRON-LOCK-PHASE-A
+	 *
+	 * Atomically try to acquire the runtime lock for $job_id. Uses the MySQL
+	 * `INSERT ... ON DUPLICATE KEY UPDATE` affected-rows trick for a race-safe
+	 * check-and-set without needing a persistent object cache:
+	 *   - no existing row            → INSERT happens        → rows_affected === 1 → acquired
+	 *   - existing row but EXPIRED   → UPDATE changes a value → rows_affected === 2 → acquired (took over)
+	 *   - existing row still VALID   → UPDATE is a no-op      → rows_affected === 0 → NOT acquired
+	 *
+	 * Fails OPEN (returns true) on DB error / missing table so a not-yet-migrated
+	 * site never has cron silently disabled by this guard.
+	 *
+	 * @param string $job_id
+	 * @param int    $ttl_seconds Safety-net expiry; defaults to LOCK_TTL_SECONDS.
+	 */
+	public function try_lock( string $job_id, int $ttl_seconds = 0 ): bool {
+		global $wpdb;
+		if ( ! $wpdb || $job_id === '' ) { return true; }
+		if ( $ttl_seconds <= 0 ) { $ttl_seconds = self::LOCK_TTL_SECONDS; }
+
+		$t            = $wpdb->prefix . self::TABLE_LOCKS;
+		$locked_until = gmdate( 'Y-m-d H:i:s', time() + $ttl_seconds );
+
+		$wpdb->suppress_errors( true );
+		$result = $wpdb->query( $wpdb->prepare(
+			"INSERT INTO {$t} (job_id, locked_until) VALUES (%s, %s)
+			 ON DUPLICATE KEY UPDATE
+				locked_until = IF( locked_until < UTC_TIMESTAMP(), VALUES(locked_until), locked_until )",
+			$job_id,
+			$locked_until
+		) );
+		$affected = (int) $wpdb->rows_affected;
+		$wpdb->suppress_errors( false );
+
+		if ( false === $result ) {
+			return true; // table missing / SQL error → fail-open, don't block cron entirely.
+		}
+		return ( 1 === $affected || 2 === $affected );
+	}
+
+	/**
+	 * [2026-07-26 Johnny Chu] CRON-LOCK-PHASE-A — release the lock row for $job_id.
+	 * Safe to call even if no lock row exists (no-op).
+	 */
+	public function unlock( string $job_id ): void {
+		global $wpdb;
+		if ( ! $wpdb || $job_id === '' ) { return; }
+		$t = $wpdb->prefix . self::TABLE_LOCKS;
+		$wpdb->suppress_errors( true );
+		$wpdb->delete( $t, array( 'job_id' => $job_id ) );
+		$wpdb->suppress_errors( false );
+	}
+
+	/**
+	 * [2026-07-26 Johnny Chu] CRON-LOCK-PHASE-A
+	 *
+	 * Handlers of long-running / historically double-fired jobs should call this
+	 * at the very top of their real callback (registered at normal priority, which
+	 * fires AFTER the manager's priority-1 wrap_start()) and return early when true.
+	 * Only meaningful for the CURRENT request/tick — not a general job status query.
+	 */
+	public function is_locked_out( string $job_id ): bool {
+		return ! empty( $this->locked_out[ $job_id ] );
 	}
 
 	/**
@@ -475,6 +692,27 @@ class BizCity_Cron_Manager {
 	public function note( array $patch, ?string $job_id = null ): void {
 		$run_id = $this->current_run_id( $job_id );
 		if ( ! $run_id ) { return; }
+		if ( $this->is_filelog_primary_mode() ) {
+			$target_job = $job_id ?: $this->current_job_id();
+			if ( $target_job === '' ) { return; }
+			$current = isset( $this->active_meta[ $target_job ] ) && is_array( $this->active_meta[ $target_job ] ) ? $this->active_meta[ $target_job ] : array();
+			if ( isset( $patch['__append_event'] ) ) {
+				$evt = $patch['__append_event'];
+				unset( $patch['__append_event'] );
+				if ( ! isset( $current['events'] ) || ! is_array( $current['events'] ) ) {
+					$current['events'] = array();
+				}
+				$current['events'][] = $evt;
+				if ( count( $current['events'] ) > 200 ) {
+					$current['events'] = array_slice( $current['events'], -200 );
+				}
+			}
+			if ( ! empty( $patch ) ) {
+				$current = $this->deep_merge( $current, $patch );
+			}
+			$this->active_meta[ $target_job ] = $current;
+			return;
+		}
 		$this->merge_meta( $run_id, $patch );
 	}
 
@@ -486,14 +724,12 @@ class BizCity_Cron_Manager {
 	 * @param string|null $job_id Optional explicit job id.
 	 */
 	public function note_event( string $name, array $data = array(), ?string $job_id = null ): void {
-		$run_id = $this->current_run_id( $job_id );
-		if ( ! $run_id ) { return; }
 		$entry = array(
 			'ts'   => gmdate( 'Y-m-d\TH:i:s\Z' ),
 			'name' => $name,
 		);
 		if ( $data ) { $entry['data'] = $data; }
-		$this->merge_meta( $run_id, array( '__append_event' => $entry ) );
+		$this->note( array( '__append_event' => $entry ), $job_id );
 	}
 
 	private function merge_meta( int $run_id, array $patch ): void {
@@ -556,6 +792,16 @@ class BizCity_Cron_Manager {
 	 * @return array{started_at_ts:int,status:string,duration_ms:?int,error:string}|array{}
 	 */
 	public function last_run( string $job_id ): array {
+		if ( $this->is_filelog_primary_mode() && class_exists( 'BizCity_Cron_File_Logger' ) ) {
+			static $file_last_run_index = null;
+			if ( ! is_array( $file_last_run_index ) ) {
+				$file_last_run_index = BizCity_Cron_File_Logger::last_runs_index( 2500 );
+			}
+			return isset( $file_last_run_index[ $job_id ] ) && is_array( $file_last_run_index[ $job_id ] )
+				? $file_last_run_index[ $job_id ]
+				: array();
+		}
+
 		global $wpdb;
 		if ( ! $wpdb ) { return array(); }
 		$t = $wpdb->prefix . self::TABLE_RUNS;
@@ -592,6 +838,11 @@ class BizCity_Cron_Manager {
 				(string) $r['job_id'], $days
 			) );
 		}
+		// [2026-07-26 Johnny Chu] CRON-LOCK-PHASE-A — sweep orphaned lock rows (crashed
+		// process that never reached wrap_end/unlock). Harmless if it never accumulates —
+		// this is just hygiene since try_lock() already self-heals expired rows on read.
+		$tl = $wpdb->prefix . self::TABLE_LOCKS;
+		$wpdb->query( "DELETE FROM {$tl} WHERE locked_until < (UTC_TIMESTAMP() - INTERVAL 1 DAY)" );
 		$wpdb->suppress_errors( false );
 	}
 
@@ -703,16 +954,57 @@ class BizCity_Cron_Manager {
 	 *
 	 * @return array<int,array>
 	 */
-	public function recent_runs( string $job_id, int $limit = 20 ): array {
+	public function recent_runs( string $job_id = '', int $limit = 20 ): array {
+		if ( $this->is_filelog_primary_mode() && class_exists( 'BizCity_Cron_File_Logger' ) ) {
+			return BizCity_Cron_File_Logger::recent_runs( $job_id, $limit );
+		}
+
 		global $wpdb;
 		if ( ! $wpdb ) { return []; }
 		$t = $wpdb->prefix . self::TABLE_RUNS;
 		$wpdb->suppress_errors( true );
-		$rows = (array) $wpdb->get_results( $wpdb->prepare(
-			"SELECT id, started_at, ended_at, duration_ms, status, error, meta FROM {$t} WHERE job_id=%s ORDER BY id DESC LIMIT %d",
-			$job_id, max( 1, min( 100, $limit ) )
-		), ARRAY_A );
+		$limit = max( 1, min( 500, $limit ) );
+		if ( $job_id !== '' ) {
+			$rows = (array) $wpdb->get_results( $wpdb->prepare(
+				"SELECT id, job_id, started_at, ended_at, duration_ms, status, error, meta FROM {$t} WHERE job_id=%s ORDER BY id DESC LIMIT %d",
+				$job_id,
+				$limit
+			), ARRAY_A );
+		} else {
+			$rows = (array) $wpdb->get_results( $wpdb->prepare(
+				"SELECT id, job_id, started_at, ended_at, duration_ms, status, error, meta FROM {$t} ORDER BY id DESC LIMIT %d",
+				$limit
+			), ARRAY_A );
+		}
 		$wpdb->suppress_errors( false );
 		return $rows;
+	}
+
+	/**
+	 * [2026-07-27 Johnny Chu] PHASE-0.50-CRON-FILELOG-PRIMARY — gate SQL
+	 * run-log writes behind logger readiness.
+	 */
+	private function is_filelog_primary_mode(): bool {
+		return class_exists( 'BizCity_Cron_File_Logger' ) && BizCity_Cron_File_Logger::is_ready();
+	}
+
+	private function next_virtual_run_id(): int {
+		$next = (int) round( microtime( true ) * 1000000 );
+		if ( $next <= $this->last_virtual_run_id ) {
+			$next = $this->last_virtual_run_id + 1;
+		}
+		$this->last_virtual_run_id = $next;
+		return $next;
+	}
+
+	private function current_job_id(): string {
+		if ( empty( $this->active_runs ) ) {
+			return '';
+		}
+		$job_id = '';
+		foreach ( $this->active_runs as $jid => $rid ) {
+			$job_id = (string) $jid;
+		}
+		return $job_id;
 	}
 }

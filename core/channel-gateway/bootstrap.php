@@ -138,6 +138,33 @@ require_once $gateway_dir . 'class-admin-menu-spa.php';
 require_once $gateway_dir . 'class-network-oauth-page.php';
 require_once $gateway_dir . 'class-oauth-proxy.php';
 require_once $gateway_dir . 'class-channel-messages.php';
+// [2026-07-27 Johnny Chu] PHASE-0.52 W1 — shared Zone 1 external identity mapping.
+// [2026-07-28 Johnny Chu] PHASE-0.52 W8.1 — durable customer identity hub loads before compatibility linkers.
+require_once $gateway_dir . 'class-identity-hub.php';
+require_once $gateway_dir . 'class-channel-user-linker.php';
+if ( class_exists( 'BizCity_Schema_Registry' ) ) {
+	BizCity_Schema_Registry::register(
+		'bizcity_identity_contacts',
+		'core.channel-gateway',
+		BizCity_Identity_Hub::SCHEMA_VERSION,
+		BizCity_Identity_Hub::OPTION_VERSION,
+		array( 'BizCity_Identity_Hub', 'install' )
+	);
+	BizCity_Schema_Registry::register(
+		'bizcity_identity_bindings',
+		'core.channel-gateway',
+		BizCity_Identity_Hub::SCHEMA_VERSION,
+		BizCity_Identity_Hub::OPTION_VERSION,
+		array( 'BizCity_Identity_Hub', 'install' )
+	);
+	BizCity_Schema_Registry::register(
+		'bizcity_channel_user_links',
+		'core.channel-gateway',
+		BizCity_Channel_User_Linker::SCHEMA_VERSION,
+		BizCity_Channel_User_Linker::OPTION_VERSION,
+		array( 'BizCity_Channel_User_Linker', 'install' )
+	);
+}
 
 // PHASE CG-SCHEDULER v0.2 — FB Publisher bridge to core/scheduler reminder cron.
 require_once $gateway_dir . 'class-fb-publisher.php';
@@ -197,9 +224,15 @@ if ( is_dir( $_bzc_cf7_dir ) ) {
 	// (which registers at plugins_loaded:10) is guaranteed available when we check class_exists.
 	add_action( 'plugins_loaded', function () {
 		if ( class_exists( 'WPCF7' ) || class_exists( 'WPCF7_ContactForm' ) ) {
-			BizCity_CF7_Channel_Listener::init();
+			// [2026-07-17 Johnny Chu] HOTFIX — guard class init to avoid fatal
+			// "Class 'BizCity_C...' not found" when partial deploy/missing file.
+			if ( class_exists( 'BizCity_CF7_Channel_Listener' ) ) {
+				BizCity_CF7_Channel_Listener::init();
+			}
 			// [2026-06-24 Johnny Chu] PHASE-CF7-RESP — hook wpcf7_ajax_json_echo
-			BizCity_CF7_Response_Config::init();
+			if ( class_exists( 'BizCity_CF7_Response_Config' ) ) {
+				BizCity_CF7_Response_Config::init();
+			}
 		}
 	}, 20 );
 	BizCity_CF7_REST::init();
@@ -309,6 +342,9 @@ require_once $gateway_dir . 'listener/class-listener-automation-bridge.php';
 // Schema install + admin-side network OAuth page registration.
 add_action( 'admin_init', array( 'BizCity_Channel_Messages', 'maybe_install' ) );
 add_action( 'admin_init', array( 'BizCity_Channel_Binding',  'maybe_install' ) );
+add_action( 'admin_init', array( 'BizCity_Identity_Hub', 'maybe_install' ) );
+add_action( 'admin_init', array( 'BizCity_Channel_User_Linker', 'maybe_install' ) );
+BizCity_Channel_User_Linker::init();
 
 // Boot the Webhook Router (rewrite rules + parse_request intake).
 BizCity_Webhook_Router::init();

@@ -77,8 +77,9 @@ class BizCity_KG_Retriever {
 			error_log( '[BizCity_KG_Retriever] query embed failed, using keyword fallback: ' . $err_msg );
 			$kw_hits = $this->search_passages_keyword( (int) $notebook_id, $question, 8 );
 			if ( ! empty( $kw_hits ) ) {
+				// [2026-07-28 Johnny Chu] PHASE-0.53-MCP — preserve canonical degraded keyword scores for downstream snapshots.
 				$result['passages'] = array_map( static function ( $p ) {
-					return [ 'id' => (int) $p['id'], 'content' => $p['content'], 'source_id' => (int) $p['source_id'], 'metadata' => isset( $p['metadata'] ) ? (string) $p['metadata'] : '' ];
+					return [ 'id' => (int) $p['id'], 'content' => $p['content'], 'source_id' => (int) $p['source_id'], 'metadata' => isset( $p['metadata'] ) ? (string) $p['metadata'] : '', 'score' => isset( $p['score'] ) ? (float) $p['score'] : 0.0, 'score_source' => 'keyword' ];
 				}, $kw_hits );
 				$result['retrieval_mode'] = 'degraded_keyword';
 				$result['steps'][] = [ 'name' => 'Retrieve Seeds',  'entities' => 0, 'relations' => 0, 'note' => 'embed_failed → keyword fallback' ];
@@ -113,8 +114,9 @@ class BizCity_KG_Retriever {
 		if ( empty( $seed_entities ) && empty( $seed_relations ) ) {
 			$passage_hits = $this->search_passages_direct( (int) $notebook_id, $qvec, 8 );
 			if ( ! empty( $passage_hits ) ) {
+				// [2026-07-28 Johnny Chu] PHASE-0.53-MCP — preserve vector similarity score in KG-empty fallback.
 				$result['passages'] = array_map( static function ( $p ) {
-					return [ 'id' => (int) $p['id'], 'content' => $p['content'], 'source_id' => (int) $p['source_id'], 'metadata' => isset( $p['metadata'] ) ? (string) $p['metadata'] : '' ];
+					return [ 'id' => (int) $p['id'], 'content' => $p['content'], 'source_id' => (int) $p['source_id'], 'metadata' => isset( $p['metadata'] ) ? (string) $p['metadata'] : '', 'score' => isset( $p['score'] ) ? (float) $p['score'] : 0.0, 'score_source' => 'vector' ];
 				}, $passage_hits );
 				$result['steps'][] = [ 'name' => 'Expand Subgraph',  'entities' => 0, 'relations' => 0, 'note' => 'fallback: KG empty' ];
 				$result['steps'][] = [ 'name' => 'LLM Rerank',       'selected' => 0, 'note' => 'fallback' ];
@@ -136,6 +138,15 @@ class BizCity_KG_Retriever {
 		$selected_ids = BizCity_KG_Reranker::instance()->rerank(
 			$question, $expanded['relations'], (int) $opts['rerank_top_k']
 		);
+		// [2026-07-28 Johnny Chu] PHASE-0.53-MCP — retain scores for relations added during subgraph expansion.
+		$relation_score_map = [];
+		foreach ( $expanded['relations'] as $relation ) {
+			$relation_id = (int) $relation['id'];
+			$relation_score_map[ $relation_id ] = array(
+				'score'  => isset( $relation['score'] ) ? (float) $relation['score'] : 0.0,
+				'source' => in_array( $relation_id, array_map( 'intval', array_column( $seed_relations, 'id' ) ), true ) ? 'graph_relation' : 'expanded_relation',
+			);
+		}
 		// Lookup texts.
 		$id_to_rel = [];
 		foreach ( $expanded['relations'] as $r ) { $id_to_rel[ (int) $r['id'] ] = $r; }
@@ -152,7 +163,7 @@ class BizCity_KG_Retriever {
 		$result['steps'][] = [ 'name' => 'LLM Rerank', 'selected' => count( $selected_ids ) ];
 
 		// ── Step 4: Generate Answer
-		$passages = $index->get_passages_for_relations( $selected_ids );
+		$passages = $index->get_passages_for_relations( $selected_ids, $relation_score_map );
 
 		// Hybrid fallback: if GraphRAG path returned too few passages (KG relations
 		// chưa cover hết facts trong source — ví dụ source mới ingest, extraction
@@ -177,7 +188,7 @@ class BizCity_KG_Retriever {
 		}
 
 		$result['passages'] = array_map( static function ( $p ) {
-			return [ 'id' => (int) $p['id'], 'content' => $p['content'], 'source_id' => (int) $p['source_id'], 'metadata' => isset( $p['metadata'] ) ? (string) $p['metadata'] : '' ];
+			return [ 'id' => (int) $p['id'], 'content' => $p['content'], 'source_id' => (int) $p['source_id'], 'metadata' => isset( $p['metadata'] ) ? (string) $p['metadata'] : '', 'score' => isset( $p['score'] ) ? (float) $p['score'] : 0.0, 'score_source' => isset( $p['score_source'] ) ? (string) $p['score_source'] : 'unknown' ];
 		}, $passages );
 
 		if ( $opts['answer'] ) {

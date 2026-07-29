@@ -31,12 +31,14 @@ final class BizCity_Automation_LLM_Compose extends BizCity_Automation_Block_Base
 				'model'  => 'gpt-4o-mini',
 				'system' => 'Bạn là trợ lý CSKH.',
 				'prompt' => '{{kg.snippet}}',
+				'max_output_tokens' => 0,
 			),
 			'fields'   => array(
 				array( 'name' => 'label',  'label' => 'Tên hiển thị', 'type' => 'text' ),
 				array( 'name' => 'model',  'label' => 'Model',        'type' => 'select', 'options' => self::MODELS ),
 				array( 'name' => 'system', 'label' => 'System prompt', 'type' => 'textarea' ),
 				array( 'name' => 'prompt', 'label' => 'User prompt',   'type' => 'textarea' ),
+				array( 'name' => 'max_output_tokens', 'label' => 'Max output tokens', 'type' => 'number' ),
 			),
 		);
 	}
@@ -75,10 +77,16 @@ final class BizCity_Automation_LLM_Compose extends BizCity_Automation_Block_Base
 					array( 'role' => 'system', 'content' => $system ),
 					array( 'role' => 'user',   'content' => $prompt ),
 				);
-				$res = $client->chat( $messages, array(
+				$options = array(
 					'model'   => $model,
 					'purpose' => 'automation.compose_reply',
-				) );
+				);
+				// [2026-07-22 Johnny Chu] PHASE-3-TWIN-GPT — allow BTnet templates to cap verbose chat output.
+				$max_output_tokens = (int) ( $data['max_output_tokens'] ?? 0 );
+				if ( $max_output_tokens > 0 ) {
+					$options['max_tokens'] = max( 128, min( 8000, $max_output_tokens ) );
+				}
+				$res = $client->chat( $messages, $options );
 				if ( is_wp_error( $res ) ) { return $res; }
 				if ( is_array( $res ) && empty( $res['success'] ) ) {
 					return new WP_Error(

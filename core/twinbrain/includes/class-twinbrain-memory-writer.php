@@ -72,9 +72,42 @@ final class BizCity_TwinBrain_Memory_Writer {
 		$user_id    = (int)    ( $ctx['user_id']    ?? get_current_user_id() );
 		$session_id = (string) ( $ctx['session_id'] ?? '' );
 		$enable_llm = ! isset( $ctx['enable_llm'] ) || (bool) $ctx['enable_llm'];
+		$identity_context = class_exists( 'BizCity_Identity_Hub' )
+			? BizCity_Identity_Hub::resolve_from_opts( $ctx, (int) get_current_blog_id() )
+			: null;
+		// [2026-07-28 Johnny Chu] R-CH-IDMEM — anonymous memory requires a hub-verified canonical UUID.
+		$identity_verified = is_array( $identity_context ) && ! empty( $identity_context['identity_uuid'] );
+		$identity_uuid = is_array( $identity_context )
+			? (string) ( $identity_context['identity_uuid'] ?? '' )
+			: trim( (string) ( $ctx['identity_uuid'] ?? '' ) );
+		$identity_is_stable = $user_id > 0 || ! empty( $ctx['identity_is_stable'] );
+		if ( is_array( $identity_context ) && isset( $identity_context['binding']['is_stable'] ) ) {
+			$identity_is_stable = ! empty( $identity_context['binding']['is_stable'] );
+		}
 
-		// Guest with no session — skip entirely (can't persist).
-		if ( $user_id <= 0 && $session_id === '' ) {
+		// [2026-07-28 Johnny Chu] R-CH-IDMEM — soft anonymous sessions cannot become durable memory owners.
+		if ( $user_id <= 0 && ( ! $identity_verified || $identity_uuid === '' || ! $identity_is_stable ) ) {
+			// [2026-07-28 Johnny Chu] PHASE-0.52 W2 — expose and log no-owner skips without relaxing memory ownership.
+			do_action( 'bizcity_twinbrain_memory_no_owner', $trace_id, array(
+				'user_id'          => $user_id,
+				'session_id'       => $session_id,
+				'channel'          => (string) ( $ctx['channel'] ?? '' ),
+				'platform'         => (string) ( $ctx['platform'] ?? '' ),
+				'account_id'       => (string) ( $ctx['account_id'] ?? '' ),
+				'external_user_id' => (string) ( $ctx['external_user_id'] ?? '' ),
+				'chat_id'          => (string) ( $ctx['chat_id'] ?? '' ),
+			) );
+			if ( class_exists( 'BizCity_CG_Debug_Logger' ) ) {
+				BizCity_CG_Debug_Logger::log( 'twinbrain', 'memory_no_owner', array(
+					'trace_id'         => $trace_id,
+					'channel'          => (string) ( $ctx['channel'] ?? '' ),
+					'platform'         => (string) ( $ctx['platform'] ?? '' ),
+					'account_present'  => (string) ( $ctx['account_id'] ?? '' ) !== '',
+					'external_present' => (string) ( $ctx['external_user_id'] ?? '' ) !== '',
+					'chat_present'     => (string) ( $ctx['chat_id'] ?? '' ) !== '',
+					'reason'           => 'no_durable_owner',
+				), 'info' );
+			}
 			return $this->empty_result( $t0, 'no_owner' );
 		}
 		if ( ! class_exists( 'BizCity_User_Memory' ) ) {
@@ -96,7 +129,8 @@ final class BizCity_TwinBrain_Memory_Writer {
 				$key  = 'explicit:' . md5( mb_strtolower( trim( $text ) ) );
 				$res  = $mem->upsert_public( [
 					'user_id'        => $user_id,
-					'session_id'     => $user_id > 0 ? '' : $session_id,
+					'session_id'     => '',
+					'identity_uuid'  => $identity_uuid,
 					'memory_tier'    => 'explicit',
 					'memory_type'    => $cand['type'] ?? 'request',
 					'memory_key'     => $key,
@@ -122,7 +156,7 @@ final class BizCity_TwinBrain_Memory_Writer {
 		// ─── Mode 2 — LLM extractor (implicit preferences) ───────────────
 		$llm_status = 'skipped';
 		if ( $enable_llm ) {
-			$llm_out = $this->extract_with_llm( $trace_id, $prompt, $final_answer, $user_id, $session_id );
+			$llm_out = $this->extract_with_llm( $trace_id, $prompt, $final_answer, $user_id, $session_id, $identity_uuid );
 			$llm_status = (string) $llm_out['status'];
 			if ( $llm_status === 'ok' ) {
 				$modes[] = 'llm-mode2';
@@ -133,7 +167,8 @@ final class BizCity_TwinBrain_Memory_Writer {
 					$key  = 'extracted:' . md5( mb_strtolower( trim( $type . '|' . $text ) ) );
 					$res  = $mem->upsert_public( [
 						'user_id'        => $user_id,
-						'session_id'     => $user_id > 0 ? '' : $session_id,
+						'session_id'     => '',
+						'identity_uuid'  => $identity_uuid,
 						'memory_tier'    => 'extracted',
 						'memory_type'    => $type,
 						'memory_key'     => $key,
@@ -250,7 +285,7 @@ final class BizCity_TwinBrain_Memory_Writer {
 	 *  On success → records usage via cost_guard so it counts toward quota.
 	 *  On any failure → returns status flag; caller treats as soft-skip.
 	 * ================================================================ */
-	private function extract_with_llm( string $trace_id, string $prompt, string $final_answer, int $user_id, string $session_id ): array {
+	private function extract_with_llm( string $trace_id, string $prompt, string $final_answer, int $user_id, string $session_id, string $identity_uuid = '' ): array {
 		$default = [ 'status' => 'skipped', 'memories' => [], 'model' => '' ];
 
 		if ( ! apply_filters( 'bizcity_twinbrain_memory_writer_enable_llm', true, $user_id ) ) {
@@ -268,7 +303,7 @@ final class BizCity_TwinBrain_Memory_Writer {
 		}
 
 		// Dedupe per (user, conversation-hash) for 24h.
-		$dedupe_hash = md5( $user_id . '|' . $session_id . '|' . $prompt . '|' . $answer );
+		$dedupe_hash = md5( $identity_uuid . '|' . $user_id . '|' . $session_id . '|' . $prompt . '|' . $answer );
 		$dedupe_key  = 'bizcity_twb_mw_seen_' . $dedupe_hash;
 		if ( get_transient( $dedupe_key ) ) {
 			return [ 'status' => 'deduped_24h' ] + $default;

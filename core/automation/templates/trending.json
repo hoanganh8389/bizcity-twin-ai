@@ -1,83 +1,654 @@
 [
   {
     "slug": "tpl_daily_trending_digest_v1",
-    "name": "Xu Hướng Hàng Ngày → Zalo (4 tin)",
+    "name": "[global] [content ops] Xu Hướng Hàng Ngày → Zalo (4 tin)",
     "description": "Cron hàng ngày (mặc định 9h, đổi giờ bằng time picker) → multi-source trending research (web + Reddit + TikTok) → 4 tin Zalo: nghiên cứu + nguồn + phân tích + kết luận. Sau import: chọn Zalo Bot + điền override_chat_id ở node r1.",
     "category": "automation",
     "source": "builtin",
     "trigger_type": "cron",
     "icon": "TrendingUp",
     "tags": "cron,daily,trending,zalo,ai,social,reddit,tiktok",
-    "trigger_config": { "schedule": "0 9 * * *" },
+    "trigger_config": {
+      "schedule": "0 9 * * *",
+      "visibility": "global"
+    },
     "graph": {
-      "meta": { "template": "tpl_daily_trending_digest_v1" },
+      "meta": {
+        "template": "tpl_daily_trending_digest_v1",
+        "template_uuid": "94511741-e914-7aba-8788-6ce8fcd79a37",
+        "template_version": "1.0.0",
+        "visibility": "global"
+      },
       "nodes": [
-        { "id": "t1", "type": "trigger", "position": { "x": 0,    "y": 80 }, "data": { "blockId": "trigger.cron",              "label": "Cron · 09:00 mỗi ngày",  "schedule": "0 9 * * *" } },
-        { "id": "tr", "type": "action",  "position": { "x": 320,  "y": 80 }, "data": { "blockId": "action.trending_research", "label": "Tìm xu hướng hôm nay",    "topic": "xu hướng mạng xã hội Việt Nam hôm nay", "scope": "1d", "platforms": "web,reddit,tiktok", "language": "vi", "output": "full" } },
-        { "id": "r1", "type": "action",  "position": { "x": 640,  "y": 80 }, "data": { "blockId": "action.reply_zalo",        "label": "Gửi nghiên cứu",          "instance_id": "", "override_chat_id": "", "text": "{{tr.msg_1}}" } },
-        { "id": "r2", "type": "action",  "position": { "x": 960,  "y": 80 }, "data": { "blockId": "action.reply_zalo",        "label": "Gửi nguồn",               "text": "{{tr.msg_2}}" } },
-        { "id": "r3", "type": "action",  "position": { "x": 1280, "y": 80 }, "data": { "blockId": "action.reply_zalo",        "label": "Gửi phân tích",           "text": "{{tr.msg_3}}" } },
-        { "id": "r4", "type": "action",  "position": { "x": 1600, "y": 80 }, "data": { "blockId": "action.reply_zalo",        "label": "Gửi kết luận",            "text": "{{tr.msg_4}}" } }
+        {
+          "id": "t1",
+          "type": "trigger",
+          "position": {
+            "x": 0,
+            "y": 80
+          },
+          "data": {
+            "blockId": "trigger.cron",
+            "label": "Cron · 09:00 mỗi ngày",
+            "schedule": "0 9 * * *"
+          }
+        },
+        {
+          "id": "tr",
+          "type": "action",
+          "position": {
+            "x": 320,
+            "y": 80
+          },
+          "data": {
+            "blockId": "action.trending_research",
+            "label": "Tìm xu hướng hôm nay",
+            "topic": "xu hướng mạng xã hội Việt Nam hôm nay",
+            "scope": "1d",
+            "platforms": "web,reddit,tiktok",
+            "language": "vi",
+            "output": "full"
+          }
+        },
+        {
+          "id": "r1",
+          "type": "action",
+          "position": {
+            "x": 640,
+            "y": 80
+          },
+          "data": {
+            "blockId": "action.reply_zalo",
+            "label": "Gửi nghiên cứu",
+            "instance_id": "",
+            "override_chat_id": "",
+            "text": "{{tr.msg_1}}"
+          }
+        },
+        {
+          "id": "r2",
+          "type": "action",
+          "position": {
+            "x": 960,
+            "y": 80
+          },
+          "data": {
+            "blockId": "action.reply_zalo",
+            "label": "Gửi nguồn",
+            "text": "{{tr.msg_2}}"
+          }
+        },
+        {
+          "id": "r3",
+          "type": "action",
+          "position": {
+            "x": 1280,
+            "y": 80
+          },
+          "data": {
+            "blockId": "action.reply_zalo",
+            "label": "Gửi phân tích",
+            "text": "{{tr.msg_3}}"
+          }
+        },
+        {
+          "id": "r4",
+          "type": "action",
+          "position": {
+            "x": 1600,
+            "y": 80
+          },
+          "data": {
+            "blockId": "action.reply_zalo",
+            "label": "Gửi kết luận",
+            "text": "{{tr.msg_4}}"
+          }
+        }
       ],
       "edges": [
-        { "id": "e_t1_tr", "source": "t1", "target": "tr" },
-        { "id": "e_tr_r1", "source": "tr", "target": "r1" },
-        { "id": "e_r1_r2", "source": "r1", "target": "r2" },
-        { "id": "e_r2_r3", "source": "r2", "target": "r3" },
-        { "id": "e_r3_r4", "source": "r3", "target": "r4" }
+        {
+          "id": "e_t1_tr",
+          "source": "t1",
+          "target": "tr"
+        },
+        {
+          "id": "e_tr_r1",
+          "source": "tr",
+          "target": "r1"
+        },
+        {
+          "id": "e_r1_r2",
+          "source": "r1",
+          "target": "r2"
+        },
+        {
+          "id": "e_r2_r3",
+          "source": "r2",
+          "target": "r3"
+        },
+        {
+          "id": "e_r3_r4",
+          "source": "r3",
+          "target": "r4"
+        }
       ]
-    }
+    },
+    "template_uuid": "94511741-e914-7aba-8788-6ce8fcd79a37",
+    "template_version": "1.0.0",
+    "visibility": "global"
   },
   {
     "slug": "tpl_ondemand_trending_zalo_v1",
-    "name": "Trending On-demand qua Zalo (@trending)",
+    "name": "[global] [content ops] Trending On-demand qua Zalo (@trending)",
     "description": "Zalo Bot nhận \"@trending [topic]\" → multi-source research (7d, web+Reddit+TikTok+YouTube) → báo cáo compact + sources → reply ngay. Cần chọn channel_instance Zalo Bot sau khi import.",
     "category": "automation",
     "source": "builtin",
     "trigger_type": "zalo_inbound",
     "icon": "Search",
     "tags": "zalo,trending,ondemand,reddit,tiktok,youtube,ai",
-    "trigger_config": { "keywords": ["@trending", "@trend"] },
+    "trigger_config": {
+      "keywords": [
+        "@trending",
+        "@trend"
+      ],
+      "visibility": "global",
+      "selector_mode": "global",
+      "chat_kind": "any",
+      "require_mention": true,
+      "match_all": true
+    },
     "graph": {
-      "meta": { "template": "tpl_ondemand_trending_zalo_v1" },
+      "meta": {
+        "template": "tpl_ondemand_trending_zalo_v1",
+        "template_uuid": "8589c22b-f0a9-7fc3-8ade-568330a8d9a1",
+        "template_version": "1.0.0",
+        "visibility": "global"
+      },
       "nodes": [
-        { "id": "t1",    "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.zalo_inbound",      "label": "Zalo Bot — \"@trending\"",  "keywords": ["@trending", "@trend", "trending:", "trend:"], "mode": "keyword_start" } },
-        { "id": "tr",    "type": "action",  "position": { "x": 320, "y": 80 }, "data": { "blockId": "action.trending_research", "label": "Nghiên cứu xu hướng",     "topic": "{{trigger.text}}", "scope": "7d", "platforms": "web,reddit,tiktok,youtube", "language": "vi", "output": "compact" } },
-        { "id": "reply", "type": "action",  "position": { "x": 640, "y": 80 }, "data": { "blockId": "action.reply_zalo",        "label": "Gửi kết quả",             "text": "🔍 KẾT QUẢ ({{tr.source_count}} nguồn — {{tr.scope}})\n────────────────────\n{{tr.answer_md}}\n\n📎 {{tr.sources_text}}" } }
+        {
+          "id": "t1",
+          "type": "trigger",
+          "position": {
+            "x": 0,
+            "y": 80
+          },
+          "data": {
+            "blockId": "trigger.zalo_inbound",
+            "label": "Zalo Bot — \"@trending\"",
+            "keywords": [
+              "@trending",
+              "@trend",
+              "trending:",
+              "trend:"
+            ],
+            "mode": "keyword_start"
+          }
+        },
+        {
+          "id": "tr",
+          "type": "action",
+          "position": {
+            "x": 320,
+            "y": 80
+          },
+          "data": {
+            "blockId": "action.trending_research",
+            "label": "Nghiên cứu xu hướng",
+            "topic": "{{trigger.text}}",
+            "scope": "7d",
+            "platforms": "web,reddit,tiktok,youtube",
+            "language": "vi",
+            "output": "compact"
+          }
+        },
+        {
+          "id": "reply",
+          "type": "action",
+          "position": {
+            "x": 640,
+            "y": 80
+          },
+          "data": {
+            "blockId": "action.reply_zalo",
+            "label": "Gửi kết quả",
+            "text": "🔍 KẾT QUẢ ({{tr.source_count}} nguồn — {{tr.scope}})\n────────────────────\n{{tr.answer_md}}\n\n📎 {{tr.sources_text}}"
+          }
+        }
       ],
       "edges": [
-        { "id": "e_t1_tr",    "source": "t1", "target": "tr" },
-        { "id": "e_tr_reply", "source": "tr", "target": "reply" }
+        {
+          "id": "e_t1_tr",
+          "source": "t1",
+          "target": "tr"
+        },
+        {
+          "id": "e_tr_reply",
+          "source": "tr",
+          "target": "reply"
+        }
       ]
-    }
+    },
+    "template_uuid": "8589c22b-f0a9-7fc3-8ade-568330a8d9a1",
+    "template_version": "1.0.0",
+    "visibility": "global"
   },
   {
     "slug": "tpl_zalo_trending_vn_v1",
-    "name": "Xu hướng hôm nay qua Zalo (từ khoá VN)",
+    "name": "[global] [content ops] Xu hướng hôm nay qua Zalo (từ khoá VN)",
     "description": "Zalo Bot nhận tin có từ khoá \"xu hướng\", \"trend hôm nay\", \"hot nhất\"... → tìm xu hướng 1 ngày (web+Reddit+TikTok) → 4 tin: nghiên cứu + nguồn + phân tích + kết luận. Sau import: chọn Zalo Bot + người dùng nhận trong node r1.",
     "category": "automation",
     "source": "builtin",
     "trigger_type": "zalo_inbound",
     "icon": "TrendingUp",
     "tags": "zalo,trending,xu-huong,test,tiktok,reddit,ai,vn",
-    "trigger_config": { "keywords": ["xu hướng", "trend hôm nay", "hot nhất", "@trending"] },
+    "trigger_config": {
+      "keywords": [
+        "xu hướng",
+        "trend hôm nay",
+        "hot nhất",
+        "@trending"
+      ],
+      "visibility": "global",
+      "selector_mode": "global",
+      "chat_kind": "any",
+      "require_mention": true,
+      "match_all": true
+    },
     "graph": {
-      "meta": { "template": "tpl_zalo_trending_vn_v1" },
+      "meta": {
+        "template": "tpl_zalo_trending_vn_v1",
+        "template_uuid": "2fdc262e-6bcc-7d80-8114-4e7fb42d6360",
+        "template_version": "1.0.0",
+        "visibility": "global"
+      },
       "nodes": [
-        { "id": "t1", "type": "trigger", "position": { "x": 0,    "y": 80 }, "data": { "blockId": "trigger.zalo_inbound",      "label": "Zalo Bot — Từ khoá xu hướng (VN)", "keywords": ["xu hướng","xu huong","xem trend","trend hôm nay","trend hom nay","hot nhất","hot nhat","hot hôm nay","hot hom nay","đang hot","dang hot","@trending","@trend"], "mode": "keyword_contains" } },
-        { "id": "tr", "type": "action",  "position": { "x": 320,  "y": 80 }, "data": { "blockId": "action.trending_research", "label": "Tìm xu hướng (1 ngày)",            "topic": "{{trigger.text}}", "scope": "1d", "platforms": "web,reddit,tiktok", "language": "vi", "output": "full" } },
-        { "id": "r1", "type": "action",  "position": { "x": 640,  "y": 80 }, "data": { "blockId": "action.reply_zalo",        "label": "Gửi nghiên cứu",                  "instance_id": "", "override_chat_id": "", "text": "{{tr.msg_1}}" } },
-        { "id": "r2", "type": "action",  "position": { "x": 960,  "y": 80 }, "data": { "blockId": "action.reply_zalo",        "label": "Gửi nguồn",                       "text": "{{tr.msg_2}}" } },
-        { "id": "r3", "type": "action",  "position": { "x": 1280, "y": 80 }, "data": { "blockId": "action.reply_zalo",        "label": "Gửi phân tích",                   "text": "{{tr.msg_3}}" } },
-        { "id": "r4", "type": "action",  "position": { "x": 1600, "y": 80 }, "data": { "blockId": "action.reply_zalo",        "label": "Gửi kết luận",                    "text": "{{tr.msg_4}}" } }
+        {
+          "id": "t1",
+          "type": "trigger",
+          "position": {
+            "x": 0,
+            "y": 80
+          },
+          "data": {
+            "blockId": "trigger.zalo_inbound",
+            "label": "Zalo Bot — Từ khoá xu hướng (VN)",
+            "keywords": [
+              "xu hướng",
+              "xu huong",
+              "xem trend",
+              "trend hôm nay",
+              "trend hom nay",
+              "hot nhất",
+              "hot nhat",
+              "hot hôm nay",
+              "hot hom nay",
+              "đang hot",
+              "dang hot",
+              "@trending",
+              "@trend"
+            ],
+            "mode": "keyword_contains"
+          }
+        },
+        {
+          "id": "tr",
+          "type": "action",
+          "position": {
+            "x": 320,
+            "y": 80
+          },
+          "data": {
+            "blockId": "action.trending_research",
+            "label": "Tìm xu hướng (1 ngày)",
+            "topic": "{{trigger.text}}",
+            "scope": "1d",
+            "platforms": "web,reddit,tiktok",
+            "language": "vi",
+            "output": "full"
+          }
+        },
+        {
+          "id": "r1",
+          "type": "action",
+          "position": {
+            "x": 640,
+            "y": 80
+          },
+          "data": {
+            "blockId": "action.reply_zalo",
+            "label": "Gửi nghiên cứu",
+            "instance_id": "",
+            "override_chat_id": "",
+            "text": "{{tr.msg_1}}"
+          }
+        },
+        {
+          "id": "r2",
+          "type": "action",
+          "position": {
+            "x": 960,
+            "y": 80
+          },
+          "data": {
+            "blockId": "action.reply_zalo",
+            "label": "Gửi nguồn",
+            "text": "{{tr.msg_2}}"
+          }
+        },
+        {
+          "id": "r3",
+          "type": "action",
+          "position": {
+            "x": 1280,
+            "y": 80
+          },
+          "data": {
+            "blockId": "action.reply_zalo",
+            "label": "Gửi phân tích",
+            "text": "{{tr.msg_3}}"
+          }
+        },
+        {
+          "id": "r4",
+          "type": "action",
+          "position": {
+            "x": 1600,
+            "y": 80
+          },
+          "data": {
+            "blockId": "action.reply_zalo",
+            "label": "Gửi kết luận",
+            "text": "{{tr.msg_4}}"
+          }
+        }
       ],
       "edges": [
-        { "id": "e_t1_tr", "source": "t1", "target": "tr" },
-        { "id": "e_tr_r1", "source": "tr", "target": "r1" },
-        { "id": "e_r1_r2", "source": "r1", "target": "r2" },
-        { "id": "e_r2_r3", "source": "r2", "target": "r3" },
-        { "id": "e_r3_r4", "source": "r3", "target": "r4" }
+        {
+          "id": "e_t1_tr",
+          "source": "t1",
+          "target": "tr"
+        },
+        {
+          "id": "e_tr_r1",
+          "source": "tr",
+          "target": "r1"
+        },
+        {
+          "id": "e_r1_r2",
+          "source": "r1",
+          "target": "r2"
+        },
+        {
+          "id": "e_r2_r3",
+          "source": "r2",
+          "target": "r3"
+        },
+        {
+          "id": "e_r3_r4",
+          "source": "r3",
+          "target": "r4"
+        }
       ]
-    }
+    },
+    "template_uuid": "2fdc262e-6bcc-7d80-8114-4e7fb42d6360",
+    "template_version": "1.0.0",
+    "visibility": "global"
+  },
+  {
+    "slug": "tpl_daily_marketing_script_7h_zalo_v1",
+    "name": "[global] [content ops] Kịch bản Marketing Hàng Ngày 07:00 → Zalo",
+    "description": "Cron 7h hàng ngày → deep research xu hướng marketing hôm nay → viết gợi ý kịch bản có dẫn chứng/link: review sản phẩm, TikTok 30 giây, livestream, khuyến mại/khai trương → gửi Zalo. Sau import: chọn Zalo Bot + override_chat_id ở node reply.",
+    "category": "automation",
+    "source": "builtin",
+    "trigger_type": "cron",
+    "icon": "Sparkles",
+    "tags": "cron,daily,marketing,kich-ban,kịch-bản,zalo,deep-research,tiktok,livestream,promotion",
+    "trigger_config": {
+      "schedule": "0 7 * * *",
+      "visibility": "global"
+    },
+    "graph": {
+      "meta": {
+        "template": "tpl_daily_marketing_script_7h_zalo_v1",
+        "template_uuid": "3cdbcb24-2f47-7770-8f18-e39c9de42358",
+        "template_version": "1.0.0",
+        "visibility": "global"
+      },
+      "nodes": [
+        {
+          "id": "t1",
+          "type": "trigger",
+          "position": {
+            "x": 0,
+            "y": 80
+          },
+          "data": {
+            "blockId": "trigger.cron",
+            "label": "Cron · 07:00 mỗi ngày",
+            "schedule": "0 7 * * *"
+          }
+        },
+        {
+          "id": "tr",
+          "type": "action",
+          "position": {
+            "x": 320,
+            "y": 80
+          },
+          "data": {
+            "blockId": "action.trending_research",
+            "label": "Deep research xu hướng marketing hôm nay",
+            "topic": "xu hướng marketing, TikTok, livestream, chương trình khuyến mại, khai trương và review sản phẩm tại Việt Nam hôm nay",
+            "scope": "1d",
+            "platforms": "web,reddit,tiktok,youtube",
+            "language": "vi",
+            "output": "full"
+          }
+        },
+        {
+          "id": "gen",
+          "type": "action",
+          "position": {
+            "x": 640,
+            "y": 80
+          },
+          "data": {
+            "blockId": "action.generate_content",
+            "label": "Viết gợi ý kịch bản marketing",
+            "content_type": "script",
+            "notebook_id": 0,
+            "tone": "thực chiến, có dẫn chứng, rõ CTA",
+            "max_words": 900,
+            "prompt_template": "Dựa trên deep research hôm nay dưới đây, tạo bản gợi ý kịch bản marketing gửi team lúc 7h sáng.\n\nResearch:\n{{tr.answer_md}}\n\nNguồn liên quan:\n{{tr.sources_text}}\n\nYêu cầu đầu ra tiếng Việt, có dẫn chứng/link trong từng phần:\n1. 3 insight/xu hướng đáng chú ý hôm nay.\n2. Gợi ý kịch bản review sản phẩm so sánh đối thủ. Ví dụ mẫu: review dầu ăn Sloboda với Neptune, Simply trên thị trường; nếu chưa có sản phẩm cụ thể thì để placeholder [sản phẩm chính] và [đối thủ].\n3. Gợi ý kịch bản TikTok 30 giây: hook 0-10s nói gì, thân 10-30s nói gì, CTA chốt nói gì.\n4. Gợi ý kịch bản livestream: mở đầu, demo/so sánh, xử lý objection, chốt đơn.\n5. Gợi ý chương trình bán hàng: khuyến mại, khai trương, combo/quà tặng, CTA.\n6. Checklist triển khai hôm nay và danh sách link nguồn."
+          }
+        },
+        {
+          "id": "reply",
+          "type": "action",
+          "position": {
+            "x": 960,
+            "y": 80
+          },
+          "data": {
+            "blockId": "action.reply_zalo",
+            "label": "Gửi kịch bản marketing",
+            "instance_id": "",
+            "override_chat_id": "",
+            "text": "🎬 KỊCH BẢN MARKETING 07:00\n────────────────────\n{{gen.content}}\n\n📎 Nguồn deep research:\n{{tr.sources_text}}"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "e_t1_tr",
+          "source": "t1",
+          "target": "tr"
+        },
+        {
+          "id": "e_tr_gen",
+          "source": "tr",
+          "target": "gen"
+        },
+        {
+          "id": "e_gen_reply",
+          "source": "gen",
+          "target": "reply"
+        }
+      ]
+    },
+    "template_uuid": "3cdbcb24-2f47-7770-8f18-e39c9de42358",
+    "template_version": "1.0.0",
+    "visibility": "global"
+  },
+  {
+    "slug": "tpl_zalo_marketing_script_keyword_v1",
+    "name": "[global] [content ops] Kịch bản Marketing On-demand qua Zalo",
+    "description": "Zalo Bot bắt từ khóa liên quan đến marketing: Kịch bản, review sản phẩm, TikTok 30 giây, livestream, khuyến mại, khai trương → deep research theo yêu cầu → viết kịch bản có dẫn chứng/link và reply ngay.",
+    "category": "automation",
+    "source": "builtin",
+    "trigger_type": "zalo_inbound",
+    "icon": "MessageCircle",
+    "tags": "zalo,marketing,kich-ban,kịch-bản,review,tiktok,livestream,khuyen-mai,khai-truong,deep-research",
+    "trigger_config": {
+      "keywords": [
+        "Kịch bản",
+        "kịch bản",
+        "kich ban",
+        "review sản phẩm",
+        "review san pham",
+        "tiktok 30 giây",
+        "tiktok 30s",
+        "livestream",
+        "khuyến mại",
+        "khuyen mai",
+        "khai trương",
+        "khai truong",
+        "chương trình bán hàng",
+        "chuong trinh ban hang",
+        "marketing",
+        "content marketing",
+        "chiến dịch",
+        "chien dich",
+        "quảng cáo",
+        "quang cao"
+      ],
+      "visibility": "global",
+      "selector_mode": "global",
+      "chat_kind": "any",
+      "require_mention": false,
+      "match_all": false
+    },
+    "graph": {
+      "meta": {
+        "template": "tpl_zalo_marketing_script_keyword_v1",
+        "template_uuid": "d15322f9-feb2-7ac0-8873-c3d654fe0977",
+        "template_version": "1.0.0",
+        "visibility": "global"
+      },
+      "nodes": [
+        {
+          "id": "t1",
+          "type": "trigger",
+          "position": {
+            "x": 0,
+            "y": 80
+          },
+          "data": {
+            "blockId": "trigger.zalo_inbound",
+            "label": "Zalo Bot — từ khóa Kịch bản / Marketing",
+            "keywords": [
+              "Kịch bản",
+              "kịch bản",
+              "kich ban",
+              "review sản phẩm",
+              "review san pham",
+              "tiktok 30 giây",
+              "tiktok 30s",
+              "livestream",
+              "khuyến mại",
+              "khuyen mai",
+              "khai trương",
+              "khai truong",
+              "chương trình bán hàng",
+              "chuong trinh ban hang",
+              "marketing",
+              "content marketing",
+              "chiến dịch",
+              "chien dich",
+              "quảng cáo",
+              "quang cao"
+            ],
+            "mode": "keyword_contains"
+          }
+        },
+        {
+          "id": "tr",
+          "type": "action",
+          "position": {
+            "x": 320,
+            "y": 80
+          },
+          "data": {
+            "blockId": "action.trending_research",
+            "label": "Deep research theo yêu cầu",
+            "topic": "{{trigger.text}}",
+            "scope": "7d",
+            "platforms": "web,reddit,tiktok,youtube",
+            "language": "vi",
+            "output": "full"
+          }
+        },
+        {
+          "id": "gen",
+          "type": "action",
+          "position": {
+            "x": 640,
+            "y": 80
+          },
+          "data": {
+            "blockId": "action.generate_content",
+            "label": "Viết kịch bản theo intent",
+            "content_type": "script",
+            "notebook_id": 0,
+            "tone": "marketing thực chiến, súc tích, có số liệu và link nguồn",
+            "max_words": 1000,
+            "prompt_template": "Người dùng yêu cầu:\n{{trigger.text}}\n\nDeep research đã tìm được:\n{{tr.answer_md}}\n\nNguồn/link liên quan:\n{{tr.sources_text}}\n\nHãy viết kịch bản marketing đúng intent người dùng. Nếu câu hỏi là review sản phẩm, tạo bảng so sánh [sản phẩm chính] với đối thủ, ưu/nhược điểm, claim nên dùng và cảnh báo claim cần kiểm chứng. Nếu là TikTok 30 giây, chia rõ 0-3s hook, 3-10s vấn đề, 10-25s demo/lợi ích/dẫn chứng, 25-30s CTA. Nếu là livestream, chia mở live, giữ chân, demo, objection, ưu đãi, chốt đơn. Nếu là khuyến mại/khai trương, tạo concept chương trình, ưu đãi, timeline, nội dung thông báo, CTA. Luôn chèn dẫn chứng hoặc link nguồn sau các claim quan trọng, và kết thúc bằng checklist triển khai."
+          }
+        },
+        {
+          "id": "reply",
+          "type": "action",
+          "position": {
+            "x": 960,
+            "y": 80
+          },
+          "data": {
+            "blockId": "action.reply_zalo",
+            "label": "Reply kịch bản",
+            "text": "🎬 KỊCH BẢN THEO YÊU CẦU\n────────────────────\n{{gen.content}}\n\n📎 Nguồn research:\n{{tr.sources_text}}"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "e_t1_tr",
+          "source": "t1",
+          "target": "tr"
+        },
+        {
+          "id": "e_tr_gen",
+          "source": "tr",
+          "target": "gen"
+        },
+        {
+          "id": "e_gen_reply",
+          "source": "gen",
+          "target": "reply"
+        }
+      ]
+    },
+    "template_uuid": "d15322f9-feb2-7ac0-8873-c3d654fe0977",
+    "template_version": "1.0.0",
+    "visibility": "global"
   }
 ]

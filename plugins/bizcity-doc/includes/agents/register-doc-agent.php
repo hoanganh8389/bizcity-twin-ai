@@ -129,8 +129,9 @@ $draft_document_tool = new BizCity_TwinShell_Tool(
 
 		$slide_count = 0;
 		if ( $doc_type === 'presentation' ) {
-			$slide_count = (int) ( $doc_opts['slide_count'] ?? $args['slide_count'] ?? 10 );
-			if ( $slide_count < 3 )  $slide_count = 3;
+			// [2026-07-20 Johnny Chu] PHASE-1-BZDOC-DEEPSEEK — agent-created decks default/minimum to 20 detailed slides.
+			$slide_count = (int) ( $doc_opts['slide_count'] ?? $args['slide_count'] ?? 20 );
+			if ( $slide_count < 20 ) $slide_count = 20;
 			if ( $slide_count > 50 ) $slide_count = 50;
 		}
 

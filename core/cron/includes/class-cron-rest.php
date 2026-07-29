@@ -50,6 +50,28 @@ class BizCity_Cron_REST {
 			'permission_callback' => [ __CLASS__, 'permission_read' ],
 			'callback'            => [ __CLASS__, 'list_retries' ],
 		] );
+
+		// [2026-06-14 Johnny Chu] CRON-FILE-LOGGER — Log reader + stats endpoints
+		register_rest_route( self::NS, '/logs/dates', [
+			'methods'             => 'GET',
+			'permission_callback' => [ __CLASS__, 'permission_read' ],
+			'callback'            => [ __CLASS__, 'log_dates' ],
+		] );
+		register_rest_route( self::NS, '/logs/stats', [
+			'methods'             => 'GET',
+			'permission_callback' => [ __CLASS__, 'permission_read' ],
+			'callback'            => [ __CLASS__, 'log_stats' ],
+		] );
+		register_rest_route( self::NS, '/logs/tail', [
+			'methods'             => 'GET',
+			'permission_callback' => [ __CLASS__, 'permission_read' ],
+			'callback'            => [ __CLASS__, 'log_tail' ],
+		] );
+		register_rest_route( self::NS, '/logs/purge', [
+			'methods'             => 'DELETE',
+			'permission_callback' => [ __CLASS__, 'permission_write' ],
+			'callback'            => [ __CLASS__, 'log_purge' ],
+		] );
 	}
 
 	public static function permission_read(): bool {
@@ -100,5 +122,52 @@ class BizCity_Cron_REST {
 		);
 		$wpdb->suppress_errors( false );
 		return new WP_REST_Response( [ 'ok' => true, 'retries' => $rows ], 200 );
+	}
+
+	// ─── Log endpoints (CRON-FILE-LOGGER 2026-06-14) ─────────────────────
+
+	/** GET /logs/dates — list available log dates (newest first). */
+	public static function log_dates(): WP_REST_Response {
+		// [2026-06-14 Johnny Chu] CRON-FILE-LOGGER — list log dates
+		if ( ! class_exists( 'BizCity_Cron_File_Logger' ) ) {
+			return new WP_REST_Response( [ 'ok' => false, 'error' => 'logger_not_loaded' ], 503 );
+		}
+		return new WP_REST_Response( [
+			'ok'    => true,
+			'dates' => BizCity_Cron_File_Logger::available_dates(),
+		], 200 );
+	}
+
+	/** GET /logs/stats?date=YYYY-MM-DD — daily statistics. */
+	public static function log_stats( WP_REST_Request $req ): WP_REST_Response {
+		// [2026-06-14 Johnny Chu] CRON-FILE-LOGGER — stats endpoint
+		if ( ! class_exists( 'BizCity_Cron_File_Logger' ) ) {
+			return new WP_REST_Response( [ 'ok' => false, 'error' => 'logger_not_loaded' ], 503 );
+		}
+		$date = sanitize_text_field( (string) ( $req->get_param( 'date' ) ?: 'today' ) );
+		$data = BizCity_Cron_File_Logger::stats( $date );
+		return new WP_REST_Response( array_merge( [ 'ok' => true ], $data ), 200 );
+	}
+
+	/** GET /logs/tail?date=YYYY-MM-DD&limit=100 — last N JSONL entries. */
+	public static function log_tail( WP_REST_Request $req ): WP_REST_Response {
+		// [2026-06-14 Johnny Chu] CRON-FILE-LOGGER — tail endpoint
+		if ( ! class_exists( 'BizCity_Cron_File_Logger' ) ) {
+			return new WP_REST_Response( [ 'ok' => false, 'error' => 'logger_not_loaded' ], 503 );
+		}
+		$date  = sanitize_text_field( (string) ( $req->get_param( 'date' ) ?: 'today' ) );
+		$limit = max( 1, min( 500, (int) ( $req->get_param( 'limit' ) ?: 100 ) ) );
+		$rows  = BizCity_Cron_File_Logger::tail( $date, $limit );
+		return new WP_REST_Response( [ 'ok' => true, 'date' => $date, 'rows' => $rows, 'count' => count( $rows ) ], 200 );
+	}
+
+	/** DELETE /logs/purge — force GC now (delete files older than 5 days). */
+	public static function log_purge(): WP_REST_Response {
+		// [2026-06-14 Johnny Chu] CRON-FILE-LOGGER — purge endpoint
+		if ( ! class_exists( 'BizCity_Cron_File_Logger' ) ) {
+			return new WP_REST_Response( [ 'ok' => false, 'error' => 'logger_not_loaded' ], 503 );
+		}
+		BizCity_Cron_File_Logger::gc_old_logs();
+		return new WP_REST_Response( [ 'ok' => true, 'remaining_dates' => BizCity_Cron_File_Logger::available_dates() ], 200 );
 	}
 }

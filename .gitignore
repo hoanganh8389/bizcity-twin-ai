@@ -10,7 +10,6 @@ vendor/
 /docs/diagnostics/
 /docs/api/
 /plugins/_achived/
-/plugins/bizcity-zalo-bizcity/
 /plugins/bizcity-pagebuilder/
 /plugins/bizcity-chatgpt-knowledge/
 /plugins/bizcity-gemini-knowledge/
@@ -34,6 +33,9 @@ vendor/
 /plugins/bizcity-zalo-personal/
 /core/intent/includes/backup-legacy/
 /core/intent/logs/
+
+/modules/twinweb/
+/modules/twinsource/
 # Env
 .env
 .env.*

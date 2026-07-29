@@ -41,8 +41,46 @@ class BizCity_TwinChat_Learning_Database {
 	private static $instance = null;
 	/** Per-blog warm flag so we do not run schema checks repeatedly in one request. */
 	private static $ready_blogs = [];
+	/** In-request cache for table-existence probes. */
+	private static $table_exists_static = [];
+	/** In-request cache for column-existence probes. */
+	private static $column_exists_static = [];
 	/** Re-entrancy guard while maybe_install() is actively migrating. */
 	private $is_installing = false;
+
+	/**
+	 * [2026-07-23 Johnny Chu] PHASE-0.44 — route learning DB logs to
+	 * uploads/.../bizcity_learning_logs so operators can inspect one place.
+	 *
+	 * @param string $message
+	 */
+	protected function write_learning_log( $message ) {
+		$msg = '[db] ' . (string) $message;
+		if ( function_exists( 'bizcity_tc_learning_debug_log' ) ) {
+			bizcity_tc_learning_debug_log( $msg );
+			return;
+		}
+
+		$path = '';
+		if ( function_exists( 'bizcity_tc_learning_debug_log_path' ) ) {
+			$path = (string) bizcity_tc_learning_debug_log_path( '', true );
+		} else {
+			$uploads  = function_exists( 'wp_upload_dir' ) ? wp_upload_dir( null, true, false ) : array();
+			$base_dir = ( is_array( $uploads ) && ! empty( $uploads['basedir'] ) )
+				? (string) $uploads['basedir']
+				: WP_CONTENT_DIR . '/uploads';
+			$log_dir  = trailingslashit( wp_normalize_path( $base_dir ) ) . 'bizcity_learning_logs';
+			if ( ! is_dir( $log_dir ) ) {
+				@wp_mkdir_p( $log_dir );
+			}
+			$path = trailingslashit( $log_dir ) . gmdate( 'Y-m-d' ) . '.log';
+		}
+
+		if ( $path !== '' ) {
+			$line = sprintf( "[%s UTC] [TC-Learning] %s\n", gmdate( 'd-M-Y H:i:s' ), $msg );
+			@file_put_contents( $path, $line, FILE_APPEND | LOCK_EX );
+		}
+	}
 
 	private function jobs_table_name() {
 		global $wpdb;
@@ -64,6 +102,116 @@ class BizCity_TwinChat_Learning_Database {
 			self::$instance = new self();
 		}
 		return self::$instance;
+	}
+
+	/**
+	 * [2026-07-27 Johnny Chu] R-SHOW-TABLES — dual-cache key for table probes.
+	 */
+	private function table_probe_cache_key( $table_name ) {
+		$blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 1;
+		return 'bz_tbl_' . $blog_id . '_' . sprintf( '%u', crc32( (string) $table_name ) );
+	}
+
+	/**
+	 * [2026-07-27 Johnny Chu] R-SHOW-TABLES — dual-cache key for column probes.
+	 */
+	private function column_probe_cache_key( $table_name, $column_name ) {
+		$blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 1;
+		$sig = strtolower( (string) $table_name . '|' . (string) $column_name );
+		return 'bz_col_' . $blog_id . '_' . sprintf( '%u', crc32( $sig ) );
+	}
+
+	/**
+	 * [2026-07-27 Johnny Chu] R-SHOW-TABLES — canonical table probe via information_schema.
+	 */
+	public function table_exists( $table_name ) {
+		global $wpdb;
+		$table_name = trim( (string) $table_name );
+		if ( $table_name === '' ) {
+			return false;
+		}
+
+		$cache_key = $this->table_probe_cache_key( $table_name );
+		if ( isset( self::$table_exists_static[ $cache_key ] ) ) {
+			return self::$table_exists_static[ $cache_key ];
+		}
+
+		$present = wp_cache_get( $cache_key, 'bizcity_tbl' );
+		if ( $present === false ) {
+			$prev_supp = $wpdb->suppress_errors( true );
+			$present = (int) (bool) $wpdb->get_var( $wpdb->prepare(
+				"SELECT 1 FROM information_schema.TABLES
+				 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1",
+				$table_name
+			) );
+			$wpdb->suppress_errors( $prev_supp );
+			wp_cache_set( $cache_key, $present, 'bizcity_tbl', HOUR_IN_SECONDS );
+		}
+
+		self::$table_exists_static[ $cache_key ] = (bool) $present;
+		return self::$table_exists_static[ $cache_key ];
+	}
+
+	/**
+	 * [2026-07-27 Johnny Chu] R-SHOW-TABLES — canonical column probe via information_schema.
+	 */
+	public function column_exists( $table_name, $column_name ) {
+		global $wpdb;
+		$table_name  = trim( (string) $table_name );
+		$column_name = trim( (string) $column_name );
+		if ( $table_name === '' || $column_name === '' ) {
+			return false;
+		}
+
+		$cache_key = $this->column_probe_cache_key( $table_name, $column_name );
+		if ( isset( self::$column_exists_static[ $cache_key ] ) ) {
+			return self::$column_exists_static[ $cache_key ];
+		}
+
+		$present = wp_cache_get( $cache_key, 'bizcity_tbl' );
+		if ( $present === false ) {
+			$prev_supp = $wpdb->suppress_errors( true );
+			$present = (int) (bool) $wpdb->get_var( $wpdb->prepare(
+				"SELECT 1 FROM information_schema.COLUMNS
+				 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = %s LIMIT 1",
+				$table_name,
+				$column_name
+			) );
+			$wpdb->suppress_errors( $prev_supp );
+			wp_cache_set( $cache_key, $present, 'bizcity_tbl', HOUR_IN_SECONDS );
+		}
+
+		self::$column_exists_static[ $cache_key ] = (bool) $present;
+		return self::$column_exists_static[ $cache_key ];
+	}
+
+	/**
+	 * [2026-07-27 Johnny Chu] R-SHOW-TABLES — clear schema probe caches after DDL/migrations.
+	 */
+	private function invalidate_schema_probe_cache() {
+		$tables = [
+			$this->jobs_table_name(),
+			$this->events_table_name(),
+			$this->batches_table_name(),
+		];
+		foreach ( self::LEGACY_TABLES as $old_base => $new_base ) {
+			global $wpdb;
+			$tables[] = $wpdb->prefix . $old_base;
+			$tables[] = $wpdb->prefix . $new_base;
+		}
+
+		$tables = array_values( array_unique( array_filter( $tables ) ) );
+		foreach ( $tables as $table ) {
+			$t_key = $this->table_probe_cache_key( $table );
+			unset( self::$table_exists_static[ $t_key ] );
+			wp_cache_delete( $t_key, 'bizcity_tbl' );
+
+			foreach ( [ 'origin', 'restartable_at', 'updated_at' ] as $col ) {
+				$c_key = $this->column_probe_cache_key( $table, $col );
+				unset( self::$column_exists_static[ $c_key ] );
+				wp_cache_delete( $c_key, 'bizcity_tbl' );
+			}
+		}
 	}
 
 	public function table_jobs() {
@@ -100,7 +248,7 @@ class BizCity_TwinChat_Learning_Database {
 		$this->is_installing = true;
 		$installed = get_option( self::OPTION_VERSION_KEY, '' );
 
-		// Version check FIRST — avoids 3× SHOW TABLES on every request when schema is current.
+		// Version check FIRST — avoids repeated schema probes on every request when current.
 		// required_tables_exist() is only called on real version mismatch.
 		if ( $installed === self::SCHEMA_VERSION ) {
 			self::$ready_blogs[ $blog_id ] = true;
@@ -116,12 +264,13 @@ class BizCity_TwinChat_Learning_Database {
 		$this->migrate_jobs_origin_columns();
 		// 1.4.0 — additive ALTER for jobs.updated_at.
 		$this->migrate_jobs_updated_at_column();
+		$this->invalidate_schema_probe_cache();
 		$schema_exists = $this->required_tables_exist();
 		if ( $schema_exists ) {
 			update_option( self::OPTION_VERSION_KEY, self::SCHEMA_VERSION, false );
 			self::$ready_blogs[ $blog_id ] = true;
-		} elseif ( function_exists( 'error_log' ) ) {
-			error_log( '[TwinChat Learning DB] install attempted but required tables are still missing.' );
+		} else {
+			$this->write_learning_log( 'install attempted but required tables are still missing.' );
 		}
 		$this->is_installing = false;
 	}
@@ -141,21 +290,16 @@ class BizCity_TwinChat_Learning_Database {
 	 * This protects against stale version options after partial deploys/migrations.
 	 */
 	protected function required_tables_exist() {
-		global $wpdb;
 		$tables = [
 			$this->jobs_table_name(),
 			$this->events_table_name(),
 			$this->batches_table_name(),
 		];
-		$prev_supp = $wpdb->suppress_errors( true );
 		foreach ( $tables as $tbl ) {
-			$exists = (string) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl ) );
-			if ( $exists !== $tbl ) {
-				$wpdb->suppress_errors( $prev_supp );
+			if ( ! $this->table_exists( $tbl ) ) {
 				return false;
 			}
 		}
-		$wpdb->suppress_errors( $prev_supp );
 		return true;
 	}
 
@@ -172,15 +316,11 @@ class BizCity_TwinChat_Learning_Database {
 		$wpdb->hide_errors();
 		$prev_supp = $wpdb->suppress_errors( true );
 
-		// Check existing columns once → only ALTER what is missing.
-		$cols = $wpdb->get_col( "SHOW COLUMNS FROM `{$jobs}`" );
-		$cols = is_array( $cols ) ? array_map( 'strtolower', $cols ) : [];
-
-		if ( ! in_array( 'origin', $cols, true ) ) {
+		if ( ! $this->column_exists( $jobs, 'origin' ) ) {
 			$wpdb->query( "ALTER TABLE `{$jobs}` ADD COLUMN `origin` VARCHAR(20) NOT NULL DEFAULT 'user' AFTER `source_id`" );
 			$wpdb->query( "ALTER TABLE `{$jobs}` ADD KEY `idx_origin` (`origin`)" );
 		}
-		if ( ! in_array( 'restartable_at', $cols, true ) ) {
+		if ( ! $this->column_exists( $jobs, 'restartable_at' ) ) {
 			$wpdb->query( "ALTER TABLE `{$jobs}` ADD COLUMN `restartable_at` DATETIME NULL DEFAULT NULL AFTER `finished_at`" );
 		}
 
@@ -202,17 +342,12 @@ class BizCity_TwinChat_Learning_Database {
 		$wpdb->hide_errors();
 		$prev_supp = $wpdb->suppress_errors( true );
 
-		$cols = $wpdb->get_col( "SHOW COLUMNS FROM `{$jobs}`" );
-		$cols = is_array( $cols ) ? array_map( 'strtolower', $cols ) : [];
-
-		if ( ! in_array( 'updated_at', $cols, true ) ) {
+		if ( ! $this->column_exists( $jobs, 'updated_at' ) ) {
 			$wpdb->query(
 				"ALTER TABLE `{$jobs}` ADD COLUMN `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER `created_at`"
 			);
 			$wpdb->query( "ALTER TABLE `{$jobs}` ADD KEY `idx_updated` (`updated_at`)" );
-			if ( function_exists( 'error_log' ) ) {
-				error_log( '[TwinChat Learning DB] migrated jobs: added updated_at column (1.4.0)' );
-			}
+			$this->write_learning_log( 'migrated jobs: added updated_at column (1.4.0)' );
 		}
 
 		$wpdb->suppress_errors( $prev_supp );
@@ -231,22 +366,19 @@ class BizCity_TwinChat_Learning_Database {
 		foreach ( self::LEGACY_TABLES as $old_base => $new_base ) {
 			$old = $wpdb->prefix . $old_base;
 			$new = $wpdb->prefix . $new_base;
-			$old_exists = (bool) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $old ) );
-			$new_exists = (bool) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $new ) );
+			$old_exists = $this->table_exists( $old );
+			$new_exists = $this->table_exists( $new );
 			if ( $old_exists && ! $new_exists ) {
 				// MySQL RENAME TABLE — atomic, preserves data + indexes + AUTO_INCREMENT.
 				$wpdb->query( "RENAME TABLE `{$old}` TO `{$new}`" );
-				if ( function_exists( 'error_log' ) ) {
-					error_log( "[TwinChat Learning DB] migrated {$old} → {$new}" );
-				}
+				$this->write_learning_log( "migrated {$old} -> {$new}" );
 			} elseif ( $old_exists && $new_exists ) {
 				// Edge: both present (e.g. partial deploy). Drop legacy to avoid drift.
 				$wpdb->query( "DROP TABLE `{$old}`" );
-				if ( function_exists( 'error_log' ) ) {
-					error_log( "[TwinChat Learning DB] dropped legacy {$old} (target {$new} already exists)" );
-				}
+				$this->write_learning_log( "dropped legacy {$old} (target {$new} already exists)" );
 			}
 		}
+		$this->invalidate_schema_probe_cache();
 		$wpdb->suppress_errors( $prev_supp );
 	}
 
@@ -360,5 +492,57 @@ class BizCity_TwinChat_Learning_Database {
 			"DELETE FROM {$tbl} WHERE notebook_id=%d AND id <= %d",
 			$notebook_id, (int) $cutoff_id
 		) );
+	}
+
+	/**
+	 * [2026-07-27 Johnny Chu] PHASE-0.51 — notebook lifecycle cleanup for
+	 * learning rows (jobs/events/batches). Idempotent and notebook-scoped.
+	 *
+	 * @param int $notebook_id
+	 * @return array<string,int>
+	 */
+	public function delete_for_notebook( $notebook_id ) {
+		global $wpdb;
+		$notebook_id = (int) $notebook_id;
+		if ( $notebook_id <= 0 ) {
+			return [ 'jobs' => 0, 'events' => 0, 'batches' => 0, 'total' => 0 ];
+		}
+
+		$jobs_tbl    = $this->jobs_table_name();
+		$events_tbl  = $this->events_table_name();
+		$batches_tbl = $this->batches_table_name();
+
+		$prev_supp = $wpdb->suppress_errors( true );
+		$deleted_jobs = 0;
+		$deleted_events = 0;
+		$deleted_batches = 0;
+
+		if ( $this->table_exists( $batches_tbl ) ) {
+			$deleted_batches = (int) $wpdb->query( $wpdb->prepare(
+				"DELETE FROM {$batches_tbl} WHERE notebook_id = %d",
+				$notebook_id
+			) );
+		}
+		if ( $this->table_exists( $events_tbl ) ) {
+			$deleted_events = (int) $wpdb->query( $wpdb->prepare(
+				"DELETE FROM {$events_tbl} WHERE notebook_id = %d",
+				$notebook_id
+			) );
+		}
+		if ( $this->table_exists( $jobs_tbl ) ) {
+			$deleted_jobs = (int) $wpdb->query( $wpdb->prepare(
+				"DELETE FROM {$jobs_tbl} WHERE notebook_id = %d",
+				$notebook_id
+			) );
+		}
+
+		$wpdb->suppress_errors( $prev_supp );
+
+		return [
+			'jobs'    => max( 0, $deleted_jobs ),
+			'events'  => max( 0, $deleted_events ),
+			'batches' => max( 0, $deleted_batches ),
+			'total'   => max( 0, $deleted_jobs ) + max( 0, $deleted_events ) + max( 0, $deleted_batches ),
+		];
 	}
 }

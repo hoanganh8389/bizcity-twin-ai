@@ -1,0 +1,88 @@
+{
+  "$schema": "https://bizcity.vn/schema/diagnostics-changelog-v1.json",
+  "module_id": "modules.twinweb",
+  "owner": "modules/twinweb",
+  "installer_id": "twinweb",
+  "current_version": "1.1.0",
+  "version_option": "bizcity_twinweb_db_version",
+  "tables": {
+    "bizcity_twinweb_threads": {
+      "since": "1.0.0",
+      "purpose": "Twin GPT public frontend thread list, scoped by logged-in user or signed guest session.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":         { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
+        "user_id":    { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",      "since": "1.0.0" },
+        "project_id": { "type": "VARCHAR(50) NOT NULL DEFAULT ''",         "since": "1.0.2" },
+        "guest_sid":  { "type": "VARCHAR(64) NOT NULL DEFAULT ''",         "since": "1.0.0" },
+        "app_type":   { "type": "VARCHAR(30) NOT NULL DEFAULT 'chat'",     "since": "1.0.0" },
+        "title":      { "type": "VARCHAR(255) NOT NULL DEFAULT ''",        "since": "1.0.0" },
+        "pinned":     { "type": "TINYINT(1) NOT NULL DEFAULT 0",           "since": "1.0.0" },
+        "archived":   { "type": "TINYINT(1) NOT NULL DEFAULT 0",           "since": "1.0.0" },
+        "last_at":    { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.0.0" },
+        "created_at": { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.0.0" },
+        "meta_json":  { "type": "LONGTEXT NULL",                           "since": "1.0.0" }
+      },
+      "indexes": {
+        "idx_user":    { "cols": ["user_id"],       "since": "1.0.0" },
+        "idx_project": { "cols": ["project_id"],    "since": "1.0.2" },
+        "idx_guest":   { "cols": ["guest_sid(32)"], "since": "1.0.0" },
+        "idx_app":     { "cols": ["app_type"],      "since": "1.0.0" },
+        "idx_last":    { "cols": ["last_at"],       "since": "1.0.0" }
+      }
+    },
+
+    "bizcity_twinweb_artifact_jobs": {
+      "since": "1.1.0",
+      "purpose": "Durable async job state for Twin GPT Agent Tool handoffs and Artifact Canvas polling/replay.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":            { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.1.0", "pk": true },
+        "job_id":        { "type": "VARCHAR(40) NOT NULL DEFAULT ''",         "since": "1.1.0" },
+        "run_id":        { "type": "VARCHAR(80) NOT NULL DEFAULT ''",         "since": "1.1.0" },
+        "thread_id":     { "type": "VARCHAR(80) NOT NULL DEFAULT ''",         "since": "1.1.0" },
+        "message_id":    { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",      "since": "1.1.0" },
+        "owner_user_id": { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",      "since": "1.1.0" },
+        "guest_sid":     { "type": "VARCHAR(64) NOT NULL DEFAULT ''",         "since": "1.1.0" },
+        "tool_slug":     { "type": "VARCHAR(96) NOT NULL DEFAULT ''",         "since": "1.1.0" },
+        "artifact_type": { "type": "VARCHAR(32) NOT NULL DEFAULT ''",         "since": "1.1.0" },
+        "status":        { "type": "VARCHAR(24) NOT NULL DEFAULT 'queued'",   "since": "1.1.0" },
+        "progress":      { "type": "TINYINT UNSIGNED NOT NULL DEFAULT 0",     "since": "1.1.0" },
+        "reason_bucket": { "type": "VARCHAR(64) NOT NULL DEFAULT ''",         "since": "1.1.0" },
+        "owner_job_id":  { "type": "VARCHAR(80) NOT NULL DEFAULT ''",         "since": "1.1.0" },
+        "artifact_id":   { "type": "VARCHAR(80) NOT NULL DEFAULT ''",         "since": "1.1.0" },
+        "status_url":    { "type": "TEXT NULL",                               "since": "1.1.0" },
+        "preview_url":   { "type": "TEXT NULL",                               "since": "1.1.0" },
+        "download_url":  { "type": "TEXT NULL",                               "since": "1.1.0" },
+        "input_json":    { "type": "LONGTEXT NULL",                           "since": "1.1.0" },
+        "result_json":   { "type": "LONGTEXT NULL",                           "since": "1.1.0" },
+        "error_payload": { "type": "LONGTEXT NULL",                           "since": "1.1.0" },
+        "attempt_count": { "type": "INT UNSIGNED NOT NULL DEFAULT 0",         "since": "1.1.0" },
+        "created_at":    { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.1.0" },
+        "updated_at":    { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", "since": "1.1.0" },
+        "started_at":    { "type": "DATETIME NULL DEFAULT NULL",              "since": "1.1.0" },
+        "finished_at":   { "type": "DATETIME NULL DEFAULT NULL",              "since": "1.1.0" },
+        "last_poll_at":  { "type": "DATETIME NULL DEFAULT NULL",              "since": "1.1.0" },
+        "next_poll_at":  { "type": "DATETIME NULL DEFAULT NULL",              "since": "1.1.0" }
+      },
+      "indexes": {
+        "uniq_job_id":      { "cols": ["job_id"],                               "since": "1.1.0", "unique": true },
+        "idx_owner_status": { "cols": ["owner_user_id", "status", "updated_at"], "since": "1.1.0" },
+        "idx_guest_status": { "cols": ["guest_sid(32)", "status", "updated_at"], "since": "1.1.0" },
+        "idx_thread":       { "cols": ["thread_id", "created_at"],              "since": "1.1.0" },
+        "idx_tool_status":  { "cols": ["tool_slug", "status"],                  "since": "1.1.0" },
+        "idx_next_poll":    { "cols": ["status", "next_poll_at"],               "since": "1.1.0" },
+        "idx_owner_job":    { "cols": ["owner_job_id"],                          "since": "1.1.0" }
+      }
+    }
+  },
+  "history": [
+    { "version": "1.0.0", "date": "2026-06-17", "change": "PHASE-TWINWEB Wave 1 — create bizcity_twinweb_threads for per-user/guest Twin GPT thread list." },
+    { "version": "1.0.2", "date": "2026-06-22", "change": "PHASE-TWINWEB — add project_id column and idx_project to bizcity_twinweb_threads for project grouping." },
+    { "version": "1.1.0", "date": "2026-07-20", "change": "PHASE-TWIN-GPT-AGENT-TOOLS AT-7 — declare bizcity_twinweb_artifact_jobs for durable async Agent Tool progress, owner polling, and Artifact Canvas replay." }
+  ]
+}

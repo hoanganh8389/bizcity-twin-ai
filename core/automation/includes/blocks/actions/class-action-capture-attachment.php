@@ -50,10 +50,23 @@ final class BizCity_Automation_Action_Capture_Attachment extends BizCity_Automat
 		}
 		$ttl = max( 1, (int) ( $data['ttl_min'] ?? 15 ) ) * MINUTE_IN_SECONDS;
 
-		BizCity_Automation_Pending_State::patch( $chat_id, array(
-			'attachment_url' => $url,
+		// [2026-07-21 Johnny Chu] R-AUTO-MULTI-ATTACH — append to canonical attachments[] so same-turn multi-image bursts are preserved.
+		BizCity_Automation_Pending_State::append_attachment( $chat_id, array(
+			'kind'        => (string) ( $ctx['trigger']['media_kind'] ?? 'image' ),
+			'url'         => $url,
+			'source_url'  => $url,
+			'message_id'  => (string) ( $ctx['trigger']['mid'] ?? $ctx['trigger']['message_id'] ?? '' ),
+			'received_at' => time(),
 		), $ttl );
 
-		return array( 'attachment_url' => $url, 'ttl' => $ttl );
+		$state = BizCity_Automation_Pending_State::get( $chat_id );
+		return array(
+			'attachment_url'  => $url,
+			'attachment_urls' => array_values( array_filter( array_map( static function ( $item ) {
+				return is_array( $item ) ? (string) ( $item['url'] ?? $item['source_url'] ?? '' ) : '';
+			}, (array) ( $state['attachments'] ?? array() ) ) ) ),
+			'attachments'     => (array) ( $state['attachments'] ?? array() ),
+			'ttl'             => $ttl,
+		);
 	}
 }

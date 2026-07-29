@@ -59,6 +59,8 @@ require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-vector-file-store.php';
 // PHASE-0.7-LEARN-VECTOR-FILE (Wave F0-F2, 2026-05-20) — content filestore companion.
 require_once BIZCITY_KG_HUB_INCLUDES . 'filestore/class-kg-notebook-folder.php';
 require_once BIZCITY_KG_HUB_INCLUDES . 'filestore/class-kg-md-parser.php';
+// [2026-07-24 Johnny Chu] PHASE-0.46-FILE-BODY — file-first source/chunk body persistence.
+require_once BIZCITY_KG_HUB_INCLUDES . 'filestore/class-kg-source-body-file-store.php';
 require_once BIZCITY_KG_HUB_INCLUDES . 'filestore/class-kg-passage-file-store.php';
 require_once BIZCITY_KG_HUB_INCLUDES . 'filestore/class-kg-jsonl-stream.php';
 require_once BIZCITY_KG_HUB_INCLUDES . 'filestore/class-kg-entity-file-store.php';
@@ -67,14 +69,37 @@ require_once BIZCITY_KG_HUB_INCLUDES . 'filestore/class-kg-filestore-dispatcher.
 require_once BIZCITY_KG_HUB_INCLUDES . 'filestore/class-kg-content-router.php';
 require_once BIZCITY_KG_HUB_INCLUDES . 'filestore/class-kg-filestore-backfill.php';
 require_once BIZCITY_KG_HUB_INCLUDES . 'filestore/class-kg-filestore-diagnostic.php';
+require_once BIZCITY_KG_HUB_INCLUDES . 'filestore/class-kg-graph-embedding-migration.php';
+require_once BIZCITY_KG_HUB_INCLUDES . 'filestore/class-kg-triplet-raw-migration.php';
 BizCity_KG_Filestore_Backfill::instance()->bind();
+// [2026-07-23 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — migrate legacy entity/relation embedding LONGTEXT to .embed.bin sidecars.
+BizCity_KG_Graph_Embedding_Migration::instance()->bind();
+// [2026-07-23 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — move kg_triplet_queue.raw_llm_output to JSONL and scrub SQL TEXT by default.
+BizCity_KG_Triplet_Raw_Migration::instance()->bind();
 // bind() must run outside is_admin() so the cron_schedules filter is always
 // registered — cron context is not admin and needs bizcity_kg_weekly etc.
 // AJAX/admin-UI hooks inside bind() are no-ops when not in admin context.
 BizCity_KG_Filestore_Diagnostic::instance()->bind();
 require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-embedding-writer.php';
 require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-notebook-service.php';
-require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-source-service.php';// Phase 0.5 — KG-Hub Contract registry + facade.
+require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-source-service.php';
+// [2026-07-25 Johnny Chu] PHASE-0.46 W4.5 — dedicated JSONL logger for notebook bridge capture lifecycle.
+require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-notebook-bridge-file-logger.php';
+BizCity_KG_Notebook_Bridge_File_Logger::init();
+// [2026-07-24 Johnny Chu] PHASE-0.46 W1 — channel -> notebook capture bridge shared by Zalo/Telegram/Messenger/WebChat/Twin surfaces.
+require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-channel-notebook-bridge.php';
+// [2026-07-25 Johnny Chu] PHASE-0.46 W4.5.3 — dispatch non-text notebook capture ingest via cron single events.
+BizCity_KG_Channel_Notebook_Bridge::bind_async_dispatch();
+// [2026-07-26 Johnny Chu] PHASE-0.46 W6 — channel-agnostic instant upload-link
+// capability-URL service (fallback capture path for unsupported/no-URL events).
+require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-channel-upload-link-service.php';
+// [2026-07-24 Johnny Chu] PHASE-0.46 W1 PROGRESS — 3-step channel reply notifier (step2/3).
+require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-channel-progress-notifier.php';
+BizCity_KG_Channel_Progress_Notifier::bind();
+// [2026-07-24 Johnny Chu] PHASE-0.46 W2 — channel-agnostic "@notebook" text listener (non-Zalo channels).
+require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-channel-notebook-generic-listener.php';
+BizCity_KG_Channel_Notebook_Generic_Listener::bind();
+// Phase 0.5 — KG-Hub Contract registry + facade.
 require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-source-registry.php';
 // Phase 0.7 / Wave E1 — Source adapter framework (interface + registry).
 // PDF/Office adapters auto-registered by the registry's defaults loader.
@@ -89,6 +114,8 @@ require_once BIZCITY_KG_HUB_INCLUDES . 'clients/class-av-transcribe-client.php';
 require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-av-chunker.php';
 require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-facade.php';
 require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-scoped-rest-controller.php';
+// [2026-07-23 Johnny Chu] PHASE-0.43 — bind async scoped file ingest worker outside REST to avoid upload 524.
+BizCity_KG_Scoped_REST_Controller::bind_async_ingest();
 require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-auto-promoter.php';
 require_once BIZCITY_KG_HUB_INCLUDES . 'kg-helpers.php';
 require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-graph-service.php';
@@ -222,12 +249,35 @@ if ( is_admin() ) {
 	}, 30 );
 }
 
-// ─── Phase 0.6 — Feature flags (WP option controlled, off by default) ───────
-// Enable dual-write:  update_option('bizcity_kg_v06_dual_write_enabled', true)
-// Enable read-switch: update_option('bizcity_kg_v06_read_switch_enabled', true)
+// ─── Phase 0.6 — Feature flags (WP option controlled) ──────────────────────
+// [2026-07-23 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — hard-cut defaults.
+// Legacy v06 central dual-write mặc định OFF; filestore read-switch + file-primary mặc định ON.
+// Cấu hình qua Network Admin → Settings → BizCity Cron Tiers.
 add_filter( 'bizcity_kg_v06_dual_write', static function ( $enabled ) {
+	if ( class_exists( 'BizCity_Cron_Tier_Settings' ) ) {
+		return $enabled || BizCity_Cron_Tier_Settings::is_file_first_dual_write();
+	}
 	return $enabled || (bool) get_option( 'bizcity_kg_v06_dual_write_enabled', false );
 } );
 add_filter( 'bizcity_kg_v06_read_switch', static function ( $enabled ) {
-	return $enabled || (bool) get_option( 'bizcity_kg_v06_read_switch_enabled', false );
+	if ( class_exists( 'BizCity_Cron_Tier_Settings' ) ) {
+		return $enabled || BizCity_Cron_Tier_Settings::is_file_first_read_switch();
+	}
+	return $enabled || (bool) get_option( 'bizcity_kg_v06_read_switch_enabled', true );
+} );
+
+// [2026-07-23 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — file-primary write path defaults ON.
+add_filter( 'bizcity_kg_v07_file_primary_write', static function ( $enabled ) {
+	if ( class_exists( 'BizCity_Cron_Tier_Settings' ) ) {
+		return $enabled || BizCity_Cron_Tier_Settings::is_file_primary_write();
+	}
+	return $enabled || (bool) get_option( 'bizcity_kg_v07_file_primary_write_enabled', true );
+} );
+
+// [2026-07-23 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — drain graph embedding LONGTEXT by default.
+add_filter( 'bizcity_kg_v08_graph_embedding_migration', static function ( $enabled ) {
+	if ( class_exists( 'BizCity_Cron_Tier_Settings' ) && method_exists( 'BizCity_Cron_Tier_Settings', 'is_graph_embedding_migration_enabled' ) ) {
+		return $enabled || BizCity_Cron_Tier_Settings::is_graph_embedding_migration_enabled();
+	}
+	return $enabled || (bool) get_option( 'bizcity_kg_v08_graph_embedding_migration_enabled', true );
 } );

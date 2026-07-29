@@ -309,9 +309,11 @@ class BizCity_Admin_Menu {
 		}
 
 		if ( class_exists( 'BizCity_Automation_Admin_SPA', false ) ) {
+			// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — allow customer iframe entry only for the Automation SPA; full admin menu remains manage_options.
+			$automation_cap = ( isset( $_GET['page'], $_GET['bizcity_iframe'] ) && $_GET['page'] === 'bizcity-automation' ) ? 'read' : 'manage_options';
 			add_submenu_page( self::SLUG_GATEWAY,
 				__( 'Twin Workflow', $td ), __( 'Twin Workflow', $td ),
-				'manage_options', 'bizcity-automation',
+				$automation_cap, 'bizcity-automation',
 				[ BizCity_Automation_Admin_SPA::instance(), 'render_page' ] );
 		}
 

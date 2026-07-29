@@ -113,8 +113,15 @@ final class BizCity_Automation_Action_Invoke_Skill extends BizCity_Automation_Bl
 			return array( 'ok' => false, '_degraded' => true, 'skill_output' => '', 'reason' => 'runtime_missing' );
 		}
 
+		// [2026-07-16 Johnny Chu] PHASE-TWINWEB F4 — preserve owner identity across automation bridge; no session fallback.
+		$owner_user_id = $this->resolve_owner_user_id( $ctx );
+		if ( $owner_user_id <= 0 ) {
+			$this->note_event( 'invoke_skill_skipped', array( 'reason' => 'owner_missing', 'skill_slug' => $skill_slug ) );
+			return array( 'ok' => false, '_degraded' => true, 'skill_output' => '', 'reason' => 'owner_missing' );
+		}
+
 		$opts = array(
-			'user_id'    => (int) ( $ctx['_user_id'] ?? get_current_user_id() ),
+			'user_id'    => $owner_user_id,
 			'guru_id'    => $character_id,
 			'tool_force' => '',
 			'source'     => 'automation',

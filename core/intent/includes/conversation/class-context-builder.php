@@ -66,6 +66,9 @@ class BizCity_Context_Builder {
     /** @var string Current session ID (e.g. wcs_xxxx) */
     private $session_id = '';
 
+    /** @var string Current durable identity UUID */
+    private $identity_uuid = '';
+
     /** @var object|null Cached webchat session row */
     private $wc_session = null;
 
@@ -93,6 +96,7 @@ class BizCity_Context_Builder {
         $this->current_project_id = null;
         $this->user_id            = 0;
         $this->session_id         = '';
+        $this->identity_uuid      = '';
         $this->wc_session         = null;
     }
 
@@ -168,9 +172,10 @@ class BizCity_Context_Builder {
      * @param int    $user_id
      * @param string $session_id  The wcs_* session ID string.
      */
-    public function set_user( $user_id, $session_id = '' ) {
+    public function set_user( $user_id, $session_id = '', $identity_uuid = '' ) {
         $this->user_id    = (int) $user_id;
         $this->session_id = $session_id;
+        $this->identity_uuid = trim( (string) $identity_uuid );
     }
 
     /**
@@ -472,6 +477,9 @@ class BizCity_Context_Builder {
             $this->user_id    = (int) $args['user_id'];
             $this->session_id = $args['session_id'] ?? '';
         }
+        if ( ! $this->identity_uuid && ! empty( $args['identity_uuid'] ) ) {
+            $this->identity_uuid = trim( (string) $args['identity_uuid'] );
+        }
 
         // ── TOOL CONTEXT MODE (Phase 13): compact context for execution ──
         if ( $this->use_tool_context ) {
@@ -536,7 +544,8 @@ class BizCity_Context_Builder {
             $rolling_ctx = BizCity_Rolling_Memory::instance()->build_context(
                 $this->user_id,
                 $this->session_id,
-                $this->current_conv_id ?: ''
+                $this->current_conv_id ?: '',
+                $this->identity_uuid
             );
         }
 
@@ -549,7 +558,8 @@ class BizCity_Context_Builder {
             }
             $episodic_ctx = BizCity_Episodic_Memory::instance()->build_context(
                 $this->user_id,
-                $current_goal
+                $current_goal,
+                $this->identity_uuid
             );
         }
 

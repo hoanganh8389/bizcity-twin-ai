@@ -59,6 +59,25 @@ final class BizCity_Automation_Action_Set_Pending_Intent extends BizCity_Automat
 		if ( $slug !== '' && class_exists( 'BizCity_Automation_Repo_Workflows' ) ) {
 			$wf = BizCity_Automation_Repo_Workflows::find_by_slug( $slug );
 			if ( $wf ) { $wf_id = (int) $wf['id']; }
+			// [2026-07-21 Johnny Chu] PHASE-SEEDREAM-45-FIX — template slug must resolve to current user's deterministic /gpt workflow copy.
+			if ( ! $wf && class_exists( 'BizCity_Automation_Repo_Templates' ) ) {
+				$tpl = BizCity_Automation_Repo_Templates::find_by_slug( $slug );
+				if ( $tpl ) {
+					$user_id = (int) ( $ctx['_owner_user_id'] ?? $ctx['trigger']['_owner_user_id'] ?? $ctx['trigger']['wp_user_id'] ?? get_current_user_id() );
+					// [2026-07-21 Johnny Chu] PHASE-SEEDREAM-45-FIX — capture workflow owner is the safest fallback for customer template copies.
+					if ( $user_id <= 0 && ! empty( $ctx['_workflow_id'] ) ) {
+						$current_wf = BizCity_Automation_Repo_Workflows::find( (int) $ctx['_workflow_id'] );
+						$user_id = (int) ( $current_wf['created_by'] ?? 0 );
+					}
+					$seed = (string) ( $tpl['template_uuid'] ?? '' );
+					if ( $seed === '' ) { $seed = (string) ( $tpl['slug'] ?? ( $tpl['id'] ?? '' ) ); }
+					$copy_slug = 'twg-u' . $user_id . '-' . substr( md5( $seed ), 0, 12 );
+					$copy = BizCity_Automation_Repo_Workflows::find_by_slug( $copy_slug );
+					if ( $copy && (int) ( $copy['created_by'] ?? 0 ) === $user_id ) {
+						$wf_id = (int) $copy['id'];
+					}
+				}
+			}
 		}
 		if ( $wf_id === 0 ) {
 			$wf_id = (int) ( $ctx['_workflow_id'] ?? 0 ); // self.

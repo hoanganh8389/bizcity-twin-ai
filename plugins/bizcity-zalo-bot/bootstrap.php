@@ -126,7 +126,7 @@ class BizCity_Zalo_Bot_Plugin {
 			require_once BIZCITY_ZALO_BOT_DIR . '/includes/class-tool-zalo-page.php';
 		}
 
-		// Gateway Bridge (integration with bizcity-admin-hook-zalo)
+		// Gateway Bridge (standalone Channel Gateway compat)
 		if ( file_exists( BIZCITY_ZALO_BOT_DIR . '/includes/class-gateway-bridge.php' ) ) {
 			require_once BIZCITY_ZALO_BOT_DIR . '/includes/class-gateway-bridge.php';
 		}
@@ -139,6 +139,17 @@ class BizCity_Zalo_Bot_Plugin {
 		// [2026-06-19 Johnny Chu] ADMIN-GUIDE — explicit keyword command triggers.
 		if ( file_exists( BIZCITY_ZALO_BOT_DIR . '/includes/class-command-router.php' ) ) {
 			require_once BIZCITY_ZALO_BOT_DIR . '/includes/class-command-router.php';
+		}
+
+		// [2026-07-24 Johnny Chu] PHASE-0.46 W1 — "@notebook" channel capture bridge listener.
+		if ( file_exists( BIZCITY_ZALO_BOT_DIR . '/includes/class-notebook-bridge-listener.php' ) ) {
+			require_once BIZCITY_ZALO_BOT_DIR . '/includes/class-notebook-bridge-listener.php';
+		}
+
+		// [2026-07-26 Johnny Chu] PHASE-0.46 W6 — instant upload-link fallback
+		// capture route (`/zalo-upload/{token}/`) for unsupported/no-URL events.
+		if ( file_exists( BIZCITY_ZALO_BOT_DIR . '/includes/class-upload-link-handler.php' ) ) {
+			require_once BIZCITY_ZALO_BOT_DIR . '/includes/class-upload-link-handler.php';
 		}
 
 		// Library files
@@ -224,7 +235,7 @@ class BizCity_Zalo_Bot_Plugin {
 			} );
 		}
 
-		// Gateway Bridge (integration with bizcity-admin-hook-zalo)
+		// Gateway Bridge (standalone Channel Gateway compat)
 		if ( class_exists( 'BizCity_Zalo_Bot_Gateway_Bridge' ) ) {
 			BizCity_Zalo_Bot_Gateway_Bridge::instance();
 		}
@@ -247,6 +258,16 @@ class BizCity_Zalo_Bot_Plugin {
 		// [2026-06-19 Johnny Chu] ADMIN-GUIDE — keyword command router (priority 4)
 		if ( class_exists( 'BizCity_Zalobot_Command_Router' ) ) {
 			BizCity_Zalobot_Command_Router::boot();
+		}
+
+		// [2026-07-24 Johnny Chu] PHASE-0.46 W1 — "@notebook" channel capture bridge (priority 4)
+		if ( class_exists( 'BizCity_Zalobot_Notebook_Bridge_Listener' ) ) {
+			BizCity_Zalobot_Notebook_Bridge_Listener::boot();
+		}
+
+		// [2026-07-26 Johnny Chu] PHASE-0.46 W6 — instant upload-link route.
+		if ( class_exists( 'BizCity_Zalobot_Upload_Link_Handler' ) ) {
+			BizCity_Zalobot_Upload_Link_Handler::boot();
 		}
 		
 		// Load text domain

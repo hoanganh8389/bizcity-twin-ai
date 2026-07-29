@@ -136,12 +136,35 @@ class BizCity_Video_Kling_Database {
     }
     
     /**
+     * Check whether a table physically exists in the current DB (R-SHOW-TABLES —
+     * information_schema instead of SHOW TABLES, cheap SELECT, no metadata scan error).
+     *
+     * [2026-07-22 Johnny Chu] KLING-MIGRATE-ORDER-FIX — guard before SHOW COLUMNS/ALTER
+     * to stop "table doesn't exist" DB errors when jobs table hasn't been created yet.
+     */
+    private static function table_exists( $table ) {
+        global $wpdb;
+        return (bool) $wpdb->get_var( $wpdb->prepare(
+            'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+            $table
+        ) );
+    }
+
+    /**
      * Add chain columns to existing table
      */
     public static function maybe_add_chain_columns() {
         global $wpdb;
         $table = self::get_table_name( 'jobs' );
-        
+
+        // [2026-07-22 Johnny Chu] KLING-MIGRATE-ORDER-FIX — bail when jobs table doesn't
+        // exist yet (fresh blog, version step 2.0.0 runs before create_tables() step 2.1.0
+        // in the same request). create_tables() already ships chain_id/etc in its CREATE
+        // TABLE, so skipping here is safe and avoids SHOW COLUMNS/ALTER on a missing table.
+        if ( ! self::table_exists( $table ) ) {
+            return;
+        }
+
         // Check if chain_id column exists
         $column_exists = $wpdb->get_results( "SHOW COLUMNS FROM {$table} LIKE 'chain_id'" );
         
@@ -164,7 +187,12 @@ class BizCity_Video_Kling_Database {
     public static function maybe_add_checkpoints_columns() {
         global $wpdb;
         $table = self::get_table_name( 'jobs' );
-        
+
+        // [2026-07-22 Johnny Chu] KLING-MIGRATE-ORDER-FIX — same guard as maybe_add_chain_columns().
+        if ( ! self::table_exists( $table ) ) {
+            return;
+        }
+
         // Check if checkpoints column exists
         $column_exists = $wpdb->get_results( "SHOW COLUMNS FROM {$table} LIKE 'checkpoints'" );
         

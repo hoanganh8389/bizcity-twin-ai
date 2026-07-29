@@ -25,11 +25,12 @@ class BizCity_Knowledge_Database {
      * Database schema version
      *
      * 3.0.3 — baseline.
-     * 3.21.0 — PHASE-0.21 Wave 1: guru marketplace columns on bizcity_characters
+    * 3.22.0 — PHASE-0.52 W8.2: durable identity UUID ownership on bizcity_memory_users.
+    * 3.21.0 — PHASE-0.21 Wave 1: guru marketplace columns on bizcity_characters
      *           (guru_uuid, visibility, version, license, manifest_hash, bin_path,
      *           bin_dim, bin_count, embed_model, origin_user, published_at).
      */
-    const SCHEMA_VERSION = '3.21.0';
+    const SCHEMA_VERSION = '3.22.0'; // [2026-07-28 Johnny Chu] R-DCL — run dbDelta for memory identity_uuid ownership columns and indexes.
     
     public static function instance() {
         if (is_null(self::$instance)) {
@@ -210,11 +211,13 @@ class BizCity_Knowledge_Database {
         
         // User Memory table — 2-tier: LLM-extracted + user-explicit
         $table_memory = $wpdb->prefix . 'bizcity_memory_users';
+        // [2026-07-28 Johnny Chu] HOTFIX — memory owner dimension comment text must avoid semicolon to prevent dbDelta SQL split.
         $sql_memory = "CREATE TABLE IF NOT EXISTS {$table_memory} (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             blog_id INT UNSIGNED NOT NULL DEFAULT 1,
             user_id BIGINT UNSIGNED DEFAULT 0 COMMENT 'WP user ID (0 = guest)',
             session_id VARCHAR(191) DEFAULT '' COMMENT 'For guest identification',
+            identity_uuid CHAR(36) NOT NULL DEFAULT '' COMMENT 'Durable customer identity UUID, empty for legacy rows',
             memory_tier ENUM('extracted','explicit') NOT NULL DEFAULT 'extracted' COMMENT 'extracted=LLM-analyzed from chat, explicit=user asked to remember',
             memory_type VARCHAR(50) NOT NULL DEFAULT 'fact' COMMENT 'identity|preference|goal|pain|constraint|habit|relationship|fact|request',
             memory_key VARCHAR(191) NOT NULL DEFAULT '' COMMENT 'Slug key e.g. likes:milk_tea',
@@ -229,9 +232,10 @@ class BizCity_Knowledge_Database {
             PRIMARY KEY (id),
             KEY blog_user (blog_id, user_id),
             KEY blog_session (blog_id, session_id),
+            KEY blog_identity (blog_id, identity_uuid),
             KEY memory_tier (memory_tier),
             KEY memory_type (memory_type),
-            UNIQUE KEY unique_memory (blog_id, user_id, session_id, memory_key)
+            UNIQUE KEY unique_memory (blog_id, user_id, session_id, identity_uuid, memory_key)
         ) {$charset_collate};";
 
         dbDelta($sql_memory);
@@ -977,7 +981,18 @@ Phong cách giao tiếp:
         }
         
         $this->invalidate_character_cache();
-        return $wpdb->insert_id;
+        $character_id = (int) $wpdb->insert_id;
+        // [2026-07-27 Johnny Chu] HOTFIX — recover insert id lost by routed WPDB connections.
+        if ( $character_id <= 0 && ! empty( $data['slug'] ) ) {
+            $character_id = (int) $wpdb->get_var( $wpdb->prepare(
+                "SELECT id FROM {$table} WHERE slug = %s ORDER BY id DESC LIMIT 1",
+                $data['slug']
+            ) );
+        }
+        if ( $character_id <= 0 ) {
+            return new WP_Error( 'db_insert_id_missing', 'Character created but its ID could not be resolved.' );
+        }
+        return $character_id;
     }
     
     /**

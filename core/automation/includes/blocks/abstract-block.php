@@ -126,4 +126,28 @@ abstract class BizCity_Automation_Block_Base implements BizCity_Automation_Block
 
 		return array_merge( $base, $own_fields );
 	}
+
+	/**
+	 * Resolve canonical owner user_id for automation execution context.
+	 *
+	 * Priority:
+	 *  1) ctx['trigger']['wp_user_id'] (channel-linked owner)
+	 *  2) ctx['wp_user_id']       (legacy channel owner)
+	 *  3) ctx['_owner_user_id']   (runner canonical fallback)
+	 *  4) explicit fallback       (caller-provided safe fallback)
+	 */
+	protected function resolve_owner_user_id( array $ctx, int $fallback = 0 ): int {
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-MY-CONTENT-TRACE — channel-linked wp_user_id owns blocks before workflow creator fallback.
+		$owner_user_id = (int) ( $ctx['trigger']['wp_user_id'] ?? 0 );
+		if ( $owner_user_id <= 0 ) {
+			$owner_user_id = (int) ( $ctx['wp_user_id'] ?? 0 );
+		}
+		if ( $owner_user_id <= 0 ) {
+			$owner_user_id = (int) ( $ctx['_owner_user_id'] ?? 0 );
+		}
+		if ( $owner_user_id <= 0 ) {
+			$owner_user_id = (int) $fallback;
+		}
+		return max( 0, $owner_user_id );
+	}
 }

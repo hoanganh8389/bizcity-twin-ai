@@ -235,14 +235,17 @@ class BizCity_TwinChat_Learning_Job_Queue {
 		$now   = current_time( 'mysql', true );
 		$until = gmdate( 'Y-m-d H:i:s', time() + max( 5, (int) $ttl_s ) );
 
-		// Steal lease only when (no holder) OR (existing lease expired) OR (we already hold it).
+		// [2026-07-23 Johnny Chu] PHASE-0.44 — do NOT allow same-owner bypass.
+		// Cron/ajax may spawn concurrent processes with the same owner label,
+		// and lease_owner=%s made both processes enter the same job concurrently.
+		// Acquire only when lease is empty or expired.
 		$rows = (int) $wpdb->query( $wpdb->prepare(
 			"UPDATE {$tbl}
 			   SET lease_owner=%s, lease_until=%s
 			 WHERE id=%d
 			   AND status NOT IN ('done','failed','cancelled')
-			   AND ( lease_until IS NULL OR lease_until < %s OR lease_owner=%s )",
-			$owner, $until, (int) $job_id, $now, $owner
+			   AND ( lease_until IS NULL OR lease_until < %s )",
+			$owner, $until, (int) $job_id, $now
 		) );
 		return $rows > 0;
 	}

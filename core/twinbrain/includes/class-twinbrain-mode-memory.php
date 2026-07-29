@@ -5,7 +5,7 @@
  * REUSABLE STANDARD — bất kỳ conversation-surface mode nào (astro, web-deep,
  * web-law, nutri, …) đều có thể CLONE pattern này để persist một "context
  * summary" ngắn của lượt hỏi vào **memory tier** (`bizcity_memory_users`)
- * GẮN THEO `session_id`, kèm provenance (`source_url`). Mục tiêu: Brain "nhớ"
+ * GẮN THEO identity_uuid + session context, kèm provenance (`source_url`). Mục tiêu: Brain "nhớ"
  * được ngữ cảnh vertical đã luận giải trong cùng session để các lượt sau
  * tham chiếu lại + user thấy được nguồn.
  *
@@ -111,15 +111,20 @@ final class BizCity_TwinBrain_Mode_Memory {
 		$trace_id   = isset( $args['trace_id'] ) ? (string) $args['trace_id'] : '';
 		$user_id    = isset( $args['user_id'] ) ? (int) $args['user_id'] : 0;
 		$session_id = isset( $args['session_id'] ) ? (string) $args['session_id'] : '';
-		$summary    = isset( $args['summary'] ) ? trim( (string) $args['summary'] ) : '';
-		$source_url = isset( $args['source_url'] ) ? (string) $args['source_url'] : '';
-
-		// Fail-OPEN — không có owner (cả user lẫn session) thì không thể persist.
-		if ( $user_id <= 0 && $session_id === '' ) {
+		// [2026-07-28 Johnny Chu] R-CH-IDMEM — mode context requires the same verified UUID contract as durable facts.
+		$scope = class_exists( 'BizCity_Memory_Identity_Scope' )
+			? BizCity_Memory_Identity_Scope::for_write( $args )
+			: null;
+		if ( ! $scope ) {
 			$result['reason'] = 'no_owner';
 			$result['ms']     = (int) round( ( microtime( true ) - $t0 ) * 1000 );
 			return $result;
 		}
+		$user_id      = (int) $scope['user_id'];
+		$identity_uuid = (string) $scope['identity_uuid'];
+		$summary    = isset( $args['summary'] ) ? trim( (string) $args['summary'] ) : '';
+		$source_url = isset( $args['source_url'] ) ? (string) $args['source_url'] : '';
+
 		if ( $summary === '' ) {
 			$result['reason'] = 'empty_summary';
 			$result['ms']     = (int) round( ( microtime( true ) - $t0 ) * 1000 );
@@ -135,7 +140,7 @@ final class BizCity_TwinBrain_Mode_Memory {
 		$key_hint = isset( $args['key_hint'] ) && $args['key_hint'] !== ''
 			? (string) $args['key_hint']
 			: (string) ( isset( $args['period'] ) ? $args['period'] : '' );
-		$owner_seed = $session_id !== '' ? $session_id : ( 'u' . $user_id );
+		$owner_seed = $identity_uuid . '|' . $session_id;
 		$memory_key = 'mode_ctx:' . $mode . ':' . substr( md5( $owner_seed . '|' . $key_hint ), 0, 16 );
 		$result['memory_key'] = $memory_key;
 
@@ -179,6 +184,7 @@ final class BizCity_TwinBrain_Mode_Memory {
 			$res = $mem->upsert_public( array(
 				'user_id'     => $user_id,
 				'session_id'  => $session_id,
+				'identity_uuid' => $identity_uuid,
 				'memory_tier' => self::TIER,
 				'memory_type' => self::TYPE,
 				'memory_key'  => $memory_key,

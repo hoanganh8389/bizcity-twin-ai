@@ -205,8 +205,11 @@ final class BizCity_Research_REST {
         // cấu hình BizCity API key thì mọi tool call sẽ fail dưới tầng sâu
         // với 403/404 khó hiểu (như ảnh `buudienlangson.btnet.vn`). Chặn
         // sớm ở đây + trả URL của trang cấu hình để FE render link rõ ràng.
-        // [2026-06-10 Johnny Chu] HOTFIX — per-site option
-        $api_key = trim( (string) get_option( 'bizcity_llm_api_key', '' ) );
+        // [2026-07-27 Johnny Chu] PHASE-0.49-MASTER-CONFIG-401 — preflight the
+        // same normalized key used by Search/LLM runtime calls.
+        $api_key = class_exists( 'BizCity_LLM_Client' )
+            ? BizCity_LLM_Client::instance()->get_api_key()
+            : trim( (string) get_option( 'bizcity_llm_api_key', '' ) );
         if ( $api_key === '' ) {
             $settings_url = admin_url( 'admin.php?page=bizcity-twinchat-settings' );
             return new WP_Error(
@@ -242,7 +245,7 @@ final class BizCity_Research_REST {
         if ( $id <= 0 ) {
             global $wpdb;
             $tbl = BizCity_Research_DB::table_sessions();
-            $has = (string) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl ) );
+            $has = bizcity_tbl_exists( $tbl ) ? $tbl : null; // [2026-06-21 R-SHOW-TABLES]
             $msg = $has === $tbl
                 ? sprintf( 'INSERT vào `%s` thất bại (lỗi SQL: %s).', $tbl, $wpdb->last_error ?: 'unknown' )
                 : sprintf( 'Bảng `%s` chưa tồn tại — chạy lại migration (deactivate + activate plugin) trên site này.', $tbl );

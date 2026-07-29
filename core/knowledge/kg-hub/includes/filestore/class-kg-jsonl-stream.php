@@ -9,10 +9,10 @@
  * to persist graph nodes/edges as `entities.jsonl` / `relations.jsonl`
  * under each notebook folder.
  *
- * Line indices map 1:1 with vector rows in the companion `.embed.bin` file:
- *   line 0 ↔ vec row 0
- * Tombstoned lines stay in place to preserve alignment; compaction (Wave F4)
- * rewrites both jsonl + bin in lockstep.
+ * [2026-07-23 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — graph embedding sidecars
+ * now map by `.idx.json` UID (`entity:{id}` / `relation:{id}`), not by assuming
+ * JSONL line index equals vector row index. Tombstones still stay append-only;
+ * compaction must rebuild JSONL + `.embed.bin` + `.idx.json` together.
  *
  * @package    Bizcity_Twin_AI
  * @subpackage Core\Knowledge\KG_Hub\Filestore

@@ -73,63 +73,213 @@ class BizCity_Rolling_Memory {
      *  TABLE
      * ================================================================ */
 
-    const DB_VERSION = '1.0';
+    const DB_VERSION = '1.3'; // [2026-07-29 Johnny Chu] R-CH-IDMEM — persist per-blog schema migration memory and retry state.
     const DB_VERSION_OPTION = 'bizcity_memory_rolling_db_ver';
+    const MIGRATION_MEMORY_OPTION = 'bizcity_memory_rolling_migration_memory';
+    const MIGRATION_RETRY_SECONDS = 3600;
 
     public static function ensure_table() {
-        static $checked = false;
-        if ( $checked ) return;
-        $checked = true;
-
-        if ( get_option( self::DB_VERSION_OPTION ) === self::DB_VERSION ) return;
-
         global $wpdb;
-        $table   = $wpdb->prefix . 'bizcity_memory_rolling';
+        $blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 1;
+        $cache_key = $blog_id . ':' . (string) $wpdb->prefix;
+        static $checked = [];
+        if ( isset( $checked[ $cache_key ] ) ) return;
+        $checked[ $cache_key ] = true;
 
-        $charset = function_exists( 'bizcity_get_charset_collate' ) ? bizcity_get_charset_collate() : $wpdb->get_charset_collate();
-        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        $table = $wpdb->prefix . 'bizcity_memory_rolling';
 
-        $sql = "CREATE TABLE IF NOT EXISTS {$table} (
-            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-            user_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
-            session_id VARCHAR(255) NOT NULL DEFAULT '',
-            conversation_id VARCHAR(64) NOT NULL DEFAULT '',
+        // [2026-07-28 Johnny Chu] HOTFIX P1 — the version option alone is not proof of schema: a
+        // tenant can have DB_VERSION_OPTION already bumped while identity_uuid is still missing
+        // (produced "Unknown column identity_uuid" at runtime). Verify the column before trusting it.
+        $stored_version = get_option( self::DB_VERSION_OPTION );
+        if ( $stored_version === self::DB_VERSION && self::has_identity_column( $table ) ) {
+            return;
+        }
 
-            -- Goal tracking
-            goal VARCHAR(100) DEFAULT '',
-            goal_label VARCHAR(255) DEFAULT '',
+        $migration_state = self::get_migration_state( $table );
+        $now             = time();
+        if ( 'complete' === (string) ( $migration_state['status'] ?? '' )
+            && self::DB_VERSION === (string) ( $migration_state['version'] ?? '' )
+            && self::has_identity_column( $table ) ) {
+            update_option( self::DB_VERSION_OPTION, self::DB_VERSION, false );
+            return;
+        }
 
-            -- Rolling window (condensed last N turns)
-            window_summary TEXT COMMENT 'Condensed summary of last 3-5 turns',
-            window_turn_count INT UNSIGNED DEFAULT 0,
+        // [2026-07-29 Johnny Chu] R-CH-IDMEM — retain failed ALTER state per blog/table so a
+        // routed shard does not repeat the same DDL and error log on every request.
+        if ( 'blocked' === (string) ( $migration_state['status'] ?? '' )
+            && (int) ( $migration_state['next_retry'] ?? 0 ) > $now ) {
+            return;
+        }
 
-            -- Bidirectional scoring
-            user_goal_score TINYINT UNSIGNED DEFAULT 0 COMMENT '0-100: proximity to goal',
-            bot_satisfaction_score TINYINT UNSIGNED DEFAULT 0 COMMENT '0-100: how satisfied user is with bot',
+        // [2026-07-28 Johnny Chu] HOTFIX P1 — circuit-breaker backoff: if a previous attempt on
+        // this request-cycle window already failed to add identity_uuid (shard write refused/
+        // read-only/unhealthy), don't retry the lock+dbDelta dance on every single request — that
+        // floods the log and re-runs DDL on every page load (R-PERF violation).
+        $backoff_key = 'bzmem_mig_bo_' . md5( $table );
+        if ( get_transient( $backoff_key ) ) {
+            return;
+        }
 
-            -- Status
-            status VARCHAR(20) DEFAULT 'active',
-            completion_summary TEXT COMMENT 'Final summary when goal completes',
+        // [2026-07-28 Johnny Chu] HOTFIX P1 — serialize concurrent migration attempts across
+        // requests/workers so parallel DROP INDEX / dbDelta calls stop racing each other.
+        $lock_name = 'bizcity_memory_migrate_' . md5( $table );
+        $got_lock  = (int) $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, 5)', $lock_name ) );
+        if ( 1 !== $got_lock ) {
+            error_log( '[BizCity_Rolling_Memory] Could not acquire migration lock for ' . $table . ' — another process is likely migrating it.' );
+            return;
+        }
 
-            -- Token tracking
-            summary_token_count INT UNSIGNED DEFAULT 0 COMMENT 'Estimated tokens in window_summary',
+        try {
+            // Re-check after acquiring the lock — another worker may have already finished migrating.
+            if ( get_option( self::DB_VERSION_OPTION ) === self::DB_VERSION && self::has_identity_column( $table ) ) {
+                return;
+            }
 
-            -- Counters
-            total_turns INT UNSIGNED DEFAULT 0,
+            $charset = function_exists( 'bizcity_get_charset_collate' ) ? bizcity_get_charset_collate() : $wpdb->get_charset_collate();
+            require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 
-            -- Timestamps
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            // [2026-07-29 Johnny Chu] R-CH-IDMEM — repair the existing tenant
+            // table with an explicit ALTER before dbDelta; new installs still
+            // fall through to CREATE TABLE below.
+            $table_type = $wpdb->get_var( $wpdb->prepare(
+                'SELECT TABLE_TYPE FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+                $table
+            ) );
+            if ( 'BASE TABLE' === $table_type && ! self::has_identity_column( $table ) ) {
+                $previous = $wpdb->suppress_errors( true );
+                $wpdb->query( "ALTER TABLE `{$table}` ADD COLUMN identity_uuid CHAR(36) NOT NULL DEFAULT '' AFTER user_id" );
+                $wpdb->suppress_errors( $previous );
+            }
 
-            UNIQUE KEY uniq_conversation (conversation_id),
-            KEY idx_user_active (user_id, status),
-            KEY idx_session (session_id),
-            KEY idx_updated (updated_at)
-        ) {$charset};";
+            $sql = "CREATE TABLE IF NOT EXISTS {$table} (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                blog_id INT UNSIGNED NOT NULL DEFAULT 1,
+                user_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+                identity_uuid CHAR(36) NOT NULL DEFAULT '',
+                session_id VARCHAR(255) NOT NULL DEFAULT '',
+                conversation_id VARCHAR(64) NOT NULL DEFAULT '',
 
-        dbDelta( $sql );
-        update_option( self::DB_VERSION_OPTION, self::DB_VERSION );
-        error_log( "[BizCity_Rolling_Memory] Table {$table} migrated to v" . self::DB_VERSION );
+                -- Goal tracking
+                goal VARCHAR(100) DEFAULT '',
+                goal_label VARCHAR(255) DEFAULT '',
+
+                -- Rolling window (condensed last N turns)
+                window_summary TEXT COMMENT 'Condensed summary of last 3-5 turns',
+                window_turn_count INT UNSIGNED DEFAULT 0,
+
+                -- Bidirectional scoring
+                user_goal_score TINYINT UNSIGNED DEFAULT 0 COMMENT '0-100: proximity to goal',
+                bot_satisfaction_score TINYINT UNSIGNED DEFAULT 0 COMMENT '0-100: how satisfied user is with bot',
+
+                -- Status
+                status VARCHAR(20) DEFAULT 'active',
+                completion_summary TEXT COMMENT 'Final summary when goal completes',
+
+                -- Token tracking
+                summary_token_count INT UNSIGNED DEFAULT 0 COMMENT 'Estimated tokens in window_summary',
+
+                -- Counters
+                total_turns INT UNSIGNED DEFAULT 0,
+
+                -- Timestamps
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+                UNIQUE KEY uniq_identity_conversation (blog_id, identity_uuid, user_id, conversation_id),
+                KEY idx_identity_active (blog_id, identity_uuid, status),
+                KEY idx_user_active (user_id, status),
+                KEY idx_session (session_id),
+                KEY idx_updated (updated_at)
+            ) {$charset};";
+
+            dbDelta( $sql );
+
+            // [2026-07-28 Johnny Chu] R-CH-IDMEM — remove the pre-UUID key whenever it exists, including installs without a version option.
+            $legacy_index_exists = (bool) $wpdb->get_var( $wpdb->prepare(
+                'SELECT 1 FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND INDEX_NAME = %s LIMIT 1',
+                $table,
+                'uniq_conversation'
+            ) );
+            if ( $legacy_index_exists ) {
+                $dropped = $wpdb->query( "ALTER TABLE {$table} DROP INDEX uniq_conversation" );
+                if ( false === $dropped ) {
+                    error_log( '[BizCity_Rolling_Memory] Could not drop the legacy rolling uniqueness index.' );
+                }
+            }
+
+            // [2026-07-28 Johnny Chu] HOTFIX — only mark migration complete after verifying identity_uuid
+            // actually exists; dbDelta() can silently no-op on some routed shard connections.
+            if ( self::has_identity_column( $table ) ) {
+                update_option( self::DB_VERSION_OPTION, self::DB_VERSION );
+                self::remember_migration_state( $table, [
+                    'version'      => self::DB_VERSION,
+                    'status'       => 'complete',
+                    'last_attempt' => time(),
+                    'next_retry'   => 0,
+                    'error_hash'   => '',
+                    'last_log'     => time(),
+                ] );
+                delete_transient( $backoff_key );
+                error_log( "[BizCity_Rolling_Memory] Table {$table} migrated to v" . self::DB_VERSION );
+            } else {
+                // [2026-07-29 Johnny Chu] R-CH-IDMEM — remember the failed ALTER for one hour;
+                // only emit the same failure again after one day or when its reason changes.
+                $db_error = trim( preg_replace( '/\s+/', ' ', (string) $wpdb->last_error ) );
+                if ( strlen( $db_error ) > 180 ) {
+                    $db_error = substr( $db_error, 0, 180 );
+                }
+                $error_hash = md5( $db_error !== '' ? $db_error : 'schema_missing' );
+                $last_log   = (int) ( $migration_state['last_log'] ?? 0 );
+                $should_log = $error_hash !== (string) ( $migration_state['error_hash'] ?? '' )
+                    || ( $last_log + DAY_IN_SECONDS ) <= time();
+                self::remember_migration_state( $table, [
+                    'version'      => self::DB_VERSION,
+                    'status'       => 'blocked',
+                    'last_attempt' => time(),
+                    'next_retry'   => time() + self::MIGRATION_RETRY_SECONDS,
+                    'error_hash'   => $error_hash,
+                    'last_log'     => $should_log ? time() : $last_log,
+                ] );
+                set_transient( $backoff_key, 1, self::MIGRATION_RETRY_SECONDS );
+                // [2026-07-28 Johnny Chu] HOTFIX P1 — retain the routed DB failure reason so a
+                // silent dbDelta/no-op can be distinguished from read-only or missing privileges.
+                if ( $should_log ) {
+                    error_log( "[BizCity_Rolling_Memory] Table {$table} migration incomplete — identity_uuid column still missing. Backing off " . self::MIGRATION_RETRY_SECONDS . "s (check shard write path / R-MSDB routing). db_error=" . ( $db_error !== '' ? $db_error : 'none' ) );
+                }
+            }
+        } finally {
+            $wpdb->query( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock_name ) );
+        }
+    }
+
+    /**
+     * Cheap information_schema check — not cached because ensure_table() only runs this path
+     * when the version option check already failed (rare, once-per-migration-need).
+     */
+    private static function has_identity_column( $table ) {
+        global $wpdb;
+        return (bool) $wpdb->get_var( $wpdb->prepare(
+            "SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = 'identity_uuid' LIMIT 1",
+            $table
+        ) );
+    }
+
+    private static function get_migration_state( $table ) {
+        $memory = get_option( self::MIGRATION_MEMORY_OPTION, [] );
+        $key    = md5( (string) $table );
+        return is_array( $memory ) && isset( $memory[ $key ] ) && is_array( $memory[ $key ] )
+            ? $memory[ $key ]
+            : [];
+    }
+
+    private static function remember_migration_state( $table, $state ) {
+        $memory = get_option( self::MIGRATION_MEMORY_OPTION, [] );
+        if ( ! is_array( $memory ) ) {
+            $memory = [];
+        }
+        $memory[ md5( (string) $table ) ] = $state;
+        update_option( self::MIGRATION_MEMORY_OPTION, $memory, false );
     }
 
     /* ================================================================
@@ -145,8 +295,14 @@ class BizCity_Rolling_Memory {
      */
     public function on_intent_processed( $result, $params ) {
         $conv_id    = $result['conversation_id'] ?? '';
-        $user_id    = intval( $params['user_id'] ?? 0 );
-        $session_id = $params['session_id'] ?? '';
+        // [2026-07-28 Johnny Chu] R-CH-IDMEM — reject rolling writes without a verified stable identity.
+        $scope      = class_exists( 'BizCity_Memory_Identity_Scope' )
+            ? BizCity_Memory_Identity_Scope::for_write( $params )
+            : null;
+        if ( ! $scope ) return;
+        $user_id    = (int) $scope['user_id'];
+        $identity_uuid = (string) $scope['identity_uuid'];
+        $session_id = (string) $scope['session_id'];
         $message    = $params['message'] ?? '';
         $goal       = $result['goal'] ?? '';
         $goal_label = $result['goal_label'] ?? '';
@@ -161,12 +317,14 @@ class BizCity_Rolling_Memory {
         global $wpdb;
 
         // Get or create rolling memory row
-        $row = $this->get_by_conversation( $conv_id );
+        $row = $this->get_by_conversation( $conv_id, $identity_uuid );
 
         if ( ! $row ) {
             // Create new rolling memory entry
             $wpdb->insert( $this->table, [
+                'blog_id'         => (int) $scope['blog_id'],
                 'user_id'         => $user_id,
+                'identity_uuid'   => $identity_uuid,
                 'session_id'      => $session_id,
                 'conversation_id' => $conv_id,
                 'goal'            => $goal,
@@ -177,7 +335,7 @@ class BizCity_Rolling_Memory {
                 'created_at'      => current_time( 'mysql' ),
                 'updated_at'      => current_time( 'mysql' ),
             ] );
-            $row = $this->get_by_conversation( $conv_id );
+            $row = $this->get_by_conversation( $conv_id, $identity_uuid );
         }
 
         if ( ! $row ) return;
@@ -208,11 +366,12 @@ class BizCity_Rolling_Memory {
 
         // Wave 2.8d D5 — dual-write mirror into unified `bizcity_memory`.
         // Refetch latest row data so the mirror reflects post-update state.
-        $latest = $this->get_by_conversation( $conv_id );
+        $latest = $this->get_by_conversation( $conv_id, $identity_uuid );
         if ( $latest ) {
             do_action( 'bizcity_memory_mirror_write', 'rolling', [
                 'blog_id'                => get_current_blog_id(),
                 'user_id'                => (int) $latest->user_id,
+                'identity_uuid'          => (string) $latest->identity_uuid,
                 'session_id'             => (string) $latest->session_id,
                 'conversation_id'        => (string) $latest->conversation_id,
                 'goal'                   => (string) $latest->goal,
@@ -240,7 +399,8 @@ class BizCity_Rolling_Memory {
         $conv_id = $intent_ctx['conversation_id'] ?? '';
         if ( ! $conv_id ) return;
 
-        $row = $this->get_by_conversation( $conv_id );
+        $identity_uuid = (string) ( $intent_ctx['identity_uuid'] ?? '' );
+        $row = $this->get_by_conversation( $conv_id, $identity_uuid );
         if ( ! $row || $row->status !== 'active' ) return;
 
         // Update window every 5 turns or if window is empty
@@ -398,11 +558,24 @@ PROMPT;
      * @param  string $conv_id
      * @return object|null
      */
-    public function get_by_conversation( $conv_id ) {
+    public function get_by_conversation( $conv_id, $identity_uuid = '' ) {
         global $wpdb;
+
+        // [2026-07-28 Johnny Chu] R-CH-IDMEM — a conversation id without its UUID is not a safe owner selector.
+        if ( trim( (string) $identity_uuid ) === '' ) {
+            return null;
+        }
+
+        $where  = array( 'conversation_id = %s' );
+        $params = array( $conv_id );
+        if ( $identity_uuid !== '' ) {
+            $where[]  = 'blog_id = %d AND identity_uuid = %s';
+            $params[] = get_current_blog_id();
+            $params[] = $identity_uuid;
+        }
         return $wpdb->get_row( $wpdb->prepare(
-            "SELECT * FROM {$this->table} WHERE conversation_id = %s LIMIT 1",
-            $conv_id
+            "SELECT * FROM {$this->table} WHERE " . implode( ' AND ', $where ) . " LIMIT 1",
+            $params
         ) );
     }
 
@@ -413,23 +586,30 @@ PROMPT;
      * @param  string $session_id  Optional: filter to current session.
      * @return array
      */
-    public function get_active_for_user( $user_id, $session_id = '' ) {
+    public function get_active_for_user( $user_id, $session_id = '', $identity_uuid = '' ) {
         global $wpdb;
+        $scope = class_exists( 'BizCity_Memory_Identity_Scope' )
+            ? BizCity_Memory_Identity_Scope::resolve( array( 'user_id' => (int) $user_id, 'session_id' => $session_id, 'identity_uuid' => $identity_uuid ) )
+            : array( 'user_id' => (int) $user_id, 'session_id' => (string) $session_id, 'identity_uuid' => (string) $identity_uuid );
+        $where  = array( 'blog_id = %d', "status = 'active'" );
+        $params = array( get_current_blog_id() );
+        if ( class_exists( 'BizCity_Memory_Identity_Scope' ) ) {
+            if ( ! BizCity_Memory_Identity_Scope::append_read_scope( $where, $params, $scope ) ) return array();
+        } else {
+            $where[] = 'identity_uuid = %s AND user_id = %d';
+            $params[] = '';
+            $params[] = (int) $scope['user_id'];
+        }
 
         if ( $session_id ) {
-            return $wpdb->get_results( $wpdb->prepare(
-                "SELECT * FROM {$this->table}
-                 WHERE user_id = %d AND session_id = %s AND status = 'active'
-                 ORDER BY updated_at DESC LIMIT 5",
-                $user_id, $session_id
-            ) );
+            $where[] = 'session_id = %s';
+            $params[] = $session_id;
         }
 
         return $wpdb->get_results( $wpdb->prepare(
-            "SELECT * FROM {$this->table}
-             WHERE user_id = %d AND status = 'active'
+            "SELECT * FROM {$this->table} WHERE " . implode( ' AND ', $where ) . "
              ORDER BY updated_at DESC LIMIT 5",
-            $user_id
+            $params
         ) );
     }
 
@@ -440,14 +620,24 @@ PROMPT;
      * @param  int    $minutes  Window in minutes.
      * @return array
      */
-    public function get_recently_completed( $user_id, $minutes = 30 ) {
+    public function get_recently_completed( $user_id, $minutes = 30, $identity_uuid = '' ) {
         global $wpdb;
+        $scope = class_exists( 'BizCity_Memory_Identity_Scope' )
+            ? BizCity_Memory_Identity_Scope::resolve( array( 'user_id' => (int) $user_id, 'identity_uuid' => $identity_uuid ) )
+            : array( 'user_id' => (int) $user_id, 'identity_uuid' => (string) $identity_uuid );
+        $where  = array( 'blog_id = %d', "status IN ('completed','cancelled')", 'updated_at >= DATE_SUB(NOW(), INTERVAL %d MINUTE)' );
+        $params = array( get_current_blog_id(), $minutes );
+        if ( class_exists( 'BizCity_Memory_Identity_Scope' ) ) {
+            if ( ! BizCity_Memory_Identity_Scope::append_read_scope( $where, $params, $scope ) ) return array();
+        } else {
+            $where[] = 'identity_uuid = %s AND user_id = %d';
+            $params[] = '';
+            $params[] = (int) $scope['user_id'];
+        }
         return $wpdb->get_results( $wpdb->prepare(
-            "SELECT * FROM {$this->table}
-             WHERE user_id = %d AND status IN ('completed','cancelled')
-             AND updated_at >= DATE_SUB(NOW(), INTERVAL %d MINUTE)
+            "SELECT * FROM {$this->table} WHERE " . implode( ' AND ', $where ) . "
              ORDER BY updated_at DESC LIMIT 5",
-            $user_id, $minutes
+            $params
         ) );
     }
 
@@ -460,9 +650,9 @@ PROMPT;
      * @param  string $current_conv_id  Currently active conversation (if any).
      * @return string
      */
-    public function build_context( $user_id, $session_id = '', $current_conv_id = '' ) {
-        $actives  = $this->get_active_for_user( $user_id, $session_id );
-        $recent   = $this->get_recently_completed( $user_id, 15 );
+    public function build_context( $user_id, $session_id = '', $current_conv_id = '', $identity_uuid = '' ) {
+        $actives  = $this->get_active_for_user( $user_id, $session_id, $identity_uuid );
+        $recent   = $this->get_recently_completed( $user_id, 15, $identity_uuid );
 
         if ( empty( $actives ) && empty( $recent ) ) return '';
 
@@ -504,8 +694,8 @@ PROMPT;
      * @param  string $session_id
      * @return string  User's recent substantive intent or empty.
      */
-    public function get_recent_user_intent( $user_id, $session_id ) {
-        $actives = $this->get_active_for_user( $user_id, $session_id );
+    public function get_recent_user_intent( $user_id, $session_id, $identity_uuid = '' ) {
+        $actives = $this->get_active_for_user( $user_id, $session_id, $identity_uuid );
 
         foreach ( $actives as $rm ) {
             if ( ! empty( $rm->window_summary ) ) {
@@ -517,7 +707,7 @@ PROMPT;
         }
 
         // Fallback: check recently completed
-        $recent = $this->get_recently_completed( $user_id, 5 );
+        $recent = $this->get_recently_completed( $user_id, 5, $identity_uuid );
         foreach ( $recent as $rm ) {
             if ( ! empty( $rm->completion_summary ) ) {
                 return $rm->completion_summary;
@@ -627,4 +817,15 @@ PROMPT;
 
         return null;
     }
+}
+
+// [2026-07-28 Johnny Chu] R-CR — register rolling schema before the installer can run dbDelta().
+if ( class_exists( 'BizCity_Schema_Registry' ) ) {
+    BizCity_Schema_Registry::register(
+        'bizcity_memory_rolling',
+        'core.intent.memory.rolling',
+        BizCity_Rolling_Memory::DB_VERSION,
+        BizCity_Rolling_Memory::DB_VERSION_OPTION,
+        array( 'BizCity_Rolling_Memory', 'ensure_table' )
+    );
 }

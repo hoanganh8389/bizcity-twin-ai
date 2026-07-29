@@ -235,10 +235,18 @@ class BizCity_TwinBrain_REST_Memory_Me {
 			$key = $type . ':manual:' . substr( md5( $text ), 0, 16 );
 		}
 		$score = $this->sanitize_score( $req->get_param( 'score' ), 80 );
+		// [2026-07-28 Johnny Chu] R-CH-IDMEM — REST-created memory rows require a verified canonical UUID.
+		$scope = class_exists( 'BizCity_Memory_Identity_Scope' )
+			? BizCity_Memory_Identity_Scope::for_write( [ 'user_id' => $uid ] )
+			: null;
+		if ( ! $scope ) {
+			return $this->err_validation( 'memory_me_identity_unavailable', 'Chưa xác định được danh tính bền vững để lưu memory.' );
+		}
 
 		$res = BizCity_User_Memory::instance()->upsert_public( [
-			'user_id'     => $uid,
+			'user_id'     => (int) $scope['user_id'],
 			'session_id'  => '',
+			'identity_uuid' => (string) $scope['identity_uuid'],
 			'memory_tier' => $tier,
 			'memory_type' => $type,
 			'memory_key'  => $key,

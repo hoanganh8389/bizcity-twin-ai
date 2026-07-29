@@ -64,11 +64,17 @@ class BizCity_Membership_Plan_Registry {
 					'kg_passages_per_day' => 20,
 					'image_per_day'       => 0,
 					'video_per_day'       => 0,
+					// [2026-07-18 Johnny Chu] PHASE-TWIN-GPT-C-ENDUSER — plan preset caps for public Twin GPT model policy.
+					'thinking_runs_per_day' => 0,
+					'deep_runs_per_day'     => 1,
+					'max_output_tokens'     => 2200,
+					'monthly_output_tokens' => 120000,
 				),
 				'kg_accepted_file_types' => array( 'txt', 'md', 'docx', 'xlsx', 'pptx', 'rtf' ),
 				'kg_max_file_size_mb'    => 5,
 				'features'               => array( 'chat', 'kg.text' ),
 				'models'                 => array( 'fast' ),
+				'answer_modes'           => array( 'instant', 'deep_research_preview' ),
 			),
 			'pro' => array(
 				'label'                  => 'Pro',
@@ -81,11 +87,17 @@ class BizCity_Membership_Plan_Registry {
 					'kg_passages_per_day' => 200,
 					'image_per_day'       => 20,
 					'video_per_day'       => 0,
+					// [2026-07-18 Johnny Chu] PHASE-TWIN-GPT-C-ENDUSER — plan preset caps for public Twin GPT model policy.
+					'thinking_runs_per_day' => 30,
+					'deep_runs_per_day'     => 30,
+					'max_output_tokens'     => 7000,
+					'monthly_output_tokens' => 3000000,
 				),
 				'kg_accepted_file_types' => array( 'txt', 'md', 'docx', 'xlsx', 'pptx', 'rtf', 'pdf', 'doc', 'xls', 'ppt' ),
 				'kg_max_file_size_mb'    => 20,
-				'features'               => array( 'chat', 'kg.text', 'kg.office', 'image', 'search' ),
-				'models'                 => array( 'fast', 'reasoning' ),
+				'features'               => array( 'chat', 'kg.text', 'kg.office', 'image', 'search', 'deep_research' ),
+				'models'                 => array( 'fast', 'reasoning', 'premium_reasoning' ),
+				'answer_modes'           => array( 'instant', 'thinking', 'deep_research' ),
 			),
 			'plus' => array(
 				'label'                  => 'Plus',
@@ -98,11 +110,17 @@ class BizCity_Membership_Plan_Registry {
 					'kg_passages_per_day' => 1000,
 					'image_per_day'       => 100,
 					'video_per_day'       => 10,
+					// [2026-07-18 Johnny Chu] PHASE-TWIN-GPT-C-ENDUSER — plan preset caps for public Twin GPT model policy.
+					'thinking_runs_per_day' => 10,
+					'deep_runs_per_day'     => 3,
+					'max_output_tokens'     => 4000,
+					'monthly_output_tokens' => 900000,
 				),
 				'kg_accepted_file_types' => array( 'txt', 'md', 'docx', 'xlsx', 'pptx', 'rtf', 'pdf', 'doc', 'xls', 'ppt', 'odt', 'ods', 'odp', 'csv', 'tsv', 'mp3', 'mp4', 'm4a', 'wav', 'ogg' ),
 				'kg_max_file_size_mb'    => 50,
 				'features'               => array( 'chat', 'kg.text', 'kg.office', 'kg.av', 'image', 'video', 'search', 'astrology' ),
 				'models'                 => array( 'fast', 'reasoning', 'vision' ),
+				'answer_modes'           => array( 'instant', 'thinking', 'deep_research' ),
 			),
 		);
 	}
@@ -158,10 +176,20 @@ class BizCity_Membership_Plan_Registry {
 	private function normalize( $slug, array $plan ) {
 		$limits = isset( $plan['limits'] ) && is_array( $plan['limits'] ) ? $plan['limits'] : array();
 
+		// [2026-07-17 Johnny Chu] MBR-RANK — default rank by slug for backward compat when rank not stored.
+		$default_ranks = array( 'free' => 0, 'student' => 50, 'pro' => 100, 'plus' => 200, 'premium' => 200 );
+		$default_rank  = isset( $default_ranks[ $slug ] ) ? $default_ranks[ $slug ] : 100;
+
 		// [2026-06-08 Johnny Chu] PHASE-MEMBERSHIP M1 — normalize: added video_per_day limit.
 		return array(
 			'slug'                   => $slug,
 			'label'                  => isset( $plan['label'] ) ? (string) $plan['label'] : ucfirst( $slug ),
+			// [2026-07-17 Johnny Chu] MBR-RANK — plan rank for lifecycle ordering; rank 0 = free baseline.
+			'rank'                   => isset( $plan['rank'] ) ? (int) $plan['rank'] : $default_rank,
+			// [2026-07-17 Johnny Chu] MBR-RANK — consumes_seat: whether activating this plan uses a Hub seat.
+			'consumes_seat'          => isset( $plan['consumes_seat'] ) ? (bool) $plan['consumes_seat'] : ( $slug !== 'free' ),
+			// [2026-07-17 Johnny Chu] MBR-RANK — audience label for admin display and filtering.
+			'audience'               => isset( $plan['audience'] ) ? sanitize_text_field( (string) $plan['audience'] ) : '',
 			'price'                  => isset( $plan['price'] ) ? (float) $plan['price'] : 0.0,
 			'currency'               => isset( $plan['currency'] ) ? (string) $plan['currency'] : 'USD',
 			'billing_cycle'          => isset( $plan['billing_cycle'] ) ? (string) $plan['billing_cycle'] : 'lifetime',
@@ -171,6 +199,11 @@ class BizCity_Membership_Plan_Registry {
 				'kg_passages_per_day'    => isset( $limits['kg_passages_per_day'] ) ? (int) $limits['kg_passages_per_day'] : 0,
 				'image_per_day'          => isset( $limits['image_per_day'] ) ? (int) $limits['image_per_day'] : 0,
 				'video_per_day'          => isset( $limits['video_per_day'] ) ? (int) $limits['video_per_day'] : 0,
+				// [2026-07-18 Johnny Chu] PHASE-TWIN-GPT-C-ENDUSER — preserve C-layer model/output budget fields from JSON templates.
+				'thinking_runs_per_day'  => isset( $limits['thinking_runs_per_day'] ) ? (int) $limits['thinking_runs_per_day'] : 0,
+				'deep_runs_per_day'      => isset( $limits['deep_runs_per_day'] ) ? (int) $limits['deep_runs_per_day'] : 0,
+				'max_output_tokens'      => isset( $limits['max_output_tokens'] ) ? (int) $limits['max_output_tokens'] : 2200,
+				'monthly_output_tokens'  => isset( $limits['monthly_output_tokens'] ) ? (int) $limits['monthly_output_tokens'] : 0,
 			),
 			// [2026-06-11 Johnny Chu] R-KG-FILE-TYPES — normalize accepted file types array.
 			'kg_accepted_file_types' => isset( $plan['kg_accepted_file_types'] ) && is_array( $plan['kg_accepted_file_types'] )
@@ -188,6 +221,8 @@ class BizCity_Membership_Plan_Registry {
 				: 5,
 			'features'               => isset( $plan['features'] ) && is_array( $plan['features'] ) ? array_values( $plan['features'] ) : array(),
 			'models'                 => isset( $plan['models'] ) && is_array( $plan['models'] ) ? array_values( $plan['models'] ) : array(),
+			// [2026-07-18 Johnny Chu] PHASE-TWIN-GPT-C-ENDUSER — simple end-user mode labels mapped to server budgets.
+			'answer_modes'           => isset( $plan['answer_modes'] ) && is_array( $plan['answer_modes'] ) ? array_values( $plan['answer_modes'] ) : array( 'instant' ),
 		);
 	}
 

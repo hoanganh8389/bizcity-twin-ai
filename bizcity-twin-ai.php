@@ -48,6 +48,13 @@ if ( ! defined( 'BIZCITY_DB_PREFIX' ) ) {
     define( 'BIZCITY_DB_PREFIX', 'bizcity_' );
 }
 
+// [2026-07-15 Johnny Chu] PHASE-KG-PDF-CHUNK — load optional Composer
+// dependencies (FPDI/FPDF) used for physical PDF page-window splitting.
+$bizcity_composer_autoload = __DIR__ . '/vendor/autoload.php';
+if ( file_exists( $bizcity_composer_autoload ) ) {
+    require_once $bizcity_composer_autoload;
+}
+
 
 // Feature flags — Twin Core (có thể override trong wp-config.php)
 if ( ! defined( 'BIZCITY_TWIN_FOCUS_ENABLED' ) )    define( 'BIZCITY_TWIN_FOCUS_ENABLED', true );
@@ -158,6 +165,12 @@ if ( ! isset( $_bizcity_admin_ctx ) ) {
 				|| false !== strpos( $_SERVER['REQUEST_URI'], '/bizfbhook' )
 				|| false !== strpos( $_SERVER['REQUEST_URI'], 'fbhook=1' )
 				|| false !== strpos( $_SERVER['REQUEST_URI'], '/tool-' )
+                // [2026-07-26 Johnny Chu] PHASE-0.46 W6 HOTFIX — public upload-link
+                // requests must load the bundled Zalo Bot handler even though the
+                // rest of the Zalo Bot plugin remains admin/webhook gated.
+                || false !== strpos( $_SERVER['REQUEST_URI'], '/zalo-upload/' )
+                // [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — public /flow/ iframe must load core/automation outside wp-admin.
+                || preg_match( '#^/flow/?(\?|$)#', $_SERVER['REQUEST_URI'] )
 				|| preg_match( '#^/doc/?(\?|$)#', $_SERVER['REQUEST_URI'] )
 				|| false !== strpos( $_SERVER['REQUEST_URI'], '/kling-video' )
 				|| false !== strpos( $_SERVER['REQUEST_URI'], '/product-studio' )
@@ -172,6 +185,11 @@ if ( ! isset( $_bizcity_admin_ctx ) ) {
 }
 
 require_once __DIR__ . '/core/knowledge/bootstrap.php';
+
+// [2026-07-14 Johnny Chu] PHASE-0.43 — shared local-document search for TwinChat, TwinWeb and future surfaces.
+if ( file_exists( __DIR__ . '/core/twinsearch/bootstrap.php' ) ) {
+    require_once __DIR__ . '/core/twinsearch/bootstrap.php';
+}
 
 // [2026-06-11 Johnny Chu] PERF-CRON-FIX — Register ALL custom cron schedule NAMES
 // unconditionally (every request, BEFORE the $_bizcity_admin_ctx gate below).
@@ -198,6 +216,13 @@ add_filter( 'cron_schedules', function ( $schedules ) {
 		'bizcity_5min'                    => array( 'interval' => 300, 'display' => 'Every 5 Minutes (Scheduler)' ),
 		'bizcity_kg_5min'                 => array( 'interval' => 300, 'display' => 'Every 5 Minutes (KG Filestore)' ),
 		'bizcity_twinchat_learning_15min' => array( 'interval' => 900, 'display' => 'Every 15 minutes (TwinChat learning sweep)' ),
+		// [2026-07-15 Johnny Chu] R-CRON-TIER — tier-based intervals (free 10' / pro 5' / premium 1').
+		// Registered unconditionally here so wp_reschedule_event() never hits invalid_schedule
+		// on frontend (core/cron is gated behind $_bizcity_admin_ctx). Covers the default minutes;
+		// BizCity_Cron_Tier_Settings::register_schedules() adds custom values in admin/cron context.
+		'bizcity_tier_1min'               => array( 'interval' => 60,  'display' => 'BizCity Tier — mỗi 1 phút' ),
+		'bizcity_tier_5min'               => array( 'interval' => 300, 'display' => 'BizCity Tier — mỗi 5 phút' ),
+		'bizcity_tier_10min'              => array( 'interval' => 600, 'display' => 'BizCity Tier — mỗi 10 phút' ),
 	);
 	foreach ( $bizcity_intervals as $name => $def ) {
 		if ( ! isset( $schedules[ $name ] ) ) {
@@ -232,10 +257,18 @@ $_bizcity_admin_ctx =
             // load when their URL is visited directly (rules stored in DB via add_rewrite_rule).
             // /tool-image/, /tool-doc/, /tool-google/, /tool-pagebuilder/, /tool-content-creator/, etc.
             || false !== strpos( $_SERVER['REQUEST_URI'], '/tool-' )
+			// [2026-07-26 Johnny Chu] PHASE-0.46 W6 HOTFIX — public upload-link
+			// route must pass the admin-context load gate for early_route().
+			|| false !== strpos( $_SERVER['REQUEST_URI'], '/zalo-upload/' )
+            // [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — public /flow/ iframe must load core/automation outside wp-admin.
+            || preg_match( '#^/flow/?(\?|$)#', $_SERVER['REQUEST_URI'] )
             // [2026-06-22 Johnny Chu] PHASE-TWINWEB — /doc/ alias for Doc Studio (twinweb shortcut)
             || preg_match( '#^/doc/?(\?|$)#', $_SERVER['REQUEST_URI'] )
             || false !== strpos( $_SERVER['REQUEST_URI'], '/kling-video' )    // bizcity-video-kling
             || false !== strpos( $_SERVER['REQUEST_URI'], '/product-studio' ) // tool-image product studio
+            // [2026-07-28 Johnny Chu] PHASE-0.53-MCP-OAUTH — load MCP discovery and browser consent on normal frontend requests.
+            || false !== strpos( $_SERVER['REQUEST_URI'], '/.well-known/oauth-' )
+            || false !== strpos( $_SERVER['REQUEST_URI'], '/bizcity-mcp/v1/oauth/' )
             // [2026-06-12 Johnny Chu] HOTFIX — Facebook OAuth public landing (?biz_fb_oauth=user_start)
             // hits home_url (frontend), not wp-admin. bizcity-facebook-bot must load so
             // BizCity_Facebook_OAuth::handle_user_start() can wp_redirect to facebook.com.
@@ -292,6 +325,13 @@ unset( $_bzc_tracking_file );
 // Still loads on: REST (/wp-json/), /bizhook/ webhooks, wp-admin, cron, WP-CLI, /tool-* pages.
 if ( $_bizcity_admin_ctx ) {
     require_once __DIR__ . '/core/channel-gateway/bootstrap.php';
+}
+
+// [2026-07-27 Johnny Chu] PHASE-0.53-MCP Wave A — Twin Client Brain MCP gateway.
+// REST-only (bizcity-mcp/v1/mcp); no frontend HTML footprint, safe to gate
+// behind $_bizcity_admin_ctx same as channel-gateway (R-PERF).
+if ( $_bizcity_admin_ctx && file_exists( __DIR__ . '/core/mcp/bootstrap.php' ) ) {
+    require_once __DIR__ . '/core/mcp/bootstrap.php';
 }
 
 // [2026-06-09 Johnny Chu] PERF-1 — Admin/cron context gate.
@@ -430,7 +470,7 @@ require_once __DIR__ . '/core/helper-legacy/bootstrap.php';
 // Tương tự cơ chế must-use: luôn chạy khi bizcity-twin-ai active.
 // Guard bằng constant riêng của mỗi plugin để tránh load trùng khi đã activate bình thường.
 $_bizcity_bundled_must_load = [
-    'bizcity-admin-hook-zalo'     => 'BIZCITY_ADMIN_ZALO_DIR',     // Zalo Hotline (ZNS) adapter + /bizhook/ webhook + admin page (bundled must-load, replaces mu-plugin copy)
+    'bizcity-admin-hook-zalo'     => 'BIZCITY_ADMIN_ZALO_DIR',     // [2026-07-21 Johnny Chu] R-GW-8 — optional legacy Zalo Hotline adapter if deployed; not required for standalone Zalo Bot/Twin GPT.
     'bizcity-facebook-bot'        => 'BIZCITY_FACEBOOK_BOT_VERSION', // Facebook Messenger + Page webhook (PHASE 0.31 Sprint 6 — moved from mu-plugins)
     'bizgpt-tool-google'          => 'BZGOOGLE_VERSION',           // Google Workspace tools
     // 'bizcity-tool-facebook'       => 'BZTOOL_FB_VERSION',          // ARCHIVED 2026-05-24 → plugins/_archived/. Slug /tool-facebook/ now owned by core/channel-gateway (canonical /channel/).
@@ -458,7 +498,7 @@ $_bizcity_bundled_must_load = [
 // NOT listed: bizcoach-pro, bizcity-content-creator, bizcity-doc, bizcity-tool-image,
 // bizcity-pagebuilder — these register activity bar items and must load on all requests.
 $_bizcity_admin_only_slugs = [
-    'bizcity-admin-hook-zalo',  // Zalo Hotline + /bizhook/ webhook + admin
+    'bizcity-admin-hook-zalo',  // Optional legacy Zalo Hotline + /bizhook/ webhook + admin.
     'bizcity-facebook-bot',     // FB Messenger webhook + admin
     'bizcity-zalo-bot',         // Zalo Bot webhook + admin
     // [2026-06-10 Johnny Chu] PHASE-0.39 — no public shortcodes; REST at /wp-json/bizcity-channel/v1/zalo-bridge/* covered by admin_ctx gate.
@@ -476,6 +516,13 @@ foreach ( $_bizcity_bundled_must_load as $_slug => $_guard_const ) {
     // Guard: only load if plugin folder exists — skip gracefully if not deployed
     $_bundled_dir  = __DIR__ . '/plugins/' . $_slug;
     $_bundled_file = $_bundled_dir . '/' . $_slug . '.php';
+    // [2026-07-26 Johnny Chu] R-GW-8 — cutover fallback: legacy slug
+    // `bizcity-admin-hook-zalo` may be deployed under
+    // `plugins/bizcity-zalo-bizcity/bizcity-admin-hook-zalo.php`.
+    if ( $_slug === 'bizcity-admin-hook-zalo' && ! file_exists( $_bundled_file ) ) {
+        $_bundled_dir  = __DIR__ . '/plugins/bizcity-zalo-bizcity';
+        $_bundled_file = $_bundled_dir . '/bizcity-admin-hook-zalo.php';
+    }
     if ( is_dir( $_bundled_dir ) && file_exists( $_bundled_file ) ) {
         require_once $_bundled_file;
     }

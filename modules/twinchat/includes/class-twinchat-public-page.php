@@ -8,7 +8,7 @@
  * URL:   https://example.com/twinchat/
  * Query: index.php?bizcity_twinchat_page=1
  *
- * Access: requires is_user_logged_in(); redirects to wp-login otherwise.
+ * Access: public shell; app-level auth/membership handles restricted actions.
  *
  * PHP 7.4 compatible.
  *
@@ -77,7 +77,8 @@ class BizCity_TwinChat_Public_Page {
 		// twin-core templates) or the caller explicitly opts out (?shell=0).
 		$is_embed = ! empty( $_GET['bizcity_iframe'] );
 		$opt_out  = isset( $_GET['shell'] )  && '0' === (string) $_GET['shell'];
-		if ( ! $is_embed && ! $opt_out ) {
+		// [2026-07-21 Johnny Chu] PHASE-TWINCHAT-PUBLIC — do not send guests into /twin/ because TwinShell is still login-gated; render this public TwinChat page directly.
+		if ( ! $is_embed && ! $opt_out && is_user_logged_in() ) {
 			$shell = home_url( '/twin/?plugin=twinchat' );
 			wp_safe_redirect( $shell, 302 );
 			exit;
@@ -175,7 +176,8 @@ class BizCity_TwinChat_Public_Page {
 		if ( class_exists( 'BizCity_KG_Notebook_Service' ) ) {
 			$svc = BizCity_KG_Notebook_Service::instance();
 			foreach ( $svc->list_for_user( $user_id, [ 'limit' => 50 ] ) as $row ) {
-				$nb_list[] = [ 'id' => (int) $row['id'], 'name' => (string) $row['name'] ];
+				// [2026-07-27 Johnny Chu] PHASE-0.51 — expose normalized notebook scope to the public TwinChat bootstrap.
+				$nb_list[] = [ 'id' => (int) $row['id'], 'name' => (string) $row['name'], 'notebook_scope' => (string) ( $row['notebook_scope'] ?? 'personal' ) ];
 			}
 			if ( ! empty( $nb_list ) ) {
 				// 1) Honor ?notebook_id= deeplink first (shell forwards the param).
@@ -400,7 +402,8 @@ class BizCity_TwinChat_Public_Page {
 		if ( class_exists( 'BizCity_KG_Notebook_Service' ) ) {
 			$svc = BizCity_KG_Notebook_Service::instance();
 			foreach ( $svc->list_for_user( $user_id, [ 'limit' => 50 ] ) as $row ) {
-				$nb_list[] = [ 'id' => (int) $row['id'], 'name' => (string) $row['name'] ];
+				// [2026-07-27 Johnny Chu] PHASE-0.51 — expose normalized notebook scope to the public TwinChat bootstrap.
+				$nb_list[] = [ 'id' => (int) $row['id'], 'name' => (string) $row['name'], 'notebook_scope' => (string) ( $row['notebook_scope'] ?? 'personal' ) ];
 			}
 			if ( ! empty( $nb_list ) ) {
 				// 1) Honor ?notebook_id= deeplink first (shell forwards the param).
@@ -631,8 +634,16 @@ class BizCity_TwinChat_Public_Page {
 	 * this to decide whether to gate features like Deep Research.
 	 */
 	public static function get_api_key_status(): array {
-		// [2026-06-10 Johnny Chu] HOTFIX — per-site option
-		$key         = trim( (string) get_option( 'bizcity_llm_api_key', '' ) );
+		// [2026-07-27 Johnny Chu] PHASE-0.49-MASTER-CONFIG-401 — use canonical
+		// client getter so status reflects normalized key consistently with runtime.
+		$key         = '';
+		if ( class_exists( 'BizCity_LLM_Client' ) ) {
+			$key = BizCity_LLM_Client::instance()->get_api_key();
+		}
+		if ( $key === '' ) {
+			// [2026-06-10 Johnny Chu] HOTFIX — per-site option
+			$key = trim( (string) get_option( 'bizcity_llm_api_key', '' ) );
+		}
 		$gateway     = (string) get_option( 'bizcity_llm_gateway_url', '' );
 		if ( $gateway === '' ) {
 			$gateway = 'https://bizcity.vn';

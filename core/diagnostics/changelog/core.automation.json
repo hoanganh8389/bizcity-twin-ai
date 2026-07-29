@@ -3,7 +3,7 @@
   "module_id": "core.automation",
   "owner": "core/automation",
   "installer_id": "automation",
-  "current_version": "1.10.0",
+  "current_version": "1.13.1",
   "version_option": "bizcity_automation_db_version",
   "tables": {
     "bizcity_automation_workflows": {
@@ -43,6 +43,7 @@
       "columns": {
         "id":                   { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
         "workflow_id":          { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",      "since": "1.0.0" },
+        "user_id":              { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",      "since": "1.11.0", "comment": "PHASE-TWINWEB F4 — canonical owner continuity for each run; 0 = unknown legacy run." },
         "run_id":               { "type": "VARCHAR(32) NOT NULL DEFAULT ''",         "since": "1.0.0" },
         "status":               { "type": "TINYINT NOT NULL DEFAULT 0",              "since": "1.0.0" },
         "trigger_payload_json": { "type": "LONGTEXT NULL",                           "since": "1.0.0" },
@@ -63,7 +64,8 @@
         "idx_wf_status":     { "cols": ["workflow_id", "status"],   "since": "1.0.0" },
         "idx_status_created":{ "cols": ["status", "created_at"],    "since": "1.0.0" },
         "idx_parent_run_id": { "cols": ["parent_run_id"],            "since": "1.7.0" },
-        "idx_contact_id":    { "cols": ["contact_id"],               "since": "1.9.0" }
+        "idx_contact_id":    { "cols": ["contact_id"],               "since": "1.9.0" },
+        "idx_user_id":       { "cols": ["user_id"],                  "since": "1.11.0" }
       }
     },
 
@@ -101,6 +103,9 @@
       "columns": {
         "id":                  { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",                                "since": "1.1.0", "pk": true },
         "slug":                { "type": "VARCHAR(96) NOT NULL DEFAULT ''",                                        "since": "1.1.0" },
+        "template_uuid":       { "type": "VARCHAR(64) NULL DEFAULT NULL",                                           "since": "1.13.0", "doc": "Stable template identity for seeder/Hub upsert. NULL allowed for legacy/user rows before migration." },
+        "template_version":    { "type": "VARCHAR(20) NOT NULL DEFAULT '1.0.0'",                                    "since": "1.13.0", "doc": "Author-controlled content semver, distinct from DB row revision column `version`." },
+        "visibility":          { "type": "VARCHAR(16) NOT NULL DEFAULT 'private'",                                  "since": "1.13.0", "doc": "global | private. Global templates are public-safe ZaloBot/global selector recipes." },
         "name":                { "type": "VARCHAR(200) NOT NULL DEFAULT ''",                                       "since": "1.1.0" },
         "description":         { "type": "TEXT NULL",                                                              "since": "1.1.0" },
         "category":            { "type": "VARCHAR(48) NOT NULL DEFAULT 'general'",                                 "since": "1.1.0", "doc": "general | cskh | care | lead | report | webhook | mpr" },
@@ -119,8 +124,64 @@
       },
       "indexes": {
         "uniq_slug":           { "cols": ["slug"],                       "since": "1.1.0", "unique": true },
+        "uniq_template_uuid":  { "cols": ["template_uuid"],              "since": "1.13.0", "unique": true },
+        "idx_visibility":      { "cols": ["visibility", "is_active"],   "since": "1.13.0" },
         "idx_category_active": { "cols": ["category", "is_active"],      "since": "1.1.0" },
         "idx_source":          { "cols": ["source"],                     "since": "1.1.0" }
+      }
+    },
+
+    "bizcity_automation_config_packs": {
+      "since": "1.12.0",
+      "purpose": "PHASE-1-TEMPLATES-AUTOMATION Wave 1 — editable imported CSV/Excel/Google Sheet config packs before workflow activation.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":            { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.12.0", "pk": true },
+        "pack_key":      { "type": "VARCHAR(96) NOT NULL DEFAULT ''",          "since": "1.12.0" },
+        "name":          { "type": "VARCHAR(200) NOT NULL DEFAULT ''",         "since": "1.12.0" },
+        "schema_key":    { "type": "VARCHAR(48) NOT NULL DEFAULT 'content_calendar'", "since": "1.12.0" },
+        "guru_id":       { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",       "since": "1.12.0" },
+        "owner_user_id": { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",       "since": "1.12.0" },
+        "source_type":   { "type": "VARCHAR(32) NOT NULL DEFAULT 'manual'",    "since": "1.12.0" },
+        "source_ref":    { "type": "TEXT NULL",                                "since": "1.12.0" },
+        "version":       { "type": "INT UNSIGNED NOT NULL DEFAULT 1",          "since": "1.12.0" },
+        "status":        { "type": "VARCHAR(24) NOT NULL DEFAULT 'draft'",     "since": "1.12.0" },
+        "created_at":    { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",                            "since": "1.12.0" },
+        "updated_at":    { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", "since": "1.12.0" },
+        "created_by":    { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",       "since": "1.12.0" }
+      },
+      "indexes": {
+        "uniq_pack_key":  { "cols": ["pack_key"],              "since": "1.12.0", "unique": true },
+        "idx_schema_status": { "cols": ["schema_key", "status"], "since": "1.12.0" },
+        "idx_owner":      { "cols": ["owner_user_id"],         "since": "1.12.0" },
+        "idx_guru":       { "cols": ["guru_id"],               "since": "1.12.0" }
+      }
+    },
+
+    "bizcity_automation_config_rows": {
+      "since": "1.12.0",
+      "purpose": "PHASE-1-TEMPLATES-AUTOMATION Wave 1 — editable datatable rows with loose row_json, runtime canonical_json and normalized search_text.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":                     { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.12.0", "pk": true },
+        "pack_id":                { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",       "since": "1.12.0" },
+        "row_key":                { "type": "VARCHAR(64) NOT NULL DEFAULT ''",          "since": "1.12.0" },
+        "row_order":              { "type": "INT UNSIGNED NOT NULL DEFAULT 0",          "since": "1.12.0" },
+        "row_json":               { "type": "LONGTEXT NULL",                            "since": "1.12.0" },
+        "canonical_json":         { "type": "LONGTEXT NULL",                            "since": "1.12.0" },
+        "search_text":            { "type": "LONGTEXT NULL",                            "since": "1.12.0" },
+        "validation_status":      { "type": "VARCHAR(24) NOT NULL DEFAULT 'draft'",     "since": "1.12.0" },
+        "validation_errors_json": { "type": "TEXT NULL",                                "since": "1.12.0" },
+        "updated_at":             { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", "since": "1.12.0" }
+      },
+      "indexes": {
+        "idx_pack_order": { "cols": ["pack_id", "row_order"],         "since": "1.12.0" },
+        "idx_pack_status": { "cols": ["pack_id", "validation_status"], "since": "1.12.0" },
+        "idx_row_key":    { "cols": ["row_key"],                      "since": "1.12.0" }
       }
     }
   },
@@ -139,6 +200,10 @@
     { "version": "1.8.0", "date": "2026-06-07", "change": "CRM-PATH — contract-only (no DDL). PHASE-0.41 UI dual-path (Admin builder Zone 2 vs CRM-care Zone 1). Vocabulary extension for `trigger_config_json`: new key `zone` (string enum 'admin'|'crm') — stored in existing TEXT column since 1.0.0 (no ALTER). Legacy rows without zone key treated as zone='admin' in `BizCity_Automation_Repo_Workflows::hydrate()`. New REST scoping: GET /workflows?zone=crm returns only zone=crm rows for CRM users; POST /templates/:id/crm-instantiate forces zone='crm'; POST /workflows/:id/bind stores platform+account_id+zone='crm' into trigger_config_json. Zone isolation in trigger matcher (`platform_to_zone()`): ZALO_OA/ZALO_PERSONAL -> zone='crm' only; ZALO_BOT -> zone='admin' only; FACEBOOK+event_subtype=messenger / FB_MESS -> zone='crm'; FB_FEED/FACEBOOK(feed) -> no zone filter (backward compat). New run payload key `run_source` (string 'crm_care') stamped when zone=crm workflow fires — readable from trigger_payload_json of bizcity_automation_runs (no new column). Seeder bumped 1.9.0 (3 Zalo OA/Personal care templates: tpl_zalo_oa_auto_reply_v1, tpl_zalo_classify_route_v1, tpl_zalo_tag_assign_v1) then 1.10.0 (Facebook Messenger care template: tpl_fb_messenger_auto_reply_v1). bizcity_automation_templates.category enum extended with 'care' vocab (was: general|cskh|lead|report|webhook|mpr). R-DCL: contract-only bump; no table/column/index DDL; validator exit 0 expected." },
     { "version": "1.8.1", "date": "2026-06-07", "change": "SEED-DEPLAO — contract-only (no DDL). Seed 5 Deplao CRM-style templates (static keyword-based, no AI/LLM, Vietnamese SMB pattern). Seeder bumped 1.10.0 -> 1.11.0. New blueprints: tpl_deplao_keyword_chain_v1 (chain condition gi\u00e1/\u0111\u1ecba ch\u1ec9/gi\u1edd/m\u1eb7c \u0111\u1ecbnh — exact Deplao screenshot pattern, priority=5), tpl_deplao_lead_collect_v1 (keyword 't\u01b0 v\u1ea5n' -> reply xin S\u0110T + CRM lead_report, priority=8), tpl_deplao_fb_comment_lead_v1 (fb_comment -> condition comment!='' -> CRM lead_report + log), tpl_deplao_out_of_hours_v1 (fallback=true priority=1 -> static reply ngo\u00e0i gi\u1edd), tpl_deplao_order_confirm_v1 (webhook payment_success -> condition amount>0 -> CRM lead_report + log). All static-text reply, no LLM node. Vocabulary: condition expression syntax uses contains(trigger.text, 'keyword') same as smoke-test template. R-DCL: contract-only bump; no DDL." },
     { "version": "1.9.0", "date": "2026-06-15", "change": "R-UNIFY Wave 5 — ADD 2 FK columns to bizcity_automation_runs. (1) contact_id BIGINT UNSIGNED NOT NULL DEFAULT 0 — FK bizcity_crm_contacts.id; populated at enqueue() time from trigger inbound identity when run is CRM-originated (zone=crm workflow); 0 = non-CRM run or contact unknown. (2) conversation_id BIGINT UNSIGNED NOT NULL DEFAULT 0 — FK bizcity_crm_conversations.id; set when trigger comes from CRM inbox (crm_conversation_created trigger type); 0 = not CRM-originated. ADD INDEX idx_contact_id (contact_id). Callers: BizCity_Automation_Repo_Runs::enqueue() gains optional 4th arg $extra = array() accepting contact_id + conversation_id. BizCity_Automation_Repo_Runs::hydrate() casts both to int. Migration: ADD-only — handled by BizCity_Automation_Installer via dbDelta (Auto_Create). See docs/architecture/OMNI-CHANNEL-UNIFIED-CORE.md §2." },
-    { "version": "1.10.0", "date": "2026-06-16", "change": "AUTOMATION-CAL — contract-only (no DDL). Feature: Automation Calendar — lịch kịch bản dựa trên bizcity_crm_events (event_type='automation_workflow'). Backend: class-automation-schedule-manager.php (sync_workflow_events, cancel_workflow_events, mark_event_done, cron_next_timestamps — 5-field cron parser), class-automation-calendar-rest.php (6 endpoints: GET/POST /calendar/events, PATCH/DELETE /calendar/events/{id}, POST /calendar/events/bulk-delete, POST /calendar/sync/{wf_id}). BizCity_Automation_REST::create/update_workflow hooks sync_workflow_events(); delete_workflow hooks cancel_workflow_events(). BizCity_Automation_Trigger_Matcher::on_cron_scan reads pending automation_workflow events from bizcity_crm_events (SQL: WHERE event_type=automation_workflow AND start_at<=NOW AND JSON_EXTRACT(metadata,$.run_status)=pending) as secondary mechanism alongside cron_should_fire() option-based check. Frontend: CalendarRoute.jsx (month grid + day panel + EventFormSheet + bulk delete), lib/calendarApi.js, route /calendar in App.jsx. No new DB table/column/index — reuses bizcity_crm_events (R-UNIFY). Seed: 3 new daily FB post templates tpl_daily_fb_post_8h_v1 / tpl_daily_fb_post_9h_v1 / tpl_daily_fb_post_10h_v1 (trigger.cron → action.search_kg → llm.compose_reply → action.publish_fb_post mode=now → action.log). SEED_VERSION bumped 1.16.0 → 1.17.0. R-DCL: contract-only bump; validator exit 0 expected." }
+    { "version": "1.10.0", "date": "2026-06-16", "change": "AUTOMATION-CAL — contract-only (no DDL). Feature: Automation Calendar — lịch kịch bản dựa trên bizcity_crm_events (event_type='automation_workflow'). Backend: class-automation-schedule-manager.php (sync_workflow_events, cancel_workflow_events, mark_event_done, cron_next_timestamps — 5-field cron parser), class-automation-calendar-rest.php (6 endpoints: GET/POST /calendar/events, PATCH/DELETE /calendar/events/{id}, POST /calendar/events/bulk-delete, POST /calendar/sync/{wf_id}). BizCity_Automation_REST::create/update_workflow hooks sync_workflow_events(); delete_workflow hooks cancel_workflow_events(). BizCity_Automation_Trigger_Matcher::on_cron_scan reads pending automation_workflow events from bizcity_crm_events (SQL: WHERE event_type=automation_workflow AND start_at<=NOW AND JSON_EXTRACT(metadata,$.run_status)=pending) as secondary mechanism alongside cron_should_fire() option-based check. Frontend: CalendarRoute.jsx (month grid + day panel + EventFormSheet + bulk delete), lib/calendarApi.js, route /calendar in App.jsx. No new DB table/column/index — reuses bizcity_crm_events (R-UNIFY). Seed: 3 new daily FB post templates tpl_daily_fb_post_8h_v1 / tpl_daily_fb_post_9h_v1 / tpl_daily_fb_post_10h_v1 (trigger.cron → action.search_kg → llm.compose_reply → action.publish_fb_post mode=now → action.log). SEED_VERSION bumped 1.16.0 → 1.17.0. R-DCL: contract-only bump; validator exit 0 expected." },
+    { "version": "1.11.0", "date": "2026-07-17", "change": "PHASE-TWINWEB F4 — ADD COLUMN + INDEX on bizcity_automation_runs for owner continuity. DDL: ADD `user_id BIGINT UNSIGNED NOT NULL DEFAULT 0` + ADD INDEX `idx_user_id (user_id)`. Repo enqueue now persists canonical owner from `_owner_user_id`/`wp_user_id`/workflow.created_by; hydrate exposes `user_id` int. Twinweb owner-scoped timeline queries can filter by runs.user_id while preserving legacy rows (`user_id=0`). Migration is ADD-only and executed via Diagnostics Auto-Create (R-DCL)." },
+    { "version": "1.12.0", "date": "2026-07-20", "change": "PHASE-1-TEMPLATES-AUTOMATION Wave 1 — ADD bizcity_automation_config_packs and bizcity_automation_config_rows for CSV/Excel/Google Sheet import into live editable datatable config packs. Rows store row_json, canonical_json, search_text and validation status. Workflow activation remains Wave 2 and is not triggered by import/save." },
+    { "version": "1.13.0", "date": "2026-07-21", "change": "PHASE-ZALOBOT-GROUP W8 / R-AUTO-TEMPLATE-ID — ADD template identity columns to bizcity_automation_templates: template_uuid (stable Hub/seeder upsert key), template_version (author-controlled semver), visibility (global/private). ADD unique index uniq_template_uuid and idx_visibility. Seeder/repo can update templates by UUID before slug and split global ZaloBot recipes from private user-owned recipes." },
+    { "version": "1.13.1", "date": "2026-07-26", "change": "RULE-TRIGGER-SINGLE-CLAIM — contract-only (no DDL). `trigger_config_json` vocabulary extends with optional bool `allow_costack` (default false by behavior) to opt-in intentional co-stack workflows while matcher reduces competing keyword/filter matches to one winner. Matcher now emits trace `matched_keyword_singleclaim_reduced` and file-log decision `matcher.singleclaim_suppressed`; rollout guard filter `bizcity_automation_single_claim_enabled` default true. Applied consistently to both dispatch (`on_channel_message`) and preview (`find_matching_workflows_for_payload`) paths." }
   ]
 }

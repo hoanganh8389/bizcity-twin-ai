@@ -149,7 +149,7 @@ final class BizCity_Automation_Repo_Workflows {
 	/**
 	 * Query workflows.
 	 *
-	 * @param array{enabled?:int,trigger_type?:string,tag?:string,limit?:int,offset?:int,search?:string} $args
+	 * @param array{enabled?:int,trigger_type?:string,tag?:string,created_by?:int,limit?:int,offset?:int,search?:string} $args
 	 * @return array{rows: array<int,array<string,mixed>>, total: int}
 	 */
 	public static function query( array $args = array() ): array {
@@ -170,6 +170,11 @@ final class BizCity_Automation_Repo_Workflows {
 		if ( ! empty( $args['tag'] ) ) {
 			$where[]  = 'tags LIKE %s';
 			$params[] = '%' . $wpdb->esc_like( (string) $args['tag'] ) . '%';
+		}
+		if ( isset( $args['created_by'] ) && (int) $args['created_by'] > 0 ) {
+			// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — customer My Workflows lists only current user's copies.
+			$where[]  = 'created_by = %d';
+			$params[] = (int) $args['created_by'];
 		}
 		if ( ! empty( $args['search'] ) ) {
 			$where[]  = '( name LIKE %s OR slug LIKE %s )';

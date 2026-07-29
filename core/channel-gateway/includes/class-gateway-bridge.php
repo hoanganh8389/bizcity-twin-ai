@@ -193,7 +193,17 @@ class BizCity_Gateway_Bridge {
 
 		// Resolve user: chat_id → wp_user_id
 		if ( class_exists( 'BizCity_User_Resolver' ) ) {
-			$payload['wp_user_id'] = BizCity_User_Resolver::instance()->resolve( $payload['chat_id'] ?? '' );
+			$resolve_chat_id = (string) ( $payload['chat_id'] ?? '' );
+			if ( $platform === 'ZALO_BOT' ) {
+				// [2026-07-17 Johnny Chu] PHASE-TWINWEB F4 — canonical identity for Zalo Bot is sender user_id, not thread/group chat_id.
+				$zalo_user_id = (string) ( $payload['user_id'] ?? '' );
+				$zalo_bot_id  = (string) ( $payload['bot_id'] ?? $payload['account_id'] ?? '' );
+				if ( $zalo_user_id !== '' && $zalo_bot_id !== '' ) {
+					$resolve_chat_id = 'zalobot_' . $zalo_bot_id . '_' . $zalo_user_id;
+					$payload['identity_chat_id'] = $resolve_chat_id;
+				}
+			}
+			$payload['wp_user_id'] = BizCity_User_Resolver::instance()->resolve( $resolve_chat_id );
 		}
 
 		// Resolve blog: chat_id → blog_id (multisite)

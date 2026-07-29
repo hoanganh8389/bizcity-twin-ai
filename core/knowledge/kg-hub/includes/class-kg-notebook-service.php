@@ -13,6 +13,8 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 
 class BizCity_KG_Notebook_Service {
 
+	const NOTEBOOK_SCOPES = [ 'business_kb', 'guru_kb', 'personal' ];
+
 	/**
 	 * Object-cache group used for per-notebook KG stats (compute_stats output).
 	 * Cached entries are invalidated by {@see invalidate_stats()} which fires on:
@@ -72,15 +74,41 @@ class BizCity_KG_Notebook_Service {
 		$db = BizCity_KG_Database::instance();
 
 		$user_id = (int) $user_id;
+		$include_public = ! empty( $args['include_public'] );
+		// [2026-07-27 Johnny Chu] PHASE-0.51 — anonymous list calls cannot read owner_id=0 as private data.
+		if ( $user_id <= 0 && ! $include_public ) {
+			return [];
+		}
 		$limit   = isset( $args['limit'] ) ? (int) $args['limit'] : 100;
+		// [2026-07-27 Johnny Chu] PHASE-0.51 — constrain list filters to the canonical notebook scope enum.
+		$scope   = isset( $args['scope'] ) ? sanitize_key( (string) $args['scope'] ) : '';
+		if ( $scope !== '' && ! in_array( $scope, self::NOTEBOOK_SCOPES, true ) ) {
+			$scope = '';
+		}
+		$where  = 'owner_id = %d';
+		$params = [ $user_id ];
+		if ( $include_public ) {
+			if ( $user_id > 0 ) {
+				$where = "(owner_id = %d OR (owner_id = 0 AND notebook_scope IN ('business_kb','guru_kb')))";
+			} else {
+				// [2026-07-27 Johnny Chu] PHASE-0.51 — anonymous public reads are public-scope-only, never owner fallback.
+				$where  = "owner_id = 0 AND notebook_scope IN ('business_kb','guru_kb')";
+				$params = [];
+			}
+		}
+		if ( $scope !== '' ) {
+			$where   .= ' AND notebook_scope = %s';
+			$params[] = $scope;
+		}
+		$params[] = max( 1, min( 500, $limit ) );
 
 		$rows = $wpdb->get_results( $wpdb->prepare(
-			"SELECT id, name, description, character_id, owner_id, color, settings, stats, created_at, updated_at
+			"SELECT id, name, description, character_id, owner_id, notebook_scope, color, settings, stats, created_at, updated_at
 			 FROM {$db->tbl_notebooks()}
-			 WHERE owner_id = %d
+			 WHERE {$where}
 			 ORDER BY updated_at DESC
 			 LIMIT %d",
-			$user_id, $limit
+			...$params
 		), ARRAY_A );
 
 		return array_map( [ $this, 'hydrate' ], $rows ?: [] );
@@ -99,6 +127,19 @@ class BizCity_KG_Notebook_Service {
 	public function create( array $data, $user_id ) {
 		global $wpdb;
 		$db = BizCity_KG_Database::instance();
+		$user_id = (int) $user_id;
+		// [2026-07-27 Johnny Chu] PHASE-0.51 — never create another shared owner_id=0 bucket.
+		if ( $user_id <= 0 ) {
+			return new WP_Error( 'kg_notebook_identity_required', 'Notebook cần người dùng sở hữu hợp lệ.' );
+		}
+		// [2026-07-27 Johnny Chu] PHASE-0.51 — default every new notebook to private personal scope.
+		$scope = sanitize_key( (string) ( $data['notebook_scope'] ?? $data['scope'] ?? 'personal' ) );
+		if ( ! in_array( $scope, self::NOTEBOOK_SCOPES, true ) ) {
+			$scope = 'personal';
+		}
+		if ( $scope !== 'personal' && ! current_user_can( 'manage_options' ) ) {
+			return new WP_Error( 'kg_notebook_scope_forbidden', 'Chỉ quản trị viên mới được gán phạm vi notebook công khai.' );
+		}
 
 		// Wave 0.18.1c — accept either an explicit `settings` object or a top-level
 		// `workspace_id` shortcut (FE convenience).
@@ -112,14 +153,25 @@ class BizCity_KG_Notebook_Service {
 			'name'         => sanitize_text_field( $data['name'] ?? 'Untitled notebook' ),
 			'description'  => wp_kses_post( $data['description'] ?? '' ),
 			'character_id' => isset( $data['character_id'] ) ? (int) $data['character_id'] : null,
-			'owner_id'     => (int) $user_id,
+			'owner_id'     => $user_id,
+			'notebook_scope'=> $scope,
 			'color'        => sanitize_hex_color( $data['color'] ?? '' ) ?: '',
 			'settings'     => wp_json_encode( (object) $settings ),
 			'stats'        => wp_json_encode( (object) [] ),
 		];
 
 		$wpdb->insert( $db->tbl_notebooks(), $row );
-		return $this->get( $wpdb->insert_id );
+		$notebook_id = (int) $wpdb->insert_id;
+
+		// [2026-07-23 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — materialize notebook filestore root/manifest at create time.
+		if ( $notebook_id > 0 && class_exists( 'BizCity_KG_Notebook_Folder' ) ) {
+			$manifest = BizCity_KG_Notebook_Folder::instance()->manifest( 'notebooks', (string) $row['uuid'] );
+			if ( is_wp_error( $manifest ) ) {
+				error_log( '[KG Notebook Service] filestore manifest init failed for notebook ' . $notebook_id . ': ' . $manifest->get_error_message() );
+			}
+		}
+
+		return $this->get( $notebook_id );
 	}
 
 	public function update( $id, array $data ) {
@@ -131,6 +183,17 @@ class BizCity_KG_Notebook_Service {
 		if ( isset( $data['description'] ) )  $update['description'] = wp_kses_post( $data['description'] );
 		if ( isset( $data['color'] ) )        $update['color']       = sanitize_hex_color( $data['color'] ) ?: '';
 		if ( isset( $data['character_id'] ) ) $update['character_id']= (int) $data['character_id'];
+		if ( isset( $data['notebook_scope'] ) || isset( $data['scope'] ) ) {
+			// [2026-07-27 Johnny Chu] PHASE-0.51 — scope changes remain admin-authorized and enum-bound.
+			$scope = sanitize_key( (string) ( $data['notebook_scope'] ?? $data['scope'] ) );
+			if ( ! in_array( $scope, self::NOTEBOOK_SCOPES, true ) ) {
+				return new WP_Error( 'kg_notebook_scope_invalid', 'Phạm vi notebook không hợp lệ.' );
+			}
+			if ( $scope !== 'personal' && ! current_user_can( 'manage_options' ) ) {
+				return new WP_Error( 'kg_notebook_scope_forbidden', 'Chỉ quản trị viên mới được gán phạm vi notebook công khai.' );
+			}
+			$update['notebook_scope'] = $scope;
+		}
 		if ( isset( $data['settings'] ) )     $update['settings']    = wp_json_encode( $data['settings'] );
 
 		// Wave 0.18.1c — convenient shortcut: merge `workspace_id` into existing settings JSON
@@ -231,6 +294,10 @@ class BizCity_KG_Notebook_Service {
 		$row['id']           = (int) $row['id'];
 		$row['owner_id']     = (int) $row['owner_id'];
 		$row['character_id'] = isset( $row['character_id'] ) ? (int) $row['character_id'] : null;
+		// [2026-07-27 Johnny Chu] PHASE-0.51 — normalize legacy/missing scope values to personal.
+		$row['notebook_scope'] = in_array( (string) ( $row['notebook_scope'] ?? '' ), self::NOTEBOOK_SCOPES, true )
+			? (string) $row['notebook_scope']
+			: 'personal';
 		$row['settings']     = json_decode( $row['settings'] ?? '{}', true ) ?: new stdClass();
 		$row['stats']        = $this->compute_stats( $row['id'] );
 		return $row;

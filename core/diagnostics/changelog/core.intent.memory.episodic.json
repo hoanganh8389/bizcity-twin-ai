@@ -3,7 +3,7 @@
   "module_id": "core.intent.memory.episodic",
   "owner": "core/intent",
   "installer_id": "intent",
-  "current_version": "1.0.0",
+  "current_version": "1.3.0",
   "version_option": "bizcity_memory_episodic_db_ver",
   "tables": {
     "bizcity_memory_episodic": {
@@ -16,6 +16,7 @@
         "id":                     { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",                          "since": "1.0.0", "pk": true },
         "blog_id":                { "type": "INT UNSIGNED NOT NULL DEFAULT 1",                                  "since": "1.0.0" },
         "user_id":                { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",                               "since": "1.0.0" },
+        "identity_uuid":          { "type": "CHAR(36) NOT NULL DEFAULT ''",                                    "since": "1.1.0" },
         "session_id":             { "type": "VARCHAR(255) DEFAULT ''",                                          "since": "1.0.0" },
         "event_type":             { "type": "VARCHAR(50) NOT NULL DEFAULT 'fact'",                              "since": "1.0.0" },
         "event_key":              { "type": "VARCHAR(191) NOT NULL DEFAULT ''",                                 "since": "1.0.0" },
@@ -33,15 +34,19 @@
       },
       "indexes": {
         "idx_user":         { "cols": ["blog_id", "user_id"],                       "since": "1.0.0" },
+        "idx_identity":     { "cols": ["blog_id", "identity_uuid"],                 "since": "1.1.0" },
         "idx_event_type":   { "cols": ["event_type"],                               "since": "1.0.0" },
         "idx_source_conv":  { "cols": ["source_conversation_id"],                   "since": "1.0.0" },
         "idx_source_tool":  { "cols": ["source_tool"],                              "since": "1.0.0" },
         "idx_last_seen":    { "cols": ["last_seen"],                                "since": "1.0.0" },
-        "unique_event":     { "cols": ["blog_id", "user_id", "event_key"], "unique": true, "since": "1.0.0" }
+        "unique_event":     { "cols": ["blog_id", "identity_uuid", "user_id", "event_key"], "unique": true, "since": "1.2.0" }
       }
     }
   },
   "history": [
+    { "version": "1.3.0", "date": "2026-07-29", "change": "R-CH-IDMEM — persist per-blog migration memory for identity_uuid, deduplicate repeated ALTER failures, and key in-request schema checks by blog." },
+    { "version": "1.2.0", "date": "2026-07-28", "change": "R-CH-IDMEM — preserve separate legacy rows while scoping new episodic uniqueness by durable identity UUID; user_id remains only a legacy-row projection in the key." },
+    { "version": "1.1.0", "date": "2026-07-28", "change": "PHASE-0.52 W8 — add identity_uuid as the durable episodic owner and make the event key unique per identity; user_id remains a legacy-row projection only." },
     { "version": "1.0.0", "date": "2026-05-24", "change": "Baseline declaration for R-DCL compliance (Wave 2.8d TBR.MEM-D3). Schema matches DDL in core/intent/includes/conversation/class-episodic-memory.php (back-declared as 1.0.0 baseline; table pre-existed prior to changelog ledger). Tier C of unified memory layer — read-only optional in Memory_Recall. Future consolidation target: bizcity_memory (class='episodic') — see core/memory/PHASE-MEMORY-CONSOLIDATION.md." }
   ]
 }

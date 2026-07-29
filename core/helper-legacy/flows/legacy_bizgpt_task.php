@@ -379,19 +379,28 @@ function twf_check_and_remind_biztask() {
     }
 }
 
-add_filter('cron_schedules', function ($schedules) {
-    $schedules['every_minute'] = [
-        'interval' => 60,
-        'display'  => __('Every Minute')
-    ];
-    return $schedules;
-});
+// [2026-07-26 Johnny Chu] CRON-OVERLOAD-OPTIMIZE — legacy TWF reminder cron is disabled
+// by default (Pattern A). Re-enable by setting option `bizcity_legacy_twf_task_reminder_enabled=1`
+// or filtering `bizcity_legacy_twf_task_reminder_enabled` to true.
+$twf_legacy_reminder_enabled = (bool) get_option('bizcity_legacy_twf_task_reminder_enabled', 0);
+$twf_legacy_reminder_enabled = (bool) apply_filters('bizcity_legacy_twf_task_reminder_enabled', $twf_legacy_reminder_enabled);
+if ($twf_legacy_reminder_enabled) {
+    add_filter('cron_schedules', function ($schedules) {
+        $schedules['every_minute'] = [
+            'interval' => 60,
+            'display'  => __('Every Minute')
+        ];
+        return $schedules;
+    });
 
-if (!wp_next_scheduled('twf_check_biztask_reminder')) {
-    wp_schedule_event(time(), 'every_minute', 'twf_check_biztask_reminder');
+    if (!wp_next_scheduled('twf_check_biztask_reminder')) {
+        wp_schedule_event(time(), 'every_minute', 'twf_check_biztask_reminder');
+    }
+
+    add_action('twf_check_biztask_reminder', 'twf_check_and_remind_biztask');
+} else {
+    wp_clear_scheduled_hook('twf_check_biztask_reminder');
 }
-
-add_action('twf_check_biztask_reminder', 'twf_check_and_remind_biztask');
 function twf_get_chat_id_by_user_id($user_id) {
     return get_user_meta($user_id, 'telegram_chat_id', true);
 }

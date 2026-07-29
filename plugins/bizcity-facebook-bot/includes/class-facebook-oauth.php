@@ -6,9 +6,9 @@
  *   1. Subsite admin clicks "Kết nối Facebook" → redirects to main site:
  *      bizcity.vn/?biz_fb_oauth=start&blog_id=42&_nonce=xxx
  *
- *   2. Main site builds Facebook OAuth URL:
- *      - App ID from get_site_option('bizcity_fb_app_id')
- *      - redirect_uri = bizcity.vn/?biz_fb_oauth=callback
+ *   2. Current blog builds Facebook OAuth URL:
+ *      - App ID from get_option('bztfb_app_id') on the active shard
+ *      - redirect_uri = current site/user callback or hub callback by flow
  *      - state = encrypted(blog_id + user_id + nonce)
  *
  *   3. Facebook redirects back to:
@@ -20,8 +20,8 @@
  *      - Redirects back to subsite admin with status
  *
  * Advantages over legacy:
- *   - Only 1 redirect_uri (main site) → 1 domain in Facebook App
- *   - App ID/Secret from network options (no per-site config)
+ *   - Current-blog App ID/Secret for multisite/multishard correctness
+ *   - Customer member flow reuses admin-configured App without manage_options
  *   - Auto-registers central webhook routes
  */
 
@@ -159,19 +159,19 @@ class BizCity_Facebook_OAuth {
 		}
 
 		$user_id = get_current_user_id();
+		$member_central_app = ! empty( $_GET['bizcity_member'] );
 
-		// [2026-06-29 Johnny Chu] HOTFIX R-MULTISHARD — đọc per-blog option ONLY.
-		// get_site_option() trong multishard trả giá trị từ shard chính (network sitemeta)
-		// — không phải shard của blog này. Nếu shard chính có App Secret cũ/sai
-		// → transient stash sai → Facebook "Error validating client secret".
-		// Rule: mọi credentials PHẢI đọc từ get_option() (per-blog) only.
-		$app_id     = (string) get_option( 'bztfb_app_id', '' );
-		$app_secret = (string) get_option( 'bztfb_app_secret', '' );
+		// [2026-06-29 Johnny Chu] HOTFIX R-MULTISHARD — legacy user_start reads per-blog options only.
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — Twin GPT member connect uses central Channel Gateway App without manage_options.
+		$app_id     = $member_central_app ? self::read_central_member_app_id() : (string) get_option( 'bztfb_app_id', '' );
+		$app_secret = $member_central_app ? self::read_central_member_app_secret() : (string) get_option( 'bztfb_app_secret', '' );
 		$config_id  = '';
 
-		// Legacy key fallback (per-blog only — không get_site_option).
-		if ( $app_id === '' )     { $app_id     = (string) get_option( 'fb_app_id', '' ); }
-		if ( $app_secret === '' ) { $app_secret = (string) get_option( 'fb_app_secret', '' ); }
+		if ( ! $member_central_app ) {
+			// Legacy key fallback (per-blog only — không get_site_option).
+			if ( $app_id === '' )     { $app_id     = (string) get_option( 'fb_app_id', '' ); }
+			if ( $app_secret === '' ) { $app_secret = (string) get_option( 'fb_app_secret', '' ); }
+		}
 
 		if ( empty( $app_id ) || empty( $app_secret ) ) {
 			error_log( sprintf(
@@ -179,9 +179,10 @@ class BizCity_Facebook_OAuth {
 				get_current_blog_id(), $user_id, strlen( $app_id ), strlen( $app_secret )
 			) );
 			wp_die(
-				'Chưa cấu hình Facebook App ID/Secret. Vào admin → BizCity Channel Gateway → Facebook → Cài đặt → Lưu App Config.<br><br>'
+				( $member_central_app ? 'Admin chưa cấu hình Facebook App trung tâm trong Channel Gateway.' : 'Chưa cấu hình Facebook App ID/Secret. Vào admin → BizCity Channel Gateway → Facebook → Cài đặt → Lưu App Config.' ) . '<br><br>'
+				// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — debug active blog option only; do not read site options on multishard.
 				. '<small>Debug: blog_id=' . get_current_blog_id() . ', option_bztfb_app_id=' . esc_html( (string) get_option( 'bztfb_app_id', '(empty)' ) )
-				. ', site_option=' . esc_html( (string) get_site_option( 'bztfb_app_id', '(empty)' ) ) . '</small>',
+				. ', option_fb_app_id=' . esc_html( (string) get_option( 'fb_app_id', '(empty)' ) ) . '</small>',
 				'Thiếu cấu hình',
 				[ 'response' => 400 ]
 			);
@@ -272,10 +273,22 @@ class BizCity_Facebook_OAuth {
 		$code  = sanitize_text_field( $_GET['code'] ?? '' );
 		$state = sanitize_text_field( $_GET['state'] ?? '' );
 		$error = sanitize_text_field( $_GET['error'] ?? '' );
+		$app_source_hint = '';
+		$state_data_hint = null;
+
+		// [2026-07-16 Johnny Chu] PHASE-TWINWEB — decode state early so cancel/error can still redirect back to TwinWeb return_url.
+		if ( ! empty( $state ) ) {
+			$state_data_hint = $this->decode_state( $state );
+			if ( is_array( $state_data_hint ) && isset( $state_data_hint['app_source'] ) ) {
+				$app_source_hint = (string) $state_data_hint['app_source'];
+			}
+		}
 
 		// User cancelled
 		if ( ! empty( $error ) ) {
-			$this->redirect_with_error( 0, 'Facebook authorization cancelled: ' . $error );
+			$blog_hint = is_array( $state_data_hint ) ? (int) ( $state_data_hint['blog_id'] ?? 0 ) : 0;
+			$user_hint = is_array( $state_data_hint ) ? (int) ( $state_data_hint['user_id'] ?? 0 ) : 0;
+			$this->redirect_with_error( $blog_hint, 'Facebook authorization cancelled: ' . $error, $app_source_hint, $user_hint );
 			return;
 		}
 
@@ -358,7 +371,7 @@ class BizCity_Facebook_OAuth {
 		}
 
 		if ( empty( $app_id ) || empty( $app_secret ) ) {
-			$this->redirect_with_error( $blog_id, 'Missing Facebook App credentials.', $app_source );
+			$this->redirect_with_error( $blog_id, 'Missing Facebook App credentials.', $app_source, $user_id );
 			return;
 		}
 
@@ -375,7 +388,7 @@ class BizCity_Facebook_OAuth {
 		] );
 
 		if ( is_wp_error( $response ) ) {
-			$this->redirect_with_error( $blog_id, 'Lỗi kết nối Facebook: ' . $response->get_error_message(), $app_source );
+			$this->redirect_with_error( $blog_id, 'Lỗi kết nối Facebook: ' . $response->get_error_message(), $app_source, $user_id );
 			return;
 		}
 
@@ -385,7 +398,7 @@ class BizCity_Facebook_OAuth {
 		if ( $http_code !== 200 || empty( $body['access_token'] ) ) {
 			$msg = $body['error']['message'] ?? 'Unknown error (HTTP ' . $http_code . ')';
 			error_log( '[BizCity FB OAuth] token-exchange FAIL http=' . $http_code . ' body=' . wp_remote_retrieve_body( $response ) );
-			$this->redirect_with_error( $blog_id, 'Facebook token error: ' . $msg, $app_source );
+			$this->redirect_with_error( $blog_id, 'Facebook token error: ' . $msg, $app_source, $user_id );
 			return;
 		}
 
@@ -448,7 +461,7 @@ class BizCity_Facebook_OAuth {
 		$pages_response = wp_remote_get( $pages_url, [ 'timeout' => 30 ] );
 
 		if ( is_wp_error( $pages_response ) ) {
-			$this->redirect_with_error( $blog_id, 'Lỗi lấy danh sách Fanpage: ' . $pages_response->get_error_message(), $app_source );
+			$this->redirect_with_error( $blog_id, 'Lỗi lấy danh sách Fanpage: ' . $pages_response->get_error_message(), $app_source, $user_id );
 			return;
 		}
 
@@ -456,7 +469,7 @@ class BizCity_Facebook_OAuth {
 		error_log( '[BizCity FB OAuth] /me/accounts response: ' . substr( wp_remote_retrieve_body( $pages_response ), 0, 500 ) );
 
 		if ( isset( $pages_data['error'] ) ) {
-			$this->redirect_with_error( $blog_id, 'Facebook API: ' . ( $pages_data['error']['message'] ?? 'Unknown error' ), $app_source );
+			$this->redirect_with_error( $blog_id, 'Facebook API: ' . ( $pages_data['error']['message'] ?? 'Unknown error' ), $app_source, $user_id );
 			return;
 		}
 		if ( ! empty( $pages_data['data'] ) ) {
@@ -547,7 +560,7 @@ class BizCity_Facebook_OAuth {
 				. '(C) Bạn chưa tick Page ở bước "Chỉnh sửa quyền" của dialog OAuth.',
 				$user_name
 			);
-			$this->redirect_with_error( $blog_id, $msg, $app_source );
+			$this->redirect_with_error( $blog_id, $msg, $app_source, $user_id );
 			return;
 		}
 		// Map Business Manager pages to /me/accounts shape
@@ -674,10 +687,11 @@ class BizCity_Facebook_OAuth {
 	// ==========================================
 
 	/**
-	 * Get Facebook App ID from network option (fallback to per-site + constant).
+	 * Get Facebook App ID from the current blog option.
 	 */
 	private function get_app_id(): string {
-		$id = get_site_option( 'bizcity_fb_app_id', '' );
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — App Config is per-blog on multisite/multishard; do not read site options here.
+		$id = get_option( 'bztfb_app_id', '' );
 		if ( ! empty( $id ) ) return $id;
 
 		$id = get_option( 'fb_app_id', '' );
@@ -687,10 +701,11 @@ class BizCity_Facebook_OAuth {
 	}
 
 	/**
-	 * Get Facebook App Secret from network option (fallback to per-site + constant).
+	 * Get Facebook App Secret from the current blog option.
 	 */
 	private function get_app_secret(): string {
-		$secret = get_site_option( 'bizcity_fb_app_secret', '' );
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — pair secret with the current blog App Config source.
+		$secret = get_option( 'bztfb_app_secret', '' );
 		if ( ! empty( $secret ) ) return $secret;
 
 		$secret = get_option( 'fb_app_secret', '' );
@@ -784,7 +799,7 @@ class BizCity_Facebook_OAuth {
 	/**
 	 * Redirect with error message.
 	 */
-	private function redirect_with_error( int $blog_id, string $message, string $app_source = 'admin' ) {
+	private function redirect_with_error( int $blog_id, string $message, string $app_source = 'admin', int $user_id = 0 ) {
 		error_log( '[BizCity FB OAuth] redirect_with_error: blog=' . $blog_id . ' source=' . $app_source . ' msg=' . $message );
 		if ( $blog_id > 0 ) {
 			$params = [
@@ -792,6 +807,13 @@ class BizCity_Facebook_OAuth {
 				'biz_fb_oauth_error'  => urlencode( $message ),
 			];
 			if ( $app_source === 'user' ) {
+				// [2026-07-16 Johnny Chu] PHASE-TWINWEB — honor pending return_url for error path too.
+				$cg_redirect = apply_filters( 'bizcity_fb_oauth_user_redirect', '', $user_id, array(), $blog_id );
+				if ( is_string( $cg_redirect ) && $cg_redirect !== '' ) {
+					$error_url = add_query_arg( $params, $cg_redirect );
+					wp_redirect( $error_url );
+					exit;
+				}
 				// User flow: redirect to /tool-facebook/ using home_url() for reliability
 				$url = add_query_arg( $params, home_url( '/tool-facebook/' ) );
 				wp_redirect( $url );
@@ -799,6 +821,17 @@ class BizCity_Facebook_OAuth {
 			}
 			$this->redirect_to_subsite( $blog_id, $params );
 		} else {
+			if ( $app_source === 'user' && $user_id > 0 ) {
+				$cg_redirect = apply_filters( 'bizcity_fb_oauth_user_redirect', '', $user_id, array(), 0 );
+				if ( is_string( $cg_redirect ) && $cg_redirect !== '' ) {
+					$error_url = add_query_arg( array(
+						'biz_fb_oauth_status' => 'error',
+						'biz_fb_oauth_error'  => urlencode( $message ),
+					), $cg_redirect );
+					wp_redirect( $error_url );
+					exit;
+				}
+			}
 			wp_die( esc_html( $message ), 'OAuth Error', [ 'response' => 400 ] );
 		}
 	}
@@ -809,18 +842,41 @@ class BizCity_Facebook_OAuth {
 
 	/**
 	 * Get the OAuth start URL for the current site (admin flow).
-	 * Uses network-level App credentials.
+	 * Uses current-blog App Config credentials.
 	 *
 	 * @return string|null URL or null if App ID not configured.
 	 */
 	public static function get_oauth_url(): ?string {
-		$app_id = get_site_option( 'bizcity_fb_app_id', '' );
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — use per-blog options to avoid cross-shard/global App ID drift.
+		$app_id = get_option( 'bztfb_app_id', '' );
 		if ( empty( $app_id ) ) {
 			$app_id = get_option( 'fb_app_id', '' );
 		}
 		if ( empty( $app_id ) ) return null;
 
 		return home_url( '/?biz_fb_oauth=start' );
+	}
+
+	public static function get_member_oauth_url(): ?string {
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — logged-in member OAuth, no manage_options gate, central App credentials.
+		if ( self::read_central_member_app_id() === '' || self::read_central_member_app_secret() === '' ) {
+			return null;
+		}
+		return add_query_arg( 'bizcity_member', '1', home_url( '/?biz_fb_oauth=user_start' ) );
+	}
+
+	private static function read_central_member_app_id(): string {
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — member OAuth reads current-blog Channel Gateway App Config only.
+		$value = (string) get_option( 'bztfb_app_id', '' );
+		if ( $value === '' ) { $value = (string) get_option( 'fb_app_id', '' ); }
+		return $value;
+	}
+
+	private static function read_central_member_app_secret(): string {
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — keep App ID/Secret source on the current blog shard.
+		$value = (string) get_option( 'bztfb_app_secret', '' );
+		if ( $value === '' ) { $value = (string) get_option( 'fb_app_secret', '' ); }
+		return $value;
 	}
 
 	/**

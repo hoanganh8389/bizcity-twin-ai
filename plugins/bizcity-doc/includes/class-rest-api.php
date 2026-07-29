@@ -14,6 +14,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 class BZDoc_Rest_API {
 
 	const NAMESPACE    = 'bzdoc/v1';
+	const GENERATION_MODEL = 'deepseek/deepseek-v4-pro'; // [2026-07-20 Johnny Chu] PHASE-1-BZDOC-DEEPSEEK — primary BZDoc generator for document/slide/excel.
+	const GENERATION_FALLBACK_MODEL = 'anthropic/claude-sonnet-4-5'; // [2026-07-20 Johnny Chu] PHASE-1-BZDOC-DEEPSEEK — fallback #1 after DeepSeek V4 Pro.
+	const GENERATION_SECOND_FALLBACK_MODEL = 'google/gemini-2.5-pro'; // [2026-07-20 Johnny Chu] PHASE-1-BZDOC-DEEPSEEK — fallback #2 after Claude Sonnet 4.5.
+	const PRESENTATION_SLIDE_COUNT = 20; // [2026-07-20 Johnny Chu] PHASE-1-BZDOC-DEEPSEEK — default detailed deck length.
 	// Hard cap on the user-facing "topic" / prompt field.
 	// NOTE: counted in CHARACTERS via mb_strlen(), not bytes — so 50_000 here
 	// means ~50k Vietnamese characters, not ~16k after UTF-8 byte expansion.
@@ -120,6 +124,13 @@ class BZDoc_Rest_API {
 		register_rest_route( self::NAMESPACE, '/get/(?P<id>\d+)', [
 			'methods'             => 'GET',
 			'callback'            => [ __CLASS__, 'handle_get' ],
+			'permission_callback' => [ __CLASS__, 'check_auth' ],
+		] );
+
+		/* [2026-07-20 Johnny Chu] PHASE-1-TWIN-GPT-AGENT-TOOLS — download persisted Twin GPT/BZDoc handoff trace. */
+		register_rest_route( self::NAMESPACE, '/handoff/(?P<id>\d+)', [
+			'methods'             => 'GET',
+			'callback'            => [ __CLASS__, 'handle_get_handoff' ],
 			'permission_callback' => [ __CLASS__, 'check_auth' ],
 		] );
 
@@ -436,8 +447,10 @@ class BZDoc_Rest_API {
 		$topic     = sanitize_textarea_field( $request->get_param( 'topic' ) ?: '' );
 		$template  = sanitize_text_field( $request->get_param( 'template_name' ) ?: 'blank' );
 		$theme     = sanitize_text_field( $request->get_param( 'theme_name' ) ?: 'modern' );
-		$slide_count = absint( $request->get_param( 'slide_count' ) ?: 10 );
+		$slide_count = self::normalize_slide_count( $doc_type, $request->get_param( 'slide_count' ) );
 		$doc_id    = absint( $request->get_param( 'doc_id' ) ?: 0 );
+		// [2026-07-20 Johnny Chu] PHASE-1-TWIN-GPT-AGENT-TOOLS — accept upstream structured trace from Twin GPT or notebook handoff.
+		$handoff_payload = self::extract_handoff_payload( $request, $doc_type, $doc_id );
 
 		if ( empty( $topic ) && $template === 'blank' ) {
 			return new \WP_Error( 'missing_topic', 'Topic or template is required.', [ 'status' => 400 ] );
@@ -500,6 +513,8 @@ class BZDoc_Rest_API {
 			self::complete_generation( $gen_id, 'failed', $start_time, $schema->get_error_message() );
 			return $schema;
 		}
+
+		$schema = self::attach_handoff_to_schema( $schema, $handoff_payload );
 
 		// Auto-save to get a doc_id for URL persistence
 		$title = $schema['metadata']['title'] ?? $schema['presentation_title'] ?? $schema['title'] ?? $topic;
@@ -742,8 +757,10 @@ class BZDoc_Rest_API {
 		$topic       = sanitize_textarea_field( $request->get_param( 'topic' ) ?: '' );
 		$template    = sanitize_text_field( $request->get_param( 'template_name' ) ?: 'blank' );
 		$theme       = sanitize_text_field( $request->get_param( 'theme_name' ) ?: 'modern' );
-		$slide_count = absint( $request->get_param( 'slide_count' ) ?: 10 );
+		$slide_count = self::normalize_slide_count( $doc_type, $request->get_param( 'slide_count' ) );
 		$doc_id      = absint( $request->get_param( 'doc_id' ) ?: 0 );
+		// [2026-07-20 Johnny Chu] PHASE-1-TWIN-GPT-AGENT-TOOLS — capture trace before topic is expanded by notebook skeleton.
+		$handoff_payload = self::extract_handoff_payload( $request, $doc_type, $doc_id );
 		$notebook_id      = absint( $request->get_param( 'notebook_id' ) ?: 0 );
 		// S0.11 fallback — Studio autogen flow: the notebook_bridge saves
 		// notebook_id to bzdoc_documents at creation time, but the FE's
@@ -962,6 +979,8 @@ class BZDoc_Rest_API {
 			exit;
 		}
 
+		$schema = self::attach_handoff_to_schema( $schema, $handoff_payload );
+
 		$title = $schema['metadata']['title'] ?? $schema['presentation_title'] ?? $schema['title'] ?? $topic;
 		$saved = self::auto_save_document( $doc_id, $user_id, $doc_type, $title, $template, $theme, $schema );
 		self::complete_generation( $gen_id, 'completed', $start_time, null, $saved, $schema );
@@ -998,13 +1017,16 @@ class BZDoc_Rest_API {
 		$user_id = get_current_user_id();
 
 		$doc_id  = absint( $request->get_param( 'id' ) );
+		$schema_json = $request->get_param( 'schema_json' );
+		$schema_json = self::attach_handoff_to_schema( $schema_json, self::extract_handoff_payload( $request, sanitize_text_field( $request->get_param( 'doc_type' ) ?: 'document' ), $doc_id ) );
+
 		$data    = [
 			'user_id'       => $user_id,
 			'doc_type'      => sanitize_text_field( $request->get_param( 'doc_type' ) ?: 'document' ),
 			'title'         => sanitize_text_field( $request->get_param( 'title' ) ?: 'Untitled' ),
 			'template_name' => sanitize_text_field( $request->get_param( 'template_name' ) ?: 'blank' ),
 			'theme_name'    => sanitize_text_field( $request->get_param( 'theme_name' ) ?: 'modern' ),
-			'schema_json'   => wp_json_encode( $request->get_param( 'schema_json' ) ),
+			'schema_json'   => wp_json_encode( $schema_json ),
 			'status'        => 'draft',
 			'updated_at'    => current_time( 'mysql' ),
 		];
@@ -1077,6 +1099,122 @@ class BZDoc_Rest_API {
 		return rest_ensure_response( $row );
 	}
 
+	public static function handle_get_handoff( \WP_REST_Request $request ) {
+		// [2026-07-20 Johnny Chu] PHASE-1-TWIN-GPT-AGENT-TOOLS — return persisted spec trace for Doc Studio toolbar download.
+		global $wpdb;
+		$table   = $wpdb->prefix . 'bzdoc_documents';
+		$user_id = get_current_user_id();
+		$doc_id  = absint( $request->get_param( 'id' ) );
+
+		$row = $wpdb->get_row( $wpdb->prepare(
+			"SELECT id, user_id, doc_type, title, schema_json, created_at, updated_at FROM {$table} WHERE id = %d AND user_id = %d",
+			$doc_id,
+			$user_id
+		), ARRAY_A );
+
+		if ( ! $row ) {
+			return new \WP_Error( 'not_found', 'Document not found.', [ 'status' => 404 ] );
+		}
+
+		$schema = json_decode( (string) ( $row['schema_json'] ?? '{}' ), true );
+		if ( ! is_array( $schema ) ) {
+			$schema = [];
+		}
+
+		return rest_ensure_response( [
+			'success' => true,
+			'doc'     => [
+				'id'         => (int) $row['id'],
+				'doc_type'   => (string) $row['doc_type'],
+				'title'      => (string) $row['title'],
+				'created_at' => (string) $row['created_at'],
+				'updated_at' => (string) $row['updated_at'],
+			],
+			'handoff' => isset( $schema['_handoff'] ) && is_array( $schema['_handoff'] ) ? $schema['_handoff'] : null,
+			'autogen'  => isset( $schema['_autogen'] ) && is_array( $schema['_autogen'] ) ? $schema['_autogen'] : null,
+			'schema_keys' => array_keys( $schema ),
+		] );
+	}
+
+	private static function extract_handoff_payload( \WP_REST_Request $request, string $doc_type, int $doc_id = 0 ): array {
+		// [2026-07-20 Johnny Chu] PHASE-1-TWIN-GPT-AGENT-TOOLS — normalize upstream Twin GPT/BZDoc trace without adding DB columns.
+		$tool_spec  = $request->get_param( 'tool_spec' );
+		$spec_trace = $request->get_param( 'spec_trace' );
+		$thread_spec = $request->get_param( 'thread_spec' );
+		if ( ! is_array( $tool_spec ) ) {
+			$tool_spec = [];
+		}
+		if ( ! is_array( $spec_trace ) ) {
+			$spec_trace = [];
+		}
+		if ( ! is_array( $thread_spec ) ) {
+			$thread_spec = [];
+		}
+
+		if ( empty( $tool_spec ) && empty( $spec_trace ) && empty( $thread_spec ) ) {
+			return [];
+		}
+
+		return [
+			'schema'      => 'bzdoc.handoff.v1',
+			'source'      => 'bzdoc_rest',
+			'doc_id'      => $doc_id,
+			'doc_type'    => $doc_type,
+			'tool_spec'   => self::sanitize_handoff_value( $tool_spec ),
+			'spec_trace'  => self::sanitize_handoff_value( $spec_trace ),
+			'thread_spec' => self::sanitize_handoff_value( $thread_spec ),
+			'quality_gates' => isset( $tool_spec['quality_gates'] ) && is_array( $tool_spec['quality_gates'] )
+				? self::sanitize_handoff_value( $tool_spec['quality_gates'] )
+				: [],
+			'created_at'  => current_time( 'mysql' ),
+		];
+	}
+
+	private static function attach_handoff_to_schema( $schema, array $handoff_payload ) {
+		// [2026-07-20 Johnny Chu] PHASE-1-TWIN-GPT-AGENT-TOOLS — preserve generated schema shape while adding trace metadata.
+		if ( ! is_array( $schema ) || empty( $handoff_payload ) ) {
+			return $schema;
+		}
+		$existing = isset( $schema['_handoff'] ) && is_array( $schema['_handoff'] ) ? $schema['_handoff'] : [];
+		$schema['_handoff'] = array_merge( $existing, $handoff_payload );
+		return $schema;
+	}
+
+	private static function sanitize_handoff_value( $value, int $depth = 0 ) {
+		// [2026-07-20 Johnny Chu] PHASE-1-TWIN-GPT-AGENT-TOOLS — cap nested trace payload to avoid runaway JSON in schema_json.
+		if ( $depth > 8 ) {
+			return null;
+		}
+		if ( is_array( $value ) ) {
+			$out = [];
+			$count = 0;
+			foreach ( $value as $key => $item ) {
+				$count++;
+				if ( $count > 120 ) {
+					$out['_truncated'] = true;
+					break;
+				}
+				$safe_key = is_int( $key ) ? $key : sanitize_key( (string) $key );
+				if ( $safe_key === '' && ! is_int( $safe_key ) ) {
+					$safe_key = 'field_' . $count;
+				}
+				$out[ $safe_key ] = self::sanitize_handoff_value( $item, $depth + 1 );
+			}
+			return $out;
+		}
+		if ( is_bool( $value ) || is_int( $value ) || is_float( $value ) || $value === null ) {
+			return $value;
+		}
+		$text = wp_strip_all_tags( (string) $value );
+		if ( function_exists( 'mb_strlen' ) && mb_strlen( $text, 'UTF-8' ) > 5000 ) {
+			return mb_substr( $text, 0, 4999, 'UTF-8' ) . '…';
+		}
+		if ( ! function_exists( 'mb_strlen' ) && strlen( $text ) > 5000 ) {
+			return substr( $text, 0, 4999 ) . '...';
+		}
+		return $text;
+	}
+
 	/* ═══════════════════════════════════════════════
 	   LLM CALL — Streaming to avoid gateway 502 timeout
 	   Uses bizcity_llm_chat_stream() internally but
@@ -1089,13 +1227,11 @@ class BZDoc_Rest_API {
 		];
 
 		$llm_opts = [
-			'model'          => 'anthropic/claude-sonnet-4-5',
-			// Cross-vendor fallback so Anthropic outages don't kill doc generation.
-			// Hub default fallback for 'executor' is also Anthropic (claude-sonnet-4),
-			// which means an Anthropic-wide 502 takes both down. Override here.
-			'fallback_model' => 'google/gemini-2.5-pro',
+			// [2026-07-20 Johnny Chu] PHASE-1-BZDOC-DEEPSEEK — BZDoc document/slide/excel generation uses DeepSeek V4 Pro by default.
+			'model'          => self::generation_model(),
+			'fallback_model' => self::generation_fallback_model(),
 			'purpose'        => 'executor',
-			'temperature'    => 0.3,
+			'temperature'    => 0.2,
 			'max_tokens'     => $max_tokens,
 			'timeout'        => 300,
 		];
@@ -1140,8 +1276,42 @@ class BZDoc_Rest_API {
 				return $response;
 			}
 
-			error_log( '[BZDoc] Stream failed: ' . ( $result['error'] ?? 'unknown' ) );
-			return new \WP_Error( 'llm_error', $result['error'] ?? 'LLM stream failed' );
+
+			$first_error = (string) ( $result['error'] ?? 'LLM stream failed' );
+			error_log( '[BZDoc] Stream failed after primary/fallback#1: ' . $first_error );
+			$second_model = self::generation_second_fallback_model();
+			if ( '' !== $second_model && $second_model !== $llm_opts['model'] && $second_model !== $llm_opts['fallback_model'] ) {
+				// [2026-07-20 Johnny Chu] PHASE-1-BZDOC-DEEPSEEK — explicit fallback #2 because router supports only one fallback_model per call.
+				$second_opts = $llm_opts;
+				$second_opts['model'] = $second_model;
+				$second_opts['fallback_model'] = '';
+				$full = '';
+				$last_hb = microtime( true );
+				error_log( '[BZDoc] Retrying stream with fallback#2: ' . $second_model );
+				$second_result = bizcity_llm_chat_stream( $messages, $second_opts,
+					function ( $delta, $full_so_far ) use ( &$full, &$last_hb, $on_keepalive ) {
+						$full = $full_so_far;
+						if ( microtime( true ) - $last_hb >= 30.0 ) {
+							if ( $on_keepalive !== null ) {
+								( $on_keepalive )();
+							} else {
+								echo ": heartbeat\n\n";
+								if ( ob_get_level() > 0 ) { @ob_flush(); }
+								@flush();
+							}
+							$last_hb = microtime( true );
+						}
+					}
+				);
+				if ( ! empty( $second_result['success'] ) ) {
+					$response = ! empty( $second_result['message'] ) ? $second_result['message'] : $full;
+					error_log( '[BZDoc] Stream fallback#2 success. Response length: ' . strlen( $response ) . ' chars' );
+					return $response;
+				}
+				return new \WP_Error( 'llm_error', (string) ( $second_result['error'] ?? $first_error ) );
+			}
+
+			return new \WP_Error( 'llm_error', $first_error );
 		}
 
 		// Fallback: blocking call (may 502 on slow responses)
@@ -1152,10 +1322,69 @@ class BZDoc_Rest_API {
 				return $result['message'] ?? '';
 			}
 
+			// [2026-07-20 Johnny Chu] PHASE-1-BZDOC-DEEPSEEK — blocking fallback #2 after router primary/fallback#1 fails.
+			$second_model = self::generation_second_fallback_model();
+			if ( '' !== $second_model && $second_model !== $llm_opts['model'] && $second_model !== $llm_opts['fallback_model'] ) {
+				$second_opts = $llm_opts;
+				$second_opts['model'] = $second_model;
+				$second_opts['fallback_model'] = '';
+				$second_result = bizcity_llm_chat( $messages, $second_opts );
+				if ( ! empty( $second_result['success'] ) ) {
+					return $second_result['message'] ?? '';
+				}
+				return new \WP_Error( 'llm_error', $second_result['error'] ?? ( $result['error'] ?? 'LLM call failed' ) );
+			}
+
 			return new \WP_Error( 'llm_error', $result['error'] ?? 'LLM call failed' );
 		}
 
 		return new \WP_Error( 'llm_unavailable', 'bizcity_llm_chat() is not available. Please ensure BizCity Twin AI core is active.' );
+	}
+
+	private static function generation_model(): string {
+		// [2026-07-20 Johnny Chu] PHASE-1-BZDOC-DEEPSEEK — allow router/site alias override without changing BZDoc callers.
+		return (string) apply_filters( 'bzdoc_generation_model', self::GENERATION_MODEL );
+	}
+
+	private static function generation_fallback_model(): string {
+		// [2026-07-20 Johnny Chu] PHASE-1-BZDOC-DEEPSEEK — fallback #1 defaults to Claude Sonnet 4.5.
+		return (string) apply_filters( 'bzdoc_generation_fallback_model', self::GENERATION_FALLBACK_MODEL );
+	}
+
+	private static function generation_second_fallback_model(): string {
+		// [2026-07-20 Johnny Chu] PHASE-1-BZDOC-DEEPSEEK — fallback #2 defaults to Gemini 2.5 Pro.
+		return (string) apply_filters( 'bzdoc_generation_second_fallback_model', self::GENERATION_SECOND_FALLBACK_MODEL );
+	}
+
+	private static function call_llm_single_model( string $system_prompt, string $user_prompt, string $model, int $max_tokens = 8000 ) {
+		// [2026-07-20 Johnny Chu] PHASE-1-BZDOC-DEEPSEEK — one-model retry helper for parallel sections after router fallback#1 fails.
+		if ( '' === $model || ! function_exists( 'bizcity_llm_chat' ) ) {
+			return new \WP_Error( 'llm_unavailable', 'LLM retry client is not available.' );
+		}
+		$result = bizcity_llm_chat( [
+			[ 'role' => 'system', 'content' => $system_prompt ],
+			[ 'role' => 'user',   'content' => $user_prompt ],
+		], [
+			'model'          => $model,
+			'fallback_model' => '',
+			'purpose'        => 'executor',
+			'temperature'    => 0.2,
+			'max_tokens'     => $max_tokens,
+			'timeout'        => 300,
+		] );
+		if ( ! empty( $result['success'] ) ) {
+			return (string) ( $result['message'] ?? '' );
+		}
+		return new \WP_Error( 'llm_error', (string) ( $result['error'] ?? 'LLM retry failed' ) );
+	}
+
+	private static function normalize_slide_count( string $doc_type, $requested ): int {
+		// [2026-07-20 Johnny Chu] PHASE-1-BZDOC-DEEPSEEK — presentation requests must produce a detailed 20-slide deck by default/minimum.
+		$count = absint( $requested );
+		if ( 'presentation' !== $doc_type ) {
+			return $count > 0 ? $count : 10;
+		}
+		return max( self::PRESENTATION_SLIDE_COUNT, $count > 0 ? $count : self::PRESENTATION_SLIDE_COUNT );
 	}
 
 	/* ═══════════════════════════════════════════════
@@ -1220,6 +1449,12 @@ You MUST write in THE SAME LANGUAGE as the user's topic/prompt. If the topic is 
 
 ## DOCUMENT QUALITY STANDARDS
 
+0. **Accuracy and grounding first**:
+	- Treat the latest user prompt as the binding objective and source documents as the binding facts.
+	- Do NOT invent statistics, dates, legal references, study names, product claims, or source titles.
+	- If a fact is missing from the prompt/sources, write a cautious assumption or an explicit "Cần xác minh" note instead of fabricating.
+	- Prefer exact terminology, quoted evidence, and cited source names over fluent but unsupported prose.
+
 1. **Structure**: Follow professional report/academic structure:
    - Title page elements (heading1 centered + metadata)
    - Table of contents hint (heading2 for each major section)
@@ -1260,10 +1495,12 @@ You MUST write in THE SAME LANGUAGE as the user's topic/prompt. If the topic is 
 6. Tables MUST have isHeader: true on first row
 7. Generate COMPREHENSIVE content — a full professional document, NOT a skeleton
 8. NEVER truncate or omit sections to save space — output the complete document
+9. Accuracy beats creativity: uncertain claims must be marked for verification, not invented.
 PROMPT;
 	}
 
 	private static function system_prompt_presentation(): string {
+		// [2026-07-20 Johnny Chu] PHASE-TWIN-GPT-AGENT-TOOLS — expose safe owned image fields for PPTX image_slide export.
 		return <<<'PROMPT'
 You are a Professional Presentation Architect creating expert-level presentation decks. You output STRICT JSON.
 
@@ -1280,6 +1517,10 @@ You MUST write in THE SAME LANGUAGE as the user's topic. If Vietnamese, write in
     "subtitle": "string (only for title_slide/section_header)",
     "bullets": [{ "content": "string", "level": 0 }],
     "columns": [{ "title": "string", "bullets": [{ "content": "string", "level": 0 }] }],
+	"image_url": "string (optional for image_slide only; use only provided same-origin/relative image URL, never invent external URLs)",
+	"image_data": "string (optional for image_slide only; data:image/...;base64 when provided by the app)",
+	"image_alt": "string (optional accessible description)",
+	"caption": "string (optional source/caption shown below image)",
     "icon": "string (emoji icon representing the slide topic, e.g. 📊, 🎯, 💡, 🏥)",
     "accent_color": "string (hex color for this slide's accent, e.g. #2563eb, #059669)",
     "notes": "string (speaker notes — 4-6 sentences)"
@@ -1293,6 +1534,7 @@ You MUST write in THE SAME LANGUAGE as the user's topic. If Vietnamese, write in
 2. **Content depth**: Each bullet MUST be a complete, substantive sentence with specific data, percentages, examples, or analysis — NOT vague phrases like "Improve quality" or "Important factor"
 3. **Source citations**: When reference documents are provided, cite them inline: "(Nguồn: Khảo sát 2023, n=200)" or "(Theo Thông tư 08/2011/TT-BYT)". Include specific numbers and findings from sources.
 4. **Speaker notes**: MUST be 4-6 sentences of detailed talking points with additional context, statistics, and transition cues
+5. **Image slides**: Use image_url/image_data only when the source is provided in the user/app context. Do NOT invent stock/external image URLs.
 5. **Visual variety**: Alternate layouts — use two_column for comparisons/before-after, section_header to introduce new topics, content_slide for detailed analysis
 6. **Icons**: Every slide gets a relevant emoji icon representing its topic
 7. **Accent colors**: Vary accent_color across slides for visual rhythm — use professional colors
@@ -1305,7 +1547,7 @@ You MUST write in THE SAME LANGUAGE as the user's topic. If Vietnamese, write in
 2. All strings must use proper JSON escaping  
 3. First slide = title_slide with title + subtitle
 4. Last slide = closing/thank-you slide with key takeaways
-5. Generate 12-20 slides with REAL, SUBSTANTIVE, DETAILED content
+5. Generate EXACTLY the requested slide count; default/minimum BZDoc deck is 20 slides. Every slide must be detailed, not filler.
 6. Each content_slide must have 4-6 bullets (not 2-3 sparse ones)
 7. For two_column layout, use "columns" array (2 items), NOT "bullets"
 PROMPT;
@@ -1457,7 +1699,7 @@ SOURCES;
 Create a professional, comprehensive, DETAILED presentation about: {$topic}
 
 Requirements:
-- Generate {$slide_count} slides minimum (aim for 15-20 for thorough coverage)
+- Generate EXACTLY {$slide_count} detailed slides. BZDoc default/minimum is 20 slides; do not stop at 10-12.
 - title_slide first with compelling title + subtitle, closing slide last with key takeaways
 - CONTENT DEPTH: Each content slide must have 4-6 substantive bullets. Each bullet must be a complete sentence with specific data, numbers, percentages, or concrete analysis — NOT generic phrases
 - If reference documents are provided above, EXTRACT and CITE specific data: numbers, survey results, statistics, legal references, findings. Add "(Nguồn: ...)" inline citations
@@ -1538,6 +1780,8 @@ REQUIREMENTS — Follow these strictly:
 6. **Professional formatting**: Use divider between major sections. Justify paragraph alignment.
 7. **Framework/Template sections**: If topic is a process/protocol → include a blank template section AND a filled worked example for at least 2-3 specific application cases.
 8. **Conclusion**: End with concrete recommendations or action items.
+9. **Accuracy / anti-hallucination**: Do not invent facts outside the prompt/reference material. When evidence is missing, state what must be verified instead of making up names, numbers, laws, citations, or dates.
+10. **Source fidelity**: When sources are provided, keep wording, terminology, thresholds, and scope close to the source; synthesize only after citing the source facts.
 
 Return ONLY the complete JSON document.
 PROMPT;
@@ -1942,10 +2186,11 @@ PROMPT;
 			[ 'role' => 'user',   'content' => $user_prompt ],
 		];
 		$opts = [
-			'model'          => 'anthropic/claude-sonnet-4-5',
-			'fallback_model' => 'google/gemini-2.5-pro',
+			// [2026-07-20 Johnny Chu] PHASE-1-BZDOC-DEEPSEEK — section worker uses same BZDoc DeepSeek model contract.
+			'model'          => self::generation_model(),
+			'fallback_model' => self::generation_fallback_model(),
 			'purpose'        => 'executor',
-			'temperature'    => 0.3,
+			'temperature'    => 0.2,
 			'max_tokens'     => $max_tokens,
 			'timeout'        => 300,
 		];
@@ -1954,6 +2199,15 @@ PROMPT;
 			$result = bizcity_llm_chat( $messages, $opts );
 			if ( ! empty( $result['success'] ) ) {
 				return $result['message'] ?? '';
+			}
+			// [2026-07-20 Johnny Chu] PHASE-1-BZDOC-DEEPSEEK — blocking worker fallback #2 after DeepSeek->Claude fails.
+			$second_model = self::generation_second_fallback_model();
+			if ( '' !== $second_model && $second_model !== $opts['model'] && $second_model !== $opts['fallback_model'] ) {
+				$retry = self::call_llm_single_model( $system_prompt, $user_prompt, $second_model, $max_tokens );
+				if ( ! is_wp_error( $retry ) ) {
+					return $retry;
+				}
+				return $retry;
 			}
 			return new \WP_Error( 'llm_error', $result['error'] ?? 'LLM blocking call failed' );
 		}
@@ -2119,9 +2373,14 @@ PROMPT;
 		// rơi về placeholder). Thay bằng curl_multi_exec gọi N HTTP requests
 		// song song trực tiếp tới LLM gateway, cùng PHP process. Hoạt động
 		// trên mọi hosting, không phụ thuộc loopback.
-		// [2026-06-10 Johnny Chu] HOTFIX — per-site option (not network-wide sitemeta)
-		$gateway_url = trim( (string) get_option( 'bizcity_llm_gateway_url', '' ) );
-		$api_key     = trim( (string) get_option( 'bizcity_llm_api_key', '' ) );
+		// [2026-07-27 Johnny Chu] PHASE-0.49-MASTER-CONFIG-401 — parallel document
+		// calls must share the canonical normalized 1API credentials.
+		$gateway_url = class_exists( 'BizCity_LLM_Client' )
+			? BizCity_LLM_Client::instance()->get_gateway_url()
+			: trim( (string) get_option( 'bizcity_llm_gateway_url', '' ) );
+		$api_key     = class_exists( 'BizCity_LLM_Client' )
+			? BizCity_LLM_Client::instance()->get_api_key()
+			: trim( (string) get_option( 'bizcity_llm_api_key', '' ) );
 		if ( $gateway_url === '' || $api_key === '' ) {
 			self::sse_send( 'error', [ 'message' => 'LLM gateway chưa cấu hình.' ] );
 			return;
@@ -2146,13 +2405,14 @@ PROMPT;
 				);
 
 				$body = wp_json_encode( [
-					'model'          => 'anthropic/claude-sonnet-4-5',
-					'fallback_model' => 'google/gemini-2.5-pro',
+					// [2026-07-20 Johnny Chu] PHASE-1-BZDOC-DEEPSEEK — parallel section calls must match main BZDoc model selection.
+					'model'          => self::generation_model(),
+					'fallback_model' => self::generation_fallback_model(),
 					'messages'       => [
 						[ 'role' => 'system', 'content' => $section_system ],
 						[ 'role' => 'user',   'content' => $user_prompt ],
 					],
-					'temperature'    => 0.3,
+					'temperature'    => 0.2,
 					'max_tokens'     => 6000,
 					'purpose'        => 'executor',
 					'timeout'        => 280,
@@ -2179,6 +2439,7 @@ PROMPT;
 					'ch'       => $ch,
 					'batch_no' => $bn,
 					'label'    => $label,
+					'user_prompt' => $user_prompt,
 					'is_last'  => $is_last,
 					'done'     => false,
 					'result'   => null,
@@ -2289,9 +2550,19 @@ PROMPT;
 			}
 			$res = $h['result'];
 			if ( $res['code'] !== 200 || $res['err'] ) {
-				$fail_count++;
 				error_log( sprintf( '[BZDoc][CurlMulti] section=%d HTTP %d err=%s body_first=%s',
 					$gidx, $res['code'], $res['err'], substr( (string) $res['body'], 0, 200 ) ) );
+				// [2026-07-20 Johnny Chu] PHASE-1-BZDOC-DEEPSEEK — explicit Gemini fallback for failed parallel sections.
+				$retry_ai = self::call_llm_single_model( $section_system, (string) ( $h['user_prompt'] ?? '' ), self::generation_second_fallback_model(), 6000 );
+				if ( ! is_wp_error( $retry_ai ) ) {
+					$retry_parsed = self::parse_ai_json( $retry_ai );
+					if ( is_array( $retry_parsed ) && ! empty( $retry_parsed['elements'] ) ) {
+						$ok_count++;
+						$all_results[ $gidx ] = $retry_parsed['elements'];
+						continue;
+					}
+				}
+				$fail_count++;
 				$all_results[ $gidx ] = [
 					[ 'type' => 'heading2',  'text' => $entry_label ],
 					[ 'type' => 'paragraph', 'text' => '[Lỗi gateway HTTP ' . $res['code'] . '. Vui lòng tạo lại bằng chat.]' ],
@@ -2309,9 +2580,19 @@ PROMPT;
 				$ok_count++;
 				$all_results[ $gidx ] = $parsed['elements'];
 			} else {
-				$fail_count++;
 				error_log( sprintf( '[BZDoc][CurlMulti] section=%d parse failed, ai_len=%d',
 					$gidx, mb_strlen( $ai_text ) ) );
+				// [2026-07-20 Johnny Chu] PHASE-1-BZDOC-DEEPSEEK — parse failure may be model-specific; retry section with Gemini fallback#2.
+				$retry_ai = self::call_llm_single_model( $section_system, (string) ( $h['user_prompt'] ?? '' ), self::generation_second_fallback_model(), 6000 );
+				if ( ! is_wp_error( $retry_ai ) ) {
+					$retry_parsed = self::parse_ai_json( $retry_ai );
+					if ( is_array( $retry_parsed ) && ! empty( $retry_parsed['elements'] ) ) {
+						$ok_count++;
+						$all_results[ $gidx ] = $retry_parsed['elements'];
+						continue;
+					}
+				}
+				$fail_count++;
 				$all_results[ $gidx ] = [
 					[ 'type' => 'heading2',  'text' => $entry_label ],
 					[ 'type' => 'paragraph', 'text' => '[Không phân tích được kết quả AI cho phần này.]' ],
@@ -3193,6 +3474,15 @@ PROMPT;
 	private static function auto_save_document( int $doc_id, int $user_id, string $doc_type, string $title, string $template, string $theme, $schema ): int {
 		global $wpdb;
 		$table = $wpdb->prefix . 'bzdoc_documents';
+
+		// [2026-07-20 Johnny Chu] PHASE-1-TWIN-GPT-AGENT-TOOLS — keep Twin GPT/BZDoc handoff trace when later generation autosaves replace schema_json.
+		if ( $doc_id > 0 && is_array( $schema ) && empty( $schema['_handoff'] ) ) {
+			$old_schema_json = $wpdb->get_var( $wpdb->prepare( "SELECT schema_json FROM {$table} WHERE id = %d AND user_id = %d", $doc_id, $user_id ) );
+			$old_schema = is_string( $old_schema_json ) ? json_decode( $old_schema_json, true ) : null;
+			if ( is_array( $old_schema ) && ! empty( $old_schema['_handoff'] ) && is_array( $old_schema['_handoff'] ) ) {
+				$schema['_handoff'] = $old_schema['_handoff'];
+			}
+		}
 
 		$data = [
 			'user_id'       => $user_id,

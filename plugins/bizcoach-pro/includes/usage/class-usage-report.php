@@ -66,14 +66,23 @@ class BizCoach_Pro_Usage_Report {
 	}
 
 	/**
-	 * Token totals from bizcity_llm_usage for today (per user).
+	 * Token totals from client usage table for today (per user).
 	 *
 	 * @param int $uid
 	 * @return array { prompt, completion, total }
 	 */
 	private static function token_totals_today( $uid ) {
 		global $wpdb;
-		$table = $wpdb->prefix . 'bizcity_llm_usage';
+		// [2026-07-14 Johnny Chu] R-LLM-USAGE — prefer per-blog bizcity_llm_usage_clients.
+		$table = self::resolve_llm_usage_table();
+		if ( $table === '' ) {
+			return array(
+				'prompt'     => 0,
+				'completion' => 0,
+				'total'      => 0,
+				'calls'      => 0,
+			);
+		}
 		$today = gmdate( 'Y-m-d' );
 		$row   = $wpdb->get_row( $wpdb->prepare(
 			"SELECT
@@ -119,12 +128,16 @@ class BizCoach_Pro_Usage_Report {
 	 */
 	private static function service_breakdown_today( $uid ) {
 		global $wpdb;
-		$table    = $wpdb->prefix . 'bizcity_llm_usage';
+		// [2026-07-14 Johnny Chu] R-LLM-USAGE — use client table; fallback legacy if present.
+		$table    = self::resolve_llm_usage_table();
 		$today    = gmdate( 'Y-m-d' );
 		$services = array( 'llm', 'embedding', 'search', 'video', 'image', 'astro', 'market', 'tools' );
 		$out      = array();
 		foreach ( $services as $svc ) {
 			$out[ $svc ] = array( 'calls' => 0, 'tokens' => 0 );
+		}
+		if ( $table === '' ) {
+			return $out;
 		}
 		$rows = $wpdb->get_results( $wpdb->prepare(
 			"SELECT service,
@@ -156,30 +169,37 @@ class BizCoach_Pro_Usage_Report {
 	 */
 	private static function daily_history( $uid, $days ) {
 		global $wpdb;
-		$llm_table = $wpdb->prefix . 'bizcity_llm_usage';
+		// [2026-07-14 Johnny Chu] R-LLM-USAGE — use client table; fallback legacy if present.
+		$llm_table = self::resolve_llm_usage_table();
 		$kg_table  = $wpdb->prefix . 'bizcity_kg_usage_log';
 
 		// LLM daily
-		$llm_rows = $wpdb->get_results( $wpdb->prepare(
-			"SELECT DATE(created_at) AS dt,
-				COUNT(*) AS calls,
-				COALESCE(SUM(tokens_prompt + tokens_completion),0) AS tokens
-			 FROM {$llm_table}
-			 WHERE user_id = %d AND created_at >= DATE_SUB(CURDATE(), INTERVAL %d DAY)
-			 GROUP BY dt
-			 ORDER BY dt ASC",
-			$uid, $days
-		), ARRAY_A );
+		$llm_rows = array();
+		if ( $llm_table !== '' ) {
+			$llm_rows = $wpdb->get_results( $wpdb->prepare(
+				"SELECT DATE(created_at) AS dt,
+					COUNT(*) AS calls,
+					COALESCE(SUM(tokens_prompt + tokens_completion),0) AS tokens
+				 FROM {$llm_table}
+				 WHERE user_id = %d AND created_at >= DATE_SUB(CURDATE(), INTERVAL %d DAY)
+				 GROUP BY dt
+				 ORDER BY dt ASC",
+				$uid, $days
+			), ARRAY_A );
+		}
 
 		// KG daily cost
-		$kg_rows = $wpdb->get_results( $wpdb->prepare(
-			"SELECT day AS dt, COALESCE(SUM(cost_usd),0) AS cost_usd
-			 FROM {$kg_table}
-			 WHERE user_id = %d AND day >= DATE_SUB(CURDATE(), INTERVAL %d DAY)
-			 GROUP BY day
-			 ORDER BY day ASC",
-			$uid, $days
-		), ARRAY_A );
+		$kg_rows = array();
+		if ( self::table_exists( $kg_table ) ) {
+			$kg_rows = $wpdb->get_results( $wpdb->prepare(
+				"SELECT day AS dt, COALESCE(SUM(cost_usd),0) AS cost_usd
+				 FROM {$kg_table}
+				 WHERE user_id = %d AND day >= DATE_SUB(CURDATE(), INTERVAL %d DAY)
+				 GROUP BY day
+				 ORDER BY day ASC",
+				$uid, $days
+			), ARRAY_A );
+		}
 
 		// Merge by date
 		$by_date = array();
@@ -240,5 +260,52 @@ class BizCoach_Pro_Usage_Report {
 			case '90d': return 90;
 			default:    return 30;
 		}
+	}
+
+	/**
+	 * [2026-07-14 Johnny Chu] R-LLM-USAGE — resolve canonical client usage table,
+	 * fallback to legacy table for backward compatibility.
+	 */
+	private static function resolve_llm_usage_table() {
+		global $wpdb;
+		$client = $wpdb->prefix . 'bizcity_llm_usage_clients';
+		if ( self::table_exists( $client ) ) {
+			return $client;
+		}
+
+		$legacy = $wpdb->prefix . 'bizcity_llm_usage';
+		if ( self::table_exists( $legacy ) ) {
+			return $legacy;
+		}
+
+		return '';
+	}
+
+	/**
+	 * Helper table-exists guard compatible with early bootstrap.
+	 */
+	private static function table_exists( $table ) {
+		if ( function_exists( 'bizcity_tbl_exists' ) ) {
+			return (bool) bizcity_tbl_exists( $table );
+		}
+
+		static $s = array();
+		if ( isset( $s[ $table ] ) ) {
+			return $s[ $table ];
+		}
+
+		global $wpdb;
+		$ck      = 'bz_tbl_' . (int) get_current_blog_id() . '_' . crc32( $table );
+		$present = wp_cache_get( $ck, 'bizcity_tbl' );
+		if ( false === $present ) {
+			$present = (int) (bool) $wpdb->get_var( $wpdb->prepare(
+				'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+				$table
+			) );
+			wp_cache_set( $ck, $present, 'bizcity_tbl', HOUR_IN_SECONDS );
+		}
+
+		$s[ $table ] = (bool) $present;
+		return $s[ $table ];
 	}
 }

@@ -305,7 +305,8 @@ class BizCity_TwinChat_Admin_Menu {
 				}
 			}
 			foreach ( $svc->list_for_user( $user_id, [ 'limit' => 50 ] ) as $row ) {
-				$nb_list[] = [ 'id' => (int) $row['id'], 'name' => (string) $row['name'] ];
+				// [2026-07-27 Johnny Chu] PHASE-0.51 — expose normalized notebook scope to the library UI.
+				$nb_list[] = [ 'id' => (int) $row['id'], 'name' => (string) $row['name'], 'notebook_scope' => (string) ( $row['notebook_scope'] ?? 'personal' ) ];
 			}
 		}
 

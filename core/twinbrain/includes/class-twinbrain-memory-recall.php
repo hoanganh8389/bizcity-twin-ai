@@ -50,6 +50,30 @@ final class BizCity_TwinBrain_Memory_Recall {
 	public function collect( int $user_id, string $prompt, array $opts = [] ): array {
 		$t0          = microtime( true );
 		$session_id  = (string) ( $opts['session_id'] ?? '' );
+		$identity_uuid = trim( (string) ( $opts['identity_uuid'] ?? '' ) );
+		// [2026-07-28 Johnny Chu] R-CH-IDMEM — normalize the owner once before every memory tier is queried.
+		if ( class_exists( 'BizCity_Memory_Identity_Scope' ) ) {
+			$scope = BizCity_Memory_Identity_Scope::resolve( array_merge( $opts, array( 'user_id' => $user_id ) ) );
+			$user_id = (int) $scope['user_id'];
+			$session_id = (string) $scope['session_id'];
+			$identity_uuid = (string) $scope['identity_uuid'];
+			$identity_verified = ! empty( $scope['identity_verified'] );
+		} else {
+			$identity_verified = false;
+		}
+		// [2026-07-28 Johnny Chu] R-CH-IDMEM — verify a supplied UUID through the canonical hub before anonymous recall.
+		if ( ! $identity_verified && $identity_uuid === '' && class_exists( 'BizCity_Identity_Hub' ) ) {
+			$identity = BizCity_Identity_Hub::resolve_from_opts( $opts, (int) get_current_blog_id() );
+			$identity_uuid = is_array( $identity ) ? (string) ( $identity['identity_uuid'] ?? '' ) : '';
+			$identity_verified = is_array( $identity ) && $identity_uuid !== '';
+		} elseif ( ! $identity_verified && $identity_uuid !== '' && class_exists( 'BizCity_Identity_Hub' ) ) {
+			$identity = BizCity_Identity_Hub::resolve( $identity_uuid );
+			$identity_verified = is_array( $identity );
+		}
+		// [2026-07-28 Johnny Chu] R-CH-IDMEM — do not recall durable memory for an anonymous soft session.
+		if ( $user_id <= 0 && ( $identity_uuid === '' || ! $identity_verified ) ) {
+			return $this->empty_result( $t0 );
+		}
 		$tokens      = (array)  ( $opts['keyword_tokens'] ?? [] );
 		if ( empty( $tokens ) && class_exists( 'BizCity_TwinBrain_Notebook_Selector' ) ) {
 			$tokens = BizCity_TwinBrain_Notebook_Selector::tokenize_for_search( $prompt );
@@ -65,7 +89,7 @@ final class BizCity_TwinBrain_Memory_Recall {
 			&& BizCity_Memory_Unified_Installer::is_enabled()
 		) {
 			try {
-				$unified = $this->collect_from_unified( $user_id, $session_id, $tokens, $t0 );
+				$unified = $this->collect_from_unified( $user_id, $session_id, $identity_uuid, $tokens, $t0 );
 				if ( is_array( $unified ) ) {
 					return $unified;
 				}
@@ -74,14 +98,14 @@ final class BizCity_TwinBrain_Memory_Recall {
 			}
 		}
 
-		return $this->collect_from_legacy( $user_id, $session_id, $tokens, $t0 );
+		return $this->collect_from_legacy( $user_id, $session_id, $identity_uuid, $tokens, $t0 );
 	}
 
 	/**
 	 * Legacy 4-tier collector (pre-Wave 2.8d). Reads 3 tables:
 	 * bizcity_memory_users + bizcity_memory_episodic + bizcity_memory_rolling.
 	 */
-	private function collect_from_legacy( int $user_id, string $session_id, array $tokens, float $t0 ): array {
+	private function collect_from_legacy( int $user_id, string $session_id, string $identity_uuid, array $tokens, float $t0 ): array {
 		$citations = [];
 		$lines_a   = [];
 		$lines_b   = [];
@@ -99,6 +123,7 @@ final class BizCity_TwinBrain_Memory_Recall {
 		$rows_a = (array) $mem->get_memories( [
 			'user_id'     => $user_id,
 			'session_id'  => $user_id > 0 ? '' : $session_id,
+			'identity_uuid'=> $identity_uuid,
 			'memory_tier' => 'explicit',
 			'limit'       => self::TIER_A_CAP,
 			'order_by'    => 'score',
@@ -114,6 +139,7 @@ final class BizCity_TwinBrain_Memory_Recall {
 		$rows_b = (array) $mem->get_memories( [
 			'user_id'     => $user_id,
 			'session_id'  => $user_id > 0 ? '' : $session_id,
+			'identity_uuid'=> $identity_uuid,
 			'memory_tier' => 'extracted',
 			'limit'       => 80,
 			'order_by'    => 'score',
@@ -137,10 +163,10 @@ final class BizCity_TwinBrain_Memory_Recall {
 		}
 
 		// ── Tier C — episodic (optional table) ──
-		$lines_c = $this->collect_episodic( $user_id, $session_id, $tokens, $citations );
+		$lines_c = $this->collect_episodic( $user_id, $session_id, $identity_uuid, $tokens, $citations );
 
 		// ── Tier D — rolling summary (optional table) ──
-		$lines_d = $this->collect_rolling( $user_id, $session_id, $citations );
+		$lines_d = $this->collect_rolling( $user_id, $session_id, $identity_uuid, $citations );
 
 		// [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-4 — Tier F (Feelings).
 		// Surfaces the latest sampled mood for the session so Final_Composer
@@ -234,18 +260,44 @@ final class BizCity_TwinBrain_Memory_Recall {
 		return $hits;
 	}
 
-	private function collect_episodic( int $user_id, string $session_id, array $tokens, array &$citations ): array {
+	private function collect_episodic( int $user_id, string $session_id, string $identity_uuid, array $tokens, array &$citations ): array {
 		global $wpdb;
 		$table = $wpdb->prefix . 'bizcity_memory_episodic';
 		if ( ! bizcity_tbl_exists( $table ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			return [];
 		}
-		$sql = "SELECT * FROM {$table}
-		         WHERE blog_id = %d AND ( user_id = %d OR session_id = %s )
-		         ORDER BY created_at DESC LIMIT %d";
-		$rows = (array) $wpdb->get_results( $wpdb->prepare(
-			$sql, get_current_blog_id(), $user_id, $session_id, self::TIER_C_CAP * 3
-		) );
+		// [2026-07-28 Johnny Chu] HOTFIX P1 — runtime schema guard: a tenant whose episodic table
+		// hasn't finished the identity_uuid migration yet must not be filtered on that column —
+		// this previously threw "Unknown column identity_uuid" in the WHERE clause.
+		$cols = (array) $wpdb->get_col( "SHOW COLUMNS FROM {$table}", 0 );
+		$cols = array_map( 'strtolower', $cols );
+		$has_identity = in_array( 'identity_uuid', $cols, true );
+
+		$where  = array( 'blog_id = %d' );
+		$params = array( get_current_blog_id() );
+		if ( $has_identity ) {
+			$scope = array( 'user_id' => $user_id, 'identity_uuid' => $identity_uuid );
+			if ( class_exists( 'BizCity_Memory_Identity_Scope' ) ) {
+				if ( ! BizCity_Memory_Identity_Scope::append_read_scope( $where, $params, $scope ) ) {
+					return [];
+				}
+			} elseif ( $user_id > 0 ) {
+				$where[]  = 'identity_uuid = %s AND user_id = %d';
+				$params[] = '';
+				$params[] = $user_id;
+			} else {
+				return [];
+			}
+		} elseif ( $user_id > 0 ) {
+			$where[]  = 'user_id = %d';
+			$params[] = $user_id;
+		} else {
+			return [];
+		}
+		$params[] = self::TIER_C_CAP * 3;
+		$sql = "SELECT * FROM {$table} WHERE " . implode( ' AND ', $where )
+			. " ORDER BY created_at DESC LIMIT %d";
+		$rows = (array) $wpdb->get_results( $wpdb->prepare( $sql, $params ) );
 		if ( empty( $rows ) ) return [];
 
 		$lines = [];
@@ -270,7 +322,7 @@ final class BizCity_TwinBrain_Memory_Recall {
 		return $lines;
 	}
 
-	private function collect_rolling( int $user_id, string $session_id, array &$citations ): array {
+	private function collect_rolling( int $user_id, string $session_id, string $identity_uuid, array &$citations ): array {
 		global $wpdb;
 		$table = $wpdb->prefix . 'bizcity_memory_rolling';
 		if ( ! bizcity_tbl_exists( $table ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
@@ -287,16 +339,39 @@ final class BizCity_TwinBrain_Memory_Recall {
 		$has_summary = in_array( 'summary', $cols, true );
 		$has_window  = in_array( 'window_summary', $cols, true );
 		$has_content = in_array( 'content', $cols, true );
+		// [2026-07-28 Johnny Chu] HOTFIX P1 — runtime schema guard: a tenant whose rolling table
+		// hasn't finished the identity_uuid migration yet must not be filtered on that column —
+		// this previously threw "Unknown column identity_uuid" in the WHERE clause.
+		$has_identity = in_array( 'identity_uuid', $cols, true );
 
-		$where  = '( user_id = %d OR session_id = %s )';
-		$params = [ $user_id, $session_id ];
+		$where  = array();
+		$params = array();
 		if ( $has_blog ) {
-			$where  = 'blog_id = %d AND ' . $where;
-			array_unshift( $params, get_current_blog_id() );
+			$where[]  = 'blog_id = %d';
+			$params[] = get_current_blog_id();
+		}
+		if ( $has_identity ) {
+			$scope = array( 'user_id' => $user_id, 'identity_uuid' => $identity_uuid );
+			if ( class_exists( 'BizCity_Memory_Identity_Scope' ) ) {
+				if ( ! BizCity_Memory_Identity_Scope::append_read_scope( $where, $params, $scope ) ) {
+					return [];
+				}
+			} elseif ( $user_id > 0 ) {
+				$where[]  = 'identity_uuid = %s AND user_id = %d';
+				$params[] = '';
+				$params[] = $user_id;
+			} else {
+				return [];
+			}
+		} elseif ( $user_id > 0 ) {
+			$where[]  = 'user_id = %d';
+			$params[] = $user_id;
+		} else {
+			return [];
 		}
 		$params[] = self::TIER_D_CAP;
 
-		$sql  = "SELECT * FROM {$table} WHERE {$where} ORDER BY updated_at DESC LIMIT %d";
+		$sql  = "SELECT * FROM {$table} WHERE " . implode( ' AND ', $where ) . " ORDER BY updated_at DESC LIMIT %d";
 		$rows = (array) $wpdb->get_results( $wpdb->prepare( $sql, $params ) );
 		if ( empty( $rows ) ) return [];
 
@@ -352,7 +427,7 @@ final class BizCity_TwinBrain_Memory_Recall {
 	 *
 	 * @return array|null  Returns null when table missing so caller falls back.
 	 */
-	private function collect_from_unified( int $user_id, string $session_id, array $tokens, float $t0 ) {
+	private function collect_from_unified( int $user_id, string $session_id, string $identity_uuid, array $tokens, float $t0 ) {
 		global $wpdb;
 		$table = BizCity_Memory_Unified_Installer::table();
 		if ( ! bizcity_tbl_exists( $table ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
@@ -365,15 +440,21 @@ final class BizCity_TwinBrain_Memory_Recall {
 		// bucket + filter in PHP. Indexed by idx_user_class + idx_class_score.
 		// [2026-07-09 Johnny Chu] HOTFIX — keep unified read scoping parity with
 		// legacy get_memories(): logged-in => user_id only; guest => session_id when provided.
-		$where_sql = 'blog_id = %d AND memory_class IN (\'user\',\'episodic\',\'rolling\')';
-		$params    = [ $blog_id ];
-		if ( $user_id > 0 ) {
-			$where_sql .= ' AND user_id = %d';
-			$params[]   = $user_id;
-		} elseif ( $session_id !== '' ) {
-			$where_sql .= ' AND session_id = %s';
-			$params[]   = $session_id;
+		$where  = array( 'blog_id = %d', "memory_class IN ('user','episodic','rolling')" );
+		$params = array( $blog_id );
+		$scope  = array( 'user_id' => $user_id, 'identity_uuid' => $identity_uuid );
+		if ( class_exists( 'BizCity_Memory_Identity_Scope' ) ) {
+			if ( ! BizCity_Memory_Identity_Scope::append_read_scope( $where, $params, $scope ) ) {
+				return null;
+			}
+		} elseif ( $user_id > 0 ) {
+			$where[]  = 'identity_uuid = %s AND user_id = %d';
+			$params[] = '';
+			$params[] = $user_id;
+		} else {
+			return null;
 		}
+		$where_sql = implode( ' AND ', $where );
 		$params[] = 200;
 
 		$sql = "SELECT id, legacy_id, memory_class, memory_tier, memory_type,

@@ -51,6 +51,21 @@ add_filter( 'bizcity_diagnostics_register_tables', static function ( $tables ) {
 	return $tables;
 }, 10 );
 
+// [2026-07-23 Johnny Chu] PHASE-N — Register flows installer with Site Provisioner so admin self-heal + Auto-Fix-All can create wp_{blog_id}_bizcity_crm_flows without visiting the Flows page.
+add_filter( 'bizcity_register_installers', static function ( $list ) {
+	$list = is_array( $list ) ? $list : array();
+	if ( class_exists( 'BizCity_CG_Flow_Installer' ) ) {
+		$list[] = array(
+			'id'           => 'cg_flows',
+			'label'        => 'Channel Gateway — Flows',
+			'callback'     => array( 'BizCity_CG_Flow_Installer', 'maybe_install' ),
+			'version_opt'  => BizCity_CG_Flow_Installer::OPT_VERSION,
+			'expected_ver' => BizCity_CG_Flow_Installer::DB_VERSION,
+		);
+	}
+	return $list;
+}, 20, 1 );
+
 /* ============================================================
  * Backward-compat function wrappers — DISABLED 2026-05-25.
  *

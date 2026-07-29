@@ -18,14 +18,26 @@ defined( 'ABSPATH' ) || exit;
 class BizCity_CRM_SLA_Evaluator {
 
 	const CRON_HOOK    = 'bizcity_crm_sla_tick';
-	const SCHEDULE_KEY = 'bizcity_crm_minute';
+	// [2026-07-26 Johnny Chu] CRON-OVERLOAD-OPTIMIZE — reduce SLA tick from 1 minute to 3 minutes.
+	const SCHEDULE_KEY = 'bizcity_crm_3min';
+	const INTERVAL_SEC = 180;
 	const LOCK_KEY     = 'bizcity_crm_sla_lock';
 	const LOCK_TTL     = 90;
 
 	public static function register(): void {
 		add_filter( 'cron_schedules', array( __CLASS__, 'cron_schedules' ) );
 		add_action( self::CRON_HOOK, array( __CLASS__, 'tick' ) );
-		if ( ! wp_next_scheduled( self::CRON_HOOK ) ) {
+
+		$next = wp_next_scheduled( self::CRON_HOOK );
+		$cur  = $next ? (string) wp_get_schedule( self::CRON_HOOK ) : '';
+		if ( ! $next ) {
+			wp_schedule_event( time() + 30, self::SCHEDULE_KEY, self::CRON_HOOK );
+			return;
+		}
+
+		// [2026-07-26 Johnny Chu] CRON-OVERLOAD-OPTIMIZE — migrate old per-minute schedule.
+		if ( $cur !== self::SCHEDULE_KEY ) {
+			wp_clear_scheduled_hook( self::CRON_HOOK );
 			wp_schedule_event( time() + 30, self::SCHEDULE_KEY, self::CRON_HOOK );
 		}
 	}
@@ -34,8 +46,8 @@ class BizCity_CRM_SLA_Evaluator {
 		if ( ! is_array( $schedules ) ) { $schedules = array(); }
 		if ( ! isset( $schedules[ self::SCHEDULE_KEY ] ) ) {
 			$schedules[ self::SCHEDULE_KEY ] = array(
-				'interval' => 60,
-				'display'  => __( 'Every Minute (BizCity CRM)', 'bizcity-twin-crm' ),
+				'interval' => self::INTERVAL_SEC,
+				'display'  => __( 'Every 3 Minutes (BizCity CRM)', 'bizcity-twin-crm' ),
 			);
 		}
 		return $schedules;

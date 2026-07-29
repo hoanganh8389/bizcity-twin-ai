@@ -69,8 +69,10 @@ class BizCity_KG_Database {
 	//                   Backward-compatible: nullable, default storage_ver=1 so
 	//                   legacy code continues reading from MySQL columns. Wave F1
 	//                   dual-writer flips to 2 only after file flush + sha256 verify.
-	const SCHEMA_VERSION = '0.27.0'; // 2026-05-28: bump to match JSON changelog; triggers create_tables() on blogs still at 0.24.0 (creates bizcity_kg_skeleton_history + perspective cols)
+	const SCHEMA_VERSION = '0.30.1'; // [2026-07-29 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — persist VIEW repair state and verify filestore columns before version bump.
 	const OPTION_VERSION = 'bizcity_kg_db_version';
+	const SCHEMA_MEMORY_OPTION = 'bizcity_kg_schema_memory';
+	const SCHEMA_RETRY_SECONDS = 3600;
 
 	private static $instance        = null;
 	/** Per-blog migration cache — multisite cron walks many blogs in one request. */
@@ -99,17 +101,102 @@ class BizCity_KG_Database {
 	 * option after every switch.
 	 */
 	public static function maybe_create_tables() {
+		global $wpdb;
 		$blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 1;
 		if ( isset( self::$migrated_blogs[ $blog_id ] ) ) {
 			return;
 		}
-		self::$migrated_blogs[ $blog_id ] = true;
 
 		$current = get_option( self::OPTION_VERSION, '' );
-		if ( $current !== self::SCHEMA_VERSION ) {
-			( new self() )->create_tables();
-			update_option( self::OPTION_VERSION, self::SCHEMA_VERSION, false );
+		$database = new self();
+		$state    = self::get_schema_migration_state();
+		$now      = time();
+		if ( self::SCHEMA_VERSION === $current && $database->is_filestore_schema_ready() ) {
+			self::$migrated_blogs[ $blog_id ] = true;
+			return;
 		}
+		if ( 'blocked' === (string) ( $state['status'] ?? '' )
+			&& self::SCHEMA_VERSION === (string) ( $state['version'] ?? '' )
+			&& (int) ( $state['next_retry'] ?? 0 ) > $now ) {
+			self::$migrated_blogs[ $blog_id ] = true;
+			return;
+		}
+
+		$database->create_tables();
+		if ( $database->is_filestore_schema_ready() ) {
+			update_option( self::OPTION_VERSION, self::SCHEMA_VERSION, false );
+			self::remember_schema_migration_state( [
+				'version'      => self::SCHEMA_VERSION,
+				'status'       => 'complete',
+				'last_attempt' => time(),
+				'next_retry'   => 0,
+				'error_hash'   => '',
+			] );
+		} else {
+			// [2026-07-29 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — do not mark the
+			// schema version complete after a failed VIEW/column repair. Remember
+			// the blocked state so the same DDL is retried only after recovery.
+			$error = trim( preg_replace( '/\s+/', ' ', (string) $wpdb->last_error ) );
+			if ( strlen( $error ) > 180 ) {
+				$error = substr( $error, 0, 180 );
+			}
+			self::remember_schema_migration_state( [
+				'version'      => self::SCHEMA_VERSION,
+				'status'       => 'blocked',
+				'last_attempt' => time(),
+				'next_retry'   => time() + self::SCHEMA_RETRY_SECONDS,
+				'error_hash'   => md5( $error !== '' ? $error : 'filestore_schema_incomplete' ),
+			] );
+		}
+		self::$migrated_blogs[ $blog_id ] = true;
+	}
+
+	private static function get_schema_migration_state() {
+		$memory = get_option( self::SCHEMA_MEMORY_OPTION, [] );
+		return is_array( $memory ) ? $memory : [];
+	}
+
+	private static function remember_schema_migration_state( $state ) {
+		update_option( self::SCHEMA_MEMORY_OPTION, is_array( $state ) ? $state : [], false );
+	}
+
+	private function is_filestore_schema_ready() {
+		global $wpdb;
+		$passages = $this->tbl_passages();
+		$type     = $wpdb->get_var( $wpdb->prepare(
+			'SELECT TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+			$passages
+		) );
+		if ( 'BASE TABLE' === $type ) {
+			return $this->has_schema_columns( $passages, [ 'storage_ver', 'file_shard', 'file_offset', 'file_length' ] );
+		}
+		if ( 'VIEW' !== $type ) {
+			return false;
+		}
+
+		$source_chunks = $wpdb->prefix . 'bizcity_kg_source_chunks';
+		$source_type   = $wpdb->get_var( $wpdb->prepare(
+			'SELECT TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+			$source_chunks
+		) );
+		return 'BASE TABLE' === $source_type
+			&& $this->has_schema_columns( $source_chunks, [ 'storage_ver', 'file_shard', 'file_offset', 'file_length', 'character_uuid' ] )
+			&& $this->has_schema_columns( $passages, [ 'storage_ver', 'file_shard', 'file_offset', 'file_length', 'character_uuid' ] );
+	}
+
+	private function has_schema_columns( $table, array $columns ) {
+		global $wpdb;
+		foreach ( $columns as $column ) {
+			$exists = $wpdb->get_var( $wpdb->prepare(
+				'SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = %s LIMIT 1',
+				$table,
+				$column
+			) );
+			if ( ! $exists ) {
+				return false;
+			}
+		}
+		return true;
 	}
 
 	// ─── Table name helpers (per-blog via $wpdb->prefix) ───────────────────
@@ -206,6 +293,19 @@ class BizCity_KG_Database {
 		if ( ! $char_id ) {
 			return new WP_Error( 'kg_attach_guru_missing', sprintf( 'No character with guru_uuid %s', $guru_uuid ) );
 		}
+		$nb_row = $wpdb->get_row( $wpdb->prepare(
+			"SELECT owner_id, notebook_scope FROM {$this->tbl_notebooks()} WHERE id = %d LIMIT 1",
+			$notebook_id
+		), ARRAY_A );
+		$char_visibility = (string) $wpdb->get_var( $wpdb->prepare(
+			"SELECT visibility FROM {$char_tbl} WHERE id = %d LIMIT 1",
+			$char_id
+		) );
+		$is_public_guru = ( 'marketplace' === $char_visibility ) || ! empty( $args['public_serving'] );
+		if ( $is_public_guru && $nb_row && 'personal' === (string) $nb_row['notebook_scope'] ) {
+			// [2026-07-27 Johnny Chu] PHASE-0.51 — public Guru cannot expose any personal notebook, including legacy owner_id=0 rows.
+			return new WP_Error( 'kg_attach_personal_notebook_forbidden', 'Guru công khai chỉ được gắn notebook business_kb hoặc guru_kb.' );
+		}
 		$source = isset( $args['source'] ) ? sanitize_key( $args['source'] ) : 'self';
 		if ( ! in_array( $source, [ 'marketplace', 'share_link', 'self', 'imported' ], true ) ) {
 			$source = 'self';
@@ -240,6 +340,8 @@ class BizCity_KG_Database {
 			$id = (int) $wpdb->insert_id;
 		}
 		$this->flush_attached_guru_cache( $notebook_id );
+		// [2026-07-14 Johnny Chu] PHASE-0.43 — invalidate consumers that cache virtual Guru search scope.
+		do_action( 'bizcity_kg_guru_attached', $notebook_id, $guru_uuid );
 		return array_merge( [ 'id' => $id ], $row );
 	}
 
@@ -262,6 +364,10 @@ class BizCity_KG_Database {
 			[ 'notebook_id' => $notebook_id, 'guru_uuid' => $guru_uuid ]
 		);
 		$this->flush_attached_guru_cache( $notebook_id );
+		// [2026-07-14 Johnny Chu] PHASE-0.43 — invalidate consumers only after a successful detach.
+		if ( $deleted > 0 ) {
+			do_action( 'bizcity_kg_guru_detached', $notebook_id, $guru_uuid );
+		}
 		return [ 'deleted' => $deleted ];
 	}
 
@@ -339,6 +445,7 @@ class BizCity_KG_Database {
 			description TEXT,
 			character_id BIGINT UNSIGNED DEFAULT NULL COMMENT 'Optional link to bizcity_characters',
 			owner_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+			notebook_scope ENUM('business_kb','guru_kb','personal') NOT NULL DEFAULT 'personal',
 			color VARCHAR(20) DEFAULT '',
 			settings TEXT COMMENT 'JSON: auto_extract, review_required, …',
 			stats TEXT COMMENT 'JSON cached counts',
@@ -346,6 +453,7 @@ class BizCity_KG_Database {
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 			PRIMARY KEY  (id),
 			KEY owner_id (owner_id),
+			KEY idx_nb_owner_scope (owner_id, notebook_scope),
 			KEY character_id (character_id)
 		) {$cs};" );
 
@@ -589,7 +697,14 @@ class BizCity_KG_Database {
 		// 19. PHASE-0.7-LEARN-VECTOR-FILE Wave F0 — filestore gating columns (idempotent).
 		$this->migrate_v024_filestore_columns();
 
-		// 20. PHASE-6.6-SKELETON-DOC S3.1 — skeleton history (per-version archive).
+		// 20. PHASE-0.51 — explicit notebook scope; legacy rows remain personal/quarantined.
+		$this->migrate_v029_notebook_scope();
+
+		// 21. PHASE-0.45-KG-FILE-GRAPH — repair legacy passages VIEW so v2
+		// filestore rows remain searchable through the canonical table alias.
+		$this->migrate_v030_passage_view_filestore_columns();
+
+		// 22. PHASE-6.6-SKELETON-DOC S3.1 — skeleton history (per-version archive).
 		dbDelta( "CREATE TABLE IF NOT EXISTS {$wpdb->prefix}bizcity_kg_skeleton_history (
 			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 			notebook_id BIGINT UNSIGNED NOT NULL,
@@ -688,6 +803,100 @@ class BizCity_KG_Database {
 		$add_col( $r, 'jsonl_line',
 			"jsonl_line INT UNSIGNED DEFAULT NULL COMMENT 'P0.7-LVF: 0-based line in relations.jsonl'" );
 		$add_index( $r, 'idx_storage_ver', 'storage_ver, id' );
+	}
+
+	/**
+	 * PHASE-0.51 — explicit notebook ownership scope.
+	 *
+	 * The default is intentionally personal: existing rows, including legacy
+	 * owner_id=0 rows, must not become public merely because this migration ran.
+	 * An administrator may explicitly promote a row to business_kb or guru_kb.
+	 *
+	 * @since 0.29.0 (2026-07-27)
+	 */
+	private function migrate_v029_notebook_scope() {
+		global $wpdb;
+		$table = $this->tbl_notebooks();
+
+		// [2026-07-27 Johnny Chu] PHASE-0.51 — additive scope column; legacy rows default to personal.
+		$prev = $wpdb->suppress_errors( true );
+		$wpdb->query( "ALTER TABLE `{$table}` ADD COLUMN notebook_scope ENUM('business_kb','guru_kb','personal') NOT NULL DEFAULT 'personal'" );
+		$err = $wpdb->last_error;
+		$wpdb->suppress_errors( $prev );
+		if ( $err && false === strpos( $err, 'Duplicate column' ) ) {
+			error_log( "[KG DB 0.29] ALTER {$table} ADD COLUMN notebook_scope: {$err}" );
+		}
+
+		// [2026-07-27 Johnny Chu] PHASE-0.51 — composite index for owner + scope retrieval.
+		$prev = $wpdb->suppress_errors( true );
+		$wpdb->query( "ALTER TABLE `{$table}` ADD KEY idx_nb_owner_scope (owner_id, notebook_scope)" );
+		$err = $wpdb->last_error;
+		$wpdb->suppress_errors( $prev );
+		if ( $err && false === strpos( $err, 'Duplicate key name' ) ) {
+			error_log( "[KG DB 0.29] ALTER {$table} ADD KEY idx_nb_owner_scope: {$err}" );
+		}
+	}
+
+	/**
+	 * Repair the legacy kg_passages VIEW after the filestore columns were added.
+	 *
+	 * Older unified-source installs keep kg_passages as a VIEW over the stranded
+	 * kg_source_chunks table. The v0.24 ALTER targets the VIEW and therefore
+	 * cannot add storage_ver/file_* to the underlying table. Rebuild the VIEW
+	 * only after adding those columns to its physical source table.
+	 */
+	private function migrate_v030_passage_view_filestore_columns() {
+		global $wpdb;
+
+		$passages = $this->tbl_passages();
+		$table_type = $wpdb->get_var( $wpdb->prepare(
+			"SELECT TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1",
+			$passages
+		) );
+		if ( 'VIEW' !== $table_type ) {
+			return;
+		}
+
+		// [2026-07-29 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — repair the
+		// physical legacy source table before recreating its compatibility VIEW.
+		$source_chunks = $wpdb->prefix . 'bizcity_kg_source_chunks';
+		$source_type = $wpdb->get_var( $wpdb->prepare(
+			"SELECT TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1",
+			$source_chunks
+		) );
+		if ( 'BASE TABLE' !== $source_type ) {
+			error_log( '[KG DB 0.30] passages VIEW source table missing: ' . $source_chunks );
+			return;
+		}
+
+		$add_col = function ( $column, $ddl ) use ( $wpdb, $source_chunks ) {
+			$previous = $wpdb->suppress_errors( true );
+			$wpdb->query( "ALTER TABLE `{$source_chunks}` ADD COLUMN {$ddl}" );
+			$error = $wpdb->last_error;
+			$wpdb->suppress_errors( $previous );
+			if ( $error && false === strpos( $error, 'Duplicate column' ) ) {
+				error_log( '[KG DB 0.30] ALTER ' . $source_chunks . ' ' . $column . ': ' . $error );
+			}
+		};
+		$add_col( 'storage_ver', "storage_ver TINYINT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'P0.7-LVF: 1=inline,2=filestore'" );
+		$add_col( 'file_shard', "file_shard INT UNSIGNED DEFAULT NULL COMMENT 'P0.7-LVF: passages/{shard}.md index'" );
+		$add_col( 'file_offset', "file_offset BIGINT UNSIGNED DEFAULT NULL COMMENT 'P0.7-LVF: body byte offset in shard'" );
+		$add_col( 'file_length', "file_length INT UNSIGNED DEFAULT NULL COMMENT 'P0.7-LVF: body byte length'" );
+
+		$previous = $wpdb->suppress_errors( true );
+		$wpdb->query( "CREATE OR REPLACE VIEW `{$passages}` AS
+			SELECT
+				id, notebook_id, source_id, uuid AS chunk_id, origin, content,
+				content_hash, embedding, token_count, extraction_status,
+				extraction_error, metadata, storage_ver, file_shard, file_offset,
+				file_length, scope_type, scope_id, source_table, character_uuid,
+				created_at, updated_at
+			FROM `{$source_chunks}`" );
+		$error = $wpdb->last_error;
+		$wpdb->suppress_errors( $previous );
+		if ( $error ) {
+			error_log( '[KG DB 0.30] rebuild passages VIEW failed: ' . $error );
+		}
 	}
 
 	/**

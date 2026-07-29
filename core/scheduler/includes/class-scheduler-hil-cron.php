@@ -22,6 +22,8 @@ final class BizCity_Scheduler_HIL_Cron {
 	const CRON_HOOK     = 'bizcity_scheduler_hil_timeout';
 	const CRON_INTERVAL = 'every_minute';
 	const TIMEOUT_SEC   = 300; // 5 minutes.
+	// [2026-07-26 Johnny Chu] CRON-OVERLOAD-OPTIMIZE — Pattern A toggle (default OFF).
+	const OPT_ENABLED   = 'bizcity_scheduler_hil_timeout_enabled';
 
 	/** @var bool */
 	private static $booted = false;
@@ -35,6 +37,7 @@ final class BizCity_Scheduler_HIL_Cron {
 
 		add_filter( 'cron_schedules', array( __CLASS__, 'register_interval' ) );
 		add_action( self::CRON_HOOK, array( __CLASS__, 'run_sweep' ) );
+		$enabled = self::is_enabled();
 
 		// [2026-06-14 Johnny Chu] GAP-4 — register via CronManager when available so
 		// HIL sweeps are traced in bizcity_cron_runs + visible in admin page.
@@ -46,15 +49,39 @@ final class BizCity_Scheduler_HIL_Cron {
 				'owner'       => 'core/scheduler',
 				'description' => 'Sweep expired HIL draft reminder_personal events every minute.',
 				'singleton'   => true,
-				'enabled'     => true,
+				'enabled'     => $enabled,
 				'retention'   => 3,
 			) );
+			if ( ! $enabled ) {
+				// [2026-07-26 Johnny Chu] CRON-OVERLOAD-OPTIMIZE — force clear legacy schedule when disabled.
+				self::unschedule();
+			}
+			return;
+		}
+
+		if ( ! $enabled ) {
+			self::unschedule();
 			return;
 		}
 
 		if ( ! wp_next_scheduled( self::CRON_HOOK ) ) {
 			wp_schedule_event( time() + 60, self::CRON_INTERVAL, self::CRON_HOOK );
 		}
+	}
+
+	/**
+	 * Feature toggle for HIL timeout sweep.
+	 *
+	 * @return bool
+	 */
+	private static function is_enabled() {
+		$enabled = (bool) get_option( self::OPT_ENABLED, 0 );
+		/**
+		 * Filter scheduler HIL timeout cron enable flag.
+		 *
+		 * @param bool $enabled
+		 */
+		return (bool) apply_filters( 'bizcity_scheduler_hil_timeout_enabled', $enabled );
 	}
 
 	/**
@@ -133,9 +160,6 @@ final class BizCity_Scheduler_HIL_Cron {
 	 * @return void
 	 */
 	public static function unschedule() {
-		$ts = wp_next_scheduled( self::CRON_HOOK );
-		if ( $ts ) {
-			wp_unschedule_event( $ts, self::CRON_HOOK );
-		}
+		wp_clear_scheduled_hook( self::CRON_HOOK );
 	}
 }

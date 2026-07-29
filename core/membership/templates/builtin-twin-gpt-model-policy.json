@@ -1,0 +1,54 @@
+{
+  "schema": "bizcity.twin_gpt.model_policy.v1",
+  "template_id": "twin_gpt_model_policy_default_v1",
+  "label": "Twin GPT Model Policy Default",
+  "version": "1.0.0",
+  "phase_id": "PHASE-TWIN-GPT-C-ENDUSER",
+  "presets": {
+    "free": {
+      "label": "Free - Standard",
+      "min_rank": 0,
+      "output_depth": "standard",
+      "default_model_id": "auto",
+      "default_answer_mode": "instant",
+      "models": ["auto", "gemini-2.5-flash", "gpt-4o-mini", "claude-3-5-haiku"],
+      "answer_modes": ["instant", "deep_research_preview"],
+      "max_input_tokens": 32000,
+      "max_output_tokens": 2200,
+      "monthly_output_tokens": 120000,
+      "context_window": 32000,
+      "max_iterations": 1,
+      "search_result_budget": 3
+    },
+    "plus": {
+      "label": "Plus - Long",
+      "min_rank": 100,
+      "output_depth": "long",
+      "default_model_id": "auto",
+      "default_answer_mode": "thinking",
+      "models": ["auto", "gemini-2.5-flash", "gemini-2.5-pro", "gpt-4o-mini", "claude-3-5-haiku", "deepseek-r1"],
+      "answer_modes": ["instant", "thinking", "deep_research"],
+      "max_input_tokens": 128000,
+      "max_output_tokens": 4000,
+      "monthly_output_tokens": 900000,
+      "context_window": 128000,
+      "max_iterations": 3,
+      "search_result_budget": 6
+    },
+    "pro": {
+      "label": "Pro - Premium",
+      "min_rank": 200,
+      "output_depth": "premium_long",
+      "default_model_id": "auto",
+      "default_answer_mode": "deep_research",
+      "models": ["*"],
+      "answer_modes": ["instant", "thinking", "deep_research"],
+      "max_input_tokens": 200000,
+      "max_output_tokens": 7000,
+      "monthly_output_tokens": 3000000,
+      "context_window": 200000,
+      "max_iterations": 5,
+      "search_result_budget": 10
+    }
+  }
+}

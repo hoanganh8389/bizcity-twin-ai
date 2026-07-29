@@ -31,6 +31,10 @@ require_once __DIR__ . '/includes/class-membership-usage.php';
 require_once __DIR__ . '/includes/class-membership-enforcer.php';
 // [2026-07-17 Johnny Chu] PHASE-D G-1 — membership email notifications.
 require_once __DIR__ . '/includes/class-membership-emails.php';
+// [2026-07-17 Johnny Chu] SPRINT-8 WC-0 — Woo offer mapper (product meta -> derived option index).
+require_once __DIR__ . '/includes/class-membership-woo-mapper.php';
+// [2026-07-17 Johnny Chu] SPRINT-9 WC-1 — idempotent Woo paid-order projector -> membership plan assignment.
+require_once __DIR__ . '/includes/class-membership-woo-projector.php';
 // [2026-06-04 Johnny Chu] PHASE-MEMBERSHIP M4 — one-time PayPal payments ledger + gateway.
 require_once __DIR__ . '/includes/class-membership-payments.php';
 require_once __DIR__ . '/includes/class-membership-paypal-gateway.php';
@@ -54,6 +58,16 @@ require_once __DIR__ . '/includes/class-membership-bridge-pms.php';
 add_action( 'plugins_loaded', static function () {
 	BizCity_Membership_Manager::instance();
 }, 4 );
+
+// [2026-07-17 Johnny Chu] SPRINT-8 WC-0 — init Woo mapper hooks only when WooCommerce is active.
+add_action( 'plugins_loaded', static function () {
+	BizCity_Membership_Woo_Mapper::init();
+}, 8 );
+
+// [2026-07-17 Johnny Chu] SPRINT-9 WC-1 — boot Woo projector after mapper is ready.
+add_action( 'plugins_loaded', static function () {
+	BizCity_Membership_Woo_Projector::init();
+}, 9 );
 
 // [2026-06-04 Johnny Chu] PHASE-MEMBERSHIP M2 — inject per-user plan limits into
 // the existing KG Cost Guard filters (bizcity_kg_quota_per_user / _user_is_exempt).

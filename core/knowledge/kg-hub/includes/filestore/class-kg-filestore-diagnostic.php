@@ -9,7 +9,8 @@
  *   2. MEASURE on-disk footprint of `bizcity-kg/notebooks/*` vs MySQL.
  *   3. VERIFY  parity on a random sample (sha256 DB body vs file body).
  *   4. RUN     a manual backfill batch (500 rows) without waiting for cron.
- *   5. TOGGLE  the `bizcity_kg_filestore_dual_write` option.
+ *   5. TOGGLE  the `bizcity_kg_v05_filestore_backfill_enabled` option (renamed
+ *      2026-07-23 from legacy `bizcity_kg_filestore_dual_write`).
  *
  * This is the **gate** before flipping Wave F3 (read file-first) and Wave F4
  * (stop DB writes). Surfacing the numbers next to a backfill button keeps the
@@ -461,10 +462,9 @@ final class BizCity_KG_Filestore_Diagnostic {
 			case 'entities':
 				$tbl  = $db->tbl_entities();
 				// description + aliases are reconstructible from entities.jsonl.
-				// 2026-05-20 — do NOT null `embedding` here. Entity vectors live
-				// ONLY in the DB column (no .bin sidecar exists for entities), so
-				// dropping them breaks vector seed search → empty `query_entities`
-				// → Graph Nexus loses cited-node highlighting.
+				// [2026-07-23 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — do NOT null `embedding`
+				// in this generic storage_ver cleanup. Only the graph embedding migration cron
+				// may clear it after verifying `entity:{id}` exists in entities.embed.bin.idx.json.
 				$rows = (int) $wpdb->query(
 					"UPDATE {$tbl}
 					    SET description=NULL, aliases=NULL, metadata=NULL
@@ -475,7 +475,8 @@ final class BizCity_KG_Filestore_Diagnostic {
 
 			case 'relations':
 				$tbl  = $db->tbl_relations();
-				// Same caveat as entities — keep `embedding` column intact.
+				// [2026-07-23 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — same caveat as entities;
+				// keep `embedding` intact unless the migration cron verifies relation sidecar UID.
 				$rows = (int) $wpdb->query(
 					"UPDATE {$tbl}
 					    SET relation_text=NULL, metadata=NULL
@@ -528,10 +529,10 @@ final class BizCity_KG_Filestore_Diagnostic {
 	 * Re-embed entities & relations whose `embedding` column is NULL.
 	 *
 	 * Why this exists: an early Wave-F4 cleanup nullified embeddings for
-	 * storage_ver=2 entities/relations under the false assumption that they
-	 * had a `.bin` sidecar. They don't — vectors live exclusively in the DB
-	 * column for entities & relations. This drainer rebuilds them so the
-	 * vector seed search (and downstream Graph Nexus highlight) works again.
+	 * storage_ver=2 entities/relations before graph `.embed.bin` sidecars
+	 * existed. This drainer remains as a manual repair path for rows whose DB
+	 * embedding is already missing; the cron migration added in PHASE-0.45 moves
+	 * existing LONGTEXT values to sidecars before clearing SQL.
 	 *
 	 * Text source: `name [ — description ]` for entities, `head predicate tail`
 	 * for relations. Description hydrated via Content_Router so storage_ver=2
@@ -546,11 +547,14 @@ final class BizCity_KG_Filestore_Diagnostic {
 		if ( ! $idx ) { return $out; }
 
 		// ── Entities ───────────────────────────────────────────────────────
+		// [2026-07-25 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — storage_ver=1 guard,
+		// same reasoning as step_reembed() above: storage_ver=2 + embedding NULL
+		// means already file-migrated, not missing a vector.
 		$ent_rows = $wpdb->get_results(
 			$wpdb->prepare(
 				"SELECT id, notebook_id, name, description, storage_ver
 				   FROM {$db->tbl_entities()}
-				  WHERE embedding IS NULL AND status='approved' AND deleted_at IS NULL
+				  WHERE embedding IS NULL AND storage_ver=1 AND status='approved' AND deleted_at IS NULL
 				  ORDER BY id ASC LIMIT %d",
 				(int) $batch
 			), ARRAY_A
@@ -575,6 +579,8 @@ final class BizCity_KG_Filestore_Diagnostic {
 		}
 
 		// ── Relations ──────────────────────────────────────────────────────
+		// [2026-07-25 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — storage_ver=1 guard,
+		// same reasoning as entities above.
 		$rel_rows = $wpdb->get_results(
 			$wpdb->prepare(
 				"SELECT r.id, r.notebook_id, r.predicate, r.relation_text, r.storage_ver,
@@ -582,7 +588,7 @@ final class BizCity_KG_Filestore_Diagnostic {
 				   FROM {$db->tbl_relations()} r
 				   LEFT JOIN {$db->tbl_entities()} h ON h.id = r.head_entity_id
 				   LEFT JOIN {$db->tbl_entities()} t ON t.id = r.tail_entity_id
-				  WHERE r.embedding IS NULL AND r.status='approved' AND r.deleted_at IS NULL
+				  WHERE r.embedding IS NULL AND r.storage_ver=1 AND r.status='approved' AND r.deleted_at IS NULL
 				  ORDER BY r.id ASC LIMIT %d",
 				(int) $batch
 			), ARRAY_A
@@ -628,6 +634,7 @@ final class BizCity_KG_Filestore_Diagnostic {
 
 	const CLEAN_CHUNK_DEFAULT = 1000; // UPDATE … LIMIT
 	const EMBED_CHUNK_DEFAULT = 10;   // LLM embedding calls / step
+	const GRAPH_EMBED_CHUNK_DEFAULT = 100; // file-append only, no LLM call → same as cron BATCH_SIZE
 
 	public function ajax_step() {
 		if ( ! current_user_can( 'manage_options' ) ) {
@@ -662,6 +669,12 @@ final class BizCity_KG_Filestore_Diagnostic {
 				break;
 			case 'reembed_relations':
 				$res = $this->step_reembed( 'relations', $size ?: self::EMBED_CHUNK_DEFAULT );
+				break;
+			case 'graph_embed_entities':
+				$res = $this->step_graph_embed( 'entities', $size ?: self::GRAPH_EMBED_CHUNK_DEFAULT );
+				break;
+			case 'graph_embed_relations':
+				$res = $this->step_graph_embed( 'relations', $size ?: self::GRAPH_EMBED_CHUNK_DEFAULT );
 				break;
 			case 'optimize_one':
 				$key = isset( $_POST['target'] ) ? sanitize_key( (string) wp_unslash( $_POST['target'] ) ) : '';
@@ -805,10 +818,16 @@ final class BizCity_KG_Filestore_Diagnostic {
 		$ok = 0; $fail = 0;
 		if ( $kind === 'entities' ) {
 			$tbl  = $db->tbl_entities();
+			// [2026-07-25 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — storage_ver=2 rows
+			// with embedding=NULL are BY DESIGN (vector already drained to the
+			// .embed.bin sidecar by BizCity_KG_Graph_Embedding_Migration), NOT a
+			// missing-embedding gap. Without this filter this step re-generates
+			// vectors via LLM for every already-migrated row, which then gets
+			// drained to file again and nulled — an expensive infinite loop.
 			$rows = (array) $wpdb->get_results( $wpdb->prepare(
 				"SELECT id, notebook_id, name, description, storage_ver
 				   FROM {$tbl}
-				  WHERE embedding IS NULL AND status='approved' AND deleted_at IS NULL
+				  WHERE embedding IS NULL AND storage_ver=1 AND status='approved' AND deleted_at IS NULL
 				  ORDER BY id ASC LIMIT %d", (int) $batch
 			), ARRAY_A );
 			if ( $rows && class_exists( 'BizCity_KG_Content_Router' ) ) {
@@ -826,17 +845,20 @@ final class BizCity_KG_Filestore_Diagnostic {
 				if ( false === $res ) { $fail++; } else { $ok++; }
 			}
 			$remaining = (int) $wpdb->get_var(
-				"SELECT COUNT(*) FROM {$tbl} WHERE embedding IS NULL AND status='approved' AND deleted_at IS NULL"
+				"SELECT COUNT(*) FROM {$tbl} WHERE embedding IS NULL AND storage_ver=1 AND status='approved' AND deleted_at IS NULL"
 			);
 		} else { // relations
 			$tbl  = $db->tbl_relations();
+			// [2026-07-25 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — same storage_ver=1
+			// guard as entities above; storage_ver=2 + embedding NULL is the normal
+			// post-migration state, not a genuine gap.
 			$rows = (array) $wpdb->get_results( $wpdb->prepare(
 				"SELECT r.id, r.notebook_id, r.predicate, r.relation_text, r.storage_ver,
 				        h.name AS head_name, t.name AS tail_name
 				   FROM {$tbl} r
 				   LEFT JOIN {$db->tbl_entities()} h ON h.id = r.head_entity_id
 				   LEFT JOIN {$db->tbl_entities()} t ON t.id = r.tail_entity_id
-				  WHERE r.embedding IS NULL AND r.status='approved' AND r.deleted_at IS NULL
+				  WHERE r.embedding IS NULL AND r.storage_ver=1 AND r.status='approved' AND r.deleted_at IS NULL
 				  ORDER BY r.id ASC LIMIT %d", (int) $batch
 			), ARRAY_A );
 			if ( $rows && class_exists( 'BizCity_KG_Content_Router' ) ) {
@@ -855,7 +877,7 @@ final class BizCity_KG_Filestore_Diagnostic {
 				if ( false === $res ) { $fail++; } else { $ok++; }
 			}
 			$remaining = (int) $wpdb->get_var(
-				"SELECT COUNT(*) FROM {$tbl} WHERE embedding IS NULL AND status='approved' AND deleted_at IS NULL"
+				"SELECT COUNT(*) FROM {$tbl} WHERE embedding IS NULL AND storage_ver=1 AND status='approved' AND deleted_at IS NULL"
 			);
 		}
 
@@ -867,6 +889,46 @@ final class BizCity_KG_Filestore_Diagnostic {
 			// Stop if we attempted nothing (no more candidates) OR remaining hit 0.
 			'done'      => ( $attempted === 0 || $remaining === 0 ),
 			'message'   => sprintf( 're-embed %s: ok=%d fail=%d, %d remaining', $kind, $ok, $fail, $remaining ),
+		];
+	}
+
+	/**
+	 * [2026-07-25 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — manual "catch up now"
+	 * for the entity/relation embedding LONGTEXT → .embed.bin drain. Before
+	 * this, the ONLY thing that ever moved this data out of SQL was the
+	 * tier-based 5-10min cron (BATCH_SIZE=100/kind/tick), invisible in this
+	 * page's "Storage version progress" bar (that bar only reflects
+	 * storage_ver, not whether `embedding` itself has been scrubbed). This
+	 * step lets the operator drain the existing backlog directly, and is
+	 * also wired into the housekeeping chain so "Run housekeeping" shrinks
+	 * SQL immediately instead of waiting on the background cron.
+	 */
+	private function step_graph_embed( $kind_plural, $batch ) {
+		if ( ! class_exists( 'BizCity_KG_Graph_Embedding_Migration' ) ) {
+			return [ 'ok' => false, 'done' => true, 'message' => 'BizCity_KG_Graph_Embedding_Migration unavailable' ];
+		}
+		global $wpdb;
+		$db   = BizCity_KG_Database::instance();
+		$kind = ( 'relations' === $kind_plural ) ? 'relation' : 'entity';
+		$tbl  = ( 'relation' === $kind ) ? $db->tbl_relations() : $db->tbl_entities();
+
+		$out       = BizCity_KG_Graph_Embedding_Migration::instance()->migrate_batch( $kind, (int) $batch );
+		$migrated  = (int) ( $out['migrated']          ?? 0 );
+		$existing  = (int) ( $out['scrubbed_existing']  ?? 0 );
+		$malformed = (int) ( $out['malformed']          ?? 0 );
+		$errors    = (int) ( $out['errors']             ?? 0 );
+		$attempted = $migrated + $existing + $malformed + $errors;
+		$remaining = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$tbl} WHERE embedding IS NOT NULL AND embedding<>''" );
+
+		return [
+			'processed' => $migrated + $existing,
+			'failed'    => $malformed + $errors,
+			'remaining' => $remaining,
+			'done'      => ( $attempted === 0 || $remaining === 0 ),
+			'message'   => sprintf(
+				'graph-embed %s: migrated=%d existing=%d malformed=%d errors=%d, %d remaining',
+				$kind_plural, $migrated, $existing, $malformed, $errors, $remaining
+			),
 		];
 	}
 
@@ -912,10 +974,14 @@ final class BizCity_KG_Filestore_Diagnostic {
 				$total      = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$tbl}" );
 				$approved   = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$tbl} WHERE status='approved' AND deleted_at IS NULL" );
 				$null_embed = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$tbl} WHERE embedding IS NULL AND status='approved' AND deleted_at IS NULL" );
+				// [2026-07-25 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — storage_ver=2 rows
+				// with NULL embedding are already file-migrated by design; only
+				// storage_ver=1 NULLs are a genuine "missing vector" health issue.
+				$null_embed_v1 = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$tbl} WHERE embedding IS NULL AND storage_ver=1 AND status='approved' AND deleted_at IS NULL" );
 				$v1_left    = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$tbl} WHERE storage_ver=1" );
 				$v2         = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$tbl} WHERE storage_ver=2" );
-				$out['metrics'] = compact( 'total', 'approved', 'null_embed', 'v1_left', 'v2' );
-				if ( $null_embed > 0 ) { $out['status'] = 'warn'; $out['warnings'][] = $null_embed . ' approved rows have NULL embedding'; }
+				$out['metrics'] = compact( 'total', 'approved', 'null_embed', 'null_embed_v1', 'v1_left', 'v2' );
+				if ( $null_embed_v1 > 0 ) { $out['status'] = 'warn'; $out['warnings'][] = $null_embed_v1 . ' storage_ver=1 rows missing embedding (needs re-embed)'; }
 				if ( $v1_left > 0 )    { $out['status'] = 'warn'; $out['warnings'][] = $v1_left . ' rows still on storage_ver=1'; }
 				break;
 
@@ -924,10 +990,13 @@ final class BizCity_KG_Filestore_Diagnostic {
 				$total      = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$tbl}" );
 				$approved   = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$tbl} WHERE status='approved' AND deleted_at IS NULL" );
 				$null_embed = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$tbl} WHERE embedding IS NULL AND status='approved' AND deleted_at IS NULL" );
+				// [2026-07-25 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — same storage_ver=1
+				// guard as relations above.
+				$null_embed_v1 = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$tbl} WHERE embedding IS NULL AND storage_ver=1 AND status='approved' AND deleted_at IS NULL" );
 				$v1_left    = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$tbl} WHERE storage_ver=1" );
 				$v2         = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$tbl} WHERE storage_ver=2" );
-				$out['metrics'] = compact( 'total', 'approved', 'null_embed', 'v1_left', 'v2' );
-				if ( $null_embed > 0 ) { $out['status'] = 'warn'; $out['warnings'][] = $null_embed . ' approved rows have NULL embedding'; }
+				$out['metrics'] = compact( 'total', 'approved', 'null_embed', 'null_embed_v1', 'v1_left', 'v2' );
+				if ( $null_embed_v1 > 0 ) { $out['status'] = 'warn'; $out['warnings'][] = $null_embed_v1 . ' storage_ver=1 rows missing embedding (needs re-embed)'; }
 				if ( $v1_left > 0 )    { $out['status'] = 'warn'; $out['warnings'][] = $v1_left . ' rows still on storage_ver=1'; }
 				break;
 
@@ -937,9 +1006,10 @@ final class BizCity_KG_Filestore_Diagnostic {
 				$pending  = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$tbl} WHERE status='pending'" );
 				$approved = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$tbl} WHERE status='approved'" );
 				$rejected = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$tbl} WHERE status='rejected'" );
-				$raw_left = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$tbl} WHERE status<>'pending' AND raw_llm_output IS NOT NULL AND raw_llm_output<>''" );
+				// [2026-07-23 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — v09 drains raw payload for all statuses after JSONL append.
+				$raw_left = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$tbl} WHERE raw_llm_output IS NOT NULL AND raw_llm_output<>''" );
 				$out['metrics'] = compact( 'total', 'pending', 'approved', 'rejected', 'raw_left' );
-				if ( $raw_left > 0 ) { $out['status'] = 'warn'; $out['warnings'][] = $raw_left . ' processed rows still hold raw_llm_output (run clean_triplet_queue)'; }
+				if ( $raw_left > 0 ) { $out['status'] = 'warn'; $out['warnings'][] = $raw_left . ' rows still hold raw_llm_output (run triplet raw migration/cleanup)'; }
 				break;
 
 			case 'files':
@@ -1110,14 +1180,20 @@ final class BizCity_KG_Filestore_Diagnostic {
 	 * housekeeping ring buffer + the main trace log.
 	 *
 	 * Phases (filterable order via `bizcity_kg_housekeeping_phases`):
-	 *   1. backfill          — drain storage_ver=1 (most important; reader uses files).
-	 *   2. clean_passages    — null inline payload for v2 rows (DB shrink).
-	 *   3. clean_entities
-	 *   4. clean_relations
-	 *   5. clean_triplet_queue
-	 *   6. reembed_entities  — re-embed NULL vectors (caps at $reembed_max steps).
-	 *   7. reembed_relations
-	 *   8. optimize_one × 4  — reclaim free pages.
+	 *   1. backfill            — drain storage_ver=1 (most important; reader uses files).
+	 *   2. graph_embed_entities  — drain kg_entities.embedding LONGTEXT → .embed.bin sidecar.
+	 *   3. graph_embed_relations — drain kg_relations.embedding LONGTEXT → .embed.bin sidecar.
+	 *      (2026-07-25: this is the ONLY thing besides the slow 5-10min tier
+	 *      cron that ever clears these columns; clean_entities/clean_relations
+	 *      below deliberately skip `embedding` — see class-kg-graph-embedding-
+	 *      migration.php header comment.)
+	 *   4. clean_passages    — null inline payload for v2 rows (DB shrink).
+	 *   5. clean_entities
+	 *   6. clean_relations
+	 *   7. clean_triplet_queue
+	 *   8. reembed_entities  — re-embed NULL vectors (caps at $reembed_max steps).
+	 *   9. reembed_relations
+	 *   10. optimize_one × 4  — reclaim free pages.
 	 */
 	public function run_housekeeping_cycle() {
 		$t0          = microtime( true );
@@ -1135,6 +1211,8 @@ final class BizCity_KG_Filestore_Diagnostic {
 
 		$phases = [
 			[ 'op' => 'backfill',           'size' => 0,  'max_steps' => 200 ],
+			[ 'op' => 'graph_embed_entities',  'size' => self::GRAPH_EMBED_CHUNK_DEFAULT, 'max_steps' => 200 ],
+			[ 'op' => 'graph_embed_relations', 'size' => self::GRAPH_EMBED_CHUNK_DEFAULT, 'max_steps' => 200 ],
 			[ 'op' => 'clean_passages',     'size' => self::CLEAN_CHUNK_DEFAULT, 'max_steps' => 200 ],
 			[ 'op' => 'clean_entities',     'size' => self::CLEAN_CHUNK_DEFAULT, 'max_steps' => 200 ],
 			[ 'op' => 'clean_relations',    'size' => self::CLEAN_CHUNK_DEFAULT, 'max_steps' => 200 ],
@@ -1205,6 +1283,8 @@ final class BizCity_KG_Filestore_Diagnostic {
 			case 'clean_triplet_queue': return $this->step_clean_triplet_queue( $size );
 			case 'reembed_entities':    return $this->step_reembed( 'entities',  $size );
 			case 'reembed_relations':   return $this->step_reembed( 'relations', $size );
+			case 'graph_embed_entities':  return $this->step_graph_embed( 'entities',  $size );
+			case 'graph_embed_relations': return $this->step_graph_embed( 'relations', $size );
 		}
 		return [ 'ok' => false, 'done' => true, 'message' => 'unknown op: ' . $op ];
 	}
@@ -1368,8 +1448,19 @@ final class BizCity_KG_Filestore_Diagnostic {
 			// down stay as no-JS fallback.
 			// ─────────────────────────────────────────────────────────
 			$ajax_nonce = wp_create_nonce( self::NONCE_ACTION );
-			$ent_null   = (int) $wpdb->get_var( "SELECT COUNT(*) FROM " . BizCity_KG_Database::instance()->tbl_entities()  . " WHERE embedding IS NULL AND status='approved' AND deleted_at IS NULL" );
-			$rel_null   = (int) $wpdb->get_var( "SELECT COUNT(*) FROM " . BizCity_KG_Database::instance()->tbl_relations() . " WHERE embedding IS NULL AND status='approved' AND deleted_at IS NULL" );
+			// [2026-07-25 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — storage_ver=1 guard:
+			// storage_ver=2 rows with embedding NULL are already file-migrated by
+			// design (not missing a vector), so must not count as "needs re-embed"
+			// — matches the same guard added to step_reembed()'s query below.
+			$ent_null   = (int) $wpdb->get_var( "SELECT COUNT(*) FROM " . BizCity_KG_Database::instance()->tbl_entities()  . " WHERE embedding IS NULL AND storage_ver=1 AND status='approved' AND deleted_at IS NULL" );
+			$rel_null   = (int) $wpdb->get_var( "SELECT COUNT(*) FROM " . BizCity_KG_Database::instance()->tbl_relations() . " WHERE embedding IS NULL AND storage_ver=1 AND status='approved' AND deleted_at IS NULL" );
+			// [2026-07-25 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — the REAL SQL-bloat
+			// backlog: rows whose `embedding` LONGTEXT has NOT yet been drained to
+			// the .embed.bin sidecar. This is NOT the same as storage_ver=1 above —
+			// a row can already be storage_ver=2 ("100%" in the progress table) and
+			// still be carrying its full embedding column in SQL.
+			$ent_embed_left = (int) $wpdb->get_var( "SELECT COUNT(*) FROM " . BizCity_KG_Database::instance()->tbl_entities()  . " WHERE embedding IS NOT NULL AND embedding<>''" );
+			$rel_embed_left = (int) $wpdb->get_var( "SELECT COUNT(*) FROM " . BizCity_KG_Database::instance()->tbl_relations() . " WHERE embedding IS NOT NULL AND embedding<>''" );
 			// Backfill v1 row counts (the bigger this is, the longer Backfill will run).
 			$v1_pas = (int) $wpdb->get_var( "SELECT COUNT(*) FROM " . BizCity_KG_Database::instance()->tbl_passages()  . " WHERE storage_ver=1" );
 			$v1_ent = (int) $wpdb->get_var( "SELECT COUNT(*) FROM " . BizCity_KG_Database::instance()->tbl_entities()  . " WHERE storage_ver=1" );
@@ -1379,6 +1470,17 @@ final class BizCity_KG_Filestore_Diagnostic {
 			$hk_last     = get_option( self::HOUSEKEEPING_OPT_LAST, [] );
 			$hk_next_ts  = wp_next_scheduled( self::HOUSEKEEPING_HOOK );
 			?>
+			<div style="background:<?php echo ( $ent_embed_left + $rel_embed_left ) > 0 ? '#fef2f2' : '#f0fdf4'; ?>;border:1px solid <?php echo ( $ent_embed_left + $rel_embed_left ) > 0 ? '#fecaca' : '#bbf7d0'; ?>;padding:10px 14px;border-radius:4px;margin:12px 0;font:13px/1.5 system-ui">
+				<strong>⚠ Embedding LONGTEXT backlog (real SQL bloat, NOT reflected by "Storage version progress" above):</strong><br>
+				<code>kg_entities.embedding</code> still in SQL: <strong style="color:<?php echo $ent_embed_left > 0 ? '#b32d2e' : '#00674e'; ?>"><?php echo number_format_i18n( $ent_embed_left ); ?></strong> rows
+				· <code>kg_relations.embedding</code> still in SQL: <strong style="color:<?php echo $rel_embed_left > 0 ? '#b32d2e' : '#00674e'; ?>"><?php echo number_format_i18n( $rel_embed_left ); ?></strong> rows.
+				<p style="margin:6px 0 0;color:#666;font-size:12px">
+					<code>storage_ver=2</code> only means the jsonl mirror (name/description/aliases/relation_text) exists.
+					The <code>embedding</code> column is drained separately by <code>BizCity_KG_Graph_Embedding_Migration</code> —
+					previously ONLY via a background cron (100 rows/kind per tick). New entities/relations now drain
+					synchronously at insert time; use the <strong>🧬 Graph-embed</strong> buttons below to clear this existing backlog now.
+				</p>
+			</div>
 			<h2 style="margin-top:24px">⚡ Chunked runner (no timeout)
 				<span style="font-size:12px;font-weight:normal;color:#666">— recommended path, replaces sync buttons below</span>
 			</h2>
@@ -1506,6 +1608,8 @@ final class BizCity_KG_Filestore_Diagnostic {
 					<button type="button" class="button kg-run-btn" data-op="clean_entities"      data-size="1000">🗑 Clean entities</button>
 					<button type="button" class="button kg-run-btn" data-op="clean_relations"     data-size="1000">🗑 Clean relations</button>
 					<button type="button" class="button kg-run-btn" data-op="clean_triplet_queue" data-size="1000">🗑 Clean triplet queue</button>
+					<button type="button" class="button button-primary kg-run-btn" data-op="graph_embed_entities"  data-size="<?php echo (int) self::GRAPH_EMBED_CHUNK_DEFAULT; ?>">🧬 Graph-embed entities (<?php echo number_format_i18n( $ent_embed_left ); ?> in SQL)</button>
+					<button type="button" class="button button-primary kg-run-btn" data-op="graph_embed_relations" data-size="<?php echo (int) self::GRAPH_EMBED_CHUNK_DEFAULT; ?>">🧬 Graph-embed relations (<?php echo number_format_i18n( $rel_embed_left ); ?> in SQL)</button>
 					<button type="button" class="button button-primary kg-run-btn" data-op="reembed_entities"  data-size="10">🔧 Re-embed entities (<?php echo number_format_i18n( $ent_null ); ?> null)</button>
 					<button type="button" class="button button-primary kg-run-btn" data-op="reembed_relations" data-size="10">🔧 Re-embed relations (<?php echo number_format_i18n( $rel_null ); ?> null)</button>
 					<span style="border-left:1px solid #ccc;margin:0 4px"></span>
@@ -1678,9 +1782,11 @@ final class BizCity_KG_Filestore_Diagnostic {
 				var hkBtn = document.getElementById('kg-run-housekeeping');
 				if (hkBtn) {
 					hkBtn.addEventListener('click', function(){
-						if (!confirm('Chạy full housekeeping (backfill + clean × 4 + reembed × 2 + optimize × 4)? Có thể mất vài phút.')) return;
+						if (!confirm('Chạy full housekeeping (backfill + graph-embed × 2 + clean × 4 + reembed × 2 + optimize × 4)? Có thể mất vài phút.')) return;
 						runChain([
 							{ op:'backfill',                              max_steps: 200 },
+							{ op:'graph_embed_entities',  size:'<?php echo (int) self::GRAPH_EMBED_CHUNK_DEFAULT; ?>', max_steps: 200 },
+							{ op:'graph_embed_relations', size:'<?php echo (int) self::GRAPH_EMBED_CHUNK_DEFAULT; ?>', max_steps: 200 },
 							{ op:'clean_passages',      size:'1000',      max_steps: 200 },
 							{ op:'clean_entities',      size:'1000',      max_steps: 200 },
 							{ op:'clean_relations',     size:'1000',      max_steps: 200 },
@@ -1783,8 +1889,11 @@ final class BizCity_KG_Filestore_Diagnostic {
 				<?php
 				// 2026-05-20 — Rescue button. Count NULL-embedding entities/relations
 				// up-front so the operator sees scope before clicking.
-				$ent_null = (int) $wpdb->get_var( "SELECT COUNT(*) FROM " . BizCity_KG_Database::instance()->tbl_entities()  . " WHERE embedding IS NULL AND status='approved' AND deleted_at IS NULL" );
-				$rel_null = (int) $wpdb->get_var( "SELECT COUNT(*) FROM " . BizCity_KG_Database::instance()->tbl_relations() . " WHERE embedding IS NULL AND status='approved' AND deleted_at IS NULL" );
+				// [2026-07-25 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — storage_ver=1 guard:
+				// storage_ver=2 rows are already file-migrated by design, not missing
+				// a vector; must match rebuild_kg_embeddings()'s query above.
+				$ent_null = (int) $wpdb->get_var( "SELECT COUNT(*) FROM " . BizCity_KG_Database::instance()->tbl_entities()  . " WHERE embedding IS NULL AND storage_ver=1 AND status='approved' AND deleted_at IS NULL" );
+				$rel_null = (int) $wpdb->get_var( "SELECT COUNT(*) FROM " . BizCity_KG_Database::instance()->tbl_relations() . " WHERE embedding IS NULL AND storage_ver=1 AND status='approved' AND deleted_at IS NULL" );
 				?>
 				<form method="post" action="<?php echo esc_url( $post_url ); ?>" style="padding:12px;border:2px solid <?php echo ( $ent_null + $rel_null ) > 0 ? '#b32d2e' : '#9ca3af'; ?>;border-radius:4px;min-width:240px;background:<?php echo ( $ent_null + $rel_null ) > 0 ? '#fef2f2' : '#f9fafb'; ?>">
 					<?php wp_nonce_field( self::NONCE_ACTION ); ?>

@@ -3,7 +3,7 @@
   "module_id": "core.cron",
   "owner": "core/cron",
   "installer_id": "cron",
-  "current_version": "1.2.0",
+  "current_version": "1.3.0",
   "version_option": "bizcity_cron_db_version",
   "tables": {
     "bizcity_cron_registry": {
@@ -73,11 +73,28 @@
         "idx_status_next": { "cols": ["status", "next_run_at"], "since": "1.1.0" },
         "idx_job":         { "cols": ["job_id"],                "since": "1.1.0" }
       }
+    },
+    "bizcity_cron_locks": {
+      "since": "1.3.0",
+      "purpose": "Runtime mutex — one live row per job_id while its handler is executing. Prevents duplicate concurrent execution when WP pseudo-cron double-fires the same due event (see core/cron/docs/TRACE-CRON-OVERLOAD-2026-07-26.md). Acquired/released via BizCity_Cron_Manager::try_lock()/unlock(); locked_until is a safety-net expiry for orphaned locks from crashed processes, not the expected job runtime.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":            { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",                          "since": "1.3.0", "pk": true },
+        "job_id":        { "type": "VARCHAR(128) NOT NULL DEFAULT ''",                                  "since": "1.3.0" },
+        "locked_until":  { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",                       "since": "1.3.0" },
+        "updated_at":    { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", "since": "1.3.0" }
+      },
+      "indexes": {
+        "uniq_job_id": { "cols": ["job_id"], "unique": true, "since": "1.3.0" }
+      }
     }
   },
   "history": [
     { "version": "1.0.0", "date": "2026-05-23", "change": "Initial schema — registry + runs log for core/cron Phase 1 (Registry + Observability). See core/cron/PHASE-CRON.md." },
     { "version": "1.1.0", "date": "2026-05-24", "change": "Phase 2 — add bizcity_cron_retries (exponential-backoff retry queue, dispatched every 5 min). Hooks into BizCity_Cron_Manager::run_now() failures." },
-    { "version": "1.2.0", "date": "2026-05-24", "change": "R-CRON-META — add meta LONGTEXT to bizcity_cron_runs. Every registered cron job MUST persist structured JSON evidence per run via BizCity_Cron_Manager::note()/note_event() so failures can be analysed post-mortem (FB token errors, Graph 4xx/5xx, timeouts, partial sends…)." }
+    { "version": "1.2.0", "date": "2026-05-24", "change": "R-CRON-META — add meta LONGTEXT to bizcity_cron_runs. Every registered cron job MUST persist structured JSON evidence per run via BizCity_Cron_Manager::note()/note_event() so failures can be analysed post-mortem (FB token errors, Graph 4xx/5xx, timeouts, partial sends…)." },
+    { "version": "1.3.0", "date": "2026-07-26", "change": "CRON-LOCK-PHASE-A — add bizcity_cron_locks (per-job runtime mutex) to fix duplicate concurrent cron execution observed on blog 1513 (bcpro_transit_daily_sync fired 3x overlapping in ~1 min). See core/cron/docs/TRACE-CRON-OVERLOAD-2026-07-26.md." }
   ]
 }

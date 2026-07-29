@@ -72,13 +72,17 @@ final class BizCity_TwinBrain_Memory_Tool_Remember implements BizCity_Twin_Tool 
 		$score = (int)    ( $args['score'] ?? self::SCORE );
 		$score = max( 50, min( 100, $score ) );
 
-		$user_id    = (int)    ( $context['user_id']    ?? get_current_user_id() );
-		$session_id = (string) ( $context['session_id'] ?? '' );
-		$trace_id   = (string) ( $context['trace_id']   ?? '' );
-
-		if ( $user_id <= 0 && $session_id === '' ) {
+		// [2026-07-28 Johnny Chu] R-CH-IDMEM — all new explicit memory uses one verified durable owner contract.
+		$scope = class_exists( 'BizCity_Memory_Identity_Scope' )
+			? BizCity_Memory_Identity_Scope::for_write( $context )
+			: null;
+		if ( ! $scope ) {
 			return [ 'ok' => false, 'error' => 'no_owner', 'summary' => '', 'result' => null ];
 		}
+		$user_id       = (int) $scope['user_id'];
+		$session_id    = (string) $scope['session_id'];
+		$trace_id      = (string) ( $context['trace_id'] ?? '' );
+		$identity_uuid = (string) $scope['identity_uuid'];
 		if ( ! class_exists( 'BizCity_User_Memory' ) ) {
 			return [ 'ok' => false, 'error' => 'class_missing', 'summary' => '', 'result' => null ];
 		}
@@ -89,6 +93,7 @@ final class BizCity_TwinBrain_Memory_Tool_Remember implements BizCity_Twin_Tool 
 		$res = $mem->upsert_public( [
 			'user_id'     => $user_id,
 			'session_id'  => $user_id > 0 ? '' : $session_id,
+			'identity_uuid'=> $identity_uuid,
 			'memory_tier' => 'explicit',
 			'memory_type' => $type,
 			'memory_key'  => $key,
@@ -101,10 +106,20 @@ final class BizCity_TwinBrain_Memory_Tool_Remember implements BizCity_Twin_Tool 
 		] );
 
 		if ( ! $res ) {
-			return [ 'ok' => false, 'error' => 'upsert_failed', 'summary' => '', 'result' => null ];
+			$last_fail = method_exists( 'BizCity_User_Memory', 'get_last_upsert_failure' )
+				? (array) BizCity_User_Memory::get_last_upsert_failure()
+				: array();
+			$fail_code = trim( (string) ( $last_fail['code'] ?? '' ) );
+			$db_error  = trim( (string) ( $last_fail['db_error'] ?? '' ) );
+			if ( $db_error !== '' ) {
+				$last_fail['db_error'] = mb_substr( $db_error, 0, 220 );
+			}
+			$error = $fail_code !== '' ? 'upsert_failed:' . $fail_code : 'upsert_failed';
+			// [2026-07-28 Johnny Chu] PHASE-0.52 W8.3 — surface explicit UUID ownership failures to Mode 3 diagnostics.
+			return [ 'ok' => false, 'error' => $error, 'summary' => '', 'result' => $last_fail ];
 		}
 
-		$new_id = $this->lookup_id( $user_id, $session_id, $key );
+		$new_id = $this->lookup_id( $user_id, $session_id, $identity_uuid, $key );
 
 		return [
 			'ok'           => true,
@@ -122,15 +137,17 @@ final class BizCity_TwinBrain_Memory_Tool_Remember implements BizCity_Twin_Tool 
 		];
 	}
 
-	private function lookup_id( int $user_id, string $session_id, string $key ): int {
+	private function lookup_id( int $user_id, string $session_id, string $identity_uuid, string $key ): int {
 		global $wpdb;
 		if ( ! class_exists( 'BizCity_User_Memory' ) ) return 0;
 		$tbl = BizCity_User_Memory::table();
 		$sid = $user_id > 0 ? '' : $session_id;
 		$id  = (int) $wpdb->get_var( $wpdb->prepare(
-			"SELECT id FROM {$tbl} WHERE user_id=%d AND session_id=%s AND memory_key=%s LIMIT 1",
+			"SELECT id FROM {$tbl} WHERE blog_id=%d AND user_id=%d AND session_id=%s AND identity_uuid=%s AND memory_key=%s LIMIT 1",
+			get_current_blog_id(),
 			$user_id,
 			$sid,
+			$identity_uuid,
 			$key
 		) );
 		return $id;

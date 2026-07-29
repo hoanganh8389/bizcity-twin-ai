@@ -83,6 +83,8 @@ final class BizCity_TwinBrain_Agent_Runner {
 	public function run( string $trace_id, string $prompt, array $opts = [], $on_event = null ): array {
 		$turn_start = microtime( true );
 		$prompt     = trim( $prompt );
+		// [2026-07-18 Johnny Chu] PHASE-TWIN-GPT-C-ENDUSER — clamp Agent ReAct loop depth by server-owned runtime preset.
+		$max_iterations = isset( $opts['max_iterations'] ) ? max( 1, min( 8, (int) $opts['max_iterations'] ) ) : self::MAX_ITERATIONS;
 
 		$out = [
 			'ok'           => true,
@@ -142,7 +144,7 @@ final class BizCity_TwinBrain_Agent_Runner {
 
 		$this->emit( $on_event, 'agent_loop_started', [
 			'trace_id' => $trace_id,
-			'max_iter' => self::MAX_ITERATIONS,
+			'max_iter' => $max_iterations,
 			'tools'    => $tool_names,
 		] );
 
@@ -190,7 +192,7 @@ final class BizCity_TwinBrain_Agent_Runner {
 		$reason        = '';
 		$tool_run_log  = [];
 
-		for ( $iter = 1; $iter <= self::MAX_ITERATIONS; $iter++ ) {
+		for ( $iter = 1; $iter <= $max_iterations; $iter++ ) {
 			$elapsed = microtime( true ) - $turn_start;
 			if ( $elapsed > self::TOTAL_BUDGET_S ) {
 				$forced_final = true;
@@ -202,7 +204,7 @@ final class BizCity_TwinBrain_Agent_Runner {
 
 			// Build messages: system = registry prompt + agent instructions,
 			// user = original prompt + history block + next-step nudge.
-			$messages = $this->build_messages( $registry, $tools, $prompt, $opts, $history, $iter );
+			$messages = $this->build_messages( $registry, $tools, $prompt, $opts, $history, $iter, $max_iterations );
 
 			$llm_out = $this->llm_call( $trace_id, $model, $messages, self::ITER_TIMEOUT_S );
 			$out['tokens'] += (int) $llm_out['tokens'];
@@ -512,7 +514,7 @@ final class BizCity_TwinBrain_Agent_Runner {
 	 *  Prompt build
 	 * ================================================================ */
 
-	private function build_messages( BizCity_Twin_Tool_Registry $registry, array $tools, string $prompt, array $opts, array $history, int $iter ): array {
+	private function build_messages( BizCity_Twin_Tool_Registry $registry, array $tools, string $prompt, array $opts, array $history, int $iter, int $max_iterations ): array {
 		$tool_section = $registry->render_prompt_section( array_keys( $tools ) );
 		$history_str  = $this->serialize_history( $history );
 		$memory_block = trim( (string) ( $opts['memory_block'] ?? '' ) );
@@ -523,7 +525,7 @@ final class BizCity_TwinBrain_Agent_Runner {
 			. "2. Quyết định: gọi 1 tool HOẶC viết câu trả lời cuối.\n"
 			. "   - Gọi tool: emit ĐÚNG format `<tool name=\"...\">{\"...\"}</tool>` rồi DỪNG.\n"
 			. "   - Trả lời cuối: viết câu trả lời tiếng Việt, KHÔNG có `<tool>` block.\n"
-			. "3. Tối đa " . self::MAX_ITERATIONS . " tool call mỗi turn. Sau đó system sẽ force synthesize.\n"
+			. "3. Tối đa " . $max_iterations . " tool call mỗi turn. Sau đó system sẽ force synthesize.\n"
 			. "4. Khi tool trả citation_id (vd `[a3x9]`, `[mem:U#101]`), echo lại trong câu trả lời cuối.\n"
 			. "5. KHÔNG gọi tool lặp với args giống hệt lần trước — đọc lại HISTORY.\n\n"
 			. $tool_section;
@@ -533,7 +535,7 @@ final class BizCity_TwinBrain_Agent_Runner {
 			$user_parts[] = $memory_block;
 		}
 		$user_parts[] = "## CÂU HỎI USER\n" . $prompt;
-		$user_parts[] = "## ITERATION " . $iter . "/" . self::MAX_ITERATIONS;
+		$user_parts[] = "## ITERATION " . $iter . "/" . $max_iterations;
 		$user_parts[] = "## TOOL HISTORY\n" . ( $history_str === '' ? '(empty — iteration đầu tiên)' : $history_str );
 		$user_parts[] = "Bước tiếp theo (Thought + <tool> HOẶC câu trả lời cuối):";
 

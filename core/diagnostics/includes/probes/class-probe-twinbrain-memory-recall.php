@@ -68,8 +68,13 @@ final class BizCity_Probe_TwinBrain_Memory_Recall implements BizCity_Diagnostics
 
 		// Step 1 — plant.
 		$mem = BizCity_User_Memory::instance();
+		// [2026-07-28 Johnny Chu] R-CH-IDMEM — plant the recall sentinel under the verified UUID owner.
+		$memory_scope = class_exists( 'BizCity_Memory_Identity_Scope' )
+			? BizCity_Memory_Identity_Scope::for_write( array( 'user_id' => $user_id ) )
+			: null;
 		$res = $mem->upsert_public( [
 			'user_id'     => $user_id,
+			'identity_uuid' => (string) ( $memory_scope['identity_uuid'] ?? '' ),
 			'session_id'  => '',
 			'memory_tier' => 'explicit',
 			'memory_type' => 'preference',
@@ -78,10 +83,18 @@ final class BizCity_Probe_TwinBrain_Memory_Recall implements BizCity_Diagnostics
 			'score'       => 95,
 		] );
 		if ( ! $res ) {
+			// [2026-07-28 Johnny Chu] PHASE-0.52 W8.3 — surface explicit upsert failure code/message for probe triage clarity.
+			$last_fail = method_exists( 'BizCity_User_Memory', 'get_last_upsert_failure' )
+				? (array) BizCity_User_Memory::get_last_upsert_failure()
+				: array();
+			$fail_code = (string) ( $last_fail['code'] ?? '' );
+			$fail_msg  = (string) ( $last_fail['message'] ?? '' );
+			$db_error  = trim( (string) ( $last_fail['db_error'] ?? '' ) );
+			$db_tail   = $db_error !== '' ? ' · db_error=' . mb_substr( $db_error, 0, 220 ) : '';
 			return [
 				'status'   => 'fail',
-				'error'    => 'upsert_public() returned false — không plant được test row.',
-				'fix_hint' => 'Check $wpdb->last_error trong WP_DEBUG_LOG; có thể bizcity_memory_users table missing → run Diagnostics Auto-Fix.',
+				'error'    => 'upsert_public() returned false — không plant được test row.' . ( $fail_code !== '' ? ' code=' . $fail_code : '' ) . ( $fail_msg !== '' ? ' · ' . $fail_msg : '' ) . $db_tail,
+				'fix_hint' => 'Check BizCity_User_Memory::get_last_upsert_failure() + $wpdb->last_error trong WP_DEBUG_LOG; có thể schema chưa migrate hoặc identity_uuid owner không resolve được.',
 			];
 		}
 		$this->planted_id = $this->find_planted_id( $user_id );

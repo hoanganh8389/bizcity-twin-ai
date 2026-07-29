@@ -38,9 +38,27 @@ final class BizCity_Automation_Templates_Seeder {
 	// [2026-07-03 Johnny Chu] PHASE-ASTRO-WORKFLOW — +3 astro templates (van_han_zalo + quick_zalo + daily_cron)
 	// [2026-07-05 Johnny Chu] PHASE-FAA2-TWINBRAIN — astro-zalobot template adds deterministic best-day selector.
 	// [2026-07-05 Johnny Chu] PHASE-ASTRO-WORKFLOW — daily astro cron template moved to 09:00 + focused brief.
-	const SEED_VERSION    = '1.44.0'; // [2026-07-08 Johnny Chu] PHASE-ATH — astro relation profile zalo template.
+	// [2026-07-15 Johnny Chu] PHASE-TWB-PRODUCTS — add products-zalobot template set.
+	// [2026-07-15 Johnny Chu] PHASE-ATH — rebrand products-zalobot templates to canonical Super-MRO scope.
+	// [2026-07-18 Johnny Chu] PHASE-TWINWEB — seed TwinGPT public FE workflow templates.
+	// [2026-07-20 Johnny Chu] PHASE-1-TEMPLATES-AUTOMATION — prefix Content Ops template names in gallery.
+	// [2026-07-20 Johnny Chu] PHASE-1-TEMPLATES-AUTOMATION — fix UTF-8 Vietnamese text in command-post templates.
+	// [2026-07-21 Johnny Chu] PHASE-FB-GLOBAL-TPL — add customer global Facebook posting templates.
+	// [2026-07-21 Johnny Chu] PHASE-ATH — add global marketing script templates with deep research + ZaloBot.
+	// [2026-07-21 Johnny Chu] PHASE-ATH — add global short-video and morning Facebook content templates.
+	// [2026-07-21 Johnny Chu] PHASE-SEEDREAM-45 — add global ZaloBot photo editor templates.
+	// [2026-07-22 Johnny Chu] PHASE-3-TWIN-GPT — add global BTnet daily-session chat workflow.
+	// [2026-07-25 Johnny Chu] PHASE-0.46 W2 — add builtin template using action.capture_to_notebook.
+	// [2026-07-25 Johnny Chu] PHASE-0.48-LEARNING-LOG-SHARE-LINK — wire action.learning_share_link into the @ghichu capture-to-notebook template reply.
+	const SEED_VERSION    = '1.62.0'; // [2026-07-25 Johnny Chu] PHASE-ATH — reseed notebook bridge template with accepted file list + source-scoped share-link binding.
 	const VERSION_OPTION  = 'bizcity_automation_templates_seed_version';
 	const HASH_OPTION     = 'bizcity_automation_templates_seed_hash';
+
+	// [2026-07-24 Johnny Chu] PHASE-DIAG-PERF — bound how often maybe_seed() is allowed to
+	// rebuild+hash 100+ blueprint PHP arrays and run the empty-library COUNT(*) query. See
+	// core/diagnostics/docs/PHASE-DIAG-PERF-AUTO-CREATE-AUDIT.md.
+	const SEED_RECHECK_TTL    = 6000; // 100 minutes
+	const SEED_RECHECK_OPTION = 'bizcity_automation_seed_last_checked';
 
 	public static function maybe_seed(): void {
 		// [2026-07-10 Johnny Chu] PHASE-ATH — allow seed checks in admin/REST/WP-CLI so Template Gallery REST sees latest blueprints.
@@ -51,14 +69,30 @@ final class BizCity_Automation_Templates_Seeder {
 
 		$stamped      = (string) get_option( self::VERSION_OPTION, '' );
 		$stamped_hash = (string) get_option( self::HASH_OPTION, '' );
+
+		// [2026-07-24 Johnny Chu] PHASE-DIAG-PERF — trust a recently-verified stamp instead of
+		// rebuilding+hashing every blueprint and running a COUNT(*) query on every single
+		// admin/REST request. Re-verifies at most once per SEED_RECHECK_TTL window (or
+		// immediately whenever the version stamp itself no longer matches).
+		$last_checked = (int) get_option( self::SEED_RECHECK_OPTION, 0 );
+		if ( $stamped === self::SEED_VERSION && $stamped_hash !== '' && ( time() - $last_checked ) < self::SEED_RECHECK_TTL ) {
+			return;
+		}
+
 		$current_hash = self::current_blueprints_hash();
+		$needs_empty_reseed = self::needs_seed_for_empty_builtin_library();
 
 		// [2026-07-10 Johnny Chu] PHASE-ATH — reseed when either SEED_VERSION or blueprint fingerprint changes.
-		if ( $stamped === self::SEED_VERSION && $stamped_hash !== '' && hash_equals( $stamped_hash, $current_hash ) ) { return; }
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — if local template rows were wiped but seed options remain current, reseed instead of showing an empty gallery.
+		if ( ! $needs_empty_reseed && $stamped === self::SEED_VERSION && $stamped_hash !== '' && hash_equals( $stamped_hash, $current_hash ) ) {
+			update_option( self::SEED_RECHECK_OPTION, time(), false );
+			return;
+		}
 
 		self::seed_all();
 		update_option( self::VERSION_OPTION, self::SEED_VERSION, false );
 		update_option( self::HASH_OPTION, $current_hash, false );
+		update_option( self::SEED_RECHECK_OPTION, time(), false );
 		// [2026-06-24 Johnny Chu] PHASE-HOME-NOTEBOOKS — After seeding locally on main site,
 		// push all builtin templates to Hub so sub-sites can browse via HubTemplateTab API
 		// instead of relying on per-blog seeded copies (which caused "table is full" errors).
@@ -74,6 +108,8 @@ final class BizCity_Automation_Templates_Seeder {
 		update_option( self::VERSION_OPTION, self::SEED_VERSION, false );
 		// [2026-07-10 Johnny Chu] PHASE-ATH — keep fingerprint in sync for manual reseed path.
 		update_option( self::HASH_OPTION, self::current_blueprints_hash(), false );
+		// [2026-07-24 Johnny Chu] PHASE-DIAG-PERF — reset recheck TTL so the next request trusts this fresh reseed.
+		update_option( self::SEED_RECHECK_OPTION, time(), false );
 		return $rows;
 	}
 
@@ -84,6 +120,10 @@ final class BizCity_Automation_Templates_Seeder {
 	 */
 	public static function seed_all(): array {
 		if ( ! class_exists( 'BizCity_Automation_Repo_Templates' ) ) { return array(); }
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — repair identity columns before UUID-aware upsert to prevent Unknown column logs on older tenant schemas.
+		if ( class_exists( 'BizCity_Automation_Installer' ) ) {
+			BizCity_Automation_Installer::force_templates_identity_schema();
+		}
 		$out = array();
 		foreach ( self::blueprints() as $blueprint ) {
 			$res = BizCity_Automation_Repo_Templates::upsert( $blueprint );
@@ -93,6 +133,18 @@ final class BizCity_Automation_Templates_Seeder {
 			);
 		}
 		return $out;
+	}
+
+	private static function needs_seed_for_empty_builtin_library(): bool {
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — Template Gallery must self-heal when builtin rows are missing but seed stamp/options survived.
+		if ( ! class_exists( 'BizCity_Automation_Repo_Templates' ) ) { return false; }
+		global $wpdb;
+		if ( class_exists( 'BizCity_Automation_Installer' ) ) {
+			BizCity_Automation_Installer::ensure();
+		}
+		$table = BizCity_Automation_Repo_Templates::table();
+		$count = $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$table} WHERE source = %s AND is_active = %d", 'builtin', 1 ) );
+		return (int) $count <= 0;
 	}
 
 	/**
@@ -162,6 +214,9 @@ final class BizCity_Automation_Templates_Seeder {
 			if ( $trigger_type ) { $tags[] = $trigger_type; }
 
 			$hub_rows[] = array(
+				'template_uuid'    => (string) ( $tpl['template_uuid']    ?? '' ),
+				'template_version' => (string) ( $tpl['template_version'] ?? '1.0.0' ),
+				'visibility'       => (string) ( $tpl['visibility']       ?? 'private' ),
 				'slug'         => (string) $tpl['slug'],
 				'name'         => (string) ( $tpl['name']        ?? $tpl['slug'] ),
 				'description'  => (string) ( $tpl['description'] ?? '' ),
@@ -3059,7 +3114,7 @@ final class BizCity_Automation_Templates_Seeder {
 			self::n( 't1', 'trigger', 'trigger.zalo_inbound', 0, 80, array(
 				'label'       => 'Zalo Bot · nhận lệnh chiêm tinh',
 				'instance_id' => '',
-				'filter'      => 'chiêm tinh',
+				'filter'      => 'chiêm tinh 3 bước|astro 3 bước', // [2026-07-21 Johnny Chu] PHASE-ASTRO-WORKFLOW — legacy opt-in filter mirrors trigger_config.
 			) ),
 			self::n( 'ack', 'action', 'action.reply_zalo', 320, 80, array(
 				'label'       => 'Ack: đang tra bản đồ sao',
@@ -3076,7 +3131,7 @@ final class BizCity_Automation_Templates_Seeder {
 			) ),
 			self::n( 'g1', 'logic', 'logic.condition', 960, 80, array(
 				'label'      => 'Có bản đồ sao?',
-				'expression' => 'astro.passages_count > 0',
+				'expression' => 'astro.has_chart == 1', // [2026-07-21 Johnny Chu] PHASE-ZALOBOT-ASTRO — branch on saved natal chart, not transit/CAP passages.
 			) ),
 			self::n( 'links', 'action', 'action.reply_zalo', 1280, 20, array(
 				'label'       => 'Reply: links chart',
@@ -3109,19 +3164,21 @@ final class BizCity_Automation_Templates_Seeder {
 
 		return array(
 			'slug'         => 'tpl_zalobot_astro_steps_v1',
-			'name'         => 'Zalo Bot · Chiêm tinh 3 bước',
+			'name'         => '[deprecated] Zalo Bot · Chiêm tinh 3 bước',
 			'description'  => 'Nhắn "chiêm tinh" qua Zalo Bot → AI tra cứu bản đồ sao và trả lời 3 tin: (1) ack; (2) link bản đồ sao + transit; (3) nhận định AI. Nếu chưa có bản đồ → gửi link tạo mới. Yêu cầu module bizcoach-pro đã kích hoạt.',
 			'category'     => 'ai',
 			'source'       => 'builtin',
 			'trigger_type' => 'zalo_inbound',
 			'icon'         => 'Star',
-			'tags'         => 'zalobot,astro,chiemtinh,3-step,bizcoach',
+			'tags'         => 'zalobot,astro,chiemtinh,3-step,bizcoach,deprecated,legacy',
 			'graph'        => array( 'nodes' => $nodes, 'edges' => $edges, 'meta' => array( 'template' => 'tpl_zalobot_astro_steps_v1' ) ),
 			'trigger_config' => array(
 				'instance_id' => '',
-				'filter'      => 'chiêm tinh',
+				// [2026-07-21 Johnny Chu] PHASE-ASTRO-WORKFLOW — keep legacy 3-step opt-in so canonical transit workflow owns generic astrology commands.
+				'filter'      => 'chiêm tinh 3 bước|astro 3 bước',
 				'is_fallback' => false,
-				'priority'    => 21,
+				'priority'    => 1,
+				'visibility'  => 'private',
 			),
 			'plan' => 'pro',
 		);

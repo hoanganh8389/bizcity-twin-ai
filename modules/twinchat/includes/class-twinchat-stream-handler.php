@@ -321,6 +321,16 @@ class BizCity_TwinChat_Stream_Handler {
 			}
 		}
 
+		// [2026-07-19 Johnny Chu] PHASE-TWIN-GPT-PROFILE-GROUNDING — TwinChat direct stream bypasses TwinBrain Final Composer, so inject Subject Profile Layer into the system prompt here.
+		$subject_profile_block = $this->build_subject_profile_system_block( $user_id, (string) $args['user_message'], array(
+			'notebook_id' => (int) $notebook_id,
+			'session_id'  => (string) $session_id,
+			'surface'     => 'twinchat-notebook',
+		) );
+		if ( '' !== $subject_profile_block ) {
+			$ctx['system_prompt'] = $subject_profile_block . "\n\n" . (string) ( $ctx['system_prompt'] ?? '' );
+		}
+
 		// 5. KG retrieving + sources + kg_highlight.
 		if ( ! empty( $ctx['kg_summary']['sources'] ) || ! empty( $ctx['kg_summary']['cited_entities'] ) ) {
 			if ( ! $kg_step_emitted ) {
@@ -491,7 +501,12 @@ class BizCity_TwinChat_Stream_Handler {
 		$llm_options = [
 			'purpose'     => 'chat',
 			'temperature' => 0.5,
-			'max_tokens'  => 1500,
+			// [2026-07-18 Johnny Chu] PHASE-TWINWEB-C-ENDUSER — direct TwinChat answers should be long enough for C-facing usage; agent path remains filterable at 4096.
+			'max_tokens'  => 2400,
+			// [2026-07-25 Johnny Chu] R-LLM-USAGE-FILELOG — mark TwinChat as B2B surface for usage split against TwinWeb B2C.
+			'surface'     => 'twinchat',
+			'channel'     => 'twinchat',
+			'flow'        => 'b2b',
 		];
 
 		if ( ! class_exists( 'BizCity_LLM_Client' ) ) {
@@ -1232,6 +1247,70 @@ class BizCity_TwinChat_Stream_Handler {
 
 		$messages[] = [ 'role' => 'user', 'content' => (string) $ctx['user_message'] ];
 		return $messages;
+	}
+
+	private function build_subject_profile_system_block( $user_id, $prompt, array $opts = array() ) {
+		$user_id = (int) $user_id;
+		if ( $user_id <= 0 || ! class_exists( 'BizCity_TwinBrain_Subject_Profile_Layer' ) ) {
+			return '';
+		}
+
+		try {
+			$ctx = BizCity_TwinBrain_Subject_Profile_Layer::instance()->collect_for_user( $user_id, (string) $prompt, $opts );
+			$event_name = ! empty( $ctx['active'] ) ? 'subject_profile_resolved' : 'subject_profile_degraded';
+			$payload = array(
+				'surface'          => (string) ( $opts['surface'] ?? 'twinchat-notebook' ),
+				'user_id'          => $user_id,
+				'notebook_id'      => (int) ( $opts['notebook_id'] ?? 0 ),
+				'session_id'       => (string) ( $opts['session_id'] ?? '' ),
+				'active'           => ! empty( $ctx['active'] ),
+				'template_slug'    => (string) ( $ctx['template_slug'] ?? '' ),
+				'facts_count'      => (int) ( $ctx['facts_count'] ?? 0 ),
+				'missing_required' => (array) ( $ctx['missing_required'] ?? array() ),
+				'degraded_reason'  => (string) ( $ctx['degraded_reason'] ?? '' ),
+				'latency_ms'       => (int) ( $ctx['latency_ms'] ?? 0 ),
+			);
+			$this->emit( $event_name, $payload );
+			$this->dispatch_turn_event( 'decision', array_merge( $payload, array(
+				'stage'  => $event_name,
+				'kind'   => 'subject_profile_layer',
+				'status' => ! empty( $ctx['active'] ) ? 'completed' : 'skipped',
+			) ) );
+
+			$context_md = trim( (string) ( $ctx['context_md'] ?? '' ) );
+			if ( empty( $ctx['active'] ) || '' === $context_md ) {
+				if ( 'profile_missing_required' !== (string) ( $ctx['degraded_reason'] ?? '' ) || '' === $context_md ) {
+					return '';
+				}
+
+				// [2026-07-19 Johnny Chu] PHASE-TWIN-GPT-PROFILE-GROUNDING — guard direct TwinChat paths from treating WP display name as the real subject.
+				return "### BEGIN SUBJECT PROFILE (MISSING — SUBJECT NOT RESOLVED)\n"
+					. "Chưa xác định được chủ thể cụ thể từ Hồ sơ AI. Không dùng tên tài khoản WordPress làm chủ thể thay cho hồ sơ em bé/customer. "
+					. "Nếu câu hỏi cần cá nhân hóa, nói rõ chưa đủ hồ sơ và gợi ý customer hoàn tất Hồ sơ AI.\n"
+					. "---\n"
+					. $context_md . "\n"
+					. "### END SUBJECT PROFILE";
+			}
+
+			return "### BEGIN SUBJECT PROFILE (HIGH PRIORITY — CURRENT CUSTOMER)\n"
+				. "Dùng hồ sơ này để xác định chủ thể/customer trước khi trả lời bằng Notebook hoặc vertical.\n"
+				. "Không bịa thêm dữ kiện hồ sơ. Nếu thiếu trường quan trọng, nói rõ đang trả lời với hồ sơ chưa đủ và gợi ý customer hoàn tất Hồ sơ AI.\n"
+				. "---\n"
+				. $context_md . "\n"
+				. "### END SUBJECT PROFILE";
+		} catch ( \Throwable $e ) {
+			$this->emit( 'subject_profile_degraded', array(
+				'surface'         => (string) ( $opts['surface'] ?? 'twinchat-notebook' ),
+				'user_id'         => $user_id,
+				'active'          => false,
+				'degraded_reason' => 'profile_layer_exception',
+			) );
+			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+				error_log( '[TwinChat][subject_profile_layer] ' . $e->getMessage() );
+			}
+		}
+
+		return '';
 	}
 
 	/**
@@ -2159,6 +2238,18 @@ class BizCity_TwinChat_Stream_Handler {
 						'dropped_memory' => $_dropped_memory,
 						'reason'         => 'refusal-echo-guard',
 					] );
+				}
+
+				// [2026-07-19 Johnny Chu] PHASE-TWIN-GPT-PROFILE-GROUNDING — Twin Agent path also owns its system prompt, so prepend customer subject context into extra_system.
+				$subject_profile_block = $this->build_subject_profile_system_block( $user_id, (string) $args['user_message'], array(
+					'notebook_id' => (int) $notebook_id,
+					'session_id'  => (string) $session_id,
+					'surface'     => 'twinchat-notebook-agent',
+				) );
+				if ( '' !== $subject_profile_block ) {
+					$extra_system = $extra_system !== ''
+						? $subject_profile_block . "\n\n" . $extra_system
+						: $subject_profile_block;
 				}
 			}
 

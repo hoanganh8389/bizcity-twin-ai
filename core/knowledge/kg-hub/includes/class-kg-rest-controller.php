@@ -220,13 +220,23 @@ class BizCity_KG_Rest_Controller {
 	// ─── Notebook handlers ─────────────────────────────────────────────────
 
 	public function list_notebooks( WP_REST_Request $req ) {
+		$scope = sanitize_key( (string) $req->get_param( 'scope' ) );
+		$args  = [ 'limit' => 500 ];
+		if ( $scope !== '' ) {
+			$args['scope'] = $scope;
+		}
+		// [2026-07-27 Johnny Chu] PHASE-0.51 — public rows require an explicit administrator opt-in.
+		if ( current_user_can( 'manage_options' ) && $req->get_param( 'include_public' ) ) {
+			$args['include_public'] = true;
+		}
 		return rest_ensure_response(
-			BizCity_KG_Notebook_Service::instance()->list_for_user( get_current_user_id() )
+			BizCity_KG_Notebook_Service::instance()->list_for_user( get_current_user_id(), $args )
 		);
 	}
 
 	public function create_notebook( WP_REST_Request $req ) {
 		$data = $req->get_json_params() ?: $req->get_params();
+		// [2026-07-27 Johnny Chu] PHASE-0.51 — public scope assignment stays server-authorized in the service.
 		return rest_ensure_response(
 			BizCity_KG_Notebook_Service::instance()->create( (array) $data, get_current_user_id() )
 		);
@@ -305,7 +315,13 @@ class BizCity_KG_Rest_Controller {
 		$list = is_string( $raw ) && $raw !== '' ? json_decode( $raw, true ) : $raw;
 		if ( ! is_array( $list ) || empty( $list ) ) {
 			$list = $this->default_workspaces();
-			update_user_meta( $user_id, $meta_key, wp_json_encode( $list ) );
+			// [2026-07-27 Johnny Chu] PHASE-0.51 W1 — one cached write; preserve Unicode without stale reread.
+			$encoded = wp_json_encode( $list, JSON_UNESCAPED_UNICODE );
+			if ( class_exists( 'BizCity_User_Meta_Cache' ) ) {
+				BizCity_User_Meta_Cache::set( $user_id, $meta_key, $encoded );
+			} else {
+				update_user_meta( $user_id, $meta_key, $encoded );
+			}
 		}
 		// Normalize entries.
 		$out = [];
@@ -344,7 +360,15 @@ class BizCity_KG_Rest_Controller {
 		if ( ! $has_default ) {
 			array_unshift( $clean, $this->default_workspaces()[0] );
 		}
-		update_user_meta( get_current_user_id(), $this->workspaces_meta_key(), wp_json_encode( $clean ) );
+		// [2026-07-27 Johnny Chu] PHASE-0.51 W1 — one cached write; preserve Unicode without stale reread.
+		$user_id  = get_current_user_id();
+		$meta_key = $this->workspaces_meta_key();
+		$encoded  = wp_json_encode( $clean, JSON_UNESCAPED_UNICODE );
+		if ( class_exists( 'BizCity_User_Meta_Cache' ) ) {
+			BizCity_User_Meta_Cache::set( $user_id, $meta_key, $encoded );
+		} else {
+			update_user_meta( $user_id, $meta_key, $encoded );
+		}
 		return rest_ensure_response( $clean );
 	}
 

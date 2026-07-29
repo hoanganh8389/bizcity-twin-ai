@@ -338,14 +338,23 @@ class BizCity_Email_SMTP_Integration extends BizCity_Channel_Integration {
 			$mail->SMTPSecure = (string) ( $account_row['smtp_secure'] ?? 'tls' );
 			$mail->CharSet    = 'UTF-8';
 
+			$smtp_host  = (string) ( $account_row['smtp_host']   ?? 'smtp.gmail.com' );
 			$smtp_user  = $mail->Username;
 			$from_email = (string) ( $account_row['from_email'] ?? $smtp_user );
 			$from_name  = (string) ( $account_row['from_name']  ?? get_bloginfo( 'name' ) );
 			if ( ! $from_email ) { $from_email = $smtp_user; }
-			$mail->setFrom( $from_email ?: $smtp_user, $from_name );
-			$mail->Sender = $smtp_user;
-			if ( $smtp_user && strtolower( $from_email ) !== strtolower( $smtp_user ) ) {
-				$mail->addReplyTo( $from_email, $from_name );
+
+			// [2026-07-17 Johnny Chu] HOTFIX — Gmail rejects many non-verified
+			// From values at DATA stage; force From=smtp_user and keep custom
+			// value as Reply-To when needed.
+			$identity   = self::normalize_sender_identity( $smtp_host, $smtp_user, $from_email );
+			$from_final = (string) $identity['from'];
+			$reply_to   = (string) $identity['reply_to'];
+
+			$mail->setFrom( $from_final ?: $smtp_user, $from_name );
+			$mail->Sender = is_email( $smtp_user ) ? $smtp_user : $from_final;
+			if ( $reply_to !== '' && is_email( $reply_to ) ) {
+				$mail->addReplyTo( $reply_to, $from_name );
 			}
 			$mail->addAddress( $to );
 			$mail->Subject = $subject;
@@ -355,6 +364,10 @@ class BizCity_Email_SMTP_Integration extends BizCity_Channel_Integration {
 		} catch ( \Throwable $e ) {
 			$smtp_log_str = ! empty( $smtp_log ) ? implode( "\n", $smtp_log ) : '';
 			$error_msg    = $e->getMessage();
+			if ( stripos( $error_msg, 'data not accepted' ) !== false ) {
+				// [2026-07-17 Johnny Chu] HOTFIX — actionable Gmail hint for admin UI.
+				$error_msg .= ' | Gợi ý: với Gmail, From Email phải trùng Gmail/Username hoặc alias đã xác minh trong Gmail settings.';
+			}
 			if ( $smtp_log_str ) {
 				$error_msg .= "\n\n[SMTP LOG]\n" . $smtp_log_str;
 			}
@@ -485,17 +498,74 @@ class BizCity_Email_SMTP_Integration extends BizCity_Channel_Integration {
 			$mailer->Password   = (string) ( $account['smtp_pass'] ?? '' );
 			$mailer->SMTPSecure = (string) ( $account['security'] ?? 'tls' );
 
+			$smtp_host = (string) ( $account['smtp_host'] ?? '' );
+			$smtp_user = (string) ( $account['smtp_user'] ?? '' );
 			$from = (string) ( $account['from_email'] ?? '' );
 			if ( ! $from ) {
-				$from = $mailer->Username;
+				$from = $smtp_user ?: $mailer->Username;
 			}
+
+			// [2026-07-17 Johnny Chu] HOTFIX — normalize sender identity for Gmail.
+			$identity = self::normalize_sender_identity( $smtp_host, $smtp_user, $from );
+			$from     = (string) $identity['from'];
+			$reply_to = (string) $identity['reply_to'];
+
 			$from_name = (string) ( $account['from_name'] ?? get_bloginfo( 'name' ) );
 			if ( is_email( $from ) ) {
 				$mailer->From     = $from;
 				$mailer->FromName = $from_name;
 				$mailer->setFrom( $from, $from_name );
+				$mailer->Sender   = is_email( $smtp_user ) ? $smtp_user : $from;
+			}
+			if ( $reply_to !== '' && is_email( $reply_to ) ) {
+				if ( method_exists( $mailer, 'clearReplyTos' ) ) {
+					$mailer->clearReplyTos();
+				}
+				$mailer->addReplyTo( $reply_to, $from_name );
 			}
 		};
+	}
+
+	/**
+	 * [2026-07-17 Johnny Chu] HOTFIX — detect Gmail SMTP host.
+	 */
+	private static function is_gmail_host( string $host ): bool {
+		$host = strtolower( trim( $host ) );
+		if ( $host === '' ) {
+			return false;
+		}
+		if ( $host === 'smtp.gmail.com' || $host === 'smtp-relay.gmail.com' ) {
+			return true;
+		}
+		return strpos( $host, 'gmail.com' ) !== false || strpos( $host, 'googlemail.com' ) !== false;
+	}
+
+	/**
+	 * Normalize effective From/Reply-To per SMTP provider policy.
+	 *
+	 * @return array{from:string,reply_to:string}
+	 */
+	private static function normalize_sender_identity( string $smtp_host, string $smtp_user, string $from_email ): array {
+		$smtp_user  = sanitize_email( trim( $smtp_user ) );
+		$from_email = sanitize_email( trim( $from_email ) );
+		$reply_to   = '';
+
+		if ( $from_email === '' ) {
+			$from_email = $smtp_user;
+		}
+
+		// Gmail: from must match authenticated mailbox (or pre-verified alias).
+		if ( self::is_gmail_host( $smtp_host ) && $smtp_user !== '' && is_email( $smtp_user ) ) {
+			if ( $from_email !== '' && strtolower( $from_email ) !== strtolower( $smtp_user ) ) {
+				$reply_to = $from_email;
+			}
+			$from_email = $smtp_user;
+		}
+
+		return array(
+			'from'     => (string) $from_email,
+			'reply_to' => (string) $reply_to,
+		);
 	}
 
 	/**
@@ -546,6 +616,10 @@ class BizCity_Email_SMTP_Integration extends BizCity_Channel_Integration {
 		remove_action( 'wp_mail_failed', $cb );
 
 		if ( ! $ok && $err ) {
+			if ( stripos( $err, 'data not accepted' ) !== false ) {
+				// [2026-07-17 Johnny Chu] HOTFIX — clearer admin action text.
+				$err .= ' | Gợi ý: kiểm tra Email SMTP account, đặc biệt From Email (nên trùng Gmail/Username), App Password và alias đã verify.';
+			}
 			return new WP_Error( 'smtp_ping_failed', $err );
 		}
 		return [ 'sent' => $ok, 'error' => $err, 'platform' => 'EMAIL', 'mid' => '' ];
@@ -677,7 +751,12 @@ class BizCity_Email_SMTP_Integration extends BizCity_Channel_Integration {
 			$changed      = true;
 		}
 		if ( $changed ) {
-			update_user_meta( $user_id, '_bizcity_crm', $crm );
+			// [2026-07-27 Johnny Chu] R-PERF — persist CRM user meta through the unified cache contract.
+			if ( class_exists( 'BizCity_User_Meta_Cache' ) ) {
+				BizCity_User_Meta_Cache::set( $user_id, '_bizcity_crm', $crm );
+			} else {
+				update_user_meta( $user_id, '_bizcity_crm', $crm );
+			}
 			if ( $use_cache ) {
 				BizCity_User_Meta_Cache::set( $user_id, '_bizcity_crm', $crm );
 			}

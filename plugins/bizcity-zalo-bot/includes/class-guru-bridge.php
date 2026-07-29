@@ -3,7 +3,7 @@
  * BizCity Zalo Bot — Guru Bridge (PHASE-0.35 GURU-ZALO-BOT §1.6).
  *
  * R-GURU-UNIFY first-mover. Replaces the legacy "fire trigger → Chat Gateway
- * → bizcity-admin-hook-zalo → direct LLM" reply path with the unified
+ * → direct LLM" reply path with the unified
  * `BizCity_Guru_Runtime` pipeline. Concretely, when enabled this class:
  *
  *   1. Hooks `bizcity_zalo_message_received` at priority 5 (BEFORE the
@@ -61,14 +61,8 @@ class BizCity_Zalo_Bot_Guru_Bridge {
             return;
         }
 
-        // [2026-06-18 Johnny Chu] ADMIN-GUIDE — Skip AI reply when user is not linked yet.
-        // BizCity_Zalobot_User_Linker::maybe_auto_send_link() (priority 3) sets this flag
-        // and already sent a login-link message; no point replying with AI noise.
-        if ( ! empty( $GLOBALS['bizcity_zalobot_unlinked_skip'] ) ) { return; }
-
-        // Feature gate: default ON (1), admin can flip to 0 to disable.
-        // [2026-06-18 Johnny Chu] ADMIN-GUIDE — default changed from 0 to 1
-        if ( (int) get_option( 'bizcity_zalo_guru_enabled', 1 ) !== 1 ) { return; }
+        // Feature gate.
+        if ( (int) get_option( 'bizcity_zalo_guru_enabled', 0 ) !== 1 ) { return; }
 
         // Runtime + formatter must be present.
         if ( ! class_exists( 'BizCity_Guru_Runtime' ) || ! class_exists( 'BizCity_Channel_Formatter' ) ) {
@@ -81,6 +75,16 @@ class BizCity_Zalo_Bot_Guru_Bridge {
         $msg_id    = (string) ( $message_data['message_id']     ?? '' );
 
         if ( $bot_id <= 0 || $user_z === '' || $text === '' ) { return; }
+
+        // [2026-07-24 Johnny Chu] RULE-INBOUND-DISPATCH-PRIORITY — an enabled
+        // automation workflow already claimed this exact message (matched by
+        // ref/slash/keyword in BizCity_Automation_Trigger_Matcher, which runs
+        // earlier on `bizcity_zalo_webhook_intake`). A matched workflow
+        // scenario always outranks the generic Guru AI reply — bail so we
+        // don't double-reply on top of the workflow's real answer/ACK.
+        if ( $msg_id !== '' && ! empty( $GLOBALS['bizcity_automation_matched_mids'][ $msg_id ] ) ) {
+            return;
+        }
 
         // Resolve character binding.
         // Phase 2 priority: BizCity_Channel_Binding table (written by Guru AI card in SPA).
@@ -148,9 +152,6 @@ class BizCity_Zalo_Bot_Guru_Bridge {
         $sent = $this->dispatch_zalo( $bot_id, $user_z, $send );
 
         if ( $sent ) {
-            // [2026-06-19 Johnny Chu] ADMIN-GUIDE — set global so process_new_zalo_format
-            // skips bizcity_gateway_fire_trigger (prevents double-response to user).
-            $GLOBALS['bizcity_zalobot_guru_handled'] = true;
             // Suppress legacy bridge for this turn.
             $this->suppress_legacy_bridge();
         }

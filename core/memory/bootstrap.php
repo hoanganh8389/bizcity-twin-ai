@@ -47,6 +47,8 @@ if ( ! BIZCITY_MEMORY_ENABLED ) {
 require_once BIZCITY_MEMORY_DIR . 'includes/class-memory-database.php';
 require_once BIZCITY_MEMORY_DIR . 'includes/class-memory-parser.php';
 require_once BIZCITY_MEMORY_DIR . 'includes/class-memory-log.php';
+// [2026-07-28 Johnny Chu] R-CH-IDMEM — load the shared identity-scoped owner contract before every memory service.
+require_once BIZCITY_MEMORY_DIR . 'includes/class-memory-identity-scope.php';
 require_once BIZCITY_MEMORY_DIR . 'includes/class-memory-log-projector.php';
 require_once BIZCITY_MEMORY_DIR . 'includes/class-memory-manager.php';
 require_once BIZCITY_MEMORY_DIR . 'includes/class-memory-rest-api.php';

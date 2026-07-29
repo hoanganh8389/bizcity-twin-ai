@@ -171,9 +171,10 @@ class BizCity_KG_Cost_Guard {
 		// [2026-06-08 Johnny Chu] HOTFIX — prefer hub-synced value (stored by BizCity_LLM_Client::get_entitlement())
 		// so the client respects the hub admin setting (e.g. 20) instead of always defaulting to 5.
 		// [2026-06-10 Johnny Chu] HOTFIX — per-site option
+		// [2026-07-22 Johnny Chu] HOTFIX-KG-BATCH-50 — raise ceiling 20→50 to speed up learning sweep throughput.
 		$hub_batch = (int) get_option( 'bizcity_hub_kg_batch_size', 0 );
 		$default   = $hub_batch > 0 ? $hub_batch : self::DEFAULT_BATCH_SIZE;
-		return max( 1, min( 20, (int) apply_filters( 'bizcity_kg_extract_batch_size', $default ) ) );
+		return max( 1, min( 50, (int) apply_filters( 'bizcity_kg_extract_batch_size', $default ) ) );
 	}
 
 	/**

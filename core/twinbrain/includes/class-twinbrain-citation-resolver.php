@@ -13,6 +13,7 @@
  *   - `[nb:17/p3]`         (notebook passage)
  *   - `[src:passage-7821]` (source chunk — opaque id)
  *   - `[ent:product-sku-A1]` (KG entity)
+ *   - `[prod:501]` (Woo product id)
  *   - `[astro:natal#2]` / `[astro:report#2/s1]` / `[astro:transit#2/2026-07-05]`
  *   - `[web:1#https://...]` (web result, W6/W7)
  *
@@ -101,7 +102,7 @@ final class BizCity_Twin_Citation_Resolver {
 	 * @return string[] de-duplicated, normalized (with brackets) token list.
 	 */
 	public static function extract_tokens( string $answer_md ): array {
-		$pattern = '/\[(mem|faq|nb|src|ent|astro|web):[^\]\s]+\]/i';
+		$pattern = '/\[(mem|faq|nb|src|ent|prod|astro|web):[^\]\s]+\]/i';
 		if ( ! preg_match_all( $pattern, $answer_md, $m ) ) {
 			return [];
 		}
@@ -136,6 +137,7 @@ final class BizCity_Twin_Citation_Resolver {
 			case 'faq':  $rec = self::resolve_faq( $token, $ref, $user_id );      break;
 			case 'mem':  $rec = self::resolve_memory( $token, $ref, $user_id );   break;
 			case 'ent':  $rec = self::resolve_entity( $token, $ref, $user_id );   break;
+			case 'prod': $rec = self::resolve_product( $token, $ref, $user_id );  break;
 			case 'src':  $rec = self::resolve_source( $token, $ref, $user_id );   break;
 			default:     $rec = self::error_record( $token, $kind, 'unsupported_kind' );
 		}
@@ -801,6 +803,58 @@ final class BizCity_Twin_Citation_Resolver {
 		];
 	}
 
+	private static function resolve_product( string $token, string $ref, int $user_id ): array {
+		// [2026-07-15 Johnny Chu] PHASE-TWB-PRODUCTS - resolve [prod:ID] from Woo provider payload.
+		$product_id = (int) $ref;
+		if ( $product_id <= 0 ) {
+			return self::error_record( $token, 'prod', 'invalid_id' );
+		}
+
+		if ( ! class_exists( 'BizCity_TwinBrain_Product_Provider' ) ) {
+			return self::error_record( $token, 'prod', 'provider_missing' );
+		}
+
+		$provider = BizCity_TwinBrain_Product_Provider::instance();
+		if ( ! $provider->is_ready() ) {
+			return self::error_record( $token, 'prod', 'woo_inactive' );
+		}
+
+		$row = $provider->detail( $product_id );
+		if ( empty( $row ) || ! is_array( $row ) ) {
+			return self::error_record( $token, 'prod', 'not_found' );
+		}
+
+		$label = (string) ( $row['name'] ?? '' );
+		if ( $label === '' ) {
+			// [2026-07-15 Johnny Chu] PHASE-TWB-PRODUCTS — use canonical Super-MRO citation fallback label.
+			$label = 'Super-MRO #' . $product_id;
+		}
+
+		$excerpt = (string) ( $row['short_desc'] ?? '' );
+		if ( $excerpt === '' ) {
+			$excerpt = (string) ( $row['description'] ?? '' );
+		}
+		$excerpt = mb_substr( $excerpt, 0, 240 );
+
+		return [
+			'token'            => $token,
+			'kind'             => 'prod',
+			'label'            => $label,
+			'ref_url'          => (string) ( $row['permalink'] ?? '' ),
+			'evidence_excerpt' => $excerpt,
+			'can_edit'         => current_user_can( 'edit_products' ) || current_user_can( 'manage_woocommerce' ),
+			'ttl'              => self::CACHE_TTL_SHORT,
+			'meta'             => [
+				'product_id'   => $product_id,
+				'sku'          => (string) ( $row['sku'] ?? '' ),
+				'price'        => (string) ( $row['price'] ?? '' ),
+				'currency'     => (string) ( $row['currency'] ?? '' ),
+				'stock_status' => (string) ( $row['stock_status'] ?? '' ),
+				'image_url'    => (string) ( $row['image_url'] ?? '' ),
+			],
+		];
+	}
+
 	private static function resolve_source( string $token, string $ref, int $user_id ): array {
 		$src_id = sanitize_title( $ref );
 		if ( $src_id === '' ) {
@@ -828,25 +882,73 @@ final class BizCity_Twin_Citation_Resolver {
 
 	private static function lookup_notebook_title( int $nb_id ): string {
 		global $wpdb;
-		$table = $wpdb->prefix . 'bizcity_notebooks';
-		$cached = wp_cache_get( 'nb_title:' . $nb_id, self::CACHE_GROUP );
+		$cache_key = 'b' . (int) get_current_blog_id() . ':nb_title:' . $nb_id;
+		$cached = wp_cache_get( $cache_key, self::CACHE_GROUP );
 		if ( is_string( $cached ) ) return $cached;
-		// Guard — table may not exist in lean envs.
+
+		// [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT — resolve notebook title from KG-Hub canonical table first.
+		if ( class_exists( 'BizCity_KG_Database' ) ) {
+			$db = BizCity_KG_Database::instance();
+			if ( method_exists( $db, 'tbl_notebooks' ) ) {
+				$table = $db->tbl_notebooks();
+				$exists = bizcity_tbl_exists( $table ); // [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT — safe table guard.
+				if ( $exists ) {
+					$title = (string) $wpdb->get_var( $wpdb->prepare(
+						"SELECT name FROM {$table} WHERE id = %d LIMIT 1",
+						$nb_id
+					) );
+					if ( $title !== '' ) {
+						wp_cache_set( $cache_key, $title, self::CACHE_GROUP, self::CACHE_TTL_SHORT );
+						return $title;
+					}
+				}
+			}
+		}
+
+		$table = $wpdb->prefix . 'bizcity_notebooks';
 		$exists = bizcity_tbl_exists( $table ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 		if ( ! $exists ) {
-			wp_cache_set( 'nb_title:' . $nb_id, '', self::CACHE_GROUP, self::CACHE_TTL_SHORT );
+			wp_cache_set( $cache_key, '', self::CACHE_GROUP, self::CACHE_TTL_SHORT );
 			return '';
 		}
 		$title = (string) $wpdb->get_var( $wpdb->prepare(
 			"SELECT title FROM {$table} WHERE id = %d LIMIT 1",
 			$nb_id
 		) );
-		wp_cache_set( 'nb_title:' . $nb_id, $title, self::CACHE_GROUP, self::CACHE_TTL_SHORT );
+		wp_cache_set( $cache_key, $title, self::CACHE_GROUP, self::CACHE_TTL_SHORT );
 		return $title;
 	}
 
 	private static function lookup_passage_excerpt( int $nb_id, int $passage_id ): string {
 		global $wpdb;
+		// [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT — resolve passage excerpt from KG-Hub with R-TB-HYDRATE.
+		if ( class_exists( 'BizCity_KG_Database' ) ) {
+			$db = BizCity_KG_Database::instance();
+			if ( method_exists( $db, 'tbl_passages' ) ) {
+				$table = $db->tbl_passages();
+				$exists = bizcity_tbl_exists( $table ); // [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT — safe table guard.
+				if ( $exists ) {
+					$rows = $wpdb->get_results( $wpdb->prepare(
+						"SELECT id, notebook_id, content,
+						        storage_ver, file_shard, file_offset, file_length
+						 FROM {$table}
+						 WHERE id = %d AND notebook_id = %d
+						 LIMIT 1",
+						$passage_id, $nb_id
+					), ARRAY_A );
+					if ( is_array( $rows ) && ! empty( $rows ) ) {
+						if ( class_exists( 'BizCity_KG_Content_Router' ) ) {
+							BizCity_KG_Content_Router::instance()->hydrate_passages( $rows );
+						}
+						$content = (string) ( $rows[0]['content'] ?? '' );
+						if ( $content !== '' ) {
+							return mb_substr( trim( wp_strip_all_tags( $content ) ), 0, 240 );
+						}
+					}
+				}
+			}
+		}
+
 		$table = $wpdb->prefix . 'bizcity_passages';
 		$exists = bizcity_tbl_exists( $table ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 		if ( ! $exists ) return '';
@@ -877,7 +979,7 @@ final class BizCity_Twin_Citation_Resolver {
 		if ( $raw[0] !== '[' ) $raw = '[' . $raw;
 		if ( substr( $raw, -1 ) !== ']' ) $raw .= ']';
 		// Sanity: must match `[kind:ref]`.
-		if ( ! preg_match( '/^\[(mem|faq|nb|src|ent|astro|web):[^\]\s]+\]$/i', $raw ) ) return '';
+		if ( ! preg_match( '/^\[(mem|faq|nb|src|ent|prod|astro|web):[^\]\s]+\]$/i', $raw ) ) return '';
 		return $raw;
 	}
 
@@ -885,7 +987,7 @@ final class BizCity_Twin_Citation_Resolver {
 	 * @return array{0:string,1:string} [kind, ref] or ['',''] on failure.
 	 */
 	private static function split_token( string $token ): array {
-		if ( ! preg_match( '/^\[(mem|faq|nb|src|ent|astro|web):([^\]]+)\]$/i', $token, $m ) ) {
+		if ( ! preg_match( '/^\[(mem|faq|nb|src|ent|prod|astro|web):([^\]]+)\]$/i', $token, $m ) ) {
 			return [ '', '' ];
 		}
 		return [ strtolower( $m[1] ), $m[2] ];

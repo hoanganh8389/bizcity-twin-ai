@@ -239,10 +239,11 @@ if ( ! in_array( $active_tab, array( 'bots', 'assign', 'test', 'logs' ), true ) 
 
 		<!-- Gateway status -->
 		<div class="bzz-gateway <?php echo $gateway_available ? 'on' : 'off'; ?>">
+			<?php // [2026-07-21 Johnny Chu] R-GW-8 — label standalone Channel Gateway, not mu-plugin dependency. ?>
 			<?php if ( $gateway_available ) : ?>
-				<strong>✅ Gateway connected</strong> — <code>bizcity-admin-hook-zalo</code> đã active. Tin nhắn route qua <code>bizcity_gateway_send_message()</code>, auto resolve user_id từ bot assignment.
+				<strong>✅ Gateway connected</strong> — Channel Gateway trong <code>bizcity-twin-ai</code> đã sẵn sàng. Tin nhắn route qua <code>BizCity_Gateway_Sender</code>, auto resolve user_id từ bot assignment.
 			<?php else : ?>
-				<strong>❌ Gateway off</strong> — plugin <code>bizcity-admin-hook-zalo</code> chưa active. Automation &amp; AI chat sẽ không khả dụng.
+				<strong>❌ Gateway off</strong> — Channel Gateway trong <code>bizcity-twin-ai</code> chưa load. Automation &amp; AI chat sẽ không khả dụng.
 			<?php endif; ?>
 		</div>
 

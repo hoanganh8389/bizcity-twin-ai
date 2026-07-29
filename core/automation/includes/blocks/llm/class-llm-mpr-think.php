@@ -60,8 +60,13 @@ final class BizCity_Automation_LLM_MPR_Think extends BizCity_Automation_Block_Ba
 		if ( $prompt === '' ) {
 			return new WP_Error( 'invalid_prompt', 'MPR Think: prompt rỗng.', array( 'status' => 422 ) );
 		}
+		// [2026-07-16 Johnny Chu] PHASE-TWINWEB F4 — resolve owner from automation context, never from current session fallback.
+		$owner_user_id = $this->resolve_owner_user_id( $ctx );
+		if ( $owner_user_id <= 0 ) {
+			return new WP_Error( 'owner_missing', 'MPR Think: không resolve được owner user_id.', array( 'status' => 422 ) );
+		}
 		$opts = array(
-			'user_id'    => (int) ( $ctx['trigger']['wp_user_id'] ?? get_current_user_id() ),
+			'user_id'    => $owner_user_id,
 			'guru_id'    => (int) ( $data['guru_id'] ?? 0 ) ?: (int) ( $ctx['trigger']['character_id'] ?? 0 ),
 			'tool_force' => (string) ( $data['tool_force'] ?? '' ),
 			'k'          => max( 3, (int) ( $data['k'] ?? 8 ) ),

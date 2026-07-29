@@ -126,17 +126,21 @@ class BizCity_CF7_Submissions_Log {
 	/**
 	 * Global paginated log (all forms), with optional filters.
 	 *
-	 * @param array $args {form_id, crm_action, from, to, page, per}
+	 * @param array $args {form_id, crm_action, mail_status, from, to, page, per}
 	 */
 	public static function get_global_list( array $args = array() ): array {
 		$page    = max( 1, (int) ( $args['page'] ?? 1 ) );
 		$per     = min( 100, max( 1, (int) ( $args['per'] ?? 20 ) ) );
 		$form_id = isset( $args['form_id'] ) ? (int) $args['form_id'] : 0;
 		$action  = sanitize_text_field( $args['crm_action'] ?? '' );
+		$mail_status = sanitize_key( (string) ( $args['mail_status'] ?? '' ) );
+		if ( ! in_array( $mail_status, array( 'sent', 'failed', 'unknown' ), true ) ) {
+			$mail_status = '';
+		}
 		$from    = sanitize_text_field( $args['from'] ?? '' );
 		$to      = sanitize_text_field( $args['to'] ?? '' );
 
-		$cache_key = 'global_' . md5( wp_json_encode( array( $form_id, $action, $from, $to, $page, $per ) ) );
+		$cache_key = 'global_' . md5( wp_json_encode( array( $form_id, $action, $mail_status, $from, $to, $page, $per ) ) );
 		$cached    = BizCity_Cache::get( self::CACHE_GROUP, $cache_key );
 		if ( false !== $cached ) {
 			return $cached;
@@ -154,6 +158,19 @@ class BizCity_CF7_Submissions_Log {
 		if ( $action ) {
 			$where[]  = 'crm_action = %s';
 			$params[] = $action;
+		}
+		if ( $mail_status ) {
+			// [2026-07-17 Johnny Chu] PHASE-CG-CF7-MAIL-OBS — filter by embedded
+			// __bizcity_mail.status without schema migration.
+			$pattern = self::mail_status_like_pattern( $mail_status );
+			if ( $mail_status === 'unknown' ) {
+				$where[]  = '(raw_data NOT LIKE %s AND raw_data NOT LIKE %s)';
+				$params[] = self::mail_status_like_pattern( 'sent' );
+				$params[] = self::mail_status_like_pattern( 'failed' );
+			} elseif ( $pattern !== '' ) {
+				$where[]  = 'raw_data LIKE %s';
+				$params[] = $pattern;
+			}
 		}
 		if ( $from ) {
 			$where[]  = 'submitted_at >= %s';
@@ -288,12 +305,16 @@ class BizCity_CF7_Submissions_Log {
 	 *
 	 * [2026-06-25 Johnny Chu] PHASE-CRM-SUBMISSIONS — export
 	 *
-	 * @param  array $args { form_id, crm_action, from, to }
+	 * @param  array $args { form_id, crm_action, mail_status, from, to }
 	 * @return array
 	 */
 	public static function export_all( array $args = array() ) {
 		$form_id = (int) ( $args['form_id'] ?? 0 );
 		$action  = sanitize_text_field( $args['crm_action'] ?? '' );
+		$mail_status = sanitize_key( (string) ( $args['mail_status'] ?? '' ) );
+		if ( ! in_array( $mail_status, array( 'sent', 'failed', 'unknown' ), true ) ) {
+			$mail_status = '';
+		}
 		$from    = sanitize_text_field( $args['from'] ?? '' );
 		$to      = sanitize_text_field( $args['to'] ?? '' );
 
@@ -303,6 +324,18 @@ class BizCity_CF7_Submissions_Log {
 		$params = array();
 		if ( $form_id ) { $where[] = 'form_id = %d'; $params[] = $form_id; }
 		if ( $action )  { $where[] = 'crm_action = %s'; $params[] = $action; }
+		if ( $mail_status ) {
+			// [2026-07-17 Johnny Chu] PHASE-CG-CF7-MAIL-OBS — export-only failed/sent rows.
+			$pattern = self::mail_status_like_pattern( $mail_status );
+			if ( $mail_status === 'unknown' ) {
+				$where[] = '(raw_data NOT LIKE %s AND raw_data NOT LIKE %s)';
+				$params[] = self::mail_status_like_pattern( 'sent' );
+				$params[] = self::mail_status_like_pattern( 'failed' );
+			} elseif ( $pattern !== '' ) {
+				$where[] = 'raw_data LIKE %s';
+				$params[] = $pattern;
+			}
+		}
 		if ( $from )    { $where[] = 'submitted_at >= %s'; $params[] = $from . ' 00:00:00'; }
 		if ( $to )      { $where[] = 'submitted_at <= %s'; $params[] = $to . ' 23:59:59'; }
 
@@ -310,5 +343,16 @@ class BizCity_CF7_Submissions_Log {
 		$sql       = "SELECT * FROM `{$t}` WHERE {$where_sql} ORDER BY submitted_at DESC LIMIT 5000";
 		$rows      = $params ? $wpdb->get_results( $wpdb->prepare( $sql, $params ) ) : $wpdb->get_results( $sql );
 		return is_array( $rows ) ? $rows : array();
+	}
+
+	/**
+	 * Build SQL LIKE pattern for embedded __bizcity_mail.status JSON marker.
+	 */
+	private static function mail_status_like_pattern( string $status ): string {
+		$status = sanitize_key( $status );
+		if ( $status === '' ) {
+			return '';
+		}
+		return '%"__bizcity_mail":{"status":"' . $status . '"%';
 	}
 }

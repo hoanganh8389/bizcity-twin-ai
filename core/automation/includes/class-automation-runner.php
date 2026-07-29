@@ -41,6 +41,12 @@ final class BizCity_Automation_Runner {
 
 	const CRON_HOOK = 'bizcity_automation_cron_dispatch';
 	const CRON_BATCH_MAX = 5;
+	// [2026-07-26 Johnny Chu] CRON-OVERLOAD-PHASE-A/B — job_id used to register with
+	// BizCity_Cron_Manager (must match bootstrap.php) + wall-clock time budget so a
+	// single tick self-limits its duration (observed 28-30s ticks widen the WP
+	// pseudo-cron double-fire race window). See TRACE-CRON-OVERLOAD-2026-07-26.md.
+	const CRON_JOB_ID = 'core.automation.dispatch';
+	const CRON_TIME_BUDGET_SECONDS = 45;
 
 	private static $instance = null;
 
@@ -109,6 +115,11 @@ final class BizCity_Automation_Runner {
 		$graph = $wf['graph'] ?? array();
 		$nodes = isset( $graph['nodes'] ) && is_array( $graph['nodes'] ) ? $graph['nodes'] : array();
 		$edges = isset( $graph['edges'] ) && is_array( $graph['edges'] ) ? $graph['edges'] : array();
+		$trigger_payload = isset( $run['trigger_payload'] ) && is_array( $run['trigger_payload'] )
+			? $run['trigger_payload']
+			: array();
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-MY-CONTENT-TRACE — linked channel user owns content/events before persisted workflow-owner fallback.
+		$owner_user_id = (int) ( $trigger_payload['wp_user_id'] ?? $run['user_id'] ?? $trigger_payload['_owner_user_id'] ?? $wf['created_by'] ?? 0 );
 
 		// Mark running (skip if resuming — already RUNNING; also skip if just claimed above which already set it).
 		if ( ! $is_resume && $cur_status !== BizCity_Automation_Repo_Runs::STATUS_QUEUED ) {
@@ -165,18 +176,19 @@ final class BizCity_Automation_Runner {
 		}
 
 		$ctx = array(
-			'trigger'      => $run['trigger_payload'] ?? array(),
+			'trigger'      => $trigger_payload,
 			'_run_id'      => $run_id,
 			'_workflow_id' => (int) $wf['id'],
 			// [2026-06-02 Johnny Chu] AUTOMATION SCHED-OWNER — propagate
 			// workflow owner xuống ctx để action block (publish_fb_post,
 			// scheduler_*) attach event vào đúng user_id thay vì user_id=0
 			// (cron context không có current user → calendar UI trống lốc).
-			'_owner_user_id' => (int) ( $wf['created_by'] ?? 0 ),
+			'_owner_user_id' => $owner_user_id,
 			'_meta'        => array(
 				'workflow_slug' => $wf['slug'],
 				'workflow_name' => $wf['name'],
 				'created_by'    => (int) ( $wf['created_by'] ?? 0 ),
+				'owner_user_id' => $owner_user_id,
 			),
 			// PG-S9 — dry-run flag bay theo ctx top-level. Block side-effect
 			// (reply_zalo, send_email, http_request, db_write…) check cờ này
@@ -190,28 +202,40 @@ final class BizCity_Automation_Runner {
 		// luôn rỗng → cond `_resume.attachment_url != ''` FALSE → flow
 		// đăng-bài-multi-turn rơi lại nhánh "hỏi gửi ảnh" mãi.
 		// Logic ở đây mirror matcher::on_channel_normalized:
-		//   1. Nếu turn này có media_url, patch pending.attachment_url.
+		//   1. Nếu turn này có media_url, append pending.attachments[].
 		//   2. Inject pending vào trigger._resume nếu chưa có.
 		$trigger_chat_id = (string) ( $ctx['trigger']['chat_id'] ?? '' );
 		if (
 			$trigger_chat_id !== ''
-			&& empty( $ctx['trigger']['_resume'] )
 			&& class_exists( 'BizCity_Automation_Pending_State' )
 		) {
 			$pending = BizCity_Automation_Pending_State::get( $trigger_chat_id );
+			$existing_resume = is_array( $ctx['trigger']['_resume'] ?? null ) ? $ctx['trigger']['_resume'] : array();
 			$incoming_media = (string) ( $ctx['trigger']['media_url'] ?? '' );
-			if (
-				! empty( $pending )
-				&& empty( $pending['attachment_url'] )
-				&& $incoming_media !== ''
-			) {
-				BizCity_Automation_Pending_State::patch( $trigger_chat_id, array(
-					'attachment_url' => $incoming_media,
+			if ( $incoming_media !== '' ) {
+				// [2026-07-21 Johnny Chu] R-AUTO-MULTI-ATTACH — direct FE/REST runs preserve media as canonical attachments[].
+				BizCity_Automation_Pending_State::append_attachment( $trigger_chat_id, array(
+					'kind'        => (string) ( $ctx['trigger']['media_kind'] ?? 'image' ),
+					'url'         => $incoming_media,
+					'source_url'  => $incoming_media,
+					'message_id'  => (string) ( $ctx['trigger']['mid'] ?? $ctx['trigger']['message_id'] ?? '' ),
+					'received_at' => time(),
 				) );
-				$pending['attachment_url'] = $incoming_media;
+				$pending = BizCity_Automation_Pending_State::get( $trigger_chat_id );
 			}
-			if ( ! empty( $pending ) ) {
-				$ctx['trigger']['_resume'] = $pending;
+			if ( ! empty( $pending ) || ! empty( $existing_resume ) ) {
+				// [2026-07-21 Johnny Chu] R-AUTO-MULTI-ATTACH — merge pending into partial _resume so blocks see both attachment_url and attachments[].
+				$resume = array_merge( $pending, $existing_resume );
+				if ( ! empty( $pending['attachments'] ) || ! empty( $existing_resume['attachments'] ) ) {
+					$resume['attachments'] = array_values( array_merge( (array) ( $pending['attachments'] ?? array() ), (array) ( $existing_resume['attachments'] ?? array() ) ) );
+				}
+				if ( empty( $resume['attachment_url'] ) && ! empty( $pending['attachment_url'] ) ) {
+					$resume['attachment_url'] = (string) $pending['attachment_url'];
+				}
+				if ( empty( $resume['attachment_url'] ) && $incoming_media !== '' ) {
+					$resume['attachment_url'] = $incoming_media;
+				}
+				$ctx['trigger']['_resume'] = $resume;
 			}
 		}
 		$kind_alias = array(); // kind => nodeId most recent
@@ -455,7 +479,14 @@ final class BizCity_Automation_Runner {
 		do_action( 'bizcity_automation_run_ended', $run_id, false, array( 'error' => $msg ) );
 		// [2026-06-03 Johnny Chu] SCH-NC W5 — synth ctx.trigger từ run's trigger_payload
 		// để emit_crm_bridge forward inbound block xuống Bridge.
-		$ctx_failed = array( 'trigger' => is_array( $run ) ? ( $run['trigger_payload'] ?? array() ) : array() );
+		$failed_trigger = is_array( $run ) && isset( $run['trigger_payload'] ) && is_array( $run['trigger_payload'] )
+			? $run['trigger_payload']
+			: array();
+		// [2026-07-16 Johnny Chu] PHASE-TWINWEB F4 — keep owner continuity on failed path for scheduler completion + reply routing.
+		$ctx_failed = array(
+			'trigger'        => $failed_trigger,
+			'_owner_user_id' => (int) ( $run['user_id'] ?? $failed_trigger['_owner_user_id'] ?? $failed_trigger['wp_user_id'] ?? ( $wf['created_by'] ?? 0 ) ),
+		);
 		$this->emit_crm_bridge( $run_id, $wf, false, array( 'error' => $msg, 'reason' => $reason_bucket ), $ctx_failed );
 
 		// R-CRON-META — when called in cron context, the dispatcher handles
@@ -464,12 +495,19 @@ final class BizCity_Automation_Runner {
 
 	private function emit_crm_bridge( string $run_id, $wf, bool $ok, array $result, array $ctx = array() ): void {
 		if ( ! $wf ) { return; }
+		// [2026-07-16 Johnny Chu] PHASE-TWINWEB F4 — explicit owner propagation from run context to scheduler row.
+		$owner_user_id = (int) ( $ctx['_owner_user_id'] ?? $ctx['trigger']['_owner_user_id'] ?? $ctx['trigger']['wp_user_id'] ?? ( $wf['created_by'] ?? 0 ) );
+		if ( $owner_user_id <= 0 ) {
+			error_log( '[automation] emit_crm_bridge refused: owner_user_id missing for run ' . $run_id );
+			return;
+		}
 		// [2026-06-03 Johnny Chu] SCH-NC W5 — forward canonical inbound block từ
 		// trigger payload xuống Bridge → Manager. Block đã được matcher inject
 		// vào ctx.trigger.inbound (xem class-automation-trigger-matcher.php W5).
 		$metadata = array(
 			'automation_kind' => 'run_summary',
 			'workflow_slug'   => (string) ( $wf['slug'] ?? '' ),
+			'owner_user_id'   => $owner_user_id,
 			'ok'              => $ok,
 		);
 		$inbound = isset( $ctx['trigger']['inbound'] ) ? $ctx['trigger']['inbound'] : null;
@@ -479,6 +517,7 @@ final class BizCity_Automation_Runner {
 			$metadata['inbound'] = $inbound;
 		}
 		$payload = array(
+			'user_id'     => $owner_user_id,
 			'event_type'  => 'task', // 'automation_run' is not in scheduler whitelist
 			'title'       => sprintf( '[%s] %s', $wf['name'] ?? $wf['slug'] ?? 'workflow', $ok ? 'OK' : 'FAIL' ),
 			'description' => wp_json_encode( $result ),
@@ -500,7 +539,10 @@ final class BizCity_Automation_Runner {
 	}
 
 	private function reason_bucket( WP_Error $err ): string {
-		$code = $err->get_error_code();
+		// [2026-07-25 Johnny Chu] PHASE-0.46 W2 — normalize notebook-capture
+		// WP_Error codes to shared reason buckets so runtime dashboards group
+		// action.capture_to_notebook failures consistently.
+		$code = (string) $err->get_error_code();
 		switch ( $code ) {
 			case 'block_exception':         return 'block_error';
 			case 'unknown_block':           return 'validation_failed';
@@ -509,7 +551,28 @@ final class BizCity_Automation_Runner {
 			case 'invalid_method':          return 'invalid_param';
 			case 'http_error':              return 'http_error';
 			case 'llm_unavailable':         return 'provider_unavailable';
-			default:                        return $code ?: 'block_error';
+			case 'notebook_bridge_unavailable':
+				return 'bridge_unavailable';
+			case 'no_chat_id':
+				return 'chat_id_missing';
+			case 'invalid_channel':
+				return 'channel_unresolved';
+			case 'notebook_bridge_invalid_identity':
+				return 'owner_user_missing';
+			case 'notebook_bridge_empty_batch':
+				return 'empty_payload';
+			case 'notebook_bridge_capture_all_failed':
+				return 'all_items_failed';
+			case 'notebook_bridge_no_attachment':
+			case 'notebook_bridge_empty_url':
+			case 'notebook_bridge_download_failed':
+			case 'notebook_bridge_sideload_failed':
+				return 'capture_failed';
+			default:
+				if ( $code !== '' && strpos( $code, 'notebook_bridge_' ) === 0 ) {
+					return 'capture_failed';
+				}
+				return $code !== '' ? $code : 'block_error';
 		}
 	}
 
@@ -521,6 +584,15 @@ final class BizCity_Automation_Runner {
 	 */
 	public function on_cron_dispatch(): void {
 		global $wpdb;
+
+		$cron = class_exists( 'BizCity_Cron_Manager' ) ? BizCity_Cron_Manager::instance() : null;
+
+		// [2026-07-26 Johnny Chu] CRON-LOCK-PHASE-A — bail immediately if another
+		// in-flight tick already holds the lock for this job (duplicate concurrent
+		// fire from WP pseudo-cron). See TRACE-CRON-OVERLOAD-2026-07-26.md.
+		if ( $cron && $cron->is_locked_out( self::CRON_JOB_ID ) ) {
+			return;
+		}
 
 		// [2026-06-21 Johnny Chu] HOTFIX — replaces stale-stamp-only guard (missed blogs where
 		// stamp=='1.7.0' but tables were never created, e.g. cloned/new multisite sub-sites).
@@ -537,11 +609,20 @@ final class BizCity_Automation_Runner {
 			self::CRON_BATCH_MAX
 		) );
 
-		$cron     = class_exists( 'BizCity_Cron_Manager' ) ? BizCity_Cron_Manager::instance() : null;
-		$counters = array( 'runs_picked' => count( (array) $ids ), 'runs_done' => 0, 'runs_failed' => 0 );
+		$counters   = array( 'runs_picked' => count( (array) $ids ), 'runs_done' => 0, 'runs_failed' => 0, 'runs_deferred' => 0 );
+		$tick_start = microtime( true );
 
 		foreach ( (array) $ids as $run_id ) {
 			if ( ! is_string( $run_id ) || $run_id === '' ) { continue; } // guard: null run_id in DB
+
+			// [2026-07-26 Johnny Chu] CRON-OVERLOAD-PHASE-B — self-limit tick duration;
+			// leave any remaining queued runs (still status=QUEUED) for the next tick
+			// instead of risking a run past the 60s interval.
+			if ( ( microtime( true ) - $tick_start ) > self::CRON_TIME_BUDGET_SECONDS ) {
+				$counters['runs_deferred'] += ( count( (array) $ids ) - $counters['runs_done'] - $counters['runs_failed'] );
+				break;
+			}
+
 			$res = $this->execute( $run_id );
 			if ( is_wp_error( $res ) ) {
 				$counters['runs_failed']++;

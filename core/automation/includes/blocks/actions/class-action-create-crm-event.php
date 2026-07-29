@@ -51,6 +51,24 @@ final class BizCity_Automation_Action_Create_CRM_Event extends BizCity_Automatio
 		$title       = (string) $this->resolve( $data['title'] ?? '', $ctx );
 		$start_at    = (string) $this->resolve( $data['start_at'] ?? '', $ctx );
 		$description = (string) $this->resolve( $data['description'] ?? '', $ctx );
+		// [2026-07-17 Johnny Chu] PHASE-TWINWEB F4 — explicit owner continuity for scheduler bridge payload.
+		$owner_user_id = $this->resolve_owner_user_id( $ctx, 0 );
+		if ( $owner_user_id <= 0 ) {
+			$this->note_event( 'create_crm_event_owner_missing', array(
+				'workflow_id' => (int) ( $ctx['_workflow_id'] ?? 0 ),
+				'run_id'      => (string) ( $ctx['_run_id'] ?? '' ),
+			) );
+			return array(
+				'event_id'    => 0,
+				'event_type'  => $event_type,
+				'_degraded'   => 'owner_missing',
+				'message'     => 'Khong tao duoc CRM event vi thieu owner_user_id.',
+			);
+		}
+
+		$metadata = $this->build_event_metadata( $ctx, array(
+			'owner_user_id' => $owner_user_id,
+		) );
 
 		$payload = array(
 			'event_type'  => $event_type,
@@ -59,10 +77,13 @@ final class BizCity_Automation_Action_Create_CRM_Event extends BizCity_Automatio
 			'start_at'    => $start_at,
 			'related_id'  => $ctx['_run_id'] ?? '',
 			'workflow_id' => $ctx['_workflow_id'] ?? 0,
+			'user_id'     => $owner_user_id,
+			'owner_user_id'    => $owner_user_id,
+			'workflow_owner_id' => $owner_user_id,
 			'status'      => 'active',
 			'source'      => 'workflow',
 			// [2026-06-03 Johnny Chu] R-SCH-REPLY — forward inbound{} qua helper.
-			'metadata'    => $this->build_event_metadata( $ctx, array() ),
+			'metadata'    => $metadata,
 		);
 
 		$event_id = BizCity_Automation_CRM_Bridge::create_event( $payload );

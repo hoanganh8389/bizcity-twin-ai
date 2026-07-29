@@ -78,6 +78,25 @@ final class BizCity_Probe_Automation_Publish_FB implements BizCity_Diagnostics_P
 			);
 		}
 
+		// [2026-07-15 Johnny Chu] PHASE-TWINWEB F4 — block must enforce owner-page guard before create_event.
+		$block_src         = (string) file_get_contents( $block_file );
+		$owner_guard_found = ( strpos( $block_src, 'assert_page_owner(' ) !== false )
+			&& ( strpos( $block_src, 'permission_denied' ) !== false );
+		$ctx->emit_step( array(
+			'label'  => 'Disk · F4 ownership guard in action block',
+			'status' => $owner_guard_found ? 'pass' : 'fail',
+			'detail' => $owner_guard_found
+				? 'action.publish_fb_post contains owner-page authorization gate.'
+				: 'Missing owner-page guard marker (assert_page_owner/permission_denied).',
+		) );
+		if ( ! $owner_guard_found ) {
+			return array(
+				'status'   => 'fail',
+				'error'    => 'f4_owner_guard_missing_action',
+				'fix_hint' => 'Bổ sung gate verify bizcity_facebook_bots.user_id === workflow owner trước BizCity_Automation_CRM_Bridge::create_event().',
+			);
+		}
+
 		// ─── Layer 2 · Loader (file đã require_once?) ───────────────────
 		$included = array_map( 'wp_normalize_path', get_included_files() );
 		$needle   = wp_normalize_path( $block_file );

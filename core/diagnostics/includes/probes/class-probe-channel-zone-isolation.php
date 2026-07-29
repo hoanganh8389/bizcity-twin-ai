@@ -90,6 +90,22 @@ final class BizCity_Probe_Channel_Zone_Isolation implements BizCity_Diagnostics_
 			) ) ),
 		);
 
+		// [2026-07-21 Johnny Chu] PHASE-ZALOBOT-GROUP W6 — DDV group/private conversation contract for MVP.
+		$group_contract_listener = $listener_src && strpos( $listener_src, 'conversation_chat_id' ) !== false && strpos( $listener_src, 'provider_chat_id' ) !== false && strpos( $listener_src, 'chat_kind' ) !== false;
+		$group_contract_gw       = $gw_src && strpos( $gw_src, 'conversation_chat_id' ) !== false && strpos( $gw_src, 'provider_chat_id' ) !== false && strpos( $gw_src, 'chat_kind' ) !== false;
+		$group_contract_wh       = $wh_src && strpos( $wh_src, 'provider_chat_type' ) !== false && strpos( $wh_src, 'message_text_clean' ) !== false && strpos( $wh_src, 'sender_user_id' ) !== false;
+		$group_contract_ok       = $group_contract_listener && $group_contract_gw && $group_contract_wh;
+		if ( ! $group_contract_ok ) { $pass = false; }
+		$rows[] = array(
+			'label'  => 'Loader: ZaloBot group/private conversation contract present',
+			'status' => $group_contract_ok ? 'pass' : 'fail',
+			'detail' => $group_contract_ok ? 'UCL + gateway bridge + webhook handler preserve sender/target split.' : implode( '; ', array_filter( array(
+				$group_contract_listener ? '' : 'UCL missing conversation metadata pass-through',
+				$group_contract_gw       ? '' : 'Gateway bridge missing explicit group/private target fields',
+				$group_contract_wh       ? '' : 'Webhook handler missing group/private derivation fields',
+			) ) ),
+		);
+
 		// ── LAYER 3: RUNTIME ──────────────────────────────────────────────────
 		// Synthetic test: fire bizcity_zalo_message_received with platform=ZALO_BOT
 		// and verify Universal Listener does NOT dispatch waic_twf_process_flow CRM path.
@@ -160,6 +176,34 @@ final class BizCity_Probe_Channel_Zone_Isolation implements BizCity_Diagnostics_
 			'detail' => $zone1_routed
 				? 'zalo_oa correctly routed through CRM Inbox path (Zone 1)'
 				: 'zalo_oa event NOT reaching waic_twf_process_flow — CRM Inbox broken for OA',
+		);
+
+		// [2026-07-21 Johnny Chu] PHASE-ZALOBOT-GROUP W6 — runtime proof that outbound parser targets group id, not sender id.
+		$group_parse_ok = false;
+		$group_parse_detail = 'BizCity_Zalo_Bot_Gateway_Bridge not loaded.';
+		if ( ! class_exists( 'BizCity_Zalo_Bot_Gateway_Bridge', false ) && $gw_ok ) {
+			require_once $gw_bridge_file;
+		}
+		if ( class_exists( 'BizCity_Zalo_Bot_Gateway_Bridge', false ) ) {
+			try {
+				$bridge = BizCity_Zalo_Bot_Gateway_Bridge::instance();
+				$method = new ReflectionMethod( $bridge, 'parse_zalobot_chat_id' );
+				$method->setAccessible( true );
+				$parsed = $method->invoke( $bridge, 'zalobot_7_group_zgr-healthtest' );
+				$group_parse_ok = is_array( $parsed )
+					&& (int) ( $parsed['bot_id'] ?? 0 ) === 7
+					&& (string) ( $parsed['chat_kind'] ?? '' ) === 'group'
+					&& (string) ( $parsed['zalo_user_id'] ?? '' ) === 'zgr-healthtest';
+				$group_parse_detail = $group_parse_ok ? 'Parsed explicit group chat target zgr-healthtest.' : 'Parser returned unexpected shape for zalobot_7_group_zgr-healthtest.';
+			} catch ( Throwable $e ) {
+				$group_parse_detail = 'Parser reflection failed: ' . $e->getMessage();
+			}
+		}
+		if ( ! $group_parse_ok ) { $pass = false; }
+		$rows[] = array(
+			'label'  => 'Runtime: ZaloBot explicit group chat_id parses to group target',
+			'status' => $group_parse_ok ? 'pass' : 'fail',
+			'detail' => $group_parse_detail,
 		);
 
 		return array(

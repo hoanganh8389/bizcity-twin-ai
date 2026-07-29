@@ -1,21 +1,39 @@
 [
   {
     "slug": "tpl_astro_van_han_zalo_v1",
-    "name": "Chiêm Tinh — Xem Vận Hạn qua Zalo Bot",
+    "name": "[global] Chiêm Tinh — Xem Vận Hạn qua Zalo Bot",
     "description": "User nhắn 'vận hạn ngày mai/tuần này/tháng 8' → Bot xác định chủ thể → tóm tắt natal → lấy transit day-by-day → reply link /my-transit/ → luận giải sự nghiệp · tài chính · tình duyên · tổng vận.",
     "category": "astrology",
     "source": "builtin",
     "trigger_type": "zalo_inbound",
     "icon": "Star",
-    "tags": "zalo,astro,transit,natal,van-han,su-nghiep,tinh-duyen",
+    "tags": "zalo,astro,transit,natal,van-han,su-nghiep,tinh-duyen,customer-default,global-default",
     "plan": "free",
-    "trigger_config": { "instance_id": "", "filter": "vận hạn|chiêm tinh|bản đồ sao|vận mệnh|transit|tử vi|xem vận|xem sao|cung hoàng đạo|sao chiếu|tarot|vận thế|dự báo|bói|natal", "exclusive": true },
+    "trigger_config": {
+      "instance_id": "",
+      "filter": "vận hạn|chiêm tinh|bản đồ sao|vận mệnh|transit|tử vi|xem vận|xem sao|cung hoàng đạo|sao chiếu|tarot|vận thế|dự báo|bói|natal",
+      "exclusive": true,
+      "priority": 90,
+      "visibility": "global",
+      "selector_mode": "global",
+      "chat_kind": "any",
+      "require_mention": true
+    },
     "graph": {
-      "meta": { "template": "tpl_astro_van_han_zalo_v1" },
+      "meta": {
+        "template": "tpl_astro_van_han_zalo_v1",
+        "template_uuid": "5e7d94eb-9dad-774b-80d3-05a08265943a",
+        "template_version": "1.0.0",
+        "visibility": "global"
+      },
       "nodes": [
         {
-          "id": "t1", "type": "trigger",
-          "position": { "x": 0, "y": 200 },
+          "id": "t1",
+          "type": "trigger",
+          "position": {
+            "x": 0,
+            "y": 200
+          },
           "data": {
             "blockId": "trigger.zalo_inbound",
             "label": "Zalo Bot · hỏi vận hạn chiêm tinh",
@@ -25,8 +43,12 @@
           }
         },
         {
-          "id": "n1", "type": "action",
-          "position": { "x": 280, "y": 200 },
+          "id": "n1",
+          "type": "action",
+          "position": {
+            "x": 280,
+            "y": 200
+          },
           "data": {
             "blockId": "action.run_astro",
             "label": "Resolve chủ thể + Natal Chart",
@@ -37,8 +59,12 @@
           }
         },
         {
-          "id": "chk", "type": "condition",
-          "position": { "x": 560, "y": 200 },
+          "id": "chk",
+          "type": "condition",
+          "position": {
+            "x": 560,
+            "y": 200
+          },
           "data": {
             "blockId": "logic.condition",
             "label": "Có bản đồ sao?",
@@ -46,8 +72,12 @@
           }
         },
         {
-          "id": "err", "type": "action",
-          "position": { "x": 560, "y": 400 },
+          "id": "err",
+          "type": "action",
+          "position": {
+            "x": 560,
+            "y": 400
+          },
           "data": {
             "blockId": "action.reply_zalo",
             "label": "Thông báo chưa có bản đồ sao",
@@ -55,8 +85,12 @@
           }
         },
         {
-          "id": "n3", "type": "llm",
-          "position": { "x": 840, "y": 80 },
+          "id": "n3",
+          "type": "llm",
+          "position": {
+            "x": 840,
+            "y": 80
+          },
           "data": {
             "blockId": "llm.compose_reply",
             "label": "LLM · Tổng quan chủ nhân natal chart",
@@ -66,8 +100,12 @@
           }
         },
         {
-          "id": "r1", "type": "action",
-          "position": { "x": 1120, "y": 80 },
+          "id": "r1",
+          "type": "action",
+          "position": {
+            "x": 1120,
+            "y": 80
+          },
           "data": {
             "blockId": "action.reply_zalo",
             "label": "Reply 1 · Tổng quan chủ thể + Link bản đồ sao",
@@ -75,8 +113,12 @@
           }
         },
         {
-          "id": "n4", "type": "action",
-          "position": { "x": 840, "y": 280 },
+          "id": "n4",
+          "type": "action",
+          "position": {
+            "x": 840,
+            "y": 280
+          },
           "data": {
             "blockId": "action.run_astro_transit",
             "label": "Lấy Transit Day-by-Day",
@@ -90,8 +132,12 @@
           }
         },
         {
-          "id": "r2", "type": "action",
-          "position": { "x": 1120, "y": 280 },
+          "id": "r2",
+          "type": "action",
+          "position": {
+            "x": 1120,
+            "y": 280
+          },
           "data": {
             "blockId": "action.reply_zalo",
             "label": "Reply 2 · Bảng Transit + Link",
@@ -99,8 +145,12 @@
           }
         },
         {
-          "id": "r2d", "type": "action",
-          "position": { "x": 1380, "y": 280 },
+          "id": "r2d",
+          "type": "action",
+          "position": {
+            "x": 1380,
+            "y": 280
+          },
           "data": {
             "blockId": "action.reply_zalo_each_day",
             "label": "Reply 2b · Từng ngày 1 block",
@@ -112,8 +162,12 @@
           }
         },
         {
-          "id": "n6", "type": "action",
-          "position": { "x": 1620, "y": 480 },
+          "id": "n6",
+          "type": "action",
+          "position": {
+            "x": 1620,
+            "y": 480
+          },
           "data": {
             "blockId": "action.pick_best_day_for_intent",
             "label": "Pick best day (deterministic)",
@@ -125,8 +179,12 @@
           }
         },
         {
-          "id": "n5", "type": "llm",
-          "position": { "x": 840, "y": 480 },
+          "id": "n5",
+          "type": "llm",
+          "position": {
+            "x": 840,
+            "y": 480
+          },
           "data": {
             "blockId": "llm.compose_reply",
             "label": "LLM · Luận giải từng ngày + Kết luận",
@@ -136,8 +194,12 @@
           }
         },
         {
-          "id": "r3", "type": "action",
-          "position": { "x": 1120, "y": 480 },
+          "id": "r3",
+          "type": "action",
+          "position": {
+            "x": 1120,
+            "y": 480
+          },
           "data": {
             "blockId": "action.reply_zalo",
             "label": "Reply 3 · Luận giải vận hạn chi tiết",
@@ -146,23 +208,72 @@
         }
       ],
       "edges": [
-        { "id": "e_t1_n1",   "source": "t1",  "target": "n1" },
-        { "id": "e_n1_chk",  "source": "n1",  "target": "chk" },
-        { "id": "e_chk_err", "source": "chk", "target": "err", "sourceHandle": "false" },
-        { "id": "e_chk_n3",  "source": "chk", "target": "n3",  "sourceHandle": "true" },
-        { "id": "e_n3_r1",   "source": "n3",  "target": "r1" },
-        { "id": "e_r1_n4",   "source": "r1",  "target": "n4" },
-        { "id": "e_n4_r2",   "source": "n4",  "target": "r2" },
-        { "id": "e_r2_r2d",  "source": "r2",  "target": "r2d" },
-        { "id": "e_r2d_n6",  "source": "r2d", "target": "n6" },
-        { "id": "e_n6_n5",   "source": "n6",  "target": "n5" },
-        { "id": "e_n5_r3",   "source": "n5",  "target": "r3" }
+        {
+          "id": "e_t1_n1",
+          "source": "t1",
+          "target": "n1"
+        },
+        {
+          "id": "e_n1_chk",
+          "source": "n1",
+          "target": "chk"
+        },
+        {
+          "id": "e_chk_err",
+          "source": "chk",
+          "target": "err",
+          "sourceHandle": "false"
+        },
+        {
+          "id": "e_chk_n3",
+          "source": "chk",
+          "target": "n3",
+          "sourceHandle": "true"
+        },
+        {
+          "id": "e_n3_r1",
+          "source": "n3",
+          "target": "r1"
+        },
+        {
+          "id": "e_r1_n4",
+          "source": "r1",
+          "target": "n4"
+        },
+        {
+          "id": "e_n4_r2",
+          "source": "n4",
+          "target": "r2"
+        },
+        {
+          "id": "e_r2_r2d",
+          "source": "r2",
+          "target": "r2d"
+        },
+        {
+          "id": "e_r2d_n6",
+          "source": "r2d",
+          "target": "n6"
+        },
+        {
+          "id": "e_n6_n5",
+          "source": "n6",
+          "target": "n5"
+        },
+        {
+          "id": "e_n5_r3",
+          "source": "n5",
+          "target": "r3"
+        }
       ]
-    }
+    },
+    "template_uuid": "5e7d94eb-9dad-774b-80d3-05a08265943a",
+    "template_version": "1.0.0",
+    "visibility": "global"
   },
   {
     "slug": "tpl_astro_quick_zalo_v1",
-    "name": "Chiêm Tinh — Nhanh (1 Reply Tổng Hợp)",
+    "name": "[global] Chiêm Tinh — Nhanh (1 Reply Tổng Hợp)",
     "description": "Zalo Bot — user hỏi vận hạn → 1 reply duy nhất: tóm tắt transit + lời khuyên + link bản đồ sao. Nhanh, gọn, phù hợp bot trả lời tự động.",
     "category": "astrology",
     "source": "builtin",
@@ -170,13 +281,30 @@
     "icon": "Zap",
     "tags": "zalo,astro,transit,quick,van-han",
     "plan": "free",
-    "trigger_config": { "instance_id": "", "filter": "vận hạn|chiêm tinh|bản đồ sao|vận mệnh|transit|tử vi|xem vận|xem sao|cung hoàng đạo|sao chiếu|tarot|vận thế|dự báo|bói|natal", "exclusive": true },
+    "trigger_config": {
+      "instance_id": "",
+      "filter": "vận hạn|chiêm tinh|bản đồ sao|vận mệnh|transit|tử vi|xem vận|xem sao|cung hoàng đạo|sao chiếu|tarot|vận thế|dự báo|bói|natal",
+      "exclusive": true,
+      "visibility": "global",
+      "selector_mode": "global",
+      "chat_kind": "any",
+      "require_mention": true
+    },
     "graph": {
-      "meta": { "template": "tpl_astro_quick_zalo_v1" },
+      "meta": {
+        "template": "tpl_astro_quick_zalo_v1",
+        "template_uuid": "f008eaa1-3354-78bb-820e-3dff8c3d73f5",
+        "template_version": "1.0.0",
+        "visibility": "global"
+      },
       "nodes": [
         {
-          "id": "t1", "type": "trigger",
-          "position": { "x": 0, "y": 80 },
+          "id": "t1",
+          "type": "trigger",
+          "position": {
+            "x": 0,
+            "y": 80
+          },
           "data": {
             "blockId": "trigger.zalo_inbound",
             "label": "Zalo Bot · hỏi chiêm tinh",
@@ -186,8 +314,12 @@
           }
         },
         {
-          "id": "n1", "type": "action",
-          "position": { "x": 280, "y": 80 },
+          "id": "n1",
+          "type": "action",
+          "position": {
+            "x": 280,
+            "y": 80
+          },
           "data": {
             "blockId": "action.run_astro",
             "label": "Resolve + Tóm tắt AI nhanh",
@@ -198,8 +330,12 @@
           }
         },
         {
-          "id": "r1", "type": "action",
-          "position": { "x": 560, "y": 80 },
+          "id": "r1",
+          "type": "action",
+          "position": {
+            "x": 560,
+            "y": 80
+          },
           "data": {
             "blockId": "action.reply_zalo",
             "label": "Reply tổng hợp",
@@ -208,14 +344,25 @@
         }
       ],
       "edges": [
-        { "id": "e_t1_n1", "source": "t1", "target": "n1" },
-        { "id": "e_n1_r1", "source": "n1", "target": "r1" }
+        {
+          "id": "e_t1_n1",
+          "source": "t1",
+          "target": "n1"
+        },
+        {
+          "id": "e_n1_r1",
+          "source": "n1",
+          "target": "r1"
+        }
       ]
-    }
+    },
+    "template_uuid": "f008eaa1-3354-78bb-820e-3dff8c3d73f5",
+    "template_version": "1.0.0",
+    "visibility": "global"
   },
   {
     "slug": "tpl_astro_daily_cron_v1",
-    "name": "Chiêm Tinh — Gửi Transit Hàng Ngày (Cron 9:00)",
+    "name": "[global] Chiêm Tinh — Gửi Transit Hàng Ngày (Cron 9:00)",
     "description": "Cron 9h sáng mỗi ngày → lấy transit hôm nay → luận giải vận hạn, tài chính, công việc trong ngày → gửi Zalo tự động, không cần user hỏi lại. Sau import: điền cùng một chat_id ở node Transit (chat_id) và node Reply (override_chat_id).",
     "category": "astrology",
     "source": "builtin",
@@ -223,13 +370,25 @@
     "icon": "Calendar",
     "tags": "cron,daily,astro,transit,zalo,morning-brief",
     "plan": "free",
-    "trigger_config": { "schedule": "0 9 * * *" },
+    "trigger_config": {
+      "schedule": "0 9 * * *",
+      "visibility": "global"
+    },
     "graph": {
-      "meta": { "template": "tpl_astro_daily_cron_v1" },
+      "meta": {
+        "template": "tpl_astro_daily_cron_v1",
+        "template_uuid": "db8c9f0d-ba76-723e-86e5-b19a69b7d21e",
+        "template_version": "1.0.0",
+        "visibility": "global"
+      },
       "nodes": [
         {
-          "id": "t1", "type": "trigger",
-          "position": { "x": 0, "y": 80 },
+          "id": "t1",
+          "type": "trigger",
+          "position": {
+            "x": 0,
+            "y": 80
+          },
           "data": {
             "blockId": "trigger.cron",
             "label": "Cron · 09:00 hàng ngày",
@@ -237,8 +396,12 @@
           }
         },
         {
-          "id": "n4", "type": "action",
-          "position": { "x": 280, "y": 80 },
+          "id": "n4",
+          "type": "action",
+          "position": {
+            "x": 280,
+            "y": 80
+          },
           "data": {
             "blockId": "action.run_astro_transit",
             "label": "Transit hôm nay",
@@ -251,8 +414,12 @@
           }
         },
         {
-          "id": "n5", "type": "llm",
-          "position": { "x": 560, "y": 80 },
+          "id": "n5",
+          "type": "llm",
+          "position": {
+            "x": 560,
+            "y": 80
+          },
           "data": {
             "blockId": "llm.compose_reply",
             "label": "LLM · Brief vận hạn/tài chính/công việc",
@@ -262,8 +429,12 @@
           }
         },
         {
-          "id": "r1", "type": "action",
-          "position": { "x": 840, "y": 80 },
+          "id": "r1",
+          "type": "action",
+          "position": {
+            "x": 840,
+            "y": 80
+          },
           "data": {
             "blockId": "action.reply_zalo",
             "label": "Gửi morning brief Zalo",
@@ -273,11 +444,26 @@
         }
       ],
       "edges": [
-        { "id": "e_t1_n4", "source": "t1", "target": "n4" },
-        { "id": "e_n4_n5", "source": "n4", "target": "n5" },
-        { "id": "e_n5_r1", "source": "n5", "target": "r1" }
+        {
+          "id": "e_t1_n4",
+          "source": "t1",
+          "target": "n4"
+        },
+        {
+          "id": "e_n4_n5",
+          "source": "n4",
+          "target": "n5"
+        },
+        {
+          "id": "e_n5_r1",
+          "source": "n5",
+          "target": "r1"
+        }
       ]
-    }
+    },
+    "template_uuid": "db8c9f0d-ba76-723e-86e5-b19a69b7d21e",
+    "template_version": "1.0.0",
+    "visibility": "global"
   },
   {
     "slug": "tpl_astro_relation_profile_zalo_v1",
@@ -292,14 +478,24 @@
     "trigger_config": {
       "instance_id": "",
       "filter": "hợp|ho so|hồ sơ|đối tác|doi tac|nhân sự|nhan su|kết bạn|ket ban|hợp tác|hop tac",
-      "exclusive": false
+      "exclusive": false,
+      "visibility": "private"
     },
     "graph": {
-      "meta": { "template": "tpl_astro_relation_profile_zalo_v1" },
+      "meta": {
+        "template": "tpl_astro_relation_profile_zalo_v1",
+        "template_uuid": "c3431a54-5d44-778b-8047-bdda442cd0fe",
+        "template_version": "1.0.0",
+        "visibility": "private"
+      },
       "nodes": [
         {
-          "id": "t1", "type": "trigger",
-          "position": { "x": 0, "y": 140 },
+          "id": "t1",
+          "type": "trigger",
+          "position": {
+            "x": 0,
+            "y": 140
+          },
           "data": {
             "blockId": "trigger.zalo_inbound",
             "label": "Zalo Bot · hỏi độ hợp profile",
@@ -309,8 +505,12 @@
           }
         },
         {
-          "id": "n1", "type": "action",
-          "position": { "x": 280, "y": 140 },
+          "id": "n1",
+          "type": "action",
+          "position": {
+            "x": 280,
+            "y": 140
+          },
           "data": {
             "blockId": "action.run_astro",
             "label": "Resolve subject profile",
@@ -321,8 +521,12 @@
           }
         },
         {
-          "id": "n2", "type": "action",
-          "position": { "x": 560, "y": 140 },
+          "id": "n2",
+          "type": "action",
+          "position": {
+            "x": 560,
+            "y": 140
+          },
           "data": {
             "blockId": "action.run_astro_relation_assessment",
             "label": "Relation assessment (4 lenses)",
@@ -337,8 +541,12 @@
           }
         },
         {
-          "id": "chk", "type": "condition",
-          "position": { "x": 840, "y": 140 },
+          "id": "chk",
+          "type": "condition",
+          "position": {
+            "x": 840,
+            "y": 140
+          },
           "data": {
             "blockId": "logic.condition",
             "label": "Có kết quả relation?",
@@ -346,8 +554,12 @@
           }
         },
         {
-          "id": "r_ok", "type": "action",
-          "position": { "x": 1120, "y": 40 },
+          "id": "r_ok",
+          "type": "action",
+          "position": {
+            "x": 1120,
+            "y": 40
+          },
           "data": {
             "blockId": "action.reply_zalo",
             "label": "Reply relation kết quả",
@@ -355,8 +567,12 @@
           }
         },
         {
-          "id": "r_err", "type": "action",
-          "position": { "x": 1120, "y": 260 },
+          "id": "r_err",
+          "type": "action",
+          "position": {
+            "x": 1120,
+            "y": 260
+          },
           "data": {
             "blockId": "action.reply_zalo",
             "label": "Reply relation lỗi",
@@ -365,12 +581,37 @@
         }
       ],
       "edges": [
-        { "id": "e_t1_n1", "source": "t1", "target": "n1" },
-        { "id": "e_n1_n2", "source": "n1", "target": "n2" },
-        { "id": "e_n2_chk", "source": "n2", "target": "chk" },
-        { "id": "e_chk_ok", "source": "chk", "target": "r_ok", "sourceHandle": "true" },
-        { "id": "e_chk_err", "source": "chk", "target": "r_err", "sourceHandle": "false" }
+        {
+          "id": "e_t1_n1",
+          "source": "t1",
+          "target": "n1"
+        },
+        {
+          "id": "e_n1_n2",
+          "source": "n1",
+          "target": "n2"
+        },
+        {
+          "id": "e_n2_chk",
+          "source": "n2",
+          "target": "chk"
+        },
+        {
+          "id": "e_chk_ok",
+          "source": "chk",
+          "target": "r_ok",
+          "sourceHandle": "true"
+        },
+        {
+          "id": "e_chk_err",
+          "source": "chk",
+          "target": "r_err",
+          "sourceHandle": "false"
+        }
       ]
-    }
+    },
+    "template_uuid": "c3431a54-5d44-778b-8047-bdda442cd0fe",
+    "template_version": "1.0.0",
+    "visibility": "private"
   }
 ]

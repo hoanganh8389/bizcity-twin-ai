@@ -40,7 +40,8 @@ final class BizCity_Diagnostics_Auto_Create {
 		$def = $declared[ $suffix ];
 
 		$physical = $wpdb->prefix . $suffix;
-		$exists   = (bool) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $physical ) );
+		// [2026-07-14 Johnny Chu] R-SHOW-TABLES — use table-exists helper (no SHOW TABLES LIKE).
+		$exists   = self::table_exists( $physical );
 
 		$statements = [];
 		$errors     = [];
@@ -78,20 +79,40 @@ final class BizCity_Diagnostics_Auto_Create {
 			$ok = $wpdb->query( $sql );
 			if ( $ok === false ) {
 				$errors[] = sprintf( 'ADD COLUMN %s failed: %s', $col_name, $wpdb->last_error );
+			} else {
+				// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — let indexes that reference newly added columns run in the same pass.
+				$actual_cols[ $col_name ] = $type;
 			}
 		}
 
 		foreach ( $def['indexes'] as $idx_name => $idx_def ) {
 			if ( ! is_array( $idx_def ) ) { continue; }
+			// [2026-07-14 Johnny Chu] R-DCL — PRIMARY is handled separately by CREATE builder.
+			if ( ! empty( $idx_def['pk'] ) || strtoupper( (string) $idx_name ) === 'PRIMARY' ) { continue; }
 			if ( isset( $actual_idx[ $idx_name ] ) ) { continue; }
-			$cols = array_values( array_filter( (array) ( $idx_def['cols'] ?? [] ) ) );
+			$cols = self::normalize_index_columns( (array) ( $idx_def['cols'] ?? [] ) );
 			if ( ! $cols ) { continue; }
+			if ( ! self::all_index_columns_exist( $cols, $actual_cols ) ) {
+				$errors[] = sprintf( 'ADD INDEX %s skipped: one or more columns missing.', $idx_name );
+				continue;
+			}
+			// [2026-07-14 Johnny Chu] HOTFIX — avoid repeated ALTER UNIQUE failures on duplicate rows.
+			if ( ! empty( $idx_def['unique'] ) && self::has_unique_conflict( $physical, $cols ) ) {
+				$errors[] = sprintf( 'ADD UNIQUE INDEX %s skipped: duplicate rows exist.', $idx_name );
+				continue;
+			}
 			$unique = ! empty( $idx_def['unique'] ) ? 'UNIQUE ' : '';
-			$cols_sql = implode( ', ', array_map( static fn( $c ) => '`' . str_replace( '`', '', (string) $c ) . '`', $cols ) );
+			$cols_sql = self::build_index_cols_sql( $cols );
 			$sql = sprintf( 'ALTER TABLE `%s` ADD %sINDEX `%s` (%s)', $physical, $unique, $idx_name, $cols_sql );
 			$statements[] = $sql;
 			$ok = $wpdb->query( $sql );
 			if ( $ok === false ) {
+				// [2026-07-20 Johnny Chu] R-DCL — ADD INDEX is idempotent; if MySQL says the key already exists, treat as success and avoid admin_init retry spam.
+				if ( stripos( (string) $wpdb->last_error, 'Duplicate key name' ) !== false ) {
+					$actual_idx[ $idx_name ] = true;
+					$wpdb->last_error = '';
+					continue;
+				}
 				$errors[] = sprintf( 'ADD INDEX %s failed: %s', $idx_name, $wpdb->last_error );
 			}
 		}
@@ -135,29 +156,139 @@ final class BizCity_Diagnostics_Auto_Create {
 	}
 
 	/**
+	 * [2026-07-14 Johnny Chu] R-SHOW-TABLES — canonical table existence check.
+	 */
+	private static function table_exists( string $physical ): bool {
+		if ( function_exists( 'bizcity_tbl_exists' ) ) {
+			return (bool) bizcity_tbl_exists( $physical );
+		}
+
+		static $s = [];
+		if ( isset( $s[ $physical ] ) ) {
+			return $s[ $physical ];
+		}
+
+		global $wpdb;
+		$ck      = 'bz_tbl_' . (int) get_current_blog_id() . '_' . crc32( $physical );
+		$present = wp_cache_get( $ck, 'bizcity_tbl' );
+		if ( false === $present ) {
+			$present = (int) (bool) $wpdb->get_var( $wpdb->prepare(
+				'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+				$physical
+			) );
+			wp_cache_set( $ck, $present, 'bizcity_tbl', HOUR_IN_SECONDS );
+		}
+
+		$s[ $physical ] = (bool) $present;
+		return $s[ $physical ];
+	}
+
+	/**
+	 * Normalize index columns, supporting prefix index syntax like col(64).
+	 *
+	 * @param array $cols Raw col specs from JSON.
+	 * @return array<int,array{name:string,length:int}>
+	 */
+	private static function normalize_index_columns( array $cols ): array {
+		$out = [];
+		foreach ( $cols as $raw ) {
+			$raw = trim( str_replace( '`', '', (string) $raw ) );
+			if ( $raw === '' ) {
+				continue;
+			}
+
+			if ( preg_match( '/^([a-zA-Z0-9_]+)\((\d+)\)$/', $raw, $m ) ) {
+				$out[] = [ 'name' => (string) $m[1], 'length' => (int) $m[2] ];
+				continue;
+			}
+
+			$out[] = [ 'name' => $raw, 'length' => 0 ];
+		}
+		return $out;
+	}
+
+	/**
+	 * Render normalized index columns to SQL fragment.
+	 *
+	 * @param array<int,array{name:string,length:int}> $cols
+	 */
+	private static function build_index_cols_sql( array $cols ): string {
+		$parts = [];
+		foreach ( $cols as $c ) {
+			$col = '`' . str_replace( '`', '', (string) $c['name'] ) . '`';
+			if ( ! empty( $c['length'] ) ) {
+				$col .= '(' . (int) $c['length'] . ')';
+			}
+			$parts[] = $col;
+		}
+		return implode( ', ', $parts );
+	}
+
+	/**
+	 * Ensure all columns referenced by an index exist before ALTER ADD INDEX.
+	 *
+	 * @param array<int,array{name:string,length:int}> $cols
+	 * @param array<string,string> $actual_cols
+	 */
+	private static function all_index_columns_exist( array $cols, array $actual_cols ): bool {
+		foreach ( $cols as $c ) {
+			if ( ! isset( $actual_cols[ (string) $c['name'] ] ) ) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	/**
+	 * Check whether a UNIQUE index would fail because duplicate tuples already exist.
+	 *
+	 * @param string $physical
+	 * @param array<int,array{name:string,length:int}> $cols
+	 */
+	private static function has_unique_conflict( string $physical, array $cols ): bool {
+		global $wpdb;
+		$group_cols = implode( ', ', array_map( static function ( $c ) {
+			return '`' . str_replace( '`', '', (string) $c['name'] ) . '`';
+		}, $cols ) );
+
+		if ( $group_cols === '' ) {
+			return false;
+		}
+
+		$sql = "SELECT 1 FROM `{$physical}` GROUP BY {$group_cols} HAVING COUNT(*) > 1 LIMIT 1";
+		return (bool) $wpdb->get_var( $sql );
+	}
+
+	/**
 	 * Build a CREATE TABLE statement from JSON definition. dbDelta-friendly:
 	 * one column per line, PRIMARY KEY at end, KEY lines for indexes.
 	 */
 	private static function build_create_sql( string $physical, array $def ): string {
 		$lines = [];
-		$pk    = null;
+		$pk_sql = '';
 		foreach ( $def['columns'] as $name => $col ) {
 			if ( ! is_array( $col ) || empty( $col['type'] ) ) { continue; }
 			$lines[] = sprintf( '`%s` %s', $name, $col['type'] );
 			if ( ! empty( $col['pk'] ) ) {
-				$pk = (string) $name;
+				$pk_sql = '`' . str_replace( '`', '', (string) $name ) . '`';
 			}
-		}
-		if ( $pk !== null ) {
-			$lines[] = sprintf( 'PRIMARY KEY (`%s`)', $pk );
 		}
 		foreach ( $def['indexes'] as $name => $idx ) {
 			if ( ! is_array( $idx ) ) { continue; }
-			$cols = array_values( array_filter( (array) ( $idx['cols'] ?? [] ) ) );
+			$cols = self::normalize_index_columns( (array) ( $idx['cols'] ?? [] ) );
 			if ( ! $cols ) { continue; }
+			if ( ! empty( $idx['pk'] ) || strtoupper( (string) $name ) === 'PRIMARY' ) {
+				if ( $pk_sql === '' ) {
+					$pk_sql = self::build_index_cols_sql( $cols );
+				}
+				continue;
+			}
 			$unique = ! empty( $idx['unique'] ) ? 'UNIQUE ' : '';
-			$cols_sql = implode( ', ', array_map( static fn( $c ) => '`' . str_replace( '`', '', (string) $c ) . '`', $cols ) );
+			$cols_sql = self::build_index_cols_sql( $cols );
 			$lines[] = sprintf( '%sKEY `%s` (%s)', $unique, $name, $cols_sql );
+		}
+		if ( $pk_sql !== '' ) {
+			$lines[] = sprintf( 'PRIMARY KEY (%s)', $pk_sql );
 		}
 		$engine  = $def['engine']  ?? 'InnoDB';
 		$charset = $def['charset'] ?? 'utf8mb4';

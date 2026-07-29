@@ -392,7 +392,7 @@ PROMPT;
 
         // ── 4. Episodic Memory (behavioral patterns, tool habits) ──
         if ( $user_id && class_exists( 'BizCity_Episodic_Memory' ) ) {
-            $episodic = BizCity_Episodic_Memory::instance()->build_context( $user_id, $goal );
+            $episodic = BizCity_Episodic_Memory::instance()->build_context( $user_id, $goal, (string) ( $context['identity_uuid'] ?? '' ) );
             if ( $episodic ) {
                 // Compact: strip headers, keep only first 400 chars.
                 $episodic = preg_replace( '/^.*?(?=\d|\-|\•)/su', '', trim( $episodic ) );
@@ -406,7 +406,7 @@ PROMPT;
         // ── 5. Rolling Memory (active/recent goals across conversations) ──
         if ( $user_id && class_exists( 'BizCity_Rolling_Memory' ) ) {
             $rolling_mem = BizCity_Rolling_Memory::instance()->build_context(
-                $user_id, $session_id, $conv_id
+                $user_id, $session_id, $conv_id, (string) ( $context['identity_uuid'] ?? '' )
             );
             if ( $rolling_mem ) {
                 $rolling_mem = mb_substr( trim( $rolling_mem ), 0, 400 );

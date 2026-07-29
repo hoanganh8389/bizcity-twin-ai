@@ -138,14 +138,18 @@ class BizCity_TwinBrain_Synthesizer {
 		 * tình huống · lời khuyên. Default 400 stays for whole-KG mode. */
 		$has_guru = ! empty( $opts['guru_id'] );
 		$ans_cap  = $has_guru ? 800 : 400;
+		// [2026-07-18 Johnny Chu] PHASE-TWINWEB — apply surface-level grounding policy before Guru defaults.
+		$twinweb_policy = $this->twinweb_grounding_policy( $opts );
+		$grounding_profile = is_array( $twinweb_policy ) ? (string) ( $twinweb_policy['profile'] ?? 'balanced' ) : 'strict';
 		$persona_hint = $has_guru
 			? "\n8. answer_md PHẢI giữ nguyên khung cấu trúc persona mà các lăng kính trả về (không cắt bằng những heading như 'Ý nghĩa', 'Thuận', 'Nghịch', 'Tình huống', 'Lời khuyên'). Tổng hợp từng section thay vì collapse về 1 đoạn văn."
 			: '';
+		$twinweb_prompt_block = is_array( $twinweb_policy )
+			? $this->render_twinweb_policy_block( $twinweb_policy )
+			: '';
 
 		// TBR.W10 — enable web citation rule only when a web block is in scope.
-		$web_rule = $web_blocks
-			? "7. Khi dùng thông tin từ ## WEB RESEARCH, citation BẮT BUỘC dùng token `[web:<N>#<URL>]` (đúng index trong CITATION MAP ở block đó). KHÔNG đổi [web:N] thành footnote số. CONSENSUS / TENSIONS phải so sánh nguồn nội bộ (notebook) vs nguồn ngoại (web) một cách tường minh khi cả hai cùng có dữ liệu."
-			: "7. (no-op) Turn này không có web research — chỉ dùng [nb:X/pY].";
+		$web_rule = $this->render_grounding_rule( $web_blocks, $grounding_profile );
 
 		$system = <<<SYS
 Bạn là Synthesizer của TwinBrain — một bộ tổng hợp đa lăng kính.
@@ -155,9 +159,9 @@ QUY TẮC TUYỆT ĐỐI:
 2. CONSENSUS = điểm mà từ 2 lăng kính trở lên đồng thuận, kèm tên notebook.
 3. TENSIONS = các xung đột verbatim — viết rõ "Notebook X nói A, Notebook Y phản bác B".
 4. RECOMMENDATION chỉ điền khi user xin lời khuyên rõ ràng (verb: "nên", "có nên", "should", "recommend").
-5. answer_md PHẢI chèn citation token `[nb:<notebook_id>/p<passage_id>]` ở mỗi luận điểm có nguồn từ ANSWER của notebook.
+5. {$this->render_notebook_citation_rule( $grounding_profile )}
 6. Trả về JSON object thuần — KHÔNG markdown wrapper, KHÔNG ```json fence.
-{$web_rule}{$persona_hint}
+{$web_rule}{$persona_hint}{$twinweb_prompt_block}
 
 SCHEMA OUTPUT (BẮT BUỘC):
 {
@@ -174,6 +178,73 @@ SYS;
 			[ 'role' => 'system', 'content' => $system ],
 			[ 'role' => 'user',   'content' => $user ],
 		];
+	}
+
+	/**
+	 * TwinWeb prompt/grounding policy. Returns null for non-TwinWeb or disabled config.
+	 */
+	private function twinweb_grounding_policy( array $opts ) {
+		$surface = isset( $opts['surface'] ) ? sanitize_key( (string) $opts['surface'] ) : '';
+		$policy  = isset( $opts['twinweb_grounding_policy'] ) && is_array( $opts['twinweb_grounding_policy'] )
+			? $opts['twinweb_grounding_policy']
+			: array();
+		if ( $surface !== 'twinweb' || empty( $policy ) || empty( $policy['enabled'] ) ) {
+			return null;
+		}
+		return $policy;
+	}
+
+	/**
+	 * Render notebook citation rule by grounding profile.
+	 */
+	private function render_notebook_citation_rule( string $profile ): string {
+		if ( $profile === 'loose' ) {
+			return 'answer_md có thể diễn giải tự nhiên ngoài RAG khi cần, nhưng các dữ kiện/trích dẫn quan trọng lấy từ notebook PHẢI kèm token `[nb:<notebook_id>/p<passage_id>]`; nếu suy luận ngoài notebook thì nói rõ là suy luận/mở rộng.';
+		}
+		if ( $profile === 'balanced' ) {
+			return 'answer_md PHẢI chèn citation token `[nb:<notebook_id>/p<passage_id>]` cho các luận điểm chính có nguồn từ notebook; không cần cite lặp lại ở mọi câu diễn giải/phụ trợ.';
+		}
+		return 'answer_md PHẢI chèn citation token `[nb:<notebook_id>/p<passage_id>]` ở mỗi luận điểm có nguồn từ ANSWER của notebook.';
+	}
+
+	/**
+	 * Render web citation rule by grounding profile.
+	 */
+	private function render_grounding_rule( array $web_blocks, string $profile ): string {
+		if ( empty( $web_blocks ) ) {
+			return "7. Turn này không có web research — chỉ dùng [nb:X/pY] khi trích notebook.";
+		}
+		if ( $profile === 'loose' ) {
+			return "7. Khi dùng WEB RESEARCH cho dữ kiện quan trọng, dùng token `[web:<N>#<URL>]`; có thể đưa kiến thức nền ngoài RAG nếu hữu ích, nhưng phải phân biệt rõ phần có nguồn với phần suy luận/tư vấn.";
+		}
+		if ( $profile === 'balanced' ) {
+			return "7. Khi dùng thông tin chính từ ## WEB RESEARCH, citation dùng token `[web:<N>#<URL>]` đúng index trong CITATION MAP. CONSENSUS / TENSIONS nên so sánh nguồn nội bộ vs web khi có khác biệt đáng kể.";
+		}
+		return "7. Khi dùng thông tin từ ## WEB RESEARCH, citation BẮT BUỘC dùng token `[web:<N>#<URL>]` (đúng index trong CITATION MAP ở block đó). KHÔNG đổi [web:N] thành footnote số. CONSENSUS / TENSIONS phải so sánh nguồn nội bộ (notebook) vs nguồn ngoại (web) một cách tường minh khi cả hai cùng có dữ liệu.";
+	}
+
+	/**
+	 * Render TwinWeb/Guru prompt overrides.
+	 */
+	private function render_twinweb_policy_block( array $policy ): string {
+		$lines = array();
+		$profile = isset( $policy['profile'] ) ? sanitize_key( (string) $policy['profile'] ) : 'balanced';
+		$citation_mode = isset( $policy['citation_mode'] ) ? sanitize_key( (string) $policy['citation_mode'] ) : 'key_claims';
+		$lines[] = '';
+		$lines[] = '9. TWINWEB GROUNDING PROFILE = `' . $profile . '`; citation_mode = `' . $citation_mode . '`. Đây là cấu hình surface TwinWeb và ưu tiên hơn mặc định Guru cho turn này.';
+
+		$twinweb_prompt = trim( wp_strip_all_tags( (string) ( $policy['twinweb_system_prompt'] ?? '' ) ) );
+		if ( $twinweb_prompt !== '' ) {
+			$lines[] = "\n## TWINWEB SYSTEM PROMPT OVERRIDE\n" . mb_substr( $twinweb_prompt, 0, 1600 );
+		}
+
+		$override_guru = ! empty( $policy['override_guru'] );
+		$guru_prompt   = trim( wp_strip_all_tags( (string) ( $policy['guru_system_prompt'] ?? '' ) ) );
+		if ( $override_guru && $guru_prompt !== '' ) {
+			$lines[] = "\n## GURU SYSTEM PROMPT OVERRIDE\n" . mb_substr( $guru_prompt, 0, 1600 );
+		}
+
+		return "\n" . implode( "\n", $lines );
 	}
 
 	/**

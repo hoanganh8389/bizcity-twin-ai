@@ -1,0 +1,272 @@
+[
+  {
+    "slug": "tpl_products_lookup_zalo_v1",
+    "name": "Super-MRO - Tra cuu gia/ton kho qua Zalo",
+    "description": "Tra cuu vat tu cong nghiep, dien, cong cu va VLXD. Woo-first, uu tien super-mro.com khi can web fallback.",
+    "category": "commerce",
+    "source": "builtin",
+    "trigger_type": "zalo_inbound",
+    "icon": "ShoppingCart",
+    "tags": "zalo,super-mro,mro,vat-tu,cong-cu,vlxd,woocommerce,gia,ton-kho",
+    "plan": "free",
+    "trigger_config": {
+      "instance_id": "",
+      "filter": "gia|bao nhieu|con hang|ton kho|vat tu|cong cu|thiet bi|dien|den|bu long|vlxd|shop co|mua",
+      "exclusive": true,
+      "visibility": "private"
+    },
+    "graph": {
+      "meta": {
+        "template": "tpl_products_lookup_zalo_v1",
+        "template_uuid": "5c4d21cc-d6fe-7c45-8544-123d9ee6756b",
+        "template_version": "1.0.0",
+        "visibility": "private"
+      },
+      "nodes": [
+        {
+          "id": "t1",
+          "type": "trigger",
+          "position": {
+            "x": 0,
+            "y": 180
+          },
+          "data": {
+            "blockId": "trigger.zalo_inbound",
+            "label": "Zalo Bot - hoi Super-MRO",
+            "instance_id": "",
+            "filter": "gia|bao nhieu|con hang|ton kho|vat tu|cong cu|thiet bi|dien|den|bu long|vlxd|shop co|mua",
+            "exclusive": true
+          }
+        },
+        {
+          "id": "n1",
+          "type": "action",
+          "position": {
+            "x": 320,
+            "y": 180
+          },
+          "data": {
+            "blockId": "action.run_products",
+            "label": "Tra cuu Super-MRO",
+            "query": "{{trigger.text}}",
+            "intent_hint": "",
+            "want_enrichment": true,
+            "max_results": 10,
+            "source_marker": "zalobot_chat"
+          }
+        },
+        {
+          "id": "chk",
+          "type": "condition",
+          "position": {
+            "x": 620,
+            "y": 180
+          },
+          "data": {
+            "blockId": "logic.condition",
+            "label": "Co ket qua?",
+            "expression": "n1.ok == 1"
+          }
+        },
+        {
+          "id": "r_ok",
+          "type": "action",
+          "position": {
+            "x": 920,
+            "y": 80
+          },
+          "data": {
+            "blockId": "action.reply_zalo",
+            "label": "Reply ket qua",
+            "text": "🛒 {{n1.final_answer_md}}"
+          }
+        },
+        {
+          "id": "r_err",
+          "type": "action",
+          "position": {
+            "x": 920,
+            "y": 320
+          },
+          "data": {
+            "blockId": "action.reply_zalo",
+            "label": "Reply loi",
+            "text": "{{n1.error_message}}"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "e_t1_n1",
+          "source": "t1",
+          "target": "n1"
+        },
+        {
+          "id": "e_n1_chk",
+          "source": "n1",
+          "target": "chk"
+        },
+        {
+          "id": "e_chk_ok",
+          "source": "chk",
+          "target": "r_ok",
+          "sourceHandle": "true"
+        },
+        {
+          "id": "e_chk_err",
+          "source": "chk",
+          "target": "r_err",
+          "sourceHandle": "false"
+        }
+      ]
+    },
+    "template_uuid": "5c4d21cc-d6fe-7c45-8544-123d9ee6756b",
+    "template_version": "1.0.0",
+    "visibility": "private"
+  },
+  {
+    "slug": "tpl_products_need_solution_zalo_v1",
+    "name": "[global] Super-MRO - Lap phuong an vat tu theo muc dich",
+    "description": "Phan ra work package MRO/xay dung, vat tu, dung cu va PPE; Woo-first + super-mro.com fallback.",
+    "category": "commerce",
+    "source": "builtin",
+    "trigger_type": "zalo_inbound",
+    "icon": "ListChecks",
+    "tags": "zalo,super-mro,mro,boq,bom,bang-gia,vat-tu,vlxd,dien,solution",
+    "plan": "free",
+    "trigger_config": {
+      "instance_id": "",
+      "filter": "toi muon|muon lap|can gi|tron bo|combo|setup|chuan bi|xay|sua|lap dat|bao tri|bang gia|boq|bom",
+      "exclusive": true,
+      "visibility": "global",
+      "selector_mode": "global",
+      "chat_kind": "any",
+      "require_mention": true
+    },
+    "graph": {
+      "meta": {
+        "template": "tpl_products_need_solution_zalo_v1",
+        "template_uuid": "d38cdb89-3d40-7c4c-89be-f4dadf9a8b87",
+        "template_version": "1.0.0",
+        "visibility": "global"
+      },
+      "nodes": [
+        {
+          "id": "t1",
+          "type": "trigger",
+          "position": {
+            "x": 0,
+            "y": 220
+          },
+          "data": {
+            "blockId": "trigger.zalo_inbound",
+            "label": "Zalo Bot - nhu cau Super-MRO",
+            "instance_id": "",
+            "filter": "toi muon|muon lap|can gi|tron bo|combo|setup|chuan bi|xay|sua|lap dat|bao tri|bang gia|boq|bom",
+            "exclusive": true
+          }
+        },
+        {
+          "id": "n1",
+          "type": "action",
+          "position": {
+            "x": 320,
+            "y": 220
+          },
+          "data": {
+            "blockId": "action.run_products_solution",
+            "label": "Lap phuong an Super-MRO",
+            "query": "{{trigger.text}}",
+            "max_items": 15,
+            "want_enrichment": true,
+            "source_marker": "zalobot_chat"
+          }
+        },
+        {
+          "id": "chk",
+          "type": "condition",
+          "position": {
+            "x": 620,
+            "y": 220
+          },
+          "data": {
+            "blockId": "logic.condition",
+            "label": "Co danh muc?",
+            "expression": "n1.ok == 1"
+          }
+        },
+        {
+          "id": "r_cat",
+          "type": "action",
+          "position": {
+            "x": 930,
+            "y": 90
+          },
+          "data": {
+            "blockId": "action.reply_zalo",
+            "label": "Reply 1 - Danh muc shop co",
+            "text": "🛒 Danh muc cho: {{trigger.text}}\n\n{{n1.catalog_md}}"
+          }
+        },
+        {
+          "id": "r_gap",
+          "type": "action",
+          "position": {
+            "x": 1250,
+            "y": 90
+          },
+          "data": {
+            "blockId": "action.reply_zalo",
+            "label": "Reply 2 - Goi y bo sung",
+            "text": "📦 Muc shop chua co:\n\n{{n1.gaps_md}}\n\n{{n1.final_answer_md}}"
+          }
+        },
+        {
+          "id": "r_err",
+          "type": "action",
+          "position": {
+            "x": 930,
+            "y": 340
+          },
+          "data": {
+            "blockId": "action.reply_zalo",
+            "label": "Reply loi",
+            "text": "{{n1.error_message}}"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "e_t1_n1",
+          "source": "t1",
+          "target": "n1"
+        },
+        {
+          "id": "e_n1_chk",
+          "source": "n1",
+          "target": "chk"
+        },
+        {
+          "id": "e_chk_cat",
+          "source": "chk",
+          "target": "r_cat",
+          "sourceHandle": "true"
+        },
+        {
+          "id": "e_cat_gap",
+          "source": "r_cat",
+          "target": "r_gap"
+        },
+        {
+          "id": "e_chk_err",
+          "source": "chk",
+          "target": "r_err",
+          "sourceHandle": "false"
+        }
+      ]
+    },
+    "template_uuid": "d38cdb89-3d40-7c4c-89be-f4dadf9a8b87",
+    "template_version": "1.0.0",
+    "visibility": "global"
+  }
+]

@@ -48,9 +48,9 @@ final class BizCity_TwinBrain_Web_Deep {
 	const ITER_TIMEOUT_S   = 12;
 	// Force-final synthesis gets its own (longer) ceiling because it must
 	// digest the entire history + citation map in a single call.
-	const FORCE_FINAL_TIMEOUT_S = 20;
+	const FORCE_FINAL_TIMEOUT_S = 30; // [2026-07-18 Johnny Chu] PHASE-TWINWEB-C-ENDUSER — deeper final synthesis needs room for long-form C answers.
 	const LLM_TEMPERATURE  = 0.3;
-	const LLM_MAX_TOKENS   = 1200; // [2026-06-04 Johnny Chu] DEPTH-UP — 800→1200 (+50%)
+	const LLM_MAX_TOKENS   = 2200; // [2026-07-18 Johnny Chu] PHASE-TWINWEB-C-ENDUSER — 1200→2200 for default Deep Research output depth.
 	const SEARCH_MAX       = 6;    // [2026-06-04 Johnny Chu] DEPTH-UP — 5→6 per iteration
 	const SUMMARY_MAX_CHARS= 1600; // [2026-06-04 Johnny Chu] DEPTH-UP — 1200→1600
 	const OBSERVATION_TRUNC= 800;  // [2026-06-04 Johnny Chu] DEPTH-UP — 600→800
@@ -74,6 +74,9 @@ final class BizCity_TwinBrain_Web_Deep {
 	public function run( string $trace_id, string $query, array $opts = [] ): array {
 		$turn_start = microtime( true );
 		$query      = trim( $query );
+		// [2026-07-18 Johnny Chu] PHASE-TWIN-GPT-C-ENDUSER — enforce server-owned runtime caps (iteration/search budget) from TwinWeb preset.
+		$max_iterations = isset( $opts['max_iterations'] ) ? max( 1, min( 8, (int) $opts['max_iterations'] ) ) : self::MAX_ITERATIONS;
+		$search_max     = isset( $opts['search_result_budget'] ) ? max( 1, min( 20, (int) $opts['search_result_budget'] ) ) : self::SEARCH_MAX;
 
 		$row = [
 			'mode'           => 'deep',
@@ -104,7 +107,7 @@ final class BizCity_TwinBrain_Web_Deep {
 			'trace_id' => $trace_id,
 			'mode'     => 'deep',
 			'query'    => $query,
-			'max_iter' => self::MAX_ITERATIONS,
+			'max_iter' => $max_iterations,
 		] );
 
 		/* ─── Capability gates ───────────────────────────────────────────── */
@@ -137,7 +140,7 @@ final class BizCity_TwinBrain_Web_Deep {
 		$iter         = 0;
 
 		/* ─── ReAct loop ─────────────────────────────────────────────────── */
-		for ( $iter = 1; $iter <= self::MAX_ITERATIONS; $iter++ ) {
+		for ( $iter = 1; $iter <= $max_iterations; $iter++ ) {
 			// Total budget guard.
 			$elapsed = microtime( true ) - $turn_start;
 			if ( $elapsed > self::TOTAL_BUDGET_S ) {
@@ -146,7 +149,7 @@ final class BizCity_TwinBrain_Web_Deep {
 			}
 
 			$iter_start = microtime( true );
-			$messages   = $this->build_react_messages( $prompt_tmpl, $query, $history, $iter, $all_results );
+			$messages   = $this->build_react_messages( $prompt_tmpl, $query, $history, $iter, $all_results, $max_iterations );
 
 			$llm_out = $this->llm_call( $endpoint, $api_key, $site_url, $trace_id, $model, $messages );
 			$total_tokens += (int) $llm_out['tokens'];
@@ -179,7 +182,7 @@ final class BizCity_TwinBrain_Web_Deep {
 
 			/* Dispatch tool. */
 			$tool_start = microtime( true );
-			$obs        = $this->dispatch_tool( $trace_id, $parsed['action'], (string) $parsed['action_input'], $all_results, $row );
+			$obs        = $this->dispatch_tool( $trace_id, $parsed['action'], (string) $parsed['action_input'], $all_results, $row, $search_max );
 			$tool_ms    = (int) round( ( microtime( true ) - $tool_start ) * 1000 );
 
 			$obs_str = $this->stringify_observation( $obs );
@@ -267,13 +270,13 @@ final class BizCity_TwinBrain_Web_Deep {
 	 *
 	 * @return array Observation array (engine-defined per action).
 	 */
-	private function dispatch_tool( string $trace_id, string $action, string $input, array &$all_results, array &$row ): array {
+	private function dispatch_tool( string $trace_id, string $action, string $input, array &$all_results, array &$row, int $search_max ): array {
 		$client = BizCity_Search_Client::instance();
 		$action = strtolower( trim( $action ) );
 
 		switch ( $action ) {
 			case 'search':
-				$res = $client->search( $input, self::SEARCH_MAX, [
+				$res = $client->search( $input, $search_max, [
 					'search_depth'        => 'advanced',
 					'include_raw_content' => false,
 					'timeout'             => self::ITER_TIMEOUT_S,
@@ -412,7 +415,7 @@ final class BizCity_TwinBrain_Web_Deep {
 	 *  Prompt + parsing
 	 * ================================================================ */
 
-	private function build_react_messages( string $template, string $query, array $history, int $iter, array $all_results ): array {
+	private function build_react_messages( string $template, string $query, array $history, int $iter, array $all_results, int $max_iterations ): array {
 		$history_str = $this->serialize_history( $history );
 
 		// Brief catalog of results available for citation so the LLM uses
@@ -431,7 +434,7 @@ final class BizCity_TwinBrain_Web_Deep {
 			$query,
 			$citation_map,
 			$iter,
-			self::MAX_ITERATIONS,
+			$max_iterations,
 			$history_str === '' ? '(empty — đây là iteration đầu tiên)' : $history_str
 		);
 
@@ -550,7 +553,7 @@ final class BizCity_TwinBrain_Web_Deep {
 
 		// [2026-06-04 Johnny Chu] DEPTH-UP — 250→380 từ retry prompt
 		$retry_sys = "Bạn là trợ lý tổng hợp web. Tổng hợp câu trả lời ≤380 từ dựa CHỈ trên snippets. Giải thích cơ chế/nguyên nhân khi có đủ dữ liệu. Mỗi mệnh đề phải kèm [web:N#URL]. Tiếng Việt.";
-		$retry_usr = "WEB SNIPPETS:\n\n{$snippets}CÂU HỐI:\n{$query}\n\nTrả lời tổng hợp ≤380 từ, phân tích sâu, citation [web:N#URL].";  
+		$retry_usr = "WEB SNIPPETS:\n\n{$snippets}CÂU HỐI:\n{$query}\n\nTrả lời tổng hợp ≤380 từ, phân tích sâu, citation [web:N#URL].";
 
 		return $this->llm_call( $endpoint, $api_key, $site_url, $trace_id, $model, [
 			[ 'role' => 'system', 'content' => $retry_sys ],

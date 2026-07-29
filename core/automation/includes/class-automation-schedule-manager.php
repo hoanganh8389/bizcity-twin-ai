@@ -103,7 +103,17 @@ final class BizCity_Automation_Schedule_Manager {
 		}
 
 		$wf_name = (string) ( $workflow['name'] ?? ( 'Workflow #' . $wf_id ) );
-		$user_id = (int) ( $workflow['created_by'] ?? get_current_user_id() );
+		// [2026-07-16 Johnny Chu] PHASE-TWINWEB F4 — fail-closed owner contract: cron schedule rows must use persisted workflow owner.
+		$user_id = (int) ( $workflow['created_by'] ?? 0 );
+		if ( $user_id <= 0 ) {
+			if ( class_exists( 'BizCity_Cron_Manager' ) ) {
+				BizCity_Cron_Manager::instance()->note_event( 'automation_schedule_owner_missing', array(
+					'reason'      => 'owner_missing',
+					'workflow_id' => $wf_id,
+				) );
+			}
+			return;
+		}
 
 		foreach ( $timestamps as $idx => $ts ) {
 			$meta = array(

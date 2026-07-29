@@ -88,7 +88,6 @@ final class BizCity_Automation_Trigger_Matcher {
 			) );
 			return;
 		}
-
 		// BE-6.D — derive event_subtype for Facebook (messaging vs feed/comment).
 		// Channel gateway adapter chưa emit field này, mình parse từ raw.
 		$event_subtype = (string) ( $payload['event_subtype'] ?? '' );
@@ -96,6 +95,23 @@ final class BizCity_Automation_Trigger_Matcher {
 			$entry         = $payload['raw']['entry'][0] ?? array();
 			$event_subtype = ! empty( $entry['messaging'] ) ? 'messenger'
 				: ( ! empty( $entry['changes'] ) ? 'feed' : 'unknown' );
+		}
+
+		// [2026-07-27 Johnny Chu] PHASE-0.52 W2 — unresolved Zone 1 identities may receive the linker prompt, but must not enter AI/workflow dispatch without an owner. Infer the flag here too for direct Gateway Bridge events that bypass UCL.
+		$identity_link_required = ! empty( $payload['identity_link_required'] );
+		if ( $platform === 'FACEBOOK' && $event_subtype !== 'feed' && (int) ( $payload['wp_user_id'] ?? 0 ) <= 0 ) {
+			$identity_link_required = true;
+		}
+		if ( $platform === 'ZALO_OA' && (int) ( $payload['wp_user_id'] ?? 0 ) <= 0 ) {
+			$identity_link_required = true;
+		}
+		if ( $identity_link_required && in_array( $platform, array( 'FACEBOOK', 'ZALO_OA', 'ZALO_PERSONAL' ), true ) ) {
+			BizCity_Automation_Matcher_Trace::note( 'identity_link_required', array(
+				'platform' => $platform,
+				'chat_id'  => (string) ( $payload['chat_id'] ?? '' ),
+				'detail'   => 'unresolved Zone 1 identity — skipped workflow and default reply dispatch',
+			) );
+			return;
 		}
 
 		$trigger_type = '';
@@ -121,9 +137,11 @@ final class BizCity_Automation_Trigger_Matcher {
 			return;
 		}
 
-		$text    = (string) ( $payload['message'] ?? $payload['text'] ?? '' );
+		// [2026-07-21 Johnny Chu] PHASE-ZALOBOT-GROUP W6 — use mention-clean text for matching, keep raw_text for audit.
+		$raw_text = (string) ( $payload['raw_text'] ?? $payload['message'] ?? $payload['text'] ?? '' );
+		$text    = (string) ( $payload['message_text_clean'] ?? $payload['text_clean'] ?? $raw_text );
 		$inst    = (string) ( $payload['instance_id'] ?? $payload['account_id'] ?? '' );
-		$chat_id = (string) ( $payload['chat_id'] ?? '' );
+		$chat_id = (string) ( $payload['conversation_chat_id'] ?? $payload['chat_id'] ?? '' );
 
 		// [2026-06-02 Johnny Chu] AUTOMATION DEDUP — persistent mid dedup.
 		// `self::$seen_mids` chỉ chống trùng trong CÙNG PHP request. Khi cùng
@@ -139,6 +157,27 @@ final class BizCity_Automation_Trigger_Matcher {
 				'detail'   => 'cross-request mid=' . $mid . ' already enqueued (transient hit)',
 			) );
 			return;
+		}
+
+		// [2026-07-26 Johnny Chu] HOTFIX — `@ghichu/@notebook` capture commands
+		// are owned by BizCity_Zalobot_Notebook_Bridge_Listener on
+		// `bizcity_zalo_message_received`. If matcher continues keyword matching
+		// here, generic workflows (e.g. marketing) can still fire on the same
+		// turn and create dual activation.
+		if ( $platform === 'ZALO_BOT' && $text !== ''
+			&& class_exists( 'BizCity_KG_Channel_Notebook_Bridge' )
+			&& method_exists( 'BizCity_KG_Channel_Notebook_Bridge', 'parse_capture_command' ) ) {
+			$capture_cmd = BizCity_KG_Channel_Notebook_Bridge::parse_capture_command( $text );
+			if ( is_array( $capture_cmd ) ) {
+				BizCity_Automation_Matcher_Trace::note( 'notebook_capture_preempt', array(
+					'platform'     => $platform,
+					'chat_id'      => $chat_id,
+					'text'         => $text,
+					'trigger_type' => $trigger_type,
+					'detail'       => 'capture marker detected — preempt matcher keyword flow',
+				) );
+				return;
+			}
 		}
 
 		// PG-S9-fix — trace entry point so user can có thread to debug.
@@ -162,6 +201,8 @@ final class BizCity_Automation_Trigger_Matcher {
 			'event_subtype' => $event_subtype,
 			'text'          => $text,
 			'message'       => $text,
+			'raw_text'      => $raw_text,
+			'message_text_clean' => $text,
 			'instance_id'   => $inst,
 			'account_id'    => $inst,
 			'sender_id'     => $sender_id,
@@ -169,6 +210,12 @@ final class BizCity_Automation_Trigger_Matcher {
 			'wp_user_id'    => (int) ( $payload['wp_user_id'] ?? 0 ),
 			'character_id'  => (int) ( $payload['character_id'] ?? 0 ),
 			'chat_id'       => $chat_id,
+			'conversation_chat_id' => $chat_id,
+			'provider_chat_id' => (string) ( $payload['provider_chat_id'] ?? $payload['conversation_chat_id'] ?? $payload['chat_id'] ?? '' ),
+			'provider_chat_type' => (string) ( $payload['provider_chat_type'] ?? '' ),
+			'chat_kind'     => (string) ( $payload['chat_kind'] ?? 'private' ),
+			'mention_detected' => ! empty( $payload['mention_detected'] ),
+			'reply_to_bot_message' => ! empty( $payload['reply_to_bot_message'] ),
 			'mid'           => $payload['mid'] ?? $payload['message_id'] ?? '',
 			'media_url'     => $payload['media_url']  ?? '',
 			'media_kind'    => $payload['media_kind'] ?? '',
@@ -191,17 +238,52 @@ final class BizCity_Automation_Trigger_Matcher {
 		// Pending state được set bởi `action.set_pending_intent` ở turn trước.
 		if ( $chat_id !== '' && class_exists( 'BizCity_Automation_Pending_State' ) ) {
 			$pending = BizCity_Automation_Pending_State::get( $chat_id );
+			$has_media = ! empty( $payload['media_url'] );
+			$text_trim = trim( $text );
+			$media_attachment = $has_media ? array(
+				'kind'        => (string) ( $payload['media_kind'] ?? 'image' ),
+				'url'         => (string) $payload['media_url'],
+				'source_url'  => (string) $payload['media_url'],
+				'message_id'  => (string) ( $payload['message_id'] ?? $payload['mid'] ?? '' ),
+				'received_at' => time(),
+			) : array();
+
+			// [2026-07-21 Johnny Chu] R-AUTO-MULTI-ATTACH — image-first appends into a shared batch instead of overwriting the previous image.
+			if ( $has_media && $text_trim === '' && (int) ( $pending['workflow_id'] ?? 0 ) <= 0 ) {
+				if ( empty( $pending ) ) {
+					BizCity_Automation_Pending_State::set( $chat_id, array(
+						'intent'      => 'awaiting_media_purpose',
+						'workflow_id' => 0,
+						'slots'       => array(),
+					) );
+				}
+				BizCity_Automation_Pending_State::append_attachment( $chat_id, $media_attachment );
+				$pending = BizCity_Automation_Pending_State::get( $chat_id );
+				if ( function_exists( 'bizcity_channel_send' ) && count( (array) ( $pending['attachments'] ?? array() ) ) <= 1 ) {
+					bizcity_channel_send(
+						$chat_id,
+						'📎 Em đã nhận ảnh. Sếp muốn em làm gì với ảnh này? (vd: "đăng bài", "đăng FB"…) — em giữ ảnh trong 15 phút.'
+					);
+				}
+				BizCity_Automation_Matcher_Trace::note( 'media_stash', array(
+					'platform'  => $platform,
+					'chat_id'   => $chat_id,
+					'media_url' => (string) $payload['media_url'],
+					'count'     => count( (array) ( $pending['attachments'] ?? array() ) ),
+					'detail'    => 'image-first — append to multi-attachment batch',
+				) );
+				return; // pre-empt keyword/fallback for this media-only turn.
+			}
 
 			// PG-S9-fix (Logic 2) — Auto-merge incoming media_url vào
 			// pending.attachment_url khi turn resume mang ảnh. set_pending_intent
 			// chỉ lưu intent/workflow_id/slots — KHÔNG biết về media. Không có
 			// dòng này thì cond `_resume.attachment_url != ''` luôn false ở turn 2
 			// → flow rơi vào nhánh "hỏi gửi ảnh" lần nữa (dead loop).
-			if ( ! empty( $pending ) && empty( $pending['attachment_url'] ) && ! empty( $payload['media_url'] ) ) {
-				BizCity_Automation_Pending_State::patch( $chat_id, array(
-					'attachment_url' => (string) $payload['media_url'],
-				) );
-				$pending['attachment_url'] = (string) $payload['media_url'];
+			if ( ! empty( $pending ) && ! empty( $payload['media_url'] ) ) {
+				// [2026-07-21 Johnny Chu] R-AUTO-MULTI-ATTACH — resume turns carrying media also append to attachments[].
+				BizCity_Automation_Pending_State::append_attachment( $chat_id, $media_attachment );
+				$pending = BizCity_Automation_Pending_State::get( $chat_id );
 			}
 
 			$wf_id = (int) ( $pending['workflow_id'] ?? 0 );
@@ -232,20 +314,20 @@ final class BizCity_Automation_Trigger_Matcher {
 			// "muốn làm gì". Lượt sau matcher vẫn chạy keyword bình thường, nhưng
 			// $run_payload['_resume'] đã chứa attachment_url (xem ngay dưới) nên
 			// workflow trúng keyword đọc được ảnh đã gửi.
-			$has_media       = ! empty( $payload['media_url'] );
-			$text_trim       = trim( $text );
 			$pending_is_empty = empty( $pending ) || empty( array_filter( array(
 				$pending['intent']         ?? '',
 				$pending['attachment_url'] ?? '',
 				$pending['workflow_id']    ?? 0,
 			) ) );
 			if ( $has_media && $text_trim === '' && $pending_is_empty ) {
+				// [2026-07-21 Johnny Chu] R-AUTO-MULTI-ATTACH — fallback legacy branch also appends instead of storing a single attachment_url.
 				BizCity_Automation_Pending_State::set( $chat_id, array(
-					'intent'         => 'awaiting_media_purpose',
-					'workflow_id'    => 0,
-					'attachment_url' => (string) $payload['media_url'],
-					'slots'          => array(),
+					'intent'      => 'awaiting_media_purpose',
+					'workflow_id' => 0,
+					'slots'       => array(),
 				) );
+				BizCity_Automation_Pending_State::append_attachment( $chat_id, $media_attachment );
+				$pending = BizCity_Automation_Pending_State::get( $chat_id );
 				if ( function_exists( 'bizcity_channel_send' ) ) {
 					bizcity_channel_send(
 						$chat_id,
@@ -256,7 +338,8 @@ final class BizCity_Automation_Trigger_Matcher {
 					'platform'  => $platform,
 					'chat_id'   => $chat_id,
 					'media_url' => (string) $payload['media_url'],
-					'detail'    => 'image-first — stash + asked purpose',
+					'count'     => count( (array) ( $pending['attachments'] ?? array() ) ),
+					'detail'    => 'image-first — append + asked purpose',
 				) );
 				return; // pre-empt keyword + fallback for this media-only turn.
 			}
@@ -381,7 +464,32 @@ final class BizCity_Automation_Trigger_Matcher {
 			// zone=crm workflows whose channel was bound via /bind REST endpoint
 			// (stores account_id, not instance_id).
 			$wanted_inst = trim( (string) ( $cfg['instance_id'] ?? $cfg['account_id'] ?? '' ) );
-			if ( $wanted_inst !== '' && $wanted_inst !== $inst ) { continue; }
+			if ( $wanted_inst !== '' && $wanted_inst !== $inst ) {
+				// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — trace why customer channel workflow did not match.
+				BizCity_Automation_Matcher_Trace::note( 'instance_mismatch', array(
+					'platform'     => $platform,
+					'chat_id'      => $chat_id,
+					'text'         => $text,
+					'trigger_type' => $trigger_type,
+					'wf_id'        => (int) $wf['id'],
+					'detail'       => 'wanted_inst=' . $wanted_inst . ' actual_inst=' . $inst,
+				) );
+				continue;
+			}
+
+			// [2026-07-21 Johnny Chu] PHASE-ZALOBOT-GROUP W6 — global/private ZaloBot selector guards.
+			if ( ! $this->workflow_allows_chat_context( $cfg, $payload, $run_payload, $text ) ) {
+				// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — expose group mention/owner gate rejects in trace.
+				BizCity_Automation_Matcher_Trace::note( 'chat_context_rejected', array(
+					'platform'     => $platform,
+					'chat_id'      => $chat_id,
+					'text'         => $text,
+					'trigger_type' => $trigger_type,
+					'wf_id'        => (int) $wf['id'],
+					'detail'       => 'chat_kind=' . (string) ( $run_payload['chat_kind'] ?? '' ) . ' require_mention=' . ( ! empty( $cfg['require_mention'] ) ? '1' : '0' ) . ' mention=' . ( ! empty( $run_payload['mention_detected'] ) ? '1' : '0' ) . ' owner=' . (int) ( $run_payload['wp_user_id'] ?? 0 ),
+				) );
+				continue;
+			}
 
 			// [2026-06-02 Johnny Chu] GURU W1 — guru_id filter cross-cutting,
 			// áp dụng cho cả matched lẫn fallback. Workflow đánh dấu
@@ -400,7 +508,19 @@ final class BizCity_Automation_Trigger_Matcher {
 				continue;
 			}
 			// Non-fallback → BẮT BUỘC pass filter.
-			if ( ! $this->channel_filter_match( $cfg, $text, $payload ) ) { continue; }
+			$match_eval = $this->channel_filter_eval( $cfg, $text, $payload );
+			if ( empty( $match_eval['matched'] ) ) {
+				// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — show filter misses for customer command debugging.
+				BizCity_Automation_Matcher_Trace::note( 'filter_miss', array(
+					'platform'     => $platform,
+					'chat_id'      => $chat_id,
+					'text'         => $text,
+					'trigger_type' => $trigger_type,
+					'wf_id'        => (int) $wf['id'],
+					'detail'       => 'filter=' . (string) ( $cfg['filter'] ?? '' ) . ' mode=' . (string) ( $cfg['mode'] ?? 'keyword_contains' ),
+				) );
+				continue;
+			}
 
 			// [2026-07-05 Johnny Chu] PHASE-IMG-TPL — demote-to-fallback guard.
 			// Non-fallback workflow với keywords=[] VÀ filter='' là match-all ẩn (zombie).
@@ -423,10 +543,34 @@ final class BizCity_Automation_Trigger_Matcher {
 				continue;
 			}
 
-			$matched[] = array( 'wf' => $wf, 'cfg' => $cfg );
+			$matched[] = array( 'wf' => $wf, 'cfg' => $cfg, 'claim' => $match_eval );
 		}
 
 		if ( ! empty( $matched ) ) {
+			// [2026-07-21 Johnny Chu] PHASE-IMG-FIRST-FB-FIX — khi user đã gửi ảnh trước, ưu tiên workflow đọc attachment để tránh fan-out sang flow tạo ảnh AI cùng keyword.
+			if ( ! empty( $run_payload['_resume']['attachment_url'] ) ) {
+				$attachment_matched = array();
+				foreach ( $matched as $row ) {
+					if ( $this->workflow_uses_block( $row['wf'], 'action.consume_attachment' ) ) {
+						$attachment_matched[] = $row;
+					}
+				}
+				if ( ! empty( $attachment_matched ) ) {
+					$suppressed_ids = array();
+					foreach ( $matched as $row ) {
+						if ( ! $this->workflow_uses_block( $row['wf'], 'action.consume_attachment' ) ) {
+							$suppressed_ids[] = (int) $row['wf']['id'];
+						}
+					}
+					$matched = $attachment_matched;
+					BizCity_Automation_Matcher_Trace::note( 'attachment_priority', array(
+						'platform' => $platform,
+						'chat_id'  => $chat_id,
+						'text'     => $text,
+						'detail'   => 'pending attachment present; suppressed wf_ids=' . implode( ',', $suppressed_ids ),
+					) );
+				}
+			}
 			// [2026-07-04 Johnny Chu] PHASE-ASTRO-WORKFLOW — exclusive: true wins when present in matched set.
 			// When ANY matched workflow has triggerConfig.exclusive=true, suppress all non-exclusive matches
 			// so they don't fire alongside the exclusive workflow (prevents cross-workflow contamination).
@@ -436,8 +580,25 @@ final class BizCity_Automation_Trigger_Matcher {
 			if ( ! empty( $exclusive_set ) ) {
 				$matched = array_values( $exclusive_set );
 			}
-			foreach ( $matched as $row ) {
-				$this->enqueue_and_optionally_run( $row['wf'], $run_payload, false );
+			$singleclaim_suppressed = array();
+			$singleclaim_winner_id  = 0;
+			// [2026-07-26 Johnny Chu] RULE-TRIGGER-SINGLE-CLAIM — reduce competing keyword matches to one winner.
+			if ( count( $matched ) > 1 && apply_filters( 'bizcity_automation_single_claim_enabled', true, $run_payload ) ) {
+				$reduced = $this->resolve_single_claim( $matched, $text );
+				if ( ! empty( $reduced['winners'] ) && is_array( $reduced['winners'] ) ) {
+					$matched = $reduced['winners'];
+				}
+				$singleclaim_suppressed = is_array( $reduced['suppressed'] ?? null )
+					? $reduced['suppressed']
+					: array();
+				$singleclaim_winner_id = (int) ( $reduced['winner_wf_id'] ?? 0 );
+			}
+			// [2026-07-21 Johnny Chu] PHASE-ZALOBOT-GROUP W6 — deterministic global selector priority.
+			usort( $matched, array( $this, 'sort_matched_workflows' ) );
+			foreach ( $matched as $idx => $row ) {
+				// [2026-07-21 Johnny Chu] PHASE-ASTRO-WORKFLOW — update stale astro copies before ACK reads workflow title.
+				$matched[ $idx ]['wf'] = $this->maybe_upgrade_legacy_astro_workflow( $row['wf'] );
+				$this->enqueue_and_optionally_run( $matched[ $idx ]['wf'], $run_payload, false );
 			}
 			$ids = array_map( static function ( $r ) { return (int) $r['wf']['id']; }, $matched );
 			BizCity_Automation_Matcher_Trace::note( 'matched_keyword', array(
@@ -447,6 +608,19 @@ final class BizCity_Automation_Trigger_Matcher {
 				'trigger_type' => $trigger_type,
 				'detail'       => 'fired wf_ids=' . implode( ',', $ids ),
 			) );
+			if ( ! empty( $singleclaim_suppressed ) ) {
+				$suppressed_detail = array();
+				foreach ( $singleclaim_suppressed as $sup ) {
+					$suppressed_detail[] = (int) ( $sup['wf_id'] ?? 0 ) . ':' . (string) ( $sup['reason'] ?? 'suppressed' );
+				}
+				BizCity_Automation_Matcher_Trace::note( 'matched_keyword_singleclaim_reduced', array(
+					'platform'     => $platform,
+					'chat_id'      => $chat_id,
+					'text'         => $text,
+					'trigger_type' => $trigger_type,
+					'detail'       => 'winner_wf_id=' . $singleclaim_winner_id . ' suppressed=' . implode( ',', $suppressed_detail ),
+				) );
+			}
 			// PG-S9-fix v6 — fan-out mirror per matched workflow so each wf-{id}.jsonl
 			// has a `matcher.matched_keyword` entry even before runner executes.
 			if ( class_exists( 'BizCity_Automation_File_Logger' ) ) {
@@ -458,6 +632,20 @@ final class BizCity_Automation_Trigger_Matcher {
 						'trigger_type' => $trigger_type,
 						'detail'       => 'fired with siblings=' . implode( ',', $ids ),
 					) );
+				}
+				if ( ! empty( $singleclaim_suppressed ) ) {
+					foreach ( $singleclaim_suppressed as $sup ) {
+						$sup_wf_id = (int) ( $sup['wf_id'] ?? 0 );
+						if ( $sup_wf_id <= 0 ) { continue; }
+						BizCity_Automation_File_Logger::note_decision( $sup_wf_id, 'matcher.singleclaim_suppressed', array(
+							'platform'     => $platform,
+							'chat_id'      => $chat_id,
+							'text'         => $text,
+							'trigger_type' => $trigger_type,
+							'winner_wf_id' => $singleclaim_winner_id,
+							'detail'       => (string) ( $sup['reason'] ?? 'suppressed' ),
+						) );
+					}
 				}
 			}
 			// [2026-06-02 Johnny Chu] AUTOMATION ACK — gửi reply xác nhận match keyword
@@ -474,6 +662,10 @@ final class BizCity_Automation_Trigger_Matcher {
 			// [2026-07-05 Johnny Chu] HOTFIX-OLD-PIPELINE — Flag mid so bizcity-zalo-bizcity
 			// bootstrap waic_twf_process_flow handler skips bizgpt_chatbot_run_admin_flows
 			// (avoids double reply: ACK already sent above; old TwinBrain would send a 2nd).
+			// [2026-07-24 Johnny Chu] RULE-INBOUND-DISPATCH-PRIORITY — this flag is now also
+			// the canonical claim consumed by BizCity_Zalobot_Command_Router::handle() so a
+			// matched keyword/ref/slash workflow always outranks generic identity commands
+			// (login/info/help/unlink). See core/automation/docs/RULE-INBOUND-DISPATCH-PRIORITY.md.
 			if ( $mid !== '' ) {
 				if ( ! isset( $GLOBALS['bizcity_automation_matched_mids'] ) ) {
 					$GLOBALS['bizcity_automation_matched_mids'] = array();
@@ -590,6 +782,15 @@ final class BizCity_Automation_Trigger_Matcher {
 		elseif ( $platform === 'FB_MESS' )                                    { $event_subtype = 'messenger'; }
 		elseif ( ( $envelope['event_type'] ?? '' ) === 'comment' )            { $event_subtype = 'feed'; }
 
+		// [2026-07-21 Johnny Chu] PHASE-ASTRO-WORKFLOW v1.13 — fix $bot_id/$user_id undefined bug: extract from envelope before resolver call.
+		$resolved_wp_user_id    = 0;
+		$envelope_account_id    = (string) ( $envelope['account_id'] ?? '' );
+		$envelope_sender_id     = (string) ( $envelope['user_id']    ?? '' );
+		if ( $platform === 'ZALO_BOT' && $envelope_account_id !== '' && $envelope_sender_id !== '' && class_exists( 'BizCity_User_Resolver' ) ) {
+			$identity_chat_id    = 'zalobot_' . $envelope_account_id . '_' . $envelope_sender_id;
+			$resolved_wp_user_id = (int) BizCity_User_Resolver::instance()->resolve( $identity_chat_id );
+		}
+
 		$adapted = array(
 			'platform'      => $platform_norm,
 			'event_subtype' => $event_subtype,
@@ -598,9 +799,16 @@ final class BizCity_Automation_Trigger_Matcher {
 			'account_id'    => (string) ( $envelope['account_id'] ?? '' ),
 			'sender_id'     => (string) ( $envelope['user_id']    ?? '' ),
 			'user_id'       => (string) ( $envelope['user_id']    ?? '' ),
-			'wp_user_id'    => (int)    ( $envelope['wp_user_id']   ?? 0 ),
+			'wp_user_id'    => $resolved_wp_user_id > 0 ? $resolved_wp_user_id : (int) ( $envelope['wp_user_id'] ?? 0 ),
+			'identity_link_required' => ! empty( $envelope['identity_link_required'] ),
 			'character_id'  => (int)    ( $envelope['character_id'] ?? 0 ),
 			'chat_id'       => (string) ( $envelope['chat_id']    ?? '' ),
+			'conversation_chat_id' => (string) ( $envelope['conversation_chat_id'] ?? $envelope['chat_id'] ?? '' ),
+			'provider_chat_id' => (string) ( $envelope['provider_chat_id'] ?? '' ),
+			'provider_chat_type' => (string) ( $envelope['provider_chat_type'] ?? '' ),
+			'chat_kind'     => (string) ( $envelope['chat_kind'] ?? 'private' ),
+			'mention_detected' => ! empty( $envelope['mention_detected'] ),
+			'reply_to_bot_message' => ! empty( $envelope['reply_to_bot_message'] ),
 			'mid'           => $mid,
 			'message_id'    => $mid,
 			'media_url'     => (string) ( $envelope['media_url']  ?? '' ),
@@ -672,21 +880,35 @@ final class BizCity_Automation_Trigger_Matcher {
 		$parts    = explode( '.', $event_name );
 		$msg_kind = isset( $parts[1] ) ? (string) $parts[1] : 'message';
 
-		$chat_id = 'zalobot_' . $bot_id . '_' . $user_id;
+		$provider_chat_id   = (string) ( $message['chat']['id'] ?? $user_id );
+		$provider_chat_type = strtoupper( (string) ( $message['chat']['chat_type'] ?? 'PRIVATE' ) );
+		$chat_kind          = $provider_chat_type === 'GROUP' ? 'group' : 'private';
+		$conversation_chat_id = 'zalobot_' . $bot_id . '_' . ( $chat_kind === 'group' ? 'group_' : 'private_' ) . $provider_chat_id;
+		$mention_detected   = $chat_kind === 'group' && $this->zalo_text_mentions_bot( $text, $intake_bot );
+		$clean_text         = $mention_detected ? $this->strip_zalo_bot_mention( $text, $intake_bot ) : $text;
+		$chat_id = $conversation_chat_id;
 		$mid     = (string) ( $message['message_id'] ?? '' );
 
 		$adapted = array(
 			'platform'      => 'ZALO_BOT',
 			'event_subtype' => '',
-			'message'       => $text,
-			'text'          => $text,
+			'message'       => $clean_text,
+			'text'          => $clean_text,
+			'raw_text'      => $text,
+			'message_text_clean' => $clean_text,
 			'instance_id'   => $bot_id,
 			'account_id'    => $bot_id,
 			'sender_id'     => $user_id,
 			'user_id'       => $user_id,
-			'wp_user_id'    => 0,
+			'wp_user_id'    => $resolved_wp_user_id,
 			'character_id'  => 0,
 			'chat_id'       => $chat_id,
+			'conversation_chat_id' => $conversation_chat_id,
+			'provider_chat_id' => $provider_chat_id,
+			'provider_chat_type' => $provider_chat_type,
+			'chat_kind'     => $chat_kind,
+			'mention_detected' => $mention_detected,
+			'reply_to_bot_message' => false,
 			'mid'           => $mid,
 			'message_id'    => $mid,
 			'media_url'     => $media_url,
@@ -715,7 +937,7 @@ final class BizCity_Automation_Trigger_Matcher {
 			'chat_id'   => $chat_id,
 			'text'      => $text,
 			'media_url' => $media_url,
-			'detail'    => 'event=' . $event_name . ' kind=' . $msg_kind . ' mid=' . $mid,
+			'detail'    => 'event=' . $event_name . ' kind=' . $msg_kind . ' chat_kind=' . $chat_kind . ' mid=' . $mid,
 		) );
 
 		$this->on_channel_message( $adapted );
@@ -837,18 +1059,128 @@ final class BizCity_Automation_Trigger_Matcher {
 			return new WP_Error( 'webhook_token_invalid', 'Token webhook khong hop le.', array( 'status' => 401 ) );
 		}
 
-		$run_id = BizCity_Automation_Repo_Runs::enqueue( (int) $found['id'], array_merge( $payload, array(
+		$enqueue_payload = array_merge( $payload, array(
 			'_trigger' => 'webhook',
 			'_slug'    => $slug,
-		) ) );
+		) );
+		// [2026-07-17 Johnny Chu] PHASE-TWINWEB F4 — stamp canonical owner for webhook-originated runs.
+		if ( (int) ( $enqueue_payload['_owner_user_id'] ?? 0 ) <= 0 ) {
+			$enqueue_payload['_owner_user_id'] = (int) ( $enqueue_payload['wp_user_id'] ?? $found['created_by'] ?? 0 );
+		}
+		if ( (int) ( $enqueue_payload['wp_user_id'] ?? 0 ) <= 0 && (int) ( $enqueue_payload['_owner_user_id'] ?? 0 ) > 0 ) {
+			$enqueue_payload['wp_user_id'] = (int) $enqueue_payload['_owner_user_id'];
+		}
+
+		$run_id = BizCity_Automation_Repo_Runs::enqueue( (int) $found['id'], $enqueue_payload );
 		if ( is_wp_error( $run_id ) ) { return $run_id; }
 
 		// Webhook caller expects fast 202 — defer to cron.
-		do_action( 'bizcity_automation_run_enqueued', $run_id, (int) $found['id'], $payload );
+		do_action( 'bizcity_automation_run_enqueued', $run_id, (int) $found['id'], $enqueue_payload );
 		return array( 'ok' => true, 'run_id' => $run_id, 'mode' => 'deferred' );
 	}
 
 	// ─── Helpers ─────────────────────────────────────────────────────────
+
+	public function find_matching_workflows_for_payload( string $trigger_type, array $payload, array $options = array() ): array {
+		// [2026-07-22 Johnny Chu] PHASE-3-TWIN-GPT — side-effect-free matcher preview for Twin GPT prompt bridge.
+		$platform = strtoupper( (string) ( $payload['platform'] ?? 'ZALO_BOT' ) );
+		$event_subtype = (string) ( $payload['event_subtype'] ?? '' );
+		$raw_text = (string) ( $payload['raw_text'] ?? $payload['message'] ?? $payload['text'] ?? '' );
+		$text = (string) ( $payload['message_text_clean'] ?? $payload['text_clean'] ?? $raw_text );
+		$inst = (string) ( $payload['instance_id'] ?? $payload['account_id'] ?? '' );
+		$chat_id = (string) ( $payload['conversation_chat_id'] ?? $payload['chat_id'] ?? '' );
+		$sender_id = (string) ( $payload['sender_id'] ?? $payload['user_id'] ?? '' );
+
+		$run_payload = array_merge( $payload, array(
+			'channel'       => $platform,
+			'platform'      => $platform,
+			'event_subtype' => $event_subtype,
+			'text'          => $text,
+			'message'       => $text,
+			'raw_text'      => $raw_text,
+			'message_text_clean' => $text,
+			'instance_id'   => $inst,
+			'account_id'    => $inst,
+			'sender_id'     => $sender_id,
+			'user_id'       => $sender_id,
+			'wp_user_id'    => (int) ( $payload['wp_user_id'] ?? 0 ),
+			'identity_link_required' => ! empty( $payload['identity_link_required'] ),
+			'character_id'  => (int) ( $payload['character_id'] ?? 0 ),
+			'chat_id'       => $chat_id,
+			'conversation_chat_id' => $chat_id,
+			'provider_chat_id' => (string) ( $payload['provider_chat_id'] ?? $payload['conversation_chat_id'] ?? $payload['chat_id'] ?? '' ),
+			'provider_chat_type' => (string) ( $payload['provider_chat_type'] ?? '' ),
+			'chat_kind'     => (string) ( $payload['chat_kind'] ?? 'private' ),
+			'mention_detected' => ! empty( $payload['mention_detected'] ),
+			'reply_to_bot_message' => ! empty( $payload['reply_to_bot_message'] ),
+			'_trigger'      => $trigger_type,
+		) );
+
+		$wf_zone = isset( $options['zone'] ) ? (string) $options['zone'] : $this->platform_to_zone( $platform, $event_subtype );
+		$wfs = $this->find_active_workflows( $trigger_type, $wf_zone );
+		$matched = array();
+		$fallbacks = array();
+		$singleclaim_suppressed = array();
+		$singleclaim_winner_id  = 0;
+
+		foreach ( $wfs as $wf ) {
+			$cfg = $this->trigger_config( $wf );
+			$wanted_inst = trim( (string) ( $cfg['instance_id'] ?? $cfg['account_id'] ?? '' ) );
+			if ( $wanted_inst !== '' && $wanted_inst !== $inst ) { continue; }
+			if ( ! $this->workflow_allows_chat_context( $cfg, $payload, $run_payload, $text ) ) { continue; }
+			$wanted_guru = (int) ( $cfg['guru_id'] ?? 0 );
+			if ( $wanted_guru > 0 && (int) ( $payload['character_id'] ?? 0 ) !== $wanted_guru ) { continue; }
+
+			$is_fallback = ! empty( $cfg['is_fallback'] );
+			if ( $is_fallback ) {
+				$fallbacks[] = array( 'wf' => $wf, 'cfg' => $cfg, 'priority' => (int) ( $cfg['priority'] ?? 0 ) );
+				continue;
+			}
+			$match_eval = $this->channel_filter_eval( $cfg, $text, $payload );
+			if ( empty( $match_eval['matched'] ) ) { continue; }
+			if ( ! $this->has_explicit_filter( $cfg ) ) {
+				$fallbacks[] = array( 'wf' => $wf, 'cfg' => $cfg, 'priority' => max( (int) ( $cfg['priority'] ?? 0 ), 1 ) );
+				continue;
+			}
+			$matched[] = array( 'wf' => $wf, 'cfg' => $cfg, 'claim' => $match_eval );
+		}
+
+		if ( ! empty( $matched ) ) {
+			$exclusive_set = array_filter( $matched, function ( $r ) {
+				return ! empty( $r['cfg']['exclusive'] );
+			} );
+			if ( ! empty( $exclusive_set ) ) {
+				$matched = array_values( $exclusive_set );
+			}
+			// [2026-07-26 Johnny Chu] RULE-TRIGGER-SINGLE-CLAIM — keep preview consistent with real dispatch.
+			if ( count( $matched ) > 1 && apply_filters( 'bizcity_automation_single_claim_enabled', true, $run_payload ) ) {
+				$reduced = $this->resolve_single_claim( $matched, $text );
+				if ( ! empty( $reduced['winners'] ) && is_array( $reduced['winners'] ) ) {
+					$matched = $reduced['winners'];
+				}
+				$singleclaim_suppressed = is_array( $reduced['suppressed'] ?? null )
+					? $reduced['suppressed']
+					: array();
+				$singleclaim_winner_id = (int) ( $reduced['winner_wf_id'] ?? 0 );
+			}
+			usort( $matched, array( $this, 'sort_matched_workflows' ) );
+		}
+		usort( $fallbacks, static function ( $a, $b ) {
+			return ( $b['priority'] <=> $a['priority'] );
+		} );
+
+		return array(
+			'trigger_type' => $trigger_type,
+			'text'         => $text,
+			'payload'      => $run_payload,
+			'matched'      => $matched,
+			'fallbacks'    => $fallbacks,
+			'singleclaim'  => array(
+				'winner_wf_id' => $singleclaim_winner_id,
+				'suppressed'   => $singleclaim_suppressed,
+			),
+		);
+	}
 
 	private function find_active_workflows( string $trigger_type, string $zone = '' ): array {
 		$args = array(
@@ -896,6 +1228,8 @@ final class BizCity_Automation_Trigger_Matcher {
 	 * rõ ràng (keyword hoặc filter string). false = match-all "zombie".
 	 */
 	private function has_explicit_filter( array $cfg ): bool {
+		// [2026-07-21 Johnny Chu] PHASE-ZALOBOT-GROUP W6 — global selector can intentionally match all.
+		if ( ! empty( $cfg['match_all'] ) ) { return true; }
 		// [2026-07-06 Johnny Chu] HOTFIX — treat keywords/filter as normalized term lists.
 		$keywords = $this->extract_match_terms_from_keywords( $cfg );
 		if ( ! empty( $keywords ) ) { return true; }
@@ -904,15 +1238,32 @@ final class BizCity_Automation_Trigger_Matcher {
 	}
 
 	private function channel_filter_match( array $cfg, string $text, array $payload ): bool {
+		$eval = $this->channel_filter_eval( $cfg, $text, $payload );
+		return ! empty( $eval['matched'] );
+	}
+
+	private function channel_filter_eval( array $cfg, string $text, array $payload ): array {
+		// [2026-07-26 Johnny Chu] RULE-TRIGGER-SINGLE-CLAIM — enrich keyword/filter match with term/position metadata for deterministic single-winner scoring.
 		// [2026-06-02 Johnny Chu] GURU W1 — cross-cutting guru_id filter.
 		// Doc: docs/PHASE-SEED-TEMPLATES-AND-GURU-TRIGGER.md §B.2.
 		// Nếu workflow.trigger_config.guru_id > 0 → chỉ match khi character_id
 		// (guru bind từ Channel Binding) khớp đúng. guru_id = 0 / missing →
 		// workflow dùng chung cross-guru (giữ behavior cũ).
+		$state = array(
+			'matched'          => false,
+			'matched_by'       => 'none',
+			'mode'             => strtolower( trim( (string) ( $cfg['mode'] ?? 'keyword_contains' ) ) ),
+			'matched_term'     => '',
+			'matched_term_len' => 0,
+			'matched_pos'      => -1,
+			'is_prefix_anchor' => false,
+			'is_at_command'    => false,
+			'message_has_at'   => false,
+		);
 		$wanted_guru = (int) ( $cfg['guru_id'] ?? 0 );
 		if ( $wanted_guru > 0 ) {
 			$active_guru = (int) ( $payload['character_id'] ?? 0 );
-			if ( $active_guru !== $wanted_guru ) { return false; }
+			if ( $active_guru !== $wanted_guru ) { return $state; }
 		}
 
 		// [2026-07-06 Johnny Chu] HOTFIX — normalize lowercase + no-accent + multi-delimiter term split.
@@ -920,63 +1271,162 @@ final class BizCity_Automation_Trigger_Matcher {
 		$keyword_terms = $this->extract_match_terms_from_keywords( $cfg );
 		$filter_terms  = $this->extract_match_terms_from_filter( (string) ( $cfg['filter'] ?? '' ) );
 		$haystack      = $this->normalize_match_text( $text );
+		$raw_haystack  = $this->normalize_match_text( (string) ( $payload['raw_text'] ?? $text ) );
+		$state['message_has_at'] = mb_strpos( $raw_haystack, '@' ) !== false || mb_strpos( $haystack, '@' ) !== false;
 		// Không có keywords[] và filter rỗng → wildcard (giữ compat workflow cũ).
-		if ( empty( $keyword_terms ) && empty( $filter_terms ) ) { return true; }
+		if ( empty( $keyword_terms ) && empty( $filter_terms ) ) {
+			$state['matched']    = true;
+			$state['matched_by'] = 'wildcard';
+			return $state;
+		}
 		// Per-page filter for FB.
 		$page_id = (string) ( $cfg['page_id'] ?? '' );
 		if ( $page_id !== '' ) {
 			$payload_page = (string) ( $payload['raw']['entry'][0]['id'] ?? $payload['page_id'] ?? '' );
-			if ( $payload_page !== '' && $payload_page !== $page_id ) { return false; }
+			if ( $payload_page !== '' && $payload_page !== $page_id ) { return $state; }
 		}
 
-		$mode = strtolower( trim( (string) ( $cfg['mode'] ?? 'keyword_contains' ) ) );
+		// [2026-07-21 Johnny Chu] PHASE-ZALOBOT-GROUP W6 — explicit public/global match-all.
+		if ( ! empty( $cfg['match_all'] ) ) {
+			$state['matched']    = true;
+			$state['matched_by'] = 'match_all';
+			return $state;
+		}
+
+		$mode = $state['mode'];
 		// [2026-07-07 Johnny Chu] HOTFIX — honor filter even when keywords[] exists.
 		// Imported templates often carry both fields; old logic ignored `filter`
 		// once `keywords[]` was present, causing false fallback_fired.
-		$keyword_match = empty( $keyword_terms )
-			? false
-			: $this->match_terms_by_mode( $haystack, $keyword_terms, $mode );
-		$filter_match  = empty( $filter_terms )
-			? false
-			: $this->contains_any_match_term( $haystack, $filter_terms );
+		$keyword_eval = empty( $keyword_terms )
+			? array( 'matched' => false )
+			: $this->match_terms_by_mode_detail( $haystack, $keyword_terms, $mode );
+		$filter_eval  = empty( $filter_terms )
+			? array( 'matched' => false )
+			: $this->contains_any_match_term_detail( $haystack, $filter_terms );
+
+		$keyword_match = ! empty( $keyword_eval['matched'] );
+		$filter_match  = ! empty( $filter_eval['matched'] );
+		$selected_eval = array();
 
 		if ( ! empty( $keyword_terms ) && ! empty( $filter_terms ) ) {
-			return $keyword_match || $filter_match;
+			if ( $keyword_match && $filter_match ) {
+				$selected_eval = $this->claim_better_eval( $keyword_eval, $filter_eval );
+			} elseif ( $keyword_match ) {
+				$selected_eval = $keyword_eval;
+			} elseif ( $filter_match ) {
+				$selected_eval = $filter_eval;
+			}
+		} elseif ( ! empty( $keyword_terms ) ) {
+			if ( $keyword_match ) {
+				$selected_eval = $keyword_eval;
+			}
+		} else {
+			if ( $filter_match ) {
+				$selected_eval = $filter_eval;
+			}
 		}
-		if ( ! empty( $keyword_terms ) ) {
-			return $keyword_match;
+
+		if ( empty( $selected_eval['matched'] ) ) {
+			// [2026-07-26 Johnny Chu] RULE-TRIGGER-SINGLE-CLAIM — private/group chat may strip mention in clean text.
+			// Fallback: if workflow declares @terms and raw_text still contains them, treat as a directed command match.
+			$at_terms = $this->extract_at_command_terms( $cfg );
+			if ( ! empty( $at_terms ) ) {
+				$at_eval = $this->contains_any_match_term_detail( $raw_haystack, $at_terms );
+				if ( ! empty( $at_eval['matched'] ) ) {
+					$at_eval['matched_by'] = 'at_keyword';
+					$at_eval['mode']       = 'at_keyword';
+					$selected_eval         = $at_eval;
+				}
+			}
+			if ( empty( $selected_eval['matched'] ) ) {
+				return $state;
+			}
 		}
-		return $filter_match;
+
+		$state['matched']          = true;
+		$state['matched_by']       = (string) ( $selected_eval['matched_by'] ?? ( ! empty( $keyword_terms ) ? 'keyword' : 'filter' ) );
+		$state['matched_term']     = (string) ( $selected_eval['matched_term'] ?? '' );
+		$state['matched_term_len'] = (int) ( $selected_eval['matched_term_len'] ?? 0 );
+		$state['matched_pos']      = (int) ( $selected_eval['matched_pos'] ?? -1 );
+		$state['is_at_command']    = $state['matched_term'] !== '' && mb_substr( $state['matched_term'], 0, 1, 'UTF-8' ) === '@';
+		$prefix_haystack           = $this->claim_prefix_haystack( $haystack );
+		$state['is_prefix_anchor'] = false;
+		if ( $state['matched_term'] !== '' ) {
+			$term = $state['matched_term'];
+			$state['is_prefix_anchor'] = (
+				mb_strpos( $haystack, $term ) === 0
+				|| ( mb_substr( $haystack, 0, 1, 'UTF-8' ) === '@' && mb_strpos( $haystack, $term ) === 1 )
+				|| mb_strpos( $prefix_haystack, $term ) === 0
+			);
+		}
+
+		return $state;
+	}
+
+	private function extract_at_command_terms( array $cfg ): array {
+		$terms = array_merge(
+			$this->extract_match_terms_from_keywords( $cfg ),
+			$this->extract_match_terms_from_filter( (string) ( $cfg['filter'] ?? '' ) )
+		);
+		if ( empty( $terms ) ) { return array(); }
+		$at_terms = array();
+		foreach ( $terms as $term ) {
+			$term = (string) $term;
+			if ( $term !== '' && mb_substr( $term, 0, 1, 'UTF-8' ) === '@' ) {
+				$at_terms[ $term ] = true;
+			}
+		}
+		return array_keys( $at_terms );
 	}
 
 	/**
 	 * Match terms using trigger mode semantics.
 	 */
 	private function match_terms_by_mode( string $haystack, array $terms, string $mode ): bool {
-		if ( $haystack === '' || empty( $terms ) ) { return false; }
+		$eval = $this->match_terms_by_mode_detail( $haystack, $terms, $mode );
+		return ! empty( $eval['matched'] );
+	}
 
-		if ( $mode === 'keyword_exact' ) {
-			foreach ( $terms as $term ) {
-				$term = (string) $term;
-				if ( $term !== '' && $haystack === $term ) {
-					return true;
-				}
+	private function match_terms_by_mode_detail( string $haystack, array $terms, string $mode ): array {
+		if ( $haystack === '' || empty( $terms ) ) { return array( 'matched' => false ); }
+
+		$best = array( 'matched' => false );
+		$mode = strtolower( trim( $mode ) );
+
+		foreach ( $terms as $term ) {
+			$term = (string) $term;
+			if ( $term === '' ) { continue; }
+
+			$matched_pos = false;
+			if ( $mode === 'keyword_exact' ) {
+				$matched_pos = ( $haystack === $term ) ? 0 : false;
+			} elseif ( $mode === 'keyword_start' ) {
+				$matched_pos = ( mb_strpos( $haystack, $term ) === 0 ) ? 0 : false;
+			} else {
+				$matched_pos = mb_strpos( $haystack, $term );
 			}
-			return false;
+
+			if ( $matched_pos === false ) { continue; }
+
+			$candidate = array(
+				'matched'          => true,
+				'matched_by'       => 'keyword',
+				'matched_term'     => $term,
+				'matched_term_len' => (int) mb_strlen( $term, 'UTF-8' ),
+				'matched_pos'      => (int) $matched_pos,
+				'mode'             => $mode,
+			);
+
+			if ( empty( $best['matched'] ) ) {
+				$best = $candidate;
+				continue;
+			}
+
+			$better = $this->claim_better_eval( $candidate, $best );
+			$best   = ( $better === $candidate ) ? $candidate : $best;
 		}
 
-		if ( $mode === 'keyword_start' ) {
-			foreach ( $terms as $term ) {
-				$term = (string) $term;
-				if ( $term !== '' && mb_strpos( $haystack, $term ) === 0 ) {
-					return true;
-				}
-			}
-			return false;
-		}
-
-		// Default: keyword_contains
-		return $this->contains_any_match_term( $haystack, $terms );
+		return $best;
 	}
 
 	/**
@@ -1041,14 +1491,278 @@ final class BizCity_Automation_Trigger_Matcher {
 	 * True when any normalized term is contained in the normalized haystack.
 	 */
 	private function contains_any_match_term( string $haystack, array $terms ): bool {
-		if ( $haystack === '' || empty( $terms ) ) { return false; }
+		$eval = $this->contains_any_match_term_detail( $haystack, $terms );
+		return ! empty( $eval['matched'] );
+	}
+
+	private function contains_any_match_term_detail( string $haystack, array $terms ): array {
+		if ( $haystack === '' || empty( $terms ) ) { return array( 'matched' => false ); }
+		$best = array( 'matched' => false );
 		foreach ( $terms as $term ) {
 			$term = (string) $term;
-			if ( $term !== '' && mb_strpos( $haystack, $term ) !== false ) {
+			if ( $term === '' ) { continue; }
+			$pos = mb_strpos( $haystack, $term );
+			if ( $pos === false ) { continue; }
+
+			$candidate = array(
+				'matched'          => true,
+				'matched_by'       => 'filter',
+				'matched_term'     => $term,
+				'matched_term_len' => (int) mb_strlen( $term, 'UTF-8' ),
+				'matched_pos'      => (int) $pos,
+				'mode'             => 'keyword_contains',
+			);
+			if ( empty( $best['matched'] ) ) {
+				$best = $candidate;
+				continue;
+			}
+			$better = $this->claim_better_eval( $candidate, $best );
+			$best   = ( $better === $candidate ) ? $candidate : $best;
+		}
+		return $best;
+	}
+
+	private function claim_better_eval( array $a, array $b ): array {
+		$alen = (int) ( $a['matched_term_len'] ?? 0 );
+		$blen = (int) ( $b['matched_term_len'] ?? 0 );
+		if ( $alen !== $blen ) {
+			return ( $alen > $blen ) ? $a : $b;
+		}
+		$apos = (int) ( $a['matched_pos'] ?? 999999 );
+		$bpos = (int) ( $b['matched_pos'] ?? 999999 );
+		if ( $apos !== $bpos ) {
+			return ( $apos < $bpos ) ? $a : $b;
+		}
+		return $a;
+	}
+
+	private function claim_prefix_haystack( string $haystack ): string {
+		$haystack = trim( $haystack );
+		$haystack = preg_replace( '/^@[a-z0-9_\-.]+\s+/u', '', $haystack );
+		$haystack = preg_replace( '/^\/[a-z0-9_\-]+\s*/u', '', (string) $haystack );
+		return trim( (string) $haystack );
+	}
+
+	private function resolve_single_claim( array $matched, string $text ): array {
+		// [2026-07-26 Johnny Chu] RULE-TRIGGER-SINGLE-CLAIM — reduce competing matches to exactly one winner unless allow_costack=true.
+		$winners              = $matched;
+		$suppressed           = array();
+		$winner_wf_id         = 0;
+		$competing_candidates = array();
+		$costack_candidates   = array();
+
+		if ( count( $matched ) <= 1 ) {
+			if ( ! empty( $matched[0]['wf']['id'] ) ) {
+				$winner_wf_id = (int) $matched[0]['wf']['id'];
+			}
+			return array(
+				'winners'      => $winners,
+				'suppressed'   => $suppressed,
+				'winner_wf_id' => $winner_wf_id,
+			);
+		}
+
+		foreach ( $matched as $row ) {
+			if ( ! empty( $row['cfg']['allow_costack'] ) ) {
+				$costack_candidates[] = $row;
+				continue;
+			}
+			$competing_candidates[] = $row;
+		}
+
+		// [2026-07-26 Johnny Chu] RULE-TRIGGER-SINGLE-CLAIM — if message has @ + matching @term,
+		// prioritize @directed workflows before generic keyword workflows.
+		$at_directed = array_filter( $competing_candidates, static function ( $row ) {
+			return ! empty( $row['claim']['is_at_command'] ) && ! empty( $row['claim']['message_has_at'] );
+		} );
+		if ( ! empty( $at_directed ) ) {
+			$at_ids = array();
+			foreach ( $at_directed as $row ) {
+				$at_ids[ (int) ( $row['wf']['id'] ?? 0 ) ] = true;
+			}
+			foreach ( $competing_candidates as $row ) {
+				$row_id = (int) ( $row['wf']['id'] ?? 0 );
+				if ( ! isset( $at_ids[ $row_id ] ) ) {
+					$suppressed[] = array(
+						'wf_id'  => $row_id,
+						'reason' => 'at_keyword_priority',
+					);
+				}
+			}
+			$competing_candidates = array_values( $at_directed );
+		}
+
+		if ( count( $competing_candidates ) <= 1 ) {
+			$winners = array_merge( $costack_candidates, $competing_candidates );
+			if ( ! empty( $competing_candidates[0]['wf']['id'] ) ) {
+				$winner_wf_id = (int) $competing_candidates[0]['wf']['id'];
+			} elseif ( ! empty( $costack_candidates[0]['wf']['id'] ) ) {
+				$winner_wf_id = (int) $costack_candidates[0]['wf']['id'];
+			}
+			return array(
+				'winners'      => $winners,
+				'suppressed'   => $suppressed,
+				'winner_wf_id' => $winner_wf_id,
+			);
+		}
+
+		usort( $competing_candidates, array( $this, 'compare_single_claim_candidates' ) );
+		$winner      = $competing_candidates[0];
+		$winner_wf_id = (int) ( $winner['wf']['id'] ?? 0 );
+
+		for ( $i = 1; $i < count( $competing_candidates ); $i++ ) {
+			$loser = $competing_candidates[ $i ];
+			$suppressed[] = array(
+				'wf_id'  => (int) ( $loser['wf']['id'] ?? 0 ),
+				'reason' => $this->single_claim_reason( $winner, $loser ),
+			);
+		}
+
+		$winners = array_merge( $costack_candidates, array( $winner ) );
+
+		return array(
+			'winners'      => $winners,
+			'suppressed'   => $suppressed,
+			'winner_wf_id' => $winner_wf_id,
+		);
+	}
+
+	private function compare_single_claim_candidates( array $a, array $b ): int {
+		$am = $this->claim_mode_strictness( (string) ( $a['claim']['mode'] ?? $a['cfg']['mode'] ?? 'keyword_contains' ) );
+		$bm = $this->claim_mode_strictness( (string) ( $b['claim']['mode'] ?? $b['cfg']['mode'] ?? 'keyword_contains' ) );
+		if ( $am !== $bm ) { return $bm <=> $am; }
+
+		$ap = ! empty( $a['claim']['is_prefix_anchor'] ) ? 1 : 0;
+		$bp = ! empty( $b['claim']['is_prefix_anchor'] ) ? 1 : 0;
+		if ( $ap !== $bp ) { return $bp <=> $ap; }
+
+		$al = (int) ( $a['claim']['matched_term_len'] ?? 0 );
+		$bl = (int) ( $b['claim']['matched_term_len'] ?? 0 );
+		if ( $al !== $bl ) { return $bl <=> $al; }
+
+		$apr = (int) ( $a['cfg']['priority'] ?? 0 );
+		$bpr = (int) ( $b['cfg']['priority'] ?? 0 );
+		if ( $apr !== $bpr ) { return $bpr <=> $apr; }
+
+		$aid = (int) ( $a['wf']['id'] ?? 0 );
+		$bid = (int) ( $b['wf']['id'] ?? 0 );
+		if ( $aid !== $bid ) { return $aid <=> $bid; }
+
+		return 0;
+	}
+
+	private function single_claim_reason( array $winner, array $loser ): string {
+		$wm = $this->claim_mode_strictness( (string) ( $winner['claim']['mode'] ?? $winner['cfg']['mode'] ?? 'keyword_contains' ) );
+		$lm = $this->claim_mode_strictness( (string) ( $loser['claim']['mode'] ?? $loser['cfg']['mode'] ?? 'keyword_contains' ) );
+		if ( $lm < $wm ) { return 'lower_mode_strictness'; }
+
+		$wp = ! empty( $winner['claim']['is_prefix_anchor'] ) ? 1 : 0;
+		$lp = ! empty( $loser['claim']['is_prefix_anchor'] ) ? 1 : 0;
+		if ( $lp < $wp ) { return 'not_prefix_anchor'; }
+
+		$wl = (int) ( $winner['claim']['matched_term_len'] ?? 0 );
+		$ll = (int) ( $loser['claim']['matched_term_len'] ?? 0 );
+		if ( $ll < $wl ) { return 'shorter_keyword_match'; }
+
+		$wpr = (int) ( $winner['cfg']['priority'] ?? 0 );
+		$lpr = (int) ( $loser['cfg']['priority'] ?? 0 );
+		if ( $lpr < $wpr ) { return 'lower_priority'; }
+
+		$wid = (int) ( $winner['wf']['id'] ?? 0 );
+		$lid = (int) ( $loser['wf']['id'] ?? 0 );
+		if ( $lid > 0 && $wid > 0 && $lid > $wid ) { return 'tie_break_newer_id'; }
+
+		return 'singleclaim_lower_rank';
+	}
+
+	private function claim_mode_strictness( string $mode ): int {
+		$mode = strtolower( trim( $mode ) );
+		if ( $mode === 'keyword_exact' ) { return 3; }
+		if ( $mode === 'keyword_start' ) { return 2; }
+		return 1;
+	}
+
+	private function group_command_filter_match( array $cfg, string $text ): bool {
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — allow explicit @command or /command workflows in Zalo groups after webhook reaches the bot.
+		$haystack = $this->normalize_match_text( $text );
+		if ( $haystack === '' ) { return false; }
+
+		$terms = array_merge(
+			$this->extract_match_terms_from_keywords( $cfg ),
+			$this->extract_match_terms_from_filter( (string) ( $cfg['filter'] ?? '' ) )
+		);
+		if ( empty( $terms ) ) { return false; }
+
+		$command_terms = array();
+		foreach ( $terms as $term ) {
+			$term = (string) $term;
+			if ( $term !== '' && ( $term[0] === '@' || $term[0] === '/' ) ) {
+				$command_terms[ $term ] = true;
+			}
+		}
+		if ( empty( $command_terms ) ) { return false; }
+
+		return $this->contains_any_match_term( $haystack, array_keys( $command_terms ) );
+	}
+
+	private function workflow_allows_chat_context( array $cfg, array $payload, array $run_payload, string $text = '' ): bool {
+		$chat_kind = (string) ( $run_payload['chat_kind'] ?? 'private' );
+		$wanted_chat_kind = sanitize_key( (string) ( $cfg['chat_kind'] ?? 'any' ) );
+		if ( $wanted_chat_kind !== '' && $wanted_chat_kind !== 'any' && $wanted_chat_kind !== $chat_kind ) {
+			return false;
+		}
+		if ( $chat_kind === 'group' && ! empty( $cfg['require_mention'] ) && empty( $run_payload['mention_detected'] ) && empty( $run_payload['reply_to_bot_message'] ) ) {
+			if ( ! $this->group_command_filter_match( $cfg, $text ) ) {
+				return false;
+			}
+		}
+		if ( ! empty( $cfg['owner_required'] ) && (int) ( $run_payload['wp_user_id'] ?? 0 ) <= 0 ) {
+			return false;
+		}
+		return true;
+	}
+
+	private function sort_matched_workflows( array $a, array $b ): int {
+		$pa = (int) ( $a['cfg']['priority'] ?? 0 );
+		$pb = (int) ( $b['cfg']['priority'] ?? 0 );
+		if ( $pa !== $pb ) { return $pb <=> $pa; }
+		$va = (int) ( $a['wf']['version'] ?? 0 );
+		$vb = (int) ( $b['wf']['version'] ?? 0 );
+		return $vb <=> $va;
+	}
+
+	private function workflow_uses_block( array $wf, string $block_id ): bool {
+		// [2026-07-21 Johnny Chu] PHASE-IMG-FIRST-FB-FIX — inspect graph_json so attachment-first workflows can preempt generic same-keyword workflows.
+		$graph_raw = $wf['graph_json'] ?? '';
+		$graph = is_array( $graph_raw ) ? $graph_raw : json_decode( (string) $graph_raw, true );
+		if ( ! is_array( $graph ) || empty( $graph['nodes'] ) || ! is_array( $graph['nodes'] ) ) {
+			return false;
+		}
+		foreach ( $graph['nodes'] as $node ) {
+			if ( ! is_array( $node ) ) { continue; }
+			$data = isset( $node['data'] ) && is_array( $node['data'] ) ? $node['data'] : array();
+			if ( (string) ( $data['blockId'] ?? '' ) === $block_id ) {
 				return true;
 			}
 		}
 		return false;
+	}
+
+	private function zalo_text_mentions_bot( string $text, $bot ): bool {
+		if ( strpos( $text, '@' ) === false ) { return false; }
+		$bot_name = is_object( $bot ) && isset( $bot->bot_name ) ? (string) $bot->bot_name : '';
+		if ( $bot_name !== '' && mb_stripos( $text, '@' . $bot_name, 0, 'UTF-8' ) !== false ) { return true; }
+		return preg_match( '/@\s*bot\b/iu', $text ) === 1;
+	}
+
+	private function strip_zalo_bot_mention( string $text, $bot ): string {
+		$bot_name = is_object( $bot ) && isset( $bot->bot_name ) ? trim( (string) $bot->bot_name ) : '';
+		if ( $bot_name !== '' ) {
+			$text = preg_replace( '/@\s*' . preg_quote( $bot_name, '/' ) . '\b\s*/iu', '', $text );
+		}
+		$text = preg_replace( '/@\s*bot\s+[^\s]+\s*/iu', '', (string) $text );
+		$text = preg_replace( '/\s+/u', ' ', (string) $text );
+		return trim( (string) $text );
 	}
 
 	/**
@@ -1177,6 +1891,15 @@ final class BizCity_Automation_Trigger_Matcher {
 	 * @return string|WP_Error run_id
 	 */
 	private function enqueue_and_optionally_run( array $wf, array $payload, bool $run_sync ) {
+		// [2026-07-21 Johnny Chu] PHASE-ASTRO-WORKFLOW — migrate stale enabled "chiêm tinh 3 bước" copies to canonical transit workflow before runner reads DB.
+		$wf = $this->maybe_upgrade_legacy_astro_workflow( $wf );
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-MY-CONTENT-TRACE — channel-linked wp_user_id owns downstream content/events before workflow creator fallback.
+		$linked_owner = (int) ( $payload['wp_user_id'] ?? 0 );
+		if ( $linked_owner > 0 ) {
+			$payload['_owner_user_id'] = $linked_owner;
+		} elseif ( (int) ( $payload['_owner_user_id'] ?? 0 ) <= 0 ) {
+			$payload['_owner_user_id'] = (int) ( $wf['created_by'] ?? 0 );
+		}
 		$run_id = BizCity_Automation_Repo_Runs::enqueue( (int) $wf['id'], $payload );
 		if ( is_wp_error( $run_id ) ) {
 			$this->note_event( 'automation_enqueue_failed_error', array(
@@ -1192,6 +1915,72 @@ final class BizCity_Automation_Trigger_Matcher {
 			BizCity_Automation_Runner::instance()->execute( $run_id );
 		}
 		return $run_id;
+	}
+
+	private function maybe_upgrade_legacy_astro_workflow( array $wf ): array {
+		// [2026-07-21 Johnny Chu] PHASE-ASTRO-WORKFLOW — existing customer copies keep old graph_json, so template reseed alone cannot fix live wf-{id}.
+		$workflow_id = (int) ( $wf['id'] ?? 0 );
+		if ( $workflow_id <= 0 ) { return $wf; }
+
+		$graph_json = (string) ( $wf['graph_json'] ?? '' );
+		$name       = (string) ( $wf['name'] ?? '' );
+		$is_legacy  = false !== strpos( $graph_json, 'tpl_zalobot_astro_steps_v1' )
+			|| false !== strpos( $graph_json, 'Zalo Bot · nhận lệnh chiêm tinh' )
+			|| false !== strpos( $name, 'Chiêm tinh 3 bước' );
+		if ( ! $is_legacy || false !== strpos( $graph_json, 'action.run_astro_transit' ) ) {
+			return $wf;
+		}
+		if ( ! class_exists( 'BizCity_Automation_Repo_Templates' ) || ! class_exists( 'BizCity_Automation_Repo_Workflows' ) ) {
+			return $wf;
+		}
+
+		$template = BizCity_Automation_Repo_Templates::find_by_slug( 'tpl_astro_van_han_zalo_v1' );
+		$canonical_graph_json = is_array( $template ) ? (string) ( $template['graph_json'] ?? '' ) : '';
+		if ( $canonical_graph_json === '' || false === strpos( $canonical_graph_json, 'action.run_astro_transit' ) ) {
+			BizCity_Automation_Matcher_Trace::note( 'legacy_astro_upgrade_skipped', array(
+				'wf_id'  => $workflow_id,
+				'detail' => 'canonical tpl_astro_van_han_zalo_v1 missing or has no transit block',
+			) );
+			return $wf;
+		}
+
+		$legacy_cfg = $this->trigger_config( $wf );
+		$canonical_cfg = is_array( $template['trigger_config'] ?? null )
+			? (array) $template['trigger_config']
+			: ( json_decode( (string) ( $template['trigger_config_json'] ?? '' ), true ) ?: array() );
+		foreach ( array( 'instance_id', 'account_id', 'bot_id', 'zalo_user_id', 'chat_id', 'owner_user_id', 'zone' ) as $key ) {
+			if ( ! array_key_exists( $key, $legacy_cfg ) ) { continue; }
+			$value = $legacy_cfg[ $key ];
+			if ( is_string( $value ) && trim( $value ) === '' ) { continue; }
+			if ( is_numeric( $value ) && (int) $value === 0 ) { continue; }
+			$canonical_cfg[ $key ] = $value;
+		}
+
+		$canonical_name = (string) ( $template['name'] ?? 'Chiêm Tinh — Xem Vận Hạn qua Zalo Bot' );
+		if ( false !== mb_stripos( $name, 'copy', 0, 'UTF-8' ) && false === mb_stripos( $canonical_name, 'copy', 0, 'UTF-8' ) ) {
+			$canonical_name .= ' — copy';
+		}
+
+		$updated = BizCity_Automation_Repo_Workflows::update( $workflow_id, array(
+			'name'                => $canonical_name,
+			'description'         => (string) ( $template['description'] ?? ( $wf['description'] ?? '' ) ),
+			'tags'                => (string) ( $template['tags'] ?? ( $wf['tags'] ?? '' ) ),
+			'graph_json'          => $canonical_graph_json,
+			'trigger_config_json' => wp_json_encode( $canonical_cfg ),
+		) );
+		if ( is_wp_error( $updated ) ) {
+			BizCity_Automation_Matcher_Trace::note( 'legacy_astro_upgrade_failed', array(
+				'wf_id'  => $workflow_id,
+				'detail' => $updated->get_error_message(),
+			) );
+			return $wf;
+		}
+
+		BizCity_Automation_Matcher_Trace::note( 'legacy_astro_upgraded', array(
+			'wf_id'  => $workflow_id,
+			'detail' => 'replaced tpl_zalobot_astro_steps_v1 graph with tpl_astro_van_han_zalo_v1',
+		) );
+		return is_array( $updated ) ? $updated : $wf;
 	}
 
 	private function note_event( string $name, array $data ): void {

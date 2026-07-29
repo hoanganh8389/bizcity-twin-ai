@@ -72,9 +72,14 @@ final class BizCity_Probe_TwinBrain_Memory_Notebook_Chat implements BizCity_Diag
 		// Step 1 — plant explicit memory như turn trước đã ghi nhớ.
 		$mem    = BizCity_User_Memory::instance();
 		$plant_ok = false;
+		// [2026-07-28 Johnny Chu] R-CH-IDMEM — plant the notebook-chat sentinel under the verified UUID owner.
+		$memory_scope = class_exists( 'BizCity_Memory_Identity_Scope' )
+			? BizCity_Memory_Identity_Scope::for_write( array( 'user_id' => $user_id ) )
+			: null;
 		try {
 			$plant_ok = (bool) $mem->upsert_public( [
 				'user_id'     => $user_id,
+				'identity_uuid' => (string) ( $memory_scope['identity_uuid'] ?? '' ),
 				'memory_tier' => 'explicit',
 				'memory_type' => 'preference',
 				'memory_key'  => 'healthtest:nbchat:kookaburra21',
@@ -91,7 +96,21 @@ final class BizCity_Probe_TwinBrain_Memory_Notebook_Chat implements BizCity_Diag
 			'detail' => $plant_ok ? 'sentinel inserted' : 'upsert_public returned false',
 		] );
 		if ( ! $plant_ok ) {
-			return [ 'status' => 'fail', 'error' => 'BizCity_User_Memory::upsert_public() failed' ];
+			// [2026-07-28 Johnny Chu] PHASE-0.52 W8.3 — report exact upsert failure reason for notebook-memory plant step.
+			$last_fail = method_exists( 'BizCity_User_Memory', 'get_last_upsert_failure' )
+				? (array) BizCity_User_Memory::get_last_upsert_failure()
+				: array();
+			$fail_code = (string) ( $last_fail['code'] ?? '' );
+			$fail_msg  = (string) ( $last_fail['message'] ?? '' );
+			$db_error  = trim( (string) ( $last_fail['db_error'] ?? '' ) );
+			$db_tail   = $db_error !== '' ? ' · db_error=' . mb_substr( $db_error, 0, 220 ) : '';
+			return [
+				'status' => 'fail',
+				'error'  => 'BizCity_User_Memory::upsert_public() failed'
+					. ( $fail_code !== '' ? ' code=' . $fail_code : '' )
+					. ( $fail_msg !== '' ? ' · ' . $fail_msg : '' )
+					. $db_tail,
+			];
 		}
 
 		// Step 2 — Memory_Recall.collect() với notebook surface opts.

@@ -60,10 +60,29 @@ add_action( 'plugins_loaded', function () {
     BizCity_LLM_Client::instance();
     BizCity_Search_Client::instance();
     BizCity_LLM_Settings::instance();
-    // [2026-06-10 Johnny Chu] R-LLM-USAGE — install per-blog clients table (not hub table).
-    // Hub (bizcity-llm-router) owns bizcity_llm_usage; client owns bizcity_llm_usage_clients.
-    BizCity_LLM_Usage_Clients::maybe_install();
+    // [2026-07-25 Johnny Chu] R-LLM-USAGE-FILELOG — initialize per-blog usage JSONL logger + queue legacy SQL cleanup.
+    BizCity_LLM_Usage_File_Log::maybe_install();
 }, 1 );
+
+// [2026-07-15 Johnny Chu] PHASE-MASTER-PLANS — keep local twin master tier in sync
+// with hub `/bizcity/v1/master/config` without adding heavy frontend latency.
+add_action( 'init', function () {
+    if ( ! class_exists( 'BizCity_LLM_Client' ) ) {
+        return;
+    }
+
+    $sync_ctx =
+        is_admin()
+        || ( defined( 'DOING_CRON' ) && DOING_CRON )
+        || ( defined( 'WP_CLI' ) && WP_CLI )
+        || ( defined( 'REST_REQUEST' ) && REST_REQUEST );
+
+    if ( ! $sync_ctx ) {
+        return;
+    }
+
+    BizCity_LLM_Client::instance()->maybe_sync_master_plan();
+}, 20 );
 
 // [2026-06-10 Johnny Chu] USAGE-ROLLUP-SPEC Phase 3 — register proxy routes on rest_api_init
 add_action( 'rest_api_init', function () {

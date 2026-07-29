@@ -103,6 +103,13 @@ final class BizCity_TwinBrain_Guru_Web_Flag {
 		if ( $web_mode === 'off' || $guru_id <= 0 ) {
 			return $web_mode; // no gate needed
 		}
+
+		// [2026-07-17 Johnny Chu] PHASE-TWINWEB — TwinWeb defaults to relaxed grounding so @guru notebook chat can still use web fallback unless site owner disables this override.
+		$surface = isset( $context['surface'] ) ? sanitize_key( (string) $context['surface'] ) : '';
+		if ( $surface === 'twinweb' && self::twinweb_relaxed_default_enabled( $guru_id, $context ) ) {
+			return $web_mode;
+		}
+
 		$allowed = self::is_allowed( $guru_id );
 		if ( $allowed ) {
 			return $web_mode;
@@ -148,6 +155,34 @@ final class BizCity_TwinBrain_Guru_Web_Flag {
 		$bool = ( $val !== null && (int) $val === 1 );
 		wp_cache_set( $cache_key, $bool ? '1' : '0', self::CACHE_GROUP, self::CACHE_TTL );
 		return $bool;
+	}
+
+	/**
+	 * TwinWeb policy override for default relaxed grounding behavior.
+	 *
+	 * Option: bizcity_twinweb_guru_relaxed_default
+	 *   - default: '1' (enabled)
+	 *   - accepted OFF values: 0, false, no, off
+	 *
+	 * Filter: bizcity_twinweb_guru_relaxed_default_enabled
+	 *   bool $enabled, int $guru_id, array $context
+	 */
+	private static function twinweb_relaxed_default_enabled( int $guru_id, array $context = array() ): bool {
+		$raw = get_option( 'bizcity_twinweb_guru_relaxed_default', '1' );
+
+		if ( is_bool( $raw ) ) {
+			$enabled = $raw;
+		} else {
+			$value   = strtolower( trim( (string) $raw ) );
+			$enabled = ! in_array( $value, array( '0', 'false', 'no', 'off' ), true );
+		}
+
+		return (bool) apply_filters(
+			'bizcity_twinweb_guru_relaxed_default_enabled',
+			$enabled,
+			$guru_id,
+			$context
+		);
 	}
 
 	/**

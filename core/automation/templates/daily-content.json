@@ -1,79 +1,532 @@
 [
   {
     "slug": "tpl_daily_research_zalo_v1",
-    "name": "Web Research → Script Zalo (Cron 8h)",
+    "name": "[global] [content ops] Web Research → Script Zalo (Cron 8h)",
     "description": "Cron 8h → tìm kiếm web nhanh (TwinBrain Web Quick) → LLM tóm tắt thành script 300 từ → gửi Zalo Bot. Cần chọn channel_instance sau khi import.",
     "category": "automation",
     "source": "builtin",
     "trigger_type": "cron",
     "icon": "Globe",
     "tags": "cron,daily,web_research,zalo,script,ai",
-    "trigger_config": { "schedule": "0 8 * * *" },
+    "trigger_config": {
+      "schedule": "0 8 * * *",
+      "visibility": "global"
+    },
     "graph": {
-      "meta": { "template": "tpl_daily_research_zalo_v1" },
+      "meta": {
+        "template": "tpl_daily_research_zalo_v1",
+        "template_uuid": "40479f84-2c75-7f80-8027-0deec9c277ee",
+        "template_version": "1.0.0",
+        "visibility": "global"
+      },
       "nodes": [
-        { "id": "t1",    "type": "trigger", "position": { "x": 0,    "y": 80 }, "data": { "blockId": "trigger.cron",              "label": "Cron · 08:00 mỗi ngày",          "schedule": "0 8 * * *" } },
-        { "id": "web",   "type": "action",  "position": { "x": 320,  "y": 80 }, "data": { "blockId": "action.web_research",       "label": "Tìm kiếm xu hướng hôm nay",      "query": "xu hướng nổi bật hôm nay {{trigger.fired_at}}", "mode": "quick", "max_results": 7 } },
-        { "id": "gen",   "type": "action",  "position": { "x": 640,  "y": 80 }, "data": { "blockId": "action.generate_content",   "label": "Tóm tắt thành script Zalo",      "content_type": "script", "notebook_id": 0, "prompt_template": "Tóm tắt các thông tin sau thành một đoạn tin nhắn Zalo ngắn gọn, hấp dẫn (tối đa 300 từ), phù hợp gửi cho nhóm nội bộ:\n\n{{web.answer_md}}", "tone": "professional", "max_words": 300, "character_id": 0 } },
-        { "id": "reply", "type": "action",  "position": { "x": 960,  "y": 80 }, "data": { "blockId": "action.reply_zalo",         "label": "Gửi Zalo Bot",                   "text": "{{gen.content}}" } },
-        { "id": "log",   "type": "action",  "position": { "x": 1280, "y": 80 }, "data": { "blockId": "action.log",                "label": "Ghi log",                         "message": "daily_research_zalo — citations={{web.citation_count}} tokens={{gen.tokens}}" } }
+        {
+          "id": "t1",
+          "type": "trigger",
+          "position": {
+            "x": 0,
+            "y": 80
+          },
+          "data": {
+            "blockId": "trigger.cron",
+            "label": "Cron · 08:00 mỗi ngày",
+            "schedule": "0 8 * * *"
+          }
+        },
+        {
+          "id": "web",
+          "type": "action",
+          "position": {
+            "x": 320,
+            "y": 80
+          },
+          "data": {
+            "blockId": "action.web_research",
+            "label": "Tìm kiếm xu hướng hôm nay",
+            "query": "xu hướng nổi bật hôm nay {{trigger.fired_at}}",
+            "mode": "quick",
+            "max_results": 7
+          }
+        },
+        {
+          "id": "gen",
+          "type": "action",
+          "position": {
+            "x": 640,
+            "y": 80
+          },
+          "data": {
+            "blockId": "action.generate_content",
+            "label": "Tóm tắt thành script Zalo",
+            "content_type": "script",
+            "notebook_id": 0,
+            "prompt_template": "Tóm tắt các thông tin sau thành một đoạn tin nhắn Zalo ngắn gọn, hấp dẫn (tối đa 300 từ), phù hợp gửi cho nhóm nội bộ:\n\n{{web.answer_md}}",
+            "tone": "professional",
+            "max_words": 300,
+            "character_id": 0
+          }
+        },
+        {
+          "id": "reply",
+          "type": "action",
+          "position": {
+            "x": 960,
+            "y": 80
+          },
+          "data": {
+            "blockId": "action.reply_zalo",
+            "label": "Gửi Zalo Bot",
+            "text": "{{gen.content}}"
+          }
+        },
+        {
+          "id": "log",
+          "type": "action",
+          "position": {
+            "x": 1280,
+            "y": 80
+          },
+          "data": {
+            "blockId": "action.log",
+            "label": "Ghi log",
+            "message": "daily_research_zalo — citations={{web.citation_count}} tokens={{gen.tokens}}"
+          }
+        }
       ],
       "edges": [
-        { "id": "e_t1_web",     "source": "t1",    "target": "web" },
-        { "id": "e_web_gen",    "source": "web",   "target": "gen" },
-        { "id": "e_gen_reply",  "source": "gen",   "target": "reply" },
-        { "id": "e_reply_log",  "source": "reply", "target": "log" }
+        {
+          "id": "e_t1_web",
+          "source": "t1",
+          "target": "web"
+        },
+        {
+          "id": "e_web_gen",
+          "source": "web",
+          "target": "gen"
+        },
+        {
+          "id": "e_gen_reply",
+          "source": "gen",
+          "target": "reply"
+        },
+        {
+          "id": "e_reply_log",
+          "source": "reply",
+          "target": "log"
+        }
       ]
-    }
+    },
+    "template_uuid": "40479f84-2c75-7f80-8027-0deec9c277ee",
+    "template_version": "1.0.0",
+    "visibility": "global"
   },
   {
     "slug": "tpl_daily_notebook_fb_post_v1",
-    "name": "Notebook → Bài FB hàng ngày (Cron 8h)",
+    "name": "[content ops] Notebook → Bài FB hàng ngày (Cron 8h)",
     "description": "Cron 8h → action.generate_content dùng Notebook skeleton (R-SK) → soạn bài FB phong cách thương hiệu → đăng fanpage với delay 60 phút. Điền notebook_id và fb_page_id sau khi import.",
     "category": "automation",
     "source": "builtin",
     "trigger_type": "cron",
     "icon": "Sparkles",
     "tags": "cron,daily,facebook,publish,ai,notebook,skeleton",
-    "trigger_config": { "schedule": "0 8 * * *" },
+    "trigger_config": {
+      "schedule": "0 8 * * *",
+      "visibility": "private"
+    },
     "graph": {
-      "meta": { "template": "tpl_daily_notebook_fb_post_v1" },
+      "meta": {
+        "template": "tpl_daily_notebook_fb_post_v1",
+        "template_uuid": "995caa02-b4b0-75a4-804c-0f28ffce961c",
+        "template_version": "1.0.0",
+        "visibility": "private"
+      },
       "nodes": [
-        { "id": "t1",      "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.cron",           "label": "Cron · 08:00 mỗi ngày",         "schedule": "0 8 * * *" } },
-        { "id": "gen",     "type": "action",  "position": { "x": 320, "y": 80 }, "data": { "blockId": "action.generate_content","label": "Tạo bài FB từ Notebook",         "content_type": "fb_post", "notebook_id": 0, "prompt_template": "Viết một bài đăng Facebook hấp dẫn, tiếng Việt, phong cách thương hiệu, dài 5-8 dòng, có 2-3 emoji, kết thúc bằng câu hỏi và 3-5 hashtag liên quan. Thời điểm đăng: sáng sớm {{trigger.fired_at}}.", "tone": "", "max_words": 400, "character_id": 0 } },
-        { "id": "publish", "type": "action",  "position": { "x": 640, "y": 80 }, "data": { "blockId": "action.publish_fb_post", "label": "Đăng Facebook (delay 60p)",      "fb_page_id": "", "fb_page_name": "", "content": "{{gen.content}}", "image_url": "", "mode": "scheduled", "delay_min": 60 } },
-        { "id": "log",     "type": "action",  "position": { "x": 960, "y": 80 }, "data": { "blockId": "action.log",             "label": "Ghi log",                         "message": "daily_notebook_fb_post — event_id={{publish.event_id}} tokens={{gen.tokens}}" } }
+        {
+          "id": "t1",
+          "type": "trigger",
+          "position": {
+            "x": 0,
+            "y": 80
+          },
+          "data": {
+            "blockId": "trigger.cron",
+            "label": "Cron · 08:00 mỗi ngày",
+            "schedule": "0 8 * * *"
+          }
+        },
+        {
+          "id": "gen",
+          "type": "action",
+          "position": {
+            "x": 320,
+            "y": 80
+          },
+          "data": {
+            "blockId": "action.generate_content",
+            "label": "Tạo bài FB từ Notebook",
+            "content_type": "fb_post",
+            "notebook_id": 0,
+            "prompt_template": "Viết một bài đăng Facebook hấp dẫn, tiếng Việt, phong cách thương hiệu, dài 5-8 dòng, có 2-3 emoji, kết thúc bằng câu hỏi và 3-5 hashtag liên quan. Thời điểm đăng: sáng sớm {{trigger.fired_at}}.",
+            "tone": "",
+            "max_words": 400,
+            "character_id": 0
+          }
+        },
+        {
+          "id": "publish",
+          "type": "action",
+          "position": {
+            "x": 640,
+            "y": 80
+          },
+          "data": {
+            "blockId": "action.publish_fb_post",
+            "label": "Đăng Facebook (delay 60p)",
+            "fb_page_id": "",
+            "fb_page_name": "",
+            "content": "{{gen.content}}",
+            "image_url": "",
+            "mode": "scheduled",
+            "delay_min": 60
+          }
+        },
+        {
+          "id": "log",
+          "type": "action",
+          "position": {
+            "x": 960,
+            "y": 80
+          },
+          "data": {
+            "blockId": "action.log",
+            "label": "Ghi log",
+            "message": "daily_notebook_fb_post — event_id={{publish.event_id}} tokens={{gen.tokens}}"
+          }
+        }
       ],
       "edges": [
-        { "id": "e_t1_gen",       "source": "t1",      "target": "gen" },
-        { "id": "e_gen_publish",  "source": "gen",     "target": "publish" },
-        { "id": "e_publish_log",  "source": "publish", "target": "log" }
+        {
+          "id": "e_t1_gen",
+          "source": "t1",
+          "target": "gen"
+        },
+        {
+          "id": "e_gen_publish",
+          "source": "gen",
+          "target": "publish"
+        },
+        {
+          "id": "e_publish_log",
+          "source": "publish",
+          "target": "log"
+        }
       ]
-    }
+    },
+    "template_uuid": "995caa02-b4b0-75a4-804c-0f28ffce961c",
+    "template_version": "1.0.0",
+    "visibility": "private"
   },
   {
     "slug": "tpl_daily_notebook_wp_post_v1",
-    "name": "Notebook → Bài WP hàng ngày (Cron 9h, Draft)",
+    "name": "[content ops] Notebook → Bài WP hàng ngày (Cron 9h, Draft)",
     "description": "Cron 9h → action.generate_content dùng Notebook skeleton (R-SK) → soạn bài blog 400-600 từ → tạo WP post (draft để review). Điền notebook_id sau khi import. Sửa title template nếu cần.",
     "category": "automation",
     "source": "builtin",
     "trigger_type": "cron",
     "icon": "Newspaper",
     "tags": "cron,daily,wordpress,publish,ai,notebook,skeleton,blog",
-    "trigger_config": { "schedule": "0 9 * * *" },
+    "trigger_config": {
+      "schedule": "0 9 * * *",
+      "visibility": "private"
+    },
     "graph": {
-      "meta": { "template": "tpl_daily_notebook_wp_post_v1" },
+      "meta": {
+        "template": "tpl_daily_notebook_wp_post_v1",
+        "template_uuid": "a1d43d1b-5cc3-7317-8559-58fce6d1d603",
+        "template_version": "1.0.0",
+        "visibility": "private"
+      },
       "nodes": [
-        { "id": "t1",      "type": "trigger", "position": { "x": 0,   "y": 80 }, "data": { "blockId": "trigger.cron",            "label": "Cron · 09:00 mỗi ngày",         "schedule": "0 9 * * *" } },
-        { "id": "gen",     "type": "action",  "position": { "x": 320, "y": 80 }, "data": { "blockId": "action.generate_content", "label": "Tạo bài web từ Notebook",        "content_type": "web_post", "notebook_id": 0, "prompt_template": "Viết một bài blog tiếng Việt SEO-friendly, phong cách thương hiệu, khoảng 400-600 từ, có tiêu đề H1, 2-3 đoạn chính và phần kết luận ngắn. Ngày: {{trigger.fired_at}}.", "tone": "", "max_words": 600, "character_id": 0 } },
-        { "id": "publish", "type": "action",  "position": { "x": 640, "y": 80 }, "data": { "blockId": "action.publish_wp_post",  "label": "Đăng WP (draft)",                "title": "Bài viết AI {{trigger.fired_at}}", "content": "{{gen.content}}", "image_url": "", "status": "draft", "category": "", "tags": "ai-content", "author_id": 0 } },
-        { "id": "log",     "type": "action",  "position": { "x": 960, "y": 80 }, "data": { "blockId": "action.log",              "label": "Ghi log",                         "message": "daily_notebook_wp_post — post_id={{publish.post_id}} tokens={{gen.tokens}}" } }
+        {
+          "id": "t1",
+          "type": "trigger",
+          "position": {
+            "x": 0,
+            "y": 80
+          },
+          "data": {
+            "blockId": "trigger.cron",
+            "label": "Cron · 09:00 mỗi ngày",
+            "schedule": "0 9 * * *"
+          }
+        },
+        {
+          "id": "gen",
+          "type": "action",
+          "position": {
+            "x": 320,
+            "y": 80
+          },
+          "data": {
+            "blockId": "action.generate_content",
+            "label": "Tạo bài web từ Notebook",
+            "content_type": "web_post",
+            "notebook_id": 0,
+            "prompt_template": "Viết một bài blog tiếng Việt SEO-friendly, phong cách thương hiệu, khoảng 400-600 từ, có tiêu đề H1, 2-3 đoạn chính và phần kết luận ngắn. Ngày: {{trigger.fired_at}}.",
+            "tone": "",
+            "max_words": 600,
+            "character_id": 0
+          }
+        },
+        {
+          "id": "publish",
+          "type": "action",
+          "position": {
+            "x": 640,
+            "y": 80
+          },
+          "data": {
+            "blockId": "action.publish_wp_post",
+            "label": "Đăng WP (draft)",
+            "title": "Bài viết AI {{trigger.fired_at}}",
+            "content": "{{gen.content}}",
+            "image_url": "",
+            "status": "draft",
+            "category": "",
+            "tags": "ai-content",
+            "author_id": 0
+          }
+        },
+        {
+          "id": "log",
+          "type": "action",
+          "position": {
+            "x": 960,
+            "y": 80
+          },
+          "data": {
+            "blockId": "action.log",
+            "label": "Ghi log",
+            "message": "daily_notebook_wp_post — post_id={{publish.post_id}} tokens={{gen.tokens}}"
+          }
+        }
       ],
       "edges": [
-        { "id": "e_t1_gen",       "source": "t1",      "target": "gen" },
-        { "id": "e_gen_publish",  "source": "gen",     "target": "publish" },
-        { "id": "e_publish_log",  "source": "publish", "target": "log" }
+        {
+          "id": "e_t1_gen",
+          "source": "t1",
+          "target": "gen"
+        },
+        {
+          "id": "e_gen_publish",
+          "source": "gen",
+          "target": "publish"
+        },
+        {
+          "id": "e_publish_log",
+          "source": "publish",
+          "target": "log"
+        }
       ]
-    }
+    },
+    "template_uuid": "a1d43d1b-5cc3-7317-8559-58fce6d1d603",
+    "template_version": "1.0.0",
+    "visibility": "private"
+  },
+  {
+    "slug": "tpl_daily_tiktok_short_video_v1",
+    "name": "[global] [content ops] Video TikTok ngắn mỗi sáng (Cron 08:30)",
+    "description": "Cron 08:30 → deep research xu hướng TikTok/marketing → viết brief video dọc 9:16 → submit Kling text-to-video → gửi trạng thái và link video về Zalo Bot đã ghim trong Kênh của tôi.",
+    "category": "automation",
+    "source": "builtin",
+    "trigger_type": "cron",
+    "icon": "Video",
+    "tags": "cron,daily,tiktok,short-video,kling,video,zalo,marketing,global",
+    "trigger_config": {
+      "schedule": "30 8 * * *",
+      "visibility": "global"
+    },
+    "graph": {
+      "meta": {
+        "template": "tpl_daily_tiktok_short_video_v1",
+        "template_uuid": "b49ed4ec-3c74-7b43-93cc-70948687dc9a",
+        "template_version": "1.0.0",
+        "visibility": "global"
+      },
+      "nodes": [
+        {
+          "id": "t1",
+          "type": "trigger",
+          "position": { "x": 0, "y": 80 },
+          "data": {
+            "blockId": "trigger.cron",
+            "label": "Cron · 08:30 mỗi ngày",
+            "schedule": "30 8 * * *"
+          }
+        },
+        {
+          "id": "tr",
+          "type": "action",
+          "position": { "x": 320, "y": 80 },
+          "data": {
+            "blockId": "action.trending_research",
+            "label": "Tìm trend TikTok hôm nay",
+            "topic": "xu hướng TikTok Việt Nam hôm nay cho video ngắn marketing, review sản phẩm, khai trương, khuyến mại",
+            "scope": "1d",
+            "platforms": "web,tiktok,youtube,news",
+            "language": "vi",
+            "output": "full"
+          }
+        },
+        {
+          "id": "gen",
+          "type": "action",
+          "position": { "x": 640, "y": 80 },
+          "data": {
+            "blockId": "action.generate_content",
+            "label": "Viết prompt video TikTok",
+            "content_type": "script",
+            "notebook_id": 0,
+            "prompt_template": "Dựa trên research sau, viết 1 prompt tiếng Anh để tạo video dọc TikTok 9:16, dài 5-8 giây, không chữ trong video, không logo, không watermark. Chủ đề phải hợp xu hướng marketing Việt Nam hôm nay.\n\nYêu cầu output chỉ là prompt video tiếng Anh, tối đa 900 ký tự, gồm: scene, subject, camera movement, lighting, mood, action, product placeholder nếu chưa có sản phẩm cụ thể.\n\nResearch:\n{{tr.answer_md}}\n\nNguồn:\n{{tr.sources_text}}",
+            "tone": "cinematic, energetic, social-commerce",
+            "max_words": 180,
+            "character_id": 0
+          }
+        },
+        {
+          "id": "video",
+          "type": "action",
+          "position": { "x": 960, "y": 80 },
+          "data": {
+            "blockId": "action.video_submit",
+            "label": "Tạo video TikTok 9:16",
+            "prompt": "{{gen.content}}",
+            "image_url": "",
+            "model": "kling/v1-5/standard",
+            "duration": 5,
+            "aspect_ratio": "9:16",
+            "reply_template": "⏳ Đã nhận lịch tạo video TikTok hôm nay. Em đang render video dọc 9:16, ETA khoảng {{video_submit.eta_min}} phút. Xong em gửi link về đây.",
+            "reply_on_fail": "❌ Tạo video TikTok thất bại: {{video_submit.error}}. Hãy thử đổi model hoặc prompt ngắn hơn."
+          }
+        },
+        {
+          "id": "log",
+          "type": "action",
+          "position": { "x": 1280, "y": 80 },
+          "data": {
+            "blockId": "action.log",
+            "label": "Ghi log",
+            "message": "daily_tiktok_short_video — task_id={{video.task_id}} job={{video.kling_job_id}} sources={{tr.source_count}}"
+          }
+        }
+      ],
+      "edges": [
+        { "id": "e_t1_tr", "source": "t1", "target": "tr" },
+        { "id": "e_tr_gen", "source": "tr", "target": "gen" },
+        { "id": "e_gen_video", "source": "gen", "target": "video" },
+        { "id": "e_video_log", "source": "video", "target": "log" }
+      ]
+    },
+    "template_uuid": "b49ed4ec-3c74-7b43-93cc-70948687dc9a",
+    "template_version": "1.0.0",
+    "visibility": "global"
+  },
+  {
+    "slug": "tpl_daily_morning_fb_auto_content_v1",
+    "name": "[global] [content ops] Viết content đăng FB mỗi sáng (Cron 07:30)",
+    "description": "Cron 07:30 → nghiên cứu nhanh xu hướng/ngữ cảnh hôm nay → viết caption Facebook buổi sáng → tự đăng lên Fanpage đã ghim trong Kênh của tôi.",
+    "category": "automation",
+    "source": "builtin",
+    "trigger_type": "cron",
+    "icon": "Facebook",
+    "tags": "cron,daily,facebook,morning,content,publish,marketing,global",
+    "trigger_config": {
+      "schedule": "30 7 * * *",
+      "visibility": "global"
+    },
+    "graph": {
+      "meta": {
+        "template": "tpl_daily_morning_fb_auto_content_v1",
+        "template_uuid": "a8efca16-af8a-797c-b79c-69b028ab0f75",
+        "template_version": "1.0.0",
+        "visibility": "global"
+      },
+      "nodes": [
+        {
+          "id": "t1",
+          "type": "trigger",
+          "position": { "x": 0, "y": 80 },
+          "data": {
+            "blockId": "trigger.cron",
+            "label": "Cron · 07:30 mỗi ngày",
+            "schedule": "30 7 * * *"
+          }
+        },
+        {
+          "id": "tr",
+          "type": "action",
+          "position": { "x": 320, "y": 80 },
+          "data": {
+            "blockId": "action.trending_research",
+            "label": "Tìm góc đăng sáng nay",
+            "topic": "xu hướng marketing và hành vi khách hàng Việt Nam sáng nay, ý tưởng content Facebook hữu ích",
+            "scope": "1d",
+            "platforms": "web,news,tiktok,youtube",
+            "language": "vi",
+            "output": "compact"
+          }
+        },
+        {
+          "id": "gen",
+          "type": "action",
+          "position": { "x": 640, "y": 80 },
+          "data": {
+            "blockId": "action.generate_content",
+            "label": "Viết caption Facebook sáng",
+            "content_type": "fb_post",
+            "notebook_id": 0,
+            "prompt_template": "Viết một bài Facebook tiếng Việt để đăng buổi sáng, phù hợp fanpage doanh nghiệp.\n\nYêu cầu:\n- 1 hook mở đầu gần gũi\n- 4-6 dòng nội dung chính\n- Có một insight hoặc dẫn chứng từ research\n- CTA nhẹ: hỏi ý kiến/comment/inbox\n- 3-5 hashtag\n- Không dùng markdown, không dùng tiêu đề riêng\n\nResearch hôm nay:\n{{tr.answer_md}}\n\nNguồn tham khảo:\n{{tr.sources_text}}",
+            "tone": "thân thiện, chuyên nghiệp, dễ tương tác",
+            "max_words": 260,
+            "character_id": 0
+          }
+        },
+        {
+          "id": "publish",
+          "type": "action",
+          "position": { "x": 960, "y": 80 },
+          "data": {
+            "blockId": "action.publish_fb_post",
+            "label": "Đăng Fanpage đã ghim",
+            "fb_target_mode": "single",
+            "fb_page_id": "",
+            "fb_page_name": "",
+            "content": "{{gen.content}}",
+            "image_url": "",
+            "mode": "scheduled",
+            "delay_min": 5
+          }
+        },
+        {
+          "id": "log",
+          "type": "action",
+          "position": { "x": 1280, "y": 80 },
+          "data": {
+            "blockId": "action.log",
+            "label": "Ghi log",
+            "message": "daily_morning_fb_auto_content — event_id={{publish.event_id}} page={{publish.page_id}} sources={{tr.source_count}}"
+          }
+        }
+      ],
+      "edges": [
+        { "id": "e_t1_tr", "source": "t1", "target": "tr" },
+        { "id": "e_tr_gen", "source": "tr", "target": "gen" },
+        { "id": "e_gen_publish", "source": "gen", "target": "publish" },
+        { "id": "e_publish_log", "source": "publish", "target": "log" }
+      ]
+    },
+    "template_uuid": "a8efca16-af8a-797c-b79c-69b028ab0f75",
+    "template_version": "1.0.0",
+    "visibility": "global"
   }
 ]

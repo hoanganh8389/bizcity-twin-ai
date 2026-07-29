@@ -5,7 +5,7 @@
  * Mirrors `bizcity-tool-facebook` pattern:
  *   - Public route /tool-zalo-bizcity/  (4 tabs: Bot OA / Hotline ZNS / Pages / Cài đặt)
  *   - Surfaces a SINGLE source-of-truth UI for editing both Zalo integrations
- *     (`zalo_bot` from this plugin + `zalo_hotline` from bizcity-admin-hook-zalo)
+ *     (`zalo_bot` from this plugin + `zalo_hotline` from Channel Gateway compat)
  *     instead of forcing users into the WAIC integration dialog.
  *   - Save handler writes back into `WaicIntegrationsModel::saveIntegrations()`
  *     so the data plumbed by other workflow blocks stays consistent.

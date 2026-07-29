@@ -1,0 +1,133 @@
+[
+  {
+    "slug": "tpl_zalo_capture_to_notebook_v1",
+    "name": "Notebook Bridge · Zalo capture to KG",
+    "description": "Keyword trigger from Zalo Bot routes directly to action.capture_to_notebook, then confirms back to chat and writes a CRM audit event.",
+    "category": "automation",
+    "source": "builtin",
+    "trigger_type": "zalo_inbound",
+    "icon": "BookOpen",
+    "tags": "zalo,notebook,capture,bridge,kg",
+    "plan": "free",
+    "trigger_config": {
+      "instance_id": "",
+      "filter": "@ghichu",
+      "is_fallback": false,
+      "priority": 14,
+      "visibility": "private"
+    },
+    "graph": {
+      "meta": {
+        "template": "tpl_zalo_capture_to_notebook_v1",
+        "template_uuid": "0198437d-8f6d-7c4b-94de-24cb98f44e90",
+        "template_version": "1.1.0",
+        "visibility": "private"
+      },
+      "nodes": [
+        {
+          "id": "t1",
+          "type": "trigger",
+          "position": {
+            "x": 0,
+            "y": 120
+          },
+          "data": {
+            "blockId": "trigger.zalo_inbound",
+            "label": "Zalo inbound · @ghichu",
+            "instance_id": "",
+            "filter": "@ghichu"
+          }
+        },
+        {
+          "id": "cap",
+          "type": "action",
+          "position": {
+            "x": 340,
+            "y": 120
+          },
+          "data": {
+            "blockId": "action.capture_to_notebook",
+            "label": "Capture to Notebook",
+            "title_hint": "{{trigger.text}}",
+            "content": "{{trigger.text}}",
+            "kind": "auto",
+            "channel": "",
+            "day_key": "",
+            "include_trigger_media": 1,
+            "include_pending_attachments": 1,
+            "clear_pending_after_capture": 1
+          }
+        },
+        {
+          "id": "share",
+          "type": "action",
+          "position": {
+            "x": 700,
+            "y": 40
+          },
+          "data": {
+            "blockId": "action.learning_share_link",
+            "label": "Link theo doi hoc",
+            "notebook_id": "{{cap.notebook_id}}",
+            "source_id": "{{cap.first_source_id}}",
+            "job_id": "",
+            "ttl_days": 30
+          }
+        },
+        {
+          "id": "reply",
+          "type": "action",
+          "position": {
+            "x": 1040,
+            "y": 40
+          },
+          "data": {
+            "blockId": "action.reply_zalo",
+            "label": "Reply confirmation",
+            "text": "Da luu {{cap.captured_succeeded}}/{{cap.captured_total}} muc vao notebook \"{{cap.notebook_name}}\".\nTep da dua vao de hoc:\n{{cap.accepted_files_text}}\nTheo doi tien trinh hoc (cron + admin) tai: {{share.share_url}}\n(link het han: {{share.expires_at}})"
+          }
+        },
+        {
+          "id": "audit",
+          "type": "action",
+          "position": {
+            "x": 700,
+            "y": 220
+          },
+          "data": {
+            "blockId": "action.create_crm_event",
+            "label": "CRM audit",
+            "event_type": "task",
+            "title": "Notebook capture completed",
+            "description": "Batch {{cap.batch_id}} · notebook {{cap.notebook_id}} · total {{cap.captured_total}}"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "e_t1_cap",
+          "source": "t1",
+          "target": "cap"
+        },
+        {
+          "id": "e_cap_share",
+          "source": "cap",
+          "target": "share"
+        },
+        {
+          "id": "e_share_reply",
+          "source": "share",
+          "target": "reply"
+        },
+        {
+          "id": "e_cap_audit",
+          "source": "cap",
+          "target": "audit"
+        }
+      ]
+    },
+    "template_uuid": "0198437d-8f6d-7c4b-94de-24cb98f44e90",
+    "template_version": "1.1.0",
+    "visibility": "private"
+  }
+]

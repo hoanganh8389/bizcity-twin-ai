@@ -294,19 +294,41 @@ class BizCity_Scheduler_Manager {
 
 		// 4) Backfill from CRM legacy table if it exists.
 		if ( $this->table_exists( $crm_legacy ) ) {
+			// [2026-07-22 Johnny Chu] SCHEDULER-MIGRATE-BACKFILL-FIX — legacy CRM small-schema
+			// table's exact column set varies across older subsites (some never had
+			// created_by/attendees_json/related_entity_* columns), causing
+			// "Unknown column 'created_by' in 'SELECT'" fatal on backfill. Build the SELECT
+			// expression list dynamically, falling back to safe literals for any column
+			// that doesn't exist on this particular legacy table.
+			$legacy_cols = $wpdb->get_col( $wpdb->prepare(
+				"SELECT COLUMN_NAME FROM information_schema.COLUMNS
+				 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s",
+				$crm_legacy
+			) );
+
+			$has = static function ( string $col ) use ( $legacy_cols ): bool {
+				return in_array( $col, $legacy_cols, true );
+			};
+
+			$user_id_expr    = $has( 'created_by' ) ? 'COALESCE(created_by, 0)' : '0';
+			$type_expr       = $has( 'type' ) ? "COALESCE(NULLIF(type, ''), 'meeting')" : "'meeting'";
+			$attendees_expr  = $has( 'attendees_json' ) ? "COALESCE(JSON_EXTRACT(attendees_json, '$'), JSON_ARRAY())" : 'JSON_ARRAY()';
+			$rel_type_expr   = $has( 'related_entity_type' ) ? 'related_entity_type' : 'NULL';
+			$rel_id_expr     = $has( 'related_entity_id' ) ? 'related_entity_id' : 'NULL';
+
 			$wpdb->query(
 				"INSERT INTO `{$unified}`
 					(user_id, title, start_at, end_at, event_type, metadata, source, status, created_at, updated_at)
 				 SELECT
-					COALESCE(created_by, 0)                              AS user_id,
+					{$user_id_expr}                                      AS user_id,
 					title                                                AS title,
 					FROM_UNIXTIME(start_at)                              AS start_at,
 					FROM_UNIXTIME(end_at)                                AS end_at,
-					COALESCE(NULLIF(type, ''), 'meeting')                AS event_type,
+					{$type_expr}                                         AS event_type,
 					JSON_OBJECT(
-						'attendees',           COALESCE(JSON_EXTRACT(attendees_json, '$'), JSON_ARRAY()),
-						'related_entity_type', related_entity_type,
-						'related_entity_id',   related_entity_id,
+						'attendees',           {$attendees_expr},
+						'related_entity_type', {$rel_type_expr},
+						'related_entity_id',   {$rel_id_expr},
 						'migrated_from',       'crm_events_legacy'
 					)                                                    AS metadata,
 					'crm_calendar'                                       AS source,
@@ -491,6 +513,12 @@ class BizCity_Scheduler_Manager {
 		if ( $new_status === 'done' && $old_status !== 'done' ) {
 			do_action( 'bizcity_scheduler_event_completed', (int) $id, $event );
 		}
+		// [2026-07-21 Johnny Chu] PHASE-IMG-FIRST-FB-FIX — fire failed hook so Completion Notifier can report async publisher failures.
+		if ( $new_status === 'failed' && $old_status !== 'failed' ) {
+			$meta = isset( $event->metadata ) && is_string( $event->metadata ) ? json_decode( $event->metadata, true ) : array();
+			$reason = is_array( $meta ) ? (string) ( $meta['fb_error'] ?? $meta['web_error'] ?? $meta['error'] ?? 'failed' ) : 'failed';
+			do_action( 'bizcity_scheduler_event_failed', (int) $id, $event, $reason );
+		}
 		if ( $new_status === 'cancelled' && $old_status !== 'cancelled' ) {
 			do_action( 'bizcity_scheduler_event_cancelled', (int) $id, $event );
 		}
@@ -584,7 +612,7 @@ class BizCity_Scheduler_Manager {
 		$args  = [ $user_id, $to, $from, $from ];
 
 		if ( $status && $status !== 'all' ) {
-			$allowed_statuses = [ 'active', 'done', 'cancelled' ];
+			$allowed_statuses = [ 'active', 'done', 'failed', 'cancelled' ];
 			if ( in_array( $status, $allowed_statuses, true ) ) {
 				$where .= " AND status = %s";
 				$args[] = $status;
@@ -846,7 +874,7 @@ class BizCity_Scheduler_Manager {
 			'qr_scan_followup',       // QR code scan entry point (campaign attribution).
 		];
 
-		$allowed_statuses = [ 'active', 'draft', 'done', 'cancelled' ];
+		$allowed_statuses = [ 'active', 'draft', 'done', 'failed', 'cancelled' ];
 		$status_input     = (string) ( $data['status'] ?? 'active' );
 
 		$row = [

@@ -90,6 +90,17 @@ class BizCity_Zalo_Bot_Channel_Adapter implements BizCity_Channel_Adapter {
 		$zalo_user_id = $m[2];
 		$switched     = false;
 
+		// [2026-07-21 Johnny Chu] PHASE-ZALOBOT-GROUP W7 — normalize conversation targets before calling Zalo API.
+		if ( strpos( $zalo_user_id, 'private_' ) === 0 ) {
+			$zalo_user_id = substr( $zalo_user_id, 8 );
+		} elseif ( strpos( $zalo_user_id, 'group_' ) === 0 ) {
+			$zalo_user_id = substr( $zalo_user_id, 6 );
+		}
+
+		if ( $zalo_user_id === '' ) {
+			return false;
+		}
+
 		// Multisite: resolve and switch to bot's blog
 		if ( is_multisite() && class_exists( 'BizCity_Blog_Resolver' ) ) {
 			$target_blog = BizCity_Blog_Resolver::instance()->resolve_bot_blog( $bot_id );

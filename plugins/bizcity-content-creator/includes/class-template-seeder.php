@@ -33,6 +33,13 @@ class BZCC_Template_Seeder {
 	const LOCK_TRANSIENT   = 'bzcc_seed_lock';
 	// [2026-06-22 Johnny Chu] R-PERF — flag set after successful seed; avoids SELECT COUNT(*) every request
 	const OPT_SEEDED_FLAG  = 'bzcc_seed_seeded';
+	// [2026-07-24 Johnny Chu] PHASE-DIAG-PERF — the 2026-07-11 HOTFIX below made maybe_seed()
+	// call template_count() (SELECT COUNT(*)) on EVERY request whenever $version_ok was true,
+	// even when OPT_SEEDED_FLAG already said "seeded" — silently defeating the very flag that
+	// was added on 2026-06-22 to avoid this exact query. Bound the re-verify to a TTL instead.
+	// See core/diagnostics/docs/PHASE-DIAG-PERF-AUTO-CREATE-AUDIT.md.
+	const OPT_SEED_LAST_CHECKED = 'bzcc_seed_last_checked';
+	const SEED_RECHECK_TTL      = 6000; // 10 minutes
 
 	/* ──────────────────────────────────────────────────────────────
 	 * CANONICAL CATEGORY LIST — Phase 0 Foundation
@@ -65,6 +72,15 @@ class BZCC_Template_Seeder {
 		$version_ok = ( get_option( self::OPT_VERSION ) === BZCC_VERSION );
 		$seeded_ok  = (bool) get_option( self::OPT_SEEDED_FLAG );
 
+		// [2026-07-24 Johnny Chu] PHASE-DIAG-PERF — trust an already-seeded flag for a bounded
+		// window instead of re-running BZCC_Installer::tables_exist() + COUNT(*) on every single
+		// request (frontend included, this hooks 'init'). Re-verifies at most once per
+		// SEED_RECHECK_TTL, or immediately whenever version/seeded stamps no longer agree.
+		$last_checked = (int) get_option( self::OPT_SEED_LAST_CHECKED, 0 );
+		if ( $version_ok && $seeded_ok && ( time() - $last_checked ) < self::SEED_RECHECK_TTL ) {
+			return;
+		}
+
 		// [2026-07-11 Johnny Chu] HOTFIX — always verify physical table before trusting seed flags.
 		// Clone/migrate can copy options but miss table/data on target blog.
 		if ( ! class_exists( 'BZCC_Installer' ) ) {
@@ -82,11 +98,13 @@ class BZCC_Template_Seeder {
 
 			// [2026-07-11 Johnny Chu] HOTFIX — stale seeded flag must not block reseed when table is empty.
 			if ( $seeded_ok && $count > 0 ) {
+				update_option( self::OPT_SEED_LAST_CHECKED, time(), false ); // [2026-07-24 Johnny Chu] PHASE-DIAG-PERF
 				return;
 			}
 
 			if ( $count > 0 ) {
 				update_option( self::OPT_SEEDED_FLAG, 1, true );
+				update_option( self::OPT_SEED_LAST_CHECKED, time(), false ); // [2026-07-24 Johnny Chu] PHASE-DIAG-PERF
 				return;
 			}
 
@@ -115,6 +133,7 @@ class BZCC_Template_Seeder {
 			} else {
 				delete_option( self::OPT_SEEDED_FLAG );
 			}
+			update_option( self::OPT_SEED_LAST_CHECKED, time(), false ); // [2026-07-24 Johnny Chu] PHASE-DIAG-PERF
 		} finally {
 			delete_transient( self::LOCK_TRANSIENT );
 		}

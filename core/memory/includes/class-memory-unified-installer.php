@@ -29,7 +29,7 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 class BizCity_Memory_Unified_Installer {
 
 	const TABLE_SUFFIX      = 'bizcity_memory';
-	const DB_VERSION        = '1.1.0';
+	const DB_VERSION        = '1.2.0'; // [2026-07-28 Johnny Chu] R-CH-IDMEM — identity-scoped unified memory owner.
 	const DB_VERSION_OPTION = 'bizcity_memory_unified_db_ver';
 	const FLAG_FILTER       = 'bizcity_memory_unified_enabled';
 	const FLAG_OPTION       = 'bizcity_memory_unified_enabled'; // admin toggle
@@ -112,6 +112,7 @@ class BizCity_Memory_Unified_Installer {
 			blog_id INT UNSIGNED NOT NULL DEFAULT 1,
 			user_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
 			session_id VARCHAR(191) NOT NULL DEFAULT '',
+			identity_uuid CHAR(36) NOT NULL DEFAULT '',
 			conversation_id VARCHAR(64) NOT NULL DEFAULT '',
 			notebook_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
 
@@ -145,8 +146,9 @@ class BizCity_Memory_Unified_Installer {
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
 			PRIMARY KEY  (id),
-			UNIQUE KEY uq_memory_owner_key (blog_id, user_id, session_id, memory_class, memory_key),
+			UNIQUE KEY uq_memory_owner_key (blog_id, user_id, session_id, identity_uuid, memory_class, memory_key),
 			KEY idx_user_class (user_id, memory_class, status),
+			KEY idx_identity_class (blog_id, identity_uuid, memory_class, status),
 			KEY idx_class_score (memory_class, score, updated_at),
 			KEY idx_conversation (conversation_id, status),
 			KEY idx_notebook (notebook_id, memory_class),

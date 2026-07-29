@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "bizcity://events/product_intent_detected.json",
+  "title": "product_intent_detected",
+  "description": "Emitted after intent classifier resolves product intent. PHASE-TWB-PRODUCTS (2026-07-15).",
+  "type": "object",
+  "required": ["trace_id", "intent", "keywords", "detected_products"],
+  "properties": {
+    "trace_id": { "type": "string" },
+    "intent": { "type": "string", "description": "product_lookup | stock_price | product_learn | need_solution" },
+    "keywords": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Top extracted keywords from query."
+    },
+    "detected_products": {
+      "type": "array",
+      "description": "Explicit product terms detected by intent step before resolver loop.",
+      "items": {
+        "type": "object",
+        "required": ["term"],
+        "properties": {
+          "term": { "type": "string" },
+          "aliases": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "group": { "type": "string" },
+          "priority": { "type": "string" },
+          "confidence": { "type": "number" },
+          "source": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "want_enrichment": { "type": "boolean", "description": "Whether web enrichment path is enabled." },
+    "source": { "type": "string", "description": "classifier source: intent_hint or classifier." }
+  },
+  "additionalProperties": true
+}

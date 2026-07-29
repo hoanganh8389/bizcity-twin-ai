@@ -53,8 +53,9 @@ final class BizCoach_Pro_Astro_Admin_Settings {
 		$key  = isset( $_POST['bcpro_gateway_api_key'] )  ? trim( wp_unslash( $_POST['bcpro_gateway_api_key'] ) )  : '';
 		$base = isset( $_POST['bcpro_gateway_base_url'] ) ? esc_url_raw( wp_unslash( $_POST['bcpro_gateway_base_url'] ) ) : '';
 
-		update_site_option( BizCoach_Pro_Astro_Client::OPT_API_KEY,      $key );
-		update_site_option( BizCoach_Pro_Astro_Client::OPT_GATEWAY_BASE, $base );
+		// [2026-07-27 Johnny Chu] R-MSDB — keep Astro gateway settings in the current blog context.
+		update_option( BizCoach_Pro_Astro_Client::OPT_API_KEY,      $key );
+		update_option( BizCoach_Pro_Astro_Client::OPT_GATEWAY_BASE, $base );
 
 		wp_safe_redirect( self::canonical_url() );
 		exit;

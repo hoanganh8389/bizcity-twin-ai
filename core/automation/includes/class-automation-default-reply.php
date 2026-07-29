@@ -57,6 +57,16 @@ final class BizCity_Automation_Default_Reply {
 			'user_id' => (int) ( $run_payload['wp_user_id']   ?? 0 ),
 			'guru_id' => (int) ( $run_payload['character_id'] ?? 0 ),
 			'k'       => 8,
+			// [2026-07-27 Johnny Chu] PHASE-0.52 W4 — no vertical selection uses the generic Brain path; tool intent stays off until an explicit command/whitelist exists.
+			'web_mode'         => 'off',
+			'mode'             => 'brain',
+			'skip_tool_intent' => true,
+			// [2026-07-27 Johnny Chu] PHASE-0.52 W2 — carry channel identity context without granting anonymous memory ownership.
+			'platform'          => (string) ( $run_payload['platform'] ?? $run_payload['channel'] ?? '' ),
+			'channel'           => (string) ( $run_payload['channel'] ?? '' ),
+			'account_id'        => (string) ( $run_payload['account_id'] ?? $run_payload['instance_id'] ?? '' ),
+			'external_user_id'  => (string) ( $run_payload['sender_id'] ?? $run_payload['user_id'] ?? '' ),
+			'chat_id'           => $chat_id,
 		);
 
 		$result = BizCity_Automation_TwinBrain_Bridge::run_with_capture(
@@ -64,7 +74,11 @@ final class BizCity_Automation_Default_Reply {
 			$opts,
 			static function ( $event_key, $payload ) use ( $chat_id ) {
 				do_action( 'bizcity_automation_default_reply_event', $chat_id, $event_key, $payload );
-			}
+			},
+			array(
+				'complete' => true,
+				'chat_id' => $chat_id,
+			)
 		);
 
 		if ( is_wp_error( $result ) || ! is_array( $result ) ) {

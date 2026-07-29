@@ -50,9 +50,14 @@ class BizCity_Twin_Suggest {
         $message       = $args['message'] ?? '';
         $mode          = $args['mode'] ?? '';
         $engine_result = $args['engine_result'] ?? [];
+        // [2026-07-28 Johnny Chu] R-CH-IDMEM — use the request identity for all suggestion memory reads.
+        $memory_scope  = class_exists( 'BizCity_Memory_Identity_Scope' )
+            ? BizCity_Memory_Identity_Scope::resolve( array_merge( $args, [ 'user_id' => $user_id ] ) )
+            : [ 'identity_uuid' => (string) ( $args['identity_uuid'] ?? '' ) ];
+        $identity_uuid = (string) ( $memory_scope['identity_uuid'] ?? '' );
 
         // ── 1. Gather historical memory signals ──
-        $memory_hints = self::gather_memory_hints( $user_id, $session_id );
+        $memory_hints = self::gather_memory_hints( $user_id, $session_id, $identity_uuid );
 
         // ── 2. Gather current session signals ──
         $session_hints = self::gather_session_hints( $user_id, $session_id, $engine_result );
@@ -71,7 +76,7 @@ class BizCity_Twin_Suggest {
      * @param string $session_id
      * @return array { topics: string[], goals: string[], patterns: string[] }
      */
-    private static function gather_memory_hints( int $user_id, string $session_id ): array {
+    private static function gather_memory_hints( int $user_id, string $session_id, string $identity_uuid = '' ): array {
         $hints = [
             'topics'   => [],
             'goals'    => [],
@@ -85,7 +90,7 @@ class BizCity_Twin_Suggest {
         // ── Episodic memory: recurring themes, habits, past goals ──
         if ( class_exists( 'BizCity_Episodic_Memory' ) ) {
             $episodic = BizCity_Episodic_Memory::instance();
-            $habits   = $episodic->get_habits( $user_id );
+            $habits   = $episodic->get_habits( $user_id, $identity_uuid );
             foreach ( array_slice( $habits, 0, 3 ) as $h ) {
                 $hints['patterns'][] = $h->event_text;
             }
@@ -94,7 +99,7 @@ class BizCity_Twin_Suggest {
         // ── Rolling memory: active goals, recent completions ──
         if ( class_exists( 'BizCity_Rolling_Memory' ) ) {
             $rolling = BizCity_Rolling_Memory::instance();
-            $active  = $rolling->get_active_for_user( $user_id, $session_id );
+            $active  = $rolling->get_active_for_user( $user_id, $session_id, $identity_uuid );
             foreach ( array_slice( $active, 0, 3 ) as $r ) {
                 $label = $r->goal_label ?: $r->goal;
                 if ( $label ) {
@@ -102,7 +107,7 @@ class BizCity_Twin_Suggest {
                 }
             }
 
-            $completed = $rolling->get_recently_completed( $user_id, 60 );
+            $completed = $rolling->get_recently_completed( $user_id, 60, $identity_uuid );
             foreach ( array_slice( $completed, 0, 2 ) as $c ) {
                 $status = $c->status === 'completed' ? '✅' : '❌';
                 $hints['goals'][] = "{$status} " . ( $c->goal_label ?: $c->goal );
@@ -113,10 +118,11 @@ class BizCity_Twin_Suggest {
         if ( class_exists( 'BizCity_User_Memory' ) ) {
             $mem      = BizCity_User_Memory::instance();
             $memories = $mem->get_memories( [
-                'user_id'    => $user_id,
-                'session_id' => $session_id,
-                'limit'      => 5,
-                'order_by'   => 'score',
+                'user_id'       => $user_id,
+                'session_id'    => $session_id,
+                'identity_uuid' => $identity_uuid,
+                'limit'         => 5,
+                'order_by'      => 'score',
             ] );
             foreach ( $memories as $m ) {
                 if ( in_array( $m->memory_type, [ 'goal', 'pain', 'request' ], true ) ) {

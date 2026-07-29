@@ -41,7 +41,15 @@ final class BizCity_Automation_Trigger_Zalo extends BizCity_Automation_Block_Bas
 		if ( empty( $out['wp_user_id'] ) ) {
 			$chat_id = (string) ( $out['chat_id'] ?? '' );
 			if ( $chat_id !== '' && class_exists( 'BizCity_User_Resolver' ) ) {
-				$resolved = (int) BizCity_User_Resolver::instance()->resolve( $chat_id );
+				$resolve_chat_id = $chat_id;
+				$zalo_user_id    = (string) ( $out['user_id'] ?? $out['sender_id'] ?? '' );
+				$zalo_bot_id     = (string) ( $out['bot_id'] ?? $out['instance_id'] ?? $out['account_id'] ?? '' );
+				if ( $zalo_user_id !== '' && $zalo_bot_id !== '' ) {
+					// [2026-07-17 Johnny Chu] PHASE-TWINWEB F4 — canonical key for owner resolve, avoid thread/group chat_id.
+					$resolve_chat_id = 'zalobot_' . $zalo_bot_id . '_' . $zalo_user_id;
+					$out['identity_chat_id'] = $resolve_chat_id;
+				}
+				$resolved = (int) BizCity_User_Resolver::instance()->resolve( $resolve_chat_id );
 				if ( $resolved > 0 ) {
 					$out['wp_user_id'] = $resolved;
 				}

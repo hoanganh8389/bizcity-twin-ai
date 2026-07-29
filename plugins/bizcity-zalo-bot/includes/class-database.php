@@ -288,6 +288,39 @@ class BizCity_Zalo_Bot_Database {
 			return $wpdb->insert_id;
 		}
 	}
+
+	public function save_platform_identity_from_get_me( $bot_id, $response ) {
+		// [2026-07-21 Johnny Chu] PHASE-TWINWEB W3 — persist Zalo Bot Platform getMe.id/account_name so customer MyChannels can render bot profile + group invite links.
+		$bot_id = (int) $bot_id;
+		if ( $bot_id <= 0 || ! is_array( $response ) ) {
+			return array();
+		}
+		$result = isset( $response['result'] ) && is_array( $response['result'] ) ? $response['result'] : $response;
+		$platform_id  = isset( $result['id'] ) ? sanitize_text_field( (string) $result['id'] ) : '';
+		$account_name = sanitize_text_field( (string) ( $result['account_name'] ?? $result['username'] ?? '' ) );
+		$display_name = sanitize_text_field( (string) ( $result['display_name'] ?? $result['first_name'] ?? '' ) );
+		$account_type = sanitize_text_field( (string) ( $result['account_type'] ?? '' ) );
+		$identifier = trim( $platform_id . ' ' . $account_name );
+		if ( $identifier === '' ) {
+			return array();
+		}
+
+		global $wpdb;
+		$table = $wpdb->prefix . 'bizcity_zalo_bots';
+		$wpdb->update( $table, array( 'oa_id' => $identifier ), array( 'id' => $bot_id ), array( '%s' ), array( '%d' ) );
+		$identity = array(
+			'bot_platform_id' => $platform_id,
+			'account_name'    => $account_name,
+			'display_name'    => $display_name,
+			'account_type'    => $account_type,
+			'identifier'      => $identifier,
+			'bot_url'         => $platform_id !== '' ? 'https://bot.zaloplatforms.com/bots/' . rawurlencode( $platform_id ) : '',
+			'invite_url'      => $account_name !== '' ? 'https://bot.zaloplatforms.com/groups/invite/' . rawurlencode( $account_name ) : '',
+			'updated_at'      => current_time( 'mysql' ),
+		);
+		update_option( 'bizcity_zalo_bot_platform_identity_' . $bot_id, $identity, false );
+		return $identity;
+	}
 	
 	/**
 	 * Delete bot

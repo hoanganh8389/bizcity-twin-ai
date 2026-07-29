@@ -51,6 +51,19 @@ final class BizCity_Automation_Action_Trending_Research extends BizCity_Automati
 	/** Max sources to pass to LLM synthesis context (token budget). */
 	const MAX_SYNTHESIS_SOURCES = 12;
 
+	/**
+	 * [2026-07-27 Johnny Chu] PHASE-TRENDING W2 — platform fetch diagnostics for no_results reason buckets.
+	 *
+	 * Shape:
+	 *   [
+	 *     'web' => array( 'bucket' => 'zero_hits|auth_failed|rate_limited|timeout|ok', 'hits' => 0, 'errors' => array() ),
+	 *     ...
+	 *   ]
+	 *
+	 * @var array<string,array<string,mixed>>
+	 */
+	private $platform_fetch_diag = array();
+
 	public function id(): string   { return 'action.trending_research'; }
 	public function kind(): string { return 'action'; }
 
@@ -139,16 +152,22 @@ final class BizCity_Automation_Action_Trending_Research extends BizCity_Automati
 		$query_plan = $this->build_query_plan( $topic, $scope, $language );
 
 		// --- L1: Parallel Fetch across platforms -----------------------------
+		// [2026-07-27 Johnny Chu] PHASE-TRENDING W2 — reset per-run platform diagnostics before fetching.
+		$this->platform_fetch_diag = array();
 		$raw_results = $this->fetch_all_platforms( $platforms, $query_plan, $scope );
 
 		if ( empty( $raw_results ) ) {
+			// [2026-07-27 Johnny Chu] PHASE-TRENDING W2 — expose deterministic no_results reason bucket.
+			$reason = $this->build_no_results_reason( $platforms );
 			$this->note_event( 'trending_research_no_results', array(
 				'topic'     => $topic,
 				'scope'     => $scope,
 				'platforms' => implode( ',', $platforms ),
+				'reason_bucket' => (string) ( $reason['bucket'] ?? 'zero_hits' ),
+				'reason_by_platform' => (array) ( $reason['by_platform'] ?? array() ),
 			) );
 			// [2026-06-25 Johnny Chu] PHASE-TRENDING W1 FIX — pass $topic so msg_1..4 show meaningful text.
-			return $this->_empty_result( 'no_results', $t0, $topic );
+			return $this->_empty_result( 'no_results', $t0, $topic, $reason );
 		}
 
 		// --- L2: Signal Scoring + entity grounding ---------------------------
@@ -190,6 +209,9 @@ final class BizCity_Automation_Action_Trending_Research extends BizCity_Automati
 			'ok'             => true,
 			'ms'             => $ms,
 			'error'          => '',
+			'no_results_reason' => '',
+			'no_results_reason_by_platform' => array(),
+			'no_results_reason_counts' => array(),
 			// [2026-06-25 Johnny Chu] PHASE-TRENDING W1 — 4 Zalo message chunks.
 			'msg_1'          => (string) ( $synthesis['msg_1'] ?? '' ),
 			'msg_2'          => (string) ( $synthesis['msg_2'] ?? '' ),
@@ -300,6 +322,7 @@ final class BizCity_Automation_Action_Trending_Research extends BizCity_Automati
 		$all = array();
 
 		foreach ( $platforms as $platform ) {
+			$this->ensure_platform_diag( $platform );
 			try {
 				switch ( $platform ) {
 					case 'web':
@@ -322,8 +345,10 @@ final class BizCity_Automation_Action_Trending_Research extends BizCity_Automati
 				}
 				foreach ( $results as &$r ) { $r['platform'] = $platform; }
 				unset( $r );
+				$this->mark_platform_hits( $platform, count( $results ) );
 				$all = array_merge( $all, $results );
 			} catch ( \Throwable $e ) {
+				$this->mark_platform_error( $platform, 'timeout', $e->getMessage() );
 				$this->note_event( 'trending_fetch_error', array(
 					'platform' => $platform,
 					'reason'   => 'timeout',
@@ -340,6 +365,7 @@ final class BizCity_Automation_Action_Trending_Research extends BizCity_Automati
 	 * Pattern: last30days lib/web_search_keyless.py + lib/rerank.py.
 	 */
 	private function fetch_web( array $plan, string $scope ): array {
+		$this->ensure_platform_diag( 'web' );
 		if ( ! class_exists( 'BizCity_Search_Client' ) ) { return array(); }
 		$client = BizCity_Search_Client::instance();
 		if ( ! $client->is_ready() ) { return array(); }
@@ -352,7 +378,14 @@ final class BizCity_Automation_Action_Trending_Research extends BizCity_Automati
 				'include_answer' => false,
 				'topic'          => 'news',
 			) );
-			if ( is_wp_error( $resp ) || ! is_array( $resp ) ) { continue; }
+			if ( is_wp_error( $resp ) ) {
+				$this->mark_platform_error( 'web', $this->classify_wp_error_bucket( $resp ), $resp->get_error_message() );
+				continue;
+			}
+			if ( ! is_array( $resp ) ) {
+				$this->mark_platform_error( 'web', 'timeout', 'search response not array' );
+				continue;
+			}
 			// search() returns flat array of items
 			$items = isset( $resp['results'] ) ? $resp['results'] : $resp;
 			foreach ( $items as $r ) {
@@ -367,6 +400,9 @@ final class BizCity_Automation_Action_Trending_Research extends BizCity_Automati
 				);
 			}
 		}
+		if ( empty( $results ) ) {
+			$this->mark_platform_zero_hits( 'web' );
+		}
 		return $results;
 	}
 
@@ -380,6 +416,7 @@ final class BizCity_Automation_Action_Trending_Research extends BizCity_Automati
 	 * searching all of Reddit (no restrict_sr) — always finds results for any topic.
 	 */
 	private function fetch_reddit( array $plan, string $scope ): array {
+		$this->ensure_platform_diag( 'reddit' );
 		$results = array();
 		$scope_t = $scope === '1d' ? 'day' : ( $scope === '7d' ? 'week' : 'month' );
 		$query   = $plan['search_queries'][0] ?? $plan['primary_entity'];
@@ -394,7 +431,10 @@ final class BizCity_Automation_Action_Trending_Research extends BizCity_Automati
 				'user-agent' => 'BizCity TwinBrain/1.0 (trending research; +https://bizcity.vn)',
 				'headers'    => array( 'Accept' => 'application/json' ),
 			) );
-			if ( is_wp_error( $resp ) ) { continue; }
+			if ( is_wp_error( $resp ) ) {
+				$this->mark_platform_error( 'reddit', $this->classify_wp_error_bucket( $resp ), $resp->get_error_message() );
+				continue;
+			}
 
 			$body    = (string) wp_remote_retrieve_body( $resp );
 			if ( substr( $body, 0, 3 ) === "\xEF\xBB\xBF" ) { $body = substr( $body, 3 ); }
@@ -442,7 +482,10 @@ final class BizCity_Automation_Action_Trending_Research extends BizCity_Automati
 					'user-agent' => 'BizCity TwinBrain/1.0 (trending research; +https://bizcity.vn)',
 					'headers'    => array( 'Accept' => 'application/json' ),
 				) );
-				if ( is_wp_error( $resp ) ) { continue; }
+				if ( is_wp_error( $resp ) ) {
+					$this->mark_platform_error( 'reddit', $this->classify_wp_error_bucket( $resp ), $resp->get_error_message() );
+					continue;
+				}
 
 				$body    = (string) wp_remote_retrieve_body( $resp );
 				if ( substr( $body, 0, 3 ) === "\xEF\xBB\xBF" ) { $body = substr( $body, 3 ); }
@@ -467,6 +510,9 @@ final class BizCity_Automation_Action_Trending_Research extends BizCity_Automati
 				if ( ! empty( $results ) ) { break; } // first query that yields results is enough
 			}
 		}
+		if ( empty( $results ) ) {
+			$this->mark_platform_zero_hits( 'reddit' );
+		}
 
 		return $results;
 	}
@@ -477,6 +523,7 @@ final class BizCity_Automation_Action_Trending_Research extends BizCity_Automati
 	 * Pattern: last30days lib/tiktok.py (SCRAPECREATORS_API_KEY optional).
 	 */
 	private function fetch_tiktok( array $plan, string $scope ): array {
+		$this->ensure_platform_diag( 'tiktok' );
 		if ( ! class_exists( 'BizCity_Search_Client' ) ) { return array(); }
 		$client = BizCity_Search_Client::instance();
 		if ( ! $client->is_ready() ) { return array(); }
@@ -490,6 +537,10 @@ final class BizCity_Automation_Action_Trending_Research extends BizCity_Automati
 		$resp = $client->search( 'site:tiktok.com ' . $plan['search_queries'][0], 5, array(
 			'include_answer' => false,
 		) );
+
+		if ( is_wp_error( $resp ) ) {
+			$this->mark_platform_error( 'tiktok', $this->classify_wp_error_bucket( $resp ), $resp->get_error_message() );
+		}
 
 		if ( ! is_wp_error( $resp ) && is_array( $resp ) ) {
 			$items = isset( $resp['results'] ) ? $resp['results'] : $resp;
@@ -505,6 +556,9 @@ final class BizCity_Automation_Action_Trending_Research extends BizCity_Automati
 				);
 			}
 		}
+		if ( empty( $results ) ) {
+			$this->mark_platform_zero_hits( 'tiktok' );
+		}
 		return $results;
 	}
 
@@ -514,6 +568,7 @@ final class BizCity_Automation_Action_Trending_Research extends BizCity_Automati
 	 * fallback without yt-dlp: search youtube.com via Tavily.
 	 */
 	private function fetch_youtube( array $plan, string $scope ): array {
+		$this->ensure_platform_diag( 'youtube' );
 		if ( ! class_exists( 'BizCity_Search_Client' ) ) { return array(); }
 		$client = BizCity_Search_Client::instance();
 		if ( ! $client->is_ready() ) { return array(); }
@@ -523,9 +578,19 @@ final class BizCity_Automation_Action_Trending_Research extends BizCity_Automati
 			'include_answer' => false,
 		) );
 
-		if ( is_wp_error( $resp ) || ! is_array( $resp ) ) { return array(); }
+		if ( is_wp_error( $resp ) ) {
+			$this->mark_platform_error( 'youtube', $this->classify_wp_error_bucket( $resp ), $resp->get_error_message() );
+			return array();
+		}
+		if ( ! is_array( $resp ) ) {
+			$this->mark_platform_error( 'youtube', 'timeout', 'search response not array' );
+			return array();
+		}
 		$items = isset( $resp['results'] ) ? $resp['results'] : $resp;
-		if ( empty( $items ) ) { return array(); }
+		if ( empty( $items ) ) {
+			$this->mark_platform_zero_hits( 'youtube' );
+			return array();
+		}
 
 		$results = array();
 		foreach ( $items as $r ) {
@@ -539,6 +604,9 @@ final class BizCity_Automation_Action_Trending_Research extends BizCity_Automati
 				'source'     => 'youtube',
 			);
 		}
+		if ( empty( $results ) ) {
+			$this->mark_platform_zero_hits( 'youtube' );
+		}
 		return $results;
 	}
 
@@ -547,6 +615,7 @@ final class BizCity_Automation_Action_Trending_Research extends BizCity_Automati
 	 * Pattern: last30days lib/web_search_keyless.py news-bias.
 	 */
 	private function fetch_news( array $plan, string $scope ): array {
+		$this->ensure_platform_diag( 'news' );
 		if ( ! class_exists( 'BizCity_Search_Client' ) ) { return array(); }
 		$client = BizCity_Search_Client::instance();
 		if ( ! $client->is_ready() ) { return array(); }
@@ -557,9 +626,19 @@ final class BizCity_Automation_Action_Trending_Research extends BizCity_Automati
 			'topic'          => 'news',
 		) );
 
-		if ( is_wp_error( $resp ) || ! is_array( $resp ) ) { return array(); }
+		if ( is_wp_error( $resp ) ) {
+			$this->mark_platform_error( 'news', $this->classify_wp_error_bucket( $resp ), $resp->get_error_message() );
+			return array();
+		}
+		if ( ! is_array( $resp ) ) {
+			$this->mark_platform_error( 'news', 'timeout', 'search response not array' );
+			return array();
+		}
 		$items = isset( $resp['results'] ) ? $resp['results'] : $resp;
-		if ( empty( $items ) ) { return array(); }
+		if ( empty( $items ) ) {
+			$this->mark_platform_zero_hits( 'news' );
+			return array();
+		}
 
 		$results = array();
 		foreach ( $items as $r ) {
@@ -573,7 +652,173 @@ final class BizCity_Automation_Action_Trending_Research extends BizCity_Automati
 				'source'     => 'news',
 			);
 		}
+		if ( empty( $results ) ) {
+			$this->mark_platform_zero_hits( 'news' );
+		}
 		return $results;
+	}
+
+	/**
+	 * [2026-07-27 Johnny Chu] PHASE-TRENDING W2 — initialize one platform diag slot.
+	 */
+	private function ensure_platform_diag( string $platform ): void {
+		if ( $platform === '' ) { return; }
+		if ( isset( $this->platform_fetch_diag[ $platform ] ) ) { return; }
+		$this->platform_fetch_diag[ $platform ] = array(
+			'bucket' => 'zero_hits',
+			'hits'   => 0,
+			'errors' => array(),
+		);
+	}
+
+	/**
+	 * [2026-07-27 Johnny Chu] PHASE-TRENDING W2 — mark hard error bucket for a platform.
+	 */
+	private function mark_platform_error( string $platform, string $bucket, string $detail = '' ): void {
+		$this->ensure_platform_diag( $platform );
+		if ( ! isset( $this->platform_fetch_diag[ $platform ] ) ) { return; }
+
+		$priority = array(
+			'zero_hits'    => 1,
+			'timeout'      => 2,
+			'rate_limited' => 3,
+			'auth_failed'  => 4,
+			'ok'           => 0,
+		);
+		$curr = (string) ( $this->platform_fetch_diag[ $platform ]['bucket'] ?? 'zero_hits' );
+		$next = isset( $priority[ $bucket ] ) ? $bucket : 'timeout';
+		if ( ( $priority[ $next ] ?? 0 ) >= ( $priority[ $curr ] ?? 0 ) ) {
+			$this->platform_fetch_diag[ $platform ]['bucket'] = $next;
+		}
+		$detail = trim( $detail );
+		if ( $detail !== '' ) {
+			$errors = (array) ( $this->platform_fetch_diag[ $platform ]['errors'] ?? array() );
+			if ( count( $errors ) < 3 ) {
+				$errors[] = mb_substr( $detail, 0, 180 );
+				$this->platform_fetch_diag[ $platform ]['errors'] = $errors;
+			}
+		}
+	}
+
+	/**
+	 * [2026-07-27 Johnny Chu] PHASE-TRENDING W2 — mark successful hits for a platform.
+	 */
+	private function mark_platform_hits( string $platform, int $hits ): void {
+		$this->ensure_platform_diag( $platform );
+		if ( ! isset( $this->platform_fetch_diag[ $platform ] ) ) { return; }
+		$hits = max( 0, $hits );
+		$this->platform_fetch_diag[ $platform ]['hits'] = (int) ( $this->platform_fetch_diag[ $platform ]['hits'] ?? 0 ) + $hits;
+		if ( $hits > 0 ) {
+			$this->platform_fetch_diag[ $platform ]['bucket'] = 'ok';
+		}
+	}
+
+	/**
+	 * [2026-07-27 Johnny Chu] PHASE-TRENDING W2 — keep zero_hits if platform has no hard error and no hit.
+	 */
+	private function mark_platform_zero_hits( string $platform ): void {
+		$this->ensure_platform_diag( $platform );
+		if ( ! isset( $this->platform_fetch_diag[ $platform ] ) ) { return; }
+		$hits   = (int) ( $this->platform_fetch_diag[ $platform ]['hits'] ?? 0 );
+		$bucket = (string) ( $this->platform_fetch_diag[ $platform ]['bucket'] ?? 'zero_hits' );
+		if ( $hits > 0 || $bucket === 'auth_failed' || $bucket === 'rate_limited' || $bucket === 'timeout' ) {
+			return;
+		}
+		$this->platform_fetch_diag[ $platform ]['bucket'] = 'zero_hits';
+	}
+
+	/**
+	 * [2026-07-27 Johnny Chu] PHASE-TRENDING W2 — classify WP_Error into the requested reason buckets.
+	 */
+	private function classify_wp_error_bucket( $error ): string {
+		if ( ! is_wp_error( $error ) ) {
+			return 'timeout';
+		}
+
+		$code = strtolower( (string) $error->get_error_code() );
+		$msg  = strtolower( (string) $error->get_error_message() );
+
+		if ( $code === 'search_auth_failed'
+			|| $code === 'unauthorized'
+			|| $code === 'invalid_token_format'
+			|| $code === 'search_not_configured'
+			|| strpos( $msg, 'invalid api key format' ) !== false
+			|| strpos( $msg, 'invalid or inactive api key' ) !== false
+			|| strpos( $msg, 'api key không hợp lệ' ) !== false ) {
+			return 'auth_failed';
+		}
+
+		if ( $code === 'search_rate_limited'
+			|| strpos( $msg, 'rate limit' ) !== false
+			|| strpos( $msg, 'too many request' ) !== false
+			|| strpos( $msg, 'quá nhiều request' ) !== false
+			|| strpos( $msg, 'http 429' ) !== false ) {
+			return 'rate_limited';
+		}
+
+		if ( strpos( $msg, 'c\url error 28' ) !== false
+			|| strpos( $msg, 'timed out' ) !== false
+			|| strpos( $msg, 'timeout' ) !== false ) {
+			return 'timeout';
+		}
+
+		return 'timeout';
+	}
+
+	/**
+	 * [2026-07-27 Johnny Chu] PHASE-TRENDING W2 — aggregate per-platform diagnostics into final no_results reason object.
+	 */
+	private function build_no_results_reason( array $platforms ): array {
+		$priority = array(
+			'zero_hits'    => 1,
+			'timeout'      => 2,
+			'rate_limited' => 3,
+			'auth_failed'  => 4,
+		);
+		$counts = array(
+			'auth_failed'  => 0,
+			'rate_limited' => 0,
+			'timeout'      => 0,
+			'zero_hits'    => 0,
+		);
+		$by_platform = array();
+		$overall     = 'zero_hits';
+
+		foreach ( $platforms as $platform ) {
+			$platform = (string) $platform;
+			$diag = (array) ( $this->platform_fetch_diag[ $platform ] ?? array() );
+			$bucket = (string) ( $diag['bucket'] ?? 'zero_hits' );
+			if ( $bucket === 'ok' ) {
+				$bucket = 'zero_hits';
+			}
+			if ( ! isset( $counts[ $bucket ] ) ) {
+				$bucket = 'timeout';
+			}
+			$by_platform[ $platform ] = $bucket;
+			$counts[ $bucket ]++;
+			if ( ( $priority[ $bucket ] ?? 0 ) > ( $priority[ $overall ] ?? 0 ) ) {
+				$overall = $bucket;
+			}
+		}
+
+		return array(
+			'bucket'      => $overall,
+			'by_platform' => $by_platform,
+			'counts'      => $counts,
+		);
+	}
+
+	/**
+	 * [2026-07-27 Johnny Chu] PHASE-TRENDING W2 — format no_results reasons for msg text.
+	 */
+	private function format_no_results_reason_text( array $reason ): string {
+		$by = (array) ( $reason['by_platform'] ?? array() );
+		if ( empty( $by ) ) { return ''; }
+		$parts = array();
+		foreach ( $by as $platform => $bucket ) {
+			$parts[] = (string) $platform . '=' . (string) $bucket;
+		}
+		return implode( ', ', $parts );
 	}
 
 	// -------------------------------------------------------------------------
@@ -1049,11 +1294,17 @@ final class BizCity_Automation_Action_Trending_Research extends BizCity_Automati
 	}
 
 	// [2026-06-25 Johnny Chu] PHASE-TRENDING W1 FIX — add $topic + msg_1..4 so reply_zalo resolves vars (not literal text).
-	private function _empty_result( string $error, float $t0 = 0.0, string $topic = '' ): array {
+	private function _empty_result( string $error, float $t0 = 0.0, string $topic = '', array $reason = array() ): array {
 		$label = $topic !== '' ? $topic : '(không rõ)';
 		$note  = 'no_results' === $error
 			? 'Không tìm thấy dữ liệu mới về chủ đề này. Hãy thử lại sau hoặc đổi từ khoá.'
 			: 'Chủ đề trống — vui lòng nhập nội dung cần tìm.';
+		$reason_bucket = (string) ( $reason['bucket'] ?? '' );
+		$reason_text   = $this->format_no_results_reason_text( $reason );
+		$msg3_detail   = '(Không đủ dữ liệu để phân tích)';
+		if ( $error === 'no_results' && $reason_text !== '' ) {
+			$msg3_detail .= "\nLý do no_results: {$reason_text}";
+		}
 		return array(
 			'answer_md'      => '',
 			'key_patterns'   => array(),
@@ -1065,9 +1316,12 @@ final class BizCity_Automation_Action_Trending_Research extends BizCity_Automati
 			'ok'             => false,
 			'ms'             => $t0 > 0 ? (int) round( ( microtime( true ) - $t0 ) * 1000 ) : 0,
 			'error'          => $error,
+			'no_results_reason' => $reason_bucket,
+			'no_results_reason_by_platform' => (array) ( $reason['by_platform'] ?? array() ),
+			'no_results_reason_counts' => (array) ( $reason['counts'] ?? array() ),
 			'msg_1'          => "📊 XU HƯỚNG: {$label}\n────────────────────\n{$note}",
 			'msg_2'          => "🔗 NGUỒN THAM KHẢO (0 nguồn):\n(Không tìm thấy nguồn)",
-			'msg_3'          => "💡 PHÂN TÍCH:\n(Không đủ dữ liệu để phân tích)",
+			'msg_3'          => "💡 PHÂN TÍCH:\n{$msg3_detail}",
 			'msg_4'          => "✅ KẾT LUẬN:\nVui lòng thử lại sau hoặc thay đổi từ khoá.",
 		);
 	}

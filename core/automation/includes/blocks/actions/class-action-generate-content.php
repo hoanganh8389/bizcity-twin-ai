@@ -73,6 +73,18 @@ final class BizCity_Automation_Action_Generate_Content extends BizCity_Automatio
 
 	public function execute( array $ctx, array $data ) {
 		// [2026-06-16 Johnny Chu] PHASE-ATH W8 — execute generate_content.
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-MY-CONTENT-TRACE — create/update durable My Content artifact for generated copy.
+		$content_artifact_id = class_exists( 'BizCity_Content_Artifact_Service' )
+			? BizCity_Content_Artifact_Service::create_or_get_from_ctx( $ctx, array( 'content_type' => (string) ( $data['content_type'] ?? 'fb_post' ) ) )
+			: 0;
+		if ( $content_artifact_id > 0 ) {
+			BizCity_Content_Artifact_Service::mark_stage( $content_artifact_id, 'content_generating' );
+			BizCity_Content_Artifact_Service::append_trace( $content_artifact_id, array(
+				'stage' => 'content_generating', 'source' => 'automation', 'block_id' => $this->id(), 'status' => 'start',
+				'run_id' => (string) ( $ctx['_run_id'] ?? '' ), 'workflow_id' => (int) ( $ctx['_workflow_id'] ?? 0 ),
+				'message' => 'Generating content.',
+			) );
+		}
 
 		// ── 1. Resolve params ────────────────────────────────────────────────
 		$content_type = (string) ( $data['content_type'] ?? 'fb_post' );
@@ -86,16 +98,30 @@ final class BizCity_Automation_Action_Generate_Content extends BizCity_Automatio
 
 		$prompt_raw = (string) $this->resolve( $data['prompt_template'] ?? '{{trigger.text}}', $ctx );
 		if ( $prompt_raw === '' ) {
+			if ( $content_artifact_id > 0 ) {
+				BizCity_Content_Artifact_Service::mark_stage( $content_artifact_id, 'failed', array( '_bizcity_error_code' => 'invalid_param', '_bizcity_error_message' => 'Prompt rỗng.' ) );
+				BizCity_Content_Artifact_Service::append_trace( $content_artifact_id, array(
+					'stage' => 'failed', 'source' => 'automation', 'block_id' => $this->id(), 'status' => 'fail',
+					'run_id' => (string) ( $ctx['_run_id'] ?? '' ), 'workflow_id' => (int) ( $ctx['_workflow_id'] ?? 0 ),
+					'error_code' => 'invalid_param', 'message' => 'Prompt rỗng.',
+				) );
+			}
 			$this->note_event( 'generate_content_skipped', array( 'reason' => 'invalid_param', 'detail' => 'prompt empty' ) );
 			return $this->_degraded( $content_type, $notebook_id, 'invalid_param', 'Prompt rỗng.' );
 		}
 
 		// ── 2. LLM Client gate (R-GW-8) ─────────────────────────────────────
 		if ( ! class_exists( 'BizCity_LLM_Client' ) ) {
+			if ( $content_artifact_id > 0 ) {
+				BizCity_Content_Artifact_Service::mark_stage( $content_artifact_id, 'failed', array( '_bizcity_error_code' => 'gateway_missing', '_bizcity_error_message' => 'BizCity_LLM_Client not loaded.' ) );
+			}
 			return $this->_degraded( $content_type, $notebook_id, 'gateway_missing', 'BizCity_LLM_Client not loaded.' );
 		}
 		$llm = BizCity_LLM_Client::instance();
 		if ( ! $llm->is_ready() ) {
+			if ( $content_artifact_id > 0 ) {
+				BizCity_Content_Artifact_Service::mark_stage( $content_artifact_id, 'failed', array( '_bizcity_error_code' => 'gateway_not_ready', '_bizcity_error_message' => 'BizCity API key chưa cấu hình.' ) );
+			}
 			return $this->_degraded( $content_type, $notebook_id, 'gateway_not_ready', 'BizCity API key chưa cấu hình.' );
 		}
 
@@ -156,6 +182,14 @@ final class BizCity_Automation_Action_Generate_Content extends BizCity_Automatio
 				'purpose'     => 'automation_generate_content',
 			) );
 		} catch ( \Throwable $e ) {
+			if ( $content_artifact_id > 0 ) {
+				BizCity_Content_Artifact_Service::mark_stage( $content_artifact_id, 'failed', array( '_bizcity_error_code' => 'llm_exception', '_bizcity_error_message' => $e->getMessage() ) );
+				BizCity_Content_Artifact_Service::append_trace( $content_artifact_id, array(
+					'stage' => 'failed', 'source' => 'automation', 'block_id' => $this->id(), 'status' => 'fail',
+					'run_id' => (string) ( $ctx['_run_id'] ?? '' ), 'workflow_id' => (int) ( $ctx['_workflow_id'] ?? 0 ),
+					'error_code' => 'llm_exception', 'message' => $e->getMessage(),
+				) );
+			}
 			return $this->_degraded( $content_type, $notebook_id, 'llm_exception', $e->getMessage() );
 		}
 		$ms = (int) ( ( microtime( true ) - $started ) * 1000 );
@@ -167,6 +201,14 @@ final class BizCity_Automation_Action_Generate_Content extends BizCity_Automatio
 		if ( ! is_array( $result ) || empty( $result['success'] ) ) {
 			$error_code = is_array( $result ) ? (string) ( $result['error'] ?? 'llm_error' ) : 'invalid_response';
 			$error_msg  = is_array( $result ) ? (string) ( $result['error'] ?? '' ) : 'chat() returned non-array';
+			if ( $content_artifact_id > 0 ) {
+				BizCity_Content_Artifact_Service::mark_stage( $content_artifact_id, 'failed', array( '_bizcity_error_code' => $error_code, '_bizcity_error_message' => $error_msg ) );
+				BizCity_Content_Artifact_Service::append_trace( $content_artifact_id, array(
+					'stage' => 'failed', 'source' => 'automation', 'block_id' => $this->id(), 'status' => 'fail',
+					'run_id' => (string) ( $ctx['_run_id'] ?? '' ), 'workflow_id' => (int) ( $ctx['_workflow_id'] ?? 0 ),
+					'error_code' => $error_code, 'message' => $error_msg,
+				) );
+			}
 			$this->note_event( 'generate_content_failed', array(
 				'reason'       => $error_code,
 				'content_type' => $content_type,
@@ -181,7 +223,23 @@ final class BizCity_Automation_Action_Generate_Content extends BizCity_Automatio
 		$tokens  = (int) ( $result['usage']['total_tokens'] ?? 0 );
 
 		if ( $content === '' ) {
+			if ( $content_artifact_id > 0 ) {
+				BizCity_Content_Artifact_Service::mark_stage( $content_artifact_id, 'failed', array( '_bizcity_error_code' => 'empty_response', '_bizcity_error_message' => 'LLM returned empty content.' ) );
+			}
 			return $this->_degraded( $content_type, $notebook_id, 'empty_response', 'LLM returned empty content.' );
+		}
+
+		if ( $content_artifact_id > 0 ) {
+			BizCity_Content_Artifact_Service::mark_stage( $content_artifact_id, 'content_ready', array(
+				'_bizcity_content_type' => $content_type,
+				'_bizcity_caption'      => trim( $content ),
+			) );
+			wp_update_post( array( 'ID' => $content_artifact_id, 'post_content' => trim( $content ), 'post_excerpt' => wp_trim_words( wp_strip_all_tags( $content ), 28, '...' ) ) );
+			BizCity_Content_Artifact_Service::append_trace( $content_artifact_id, array(
+				'stage' => 'content_ready', 'source' => 'automation', 'block_id' => $this->id(), 'status' => 'ok',
+				'run_id' => (string) ( $ctx['_run_id'] ?? '' ), 'workflow_id' => (int) ( $ctx['_workflow_id'] ?? 0 ),
+				'message' => 'Content generated.', 'ctx' => array( 'content_type' => $content_type, 'tokens' => $tokens, 'ms' => $ms ),
+			) );
 		}
 
 		$this->note_event( 'generate_content_ok', array(
@@ -194,6 +252,8 @@ final class BizCity_Automation_Action_Generate_Content extends BizCity_Automatio
 
 		return array(
 			'ok'              => true,
+			// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-MY-CONTENT-TRACE — expose artifact id to downstream blocks and run logs.
+			'content_id'      => $content_artifact_id,
 			'content'         => trim( $content ),
 			'content_type'    => $content_type,
 			'notebook_id'     => $notebook_id,

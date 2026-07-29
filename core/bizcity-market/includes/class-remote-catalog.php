@@ -36,6 +36,11 @@ class BizCity_Remote_Catalog {
      * @return string
      */
     public static function api_key(): string {
+        // [2026-07-27 Johnny Chu] PHASE-0.49-MASTER-CONFIG-401 — Marketplace uses
+        // the same normalized opaque gateway key as every other 1API consumer.
+        if ( class_exists( 'BizCity_LLM_Client' ) ) {
+            return BizCity_LLM_Client::instance()->get_api_key();
+        }
         // [2026-06-10 Johnny Chu] HOTFIX — per-site option
         return trim( (string) get_option( 'bizcity_llm_api_key', '' ) );
     }

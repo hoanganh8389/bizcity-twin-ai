@@ -75,6 +75,52 @@ class BizCity_Membership_Payments {
 			KEY idx_user (user_id),
 			KEY idx_status (status)
 		) {$cs};" );
+		// [2026-07-14 Johnny Chu] HOTFIX — invalidate table-exists cache after dbDelta create.
+		wp_cache_delete( 'bz_tbl_' . (int) get_current_blog_id() . '_' . crc32( $t ), 'bizcity_tbl' );
+	}
+
+	/**
+	 * [2026-07-14 Johnny Chu] HOTFIX — ensure payments table exists on current
+	 * blog shard; self-heal once, otherwise fail-open.
+	 */
+	private function table_ready() {
+		$t = $this->table();
+		$exists = function_exists( 'bizcity_tbl_exists' )
+			? bizcity_tbl_exists( $t )
+			: $this->table_exists_fallback( $t );
+
+		if ( ! $exists ) {
+			$this->ensure_table();
+			$exists = function_exists( 'bizcity_tbl_exists' )
+				? bizcity_tbl_exists( $t )
+				: $this->table_exists_fallback( $t );
+		}
+
+		return (bool) $exists;
+	}
+
+	/**
+	 * Fallback table existence check when helper isn't loaded yet.
+	 */
+	private function table_exists_fallback( $table_name ) {
+		static $s = array();
+		if ( isset( $s[ $table_name ] ) ) {
+			return $s[ $table_name ];
+		}
+
+		global $wpdb;
+		$ck      = 'bz_tbl_' . (int) get_current_blog_id() . '_' . crc32( $table_name );
+		$present = wp_cache_get( $ck, 'bizcity_tbl' );
+		if ( false === $present ) {
+			$present = (int) (bool) $wpdb->get_var( $wpdb->prepare(
+				'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+				$table_name
+			) );
+			wp_cache_set( $ck, $present, 'bizcity_tbl', HOUR_IN_SECONDS );
+		}
+
+		$s[ $table_name ] = (bool) $present;
+		return $s[ $table_name ];
 	}
 
 	/* ── Writes ─────────────────────────────────────────────────────────── */
@@ -100,6 +146,9 @@ class BizCity_Membership_Payments {
 	 */
 	public function record( array $data ) {
 		global $wpdb;
+		if ( ! $this->table_ready() ) {
+			return 0;
+		}
 
 		$txn = isset( $data['transaction_id'] ) ? sanitize_text_field( (string) $data['transaction_id'] ) : '';
 		if ( $txn === '' ) {
@@ -164,6 +213,9 @@ class BizCity_Membership_Payments {
 	 */
 	public function find_by_transaction( $txn ) {
 		global $wpdb;
+		if ( ! $this->table_ready() ) {
+			return null;
+		}
 		$txn = sanitize_text_field( (string) $txn );
 		if ( $txn === '' ) {
 			return null;
@@ -178,11 +230,24 @@ class BizCity_Membership_Payments {
 	/**
 	 * Recent payments for the admin list.
 	 *
-	 * @param array $args { @type int $limit, @type int $offset, @type string $status, @type int $user_id }
+	 * @param array $args {
+	 *   @type int    $limit
+	 *   @type int    $offset
+	 *   @type string $status
+	 *   @type int    $user_id
+	 *   @type string $plan_slug
+	 *   @type string $gateway
+	 *   @type string $date_from Y-m-d
+	 *   @type string $date_to   Y-m-d
+	 *   @type string $s         search in transaction_id / payer_email
+	 * }
 	 * @return array<int,array>
 	 */
 	public function recent( array $args = array() ) {
 		global $wpdb;
+		if ( ! $this->table_ready() ) {
+			return array();
+		}
 		$limit  = isset( $args['limit'] ) ? max( 1, (int) $args['limit'] ) : 50;
 		$offset = isset( $args['offset'] ) ? max( 0, (int) $args['offset'] ) : 0;
 
@@ -195,6 +260,32 @@ class BizCity_Membership_Payments {
 		if ( ! empty( $args['user_id'] ) ) {
 			$where   .= ' AND user_id = %d';
 			$params[] = (int) $args['user_id'];
+		}
+		// [2026-07-17 Johnny Chu] PHASE-MEMBERSHIP M6 — add admin filter support by plan/gateway/date/search.
+		if ( ! empty( $args['plan_slug'] ) ) {
+			$where   .= ' AND plan_slug = %s';
+			$params[] = sanitize_key( (string) $args['plan_slug'] );
+		}
+		if ( ! empty( $args['gateway'] ) ) {
+			$where   .= ' AND gateway = %s';
+			$params[] = sanitize_key( (string) $args['gateway'] );
+		}
+		$date_from = isset( $args['date_from'] ) ? sanitize_text_field( (string) $args['date_from'] ) : '';
+		if ( preg_match( '/^\d{4}-\d{2}-\d{2}$/', $date_from ) ) {
+			$where   .= ' AND DATE(COALESCE(paid_at, created_at)) >= %s';
+			$params[] = $date_from;
+		}
+		$date_to = isset( $args['date_to'] ) ? sanitize_text_field( (string) $args['date_to'] ) : '';
+		if ( preg_match( '/^\d{4}-\d{2}-\d{2}$/', $date_to ) ) {
+			$where   .= ' AND DATE(COALESCE(paid_at, created_at)) <= %s';
+			$params[] = $date_to;
+		}
+		$search = isset( $args['s'] ) ? trim( sanitize_text_field( (string) $args['s'] ) ) : '';
+		if ( $search !== '' ) {
+			$like = '%' . $wpdb->esc_like( $search ) . '%';
+			$where   .= ' AND (transaction_id LIKE %s OR payer_email LIKE %s)';
+			$params[] = $like;
+			$params[] = $like;
 		}
 
 		$sql = 'SELECT * FROM ' . $this->table() . " WHERE {$where} ORDER BY id DESC LIMIT %d OFFSET %d";
@@ -212,6 +303,13 @@ class BizCity_Membership_Payments {
 	 */
 	public function totals() {
 		global $wpdb;
+		if ( ! $this->table_ready() ) {
+			return array(
+				'total_usd'      => 0.0,
+				'count'          => 0,
+				'paying_members' => 0,
+			);
+		}
 		$t = $this->table();
 
 		$row = $wpdb->get_row(
@@ -251,6 +349,9 @@ class BizCity_Membership_Payments {
 	 */
 	public function find_by_id( $id ) {
 		global $wpdb;
+		if ( ! $this->table_ready() ) {
+			return null;
+		}
 		$id = (int) $id;
 		if ( $id <= 0 ) {
 			return null;
@@ -270,6 +371,9 @@ class BizCity_Membership_Payments {
 	 */
 	public function mark_refunded( $id, $refund_id = '' ) {
 		global $wpdb;
+		if ( ! $this->table_ready() ) {
+			return false;
+		}
 		$id = (int) $id;
 		if ( $id <= 0 ) {
 			return false;

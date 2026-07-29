@@ -98,12 +98,18 @@ if ( ! class_exists( 'BizCity_SMTP' ) ) {
 		}
 
 		public static function bind(): void {
+			// [2026-07-17 Johnny Chu] HOTFIX — always register centralized
+			// wp_mail_failed diagnostics, even when SMTP config is incomplete.
+			self::bind_failure_logger();
+
 			$cfg = self::resolve_config();
 			if ( $cfg === null ) {
 				return;
 			}
 
 			add_action( 'phpmailer_init', static function ( $phpmailer ) use ( $cfg ) {
+				// [2026-07-17 Johnny Chu] HOTFIX — enforce SMTP identity at the
+				// last hook priority to avoid provider DATA-stage reject.
 				$phpmailer->isSMTP();
 				$phpmailer->Host       = $cfg['host'];
 				$phpmailer->Port       = $cfg['port'];
@@ -113,10 +119,226 @@ if ( ! class_exists( 'BizCity_SMTP' ) ) {
 				$phpmailer->Password   = $cfg['pass'];
 				$phpmailer->From       = $cfg['from'];
 				$phpmailer->FromName   = $cfg['from_name'];
+				$phpmailer->Sender     = $cfg['from'];
+				if ( method_exists( $phpmailer, 'setFrom' ) ) {
+					$phpmailer->setFrom( $cfg['from'], $cfg['from_name'], false );
+				}
 			}, 999 );
 
 			add_filter( 'wp_mail_from',      static function () use ( $cfg ) { return $cfg['from']; }, 999 );
 			add_filter( 'wp_mail_from_name', static function () use ( $cfg ) { return $cfg['from_name']; }, 999 );
+		}
+
+		/**
+		 * Register global wp_mail_failed logger.
+		 */
+		private static function bind_failure_logger(): void {
+			add_action( 'wp_mail_failed', array( __CLASS__, 'on_wp_mail_failed' ), 1, 1 );
+		}
+
+		/**
+		 * Emit detailed diagnostics for wp_mail_failed.
+		 *
+		 * @param mixed $error WP_Error from wp_mail_failed hook.
+		 */
+		public static function on_wp_mail_failed( $error ): void {
+			if ( ! ( $error instanceof WP_Error ) ) {
+				return;
+			}
+
+			$codes        = $error->get_error_codes();
+			$primary_code = ! empty( $codes ) ? (string) $codes[0] : 'wp_mail_failed';
+			$primary_msg  = (string) $error->get_error_message( $primary_code );
+			if ( $primary_msg === '' ) {
+				$primary_msg = (string) $error->get_error_message();
+			}
+
+			$data = $error->get_error_data( $primary_code );
+			if ( ! is_array( $data ) ) {
+				$data = array();
+			}
+
+			$provider_code = isset( $data['phpmailer_exception_code'] ) ? (int) $data['phpmailer_exception_code'] : 0;
+			$provider_err  = self::extract_provider_error_message( $primary_msg, $data );
+			$to_domains    = self::extract_recipient_domains( $data['to'] ?? array() );
+			$subject       = isset( $data['subject'] ) ? sanitize_text_field( (string) $data['subject'] ) : '';
+			// [2026-07-17 Johnny Chu] HOTFIX — capture effective mail headers
+			// so DATA-stage SMTP rejects can be traced to malformed From/Reply-To.
+			$header_from   = self::extract_mail_header_value( $data['headers'] ?? array(), 'from' );
+			$header_sender = self::extract_mail_header_value( $data['headers'] ?? array(), 'sender' );
+			$header_reply  = self::extract_mail_header_value( $data['headers'] ?? array(), 'reply-to' );
+
+			$cfg       = self::resolve_config();
+			$smtp_host = is_array( $cfg ) ? (string) ( $cfg['host'] ?? '' ) : '';
+			$smtp_port = is_array( $cfg ) ? (int) ( $cfg['port'] ?? 0 ) : 0;
+			$cfg_from  = is_array( $cfg ) ? (string) ( $cfg['from'] ?? '' ) : '';
+			$cfg_user  = is_array( $cfg ) ? (string) ( $cfg['user'] ?? '' ) : '';
+
+			// [2026-07-17 Johnny Chu] HOTFIX — detailed mail failure line for
+			// rapid diagnosis (provider code + provider message + smtp target).
+			error_log( sprintf(
+				'[bizcity-smtp] wp_mail_failed code=%s provider_code=%d smtp=%s:%d cfg_from=%s cfg_user=%s to_domains=%s subject=%s from=%s sender=%s reply_to=%s msg=%s provider_error=%s',
+				$primary_code,
+				$provider_code,
+				$smtp_host !== '' ? $smtp_host : 'n/a',
+				$smtp_port,
+				self::mask_email_for_log( $cfg_from ),
+				self::mask_email_for_log( $cfg_user ),
+				wp_json_encode( $to_domains ),
+				self::truncate_log_text( $subject, 140 ),
+				self::truncate_log_text( $header_from, 140 ),
+				self::truncate_log_text( $header_sender, 140 ),
+				self::truncate_log_text( $header_reply, 140 ),
+				self::truncate_log_text( $primary_msg, 220 ),
+				self::truncate_log_text( $provider_err, 220 )
+			) );
+
+			if ( class_exists( 'BizCity_Channel_File_Logger', false ) ) {
+				BizCity_Channel_File_Logger::write(
+					BizCity_Channel_File_Logger::CH_EMAIL,
+					BizCity_Channel_File_Logger::LEVEL_ERROR,
+					'wp_mail_failed',
+					'wp_mail_failed captured by BizCity_SMTP',
+					array(
+						'code'          => $primary_code,
+						'provider_code' => $provider_code,
+						'message'       => self::truncate_log_text( $primary_msg, 220 ),
+						'provider_error'=> self::truncate_log_text( $provider_err, 220 ),
+						'smtp_host'     => $smtp_host,
+						'smtp_port'     => $smtp_port,
+						'to_domains'    => $to_domains,
+						'subject'       => self::truncate_log_text( $subject, 140 ),
+						'cfg_from'      => self::mask_email_for_log( $cfg_from ),
+						'cfg_user'      => self::mask_email_for_log( $cfg_user ),
+						'from'          => self::truncate_log_text( $header_from, 140 ),
+						'sender'        => self::truncate_log_text( $header_sender, 140 ),
+						'reply_to'      => self::truncate_log_text( $header_reply, 140 ),
+					)
+				);
+			}
+		}
+
+		/**
+		 * Mask email local-part for safer diagnostics.
+		 */
+		private static function mask_email_for_log( string $email ): string {
+			$email = sanitize_email( trim( $email ) );
+			if ( $email === '' || strpos( $email, '@' ) === false ) {
+				return $email !== '' ? '***' : '';
+			}
+			$parts  = explode( '@', $email, 2 );
+			$local  = (string) ( $parts[0] ?? '' );
+			$domain = (string) ( $parts[1] ?? '' );
+			if ( $domain === '' ) {
+				return '***';
+			}
+			$prefix = $local !== '' ? substr( $local, 0, 1 ) : '*';
+			return $prefix . '***@' . $domain;
+		}
+
+		/**
+		 * Extract a specific mail header value from WP mail payload.
+		 *
+		 * @param mixed  $raw_headers
+		 * @param string $target
+		 * @return string
+		 */
+		private static function extract_mail_header_value( $raw_headers, string $target ): string {
+			// [2026-07-17 Johnny Chu] HOTFIX — helper for structured wp_mail_failed diagnostics.
+			$target = strtolower( trim( $target ) );
+			if ( $target === '' ) {
+				return '';
+			}
+
+			$lines = array();
+			if ( is_array( $raw_headers ) ) {
+				$lines = $raw_headers;
+			} elseif ( is_string( $raw_headers ) && $raw_headers !== '' ) {
+				$lines = preg_split( '/\r\n|\r|\n/', $raw_headers );
+			}
+
+			foreach ( (array) $lines as $line ) {
+				$line = trim( (string) $line );
+				if ( $line === '' ) {
+					continue;
+				}
+				if ( ! preg_match( '/^([A-Za-z0-9\-]+)\s*:\s*(.+)$/', $line, $m ) ) {
+					continue;
+				}
+				$name  = strtolower( trim( (string) $m[1] ) );
+				$value = trim( (string) $m[2] );
+				if ( $name === $target ) {
+					return $value;
+				}
+			}
+
+			return '';
+		}
+
+		/**
+		 * Extract provider-facing error message from WP mail failure payload.
+		 */
+		private static function extract_provider_error_message( string $fallback, array $data ): string {
+			if ( isset( $data['phpmailer_exception'] ) && is_object( $data['phpmailer_exception'] ) && method_exists( $data['phpmailer_exception'], 'getMessage' ) ) {
+				$msg = (string) $data['phpmailer_exception']->getMessage();
+				if ( $msg !== '' ) {
+					return $msg;
+				}
+			}
+
+			if ( isset( $data['error'] ) && is_string( $data['error'] ) && $data['error'] !== '' ) {
+				return $data['error'];
+			}
+
+			return $fallback;
+		}
+
+		/**
+		 * Extract recipient domains only (avoid logging full emails).
+		 *
+		 * @param mixed $raw_to
+		 * @return array<int,string>
+		 */
+		private static function extract_recipient_domains( $raw_to ): array {
+			$emails = array();
+			if ( is_array( $raw_to ) ) {
+				$emails = $raw_to;
+			} elseif ( is_string( $raw_to ) && $raw_to !== '' ) {
+				$emails = preg_split( '/[,;]+/', $raw_to );
+			}
+
+			$domains = array();
+			foreach ( $emails as $candidate ) {
+				$email = sanitize_email( trim( (string) $candidate ) );
+				if ( $email === '' || strpos( $email, '@' ) === false ) {
+					continue;
+				}
+				$parts = explode( '@', $email );
+				$domain = strtolower( trim( (string) end( $parts ) ) );
+				if ( $domain !== '' ) {
+					$domains[] = $domain;
+				}
+			}
+
+			$domains = array_values( array_unique( $domains ) );
+			if ( count( $domains ) > 5 ) {
+				$domains = array_slice( $domains, 0, 5 );
+				$domains[] = '...';
+			}
+
+			return $domains;
+		}
+
+		/**
+		 * Normalize and clamp text for log lines.
+		 */
+		private static function truncate_log_text( string $text, int $max_len ): string {
+			$text = preg_replace( '/\s+/', ' ', trim( $text ) );
+			$text = (string) $text;
+			if ( $max_len > 0 && strlen( $text ) > $max_len ) {
+				return substr( $text, 0, $max_len ) . '...';
+			}
+			return $text;
 		}
 	}
 }

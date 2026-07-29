@@ -190,8 +190,9 @@ final class BizCoach_Pro_Astro_Client {
 		$loaded       = self::is_in_process_ready();
 		// Treat ANY explicit base override (legacy bcpro_* or canonical bizcity_llm_*)
 		// as a signal to always go remote so the override is honoured.
-		$has_override = (string) get_site_option( self::OPT_GATEWAY_BASE, '' ) !== ''
-		             || (string) get_site_option( self::OPT_CANON_GATEWAY_URL, '' ) !== '';
+		// [2026-07-27 Johnny Chu] R-MSDB — read tenant-scoped options in current blog context.
+		$has_override = (string) get_option( self::OPT_GATEWAY_BASE, '' ) !== ''
+		             || (string) get_option( self::OPT_CANON_GATEWAY_URL, '' ) !== '';
 		$force_remote = ! empty( $opts['force_remote'] ) || $has_override;
 
 		if ( $loaded && ! $force_remote ) {
@@ -391,15 +392,28 @@ final class BizCoach_Pro_Astro_Client {
 
 	/**
 	 * Canonical API key accessor — R-1API-9 / R-1API-10 fallback chain:
-	 *   1. legacy site option `bcpro_gateway_api_key` (pre-2026-05-17 installs)
-	 *   2. canonical site option `bizcity_llm_api_key` (R-1API-2)
+	 *   1. canonical site option `bizcity_llm_api_key` (R-1API-2)
+	 *   2. legacy site option `bcpro_gateway_api_key` (pre-2026-05-17 installs)
 	 *
-	 * All bizcoach-pro callers MUST go through this — never `get_site_option(OPT_API_KEY)` directly.
+	 * All bizcoach-pro callers MUST go through this — never `get_option(OPT_API_KEY)` directly.
 	 */
 	public static function get_api_key(): string {
-		$legacy = (string) get_site_option( self::OPT_API_KEY, '' );
-		if ( $legacy !== '' ) { return $legacy; }
-		return (string) get_site_option( self::OPT_CANON_API_KEY, '' );
+		// [2026-07-27 Johnny Chu] PHASE-0.49-MASTER-CONFIG-401 — use the shared
+		// normalizer while preserving legacy `biz_` as part of the opaque key.
+		if ( class_exists( 'BizCity_LLM_Client' ) ) {
+			$shared = BizCity_LLM_Client::instance()->get_api_key();
+			if ( $shared !== '' ) {
+				return $shared;
+			}
+		}
+		// [2026-07-27 Johnny Chu] HOTFIX — prevent stale legacy key from shadowing
+		// canonical key and causing invalid_token_format on gateway auth.
+		// [2026-07-27 Johnny Chu] R-MSDB — use tenant option scope, avoid network-wide reads.
+		$canon = trim( (string) get_option( self::OPT_CANON_API_KEY, '' ) );
+		if ( $canon !== '' ) {
+			return $canon;
+		}
+		return trim( (string) get_option( self::OPT_API_KEY, '' ) );
 	}
 
 	/**
@@ -410,9 +424,10 @@ final class BizCoach_Pro_Astro_Client {
 	 *   4. HUB_URL constant
 	 */
 	public static function get_gateway_base(): string {
-		$base = (string) get_site_option( self::OPT_GATEWAY_BASE, '' );
+		// [2026-07-27 Johnny Chu] R-MSDB — resolve gateway override from current blog context.
+		$base = (string) get_option( self::OPT_GATEWAY_BASE, '' );
 		if ( $base === '' ) {
-			$canon = (string) get_site_option( self::OPT_CANON_GATEWAY_URL, '' );
+			$canon = (string) get_option( self::OPT_CANON_GATEWAY_URL, '' );
 			if ( $canon !== '' ) {
 				// Canonical option stores root URL (e.g. https://bizcity.vn); HUB_URL
 				// historically points at /wp-json. Normalise so call_remote()'s

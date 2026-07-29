@@ -283,6 +283,17 @@ class BizCity_KG_Graph_Service {
 		global $wpdb;
 		$db = BizCity_KG_Database::instance();
 		$inserted = 0;
+		$raw_inline = $raw_llm_output;
+
+		// [2026-07-23 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — file-primary triplet raw payload: persist once to JSONL, avoid SQL TEXT bloat.
+		if ( $this->is_triplet_raw_file_primary_enabled() && '' !== trim( (string) $raw_llm_output ) && '[cache]' !== (string) $raw_llm_output ) {
+			$stored = $this->persist_triplet_raw_payload( (int) $notebook_id, (int) $passage_id, (string) $raw_llm_output, count( $triplets ) );
+			if ( ! is_wp_error( $stored ) ) {
+				$raw_inline = null;
+			} else {
+				error_log( '[KG Graph Service] triplet raw filestore write failed; fallback SQL inline: ' . $stored->get_error_message() );
+			}
+		}
 
 		foreach ( $triplets as $t ) {
 			$subject = trim( (string) ( $t['subject']   ?? '' ) );
@@ -300,7 +311,7 @@ class BizCity_KG_Graph_Service {
 				'subject_type'  => sanitize_text_field( $t['subject_type'] ?? 'Other' ),
 				'object_type'   => sanitize_text_field( $t['object_type']  ?? 'Other' ),
 				'confidence'    => max( 0, min( 1, (float) ( $t['confidence'] ?? 0.5 ) ) ),
-				'raw_llm_output'=> $raw_llm_output,
+				'raw_llm_output'=> $raw_inline,
 				'status'        => 'pending',
 			] );
 			$inserted++;
@@ -310,6 +321,53 @@ class BizCity_KG_Graph_Service {
 			do_action( 'bizcity_kg_notebook_stats_dirty', (int) $notebook_id );
 		}
 		return $inserted;
+	}
+
+	private function is_triplet_raw_file_primary_enabled() {
+		// [2026-07-23 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — v09 toggles SQL raw_llm_output drain + new-write file-primary behavior.
+		$enabled = false;
+		if ( class_exists( 'BizCity_Cron_Tier_Settings' ) && method_exists( 'BizCity_Cron_Tier_Settings', 'is_triplet_raw_migration_enabled' ) ) {
+			$enabled = BizCity_Cron_Tier_Settings::is_triplet_raw_migration_enabled();
+		} else {
+			$enabled = (bool) get_option( 'bizcity_kg_v09_triplet_raw_migration_enabled', true );
+		}
+		return (bool) apply_filters( 'bizcity_kg_v09_triplet_raw_migration', $enabled );
+	}
+
+	private function persist_triplet_raw_payload( $notebook_id, $passage_id, $raw_llm_output, $triplet_count ) {
+		// [2026-07-23 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — persist one raw payload artifact per extraction call.
+		if ( ! class_exists( 'BizCity_KG_Notebook_Folder' ) || ! class_exists( 'BizCity_KG_JSONL_Stream' ) ) {
+			return new WP_Error( 'kg_triplet_raw_filestore_unavailable', 'Notebook folder/jsonl helpers are unavailable' );
+		}
+
+		$uuid = BizCity_KG_Notebook_Folder::instance()->notebook_uuid( (int) $notebook_id );
+		if ( is_wp_error( $uuid ) ) {
+			return $uuid;
+		}
+
+		$dir = BizCity_KG_Notebook_Folder::instance()->triplet_queue_dir( 'notebooks', $uuid );
+		if ( is_wp_error( $dir ) ) {
+			return $dir;
+		}
+
+		$path = rtrim( $dir, '/\\' ) . '/' . gmdate( 'Y-m' ) . '.jsonl';
+		$row  = array(
+			'queue_id'       => 0,
+			'notebook_id'    => (int) $notebook_id,
+			'passage_id'     => (int) $passage_id,
+			'status'         => 'pending',
+			'triplet_count'  => (int) $triplet_count,
+			'raw_llm_output' => (string) $raw_llm_output,
+			'created_at'     => current_time( 'mysql' ),
+			'migrated_at'    => gmdate( 'c' ),
+			'raw_sha1'       => sha1( (string) $raw_llm_output ),
+		);
+
+		$written = BizCity_KG_JSONL_Stream::append( $path, $row );
+		if ( is_wp_error( $written ) ) {
+			return $written;
+		}
+		return true;
 	}
 
 	/**

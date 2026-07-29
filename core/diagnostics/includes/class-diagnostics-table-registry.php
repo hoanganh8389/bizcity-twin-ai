@@ -50,7 +50,13 @@ final class BizCity_Diagnostics_Table_Registry {
 			[ 'name' => 'bizcity_kg_mentions',           'owner' => 'core/knowledge/kg-hub',  'group' => 'knowledge', 'class' => 'BizCity_KG_Database' ],
 			[ 'name' => 'bizcity_kg_xref',               'owner' => 'core/knowledge/kg-hub',  'group' => 'knowledge', 'class' => 'BizCity_KG_Database' ],
 			[ 'name' => 'bizcity_kg_passage_identities', 'owner' => 'core/knowledge/kg-hub',  'group' => 'knowledge', 'class' => 'BizCity_KG_Database' ],
-			[ 'name' => 'bizcity_kg_source_progress_log','owner' => 'core/knowledge/kg-hub',  'group' => 'knowledge', 'class' => 'BizCity_KG_Source_Progress_Log' ],
+			// [2026-07-27 Johnny Chu] PHASE-0.53-MCP Wave A — core/mcp (Twin Client Brain MCP gateway).
+			[ 'name' => 'bizcity_mcp_api_keys',             'owner' => 'core/mcp', 'group' => 'mcp', 'critical' => true, 'class' => 'BizCity_MCP_Installer' ],
+			[ 'name' => 'bizcity_mcp_retrieval_snapshots',  'owner' => 'core/mcp', 'group' => 'mcp', 'critical' => true, 'class' => 'BizCity_MCP_Installer' ],
+			[ 'name' => 'bizcity_mcp_context_packs',        'owner' => 'core/mcp', 'group' => 'mcp', 'class' => 'BizCity_MCP_Installer' ],
+			[ 'name' => 'bizcity_mcp_audit_log',            'owner' => 'core/mcp', 'group' => 'mcp', 'class' => 'BizCity_MCP_Installer' ],
+			// [2026-07-27 Johnny Chu] PHASE-0.49-KG-PROGRESS-FILELOG — source progress moved to uploads JSONL.
+			// Legacy SQL table `bizcity_kg_source_progress_log` is cleanup-only and no longer part of required schema inventory.
 			// FIX 2026-05-21: previous seed had `bizcity_kg_cost_guard` — actual table is `bizcity_kg_usage_log` (see BizCity_KG_Cost_Guard::ensure_table()).
 			[ 'name' => 'bizcity_kg_usage_log',          'owner' => 'core/knowledge/kg-hub',  'group' => 'knowledge', 'class' => 'BizCity_KG_Cost_Guard' ],
 
@@ -95,6 +101,11 @@ final class BizCity_Diagnostics_Table_Registry {
 			// ── core/runtime ──────────────────────────────────────────────
 			[ 'name' => 'bizcity_twin_runs',     'owner' => 'core/runtime', 'group' => 'runtime' ],
 			[ 'name' => 'bizcity_twin_hil',      'owner' => 'core/runtime', 'group' => 'runtime' ],
+
+			// ── modules/twinweb ─────────────────────────────────────────────
+			// [2026-07-20 Johnny Chu] PHASE-TWIN-GPT-AGENT-TOOLS — expose Twin GPT thread/artifact-job contracts to Diagnostics inventory.
+			[ 'name' => 'bizcity_twinweb_threads',       'owner' => 'modules/twinweb', 'group' => 'twinweb', 'critical' => true, 'class' => 'BizCity_TwinWeb_Installer' ],
+			[ 'name' => 'bizcity_twinweb_artifact_jobs', 'owner' => 'modules/twinweb', 'group' => 'twinweb', 'critical' => true, 'class' => 'BizCity_TwinWeb_Installer' ],
 
 			// ── core/research ─────────────────────────────────────────────
 			[ 'name' => 'bizcity_research_sessions', 'owner' => 'core/research', 'group' => 'research' ],

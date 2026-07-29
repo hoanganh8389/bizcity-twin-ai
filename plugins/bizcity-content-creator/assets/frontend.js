@@ -170,6 +170,7 @@
 		initRangeOutput();
 		prefillFromWebchat();
 		listenAutoGenerate();
+		notifyTwinwebIframeUrl();
 		// [2026-06-06 Johnny Chu] BZCC-SKEL — init optional notebook picker
 		initNotebookPicker();
 	}
@@ -185,6 +186,19 @@
 			form.dispatchEvent(event);
 		});
 	}
+
+	/* [2026-07-18 Johnny Chu] SPRINT-16 SB-5 — sync creator iframe route back to Twin GPT shell. */
+	function notifyTwinwebIframeUrl() {
+		if (!window.bzccFront || !window.bzccFront.isIframe || window.parent === window) return;
+		try {
+			window.parent.postMessage({
+				type: 'bizcity:twinweb:iframe-url',
+				href: window.location.href
+			}, window.location.origin);
+		} catch (err) {}
+	}
+
+	window.addEventListener('popstate', notifyTwinwebIframeUrl);
 
 	/* ── Prefill form from webchat iframe params (topic, session_id) ── */
 	function prefillFromWebchat() {

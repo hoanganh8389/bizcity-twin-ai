@@ -1517,7 +1517,10 @@ class BizCity_Broadcast_REST {
 			}
 			$users = get_users( $user_args );
 			foreach ( $users as $u ) {
-				$phone = get_user_meta( $u->ID, 'phone', true );
+				// [2026-07-27 Johnny Chu] R-PERF — broadcast recipient phone reads use one direct-SQL cache lookup.
+				$phone = class_exists( 'BizCity_User_Meta_Cache' )
+					? BizCity_User_Meta_Cache::get( $u->ID, 'phone', '' )
+					: get_user_meta( $u->ID, 'phone', true );
 				$contacts[] = array(
 					'id'     => (int) $u->ID,
 					'name'   => $u->display_name,

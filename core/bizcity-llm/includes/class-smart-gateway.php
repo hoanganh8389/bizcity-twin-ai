@@ -40,9 +40,15 @@ class BizCity_Smart_Gateway {
         $message       = $params['message'] ?? '';
         $images        = $params['images'] ?? [];
         $kci_ratio     = (int) ( $params['kci_ratio'] ?? 80 );
+        // [2026-07-28 Johnny Chu] R-CH-IDMEM — carry the verified memory owner through every gateway read.
+        $memory_scope  = class_exists( 'BizCity_Memory_Identity_Scope' )
+            ? BizCity_Memory_Identity_Scope::resolve( array_merge( $params, [ 'user_id' => $user_id ] ) )
+            : [ 'identity_uuid' => (string) ( $params['identity_uuid'] ?? '' ) ];
+        $identity_uuid = (string) ( $memory_scope['identity_uuid'] ?? '' );
 
         $context = [
             'session_id'       => $session_id,
+            'identity_uuid'    => $identity_uuid,
             'platform_type'    => $platform_type,
             'message'          => $message,
             'character_id'     => $character_id,
@@ -115,7 +121,7 @@ class BizCity_Smart_Gateway {
         if ( $skip_legacy_memory && class_exists( 'BizCity_TwinBrain_Memory_Recall' ) ) {
             try {
                 $recall = BizCity_TwinBrain_Memory_Recall::instance()
-                    ->collect( (int) $user_id, (string) $message, [ 'session_id' => $session_id ] );
+                    ->collect( (int) $user_id, (string) $message, [ 'session_id' => $session_id, 'identity_uuid' => $identity_uuid ] );
                 $context['user_memory_context'] = (string) ( $recall['block'] ?? '' );
                 $context['memory_recall_meta']  = [
                     'source'     => (string) ( $recall['source'] ?? 'unknown' ),
@@ -282,22 +288,23 @@ class BizCity_Smart_Gateway {
         // handles missing keys gracefully (degraded suggestions vs crash).
         if ( ! $skip_legacy_memory && class_exists( 'BizCity_Episodic_Memory' ) ) {
             $context['episodic_habits'] = BizCity_Episodic_Memory::instance()
-                ->get_habits( $user_id );
+                ->get_habits( $user_id, $identity_uuid );
         }
         if ( ! $skip_legacy_memory && class_exists( 'BizCity_Rolling_Memory' ) ) {
             $rm = BizCity_Rolling_Memory::instance();
-            $context['rolling_active']    = $rm->get_active_for_user( $user_id, $session_id );
-            $context['rolling_completed'] = $rm->get_recently_completed( $user_id, 60 );
+            $context['rolling_active']    = $rm->get_active_for_user( $user_id, $session_id, $identity_uuid );
+            $context['rolling_completed'] = $rm->get_recently_completed( $user_id, 60, $identity_uuid );
         }
 
         // ── User Memories Typed (for suggest engine) ──
         if ( ! $skip_legacy_memory && class_exists( 'BizCity_User_Memory' ) ) {
             $context['user_memories_typed'] = BizCity_User_Memory::instance()
                 ->get_memories( [
-                    'user_id'    => $user_id,
-                    'session_id' => $session_id,
-                    'limit'      => 5,
-                    'order_by'   => 'score',
+                    'user_id'       => $user_id,
+                    'session_id'    => $session_id,
+                    'identity_uuid' => $identity_uuid,
+                    'limit'         => 5,
+                    'order_by'      => 'score',
                 ] );
         }
 

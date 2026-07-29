@@ -212,7 +212,11 @@ class BizCity_ZNS_General_Sender {
 			if ( 'literal' === $source ) {
 				$data[ $var_name ] = (string) ( $v['value'] ?? '' );
 			} elseif ( 'user_meta' === $source && $user_id ) {
-				$data[ $var_name ] = (string) get_user_meta( (int) $user_id, (string) ( $v['field'] ?? '' ), true );
+				$meta_key = (string) ( $v['field'] ?? '' );
+				// [2026-07-27 Johnny Chu] R-PERF — reuse the unified user-meta cache for template variables.
+				$data[ $var_name ] = (string) ( class_exists( 'BizCity_User_Meta_Cache' )
+					? BizCity_User_Meta_Cache::get( (int) $user_id, $meta_key, '' )
+					: get_user_meta( (int) $user_id, $meta_key, true ) );
 			} else {
 				// placeholder or mapped
 				$field             = (string) ( $v['field'] ?? $v['mapped_field'] ?? '' );

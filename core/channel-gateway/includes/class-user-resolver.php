@@ -30,6 +30,47 @@ class BizCity_User_Resolver {
 	}
 
 	/**
+	 * Resolve a chat identifier to the canonical durable identity context.
+	 *
+	 * Legacy mappings remain available as an unknown identity projection; this
+	 * method never promotes a legacy or soft session into a new UUID.
+	 *
+	 * @return array|null { identity_uuid, contact_id, wp_user_id, identity_state }
+	 */
+	public function resolve_identity( string $chat_id, int $blog_id = 0 ) {
+		// [2026-07-28 Johnny Chu] R-CH-IDMEM — expose the durable identity contract without breaking int-only legacy callers.
+		if ( $chat_id === '' ) {
+			return null;
+		}
+		$blog_id = $blog_id > 0 ? $blog_id : (int) get_current_blog_id();
+		if ( $this->is_group_chat_id( $chat_id ) ) {
+			return null;
+		}
+		if ( class_exists( 'BizCity_Identity_Hub' ) ) {
+			$identity = BizCity_Identity_Hub::resolve_from_opts( array( 'chat_id' => $chat_id ), $blog_id );
+			if ( is_array( $identity ) && ! empty( $identity['identity_uuid'] ) ) {
+				$stable = ! empty( $identity['binding']['is_stable'] );
+				return array(
+					'identity_uuid'  => (string) $identity['identity_uuid'],
+					'contact_id'     => (int) ( $identity['contact_id'] ?? 0 ),
+					'wp_user_id'     => (int) ( $identity['wp_user_id'] ?? 0 ),
+					'identity_state' => $stable ? 'stable' : 'unknown',
+				);
+			}
+		}
+		$legacy_user_id = $this->resolve( $chat_id, $blog_id );
+		if ( $legacy_user_id <= 0 ) {
+			return null;
+		}
+		return array(
+			'identity_uuid'  => '',
+			'contact_id'     => 0,
+			'wp_user_id'     => $legacy_user_id,
+			'identity_state' => 'unknown',
+		);
+	}
+
+	/**
 	 * Resolve chat_id → WP user_id.
 	 *
 	 * Priority:
@@ -52,10 +93,36 @@ class BizCity_User_Resolver {
 			return $this->cache[ $cache_key ];
 		}
 
-		$blog_id = $blog_id ?: get_current_blog_id();
+		// [2026-07-17 Johnny Chu] PHASE-TWINWEB F4 — fail closed: group-like chat_id must never resolve as personal identity.
+		if ( $this->is_group_chat_id( $chat_id ) ) {
+			$this->cache[ $cache_key ] = 0;
+			error_log( sprintf( '[User Resolver] 🚫 Refuse group-like chat_id: %s', substr( $chat_id, 0, 80 ) ) );
+			return 0;
+		}
 
-		// Priority 0: Zalo Bot User Linker (BUG-4 fix)
-		$user_id = $this->resolve_from_zalo_linker( $chat_id, $blog_id );
+		$blog_id = $blog_id ?: get_current_blog_id();
+		// [2026-07-28 Johnny Chu] R-CH-IDMEM — a known canonical binding outranks WP-user and legacy chat mappings.
+		if ( class_exists( 'BizCity_Identity_Hub' ) ) {
+			$identity = BizCity_Identity_Hub::resolve_from_opts( array( 'chat_id' => $chat_id ), (int) $blog_id );
+			if ( is_array( $identity ) && ! empty( $identity['identity_uuid'] ) ) {
+				$user_id = (int) ( $identity['wp_user_id'] ?? 0 );
+				$this->cache[ $cache_key ] = $user_id;
+				return $user_id;
+			}
+		}
+
+		// [2026-07-27 Johnny Chu] PHASE-0.52 W1 — resolve Zone 1 identities with account-scoped mapping first.
+		$user_id = $this->resolve_from_channel_linker( $chat_id, $blog_id );
+		if ( ! $user_id && ( strpos( $chat_id, 'fb_' ) === 0 || strpos( $chat_id, 'zalooa_' ) === 0 ) ) {
+			// [2026-07-27 Johnny Chu] PHASE-0.52 W1 — unresolved Zone 1 identities must not fall back to raw global client IDs.
+			$this->cache[ $cache_key ] = 0;
+			return 0;
+		}
+
+		// Priority 0b: Zalo Bot User Linker (BUG-4 fix)
+		if ( ! $user_id ) {
+			$user_id = $this->resolve_from_zalo_linker( $chat_id, $blog_id );
+		}
 
 		if ( ! $user_id ) {
 			// Strip platform prefix to get raw client_id
@@ -137,6 +204,44 @@ class BizCity_User_Resolver {
 	}
 
 	/**
+	 * Resolve Zone 1 Facebook Messenger and Zalo OA identities.
+	 *
+	 * Chat formats are fb_{page_id}_{psid} and zalooa_{oa_id}_{uid}.
+	 * Account-scoped lookup prevents two Pages/OAs sharing a provider user id
+	 * from resolving to the wrong WordPress user.
+	 */
+	private function resolve_from_channel_linker( string $chat_id, int $blog_id ): int {
+		if ( ! class_exists( 'BizCity_Channel_User_Linker' ) ) {
+			return 0;
+		}
+
+		$prefix = '';
+		$platform = '';
+		if ( strpos( $chat_id, 'fb_' ) === 0 ) {
+			$prefix   = 'fb_';
+			$platform = BizCity_Channel_User_Linker::PLATFORM_FB_MESS;
+		} elseif ( strpos( $chat_id, 'zalooa_' ) === 0 ) {
+			$prefix   = 'zalooa_';
+			$platform = BizCity_Channel_User_Linker::PLATFORM_ZALO_OA;
+		} else {
+			return 0;
+		}
+
+		$tail    = substr( $chat_id, strlen( $prefix ) );
+		$sep_pos = strpos( $tail, '_' );
+		if ( false === $sep_pos ) {
+			return 0;
+		}
+		$account_id       = substr( $tail, 0, $sep_pos );
+		$external_user_id = substr( $tail, $sep_pos + 1 );
+		if ( $account_id === '' || $external_user_id === '' ) {
+			return 0;
+		}
+
+		return BizCity_Channel_User_Linker::resolve_wp_user( $platform, $external_user_id, $account_id, $blog_id );
+	}
+
+	/**
 	 * Resolve Zalo Bot chat_id via bizcity_zalobot_user_links table.
 	 *
 	 * chat_id format: "zalobot_{bot_id}_{zalo_user_id}"
@@ -166,6 +271,10 @@ class BizCity_User_Resolver {
 
 		$bot_id       = (int) substr( $without_prefix, 0, $sep_pos );
 		$zalo_user_id = substr( $without_prefix, $sep_pos + 1 );
+		// [2026-07-21 Johnny Chu] PHASE-ZALOBOT-ASTRO — private conversation target still maps to sender identity; group remains refused by is_group_chat_id().
+		if ( strpos( $zalo_user_id, 'private_' ) === 0 ) {
+			$zalo_user_id = substr( $zalo_user_id, 8 );
+		}
 
 		if ( ! $bot_id || $zalo_user_id === '' ) {
 			return 0;
@@ -250,6 +359,51 @@ class BizCity_User_Resolver {
 			}
 		}
 		return $chat_id; // Numeric or unknown — return as-is
+	}
+
+	/**
+	 * Detect obviously group/thread-like chat identifiers.
+	 *
+	 * Group chat_id must not be used as personal identity keys.
+	 */
+	private function is_group_chat_id( string $chat_id ): bool {
+		if ( strpos( $chat_id, 'zalobot_' ) !== 0 ) {
+			return false;
+		}
+
+		$tail    = substr( $chat_id, strlen( 'zalobot_' ) );
+		$sep_pos = strpos( $tail, '_' );
+		if ( false === $sep_pos ) {
+			return false;
+		}
+
+		$recipient_id = strtolower( (string) substr( $tail, $sep_pos + 1 ) );
+		if ( $recipient_id === '' ) {
+			return false;
+		}
+
+		$group_markers = array(
+			'group_',
+			'group-',
+			'grp_',
+			'grp-',
+			'thread_',
+			'thread-',
+			'conversation_',
+			'conversation-',
+			'chatgroup_',
+			'chatgroup-',
+			'chat_',
+			'chat-',
+		);
+
+		foreach ( $group_markers as $marker ) {
+			if ( strpos( $recipient_id, $marker ) === 0 ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**

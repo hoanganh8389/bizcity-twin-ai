@@ -187,6 +187,13 @@ final class BizCity_Automation_Listener {
 				'instance_id'   => (string) ( $payload['instance_id'] ?? '' ),
 				'sender_id'     => (string) ( $payload['sender_id'] ?? '' ),
 				'chat_id'       => (string) ( $payload['chat_id'] ?? '' ),
+				// [2026-07-21 Johnny Chu] PHASE-ZALOBOT-GROUP W6 — expose group/private contract in FE test-listen payload.
+				'conversation_chat_id' => (string) ( $payload['conversation_chat_id'] ?? $payload['chat_id'] ?? '' ),
+				'provider_chat_id' => (string) ( $payload['provider_chat_id'] ?? '' ),
+				'provider_chat_type' => (string) ( $payload['provider_chat_type'] ?? '' ),
+				'chat_kind'     => (string) ( $payload['chat_kind'] ?? '' ),
+				'mention_detected' => ! empty( $payload['mention_detected'] ),
+				'reply_to_bot_message' => ! empty( $payload['reply_to_bot_message'] ),
 				'mid'           => $mid,
 				'raw'           => $payload['raw'] ?? null,
 				'_source'       => 'gateway_bridge',
@@ -252,6 +259,13 @@ final class BizCity_Automation_Listener {
 				'instance_id'   => (string) ( $envelope['account_id'] ?? '' ),
 				'sender_id'     => (string) ( $envelope['user_id']    ?? '' ),
 				'chat_id'       => (string) ( $envelope['chat_id']    ?? '' ),
+				// [2026-07-21 Johnny Chu] PHASE-ZALOBOT-GROUP W6 — preserve normalized ZaloBot group/private metadata in listener captures.
+				'conversation_chat_id' => (string) ( $envelope['conversation_chat_id'] ?? $envelope['chat_id'] ?? '' ),
+				'provider_chat_id' => (string) ( $envelope['provider_chat_id'] ?? '' ),
+				'provider_chat_type' => (string) ( $envelope['provider_chat_type'] ?? '' ),
+				'chat_kind'     => (string) ( $envelope['chat_kind'] ?? '' ),
+				'mention_detected' => ! empty( $envelope['mention_detected'] ),
+				'reply_to_bot_message' => ! empty( $envelope['reply_to_bot_message'] ),
 				'mid'           => $message_id,
 				'raw'           => $envelope['raw'] ?? null,
 				'_source'       => 'normalized',
@@ -279,17 +293,38 @@ final class BizCity_Automation_Listener {
 		if ( $mid !== '' && self::seen( 'zalo_inbound', $mid ) ) { return; }
 		// [2026-06-14 Johnny Chu] PHASE-0.41 VIDEO-VEO3 — forward media_url from image_url/file_url
 		// so trigger.media_url is populated for capture_attachment + video_submit blocks.
-		$_media_url = (string) ( $message_data['image_url'] ?? $message_data['file_url'] ?? $message_data['media_url'] ?? '' );
+		// [2026-07-26 Johnny Chu] PHASE-0.46 W5 R6 — voice_url was missing from
+		// this fallback chain, so a bare voice memo never populated
+		// trigger.media_url/media_kind for generic automation capture (the
+		// bridge's own Section B queueing already handled voice correctly
+		// via attachment_type/attachment_url; this path did not).
+		$_media_url = (string) ( $message_data['image_url'] ?? $message_data['file_url'] ?? $message_data['voice_url'] ?? $message_data['media_url'] ?? '' );
+		// [2026-07-21 Johnny Chu] PHASE-ZALOBOT-GROUP W6 — direct Zalo capture uses conversation target, not sender id.
+		$conversation_chat_id = (string) ( $message_data['conversation_chat_id'] ?? $message_data['chat_id'] ?? '' );
+		$chat_kind = (string) ( $message_data['chat_kind'] ?? '' );
+		$provider_chat_id = (string) ( $message_data['provider_chat_id'] ?? '' );
+		if ( $conversation_chat_id === '' ) {
+			$provider_chat_id = $provider_chat_id !== '' ? $provider_chat_id : (string) ( $message_data['conversation_id'] ?? $message_data['from_user_id'] ?? $message_data['user_id'] ?? '' );
+			$chat_kind = $chat_kind === 'group' ? 'group' : 'private';
+			$bot_id = (string) ( $message_data['bot_id'] ?? '' );
+			$conversation_chat_id = $bot_id !== '' ? 'zalobot_' . $bot_id . '_' . ( $chat_kind === 'group' ? 'group_' : 'private_' ) . $provider_chat_id : $provider_chat_id;
+		}
 		self::capture_for( 'zalo_inbound', array(
 			'channel'       => 'ZALO_BOT',
 			'event_subtype' => 'message',
-			'text'          => (string) ( $message_data['message_text'] ?? $message_data['message'] ?? '' ),
+			'text'          => (string) ( $message_data['message_text_clean'] ?? $message_data['message_text'] ?? $message_data['message'] ?? '' ),
 			'instance_id'   => (string) ( $message_data['conversation_id'] ?? $message_data['oa_id'] ?? '' ),
 			'sender_id'     => (string) ( $message_data['from_user_id']    ?? $message_data['user_id'] ?? '' ),
-			'chat_id'       => (string) ( $message_data['chat_id']         ?? '' ),
+			'chat_id'       => $conversation_chat_id,
+			'conversation_chat_id' => $conversation_chat_id,
+			'provider_chat_id' => $provider_chat_id,
+			'provider_chat_type' => (string) ( $message_data['provider_chat_type'] ?? '' ),
+			'chat_kind'     => $chat_kind,
+			'mention_detected' => ! empty( $message_data['mention_detected'] ),
+			'reply_to_bot_message' => ! empty( $message_data['reply_to_bot_message'] ),
 			'mid'           => $mid,
 			'media_url'     => $_media_url,
-			'media_kind'    => $_media_url !== '' ? ( ( $message_data['image_url'] ?? '' ) !== '' ? 'image' : 'file' ) : '',
+			'media_kind'    => $_media_url !== '' ? ( ( $message_data['image_url'] ?? '' ) !== '' ? 'image' : ( ( $message_data['voice_url'] ?? '' ) !== '' ? 'audio' : 'file' ) ) : '',
 			'raw'           => $message_data,
 			'_source'       => 'zalo_direct',
 		) );
@@ -328,13 +363,22 @@ final class BizCity_Automation_Listener {
 
 		if ( trim( $text ) === '' && $media_url === '' ) { return; }
 
+		// [2026-07-21 Johnny Chu] PHASE-ZALOBOT-GROUP W6 — mirror matcher intake group/private shape for FE test listener.
+		$provider_chat_id   = (string) ( $message['chat']['id'] ?? $user_id );
+		$provider_chat_type = strtoupper( (string) ( $message['chat']['chat_type'] ?? 'PRIVATE' ) );
+		$chat_kind          = $provider_chat_type === 'GROUP' ? 'group' : 'private';
+		$conversation_chat_id = 'zalobot_' . $bot_id . '_' . ( $chat_kind === 'group' ? 'group_' : 'private_' ) . $provider_chat_id;
 		self::capture_for( 'zalo_inbound', array(
 			'channel'       => 'ZALO_BOT',
 			'event_subtype' => 'message',
 			'text'          => $text,
 			'instance_id'   => $bot_id,
 			'sender_id'     => $user_id,
-			'chat_id'       => 'zalobot_' . $bot_id . '_' . $user_id,
+			'chat_id'       => $conversation_chat_id,
+			'conversation_chat_id' => $conversation_chat_id,
+			'provider_chat_id' => $provider_chat_id,
+			'provider_chat_type' => $provider_chat_type,
+			'chat_kind'     => $chat_kind,
 			'mid'           => $mid,
 			'media_url'     => $media_url,
 			'raw'           => $data,

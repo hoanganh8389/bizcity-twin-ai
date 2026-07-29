@@ -2,7 +2,8 @@
 /**
  * CF7 Channel — Channel Listener
  *
- * Hooks wpcf7_mail_sent → extract fields → log → CRM sync → Listener Bus trace.
+ * Hooks wpcf7_mail_sent + wpcf7_mail_failed → extract fields → log → CRM sync
+ * → Listener Bus trace.
  *
  * @package BizCity_Channel_Gateway
  * @since   2026-06-13
@@ -19,16 +20,37 @@ class BizCity_CF7_Channel_Listener {
 	const RATE_LIMIT_PER_HOUR = 50;
 
 	public static function init(): void {
-		// [2026-06-13 Johnny Chu] PHASE-CG-CF7 — hook CF7 mail_sent
-		add_action( 'wpcf7_mail_sent', array( __CLASS__, 'on_submit' ), 10, 1 );
+		// [2026-07-17 Johnny Chu] PHASE-CG-CF7-MAIL-OBS — capture submission
+		// in both branches: mail_sent and mail_failed.
+		add_action( 'wpcf7_mail_sent', array( __CLASS__, 'on_mail_sent' ), 10, 1 );
+		add_action( 'wpcf7_mail_failed', array( __CLASS__, 'on_mail_failed' ), 10, 1 );
 	}
 
 	/**
-	 * Main handler: fires on every successful CF7 submission.
+	 * Wrapper for successful CF7 send branch.
 	 *
 	 * @param WPCF7_ContactForm $cf7
 	 */
-	public static function on_submit( $cf7 ): void {
+	public static function on_mail_sent( $cf7 ): void {
+		self::on_submit( $cf7, 'mail_sent' );
+	}
+
+	/**
+	 * Wrapper for CF7 mail_failed branch.
+	 *
+	 * @param WPCF7_ContactForm $cf7
+	 */
+	public static function on_mail_failed( $cf7 ): void {
+		self::on_submit( $cf7, 'mail_failed' );
+	}
+
+	/**
+	 * Main handler: fires on both mail_sent and mail_failed branches.
+	 *
+	 * @param WPCF7_ContactForm $cf7
+	 * @param string            $mail_event
+	 */
+	public static function on_submit( $cf7, string $mail_event = 'mail_sent' ): void {
 		if ( ! class_exists( 'WPCF7_Submission' ) ) {
 			return;
 		}
@@ -45,6 +67,11 @@ class BizCity_CF7_Channel_Listener {
 			return;
 		}
 
+		// [2026-07-17 Johnny Chu] PHASE-CG-CF7-MAIL-OBS — normalize mail
+		// event for per-submission flagging.
+		$mail_event = $mail_event === 'mail_failed' ? 'mail_failed' : 'mail_sent';
+		$mail_ctx   = self::resolve_mail_failure_context( $mail_event );
+
 		// ── Load field mapping ────────────────────────────────────────────
 		$mapping = self::get_form_mapping( $form_id );
 
@@ -56,13 +83,12 @@ class BizCity_CF7_Channel_Listener {
 		$phone = preg_replace( '/[^0-9+\-() ]/', '', $mapped['phone'] ?? '' );
 		$phone = substr( $phone, 0, 32 );
 
-		// Guard: need at least one identity
-		if ( empty( $email ) && empty( $phone ) ) {
-			return;
-		}
+		$has_identity = ! empty( $email ) || ! empty( $phone );
 
 		// ── Rate limit ────────────────────────────────────────────────────
+		$is_rate_limited = false;
 		if ( self::is_rate_limited( $form_id ) ) {
+			$is_rate_limited = true;
 			error_log( "[BizCity_CF7] Rate limit hit for form {$form_id} — skipping CRM sync." );
 			// [2026-06-19 Johnny Chu] PHASE-CG-CF7-LOG — file-log rate limit
 			if ( class_exists( 'BizCity_Channel_File_Logger', false ) ) {
@@ -79,6 +105,7 @@ class BizCity_CF7_Channel_Listener {
 			$phone_raw = $phone;
 			$email     = '';
 			$phone     = '';
+			$has_identity = false;
 		} else {
 			$email_raw = $email;
 			$phone_raw = $phone;
@@ -92,11 +119,28 @@ class BizCity_CF7_Channel_Listener {
 		$user_agent = isset( $_SERVER['HTTP_USER_AGENT'] ) ? substr( sanitize_text_field( wp_unslash( $_SERVER['HTTP_USER_AGENT'] ) ), 0, 255 ) : '';
 		$ip_address = self::get_client_ip();
 
-		// ── Log submission ────────────────────────────────────────────────		// [2026-06-19 Johnny Chu] PHASE-CG-CF7-LOG — file-log before any DB (R-CH-FILE-LOG)
+		// [2026-07-17 Johnny Chu] PHASE-CG-CF7-MAIL-OBS — persist mail result
+		// snapshot inside row payload so each submission can be traced later.
+		$posted_for_log = $posted;
+		if ( is_array( $posted_for_log ) ) {
+			$posted_for_log['__bizcity_mail'] = array(
+				'status'         => $mail_event === 'mail_failed' ? 'failed' : 'sent',
+				'reason_code'    => (string) ( $mail_ctx['reason_code'] ?? '' ),
+				'provider_code'  => (int) ( $mail_ctx['provider_code'] ?? 0 ),
+				'provider_error' => self::truncate_text( (string) ( $mail_ctx['provider_error'] ?? '' ), 220 ),
+				'flagged_at'     => current_time( 'mysql', true ),
+			);
+		}
+
+		// ── Log submission ────────────────────────────────────────────────
+		// [2026-06-19 Johnny Chu] PHASE-CG-CF7-LOG — file-log before any DB (R-CH-FILE-LOG)
 		if ( class_exists( 'BizCity_Channel_File_Logger', false ) ) {
+			$level = $mail_event === 'mail_failed'
+				? BizCity_Channel_File_Logger::LEVEL_WARN
+				: BizCity_Channel_File_Logger::LEVEL_INFO;
 			BizCity_Channel_File_Logger::write(
 				BizCity_Channel_File_Logger::CH_CF7,
-				BizCity_Channel_File_Logger::LEVEL_INFO,
+				$level,
 				'cf7_form_received',
 				'CF7 form #' . $form_id . ' submitted',
 				array(
@@ -104,13 +148,15 @@ class BizCity_CF7_Channel_Listener {
 					'form_title' => $form_title,
 					'has_email'  => ! empty( $email_raw ),
 					'has_phone'  => ! empty( $phone_raw ),
+					'mail_event' => $mail_event,
+					'mail_reason'=> (string) ( $mail_ctx['reason_code'] ?? '' ),
 				)
 			);
 		}
 		$sub_id = BizCity_CF7_Submissions_Log::insert( array(
 			'form_id'    => $form_id,
 			'form_title' => $form_title,
-			'raw_data'   => $posted,
+			'raw_data'   => $posted_for_log,
 			'mapped_data'=> $mapped,
 			'email'      => $email_raw ?: null,
 			'phone'      => $phone_raw ?: null,
@@ -122,7 +168,7 @@ class BizCity_CF7_Channel_Listener {
 		// ── CRM Sync ──────────────────────────────────────────────────────
 		$crm_result = array( 'action' => 'skipped', 'contact_id' => 0, 'error' => null );
 
-		if ( $email || $phone ) {
+		if ( $has_identity && ( $email || $phone ) ) {
 			if ( BizCity_CF7_CRM_Sync::is_available() ) {
 				$crm_result = BizCity_CF7_CRM_Sync::upsert(
 					$email,
@@ -137,13 +183,37 @@ class BizCity_CF7_Channel_Listener {
 					)
 				);
 			}
-		} else {
+		} elseif ( $is_rate_limited ) {
 			$crm_result['action'] = 'rate_limited';
+		} else {
+			// [2026-07-17 Johnny Chu] PHASE-CG-CF7-MAIL-OBS — keep submission row
+			// even when mapping misses identity fields.
+			$crm_result['action'] = 'skipped';
+			$crm_result['error']  = 'missing_identity';
 		}
 
 		// ── Update submission with CRM result ─────────────────────────────
 		if ( $sub_id ) {
 			BizCity_CF7_Submissions_Log::update_crm_result( $sub_id, $crm_result );
+		}
+
+		if ( $mail_event === 'mail_failed' && class_exists( 'BizCity_Channel_File_Logger', false ) ) {
+			// [2026-07-17 Johnny Chu] PHASE-CG-CF7-MAIL-OBS — flag email failure
+			// with evidence for dashboard/statistics.
+			BizCity_Channel_File_Logger::write(
+				BizCity_Channel_File_Logger::CH_CF7,
+				BizCity_Channel_File_Logger::LEVEL_WARN,
+				'cf7_mail_flagged',
+				'Submission accepted but email delivery failed',
+				array(
+					'form_id'       => $form_id,
+					'form_title'    => $form_title,
+					'sub_id'        => (int) $sub_id,
+					'reason_code'   => (string) ( $mail_ctx['reason_code'] ?? '' ),
+					'provider_code' => (int) ( $mail_ctx['provider_code'] ?? 0 ),
+					'provider_error'=> self::truncate_text( (string) ( $mail_ctx['provider_error'] ?? '' ), 220 ),
+				)
+			);
 		}
 
 		// ── M1.7: Sync to unified bizcity_crm_submissions ─────────────────
@@ -201,6 +271,8 @@ class BizCity_CF7_Channel_Listener {
 					// Mask email/phone in trace (OWASP PII protection)
 					'email'      => $email_raw ? self::mask_email( $email_raw ) : '',
 					'phone'      => $phone_raw ? self::mask_phone( $phone_raw ) : '',
+					'mail_status'=> $mail_event === 'mail_failed' ? 'failed' : 'sent',
+					'mail_reason'=> (string) ( $mail_ctx['reason_code'] ?? '' ),
 					'crm_action' => $crm_result['action'],
 					'contact_id' => (int) $crm_result['contact_id'],
 					'sub_id'     => $sub_id,
@@ -393,6 +465,51 @@ class BizCity_CF7_Channel_Listener {
 			);
 		}
 		return $forms;
+	}
+
+	/**
+	 * Resolve mail failure details captured by CF7 response config in current request.
+	 *
+	 * @param string $mail_event
+	 * @return array<string,mixed>
+	 */
+	private static function resolve_mail_failure_context( string $mail_event ): array {
+		if ( $mail_event !== 'mail_failed' ) {
+			return array(
+				'reason_code'    => '',
+				'provider_code'  => 0,
+				'provider_error' => '',
+			);
+		}
+
+		if ( class_exists( 'BizCity_CF7_Response_Config', false )
+			&& method_exists( 'BizCity_CF7_Response_Config', 'get_last_mail_failed' ) ) {
+			$meta = BizCity_CF7_Response_Config::get_last_mail_failed();
+			if ( is_array( $meta ) ) {
+				return array(
+					'reason_code'    => isset( $meta['reason_code'] ) ? (string) $meta['reason_code'] : 'smtp_send_failed',
+					'provider_code'  => isset( $meta['provider_code'] ) ? (int) $meta['provider_code'] : 0,
+					'provider_error' => isset( $meta['provider_error'] ) ? (string) $meta['provider_error'] : '',
+				);
+			}
+		}
+
+		return array(
+			'reason_code'    => 'smtp_send_failed',
+			'provider_code'  => 0,
+			'provider_error' => '',
+		);
+	}
+
+	/**
+	 * Compact long text for file log context.
+	 */
+	private static function truncate_text( string $text, int $max_len ): string {
+		$text = preg_replace( '/\s+/', ' ', trim( $text ) );
+		if ( $max_len > 0 && strlen( $text ) > $max_len ) {
+			return substr( $text, 0, $max_len ) . '...';
+		}
+		return $text;
 	}
 
 	// ── Rate limiting ─────────────────────────────────────────────────────

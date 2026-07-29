@@ -10,7 +10,7 @@
  * avoid LLM Router conflict, NOT `bizcity-channel/v1` to avoid Channel
  * Gateway conflict).
  *
- * Routes (admin-only `manage_options`):
+ * Routes (`read` users can author own workflows; admin-only routes remain for templates/must-use):
  *   GET    /workflows                  → list
  *   POST   /workflows                  → create
  *   GET    /workflows/(?P<id>\d+)      → load
@@ -37,16 +37,17 @@ final class BizCity_Automation_REST {
 	}
 
 	public static function register_routes(): void {
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — workflow CRUD routes allow customers; handlers enforce owner/admin scope.
 		register_rest_route( self::NS, '/workflows', array(
 			array(
 				'methods'             => WP_REST_Server::READABLE,
 				'callback'            => array( __CLASS__, 'list_workflows' ),
-				'permission_callback' => array( __CLASS__, 'admin_only' ),
+				'permission_callback' => array( __CLASS__, 'workflow_read_allowed' ),
 			),
 			array(
 				'methods'             => WP_REST_Server::CREATABLE,
 				'callback'            => array( __CLASS__, 'create_workflow' ),
-				'permission_callback' => array( __CLASS__, 'admin_only' ),
+				'permission_callback' => array( __CLASS__, 'workflow_write_allowed' ),
 			),
 		) );
 
@@ -54,30 +55,30 @@ final class BizCity_Automation_REST {
 			array(
 				'methods'             => WP_REST_Server::READABLE,
 				'callback'            => array( __CLASS__, 'get_workflow' ),
-				'permission_callback' => array( __CLASS__, 'admin_only' ),
+				'permission_callback' => array( __CLASS__, 'workflow_read_allowed' ),
 			),
 			array(
 				'methods'             => array( 'PUT', 'PATCH' ),
 				'callback'            => array( __CLASS__, 'update_workflow' ),
-				'permission_callback' => array( __CLASS__, 'admin_only' ),
+				'permission_callback' => array( __CLASS__, 'workflow_write_allowed' ),
 			),
 			array(
 				'methods'             => WP_REST_Server::DELETABLE,
 				'callback'            => array( __CLASS__, 'delete_workflow' ),
-				'permission_callback' => array( __CLASS__, 'admin_only' ),
+				'permission_callback' => array( __CLASS__, 'workflow_write_allowed' ),
 			),
 		) );
 
 		register_rest_route( self::NS, '/workflows/(?P<id>\d+)/duplicate', array(
 			'methods'             => WP_REST_Server::CREATABLE,
 			'callback'            => array( __CLASS__, 'duplicate_workflow' ),
-			'permission_callback' => array( __CLASS__, 'admin_only' ),
+			'permission_callback' => array( __CLASS__, 'workflow_write_allowed' ),
 		) );
 
 		register_rest_route( self::NS, '/workflows/(?P<id>\d+)/run', array(
 			'methods'             => WP_REST_Server::CREATABLE,
 			'callback'            => array( __CLASS__, 'run_workflow' ),
-			'permission_callback' => array( __CLASS__, 'admin_only' ),
+			'permission_callback' => array( __CLASS__, 'workflow_read_allowed' ),
 		) );
 
 		// [2026-06-20 Johnny Chu] PHASE-TWB-WORKFLOW W5 — Brain-mode skill validator.
@@ -142,10 +143,11 @@ final class BizCity_Automation_REST {
 			'permission_callback' => array( __CLASS__, 'admin_only' ),
 		) );
 
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — run detail/SSE are visible to workflow owners so customer canvas can stream runs.
 		register_rest_route( self::NS, '/runs/(?P<run_id>[a-z0-9_]+)', array(
 			'methods'             => WP_REST_Server::READABLE,
 			'callback'            => array( __CLASS__, 'get_run' ),
-			'permission_callback' => array( __CLASS__, 'admin_only' ),
+			'permission_callback' => array( __CLASS__, 'workflow_read_allowed' ),
 		) );
 
 		register_rest_route( self::NS, '/runs/(?P<run_id>[a-z0-9_]+)/cancel', array(
@@ -175,14 +177,14 @@ final class BizCity_Automation_REST {
 		register_rest_route( self::NS, '/runs/(?P<run_id>[a-z0-9_]+)/replay', array(
 			'methods'             => WP_REST_Server::CREATABLE,
 			'callback'            => array( __CLASS__, 'replay_run' ),
-			'permission_callback' => array( __CLASS__, 'admin_only' ),
+			'permission_callback' => array( __CLASS__, 'workflow_read_allowed' ),
 		) );
 
 		// BE-3 — SSE stream for live run logs.
 		register_rest_route( self::NS, '/runs/(?P<run_id>[a-z0-9_]+)/events', array(
 			'methods'             => WP_REST_Server::READABLE,
 			'callback'            => array( __CLASS__, 'stream_run_events' ),
-			'permission_callback' => array( __CLASS__, 'admin_only' ),
+			'permission_callback' => array( __CLASS__, 'workflow_read_allowed' ),
 		) );
 
 		// BE-4 — Public webhook trigger entry point.
@@ -205,7 +207,7 @@ final class BizCity_Automation_REST {
 		register_rest_route( self::NS, '/channel-registry', array(
 			'methods'             => WP_REST_Server::READABLE,
 			'callback'            => array( __CLASS__, 'channel_registry' ),
-			'permission_callback' => array( __CLASS__, 'admin_only' ),
+			'permission_callback' => array( __CLASS__, 'workflow_read_allowed' ),
 		) );
 
 		// [2026-06-25 Johnny Chu] PHASE-REPLY-ZALO-FIX — Zalo user links picker.
@@ -214,14 +216,14 @@ final class BizCity_Automation_REST {
 		register_rest_route( self::NS, '/zalo-users', array(
 			'methods'             => WP_REST_Server::READABLE,
 			'callback'            => array( __CLASS__, 'zalo_users' ),
-			'permission_callback' => array( __CLASS__, 'admin_only' ),
+			'permission_callback' => array( __CLASS__, 'workflow_read_allowed' ),
 		) );
 
 		// BE-6.C — Cron health (FE polling + admin notice).
 		register_rest_route( self::NS, '/cron-health', array(
 			'methods'             => WP_REST_Server::READABLE,
 			'callback'            => array( __CLASS__, 'cron_health' ),
-			'permission_callback' => array( __CLASS__, 'admin_only' ),
+			'permission_callback' => array( __CLASS__, 'workflow_read_allowed' ),
 		) );
 
 		// PG-S9-fix — Matcher trace (last N decisions of trigger-matcher).
@@ -288,12 +290,12 @@ final class BizCity_Automation_REST {
 		register_rest_route( self::NS, '/templates', array(
 			'methods'             => WP_REST_Server::READABLE,
 			'callback'            => array( __CLASS__, 'list_templates' ),
-			'permission_callback' => array( __CLASS__, 'admin_only' ),
+			'permission_callback' => array( __CLASS__, 'workflow_read_allowed' ),
 		) );
 		register_rest_route( self::NS, '/templates/(?P<id>\d+)', array(
 			'methods'             => WP_REST_Server::READABLE,
 			'callback'            => array( __CLASS__, 'get_template' ),
-			'permission_callback' => array( __CLASS__, 'admin_only' ),
+			'permission_callback' => array( __CLASS__, 'workflow_read_allowed' ),
 		) );
 		// [2026-06-07 Johnny Chu] CRM-PATH-1 — CRM-safe template instantiate (zone=crm, category gate).
 		register_rest_route( self::NS, '/templates/(?P<id>\d+)/crm-instantiate', array(
@@ -312,11 +314,17 @@ final class BizCity_Automation_REST {
 		register_rest_route( self::NS, '/templates/(?P<id>\d+)/instantiate', array(
 			'methods'             => WP_REST_Server::CREATABLE,
 			'callback'            => array( __CLASS__, 'instantiate_template' ),
-			'permission_callback' => array( __CLASS__, 'admin_only' ),
+			'permission_callback' => array( __CLASS__, 'workflow_write_allowed' ),
 		) );
 		register_rest_route( self::NS, '/workflows/(?P<id>\d+)/save-as-template', array(
 			'methods'             => WP_REST_Server::CREATABLE,
 			'callback'            => array( __CLASS__, 'save_workflow_as_template' ),
+			'permission_callback' => array( __CLASS__, 'admin_only' ),
+		) );
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — admin toggle: publish workflow as customer default global template.
+		register_rest_route( self::NS, '/workflows/(?P<id>\d+)/customer-default', array(
+			'methods'             => WP_REST_Server::CREATABLE,
+			'callback'            => array( __CLASS__, 'toggle_workflow_customer_default' ),
 			'permission_callback' => array( __CLASS__, 'admin_only' ),
 		) );
 		register_rest_route( self::NS, '/templates/reseed', array(
@@ -398,16 +406,223 @@ final class BizCity_Automation_REST {
 		return current_user_can( 'manage_options' );
 	}
 
+	public static function workflow_read_allowed(): bool {
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — /flow lets customers list and open workflows; handlers enforce ownership.
+		return current_user_can( 'manage_options' ) || current_user_can( 'bizcity_crm_manage' ) || current_user_can( 'read' );
+	}
+
+	public static function workflow_write_allowed(): bool {
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — customers can author their own workflows; admin-only powers stay on template/must-use routes.
+		return current_user_can( 'manage_options' ) || current_user_can( 'read' );
+	}
+
 	// [2026-06-07 Johnny Chu] CRM-PATH-1 — CRM-care OR admin (Path B routes).
 	public static function crm_care_or_admin(): bool {
 		return current_user_can( 'manage_options' ) || current_user_can( 'bizcity_crm_manage' );
 	}
 
+	private static function is_workflow_owner( array $row ): bool {
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — customer edit scope is strict created_by=current_user_id.
+		$current_user_id = (int) get_current_user_id();
+		return $current_user_id > 0 && (int) ( $row['created_by'] ?? 0 ) === $current_user_id;
+	}
+
+	private static function can_edit_workflow_row( array $row ): bool {
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — admin edits all; customer edits only own rows.
+		return current_user_can( 'manage_options' ) || self::is_workflow_owner( $row );
+	}
+
+	private static function can_view_workflow_row( array $row ): bool {
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — customers can view own rows plus admin-published must-use rows.
+		return current_user_can( 'manage_options' )
+			|| current_user_can( 'bizcity_crm_manage' )
+			|| self::is_workflow_owner( $row )
+			|| ! empty( $row['customer_default']['enabled'] );
+	}
+
+	private static function annotate_workflow_access_flags( array $row ): array {
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — expose FE hints; REST handlers still enforce server-side.
+		$can_view = self::can_view_workflow_row( $row );
+		$can_edit = self::can_edit_workflow_row( $row );
+		$row['is_owner'] = self::is_workflow_owner( $row );
+		$row['can_edit'] = $can_edit;
+		$row['can_run'] = $can_view;
+		$row['can_duplicate'] = $can_view;
+		$row['customer_readonly'] = ! $can_edit;
+		return $row;
+	}
+
+	private static function workflow_permission_error() {
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — owner-scoped workflow denial for customer canvas.
+		return new WP_Error( 'permission_denied', 'Bạn không có quyền thao tác workflow này.', array( 'status' => 403 ) );
+	}
+
+	private static function can_customer_use_template( array $template ): bool {
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — keep /gpt gallery/import gates aligned, including legacy seeded rows before visibility column repair.
+		if ( (string) ( $template['visibility'] ?? '' ) === 'global' ) {
+			return true;
+		}
+		$name = trim( (string) ( $template['name'] ?? '' ) );
+		if ( preg_match( '/^\[global\]\s*/i', $name ) ) {
+			return true;
+		}
+		$graph = isset( $template['graph'] ) && is_array( $template['graph'] ) ? $template['graph'] : array();
+		$meta  = isset( $graph['meta'] ) && is_array( $graph['meta'] ) ? $graph['meta'] : array();
+		return (string) ( $meta['visibility'] ?? '' ) === 'global';
+	}
+
+	private static function current_customer_mychannels_zalo_defaults(): array {
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — cron templates use the logged-in customer's pinned Twin GPT channel as the default Zalo target.
+		$user_id = (int) get_current_user_id();
+		if ( $user_id <= 0 ) {
+			return array( 'ready' => false, 'bot_id' => 0, 'chat_id' => '', 'chat_label' => '' );
+		}
+		// [2026-07-27 Johnny Chu] R-PERF — read My Channels once through direct-SQL user-meta cache.
+		$raw = class_exists( 'BizCity_User_Meta_Cache' )
+			? BizCity_User_Meta_Cache::get( $user_id, 'bizcity_twinweb_mychannels', array() )
+			: get_user_meta( $user_id, 'bizcity_twinweb_mychannels', true );
+		$raw = is_array( $raw ) ? $raw : array();
+		$bot_id = isset( $raw['selected_zalo_bot_id'] ) ? (int) $raw['selected_zalo_bot_id'] : 0;
+		$chat_id = isset( $raw['selected_zalo_chat_id'] ) ? sanitize_text_field( (string) $raw['selected_zalo_chat_id'] ) : '';
+		if ( $bot_id <= 0 && $chat_id !== '' && preg_match( '/^zalobot_(\d+)_/', $chat_id, $m ) ) {
+			$bot_id = (int) $m[1];
+		}
+		return array(
+			'ready'      => $bot_id > 0 && $chat_id !== '',
+			'bot_id'     => $bot_id,
+			'chat_id'    => $chat_id,
+			'chat_label' => isset( $raw['selected_zalo_chat_label'] ) ? sanitize_text_field( (string) $raw['selected_zalo_chat_label'] ) : '',
+		);
+	}
+
+	private static function current_customer_mychannels_fb_defaults(): array {
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — automation picker defaults to selected page, newest owner page, then newest site-shared page.
+		$user_id = (int) get_current_user_id();
+		if ( $user_id <= 0 ) {
+			return array( 'ready' => false, 'page_id' => '', 'page_label' => '' );
+		}
+		// [2026-07-27 Johnny Chu] R-PERF — reuse the request-level My Channels cache.
+		$raw = class_exists( 'BizCity_User_Meta_Cache' )
+			? BizCity_User_Meta_Cache::get( $user_id, 'bizcity_twinweb_mychannels', array() )
+			: get_user_meta( $user_id, 'bizcity_twinweb_mychannels', true );
+		$raw = is_array( $raw ) ? $raw : array();
+		$page_id = isset( $raw['selected_fb_page_id'] ) ? sanitize_text_field( (string) $raw['selected_fb_page_id'] ) : '';
+		if ( $page_id !== '' ) {
+			return array( 'ready' => true, 'page_id' => $page_id, 'page_label' => isset( $raw['selected_fb_page_name'] ) ? sanitize_text_field( (string) $raw['selected_fb_page_name'] ) : '' );
+		}
+		if ( ! class_exists( 'BizCity_Facebook_Bot_Database' ) ) {
+			return array( 'ready' => false, 'page_id' => '', 'page_label' => '' );
+		}
+		try {
+			$db = BizCity_Facebook_Bot_Database::instance();
+			$rows = method_exists( $db, 'get_bots_by_user' ) ? (array) $db->get_bots_by_user( $user_id ) : array();
+			if ( empty( $rows ) && method_exists( $db, 'get_admin_bots' ) ) {
+				$rows = (array) $db->get_admin_bots();
+			}
+			foreach ( $rows as $row ) {
+				$item = (array) $row;
+				$page_id = sanitize_text_field( (string) ( $item['page_id'] ?? '' ) );
+				if ( $page_id === '' ) { continue; }
+				return array(
+					'ready'      => true,
+					'page_id'    => $page_id,
+					'page_label' => sanitize_text_field( (string) ( $item['bot_name'] ?? $page_id ) ),
+				);
+			}
+		} catch ( \Throwable $e ) {
+			return array( 'ready' => false, 'page_id' => '', 'page_label' => '' );
+		}
+		return array( 'ready' => false, 'page_id' => '', 'page_label' => '' );
+	}
+
+	private static function hydrate_customer_cron_zalo_defaults( array $workflow ): array {
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — imported cron templates have no inbound trigger context, so pin reply_zalo to My Channels.
+		if ( current_user_can( 'manage_options' ) || ! self::is_workflow_owner( $workflow ) ) {
+			return $workflow;
+		}
+		$defaults = self::current_customer_mychannels_zalo_defaults();
+		if ( empty( $defaults['ready'] ) ) {
+			return $workflow;
+		}
+		$graph = isset( $workflow['graph'] ) && is_array( $workflow['graph'] )
+			? $workflow['graph']
+			: ( ! empty( $workflow['graph_json'] ) ? ( json_decode( (string) $workflow['graph_json'], true ) ?: array() ) : array() );
+		$nodes = isset( $graph['nodes'] ) && is_array( $graph['nodes'] ) ? $graph['nodes'] : array();
+		if ( empty( $nodes ) ) {
+			return $workflow;
+		}
+		$is_cron = (string) ( $workflow['trigger_type'] ?? '' ) === 'cron';
+		foreach ( $nodes as $node ) {
+			$data = isset( $node['data'] ) && is_array( $node['data'] ) ? $node['data'] : array();
+			if ( (string) ( $data['blockId'] ?? '' ) === 'trigger.cron' ) {
+				$is_cron = true;
+				break;
+			}
+		}
+		if ( ! $is_cron ) {
+			return $workflow;
+		}
+
+		$changed = false;
+		foreach ( $nodes as &$node ) {
+			if ( ! isset( $node['data'] ) || ! is_array( $node['data'] ) ) {
+				continue;
+			}
+			if ( (string) ( $node['data']['blockId'] ?? '' ) !== 'action.reply_zalo' ) {
+				continue;
+			}
+			if ( trim( (string) ( $node['data']['instance_id'] ?? '' ) ) === '' ) {
+				$node['data']['instance_id'] = (string) $defaults['bot_id'];
+				$changed = true;
+			}
+			if ( trim( (string) ( $node['data']['override_chat_id'] ?? '' ) ) === '' ) {
+				$node['data']['override_chat_id'] = (string) $defaults['chat_id'];
+				$changed = true;
+			}
+		}
+		unset( $node );
+		if ( ! $changed ) {
+			return $workflow;
+		}
+
+		$graph['nodes'] = $nodes;
+		$workflow['graph'] = $graph;
+		$workflow['graph_json'] = wp_json_encode( $graph );
+		$id = (int) ( $workflow['id'] ?? 0 );
+		if ( $id > 0 ) {
+			$updated = BizCity_Automation_Repo_Workflows::update( $id, array( 'graph' => $graph ) );
+			if ( is_array( $updated ) ) {
+				$workflow = array_merge( $workflow, $updated );
+			}
+		}
+		$workflow['_mychannels_zalo_defaults_applied'] = true;
+		$workflow['_mychannels_zalo_target'] = array(
+			'bot_id'     => (int) $defaults['bot_id'],
+			'chat_id'    => (string) $defaults['chat_id'],
+			'chat_label' => (string) $defaults['chat_label'],
+		);
+		return $workflow;
+	}
+
+	private static function current_user_can_view_run( array $run ): bool {
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — SSE/get-run allowed only for admin, run owner, or visible workflow.
+		if ( current_user_can( 'manage_options' ) ) { return true; }
+		$current_user_id = (int) get_current_user_id();
+		if ( $current_user_id > 0 && (int) ( $run['user_id'] ?? 0 ) === $current_user_id ) { return true; }
+		$wf = BizCity_Automation_Repo_Workflows::find( (int) ( $run['workflow_id'] ?? 0 ) );
+		if ( ! $wf ) { return false; }
+		$wf = self::annotate_customer_default_workflows( array( $wf ) );
+		return ! empty( $wf[0] ) && self::can_view_workflow_row( $wf[0] );
+	}
+
 	// ─── Workflow handlers ───────────────────────────────────────────────
 	public static function list_workflows( WP_REST_Request $req ): WP_REST_Response {
+		$is_admin = current_user_can( 'manage_options' );
+		$is_crm_care = ! $is_admin && current_user_can( 'bizcity_crm_manage' );
+		$is_customer = ! $is_admin && ! $is_crm_care;
 		// [2026-06-07 Johnny Chu] CRM-PATH-1 — zone scope: CRM-only users see zone=crm only.
 		$zone = (string) ( $req->get_param( 'zone' ) ?: '' );
-		if ( ! current_user_can( 'manage_options' ) && current_user_can( 'bizcity_crm_manage' ) ) {
+		if ( $is_crm_care ) {
 			$zone = 'crm';
 		}
 		$out = BizCity_Automation_Repo_Workflows::query( array(
@@ -415,15 +630,71 @@ final class BizCity_Automation_REST {
 			'trigger_type' => $req->get_param( 'trigger_type' ),
 			'tag'          => $req->get_param( 'tag' ),
 			'search'       => $req->get_param( 'search' ),
-			'limit'        => $req->get_param( 'limit' ),
-			'offset'       => $req->get_param( 'offset' ),
+			'limit'        => $is_customer ? 200 : $req->get_param( 'limit' ),
+			'offset'       => $is_customer ? 0 : $req->get_param( 'offset' ),
 			'zone'         => $zone !== '' ? $zone : null,
 		) );
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — annotate workflows already published as customer defaults.
+		$rows = self::annotate_customer_default_workflows( (array) ( $out['rows'] ?? array() ) );
+		if ( $is_customer ) {
+			$rows = self::filter_customer_workflow_rows( $rows );
+			$out['total'] = count( $rows );
+		}
 		return new WP_REST_Response( array(
 			'ok'    => true,
 			'total' => $out['total'],
-			'rows'  => $out['rows'],
+			'rows'  => $rows,
+			'mode'  => $is_admin ? 'admin' : ( $is_crm_care ? 'crm' : 'customer' ),
 		), 200 );
+	}
+
+	private static function filter_customer_workflow_rows( array $rows ): array {
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — customer sees own workflows plus admin-published must-use defaults.
+		$out = array();
+		foreach ( $rows as $row ) {
+			$is_owner = self::is_workflow_owner( $row );
+			$is_default = ! empty( $row['customer_default']['enabled'] );
+			if ( ! $is_owner && ! $is_default ) {
+				continue;
+			}
+			$out[] = $is_owner ? $row : self::sanitize_customer_workflow_row( $row );
+		}
+		return array_values( $out );
+	}
+
+	private static function sanitize_customer_workflow_row( array $row ): array {
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — keep list metadata for non-owned must-use rows; full graph is loaded through GET with readonly flags.
+		unset( $row['graph_json'], $row['graph'], $row['trigger_config_json'], $row['trigger_config'], $row['debug_breakpoints_json'], $row['debug_breakpoints'] );
+		$row['customer_readonly'] = true;
+		$row['can_edit'] = false;
+		return $row;
+	}
+
+	private static function customer_default_template_slug( int $workflow_id ): string {
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — stable template slug for admin must-use customer scenarios.
+		return 'tpl_customer_default_wf_' . max( 0, (int) $workflow_id );
+	}
+
+	private static function customer_default_template_for_workflow( int $workflow_id ) {
+		if ( ! class_exists( 'BizCity_Automation_Repo_Templates' ) ) { return null; }
+		$template = BizCity_Automation_Repo_Templates::find_by_slug( self::customer_default_template_slug( $workflow_id ) );
+		if ( ! $template || empty( $template['is_active'] ) ) { return null; }
+		return $template;
+	}
+
+	private static function annotate_customer_default_workflows( array $rows ): array {
+		foreach ( $rows as &$row ) {
+			$id = isset( $row['id'] ) ? (int) $row['id'] : 0;
+			$template = $id > 0 ? self::customer_default_template_for_workflow( $id ) : null;
+			$row['customer_default'] = array(
+				'enabled'     => (bool) $template,
+				'template_id' => $template ? (int) $template['id'] : 0,
+				'slug'        => self::customer_default_template_slug( $id ),
+			);
+			$row = self::annotate_workflow_access_flags( $row );
+		}
+		unset( $row );
+		return $rows;
 	}
 
 	public static function create_workflow( WP_REST_Request $req ) {
@@ -441,6 +712,15 @@ final class BizCity_Automation_REST {
 
 	public static function get_workflow( WP_REST_Request $req ) {
 		$row = BizCity_Automation_Repo_Workflows::find( (int) $req['id'] );
+		if ( $row ) {
+			// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — customer can load own full graph or admin-published readonly graph.
+			$annotated = self::annotate_customer_default_workflows( array( $row ) );
+			$row = $annotated[0];
+			if ( ! self::can_view_workflow_row( $row ) ) {
+				return self::workflow_permission_error();
+			}
+			$row = self::hydrate_customer_cron_zalo_defaults( $row );
+		}
 		return $row ? new WP_REST_Response( array( 'ok' => true, 'row' => $row ), 200 )
 			: new WP_Error( 'not_found', 'Workflow không tồn tại.', array( 'status' => 404 ) );
 	}
@@ -448,6 +728,14 @@ final class BizCity_Automation_REST {
 	public static function update_workflow( WP_REST_Request $req ) {
 		$id   = (int) $req['id'];
 		$body = (array) $req->get_json_params();
+		$existing = BizCity_Automation_Repo_Workflows::find( $id );
+		if ( ! $existing ) {
+			return new WP_Error( 'not_found', 'Workflow không tồn tại.', array( 'status' => 404 ) );
+		}
+		$existing = self::annotate_customer_default_workflows( array( $existing ) );
+		if ( empty( $existing[0] ) || ! self::can_edit_workflow_row( $existing[0] ) ) {
+			return self::workflow_permission_error();
+		}
 		// [2026-06-03 Johnny Chu] WF-AUTO GURU W3 — G2 cross-tier slash collision.
 		$collision = self::check_slash_collision( $body, $id );
 		if ( $collision ) { return $collision; }
@@ -457,6 +745,47 @@ final class BizCity_Automation_REST {
 			BizCity_Automation_Schedule_Manager::instance()->sync_workflow_events( $row );
 		}
 		return self::respond( $row );
+	}
+
+	public static function toggle_workflow_customer_default( WP_REST_Request $req ) {
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — publish/unpublish workflow as global default visible in /gpt/myworkflows/.
+		$workflow_id = (int) $req['id'];
+		$body = (array) $req->get_json_params();
+		$enabled = ! empty( $body['enabled'] );
+		$wf = BizCity_Automation_Repo_Workflows::find( $workflow_id );
+		if ( ! $wf ) {
+			return new WP_Error( 'not_found', 'Workflow không tồn tại.', array( 'status' => 404 ) );
+		}
+		if ( ! class_exists( 'BizCity_Automation_Repo_Templates' ) ) {
+			return new WP_Error( 'module_not_loaded', 'Template repo chưa load.', array( 'status' => 500 ) );
+		}
+
+		$slug = self::customer_default_template_slug( $workflow_id );
+		if ( ! $enabled ) {
+			$template = BizCity_Automation_Repo_Templates::find_by_slug( $slug );
+			if ( $template ) {
+				BizCity_Automation_Repo_Templates::delete( (int) $template['id'] );
+			}
+			$wf['customer_default'] = array( 'enabled' => false, 'template_id' => 0, 'slug' => $slug );
+			return new WP_REST_Response( array( 'ok' => true, 'row' => $wf, 'customer_default' => $wf['customer_default'] ), 200 );
+		}
+
+		$tags = array_filter( array_map( 'sanitize_title_with_dashes', preg_split( '/\s*,\s*/', (string) ( $wf['tags'] ?? '' ) ) ?: array() ) );
+		$tags = array_values( array_unique( array_merge( $tags, array( 'customer-default', 'must-use', 'global-default', 'wf-' . $workflow_id ) ) ) );
+		$template = BizCity_Automation_Repo_Templates::save_from_workflow( $workflow_id, array(
+			'slug'        => $slug,
+			'name'        => '[global] ' . preg_replace( '/^\[global\]\s*/i', '', (string) ( $wf['name'] ?? ( 'Workflow #' . $workflow_id ) ) ),
+			'description' => (string) ( $wf['description'] ?? '' ),
+			'category'    => 'automation',
+			'tags'        => implode( ',', $tags ),
+			'icon'        => 'Workflow',
+			'visibility'  => 'global',
+		) );
+		if ( is_wp_error( $template ) ) {
+			return $template;
+		}
+		$wf['customer_default'] = array( 'enabled' => true, 'template_id' => (int) $template['id'], 'slug' => $slug );
+		return new WP_REST_Response( array( 'ok' => true, 'row' => $wf, 'template' => $template, 'customer_default' => $wf['customer_default'] ), 200 );
 	}
 
 	/**
@@ -491,6 +820,15 @@ final class BizCity_Automation_REST {
 
 	public static function delete_workflow( WP_REST_Request $req ): WP_REST_Response {
 		$id   = (int) $req['id'];
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — customers can delete only workflows they own, never admin must-use rows.
+		$existing = BizCity_Automation_Repo_Workflows::find( $id );
+		if ( ! $existing ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'not_found', 'message' => 'Workflow không tồn tại.' ), 404 );
+		}
+		$existing = self::annotate_customer_default_workflows( array( $existing ) );
+		if ( empty( $existing[0] ) || ! self::can_edit_workflow_row( $existing[0] ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'permission_denied', 'message' => 'Bạn không có quyền thao tác workflow này.' ), 403 );
+		}
 		// Default = HARD delete (user explicitly clicks Delete = expects row gone).
 		// Pass ?soft=1 to keep legacy behaviour (enabled=0 toggle).
 		$soft = (bool) $req->get_param( 'soft' );
@@ -851,7 +1189,21 @@ final class BizCity_Automation_REST {
 	}
 
 	public static function duplicate_workflow( WP_REST_Request $req ) {
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — customers may duplicate visible must-use workflows into their own editable copy.
+		$src = BizCity_Automation_Repo_Workflows::find( (int) $req['id'] );
+		if ( ! $src ) {
+			return new WP_Error( 'not_found', 'Workflow không tồn tại.', array( 'status' => 404 ) );
+		}
+		$src = self::annotate_customer_default_workflows( array( $src ) );
+		if ( empty( $src[0] ) || ! self::can_view_workflow_row( $src[0] ) ) {
+			return self::workflow_permission_error();
+		}
 		$row = BizCity_Automation_Repo_Workflows::duplicate( (int) $req['id'] );
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — return owner/access flags for customer iframe after clone.
+		if ( is_array( $row ) ) {
+			$row = self::annotate_customer_default_workflows( array( $row ) );
+			$row = $row[0];
+		}
 		return self::respond( $row, 201 );
 	}
 
@@ -950,18 +1302,51 @@ final class BizCity_Automation_REST {
 		if ( ! $wf ) {
 			return new WP_Error( 'not_found', 'Workflow không tồn tại.', array( 'status' => 404 ) );
 		}
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — customers can run own or admin-published must-use workflows.
+		$wf_access = self::annotate_customer_default_workflows( array( $wf ) );
+		if ( empty( $wf_access[0] ) || ! self::can_view_workflow_row( $wf_access[0] ) ) {
+			return self::workflow_permission_error();
+		}
 		$body    = (array) $req->get_json_params();
 		// FE may send envelope { _test, source, trigger_payload: {...} } — unwrap so
 		// runner sees real payload as ctx.trigger. Fallback: use whole body.
 		$payload = ( isset( $body['trigger_payload'] ) && is_array( $body['trigger_payload'] ) )
 			? $body['trigger_payload']
 			: $body;
+		$current_user_id = (int) get_current_user_id();
+		if ( (int) ( $payload['_owner_user_id'] ?? 0 ) <= 0 ) {
+			// [2026-07-16 Johnny Chu] PHASE-TWINWEB F4 — pin owner at enqueue source for manual/frontend run path.
+			$payload['_owner_user_id'] = $current_user_id > 0 ? $current_user_id : (int) ( $wf['created_by'] ?? 0 );
+		}
+		if ( (int) ( $payload['wp_user_id'] ?? 0 ) <= 0 && $current_user_id > 0 ) {
+			$payload['wp_user_id'] = $current_user_id;
+		}
 
 		// PG-S9 — dry-run flag (`?dry=1` or body._dry_run). Stamped into trigger
 		// payload so runner can mirror to $ctx['_dry_run'] without schema change.
 		$dry = (bool) ( $req->get_param( 'dry' ) ?: ( $body['_dry_run'] ?? false ) );
 		if ( $dry ) {
 			$payload['_dry_run'] = true;
+		}
+
+		// [2026-07-27 Johnny Chu] PHASE-LISTEN-DEDUP — when matcher already claimed the
+		// same inbound event, reuse existing run_id and skip enqueueing a duplicate run.
+		$meta_payload = is_array( $payload['meta'] ?? null ) ? (array) $payload['meta'] : array();
+		$req_source   = (string) ( $body['source'] ?? '' );
+		$pay_source   = (string) ( $payload['source'] ?? '' );
+		$is_replay    = ! empty( $meta_payload['replay'] );
+		$is_capture   = ( $req_source === 'test_listen.capture' ) || ( $pay_source === 'channel.listener.stream' );
+		if ( ! $is_replay && $is_capture && class_exists( 'BizCity_Automation_Repo_Runs' ) ) {
+			$dup = BizCity_Automation_Repo_Runs::find_recent_duplicate_capture_run( (int) $wf['id'], $payload, 45 );
+			if ( is_array( $dup ) && ! empty( $dup['run']['run_id'] ) ) {
+				return new WP_REST_Response( array(
+					'ok'           => true,
+					'run_id'       => (string) $dup['run']['run_id'],
+					'mode'         => 'async',
+					'deduped'      => true,
+					'dedup_reason' => (string) ( $dup['reason'] ?? 'capture_identity' ),
+				), 202 );
+			}
 		}
 
 		$run_id  = BizCity_Automation_Repo_Runs::enqueue( $wf['id'], $payload );
@@ -1018,6 +1403,9 @@ final class BizCity_Automation_REST {
 		$run = BizCity_Automation_Repo_Runs::find( $run_id );
 		if ( ! $run ) {
 			return new WP_Error( 'not_found', 'Run không tồn tại.', array( 'status' => 404 ) );
+		}
+		if ( ! self::current_user_can_view_run( $run ) ) {
+			return self::workflow_permission_error();
 		}
 		$since = (int) ( $req->get_param( 'since_id' ) ?: 0 );
 		$logs  = BizCity_Automation_Repo_Runs::logs( $run_id, $since );
@@ -1090,13 +1478,22 @@ final class BizCity_Automation_REST {
 		$src_id = (string) $req['run_id'];
 		$src    = BizCity_Automation_Repo_Runs::find( $src_id );
 		if ( ! $src ) { return new WP_Error( 'not_found', 'Run gốc không tồn tại.', array( 'status' => 404 ) ); }
+		if ( ! self::current_user_can_view_run( $src ) ) {
+			return self::workflow_permission_error();
+		}
 		$wf_id   = (int) $src['workflow_id'];
 		if ( $wf_id <= 0 ) { return new WP_Error( 'invalid_workflow', 'Run gốc thiếu workflow_id.', array( 'status' => 422 ) ); }
 		$wf      = BizCity_Automation_Repo_Workflows::find( $wf_id );
 		if ( ! $wf ) { return new WP_Error( 'workflow_missing', 'Workflow đã bị xóa.', array( 'status' => 410 ) ); }
 		$payload = isset( $src['trigger_payload'] ) && is_array( $src['trigger_payload'] ) ? $src['trigger_payload'] : null;
+		// [2026-07-17 Johnny Chu] PHASE-TWINWEB F4 — preserve canonical owner and CRM identity fields on replay enqueue.
+		$enqueue_extra = array(
+			'user_id'         => (int) ( $src['user_id'] ?? 0 ),
+			'contact_id'      => (int) ( $src['contact_id'] ?? 0 ),
+			'conversation_id' => (int) ( $src['conversation_id'] ?? 0 ),
+		);
 
-		$new_run_id = BizCity_Automation_Repo_Runs::enqueue( $wf_id, $payload, $src_id );
+		$new_run_id = BizCity_Automation_Repo_Runs::enqueue( $wf_id, $payload, $src_id, $enqueue_extra );
 		if ( is_wp_error( $new_run_id ) ) { return $new_run_id; }
 
 		do_action( 'bizcity_automation_run_enqueued', $new_run_id, $wf_id, $payload );
@@ -1149,8 +1546,12 @@ final class BizCity_Automation_REST {
 		$since_id    = max( 0, (int) ( $req->get_param( 'since_id' ) ?: 0 ) );
 		$max_seconds = max( 5, min( 60, (int) ( $req->get_param( 'max_seconds' ) ?: 30 ) ) );
 
-		if ( ! BizCity_Automation_Repo_Runs::find( $run_id ) ) {
+		$run_for_access = BizCity_Automation_Repo_Runs::find( $run_id );
+		if ( ! $run_for_access ) {
 			return new WP_Error( 'not_found', 'Run không tồn tại.', array( 'status' => 404 ) );
+		}
+		if ( ! self::current_user_can_view_run( $run_for_access ) ) {
+			return self::workflow_permission_error();
 		}
 
 		nocache_headers();
@@ -1279,6 +1680,8 @@ final class BizCity_Automation_REST {
 	public static function channel_registry( WP_REST_Request $req ): WP_REST_Response {
 		$platform = strtoupper( (string) $req->get_param( 'platform' ) );
 		$out      = array();
+		$customer_zalo_defaults = self::current_customer_mychannels_zalo_defaults();
+		$customer_fb_defaults   = self::current_customer_mychannels_fb_defaults();
 
 		// Strategy 1 — Zalo Bot table (bizcity-zalo-bot plugin).
 		if ( class_exists( 'BizCity_Zalo_Bot_Database' ) ) {
@@ -1378,6 +1781,63 @@ final class BizCity_Automation_REST {
 			} ) );
 		}
 
+		if ( ! current_user_can( 'manage_options' ) ) {
+			// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — customers may only see their pinned Twin GPT channels, not the whole channel registry.
+			// [2026-07-27 Johnny Chu] R-PERF — reuse the request-level My Channels cache.
+			$settings = class_exists( 'BizCity_User_Meta_Cache' )
+				? BizCity_User_Meta_Cache::get( (int) get_current_user_id(), 'bizcity_twinweb_mychannels', array() )
+				: get_user_meta( (int) get_current_user_id(), 'bizcity_twinweb_mychannels', true );
+			$settings = is_array( $settings ) ? $settings : array();
+			$allowed = array();
+			if ( $platform === '' || $platform === 'ZALO_BOT' ) {
+				$bot_id = (int) ( $customer_zalo_defaults['bot_id'] ?? 0 );
+				if ( $bot_id > 0 ) {
+					$zalo_rows = array_values( array_filter( $out, static function ( $row ) use ( $bot_id ) {
+						return strtoupper( (string) ( $row['platform'] ?? '' ) ) === 'ZALO_BOT'
+							&& ( (string) ( $row['instance_id'] ?? '' ) === (string) $bot_id || (int) ( $row['meta']['bot_id'] ?? 0 ) === $bot_id );
+					} ) );
+					if ( ! empty( $zalo_rows ) ) {
+						foreach ( $zalo_rows as &$zalo_row ) {
+							// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — picker value must be bot DB id; OA id cannot load /zalo-users.
+							$zalo_row['instance_id'] = (string) $bot_id;
+							if ( ! isset( $zalo_row['meta'] ) || ! is_array( $zalo_row['meta'] ) ) {
+								$zalo_row['meta'] = array();
+							}
+							$zalo_row['meta']['bot_id'] = (string) $bot_id;
+						}
+						unset( $zalo_row );
+					} else {
+						$zalo_rows[] = array(
+							'platform'    => 'ZALO_BOT',
+							'code'        => 'zalo_bot',
+							'instance_id' => (string) $bot_id,
+							'label'       => (string) ( $customer_zalo_defaults['chat_label'] ?: ( 'Zalo Bot #' . $bot_id ) ),
+							'meta'        => array( 'bot_id' => (string) $bot_id, 'source' => 'mychannels' ),
+						);
+					}
+					$allowed = array_merge( $allowed, $zalo_rows );
+				}
+			}
+			if ( ( $platform === '' || $platform === 'FACEBOOK' ) && ! empty( $customer_fb_defaults['ready'] ) ) {
+				// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — expose a non-empty default FB page to /gpt My Workflows picker.
+				$page_id = sanitize_text_field( (string) $customer_fb_defaults['page_id'] );
+				$fb_rows = array_values( array_filter( $out, static function ( $row ) use ( $page_id ) {
+					return strtoupper( (string) ( $row['platform'] ?? '' ) ) === 'FACEBOOK' && (string) ( $row['instance_id'] ?? '' ) === $page_id;
+				} ) );
+				if ( empty( $fb_rows ) ) {
+					$fb_rows[] = array( 'platform' => 'FACEBOOK', 'code' => 'facebook_bot', 'instance_id' => $page_id, 'label' => (string) ( $customer_fb_defaults['page_label'] ?: ( 'Facebook Page ' . $page_id ) ), 'meta' => array( 'source' => 'mychannels_default' ) );
+				}
+				foreach ( $fb_rows as &$fb_row ) {
+					if ( ! isset( $fb_row['meta'] ) || ! is_array( $fb_row['meta'] ) ) { $fb_row['meta'] = array(); }
+					$fb_row['meta']['is_default'] = true;
+					$fb_row['meta']['customer_default'] = true;
+				}
+				unset( $fb_row );
+				$allowed = array_merge( $allowed, $fb_rows );
+			}
+			$out = $allowed;
+		}
+
 		return new WP_REST_Response( array( 'ok' => true, 'rows' => $out ), 200 );
 	}
 
@@ -1411,6 +1871,11 @@ final class BizCity_Automation_REST {
 		if ( $instance_id <= 0 ) {
 			return new WP_REST_Response( array( 'ok' => false, 'rows' => array(), 'error' => 'instance_id required' ), 400 );
 		}
+		$customer_defaults = self::current_customer_mychannels_zalo_defaults();
+		if ( ! current_user_can( 'manage_options' ) && (int) ( $customer_defaults['bot_id'] ?? 0 ) !== $instance_id ) {
+			// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — do not reveal other users' Zalo linked identities.
+			return new WP_REST_Response( array( 'ok' => true, 'rows' => array() ), 200 );
+		}
 
 		// Table bizcity_zalobot_user_links uses base_prefix (network-wide).
 		$table = $wpdb->base_prefix . 'bizcity_zalobot_user_links';
@@ -1440,6 +1905,9 @@ final class BizCity_Automation_REST {
 			$zid   = (string) ( $r['zalo_user_id'] ?? '' );
 			$dname = (string) ( $r['display_name'] ?? '' );
 			$wp_id = (int) ( $r['wp_user_id'] ?? 0 );
+			if ( ! current_user_can( 'manage_options' ) && $wp_id !== (int) get_current_user_id() ) {
+				continue;
+			}
 			// Resolve WP user display name if display_name empty
 			if ( $dname === '' && $wp_id > 0 ) {
 				$wp_user = get_user_by( 'id', $wp_id );
@@ -1454,6 +1922,28 @@ final class BizCity_Automation_REST {
 				'label'        => $label,
 				'wp_user_id'   => $wp_id,
 			);
+		}
+
+		if ( ! current_user_can( 'manage_options' ) && ! empty( $customer_defaults['chat_id'] ) ) {
+			// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — pinned My Channels chat may be a direct/group canonical chat not present in the user-link table picker.
+			$selected_chat_id = (string) $customer_defaults['chat_id'];
+			$has_selected = false;
+			foreach ( $out as $row ) {
+				if ( (string) ( $row['chat_id'] ?? '' ) === $selected_chat_id ) {
+					$has_selected = true;
+					break;
+				}
+			}
+			if ( ! $has_selected ) {
+				$out[] = array(
+					'zalo_user_id' => '',
+					'chat_id'      => $selected_chat_id,
+					'display_name' => (string) ( $customer_defaults['chat_label'] ?: 'Zalo đã ghim' ),
+					'label'        => (string) ( $customer_defaults['chat_label'] ?: $selected_chat_id ),
+					'wp_user_id'   => (int) get_current_user_id(),
+					'source'       => 'mychannels',
+				);
+			}
 		}
 
 		return new WP_REST_Response( array( 'ok' => true, 'rows' => $out ), 200 );
@@ -1668,41 +2158,108 @@ final class BizCity_Automation_REST {
 	public static function list_templates( WP_REST_Request $req ): WP_REST_Response {
 		// [2026-07-10 Johnny Chu] PHASE-ATH — auto-check seed on REST list so newly deployed JSON templates
 		// appear without requiring manual "Reseed" click.
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — load seeder defensively for REST-only/template-gallery requests.
+		if ( ! class_exists( 'BizCity_Automation_Templates_Seeder' ) ) {
+			$seeder_file = __DIR__ . '/class-automation-templates-seeder.php';
+			if ( is_readable( $seeder_file ) ) {
+				require_once $seeder_file;
+			}
+		}
 		if ( class_exists( 'BizCity_Automation_Templates_Seeder' ) ) {
 			BizCity_Automation_Templates_Seeder::maybe_seed();
 		}
 
-		$out = BizCity_Automation_Repo_Templates::query( array(
+		$args = array(
 			'category'  => $req->get_param( 'category' ),
 			'source'    => $req->get_param( 'source' ),
+			'visibility' => $req->get_param( 'visibility' ),
 			'is_active' => $req->get_param( 'is_active' ),
 			'search'    => $req->get_param( 'search' ),
 			'limit'     => $req->get_param( 'limit' ),
 			'offset'    => $req->get_param( 'offset' ),
-		) );
-		return new WP_REST_Response( array(
+		);
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — customer Template Gallery only exposes global customer-safe templates.
+		if ( ! current_user_can( 'manage_options' ) ) {
+			$args['visibility'] = 'global';
+		}
+		$out = BizCity_Automation_Repo_Templates::query( $args );
+		if ( ! current_user_can( 'manage_options' ) ) {
+			// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — legacy rows may not have visibility migrated; only expose templates that instantiate gate will accept.
+			$out['rows'] = array_values( array_filter( (array) ( $out['rows'] ?? array() ), array( __CLASS__, 'can_customer_use_template' ) ) );
+			$out['total'] = count( $out['rows'] );
+		}
+		$reseeded_empty_gallery = false;
+		$seed_results = array();
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — if stamp/hash survived but local rows are gone, force reseed and requery in the same request.
+		$seedable_empty_gallery = empty( $args['search'] )
+			&& empty( $args['category'] )
+			&& empty( $args['visibility'] )
+			&& ( empty( $args['source'] ) || $args['source'] === 'builtin' )
+			&& (int) ( $args['offset'] ?? 0 ) <= 0;
+		if ( $seedable_empty_gallery && (int) ( $out['total'] ?? 0 ) <= 0 && class_exists( 'BizCity_Automation_Templates_Seeder' ) ) {
+			$seed_results = BizCity_Automation_Templates_Seeder::force_reseed();
+			$out = BizCity_Automation_Repo_Templates::query( $args );
+			if ( ! current_user_can( 'manage_options' ) ) {
+				// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — keep forced reseed response under the same customer-safe gate.
+				$out['rows'] = array_values( array_filter( (array) ( $out['rows'] ?? array() ), array( __CLASS__, 'can_customer_use_template' ) ) );
+				$out['total'] = count( $out['rows'] );
+			}
+			$reseeded_empty_gallery = true;
+		}
+		$response = array(
 			'ok'         => true,
 			'total'      => $out['total'],
 			'rows'       => $out['rows'],
+			'_reseeded_empty_gallery' => $reseeded_empty_gallery,
 			'categories' => BizCity_Automation_Repo_Templates::CATEGORIES,
 			'sources'    => BizCity_Automation_Repo_Templates::SOURCES,
-		), 200 );
+			'visibilities' => BizCity_Automation_Repo_Templates::VISIBILITIES,
+		);
+		if ( $reseeded_empty_gallery ) {
+			// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — expose reseed evidence only when the fallback actually ran.
+			$seed_errors = array_values( array_filter( $seed_results, static function ( $row ) {
+				return is_array( $row ) && isset( $row['result'] ) && strpos( (string) $row['result'], 'error:' ) === 0;
+			} ) );
+			$response['_seeded_total']  = count( $seed_results );
+			$response['_seeded_errors'] = array_slice( $seed_errors, 0, 8 );
+		}
+		return new WP_REST_Response( $response, 200 );
 	}
 
 	public static function get_template( WP_REST_Request $req ) {
 		$row = BizCity_Automation_Repo_Templates::find( (int) $req['id'] );
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — customers can inspect only templates the instantiate gate will accept.
+		if ( $row && ! current_user_can( 'manage_options' ) && ! self::can_customer_use_template( $row ) ) {
+			return self::workflow_permission_error();
+		}
 		return $row
 			? new WP_REST_Response( array( 'ok' => true, 'row' => $row ), 200 )
 			: new WP_Error( 'not_found', 'Template không tồn tại.', array( 'status' => 404 ) );
 	}
 
 	public static function instantiate_template( WP_REST_Request $req ) {
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — customers may instantiate only global templates into their own workflow copy.
+		if ( ! current_user_can( 'manage_options' ) ) {
+			$tpl = BizCity_Automation_Repo_Templates::find( (int) $req['id'] );
+			if ( ! $tpl ) {
+				return new WP_Error( 'not_found', 'Template không tồn tại.', array( 'status' => 404 ) );
+			}
+			if ( ! self::can_customer_use_template( $tpl ) ) {
+				return self::workflow_permission_error();
+			}
+		}
 		$body = (array) $req->get_json_params();
 		$row  = BizCity_Automation_Repo_Templates::instantiate( (int) $req['id'], array(
 			'name'    => isset( $body['name'] )    ? wp_strip_all_tags( (string) $body['name'] )    : '',
 			'slug'    => isset( $body['slug'] )    ? sanitize_title_with_dashes( (string) $body['slug'] ) : '',
 			'enabled' => isset( $body['enabled'] ) ? (int) (bool) $body['enabled'] : 0,
 		) );
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — created copy belongs to current /gpt user; expose edit flags immediately.
+		if ( is_array( $row ) ) {
+			$row = self::hydrate_customer_cron_zalo_defaults( $row );
+			$row = self::annotate_customer_default_workflows( array( $row ) );
+			$row = $row[0];
+		}
 		return self::respond( $row, 201 );
 	}
 
@@ -1715,6 +2272,7 @@ final class BizCity_Automation_REST {
 			'category'    => isset( $body['category'] )    ? (string) $body['category']    : 'general',
 			'tags'        => $body['tags'] ?? '',
 			'icon'        => isset( $body['icon'] )        ? (string) $body['icon']        : 'FileText',
+			'visibility'  => isset( $body['visibility'] )  ? sanitize_key( (string) $body['visibility'] ) : 'private',
 		) );
 		return self::respond( $row, 201 );
 	}

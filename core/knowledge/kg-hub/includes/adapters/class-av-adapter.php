@@ -236,8 +236,13 @@ class BizCity_KG_AV_Adapter implements BizCity_KG_Source_Adapter {
             $segments = [ [ 'page_num' => 1, 'text' => $text, 'start_ts' => 0, 'end_ts' => 0 ] ];
         }
 
+        // [2026-07-25 Johnny Chu] PHASE-0.46 W4.5.3 — normalize transcript into
+        // markdown-friendly note format for source storage/readability while
+        // keeping temporal segments unchanged for chunking/retrieval.
+        $normalized_text = $this->normalize_transcript_markdown( $text, $segments, $kind );
+
         return [
-            'text'     => $text,
+            'text'     => $normalized_text,
             'segments' => $segments,
             'assets'   => [],
             'modality' => $kind, // 'audio' | 'video'
@@ -253,10 +258,60 @@ class BizCity_KG_AV_Adapter implements BizCity_KG_Source_Adapter {
                 'latency_ms'     => isset( $result['latency_ms'] ) ? intval( $result['latency_ms'] ) : 0,
                 'lang'           => $client_opts['lang'],
                 'engine'         => 'vision_llm',
+                'normalized_md'  => true,
                 'segment_count'  => count( $segments ),
                 'chunker'        => class_exists( 'BizCity_KG_AV_Chunker' ) ? 'av_temporal_v1' : 'single',
             ],
         ];
+    }
+
+    /**
+     * [2026-07-25 Johnny Chu] PHASE-0.46 W4.5.3 — build a human-friendly
+     * markdown transcript while preserving the original speech text.
+     */
+    private function normalize_transcript_markdown( string $text, array $segments, string $kind ): string {
+        $clean = trim( (string) $text );
+        if ( $clean === '' ) {
+            return '';
+        }
+
+        $heading = $kind === 'video' ? '## Transcript Video' : '## Transcript Ghi am';
+        $lines   = array( $heading, '' );
+
+        if ( ! empty( $segments ) ) {
+            $lines[] = '### Segment Timeline';
+            foreach ( $segments as $seg ) {
+                $seg_text = trim( (string) ( $seg['text'] ?? '' ) );
+                if ( $seg_text === '' ) {
+                    continue;
+                }
+                $start   = isset( $seg['start_ts'] ) ? (int) $seg['start_ts'] : 0;
+                $end     = isset( $seg['end_ts'] ) ? (int) $seg['end_ts'] : 0;
+                $speaker = isset( $seg['speaker'] ) ? trim( (string) $seg['speaker'] ) : '';
+                $range   = $this->format_seconds_compact( $start ) . ' - ' . $this->format_seconds_compact( $end );
+                $prefix  = $speaker !== '' ? ( '[' . $range . '] ' . $speaker . ':' ) : ( '[' . $range . ']' );
+                $lines[] = '- ' . $prefix . ' ' . $seg_text;
+            }
+            $lines[] = '';
+        }
+
+        $lines[] = '### Full Transcript';
+        $lines[] = $clean;
+        return implode( "\n", $lines );
+    }
+
+    /**
+     * [2026-07-25 Johnny Chu] PHASE-0.46 W4.5.3 — mm:ss / hh:mm:ss formatter.
+     */
+    private function format_seconds_compact( int $seconds ): string {
+        $seconds = max( 0, $seconds );
+        $h = (int) floor( $seconds / 3600 );
+        $m = (int) floor( ( $seconds % 3600 ) / 60 );
+        $s = (int) ( $seconds % 60 );
+        if ( $h > 0 ) {
+            return sprintf( '%02d:%02d:%02d', $h, $m, $s );
+        }
+        return sprintf( '%02d:%02d', $m, $s );
     }
 
     /**

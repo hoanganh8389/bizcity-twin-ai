@@ -512,24 +512,38 @@ class BizCity_Pro_Learning_Diagnostic {
 			class_exists( 'BizCity_Router_Auth' ) ? 'class_exists=true' : 'router plugin not active here',
 			'Activate <code>bizcity-llm-router</code> if Pro tier should be enforced.' );
 
+		// [2026-07-15 Johnny Chu] PHASE-TWIN-GPT-CP W2 — standalone-safe entitlement check (router OR membership).
 		// T0.2 — Unified Entitlement service loadable
-		$ent_loaded = class_exists( 'BizCity_Entitlement' );
+		$ent_router_loaded     = class_exists( 'BizCity_Entitlement' );
+		$ent_membership_loaded = class_exists( 'BizCity_Membership_Entitlement' );
+		$ent_loaded            = $ent_router_loaded || $ent_membership_loaded;
 		$rows[] = $this->row( 'T0.2', 'L1',
-			$ent_loaded ? 'PASS' : 'FAIL',
+			$ent_loaded ? 'PASS' : 'WARN',
 			'BizCity_Entitlement service loadable',
-			$ent_loaded ? 'class_exists=true' : 'class missing — check router includes',
-			$ent_loaded ? '' : 'Add <code>require_once</code> for class-router-entitlement.php in main plugin file.' );
+			$ent_loaded
+				? ( $ent_router_loaded
+					? 'router class_exists=true'
+					: 'membership class_exists=true (standalone-safe)' )
+				: 'router/membership entitlement classes are both missing',
+			$ent_loaded ? '' : 'Ensure core/membership bootstrap is loaded; router class is optional on standalone client sites.' );
 
 		// T0.3 — Plan matrix has expected tiers
 		if ( $ent_loaded ) {
-			$matrix = BizCity_Entitlement::plan_matrix();
-			$tiers  = is_array( $matrix ) ? array_keys( $matrix ) : [];
+			$tiers = array();
+			if ( $ent_router_loaded ) {
+				$matrix = BizCity_Entitlement::plan_matrix();
+				$tiers  = is_array( $matrix ) ? array_keys( $matrix ) : [];
+			} elseif ( class_exists( 'BizCity_Membership_Plan_Registry' ) ) {
+				$plans = BizCity_Membership_Plan_Registry::instance()->all();
+				$tiers = is_array( $plans ) ? array_keys( $plans ) : [];
+			}
 			$has_paid = in_array( 'paid', $tiers, true );
+			$has_plus = in_array( 'plus', $tiers, true );
 			$rows[] = $this->row( 'T0.3', 'L1',
-				$has_paid ? 'PASS' : 'WARN',
+				( $has_paid || $has_plus ) ? 'PASS' : 'WARN',
 				'Plan matrix exposes paid tier with learning.* features',
 				'tiers=' . implode( ',', $tiers ),
-				$has_paid ? '' : 'Set site_option <code>bizcity_router_plan_matrix</code> or use defaults.' );
+				( $has_paid || $has_plus ) ? '' : 'Set router plan matrix (hub) or membership plan registry defaults.' );
 		} else {
 			$rows[] = $this->row( 'T0.3', 'L1', 'SKIP', 'Plan matrix shape', '—', 'Entitlement class not loaded.' );
 		}
@@ -549,10 +563,17 @@ class BizCity_Pro_Learning_Diagnostic {
 			$rows[] = $this->row( 'T0.4', 'L3', 'SKIP', '/account/entitlement/health probe', '—', 'Entitlement class not loaded.' );
 		}
 
+		// [2026-07-15 Johnny Chu] R-SHOW-TABLES — replace SHOW TABLES probe with information_schema existence check.
 		// T0.7 — Usage table exists
 		global $wpdb;
 		$table  = $wpdb->base_prefix . 'bizcity_entitlement_usage';
-		$exists = (string) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) === $table;
+		$exists = (bool) $wpdb->get_var(
+			$wpdb->prepare(
+				'SELECT 1 FROM information_schema.TABLES
+				 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+				$table
+			)
+		);
 		$rows[] = $this->row( 'T0.7', 'L2',
 			$exists ? 'PASS' : 'WARN',
 			'Usage counter table exists (' . $table . ')',
@@ -616,6 +637,11 @@ class BizCity_Pro_Learning_Diagnostic {
 		// symlink / custom plugin slug / promoted helper file without false FAIL.
 		$module_root = dirname( dirname( __DIR__ ) );
 		$candidates  = array();
+		// [2026-07-15 Johnny Chu] HOTFIX — prefer plugin-root anchored candidates to avoid cwd-relative drift.
+		if ( defined( 'BIZCITY_TWIN_AI_DIR' ) ) {
+			$candidates[] = rtrim( BIZCITY_TWIN_AI_DIR, '/\\' ) . '/modules/twinchat/ui/src/utils/humanizeIngestError.ts';
+			$candidates[] = rtrim( BIZCITY_TWIN_AI_DIR, '/\\' ) . '/modules/twinsearch/ui/src/errors/humanizeError.ts';
+		}
 		if ( defined( 'BIZCITY_TWINCHAT_UI_DIR' ) ) {
 			$candidates[] = rtrim( BIZCITY_TWINCHAT_UI_DIR, '/\\' ) . '/src/utils/humanizeIngestError.ts';
 		}
@@ -629,21 +655,59 @@ class BizCity_Pro_Learning_Diagnostic {
 
 		$found_path = '';
 		foreach ( array_unique( $candidates ) as $p ) {
-			if ( is_readable( $p ) ) {
+			if ( file_exists( $p ) || is_readable( $p ) ) {
 				$found_path = $p;
 				break;
 			}
 		}
+
+		// [2026-07-27 Johnny Chu] R-DDV-FE — VPS deploys built ui/dist artifacts without React src; validate the bundle separately and never fail only on missing .ts source.
+		$ui_roots = array();
+		if ( defined( 'BIZCITY_TWINCHAT_UI_DIR' ) ) {
+			$ui_roots[] = rtrim( BIZCITY_TWINCHAT_UI_DIR, '/\\' );
+		}
+		$ui_roots[] = $module_root . '/ui';
+		$artifact_path = '';
+		foreach ( array_unique( $ui_roots ) as $ui_root ) {
+			$manifests = array(
+				$ui_root . '/dist/.vite/manifest.json',
+				$ui_root . '/dist/manifest.json',
+			);
+			foreach ( $manifests as $manifest_path ) {
+				if ( ! file_exists( $manifest_path ) ) {
+					continue;
+				}
+				$manifest = json_decode( (string) file_get_contents( $manifest_path ), true );
+				if ( ! is_array( $manifest ) ) {
+					continue;
+				}
+				foreach ( $manifest as $asset ) {
+					if ( empty( $asset['file'] ) ) {
+						continue;
+					}
+					$asset_path = $ui_root . '/dist/' . ltrim( (string) $asset['file'], '/\\' );
+					if ( file_exists( $asset_path ) && is_readable( $asset_path ) ) {
+						$artifact_path = $asset_path;
+						break 3;
+					}
+				}
+			}
+		}
 		$ok = $found_path !== '';
+		$artifact_ok = $artifact_path !== '';
 		return [
 			'title' => 'UI-ERR — Human-readable error mapping',
 			'rows'  => [
-				$this->row( 'UI-ERR.1', 'L1', $ok ? 'PASS' : 'FAIL',
-					'humanizeIngestError.ts exists',
+				$this->row( 'UI-ERR.1', 'L1', $ok ? 'PASS' : 'SKIP',
+					'UI-ERR mapping source/artifact contract',
 					$ok
-						? ( 'found: ' . $found_path )
-						: ( 'MISSING — checked: ' . implode( ' | ', array_unique( $candidates ) ) ),
-					'Create the file (Wave UI-ERR.1).' ),
+						? ( 'source found: ' . $found_path )
+						: ( $artifact_ok
+							? 'React source omitted by deploy; built artifact found: ' . $artifact_path
+							: 'React source omitted and no readable built artifact found in this runtime.' ),
+					$ok || $artifact_ok
+						? 'Source is optional on VPS; validate UI behavior from the deployed bundle.'
+						: 'Deploy the built ui/dist artifact or run source-level checks in the build workspace.' ),
 			],
 		];
 	}

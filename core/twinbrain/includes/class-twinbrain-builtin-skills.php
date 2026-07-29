@@ -55,7 +55,80 @@ final class BizCity_TwinBrain_Builtin_Skills {
 		$skills[] = self::skill_web_research_quick();
 		$skills[] = self::skill_web_research_deep();
 		$skills[] = self::skill_astro_quick();
+		// [2026-07-18 Johnny Chu] PHASE-TWINWEB — expose seeded TwinGPT workflow templates to public FE /skills.
+		foreach ( self::twingpt_template_skills() as $skill ) {
+			$skills[] = $skill;
+		}
 		return $skills;
+	}
+
+	/**
+	 * Convert seeded automation templates tagged `twingpt` into built-in workflow
+	 * skills so Twin GPT public FE can run them without a pre-created workflow row.
+	 *
+	 * @return array<int,array<string,mixed>>
+	 */
+	private static function twingpt_template_skills(): array {
+		// [2026-07-18 Johnny Chu] PHASE-TWINWEB — bridge template seeding to public FE workflow pipeline.
+		if ( ! class_exists( 'BizCity_Automation_Repo_Templates' ) ) {
+			return array();
+		}
+		if ( class_exists( 'BizCity_Automation_Templates_Seeder' ) ) {
+			BizCity_Automation_Templates_Seeder::maybe_seed();
+		}
+
+		$result = BizCity_Automation_Repo_Templates::query( array(
+			'source' => 'builtin',
+			'limit'  => 200,
+		) );
+		$rows = isset( $result['rows'] ) && is_array( $result['rows'] ) ? $result['rows'] : array();
+		$out  = array();
+
+		foreach ( $rows as $tpl ) {
+			$tags = ',' . (string) ( $tpl['tags'] ?? '' ) . ',';
+			if ( strpos( $tags, ',twingpt,' ) === false ) {
+				continue;
+			}
+
+			$template_slug = (string) ( $tpl['slug'] ?? '' );
+			$graph_json    = is_string( $tpl['graph_json'] ?? null )
+				? (string) $tpl['graph_json']
+				: wp_json_encode( $tpl['graph'] ?? array( 'nodes' => array(), 'edges' => array() ) );
+			$graph      = json_decode( (string) $graph_json, true );
+			$node_count = is_array( $graph ) ? count( $graph['nodes'] ?? array() ) : 0;
+			$skill_slug = self::template_slug_to_skill_slug( $template_slug );
+
+			$out[] = array(
+				'id'            => $skill_slug,
+				'slug'          => $skill_slug,
+				'name'          => (string) ( $tpl['name'] ?? $template_slug ),
+				'label'         => (string) ( $tpl['name'] ?? $template_slug ),
+				'description'   => (string) ( $tpl['description'] ?? '' ),
+				'trigger_type'  => (string) ( $tpl['trigger_type'] ?? 'manual' ),
+				'trigger_kind'  => (string) ( $tpl['trigger_type'] ?? 'manual' ),
+				'enabled'       => 1,
+				'workflow_id'   => 0,
+				'source'        => 'template',
+				'category'      => 'workflow',
+				'icon'          => (string) ( $tpl['icon'] ?? 'Sparkles' ),
+				'node_count'    => $node_count,
+				'template_id'   => (int) ( $tpl['id'] ?? 0 ),
+				'template_slug' => $template_slug,
+				'graph_json'    => (string) $graph_json,
+			);
+		}
+
+		return $out;
+	}
+
+	/**
+	 * @param string $template_slug Seeded template slug.
+	 * @return string Public skill slug.
+	 */
+	private static function template_slug_to_skill_slug( string $template_slug ): string {
+		$slug = preg_replace( '/^tpl_/', '', $template_slug );
+		$slug = preg_replace( '/_v\d+$/', '', (string) $slug );
+		return (string) ( $slug ?: $template_slug );
 	}
 
 	// ── Built-in skill definitions ───────────────────────────────────────────

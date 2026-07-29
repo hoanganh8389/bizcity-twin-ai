@@ -1,0 +1,114 @@
+[
+  {
+    "template_uuid": "6a3f7d5c-7e21-7a90-8e20-63b3e1a9f001",
+    "template_version": "1.0.0",
+    "visibility": "global",
+    "slug": "tpl_btnet_daily_chat_zalo_v1",
+    "name": "[global] BTnet - Noi chuyen, hoi dap va tu van trong ngay",
+    "description": "Tu khoa btnet kich hoat luong noi chuyen phiem, hoi dap va tu van. Gioi han output khoang 1000 token va giu memory theo phien trong ngay.",
+    "category": "ai",
+    "source": "builtin",
+    "trigger_type": "zalo_inbound",
+    "icon": "MessageCircle",
+    "tags": "zalo-bot,btnet,chat,qa,advisory,twin-gpt,customer-default,global-default",
+    "plan": "free",
+    "trigger_config": {
+      "filter": "btnet|bt net|b t net",
+      "keywords": [
+        "btnet",
+        "bt net",
+        "b t net"
+      ],
+      "mode": "keyword_start",
+      "priority": 80,
+      "exclusive": true,
+      "visibility": "global",
+      "selector_mode": "global",
+      "chat_kind": "any",
+      "require_mention": true,
+      "owner_required": false
+    },
+    "graph": {
+      "meta": {
+        "template": "tpl_btnet_daily_chat_zalo_v1",
+        "template_uuid": "6a3f7d5c-7e21-7a90-8e20-63b3e1a9f001",
+        "template_version": "1.0.0",
+        "visibility": "global"
+      },
+      "nodes": [
+        {
+          "id": "t1",
+          "type": "trigger",
+          "position": { "x": 0, "y": 160 },
+          "data": {
+            "blockId": "trigger.zalo_inbound",
+            "label": "Zalo Bot - BTnet keyword",
+            "filter": "btnet|bt net|b t net",
+            "keywords": ["btnet", "bt net", "b t net"],
+            "mode": "keyword_start",
+            "priority": 80,
+            "exclusive": true,
+            "visibility": "global",
+            "selector_mode": "global",
+            "chat_kind": "any",
+            "require_mention": true,
+            "owner_required": false
+          }
+        },
+        {
+          "id": "mem_load",
+          "type": "action",
+          "position": { "x": 300, "y": 160 },
+          "data": {
+            "blockId": "action.load_session_memory_day",
+            "label": "Nap memory ngay",
+            "scope": "btnet_workflow_chat_day",
+            "max_chars": 3500
+          }
+        },
+        {
+          "id": "llm",
+          "type": "llm",
+          "position": { "x": 620, "y": 160 },
+          "data": {
+            "blockId": "llm.compose_reply",
+            "label": "BTnet tu van",
+            "model": "gpt-4o-mini",
+            "max_output_tokens": 1000,
+            "system": "Ban la BTnet, tro ly noi chuyen tieng Viet than thien, gon ro, biet hoi lai khi thieu ngu canh. Neu day la chat group, tra loi cong khai, khong dung du lieu rieng cua user chua link. Gioi han cau tra loi khoang 1000 token.",
+            "prompt": "Memory phien hom nay:\n{{mem_load.context}}\n\nTin moi cua user:\n{{trigger.text}}\n\nHay tra loi tu nhien, huu ich, giu mach noi chuyen neu memory co lien quan."
+          }
+        },
+        {
+          "id": "reply",
+          "type": "action",
+          "position": { "x": 940, "y": 160 },
+          "data": {
+            "blockId": "action.reply_zalo",
+            "label": "Tra loi BTnet",
+            "text": "{{llm.output}}"
+          }
+        },
+        {
+          "id": "mem_save",
+          "type": "action",
+          "position": { "x": 1240, "y": 160 },
+          "data": {
+            "blockId": "action.append_session_memory_day",
+            "label": "Ghi memory ngay",
+            "scope": "btnet_workflow_chat_day",
+            "input": "User: {{trigger.text}}\nBTnet: {{llm.output}}",
+            "ttl_hours": 30,
+            "max_chars": 5000
+          }
+        }
+      ],
+      "edges": [
+        { "id": "e_t1_mem", "source": "t1", "target": "mem_load" },
+        { "id": "e_mem_llm", "source": "mem_load", "target": "llm" },
+        { "id": "e_llm_reply", "source": "llm", "target": "reply" },
+        { "id": "e_reply_save", "source": "reply", "target": "mem_save" }
+      ]
+    }
+  }
+]

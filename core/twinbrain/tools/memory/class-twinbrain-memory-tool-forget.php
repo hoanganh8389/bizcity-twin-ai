@@ -63,11 +63,18 @@ final class BizCity_TwinBrain_Memory_Tool_Forget implements BizCity_Twin_Tool {
 		$match_text = trim( (string) ( $args['match_text'] ?? '' ) );
 		$reason     = trim( (string) ( $args['reason']     ?? '' ) );
 
-		$user_id    = (int)    ( $context['user_id']    ?? get_current_user_id() );
-		$session_id = (string) ( $context['session_id'] ?? '' );
-
-		if ( $user_id <= 0 && $session_id === '' ) {
+		// [2026-07-28 Johnny Chu] R-CH-IDMEM — resolve the same owner scope used by every memory reader/writer.
+		$scope = class_exists( 'BizCity_Memory_Identity_Scope' )
+			? BizCity_Memory_Identity_Scope::resolve( $context )
+			: array( 'user_id' => (int) ( $context['user_id'] ?? get_current_user_id() ), 'session_id' => (string) ( $context['session_id'] ?? '' ), 'identity_uuid' => (string) ( $context['identity_uuid'] ?? '' ), 'identity_verified' => false, 'identity_is_stable' => false );
+		$user_id       = (int) $scope['user_id'];
+		$session_id    = (string) $scope['session_id'];
+		$identity_uuid = (string) $scope['identity_uuid'];
+		if ( $identity_uuid === '' && $user_id <= 0 ) {
 			return [ 'ok' => false, 'error' => 'no_owner', 'summary' => '', 'result' => null ];
+		}
+		if ( $identity_uuid !== '' && ( empty( $scope['identity_verified'] ) || empty( $scope['identity_is_stable'] ) ) ) {
+			return [ 'ok' => false, 'error' => 'identity_unverified', 'summary' => '', 'result' => null ];
 		}
 		if ( ! class_exists( 'BizCity_User_Memory' ) ) {
 			return [ 'ok' => false, 'error' => 'class_missing', 'summary' => '', 'result' => null ];
@@ -76,25 +83,35 @@ final class BizCity_TwinBrain_Memory_Tool_Forget implements BizCity_Twin_Tool {
 		global $wpdb;
 		$tbl = BizCity_User_Memory::table();
 		$sid = $user_id > 0 ? '' : $session_id;
+		$owner_where  = array();
+		$owner_params = array();
+		$owner_scope  = array( 'user_id' => $user_id, 'identity_uuid' => $identity_uuid );
+		if ( class_exists( 'BizCity_Memory_Identity_Scope' ) ) {
+			if ( ! BizCity_Memory_Identity_Scope::append_read_scope( $owner_where, $owner_params, $owner_scope ) ) {
+				return [ 'ok' => false, 'error' => 'no_owner', 'summary' => '', 'result' => null ];
+			}
+		} else {
+			$owner_where[]  = 'identity_uuid = %s AND user_id = %d';
+			$owner_params[] = '';
+			$owner_params[] = $user_id;
+		}
+		$owner_where[]  = 'session_id = %s';
+		$owner_params[] = $sid;
 
 		$row = null;
 		if ( $memory_id > 0 ) {
 			$row = $wpdb->get_row( $wpdb->prepare(
 				"SELECT id, memory_text, memory_type, memory_tier FROM {$tbl} "
-				. "WHERE id=%d AND user_id=%d AND session_id=%s LIMIT 1",
-				$memory_id,
-				$user_id,
-				$sid
+				. "WHERE id=%d AND " . implode( ' AND ', $owner_where ) . " LIMIT 1",
+				array_merge( array( $memory_id ), $owner_params )
 			), ARRAY_A );
 		} elseif ( mb_strlen( $match_text ) >= 4 ) {
 			$like = '%' . $wpdb->esc_like( $match_text ) . '%';
 			$row  = $wpdb->get_row( $wpdb->prepare(
 				"SELECT id, memory_text, memory_type, memory_tier FROM {$tbl} "
-				. "WHERE user_id=%d AND session_id=%s AND memory_text LIKE %s "
+				. "WHERE " . implode( ' AND ', $owner_where ) . " AND memory_text LIKE %s "
 				. "ORDER BY score DESC, last_seen DESC LIMIT 1",
-				$user_id,
-				$sid,
-				$like
+				array_merge( $owner_params, array( $like ) )
 			), ARRAY_A );
 		} else {
 			return [ 'ok' => false, 'error' => 'no_target', 'summary' => '', 'result' => null ];
@@ -109,11 +126,11 @@ final class BizCity_TwinBrain_Memory_Tool_Forget implements BizCity_Twin_Tool {
 			];
 		}
 
-		$deleted = $wpdb->delete( $tbl, [
-			'id'         => (int) $row['id'],
-			'user_id'    => $user_id,
-			'session_id' => $sid,
-		], [ '%d', '%d', '%s' ] );
+		$delete_params = array_merge( array( (int) $row['id'] ), $owner_params );
+		$deleted = $wpdb->query( $wpdb->prepare(
+			"DELETE FROM {$tbl} WHERE id = %d AND " . implode( ' AND ', $owner_where ),
+			$delete_params
+		) );
 
 		if ( ! $deleted ) {
 			return [ 'ok' => false, 'error' => 'delete_failed', 'summary' => '', 'result' => null ];

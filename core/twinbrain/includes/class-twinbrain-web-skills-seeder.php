@@ -28,7 +28,8 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 
 final class BizCity_TwinBrain_Web_Skills_Seeder {
 
-	const TRANSIENT_KEY = 'bizcity_twinbrain_web_skills_seeded_v1';
+	// [2026-07-15 Johnny Chu] PHASE-TWB-PRODUCTS - bump transient key to force one reseed after adding products skill.
+	const TRANSIENT_KEY = 'bizcity_twinbrain_web_skills_seeded_v2';
 	const TTL_SECONDS   = DAY_IN_SECONDS;
 
 	/**
@@ -214,6 +215,28 @@ final class BizCity_TwinBrain_Web_Skills_Seeder {
 				'priority'       => 45,
 				'status'         => 'active',
 				'version'        => '1.0',
+			],
+			[
+				'skill_key'      => 'web_search_products',
+				'user_id'        => 0,
+				'character_id'   => 0,
+				// [2026-07-15 Johnny Chu] PHASE-TWB-PRODUCTS — seed canonical Super-MRO identity and specialist triggers.
+				'title'          => 'Super-MRO Research (Woo + Technical Web)',
+				'description'    => 'Super-MRO cho vat tu cong nghiep, dien, cong cu va VLXD: Woo-first; super-mro.com first-party web fallback.',
+				'category'       => 'web-research',
+				'triggers_json'  => [
+					'san pham', 'shop co ban', 'gia bao nhieu', 'con hang', 'ton kho',
+					'cong dung', 'toi muon', 'muon lap', 'can gi', 'tron bo', 'combo', 'xay nha',
+					'vat tu', 'dien', 'den', 'bu long', 'cong cu', 'bao tri', 'boq', 'bom', 'bang gia',
+					'mro', 'in stock', 'out of stock', 'price', 'need solution',
+				],
+				'slash_commands' => [ '/products', '/web_products' ],
+				'modes'          => [ 'research', 'execution' ],
+				'tools_json'     => [ 'woo_search', 'woo_detail', 'search_web', 'llm_chat' ],
+				'content'        => self::products_prompt_template(),
+				'priority'       => 46,
+				'status'         => 'active',
+				'version'        => '2.0',
 			],
 		];
 	}
@@ -485,6 +508,33 @@ Bạn là **gov policy synthesizer** cho VN. Tổng hợp tin chính sách / VBQ
 - ❌ Bình luận chính trị / dự đoán ý đồ chính sách.
 - ❌ Trích báo thứ cấp khi nguồn sơ cấp có sẵn trong snippets.
 - ❌ Bịa nội dung Quyết định / Chỉ thị.
+MD;
+	}
+
+	/** Super-MRO vertical prompt (PHASE-TWB-PRODUCTS; internal key remains products). */
+	private static function products_prompt_template(): string {
+		// [2026-07-15 Johnny Chu] PHASE-TWB-PRODUCTS — replace generic product prompt with specialist Super-MRO grounding.
+		return <<<MD
+# Super-MRO Research · Woo + Technical Web
+
+Bạn là trợ lý kỹ thuật và mua hàng Super-MRO chuyên vật tư công nghiệp, điện,
+chiếu sáng, cơ khí, dụng cụ, bảo trì và vật liệu xây dựng.
+
+## Quy tắc BẮT BUỘC
+1. Ưu tiên WooCommerce cho giá/tồn/SKU/permalink; mọi match cite `[prod:ID](permalink)`.
+2. Khi Woo thiếu, tìm `super-mro.com` trước, sau đó hãng/datasheet/tiêu chuẩn/MRO catalog.
+3. KHÔNG bịa giá, tồn, số lượng, tiêu chuẩn hay compatibility.
+4. Với một mục đích thi công, phân nhóm: vật tư chính, phụ kiện, dụng cụ, đo kiểm, PPE.
+5. Thiếu diện tích/số lượng/spec thì hỏi lại hoặc để trống quantity; không tự đoán.
+6. Tách rõ `matched` và `gaps`; giá web luôn là tham khảo, không phải giá shop.
+7. Giữ câu trả lời ngắn gọn, có thể tạo BOQ/BOM/bảng giá/sheet khi user yêu cầu.
+
+## Anti-patterns CẤM
+- ❌ Mỹ phẩm, skincare, thời trang, thực phẩm và hàng tiêu dùng ngoài MRO.
+- ❌ Trình bày item shop chưa có như thể shop đang bán.
+- ❌ Bỏ qua `super-mro.com` trong web fallback.
+- ❌ Khẳng định "còn hàng" khi stock_status rỗng.
+- ❌ Khẳng định tương thích khi thiếu kích thước, ren, điện áp hoặc thông số lắp.
 MD;
 	}
 }

@@ -224,6 +224,12 @@ if ( ! function_exists( 'bizcity_gateway_send_message' ) ) {
 					$parsed_bot_id = (int) $m[1];
 					$raw_user_id   = $m[2];
 				}
+				// [2026-07-21 Johnny Chu] PHASE-ZALOBOT-GROUP W7 — strip conversation target prefix before Zalo Bot API send.
+				if ( strpos( $raw_user_id, 'private_' ) === 0 ) {
+					$raw_user_id = substr( $raw_user_id, 8 );
+				} elseif ( strpos( $raw_user_id, 'group_' ) === 0 ) {
+					$raw_user_id = substr( $raw_user_id, 6 );
+				}
 				$target_blog_id = function_exists( 'bizcity_gateway_resolve_bot_blog_id' )
 					? bizcity_gateway_resolve_bot_blog_id( $parsed_bot_id )
 					: 0;

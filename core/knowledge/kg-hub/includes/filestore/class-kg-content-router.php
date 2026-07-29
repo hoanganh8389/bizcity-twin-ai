@@ -77,6 +77,13 @@ class BizCity_KG_Content_Router {
 					if ( $id > 0 ) { $this->passage_cache[ $id ] = $body; }
 					return $body;
 				}
+				// [2026-07-29 Johnny Chu] HOTFIX — recover a valid v2 body when the offset index is stale or corrupt.
+				$scanned = BizCity_KG_Passage_File_Store::instance()->read_with_scan( $id, $uuid );
+				if ( is_array( $scanned ) && isset( $scanned['body'] ) ) {
+					$body = (string) $scanned['body'];
+					if ( $id > 0 ) { $this->passage_cache[ $id ] = $body; }
+					return $body;
+				}
 				// File read failed → fall through to inline if present, else log.
 				error_log( '[KG Router] passage ' . $id . ' file read failed: ' . ( is_wp_error( $body ) ? $body->get_error_message() : 'unknown' ) );
 			}

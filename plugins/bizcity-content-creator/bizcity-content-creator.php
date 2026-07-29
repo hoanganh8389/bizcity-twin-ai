@@ -84,7 +84,11 @@ BZCC_Template_Seeder::init();
 // [2026-06-09 Johnny Chu] R-CR — migrated to Central Rewrite Flush Registry.
 // Registry consolidates all module flushes into ONE flush_rewrite_rules(false) at admin_init:1.
 // Old per-plugin pending-flag pattern preserved as fallback in the registry class itself.
-BizCity_Rewrite_Flush_Registry::register( 'bizcity-content-creator', BZCC_VERSION );
+// [2026-07-26 Johnny Chu] HOTFIX — class may be unavailable in partial-load
+// contexts; guard to avoid fatal and keep channel/automation requests alive.
+if ( class_exists( 'BizCity_Rewrite_Flush_Registry' ) ) {
+	BizCity_Rewrite_Flush_Registry::register( 'bizcity-content-creator', BZCC_VERSION );
+}
 
 /* ── Admin ── */
 BZCC_Admin_Menu::init();

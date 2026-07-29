@@ -24,7 +24,7 @@ defined( 'ABSPATH' ) || exit;
 
 final class BizCity_Automation_Installer {
 
-	const DB_VERSION        = '1.7.0';
+	const DB_VERSION        = '1.13.0'; // [2026-07-21 Johnny Chu] PHASE-ZALOBOT-GROUP W8 R-AUTO-TEMPLATE-ID — template_uuid/template_version/visibility.
 	const DB_VERSION_OPTION = 'bizcity_automation_db_version';
 
 	/** Table suffixes (without wp_ prefix) declared in core.automation.json. */
@@ -33,6 +33,8 @@ final class BizCity_Automation_Installer {
 		'bizcity_automation_runs',
 		'bizcity_automation_logs',
 		'bizcity_automation_templates', // BE-7
+		'bizcity_automation_config_packs', // [2026-07-20 Johnny Chu] PHASE-1-TEMPLATES-AUTOMATION — editable CSV/Sheet packs.
+		'bizcity_automation_config_rows',  // [2026-07-20 Johnny Chu] PHASE-1-TEMPLATES-AUTOMATION — row_json/canonical/search_text rows.
 	);
 
 	// [2026-06-13 Johnny Chu] HOTFIX — per-blog guard array so switch_to_blog() in multisite cron
@@ -42,6 +44,13 @@ final class BizCity_Automation_Installer {
 	// [2026-06-21 Johnny Chu] HOTFIX — per-blog per-request SHOW TABLES cache.
 	// Avoids N×SHOW-TABLES on every cron tick for blogs that DO have tables.
 	private static $tables_present_cache = array();
+
+	// [2026-07-24 Johnny Chu] PHASE-DIAG-PERF — bounded retry window so a persistently-failing
+	// schema heal (clone-without-marker, a real DDL error, permission issue, …) does not re-run
+	// SHOW COLUMNS/SHOW INDEX across all 6 tables on every single admin_init/REST/cron request.
+	// See core/diagnostics/docs/PHASE-DIAG-PERF-AUTO-CREATE-AUDIT.md.
+	const HEAL_BACKOFF_SECONDS = 300; // 5 minutes
+	const HEAL_BACKOFF_OPTION  = 'bizcity_automation_db_heal_backoff_until';
 
 	/**
 	 * Check workflows table existence once per blog per request.
@@ -61,6 +70,8 @@ final class BizCity_Automation_Installer {
 	public static function invalidate_tables_cache(): void {
 		$blog_id = (int) get_current_blog_id();
 		unset( self::$tables_present_cache[ $blog_id ] );
+		// [2026-07-24 Johnny Chu] PHASE-DIAG-PERF — also drop the cached identity-schema result.
+		wp_cache_delete( 'bz_autotplid_' . $blog_id, 'bizcity_tbl' );
 	}
 
 	/**
@@ -84,11 +95,24 @@ final class BizCity_Automation_Installer {
 		self::$checked_blog_ids[ $blog_id ] = true;
 
 		$stamped = get_option( self::DB_VERSION_OPTION, '' );
-		if ( $stamped === self::DB_VERSION ) {
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — do not trust a stale stamp if template identity columns are missing.
+		// [2026-07-24 Johnny Chu] PHASE-DIAG-PERF — cache the identity check so this fast path
+		// stays a single cached lookup instead of a live information_schema query every request
+		// (this was the root cause of the repeated SHOW COLUMNS/SHOW INDEX spam on every pageload).
+		if ( $stamped === self::DB_VERSION && self::templates_identity_schema_ready_cached() ) {
 			// Trust the stamp — no SHOW TABLES on every request.
 			return;
 		}
-		if ( ! class_exists( 'BizCity_Diagnostics_Auto_Create' ) ) {
+
+		// [2026-07-24 Johnny Chu] PHASE-DIAG-PERF — if a previous attempt already failed to heal
+		// within the backoff window, skip the full 6-table SHOW COLUMNS/SHOW INDEX sweep instead of
+		// repeating it on every request. Diagnostics "Chẩn đoán" button (bizcity_auto_create action)
+		// or clearing HEAL_BACKOFF_OPTION forces an immediate retry.
+		if ( self::within_heal_backoff() ) {
+			return;
+		}
+
+		if ( ! class_exists( 'BizCity_Diagnostics_Auto_Create' ) && ! self::load_auto_create_runtime() ) {
 			// [2026-06-21 Johnny Chu] HOTFIX — In cron context admin_init never fires.
 			// If the diagnostics bootstrap is already loaded (BIZCITY_DIAGNOSTICS_DIR defined),
 			// require the two auto-create files directly instead of deferring uselessly.
@@ -107,10 +131,91 @@ final class BizCity_Automation_Installer {
 		foreach ( self::TABLE_SUFFIXES as $suffix ) {
 			BizCity_Diagnostics_Auto_Create::run( $suffix );
 		}
-		if ( self::all_tables_present() ) {
+		if ( self::all_tables_present() && self::templates_identity_schema_ready() ) {
 			update_option( self::DB_VERSION_OPTION, self::DB_VERSION, false );
 			self::invalidate_tables_cache(); // [2026-06-21 Johnny Chu] HOTFIX — refresh after install
+			self::clear_heal_backoff(); // [2026-07-24 Johnny Chu] PHASE-DIAG-PERF
+		} else {
+			// [2026-07-24 Johnny Chu] PHASE-DIAG-PERF — heal did not converge (ALTER failed / columns
+			// still missing); back off so the NEXT request doesn't immediately repeat the same sweep.
+			self::set_heal_backoff();
 		}
+	}
+
+	/** [2026-07-24 Johnny Chu] PHASE-DIAG-PERF — cached wrapper around templates_identity_schema_ready(). */
+	private static function templates_identity_schema_ready_cached(): bool {
+		$blog_id = (int) get_current_blog_id();
+		$ck      = 'bz_autotplid_' . $blog_id;
+		$cached  = wp_cache_get( $ck, 'bizcity_tbl' );
+		if ( false !== $cached ) {
+			return (bool) $cached;
+		}
+		$ready = self::templates_identity_schema_ready();
+		wp_cache_set( $ck, $ready ? 1 : 0, 'bizcity_tbl', HOUR_IN_SECONDS );
+		return $ready;
+	}
+
+	/** [2026-07-24 Johnny Chu] PHASE-DIAG-PERF — is a failed heal attempt still cooling down? */
+	private static function within_heal_backoff(): bool {
+		return (int) get_option( self::HEAL_BACKOFF_OPTION, 0 ) > time();
+	}
+
+	/** [2026-07-24 Johnny Chu] PHASE-DIAG-PERF — arm the cooldown after a failed heal attempt. */
+	private static function set_heal_backoff(): void {
+		update_option( self::HEAL_BACKOFF_OPTION, time() + self::HEAL_BACKOFF_SECONDS, false );
+	}
+
+	/** [2026-07-24 Johnny Chu] PHASE-DIAG-PERF — clear the cooldown once healed / on force-repair. */
+	private static function clear_heal_backoff(): void {
+		if ( get_option( self::HEAL_BACKOFF_OPTION, 0 ) ) {
+			delete_option( self::HEAL_BACKOFF_OPTION );
+		}
+	}
+
+	public static function force_templates_identity_schema(): bool {
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — seeders may run after an earlier ensure() short-circuited; repair template identity columns explicitly.
+		if ( self::templates_identity_schema_ready() ) {
+			return true;
+		}
+		if ( ! class_exists( 'BizCity_Diagnostics_Auto_Create' ) && ! self::load_auto_create_runtime() ) {
+			return false;
+		}
+		BizCity_Diagnostics_Auto_Create::run( 'bizcity_automation_templates' );
+		self::invalidate_tables_cache();
+		if ( self::templates_identity_schema_ready() && self::all_tables_present() ) {
+			update_option( self::DB_VERSION_OPTION, self::DB_VERSION, false );
+			self::clear_heal_backoff(); // [2026-07-24 Johnny Chu] PHASE-DIAG-PERF
+		}
+		return self::templates_identity_schema_ready();
+	}
+
+	private static function load_auto_create_runtime(): bool {
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — REST template seeding needs additive schema repair even when diagnostics bootstrap was not loaded.
+		$diagnostics_dir = dirname( __DIR__, 2 ) . '/diagnostics/';
+		if ( ! defined( 'BIZCITY_DIAGNOSTICS_DIR' ) ) {
+			define( 'BIZCITY_DIAGNOSTICS_DIR', $diagnostics_dir );
+		}
+		if ( ! class_exists( 'BizCity_Diagnostics_Changelog_Loader' ) && is_readable( $diagnostics_dir . 'includes/class-diagnostics-changelog-loader.php' ) ) {
+			require_once $diagnostics_dir . 'includes/class-diagnostics-changelog-loader.php';
+		}
+		if ( ! class_exists( 'BizCity_Diagnostics_Auto_Create' ) && is_readable( $diagnostics_dir . 'includes/class-diagnostics-auto-create.php' ) ) {
+			require_once $diagnostics_dir . 'includes/class-diagnostics-auto-create.php';
+		}
+		return class_exists( 'BizCity_Diagnostics_Changelog_Loader' ) && class_exists( 'BizCity_Diagnostics_Auto_Create' );
+	}
+
+	public static function templates_identity_schema_ready(): bool {
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — upsert writes these columns; missing columns make reseed insert fail and gallery stay empty.
+		global $wpdb;
+		$table = $wpdb->prefix . 'bizcity_automation_templates';
+		$count = (int) $wpdb->get_var( $wpdb->prepare(
+			'SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME IN (%s,%s,%s)',
+			$table,
+			'template_uuid',
+			'template_version',
+			'visibility'
+		) );
+		return $count >= 3;
 	}
 
 	public static function ensure_admin_init(): void {
@@ -134,4 +239,10 @@ final class BizCity_Automation_Installer {
 		global $wpdb;
 		return $wpdb->prefix . $suffix;
 	}
+}
+
+// [2026-07-20 Johnny Chu] PHASE-1-TEMPLATES-AUTOMATION — register new DataTable tables in central schema catalog (R-CR).
+if ( class_exists( 'BizCity_Schema_Registry' ) ) {
+	BizCity_Schema_Registry::register( 'bizcity_automation_config_packs', 'core.automation', BizCity_Automation_Installer::DB_VERSION, BizCity_Automation_Installer::DB_VERSION_OPTION, array( 'BizCity_Automation_Installer', 'ensure' ) );
+	BizCity_Schema_Registry::register( 'bizcity_automation_config_rows', 'core.automation', BizCity_Automation_Installer::DB_VERSION, BizCity_Automation_Installer::DB_VERSION_OPTION, array( 'BizCity_Automation_Installer', 'ensure' ) );
 }

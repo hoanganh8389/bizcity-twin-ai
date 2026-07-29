@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "bizcity://events/product_synthesize_done.json",
+  "title": "product_synthesize_done",
+  "description": "Emitted when products synthesis completes and final answer context is ready. PHASE-TWB-PRODUCTS (2026-07-15).",
+  "type": "object",
+  "required": ["trace_id", "matched_count", "gap_count", "ms"],
+  "properties": {
+    "trace_id": { "type": "string" },
+    "matched_count": { "type": "integer", "minimum": 0 },
+    "gap_count": { "type": "integer", "minimum": 0 },
+    "citation_count": { "type": "integer", "minimum": 0 },
+    "tokens": { "type": "integer", "minimum": 0 },
+    "ms": { "type": "integer", "minimum": 0 }
+  },
+  "additionalProperties": true
+}

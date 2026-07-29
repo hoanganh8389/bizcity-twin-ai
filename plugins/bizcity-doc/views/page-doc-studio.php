@@ -10,6 +10,9 @@
 
 if ( ! defined( 'ABSPATH' ) ) exit;
 
+// [2026-07-20 Johnny Chu] PHASE-TWIN-GPT-AGENT-TOOLS — compact iframe shell for Twin GPT Artifact Canvas; normal /tool-doc/ remains unchanged.
+$is_twin_canvas = isset( $_GET['twin_canvas'] ) && in_array( (string) $_GET['twin_canvas'], array( '1', 'true' ), true );
+
 if ( ! is_user_logged_in() ) {
 	wp_redirect( wp_login_url( home_url( '/tool-doc/' ) ) );
 	exit;
@@ -87,6 +90,8 @@ add_action( 'wp_enqueue_scripts', function () {
 		/* Hide WP admin bar & Query Monitor on this page */
 		#wpadminbar, #query-monitor-main, .qm-icon-container { display: none !important; }
 		html { margin-top: 0 !important; }
+		body.bzdoc-twin-canvas { background: #fff; overflow: hidden; }
+		body.bzdoc-twin-canvas .bzdoc-studio-wrap { height: 100vh; }
 	</style>
 	<?php
 	// Strip ALL theme hooks that output HTML into the page (nav, sidebars, etc.)
@@ -95,15 +100,63 @@ add_action( 'wp_enqueue_scripts', function () {
 	?>
 	<?php wp_head(); ?>
 </head>
-<body class="bzdoc-body">
+<body class="bzdoc-body<?php echo $is_twin_canvas ? ' bzdoc-twin-canvas' : ''; ?>">
 	<div id="doc-app" class="bzdoc-studio-wrap"></div>
 	<script>
 		var bzdocConfig = <?php echo wp_json_encode( [
 			'restUrl'   => esc_url_raw( rest_url( 'bzdoc/v1' ) ),
 			'nonce'     => wp_create_nonce( 'wp_rest' ),
 			'userId'    => get_current_user_id(),
+			'docId'     => isset( $_GET['id'] ) ? absint( $_GET['id'] ) : 0,
 			'pluginUrl' => BZDOC_URL,
+			'surface'   => $is_twin_canvas ? 'twin_canvas' : 'doc_studio',
+			'twinCanvas'=> (bool) $is_twin_canvas,
 		] ); ?>;
+		// [2026-07-20 Johnny Chu] PHASE-1-TWIN-GPT-AGENT-TOOLS — shell-level `{}` trace download for Doc Studio without touching the bundled React toolbar.
+		(function(){
+			function currentDocId(){
+				var params = new URLSearchParams(window.location.search || '');
+				return String(bzdocConfig.docId || params.get('id') || params.get('doc_id') || '');
+			}
+			function downloadJson(name, payload){
+				var blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json;charset=utf-8'});
+				var url = URL.createObjectURL(blob);
+				var a = document.createElement('a');
+				a.href = url;
+				a.download = name;
+				document.body.appendChild(a);
+				a.click();
+				document.body.removeChild(a);
+				URL.revokeObjectURL(url);
+			}
+			function installButton(){
+				if (document.getElementById('bzdoc-handoff-download')) return;
+				var btn = document.createElement('button');
+				btn.id = 'bzdoc-handoff-download';
+				btn.type = 'button';
+				btn.textContent = '{}';
+				btn.title = 'Tải JSON spec/handoff của tài liệu';
+				btn.setAttribute('aria-label', 'Tải JSON spec handoff');
+				btn.style.cssText = 'position:fixed;right:14px;top:12px;z-index:99999;height:32px;min-width:38px;border:1px solid rgba(124,58,237,.35);border-radius:8px;background:#fff;color:#7c3aed;font:700 13px ui-monospace,SFMono-Regular,Menlo,monospace;box-shadow:0 8px 24px rgba(15,23,42,.12);cursor:pointer';
+				btn.onclick = function(){
+					var id = currentDocId();
+					if (!id) {
+						downloadJson('bzdoc-handoff-unsaved-' + Date.now() + '.json', { success:false, reason:'doc_id_missing', url: window.location.href });
+						return;
+					}
+					btn.disabled = true;
+					fetch(bzdocConfig.restUrl.replace(/\/$/, '') + '/handoff/' + encodeURIComponent(id), {
+						credentials: 'same-origin',
+						headers: { 'X-WP-Nonce': bzdocConfig.nonce }
+					}).then(function(res){ return res.json(); })
+						.then(function(json){ downloadJson('bzdoc-handoff-' + id + '-' + Date.now() + '.json', json); })
+						.catch(function(err){ downloadJson('bzdoc-handoff-error-' + id + '-' + Date.now() + '.json', { success:false, error:String(err && err.message || err), doc_id:id }); })
+						.finally(function(){ btn.disabled = false; });
+				};
+				document.addEventListener('DOMContentLoaded', function(){ document.body.appendChild(btn); });
+			}
+			installButton();
+		})();
 		// Shim wpApiSettings so primitive callers + SourceSidebar binding fetch work
 		// (this template dequeues all WP scripts including wp-api).
 		window.wpApiSettings = window.wpApiSettings || {

@@ -62,7 +62,24 @@ final class BizCity_TwinBrain_Memory_Tool_Recall implements BizCity_Twin_Tool {
 		$top_k = max( 1, min( self::MAX_TOP, $top_k ) );
 
 		$user_id = (int) ( $context['user_id'] ?? get_current_user_id() );
-		if ( $user_id <= 0 ) {
+		$identity_uuid = trim( (string) ( $context['identity_uuid'] ?? '' ) );
+		$identity_is_stable = $user_id > 0 || ! empty( $context['identity_is_stable'] );
+		// [2026-07-28 Johnny Chu] R-CH-IDMEM — tool recall requires a hub-verified canonical UUID for anonymous identities.
+		$identity_verified = false;
+		if ( class_exists( 'BizCity_Identity_Hub' ) ) {
+			$identity = BizCity_Identity_Hub::resolve_from_opts( $context, (int) get_current_blog_id() );
+			if ( is_array( $identity ) ) {
+				$identity_verified = ! empty( $identity['identity_uuid'] );
+				$identity_uuid = (string) ( $identity['identity_uuid'] ?? $identity_uuid );
+				// [2026-07-28 Johnny Chu] R-CH-IDMEM — a verified UUID from Identity Hub is durable unless its binding explicitly says otherwise.
+				$identity_is_stable = $identity_verified;
+				if ( isset( $identity['binding']['is_stable'] ) ) {
+					$identity_is_stable = ! empty( $identity['binding']['is_stable'] );
+				}
+			}
+		}
+		// [2026-07-28 Johnny Chu] R-CH-IDMEM — recall only from a durable identity or authenticated user projection.
+		if ( $user_id <= 0 && ( ! $identity_verified || $identity_uuid === '' || ! $identity_is_stable ) ) {
 			return [ 'ok' => false, 'error' => 'no_owner', 'summary' => '', 'result' => null ];
 		}
 
@@ -75,6 +92,7 @@ final class BizCity_TwinBrain_Memory_Tool_Recall implements BizCity_Twin_Tool {
 				$user_id,
 				$query,
 				[
+					'identity_uuid' => $identity_uuid,
 					'tier_a_cap' => $top_k,
 					'tier_b_cap' => $top_k,
 					'tier_c_cap' => min( 5, $top_k ),

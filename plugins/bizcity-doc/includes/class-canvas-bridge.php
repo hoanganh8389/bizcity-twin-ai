@@ -54,7 +54,9 @@ class BZDoc_Canvas_Bridge {
 		$request->set_param( 'topic', $topic );
 		$request->set_param( 'template_name', $template );
 		$request->set_param( 'theme_name', $theme );
-		$request->set_param( 'slide_count', $input['slide_count'] ?? 10 );
+		// [2026-07-20 Johnny Chu] PHASE-1-BZDOC-DEEPSEEK — Canvas presentation generation should request detailed 20-slide decks.
+		$slide_count = ( 'presentation' === $doc_type ) ? max( 20, absint( $input['slide_count'] ?? 20 ) ) : absint( $input['slide_count'] ?? 10 );
+		$request->set_param( 'slide_count', $slide_count );
 
 		$result = BZDoc_Rest_API::handle_generate( $request );
 

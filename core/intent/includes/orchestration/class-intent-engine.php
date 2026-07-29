@@ -3027,7 +3027,13 @@ class BizCity_Intent_Engine {
             $auto_plan = $this->planner->get_plan( $intent['goal'] );
             if ( $auto_plan && ! empty( $message ) ) {
                 // Detect if message is a tool-navigation command with no real content
-                $enriched_message = $this->enrich_slot_from_session( $message, $session_id, $conv_id );
+                $enriched_message = $this->enrich_slot_from_session(
+                    $message,
+                    $session_id,
+                    $conv_id,
+                    $user_id,
+                    (string) ( $params['identity_uuid'] ?? '' )
+                );
 
                 foreach ( $auto_plan['required_slots'] ?? [] as $slot_name => $slot_cfg ) {
                     if ( $slot_name === 'message' ) continue; // Already handled above
@@ -5101,7 +5107,7 @@ PROMPT;
      * @param string $conv_id     Current intent conversation ID.
      * @return string  Enriched message (with session context) or original message.
      */
-    private function enrich_slot_from_session( $message, $session_id, $conv_id ) {
+    private function enrich_slot_from_session( $message, $session_id, $conv_id, $user_id = 0, $identity_uuid = '' ) {
         // Quick check: is this message substantive or just a navigation command?
         // Navigation commands: short messages with tool-selection keywords but no real question/content.
         $msg_lower = mb_strtolower( trim( $message ), 'UTF-8' );
@@ -5127,9 +5133,14 @@ PROMPT;
 
         // ── Strategy 1: Rolling Memory — preferred source ──
         if ( class_exists( 'BizCity_Rolling_Memory' ) ) {
-            $user_id = get_current_user_id();
+            // [2026-07-28 Johnny Chu] R-CH-IDMEM — resolve slot enrichment against the same durable owner as the turn.
+            $user_id = (int) $user_id;
+            if ( ! $identity_uuid && class_exists( 'BizCity_Memory_Identity_Scope' ) ) {
+                $scope = BizCity_Memory_Identity_Scope::resolve( [ 'user_id' => $user_id, 'session_id' => $session_id ] );
+                $identity_uuid = (string) ( $scope['identity_uuid'] ?? '' );
+            }
             if ( $user_id ) {
-                $rm_intent = BizCity_Rolling_Memory::instance()->get_recent_user_intent( $user_id, $session_id );
+                $rm_intent = BizCity_Rolling_Memory::instance()->get_recent_user_intent( $user_id, $session_id, $identity_uuid );
                 if ( ! empty( $rm_intent ) ) {
                     error_log( '[INTENT-ENGINE] enrich_slot_from_session: command="'
                         . mb_substr( $message, 0, 50, 'UTF-8' ) . '" → enriched from Rolling Memory' );
@@ -5483,9 +5494,10 @@ PROMPT;
      * [2026-06-11 Johnny Chu] R-PERF — invalidate after write
      */
     private function _save_projects( $user_id, array $projects ) {
-        update_user_meta( $user_id, $this->_projects_meta_key(), $projects );
         if ( class_exists( 'BizCity_User_Meta_Cache' ) ) {
-            BizCity_User_Meta_Cache::invalidate( $user_id, $this->_projects_meta_key() );
+            BizCity_User_Meta_Cache::set( $user_id, $this->_projects_meta_key(), $projects );
+        } else {
+            update_user_meta( $user_id, $this->_projects_meta_key(), $projects );
         }
     }
 

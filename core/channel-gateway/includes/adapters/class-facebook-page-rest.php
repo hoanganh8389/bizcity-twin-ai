@@ -37,13 +37,57 @@ class BizCity_Facebook_Page_REST {
 
 	const NS                = 'bizcity-channel/v1';
 	const DEFAULT_PAGE_OPT  = 'bizcity_fb_default_page_id';
+	// [2026-07-16 Johnny Chu] PHASE-TWINWEB — pending stash keys for user-scoped OAuth callback handoff.
+	const TW_PENDING_META   = 'bizcity_tw_fb_oauth_pending';
+	const TW_PENDING_TTL    = 10 * MINUTE_IN_SECONDS;
 
 	public static function init(): void {
 		add_action( 'rest_api_init', array( __CLASS__, 'register_routes' ) );
+		// [2026-07-16 Johnny Chu] PHASE-TWINWEB — consume TwinWeb pending stash to keep callback on /gpt/.
+		add_filter( 'bizcity_fb_oauth_user_redirect', array( __CLASS__, 'maybe_override_user_oauth_redirect' ), 30, 4 );
 	}
 
 	public static function register_routes(): void {
 		$perm = array( __CLASS__, 'perm_admin' );
+		$perm_user = array( __CLASS__, 'perm_logged_in' );
+
+		register_rest_route( self::NS, '/facebook/user-oauth-start', array(
+			'methods'             => 'POST',
+			'callback'            => array( __CLASS__, 'user_oauth_start' ),
+			'permission_callback' => $perm_user,
+			'args'                => array(
+				'return_url' => array(
+					'required'          => false,
+					'sanitize_callback' => 'esc_url_raw',
+				),
+			),
+		) );
+
+		register_rest_route( self::NS, '/facebook/user-pages', array(
+			'methods'             => 'GET',
+			'callback'            => array( __CLASS__, 'list_user_pages' ),
+			'permission_callback' => $perm_user,
+		) );
+
+		register_rest_route( self::NS, '/facebook/user-pages/(?P<page_id>[A-Za-z0-9_-]+)', array(
+			'methods'             => 'DELETE',
+			'callback'            => array( __CLASS__, 'delete_user_page' ),
+			'permission_callback' => $perm_user,
+			'args'                => array(
+				'page_id' => array( 'required' => true, 'sanitize_callback' => 'sanitize_text_field' ),
+			),
+		) );
+
+		register_rest_route( self::NS, '/facebook/user-messenger-send', array(
+			'methods'             => 'POST',
+			'callback'            => array( __CLASS__, 'user_messenger_send' ),
+			'permission_callback' => $perm_user,
+			'args'                => array(
+				'page_id' => array( 'required' => true, 'sanitize_callback' => 'sanitize_text_field' ),
+				'psid'    => array( 'required' => true, 'sanitize_callback' => 'sanitize_text_field' ),
+				'text'    => array( 'required' => true, 'sanitize_callback' => 'sanitize_textarea_field' ),
+			),
+		) );
 
 		register_rest_route( self::NS, '/facebook/pages', array(
 			'methods'             => 'GET',
@@ -251,6 +295,336 @@ class BizCity_Facebook_Page_REST {
 
 	public static function perm_admin(): bool {
 		return current_user_can( 'manage_options' );
+	}
+
+	public static function perm_logged_in(): bool {
+		// [2026-07-15 Johnny Chu] PHASE-TWINWEB — public member routes require authenticated WP user.
+		return is_user_logged_in();
+	}
+
+	/**
+	 * Start member Facebook OAuth flow.
+	 *
+	 * Public (logged-in) endpoint used by TwinWeb member connect modal.
+	 */
+	public static function user_oauth_start( WP_REST_Request $req ) {
+		// [2026-07-15 Johnny Chu] PHASE-TWINWEB — expose member OAuth start URL via channel namespace.
+		if ( ! class_exists( 'BizCity_Facebook_OAuth' ) ) {
+			return rest_ensure_response( array(
+				'_degraded' => true,
+				'message'   => 'Facebook OAuth chưa sẵn sàng trên site này.',
+			) );
+		}
+
+		$user_id = (int) get_current_user_id();
+		if ( $user_id <= 0 ) {
+			return new WP_Error( 'auth_required', 'Bạn cần đăng nhập để bắt đầu OAuth.', array( 'status' => 401 ) );
+		}
+
+		$requested_return = (string) $req->get_param( 'return_url' );
+		$return_url       = self::sanitize_twinweb_return_url( $requested_return );
+		// [2026-07-16 Johnny Chu] PHASE-TWINWEB — stash pending owner/return for callback handoff.
+		$pending = array(
+			'user_id'    => $user_id,
+			'blog_id'    => (int) get_current_blog_id(),
+			'time'       => time(),
+			'return_url' => $return_url,
+		);
+		// [2026-07-27 Johnny Chu] R-PERF — persist OAuth pending state through the unified meta cache.
+		if ( class_exists( 'BizCity_User_Meta_Cache' ) ) {
+			BizCity_User_Meta_Cache::set( $user_id, self::TW_PENDING_META, $pending );
+		} else {
+			update_user_meta( $user_id, self::TW_PENDING_META, $pending );
+		}
+
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — member OAuth uses central App credentials through non-admin user_start.
+		$oauth_url = method_exists( 'BizCity_Facebook_OAuth', 'get_member_oauth_url' )
+			? BizCity_Facebook_OAuth::get_member_oauth_url()
+			: BizCity_Facebook_OAuth::get_user_oauth_url();
+		if ( empty( $oauth_url ) ) {
+			return rest_ensure_response( array(
+				'_degraded' => true,
+				'message'   => 'Admin chưa cấu hình Facebook App trung tâm trong Channel Gateway.',
+			) );
+		}
+
+		$oauth_url = add_query_arg( 'num', '0', (string) $oauth_url );
+		return rest_ensure_response( array(
+			'ok'        => true,
+			'oauth_url' => esc_url_raw( $oauth_url ),
+		) );
+	}
+
+	/**
+	 * [2026-07-16 Johnny Chu] PHASE-TWINWEB — redirect OAuth callback back to TwinWeb when pending stash exists.
+	 *
+	 * @param string $url      Redirect URL passed by previous filters.
+	 * @param int    $user_id  OAuth owner resolved by callback.
+	 * @param array  $pages    Connected pages payload.
+	 * @param int    $blog_id  Target blog id.
+	 * @return string
+	 */
+	public static function maybe_override_user_oauth_redirect( $url, $user_id, $pages, $blog_id ) {
+		$user_id = (int) $user_id;
+		$blog_id = (int) $blog_id;
+		if ( $user_id <= 0 ) {
+			return (string) $url;
+		}
+
+		// [2026-07-27 Johnny Chu] R-PERF — read OAuth pending state once from direct-SQL cache.
+		$pending = class_exists( 'BizCity_User_Meta_Cache' )
+			? BizCity_User_Meta_Cache::get( $user_id, self::TW_PENDING_META, array() )
+			: get_user_meta( $user_id, self::TW_PENDING_META, true );
+		if ( ! is_array( $pending ) ) {
+			return (string) $url;
+		}
+
+		$pending_time = (int) ( $pending['time'] ?? 0 );
+		$pending_blog = (int) ( $pending['blog_id'] ?? 0 );
+		if ( $pending_time <= 0 || ( time() - $pending_time ) > self::TW_PENDING_TTL ) {
+			delete_user_meta( $user_id, self::TW_PENDING_META );
+			if ( class_exists( 'BizCity_User_Meta_Cache' ) ) {
+				BizCity_User_Meta_Cache::invalidate( $user_id, self::TW_PENDING_META );
+			}
+			return (string) $url;
+		}
+		if ( $pending_blog > 0 && $blog_id > 0 && $pending_blog !== $blog_id ) {
+			delete_user_meta( $user_id, self::TW_PENDING_META );
+			if ( class_exists( 'BizCity_User_Meta_Cache' ) ) {
+				BizCity_User_Meta_Cache::invalidate( $user_id, self::TW_PENDING_META );
+			}
+			return (string) $url;
+		}
+
+		$dest = self::sanitize_twinweb_return_url( (string) ( $pending['return_url'] ?? '' ) );
+		delete_user_meta( $user_id, self::TW_PENDING_META );
+		if ( class_exists( 'BizCity_User_Meta_Cache' ) ) {
+			BizCity_User_Meta_Cache::invalidate( $user_id, self::TW_PENDING_META );
+		}
+
+		$ok   = is_array( $pages ) && ! empty( $pages );
+		$args = array(
+			'biz_fb_status' => $ok ? 'success' : 'error',
+		);
+		if ( $ok ) {
+			$args['pages'] = count( $pages );
+		}
+
+		return add_query_arg( $args, $dest );
+	}
+
+	/**
+	 * Keep OAuth return_url on same host and fallback to canonical /gpt/.
+	 */
+	private static function sanitize_twinweb_return_url( string $candidate ): string {
+		$fallback = home_url( '/gpt/' );
+		$candidate = trim( $candidate );
+		if ( $candidate === '' ) {
+			$ref = wp_get_referer();
+			$candidate = is_string( $ref ) ? trim( $ref ) : '';
+		}
+		if ( $candidate === '' ) {
+			return $fallback;
+		}
+
+		$home_host = (string) parse_url( home_url( '/' ), PHP_URL_HOST );
+		$home_host = strtolower( $home_host );
+		$cand_host = (string) parse_url( $candidate, PHP_URL_HOST );
+		$cand_host = strtolower( $cand_host );
+		if ( $cand_host === '' || $cand_host !== $home_host ) {
+			return $fallback;
+		}
+
+		$san = esc_url_raw( $candidate );
+		return $san !== '' ? $san : $fallback;
+	}
+
+	/**
+	 * List current user's connected Facebook pages.
+	 */
+	public static function list_user_pages() {
+		// [2026-07-15 Johnny Chu] PHASE-TWINWEB — member page picker is scoped by owner user_id.
+		global $wpdb;
+		$user_id = (int) get_current_user_id();
+		$table   = $wpdb->prefix . 'bizcity_facebook_bots';
+
+		if ( $user_id <= 0 ) {
+			return rest_ensure_response( array( 'items' => array(), 'count' => 0 ) );
+		}
+
+		if ( ! self::has_table_column( $table, 'user_id' ) ) {
+			return rest_ensure_response( array(
+				'_degraded' => true,
+				'message'   => 'Schema Facebook Bot chưa hỗ trợ user_id.',
+				'items'     => array(),
+				'count'     => 0,
+			) );
+		}
+
+		$wpdb->suppress_errors( true );
+		$rows = (array) $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT id, page_id, bot_name, page_access_token, status, app_id, updated_at
+				 FROM {$table}
+				 WHERE user_id = %d
+				   AND status = 'active'
+				   AND page_id IS NOT NULL AND page_id != ''
+				 ORDER BY id DESC",
+				$user_id
+			),
+			ARRAY_A
+		);
+		$wpdb->suppress_errors( false );
+
+		$seen  = array();
+		$items = array();
+		foreach ( $rows as $row ) {
+			$page_id = (string) ( $row['page_id'] ?? '' );
+			if ( $page_id === '' || isset( $seen[ $page_id ] ) ) {
+				continue;
+			}
+			$seen[ $page_id ] = true;
+			$has_token        = ! empty( $row['page_access_token'] );
+			$items[]          = array(
+				'bot_id'    => (int) ( $row['id'] ?? 0 ),
+				'page_id'   => $page_id,
+				'page_name' => (string) ( $row['bot_name'] ?? '' ),
+				'bot_name'  => (string) ( $row['bot_name'] ?? '' ),
+				'status'    => $has_token ? 'active' : 'token_expired',
+				'has_token' => $has_token,
+				'app_id'    => (string) ( $row['app_id'] ?? '' ),
+				'updated_at'=> (string) ( $row['updated_at'] ?? '' ),
+			);
+		}
+
+		return rest_ensure_response( array(
+			'ok'      => true,
+			'items'   => $items,
+			'count'   => count( $items ),
+			'user_id' => $user_id,
+		) );
+	}
+
+	/**
+	 * Disconnect one page for the current user only.
+	 */
+	public static function delete_user_page( WP_REST_Request $req ) {
+		// [2026-07-15 Johnny Chu] PHASE-TWINWEB — enforce owner scope when member disconnects a page.
+		global $wpdb;
+		$user_id = (int) get_current_user_id();
+		$page_id = (string) $req->get_param( 'page_id' );
+		$table   = $wpdb->prefix . 'bizcity_facebook_bots';
+
+		if ( $user_id <= 0 ) {
+			return new WP_Error( 'auth_required', 'Bạn cần đăng nhập để ngắt kết nối.', array( 'status' => 401 ) );
+		}
+		if ( $page_id === '' ) {
+			return new WP_Error( 'bad_page_id', 'page_id là bắt buộc.', array( 'status' => 400 ) );
+		}
+		if ( ! self::has_table_column( $table, 'user_id' ) ) {
+			return new WP_Error( 'schema_missing_user_id', 'Schema Facebook Bot chưa hỗ trợ user_id.', array( 'status' => 409 ) );
+		}
+
+		$wpdb->suppress_errors( true );
+		$deleted_rows = $wpdb->query(
+			$wpdb->prepare(
+				"DELETE FROM {$table}
+				 WHERE page_id = %s
+				   AND user_id = %d",
+				$page_id,
+				$user_id
+			)
+		);
+		$wpdb->suppress_errors( false );
+
+		return rest_ensure_response( array(
+			'ok'           => true,
+			'page_id'      => $page_id,
+			'deleted_rows' => is_numeric( $deleted_rows ) ? (int) $deleted_rows : 0,
+		) );
+	}
+
+	/**
+	 * Send a Messenger text as current member, scoped to member-owned page only.
+	 */
+	public static function user_messenger_send( WP_REST_Request $req ) {
+		// [2026-07-16 Johnny Chu] PHASE-TWINWEB — Wave 3 member Messenger capability with strict page ownership scope.
+		$user_id = (int) get_current_user_id();
+		$page_id = (string) $req->get_param( 'page_id' );
+		$psid    = (string) $req->get_param( 'psid' );
+		$text    = (string) $req->get_param( 'text' );
+
+		if ( $user_id <= 0 ) {
+			return new WP_Error( 'auth_required', 'Bạn cần đăng nhập để gửi Messenger.', array( 'status' => 401 ) );
+		}
+		if ( $page_id === '' || $psid === '' || trim( $text ) === '' ) {
+			return new WP_Error( 'invalid_param', 'page_id, psid và text là bắt buộc.', array( 'status' => 400 ) );
+		}
+
+		$token = self::resolve_user_page_token( $page_id, $user_id );
+		if ( $token === '' ) {
+			return new WP_Error( 'permission_denied', 'Bạn không có quyền dùng Page này hoặc Page chưa có token hợp lệ.', array( 'status' => 403 ) );
+		}
+		if ( ! class_exists( 'BizCity_Facebook_Bot_API' ) ) {
+			return new WP_Error( 'module_not_loaded', 'BizCity_Facebook_Bot_API chưa sẵn sàng trên site này.', array( 'status' => 503 ) );
+		}
+
+		$api = new BizCity_Facebook_Bot_API( $token, $page_id );
+		$res = $api->send_message( $psid, $text );
+		if ( is_wp_error( $res ) ) {
+			return new WP_Error( 'automation_run_failed', $res->get_error_message(), array( 'status' => 400 ) );
+		}
+
+		$message_id = is_array( $res ) && isset( $res['message_id'] )
+			? (string) $res['message_id']
+			: ( 'member-' . wp_generate_uuid4() );
+		$chat_id = 'fb_' . $page_id . '_' . $psid;
+
+		if ( class_exists( 'BizCity_Channel_Messages' ) ) {
+			BizCity_Channel_Messages::log_outbound( array(
+				'platform'          => 'FACEBOOK',
+				'chat_id'           => $chat_id,
+				'user_psid'         => $psid,
+				'event_type'        => 'user_messenger_send',
+				'body'              => $text,
+				'message_id'        => $message_id,
+				'responder_kind'    => 'manual',
+				'responder_user_id' => $user_id,
+				'payload'           => array(
+					'page_id' => $page_id,
+					'from'    => 'member',
+					'user_id' => $user_id,
+				),
+				'status'            => 'sent',
+			) );
+		}
+
+		return rest_ensure_response( array(
+			'ok'         => true,
+			'message_id' => $message_id,
+			'response'   => $res,
+		) );
+	}
+
+	/**
+	 * Check whether a table has a specific column using information_schema.
+	 */
+	private static function has_table_column( string $table_name, string $column_name ): bool {
+		global $wpdb;
+		$wpdb->suppress_errors( true );
+		$exists = (int) $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT 1 FROM information_schema.COLUMNS
+				 WHERE TABLE_SCHEMA = DATABASE()
+				   AND TABLE_NAME = %s
+				   AND COLUMN_NAME = %s
+				 LIMIT 1",
+				$table_name,
+				$column_name
+			)
+		);
+		$wpdb->suppress_errors( false );
+		return $exists > 0;
 	}
 
 	/* ─────────── Pages ─────────── */
@@ -1399,6 +1773,40 @@ class BizCity_Facebook_Page_REST {
 	}
 
 	/* ─────────── Token resolver ─────────── */
+
+	/**
+	 * Resolve page token for a specific member-owned page only.
+	 */
+	private static function resolve_user_page_token( string $page_id, int $user_id ): string {
+		// [2026-07-16 Johnny Chu] PHASE-TWINWEB — enforce (user_id,page_id) ownership before Messenger send.
+		if ( $page_id === '' || $user_id <= 0 ) {
+			return '';
+		}
+
+		global $wpdb;
+		$table = $wpdb->prefix . 'bizcity_facebook_bots';
+		if ( ! self::has_table_column( $table, 'user_id' ) ) {
+			return '';
+		}
+
+		$wpdb->suppress_errors( true );
+		$token = (string) $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT page_access_token FROM {$table}
+				 WHERE page_id = %s
+				   AND user_id = %d
+				   AND status = 'active'
+				   AND page_access_token IS NOT NULL
+				   AND page_access_token != ''
+				 ORDER BY id DESC LIMIT 1",
+				$page_id,
+				$user_id
+			)
+		);
+		$wpdb->suppress_errors( false );
+
+		return $token;
+	}
 
 	/**
 	 * Resolve a page access token: try the bot DB → legacy option → gateway account.

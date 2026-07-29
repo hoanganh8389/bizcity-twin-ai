@@ -58,8 +58,19 @@ class BizCity_KG_Triplet_Extractor {
 		if ( class_exists( 'BizCity_KG_Content_Router' ) ) {
 			$row['content'] = BizCity_KG_Content_Router::instance()->passage_body( $row );
 		}
+		$claim_token = wp_generate_uuid4();
 		if ( $row['extraction_status'] === 'done' ) {
-			return 0;
+			return new WP_Error( 'passage_already_done', 'Passage already extracted.' );
+		}
+		// [2026-07-24 Johnny Chu] PHASE-0.46-PASSAGE-CLAIM — only one worker may own a processing passage and make the billable LLM call.
+		$claimed = (int) $wpdb->query( $wpdb->prepare(
+			"UPDATE {$db->tbl_passages()} SET extraction_status = 'processing', extraction_error = %s, updated_at = NOW()
+			 WHERE id = %d AND extraction_status IN ('pending','processing') AND (extraction_error IS NULL OR extraction_error = '')",
+			$claim_token,
+			(int) $passage_id
+		) );
+		if ( 1 !== $claimed ) {
+			return new WP_Error( 'passage_claim_lost', 'Passage is already being processed.' );
 		}
 
 		// Cache by content_hash (request-cheap, transient survives 24h).
@@ -77,12 +88,10 @@ class BizCity_KG_Triplet_Extractor {
 					$wpdb->update( $db->tbl_passages(), [
 						'extraction_status' => 'skipped',
 						'extraction_error'  => $guard->get_error_message(),
-					], [ 'id' => (int) $passage_id ] );
+					], [ 'id' => (int) $passage_id, 'extraction_error' => $claim_token ] );
 					return $guard;
 				}
 			}
-
-		$wpdb->update( $db->tbl_passages(), [ 'extraction_status' => 'processing' ], [ 'id' => (int) $passage_id ] );
 
 			$result = $this->call_llm( $this->build_extract_context( $row ) );
 			if ( is_wp_error( $result ) ) {
@@ -96,7 +105,7 @@ class BizCity_KG_Triplet_Extractor {
 				$wpdb->update( $db->tbl_passages(), [
 					'extraction_status' => $is_transient ? 'pending' : 'error',
 					'extraction_error'  => $result->get_error_message(),
-				], [ 'id' => (int) $passage_id ] );
+				], [ 'id' => (int) $passage_id, 'extraction_error' => $claim_token ] );
 				/** PHASE-0.7 Wave 0 — surface extraction errors to learning stream. */
 				do_action( 'bizcity_kg_extraction_passage_error', [
 					'notebook_id' => (int) $row['notebook_id'],
@@ -153,7 +162,7 @@ class BizCity_KG_Triplet_Extractor {
 		$wpdb->update( $db->tbl_passages(), [
 			'extraction_status' => 'done',
 			'extraction_error'  => '',
-		], [ 'id' => (int) $passage_id ] );
+		], [ 'id' => (int) $passage_id, 'extraction_error' => $claim_token ] );
 
 		/**
 		 * PHASE-0.7 Wave 0 — broadcast per-passage extraction progress.

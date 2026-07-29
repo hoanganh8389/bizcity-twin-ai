@@ -5,7 +5,7 @@
  * Automation-context wrapper cho BizCity_TwinBrain_Web_Astro.
  *
  * Pipeline:
- *   1. Resolve user_id từ chat_id (filter bizcity_automation_astro_user_id_from_chat_id).
+ *   1. Resolve user_id từ canonical owner chain trong workflow context.
  *   2. Gọi BizCity_TwinBrain_Web_Astro::run() → passages + period + coachee_id.
  *   3. Nếu có bản đồ sao (passages > 0):
  *      - Build natal_url + transit_url + create_chart_url.
@@ -29,7 +29,6 @@
  *   {{n_X.passages_count}}    — số passage artifacts nạp được
  *
  * Filters:
- *   bizcity_automation_astro_user_id_from_chat_id($user_id, $chat_id, $instance_id)
  *   bizcity_automation_astro_natal_url($url, $coachee_id, $chat_id)
  *   bizcity_automation_astro_transit_url($url, $coachee_id, $period, $chat_id)
  *   bizcity_automation_astro_create_chart_url($url, $chat_id, $instance_id)
@@ -86,15 +85,19 @@ final class BizCity_Automation_Action_Run_Astro extends BizCity_Automation_Block
 		if ( $query === '' ) { $query = 'chiêm tinh hôm nay'; }
 
 		/* ── 1. Resolve user_id → coachee_id ──────────────────────────── */
-		// [2026-07-03 Johnny Chu] PHASE-ASTRO-WORKFLOW — ưu tiên wp_user_id đã được trigger enrichment,
-		// fallback BizCity_User_Resolver nếu trigger chưa enrich (replay/manual/cron).
-		$user_id = (int) ( $ctx['t1']['wp_user_id'] ?? $ctx['trigger']['wp_user_id'] ?? 0 );
-		if ( ! $user_id && $chat_id !== '' && class_exists( 'BizCity_User_Resolver' ) ) {
-			$user_id = (int) BizCity_User_Resolver::instance()->resolve( $chat_id );
-		}
-		// Allow override via filter for custom integrations
-		if ( ! $user_id ) {
-			$user_id = (int) apply_filters( 'bizcity_automation_astro_user_id_from_chat_id', 0, $chat_id, $instance_id );
+		// [2026-07-17 Johnny Chu] PHASE-TWINWEB F4 — owner continuity: resolve from canonical owner chain only.
+		$user_id = $this->resolve_owner_user_id( $ctx, 0 );
+
+		// [2026-07-21 Johnny Chu] PHASE-ASTRO-WORKFLOW v1.13 — when chat_id is a Zalo Bot identity key,
+		// resolve the actual sender's wp_user_id. The owner chain carries wf.created_by (admin) when
+		// the UCL envelope arrives with wp_user_id=0 (unresolved) and enqueue_and_optionally_run fills
+		// _owner_user_id = wf.created_by as fallback. Natal/profile lookups MUST use the actual sender.
+		if ( $chat_id !== '' && strpos( $chat_id, 'zalobot_' ) === 0 && class_exists( 'BizCity_User_Resolver' ) ) {
+			$zalo_resolved_user_id = (int) BizCity_User_Resolver::instance()->resolve( $chat_id );
+			if ( $zalo_resolved_user_id > 0 && $zalo_resolved_user_id !== $user_id ) {
+				error_log( '[bizcity-automation][run_astro] chat_id_resolver: chat_id=' . $chat_id . ' owner_chain_user=' . $user_id . ' → override to zalo_resolved=' . $zalo_resolved_user_id );
+				$user_id = $zalo_resolved_user_id;
+			}
 		}
 
 		// [2026-07-03 Johnny Chu] PHASE-ASTRO-WORKFLOW — direct coachee lookup từ user_id.
@@ -155,7 +158,9 @@ final class BizCity_Automation_Action_Run_Astro extends BizCity_Automation_Block
 		$num_days     = (int) ( $row['num_days'] ?? 0 );
 		if ( $num_days <= 0 ) { $num_days = $this->period_days( $period ); }
 		$passages     = is_array( $row['passages'] ) ? $row['passages'] : array();
-		$has_chart    = $coachee_id > 0 && ! empty( $passages ) && ( (string) ( $row['_degraded'] ?? '' ) === '' );
+		// [2026-07-21 Johnny Chu] PHASE-ZALOBOT-ASTRO — natal/profile existence must not depend on CAP/transit passages.
+		$has_natal_chart = $this->has_natal_chart_data( $coachee_id, $user_id );
+		$has_chart       = $coachee_id > 0 && $has_natal_chart;
 
 		// [2026-07-04 Johnny Chu] PHASE-ASTRO-WORKFLOW — compute start_date from start_offset
 		// offset=1 = tomorrow = build_range default → pass '' so build_range uses its default
@@ -202,11 +207,25 @@ final class BizCity_Automation_Action_Run_Astro extends BizCity_Automation_Block
 			// positions extractor for backward compatibility.
 			$natal_positions_md = $this->build_natal_positions_md( $coachee_id );
 		}
+		// [2026-07-21 Johnny Chu] PHASE-ZALOBOT-ASTRO — legacy copied workflows branch on passages_count, so provide natal evidence when CAP/transit is empty.
+		if ( $has_chart && empty( $passages ) ) {
+			$passages[] = array(
+				'title'    => 'Natal chart — saved profile',
+				'body'     => $natal_positions_md !== '' ? $natal_positions_md : 'Đã tìm thấy hồ sơ và bản đồ sao natal đã lưu trong hệ thống.',
+				'metadata' => array(
+					'source'     => 'bccm_astro',
+					'kind'       => 'astro_natal_profile',
+					'coachee_id' => $coachee_id,
+					'_degraded'  => null,
+				),
+			);
+		}
 
 		// [2026-07-03 Johnny Chu] PHASE-ASTRO-WORKFLOW — debug trace để kiểm tra dữ liệu có lấy đúng không
 		$debug_info = 'user_id=' . $user_id
 			. ' direct_coachee=' . $direct_coachee_id
 			. ' engine_coachee=' . (int) ( $row['coachee_id_resolved'] ?? 0 )
+			. ' has_natal=' . ( $has_natal_chart ? '1' : '0' )
 			. ' passages=' . count( $passages )
 			. ' classify=' . (string) ( $row['classify_source'] ?? '?' )
 			. ' period=' . $period
@@ -216,11 +235,14 @@ final class BizCity_Automation_Action_Run_Astro extends BizCity_Automation_Block
 			'coachee_id'    => $coachee_id,
 			'user_id'       => $user_id,
 			'has_chart'     => $has_chart,
+			'has_natal'     => $has_natal_chart,
 			'period'        => $period,
 			'passages_count'=> count( $passages ),
 			'classify_src'  => (string) ( $row['classify_source'] ?? '' ),
 			'_degraded'     => (string) ( $row['_degraded'] ?? '' ),
 		) );
+		// [2026-07-21 Johnny Chu] PHASE-ZALOBOT-ASTRO — request log trace for Zalo runtime where cron meta is not visible.
+		error_log( '[bizcity-automation][run_astro_lookup] ' . $debug_info . ' has_chart=' . ( $has_chart ? '1' : '0' ) );
 
 		/* ── 3a. No chart path ──────────────────────────────────────────── */
 		if ( ! $has_chart ) {
@@ -312,6 +334,27 @@ final class BizCity_Automation_Action_Run_Astro extends BizCity_Automation_Block
 			}
 		}
 
+		// [2026-07-21 Johnny Chu] PHASE-ZALOBOT-ASTRO — automation may run before BizCoach legacy self-profile helpers are loaded.
+		global $wpdb;
+		$tbl = $wpdb->prefix . 'bccm_coachees';
+		if ( function_exists( '_bizcity_legacy_tbl_exists' ) && ! _bizcity_legacy_tbl_exists( $tbl ) ) {
+			return array();
+		}
+		$has_self_col = (int) $wpdb->get_var( $wpdb->prepare(
+			'SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = %s LIMIT 1',
+			$tbl,
+			'is_self'
+		) );
+		$order = $has_self_col ? 'is_self DESC, id ASC' : 'id ASC';
+		$row = $wpdb->get_row( $wpdb->prepare(
+			"SELECT id, user_id, full_name FROM {$tbl} WHERE user_id = %d ORDER BY {$order} LIMIT 1",
+			$user_id
+		), ARRAY_A );
+		if ( is_array( $row ) && ! empty( $row['id'] ) ) {
+			return $row;
+		}
+
+		// [2026-07-21 Johnny Chu] PHASE-ZALOBOT-ASTRO — create only after all existing-profile lookups fail, to avoid selecting an empty fallback over a saved /astro/ profile.
 		if ( function_exists( 'bccm_get_or_create_user_coachee' ) ) {
 			$row = bccm_get_or_create_user_coachee( $user_id, 'WEBCHAT', 'mental_coach' );
 			if ( is_array( $row ) && ! empty( $row['id'] ) ) {
@@ -354,6 +397,45 @@ final class BizCity_Automation_Action_Run_Astro extends BizCity_Automation_Block
 		) );
 
 		return $ok === 1;
+	}
+
+	/**
+	 * [2026-07-21 Johnny Chu] PHASE-ZALOBOT-ASTRO — detect saved natal chart independently from transit/CAP passages.
+	 */
+	private function has_natal_chart_data( int $coachee_id, int $user_id = 0 ): bool {
+		$coachee_id = (int) $coachee_id;
+		$user_id    = (int) $user_id;
+		if ( $coachee_id <= 0 && $user_id <= 0 ) { return false; }
+
+		global $wpdb;
+		$tbl = $wpdb->prefix . 'bccm_astro';
+		if ( function_exists( '_bizcity_legacy_tbl_exists' ) && ! _bizcity_legacy_tbl_exists( $tbl ) ) {
+			return false;
+		}
+
+		$where = '';
+		$args  = array();
+		if ( $coachee_id > 0 ) {
+			$where  = 'coachee_id = %d';
+			$args[] = $coachee_id;
+		} else {
+			$where  = 'user_id = %d';
+			$args[] = $user_id;
+		}
+
+		$sql = "SELECT summary, traits, chart_svg, llm_report FROM {$tbl} WHERE {$where} AND chart_type = 'western' ORDER BY id DESC LIMIT 1";
+		$row = $wpdb->get_row( $wpdb->prepare( $sql, $args ), ARRAY_A );
+		if ( ! is_array( $row ) || empty( $row ) ) {
+			return false;
+		}
+
+		foreach ( array( 'summary', 'traits', 'chart_svg', 'llm_report' ) as $field ) {
+			if ( trim( (string) ( $row[ $field ] ?? '' ) ) !== '' ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**

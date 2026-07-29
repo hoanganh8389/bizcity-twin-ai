@@ -250,6 +250,14 @@ class BZDoc_Notebook_Bridge {
 		if ( isset( $skeleton['doc_opts'] ) && is_array( $skeleton['doc_opts'] ) ) {
 			$parallel_batches = absint( $skeleton['doc_opts']['parallel_batches'] ?? 0 );
 		}
+		// [2026-07-20 Johnny Chu] PHASE-1-BZDOC-DEEPSEEK — presentation handoff defaults to a detailed 20-slide deck.
+		$slide_count = 0;
+		if ( isset( $skeleton['doc_opts'] ) && is_array( $skeleton['doc_opts'] ) ) {
+			$slide_count = absint( $skeleton['doc_opts']['slide_count'] ?? 0 );
+		}
+		if ( $doc_type === 'presentation' ) {
+			$slide_count = max( 20, $slide_count > 0 ? $slide_count : 20 );
+		}
 
 		global $wpdb;
 		$tbl = $wpdb->prefix . 'bzdoc_documents';
@@ -283,7 +291,28 @@ class BZDoc_Notebook_Bridge {
 			if ( $safe_title === '' ) $safe_title = 'Untitled';
 		}
 
+		// [2026-07-20 Johnny Chu] PHASE-1-TWIN-GPT-AGENT-TOOLS — persist chat-side handoff evidence for Doc Studio `{}` trace downloads.
+		$handoff_payload = [
+			'schema'        => 'bzdoc.handoff.v1',
+			'source'        => (string) ( $skeleton['_source'] ?? 'notebook_bridge' ),
+			'tool_slug'     => (string) ( $skeleton['_tool_slug'] ?? '' ),
+			'thread_id'     => (string) ( $skeleton['_thread_id'] ?? '' ),
+			'doc_type'      => $doc_type,
+			'tool_spec'     => isset( $skeleton['tool_spec'] ) && is_array( $skeleton['tool_spec'] ) ? $skeleton['tool_spec'] : [],
+			'spec_trace'    => [
+				'schema'       => 'bzdoc.persisted_spec_trace.v1',
+				'title'        => $title,
+				'outline'      => isset( $skeleton['skeleton'] ) && is_array( $skeleton['skeleton'] ) ? $skeleton['skeleton'] : [],
+				'key_points'   => isset( $skeleton['key_points'] ) && is_array( $skeleton['key_points'] ) ? $skeleton['key_points'] : [],
+				'attachment_ids' => isset( $skeleton['attachment_ids'] ) && is_array( $skeleton['attachment_ids'] ) ? $skeleton['attachment_ids'] : [],
+				'source_excerpt' => function_exists( 'mb_substr' ) ? mb_substr( (string) $source_text, 0, 5000, 'UTF-8' ) : substr( (string) $source_text, 0, 5000 ),
+			],
+			'quality_gates' => isset( $skeleton['tool_spec']['quality_gates'] ) && is_array( $skeleton['tool_spec']['quality_gates'] ) ? $skeleton['tool_spec']['quality_gates'] : [],
+			'created_at'    => current_time( 'mysql' ),
+		];
+
 		$autogen_payload = [
+			'_handoff' => $handoff_payload,
 			'_autogen' => [
 				'topic'            => $topic,
 				'source_text'      => $source_text,
@@ -301,6 +330,8 @@ class BZDoc_Notebook_Bridge {
 				'split_two'        => $split_two,
 				// PHASE-6.4 Wave C6 (May 2026) — parallel batches passthrough.
 				'parallel_batches' => $parallel_batches,
+				// [2026-07-20 Johnny Chu] PHASE-1-BZDOC-DEEPSEEK — FE autogen should request 20 detailed slides for presentations.
+				'slide_count'      => $slide_count,
 				// Phase 6.4 — image options forwarded for FE pipeline call.
 				'image_opts'       => isset( $skeleton['image_opts'] ) && is_array( $skeleton['image_opts'] )
 					? $skeleton['image_opts'] : null,

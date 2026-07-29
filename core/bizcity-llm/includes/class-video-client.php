@@ -55,7 +55,12 @@ class BizCity_Video_Client {
 	}
 
 	public function get_api_key(): string {
-		return trim( (string) get_option( 'bizcity_llm_api_key', '' ) );
+		$key = trim( (string) get_option( 'bizcity_llm_api_key', '' ) );
+		// [2026-07-27 Johnny Chu] PHASE-0.49-MASTER-CONFIG-401 — normalize pasted key formats.
+		if ( class_exists( 'BizCity_LLM_Client' ) && method_exists( 'BizCity_LLM_Client', 'normalize_gateway_api_key' ) ) {
+			return BizCity_LLM_Client::normalize_gateway_api_key( $key );
+		}
+		return $key;
 	}
 
 	public function is_ready(): bool {

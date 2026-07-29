@@ -48,11 +48,13 @@ function bccm_network_settings_page() {
         wp_verify_nonce($_POST['_wpnonce'], 'bccm_network_save')
     ) {
         $new_key = sanitize_text_field(wp_unslash($_POST['bccm_network_astro_api_key'] ?? ''));
-        update_site_option('bccm_network_astro_api_key', $new_key);
+        // [2026-07-27 Johnny Chu] R-MSDB — store the setting in the active blog context.
+        update_option('bccm_network_astro_api_key', $new_key);
         $saved = true;
     }
 
-    $network_key = get_site_option('bccm_network_astro_api_key', '');
+    // [2026-07-27 Johnny Chu] R-MSDB — read the active blog's setting only.
+    $network_key = get_option('bccm_network_astro_api_key', '');
     $masked      = bccm_network_mask_key($network_key);
 
     ?>
@@ -150,7 +152,7 @@ function bccm_network_site_key_overview() {
     echo '<thead><tr><th style="width:40px">ID</th><th>Site</th><th style="width:200px">Key đang dùng</th><th style="width:80px">Nguồn</th></tr></thead>';
     echo '<tbody>';
 
-    $network_key = get_site_option('bccm_network_astro_api_key', '');
+    $network_key = get_option('bccm_network_astro_api_key', '');
 
     foreach ($sites as $site) {
         $site_key = get_blog_option($site->blog_id, 'bccm_astro_api_key', '');

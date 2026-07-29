@@ -1,0 +1,119 @@
+{
+  "$schema": "https://bizcity.vn/schema/diagnostics-changelog-v1.json",
+  "module_id": "core.mcp",
+  "owner": "core/mcp",
+  "installer_id": "mcp",
+  "current_version": "1.1.0",
+  "version_option": "bizcity_mcp_db_version",
+  "tables": {
+    "bizcity_mcp_api_keys": {
+      "since": "1.0.0",
+      "purpose": "Bearer API key credentials for external MCP clients (Claude Desktop, Cursor, etc.) calling INTO this Twin Client. Maps a key hash to client_id/user_id/scopes/allowed_notebook_ids. Fail-closed: missing/invalid/revoked key never falls back to unrestricted access.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":                   { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",     "since": "1.0.0", "pk": true },
+        "key_hash":             { "type": "CHAR(64) NOT NULL",                            "since": "1.0.0" },
+        "client_id":            { "type": "VARCHAR(100) NOT NULL DEFAULT ''",             "since": "1.0.0" },
+        "client_name":          { "type": "VARCHAR(150) NOT NULL DEFAULT ''",             "since": "1.0.0" },
+        "user_id":              { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",           "since": "1.0.0" },
+        "scopes":               { "type": "TEXT",                                          "since": "1.0.0" },
+        "allowed_notebook_ids": { "type": "TEXT",                                          "since": "1.0.0" },
+        "status":               { "type": "VARCHAR(20) NOT NULL DEFAULT 'active'",        "since": "1.0.0" },
+        "created_at":           { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",  "since": "1.0.0" },
+        "last_used_at":         { "type": "DATETIME",                                      "since": "1.0.0" },
+        "revoked_at":           { "type": "DATETIME",                                      "since": "1.0.0" }
+      },
+      "indexes": {
+        "key_hash": { "cols": ["key_hash"], "unique": true, "since": "1.0.0" },
+        "client_id": { "cols": ["client_id"], "since": "1.0.0" },
+        "user_id":   { "cols": ["user_id"],   "since": "1.0.0" }
+      }
+    },
+    "bizcity_mcp_retrieval_snapshots": {
+      "since": "1.0.0",
+      "purpose": "Immutable brain.search() results (canonical KG Retriever output reshaped with citation_id per passage). Reused across identical requests within TTL via (client_id, cache_key) lookup; cache_key is a deterministic sha256 of normalized query + sorted notebook_ids + profile_version + kg_revision + top_k + graph_depth (see BizCity_MCP_Retrieval_Snapshot_Store).",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":               { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",    "since": "1.0.0", "pk": true },
+        "snapshot_uuid":    { "type": "VARCHAR(64) NOT NULL",                        "since": "1.0.0" },
+        "user_id":          { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",          "since": "1.0.0" },
+        "client_id":        { "type": "VARCHAR(100) NOT NULL DEFAULT ''",            "since": "1.0.0" },
+        "cache_key":        { "type": "CHAR(64) NOT NULL",                           "since": "1.0.0" },
+        "original_query":   { "type": "TEXT",                                        "since": "1.0.0" },
+        "normalized_query": { "type": "TEXT",                                        "since": "1.0.0" },
+        "scope_json":       { "type": "LONGTEXT",                                    "since": "1.0.0" },
+        "profile_name":     { "type": "VARCHAR(100) NOT NULL DEFAULT ''",            "since": "1.0.0" },
+        "profile_version":  { "type": "VARCHAR(32) NOT NULL DEFAULT ''",             "since": "1.0.0" },
+        "kg_revision":      { "type": "VARCHAR(100) NOT NULL DEFAULT ''",            "since": "1.0.0" },
+        "payload_json":     { "type": "LONGTEXT",                                    "since": "1.0.0" },
+        "created_at":       { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.0.0" },
+        "expires_at":       { "type": "DATETIME NOT NULL",                           "since": "1.0.0" }
+      },
+      "indexes": {
+        "snapshot_uuid": { "cols": ["snapshot_uuid"], "unique": true, "since": "1.0.0" },
+        "reuse_lookup":  { "cols": ["client_id", "cache_key", "expires_at"], "since": "1.0.0" },
+        "user_id":       { "cols": ["user_id"], "since": "1.0.0" }
+      }
+    },
+    "bizcity_mcp_context_packs": {
+      "since": "1.0.0",
+      "purpose": "document.build_context_pack() immutable output — bundles retrieval snapshot passages for citation validation and the DOCX/PPTX browser-render pipeline, scoped by user_id and client_id.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":               { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",    "since": "1.0.0", "pk": true },
+        "pack_uuid":        { "type": "VARCHAR(64) NOT NULL",                        "since": "1.0.0" },
+        "user_id":          { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",          "since": "1.0.0" },
+        "client_id":        { "type": "VARCHAR(100) NOT NULL DEFAULT ''",            "since": "1.0.0" },
+        "document_type":    { "type": "VARCHAR(50) NOT NULL DEFAULT ''",             "since": "1.0.0" },
+        "source_refs_json": { "type": "LONGTEXT",                                    "since": "1.0.0" },
+        "payload_json":     { "type": "LONGTEXT",                                    "since": "1.0.0" },
+        "created_at":       { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.0.0" },
+        "expires_at":       { "type": "DATETIME NOT NULL",                           "since": "1.0.0" }
+      },
+      "indexes": {
+        "pack_uuid": { "cols": ["pack_uuid"], "unique": true, "since": "1.0.0" },
+        "client_id": { "cols": ["client_id"], "since": "1.0.0" },
+        "user_created": { "cols": ["user_id", "created_at"], "since": "1.1.0" }
+      }
+    },
+    "bizcity_mcp_audit_log": {
+      "since": "1.0.0",
+      "purpose": "Per-tools/call audit trail: which client called which tool, duration, status, error_code. Used by the diagnostics probe + future admin monitor UI. Never stores full request/response bodies with credentials (only input_meta_json/output_meta_json summaries).",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":                { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",    "since": "1.0.0", "pk": true },
+        "trace_id":          { "type": "VARCHAR(64) NOT NULL DEFAULT ''",             "since": "1.0.0" },
+        "user_id":           { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",          "since": "1.0.0" },
+        "client_id":         { "type": "VARCHAR(100) NOT NULL DEFAULT ''",            "since": "1.0.0" },
+        "client_name":       { "type": "VARCHAR(150) NOT NULL DEFAULT ''",            "since": "1.0.0" },
+        "tool_name":         { "type": "VARCHAR(100) NOT NULL DEFAULT ''",            "since": "1.0.0" },
+        "request_hash":      { "type": "CHAR(64) NOT NULL DEFAULT ''",                "since": "1.0.0" },
+        "status":            { "type": "VARCHAR(20) NOT NULL DEFAULT ''",             "since": "1.0.0" },
+        "duration_ms":       { "type": "INT UNSIGNED NOT NULL DEFAULT 0",             "since": "1.0.0" },
+        "input_meta_json":   { "type": "LONGTEXT",                                    "since": "1.0.0" },
+        "output_meta_json":  { "type": "LONGTEXT",                                    "since": "1.0.0" },
+        "error_code":        { "type": "VARCHAR(60) NOT NULL DEFAULT ''",             "since": "1.0.0" },
+        "created_at":        { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.0.0" }
+      },
+      "indexes": {
+        "tool_name":  { "cols": ["tool_name"],  "since": "1.0.0" },
+        "client_id":  { "cols": ["client_id"],  "since": "1.0.0" },
+        "created_at": { "cols": ["created_at"], "since": "1.0.0" },
+        "trace_id":   { "cols": ["trace_id"], "since": "1.1.0" },
+        "user_created": { "cols": ["user_id", "created_at"], "since": "1.1.0" }
+      }
+    }
+  },
+  "history": [
+    { "version": "1.0.0", "date": "2026-07-27", "change": "Wave A — initial schema: bizcity_mcp_api_keys, bizcity_mcp_retrieval_snapshots, bizcity_mcp_context_packs, bizcity_mcp_audit_log." },
+    { "version": "1.1.0", "date": "2026-07-28", "change": "Reflect fix — add user_created index to context packs and trace_id/user_created indexes to audit log for ownership and trace lookup." }
+  ]
+}

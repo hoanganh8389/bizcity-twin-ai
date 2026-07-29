@@ -84,9 +84,14 @@ final class BizCity_Probe_Memory_Unified_Recall_Parity implements BizCity_Diagno
 
 			$planted_ids = [];
 			$mem = BizCity_User_Memory::instance();
+			// [2026-07-28 Johnny Chu] R-CH-IDMEM — plant parity sentinels under the verified UUID owner.
+			$memory_scope = class_exists( 'BizCity_Memory_Identity_Scope' )
+				? BizCity_Memory_Identity_Scope::for_write( array( 'user_id' => $user_id ) )
+				: null;
 			for ( $i = 1; $i <= 3; $i++ ) {
 				$mem->upsert_public( [
 					'user_id'        => $user_id,
+					'identity_uuid'  => (string) ( $memory_scope['identity_uuid'] ?? '' ),
 					'session_id'     => '',
 					'memory_tier'    => 'explicit',
 					'memory_type'    => 'fact',
@@ -110,10 +115,21 @@ final class BizCity_Probe_Memory_Unified_Recall_Parity implements BizCity_Diagno
 				'detail' => sprintf( 'legacy rows=%d (ids=%s)', $planted_count, implode( ',', $planted_ids ) ?: 'n/a' ),
 			] );
 			if ( $planted_count !== 3 ) {
+				// [2026-07-28 Johnny Chu] PHASE-0.52 W8.3 — expose concrete upsert failure context for plant-phase mismatches.
+				$last_fail = method_exists( 'BizCity_User_Memory', 'get_last_upsert_failure' )
+					? (array) BizCity_User_Memory::get_last_upsert_failure()
+					: array();
+				$fail_code = (string) ( $last_fail['code'] ?? '' );
+				$fail_msg  = (string) ( $last_fail['message'] ?? '' );
+				$db_error  = trim( (string) ( $last_fail['db_error'] ?? '' ) );
+				$db_tail   = $db_error !== '' ? ' · db_error=' . mb_substr( $db_error, 0, 220 ) : '';
 				return [
 					'status'   => 'fail',
-					'error'    => sprintf( 'Plant phase: expected 3 sentinel rows in legacy table, got %d.', $planted_count ),
-					'fix_hint' => 'Check BizCity_User_Memory::upsert() — unique key collision? wpdb->last_error?',
+					'error'    => sprintf( 'Plant phase: expected 3 sentinel rows in legacy table, got %d.', $planted_count )
+						. ( $fail_code !== '' ? ' code=' . $fail_code : '' )
+						. ( $fail_msg !== '' ? ' · ' . $fail_msg : '' )
+						. $db_tail,
+					'fix_hint' => 'Check BizCity_User_Memory::get_last_upsert_failure() (identity_uuid/schema) và wpdb->last_error.',
 				];
 			}
 

@@ -164,6 +164,109 @@ class BizCity_Membership_Revenue_Report {
 		return $out;
 	}
 
+	/**
+	 * [2026-07-17 Johnny Chu] MBR-EXPIRY — active subscription expiry cohorts.
+	 *
+	 * Counts distinct active members whose expiration_date falls within
+	 * 7/14/30/60/90-day windows from now.
+	 *
+	 * @return array {7d:int,14d:int,30d:int,60d:int,90d:int}
+	 */
+	public function expiry_cohorts() {
+		$cached = get_transient( 'bizm_membership_expiry_cohorts' );
+		if ( false !== $cached && is_array( $cached ) ) {
+			return $cached;
+		}
+
+		global $wpdb;
+		$sub_t = $wpdb->prefix . 'bizcity_member_subscriptions';
+
+		if ( function_exists( 'bizcity_tbl_exists' ) ) {
+			$table_exists = (bool) bizcity_tbl_exists( $sub_t );
+		} else {
+			$table_exists = (bool) $wpdb->get_var(
+				$wpdb->prepare(
+					'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+					$sub_t
+				)
+			);
+		}
+
+		$empty = array(
+			'7d'  => 0,
+			'14d' => 0,
+			'30d' => 0,
+			'60d' => 0,
+			'90d' => 0,
+		);
+		if ( ! $table_exists ) {
+			set_transient( 'bizm_membership_expiry_cohorts', $empty, 5 * MINUTE_IN_SECONDS );
+			return $empty;
+		}
+
+		$now_ts   = (int) current_time( 'timestamp' );
+		$now_sql  = current_time( 'mysql' );
+		$max_sql  = gmdate( 'Y-m-d H:i:s', strtotime( '+90 days', $now_ts ) );
+		$rows     = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT user_id, expiration_date
+				 FROM {$sub_t}
+				 WHERE status = %s
+				   AND expiration_date IS NOT NULL
+				   AND expiration_date <> ''
+				   AND expiration_date >= %s
+				   AND expiration_date <= %s",
+				'active',
+				$now_sql,
+				$max_sql
+			),
+			ARRAY_A
+		);
+
+		// Keep one nearest expiry per user to avoid double-counting in edge cases.
+		$nearest_by_user = array();
+		foreach ( (array) $rows as $row ) {
+			$uid = isset( $row['user_id'] ) ? (int) $row['user_id'] : 0;
+			$exp = isset( $row['expiration_date'] ) ? (string) $row['expiration_date'] : '';
+			if ( $uid <= 0 || $exp === '' ) {
+				continue;
+			}
+			$ts = strtotime( $exp );
+			if ( ! $ts || $ts < $now_ts ) {
+				continue;
+			}
+			if ( ! isset( $nearest_by_user[ $uid ] ) || $ts < $nearest_by_user[ $uid ] ) {
+				$nearest_by_user[ $uid ] = $ts;
+			}
+		}
+
+		$out = $empty;
+		foreach ( $nearest_by_user as $ts ) {
+			$days_left = (int) ceil( ( $ts - $now_ts ) / DAY_IN_SECONDS );
+			if ( $days_left < 0 ) {
+				continue;
+			}
+			if ( $days_left <= 7 ) {
+				$out['7d']++;
+			}
+			if ( $days_left <= 14 ) {
+				$out['14d']++;
+			}
+			if ( $days_left <= 30 ) {
+				$out['30d']++;
+			}
+			if ( $days_left <= 60 ) {
+				$out['60d']++;
+			}
+			if ( $days_left <= 90 ) {
+				$out['90d']++;
+			}
+		}
+
+		set_transient( 'bizm_membership_expiry_cohorts', $out, 5 * MINUTE_IN_SECONDS );
+		return $out;
+	}
+
 	/* ── Private ──────────────────────────────────────────────────────── */
 
 	/**

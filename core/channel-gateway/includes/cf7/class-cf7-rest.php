@@ -161,6 +161,19 @@ class BizCity_CF7_REST {
 			),
 		) );
 
+		// [2026-07-17 Johnny Chu] PHASE-CG-CF7-MAIL-OBS — mail delivery
+		// health dashboard data (stats + reason buckets + evidence rows).
+		register_rest_route( self::NS, '/cf7/mail-health', array(
+			'methods'             => 'GET',
+			'callback'            => array( __CLASS__, 'mail_health' ),
+			'permission_callback' => array( __CLASS__, 'admin_only' ),
+			'args'                => array(
+				'days'         => array( 'type' => 'integer', 'default' => 14 ),
+				'form_id'      => array( 'type' => 'integer', 'default' => 0 ),
+				'recent_limit' => array( 'type' => 'integer', 'default' => 20 ),
+			),
+		) );
+
 		// [2026-06-25 Johnny Chu] PHASE-CRM-SUBMISSIONS — Export all rows (JSON → FE converts CSV)
 		register_rest_route( self::NS, '/cf7/submissions/export', array(
 			'methods'             => 'GET',
@@ -169,6 +182,7 @@ class BizCity_CF7_REST {
 			'args'                => array(
 				'form_id'    => array( 'type' => 'integer', 'default' => 0 ),
 				'crm_action' => array( 'type' => 'string',  'default' => '' ),
+				'mail_status'=> array( 'type' => 'string',  'default' => '' ),
 				'from'       => array( 'type' => 'string',  'default' => '' ),
 				'to'         => array( 'type' => 'string',  'default' => '' ),
 			),
@@ -182,6 +196,7 @@ class BizCity_CF7_REST {
 			'args'                => array(
 				'form_id'    => array( 'type' => 'integer', 'default' => 0 ),
 				'crm_action' => array( 'type' => 'string',  'default' => '' ),
+				'mail_status'=> array( 'type' => 'string',  'default' => '' ),
 				'from'       => array( 'type' => 'string',  'default' => '' ),
 				'to'         => array( 'type' => 'string',  'default' => '' ),
 				'page'       => array( 'type' => 'integer', 'default' => 1 ),
@@ -304,6 +319,7 @@ class BizCity_CF7_REST {
 		$result = BizCity_CF7_Submissions_Log::get_global_list( array(
 			'form_id'    => (int) $req['form_id'],
 			'crm_action' => (string) $req['crm_action'],
+			'mail_status'=> sanitize_key( (string) ( $req['mail_status'] ?? '' ) ),
 			'from'       => sanitize_text_field( (string) $req['from'] ),
 			'to'         => sanitize_text_field( (string) $req['to'] ),
 			'page'       => max( 1, (int) $req['page'] ),
@@ -330,20 +346,39 @@ class BizCity_CF7_REST {
 		if ( ! $row ) {
 			return array();
 		}
+
+		$raw_data    = $row->raw_data ? json_decode( $row->raw_data, true ) : null;
+		$mapped_data = $row->mapped_data ? json_decode( $row->mapped_data, true ) : null;
+		$mail_meta   = array();
+		if ( is_array( $raw_data ) && isset( $raw_data['__bizcity_mail'] ) && is_array( $raw_data['__bizcity_mail'] ) ) {
+			$mail_meta = $raw_data['__bizcity_mail'];
+			unset( $raw_data['__bizcity_mail'] );
+		}
+
+		$mail_status = isset( $mail_meta['status'] ) ? sanitize_key( (string) $mail_meta['status'] ) : '';
+		if ( $mail_status === '' ) {
+			$mail_status = 'unknown';
+		}
+
 		return array(
 			'id'             => (int) $row->id,
 			'form_id'        => (int) $row->form_id,
 			'form_title'     => $row->form_title,
 			'email'          => $row->email,
 			'phone'          => $row->phone,
+			'mail_status'    => $mail_status,
+			'mail_reason_code' => isset( $mail_meta['reason_code'] ) ? sanitize_key( (string) $mail_meta['reason_code'] ) : '',
+			'mail_provider_code' => isset( $mail_meta['provider_code'] ) ? (int) $mail_meta['provider_code'] : 0,
+			'mail_provider_error' => isset( $mail_meta['provider_error'] ) ? self::truncate_mail_text( (string) $mail_meta['provider_error'], 220 ) : '',
+			'mail_flagged_at' => isset( $mail_meta['flagged_at'] ) ? sanitize_text_field( (string) $mail_meta['flagged_at'] ) : '',
 			'crm_contact_id' => $row->crm_contact_id ? (int) $row->crm_contact_id : null,
 			'crm_action'     => $row->crm_action,
 			'crm_error'      => $row->crm_error,
 			'source_url'     => $row->source_url,
 			'submitted_at'   => $row->submitted_at,
 			// raw/mapped decoded for detail view
-			'raw_data'       => $row->raw_data ? json_decode( $row->raw_data, true ) : null,
-			'mapped_data'    => $row->mapped_data ? json_decode( $row->mapped_data, true ) : null,
+			'raw_data'       => $raw_data,
+			'mapped_data'    => $mapped_data,
 		);
 	}
 
@@ -749,6 +784,214 @@ class BizCity_CF7_REST {
 	}
 
 	/**
+	 * GET /cf7/mail-health
+	 *
+	 * Returns delivery-failure observability for CF7 submissions:
+	 * - summary counts and fail rate
+	 * - reason buckets
+	 * - recent evidence rows for trace/debug
+	 * - by_date merge (submissions vs mail_failed)
+	 *
+	 * [2026-07-17 Johnny Chu] PHASE-CG-CF7-MAIL-OBS
+	 */
+	public static function mail_health( \WP_REST_Request $req ) {
+		$days         = max( 1, min( 60, (int) ( $req['days'] ?? 14 ) ) );
+		$form_id      = (int) ( $req['form_id'] ?? 0 );
+		$recent_limit = max( 1, min( 100, (int) ( $req['recent_limit'] ?? 20 ) ) );
+
+		$stats = array( 'totals' => array( 'total' => 0 ), 'by_date' => array(), 'by_form' => array() );
+		if ( BizCity_CF7_Installer::table_exists() ) {
+			$stats = BizCity_CF7_Submissions_Log::get_stats( array(
+				'days'    => $days,
+				'form_id' => $form_id,
+			) );
+		}
+
+		if ( ! class_exists( 'BizCity_Channel_File_Logger', false ) ) {
+			return new \WP_REST_Response( array(
+				'success' => true,
+				'_degraded' => true,
+				'data'    => array(
+					'summary'         => array(
+						'days'              => $days,
+						'form_id'           => $form_id,
+						'submissions_total' => 0,
+						'mail_failed_total' => 0,
+						'fail_rate_pct'     => 0,
+						'last_failure_at'   => '',
+					),
+					'by_date'         => array(),
+					'reasons'         => array(),
+					'recent_failures' => array(),
+					'links'           => array(
+						'smtp_settings' => admin_url( 'admin.php?page=bizchat-gateway-spa#/p/email_smtp/settings' ),
+						'cf7_forms'     => admin_url( 'admin.php?page=wpcf7' ),
+					),
+				),
+			), 200 );
+		}
+
+		$mail_logs = self::collect_mail_failed_from_logs( $days, $form_id, $recent_limit );
+
+		$by_date_map = array();
+		foreach ( (array) ( $stats['by_date'] ?? array() ) as $row ) {
+			if ( ! is_array( $row ) || empty( $row['date'] ) ) {
+				continue;
+			}
+			$date_key = (string) $row['date'];
+			$by_date_map[ $date_key ] = array(
+				'date'              => $date_key,
+				'submissions_total' => (int) ( $row['total'] ?? 0 ),
+				'mail_failed'       => 0,
+			);
+		}
+
+		foreach ( (array) ( $mail_logs['by_date'] ?? array() ) as $date_key => $mail_failed ) {
+			if ( ! isset( $by_date_map[ $date_key ] ) ) {
+				$by_date_map[ $date_key ] = array(
+					'date'              => (string) $date_key,
+					'submissions_total' => 0,
+					'mail_failed'       => 0,
+				);
+			}
+			$by_date_map[ $date_key ]['mail_failed'] = (int) $mail_failed;
+		}
+
+		ksort( $by_date_map );
+		$submissions_total = 0;
+		foreach ( $by_date_map as $r ) {
+			$submissions_total += (int) ( $r['submissions_total'] ?? 0 );
+		}
+
+		$mail_failed_total = (int) ( $mail_logs['mail_failed_total'] ?? 0 );
+		$fail_rate_pct     = $submissions_total > 0
+			? round( ( (float) $mail_failed_total * 100 ) / (float) $submissions_total, 2 )
+			: 0;
+
+		return new \WP_REST_Response( array(
+			'success' => true,
+			'data'    => array(
+				'summary'         => array(
+					'days'              => $days,
+					'form_id'           => $form_id,
+					'submissions_total' => $submissions_total,
+					'mail_failed_total' => $mail_failed_total,
+					'fail_rate_pct'     => $fail_rate_pct,
+					'last_failure_at'   => (string) ( $mail_logs['last_failure_at'] ?? '' ),
+				),
+				'by_date'         => array_values( $by_date_map ),
+				'reasons'         => (array) ( $mail_logs['reasons'] ?? array() ),
+				'recent_failures' => (array) ( $mail_logs['recent_failures'] ?? array() ),
+				'links'           => array(
+					'smtp_settings' => admin_url( 'admin.php?page=bizchat-gateway-spa#/p/email_smtp/settings' ),
+					'cf7_forms'     => $form_id > 0
+						? admin_url( 'admin.php?page=wpcf7&post=' . $form_id . '&action=edit' )
+						: admin_url( 'admin.php?page=wpcf7' ),
+				),
+			),
+		), 200 );
+	}
+
+	/**
+	 * Aggregate cf7_mail_flagged evidence from JSONL logs.
+	 *
+	 * @return array{mail_failed_total:int,last_failure_at:string,by_date:array<string,int>,reasons:array<int,array<string,mixed>>,recent_failures:array<int,array<string,mixed>>}
+	 */
+	private static function collect_mail_failed_from_logs( int $days, int $form_id, int $recent_limit ): array {
+		$cutoff = gmdate( 'Y-m-d', strtotime( '-' . max( 0, $days - 1 ) . ' days' ) );
+		$dates  = BizCity_Channel_File_Logger::list_dates( BizCity_Channel_File_Logger::CH_CF7, max( 30, $days + 10 ) );
+
+		$by_date         = array();
+		$reasons         = array();
+		$recent_failures = array();
+		$failed_total    = 0;
+		$last_failure_at = '';
+
+		foreach ( (array) $dates as $date ) {
+			$date = (string) $date;
+			if ( $date < $cutoff ) {
+				break;
+			}
+
+			$rows = BizCity_Channel_File_Logger::read( BizCity_Channel_File_Logger::CH_CF7, $date, 2000 );
+			foreach ( (array) $rows as $entry ) {
+				if ( ! is_array( $entry ) ) {
+					continue;
+				}
+				if ( (string) ( $entry['event'] ?? '' ) !== 'cf7_mail_flagged' ) {
+					continue;
+				}
+
+				$ctx          = isset( $entry['ctx'] ) && is_array( $entry['ctx'] ) ? $entry['ctx'] : array();
+				$entry_form_id = isset( $ctx['form_id'] ) ? (int) $ctx['form_id'] : 0;
+				if ( $form_id > 0 && $entry_form_id !== $form_id ) {
+					continue;
+				}
+
+				$failed_total++;
+				if ( ! isset( $by_date[ $date ] ) ) {
+					$by_date[ $date ] = 0;
+				}
+				$by_date[ $date ]++;
+
+				$reason = isset( $ctx['reason_code'] ) ? sanitize_key( (string) $ctx['reason_code'] ) : '';
+				if ( $reason === '' ) {
+					$reason = 'smtp_send_failed';
+				}
+				if ( ! isset( $reasons[ $reason ] ) ) {
+					$reasons[ $reason ] = 0;
+				}
+				$reasons[ $reason ]++;
+
+				$ts = isset( $entry['ts'] ) ? (string) $entry['ts'] : '';
+				if ( $ts !== '' && ( $last_failure_at === '' || strcmp( $ts, $last_failure_at ) > 0 ) ) {
+					$last_failure_at = $ts;
+				}
+
+				if ( count( $recent_failures ) < $recent_limit ) {
+					$recent_failures[] = array(
+						'ts'             => $ts,
+						'form_id'        => $entry_form_id,
+						'form_title'     => isset( $ctx['form_title'] ) ? sanitize_text_field( (string) $ctx['form_title'] ) : '',
+						'sub_id'         => isset( $ctx['sub_id'] ) ? (int) $ctx['sub_id'] : 0,
+						'reason_code'    => $reason,
+						'provider_code'  => isset( $ctx['provider_code'] ) ? (int) $ctx['provider_code'] : 0,
+						'provider_error' => self::truncate_mail_text( isset( $ctx['provider_error'] ) ? (string) $ctx['provider_error'] : '', 220 ),
+					);
+				}
+			}
+		}
+
+		arsort( $reasons );
+		$reason_rows = array();
+		foreach ( $reasons as $code => $count ) {
+			$reason_rows[] = array(
+				'code'  => (string) $code,
+				'count' => (int) $count,
+			);
+		}
+
+		return array(
+			'mail_failed_total' => (int) $failed_total,
+			'last_failure_at'   => $last_failure_at,
+			'by_date'           => $by_date,
+			'reasons'           => $reason_rows,
+			'recent_failures'   => $recent_failures,
+		);
+	}
+
+	/**
+	 * Compact mail provider error text for REST payloads.
+	 */
+	private static function truncate_mail_text( string $text, int $max_len ): string {
+		$text = preg_replace( '/\s+/', ' ', trim( $text ) );
+		if ( $max_len > 0 && strlen( $text ) > $max_len ) {
+			return substr( $text, 0, $max_len ) . '...';
+		}
+		return $text;
+	}
+
+	/**
 	 * GET /cf7/submissions/export
 	 * Returns all rows (max 5000) for client-side CSV export.
 	 *
@@ -765,6 +1008,7 @@ class BizCity_CF7_REST {
 		$rows = BizCity_CF7_Submissions_Log::export_all( array(
 			'form_id'    => (int) ( $req['form_id'] ?? 0 ),
 			'crm_action' => sanitize_text_field( (string) ( $req['crm_action'] ?? '' ) ),
+			'mail_status'=> sanitize_key( (string) ( $req['mail_status'] ?? '' ) ),
 			'from'       => sanitize_text_field( (string) ( $req['from'] ?? '' ) ),
 			'to'         => sanitize_text_field( (string) ( $req['to'] ?? '' ) ),
 		) );
@@ -782,9 +1026,11 @@ class BizCity_CF7_REST {
 		$act_map = array();
 		$act_tbl = $wpdb->prefix . 'bizcity_crm_activities';
 		if ( function_exists( 'bizcity_tbl_exists' ) && bizcity_tbl_exists( $act_tbl ) ) {
+			// [2026-07-23 Johnny Chu] PHASE-0.46 EXPORT FIX — select call_agent_label so export can
+			// prefer the picked "nhân sự" over the fixed data-entry account (user_label).
 			// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 			$act_rows = $wpdb->get_results(
-				"SELECT entity_id, id, type, title, body, user_label, created_at
+				"SELECT entity_id, id, type, title, body, user_label, call_agent_label, created_at
 				 FROM `{$act_tbl}`
 				 WHERE entity_type = 'cf7_submission' AND entity_id IN ({$ids_in})
 				   AND ( deleted_at IS NULL OR deleted_at = '0000-00-00 00:00:00' )
@@ -870,10 +1116,14 @@ class BizCity_CF7_REST {
 
 			foreach ( $activities as $idx => $act ) {
 				$formatted = self::format_submission( $row );
+				// [2026-07-23 Johnny Chu] PHASE-0.46 EXPORT FIX — activity_user must reflect the
+				// selected "nhân sự" (call_agent_label) instead of the fixed logged-in data-entry
+				// account (user_label), which is always the same person across all rows.
+				$activity_agent               = trim( (string) ( $act['call_agent_label'] ?? '' ) );
 				$formatted['activity_id']     = isset( $act['id'] ) ? (int) $act['id'] : 0;
 				$formatted['activity_index']  = (int) $idx + 1;
 				$formatted['activity_total']  = (int) $activity_total;
-				$formatted['activity_user']   = (string) ( $act['user_label'] ?? '' );
+				$formatted['activity_user']   = $activity_agent !== '' ? $activity_agent : (string) ( $act['user_label'] ?? '' );
 				$formatted['activity_status'] = (string) ( $act['type'] ?? '' );
 				$formatted['activity_count']  = (int) $activity_total;
 				$formatted['activity_title']  = (string) ( $act['title'] ?? '' );
@@ -907,6 +1157,8 @@ class BizCity_CF7_REST {
 					$base['activity_list']  = '';
 					$base['_acts']          = array();
 					$base['_seen_act_id']   = array();
+					$base['_users']         = array();
+					$base['_seen_user']     = array();
 					$grouped[ $phone_key ]  = $base;
 				}
 
@@ -924,6 +1176,13 @@ class BizCity_CF7_REST {
 						'body'   => (string) ( $r['activity_body'] ?? '' ),
 						'user'   => (string) ( $r['activity_user'] ?? '' ),
 					);
+
+					// [2026-07-25 Johnny Chu] PHASE-0.46 EXPORT — aggregate all call staff names for grouped phone export.
+					$act_user = trim( (string) ( $r['activity_user'] ?? '' ) );
+					if ( $act_user !== '' && ! isset( $grouped[ $phone_key ]['_seen_user'][ $act_user ] ) ) {
+						$grouped[ $phone_key ]['_seen_user'][ $act_user ] = true;
+						$grouped[ $phone_key ]['_users'][] = $act_user;
+					}
 				}
 			}
 
@@ -974,10 +1233,11 @@ class BizCity_CF7_REST {
 				$g['activity_title']  = ! empty( $last['title'] ) ? (string) $last['title'] : '';
 				$g['activity_body']   = ! empty( $last['body'] ) ? (string) $last['body'] : '';
 				$g['activity_at']     = ! empty( $last['at'] ) ? (string) $last['at'] : '';
-				$g['activity_user']   = ! empty( $last['user'] ) ? (string) $last['user'] : '';
+				// [2026-07-25 Johnny Chu] PHASE-0.46 EXPORT — use aggregated staff list (NV1, NV2, NV3) in compact export.
+				$g['activity_user']   = ! empty( $g['_users'] ) ? implode( ', ', array_values( (array) $g['_users'] ) ) : ( ! empty( $last['user'] ) ? (string) $last['user'] : '' );
 				$g['activity_list']   = implode( "\n", $lines );
 
-				unset( $g['_acts'], $g['_seen_act_id'] );
+				unset( $g['_acts'], $g['_seen_act_id'], $g['_users'], $g['_seen_user'] );
 				$out_grouped[] = $g;
 			}
 

@@ -261,7 +261,8 @@ function bccm_settings_tab_overview(){
 
   echo '<h2>🌟 Astrology API (Free Astrology API)</h2>';
   // Show network key status
-  $network_astro_key_ov = is_multisite() ? get_site_option('bccm_network_astro_api_key', '') : '';
+  // [2026-07-27 Johnny Chu] R-MSDB — legacy settings resolve in the current blog context.
+  $network_astro_key_ov = get_option('bccm_network_astro_api_key', '');
   echo '<table class="form-table">';
   echo '<tr><th>API Key (site này)</th><td>';
   echo '<input type="password" name="astro_api_key" value="'.esc_attr($astro_key).'" class="regular-text" autocomplete="new-password" placeholder="Để trống = dùng Network key"/>';
@@ -367,7 +368,8 @@ function bccm_settings_tab_astrology(){
   }
 
   // Network key info for display
-  $network_astro_key = is_multisite() ? get_site_option('bccm_network_astro_api_key', '') : '';
+  // [2026-07-27 Johnny Chu] R-MSDB — avoid network-scoped option reads in legacy admin UI.
+  $network_astro_key = get_option('bccm_network_astro_api_key', '');
   $effective_key     = $astro_key ?: $network_astro_key;
 
   echo '<form method="post">'; wp_nonce_field('bccm_save_astro');

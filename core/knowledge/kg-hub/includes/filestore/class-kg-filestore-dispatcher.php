@@ -12,12 +12,25 @@
  *   );
  *
  * Gating:
- *   wp_option `bizcity_kg_filestore_dual_write`
+ *   wp_option `bizcity_kg_v05_filestore_backfill_enabled`
  *      0                         = no-op, log only (legacy override)
  *      1 (default since 2026-05-22) = dual-write on, UPDATE storage_ver=2 after flush
  *
- *   Filter `bizcity_kg_filestore_dual_write_default` (bool) lets ops disable
- *   the new default without touching wp_options — return false to opt back to 0.
+ *   Filter `bizcity_kg_v05_filestore_backfill_enabled_default` (bool) lets ops
+ *   disable the new default without touching wp_options — return false to opt
+ *   back to 0.
+ *
+ * [2026-07-23 Johnny Chu] HOTFIX R-MSDB-multisite-poisoned-option — renamed from
+ * legacy `bizcity_kg_filestore_dual_write`. Root cause: that per-blog option row
+ * was found seeded to `0` across (likely all) multisite blogs by an earlier
+ * clone/provisioning pass, silently overriding the intended default of 1 and
+ * permanently disabling the passage filestore backfill cron everywhere. The
+ * new key intentionally does NOT read/migrate the old option value — every
+ * blog picks up the fresh default (1) unless it explicitly sets the new key.
+ * Naming now matches the `bizcity_kg_v0N_*_enabled` convention used by
+ * BizCity_Cron_Tier_Settings (v06 read-switch, v07 file-primary-write, v08
+ * graph-embedding-migration, v09 triplet-raw-migration) so all file-first
+ * flags share one recognizable prefix.
  *
  * Failure handling:
  *   - File write fails → log error, leave storage_ver=1 (legacy reader path
@@ -33,7 +46,8 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 
 class BizCity_KG_Filestore_Dispatcher {
 
-	const OPT_DUAL_WRITE = 'bizcity_kg_filestore_dual_write';
+	// [2026-07-23 Johnny Chu] HOTFIX R-MSDB-multisite-poisoned-option — renamed from `bizcity_kg_filestore_dual_write` (found seeded to 0 across multisite blogs).
+	const OPT_DUAL_WRITE = 'bizcity_kg_v05_filestore_backfill_enabled';
 
 	private static $instance = null;
 
@@ -48,9 +62,29 @@ class BizCity_KG_Filestore_Dispatcher {
 		// 2026-05-22 — flipped default 0 → 1 per R-LEARN root-cause audit
 		// (PHASE-0.7-LEARN-VECTOR-FILE Wave F1 ship). Existing sites that opted
 		// out explicitly (option row = "0") still see OFF. Ops can also override
-		// the new default via filter `bizcity_kg_filestore_dual_write_default`.
-		$default = apply_filters( 'bizcity_kg_filestore_dual_write_default', 1 );
+		// the new default via filter `bizcity_kg_v05_filestore_backfill_enabled_default`.
+		// [2026-07-23 Johnny Chu] HOTFIX R-MSDB-multisite-poisoned-option — filter renamed alongside OPT_DUAL_WRITE.
+		$default = apply_filters( 'bizcity_kg_v05_filestore_backfill_enabled_default', 1 );
 		return (int) get_option( self::OPT_DUAL_WRITE, (int) $default ) === 1;
+	}
+
+	/**
+	 * File-primary write rollout flag.
+	 *
+	 * Enabled only when filter `bizcity_kg_v07_file_primary_write` returns true.
+	 */
+	public static function is_file_primary_write_enabled() {
+		// [2026-07-15 Johnny Chu] PHASE-FILE-PRIMARY — gate SQL-inline scrub by explicit flag.
+		return (bool) apply_filters( 'bizcity_kg_v07_file_primary_write', false );
+	}
+
+	/**
+	 * Guardrail: only scrub SQL inline body when file-primary is on AND read-switch is on.
+	 * This avoids empty-content rows being served by legacy read paths.
+	 */
+	public static function can_scrub_sql_inline_body() {
+		// [2026-07-15 Johnny Chu] PHASE-FILE-PRIMARY — require v06 read-switch before scrub.
+		return self::is_file_primary_write_enabled() && (bool) apply_filters( 'bizcity_kg_v06_read_switch', false );
 	}
 
 	// -------------------------------------------------------------------
@@ -128,6 +162,22 @@ class BizCity_KG_Filestore_Dispatcher {
 		);
 		if ( false === $ok ) {
 			error_log( '[KG Filestore] passage ' . $passage_id . ' UPDATE storage_ver failed: ' . $wpdb->last_error );
+			return true;
+		}
+
+		if ( self::can_scrub_sql_inline_body() ) {
+			// [2026-07-15 Johnny Chu] PHASE-FILE-PRIMARY — keep SQL as thin index,
+			// body lives in shard file after successful write.
+			$scrub = $wpdb->update(
+				$tbl,
+				array( 'content' => '' ),
+				array( 'id' => (int) $passage_id ),
+				array( '%s' ),
+				array( '%d' )
+			);
+			if ( false === $scrub ) {
+				error_log( '[KG Filestore] passage ' . $passage_id . ' scrub inline content failed: ' . $wpdb->last_error );
+			}
 		}
 		return true;
 	}
@@ -165,7 +215,7 @@ class BizCity_KG_Filestore_Dispatcher {
 		$db  = BizCity_KG_Database::instance();
 		$tbl = $db->tbl_entities();
 		$row = $wpdb->get_row( $wpdb->prepare(
-			"SELECT id, notebook_id, name, name_normalized, type, description, aliases, weight, status, character_uuid, metadata, id_kind, canonical_id FROM {$tbl} WHERE id=%d LIMIT 1",
+			"SELECT id, notebook_id, name, name_normalized, type, description, aliases, weight, status, character_uuid, metadata, id_kind, canonical_id, embedding FROM {$tbl} WHERE id=%d LIMIT 1",
 			(int) $entity_id
 		), ARRAY_A );
 		if ( ! $row ) { return new WP_Error( 'kg_filestore_no_row', 'entity row missing' ); }
@@ -196,6 +246,12 @@ class BizCity_KG_Filestore_Dispatcher {
 			[ 'id' => (int) $entity_id ],
 			[ '%d', '%d' ], [ '%d' ]
 		);
+		// [2026-07-25 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — drain embedding LONGTEXT
+		// to the .embed.bin sidecar right away instead of leaking it into the
+		// slow batched-cron backlog (BizCity_KG_Graph_Embedding_Migration).
+		if ( class_exists( 'BizCity_KG_Graph_Embedding_Migration' ) ) {
+			BizCity_KG_Graph_Embedding_Migration::instance()->migrate_row_now( 'entity', $tbl, $row );
+		}
 		return true;
 	}
 
@@ -225,7 +281,7 @@ class BizCity_KG_Filestore_Dispatcher {
 		$db  = BizCity_KG_Database::instance();
 		$tbl = $db->tbl_relations();
 		$row = $wpdb->get_row( $wpdb->prepare(
-			"SELECT id, notebook_id, head_entity_id, tail_entity_id, predicate, predicate_normalized, relation_text, weight, confidence, status, metadata FROM {$tbl} WHERE id=%d LIMIT 1",
+			"SELECT id, notebook_id, head_entity_id, tail_entity_id, predicate, predicate_normalized, relation_text, weight, confidence, status, metadata, embedding FROM {$tbl} WHERE id=%d LIMIT 1",
 			(int) $relation_id
 		), ARRAY_A );
 		if ( ! $row ) { return new WP_Error( 'kg_filestore_no_row', 'relation row missing' ); }
@@ -253,6 +309,12 @@ class BizCity_KG_Filestore_Dispatcher {
 			[ 'id' => (int) $relation_id ],
 			[ '%d', '%d' ], [ '%d' ]
 		);
+		// [2026-07-25 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — drain embedding LONGTEXT
+		// to the .embed.bin sidecar right away instead of leaking it into the
+		// slow batched-cron backlog (BizCity_KG_Graph_Embedding_Migration).
+		if ( class_exists( 'BizCity_KG_Graph_Embedding_Migration' ) ) {
+			BizCity_KG_Graph_Embedding_Migration::instance()->migrate_row_now( 'relation', $tbl, $row );
+		}
 		return true;
 	}
 

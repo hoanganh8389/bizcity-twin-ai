@@ -89,7 +89,8 @@ class BizCoach_Astro_Checklist {
 	}
 
 	public static function maybe_install(): void {
-		if ( get_option( self::VERSION_OPTION, '' ) !== self::SCHEMA_VERSION ) {
+		// [2026-07-21 Johnny Chu] PHASE-FAA2-CHECKLIST — option can be stale across multisite/multishard; verify physical table too.
+		if ( get_option( self::VERSION_OPTION, '' ) !== self::SCHEMA_VERSION || ! self::table_exists() ) {
 			self::install();
 		}
 	}
@@ -110,6 +111,7 @@ class BizCoach_Astro_Checklist {
 	public static function upsert( $coachee_id, $data_key, $status, $count = 0, $error_msg = '' ): void {
 		// [2026-07-04 Johnny Chu] PHASE-VEDIC-FAA2 — upsert checklist row
 		global $wpdb;
+		self::maybe_install();
 		$table = $wpdb->prefix . 'bccm_astro_checklist';
 		$now   = current_time( 'mysql' );
 
@@ -163,6 +165,7 @@ class BizCoach_Astro_Checklist {
 	public static function get_for_coachee( $coachee_id ): array {
 		// [2026-07-04 Johnny Chu] PHASE-VEDIC-FAA2 — fetch checklist rows
 		global $wpdb;
+		self::maybe_install();
 		$table = $wpdb->prefix . 'bccm_astro_checklist';
 		$rows  = $wpdb->get_results( $wpdb->prepare(
 			"SELECT data_key, status, count_items, last_fetched_at, error_msg, updated_at
@@ -247,6 +250,138 @@ class BizCoach_Astro_Checklist {
 	/* ----------------------------------------------------------------
 	 * Helpers
 	 * ---------------------------------------------------------------- */
+
+	/**
+	 * [2026-07-21 Johnny Chu] PHASE-FAA2-CHECKLIST — reconcile checklist rows from persisted bccm_astro data.
+	 */
+	public static function reconcile_from_stored_data( $coachee_id ): void {
+		$coachee_id = (int) $coachee_id;
+		if ( $coachee_id <= 0 ) { return; }
+
+		self::maybe_install();
+
+		global $wpdb;
+		$astro_table = $wpdb->prefix . 'bccm_astro';
+		if ( ! self::table_name_exists( $astro_table ) ) { return; }
+
+		$rows = $wpdb->get_results( $wpdb->prepare(
+			"SELECT chart_type, summary, traits, chart_svg, updated_at FROM {$astro_table}
+			 WHERE coachee_id = %d AND chart_type IN ('western','vedic') ORDER BY id DESC",
+			$coachee_id
+		), ARRAY_A );
+		if ( ! is_array( $rows ) || empty( $rows ) ) { return; }
+
+		$by_type = array();
+		foreach ( $rows as $row ) {
+			$type = (string) ( $row['chart_type'] ?? '' );
+			if ( $type !== '' && ! isset( $by_type[ $type ] ) ) {
+				$by_type[ $type ] = $row;
+			}
+		}
+
+		if ( isset( $by_type['western'] ) ) {
+			$western = $by_type['western'];
+			$traits  = self::decode_json_array( (string) ( $western['traits'] ?? '' ) );
+			$summary = self::decode_json_array( (string) ( $western['summary'] ?? '' ) );
+
+			$planets = self::count_list_like( $traits['planets'] ?? ( $traits['positions'] ?? array() ) );
+			$houses  = self::count_list_like( $traits['houses'] ?? array() );
+			$aspects = self::count_list_like( $traits['aspects'] ?? array() );
+			$chart_url = trim( (string) ( $western['chart_svg'] ?? '' ) );
+			if ( $chart_url === '' ) { $chart_url = trim( (string) ( $traits['chart_url'] ?? '' ) ); }
+			if ( $chart_url === '' ) { $chart_url = trim( (string) ( $summary['chart_url'] ?? '' ) ); }
+
+			self::upsert( $coachee_id, self::KEY_WESTERN_PLANETS, $planets >= 10 ? self::STATUS_DONE : ( $planets > 0 ? self::STATUS_PARTIAL : self::STATUS_PENDING ), $planets );
+			self::upsert( $coachee_id, self::KEY_WESTERN_HOUSES,  $houses === 12 ? self::STATUS_DONE : ( $houses > 0 ? self::STATUS_PARTIAL : self::STATUS_PENDING ), $houses );
+			self::upsert( $coachee_id, self::KEY_WESTERN_ASPECTS, $aspects >= 5 ? self::STATUS_DONE : ( $aspects > 0 ? self::STATUS_PARTIAL : self::STATUS_PENDING ), $aspects );
+			self::upsert( $coachee_id, self::KEY_WESTERN_WHEEL_CHART, $chart_url !== '' ? self::STATUS_DONE : self::STATUS_PENDING, $chart_url !== '' ? 1 : 0 );
+		}
+
+		if ( isset( $by_type['vedic'] ) ) {
+			$vedic  = $by_type['vedic'];
+			$traits = self::decode_json_array( (string) ( $vedic['traits'] ?? '' ) );
+			$planets = self::count_list_like( $traits['planets'] ?? ( $traits['positions'] ?? array() ) );
+			$extended = self::count_list_like( $traits['extended'] ?? ( $traits['nakshatra'] ?? ( $traits['planets'] ?? array() ) ) );
+			$navamsa = self::count_list_like( $traits['navamsa'] ?? ( $traits['d9'] ?? ( $traits['planets'] ?? array() ) ) );
+
+			self::upsert( $coachee_id, self::KEY_VEDIC_PLANETS,  $planets >= 9 ? self::STATUS_DONE : ( $planets > 0 ? self::STATUS_PARTIAL : self::STATUS_PENDING ), $planets );
+			self::upsert( $coachee_id, self::KEY_VEDIC_EXTENDED, $extended >= 9 ? self::STATUS_DONE : ( $extended > 0 ? self::STATUS_PARTIAL : self::STATUS_PENDING ), $extended );
+			self::upsert( $coachee_id, self::KEY_VEDIC_NAVAMSA,  $navamsa >= 9 ? self::STATUS_DONE : ( $navamsa > 0 ? self::STATUS_PARTIAL : self::STATUS_PENDING ), $navamsa );
+		}
+
+		// [2026-07-21 Johnny Chu] PHASE-FAA2-CHECKLIST — reconcile transit from persisted snapshot cache.
+		$snap_table = $wpdb->prefix . 'bccm_transit_snapshots';
+		if ( self::table_name_exists( $snap_table ) ) {
+			$today = current_time( 'Y-m-d' );
+			$snap = $wpdb->get_row( $wpdb->prepare(
+				"SELECT planets_json, fetched_at FROM {$snap_table}
+				 WHERE coachee_id = %d AND target_date = %s ORDER BY fetched_at DESC LIMIT 1",
+				$coachee_id,
+				$today
+			), ARRAY_A );
+			if ( is_array( $snap ) && ! empty( $snap['planets_json'] ) ) {
+				$planets = self::decode_json_array( (string) $snap['planets_json'] );
+				$count   = self::count_list_like( $planets );
+				if ( self::has_usable_transit_planets( $planets ) ) {
+					self::upsert( $coachee_id, self::KEY_TRANSIT, self::STATUS_DONE, $count );
+				} elseif ( $count > 0 ) {
+					self::upsert( $coachee_id, self::KEY_TRANSIT, self::STATUS_PARTIAL, $count, 'Transit row exists but planet payload is not usable.' );
+				}
+			}
+		}
+	}
+
+	private static function table_exists(): bool {
+		global $wpdb;
+		return self::table_name_exists( $wpdb->prefix . 'bccm_astro_checklist' );
+	}
+
+	private static function table_name_exists( string $table_name ): bool {
+		global $wpdb;
+		return (bool) $wpdb->get_var( $wpdb->prepare(
+			'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+			$table_name
+		) );
+	}
+
+	private static function decode_json_array( string $json ): array {
+		if ( $json === '' ) { return array(); }
+		$data = json_decode( $json, true );
+		return is_array( $data ) ? $data : array();
+	}
+
+	private static function count_list_like( $value ): int {
+		if ( ! is_array( $value ) ) { return 0; }
+		return count( $value );
+	}
+
+	private static function has_usable_transit_planets( array $planets ): bool {
+		if ( count( $planets ) < 5 ) { return false; }
+		$core = array( 'sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune', 'pluto' );
+		$seen = array();
+		// [2026-07-21 Johnny Chu] PHASE-ASTRO-WORKFLOW v1.13 — iterate with key $k to handle dict format.
+		// normalize_transit_snapshot_positions_map() saves planets_json as assoc dict {"Sun":{...},"Moon":{...}}
+		// not as a list. Without $k, name extraction always returns '' and seen stays empty → partial.
+		foreach ( $planets as $k => $planet ) {
+			if ( ! is_array( $planet ) ) { continue; }
+			$name = '';
+			if ( isset( $planet['planet'] ) && is_array( $planet['planet'] ) ) {
+				$name = strtolower( (string) ( $planet['planet']['en'] ?? $planet['planet']['name'] ?? '' ) );
+			}
+			if ( $name === '' ) {
+				$name = strtolower( (string) ( $planet['name_en'] ?? $planet['planet_en'] ?? $planet['name'] ?? '' ) );
+			}
+			// Dict format: key is the canonical planet name (e.g. 'Sun', 'Moon')
+			if ( $name === '' && is_string( $k ) ) {
+				$name = strtolower( $k );
+			}
+			if ( in_array( $name, $core, true ) ) {
+				$seen[ $name ] = true;
+			}
+		}
+
+		return count( $seen ) >= 5;
+	}
 
 	public static function key_label( string $key ): string {
 		$labels = array(

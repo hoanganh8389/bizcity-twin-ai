@@ -954,10 +954,20 @@ class BizCity_Zalo_Bot_Admin_Menu {
 		
 		$db = BizCity_Zalo_Bot_Database::instance();
 		$bot_id = $db->save_bot( $data );
+		$platform_identity = array();
+		// [2026-07-21 Johnny Chu] PHASE-TWINWEB W3 — saving token auto-hydrates getMe.id/account_name for Twin GPT MyChannels links.
+		if ( $bot_id > 0 && ! empty( $data['bot_token'] ) ) {
+			$api = new BizCity_Zalo_Bot_API( $data['bot_token'] );
+			$me = $api->get_me();
+			if ( ! is_wp_error( $me ) && is_array( $me ) && ! empty( $me['ok'] ) && method_exists( $db, 'save_platform_identity_from_get_me' ) ) {
+				$platform_identity = $db->save_platform_identity_from_get_me( $bot_id, $me );
+			}
+		}
 		
 		wp_send_json_success( array(
 			'message' => bzb_t( 'Bot saved successfully' ),
 			'bot_id' => $bot_id,
+			'platform_identity' => $platform_identity,
 		) );
 	}
 	
@@ -1116,10 +1126,17 @@ class BizCity_Zalo_Bot_Admin_Menu {
 				'details' => $response->get_error_data(),
 			) );
 		}
+		// [2026-07-21 Johnny Chu] PHASE-TWINWEB W3 — setWebhook also refreshes Bot Platform identity used by customer-facing link/iframe UI.
+		$platform_identity = array();
+		$me = $api->get_me();
+		if ( ! is_wp_error( $me ) && is_array( $me ) && ! empty( $me['ok'] ) && method_exists( $db, 'save_platform_identity_from_get_me' ) ) {
+			$platform_identity = $db->save_platform_identity_from_get_me( $bot_id, $me );
+		}
 		
 		wp_send_json_success( array(
 			'message' => bzb_t( 'Webhook set successfully' ),
 			'webhook_url' => $webhook_url,
+			'platform_identity' => $platform_identity,
 			'data' => $response,
 		) );
 	}
@@ -1719,9 +1736,12 @@ class BizCity_Zalo_Bot_Admin_Menu {
 				'details' => $response->get_error_data(),
 			) );
 		}
+		// [2026-07-21 Johnny Chu] PHASE-TWINWEB W3 — GetMe button persists id/account_name for MyChannels bot profile + group invite links.
+		$platform_identity = method_exists( $db, 'save_platform_identity_from_get_me' ) ? $db->save_platform_identity_from_get_me( $bot_id, $response ) : array();
 		
 		wp_send_json_success( array(
 			'message' => bzb_t( 'Bot information retrieved successfully' ),
+			'platform_identity' => $platform_identity,
 			'data' => $response,
 		) );
 	}
@@ -2015,7 +2035,8 @@ class BizCity_Zalo_Bot_Admin_Menu {
 								<input type="checkbox" name="guru_enabled" value="1" <?php checked( $global_enabled, 1 ); ?> />
 								<strong>Bật</strong> — toàn bộ bot Zalo sẽ dùng Guru Runtime khi có character binding
 							</label>
-							<p class="description">Tắt = quay về legacy gateway (bizcity-admin-hook-zalo). Không ảnh hưởng bot nào chưa có character binding.</p>
+							<?php // [2026-07-21 Johnny Chu] R-GW-8 — legacy fallback is bundled Channel Gateway compat, not external mu-plugin. ?>
+							<p class="description">Tắt = quay về Channel Gateway legacy compat trong bizcity-twin-ai. Không ảnh hưởng bot nào chưa có character binding.</p>
 						</td>
 					</tr>
 					<tr>

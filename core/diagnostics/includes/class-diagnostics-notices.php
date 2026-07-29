@@ -133,7 +133,10 @@ final class BizCity_Diagnostics_Notices {
 
 		// Dismissal cap — re-show 24h after last dismissal.
 		$dismiss_key = 'bizcity_diag_critical_dismissed_at';
-		$last        = (int) get_user_meta( get_current_user_id(), $dismiss_key, true );
+		// [2026-07-27 Johnny Chu] R-PERF — read dismissal state without priming all user meta.
+		$last = (int) ( class_exists( 'BizCity_User_Meta_Cache' )
+			? BizCity_User_Meta_Cache::get( get_current_user_id(), $dismiss_key, 0 )
+			: get_user_meta( get_current_user_id(), $dismiss_key, true ) );
 		if ( $last && ( time() - $last ) < DAY_IN_SECONDS ) {
 			return;
 		}
@@ -203,7 +206,13 @@ final class BizCity_Diagnostics_Notices {
 		if ( ! wp_verify_nonce( $nonce, 'bizcity_diag_dismiss_critical' ) ) {
 			return;
 		}
-		update_user_meta( get_current_user_id(), 'bizcity_diag_critical_dismissed_at', time() );
+		$user_id = get_current_user_id();
+		// [2026-07-27 Johnny Chu] R-PERF — persist dismissal and refresh in-request cache together.
+		if ( class_exists( 'BizCity_User_Meta_Cache' ) ) {
+			BizCity_User_Meta_Cache::set( $user_id, 'bizcity_diag_critical_dismissed_at', time() );
+		} else {
+			update_user_meta( $user_id, 'bizcity_diag_critical_dismissed_at', time() );
+		}
 		$ref = wp_get_referer() ?: admin_url();
 		wp_safe_redirect( remove_query_arg( [ 'bizcity_diag_dismiss_critical', '_wpnonce' ], $ref ) );
 		exit;

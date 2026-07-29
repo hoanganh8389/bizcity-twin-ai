@@ -39,6 +39,8 @@ class BizCity_Membership_Admin_Page {
 		add_action( 'admin_post_bizcity_membership_provision_paypal', array( __CLASS__, 'handle_provision_paypal' ) );
 		// [2026-06-07 Johnny Chu] PHASE-C C-BE-5 — refund action for admin Payments tab.
 		add_action( 'admin_post_bizcity_membership_refund', array( __CLASS__, 'handle_refund' ) );
+		// [2026-07-17 Johnny Chu] PHASE-MEMBERSHIP M6 — export filtered payments as CSV.
+		add_action( 'admin_post_bizcity_membership_export_payments', array( __CLASS__, 'handle_export_payments' ) );
 	}
 
 	public static function add_menu() {
@@ -234,6 +236,11 @@ class BizCity_Membership_Admin_Page {
 		global $wpdb;
 		$registry = BizCity_Membership_Plan_Registry::instance();
 		$plans    = $registry->all();
+		// [2026-07-17 Johnny Chu] SPRINT-8 WC-0B — load derived Woo offer map for per-plan quick-sheet visibility.
+		$woo_offer_map      = self::membership_woo_offer_index();
+		$woo_offers_by_plan = isset( $woo_offer_map['by_plan'] ) && is_array( $woo_offer_map['by_plan'] )
+			? $woo_offer_map['by_plan']
+			: array();
 
 		$sub_table = $wpdb->prefix . 'bizcity_member_subscriptions';
 		$active    = (int) $wpdb->get_var(
@@ -264,6 +271,20 @@ class BizCity_Membership_Admin_Page {
 		self::card( __( 'Total revenue', 'bizcity-twin-ai' ), '$' . number_format( (float) $totals['total_usd'], 2 ), 'chart-bar' );
 		self::card( __( 'Payments captured', 'bizcity-twin-ai' ), number_format_i18n( $totals['count'] ), 'tickets-alt' );
 		echo '</div>';
+
+		if ( ! empty( $woo_offer_map['available'] ) ) {
+			$offer_sync_note = ! empty( $woo_offer_map['updated_at'] )
+				? sprintf( __( 'Đồng bộ lúc: %s', 'bizcity-twin-ai' ), (string) $woo_offer_map['updated_at'] )
+				: __( 'Chưa có timestamp đồng bộ.', 'bizcity-twin-ai' );
+			echo '<div style="margin:-8px 0 16px;padding:10px 12px;border:1px solid #bae6fd;background:#f0f9ff;border-radius:6px;font-size:12px;color:#0c4a6e;">';
+			echo '<strong>🧩 ' . esc_html__( 'Woo offers đã map:', 'bizcity-twin-ai' ) . '</strong> ' . esc_html( number_format_i18n( (int) $woo_offer_map['total'] ) );
+			echo ' · ' . esc_html( $offer_sync_note );
+			echo '</div>';
+		} else {
+			echo '<div style="margin:-8px 0 16px;padding:10px 12px;border:1px solid #fde68a;background:#fffbeb;border-radius:6px;font-size:12px;color:#92400e;">';
+			echo esc_html__( 'Woo mapper chưa load. Linked offers sẽ hiển thị sau khi WooCommerce + mapper module sẵn sàng.', 'bizcity-twin-ai' );
+			echo '</div>';
+		}
 
 		echo '<h2>' . esc_html__( 'Plans breakdown', 'bizcity-twin-ai' ) . '</h2>';
 		echo '<table class="widefat striped bizm-table"><thead><tr>';
@@ -365,8 +386,15 @@ class BizCity_Membership_Admin_Page {
 			$border  = isset( $tier_borders[ $slug ] ) ? $tier_borders[ $slug ] : '#444';
 			$bs      = isset( $tier_badge_styles[ $slug ] ) ? $tier_badge_styles[ $slug ] : 'background:#444;color:#fff';
 			$is_free = ( $slug === 'free' );
-			$price   = (float) $plan['price'];
-			$limits  = $plan['limits'];
+			$price   = isset( $plan['price'] ) ? (float) $plan['price'] : 0.0;
+			$limits  = isset( $plan['limits'] ) && is_array( $plan['limits'] ) ? $plan['limits'] : array();
+			// [2026-07-17 Johnny Chu] SPRINT-8 WC-0B — expose local plan policy fields in WP admin card quick sheet.
+			$rank          = isset( $plan['rank'] ) ? (int) $plan['rank'] : ( $slug === 'free' ? 0 : 100 );
+			$consumes_seat = isset( $plan['consumes_seat'] ) ? ! empty( $plan['consumes_seat'] ) : ( $slug !== 'free' );
+			$audience      = isset( $plan['audience'] ) ? (string) $plan['audience'] : '';
+			$linked_offers = isset( $woo_offers_by_plan[ $slug ] ) && is_array( $woo_offers_by_plan[ $slug ] )
+				? $woo_offers_by_plan[ $slug ]
+				: array();
 			$enabled_features = is_array( $plan['features'] ) ? $plan['features'] : array();
 			$enabled_models   = is_array( $plan['models'] )   ? $plan['models']   : array();
 
@@ -388,8 +416,8 @@ class BizCity_Membership_Admin_Page {
 			echo '<input type="hidden" name="action" value="bizcity_membership_save_plan">';
 			echo '<input type="hidden" name="slug" value="' . esc_attr( $slug ) . '">';
 
-			// Row 1: label / price / billing cycle.
-			echo '<div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:16px;margin-bottom:20px;">';
+			// Row 1: identity + commercial + seat policy.
+			echo '<div style="display:grid;grid-template-columns:minmax(180px,2fr) minmax(110px,1fr) minmax(110px,1fr) minmax(90px,1fr) minmax(140px,1.2fr) minmax(160px,1.2fr);gap:16px;margin-bottom:20px;">';
 			printf( '<div><label style="font-size:12px;color:#646970;display:block;margin-bottom:4px;">%s</label><input type="text" name="label" value="%s" class="large-text" required></div>',
 				esc_html__( 'Tên gói', 'bizcity-twin-ai' ),
 				esc_attr( $plan['label'] )
@@ -405,6 +433,22 @@ class BizCity_Membership_Admin_Page {
 				printf( '<option value="%s"%s>%s</option>', esc_attr( $v ), selected( $cycle, $v, false ), esc_html( $l ) );
 			}
 			echo '</select></div>';
+			printf( '<div><label style="font-size:12px;color:#646970;display:block;margin-bottom:4px;">%s</label><input type="number" min="0" max="10000" name="rank" value="%s" style="width:90px;text-align:right;"></div>',
+				esc_html__( 'Rank', 'bizcity-twin-ai' ),
+				esc_attr( (string) $rank )
+			);
+			printf( '<div><label style="font-size:12px;color:#646970;display:block;margin-bottom:4px;">%s</label><input type="text" name="audience" value="%s" class="regular-text" placeholder="student/pro/smb"></div>',
+				esc_html__( 'Audience', 'bizcity-twin-ai' ),
+				esc_attr( $audience )
+			);
+			echo '<div><label style="font-size:12px;color:#646970;display:block;margin-bottom:4px;">' . esc_html__( 'Seat policy', 'bizcity-twin-ai' ) . '</label>';
+			echo '<input type="hidden" name="consumes_seat" value="0">';
+			printf(
+				'<label style="display:flex;align-items:center;gap:6px;margin-top:8px;"><input type="checkbox" name="consumes_seat" value="1"%s><span style="font-size:12px;color:#3c434a;">%s</span></label>',
+				$consumes_seat ? ' checked' : '',
+				esc_html__( 'Tính vào Hub member seats', 'bizcity-twin-ai' )
+			);
+			echo '</div>';
 			echo '</div>'; // end row 1.
 
 			// Row 2: Group 1 features + Group 2 quotas.
@@ -470,6 +514,55 @@ class BizCity_Membership_Admin_Page {
 				);
 			}
 			echo '</div></div>'; // end models.
+
+			// [2026-07-17 Johnny Chu] SPRINT-8 WC-0B — show linked Woo offers per local plan directly in Plans tab.
+			echo '<div style="background:#ecfeff;border:1px solid #a5f3fc;border-radius:6px;padding:12px 16px;margin-bottom:16px;">';
+			echo '<div style="font-size:13px;font-weight:600;color:#0c4a6e;margin-bottom:8px;">🧩 ' . esc_html__( 'Woo offers linked với plan này', 'bizcity-twin-ai' ) . '</div>';
+			if ( empty( $linked_offers ) ) {
+				echo '<div style="font-size:12px;color:#0f766e;line-height:1.6;">';
+				echo esc_html__( 'Chưa có offer map tới plan này. Vào Woo Product Data → BizCity Membership Offer để gán offer_code + plan_slug.', 'bizcity-twin-ai' );
+				echo ' <a href="' . esc_url( admin_url( 'edit.php?post_type=product' ) ) . '">' . esc_html__( 'Mở danh sách sản phẩm', 'bizcity-twin-ai' ) . '</a>';
+				echo '</div>';
+			} else {
+				echo '<table class="widefat striped" style="margin:0;border:1px solid #bae6fd;">';
+				echo '<thead><tr>';
+				echo '<th>' . esc_html__( 'Offer', 'bizcity-twin-ai' ) . '</th>';
+				echo '<th>' . esc_html__( 'Duration', 'bizcity-twin-ai' ) . '</th>';
+				echo '<th>' . esc_html__( 'Grant mode', 'bizcity-twin-ai' ) . '</th>';
+				echo '<th>' . esc_html__( 'Source', 'bizcity-twin-ai' ) . '</th>';
+				echo '<th>' . esc_html__( 'Product', 'bizcity-twin-ai' ) . '</th>';
+				echo '</tr></thead><tbody>';
+				foreach ( $linked_offers as $offer_row ) {
+					if ( ! is_array( $offer_row ) ) {
+						continue;
+					}
+					$offer_code = isset( $offer_row['offer_code'] ) ? sanitize_key( (string) $offer_row['offer_code'] ) : '';
+					$duration   = self::offer_duration_label(
+						isset( $offer_row['duration_count'] ) ? (int) $offer_row['duration_count'] : 1,
+						isset( $offer_row['duration_unit'] ) ? (string) $offer_row['duration_unit'] : 'month'
+					);
+					$grant_mode = isset( $offer_row['grant_mode'] ) ? sanitize_key( (string) $offer_row['grant_mode'] ) : 'replace';
+					$source     = isset( $offer_row['source'] ) ? sanitize_key( (string) $offer_row['source'] ) : 'product';
+					$product_id = isset( $offer_row['variation_id'] ) && (int) $offer_row['variation_id'] > 0
+						? (int) $offer_row['variation_id']
+						: ( isset( $offer_row['product_id'] ) ? (int) $offer_row['product_id'] : 0 );
+					$product_edit_url = $product_id > 0 ? admin_url( 'post.php?post=' . $product_id . '&action=edit' ) : '';
+
+					echo '<tr>';
+					echo '<td><code>' . esc_html( $offer_code ) . '</code></td>';
+					echo '<td>' . esc_html( $duration ) . '</td>';
+					echo '<td><code>' . esc_html( $grant_mode ) . '</code></td>';
+					echo '<td><code>' . esc_html( $source ) . '</code></td>';
+					if ( $product_edit_url !== '' ) {
+						echo '<td><a href="' . esc_url( $product_edit_url ) . '">#' . esc_html( (string) $product_id ) . '</a></td>';
+					} else {
+						echo '<td>—</td>';
+					}
+					echo '</tr>';
+				}
+				echo '</tbody></table>';
+			}
+			echo '</div>'; // end linked offers.
 
 			// [2026-06-11 Johnny Chu] R-KG-FILE-TYPES — file types allowed section.
 			// [2026-07-02 Johnny Chu] HOTFIX R-KG-HUB-FIRST — mode toggle + hub preview added.
@@ -628,6 +721,9 @@ class BizCity_Membership_Admin_Page {
 			echo '<table class="form-table"><tbody>';
 			self::field( __( 'Slug', 'bizcity-twin-ai' ), '<input type="text" name="slug" value="" required pattern="[a-z0-9_\\-]+" placeholder="vd: vip">' );
 			self::field( __( 'Tên gói', 'bizcity-twin-ai' ), '<input type="text" name="label" value="" required>' );
+			self::field( __( 'Rank', 'bizcity-twin-ai' ), '<input type="number" min="0" max="10000" name="rank" value="100">' );
+			self::field( __( 'Audience', 'bizcity-twin-ai' ), '<input type="text" name="audience" value="" placeholder="student/pro/smb">' );
+			self::field( __( 'Seat policy', 'bizcity-twin-ai' ), '<input type="hidden" name="consumes_seat" value="0"><label><input type="checkbox" name="consumes_seat" value="1" checked> ' . esc_html__( 'Tính vào Hub member seats', 'bizcity-twin-ai' ) . '</label>' );
 			self::field( __( 'Giá (USD)', 'bizcity-twin-ai' ), '<input type="number" step="0.01" min="0" name="price" value="0">' );
 			self::field( __( 'Chu kỳ', 'bizcity-twin-ai' ), '<select name="billing_cycle"><option value="month">month</option><option value="year">year</option><option value="lifetime">lifetime</option></select>' );
 			echo '</tbody></table>';
@@ -642,6 +738,7 @@ class BizCity_Membership_Admin_Page {
 		$manager  = BizCity_Membership_Manager::instance();
 		$registry = BizCity_Membership_Plan_Registry::instance();
 		$plans    = $registry->all();
+		$existing_plan = isset( $plans[ $slug ] ) && is_array( $plans[ $slug ] ) ? $plans[ $slug ] : array();
 
 		$paged  = isset( $_GET['paged'] ) ? max( 1, (int) $_GET['paged'] ) : 1;
 		$per    = 20;
@@ -655,6 +752,25 @@ class BizCity_Membership_Admin_Page {
 		$query = new WP_User_Query( $args );
 		$users = $query->get_results();
 		$total = (int) $query->get_total();
+
+		// [2026-07-17 Johnny Chu] MBR-EXPIRY — dashboard cards for near-term expiry cohorts.
+		$cohorts = array( '7d' => 0, '14d' => 0, '30d' => 0 );
+		if ( class_exists( 'BizCity_Membership_Revenue_Report' ) ) {
+			$cohorts = array_merge( $cohorts, (array) BizCity_Membership_Revenue_Report::instance()->expiry_cohorts() );
+		}
+
+		// [2026-07-17 Johnny Chu] MBR-EXPIRY — batch resolve expiration_date + days_remaining for visible users.
+		$visible_ids = array();
+		foreach ( (array) $users as $u ) {
+			$visible_ids[] = (int) $u->ID;
+		}
+		$expiry_map = self::load_active_expiry_map( $visible_ids );
+
+		echo '<div class="bizm-cards">';
+		self::card_stat( '⏰ Hết hạn ≤ 7 ngày',  (string) (int) $cohorts['7d'],  'active members' );
+		self::card_stat( '📅 Hết hạn ≤ 14 ngày', (string) (int) $cohorts['14d'], 'active members' );
+		self::card_stat( '🗓 Hết hạn ≤ 30 ngày', (string) (int) $cohorts['30d'], 'active members' );
+		echo '</div>';
 
 		// Search box.
 		echo '<form method="get" class="bizm-search">';
@@ -672,6 +788,8 @@ class BizCity_Membership_Admin_Page {
 		echo '<th>' . esc_html__( 'User', 'bizcity-twin-ai' ) . '</th>';
 		echo '<th>' . esc_html__( 'Email', 'bizcity-twin-ai' ) . '</th>';
 		echo '<th>' . esc_html__( 'Plan', 'bizcity-twin-ai' ) . '</th>';
+		echo '<th>' . esc_html__( 'Expiration', 'bizcity-twin-ai' ) . '</th>';
+		echo '<th>' . esc_html__( 'Days left', 'bizcity-twin-ai' ) . '</th>';
 		echo '<th>' . esc_html__( 'Assign', 'bizcity-twin-ai' ) . '</th>';
 		echo '</tr></thead><tbody>';
 
@@ -680,10 +798,38 @@ class BizCity_Membership_Admin_Page {
 			$slug = $manager->plan_for_user( $uid );
 			$lbl  = isset( $plans[ $slug ]['label'] ) ? $plans[ $slug ]['label'] : ucfirst( $slug );
 
+			$exp_date = '';
+			$days_raw = null;
+			$lifetime = false;
+			if ( isset( $expiry_map[ $uid ] ) ) {
+				$exp_date = isset( $expiry_map[ $uid ]['expiration_date'] ) ? (string) $expiry_map[ $uid ]['expiration_date'] : '';
+				$days_raw = array_key_exists( 'days_remaining', $expiry_map[ $uid ] ) ? $expiry_map[ $uid ]['days_remaining'] : null;
+				$lifetime = ! empty( $expiry_map[ $uid ]['is_lifetime'] );
+			}
+
+			if ( $lifetime ) {
+				$exp_label = esc_html__( 'Lifetime', 'bizcity-twin-ai' );
+				$days_label = '∞';
+			} elseif ( $exp_date === '' ) {
+				$exp_label  = '—';
+				$days_label = '—';
+			} else {
+				$exp_label = esc_html( substr( $exp_date, 0, 10 ) );
+				if ( $days_raw === null ) {
+					$days_label = '—';
+				} elseif ( (int) $days_raw < 0 ) {
+					$days_label = esc_html__( 'Expired', 'bizcity-twin-ai' );
+				} else {
+					$days_label = esc_html( (string) (int) $days_raw );
+				}
+			}
+
 			echo '<tr>';
 			printf( '<td><strong>%s</strong><br><small>#%d %s</small></td>', esc_html( $u->display_name ), $uid, esc_html( $u->user_login ) );
 			printf( '<td>%s</td>', esc_html( $u->user_email ) );
 			printf( '<td><span class="bizm-badge bizm-badge-%s">%s</span></td>', esc_attr( $slug ), esc_html( $lbl ) );
+			printf( '<td>%s</td>', $exp_label );
+			printf( '<td>%s</td>', $days_label );
 
 			// Inline assign form.
 			echo '<td><form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" class="bizm-inline">';
@@ -705,6 +851,94 @@ class BizCity_Membership_Admin_Page {
 		self::pagination( $total, $per, $paged, array( 'tab' => 'members', 's' => $search ) );
 	}
 
+	/**
+	 * [2026-07-17 Johnny Chu] MBR-EXPIRY — batch read active subscription expiry data.
+	 *
+	 * @param int[] $user_ids
+	 * @return array<int,array{expiration_date:string,days_remaining:int|null,is_lifetime:bool}>
+	 */
+	private static function load_active_expiry_map( array $user_ids ) {
+		$map = array();
+
+		$ids = array();
+		foreach ( $user_ids as $uid ) {
+			$uid = (int) $uid;
+			if ( $uid > 0 ) {
+				$ids[] = $uid;
+			}
+		}
+		$ids = array_values( array_unique( $ids ) );
+		if ( empty( $ids ) ) {
+			return $map;
+		}
+
+		global $wpdb;
+		$table = $wpdb->prefix . 'bizcity_member_subscriptions';
+
+		if ( function_exists( 'bizcity_tbl_exists' ) ) {
+			$exists = (bool) bizcity_tbl_exists( $table );
+		} else {
+			$exists = (bool) $wpdb->get_var(
+				$wpdb->prepare(
+					'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+					$table
+				)
+			);
+		}
+		if ( ! $exists ) {
+			return $map;
+		}
+
+		$ph     = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+		$params = array_merge( array( BizCity_Membership_Manager::STATUS_ACTIVE ), $ids );
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$sql = $wpdb->prepare(
+			"SELECT id, user_id, expiration_date
+			 FROM {$table}
+			 WHERE status = %s AND user_id IN ({$ph})
+			 ORDER BY id DESC",
+			$params
+		);
+		$rows = $wpdb->get_results( $sql, ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		$now  = (int) current_time( 'timestamp' );
+
+		foreach ( (array) $rows as $row ) {
+			$uid = isset( $row['user_id'] ) ? (int) $row['user_id'] : 0;
+			if ( $uid <= 0 || isset( $map[ $uid ] ) ) {
+				continue;
+			}
+
+			$expiration = isset( $row['expiration_date'] ) ? (string) $row['expiration_date'] : '';
+			if ( $expiration === '' ) {
+				$map[ $uid ] = array(
+					'expiration_date' => '',
+					'days_remaining'  => null,
+					'is_lifetime'     => true,
+				);
+				continue;
+			}
+
+			$exp_ts = strtotime( $expiration );
+			// [2026-07-17 Johnny Chu] SPRINT-7 MBR-EXPIRY — avoid showing expired-same-day rows as 0 days left.
+			$days   = null;
+			if ( $exp_ts ) {
+				$delta = $exp_ts - $now;
+				if ( $delta >= 0 ) {
+					$days = (int) ceil( $delta / DAY_IN_SECONDS );
+				} else {
+					$days = -1 * (int) ceil( abs( $delta ) / DAY_IN_SECONDS );
+				}
+			}
+			$map[ $uid ] = array(
+				'expiration_date' => $expiration,
+				'days_remaining'  => $days,
+				'is_lifetime'     => false,
+			);
+		}
+
+		return $map;
+	}
+
 	/* ── Tab: Payments ──────────────────────────────────────────────────── */
 
 	private static function tab_payments() {
@@ -712,10 +946,84 @@ class BizCity_Membership_Admin_Page {
 			echo '<p>' . esc_html__( 'Payments module not loaded.', 'bizcity-twin-ai' ) . '</p>';
 			return;
 		}
+		// [2026-07-17 Johnny Chu] PHASE-MEMBERSHIP M6 — add server-side filters for Payments tab.
+		$status    = isset( $_GET['status'] ) ? sanitize_key( wp_unslash( $_GET['status'] ) ) : '';
+		$plan_slug = isset( $_GET['plan_slug'] ) ? sanitize_key( wp_unslash( $_GET['plan_slug'] ) ) : '';
+		$gateway   = isset( $_GET['gateway'] ) ? sanitize_key( wp_unslash( $_GET['gateway'] ) ) : '';
+		$date_from = isset( $_GET['date_from'] ) ? sanitize_text_field( wp_unslash( $_GET['date_from'] ) ) : '';
+		$date_to   = isset( $_GET['date_to'] ) ? sanitize_text_field( wp_unslash( $_GET['date_to'] ) ) : '';
+		$search    = isset( $_GET['s'] ) ? sanitize_text_field( wp_unslash( $_GET['s'] ) ) : '';
+
+		$registry  = class_exists( 'BizCity_Membership_Plan_Registry' )
+			? BizCity_Membership_Plan_Registry::instance()
+			: null;
+		$plans     = $registry ? $registry->all() : array();
+
 		$payments = BizCity_Membership_Payments::instance();
 		$paged    = isset( $_GET['paged'] ) ? max( 1, (int) $_GET['paged'] ) : 1;
 		$per      = 30;
-		$rows     = $payments->recent( array( 'limit' => $per, 'offset' => ( $paged - 1 ) * $per ) );
+		$rows     = $payments->recent( array(
+			'limit'     => $per,
+			'offset'    => ( $paged - 1 ) * $per,
+			'status'    => $status,
+			'plan_slug' => $plan_slug,
+			'gateway'   => $gateway,
+			'date_from' => $date_from,
+			'date_to'   => $date_to,
+			's'         => $search,
+		) );
+
+		echo '<form method="get" class="bizm-filters" style="margin:12px 0 14px;display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">';
+		echo '<input type="hidden" name="page" value="' . esc_attr( self::MENU_SLUG ) . '">';
+		echo '<input type="hidden" name="tab" value="payments">';
+
+		echo '<label><span style="display:block;font-size:11px;color:#646970;">' . esc_html__( 'Status', 'bizcity-twin-ai' ) . '</span><select name="status">';
+		echo '<option value="">' . esc_html__( 'All', 'bizcity-twin-ai' ) . '</option>';
+		foreach ( array( 'completed', 'pending', 'failed', 'refunded' ) as $st ) {
+			printf( '<option value="%s"%s>%s</option>', esc_attr( $st ), selected( $status, $st, false ), esc_html( ucfirst( $st ) ) );
+		}
+		echo '</select></label>';
+
+		echo '<label><span style="display:block;font-size:11px;color:#646970;">' . esc_html__( 'Plan', 'bizcity-twin-ai' ) . '</span><select name="plan_slug">';
+		echo '<option value="">' . esc_html__( 'All', 'bizcity-twin-ai' ) . '</option>';
+		foreach ( $plans as $slug => $plan ) {
+			printf(
+				'<option value="%s"%s>%s</option>',
+				esc_attr( $slug ),
+				selected( $plan_slug, (string) $slug, false ),
+				esc_html( isset( $plan['label'] ) ? $plan['label'] : $slug )
+			);
+		}
+		echo '</select></label>';
+
+		echo '<label><span style="display:block;font-size:11px;color:#646970;">' . esc_html__( 'Gateway', 'bizcity-twin-ai' ) . '</span><select name="gateway">';
+		echo '<option value="">' . esc_html__( 'All', 'bizcity-twin-ai' ) . '</option>';
+		foreach ( array( 'paypal', 'paypal_sub' ) as $gw ) {
+			printf( '<option value="%s"%s>%s</option>', esc_attr( $gw ), selected( $gateway, $gw, false ), esc_html( $gw ) );
+		}
+		echo '</select></label>';
+
+		echo '<label><span style="display:block;font-size:11px;color:#646970;">' . esc_html__( 'From', 'bizcity-twin-ai' ) . '</span><input type="date" name="date_from" value="' . esc_attr( $date_from ) . '"></label>';
+		echo '<label><span style="display:block;font-size:11px;color:#646970;">' . esc_html__( 'To', 'bizcity-twin-ai' ) . '</span><input type="date" name="date_to" value="' . esc_attr( $date_to ) . '"></label>';
+
+		echo '<label><span style="display:block;font-size:11px;color:#646970;">' . esc_html__( 'Transaction / Email', 'bizcity-twin-ai' ) . '</span><input type="search" name="s" value="' . esc_attr( $search ) . '" placeholder="TXN / payer"></label>';
+		echo '<button type="submit" class="button button-primary">' . esc_html__( 'Filter', 'bizcity-twin-ai' ) . '</button>';
+		echo '<a class="button" href="' . esc_url( add_query_arg( array( 'page' => self::MENU_SLUG, 'tab' => 'payments' ), admin_url( 'admin.php' ) ) ) . '">' . esc_html__( 'Reset', 'bizcity-twin-ai' ) . '</a>';
+		$export_args = array(
+			'action'    => 'bizcity_membership_export_payments',
+			'status'    => $status,
+			'plan_slug' => $plan_slug,
+			'gateway'   => $gateway,
+			'date_from' => $date_from,
+			'date_to'   => $date_to,
+			's'         => $search,
+		);
+		$export_url = wp_nonce_url(
+			add_query_arg( $export_args, admin_url( 'admin-post.php' ) ),
+			'bizcity_membership_export_payments'
+		);
+		echo '<a class="button" href="' . esc_url( $export_url ) . '">' . esc_html__( 'Export CSV', 'bizcity-twin-ai' ) . '</a>';
+		echo '</form>';
 
 		echo '<table class="widefat striped bizm-table"><thead><tr>';
 		echo '<th>#</th>';
@@ -766,7 +1074,15 @@ class BizCity_Membership_Admin_Page {
 		echo '</tbody></table>';
 
 		if ( count( $rows ) >= $per || $paged > 1 ) {
-			self::pagination_simple( $paged, count( $rows ) >= $per, array( 'tab' => 'payments' ) );
+			self::pagination_simple( $paged, count( $rows ) >= $per, array(
+				'tab'       => 'payments',
+				'status'    => $status,
+				'plan_slug' => $plan_slug,
+				'gateway'   => $gateway,
+				'date_from' => $date_from,
+				'date_to'   => $date_to,
+				's'         => $search,
+			) );
 		}
 	}
 
@@ -879,30 +1195,37 @@ class BizCity_Membership_Admin_Page {
 		$features     = array_values( array_unique( array_map( 'sanitize_text_field', array_map( 'wp_unslash', $raw_features ) ) ) );
 		$models       = array_values( array_unique( array_map( 'sanitize_key',        array_map( 'wp_unslash', $raw_models ) ) ) );
 
-		$plans[ $slug ] = array(
-			'label'                  => isset( $_POST['label'] ) ? sanitize_text_field( wp_unslash( $_POST['label'] ) ) : ucfirst( $slug ),
-			'price'                  => isset( $_POST['price'] ) ? (float) $_POST['price'] : 0.0,
-			'currency'               => 'USD',
-			'billing_cycle'          => isset( $_POST['billing_cycle'] ) ? sanitize_key( wp_unslash( $_POST['billing_cycle'] ) ) : 'month',
-			'paypal_plan_id'         => isset( $plans[ $slug ]['paypal_plan_id'] ) ? $plans[ $slug ]['paypal_plan_id'] : '',
-			'limits'                 => array(
-				'chat_msgs_per_day'   => isset( $_POST['chat_msgs_per_day'] )   ? max( 0, (int) $_POST['chat_msgs_per_day'] )   : 0,
-				'kg_passages_per_day' => isset( $_POST['kg_passages_per_day'] ) ? max( 0, (int) $_POST['kg_passages_per_day'] ) : 0,
-				'image_per_day'       => isset( $_POST['image_per_day'] )       ? max( 0, (int) $_POST['image_per_day'] )       : 0,
-				'video_per_day'       => isset( $_POST['video_per_day'] )       ? max( 0, (int) $_POST['video_per_day'] )       : 0,
-			),
-			// [2026-06-11 Johnny Chu] R-KG-FILE-TYPES — sanitize kg_accepted_file_types checkbox array.
-			'kg_accepted_file_types' => self::sanitize_file_types(
-				isset( $_POST['kg_accepted_file_types'] ) && is_array( $_POST['kg_accepted_file_types'] ) ? $_POST['kg_accepted_file_types'] : array()
-			),
-			// [2026-07-02 Johnny Chu] HOTFIX R-KG-HUB-FIRST — persist mode: 'inherit'=hub-first; 'restrict'=custom.
-			'kg_file_types_mode'     => ( isset( $_POST['kg_file_types_mode'] ) && $_POST['kg_file_types_mode'] === 'restrict' )
-				? 'restrict'
-				: 'inherit',
-			// [2026-06-11 Johnny Chu] R-KG-FILE-TYPES — max file size MB per plan.
-			'kg_max_file_size_mb'    => max( 1, min( 500, (int) ( isset( $_POST['kg_max_file_size_mb'] ) ? $_POST['kg_max_file_size_mb'] : 5 ) ) ),
-			'features'               => $features,
-			'models'                 => $models,
+		// [2026-07-17 Johnny Chu] SPRINT-8 WC-0B — preserve policy fields and persist rank/seat/audience from Plans tab.
+		$plans[ $slug ] = array_merge(
+			$existing_plan,
+			array(
+				'label'                  => isset( $_POST['label'] ) ? sanitize_text_field( wp_unslash( $_POST['label'] ) ) : ucfirst( $slug ),
+				'rank'                   => isset( $_POST['rank'] ) ? max( 0, min( 10000, (int) $_POST['rank'] ) ) : ( isset( $existing_plan['rank'] ) ? (int) $existing_plan['rank'] : ( $slug === 'free' ? 0 : 100 ) ),
+				'consumes_seat'          => isset( $_POST['consumes_seat'] ) ? ! empty( $_POST['consumes_seat'] ) : ( isset( $existing_plan['consumes_seat'] ) ? ! empty( $existing_plan['consumes_seat'] ) : ( $slug !== 'free' ) ),
+				'audience'               => isset( $_POST['audience'] ) ? sanitize_text_field( wp_unslash( $_POST['audience'] ) ) : ( isset( $existing_plan['audience'] ) ? sanitize_text_field( (string) $existing_plan['audience'] ) : '' ),
+				'price'                  => isset( $_POST['price'] ) ? (float) $_POST['price'] : 0.0,
+				'currency'               => isset( $existing_plan['currency'] ) ? (string) $existing_plan['currency'] : 'USD',
+				'billing_cycle'          => isset( $_POST['billing_cycle'] ) ? sanitize_key( wp_unslash( $_POST['billing_cycle'] ) ) : 'month',
+				'paypal_plan_id'         => isset( $existing_plan['paypal_plan_id'] ) ? $existing_plan['paypal_plan_id'] : '',
+				'limits'                 => array(
+					'chat_msgs_per_day'   => isset( $_POST['chat_msgs_per_day'] )   ? max( 0, (int) $_POST['chat_msgs_per_day'] )   : 0,
+					'kg_passages_per_day' => isset( $_POST['kg_passages_per_day'] ) ? max( 0, (int) $_POST['kg_passages_per_day'] ) : 0,
+					'image_per_day'       => isset( $_POST['image_per_day'] )       ? max( 0, (int) $_POST['image_per_day'] )       : 0,
+					'video_per_day'       => isset( $_POST['video_per_day'] )       ? max( 0, (int) $_POST['video_per_day'] )       : 0,
+				),
+				// [2026-06-11 Johnny Chu] R-KG-FILE-TYPES — sanitize kg_accepted_file_types checkbox array.
+				'kg_accepted_file_types' => self::sanitize_file_types(
+					isset( $_POST['kg_accepted_file_types'] ) && is_array( $_POST['kg_accepted_file_types'] ) ? $_POST['kg_accepted_file_types'] : array()
+				),
+				// [2026-07-02 Johnny Chu] HOTFIX R-KG-HUB-FIRST — persist mode: 'inherit'=hub-first; 'restrict'=custom.
+				'kg_file_types_mode'     => ( isset( $_POST['kg_file_types_mode'] ) && $_POST['kg_file_types_mode'] === 'restrict' )
+					? 'restrict'
+					: 'inherit',
+				// [2026-06-11 Johnny Chu] R-KG-FILE-TYPES — max file size MB per plan.
+				'kg_max_file_size_mb'    => max( 1, min( 500, (int) ( isset( $_POST['kg_max_file_size_mb'] ) ? $_POST['kg_max_file_size_mb'] : 5 ) ) ),
+				'features'               => $features,
+				'models'                 => $models,
+			)
 		);
 
 		$registry->save( $plans );
@@ -1008,6 +1331,102 @@ class BizCity_Membership_Admin_Page {
 		self::redirect( 'payments', 'ok', 'refunded' );
 	}
 
+	// [2026-07-17 Johnny Chu] PHASE-MEMBERSHIP M6 — export filtered payments table to CSV.
+	public static function handle_export_payments() {
+		if ( ! current_user_can( self::CAP ) ) {
+			wp_die( esc_html__( 'Insufficient permissions.', 'bizcity-twin-ai' ), 403 );
+		}
+		check_admin_referer( 'bizcity_membership_export_payments' );
+
+		if ( ! class_exists( 'BizCity_Membership_Payments' ) ) {
+			wp_die( esc_html__( 'Payments module not loaded.', 'bizcity-twin-ai' ), 500 );
+		}
+
+		$status    = isset( $_GET['status'] ) ? sanitize_key( wp_unslash( $_GET['status'] ) ) : '';
+		$plan_slug = isset( $_GET['plan_slug'] ) ? sanitize_key( wp_unslash( $_GET['plan_slug'] ) ) : '';
+		$gateway   = isset( $_GET['gateway'] ) ? sanitize_key( wp_unslash( $_GET['gateway'] ) ) : '';
+		$date_from = isset( $_GET['date_from'] ) ? sanitize_text_field( wp_unslash( $_GET['date_from'] ) ) : '';
+		$date_to   = isset( $_GET['date_to'] ) ? sanitize_text_field( wp_unslash( $_GET['date_to'] ) ) : '';
+		$search    = isset( $_GET['s'] ) ? sanitize_text_field( wp_unslash( $_GET['s'] ) ) : '';
+
+		$filename = 'bizcity-membership-payments-' . gmdate( 'Ymd-His' ) . '.csv';
+		nocache_headers();
+		header( 'Content-Type: text/csv; charset=utf-8' );
+		header( 'Content-Disposition: attachment; filename=' . $filename );
+
+		$fh = fopen( 'php://output', 'w' );
+		if ( false === $fh ) {
+			wp_die( esc_html__( 'Cannot open export stream.', 'bizcity-twin-ai' ), 500 );
+		}
+
+		fputcsv( $fh, array(
+			'id',
+			'user_id',
+			'user_name',
+			'user_email',
+			'plan_slug',
+			'amount',
+			'currency',
+			'status',
+			'gateway',
+			'transaction_id',
+			'payer_email',
+			'paid_at',
+			'created_at',
+			'meta',
+		) );
+
+		$payments = BizCity_Membership_Payments::instance();
+		$batch    = 500;
+		$offset   = 0;
+
+		while ( true ) {
+			$rows = $payments->recent( array(
+				'limit'     => $batch,
+				'offset'    => $offset,
+				'status'    => $status,
+				'plan_slug' => $plan_slug,
+				'gateway'   => $gateway,
+				'date_from' => $date_from,
+				'date_to'   => $date_to,
+				's'         => $search,
+			) );
+
+			if ( empty( $rows ) ) {
+				break;
+			}
+
+			foreach ( $rows as $r ) {
+				$uid  = isset( $r['user_id'] ) ? (int) $r['user_id'] : 0;
+				$user = $uid > 0 ? get_userdata( $uid ) : null;
+				fputcsv( $fh, array(
+					isset( $r['id'] ) ? (int) $r['id'] : 0,
+					$uid,
+					$user ? $user->display_name : '',
+					$user ? $user->user_email : '',
+					isset( $r['plan_slug'] ) ? (string) $r['plan_slug'] : '',
+					isset( $r['amount'] ) ? (float) $r['amount'] : 0,
+					isset( $r['currency'] ) ? (string) $r['currency'] : '',
+					isset( $r['status'] ) ? (string) $r['status'] : '',
+					isset( $r['gateway'] ) ? (string) $r['gateway'] : '',
+					isset( $r['transaction_id'] ) ? (string) $r['transaction_id'] : '',
+					isset( $r['payer_email'] ) ? (string) $r['payer_email'] : '',
+					isset( $r['paid_at'] ) ? (string) $r['paid_at'] : '',
+					isset( $r['created_at'] ) ? (string) $r['created_at'] : '',
+					isset( $r['meta'] ) ? (string) $r['meta'] : '',
+				) );
+			}
+
+			if ( count( $rows ) < $batch ) {
+				break;
+			}
+			$offset += $batch;
+		}
+
+		fclose( $fh );
+		exit;
+	}
+
 	/* ── Helpers ────────────────────────────────────────────────────────── */
 
 	// [2026-06-11 Johnny Chu] R-KG-FILE-TYPES — sanitize raw checkbox array to allowed extensions only.
@@ -1021,6 +1440,132 @@ class BizCity_Membership_Admin_Page {
 			}
 		}
 		return $clean;
+	}
+
+	/**
+	 * [2026-07-17 Johnny Chu] SPRINT-8 WC-0B — build plan-scoped Woo offer index
+	 * from derived mapper option for Membership admin Plans tab.
+	 *
+	 * @return array{available:bool,updated_at:string,total:int,by_plan:array}
+	 */
+	private static function membership_woo_offer_index() {
+		$payload = array(
+			'available'  => false,
+			'updated_at' => '',
+			'total'      => 0,
+			'by_plan'    => array(),
+		);
+
+		if ( ! class_exists( 'BizCity_Membership_Woo_Mapper' ) ) {
+			return $payload;
+		}
+
+		$payload['available'] = true;
+		$map                  = (array) BizCity_Membership_Woo_Mapper::instance()->get_map();
+		$payload['updated_at'] = isset( $map['updated_at'] ) ? (string) $map['updated_at'] : '';
+		$items                = isset( $map['items'] ) && is_array( $map['items'] ) ? $map['items'] : array();
+
+		foreach ( $items as $offer_code => $row ) {
+			if ( ! is_array( $row ) ) {
+				continue;
+			}
+
+			$plan_slug = sanitize_key( (string) ( isset( $row['plan_slug'] ) ? $row['plan_slug'] : '' ) );
+			if ( $plan_slug === '' ) {
+				continue;
+			}
+
+			$duration_unit = sanitize_key( (string) ( isset( $row['duration_unit'] ) ? $row['duration_unit'] : 'month' ) );
+			if ( ! in_array( $duration_unit, array( 'day', 'week', 'month', 'year', 'lifetime' ), true ) ) {
+				$duration_unit = 'month';
+			}
+
+			if ( ! isset( $payload['by_plan'][ $plan_slug ] ) ) {
+				$payload['by_plan'][ $plan_slug ] = array();
+			}
+
+			$payload['by_plan'][ $plan_slug ][] = array(
+				'offer_code'     => sanitize_key( (string) $offer_code ),
+				'plan_slug'      => $plan_slug,
+				'duration_count' => max( 1, (int) ( isset( $row['duration_count'] ) ? $row['duration_count'] : 1 ) ),
+				'duration_unit'  => $duration_unit,
+				'grant_mode'     => sanitize_key( (string) ( isset( $row['grant_mode'] ) ? $row['grant_mode'] : 'replace' ) ),
+				'product_id'     => (int) ( isset( $row['product_id'] ) ? $row['product_id'] : 0 ),
+				'variation_id'   => (int) ( isset( $row['variation_id'] ) ? $row['variation_id'] : 0 ),
+				'source'         => sanitize_key( (string) ( isset( $row['source'] ) ? $row['source'] : 'product' ) ),
+			);
+			$payload['total']++;
+		}
+
+		foreach ( $payload['by_plan'] as $plan_slug => $rows ) {
+			usort( $rows, function ( $a, $b ) {
+				$wa = self::offer_duration_weight( isset( $a['duration_unit'] ) ? (string) $a['duration_unit'] : '' );
+				$wb = self::offer_duration_weight( isset( $b['duration_unit'] ) ? (string) $b['duration_unit'] : '' );
+
+				if ( $wa === $wb ) {
+					$ca = isset( $a['duration_count'] ) ? (int) $a['duration_count'] : 0;
+					$cb = isset( $b['duration_count'] ) ? (int) $b['duration_count'] : 0;
+					if ( $ca === $cb ) {
+						$oa = isset( $a['offer_code'] ) ? (string) $a['offer_code'] : '';
+						$ob = isset( $b['offer_code'] ) ? (string) $b['offer_code'] : '';
+						return strcmp( $oa, $ob );
+					}
+					return ( $ca < $cb ) ? -1 : 1;
+				}
+
+				return ( $wa < $wb ) ? -1 : 1;
+			} );
+			$payload['by_plan'][ $plan_slug ] = $rows;
+		}
+
+		return $payload;
+	}
+
+	/**
+	 * [2026-07-17 Johnny Chu] SPRINT-8 WC-0B — helper for stable duration sort.
+	 *
+	 * @param string $unit Duration unit.
+	 * @return int
+	 */
+	private static function offer_duration_weight( $unit ) {
+		$unit = sanitize_key( (string) $unit );
+		switch ( $unit ) {
+			case 'day':
+				return 1;
+			case 'week':
+				return 2;
+			case 'month':
+				return 3;
+			case 'year':
+				return 4;
+			case 'lifetime':
+				return 5;
+			default:
+				return 99;
+		}
+	}
+
+	/**
+	 * [2026-07-17 Johnny Chu] SPRINT-8 WC-0B — render human-readable offer duration.
+	 *
+	 * @param int    $count Duration count.
+	 * @param string $unit  Duration unit.
+	 * @return string
+	 */
+	private static function offer_duration_label( $count, $unit ) {
+		$count = (int) $count;
+		if ( $count <= 0 ) {
+			$count = 1;
+		}
+		$unit = sanitize_key( (string) $unit );
+		if ( $unit === 'lifetime' ) {
+			return __( 'Lifetime', 'bizcity-twin-ai' );
+		}
+		if ( ! in_array( $unit, array( 'day', 'week', 'month', 'year' ), true ) ) {
+			$unit = 'month';
+		}
+
+		return $count . ' ' . $unit;
 	}
 
 	private static function guard( $nonce_action ) {

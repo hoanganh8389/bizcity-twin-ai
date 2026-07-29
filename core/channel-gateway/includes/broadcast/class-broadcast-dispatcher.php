@@ -30,6 +30,8 @@ class BizCity_Broadcast_Dispatcher {
 
 	const CRON_HOOK     = 'bizcity_cg_broadcast_tick';
 	const CRON_INTERVAL = 'bizcity_every_minute';
+	// [2026-07-26 Johnny Chu] CRON-OVERLOAD-OPTIMIZE — Pattern A toggle, default OFF.
+	const OPT_ENABLED   = 'bizcity_cg_broadcast_tick_enabled';
 	const ESMS_ENDPOINT = 'https://rest.esms.vn/MainService.svc/json/SendZaloMessage_V6/';
 	const LOG_CHANNEL   = 'broadcast';
 
@@ -41,11 +43,45 @@ class BizCity_Broadcast_Dispatcher {
 		// [2026-06-27 Johnny Chu] PHASE-CG-BROADCAST — register cron interval + hook
 		add_filter( 'cron_schedules', array( __CLASS__, 'add_cron_interval' ) );
 		add_action( self::CRON_HOOK, array( __CLASS__, 'tick' ) );
+		$enabled = self::is_enabled();
+		if ( ! $enabled ) {
+			// [2026-07-26 Johnny Chu] CRON-OVERLOAD-OPTIMIZE — disable recurring tick by default.
+			self::unschedule();
+			return;
+		}
 
 		// Schedule nếu chưa có
-		if ( ! wp_next_scheduled( self::CRON_HOOK ) ) {
+		$next = wp_next_scheduled( self::CRON_HOOK );
+		$cur  = $next ? (string) wp_get_schedule( self::CRON_HOOK ) : '';
+		if ( $next && $cur !== self::CRON_INTERVAL ) {
+			self::unschedule();
+			$next = false;
+		}
+		if ( ! $next ) {
 			wp_schedule_event( time(), self::CRON_INTERVAL, self::CRON_HOOK );
 		}
+	}
+
+	/**
+	 * Whether broadcast cron tick is enabled.
+	 *
+	 * @return bool
+	 */
+	private static function is_enabled() {
+		$enabled = (bool) get_option( self::OPT_ENABLED, 0 );
+		/**
+		 * Filter CG broadcast cron enablement.
+		 *
+		 * @param bool $enabled
+		 */
+		return (bool) apply_filters( 'bizcity_cg_broadcast_tick_enabled', $enabled );
+	}
+
+	/**
+	 * Clear all scheduled events for broadcast tick.
+	 */
+	public static function unschedule() {
+		wp_clear_scheduled_hook( self::CRON_HOOK );
 	}
 
 	/**

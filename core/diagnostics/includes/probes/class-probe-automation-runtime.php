@@ -390,6 +390,50 @@ final class BizCity_Probe_Automation_Runtime_Errors implements BizCity_Diagnosti
 				'hint'      => 'Cập nhật plugin lên phiên bản mới nhất (BUG-1 đã vá 2026-06-08).',
 				'help_code' => 'cron_meta_viewer',
 			),
+			// [2026-07-25 Johnny Chu] PHASE-0.46 W2 — notebook capture action
+			// reason buckets normalized from runner::reason_bucket().
+			'bridge_unavailable'    => array(
+				'code'      => 'module_not_loaded',
+				'message'   => 'Notebook bridge chưa sẵn sàng khi action lưu ghi chú chạy.',
+				'hint'      => 'Kiểm tra module KG-Hub/Channel bridge đã load đầy đủ rồi chạy lại workflow.',
+				'help_code' => 'module_not_loaded',
+			),
+			'chat_id_missing'       => array(
+				'code'      => 'invalid_param',
+				'message'   => 'Thiếu chat_id trong trigger payload cho action lưu ghi chú.',
+				'hint'      => 'Kiểm tra block trigger có map đúng conversation_chat_id/chat_id trước khi chạy action.',
+				'help_code' => 'invalid_param_generic',
+			),
+			'channel_unresolved'    => array(
+				'code'      => 'invalid_param',
+				'message'   => 'Không xác định được channel để lưu notebook từ trigger hiện tại.',
+				'hint'      => 'Đặt rõ trường channel trong block hoặc bảo đảm trigger.platform hợp lệ.',
+				'help_code' => 'invalid_param_generic',
+			),
+			'owner_user_missing'    => array(
+				'code'      => 'auth_required',
+				'message'   => 'Không resolve được user sở hữu để lưu notebook.',
+				'hint'      => 'Bảo đảm trigger có wp_user_id (hoặc user_id override hợp lệ) trước khi capture.',
+				'help_code' => 'invalid_param_generic',
+			),
+			'empty_payload'         => array(
+				'code'      => 'invalid_param',
+				'message'   => 'Không có text hoặc tệp hợp lệ để lưu vào notebook.',
+				'hint'      => 'Gửi nội dung thực hoặc bảo đảm pending attachments tồn tại trước khi finalize.',
+				'help_code' => 'invalid_param_generic',
+			),
+			'capture_failed'        => array(
+				'code'      => 'automation_run_failed',
+				'message'   => 'Action lưu notebook lỗi trong lúc tải tệp hoặc ingest nguồn.',
+				'hint'      => 'Mở run log để xem lỗi cụ thể (download/sideload/attachment) và thử lại với dữ liệu hợp lệ.',
+				'help_code' => 'automation_block_error',
+			),
+			'all_items_failed'      => array(
+				'code'      => 'automation_run_failed',
+				'message'   => 'Tất cả mục trong batch capture đều thất bại, không mục nào được lưu.',
+				'hint'      => 'Kiểm tra từng attachment/text item trong trigger rồi chạy lại với payload sạch.',
+				'help_code' => 'automation_block_error',
+			),
 		);
 	}
 }

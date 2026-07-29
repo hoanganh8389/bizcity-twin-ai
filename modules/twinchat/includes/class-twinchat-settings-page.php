@@ -46,8 +46,12 @@ class BizCity_TwinChat_Settings_Page {
 		add_action( 'wp_ajax_bizcity_twinchat_account_status',     [ $this, 'ajax_account_status' ] );
 		// [2026-06-09 Johnny Chu] PHASE-MASTER-PLANS — fetch plan config from hub.
 		add_action( 'wp_ajax_bizcity_twinchat_plan_config',        [ $this, 'ajax_plan_config' ] );
+		// [2026-07-14 Johnny Chu] R-GW-API-CATALOG — manual + bootload entitlement refresh from hub.
+		add_action( 'wp_ajax_bizcity_twinchat_refresh_entitlement',[ $this, 'ajax_refresh_entitlement' ] );
 		// [2026-06-08 Johnny Chu] PHASE-MASTER-PLANS — 6-dimension usage stats tab.
 		add_action( 'wp_ajax_bizcity_twinchat_usage_stats',        [ $this, 'ajax_usage_stats' ] );
+		// [2026-07-23 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — runtime verify tab (cron schedule + drain batch before/after counters).
+		add_action( 'wp_ajax_bizcity_twinchat_kg_runtime_verify',  [ $this, 'ajax_kg_runtime_verify' ] );
 	}
 
 	public function add_menu() {
@@ -65,6 +69,11 @@ class BizCity_TwinChat_Settings_Page {
 
 	/** @return string Canonical Bearer key, '' if not configured. */
 	public static function get_api_key(): string {
+		// [2026-07-27 Johnny Chu] PHASE-0.49-MASTER-CONFIG-401 — always read via
+		// canonical client helper so legacy/malformed stored key is normalized once.
+		if ( class_exists( 'BizCity_LLM_Client' ) ) {
+			return BizCity_LLM_Client::instance()->get_api_key();
+		}
 		// [2026-06-11 Johnny Chu] HOTFIX — per-site option (không dùng site_option)
 		return (string) get_option( self::OPT_API_KEY, '' );
 	}
@@ -99,6 +108,11 @@ class BizCity_TwinChat_Settings_Page {
 		$key = isset( $_POST['bizcity_llm_api_key'] )
 			? trim( wp_unslash( $_POST['bizcity_llm_api_key'] ) )
 			: '';
+		if ( class_exists( 'BizCity_LLM_Client' ) ) {
+			// [2026-07-27 Johnny Chu] PHASE-0.49-MASTER-CONFIG-401 — canonicalize
+			// admin-entered key (trim quotes, strip extra Bearer, fix legacy biz_ prefix).
+			$key = BizCity_LLM_Client::normalize_gateway_api_key( $key );
+		}
 		$url = isset( $_POST['bizcity_llm_gateway_url'] )
 			? esc_url_raw( wp_unslash( $_POST['bizcity_llm_gateway_url'] ) )
 			: '';
@@ -167,8 +181,14 @@ class BizCity_TwinChat_Settings_Page {
 			$code = (int) wp_remote_retrieve_response_code( $resp );
 			$body = json_decode( (string) wp_remote_retrieve_body( $resp ), true );
 			if ( $code >= 200 && $code < 300 && ! empty( $body['key'] ) ) {
+				$key = (string) $body['key'];
+				if ( class_exists( 'BizCity_LLM_Client' ) ) {
+					// [2026-07-27 Johnny Chu] PHASE-0.49-MASTER-CONFIG-401 — normalize
+					// gateway-provided key before persisting to site option.
+					$key = BizCity_LLM_Client::normalize_gateway_api_key( $key );
+				}
 				// [2026-06-11 Johnny Chu] HOTFIX — per-site option
-				update_option( self::OPT_API_KEY, (string) $body['key'] );
+				update_option( self::OPT_API_KEY, $key );
 			} else {
 				$err = ! empty( $body['message'] ) ? (string) $body['message'] : ( 'HTTP ' . $code );
 			}
@@ -344,13 +364,14 @@ class BizCity_TwinChat_Settings_Page {
 	// [2026-06-08 Johnny Chu] PHASE-MASTER-PLANS — tab navigation constants.
 	const TAB_SETTINGS = 'settings';
 	const TAB_STATS    = 'stats';
+	const TAB_KG_RUNTIME = 'kg-runtime';
 
 	public function render() {
 		if ( ! current_user_can( 'manage_options' ) ) { return; }
 
 		// [2026-06-08 Johnny Chu] PHASE-MASTER-PLANS — tab switcher: Cài đặt | Thống kê.
 		$active_tab = isset( $_GET['tab'] ) ? sanitize_key( $_GET['tab'] ) : self::TAB_SETTINGS;
-		if ( ! in_array( $active_tab, [ self::TAB_SETTINGS, self::TAB_STATS ], true ) ) {
+		if ( ! in_array( $active_tab, [ self::TAB_SETTINGS, self::TAB_STATS, self::TAB_KG_RUNTIME ], true ) ) {
 			$active_tab = self::TAB_SETTINGS;
 		}
 		$page_url = admin_url( 'admin.php?page=' . self::PAGE_SLUG );
@@ -364,11 +385,20 @@ class BizCity_TwinChat_Settings_Page {
 			   class="nav-tab <?php echo $active_tab === self::TAB_STATS ? 'nav-tab-active' : ''; ?>">
 				📊 <?php esc_html_e( 'Thống kê', 'bizcity-twin-ai' ); ?>
 			</a>
+			<a href="<?php echo esc_url( add_query_arg( 'tab', self::TAB_KG_RUNTIME, $page_url ) ); ?>"
+			   class="nav-tab <?php echo $active_tab === self::TAB_KG_RUNTIME ? 'nav-tab-active' : ''; ?>">
+				🧪 <?php esc_html_e( 'KG Runtime Verify', 'bizcity-twin-ai' ); ?>
+			</a>
 		</nav>
 		<?php
 
 		if ( $active_tab === self::TAB_STATS ) {
 			$this->render_usage_tab();
+			return;
+		}
+
+		if ( $active_tab === self::TAB_KG_RUNTIME ) {
+			$this->render_kg_runtime_tab();
 			return;
 		}
 
@@ -381,6 +411,8 @@ class BizCity_TwinChat_Settings_Page {
 			$this->render_account_status_card();
 			// [2026-06-09 Johnny Chu] PHASE-MASTER-PLANS — Plan config card.
 			$this->render_plan_config_card();
+			// [2026-07-15 Johnny Chu] R-CRON-TIER-UNIFY — embed cron tier policy on canonical TwinChat settings path.
+			$this->render_cron_tier_policy_card();
 			$this->render_install_guide();
 			$canonical->render_page();
 			return;
@@ -629,8 +661,10 @@ class BizCity_TwinChat_Settings_Page {
 			'bizcity-tarot'            => '🔮 Tarot / Tử vi',
 		];
 
-		$nonce    = wp_create_nonce( 'bizcity_plan_config' );
-		$ajax_url = admin_url( 'admin-ajax.php' );
+		$nonce     = wp_create_nonce( 'bizcity_plan_config' );
+		$ajax_url  = admin_url( 'admin-ajax.php' );
+		// [2026-07-14 Johnny Chu] R-GW-API-CATALOG — dedicated nonce for entitlement refresh endpoint.
+		$ent_nonce = wp_create_nonce( 'bizcity_twinchat_ent_refresh' );
 
 		// [2026-06-08 Johnny Chu] PHASE-MASTER-PLANS — always render full skeleton DOM;
 		// elements are hidden until JS populates them after fetch. Fixes blank card when
@@ -645,6 +679,10 @@ class BizCity_TwinChat_Settings_Page {
 					📦 <?php esc_html_e( 'Gói dịch vụ hiện tại', 'bizcity-twin-ai' ); ?>
 				</h2>
 				<div style="display:flex;gap:8px;align-items:center;">
+					<span id="bzpc-ent-synced-at" style="color:#646970;font-size:12px;">Entitlement: —</span>
+					<button type="button" id="bzpc-ent-refresh-btn" class="button button-small">
+						🧭 <?php esc_html_e( 'Sync Entitlement', 'bizcity-twin-ai' ); ?>
+					</button>
 					<span id="bzpc-fetched-at" style="color:#646970;font-size:12px;">—</span>
 					<button type="button" id="bzpc-refresh-btn" class="button button-small">
 						🔄 <?php esc_html_e( 'Làm mới', 'bizcity-twin-ai' ); ?>
@@ -703,6 +741,7 @@ class BizCity_TwinChat_Settings_Page {
 		<script>
 		(function() {
 			var btn       = document.getElementById('bzpc-refresh-btn');
+			var entBtn    = document.getElementById('bzpc-ent-refresh-btn');
 			var loadEl    = document.getElementById('bzpc-loading');
 			var headerEl   = document.getElementById('bzpc-header');
 			var keyInfoEl  = document.getElementById('bzpc-keyinfo');
@@ -713,7 +752,9 @@ class BizCity_TwinChat_Settings_Page {
 			var pluginsEl  = document.getElementById('bzpc-plugins');
 			var quotaTbl   = document.getElementById('bzpc-quota-table');
 			var fetchedAt  = document.getElementById('bzpc-fetched-at');
+			var entSyncAt  = document.getElementById('bzpc-ent-synced-at');
 			var gateway    = <?php echo wp_json_encode( self::get_gateway_url() ); ?>;
+			var ENT_NONCE  = <?php echo wp_json_encode( $ent_nonce ); ?>;
 
 			var tierStyles = {
 				free:           'background:#888;color:#fff',
@@ -839,7 +880,11 @@ class BizCity_TwinChat_Settings_Page {
 					if ( resp && resp.success && resp.data ) {
 						renderPlanCard( resp.data );
 					} else {
-						if ( loadEl ) loadEl.textContent = '❌ Không tải được dữ liệu gói.';
+						// [2026-07-23 Johnny Chu] HOTFIX-SYNC-TRACE — surface the upstream reason instead of hiding it behind a generic failure.
+						var planErr = resp && resp.data && resp.data.message ? resp.data.message : (resp && resp.data ? resp.data : 'Không tải được dữ liệu gói.');
+						var planCode = resp && resp.data && resp.data.code ? ' [' + resp.data.code + ']' : '';
+						var planStatus = resp && resp.data && resp.data.status ? ' HTTP ' + resp.data.status : '';
+						if ( loadEl ) loadEl.textContent = '❌ ' + planErr + planCode + planStatus;
 					}
 				} )
 				.catch( function(e) {
@@ -850,14 +895,311 @@ class BizCity_TwinChat_Settings_Page {
 				} );
 			}
 
-			// Always auto-fetch on page load (use cache if available, force=false).
-			fetchPlanConfig( false );
+			function syncEntitlement( force ) {
+				if ( entBtn ) {
+					entBtn.disabled = true;
+					entBtn.textContent = '⏳ Sync...';
+				}
+				if ( entSyncAt ) {
+					entSyncAt.textContent = 'Entitlement: syncing...';
+				}
+
+				var fd = new FormData();
+				fd.append( 'action', 'bizcity_twinchat_refresh_entitlement' );
+				fd.append( 'nonce', ENT_NONCE );
+				if ( force ) fd.append( 'force_refresh', '1' );
+
+				return fetch( <?php echo wp_json_encode( $ajax_url ); ?>, {
+					method: 'POST',
+					credentials: 'same-origin',
+					body: fd,
+				} )
+				.then( function(r) { return r.json(); } )
+				.then( function(resp) {
+					if ( resp && resp.success && resp.data ) {
+						var d = resp.data;
+						var filesCount = Array.isArray( d.accepted_file_types ) ? d.accepted_file_types.length : 0;
+						if ( entSyncAt ) {
+							entSyncAt.textContent = 'Entitlement ✓ ' + new Date().toLocaleTimeString()
+								+ ' · ' + ( d.master_level || 'free' )
+								+ ' · files=' + filesCount;
+						}
+					} else {
+						// [2026-07-23 Johnny Chu] HOTFIX-SYNC-TRACE — show concrete upstream auth/network/decode error in the admin card.
+						var entErr = resp && resp.data && resp.data.message ? resp.data.message : 'sync failed';
+						var entCode = resp && resp.data && resp.data.code ? ' [' + resp.data.code + ']' : '';
+						var entStatus = resp && resp.data && resp.data.status ? ' HTTP ' + resp.data.status : '';
+						if ( entSyncAt ) entSyncAt.textContent = 'Entitlement ✖ ' + entErr + entCode + entStatus;
+					}
+				} )
+				.catch( function() {
+					if ( entSyncAt ) entSyncAt.textContent = 'Entitlement ✖ network error';
+				} )
+				.then( function() {
+					if ( entBtn ) {
+						entBtn.disabled = false;
+						entBtn.textContent = '🧭 Sync Entitlement';
+					}
+				} );
+			}
+
+			// [2026-07-14 Johnny Chu] R-GW-API-CATALOG — one-shot bootload: sync entitlement first, then refresh plan card.
+			syncEntitlement( true ).then( function() {
+				fetchPlanConfig( true );
+			} );
 
 			if ( btn ) {
 				btn.addEventListener( 'click', function() { fetchPlanConfig( true ); } );
 			}
+			if ( entBtn ) {
+				entBtn.addEventListener( 'click', function() {
+					syncEntitlement( true ).then( function() {
+						fetchPlanConfig( true );
+					} );
+				} );
+			}
 		})();
 		</script>
+		<?php
+	}
+
+	/**
+	 * [2026-07-15 Johnny Chu] R-CRON-TIER-UNIFY — unified Cron Tier policy card.
+	 *
+	 * Move cron-tier controls into canonical settings page
+	 * (admin.php?page=bizcity-twinchat-settings) to avoid split UX.
+	 */
+	private function render_cron_tier_policy_card(): void {
+		if ( ! class_exists( 'BizCity_Cron_Tier_Settings' ) ) {
+			return;
+		}
+
+		$minutes = BizCity_Cron_Tier_Settings::get_tier_minutes();
+		$read    = BizCity_Cron_Tier_Settings::is_file_first_read_switch();
+		$primary = BizCity_Cron_Tier_Settings::is_file_primary_write();
+		// [2026-07-23 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — expose graph embedding migration cron flag in unified settings.
+		$graph_embedding_migration = method_exists( 'BizCity_Cron_Tier_Settings', 'is_graph_embedding_migration_enabled' )
+			? BizCity_Cron_Tier_Settings::is_graph_embedding_migration_enabled()
+			: (bool) get_option( 'bizcity_kg_v08_graph_embedding_migration_enabled', false );
+		// [2026-07-23 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — expose triplet raw payload SQL drain toggle.
+		$triplet_raw_migration = method_exists( 'BizCity_Cron_Tier_Settings', 'is_triplet_raw_migration_enabled' )
+			? BizCity_Cron_Tier_Settings::is_triplet_raw_migration_enabled()
+			: (bool) get_option( 'bizcity_kg_v09_triplet_raw_migration_enabled', true );
+		$cur     = BizCity_Cron_Tier_Settings::current_tier();
+		$curmin  = BizCity_Cron_Tier_Settings::current_minutes();
+
+		$saved  = isset( $_GET['cron_saved'] ) && (string) $_GET['cron_saved'] === '1';
+		$synced = isset( $_GET['cron_synced'] ) ? sanitize_key( (string) $_GET['cron_synced'] ) : '';
+
+		$hub_raw = sanitize_key( (string) get_option( 'bizcity_hub_master_level', 'free' ) );
+		if ( $hub_raw === '' ) {
+			$hub_raw = 'free';
+		}
+
+		$hub_tier = sanitize_key( (string) get_option( 'bizcity_hub_master_tier', '' ) );
+		if ( $hub_tier === '' ) {
+			if ( class_exists( 'BizCity_LLM_Client' ) ) {
+				$hub_tier = BizCity_LLM_Client::tier_bucket_from_master_level( $hub_raw );
+			} else {
+				$hub_tier = BizCity_Cron_Tier_Settings::current_tier();
+			}
+		}
+
+		$hub_label = sanitize_text_field( (string) get_option( 'bizcity_hub_master_label', '' ) );
+		if ( $hub_label === '' ) {
+			$hub_label = strtoupper( $hub_raw );
+		}
+
+		$sync_ts       = (int) get_option( 'bizcity_hub_master_sync_ts', 0 );
+		$sync_now      = (int) current_time( 'timestamp' );
+		$sync_is_stale = $sync_ts <= 0 || ( ( $sync_now - $sync_ts ) > HOUR_IN_SECONDS );
+		$sync_badge    = $sync_is_stale ? __( 'STALE', 'bizcity-twin-ai' ) : __( 'FRESH', 'bizcity-twin-ai' );
+		$sync_style    = $sync_is_stale
+			? 'display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;background:#fbeaea;color:#8a2424;border:1px solid #e7b8b8;'
+			: 'display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;background:#e7f6ec;color:#0a7a37;border:1px solid #b5dfc4;';
+
+		$sync_desc = $sync_ts > 0
+			? sprintf(
+				/* translators: 1: relative age, 2: absolute datetime */
+				__( 'Lần sync gần nhất: %1$s trước (%2$s).', 'bizcity-twin-ai' ),
+				human_time_diff( $sync_ts, $sync_now ),
+				wp_date( 'Y-m-d H:i:s', $sync_ts )
+			)
+			: __( 'Chưa có lần sync thành công từ Hub.', 'bizcity-twin-ai' );
+
+		$tier_map_tip = __( 'Mapping từ Hub sang Cron tier: master_pro -> pro, master_premium -> premium, master_enterprise -> enterprise.', 'bizcity-twin-ai' );
+		?>
+		<div id="bz-cron-tier-card"
+			class="bizcity-llm-card"
+			style="margin:8px 0 18px;padding:16px 20px;background:#fff;border:1px solid #c3c4c7;border-left:4px solid #8f5fe8;border-radius:4px;">
+			<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+				<h2 style="margin:0;font-size:16px;">
+					⏱ <?php esc_html_e( 'Cron Tier Policy (Unified)', 'bizcity-twin-ai' ); ?>
+				</h2>
+				<span style="color:#646970;font-size:12px;"><?php esc_html_e( 'Chung path với API key, plan và usage dashboard.', 'bizcity-twin-ai' ); ?></span>
+			</div>
+
+			<?php if ( $saved ) : ?>
+				<div class="notice notice-success inline" style="margin:10px 0 0;padding:8px 12px;">
+					<p style="margin:0;"><?php esc_html_e( 'Đã lưu policy Cron tier. Các job KG đã được reschedule.', 'bizcity-twin-ai' ); ?></p>
+				</div>
+			<?php endif; ?>
+
+			<?php if ( $synced === '1' ) : ?>
+				<div class="notice notice-success inline" style="margin:10px 0 0;padding:8px 12px;">
+					<p style="margin:0;"><?php esc_html_e( 'Đã sync Twin Master tier từ LLM Router.', 'bizcity-twin-ai' ); ?></p>
+				</div>
+			<?php elseif ( $synced === '0' ) : ?>
+				<div class="notice notice-warning inline" style="margin:10px 0 0;padding:8px 12px;">
+					<p style="margin:0;"><?php esc_html_e( 'Sync thất bại hoặc chưa cấu hình API key gateway. Kiểm tra phần API & Gateway ở trên.', 'bizcity-twin-ai' ); ?></p>
+				</div>
+			<?php endif; ?>
+
+			<table class="widefat striped" style="margin-top:12px;">
+				<tbody>
+					<tr>
+						<th style="width:280px;"><?php esc_html_e( 'Hub master level (raw)', 'bizcity-twin-ai' ); ?></th>
+						<td>
+							<strong><?php echo esc_html( $hub_label ); ?></strong>
+							(<code><?php echo esc_html( $hub_raw ); ?></code>)
+						</td>
+					</tr>
+					<tr>
+						<th><?php esc_html_e( 'Tier dùng cho Cron (normalized)', 'bizcity-twin-ai' ); ?></th>
+						<td>
+							<code><?php echo esc_html( $hub_tier ); ?></code>
+							<span class="dashicons dashicons-editor-help" style="color:#646970;vertical-align:middle;" title="<?php echo esc_attr( $tier_map_tip ); ?>" aria-label="<?php echo esc_attr( $tier_map_tip ); ?>"></span>
+						</td>
+					</tr>
+					<tr>
+						<th><?php esc_html_e( 'Trạng thái sync từ Hub', 'bizcity-twin-ai' ); ?></th>
+						<td>
+							<span style="<?php echo esc_attr( $sync_style ); ?>"><?php echo esc_html( $sync_badge ); ?></span>
+							<span style="margin-left:8px;color:#646970;"><?php echo esc_html( $sync_desc ); ?></span>
+						</td>
+					</tr>
+				</tbody>
+			</table>
+
+			<p class="description" style="margin:10px 0 0;">
+				<?php esc_html_e( 'Hub (LLM Router) là nguồn dữ liệu plan/quota. Khu vực này chỉ cấu hình policy cron cục bộ (minutes và file-first flags) theo tier đã sync.', 'bizcity-twin-ai' ); ?>
+			</p>
+
+			<p style="margin:8px 0 14px;">
+				<?php
+				echo esc_html(
+					sprintf(
+						/* translators: 1: tier name, 2: minutes */
+						__( 'Site này đang ở tier: %1$s → chạy mỗi %2$d phút.', 'bizcity-twin-ai' ),
+						strtoupper( $cur ),
+						$curmin
+					)
+				);
+				?>
+			</p>
+
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin: 8px 0 16px;">
+				<input type="hidden" name="action" value="bizcity_cron_tiers_sync_now">
+				<?php wp_nonce_field( 'bizcity_cron_tiers_sync_now' ); ?>
+				<?php submit_button( __( 'Sync now từ LLM Router', 'bizcity-twin-ai' ), 'secondary', 'submit', false ); ?>
+			</form>
+
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+				<input type="hidden" name="action" value="bizcity_cron_tiers_save">
+				<?php wp_nonce_field( 'bizcity_cron_tiers_save' ); ?>
+
+				<h3 style="margin:0 0 8px;"><?php esc_html_e( 'Tần suất cron (phút) theo tier', 'bizcity-twin-ai' ); ?></h3>
+				<table class="form-table" role="presentation" style="margin-top:0;">
+					<tbody>
+						<?php
+						$labels = array(
+							'free'       => __( 'Free (TwinMaster client / hub free)', 'bizcity-twin-ai' ),
+							'pro'        => __( 'Pro (TwinMaster Pro)', 'bizcity-twin-ai' ),
+							'premium'    => __( 'Premium (Twin Premium)', 'bizcity-twin-ai' ),
+							'enterprise' => __( 'Enterprise', 'bizcity-twin-ai' ),
+						);
+						foreach ( $labels as $tier => $label ) :
+							?>
+							<tr>
+								<th scope="row" style="padding-top:8px;padding-bottom:8px;"><label for="min_<?php echo esc_attr( $tier ); ?>"><?php echo esc_html( $label ); ?></label></th>
+								<td style="padding-top:8px;padding-bottom:8px;">
+									<input type="number" min="1" max="1440" step="1"
+										name="min_<?php echo esc_attr( $tier ); ?>"
+										id="min_<?php echo esc_attr( $tier ); ?>"
+										value="<?php echo esc_attr( (int) $minutes[ $tier ] ); ?>" class="small-text">
+									<?php esc_html_e( 'phút / lần', 'bizcity-twin-ai' ); ?>
+								</td>
+							</tr>
+						<?php endforeach; ?>
+					</tbody>
+				</table>
+
+				<h3 style="margin:6px 0 8px;"><?php esc_html_e( 'File-primary hard cut cho KG Learning', 'bizcity-twin-ai' ); ?></h3>
+				<table class="form-table" role="presentation" style="margin-top:0;">
+					<tbody>
+						<tr>
+							<th scope="row" style="padding-top:8px;padding-bottom:8px;"><?php esc_html_e( 'Read-switch filestore', 'bizcity-twin-ai' ); ?></th>
+							<td style="padding-top:8px;padding-bottom:8px;">
+								<label>
+									<input type="checkbox" name="file_first_read" value="1" <?php checked( $read ); ?>>
+									<?php esc_html_e( 'Đọc ưu tiên từ filestore trước SQL (mặc định BẬT cho hard cut).', 'bizcity-twin-ai' ); ?>
+								</label>
+							</td>
+						</tr>
+						<tr>
+							<th scope="row" style="padding-top:8px;padding-bottom:8px;"><?php esc_html_e( 'File-primary write path', 'bizcity-twin-ai' ); ?></th>
+							<td style="padding-top:8px;padding-bottom:8px;">
+								<label>
+									<input type="checkbox" name="file_primary_write" value="1" <?php checked( $primary ); ?>>
+									<?php esc_html_e( 'Ưu tiên body ở filestore: sau khi ghi file thành công sẽ scrub inline body trong SQL (mặc định BẬT).', 'bizcity-twin-ai' ); ?>
+								</label>
+							</td>
+						</tr>
+						<tr>
+							<th scope="row" style="padding-top:8px;padding-bottom:8px;"><?php esc_html_e( 'Graph embedding migration', 'bizcity-twin-ai' ); ?></th>
+							<td style="padding-top:8px;padding-bottom:8px;">
+								<label>
+									<input type="checkbox" name="graph_embedding_migration" value="1" <?php checked( $graph_embedding_migration ); ?>>
+									<?php esc_html_e( 'Cron migrate embedding LONGTEXT cũ của kg_entities/kg_relations sang entities.embed.bin / relations.embed.bin rồi clear SQL sau khi ghi file thành công (mặc định BẬT).', 'bizcity-twin-ai' ); ?>
+								</label>
+								<p class="description" style="margin:6px 0 0;"><?php esc_html_e( 'Batch mặc định 100 entity + 100 relation mỗi tick theo tier hiện tại; có thể tắt checkbox này để rollback/dừng drain.', 'bizcity-twin-ai' ); ?></p>
+							</td>
+						</tr>
+						<tr>
+							<th scope="row" style="padding-top:8px;padding-bottom:8px;"><?php esc_html_e( 'Triplet raw migration', 'bizcity-twin-ai' ); ?></th>
+							<td style="padding-top:8px;padding-bottom:8px;">
+								<label>
+									<input type="checkbox" name="triplet_raw_migration" value="1" <?php checked( $triplet_raw_migration ); ?>>
+									<?php esc_html_e( 'Cron migrate raw_llm_output của kg_triplet_queue sang notebooks/{uuid}/triplet_queue/YYYY-MM.jsonl và scrub SQL TEXT (mặc định BẬT).', 'bizcity-twin-ai' ); ?>
+								</label>
+								<p class="description" style="margin:6px 0 0;"><?php esc_html_e( 'Khi bật, triplet mới cũng ưu tiên ghi raw payload vào JSONL để tránh phình DB.', 'bizcity-twin-ai' ); ?></p>
+							</td>
+						</tr>
+					</tbody>
+				</table>
+
+				<?php submit_button( __( 'Lưu policy Cron', 'bizcity-twin-ai' ), 'primary', 'submit', false ); ?>
+			</form>
+
+			<?php if ( $saved || $synced !== '' ) : ?>
+				<script type="text/javascript">
+				(function() {
+					// [2026-07-15 Johnny Chu] R-CRON-TIER-UNIFY - keep focus on updated cron policy block after save/sync redirect.
+					var el = document.getElementById('bz-cron-tier-card');
+					if (!el) return;
+					if (typeof el.scrollIntoView === 'function') {
+						try { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+						catch (e) { el.scrollIntoView(); }
+					}
+					el.style.transition = 'box-shadow .25s ease';
+					el.style.boxShadow = '0 0 0 3px rgba(143,95,232,.25)';
+					setTimeout(function() {
+						el.style.boxShadow = '';
+					}, 1800);
+				})();
+				</script>
+			<?php endif; ?>
+		</div>
 		<?php
 	}
 
@@ -882,10 +1224,79 @@ class BizCity_TwinChat_Settings_Page {
 		] );
 
 		if ( is_wp_error( $result ) ) {
-			wp_send_json_error( $result->get_error_message() );
+			// [2026-07-23 Johnny Chu] HOTFIX-SYNC-TRACE — keep code/status so admin UI can show why sync failed.
+			$data = $result->get_error_data();
+			wp_send_json_error( array(
+				'message' => $result->get_error_message(),
+				'code'    => $result->get_error_code(),
+				'status'  => is_array( $data ) && isset( $data['status'] ) ? (int) $data['status'] : 0,
+				'data'    => is_array( $data ) ? $data : array(),
+			) );
 		}
 
 		wp_send_json_success( $result );
+	}
+
+	/**
+	 * [2026-07-14 Johnny Chu] R-GW-API-CATALOG — AJAX: refresh entitlement immediately.
+	 *
+	 * Calls hub entitlement endpoint via BizCity_LLM_Client so local cached options
+	 * are synced on-demand from the admin settings page.
+	 */
+	public function ajax_refresh_entitlement(): void {
+		check_ajax_referer( 'bizcity_twinchat_ent_refresh', 'nonce' );
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( 'Permission denied.' );
+		}
+
+		if ( ! class_exists( 'BizCity_LLM_Client' ) ) {
+			wp_send_json_error( 'BizCity_LLM_Client not loaded.' );
+		}
+
+		$user_id = get_current_user_id();
+		if ( $user_id <= 0 ) {
+			wp_send_json_error( 'No current user.' );
+		}
+
+		$force = ! empty( $_POST['force_refresh'] );
+		// [2026-07-14 Johnny Chu] R-GW-API-CATALOG — use fresh=1 to force hub read on manual/boot sync.
+		$res = BizCity_LLM_Client::instance()->get_entitlement(
+			max( 1, $user_id ),
+			[
+				'fresh'   => $force,
+				'timeout' => 10,
+			]
+		);
+
+		if ( is_wp_error( $res ) ) {
+			// [2026-07-23 Johnny Chu] HOTFIX-SYNC-TRACE — keep code/status so admin UI can show why sync failed.
+			$data = $res->get_error_data();
+			wp_send_json_error( array(
+				'message' => $res->get_error_message(),
+				'code'    => $res->get_error_code(),
+				'status'  => is_array( $data ) && isset( $data['status'] ) ? (int) $data['status'] : 0,
+				'data'    => is_array( $data ) ? $data : array(),
+			) );
+		}
+
+		$accepted = [];
+		if ( isset( $res['accepted_file_types'] ) && is_array( $res['accepted_file_types'] ) ) {
+			foreach ( (array) $res['accepted_file_types'] as $ext ) {
+				$e = sanitize_key( strtolower( trim( (string) $ext ) ) );
+				if ( $e !== '' && ! in_array( $e, $accepted, true ) ) {
+					$accepted[] = $e;
+				}
+			}
+		}
+
+		wp_send_json_success(
+			[
+				'master_level'        => isset( $res['master_level'] ) ? sanitize_key( (string) $res['master_level'] ) : (string) get_option( 'bizcity_hub_master_level', 'free' ),
+				'accepted_file_types' => $accepted,
+				'kg_max_file_size_mb' => isset( $res['kg_max_file_size_mb'] ) ? (int) $res['kg_max_file_size_mb'] : (int) get_option( 'bizcity_hub_kg_max_file_size_mb', 5 ),
+				'synced_at'           => time(),
+			]
+		);
 	}
 
 	/* ================================================================
@@ -1422,6 +1833,366 @@ class BizCity_TwinChat_Settings_Page {
 		}
 
 		wp_send_json_success( $result );
+	}
+
+	/**
+	 * [2026-07-23 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — AJAX runtime verify:
+	 * - verify cron schedules exist
+	 * - collect before/after counts for heavy KG tables
+	 * - optionally run one migration batch (graph + triplet raw)
+	 */
+	public function ajax_kg_runtime_verify(): void {
+		check_ajax_referer( 'bizcity_kg_runtime_verify', 'nonce' );
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( 'Permission denied.' );
+		}
+		if ( ! class_exists( 'BizCity_KG_Database' ) ) {
+			wp_send_json_error( 'KG database layer is not loaded.' );
+		}
+
+		$run_batch = ! empty( $_POST['run_batch'] );
+
+		// [2026-07-23 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — enforce bind once before verify so schedule state reflects actual runtime hooks.
+		if ( class_exists( 'BizCity_KG_Filestore_Backfill' ) ) {
+			BizCity_KG_Filestore_Backfill::instance()->bind();
+		}
+		if ( class_exists( 'BizCity_KG_Graph_Embedding_Migration' ) ) {
+			BizCity_KG_Graph_Embedding_Migration::instance()->bind();
+		}
+		if ( class_exists( 'BizCity_KG_Triplet_Raw_Migration' ) ) {
+			BizCity_KG_Triplet_Raw_Migration::instance()->bind();
+		}
+
+		$before   = $this->kg_runtime_collect_counts();
+		$batch    = array();
+		$errors   = array();
+
+		if ( $run_batch ) {
+			if ( class_exists( 'BizCity_KG_Graph_Embedding_Migration' ) ) {
+				$batch['graph'] = BizCity_KG_Graph_Embedding_Migration::instance()->run_once();
+			} else {
+				$errors[] = 'BizCity_KG_Graph_Embedding_Migration chưa load.';
+			}
+
+			if ( class_exists( 'BizCity_KG_Triplet_Raw_Migration' ) ) {
+				$batch['triplet'] = BizCity_KG_Triplet_Raw_Migration::instance()->run_once();
+			} else {
+				$errors[] = 'BizCity_KG_Triplet_Raw_Migration chưa load.';
+			}
+		}
+
+		$after          = $this->kg_runtime_collect_counts();
+		$schedule_state = $this->kg_runtime_schedule_state();
+
+		$rows = array(
+			array(
+				'table'   => 'kg_entities',
+				'metric'  => 'embedding IS NOT NULL/<>\'\'',
+				'before'  => (int) $before['entities_embed_rows'],
+				'after'   => (int) $after['entities_embed_rows'],
+				'drained' => (int) $before['entities_embed_rows'] - (int) $after['entities_embed_rows'],
+			),
+			array(
+				'table'   => 'kg_relations',
+				'metric'  => 'embedding IS NOT NULL/<>\'\'',
+				'before'  => (int) $before['relations_embed_rows'],
+				'after'   => (int) $after['relations_embed_rows'],
+				'drained' => (int) $before['relations_embed_rows'] - (int) $after['relations_embed_rows'],
+			),
+			array(
+				'table'   => 'kg_triplet_queue',
+				'metric'  => 'raw_llm_output IS NOT NULL/<>\'\'',
+				'before'  => (int) $before['triplet_raw_rows'],
+				'after'   => (int) $after['triplet_raw_rows'],
+				'drained' => (int) $before['triplet_raw_rows'] - (int) $after['triplet_raw_rows'],
+			),
+		);
+
+		$graph_rows = 0;
+		$graph_ms   = 0;
+		if ( ! empty( $batch['graph'] ) && is_array( $batch['graph'] ) ) {
+			$graph_rows = (int) ( $batch['graph']['entities'] ?? 0 ) + (int) ( $batch['graph']['relations'] ?? 0 );
+			$graph_ms   = (int) ( $batch['graph']['elapsed_ms'] ?? 0 );
+		}
+		$triplet_rows = 0;
+		$triplet_ms   = 0;
+		if ( ! empty( $batch['triplet'] ) && is_array( $batch['triplet'] ) ) {
+			$triplet_rows = (int) ( $batch['triplet']['migrated'] ?? 0 );
+			$triplet_ms   = (int) ( $batch['triplet']['elapsed_ms'] ?? 0 );
+		}
+
+		$throughput = array(
+			'graph' => array(
+				'rows'          => $graph_rows,
+				'elapsed_ms'    => $graph_ms,
+				'rows_per_sec'  => $graph_ms > 0 ? round( ( $graph_rows * 1000 ) / $graph_ms, 2 ) : 0,
+			),
+			'triplet' => array(
+				'rows'          => $triplet_rows,
+				'elapsed_ms'    => $triplet_ms,
+				'rows_per_sec'  => $triplet_ms > 0 ? round( ( $triplet_rows * 1000 ) / $triplet_ms, 2 ) : 0,
+			),
+		);
+
+		wp_send_json_success( array(
+			'now'            => wp_date( 'Y-m-d H:i:s' ),
+			'schedule_state' => $schedule_state,
+			'before'         => $before,
+			'after'          => $after,
+			'rows'           => $rows,
+			'batch'          => $batch,
+			'throughput'     => $throughput,
+			'ran_batch'      => (bool) $run_batch,
+			'errors'         => $errors,
+		) );
+	}
+
+	private function kg_runtime_collect_counts(): array {
+		global $wpdb;
+		$db = BizCity_KG_Database::instance();
+
+		$tbl_entities  = $db->tbl_entities();
+		$tbl_relations = $db->tbl_relations();
+		$tbl_triplets  = $db->tbl_triplet_queue();
+
+		return array(
+			'entities_total'      => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$tbl_entities}" ),
+			'entities_embed_rows' => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$tbl_entities} WHERE embedding IS NOT NULL AND embedding<>''" ),
+			'relations_total'      => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$tbl_relations}" ),
+			'relations_embed_rows' => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$tbl_relations} WHERE embedding IS NOT NULL AND embedding<>''" ),
+			'triplet_total'        => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$tbl_triplets}" ),
+			'triplet_raw_rows'     => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$tbl_triplets} WHERE raw_llm_output IS NOT NULL AND raw_llm_output<>''" ),
+		);
+	}
+
+	private function kg_runtime_schedule_state(): array {
+		$hooks = array(
+			array( 'label' => 'KG Filestore Backfill',       'hook' => 'bizcity_kg_filestore_backfill' ),
+			array( 'label' => 'KG Graph Embed Migration',    'hook' => 'bizcity_kg_graph_embedding_migration' ),
+			array( 'label' => 'KG Triplet Raw Migration',    'hook' => 'bizcity_kg_triplet_raw_migration' ),
+		);
+
+		$out = array();
+		foreach ( $hooks as $it ) {
+			$hook = (string) $it['hook'];
+			$ts   = wp_next_scheduled( $hook );
+			// [2026-07-23 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — expose the last callback separately from the next scheduled timestamp.
+			$last_option = 'bizcity_kg_' . ( false !== strpos( $hook, 'filestore_backfill' ) ? 'filestore_backfill' : ( false !== strpos( $hook, 'graph_embedding' ) ? 'graph_embedding_migration' : 'triplet_raw_migration' ) ) . '_last_run';
+			$last_run    = get_option( $last_option, array() );
+			$last_ts     = is_array( $last_run ) ? (int) ( $last_run['at'] ?? 0 ) : 0;
+			$out[] = array(
+				'label'      => (string) $it['label'],
+				'hook'       => $hook,
+				'scheduled'  => (bool) $ts,
+				'schedule'   => $ts ? (string) wp_get_schedule( $hook ) : '',
+				'next_ts'    => $ts ? (int) $ts : 0,
+				'next_run'   => $ts ? wp_date( 'Y-m-d H:i:s', (int) $ts ) : '',
+				'last_run'   => $last_ts ? wp_date( 'Y-m-d H:i:s', $last_ts ) : '',
+			);
+		}
+		return $out;
+	}
+
+	private function render_kg_runtime_tab(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+		$nonce    = wp_create_nonce( 'bizcity_kg_runtime_verify' );
+		$ajax_url = admin_url( 'admin-ajax.php' );
+		?>
+		<div class="wrap bizcity-llm-wrap" id="bzkgr-wrap" style="margin-top:8px;">
+			<div class="bizcity-llm-card" style="padding:14px 16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+				<strong>🧪 <?php esc_html_e( 'KG Runtime Verify', 'bizcity-twin-ai' ); ?></strong>
+				<span style="color:#646970;">
+					<?php esc_html_e( 'Xác nhận cron có schedule thật + chạy 1 batch drain và so sánh before/after.', 'bizcity-twin-ai' ); ?>
+				</span>
+				<button type="button" id="bzkgr-run" class="button button-primary" style="margin-left:auto;">
+					▶ <?php esc_html_e( 'Run verify + 1 batch drain', 'bizcity-twin-ai' ); ?>
+				</button>
+				<button type="button" id="bzkgr-snap" class="button">
+					📸 <?php esc_html_e( 'Snapshot only', 'bizcity-twin-ai' ); ?>
+				</button>
+				<span id="bzkgr-state" style="color:#646970;"></span>
+			</div>
+
+			<div class="bizcity-llm-card" style="margin-top:12px;">
+				<h3 style="margin-top:0;">⏰ <?php esc_html_e( 'Cron Schedule State', 'bizcity-twin-ai' ); ?></h3>
+				<table class="widefat striped">
+					<thead>
+						<tr>
+							<th><?php esc_html_e( 'Hook', 'bizcity-twin-ai' ); ?></th>
+							<th><?php esc_html_e( 'Scheduled', 'bizcity-twin-ai' ); ?></th>
+							<th><?php esc_html_e( 'Schedule Name', 'bizcity-twin-ai' ); ?></th>
+							<th><?php esc_html_e( 'Next Run', 'bizcity-twin-ai' ); ?></th>
+							<th><?php esc_html_e( 'Last Actual Run', 'bizcity-twin-ai' ); ?></th>
+						</tr>
+					</thead>
+					<tbody id="bzkgr-schedule-body">
+					<tr><td colspan="5" style="color:#646970;">—</td></tr>
+					</tbody>
+				</table>
+			</div>
+
+			<div class="bizcity-llm-card" style="margin-top:12px;">
+				<h3 style="margin-top:0;">📉 <?php esc_html_e( 'Before / After Count (Heavy Rows)', 'bizcity-twin-ai' ); ?></h3>
+				<table class="widefat striped">
+					<thead>
+						<tr>
+							<th><?php esc_html_e( 'Table', 'bizcity-twin-ai' ); ?></th>
+							<th><?php esc_html_e( 'Metric', 'bizcity-twin-ai' ); ?></th>
+							<th><?php esc_html_e( 'Before', 'bizcity-twin-ai' ); ?></th>
+							<th><?php esc_html_e( 'After', 'bizcity-twin-ai' ); ?></th>
+							<th><?php esc_html_e( 'Drained', 'bizcity-twin-ai' ); ?></th>
+						</tr>
+					</thead>
+					<tbody id="bzkgr-count-body">
+						<tr><td colspan="5" style="color:#646970;">—</td></tr>
+					</tbody>
+				</table>
+			</div>
+
+			<div class="bizcity-llm-card" style="margin-top:12px;">
+				<h3 style="margin-top:0;">⚙ <?php esc_html_e( 'Batch Throughput', 'bizcity-twin-ai' ); ?></h3>
+				<div id="bzkgr-throughput" style="font-family:Consolas,monospace;color:#1d2327;white-space:pre-wrap;">—</div>
+				<div id="bzkgr-errors" style="margin-top:8px;color:#b32d2e;"></div>
+			</div>
+		</div>
+
+		<script type="text/javascript">
+		(function() {
+			var AJAX_URL = <?php echo wp_json_encode( $ajax_url ); ?>;
+			var NONCE    = <?php echo wp_json_encode( $nonce ); ?>;
+
+			function esc(v) {
+				return String(v == null ? '' : v)
+					.replace(/&/g, '&amp;')
+					.replace(/</g, '&lt;')
+					.replace(/>/g, '&gt;')
+					.replace(/"/g, '&quot;')
+					.replace(/'/g, '&#039;');
+			}
+
+			function setState(msg) {
+				var el = document.getElementById('bzkgr-state');
+				if (el) el.textContent = msg;
+			}
+
+			function renderSchedule(rows) {
+				var body = document.getElementById('bzkgr-schedule-body');
+				if (!body) return;
+				if (!rows || !rows.length) {
+					body.innerHTML = '<tr><td colspan="5" style="color:#646970;">No schedule rows.</td></tr>';
+					return;
+				}
+				var html = '';
+				for (var i = 0; i < rows.length; i++) {
+					var r = rows[i] || {};
+					html += '<tr>' +
+						'<td><strong>' + esc(r.label || r.hook || '') + '</strong><br><code>' + esc(r.hook || '') + '</code></td>' +
+						'<td>' + (r.scheduled ? '✅' : '❌') + '</td>' +
+						'<td><code>' + esc(r.schedule || '') + '</code></td>' +
+						'<td>' + esc(r.next_run || '—') + '</td>' +
+						'<td>' + esc(r.last_run || '—') + '</td>' +
+						'</tr>';
+				}
+				body.innerHTML = html;
+			}
+
+			function renderCounts(rows) {
+				var body = document.getElementById('bzkgr-count-body');
+				if (!body) return;
+				if (!rows || !rows.length) {
+					body.innerHTML = '<tr><td colspan="5" style="color:#646970;">No count rows.</td></tr>';
+					return;
+				}
+				var html = '';
+				for (var i = 0; i < rows.length; i++) {
+					var r = rows[i] || {};
+					var drained = Number(r.drained || 0);
+					var drainedColor = drained > 0 ? '#0a7a37' : '#646970';
+					html += '<tr>' +
+						'<td><code>' + esc(r.table || '') + '</code></td>' +
+						'<td><code>' + esc(r.metric || '') + '</code></td>' +
+						'<td>' + esc(r.before || 0) + '</td>' +
+						'<td>' + esc(r.after || 0) + '</td>' +
+						'<td style="font-weight:600;color:' + drainedColor + ';">' + esc(drained) + '</td>' +
+						'</tr>';
+				}
+				body.innerHTML = html;
+			}
+
+			function renderThroughput(data) {
+				var box = document.getElementById('bzkgr-throughput');
+				if (!box) return;
+				var t = data && data.throughput ? data.throughput : {};
+				var g = t.graph || {};
+				var q = t.triplet || {};
+				box.textContent =
+					'Graph migration: rows=' + (g.rows || 0) +
+					' | elapsed_ms=' + (g.elapsed_ms || 0) +
+					' | rows/s=' + (g.rows_per_sec || 0) + '\n' +
+					'Triplet raw migration: rows=' + (q.rows || 0) +
+					' | elapsed_ms=' + (q.elapsed_ms || 0) +
+					' | rows/s=' + (q.rows_per_sec || 0);
+			}
+
+			function renderErrors(data) {
+				var el = document.getElementById('bzkgr-errors');
+				if (!el) return;
+				var errs = data && data.errors ? data.errors : [];
+				if (!errs.length) {
+					el.textContent = '';
+					return;
+				}
+				el.innerHTML = '⚠ ' + errs.map(esc).join(' | ');
+			}
+
+			function runVerify(runBatch) {
+				setState(runBatch ? 'Đang chạy verify + drain batch…' : 'Đang lấy snapshot…');
+				var btnRun = document.getElementById('bzkgr-run');
+				var btnSnap = document.getElementById('bzkgr-snap');
+				if (btnRun) btnRun.disabled = true;
+				if (btnSnap) btnSnap.disabled = true;
+
+				var fd = new FormData();
+				fd.append('action', 'bizcity_twinchat_kg_runtime_verify');
+				fd.append('nonce', NONCE);
+				fd.append('run_batch', runBatch ? '1' : '0');
+
+				fetch(AJAX_URL, { method: 'POST', credentials: 'same-origin', body: fd })
+					.then(function(r) { return r.json(); })
+					.then(function(json) {
+						if (!(json && json.success && json.data)) {
+							var msg = (json && json.data) ? String(json.data) : 'Unknown error';
+							setState('❌ ' + msg);
+							return;
+						}
+						var data = json.data;
+						renderSchedule(data.schedule_state || []);
+						renderCounts(data.rows || []);
+						renderThroughput(data);
+						renderErrors(data);
+						setState('✅ ' + (runBatch ? 'Đã verify + chạy 1 batch' : 'Đã snapshot') + ' lúc ' + (data.now || '')); 
+					})
+					.catch(function(err) {
+						setState('❌ Lỗi mạng: ' + (err && err.message ? err.message : '')); 
+					})
+					.then(function() {
+						if (btnRun) btnRun.disabled = false;
+						if (btnSnap) btnSnap.disabled = false;
+					});
+			}
+
+			var btnRun = document.getElementById('bzkgr-run');
+			if (btnRun) btnRun.addEventListener('click', function() { runVerify(true); });
+			var btnSnap = document.getElementById('bzkgr-snap');
+			if (btnSnap) btnSnap.addEventListener('click', function() { runVerify(false); });
+
+			// [2026-07-23 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — auto snapshot on tab open so schedule state is visible immediately.
+			runVerify(false);
+		})();
+		</script>
+		<?php
 	}
 
 	/**

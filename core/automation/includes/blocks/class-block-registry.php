@@ -65,6 +65,13 @@ final class BizCity_Automation_Block_Registry {
 		if ( class_exists( 'BizCity_Automation_Action_Reply_Zalo_Each_Day' ) ) {
 			$this->register( new BizCity_Automation_Action_Reply_Zalo_Each_Day() );
 		}
+		// [2026-07-22 Johnny Chu] PHASE-3-TWIN-GPT — register same-day session memory load/append actions.
+		if ( class_exists( 'BizCity_Automation_Action_Load_Session_Memory_Day' ) ) {
+			$this->register( new BizCity_Automation_Action_Load_Session_Memory_Day() );
+		}
+		if ( class_exists( 'BizCity_Automation_Action_Append_Session_Memory_Day' ) ) {
+			$this->register( new BizCity_Automation_Action_Append_Session_Memory_Day() );
+		}
 		$this->register( new BizCity_Automation_Action_Send_Email() );
 		$this->register( new BizCity_Automation_Action_HTTP() );
 		$this->register( new BizCity_Automation_Action_DB_Write() );
@@ -73,6 +80,8 @@ final class BizCity_Automation_Block_Registry {
 		$this->register( new BizCity_Automation_Action_Capture_Attachment() );    // BE-7.C
 		$this->register( new BizCity_Automation_Action_Set_Pending_Intent() );    // BE-7.C
 		$this->register( new BizCity_Automation_Action_Consume_Attachment() );    // BE-7.C
+		// [2026-07-24 Johnny Chu] PHASE-0.46 W2 — direct workflow→notebook bridge action.
+		$this->register( new BizCity_Automation_Action_Capture_To_Notebook() );
 		$this->register( new BizCity_Automation_Action_Publish_WP_Post() );       // BE-7.C
 		$this->register( new BizCity_Automation_Action_Publish_FB_Post() );       // BE-7.C
 		$this->register( new BizCity_Automation_Action_Schedule_Event() );        // BE-7.D
@@ -93,6 +102,13 @@ final class BizCity_Automation_Block_Registry {
 		// [2026-07-08 Johnny Chu] PHASE-FAA2-TWINBRAIN REL-1 — action.run_astro_relation_assessment.
 		if ( class_exists( 'BizCity_Automation_Action_Run_Astro_Relation_Assessment' ) ) {
 			$this->register( new BizCity_Automation_Action_Run_Astro_Relation_Assessment() );
+		}
+		// [2026-07-15 Johnny Chu] PHASE-TWB-PRODUCTS — register products lookup and solution blocks.
+		if ( class_exists( 'BizCity_Automation_Action_Run_Products' ) ) {
+			$this->register( new BizCity_Automation_Action_Run_Products() );
+		}
+		if ( class_exists( 'BizCity_Automation_Action_Run_Products_Solution' ) ) {
+			$this->register( new BizCity_Automation_Action_Run_Products_Solution() );
 		}
 		// [2026-07-05 Johnny Chu] PHASE-FAA2-TWINBRAIN — action.pick_best_day_for_intent.
 		if ( class_exists( 'BizCity_Automation_Action_Pick_Best_Day_For_Intent' ) ) {
@@ -117,6 +133,10 @@ final class BizCity_Automation_Block_Registry {
 		// [2026-07-05 Johnny Chu] PHASE-IMG-TPL — action.generate_image
 		if ( class_exists( 'BizCity_Automation_Action_Generate_Image' ) ) {
 			$this->register( new BizCity_Automation_Action_Generate_Image() );
+		}
+		// [2026-07-21 Johnny Chu] PHASE-SEEDREAM-45 — action.edit_image.
+		if ( class_exists( 'BizCity_Automation_Action_Edit_Image' ) ) {
+			$this->register( new BizCity_Automation_Action_Edit_Image() );
 		}
 
 		$this->register( new BizCity_Automation_LLM_Compose() );

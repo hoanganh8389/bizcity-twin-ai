@@ -70,6 +70,35 @@ class BizCity_TwinChat_REST_Controller {
 			],
 		] );
 
+		// [2026-07-14 Johnny Chu] PHASE-0.43 — lexical document search endpoint (notebook/all notebooks).
+		register_rest_route( $ns, '/search-documents', [
+			'methods'             => 'GET',
+			'callback'            => [ $this, 'handle_search_documents' ],
+			'permission_callback' => [ $this, 'check_logged_in' ],
+			'args'                => [
+				'q'           => [ 'type' => 'string',  'required' => true ],
+				'scope'       => [ 'type' => 'string',  'default' => 'notebook' ],
+				'notebook_id' => [ 'type' => 'integer', 'required' => false ],
+				'page'        => [ 'type' => 'integer', 'default' => 1 ],
+				'per_page'    => [ 'type' => 'integer', 'default' => 20 ],
+			],
+		] );
+
+		// [2026-07-25 Johnny Chu] PHASE-0.47-KG-SEARCH-MATCHES — drill-down: every matching passage excerpt for one search-documents doc_key.
+		register_rest_route( $ns, '/search-documents/matches', [
+			'methods'             => 'GET',
+			'callback'            => [ $this, 'handle_search_document_matches' ],
+			'permission_callback' => [ $this, 'check_logged_in' ],
+			'args'                => [
+				'q'              => [ 'type' => 'string',  'required' => true ],
+				'doc_key'        => [ 'type' => 'string',  'required' => true ],
+				'notebook_id'    => [ 'type' => 'integer', 'required' => true ],
+				'character_uuid' => [ 'type' => 'string',  'required' => false ],
+				'page'           => [ 'type' => 'integer', 'default' => 1 ],
+				'per_page'       => [ 'type' => 'integer', 'default' => 30 ],
+			],
+		] );
+
 		// 2026-05-21 — API key health probe used by the React SetupApiKeyDialog
 		// (R-LEARN §6 E10 — "api key missing/invalid" surface).
 		//   GET  /api-key/status    → cached snapshot from get_api_key_status()
@@ -110,6 +139,45 @@ class BizCity_TwinChat_REST_Controller {
 			],
 		] );
 
+		// [2026-07-23 Johnny Chu] PHASE-0.44 — source-scoped learning evidence for drawer tab.
+		register_rest_route( $ns, '/sources/(?P<notebook_id>\d+)/(?P<source_id>\d+)/learning-log', [
+			'methods'             => 'GET',
+			'callback'            => [ $this, 'get_source_learning_log' ],
+			'permission_callback' => [ $this, 'check_logged_in' ],
+			'args'                => [
+				'notebook_id'    => [ 'type' => 'integer', 'required' => true ],
+				'source_id'      => [ 'type' => 'integer', 'required' => true ],
+				'limit'          => [ 'type' => 'integer', 'default' => 120 ],
+				'include_chunks' => [ 'type' => 'integer', 'default' => 1 ],
+				'chunk_limit'    => [ 'type' => 'integer', 'default' => 120 ],
+			],
+		] );
+
+		// [2026-07-25 Johnny Chu] HOTFIX async-retry — manual one-click retry for sources stuck 'failed' after async ingest exhausted attempts.
+		register_rest_route( $ns, '/sources/(?P<notebook_id>\d+)/(?P<source_id>\d+)/retry-ingest', [
+			'methods'             => 'POST',
+			'callback'            => [ $this, 'retry_source_ingest' ],
+			'permission_callback' => [ $this, 'check_logged_in' ],
+			'args'                => [
+				'notebook_id' => [ 'type' => 'integer', 'required' => true ],
+				'source_id'   => [ 'type' => 'integer', 'required' => true ],
+			],
+		] );
+
+		// [2026-07-25 Johnny Chu] PHASE-0.48-LEARNING-LOG-SHARE-LINK — mint a
+		// public no-login link to this source's learning console log (Source
+		// drawer "Learning Log" tab → Share button).
+		register_rest_route( $ns, '/sources/(?P<notebook_id>\d+)/(?P<source_id>\d+)/share-link', [
+			'methods'             => 'POST',
+			'callback'            => [ $this, 'create_source_share_link' ],
+			'permission_callback' => [ $this, 'check_logged_in' ],
+			'args'                => [
+				'notebook_id' => [ 'type' => 'integer', 'required' => true ],
+				'source_id'   => [ 'type' => 'integer', 'required' => true ],
+				'ttl_days'    => [ 'type' => 'integer', 'default' => 30 ],
+			],
+		] );
+
 		// Delete legacy passages by origin string (for notebooks predating bizcity_twinchat_sources)
 		// Sprint 5.0d — FE→BE event dispatch (whitelisted user-action types only).
 		// All other event types must be emitted server-side via Event_Bus::dispatch_v2().
@@ -117,6 +185,22 @@ class BizCity_TwinChat_REST_Controller {
 			'methods'             => 'POST',
 			'callback'            => [ $this, 'handle_dispatch_event' ],
 			'permission_callback' => [ $this, 'check_logged_in' ],
+		] );
+
+		// [2026-07-24 Johnny Chu] PHASE-0.46 W2 S2.3 — same-origin test/UI entry
+		// point into the canonical channel capture bridge. Lets "New Note" style
+		// UI (and manual smoke-testing) exercise the exact same
+		// BizCity_KG_Channel_Notebook_Bridge::capture() path a Zalo "@notebook"
+		// message goes through, without needing a live channel webhook.
+		register_rest_route( $ns, '/notebooks/quick-capture', [
+			'methods'             => 'POST',
+			'callback'            => [ $this, 'handle_quick_capture' ],
+			'permission_callback' => [ $this, 'check_logged_in' ],
+			'args'                => [
+				'title'   => [ 'type' => 'string', 'default' => '' ],
+				'content' => [ 'type' => 'string', 'required' => true ],
+				'day_key' => [ 'type' => 'string', 'default' => '' ],
+			],
 		] );
 
 		// Wave 0.18.3 — Notebook persona context (character + provider chips).
@@ -187,6 +271,50 @@ class BizCity_TwinChat_REST_Controller {
 		return true;
 	}
 
+	/* ── Notebook quick-capture (PHASE-0.46 W2 S2.3) ───────────────────── */
+
+	/**
+	 * POST /bizcity-twinchat/v1/notebooks/quick-capture
+	 *
+	 * Same-origin test/UI entry point that calls
+	 * BizCity_KG_Channel_Notebook_Bridge::capture() with channel='twinchat'
+	 * for the CURRENT logged-in user only (never trusts a client-supplied
+	 * user_id). No `inbound{}` block is passed — there is no external chat
+	 * to reply to, the caller already sees the result in the response body.
+	 */
+	public function handle_quick_capture( WP_REST_Request $request ) {
+		if ( ! class_exists( 'BizCity_KG_Channel_Notebook_Bridge' ) ) {
+			return new WP_Error( 'service_unavailable', 'Notebook capture bridge chưa sẵn sàng trên site này.', [ 'status' => 503 ] );
+		}
+
+		$content = trim( (string) $request->get_param( 'content' ) );
+		if ( $content === '' ) {
+			return new WP_Error( 'invalid_param', 'Thiếu nội dung để lưu vào ghi chú.', [ 'status' => 400 ] );
+		}
+
+		$envelope = [
+			'user_id'    => get_current_user_id(),
+			'channel'    => 'twinchat',
+			'chat_id'    => 'twinchat_' . get_current_user_id(),
+			'chat_kind'  => 'private',
+			'title_hint' => (string) $request->get_param( 'title' ),
+			'day_key'    => (string) $request->get_param( 'day_key' ),
+			'kind'       => 'text',
+			'content'    => $content,
+		];
+
+		$res = BizCity_KG_Channel_Notebook_Bridge::instance()->capture( $envelope );
+		if ( is_wp_error( $res ) ) {
+			$data   = $res->get_error_data();
+			$status = is_array( $data ) && isset( $data['status'] ) ? (int) $data['status'] : 400;
+			return new WP_REST_Response( class_exists( 'BizCity_Error_Payload' )
+				? BizCity_Error_Payload::from_wp_error( $res, 'Kiểm tra nội dung/tệp rồi thử lại.' )
+				: [ 'success' => false, 'code' => $res->get_error_code(), 'message' => $res->get_error_message() ], $status );
+		}
+
+		return rest_ensure_response( array_merge( [ 'success' => true ], $res ) );
+	}
+
 	/* ── API key health (R-LEARN §6 E10) ───────────────────────────────── */
 
 	/**
@@ -207,8 +335,16 @@ class BizCity_TwinChat_REST_Controller {
 	 * so `handle_api_key_status` reflects it next call.
 	 */
 	public function handle_api_key_test() {
-		// [2026-06-10 Johnny Chu] HOTFIX — per-site option
-		$key = trim( (string) get_option( 'bizcity_llm_api_key', '' ) );
+		// [2026-07-27 Johnny Chu] PHASE-0.49-MASTER-CONFIG-401 — read normalized
+		// key via canonical LLM client to avoid raw `biz_` / pasted Bearer formats.
+		$key = '';
+		if ( class_exists( 'BizCity_LLM_Client' ) ) {
+			$key = BizCity_LLM_Client::instance()->get_api_key();
+		}
+		if ( $key === '' ) {
+			// [2026-06-10 Johnny Chu] HOTFIX — per-site option
+			$key = trim( (string) get_option( 'bizcity_llm_api_key', '' ) );
+		}
 		if ( $key === '' ) {
 			return new WP_Error(
 				'bizcity_api_key_missing',
@@ -220,8 +356,11 @@ class BizCity_TwinChat_REST_Controller {
 			);
 		}
 
-		// [2026-06-10 Johnny Chu] HOTFIX — per-site option
-		$gateway = (string) get_option( 'bizcity_llm_gateway_url', '' );
+		// [2026-07-27 Johnny Chu] PHASE-0.49-MASTER-CONFIG-401 — keep gateway source
+		// aligned with canonical client wrapper used by other TwinChat paths.
+		$gateway = class_exists( 'BizCity_LLM_Client' )
+			? BizCity_LLM_Client::instance()->get_gateway_url()
+			: (string) get_option( 'bizcity_llm_gateway_url', '' );
 		if ( $gateway === '' ) {
 			$gateway = 'https://bizcity.vn';
 		}
@@ -517,6 +656,98 @@ class BizCity_TwinChat_REST_Controller {
 		] );
 	}
 
+	/**
+	 * PHASE-0.43 — keyword document search across one notebook or all notebooks.
+	 */
+	public function handle_search_documents( WP_REST_Request $request ) {
+		// [2026-07-14 Johnny Chu] PHASE-0.43 — parse and validate lexical search params.
+		$q           = trim( (string) $request->get_param( 'q' ) );
+		$scope       = sanitize_key( (string) ( $request->get_param( 'scope' ) ?: 'notebook' ) );
+		$notebook_id = (int) $request->get_param( 'notebook_id' );
+		$page        = max( 1, (int) $request->get_param( 'page' ) );
+		$per_page    = max( 1, min( 100, (int) $request->get_param( 'per_page' ) ) );
+
+		if ( $q === '' ) {
+			return new WP_Error( 'empty_query', 'q is required.', [ 'status' => 400 ] );
+		}
+		if ( ! in_array( $scope, [ 'notebook', 'all' ], true ) ) {
+			$scope = 'notebook';
+		}
+
+		if ( $scope === 'notebook' ) {
+			if ( $notebook_id <= 0 ) {
+				return new WP_Error( 'invalid_notebook', 'notebook_id is required for notebook scope.', [ 'status' => 400 ] );
+			}
+			$auth = $this->check_notebook_access( $notebook_id );
+			if ( is_wp_error( $auth ) ) {
+				return $auth;
+			}
+		}
+
+		if ( ! class_exists( 'BizCity_TwinChat_Search_Engine' ) ) {
+			return new WP_Error( 'search_engine_missing', 'TwinChat search engine not loaded.', [ 'status' => 503 ] );
+		}
+
+		$data = BizCity_TwinChat_Search_Engine::instance()->search_documents( [
+			'user_id'     => (int) get_current_user_id(),
+			'scope'       => $scope,
+			'notebook_id' => $notebook_id,
+			'query'       => $q,
+			'page'        => $page,
+			'per_page'    => $per_page,
+		] );
+
+		return rest_ensure_response( [
+			'ok'    => true,
+			'query' => $q,
+			'data'  => $data,
+		] );
+	}
+
+	/**
+	 * [2026-07-25 Johnny Chu] PHASE-0.47-KG-SEARCH-MATCHES — drill-down: list every
+	 * matching passage excerpt for a single search-documents() doc_key (the "N matches"
+	 * badge). notebook_id is required so we can reuse check_notebook_access() for auth
+	 * even when the original search ran with scope=all.
+	 */
+	public function handle_search_document_matches( WP_REST_Request $request ) {
+		$q              = trim( (string) $request->get_param( 'q' ) );
+		$doc_key        = trim( (string) $request->get_param( 'doc_key' ) );
+		$notebook_id    = (int) $request->get_param( 'notebook_id' );
+		$character_uuid = strtolower( trim( (string) $request->get_param( 'character_uuid' ) ) );
+		$page           = max( 1, (int) $request->get_param( 'page' ) );
+		$per_page       = max( 1, min( 100, (int) $request->get_param( 'per_page' ) ) );
+
+		if ( $q === '' || $doc_key === '' ) {
+			return new WP_Error( 'invalid_param', 'q and doc_key are required.', [ 'status' => 400 ] );
+		}
+		if ( $notebook_id <= 0 ) {
+			return new WP_Error( 'invalid_notebook', 'notebook_id is required.', [ 'status' => 400 ] );
+		}
+		$auth = $this->check_notebook_access( $notebook_id );
+		if ( is_wp_error( $auth ) ) {
+			return $auth;
+		}
+
+		if ( ! class_exists( 'BizCity_TwinChat_Search_Engine' ) ) {
+			return new WP_Error( 'search_engine_missing', 'TwinChat search engine not loaded.', [ 'status' => 503 ] );
+		}
+
+		$data = BizCity_TwinChat_Search_Engine::instance()->search_document_matches( [
+			'query'          => $q,
+			'doc_key'        => $doc_key,
+			'notebook_id'    => $notebook_id,
+			'character_uuid' => $character_uuid,
+			'page'           => $page,
+			'per_page'       => $per_page,
+		] );
+
+		return rest_ensure_response( [
+			'ok'   => true,
+			'data' => $data,
+		] );
+	}
+
 
 	public function list_sources( WP_REST_Request $request ) {
 		global $wpdb;
@@ -602,15 +833,18 @@ class BizCity_TwinChat_REST_Controller {
 
 					$query_ids    = array_values( array_unique( array_keys( $lookup ) ) );
 					$placeholders = implode( ',', array_fill( 0, count( $query_ids ), '%d' ) );
+					// [2026-07-23 Johnny Chu] PHASE-0.47-KG-SOURCE-PROGRESS — same cross-notebook
+					// source_id collision fix as _list_kg_sources(); this legacy path is only
+					// reached when the bizcity_kg_v06_read_switch filter is forced off.
 					$agg_sql      = "SELECT source_id,
 						COUNT(*) AS total_chunks,
 						SUM(CASE WHEN extraction_status = 'done'  THEN 1 ELSE 0 END) AS done_chunks,
 						SUM(CASE WHEN extraction_status = 'error' THEN 1 ELSE 0 END) AS error_chunks
 						FROM {$tbl_passages}
-						WHERE source_id IN ({$placeholders})
+						WHERE notebook_id = %d AND source_id IN ({$placeholders})
 						GROUP BY source_id";
 					// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
-					$agg_rows = $wpdb->get_results( $wpdb->prepare( $agg_sql, $query_ids ), ARRAY_A );
+					$agg_rows = $wpdb->get_results( $wpdb->prepare( $agg_sql, array_merge( [ $notebook_id ], $query_ids ) ), ARRAY_A );
 					$agg_map  = [];
 					if ( is_array( $agg_rows ) ) {
 						foreach ( $agg_rows as $a ) {
@@ -655,6 +889,11 @@ class BizCity_TwinChat_REST_Controller {
 			}
 			$source_id   = (int) $request->get_param( 'source_id' );
 			$notebook_id = (int) $request->get_param( 'notebook_id' );
+			// [2026-07-14 Johnny Chu] PHASE-0.43 — source sheet must enforce notebook ownership before any source lookup.
+			$auth = $this->check_notebook_access( $notebook_id );
+			if ( is_wp_error( $auth ) ) {
+				return $auth;
+			}
 
 			// 2026-05-05 — Synthetic source IDs. The Twin context resolver
 			// emits a synthetic id (1_000_000_000 + passage_id) for chat-promoted
@@ -676,9 +915,20 @@ class BizCity_TwinChat_REST_Controller {
 				if ( ! $pas ) {
 					return new WP_Error( 'not_found', 'Source not found', [ 'status' => 404 ] );
 				}
+				// [2026-07-14 Johnny Chu] PHASE-0.43 — hydrate source-less passages stored in KG filestore.
+				if ( class_exists( 'BizCity_KG_Content_Router' ) ) {
+					$hydrate_rows = array( $pas );
+					BizCity_KG_Content_Router::instance()->hydrate_passages( $hydrate_rows );
+					$pas = $hydrate_rows[0];
+				}
 				$pas_nb = (int) ( $pas['notebook_id'] ?? $pas['scope_id'] ?? 0 );
 				if ( $notebook_id > 0 && $pas_nb !== $notebook_id ) {
-					return new WP_Error( 'forbidden', 'Access denied', [ 'status' => 403 ] );
+					$pas_uuid = strtolower( (string) ( $pas['character_uuid'] ?? '' ) );
+					$attached = $kg->get_attached_guru_uuids( $notebook_id );
+					if ( '' === $pas_uuid || ! in_array( $pas_uuid, array_map( 'strtolower', $attached ), true ) ) {
+						return new WP_Error( 'forbidden', 'Access denied', [ 'status' => 403 ] );
+					}
+					$pas_nb = $notebook_id;
 				}
 				// Try to extract a useful title from `metadata` JSON if present.
 				$title = 'Chat memory #' . $pid;
@@ -719,7 +969,7 @@ class BizCity_TwinChat_REST_Controller {
 				$kg     = BizCity_KG_Database::instance();
 				// 1) Try as kg_sources.id (scoped).
 				$kg_row = $wpdb->get_row( $wpdb->prepare(
-					"SELECT id, origin_id, origin_kind, title, origin_url, status, scope_id, user_id, created_at
+					"SELECT id, origin_id, origin_kind, title, origin_url, status, scope_id, user_id, character_uuid, content_text, passage_count, created_at
 					   FROM {$kg->tbl_sources()}
 					  WHERE id = %d AND scope_type = %s AND scope_id = %s LIMIT 1",
 					$source_id, 'notebook', (string) $notebook_id
@@ -728,24 +978,52 @@ class BizCity_TwinChat_REST_Controller {
 				//    the mirror row via origin_id (also scoped).
 				if ( ! $kg_row ) {
 					$kg_row = $wpdb->get_row( $wpdb->prepare(
-						"SELECT id, origin_id, origin_kind, title, origin_url, status, scope_id, user_id, created_at
+						"SELECT id, origin_id, origin_kind, title, origin_url, status, scope_id, user_id, character_uuid, content_text, passage_count, created_at
 						   FROM {$kg->tbl_sources()}
 						  WHERE origin_id = %d AND scope_type = %s AND scope_id = %s LIMIT 1",
 						$source_id, 'notebook', (string) $notebook_id
 					), ARRAY_A );
 				}
+				// [2026-07-14 Johnny Chu] PHASE-0.43 — permit read-only Guru source only when attached to this notebook.
+				if ( ! $kg_row ) {
+					$guru_row = $wpdb->get_row( $wpdb->prepare(
+						"SELECT id, origin_id, origin_kind, title, origin_url, status, scope_id, user_id, character_uuid, content_text, passage_count, created_at
+						   FROM {$kg->tbl_sources()}
+						  WHERE id = %d AND character_uuid IS NOT NULL AND character_uuid <> '' LIMIT 1",
+						$source_id
+					), ARRAY_A );
+					$attached_uuids = $kg->get_attached_guru_uuids( $notebook_id );
+					if ( $guru_row && in_array( strtolower( (string) $guru_row['character_uuid'] ), array_map( 'strtolower', $attached_uuids ), true ) ) {
+						$kg_row = $guru_row;
+						$kg_row['scope_id'] = (string) $notebook_id;
+					}
+				}
 				if ( $kg_row ) {
 					$legacy_id    = (int) $kg_row['origin_id'];
-					$content_text = '';
+					$legacy_row   = array();
+					$content_text = (string) ( $kg_row['content_text'] ?? '' );
 					if ( $legacy_id > 0 && class_exists( 'BizCity_TwinChat_Sources_Database' ) ) {
-						// Read full text directly from webchat_sources.content_text
-						// (insert_source() stores the materialized content there).
 						$db_tc        = BizCity_TwinChat_Sources_Database::instance();
 						$tbl_src      = $db_tc->table_sources();
-						$content_text = (string) $wpdb->get_var( $wpdb->prepare(
-							"SELECT content_text FROM {$tbl_src} WHERE id = %d LIMIT 1",
+						// [2026-07-23 Johnny Chu] PHASE-0.43 — read placeholder metadata/status so async source detail does not look like an empty ready file.
+						$legacy_row = $wpdb->get_row( $wpdb->prepare(
+							"SELECT content_text, char_count, token_estimate, chunk_count, embedding_status, error_message, metadata FROM {$tbl_src} WHERE id = %d LIMIT 1",
 							$legacy_id
-						) );
+						), ARRAY_A );
+						// [2026-07-25 Johnny Chu] PHASE-0.47-KG-SEARCH-MATCHES — keep non-empty KG body; only override when legacy has real body.
+						$content_text_legacy = is_array( $legacy_row ) ? (string) ( $legacy_row['content_text'] ?? '' ) : '';
+						if ( $content_text_legacy !== '' ) {
+							$content_text = $content_text_legacy;
+						}
+						if ( $content_text === '' && is_array( $legacy_row ) && ! empty( $legacy_row['metadata'] ) && class_exists( 'BizCity_KG_Source_Body_File_Store' ) ) {
+							$legacy_meta_for_body = json_decode( (string) $legacy_row['metadata'], true );
+							if ( is_array( $legacy_meta_for_body ) && ( $legacy_meta_for_body['body_storage'] ?? '' ) === 'filestore' ) {
+								$file_body = BizCity_KG_Source_Body_File_Store::read_source( (int) $notebook_id, $legacy_id );
+								if ( is_string( $file_body ) && $file_body !== '' ) {
+									$content_text = $file_body;
+								}
+							}
+						}
 						// Fallback: stitch from chunk rows if content_text was never set.
 						if ( $content_text === '' ) {
 							$chunks_table = $db_tc->table_source_chunks();
@@ -756,6 +1034,20 @@ class BizCity_TwinChat_REST_Controller {
 							if ( $texts ) $content_text = implode( "\n\n", $texts );
 						}
 					}
+					$legacy_meta = array();
+					if ( isset( $legacy_row['metadata'] ) && is_string( $legacy_row['metadata'] ) && $legacy_row['metadata'] !== '' ) {
+						$decoded_meta = json_decode( $legacy_row['metadata'], true );
+						$legacy_meta  = is_array( $decoded_meta ) ? $decoded_meta : array();
+					}
+					$kg_status = (string) ( $kg_row['status'] ?? 'active' );
+					$embedding_status = 'ready';
+					if ( $kg_status === 'processing' ) {
+						$embedding_status = 'processing';
+					} elseif ( $kg_status === 'error' ) {
+						$embedding_status = 'error';
+					} elseif ( isset( $legacy_row['embedding_status'] ) && in_array( (string) $legacy_row['embedding_status'], array( 'pending', 'processing', 'ready', 'error' ), true ) ) {
+						$embedding_status = (string) $legacy_row['embedding_status'];
+					}
 					$row = [
 						'id'               => (int) $kg_row['id'],
 						'notebook_id'      => (int) $kg_row['scope_id'],
@@ -763,11 +1055,17 @@ class BizCity_TwinChat_REST_Controller {
 						'title'            => (string) ( $kg_row['title'] ?? '' ),
 						'source_type'      => (string) ( $kg_row['origin_kind'] ?? 'file' ),
 						'source_url'       => (string) ( $kg_row['origin_url'] ?? '' ),
+						'char_count'       => isset( $legacy_row['char_count'] ) ? (int) $legacy_row['char_count'] : 0,
+						'token_estimate'   => isset( $legacy_row['token_estimate'] ) ? (int) $legacy_row['token_estimate'] : 0,
+						'chunk_count'      => isset( $legacy_row['chunk_count'] ) ? (int) $legacy_row['chunk_count'] : (int) ( $kg_row['passage_count'] ?? 0 ),
 						'content_text'     => $content_text,
-						'embedding_status' => 'ready',
+						'embedding_status' => $embedding_status,
 						'status'           => (string) ( $kg_row['status'] ?? 'active' ),
+						'error_message'    => isset( $legacy_row['error_message'] ) ? (string) $legacy_row['error_message'] : '',
+						'metadata'         => $legacy_meta,
 						'created_at'       => (string) ( $kg_row['created_at'] ?? '' ),
 						'updated_at'       => (string) ( $kg_row['created_at'] ?? '' ),
+						'__legacy_source_id' => $legacy_id,
 					];
 				}
 			}
@@ -788,19 +1086,681 @@ class BizCity_TwinChat_REST_Controller {
 				global $wpdb;
 				$db           = BizCity_TwinChat_Sources_Database::instance();
 				$chunks_table = $db->table_source_chunks();
+				$chunk_source_id = isset( $row['__legacy_source_id'] ) ? (int) $row['__legacy_source_id'] : $source_id;
 				$texts        = $wpdb->get_col( $wpdb->prepare(
 					"SELECT content FROM {$chunks_table} WHERE source_id = %d ORDER BY chunk_index ASC",
-					$source_id
+					$chunk_source_id
 				) );
 				if ( $texts ) {
 					$row['content_text'] = implode( "\n\n", $texts );
 				}
+			}
+
+			if ( empty( $row['content_text'] ) && class_exists( 'BizCity_KG_Database' ) ) {
+				// [2026-07-25 Johnny Chu] PHASE-0.47-KG-SEARCH-MATCHES — last-resort reconstruction from kg_passages.
+				global $wpdb;
+				$kg_db = BizCity_KG_Database::instance();
+				$try_ids = array_values( array_unique( array_filter( array_map( 'intval', array(
+					$source_id,
+					isset( $row['id'] ) ? (int) $row['id'] : 0,
+					isset( $row['__legacy_source_id'] ) ? (int) $row['__legacy_source_id'] : 0,
+				) ) ) ) );
+				if ( ! empty( $try_ids ) ) {
+					$ids_csv = implode( ',', $try_ids );
+					$passage_rows = $wpdb->get_results(
+						"SELECT id, content, storage_ver, file_shard, file_offset, file_length, notebook_id
+						   FROM {$kg_db->tbl_passages()}
+						  WHERE notebook_id = " . (int) $notebook_id . " AND source_id IN ({$ids_csv})
+						  ORDER BY id ASC LIMIT 3000",
+						ARRAY_A
+					);
+					if ( $passage_rows && class_exists( 'BizCity_KG_Content_Router' ) ) {
+						BizCity_KG_Content_Router::instance()->hydrate_passages( $passage_rows );
+					}
+					if ( is_array( $passage_rows ) && ! empty( $passage_rows ) ) {
+						$chunks = array();
+						foreach ( $passage_rows as $p_row ) {
+							$txt = trim( (string) ( $p_row['content'] ?? '' ) );
+							if ( $txt !== '' ) {
+								$chunks[] = $txt;
+							}
+						}
+						if ( ! empty( $chunks ) ) {
+							$row['content_text'] = implode( "\n\n", $chunks );
+						}
+					}
+				}
+			}
+
+			if ( isset( $row['__legacy_source_id'] ) ) {
+				unset( $row['__legacy_source_id'] );
 			}
 			return rest_ensure_response( [ 'ok' => true, 'data' => $row ] );
 		} catch ( \Throwable $e ) {
 			error_log( '[TwinChat] get_source error: ' . $e->getMessage() );
 			return new WP_Error( 'get_source_error', $e->getMessage(), [ 'status' => 500 ] );
 		}
+	}
+
+	/**
+	 * PHASE-0.44 — source-scoped learning summary for drawer "Learning Log" tab.
+	 *
+	 * GET /sources/{notebook_id}/{source_id}/learning-log
+	 */
+	public function get_source_learning_log( WP_REST_Request $request ) {
+		// [2026-07-23 Johnny Chu] PHASE-0.44 — dual-id aggregate (kg_sources.id + origin_id) to avoid false 0%.
+		global $wpdb;
+
+		$notebook_id    = (int) $request->get_param( 'notebook_id' );
+		$source_id      = (int) $request->get_param( 'source_id' );
+		$limit          = max( 10, min( 500, (int) $request->get_param( 'limit' ) ) );
+		$include_chunks = (int) $request->get_param( 'include_chunks' ) !== 0;
+		$chunk_limit    = max( 20, min( 400, (int) $request->get_param( 'chunk_limit' ) ) );
+
+		$auth = $this->check_notebook_access( $notebook_id );
+		if ( is_wp_error( $auth ) ) {
+			return $auth;
+		}
+
+		if ( $source_id <= 0 ) {
+			return new WP_Error( 'invalid_source', 'Invalid source_id.', [ 'status' => 400 ] );
+		}
+		if ( ! class_exists( 'BizCity_KG_Database' ) ) {
+			return new WP_Error( 'kg_missing', 'KG database runtime is unavailable.', [ 'status' => 503 ] );
+		}
+
+		$db          = BizCity_KG_Database::instance();
+		$tbl_sources = $db->tbl_sources();
+		$tbl_passage = $db->tbl_passages();
+
+		// [2026-07-23 Johnny Chu] HOTFIX kg-source-lookup — origin_id is the real FK
+		// (webchat_sources.id → kg_sources.origin_id, see _upsert_kg_source_row()).
+		// `source_id` passed by the FE is ALWAYS the legacy webchat id, never a
+		// kg_sources.id. Matching `id = %d` FIRST was unsafe: kg_sources is a
+		// single autoincrement table shared by every notebook/plugin, so a small
+		// legacy id (e.g. #56) can coincidentally collide with an unrelated,
+		// already-populated kg_sources row from an older source in the SAME
+		// notebook — silently returning 0 passages / 0% while the freshly
+		// uploaded file's real mirror row (with the growing passage count) is
+		// ignored. Try the origin_id FK first; only fall back to `id = %d` for
+		// callers that legitimately pass a kg_sources.id directly.
+		$kg_row = $wpdb->get_row( $wpdb->prepare(
+			"SELECT id, origin_id, title, status, passage_count, origin_kind, origin_url, created_at, updated_at
+			   FROM {$tbl_sources}
+			  WHERE origin_id = %d AND scope_type = %s AND scope_id = %s
+			  ORDER BY id DESC LIMIT 1",
+			$source_id, 'notebook', (string) $notebook_id
+		), ARRAY_A );
+		if ( ! $kg_row ) {
+			$kg_row = $wpdb->get_row( $wpdb->prepare(
+				"SELECT id, origin_id, title, status, passage_count, origin_kind, origin_url, created_at, updated_at
+				   FROM {$tbl_sources}
+				  WHERE id = %d AND scope_type = %s AND scope_id = %s LIMIT 1",
+				$source_id, 'notebook', (string) $notebook_id
+			), ARRAY_A );
+		}
+		if ( ! $kg_row ) {
+			return new WP_Error( 'not_found', 'Source not found in this notebook.', [ 'status' => 404 ] );
+		}
+
+		$kg_source_id     = (int) $kg_row['id'];
+		$legacy_source_id = (int) $kg_row['origin_id'];
+		$source_ids       = array_values( array_unique( array_filter( [
+			$kg_source_id,
+			$legacy_source_id,
+		], static function ( $v ) {
+			return (int) $v > 0;
+		} ) ) );
+		if ( empty( $source_ids ) ) {
+			$source_ids = [ $kg_source_id ];
+		}
+
+		$counts = [
+			'total'              => 0,
+			'done'               => 0,
+			'processing'         => 0,
+			'pending'            => 0,
+			'error'              => 0,
+			'skipped'            => 0,
+			'triplets_pending'   => 0,
+			'entities_approved'  => 0,
+			'relations_approved' => 0,
+		];
+
+		$src_ph = implode( ',', array_fill( 0, count( $source_ids ), '%d' ) );
+		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		$status_rows = $wpdb->get_results( $wpdb->prepare(
+			"SELECT extraction_status, COUNT(*) AS n
+			   FROM {$tbl_passage}
+			  WHERE notebook_id = %d AND source_id IN ({$src_ph})
+			  GROUP BY extraction_status",
+			array_merge( [ $notebook_id ], $source_ids )
+		), ARRAY_A );
+		foreach ( (array) $status_rows as $sr ) {
+			$bucket = strtolower( (string) ( $sr['extraction_status'] ?? '' ) );
+			$n      = (int) ( $sr['n'] ?? 0 );
+			if ( ! isset( $counts[ $bucket ] ) ) {
+				$bucket = 'pending';
+			}
+			$counts[ $bucket ] += $n;
+			$counts['total']   += $n;
+		}
+
+		$chunks       = [];
+		$passage_ids  = [];
+		$passage_set  = [];
+		if ( $include_chunks ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+			$chunk_rows = $wpdb->get_results( $wpdb->prepare(
+				"SELECT id, source_id, extraction_status, updated_at, content, metadata,
+				        storage_ver, file_shard, file_offset, file_length, notebook_id
+				   FROM {$tbl_passage}
+				  WHERE notebook_id = %d AND source_id IN ({$src_ph})
+				  ORDER BY id ASC
+				  LIMIT %d",
+				array_merge( [ $notebook_id ], $source_ids, [ $chunk_limit ] )
+			), ARRAY_A );
+
+			if ( class_exists( 'BizCity_KG_Content_Router' ) && ! empty( $chunk_rows ) ) {
+				BizCity_KG_Content_Router::instance()->hydrate_passages( $chunk_rows );
+			}
+
+			foreach ( (array) $chunk_rows as $pr ) {
+				$passage_id = (int) ( $pr['id'] ?? 0 );
+				if ( $passage_id > 0 ) {
+					$passage_ids[] = $passage_id;
+					$passage_set[ $passage_id ] = true;
+				}
+			}
+
+			$triplet_by_passage = [];
+			if ( ! empty( $passage_ids ) ) {
+				$ps_ph = implode( ',', array_fill( 0, count( $passage_ids ), '%d' ) );
+				$tbl_pr = $db->tbl_passage_relations();
+				// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+				$triplet_rows = $wpdb->get_results( $wpdb->prepare(
+					"SELECT passage_id, COUNT(*) AS c
+					   FROM {$tbl_pr}
+					  WHERE passage_id IN ({$ps_ph})
+					  GROUP BY passage_id",
+					$passage_ids
+				), ARRAY_A );
+				foreach ( (array) $triplet_rows as $tr ) {
+					$triplet_by_passage[ (int) $tr['passage_id'] ] = (int) $tr['c'];
+				}
+			}
+
+			foreach ( (array) $chunk_rows as $pr ) {
+				$pid     = (int) ( $pr['id'] ?? 0 );
+				$status  = strtolower( (string) ( $pr['extraction_status'] ?? 'pending' ) );
+				if ( ! in_array( $status, [ 'pending', 'processing', 'done', 'error', 'skipped' ], true ) ) {
+					$status = 'pending';
+				}
+				$content = trim( (string) ( $pr['content'] ?? '' ) );
+				if ( function_exists( 'mb_substr' ) ) {
+					$snippet = mb_substr( $content, 0, 160 );
+				} else {
+					$snippet = substr( $content, 0, 160 );
+				}
+				$meta        = [];
+				$chunk_index = null;
+				if ( isset( $pr['metadata'] ) && is_string( $pr['metadata'] ) && $pr['metadata'] !== '' ) {
+					$meta = json_decode( $pr['metadata'], true );
+					if ( is_array( $meta ) && isset( $meta['chunk_index'] ) ) {
+						$chunk_index = (int) $meta['chunk_index'];
+					}
+				}
+				$chunks[] = [
+					'passage_id'   => $pid,
+					'chunk_index'  => $chunk_index,
+					'status'       => $status,
+					'triplets'     => (int) ( $triplet_by_passage[ $pid ] ?? 0 ),
+					'updated_at'   => (string) ( $pr['updated_at'] ?? '' ),
+					'snippet'      => $snippet,
+				];
+			}
+		}
+
+		$tbl_tq = $db->tbl_triplet_queue();
+		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		$counts['triplets_pending'] = (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT COUNT(*)
+			   FROM {$tbl_tq} tq
+			   INNER JOIN {$tbl_passage} p ON p.id = tq.passage_id
+			  WHERE p.notebook_id = %d
+			    AND p.source_id IN ({$src_ph})
+			    AND tq.status = %s",
+			array_merge( [ $notebook_id ], $source_ids, [ 'pending' ] )
+		) );
+
+		$tbl_pe = $db->tbl_passage_entities();
+		$tbl_pr = $db->tbl_passage_relations();
+		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		$counts['entities_approved'] = (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT COUNT(DISTINCT pe.entity_id)
+			   FROM {$tbl_pe} pe
+			   INNER JOIN {$tbl_passage} p ON p.id = pe.passage_id
+			  WHERE p.notebook_id = %d AND p.source_id IN ({$src_ph})",
+			array_merge( [ $notebook_id ], $source_ids )
+		) );
+		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		$counts['relations_approved'] = (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT COUNT(DISTINCT pr.relation_id)
+			   FROM {$tbl_pr} pr
+			   INNER JOIN {$tbl_passage} p ON p.id = pr.passage_id
+			  WHERE p.notebook_id = %d AND p.source_id IN ({$src_ph})",
+			array_merge( [ $notebook_id ], $source_ids )
+		) );
+
+		$job       = null;
+		$job_id    = 0;
+		$job_phase = '';
+		$job_state = '';
+		if ( class_exists( 'BizCity_TwinChat_Learning_Database' ) ) {
+			$ldb = BizCity_TwinChat_Learning_Database::instance();
+			if ( $ldb->is_ready() ) {
+				$tbl_jobs = $ldb->table_jobs();
+				// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+				$job_row = $wpdb->get_row( $wpdb->prepare(
+					"SELECT id, notebook_id, source_id, source_title, user_id, status, phase,
+					        progress, passages_processed, triplets_extracted, entities_approved,
+					        batches_total, batches_done, entity_ids, error, started_at, finished_at, created_at
+					   FROM {$tbl_jobs}
+					  WHERE notebook_id = %d AND source_id IN ({$src_ph})
+					  ORDER BY id DESC LIMIT 1",
+					array_merge( [ $notebook_id ], $source_ids )
+				), ARRAY_A );
+				if ( is_array( $job_row ) ) {
+					$job_id    = (int) $job_row['id'];
+					$job_phase = (string) ( $job_row['phase'] ?? '' );
+					$job_state = (string) ( $job_row['status'] ?? '' );
+					$entity_ids = [];
+					if ( isset( $job_row['entity_ids'] ) && is_string( $job_row['entity_ids'] ) && $job_row['entity_ids'] !== '' ) {
+						$decoded = json_decode( $job_row['entity_ids'], true );
+						if ( is_array( $decoded ) ) {
+							$entity_ids = array_values( array_map( 'intval', $decoded ) );
+						}
+					}
+					$job = [
+						'id'                 => $job_id,
+						'notebook_id'        => (int) $job_row['notebook_id'],
+						'source_id'          => (int) $job_row['source_id'],
+						'source_title'       => (string) ( $job_row['source_title'] ?? '' ),
+						'user_id'            => (int) $job_row['user_id'],
+						'status'             => $job_state,
+						'phase'              => $job_phase,
+						'progress'           => (int) ( $job_row['progress'] ?? 0 ),
+						'passages_processed' => (int) ( $job_row['passages_processed'] ?? 0 ),
+						'triplets_extracted' => (int) ( $job_row['triplets_extracted'] ?? 0 ),
+						'entities_approved'  => (int) ( $job_row['entities_approved'] ?? 0 ),
+						'batches_total'      => (int) ( $job_row['batches_total'] ?? 0 ),
+						'batches_done'       => (int) ( $job_row['batches_done'] ?? 0 ),
+						'entity_ids'         => $entity_ids,
+						'error'              => isset( $job_row['error'] ) ? (string) $job_row['error'] : null,
+						'started_at'         => isset( $job_row['started_at'] ) ? (string) $job_row['started_at'] : null,
+						'finished_at'        => isset( $job_row['finished_at'] ) ? (string) $job_row['finished_at'] : null,
+						'created_at'         => (string) ( $job_row['created_at'] ?? '' ),
+					];
+				}
+			}
+		}
+
+		$events = [];
+		if ( class_exists( 'BizCity_KG_Source_Progress_Log' ) ) {
+			$progress_rows = BizCity_KG_Source_Progress_Log::get_for_source( $kg_source_id, $limit );
+			if ( $legacy_source_id > 0 && $legacy_source_id !== $kg_source_id ) {
+				$progress_rows = array_merge( $progress_rows, BizCity_KG_Source_Progress_Log::get_for_source( $legacy_source_id, $limit ) );
+			}
+			if ( ! empty( $progress_rows ) ) {
+				usort( $progress_rows, static function ( $a, $b ) {
+					return (int) ( $a['id'] ?? 0 ) <=> (int) ( $b['id'] ?? 0 );
+				} );
+				foreach ( $progress_rows as $pe ) {
+					$payload = isset( $pe['payload'] ) && is_array( $pe['payload'] ) ? $pe['payload'] : [];
+					$event   = (string) ( $pe['event'] ?? 'log' );
+					$events[] = [
+						'id'         => (int) ( $pe['id'] ?? 0 ),
+						'ts'         => (string) ( $pe['created_at'] ?? '' ),
+						'level'      => $this->source_learning_event_level( $event, $payload ),
+						'event'      => $event,
+						'message'    => $this->source_learning_event_message( $event, $payload ),
+						'passage_id' => isset( $pe['passage_id'] ) ? (int) $pe['passage_id'] : 0,
+						'job_id'     => 0,
+						'payload'    => $payload,
+					];
+				}
+			}
+		}
+
+		if ( class_exists( 'BizCity_TwinChat_Learning_Database' ) ) {
+			$ldb = BizCity_TwinChat_Learning_Database::instance();
+			if ( $ldb->is_ready() ) {
+				$tbl_events = $ldb->table_events();
+				if ( $job_id > 0 ) {
+					$event_rows = $wpdb->get_results( $wpdb->prepare(
+						"SELECT id, job_id, ts, event, payload
+						   FROM {$tbl_events}
+						  WHERE notebook_id = %d AND job_id = %d
+						  ORDER BY id DESC
+						  LIMIT %d",
+						$notebook_id, $job_id, $limit
+					), ARRAY_A );
+				} else {
+					$event_rows = $wpdb->get_results( $wpdb->prepare(
+						"SELECT id, job_id, ts, event, payload
+						   FROM {$tbl_events}
+						  WHERE notebook_id = %d
+						  ORDER BY id DESC
+						  LIMIT %d",
+						$notebook_id, $limit
+					), ARRAY_A );
+				}
+				$event_rows = array_reverse( (array) $event_rows );
+				foreach ( $event_rows as $er ) {
+					$payload = [];
+					if ( isset( $er['payload'] ) && is_string( $er['payload'] ) && $er['payload'] !== '' ) {
+						$decoded = json_decode( $er['payload'], true );
+						if ( is_array( $decoded ) ) {
+							$payload = $decoded;
+						}
+					}
+
+					// [2026-07-23 Johnny Chu] HOTFIX learning-log-timeline-leak — a learning
+					// job is notebook-wide (one job can walk passages across MANY sources),
+					// so job_id alone does not scope events to THIS source. Verify
+					// ownership via payload.source_id or payload.passage_id; when neither
+					// is present AND the row wasn't already pinned to a job_id by the SQL
+					// above, fail closed instead of leaking unrelated sources' events
+					// (previously showed other sources' passage sync lines on a freshly
+					// uploaded, still-materializing file with zero passages of its own).
+					$payload_source_id  = isset( $payload['source_id'] ) ? (int) $payload['source_id'] : 0;
+					$payload_passage_id = isset( $payload['passage_id'] ) ? (int) $payload['passage_id'] : 0;
+					if ( $payload_source_id > 0 ) {
+						if ( ! in_array( $payload_source_id, $source_ids, true ) ) {
+							continue;
+						}
+					} elseif ( $payload_passage_id > 0 ) {
+						if ( empty( $passage_set ) || ! isset( $passage_set[ $payload_passage_id ] ) ) {
+							continue;
+						}
+					} elseif ( $job_id <= 0 ) {
+						continue;
+					}
+
+					$event = (string) ( $er['event'] ?? 'log' );
+					$events[] = [
+						'id'         => (int) ( $er['id'] ?? 0 ),
+						'ts'         => (string) ( $er['ts'] ?? '' ),
+						'level'      => $this->source_learning_event_level( $event, $payload ),
+						'event'      => $event,
+						'message'    => $this->source_learning_event_message( $event, $payload ),
+						'passage_id' => $payload_passage_id,
+						'job_id'     => isset( $er['job_id'] ) ? (int) $er['job_id'] : 0,
+						'payload'    => $payload,
+					];
+				}
+			}
+		}
+
+		if ( count( $events ) > $limit ) {
+			$events = array_slice( $events, -1 * $limit );
+		}
+
+		$done      = (int) $counts['done'];
+		$skipped   = (int) $counts['skipped'];
+		$total     = (int) $counts['total'];
+		$progress  = $total > 0 ? round( min( 1, max( 0, ( $done + $skipped ) / $total ) ), 4 ) : 0.0;
+
+		$status = 'unknown';
+		if ( $job_state === 'failed' || (string) ( $kg_row['status'] ?? '' ) === 'error' ) {
+			$status = 'failed';
+		} elseif ( $job_state === 'queued' || $job_phase === 'queued' ) {
+			$status = 'queued';
+		} elseif ( $job_phase === 'approving' ) {
+			$status = 'approving';
+		} elseif ( $job_phase === 'extracting' || ( $total > 0 && $done < $total ) ) {
+			$status = 'extracting';
+		} elseif ( $job_state === 'done' || ( $total > 0 && $done >= $total && (int) $counts['triplets_pending'] <= 0 ) ) {
+			$status = 'done';
+			$progress = $total > 0 ? 1.0 : $progress;
+		} elseif ( (string) ( $kg_row['status'] ?? '' ) === 'processing' ) {
+			$status = 'materializing';
+		}
+
+		// [2026-07-25 Johnny Chu] HOTFIX async-retry — surface the real failure reason + whether a one-click retry is possible.
+		$error_message  = '';
+		// [2026-07-23 Johnny Chu] PHASE-0.47-ASYNC-ERROR-CODE — structured code so FE
+		// can call humanizeIngestError() instead of showing raw text + blind Retry.
+		$error_code     = '';
+		$retryable      = false;
+		if ( $status === 'failed' && class_exists( 'BizCity_TwinChat_Sources_Database' ) ) {
+			$legacy_row = BizCity_TwinChat_Sources_Database::instance()->get_source( $legacy_source_id > 0 ? $legacy_source_id : $source_id );
+			if ( is_array( $legacy_row ) ) {
+				$error_message = isset( $legacy_row['error_message'] ) ? (string) $legacy_row['error_message'] : '';
+				$legacy_meta   = ! empty( $legacy_row['metadata'] ) ? json_decode( (string) $legacy_row['metadata'], true ) : array();
+				if ( is_array( $legacy_meta ) && ! empty( $legacy_meta['async_error_code'] ) ) {
+					$error_code = sanitize_key( (string) $legacy_meta['async_error_code'] );
+				} elseif ( $error_message !== '' ) {
+					// [2026-07-23 Johnny Chu] PHASE-0.47-ASYNC-ERROR-CODE — retro-fix: sources
+					// that failed BEFORE async_error_code existed only have the free-text
+					// message. Infer the code from known message patterns at read-time —
+					// no backfill migration/script needed, self-heals on next real failure.
+					$error_code = self::infer_legacy_async_error_code( $error_message );
+				}
+				if ( is_array( $legacy_meta ) && ! empty( $legacy_meta['async_file'] ) && class_exists( 'BizCity_KG_Scoped_REST_Controller' ) ) {
+					$retryable = BizCity_KG_Scoped_REST_Controller::async_source_file_exists( $legacy_meta['async_file'] );
+				}
+			}
+		}
+
+		$phases = [
+			[
+				'id'          => 'materialize',
+				'label'       => 'Materialize text',
+				'status'      => $total > 0 ? 'done' : ( (string) ( $kg_row['status'] ?? '' ) === 'processing' ? 'running' : 'pending' ),
+				'count_done'  => $total > 0 ? 1 : 0,
+				'count_total' => 1,
+			],
+			[
+				'id'          => 'chunk',
+				'label'       => 'Chunking',
+				'status'      => $total > 0 ? 'done' : 'pending',
+				'count_done'  => $total,
+				'count_total' => $total,
+			],
+			[
+				'id'          => 'extract',
+				'label'       => 'Graph extraction',
+				'status'      => ( $counts['error'] > 0 && $done === 0 ) ? 'error' : ( $total > 0 && $done >= $total ? 'done' : ( $total > 0 ? 'running' : 'pending' ) ),
+				'count_done'  => $done,
+				'count_total' => $total,
+			],
+			[
+				'id'          => 'approve',
+				'label'       => 'Approve triplets',
+				'status'      => (int) $counts['triplets_pending'] > 0 ? 'running' : ( $done > 0 ? 'done' : 'pending' ),
+				'count_done'  => (int) $counts['relations_approved'],
+				'count_total' => (int) $counts['relations_approved'] + (int) $counts['triplets_pending'],
+			],
+		];
+
+		return rest_ensure_response( [
+			'ok'   => true,
+			'data' => [
+				'source_id'        => $source_id,
+				'kg_source_id'     => $kg_source_id,
+				'legacy_source_id' => $legacy_source_id > 0 ? $legacy_source_id : null,
+				'notebook_id'      => $notebook_id,
+				'title'            => (string) ( $kg_row['title'] ?? '' ),
+				'status'           => $status,
+				'progress'         => $progress,
+				'error_message'    => $error_message,
+				'error_code'       => $error_code,
+				'retryable'        => $retryable,
+				'counts'           => $counts,
+				'job'              => $job,
+				'phases'           => $phases,
+				'chunks'           => $chunks,
+				'events'           => $events,
+				'raw_log_hint'     => [
+					'date'    => gmdate( 'Y-m-d' ),
+					'markers' => array_values( array_filter( [
+						$job_id > 0 ? 'job=' . $job_id : '',
+						'kg_source=' . $kg_source_id,
+						$legacy_source_id > 0 ? 'legacy_source=' . $legacy_source_id : '',
+					] ) ),
+				],
+			],
+		] );
+	}
+
+	/**
+	 * [2026-07-25 Johnny Chu] HOTFIX async-retry — one-click retry for a source stuck 'failed' after
+	 * async ingest exhausted attempts. Requeues from the still-staged temp file when available;
+	 * returns a clear R-ERROR-UX payload (delete + re-upload guidance) when the file is already gone.
+	 */
+	public function retry_source_ingest( WP_REST_Request $request ) {
+		$notebook_id = (int) $request->get_param( 'notebook_id' );
+		$source_id   = (int) $request->get_param( 'source_id' );
+		$auth        = $this->check_notebook_access( $notebook_id );
+		if ( is_wp_error( $auth ) ) {
+			return $auth;
+		}
+		if ( ! class_exists( 'BizCity_KG_Scoped_REST_Controller' ) ) {
+			return new WP_Error( 'service_unavailable', 'KG ingest runtime is unavailable.', [ 'status' => 503 ] );
+		}
+		$result = BizCity_KG_Scoped_REST_Controller::retry_async_source( $source_id, $notebook_id );
+		if ( is_wp_error( $result ) ) {
+			$data   = $result->get_error_data();
+			$status = is_array( $data ) && isset( $data['status'] ) ? (int) $data['status'] : 400;
+			return new WP_REST_Response( class_exists( 'BizCity_Error_Payload' )
+				? BizCity_Error_Payload::from_wp_error( $result, 'Xóa nguồn này và tải lại file để thử lại từ đầu.' )
+				: [ 'success' => false, 'code' => $result->get_error_code(), 'message' => $result->get_error_message() ], $status );
+		}
+		return rest_ensure_response( [ 'ok' => true ] );
+	}
+
+	/**
+	 * [2026-07-25 Johnny Chu] PHASE-0.48-LEARNING-LOG-SHARE-LINK —
+	 * POST /sources/{notebook_id}/{source_id}/share-link
+	 * Mints a stateless, no-login share token scoped to this
+	 * (notebook_id, source_id) pair via BizCity_TwinChat_Learning_Share_Adapter.
+	 * Ownership check reuses check_notebook_access() — same guard as every
+	 * other /sources/{notebook_id}/... route in this controller.
+	 */
+	public function create_source_share_link( WP_REST_Request $request ) {
+		$notebook_id = (int) $request->get_param( 'notebook_id' );
+		$source_id   = (int) $request->get_param( 'source_id' );
+		$auth        = $this->check_notebook_access( $notebook_id );
+		if ( is_wp_error( $auth ) ) {
+			return $auth;
+		}
+		if ( $source_id <= 0 ) {
+			return new WP_Error( 'invalid_source', 'Invalid source_id.', [ 'status' => 400 ] );
+		}
+		if ( ! class_exists( 'BizCity_TwinChat_Learning_Share_Adapter' ) ) {
+			return new WP_Error( 'unavailable', 'Learning share adapter chưa sẵn sàng trên site này.', [ 'status' => 503 ] );
+		}
+
+		$ttl_days = max( 1, min( 180, (int) $request->get_param( 'ttl_days' ) ?: 30 ) );
+		$link = BizCity_TwinChat_Learning_Share_Adapter::instance()->create_link( $notebook_id, $source_id, [
+			'ttl_s' => $ttl_days * DAY_IN_SECONDS,
+		] );
+		if ( is_wp_error( $link ) ) {
+			return $link;
+		}
+
+		return rest_ensure_response( [ 'ok' => true, 'data' => $link ] );
+	}
+
+	/**
+	 * [2026-07-23 Johnny Chu] PHASE-0.47-ASYNC-ERROR-CODE — retro-fix helper for
+	 * sources that failed BEFORE `async_error_code` was persisted in metadata
+	 * (see BizCity_KG_Scoped_REST_Controller::mark_async_placeholder_failed()).
+	 * Maps the exact free-text messages that code has ever written into their
+	 * matching error code, so old rows still humanize correctly without any
+	 * DB backfill/migration. New failures always carry the real code already;
+	 * this is a read-time fallback only.
+	 *
+	 * @param string $message
+	 * @return string  Error code, or '' when no known pattern matches.
+	 */
+	private static function infer_legacy_async_error_code( string $message ): string {
+		$patterns = [
+			'đã dùng hết quota Hub'              => 'gemini_quota_exhausted',
+			'File xử lý nền đã thất lạc'          => 'async_file_lost',
+			'File gốc đã bị xoá sau khi hết số lần thử' => 'async_file_missing',
+			'async ingest file missing'           => 'async_file_missing',
+			'Đã vượt quá số lần thử xử lý file'   => 'async_max_attempts_exceeded',
+			'Không thể xếp lịch xử lý file nền'   => 'async_ingest_schedule_failed',
+		];
+		foreach ( $patterns as $needle => $code ) {
+			if ( mb_stripos( $message, $needle ) !== false ) {
+				return $code;
+			}
+		}
+		return '';
+	}
+
+	/**
+	 * Normalize event level for mixed sources: learning events + source progress log.
+	 */
+	private function source_learning_event_level( $event, array $payload = [] ) {
+		$event = strtolower( (string) $event );
+		$level = isset( $payload['level'] ) ? strtolower( (string) $payload['level'] ) : '';
+		if ( in_array( $level, [ 'info', 'warn', 'error', 'ok' ], true ) ) {
+			return $level;
+		}
+		if ( $level === 'step' ) {
+			return 'info';
+		}
+		if ( strpos( $event, 'error' ) !== false || $event === 'failed' ) {
+			return 'error';
+		}
+		if ( strpos( $event, 'done' ) !== false || strpos( $event, 'complete' ) !== false ) {
+			return 'ok';
+		}
+		if ( strpos( $event, 'warn' ) !== false ) {
+			return 'warn';
+		}
+		return 'info';
+	}
+
+	/**
+	 * Build a readable event message from structured payload.
+	 */
+	private function source_learning_event_message( $event, array $payload = [] ) {
+		if ( isset( $payload['msg'] ) && is_string( $payload['msg'] ) && $payload['msg'] !== '' ) {
+			return (string) $payload['msg'];
+		}
+		$event = strtolower( (string) $event );
+		if ( $event === 'progress' ) {
+			$processed = isset( $payload['processed'] ) ? (int) $payload['processed'] : 0;
+			$remaining = isset( $payload['remaining'] ) ? (int) $payload['remaining'] : 0;
+			$triplets  = isset( $payload['total_triplets'] ) ? (int) $payload['total_triplets'] : 0;
+			return sprintf( 'Processed %d passages, %d triplets, remaining %d.', $processed, $triplets, $remaining );
+		}
+		if ( $event === 'passage_done' ) {
+			$triplets = isset( $payload['triplets'] ) ? (int) $payload['triplets'] : 0;
+			return sprintf( 'Passage extracted successfully (%d triplets).', $triplets );
+		}
+		if ( $event === 'passage_error' ) {
+			$err = isset( $payload['error'] ) ? (string) $payload['error'] : 'unknown_error';
+			return 'Passage extraction failed: ' . $err;
+		}
+		if ( $event === 'batch_done' ) {
+			$processed = isset( $payload['processed'] ) ? (int) $payload['processed'] : 0;
+			$triplets  = isset( $payload['total_triplets'] ) ? (int) $payload['total_triplets'] : 0;
+			$errors    = isset( $payload['errors'] ) ? (int) $payload['errors'] : 0;
+			return sprintf( 'Batch done: %d passages, %d triplets, %d errors.', $processed, $triplets, $errors );
+		}
+		if ( $event === 'done' ) {
+			return 'Learning job completed.';
+		}
+		if ( $event === 'job' && isset( $payload['status'] ) ) {
+			return 'Job status: ' . (string) $payload['status'];
+		}
+		return str_replace( '_', ' ', $event );
 	}
 
 	public function delete_source( WP_REST_Request $request ) {
@@ -972,7 +1932,8 @@ class BizCity_TwinChat_REST_Controller {
 		$limit = max( 1, min( 200, (int) ( $args['limit'] ?: 50 ) ) );
 
 		// Build WHERE clause. Note: scope_id is stored as a string in the KG table.
-		$where  = $wpdb->prepare( 'scope_type = %s AND scope_id = %s AND status = %s', 'notebook', (string) $notebook_id, 'active' );
+		// [2026-07-23 Johnny Chu] PHASE-0.43 — include async placeholders while extraction is still processing.
+		$where  = $wpdb->prepare( 'scope_type = %s AND scope_id = %s', 'notebook', (string) $notebook_id );
 		$params = [];
 
 		if ( ! empty( $args['search'] ) ) {
@@ -986,6 +1947,7 @@ class BizCity_TwinChat_REST_Controller {
 			        passage_count, created_at, updated_at
 			   FROM {$db->tbl_sources()}
 			  WHERE {$where}
+			    AND status IN ('active','processing','error')
 			  ORDER BY created_at DESC
 			  LIMIT {$limit}",
 			ARRAY_A
@@ -1030,15 +1992,23 @@ class BizCity_TwinChat_REST_Controller {
 			$query_ids    = array_values( array_unique( $query_ids ) );
 			$placeholders = implode( ',', array_fill( 0, count( $query_ids ), '%d' ) );
 			$tbl_passages = $db->tbl_passages();
+			// [2026-07-23 Johnny Chu] PHASE-0.47-KG-SOURCE-PROGRESS — kg_passages.source_id
+			// (and especially origin_id, the legacy webchat_sources.id) is NOT globally
+			// unique across notebooks; without a notebook_id filter, another notebook's
+			// passages that happen to share the same numeric id got summed into this
+			// source's total/done, silently deflating the % shown on the main list even
+			// though get_source_learning_log() (which DOES filter by notebook_id) reports
+			// the source as 100% done. Same class of bug as the dual-id fix above this,
+			// just missing the notebook scope on top of it.
 			$agg_sql      = "SELECT source_id,
 				COUNT(*) AS total_chunks,
 				SUM(CASE WHEN extraction_status = 'done'  THEN 1 ELSE 0 END) AS done_chunks,
 				SUM(CASE WHEN extraction_status = 'error' THEN 1 ELSE 0 END) AS error_chunks
 				FROM {$tbl_passages}
-				WHERE source_id IN ({$placeholders})
+				WHERE notebook_id = %d AND source_id IN ({$placeholders})
 				GROUP BY source_id";
 			// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
-			$agg_rows = $wpdb->get_results( $wpdb->prepare( $agg_sql, $query_ids ), ARRAY_A );
+			$agg_rows = $wpdb->get_results( $wpdb->prepare( $agg_sql, array_merge( [ $notebook_id ], $query_ids ) ), ARRAY_A );
 			if ( is_array( $agg_rows ) ) {
 				foreach ( $agg_rows as $a ) {
 					$psid = (int) $a['source_id'];
@@ -1059,6 +2029,8 @@ class BizCity_TwinChat_REST_Controller {
 			$stat  = $agg_map[ $kid ] ?? [ 'total' => 0, 'done' => 0, 'error' => 0 ];
 			$total = $stat['total'];
 			$done  = $stat['done'];
+			// [2026-07-23 Johnny Chu] PHASE-0.43 — fallback chunk_count to extracted passage total when kg_sources.passage_count is stale zero.
+			$chunk_count = max( (int) ( $r['passage_count'] ?? 0 ), $total );
 			return [
 				'id'                  => (int) $r['id'],
 				'source_id'           => (int) $r['id'],
@@ -1066,8 +2038,8 @@ class BizCity_TwinChat_REST_Controller {
 				'title'               => (string) ( $r['title'] ?? '' ),
 				'source_type'         => (string) ( $r['origin_kind'] ?? 'file' ),
 				'source_url'          => (string) ( $r['origin_url'] ?? '' ),
-				'chunk_count'         => (int) ( $r['passage_count'] ?? 0 ),
-				'embedding_status'    => 'ready',
+				'chunk_count'         => $chunk_count,
+				'embedding_status'    => ( (string) ( $r['status'] ?? '' ) === 'processing' ) ? 'processing' : ( ( (string) ( $r['status'] ?? '' ) === 'error' ) ? 'error' : 'ready' ),
 				'status'              => (string) ( $r['status'] ?? 'active' ),
 				'created_at'          => (string) ( $r['created_at'] ?? '' ),
 				'updated_at'          => (string) ( $r['updated_at'] ?? $r['created_at'] ?? '' ),

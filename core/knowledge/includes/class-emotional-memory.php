@@ -106,6 +106,16 @@ class BizCity_Emotional_Memory {
             return false;
         }
 
+        // [2026-07-28 Johnny Chu] R-CH-IDMEM — emotional memory is durable memory and requires the canonical UUID owner.
+        if ( class_exists( 'BizCity_Memory_Identity_Scope' ) ) {
+            $scope = BizCity_Memory_Identity_Scope::for_write( $args );
+            if ( ! $scope ) {
+                return false;
+            }
+            $args['user_id']       = (int) $scope['user_id'];
+            $args['identity_uuid'] = (string) $scope['identity_uuid'];
+        }
+
         if ( empty( $args['memory_key'] ) ) {
             $args['memory_key'] = $args['memory_type'] . ':' . md5( mb_strtolower( trim( $args['memory_text'] ) ) );
         }
@@ -113,6 +123,7 @@ class BizCity_Emotional_Memory {
         return BizCity_User_Memory::instance()->upsert_public( [
             'user_id'     => (int) $args['user_id'],
             'session_id'  => (string) $args['session_id'],
+			'identity_uuid'=> (string) ( $args['identity_uuid'] ?? '' ),
             'memory_tier' => 'extracted',
             'memory_type' => $args['memory_type'],
             'memory_key'  => $args['memory_key'],

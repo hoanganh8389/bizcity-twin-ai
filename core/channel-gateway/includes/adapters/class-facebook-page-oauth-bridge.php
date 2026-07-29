@@ -192,15 +192,17 @@ class BizCity_Facebook_Page_OAuth_Bridge {
 		}
 
 		// Stash pending hand-off in user meta (per-user, single-pending).
-		update_user_meta(
-			get_current_user_id(),
-			self::PENDING_META,
-			[
+		$pending = [
 				'account_uid' => $account_uid,
 				'time'        => time(),
 				'return_url'  => $this->build_spa_return_url( $account_uid ),
-			]
-		);
+		];
+		// [2026-07-27 Johnny Chu] R-PERF — persist OAuth pending state through the unified meta cache.
+		if ( class_exists( 'BizCity_User_Meta_Cache' ) ) {
+			BizCity_User_Meta_Cache::set( get_current_user_id(), self::PENDING_META, $pending );
+		} else {
+			update_user_meta( get_current_user_id(), self::PENDING_META, $pending );
+		}
 
 		// Build OAuth start URL. Legacy plugin reads its own App ID/Secret
 		// from user meta / WAIC; we just kick off the flow.
@@ -241,7 +243,10 @@ class BizCity_Facebook_Page_OAuth_Bridge {
 		$ok    = ! empty( $pages );
 		$count = is_array( $pages ) ? count( $pages ) : 0;
 
-		$pending = get_user_meta( $user_id, self::PENDING_META, true );
+		// [2026-07-27 Johnny Chu] R-PERF — read OAuth pending state once from direct-SQL cache.
+		$pending = class_exists( 'BizCity_User_Meta_Cache' )
+			? BizCity_User_Meta_Cache::get( $user_id, self::PENDING_META, array() )
+			: get_user_meta( $user_id, self::PENDING_META, true );
 		$has_pending = is_array( $pending )
 			&& ! empty( $pending['account_uid'] )
 			&& ! empty( $pending['return_url'] )
@@ -268,7 +273,10 @@ class BizCity_Facebook_Page_OAuth_Bridge {
 		if ( $app_source !== 'user' ) {
 			return; // Admin-mode (Phương án A) bypasses the gateway hand-off.
 		}
-		$pending = get_user_meta( $user_id, self::PENDING_META, true );
+		// [2026-07-27 Johnny Chu] R-PERF — reuse the request-level OAuth pending cache.
+		$pending = class_exists( 'BizCity_User_Meta_Cache' )
+			? BizCity_User_Meta_Cache::get( $user_id, self::PENDING_META, array() )
+			: get_user_meta( $user_id, self::PENDING_META, true );
 		if ( empty( $pending['account_uid'] ) ) {
 			return;
 		}
@@ -277,6 +285,9 @@ class BizCity_Facebook_Page_OAuth_Bridge {
 
 		// Clear the meta no matter what — single-shot hand-off.
 		delete_user_meta( $user_id, self::PENDING_META );
+		if ( class_exists( 'BizCity_User_Meta_Cache' ) ) {
+			BizCity_User_Meta_Cache::invalidate( $user_id, self::PENDING_META );
+		}
 
 		if ( ( time() - $pending_ts ) > self::PENDING_TTL ) {
 			$this->set_result( $user_id, [ 'ok' => false, 'error' => 'OAuth pending expired.', 'account_uid' => $account_uid ] );

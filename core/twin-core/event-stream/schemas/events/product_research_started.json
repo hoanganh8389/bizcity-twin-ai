@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "bizcity://events/product_research_started.json",
+  "title": "product_research_started",
+  "description": "Emitted when TwinBrain Super-MRO vertical starts handling a query. Internal product_* contract is retained. PHASE-TWB-PRODUCTS (2026-07-15).",
+  "type": "object",
+  "required": ["trace_id", "query", "intent"],
+  "properties": {
+    "trace_id": { "type": "string", "description": "Brain turn trace ID." },
+    "query": { "type": "string", "description": "User query for the Super-MRO vertical." },
+    "intent": { "type": "string", "description": "Detected products intent." },
+    "source_marker": { "type": "string", "description": "Caller marker, e.g. twinbrain_chat or automation." }
+  },
+  "additionalProperties": true
+}

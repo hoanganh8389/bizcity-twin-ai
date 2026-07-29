@@ -109,13 +109,11 @@ final class BizCity_Automation_Action_Schedule_Event extends BizCity_Automation_
 			);
 		}
 
-		// [2026-06-15 Johnny Chu] PHASE-0 — forward wp_user_id từ trigger để event
-		// gán đúng user (automation chạy trong cron → get_current_user_id()=0).
-		$wp_user_id = (int) (
-			$ctx['trigger']['wp_user_id']
-			?? $ctx['wp_user_id']
-			?? get_current_user_id()
-		);
+		// [2026-07-16 Johnny Chu] PHASE-TWINWEB F4 — resolve owner from automation context, never from current session fallback.
+		$wp_user_id = $this->resolve_owner_user_id( $ctx );
+		if ( $wp_user_id <= 0 ) {
+			return new WP_Error( 'owner_missing', 'schedule_event: không resolve được owner user_id.' );
+		}
 
 		$payload = array(
 			'event_type'   => $event_type,

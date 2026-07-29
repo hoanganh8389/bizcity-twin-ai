@@ -67,6 +67,8 @@ class BizCity_TwinBrain_Tool_Intent_Matcher {
 		}
 
 		$skills = $this->load_user_skills( $user_id );
+		// [2026-07-19 Johnny Chu] PHASE-TWIN-GPT-AGENT-TOOLS — add TwinWeb catalog planner candidates so public Agent Tools are evaluable even when wp_bizcity_skills is empty.
+		$catalog_candidates = $this->match_twinweb_agent_tool_catalog( $prompt, $user_id, $opts );
 
 		/* Phase C.5.1 (PHASE-0.35 / R-MPRT-6) — Inject guru-bound tools that
 		 * are NOT in wp_bizcity_skills. Persona providers (tarot, content
@@ -78,11 +80,14 @@ class BizCity_TwinBrain_Tool_Intent_Matcher {
 			$skills = $this->inject_guru_tools( $skills, $wl_map );
 		}
 
-		if ( empty( $skills ) ) return [];
+		if ( empty( $skills ) && empty( $catalog_candidates ) ) return [];
 
 		// Try cosine first; fall back to keyword overlap on any failure.
-		$cosine = $this->match_with_cosine( $prompt, $skills );
-		$result = ! empty( $cosine ) ? $cosine : $this->match_keyword_overlap( $prompt, $skills );
+		$cosine = ! empty( $skills ) ? $this->match_with_cosine( $prompt, $skills ) : [];
+		$result = ! empty( $cosine ) ? $cosine : ( ! empty( $skills ) ? $this->match_keyword_overlap( $prompt, $skills ) : [] );
+		if ( ! empty( $catalog_candidates ) ) {
+			$result = $this->merge_ranked_tool_candidates( $result, $catalog_candidates );
+		}
 
 		/* Phase C.2 — boost slugs that are in guru.tools_for_guru by +0.05 (cap 1.0)
 		 * and re-sort. Annotate `reason` so timeline can show the boost. */
@@ -99,6 +104,79 @@ class BizCity_TwinBrain_Tool_Intent_Matcher {
 		}
 
 		return $result;
+	}
+
+	/**
+	 * @return array<int,array<string,mixed>>
+	 */
+	private function match_twinweb_agent_tool_catalog( string $prompt, int $user_id, array $opts ): array {
+		if ( ! class_exists( 'BizCity_TwinWeb_Agent_Tool_Catalog' ) ) {
+			$catalog_file = defined( 'BIZCITY_TWIN_AI_DIR' )
+				? BIZCITY_TWIN_AI_DIR . 'modules/twinweb/includes/class-twinweb-agent-tool-catalog.php'
+				: dirname( __DIR__, 3 ) . '/modules/twinweb/includes/class-twinweb-agent-tool-catalog.php';
+			if ( is_readable( $catalog_file ) ) {
+				require_once $catalog_file;
+			}
+		}
+		if ( ! class_exists( 'BizCity_TwinWeb_Agent_Tool_Catalog' ) ) {
+			return [];
+		}
+
+		try {
+			$ctx = array(
+				'user_id'   => $user_id,
+				'surface'   => (string) ( $opts['surface'] ?? 'twinbrain' ),
+				'plan_slug' => (string) ( $opts['plan_slug'] ?? '' ),
+				'plan_rank' => (int) ( $opts['plan_rank'] ?? 0 ),
+			);
+			$catalog = BizCity_TwinWeb_Agent_Tool_Catalog::instance();
+			$matches = $catalog->match_prompt( $prompt, $ctx );
+			$out = [];
+			foreach ( $matches as $match ) {
+				$slug = sanitize_key( (string) ( $match['tool_slug'] ?? $match['skill_slug'] ?? '' ) );
+				if ( $slug === '' ) {
+					continue;
+				}
+				$tool = $catalog->get( $slug, $ctx );
+				$out[] = array(
+					'skill_slug'    => $slug,
+					'tool_slug'     => $slug,
+					'score'         => (float) ( $match['score'] ?? 0 ),
+					'reason'        => (string) ( $match['reason'] ?? 'twinweb_catalog_keyword' ) . ' +twinweb_catalog',
+					'artifact_type' => is_array( $tool ) ? (string) ( $tool['artifact_type'] ?? '' ) : (string) ( $match['artifact_type'] ?? '' ),
+					'execution'     => is_array( $tool ) ? (string) ( $tool['execution'] ?? '' ) : (string) ( $match['execution'] ?? '' ),
+					'tool_class'    => is_array( $tool ) ? (string) ( $tool['tool_class'] ?? '' ) : '',
+					'plan_min'      => is_array( $tool ) ? (string) ( $tool['plan_min'] ?? 'free' ) : 'free',
+					'capability'    => is_array( $tool ) ? (string) ( $tool['capability'] ?? '' ) : '',
+					'needs_approval'=> is_array( $tool ) ? ! empty( $tool['needs_approval'] ) : false,
+					'parameters_schema' => is_array( $tool ) && isset( $tool['parameters_schema'] ) && is_array( $tool['parameters_schema'] ) ? $tool['parameters_schema'] : array(),
+				);
+			}
+			return $out;
+		} catch ( \Throwable $e ) {
+			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+				error_log( '[TwinBrain][tool][twinweb_catalog] ' . $e->getMessage() );
+			}
+			return [];
+		}
+	}
+
+	private function merge_ranked_tool_candidates( array $primary, array $secondary ): array {
+		$by_slug = [];
+		foreach ( array_merge( $primary, $secondary ) as $candidate ) {
+			$slug = sanitize_key( (string) ( $candidate['skill_slug'] ?? $candidate['tool_slug'] ?? '' ) );
+			if ( $slug === '' ) {
+				continue;
+			}
+			$score = (float) ( $candidate['score'] ?? 0 );
+			if ( ! isset( $by_slug[ $slug ] ) || $score > (float) ( $by_slug[ $slug ]['score'] ?? 0 ) ) {
+				$candidate['skill_slug'] = $slug;
+				$by_slug[ $slug ] = $candidate;
+			}
+		}
+		$out = array_values( $by_slug );
+		usort( $out, static function( $a, $b ) { return ( $b['score'] ?? 0 ) <=> ( $a['score'] ?? 0 ); } );
+		return array_slice( $out, 0, self::TOP_K );
 	}
 
 	/* =================================================================

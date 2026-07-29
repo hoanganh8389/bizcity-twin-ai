@@ -29,6 +29,12 @@ class BizCity_Channel_Binding {
 	 */
 	const SCHEMA_VERSION = '1.1.0';
 	const OPTION_VERSION = 'bizcity_channel_bindings_schema';
+	// [2026-07-24 Johnny Chu] PHASE-DIAG-PERF — version the read cache independently
+	// from the schema so a resolution-contract change can invalidate old payloads.
+	const CACHE_VERSION = '1';
+	const CACHE_GROUP   = 'bizcity_channel_binding';
+	const CACHE_TTL     = 600; // 10 minutes; writes invalidate immediately.
+	const CACHE_GENERATION_OPTION = 'bizcity_channel_bindings_cache_generation';
 
 	const MODE_AUTO       = 'auto';
 	const MODE_MANUAL     = 'manual';
@@ -89,6 +95,11 @@ class BizCity_Channel_Binding {
 		$platform = strtoupper( $platform );
 		$blog_id  = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
 		$table    = self::table();
+		$cache_key = self::resolve_cache_key( $blog_id, $platform, $account_id );
+		$cached    = wp_cache_get( $cache_key, self::CACHE_GROUP );
+		if ( is_array( $cached ) && isset( $cached['found'] ) ) {
+			return ! empty( $cached['found'] ) && is_array( $cached['row'] ) ? $cached['row'] : null;
+		}
 
 		$row = $wpdb->get_row( $wpdb->prepare(
 			"SELECT * FROM {$table}
@@ -106,7 +117,30 @@ class BizCity_Channel_Binding {
 			), ARRAY_A );
 		}
 
-		return is_array( $row ) ? $row : null;
+		$resolved = is_array( $row ) ? $row : null;
+		wp_cache_set(
+			$cache_key,
+			array(
+				'found' => null !== $resolved,
+				'row'   => $resolved,
+			),
+			self::CACHE_GROUP,
+			self::CACHE_TTL
+		);
+		return $resolved;
+	}
+
+	/** [2026-07-24 Johnny Chu] PHASE-DIAG-PERF — isolate cache by blog and binding identity. */
+	private static function resolve_cache_key( int $blog_id, string $platform, string $account_id ): string {
+		$generation = (int) get_option( self::CACHE_GENERATION_OPTION . '_' . $blog_id, 1 );
+		return 'resolve_' . self::CACHE_VERSION . '_' . $generation . '_' . $blog_id . '_' . md5( $platform . '|' . $account_id );
+	}
+
+	/** [2026-07-24 Johnny Chu] PHASE-DIAG-PERF — bump generation so exact and wildcard results expire together. */
+	private static function invalidate_resolve_cache( int $blog_id, string $platform, string $account_id ): void {
+		$option = self::CACHE_GENERATION_OPTION . '_' . $blog_id;
+		$next   = (int) get_option( $option, 1 ) + 1;
+		update_option( $option, $next, false );
 	}
 
 	public static function all(): array {
@@ -147,17 +181,29 @@ class BizCity_Channel_Binding {
 			'updated_at'          => current_time( 'mysql' ),
 		);
 		if ( $existing > 0 ) {
-			$wpdb->update( self::table(), $row, array( 'id' => $existing ) );
+			$updated = $wpdb->update( self::table(), $row, array( 'id' => $existing ) );
+			if ( false !== $updated ) {
+				self::invalidate_resolve_cache( $blog_id, $platform, $account_id );
+			}
 			return $existing;
 		}
 		$row['created_at'] = current_time( 'mysql' );
 		$ok = $wpdb->insert( self::table(), $row );
+		if ( false !== $ok ) {
+			self::invalidate_resolve_cache( $blog_id, $platform, $account_id );
+		}
 		return $ok ? (int) $wpdb->insert_id : 0;
 	}
 
 	public static function disable( int $id ): bool {
 		global $wpdb;
-		return false !== $wpdb->update( self::table(), array( 'status' => 0, 'updated_at' => current_time( 'mysql' ) ), array( 'id' => $id ) );
+		$row = $wpdb->get_row( $wpdb->prepare( 'SELECT platform, account_id FROM ' . self::table() . ' WHERE id=%d LIMIT 1', $id ), ARRAY_A );
+		$updated = $wpdb->update( self::table(), array( 'status' => 0, 'updated_at' => current_time( 'mysql' ) ), array( 'id' => $id ) );
+		if ( false !== $updated && is_array( $row ) ) {
+			$blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+			self::invalidate_resolve_cache( $blog_id, (string) $row['platform'], (string) $row['account_id'] );
+		}
+		return false !== $updated;
 	}
 
 	/**

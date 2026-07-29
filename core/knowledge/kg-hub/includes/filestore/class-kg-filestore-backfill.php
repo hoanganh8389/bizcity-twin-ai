@@ -16,8 +16,10 @@
  *     so the diagnostics page surfaces stuck rows.
  *
  * Toggle:
- *   wp_option `bizcity_kg_filestore_dual_write` = 1   → cron is scheduled
- *                                                = 0   → cron unscheduled on next bind()
+ *   wp_option `bizcity_kg_v05_filestore_backfill_enabled` = 1   → cron is scheduled
+ *                                                          = 0   → cron unscheduled on next bind()
+ *   (renamed 2026-07-23 from legacy `bizcity_kg_filestore_dual_write` — see
+ *   class-kg-filestore-dispatcher.php header for the multisite-poisoned-option rationale.)
  *
  * @package    Bizcity_Twin_AI
  * @subpackage Core\Knowledge\KG_Hub\Filestore
@@ -47,7 +49,12 @@ class BizCity_KG_Filestore_Backfill {
 		add_action( self::HOOK, [ $this, 'run' ] );
 
 		if ( BizCity_KG_Filestore_Dispatcher::is_enabled() ) {
-			if ( ! wp_next_scheduled( self::HOOK ) ) {
+			// [2026-07-15 Johnny Chu] R-CRON-TIER — interval theo license tier
+			// (free 10' / pro 5' / premium 1') thay vì cố định 5 phút, để giảm
+			// tải trên multisite. Chỉ reschedule khi interval đổi (tránh churn).
+			if ( class_exists( 'BizCity_Cron_Tier_Settings' ) ) {
+				BizCity_Cron_Tier_Settings::ensure_hook_interval( self::HOOK );
+			} elseif ( ! wp_next_scheduled( self::HOOK ) ) {
 				wp_schedule_event( time() + 60, self::SCHEDULE, self::HOOK );
 			}
 		} else {
@@ -64,6 +71,43 @@ class BizCity_KG_Filestore_Backfill {
 			];
 		}
 		return $schedules;
+	}
+
+	public static function wake_due_events(): void {
+		// [2026-07-23 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — wake due KG migrations when host WP-Cron spawning is disabled or unreliable.
+		if ( defined( 'DOING_CRON' ) && DOING_CRON ) {
+			return;
+		}
+
+		$hooks = array(
+			BizCity_KG_Filestore_Backfill::HOOK,
+			BizCity_KG_Graph_Embedding_Migration::HOOK,
+			BizCity_KG_Triplet_Raw_Migration::HOOK,
+		);
+		$now   = time();
+		$due   = false;
+		foreach ( $hooks as $hook ) {
+			$next = wp_next_scheduled( $hook );
+			if ( $next && (int) $next <= $now ) {
+				$due = true;
+				break;
+			}
+		}
+		if ( ! $due ) {
+			return;
+		}
+
+		$lock_key = 'bizcity_kg_cron_wakeup_' . (int) get_current_blog_id();
+		if ( get_transient( $lock_key ) ) {
+			return;
+		}
+		set_transient( $lock_key, 1, 30 );
+		$url = site_url( 'wp-cron.php?doing_wp_cron=' . rawurlencode( (string) microtime( true ) ) );
+		wp_remote_post( $url, array(
+			'timeout'   => 0.01,
+			'blocking'  => false,
+			'sslverify' => apply_filters( 'https_local_ssl_verify', false ),
+		) );
 	}
 
 	/**
@@ -111,6 +155,7 @@ class BizCity_KG_Filestore_Backfill {
 	public function run() {
 		// Cron entry-point — one batch per tick. Manual UI uses run_loop().
 		$report = $this->run_once();
+		update_option( 'bizcity_kg_filestore_backfill_last_run', array( 'at' => time(), 'report' => $report ), false );
 		if ( empty( $report['skipped'] ) ) {
 			do_action( 'bizcity_diagnostics_notice', 'kg_filestore', [
 				'blog_id'   => get_current_blog_id(),

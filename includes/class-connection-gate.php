@@ -51,7 +51,11 @@ class BizCity_Connection_Gate {
         // [2026-06-10 Johnny Chu] HOTFIX — per-site option (not network-wide sitemeta)
         $mode        = get_option( 'bizcity_llm_mode', 'gateway' );
         $gateway_url = get_option( 'bizcity_llm_gateway_url', 'https://bizcity.vn' );
-        $api_key     = get_option( 'bizcity_llm_api_key', '' );
+        // [2026-07-27 Johnny Chu] PHASE-0.49-MASTER-CONFIG-401 — connection state
+        // must use the same normalized key as gateway runtime calls.
+        $api_key     = class_exists( 'BizCity_LLM_Client' )
+            ? BizCity_LLM_Client::instance()->get_api_key()
+            : get_option( 'bizcity_llm_api_key', '' );
 
         $this->api_key = $api_key ?: null;
 

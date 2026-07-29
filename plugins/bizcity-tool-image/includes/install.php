@@ -9,7 +9,10 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 
 function bztimg_install_tables() {
     global $wpdb;
-    $charset = $wpdb->get_charset_collate();
+    // [2026-07-22 Johnny Chu] PHP74-COMPAT — use the multisite-safe charset helper to avoid latin1/utf8mb3 collation mismatches.
+    $charset = function_exists( 'bizcity_get_charset_collate' )
+        ? bizcity_get_charset_collate()
+        : $wpdb->get_charset_collate();
 
     /* ── Jobs table (existing) ── */
     $table_jobs = $wpdb->prefix . 'bztimg_jobs';

@@ -418,9 +418,10 @@ class BizCoach_Pro_Sprint_Diagnostic {
 
 		// API key configured (any of 3 sources per legacy lib/astro-api-free.php:28)
 		$key_site    = (string) get_option( 'bccm_astro_api_key', '' );
-		$key_network = function_exists( 'get_site_option' ) ? (string) get_site_option( 'bccm_network_astro_api_key', '' ) : '';
+		// [2026-07-27 Johnny Chu] R-MSDB — diagnostics must resolve legacy settings per current blog.
+		$key_network = (string) get_option( 'bccm_network_astro_api_key', '' );
 		$key_const   = defined( 'BCCM_ASTRO_API_KEY' ) ? (string) BCCM_ASTRO_API_KEY : '';
-		$src = $key_site !== '' ? 'site_option' : ( $key_network !== '' ? 'network_option' : ( $key_const !== '' ? 'PHP_constant' : '' ) );
+		$src = $key_site !== '' ? 'site_option' : ( $key_network !== '' ? 'legacy_site_option' : ( $key_const !== '' ? 'PHP_constant' : '' ) );
 		$out[] = self::row( 'T-BCPRO.F5.a',
 			$src !== '' ? 'PASS' : 'WARN',
 			'BCCM_ASTRO_API_KEY configured (site/network/constant)',
@@ -1595,11 +1596,33 @@ class BizCoach_Pro_Sprint_Diagnostic {
 		 * with the unified TwinChat settings page (see PHASE-0-RULE-1-API.md
 		 * §3 R-1API-9). One canonical settings page for the whole network.
 		 */
-		$page_url = admin_url( 'admin.php?page=bizcity-twinchat-settings' );
+		// [2026-07-11 Johnny Chu] R-GW-API-CATALOG — validate canonical TwinChat settings page, not legacy Astro settings class.
+		$settings_slug = 'bizcity-twinchat-settings';
+		$page_url      = admin_url( 'admin.php?page=' . $settings_slug );
+		$menu_loaded   = did_action( 'admin_menu' ) > 0;
+		$menu_has_page = false;
+		if ( $menu_loaded ) {
+			global $submenu;
+			if ( is_array( $submenu ) && isset( $submenu['bizcity-twinchat'] ) && is_array( $submenu['bizcity-twinchat'] ) ) {
+				foreach ( $submenu['bizcity-twinchat'] as $item ) {
+					if ( isset( $item[2] ) && (string) $item[2] === $settings_slug ) {
+						$menu_has_page = true;
+						break;
+					}
+				}
+			}
+		}
+		$settings_class_ok = class_exists( 'BizCity_TwinChat_Settings_Page' )
+			&& (string) BizCity_TwinChat_Settings_Page::PAGE_SLUG === $settings_slug;
+		$ui_ok = $settings_class_ok || $menu_has_page;
+		$ui_status = $ui_ok ? 'PASS' : ( $menu_loaded ? 'FAIL' : 'WARN' );
 		$out[] = self::row( 'T-BCPRO.F15.UI',
-			$has_settings ? 'PASS' : 'FAIL',
+			$ui_status,
 			'Settings page reachable',
-			$has_settings ? 'URL: ' . $page_url : 'class not loaded'
+			'url=' . $page_url
+				. ' class=' . ( $settings_class_ok ? 'yes' : 'no' )
+				. ' menu=' . ( $menu_has_page ? 'yes' : 'no' )
+				. ( $menu_loaded ? '' : ' (admin_menu not fired yet)' )
 		);
 
 		/* ── Live traffic: gateway vs legacy direct ────────────────
@@ -1638,10 +1661,11 @@ class BizCoach_Pro_Sprint_Diagnostic {
 			"24h={$gw_24h} / total={$gw_total}"
 		);
 
-		$legacy_count  = (int) get_site_option( 'bcr_astro_legacy_call_count', 0 );
-		$legacy_at     = (int) get_site_option( 'bcr_astro_legacy_last_at', 0 );
-		$legacy_ep     = (string) get_site_option( 'bcr_astro_legacy_last_endpoint', '' );
-		$legacy_src    = (string) get_site_option( 'bcr_astro_legacy_last_source', 'unknown' );
+		// [2026-07-27 Johnny Chu] R-MSDB — keep Astro telemetry isolated per blog/shard.
+		$legacy_count  = (int) get_option( 'bcr_astro_legacy_call_count', 0 );
+		$legacy_at     = (int) get_option( 'bcr_astro_legacy_last_at', 0 );
+		$legacy_ep     = (string) get_option( 'bcr_astro_legacy_last_endpoint', '' );
+		$legacy_src    = (string) get_option( 'bcr_astro_legacy_last_source', 'unknown' );
 		$legacy_when   = $legacy_at > 0 ? human_time_diff( $legacy_at, time() ) . ' ago' : 'never';
 
 		/* Auto-baseline (Sprint E.1, 2026-05-16): the LEG counter is
@@ -1650,11 +1674,11 @@ class BizCoach_Pro_Sprint_Diagnostic {
 		 * statically wired AND no baseline yet, snapshot the current
 		 * count + timestamp. Subsequent LEG growth = post-deploy active
 		 * bypass (real FAIL). */
-		$baseline_count = (int) get_site_option( 'bcr_astro_legacy_baseline_count', -1 );
-		$baseline_at    = (int) get_site_option( 'bcr_astro_legacy_baseline_at', 0 );
+		$baseline_count = (int) get_option( 'bcr_astro_legacy_baseline_count', -1 );
+		$baseline_at    = (int) get_option( 'bcr_astro_legacy_baseline_at', 0 );
 		if ( $e1_wired && $baseline_count < 0 ) {
-			update_site_option( 'bcr_astro_legacy_baseline_count', $legacy_count );
-			update_site_option( 'bcr_astro_legacy_baseline_at', time() );
+			update_option( 'bcr_astro_legacy_baseline_count', $legacy_count );
+			update_option( 'bcr_astro_legacy_baseline_at', time() );
 			$baseline_count = $legacy_count;
 			$baseline_at    = time();
 		}
@@ -1687,10 +1711,10 @@ class BizCoach_Pro_Sprint_Diagnostic {
 		 * Bumped by _bccm_astro_bump_e1_counter() inside the new gateway
 		 * dispatch in bcpro/legacy/lib/astro-api-free.php. Proves the
 		 * choke-point refactor is exercising actual traffic. */
-		$e1_count = (int) get_site_option( 'bcr_astro_e1_via_gateway_count', 0 );
-		$e1_at    = (int) get_site_option( 'bcr_astro_e1_via_gateway_last_at', 0 );
-		$e1_ep    = (string) get_site_option( 'bcr_astro_e1_via_gateway_last_endpoint', '' );
-		$e1_res   = (string) get_site_option( 'bcr_astro_e1_via_gateway_last_result', '' );
+		$e1_count = (int) get_option( 'bcr_astro_e1_via_gateway_count', 0 );
+		$e1_at    = (int) get_option( 'bcr_astro_e1_via_gateway_last_at', 0 );
+		$e1_ep    = (string) get_option( 'bcr_astro_e1_via_gateway_last_endpoint', '' );
+		$e1_res   = (string) get_option( 'bcr_astro_e1_via_gateway_last_result', '' );
 		$e1_when  = $e1_at > 0 ? human_time_diff( $e1_at, time() ) . ' ago' : 'never';
 		if ( $e1_count > 0 && $legacy_count === 0 ) {
 			$e1_status = 'PASS';
@@ -2557,11 +2581,12 @@ class BizCoach_Pro_Sprint_Diagnostic {
 		);
 
 		/* ── G.6.audit · Legacy direct-caller audit (read-only) ────── */
-		$legacy_total    = (int) get_site_option( 'bcr_astro_legacy_call_count', 0 );
-		$legacy_baseline = (int) get_site_option( 'bcr_astro_legacy_baseline_count', -1 );
-		$legacy_last_at  = (int) get_site_option( 'bcr_astro_legacy_last_at', 0 );
-		$legacy_last_ep  = (string) get_site_option( 'bcr_astro_legacy_last_endpoint', '' );
-		$legacy_last_src = (string) get_site_option( 'bcr_astro_legacy_last_source', '' );
+		// [2026-07-27 Johnny Chu] R-MSDB — audit telemetry must use the active blog's option store.
+		$legacy_total    = (int) get_option( 'bcr_astro_legacy_call_count', 0 );
+		$legacy_baseline = (int) get_option( 'bcr_astro_legacy_baseline_count', -1 );
+		$legacy_last_at  = (int) get_option( 'bcr_astro_legacy_last_at', 0 );
+		$legacy_last_ep  = (string) get_option( 'bcr_astro_legacy_last_endpoint', '' );
+		$legacy_last_src = (string) get_option( 'bcr_astro_legacy_last_source', '' );
 		$post_deploy     = $legacy_baseline >= 0 ? max( 0, $legacy_total - $legacy_baseline ) : $legacy_total;
 		$audit_status    = 'PASS';
 		if ( $post_deploy > 0 ) {

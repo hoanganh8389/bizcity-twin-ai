@@ -110,6 +110,13 @@ final class BizCity_Automation_TwinBrain_Bridge {
 				'_event_key' => $event_key,
 				'trace_id'   => $trace_id,
 			) );
+			// [2026-07-17 Johnny Chu] PHASE-TWINWEB F4 — stamp canonical owner for durable run ownership.
+			if ( (int) ( $enriched['_owner_user_id'] ?? 0 ) <= 0 ) {
+				$enriched['_owner_user_id'] = (int) ( $enriched['user_id'] ?? $enriched['wp_user_id'] ?? $wf['created_by'] ?? 0 );
+			}
+			if ( (int) ( $enriched['wp_user_id'] ?? 0 ) <= 0 && (int) ( $enriched['_owner_user_id'] ?? 0 ) > 0 ) {
+				$enriched['wp_user_id'] = (int) $enriched['_owner_user_id'];
+			}
 
 			// Also notify the test listener so FE "Chạy thử" panel can capture.
 			if ( class_exists( 'BizCity_Automation_Listener' ) ) {
@@ -143,12 +150,21 @@ final class BizCity_Automation_TwinBrain_Bridge {
 			$want = (string) ( $cfg['intent_id'] ?? '' );
 			if ( $want !== '' && $want !== $intent_id ) { continue; }
 
-			$run = BizCity_Automation_Repo_Runs::enqueue( (int) $wf['id'], array_merge( $payload, array(
+			$enqueue_payload = array_merge( $payload, array(
 				'_trigger'  => 'twinbrain_intent',
 				'intent_id' => $intent_id,
-			) ) );
+			) );
+			// [2026-07-17 Johnny Chu] PHASE-TWINWEB F4 — stamp canonical owner for intent-triggered runs.
+			if ( (int) ( $enqueue_payload['_owner_user_id'] ?? 0 ) <= 0 ) {
+				$enqueue_payload['_owner_user_id'] = (int) ( $enqueue_payload['user_id'] ?? $enqueue_payload['wp_user_id'] ?? $wf['created_by'] ?? 0 );
+			}
+			if ( (int) ( $enqueue_payload['wp_user_id'] ?? 0 ) <= 0 && (int) ( $enqueue_payload['_owner_user_id'] ?? 0 ) > 0 ) {
+				$enqueue_payload['wp_user_id'] = (int) $enqueue_payload['_owner_user_id'];
+			}
+
+			$run = BizCity_Automation_Repo_Runs::enqueue( (int) $wf['id'], $enqueue_payload );
 			if ( ! is_wp_error( $run ) ) {
-				do_action( 'bizcity_automation_run_enqueued', $run, (int) $wf['id'], $payload );
+				do_action( 'bizcity_automation_run_enqueued', $run, (int) $wf['id'], $enqueue_payload );
 			}
 		}
 	}
@@ -159,6 +175,8 @@ final class BizCity_Automation_TwinBrain_Bridge {
 	 * @param string   $prompt    User-facing prompt.
 	 * @param array    $opts      Forwarded to start_turn (user_id, guru_id, k, ...).
 	 * @param callable $on_event  fn(string $event_key, array $payload): void
+	 * @param array    $context   Optional capture context; `complete=true` runs
+	 *                            the synchronous full turn before returning.
 	 * @return array              start_turn result OR WP_Error.
 	 */
 	public static function run_with_capture( string $prompt, array $opts, callable $on_event, array $context = array() ) {
@@ -176,7 +194,31 @@ final class BizCity_Automation_TwinBrain_Bridge {
 		add_action( 'bizcity_twin_event', $listener, 1, 2 );
 
 		try {
-			$result = BizCity_TwinBrain_Runtime::instance()->start_turn( $prompt, $opts );
+			$runtime = BizCity_TwinBrain_Runtime::instance();
+			$start   = $runtime->start_turn( $prompt, $opts );
+			$result  = $start;
+			if ( ! empty( $context['complete'] ) && is_array( $start ) && ! empty( $start['trace_id'] ) ) {
+				// [2026-07-27 Johnny Chu] PHASE-0.52 W4 — Default_Reply must complete the same non-stream pipeline as TwinChat/Twin GPT before sending a channel response.
+				$complete_opts = array_merge( $opts, array(
+					'memory_block'              => (string) ( $start['memory_block'] ?? '' ),
+					'keyword_tokens'            => (array) ( $start['keyword_tokens'] ?? array() ),
+					'subject_context_md'        => (string) ( $start['subject_context_md'] ?? '' ),
+					'subject_context_label'     => (string) ( $start['subject_context_label'] ?? '' ),
+					'subject_id'                => (int) ( $start['subject_id'] ?? ( $opts['user_id'] ?? 0 ) ),
+					'_subject_profile_resolved' => ! empty( $start['_subject_profile_resolved'] ),
+				) );
+				$done = $runtime->complete_turn(
+					(string) $start['trace_id'],
+					$prompt,
+					(array) ( $start['candidates'] ?? array() ),
+					(array) ( $start['tool_candidates'] ?? array() ),
+					$complete_opts
+				);
+				$result = array_merge( $start, is_array( $done ) ? $done : array() );
+				if ( is_array( $done ) && isset( $done['synthesis']['answer_md'] ) ) {
+					$result['final_text'] = (string) $done['synthesis']['answer_md'];
+				}
+			}
 		} catch ( \Throwable $e ) {
 			$result = new WP_Error( 'twinbrain_exception', $e->getMessage(), array( 'status' => 500 ) );
 		} finally {

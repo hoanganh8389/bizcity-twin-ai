@@ -130,6 +130,27 @@ class BizCity_Knowledge_Fabric {
         $total_tokens = 0;
         $embedding    = class_exists( 'BizCity_Knowledge_Embedding' ) ? BizCity_Knowledge_Embedding::instance() : null;
 
+        // [2026-07-24 Johnny Chu] PHASE-DIAG-PERF — batch embeddings per source instead
+        // of 1 gateway POST /wp-json/bizcity/v1/llm/embeddings per chunk. A single
+        // Quick Training ingest was firing dozens of embeddings calls within seconds
+        // (see core/diagnostics/docs/log-trace/PHASE-DIAG-PERF-LOG-TRACE-2026-07-24.ipynb,
+        // thuhien.bizcity.vn burst). Batch size 20 mirrors the proven pattern already
+        // used in BizCity_Knowledge_Embedding::reprocess_source() and keeps each
+        // gateway call well under the 60s embeddings HTTP timeout (< 100s budget).
+        $embed_batch_size = 20;
+        $chunk_vectors    = array();
+        if ( $embedding && ! empty( $chunks ) ) {
+            for ( $i = 0, $total_chunks = count( $chunks ); $i < $total_chunks; $i += $embed_batch_size ) {
+                $batch_texts  = array_slice( $chunks, $i, $embed_batch_size );
+                $batch_result = $embedding->create_embeddings_batch( $batch_texts );
+                if ( ! is_wp_error( $batch_result ) ) {
+                    foreach ( $batch_result as $j => $vec ) {
+                        $chunk_vectors[ $i + $j ] = $vec;
+                    }
+                }
+            }
+        }
+
         foreach ( $chunks as $index => $chunk_text ) {
             $token_count   = BizCity_Knowledge_Source::count_tokens( $chunk_text );
             $total_tokens += $token_count;
@@ -151,12 +172,10 @@ class BizCity_Knowledge_Fabric {
                 ),
             );
 
-            // Embed if service available
-            if ( $embedding ) {
-                $vector = $embedding->create_embedding( $chunk_text );
-                if ( ! is_wp_error( $vector ) ) {
-                    $chunk_data['embedding'] = $vector;
-                }
+            // [2026-07-24 Johnny Chu] PHASE-DIAG-PERF — consume pre-batched vector
+            // instead of embedding one chunk at a time.
+            if ( isset( $chunk_vectors[ $index ] ) ) {
+                $chunk_data['embedding'] = $chunk_vectors[ $index ];
             }
 
             $db->create_chunk( $chunk_data );

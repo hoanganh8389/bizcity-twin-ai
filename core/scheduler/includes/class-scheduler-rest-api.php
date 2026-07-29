@@ -230,6 +230,10 @@ class BizCity_Scheduler_REST_API {
 			$req->get_param( 'status' ) ?: 'all',
 			$req->get_param( 'event_type' ) ?: ''
 		);
+		// [2026-07-21 Johnny Chu] PHASE-CPT-PROJECTION — expose My Content artifact IDs for scheduler-only FB/Web posts in Channel Gateway FE.
+		if ( class_exists( 'BizCity_Content_Artifact_Service' ) ) {
+			$events = BizCity_Content_Artifact_Service::enrich_scheduler_events_for_rest( $events );
+		}
 
 		return new \WP_REST_Response( [ 'events' => $events ], 200 );
 	}
@@ -245,6 +249,11 @@ class BizCity_Scheduler_REST_API {
 		}
 
 		$event = $mgr->get_event( $result );
+		// [2026-07-21 Johnny Chu] PHASE-CPT-PROJECTION — return content_id/content_uuid immediately after creating publish events.
+		if ( class_exists( 'BizCity_Content_Artifact_Service' ) ) {
+			$enriched = BizCity_Content_Artifact_Service::enrich_scheduler_events_for_rest( array( $event ) );
+			$event = $enriched[0] ?? $event;
+		}
 		return new \WP_REST_Response( [ 'event' => $event ], 201 );
 	}
 
@@ -267,6 +276,11 @@ class BizCity_Scheduler_REST_API {
 		}
 
 		$event = $mgr->get_event( $id, $current_uid );
+		// [2026-07-21 Johnny Chu] PHASE-CPT-PROJECTION — keep scheduler edit response aligned with CPT projection.
+		if ( class_exists( 'BizCity_Content_Artifact_Service' ) ) {
+			$enriched = BizCity_Content_Artifact_Service::enrich_scheduler_events_for_rest( array( $event ) );
+			$event = $enriched[0] ?? $event;
+		}
 		return new \WP_REST_Response( [ 'event' => $event ], 200 );
 	}
 
@@ -317,6 +331,10 @@ class BizCity_Scheduler_REST_API {
 	public function today_events( \WP_REST_Request $req ): \WP_REST_Response {
 		$mgr    = BizCity_Scheduler_Manager::instance();
 		$events = $mgr->get_today_events( get_current_user_id() );
+		// [2026-07-21 Johnny Chu] PHASE-CPT-PROJECTION — same enrichment for compact Today endpoint.
+		if ( class_exists( 'BizCity_Content_Artifact_Service' ) ) {
+			$events = BizCity_Content_Artifact_Service::enrich_scheduler_events_for_rest( $events );
+		}
 		return new \WP_REST_Response( [ 'events' => $events ], 200 );
 	}
 
@@ -877,10 +895,16 @@ class BizCity_Scheduler_REST_API {
 		}
 
 		$user_id = get_current_user_id();
-		update_user_meta( $user_id, 'bizcity_default_notify_channel', array(
+		$notify  = array(
 			'platform' => $platform,
 			'chat_id'  => $chat_id,
-		) );
+		);
+		// [2026-07-27 Johnny Chu] R-PERF — persist notify binding and refresh in-request cache together.
+		if ( class_exists( 'BizCity_User_Meta_Cache' ) ) {
+			BizCity_User_Meta_Cache::set( $user_id, 'bizcity_default_notify_channel', $notify );
+		} else {
+			update_user_meta( $user_id, 'bizcity_default_notify_channel', $notify );
+		}
 
 		return new \WP_REST_Response( array(
 			'ok'      => true,

@@ -56,6 +56,10 @@ class BizCity_Search_Client {
             $key = trim( (string) get_option( 'bizcity_llm_api_key', '' ) );
             restore_current_blog();
         }
+        // [2026-07-27 Johnny Chu] PHASE-0.49-MASTER-CONFIG-401 — normalize pasted key formats.
+        if ( class_exists( 'BizCity_LLM_Client' ) && method_exists( 'BizCity_LLM_Client', 'normalize_gateway_api_key' ) ) {
+            return BizCity_LLM_Client::normalize_gateway_api_key( $key );
+        }
         return $key;
     }
 
@@ -71,10 +75,10 @@ class BizCity_Search_Client {
      * Record a search-service call into the unified usage log (R-1API Phase B).
      * Best-effort: silently no-ops if the log class is unavailable.
      */
-    // [2026-06-10 Johnny Chu] R-LLM-USAGE — write to per-blog clients table.
+    // [2026-07-25 Johnny Chu] R-LLM-USAGE-FILELOG — write to per-blog JSONL file logger.
     private function record_usage( string $endpoint, bool $success, int $ms, string $error = '', string $model = '' ): void {
-        if ( ! class_exists( 'BizCity_LLM_Usage_Clients' ) ) return;
-        BizCity_LLM_Usage_Clients::log( [
+        if ( ! class_exists( 'BizCity_LLM_Usage_File_Log' ) ) return;
+        BizCity_LLM_Usage_File_Log::log( [
             'service'    => 'search',
             'mode'       => 'gateway',
             'purpose'    => $endpoint, // search|extract|crawl

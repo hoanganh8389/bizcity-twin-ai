@@ -237,10 +237,27 @@ class BizCity_Zalo_Bot_REST_API {
 				'display_name'  => array( 'default' => '', 'sanitize_callback' => 'sanitize_text_field' ),
 			),
 		) );
+
+		// [2026-07-16 Johnny Chu] PHASE-TWINWEB W3 — member-initiated Zalo bind
+		// flow from Twin GPT. Returns one-time `/link <nonce>` command + deep link.
+		register_rest_route( self::NS, '/twin-gpt/zalo-bot/link', array(
+			'methods'             => 'POST',
+			'callback'            => array( $this, 'member_create_deep_link' ),
+			'permission_callback' => array( $this, 'check_logged_in' ),
+			'args'                => array(
+				'bot_id' => array( 'required' => false, 'sanitize_callback' => 'absint' ),
+			),
+		) );
 	}
 
 	public function check_admin() {
 		return current_user_can( 'manage_options' );
+	}
+
+	public function check_logged_in() {
+		// [2026-07-16 Johnny Chu] PHASE-TWINWEB W3 — public member routes
+		// must require authenticated WordPress user.
+		return is_user_logged_in();
 	}
 	
 	/**
@@ -248,6 +265,100 @@ class BizCity_Zalo_Bot_REST_API {
 	 */
 	public function check_permission() {
 		return current_user_can( 'edit_posts' );
+	}
+
+	/**
+	 * [2026-07-16 Johnny Chu] PHASE-TWINWEB W3 — issue one-time deep-link nonce
+	 * so Twin GPT members can bind Zalo identity with `/link <nonce>`.
+	 */
+	public function member_create_deep_link( $request ) {
+		global $wpdb;
+
+		$user_id = (int) get_current_user_id();
+		if ( $user_id <= 0 ) {
+			return rest_ensure_response( array(
+				'success'   => false,
+				'code'      => 'auth_required',
+				'message'   => 'Ban can dang nhap de lien ket Zalo Bot.',
+				'hint'      => 'Dang nhap tai khoan WordPress cua ban roi thu lai.',
+				'help_code' => 'auth_required',
+			) );
+		}
+
+		if ( ! class_exists( 'BizCity_Zalobot_User_Linker' ) ) {
+			return rest_ensure_response( array(
+				'success'   => false,
+				'code'      => 'module_not_loaded',
+				'message'   => 'He thong lien ket Zalo chua san sang.',
+				'hint'      => 'Kiem tra plugin bizcity-zalo-bot da duoc kich hoat.',
+				'help_code' => 'module_not_loaded',
+				'_degraded' => true,
+			) );
+		}
+
+		$table = $wpdb->prefix . 'bizcity_zalo_bots';
+		$preferred_bot_id = (int) $request->get_param( 'bot_id' );
+		$bot = null;
+
+		if ( $preferred_bot_id > 0 ) {
+			$bot = $wpdb->get_row( $wpdb->prepare(
+				"SELECT id, bot_name, oa_id, status FROM {$table} WHERE id = %d LIMIT 1",
+				$preferred_bot_id
+			) );
+		}
+
+		if ( ! $bot ) {
+			$bot = $wpdb->get_row(
+				"SELECT id, bot_name, oa_id, status
+				 FROM {$table}
+				 WHERE status = 'active' OR status = 'enabled' OR status = '1' OR status = ''
+				 ORDER BY id DESC
+				 LIMIT 1"
+			);
+		}
+
+		if ( ! $bot || empty( $bot->id ) ) {
+			return rest_ensure_response( array(
+				'success'   => false,
+				'code'      => 'not_found',
+				'message'   => 'Chua co Zalo Bot nao duoc cau hinh.',
+				'hint'      => 'Vao Channel Gateway de cau hinh it nhat mot Zalo Bot dang hoat dong.',
+				'help_code' => 'zalo_bot_not_connected',
+			) );
+		}
+
+		$issued = BizCity_Zalobot_User_Linker::issue_twin_gpt_link_nonce( $user_id, (int) $bot->id );
+		if ( is_wp_error( $issued ) ) {
+			return rest_ensure_response( array(
+				'success'   => false,
+				'code'      => (string) $issued->get_error_code(),
+				'message'   => 'Khong tao duoc ma lien ket Zalo.',
+				'hint'      => 'Thu lai sau it phut hoac kiem tra cau hinh Zalo Bot.',
+				'help_code' => 'invalid_param_generic',
+			) );
+		}
+
+		$nonce     = (string) ( $issued['nonce'] ?? '' );
+		$command   = '/link ' . $nonce;
+		$oa_id     = sanitize_text_field( (string) ( $bot->oa_id ?? '' ) );
+		// [2026-07-21 Johnny Chu] PHASE-TWINWEB W3 — accept full public Zalo Bot URL as well as legacy OA/public ID in oa_id.
+		$chat_url  = $oa_id !== '' && preg_match( '#^https?://#i', $oa_id ) ? esc_url_raw( $oa_id ) : ( $oa_id !== '' ? 'https://zalo.me/' . rawurlencode( $oa_id ) : '' );
+		$deep_link = $chat_url !== '' ? add_query_arg( 'text', $command, $chat_url ) : '';
+
+		return rest_ensure_response( array(
+			'success'      => true,
+			'user_id'      => $user_id,
+			'bot_id'       => (int) $bot->id,
+			'bot_name'     => (string) ( $bot->bot_name ?? '' ),
+			'oa_id'        => $oa_id,
+			'nonce'        => $nonce,
+			'command'      => $command,
+			'expires_at'   => isset( $issued['expires_at'] ) ? (int) $issued['expires_at'] : 0,
+			'expires_at_iso' => ! empty( $issued['expires_at'] ) ? gmdate( 'c', (int) $issued['expires_at'] ) : '',
+			'chat_url'     => $chat_url,
+			'deep_link'    => $deep_link,
+			'link_hint'    => 'Mo Zalo Bot va gui dung lenh /link <nonce> de lien ket danh tinh.',
+		) );
 	}
 	
 	/**
@@ -477,7 +588,16 @@ class BizCity_Zalo_Bot_REST_API {
 			}
 		}
 		$saved_id = $db->save_bot( $data );
-		return rest_ensure_response( array( 'success' => true, 'id' => (int) $saved_id ) );
+		$platform_identity = array();
+		// [2026-07-21 Johnny Chu] PHASE-TWINWEB W3 — saving a token auto-hydrates getMe.id/account_name for MyChannels links.
+		if ( ! empty( $data['bot_token'] ) && $saved_id > 0 ) {
+			$api = new BizCity_Zalo_Bot_API( $data['bot_token'] );
+			$me = $api->get_me();
+			if ( ! is_wp_error( $me ) && is_array( $me ) && ! empty( $me['ok'] ) ) {
+				$platform_identity = $db->save_platform_identity_from_get_me( $saved_id, $me );
+			}
+		}
+		return rest_ensure_response( array( 'success' => true, 'id' => (int) $saved_id, 'platform_identity' => $platform_identity ) );
 	}
 
 	public function mgmt_delete_bot( $request ) {
@@ -1665,11 +1785,14 @@ class BizCity_Zalo_Bot_REST_API {
 		$elapsed_ms = (int) ( ( microtime( true ) - $t0 ) * 1000 );
 
 		$ok = ! is_wp_error( $me ) && is_array( $me ) && empty( $me['error'] );
+		// [2026-07-21 Johnny Chu] PHASE-TWINWEB W3 — ping/getMe should persist Bot Platform identity for public customer links.
+		$platform_identity = $ok && ! empty( $me['ok'] ) ? BizCity_Zalo_Bot_Database::instance()->save_platform_identity_from_get_me( (int) $ctx['bot']->id, $me ) : array();
 		return rest_ensure_response( array(
 			'ok'         => $ok,
 			'bot_id'     => (int) $ctx['bot']->id,
 			'bot_name'   => $ctx['bot']->bot_name,
 			'elapsed_ms' => $elapsed_ms,
+			'platform_identity' => $platform_identity,
 			'response'   => is_wp_error( $me ) ? array( 'error' => $me->get_error_message() ) : $me,
 		) );
 	}
@@ -1705,12 +1828,18 @@ class BizCity_Zalo_Bot_REST_API {
 		$ok = ! is_wp_error( $result );
 
 		// Persist URL/secret back to DB on success.
+		$platform_identity = array();
 		if ( $ok ) {
 			BizCity_Zalo_Bot_Database::instance()->save_bot( array(
 				'id'             => (int) $bot->id,
 				'webhook_url'    => esc_url_raw( $webhook_url ),
 				'webhook_secret' => sanitize_text_field( $secret_token ),
 			) );
+			// [2026-07-21 Johnny Chu] PHASE-TWINWEB W3 — setWebhook also refreshes getMe identity for MyChannels iframe/link rendering.
+			$me = $ctx['api']->get_me();
+			if ( ! is_wp_error( $me ) && is_array( $me ) && ! empty( $me['ok'] ) ) {
+				$platform_identity = BizCity_Zalo_Bot_Database::instance()->save_platform_identity_from_get_me( (int) $bot->id, $me );
+			}
 		}
 
 		// Phase CG-Listener S2 (2026-05-30) — Verify by re-reading webhook info
@@ -1744,6 +1873,7 @@ class BizCity_Zalo_Bot_REST_API {
 			'verified'        => $verified,
 			'webhook_url'     => $webhook_url,
 			'secret_token'    => $secret_token,
+			'platform_identity' => $platform_identity,
 			'response'        => is_wp_error( $result ) ? array( 'error' => $result->get_error_message() ) : $result,
 			'verify' => array(
 				'url'              => $verify_url,
@@ -1791,6 +1921,8 @@ class BizCity_Zalo_Bot_REST_API {
 		// 1. Token validity → getMe
 		$me = $api->get_me();
 		$me_ok = ! is_wp_error( $me ) && is_array( $me ) && empty( $me['error'] );
+		$platform_identity = $me_ok && ! empty( $me['ok'] ) ? BizCity_Zalo_Bot_Database::instance()->save_platform_identity_from_get_me( (int) $bot->id, $me ) : array();
+		$out['platform_identity'] = $platform_identity;
 		$out['checks'][] = array(
 			'id'      => 'token',
 			'label'   => 'Bot token hợp lệ (getMe)',

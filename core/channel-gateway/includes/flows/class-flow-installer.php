@@ -136,6 +136,22 @@ final class BizCity_CG_Flow_Installer {
 	}
 
 	/**
+	 * Idempotent installer entrypoint for Site Provisioner / diagnostics fix.
+	 *
+	 * Creates table when missing, then runs version-gated legacy migration.
+	 */
+	public static function maybe_install(): void {
+		// [2026-07-23 Johnny Chu] PHASE-N — Register a stable installer entrypoint so Site Provisioner can self-heal missing flows table on new blogs/shards.
+		$tbl = self::table();
+		if ( self::table_exists( $tbl ) && self::read_db_version() === self::DB_VERSION ) {
+			return;
+		}
+
+		self::ensure_table();
+		self::maybe_migrate_from_legacy();
+	}
+
+	/**
 	 * Version-gated migration entrypoint. Idempotent. Strategy:
 	 *
 	 *  1. If stored DB version === DB_VERSION → skip (no-op fast path).

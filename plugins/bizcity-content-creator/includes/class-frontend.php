@@ -128,6 +128,13 @@ class BZCC_Frontend {
 		$template_id = absint( $atts['template_id'] ?: ( get_query_var( 'bzcc_template_id' ) ?: ( $_GET['bzcc_template'] ?? 0 ) ) );
 		$category    = sanitize_key( $atts['category'] ?: ( $_GET['bzcc_cat'] ?? '' ) );
 
+		// [2026-07-18 Johnny Chu] SPRINT-16 SB-5 — require login for /creator/ before loading notebook/skeleton tools.
+		if ( ! is_user_logged_in() ) {
+			$current_url = home_url( isset( $_SERVER['REQUEST_URI'] ) ? wp_unslash( $_SERVER['REQUEST_URI'] ) : '/creator/' );
+			$login_url   = wp_login_url( $current_url );
+			return '<div id="bzcc-app" class="bzcc-wrap"><div class="bzcc-empty"><p>Vui lòng đăng nhập để sử dụng Content Creator.</p><p><a class="bzcc-btn bzcc-btn-primary" href="' . esc_url( $login_url ) . '">Đăng nhập</a></p></div></div>';
+		}
+
 		// Resolve slug → template_id (if /creator/t/{slug}/ route hit)
 		$template_slug = sanitize_title( (string) ( get_query_var( 'bzcc_template_slug' ) ?: ( $_GET['bzcc_slug'] ?? '' ) ) );
 		if ( ! $template_id && $template_slug ) {

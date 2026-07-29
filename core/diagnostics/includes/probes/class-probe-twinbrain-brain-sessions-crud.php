@@ -92,6 +92,17 @@ final class BizCity_Probe_TwinBrain_Brain_Sessions_CRUD implements BizCity_Diagn
 		// ---- 3. VIEW reflects new row (has_created=1, archived=0). ---
 		global $wpdb;
 		$view = BizCity_TwinBrain_Schema::sessions_view_name();
+		// [2026-07-14 Johnny Chu] HOTFIX — force one idempotent ensure before probing the VIEW.
+		if ( method_exists( 'BizCity_TwinBrain_Schema', 'ensure_sessions_view' ) ) {
+			BizCity_TwinBrain_Schema::ensure_sessions_view();
+		}
+		if ( ! bizcity_tbl_exists( $view ) ) {
+			return [
+				'status'   => 'fail',
+				'error'    => 'VIEW bizcity_brain_sessions missing on current blog shard.',
+				'evidence' => array_merge( $evidence, [ 'view' => $view ] ),
+			];
+		}
 		$row  = $wpdb->get_row( $wpdb->prepare(
 			"SELECT has_created, has_archived, turn_count FROM {$view} WHERE session_id = %s",
 			$session_id

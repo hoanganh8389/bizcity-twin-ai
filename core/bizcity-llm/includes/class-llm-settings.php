@@ -254,6 +254,7 @@ class BizCity_LLM_Settings {
                         'router'   => '🔀 Router / Classify',
                         'planner'  => '📋 Planner / Slot',
                         'executor' => '⚙️ Executor / Compose',
+                        'twinbrain_wisdom' => '🧠 TwinBrain Wisdom', // [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT — configurable provider/model for Notebook deep/audit synthesis.
                     ];
                     ?>
 
@@ -282,6 +283,53 @@ class BizCity_LLM_Settings {
                                     <?php esc_html_e( 'Disable fallback', 'bizcity-twin-ai' ); ?>
                                 </label>
                             </td>
+                        </tr>
+                        <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- ── KG LiteParse: Gemini by Tier ── -->
+                <div class="bizcity-llm-card">
+                    <h2>📚 <?php esc_html_e( 'KG File Ingest — Gemini Model by Tier', 'bizcity-twin-ai' ); ?></h2>
+                    <p class="description">
+                        <?php esc_html_e( 'Used by LiteParse Gemini fallback when ingesting PDF/image documents. You can tune models separately for Free / Pro / Premium tiers.', 'bizcity-twin-ai' ); ?>
+                    </p>
+                    <?php
+                    $kg_catalog = BizCity_LLM_Models::get( 'vision' );
+                    $kg_defaults = [
+                        'free'    => 'google/gemini-2.0-flash-001',
+                        'pro'     => 'google/gemini-2.5-flash',
+                        'premium' => 'google/gemini-2.5-pro',
+                    ];
+                    $kg_fb_defaults = [
+                        'free'    => 'google/gemini-2.0-flash-001',
+                        'pro'     => 'google/gemini-2.0-flash-001',
+                        'premium' => 'google/gemini-2.5-flash',
+                    ];
+                    $kg_labels = [
+                        'free'    => '🆓 Free',
+                        'pro'     => '💼 Pro',
+                        'premium' => '👑 Premium',
+                    ];
+                    ?>
+                    <table class="form-table bizcity-llm-model-table">
+                        <thead>
+                            <tr>
+                                <th style="width:180px"><?php esc_html_e( 'Tier', 'bizcity-twin-ai' ); ?></th>
+                                <th>🟢 Primary</th>
+                                <th>🔶 Fallback</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        <?php foreach ( [ 'free', 'pro', 'premium' ] as $kg_tier ) :
+                            $kg_p_val = $settings[ 'kg_liteparse_gemini_model_' . $kg_tier ] ?? $kg_defaults[ $kg_tier ];
+                            $kg_f_val = $settings[ 'kg_liteparse_gemini_fallback_model_' . $kg_tier ] ?? $kg_fb_defaults[ $kg_tier ];
+                        ?>
+                        <tr>
+                            <th><?php echo esc_html( $kg_labels[ $kg_tier ] ); ?></th>
+                            <td><?php $this->render_model_select( "bizcity_llm_settings[kg_liteparse_gemini_model_{$kg_tier}]", $kg_p_val, $kg_catalog, 'kg-' . $kg_tier, 'primary' ); ?></td>
+                            <td><?php $this->render_model_select( "bizcity_llm_settings[kg_liteparse_gemini_fallback_model_{$kg_tier}]", $kg_f_val, $kg_catalog, 'kg-' . $kg_tier, 'fallback' ); ?></td>
                         </tr>
                         <?php endforeach; ?>
                         </tbody>
@@ -364,6 +412,10 @@ class BizCity_LLM_Settings {
 
         // API key — always from gateway field
         $api_key = sanitize_text_field( $_POST['bizcity_llm_api_key'] ?? '' );
+        // [2026-07-27 Johnny Chu] PHASE-0.49-MASTER-CONFIG-401 — normalize pasted key format before persisting.
+        if ( class_exists( 'BizCity_LLM_Client' ) && method_exists( 'BizCity_LLM_Client', 'normalize_gateway_api_key' ) ) {
+            $api_key = BizCity_LLM_Client::normalize_gateway_api_key( $api_key );
+        }
         update_option( 'bizcity_llm_api_key', $api_key );
 
         // (Tavily key removed 2026-06-02 — Tavily is now called only via 1-API
@@ -385,6 +437,16 @@ class BizCity_LLM_Settings {
             $settings[ 'no_fallback_' . $purpose ] = ! empty( $raw[ 'no_fallback_' . $purpose ] ) ? 1 : 0;
         }
 
+        // [2026-07-15 Johnny Chu] PHASE-KG-LLM-TIER — tier-aware Gemini model settings for LiteParse fallback.
+        foreach ( [ 'free', 'pro', 'premium' ] as $tier ) {
+            $settings[ 'kg_liteparse_gemini_model_' . $tier ] = sanitize_text_field(
+                $raw[ 'kg_liteparse_gemini_model_' . $tier ] ?? ''
+            );
+            $settings[ 'kg_liteparse_gemini_fallback_model_' . $tier ] = sanitize_text_field(
+                $raw[ 'kg_liteparse_gemini_fallback_model_' . $tier ] ?? ''
+            );
+        }
+
         update_option( 'bizcity_llm_settings', $settings );
         BizCity_LLM_Client::instance()->bust_models_cache();
     }
@@ -401,7 +463,9 @@ class BizCity_LLM_Settings {
         // [2026-06-09 Johnny Chu] HOTFIX — manage_options instead of multisite conditional
         if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( __( 'Permission denied.', 'bizcity-twin-ai' ) );
 
-        $key  = get_option( 'bizcity_llm_api_key', '' );
+        $key  = method_exists( 'BizCity_LLM_Client', 'instance' )
+            ? BizCity_LLM_Client::instance()->get_api_key()
+            : get_option( 'bizcity_llm_api_key', '' );
 
         if ( empty( $key ) ) {
             wp_send_json_error( __( 'No API key entered.', 'bizcity-twin-ai' ) );
@@ -488,10 +552,16 @@ class BizCity_LLM_Settings {
             wp_send_json_error( 'Permission denied.' );
         }
         $api_key = sanitize_text_field( wp_unslash( $_POST['api_key'] ?? '' ) );
+        // [2026-07-27 Johnny Chu] PHASE-0.49-MASTER-CONFIG-401 — normalize pasted key format before persisting.
+        if ( class_exists( 'BizCity_LLM_Client' ) && method_exists( 'BizCity_LLM_Client', 'normalize_gateway_api_key' ) ) {
+            $api_key = BizCity_LLM_Client::normalize_gateway_api_key( $api_key );
+        }
         if ( empty( $api_key ) ) {
             wp_send_json_error( 'API key không được để trống.' );
         }
-        if ( 0 !== strpos( $api_key, 'biz' ) ) {
+		// [2026-07-27 Johnny Chu] PHASE-0.49-MASTER-CONFIG-401 — accept both
+		// canonical biz- and legacy biz_ keys without rewriting their identity.
+		if ( ! BizCity_LLM_Client::is_gateway_api_key( $api_key ) ) {
             wp_send_json_error( 'API key không hợp lệ (phải bắt đầu bằng biz…).' );
         }
         update_option( 'bizcity_llm_api_key', $api_key );
@@ -534,8 +604,12 @@ class BizCity_LLM_Settings {
         $body = json_decode( wp_remote_retrieve_body( $response ), true );
 
         if ( $code === 200 && ! empty( $body['api_key'] ) ) {
+            $key_to_save = sanitize_text_field( $body['api_key'] );
+            if ( class_exists( 'BizCity_LLM_Client' ) && method_exists( 'BizCity_LLM_Client', 'normalize_gateway_api_key' ) ) {
+                $key_to_save = BizCity_LLM_Client::normalize_gateway_api_key( $key_to_save );
+            }
             // [2026-06-10 Johnny Chu] HOTFIX — per-site option
-            update_option( 'bizcity_llm_api_key', sanitize_text_field( $body['api_key'] ) );
+            update_option( 'bizcity_llm_api_key', $key_to_save );
             update_option( 'bizcity_llm_mode', 'gateway' );
             wp_send_json_success( [
                 'message' => __( 'API key created and saved automatically!', 'bizcity-twin-ai' ),
@@ -553,14 +627,14 @@ class BizCity_LLM_Settings {
             wp_send_json_error( __( 'Permission denied.', 'bizcity-twin-ai' ) );
         }
 
-        if ( ! class_exists( 'BizCity_LLM_Usage_Clients' ) ) {
+        if ( ! class_exists( 'BizCity_LLM_Usage_File_Log' ) ) {
             wp_send_json_error( __( 'Usage log not installed.', 'bizcity-twin-ai' ) );
         }
 
         $page  = max( 1, intval( $_POST['page'] ?? 1 ) );
         $limit = 50;
-        // [2026-06-10 Johnny Chu] R-LLM-USAGE — read from per-blog clients table.
-        $rows  = BizCity_LLM_Usage_Clients::get_recent( $limit, ( $page - 1 ) * $limit );
+        // [2026-07-25 Johnny Chu] R-LLM-USAGE-FILELOG — read from per-blog JSONL usage log.
+        $rows  = BizCity_LLM_Usage_File_Log::get_recent( $limit, ( $page - 1 ) * $limit );
 
         wp_send_json_success( [
             'rows' => $rows,
@@ -576,13 +650,13 @@ class BizCity_LLM_Settings {
             wp_send_json_error( __( 'Permission denied.', 'bizcity-twin-ai' ) );
         }
 
-        if ( ! class_exists( 'BizCity_LLM_Usage_Clients' ) ) {
+        if ( ! class_exists( 'BizCity_LLM_Usage_File_Log' ) ) {
             wp_send_json_error( __( 'Usage log not installed.', 'bizcity-twin-ai' ) );
         }
 
         $days    = max( 7, intval( $_POST['days'] ?? 90 ) );
-        // [2026-06-10 Johnny Chu] R-LLM-USAGE — purge per-blog clients table.
-        $deleted = BizCity_LLM_Usage_Clients::purge( $days );
+        // [2026-07-25 Johnny Chu] R-LLM-USAGE-FILELOG — purge per-blog JSONL usage files.
+        $deleted = BizCity_LLM_Usage_File_Log::purge( $days );
         /* translators: 1: number of deleted records, 2: number of days */
         wp_send_json_success( sprintf( __( 'Deleted %1$d records older than %2$d days.', 'bizcity-twin-ai' ), $deleted, $days ) );
     }
@@ -592,15 +666,15 @@ class BizCity_LLM_Settings {
      * ================================================================ */
 
     private function render_usage_dashboard(): void {
-        // [2026-06-10 Johnny Chu] R-LLM-USAGE — read from per-blog clients table.
-        if ( ! class_exists( 'BizCity_LLM_Usage_Clients' ) ) {
+        // [2026-07-25 Johnny Chu] R-LLM-USAGE-FILELOG — read from per-blog JSONL usage log.
+        if ( ! class_exists( 'BizCity_LLM_Usage_File_Log' ) ) {
             return;
         }
 
-        $stats_24h = BizCity_LLM_Usage_Clients::get_stats( '24h' );
-        $stats_7d  = BizCity_LLM_Usage_Clients::get_stats( '7d' );
-        $top       = BizCity_LLM_Usage_Clients::get_top_models( 5, '7d' );
-        $recent    = BizCity_LLM_Usage_Clients::get_recent( 20 );
+        $stats_24h = BizCity_LLM_Usage_File_Log::get_stats( '24h' );
+        $stats_7d  = BizCity_LLM_Usage_File_Log::get_stats( '7d' );
+        $top       = BizCity_LLM_Usage_File_Log::get_top_models( 5, '7d' );
+        $recent    = BizCity_LLM_Usage_File_Log::get_recent( 20 );
         ?>
         <div class="bizcity-llm-card">
             <h2>📊 Usage Dashboard</h2>

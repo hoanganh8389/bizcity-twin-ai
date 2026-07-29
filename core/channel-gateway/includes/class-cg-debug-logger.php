@@ -313,11 +313,17 @@ class BizCity_CG_Debug_Logger {
 		$arr     = is_array( $data ) ? self::trim_for_log( $data ) : array( 'raw' => $data );
 		$from    = is_array( $data ) && isset( $data['message']['from'] ) && is_array( $data['message']['from'] )
 			? $data['message']['from'] : array();
+		$header_present = ( $secret_token !== '' && $secret_token !== null );
+		$bot_resolved   = is_object( $bot );
 		self::log( 'zalo_webhook_raw', 'zalohook_intake', array(
 			'bot_id'         => is_object( $bot ) ? (int) ( $bot->id ?? 0 ) : 0,
 			'bot_name'       => is_object( $bot ) ? ( $bot->bot_name ?? null ) : null,
 			'has_secret'     => $secret_token !== '' && $secret_token !== null,
 			'secret_matched' => is_object( $bot ),
+			// [2026-07-08 Johnny Chu] HOTFIX — keep non-sensitive boolean flags that
+			// survive mask_sensitive() so diagnostics don't show "***" for both cases.
+			'xbot_header_present' => $header_present,
+			'bot_resolved'        => $bot_resolved,
 			'event_name'     => is_array( $data ) ? ( $data['event_name'] ?? null ) : null,
 			'from_user_id'   => isset( $from['id'] ) ? (string) $from['id'] : null,
 			'from_name'      => isset( $from['display_name'] ) ? (string) $from['display_name'] : null,

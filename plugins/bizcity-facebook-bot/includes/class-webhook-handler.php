@@ -353,7 +353,11 @@ class BizCity_Facebook_Bot_Webhook_Handler {
 			'timestamp' => time() * 1000,
 			'page_id'   => $page_id,
 			'event'     => $input_data,
-            'platform'  => 'FB_MESS',
+			// [2026-07-16 Johnny Chu] PHASE-TWINWEB W6 R-ZONE — Zone 1 discriminator on FB inbound emitter.
+			'platform'  => 'MESSENGER',
+			'code'      => 'messenger',
+			'event_subtype' => 'messenger',
+			'legacy_platform' => 'FB_MESS',
 		);
 		
 		// Filter cho phép workflow báo hiệu đã xử lý message
@@ -510,6 +514,11 @@ class BizCity_Facebook_Bot_Webhook_Handler {
 			'message'   => '',
 			'timestamp' => time() * 1000,
 			'page_id'   => $page_id,
+			// [2026-07-16 Johnny Chu] PHASE-TWINWEB W6 R-ZONE — Zone 1 discriminator on FB inbound emitter.
+			'platform'  => 'MESSENGER',
+			'code'      => 'messenger',
+			'event_subtype' => 'messenger',
+			'legacy_platform' => 'FB_MESS',
 		);
 		do_action( 'waic_twf_process_flow', 'bizcity_facebook_image_received', $trigger_data );
 		$this->log_info( 'Fired waic_twf_process_flow trigger: bizcity_facebook_image_received' );
@@ -749,6 +758,11 @@ class BizCity_Facebook_Bot_Webhook_Handler {
 			'page_id'    => $page_id,
 			'post_type'  => $post_type,
 			'ai_reply'   => $ai_reply,
+			// [2026-07-16 Johnny Chu] PHASE-TWINWEB W6 R-ZONE — Zone 1 discriminator on FB inbound emitter.
+			'platform'   => 'FACEBOOK',
+			'code'       => 'facebook',
+			'event_subtype' => 'feed',
+			'legacy_platform' => 'FB_FEED',
 		);
 		do_action( 'waic_twf_process_flow', 'bizcity_facebook_comment_received', $trigger_data );
 		$this->log_info( 'Fired waic_twf_process_flow trigger: bizcity_facebook_comment_received' );

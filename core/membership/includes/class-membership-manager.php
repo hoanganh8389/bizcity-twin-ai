@@ -44,6 +44,9 @@ class BizCity_Membership_Manager {
 	/** @var BizCity_Membership_Manager|null */
 	private static $instance = null;
 
+	/** @var int|null */
+	private $seat_used_cache = null;
+
 	public static function instance() {
 		if ( null === self::$instance ) {
 			self::$instance = new self();
@@ -323,15 +326,25 @@ class BizCity_Membership_Manager {
 		}
 		$row_id = (int) $wpdb->insert_id;
 
-		update_user_meta( $user_id, self::META_PLAN, $plan_slug );
-		update_user_meta( $user_id, self::META_VALID_UNTIL, $valid_until );
-		update_user_meta( $user_id, self::META_SOURCE, $source );
+		// [2026-07-27 Johnny Chu] R-PERF — keep membership metadata reads/writes on the unified cache contract.
+		if ( class_exists( 'BizCity_User_Meta_Cache' ) ) {
+			BizCity_User_Meta_Cache::set( $user_id, self::META_PLAN, $plan_slug );
+			BizCity_User_Meta_Cache::set( $user_id, self::META_VALID_UNTIL, $valid_until );
+			BizCity_User_Meta_Cache::set( $user_id, self::META_SOURCE, $source );
+		} else {
+			update_user_meta( $user_id, self::META_PLAN, $plan_slug );
+			update_user_meta( $user_id, self::META_VALID_UNTIL, $valid_until );
+			update_user_meta( $user_id, self::META_SOURCE, $source );
+		}
 
 		// [2026-07-09 Johnny Chu] PHASE-TWINSHELL-IMPL — keep entitlement snapshot
 		// consistent after plan mutation within same request.
 		if ( class_exists( 'BizCity_Membership_Entitlement' ) ) {
 			BizCity_Membership_Entitlement::instance()->flush_cache( $user_id );
 		}
+
+		// [2026-07-17 Johnny Chu] SPRINT-11 PGM-3 — invalidate in-request seat usage cache after plan assignment.
+		$this->seat_used_cache = null;
 
 		/**
 		 * Fires after a membership plan is assigned to a user.
@@ -387,7 +400,11 @@ class BizCity_Membership_Manager {
 		);
 		$user_id = (int) $row['user_id'];
 		if ( $user_id > 0 ) {
-			update_user_meta( $user_id, self::META_VALID_UNTIL, $expiry );
+			if ( class_exists( 'BizCity_User_Meta_Cache' ) ) {
+				BizCity_User_Meta_Cache::set( $user_id, self::META_VALID_UNTIL, $expiry );
+			} else {
+				update_user_meta( $user_id, self::META_VALID_UNTIL, $expiry );
+			}
 		}
 		return $user_id;
 	}
@@ -408,12 +425,20 @@ class BizCity_Membership_Manager {
 		delete_user_meta( $user_id, self::META_PLAN );
 		delete_user_meta( $user_id, self::META_VALID_UNTIL );
 		delete_user_meta( $user_id, self::META_SOURCE );
+		if ( class_exists( 'BizCity_User_Meta_Cache' ) ) {
+			BizCity_User_Meta_Cache::invalidate( $user_id, self::META_PLAN );
+			BizCity_User_Meta_Cache::invalidate( $user_id, self::META_VALID_UNTIL );
+			BizCity_User_Meta_Cache::invalidate( $user_id, self::META_SOURCE );
+		}
 
 		// [2026-07-09 Johnny Chu] PHASE-TWINSHELL-IMPL — invalidate entitlement cache
 		// so `/me` immediately reflects downgrade/cancel in same request.
 		if ( class_exists( 'BizCity_Membership_Entitlement' ) ) {
 			BizCity_Membership_Entitlement::instance()->flush_cache( $user_id );
 		}
+
+		// [2026-07-17 Johnny Chu] SPRINT-11 PGM-3 — invalidate in-request seat usage cache after plan clear.
+		$this->seat_used_cache = null;
 
 		/**
 		 * Fires after a user's membership plan is cleared.
@@ -447,6 +472,9 @@ class BizCity_Membership_Manager {
 			array( '%s', '%s' ),
 			array( '%d', '%s' )
 		);
+
+		// [2026-07-17 Johnny Chu] SPRINT-11 PGM-3 — expire/cancel mutations affect seat usage.
+		$this->seat_used_cache = null;
 	}
 
 	/**
@@ -618,6 +646,127 @@ class BizCity_Membership_Manager {
 			)
 		);
 		return array_map( 'intval', (array) $rows );
+	}
+
+	/**
+	 * Count licensed seats currently consumed by active non-admin members.
+	 *
+	 * Seat semantics:
+	 * - only latest active row per user is considered
+	 * - plan must have consumes_seat=true
+	 * - administrators are excluded
+	 * - deleted users are excluded (avoid ghost seat count)
+	 *
+	 * @param bool $force_refresh True to bypass in-request cache.
+	 * @return int
+	 */
+	public function count_seat_used( $force_refresh = false ) {
+		$force_refresh = (bool) $force_refresh;
+
+		if ( ! $force_refresh && null !== $this->seat_used_cache ) {
+			return (int) $this->seat_used_cache;
+		}
+
+		global $wpdb;
+		$table = $this->table();
+		if ( ! $this->seat_counter_table_exists( $table ) ) {
+			$this->seat_used_cache = 0;
+			return 0;
+		}
+
+		$now = current_time( 'mysql' );
+		// [2026-07-17 Johnny Chu] SPRINT-11 PGM-3 — canonical distinct-seat counter for active subscriptions.
+		$sql = $wpdb->prepare(
+			"SELECT user_id, plan_slug
+			 FROM {$table}
+			 WHERE status = %s
+			   AND ( expiration_date IS NULL OR expiration_date = '' OR expiration_date >= %s )
+			 ORDER BY id DESC",
+			self::STATUS_ACTIVE,
+			$now
+		);
+		$rows = $wpdb->get_results( $sql, ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		$rows = is_array( $rows ) ? $rows : array();
+
+		$seen = array();
+		$used = 0;
+		foreach ( $rows as $row ) {
+			$user_id = isset( $row['user_id'] ) ? (int) $row['user_id'] : 0;
+			if ( $user_id <= 0 || isset( $seen[ $user_id ] ) ) {
+				continue;
+			}
+			$seen[ $user_id ] = 1;
+
+			$user = get_userdata( $user_id );
+			if ( ! $user || ! is_object( $user ) ) {
+				continue;
+			}
+
+			if ( $this->seat_counter_is_admin_user( $user_id ) ) {
+				continue;
+			}
+
+			$plan_slug = sanitize_key( (string) ( $row['plan_slug'] ?? '' ) );
+			if ( $this->seat_counter_plan_consumes_seat( $plan_slug ) ) {
+				$used++;
+			}
+		}
+
+		$this->seat_used_cache = (int) $used;
+		return (int) $this->seat_used_cache;
+	}
+
+	/**
+	 * @param string $table_name
+	 * @return bool
+	 */
+	private function seat_counter_table_exists( $table_name ) {
+		$table_name = (string) $table_name;
+		if ( $table_name === '' ) {
+			return false;
+		}
+		if ( function_exists( 'bizcity_tbl_exists' ) ) {
+			return (bool) bizcity_tbl_exists( $table_name );
+		}
+
+		global $wpdb;
+		$present = (int) (bool) $wpdb->get_var( $wpdb->prepare(
+			'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+			$table_name
+		) );
+		return $present === 1;
+	}
+
+	/**
+	 * @param int $user_id
+	 * @return bool
+	 */
+	private function seat_counter_is_admin_user( $user_id ) {
+		$user_id = (int) $user_id;
+		if ( $user_id <= 0 ) {
+			return false;
+		}
+		if ( function_exists( 'user_can' ) && user_can( $user_id, 'manage_options' ) ) {
+			return true;
+		}
+		$user = get_userdata( $user_id );
+		if ( ! $user || empty( $user->roles ) ) {
+			return false;
+		}
+		return in_array( 'administrator', (array) $user->roles, true );
+	}
+
+	/**
+	 * @param string $plan_slug
+	 * @return bool
+	 */
+	private function seat_counter_plan_consumes_seat( $plan_slug ) {
+		$plan_slug = sanitize_key( (string) $plan_slug );
+		if ( $plan_slug === '' || ! class_exists( 'BizCity_Membership_Plan_Registry' ) ) {
+			return false;
+		}
+		$plan = BizCity_Membership_Plan_Registry::instance()->get( $plan_slug );
+		return ! empty( $plan['consumes_seat'] );
 	}
 
 	/* ── Helpers ────────────────────────────────────────────────────────── */

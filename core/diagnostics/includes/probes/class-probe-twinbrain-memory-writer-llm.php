@@ -64,11 +64,12 @@ final class BizCity_Probe_TwinBrain_Memory_Writer_LLM implements BizCity_Diagnos
 	public function run( $ctx ): array {
 		$user_id  = get_current_user_id();
 		$trace_id = 'probe-mem-llm-' . wp_generate_uuid4();
+		// [2026-07-28 Johnny Chu] HOTFIX — isolate each diagnostic run from the writer's identity-scoped 24h dedupe key.
+		$probe_prompt = self::PROBE_PROMPT . ' [run:' . $trace_id . ']';
+		$probe_answer = self::PROBE_ANSWER . ' [run:' . $trace_id . ']';
 
 		// Pre-state — wipe leftovers + bust the 24h dedupe transient.
 		$this->cleanup();
-		$dedupe = 'bizcity_twb_mw_seen_' . md5( $user_id . '||' . self::PROBE_PROMPT . '|' . self::PROBE_ANSWER );
-		delete_transient( $dedupe );
 
 		$ctx->emit_step( [
 			'label'  => 'Prompt (implicit pref)',
@@ -81,7 +82,7 @@ final class BizCity_Probe_TwinBrain_Memory_Writer_LLM implements BizCity_Diagnos
 		// Mode 1 must NOT fire — sentinel prompt has no "hãy nhớ" / "remember".
 		// (If it did, this probe wouldn't isolate Mode 2.)
 		try {
-			$out = $writer->extract_and_persist( $trace_id, self::PROBE_PROMPT, self::PROBE_ANSWER, [
+			$out = $writer->extract_and_persist( $trace_id, $probe_prompt, $probe_answer, [
 				'user_id'    => $user_id,
 				'session_id' => '',
 				'enable_llm' => true,

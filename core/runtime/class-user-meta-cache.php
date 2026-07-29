@@ -54,6 +54,12 @@ final class BizCity_User_Meta_Cache {
         'first_name'            => true,
         'last_name'             => true,
         'description'           => true,
+        'nickname'              => true,
+        'locale'                => true,
+        'billing_city'          => true,
+        'billing_country'       => true,
+        'billing_company'       => true,
+        'billing_state'         => true,
         'billing_phone'         => true,
         '_bizcity_master_level' => true,
         // [2026-06-22 Johnny Chu] R-PERF — additional keys to prevent meta prime on REST/cron paths
@@ -62,6 +68,17 @@ final class BizCity_User_Meta_Cache {
         'bizcity_projects'                  => true,
         'bizcity_app_settings'              => true,
         'bizcity_default_notify_channel'    => true,
+        // [2026-07-27 Johnny Chu] R-PERF — Twin GPT channel selection is read from automation/webhook paths.
+        'bizcity_twinweb_mychannels'        => true,
+        'bizcity_cg_fb_oauth_pending'       => true,
+        'bizcity_tw_fb_oauth_pending'       => true,
+        '_bizcity_crm'                      => true,
+        'primary_blog'                      => true,
+        'bizcity_member_offer_code'         => true,
+        'bizcity_member_offer_plan'         => true,
+        'bizcity_member_offer_order_id'     => true,
+        'bizcity_member_offer_applied_at'   => true,
+        'bizcity_diag_critical_dismissed_at' => true,
         'bizcity_member_plan'               => true,
         'bizcity_member_valid_until'        => true,
         'bizcity_member_source'             => true,
@@ -163,7 +180,11 @@ final class BizCity_User_Meta_Cache {
      * @return mixed
      */
     private static function fetch( $uid, $meta_key, $default ) {
-        if ( isset( self::$heavy_keys[ $meta_key ] ) ) {
+        // [2026-07-27 Johnny Chu] PHASE-0.51 W1 — workspace JSON can grow and must not prime all user meta.
+        if ( isset( self::$heavy_keys[ $meta_key ] )
+            || strpos( (string) $meta_key, 'bizcity_kg_workspaces' ) === 0
+            || strpos( (string) $meta_key, 'bizcity_twin_profile_' ) === 0
+            || strpos( (string) $meta_key, 'bizcity_diag_wizard_seen_blog_' ) === 0 ) {
             return self::fetch_direct_sql( $uid, $meta_key, $default );
         }
         $raw = get_user_meta( $uid, $meta_key, true );

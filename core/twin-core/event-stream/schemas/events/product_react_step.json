@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "bizcity://events/product_react_step.json",
+  "title": "product_react_step",
+  "description": "Emitted for each products ReAct step (Woo search, web enrich, decomposition). PHASE-TWB-PRODUCTS (2026-07-15).",
+  "type": "object",
+  "required": ["trace_id", "iter", "action", "action_input", "observation_summary"],
+  "properties": {
+    "trace_id": { "type": "string" },
+    "iter": { "type": "integer", "minimum": 0 },
+    "action": { "type": "string", "description": "decompose_needs | woo_search | web_enrich" },
+    "action_input": { "type": "string" },
+    "observation_summary": { "type": "string" },
+    "matched_ids": {
+      "type": "array",
+      "items": { "type": "integer", "minimum": 0 },
+      "description": "Matched Woo product IDs for this step."
+    },
+    "web_hits": { "type": "integer", "minimum": 0 }
+  },
+  "additionalProperties": true
+}

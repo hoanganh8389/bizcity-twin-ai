@@ -1201,7 +1201,11 @@ class BizCity_WebChat_Ajax_Handlers {
 
         // [2026-06-10 Johnny Chu] HOTFIX — per-site option (not network-wide sitemeta)
         $mode        = get_option( 'bizcity_llm_mode', 'gateway' );
-        $api_key     = get_option( 'bizcity_llm_api_key', '' );
+        // [2026-07-27 Johnny Chu] PHASE-0.49-MASTER-CONFIG-401 — display the same
+        // normalized opaque key used by runtime gateway requests.
+        $api_key     = class_exists( 'BizCity_LLM_Client' )
+            ? BizCity_LLM_Client::instance()->get_api_key()
+            : get_option( 'bizcity_llm_api_key', '' );
         $gateway_url = get_option( 'bizcity_llm_gateway_url', 'https://bizcity.vn' );
         $tavily_key  = get_option( 'bizcity_tavily_api_key', '' );
         $settings    = get_option( 'bizcity_llm_settings', [] );
@@ -1235,11 +1239,12 @@ class BizCity_WebChat_Ajax_Handlers {
 
         // Usage stats (24h / 7d)
         $stats = [];
-        if ( class_exists( 'BizCity_LLM_Usage_Log' ) ) {
+        if ( class_exists( 'BizCity_LLM_Usage_File_Log' ) ) {
+            // [2026-07-25 Johnny Chu] R-LLM-USAGE-FILELOG — migrate webchat settings panel usage stats to JSONL log backend.
             $stats = [
-                'day'        => BizCity_LLM_Usage_Log::get_stats( 1 ),
-                'week'       => BizCity_LLM_Usage_Log::get_stats( 7 ),
-                'top_models' => BizCity_LLM_Usage_Log::get_top_models( 5 ),
+                'day'        => BizCity_LLM_Usage_File_Log::get_stats( '24h' ),
+                'week'       => BizCity_LLM_Usage_File_Log::get_stats( '7d' ),
+                'top_models' => BizCity_LLM_Usage_File_Log::get_top_models( 5, '7d' ),
             ];
         }
 
@@ -1275,7 +1280,13 @@ class BizCity_WebChat_Ajax_Handlers {
 
         // Only update API key if a new one is explicitly provided (not the masked preview)
         if ( ! empty( $_POST['api_key'] ) && strpos( $_POST['api_key'], '••' ) === false ) {
-            update_option( 'bizcity_llm_api_key', sanitize_text_field( $_POST['api_key'] ) );
+            $key_to_save = sanitize_text_field( wp_unslash( $_POST['api_key'] ) );
+            if ( class_exists( 'BizCity_LLM_Client' ) ) {
+                // [2026-07-27 Johnny Chu] PHASE-0.49-MASTER-CONFIG-401 — strip pasted
+                // wrappers while preserving the separator that belongs to key identity.
+                $key_to_save = BizCity_LLM_Client::normalize_gateway_api_key( $key_to_save );
+            }
+            update_option( 'bizcity_llm_api_key', $key_to_save );
         }
 
         if ( isset( $_POST['tavily_key'] ) && strpos( $_POST['tavily_key'], '••' ) === false ) {
@@ -1325,7 +1336,11 @@ class BizCity_WebChat_Ajax_Handlers {
 
         // [2026-06-10 Johnny Chu] HOTFIX — per-site option
         $mode = get_option( 'bizcity_llm_mode', 'gateway' );
-        $key  = get_option( 'bizcity_llm_api_key', '' );
+        // [2026-07-27 Johnny Chu] PHASE-0.49-MASTER-CONFIG-401 — gateway tests must
+        // use the canonical getter, not a raw option value.
+        $key  = class_exists( 'BizCity_LLM_Client' )
+            ? BizCity_LLM_Client::instance()->get_api_key()
+            : get_option( 'bizcity_llm_api_key', '' );
 
         if ( empty( $key ) ) {
             wp_send_json_error( [ 'message' => 'Chưa có API key. Hãy nhập hoặc đăng ký key trước.' ] );
@@ -1445,8 +1460,14 @@ class BizCity_WebChat_Ajax_Handlers {
         $body = json_decode( wp_remote_retrieve_body( $response ), true );
 
         if ( $code === 200 && ! empty( $body['api_key'] ) ) {
+            $key_to_save = sanitize_text_field( $body['api_key'] );
+            if ( class_exists( 'BizCity_LLM_Client' ) ) {
+                // [2026-07-27 Johnny Chu] PHASE-0.49-MASTER-CONFIG-401 — preserve
+                // gateway-issued key identity while removing transport wrappers.
+                $key_to_save = BizCity_LLM_Client::normalize_gateway_api_key( $key_to_save );
+            }
             // [2026-06-10 Johnny Chu] HOTFIX — per-site option
-            update_option( 'bizcity_llm_api_key', sanitize_text_field( $body['api_key'] ) );
+            update_option( 'bizcity_llm_api_key', $key_to_save );
             update_option( 'bizcity_llm_mode', 'gateway' );
             update_option( 'bizcity_llm_gateway_url', esc_url_raw( $gateway ) );
             wp_send_json_success( [
@@ -1466,7 +1487,15 @@ class BizCity_WebChat_Ajax_Handlers {
     public function ajax_llm_get_usage(): void {
         if ( ! $this->verify_llm_admin() ) return;
 
-        if ( ! class_exists( 'BizCity_LLM_Usage_Log' ) ) {
+        // [2026-07-14 Johnny Chu] R-LLM-USAGE — prefer per-blog usage clients table; fallback to legacy usage log.
+        $usage_class = '';
+        if ( class_exists( 'BizCity_LLM_Usage_Clients' ) ) {
+            $usage_class = 'BizCity_LLM_Usage_Clients';
+        } elseif ( class_exists( 'BizCity_LLM_Usage_Log' ) ) {
+            $usage_class = 'BizCity_LLM_Usage_Log';
+        }
+
+        if ( $usage_class === '' ) {
             wp_send_json_success( [ 'available' => false ] );
             return;
         }
@@ -1474,27 +1503,50 @@ class BizCity_WebChat_Ajax_Handlers {
         $page  = max( 1, intval( $_POST['page'] ?? 1 ) );
         $limit = 30;
 
-        $stats_day  = BizCity_LLM_Usage_Log::get_stats( '24h' );
-        $stats_week = BizCity_LLM_Usage_Log::get_stats( '7d' );
+        $stats_day  = $usage_class::get_stats( '24h' );
+        $stats_week = $usage_class::get_stats( '7d' );
+
+        $normalize_stats = static function( array &$stats ): void {
+            $stats['total_calls']             = (int) ( $stats['total_calls'] ?? 0 );
+            $stats['success_count']           = (int) ( $stats['success_count'] ?? 0 );
+            $stats['error_count']             = (int) ( $stats['error_count'] ?? max( 0, $stats['total_calls'] - $stats['success_count'] ) );
+            $stats['total_prompt_tokens']     = (int) ( $stats['total_prompt_tokens'] ?? 0 );
+            $stats['total_completion_tokens'] = (int) ( $stats['total_completion_tokens'] ?? 0 );
+            $stats['total_tokens']            = isset( $stats['total_tokens'] )
+                ? (int) $stats['total_tokens']
+                : ( $stats['total_prompt_tokens'] + $stats['total_completion_tokens'] );
+            $stats['avg_latency_ms']          = isset( $stats['avg_latency_ms'] )
+                ? (int) $stats['avg_latency_ms']
+                : (int) ( $stats['avg_latency'] ?? 0 );
+        };
+
+        $normalize_stats( $stats_day );
+        $normalize_stats( $stats_week );
 
         // Compute derived fields for the frontend
         $stats_day['success_rate']  = $stats_day['total_calls'] > 0
             ? round( $stats_day['success_count'] / $stats_day['total_calls'] * 100 )
             : 0;
-        $stats_day['total_tokens']  = (int) $stats_day['total_prompt_tokens'] + (int) $stats_day['total_completion_tokens'];
         $stats_week['success_rate'] = $stats_week['total_calls'] > 0
             ? round( $stats_week['success_count'] / $stats_week['total_calls'] * 100 )
             : 0;
-        $stats_week['total_tokens'] = (int) $stats_week['total_prompt_tokens'] + (int) $stats_week['total_completion_tokens'];
 
         // R-1API Phase B (2026-06-02) — per-service breakdown for UsageWorkspace tabs.
         $by_service_day  = [];
         $by_service_week = [];
-        if ( method_exists( 'BizCity_LLM_Usage_Log', 'get_stats_by_service' ) ) {
-            $by_service_day  = BizCity_LLM_Usage_Log::get_stats_by_service( '24h' );
-            $by_service_week = BizCity_LLM_Usage_Log::get_stats_by_service( '7d' );
+        if ( method_exists( $usage_class, 'get_stats_by_service' ) ) {
+            $by_service_day  = $usage_class::get_stats_by_service( '24h' );
+            $by_service_week = $usage_class::get_stats_by_service( '7d' );
             $compute_rate = function( array &$row ) {
                 $calls = (int) ( $row['total_calls'] ?? 0 );
+                $row['total_prompt_tokens']     = (int) ( $row['total_prompt_tokens'] ?? 0 );
+                $row['total_completion_tokens'] = (int) ( $row['total_completion_tokens'] ?? 0 );
+                $row['total_tokens'] = isset( $row['total_tokens'] )
+                    ? (int) $row['total_tokens']
+                    : ( $row['total_prompt_tokens'] + $row['total_completion_tokens'] );
+                $row['avg_latency_ms'] = isset( $row['avg_latency_ms'] )
+                    ? (int) $row['avg_latency_ms']
+                    : (int) ( $row['avg_latency'] ?? 0 );
                 $row['success_rate'] = $calls > 0 ? round( ( (int) ( $row['success_count'] ?? 0 ) / $calls ) * 100 ) : 0;
             };
             foreach ( $by_service_day as &$r )  { $compute_rate( $r ); }
@@ -1518,8 +1570,8 @@ class BizCity_WebChat_Ajax_Handlers {
                 [ 'id' => 'market',    'label' => 'Marketplace',  'icon' => 'shopping-bag' ],
                 [ 'id' => 'tools',     'label' => 'Tools',        'icon' => 'wrench' ],
             ],
-            'topModels'  => BizCity_LLM_Usage_Log::get_top_models( 5 ),
-            'recent'     => BizCity_LLM_Usage_Log::get_recent( $limit, ( $page - 1 ) * $limit ),
+            'topModels'  => $usage_class::get_top_models( 5, '7d' ),
+            'recent'     => $usage_class::get_recent( $limit, ( $page - 1 ) * $limit ),
             'page'       => $page,
         ] );
     }
@@ -1539,8 +1591,14 @@ class BizCity_WebChat_Ajax_Handlers {
      * @return array            Decoded JSON response or WP_Error-like array.
      */
     private function gateway_request( string $endpoint, string $method = 'GET', array $body = [] ): array {
-        $api_key     = get_site_option( 'bizcity_llm_api_key', '' );
-        $gateway_url = rtrim( get_site_option( 'bizcity_llm_gateway_url', 'https://bizcity.vn' ), '/' );
+        // [2026-07-27 Johnny Chu] PHASE-0.49-MASTER-CONFIG-401 — tenant-scoped,
+        // normalized 1API credentials; network options can contain a different key.
+        $api_key     = class_exists( 'BizCity_LLM_Client' )
+            ? BizCity_LLM_Client::instance()->get_api_key()
+            : get_option( 'bizcity_llm_api_key', '' );
+        $gateway_url = class_exists( 'BizCity_LLM_Client' )
+            ? BizCity_LLM_Client::instance()->get_gateway_url()
+            : rtrim( get_option( 'bizcity_llm_gateway_url', 'https://bizcity.vn' ), '/' );
 
         if ( ! $api_key ) {
             return [ 'success' => false, 'error' => 'API key not configured.' ];

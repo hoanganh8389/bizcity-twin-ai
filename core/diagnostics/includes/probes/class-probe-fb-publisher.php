@@ -112,6 +112,26 @@ final class BizCity_Probe_FB_Publisher implements BizCity_Diagnostics_Probe {
 			];
 		}
 
+		// [2026-07-15 Johnny Chu] PHASE-TWINWEB F4 — publisher must contain explicit runtime owner guard.
+		$pub_src            = (string) file_get_contents( $pub_path );
+		$owner_guard_on_disk = ( strpos( $pub_src, 'assert_page_owner_matches_event' ) !== false )
+			&& ( strpos( $pub_src, 'permission_denied' ) !== false );
+		$ctx->emit_step( [
+			'label'  => 'Disk · F4 ownership guard in publisher',
+			'status' => $owner_guard_on_disk ? 'pass' : 'fail',
+			'detail' => $owner_guard_on_disk
+				? 'class-fb-publisher.php contains owner-page revalidation markers.'
+				: 'Missing owner guard marker (assert_page_owner_matches_event/permission_denied).',
+		] );
+		if ( ! $owner_guard_on_disk ) {
+			return [
+				'status'   => 'fail',
+				'summary'  => 'F4 owner guard chưa có trong publisher runtime.',
+				'error'    => 'f4_owner_guard_missing_publisher',
+				'fix_hint' => 'Bổ sung verify page ownership (bizcity_facebook_bots.user_id) trước Graph publish.',
+			];
+		}
+
 		// bootstrap.php require + init?
 		$boot_path = $base . self::BOOTSTRAP_FILE;
 		$boot_src  = is_readable( $boot_path ) ? (string) file_get_contents( $boot_path ) : '';
@@ -292,6 +312,40 @@ final class BizCity_Probe_FB_Publisher implements BizCity_Diagnostics_Probe {
 			'detail' => 'Publisher invoked with empty fb_page_id/fb_content — should mark failed (no Graph call). Verified by code path.',
 		] );
 
+		// [2026-07-15 Johnny Chu] PHASE-TWINWEB F4 — runtime mismatch must be refused before publish.
+		$owner_guard_runtime_status = 'warn';
+		$owner_guard_runtime_detail = 'Skip: không tìm thấy sample user-owned page để test mismatch runtime.';
+		if ( method_exists( BizCity_FB_Publisher::instance(), 'assert_page_owner_matches_event' ) ) {
+			$bots_table = $wpdb->prefix . 'bizcity_facebook_bots';
+			$sample_bot = $wpdb->get_row(
+				"SELECT page_id, user_id FROM {$bots_table} WHERE status = 'active' AND user_id > 0 AND page_id <> '' ORDER BY id DESC LIMIT 1",
+				ARRAY_A
+			);
+			if ( is_array( $sample_bot ) && ! empty( $sample_bot['page_id'] ) && ! empty( $sample_bot['user_id'] ) ) {
+				try {
+					$ref            = new \ReflectionMethod( 'BizCity_FB_Publisher', 'assert_page_owner_matches_event' );
+					$ref->setAccessible( true );
+					$actual_owner   = (int) $sample_bot['user_id'];
+					$mismatch_owner = $actual_owner + 999999;
+					$guard_result   = $ref->invoke( BizCity_FB_Publisher::instance(), (string) $sample_bot['page_id'], $mismatch_owner );
+					$guard_ok       = is_wp_error( $guard_result ) && (string) $guard_result->get_error_code() === 'permission_denied';
+
+					$owner_guard_runtime_status = $guard_ok ? 'pass' : 'fail';
+					$owner_guard_runtime_detail = $guard_ok
+						? 'Mismatch owner rejected with reason=permission_denied (runtime guard OK).'
+						: 'Mismatch owner NOT rejected as permission_denied.';
+				} catch ( \Throwable $e ) {
+					$owner_guard_runtime_status = 'fail';
+					$owner_guard_runtime_detail = 'Reflection test failed: ' . $e->getMessage();
+				}
+			}
+		}
+		$ctx->emit_step( [
+			'label'  => 'Runtime · F4 mismatch owner refusal',
+			'status' => $owner_guard_runtime_status,
+			'detail' => $owner_guard_runtime_detail,
+		] );
+
 		remove_action( 'bizcity_fb_post_publish_start', $spy, 99 );
 
 		// SQL · stuck pending events (start_at past, still pending, no fb_post_id).
@@ -316,19 +370,22 @@ final class BizCity_Probe_FB_Publisher implements BizCity_Diagnostics_Probe {
 			'detail' => sprintf( '%d events past start_at, status=active, fb_publish_status=pending|failed, no fb_post_id', $stuck ),
 		] );
 
-		$all_pass = $skip_ok && $cron_ok;
+		$owner_runtime_ok = ( $owner_guard_runtime_status !== 'fail' );
+		$all_pass = $skip_ok && $cron_ok && $owner_runtime_ok;
 		return [
 			'status'   => $all_pass ? 'pass' : 'fail',
 			'summary'  => $all_pass
 				? sprintf( 'FB Publisher wired correctly. Reminder hook @ priority %d. Cron next in %ds. %d stuck events.',
 					(int) $hook_pri, $in_s, $stuck )
 				: 'Publisher wiring incomplete — see failed steps.',
-			'error'    => $all_pass ? null : ( ! $cron_ok ? 'cron_not_scheduled' : 'skip_logic_broken' ),
+			'error'    => $all_pass ? null : ( ! $cron_ok ? 'cron_not_scheduled' : ( ! $owner_runtime_ok ? 'f4_owner_guard_runtime' : 'skip_logic_broken' ) ),
 			'fix_hint' => $all_pass
 				? null
 				: ( ! $cron_ok
 					? 'Re-register cron: deactivate/reactivate bizcity-twin-ai, or call BizCity_Scheduler_Cron::schedule().'
-					: 'on_reminder_fire skip-guard broken — check class-fb-publisher.php event_type filter.' ),
+					: ( ! $owner_runtime_ok
+						? 'Bổ sung/kiểm tra guard verify page owner trước Graph publish (class-fb-publisher.php::assert_page_owner_matches_event).'
+						: 'on_reminder_fire skip-guard broken — check class-fb-publisher.php event_type filter.' ) ),
 		];
 	}
 

@@ -113,9 +113,18 @@ class BizCity_Emotional_Thread_Tracker {
 
         $description = $args['description'] ?: $topic;
 
+        // [2026-07-28 Johnny Chu] R-CH-IDMEM — thread memory must resolve a durable UUID before insert.
+        $scope = class_exists( 'BizCity_Memory_Identity_Scope' )
+            ? BizCity_Memory_Identity_Scope::for_write( [ 'user_id' => (int) $user_id, 'session_id' => (string) $session_id ] )
+            : null;
+        if ( ! $scope ) {
+            return false;
+        }
+
         return BizCity_User_Memory::instance()->upsert_public( [
             'user_id'     => (int) $user_id,
             'session_id'  => '',   // threads are global
+			'identity_uuid'=> (string) $scope['identity_uuid'],
             'memory_tier' => 'extracted',
             'memory_type' => self::MEMORY_TYPE,
             'memory_key'  => $key,
@@ -139,11 +148,23 @@ class BizCity_Emotional_Thread_Tracker {
         $table   = $wpdb->prefix . 'bizcity_memory_users';
         $blog_id = get_current_blog_id();
 
+        // [2026-07-28 Johnny Chu] R-CH-IDMEM — resolve threads through the shared UUID-first read scope.
+        $scope = class_exists( 'BizCity_Memory_Identity_Scope' )
+            ? BizCity_Memory_Identity_Scope::resolve( [ 'user_id' => (int) $user_id ] )
+            : null;
+        if ( ! $scope ) {
+            return false;
+        }
+
+        $where  = [ 'blog_id = %d', 'memory_key = %s' ];
+        $params = [ $blog_id, $key ];
+        if ( ! BizCity_Memory_Identity_Scope::append_read_scope( $where, $params, $scope ) ) {
+            return false;
+        }
+
         $row = $wpdb->get_row( $wpdb->prepare(
-            "SELECT id, metadata FROM {$table} WHERE blog_id = %d AND user_id = %d AND memory_key = %s LIMIT 1",
-            $blog_id,
-            (int) $user_id,
-            $key
+            "SELECT id, metadata FROM {$table} WHERE " . implode( ' AND ', $where ) . ' LIMIT 1',
+            $params
         ) );
 
         if ( ! $row ) {
@@ -184,7 +205,16 @@ class BizCity_Emotional_Thread_Tracker {
             return;
         }
 
-        $lock_key = 'bizcity_thread_expire_' . $user_id;
+        // [2026-07-28 Johnny Chu] R-CH-IDMEM — only expire rows owned by the resolved UUID or unmigrated legacy owner.
+        $scope = class_exists( 'BizCity_Memory_Identity_Scope' )
+            ? BizCity_Memory_Identity_Scope::resolve( [ 'user_id' => $user_id ] )
+            : null;
+        if ( ! $scope ) {
+            return;
+        }
+
+        $lock_owner = ! empty( $scope['identity_uuid'] ) ? $scope['identity_uuid'] : 'legacy_' . $user_id;
+        $lock_key   = 'bizcity_thread_expire_' . md5( (string) $scope['blog_id'] . ':' . $lock_owner );
         if ( get_transient( $lock_key ) ) {
             return;
         }
@@ -195,11 +225,15 @@ class BizCity_Emotional_Thread_Tracker {
         $blog_id    = get_current_blog_id();
         $cutoff     = date( 'Y-m-d H:i:s', time() - self::EXPIRE_DAYS * DAY_IN_SECONDS );
 
+        $where  = [ 'blog_id = %d', 'memory_type = %s', 'updated_at < %s' ];
+        $params = [ $blog_id, self::MEMORY_TYPE, $cutoff ];
+        if ( ! BizCity_Memory_Identity_Scope::append_read_scope( $where, $params, $scope ) ) {
+            return;
+        }
+
         $rows = $wpdb->get_results( $wpdb->prepare(
-            "SELECT id, metadata FROM {$table}
-             WHERE blog_id = %d AND user_id = %d AND memory_type = %s
-             AND updated_at < %s",
-            $blog_id, $user_id, self::MEMORY_TYPE, $cutoff
+            "SELECT id, metadata FROM {$table} WHERE " . implode( ' AND ', $where ),
+            $params
         ) );
 
         foreach ( (array) $rows as $row ) {
@@ -279,14 +313,20 @@ class BizCity_Emotional_Thread_Tracker {
      * HELPER — get a single thread by key (internal)
      * ================================================================ */
     private function get_thread( $user_id, $memory_key ) {
-        global $wpdb;
-        $table   = $wpdb->prefix . 'bizcity_memory_users';
-        $blog_id = get_current_blog_id();
-
-        $row = $wpdb->get_row( $wpdb->prepare(
-            "SELECT metadata FROM {$table} WHERE blog_id = %d AND user_id = %d AND memory_key = %s LIMIT 1",
-            $blog_id, (int) $user_id, $memory_key
-        ) );
+        $rows = BizCity_User_Memory::instance()->get_memories( [
+            'user_id'     => (int) $user_id,
+            'session_id'  => '',
+            'memory_type' => self::MEMORY_TYPE,
+            'limit'       => 50,
+            'order_by'    => 'updated_at',
+        ] );
+        $row = null;
+        foreach ( (array) $rows as $candidate ) {
+            if ( (string) $candidate->memory_key === (string) $memory_key ) {
+                $row = $candidate;
+                break;
+            }
+        }
 
         if ( ! $row ) {
             return null;

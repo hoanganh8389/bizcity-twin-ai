@@ -53,6 +53,8 @@ require_once BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-chunker.php';
 require_once BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-sources-service.php';
 require_once BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-context-builder.php';
 require_once BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-stream-handler.php';
+// [2026-07-14 Johnny Chu] PHASE-0.43 — core keyword search engine for notebook/all-notebook document search.
+require_once BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-search-engine.php';
 require_once BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-rest-controller.php';
 // PHASE-0.41 L6 (R-GW) — Entitlement proxy: client FE → this proxy → gateway.
 require_once BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-entitlement-proxy.php';
@@ -97,6 +99,8 @@ require_once BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-learning-strea
 require_once BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-learning-extractor-bridge.php';
 require_once BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-learning-aggregator.php';
 require_once BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-learning-sweep-cron.php';
+// [2026-07-25 Johnny Chu] PHASE-0.48-LEARNING-LOG-SHARE-LINK — stateless share-link adapter (public console-log link + automation action block).
+require_once BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-learning-share-adapter.php';
 require_once BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-rest-learning.php';
 
 // Sprint 5.1 — AI Welcome Message after Upload.
@@ -192,6 +196,11 @@ add_action( 'bizcity_kg_notebook_before_delete', static function ( $notebook_id 
 		return;
 	}
 	BizCity_TwinChat_Sources_Database::instance()->delete_for_notebook( $notebook_id );
+	// [2026-07-27 Johnny Chu] PHASE-0.51 — remove learning ring/job/batch
+	// rows for this notebook to avoid orphan telemetry after notebook delete.
+	if ( class_exists( 'BizCity_TwinChat_Learning_Database' ) ) {
+		BizCity_TwinChat_Learning_Database::instance()->delete_for_notebook( $notebook_id );
+	}
 }, 10, 1 );
 
 // Wave 0.7.D — boot built-in Studio tool callbacks (registers via bcn_register_notebook_tools).

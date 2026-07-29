@@ -111,6 +111,13 @@ final class BizCity_Automation_Skill_Bridge {
 				'text'       => isset( $args_raw['message'] ) ? (string) $args_raw['message']
 					: ( isset( $args_raw['prompt'] ) ? (string) $args_raw['prompt'] : '' ),
 			);
+			// [2026-07-17 Johnny Chu] PHASE-TWINWEB F4 — stamp canonical owner before enqueue.
+			if ( (int) ( $enriched['_owner_user_id'] ?? 0 ) <= 0 ) {
+				$enriched['_owner_user_id'] = (int) ( $args_raw['user_id'] ?? $args_raw['wp_user_id'] ?? $wf['created_by'] ?? 0 );
+			}
+			if ( (int) ( $enriched['wp_user_id'] ?? 0 ) <= 0 && (int) ( $enriched['_owner_user_id'] ?? 0 ) > 0 ) {
+				$enriched['wp_user_id'] = (int) $enriched['_owner_user_id'];
+			}
 
 			if ( class_exists( 'BizCity_Automation_Listener' ) ) {
 				BizCity_Automation_Listener::inject( 'skill_intent', $enriched );

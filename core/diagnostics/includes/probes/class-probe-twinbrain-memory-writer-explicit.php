@@ -87,11 +87,22 @@ final class BizCity_Probe_TwinBrain_Memory_Writer_Explicit implements BizCity_Di
 		] );
 
 		if ( $persisted < 1 ) {
+			// [2026-07-28 Johnny Chu] PHASE-0.52 W8.3 — include canonical upsert failure code to avoid generic persisted=0 triage.
+			$last_fail = method_exists( 'BizCity_User_Memory', 'get_last_upsert_failure' )
+				? (array) BizCity_User_Memory::get_last_upsert_failure()
+				: array();
+			$fail_code = (string) ( $last_fail['code'] ?? '' );
+			$fail_msg  = (string) ( $last_fail['message'] ?? '' );
+			$db_error  = trim( (string) ( $last_fail['db_error'] ?? '' ) );
+			$db_tail   = $db_error !== '' ? ' · db_error=' . mb_substr( $db_error, 0, 220 ) : '';
 			return [
 				'status'   => 'fail',
 				'summary'  => 'Writer Mode 1 không persist được row nào.',
-				'error'    => 'persisted=0 (mode=' . $mode . ')',
-				'fix_hint' => 'Check regex trong Memory_Writer::extract_explicit() — prompt mẫu phải match. Có thể BizCity_User_Memory::upsert_public() không return insert/update.',
+				'error'    => 'persisted=0 (mode=' . $mode . ')'
+					. ( $fail_code !== '' ? ' code=' . $fail_code : '' )
+					. ( $fail_msg !== '' ? ' · ' . $fail_msg : '' )
+					. $db_tail,
+				'fix_hint' => 'Check regex trong Memory_Writer::extract_explicit() hoặc BizCity_User_Memory::get_last_upsert_failure() để xác định rõ lỗi identity_uuid/schema.',
 			];
 		}
 

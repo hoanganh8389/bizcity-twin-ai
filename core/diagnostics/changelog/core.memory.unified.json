@@ -3,7 +3,7 @@
   "module_id": "core.memory.unified",
   "owner": "core/memory",
   "installer_id": "memory",
-  "current_version": "1.1.0",
+  "current_version": "1.2.0",
   "version_option": "bizcity_memory_unified_db_ver",
   "tables": {
     "bizcity_memory": {
@@ -17,6 +17,7 @@
         "blog_id":                 { "type": "INT UNSIGNED NOT NULL DEFAULT 1",                                               "since": "1.0.0" },
         "user_id":                 { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",                                            "since": "1.0.0" },
         "session_id":              { "type": "VARCHAR(191) NOT NULL DEFAULT ''",                                              "since": "1.0.0" },
+        "identity_uuid":           { "type": "CHAR(36) NOT NULL DEFAULT ''",                                                  "since": "1.2.0" },
         "conversation_id":         { "type": "VARCHAR(64) NOT NULL DEFAULT ''",                                               "since": "1.0.0" },
         "notebook_id":             { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",                                            "since": "1.0.0" },
         "memory_class":            { "type": "ENUM('user','episodic','rolling','session','note') NOT NULL DEFAULT 'user'",   "since": "1.0.0" },
@@ -43,7 +44,8 @@
         "updated_at":              { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",       "since": "1.0.0" }
       },
       "indexes": {
-        "uq_memory_owner_key": { "cols": ["blog_id", "user_id", "session_id", "memory_class", "memory_key"], "unique": true, "since": "1.0.0" },
+        "uq_memory_owner_key": { "cols": ["blog_id", "user_id", "session_id", "identity_uuid", "memory_class", "memory_key"], "unique": true, "since": "1.2.0" },
+        "idx_identity_class":  { "cols": ["blog_id", "identity_uuid", "memory_class", "status"],              "since": "1.2.0" },
         "idx_user_class":      { "cols": ["user_id", "memory_class", "status"],                              "since": "1.0.0" },
         "idx_class_score":     { "cols": ["memory_class", "score", "updated_at"],                            "since": "1.0.0" },
         "idx_conversation":    { "cols": ["conversation_id", "status"],                                      "since": "1.0.0" },
@@ -54,6 +56,7 @@
     }
   },
   "history": [
+    { "version": "1.2.0", "date": "2026-07-28", "change": "PHASE-0.52 W8.2 — add identity_uuid and identity-scoped lookup index to the unified memory table. Legacy user_id/session_id remain for compatibility and citation parity." },
     { "version": "1.1.0", "date": "2026-05-24", "change": "Wave 2.8d TBR.MEM-D6 — add `legacy_id BIGINT UNSIGNED DEFAULT 0` + `idx_legacy_class` index to preserve citation contract during read cutover. Mirror writer (BizCity_Memory_Unified_Writer) populates legacy_id from $row['id'] so Memory_Recall::collect() can emit identical `[mem:U#<legacy_id>]` tokens regardless of read source — guarantees zero-drift cutover. ADD-only schema change → auto-create safe." },
     { "version": "1.0.0", "date": "2026-05-24", "change": "Initial creation of unified `bizcity_memory` table (Wave 2.8d TBR.MEM-D4). Behind flag `bizcity_memory_unified_enabled` default FALSE — installer runs on plugins_loaded@30 only if flag opt-in. memory_class ENUM ('user','episodic','rolling','session','note') discriminates the 5 legacy tables. D5 will wire dual-write from BizCity_User_Memory + BizCity_Episodic_Memory + BizCity_Rolling_Memory + BizCity_WebChat_Memory + BizCity_TwinChat_Notes_Service; D6 will cutover Memory_Recall read path; D7 will drop the 5 legacy tables + bump v2.0.0. Schema reference: core/memory/PHASE-MEMORY-CONSOLIDATION.md §2.1." }
   ]

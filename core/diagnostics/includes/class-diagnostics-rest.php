@@ -268,7 +268,13 @@ final class BizCity_Diagnostics_REST {
 		if ( $critical_missing ) {
 			$last_shown = (int) ( $mc ? BizCity_User_Meta_Cache::get( $user_id, self::WIZARD_CRITICAL_LAST_USERMETA, 0 ) : get_user_meta( $user_id, self::WIZARD_CRITICAL_LAST_USERMETA, true ) );
 			if ( ( time() - $last_shown ) > self::WIZARD_CRITICAL_CAP_SECONDS ) {
-				update_user_meta( $user_id, self::WIZARD_CRITICAL_LAST_USERMETA, time() );
+				$now = time();
+				// [2026-07-27 Johnny Chu] R-PERF — persist wizard throttle state and refresh cache together.
+				if ( $mc ) {
+					BizCity_User_Meta_Cache::set( $user_id, self::WIZARD_CRITICAL_LAST_USERMETA, $now );
+				} else {
+					update_user_meta( $user_id, self::WIZARD_CRITICAL_LAST_USERMETA, $now );
+				}
 				return rest_ensure_response( [
 					'should_show'     => true,
 					'reason'          => 'critical-regression',
@@ -290,7 +296,14 @@ final class BizCity_Diagnostics_REST {
 	public function wizard_mark_seen() {
 		$blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 1;
 		$user_id = get_current_user_id();
-		update_user_meta( $user_id, self::WIZARD_SEEN_META_PREFIX . $blog_id, time() );
+		$meta_key = self::WIZARD_SEEN_META_PREFIX . $blog_id;
+		$now      = time();
+		// [2026-07-27 Johnny Chu] R-PERF — persist wizard seen state and refresh cache together.
+		if ( class_exists( 'BizCity_User_Meta_Cache' ) ) {
+			BizCity_User_Meta_Cache::set( $user_id, $meta_key, $now );
+		} else {
+			update_user_meta( $user_id, $meta_key, $now );
+		}
 		return rest_ensure_response( [ 'ok' => true, 'blog_id' => $blog_id, 'user_id' => $user_id ] );
 	}
 }

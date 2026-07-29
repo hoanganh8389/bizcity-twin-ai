@@ -93,6 +93,11 @@ final class BizCity_Automation_Action_Video_Submit extends BizCity_Automation_Bl
 		$trigger  = is_array( $ctx['trigger'] ?? null ) ? $ctx['trigger'] : array();
 		$chat_id  = (string) ( $trigger['chat_id']    ?? $ctx['chat_id']    ?? '' );
 		$platform = (string) ( $trigger['platform']   ?? $trigger['channel'] ?? 'ZALO_BOT' );
+		if ( $chat_id === '' ) {
+			// [2026-07-21 Johnny Chu] PHASE-ATH — cron video templates reply/poll back to the owner's pinned Twin GPT Zalo chat.
+			$target = $this->resolve_owner_mychannels_zalo_target( $this->resolve_owner_user_id( $ctx, 0 ) );
+			$chat_id = (string) ( $target['chat_id'] ?? '' );
+		}
 
 		// ── 3. Call BizCity_Video_Client ────────────────────────────────────
 		if ( ! class_exists( 'BizCity_Video_Client' ) ) {
@@ -160,7 +165,8 @@ final class BizCity_Automation_Action_Video_Submit extends BizCity_Automation_Bl
 		// [2026-06-14 Johnny Chu] PHASE-0.41 VIDEO-VEO3 — also write to bizcity_kling_jobs for monitor
 		$kling_job_id = 0;
 		if ( class_exists( 'BizCity_Video_Kling_Database' ) ) {
-			$user_id_ctx  = (int) ( $ctx['user_id'] ?? $trigger['user_id'] ?? get_current_user_id() );
+			// [2026-07-16 Johnny Chu] PHASE-TWINWEB F4 — resolve owner from automation context; avoid current-session fallback in cron path.
+			$user_id_ctx  = $this->resolve_owner_user_id( $ctx );
 			$kling_job_id = (int) BizCity_Video_Kling_Database::create_job( array(
 				'job_key'      => 'auto_' . $task_id,
 				'task_id'      => $task_id,
@@ -258,6 +264,29 @@ final class BizCity_Automation_Action_Video_Submit extends BizCity_Automation_Bl
 			'error'        => '',
 			'kling_job_id' => $kling_job_id,  // [2026-06-14 Johnny Chu] PHASE-0.41 VIDEO-VEO3 — DB row in bizcity_kling_jobs
 			'monitor_url'  => isset( $monitor_url ) ? $monitor_url : '',
+		);
+	}
+
+	private function resolve_owner_mychannels_zalo_target( int $owner_user_id ): array {
+		// [2026-07-21 Johnny Chu] PHASE-ATH — keep video_submit aligned with reply_zalo defaults for /gpt customer cron workflows.
+		$owner_user_id = (int) $owner_user_id;
+		if ( $owner_user_id <= 0 ) {
+			return array( 'bot_id' => 0, 'chat_id' => '', 'chat_label' => '' );
+		}
+		// [2026-07-27 Johnny Chu] R-PERF — read My Channels once through direct-SQL user-meta cache.
+		$selected = class_exists( 'BizCity_User_Meta_Cache' )
+			? BizCity_User_Meta_Cache::get( $owner_user_id, 'bizcity_twinweb_mychannels', array() )
+			: get_user_meta( $owner_user_id, 'bizcity_twinweb_mychannels', true );
+		$selected = is_array( $selected ) ? $selected : array();
+		$bot_id = isset( $selected['selected_zalo_bot_id'] ) ? (int) $selected['selected_zalo_bot_id'] : 0;
+		$chat_id = isset( $selected['selected_zalo_chat_id'] ) ? trim( sanitize_text_field( (string) $selected['selected_zalo_chat_id'] ) ) : '';
+		if ( $bot_id <= 0 && $chat_id !== '' && preg_match( '/^zalobot_(\d+)_/', $chat_id, $m ) ) {
+			$bot_id = (int) $m[1];
+		}
+		return array(
+			'bot_id'     => $bot_id,
+			'chat_id'    => $chat_id,
+			'chat_label' => isset( $selected['selected_zalo_chat_label'] ) ? sanitize_text_field( (string) $selected['selected_zalo_chat_label'] ) : '',
 		);
 	}
 

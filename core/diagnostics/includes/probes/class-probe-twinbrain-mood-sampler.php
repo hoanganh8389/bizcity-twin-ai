@@ -122,6 +122,14 @@ final class BizCity_Probe_TwinBrain_Mood_Sampler implements BizCity_Diagnostics_
 		// ---- 4. Event_stream contains brain_session_mood_sampled. ----
 		global $wpdb;
 		$tbl = $wpdb->prefix . 'bizcity_twin_event_stream';
+		if ( ! bizcity_tbl_exists( $tbl ) ) {
+			$mgr->archive( $session_id, [ 'user_id' => $user_id, 'reason' => 'probe_cleanup' ] );
+			return [
+				'status'   => 'fail',
+				'error'    => 'event_stream table missing on current blog shard.',
+				'evidence' => array_merge( $evidence, [ 'event_table' => $tbl ] ),
+			];
+		}
 		$evt_count = (int) $wpdb->get_var( $wpdb->prepare(
 			"SELECT COUNT(*) FROM {$tbl} WHERE session_id = %s AND event_type = 'brain_session_mood_sampled'",
 			$session_id
@@ -149,6 +157,18 @@ final class BizCity_Probe_TwinBrain_Mood_Sampler implements BizCity_Diagnostics_
 
 		// ---- 6. VIEW has_mood = 1. -----------------------------------
 		$view = BizCity_TwinBrain_Schema::sessions_view_name();
+		// [2026-07-14 Johnny Chu] HOTFIX — idempotent ensure before querying the view.
+		if ( method_exists( 'BizCity_TwinBrain_Schema', 'ensure_sessions_view' ) ) {
+			BizCity_TwinBrain_Schema::ensure_sessions_view();
+		}
+		if ( ! bizcity_tbl_exists( $view ) ) {
+			$mgr->archive( $session_id, [ 'user_id' => $user_id, 'reason' => 'probe_cleanup' ] );
+			return [
+				'status'   => 'fail',
+				'error'    => 'VIEW bizcity_brain_sessions missing on current blog shard.',
+				'evidence' => array_merge( $evidence, [ 'view' => $view ] ),
+			];
+		}
 		$has_mood = (int) $wpdb->get_var( $wpdb->prepare(
 			"SELECT has_mood FROM {$view} WHERE session_id = %s",
 			$session_id

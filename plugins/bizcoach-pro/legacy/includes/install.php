@@ -46,10 +46,33 @@ class BCCM_Installer {
    * ==================================================================*/
 
   /**
+   * [2026-07-22 Johnny Chu] BCCM-CHARSET-FIX — some multishard connections
+   * report a COLLATE (e.g. utf8mb3_general_ci) that doesn't belong to the
+   * charset family MySQL applies by default for this DB (e.g. latin1/utf8mb4),
+   * causing "COLLATION ... is not valid for CHARACTER SET ..." fatal on
+   * CREATE TABLE. Only keep COLLATE when its family prefix matches the
+   * connection charset; otherwise let MySQL fall back to the charset default.
+   */
+  private function safe_charset_collate(): string {
+    $charset = $this->wpdb->charset ?: 'utf8mb4';
+    $collate = $this->wpdb->collate;
+
+    if ($collate && stripos($collate, $charset) !== 0) {
+      $collate = '';
+    }
+
+    $sql = "DEFAULT CHARACTER SET {$charset}";
+    if ($collate) {
+      $sql .= " COLLATE {$collate}";
+    }
+    return $sql;
+  }
+
+  /**
    * Tạo tất cả bảng cần thiết. Safe gọi nhiều lần (idempotent).
    */
   public function install_tables(): void {
-    $charset = $this->wpdb->get_charset_collate();
+    $charset = $this->safe_charset_collate();
     $t       = bccm_tables();
     $prefix  = $this->wpdb->prefix;
 
@@ -489,9 +512,17 @@ class BCCM_Installer {
       $this->wpdb->query("ALTER TABLE `$t_astro` DROP COLUMN prokerala_traits");
     }
 
-    // Add index for user_id (ignore errors if exists)
-    $this->wpdb->query("ALTER TABLE `$t_astro` ADD INDEX idx_user_id (user_id)");
-    $this->wpdb->query("ALTER TABLE `$t_astro` ADD INDEX idx_chart_type (chart_type)");
+    // [2026-07-22 Johnny Chu] BCCM-INDEX-DUP-FIX — install_tables() base schema already
+    // ships idx_user_id/idx_chart_type on fresh installs, so this legacy migration step
+    // (written for pre-existing installs) must check existence first to avoid a
+    // "Duplicate key name" fatal on every blog whose bccm_astro was created fresh.
+    $existing_indexes = $this->wpdb->get_col("SHOW INDEX FROM `$t_astro`", 2);
+    if (!in_array('idx_user_id', $existing_indexes, true)) {
+      $this->wpdb->query("ALTER TABLE `$t_astro` ADD INDEX idx_user_id (user_id)");
+    }
+    if (!in_array('idx_chart_type', $existing_indexes, true)) {
+      $this->wpdb->query("ALTER TABLE `$t_astro` ADD INDEX idx_chart_type (chart_type)");
+    }
 
     // Change UNIQUE KEY from (coachee_id) to (coachee_id, chart_type)
     // Drop old unique key first
@@ -993,7 +1024,8 @@ add_action('network_admin_init', function () {
   $opt_key  = 'bccm_db_version';
 
   // Quick check on current site before iterating all sites
-  $current_ver = get_site_option('bccm_network_db_version', '0.0.0');
+  // [2026-07-27 Johnny Chu] R-MSDB — keep the upgrade guard scoped to the current blog.
+  $current_ver = get_option('bccm_network_db_version', '0.0.0');
   if (version_compare($current_ver, $target, '>=')) return;
 
   // Iterate all sites and run install_tables() + maybe_upgrade() on each
@@ -1006,7 +1038,7 @@ add_action('network_admin_init', function () {
   }
 
   // Mark network-level version so we don't re-iterate on every page load
-  update_site_option('bccm_network_db_version', $target);
+  update_option('bccm_network_db_version', $target);
 }, 5);
 
 /* =====================================================================

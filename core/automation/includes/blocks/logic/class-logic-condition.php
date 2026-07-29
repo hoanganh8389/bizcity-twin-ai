@@ -94,6 +94,16 @@ final class BizCity_Automation_Logic_Condition extends BizCity_Automation_Block_
 		// Quoted literal?
 		if ( preg_match( '/^[\'"](.*)[\'"]$/', $token, $m ) ) { return $m[1]; }
 		if ( is_numeric( $token ) ) { return $token + 0; }
+		// [2026-07-21 Johnny Chu] PHASE-SEEDREAM-45-FIX — image-first Zalo flows may have pending attachment even when _resume was not injected yet.
+		if ( $token === 'trigger._resume.attachment_url' && class_exists( 'BizCity_Automation_Pending_State' ) ) {
+			$chat_id = (string) ( $ctx['trigger']['chat_id'] ?? '' );
+			if ( $chat_id !== '' ) {
+				$pending = BizCity_Automation_Pending_State::get( $chat_id );
+				if ( ! empty( $pending['attachment_url'] ) ) {
+					return (string) $pending['attachment_url'];
+				}
+			}
+		}
 		$parts = explode( '.', $token );
 		$node  = $ctx;
 		foreach ( $parts as $p ) {

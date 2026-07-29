@@ -3,7 +3,7 @@
   "module_id": "core.knowledge.kg-hub",
   "owner": "core/knowledge/kg-hub",
   "installer_id": "kg_hub",
-  "current_version": "0.27.0",
+  "current_version": "0.30.1",
   "version_option": "bizcity_kg_db_version",
   "tables": {
     "bizcity_kg_notebooks": {
@@ -19,6 +19,7 @@
         "description":           { "type": "TEXT",                                     "since": "0.1.0" },
         "character_id":          { "type": "BIGINT UNSIGNED DEFAULT NULL",             "since": "0.1.0" },
         "owner_id":              { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",       "since": "0.1.0" },
+        "notebook_scope":        { "type": "ENUM('business_kb','guru_kb','personal') NOT NULL DEFAULT 'personal'", "since": "0.29.0" },
         "color":                 { "type": "VARCHAR(20) DEFAULT ''",                   "since": "0.1.0" },
         "settings":              { "type": "TEXT",                                     "since": "0.1.0" },
         "stats":                 { "type": "TEXT",                                     "since": "0.1.0" },
@@ -41,6 +42,7 @@
         "character_id":          { "cols": ["character_id"],      "since": "0.1.0" },
         "uq_notebook_uuid":      { "cols": ["uuid"],              "unique": true, "since": "0.20.0" },
         "idx_nb_owner_id":       { "cols": ["owner_id"],          "since": "0.20.0" },
+        "idx_nb_owner_scope":    { "cols": ["owner_id", "notebook_scope"], "since": "0.29.0" },
         "idx_nb_skeleton_status":{ "cols": ["skeleton_status"],   "since": "0.23.0" }
       }
     },
@@ -136,7 +138,7 @@
     },
     "bizcity_kg_source_progress_log": {
       "since": "0.26.0",
-      "purpose": "PHASE-0.13 Wave 10c — append-only per-source learning evidence trail (extract_started / passage_done / passage_error / batch_done / sweep_enqueued / force_reset / complete / aggregate_drop). Diagnoses the '100% → 0% reset → re-loop' loop bug. Owns its own version option (NOT bizcity_kg_db_version).",
+      "purpose": "Legacy PHASE-0.13 Wave 10c append-only per-source learning evidence trail. Retained in the historical changelog for migration only; runtime storage moved to uploads JSONL in PHASE-0.49.",
       "engine": "InnoDB",
       "charset": "utf8mb4",
       "collate": "utf8mb4_unicode_ci",
@@ -163,10 +165,14 @@
     }
   },
   "history": [
+    { "version": "0.30.1", "date": "2026-07-29", "change": "PHASE-0.45-KG-FILE-GRAPH: persist per-blog schema repair state, do not mark the KG version complete after a failed VIEW/column repair, and verify the physical source table plus compatibility VIEW before advancing the version." },
     { "version": "0.6.0",  "date": "2026-04-01", "change": "Initial declaration of kg-hub unified source layer (kg_sources + kg_passages). Other 14 kg-hub tables to be added incrementally." },
     { "version": "0.24.0", "date": "2026-05-20", "change": "Wave 0.7 LEARN-VECTOR-FILE F0: add storage_ver/file_shard/file_offset/file_length + idx_storage_ver to bizcity_kg_passages. Gating bit per-row for inline→filestore migration (R-LEARN §1). Idempotent ADD-only; storage_ver defaults to 1 so legacy rows remain readable from MySQL." },
     { "version": "0.25.0", "date": "2026-05-24", "change": "Phase 6.6 S1.1 + S3.1 (R-SK-DOC): declare bizcity_kg_notebooks (base + skeleton_* + perspective_* + artifacts_json) — close R-DCL gap that allowed skeleton_json=NULL silent failures across prod; create bizcity_kg_skeleton_history for version-aware audit trail with LLM cost meta (R-CRON-META compatible)." },
     { "version": "0.26.0", "date": "2026-05-25", "change": "Declare bizcity_kg_source_progress_log (PHASE-0.13 Wave 10c). Close R-DCL gap that allowed blog-1458 to keep flooding error_log with 'Table wp_1458_bizcity_kg_source_progress_log doesn't exist'. Owns its own version option (bizcity_kg_source_progress_log_version) — installer is BizCity_KG_Source_Progress_Log::maybe_install (NOT BizCity_KG_Database). Self-heal: maybe_install now verifies physical SHOW TABLES result before trusting the version option, retries dbDelta when option set but table missing." },
-    { "version": "0.27.0", "date": "2026-05-27", "change": "Phase 0.42 (LiteParse layout-preserving): no DDL change. kg_passages.meta_json + kg_sources.meta_json gain optional read-with-default keys: `engine` (smalot|pdftotext|builtin|liteparse|liteparse_http), `liteparse_version`, `screenshot_path` (relative to wp-content/uploads/twin-vectors/{blog}/screenshots/{sha256}/p{N}.png), `bbox_blocks[]` ({page, x1, y1, x2, y2, text}). New modalities: `pdf_layout`, `office_layout`, `image_layout` (sibling of pdf_text / office). Adapter registry prefers LiteParse for Pro tier via filter `bizcity_kg_source_adapters` — gated by BizCity_Entitlement::can($uid, 'learning.layout_parse'); fail-safe falls back to existing Smalot/pdftotext Tier-1 when CLI/sidecar unavailable. See modules/twinchat/docs/PHASE-0.42-LITEPARSE-LAYOUT-PRESERVING.md." }
+    { "version": "0.27.0", "date": "2026-05-27", "change": "Phase 0.42 (LiteParse layout-preserving): no DDL change. kg_passages.meta_json + kg_sources.meta_json gain optional read-with-default keys: `engine` (smalot|pdftotext|builtin|liteparse|liteparse_http), `liteparse_version`, `screenshot_path` (relative to wp-content/uploads/twin-vectors/{blog}/screenshots/{sha256}/p{N}.png), `bbox_blocks[]` ({page, x1, y1, x2, y2, text}). New modalities: `pdf_layout`, `office_layout`, `image_layout` (sibling of pdf_text / office). Adapter registry prefers LiteParse for Pro tier via filter `bizcity_kg_source_adapters` — gated by BizCity_Entitlement::can($uid, 'learning.layout_parse'); fail-safe falls back to existing Smalot/pdftotext Tier-1 when CLI/sidecar unavailable. See modules/twinchat/docs/PHASE-0.42-LITEPARSE-LAYOUT-PRESERVING.md." },
+    { "version": "0.28.0", "date": "2026-07-27", "change": "PHASE-0.49: retire bizcity_kg_source_progress_log runtime storage. Existing rows are migrated in resumable batches to uploads/sites/{blog_id}/bizcity-usage-logs/kg-source-progress/YYYY-MM-DD.jsonl before the legacy table is dropped; diagnostics no longer provisions or requires the legacy table." },
+    { "version": "0.29.0", "date": "2026-07-27", "change": "PHASE-0.51: add explicit notebook_scope (business_kb|guru_kb|personal) and owner/scope index. Existing notebooks default to personal so owner_id=0 legacy rows remain quarantined until explicitly promoted to a public-compatible scope." },
+    { "version": "0.30.0", "date": "2026-07-29", "change": "PHASE-0.45-KG-FILE-GRAPH: repair legacy kg_passages VIEW installs by adding storage_ver/file_shard/file_offset/file_length to the physical kg_source_chunks table and exposing them through the canonical passages VIEW so file-backed passages remain searchable and hydratable." }
   ]
 }

@@ -18,6 +18,8 @@ defined( 'ABSPATH' ) || exit;
 class BizCity_Content_Scheduler {
 
 	const CRON_HOOK         = 'bizcity_content_scheduler_tick';
+	// [2026-07-26 Johnny Chu] CRON-OVERLOAD-OPTIMIZE — Pattern A toggle, default OFF.
+	const OPT_ENABLED       = 'bizcity_content_scheduler_cron_enabled';
 	const HEARTBEAT_OPTION  = 'bizcity_content_scheduler_heartbeat';
 	const BATCH_SIZE        = 10;
 	const LOCK_TTL_SECONDS  = 300;
@@ -44,16 +46,39 @@ class BizCity_Content_Scheduler {
 	}
 
 	public static function maybe_schedule_cron(): void {
+		// [2026-07-26 Johnny Chu] CRON-OVERLOAD-OPTIMIZE — keep scheduler reversible via option/filter.
+		if ( ! self::is_enabled() ) {
+			self::unschedule();
+			return;
+		}
+
+		$next = wp_next_scheduled( self::CRON_HOOK );
+		$cur  = $next ? (string) wp_get_schedule( self::CRON_HOOK ) : '';
+		if ( $next && $cur !== 'every_minute' ) {
+			self::unschedule();
+			$next = false;
+		}
+
 		if ( ! wp_next_scheduled( self::CRON_HOOK ) ) {
 			wp_schedule_event( time() + 60, 'every_minute', self::CRON_HOOK );
 		}
 	}
 
 	public static function unschedule(): void {
-		$ts = wp_next_scheduled( self::CRON_HOOK );
-		if ( $ts ) {
-			wp_unschedule_event( $ts, self::CRON_HOOK );
-		}
+		wp_clear_scheduled_hook( self::CRON_HOOK );
+	}
+
+	/**
+	 * Whether cron worker is enabled.
+	 */
+	private static function is_enabled(): bool {
+		$enabled = (bool) get_option( self::OPT_ENABLED, 0 );
+		/**
+		 * Filter content scheduler cron enablement.
+		 *
+		 * @param bool $enabled
+		 */
+		return (bool) apply_filters( 'bizcity_content_scheduler_cron_enabled', $enabled );
 	}
 
 	public static function queue_table(): string {

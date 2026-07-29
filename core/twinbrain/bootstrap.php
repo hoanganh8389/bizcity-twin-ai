@@ -70,10 +70,18 @@ if ( ! defined( 'BIZCITY_TWINBRAIN_TOOL_AUTOSUGGEST_THRESHOLD' ) ) {
 	define( 'BIZCITY_TWINBRAIN_TOOL_AUTOSUGGEST_THRESHOLD', 0.7 );
 }
 
+// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MULTIMODAL — default attachment/vision/file intake layer before Notebook retrieval.
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-multimodal-intake-layer.php';
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-runtime.php';
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-notebook-selector.php';
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-tool-intent-matcher.php';
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-perspective-runner.php';
+// [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT — load Source File Deep Layer before Notebook Source Layer builds file briefs.
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-source-file-deep-layer.php';
+// [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT — load Notebook Source Layer before runtime turn compose uses source maps.
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-notebook-source-layer.php';
+// [2026-07-19 Johnny Chu] PHASE-TWIN-GPT-PROFILE-GROUNDING — subject-first customer profile layer for Notebook/vertical personalization.
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-subject-profile-layer.php';
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-synthesizer.php';
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-rest.php';
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-schema.php';
@@ -134,6 +142,16 @@ require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-web-gov.php';
 // gọi Tavily — nguồn là artifact nội bộ qua bizcoach-pro CAP provider.
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-web-astro.php';
 
+// [2026-07-15 Johnny Chu] PHASE-TWB-PRODUCTS — Products vertical shared stack.
+// Provider + resolver + composer are shared by Ask Brain runtime and
+// Automation action.run_products* blocks. Web engine handles web_mode=products.
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-product-provider.php';
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-product-composer.php';
+// [2026-07-16 Johnny Chu] PHASE-TWB-PRODUCTS-SOURCE-LAYER - load canonical source-of-truth link builder for products vertical.
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-product-source-layer.php';
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-product-resolver-service.php';
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-web-products.php';
+
 // [2026-06-19 Johnny Chu] PHASE-TWB-WORKFLOW W1 — Workflow-Driven Brain Pipeline.
 // Generic engine: chạy bất kỳ automation workflow nào AS brain pipeline khi
 // user gõ /skill trong twinchat hoặc twinweb. Emits workflow_started /
@@ -167,6 +185,11 @@ require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-astro-recall.php'
 // [2026-07-10 Johnny Chu] PHASE-FAA2-TWINBRAIN — unified subject profile
 // service shared by TwinBrain astro runtime and automation action.run_astro.
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-astro-subject-profile-service.php';
+
+// [2026-07-08 Johnny Chu] PHASE-FAA2-TWINBRAIN REL-1 — shared relation
+// assessment service + composer used by TwinBrain runtime and automation.
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-astro-relation-assessment-service.php';
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-astro-relation-composer.php';
 
 // [2026-07-07 Johnny Chu] PHASE-FAA2-TWINBRAIN A13 — shared composer for
 // transit each-day outputs (LLM + deterministic fallback), reused by Web Astro

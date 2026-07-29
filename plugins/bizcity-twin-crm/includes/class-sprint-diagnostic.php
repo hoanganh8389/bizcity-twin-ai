@@ -1045,15 +1045,16 @@ class BizCity_CRM_Sprint_Diagnostic {
 			'evidence' => $ct_msg,
 		);
 
-		// T-P0.35.4.5 — Cron registered (60s tick scheduled).
+		// [2026-07-26 Johnny Chu] CRON-OVERLOAD-OPTIMIZE — SLA tick reduced to 3 minutes.
+		// T-P0.35.4.5 — Cron registered (180s tick scheduled).
 		$next      = wp_next_scheduled( 'bizcity_crm_sla_tick' );
 		$schedules = wp_get_schedules();
-		$cron_ok   = ( $next && isset( $schedules['bizcity_crm_minute'] ) );
+		$cron_ok   = ( $next && isset( $schedules['bizcity_crm_3min'] ) );
 		$out[] = array(
 			'id'       => 'T-P0.35.4.5',
 			'status'   => $cron_ok ? 'PASS' : 'FAIL',
-			'check'    => 'M4.W3 — Cron schedule "bizcity_crm_minute" registered + bizcity_crm_sla_tick scheduled',
-			'evidence' => sprintf( 'next=%s · interval=%ds', $next ? gmdate( 'H:i:s', (int) $next ) : 'NONE', $schedules['bizcity_crm_minute']['interval'] ?? 0 ),
+			'check'    => 'M4.W3 — Cron schedule "bizcity_crm_3min" registered + bizcity_crm_sla_tick scheduled',
+			'evidence' => sprintf( 'next=%s · interval=%ds', $next ? gmdate( 'H:i:s', (int) $next ) : 'NONE', $schedules['bizcity_crm_3min']['interval'] ?? 0 ),
 		);
 
 		// T-P0.35.4.6 — Action registry has apply_sla.

@@ -135,7 +135,9 @@ class BizCity_TwinChat_Learning_Pipeline {
 		@ignore_user_abort( true );
 
 		$deadline = microtime( true ) + self::CRON_TIME_BUDGET_S;
-		$owner    = 'cron';
+		// [2026-07-23 Johnny Chu] PHASE-0.44 — unique owner token per run()
+		// to avoid same-label contention across concurrent cron processes.
+		$owner    = 'cron-' . substr( md5( (string) microtime( true ) . ':' . (string) wp_rand() ), 0, 8 );
 
 		for ( $loops = 0; $loops < self::MAX_LOOPS; $loops++ ) {
 			$res = self::tick( $job_id, $owner );
@@ -474,18 +476,23 @@ class BizCity_TwinChat_Learning_Pipeline {
 		}
 
 		// Loopback is proven dead and we have stuck 'processing' rows — reclaim
-		// them NOW (don't wait the orphan timeout) so the sync fallback
-		// can re-process them this tick.
+		// them with a short grace age to avoid stealing rows that JUST started
+		// in another tick/process.
 		// NOTE: race-safe — atomic UPDATE returns affected rows, only one tick
 		// wins the reclaim. Subsequent ticks see processing_count=0.
 		if ( $inflight > 0 && $loopback_dead ) {
+			// [2026-07-23 Johnny Chu] PHASE-0.44 — grace window avoids duplicate
+			// sync_worker START on the same passage (observed on job=13 passage=6660).
+			$reclaim_min_age_s = (int) apply_filters( 'bizcity_twinchat_learning_reclaim_min_age_s', 5 );
+			$reclaim_min_age_s = max( 1, min( $orphan_timeout_s, $reclaim_min_age_s ) );
+			// [2026-07-24 Johnny Chu] PHASE-0.46-PASSAGE-CLAIM — stale workers release their claim marker before retry.
 			$reclaimed = (int) $wpdb->query( $wpdb->prepare(
 				"UPDATE {$db->tbl_passages()}
-				    SET extraction_status = 'pending', updated_at = NOW()
+				    SET extraction_status = 'pending', extraction_error = '', updated_at = NOW()
 				  WHERE notebook_id = %d
 				    AND extraction_status = 'processing'
-				    AND updated_at >= DATE_SUB(NOW(), INTERVAL %d SECOND)",
-				$nb, $orphan_timeout_s
+				    AND updated_at < DATE_SUB(NOW(), INTERVAL %d SECOND)",
+				$nb, $reclaim_min_age_s
 			) );
 			if ( $reclaimed > 0 ) {
 				bizcity_tc_learning_debug_log( sprintf( 'tick_extract job=%d → reclaim %d stuck \'processing\' rows', $job_id, $reclaimed ) );
@@ -493,6 +500,10 @@ class BizCity_TwinChat_Learning_Pipeline {
 					'level' => 'warn',
 					'msg'   => sprintf( '[reclaim] Reset %d passage \'processing\' \u2192 \'pending\' (loopback dead).', $reclaimed ),
 				], $job_id );
+			} else {
+				bizcity_tc_learning_debug_log( sprintf( 'tick_extract job=%d → wait (loopback dead, in_flight=%d, reclaim_age=%ds)', $job_id, $inflight, $reclaim_min_age_s ) );
+				$queue->extend_lease( $job_id, $owner, self::LEASE_TTL_S );
+				return [ 'done' => false, 'busy' => true, 'error' => false, 'phase' => 'extracting', 'job' => $job ];
 			}
 		}
 
@@ -504,24 +515,36 @@ class BizCity_TwinChat_Learning_Pipeline {
 			$parallel = 1;
 		}
 
-		$error_retry_s = (int) apply_filters( 'bizcity_twinchat_learning_error_retry_s', 300 );
+		// [2026-07-23 Johnny Chu] PHASE-0.44 — throttle retry for transient pending/skipped rows to stop hot-loop redispatch.
+		$pending_retry_s = (int) apply_filters( 'bizcity_twinchat_learning_pending_retry_s', 60 );
+		$error_retry_s   = (int) apply_filters( 'bizcity_twinchat_learning_error_retry_s', 300 );
 		$ids = $wpdb->get_col( $wpdb->prepare(
 			"SELECT id FROM {$db->tbl_passages()}
 			 WHERE notebook_id = %d
 			   AND (
-			         extraction_status = 'pending'
+			         (
+			             extraction_status = 'pending'
+			             AND (
+			                  extraction_error IS NULL
+			                  OR extraction_error = ''
+			                  OR updated_at < DATE_SUB(NOW(), INTERVAL %d SECOND)
+			             )
+			         )
 			         OR (
 			              extraction_status = 'processing'
 			              AND updated_at < DATE_SUB(NOW(), INTERVAL %d SECOND)
 			            )
-			         OR extraction_status = 'skipped'
+			         OR (
+			              extraction_status = 'skipped'
+			              AND updated_at < DATE_SUB(NOW(), INTERVAL %d SECOND)
+			            )
 			         OR (
 			              extraction_status = 'error'
 			              AND updated_at < DATE_SUB(NOW(), INTERVAL %d SECOND)
 			            )
 			       )
 			 ORDER BY created_at ASC LIMIT %d",
-			$nb, $orphan_timeout_s, $error_retry_s, $parallel
+			$nb, $pending_retry_s, $orphan_timeout_s, $error_retry_s, $error_retry_s, $parallel
 		) );
 
 		// ── Step 3: no pending passages → transition to approving ───────
@@ -563,9 +586,10 @@ class BizCity_TwinChat_Learning_Pipeline {
 		// our SELECT and UPDATE, $rows_affected drops below count($ids) and
 		// we drop the lost rows from the dispatch list.
 		$ids_csv = implode( ',', array_map( 'intval', $ids ) );
+		// [2026-07-24 Johnny Chu] PHASE-0.46-PASSAGE-CLAIM — clear the prior error marker before a new worker claims the passage.
 		$wpdb->query( $wpdb->prepare(
 			"UPDATE {$db->tbl_passages()}
-			    SET extraction_status = 'processing', updated_at = NOW()
+			    SET extraction_status = 'processing', extraction_error = '', updated_at = NOW()
 			  WHERE id IN ({$ids_csv})
 			    AND extraction_status IN ('pending','skipped','error')",
 			[]
@@ -598,8 +622,13 @@ class BizCity_TwinChat_Learning_Pipeline {
 		$ids = array_map( 'intval', $claimed );
 
 		// ── Step 5: dispatch (loopback) OR run synchronously (fallback) ─
+		// [2026-07-25 Johnny Chu] PHASE-0.48-LEARNING-LOG-TRACE — compute lane once
+		// up-front and stamp it into every dispatch-level log line so the persisted
+		// daily file log (not just the ephemeral SSE stream) shows whether cron or
+		// admin-ajax drove this batch. See PHASE-0.48-LEARNING-LOG-TRACE.md.
+		$lane = ( strpos( (string) $owner, 'ajax' ) === 0 ) ? 'ajax' : 'cron';
 		if ( $loopback_dead ) {
-			bizcity_tc_learning_debug_log( sprintf( 'tick_extract job=%d → SYNC fallback, %d passage(s): [%s]', $job_id, count( $ids ), implode( ',', $ids ) ) );
+			bizcity_tc_learning_debug_log( sprintf( 'tick_extract job=%d lane=%s owner=%s → SYNC fallback, %d passage(s): [%s]', $job_id, $lane, $owner, count( $ids ), implode( ',', $ids ) ) );
 			$events->push( $nb, 'log', [
 				'level' => 'warn',
 				'msg'   => sprintf(
@@ -607,12 +636,12 @@ class BizCity_TwinChat_Learning_Pipeline {
 					$dispatched_rounds
 				),
 			], $job_id );
-			$dispatched = self::run_workers_sync( $job_id, $ids, $nb, (int) $job['user_id'] );
+			$dispatched = self::run_workers_sync( $job_id, $ids, $nb, (int) $job['user_id'], $owner );
 		} else {
 			// Each worker = 1 non-blocking HTTP request → processed by a separate
 			// PHP-FPM process concurrently. No Action Scheduler needed.
-			bizcity_tc_learning_debug_log( sprintf( 'tick_extract job=%d → LOOPBACK dispatch, %d passage(s): [%s]', $job_id, count( $ids ), implode( ',', $ids ) ) );
-			$dispatched = self::dispatch_parallel_workers( $job_id, $ids, $nb, (int) $job['user_id'] );
+			bizcity_tc_learning_debug_log( sprintf( 'tick_extract job=%d lane=%s owner=%s → LOOPBACK dispatch, %d passage(s): [%s]', $job_id, $lane, $owner, count( $ids ), implode( ',', $ids ) ) );
+			$dispatched = self::dispatch_parallel_workers( $job_id, $ids, $nb, (int) $job['user_id'], $owner );
 		}
 
 		$batch_no = $queue->next_batch_no( $job_id );
@@ -626,7 +655,6 @@ class BizCity_TwinChat_Learning_Pipeline {
 			'batches_done'=> (int) $job['batches_done'] + 1,
 		] );
 
-		$lane = ( strpos( (string) $owner, 'ajax' ) === 0 ) ? 'ajax' : 'cron';
 		$events->push( $nb, 'log', [
 			'level' => 'info',
 			'msg'   => sprintf( '[%s|parallel] Dispatched %d workers (passages: %s).', $lane, $dispatched, implode( ', ', $ids ) ),
@@ -691,7 +719,11 @@ class BizCity_TwinChat_Learning_Pipeline {
 	 * @param int   $user_id      for tracing
 	 * @return int  count dispatched
 	 */
-	protected static function dispatch_parallel_workers( $job_id, array $passage_ids, $nb, $user_id = 0 ) {
+	protected static function dispatch_parallel_workers( $job_id, array $passage_ids, $nb, $user_id = 0, $owner = 'cron' ) {
+		// [2026-07-25 Johnny Chu] PHASE-0.48-LEARNING-LOG-TRACE — forward the
+		// driving lane to the worker process via header so passage_worker()'s
+		// own log lines are tagged too (not just the dispatcher's).
+		$lane         = ( strpos( (string) $owner, 'ajax' ) === 0 ) ? 'ajax' : 'cron';
 		$ns           = defined( 'BIZCITY_TWINCHAT_REST_NS' ) ? BIZCITY_TWINCHAT_REST_NS : 'bizcity-twinchat/v1';
 		$public_url   = rest_url( $ns . '/learning/passage-worker' );
 
@@ -747,6 +779,8 @@ class BizCity_TwinChat_Learning_Pipeline {
 					'Host'                => $origin_host,
 					'X-TC-Internal-Token' => $token,
 					'X-TC-User-Id'        => (int) $user_id,
+					// [2026-07-25 Johnny Chu] PHASE-0.48-LEARNING-LOG-TRACE
+					'X-TC-Lane'           => $lane,
 				],
 			] );
 
@@ -764,7 +798,7 @@ class BizCity_TwinChat_Learning_Pipeline {
 			$dispatched++;
 		}
 
-		bizcity_tc_learning_debug_log( sprintf( 'dispatch_parallel_workers job=%d → fired=%d/%d url=%s host=%s timeout=%.1fs', $job_id, $dispatched, count( $passage_ids ), $loopback_url, $origin_host, $timeout ) );
+		bizcity_tc_learning_debug_log( sprintf( 'dispatch_parallel_workers job=%d lane=%s owner=%s → fired=%d/%d url=%s host=%s timeout=%.1fs', $job_id, $lane, $owner, $dispatched, count( $passage_ids ), $loopback_url, $origin_host, $timeout ) );
 
 		// Confirmation log so we can see workers were fired (or not).
 		if ( $events ) {
@@ -904,10 +938,14 @@ class BizCity_TwinChat_Learning_Pipeline {
 	 *
 	 * @return int number of passages processed (== count($passage_ids) unless extractor missing)
 	 */
-	protected static function run_workers_sync( $job_id, array $passage_ids, $nb, $user_id = 0 ) {
+	protected static function run_workers_sync( $job_id, array $passage_ids, $nb, $user_id = 0, $owner = 'cron' ) {
 		if ( ! class_exists( 'BizCity_KG_Triplet_Extractor' ) ) {
 			return 0;
 		}
+		// [2026-07-25 Johnny Chu] PHASE-0.48-LEARNING-LOG-TRACE — SYNC fallback
+		// always runs inline in whichever process called tick() (cron or ajax),
+		// so the owner passed in IS the true driver — tag every line with it.
+		$lane = ( strpos( (string) $owner, 'ajax' ) === 0 ) ? 'ajax' : 'cron';
 		global $wpdb;
 		$tbl_jobs = class_exists( 'BizCity_TwinChat_Learning_Database' )
 			? BizCity_TwinChat_Learning_Database::instance()->table_jobs() : '';
@@ -922,7 +960,7 @@ class BizCity_TwinChat_Learning_Pipeline {
 		$processed = 0;
 		foreach ( $passage_ids as $pid ) {
 			$pid = (int) $pid;
-			bizcity_tc_learning_debug_log( sprintf( 'sync_worker job=%d passage=%d START (user=%d)', $job_id, $pid, $user_id ) );
+			bizcity_tc_learning_debug_log( sprintf( 'sync_worker job=%d passage=%d lane=%s owner=%s START (user=%d)', $job_id, $pid, $lane, $owner, $user_id ) );
 			if ( $events ) {
 				$events->push( $nb, 'log', [
 					'level' => 'info',
@@ -933,7 +971,7 @@ class BizCity_TwinChat_Learning_Pipeline {
 			$result = BizCity_KG_Triplet_Extractor::instance()->extract_passage( $pid );
 
 			if ( is_wp_error( $result ) ) {
-				bizcity_tc_learning_debug_log( sprintf( 'sync_worker job=%d passage=%d ERROR [%s]: %s', $job_id, $pid, $result->get_error_code(), $result->get_error_message() ) );
+				bizcity_tc_learning_debug_log( sprintf( 'sync_worker job=%d passage=%d lane=%s owner=%s ERROR [%s]: %s', $job_id, $pid, $lane, $owner, $result->get_error_code(), $result->get_error_message() ) );
 				if ( $events ) {
 					$events->push( $nb, 'log', [
 						'level' => 'warn',
@@ -953,7 +991,7 @@ class BizCity_TwinChat_Learning_Pipeline {
 			}
 
 			$triplets = (int) $result;
-			bizcity_tc_learning_debug_log( sprintf( 'sync_worker job=%d passage=%d OK → %d triplets', $job_id, $pid, $triplets ) );
+			bizcity_tc_learning_debug_log( sprintf( 'sync_worker job=%d passage=%d lane=%s owner=%s OK → %d triplets', $job_id, $pid, $lane, $owner, $triplets ) );
 			if ( $tbl_jobs !== '' ) {
 				$wpdb->query( $wpdb->prepare(
 					"UPDATE {$tbl_jobs} SET passages_processed = passages_processed + 1,

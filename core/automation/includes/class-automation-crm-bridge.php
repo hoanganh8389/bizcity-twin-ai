@@ -95,8 +95,15 @@ final class BizCity_Automation_CRM_Bridge {
 			$metadata['run_id'] = (string) $payload['related_id'];
 		}
 
+		// [2026-07-16 Johnny Chu] PHASE-TWINWEB F4 — owner continuity gate; never infer automation owner from current session in cron path.
+		$owner_user_id = self::resolve_owner_user_id( $payload, $metadata );
+		if ( $owner_user_id <= 0 ) {
+			error_log( '[automation] CRM bridge refused create_event: owner_user_id missing.' );
+			return 0;
+		}
+
 		$row = array(
-			'user_id'      => (int) ( $payload['user_id'] ?? get_current_user_id() ),
+			'user_id'      => $owner_user_id,
 			'title'        => (string) ( $payload['title'] ?? '[automation] event' ),
 			'description'  => (string) ( $payload['description'] ?? $payload['body'] ?? '' ),
 			'start_at'     => $start_at,
@@ -125,5 +132,22 @@ final class BizCity_Automation_CRM_Bridge {
 		$event_id = apply_filters( 'bizcity_crm_event_create_filter', null, $payload );
 		do_action( 'bizcity_crm_event_create', $payload );
 		return is_numeric( $event_id ) ? (int) $event_id : 0;
+	}
+
+	/**
+	 * Resolve canonical owner for automation-created scheduler events.
+	 */
+	private static function resolve_owner_user_id( array $payload, array $metadata ): int {
+		$owner_user_id = (int) ( $payload['user_id'] ?? 0 );
+		if ( $owner_user_id <= 0 ) {
+			$owner_user_id = (int) ( $payload['owner_user_id'] ?? 0 );
+		}
+		if ( $owner_user_id <= 0 ) {
+			$owner_user_id = (int) ( $payload['workflow_owner_id'] ?? 0 );
+		}
+		if ( $owner_user_id <= 0 ) {
+			$owner_user_id = (int) ( $metadata['owner_user_id'] ?? 0 );
+		}
+		return max( 0, $owner_user_id );
 	}
 }

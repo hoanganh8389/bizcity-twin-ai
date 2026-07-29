@@ -3,7 +3,7 @@
   "module_id": "core.knowledge.memory",
   "owner": "core/knowledge",
   "installer_id": "knowledge",
-  "current_version": "1.0.0",
+  "current_version": "1.1.0",
   "version_option": "bizcity_knowledge_db_version",
   "tables": {
     "bizcity_memory_users": {
@@ -17,6 +17,7 @@
         "blog_id":        { "type": "INT UNSIGNED NOT NULL DEFAULT 1",                            "since": "1.0.0" },
         "user_id":        { "type": "BIGINT UNSIGNED DEFAULT 0",                                  "since": "1.0.0" },
         "session_id":     { "type": "VARCHAR(191) DEFAULT ''",                                    "since": "1.0.0" },
+        "identity_uuid":  { "type": "CHAR(36) NOT NULL DEFAULT ''",                               "since": "1.1.0" },
         "memory_tier":    { "type": "ENUM('extracted','explicit') NOT NULL DEFAULT 'extracted'", "since": "1.0.0" },
         "memory_type":    { "type": "VARCHAR(50) NOT NULL DEFAULT 'fact'",                        "since": "1.0.0" },
         "memory_key":     { "type": "VARCHAR(191) NOT NULL DEFAULT ''",                           "since": "1.0.0" },
@@ -32,13 +33,15 @@
       "indexes": {
         "blog_user":    { "cols": ["blog_id", "user_id"],                              "since": "1.0.0" },
         "blog_session": { "cols": ["blog_id", "session_id"],                           "since": "1.0.0" },
+        "blog_identity":{ "cols": ["blog_id", "identity_uuid"],                        "since": "1.1.0" },
         "memory_tier":  { "cols": ["memory_tier"],                                     "since": "1.0.0" },
         "memory_type":  { "cols": ["memory_type"],                                     "since": "1.0.0" },
-        "unique_memory":{ "cols": ["blog_id", "user_id", "session_id", "memory_key"], "unique": true, "since": "1.0.0" }
+        "unique_memory":{ "cols": ["blog_id", "user_id", "session_id", "identity_uuid", "memory_key"], "unique": true, "since": "1.1.0" }
       }
     }
   },
   "history": [
+    { "version": "1.1.0", "date": "2026-07-28", "change": "PHASE-0.52 W8.2 — add identity_uuid as the durable memory owner dimension while retaining user_id/session_id compatibility fields. Stable channel identities may own memory without a WP user; soft anonymous sessions remain non-durable." },
     { "version": "1.0.0", "date": "2026-05-22", "change": "Baseline declaration of bizcity_memory_users for R-DCL compliance (Wave 2.8 TBR.MEM-11). Schema matches DDL in core/knowledge/includes/class-database.php (created prior to changelog ledger; back-declared as 1.0.0 baseline). TwinBrain Memory Layer reads (Memory_Recall::collect tier A+B) and writes (Memory_Writer::extract_and_persist via BizCity_User_Memory::upsert_public). Sibling tables bizcity_memory_episodic/_rolling/_notes are read-only optional (own changelog files TBD) and bizcity_memory_specs has its own owner (PHASE-1.15)." }
   ]
 }

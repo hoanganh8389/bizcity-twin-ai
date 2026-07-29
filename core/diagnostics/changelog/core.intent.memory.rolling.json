@@ -3,7 +3,7 @@
   "module_id": "core.intent.memory.rolling",
   "owner": "core/intent",
   "installer_id": "intent",
-  "current_version": "1.0.0",
+  "current_version": "1.3.0",
   "version_option": "bizcity_memory_rolling_db_ver",
   "tables": {
     "bizcity_memory_rolling": {
@@ -14,7 +14,9 @@
       "collate": "utf8mb4_unicode_ci",
       "columns": {
         "id":                     { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",                          "since": "1.0.0", "pk": true },
+        "blog_id":                { "type": "INT UNSIGNED NOT NULL DEFAULT 1",                                  "since": "1.1.0" },
         "user_id":                { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",                               "since": "1.0.0" },
+        "identity_uuid":          { "type": "CHAR(36) NOT NULL DEFAULT ''",                                    "since": "1.1.0" },
         "session_id":             { "type": "VARCHAR(255) NOT NULL DEFAULT ''",                                 "since": "1.0.0" },
         "conversation_id":        { "type": "VARCHAR(64) NOT NULL DEFAULT ''",                                  "since": "1.0.0" },
         "goal":                   { "type": "VARCHAR(100) DEFAULT ''",                                          "since": "1.0.0" },
@@ -31,14 +33,18 @@
         "updated_at":             { "type": "DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",    "since": "1.0.0" }
       },
       "indexes": {
-        "uniq_conversation": { "cols": ["conversation_id"], "unique": true, "since": "1.0.0" },
+        "uniq_identity_conversation": { "cols": ["blog_id", "identity_uuid", "user_id", "conversation_id"], "unique": true, "since": "1.2.0" },
         "idx_user_active":   { "cols": ["user_id", "status"],                  "since": "1.0.0" },
+        "idx_identity_active": { "cols": ["blog_id", "identity_uuid", "status"], "since": "1.1.0" },
         "idx_session":       { "cols": ["session_id"],                         "since": "1.0.0" },
         "idx_updated":       { "cols": ["updated_at"],                         "since": "1.0.0" }
       }
     }
   },
   "history": [
+    { "version": "1.3.0", "date": "2026-07-29", "change": "R-CH-IDMEM — persist per-blog migration memory for identity_uuid, deduplicate repeated ALTER failures, and key in-request schema checks by blog." },
+    { "version": "1.2.0", "date": "2026-07-28", "change": "R-CH-IDMEM — scope rolling conversation uniqueness by tenant, identity UUID, and legacy user projection; remove conversation_id-only ownership coupling." },
+    { "version": "1.1.0", "date": "2026-07-28", "change": "PHASE-0.52 W8 — add tenant blog_id and identity_uuid to rolling memory; new rows are owned by UUID while user_id remains a legacy compatibility projection." },
     { "version": "1.0.0", "date": "2026-05-24", "change": "Baseline declaration for R-DCL compliance (Wave 2.8d TBR.MEM-D3). Schema matches DDL in core/intent/includes/conversation/class-rolling-memory.php (back-declared as 1.0.0 baseline; table pre-existed prior to changelog ledger). Tier D of unified memory layer — read-only optional in Memory_Recall. Future consolidation target: bizcity_memory (class='rolling') — see core/memory/PHASE-MEMORY-CONSOLIDATION.md." }
   ]
 }

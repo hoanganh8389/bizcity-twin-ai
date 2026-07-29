@@ -142,7 +142,22 @@ class BizCity_TwinChat_Sources_Database {
 		$row['created_at'] = current_time( 'mysql', true );
 
 		$ok = $wpdb->insert( $this->table_sources(), $row );
-		return $ok ? (int) $wpdb->insert_id : 0;
+		$source_id = $ok ? (int) $wpdb->insert_id : 0;
+		if ( $source_id > 0 && $row['content_text'] !== '' && class_exists( 'BizCity_KG_Source_Body_File_Store' ) ) {
+			// [2026-07-24 Johnny Chu] PHASE-0.46-FILE-BODY — source SQL is scrubbed only after a verified file write.
+			$file_result = BizCity_KG_Source_Body_File_Store::write_source( $notebook_id, $source_id, $row['content_text'] );
+			if ( is_wp_error( $file_result ) ) {
+				$wpdb->delete( $this->table_sources(), [ 'id' => $source_id ] );
+				return 0;
+			}
+			$meta = is_array( $args['metadata'] ?? null ) ? $args['metadata'] : [];
+			$meta['body_storage'] = 'filestore';
+			$meta['body_path']    = basename( $file_result['path'] );
+			$meta['body_bytes']   = (int) $file_result['bytes'];
+			$meta['body_sha256']  = (string) $file_result['sha256'];
+			$wpdb->update( $this->table_sources(), [ 'content_text' => '', 'metadata' => wp_json_encode( $meta ) ], [ 'id' => $source_id ] );
+		}
+		return $source_id;
 	}
 
 	public function update_source( $source_id, array $patch ) {
@@ -150,6 +165,42 @@ class BizCity_TwinChat_Sources_Database {
 		$source_id = (int) $source_id;
 		if ( $source_id <= 0 || empty( $patch ) ) {
 			return false;
+		}
+		// [2026-07-27 Johnny Chu] HOTFIX source_body_persist_failed — strip keys that
+		// are not real bizcity_webchat_sources columns before ever touching $wpdb.
+		// Callers (e.g. BizCity_TwinChat_Sources_Service::ingest() async-placeholder
+		// branch) reuse the same row array built for insert_source(), which legitimately
+		// carries a 'notebook_id' key as a TwinChat-API back-compat alias for
+		// 'project_id' (see table_sources() docblock). That key is NOT a column on
+		// this table — passing it straight into $wpdb->update() throws
+		// "Unknown column 'notebook_id' in 'SET'" and fails EVERY async-placeholder
+		// ingest (any file size/type), always reported as source_body_persist_failed.
+		static $allowed_columns = array(
+			'session_id', 'user_id', 'project_id', 'source_type', 'title', 'url',
+			'content', 'embedding_status', 'chunk_count', 'source_url', 'content_text',
+			'attachment_id', 'content_hash', 'char_count', 'token_estimate',
+			'embedding_model', 'error_message', 'metadata',
+		);
+		$patch = array_intersect_key( $patch, array_flip( $allowed_columns ) );
+		if ( empty( $patch ) ) {
+			return false;
+		}
+		if ( isset( $patch['content_text'] ) && (string) $patch['content_text'] !== '' && class_exists( 'BizCity_KG_Source_Body_File_Store' ) ) {
+			$existing = $wpdb->get_row( $wpdb->prepare( "SELECT project_id, metadata FROM {$this->table_sources()} WHERE id = %d LIMIT 1", $source_id ), ARRAY_A );
+			$notebook_id = (int) ( $patch['project_id'] ?? ( $existing['project_id'] ?? 0 ) );
+			// [2026-07-24 Johnny Chu] PHASE-0.46-FILE-BODY — async placeholder materialization must scrub SQL only after verified file persistence.
+			$file_result = BizCity_KG_Source_Body_File_Store::write_source( $notebook_id, $source_id, (string) $patch['content_text'] );
+			if ( is_wp_error( $file_result ) ) {
+				return false;
+			}
+			$meta = is_array( $patch['metadata'] ?? null ) ? $patch['metadata'] : ( ! empty( $existing['metadata'] ) ? json_decode( (string) $existing['metadata'], true ) : array() );
+			$meta = is_array( $meta ) ? $meta : array();
+			$meta['body_storage'] = 'filestore';
+			$meta['body_path']    = basename( $file_result['path'] );
+			$meta['body_bytes']   = (int) $file_result['bytes'];
+			$meta['body_sha256']  = (string) $file_result['sha256'];
+			$patch['content_text'] = '';
+			$patch['metadata'] = $meta;
 		}
 		if ( isset( $patch['metadata'] ) && is_array( $patch['metadata'] ) ) {
 			$patch['metadata'] = wp_json_encode( $patch['metadata'] );
@@ -178,6 +229,14 @@ class BizCity_TwinChat_Sources_Database {
 			"SELECT * FROM {$this->table_sources()} WHERE id = %d LIMIT 1",
 			(int) $source_id
 		), ARRAY_A );
+		$source_meta = $row && ! empty( $row['metadata'] ) ? json_decode( (string) $row['metadata'], true ) : array();
+		if ( $row && (string) ( $row['content_text'] ?? '' ) === '' && is_array( $source_meta ) && ( $source_meta['body_storage'] ?? '' ) === 'filestore' && class_exists( 'BizCity_KG_Source_Body_File_Store' ) ) {
+			// [2026-07-24 Johnny Chu] PHASE-0.46-FILE-BODY — detail reads fall back to the verified source body file after SQL scrub.
+			$body = BizCity_KG_Source_Body_File_Store::read_source( (int) $row['project_id'], (int) $row['id'] );
+			if ( is_string( $body ) ) {
+				$row['content_text'] = $body;
+			}
+		}
 		return $row ?: null;
 	}
 
@@ -358,13 +417,29 @@ class BizCity_TwinChat_Sources_Database {
 				return 0;
 			}
 			$chunk_id = (int) $wpdb->insert_id;
+			if ( $chunk_id <= 0 ) {
+				return 0;
+			}
+			if ( $notebook_id > 0 && $content !== '' && class_exists( 'BizCity_KG_Source_Body_File_Store' ) ) {
+				// [2026-07-24 Johnny Chu] PHASE-0.46-FILE-BODY — canonical chunk content is scrubbed only after a verified file write.
+				$file_result = BizCity_KG_Source_Body_File_Store::write_chunk( $notebook_id, $chunk_id, $content );
+				if ( is_wp_error( $file_result ) ) {
+					$wpdb->delete( $kg_tbl, [ 'id' => $chunk_id ] );
+					return 0;
+				}
+				$wpdb->update( $kg_tbl, [ 'content' => '' ], [ 'id' => $chunk_id ] );
+			}
 
 			// Phase 0.21 Wave 2 — push embedding to .bin file store.
 			if ( $chunk_id > 0 && $notebook_id > 0 && is_array( $emb ) && ! empty( $emb )
 				&& class_exists( 'BizCity_KG_Embedding_Writer' ) ) {
-				BizCity_KG_Embedding_Writer::instance()->register_chunk(
+				$vector_result = BizCity_KG_Embedding_Writer::instance()->register_chunk(
 					$notebook_id, $chunk_id, $emb, null, $source_id
 				);
+				if ( is_wp_error( $vector_result ) ) {
+					$wpdb->delete( $kg_tbl, [ 'id' => $chunk_id ] );
+					return 0;
+				}
 			}
 
 			return $chunk_id;
@@ -395,12 +470,26 @@ class BizCity_TwinChat_Sources_Database {
 		$tbl = $this->table_source_chunks_canonical();
 		// Both tables share these column names; embed_model alias for legacy compatibility.
 		$col_model = ( $tbl === $this->table_source_chunks() ) ? 'embedding_model' : 'embed_model AS embedding_model';
-		return $wpdb->get_results( $wpdb->prepare(
-			"SELECT id, source_id, chunk_index, content, token_count, embedding, {$col_model}
+		$col_nb = ( $tbl === $this->table_source_chunks() ) ? '0 AS notebook_id' : 'notebook_id';
+		$rows = $wpdb->get_results( $wpdb->prepare(
+			"SELECT id, source_id, chunk_index, content, token_count, embedding, {$col_model}, {$col_nb}
 			   FROM {$tbl}
 			  WHERE source_id = %d
 			  ORDER BY chunk_index ASC",
 			(int) $source_id
 		), ARRAY_A ) ?: [];
+		if ( class_exists( 'BizCity_KG_Source_Body_File_Store' ) ) {
+			foreach ( $rows as &$row ) {
+				if ( (string) ( $row['content'] ?? '' ) !== '' || (int) ( $row['notebook_id'] ?? 0 ) <= 0 ) {
+					continue;
+				}
+				$body = BizCity_KG_Source_Body_File_Store::read_chunk( (int) $row['notebook_id'], (int) $row['id'] );
+				if ( is_string( $body ) ) {
+					$row['content'] = $body;
+				}
+			}
+			unset( $row );
+		}
+		return $rows;
 	}
 }

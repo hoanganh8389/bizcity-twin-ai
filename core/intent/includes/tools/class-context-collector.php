@@ -72,11 +72,17 @@ class BizCity_Context_Collector {
 		$user_id    = intval( $params['user_id'] ?? 0 );
 		$session_id = $params['session_id'] ?? '';
 		$channel    = $params['channel'] ?? 'webchat';
+		// [2026-07-28 Johnny Chu] R-CH-IDMEM — resolve the durable owner before collecting memory context.
+		$memory_scope  = class_exists( 'BizCity_Memory_Identity_Scope' )
+			? BizCity_Memory_Identity_Scope::resolve( array_merge( $params, [ 'user_id' => $user_id ] ) )
+			: [ 'identity_uuid' => (string) ( $params['identity_uuid'] ?? '' ) ];
+		$identity_uuid = (string) ( $memory_scope['identity_uuid'] ?? '' );
 
 		$payload = [
 			'version'    => '1',
 			'message'    => $message,
 			'session_id' => $session_id,
+			'identity_uuid' => $identity_uuid,
 			'channel'    => $channel,
 			'user_id'    => $user_id,
 		];
@@ -94,7 +100,7 @@ class BizCity_Context_Collector {
 		$payload['memory_spec'] = $this->collect_memory_spec( $user_id, $session_id, $conversation );
 
 		// 3. User memory (rolling + episodic)
-		$payload['user_memory'] = $this->collect_user_memory( $user_id );
+		$payload['user_memory'] = $this->collect_user_memory( $user_id, $identity_uuid );
 
 		// 4. Knowledge sources
 		$payload['knowledge_sources'] = $this->collect_knowledge_sources( $skill );
@@ -166,7 +172,7 @@ class BizCity_Context_Collector {
 	/**
 	 * Collect user memory (rolling summary + recent episodes).
 	 */
-	private function collect_user_memory( int $user_id ): ?array {
+	private function collect_user_memory( int $user_id, string $identity_uuid = '' ): ?array {
 		if ( $user_id < 1 ) {
 			return null;
 		}
@@ -178,7 +184,7 @@ class BizCity_Context_Collector {
 			$rolling = BizCity_Rolling_Memory::instance();
 			$summary = '';
 			if ( method_exists( $rolling, 'get_summary' ) ) {
-				$summary = $rolling->get_summary( $user_id );
+				$summary = $rolling->get_summary( $user_id, $identity_uuid );
 			}
 			$memory['profile_summary'] = mb_substr( $summary, 0, 500 );
 		}
@@ -188,7 +194,7 @@ class BizCity_Context_Collector {
 			$episodic = BizCity_Episodic_Memory::instance();
 			$episodes = [];
 			if ( method_exists( $episodic, 'get_recent' ) ) {
-				$episodes = $episodic->get_recent( $user_id, 5 );
+				$episodes = $episodic->get_recent( $user_id, 5, $identity_uuid );
 			}
 			$memory['recent_episodes'] = $episodes;
 		}

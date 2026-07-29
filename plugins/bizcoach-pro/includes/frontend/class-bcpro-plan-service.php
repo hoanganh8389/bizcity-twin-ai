@@ -490,7 +490,8 @@ class BizCoach_Pro_Plan_Service {
 	 * @return string
 	 */
 	private static function get_client_id() {
-		$raw = (string) get_site_option( 'bcpro_client_id', '' );
+		// [2026-07-27 Johnny Chu] R-MSDB — identify the current blog, not the network, in plan calls.
+		$raw = (string) get_option( 'bcpro_client_id', '' );
 		$id  = strtolower( preg_replace( '/[^a-zA-Z0-9_-]/', '', $raw ) );
 		if ( $id !== '' ) {
 			return $id;

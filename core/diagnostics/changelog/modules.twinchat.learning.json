@@ -1,0 +1,105 @@
+{
+  "$schema": "https://bizcity.vn/schema/diagnostics-changelog-v1.json",
+  "module_id": "modules.twinchat.learning",
+  "owner": "modules/twinchat/learning",
+  "installer_id": "twinchat_learning",
+  "current_version": "1.4.0",
+  "version_option": "bizcity_twinchat_learning_db_version",
+  "tables": {
+    "bizcity_kg_learning_jobs": {
+      "since": "1.0.0",
+      "purpose": "TwinChat learning queue per notebook/source with lease-safe cron/ajax execution and quota cooldown resume window.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":                 { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
+        "notebook_id":        { "type": "BIGINT UNSIGNED NOT NULL",                "since": "1.0.0" },
+        "source_id":          { "type": "BIGINT UNSIGNED DEFAULT NULL",            "since": "1.0.0" },
+        "source_title":       { "type": "VARCHAR(255) NULL",                       "since": "1.0.0" },
+        "user_id":            { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",      "since": "1.0.0" },
+        "status":             { "type": "VARCHAR(20) NOT NULL DEFAULT 'queued'",   "since": "1.0.0" },
+        "progress":           { "type": "TINYINT UNSIGNED NOT NULL DEFAULT 0",     "since": "1.0.0" },
+        "passages_processed": { "type": "INT UNSIGNED NOT NULL DEFAULT 0",         "since": "1.0.0" },
+        "triplets_extracted": { "type": "INT UNSIGNED NOT NULL DEFAULT 0",         "since": "1.0.0" },
+        "entities_approved":  { "type": "INT UNSIGNED NOT NULL DEFAULT 0",         "since": "1.0.0" },
+        "entity_ids":         { "type": "LONGTEXT NULL",                           "since": "1.0.0" },
+        "error":              { "type": "TEXT NULL",                               "since": "1.0.0" },
+        "started_at":         { "type": "DATETIME NULL DEFAULT NULL",              "since": "1.0.0" },
+        "finished_at":        { "type": "DATETIME NULL DEFAULT NULL",              "since": "1.0.0" },
+        "created_at":         { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.0.0" },
+        "phase":              { "type": "VARCHAR(20) NOT NULL DEFAULT 'queued'",   "since": "1.1.0" },
+        "lease_owner":        { "type": "VARCHAR(64) NULL",                        "since": "1.1.0" },
+        "lease_until":        { "type": "DATETIME NULL DEFAULT NULL",              "since": "1.1.0" },
+        "batches_total":      { "type": "INT UNSIGNED NOT NULL DEFAULT 0",         "since": "1.1.0" },
+        "batches_done":       { "type": "INT UNSIGNED NOT NULL DEFAULT 0",         "since": "1.1.0" },
+        "origin":             { "type": "VARCHAR(20) NOT NULL DEFAULT 'user'",     "since": "1.3.0" },
+        "restartable_at":     { "type": "DATETIME NULL DEFAULT NULL",              "since": "1.3.0" },
+        "updated_at":         { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", "since": "1.4.0" }
+      },
+      "indexes": {
+        "idx_notebook": { "cols": ["notebook_id"], "since": "1.0.0" },
+        "idx_status":   { "cols": ["status"],      "since": "1.0.0" },
+        "idx_source":   { "cols": ["source_id"],   "since": "1.0.0" },
+        "idx_phase":    { "cols": ["phase"],       "since": "1.1.0" },
+        "idx_lease":    { "cols": ["lease_until"], "since": "1.1.0" },
+        "idx_origin":   { "cols": ["origin"],      "since": "1.3.0" },
+        "idx_updated":  { "cols": ["updated_at"],  "since": "1.4.0" }
+      }
+    },
+
+    "bizcity_kg_learning_events": {
+      "since": "1.0.0",
+      "purpose": "Bounded notebook-scoped realtime ring for Learning REST polling/SSE/share timeline transport.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":          { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
+        "notebook_id": { "type": "BIGINT UNSIGNED NOT NULL",                "since": "1.0.0" },
+        "job_id":      { "type": "BIGINT UNSIGNED NULL",                    "since": "1.0.0" },
+        "ts":          { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.0.0" },
+        "event":       { "type": "VARCHAR(32) NOT NULL",                    "since": "1.0.0" },
+        "payload":     { "type": "LONGTEXT NULL",                           "since": "1.0.0" }
+      },
+      "indexes": {
+        "idx_notebook_id": { "cols": ["notebook_id", "id"], "since": "1.0.0" },
+        "idx_job":         { "cols": ["job_id"],             "since": "1.0.0" }
+      }
+    },
+
+    "bizcity_kg_learning_batches": {
+      "since": "1.1.0",
+      "purpose": "Per-batch execution ledger shared by cron and foreground tick lanes for resumable learning jobs.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":             { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.1.0", "pk": true },
+        "job_id":         { "type": "BIGINT UNSIGNED NOT NULL",                "since": "1.1.0" },
+        "notebook_id":    { "type": "BIGINT UNSIGNED NOT NULL",                "since": "1.1.0" },
+        "batch_no":       { "type": "INT UNSIGNED NOT NULL",                   "since": "1.1.0" },
+        "phase":          { "type": "VARCHAR(20) NOT NULL",                    "since": "1.1.0" },
+        "status":         { "type": "VARCHAR(20) NOT NULL DEFAULT 'pending'",  "since": "1.1.0" },
+        "owner":          { "type": "VARCHAR(64) NULL",                        "since": "1.1.0" },
+        "passages_count": { "type": "INT UNSIGNED NOT NULL DEFAULT 0",         "since": "1.1.0" },
+        "triplets_count": { "type": "INT UNSIGNED NOT NULL DEFAULT 0",         "since": "1.1.0" },
+        "errors_count":   { "type": "INT UNSIGNED NOT NULL DEFAULT 0",         "since": "1.1.0" },
+        "started_at":     { "type": "DATETIME NULL DEFAULT NULL",              "since": "1.1.0" },
+        "finished_at":    { "type": "DATETIME NULL DEFAULT NULL",              "since": "1.1.0" },
+        "error":          { "type": "TEXT NULL",                               "since": "1.1.0" }
+      },
+      "indexes": {
+        "idx_job":    { "cols": ["job_id", "batch_no"], "since": "1.1.0" },
+        "idx_status": { "cols": ["status"],             "since": "1.1.0" }
+      }
+    }
+  },
+  "history": [
+    { "version": "1.0.0", "date": "2026-04-28", "change": "Baseline learning pipeline schema: create jobs + events tables for queue lifecycle and notebook event ring transport." },
+    { "version": "1.1.0", "date": "2026-04-30", "change": "Hybrid cron/ajax execution upgrade: add jobs phase + lease + batch counters and create bizcity_kg_learning_batches ledger." },
+    { "version": "1.2.0", "date": "2026-05-04", "change": "Rename legacy tc_learning_* tables in-place to unified bizcity_kg_learning_* names for diagnostics and cross-module trace parity." },
+    { "version": "1.3.0", "date": "2026-05-26", "change": "TwinShell Learning Hub wave: add jobs.origin and jobs.restartable_at to support source attribution and quota cooldown resume semantics." },
+    { "version": "1.4.0", "date": "2026-05-27", "change": "Add jobs.updated_at + idx_updated for stale-lease rebuild detection and safer foreground tick reconciliation." }
+  ]
+}

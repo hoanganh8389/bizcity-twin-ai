@@ -41,6 +41,8 @@ class BizCity_Listener_Automation_Bridge {
 		if ( ! $run ) { return; }
 		$wf_id = (int) ( $run['workflow_id'] ?? 0 );
 		if ( $wf_id <= 0 ) { return; }
+		$trigger_payload = is_array( $run['trigger_payload'] ?? null ) ? (array) $run['trigger_payload'] : array();
+		$trigger_meta    = self::extract_trigger_meta( $trigger_payload );
 
 		$wf = self::workflow( $wf_id );
 		$debug = (bool) ( $wf['meta']['debug'] ?? false );
@@ -94,8 +96,58 @@ class BizCity_Listener_Automation_Bridge {
 				'workflow_slug' => (string) ( $wf['slug'] ?? '' ),
 				'workflow_name' => (string) ( $wf['name'] ?? '' ),
 				'log_id'        => $log_id,
+				// [2026-07-27 Johnny Chu] PHASE-LISTEN-DEDUP — expose claimed trigger identity for FE duplicate suppression.
+				'trigger_code'  => $trigger_meta['trigger_code'],
+				'trigger_source' => $trigger_meta['trigger_source'],
+				'trigger_platform' => $trigger_meta['platform'],
+				'trigger_account_id' => $trigger_meta['account_id'],
+				'trigger_chat_id' => $trigger_meta['chat_id'],
+				'trigger_message_id' => $trigger_meta['message_id'],
+				'trigger_listener_event_id' => $trigger_meta['listener_event_id'],
+				'trigger_signature' => $trigger_meta['signature'],
 			),
 		) );
+	}
+
+	/**
+	 * [2026-07-27 Johnny Chu] PHASE-LISTEN-DEDUP — canonical trigger identity for listener duplicate suppression.
+	 */
+	private static function extract_trigger_meta( array $payload ): array {
+		$meta = is_array( $payload['meta'] ?? null ) ? (array) $payload['meta'] : array();
+		$platform = strtoupper( trim( (string) ( $payload['platform'] ?? '' ) ) );
+		$account  = trim( (string) ( $payload['account_id'] ?? $payload['instance_id'] ?? '' ) );
+		$chat_id  = trim( (string) ( $payload['conversation_chat_id'] ?? $payload['chat_id'] ?? '' ) );
+		$message  = self::normalize_capture_text( (string) ( $payload['message_text_clean'] ?? $payload['message'] ?? $payload['text'] ?? '' ) );
+		$message_id = trim( (string) ( $payload['mid'] ?? $payload['message_id'] ?? $meta['message_id'] ?? '' ) );
+		$listener_event_id = (int) ( $payload['listener_event_id'] ?? 0 );
+
+		$signature = '';
+		if ( $platform !== '' || $account !== '' || $chat_id !== '' || $message_id !== '' || $message !== '' ) {
+			$signature = sha1( implode( '|', array( $platform, $account, $chat_id, $message_id, $message ) ) );
+		}
+
+		return array(
+			'trigger_code'       => (string) ( $payload['_trigger'] ?? $payload['trigger_code'] ?? '' ),
+			'trigger_source'     => (string) ( $payload['source'] ?? '' ),
+			'platform'           => $platform,
+			'account_id'         => $account,
+			'chat_id'            => $chat_id,
+			'message_id'         => $message_id,
+			'listener_event_id'  => $listener_event_id,
+			'signature'          => $signature,
+		);
+	}
+
+	/**
+	 * [2026-07-27 Johnny Chu] PHASE-LISTEN-DEDUP — normalize message text for signature hashing.
+	 */
+	private static function normalize_capture_text( string $text ): string {
+		$text = trim( (string) preg_replace( '/\s+/u', ' ', $text ) );
+		if ( $text === '' ) { return ''; }
+		if ( function_exists( 'mb_strtolower' ) ) {
+			return mb_strtolower( $text, 'UTF-8' );
+		}
+		return strtolower( $text );
 	}
 
 	private static function workflow( int $wf_id ): array {

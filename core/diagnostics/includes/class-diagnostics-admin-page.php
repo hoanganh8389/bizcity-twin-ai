@@ -98,6 +98,25 @@ final class BizCity_Diagnostics_Admin_Page {
 					$smoke_results[ $probe_id ] = BizCity_Diagnostics_Smoke_Runner::run_probe( $probe_id );
 				}
 			}
+			// [2026-07-18 Johnny Chu] SPRINT-27 DIAG-UX — quick-run curated probe groups for runtime PASS evidence.
+			if ( isset( $_GET['bizcity_run_probe_group'] ) ) {
+				$group_id = sanitize_key( (string) $_GET['bizcity_run_probe_group'] );
+				$nonce_ok = isset( $_GET['_wpnonce'] ) && wp_verify_nonce( $_GET['_wpnonce'], 'bizcity_run_probe_group_' . $group_id );
+				$groups   = self::probe_groups();
+				if ( $nonce_ok && isset( $groups[ $group_id ] ) ) {
+					$group_results = array();
+					foreach ( $groups[ $group_id ]['probes'] as $pid ) {
+						$probe_result = BizCity_Diagnostics_Smoke_Runner::run_probe( (string) $pid );
+						$smoke_results[ $pid ] = $probe_result;
+						$group_results[] = $probe_result;
+					}
+					$smoke_aggregate = array(
+						'status'      => 'group',
+						'duration_ms' => array_sum( array_map( static function ( $row ) { return (int) ( $row['duration_ms'] ?? 0 ); }, $group_results ) ),
+						'results'     => $group_results,
+					);
+				}
+			}
 			if ( isset( $_GET['bizcity_run_all_probes'] ) ) {
 				$nonce_ok = isset( $_GET['_wpnonce'] ) && wp_verify_nonce( $_GET['_wpnonce'], 'bizcity_run_all_probes' );
 				if ( $nonce_ok ) {
@@ -457,6 +476,18 @@ final class BizCity_Diagnostics_Admin_Page {
 			) . '#smoke-test',
 			'bizcity_run_all_probes'
 		);
+		// [2026-07-18 Johnny Chu] SPRINT-27 DIAG-UX — quick-run URLs for runtime PASS evidence groups.
+		$probe_groups = self::probe_groups();
+		$group_urls = array();
+		foreach ( $probe_groups as $gid => $group ) {
+			$group_urls[ $gid ] = wp_nonce_url(
+				add_query_arg(
+					[ 'page' => $page, 'bizcity_run_probe_group' => $gid ],
+					admin_url( 'tools.php' )
+				) . '#smoke-test',
+				'bizcity_run_probe_group_' . $gid
+			);
+		}
 		$auto_fix_url = wp_nonce_url(
 			add_query_arg(
 				[ 'page' => $page, 'bizcity_auto_fix_all' => '1' ],
@@ -483,6 +514,12 @@ final class BizCity_Diagnostics_Admin_Page {
 			   onclick="return confirm(<?php echo esc_attr( wp_json_encode( __( 'Chạy tất cả probes trong 30s budget?', 'bizcity-twin-ai' ) ) ); ?>);">
 				▶ <?php esc_html_e( 'Run all probes', 'bizcity-twin-ai' ); ?>
 			</a>
+			<?php foreach ( $probe_groups as $gid => $group ) : ?>
+				<a class="button" href="<?php echo esc_url( $group_urls[ $gid ] ); ?>"
+				   title="<?php echo esc_attr( implode( ', ', $group['probes'] ) ); ?>">
+					<?php echo esc_html( $group['label'] ); ?>
+				</a>
+			<?php endforeach; ?>
 			<a class="button" href="<?php echo esc_url( $auto_fix_url ); ?>"
 			   style="background:#fff4e5;border-color:#b26a00;color:#b26a00"
 			   onclick="return confirm(<?php echo esc_attr( wp_json_encode( __( 'Auto-Fix-All: chạy tất cả installer + Auto-Create cho mọi bảng missing/drift. Chỉ thao tác additive (CREATE TABLE / ADD COLUMN). Tiếp tục?', 'bizcity-twin-ai' ) ) ); ?>);">
@@ -531,6 +568,8 @@ final class BizCity_Diagnostics_Admin_Page {
 			<div class="notice notice-info inline"><p><?php esc_html_e( 'Chưa có probe nào được đăng ký. Module có thể đăng ký qua filter', 'bizcity-twin-ai' ); ?> <code>bizcity_diagnostics_register_probes</code>.</p></div>
 			<?php return; ?>
 		<?php endif; ?>
+
+		<?php $this->render_probe_group_checklist( $probe_groups, $group_urls, $catalog, $smoke_results, $last_results ); ?>
 
 		<table class="widefat striped">
 			<thead>
@@ -637,6 +676,177 @@ final class BizCity_Diagnostics_Admin_Page {
 			<code>POST /smoke/run-all</code> ·
 			<code>GET /wizard/eligibility</code>
 		</p>
+		<?php
+	}
+
+	/**
+	 * Curated smoke probe groups for fast runtime PASS evidence in Diagnostics UI.
+	 *
+	 * @return array<string,array{label:string,description:string,probes:string[]}>
+	 */
+	private static function probe_groups(): array {
+		// [2026-07-18 Johnny Chu] SPRINT-27 DIAG-UX — keep high-value runtime groups close to the UI.
+		return array(
+			'twin_gpt_governance' => array(
+				'label'       => '▶ Run Twin GPT governance probes',
+				'description' => 'Control plane, app catalog, plan catalog, citations, Facebook connect and owner-continuity acceptance lines.',
+				'probes'      => array(
+					'modules.twinweb.control_plane',
+					'modules.twinweb.citation_continuity',
+					'modules.twinweb.fb_connect',
+					'modules.twinweb.me_plan_catalog',
+					// [2026-07-18 Johnny Chu] PHASE-TWIN-GPT-C-ENDUSER — include model/answer-mode policy in governance quick-run.
+					'modules.twin_gpt.model_policy',
+					// [2026-07-19 Johnny Chu] PHASE-TWIN-GPT-AGENT-TOOLS — include metadata-only tool registry and artifact canvas contract in governance quick-run.
+					'modules.twin_gpt.tool_registry',
+					// [2026-07-19 Johnny Chu] PHASE-TWIN-GPT-AGENT-TOOLS — include owner-scoped attachment upload strip in governance quick-run.
+					'modules.twin_gpt.attachments',
+					// [2026-07-19 Johnny Chu] PHASE-TWIN-GPT-AGENT-TOOLS — include voice input/transcribe foundation in governance quick-run.
+					'modules.twin_gpt.voice_input',
+					// [2026-07-18 Johnny Chu] PHASE-TWIN-GPT-C-ENDUSER C-4 — include /gpt/myaccount/ account contract in governance quick-run.
+					'modules.twin_gpt.myaccount',
+					// [2026-07-18 Johnny Chu] PHASE-TWIN-GPT-C-ENDUSER C-9 — include /gpt/ chat layout foundation in governance quick-run.
+					'modules.twin_gpt.chat_layout',
+					// [2026-07-19 Johnny Chu] PHASE-TWINWEB-THREADS — include thread_spec/registry/search/customer queue contract in governance quick-run.
+					'modules.twin_gpt.thread_registry',
+					// [2026-07-19 Johnny Chu] PHASE-TWIN-GPT-PROFILE-GROUNDING — include subject-first customer profile grounding in governance quick-run.
+					'modules.twin_gpt.customer_profile_grounding',
+					// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — include /gpt/mychannels customer channel ownership contract.
+					'modules.twin_gpt.customer_channels',
+					// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — include customer-owned automation send/publish guards.
+					'modules.twin_gpt.customer_channel_automation',
+					'modules.twin_gpt.app_catalog',
+					'modules.twin_gpt.control_plane_dashboards',
+					'modules.twinweb.owner_continuity',
+				),
+			),
+			'twin_gpt_uis' => array(
+				'label'       => '▶ Run Twin GPT UIS probes',
+				'description' => 'Appearance policy, shortcode block/float surfaces and public skin renderer contract.',
+				'probes' => array(
+					'modules.twin_gpt.appearance',
+					'modules.twin_gpt.shortcode_surfaces',
+					'modules.twin_gpt.skin_renderer',
+				),
+			),
+			'membership_woo' => array(
+				'label'       => '▶ Run Membership/Woo probes',
+				'description' => 'Local membership REST/expiry/seat governance and Woo mapper/projection/reversal capacity evidence.',
+				'probes'      => array(
+					'core.membership.entitlement',
+					'core.membership.plan_rank',
+					'core.membership.rest',
+					'core.membership.expiry_cohorts',
+					'core.membership.woo_mapper',
+					'core.membership.woo_projection',
+					'core.membership.hub_seat_admission',
+					'modules.twin_gpt.commerce_capacity',
+				),
+			),
+			// [2026-07-25 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — split the ~21 KG-domain probes
+			// into 3 discoverable sub-groups (infra/schema plumbing vs. filestore/ingest vs.
+			// the end-user RAG/search/citation/Guru journey) per explicit user request to make
+			// KG probes easier to find/run than one flat undifferentiated list.
+			'kg_infra_schema' => array(
+				'label'       => '▶ Run KG infra/schema probes',
+				'description' => 'Foundational KG-Hub plumbing: seeding, notebook skeleton, .bin vector schema, lite-parse, vector/graph render, upload learning cron, channel "@notebook" capture bridge.',
+				'probes'      => array(
+					'kg.seeding',
+					'kg.skeleton',
+					'kg.bin.schema',
+					'kg.liteparse',
+					'vector.graph',
+					'upload.learning',
+					'knowledge.skeleton.coverage',
+					'core.knowledge.channel_notebook_bridge',
+				),
+			),
+			'kg_filestore_ingest' => array(
+				'label'       => '▶ Run KG filestore/ingest probes',
+				'description' => 'File upload → filestore migration: housekeeping heartbeat, standalone zero-SQL-leak (add_passage path), async source lifecycle, and real webchat_sources → attach_source() promotion path.',
+				'probes'      => array(
+					'kg.filestore.learning',
+					'kg.filestore.standalone',
+					'kg.async_source_lifecycle',
+					'kg.upload.attach_source',
+				),
+			),
+			'kg_rag_search_citation' => array(
+				'label'       => '▶ Run KG RAG/Search/Citation/Guru probes',
+				'description' => 'End-user Graph-RAG Q&A (ask()), citation link [nb:X/pY] highlighted excerpt, multi-document search with highlights, and Guru↔notebook cross-notebook binding.',
+				'probes'      => array(
+					'kg.graph.rag.ask',
+					'kg.citation.link_resolve',
+					'kg.search.multi_doc_highlight',
+					'kg.guru.notebook_binding',
+					'guru.runtime',
+					'twinbrain.notebook_depth',
+					'core.twinsearch.shared',
+					'modules.twinweb.citation_continuity',
+					'twin.final.compose',
+				),
+			),
+		);
+	}
+
+	/**
+	 * Render curated probe groups with visible probe IDs and last-run status.
+	 *
+	 * @param array<string,array<string,mixed>> $probe_groups
+	 * @param array<string,string>              $group_urls
+	 * @param array<int,array<string,mixed>>    $catalog
+	 * @param array<string,array<string,mixed>> $smoke_results
+	 * @param array<string,array<string,mixed>> $last_results
+	 */
+	private function render_probe_group_checklist( array $probe_groups, array $group_urls, array $catalog, array $smoke_results, array $last_results ): void {
+		// [2026-07-18 Johnny Chu] SPRINT-27 DIAG-UX — show the exact probe list ops must run for acceptance evidence.
+		$catalog_ids = array();
+		foreach ( $catalog as $probe ) {
+			if ( ! empty( $probe['id'] ) ) {
+				$catalog_ids[ (string) $probe['id'] ] = true;
+			}
+		}
+		?>
+		<div class="notice notice-info inline" style="margin:12px 0 16px;padding:12px 14px">
+			<p style="margin:0 0 8px"><strong><?php esc_html_e( 'Recommended diagnostics probe runs for Twin GPT / Membership acceptance', 'bizcity-twin-ai' ); ?></strong></p>
+			<table class="widefat striped" style="margin:0">
+				<thead>
+					<tr>
+						<th style="width:22%"><?php esc_html_e( 'Group', 'bizcity-twin-ai' ); ?></th>
+						<th><?php esc_html_e( 'Probe IDs to run', 'bizcity-twin-ai' ); ?></th>
+						<th style="width:14%"><?php esc_html_e( 'Action', 'bizcity-twin-ai' ); ?></th>
+					</tr>
+				</thead>
+				<tbody>
+				<?php foreach ( $probe_groups as $gid => $group ) : ?>
+					<tr>
+						<td>
+							<strong><?php echo esc_html( preg_replace( '/^▶\s*/', '', (string) $group['label'] ) ); ?></strong>
+							<?php if ( ! empty( $group['description'] ) ) : ?>
+								<div style="font-size:11px;color:#666;margin-top:3px"><?php echo esc_html( (string) $group['description'] ); ?></div>
+							<?php endif; ?>
+						</td>
+						<td>
+							<?php foreach ( (array) $group['probes'] as $pid ) :
+								$pid = (string) $pid;
+								$res = $smoke_results[ $pid ] ?? ( $last_results[ $pid ] ?? null );
+								$status = is_array( $res ) ? (string) ( $res['status'] ?? '' ) : '';
+								$missing = empty( $catalog_ids[ $pid ] );
+								$color = $missing ? '#b32d2e' : ( $status === 'pass' ? '#00674e' : ( $status === 'fail' || $status === 'precheck-fail' ? '#b32d2e' : '#666' ) );
+								$label = $missing ? 'missing' : ( $status !== '' ? $status : 'not run' );
+							?>
+								<span style="display:inline-block;margin:0 6px 5px 0;padding:3px 6px;border:1px solid #dcdcde;border-radius:3px;background:#fff">
+									<code><?php echo esc_html( $pid ); ?></code>
+									<span style="color:<?php echo esc_attr( $color ); ?>;font-size:11px"> · <?php echo esc_html( $label ); ?></span>
+								</span>
+							<?php endforeach; ?>
+						</td>
+						<td><a class="button button-small" href="<?php echo esc_url( $group_urls[ $gid ] ?? '#' ); ?>"><?php esc_html_e( 'Run group', 'bizcity-twin-ai' ); ?></a></td>
+					</tr>
+				<?php endforeach; ?>
+				</tbody>
+			</table>
+		</div>
 		<?php
 	}
 

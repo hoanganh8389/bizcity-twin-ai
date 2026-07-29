@@ -46,16 +46,17 @@ class BizCity_TwinBrain_Notebook_Selector {
 		// Forced ids win — clamp to k.
 		if ( ! empty( $opts['force_ids'] ) ) {
 			$ids  = array_slice( array_unique( array_map( 'intval', (array) $opts['force_ids'] ) ), 0, $k );
-			$rows = $this->fetch_notebooks( $ids );
+			$rows = $this->fetch_notebooks( $ids, $user_id );
 			return $this->shape_rows( $rows, 1.0, 'forced' );
 		}
 
 		if ( ! class_exists( 'BizCity_KG_Database' ) ) return [];
 
 		/* PHASE-0.35 / F7.D2 — Guru bucket priority. When user pins/parses
-		 * `@guru`, runtime forwards $opts['guru_id']. Notebooks owned by that
-		 * character (kg_notebooks.character_id) get reserved slots ABOVE the
-		 * generic cosine/density/recency pipeline. Without this, Ask Brain
+		 * `@guru`, runtime forwards $opts['guru_id']. Notebooks attached to that
+		 * character through the canonical registry get reserved slots ABOVE the
+		 * generic cosine/density/recency pipeline; the legacy character_id path
+		 * is only a compatibility fallback. Without this, Ask Brain
 		 * (whole-KG) ignores guru pin → selector picks 5 unrelated notebooks
 		 * → synthesizer constrained to wrong corpus → "no notebook can
 		 * interpret Tarot" type misses. */
@@ -106,28 +107,51 @@ class BizCity_TwinBrain_Notebook_Selector {
 	}
 
 	/* =================================================================
-	 *  Phase D.2 — Guru bucket (notebooks bound via character_id)
+	 *  Phase D.2 — Guru bucket (notebooks bound via attachment registry)
 	 * ================================================================ */
 
 	/**
-	 * Fetch notebooks where kg_notebooks.character_id = $guru_id and the user
-	 * can read them (owner or shared). Returned in selector shape with reason
-	 * `guru_bound` so it stands out in the perspective UI. Score = 1.0 — these
-	 * are explicit user pins, deliberately above cosine candidates.
+	 * Fetch notebooks attached to the requested Guru through the canonical
+	 * notebook-character attachment registry. The legacy character_id column
+	 * remains a read-only compatibility fallback for one migration phase.
+	 * Returned in selector shape with reason `guru_bound` so it stands out in
+	 * the perspective UI. Score = 1.0 — these are explicit user pins,
+	 * deliberately above cosine candidates.
 	 */
 	private function fetch_guru_notebooks( int $guru_id, int $user_id, int $k ): array {
 		global $wpdb;
-		$tnb  = BizCity_KG_Database::instance()->tbl_notebooks();
+		$db   = BizCity_KG_Database::instance();
+		$tnb  = $db->tbl_notebooks();
+		$att  = $db->tbl_notebook_character_attachments();
+		$char = $wpdb->prefix . 'bizcity_characters';
 		$prev = $wpdb->suppress_errors( true );
+		// [2026-07-27 Johnny Chu] PHASE-0.51 — prefer the attachment registry while keeping a migration-safe legacy fallback.
 		$rows = $wpdb->get_results( $wpdb->prepare(
-			"SELECT id, name, perspective_label
-			 FROM {$tnb}
-			 WHERE character_id = %d
-			   AND owner_id IN (%d, 0)
-			 ORDER BY updated_at DESC
+			"SELECT DISTINCT nb.id, nb.name, nb.perspective_label,
+				'attachment_registry' AS binding_source
+			 FROM {$tnb} AS nb
+			 INNER JOIN {$att} AS attachment
+				ON attachment.notebook_id = nb.id
+			 INNER JOIN {$char} AS character_row
+				ON character_row.guru_uuid = attachment.guru_uuid
+			 WHERE character_row.id = %d
+				AND {$this->owner_scope_where( 'nb.' )}
+			 ORDER BY nb.updated_at DESC
 			 LIMIT %d",
 			$guru_id, $user_id, max( 1, $k )
 		), ARRAY_A );
+		if ( null === $rows ) {
+			$rows = $wpdb->get_results( $wpdb->prepare(
+				"SELECT id, name, perspective_label,
+						'legacy_character_id' AS binding_source
+				 FROM {$tnb}
+				 WHERE character_id = %d
+				   AND {$this->owner_scope_where()}
+				 ORDER BY updated_at DESC
+				 LIMIT %d",
+				$guru_id, $user_id, max( 1, $k )
+			), ARRAY_A );
+		}
 		$wpdb->suppress_errors( $prev );
 
 		if ( empty( $rows ) ) { return array(); }
@@ -139,7 +163,7 @@ class BizCity_TwinBrain_Notebook_Selector {
 				'notebook_id' => $nb,
 				'label'       => (string) ( ! empty( $r['perspective_label'] ) ? $r['perspective_label'] : $r['name'] ),
 				'score'       => 1.0,
-				'reason'      => sprintf( 'guru_bound character_id=%d', $guru_id ),
+				'reason'      => sprintf( 'guru_bound character_id=%d %s', $guru_id, (string) ( $r['binding_source'] ?? 'attachment_registry' ) ),
 				'guru_uuid'   => '',
 			);
 		}
@@ -191,7 +215,7 @@ class BizCity_TwinBrain_Notebook_Selector {
 			"SELECT id, name, perspective_label, perspective_embedding,
 			        user_priority, last_summary_at, updated_at
 			 FROM {$tbl}
-			 WHERE owner_id IN (%d, 0)
+			 WHERE {$this->owner_scope_where()}
 			   AND perspective_embedding IS NOT NULL
 			   AND perspective_embedding <> ''
 			 ORDER BY updated_at DESC
@@ -309,7 +333,7 @@ class BizCity_TwinBrain_Notebook_Selector {
 			        nb.name, nb.perspective_label
 			 FROM {$tp} p
 			 INNER JOIN {$tnb} nb ON nb.id = p.notebook_id
-			 WHERE nb.owner_id IN (%d, 0)
+			 WHERE {$this->owner_scope_where( 'nb.' )}
 			   AND p.embedding IS NOT NULL AND p.embedding <> ''
 			   AND p.extraction_status = 'done'
 			 ORDER BY p.id DESC
@@ -436,7 +460,7 @@ class BizCity_TwinBrain_Notebook_Selector {
 			$title_rows = $wpdb->get_results( $wpdb->prepare(
 				"SELECT id AS notebook_id, name, perspective_label
 				 FROM {$tnb}
-				 WHERE owner_id IN (%d, 0)
+				 WHERE {$this->owner_scope_where()}
 				   AND ( name LIKE %s
 				      OR perspective_label LIKE %s
 				      OR perspective_summary LIKE %s )
@@ -466,7 +490,7 @@ class BizCity_TwinBrain_Notebook_Selector {
 				"SELECT p.notebook_id, COUNT(*) AS hit_count, nb.name, nb.perspective_label
 				 FROM {$tp} p
 				 INNER JOIN {$tnb} nb ON nb.id = p.notebook_id
-				 WHERE nb.owner_id IN (%d, 0)
+				 WHERE {$this->owner_scope_where( 'nb.' )}
 				   AND p.content LIKE %s
 				 GROUP BY p.notebook_id
 				 ORDER BY hit_count DESC
@@ -582,7 +606,7 @@ class BizCity_TwinBrain_Notebook_Selector {
 		$prev = $wpdb->suppress_errors( true );
 		$rows = $wpdb->get_results( $wpdb->prepare(
 			"SELECT id, name FROM {$tbl}
-			 WHERE owner_id IN (%d, 0)
+				 WHERE {$this->owner_scope_where()}
 			 ORDER BY updated_at DESC
 			 LIMIT %d",
 			$user_id, $k
@@ -591,13 +615,13 @@ class BizCity_TwinBrain_Notebook_Selector {
 		return $this->shape_rows( (array) $rows, 0.5, 'recency_fallback' );
 	}
 
-	private function fetch_notebooks( array $ids ): array {
+	private function fetch_notebooks( array $ids, int $user_id ): array {
 		global $wpdb;
 		if ( empty( $ids ) || ! class_exists( 'BizCity_KG_Database' ) ) return [];
 		$tbl = BizCity_KG_Database::instance()->tbl_notebooks();
 		$ph  = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
 		$prev = $wpdb->suppress_errors( true );
-		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT id, name FROM {$tbl} WHERE id IN ({$ph})", $ids ), ARRAY_A );
+		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT id, name FROM {$tbl} WHERE id IN ({$ph}) AND {$this->owner_scope_where()}", ...array_merge( $ids, [ $user_id ] ) ), ARRAY_A );
 		$wpdb->suppress_errors( $prev );
 		return (array) $rows;
 	}
@@ -614,5 +638,17 @@ class BizCity_TwinBrain_Notebook_Selector {
 			];
 		}
 		return $out;
+	}
+
+	/**
+	 * Return the single ownership predicate used by every selector tier.
+	 * owner_id=0 is public only after an explicit business_kb/guru_kb scope.
+	 */
+	private function owner_scope_where( string $alias = '' ): string {
+		// [2026-07-27 Johnny Chu] PHASE-0.51 — owner_id=0 is public only with an explicit public notebook scope.
+		$owner = $alias . 'owner_id';
+		$scope = $alias . 'notebook_scope';
+		// [2026-07-27 Johnny Chu] PHASE-0.51 — user_id=0 cannot satisfy the private-owner branch.
+		return "(({$owner} = %d AND {$owner} <> 0) OR ({$owner} = 0 AND {$scope} IN ('business_kb','guru_kb')))";
 	}
 }

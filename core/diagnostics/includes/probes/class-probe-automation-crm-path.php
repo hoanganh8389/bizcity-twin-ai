@@ -151,19 +151,25 @@ final class BizCity_Probe_Automation_CRM_Path implements BizCity_Diagnostics_Pro
 		$inst_detail = 'no cskh template to test';
 		if ( ! empty( $tpl_rows ) ) {
 			$tpl = $tpl_rows[0];
+			$inst_name = '__healthtest_crmpath_inst_' . $rand;
 			$req = new WP_REST_Request( 'POST', '/bizcity-automation/v1/templates/' . (int) $tpl['id'] . '/crm-instantiate' );
 			$req->set_param( 'id', (int) $tpl['id'] );
-			$req->set_body_params( array( 'name' => '__healthtest_crmpath_inst_' . $rand ) );
-			// Temporarily elevate to allow crm_instantiate_template perm check.
+			$req->set_header( 'Content-Type', 'application/json; charset=utf-8' );
+			$req->set_body( wp_json_encode( array( 'name' => $inst_name ) ) );
+			// [2026-07-11 Johnny Chu] HOTFIX — keep logged-in context; forcing user=0 triggers site REST hardening (REST POST blocked).
 			$old_user = get_current_user_id();
-			wp_set_current_user( 0 );
+			if ( $old_user > 0 ) {
+				$req->set_header( 'X-WP-Nonce', wp_create_nonce( 'wp_rest' ) );
+			}
 			// Force `bizcity_crm_manage` or `manage_options` for the probe call.
 			add_filter( 'user_has_cap', array( __CLASS__, 'grant_crm_manage' ), 99, 3 );
 			$resp = rest_do_request( $req );
 			remove_filter( 'user_has_cap', array( __CLASS__, 'grant_crm_manage' ), 99 );
-			wp_set_current_user( $old_user );
 
 			$data = $resp->get_data();
+			$resp_code = is_array( $data ) ? (string) ( $data['code'] ?? '' ) : '';
+			$resp_msg  = is_array( $data ) ? (string) ( $data['message'] ?? '' ) : '';
+
 			if ( $resp->get_status() >= 200 && $resp->get_status() < 300 && isset( $data['id'] ) ) {
 				$wf_ids[] = (int) $data['id'];
 				// Verify zone=crm in new workflow.
@@ -173,6 +179,40 @@ final class BizCity_Probe_Automation_CRM_Path implements BizCity_Diagnostics_Pro
 					: '';
 				$inst_pass   = ( $new_zone === 'crm' );
 				$inst_detail = "wf_id={$data['id']} zone={$new_zone} status={$resp->get_status()}";
+			} elseif ( $resp->get_status() === 403 && $resp_code === 'rest_forbidden' && stripos( $resp_msg, 'REST POST blocked' ) !== false ) {
+				// [2026-07-11 Johnny Chu] HOTFIX — diagnostics may run behind POST guard; fallback to callback to verify instantiate logic.
+				$fallback_req = new WP_REST_Request( 'POST', '/bizcity-automation/v1/templates/' . (int) $tpl['id'] . '/crm-instantiate' );
+				$fallback_req->set_param( 'id', (int) $tpl['id'] );
+				$fallback_req->set_header( 'Content-Type', 'application/json; charset=utf-8' );
+				$fallback_req->set_body( wp_json_encode( array( 'name' => $inst_name ) ) );
+				$fb = BizCity_Automation_REST::crm_instantiate_template( $fallback_req );
+
+				$fb_status = 200;
+				$fb_data   = array();
+				if ( $fb instanceof WP_REST_Response ) {
+					$fb_status = (int) $fb->get_status();
+					$fb_data   = (array) $fb->get_data();
+				} elseif ( is_wp_error( $fb ) ) {
+					$fb_status = (int) ( $fb->get_error_data()['status'] ?? 500 );
+					$fb_data   = array(
+						'code'    => (string) $fb->get_error_code(),
+						'message' => (string) $fb->get_error_message(),
+					);
+				} elseif ( is_array( $fb ) ) {
+					$fb_data = $fb;
+				}
+
+				if ( $fb_status >= 200 && $fb_status < 300 && isset( $fb_data['id'] ) ) {
+					$wf_ids[]  = (int) $fb_data['id'];
+					$new_wf    = BizCity_Automation_Repo_Workflows::find( (int) $fb_data['id'] );
+					$new_zone  = ( $new_wf && is_array( $new_wf['trigger_config'] ) )
+						? ( $new_wf['trigger_config']['zone'] ?? '' )
+						: '';
+					$inst_pass = ( $new_zone === 'crm' );
+					$inst_detail = "route_blocked=YES fallback=callback wf_id={$fb_data['id']} zone={$new_zone} fb_status={$fb_status}";
+				} else {
+					$inst_detail = 'route_blocked=YES fallback_failed status=' . $fb_status . ' data=' . wp_json_encode( $fb_data );
+				}
 			} else {
 				$inst_detail = 'status=' . $resp->get_status() . ' data=' . wp_json_encode( $data );
 			}
@@ -226,20 +266,35 @@ final class BizCity_Probe_Automation_CRM_Path implements BizCity_Diagnostics_Pro
 		$ctx->emit_step( $s );
 
 		// ── Test 5: zone_isolation ──────────────────────────────────────────
-		// Create 1 zone=crm wf + 1 zone=admin wf, both trigger=zalo_inbound.
-		// Dispatch synthetic ZALO_OA payload → crm wf gets run, admin wf does NOT.
-		// Dispatch synthetic ZALO_BOT payload → admin wf gets run, crm wf does NOT.
-		$wf_crm2 = BizCity_Automation_Repo_Workflows::create( array(
-			'slug'           => self::SLUG_PREFIX . 'iso_crm_' . $rand,
-			'name'           => '__healthtest crmpath iso crm',
+		// [2026-07-11 Johnny Chu] HOTFIX — ZALO_OA now maps to trigger=zalo_oa_inbound, ZALO_BOT maps to trigger=zalo_inbound.
+		// Build dedicated crm/admin pair per trigger type to verify zone isolation on both paths.
+		$wf_oa_crm = BizCity_Automation_Repo_Workflows::create( array(
+			'slug'           => self::SLUG_PREFIX . 'iso_oa_crm_' . $rand,
+			'name'           => '__healthtest crmpath iso oa crm',
+			'trigger_type'   => 'zalo_oa_inbound',
+			'trigger_config' => array( 'zone' => 'crm', 'instance_id' => '', 'filter' => '' ),
+			'graph_json'     => self::probe_graph_json( 'trigger.zalo_oa_inbound' ),
+			'enabled'        => 1,
+		) );
+		$wf_oa_adm = BizCity_Automation_Repo_Workflows::create( array(
+			'slug'           => self::SLUG_PREFIX . 'iso_oa_adm_' . $rand,
+			'name'           => '__healthtest crmpath iso oa admin',
+			'trigger_type'   => 'zalo_oa_inbound',
+			'trigger_config' => array( 'instance_id' => '', 'filter' => '' ),
+			'graph_json'     => self::probe_graph_json( 'trigger.zalo_oa_inbound' ),
+			'enabled'        => 1,
+		) );
+		$wf_bot_crm = BizCity_Automation_Repo_Workflows::create( array(
+			'slug'           => self::SLUG_PREFIX . 'iso_bot_crm_' . $rand,
+			'name'           => '__healthtest crmpath iso bot crm',
 			'trigger_type'   => 'zalo_inbound',
 			'trigger_config' => array( 'zone' => 'crm', 'instance_id' => '', 'filter' => '' ),
 			'graph_json'     => self::probe_graph_json( 'trigger.zalo_inbound' ),
 			'enabled'        => 1,
 		) );
-		$wf_adm2 = BizCity_Automation_Repo_Workflows::create( array(
-			'slug'           => self::SLUG_PREFIX . 'iso_adm_' . $rand,
-			'name'           => '__healthtest crmpath iso admin',
+		$wf_bot_adm = BizCity_Automation_Repo_Workflows::create( array(
+			'slug'           => self::SLUG_PREFIX . 'iso_bot_adm_' . $rand,
+			'name'           => '__healthtest crmpath iso bot admin',
 			'trigger_type'   => 'zalo_inbound',
 			'trigger_config' => array( 'instance_id' => '', 'filter' => '' ),
 			'graph_json'     => self::probe_graph_json( 'trigger.zalo_inbound' ),
@@ -248,26 +303,28 @@ final class BizCity_Probe_Automation_CRM_Path implements BizCity_Diagnostics_Pro
 		$iso_pass   = false;
 		$iso_detail = 'create failed';
 
-		if ( ! is_wp_error( $wf_crm2 ) && ! is_wp_error( $wf_adm2 ) ) {
-			$wf_ids[] = (int) $wf_crm2['id'];
-			$wf_ids[] = (int) $wf_adm2['id'];
+		if ( ! is_wp_error( $wf_oa_crm ) && ! is_wp_error( $wf_oa_adm ) && ! is_wp_error( $wf_bot_crm ) && ! is_wp_error( $wf_bot_adm ) ) {
+			$wf_ids[] = (int) $wf_oa_crm['id'];
+			$wf_ids[] = (int) $wf_oa_adm['id'];
+			$wf_ids[] = (int) $wf_bot_crm['id'];
+			$wf_ids[] = (int) $wf_bot_adm['id'];
 
 			$matcher = BizCity_Automation_Trigger_Matcher::instance();
 
-			// Fire ZALO_OA inbound → should enqueue crm wf, NOT admin wf.
+			// Fire ZALO_OA inbound → should enqueue OA crm wf, NOT OA admin wf.
 			BizCity_Automation_Matcher_Trace::clear();
 			$matcher->on_channel_message( self::zalo_payload( 'ZALO_OA', 'hello' ) );
-			$crm2_run_after_oa  = self::workflow_has_run( (int) $wf_crm2['id'] );
-			$adm2_run_after_oa  = self::workflow_has_run( (int) $wf_adm2['id'] );
+			$crm2_run_after_oa  = self::workflow_has_run( (int) $wf_oa_crm['id'] );
+			$adm2_run_after_oa  = self::workflow_has_run( (int) $wf_oa_adm['id'] );
 
-			// Fire ZALO_BOT inbound → should enqueue admin wf, NOT crm wf.
+			// Fire ZALO_BOT inbound → should enqueue BOT admin wf, NOT BOT crm wf.
 			BizCity_Automation_Matcher_Trace::clear();
 			$matcher->on_channel_message( self::zalo_payload( 'ZALO_BOT', 'hello' ) );
-			$crm2_run_after_bot = self::workflow_has_run( (int) $wf_crm2['id'] );
-			$adm2_run_after_bot = self::workflow_has_run( (int) $wf_adm2['id'] );
+			$crm2_run_after_bot = self::workflow_has_run( (int) $wf_bot_crm['id'] );
+			$adm2_run_after_bot = self::workflow_has_run( (int) $wf_bot_adm['id'] );
 
 			// Clean runs created by synthetic dispatch before final cleanup.
-			self::cleanup_runs( array( (int) $wf_crm2['id'], (int) $wf_adm2['id'] ) );
+			self::cleanup_runs( array( (int) $wf_oa_crm['id'], (int) $wf_oa_adm['id'], (int) $wf_bot_crm['id'], (int) $wf_bot_adm['id'] ) );
 
 			$oa_ok  = $crm2_run_after_oa && ! $adm2_run_after_oa;
 			$bot_ok = $adm2_run_after_bot && ! $crm2_run_after_bot;

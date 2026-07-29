@@ -3,7 +3,7 @@
   "module_id": "core.channel-gateway",
   "owner": "core/channel-gateway",
   "installer_id": "blog_resolver_inbox",
-  "current_version": "1.3.2",
+  "current_version": "1.6.0",
   "version_option": "bizcity_blog_resolver_inbox_db_version",
   "tables": {
     "global_inbox_admin": {
@@ -102,6 +102,89 @@
         "idx_status":     { "type": "KEY",        "cols": ["status"], "since": "1.1.0" },
         "idx_mode":       { "type": "KEY",        "cols": ["mode"], "since": "1.2.0" }
       }
+    },
+    "bizcity_channel_user_links": {
+      "since": "1.4.0",
+      "purpose": "Tenant-shard external channel identity to WordPress user mapping for Zone 1 identity linking (Facebook Messenger and Zalo OA). Rows are scoped by blog_id; raw link tokens are never persisted.",
+      "owner_class": "BizCity_Channel_User_Linker",
+      "installer_option": "bizcity_channel_user_links_schema",
+      "storage": "prefix",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":                 { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.4.0", "pk": true },
+        "blog_id":            { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",      "since": "1.4.0" },
+        "platform":           { "type": "VARCHAR(40) NOT NULL DEFAULT ''",          "since": "1.4.0", "enum": ["FB_MESS", "ZALO_OA"] },
+        "external_user_id":   { "type": "VARCHAR(190) NOT NULL DEFAULT ''",        "since": "1.4.0" },
+        "account_id":         { "type": "VARCHAR(190) NOT NULL DEFAULT ''",        "since": "1.4.0" },
+        "wp_user_id":         { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",      "since": "1.4.0" },
+        "status":             { "type": "VARCHAR(20) NOT NULL DEFAULT 'pending'",  "since": "1.4.0", "enum": ["pending", "linked", "unlinked"] },
+        "link_token_hash":    { "type": "CHAR(64) NOT NULL DEFAULT ''",             "since": "1.4.0" },
+        "token_expires":      { "type": "DATETIME NULL",                            "since": "1.4.0" },
+        "linked_at":          { "type": "DATETIME NULL",                            "since": "1.4.0" },
+        "created_at":         { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.4.0" },
+        "updated_at":         { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.4.0" }
+      },
+      "indexes": {
+        "uniq_identity": { "type": "UNIQUE KEY", "cols": ["blog_id", "platform", "external_user_id", "account_id"], "since": "1.4.0" },
+        "idx_wp_user":    { "type": "KEY",        "cols": ["blog_id", "wp_user_id"],                            "since": "1.4.0" },
+        "idx_token":      { "type": "KEY",        "cols": ["link_token_hash"],                                  "since": "1.4.0" },
+        "idx_status":     { "type": "KEY",        "cols": ["status"],                                          "since": "1.4.0" }
+      }
+    },
+    "bizcity_identity_contacts": {
+      "since": "1.6.0",
+      "purpose": "Durable canonical customer identity root. Core-owned and CRM-optional; WordPress user is an optional projection.",
+      "owner_class": "BizCity_Identity_Hub",
+      "installer_option": "bizcity_identity_hub_schema",
+      "storage": "prefix",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":                  { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.5.0", "pk": true },
+        "identity_uuid":       { "type": "CHAR(36) NOT NULL",                         "since": "1.5.0" },
+        "blog_id":             { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",       "since": "1.5.0" },
+        "primary_wp_user_id":  { "type": "BIGINT UNSIGNED NULL",                       "since": "1.5.0" },
+        "display_label":       { "type": "VARCHAR(190) NULL",                         "since": "1.5.0" },
+        "merged_into_uuid":    { "type": "CHAR(36) NULL",                              "since": "1.5.0" },
+        "status":              { "type": "VARCHAR(20) NOT NULL DEFAULT 'active'",     "since": "1.5.0" },
+        "created_at":          { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.5.0" },
+        "updated_at":          { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.5.0" }
+      },
+      "indexes": {
+        "uniq_uuid":        { "type": "UNIQUE KEY", "cols": ["identity_uuid"],                    "since": "1.5.0" },
+        "idx_blog_wp_user": { "type": "KEY",        "cols": ["blog_id", "primary_wp_user_id"], "since": "1.5.0" },
+        "idx_merged":       { "type": "KEY",        "cols": ["merged_into_uuid"],                "since": "1.5.0" },
+        "idx_status":       { "type": "KEY",        "cols": ["status"],                          "since": "1.5.0" }
+      }
+    },
+    "bizcity_identity_bindings": {
+      "since": "1.6.0",
+      "purpose": "Scoped channel aliases bound to a durable canonical customer identity.",
+      "owner_class": "BizCity_Identity_Hub",
+      "installer_option": "bizcity_identity_hub_schema",
+      "storage": "prefix",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":             { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",  "since": "1.5.0", "pk": true },
+        "identity_uuid":  { "type": "CHAR(36) NOT NULL",                          "since": "1.5.0" },
+        "blog_id":       { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",        "since": "1.5.0" },
+        "platform":      { "type": "VARCHAR(32) NOT NULL DEFAULT ''",           "since": "1.5.0" },
+        "account_id":    { "type": "VARCHAR(190) NOT NULL DEFAULT ''",           "since": "1.5.0" },
+        "external_ref":  { "type": "VARCHAR(190) NOT NULL DEFAULT ''",           "since": "1.5.0" },
+        "is_stable":     { "type": "TINYINT(1) NOT NULL DEFAULT 1",              "since": "1.5.0" },
+        "first_seen_at": { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.5.0" },
+        "last_seen_at":  { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.5.0" }
+      },
+      "indexes": {
+        "uniq_binding": { "type": "UNIQUE KEY", "cols": ["blog_id", "platform", "account_id", "external_ref"], "since": "1.5.0" },
+        "idx_identity":  { "type": "KEY",        "cols": ["identity_uuid"],                                      "since": "1.5.0" },
+        "idx_stable":    { "type": "KEY",        "cols": ["blog_id", "is_stable"],                              "since": "1.5.0" }
+      }
     }
   },
   "history": [
@@ -134,6 +217,21 @@
       "version": "1.3.2",
       "date": "2026-06-13",
       "change": "Sprint ZA-5 R-DCL — document PHASE 0.34 traceability manifesto columns: responder_kind (VARCHAR 10, enum auto|manual|hybrid|system), responder_user_id (BIGINT UNSIGNED) + indexes idx_responder_user, idx_responder_kind. Shipped class-channel-messages.php SCHEMA_VERSION 1.2.0. R-DCL: no new DDL; validator exit 0 expected."
+    },
+    {
+      "version": "1.4.0",
+      "date": "2026-07-27",
+      "change": "PHASE-0.52 W1 — add network-wide, blog-scoped external identity mapping for Zone 1 Facebook Messenger and Zalo OA one-time account linking. Store only SHA-256 token hashes; provider credentials remain in channel account storage."
+    },
+    {
+      "version": "1.5.0",
+      "date": "2026-07-28",
+      "change": "PHASE-0.52 W8.1 — add core-owned durable customer identity UUID and scoped multi-channel bindings. CRM and WP user remain optional projections; no runtime consumer is switched until the hub contract is validated."
+    },
+    {
+      "version": "1.6.0",
+      "date": "2026-07-28",
+      "change": "R-MSDB — move identity contacts, identity bindings, and Zone 1 channel links from base_prefix/network options to current tenant shard prefix/options. Existing sites require tenant-shard provisioning and any approved data migration before old Global DB copies are retired."
     }
   ]
 }

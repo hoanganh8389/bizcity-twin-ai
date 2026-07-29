@@ -16,7 +16,8 @@
  *   POST /listener/clear
  *        → { ok:true }  (purge ring buffer; admin tooling only).
  *
- * All routes require `manage_options`.
+ * Feed/stream require admin, or a customer-owned workflow access guard.
+ * Mutating/debug routes require `manage_options`.
  *
  * @package BizCity_Twin_AI
  * @subpackage Channel_Gateway
@@ -34,15 +35,16 @@ class BizCity_Listener_REST {
 	}
 
 	public static function register_routes(): void {
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — feed/stream can be read by customer canvas when access_workflow_id proves ownership and trigger scope.
 		register_rest_route( self::NS, '/listener/feed', array(
 			'methods'             => 'GET',
-			'permission_callback' => array( __CLASS__, 'can_admin' ),
+			'permission_callback' => array( __CLASS__, 'can_read_feed' ),
 			'callback'            => array( __CLASS__, 'route_feed' ),
 		) );
 
 		register_rest_route( self::NS, '/listener/stream', array(
 			'methods'             => 'GET',
-			'permission_callback' => array( __CLASS__, 'can_admin' ),
+			'permission_callback' => array( __CLASS__, 'can_read_feed' ),
 			'callback'            => array( __CLASS__, 'route_stream' ),
 		) );
 
@@ -61,6 +63,63 @@ class BizCity_Listener_REST {
 
 	public static function can_admin( $request ): bool {
 		return current_user_can( 'manage_options' );
+	}
+
+	public static function can_read_feed( $request ): bool {
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — admin sees full listener; customers need workflow-scoped proof.
+		if ( current_user_can( 'manage_options' ) ) { return true; }
+		if ( ! current_user_can( 'read' ) || ! ( $request instanceof WP_REST_Request ) ) { return false; }
+		return self::customer_workflow_listener_allowed( $request );
+	}
+
+	private static function customer_workflow_listener_allowed( WP_REST_Request $req ): bool {
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — access_workflow_id authorizes but is intentionally not a Bus filter.
+		$workflow_id = (int) $req->get_param( 'access_workflow_id' );
+		if ( $workflow_id <= 0 || ! class_exists( 'BizCity_Automation_Repo_Workflows' ) ) { return false; }
+
+		$wf = BizCity_Automation_Repo_Workflows::find( $workflow_id );
+		if ( ! is_array( $wf ) ) { return false; }
+		$current_user_id = (int) get_current_user_id();
+		if ( $current_user_id <= 0 || (int) ( $wf['created_by'] ?? 0 ) !== $current_user_id ) { return false; }
+
+		$platform = strtoupper( sanitize_key( (string) $req->get_param( 'platform' ) ) );
+		if ( $platform === '' ) { return false; }
+
+		$kind_raw = (string) $req->get_param( 'kind' );
+		$kinds = array_filter( array_map( 'trim', explode( ',', $kind_raw ) ) );
+		$allowed_kinds = array( 'inbound', 'twin', 'automation' );
+		foreach ( $kinds as $kind ) {
+			if ( ! in_array( $kind, $allowed_kinds, true ) ) { return false; }
+		}
+
+		$requested_account_id = trim( (string) $req->get_param( 'account_id' ) );
+		$graph = isset( $wf['graph'] ) && is_array( $wf['graph'] ) ? $wf['graph'] : array();
+		$nodes = isset( $graph['nodes'] ) && is_array( $graph['nodes'] ) ? $graph['nodes'] : array();
+		$platform_by_block = array(
+			'trigger.zalo_inbound'      => 'ZALO_BOT',
+			'trigger.fb_message'        => 'FB_MESS',
+			'trigger.fb_comment'        => 'FB_FEED',
+			'trigger.telegram_inbound'  => 'TELEGRAM',
+		);
+
+		foreach ( $nodes as $node ) {
+			if ( ! is_array( $node ) ) { continue; }
+			$data = isset( $node['data'] ) && is_array( $node['data'] ) ? $node['data'] : array();
+			$block_id = (string) ( $data['blockId'] ?? '' );
+			$expected_platform = (string) ( $platform_by_block[ $block_id ] ?? '' );
+			if ( $expected_platform === '' || $expected_platform !== $platform ) { continue; }
+
+			$node_account_id = trim( (string) ( $data['instance_id'] ?? '' ) );
+			if ( $node_account_id !== '' && $requested_account_id !== '' && $node_account_id !== $requested_account_id ) {
+				continue;
+			}
+			if ( $node_account_id !== '' && $requested_account_id === '' ) {
+				continue;
+			}
+			return true;
+		}
+
+		return false;
 	}
 
 	/* ─────────────────────────── Handlers ─────────────────────────── */

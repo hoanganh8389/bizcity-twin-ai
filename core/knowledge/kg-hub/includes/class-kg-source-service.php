@@ -40,7 +40,8 @@ class BizCity_KG_Source_Service {
 	 */
 	private static $source_meta_map = [
 		[ 'bizcity_webchat_sources',   'title', 'source_url',   'source_type'  ],
-		[ 'bizcity_knowledge_sources', 'name',  'url',          'type'         ],
+		// [2026-07-14 Johnny Chu] HOTFIX — legacy knowledge table columns are source_name/source_url/source_type.
+		[ 'bizcity_knowledge_sources', 'source_name', 'source_url', 'source_type' ],
 	];
 
 	/**
@@ -134,7 +135,8 @@ class BizCity_KG_Source_Service {
 
 			foreach ( $rows as $r ) {
 				$sid = (int) $r['id'];
-				$chunk_count = $has_chunks
+				// [2026-07-14 Johnny Chu] HOTFIX — use resolved chunk-table guard; avoid undefined $has_chunks.
+				$chunk_count = $chunk_check
 					? (int) $wpdb->get_var( $wpdb->prepare(
 						"SELECT COUNT(*) FROM `{$chunk_tbl}` WHERE source_id = %d", $sid
 					) )
@@ -232,11 +234,31 @@ class BizCity_KG_Source_Service {
 		}
 
 		$row = $wpdb->get_row( $wpdb->prepare(
-			"SELECT id, content_text FROM `{$src_tbl}` WHERE id = %d LIMIT 1",
+			"SELECT id, content_text, project_id, metadata FROM `{$src_tbl}` WHERE id = %d LIMIT 1",
 			(int) $source_id
 		), ARRAY_A );
 
-		if ( ! $row || empty( $row['content_text'] ) ) {
+		if ( ! $row ) {
+			return [ 'count' => 0, 'table' => null ];
+		}
+
+		// [2026-07-25 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — HOTFIX: insert_source()
+		// (PHASE-0.46-FILE-BODY) scrubs content_text to '' in SQL right after a verified
+		// filestore write, so a raw SELECT here always saw an empty string for every
+		// real upload and silently promoted 0 chunks (no error surfaced). Mirror
+		// BizCity_TwinChat_Sources_Database::get_source()'s file-fallback so promotion
+		// keeps working after the source body moved to filestore.
+		if ( empty( $row['content_text'] ) ) {
+			$meta = ! empty( $row['metadata'] ) ? json_decode( (string) $row['metadata'], true ) : [];
+			if ( is_array( $meta ) && ( $meta['body_storage'] ?? '' ) === 'filestore' && class_exists( 'BizCity_KG_Source_Body_File_Store' ) ) {
+				$body = BizCity_KG_Source_Body_File_Store::read_source( (int) ( $row['project_id'] ?? $notebook_id ), (int) $row['id'] );
+				if ( is_string( $body ) && $body !== '' ) {
+					$row['content_text'] = $body;
+				}
+			}
+		}
+
+		if ( empty( $row['content_text'] ) ) {
 			return [ 'count' => 0, 'table' => null ];
 		}
 
@@ -312,7 +334,8 @@ class BizCity_KG_Source_Service {
 				);
 			}
 			// PHASE-0.7-LEARN-VECTOR-FILE Wave F1 — dual-write body to filestore.
-			// No-op when option `bizcity_kg_filestore_dual_write` !== 1.
+			// No-op when option `bizcity_kg_v05_filestore_backfill_enabled` !== 1
+			// (renamed 2026-07-23 from legacy `bizcity_kg_filestore_dual_write`).
 			if ( $pid && class_exists( 'BizCity_KG_Filestore_Dispatcher' ) ) {
 				BizCity_KG_Filestore_Dispatcher::instance()->after_passage_insert(
 					$pid, (int) $notebook_id, $content
@@ -544,6 +567,9 @@ class BizCity_KG_Source_Service {
 		$update      = array();
 		$diffs       = array();   // [ ['changed_field', $old, $new], ... ]
 		$notebook_id = (int) $row['notebook_id'];
+		// [2026-07-15 Johnny Chu] PHASE-FILE-PRIMARY — keep update path parity with insert path.
+		$pending_embedding = null;
+		$updated_content_for_filestore = null;
 
 		// --- content -------------------------------------------------------
 		if ( array_key_exists( 'content', $changes ) ) {
@@ -564,6 +590,7 @@ class BizCity_KG_Source_Service {
 				$update['extraction_status'] = 'pending';
 
 				$diffs[] = array( 'content', (string) $row['content'], $new_content );
+				$updated_content_for_filestore = $new_content;
 
 				// Re-register embedding + cost (deferred to AFTER update succeeds).
 				$pending_embedding = is_array( $vec ) ? $vec : null;
@@ -619,6 +646,16 @@ class BizCity_KG_Source_Service {
 					'input_tokens' => isset( $update['token_count'] ) ? (int) $update['token_count'] : 0,
 				) );
 			}
+		}
+
+		if ( null !== $updated_content_for_filestore && class_exists( 'BizCity_KG_Filestore_Dispatcher' ) ) {
+			// [2026-07-15 Johnny Chu] PHASE-FILE-PRIMARY — keep file shard as
+			// canonical body after note updates, not just initial inserts.
+			BizCity_KG_Filestore_Dispatcher::instance()->after_passage_insert(
+				(int) $passage_id,
+				(int) $notebook_id,
+				(string) $updated_content_for_filestore
+			);
 		}
 
 		// Fire one event per changed field so trigger filter (changed_field=…)

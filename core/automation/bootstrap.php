@@ -34,6 +34,7 @@ require_once __DIR__ . '/includes/class-automation-installer.php';
 require_once __DIR__ . '/includes/class-automation-repo-workflows.php';
 require_once __DIR__ . '/includes/class-automation-repo-runs.php';
 require_once __DIR__ . '/includes/class-automation-repo-templates.php';     // BE-7
+require_once __DIR__ . '/includes/class-automation-repo-config-packs.php';  // [2026-07-20 Johnny Chu] PHASE-1-TEMPLATES-AUTOMATION — DataTable config packs.
 require_once __DIR__ . '/includes/class-automation-templates-seeder.php';   // BE-7
 
 // BE-2 — Block registry (load BEFORE REST so /blocks route can use it).
@@ -55,6 +56,8 @@ require_once __DIR__ . '/includes/blocks/actions/class-action-search-kg.php';
 require_once __DIR__ . '/includes/blocks/actions/class-action-reply-zalo.php';
 // [2026-07-05 Johnny Chu] PHASE-FAA2-TWINBRAIN — action.reply_zalo_each_day block (independent day messages).
 require_once __DIR__ . '/includes/blocks/actions/class-action-reply-zalo-each-day.php';
+// [2026-07-22 Johnny Chu] PHASE-3-TWIN-GPT — daily session memory blocks for BTnet/ZaloBot continuity.
+require_once __DIR__ . '/includes/blocks/actions/class-action-session-memory-day.php';
 require_once __DIR__ . '/includes/blocks/actions/class-action-send-email.php';
 require_once __DIR__ . '/includes/blocks/actions/class-action-http.php';
 require_once __DIR__ . '/includes/blocks/actions/class-action-db-write.php';
@@ -63,6 +66,10 @@ require_once __DIR__ . '/includes/blocks/actions/class-action-create-crm-event.p
 require_once __DIR__ . '/includes/blocks/actions/class-action-capture-attachment.php';   // BE-7.C
 require_once __DIR__ . '/includes/blocks/actions/class-action-set-pending-intent.php';   // BE-7.C
 require_once __DIR__ . '/includes/blocks/actions/class-action-consume-attachment.php';   // BE-7.C
+// [2026-07-24 Johnny Chu] PHASE-0.46 W2 — direct workflow→notebook bridge action.
+require_once __DIR__ . '/includes/blocks/actions/class-action-capture-to-notebook.php';
+// [2026-07-25 Johnny Chu] PHASE-0.48-LEARNING-LOG-SHARE-LINK — mint a public no-login learning console-log link (chain after action.capture_to_notebook).
+require_once __DIR__ . '/includes/blocks/actions/class-action-learning-share-link.php';
 require_once __DIR__ . '/includes/blocks/actions/class-action-publish-wp-post.php';      // BE-7.C
 require_once __DIR__ . '/includes/blocks/actions/class-action-publish-fb-post.php';      // BE-7.C
 require_once __DIR__ . '/includes/blocks/actions/class-action-schedule-event.php';       // BE-7.D
@@ -76,6 +83,11 @@ require_once __DIR__ . '/includes/blocks/actions/class-action-notify-discord.php
 require_once __DIR__ . '/includes/blocks/actions/class-action-run-astro.php';
 // [2026-07-03 Johnny Chu] PHASE-ASTRO-WORKFLOW — action.run_astro_transit block (transit day-by-day)
 require_once __DIR__ . '/includes/blocks/actions/class-action-run-astro-transit.php';
+// [2026-07-08 Johnny Chu] PHASE-FAA2-TWINBRAIN REL-1 — action.run_astro_relation_assessment block.
+require_once __DIR__ . '/includes/blocks/actions/class-action-run-astro-relation-assessment.php';
+// [2026-07-15 Johnny Chu] PHASE-TWB-PRODUCTS — action.run_products + action.run_products_solution.
+require_once __DIR__ . '/includes/blocks/actions/class-action-run-products.php';
+require_once __DIR__ . '/includes/blocks/actions/class-action-run-products-solution.php';
 // [2026-07-05 Johnny Chu] PHASE-FAA2-TWINBRAIN — deterministic best-day selector.
 require_once __DIR__ . '/includes/blocks/actions/class-action-pick-best-day-for-intent.php';
 // [2026-07-04 Johnny Chu] HOTFIX — missing require_once for blocks that existed but were never loaded.
@@ -86,15 +98,19 @@ require_once __DIR__ . '/includes/blocks/actions/class-action-video-submit.php';
 require_once __DIR__ . '/includes/blocks/actions/class-action-reply-fb-message.php';
 // [2026-07-05 Johnny Chu] PHASE-IMG-TPL — action.generate_image block
 require_once __DIR__ . '/includes/blocks/actions/class-action-generate-image.php';
+// [2026-07-21 Johnny Chu] PHASE-SEEDREAM-45 — action.edit_image block for Seedream image editing templates.
+require_once __DIR__ . '/includes/blocks/actions/class-action-edit-image.php';
 require_once __DIR__ . '/includes/blocks/llm/class-llm-compose.php';
 require_once __DIR__ . '/includes/blocks/llm/class-llm-mpr-think.php';   // BE-6.E
 require_once __DIR__ . '/includes/blocks/logic/class-logic-condition.php';
 require_once __DIR__ . '/includes/blocks/class-block-registry.php';
 
 require_once __DIR__ . '/includes/class-automation-rest.php';
+require_once __DIR__ . '/includes/class-automation-config-packs-rest.php';  // [2026-07-20 Johnny Chu] PHASE-1-TEMPLATES-AUTOMATION — DataTable REST.
 require_once __DIR__ . '/includes/class-automation-runner.php';
 require_once __DIR__ . '/includes/class-automation-pending-state.php';   // BE-7.C
 require_once __DIR__ . '/includes/class-automation-crm-bridge.php';      // BE-7.D
+require_once __DIR__ . '/includes/class-content-artifact-service.php';   // [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-MY-CONTENT-TRACE — CPT-backed My Content artifact trace.
 require_once __DIR__ . '/includes/class-automation-matcher-trace.php';   // PG-S9-fix
 require_once __DIR__ . '/includes/class-automation-file-logger.php';     // PG-S9-fix v6 (per-wf JSONL)
 require_once __DIR__ . '/includes/class-automation-trigger-matcher.php';
@@ -106,14 +122,22 @@ require_once __DIR__ . '/includes/class-automation-skill-bridge.php';    // [202
 require_once __DIR__ . '/includes/class-workflow-md-compiler.php';       // [2026-06-03 Johnny Chu] WF-AUTO W3 — .workflow.md round-trip compiler
 require_once __DIR__ . '/includes/class-automation-community.php';       // [2026-06-03 Johnny Chu] WF-AUTO W7 — Community gallery (GitHub raw fetch)
 
-BizCity_Automation_Admin_SPA::instance();
-BizCity_Automation_REST::init();
-BizCity_Automation_Trigger_Matcher::init();
-BizCity_Automation_Listener::init();
-BizCity_Automation_TwinBrain_Bridge::init();
-BizCity_Automation_Twin_Event_Tap::init();
-BizCity_Automation_Skill_Bridge::init();
-BizCity_Automation_File_Logger::init();
+// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-MY-CONTENT-TRACE — guard bootstrap calls so deploy/version skew cannot kill webhook/cron automation runtime.
+if ( class_exists( 'BizCity_Automation_Admin_SPA' ) ) { BizCity_Automation_Admin_SPA::instance(); }
+if ( class_exists( 'BizCity_Automation_REST' ) ) { BizCity_Automation_REST::init(); }
+if ( class_exists( 'BizCity_Automation_Config_Packs_REST' ) ) { BizCity_Automation_Config_Packs_REST::init(); }
+if ( class_exists( 'BizCity_Content_Artifact_Service' ) ) { BizCity_Content_Artifact_Service::init(); }
+if ( class_exists( 'BizCity_Automation_Trigger_Matcher' ) ) { BizCity_Automation_Trigger_Matcher::init(); }
+if ( class_exists( 'BizCity_Automation_Listener' ) ) { BizCity_Automation_Listener::init(); }
+if ( class_exists( 'BizCity_Automation_TwinBrain_Bridge' ) ) { BizCity_Automation_TwinBrain_Bridge::init(); }
+if ( class_exists( 'BizCity_Automation_Twin_Event_Tap' ) ) { BizCity_Automation_Twin_Event_Tap::init(); }
+if ( class_exists( 'BizCity_Automation_Skill_Bridge' ) ) { BizCity_Automation_Skill_Bridge::init(); }
+if ( class_exists( 'BizCity_Automation_File_Logger' ) ) { BizCity_Automation_File_Logger::init(); }
+
+// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — public /flow/ iframe route rewrite for subscriber-safe Workflow Library.
+if ( class_exists( 'BizCity_Rewrite_Flush_Registry' ) ) {
+	BizCity_Rewrite_Flush_Registry::register( 'automation-flow', '2026.07.21' );
+}
 
 // BE-3 — Runner cron dispatcher (R-CRON-META compliant).
 // BE-6.C — also stamp last_tick option for health probe / admin notice.
@@ -144,7 +168,7 @@ add_filter( 'cron_schedules', function ( $schedules ) {
 add_action( 'init', function () {
 	if ( class_exists( 'BizCity_Cron_Manager' ) ) {
 		BizCity_Cron_Manager::instance()->register( array(
-			'id'          => 'core.automation.dispatch',
+			'id'          => BizCity_Automation_Runner::CRON_JOB_ID,
 			'hook'        => BizCity_Automation_Runner::CRON_HOOK,
 			'interval'    => 'bizcity_automation_minute',
 			'owner'       => 'core/automation',
@@ -156,19 +180,28 @@ add_action( 'init', function () {
 	}
 }, 20 );
 
-// Ensure DB schema exists on admin requests (idempotent; auto-create from JSON).
-add_action( 'admin_init', function () {
+// Ensure DB schema exists / built-in templates are seeded — but only when the
+// Automation admin screen is actually being viewed, not on every wp-admin page.
+// [2026-07-24 Johnny Chu] PHASE-DIAG-PERF — this used to be a blanket `admin_init`
+// hook (priority 5/6) that ran BizCity_Automation_Installer::ensure() AND
+// BizCity_Automation_Templates_Seeder::maybe_seed() on EVERY wp-admin request for
+// EVERY admin, even when automation was never touched. Every other automation
+// surface (REST controllers, repo classes, cron tick, trigger matcher) already
+// calls ::ensure()/::maybe_seed() lazily right before it needs the tables, so this
+// current_screen gate only exists to self-heal when the Automation page itself is
+// opened directly (no REST round-trip yet to trigger the lazy path). See
+// core/diagnostics/docs/PHASE-DIAG-PERF-AUTO-CREATE-AUDIT.md.
+add_action( 'current_screen', function ( $screen ) {
+	if ( ! $screen || false === strpos( (string) $screen->id, 'bizcity-automation' ) ) {
+		return;
+	}
 	if ( class_exists( 'BizCity_Automation_Installer' ) ) {
 		BizCity_Automation_Installer::ensure();
 	}
-}, 5 );
-
-// BE-7 — Seed built-in templates after installer ensures table exists.
-add_action( 'admin_init', function () {
 	if ( class_exists( 'BizCity_Automation_Templates_Seeder' ) ) {
 		BizCity_Automation_Templates_Seeder::maybe_seed();
 	}
-}, 6 );
+}, 1 );
 
 // BE-5 — Detect legacy WAIC plugin still active → admin notice.
 // `plugins/bizcity-automation/` (Laravel-style WAIC framework) was deprecated

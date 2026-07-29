@@ -26,6 +26,8 @@ class BizCity_Zalobot_User_Linker {
 	const LINK_PARAM        = 'bzzalolink';
 	const TOKEN_TTL         = 1800; // 30 minutes in seconds
 	const LINK_MSG_COOLDOWN = 300;  // 5 minute cooldown between link resends
+	const TW_LINK_NONCE_TTL = 600;  // 10 minutes for Twin GPT deep-link bind command
+	const TW_LINK_NONCE_KEY = 'bztgpt_zlink_';
 
 	/* ── Table ── */
 
@@ -235,6 +237,115 @@ class BizCity_Zalobot_User_Linker {
 	}
 
 	/* ════════════════════════════════════════════════
+	 * TWIN GPT: signed /link nonce flow (member-initiated)
+	 * ════════════════════════════════════════════════ */
+
+	/**
+	 * [2026-07-16 Johnny Chu] PHASE-TWINWEB W3 — issue one-time nonce for
+	 * member-initiated Zalo bind command `/link <nonce>`.
+	 *
+	 * @param int $wp_user_id WordPress user id requesting bind.
+	 * @param int $bot_id     Target Zalo bot id.
+	 * @return array|WP_Error
+	 */
+	public static function issue_twin_gpt_link_nonce( int $wp_user_id, int $bot_id ) {
+		if ( $wp_user_id <= 0 || $bot_id <= 0 ) {
+			return new WP_Error( 'invalid_param', 'Thiếu user_id hoặc bot_id để tạo link nonce.' );
+		}
+		if ( ! get_userdata( $wp_user_id ) ) {
+			return new WP_Error( 'not_found', 'Không tìm thấy tài khoản WordPress để tạo link nonce.' );
+		}
+
+		$nonce = strtolower( wp_generate_password( 24, false, false ) );
+		$now   = time();
+		$ttl   = self::TW_LINK_NONCE_TTL;
+		$data  = array(
+			'wp_user_id'  => $wp_user_id,
+			'bot_id'      => $bot_id,
+			'blog_id'     => (int) get_current_blog_id(),
+			'issued_at'   => $now,
+			'expires_at'  => $now + $ttl,
+		);
+
+		set_transient( self::TW_LINK_NONCE_KEY . md5( $nonce ), $data, $ttl );
+
+		return array(
+			'nonce'      => $nonce,
+			'expires_at' => (int) $data['expires_at'],
+		);
+	}
+
+	/**
+	 * [2026-07-16 Johnny Chu] PHASE-TWINWEB W3 — consume one-time nonce from
+	 * Zalo command router and bind `(bot_id, zalo_user_id) -> wp_user_id`.
+	 *
+	 * @param string $nonce        Nonce parsed from `/link <nonce>`.
+	 * @param int    $bot_id       Current bot id from webhook payload.
+	 * @param string $zalo_user_id Current Zalo user id from webhook payload.
+	 * @param string $display_name Optional display name from webhook payload.
+	 * @return array|WP_Error
+	 */
+	public static function consume_twin_gpt_link_nonce(
+		string $nonce,
+		int $bot_id,
+		string $zalo_user_id,
+		string $display_name = ''
+	) {
+		$nonce = sanitize_text_field( $nonce );
+		if ( $nonce === '' || $bot_id <= 0 || $zalo_user_id === '' ) {
+			return new WP_Error( 'invalid_param', 'Dữ liệu liên kết không hợp lệ.' );
+		}
+
+		$key   = self::TW_LINK_NONCE_KEY . md5( $nonce );
+		$data  = get_transient( $key );
+		if ( ! is_array( $data ) ) {
+			return new WP_Error( 'nonce_invalid', 'Link nonce không hợp lệ hoặc đã hết hạn.' );
+		}
+
+		$expected_bot = (int) ( $data['bot_id'] ?? 0 );
+		if ( $expected_bot <= 0 || $expected_bot !== $bot_id ) {
+			return new WP_Error( 'nonce_bot_mismatch', 'Link nonce không thuộc bot hiện tại.' );
+		}
+
+		$expected_blog = (int) ( $data['blog_id'] ?? 0 );
+		$current_blog  = (int) get_current_blog_id();
+		if ( $expected_blog > 0 && $expected_blog !== $current_blog ) {
+			return new WP_Error( 'nonce_blog_mismatch', 'Link nonce không thuộc site hiện tại.' );
+		}
+
+		$wp_user_id = (int) ( $data['wp_user_id'] ?? 0 );
+		if ( $wp_user_id <= 0 || ! get_userdata( $wp_user_id ) ) {
+			return new WP_Error( 'not_found', 'Không tìm thấy tài khoản WordPress cho link nonce.' );
+		}
+
+		$ok = self::link( $zalo_user_id, $bot_id, $wp_user_id );
+		if ( ! $ok ) {
+			return new WP_Error( 'link_failed', 'Không thể lưu liên kết tài khoản Zalo.' );
+		}
+
+		if ( $display_name !== '' ) {
+			global $wpdb;
+			$wpdb->update(
+				self::table(),
+				array( 'display_name' => sanitize_text_field( $display_name ) ),
+				array(
+					'zalo_user_id' => $zalo_user_id,
+					'bot_id'       => $bot_id,
+				),
+				array( '%s' ),
+				array( '%s', '%d' )
+			);
+		}
+
+		delete_transient( $key );
+
+		return array(
+			'wp_user_id' => $wp_user_id,
+			'bot_id'     => $bot_id,
+		);
+	}
+
+	/* ════════════════════════════════════════════════
 	 * LOGIN CALLBACK HANDLER
 	 * ════════════════════════════════════════════════ */
 
@@ -268,6 +379,39 @@ class BizCity_Zalobot_User_Linker {
 	public static function boot_auto_login_link(): void {
 		add_action( 'bizcity_zalo_message_received', [ __CLASS__, 'maybe_auto_send_link' ], 3, 1 );
 		add_action( 'bizcity_zalobot_user_linked',    [ __CLASS__, 'send_welcome_after_link' ], 10, 3 );
+		// [2026-07-28 Johnny Chu] PHASE-0.52 W2 — only Zalo Bot memory no-owner events may use this linker.
+		add_action( 'bizcity_twinbrain_memory_no_owner', [ __CLASS__, 'maybe_send_login_link_from_memory' ], 7, 2 );
+	}
+
+	/**
+	 * Recover the Zalo Bot link prompt when memory handling bypasses the normal
+	 * inbound auto-link hook. The existing linker method owns the cooldown.
+	 */
+	public static function maybe_send_login_link_from_memory( $trace_id, $context = array() ): void {
+		// [2026-07-28 Johnny Chu] PHASE-0.52 W2 — keep Messenger and Zalo OA outside the Zalo Bot linker path.
+		if ( ! is_array( $context ) ) {
+			return;
+		}
+		$platform = strtoupper( (string) ( $context['platform'] ?? $context['channel'] ?? '' ) );
+		if ( $platform !== 'ZALO_BOT' ) {
+			return;
+		}
+		$bot_id   = (int) ( $context['account_id'] ?? 0 );
+		$zalo_uid = trim( (string) ( $context['external_user_id'] ?? $context['user_id'] ?? '' ) );
+		if ( $bot_id <= 0 || $zalo_uid === '' || self::resolve_wp_user( $zalo_uid, $bot_id ) > 0 ) {
+			return;
+		}
+
+		global $wpdb;
+		$bot_table = $wpdb->prefix . 'bizcity_zalo_bots';
+		$bot       = $wpdb->get_row( $wpdb->prepare(
+			"SELECT * FROM {$bot_table} WHERE id = %d LIMIT 1",
+			$bot_id
+		) );
+		if ( ! $bot ) {
+			return;
+		}
+		self::maybe_send_login_link( $zalo_uid, $bot_id, $bot );
 	}
 
 	/**

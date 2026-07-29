@@ -146,6 +146,14 @@ class BizCity_Listener_Bus {
 			'character_id' => isset( $envelope['character_id'] ) ? (int) $envelope['character_id'] : null,
 			'meta'         => array(
 				'trigger_key'        => (string) $trigger_key,
+				// [2026-07-22 Johnny Chu] PHASE-ZALOBOT-GROUP-TRACE — keep group/private target fields for Automation Test Listen replay.
+				'conversation_chat_id' => (string) ( $envelope['conversation_chat_id'] ?? $envelope['chat_id'] ?? '' ),
+				'provider_chat_id'   => (string) ( $envelope['provider_chat_id'] ?? '' ),
+				'provider_chat_type' => (string) ( $envelope['provider_chat_type'] ?? '' ),
+				'chat_kind'          => (string) ( $envelope['chat_kind'] ?? '' ),
+				'sender_user_id'     => (string) ( $envelope['sender_user_id'] ?? $envelope['user_id'] ?? '' ),
+				'mention_detected'   => ! empty( $envelope['mention_detected'] ),
+				'reply_to_bot_message' => ! empty( $envelope['reply_to_bot_message'] ),
 				'webhook_log_id'     => $envelope['webhook_log_id']   ?? null,
 				'webhook_log_date'   => $envelope['webhook_log_date'] ?? null,
 				'channel_message_id' => $envelope['channel_message_id'] ?? null,
@@ -282,8 +290,18 @@ class BizCity_Listener_Bus {
 			$msg_kind     = (string) ( $data['event']        ?? 'webhook' );
 		}
 
-		$chat_id = $bot_id !== '' && $user_id !== ''
-			? 'zalobot_' . $bot_id . '_' . $user_id
+
+		// [2026-07-22 Johnny Chu] PHASE-ZALOBOT-GROUP-TRACE — Listener Bus must emit conversation target, not sender private id.
+		$provider_chat_id   = $user_id;
+		$provider_chat_type = 'PRIVATE';
+		$chat_kind          = 'private';
+		if ( $event_name && $message ) {
+			$provider_chat_id   = (string) ( $message['chat']['id'] ?? $user_id );
+			$provider_chat_type = strtoupper( (string) ( $message['chat']['chat_type'] ?? 'PRIVATE' ) );
+			$chat_kind          = $provider_chat_type === 'GROUP' ? 'group' : 'private';
+		}
+		$chat_id = $bot_id !== '' && $provider_chat_id !== ''
+			? 'zalobot_' . $bot_id . '_' . ( $chat_kind === 'group' ? 'group_' : 'private_' ) . $provider_chat_id
 			: '';
 
 		self::emit( array(
@@ -299,6 +317,11 @@ class BizCity_Listener_Bus {
 				'source'       => 'zalo_intake',
 				'event_name'   => $event_name,
 				'message_id'   => $message_id,
+				'conversation_chat_id' => $chat_id,
+				'provider_chat_id' => $provider_chat_id,
+				'provider_chat_type' => $provider_chat_type,
+				'chat_kind'     => $chat_kind,
+				'sender_user_id' => $user_id,
 				'display_name' => $display_name,
 				'bot_name'     => $bot_name,
 				'has_secret'   => ! empty( $secret_token ),
@@ -316,9 +339,18 @@ class BizCity_Listener_Bus {
 		if ( ! is_array( $message_data ) ) { return; }
 		$bot_id  = (string) ( $message_data['bot_id']       ?? '' );
 		$user_id = (string) ( $message_data['from_user_id'] ?? '' );
-		$chat_id = $bot_id !== '' && $user_id !== ''
-			? 'zalobot_' . $bot_id . '_' . $user_id
-			: '';
+		// [2026-07-22 Johnny Chu] PHASE-ZALOBOT-GROUP-TRACE — message-level tap mirrors gateway bridge conversation target.
+		$chat_kind = (string) ( $message_data['chat_kind'] ?? 'private' );
+		if ( $chat_kind !== 'group' ) { $chat_kind = 'private'; }
+		$provider_chat_id = (string) ( $message_data['provider_chat_id'] ?? '' );
+		if ( $provider_chat_id === '' ) {
+			$provider_chat_id = (string) ( $message_data['conversation_id'] ?? $user_id );
+		}
+		$provider_chat_type = (string) ( $message_data['provider_chat_type'] ?? ( $chat_kind === 'group' ? 'GROUP' : 'PRIVATE' ) );
+		$chat_id = (string) ( $message_data['conversation_chat_id'] ?? '' );
+		if ( $chat_id === '' && $bot_id !== '' && $provider_chat_id !== '' ) {
+			$chat_id = 'zalobot_' . $bot_id . '_' . ( $chat_kind === 'group' ? 'group_' : 'private_' ) . $provider_chat_id;
+		}
 
 		self::emit( array(
 			'kind'       => 'inbound',
@@ -333,6 +365,13 @@ class BizCity_Listener_Bus {
 				'source'       => 'zalo_message_received',
 				'event_name'   => (string) ( $message_data['event_name']    ?? '' ),
 				'message_id'   => (string) ( $message_data['message_id']    ?? '' ),
+				'conversation_chat_id' => $chat_id,
+				'provider_chat_id' => $provider_chat_id,
+				'provider_chat_type' => $provider_chat_type,
+				'chat_kind'     => $chat_kind,
+				'sender_user_id' => $user_id,
+				'mention_detected' => ! empty( $message_data['mention_detected'] ),
+				'reply_to_bot_message' => ! empty( $message_data['reply_to_bot_message'] ),
 				'display_name' => (string) ( $message_data['from_user_name'] ?? '' ),
 				'bot_name'     => (string) ( $message_data['bot_name']       ?? '' ),
 			),

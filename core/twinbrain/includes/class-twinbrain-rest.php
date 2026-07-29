@@ -69,13 +69,15 @@ class BizCity_TwinBrain_REST {
 				// TBR.W9 (2026-05-21) + TBR.W14/W15 (2026-05-22) + TBR.W17 (2026-05-27/28)
 				// — Web Research toggle. Values: 'off' (default), 'quick' (W6),
 				// 'deep' (W7), 'social' (W14), 'company' (W15), 'med' (W17), 'scholar'
-				// (W17), 'nutri' (W17), 'law' (W17), 'tax' (W17), 'gov' (W17).
+				// (W17), 'nutri' (W17), 'law' (W17), 'tax' (W17), 'gov' (W17),
+				// 'products' (PHASE-TWB-PRODUCTS).
 				// [2026-06-03 Johnny Chu] HOTFIX — companion 'chat' mode: skip MPR
 				// perspectives + web research, dùng memory_block + companion system
 				// prompt (tâm sự / đồng hành / cảm xúc).
 				// [2026-06-04 Johnny Chu] PHASE-A C.3b — 'astro' mode: bypass MPR,
 				// inject transit passages qua CAP filter, compose final với astro context.
-				'web_mode'         => [ 'type' => 'string',  'required' => false, 'enum' => [ 'off', 'chat', 'astro', 'quick', 'deep', 'social', 'company', 'med', 'scholar', 'nutri', 'law', 'tax', 'gov' ] ],
+				// [2026-07-15 Johnny Chu] PHASE-TWB-PRODUCTS — add products mode enum.
+				'web_mode'         => [ 'type' => 'string',  'required' => false, 'enum' => [ 'off', 'chat', 'astro', 'quick', 'deep', 'social', 'company', 'med', 'scholar', 'nutri', 'law', 'tax', 'gov', 'products' ] ],
 				// TBR.W20 (2026-05-28) — Agent mode toggle. 'brain' (default) =
 				// full MPR pipeline (perspectives + synthesis); 'agent' = bypass
 				// perspectives, run ReAct loop over Tool_Registry instead.
@@ -121,9 +123,10 @@ class BizCity_TwinBrain_REST {
 		$v = strtolower( trim( (string) $raw ) );
 		// [2026-06-03 Johnny Chu] HOTFIX — accept 'chat' (companion mode).
 		// [2026-06-04 Johnny Chu] PHASE-A C.3b — accept 'astro' (transit mode).
+		// [2026-07-15 Johnny Chu] PHASE-TWB-PRODUCTS — accept 'products' vertical mode.
 		// MISSING from whitelist trước đây → astro request bị fallback 'off' →
 		// chạy full MPR pipeline (notebook perspectives) thay vì stream_astro_mode.
-		return in_array( $v, [ 'chat', 'astro', 'quick', 'deep', 'social', 'company', 'med', 'scholar', 'nutri', 'law', 'tax', 'gov' ], true ) ? $v : 'off';
+		return in_array( $v, [ 'chat', 'astro', 'quick', 'deep', 'social', 'company', 'med', 'scholar', 'nutri', 'law', 'tax', 'gov', 'products' ], true ) ? $v : 'off';
 	}
 
 	/**
@@ -187,8 +190,15 @@ class BizCity_TwinBrain_REST {
 				$start['candidates'],
 				$start['tool_candidates'],
 				array(
-					'guru_id'    => (int)    ( $start['guru_id']    ?? 0 ),
-					'tool_force' => (string) ( $start['tool_force'] ?? '' ),
+					'guru_id'                   => (int)    ( $start['guru_id']    ?? 0 ),
+					'tool_force'                => (string) ( $start['tool_force'] ?? '' ),
+					// [2026-07-27 Johnny Chu] PHASE-0.52 W3 — reuse start-stage profile context in auto-complete.
+					'subject_context_md'        => (string) ( $start['subject_context_md'] ?? '' ),
+					'subject_context_label'     => (string) ( $start['subject_context_label'] ?? '' ),
+					'subject_id'                => (int)    ( $start['subject_id'] ?? 0 ),
+					'_subject_profile_resolved' => ! empty( $start['_subject_profile_resolved'] ),
+					'user_id'                   => (int)    ( $opts['user_id'] ?? 0 ),
+					'session_id'                => (string) ( $opts['session_id'] ?? '' ),
 				)
 			);
 			return rest_ensure_response( array_merge( $start, $done, [ 'session_id' => $session_id ] ) );
@@ -303,8 +313,13 @@ class BizCity_TwinBrain_REST {
 				(array) ( $start['tool_candidates'] ?? [] ),
 				$sse,
 				array(
-					'guru_id'        => (int)    ( $start['guru_id']    ?? 0 ),
-					'tool_force'     => (string) ( $start['tool_force'] ?? '' ),
+					'guru_id'                   => (int)    ( $start['guru_id']    ?? 0 ),
+					'tool_force'                => (string) ( $start['tool_force'] ?? '' ),
+					// [2026-07-27 Johnny Chu] PHASE-0.52 W3 — reuse start-stage profile context in SSE completion.
+					'subject_context_md'        => (string) ( $start['subject_context_md'] ?? '' ),
+					'subject_context_label'     => (string) ( $start['subject_context_label'] ?? '' ),
+					'subject_id'                => (int)    ( $start['subject_id'] ?? 0 ),
+					'_subject_profile_resolved' => ! empty( $start['_subject_profile_resolved'] ),
 					// TBR.W9 — Stage 2.5 toggle propagated from REST opts.
 					'web_mode'       => (string) ( $opts['web_mode']    ?? 'off' ),
 					// TBR.W20 — Agent mode toggle (brain | agent).

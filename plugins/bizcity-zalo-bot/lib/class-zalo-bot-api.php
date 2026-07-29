@@ -188,7 +188,7 @@ class BizCity_Zalo_Bot_API {
 				array( 
 					'http_code' => $http_code, 
 					'response' => $result ? $result : $response,
-					'url' => $url,
+					'url' => $this->redact_bot_api_url( $url ),
 					'payload' => $payload,
 				) 
 			);
@@ -272,7 +272,7 @@ class BizCity_Zalo_Bot_API {
 				array( 
 					'http_code' => $http_code, 
 					'response' => $result ? $result : $response,
-					'url' => $url,
+					'url' => $this->redact_bot_api_url( $url ),
 					'payload' => $payload,
 				) 
 			);
@@ -339,7 +339,7 @@ class BizCity_Zalo_Bot_API {
 				array( 
 					'http_code' => $http_code, 
 					'response' => $result ? $result : $response,
-					'url' => $url,
+					'url' => $this->redact_bot_api_url( $url ),
 				) 
 			);
 		}
@@ -404,7 +404,7 @@ class BizCity_Zalo_Bot_API {
 				array( 
 					'http_code' => $http_code, 
 					'response' => $result ? $result : $response,
-					'url' => $url,
+					'url' => $this->redact_bot_api_url( $url ),
 				) 
 			);
 		}
@@ -435,11 +435,26 @@ class BizCity_Zalo_Bot_API {
 	 */
 	private function request( $endpoint, $data = null, $method = 'POST', $query_params = array(), $is_upload = false ) {
 		$url = $this->api_base . $endpoint;
+
+		// [2026-07-07 Johnny Chu] HOTFIX — trace OA OpenAPI path (send_text_message/send_image_message).
+		$_trace = ( isset( $GLOBALS['_bizcity_channel_send_trace'] ) && is_array( $GLOBALS['_bizcity_channel_send_trace'] ) )
+			? (array) $GLOBALS['_bizcity_channel_send_trace']
+			: array();
+		$_trace_id = (string) ( $_trace['trace_id'] ?? '' );
+		$_source   = (string) ( $_trace['source'] ?? 'unknown' );
 		
 		// Add query params
 		if ( ! empty( $query_params ) ) {
 			$url .= '?' . http_build_query( $query_params );
 		}
+
+		error_log( sprintf(
+			'[Zalo OA API TRACE] request trace=%s source=%s endpoint=%s method=%s',
+			$_trace_id !== '' ? $_trace_id : '-',
+			$_source !== '' ? $_source : 'unknown',
+			(string) $endpoint,
+			(string) $method
+		) );
 		
 		$args = array(
 			'method' => $method,
@@ -462,6 +477,13 @@ class BizCity_Zalo_Bot_API {
 		$response = wp_remote_request( $url, $args );
 		
 		if ( is_wp_error( $response ) ) {
+			error_log( sprintf(
+				'[Zalo OA API TRACE] request FAIL trace=%s source=%s endpoint=%s error=%s',
+				$_trace_id !== '' ? $_trace_id : '-',
+				$_source !== '' ? $_source : 'unknown',
+				(string) $endpoint,
+				$response->get_error_message()
+			) );
 			return $response;
 		}
 		
@@ -470,12 +492,27 @@ class BizCity_Zalo_Bot_API {
 		
 		// Check for API errors
 		if ( isset( $result['error'] ) && $result['error'] !== 0 ) {
+			error_log( sprintf(
+				'[Zalo OA API TRACE] request FAIL trace=%s source=%s endpoint=%s code=%s message=%s',
+				$_trace_id !== '' ? $_trace_id : '-',
+				$_source !== '' ? $_source : 'unknown',
+				(string) $endpoint,
+				(string) $result['error'],
+				(string) ( $result['message'] ?? '' )
+			) );
 			return new WP_Error(
 				'zalo_api_error',
 				isset( $result['message'] ) ? $result['message'] : 'Unknown error',
 				$result
 			);
 		}
+
+		error_log( sprintf(
+			'[Zalo OA API TRACE] request OK trace=%s source=%s endpoint=%s',
+			$_trace_id !== '' ? $_trace_id : '-',
+			$_source !== '' ? $_source : 'unknown',
+			(string) $endpoint
+		) );
 		
 		return $result;
 	}
@@ -538,7 +575,22 @@ class BizCity_Zalo_Bot_API {
 			'chat_id' => $chat_id,
 			'text' => $text,
 		);
-		back_trace('NOTICE', 'Zalo Bot API send_message payload: '.print_r($this->access_token, true));
+
+		// [2026-07-07 Johnny Chu] HOTFIX — outbound trace stamp for Zalo API debugging.
+		// Avoid logging access token; log message hash + trace source only.
+		$_trace = ( isset( $GLOBALS['_bizcity_channel_send_trace'] ) && is_array( $GLOBALS['_bizcity_channel_send_trace'] ) )
+			? (array) $GLOBALS['_bizcity_channel_send_trace']
+			: array();
+		$_trace_id = (string) ( $_trace['trace_id'] ?? '' );
+		$_source   = (string) ( $_trace['source'] ?? 'unknown' );
+		error_log( sprintf(
+			'[Zalo Bot API TRACE] send_message trace=%s source=%s chat_id=%s len=%d hash=%s',
+			$_trace_id !== '' ? $_trace_id : '-',
+			$_source !== '' ? $_source : 'unknown',
+			(string) $chat_id,
+			(int) mb_strlen( (string) $text, 'UTF-8' ),
+			substr( sha1( (string) $text ), 0, 12 )
+		) );
 		$data = json_encode( $payload );
 		
 		$ch = curl_init( $url );
@@ -572,7 +624,7 @@ class BizCity_Zalo_Bot_API {
 				array( 
 					'http_code' => $http_code, 
 					'response' => $result ? $result : $response,
-					'url' => $url,
+					'url' => $this->redact_bot_api_url( $url ),
 					'payload' => $payload,
 				) 
 			);
@@ -589,12 +641,26 @@ class BizCity_Zalo_Bot_API {
 		
 		// Check for error_code (Zalo specific)
 		if ( isset( $result['error_code'] ) && $result['error_code'] !== 0 ) {
+			error_log( sprintf(
+				'[Zalo Bot API TRACE] send_message FAIL trace=%s source=%s error_code=%s message=%s',
+				$_trace_id !== '' ? $_trace_id : '-',
+				$_source !== '' ? $_source : 'unknown',
+				(string) $result['error_code'],
+				(string) ( $result['message'] ?? '' )
+			) );
 			return new WP_Error(
 				'zalo_bot_api_error',
 				isset( $result['message'] ) ? $result['message'] : 'Error code: ' . $result['error_code'],
 				$result
 			);
 		}
+
+		error_log( sprintf(
+			'[Zalo Bot API TRACE] send_message OK trace=%s source=%s chat_id=%s',
+			$_trace_id !== '' ? $_trace_id : '-',
+			$_source !== '' ? $_source : 'unknown',
+			(string) $chat_id
+		) );
 		
 		return $result;
 	}
@@ -648,7 +714,7 @@ class BizCity_Zalo_Bot_API {
 				array( 
 					'http_code' => $http_code, 
 					'response' => $result ? $result : $response,
-					'url' => $url,
+					'url' => $this->redact_bot_api_url( $url ),
 					'payload' => $payload,
 				) 
 			);
@@ -715,7 +781,7 @@ class BizCity_Zalo_Bot_API {
 				array( 
 					'http_code' => $http_code, 
 					'response' => $result ? $result : $response,
-					'url' => $url,
+					'url' => $this->redact_bot_api_url( $url ),
 				) 
 			);
 		}
@@ -739,6 +805,11 @@ class BizCity_Zalo_Bot_API {
 		}
 		
 		return $result;
+	}
+
+	private function redact_bot_api_url( $url ) {
+		// [2026-07-21 Johnny Chu] PHASE-ZALOBOT-GROUP W1 — never expose Bot Token embedded in Bot Platform URLs.
+		return preg_replace( '#/bot[^/]+/#', '/bot***REDACTED***/', (string) $url );
 	}
 
 	/**

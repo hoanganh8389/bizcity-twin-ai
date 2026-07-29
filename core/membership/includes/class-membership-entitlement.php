@@ -56,7 +56,14 @@ class BizCity_Membership_Entitlement {
 		$manager  = BizCity_Membership_Manager::instance();
 
 		// Tầng 1 — site tier from hub (fail-OPEN to 'free').
-		$site = array( 'tier' => 'free', 'balance_usd' => 0.0, 'bypass' => false );
+		$site = array(
+			'tier'                => 'free',
+			'balance_usd'         => 0.0,
+			'bypass'              => false,
+			'master_level'        => '',
+			'accepted_file_types' => array(),
+			'kg_max_file_size_mb' => 0,
+		);
 		if ( $user_id > 0 && class_exists( 'BizCity_LLM_Client' ) ) {
 			$client = BizCity_LLM_Client::instance();
 			if ( method_exists( $client, 'is_ready' ) ? $client->is_ready() : true ) {
@@ -65,6 +72,20 @@ class BizCity_Membership_Entitlement {
 					$site['tier']        = isset( $ent['tier'] ) ? sanitize_key( (string) $ent['tier'] ) : 'free';
 					$site['balance_usd'] = isset( $ent['balance_usd'] ) ? (float) $ent['balance_usd'] : 0.0;
 					$site['bypass']      = ! empty( $ent['bypass'] );
+					$site['master_level'] = isset( $ent['master_level'] ) ? sanitize_key( (string) $ent['master_level'] ) : '';
+					if ( isset( $ent['accepted_file_types'] ) && is_array( $ent['accepted_file_types'] ) ) {
+						$types = array();
+						foreach ( (array) $ent['accepted_file_types'] as $ext ) {
+							$_ext = sanitize_key( strtolower( trim( (string) $ext ) ) );
+							if ( $_ext !== '' && ! in_array( $_ext, $types, true ) ) {
+								$types[] = $_ext;
+							}
+						}
+						$site['accepted_file_types'] = $types;
+					}
+					if ( isset( $ent['kg_max_file_size_mb'] ) && (int) $ent['kg_max_file_size_mb'] > 0 ) {
+						$site['kg_max_file_size_mb'] = (int) $ent['kg_max_file_size_mb'];
+					}
 				}
 			}
 		}
@@ -85,11 +106,13 @@ class BizCity_Membership_Entitlement {
 		// Rule: mặc định luôn theo license hub (master_level). Chỉ khi admin chọn mode='restrict'
 		// cho plan cụ thể thì mới intersect với danh sách tùy chỉnh của plan đó.
 		// Aligns với QUOTA-DUAL-LAYER-ARCHITECTURE: hub = trần, local = phân phối trong trần.
-		$master_level = '';
+		$master_level = (string) $site['master_level'];
 		if ( $user_id > 0 ) {
-			$master_level = class_exists( 'BizCity_User_Meta_Cache' )
-				? (string) BizCity_User_Meta_Cache::get( $user_id, '_bizcity_master_level', '' )
-				: (string) get_user_meta( $user_id, '_bizcity_master_level', true );
+			if ( $master_level === '' ) {
+				$master_level = class_exists( 'BizCity_User_Meta_Cache' )
+					? (string) BizCity_User_Meta_Cache::get( $user_id, '_bizcity_master_level', '' )
+					: (string) get_user_meta( $user_id, '_bizcity_master_level', true );
+			}
 		}
 		if ( $master_level === '' ) {
 			$master_level = (string) get_option( 'bizcity_hub_master_level', 'free' );
@@ -97,7 +120,31 @@ class BizCity_Membership_Entitlement {
 		if ( $master_level === '' ) {
 			$master_level = 'free';
 		}
-		$hub_types    = BizCity_Membership_Plan_Registry::hub_file_types_for_level( $master_level );
+
+		// [2026-07-14 Johnny Chu] R-KG-FILE-TYPES — source of truth priority:
+		// 1) exact accepted_file_types from hub entitlement payload
+		// 2) cached option written by BizCity_LLM_Client::get_entitlement()
+		// 3) static fallback by master_level mapping
+		$hub_types = ! empty( $site['accepted_file_types'] )
+			? (array) $site['accepted_file_types']
+			: array();
+		if ( empty( $hub_types ) ) {
+			$cached_raw = (string) get_option( 'bizcity_hub_accepted_file_types', '' );
+			if ( $cached_raw !== '' ) {
+				$cached = json_decode( $cached_raw, true );
+				if ( is_array( $cached ) ) {
+					foreach ( $cached as $ext ) {
+						$_ext = sanitize_key( strtolower( trim( (string) $ext ) ) );
+						if ( $_ext !== '' && ! in_array( $_ext, $hub_types, true ) ) {
+							$hub_types[] = $_ext;
+						}
+					}
+				}
+			}
+		}
+		if ( empty( $hub_types ) ) {
+			$hub_types = BizCity_Membership_Plan_Registry::hub_file_types_for_level( $master_level );
+		}
 		$plan_def     = $registry->get( $plan );
 		$ft_mode      = isset( $plan_def['kg_file_types_mode'] ) ? (string) $plan_def['kg_file_types_mode'] : 'inherit';
 		if ( $ft_mode === 'restrict' ) {
@@ -109,6 +156,25 @@ class BizCity_Membership_Entitlement {
 			// 'inherit' (default): dùng toàn bộ types do hub license cấp, không hạn chế thêm
 			$accepted_types = $hub_types;
 		}
+
+		// [2026-07-14 Johnny Chu] HOTFIX — normalize accepted file types + legacy office aliases.
+		$normalized_types = array();
+		foreach ( (array) $accepted_types as $type ) {
+			$t = sanitize_key( strtolower( trim( (string) $type ) ) );
+			if ( $t !== '' && ! in_array( $t, $normalized_types, true ) ) {
+				$normalized_types[] = $t;
+			}
+		}
+		if ( in_array( 'docx', $normalized_types, true ) && ! in_array( 'doc', $normalized_types, true ) ) {
+			$normalized_types[] = 'doc';
+		}
+		if ( in_array( 'xlsx', $normalized_types, true ) && ! in_array( 'xls', $normalized_types, true ) ) {
+			$normalized_types[] = 'xls';
+		}
+		if ( in_array( 'pptx', $normalized_types, true ) && ! in_array( 'ppt', $normalized_types, true ) ) {
+			$normalized_types[] = 'ppt';
+		}
+		$accepted_types = $normalized_types;
 
 		$result = array(
 			'user_id'               => $user_id,

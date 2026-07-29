@@ -122,6 +122,10 @@ class BizCity_Membership_Cron {
 		$expired = isset( $summary['expired'] ) ? (int) $summary['expired'] : 0;
 		$errors  = isset( $summary['errors'] ) ? (int) $summary['errors'] : 0;
 
+		// [2026-07-17 Johnny Chu] SPRINT-7 MBR-EXPIRY — record near-expiry counters for diagnostics/meta evidence.
+		$expiry_7d_count  = $this->count_users_expiring_in_days( 7 );
+		$expiry_30d_count = $this->count_users_expiring_in_days( 30 );
+
 		// [2026-07-17 Johnny Chu] PHASE-D G-1 — fire plan_expired action for each expired user.
 		$expired_user_ids = isset( $summary['user_ids'] ) ? array_map( 'intval', (array) $summary['user_ids'] ) : array();
 		foreach ( $expired_user_ids as $uid ) {
@@ -134,9 +138,15 @@ class BizCity_Membership_Cron {
 				'expired'  => $expired,
 				'errors'   => $errors,
 				'user_ids' => $expired_user_ids,
+				'expiring' => array(
+					'7d'  => $expiry_7d_count,
+					'30d' => $expiry_30d_count,
+				),
 			),
 			'counters' => array(
 				'membership_expired' => $expired,
+				'expiry_7d_count'    => $expiry_7d_count,
+				'expiry_30d_count'   => $expiry_30d_count,
 			),
 		) );
 
@@ -151,6 +161,9 @@ class BizCity_Membership_Cron {
 		if ( defined( 'WP_DEBUG' ) && WP_DEBUG && $expired > 0 ) {
 			error_log( sprintf( '[Membership] expiry sweep: %d/%d plans downgraded to free.', $expired, $scanned ) );
 		}
+
+		// [2026-07-17 Johnny Chu] SPRINT-7 MBR-EXPIRY — keep admin cohort cards fresh after cron runs.
+		delete_transient( 'bizm_membership_expiry_cohorts' );
 
 		// [2026-07-17 Johnny Chu] PHASE-D G-6 — send expiry warning for plans expiring in 7 days.
 		$this->send_expiry_warnings();
@@ -177,6 +190,32 @@ class BizCity_Membership_Cron {
 			foreach ( (array) $uids as $uid ) {
 				do_action( 'bizcity_membership_expiry_warning', (int) $uid, $days );
 			}
+		}
+	}
+
+	/**
+	 * [2026-07-17 Johnny Chu] SPRINT-7 MBR-EXPIRY — helper for per-threshold counters.
+	 *
+	 * @param int $days Days from now.
+	 * @return int
+	 */
+	private function count_users_expiring_in_days( $days ) {
+		$days = (int) $days;
+		if ( $days < 0 || ! class_exists( 'BizCity_Membership_Manager' ) ) {
+			return 0;
+		}
+
+		$date_str = gmdate( 'Y-m-d', strtotime( '+' . $days . ' days' ) );
+		try {
+			$uids = BizCity_Membership_Manager::instance()->users_expiring_on( $date_str );
+			return is_array( $uids ) ? count( $uids ) : 0;
+		} catch ( \Throwable $e ) {
+			$this->note_event( 'membership_expiry_counter_failed', array(
+				'reason' => 'counter_error',
+				'days'   => $days,
+				'error'  => $e->getMessage(),
+			) );
+			return 0;
 		}
 	}
 

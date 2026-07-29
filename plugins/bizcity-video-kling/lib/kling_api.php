@@ -61,8 +61,11 @@ function waic_kling_get_api_config(array $settings = []): array {
         ], $settings );
     }
 
-    // [2026-06-10 Johnny Chu] HOTFIX — per-site option (not network-wide sitemeta)
-    $gateway_key = get_option( 'bizcity_llm_api_key', '' );
+    // [2026-07-27 Johnny Chu] PHASE-0.49-MASTER-CONFIG-401 — video fallback
+    // reuses the canonical normalized gateway key without changing its identity.
+    $gateway_key = class_exists( 'BizCity_LLM_Client' )
+        ? BizCity_LLM_Client::instance()->get_api_key()
+        : get_option( 'bizcity_llm_api_key', '' );
     if ( empty( $gateway_key ) ) {
         $gateway_key = '';
     }

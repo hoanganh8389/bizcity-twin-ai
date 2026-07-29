@@ -91,6 +91,15 @@ class BizCity_LLM_Models {
             [ 'id' => 'anthropic/claude-sonnet-4',             'name' => 'Claude Sonnet 4 (Executor)',     'ctx' => 200000 ],
         ],
 
+        /* ─ TwinBrain Wisdom / Long Synthesis ─ */
+        // [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT — dedicated purpose for Notebook deep/audit final synthesis.
+        'twinbrain_wisdom' => [
+            [ 'id' => 'google/gemini-2.5-pro',                 'name' => 'Gemini 2.5 Pro (TwinBrain Wisdom)', 'ctx' => 1048576 ],
+            [ 'id' => 'anthropic/claude-sonnet-4',             'name' => 'Claude Sonnet 4 (TwinBrain Wisdom)', 'ctx' => 200000 ],
+            [ 'id' => 'openai/gpt-4o',                         'name' => 'GPT-4o (TwinBrain Wisdom)',          'ctx' => 128000 ],
+            [ 'id' => 'deepseek/deepseek-r1',                  'name' => 'DeepSeek R1 (TwinBrain Wisdom)',     'ctx' => 163840 ],
+        ],
+
         /* ─ Free-tier ─ */
         'free' => [
             [ 'id' => 'google/gemini-2.0-flash-exp:free',      'name' => 'Gemini 2.0 Flash (Free)',        'ctx' => 1048576 ],
@@ -115,6 +124,7 @@ class BizCity_LLM_Models {
         'router'       => 'google/gemini-2.5-flash',
         'planner'      => 'google/gemini-2.5-pro',
         'executor'     => 'google/gemini-2.5-flash',
+        'twinbrain_wisdom' => 'google/gemini-2.5-pro', // [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT — stronger default for Notebook deep/audit synthesis.
         'slot_extract' => 'google/gemini-2.5-flash',
         'slide'        => 'google/gemini-2.5-flash',
         'embedding'    => 'openai/text-embedding-3-small',
@@ -129,6 +139,7 @@ class BizCity_LLM_Models {
         'router'       => 'anthropic/claude-sonnet-4',
         'planner'      => 'anthropic/claude-sonnet-4',
         'executor'     => 'anthropic/claude-sonnet-4',
+        'twinbrain_wisdom' => 'anthropic/claude-sonnet-4', // [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT — reliable fallback for long Notebook synthesis.
         'slot_extract' => 'anthropic/claude-sonnet-4',
         'slide'        => 'anthropic/claude-sonnet-4',
         'embedding'    => 'openai/text-embedding-ada-002',

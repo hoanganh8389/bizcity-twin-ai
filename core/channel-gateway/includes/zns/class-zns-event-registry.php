@@ -328,7 +328,13 @@ class BizCity_ZNS_Event_Registry {
 		if ( ! $user ) {
 			return array();
 		}
-		$phone = (string) ( get_user_meta( $user_id, 'billing_phone', true ) ?: get_user_meta( $user_id, 'phone', true ) );
+		// [2026-07-27 Johnny Chu] R-PERF — read phone metadata through one request-level cache contract.
+		$billing_phone = class_exists( 'BizCity_User_Meta_Cache' )
+			? BizCity_User_Meta_Cache::get( $user_id, 'billing_phone', '' )
+			: get_user_meta( $user_id, 'billing_phone', true );
+		$phone = (string) ( $billing_phone ?: ( class_exists( 'BizCity_User_Meta_Cache' )
+			? BizCity_User_Meta_Cache::get( $user_id, 'phone', '' )
+			: get_user_meta( $user_id, 'phone', true ) ) );
 		return array(
 			'phone'        => $phone,
 			'user_id'      => $user_id,
@@ -356,7 +362,13 @@ class BizCity_ZNS_Event_Registry {
 			return array();
 		}
 		$uid   = (int) $user->ID;
-		$phone = (string) ( get_user_meta( $uid, 'billing_phone', true ) ?: get_user_meta( $uid, 'phone', true ) );
+		// [2026-07-27 Johnny Chu] R-PERF — reuse cached phone metadata for ZNS normalization.
+		$billing_phone = class_exists( 'BizCity_User_Meta_Cache' )
+			? BizCity_User_Meta_Cache::get( $uid, 'billing_phone', '' )
+			: get_user_meta( $uid, 'billing_phone', true );
+		$phone = (string) ( $billing_phone ?: ( class_exists( 'BizCity_User_Meta_Cache' )
+			? BizCity_User_Meta_Cache::get( $uid, 'phone', '' )
+			: get_user_meta( $uid, 'phone', true ) ) );
 		return array(
 			'phone'        => $phone,
 			'user_id'      => $uid,

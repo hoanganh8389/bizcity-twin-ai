@@ -1,0 +1,248 @@
+[
+  {
+    "slug": "tpl_twingpt_public_task_from_chat_v1",
+    "name": "Twin GPT — Tạo task từ chat public",
+    "description": "Public FE Twin GPT chạy thủ công, marker TwinGPT: lấy nội dung chat của user → tạo CRM task theo đúng owner của lượt chạy. Workflow để user review trước khi bật.",
+    "category": "general",
+    "source": "builtin",
+    "trigger_type": "manual",
+    "icon": "Sparkles",
+    "tags": "twingpt,twinweb,public-fe,manual,task,owner-continuity",
+    "plan": "free",
+    "trigger_config": {
+      "surface": "twinweb",
+      "marker": "TwinGPT",
+      "visibility": "private"
+    },
+    "graph": {
+      "meta": {
+        "template": "tpl_twingpt_public_task_from_chat_v1",
+        "surface": "twinweb",
+        "marker": "TwinGPT",
+        "template_uuid": "e546c6fa-8f80-7685-8a72-adec68d9cf94",
+        "template_version": "1.0.0",
+        "visibility": "private"
+      },
+      "nodes": [
+        {
+          "id": "t1",
+          "type": "trigger",
+          "position": {
+            "x": 0,
+            "y": 80
+          },
+          "data": {
+            "blockId": "trigger.manual",
+            "label": "Twin GPT · user request",
+            "surface": "twinweb",
+            "marker": "TwinGPT"
+          }
+        },
+        {
+          "id": "extract",
+          "type": "llm",
+          "position": {
+            "x": 320,
+            "y": 80
+          },
+          "data": {
+            "blockId": "llm.compose_reply",
+            "label": "Tóm tắt task",
+            "model": "gpt-4o-mini",
+            "system": "Bạn là trợ lý cá nhân. Tóm tắt yêu cầu thành một tiêu đề task tiếng Việt, tối đa 12 từ. Chỉ trả về tiêu đề, không markdown.",
+            "prompt": "Yêu cầu từ TwinGPT public FE: {{trigger.text}}"
+          }
+        },
+        {
+          "id": "event",
+          "type": "action",
+          "position": {
+            "x": 640,
+            "y": 80
+          },
+          "data": {
+            "blockId": "action.create_crm_event",
+            "label": "Tạo task cho owner",
+            "event_type": "task",
+            "title": "{{extract.output}}",
+            "start_at": "+1 hour",
+            "description": "Nguồn: TwinGPT public FE\nNội dung gốc: {{trigger.text}}",
+            "brain_allowed": true
+          }
+        },
+        {
+          "id": "log",
+          "type": "action",
+          "position": {
+            "x": 960,
+            "y": 80
+          },
+          "data": {
+            "blockId": "action.log",
+            "label": "Log kết quả",
+            "message": "TwinGPT task event_id={{event.event_id}} owner preserved"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "e_t1_extract",
+          "source": "t1",
+          "target": "extract"
+        },
+        {
+          "id": "e_extract_event",
+          "source": "extract",
+          "target": "event"
+        },
+        {
+          "id": "e_event_log",
+          "source": "event",
+          "target": "log"
+        }
+      ]
+    },
+    "template_uuid": "e546c6fa-8f80-7685-8a72-adec68d9cf94",
+    "template_version": "1.0.0",
+    "visibility": "private"
+  },
+  {
+    "slug": "tpl_twingpt_public_wp_draft_v1",
+    "name": "Twin GPT — Soạn nháp bài viết Web",
+    "description": "Public FE Twin GPT chạy thủ công, marker TwinGPT: biến yêu cầu chat thành bản nháp WordPress thuộc owner của user, chưa publish để user duyệt.",
+    "category": "general",
+    "source": "builtin",
+    "trigger_type": "manual",
+    "icon": "FileText",
+    "tags": "twingpt,twinweb,public-fe,manual,web-post,draft,owner-continuity",
+    "plan": "free",
+    "trigger_config": {
+      "surface": "twinweb",
+      "marker": "TwinGPT",
+      "visibility": "private"
+    },
+    "graph": {
+      "meta": {
+        "template": "tpl_twingpt_public_wp_draft_v1",
+        "surface": "twinweb",
+        "marker": "TwinGPT",
+        "template_uuid": "b808f9ab-c56f-7a43-881a-668c2c174934",
+        "template_version": "1.0.0",
+        "visibility": "private"
+      },
+      "nodes": [
+        {
+          "id": "t1",
+          "type": "trigger",
+          "position": {
+            "x": 0,
+            "y": 80
+          },
+          "data": {
+            "blockId": "trigger.manual",
+            "label": "Twin GPT · yêu cầu viết bài",
+            "surface": "twinweb",
+            "marker": "TwinGPT"
+          }
+        },
+        {
+          "id": "title",
+          "type": "llm",
+          "position": {
+            "x": 320,
+            "y": 0
+          },
+          "data": {
+            "blockId": "llm.compose_reply",
+            "label": "Tạo tiêu đề",
+            "model": "gpt-4o-mini",
+            "system": "Bạn là biên tập viên. Viết một tiêu đề tiếng Việt rõ ràng, tối đa 70 ký tự. Chỉ trả về tiêu đề.",
+            "prompt": "Yêu cầu bài viết từ TwinGPT: {{trigger.text}}"
+          }
+        },
+        {
+          "id": "body",
+          "type": "llm",
+          "position": {
+            "x": 320,
+            "y": 160
+          },
+          "data": {
+            "blockId": "llm.compose_reply",
+            "label": "Soạn nội dung",
+            "model": "gpt-4o-mini",
+            "system": "Bạn là cây bút nội dung. Viết HTML bài blog tiếng Việt 300-500 từ, có <h2>, <p>, <ul> nếu phù hợp. Không markdown, không code fence.",
+            "prompt": "Yêu cầu bài viết từ TwinGPT public FE:\n{{trigger.text}}"
+          }
+        },
+        {
+          "id": "publish",
+          "type": "action",
+          "position": {
+            "x": 640,
+            "y": 80
+          },
+          "data": {
+            "blockId": "action.publish_wp_post",
+            "label": "Tạo bản nháp WP",
+            "title": "{{title.output}}",
+            "content": "{{body.output}}",
+            "image_url": "",
+            "status": "draft",
+            "category": "",
+            "tags": "twingpt",
+            "author_id": 0,
+            "brain_allowed": true
+          }
+        },
+        {
+          "id": "event",
+          "type": "action",
+          "position": {
+            "x": 960,
+            "y": 80
+          },
+          "data": {
+            "blockId": "action.create_crm_event",
+            "label": "Ghi lịch sử nháp",
+            "event_type": "web_post",
+            "title": "TwinGPT draft: {{publish.title}}",
+            "start_at": "",
+            "description": "Draft post_id={{publish.post_id}}\nEdit: {{publish.edit_url}}\nPermalink: {{publish.permalink}}",
+            "brain_allowed": true
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "e_t1_title",
+          "source": "t1",
+          "target": "title"
+        },
+        {
+          "id": "e_t1_body",
+          "source": "t1",
+          "target": "body"
+        },
+        {
+          "id": "e_title_publish",
+          "source": "title",
+          "target": "publish"
+        },
+        {
+          "id": "e_body_publish",
+          "source": "body",
+          "target": "publish"
+        },
+        {
+          "id": "e_publish_event",
+          "source": "publish",
+          "target": "event"
+        }
+      ]
+    },
+    "template_uuid": "b808f9ab-c56f-7a43-881a-668c2c174934",
+    "template_version": "1.0.0",
+    "visibility": "private"
+  }
+]

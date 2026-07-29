@@ -51,6 +51,7 @@ final class BizCity_Intent_Session_Adapter {
 		$user_id      = (int) ( $params['user_id'] ?? 0 );
 		$channel      = (string) ( $params['channel']      ?? 'webchat' );
 		$session_id   = (string) ( $params['session_id']   ?? '' );
+		$identity_uuid = (string) ( $params['identity_uuid'] ?? '' );
 		$character_id = (int)    ( $params['character_id'] ?? 0 );
 
 		if ( $user_id <= 0 ) {
@@ -63,6 +64,7 @@ final class BizCity_Intent_Session_Adapter {
 		}
 
 		$ctx['conversation_id']     = (string) $conversation['conversation_id'];
+		$ctx['identity_uuid']       = $identity_uuid;
 		$ctx['conversation_goal']   = (string) ( $conversation['goal']       ?? '' );
 		$ctx['conversation_label']  = (string) ( $conversation['goal_label'] ?? '' );
 		$ctx['conversation_status'] = (string) ( $conversation['status']     ?? 'ACTIVE' );
@@ -79,7 +81,7 @@ final class BizCity_Intent_Session_Adapter {
 		if ( class_exists( 'BizCity_Rolling_Memory' ) ) {
 			try {
 				$rm      = new BizCity_Rolling_Memory();
-				$summary = $rm->build_context( $user_id, $session_id, $ctx['conversation_id'] );
+				$summary = $rm->build_context( $user_id, $session_id, $ctx['conversation_id'], $identity_uuid );
 				if ( is_string( $summary ) && $summary !== '' ) {
 					$ctx['rolling_memory_summary'] = $summary;
 				}

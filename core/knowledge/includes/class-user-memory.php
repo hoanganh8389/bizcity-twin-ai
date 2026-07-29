@@ -56,6 +56,35 @@ class BizCity_User_Memory {
     /** @var bool Flag to prevent double injection (direct + filter) */
     private $already_injected = false;
 
+    // [2026-07-28 Johnny Chu] PHASE-0.52 W8.3 — canonical per-request upsert failure payload for probes/tools.
+    /** @var array<string,mixed> Last upsert failure payload for diagnostics and probes */
+    private static $last_upsert_failure = array();
+
+    /**
+     * Get the most recent upsert failure payload.
+     *
+     * @return array{code?:string,message?:string,db_error?:string,context?:array,at?:string}
+     */
+    public static function get_last_upsert_failure() {
+        return is_array( self::$last_upsert_failure ) ? self::$last_upsert_failure : array();
+    }
+
+    private static function clear_last_upsert_failure() {
+        self::$last_upsert_failure = array();
+    }
+
+    private static function set_last_upsert_failure( $code, $message, $db_error = '', $context = array() ) {
+        self::$last_upsert_failure = array(
+            'code'     => (string) $code,
+            'message'  => (string) $message,
+            'db_error' => (string) $db_error,
+            'context'  => is_array( $context ) ? $context : array(),
+            'at'       => gmdate( 'c' ),
+        );
+        // [2026-07-28 Johnny Chu] PHASE-0.52 W8.3 — emit canonical upsert failure evidence so probes can report UUID/DB failures explicitly.
+        do_action( 'bizcity_user_memory_upsert_failed', self::$last_upsert_failure );
+    }
+
     public static function instance() {
         if ( is_null( self::$instance ) ) {
             self::$instance = new self();
@@ -111,6 +140,8 @@ class BizCity_User_Memory {
         $found = bizcity_tbl_exists( $table );
 
         if ( $found ) {
+            // [2026-07-28 Johnny Chu] PHASE-0.52 W8.4 — repair stale legacy schema (missing identity_uuid/indexes) via canonical installer.
+            self::maybe_repair_schema( $table, 'ensure_table' );
             return; // Table already exists
         }
 
@@ -126,11 +157,13 @@ class BizCity_User_Memory {
 
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 
+        // [2026-07-28 Johnny Chu] HOTFIX — avoid semicolon in column comment so dbDelta does not split CREATE TABLE incorrectly.
         $sql = "CREATE TABLE IF NOT EXISTS {$table} (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             blog_id INT UNSIGNED NOT NULL DEFAULT 1,
             user_id BIGINT UNSIGNED DEFAULT 0 COMMENT 'WP user ID (0 = guest)',
             session_id VARCHAR(191) DEFAULT '' COMMENT 'For guest identification',
+            identity_uuid CHAR(36) NOT NULL DEFAULT '' COMMENT 'Durable customer identity UUID, empty for legacy rows',
             memory_tier ENUM('extracted','explicit') NOT NULL DEFAULT 'extracted' COMMENT 'extracted=LLM-analyzed from chat, explicit=user asked to remember',
             memory_type VARCHAR(50) NOT NULL DEFAULT 'fact' COMMENT 'identity|preference|goal|pain|constraint|habit|relationship|fact|request',
             memory_key VARCHAR(191) NOT NULL DEFAULT '' COMMENT 'Slug key e.g. likes:milk_tea',
@@ -145,9 +178,10 @@ class BizCity_User_Memory {
             PRIMARY KEY (id),
             KEY blog_user (blog_id, user_id),
             KEY blog_session (blog_id, session_id),
+            KEY blog_identity (blog_id, identity_uuid),
             KEY memory_tier (memory_tier),
             KEY memory_type (memory_type),
-            UNIQUE KEY unique_memory (blog_id, user_id, session_id, memory_key)
+            UNIQUE KEY unique_memory (blog_id, user_id, session_id, identity_uuid, memory_key)
         ) {$charset_collate};";
 
         dbDelta( $sql );
@@ -155,9 +189,107 @@ class BizCity_User_Memory {
         // Verify table was actually created before logging success
         $verify = bizcity_tbl_exists( $table ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
         if ( $verify ) {
+            // [2026-07-28 Johnny Chu] PHASE-0.52 W8.4 — verify required UUID owner schema after fresh create.
+            self::maybe_repair_schema( $table, 'create_table' );
             error_log( "[BizCity_User_Memory] Table {$table} created successfully." );
         } else {
             error_log( "[BizCity_User_Memory] Table {$table} creation FAILED (shard may be unavailable)." );
+        }
+    }
+
+    private static function maybe_repair_schema( $table, $reason = '' ) {
+        global $wpdb;
+
+        $has_identity_uuid = (int) $wpdb->get_var( $wpdb->prepare(
+            "SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = 'identity_uuid' LIMIT 1",
+            $table
+        ) );
+        if ( $has_identity_uuid > 0 ) {
+            return false;
+        }
+
+        // [2026-07-28 Johnny Chu] HOTFIX P1 — circuit-breaker backoff: if a previous repair attempt
+        // already failed to add identity_uuid on this table (shard write refused/read-only), don't
+        // retry the lock+ALTER dance on every single request — retry at most once every 5 minutes.
+        $backoff_key = 'bzmem_repair_bo_' . md5( $table );
+        if ( get_transient( $backoff_key ) ) {
+            return false;
+        }
+
+        // [2026-07-28 Johnny Chu] HOTFIX P1 — serialize concurrent repairs with a MySQL named lock.
+        // The previous per-process `static $repair_attempted` guard did not stop two different
+        // requests/workers from racing ADD COLUMN / ADD INDEX / DROP+ADD UNIQUE KEY on the same
+        // tenant table, which produced the observed Duplicate column/key + Can't DROP INDEX errors.
+        $lock_name = 'bizcity_memory_repair_' . md5( $table );
+        $got_lock  = (int) $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, 5)', $lock_name ) );
+        if ( 1 !== $got_lock ) {
+            error_log( '[BizCity_User_Memory] Could not acquire repair lock for ' . $table . ' (reason=' . $reason . ') — another process is likely repairing it.' );
+            return false;
+        }
+
+        try {
+            // Re-check after acquiring the lock — another worker may have already finished the repair.
+            $has_identity_uuid = (int) $wpdb->get_var( $wpdb->prepare(
+                "SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = 'identity_uuid' LIMIT 1",
+                $table
+            ) );
+            if ( $has_identity_uuid > 0 ) {
+                return false;
+            }
+
+            // [2026-07-28 Johnny Chu] HOTFIX — stale tenant schema must be repaired via direct ALTER, not only dbDelta replay.
+            error_log( '[BizCity_User_Memory] identity_uuid column missing on ' . $table . '; running direct ALTER repair (reason=' . $reason . ')' );
+
+            $wpdb->last_error = '';
+            $alter_col = $wpdb->query(
+                "ALTER TABLE {$table}
+                 ADD COLUMN identity_uuid CHAR(36) NOT NULL DEFAULT ''
+                 COMMENT 'Durable customer identity UUID, empty for legacy rows'
+                 AFTER session_id"
+            );
+
+            if ( false === $alter_col && ! empty( $wpdb->last_error ) && stripos( (string) $wpdb->last_error, 'Duplicate column name' ) === false ) {
+                error_log( '[BizCity_User_Memory] identity_uuid ALTER failed on ' . $table . ': ' . (string) $wpdb->last_error );
+            }
+
+            $has_identity_after = (int) $wpdb->get_var( $wpdb->prepare(
+                "SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = 'identity_uuid' LIMIT 1",
+                $table
+            ) );
+
+            if ( $has_identity_after <= 0 ) {
+                // [2026-07-28 Johnny Chu] HOTFIX P1 — back off for 5 minutes instead of retrying every request.
+                set_transient( $backoff_key, 1, 5 * MINUTE_IN_SECONDS );
+                error_log( '[BizCity_User_Memory] identity_uuid still missing on ' . $table . ' after ALTER attempt — backing off 5 min (check shard write path / R-MSDB routing).' );
+                return false;
+            }
+
+            $has_blog_identity = (int) $wpdb->get_var( $wpdb->prepare(
+                "SELECT 1 FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND INDEX_NAME = 'blog_identity' LIMIT 1",
+                $table
+            ) );
+            if ( $has_blog_identity < 1 ) {
+                $wpdb->query( "ALTER TABLE {$table} ADD INDEX blog_identity (blog_id, identity_uuid)" );
+            }
+
+            // [2026-07-28 Johnny Chu] HOTFIX — align unique_memory key shape with identity UUID ownership contract.
+            $unique_cols = (string) $wpdb->get_var( $wpdb->prepare(
+                "SELECT GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX SEPARATOR ',')
+                 FROM information_schema.STATISTICS
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND INDEX_NAME = 'unique_memory'",
+                $table
+            ) );
+            $expected = 'blog_id,user_id,session_id,identity_uuid,memory_key';
+            if ( $unique_cols === '' ) {
+                $wpdb->query( "ALTER TABLE {$table} ADD UNIQUE KEY unique_memory (blog_id, user_id, session_id, identity_uuid, memory_key)" );
+            } elseif ( strtolower( $unique_cols ) !== $expected ) {
+                $wpdb->query( "ALTER TABLE {$table} DROP INDEX unique_memory" );
+                $wpdb->query( "ALTER TABLE {$table} ADD UNIQUE KEY unique_memory (blog_id, user_id, session_id, identity_uuid, memory_key)" );
+            }
+
+            return true;
+        } finally {
+            $wpdb->query( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock_name ) );
         }
     }
 
@@ -377,7 +509,7 @@ class BizCity_User_Memory {
      * Returns ALL memories for a user (both tiers), sorted by score.
      * Called by Chat Gateway to inject into system_content.
      *
-     * @param array $args  { user_id, session_id, limit, memory_tier, memory_type }
+    * @param array $args  { user_id, session_id, identity_uuid, limit, memory_tier, memory_type }
      * @return array  Array of memory rows
      * ================================================================ */
     public function get_memories( $args = [] ) {
@@ -386,6 +518,7 @@ class BizCity_User_Memory {
         $args = wp_parse_args( $args, [
             'user_id'     => 0,
             'session_id'  => '',
+            'identity_uuid'=> '',
             'limit'       => 30,
             'memory_tier' => '',
             'memory_type' => '',
@@ -397,14 +530,23 @@ class BizCity_User_Memory {
         $where  = [ 'blog_id = %d' ];
         $params = [ (int) $args['blog_id'] ];
 
-        if ( (int) $args['user_id'] > 0 ) {
-            $where[]  = 'user_id = %d';
-            $params[] = (int) $args['user_id'];
-        }
-
-        if ( ! empty( $args['session_id'] ) ) {
-            $where[]  = 'session_id = %s';
-            $params[] = $args['session_id'];
+        // [2026-07-28 Johnny Chu] R-CH-IDMEM — identity_uuid is the read owner; user_id only recovers unmigrated rows.
+        $scope = class_exists( 'BizCity_Memory_Identity_Scope' )
+            ? BizCity_Memory_Identity_Scope::resolve( $args )
+            : array(
+                'user_id'       => (int) $args['user_id'],
+                'identity_uuid' => (string) $args['identity_uuid'],
+            );
+        if ( class_exists( 'BizCity_Memory_Identity_Scope' ) ) {
+            if ( ! BizCity_Memory_Identity_Scope::append_read_scope( $where, $params, $scope ) ) {
+                return [];
+            }
+        } elseif ( (int) $scope['user_id'] > 0 ) {
+            $where[]  = 'identity_uuid = %s AND user_id = %d';
+            $params[] = '';
+            $params[] = (int) $scope['user_id'];
+        } else {
+            return [];
         }
 
         if ( ! empty( $args['memory_tier'] ) ) {
@@ -725,6 +867,8 @@ class BizCity_User_Memory {
      * @return string|false  'insert', 'update', or false
      * ================================================================ */
     public function upsert_public( $data ) {
+        // [2026-07-28 Johnny Chu] PHASE-0.52 W8.3 — reset stale failure state before each public upsert call.
+        self::clear_last_upsert_failure();
         return $this->upsert( $data );
     }
 
@@ -737,6 +881,9 @@ class BizCity_User_Memory {
     private function upsert( $data ) {
         global $wpdb;
 
+        // [2026-07-28 Johnny Chu] PHASE-0.52 W8.3 — ensure each upsert run reports only its own failure reason.
+        self::clear_last_upsert_failure();
+
         $table   = self::table();
         $now     = current_time( 'mysql' );
         $blog_id = get_current_blog_id();
@@ -744,6 +891,7 @@ class BizCity_User_Memory {
         $data = wp_parse_args( $data, [
             'user_id'        => 0,
             'session_id'     => '',
+            'identity_uuid'  => '',
             'memory_tier'    => self::TIER_EXTRACTED,
             'memory_type'    => self::TYPE_FACT,
             'memory_key'     => '',
@@ -753,18 +901,76 @@ class BizCity_User_Memory {
             'metadata'       => '',
         ] );
 
+        if ( empty( $data['memory_key'] ) ) {
+            // [2026-07-28 Johnny Chu] PHASE-0.52 W8.3 — fail explicitly when the caller omitted the memory key.
+            self::set_last_upsert_failure( 'invalid_memory_key', 'Memory key is required for deterministic ownership and de-duplication.' );
+            return false;
+        }
+        if ( empty( trim( (string) $data['memory_text'] ) ) ) {
+            // [2026-07-28 Johnny Chu] PHASE-0.52 W8.3 — fail explicitly when memory text is empty.
+            self::set_last_upsert_failure( 'empty_memory_text', 'Memory text is empty.' );
+            return false;
+        }
+
+        // [2026-07-28 Johnny Chu] R-CH-IDMEM — new legacy-tier rows require the canonical UUID owner.
+        if ( class_exists( 'BizCity_Memory_Identity_Scope' ) ) {
+            $data = BizCity_Memory_Identity_Scope::prepare_write( $data );
+            if ( ! is_array( $data ) ) {
+                $raw_user_id = is_array( $data ) ? (int) ( $data['user_id'] ?? 0 ) : 0;
+                $raw_session = is_array( $data ) ? (string) ( $data['session_id'] ?? '' ) : '';
+                self::set_last_upsert_failure(
+                    'identity_uuid_missing',
+                    'Unable to resolve a durable identity UUID owner for memory write.',
+                    '',
+                    array(
+                        'user_id'    => $raw_user_id,
+                        'session_id' => $raw_session,
+                    )
+                );
+                return false;
+            }
+        } elseif ( empty( $data['identity_uuid'] ) ) {
+            self::set_last_upsert_failure( 'identity_uuid_missing', 'identity_uuid is required when memory identity scope is unavailable.' );
+            return false;
+        }
+
         // Check existing by unique key
+        // [2026-07-28 Johnny Chu] HOTFIX — reset wpdb last_error before guarded existence query.
+        $wpdb->last_error = '';
         $exists_id = (int) $wpdb->get_var( $wpdb->prepare(
-            "SELECT id FROM {$table} WHERE blog_id = %d AND user_id = %d AND session_id = %s AND memory_key = %s LIMIT 1",
+            "SELECT id FROM {$table} WHERE blog_id = %d AND user_id = %d AND session_id = %s AND identity_uuid = %s AND memory_key = %s LIMIT 1",
             $blog_id,
             (int) $data['user_id'],
             (string) $data['session_id'],
+            (string) $data['identity_uuid'],
             (string) $data['memory_key']
         ) );
+        if ( ! empty( $wpdb->last_error ) ) {
+            $db_error = (string) $wpdb->last_error;
+            // [2026-07-28 Johnny Chu] PHASE-0.52 W8.4 — one-shot schema self-heal + retry when legacy tenant table is stale.
+            if ( self::maybe_repair_schema( $table, 'upsert_select_existing' ) ) {
+                $wpdb->last_error = '';
+                $exists_id = (int) $wpdb->get_var( $wpdb->prepare(
+                    "SELECT id FROM {$table} WHERE blog_id = %d AND user_id = %d AND session_id = %s AND identity_uuid = %s AND memory_key = %s LIMIT 1",
+                    $blog_id,
+                    (int) $data['user_id'],
+                    (string) $data['session_id'],
+                    (string) $data['identity_uuid'],
+                    (string) $data['memory_key']
+                ) );
+            }
+            if ( ! empty( $wpdb->last_error ) ) {
+                self::set_last_upsert_failure( 'db_select_existing_failed', 'Failed to read existing memory row before upsert.', (string) $wpdb->last_error );
+                return false;
+            }
+            if ( $exists_id < 1 && $db_error !== '' ) {
+                do_action( 'bizcity_user_memory_schema_repaired', array( 'table' => $table, 'reason' => 'upsert_select_existing', 'db_error' => $db_error ) );
+            }
+        }
 
         if ( $exists_id > 0 ) {
             // Update — merge score, bump times_seen
-            $wpdb->query( $wpdb->prepare(
+            $updated = $wpdb->query( $wpdb->prepare(
                 "UPDATE {$table} SET
                     memory_text = %s,
                     score = GREATEST(score, %d),
@@ -780,6 +986,10 @@ class BizCity_User_Memory {
                 $now,
                 $exists_id
             ) );
+            if ( false === $updated ) {
+                self::set_last_upsert_failure( 'db_update_failed', 'Failed to update existing memory row.', (string) $wpdb->last_error, array( 'id' => (int) $exists_id ) );
+                return false;
+            }
             /**
              * Wave 2.8d D5 — dual-write mirror into unified `bizcity_memory`.
              * NO-OP unless filter `bizcity_memory_unified_enabled` returns TRUE.
@@ -789,28 +999,59 @@ class BizCity_User_Memory {
         }
 
         // Enforce limit
+        // [2026-07-28 Johnny Chu] HOTFIX — reset wpdb last_error before eviction-count query.
+        $wpdb->last_error = '';
         $count = (int) $wpdb->get_var( $wpdb->prepare(
-            "SELECT COUNT(*) FROM {$table} WHERE blog_id = %d AND user_id = %d AND session_id = %s",
+            "SELECT COUNT(*) FROM {$table} WHERE blog_id = %d AND user_id = %d AND session_id = %s AND identity_uuid = %s",
             $blog_id,
             (int) $data['user_id'],
-            (string) $data['session_id']
+            (string) $data['session_id'],
+            (string) $data['identity_uuid']
         ) );
+        if ( ! empty( $wpdb->last_error ) ) {
+            $db_error = (string) $wpdb->last_error;
+            // [2026-07-28 Johnny Chu] HOTFIX — one-shot schema repair + retry for stale tenants that fail at count stage.
+            if ( self::maybe_repair_schema( $table, 'upsert_count_before_eviction' ) ) {
+                $wpdb->last_error = '';
+                $count = (int) $wpdb->get_var( $wpdb->prepare(
+                    "SELECT COUNT(*) FROM {$table} WHERE blog_id = %d AND user_id = %d AND session_id = %s AND identity_uuid = %s",
+                    $blog_id,
+                    (int) $data['user_id'],
+                    (string) $data['session_id'],
+                    (string) $data['identity_uuid']
+                ) );
+            }
+            if ( ! empty( $wpdb->last_error ) ) {
+                self::set_last_upsert_failure( 'db_count_failed', 'Failed to count memory rows before eviction.', (string) $wpdb->last_error );
+                return false;
+            }
+            if ( $count >= 0 && $db_error !== '' ) {
+                do_action( 'bizcity_user_memory_schema_repaired', array( 'table' => $table, 'reason' => 'upsert_count_before_eviction', 'db_error' => $db_error ) );
+            }
+        }
 
         if ( $count >= self::MAX_PER_USER ) {
             // Delete lowest score
-            $wpdb->query( $wpdb->prepare(
-                "DELETE FROM {$table} WHERE blog_id = %d AND user_id = %d AND session_id = %s ORDER BY score ASC, updated_at ASC LIMIT 1",
+            // [2026-07-28 Johnny Chu] R-CH-IDMEM — evict only within the same durable identity scope.
+            $evicted = $wpdb->query( $wpdb->prepare(
+                "DELETE FROM {$table} WHERE blog_id = %d AND user_id = %d AND session_id = %s AND identity_uuid = %s ORDER BY score ASC, updated_at ASC LIMIT 1",
                 $blog_id,
                 (int) $data['user_id'],
-                (string) $data['session_id']
+                (string) $data['session_id'],
+                (string) $data['identity_uuid']
             ) );
+            if ( false === $evicted ) {
+                self::set_last_upsert_failure( 'db_evict_failed', 'Failed to evict the lowest-priority memory row.', (string) $wpdb->last_error );
+                return false;
+            }
         }
 
         // Insert
-        $wpdb->insert( $table, [
+        $inserted = $wpdb->insert( $table, [
             'blog_id'        => $blog_id,
             'user_id'        => (int) $data['user_id'],
             'session_id'     => (string) $data['session_id'],
+            'identity_uuid'  => (string) $data['identity_uuid'],
             'memory_tier'    => $data['memory_tier'],
             'memory_type'    => $data['memory_type'],
             'memory_key'     => $data['memory_key'],
@@ -823,6 +1064,10 @@ class BizCity_User_Memory {
             'created_at'     => $now,
             'updated_at'     => $now,
         ] );
+        if ( false === $inserted ) {
+            self::set_last_upsert_failure( 'db_insert_failed', 'Failed to insert a new memory row.', (string) $wpdb->last_error );
+            return false;
+        }
 
         $inserted_id = (int) $wpdb->insert_id;
         if ( $inserted_id > 0 ) {
@@ -834,6 +1079,9 @@ class BizCity_User_Memory {
                 'blog_id' => $blog_id,
                 'id'      => $inserted_id,
             ] ), 'insert' );
+        } else {
+            self::set_last_upsert_failure( 'db_insert_no_id', 'Insert reported success but no insert_id was returned.', (string) $wpdb->last_error );
+            return false;
         }
 
         return $inserted_id ? 'insert' : false;

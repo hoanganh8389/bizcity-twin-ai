@@ -177,15 +177,9 @@ final class BizCity_Automation_Action_Run_Astro_Relation_Assessment extends BizC
 	 * @param string $chat_id
 	 * @return int
 	 */
-	private function resolve_user_id( array $ctx, $chat_id ) {
-		$user_id = (int) ( $ctx['trigger']['wp_user_id'] ?? $ctx['_owner_user_id'] ?? 0 );
-		if ( $user_id > 0 ) {
-			return $user_id;
-		}
-		if ( $chat_id !== '' && class_exists( 'BizCity_User_Resolver' ) ) {
-			return (int) BizCity_User_Resolver::instance()->resolve( $chat_id );
-		}
-		return 0;
+	private function resolve_user_id( array $ctx, $_chat_id ) {
+		// [2026-07-17 Johnny Chu] PHASE-TWINWEB F4 — never derive automation owner from chat_id in relation flow.
+		return $this->resolve_owner_user_id( $ctx, 0 );
 	}
 
 	/**

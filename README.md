@@ -55,10 +55,72 @@
 ## 1) Tuyên ngôn sản phẩm | Product Thesis
 
 **VI**
-Doanh nghiệp hiện đại không thiếu công cụ. Thứ doanh nghiệp cần là một hệ thống tri thức vận hành thống nhất, để không bị thất thoát bộ nhớ tổ chức qua chat, doc, CRM, fanpage và quy trình nội bộ. Bizcity Twin AI đặt mục tiêu xây dựng **Bộ não thứ 2** ngay trên WordPress, giúp doanh nghiệp chủ động huấn luyện, kiểm soát, và tái sử dụng tri thức trong mọi hoạt động.
+
+Bizcity Twin được xây dựng từ một nhận định đơn giản: doanh nghiệp không chỉ cần
+một công cụ để trò chuyện với AI, mà cần một **bộ não vận hành** có thể ghi nhớ,
+hiểu và hỗ trợ công việc hằng ngày.
+
+1. **AI phổ thông chưa hiểu doanh nghiệp**: Các công cụ chat AI và tự động hóa
+  rất mạnh, nhưng thường hoạt động tách rời khỏi dữ liệu, quy trình và cách làm
+  việc riêng của từng tổ chức.
+
+2. **Tri thức nội bộ còn phân mảnh**: Hồ sơ, văn bản, sản phẩm, khách hàng và
+  lịch sử trao đổi thường nằm ở nhiều nơi. Khi chưa được chuẩn hóa và kết nối,
+  chúng khó trở thành nguồn tri thức đáng tin cậy để nhân viên tra cứu, đào tạo
+  và ra quyết định.
+
+3. **Chi phí mở rộng AI tăng theo số người dùng**: Việc mua nhiều tài khoản AI
+  riêng lẻ có thể làm chi phí tăng nhanh, trong khi dữ liệu và ngữ cảnh của
+  doanh nghiệp vẫn không được dùng chung một cách có kiểm soát.
+
+4. **Giải pháp của Bizcity Twin**: Biến WordPress thành nền tảng vận hành AI của
+  doanh nghiệp. Tài liệu và kinh nghiệm nội bộ được tổ chức thành Knowledge
+  Graph, kết hợp Graph RAG, bộ nhớ, CRM, các kênh giao tiếp và workflow để tạo
+  ra một **Second Brain** có thể phục vụ nhiều phòng ban và vai trò.
+
+5. **Mục tiêu sử dụng**: Giúp doanh nghiệp làm chủ dữ liệu và quy trình của mình,
+  giảm thao tác lặp lại, tăng năng suất chăm sóc khách hàng, marketing và vận
+  hành, đồng thời triển khai AI với chi phí phù hợp hơn cho doanh nghiệp vừa,
+  nhỏ và hộ kinh doanh.
+
+Bizcity Twin theo đuổi mô hình mã nguồn mở và free core: doanh nghiệp có thể tự
+triển khai trên WordPress, kiểm soát dữ liệu, mở rộng từng bước và giảm sự phụ
+thuộc vào các công cụ AI rời rạc. AI không chỉ trả lời câu hỏi; AI trở thành một
+phần của hệ thống vận hành được doanh nghiệp huấn luyện và kiểm soát.
+
+
 
 **EN**
-Modern businesses do not lack tools; they lack a unified operating memory. Bizcity Twin AI builds a **Second Brain** directly inside WordPress so teams can train, control, and reuse knowledge across CRM, chat, content, and operations without fragmentation.
+Bizcity Twin starts from a simple observation: businesses do not only need a tool
+that chats with AI. They need an **operating brain** that can remember, understand,
+and support their daily work.
+
+1. **General-purpose AI does not know the business**: Chat and automation tools are
+  powerful, but they usually operate separately from each organization's data,
+  processes, and working methods.
+
+2. **Internal knowledge is fragmented**: Records, documents, products, customers,
+  and conversation history live in different places. Without structure and
+  connections, they cannot become a reliable source for search, training, and
+  decision-making.
+
+3. **AI costs grow with every user**: Buying separate AI accounts can increase
+  operating costs quickly while the organization's data and context remain
+  disconnected.
+
+4. **The Bizcity Twin approach**: Turn WordPress into the organization's AI
+  operating platform. Internal documents and experience become a Knowledge Graph,
+  combined with Graph RAG, memory, CRM, communication channels, and workflows to
+  create a **Second Brain** that supports multiple teams and roles.
+
+5. **The practical goal**: Help businesses own their data and processes, reduce
+  repetitive work, improve customer care, marketing, and operations, and adopt AI
+  at a more sustainable cost for small and medium-sized businesses.
+
+Bizcity Twin follows an open-source, free-core model. Organizations can self-host
+on WordPress, keep control of their data, expand incrementally, and reduce their
+dependence on disconnected AI tools. AI should not only answer questions; it should
+become part of an operating system trained and governed by the business itself.
 
 ---
 
@@ -66,12 +128,12 @@ Modern businesses do not lack tools; they lack a unified operating memory. Bizci
 
 | # | Việt Nam | English |
 |---|---|---|
-| 1 | **Kho kiến thức Graph RAG**: Tạo bộ não vận hành thứ 2 cho doanh nghiệp bằng tri thức được doanh nghiệp chủ động đào tạo. | **Graph RAG knowledge core**: Build a second operating brain trained by your own company knowledge. |
-| 2 | **WordPress thành Obsidian + Notion online**: Gom tri thức về một trục thống nhất, tránh phân tán, tiết kiệm chi phí đào tạo nội bộ và truyền thông sản phẩm. | **WordPress as online Obsidian + Notion**: Centralize knowledge, reduce fragmentation, and lower internal training cost. |
-| 3 | **Tích hợp Bizcoach-pro + chiêm tinh**: Quản lý hồ sơ nhân sự, danh sách đội ngũ/chủ doanh nghiệp theo bản đồ chiêm tinh và transit timeline để phân tích điểm mạnh, điểm yếu, khả năng phối hợp. | **Bizcoach-pro + astrology integration**: Manage people profiles with astrology maps and transit timeline insights for strengths, weaknesses, and collaboration fit. |
-| 4 | **Twin Channel Gateway đa kênh**: Mở rộng bộ não ra Zalo OA, Facebook, Messenger, Zalo Bot để chăm sóc, đăng bài, trả lời, và vận hành lệnh quản trị. | **Twin Channel Gateway multi-channel reach**: Extend the same brain to Zalo OA, Facebook, Messenger, and Zalo Bot for publishing, support, and admin-command operations. |
-| 5 | **Twin CRM cho Ecom funnel**: Vận hành landing page, thu thập lead, giao việc, chăm sóc, và chuyển đổi khách hàng theo dữ liệu doanh nghiệp. | **Twin CRM for Ecom funnels**: Run landing-page capture, lead assignment, nurture, and conversion flows with your own data. |
-| 6 | **Automation cho vận hành và báo cáo**: Tự động hóa quy trình, chiến dịch, báo cáo định kỳ qua trợ lý Zalo Bot; nhận nhiệm vụ và xử lý tự động/bán tự động. | **Automation for operations and reporting**: Automate workflows, campaigns, and periodic reporting through assistant-driven Zalo Bot operations. |
+| 1 | **Graph RAG là nền móng bộ não thứ hai**: Chuẩn hóa tài liệu, sự kiện, thực thể, quan hệ và nguồn gốc tri thức thành một lớp hiểu biết chung để mọi tính năng AI cùng sử dụng. | **Graph RAG as the Second Brain foundation**: Structure documents, events, entities, relationships, and provenance into a shared knowledge layer for every AI capability. |
+| 2 | **Một trí nhớ vận hành thống nhất trên WordPress**: Kết nối tri thức, quy trình, khách hàng, sản phẩm và lịch sử làm việc thay vì để dữ liệu nằm trong các công cụ rời rạc. | **One unified operating memory on WordPress**: Connect knowledge, processes, customers, products, and work history instead of leaving data in disconnected tools. |
+| 3 | **Suy luận có ngữ cảnh và có căn cứ**: Kết hợp graph traversal, retrieval, reranking, memory và provenance để AI hiểu quan hệ nhiều lớp, trả lời đúng bối cảnh và chỉ ra nguồn tham chiếu. | **Contextual, evidence-grounded reasoning**: Combine graph traversal, retrieval, reranking, memory, and provenance so AI understands multi-hop relationships, answers in context, and cites its sources. |
+| 4 | **Một bộ não xuyên suốt các kênh và đội ngũ**: Đưa cùng một tri thức và ngữ cảnh đến CRM, webchat, Zalo, Facebook, Messenger và các vai trò nội bộ, với quyền truy cập phù hợp. | **One brain across channels and teams**: Bring the same knowledge and context to CRM, webchat, Zalo, Facebook, Messenger, and internal roles with appropriate access control. |
+| 5 | **CRM và chăm sóc khách hàng dựa trên tri thức doanh nghiệp**: Biến dữ liệu sản phẩm, khách hàng và lịch sử trao đổi thành năng lực thu thập lead, giao việc, chăm sóc và chuyển đổi có ngữ cảnh. | **Knowledge-driven CRM and customer care**: Turn product, customer, and conversation data into contextual lead capture, assignment, nurturing, and conversion capabilities. |
+| 6 | **Automation biến hiểu biết thành hành động**: Dùng cùng nền móng Graph RAG để kích hoạt workflow, nhắc việc, báo cáo, xuất bản nội dung và ghi nhận kết quả, giúp bộ não thứ hai ngày càng hữu ích hơn. | **Automation turns understanding into action**: Use the same Graph RAG foundation to trigger workflows, reminders, reports, publishing, and outcome capture so the Second Brain becomes more useful over time. |
 
 ---
 
@@ -79,20 +141,48 @@ Modern businesses do not lack tools; they lack a unified operating memory. Bizci
 
 ### 3.1 VI - Vì sao Graph RAG?
 
-Vector-only RAG mạnh ở tìm đoạn text giống nhau, nhưng yếu khi cần suy luận quan hệ nhiều lớp (multi-hop), phân biệt thực thể trùng tên, và truy xuất nguồn gốc theo thời gian. Graph RAG giải quyết bằng cách đặt **entity-relation-provenance** làm trung tâm.
+Graph RAG là core engine và là nền móng tri thức xuyên suốt của Bizcity Twin. Mục tiêu
+không chỉ là tìm một đoạn văn giống câu hỏi, mà là xây dựng một bộ não vận hành có
+thể kết nối **thực thể - quan hệ - sự kiện - nguồn gốc - thời gian** trong toàn bộ
+doanh nghiệp.
+
+Vector-only RAG hữu ích khi tìm nội dung tương đồng, nhưng thường yếu hơn khi cần
+suy luận quan hệ nhiều lớp, phân biệt các thực thể trùng tên, theo dõi thay đổi theo
+thời gian hoặc giải thích câu trả lời đến từ đâu. Graph RAG bổ sung lớp cấu trúc và
+provenance để mọi module, từ chat và CRM đến automation, cùng dựa trên một nguồn
+tri thức có ngữ cảnh.
+
+Vì vậy, Graph RAG không phải một tính năng đứng riêng. Đây là lớp nền giúp Bizcity
+Twin duy trì trí nhớ doanh nghiệp, trả lời có căn cứ, hỗ trợ quyết định và chuyển
+hiểu biết thành hành động trong các quy trình hằng ngày.
 
 ### 3.2 EN - Why Graph RAG?
 
-Vector retrieval is useful for similarity, but weak for connected meaning. Graph RAG makes entities and relationships first-class, enabling multi-hop business reasoning with traceable citations.
+Graph RAG is Bizcity Twin's core engine and the shared knowledge foundation of its
+Second Brain. The goal is not merely to find a text fragment similar to a question,
+but to connect **entities, relationships, events, provenance, and time** across the
+business.
+
+Vector-only RAG is useful for similarity search, but it is weaker at multi-hop
+reasoning, distinguishing entities with similar names, tracking change over time,
+and explaining where an answer came from. Graph RAG adds structure and provenance
+so every module, from chat and CRM to automation, can work from the same contextual
+knowledge base.
+
+Graph RAG is therefore not an isolated feature. It is the layer that gives Bizcity
+Twin persistent business memory, grounded answers, decision support, and a path from
+understanding to action in everyday operations.
 
 ### 3.3 Retrieval pipeline | Luồng truy xuất
 
 ```text
-Question
-  -> [1] Retrieve (BM25 + dense fusion)
-  -> [2] Expand (graph traversal by relations)
-  -> [3] Rerank (relevance + recency + provenance)
-  -> [4] Answer (with citations)
+Business knowledge + user question
+  -> [1] Structure (entities, relations, events, provenance)
+  -> [2] Retrieve (BM25 + dense fusion)
+  -> [3] Expand (graph traversal by relations and time)
+  -> [4] Rerank (relevance + recency + provenance)
+  -> [5] Compose (answer, decision, or workflow action)
+  -> [6] Record outcome (memory, audit trail, and feedback)
 ```
 
 ---

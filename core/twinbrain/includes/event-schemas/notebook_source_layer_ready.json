@@ -1,0 +1,157 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "notebook_source_layer_ready",
+  "description": "TwinBrain Notebook Source Layer — first-class source map for Ask Brain notebook answers.",
+  "type": "object",
+  "required": ["trace_id", "notebook_count", "passage_count", "notebook_source_map", "notebook_source_block_md"],
+  "properties": {
+    "trace_id": { "type": "string" },
+    "notebook_count": { "type": "integer", "minimum": 0 },
+    "passage_count": { "type": "integer", "minimum": 0 },
+    "strong_count": { "type": "integer", "minimum": 0 },
+    "weak_count": { "type": "integer", "minimum": 0 },
+    "source_file_count": { "type": "integer", "minimum": 0 },
+    "source_file_with_relations_count": { "type": "integer", "minimum": 0 },
+    "search_context_total": { "type": "integer", "minimum": 0 },
+    "search_context_top_n": { "type": "integer", "minimum": 0 },
+    "search_context_query": { "type": "string" },
+    "search_context_scope": { "type": "string" },
+    "search_context_tokens": { "type": "array", "items": { "type": "string" } },
+    "product_entity_count": { "type": "integer", "minimum": 0 },
+    "product_name_entity_count": { "type": "integer", "minimum": 0 },
+    "product_entities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "source_title", "citation", "evidence_excerpt", "confidence"],
+        "properties": {
+          "name": { "type": "string" },
+          "normalized_name": { "type": "string" },
+          "entity_type": { "type": "string", "enum": ["product_name", "category_trait", "claim_phrase"] },
+          "is_product_name": { "type": "boolean" },
+          "source_title": { "type": "string" },
+          "notebook_title": { "type": "string" },
+          "source_id": { "type": "integer" },
+          "passage_id": { "type": "integer" },
+          "citation": { "type": "string" },
+          "evidence_excerpt": { "type": "string" },
+          "confidence": { "type": "string", "enum": ["high", "medium", "low"] },
+          "match_reason": { "type": "string" }
+        }
+      }
+    },
+    "search_context_results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "rank": { "type": "integer", "minimum": 0 },
+          "notebook_id": { "type": "integer" },
+          "notebook_title": { "type": "string" },
+          "source_id": { "type": "integer" },
+          "source_title": { "type": "string" },
+          "origin_kind": { "type": "string" },
+          "origin_url": { "type": "string" },
+          "first_passage_id": { "type": "integer" },
+          "citation": { "type": "string" },
+          "match_count": { "type": "integer", "minimum": 0 },
+          "document_chars": { "type": "integer", "minimum": 0 },
+          "snippet": { "type": "string" },
+          "context_excerpt": { "type": "string" },
+          "matched_tokens": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "notebook_source_block_md": { "type": "string" },
+    "source_file_briefs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["notebook_id", "source_id", "source_title", "coverage", "key_citations"],
+        "properties": {
+          "notebook_id": { "type": "integer" },
+          "source_id": { "type": "integer" },
+          "source_title": { "type": "string" },
+          "source_type": { "type": "string" },
+          "origin_url": { "type": "string" },
+          "passage_count_total": { "type": "integer", "minimum": 0 },
+          "passage_count_used": { "type": "integer", "minimum": 0 },
+          "coverage": { "type": "string", "enum": ["strong", "partial", "weak"] },
+          "key_citations": { "type": "array", "items": { "type": "string" } },
+          "matched_tokens": { "type": "array", "items": { "type": "string" } },
+          "search_context_hits": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "token": { "type": "string" },
+                "excerpt": { "type": "string" },
+                "match_count": { "type": "integer", "minimum": 0 },
+                "rank": { "type": "integer", "minimum": 0 }
+              }
+            }
+          },
+          "relation_triples": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["subject", "predicate", "object"],
+              "properties": {
+                "subject": { "type": "string" },
+                "predicate": { "type": "string" },
+                "object": { "type": "string" }
+              }
+            }
+          },
+          "source_claims": { "type": "array", "items": { "type": "string" } },
+          "source_gaps": { "type": "array", "items": { "type": "string" } },
+          "rank_reason": { "type": "string" }
+        }
+      }
+    },
+    "notebook_source_map": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["notebook_id", "title", "coverage", "passages"],
+        "properties": {
+          "notebook_id": { "type": "integer" },
+          "title": { "type": "string" },
+          "label": { "type": "string" },
+          "selection_reason": { "type": "string" },
+          "score": { "type": "number" },
+          "guru_bound": { "type": "boolean" },
+          "coverage": {
+            "type": "object",
+            "properties": {
+              "passage_count": { "type": "integer", "minimum": 0 },
+              "matched_token_count": { "type": "integer", "minimum": 0 },
+              "search_context_count": { "type": "integer", "minimum": 0 },
+              "source_files": { "type": "array", "items": { "type": "string" } },
+              "confidence": { "type": "string", "enum": ["strong", "medium", "weak"] }
+            }
+          },
+          "passages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["token", "passage_id"],
+              "properties": {
+                "token": { "type": "string" },
+                "passage_id": { "type": "integer" },
+                "source_id": { "type": "integer" },
+                "source_title": { "type": "string" },
+                "source_type": { "type": "string" },
+                "matched_tokens": { "type": "array", "items": { "type": "string" } },
+                "excerpt": { "type": "string" },
+                "rank_reason": { "type": "string" },
+                "search_match_count": { "type": "integer", "minimum": 0 },
+                "search_result_rank": { "type": "integer", "minimum": 0 }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

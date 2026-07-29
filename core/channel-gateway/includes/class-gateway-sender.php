@@ -96,14 +96,14 @@ class BizCity_Gateway_Sender {
 				do_action( 'bizcity_channel_outbound_logged', array(
 					'chat_id'  => $chat_id,
 					'platform' => $platform,
-					'message'  => $message,
+					'message'  => $this->sanitize_log_message( $message ),
 					'type'     => $type,
 					'extra'    => array_merge( $extra, array( '_trace' => $trace ) ),
 					'sent'     => (bool) $result['sent'],
 					'error'    => (string) $result['error'],
 				) );
 
-				$this->log_outbound( $chat_id, $message, $platform, $result['sent'] );
+				$this->log_outbound( $chat_id, $this->sanitize_log_message( $message ), $platform, $result['sent'] );
 				return $result;
 			}
 
@@ -115,14 +115,14 @@ class BizCity_Gateway_Sender {
 			do_action( 'bizcity_channel_outbound_logged', array(
 				'chat_id'  => $chat_id,
 				'platform' => $result['platform'],
-				'message'  => $message,
+				'message'  => $this->sanitize_log_message( $message ),
 				'type'     => $type,
 				'extra'    => array_merge( $extra, array( '_trace' => $trace ) ),
 				'sent'     => (bool) $result['sent'],
 				'error'    => (string) $result['error'],
 			) );
 
-			$this->log_outbound( $chat_id, $message, $result['platform'], $result['sent'] );
+			$this->log_outbound( $chat_id, $this->sanitize_log_message( $message ), $result['platform'], $result['sent'] );
 
 			return $result;
 		} finally {
@@ -238,6 +238,12 @@ class BizCity_Gateway_Sender {
 				if ( ! $parsed_bot_id && preg_match( '/^(\d+)_(.+)$/', $raw_user_id, $m ) ) {
 					$parsed_bot_id = (int) $m[1];
 					$raw_user_id   = $m[2];
+				}
+				// [2026-07-21 Johnny Chu] PHASE-ZALOBOT-GROUP W7 — strip conversation target prefix before Zalo Bot API send.
+				if ( strpos( $raw_user_id, 'private_' ) === 0 ) {
+					$raw_user_id = substr( $raw_user_id, 8 );
+				} elseif ( strpos( $raw_user_id, 'group_' ) === 0 ) {
+					$raw_user_id = substr( $raw_user_id, 6 );
 				}
 
 				// [2026-06-13 Johnny Chu] ZA-2 — Try BizCity_Channel_Integration (Zalo OA via
@@ -433,6 +439,12 @@ class BizCity_Gateway_Sender {
 		] );
 	}
 
+	private function sanitize_log_message( string $message ): string {
+		// [2026-07-27 Johnny Chu] PHASE-0.52 W1 — never persist raw one-time magic-link tokens in channel audit logs.
+		$redacted = preg_replace( '/([?&]bzzalolink=)[^&\s]+/i', '$1[redacted]', $message );
+		return is_string( $redacted ) ? $redacted : $message;
+	}
+
 	/* ═══════════════════════════════════════════
 	 *  PHASE 0.37 — Normalized Outbound API
 	 *
@@ -538,7 +550,7 @@ class BizCity_Gateway_Sender {
 			}
 
 			do_action( 'bizcity_channel_after_send', $result, $recipient, $platform );
-			$this->log_outbound( $recipient, $message, $platform, (bool) ( $result['sent'] ?? false ) );
+			$this->log_outbound( $recipient, $this->sanitize_log_message( $message ), $platform, (bool) ( $result['sent'] ?? false ) );
 			return $result;
 		}
 

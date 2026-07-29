@@ -10,10 +10,10 @@
       "_bcpro-vendor-query.js"
     ]
   },
-  "src/main.tsx": {
+  "index.html": {
     "file": "assets/bcpro-self-service.js",
-    "name": "main",
-    "src": "src/main.tsx",
+    "name": "index",
+    "src": "index.html",
     "isEntry": true,
     "imports": [
       "_bcpro-vendor-query.js",

@@ -41,7 +41,8 @@ function bccm_get_astro_api_key() {
 
     // 2. Network-level key (multisite fallback)
     if (empty($key) && is_multisite()) {
-        $key = get_site_option('bccm_network_astro_api_key', '');
+        // [2026-07-27 Johnny Chu] R-MSDB — legacy API settings are blog-local.
+        $key = get_option('bccm_network_astro_api_key', '');
     }
 
     // 3. PHP constant fallback
@@ -188,11 +189,12 @@ function _bccm_astro_api_call_via_gateway( $endpoint, $payload, $timeout ) {
  * comment-out — giữ làm tham chiếu lịch sử.
  */
 function _bccm_astro_api_call_direct( $endpoint, $payload, $timeout, $reason = 'gateway_unavailable' ) {
-    $legacy_count = (int) get_site_option( 'bcr_astro_legacy_call_count', 0 );
-    update_site_option( 'bcr_astro_legacy_call_count', $legacy_count + 1 );
-    update_site_option( 'bcr_astro_legacy_last_at', time() );
-    update_site_option( 'bcr_astro_legacy_last_endpoint', (string) $endpoint );
-    update_site_option( 'bcr_astro_legacy_last_source', 'bcpro_adopter_shadow:' . $reason );
+    // [2026-07-27 Johnny Chu] R-MSDB — isolate legacy telemetry per active blog/shard.
+    $legacy_count = (int) get_option( 'bcr_astro_legacy_call_count', 0 );
+    update_option( 'bcr_astro_legacy_call_count', $legacy_count + 1 );
+    update_option( 'bcr_astro_legacy_last_at', time() );
+    update_option( 'bcr_astro_legacy_last_endpoint', (string) $endpoint );
+    update_option( 'bcr_astro_legacy_last_source', 'bcpro_adopter_shadow:' . $reason );
     error_log( '[BIZCITY-ASTRO][LEGACY-DIRECT-BLOCKED] freeastrologyapi.com ' . $endpoint . ' reason=' . $reason . ' — host deprecated, refusing.' );
 
     return new WP_Error(
@@ -244,11 +246,11 @@ function _bccm_astro_api_call_direct( $endpoint, $payload, $timeout, $reason = '
  * @internal Sprint E.1 (2026-05-16)
  */
 function _bccm_astro_bump_e1_counter( $endpoint, $result ) {
-    $n = (int) get_site_option( 'bcr_astro_e1_via_gateway_count', 0 );
-    update_site_option( 'bcr_astro_e1_via_gateway_count', $n + 1 );
-    update_site_option( 'bcr_astro_e1_via_gateway_last_at', time() );
-    update_site_option( 'bcr_astro_e1_via_gateway_last_endpoint', (string) $endpoint );
-    update_site_option( 'bcr_astro_e1_via_gateway_last_result', (string) $result );
+    $n = (int) get_option( 'bcr_astro_e1_via_gateway_count', 0 );
+    update_option( 'bcr_astro_e1_via_gateway_count', $n + 1 );
+    update_option( 'bcr_astro_e1_via_gateway_last_at', time() );
+    update_option( 'bcr_astro_e1_via_gateway_last_endpoint', (string) $endpoint );
+    update_option( 'bcr_astro_e1_via_gateway_last_result', (string) $result );
 }
 
 /**
@@ -856,7 +858,8 @@ function bccm_astro_save_chart($coachee_id, $chart_data, $birth_input = [], $pas
 
     // [2026-07-06 Johnny Chu] HOTFIX — Transit writer unification:
     // legacy bccm_transit_prefetch_cron is disabled; do_transit_fetch is canonical writer.
-    if ( ! defined( 'BCPRO_LEGACY_TRANSIT_PREFETCH_ENABLED' ) || BCPRO_LEGACY_TRANSIT_PREFETCH_ENABLED ) {
+    // [2026-07-06 Johnny Chu] HOTFIX — default-disabled guard: only allow legacy prefetch when explicitly enabled.
+    if ( defined( 'BCPRO_LEGACY_TRANSIT_PREFETCH_ENABLED' ) && BCPRO_LEGACY_TRANSIT_PREFETCH_ENABLED ) {
         // Schedule background transit pre-fetch (stores today/+7/+30/+90/+365 snapshots in DB,
         // so AI can answer transit questions without calling the external API at chat time).
         // Always reschedule on chart create/update so data stays fresh.
@@ -866,6 +869,9 @@ function bccm_astro_save_chart($coachee_id, $chart_data, $birth_input = [], $pas
             wp_unschedule_event($existing_cron, 'bccm_transit_prefetch_cron', [$coachee_id, $prefetch_user_id]);
         }
         wp_schedule_single_event(time() + 30, 'bccm_transit_prefetch_cron', [$coachee_id, $prefetch_user_id]);
+    } else {
+        error_log( '[bccm_transit] Legacy prefetch disabled; skip scheduling bccm_transit_prefetch_cron'
+            . ' coachee_id=' . (int) $coachee_id . ' blog_id=' . (int) get_current_blog_id() );
     }
 
     return true;

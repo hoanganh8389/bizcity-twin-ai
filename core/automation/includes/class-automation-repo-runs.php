@@ -24,6 +24,8 @@ final class BizCity_Automation_Repo_Runs {
 	const STATUS_FAIL      = 3;
 	const STATUS_CANCELLED = 4;
 
+	private static $runs_user_id_column_exists = null;
+
 	public static function table_runs(): string { return BizCity_Automation_Installer::table( self::TABLE_RUNS ); }
 	public static function table_logs(): string { return BizCity_Automation_Installer::table( self::TABLE_LOGS ); }
 
@@ -33,7 +35,7 @@ final class BizCity_Automation_Repo_Runs {
 	 * @param int                 $workflow_id
 	 * @param array|string|null   $payload         Trigger payload (raw or pre-encoded JSON).
 	 * @param string              $parent_run_id   PG-S6: link replay child → parent. Empty = top-level run.
-	 * @param array               $extra           R-UNIFY Wave 5: optional contact_id / conversation_id for CRM-originated runs.
+	 * @param array               $extra           Optional metadata: user_id, contact_id, conversation_id.
 	 * @return string|WP_Error  The generated run_id on success.
 	 */
 	public static function enqueue( int $workflow_id, $payload = null, string $parent_run_id = '', array $extra = array() ) {
@@ -41,6 +43,24 @@ final class BizCity_Automation_Repo_Runs {
 		BizCity_Automation_Installer::ensure();
 
 		$run_id = 'run_' . wp_generate_password( 12, false, false );
+		// [2026-07-17 Johnny Chu] PHASE-TWINWEB F4 — derive canonical owner from payload/extra/workflow fallback.
+		$owner_user_id = 0;
+		if ( is_array( $payload ) ) {
+			// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-MY-CONTENT-TRACE — linked channel user owns run before workflow creator fallback.
+			$owner_user_id = (int) ( $payload['wp_user_id'] ?? $payload['_owner_user_id'] ?? 0 );
+		} elseif ( is_string( $payload ) && $payload !== '' ) {
+			$decoded = json_decode( $payload, true );
+			if ( is_array( $decoded ) ) {
+				$owner_user_id = (int) ( $decoded['wp_user_id'] ?? $decoded['_owner_user_id'] ?? 0 );
+			}
+		}
+		if ( $owner_user_id <= 0 ) {
+			$owner_user_id = (int) ( $extra['user_id'] ?? 0 );
+		}
+		if ( $owner_user_id <= 0 && class_exists( 'BizCity_Automation_Repo_Workflows' ) ) {
+			$wf = BizCity_Automation_Repo_Workflows::find( $workflow_id );
+			$owner_user_id = is_array( $wf ) ? (int) ( $wf['created_by'] ?? 0 ) : 0;
+		}
 
 		// [2026-06-15 Johnny Chu] R-UNIFY Wave 5 — accept contact_id / conversation_id from caller.
 		$insert = array(
@@ -51,6 +71,10 @@ final class BizCity_Automation_Repo_Runs {
 			'parent_run_id'        => substr( $parent_run_id, 0, 32 ),
 			'created_at'           => current_time( 'mysql' ),
 		);
+		// [2026-07-17 Johnny Chu] PHASE-TWINWEB F4 — persist canonical owner into runs.user_id when schema is ready.
+		if ( $owner_user_id > 0 && self::runs_has_user_id_column() ) {
+			$insert['user_id'] = $owner_user_id;
+		}
 		if ( ! empty( $extra['contact_id'] ) ) {
 			$insert['contact_id'] = (int) $extra['contact_id'];
 		}
@@ -87,6 +111,11 @@ final class BizCity_Automation_Repo_Runs {
 		if ( isset( $args['status'] ) && $args['status'] !== '' && $args['status'] !== null ) {
 			$where[]  = 'status = %d';
 			$params[] = (int) $args['status'];
+		}
+		// [2026-07-17 Johnny Chu] PHASE-TWINWEB F4 — optional owner filter for run listings.
+		if ( ! empty( $args['user_id'] ) && self::runs_has_user_id_column() ) {
+			$where[]  = 'user_id = %d';
+			$params[] = (int) $args['user_id'];
 		}
 		$limit  = max( 1, min( 200, (int) ( $args['limit']  ?? 50 ) ) );
 		$offset = max( 0, (int) ( $args['offset'] ?? 0 ) );
@@ -195,9 +224,125 @@ final class BizCity_Automation_Repo_Runs {
 		return $wpdb->update( self::table_logs(), $patch, array( 'id' => $log_id ) ) !== false;
 	}
 
+	/**
+	 * [2026-07-27 Johnny Chu] PHASE-LISTEN-DEDUP — find a recent run that already claimed
+	 * the same inbound trigger payload (matcher run vs FE test-listen run race).
+	 *
+	 * @param int   $workflow_id Workflow id.
+	 * @param array $payload     Incoming trigger payload.
+	 * @param int   $window_seconds Search window in seconds.
+	 * @return array|null {run, reason} or null when no duplicate found.
+	 */
+	public static function find_recent_duplicate_capture_run( int $workflow_id, array $payload, int $window_seconds = 45 ) {
+		global $wpdb;
+		if ( $workflow_id <= 0 ) { return null; }
+
+		$window_seconds = max( 5, min( 600, $window_seconds ) );
+
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				'SELECT * FROM ' . self::table_runs() . ' WHERE workflow_id = %d AND status IN (0,1,2,3) ORDER BY id DESC LIMIT 80',
+				$workflow_id
+			),
+			ARRAY_A
+		);
+		if ( empty( $rows ) ) { return null; }
+
+		$incoming = self::capture_identity_from_payload( $payload );
+		foreach ( $rows as $row ) {
+			$run = self::hydrate( (array) $row );
+			$created_at_ts = ! empty( $run['created_at'] ) ? strtotime( (string) $run['created_at'] ) : 0;
+			if ( $created_at_ts > 0 && ( time() - $created_at_ts ) > $window_seconds ) {
+				continue;
+			}
+			$trigger = is_array( $run['trigger_payload'] ?? null ) ? (array) $run['trigger_payload'] : array();
+			if ( empty( $trigger ) ) { continue; }
+			$existing = self::capture_identity_from_payload( $trigger );
+
+			// [2026-07-27 Johnny Chu] PHASE-LISTEN-DEDUP — strongest identity: listener_event_id.
+			if ( $incoming['listener_event_id'] > 0
+				&& $incoming['listener_event_id'] === $existing['listener_event_id'] ) {
+				return array( 'run' => $run, 'reason' => 'listener_event_id' );
+			}
+
+			// [2026-07-27 Johnny Chu] PHASE-LISTEN-DEDUP — provider message id if listener_event_id missing.
+			if ( $incoming['message_id'] !== ''
+				&& $incoming['message_id'] === $existing['message_id']
+				&& $incoming['platform'] !== ''
+				&& $incoming['platform'] === $existing['platform'] ) {
+				return array( 'run' => $run, 'reason' => 'message_id' );
+			}
+
+			// [2026-07-27 Johnny Chu] PHASE-LISTEN-DEDUP — last-resort chat+message signature within tiny window.
+			if ( $incoming['signature'] !== ''
+				&& $incoming['signature'] === $existing['signature']
+				&& $incoming['chat_id'] !== ''
+				&& $incoming['chat_id'] === $existing['chat_id'] ) {
+				return array( 'run' => $run, 'reason' => 'signature' );
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * [2026-07-27 Johnny Chu] PHASE-LISTEN-DEDUP — normalize payload into compare-safe identity fields.
+	 */
+	private static function capture_identity_from_payload( array $payload ): array {
+		$platform = strtoupper( trim( (string) ( $payload['platform'] ?? '' ) ) );
+		$account  = trim( (string) ( $payload['account_id'] ?? $payload['instance_id'] ?? '' ) );
+		$chat_id  = trim( (string) ( $payload['conversation_chat_id'] ?? $payload['chat_id'] ?? '' ) );
+		$message  = self::normalize_capture_text( (string) ( $payload['message_text_clean'] ?? $payload['message'] ?? $payload['text'] ?? '' ) );
+		$meta     = is_array( $payload['meta'] ?? null ) ? (array) $payload['meta'] : array();
+		$message_id = trim( (string) ( $payload['mid'] ?? $payload['message_id'] ?? $meta['message_id'] ?? '' ) );
+		$listener_event_id = (int) ( $payload['listener_event_id'] ?? 0 );
+
+		$signature = '';
+		if ( $platform !== '' || $account !== '' || $chat_id !== '' || $message_id !== '' || $message !== '' ) {
+			$signature = sha1( implode( '|', array( $platform, $account, $chat_id, $message_id, $message ) ) );
+		}
+
+		return array(
+			'platform'          => $platform,
+			'account_id'        => $account,
+			'chat_id'           => $chat_id,
+			'message_id'        => $message_id,
+			'listener_event_id' => $listener_event_id,
+			'signature'         => $signature,
+		);
+	}
+
+	/**
+	 * [2026-07-27 Johnny Chu] PHASE-LISTEN-DEDUP — lowercase/trim for signature comparison.
+	 */
+	private static function normalize_capture_text( string $text ): string {
+		$text = trim( (string) preg_replace( '/\s+/u', ' ', $text ) );
+		if ( $text === '' ) { return ''; }
+		if ( function_exists( 'mb_strtolower' ) ) {
+			return mb_strtolower( $text, 'UTF-8' );
+		}
+		return strtolower( $text );
+	}
+
+	// [2026-07-17 Johnny Chu] PHASE-TWINWEB F4 — information_schema column guard for mixed-version deployments.
+	private static function runs_has_user_id_column(): bool {
+		if ( self::$runs_user_id_column_exists !== null ) {
+			return (bool) self::$runs_user_id_column_exists;
+		}
+		global $wpdb;
+		$exists = (int) $wpdb->get_var( $wpdb->prepare(
+			'SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = %s LIMIT 1',
+			self::table_runs(),
+			'user_id'
+		) );
+		self::$runs_user_id_column_exists = ( $exists === 1 );
+		return (bool) self::$runs_user_id_column_exists;
+	}
+
 	public static function hydrate( array $row ): array {
 		$row['id']            = (int) $row['id'];
 		$row['workflow_id']   = (int) $row['workflow_id'];
+		$row['user_id']       = isset( $row['user_id'] ) ? (int) $row['user_id'] : 0;
 		$row['status']        = (int) $row['status'];
 		$row['tokens_used']   = (int) $row['tokens_used'];
 		$row['crm_event_id']  = (int) $row['crm_event_id'];

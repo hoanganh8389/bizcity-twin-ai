@@ -52,7 +52,8 @@ class BizCity_Twin_Event_Taxonomy {
 	// Bumped 2026-05-13 (Phase 0.36 TBR.5) — added brain_synthesize (Stage 4 telemetry).
 	// [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-1 — added 5 brain_session_* event_types (created/renamed/archived/mood_sampled/carry_forward).
 	// [2026-06-19 Johnny Chu] PHASE-TWB-WORKFLOW W1 — added 3 workflow_* event_types (started/step/completed) for BizCity_TwinBrain_Workflow_Pipeline.
-	const TAXONOMY_VERSION = 7;
+	// [2026-07-15 Johnny Chu] PHASE-TWB-PRODUCTS — added 5 product_* timeline event_types.
+	const TAXONOMY_VERSION = 8;
 
 	// ---- 15 canonical event types (Phase 0.12) --------------------------
 	const USER_MESSAGE              = 'user_message';
@@ -112,6 +113,16 @@ class BizCity_Twin_Event_Taxonomy {
 	const WORKFLOW_STEP      = 'workflow_step';
 	const WORKFLOW_COMPLETED = 'workflow_completed';
 
+	// ---- PHASE-TWB-PRODUCTS (2026-07-15) — Products vertical timeline ---
+	// [2026-07-15 Johnny Chu] PHASE-TWB-PRODUCTS — optional product-specific
+	// timeline evidence while preserving legacy web_* SSE events.
+	// Schemas: core/twin-core/event-stream/schemas/events/product_*.json.
+	const PRODUCT_RESEARCH_STARTED = 'product_research_started';
+	const PRODUCT_INTENT_DETECTED  = 'product_intent_detected';
+	const PRODUCT_NEEDS_DECOMPOSED = 'product_needs_decomposed';
+	const PRODUCT_REACT_STEP       = 'product_react_step';
+	const PRODUCT_SYNTHESIZE_DONE  = 'product_synthesize_done';
+
 	/**
 	 * Required payload fields per event type.
 	 * (Keep tight — extra fields go in payload freely.)
@@ -169,6 +180,15 @@ class BizCity_Twin_Event_Taxonomy {
 			self::WORKFLOW_STARTED   => [ 'trace_id', 'skill_slug', 'node_count', 'label' ],
 			self::WORKFLOW_STEP      => [ 'trace_id', 'skill_slug', 'node_id', 'node_kind', 'label', 'status', 'idx', 'total' ],
 			self::WORKFLOW_COMPLETED => [ 'trace_id', 'skill_slug', 'artifacts_count', 'total_ms' ],
+
+			// [2026-07-15 Johnny Chu] PHASE-TWB-PRODUCTS — products vertical timeline.
+			self::PRODUCT_RESEARCH_STARTED => [ 'trace_id', 'query', 'intent' ],
+			// [2026-07-15 Johnny Chu] PHASE-TWB-PRODUCTS V2-1 — intent step must expose explicit detected_products list.
+			// [2026-07-15 Johnny Chu] PHASE-TWB-PRODUCTS V2-1 - taxonomy gate enforces detected_products presence.
+			self::PRODUCT_INTENT_DETECTED  => [ 'trace_id', 'intent', 'keywords', 'detected_products' ],
+			self::PRODUCT_NEEDS_DECOMPOSED => [ 'trace_id', 'count', 'items' ],
+			self::PRODUCT_REACT_STEP       => [ 'trace_id', 'iter', 'action', 'action_input', 'observation_summary' ],
+			self::PRODUCT_SYNTHESIZE_DONE  => [ 'trace_id', 'matched_count', 'gap_count', 'ms' ],
 		];
 	}
 

@@ -86,7 +86,46 @@ class BizCity_LLM_Client {
             $key = trim( (string) get_option( 'bizcity_llm_api_key', '' ) );
             restore_current_blog();
         }
-        return $key;
+        // [2026-07-27 Johnny Chu] PHASE-0.49-MASTER-CONFIG-401 — normalize pasted key formats.
+        return self::normalize_gateway_api_key( $key );
+    }
+
+    /**
+     * [2026-07-27 Johnny Chu] PHASE-0.49-MASTER-CONFIG-401 — normalize gateway API key text.
+     */
+    public static function normalize_gateway_api_key( string $api_key ): string {
+        $api_key = trim( $api_key );
+        if ( $api_key === '' ) {
+            return '';
+        }
+
+        if ( stripos( $api_key, 'Bearer ' ) === 0 ) {
+            $api_key = trim( substr( $api_key, 7 ) );
+        }
+
+        $api_key = trim( $api_key, " \t\n\r\0\x0B\"'`" );
+        // [2026-07-27 Johnny Chu] PHASE-0.49-MASTER-CONFIG-401 — the key is an
+        // opaque identifier: preserve its separator because changing biz_ to
+        // biz- changes the hash used by Router authentication.
+        if ( preg_match( '/(biz[-_][a-z0-9]{16,80})/i', $api_key, $m ) ) {
+            $api_key = (string) $m[1];
+        }
+
+        if ( function_exists( 'mb_strtolower' ) ) {
+            $api_key = mb_strtolower( $api_key, 'UTF-8' );
+        } else {
+            $api_key = strtolower( $api_key );
+        }
+
+        return trim( $api_key );
+    }
+
+    /**
+     * [2026-07-27 Johnny Chu] PHASE-0.49-MASTER-CONFIG-401 — validate canonical
+     * and legacy gateway key formats without mutating the opaque key value.
+     */
+    public static function is_gateway_api_key( string $api_key ): bool {
+        return (bool) preg_match( '/^biz[-_][a-z0-9]{16,80}$/i', trim( $api_key ) );
     }
 
     /**
@@ -94,6 +133,33 @@ class BizCity_LLM_Client {
      */
     public function is_ready(): bool {
         return ! empty( $this->get_api_key() );
+    }
+
+    /**
+     * [2026-07-15 Johnny Chu] HOTFIX — detect db-init degraded global fallback.
+     * In this mode, current request domain was not mapped to a real blog and
+     * runtime context is force-routed to blog_id=1 (global).
+     */
+    private function is_dbinit_degraded_global(): bool {
+        if ( ! empty( $GLOBALS['bizcity_dbinit_degraded_global'] ) ) {
+            return true;
+        }
+        return defined( 'BIZCITY_DBINIT_DEGRADED_GLOBAL' ) && BIZCITY_DBINIT_DEGRADED_GLOBAL;
+    }
+
+    /**
+     * [2026-07-15 Johnny Chu] HOTFIX — best-effort unresolved host for diagnostics.
+     */
+    private function dbinit_degraded_domain(): string {
+        $domain = '';
+        if ( isset( $GLOBALS['bizcity_dbinit_degraded_domain'] ) ) {
+            $domain = strtolower( trim( (string) $GLOBALS['bizcity_dbinit_degraded_domain'] ) );
+        }
+        if ( $domain === '' ) {
+            $domain = strtolower( trim( (string) ( $_SERVER['HTTP_HOST'] ?? ( $_SERVER['SERVER_NAME'] ?? '' ) ) ) );
+            $domain = preg_replace( '/:\\d+$/', '', $domain );
+        }
+        return (string) $domain;
     }
 
     /**
@@ -138,6 +204,99 @@ class BizCity_LLM_Client {
         // Default 300s — long Claude Sonnet generations (60K tokens) need 120-240s.
         // Caller can override via $options['timeout'] or admin setting.
         return (int) $this->get_setting( 'timeout', 300 );
+    }
+
+    /**
+     * Map hub master level slug -> local tier bucket used by cron/settings.
+     *
+     * Hub slugs: free, master_pro, master_premium (and enterprise variants).
+     * Local buckets: free, pro, premium, enterprise.
+     */
+	// [2026-07-15 Johnny Chu] PHASE-MASTER-PLANS — normalize hub master level for local tier consumers.
+    public static function tier_bucket_from_master_level( string $master_level, array $tier_mapping = array() ): string {
+        $level = sanitize_key( strtolower( trim( $master_level ) ) );
+
+        // [2026-07-15 Johnny Chu] PHASE-MASTER-PLANS — prefer Hub-provided mapping when present.
+        if ( ! empty( $tier_mapping ) && isset( $tier_mapping[ $level ] ) ) {
+            $bucket = sanitize_key( (string) $tier_mapping[ $level ] );
+            if ( in_array( $bucket, array( 'free', 'pro', 'premium', 'enterprise' ), true ) ) {
+                return $bucket;
+            }
+        }
+
+        if ( in_array( $level, array( 'master_enterprise', 'enterprise' ), true ) ) {
+            return 'enterprise';
+        }
+        if ( in_array( $level, array( 'master_premium', 'premium', 'business', 'plus' ), true ) ) {
+            return 'premium';
+        }
+        if ( in_array( $level, array( 'master_pro', 'pro', 'starter' ), true ) ) {
+            return 'pro';
+        }
+        return 'free';
+    }
+
+    /**
+     * Keep local hub plan cache synced from bizcity-llm-router master/config.
+     *
+     * Uses lightweight cadence guard so regular requests do not trigger an
+     * upstream call every load.
+     *
+     * @param array $options { force_refresh?: bool, sync_interval?: int, timeout?: int }
+     */
+    public function maybe_sync_master_plan( array $options = array() ): void {
+        if ( ! $this->is_ready() ) {
+            return;
+        }
+
+        // [2026-07-27 Johnny Chu] PHASE-0.49-MASTER-CONFIG-401 — in direct
+        // mode, API key is OpenRouter-style and must never hit hub master/config.
+        if ( $this->get_mode() !== 'gateway' ) {
+            return;
+        }
+
+        // [2026-07-27 Johnny Chu] PHASE-0.49-MASTER-CONFIG-401 — scope sync
+        // cadence to the exact Bearer key so key rotation cannot reuse it.
+        $api_key_hash = hash( 'sha256', $this->get_api_key() );
+        $force    = ! empty( $options['force_refresh'] );
+        $interval = isset( $options['sync_interval'] ) ? (int) $options['sync_interval'] : 300;
+        if ( $interval < 60 ) {
+            $interval = 60;
+        }
+
+        $now  = time();
+        $last = (int) get_option( 'bizcity_hub_master_sync_ts', 0 );
+		$last_key_hash = (string) get_option( 'bizcity_hub_master_sync_key_hash', '' );
+		if ( $last_key_hash !== $api_key_hash ) {
+			$last = 0;
+		}
+        if ( ! $force && $last > 0 && ( $now - $last ) < $interval ) {
+            return;
+        }
+
+        // [2026-07-15 Johnny Chu] PHASE-MASTER-PLANS — unified pull from hub master/config.
+        $timeout = isset( $options['timeout'] ) ? max( 3, (int) $options['timeout'] ) : 6;
+        $fresh   = $this->get_plan_config( array(
+            'force_refresh' => $force,
+            'timeout'       => $timeout,
+        ) );
+
+        if ( is_array( $fresh ) && ! empty( $fresh['ok'] ) ) {
+            update_option( 'bizcity_hub_master_sync_ts', $now );
+			update_option( 'bizcity_hub_master_sync_key_hash', $api_key_hash, false );
+            return;
+        }
+
+        // [2026-07-27 Johnny Chu] PHASE-0.49-MASTER-CONFIG-401 — throttle
+        // repeated unauthorized loops on init sync when key is invalid/missing on hub.
+        if ( is_wp_error( $fresh ) ) {
+            $data   = $fresh->get_error_data();
+            $status = is_array( $data ) && isset( $data['status'] ) ? (int) $data['status'] : 0;
+            if ( in_array( $status, array( 401, 403 ), true ) ) {
+                update_option( 'bizcity_hub_master_sync_ts', $now );
+				update_option( 'bizcity_hub_master_sync_key_hash', $api_key_hash, false );
+            }
+        }
     }
 
     /* ================================================================
@@ -235,7 +394,43 @@ class BizCity_LLM_Client {
             update_option( 'bizcity_hub_plugins_enabled', json_encode( $plugins_src ) );
         }
         if ( isset( $decoded['master_level'] ) ) {
-            update_option( 'bizcity_hub_master_level', sanitize_key( $decoded['master_level'] ) );
+            // [2026-07-15 Johnny Chu] PHASE-MASTER-PLANS — keep both raw master level
+            // and normalized tier bucket so cron/settings consume pro/premium safely.
+            $master_level = sanitize_key( (string) $decoded['master_level'] );
+            if ( $master_level === '' ) {
+                $master_level = 'free';
+            }
+
+            // [2026-07-15 Johnny Chu] PHASE-MASTER-PLANS — Hub may return normalized_tier + tier_mapping.
+            $tier_map = ( isset( $decoded['tier_mapping'] ) && is_array( $decoded['tier_mapping'] ) )
+                ? $decoded['tier_mapping']
+                : array();
+            $normalized_tier = sanitize_key( (string) ( $decoded['normalized_tier'] ?? ( $decoded['master_tier'] ?? '' ) ) );
+            if ( ! in_array( $normalized_tier, array( 'free', 'pro', 'premium', 'enterprise' ), true ) ) {
+                $normalized_tier = self::tier_bucket_from_master_level( $master_level, $tier_map );
+            }
+
+            update_option( 'bizcity_hub_master_level', $master_level );
+            update_option( 'bizcity_hub_master_tier', $normalized_tier );
+            if ( ! empty( $tier_map ) ) {
+                update_option( 'bizcity_hub_tier_mapping', wp_json_encode( $tier_map ) );
+            }
+        }
+        // [2026-07-14 Johnny Chu] R-KG-FILE-TYPES — cache exact hub file-type gate from entitlement payload.
+        if ( isset( $decoded['accepted_file_types'] ) && is_array( $decoded['accepted_file_types'] ) ) {
+            $accepted = array();
+            foreach ( (array) $decoded['accepted_file_types'] as $ext ) {
+                $e = sanitize_key( strtolower( trim( (string) $ext ) ) );
+                if ( $e !== '' && ! in_array( $e, $accepted, true ) ) {
+                    $accepted[] = $e;
+                }
+            }
+            if ( ! empty( $accepted ) ) {
+                update_option( 'bizcity_hub_accepted_file_types', wp_json_encode( $accepted ) );
+            }
+        }
+        if ( isset( $decoded['kg_max_file_size_mb'] ) && (int) $decoded['kg_max_file_size_mb'] > 0 ) {
+            update_option( 'bizcity_hub_kg_max_file_size_mb', (int) $decoded['kg_max_file_size_mb'] );
         }
         if ( isset( $decoded['plan']['image_calls_day'] ) ) {
             update_option( 'bizcity_hub_image_calls_day', (int) $decoded['plan']['image_calls_day'] );
@@ -246,6 +441,41 @@ class BizCity_LLM_Client {
         if ( isset( $decoded['plan']['max_requests_day'] ) ) {
             update_option( 'bizcity_hub_max_requests_day', (int) $decoded['plan']['max_requests_day'] );
         }
+
+        // [2026-07-17 Johnny Chu] SPRINT-11 PGM-3 — sync hub seat-limit aliases for membership admission gate.
+        $member_seats = ( isset( $decoded['member_seats'] ) && is_array( $decoded['member_seats'] ) )
+            ? $decoded['member_seats']
+            : array();
+        $plan_payload = ( isset( $decoded['plan'] ) && is_array( $decoded['plan'] ) )
+            ? $decoded['plan']
+            : array();
+        $plan_member_seats = ( isset( $plan_payload['member_seats'] ) && is_array( $plan_payload['member_seats'] ) )
+            ? $plan_payload['member_seats']
+            : array();
+
+        $seat_limit_candidates = array(
+            $member_seats['limit'] ?? null,
+            $member_seats['seat_limit'] ?? null,
+            $plan_payload['member_seat_limit'] ?? null,
+            $plan_member_seats['limit'] ?? null,
+            $plan_payload['member_seats_limit'] ?? null,
+            $decoded['member_seat_limit'] ?? null,
+            $decoded['member_seats_limit'] ?? null,
+            $decoded['seat_limit'] ?? null,
+        );
+        $seat_limit = null;
+        foreach ( $seat_limit_candidates as $candidate ) {
+            if ( is_numeric( $candidate ) ) {
+                $seat_limit = max( 0, (int) $candidate );
+                break;
+            }
+        }
+        if ( null !== $seat_limit ) {
+            update_option( 'bizcity_hub_member_seat_limit', $seat_limit );
+            update_option( 'bizcity_hub_member_seats_limit', $seat_limit );
+            update_option( 'bizcity_hub_member_seat_cap', $seat_limit );
+        }
+
         return $decoded;
     }
 
@@ -368,13 +598,46 @@ class BizCity_LLM_Client {
             return new WP_Error( 'no_api_key', 'BizCity API key not configured.', [ 'status' => 503 ] );
         }
 
+        // [2026-07-27 Johnny Chu] PHASE-0.49-MASTER-CONFIG-401 — fail-fast
+        // on non-gateway key formats to avoid pointless upstream 401 requests.
+        // [2026-07-27 Johnny Chu] PHASE-0.49-MASTER-CONFIG-401 — accept the
+        // legacy `biz_` prefix still used by existing Hub key rows.
+        if ( ! self::is_gateway_api_key( $api_key ) ) {
+            return new WP_Error(
+                'invalid_gateway_api_key_format',
+                'Gateway API key must use biz- or legacy biz_ format.',
+                [ 'status' => 400 ]
+            );
+        }
+
         // Return cached version unless force_refresh requested (max 1 call per 5 min).
         // [2026-06-10 Johnny Chu] HOTFIX — per-site transient (not network-wide)
-        $cache_key = 'bizcity_hub_plan_config_cache';
+        // [2026-07-27 Johnny Chu] PHASE-0.49-MASTER-CONFIG-401 — keep both
+        // successful config and auth cooldown isolated per exact API key.
+        $api_key_hash = hash( 'sha256', $api_key );
+        $cache_key = 'bizcity_hub_plan_config_cache_' . $api_key_hash;
+        $auth_backoff_key = 'bizcity_hub_plan_config_auth_error_' . $api_key_hash;
+		$auth_backoff = get_transient( $auth_backoff_key );
+		if ( is_array( $auth_backoff ) ) {
+			$backoff_key_hash = (string) ( $auth_backoff['key_hash'] ?? '' );
+			if ( $backoff_key_hash !== '' && ! hash_equals( $backoff_key_hash, $api_key_hash ) ) {
+				delete_transient( $auth_backoff_key );
+				$auth_backoff = false;
+			}
+		}
         if ( empty( $options['force_refresh'] ) ) {
             $cached = get_transient( $cache_key );
             if ( is_array( $cached ) && ! empty( $cached['ok'] ) ) {
                 return $cached;
+            }
+
+            if ( is_array( $auth_backoff ) ) {
+                $until = isset( $auth_backoff['until'] ) ? (int) $auth_backoff['until'] : 0;
+                if ( $until > time() ) {
+                    $msg = isset( $auth_backoff['message'] ) ? (string) $auth_backoff['message'] : 'Unauthorized API key.';
+                    $code = isset( $auth_backoff['status'] ) ? (int) $auth_backoff['status'] : 401;
+                    return new WP_Error( 'plan_config_auth_backoff', $msg, [ 'status' => $code ] );
+                }
             }
         }
 
@@ -404,11 +667,25 @@ class BizCity_LLM_Client {
             $msg = is_array( $decoded ) && ! empty( $decoded['message'] )
                 ? (string) $decoded['message']
                 : 'HTTP ' . $code;
+
+            // [2026-07-27 Johnny Chu] PHASE-0.49-MASTER-CONFIG-401 — cache auth
+            // failures briefly so init sync does not hammer upstream each request.
+            if ( in_array( $code, array( 401, 403 ), true ) ) {
+                $ttl = 120;
+                set_transient( $auth_backoff_key, [
+                    'status'  => $code,
+                    'message' => $msg,
+                    'until'   => time() + $ttl,
+					'key_hash' => $api_key_hash,
+                ], $ttl );
+            }
             return new WP_Error( 'plan_config_upstream_error', $msg, [ 'status' => $code ] );
         }
         if ( ! is_array( $decoded ) || empty( $decoded['ok'] ) ) {
             return new WP_Error( 'plan_config_decode_failed', 'Invalid response from gateway.', [ 'status' => 502 ] );
         }
+
+        delete_transient( $auth_backoff_key );
 
         // [2026-06-10 Johnny Chu] HOTFIX — per-site transient (not network-wide)
         // Cache for 5 minutes.
@@ -416,7 +693,24 @@ class BizCity_LLM_Client {
 
         // Persist individual options for server-side rendering without extra HTTP call.
         // [2026-06-10 Johnny Chu] HOTFIX — per-site option (not network-wide sitemeta)
-        update_option( 'bizcity_hub_master_level',        sanitize_key( $decoded['master_level'] ?? 'free' ) );
+        $master_level = sanitize_key( (string) ( $decoded['master_level'] ?? 'free' ) );
+        if ( $master_level === '' ) {
+            $master_level = 'free';
+        }
+        // [2026-07-15 Johnny Chu] PHASE-MASTER-PLANS — persist raw + normalized tier for downstream modules.
+        $tier_map = ( isset( $decoded['tier_mapping'] ) && is_array( $decoded['tier_mapping'] ) )
+            ? $decoded['tier_mapping']
+            : array();
+        $normalized_tier = sanitize_key( (string) ( $decoded['normalized_tier'] ?? ( $decoded['master_tier'] ?? '' ) ) );
+        if ( ! in_array( $normalized_tier, array( 'free', 'pro', 'premium', 'enterprise' ), true ) ) {
+            $normalized_tier = self::tier_bucket_from_master_level( $master_level, $tier_map );
+        }
+
+        update_option( 'bizcity_hub_master_level',        $master_level );
+        update_option( 'bizcity_hub_master_tier',         $normalized_tier );
+        if ( ! empty( $tier_map ) ) {
+            update_option( 'bizcity_hub_tier_mapping', wp_json_encode( $tier_map ) );
+        }
         update_option( 'bizcity_hub_master_label',        sanitize_text_field( $decoded['master_label'] ?? 'Free' ) );
         update_option( 'bizcity_hub_price_usd',           (float) ( $decoded['plan']['price_usd'] ?? 0 ) );
         update_option( 'bizcity_hub_monthly_credit_usd',  (float) ( $decoded['plan']['monthly_credit_usd'] ?? 0 ) );
@@ -426,6 +720,41 @@ class BizCity_LLM_Client {
         update_option( 'bizcity_hub_video_calls_day',     (int)   ( $decoded['plan']['video_calls_day'] ?? 1 ) );
         update_option( 'bizcity_hub_kg_batch_size',       (int)   ( $decoded['kg_config']['batch_size'] ?? 5 ) );
         update_option( 'bizcity_hub_kg_quota_per_user',   (int)   ( $decoded['kg_config']['quota_per_user'] ?? 100 ) );
+
+        // [2026-07-17 Johnny Chu] SPRINT-11 PGM-3 — persist seat-limit aliases from /master/config for Woo admission gate.
+        $member_seats = ( isset( $decoded['member_seats'] ) && is_array( $decoded['member_seats'] ) )
+            ? $decoded['member_seats']
+            : array();
+        $plan_payload = ( isset( $decoded['plan'] ) && is_array( $decoded['plan'] ) )
+            ? $decoded['plan']
+            : array();
+        $plan_member_seats = ( isset( $plan_payload['member_seats'] ) && is_array( $plan_payload['member_seats'] ) )
+            ? $plan_payload['member_seats']
+            : array();
+
+        $seat_limit_candidates = array(
+            $member_seats['limit'] ?? null,
+            $member_seats['seat_limit'] ?? null,
+            $plan_payload['member_seat_limit'] ?? null,
+            $plan_member_seats['limit'] ?? null,
+            $plan_payload['member_seats_limit'] ?? null,
+            $decoded['member_seat_limit'] ?? null,
+            $decoded['member_seats_limit'] ?? null,
+            $decoded['seat_limit'] ?? null,
+        );
+        $seat_limit = null;
+        foreach ( $seat_limit_candidates as $candidate ) {
+            if ( is_numeric( $candidate ) ) {
+                $seat_limit = max( 0, (int) $candidate );
+                break;
+            }
+        }
+        if ( null !== $seat_limit ) {
+            update_option( 'bizcity_hub_member_seat_limit', $seat_limit );
+            update_option( 'bizcity_hub_member_seats_limit', $seat_limit );
+            update_option( 'bizcity_hub_member_seat_cap', $seat_limit );
+        }
+
         $plugins_src = isset( $decoded['plugins_enabled'] ) ? $decoded['plugins_enabled'] : ( $decoded['features'] ?? [] );
         if ( is_array( $plugins_src ) ) {
             update_option( 'bizcity_hub_plugins_enabled', json_encode( $plugins_src ) );
@@ -577,6 +906,198 @@ class BizCity_LLM_Client {
         return $decoded;
     }
 
+    /**
+     * Analyze image/file media through the BizCity hub vision tool.
+     *
+     * Fail-OPEN: returns a degraded payload when the hub endpoint is missing or
+     * the API key is not configured. The caller must not claim the media was
+     * analyzed unless success=true.
+     *
+     * @param array  $media  Attachment manifest rows with url/mime_type/filename.
+     * @param string $prompt User prompt.
+     * @param array  $options { purpose, model, timeout }.
+     * @return array
+     */
+    public function analyze_media( array $media, string $prompt = '', array $options = [] ): array {
+        // [2026-07-19 Johnny Chu] PHASE-TBR-NB-MULTIMODAL — canonical client wrapper for vision/file analysis via hub.
+        $base = [
+            'success'       => false,
+            '_degraded'     => true,
+            'reason_bucket' => '',
+            'summary'       => '',
+            'entities'      => [],
+            'ocr_text'      => [],
+            'layout'        => [],
+            'style'         => [],
+            'objects'       => [],
+            'confidence'    => 'low',
+            'raw'           => [],
+        ];
+
+        $api_key = $this->get_api_key();
+        if ( $api_key === '' ) {
+            $base['reason_bucket'] = 'api_key_missing';
+            return $base;
+        }
+
+        $clean_media = [];
+        foreach ( $media as $item ) {
+            if ( ! is_array( $item ) ) {
+                continue;
+            }
+            $url = esc_url_raw( (string) ( $item['url'] ?? '' ) );
+            if ( $url === '' ) {
+                continue;
+            }
+            $clean_media[] = [
+                'id'        => (int) ( $item['id'] ?? 0 ),
+                'url'       => $url,
+                'mime_type' => sanitize_text_field( (string) ( $item['mime_type'] ?? '' ) ),
+                'filename'  => sanitize_file_name( (string) ( $item['filename'] ?? '' ) ),
+                'size'      => (int) ( $item['size'] ?? 0 ),
+                'kind'      => sanitize_key( (string) ( $item['kind'] ?? '' ) ),
+            ];
+        }
+        if ( empty( $clean_media ) ) {
+            $base['reason_bucket'] = 'media_url_missing';
+            return $base;
+        }
+
+        $endpoint = $this->get_gateway_url() . '/wp-json/bizcity/v1/tools/vision-analyze';
+        $timeout  = isset( $options['timeout'] ) ? max( 10, (int) $options['timeout'] ) : 45;
+        $body     = [
+            'prompt'   => (string) $prompt,
+            'media'    => $clean_media,
+            'model'    => isset( $options['model'] ) ? sanitize_text_field( (string) $options['model'] ) : '',
+            'purpose'  => isset( $options['purpose'] ) ? sanitize_key( (string) $options['purpose'] ) : 'vision',
+            'site_url' => home_url(),
+        ];
+
+        $response = wp_remote_post( $endpoint, [
+            'timeout'     => $timeout,
+            'redirection' => 0,
+            'headers'     => [
+                'Content-Type'  => 'application/json',
+                'Authorization' => 'Bearer ' . $api_key,
+                'X-Site-URL'    => home_url(),
+            ],
+            'body' => wp_json_encode( $body ),
+        ] );
+
+        if ( is_wp_error( $response ) ) {
+            return $this->analyze_media_via_chat_fallback( $clean_media, $prompt, $options, array_merge( $base, [
+                'reason_bucket' => $response->get_error_code(),
+            ] ) );
+        }
+
+        $code = (int) wp_remote_retrieve_response_code( $response );
+        $raw  = (string) wp_remote_retrieve_body( $response );
+        if ( substr( $raw, 0, 3 ) === "\xEF\xBB\xBF" ) {
+            $raw = substr( $raw, 3 );
+        }
+        $decoded = json_decode( trim( $raw ), true );
+
+        if ( $code >= 200 && $code < 300 && is_array( $decoded ) && ( ! empty( $decoded['success'] ) || ! empty( $decoded['ok'] ) ) ) {
+            $payload = isset( $decoded['data'] ) && is_array( $decoded['data'] ) ? $decoded['data'] : $decoded;
+            return array_merge( $base, [
+                'success'       => true,
+                '_degraded'     => false,
+                'reason_bucket' => '',
+                'summary'       => (string) ( $payload['summary'] ?? $decoded['summary'] ?? '' ),
+                'entities'      => array_values( (array) ( $payload['entities'] ?? [] ) ),
+                'ocr_text'      => array_values( (array) ( $payload['ocr_text'] ?? $payload['ocr'] ?? [] ) ),
+                'layout'        => (array) ( $payload['layout'] ?? [] ),
+                'style'         => (array) ( $payload['style'] ?? [] ),
+                'objects'       => array_values( (array) ( $payload['objects'] ?? [] ) ),
+                'confidence'    => (string) ( $payload['confidence'] ?? 'medium' ),
+                'raw'           => $payload,
+            ] );
+        }
+
+        $reason = 'vision_endpoint_unavailable';
+        if ( $code > 0 && $code !== 404 ) {
+            $reason = 'vision_http_' . $code;
+        }
+
+        return $this->analyze_media_via_chat_fallback( $clean_media, $prompt, $options, array_merge( $base, [
+            'reason_bucket' => $reason,
+            'http_code'     => $code,
+        ] ) );
+    }
+
+    /**
+     * Fallback to the existing chat gateway using OpenAI multimodal message
+     * shape. If the router/model cannot process image_url content, return the
+     * degraded payload from analyze_media().
+     *
+     * @param array $media Clean media rows.
+     * @param string $prompt User prompt.
+     * @param array $options Options.
+     * @param array $base Base degraded payload.
+     * @return array
+     */
+    private function analyze_media_via_chat_fallback( array $media, string $prompt, array $options, array $base ): array {
+        // [2026-07-19 Johnny Chu] PHASE-TBR-NB-MULTIMODAL — reuse chat gateway as best-effort vision fallback without provider-direct calls.
+        $content = [];
+        $content[] = [
+            'type' => 'text',
+            'text' => "Phân tích ảnh/file đính kèm cho TwinBrain. Trả JSON ngắn với keys: summary, entities[], ocr_text[], layout, style, objects[], confidence. User hỏi: " . (string) $prompt,
+        ];
+        foreach ( $media as $item ) {
+            $mime = strtolower( (string) ( $item['mime_type'] ?? '' ) );
+            if ( 0 !== strpos( $mime, 'image/' ) ) {
+                continue;
+            }
+            $content[] = [
+                'type'      => 'image_url',
+                'image_url' => [ 'url' => (string) $item['url'] ],
+            ];
+        }
+
+        if ( count( $content ) <= 1 ) {
+            return $base;
+        }
+
+        $result = $this->chat( [
+            [ 'role' => 'user', 'content' => $content ],
+        ], [
+            'purpose'     => 'vision',
+            'model'       => isset( $options['model'] ) ? (string) $options['model'] : $this->get_model( 'vision' ),
+            'temperature' => 0.1,
+            'max_tokens'  => 900,
+            'timeout'     => isset( $options['timeout'] ) ? max( 10, (int) $options['timeout'] ) : 45,
+            'no_fallback' => ! empty( $options['no_fallback'] ),
+        ] );
+
+        if ( empty( $result['success'] ) || trim( (string) ( $result['message'] ?? '' ) ) === '' ) {
+            if ( empty( $base['reason_bucket'] ) ) {
+                $base['reason_bucket'] = 'vision_chat_fallback_failed';
+            }
+            $base['chat_error'] = (string) ( $result['error'] ?? '' );
+            return $base;
+        }
+
+        $message = trim( (string) $result['message'] );
+        $json = json_decode( trim( preg_replace( '/^```(?:json)?|```$/m', '', $message ) ), true );
+        if ( ! is_array( $json ) ) {
+            $json = [ 'summary' => $message ];
+        }
+
+        return array_merge( $base, [
+            'success'       => true,
+            '_degraded'     => false,
+            'reason_bucket' => '',
+            'summary'       => (string) ( $json['summary'] ?? $message ),
+            'entities'      => array_values( (array) ( $json['entities'] ?? [] ) ),
+            'ocr_text'      => array_values( (array) ( $json['ocr_text'] ?? $json['ocr'] ?? [] ) ),
+            'layout'        => (array) ( $json['layout'] ?? [] ),
+            'style'         => (array) ( $json['style'] ?? [] ),
+            'objects'       => array_values( (array) ( $json['objects'] ?? [] ) ),
+            'confidence'    => (string) ( $json['confidence'] ?? 'medium' ),
+            'raw'           => [ 'chat_fallback' => true, 'message' => $message, 'parsed' => $json ],
+        ] );
+    }
+
     /* ================================================================
      *  Chat — delegates to gateway or direct based on mode
      * ================================================================ */
@@ -600,9 +1121,9 @@ class BizCity_LLM_Client {
             'msg_count' => count( $messages ),
         ] );
 
-        // [2026-06-10 Johnny Chu] R-LLM-USAGE — log pending row before HTTP call to hub.
-        $_llm_pending_id = class_exists( 'BizCity_LLM_Usage_Clients' )
-            ? BizCity_LLM_Usage_Clients::log_pending( [
+        // [2026-07-25 Johnny Chu] R-LLM-USAGE-FILELOG — file log is append-only, no pending row.
+        $_llm_pending_id = class_exists( 'BizCity_LLM_Usage_File_Log' )
+            ? BizCity_LLM_Usage_File_Log::log_pending( [
                 'service'         => $options['service'] ?? 'llm',
                 'mode'            => $this->get_mode(),
                 'purpose'         => $purpose,
@@ -692,9 +1213,9 @@ class BizCity_LLM_Client {
             'api_key_set' => ! empty( $this->get_api_key() ),
         ] );
 
-        // [2026-06-10 Johnny Chu] R-LLM-USAGE — log pending row before HTTP call to hub.
-        $_llm_pending_id = class_exists( 'BizCity_LLM_Usage_Clients' )
-            ? BizCity_LLM_Usage_Clients::log_pending( [
+        // [2026-07-25 Johnny Chu] R-LLM-USAGE-FILELOG — file log is append-only, no pending row.
+        $_llm_pending_id = class_exists( 'BizCity_LLM_Usage_File_Log' )
+            ? BizCity_LLM_Usage_File_Log::log_pending( [
                 'service'         => $options['service'] ?? 'llm',
                 'mode'            => $this->get_mode(),
                 'purpose'         => $purpose,
@@ -791,6 +1312,17 @@ class BizCity_LLM_Client {
             return $base;
         }
 
+        // [2026-07-15 Johnny Chu] HOTFIX — hard-block expensive gateway calls
+        // when db-init has already fallen back to global due unresolved domain.
+        if ( $this->is_dbinit_degraded_global() ) {
+            $domain = $this->dbinit_degraded_domain();
+            $base['error'] = 'BizCity multisite domain mapping missing. LLM request blocked in degraded global fallback mode.';
+            $base['error_code'] = 'site_unmapped';
+            $base['degraded_domain'] = $domain;
+            error_log( '[bizcity-llm] BLOCKED site_unmapped in degraded-global mode: domain=' . ( $domain !== '' ? $domain : '(unknown)' ) );
+            return $base;
+        }
+
         $purpose = $options['purpose'] ?? 'chat';
         $model   = $options['model'] ?? '';
         if ( empty( $model ) ) {
@@ -867,7 +1399,9 @@ class BizCity_LLM_Client {
             $retry_after      = wp_remote_retrieve_header( $response, 'retry-after' );
             $remaining        = wp_remote_retrieve_header( $response, 'x-ratelimit-remaining-requests' );
             $reset            = wp_remote_retrieve_header( $response, 'x-ratelimit-reset-requests' );
-            $tier             = $decoded['tier'] ?? '';
+            // [2026-07-15 Johnny Chu] HOTFIX — some gateways only return
+            // `master_level` (without `tier`) on quota errors.
+            $tier             = $decoded['tier'] ?? $decoded['master_level'] ?? '';
             // [2026-06-10 Johnny Chu] R-QUOTA-KEY — new quota field from enriched 429 response.
             // Hub now returns quota=true for actual quota exhaustion (not transient rate limit).
             // Use that as primary signal; fall back to text heuristic for older router versions.
@@ -903,6 +1437,15 @@ class BizCity_LLM_Client {
                 $base['reset_at']           = isset( $decoded['reset_at'] )           ? (string)$decoded['reset_at']           : '';
                 $base['quota_period']       = isset( $decoded['period'] )             ? (string)$decoded['period']             : 'day';
                 $base['master_level']       = isset( $decoded['master_level'] )       ? (string)$decoded['master_level']       : $tier;
+                // [2026-07-15 Johnny Chu] PHASE-MASTER-KEY-SYNC — a quota
+                // response is authoritative for the exact Bearer key; sync the
+                // local per-site plan cache immediately instead of waiting for poll.
+                $resolved_master_level = sanitize_key( (string) $base['master_level'] );
+                if ( $resolved_master_level !== '' ) {
+                    update_option( 'bizcity_hub_master_level', $resolved_master_level );
+                    update_option( 'bizcity_hub_master_tier', self::tier_bucket_from_master_level( $resolved_master_level ) );
+                    update_option( 'bizcity_hub_master_sync_ts', time() );
+                }
                 // Cache usage to site_options for admin panel display.
                 update_site_option( 'bizcity_hub_quota_used_requests',  $base['used_requests'] );
                 update_site_option( 'bizcity_hub_quota_cap_requests',   $base['cap_requests_day'] );
@@ -911,18 +1454,22 @@ class BizCity_LLM_Client {
                 update_site_option( 'bizcity_hub_quota_reset_at',       $base['reset_at'] );
                 update_site_option( 'bizcity_hub_quota_period',         $base['quota_period'] );
             }
-            error_log( sprintf(
-                '[bizcity-llm] 429 %s layer=hub: model=%s purpose=%s tier=%s retry_after=%s remaining=%s reset=%s used=%d/%d usd=%.4f/%.4f msg=%s raw=%s',
-                $is_quota ? 'QUOTA_EXHAUSTED' : 'RATE_LIMIT',
-                $model, $purpose, $tier ?: 'n/a',
-                $retry_after ?: 'n/a',
-                $remaining   ?: 'n/a',
-                $reset       ?: 'n/a',
-                $base['used_requests'] ?? 0, $base['cap_requests_day'] ?? 0,
-                $base['used_usd'] ?? 0, $base['cap_usd'] ?? 0,
-                $err_msg,
-                substr( $raw_body, 0, 400 )
-            ) );
+            // [2026-07-17 Johnny Chu] HOTFIX — suppress noisy 429 flood in production logs.
+            // Opt-in diagnostics: define( 'BIZCITY_LLM_LOG_429', true ) in wp-config.php.
+            if ( defined( 'BIZCITY_LLM_LOG_429' ) && BIZCITY_LLM_LOG_429 ) {
+                error_log( sprintf(
+                    '[bizcity-llm] 429 %s layer=hub: model=%s purpose=%s tier=%s retry_after=%s remaining=%s reset=%s used=%d/%d usd=%.4f/%.4f msg=%s raw=%s',
+                    $is_quota ? 'QUOTA_EXHAUSTED' : 'RATE_LIMIT',
+                    $model, $purpose, $tier ?: 'n/a',
+                    $retry_after ?: 'n/a',
+                    $remaining   ?: 'n/a',
+                    $reset       ?: 'n/a',
+                    $base['used_requests'] ?? 0, $base['cap_requests_day'] ?? 0,
+                    $base['used_usd'] ?? 0, $base['cap_usd'] ?? 0,
+                    $err_msg,
+                    substr( $raw_body, 0, 400 )
+                ) );
+            }
             return $base;
         }
 
@@ -1773,9 +2320,9 @@ class BizCity_LLM_Client {
 
         $this->debug_log( 'embeddings() START', [ 'mode' => $this->get_mode(), 'model' => $model ] );
 
-        // [2026-06-10 Johnny Chu] R-LLM-USAGE — log pending row before HTTP call to hub.
-        $_llm_pending_id = class_exists( 'BizCity_LLM_Usage_Clients' )
-            ? BizCity_LLM_Usage_Clients::log_pending( [
+        // [2026-07-25 Johnny Chu] R-LLM-USAGE-FILELOG — file log is append-only, no pending row.
+        $_llm_pending_id = class_exists( 'BizCity_LLM_Usage_File_Log' )
+            ? BizCity_LLM_Usage_File_Log::log_pending( [
                 'service'         => 'embedding',
                 'mode'            => $this->get_mode(),
                 'purpose'         => 'embedding',
@@ -1804,15 +2351,136 @@ class BizCity_LLM_Client {
         return $result;
     }
 
+    /**
+     * Re-rank semantic candidates through Hub Branch #8.
+     *
+     * @param string $query
+     * @param array<int,array<string,mixed>> $candidates
+     * @param array<string,mixed> $options
+     * @return array<string,mixed>
+     */
+    public function rerank( string $query, array $candidates, array $options = [] ): array {
+        // [2026-07-19 Johnny Chu] PHASE-TBR-NB-MOAT W0.20.3 — client-side wrapper for Hub Branch #8 rerank, fail-open to caller order.
+        $start = microtime( true );
+        $base = [
+            'success'   => false,
+            '_degraded' => true,
+            'results'   => [],
+            'model'     => '',
+            'usage'     => [],
+            'error'     => '',
+            'error_code'=> '',
+            'http_status' => 0,
+        ];
+
+        $query = trim( $query );
+        $candidates = array_values( $candidates );
+        // [2026-07-19 Johnny Chu] PHASE-TBR-NB-MOAT W0.20.3 — fail-open returns caller candidates per Branch #8 client contract.
+        $base['results'] = $candidates;
+        if ( $query === '' || empty( $candidates ) ) {
+            $base['error_code'] = 'invalid_param';
+            $base['error'] = 'Query hoặc candidates rỗng.';
+            return $base;
+        }
+
+        $api_key = $this->get_api_key();
+        if ( empty( $api_key ) ) {
+            $base['error_code'] = 'api_key_missing';
+            $base['error'] = 'BizCity LLM API key chưa được cấu hình.';
+            return $base;
+        }
+        if ( $this->is_dbinit_degraded_global() ) {
+            $base['error_code'] = 'site_unmapped';
+            $base['error'] = 'Multishard domain mapping chưa hợp lệ; rerank bị chặn để tránh đọc sai tenant.';
+            $base['http_status'] = 503;
+            return $base;
+        }
+
+        $_llm_pending_id = class_exists( 'BizCity_LLM_Usage_File_Log' )
+            ? BizCity_LLM_Usage_File_Log::log_pending( [
+                'service'         => 'tools',
+                'mode'            => $this->get_mode(),
+                'purpose'         => (string) ( $options['purpose'] ?? 'rerank' ),
+                'endpoint'        => 'rerank',
+                'model_requested' => (string) ( $options['model'] ?? '' ),
+            ] )
+            : 0;
+
+        $top_k = isset( $options['top_k'] ) ? max( 1, min( 50, (int) $options['top_k'] ) ) : min( 8, count( $candidates ) );
+        $body = [
+            'query'      => $query,
+            'candidates' => $candidates,
+            'top_k'      => $top_k,
+        ];
+        foreach ( [ 'model', 'trace_id', 'session_id', 'conversation_id' ] as $field ) {
+            if ( ! empty( $options[ $field ] ) ) {
+                $body[ $field ] = $options[ $field ];
+            }
+        }
+
+        $response = wp_remote_post( $this->get_gateway_url() . '/wp-json/llm/router/v1/rerank', [
+            'timeout'     => intval( $options['timeout'] ?? 10 ),
+            'redirection' => 0,
+            'headers'     => [
+                'Content-Type'  => 'application/json',
+                'Authorization' => 'Bearer ' . $api_key,
+            ],
+            'body'        => wp_json_encode( $body ),
+        ] );
+
+        if ( is_wp_error( $response ) ) {
+            $base['error'] = $response->get_error_message();
+            $base['error_code'] = $response->get_error_code();
+            $base['http_status'] = 502;
+            $this->log_usage( $base, [ 'service' => 'tools', 'purpose' => 'rerank' ], 'rerank', (string) ( $options['model'] ?? '' ), intval( ( microtime( true ) - $start ) * 1000 ), $_llm_pending_id );
+            return $base;
+        }
+
+        $http_status = (int) wp_remote_retrieve_response_code( $response );
+        $decoded = json_decode( wp_remote_retrieve_body( $response ), true );
+        if ( is_array( $decoded ) && ! empty( $decoded['success'] ) && isset( $decoded['results'] ) && is_array( $decoded['results'] ) ) {
+            $result = array_merge( $base, [
+                'success'    => true,
+                '_degraded'  => false,
+                'results'    => $decoded['results'],
+                'model'      => (string) ( $decoded['model'] ?? '' ),
+                'usage'      => (array) ( $decoded['usage'] ?? [] ),
+                'cost_usd'   => $decoded['cost_usd'] ?? null,
+                'latency_ms' => $decoded['latency_ms'] ?? null,
+                'cached'     => ! empty( $decoded['cached'] ),
+                'http_status'=> $http_status,
+            ] );
+            $this->log_usage( $result, [ 'service' => 'tools', 'purpose' => 'rerank' ], 'rerank', (string) ( $options['model'] ?? '' ), intval( ( microtime( true ) - $start ) * 1000 ), $_llm_pending_id );
+            return $result;
+        }
+
+        $base['error'] = is_array( $decoded ) ? (string) ( $decoded['message'] ?? $decoded['error'] ?? 'Rerank failed.' ) : 'Rerank gateway returned invalid JSON.';
+        $base['error_code'] = is_array( $decoded ) ? (string) ( $decoded['code'] ?? 'rerank_failed' ) : 'rerank_invalid_response';
+        $base['http_status'] = $http_status > 0 ? $http_status : 502;
+        $this->log_usage( $base, [ 'service' => 'tools', 'purpose' => 'rerank' ], 'rerank', (string) ( $options['model'] ?? '' ), intval( ( microtime( true ) - $start ) * 1000 ), $_llm_pending_id );
+        return $base;
+    }
+
     private function embeddings_gateway( $input, array $options ): array {
         $base = [
             'success' => false, 'embeddings' => [], 'model' => '',
-            'usage' => [], 'error' => '', 'dimensions' => 0,
+            'usage' => [], 'error' => '', 'error_code' => '',
+            'http_status' => 0, 'dimensions' => 0,
         ];
 
         $api_key = $this->get_api_key();
         if ( empty( $api_key ) ) {
             $base['error'] = 'BizCity LLM API key chưa được cấu hình.';
+            $base['error_code'] = 'api_key_missing';
+            return $base;
+        }
+
+        // [2026-07-15 Johnny Chu] HOTFIX — never send embedding work with
+        // global fallback context when the tenant domain did not resolve.
+        if ( $this->is_dbinit_degraded_global() ) {
+            $base['error'] = 'Multishard domain mapping chưa hợp lệ; embedding bị chặn để tránh ghi sai tenant.';
+            $base['error_code'] = 'site_unmapped';
+            $base['http_status'] = 503;
             return $base;
         }
 
@@ -1836,9 +2504,12 @@ class BizCity_LLM_Client {
 
         if ( is_wp_error( $response ) ) {
             $base['error'] = $response->get_error_message();
+            $base['error_code'] = $response->get_error_code();
+            $base['http_status'] = 502;
             return $base;
         }
 
+        $http_status = (int) wp_remote_retrieve_response_code( $response );
         $decoded = json_decode( wp_remote_retrieve_body( $response ), true );
 
         if ( ! empty( $decoded['success'] ) && ! empty( $decoded['embeddings'] ) ) {
@@ -1851,7 +2522,20 @@ class BizCity_LLM_Client {
             ] );
         }
 
-        $base['error'] = $decoded['error'] ?? $decoded['message'] ?? 'Embedding failed.';
+        $base['error'] = is_array( $decoded )
+            ? ( $decoded['message'] ?? $decoded['error'] ?? 'Embedding failed.' )
+            : 'Embedding gateway returned invalid JSON.';
+        $base['error_code'] = is_array( $decoded )
+            ? (string) ( $decoded['code'] ?? ( $http_status === 429 ? 'rate_limited' : 'embed_failed' ) )
+            : 'embed_invalid_response';
+        $base['http_status'] = $http_status > 0 ? $http_status : 502;
+        if ( is_array( $decoded ) ) {
+            foreach ( [ 'quota', 'master_level', 'used_requests', 'cap_requests_day', 'reset_at', 'help_code', 'hint' ] as $field ) {
+                if ( array_key_exists( $field, $decoded ) ) {
+                    $base[ $field ] = $decoded[ $field ];
+                }
+            }
+        }
         return $base;
     }
 
@@ -2030,12 +2714,15 @@ class BizCity_LLM_Client {
     // Hub (bizcity-llm-router) owns bizcity_llm_usage (base_prefix).
     // Client (this plugin) owns bizcity_llm_usage_clients (per-blog prefix).
     private function log_usage( array $result, array $options, string $endpoint, string $model_requested, int $ms, int $pending_id = 0 ): void {
-        if ( ! class_exists( 'BizCity_LLM_Usage_Clients' ) ) {
+        if ( ! class_exists( 'BizCity_LLM_Usage_File_Log' ) ) {
             return;
         }
         $log_data = [
             'service'         => $options['service'] ?? '',
             'mode'            => $this->get_mode(),
+            'flow'            => $options['flow'] ?? '',
+            'surface'         => $options['surface'] ?? '',
+            'channel'         => $options['channel'] ?? '',
             'purpose'         => $options['purpose'] ?? 'chat',
             'endpoint'        => $endpoint,
             'model_requested' => $model_requested,
@@ -2047,10 +2734,10 @@ class BizCity_LLM_Client {
             'error'           => $result['error'] ?? '',
         ];
         if ( $pending_id > 0 ) {
-            BizCity_LLM_Usage_Clients::log_done( $pending_id, $log_data );
-        } else {
-            BizCity_LLM_Usage_Clients::log( $log_data );
+            BizCity_LLM_Usage_File_Log::log_done( $pending_id, $log_data );
+            return;
         }
+        BizCity_LLM_Usage_File_Log::log( $log_data );
     }
 
     /* ================================================================
@@ -2071,9 +2758,9 @@ class BizCity_LLM_Client {
             'mode' => $this->get_mode(), 'model' => $options['model'] ?? 'gpt-image-1',
         ] );
 
-        // [2026-06-10 Johnny Chu] R-LLM-USAGE — log pending row before HTTP call to hub.
-        $_llm_pending_id = class_exists( 'BizCity_LLM_Usage_Clients' )
-            ? BizCity_LLM_Usage_Clients::log_pending( [
+        // [2026-07-25 Johnny Chu] R-LLM-USAGE-FILELOG — file log is append-only, no pending row.
+        $_llm_pending_id = class_exists( 'BizCity_LLM_Usage_File_Log' )
+            ? BizCity_LLM_Usage_File_Log::log_pending( [
                 'service'         => 'image',
                 'mode'            => $this->get_mode(),
                 'purpose'         => 'image',
@@ -2196,7 +2883,10 @@ class BizCity_LLM_Client {
             ] );
         }
 
-        $base['error'] = $decoded['error'] ?? 'Image generation failed. HTTP ' . $code;
+        // [2026-07-21 Johnny Chu] PHASE-SEEDREAM-45-FIX — surface router/provider JSON errors instead of hiding them behind HTTP status.
+        $base['error'] = is_array( $decoded ) && ! empty( $decoded['error'] )
+            ? (string) $decoded['error']
+            : 'Image generation failed. HTTP ' . $code;
         return $base;
     }
 

@@ -625,7 +625,11 @@ class BizCity_Unified_REST_API {
             'display_name' => $display_name ?: ( $phone ?: $username ),
         ] );
         if ( $phone ) {
-            update_user_meta( $user_id, 'phone', $phone );
+            if ( class_exists( 'BizCity_User_Meta_Cache' ) ) {
+                BizCity_User_Meta_Cache::set( $user_id, 'phone', $phone );
+            } else {
+                update_user_meta( $user_id, 'phone', $phone );
+            }
         }
 
         wp_set_auth_cookie( $user_id, true );
@@ -1577,7 +1581,11 @@ class BizCity_Unified_REST_API {
             }
         }
 
-        update_user_meta( $user_id, 'bizcity_app_settings', $existing );
+        if ( class_exists( 'BizCity_User_Meta_Cache' ) ) {
+            BizCity_User_Meta_Cache::set( $user_id, 'bizcity_app_settings', $existing );
+        } else {
+            update_user_meta( $user_id, 'bizcity_app_settings', $existing );
+        }
         // [2026-06-22 Johnny Chu] R-PERF — sync cache after write
         if ( class_exists( 'BizCity_User_Meta_Cache' ) ) {
             BizCity_User_Meta_Cache::set( $user_id, 'bizcity_app_settings', $existing );

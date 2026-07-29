@@ -167,6 +167,7 @@ class BizCity_TwinChat_Sources_Service {
 
 		$db   = BizCity_TwinChat_Sources_Database::instance();
 		$hash = hash( 'sha256', $content );
+		$async_placeholder_source_id = isset( $metadata['async_placeholder_source_id'] ) ? (int) $metadata['async_placeholder_source_id'] : 0;
 
 		// URL dedup: check bizcity_kg_sources (unified canonical table) for an
 		// existing row with the same notebook scope + URL before any DB write.
@@ -220,7 +221,7 @@ class BizCity_TwinChat_Sources_Service {
 			];
 		}
 
-		$source_id = $db->insert_source( [
+		$source_row = [
 			'project_id'       => (string) $scope_id,  // webchat_sources uses project_id
 			'notebook_id'      => $scope_id,            // kept for bridge back-compat
 			'user_id'          => $user_id,
@@ -233,7 +234,17 @@ class BizCity_TwinChat_Sources_Service {
 			'embedding_model'  => self::EMBED_MODEL,
 			'embedding_status' => 'processing',
 			'metadata'         => $metadata,
-		] );
+		];
+		// [2026-07-23 Johnny Chu] PHASE-0.43 — async uploads create a visible placeholder first; worker fills that row after parsing.
+		if ( $async_placeholder_source_id > 0 && $db->get_source( $async_placeholder_source_id ) ) {
+			$source_id = $async_placeholder_source_id;
+			if ( ! $db->update_source( $source_id, $source_row ) ) {
+				$this->cleanup_failed_ingest( $source_id, (int) ( $payload['metadata']['async_placeholder_kg_source_id'] ?? 0 ), $scope_id, $source_id, 'Source body filestore write failed.' );
+				return $this->err_server( 'source_body_persist_failed', 'Không lưu được nội dung nguồn vào filestore.', [ 'scope_id' => $scope_id ] );
+			}
+		} else {
+			$source_id = $db->insert_source( $source_row );
+		}
 		if ( $source_id <= 0 ) {
 			global $wpdb;
 			$db_err = isset( $wpdb ) ? (string) $wpdb->last_error : '';
@@ -246,6 +257,10 @@ class BizCity_TwinChat_Sources_Service {
 
 		// Wave 0.6.C — write to kg_sources as primary unified store (unconditional, not flag-gated).
 		$kg_source_id      = $this->_upsert_kg_source_row( $source_id, $scope_id, $user_id, $type, $title, $source_url, $attach_id );
+		if ( class_exists( 'BizCity_KG_Database' ) && $kg_source_id <= 0 ) {
+			$this->cleanup_failed_ingest( $source_id, 0, $scope_id, $source_id, 'KG source mirror could not be created.' );
+			return $this->err_server( 'kg_source_persist_failed', 'Không khởi tạo được nguồn Knowledge Graph.', [ 'scope_id' => $scope_id ] );
+		}
 		$passage_source_id = $kg_source_id > 0 ? $kg_source_id : $source_id;
 
 		// Chunk + embed.
@@ -324,6 +339,11 @@ class BizCity_TwinChat_Sources_Service {
 			return $embed_result;
 		}
 		$vectors = $embed_result;
+		if ( count( $vectors ) !== count( $chunks ) ) {
+			$message = 'Embedding count does not match chunk count.';
+			$this->cleanup_failed_ingest( $source_id, $kg_source_id, $scope_id, $passage_source_id, $message );
+			return $this->err_server( 'embed_count_mismatch', 'Không tạo đủ vector cho toàn bộ nội dung.', [ 'scope_id' => $scope_id ] );
+		}
 		if ( class_exists( 'BizCity_Twin_Debug' ) ) {
 			BizCity_Twin_Debug::trace( 'kg', 'ingest_embedded', [
 				'scope_id'   => $scope_id,
@@ -356,6 +376,10 @@ class BizCity_TwinChat_Sources_Service {
 			] );
 			if ( $chunk_id > 0 ) {
 				$chunk_ids[] = $chunk_id;
+			} else {
+				$message = 'Chunk persistence failed at index ' . (int) $idx . '.';
+				$this->cleanup_failed_ingest( $source_id, $kg_source_id, $scope_id, $passage_source_id, $message );
+				return $this->err_server( 'chunk_persist_failed', 'Không lưu đủ các đoạn nội dung.', [ 'scope_id' => $scope_id ] );
 			}
 
 			// Promote into kg_passages.
@@ -389,13 +413,34 @@ class BizCity_TwinChat_Sources_Service {
 			] );
 			if ( $passage_id > 0 ) {
 				$passage_ids[] = $passage_id;
+			} else {
+				$message = 'Passage persistence failed at index ' . (int) $idx . '.';
+				$this->cleanup_failed_ingest( $source_id, $kg_source_id, $scope_id, $passage_source_id, $message );
+				return $this->err_server( 'passage_persist_failed', 'Không lưu đủ dữ liệu tìm kiếm.', [ 'scope_id' => $scope_id ] );
 			}
+		}
+		if ( count( $chunk_ids ) !== count( $chunks ) || count( $passage_ids ) !== count( $chunks ) ) {
+			$this->cleanup_failed_ingest( $source_id, $kg_source_id, $scope_id, $passage_source_id, 'Persisted row count mismatch.' );
+			return $this->err_server( 'ingest_count_mismatch', 'Dữ liệu nguồn chưa được lưu đầy đủ.', [ 'scope_id' => $scope_id ] );
 		}
 
 		$db->update_source( $source_id, [
 			'chunk_count'      => count( $chunk_ids ),
 			'embedding_status' => 'ready',
 		] );
+		// [2026-07-24 Johnny Chu] PHASE-0.46 W5 PREP — emit a canonical hook when
+		// a source finishes chunk+embedding so channel progress notifiers can send
+		// step-2 updates without polling.
+		do_action( 'bizcity_kg_source_embedded', $source_id, $scope_id, $user_id, count( $chunk_ids ) );
+		if ( $kg_source_id > 0 && class_exists( 'BizCity_KG_Database' ) ) {
+			global $wpdb;
+			// [2026-07-23 Johnny Chu] PHASE-0.43 — flip async placeholder mirror from processing to active once passages exist.
+			$wpdb->update(
+				BizCity_KG_Database::instance()->tbl_sources(),
+				array( 'status' => 'active', 'passage_count' => count( $passage_ids ), 'updated_at' => current_time( 'mysql', true ) ),
+				array( 'id' => $kg_source_id )
+			);
+		}
 
 		// Phase 0.6 dual-write — mirror into kg_sources (flag-gated, non-blocking).
 		// Wave 0.6.C: skipped when _upsert_kg_source_row() already wrote the row above.
@@ -448,6 +493,49 @@ class BizCity_TwinChat_Sources_Service {
 		do_action( 'bizcity_twinchat_after_ingest', $scope_id, $user_id, $result, $payload );
 
 		return $result;
+	}
+
+	private function cleanup_failed_ingest( $source_id, $kg_source_id, $scope_id, $passage_source_id, $message ) {
+		// [2026-07-24 Johnny Chu] PHASE-0.46-INGEST-ROLLBACK — remove only rows belonging to this source and synchronize both status surfaces.
+		global $wpdb;
+		$db = BizCity_TwinChat_Sources_Database::instance();
+		$ids = array_unique( array_filter( array_map( 'intval', [ $source_id, $kg_source_id ] ) ) );
+		if ( class_exists( 'BizCity_KG_Source_Body_File_Store' ) ) {
+			foreach ( $ids as $id ) {
+				BizCity_KG_Source_Body_File_Store::delete_source( (int) $scope_id, $id );
+			}
+		}
+		foreach ( $ids as $id ) {
+			if ( class_exists( 'BizCity_KG_Database' ) && class_exists( 'BizCity_KG_Source_Body_File_Store' ) ) {
+				$chunk_ids = $wpdb->get_col( $wpdb->prepare(
+					"SELECT id FROM " . BizCity_KG_Database::instance()->tbl_source_chunks() . " WHERE source_id = %d",
+					$id
+				) );
+				foreach ( $chunk_ids as $chunk_id ) {
+					BizCity_KG_Source_Body_File_Store::delete_chunk( (int) $scope_id, (int) $chunk_id );
+				}
+			}
+			$wpdb->delete( $db->table_source_chunks(), [ 'source_id' => $id ] );
+			if ( class_exists( 'BizCity_KG_Database' ) ) {
+				$wpdb->delete( BizCity_KG_Database::instance()->tbl_source_chunks(), [ 'source_id' => $id ] );
+				$wpdb->delete( BizCity_KG_Database::instance()->tbl_passages(), [ 'source_id' => $id ] );
+			}
+		}
+		if ( (int) $source_id > 0 ) {
+			$db->update_source( (int) $source_id, [
+				'chunk_count'      => 0,
+				'embedding_status' => 'error',
+				'error_message'    => (string) $message,
+			] );
+		}
+		if ( (int) $kg_source_id > 0 && class_exists( 'BizCity_KG_Database' ) ) {
+			$wpdb->update( BizCity_KG_Database::instance()->tbl_sources(), [
+				'status'        => 'error',
+				'passage_count' => 0,
+				'updated_at'    => current_time( 'mysql', true ),
+			], [ 'id' => (int) $kg_source_id ] );
+		}
+		do_action( 'bizcity_twinchat_source_ingest_error', (int) $scope_id, (int) $source_id, (string) $message );
 	}
 
 	public function list_sources( $scope_id, array $args = [] ) {
@@ -570,6 +658,79 @@ class BizCity_TwinChat_Sources_Service {
 	/* ──────────────────────  Internals  ────────────────────── */
 
 	/**
+	 * [2026-07-26 Johnny Chu] PHASE-0.46 W6 HOTFIX-7 — resolve a LOCAL,
+	 * readable path for an attachment_id even when the site offloads media to
+	 * remote storage (R2/S3, e.g. the media.bizcity.vn CDN) and deletes the
+	 * local copy right after upload. `get_attached_file()` + `file_exists()`
+	 * alone would then deterministically fail with `no_file` for every
+	 * offloaded upload, regardless of timing/race conditions — see
+	 * `class-av-adapter.php` and `class-twitcanva-ajax.php` for the same
+	 * precedent pattern (prefer `wp_get_attachment_url()`/CDN URL over the
+	 * deleted local path).
+	 *
+	 * [2026-07-26 Johnny Chu] PHASE-0.46 W6 HOTFIX-9 — support strict
+	 * remote-evidence mode (`metadata.force_remote_evidence=1`) so notebook
+	 * bridge can guarantee learning reads the exact file from the R2/CDN URL
+	 * (not a potentially stale local copy).
+	 *
+	 * @param int   $attach_id
+	 * @param array $metadata  ingest payload metadata (may carry evidence_url/provider_url).
+	 * @return array{path:string,is_temp:bool}|WP_Error
+	 */
+	private function resolve_attachment_local_path( int $attach_id, array $metadata = [] ) {
+		if ( function_exists( 'clean_attachment_cache' ) ) {
+			clean_attachment_cache( $attach_id );
+		}
+		wp_cache_delete( $attach_id, 'post_meta' );
+
+		$force_remote = ! empty( $metadata['force_remote_evidence'] );
+		$remote_url   = (string) ( $metadata['evidence_url'] ?? $metadata['provider_url'] ?? '' );
+		if ( $remote_url === '' ) {
+			$remote_url = (string) wp_get_attachment_url( $attach_id );
+		}
+
+		if ( $force_remote ) {
+			error_log( sprintf( '[NotebookBridge][materialize] force_remote_evidence=1 attachment_id=%d url=%s', $attach_id, $remote_url ) );
+			if ( $remote_url === '' ) {
+				return new WP_Error( 'no_file', 'Attachment file not found (missing remote evidence URL)' );
+			}
+			if ( ! function_exists( 'download_url' ) ) {
+				require_once ABSPATH . 'wp-admin/includes/file.php';
+			}
+			$tmp = download_url( $remote_url, 30 );
+			if ( is_wp_error( $tmp ) ) {
+				error_log( sprintf( '[NotebookBridge][materialize] force-remote download failed attachment_id=%d url=%s error=%s', $attach_id, $remote_url, $tmp->get_error_message() ) );
+				return new WP_Error( 'no_file', 'Attachment file not found (force-remote fetch failed): ' . $tmp->get_error_message() );
+			}
+			error_log( sprintf( '[NotebookBridge][materialize] force-remote download OK attachment_id=%d url=%s tmp=%s', $attach_id, $remote_url, $tmp ) );
+			return [ 'path' => $tmp, 'is_temp' => true ];
+		}
+
+		$path = get_attached_file( $attach_id );
+		if ( $path && file_exists( $path ) ) {
+			return [ 'path' => $path, 'is_temp' => false ];
+		}
+
+		error_log( sprintf( '[NotebookBridge][materialize] local file missing for attachment_id=%d (path=%s) — trying remote URL fallback', $attach_id, (string) $path ) );
+		if ( $remote_url === '' ) {
+			error_log( sprintf( '[NotebookBridge][materialize] no remote URL available for attachment_id=%d', $attach_id ) );
+			return new WP_Error( 'no_file', 'Attachment file not found' );
+		}
+
+		if ( ! function_exists( 'download_url' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/file.php';
+		}
+		$tmp = download_url( $remote_url, 30 );
+		if ( is_wp_error( $tmp ) ) {
+			error_log( sprintf( '[NotebookBridge][materialize] remote download failed attachment_id=%d url=%s error=%s', $attach_id, $remote_url, $tmp->get_error_message() ) );
+			return new WP_Error( 'no_file', 'Attachment file not found (remote fetch failed): ' . $tmp->get_error_message() );
+		}
+
+		error_log( sprintf( '[NotebookBridge][materialize] remote download OK attachment_id=%d url=%s tmp=%s', $attach_id, $remote_url, $tmp ) );
+		return [ 'path' => $tmp, 'is_temp' => true ];
+	}
+
+	/**
 	 * @return array{title:string,content:string,source_url:string,mime?:string}|WP_Error
 	 */
 	private function materialize_content( $type, array $payload ) {
@@ -582,14 +743,20 @@ class BizCity_TwinChat_Sources_Service {
 
 			case 'file':
 				$file = isset( $payload['file'] ) && is_array( $payload['file'] ) ? $payload['file'] : null;
+				// [2026-07-26 Johnny Chu] PHASE-0.46 W6 HOTFIX-7 — set when the
+				// local path came from a remote-URL download fallback so we can
+				// clean it up after read_file_content() regardless of outcome.
+				$downloaded_tmp_path = '';
 				if ( ! $file || empty( $file['tmp_name'] ) ) {
 					// Allow attachment_id alternative.
 					$attach = (int) ( $payload['attachment_id'] ?? 0 );
 					if ( $attach > 0 ) {
-						$path = get_attached_file( $attach );
-						if ( ! $path || ! file_exists( $path ) ) {
-							return new WP_Error( 'no_file', 'Attachment file not found' );
+						$resolved = $this->resolve_attachment_local_path( $attach, isset( $payload['metadata'] ) && is_array( $payload['metadata'] ) ? $payload['metadata'] : [] );
+						if ( is_wp_error( $resolved ) ) {
+							return $resolved;
 						}
+						$path                = $resolved['path'];
+						$downloaded_tmp_path = ! empty( $resolved['is_temp'] ) ? $path : '';
 						$file = [
 							'name'     => basename( $path ),
 							'tmp_name' => $path,
@@ -608,6 +775,9 @@ class BizCity_TwinChat_Sources_Service {
 					// AV files are deferred to the AV adapter (its own 250 MB cap).
 					// All other modalities (text 5 MB, office 25 MB) are hard-stopped here.
 					if ( $cap['modality'] !== 'av' ) {
+						if ( $downloaded_tmp_path !== '' && file_exists( $downloaded_tmp_path ) ) {
+							@unlink( $downloaded_tmp_path );
+						}
 						return new WP_Error(
 							$cap['modality'] === 'office' ? 'office_file_too_large' : 'file_too_large',
 							sprintf( 'File exceeds %d MB limit for %s uploads.', (int) round( $cap['bytes'] / 1048576 ), $cap['modality'] ),
@@ -626,6 +796,9 @@ class BizCity_TwinChat_Sources_Service {
 					'attachment_id' => (int) ( $payload['attachment_id'] ?? 0 ),
 					'user_id'       => (int) ( $payload['user_id'] ?? get_current_user_id() ),
 				] );
+				if ( $downloaded_tmp_path !== '' && file_exists( $downloaded_tmp_path ) ) {
+					@unlink( $downloaded_tmp_path );
+				}
 				if ( is_wp_error( $content ) ) {
 					return $content;
 				}
@@ -747,6 +920,8 @@ class BizCity_TwinChat_Sources_Service {
 		if ( ! file_exists( $path ) ) {
 			return new WP_Error( 'file_missing', 'Uploaded file missing' );
 		}
+
+		$user_id = isset( $opts['user_id'] ) ? (int) $opts['user_id'] : (int) get_current_user_id();
 		if ( in_array( $ext, self::ALLOWED_TEXT_EXT, true ) ) {
 			$raw = file_get_contents( $path );
 			if ( $raw === false ) {
@@ -762,6 +937,8 @@ class BizCity_TwinChat_Sources_Service {
 		// Adapters return a structured array; we keep the legacy string contract
 		// here for backward compat and stash the structured payload on the
 		// instance so the caller can pick up segments/meta without a refactor.
+		// [2026-07-14 Johnny Chu] HOTFIX — ensure adapter registry is loadable in TwinChat ingest path.
+		$this->ensure_kg_adapter_registry_loaded();
 		if ( class_exists( 'BizCity_KG_Adapter_Registry' ) ) {
 			$mime    = isset( $opts['mime'] ) && $opts['mime'] !== ''
 				? (string) $opts['mime']
@@ -781,6 +958,18 @@ class BizCity_TwinChat_Sources_Service {
 			}
 		}
 
+		$legacy_doc_error = null;
+		// [2026-07-14 Johnny Chu] HOTFIX — best-effort local parser for legacy .doc before URL-based extraction.
+		if ( strtolower( (string) $ext ) === 'doc' ) {
+			$legacy_doc = $this->extract_legacy_doc_best_effort( $path );
+			if ( ! is_wp_error( $legacy_doc ) && trim( (string) $legacy_doc ) !== '' ) {
+				return (string) $legacy_doc;
+			}
+			if ( is_wp_error( $legacy_doc ) ) {
+				$legacy_doc_error = $legacy_doc;
+			}
+		}
+
 		// Legacy stub — left in place for future wiring of niche extractors.
 		if ( class_exists( 'BizCity_File_Extractor' ) && method_exists( 'BizCity_File_Extractor', 'extract' ) ) {
 			$extracted = BizCity_File_Extractor::extract( $path, $ext );
@@ -795,11 +984,287 @@ class BizCity_TwinChat_Sources_Service {
 		if ( ! is_wp_error( $unified ) && $unified !== '' ) {
 			return $unified;
 		}
+		// [2026-07-14 Johnny Chu] HOTFIX — do not downgrade real extractor errors to unsupported_ext.
+		if ( is_wp_error( $unified ) ) {
+			// [2026-07-14 Johnny Chu] HOTFIX — for legacy .doc, return local parser error when URL extractor is empty.
+			if ( $legacy_doc_error instanceof WP_Error && $unified->get_error_code() === 'llm_extract_empty' ) {
+				return $legacy_doc_error;
+			}
+			return $unified;
+		}
+
+		$allowed_ext = $this->effective_allowed_file_exts( $user_id );
 
 		return new WP_Error(
 			'unsupported_ext',
-			sprintf( 'File type ".%s" not supported yet (allowed: %s)', $ext, implode( ', ', self::ALLOWED_TEXT_EXT ) )
+			sprintf( 'File type ".%s" not supported yet (allowed: %s)', $ext, implode( ', ', $allowed_ext ) ),
+			[
+				'status'  => 415,
+				'ext'     => (string) $ext,
+				'allowed' => $allowed_ext,
+			]
 		);
+	}
+
+	/**
+	 * [2026-07-14 Johnny Chu] HOTFIX — load KG adapter registry on-demand for TwinChat uploads.
+	 */
+	private function ensure_kg_adapter_registry_loaded() {
+		if ( class_exists( 'BizCity_KG_Adapter_Registry' ) ) {
+			return;
+		}
+		$base = dirname( __DIR__, 3 );
+		$iface = $base . '/core/knowledge/kg-hub/includes/adapters/interface-source-adapter.php';
+		$reg   = $base . '/core/knowledge/kg-hub/includes/adapters/class-adapter-registry.php';
+		if ( file_exists( $iface ) ) {
+			require_once $iface;
+		}
+		if ( file_exists( $reg ) ) {
+			require_once $reg;
+		}
+	}
+
+	/**
+	 * [2026-07-14 Johnny Chu] R-KG-FILE-TYPES — compute user-effective allowed extensions for messages.
+	 *
+	 * Keeps legacy text exts, then merges entitlement accepted_file_types when available.
+	 * Adds Office aliases for backward compatibility (doc/docx, xls/xlsx, ppt/pptx).
+	 *
+	 * @param int $user_id
+	 * @return array
+	 */
+	private function effective_allowed_file_exts( $user_id ) {
+		$allowed = self::ALLOWED_TEXT_EXT;
+		if ( $user_id > 0 && class_exists( 'BizCity_Membership_Entitlement' ) ) {
+			$ent = BizCity_Membership_Entitlement::instance()->for_user( $user_id );
+			if ( isset( $ent['accepted_file_types'] ) && is_array( $ent['accepted_file_types'] ) ) {
+				$allowed = array_merge( $allowed, $ent['accepted_file_types'] );
+			}
+		}
+
+		$normalized = [];
+		foreach ( (array) $allowed as $e ) {
+			$ext = sanitize_key( strtolower( trim( (string) $e ) ) );
+			if ( $ext !== '' && ! in_array( $ext, $normalized, true ) ) {
+				$normalized[] = $ext;
+			}
+		}
+		if ( in_array( 'docx', $normalized, true ) && ! in_array( 'doc', $normalized, true ) ) {
+			$normalized[] = 'doc';
+		}
+		if ( in_array( 'xlsx', $normalized, true ) && ! in_array( 'xls', $normalized, true ) ) {
+			$normalized[] = 'xls';
+		}
+		if ( in_array( 'pptx', $normalized, true ) && ! in_array( 'ppt', $normalized, true ) ) {
+			$normalized[] = 'ppt';
+		}
+
+		return ! empty( $normalized ) ? $normalized : self::ALLOWED_TEXT_EXT;
+	}
+
+	/**
+	 * [2026-07-14 Johnny Chu] R-KG-FILE-TYPES — temporary upload_mimes map for sideload.
+	 *
+	 * @param int    $user_id
+	 * @param string $ext
+	 * @return array
+	 */
+	private function build_upload_mimes_for_user( $user_id, $ext ) {
+		$allowed = $this->effective_allowed_file_exts( (int) $user_id );
+		$ext     = sanitize_key( strtolower( (string) $ext ) );
+		if ( $ext !== '' && ! in_array( $ext, $allowed, true ) ) {
+			$allowed[] = $ext;
+		}
+
+		$map = [
+			'txt'   => 'text/plain',
+			'md'    => 'text/markdown',
+			'csv'   => 'text/csv',
+			'tsv'   => 'text/tab-separated-values',
+			'json'  => 'application/json',
+			'log'   => 'text/plain',
+			'html'  => 'text/html',
+			'htm'   => 'text/html',
+			'xml'   => 'text/xml',
+			'rtf'   => 'application/rtf',
+			'srt'   => 'text/plain',
+			'vtt'   => 'text/vtt',
+			'pdf'   => 'application/pdf',
+			'doc'   => 'application/msword',
+			'docx'  => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+			'xls'   => 'application/vnd.ms-excel',
+			'xlsx'  => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+			'ppt'   => 'application/vnd.ms-powerpoint',
+			'pptx'  => 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+			'odt'   => 'application/vnd.oasis.opendocument.text',
+			'ods'   => 'application/vnd.oasis.opendocument.spreadsheet',
+			'odp'   => 'application/vnd.oasis.opendocument.presentation',
+			'mp3'   => 'audio/mpeg',
+			'wav'   => 'audio/wav',
+			'm4a'   => 'audio/mp4',
+			'aac'   => 'audio/aac',
+			'ogg'   => 'audio/ogg',
+			'webm'  => 'video/webm',
+			'mp4'   => 'video/mp4',
+			'mov'   => 'video/quicktime',
+			'avi'   => 'video/x-msvideo',
+		];
+
+		$out = [];
+		foreach ( (array) $allowed as $a ) {
+			$k = sanitize_key( strtolower( (string) $a ) );
+			if ( $k !== '' && isset( $map[ $k ] ) ) {
+				$out[ $k ] = $map[ $k ];
+			}
+		}
+
+		return $out;
+	}
+
+	/**
+	 * [2026-07-14 Johnny Chu] HOTFIX — local best-effort extractor for legacy binary .doc files.
+	 *
+	 * Keeps ingest functional when adapters do not claim .doc and URL multimodal
+	 * extraction returns empty. If extraction quality is low, returns actionable
+	 * guidance to convert to DOCX/PDF.
+	 *
+	 * @param string $path
+	 * @return string|WP_Error
+	 */
+	private function extract_legacy_doc_best_effort( $path ) {
+		$base        = dirname( __DIR__, 3 );
+		$parser_file = $base . '/core/knowledge/lib/class-file-parser.php';
+
+		if ( ! class_exists( 'BizCity_Knowledge_FileParser' ) && file_exists( $parser_file ) ) {
+			require_once $parser_file;
+		}
+		if ( ! class_exists( 'BizCity_Knowledge_FileParser' ) ) {
+			return new WP_Error(
+				'doc_parser_unavailable',
+				'Legacy .doc parser is unavailable on this site. Please convert file to .docx or .pdf and upload again.'
+			);
+		}
+
+		$parse_path = (string) $path;
+		$tmp_doc    = '';
+		// [2026-07-14 Johnny Chu] HOTFIX — uploaded tmp files often lose extension; force `.doc` suffix for parser routing.
+		if ( strtolower( (string) pathinfo( $parse_path, PATHINFO_EXTENSION ) ) !== 'doc' ) {
+			$tmp_base = wp_tempnam( 'twinchat_doc_' );
+			if ( is_string( $tmp_base ) && $tmp_base !== '' ) {
+				$tmp_doc = $tmp_base . '.doc';
+				if ( @copy( $parse_path, $tmp_doc ) ) {
+					$parse_path = $tmp_doc;
+				}
+			}
+		}
+
+		$parsed = BizCity_Knowledge_FileParser::instance()->parse( $parse_path );
+		if ( $tmp_doc !== '' && file_exists( $tmp_doc ) ) {
+			@unlink( $tmp_doc );
+		}
+		if ( is_wp_error( $parsed ) ) {
+			// [2026-07-14 Johnny Chu] HOTFIX — when parser says DOC is limited, try raw binary text extraction as fail-open.
+			if ( $parsed->get_error_code() === 'doc_extraction_limited' ) {
+				$raw_fallback = $this->extract_legacy_doc_raw_text( (string) $path );
+				if ( ! is_wp_error( $raw_fallback ) && trim( (string) $raw_fallback ) !== '' ) {
+					return (string) $raw_fallback;
+				}
+			}
+			$detail = (string) $parsed->get_error_message();
+			$msg    = 'Legacy .doc extraction failed: ' . $detail;
+			// [2026-07-14 Johnny Chu] HOTFIX — avoid duplicated convert-hint when parser already includes it.
+			if ( strpos( strtolower( $detail ), 'convert to docx' ) === false && strpos( strtolower( $detail ), '.docx' ) === false ) {
+				$msg .= ' Convert file to .docx or .pdf and retry.';
+			}
+			return new WP_Error(
+				'doc_extract_failed',
+				$msg,
+				[ 'ext' => 'doc', 'path' => basename( (string) $path ) ]
+			);
+		}
+
+		$text = trim( (string) $parsed );
+		if ( $text === '' ) {
+			return new WP_Error(
+				'doc_extract_empty',
+				'Legacy .doc extracted no text. Please convert file to .docx or .pdf and upload again.',
+				[ 'ext' => 'doc', 'path' => basename( (string) $path ) ]
+			);
+		}
+
+		return $text;
+	}
+
+	/**
+	 * [2026-07-14 Johnny Chu] HOTFIX — fallback raw-text pass for legacy .doc binary files.
+	 *
+	 * Best-effort only: strips control bytes and keeps printable sequences so ingest
+	 * can proceed for simple .doc documents where parser deems quality limited.
+	 *
+	 * @param string $path
+	 * @return string|WP_Error
+	 */
+	private function extract_legacy_doc_raw_text( $path ) {
+		$content = @file_get_contents( (string) $path );
+		if ( $content === false || $content === '' ) {
+			return new WP_Error( 'doc_raw_read_failed', 'Could not read legacy .doc binary payload.' );
+		}
+
+		$candidates = [];
+
+		// [2026-07-14 Johnny Chu] HOTFIX — legacy .doc may carry UTF-16LE runs; extract and decode them first.
+		$utf16_matches = [];
+		if ( preg_match_all( '/(?:[\x20-\x7E]\x00){5,}/', (string) $content, $utf16_matches ) && ! empty( $utf16_matches[0] ) ) {
+			foreach ( $utf16_matches[0] as $chunk16 ) {
+				$decoded = @iconv( 'UTF-16LE', 'UTF-8//IGNORE', (string) $chunk16 );
+				if ( is_string( $decoded ) && trim( $decoded ) !== '' ) {
+					$candidates[] = $decoded;
+				}
+			}
+		}
+
+		// Single-byte fallback path for ANSI-like payloads.
+		$single = preg_replace( '/[\x00-\x08\x0B\x0C\x0E-\x1F]/', ' ', (string) $content );
+		if ( ! is_string( $single ) ) {
+			$single = (string) $content;
+		}
+		if ( function_exists( 'mb_check_encoding' ) && ! mb_check_encoding( $single, 'UTF-8' ) ) {
+			$converted = @iconv( 'Windows-1252', 'UTF-8//IGNORE', $single );
+			if ( is_string( $converted ) && $converted !== '' ) {
+				$single = $converted;
+			}
+		}
+
+		$single_matches = [];
+		if ( function_exists( 'mb_check_encoding' ) && mb_check_encoding( $single, 'UTF-8' ) ) {
+			preg_match_all( '/[\p{L}\p{N}\p{P}\p{Zs}]{4,}/u', (string) $single, $single_matches );
+		} else {
+			preg_match_all( '/[\x20-\x7E\x80-\xFF]{4,}/', (string) $single, $single_matches );
+		}
+		if ( ! empty( $single_matches[0] ) ) {
+			$candidates = array_merge( $candidates, (array) $single_matches[0] );
+		}
+
+		$clean = [];
+		foreach ( $candidates as $cand ) {
+			$line = trim( preg_replace( '/\s+/', ' ', (string) $cand ) );
+			if ( strlen( $line ) < 4 ) {
+				continue;
+			}
+			if ( ! preg_match( '/[A-Za-z\x80-\xFF]/', $line ) ) {
+				continue;
+			}
+			$clean[] = $line;
+		}
+
+		$clean = array_values( array_unique( $clean ) );
+		$out   = trim( implode( "\n", $clean ) );
+
+		if ( strlen( $out ) < 10 ) {
+			return new WP_Error( 'doc_raw_empty', 'Raw .doc extraction produced too little text.' );
+		}
+
+		return $out;
 	}
 
 	/**
@@ -837,17 +1302,29 @@ class BizCity_TwinChat_Sources_Service {
 			? (string) $opts['mime']
 			: ( function_exists( 'mime_content_type' ) ? @mime_content_type( $path ) : 'application/octet-stream' );
 		$title   = isset( $opts['title'] ) && $opts['title'] !== '' ? (string) $opts['title'] : basename( $path );
+		$user_id = isset( $opts['user_id'] ) ? (int) $opts['user_id'] : (int) get_current_user_id();
+		$fname   = isset( $opts['filename'] ) && $opts['filename'] !== ''
+			? sanitize_file_name( (string) $opts['filename'] )
+			: sanitize_file_name( $title . '.' . $ext );
 
 		$file_array = [
-			'name'     => $title . '.' . $ext,
+			'name'     => $fname,
 			'tmp_name' => $path,
 			'type'     => $mime,
 			'error'    => 0,
 			'size'     => file_exists( $path ) ? filesize( $path ) : 0,
 		];
 
+		// [2026-07-14 Johnny Chu] R-KG-FILE-TYPES — allow entitlement-approved mime map during sideload.
+		$allow_mimes = $this->build_upload_mimes_for_user( $user_id, (string) $ext );
+		$mime_filter = static function ( $mimes ) use ( $allow_mimes ) {
+			return array_merge( (array) $mimes, $allow_mimes );
+		};
+		add_filter( 'upload_mimes', $mime_filter, 99 );
+
 		// Sideload without attaching to any post (post_id = 0).
 		$attach_id = media_handle_sideload( $file_array, 0, $title );
+		remove_filter( 'upload_mimes', $mime_filter, 99 );
 		if ( is_wp_error( $attach_id ) ) {
 			return new WP_Error( 'media_sideload_failed', 'Could not sideload file: ' . $attach_id->get_error_message() );
 		}
@@ -881,7 +1358,20 @@ class BizCity_TwinChat_Sources_Service {
 		}
 
 		if ( $text === '' ) {
-			return new WP_Error( 'llm_extract_empty', 'LLM returned empty extraction for file.' );
+			$error_message = 'LLM returned empty extraction for file.';
+			if ( strtolower( (string) $ext ) === 'doc' ) {
+				$error_message = 'Legacy .doc extraction returned empty. Please convert file to .docx or .pdf and upload again.';
+			}
+			return new WP_Error(
+				'llm_extract_empty',
+				$error_message,
+				[
+					'ext'      => (string) $ext,
+					'mime'     => (string) $mime,
+					'filename' => (string) $fname,
+					'url'      => (string) $file_url,
+				]
+			);
 		}
 
 		return $text;
@@ -1005,6 +1495,13 @@ class BizCity_TwinChat_Sources_Service {
 			$res = bizcity_openrouter_embeddings( $batch );
 			if ( empty( $res['success'] ) || empty( $res['embeddings'] ) ) {
 				$err = isset( $res['error'] ) ? (string) $res['error'] : 'Embedding API failed';
+				// [2026-07-15 Johnny Chu] HOTFIX — preserve provider/router cause;
+				// do not flatten quota, auth, or multishard routing into embed_failed.
+				$error_code = sanitize_key( (string) ( $res['error_code'] ?? 'embed_failed' ) );
+				if ( $error_code === '' ) {
+					$error_code = 'embed_failed';
+				}
+				$http_status = (int) ( $res['http_status'] ?? 502 );
 				if ( class_exists( 'BizCity_Twin_Debug' ) ) {
 					BizCity_Twin_Debug::trace( 'kg', 'embed_batch_error', [
 						'scope_id'  => (int) $scope_id,
@@ -1014,7 +1511,15 @@ class BizCity_TwinChat_Sources_Service {
 						'error'     => $err,
 					] );
 				}
-				return new WP_Error( 'embed_failed', $err );
+				return new WP_Error( $error_code, $err, [
+					'http_status' => $http_status,
+					'ctx' => [
+						'master_level'    => (string) ( $res['master_level'] ?? '' ),
+						'used_requests'   => (int) ( $res['used_requests'] ?? 0 ),
+						'cap_requests_day'=> (int) ( $res['cap_requests_day'] ?? 0 ),
+						'reset_at'        => (string) ( $res['reset_at'] ?? '' ),
+					],
+				] );
 			}
 			foreach ( $res['embeddings'] as $vec ) {
 				$out[] = is_array( $vec ) ? $vec : [];
@@ -1074,28 +1579,41 @@ class BizCity_TwinChat_Sources_Service {
 			'metadata'          => wp_json_encode( $args['metadata'] ?? [] ),
 		] );
 		$pid = $ok ? (int) $wpdb->insert_id : 0;
+		if ( $pid <= 0 ) {
+			return 0;
+		}
 
 		// PHASE-0.21 Wave 2 — dual-write embedding into .bin file store.
 		if ( $pid && is_array( $args['embedding'] ) && ! empty( $args['embedding'] ) && class_exists( 'BizCity_KG_Embedding_Writer' ) ) {
-			BizCity_KG_Embedding_Writer::instance()->register_chunk(
+			// [2026-07-24 Johnny Chu] PHASE-0.46-FILE-BODY — a passage is not successful until its vector is verified on disk.
+			$vector_result = BizCity_KG_Embedding_Writer::instance()->register_chunk(
 				(int) $args['notebook_id'],
 				$pid,
 				$args['embedding'],
 				null,
 				(int) $args['source_id']
 			);
+			if ( is_wp_error( $vector_result ) ) {
+				$wpdb->delete( $db->tbl_passages(), [ 'id' => $pid ] );
+				return 0;
+			}
 		}
 
 		// PHASE-0.7-LEARN-VECTOR-FILE Wave F1 — dual-write passage body to
 		// MD shard file so new sources land in filestore immediately when
-		// `bizcity_kg_filestore_dual_write` option is ON. Without this hook,
+		// `bizcity_kg_v05_filestore_backfill_enabled` option is ON (renamed 2026-07-23
+		// from legacy `bizcity_kg_filestore_dual_write`). Without this hook,
 		// only embeddings hit .bin and the body stays in MySQL forever.
 		if ( $pid && (int) $args['notebook_id'] > 0 && class_exists( 'BizCity_KG_Filestore_Dispatcher' ) ) {
-			BizCity_KG_Filestore_Dispatcher::instance()->after_passage_insert(
+			$body_result = BizCity_KG_Filestore_Dispatcher::instance()->after_passage_insert(
 				$pid,
 				(int) $args['notebook_id'],
 				(string) $args['content']
 			);
+			if ( is_wp_error( $body_result ) ) {
+				$wpdb->delete( $db->tbl_passages(), [ 'id' => $pid ] );
+				return 0;
+			}
 		}
 
 		// Passages count on the notebook just changed — flush KG stats cache so the
@@ -1159,7 +1677,8 @@ class BizCity_TwinChat_Sources_Service {
 			'origin_id'     => $webchat_id,
 			'title'         => $title,
 			'origin_url'    => $source_url ?: null,
-			'status'        => 'active',
+			// [2026-07-24 Johnny Chu] PHASE-0.46-INGEST-ROLLBACK — KG source becomes active only after exact chunk/passage counts pass.
+			'status'        => 'processing',
 			'scope_type'    => 'notebook',
 			'scope_id'      => (string) $scope_id,
 			'user_id'       => $user_id ?: (int) get_current_user_id(),

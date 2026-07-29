@@ -69,13 +69,23 @@ final class BizCity_Probe_Memory_Unified_Dual_Write implements BizCity_Diagnosti
 		add_filter( 'bizcity_memory_unified_enabled', $flag_cb, 9999 );
 
 		try {
+			// [2026-07-28 Johnny Chu] R-CH-IDMEM — plant the dual-write sentinel under the verified UUID owner.
+			$memory_scope = class_exists( 'BizCity_Memory_Identity_Scope' )
+				? BizCity_Memory_Identity_Scope::for_write( array( 'user_id' => $user_id, 'session_id' => 'probe-unified-parity' ) )
+				: null;
 			// Step 2 — ensure unified table exists.
 			$installer = BizCity_Memory_Unified_Installer::instance();
 			$installer->maybe_install();
 
 			global $wpdb;
 			$unified_table = $installer->table();
-			$exists = (bool) $wpdb->get_var( "SHOW TABLES LIKE '" . esc_sql( $unified_table ) . "'" );
+			// [2026-07-28 Johnny Chu] R-SHOW-TABLES — use the canonical cached information_schema helper for tenant table existence.
+			$exists = function_exists( 'bizcity_tbl_exists' )
+				? bizcity_tbl_exists( $unified_table )
+				: (bool) $wpdb->get_var( $wpdb->prepare(
+					'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+					$unified_table
+				) );
 			$ctx->emit_step( [
 				'label'  => 'Unified table provisioned',
 				'status' => $exists ? 'pass' : 'fail',
@@ -93,6 +103,7 @@ final class BizCity_Probe_Memory_Unified_Dual_Write implements BizCity_Diagnosti
 			$blog_id = get_current_blog_id();
 			$result  = BizCity_User_Memory::instance()->upsert_public( [
 				'user_id'        => $user_id,
+				'identity_uuid'  => (string) ( $memory_scope['identity_uuid'] ?? '' ),
 				'session_id'     => 'probe-unified-parity',
 				'memory_tier'    => 'explicit',
 				'memory_type'    => 'fact',
@@ -108,10 +119,18 @@ final class BizCity_Probe_Memory_Unified_Dual_Write implements BizCity_Diagnosti
 				'detail' => 'result=' . var_export( $result, true ),
 			] );
 			if ( ! $result ) {
+				// [2026-07-28 Johnny Chu] PHASE-0.52 W8.3 — include exact upsert failure reason instead of generic false.
+				$last_fail = method_exists( 'BizCity_User_Memory', 'get_last_upsert_failure' )
+					? (array) BizCity_User_Memory::get_last_upsert_failure()
+					: array();
+				$fail_code = (string) ( $last_fail['code'] ?? '' );
+				$fail_msg  = (string) ( $last_fail['message'] ?? '' );
+				$db_error  = trim( (string) ( $last_fail['db_error'] ?? '' ) );
+				$db_tail   = $db_error !== '' ? ' · db_error=' . mb_substr( $db_error, 0, 220 ) : '';
 				return [
 					'status'   => 'fail',
-					'error'    => 'upsert_public() trả false — không thể test parity.',
-					'fix_hint' => 'Check BizCity_User_Memory::upsert() — schema bizcity_memory_users đủ cột chưa?',
+					'error'    => 'upsert_public() trả false — không thể test parity.' . ( $fail_code !== '' ? ' code=' . $fail_code : '' ) . ( $fail_msg !== '' ? ' · ' . $fail_msg : '' ) . $db_tail,
+					'fix_hint' => 'Check BizCity_User_Memory::get_last_upsert_failure() và đảm bảo bảng bizcity_memory_users đã migrate đủ cột + identity_uuid owner resolve được.',
 				];
 			}
 
@@ -158,7 +177,12 @@ final class BizCity_Probe_Memory_Unified_Dual_Write implements BizCity_Diagnosti
 		if ( class_exists( 'BizCity_Memory_Unified_Installer' ) ) {
 			$unified = BizCity_Memory_Unified_Installer::instance()->table();
 			// Only attempt cleanup if table exists to avoid SQL noise.
-			$exists = (bool) $wpdb->get_var( "SHOW TABLES LIKE '" . esc_sql( $unified ) . "'" );
+			$exists = function_exists( 'bizcity_tbl_exists' )
+				? bizcity_tbl_exists( $unified )
+				: (bool) $wpdb->get_var( $wpdb->prepare(
+					'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+					$unified
+				) );
 			if ( $exists ) {
 				$wpdb->query( $wpdb->prepare(
 					"DELETE FROM {$unified} WHERE memory_text LIKE %s",

@@ -123,6 +123,15 @@ class BizCoach_Pro_Self_Service_Shortcode {
 						'paypalEnabled'  => class_exists( 'BizCity_Membership_PayPal_Gateway' ) && BizCity_Membership_PayPal_Gateway::instance()->is_ready(),
 						'paypalClientId' => class_exists( 'BizCity_Membership_PayPal_Gateway' ) ? (string) BizCity_Membership_PayPal_Gateway::instance()->settings()['client_id'] : '',
 						'paypalMode'     => class_exists( 'BizCity_Membership_PayPal_Gateway' ) ? (string) BizCity_Membership_PayPal_Gateway::instance()->settings()['mode'] : 'sandbox',
+						// [2026-07-27 Johnny Chu] HOTFIX — geo autocomplete mode:
+						// local (no gateway), hybrid (local then gateway), gateway (legacy).
+						'geoMode'        => (string) apply_filters( 'bcpro_geo_mode', 'local' ),
+						// [2026-07-27 Johnny Chu] HOTFIX — ưu tiên xếp hạng local geo theo
+						// các tỉnh/thành trọng điểm (chỉ ảnh hưởng local/hybrid mode).
+						'geoPreferredProvinces' => array_values( array_filter( array_map( 'strval', (array) apply_filters(
+							'bcpro_geo_preferred_provinces',
+							array( 'Ha Noi', 'Ho Chi Minh', 'Da Nang', 'Hai Phong', 'Can Tho' )
+						) ) ) ),
 					) );
 					return; // Vite build loaded — skip Alpine fallback.
 				} // close if ( $entry_js )
@@ -178,6 +187,15 @@ class BizCoach_Pro_Self_Service_Shortcode {
 			'paypalEnabled'  => class_exists( 'BizCity_Membership_PayPal_Gateway' ) && BizCity_Membership_PayPal_Gateway::instance()->is_ready(),
 			'paypalClientId' => class_exists( 'BizCity_Membership_PayPal_Gateway' ) ? (string) BizCity_Membership_PayPal_Gateway::instance()->settings()['client_id'] : '',
 			'paypalMode'     => class_exists( 'BizCity_Membership_PayPal_Gateway' ) ? (string) BizCity_Membership_PayPal_Gateway::instance()->settings()['mode'] : 'sandbox',
+			// [2026-07-27 Johnny Chu] HOTFIX — geo autocomplete mode:
+			// local (no gateway), hybrid (local then gateway), gateway (legacy).
+			'geoMode'        => (string) apply_filters( 'bcpro_geo_mode', 'local' ),
+			// [2026-07-27 Johnny Chu] HOTFIX — ưu tiên xếp hạng local geo theo
+			// các tỉnh/thành trọng điểm (chỉ ảnh hưởng local/hybrid mode).
+			'geoPreferredProvinces' => array_values( array_filter( array_map( 'strval', (array) apply_filters(
+				'bcpro_geo_preferred_provinces',
+				array( 'Ha Noi', 'Ho Chi Minh', 'Da Nang', 'Hai Phong', 'Can Tho' )
+			) ) ) ),
 		) );
 	}
 

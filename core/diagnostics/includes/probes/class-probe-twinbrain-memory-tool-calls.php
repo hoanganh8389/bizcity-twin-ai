@@ -73,8 +73,13 @@ final class BizCity_Probe_TwinBrain_Memory_Tool_Calls implements BizCity_Diagnos
 		$mem_table = $GLOBALS['wpdb']->prefix . 'bizcity_memory_users';
 		$blog_id   = get_current_blog_id();
 		$seed_text = $sentinel . ' seed forget candidate';
+		// [2026-07-28 Johnny Chu] R-CH-IDMEM — seed tool-call memory under the verified UUID owner.
+		$memory_scope = class_exists( 'BizCity_Memory_Identity_Scope' )
+			? BizCity_Memory_Identity_Scope::for_write( array( 'user_id' => $user_id ) )
+			: null;
 		BizCity_User_Memory::instance()->upsert_public( [
 			'user_id'     => $user_id,
+			'identity_uuid' => (string) ( $memory_scope['identity_uuid'] ?? '' ),
 			'session_id'  => '',
 			'memory_tier' => 'explicit',
 			'memory_type' => 'fact',
