@@ -28,6 +28,9 @@ class BizCity_Skill_Database {
 
 	const DB_VERSION     = '1.0.0';
 	const DB_VERSION_KEY = 'bizcity_skills_db_ver';
+	const RETENTION_HOOK = 'bizcity_skill_logs_retention';
+	const RETENTION_DAYS = 7; // [2026-08-01 Johnny Chu] PHASE-1.28-RETENTION-7D — keep skill usage telemetry for one week.
+	const RETENTION_BATCH = 500;
 
 	private static $instance = null;
 
@@ -40,6 +43,44 @@ class BizCity_Skill_Database {
 
 	public function __construct() {
 		self::maybe_create_tables();
+	}
+
+	public static function register_retention_cron(): void {
+		// [2026-07-30 Johnny Chu] PHASE-1.22-RETENTION — register bounded skill-log cleanup through the central cron manager.
+		if ( ! class_exists( 'BizCity_Cron_Manager' ) ) {
+			return;
+		}
+		BizCity_Cron_Manager::instance()->register( array(
+			'id'          => 'core.skills.logs_retention',
+			'hook'        => self::RETENTION_HOOK,
+			'interval'    => 'daily',
+			'owner'       => 'core/skills',
+			'description' => 'Bounded retention sweep for skill usage logs.',
+			'retention'   => self::RETENTION_DAYS,
+		) );
+	}
+
+	public static function gc_usage_logs(): void {
+		// [2026-07-30 Johnny Chu] PHASE-1.22-RETENTION — delete old usage rows only from the scheduled cron context.
+		global $wpdb;
+		if ( ! $wpdb ) {
+			return;
+		}
+		$table  = $wpdb->prefix . 'bizcity_skill_logs';
+		$deleted = 0;
+		if ( ! function_exists( 'bizcity_tbl_exists' ) || bizcity_tbl_exists( $table ) ) {
+			$result = $wpdb->query( $wpdb->prepare(
+				"DELETE FROM {$table} WHERE created_at < (CURRENT_TIMESTAMP - INTERVAL %d DAY) ORDER BY id ASC LIMIT %d",
+				self::RETENTION_DAYS,
+				self::RETENTION_BATCH
+			) );
+			$deleted = false === $result ? 0 : (int) $result;
+		}
+		if ( class_exists( 'BizCity_Cron_Manager' ) ) {
+			$cron = BizCity_Cron_Manager::instance();
+			$cron->note( array( 'counters' => array( 'skill_logs_retention_deleted' => $deleted ) ) );
+			$cron->note_event( 'skill_logs_retention', array( 'deleted' => $deleted, 'retention_days' => self::RETENTION_DAYS ) );
+		}
 	}
 
 	/* ================================================================
@@ -397,4 +438,22 @@ class BizCity_Skill_Database {
 		$rows  = $wpdb->get_col( "SELECT DISTINCT category FROM {$table} WHERE category != '' ORDER BY category ASC" );
 		return $rows ?: [];
 	}
+}
+
+// [2026-07-29 Johnny Chu] PHASE-1.21-B — central registry for the active skills/logs installer.
+if ( class_exists( 'BizCity_Schema_Registry' ) ) {
+	BizCity_Schema_Registry::register(
+		'bizcity_skills',
+		'core.knowledge.skills',
+		BizCity_Skill_Database::DB_VERSION,
+		BizCity_Skill_Database::DB_VERSION_KEY,
+		array( 'BizCity_Skill_Database', 'maybe_create_tables' )
+	);
+	BizCity_Schema_Registry::register(
+		'bizcity_skill_logs',
+		'core.knowledge.skills',
+		BizCity_Skill_Database::DB_VERSION,
+		BizCity_Skill_Database::DB_VERSION_KEY,
+		array( 'BizCity_Skill_Database', 'maybe_create_tables' )
+	);
 }

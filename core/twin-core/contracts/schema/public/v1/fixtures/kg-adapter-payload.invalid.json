@@ -1,0 +1,10 @@
+{
+  "contract": "kg-adapter-payload",
+  "version": "1.0.0",
+  "adapter_id": "reference.source",
+  "operation": "unknown",
+  "source": {
+    "source_type": "url"
+  },
+  "status": "ok"
+}

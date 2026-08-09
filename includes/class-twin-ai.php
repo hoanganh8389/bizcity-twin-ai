@@ -129,27 +129,52 @@ class BizCity_Twin_AI {
     }
 
     /**
-     * Copy mu-plugin/bizcity-twin-compat.php → mu-plugins/ (create dir if needed).
-     * Always overwrites so the mu-plugin stays in sync with the plugin version.
+     * Sync mu-plugin/bizcity-twin-compat.php → mu-plugins/ when the bundle changes.
+     *
+     * @return bool True when the destination is already current or was updated.
      */
     public static function sync_compat_loader(): bool {
+        // [2026-08-07 Johnny Chu] R-AUTO-MU — self-heal the deployed compat loader after a client pulls a newer plugin bundle.
+        if ( ! defined( 'WPMU_PLUGIN_DIR' ) || '' === WPMU_PLUGIN_DIR ) {
+            return false;
+        }
+
         $src  = BIZCITY_TWIN_AI_DIR . 'mu-plugin/bizcity-twin-compat.php';
-        $dest = rtrim( WPMU_PLUGIN_DIR, '/\\' ) . '/bizcity-twin-compat.php';
+        $dest_dir = rtrim( WPMU_PLUGIN_DIR, '/\\' );
+        $dest = $dest_dir . '/bizcity-twin-compat.php';
 
         if ( ! file_exists( $src ) ) {
             return false;
         }
 
-        // Create mu-plugins directory if it doesn't exist
-        if ( ! is_dir( WPMU_PLUGIN_DIR ) ) {
-            wp_mkdir_p( WPMU_PLUGIN_DIR );
-        }
-
-        if ( ! is_writable( dirname( $dest ) ) ) {
+        if ( ! is_dir( $dest_dir ) && ! wp_mkdir_p( $dest_dir ) ) {
             return false;
         }
 
-        return copy( $src, $dest );
+        if ( ! is_writable( $dest_dir ) ) {
+            return false;
+        }
+
+        $src_hash = md5_file( $src );
+        if ( false === $src_hash ) {
+            return false;
+        }
+
+        if ( file_exists( $dest ) && $src_hash === md5_file( $dest ) ) {
+            return true;
+        }
+
+        // [2026-08-07 Johnny Chu] R-AUTO-MU — stage beside the destination so a failed copy never truncates the active loader.
+        $tmp = tempnam( $dest_dir, '.bizcity-twin-compat-' );
+        if ( false !== $tmp ) {
+            if ( @copy( $src, $tmp ) && @rename( $tmp, $dest ) ) {
+                return true;
+            }
+            @unlink( $tmp );
+        }
+
+        // Windows hosts may reject rename() over an existing file; retain a direct-copy fallback.
+        return @copy( $src, $dest );
     }
 
     /**

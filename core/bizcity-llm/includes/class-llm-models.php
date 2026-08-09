@@ -27,6 +27,7 @@ class BizCity_LLM_Models {
 
         /* ─ Chat / General ─ */
         'chat' => [
+            [ 'id' => 'openai/gpt-5.6-luna',                   'name' => 'GPT-5.6 Luna',                   'ctx' => 1050000 ],
             [ 'id' => 'anthropic/claude-sonnet-4',             'name' => 'Claude Sonnet 4',                'ctx' => 200000 ],
             [ 'id' => 'anthropic/claude-3.5-sonnet',           'name' => 'Claude 3.5 Sonnet',              'ctx' => 200000 ],
             [ 'id' => 'anthropic/claude-3.5-haiku',            'name' => 'Claude 3.5 Haiku',               'ctx' => 200000 ],
@@ -107,6 +108,19 @@ class BizCity_LLM_Models {
             [ 'id' => 'deepseek/deepseek-chat:free',           'name' => 'DeepSeek Chat (Free)',           'ctx' => 163840  ],
         ],
 
+        /* ─ Twin Goal Scoreboard (R-MPR-GOALBOARD) — hard-coded, NOT exposed in LLM Settings UI ─ */
+        // [2026-08-03 Johnny Chu] R-MPR-GOALBOARD — Goal Parser and Goal Reflection callers pass
+        // 'model' explicitly (see BizCity_TwinBrain_Goal_Loop_Parser::MODEL / ...Reflector::MODEL),
+        // bypassing get_model()/site settings. These catalog rows exist for R-GW-API-CATALOG
+        // documentation/admin visibility only — do NOT add 'goal_parse'/'goal_reflect' to the
+        // $purpose_labels dropdown in class-llm-settings.php; they must stay non-configurable.
+        'goal_parse' => [
+            [ 'id' => 'openai/gpt-5.6-terra', 'name' => 'GPT-5.6 Terra (Goal Parser, reasoning=low)', 'ctx' => 1050000 ],
+        ],
+        'goal_reflect' => [
+            [ 'id' => 'openai/gpt-5.6-luna',  'name' => 'GPT-5.6 Luna (Goal Reflection / MPR chain)', 'ctx' => 1050000 ],
+        ],
+
         /* ─ Embedding ─ */
         'embedding' => [
             [ 'id' => 'openai/text-embedding-3-small',         'name' => 'Text Embedding 3 Small',         'ctx' => 8191,  'dim' => 1536 ],
@@ -117,7 +131,8 @@ class BizCity_LLM_Models {
 
     /* ── Default PRIMARY model IDs per purpose ── */
     const DEFAULTS = [
-        'chat'         => 'google/gemini-2.5-flash',
+        // [2026-08-01 Johnny Chu] R-GW-API-CATALOG — use the verified OpenRouter GPT-5.6 Luna chat model.
+        'chat'         => 'openai/gpt-5.6-luna',
         'vision'       => 'google/gemini-2.0-flash-001',
         'code'         => 'google/gemini-2.5-flash',
         'fast'         => 'google/gemini-2.5-flash',
@@ -128,6 +143,9 @@ class BizCity_LLM_Models {
         'slot_extract' => 'google/gemini-2.5-flash',
         'slide'        => 'google/gemini-2.5-flash',
         'embedding'    => 'openai/text-embedding-3-small',
+        // [2026-08-03 Johnny Chu] R-MPR-GOALBOARD — hard-coded Goal Scoreboard models (callers pass 'model' explicitly; these DEFAULTS entries are documentation-only fallback if a caller ever omits 'model').
+        'goal_parse'   => 'openai/gpt-5.6-terra',
+        'goal_reflect' => 'openai/gpt-5.6-luna',
     ];
 
     /* ── Default FALLBACK model IDs per purpose ── */
@@ -143,6 +161,9 @@ class BizCity_LLM_Models {
         'slot_extract' => 'anthropic/claude-sonnet-4',
         'slide'        => 'anthropic/claude-sonnet-4',
         'embedding'    => 'openai/text-embedding-ada-002',
+        // [2026-08-03 Johnny Chu] R-MPR-GOALBOARD — both Goal Scoreboard calls pass no_fallback=true, so this is documentation-only.
+        'goal_parse'   => 'openai/gpt-5.6-luna',
+        'goal_reflect' => 'anthropic/claude-sonnet-4',
     ];
 
     /**

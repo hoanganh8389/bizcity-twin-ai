@@ -1,0 +1,173 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "registry_id": "bizcity-twin-plugin-contracts",
+  "registry_version": "1.0.0",
+  "framework_contract_catalog": "core/twin-core/contracts/schema/public/v1/contract-catalog.json",
+  "status_values": ["pass", "partial", "fail", "review", "reference_only"],
+  "modules": [
+    {
+      "id": "bizcity.twinchat",
+      "path": "modules/twinchat",
+      "kind": "framework_integrated",
+      "status": "partial",
+      "manifest": null,
+      "bootstrap": "modules/twinchat/bootstrap.php",
+      "required_surfaces": ["runtime_client", "identity_scoping", "error_envelope", "runtime_probe"]
+    },
+    {
+      "id": "bizcity.twinweb",
+      "path": "modules/twinweb",
+      "kind": "framework_integrated",
+      "status": "partial",
+      "manifest": null,
+      "bootstrap": "modules/twinweb/bootstrap.php",
+      "required_surfaces": ["identity_scoping", "same_origin_proxy", "ownership_guard", "runtime_probe"]
+    },
+    {
+      "id": "bizcity.webchat",
+      "path": "modules/webchat",
+      "kind": "framework_integrated",
+      "status": "partial",
+      "manifest": null,
+      "bootstrap": "modules/webchat/bootstrap.php",
+      "required_surfaces": ["channel_normalized", "identity_scoping", "sse_events", "error_envelope"]
+    },
+    {
+      "id": "bizcity.twinsearch",
+      "path": "modules/twinsearch",
+      "kind": "framework_integrated",
+      "status": "review",
+      "manifest": null,
+      "bootstrap": "modules/twinsearch/bootstrap.php",
+      "required_surfaces": ["gateway_client", "search_contract", "reliable_http", "runtime_probe"]
+    },
+    {
+      "id": "bizcity.twinshell",
+      "path": "modules/twinshell",
+      "kind": "framework_integrated",
+      "status": "partial",
+      "manifest": null,
+      "bootstrap": "modules/twinshell/bootstrap.php",
+      "required_surfaces": ["identity_scoping", "capability_registry", "error_envelope", "runtime_probe"]
+    }
+  ],
+  "plugins": [
+    {
+      "id": "bizcity.reference",
+      "path": "examples/bizcity-reference-plugin",
+      "kind": "reference",
+      "status": "reference_only",
+      "manifest": "examples/bizcity-reference-plugin/manifest.json",
+      "bootstrap": "examples/bizcity-reference-plugin/bizcity-reference-plugin.php",
+      "required_surfaces": ["manifest", "typed_registry", "capability_consent", "runtime_smoke"]
+    },
+    {
+      "id": "bizcity.twin-crm",
+      "path": "plugins/bizcity-twin-crm",
+      "kind": "framework_integrated",
+      "status": "partial",
+      "manifest": null,
+      "bootstrap": "plugins/bizcity-twin-crm/bootstrap.php",
+      "required_surfaces": ["channel_normalized", "outbound_logging", "identity_scoping", "error_envelope", "runtime_probe"]
+    },
+    {
+      "id": "bizcity.personal",
+      "path": "plugins/bizcity-personal",
+      "kind": "framework_integrated",
+      "status": "partial",
+      "manifest": null,
+      "bootstrap": "plugins/bizcity-personal/bootstrap.php",
+      "required_surfaces": ["channel_normalized", "scheduler_metadata", "inbound_provenance", "mutation_guard", "file_log", "canonical_sender", "error_envelope"]
+    },
+    {
+      "id": "bizcity.zalo-bot",
+      "path": "plugins/bizcity-zalo-bot",
+      "kind": "framework_integrated",
+      "status": "fail",
+      "manifest": null,
+      "bootstrap": "plugins/bizcity-zalo-bot/bootstrap.php",
+      "required_surfaces": ["channel_normalized", "zone_isolation", "canonical_sender", "file_log", "error_envelope"]
+    },
+    {
+      "id": "bizcity.facebook-bot",
+      "path": "plugins/bizcity-facebook-bot",
+      "kind": "framework_integrated",
+      "status": "fail",
+      "manifest": null,
+      "bootstrap": "plugins/bizcity-facebook-bot/bootstrap.php",
+      "required_surfaces": ["channel_normalized", "comment_context", "canonical_sender", "file_log", "error_envelope"]
+    },
+    {
+      "id": "bizcity.pagebuilder",
+      "path": "plugins/bizcity-pagebuilder",
+      "kind": "framework_integrated",
+      "status": "fail",
+      "manifest": null,
+      "bootstrap": "plugins/bizcity-pagebuilder/bizcity-pagebuilder.php",
+      "required_surfaces": ["gateway_client", "secret_boundary", "reliable_http", "mutation_guard", "error_envelope"]
+    },
+    {
+      "id": "bizcity.video-kling",
+      "path": "plugins/bizcity-video-kling",
+      "kind": "framework_integrated",
+      "status": "fail",
+      "manifest": null,
+      "bootstrap": "plugins/bizcity-video-kling/bootstrap.php",
+      "required_surfaces": ["gateway_client", "secret_boundary", "reliable_http", "idempotency", "error_envelope"]
+    },
+    {
+      "id": "bizcity.tool-image",
+      "path": "plugins/bizcity-tool-image",
+      "kind": "framework_integrated",
+      "status": "partial",
+      "manifest": null,
+      "bootstrap": "plugins/bizcity-tool-image/bizcity-tool-image.php",
+      "required_surfaces": ["gateway_client", "network_policy", "upload_policy", "error_envelope", "runtime_probe"]
+    },
+    {
+      "id": "bizcity.doc",
+      "path": "plugins/bizcity-doc",
+      "kind": "framework_integrated",
+      "status": "partial",
+      "manifest": null,
+      "bootstrap": "plugins/bizcity-doc/bizcity-doc.php",
+      "required_surfaces": ["gateway_client", "network_policy", "error_envelope", "runtime_probe"]
+    },
+    {
+      "id": "bizcity.bizcoach-pro",
+      "path": "plugins/bizcoach-pro",
+      "kind": "framework_integrated",
+      "status": "partial",
+      "manifest": null,
+      "bootstrap": "plugins/bizcoach-pro/bizcoach-pro.php",
+      "required_surfaces": ["credential_scope", "error_envelope", "cache_contract", "runtime_probe"]
+    },
+    {
+      "id": "bizcity.zalo-bizcity",
+      "path": "plugins/bizcity-zalo-bizcity",
+      "kind": "legacy_adapter",
+      "status": "partial",
+      "manifest": null,
+      "bootstrap": "plugins/bizcity-zalo-bizcity/bootstrap.php",
+      "required_surfaces": ["adapter_boundary", "channel_normalized", "ddl_governance", "error_envelope"]
+    },
+    {
+      "id": "bizcity.google-tool",
+      "path": "plugins/bizgpt-tool-google",
+      "kind": "framework_integrated",
+      "status": "review",
+      "manifest": null,
+      "bootstrap": "plugins/bizgpt-tool-google/bizgpt-tool-google.php",
+      "required_surfaces": ["secret_boundary", "ddl_governance", "cron_meta", "runtime_probe"]
+    },
+    {
+      "id": "bizcity.content-creator",
+      "path": "plugins/bizcity-content-creator",
+      "kind": "framework_integrated",
+      "status": "partial",
+      "manifest": null,
+      "bootstrap": "plugins/bizcity-content-creator/bizcity-content-creator.php",
+      "required_surfaces": ["cache_contract", "ddl_governance", "error_envelope", "runtime_probe"]
+    }
+  ]
+}

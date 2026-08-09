@@ -63,6 +63,13 @@ class BizCity_CRM_REST_Controller {
 				),
 			),
 		) );
+		// [2026-08-04 Johnny Chu] PHASE-0.48-INBOX-CLEANUP — allow only marked test/diagnostic inboxes to be removed.
+		register_rest_route( $ns, '/inboxes/(?P<id>\d+)', array(
+			'methods'             => WP_REST_Server::DELETABLE,
+			'callback'            => array( __CLASS__, 'delete_inbox' ),
+			// [2026-08-04 Johnny Chu] PHASE-0.48-INBOX-CLEANUP — destructive inbox cleanup is admin-only.
+			'permission_callback' => static function () { return current_user_can( 'manage_options' ); },
+		) );
 
 		// M7.W4 — runtime health for nav sidebar dot.
 		register_rest_route( $ns, '/inboxes/(?P<id>\d+)/health', array(
@@ -76,11 +83,21 @@ class BizCity_CRM_REST_Controller {
 			'callback'            => array( __CLASS__, 'get_conversations' ),
 			'permission_callback' => array( __CLASS__, 'can_read' ),
 			'args'                => array(
-				'inbox_id'  => array( 'type' => 'integer' ),
-				'status'    => array( 'type' => 'string', 'enum' => array( 'open', 'pending', 'resolved', 'snoozed' ) ),
-				'limit'     => array( 'type' => 'integer', 'default' => 50 ),
-				'before_id' => array( 'type' => 'integer' ),
+				'inbox_id'    => array( 'type' => 'integer' ),
+				'status'      => array( 'type' => 'string', 'enum' => array( 'open', 'pending', 'resolved', 'snoozed' ) ),
+				'priority'    => array( 'type' => 'integer', 'minimum' => 0, 'maximum' => 3 ),
+				'assignee_id' => array( 'type' => 'integer', 'minimum' => 1 ),
+				'unassigned'  => array( 'type' => 'boolean' ),
+				'label_id'    => array( 'type' => 'integer' ),
+				'q'           => array( 'type' => 'string' ),
+				'limit'       => array( 'type' => 'integer', 'default' => 50 ),
+				'before_id'   => array( 'type' => 'integer' ),
 			),
+		) );
+		register_rest_route( $ns, '/conversations/export', array(
+			'methods'             => WP_REST_Server::READABLE,
+			'callback'            => array( __CLASS__, 'export_conversations' ),
+			'permission_callback' => array( __CLASS__, 'can_read' ),
 		) );
 
 		register_rest_route( $ns, '/conversations/(?P<id>\d+)', array(
@@ -115,6 +132,29 @@ class BizCity_CRM_REST_Controller {
 		register_rest_route( $ns, '/conversations/(?P<id>\d+)/resolve', array(
 			'methods'             => WP_REST_Server::CREATABLE,
 			'callback'            => array( __CLASS__, 'post_resolve' ),
+			'permission_callback' => array( __CLASS__, 'can_write' ),
+		) );
+
+		// [2026-08-04 Johnny Chu] PHASE-0.48-H2 — expose canonical conversation triage mutations.
+		register_rest_route( $ns, '/conversations/(?P<id>\d+)/assignee', array(
+			'methods'             => WP_REST_Server::EDITABLE,
+			'callback'            => array( __CLASS__, 'post_assign' ),
+			'permission_callback' => array( __CLASS__, 'can_write' ),
+			'args'                => array(
+				'assignee_id' => array( 'type' => 'integer', 'default' => 0 ),
+			),
+		) );
+		register_rest_route( $ns, '/conversations/(?P<id>\d+)/priority', array(
+			'methods'             => WP_REST_Server::EDITABLE,
+			'callback'            => array( __CLASS__, 'post_priority' ),
+			'permission_callback' => array( __CLASS__, 'can_write' ),
+			'args'                => array(
+				'priority' => array( 'type' => 'integer', 'required' => true ),
+			),
+		) );
+		register_rest_route( $ns, '/conversations/(?P<id>\d+)/reopen', array(
+			'methods'             => WP_REST_Server::EDITABLE,
+			'callback'            => array( __CLASS__, 'post_reopen' ),
 			'permission_callback' => array( __CLASS__, 'can_write' ),
 		) );
 
@@ -172,6 +212,14 @@ class BizCity_CRM_REST_Controller {
 		register_rest_route( $ns, '/conversations/(?P<id>\d+)/last-skip', array(
 			'methods'             => WP_REST_Server::READABLE,
 			'callback'            => array( __CLASS__, 'get_last_skip' ),
+			'permission_callback' => array( __CLASS__, 'can_read' ),
+		) );
+
+		// [2026-08-03 Johnny Chu] R-TGL-CS — expose the CRM Inbox Goal/Case
+		// projection without introducing a second Goal Loop storage table.
+		register_rest_route( $ns, '/conversations/(?P<id>\d+)/goal-loop', array(
+			'methods'             => WP_REST_Server::READABLE,
+			'callback'            => array( __CLASS__, 'get_goal_loop_trace' ),
 			'permission_callback' => array( __CLASS__, 'can_read' ),
 		) );
 
@@ -748,6 +796,11 @@ class BizCity_CRM_REST_Controller {
 				'permission_callback' => array( __CLASS__, 'can_write' ),
 			),
 		) );
+		register_rest_route( $ns, '/crm-contacts/export', array(
+			'methods'             => WP_REST_Server::READABLE,
+			'callback'            => array( __CLASS__, 'export_crm_contacts' ),
+			'permission_callback' => array( __CLASS__, 'can_write' ),
+		) );
 		register_rest_route( $ns, '/crm-contacts/(?P<id>\d+)', array(
 			array(
 				'methods'             => WP_REST_Server::READABLE,
@@ -997,6 +1050,7 @@ class BizCity_CRM_REST_Controller {
 					'status'     => array( 'type' => 'string'  ),
 					'owner_id'   => array( 'type' => 'integer' ),
 					'account_id' => array( 'type' => 'integer' ),
+					'contact_id' => array( 'type' => 'integer' ),
 					'q'          => array( 'type' => 'string'  ),
 					'limit'      => array( 'type' => 'integer', 'default' => 100 ),
 					'offset'     => array( 'type' => 'integer', 'default' => 0 ),
@@ -1439,6 +1493,52 @@ class BizCity_CRM_REST_Controller {
 				'callback'            => array( __CLASS__, 'campaigns_delete' ),
 				'permission_callback' => array( __CLASS__, 'can_write' ),
 			),
+		) );
+
+		// [2026-08-01 Johnny Chu] PHASE-CG-QR-LINK — standalone admin-managed URL/Page QR Links.
+		register_rest_route( $ns, '/qr-links', array(
+			array(
+				'methods'             => WP_REST_Server::READABLE,
+				'callback'            => array( __CLASS__, 'qr_links_list' ),
+				'permission_callback' => array( __CLASS__, 'can_write' ),
+			),
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( __CLASS__, 'qr_links_create' ),
+				'permission_callback' => array( __CLASS__, 'can_write' ),
+			),
+		) );
+		register_rest_route( $ns, '/qr-links/pages', array(
+			'methods'             => WP_REST_Server::READABLE,
+			'callback'            => array( __CLASS__, 'qr_links_pages' ),
+			'permission_callback' => array( __CLASS__, 'can_write' ),
+		) );
+		register_rest_route( $ns, '/qr-links/(?P<id>\d+)', array(
+			array(
+				'methods'             => WP_REST_Server::READABLE,
+				'callback'            => array( __CLASS__, 'qr_links_get' ),
+				'permission_callback' => array( __CLASS__, 'can_write' ),
+			),
+			array(
+				'methods'             => WP_REST_Server::EDITABLE,
+				'callback'            => array( __CLASS__, 'qr_links_update' ),
+				'permission_callback' => array( __CLASS__, 'can_write' ),
+			),
+			array(
+				'methods'             => WP_REST_Server::DELETABLE,
+				'callback'            => array( __CLASS__, 'qr_links_delete' ),
+				'permission_callback' => array( __CLASS__, 'can_write' ),
+			),
+		) );
+		register_rest_route( $ns, '/qr-links/(?P<id>\d+)/qr.svg', array(
+			'methods'             => WP_REST_Server::READABLE,
+			'callback'            => array( __CLASS__, 'qr_links_qr_svg' ),
+			'permission_callback' => '__return_true',
+		) );
+		register_rest_route( $ns, '/qr-links/(?P<id>\d+)/qr.png', array(
+			'methods'             => WP_REST_Server::READABLE,
+			'callback'            => array( __CLASS__, 'qr_links_qr_png' ),
+			'permission_callback' => '__return_true',
 		) );
 		register_rest_route( $ns, '/campaigns/(?P<id>\d+)/stats', array(
 			'methods'             => WP_REST_Server::READABLE,
@@ -1997,6 +2097,24 @@ class BizCity_CRM_REST_Controller {
 		} );
 	}
 
+	/** [2026-08-04 Johnny Chu] PHASE-0.48-INBOX-CLEANUP — delete a marked test inbox and its owned conversation data. */
+	public static function delete_inbox( WP_REST_Request $req ) {
+		return self::wrap( static function () use ( $req ) {
+			$id = (int) $req['id'];
+			$inbox = BizCity_CRM_Repository::get_inbox( $id );
+			if ( ! $inbox ) {
+				throw new \RuntimeException( 'inbox_not_found' );
+			}
+			if ( ! BizCity_CRM_Repository::is_test_inbox( $inbox ) ) {
+				throw new \RuntimeException( 'inbox_delete_requires_test_marker' );
+			}
+			if ( ! BizCity_CRM_Repository::delete_inbox( $id ) ) {
+				throw new \RuntimeException( 'inbox_delete_failed' );
+			}
+			return array( 'deleted' => true, 'inbox_id' => $id );
+		} );
+	}
+
 	/** M7.W4 — health snapshot for one inbox. */
 	public static function get_inbox_health( WP_REST_Request $req ) {
 		return self::wrap( static function () use ( $req ) {
@@ -2198,6 +2316,102 @@ class BizCity_CRM_REST_Controller {
 			if ( ! $ok ) { throw new \RuntimeException( 'campaign_delete_failed' ); }
 			return array( 'deleted' => true, 'id' => (int) $req['id'] );
 		} );
+	}
+
+	// [2026-08-01 Johnny Chu] PHASE-CG-QR-LINK — list standalone QR Links.
+	public static function qr_links_list( WP_REST_Request $req ) {
+		return self::wrap_qr_link( static function () use ( $req ) {
+			return BizCity_CRM_QR_Link_Repository::list( array(
+				'q'      => (string) $req->get_param( 'q' ),
+				'limit'  => (int) ( $req->get_param( 'limit' ) ?: 100 ),
+				'offset' => (int) $req->get_param( 'offset' ),
+			) );
+		} );
+	}
+
+	// [2026-08-01 Johnny Chu] PHASE-CG-QR-LINK — create a URL/Page QR Link.
+	public static function qr_links_create( WP_REST_Request $req ) {
+		return self::wrap_qr_link( static function () use ( $req ) {
+			$id = BizCity_CRM_QR_Link_Repository::create( (array) $req->get_json_params() );
+			if ( is_wp_error( $id ) ) { return $id; }
+			return BizCity_CRM_QR_Link_Repository::get( (int) $id );
+		} );
+	}
+
+	public static function qr_links_get( WP_REST_Request $req ) {
+		return self::wrap_qr_link( static function () use ( $req ) {
+			$row = BizCity_CRM_QR_Link_Repository::get( (int) $req['id'] );
+			if ( ! $row ) { return new WP_Error( 'not_found', 'Không tìm thấy QR Link.', array( 'status' => 404 ) ); }
+			return $row;
+		} );
+	}
+
+	// [2026-08-01 Johnny Chu] PHASE-CG-QR-LINK — inline update of title or target.
+	public static function qr_links_update( WP_REST_Request $req ) {
+		return self::wrap_qr_link( static function () use ( $req ) {
+			$row = BizCity_CRM_QR_Link_Repository::update( (int) $req['id'], (array) $req->get_json_params() );
+			if ( is_wp_error( $row ) ) { return $row; }
+			return $row;
+		} );
+	}
+
+	public static function qr_links_delete( WP_REST_Request $req ) {
+		return self::wrap_qr_link( static function () use ( $req ) {
+			$ok = BizCity_CRM_QR_Link_Repository::delete( (int) $req['id'] );
+			if ( ! $ok ) { return new WP_Error( 'not_found', 'Không tìm thấy QR Link để xóa.', array( 'status' => 404 ) ); }
+			return array( 'deleted' => true, 'id' => (int) $req['id'] );
+		} );
+	}
+
+	public static function qr_links_pages( WP_REST_Request $req ) {
+		return self::wrap_qr_link( static function () {
+			return BizCity_CRM_QR_Link_Repository::pages();
+		} );
+	}
+
+	private static function qr_link_image_row( WP_REST_Request $req ) {
+		$row = BizCity_CRM_QR_Link_Repository::get( (int) $req['id'] );
+		if ( ! $row ) {
+			return new WP_Error( 'qr_link_not_found', 'QR Link not found', array( 'status' => 404 ) );
+		}
+		$payload = BizCity_CRM_QR_Link_Repository::target_url( $row );
+		if ( $payload === '' ) {
+			return new WP_Error( 'qr_link_target_missing', 'QR Link target is unavailable', array( 'status' => 404 ) );
+		}
+		return array(
+			'payload' => $payload,
+			'size'    => max( 64, min( 1024, (int) ( $req->get_param( 'size' ) ?: 256 ) ) ),
+			'margin'  => max( 0, min( 16, (int) ( $req->get_param( 'margin' ) ?: 4 ) ) ),
+		);
+	}
+
+	public static function qr_links_qr_svg( WP_REST_Request $req ) {
+		$input = self::qr_link_image_row( $req );
+		if ( is_wp_error( $input ) ) { return $input; }
+		try {
+			$svg = BizCity_CRM_QR_Generator::svg( $input['payload'], $input['size'], $input['margin'] );
+		} catch ( \Throwable $e ) {
+			return new WP_Error( 'qr_failed', 'QR generation failed', array( 'status' => 500 ) );
+		}
+		$resp = new WP_REST_Response( $svg, 200 );
+		$resp->header( 'Content-Type', 'image/svg+xml; charset=utf-8' );
+		$resp->header( 'Cache-Control', 'private, max-age=300' );
+		return $resp;
+	}
+
+	public static function qr_links_qr_png( WP_REST_Request $req ) {
+		$input = self::qr_link_image_row( $req );
+		if ( is_wp_error( $input ) ) { return $input; }
+		try {
+			$png = BizCity_CRM_QR_Generator::png( $input['payload'], $input['size'], $input['margin'] );
+		} catch ( \Throwable $e ) {
+			return new WP_Error( 'qr_failed', 'QR generation failed', array( 'status' => 500 ) );
+		}
+		header( 'Content-Type: image/png' );
+		header( 'Cache-Control: private, max-age=300' );
+		header( 'Content-Length: ' . strlen( $png ) );
+		echo $png; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+		exit;
 	}
 
 	public static function campaigns_stats( WP_REST_Request $req ) {
@@ -4780,9 +4994,80 @@ class BizCity_CRM_REST_Controller {
 			if ( $snoozed_raw !== null && $snoozed_raw !== '' ) {
 				$args['snoozed'] = $snoozed_raw;
 			}
+			$unassigned_raw = $req->get_param( 'unassigned' );
+			if ( $unassigned_raw !== null && $unassigned_raw !== '' ) {
+				$args['unassigned'] = $unassigned_raw;
+			}
 			$rows = BizCity_CRM_Repository::list_conversations( $args );
 			return array_map( array( __CLASS__, 'shape_conversation' ), $rows );
 		} );
+	}
+
+	/**
+	 * GET /conversations/export — bounded CSV export using the active queue filters.
+	 */
+	public static function export_conversations( WP_REST_Request $req ) {
+		// [2026-08-04 Johnny Chu] PHASE-0.48-H6 — export only safe conversation fields.
+		$args = array(
+			'inbox_id'    => (int) $req->get_param( 'inbox_id' ),
+			'status'      => (string) $req->get_param( 'status' ),
+			'priority'    => $req->get_param( 'priority' ),
+			'assignee_id' => (int) $req->get_param( 'assignee_id' ),
+			'label_id'    => (int) $req->get_param( 'label_id' ),
+			'q'           => (string) $req->get_param( 'q' ),
+			'unassigned'  => $req->get_param( 'unassigned' ),
+		);
+		$snoozed = $req->get_param( 'snoozed' );
+		if ( $snoozed !== null && $snoozed !== '' ) { $args['snoozed'] = $snoozed; }
+
+		$rows = array();
+		$before_id = 0;
+		$inboxes = array();
+		foreach ( BizCity_CRM_Repository::list_inboxes() as $inbox ) {
+			$inboxes[ (int) $inbox['id'] ] = (string) ( $inbox['name'] ?? '' );
+		}
+		while ( count( $rows ) <= BizCity_CRM_Export::MAX_ROWS ) {
+			$page_args = array_merge( $args, array( 'limit' => 200, 'before_id' => $before_id ) );
+			$page = BizCity_CRM_Repository::list_conversations( $page_args );
+			if ( empty( $page ) ) { break; }
+			foreach ( $page as $row ) {
+				$labels = (string) ( $row['cached_label_list'] ?? '' );
+				$rows[] = array(
+					'conversation_id' => (int) $row['id'],
+					'contact_name'    => (string) ( $row['contact_name'] ?? '' ),
+					'inbox'          => $inboxes[ (int) $row['inbox_id'] ] ?? '',
+					'status'         => (string) ( $row['status'] ?? '' ),
+					'assignee_id'    => $row['assignee_id'] ? (int) $row['assignee_id'] : '',
+					'priority'       => (int) ( $row['priority'] ?? 0 ),
+					'labels'         => $labels,
+					'last_activity'  => (string) ( $row['last_activity_at'] ?? '' ),
+					'created_at'     => (string) ( $row['created_at'] ?? '' ),
+				);
+				if ( count( $rows ) > BizCity_CRM_Export::MAX_ROWS ) {
+					return new WP_Error( 'export_limit_exceeded', 'Thu hẹp bộ lọc trước khi xuất dữ liệu.', array( 'status' => 422 ) );
+				}
+			}
+			$last = end( $page );
+			$next_before = (int) ( $last['id'] ?? 0 );
+			if ( ! $next_before || count( $page ) < 200 || $next_before === $before_id ) { break; }
+			$before_id = $next_before;
+		}
+
+		return BizCity_CRM_Export::response(
+			'crm-conversations-' . gmdate( 'Y-m-d' ) . '.csv',
+			array(
+				'conversation_id' => 'Conversation ID',
+				'contact_name'    => 'Contact',
+				'inbox'          => 'Inbox',
+				'status'         => 'Status',
+				'assignee_id'    => 'Assignee ID',
+				'priority'       => 'Priority',
+				'labels'         => 'Labels',
+				'last_activity'  => 'Last Activity',
+				'created_at'     => 'Created At',
+			),
+			$rows
+		);
 	}
 
 	public static function get_conversation( WP_REST_Request $req ) {
@@ -4806,6 +5091,82 @@ class BizCity_CRM_REST_Controller {
 			$limit    = (int) ( $req->get_param( 'limit' ) ?: 100 );
 			$rows     = BizCity_CRM_Repository::list_messages( $id, $limit, $after_id );
 			return array_map( array( __CLASS__, 'shape_message' ), $rows );
+		} );
+	}
+
+	public static function get_goal_loop_trace( WP_REST_Request $req ) {
+		// [2026-08-03 Johnny Chu] R-TGL-CS — expose canonical CRM Goal/Case projection from message metadata.
+		return self::wrap( static function () use ( $req ) {
+			$id = (int) $req['id'];
+			$conversation = BizCity_CRM_Repository::get_conversation( $id );
+			if ( ! is_array( $conversation ) ) {
+				throw new \RuntimeException( 'conversation_not_found' );
+			}
+			$identity = class_exists( 'BizCity_CRM_Conversation_Identity_Resolver' )
+				? BizCity_CRM_Conversation_Identity_Resolver::resolve_for_conversation( $id )
+				: null;
+			$messages = BizCity_CRM_Repository::list_messages( $id, 200, 0 );
+			$timeline = array();
+			$latest = array();
+			foreach ( $messages as $message ) {
+				if ( (string) ( $message['message_type'] ?? '' ) !== 'outgoing' || empty( $message['ai_metadata_json'] ) ) {
+					continue;
+				}
+				$meta = json_decode( (string) $message['ai_metadata_json'], true );
+				$goal = is_array( $meta ) && is_array( $meta['goal_loop'] ?? null ) ? $meta['goal_loop'] : array();
+				if ( empty( $goal ) ) {
+					continue;
+				}
+				$final_gate = is_array( $goal['final_gate'] ?? null ) ? $goal['final_gate'] : array();
+				$entry = array(
+					'message_id'             => (int) ( $message['id'] ?? 0 ),
+					'created_at'             => (string) ( $message['created_at'] ?? '' ),
+					'trace_uuid'             => (string) ( $meta['trace_uuid'] ?? '' ),
+					'canonical_path_active'  => ! empty( $goal['canonical_path_active'] ),
+					'legacy_path_active'     => ! empty( $goal['legacy_path_active'] ),
+					'goal_id'                => (string) ( $goal['goal_id'] ?? '' ),
+					'case_id'                => (string) ( $goal['case_id'] ?? '' ),
+					'memory_scope'           => (string) ( $goal['memory_scope'] ?? '' ),
+					'subject_key'            => (string) ( $goal['subject_key'] ?? '' ),
+					'goal_state'             => (array) ( $goal['goal_state'] ?? array() ),
+					'final_gate'             => $final_gate,
+					'final_gate_status'      => sanitize_key( (string) ( $final_gate['status'] ?? '' ) ),
+					'final_gate_reason'      => sanitize_key( (string) ( $final_gate['gate_reason'] ?? '' ) ),
+					'fallback_policy'        => sanitize_key( (string) ( $final_gate['fallback_policy'] ?? '' ) ),
+					'final_gate_terminal'    => ! empty( $final_gate['terminal'] ),
+					'requires_review'        => ! empty( $final_gate['requires_review'] ),
+					'retrieve_round'         => max( 0, (int) ( $final_gate['retrieve_round'] ?? 0 ) ),
+					'answer_quality'         => (array) ( $meta['answer_quality'] ?? array() ),
+					'next_best_action'       => $goal['next_best_action'] ?? null,
+					'memory_recall'          => (array) ( $goal['memory_recall'] ?? array() ),
+					'legacy_reason'          => (string) ( $goal['legacy_reason'] ?? $goal['error'] ?? '' ),
+				);
+				$timeline[] = $entry;
+				$latest = $entry;
+			}
+			$jsonl_timeline = array();
+			$client_id = (string) ( $identity['client_id'] ?? '' );
+			$platform = sanitize_key( (string) ( $identity['platform_type_hint'] ?? '' ) );
+			if ( $client_id !== '' && $platform !== '' && class_exists( 'BizCity_JSONL_File_Logger' ) && method_exists( 'BizCity_JSONL_File_Logger', 'read_scoped' ) ) {
+				$jsonl_timeline = BizCity_JSONL_File_Logger::read_scoped(
+					'bizcity-twinbrain-logs',
+					array( 'twinbrain-goal-loop', $platform, $client_id ),
+					'',
+					50
+				);
+			}
+			return array(
+				'identity' => array(
+					'platform'    => (string) ( $identity['platform_type_hint'] ?? '' ),
+					'account_id'  => (string) ( $identity['account_id'] ?? '' ),
+					'client_id'   => (string) ( $identity['client_id'] ?? '' ),
+					'session_id' => (string) ( $identity['llm_session_id'] ?? '' ),
+				),
+				'latest'   => $latest,
+				'timeline' => array_slice( array_reverse( $timeline ), 0, 50 ),
+				'jsonl_timeline' => $jsonl_timeline,
+				'has_goal_loop_trace' => ! empty( $timeline ),
+			);
 		} );
 	}
 
@@ -4888,6 +5249,12 @@ class BizCity_CRM_REST_Controller {
 				? admin_url( 'user-edit.php?user_id=' . (int) $r['responder_user_id'] )
 				: null,
 			'ai_metadata'        => $ai,
+			'delivery'           => ( function () use ( $r ) {
+				$payload = ! empty( $r['payload_json'] ) ? json_decode( (string) $r['payload_json'], true ) : array();
+				return is_array( $payload ) && isset( $payload['delivery'] ) && is_array( $payload['delivery'] )
+					? $payload['delivery']
+					: null;
+			} )(),
 			'attachments'        => array_map( static function ( $a ) {
 				return array(
 					'id'        => (int) $a['id'],
@@ -4901,6 +5268,57 @@ class BizCity_CRM_REST_Controller {
 	}
 
 	/* ------- envelope ------- */
+
+	private static function wrap_qr_link( callable $fn ) {
+		// [2026-08-01 Johnny Chu] PHASE-CG-QR-LINK — preserve validation errors for inline CRUD.
+		try {
+			$data = $fn();
+			if ( is_wp_error( $data ) ) {
+				return self::qr_link_error_response( $data );
+			}
+			return new WP_REST_Response( array(
+				'ok'   => true,
+				'data' => $data,
+				'ts'   => (int) round( microtime( true ) * 1000 ),
+			), 200 );
+		} catch ( \Throwable $e ) {
+			return self::qr_link_error_response( new WP_Error(
+				'gateway_degraded',
+				'Không thể xử lý QR Link lúc này.',
+				array( 'status' => 503 )
+			) );
+		}
+	}
+
+	private static function qr_link_error_response( WP_Error $error ) {
+		// [2026-08-01 Johnny Chu] PHASE-CG-QR-LINK — return R-ERROR-UX fields without exposing internals.
+		$code = (string) $error->get_error_code();
+		$data = $error->get_error_data( $code );
+		$status = is_array( $data ) && isset( $data['status'] ) ? (int) $data['status'] : 400;
+		$status = max( 400, min( 503, $status ) );
+		$hint = 'Kiểm tra dữ liệu QR Link rồi thử lại.';
+		$help_code = 'invalid_param_generic';
+		if ( 'not_found' === $code ) {
+			$hint = 'Kiểm tra lại QR Link rồi thử lại.';
+			$help_code = 'not_found';
+		} elseif ( 'gateway_degraded' === $code ) {
+			$hint = 'Thử lại sau ít phút.';
+			$help_code = 'gateway_degraded';
+		}
+		if ( class_exists( 'BizCity_Error_Payload' ) ) {
+			$payload = BizCity_Error_Payload::from_wp_error( $error, $hint, $help_code );
+		} else {
+			$payload = array(
+				'success'   => false,
+				'_degraded' => true,
+				'code'      => $code,
+				'message'   => $error->get_error_message(),
+				'hint'      => $hint,
+				'help_code' => $help_code,
+			);
+		}
+		return new WP_REST_Response( $payload, $status );
+	}
 
 	/**
 	 * Convert a date string (YYYY-MM-DD) or numeric timestamp string to a
@@ -4953,12 +5371,39 @@ class BizCity_CRM_REST_Controller {
 			$conv_id = (int) $req['id'];
 			$body    = $req->get_json_params() ?: array();
 			$content = (string) ( $body['content'] ?? '' );
-			$ctype   = (string) ( $body['content_type'] ?? 'text' );
+			$ctype   = sanitize_key( (string) ( $body['content_type'] ?? 'text' ) );
 			$kind    = (string) ( $body['responder_kind'] ?? 'manual' );
 			$cid     = isset( $body['character_id'] ) ? (int) $body['character_id'] : 0;
+			$attachments = array();
+			$raw_attachments = is_array( $body['attachments'] ?? null ) ? $body['attachments'] : array();
+			// [2026-08-04 Johnny Chu] PHASE-0.48-COMPOSER-ATTACH — accept one public Media Library URL per outbound message.
+			foreach ( array_slice( $raw_attachments, 0, 1 ) as $raw_attachment ) {
+				if ( ! is_array( $raw_attachment ) ) { continue; }
+				$url = esc_url_raw( (string) ( $raw_attachment['data_url'] ?? $raw_attachment['url'] ?? '' ) );
+				if ( $url === '' || ! wp_http_validate_url( $url ) ) {
+					throw new \RuntimeException( 'attachment_url_invalid' );
+				}
+				$file_type = sanitize_key( (string) ( $raw_attachment['file_type'] ?? $raw_attachment['type'] ?? 'file' ) );
+				$file_type = $file_type === 'image' ? 'image' : 'file';
+				$attachments[] = array(
+					'file_type' => $file_type,
+					'data_url'  => $url,
+					'thumb_url' => esc_url_raw( (string) ( $raw_attachment['thumb_url'] ?? '' ) ),
+					'meta'      => array(
+						'name' => sanitize_text_field( (string) ( $raw_attachment['name'] ?? '' ) ),
+						'mime' => sanitize_mime_type( (string) ( $raw_attachment['mime'] ?? '' ) ),
+					),
+				);
+			}
+			if ( $attachments ) {
+				$ctype = $attachments[0]['file_type'];
+			}
 
-			if ( $content === '' ) {
+			if ( $content === '' && ! $attachments ) {
 				throw new \RuntimeException( 'content_required' );
+			}
+			if ( ! in_array( $ctype, array( 'text', 'image', 'file' ), true ) ) {
+				throw new \RuntimeException( 'content_type_invalid' );
 			}
 			if ( ! in_array( $kind, array( 'manual', 'hybrid', 'auto', 'system' ), true ) ) {
 				$kind = 'manual';
@@ -4966,6 +5411,28 @@ class BizCity_CRM_REST_Controller {
 
 			$conv = BizCity_CRM_Repository::get_conversation( $conv_id );
 			if ( ! $conv ) { throw new \RuntimeException( 'conversation_not_found' ); }
+
+			// [2026-08-04 Johnny Chu] PHASE-0.48-ATTACHMENT-POLICY — reject unsupported media before message insert/adapter dispatch.
+			if ( $attachments ) {
+				$inbox_row = BizCity_CRM_Repository::get_inbox( (int) $conv['inbox_id'] );
+				$channel_type = $inbox_row ? strtolower( (string) $inbox_row['channel_type'] ) : '';
+				$attachment = $attachments[0];
+				$mime = strtolower( (string) ( $attachment['meta']['mime'] ?? '' ) );
+				$size = (int) ( $raw_attachments[0]['size'] ?? 0 );
+				$max_bytes = $attachment['file_type'] === 'image' ? 10 * 1024 * 1024 : 25 * 1024 * 1024;
+				$allowed_mimes = $attachment['file_type'] === 'image'
+					? array( 'image/jpeg', 'image/png', 'image/gif', 'image/webp' )
+					: array( 'application/pdf', 'text/plain', 'application/zip', 'application/msword', 'application/vnd.ms-excel', 'application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/vnd.openxmlformats-officedocument.presentationml.presentation' );
+				if ( $mime === '' || ! in_array( $mime, $allowed_mimes, true ) ) {
+					throw new \RuntimeException( 'attachment_mime_not_allowed' );
+				}
+				if ( $size > $max_bytes ) {
+					throw new \RuntimeException( $attachment['file_type'] === 'image' ? 'attachment_image_too_large' : 'attachment_file_too_large' );
+				}
+				if ( in_array( $channel_type, array( 'zalo_oa', 'webchat' ), true ) && $attachment['file_type'] !== 'image' ) {
+					throw new \RuntimeException( 'attachment_file_not_supported_by_channel' );
+				}
+			}
 
 			$resolved = BizCity_CRM_Repository::resolve_chat_id( $conv_id );
 			if ( ! $resolved ) { throw new \RuntimeException( 'chat_id_unresolved' ); }
@@ -4985,6 +5452,7 @@ class BizCity_CRM_REST_Controller {
 				'inbox_id'          => (int) $conv['inbox_id'],
 				'content'           => $content,
 				'content_type'      => $ctype,
+				'attachments'       => $attachments,
 				'message_type'      => 'outgoing',
 				'sender_type'       => $kind === 'manual' ? 'agent' : ( $kind === 'auto' ? 'bot' : $kind ),
 				'sender_id'         => $user_id ?: null,
@@ -5020,6 +5488,7 @@ class BizCity_CRM_REST_Controller {
 						array(
 							'content'      => $content,
 							'content_type' => $ctype,
+							'attachments'  => $attachments,
 						)
 					);
 				} finally {
@@ -5049,7 +5518,13 @@ class BizCity_CRM_REST_Controller {
 					) );
 				}
 			} elseif ( class_exists( 'BizCity_Gateway_Sender' ) ) {
-				$result = BizCity_Gateway_Sender::instance()->send( $resolved['chat_id'], $content );
+				$first_attachment = $attachments[0] ?? array();
+				$result = BizCity_Gateway_Sender::instance()->send(
+					$resolved['chat_id'],
+					$content,
+					$ctype,
+					$first_attachment ? array( 'image_url' => $first_attachment['data_url'], 'file_url' => $first_attachment['data_url'] ) : array()
+				);
 			}
 
 			if ( class_exists( 'BizCity_Responder_Stamper' ) ) {
@@ -5064,10 +5539,10 @@ class BizCity_CRM_REST_Controller {
 					array( 'status' => $result['sent'] ? 'sent' : 'failed' ),
 					array( 'id' => $msg_id )
 				);
+				BizCity_CRM_Repository::update_message_delivery( $msg_id, array_merge( $result, array( 'platform' => $resolved['platform'] ) ) );
 			}
 
 			$row = $msg_id ? BizCity_CRM_Repository::get_message( $msg_id ) : null;
-			if ( $row ) { $row['attachments'] = array(); }
 			return array(
 				'message'  => $row ? self::shape_message( $row ) : null,
 				'dispatch' => array(
@@ -5124,6 +5599,71 @@ class BizCity_CRM_REST_Controller {
 			if ( ! $conv ) { throw new \RuntimeException( 'conversation_not_found' ); }
 			$ok = BizCity_CRM_Repository::set_conversation_status( $conv_id, 'resolved', (int) get_current_user_id() );
 			return array( 'resolved' => (bool) $ok );
+		} );
+	}
+
+	/**
+	 * EDITABLE /conversations/{id}/assignee — assign or unassign a conversation.
+	 */
+	public static function post_assign( WP_REST_Request $req ) {
+		// [2026-08-04 Johnny Chu] PHASE-0.48-H2 — assign or unassign conversation.
+		return self::wrap( static function () use ( $req ) {
+			$conv_id     = (int) $req['id'];
+			$assignee_id = max( 0, (int) $req->get_param( 'assignee_id' ) );
+			$conv        = BizCity_CRM_Repository::get_conversation( $conv_id );
+			if ( ! $conv ) { throw new \RuntimeException( 'conversation_not_found' ); }
+
+			if ( $assignee_id > 0 ) {
+				$user = get_userdata( $assignee_id );
+				$roles = $user ? (array) $user->roles : array();
+				$allowed_roles = array( 'administrator', 'editor', 'author' );
+				if ( ! $user || ( ! current_user_can( 'manage_options' ) && ! array_intersect( $allowed_roles, $roles ) ) ) {
+					throw new \RuntimeException( 'assignee_not_allowed' );
+				}
+			}
+
+			$ok = BizCity_CRM_Repository::set_conversation_assignee(
+				$conv_id,
+				$assignee_id > 0 ? $assignee_id : null,
+				(int) get_current_user_id()
+			);
+			return array( 'assigned' => (bool) $ok, 'assignee_id' => $assignee_id ?: null );
+		} );
+	}
+
+	/**
+	 * EDITABLE /conversations/{id}/priority — set a priority from 0 (low) to 3 (urgent).
+	 */
+	public static function post_priority( WP_REST_Request $req ) {
+		// [2026-08-04 Johnny Chu] PHASE-0.48-H2 — update conversation priority.
+		return self::wrap( static function () use ( $req ) {
+			$conv_id  = (int) $req['id'];
+			$priority = (int) $req->get_param( 'priority' );
+			if ( $priority < 0 || $priority > 3 ) {
+				throw new \RuntimeException( 'invalid_priority' );
+			}
+			if ( ! BizCity_CRM_Repository::get_conversation( $conv_id ) ) {
+				throw new \RuntimeException( 'conversation_not_found' );
+			}
+			$ok = BizCity_CRM_Repository::set_conversation_priority( $conv_id, $priority, (int) get_current_user_id() );
+			return array( 'updated' => (bool) $ok, 'priority' => $priority );
+		} );
+	}
+
+	/**
+	 * EDITABLE /conversations/{id}/reopen — move a resolved conversation back to open.
+	 */
+	public static function post_reopen( WP_REST_Request $req ) {
+		// [2026-08-04 Johnny Chu] PHASE-0.48-H2 — reopen a resolved conversation.
+		return self::wrap( static function () use ( $req ) {
+			$conv_id = (int) $req['id'];
+			$conv    = BizCity_CRM_Repository::get_conversation( $conv_id );
+			if ( ! $conv ) { throw new \RuntimeException( 'conversation_not_found' ); }
+			if ( (string) $conv['status'] !== 'resolved' ) {
+				throw new \RuntimeException( 'conversation_not_resolved' );
+			}
+			$ok = BizCity_CRM_Repository::set_conversation_status( $conv_id, 'open', (int) get_current_user_id() );
+			return array( 'reopened' => (bool) $ok, 'status' => 'open' );
 		} );
 	}
 
@@ -7218,6 +7758,82 @@ class BizCity_CRM_REST_Controller {
 		} );
 	}
 
+	/**
+	 * GET /crm-contacts/export — bounded CSV export using contact list filters.
+	 */
+	public static function export_crm_contacts( WP_REST_Request $req ) {
+		// [2026-08-04 Johnny Chu] PHASE-0.48-H6 — export only safe contact fields.
+		global $wpdb;
+		$tbl  = BizCity_CRM_DB_Installer_V2::tbl_contacts();
+		$view = sanitize_key( (string) ( $req->get_param( 'view' ) ?: 'active' ) );
+		$where = array( 'archived' === $view ? '(deleted_at IS NOT NULL)' : '(deleted_at IS NULL)' );
+		$include_empty = (int) ( $req->get_param( 'include_empty' ) ?: 0 );
+		if ( ! $include_empty ) {
+			$where[] = "(TRIM(COALESCE(name,'')) <> '' OR TRIM(COALESCE(first_name,'')) <> '' OR TRIM(COALESCE(last_name,'')) <> '' OR TRIM(COALESCE(email,'')) <> '' OR TRIM(COALESCE(phone,'')) <> '')";
+		}
+		$account_id = $req->get_param( 'account_id' );
+		if ( $account_id !== null && $account_id !== '' ) {
+			$where[] = $wpdb->prepare( 'account_id = %d', (int) $account_id );
+		}
+		$cf7_form_id = (int) ( $req->get_param( 'cf7_form_id' ) ?: 0 );
+		if ( $cf7_form_id > 0 ) {
+			$where[] = $wpdb->prepare( 'acquisition_source = %s', 'cf7:' . $cf7_form_id );
+		}
+		$source = sanitize_text_field( (string) ( $req->get_param( 'source' ) ?: '' ) );
+		if ( $source !== '' ) {
+			$where[] = 'cf7' === $source
+				? "(acquisition_source = 'cf7' OR acquisition_source LIKE 'cf7:%')"
+				: ( 'inbox' === $source
+					? "acquisition_source LIKE 'inbox:%'"
+					: $wpdb->prepare( 'acquisition_source = %s', $source ) );
+		}
+		$q = (string) ( $req->get_param( 'q' ) ?: '' );
+		if ( $q !== '' ) {
+			$like = '%' . $wpdb->esc_like( $q ) . '%';
+			$where[] = $wpdb->prepare( '(name LIKE %s OR first_name LIKE %s OR last_name LIKE %s OR email LIKE %s OR phone LIKE %s)', $like, $like, $like, $like, $like );
+		}
+		$ids = array_filter( array_map( 'absint', explode( ',', (string) $req->get_param( 'ids' ) ) ) );
+		if ( $ids ) {
+			$placeholders = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+			$where[] = $wpdb->prepare( "id IN ({$placeholders})", $ids );
+		}
+		$sql = "SELECT id, name, first_name, last_name, email, phone, acquisition_source, segment, lead_score, owner_id, created_at, updated_at FROM `{$tbl}` WHERE " . implode( ' AND ', $where ) . ' ORDER BY updated_at DESC, created_at DESC, id DESC LIMIT ' . ( BizCity_CRM_Export::MAX_ROWS + 1 );
+		$source_rows = $wpdb->get_results( $sql, ARRAY_A );
+		if ( count( $source_rows ) > BizCity_CRM_Export::MAX_ROWS ) {
+			return new WP_Error( 'export_limit_exceeded', 'Thu hẹp bộ lọc trước khi xuất dữ liệu.', array( 'status' => 422 ) );
+		}
+		$rows = array_map( static function ( $row ) {
+			return array(
+				'contact_id' => (int) $row['id'],
+				'name'       => trim( (string) ( $row['name'] ?: ( $row['first_name'] . ' ' . $row['last_name'] ) ) ),
+				'email'      => (string) $row['email'],
+				'phone'      => (string) $row['phone'],
+				'source'     => (string) $row['acquisition_source'],
+				'segment'    => (string) $row['segment'],
+				'lead_score' => (int) $row['lead_score'],
+				'owner_id'   => $row['owner_id'] ? (int) $row['owner_id'] : '',
+				'created_at' => (string) $row['created_at'],
+				'updated_at' => (string) $row['updated_at'],
+			);
+		}, $source_rows );
+		return BizCity_CRM_Export::response(
+			'crm-contacts-' . gmdate( 'Y-m-d' ) . '.csv',
+			array(
+				'contact_id' => 'Contact ID',
+				'name'       => 'Name',
+				'email'      => 'Email',
+				'phone'      => 'Phone',
+				'source'     => 'Source',
+				'segment'    => 'Segment',
+				'lead_score' => 'Lead Score',
+				'owner_id'   => 'Owner ID',
+				'created_at' => 'Created At',
+				'updated_at' => 'Updated At',
+			),
+			$rows
+		);
+	}
+
 	public static function get_crm_contact( WP_REST_Request $req ) {
 		return self::wrap( static function () use ( $req ) {
 			global $wpdb;
@@ -7881,6 +8497,7 @@ class BizCity_CRM_REST_Controller {
 			$q      = (string) ( $req->get_param( 'q' ) ?: '' );
 			if ( $status !== '' ) { $where[] = $wpdb->prepare( 'status = %s', $status ); }
 			if ( $owner  !== null ) { $where[] = $wpdb->prepare( 'owner_id = %d', (int) $owner ); }
+			// [2026-08-04 Johnny Chu] PHASE-0.48-H4 — scope opportunities to Customer 360 contact projections.
 			if ( $contact !== null ) { $where[] = $wpdb->prepare( 'contact_id = %d', (int) $contact ); }
 			if ( $q !== '' ) {
 				$like = '%' . $wpdb->esc_like( $q ) . '%';
@@ -8179,11 +8796,13 @@ class BizCity_CRM_REST_Controller {
 			$status = (string) ( $req->get_param( 'status' ) ?: '' );
 			$owner  = $req->get_param( 'owner_id' );
 			$acct   = $req->get_param( 'account_id' );
+			$contact = $req->get_param( 'contact_id' );
 			$q      = (string) ( $req->get_param( 'q' ) ?: '' );
 			if ( $stage  !== '' ) { $where[] = $wpdb->prepare( 'stage = %s', $stage ); }
 			if ( $status !== '' ) { $where[] = $wpdb->prepare( 'status = %s', $status ); }
 			if ( $owner  !== null ) { $where[] = $wpdb->prepare( 'owner_id = %d', (int) $owner ); }
 			if ( $acct   !== null ) { $where[] = $wpdb->prepare( 'account_id = %d', (int) $acct ); }
+			if ( $contact !== null ) { $where[] = $wpdb->prepare( 'contact_id = %d', (int) $contact ); }
 			if ( $q !== '' ) {
 				$like = '%' . $wpdb->esc_like( $q ) . '%';
 				$where[] = $wpdb->prepare( '(name LIKE %s OR description LIKE %s)', $like, $like );

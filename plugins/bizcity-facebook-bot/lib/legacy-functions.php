@@ -14,6 +14,38 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
+ * Claim one Facebook Messenger inbound event across the current and legacy handlers.
+ *
+ * @param string $page_id
+ * @param array  $messaging
+ * @return bool
+ */
+if ( ! function_exists( 'bizcity_fb_claim_inbound_event' ) ) {
+	function bizcity_fb_claim_inbound_event( $page_id, array $messaging ) {
+		// [2026-08-01 Johnny Chu] HOTFIX — prevent one Facebook mid from reaching CRM and legacy AI twice.
+		$page_id  = (string) $page_id;
+		$sender   = (string) ( $messaging['sender']['id'] ?? '' );
+		$message  = is_array( $messaging['message'] ?? null ) ? $messaging['message'] : array();
+		$message_id = (string) ( $message['mid'] ?? '' );
+		$identity = $message_id !== ''
+			? $page_id . '|' . $message_id
+			: $page_id . '|' . $sender . '|' . (string) ( $messaging['timestamp'] ?? '' ) . '|' . (string) ( $message['text'] ?? '' );
+		$key = 'bz_fb_inbound_claim_' . md5( $identity );
+
+		// [2026-08-01 Johnny Chu] HOTFIX — use network scope because the same
+		// Facebook event can arrive through Central Webhook and a tenant endpoint.
+		if ( get_site_transient( $key ) ) {
+			return false;
+		}
+		if ( function_exists( 'wp_cache_add' ) && ! wp_cache_add( $key, 1, 'site-transient', 10 * MINUTE_IN_SECONDS ) ) {
+			return false;
+		}
+		set_site_transient( $key, 1, 10 * MINUTE_IN_SECONDS );
+		return true;
+	}
+}
+
+/**
  * Format input data for BizGPT
  */
 if ( ! function_exists( 'bizgpt_format_input_data' ) ) {
@@ -59,6 +91,9 @@ if ( ! function_exists( 'handle_messenger_message' ) ) {
 			: array( 'name' => '' );
 
 		$message_id      = $message['mid'] ?? '';
+		if ( function_exists( 'bizcity_fb_claim_inbound_event' ) && ! bizcity_fb_claim_inbound_event( $page_id, $messaging ) ) {
+			return;
+		}
 		$attachment_urls = array();
 		foreach ( $attachments as $att ) {
 			if ( ! empty( $att['payload']['url'] ) ) {

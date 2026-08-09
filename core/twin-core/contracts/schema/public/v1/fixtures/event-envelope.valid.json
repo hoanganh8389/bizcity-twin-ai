@@ -1,0 +1,21 @@
+{
+  "contract": "event-envelope",
+  "version": "1.0.0",
+  "trace_id": "trace_12345678",
+  "event_id": "evt_12345678",
+  "event_type": "tool.executed",
+  "occurred_at": "2026-07-30T12:00:00Z",
+  "producer": {
+    "module": "core.twin-core",
+    "version": "1.2.0"
+  },
+  "tenant": {
+    "site_id": 1,
+    "blog_id": 1258,
+    "user_id": 7,
+    "scope": "tenant"
+  },
+  "payload": {
+    "tool_id": "reference.echo"
+  }
+}

@@ -1,0 +1,168 @@
+<?php
+/**
+ * Validate a BizCity Twin extension manifest without booting WordPress.
+ *
+ * Usage: php bin/bizcity-manifest-validate.php --plugin=path/to/plugin
+ *
+ * @package Bizcity_Twin_AI
+ * @since 1.1.0
+ */
+
+// [2026-07-29 Johnny Chu] PHASE-1.21-H — standalone manifest validation.
+$plugin_path = '';
+foreach ( $argv as $argument ) {
+	if ( 0 === strpos( $argument, '--plugin=' ) ) {
+		$plugin_path = substr( $argument, 9 );
+		break;
+	}
+}
+
+if ( '' === $plugin_path ) {
+	fwrite( STDERR, "Usage: php bin/bizcity-manifest-validate.php --plugin=path/to/plugin\n" );
+	exit( 2 );
+}
+
+$manifest_path = rtrim( $plugin_path, "\\/" ) . DIRECTORY_SEPARATOR . 'manifest.json';
+if ( ! is_file( $manifest_path ) || ! is_readable( $manifest_path ) ) {
+	fwrite( STDERR, "FAIL manifest.json not found: {$manifest_path}\n" );
+	exit( 1 );
+}
+
+$manifest = json_decode( (string) file_get_contents( $manifest_path ), true );
+if ( ! is_array( $manifest ) ) {
+	fwrite( STDERR, "FAIL manifest.json is not valid JSON\n" );
+	exit( 1 );
+}
+
+$errors = array();
+$required = array( 'schema_version', 'id', 'name', 'version', 'capabilities' );
+foreach ( $required as $key ) {
+	if ( ! array_key_exists( $key, $manifest ) ) {
+		$errors[] = "missing {$key}";
+	}
+}
+
+if ( isset( $manifest['schema_version'] ) && '1.0' !== $manifest['schema_version'] ) {
+	$errors[] = 'schema_version must be 1.0';
+}
+if ( isset( $manifest['id'] ) && ! preg_match( '/^[a-z][a-z0-9._-]{2,63}$/', (string) $manifest['id'] ) ) {
+	$errors[] = 'id must use lowercase framework id syntax';
+}
+if ( isset( $manifest['version'] ) && ! preg_match( '/^[0-9]+\\.[0-9]+\\.[0-9]+$/', (string) $manifest['version'] ) ) {
+	$errors[] = 'version must be semver major.minor.patch';
+}
+
+// [2026-07-30 Johnny Chu] PHASE-1.22-SEC — enforce explicit permission scope syntax.
+$permissions = isset( $manifest['permissions'] ) && is_array( $manifest['permissions'] )
+	? array_values( array_unique( $manifest['permissions'] ) )
+	: array();
+foreach ( $permissions as $index => $permission ) {
+	if ( ! is_string( $permission ) || ! preg_match( '/^[a-z][a-z0-9_]*(\\.[a-z0-9_]+){1,4}$/', $permission ) ) {
+		$errors[] = "permissions[{$index}] must follow scope syntax action.domain(.resource)";
+	}
+}
+
+// [2026-07-30 Johnny Chu] PHASE-1.22-SEC — scope binding must only reference declared permissions.
+$scope_bindings = isset( $manifest['scope_bindings'] ) && is_array( $manifest['scope_bindings'] )
+	? $manifest['scope_bindings']
+	: array();
+foreach ( $scope_bindings as $index => $binding ) {
+	if ( ! is_array( $binding ) ) {
+		$errors[] = "scope_bindings[{$index}] must be an object";
+		continue;
+	}
+	$permission = isset( $binding['permission'] ) ? (string) $binding['permission'] : '';
+	$scope      = isset( $binding['scope_level'] ) ? (string) $binding['scope_level'] : '';
+	if ( '' === $permission ) {
+		$errors[] = "scope_bindings[{$index}] missing permission";
+	} elseif ( ! in_array( $permission, $permissions, true ) ) {
+		$errors[] = "scope_bindings[{$index}] references undeclared permission {$permission}";
+	}
+	if ( ! in_array( $scope, array( 'tenant', 'site', 'user' ), true ) ) {
+		$errors[] = "scope_bindings[{$index}] scope_level must be tenant/site/user";
+	}
+}
+
+// [2026-07-30 Johnny Chu] PHASE-1.22-SEC — sensitive permissions require explicit approval gate.
+$approval_gates = isset( $manifest['approval_gates'] ) && is_array( $manifest['approval_gates'] )
+	? array_values( array_unique( $manifest['approval_gates'] ) )
+	: array();
+$sensitive_gate_map = array(
+	'content.publish'          => 'publish_content',
+	'channel.zalo.send'        => 'send_message',
+	'channel.telegram.send'    => 'send_message',
+	'woocommerce.order.create' => 'create_order',
+	'memory.delete'            => 'delete_data',
+	'payment.execute'          => 'execute_payment',
+);
+foreach ( $permissions as $permission ) {
+	if ( isset( $sensitive_gate_map[ $permission ] ) ) {
+		$required_gate = $sensitive_gate_map[ $permission ];
+		if ( ! in_array( $required_gate, $approval_gates, true ) ) {
+			$errors[] = "permission {$permission} requires approval_gates entry {$required_gate}";
+		}
+	}
+}
+
+// [2026-07-30 Johnny Chu] PHASE-1.22-SEC — security object shape checks for webhook/vault/ssrf/upload guardrails.
+$security = isset( $manifest['security'] ) && is_array( $manifest['security'] )
+	? $manifest['security']
+	: array();
+if ( isset( $security['secret_refs'] ) && is_array( $security['secret_refs'] ) ) {
+	foreach ( $security['secret_refs'] as $index => $secret_ref ) {
+		if ( ! is_string( $secret_ref ) || ! preg_match( '/^[A-Z][A-Z0-9_]{2,64}$/', $secret_ref ) ) {
+			$errors[] = "security.secret_refs[{$index}] must use vault key format";
+		}
+	}
+}
+if ( isset( $security['network_policy'] ) && is_array( $security['network_policy'] ) ) {
+	if ( isset( $security['network_policy']['allow_hosts'] ) && ! is_array( $security['network_policy']['allow_hosts'] ) ) {
+		$errors[] = 'security.network_policy.allow_hosts must be an array';
+	}
+}
+if ( isset( $security['upload_policy'] ) && is_array( $security['upload_policy'] ) ) {
+	if ( array_key_exists( 'max_bytes', $security['upload_policy'] ) ) {
+		$max_bytes = (int) $security['upload_policy']['max_bytes'];
+		if ( $max_bytes <= 0 ) {
+			$errors[] = 'security.upload_policy.max_bytes must be > 0';
+		}
+	}
+}
+
+$capabilities = isset( $manifest['capabilities'] ) && is_array( $manifest['capabilities'] )
+	? $manifest['capabilities']
+	: array();
+foreach ( $capabilities as $kind => $items ) {
+	if ( ! is_array( $items ) ) {
+		$errors[] = "capabilities.{$kind} must be an array";
+		continue;
+	}
+	$primary_count = 0;
+	foreach ( $items as $index => $item ) {
+		if ( ! is_array( $item ) ) {
+			$errors[] = "capabilities.{$kind}[{$index}] must be an object";
+			continue;
+		}
+		foreach ( array( 'id', 'label' ) as $key ) {
+			if ( ! isset( $item[ $key ] ) || '' === (string) $item[ $key ] ) {
+				$errors[] = "capabilities.{$kind}[{$index}] missing {$key}";
+			}
+		}
+		if ( ! empty( $item['primary'] ) ) {
+			$primary_count++;
+		}
+	}
+	if ( 'tools' === $kind && count( $items ) > 0 && 1 !== $primary_count ) {
+		$errors[] = 'capabilities.tools must contain exactly one primary tool';
+	}
+}
+
+if ( ! empty( $errors ) ) {
+	foreach ( $errors as $error ) {
+		fwrite( STDERR, "FAIL {$error}\n" );
+	}
+	exit( 1 );
+}
+
+fwrite( STDOUT, "PASS {$manifest['id']} manifest\n" );
+exit( 0 );

@@ -76,8 +76,8 @@ final class BizCity_Diagnostics_Admin_Page {
 			}
 		}
 
-		// ── Auto-drop orphan tables (throttled to 1×/hour per blog) ──────
-		// Force=true when ?bzdiag_force_clean=1 to bypass throttle on demand.
+		// [2026-07-31 Johnny Chu] PHASE-1.22-QUARANTINE — review deprecated tables without dropping quarantine entries.
+		// Force=true when ?bzdiag_force_clean=1 to bypass the review throttle on demand.
 		$force = isset( $_GET['bzdiag_force_clean'] ) && $_GET['bzdiag_force_clean'] === '1';
 		$cleanup_result = BizCity_Diagnostics_Orphan_Cleaner::auto_drop( $force );
 
@@ -172,7 +172,7 @@ final class BizCity_Diagnostics_Admin_Page {
 				// Aggregate counts for badge display in the sticky bar.
 				$bar_pass = 0; $bar_fail = 0; $bar_skip = 0;
 				foreach ( $smoke_results as $sr ) {
-					$ss = $sr['status'] ?? '';
+					$ss = strtolower( trim( (string) ( $sr['status'] ?? '' ) ) );
 					if ( $ss === 'pass' ) { $bar_pass++; }
 					elseif ( $ss === 'skipped' ) { $bar_skip++; }
 					else { $bar_fail++; }
@@ -236,6 +236,13 @@ final class BizCity_Diagnostics_Admin_Page {
 						· <?php esc_html_e( 'Dung lượng:', 'bizcity-twin-ai' ); ?>
 						<strong><?php echo esc_html( size_format( $summary['size_total'], 2 ) ); ?></strong>
 					</p>
+					<p style="margin:4px 0;font-size:12px">
+						<span style="color:#00674e"><strong><?php echo (int) $summary['active']; ?></strong> active</span> ·
+						<span style="color:#00674e"><strong><?php echo (int) $summary['stable']; ?></strong> stable</span> ·
+						<span style="color:#b26a00"><strong><?php echo (int) $summary['dormant']; ?></strong> dormant</span> ·
+						<span style="color:#0a4b78"><strong><?php echo (int) $summary['unobserved']; ?></strong> chưa có telemetry</span> ·
+						<span style="color:#b32d2e"><strong><?php echo (int) $summary['orphan']; ?></strong> orphan vật lý</span>
+					</p>
 				</div>
 			</div>
 
@@ -287,9 +294,10 @@ final class BizCity_Diagnostics_Admin_Page {
 					<thead>
 						<tr>
 							<th style="width:22%"><?php esc_html_e( 'Table', 'bizcity-twin-ai' ); ?></th>
-							<th><?php esc_html_e( 'Owner', 'bizcity-twin-ai' ); ?></th>
-							<th><?php esc_html_e( 'Class', 'bizcity-twin-ai' ); ?></th>
+							<th><?php esc_html_e( 'Module', 'bizcity-twin-ai' ); ?></th>
+							<th><?php esc_html_e( 'Function / Class', 'bizcity-twin-ai' ); ?></th>
 							<th><?php esc_html_e( 'Status', 'bizcity-twin-ai' ); ?></th>
+							<th><?php esc_html_e( 'Activity', 'bizcity-twin-ai' ); ?></th>
 							<th><?php esc_html_e( 'Columns', 'bizcity-twin-ai' ); ?></th>
 							<th style="text-align:right"><?php esc_html_e( 'Rows', 'bizcity-twin-ai' ); ?></th>
 							<th style="text-align:right"><?php esc_html_e( 'Size', 'bizcity-twin-ai' ); ?></th>
@@ -301,6 +309,18 @@ final class BizCity_Diagnostics_Admin_Page {
 					<tbody>
 					<?php foreach ( $items as $r ) :
 						$is_orphan_hint = ! empty( $r['notes'] ) && stripos( $r['notes'], 'ORPHAN' ) !== false;
+						$activity_status = (string) ( $r['activity_status'] ?? 'unobserved_empty' );
+						$activity_meta = [
+							'active'          => [ 'label' => 'ACTIVE',          'color' => '#00674e' ],
+							'dormant'         => [ 'label' => 'DORMANT',         'color' => '#b26a00' ],
+							'orphan'          => [ 'label' => 'ORPHAN',          'color' => '#b32d2e' ],
+							'missing'         => [ 'label' => 'MISSING',         'color' => '#b32d2e' ],
+							'unobserved_data' => [ 'label' => 'UNOBSERVED DATA', 'color' => '#0a4b78' ],
+							'unobserved_empty'=> [ 'label' => 'EMPTY / UNSEEN',  'color' => '#666' ],
+						];
+						$activity = $activity_meta[ $activity_status ] ?? $activity_meta['unobserved_empty'];
+						$last_read_label  = ! empty( $r['last_read_at'] )  ? date_i18n( 'Y-m-d H:i', (int) $r['last_read_at'] )  : '—';
+						$last_write_label = ! empty( $r['last_write_at'] ) ? date_i18n( 'Y-m-d H:i', (int) $r['last_write_at'] ) : '—';
 						$col_diff       = class_exists( 'BizCity_Diagnostics_Column_Inspector' )
 							? BizCity_Diagnostics_Column_Inspector::diff( $r )
 							: [ 'status' => 'no_schema', 'actual' => [], 'expected' => [], 'missing' => [], 'extra' => [] ];
@@ -326,12 +346,22 @@ final class BizCity_Diagnostics_Admin_Page {
 									<br><span style="font-size:10px;color:#0a4b78" title="JSON changelog">since v<?php echo esc_html( $json_tables[ $r['name'] ]['since'] ); ?></span>
 								<?php endif; ?>
 							</td>
-							<td><code><?php echo esc_html( $r['owner'] ); ?></code></td>
+							<td>
+								<code><?php echo esc_html( $r['module'] ?? $r['owner'] ); ?></code>
+								<br><small style="color:#666">feature: <?php echo esc_html( $r['feature'] ?? $r['group'] ); ?></small>
+							</td>
 							<td>
 								<?php if ( ! empty( $r['class'] ) ) : ?>
 									<code style="font-size:11px"><?php echo esc_html( $r['class'] ); ?></code>
 								<?php else : ?>
 									<span style="color:#999">—</span>
+								<?php endif; ?>
+								<br><small style="color:#666"><?php echo esc_html( $r['purpose'] ?? 'Registered framework data' ); ?></small>
+								<?php if ( ! empty( $r['readers'] ) || ! empty( $r['writers'] ) ) : ?>
+									<br><small style="color:#888" title="Registered readers/writers">
+										R: <?php echo esc_html( implode( ', ', array_map( 'strval', (array) ( $r['readers'] ?? [] ) ) ) ?: '—' ); ?> ·
+										W: <?php echo esc_html( implode( ', ', array_map( 'strval', (array) ( $r['writers'] ?? [] ) ) ) ?: '—' ); ?>
+									</small>
 								<?php endif; ?>
 							</td>
 							<td>
@@ -339,6 +369,15 @@ final class BizCity_Diagnostics_Admin_Page {
 									<span style="color:#00674e">✓ OK</span>
 								<?php else : ?>
 									<span style="color:#b32d2e;font-weight:bold">✗ MISSING</span>
+								<?php endif; ?>
+							</td>
+							<td style="font-size:11px;min-width:150px">
+								<strong style="color:<?php echo esc_attr( $activity['color'] ); ?>"><?php echo esc_html( $activity['label'] ); ?></strong>
+								<span style="color:#666" title="Stability from accumulated runtime operations">· <?php echo esc_html( strtoupper( (string) ( $r['activity_stability'] ?? 'unverified' ) ) ); ?></span>
+								<br><span title="Last read / last write">R: <?php echo esc_html( $last_read_label ); ?> · W: <?php echo esc_html( $last_write_label ); ?></span>
+								<br><span style="color:#666">R<?php echo (int) ( $r['read_count'] ?? 0 ); ?> · W<?php echo (int) ( $r['write_count'] ?? 0 ); ?></span>
+								<?php if ( ! empty( $r['last_source'] ) ) : ?>
+									<br><span style="color:#888" title="Telemetry source/context"><?php echo esc_html( $r['last_source'] ); ?><?php echo ! empty( $r['last_context'] ) ? ' · ' . esc_html( $r['last_context'] ) : ''; ?></span>
 								<?php endif; ?>
 							</td>
 							<td style="font-size:11px">
@@ -499,7 +538,7 @@ final class BizCity_Diagnostics_Admin_Page {
 		// Aggregate counts.
 		$pass = 0; $fail = 0; $skip = 0;
 		foreach ( $smoke_results as $r ) {
-			$s = $r['status'] ?? '';
+			$s = strtolower( trim( (string) ( $r['status'] ?? '' ) ) );
 			if ( $s === 'pass' ) { $pass++; }
 			elseif ( $s === 'skipped' ) { $skip++; }
 			else { $fail++; }
@@ -590,7 +629,8 @@ final class BizCity_Diagnostics_Admin_Page {
 				$last         = $last_results[ $pid ] ?? null;
 				$res_for_view = $res ?: $last; // may still be null
 				$is_persisted = ! $res && $last;
-				$status       = $res_for_view['status'] ?? '';
+				// [2026-08-02 Johnny Chu] HOTFIX — normalize probe status before selecting result icons so PASS/PASS casing cannot render as an unknown '?'.
+				$status       = strtolower( trim( (string) ( $res_for_view['status'] ?? '' ) ) );
 				$row_bg = '';
 				if ( $status === 'pass' ) { $row_bg = 'background:#e8f5e9'; }
 				elseif ( $status === 'fail' ) { $row_bg = 'background:#fdecea'; }
@@ -644,7 +684,7 @@ final class BizCity_Diagnostics_Admin_Page {
 									<summary style="cursor:pointer;color:#666;font-size:11px"><?php echo count( $res_for_view['steps'] ); ?> steps</summary>
 									<ol style="margin:4px 0 0 18px;padding:0;font-size:11px;color:#666">
 										<?php foreach ( $res_for_view['steps'] as $s ) :
-											$st_status = is_array( $s ) ? (string) ( $s['status'] ?? '' ) : '';
+											$st_status = is_array( $s ) ? strtolower( trim( (string) ( $s['status'] ?? '' ) ) ) : '';
 											$st_label  = is_array( $s ) ? (string) ( $s['label'] ?? wp_json_encode( $s ) ) : (string) $s;
 											$st_detail = is_array( $s ) ? (string) ( $s['detail'] ?? '' ) : '';
 											$st_icon   = $st_status === 'pass'  ? '<span style="color:#3a7d44">✓</span>'
@@ -830,7 +870,8 @@ final class BizCity_Diagnostics_Admin_Page {
 							<?php foreach ( (array) $group['probes'] as $pid ) :
 								$pid = (string) $pid;
 								$res = $smoke_results[ $pid ] ?? ( $last_results[ $pid ] ?? null );
-								$status = is_array( $res ) ? (string) ( $res['status'] ?? '' ) : '';
+								// [2026-08-02 Johnny Chu] HOTFIX — keep curated probe checklist status and color consistent with the main result table.
+								$status = is_array( $res ) ? strtolower( trim( (string) ( $res['status'] ?? '' ) ) ) : '';
 								$missing = empty( $catalog_ids[ $pid ] );
 								$color = $missing ? '#b32d2e' : ( $status === 'pass' ? '#00674e' : ( $status === 'fail' || $status === 'precheck-fail' ? '#b32d2e' : '#666' ) );
 								$label = $missing ? 'missing' : ( $status !== '' ? $status : 'not run' );
@@ -851,8 +892,8 @@ final class BizCity_Diagnostics_Admin_Page {
 	}
 
 	/**
-	 * Orphan cleanup section — AUTO-DROP empty deprecated tables.
-	 * Runs on page render (throttled 1×/hour). Tables with rows are skipped.
+	 * Quarantine review section — inspect deprecated tables without dropping
+	 * quarantine entries. Runs on page render (throttled 1×/hour).
 	 */
 	private function render_orphan_section( $cleanup_result ): void {
 		$preview = BizCity_Diagnostics_Orphan_Cleaner::preview();
@@ -860,9 +901,9 @@ final class BizCity_Diagnostics_Admin_Page {
 		$force_url = add_query_arg( [ 'page' => $page, 'bzdiag_force_clean' => '1' ], admin_url( 'tools.php' ) );
 		?>
 		<hr style="margin:32px 0">
-		<h2><?php esc_html_e( 'Orphan Cleanup (auto)', 'bizcity-twin-ai' ); ?></h2>
+		<h2><?php esc_html_e( 'Deprecated Table Quarantine Review', 'bizcity-twin-ai' ); ?></h2>
 		<p class="description">
-			<?php esc_html_e( 'Tự động DROP các bảng deprecated (audit-verified zero consumer) khi mở trang. Bảng có dữ liệu sẽ bị skip. Chạy 1×/giờ mỗi blog.', 'bizcity-twin-ai' ); ?>
+			<?php esc_html_e( 'Theo dõi các bảng deprecated trên từng shard. Mọi entry mặc định được quarantine và không bị DROP cho đến khi owner migration/sign-off cho phép.', 'bizcity-twin-ai' ); ?>
 			· <a href="<?php echo esc_url( $force_url ); ?>"><?php esc_html_e( 'Force re-run now', 'bizcity-twin-ai' ); ?></a>
 		</p>
 
@@ -915,6 +956,9 @@ final class BizCity_Diagnostics_Admin_Page {
 			<thead>
 				<tr>
 					<th><?php esc_html_e( 'Table (physical)', 'bizcity-twin-ai' ); ?></th>
+					<th><?php esc_html_e( 'Module', 'bizcity-twin-ai' ); ?></th>
+					<th><?php esc_html_e( 'Function / Class', 'bizcity-twin-ai' ); ?></th>
+					<th><?php esc_html_e( 'Related Tables / Gate', 'bizcity-twin-ai' ); ?></th>
 					<th><?php esc_html_e( 'Status', 'bizcity-twin-ai' ); ?></th>
 					<th style="text-align:right"><?php esc_html_e( 'Rows', 'bizcity-twin-ai' ); ?></th>
 					<th style="text-align:right"><?php esc_html_e( 'Size', 'bizcity-twin-ai' ); ?></th>
@@ -923,13 +967,37 @@ final class BizCity_Diagnostics_Admin_Page {
 			</thead>
 			<tbody>
 			<?php foreach ( $preview as $r ) : ?>
+				<?php
+				// [2026-08-01 Johnny Chu] PHASE-1.24-LOG-ORPHAN-GATE — surface dependency gates for staged _log(s) retirement.
+				$related_tables = is_array( $r['related_tables'] ?? null ) ? $r['related_tables'] : array();
+				$orphan_gate    = (string) ( $r['orphan_gate'] ?? '' );
+				?>
 				<tr style="background:<?php echo $r['safe_to_drop'] ? '#e8f5e9' : ( $r['exists'] ? '#fff3e0' : '#f5f5f5' ); ?>">
 					<td><code><?php echo esc_html( $r['physical'] ); ?></code></td>
+					<td><code><?php echo esc_html( $r['module'] ?? 'deprecated' ); ?></code><br><small><?php echo esc_html( $r['feature'] ?? 'legacy cleanup' ); ?></small></td>
+					<td>
+						<?php if ( ! empty( $r['class'] ) ) : ?><code><?php echo esc_html( $r['class'] ); ?></code><?php else : ?><span style="color:#999">—</span><?php endif; ?>
+						<?php if ( ! empty( $r['purpose'] ) ) : ?><br><small style="color:#666"><?php echo esc_html( $r['purpose'] ); ?></small><?php endif; ?>
+					</td>
+					<td style="font-size:12px;color:#555">
+						<?php if ( ! empty( $related_tables ) ) : ?>
+							<?php foreach ( $related_tables as $related ) : ?>
+								<code><?php echo esc_html( (string) $related ); ?></code><br>
+							<?php endforeach; ?>
+						<?php else : ?>
+							<span style="color:#999">—</span>
+						<?php endif; ?>
+						<?php if ( $orphan_gate !== '' ) : ?>
+							<div style="margin-top:4px;color:#b26a00"><strong><?php esc_html_e( 'Gate:', 'bizcity-twin-ai' ); ?></strong> <?php echo esc_html( $orphan_gate ); ?></div>
+						<?php endif; ?>
+					</td>
 					<td>
 						<?php if ( ! $r['exists'] ) : ?>
 							<span style="color:#666">— absent</span>
+						<?php elseif ( ! empty( $r['quarantine_only'] ) ) : ?>
+							<span style="color:#b26a00;font-weight:bold">⚠ quarantine (kept)</span>
 						<?php elseif ( $r['safe_to_drop'] ) : ?>
-							<span style="color:#00674e;font-weight:bold">✓ will auto-drop</span>
+							<span style="color:#00674e;font-weight:bold">✓ eligible after sign-off</span>
 						<?php else : ?>
 							<span style="color:#b26a00;font-weight:bold">⚠ has data (kept)</span>
 						<?php endif; ?>

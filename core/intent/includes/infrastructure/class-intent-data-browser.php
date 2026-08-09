@@ -445,6 +445,25 @@ class BizCity_Intent_Data_Browser {
             wp_send_json_error( 'Invalid table or id' );
         }
 
+        // [2026-08-01 Johnny Chu] PHASE-1.24-INTENT-JSONL — synthetic JSONL row IDs
+        // must resolve through the same reader used by browse/export, not SQL.
+        if ( self::jsonl_reader_enabled( $table_key ) ) {
+            $jsonl_result = $this->query_jsonl_browser_data( $table_key, $match, array( 'page' => 1, 'per' => 10000, 'sort' => 'created_at', 'dir' => 'DESC' ) );
+            $row = null;
+            foreach ( (array) ( $jsonl_result['rows'] ?? array() ) as $candidate ) {
+                if ( (int) ( $candidate['id'] ?? 0 ) === $row_id ) {
+                    $row = $candidate;
+                    break;
+                }
+            }
+            if ( ! is_array( $row ) ) {
+                wp_send_json_error( 'Record not found', 404 );
+            }
+            $row     = $this->decode_json_fields( $row );
+            $related = $this->fetch_related( $row, $table_key );
+            wp_send_json_success( array( 'record' => $row, 'related' => $related, '_source' => 'jsonl' ) );
+        }
+
         $db_table = $wpdb->prefix . $table_key;
         $row      = $wpdb->get_row( $wpdb->prepare(
             "SELECT * FROM `{$db_table}` WHERE `id` = %d", $row_id
@@ -544,10 +563,28 @@ class BizCity_Intent_Data_Browser {
             wp_send_json_error( 'Invalid table or id' );
         }
 
+        // [2026-08-01 Johnny Chu] PHASE-1.24-INTENT-JSONL — expand starts from
+        // the JSONL-normalized row when the log reader flag is enabled.
+        if ( self::jsonl_reader_enabled( $table_key ) ) {
+            $jsonl_result = $this->query_jsonl_browser_data( $table_key, $match, array( 'page' => 1, 'per' => 10000, 'sort' => 'created_at', 'dir' => 'DESC' ) );
+            $row = null;
+            foreach ( (array) ( $jsonl_result['rows'] ?? array() ) as $candidate ) {
+                if ( (int) ( $candidate['id'] ?? 0 ) === $row_id ) {
+                    $row = $candidate;
+                    break;
+                }
+            }
+            if ( ! is_array( $row ) ) {
+                wp_send_json_error( 'Record not found' );
+            }
+        }
+
         $db_table = $wpdb->prefix . $table_key;
-        $row = $wpdb->get_row( $wpdb->prepare(
-            "SELECT * FROM `{$db_table}` WHERE `id` = %d", $row_id
-        ), ARRAY_A );
+		if ( ! self::jsonl_reader_enabled( $table_key ) ) {
+			$row = $wpdb->get_row( $wpdb->prepare(
+				"SELECT * FROM `{$db_table}` WHERE `id` = %d", $row_id
+			), ARRAY_A );
+		}
         if ( ! $row ) {
             wp_send_json_error( 'Record not found' );
         }
@@ -589,26 +626,24 @@ class BizCity_Intent_Data_Browser {
             }
 
             if ( $table_key !== 'bizcity_intent_prompt_logs' ) {
+				$prompt_result = isset( $pages['int-prompt-logs'] )
+					? $this->query_jsonl_browser_data( 'bizcity_intent_prompt_logs', $pages['int-prompt-logs'], array( 'page' => 1, 'per' => 20, 'sort' => 'created_at', 'dir' => 'DESC', 'f_conversation_id' => $conv_id ) )
+					: array();
                 $sections['prompt_logs'] = [
                     'label' => "\xF0\x9F\x93\x9D Prompt Logs",
                     'link'  => '?page=bizcity-idb-int-prompt-logs&f_conversation_id=' . urlencode( $conv_id ),
-                    'rows'  => $wpdb->get_results( $wpdb->prepare(
-                        "SELECT id, detected_mode, intent_key, pipeline_class, provider_used, executor_trace_id, duration_ms, created_at
-                         FROM `{$prefix}bizcity_intent_prompt_logs`
-                         WHERE `conversation_id` = %s ORDER BY created_at DESC LIMIT 20", $conv_id
-                    ), ARRAY_A ) ?: [],
+					'rows'  => array_slice( (array) ( $prompt_result['rows'] ?? array() ), 0, 20 ),
                 ];
             }
 
             if ( $table_key !== 'bizcity_intent_logs' ) {
+				$debug_result = isset( $pages['int-logs'] )
+					? $this->query_jsonl_browser_data( 'bizcity_intent_logs', $pages['int-logs'], array( 'page' => 1, 'per' => 20, 'sort' => 'created_at', 'dir' => 'DESC', 'f_conversation_id' => $conv_id ) )
+					: array();
                 $sections['debug_logs'] = [
                     'label' => "\xF0\x9F\x90\x9B Debug Logs",
                     'link'  => '?page=bizcity-idb-int-logs&f_conversation_id=' . urlencode( $conv_id ),
-                    'rows'  => $wpdb->get_results( $wpdb->prepare(
-                        "SELECT id, trace_id, turn_index, step, level, duration_ms, created_at
-                         FROM `{$prefix}bizcity_intent_logs`
-                         WHERE `conversation_id` = %s ORDER BY created_at DESC LIMIT 20", $conv_id
-                    ), ARRAY_A ) ?: [],
+					'rows'  => array_slice( (array) ( $debug_result['rows'] ?? array() ), 0, 20 ),
                 ];
             }
 
@@ -819,6 +854,13 @@ class BizCity_Intent_Data_Browser {
             return new \WP_Error( 'invalid_table', 'Unknown table: ' . $table_key );
         }
 
+        // [2026-08-01 Johnny Chu] PHASE-1.24-INTENT-JSONL — opt-in reader cutover
+        // applies only to the two append-only log tables; conversations, turns,
+        // planner and executor tables remain on the generic SQL path.
+        if ( self::jsonl_reader_enabled( $table_key ) ) {
+            return $this->query_jsonl_browser_data( $table_key, $found, $params );
+        }
+
         $db_table = $wpdb->prefix . $table_key;
 
         // Build WHERE
@@ -893,6 +935,126 @@ class BizCity_Intent_Data_Browser {
         ];
     }
 
+    /**
+     * Query one of the intent append-only log tables from JSONL.
+     *
+     * @param string $table_key
+     * @param array  $page_config
+     * @param array  $params
+     * @return array
+     */
+    private function query_jsonl_browser_data( $table_key, array $page_config, array $params ) {
+        if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) || ! method_exists( 'BizCity_JSONL_File_Logger', 'query' ) ) {
+            return new \WP_Error( 'jsonl_unavailable', 'Intent JSONL reader chưa được load.' );
+        }
+
+        $page_num = max( 1, absint( $params['page'] ?? 1 ) );
+        $per_page = min( max( 1, absint( $params['per'] ?? 50 ) ), 1000 );
+        $search   = strtolower( sanitize_text_field( $params['search'] ?? '' ) );
+        $filters  = $this->extract_filters( $params );
+        $module   = $table_key === 'bizcity_intent_logs' ? 'pipeline-trace' : 'prompt-log';
+        $folder   = 'bizcity-intent-logs';
+        $days     = 7;
+
+        $rows = BizCity_JSONL_File_Logger::query( $folder, $module, array(
+            'days'   => $days,
+            'limit'  => 10000,
+            'filter' => function ( $raw ) use ( $table_key, $page_config, $filters, $search ) {
+                $row = $this->normalize_jsonl_row( $table_key, $raw );
+                foreach ( $filters as $column => $value ) {
+                    if ( $value === '' || ! in_array( $column, $page_config['columns'], true ) && ! in_array( $column, $page_config['filters'], true ) ) {
+                        continue;
+                    }
+                    $actual = strtolower( (string) ( $row[ $column ] ?? '' ) );
+                    $expected = strtolower( (string) $value );
+                    if ( strpos( $expected, '%' ) !== false ) {
+                        if ( strpos( $actual, trim( $expected, '%' ) ) === false ) {
+                            return false;
+                        }
+                    } elseif ( $actual !== $expected ) {
+                        return false;
+                    }
+                }
+                if ( $search !== '' ) {
+                    $haystack = strtolower( wp_json_encode( $row ) );
+                    if ( strpos( $haystack, $search ) === false ) {
+                        return false;
+                    }
+                }
+                return true;
+            },
+        ) );
+
+        $normalized = array_map( function ( $raw ) use ( $table_key ) {
+            return $this->normalize_jsonl_row( $table_key, $raw );
+        }, (array) $rows );
+        $sort_col = sanitize_key( $params['sort'] ?? 'created_at' );
+        $sort_dir = strtoupper( $params['dir'] ?? 'DESC' ) === 'ASC' ? 1 : -1;
+        if ( ! in_array( $sort_col, $page_config['columns'], true ) ) {
+            $sort_col = 'created_at';
+        }
+        usort( $normalized, function ( $left, $right ) use ( $sort_col, $sort_dir ) {
+            return $sort_dir * strnatcasecmp( (string) ( $left[ $sort_col ] ?? '' ), (string) ( $right[ $sort_col ] ?? '' ) );
+        } );
+
+        $offset = ( $page_num - 1 ) * $per_page;
+        return array(
+            'rows'    => array_slice( $normalized, $offset, $per_page ),
+            'total'   => count( $normalized ),
+            'page'    => $page_num,
+            'per'     => $per_page,
+            'columns' => $page_config['columns'],
+            '_source' => 'jsonl',
+        );
+    }
+
+    /** Normalize shared JSONL envelope into the legacy Data Browser row shape. */
+    private function normalize_jsonl_row( $table_key, array $raw ) {
+        $ctx = is_array( $raw['ctx'] ?? null ) ? $raw['ctx'] : array();
+        $data = is_array( $ctx['data'] ?? null ) ? $ctx['data'] : array();
+        $seed = $table_key === 'bizcity_intent_logs' ? $ctx : $ctx;
+        $key  = (string) ( $raw['ts'] ?? '' ) . '|' . (string) ( $ctx['trace_id'] ?? '' ) . '|' . (string) ( $raw['event'] ?? '' );
+        $row = array_merge( array(
+            'id'               => absint( crc32( $key ) ),
+            'trace_id'         => (string) ( $seed['trace_id'] ?? '' ),
+            'conversation_id'  => (string) ( $seed['conversation_id'] ?? '' ),
+            'turn_index'       => (int) ( $seed['turn_index'] ?? 0 ),
+            'step'             => (string) ( $raw['event'] ?? $seed['step'] ?? '' ),
+            'step_index'       => (int) ( $seed['step_index'] ?? 0 ),
+            'duration_ms'      => (float) ( $seed['duration_ms'] ?? 0 ),
+            'level'            => (string) ( $raw['level'] ?? 'info' ),
+            'user_id'          => (int) ( $seed['user_id'] ?? 0 ),
+            'channel'          => (string) ( $seed['channel'] ?? '' ),
+            'created_at'       => (string) ( $raw['ts'] ?? '' ),
+            'session_id'       => (string) ( $seed['session_id'] ?? '' ),
+            'character_id'     => (int) ( $seed['character_id'] ?? 0 ),
+            'blog_id'          => (int) ( $seed['blog_id'] ?? get_current_blog_id() ),
+            'detected_mode'    => (string) ( $seed['detected_mode'] ?? '' ),
+            'mode_confidence'  => (float) ( $seed['mode_confidence'] ?? 0 ),
+            'intent_key'       => (string) ( $seed['intent_key'] ?? '' ),
+            'goal'             => (string) ( $seed['goal'] ?? '' ),
+            'goal_label'       => (string) ( $seed['goal_label'] ?? '' ),
+            'pipeline_class'   => (string) ( $seed['pipeline_class'] ?? '' ),
+            'pipeline_action'  => (string) ( $seed['pipeline_action'] ?? '' ),
+            'provider_used'    => (string) ( $seed['provider_used'] ?? '' ),
+            'model'            => (string) ( $seed['model'] ?? $data['model'] ?? '' ),
+            'executor_trace_id'=> (string) ( $seed['executor_trace_id'] ?? '' ),
+            'planner_plan_id'  => (string) ( $seed['planner_plan_id'] ?? '' ),
+            'data_json'        => wp_json_encode( $data ),
+        ), $seed );
+        if ( $table_key === 'bizcity_intent_prompt_logs' ) {
+            $row['step'] = '';
+        }
+        return $row;
+    }
+
+    private static function jsonl_reader_enabled( $table_key ) {
+        if ( $table_key !== 'bizcity_intent_logs' && $table_key !== 'bizcity_intent_prompt_logs' ) {
+            return false;
+        }
+        return true; // [2026-08-01 Johnny Chu] PHASE-1.29-LOG-ORPHAN — deprecated SQL log tables are JSONL-reader-only.
+    }
+
     /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
      *  HELPERS
      * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
@@ -941,12 +1103,11 @@ class BizCity_Intent_Data_Browser {
         }
 
         if ( $conv_id && $table_key !== 'bizcity_intent_prompt_logs' ) {
-            $related['prompt_logs'] = $wpdb->get_results( $wpdb->prepare(
-                "SELECT id, detected_mode, intent_key, pipeline_class, provider_used, duration_ms, created_at
-                 FROM `{$prefix}bizcity_intent_prompt_logs`
-                 WHERE `conversation_id` = %s ORDER BY created_at DESC LIMIT 20",
-                $conv_id
-            ), ARRAY_A );
+            $pages = self::get_browser_pages();
+            $prompt_result = isset( $pages['int-prompt-logs'] )
+                ? $this->query_jsonl_browser_data( 'bizcity_intent_prompt_logs', $pages['int-prompt-logs'], array( 'page' => 1, 'per' => 20, 'sort' => 'created_at', 'dir' => 'DESC', 'f_conversation_id' => $conv_id ) )
+                : array();
+            $related['prompt_logs'] = array_slice( (array) ( $prompt_result['rows'] ?? array() ), 0, 20 );
         }
 
         // â”€â”€ Executor trace link â”€â”€

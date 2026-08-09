@@ -34,6 +34,22 @@ final class BizCity_Diagnostics_REST {
 			},
 		] );
 
+		// [2026-08-09 Johnny Chu] R-PERF-LOADER-HOOK - expose compact lifecycle
+		// hook evidence for the diagnostics panel; never expose callback payloads.
+		register_rest_route( BIZCITY_DIAGNOSTICS_REST_NS, '/loader/hooks', [
+			'methods'             => 'GET',
+			'permission_callback' => function () { return current_user_can( 'manage_options' ); },
+			'callback'            => function () {
+				return rest_ensure_response( array(
+					'limits'    => array(
+						'max_hooks'             => BizCity_Diagnostics_Loader_Hook_Panel::MAX_HOOKS,
+						'max_callbacks_per_hook' => BizCity_Diagnostics_Loader_Hook_Panel::MAX_CALLBACKS_PER_HOOK,
+					),
+					'snapshots' => BizCity_Diagnostics_Loader_Hook_Panel::snapshots(),
+				) );
+			},
+		] );
+
 		// Error Reporter telemetry — public POST, rate-limited per IP.
 		register_rest_route( BIZCITY_DIAGNOSTICS_REST_NS, '/error-report', [
 			'methods'             => 'POST',

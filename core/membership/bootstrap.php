@@ -150,6 +150,11 @@ add_filter( 'bizcity_diagnostics_register_tables', static function ( $tables ) {
 		'group'     => 'membership',
 		'class'     => 'BizCity_Membership_Usage',
 		'installer' => 'membership',
+		// [2026-08-01 Johnny Chu] PHASE-1.24-LOG-RETENTION — annotate: atomic per-day counter, not a log. Do not migrate to JSONL (loses UNIQUE(user_id,day,feature) + ON DUPLICATE KEY UPDATE guarantee).
+		'feature'   => 'quota counter',
+		'purpose'   => 'Atomic per (user_id, day, feature) usage counter gating chat/image/kg/video quota. Self-bounded size — keep SQL.',
+		'readers'   => array( 'BizCity_Membership_Entitlement' ),
+		'writers'   => array( 'BizCity_Membership_Usage::increment' ),
 	);
 	// [2026-06-04 Johnny Chu] PHASE-MEMBERSHIP M4 — payments ledger table.
 	$tables[] = array(

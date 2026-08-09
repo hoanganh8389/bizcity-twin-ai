@@ -82,6 +82,44 @@ final class BizCity_Research_Ingest_Service {
         if ( $exists > 0 ) {
             // If row exists but was previously detached, re-attach it.
             $row = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$tbl} WHERE id=%d", $exists ), ARRAY_A );
+            // [2026-08-02 Johnny Chu] R-KG-INGEST-CONTENT — repair legacy
+            // URL-only rows instead of returning dup and preserving empty KG
+            // content forever.
+            if ( $row && trim( (string) ( $row['content_md'] ?? '' ) ) === '' ) {
+                $content_md = '';
+                if ( class_exists( 'BizCity_Search_Client' ) ) {
+                    $client = BizCity_Search_Client::instance();
+                    if ( $client->is_ready() ) {
+                        $ext = $client->extract( [ $url ] );
+                        if ( ! is_wp_error( $ext ) && ! empty( $ext[0] ) && is_array( $ext[0] ) ) {
+                            $content_md = trim( (string) ( $ext[0]['raw_content'] ?? $ext[0]['content'] ?? $ext[0]['excerpt'] ?? '' ) );
+                        }
+                    }
+                }
+                if ( $content_md !== '' ) {
+                    $kg_source_id = self::handoff_to_kg(
+                        $session,
+                        $turn_id,
+                        $url,
+                        (string) $row['title'],
+                        $content_md,
+                        (string) $row['favicon']
+                    );
+                    $wpdb->update( $tbl, [
+                        'content_md'    => $content_md,
+                        'kg_source_id'  => $kg_source_id,
+                        'ingest_status' => $kg_source_id ? 'kg_attached' : 'stored',
+                    ], [ 'id' => $exists ] );
+                    return [
+                        'url'          => $url,
+                        'status'       => 'ok',
+                        'ingest_id'    => $exists,
+                        'kg_source_id' => $kg_source_id,
+                        'rehydrated'   => true,
+                    ];
+                }
+                return [ 'url' => $url, 'status' => 'fail', 'error' => 'source_content_empty' ];
+            }
             if ( $row && in_array( (string) $row['ingest_status'], [ 'detached' ], true ) ) {
                 // Trigger re-ingest into KG.
                 $kg_source_id = self::handoff_to_kg(
@@ -111,11 +149,13 @@ final class BizCity_Research_Ingest_Service {
         $turn  = BizCity_Research_Store::get_turn( $turn_id );
         $title = $url;
         $favicon = '';
+        $search_content = '';
         if ( $turn && is_array( $turn['source_urls'] ) ) {
             foreach ( $turn['source_urls'] as $s ) {
                 if ( ! empty( $s['url'] ) && (string) $s['url'] === $url ) {
                     $title   = (string) ( $s['title'] ?? $url );
                     $favicon = (string) ( $s['favicon'] ?? '' );
+                    $search_content = trim( (string) ( $s['content'] ?? '' ) );
                     break;
                 }
             }
@@ -127,13 +167,30 @@ final class BizCity_Research_Ingest_Service {
             $client = BizCity_Search_Client::instance();
             if ( $client->is_ready() ) {
                 $ext = $client->extract( [ $url ] );
-                if ( ! is_wp_error( $ext ) && ! empty( $ext[0]['raw_content'] ) ) {
-                    $content_md = (string) $ext[0]['raw_content'];
+                if ( ! is_wp_error( $ext ) && ! empty( $ext[0] ) && is_array( $ext[0] ) ) {
+                    $content_md = trim( (string) ( $ext[0]['raw_content'] ?? $ext[0]['content'] ?? $ext[0]['excerpt'] ?? '' ) );
                     if ( empty( $title ) || $title === $url ) {
                         $title = (string) ( $ext[0]['title'] ?? $url );
                     }
                 }
             }
+        }
+
+        // Search results carry a provider excerpt/content. Keep it as a
+        // bounded fallback when extract cannot return a full page body.
+        if ( $content_md === '' && $search_content !== '' ) {
+            $content_md = $search_content;
+        }
+
+        // [2026-08-02 Johnny Chu] R-KG-INGEST-CONTENT — never create a
+        // URL-only KG source when gateway extraction failed or returned an
+        // empty body; the old title fallback made Source detail show only URL.
+        if ( $content_md === '' ) {
+            return [
+                'url'    => $url,
+                'status' => 'fail',
+                'error'  => 'source_content_empty',
+            ];
         }
 
         $now = current_time( 'mysql' );
@@ -197,16 +254,19 @@ final class BizCity_Research_Ingest_Service {
     /**
      * Push a single source row into KG Hub, return kg_sources.id or null.
      */
-    private static function handoff_to_kg( array $session, int $turn_id, string $url, string $title, string $content_md, string $favicon ): ?int {
+    private static function handoff_to_kg( array $session, int $turn_id, string $url, string $title, string $content_md, string $favicon, string $source_type = 'url' ): ?int {
         $scope = self::kg_scope_for_session( $session );
         if ( ! $scope || ! class_exists( 'BizCity_KG' ) ) {
             return null;
         }
+        // [2026-08-02 Johnny Chu] R-KG-INGEST-CONTENT — preserve URL-source
+        // semantics so TwinChat materialization keeps source_url and stores the
+        // extracted page body instead of treating the payload as a title-only note.
         $kg = BizCity_KG::ingest( $scope, [
-            'type'     => 'note',
+            'type'     => in_array( $source_type, [ 'url', 'text' ], true ) ? $source_type : 'url',
             'title'    => $title,
             'url'      => $url,
-            'content'  => $content_md ?: $title,
+            'content'  => $content_md,
             'metadata' => [
                 'origin'              => 'research_studio',
                 'research_session_id' => (int) $session['id'],
@@ -276,7 +336,7 @@ final class BizCity_Research_Ingest_Service {
             ];
         }
 
-        $kg_source_id = self::handoff_to_kg( $session, $turn_id, $synthetic_url, $title, $report_md, '' );
+        $kg_source_id = self::handoff_to_kg( $session, $turn_id, $synthetic_url, $title, $report_md, '', 'text' );
 
         if ( $existing ) {
             $wpdb->update( $tbl, [
@@ -439,7 +499,7 @@ final class BizCity_Research_Ingest_Service {
 
         // Index existing ingests by url_hash for the requested scope.
         $rows = $wpdb->get_results( $wpdb->prepare(
-            "SELECT id, url_hash, source_url, title, favicon, kg_source_id, ingest_status FROM {$tbl} WHERE scope_type=%s AND scope_id=%d",
+            "SELECT id, url_hash, source_url, title, favicon, content_md, kg_source_id, ingest_status FROM {$tbl} WHERE scope_type=%s AND scope_id=%d",
             $scope_type, $scope_id
         ), ARRAY_A );
         $ingest_index = [];
@@ -449,7 +509,7 @@ final class BizCity_Research_Ingest_Service {
 
         // Collect ingest rows created specifically for this turn (manually attached).
         $turn_ingest_rows = $wpdb->get_results( $wpdb->prepare(
-            "SELECT id, url_hash, source_url, title, favicon, kg_source_id, ingest_status FROM {$tbl} WHERE turn_id=%d",
+            "SELECT id, url_hash, source_url, title, favicon, content_md, kg_source_id, ingest_status FROM {$tbl} WHERE turn_id=%d",
             $turn_id
         ), ARRAY_A );
         $turn_ingest_by_hash = [];
@@ -476,7 +536,8 @@ final class BizCity_Research_Ingest_Service {
                 $st     = (string) $ingest['ingest_status'];
                 if ( $st === 'detached' ) {
                     $state = 'detached';
-                } elseif ( $kg_sid || in_array( $st, [ 'kg_attached', 'stored' ], true ) ) {
+                } elseif ( ( $kg_sid && trim( (string) ( $ingest['content_md'] ?? '' ) ) !== '' )
+                    || ( $st === 'stored' && trim( (string) ( $ingest['content_md'] ?? '' ) ) !== '' ) ) {
                     $state = 'attached';
                 }
             }
@@ -498,7 +559,8 @@ final class BizCity_Research_Ingest_Service {
             $st = (string) $r['ingest_status'];
             if ( $st === 'detached' ) continue; // hidden after manual detach
             $kg_sid = $r['kg_source_id'] ? (int) $r['kg_source_id'] : null;
-            $state  = ( $kg_sid || in_array( $st, [ 'kg_attached', 'stored' ], true ) )
+            $state  = ( ( $kg_sid && trim( (string) ( $r['content_md'] ?? '' ) ) !== '' )
+                || ( $st === 'stored' && trim( (string) ( $r['content_md'] ?? '' ) ) !== '' ) )
                 ? 'attached' : 'discovered';
             $out[] = [
                 'url'          => (string) $r['source_url'],

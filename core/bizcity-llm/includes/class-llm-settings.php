@@ -270,6 +270,10 @@ class BizCity_LLM_Settings {
                         <?php foreach ( $purpose_labels as $purpose => $label ) :
                             $p_val   = $settings[ 'model_' . $purpose ] ?? BizCity_LLM_Models::DEFAULTS[ $purpose ] ?? '';
                             $f_val   = $settings[ 'model_fallback_' . $purpose ] ?? BizCity_LLM_Models::FALLBACK_DEFAULTS[ $purpose ] ?? '';
+                            // [2026-08-01 Johnny Chu] R-GW-API-CATALOG — show the new chat default when the saved value is the former built-in default.
+                            if ( 'chat' === $purpose && 'google/gemini-2.5-flash' === $p_val ) {
+                                $p_val = BizCity_LLM_Models::DEFAULTS['chat'];
+                            }
                             $catalog = BizCity_LLM_Models::get( $purpose );
                         ?>
                         <tr>

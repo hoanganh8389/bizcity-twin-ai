@@ -3,7 +3,7 @@
   "module_id": "core.mcp",
   "owner": "core/mcp",
   "installer_id": "mcp",
-  "current_version": "1.1.0",
+  "current_version": "1.2.0",
   "version_option": "bizcity_mcp_db_version",
   "tables": {
     "bizcity_mcp_api_keys": {
@@ -114,6 +114,7 @@
   },
   "history": [
     { "version": "1.0.0", "date": "2026-07-27", "change": "Wave A — initial schema: bizcity_mcp_api_keys, bizcity_mcp_retrieval_snapshots, bizcity_mcp_context_packs, bizcity_mcp_audit_log." },
-    { "version": "1.1.0", "date": "2026-07-28", "change": "Reflect fix — add user_created index to context packs and trace_id/user_created indexes to audit log for ownership and trace lookup." }
+    { "version": "1.1.0", "date": "2026-07-28", "change": "Reflect fix — add user_created index to context packs and trace_id/user_created indexes to audit log for ownership and trace lookup." },
+    { "version": "1.2.0", "date": "2026-08-01", "change": "PHASE-1.29 — retire bizcity_mcp_audit_log SQL writer, installer registration and cleanup path; MCP JSONL is canonical and the legacy table is an orphan candidate." }
   ]
 }

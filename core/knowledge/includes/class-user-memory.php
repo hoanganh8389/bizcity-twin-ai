@@ -85,6 +85,24 @@ class BizCity_User_Memory {
         do_action( 'bizcity_user_memory_upsert_failed', self::$last_upsert_failure );
     }
 
+    /**
+     * [2026-08-01 Johnny Chu] HOTFIX — file evidence must degrade gracefully when
+     * an early cron/clone load path has not loaded the shared JSONL logger yet.
+     */
+    private static function write_memory_log( $module, $level, $event, $message, array $context = array() ) {
+        if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) || ! method_exists( 'BizCity_JSONL_File_Logger', 'write' ) ) {
+            return false;
+        }
+        return BizCity_JSONL_File_Logger::write(
+            BizCity_JSONL_File_Logger::MEMORY_FOLDER,
+            (string) $module,
+            $level,
+            $event,
+            $message,
+            $context
+        );
+    }
+
     public static function instance() {
         if ( is_null( self::$instance ) ) {
             self::$instance = new self();
@@ -151,7 +169,7 @@ class BizCity_User_Memory {
         }
 
         // Table missing — create it now
-        error_log( "[BizCity_User_Memory] Table {$table} not found — creating..." );
+        self::write_memory_log( 'user-memory', 'info', 'table_create_started', 'User memory table was missing; create started.', array( 'table' => $table ) );
 
         $charset_collate = function_exists( 'bizcity_get_charset_collate' ) ? bizcity_get_charset_collate() : $wpdb->get_charset_collate();
 
@@ -191,9 +209,9 @@ class BizCity_User_Memory {
         if ( $verify ) {
             // [2026-07-28 Johnny Chu] PHASE-0.52 W8.4 — verify required UUID owner schema after fresh create.
             self::maybe_repair_schema( $table, 'create_table' );
-            error_log( "[BizCity_User_Memory] Table {$table} created successfully." );
+            self::write_memory_log( 'user-memory', 'info', 'table_create_ok', 'User memory table created.', array( 'table' => $table ) );
         } else {
-            error_log( "[BizCity_User_Memory] Table {$table} creation FAILED (shard may be unavailable)." );
+            self::write_memory_log( 'user-memory', 'error', 'table_create_failed', 'User memory table creation failed.', array( 'table' => $table, 'shard_unavailable' => true ) );
         }
     }
 
@@ -223,7 +241,7 @@ class BizCity_User_Memory {
         $lock_name = 'bizcity_memory_repair_' . md5( $table );
         $got_lock  = (int) $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, 5)', $lock_name ) );
         if ( 1 !== $got_lock ) {
-            error_log( '[BizCity_User_Memory] Could not acquire repair lock for ' . $table . ' (reason=' . $reason . ') — another process is likely repairing it.' );
+            self::write_memory_log( 'user-memory', 'warn', 'schema_repair_lock_busy', 'User memory schema repair lock was busy.', array( 'table' => $table, 'reason' => $reason ) );
             return false;
         }
 
@@ -238,7 +256,7 @@ class BizCity_User_Memory {
             }
 
             // [2026-07-28 Johnny Chu] HOTFIX — stale tenant schema must be repaired via direct ALTER, not only dbDelta replay.
-            error_log( '[BizCity_User_Memory] identity_uuid column missing on ' . $table . '; running direct ALTER repair (reason=' . $reason . ')' );
+            self::write_memory_log( 'user-memory', 'warn', 'schema_repair_started', 'User memory identity schema repair started.', array( 'table' => $table, 'reason' => $reason ) );
 
             $wpdb->last_error = '';
             $alter_col = $wpdb->query(
@@ -249,7 +267,7 @@ class BizCity_User_Memory {
             );
 
             if ( false === $alter_col && ! empty( $wpdb->last_error ) && stripos( (string) $wpdb->last_error, 'Duplicate column name' ) === false ) {
-                error_log( '[BizCity_User_Memory] identity_uuid ALTER failed on ' . $table . ': ' . (string) $wpdb->last_error );
+                self::write_memory_log( 'user-memory', 'error', 'schema_repair_alter_failed', 'User memory identity schema ALTER failed.', array( 'table' => $table, 'db_error_present' => true ) );
             }
 
             $has_identity_after = (int) $wpdb->get_var( $wpdb->prepare(
@@ -260,7 +278,7 @@ class BizCity_User_Memory {
             if ( $has_identity_after <= 0 ) {
                 // [2026-07-28 Johnny Chu] HOTFIX P1 — back off for 5 minutes instead of retrying every request.
                 set_transient( $backoff_key, 1, 5 * MINUTE_IN_SECONDS );
-                error_log( '[BizCity_User_Memory] identity_uuid still missing on ' . $table . ' after ALTER attempt — backing off 5 min (check shard write path / R-MSDB routing).' );
+                self::write_memory_log( 'user-memory', 'error', 'schema_repair_incomplete', 'User memory identity schema is still missing; repair is backing off.', array( 'table' => $table, 'retry_seconds' => 5 * MINUTE_IN_SECONDS, 'route_check_required' => true ) );
                 return false;
             }
 
@@ -1267,6 +1285,10 @@ Yêu cầu output:
 
         global $wpdb;
         $deleted = $wpdb->delete( self::table(), [ 'id' => $memory_id ] );
+        if ( $deleted ) {
+            // [2026-07-31 Johnny Chu] PHASE-1.22-MEMORY-UNIFY — legacy admin delete must remove the matching unified user row.
+            do_action( 'bizcity_memory_mirror_delete', 'user', $memory_id, array( 'blog_id' => get_current_blog_id() ) );
+        }
 
         wp_send_json_success( [ 'deleted' => (bool) $deleted ] );
     }

@@ -1,0 +1,6 @@
+{
+  "audit_id": "active-contract-debt-baseline-2026-08-09",
+  "reviewed_on": "2026-08-09",
+  "purpose": "Reviewed migration debt only. New active plugin bypasses must fail CI.",
+  "known_findings": []
+}

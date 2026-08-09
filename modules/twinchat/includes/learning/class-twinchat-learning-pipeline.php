@@ -95,13 +95,14 @@ class BizCity_TwinChat_Learning_Pipeline {
 	 *
 	 * History:
 	 *   - 2026-05-04 lowered 5→3 (FPM pool exhaustion 500/522 from Cloudflare).
-	 *   - 2026-05-26 raised 3→5 (Pro-Tier Wave). The quota cooldown now stops
-	 *     runaway jobs cheaply, so we can afford the larger fan-out. Ops can
-	 *     lower back to 3 on hosts with < 20 FPM processes via:
-	 *       add_filter('bizcity_twinchat_learning_parallel_workers', fn() => 3);
-	 * Set to 1 to revert to sequential mode.
+	 *   - 2026-05-26 raised 3→5 (Pro-Tier Wave).
+	 *   - 2026-08-03 lowered 5→2 after shared FPM saturation and 524 traces.
+	 * Ops can lower this to 1 via the filter; the runtime clamp below prevents
+	 * a site-level override from exceeding the production safety cap.
 	 */
-	const PARALLEL_WORKERS = 5;
+	const PARALLEL_WORKERS = 2; // [2026-08-03 Johnny Chu] HOTFIX — cap Learning fan-out for shared PHP-FPM.
+	const MAX_PARALLEL_WORKERS = 2; // [2026-08-03 Johnny Chu] HOTFIX — enforce the P1 production ceiling after filters.
+	const MAX_ACTIVE_WORKERS = 2; // [2026-08-03 Johnny Chu] P1 — cap processing passages per blog before dispatch.
 
 	/**
 	 * Delay (seconds) before re-running an in-flight job. Lower = faster
@@ -509,11 +510,60 @@ class BizCity_TwinChat_Learning_Pipeline {
 
 		// ── Step 2: fetch next batch of pending passages ────────────────
 		$parallel = (int) apply_filters( 'bizcity_twinchat_learning_parallel_workers', self::PARALLEL_WORKERS, $nb );
-		$parallel = max( 1, min( 10, $parallel ) );
+		// [2026-08-03 Johnny Chu] HOTFIX — prevent a filter/site override from reopening the FPM fan-out storm.
+		$parallel = max( 1, min( self::MAX_PARALLEL_WORKERS, $parallel ) );
 		if ( $loopback_dead ) {
 			// Sync mode — process exactly 1 passage per tick.
 			$parallel = 1;
 		}
+
+		// [2026-08-03 Johnny Chu] P1 — bound concurrent passage workers across
+		// notebooks in this blog, not only within the current notebook. This is
+		// the local safety boundary available before a network-wide semaphore is
+		// introduced; callers receive a delayed retry instead of another dispatch.
+		// [2026-08-04 Johnny Chu] HOTFIX — reclaim stale processing rows across
+		// all notebooks before counting blog-wide worker capacity.
+		$global_orphan_timeout_s = (int) apply_filters(
+			'bizcity_twinchat_learning_global_orphan_timeout_s',
+			$orphan_timeout_s
+		);
+		$global_orphan_timeout_s = max( 30, min( 300, $global_orphan_timeout_s ) );
+		$global_reclaimed = (int) $wpdb->query( $wpdb->prepare(
+			"UPDATE {$db->tbl_passages()}
+			    SET extraction_status = 'pending', extraction_error = '', updated_at = NOW()
+			  WHERE extraction_status = 'processing'
+			    AND updated_at < DATE_SUB(NOW(), INTERVAL %d SECOND)",
+			$global_orphan_timeout_s
+		) );
+		if ( $global_reclaimed > 0 ) {
+			bizcity_tc_learning_debug_log( sprintf(
+				'tick_extract job=%d → reclaim %d stale processing row(s) across blog before capacity check',
+				$job_id,
+				$global_reclaimed
+			) );
+		}
+		$active_workers = (int) $wpdb->get_var(
+			"SELECT COUNT(*) FROM {$db->tbl_passages()} WHERE extraction_status = 'processing'"
+		);
+		$worker_capacity = self::MAX_ACTIVE_WORKERS - $active_workers;
+		if ( $worker_capacity <= 0 ) {
+			$retry_after = time() + 15;
+			bizcity_tc_learning_debug_log( sprintf(
+				'tick_extract job=%d → worker capacity full active=%d cap=%d retry_after=%d',
+				$job_id, $active_workers, self::MAX_ACTIVE_WORKERS, $retry_after
+			) );
+			$queue->extend_lease( $job_id, $owner, self::LEASE_TTL_S );
+			return [
+				'done'        => false,
+				'busy'        => true,
+				'error'       => false,
+				'phase'       => 'extracting',
+				'reason_code' => 'learning_worker_capacity',
+				'retry_after' => $retry_after,
+				'job'         => $job,
+			];
+		}
+		$parallel = min( $parallel, $worker_capacity );
 
 		// [2026-07-23 Johnny Chu] PHASE-0.44 — throttle retry for transient pending/skipped rows to stop hot-loop redispatch.
 		$pending_retry_s = (int) apply_filters( 'bizcity_twinchat_learning_pending_retry_s', 60 );

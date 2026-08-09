@@ -1,0 +1,17 @@
+{
+  "contract": "citation-pack",
+  "version": "1.0.0",
+  "coverage": 0.92,
+  "citations": [
+    {
+      "id": "nb-101-p2",
+      "kind": "notebook",
+      "source": "notebook://sales-handbook",
+      "title": "Sales handbook",
+      "locator": "p2",
+      "snippet": "Main onboarding policy",
+      "confidence": 0.88
+    }
+  ],
+  "unresolved_claims": []
+}

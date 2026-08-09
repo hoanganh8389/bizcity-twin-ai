@@ -44,10 +44,9 @@ class BizCity_ZNS_General_Sender {
 
 		// Guard credentials
 		if ( empty( $args['api_key'] ) || empty( $args['secret_key'] ) ) {
-			BizCity_Channel_File_Logger::write(
-				BizCity_Channel_File_Logger::CH_ZALO_OA,
-				BizCity_Channel_File_Logger::LEVEL_WARN,
+			self::crm_log(
 				'zns_skip_no_creds',
+				'warn',
 				'Missing eSMS credentials for rule #' . ( $args['rule_id'] ?? 0 ),
 				array( 'rule_id' => (int) ( $args['rule_id'] ?? 0 ), 'event_key' => (string) ( $args['event_key'] ?? '' ) )
 			);
@@ -64,10 +63,9 @@ class BizCity_ZNS_General_Sender {
 		// Normalize phone
 		$phone = self::normalize_phone( (string) ( $args['phone'] ?? '' ) );
 		if ( empty( $phone ) ) {
-			BizCity_Channel_File_Logger::write(
-				BizCity_Channel_File_Logger::CH_ZALO_OA,
-				BizCity_Channel_File_Logger::LEVEL_WARN,
+			self::crm_log(
 				'zns_skip_invalid_phone',
+				'warn',
 				'Invalid phone for rule #' . ( $args['rule_id'] ?? 0 ),
 				array( 'rule_id' => (int) ( $args['rule_id'] ?? 0 ) )
 			);
@@ -79,27 +77,25 @@ class BizCity_ZNS_General_Sender {
 		$rule_id    = (int) ( $args['rule_id'] ?? 0 );
 		$dedup_key  = 'bizcity_zns_dedup_' . md5( $rule_id . '_' . $phone );
 		if ( get_transient( $dedup_key ) ) {
-			BizCity_Channel_File_Logger::write(
-				BizCity_Channel_File_Logger::CH_ZALO_OA,
-				BizCity_Channel_File_Logger::LEVEL_WARN,
+			self::crm_log(
 				'zns_skip_dedup',
+				'warn',
 				'Dedup: phone+rule combo fired within 5 min — skipped',
-				array( 'rule_id' => $rule_id, 'phone' => self::mask_phone( $phone ) )
+				array( 'rule_id' => $rule_id )
 			);
 			$result['error'] = 'dedup_skip';
 			return $result;
 		}
 
 		// File-log TRƯỚC HTTP (R-CH-FILE-LOG)
-		BizCity_Channel_File_Logger::write(
-			BizCity_Channel_File_Logger::CH_ZALO_OA,
-			BizCity_Channel_File_Logger::LEVEL_INFO,
+		self::crm_log(
 			'zns_send_attempt',
-			'Sending ZNS to ' . self::mask_phone( $phone ),
+			'info',
+			'Sending ZNS message.',
 			array(
 				'rule_id'    => $rule_id,
 				'event_key'  => (string) ( $args['event_key'] ?? '' ),
-				'phone'      => self::mask_phone( $phone ),
+				'phone_present' => true,
 				'temp_id'    => $args['temp_id'],
 				'oa_id'      => (string) ( $args['oa_id'] ?? '' ),
 				'sandbox'    => ! empty( $args['sandbox'] ),
@@ -137,30 +133,28 @@ class BizCity_ZNS_General_Sender {
 			// [2026-06-27 Johnny Chu] PHASE-CG-ZNS-AUTO — dedup transient after success
 			set_transient( $dedup_key, 1, self::DEDUP_TTL );
 			$result['success'] = true;
-			BizCity_Channel_File_Logger::write(
-				BizCity_Channel_File_Logger::CH_ZALO_OA,
-				BizCity_Channel_File_Logger::LEVEL_INFO,
+			self::crm_log(
 				'zns_send_ok',
-				'ZNS sent OK — SMSID: ' . $sms_id,
+				'info',
+				'ZNS sent successfully.',
 				array(
 					'rule_id'  => $rule_id,
 					'sms_id'   => $sms_id,
-					'phone'    => self::mask_phone( $phone ),
+					'phone_present' => true,
 					'sandbox'  => ! empty( $args['sandbox'] ),
 				)
 			);
 		} else {
 			$result['error'] = $err_msg ?: ( 'esms_code_' . $code );
-			BizCity_Channel_File_Logger::write(
-				BizCity_Channel_File_Logger::CH_ZALO_OA,
-				BizCity_Channel_File_Logger::LEVEL_ERROR,
+			self::crm_log(
 				'zns_send_failed',
-				'ZNS failed — code: ' . $code . ' — ' . $err_msg,
+				'error',
+				'ZNS send failed.',
 				array(
 					'rule_id'   => $rule_id,
-					'phone'     => self::mask_phone( $phone ),
+					'phone_present' => true,
 					'code'      => $code,
-					'error'     => $err_msg,
+					'error_present' => $err_msg !== '',
 					'sandbox'   => ! empty( $args['sandbox'] ),
 				)
 			);
@@ -282,12 +276,11 @@ class BizCity_ZNS_General_Sender {
 		) );
 
 		if ( is_wp_error( $response ) ) {
-			BizCity_Channel_File_Logger::write(
-				BizCity_Channel_File_Logger::CH_ZALO_OA,
-				BizCity_Channel_File_Logger::LEVEL_ERROR,
+			self::crm_log(
 				'zns_http_error',
-				'wp_remote_post error: ' . $response->get_error_message(),
-				array( 'error' => $response->get_error_message() )
+				'error',
+				'ZNS HTTP request returned a WordPress error.',
+				array( 'error_present' => true )
 			);
 			return array( 'CodeResult' => '', 'ErrorMessage' => $response->get_error_message() );
 		}
@@ -300,5 +293,12 @@ class BizCity_ZNS_General_Sender {
 			return array( 'CodeResult' => '', 'ErrorMessage' => 'Invalid JSON (HTTP ' . $http_code . ')' );
 		}
 		return $json;
+	}
+
+	private static function crm_log( $event, $level, $message, array $ctx = array() ) {
+		// [2026-07-31 Johnny Chu] PHASE-CRM-LOG-SPLIT — general ZNS evidence is CRM-owned.
+		if ( class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
+			BizCity_JSONL_File_Logger::write( BizCity_JSONL_File_Logger::CRM_FOLDER, 'zns', $level, $event, $message, $ctx );
+		}
 	}
 }

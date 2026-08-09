@@ -39,9 +39,9 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 class BizCity_TwinBrain_Final_Composer {
 
 	const PURPOSE         = 'twinbrain_final_compose';
-	const PURPOSE_WISDOM  = 'twinbrain_wisdom'; // [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT — stronger model purpose for deep/audit Notebook synthesis.
+	const PURPOSE_WISDOM  = 'twinbrain_wisdom'; // Legacy explicit override only; default user-facing composition uses chat.
 	const TEMPERATURE     = 0.35;
-	const MAX_TOKENS      = 2200; // [2026-07-18 Johnny Chu] PHASE-TWINWEB-C-ENDUSER — longer C-user final answers without exposing raw token knobs.
+	const MAX_TOKENS      = 2700; // [2026-08-02 Johnny Chu] PHASE-TWINWEB-NB-DEPTH — raise normal Notebook final output budget for sourced answers.
 	const MAX_TOKENS_GURU = 3200; // [2026-07-18 Johnny Chu] PHASE-TWINWEB-C-ENDUSER — Guru-bound answers can carry more sourced detail.
 	const TIMEOUT_S       = 60;
 
@@ -87,6 +87,9 @@ class BizCity_TwinBrain_Final_Composer {
 		$answer_intent = $this->resolve_answer_intent( $prompt, $opts );
 		$opts['answer_intent']      = (string) ( $answer_intent['intent'] ?? 'general' );
 		$opts['answer_intent_meta'] = $answer_intent;
+		// [2026-08-05 Johnny Chu] V4.1/V4.2 — resolve a deterministic answer skeleton before composing prose.
+		$answer_skeleton = $this->resolve_answer_skeleton( $prompt, $answer_intent, $opts );
+		$opts['answer_skeleton'] = $answer_skeleton;
 		$opts['named_evidence_candidates'] = $this->extract_named_evidence_candidates( $opts );
 		// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MOAT W0.15 — extract concrete product entities from evidence excerpts before composing.
 		$opts['product_entities'] = isset( $opts['product_entities'] ) && is_array( $opts['product_entities'] )
@@ -103,7 +106,8 @@ class BizCity_TwinBrain_Final_Composer {
 				$ans = (string) ( $synth['answer_md'] ?? '' );
 			}
 			$source_contract = $this->apply_notebook_source_contract( $ans, $opts );
-			$ans = (string) $source_contract['answer_md'];
+			$skeleton_validation = $this->validate_answer_skeleton( (string) $source_contract['answer_md'], $answer_skeleton, $opts );
+			$ans = (string) $skeleton_validation['answer_md'];
 			if ( is_callable( $on_token ) && $ans !== '' ) {
 				// Single emit so FE final-row still renders something.
 				call_user_func( $on_token, $ans, $ans );
@@ -118,6 +122,14 @@ class BizCity_TwinBrain_Final_Composer {
 				'error'     => '',
 				'llm_purpose' => $llm_purpose,
 				'answer_intent' => (string) ( $answer_intent['intent'] ?? 'general' ),
+				'skeleton_id' => (string) $answer_skeleton['id'],
+				'required_sections' => (array) $answer_skeleton['required_sections'],
+				'skeleton_quality' => (string) $skeleton_validation['quality'],
+				'skeleton_violations' => (array) $skeleton_validation['violations'],
+				'structure_gate' => (string) $skeleton_validation['structure_gate'],
+				'safety_gate' => (string) $skeleton_validation['safety_gate'],
+				'entity_gate' => (string) $skeleton_validation['entity_gate'],
+				'next_action_gate' => (string) $skeleton_validation['next_action_gate'],
 				'named_evidence_count' => count( (array) ( $opts['named_evidence_candidates'] ?? array() ) ),
 				'product_entity_count' => count( (array) ( $opts['product_entities'] ?? array() ) ),
 				'product_name_entity_count' => count( $this->filter_product_name_entities( (array) ( $opts['product_entities'] ?? array() ) ) ),
@@ -208,7 +220,8 @@ class BizCity_TwinBrain_Final_Composer {
 		if ( empty( $result['success'] ) || $final_text === '' ) {
 			$fallback_text = (string) ( $synth['answer_md'] ?? '' );
 			$source_contract = $this->apply_notebook_source_contract( $fallback_text, $opts );
-			$fallback_text = (string) $source_contract['answer_md'];
+			$skeleton_validation = $this->validate_answer_skeleton( (string) $source_contract['answer_md'], $answer_skeleton, $opts );
+			$fallback_text = (string) $skeleton_validation['answer_md'];
 			if ( is_callable( $on_token ) && $fallback_text !== '' && $delta_n === 0 ) {
 				// FE never received any deltas — emit synth as a single chunk.
 				call_user_func( $on_token, $fallback_text, $fallback_text );
@@ -243,6 +256,14 @@ class BizCity_TwinBrain_Final_Composer {
 				'master_level'      => isset( $result['master_level'] )     ? (string) $result['master_level']     : '',
 				'llm_purpose'       => $llm_purpose,
 				'answer_intent'     => (string) ( $answer_intent['intent'] ?? 'general' ),
+				'skeleton_id'       => (string) $answer_skeleton['id'],
+				'required_sections' => (array) $answer_skeleton['required_sections'],
+				'skeleton_quality' => (string) $skeleton_validation['quality'],
+				'skeleton_violations' => (array) $skeleton_validation['violations'],
+				'structure_gate' => (string) $skeleton_validation['structure_gate'],
+				'safety_gate' => (string) $skeleton_validation['safety_gate'],
+				'entity_gate' => (string) $skeleton_validation['entity_gate'],
+				'next_action_gate' => (string) $skeleton_validation['next_action_gate'],
 				'named_evidence_count' => count( (array) ( $opts['named_evidence_candidates'] ?? array() ) ),
 				'product_entity_count' => count( (array) ( $opts['product_entities'] ?? array() ) ),
 				'product_name_entity_count' => count( $this->filter_product_name_entities( (array) ( $opts['product_entities'] ?? array() ) ) ),
@@ -254,7 +275,8 @@ class BizCity_TwinBrain_Final_Composer {
 		}
 
 		$source_contract = $this->apply_notebook_source_contract( $final_text, $opts );
-		$final_text = (string) $source_contract['answer_md'];
+		$skeleton_validation = $this->validate_answer_skeleton( (string) $source_contract['answer_md'], $answer_skeleton, $opts );
+		$final_text = (string) $skeleton_validation['answer_md'];
 
 		return [
 			'success'         => true,
@@ -269,6 +291,14 @@ class BizCity_TwinBrain_Final_Composer {
 			'tier'            => '',
 			'llm_purpose'     => $llm_purpose,
 			'answer_intent'   => (string) ( $answer_intent['intent'] ?? 'general' ),
+			'skeleton_id'     => (string) $answer_skeleton['id'],
+			'required_sections' => (array) $answer_skeleton['required_sections'],
+			'skeleton_quality' => (string) $skeleton_validation['quality'],
+			'skeleton_violations' => (array) $skeleton_validation['violations'],
+			'structure_gate' => (string) $skeleton_validation['structure_gate'],
+			'safety_gate' => (string) $skeleton_validation['safety_gate'],
+			'entity_gate' => (string) $skeleton_validation['entity_gate'],
+			'next_action_gate' => (string) $skeleton_validation['next_action_gate'],
 			'named_evidence_count' => count( (array) ( $opts['named_evidence_candidates'] ?? array() ) ),
 			'product_entity_count' => count( (array) ( $opts['product_entities'] ?? array() ) ),
 			'product_name_entity_count' => count( $this->filter_product_name_entities( (array) ( $opts['product_entities'] ?? array() ) ) ),
@@ -345,7 +375,7 @@ class BizCity_TwinBrain_Final_Composer {
 
 		$budgets = array(
 			'brief'  => array( 'ans_cap' => 450,  'max_tokens' => 1400, 'evidence_contract' => 'short answer; keep Notebook source block visible' ),
-			'normal' => array( 'ans_cap' => $has_guru ? 1200 : 900, 'max_tokens' => $has_guru ? self::MAX_TOKENS_GURU : self::MAX_TOKENS, 'evidence_contract' => 'sourced synthesis with main claims cited' ),
+			'normal' => array( 'ans_cap' => $has_guru ? 1600 : 1800, 'max_tokens' => $has_guru ? self::MAX_TOKENS_GURU : self::MAX_TOKENS, 'evidence_contract' => 'sourced synthesis with main claims cited' ),
 			'deep'   => array( 'ans_cap' => 1800, 'max_tokens' => 4200, 'evidence_contract' => 'multi-section analysis; cover agreement, tension, and recommendation' ), // [2026-07-19 Johnny Chu] PHASE-TBR-NB-MOAT W0.19 — no user-facing training-gap section in final answers.
 			'audit'  => array( 'ans_cap' => 2200, 'max_tokens' => 5200, 'evidence_contract' => 'audit trail; compare notebooks and cite each major claim' ),
 		);
@@ -366,13 +396,173 @@ class BizCity_TwinBrain_Final_Composer {
 	 * @return string
 	 */
 	public function resolve_llm_purpose( array $depth_profile, array $opts = array() ): string {
-		// [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT — route deep/audit Notebook synthesis to a stronger configurable purpose.
+		// [2026-08-01 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G1 — keep every user-facing vertical on the canonical chat model; depth changes budget only.
 		if ( isset( $opts['final_compose_purpose'] ) && (string) $opts['final_compose_purpose'] !== '' ) {
 			return sanitize_key( (string) $opts['final_compose_purpose'] );
 		}
 		$profile = isset( $depth_profile['profile'] ) ? sanitize_key( (string) $depth_profile['profile'] ) : self::NOTEBOOK_DEPTH_DEFAULT;
-		$purpose = in_array( $profile, array( 'deep', 'audit' ), true ) ? self::PURPOSE_WISDOM : self::PURPOSE;
+		$purpose = self::PURPOSE;
 		return (string) apply_filters( 'bizcity_twinbrain_final_compose_purpose', $purpose, $depth_profile, $opts );
+	}
+
+	/**
+	 * Resolve the V4 answer shape without an additional LLM call.
+	 *
+	 * @return array{id:string,domain:string,required_sections:array<int,string>,safety_level:string}
+	 */
+	private function resolve_answer_skeleton( string $prompt, array $answer_intent, array $opts = array() ): array {
+		// [2026-08-05 Johnny Chu] V4.2 — choose output shape from intent/domain; greetings stay compact and health answers get safety structure.
+		$text = function_exists( 'mb_strtolower' ) ? mb_strtolower( $prompt ) : strtolower( $prompt );
+		$health_markers = array( 'bé', 'con', 'sữa', 'lactose', 'táo bón', 'tiêu chảy', 'sốt', 'đau', 'thuốc', 'bác sĩ', 'chẩn đoán', 'cân nặng', 'chiều cao' );
+		$is_health = false;
+		foreach ( $health_markers as $marker ) {
+			if ( false !== mb_strpos( $text, $marker ) ) {
+				$is_health = true;
+				break;
+			}
+		}
+		$intent = sanitize_key( (string) ( $answer_intent['intent'] ?? 'general' ) );
+		if ( $is_health ) {
+			return array(
+				'id' => 'health.consulting.v1',
+				'domain' => 'health',
+				'required_sections' => array( 'conclusion_short', 'known_information', 'analysis', 'next_steps', 'safety_notes', 'next_question', 'sources' ),
+				'safety_level' => 'high',
+			);
+		}
+		if ( in_array( $intent, array( 'list_products', 'list_named_entities' ), true ) ) {
+			return array(
+				'id' => 'product.list.v1',
+				'domain' => 'product',
+				'required_sections' => array( 'conclusion_short', 'verified_entities', 'analysis', 'next_steps', 'sources' ),
+				'safety_level' => 'normal',
+			);
+		}
+		if ( 'comparison' === $intent ) {
+			return array(
+				'id' => 'comparison.v1',
+				'domain' => 'general',
+				'required_sections' => array( 'conclusion_short', 'comparison', 'tradeoffs', 'next_steps', 'sources' ),
+				'safety_level' => 'normal',
+			);
+		}
+		if ( 'fact_lookup' === $intent ) {
+			return array(
+				'id' => 'fact_lookup.v1',
+				'domain' => 'general',
+				'required_sections' => array( 'conclusion_short', 'known_information', 'sources', 'limitations' ),
+				'safety_level' => 'normal',
+			);
+		}
+		if ( in_array( $intent, array( 'troubleshooting', 'task_execution' ), true ) ) {
+			return array(
+				'id' => 'troubleshooting.v1',
+				'domain' => 'general',
+				'required_sections' => array( 'conclusion_short', 'known_information', 'analysis', 'next_steps', 'limitations' ),
+				'safety_level' => 'normal',
+			);
+		}
+		if ( in_array( $intent, array( 'casual', 'general' ), true ) && mb_strlen( trim( $prompt ) ) < 40 ) {
+			return array(
+				'id' => 'casual.compact.v1',
+				'domain' => 'general',
+				'required_sections' => array( 'direct_answer' ),
+				'safety_level' => 'normal',
+			);
+		}
+		return array(
+			'id' => 'consulting.v1',
+			'domain' => 'general',
+			'required_sections' => array( 'conclusion_short', 'known_information', 'analysis', 'next_steps', 'next_question', 'sources' ),
+			'safety_level' => 'normal',
+		);
+	}
+
+	/**
+	 * Validate and safely normalize the V4 answer shape after composition.
+	 *
+	 * @return array{answer_md:string,quality:string,violations:array<int,string>,structure_gate:string,safety_gate:string,entity_gate:string,next_action_gate:string}
+	 */
+	private function validate_answer_skeleton( string $answer_md, array $skeleton, array $opts = array() ): array {
+		// [2026-08-05 Johnny Chu] V4.4 — validate structure/evidence-sensitive labels without inventing missing factual claims.
+		$text = trim( $answer_md );
+		$lower = function_exists( 'mb_strtolower' ) ? mb_strtolower( $text ) : strtolower( $text );
+		$required = (array) ( $skeleton['required_sections'] ?? array() );
+		$headings = array(
+			'conclusion_short' => array( 'kết luận ngắn', 'kết luận nhanh' ),
+			'known_information' => array( 'mình đang dựa trên thông tin nào', 'dữ kiện đã biết', 'thông tin đã biết' ),
+			'analysis' => array( 'phân tích chính', 'phân tích chi tiết', 'phân tích không chẩn đoán' ),
+			'next_steps' => array( 'nên làm gì tiếp theo', 'việc nên làm', 'giải pháp toàn diện' ),
+			'safety_notes' => array( 'lưu ý an toàn', 'khi cần chuyên gia', 'khi cần khám', 'red flags' ),
+			'next_question' => array( 'một thông tin mình cần thêm', 'thông tin mình cần thêm', 'cần biết thêm' ),
+			'sources' => array( 'nguồn tham chiếu', 'nguồn từ notebook', 'nguồn tham khảo' ),
+			'verified_entities' => array( 'các sản phẩm/dòng sản phẩm được xác minh', 'kết quả nguồn' ),
+			'comparison' => array( 'so sánh', 'điểm giống/khác' ),
+			'tradeoffs' => array( 'trade-off', 'đánh đổi' ),
+			'limitations' => array( 'giới hạn', 'hạn chế' ),
+		);
+		$missing = array();
+		foreach ( $required as $section ) {
+			$section = sanitize_key( (string) $section );
+			if ( $section === 'direct_answer' ) {
+				continue;
+			}
+			$found = false;
+			foreach ( (array) ( $headings[ $section ] ?? array() ) as $heading ) {
+				if ( false !== strpos( $lower, mb_strtolower( $heading ) ) ) {
+					$found = true;
+					break;
+				}
+			}
+			if ( ! $found ) {
+				$missing[] = $section;
+			}
+		}
+
+		$violations = array();
+		$answer_safety = (string) ( $skeleton['safety_level'] ?? 'normal' );
+		$safety_gate = 'pass';
+		if ( $answer_safety === 'high' && in_array( 'safety_notes', $missing, true ) ) {
+			// Safe format repair only: this does not diagnose or add a treatment claim.
+			$text .= "\n\n## Lưu ý an toàn / khi cần chuyên gia\nĐây là thông tin tham khảo, không thay thế đánh giá của bác sĩ hoặc chuyên gia dinh dưỡng. Nếu triệu chứng kéo dài, nặng lên hoặc có dấu hiệu bất thường, hãy đưa bé đi khám.\n";
+			$safety_gate = 'repaired';
+			$missing = array_values( array_diff( $missing, array( 'safety_notes' ) ) );
+		} elseif ( $answer_safety === 'high' ) {
+			$safety_gate = 'pass';
+		}
+		$has_products = ! empty( $this->filter_product_name_entities( (array) ( $opts['product_entities'] ?? array() ) ) );
+		$entity_gate = 'pass';
+		if ( (string) ( $skeleton['domain'] ?? '' ) === 'product' && ! $has_products ) {
+			$entity_gate = 'degraded';
+			$violations[] = 'verified_product_entity_missing';
+			$text = str_replace( array( '## Các dòng sữa tìm thấy từ nội dung', '## Các sản phẩm/dòng sản phẩm được xác minh' ), '## Kết quả nguồn', $text );
+			if ( false === strpos( $text, 'chưa trích được tên sản phẩm cụ thể' ) ) {
+				$text .= "\n\nChưa trích được tên sản phẩm cụ thể từ nội dung nguồn; tên file chỉ được xem là source title.\n";
+			}
+		}
+		$next_action_gate = in_array( 'next_question', $required, true )
+			? ( in_array( 'next_question', $missing, true ) ? 'degraded' : 'pass' )
+			: 'not_required';
+		if ( $next_action_gate === 'degraded' ) {
+			$violations[] = 'next_best_action_section_missing';
+		}
+		if ( ! empty( $missing ) ) {
+			$violations[] = 'sections_missing:' . implode( ',', $missing );
+		}
+		$structure_gate = empty( $missing ) ? 'pass' : 'degraded';
+		if ( $structure_gate === 'degraded' ) {
+			$violations[] = 'required_sections_missing';
+		}
+		$quality = empty( $violations ) ? 'ok' : 'bounded_fallback';
+		return array(
+			'answer_md' => trim( $text ),
+			'quality' => $quality,
+			'violations' => array_values( array_unique( $violations ) ),
+			'structure_gate' => $structure_gate,
+			'safety_gate' => $safety_gate,
+			'entity_gate' => $entity_gate,
+			'next_action_gate' => $next_action_gate,
+		);
 	}
 
 	/**
@@ -820,7 +1010,8 @@ class BizCity_TwinBrain_Final_Composer {
 	}
 
 	private function render_no_product_entities_notice(): string {
-		return "## Các dòng sữa tìm thấy từ nội dung\n\nCó file liên quan, nhưng chưa trích được tên dòng sữa cụ thể từ nội dung.";
+		// [2026-08-05 Johnny Chu] V4-SKELETON — keep the missing-entity notice domain-neutral; source titles are references, never product names.
+		return "## Sản phẩm/dòng hàng tìm thấy từ nội dung\n\nCó file liên quan, nhưng chưa trích được tên sản phẩm hoặc dòng hàng cụ thể từ nội dung.";
 	}
 
 	/** @return array<int,array<string,mixed>> */
@@ -845,13 +1036,14 @@ class BizCity_TwinBrain_Final_Composer {
 	}
 
 	private function render_named_evidence_answer_prefix( array $candidates ): string {
+		// [2026-08-05 Johnny Chu] V3.5 — source-title fallback is evidence only; never label a document title as a milk/product name.
 		if ( empty( $candidates ) ) {
 			return '';
 		}
 		$lines = array(
-			'## Các dòng/source-title tìm thấy trước',
+			'## Tài liệu/source title tìm thấy trước',
 			'',
-			'| Dòng sữa / source title | Notebook/source file | Vì sao liên quan | Citation |',
+			'| Tài liệu / source title | Notebook/source file | Vì sao liên quan | Citation |',
 			'|---|---|---|---|',
 		);
 		foreach ( array_slice( $candidates, 0, 8 ) as $row ) {
@@ -1026,6 +1218,19 @@ NGUY\u00caN T\u1eaeC:
 9. N\u1ebfu kh\u1ed1i MEMORY (\ud83e\udde0) ph\u00eda d\u01b0\u1edbi cung c\u1ea5p th\u00f4ng tin user \u0111\u00e3 d\u1eb7n / s\u1edf th\u00edch / m\u1ee5c ti\u00eau li\u00ean quan c\u00e2u h\u1ecfi \u2192 t\u00f4n tr\u1ecdng v\u00e0 echo token `[mem:U#<id>]` (ho\u1eb7c `[mem:E#<id>]`, `[mem:R#<id>]`) ngay c\u1ea1nh c\u00e2u v\u0103n s\u1eed d\u1ee5ng memory \u0111\u00f3. KH\u00d4NG b\u1ecf qua y\u00eau c\u1ea7u user \u0111\u00e3 d\u1eb7n.
 SYS;
 
+		// [2026-08-05 Johnny Chu] V4.2 — give the model a bounded section contract while keeping prose generation flexible.
+		$answer_skeleton = is_array( $opts['answer_skeleton'] ?? null ) ? $opts['answer_skeleton'] : array();
+		if ( ! empty( $answer_skeleton['id'] ) ) {
+			$required_sections = implode( ', ', array_map( 'sanitize_key', (array) ( $answer_skeleton['required_sections'] ?? array() ) ) );
+			$system .= "\n\n## ANSWER SKELETON CONTRACT\n"
+				. "skeleton_id: " . sanitize_key( (string) $answer_skeleton['id'] ) . "\n"
+				. "required_sections: " . $required_sections . "\n"
+				. "Giữ đúng thứ tự ưu tiên: kết luận ngắn trước, phân tích sau, hành động tiếp theo và giới hạn/safety khi cần. Không hiển thị tên section nội bộ nếu skeleton không yêu cầu heading đó.\n";
+			if ( (string) ( $answer_skeleton['safety_level'] ?? '' ) === 'high' ) {
+				$system .= "- Đây là câu hỏi health/medical: phân biệt dữ kiện user cung cấp, dữ kiện có nguồn và suy luận; dùng ngôn ngữ có điều kiện; thêm lưu ý an toàn/red flags; không chẩn đoán hoặc đưa định lượng cứng nếu evidence không đủ.\n";
+			}
+		}
+
 		if ( $twinweb_prompt_block !== '' ) {
 			$system .= "\n\n" . $twinweb_prompt_block;
 		}
@@ -1089,9 +1294,9 @@ SYS;
 					$system .= "\n- W0.20 FINAL CONTEXT CHUNKS đang bật: đây là pack canonical Graph → retrieval top30 → rerank → top5-8. Ưu tiên các chunk này cho mọi factual claim; các block source map/search/file brief còn lại là evidence phụ và UI trace.";
 					$system .= "\n- Khi chunk có `citation`, copy đúng citation đó. Không dùng source title/category thay thế nội dung chunk.";
 				}
-				// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MOAT W0.11 — product-level enumeration contract: answer must list specific product/brand names from source files.
-				$system .= "\n- W0.11 Product-name contract: với câu hỏi liệt kê sản phẩm, dòng hàng hoặc thương hiệu cụ thể (sữa, thực phẩm, thuốc, thiết bị...), BẮT BUỘC đọc từng `source_title` trong SOURCE FILE BRIEF MAP và nêu đúng tên sản phẩm/thương hiệu đó trong câu trả lời — không được thay bằng mô tả category chung. Với mỗi sản phẩm được đề cập, copy đúng citation token tương ứng.";
-				$system .= "\n- Nếu source file là tên một sản phẩm cụ thể (ví dụ 'Nan Pro 1', 'Enfamil A+ táo bón', 'SimilacGain IQ'), phải dùng đúng tên đó trong câu trả lời, không paraphrase thành 'một loại sữa chứa...' hay 'sữa từ hãng X'.";
+				// [2026-08-05 Johnny Chu] V4-SKELETON — separate document identity from verified product identity in every domain.
+				$system .= "\n- W0.11 Product-name contract: với câu hỏi liệt kê sản phẩm, dòng hàng hoặc thương hiệu cụ thể (sữa, thực phẩm, thuốc, thiết bị...), chỉ dùng row `product_entities` có `entity_type=product_name` hoặc `is_product_name=true` để nêu tên. `source_title` chỉ là tên tài liệu tham chiếu, tuyệt đối không được coi là tên sản phẩm hoặc tự suy ra tên từ tiêu đề file. Với mỗi product entity được đề cập, copy đúng citation token tương ứng.";
+				$system .= "\n- Nếu PRODUCT ENTITIES không có tên sản phẩm đã xác minh, phải nói rõ chưa trích được tên cụ thể; không được biến tên file, tên notebook, category hoặc claim phrase thành tên sản phẩm.";
 				if ( ! empty( $answer_intent['requires_named_evidence'] ) ) {
 					// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MOAT W0.15 — product_entities beats source-title scaffold for product list answers.
 					$system .= "\n- W0.16 Product Entity contract: intent=`" . (string) ( $answer_intent['intent'] ?? 'list_products' ) . "`. Chỉ các row `entity_type=product_name` hoặc `is_product_name=true` mới được xem là tên dòng sữa/sản phẩm. Nếu có PRODUCT ENTITIES hợp lệ, BẮT BUỘC mở đầu bằng `## Các dòng sữa tìm thấy từ nội dung`, rồi bảng 5 cột: `Dòng sữa/entity` · `Source title` · `Evidence excerpt` · `Confidence` · `Citation`. Không dùng tiêu đề file/tài liệu/category/claim phrase thay thế tên dòng sữa.";
@@ -1117,6 +1322,52 @@ SYS;
 			"## C\u00c2U H\u1ed0I C\u1ee6A USER\n" . $prompt,
 			$synth_block,
 		];
+		$goal_loop_brief = trim( (string) ( $opts['goal_loop_brief'] ?? '' ) );
+		if ( $goal_loop_brief !== '' ) {
+			// [2026-08-01 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G2 — keep the final answer accountable to the active goal and open loops.
+			$system .= "\n\n## TWIN GOAL LOOP CONTRACT\n"
+				. "Đây là goal đang mở của người dùng. Trả lời lượt này phải phục vụ goal, không tuyên bố hoàn thành nếu chưa có evidence. Nếu còn open loop, nêu bước tiếp theo rõ ràng.\n";
+			$user_parts[] = "### ACTIVE GOAL BRIEF\n" . mb_substr( $goal_loop_brief, 0, 3000 );
+		}
+		// [2026-08-04 Johnny Chu] R-MPR-GOALBOARD — apply the pre-final PASS/PATCH scoreboard as an internal answer-completeness contract.
+		$final_gate = is_array( $opts['final_gate'] ?? null ) ? $opts['final_gate'] : array();
+		$scoreboard = is_array( $final_gate['scoreboard'] ?? null ) ? $final_gate['scoreboard'] : array();
+		$fallback_policy = sanitize_key( (string) ( $final_gate['fallback_policy'] ?? 'normal_answer' ) );
+		$score_rows = (array) ( $scoreboard['rows'] ?? array() );
+		$obligation_map = array();
+		foreach ( (array) ( $opts['goal_contract']['answer_obligations'] ?? array() ) as $obligation ) {
+			if ( is_array( $obligation ) && ! empty( $obligation['id'] ) ) {
+				$obligation_map[ (string) $obligation['id'] ] = (string) ( $obligation['question'] ?? '' );
+			}
+		}
+		if ( ! empty( $score_rows ) ) {
+			$score_lines = array();
+			foreach ( array_slice( $score_rows, 0, 20 ) as $score_row ) {
+				if ( ! is_array( $score_row ) || empty( $score_row['obligation_id'] ) ) {
+					continue;
+				}
+				$obligation_id = (string) $score_row['obligation_id'];
+				$route = strtoupper( (string) ( $score_row['route'] ?? 'PATCH' ) );
+				$line = $obligation_id . ' [' . $route . ', coverage=' . (string) ( $score_row['coverage'] ?? 0 ) . ']';
+				if ( ! empty( $obligation_map[ $obligation_id ] ) ) {
+					$line .= ': ' . $obligation_map[ $obligation_id ];
+				}
+				if ( ! empty( $score_row['gap'] ) ) {
+					$line .= ' | gap: ' . sanitize_text_field( (string) $score_row['gap'] );
+				}
+				$score_lines[] = '- ' . $line;
+			}
+			if ( ! empty( $score_lines ) ) {
+				$system .= "\n\n## RESOLUTION SCOREBOARD\n"
+					. "Bổ sung mọi obligation có route PATCH vào câu trả lời nếu evidence hiện có đủ. Không bỏ qua obligation MUST. Không bịa evidence cho route RETRIEVE; nếu gate_reason cho phép fallback, nói rõ giới hạn thông tin.\n"
+					. implode( "\n", $score_lines );
+			}
+		}
+		if ( $fallback_policy === 'answer_with_limit_notice' ) {
+			// [2026-08-04 Johnny Chu] R-MPR-GOALBOARD — bounded fallback must be honest about unresolved evidence and must not claim completion.
+			$system .= "\n\n## FINAL GATE FALLBACK POLICY\n"
+				. "Gate chưa mở hoàn toàn. Trả lời phần có evidence, nói ngắn gọn thông tin nào còn chưa xác minh, và đưa ra bước tiếp theo cụ thể. Không nói 'đã kiểm tra đầy đủ', 'chắc chắn', hoặc tuyên bố goal đã hoàn tất nếu scoreboard còn RETRIEVE.\n";
+		}
 
 		$subject_ctx = trim( (string) ( $opts['subject_context_md'] ?? '' ) );
 		if ( $subject_ctx !== '' ) {
@@ -1283,10 +1534,30 @@ SYS;
 		}
 		$user_parts[] = "Vi\u1ebft c\u00e2u tr\u1ea3 l\u1eddi cu\u1ed1i c\u00f9ng cho user theo nguy\u00ean t\u1eafc tr\u00ean.";
 
-		return [
-			[ 'role' => 'system', 'content' => $system ],
-			[ 'role' => 'user',   'content' => implode( "\n\n", $user_parts ) ],
-		];
+		$user_content = implode( "\n\n", $user_parts );
+		$image_urls = array();
+		foreach ( (array) ( $opts['images'] ?? array() ) as $image_url ) {
+			$image_url = is_array( $image_url ) ? (string) ( $image_url['url'] ?? '' ) : (string) $image_url;
+			if ( $image_url !== '' && filter_var( $image_url, FILTER_VALIDATE_URL ) && ! in_array( $image_url, $image_urls, true ) ) {
+				$image_urls[] = $image_url;
+			}
+		}
+		if ( ! empty( $image_urls ) ) {
+			// [2026-08-02 Johnny Chu] PHASE-ZALO-VISION — send image URLs as multimodal user content so Final Composer/Luna can inspect the actual image.
+			$content = array( array( 'type' => 'text', 'text' => $user_content ) );
+			foreach ( $image_urls as $image_url ) {
+				$content[] = array( 'type' => 'image_url', 'image_url' => array( 'url' => $image_url, 'detail' => 'auto' ) );
+			}
+			return array(
+				array( 'role' => 'system', 'content' => $system ),
+				array( 'role' => 'user', 'content' => $content ),
+			);
+		}
+
+		return array(
+			array( 'role' => 'system', 'content' => $system ),
+			array( 'role' => 'user', 'content' => $user_content ),
+		);
 	}
 
 	/**
@@ -1612,7 +1883,7 @@ SYS;
 			: '';
 
 		// [2026-06-03 Johnny Chu] HOTFIX — Companion mode: empathic system
-		// prompt khi user chọn pill `Chat` (web_mode='chat'). Dùng memory để
+		// prompt khi internal casual_fast_path chọn companion_mode. Dùng memory để
 		// thấu cảm / tâm sự / đồng hành, không phải đưa kiến thức.
 		$companion = ! empty( $opts['companion_mode'] );
 

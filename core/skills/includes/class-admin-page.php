@@ -40,8 +40,10 @@ class BizCity_Skill_Admin_Page {
 
 		add_submenu_page(
 			'bizcity-knowledge',
-			__( 'Skill Library', $td ),
-			'⚡ ' . __( 'Skill Library', $td ),
+			// [2026-08-02 Johnny Chu] PHASE-SKILLS-JOURNAL — rebrand the
+			// user-facing admin entry as TwinNote; keep the technical slug stable.
+			__( 'TwinNote', $td ),
+			'📝 ' . __( 'TwinNote', $td ),
 			'manage_options',
 			'bizcity-skills',
 			[ $this, 'render_page' ]

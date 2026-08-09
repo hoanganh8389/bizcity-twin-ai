@@ -70,8 +70,6 @@ define( 'BZTIMG_SLUG',          'tool-image' );
 /* ═══════════════════════════════════════════════
    AUTOLOAD INCLUDES
    ═══════════════════════════════════════════════ */
-require_once ABSPATH . 'wp-admin/includes/upgrade.php';
-
 require_once BZTIMG_DIR . 'includes/install.php';
 require_once BZTIMG_DIR . 'includes/class-tools-image.php';
 require_once BZTIMG_DIR . 'includes/class-ajax-image.php';
@@ -399,6 +397,9 @@ function bztimg_sync_studio_skills(): void {
 			'title'          => $cat['icon'] . ' ' . $cat['title'],
 			'description'    => $cat['desc'],
 			'category'       => 'tool-image',
+            // [2026-08-02 Johnny Chu] PHASE-SKILLS-JOURNAL — keep studio routing rows out of Journal UI.
+            'visibility'     => 'runtime',
+            'source_module'  => 'bizcity-tool-image',
 			'triggers_json'  => $cat['triggers'],
 			'slash_commands' => [ $cat_slug ],
 			'modes'          => [ 'image' ],
@@ -470,6 +471,9 @@ function bztimg_sync_studio_skills(): void {
 			'title'          => $tab['icon'] . ' ' . $tab['title'],
 			'description'    => $tab['desc'],
 			'category'       => 'tool-image',
+            // [2026-08-02 Johnny Chu] PHASE-SKILLS-JOURNAL — keep studio routing rows out of Journal UI.
+            'visibility'     => 'runtime',
+            'source_module'  => 'bizcity-tool-image',
 			'triggers_json'  => $tab['triggers'],
 			'slash_commands' => [ $tab_slug ],
 			'modes'          => [ 'image' ],
@@ -520,6 +524,9 @@ function bztimg_sync_studio_skills(): void {
 			'title'          => $u['title'],
 			'description'    => $u['desc'],
 			'category'       => 'tool-image',
+            // [2026-08-02 Johnny Chu] PHASE-SKILLS-JOURNAL — keep studio routing rows out of Journal UI.
+            'visibility'     => 'runtime',
+            'source_module'  => 'bizcity-tool-image',
 			'triggers_json'  => $u['triggers'],
 			'slash_commands' => [ $u['slash'] ],
 			'modes'          => [ 'image' ],

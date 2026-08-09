@@ -368,6 +368,13 @@ add_action( 'plugins_loaded', function () {
         wp_schedule_event( time(), 'daily', 'bizcity_prompt_log_cleanup' );
     }
 
+    // [2026-08-01 Johnny Chu] PHASE-1.24-LOG-RETENTION — bounded cleanup for the two
+    // unbounded SQL log tables (bizcity_intent_logs, bizcity_intent_prompt_logs).
+    add_action( 'init', array( 'BizCity_Intent_Logger', 'register_retention_cron' ), 20 );
+    add_action( BizCity_Intent_Logger::RETENTION_HOOK, array( 'BizCity_Intent_Logger', 'gc_logs' ) );
+    add_action( 'init', array( 'BizCity_Intent_Database', 'register_retention_cron' ), 20 );
+    add_action( BizCity_Intent_Database::PROMPT_LOGS_RETENTION_HOOK, array( 'BizCity_Intent_Database', 'gc_prompt_logs' ) );
+
     // Monitor dashboard (admin only) — defer to current_screen to avoid
     // [2026-06-09 Johnny Chu] PERF-1 — instantiating these on EVERY admin page.
     // Intent Monitor / Data Browser / Tool Control Panel only needed on their own pages.

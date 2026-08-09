@@ -89,11 +89,9 @@ class BizCity_Episodic_Memory {
 
         $table = $wpdb->prefix . 'bizcity_memory_episodic';
 
-        // [2026-07-28 Johnny Chu] HOTFIX P1 — the version option alone is not proof of schema: a
-        // tenant can have DB_VERSION_OPTION already bumped while identity_uuid is still missing
-        // (produced "Unknown column identity_uuid" at runtime, e.g. cron_daily_aggregate()).
+        // [2026-08-09 Johnny Chu] R-METADATA-CACHE — trust the completed version stamp on the normal path; physical verification belongs to repair/diagnostics.
         $stored_version = get_option( self::DB_VERSION_OPTION );
-        if ( $stored_version === self::DB_VERSION && self::has_identity_column( $table ) ) {
+        if ( $stored_version === self::DB_VERSION ) {
             return;
         }
 
@@ -127,7 +125,7 @@ class BizCity_Episodic_Memory {
         $lock_name = 'bizcity_memory_migrate_' . md5( $table );
         $got_lock  = (int) $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, 5)', $lock_name ) );
         if ( 1 !== $got_lock ) {
-            error_log( '[BizCity_Episodic_Memory] Could not acquire migration lock for ' . $table . ' — another process is likely migrating it.' );
+            BizCity_JSONL_File_Logger::write( BizCity_JSONL_File_Logger::MEMORY_FOLDER, 'episodic-memory', 'warn', 'migration_lock_busy', 'Episodic memory migration lock was busy.', array( 'table' => $table ) );
             return;
         }
 
@@ -151,6 +149,9 @@ class BizCity_Episodic_Memory {
                 $previous = $wpdb->suppress_errors( true );
                 $wpdb->query( "ALTER TABLE `{$table}` ADD COLUMN identity_uuid CHAR(36) NOT NULL DEFAULT '' AFTER user_id" );
                 $wpdb->suppress_errors( $previous );
+                if ( function_exists( 'bizcity_column_invalidate' ) ) {
+                    bizcity_column_invalidate( $table, 'identity_uuid' );
+                }
             }
 
             // [2026-07-28 Johnny Chu] R-CH-IDMEM — remove the UUID-only key whenever it exists, including installs without a version option.
@@ -162,7 +163,7 @@ class BizCity_Episodic_Memory {
             if ( $legacy_index_exists ) {
                 $dropped = $wpdb->query( "ALTER TABLE {$table} DROP INDEX unique_event" );
                 if ( false === $dropped ) {
-                    error_log( '[BizCity_Episodic_Memory] Could not drop the previous episodic uniqueness index.' );
+                    BizCity_JSONL_File_Logger::write( BizCity_JSONL_File_Logger::MEMORY_FOLDER, 'episodic-memory', 'error', 'legacy_index_drop_failed', 'Episodic memory legacy index could not be removed.', array( 'table' => $table, 'index' => 'unique_event' ) );
                 }
             }
 
@@ -206,6 +207,9 @@ class BizCity_Episodic_Memory {
             ) {$charset};";
 
             dbDelta( $sql );
+            if ( function_exists( 'bizcity_column_invalidate' ) ) {
+                bizcity_column_invalidate( $table, 'identity_uuid' );
+            }
 
             // [2026-07-28 Johnny Chu] HOTFIX — only mark migration complete after verifying identity_uuid
             // actually exists; dbDelta() can silently no-op on some routed shard connections.
@@ -220,7 +224,7 @@ class BizCity_Episodic_Memory {
                     'last_log'     => time(),
                 ] );
                 delete_transient( $backoff_key );
-                error_log( "[BizCity_Episodic_Memory] Table {$table} migrated to v" . self::DB_VERSION );
+                BizCity_JSONL_File_Logger::write( BizCity_JSONL_File_Logger::MEMORY_FOLDER, 'episodic-memory', 'info', 'migration_ok', 'Episodic memory table migration completed.', array( 'table' => $table, 'version' => self::DB_VERSION ) );
             } else {
                 // [2026-07-29 Johnny Chu] R-CH-IDMEM — remember the failed ALTER for one hour;
                 // only emit the same failure again after one day or when its reason changes.
@@ -244,7 +248,7 @@ class BizCity_Episodic_Memory {
                 // [2026-07-28 Johnny Chu] HOTFIX P1 — retain the routed DB failure reason so a
                 // silent dbDelta/no-op can be distinguished from read-only or missing privileges.
                 if ( $should_log ) {
-                    error_log( "[BizCity_Episodic_Memory] Table {$table} migration incomplete — identity_uuid column still missing. Backing off " . self::MIGRATION_RETRY_SECONDS . "s (check shard write path / R-MSDB routing). db_error=" . ( $db_error !== '' ? $db_error : 'none' ) );
+                    BizCity_JSONL_File_Logger::write( BizCity_JSONL_File_Logger::MEMORY_FOLDER, 'episodic-memory', 'error', 'migration_incomplete', 'Episodic memory identity schema is still missing; migration is backing off.', array( 'table' => $table, 'retry_seconds' => self::MIGRATION_RETRY_SECONDS, 'db_error_present' => $db_error !== '', 'error_hash' => $error_hash, 'route_check_required' => true ) );
                 }
             }
         } finally {
@@ -257,11 +261,31 @@ class BizCity_Episodic_Memory {
      * when the version option check already failed (rare, once-per-migration-need).
      */
     private static function has_identity_column( $table ) {
+        // [2026-07-30 Johnny Chu] PHASE-1.22-RUNTIME — reuse the shared multisite/shard-aware schema cache.
+        if ( function_exists( 'bizcity_column_exists' ) ) {
+            return bizcity_column_exists( $table, 'identity_uuid' );
+        }
+        // [2026-08-09 Johnny Chu] R-CACHE — early-load fallback must cache both true and false by blog/database.
+        static $cache = array();
         global $wpdb;
-        return (bool) $wpdb->get_var( $wpdb->prepare(
+        $database = isset( $wpdb->dbname ) ? (string) $wpdb->dbname : '';
+        $memo_key = (int) get_current_blog_id() . ':' . $database . ':' . $table . ':identity_uuid';
+        if ( array_key_exists( $memo_key, $cache ) ) {
+            return $cache[ $memo_key ];
+        }
+        $cache_key = 'bz_col_' . md5( $memo_key );
+        $cached = wp_cache_get( $cache_key, 'bizcity_tbl' );
+        if ( false !== $cached ) {
+            $cache[ $memo_key ] = (bool) $cached;
+            return $cache[ $memo_key ];
+        }
+        $present = (bool) $wpdb->get_var( $wpdb->prepare(
             "SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = 'identity_uuid' LIMIT 1",
             $table
         ) );
+        wp_cache_set( $cache_key, $present ? 1 : 0, 'bizcity_tbl', HOUR_IN_SECONDS );
+        $cache[ $memo_key ] = $present;
+        return $present;
     }
 
     private static function get_migration_state( $table ) {
@@ -408,12 +432,15 @@ class BizCity_Episodic_Memory {
         // [2026-07-28 Johnny Chu] HOTFIX P1 — runtime schema guard: a tenant whose rolling table
         // hasn't finished the identity_uuid migration yet (e.g. lock contention on a busy shard)
         // must not be queried directly — this previously threw "Unknown column identity_uuid".
-        $has_identity = (bool) $wpdb->get_var( $wpdb->prepare(
-            "SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = 'identity_uuid' LIMIT 1",
-            $rm_table
-        ) );
+        // [2026-07-30 Johnny Chu] PHASE-1.22-RUNTIME — avoid a second uncached schema query in cron.
+        $has_identity = function_exists( 'bizcity_column_exists' )
+            ? bizcity_column_exists( $rm_table, 'identity_uuid' )
+            : (bool) $wpdb->get_var( $wpdb->prepare(
+                "SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = 'identity_uuid' LIMIT 1",
+                $rm_table
+            ) );
         if ( ! $has_identity ) {
-            error_log( '[BizCity_Episodic_Memory] Skipping daily aggregate — identity_uuid column missing on ' . $rm_table . ' (schema not migrated yet).' );
+            BizCity_JSONL_File_Logger::write( BizCity_JSONL_File_Logger::MEMORY_FOLDER, 'episodic-memory', 'warn', 'daily_aggregate_skipped', 'Episodic daily aggregate skipped because identity schema is not ready.', array( 'table' => $rm_table, 'schema_ready' => false ) );
             return;
         }
 

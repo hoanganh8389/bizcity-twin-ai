@@ -8,7 +8,7 @@
   "tables": {
     "bizcity_memory": {
       "since": "1.0.0",
-      "purpose": "Wave 2.8d unified memory table — consolidates 5 legacy tables (bizcity_memory_users + _episodic + _rolling + _session + _notes) into single table with `memory_class` ENUM discriminator. Behind feature flag `bizcity_memory_unified_enabled` (default FALSE). D4: install-only; D5: dual-write phase; D6: cutover read path; D7: drop legacy. Owner: BizCity_Memory_Unified_Installer (core/memory/includes/class-memory-unified-installer.php). Spec: core/memory/PHASE-MEMORY-CONSOLIDATION.md §2.1.",
+      "purpose": "Wave 2.8d unified memory table — consolidates 5 legacy tables (bizcity_memory_users + _episodic + _rolling + _session + _notes) into single table with `memory_class` ENUM discriminator. Behind feature flag `bizcity_memory_unified_enabled` (default FALSE). D4: install-only; D5: dual-write phase; D6: cutover read path; D7: drop legacy. Owner: BizCity_Memory_Unified_Installer (core/memory/includes/class-memory-unified-installer.php). Canonical spec: core/memory/PHASE-MEMORY-CONSOLIDATION.md. Follow-up audit: core/memory/docs/PHASE-MEMORY-UNIFY-ANALYSIS.md. Implementation roadmap: core/memory/docs/PHASE-MEMORY-UNIFY-ROADMAP.md.",
       "engine": "InnoDB",
       "charset": "utf8mb4",
       "collate": "utf8mb4_unicode_ci",

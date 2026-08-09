@@ -277,6 +277,18 @@ EOT;
 			'user_id'    => $user_id,
 			'session_id' => $session_id,
 		];
+		// [2026-07-30 Johnny Chu] PHASE-1.22-SEC — explicit agent permission context.
+		$tool_context['permissions'] = apply_filters(
+			'bizcity_twin_agent_permissions',
+			array( 'kg.read', 'memory.read', 'network.fetch' ),
+			$args,
+			$user_id
+		);
+		$tool_context['scope_level'] = isset( $scope['level'] ) ? (string) $scope['level'] : 'tenant';
+		$tool_context['trace_id']    = isset( $args['trace_id'] ) ? (string) $args['trace_id'] : '';
+		$tool_context['approved_gates'] = isset( $args['approved_gates'] ) && is_array( $args['approved_gates'] )
+			? $args['approved_gates']
+			: array();
 
 		$client = BizCity_LLM_Client::instance();
 		$opts   = array_filter( [
@@ -326,14 +338,11 @@ EOT;
 						'args'      => [ 'query' => $user_message, 'top_k' => 5, 'forced' => true ],
 					] );
 				}
-				try {
-					$forced_result = $forced_tool->execute(
-						[ 'query' => $user_message, 'top_k' => 5 ],
-						$tool_context
-					);
-				} catch ( \Throwable $e ) {
-					$forced_result = [ 'ok' => false, 'error' => 'Forced search_kg exception: ' . $e->getMessage() ];
-				}
+				$forced_result = $registry->execute(
+					'search_kg',
+					[ 'query' => $user_message, 'top_k' => 5 ],
+					$tool_context
+				);
 
 				$tool_calls_trace[] = [
 					'iteration' => 0,
@@ -484,11 +493,8 @@ EOT;
 					'error'  => sprintf( 'Tool "%s" not registered or not allowed in this scope.', $tool_name ),
 				];
 			} else {
-				try {
-					$tool_result = $tool->execute( (array) $tool_args, $tool_context );
-				} catch ( \Throwable $e ) {
-					$tool_result = [ 'ok' => false, 'error' => 'Tool exception: ' . $e->getMessage() ];
-				}
+				$tool_context['arg_count'] = count( (array) $tool_args );
+				$tool_result = $registry->execute( $tool_name, (array) $tool_args, $tool_context );
 			}
 			$tool_calls_trace[] = [
 				'iteration' => $i + 1,

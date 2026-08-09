@@ -19,6 +19,20 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+// [2026-08-09 Johnny Chu] R-PERF-LOADER-BUNDLE — default TwinChat admin
+// shell renders an iframe and does not need the Facebook runtime graph. Keep
+// Facebook webhook, OAuth, REST, cron and dedicated admin surfaces enabled.
+$_bizcity_facebook_shell_plugin = isset( $_GET['plugin'] )
+	? sanitize_key( (string) $_GET['plugin'] )
+	: '';
+if ( is_admin()
+	&& isset( $_GET['page'] )
+	&& 'bizcity-twinchat' === sanitize_key( (string) $_GET['page'] )
+	&& ( $_bizcity_facebook_shell_plugin === '' || $_bizcity_facebook_shell_plugin === 'twinchat' ) ) {
+	return;
+}
+unset( $_bizcity_facebook_shell_plugin );
+
 // Delegate to the original bootstrap (defines BIZCITY_FACEBOOK_BOT_* constants
 // and wires up hooks). Guard prevents double-load when activated as a regular plugin.
 if ( ! defined( 'BIZCITY_FACEBOOK_BOT_VERSION' ) ) {

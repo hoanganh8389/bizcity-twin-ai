@@ -517,6 +517,7 @@ class BizCity_TwinChat_Settings_Page {
 		(function(){
 			var AJAX_URL = <?php echo wp_json_encode( $ajax_url ); ?>;
 			var NONCE    = <?php echo wp_json_encode( $nonce ); ?>;
+			var HAS_KEY  = <?php echo $has_key ? 'true' : 'false'; ?>;
 			var POLL_MS  = 60000;
 			var $card    = document.getElementById('bizcity-twinchat-status-card');
 			if (!$card) return;
@@ -603,6 +604,13 @@ class BizCity_TwinChat_Settings_Page {
 					.catch(function(err){ setAlert('error', '❌ Lỗi mạng: ' + (err && err.message || err)); })
 					.then(function(){ $btn.disabled = false; $btn.textContent = '🔄 Refresh'; });
 			}
+			// [2026-08-02 Johnny Chu] HOTFIX-WEBCHAT-POLL — no key means no
+			// automatic or initial gateway request; user must configure it first.
+			if (!HAS_KEY) {
+				$btn.disabled = true;
+				$btn.title = 'Cấu hình API key trước khi kiểm tra trạng thái';
+				return;
+			}
 			$btn.addEventListener('click', ping);
 			ping();
 			setInterval(ping, POLL_MS);
@@ -663,8 +671,45 @@ class BizCity_TwinChat_Settings_Page {
 
 		$nonce     = wp_create_nonce( 'bizcity_plan_config' );
 		$ajax_url  = admin_url( 'admin-ajax.php' );
-		// [2026-07-14 Johnny Chu] R-GW-API-CATALOG — dedicated nonce for entitlement refresh endpoint.
-		$ent_nonce = wp_create_nonce( 'bizcity_twinchat_ent_refresh' );
+		// [2026-08-04 Johnny Chu] HOTFIX-MASTER-CONFIG-LATENCY — render the
+		// persisted Hub snapshot immediately; only explicit refresh buttons may
+		// block on a server-to-server request.
+		$cached_plugins = json_decode( (string) get_option( 'bizcity_hub_plugins_enabled', '[]' ), true );
+		if ( ! is_array( $cached_plugins ) ) {
+			$cached_plugins = array();
+		}
+		$cached_sync_ts = (int) get_option( 'bizcity_hub_master_sync_ts', 0 );
+		$cached_plan_config = array(
+			'_local_cache'    => true,
+			'cached_at'       => $cached_sync_ts > 0 ? gmdate( 'c', $cached_sync_ts ) : '',
+			'master_level'    => (string) get_option( 'bizcity_hub_master_level', 'free' ),
+			'master_label'    => (string) get_option( 'bizcity_hub_master_label', 'Free' ),
+			'plugins_enabled' => $cached_plugins,
+			'plan'            => array(
+				'price_usd'          => (float) get_option( 'bizcity_hub_price_usd', 0 ),
+				'monthly_credit_usd' => (float) get_option( 'bizcity_hub_monthly_credit_usd', 0 ),
+				'daily_cap_usd'      => (float) get_option( 'bizcity_hub_daily_cap_usd', 1 ),
+				'max_requests_day'   => (int) get_option( 'bizcity_hub_max_requests_day', 100 ),
+				'image_calls_day'     => (int) get_option( 'bizcity_hub_image_calls_day', 5 ),
+				'video_calls_day'     => (int) get_option( 'bizcity_hub_video_calls_day', 1 ),
+			),
+			'kg_config'       => array(
+				'batch_size'     => (int) get_option( 'bizcity_hub_kg_batch_size', 5 ),
+				'quota_per_user' => (int) get_option( 'bizcity_hub_kg_quota_per_user', 100 ),
+			),
+		);
+		// [2026-08-05 Johnny Chu] R-LLM-KEY-ONLY — server-render the exact-key
+		// Master Plan snapshot so this admin card never depends on JavaScript or
+		// the local /gpt/ Membership catalog for its initial state.
+		$cached_level = sanitize_key( (string) $cached_plan_config['master_level'] );
+		$cached_label = (string) $cached_plan_config['master_label'];
+		$cached_price = (float) $cached_plan_config['plan']['price_usd'];
+		$badge_color  = '#888';
+		if ( in_array( $cached_level, array( 'master_pro', 'pro' ), true ) ) {
+			$badge_color = '#2271b1';
+		} elseif ( in_array( $cached_level, array( 'master_premium', 'premium', 'master_enterprise', 'enterprise' ), true ) ) {
+			$badge_color = '#d97706';
+		}
 
 		// [2026-06-08 Johnny Chu] PHASE-MASTER-PLANS — always render full skeleton DOM;
 		// elements are hidden until JS populates them after fetch. Fixes blank card when
@@ -679,30 +724,28 @@ class BizCity_TwinChat_Settings_Page {
 					📦 <?php esc_html_e( 'Gói dịch vụ hiện tại', 'bizcity-twin-ai' ); ?>
 				</h2>
 				<div style="display:flex;gap:8px;align-items:center;">
-					<span id="bzpc-ent-synced-at" style="color:#646970;font-size:12px;">Entitlement: —</span>
-					<button type="button" id="bzpc-ent-refresh-btn" class="button button-small">
-						🧭 <?php esc_html_e( 'Sync Entitlement', 'bizcity-twin-ai' ); ?>
-					</button>
-					<span id="bzpc-fetched-at" style="color:#646970;font-size:12px;">—</span>
+					<span id="bzpc-fetched-at" style="color:#646970;font-size:12px;">
+						<?php echo $cached_sync_ts > 0 ? esc_html( sprintf( 'Cache · %s', wp_date( 'H:i:s', $cached_sync_ts ) ) ) : esc_html__( 'Cache local', 'bizcity-twin-ai' ); ?>
+					</span>
 					<button type="button" id="bzpc-refresh-btn" class="button button-small">
-						🔄 <?php esc_html_e( 'Làm mới', 'bizcity-twin-ai' ); ?>
+						🔄 <?php esc_html_e( 'Làm mới Master Plan', 'bizcity-twin-ai' ); ?>
 					</button>
 				</div>
 			</div>
 
-			<!-- Loading placeholder — shown while fetching, hidden after render -->
-			<p id="bzpc-loading" style="color:#646970;margin:0;">
+			<p id="bzpc-loading" style="display:none;color:#646970;margin:0;">
 				⏳ <?php esc_html_e( 'Đang tải thông tin gói từ hub…', 'bizcity-twin-ai' ); ?>
 			</p>
 
-			<!-- Plan header — always in DOM, hidden until JS populates -->
-			<div id="bzpc-header" style="display:none;align-items:center;gap:16px;margin-bottom:10px;flex-wrap:wrap;">
+			<div id="bzpc-header" style="display:flex;align-items:center;gap:16px;margin-bottom:10px;flex-wrap:wrap;">
 				<span id="bzpc-badge"
-				      style="background:#888;color:#fff;padding:6px 18px;border-radius:20px;font-weight:700;font-size:15px;">
-					—
+				      style="background:<?php echo esc_attr( $badge_color ); ?>;color:#fff;padding:6px 18px;border-radius:20px;font-weight:700;font-size:15px;">
+					<?php echo esc_html( $cached_label ); ?>
 				</span>
-				<span id="bzpc-level" style="color:#646970;font-size:13px;"></span>
-				<span id="bzpc-price" style="font-size:18px;font-weight:700;color:#00a32a;">—</span>
+				<span id="bzpc-level" style="color:#646970;font-size:13px;"><?php echo esc_html( $cached_level ); ?></span>
+				<span id="bzpc-price" style="font-size:18px;font-weight:700;color:<?php echo $cached_price > 0 ? '#2271b1' : '#00a32a'; ?>;">
+					<?php echo $cached_price > 0 ? esc_html( '$' . number_format_i18n( $cached_price, 2 ) . '/tháng' ) : esc_html__( 'Miễn phí', 'bizcity-twin-ai' ); ?>
+				</span>
 			</div>
 			<!-- [2026-06-08 Johnny Chu] PHASE-MASTER-PLANS — Key info row: hub key_id + my-account link (Bearer-authenticated portal, NOT wp-admin) -->
 			<div id="bzpc-keyinfo" style="display:none;margin-bottom:14px;padding:8px 12px;background:#f6f7f7;border-radius:4px;font-size:12px;color:#646970;">
@@ -713,7 +756,7 @@ class BizCity_TwinChat_Settings_Page {
 				<span style="margin-left:8px;color:#d63638;font-weight:600;" id="bzpc-ki-warn" style="display:none;"></span>
 			</div>
 
-			<div id="bzpc-body" style="display:none;grid-template-columns:1fr 1fr;gap:16px;align-items:start;">
+			<div id="bzpc-body" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start;">
 
 				<!-- Nhóm 1: Plugins bật -->
 				<div id="bzpc-plugins-wrap"
@@ -721,7 +764,14 @@ class BizCity_TwinChat_Settings_Page {
 					<div style="font-size:13px;font-weight:600;color:#2271b1;margin-bottom:10px;">
 						💡 <?php esc_html_e( 'Plugins / Services được bật', 'bizcity-twin-ai' ); ?>
 					</div>
-					<div id="bzpc-plugins" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+					<div id="bzpc-plugins" style="display:flex;flex-wrap:wrap;gap:6px;">
+						<?php foreach ( $plugin_labels as $slug => $label ) : ?>
+							<?php $enabled = in_array( $slug, $cached_plugins, true ); ?>
+							<span style="background:<?php echo $enabled ? '#d7f0e0' : '#f0f0f0'; ?>;color:<?php echo $enabled ? '#1a7a3c' : '#999'; ?>;border:1px solid <?php echo $enabled ? '#a3d9b5' : '#ddd'; ?>;padding:3px 10px;border-radius:12px;font-size:12px;white-space:nowrap;">
+								<?php echo $enabled ? '✓ ' : ''; ?><?php echo esc_html( $label ); ?>
+							</span>
+						<?php endforeach; ?>
+					</div>
 				</div>
 
 				<!-- Nhóm 2: Quota -->
@@ -731,7 +781,24 @@ class BizCity_TwinChat_Settings_Page {
 						📊 <?php esc_html_e( 'Quota & Giới hạn sử dụng', 'bizcity-twin-ai' ); ?>
 					</div>
 					<table id="bzpc-quota-table" style="width:100%;border-collapse:collapse;font-size:13px;">
-						<tbody></tbody>
+						<tbody>
+							<?php
+							$quota_rows = array(
+								__( 'Tổng requests/ngày', 'bizcity-twin-ai' ) => number_format_i18n( (int) $cached_plan_config['plan']['max_requests_day'] ),
+								__( 'Daily cap (USD)', 'bizcity-twin-ai' ) => '$' . number_format_i18n( (float) $cached_plan_config['plan']['daily_cap_usd'], 2 ),
+								__( 'Tạo ảnh / ngày', 'bizcity-twin-ai' ) => number_format_i18n( (int) $cached_plan_config['plan']['image_calls_day'] ),
+								__( 'Tạo video / ngày', 'bizcity-twin-ai' ) => number_format_i18n( (int) $cached_plan_config['plan']['video_calls_day'] ),
+								'KG batch_size' => number_format_i18n( (int) $cached_plan_config['kg_config']['batch_size'] ),
+								__( 'KG quota/user/ngày', 'bizcity-twin-ai' ) => number_format_i18n( (int) $cached_plan_config['kg_config']['quota_per_user'] ),
+							);
+							foreach ( $quota_rows as $quota_label => $quota_value ) :
+								?>
+								<tr>
+									<td style="padding:5px 0;color:#555;white-space:nowrap;"><?php echo esc_html( $quota_label ); ?></td>
+									<td style="padding:5px 12px;font-weight:700;font-size:16px;color:#1a1a1a;text-align:right;white-space:nowrap;"><?php echo esc_html( $quota_value ); ?></td>
+								</tr>
+							<?php endforeach; ?>
+						</tbody>
 					</table>
 				</div>
 
@@ -741,7 +808,6 @@ class BizCity_TwinChat_Settings_Page {
 		<script>
 		(function() {
 			var btn       = document.getElementById('bzpc-refresh-btn');
-			var entBtn    = document.getElementById('bzpc-ent-refresh-btn');
 			var loadEl    = document.getElementById('bzpc-loading');
 			var headerEl   = document.getElementById('bzpc-header');
 			var keyInfoEl  = document.getElementById('bzpc-keyinfo');
@@ -752,9 +818,6 @@ class BizCity_TwinChat_Settings_Page {
 			var pluginsEl  = document.getElementById('bzpc-plugins');
 			var quotaTbl   = document.getElementById('bzpc-quota-table');
 			var fetchedAt  = document.getElementById('bzpc-fetched-at');
-			var entSyncAt  = document.getElementById('bzpc-ent-synced-at');
-			var gateway    = <?php echo wp_json_encode( self::get_gateway_url() ); ?>;
-			var ENT_NONCE  = <?php echo wp_json_encode( $ent_nonce ); ?>;
 
 			var tierStyles = {
 				free:           'background:#888;color:#fff',
@@ -859,7 +922,11 @@ class BizCity_TwinChat_Settings_Page {
 				if ( loadEl )   loadEl.style.display  = 'none';
 				if ( headerEl ) headerEl.style.display = 'flex';
 				if ( bodyEl )   bodyEl.style.display   = 'grid';
-				if ( fetchedAt ) fetchedAt.textContent = '✓ ' + new Date().toLocaleTimeString();
+				if ( fetchedAt ) {
+					fetchedAt.textContent = d._local_cache
+						? ( d.cached_at ? 'Cache · ' + new Date( d.cached_at ).toLocaleTimeString() : 'Cache local' )
+						: '✓ ' + new Date().toLocaleTimeString();
+				}
 			}
 
 			function fetchPlanConfig( force ) {
@@ -895,68 +962,12 @@ class BizCity_TwinChat_Settings_Page {
 				} );
 			}
 
-			function syncEntitlement( force ) {
-				if ( entBtn ) {
-					entBtn.disabled = true;
-					entBtn.textContent = '⏳ Sync...';
-				}
-				if ( entSyncAt ) {
-					entSyncAt.textContent = 'Entitlement: syncing...';
-				}
-
-				var fd = new FormData();
-				fd.append( 'action', 'bizcity_twinchat_refresh_entitlement' );
-				fd.append( 'nonce', ENT_NONCE );
-				if ( force ) fd.append( 'force_refresh', '1' );
-
-				return fetch( <?php echo wp_json_encode( $ajax_url ); ?>, {
-					method: 'POST',
-					credentials: 'same-origin',
-					body: fd,
-				} )
-				.then( function(r) { return r.json(); } )
-				.then( function(resp) {
-					if ( resp && resp.success && resp.data ) {
-						var d = resp.data;
-						var filesCount = Array.isArray( d.accepted_file_types ) ? d.accepted_file_types.length : 0;
-						if ( entSyncAt ) {
-							entSyncAt.textContent = 'Entitlement ✓ ' + new Date().toLocaleTimeString()
-								+ ' · ' + ( d.master_level || 'free' )
-								+ ' · files=' + filesCount;
-						}
-					} else {
-						// [2026-07-23 Johnny Chu] HOTFIX-SYNC-TRACE — show concrete upstream auth/network/decode error in the admin card.
-						var entErr = resp && resp.data && resp.data.message ? resp.data.message : 'sync failed';
-						var entCode = resp && resp.data && resp.data.code ? ' [' + resp.data.code + ']' : '';
-						var entStatus = resp && resp.data && resp.data.status ? ' HTTP ' + resp.data.status : '';
-						if ( entSyncAt ) entSyncAt.textContent = 'Entitlement ✖ ' + entErr + entCode + entStatus;
-					}
-				} )
-				.catch( function() {
-					if ( entSyncAt ) entSyncAt.textContent = 'Entitlement ✖ network error';
-				} )
-				.then( function() {
-					if ( entBtn ) {
-						entBtn.disabled = false;
-						entBtn.textContent = '🧭 Sync Entitlement';
-					}
-				} );
-			}
-
-			// [2026-07-14 Johnny Chu] R-GW-API-CATALOG — one-shot bootload: sync entitlement first, then refresh plan card.
-			syncEntitlement( true ).then( function() {
-				fetchPlanConfig( true );
-			} );
+			// [2026-08-04 Johnny Chu] HOTFIX-MASTER-CONFIG-LATENCY — local-first
+			// bootload avoids two sequential Hub calls on every settings page view.
+			renderPlanCard( <?php echo wp_json_encode( $cached_plan_config ); ?> );
 
 			if ( btn ) {
 				btn.addEventListener( 'click', function() { fetchPlanConfig( true ); } );
-			}
-			if ( entBtn ) {
-				entBtn.addEventListener( 'click', function() {
-					syncEntitlement( true ).then( function() {
-						fetchPlanConfig( true );
-					} );
-				} );
 			}
 		})();
 		</script>
@@ -1234,6 +1245,16 @@ class BizCity_TwinChat_Settings_Page {
 			) );
 		}
 
+		// [2026-08-01 Johnny Chu] R-LLM-KEY-ONLY — expose the exact local
+		// blog/key scope beside Hub key_info so main-site and tenant settings
+		// cannot be mistaken for each other.
+		$result['runtime_scope'] = array(
+			'blog_id'        => (int) get_current_blog_id(),
+			'site_url'       => home_url(),
+			'key_hash_prefix' => substr( hash( 'sha256', BizCity_LLM_Client::instance()->get_api_key() ), 0, 12 ),
+			'hub_key_id'     => (int) ( $result['key_info']['key_id'] ?? 0 ),
+			'hub_master_level' => (string) ( $result['master_level'] ?? '' ),
+		);
 		wp_send_json_success( $result );
 	}
 

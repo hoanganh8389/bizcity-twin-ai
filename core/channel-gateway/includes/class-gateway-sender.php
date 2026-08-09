@@ -60,16 +60,19 @@ class BizCity_Gateway_Sender {
 		$trace = $this->build_trace_context( $chat_id, $platform, $type, $message, $extra );
 		$this->push_trace_context( $trace );
 
-		error_log( sprintf( '[Channel Gateway] 📤 Sending to %s | platform=%s | type=%s', $chat_id, $platform, $type ) );
-		error_log( sprintf(
-			'[Channel Gateway TRACE] id=%s source=%s platform=%s chat_id=%s len=%d hash=%s',
-			(string) ( $trace['trace_id'] ?? '' ),
-			(string) ( $trace['source'] ?? 'unknown' ),
-			$platform,
-			$chat_id,
-			(int) ( $trace['message_len'] ?? 0 ),
-			(string) ( $trace['message_hash'] ?? '' )
-		) );
+		if ( class_exists( 'BizCity_Channel_File_Logger' ) ) {
+			BizCity_Channel_File_Logger::write( BizCity_Channel_File_Logger::CH_CHANNEL_GATEWAY, BizCity_Channel_File_Logger::LEVEL_INFO, 'send_started', 'Channel Gateway outbound send started.', array(
+				'platform'    => $platform,
+				'type'        => $type,
+				'chat_id_hash'=> substr( hash( 'sha256', $chat_id ), 0, 12 ),
+				'trace_id'    => (string) ( $trace['trace_id'] ?? '' ),
+				'event_uuid'  => (string) ( $trace['event_uuid'] ?? '' ),
+				'parent_event_uuid' => (string) ( $trace['parent_event_uuid'] ?? '' ),
+				'source'      => (string) ( $trace['source'] ?? 'unknown' ),
+				'message_len' => (int) ( $trace['message_len'] ?? 0 ),
+				'message_hash'=> (string) ( $trace['message_hash'] ?? '' ),
+			) );
+		}
 
 		try {
 
@@ -147,9 +150,19 @@ class BizCity_Gateway_Sender {
 		if ( $trace_id === '' ) {
 			$trace_id = 'cg-' . substr( sha1( $chat_id . '|' . microtime( true ) . '|' . mt_rand() ), 0, 12 );
 		}
+		$correlation = array(
+			'event_uuid'        => (string) ( $extra['_event_uuid'] ?? $ctx['event_uuid'] ?? '' ),
+			'trace_id'          => $trace_id,
+			'parent_event_uuid' => (string) ( $extra['_parent_event_uuid'] ?? $ctx['parent_event_uuid'] ?? '' ),
+		);
+		if ( class_exists( 'BizCity_Chat_Correlation' ) ) {
+			$correlation = BizCity_Chat_Correlation::ensure( $correlation, 'channel_outbound' );
+		}
 
-		return array(
-			'trace_id'     => $trace_id,
+		return array_merge( array(
+			'event_uuid'   => (string) ( $correlation['event_uuid'] ?? '' ),
+			'trace_id'     => (string) ( $correlation['trace_id'] ?? $trace_id ),
+			'parent_event_uuid' => (string) ( $correlation['parent_event_uuid'] ?? '' ),
 			'source'       => $source,
 			'chat_id'      => $chat_id,
 			'platform'     => $platform,
@@ -157,7 +170,7 @@ class BizCity_Gateway_Sender {
 			'message_len'  => mb_strlen( $message ),
 			'message_hash' => substr( sha1( $message ), 0, 12 ),
 			'ctx'          => $ctx,
-		);
+		), $correlation );
 	}
 
 	/**
@@ -417,6 +430,32 @@ class BizCity_Gateway_Sender {
 	private function log_outbound( string $chat_id, string $message, string $platform, bool $sent ): void {
 		global $wpdb;
 
+		// [2026-08-01 Johnny Chu] PHASE-1.26-CORRELATION — file evidence precedes
+		// the legacy global_inbox_admin DB write. This is a child event of the
+		// current send trace, not a reuse of the send_started UUID.
+		if ( class_exists( 'BizCity_Channel_File_Logger' ) ) {
+			$trace = isset( $GLOBALS['_bizcity_channel_send_trace'] ) && is_array( $GLOBALS['_bizcity_channel_send_trace'] )
+				? $GLOBALS['_bizcity_channel_send_trace']
+				: array();
+			$physical_channel = class_exists( 'BizCity_Chat_Correlation' )
+				? BizCity_Chat_Correlation::channel( $platform )
+				: BizCity_Channel_File_Logger::CH_CHANNEL_GATEWAY;
+			BizCity_Channel_File_Logger::write(
+				$physical_channel,
+				$sent ? BizCity_Channel_File_Logger::LEVEL_INFO : BizCity_Channel_File_Logger::LEVEL_WARN,
+				'outbound_logged',
+				'Outbound message audit persisted.',
+				array(
+					'trace_id' => (string) ( $trace['trace_id'] ?? '' ),
+					'parent_event_uuid' => (string) ( $trace['event_uuid'] ?? '' ),
+					'platform' => $platform,
+					'sent' => $sent,
+					'message_len' => mb_strlen( $message ),
+					'message_hash' => substr( sha1( $message ), 0, 12 ),
+				)
+			);
+		}
+
 		$table = $wpdb->base_prefix . 'global_inbox_admin';
 
 		// Only log if table exists (checked once per request)
@@ -545,7 +584,9 @@ class BizCity_Gateway_Sender {
 			$result = $channel->send_outbound( $out_msg, $decrypted );
 
 			if ( is_wp_error( $result ) ) {
-				error_log( sprintf( '[Channel Gateway] 📤 send_envelope ERROR %s | %s', $platform, $result->get_error_message() ) );
+				if ( class_exists( 'BizCity_Channel_File_Logger' ) ) {
+					BizCity_Channel_File_Logger::error( BizCity_Channel_File_Logger::CH_CHANNEL_GATEWAY, 'send_envelope_failed', 'Channel Gateway envelope send failed.', array( 'platform' => $platform, 'error_code' => $result->get_error_code() ) );
+				}
 				return $result;
 			}
 
@@ -555,10 +596,13 @@ class BizCity_Gateway_Sender {
 		}
 
 		// Fallback: legacy send() — construct chat_id from prefix + recipient.
-		error_log( sprintf(
-			'[Channel Gateway] ⚠️ send_envelope fallback to legacy for platform=%s instance=%s (no channel integration found)',
-			$platform, $instance_id
-		) );
+		if ( class_exists( 'BizCity_Channel_File_Logger' ) ) {
+			BizCity_Channel_File_Logger::write( BizCity_Channel_File_Logger::CH_CHANNEL_GATEWAY, BizCity_Channel_File_Logger::LEVEL_WARN, 'send_envelope_legacy_fallback', 'Channel Gateway envelope fell back to legacy sender.', array(
+				'platform'    => $platform,
+				'instance_set'=> $instance_id !== '',
+				'recipient_hash' => substr( hash( 'sha256', $recipient ), 0, 12 ),
+			) );
+		}
 		$prefix  = BizCity_Gateway_Bridge::instance()->get_prefix_for_platform( $platform );
 		$chat_id = $prefix ? $prefix . $recipient : $recipient;
 		return $this->send( $chat_id, $message, $type, $meta );

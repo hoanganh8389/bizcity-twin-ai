@@ -36,7 +36,7 @@ class BizCity_KG_Source_Progress_Log {
 
 	const SCHEMA_VERSION    = '2.0.0';
 	const OPTION_VERSION    = 'bizcity_kg_source_progress_log_version';
-	const RETENTION_DAYS    = 30;
+	const RETENTION_DAYS    = 7; // [2026-08-01 Johnny Chu] PHASE-1.28-RETENTION-7D — keep source-progress evidence for one week.
 	const BASE_FOLDER       = 'bizcity-usage-logs';
 	const SUB_FOLDER        = 'kg-source-progress';
 	const CLEANUP_VER_OPT   = 'bizcity_kg_source_progress_sql_cleanup_ver';

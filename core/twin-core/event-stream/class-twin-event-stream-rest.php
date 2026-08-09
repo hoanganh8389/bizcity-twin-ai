@@ -130,6 +130,21 @@ class BizCity_Twin_Event_Stream_REST {
 
 		// Slim envelope for transport (drop the redundant payload_json string).
 		foreach ( $rows as &$r ) {
+			// [2026-07-30 Johnny Chu] PHASE-1.22-CONTRACT — expose stable public event aliases.
+			$r['contract']    = 'event-envelope';
+			$r['version']     = '1.0.0';
+			$r['event_id']    = (string) ( $r['event_uuid'] ?? '' );
+			$r['occurred_at'] = isset( $r['created_at'] ) ? gmdate( 'c', strtotime( (string) $r['created_at'] ) ) : gmdate( 'c' );
+			$r['producer']    = array(
+				'module'  => 'core.twin-core',
+				'version' => defined( 'BIZCITY_TWIN_CORE_VERSION' ) ? BIZCITY_TWIN_CORE_VERSION : '2.0.0',
+			);
+			$r['tenant']      = array(
+				'site_id' => (int) ( $r['blog_id'] ?? 0 ),
+				'blog_id' => (int) ( $r['blog_id'] ?? 0 ),
+				'user_id' => (int) ( $r['user_id'] ?? 0 ),
+				'scope'   => 'tenant',
+			);
 			unset( $r['payload_json'] );
 		}
 

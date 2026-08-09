@@ -33,6 +33,9 @@ class BizCity_CG_Debug_Logger {
 	const NAMESPACE_V1 = 'bizcity-channel/v1';
 	const LOG_DIRNAME  = 'bizcity-cg-logs';
 	const OPTION_FLAG  = 'bizcity_cg_debug_logger_enabled';
+	const RETENTION_HOOK = 'bizcity_channel_jsonl_retention';
+	const RETENTION_DAYS = 7; // [2026-08-01 Johnny Chu] PHASE-1.28-RETENTION-7D — keep channel evidence for one week.
+	const RETENTION_CHANNELS = array( 'email', 'facebook', 'messenger', 'zalo_oa', 'zalo_bot', 'zalo_zns', 'telegram', 'webchat', 'cf7', 'channel_gateway', 'astro', 'broadcast' );
 
 	/** @var string Cached log dir for current request. */
 	private static $cached_dir = '';
@@ -42,6 +45,8 @@ class BizCity_CG_Debug_Logger {
 	public static function init(): void {
 		// REST routes.
 		add_action( 'rest_api_init', array( __CLASS__, 'register_routes' ) );
+		add_action( 'init', array( __CLASS__, 'register_retention_cron' ), 20 );
+		add_action( self::RETENTION_HOOK, array( __CLASS__, 'gc_channel_logs' ), 10, 0 );
 
 		// Admin page.
 		if ( is_admin() ) {
@@ -91,6 +96,62 @@ class BizCity_CG_Debug_Logger {
 		add_filter( 'rest_pre_dispatch', array( __CLASS__, 'on_rest_dispatch' ), 1, 3 );
 	}
 
+	public static function register_retention_cron(): void {
+		if ( ! class_exists( 'BizCity_Cron_Manager' ) ) {
+			return;
+		}
+		BizCity_Cron_Manager::instance()->register( array(
+			'id'          => 'core.channel_gateway.jsonl_retention',
+			'hook'        => self::RETENTION_HOOK,
+			'interval'    => 'daily',
+			'owner'       => 'core/channel-gateway',
+			'description' => 'Bounded retention sweep for per-channel JSONL evidence.',
+			'retention'   => self::RETENTION_DAYS,
+		) );
+	}
+
+	public static function gc_channel_logs(): void {
+		$deleted = 0;
+		$deleted += self::purge_aggregate_logs( self::RETENTION_DAYS );
+		foreach ( self::RETENTION_CHANNELS as $channel ) {
+			$deleted += class_exists( 'BizCity_Channel_File_Logger' )
+				? BizCity_Channel_File_Logger::purge_older_than( $channel, self::RETENTION_DAYS )
+				: 0;
+		}
+		if ( class_exists( 'BizCity_Cron_Manager' ) ) {
+			$cron = BizCity_Cron_Manager::instance();
+			$cron->note( array( 'counters' => array( 'channel_jsonl_retention_deleted' => $deleted ) ) );
+			$cron->note_event( 'channel_jsonl_retention', array(
+				'deleted_files' => $deleted,
+				'retention_days' => self::RETENTION_DAYS,
+				'channels' => self::RETENTION_CHANNELS,
+			) );
+		}
+	}
+
+	private static function purge_aggregate_logs( $days ): int {
+		// [2026-08-01 Johnny Chu] PHASE-1.28-RETENTION-7D — keep the aggregate
+		// CG JSONL folder aligned with the per-channel retention window.
+		$dir = self::ensure_dir();
+		if ( $dir === '' ) {
+			return 0;
+		}
+		$cutoff_ts = time() - ( max( 1, (int) $days ) * DAY_IN_SECONDS );
+		$files = glob( rtrim( $dir, '/\\' ) . DIRECTORY_SEPARATOR . '*.jsonl' );
+		if ( ! is_array( $files ) ) {
+			return 0;
+		}
+		$deleted = 0;
+		foreach ( $files as $file ) {
+			$date = basename( $file, '.jsonl' );
+			$file_ts = preg_match( '/^\d{4}-\d{2}-\d{2}$/', $date ) ? strtotime( $date . ' 00:00:00 UTC' ) : false;
+			if ( false !== $file_ts && $file_ts < $cutoff_ts && @unlink( $file ) ) {
+				$deleted++;
+			}
+		}
+		return $deleted;
+	}
+
 	/* ---------- Public log API ---------- */
 
 	/**
@@ -102,6 +163,14 @@ class BizCity_CG_Debug_Logger {
 	 * @param string $level    'debug'|'info'|'warn'|'error'.
 	 */
 	public static function log( string $channel, string $event, array $data = array(), string $level = 'info' ): void {
+		// [2026-08-01 Johnny Chu] PHASE-1.26-CORRELATION — enrich the aggregate CG
+		// row before writing so bizcity-cg-logs and per-channel JSONL share keys.
+		if ( class_exists( 'BizCity_Chat_Correlation' ) ) {
+			$data = BizCity_Chat_Correlation::ensure( $data, $event );
+			if ( BizCity_Chat_Correlation::is_inbound_event( $event ) ) {
+				$data = BizCity_Chat_Correlation::bind_pending_root( $data );
+			}
+		}
 		$dir = self::ensure_dir();
 		if ( $dir === '' ) { return; }
 
@@ -112,6 +181,9 @@ class BizCity_CG_Debug_Logger {
 			'level'   => $level,
 			'channel' => $channel,
 			'event'   => $event,
+			'event_uuid' => (string) ( $data['event_uuid'] ?? '' ),
+			'trace_id' => (string) ( $data['trace_id'] ?? '' ),
+			'parent_event_uuid' => (string) ( $data['parent_event_uuid'] ?? '' ),
 			'pid'     => function_exists( 'getmypid' ) ? getmypid() : 0,
 			'data'    => self::mask_sensitive( $data ),
 		);
@@ -166,6 +238,11 @@ class BizCity_CG_Debug_Logger {
 		// Substring matches for compound channel strings (twf_flow.*, twinchat.*).
 		if ( strpos( $channel, 'messenger' ) !== false )   { return 'messenger'; }
 		if ( strpos( $channel, 'twinchat' ) !== false )    { return 'webchat'; }
+		// [2026-08-01 Johnny Chu] HOTFIX — 'twinweb' channel string does not contain
+		// 'webchat'/'twinchat' as a substring, so it was silently falling through to
+		// the generic channel_gateway bucket instead of webchat/ as documented in
+		// PHASE-0-TWINWEB-SEARCH-CITATION-CHANNEL.md §Logging.
+		if ( strpos( $channel, 'twinweb' ) !== false )     { return 'webchat'; }
 		if ( strpos( $channel, 'webchat' ) !== false )     { return 'webchat'; }
 		if ( strpos( $channel, 'telegram' ) !== false )    { return 'telegram'; }
 		if ( strpos( $channel, 'facebook' ) !== false )    { return 'facebook'; }
@@ -201,11 +278,11 @@ class BizCity_CG_Debug_Logger {
 	public static function on_twf_flow( $key, $payload = array() ): void {
 		// Derive source channel from trigger key for per-channel filtering.
 		$key_lc  = strtolower( (string) $key );
-		if ( str_contains( $key_lc, 'webchat' ) || str_contains( $key_lc, 'twinchat' ) ) {
+		if ( strpos( $key_lc, 'webchat' ) !== false || strpos( $key_lc, 'twinchat' ) !== false ) {
 			$src = 'twinchat';
-		} elseif ( str_contains( $key_lc, 'facebook' ) || str_contains( $key_lc, '_fb_' ) ) {
+		} elseif ( strpos( $key_lc, 'facebook' ) !== false || strpos( $key_lc, '_fb_' ) !== false ) {
 			$src = 'twf_flow.facebook';
-		} elseif ( str_contains( $key_lc, 'zalo' ) ) {
+		} elseif ( strpos( $key_lc, 'zalo' ) !== false ) {
 			$src = 'twf_flow.zalo';
 		} else {
 			$src = 'twf_flow';

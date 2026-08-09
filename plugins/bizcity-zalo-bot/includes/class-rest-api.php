@@ -806,30 +806,93 @@ class BizCity_Zalo_Bot_REST_API {
 	}
 
 	public function mgmt_create_link( $request ) {
+		// [2026-08-06 Johnny Chu] ZALO-BIND-DIALOG — bind listener identity through the canonical linker and verify the resolver before returning success.
 		global $wpdb;
 		if ( ! class_exists( 'BizCity_Zalobot_User_Linker' ) ) {
-			return new WP_Error( 'no_linker', 'User linker not available', array( 'status' => 500 ) );
+			return $this->bind_error( 'module_not_loaded', 'Bộ liên kết Zalo chưa sẵn sàng.', 'Kiểm tra plugin Zalo Bot đã được load rồi thử lại.', 'module_not_loaded', 503 );
 		}
-		$zalo_user_id = sanitize_text_field( (string) $request->get_param( 'zalo_user_id' ) );
+		if ( ! class_exists( 'BizCity_Channel_User_Linker' ) ) {
+			return $this->bind_error( 'module_not_loaded', 'Bộ liên kết kênh chưa sẵn sàng.', 'Kiểm tra Channel Gateway đã được load rồi thử lại.', 'module_not_loaded', 503 );
+		}
+		$platform           = strtoupper( sanitize_key( (string) $request->get_param( 'platform' ) ) );
+		$chat_id            = sanitize_text_field( (string) $request->get_param( 'chat_id' ) );
+		$sender_user_id     = sanitize_text_field( (string) $request->get_param( 'sender_user_id' ) );
+		$conversation_chat_id = sanitize_text_field( (string) $request->get_param( 'conversation_chat_id' ) );
+		$chat_kind          = sanitize_key( (string) $request->get_param( 'chat_kind' ) );
+		$zalo_user_id       = sanitize_text_field( (string) $request->get_param( 'zalo_user_id' ) );
 		$bot_id       = (int) $request->get_param( 'bot_id' );
 		$wp_user_id   = (int) $request->get_param( 'wp_user_id' );
 		$display_name = sanitize_text_field( (string) $request->get_param( 'display_name' ) );
-		$blog_id      = (int) ( $request->get_param( 'blog_id' ) ?: get_current_blog_id() );
+		// [2026-08-06 Johnny Chu] R-MSDB — never trust a browser-supplied blog_id for identity resolution.
+		$blog_id      = (int) get_current_blog_id();
 
+		if ( $platform !== '' && $platform !== 'ZALO_BOT' ) {
+			return $this->bind_error( 'invalid_param', 'Kênh bind không hợp lệ.', 'Chọn đúng sự kiện Zalo Bot rồi thử lại.', 'invalid_param_generic', 400 );
+		}
+		if ( $chat_id !== '' ) {
+			$chat_match = array();
+			if ( preg_match( '/^zalobot_(\d+)_group_(.+)$/', $chat_id, $chat_match ) ) {
+				if ( (int) $chat_match[1] !== $bot_id || $sender_user_id === '' || $sender_user_id === $chat_match[2] ) {
+					return $this->bind_error( 'invalid_param', 'Không thể bind group chat như tài khoản cá nhân.', 'Chọn sender_user_id của người gửi trong nhóm để bind.', 'invalid_param_generic', 400, array( 'reason' => 'group_identity_refused' ) );
+				}
+				$chat_kind = 'group';
+			} elseif ( preg_match( '/^zalobot_(\d+)_(.+)$/', $chat_id, $chat_match ) ) {
+				if ( (int) $chat_match[1] !== $bot_id ) {
+					return $this->bind_error( 'invalid_param', 'chat_id không thuộc Zalo Bot đã chọn.', 'Mở lại trace của đúng bot rồi thử bind.', 'invalid_param_generic', 400, array( 'reason' => 'bot_mismatch' ) );
+				}
+				$chat_kind      = 'private';
+				$parsed_user_id = (string) $chat_match[2];
+				if ( $sender_user_id !== '' && $sender_user_id !== $parsed_user_id ) {
+					return $this->bind_error( 'invalid_param', 'sender_user_id không khớp chat_id.', 'Đóng dialog và mở lại từ event inbound mới nhất.', 'invalid_param_generic', 400, array( 'reason' => 'identity_mismatch' ) );
+				}
+				$sender_user_id = $parsed_user_id;
+			}
+			if ( empty( $chat_match ) ) {
+				return $this->bind_error( 'invalid_param', 'chat_id Zalo Bot không hợp lệ.', 'Mở dialog từ event inbound có chat_id canonical rồi thử lại.', 'invalid_param_generic', 400, array( 'reason' => 'chat_id_invalid' ) );
+			}
+			if ( $sender_user_id !== '' ) {
+				$zalo_user_id = $sender_user_id;
+			}
+		}
+		if ( $chat_kind === 'group' && $sender_user_id === '' ) {
+			return $this->bind_error( 'invalid_param', 'Thiếu người gửi để bind trong nhóm.', 'Mở lại event có sender_user_id của người gửi.', 'invalid_param_generic', 400, array( 'reason' => 'zalo_sender_missing' ) );
+		}
 		if ( ! $zalo_user_id || ! $bot_id || ! $wp_user_id ) {
-			return new WP_Error( 'invalid_input', 'zalo_user_id, bot_id, wp_user_id are required', array( 'status' => 400 ) );
+			return $this->bind_error( 'invalid_param', 'Thiếu thông tin tài khoản cần bind.', 'Chọn WP user và mở dialog từ event Zalo Bot hợp lệ.', 'invalid_param_generic', 400 );
 		}
 		if ( ! get_userdata( $wp_user_id ) ) {
-			return new WP_Error( 'invalid_input', 'wp_user_id not found', array( 'status' => 404 ) );
+			return $this->bind_error( 'not_found', 'Không tìm thấy tài khoản WordPress.', 'Chọn lại một tài khoản WordPress đang tồn tại.', 'not_found', 404 );
+		}
+		$bot = class_exists( 'BizCity_Zalo_Bot_Database' )
+			? BizCity_Zalo_Bot_Database::instance()->get_bot( $bot_id )
+			: null;
+		if ( ! $bot ) {
+			return $this->bind_error( 'not_found', 'Không tìm thấy Zalo Bot.', 'Kiểm tra bot đang hoạt động trên site hiện tại.', 'not_found', 404 );
+		}
+		$currently_linked = (int) BizCity_Channel_User_Linker::resolve_wp_user(
+			BizCity_Channel_User_Linker::PLATFORM_ZALO_BOT,
+			$zalo_user_id,
+			(string) $bot_id,
+			$blog_id
+		);
+		if ( $currently_linked > 0 && $currently_linked !== $wp_user_id ) {
+			return $this->bind_error( 'duplicate', 'Zalo user đã được gắn với tài khoản khác.', 'Kiểm tra liên kết hiện tại trước khi đổi tài khoản.', 'duplicate_record', 409, array( 'reason' => 'identity_conflict' ) );
 		}
 
+		// [2026-08-06 Johnny Chu] ZALO-BIND-DIALOG — one canonical write also maintains the legacy compatibility row during migration.
 		$table = BizCity_Zalobot_User_Linker::table();
+		$legacy_before = $wpdb->get_row( $wpdb->prepare(
+			"SELECT id FROM {$table} WHERE zalo_user_id = %s AND bot_id = %d LIMIT 1",
+			$zalo_user_id, $bot_id
+		) );
+		if ( ! BizCity_Zalobot_User_Linker::link( $zalo_user_id, $bot_id, $wp_user_id ) ) {
+			return $this->bind_error( 'gateway_degraded', 'Không thể lưu liên kết danh tính Zalo.', 'Kiểm tra database và Channel Gateway rồi thử lại.', 'gateway_degraded', 500, array( 'reason' => 'canonical_bind_failed' ) );
+		}
 		$existing = $wpdb->get_row( $wpdb->prepare(
 			"SELECT id FROM {$table} WHERE zalo_user_id = %s AND bot_id = %d LIMIT 1",
 			$zalo_user_id, $bot_id
 		) );
 
-		// [2026-06-29 Johnny Chu] PHASE-0 — check DB errors so FE can detect failures.
 		if ( $existing ) {
 			$result = $wpdb->update( $table, array(
 				'wp_user_id'   => $wp_user_id,
@@ -838,24 +901,68 @@ class BizCity_Zalo_Bot_REST_API {
 				'linked_at'    => current_time( 'mysql' ),
 			), array( 'id' => $existing->id ) );
 			if ( false === $result ) {
-				return new WP_Error( 'db_error', 'Không thể cập nhật link: ' . $wpdb->last_error, array( 'status' => 500 ) );
+				return $this->bind_error( 'gateway_degraded', 'Không thể cập nhật thông tin liên kết.', 'Kiểm tra database và thử lại.', 'gateway_degraded', 500, array( 'reason' => 'legacy_metadata_update_failed' ) );
 			}
-			return rest_ensure_response( array( 'success' => true, 'id' => (int) $existing->id, 'action' => 'updated' ) );
 		}
 
-		$rows = $wpdb->insert( $table, array(
-			'zalo_user_id' => $zalo_user_id,
-			'bot_id'       => $bot_id,
-			'blog_id'      => $blog_id,
-			'wp_user_id'   => $wp_user_id,
-			'status'       => 'linked',
-			'display_name' => $display_name,
-			'linked_at'    => current_time( 'mysql' ),
+		$existing = $wpdb->get_row( $wpdb->prepare(
+			"SELECT id FROM {$table} WHERE zalo_user_id = %s AND bot_id = %d LIMIT 1",
+			$zalo_user_id, $bot_id
 		) );
-		if ( false === $rows ) {
-			return new WP_Error( 'db_error', 'Không thể tạo link: ' . $wpdb->last_error, array( 'status' => 500 ) );
+		if ( ! $existing ) {
+			return $this->bind_error( 'gateway_degraded', 'Liên kết đã ghi nhưng chưa đọc lại được.', 'Đợi một lát rồi tải lại danh sách user links.', 'gateway_degraded', 500, array( 'reason' => 'legacy_row_missing' ) );
 		}
-		return rest_ensure_response( array( 'success' => true, 'id' => (int) $wpdb->insert_id, 'action' => 'created' ) );
+
+		$resolved_chat_id = 'zalobot_' . $bot_id . '_' . $zalo_user_id;
+		$resolved_user_id = (int) BizCity_Zalobot_User_Linker::resolve_wp_user( $zalo_user_id, $bot_id );
+		if ( class_exists( 'BizCity_User_Resolver' ) ) {
+			$resolved_user_id = (int) BizCity_User_Resolver::instance()->resolve( $resolved_chat_id, $blog_id );
+		}
+		if ( $resolved_user_id !== $wp_user_id ) {
+			return $this->bind_error( 'gateway_degraded', 'Đã lưu nhưng resolver chưa nhận diện lại user.', 'Tải lại trang và kiểm tra Channel Gateway trước khi chạy lại workflow.', 'gateway_degraded', 409, array( 'reason' => 'resolver_still_unresolved' ) );
+		}
+
+		return rest_ensure_response( array(
+			'ok'                    => true,
+			'success'               => true,
+			'linked'                => true,
+			'id'                    => (int) $existing->id,
+			'action'                => $legacy_before ? 'updated' : 'created',
+			'platform'              => 'ZALO_BOT',
+			'bot_id'                => $bot_id,
+			'chat_id'               => $chat_id !== '' ? $chat_id : $resolved_chat_id,
+			'sender_user_id'        => $zalo_user_id,
+			'conversation_chat_id'  => $conversation_chat_id !== '' ? $conversation_chat_id : ( $chat_id !== '' ? $chat_id : $resolved_chat_id ),
+			'chat_kind'             => $chat_kind !== '' ? $chat_kind : 'private',
+			'wp_user_id'            => $wp_user_id,
+			'resolver_check'        => array( 'resolved' => true, 'wp_user_id' => $resolved_user_id ),
+		) );
+	}
+
+	/**
+	 * Build the standard four-field error contract for the bind dialog.
+	 *
+	 * @param string $code
+	 * @param string $message
+	 * @param string $hint
+	 * @param string $help_code
+	 * @param int    $status
+	 * @param array  $context
+	 * @return WP_Error
+	 */
+	private function bind_error( $code, $message, $hint, $help_code, $status = 400, array $context = array() ) {
+		$payload = class_exists( 'BizCity_Error_Payload' )
+			? BizCity_Error_Payload::make( $code, $message, $hint, $help_code, $context )
+			: array(
+				'success'   => false,
+				'_degraded' => true,
+				'code'      => $code,
+				'message'   => $message,
+				'hint'      => $hint,
+				'help_code' => $help_code,
+				'context'   => $context,
+			);
+		return new WP_Error( $code, $message, array_merge( array( 'status' => $status ), $payload ) );
 	}
 
 	public function mgmt_delete_link( $request ) {

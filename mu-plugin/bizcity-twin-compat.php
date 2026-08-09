@@ -121,6 +121,32 @@ if ( ! defined( 'BIZCITY_TWIN_AI_URL' ) ) {
     define( 'BIZCITY_TWIN_AI_URL', plugins_url( '/', WP_PLUGIN_DIR . '/' . BIZCITY_TWIN_AI_SLUG . '/bizcity-twin-ai.php' ) );
 }
 
+// [2026-08-09 Johnny Chu] R-PERF-LOADER-QM - register Query Monitor loader
+// filters from the early compat boundary so stale plugin boot order cannot hide
+// the collector. The collector/output classes remain lazy-loaded by QM filters.
+$_bc_qm_loader = BIZCITY_TWIN_AI_DIR . 'core/diagnostics/includes/class-qm-loader-integration.php';
+if ( file_exists( $_bc_qm_loader ) ) {
+    require_once $_bc_qm_loader;
+}
+unset( $_bc_qm_loader );
+
+// [2026-08-09 Johnny Chu] R-CRON-SCHEDULE-EARLY — keep schedule names
+// available before WP-Cron reschedules due events; no handler is loaded here.
+add_filter( 'cron_schedules', static function ( $schedules ) {
+    if ( ! is_array( $schedules ) ) { $schedules = array(); }
+    $schedules['bizcity_twinweb_artifact_jobs_minute'] = array( 'interval' => 60, 'display' => 'Every Minute (TwinWeb artifact jobs)' );
+    $schedules['bizcity_crm_3min'] = array( 'interval' => 180, 'display' => 'Every 3 Minutes (BizCity CRM SLA)' );
+    $schedules['bizcity_tier_1min'] = array( 'interval' => 60, 'display' => 'BizCity Tier - every 1 minute' );
+    $schedules['bizcity_tier_5min'] = array( 'interval' => 300, 'display' => 'BizCity Tier - every 5 minutes' );
+    $schedules['bizcity_tier_10min'] = array( 'interval' => 600, 'display' => 'BizCity Tier - every 10 minutes' );
+    return $schedules;
+}, 1 );
+
+// [2026-08-07 Johnny Chu] R-PERF — the admin TwinChat wrapper only renders an iframe; defer runtime preloads to the iframe/REST request.
+$_bc_twinchat_admin_shell_request = is_admin()
+    && isset( $_GET['page'] )
+    && sanitize_key( (string) $_GET['page'] ) === 'bizcity-twinchat';
+
 // Twin feature flags must exist even when regular plugin bootstrap has not run yet.
 // Without these, runtime logs show RESOLVER_ENABLED=UNDEFINED and behavior can diverge
 // between mu-plugin bootstrap and regular plugin bootstrap.
@@ -146,10 +172,49 @@ unset( $_bc_gate );
 
 // ── LLM Client (phải load trước — intent + knowledge depend on it) ───────────
 $_bc_llm = BIZCITY_TWIN_AI_DIR . 'core/bizcity-llm/bootstrap.php';
-if ( file_exists( $_bc_llm ) && ! class_exists( 'BizCity_LLM_Client', false ) ) {
+// [2026-08-09 Johnny Chu] R-PERF — keep the gateway client off plain frontend HTML.
+$_bc_llm_uri = isset( $_SERVER['REQUEST_URI'] ) ? (string) $_SERVER['REQUEST_URI'] : '';
+$_bc_llm_context = is_admin()
+    || ( defined( 'DOING_CRON' ) && DOING_CRON )
+    || ( defined( 'WP_CLI' ) && WP_CLI )
+    || false !== strpos( $_bc_llm_uri, '/wp-json/' )
+    || false !== strpos( $_bc_llm_uri, '/bizhook/' )
+    || false !== strpos( $_bc_llm_uri, '/tool-' )
+    || false !== strpos( $_bc_llm_uri, '/gpt' )
+    || false !== strpos( $_bc_llm_uri, '/twin' );
+if ( $_bc_llm_context && ! $_bc_twinchat_admin_shell_request && file_exists( $_bc_llm ) && ! class_exists( 'BizCity_LLM_Client', false ) ) {
     require_once $_bc_llm;
 }
-unset( $_bc_llm );
+unset( $_bc_llm, $_bc_llm_uri, $_bc_llm_context );
+
+// [2026-08-09 Johnny Chu] R-PERF — mirror the main plugin context gate before early module loading.
+if ( ! isset( $_bizcity_admin_ctx ) ) {
+    $_bizcity_admin_ctx =
+        is_admin()
+        || ( defined( 'DOING_CRON' ) && DOING_CRON )
+        || ( defined( 'WP_CLI' ) && WP_CLI )
+        || (
+            ! empty( $_SERVER['REQUEST_URI'] )
+            && (
+                false !== strpos( $_SERVER['REQUEST_URI'], '/wp-json/' )
+                || false !== strpos( $_SERVER['REQUEST_URI'], '/bizhook/' )
+                || false !== strpos( $_SERVER['REQUEST_URI'], '/zalohook/' )
+                || false !== strpos( $_SERVER['REQUEST_URI'], '/bizfbhook' )
+                || false !== strpos( $_SERVER['REQUEST_URI'], '/tool-' )
+                || preg_match( '#^/doc/?(\?|$)#', $_SERVER['REQUEST_URI'] )
+                || false !== strpos( $_SERVER['REQUEST_URI'], '/kling-video' )
+                || false !== strpos( $_SERVER['REQUEST_URI'], '/product-studio' )
+            )
+        )
+        || (
+            ! empty( $_SERVER['QUERY_STRING'] )
+            && (
+                false !== strpos( (string) $_SERVER['QUERY_STRING'], 'fbhook=1' )
+                || false !== strpos( (string) $_SERVER['QUERY_STRING'], 'biz_fb_oauth' )
+                || false !== strpos( (string) $_SERVER['QUERY_STRING'], 'fb_callback=1' )
+            )
+        );
+}
 
 // ── Knowledge ────────────────────────────────────────────────────────────────
 // [2026-06-29 Johnny Chu] HOTFIX — Define $_bizcity_admin_ctx HERE (mu-plugin time)
@@ -186,21 +251,49 @@ if ( ! isset( $_bizcity_admin_ctx ) ) {
         );
 }
 $_bc_knowledge = BIZCITY_TWIN_AI_DIR . 'core/knowledge/bootstrap.php';
-if ( file_exists( $_bc_knowledge ) && ! class_exists( 'BizCity_Knowledge', false ) ) {
+// [2026-08-09 Johnny Chu] R-PERF — do not preload Knowledge on plain frontend HTML.
+if ( $_bizcity_admin_ctx && ! $_bc_twinchat_admin_shell_request && file_exists( $_bc_knowledge ) && ! class_exists( 'BizCity_Knowledge', false ) ) {
     require_once $_bc_knowledge;
 }
 unset( $_bc_knowledge );
 
 // ── Intent ───────────────────────────────────────────────────────────────────
 $_bc_intent = BIZCITY_TWIN_AI_DIR . 'core/intent/bootstrap.php';
-if ( file_exists( $_bc_intent ) && ! class_exists( 'BizCity_Intent_Engine', false ) ) {
+// [2026-08-09 Johnny Chu] R-PERF-LOADER-INTENT — keep Intent on owned routes,
+// REST/webhook/cron/CLI and Intent admin/AJAX surfaces only.
+$_bc_intent_admin_page = is_admin()
+    && isset( $_GET['page'] )
+    && ( false !== strpos( sanitize_key( (string) $_GET['page'] ), 'bizcity-intent' )
+        || false !== strpos( sanitize_key( (string) $_GET['page'] ), 'bizcity-tool' )
+        || false !== strpos( sanitize_key( (string) $_GET['page'] ), 'bizcity-data-browser' ) );
+$_bc_intent_ajax_request = false;
+if ( isset( $_REQUEST['action'] ) && is_scalar( $_REQUEST['action'] ) ) {
+    $_bc_intent_ajax_action = sanitize_key( (string) wp_unslash( $_REQUEST['action'] ) );
+    $_bc_intent_ajax_request = 0 === strpos( $_bc_intent_ajax_action, 'bizcity_intent' )
+        || 0 === strpos( $_bc_intent_ajax_action, 'bizcity_chat' )
+        || 0 === strpos( $_bc_intent_ajax_action, 'bizcity_webchat' )
+        || 0 === strpos( $_bc_intent_ajax_action, 'bizc_pipeline' )
+        || 0 === strpos( $_bc_intent_ajax_action, 'bizcity_rolling_memory' )
+        || 'bizcity_project_move_conv' === $_bc_intent_ajax_action;
+    unset( $_bc_intent_ajax_action );
+}
+$_bc_intent_public_request = ! empty( $_SERVER['REQUEST_URI'] )
+    && preg_match( '#/(?:tools-map|tool-control-panel|tool-stats|tasks|chat-sessions)(?:/|\?|$)#', (string) $_SERVER['REQUEST_URI'] );
+$_bc_intent_runtime_request = $_bc_intent_public_request
+    || ( $_bizcity_admin_ctx && ( ! is_admin()
+        || $_bc_intent_admin_page
+        || $_bc_intent_ajax_request
+        || ( defined( 'DOING_CRON' ) && DOING_CRON )
+        || ( defined( 'WP_CLI' ) && WP_CLI ) ) );
+if ( $_bc_intent_runtime_request && ! $_bc_twinchat_admin_shell_request && file_exists( $_bc_intent ) && ! class_exists( 'BizCity_Intent_Engine', false ) ) {
     require_once $_bc_intent;
 }
-unset( $_bc_intent );
+unset( $_bc_intent, $_bc_intent_admin_page, $_bc_intent_ajax_request, $_bc_intent_public_request, $_bc_intent_runtime_request );
 
 // ── Twin Core (Focus Router + Context Resolver — phải load trước prepare_llm_call) ──
 $_bc_twin_core = BIZCITY_TWIN_AI_DIR . 'core/twin-core/bootstrap.php';
-if ( file_exists( $_bc_twin_core ) && ! class_exists( 'BizCity_Twin_Context_Resolver', false ) ) {
+// [2026-08-09 Johnny Chu] R-PERF — defer Twin Core preload and schema work off plain frontend HTML.
+if ( $_bizcity_admin_ctx && ! $_bc_twinchat_admin_shell_request && file_exists( $_bc_twin_core ) && ! class_exists( 'BizCity_Twin_Context_Resolver', false ) ) {
     require_once $_bc_twin_core;
 }
 unset( $_bc_twin_core );
@@ -209,7 +302,8 @@ unset( $_bc_twin_core );
 // BizCity_Market_Catalog::get_agent_plugins_with_headers() cần được init trước khi
 // render_dashboard_react() gọi nó để build TouchBar agents.
 $_bc_market = BIZCITY_TWIN_AI_DIR . 'core/bizcity-market/bootstrap.php';
-if ( file_exists( $_bc_market ) && ! class_exists( 'BizCity_Market_Utils', false ) ) {
+// [2026-08-09 Johnny Chu] R-PERF — Market catalog/install is admin/runtime-only.
+if ( $_bizcity_admin_ctx && ! $_bc_twinchat_admin_shell_request && file_exists( $_bc_market ) && ! class_exists( 'BizCity_Market_Utils', false ) ) {
     require_once $_bc_market;
 }
 unset( $_bc_market );
@@ -218,7 +312,7 @@ unset( $_bc_market );
 // Cần thiết vì page-aiagent-home.php dùng BizCity_WebChat_Admin_Dashboard
 // và các tool plugins extend BizCity_Intent_Provider ở file scope.
 $_bc_webchat = BIZCITY_TWIN_AI_DIR . 'modules/webchat/bootstrap.php';
-if ( file_exists( $_bc_webchat ) && ! class_exists( 'BizCity_WebChat_Database', false ) ) {
+if ( ! $_bc_twinchat_admin_shell_request && file_exists( $_bc_webchat ) && ! class_exists( 'BizCity_WebChat_Database', false ) ) {
     require_once $_bc_webchat;
 }
 unset( $_bc_webchat );
@@ -284,6 +378,7 @@ function bizcity_get_bundled_plugins_data() {
 // Sau khi WP build cache xong, ta inject bundled plugins vào.
 // Dùng 'plugins_loaded' priority 0 (trước mọi thứ khác) để đảm bảo
 // bất kỳ code nào gọi get_plugins() đều thấy bundled plugins.
+if ( $_bizcity_admin_ctx && ! $_bc_twinchat_admin_shell_request ) {
 add_action( 'plugins_loaded', function () {
     $bundled = bizcity_get_bundled_plugins_data();
     if ( empty( $bundled ) ) {
@@ -311,8 +406,10 @@ add_action( 'plugins_loaded', function () {
         wp_cache_set( 'plugins', array( '' => $all ), 'plugins' );
     }
 }, 0 );
+}
 
 // ② all_plugins filter — cho plugins.php admin page
+if ( is_admin() && ! $_bc_twinchat_admin_shell_request ) {
 add_filter( 'all_plugins', function ( $plugins ) {
     foreach ( bizcity_get_bundled_plugins_data() as $rel_path => $data ) {
         if ( ! isset( $plugins[ $rel_path ] ) ) {
@@ -321,3 +418,6 @@ add_filter( 'all_plugins', function ( $plugins ) {
     }
     return $plugins;
 } );
+}
+
+unset( $_bc_twinchat_admin_shell_request );

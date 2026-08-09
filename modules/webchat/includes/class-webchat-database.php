@@ -18,7 +18,7 @@ if (!class_exists('BizCity_WebChat_Database')) {
 class BizCity_WebChat_Database {
 
     /** Schema version — bump to trigger migration */
-    const SCHEMA_VERSION = '3.11.0';
+    const SCHEMA_VERSION = '5.1.0'; // [2026-07-31 Johnny Chu] PHASE-1.22-TOOL-CATALOG — retire the unused webchat_tools catalog.
     
     private static $instance = null;
     
@@ -228,23 +228,6 @@ class BizCity_WebChat_Database {
             INDEX idx_status (step_status)
         ) {$charset_collate};";
         
-        // Table: webchat_tools (Linked tools giống Relevance AI)
-        $table_tools = $wpdb->prefix . 'bizcity_webchat_tools';
-        $sql_tools = "CREATE TABLE IF NOT EXISTS {$table_tools} (
-            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-            tool_id VARCHAR(64) NOT NULL,
-            tool_name VARCHAR(255),
-            tool_description TEXT,
-            tool_icon VARCHAR(255),
-            tool_type VARCHAR(64) DEFAULT 'action',
-            tool_config LONGTEXT,
-            is_active TINYINT(1) DEFAULT 1,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            UNIQUE KEY uniq_tool (tool_id),
-            INDEX idx_active (is_active)
-        ) {$charset_collate};";
-        
         // Table: webchat_memory (User memory/profile from LLM)
         $table_memory = $wpdb->prefix . 'bizcity_memory_session';
         $sql_memory = "CREATE TABLE IF NOT EXISTS {$table_memory} (
@@ -279,7 +262,6 @@ class BizCity_WebChat_Database {
         dbDelta($sql_messages);
         dbDelta($sql_tasks);
         dbDelta($sql_steps);
-        dbDelta($sql_tools);
         dbDelta($sql_memory);
 
         // Migration: add columns + migrate data
@@ -831,13 +813,21 @@ class BizCity_WebChat_Database {
     /**
      * Get conversation history
      */
-    public function get_conversation_history($session_id, $limit = 50) {
+    // [2026-08-02 Johnny Chu] PHASE-TWIN-SURFACE-ISOLATION — keep consumer WebChat history separate from TwinChat/admin rows.
+    public function get_conversation_history($session_id, $limit = 50, $offset = 0, $platform_type = 'WEBCHAT') {
         global $wpdb;
         $table = $wpdb->prefix . 'bizcity_webchat_messages';
+        $offset = max( 0, (int) $offset );
+        $platform_type = strtoupper( (string) $platform_type );
+        if ( $platform_type === '' ) {
+            $platform_type = 'WEBCHAT';
+        }
         
         $rows = $wpdb->get_results($wpdb->prepare(
-            "SELECT * FROM {$table} WHERE session_id = %s ORDER BY id ASC LIMIT %d",
+            "SELECT * FROM {$table} WHERE session_id = %s AND platform_type = %s ORDER BY id ASC LIMIT %d, %d",
             $session_id,
+            $platform_type,
+            $offset,
             $limit
         ));
         
@@ -1995,3 +1985,21 @@ class BizCity_WebChat_Database {
 }
 
 } // End class_exists check
+
+// [2026-07-29 Johnny Chu] PHASE-1.21-B — expose WebChat's shared installer to the central schema registry.
+if ( class_exists( 'BizCity_Schema_Registry' ) && class_exists( 'BizCity_WebChat_Database' ) ) {
+    BizCity_Schema_Registry::register(
+        'bizcity_webchat_task_steps',
+        'modules.webchat',
+        BizCity_WebChat_Database::SCHEMA_VERSION,
+        'bizcity_webchat_db_version',
+        array( 'BizCity_WebChat_Database', 'create_tables' )
+    );
+    BizCity_Schema_Registry::register(
+        'bizcity_memory_session',
+        'modules.webchat',
+        BizCity_WebChat_Database::SCHEMA_VERSION,
+        'bizcity_webchat_db_version',
+        array( 'BizCity_WebChat_Database', 'create_tables' )
+    );
+}

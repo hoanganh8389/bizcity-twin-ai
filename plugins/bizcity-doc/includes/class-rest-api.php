@@ -2375,12 +2375,14 @@ PROMPT;
 		// trên mọi hosting, không phụ thuộc loopback.
 		// [2026-07-27 Johnny Chu] PHASE-0.49-MASTER-CONFIG-401 — parallel document
 		// calls must share the canonical normalized 1API credentials.
-		$gateway_url = class_exists( 'BizCity_LLM_Client' )
-			? BizCity_LLM_Client::instance()->get_gateway_url()
-			: trim( (string) get_option( 'bizcity_llm_gateway_url', '' ) );
-		$api_key     = class_exists( 'BizCity_LLM_Client' )
-			? BizCity_LLM_Client::instance()->get_api_key()
-			: trim( (string) get_option( 'bizcity_llm_api_key', '' ) );
+		// [2026-07-30 Johnny Chu] R-1API-AUTH — parallel document calls use the canonical client credential getter with no raw-option fallback.
+		if ( ! class_exists( 'BizCity_LLM_Client' ) ) {
+			self::sse_send( 'error', array( 'code' => 'module_not_loaded', 'message' => 'LLM gateway chưa sẵn sàng.' ) );
+			return;
+		}
+		$llm         = BizCity_LLM_Client::instance();
+		$gateway_url = $llm->get_gateway_url();
+		$api_key     = $llm->get_api_key();
 		if ( $gateway_url === '' || $api_key === '' ) {
 			self::sse_send( 'error', [ 'message' => 'LLM gateway chưa cấu hình.' ] );
 			return;

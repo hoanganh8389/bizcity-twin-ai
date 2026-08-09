@@ -1,19 +1,20 @@
 <?php
 /**
- * Diagnostics Orphan Cleaner — AUTO-DROP empty deprecated tables.
+ * Diagnostics Orphan Cleaner — quarantine review for deprecated tables.
  *
  * Safety policy (simplified per operator request 2026-05-21):
- *   1. ONLY drops tables in the curated `deprecated_tables()` list (audit-verified
- *      zero PHP consumer).
+ *   1. ONLY considers tables in the curated `deprecated_tables()` list.
  *   2. Empty-table guard: a table is dropped ONLY if `COUNT(*) = 0`. Tables
  *      with ANY rows are SKIPPED (operator must export/migrate first).
- *   3. Per-shard scope: only acts on the CURRENT site's `$wpdb`. In multisite
+ *   3. Quarantine guard: entries marked `quarantine_only` are tracked but
+ *      never dropped by this cleaner; the owning migration must sign off.
+ *   4. Per-shard scope: only acts on the CURRENT site's `$wpdb`. In multisite
  *      each subsite must be visited (each shard has its own DB).
- *   4. Capability gate: only triggered while rendering an admin page that
+ *   5. Capability gate: only triggered while rendering an admin page that
  *      requires `manage_options` (the Tools → BizCity Diagnostics page).
- *   5. Throttle: runs at most once per hour per blog (transient guard) to
+ *   6. Throttle: runs at most once per hour per blog (transient guard) to
  *      avoid hammering on every admin reload.
- *   6. Audit log: every run is appended to option `bizcity_diagnostics_orphan_log`
+ *   7. Audit log: every run is appended to option `bizcity_diagnostics_orphan_log`
  *      (capped at 50 entries).
  *
  * @package    Bizcity_Twin_AI
@@ -35,6 +36,8 @@ final class BizCity_Diagnostics_Orphan_Cleaner {
 	 *
 	 * @return array<int,array{
 	 *   name:string, physical:string, reason:string,
+	 *   module:string, feature:string, purpose:string, class:string,
+	 *   related_tables:array<int,string>, orphan_gate:string,
 	 *   exists:bool, rows:int, size_human:string,
 	 *   safe_to_drop:bool, skip_reason:string
 	 * }>
@@ -48,16 +51,21 @@ final class BizCity_Diagnostics_Orphan_Cleaner {
 		$prev_suppress = $wpdb->suppress_errors( true );
 
 		foreach ( $entries as $e ) {
-			$physical = $e['raw'] ? $e['name'] : $prefix . $e['name'];
+			$physical = ! empty( $e['raw'] )
+				? $e['name']
+				: ( ( ( $e['prefix_scope'] ?? 'blog' ) === 'base' ) ? $wpdb->base_prefix : $prefix ) . $e['name'];
 
-			$exists = (bool) $wpdb->get_var( $wpdb->prepare(
-				"SHOW TABLES LIKE %s", $physical
-			) );
+			// [2026-07-31 Johnny Chu] R-SHOW-TABLES — quarantine preview uses the cached metadata helper and fails closed if unavailable.
+			$exists = function_exists( 'bizcity_tbl_exists' ) && bizcity_tbl_exists( $physical );
 
 			$rows = 0;
 			$size_human = '—';
 			$safe = false;
 			$skip = '';
+			$quarantine_only = ! empty( $e['quarantine_only'] );
+			// [2026-08-01 Johnny Chu] PHASE-1.24-LOG-ORPHAN-GATE — carry dependency/gate hints from deprecated registry into preview rows.
+			$related_tables = array_values( array_filter( array_map( 'strval', is_array( $e['related_tables'] ?? null ) ? $e['related_tables'] : array() ) ) );
+			$orphan_gate    = (string) ( $e['orphan_gate'] ?? '' );
 
 			if ( $exists ) {
 				$rows = (int) $wpdb->get_var( "SELECT COUNT(*) FROM `{$physical}`" );
@@ -69,7 +77,13 @@ final class BizCity_Diagnostics_Orphan_Cleaner {
 				), ARRAY_A );
 				$size_human = $info ? size_format( (int) $info['sz'], 2 ) : '—';
 
-				if ( $rows === 0 ) {
+				if ( $quarantine_only ) {
+					$skip = 'QUARANTINE ONLY — owner migration/sign-off required before drop';
+					// [2026-08-01 Johnny Chu] PHASE-1.24-LOG-ORPHAN-GATE — expose explicit migration gate to prevent premature SQL drops.
+					if ( $orphan_gate !== '' ) {
+						$skip .= ' · gate: ' . $orphan_gate;
+					}
+				} elseif ( $rows === 0 ) {
 					$safe = true;
 				} else {
 					$skip = sprintf( 'HAS %d ROWS — export/migrate before drop', $rows );
@@ -82,11 +96,18 @@ final class BizCity_Diagnostics_Orphan_Cleaner {
 				'name'         => $e['name'],
 				'physical'     => $physical,
 				'reason'       => $e['reason'],
+				'module'       => (string) ( $e['module']  ?? 'deprecated' ),
+				'feature'      => (string) ( $e['feature'] ?? 'legacy cleanup' ),
+				'purpose'      => (string) ( $e['purpose'] ?? '' ),
+				'class'        => (string) ( $e['class']   ?? '' ),
+				'related_tables' => $related_tables,
+				'orphan_gate'    => $orphan_gate,
 				'exists'       => $exists,
 				'rows'         => $rows,
 				'size_human'   => $size_human,
 				'safe_to_drop' => $safe,
 				'skip_reason'  => $skip,
+				'quarantine_only' => $quarantine_only,
 			];
 		}
 
@@ -128,6 +149,9 @@ final class BizCity_Diagnostics_Orphan_Cleaner {
 			if ( ! $row['exists'] ) {
 				$action = 'noop';
 				$detail = 'already absent';
+			} elseif ( ! empty( $row['quarantine_only'] ) ) {
+				$action = 'skipped';
+				$detail = $row['skip_reason'];
 			} elseif ( ! $row['safe_to_drop'] ) {
 				$action = 'skipped';
 				$detail = $row['skip_reason'];

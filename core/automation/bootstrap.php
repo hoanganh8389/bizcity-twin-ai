@@ -32,6 +32,8 @@ define( 'BIZCITY_AUTOMATION_URL', plugins_url( '', __FILE__ ) );
 require_once __DIR__ . '/includes/class-automation-admin-spa.php';
 require_once __DIR__ . '/includes/class-automation-installer.php';
 require_once __DIR__ . '/includes/class-automation-repo-workflows.php';
+// [2026-08-01 Johnny Chu] PHASE-TBR-CHAT-DEFAULT — expose workflow triggers to TwinBrain conversational routing.
+require_once __DIR__ . '/includes/class-automation-workflow-catalog.php';
 require_once __DIR__ . '/includes/class-automation-repo-runs.php';
 require_once __DIR__ . '/includes/class-automation-repo-templates.php';     // BE-7
 require_once __DIR__ . '/includes/class-automation-repo-config-packs.php';  // [2026-07-20 Johnny Chu] PHASE-1-TEMPLATES-AUTOMATION — DataTable config packs.

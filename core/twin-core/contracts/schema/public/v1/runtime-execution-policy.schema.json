@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bizcity.vn/schema/twin/contracts/v1/runtime-execution-policy.schema.json",
+  "title": "BizCity Twin Runtime Execution Policy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "version",
+    "idempotency",
+    "retry_policy",
+    "dead_letter",
+    "concurrency",
+    "circuit_breaker",
+    "backpressure",
+    "timeout_budget",
+    "trace",
+    "slo"
+  ],
+  "properties": {
+    "contract": { "const": "runtime-execution-policy" },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$" },
+    "idempotency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "key_ttl_seconds", "header"],
+      "properties": {
+        "required": { "type": "boolean" },
+        "key_ttl_seconds": { "type": "integer", "minimum": 1 },
+        "header": { "type": "string", "maxLength": 80 }
+      }
+    },
+    "retry_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["transient", "rate_limited", "timeout", "permanent"],
+      "properties": {
+        "transient": { "$ref": "#/$defs/retryRule" },
+        "rate_limited": { "$ref": "#/$defs/retryRule" },
+        "timeout": { "$ref": "#/$defs/retryRule" },
+        "permanent": { "$ref": "#/$defs/retryRule" }
+      }
+    },
+    "dead_letter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "queue_name", "max_age_seconds"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "queue_name": { "type": "string", "minLength": 3, "maxLength": 120 },
+        "max_age_seconds": { "type": "integer", "minimum": 60 }
+      }
+    },
+    "concurrency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lock_scope", "lock_ttl_seconds", "max_inflight"],
+      "properties": {
+        "lock_scope": { "enum": ["tenant", "site", "user", "resource"] },
+        "lock_ttl_seconds": { "type": "integer", "minimum": 1 },
+        "max_inflight": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "circuit_breaker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["failure_threshold", "recovery_timeout_seconds", "half_open_max_calls"],
+      "properties": {
+        "failure_threshold": { "type": "integer", "minimum": 1 },
+        "recovery_timeout_seconds": { "type": "integer", "minimum": 1 },
+        "half_open_max_calls": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "backpressure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["queue_limit", "drop_policy", "quota_per_minute"],
+      "properties": {
+        "queue_limit": { "type": "integer", "minimum": 1 },
+        "drop_policy": { "enum": ["reject_oldest", "reject_newest", "defer"] },
+        "quota_per_minute": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "timeout_budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["default_ms", "provider_ms", "channel_ms"],
+      "properties": {
+        "default_ms": { "type": "integer", "minimum": 1 },
+        "provider_ms": { "type": "integer", "minimum": 1 },
+        "channel_ms": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "trace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["propagate_headers"],
+      "properties": {
+        "propagate_headers": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 3, "maxLength": 120 },
+          "uniqueItems": true
+        }
+      }
+    },
+    "slo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["success_rate_target", "p95_latency_ms", "citation_coverage_target", "tool_error_rate_max"],
+      "properties": {
+        "success_rate_target": { "type": "number", "minimum": 0, "maximum": 1 },
+        "p95_latency_ms": { "type": "integer", "minimum": 1 },
+        "citation_coverage_target": { "type": "number", "minimum": 0, "maximum": 1 },
+        "tool_error_rate_max": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    }
+  },
+  "$defs": {
+    "retryRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_attempts", "initial_backoff_ms", "max_backoff_ms"],
+      "properties": {
+        "max_attempts": { "type": "integer", "minimum": 0 },
+        "initial_backoff_ms": { "type": "integer", "minimum": 0 },
+        "max_backoff_ms": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

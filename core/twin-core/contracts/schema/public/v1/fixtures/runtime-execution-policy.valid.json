@@ -1,0 +1,49 @@
+{
+  "contract": "runtime-execution-policy",
+  "version": "1.0.0",
+  "idempotency": {
+    "required": true,
+    "key_ttl_seconds": 86400,
+    "header": "x-idempotency-key"
+  },
+  "retry_policy": {
+    "transient": { "max_attempts": 3, "initial_backoff_ms": 200, "max_backoff_ms": 3000 },
+    "rate_limited": { "max_attempts": 5, "initial_backoff_ms": 500, "max_backoff_ms": 60000 },
+    "timeout": { "max_attempts": 2, "initial_backoff_ms": 300, "max_backoff_ms": 4000 },
+    "permanent": { "max_attempts": 0, "initial_backoff_ms": 0, "max_backoff_ms": 0 }
+  },
+  "dead_letter": {
+    "enabled": true,
+    "queue_name": "bizcity_dlx",
+    "max_age_seconds": 172800
+  },
+  "concurrency": {
+    "lock_scope": "resource",
+    "lock_ttl_seconds": 30,
+    "max_inflight": 8
+  },
+  "circuit_breaker": {
+    "failure_threshold": 5,
+    "recovery_timeout_seconds": 60,
+    "half_open_max_calls": 2
+  },
+  "backpressure": {
+    "queue_limit": 500,
+    "drop_policy": "defer",
+    "quota_per_minute": 120
+  },
+  "timeout_budget": {
+    "default_ms": 15000,
+    "provider_ms": 20000,
+    "channel_ms": 12000
+  },
+  "trace": {
+    "propagate_headers": ["x-trace-id", "x-request-id"]
+  },
+  "slo": {
+    "success_rate_target": 0.99,
+    "p95_latency_ms": 2500,
+    "citation_coverage_target": 0.85,
+    "tool_error_rate_max": 0.03
+  }
+}

@@ -21,6 +21,9 @@ class BizCity_Gateway_Bridge {
 	/** @var BizCity_Channel_Adapter[] Registered adapters keyed by platform. */
 	private $adapters = [];
 
+	/** @var BizCity_Channel_Integration[] New channel integrations keyed by platform. */
+	private $integrations = [];
+
 	/** @var string[] Prefix → platform lookup. */
 	private $prefix_map = [];
 
@@ -72,6 +75,16 @@ class BizCity_Gateway_Bridge {
 	 */
 	public function get_adapter( string $platform ): ?BizCity_Channel_Adapter {
 		return $this->adapters[ strtoupper( $platform ) ] ?? null;
+	}
+
+	/**
+	 * Get a registered channel integration by platform.
+	 *
+	 * @param string $platform
+	 * @return BizCity_Channel_Integration|null
+	 */
+	public function get_channel_integration( string $platform ) {
+		return $this->integrations[ strtoupper( $platform ) ] ?? null;
 	}
 
 	/**
@@ -160,7 +173,9 @@ class BizCity_Gateway_Bridge {
 	public function handle_inbound( string $endpoint, array $request ) {
 		$platform = $this->endpoint_map[ $endpoint ] ?? null;
 		if ( ! $platform ) {
-			error_log( '[Channel Gateway] ❌ No adapter registered for endpoint: ' . $endpoint );
+			if ( class_exists( 'BizCity_Channel_File_Logger' ) ) {
+				BizCity_Channel_File_Logger::write( BizCity_Channel_File_Logger::CH_CHANNEL_GATEWAY, BizCity_Channel_File_Logger::LEVEL_ERROR, 'inbound_adapter_missing', 'No adapter was registered for the inbound endpoint.', array( 'endpoint' => $endpoint ) );
+			}
 			return false;
 		}
 
@@ -178,7 +193,9 @@ class BizCity_Gateway_Bridge {
 			 * @param string $platform Platform identifier.
 			 */
 			do_action( 'bizcity_channel_verify_failed', $request, $platform );
-			error_log( '[Channel Gateway] ⚠️ Webhook verification failed for: ' . $platform );
+			if ( class_exists( 'BizCity_Channel_File_Logger' ) ) {
+				BizCity_Channel_File_Logger::write( BizCity_Channel_File_Logger::CH_CHANNEL_GATEWAY, BizCity_Channel_File_Logger::LEVEL_WARN, 'webhook_verification_failed', 'Channel webhook verification failed.', array( 'platform' => $platform ) );
+			}
 			return false;
 		}
 
@@ -246,11 +263,9 @@ class BizCity_Gateway_Bridge {
 
 		$platform = $trigger['platform'] ?? 'unknown';
 		$text     = $trigger['message'] ?? $trigger['text'] ?? '';
-		error_log( sprintf(
-			'[Channel Gateway] 🚀 Firing trigger | platform=%s | text=%s',
-			$platform,
-			mb_substr( $text, 0, 60 )
-		) );
+		if ( class_exists( 'BizCity_Channel_File_Logger' ) ) {
+			BizCity_Channel_File_Logger::write( BizCity_Channel_File_Logger::CH_CHANNEL_GATEWAY, BizCity_Channel_File_Logger::LEVEL_INFO, 'trigger_firing', 'Channel Gateway trigger dispatch started.', array( 'platform' => $platform, 'text_len' => function_exists( 'mb_strlen' ) ? mb_strlen( $text ) : strlen( $text ) ) );
+		}
 
 		// ── Resolve Channel Role if not already set ──
 		if ( empty( $trigger['channel_role'] ) && class_exists( 'BizCity_Channel_Role' ) ) {
@@ -273,7 +288,9 @@ class BizCity_Gateway_Bridge {
 		}
 
 		if ( function_exists( 'bizcity_aiwu_fire_twf_process_flow' ) ) {
-			return bizcity_aiwu_fire_twf_process_flow( $compat_trigger, $raw, 'waic_twf_process_flow' );
+			// [2026-07-31 Johnny Chu] R-CH-NS — legacy dispatcher has a mixed return contract; normalize it before this bool method returns.
+			$result = bizcity_aiwu_fire_twf_process_flow( $compat_trigger, $raw, 'waic_twf_process_flow' );
+			return ! is_wp_error( $result ) && false !== $result;
 		}
 
 		do_action( 'waic_twf_process_flow', $compat_trigger, $raw );
@@ -290,6 +307,9 @@ class BizCity_Gateway_Bridge {
 	 * @return array
 	 */
 	private function build_legacy_trigger( array $payload ): array {
+		$first_attachment = is_array( $payload['attachments'][0] ?? null ) ? $payload['attachments'][0] : [];
+		$image_url        = (string) ( $first_attachment['url'] ?? $payload['image_url'] ?? '' );
+		$attachment_type  = (string) ( $first_attachment['type'] ?? ( $image_url !== '' ? 'image' : 'text' ) );
 		return [
 			'platform'        => strtolower( $payload['platform'] ?? '' ),
 			'client_id'       => $payload['user_id'] ?? $payload['chat_id'] ?? '',
@@ -299,9 +319,9 @@ class BizCity_Gateway_Bridge {
 			'display_name'    => $payload['client_name'] ?? '',
 			'text'            => $payload['message'] ?? '',
 			'message_id'      => $payload['message_id'] ?? '',
-			'attachment_url'  => '',
-			'attachment_type' => $payload['attachments'][0]['type'] ?? 'text',
-			'image_url'       => $payload['attachments'][0]['url'] ?? '',
+			'attachment_url'  => $image_url,
+			'attachment_type' => $attachment_type,
+			'image_url'       => $image_url,
 			'audio_url'       => '',
 			'bot_id'          => $payload['bot_id'] ?? '',
 			'bot_name'        => $payload['bot_name'] ?? '',
@@ -345,13 +365,15 @@ class BizCity_Gateway_Bridge {
 	 * @param BizCity_Channel_Integration $channel
 	 */
 	public function register_channel_integration( BizCity_Channel_Integration $channel ): void {
+		// [2026-08-01 Johnny Chu] HOTFIX — keep integration objects out of the
+		// adapter registry; get_adapter() promises BizCity_Channel_Adapter and
+		// outbound legacy callers invoke the adapter interface directly.
 		$platform = strtoupper( $channel->inbound_platform() );
 		if ( ! $platform ) {
 			return;
 		}
 
-		// Store as adapter entry (channel extends integration but may not implement full adapter interface).
-		$this->adapters[ $platform ] = $channel;
+		$this->integrations[ $platform ] = $channel;
 
 		$prefix = $channel->get_chat_id_prefix();
 		if ( $prefix !== '' ) {

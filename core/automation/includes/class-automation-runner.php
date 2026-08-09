@@ -118,6 +118,32 @@ final class BizCity_Automation_Runner {
 		$trigger_payload = isset( $run['trigger_payload'] ) && is_array( $run['trigger_payload'] )
 			? $run['trigger_payload']
 			: array();
+		// [2026-08-01 Johnny Chu] PHASE-1.26-CORRELATION — restore the queued
+		// correlation context before any automation block or outbound reply runs.
+		if ( class_exists( 'BizCity_Chat_Correlation' ) ) {
+			$correlation = BizCity_Chat_Correlation::import_async( $trigger_payload, 'automation_run' );
+			$trigger_payload['event_uuid'] = (string) ( $correlation['event_uuid'] ?? '' );
+			$trigger_payload['trace_id'] = (string) ( $correlation['trace_id'] ?? '' );
+			$trigger_payload['parent_event_uuid'] = (string) ( $correlation['parent_event_uuid'] ?? '' );
+		}
+		$had_outbound_trace_ctx = array_key_exists( '_bizcity_outbound_trace_ctx', $GLOBALS );
+		$previous_outbound_trace_ctx = $had_outbound_trace_ctx && is_array( $GLOBALS['_bizcity_outbound_trace_ctx'] )
+			? $GLOBALS['_bizcity_outbound_trace_ctx']
+			: array();
+		$async_trace_id = (string) ( $correlation['trace_id'] ?? '' );
+		$correlation_context_active = false;
+		if ( class_exists( 'BizCity_Chat_Correlation' ) && $async_trace_id !== '' ) {
+			// [2026-08-01 Johnny Chu] PHASE-1.26-CORRELATION — bind the imported
+			// source event as parent context; outbound sends must receive fresh UUIDs.
+			BizCity_Chat_Correlation::bind_pending_root( $correlation );
+			$GLOBALS['_bizcity_outbound_trace_ctx'] = array(
+				'trace_id'          => $async_trace_id,
+				'parent_event_uuid' => (string) ( $correlation['event_uuid'] ?? '' ),
+				'source'            => 'automation.runner',
+			);
+			$correlation_context_active = true;
+		}
+		try {
 		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-MY-CONTENT-TRACE — linked channel user owns content/events before persisted workflow-owner fallback.
 		$owner_user_id = (int) ( $trigger_payload['wp_user_id'] ?? $run['user_id'] ?? $trigger_payload['_owner_user_id'] ?? $wf['created_by'] ?? 0 );
 
@@ -399,6 +425,18 @@ final class BizCity_Automation_Runner {
 		$this->emit_crm_bridge( $run_id, $wf, true, $result, $ctx );
 
 		return array( 'status' => 'ok', 'ctx' => $ctx, 'steps' => $step );
+		} finally {
+			if ( $correlation_context_active ) {
+				if ( class_exists( 'BizCity_Chat_Correlation' ) ) {
+					BizCity_Chat_Correlation::release_pending_root( $async_trace_id );
+				}
+				if ( $had_outbound_trace_ctx ) {
+					$GLOBALS['_bizcity_outbound_trace_ctx'] = $previous_outbound_trace_ctx;
+				} else {
+					unset( $GLOBALS['_bizcity_outbound_trace_ctx'] );
+				}
+			}
+		}
 	}
 
 	// ─── Internals ────────────────────────────────────────────────────────
@@ -639,6 +677,12 @@ final class BizCity_Automation_Runner {
 		}
 
 		if ( $cron ) {
+			$logs_deleted = BizCity_Automation_Repo_Runs::gc_logs();
+			$cron->note( array( 'counters' => array( 'automation_logs_retention_deleted' => $logs_deleted ) ) );
+			$cron->note_event( 'automation_logs_retention', array(
+				'deleted' => $logs_deleted,
+				'retention_days' => BizCity_Automation_Repo_Runs::LOG_RETENTION_DAYS,
+			) );
 			$cron->note( array( 'counters' => $counters ) );
 		}
 	}

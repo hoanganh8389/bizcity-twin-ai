@@ -12,23 +12,29 @@
 (function($) {
     'use strict';
 
+    // [2026-08-02 Johnny Chu] HOTFIX-WEBCHAT-POLL — missing server config or
+    // false must stay false; do not fall back to an always-on interval.
+    var webchatVars = (typeof bizcity_webchat_vars !== 'undefined' && bizcity_webchat_vars)
+        ? bizcity_webchat_vars
+        : {};
+
     // WebChat Widget Class
     class BizChatWidget {
         constructor(options) {
             this.options = Object.assign({
-                ajaxurl: bizcity_webchat_vars.ajaxurl || '/wp-admin/admin-ajax.php',
-                restUrl: bizcity_webchat_vars.rest_url || '/wp-json/bizcity-webchat/v1',
-                nonce: bizcity_webchat_vars.nonce || '',
-                sessionId: bizcity_webchat_vars.session_id || this.generateSessionId(),
-                userId: bizcity_webchat_vars.user_id || 0,
-                characterId: bizcity_webchat_vars.character_id || 0, // Add character_id support
-                siteName: bizcity_webchat_vars.site_name || 'BizChat',
-                avatarBot: bizcity_webchat_vars.avatar_bot || '',
-                avatarUser: bizcity_webchat_vars.avatar_user || '',
-                welcomeMessage: bizcity_webchat_vars.welcome_message || 'Xin chào! Tôi có thể giúp gì cho bạn?',
-                alertSoundUrl: bizcity_webchat_vars.alert_sound_url || '/wp-content/uploads/alert.mp3',
-                enablePolling: bizcity_webchat_vars.enable_polling || true,
-                pollInterval: bizcity_webchat_vars.poll_interval || 4000,
+                ajaxurl: webchatVars.ajaxurl || '/wp-admin/admin-ajax.php',
+                restUrl: webchatVars.rest_url || '/wp-json/bizcity-webchat/v1',
+                nonce: webchatVars.nonce || '',
+                sessionId: webchatVars.session_id || this.generateSessionId(),
+                userId: webchatVars.user_id || 0,
+                characterId: webchatVars.character_id || 0, // Add character_id support
+                siteName: webchatVars.site_name || 'BizChat',
+                avatarBot: webchatVars.avatar_bot || '',
+                avatarUser: webchatVars.avatar_user || '',
+                welcomeMessage: webchatVars.welcome_message || 'Xin chào! Tôi có thể giúp gì cho bạn?',
+                alertSoundUrl: webchatVars.alert_sound_url || '/wp-content/uploads/alert.mp3',
+                enablePolling: webchatVars.enable_polling === true,
+                pollInterval: Number(webchatVars.poll_interval) > 0 ? Number(webchatVars.poll_interval) : 4000,
                 typingSpeed: 18,
                 autoScrollDelay: 100,
             }, options);
@@ -193,7 +199,7 @@
 
         /* ========== Polling — admin reply push-back (PHASE 0.36 W3/W4) ========== */
         startPolling() {
-            if (!this.options.enablePolling) return;
+            if (this.options.enablePolling !== true || this.pollTimer) return;
             
             this.stopPolling();
             const self = this;
@@ -978,7 +984,7 @@
 
     // Initialize when document ready
     $(document).ready(function() {
-        if (typeof bizcity_webchat_vars !== 'undefined') {
+        if (typeof webchatVars !== 'undefined') {
             window.BizChatWidget = new BizChatWidget();
         }
     });

@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bizcity.vn/schema/twin/contracts/v1/kg-adapter-payload.schema.json",
+  "title": "BizCity Twin KG Adapter Payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "version", "adapter_id", "operation", "source", "status"],
+  "properties": {
+    "contract": { "const": "kg-adapter-payload" },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$" },
+    "adapter_id": { "type": "string", "minLength": 3, "maxLength": 120 },
+    "operation": { "enum": ["fetch", "normalize", "chunk", "embed", "upsert", "search", "delete"] },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_type", "source_id"],
+      "properties": {
+        "source_type": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "source_id": { "type": "string", "minLength": 1, "maxLength": 200 }
+      }
+    },
+    "request": { "type": "object" },
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "passages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["passage_id", "text"],
+            "properties": {
+              "passage_id": { "type": "string", "minLength": 1, "maxLength": 120 },
+              "text": { "type": "string", "minLength": 1, "maxLength": 4000 },
+              "metadata": { "type": "object" },
+              "citations": { "type": "array", "items": { "type": "string", "maxLength": 200 } }
+            }
+          }
+        },
+        "count": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "status": { "enum": ["success", "error", "deferred"] },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "hint", "help_code"],
+      "properties": {
+        "code": { "type": "string" },
+        "message": { "type": "string", "maxLength": 120 },
+        "hint": { "type": "string", "maxLength": 240 },
+        "help_code": { "type": "string" }
+      }
+    }
+  }
+}

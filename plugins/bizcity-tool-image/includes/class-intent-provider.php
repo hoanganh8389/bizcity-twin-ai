@@ -12,6 +12,12 @@
  */
 if ( ! defined( 'ABSPATH' ) ) exit;
 
+// [2026-08-09 Johnny Chu] HOTFIX — guard Image provider against lazy-loaded
+// Intent bootstrap when the bundled plugin is included out of order.
+if ( ! class_exists( 'BizCity_Intent_Provider', false ) ) {
+    return;
+}
+
 class BizCity_Tool_Image_Intent_Provider extends BizCity_Intent_Provider {
 
     /**

@@ -167,3 +167,17 @@ class BizCity_Memory_Unified_Installer {
 		return true;
 	}
 }
+
+// [2026-07-31 Johnny Chu] R-CR — register unified memory schema before the feature-flagged installer can call dbDelta().
+// [2026-07-31 Johnny Chu] HOTFIX — `self::` is invalid at file scope (outside a class body) and caused a
+// production fatal ("Cannot access self:: when no class scope is active") on every request. Use the
+// fully-qualified class name instead, matching the pattern used by every other Schema Registry callsite.
+if ( class_exists( 'BizCity_Schema_Registry' ) ) {
+	BizCity_Schema_Registry::register(
+		BizCity_Memory_Unified_Installer::TABLE_SUFFIX,
+		'core.memory.unified',
+		BizCity_Memory_Unified_Installer::DB_VERSION,
+		BizCity_Memory_Unified_Installer::DB_VERSION_OPTION,
+		array( BizCity_Memory_Unified_Installer::instance(), 'install' )
+	);
+}

@@ -18,7 +18,20 @@ final class BizCity_MCP_File_Logger {
 	const DIRECTORY = 'bizcity-mcp-logs';
 
 	public static function write( array $entry ) {
-		// [2026-07-28 Johnny Chu] PHASE-0.53-MCP-TWINWEB — append sanitized request metadata to upload JSONL.
+		// [2026-08-01 Johnny Chu] PHASE-1.24-LOG-JSONL — use the shared logger as the canonical MCP file store; retain this wrapper API for callers.
+		if ( class_exists( 'BizCity_JSONL_File_Logger' ) && method_exists( 'BizCity_JSONL_File_Logger', 'write' ) ) {
+			$tool_name = preg_replace( '/[^A-Za-z0-9_.-]/', '', (string) ( $entry['tool_name'] ?? 'mcp_call' ) );
+			return BizCity_JSONL_File_Logger::write(
+				self::DIRECTORY,
+				'audit',
+				( (string) ( $entry['status'] ?? '' ) === 'error' ) ? 'error' : 'info',
+				'mcp_call',
+				$tool_name,
+				$entry
+			);
+		}
+
+		// [2026-08-01 Johnny Chu] PHASE-1.24-LOG-JSONL — legacy fallback for deployments where the shared helper is not loaded yet.
 		try {
 			$upload = wp_upload_dir();
 			$base   = isset( $upload['basedir'] ) ? (string) $upload['basedir'] : '';
@@ -31,20 +44,69 @@ final class BizCity_MCP_File_Logger {
 			}
 			$file = trailingslashit( $dir ) . gmdate( 'Y-m-d' ) . '.jsonl';
 			$line = wp_json_encode( self::sanitize_entry( $entry ) ) . PHP_EOL;
-			return false !== file_put_contents( $file, $line, LOCK_EX );
+			// [2026-08-01 Johnny Chu] PHASE-1.24-LOG-JSONL — FILE_APPEND is required; LOCK_EX alone overwrote the day's audit file on every call.
+			return false !== file_put_contents( $file, $line, FILE_APPEND | LOCK_EX );
 		} catch ( \Throwable $e ) {
 			return false;
 		}
 	}
 
 	public static function read_recent( $user_id = 0, $key_id = 0, $client_id = '', $limit = 100 ) {
-		// [2026-07-28 Johnny Chu] PHASE-0.53-MCP-TWINWEB — read recent evidence with user/key/client filters.
+		// [2026-08-01 Johnny Chu] PHASE-1.24-LOG-JSONL — read canonical shared JSONL rows first, then legacy flat files during migration.
+		$limit = max( 1, min( 500, (int) $limit ) );
+		if ( class_exists( 'BizCity_JSONL_File_Logger' ) && method_exists( 'BizCity_JSONL_File_Logger', 'query' ) ) {
+			$rows = BizCity_JSONL_File_Logger::query(
+				self::DIRECTORY,
+				'audit',
+				array(
+					'days'   => 7,
+					'limit'  => $limit,
+					'filter' => static function ( $row ) use ( $user_id, $key_id, $client_id ) {
+						$ctx = is_array( $row['ctx'] ?? null ) ? $row['ctx'] : array();
+						if ( $user_id > 0 && (int) ( $ctx['user_id'] ?? 0 ) !== (int) $user_id ) {
+							return false;
+						}
+						if ( $key_id > 0 && (int) ( $ctx['key_id'] ?? 0 ) !== (int) $key_id ) {
+							return false;
+						}
+						if ( $client_id !== '' && (string) ( $ctx['client_id'] ?? '' ) !== (string) $client_id ) {
+							return false;
+						}
+						return true;
+					},
+				)
+			);
+			$out = array();
+			foreach ( (array) $rows as $row ) {
+				$ctx = is_array( $row['ctx'] ?? null ) ? $row['ctx'] : array();
+				$out[] = array_merge( $ctx, array(
+					'timestamp' => (string) ( $row['ts'] ?? gmdate( 'c' ) ),
+					'tool_name' => (string) ( $ctx['tool_name'] ?? $row['msg'] ?? '' ),
+					'status'    => (string) ( $ctx['status'] ?? ( ( $row['level'] ?? '' ) === 'error' ? 'error' : 'success' ) ),
+					'event'     => (string) ( $row['event'] ?? 'mcp_call' ),
+				) );
+			}
+			// [2026-08-01 Johnny Chu] PHASE-1.24-LOG-JSONL — include pre-cutover flat files so migration does not hide valid recent evidence.
+			$out = array_merge( $out, self::read_legacy_recent( $user_id, $key_id, $client_id, $limit ) );
+			usort( $out, static function ( $left, $right ) {
+				return strcmp( (string) ( $right['timestamp'] ?? '' ), (string) ( $left['timestamp'] ?? '' ) );
+			} );
+			return array_slice( $out, 0, $limit );
+		}
+
+		return self::read_legacy_recent( $user_id, $key_id, $client_id, $limit );
+	}
+
+	/**
+	 * Read the pre-PHASE-1.24 flat JSONL layout during migration.
+	 */
+	private static function read_legacy_recent( $user_id, $key_id, $client_id, $limit ) {
+		// [2026-08-01 Johnny Chu] PHASE-1.24-LOG-JSONL — legacy flat evidence remains readable until its retention window expires.
 		$upload = wp_upload_dir();
 		$base   = isset( $upload['basedir'] ) ? (string) $upload['basedir'] : '';
 		if ( $base === '' ) {
 			return array();
 		}
-		$limit  = max( 1, min( 500, (int) $limit ) );
 		$files  = array();
 		for ( $offset = 0; $offset < 7; $offset++ ) {
 			$files[] = trailingslashit( $base ) . self::DIRECTORY . '/' . gmdate( 'Y-m-d', time() - ( DAY_IN_SECONDS * $offset ) ) . '.jsonl';

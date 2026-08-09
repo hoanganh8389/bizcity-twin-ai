@@ -104,6 +104,7 @@ final class BizCity_Research_Agent {
                             $all_source_urls[ $item['url'] ] = [
                                 'url'             => (string) $item['url'],
                                 'title'           => (string) ( $item['title'] ?? $item['url'] ),
+                                'content'         => mb_substr( (string) ( $item['content'] ?? '' ), 0, 5000 ),
                                 'favicon'         => (string) ( $item['favicon'] ?? '' ),
                                 'origin'          => 'search',
                                 'operation_index' => 0,
@@ -185,6 +186,7 @@ final class BizCity_Research_Agent {
                     $all_source_urls[ $item['url'] ] = [
                         'url'              => (string) $item['url'],
                         'title'            => (string) ( $item['title'] ?? $item['url'] ),
+                        'content'          => mb_substr( (string) ( $item['content'] ?? '' ), 0, 5000 ),
                         'favicon'          => (string) ( $item['favicon'] ?? '' ),
                         'origin'           => $tool_type,
                         'operation_index'  => $counter,
@@ -381,8 +383,13 @@ final class BizCity_Research_Agent {
         // without trailing newlines, which would otherwise leave action_input null.
         if ( preg_match( '/Action Input:\s*(.+?)(?=\s*(?:Observation:|Thought:|Action:|Final Answer:)|$)/su', $text, $im ) ) {
             $raw = trim( $im[1] );
-            // Try JSON first
-            $json = json_decode( $raw, true );
+            // [2026-08-02 Johnny Chu] HOTFIX-TWINSEARCH-REACT-PARSER — some gateway models repeat the JSON action input back-to-back; decode the first complete object instead of sending both objects to Tavily.
+            $json_raw = $raw;
+            $json      = json_decode( $json_raw, true );
+            if ( ! is_array( $json ) && preg_match( '/\{(?:[^{}]|(?R))*\}/s', $raw, $json_match ) ) {
+                $json_raw = trim( $json_match[0] );
+                $json      = json_decode( $json_raw, true );
+            }
             if ( is_array( $json ) ) {
                 $out['action_input'] = $json;
             } else {
@@ -411,6 +418,13 @@ final class BizCity_Research_Agent {
      * ```markdown ... ``` fences the LLM may wrap the report in.
      */
     public static function strip_react_internals( string $text ): string {
+        // [2026-08-02 Johnny Chu] HOTFIX-TWINSEARCH-ANSWER-FALLBACK — preserve substantive plain answers when the model emits only a leading Thought line without Action/Observation/Final Answer markers.
+        if ( preg_match( '/^\s*Thought:\s*[^\r\n]*(?:\r?\n|$)/i', $text )
+            && ! preg_match( '/^\s*(?:Action|Action Input|Observation|Final Answer):/mi', $text ) ) {
+            $text = preg_replace( '/^\s*Thought:\s*[^\r\n]*(?:\r?\n|$)/i', '', $text, 1 ) ?? $text;
+            return trim( $text );
+        }
+
         // Strip embedded JSON arrays that look like Tavily search results.
         // The LLM sometimes includes the observation JSON in its output.
         $text = preg_replace( '/\[\s*\{\s*"url"\s*:.+?\}\s*\]/su', '', $text ) ?? $text;

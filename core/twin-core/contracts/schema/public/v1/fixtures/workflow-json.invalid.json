@@ -1,0 +1,11 @@
+{
+  "contract": "workflow-json",
+  "version": "1.0.0",
+  "workflow": {
+    "workflow_id": "wf_12345678",
+    "name": "Bad workflow",
+    "schema_version": "1",
+    "nodes": [],
+    "edges": []
+  }
+}

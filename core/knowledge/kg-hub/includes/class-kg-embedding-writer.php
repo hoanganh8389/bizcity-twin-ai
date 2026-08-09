@@ -107,6 +107,12 @@ class BizCity_KG_Embedding_Writer {
 		$idx_row = [ 'chunk_id' => $chunk_id ];
 		if ( null !== $source_id ) { $idx_row['source_id'] = (int) $source_id; }
 
+		// [2026-08-01 Johnny Chu] PHASE-KG-FILE-REPAIR — do not retry a
+		// physically inconsistent bundle until a rebuild job clears its marker.
+		if ( file_exists( $abs . '.rebuild-required' ) ) {
+			return new WP_Error( 'kg_bin_rebuild_required', 'Vector bundle is marked for rebuild.' );
+		}
+
 		$store = BizCity_KG_Vector_File_Store::instance();
 		$res   = $store->append( $abs, [ array_map( 'floatval', $vector ) ], [ $idx_row ] );
 		if ( is_wp_error( $res ) ) {

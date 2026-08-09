@@ -3,7 +3,7 @@
   "module_id": "modules.webchat",
   "owner": "modules/webchat",
   "installer_id": "webchat",
-  "current_version": "5.0.0",
+  "current_version": "5.1.0",
   "version_option": "bizcity_webchat_db_version",
   "tables": {
     "bizcity_webchat_sources": {
@@ -41,9 +41,66 @@
         "idx_status":       { "cols": ["embedding_status"],           "since": "4.0.0" },
         "idx_project_hash": { "cols": ["project_id", "content_hash"], "since": "3.11.0" }
       }
+    },
+    "bizcity_webchat_task_steps": {
+      "since": "5.0.0",
+      "purpose": "Timeline steps belonging to WebChat task executions.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id": { "type": "BIGINT UNSIGNED AUTO_INCREMENT", "since": "5.0.0", "pk": true },
+        "step_id": { "type": "VARCHAR(64) NOT NULL", "since": "5.0.0" },
+        "task_id": { "type": "VARCHAR(64) NOT NULL", "since": "5.0.0" },
+        "step_type": { "type": "ENUM('trigger','action','response','tool','hil') DEFAULT 'action'", "since": "5.0.0" },
+        "step_name": { "type": "VARCHAR(255) NULL", "since": "5.0.0" },
+        "step_status": { "type": "ENUM('pending','running','completed','failed','skipped') DEFAULT 'pending'", "since": "5.0.0" },
+        "input_data": { "type": "LONGTEXT NULL", "since": "5.0.0" },
+        "output_data": { "type": "LONGTEXT NULL", "since": "5.0.0" },
+        "duration_ms": { "type": "INT DEFAULT 0", "since": "5.0.0" },
+        "created_at": { "type": "DATETIME DEFAULT CURRENT_TIMESTAMP", "since": "5.0.0" },
+        "completed_at": { "type": "DATETIME NULL", "since": "5.0.0" },
+        "meta": { "type": "LONGTEXT NULL", "since": "5.0.0" }
+      },
+      "indexes": {
+        "uniq_step": { "cols": ["step_id"], "since": "5.0.0", "unique": true },
+        "idx_task": { "cols": ["task_id"], "since": "5.0.0" },
+        "idx_type": { "cols": ["step_type"], "since": "5.0.0" },
+        "idx_status": { "cols": ["step_status"], "since": "5.0.0" }
+      }
+    },
+    "bizcity_memory_session": {
+      "since": "5.0.0",
+      "purpose": "Session-scoped memory extracted from WebChat messages.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id": { "type": "BIGINT UNSIGNED AUTO_INCREMENT", "since": "5.0.0", "pk": true },
+        "session_id": { "type": "VARCHAR(128) NOT NULL", "since": "5.0.0" },
+        "user_id": { "type": "BIGINT UNSIGNED DEFAULT 0", "since": "5.0.0" },
+        "client_name": { "type": "VARCHAR(255) NULL", "since": "5.0.0" },
+        "memory_type": { "type": "VARCHAR(32) NOT NULL", "since": "5.0.0" },
+        "memory_key": { "type": "VARCHAR(128) NOT NULL", "since": "5.0.0" },
+        "memory_text": { "type": "TEXT NOT NULL", "since": "5.0.0" },
+        "score": { "type": "TINYINT UNSIGNED DEFAULT 50", "since": "5.0.0" },
+        "times_seen": { "type": "INT UNSIGNED DEFAULT 1", "since": "5.0.0" },
+        "last_seen": { "type": "DATETIME DEFAULT CURRENT_TIMESTAMP", "since": "5.0.0" },
+        "source_message_ids": { "type": "TEXT NULL", "since": "5.0.0" },
+        "created_at": { "type": "DATETIME DEFAULT CURRENT_TIMESTAMP", "since": "5.0.0" },
+        "updated_at": { "type": "DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", "since": "5.0.0" }
+      },
+      "indexes": {
+        "uniq_memory": { "cols": ["session_id", "user_id", "memory_key"], "since": "5.0.0", "unique": true },
+        "idx_session": { "cols": ["session_id"], "since": "5.0.0" },
+        "idx_user": { "cols": ["user_id"], "since": "5.0.0" },
+        "idx_type": { "cols": ["memory_type"], "since": "5.0.0" },
+        "idx_score": { "cols": ["score"], "since": "5.0.0" }
+      }
     }
   },
   "history": [
+    { "version": "5.1.0",  "date": "2026-07-31", "change": "PHASE-1.22-TOOL-CATALOG: retire bizcity_webchat_tools; WebChat timeline now reads canonical BizCity_Tool_Registry metadata and existing non-empty legacy tables require export before guarded cleanup." },
     { "version": "3.11.0", "date": "2026-05-21", "change": "Add 6 ingest columns (content_hash, char_count, token_estimate, embedding_model, error_message, metadata) — fixes wp_1458 INSERT failure" },
     { "version": "5.0.0",  "date": "2025-12-10", "change": "Notebook/Chat split — add project_id, source_url, content_text, attachment_id (deprecates url, content)" },
     { "version": "4.0.0",  "date": "2025-09-01", "change": "Create bizcity_webchat_sources (Phase 1.8 — sidebar reactive sources)" }

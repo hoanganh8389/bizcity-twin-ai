@@ -180,18 +180,26 @@ class BizCity_CF7_ZNS_Config {
 	 */
 	public static function sanitize_temp_vars( $raw ) {
 		if ( ! is_array( $raw ) ) {
-			error_log( '[bizcity-zns-config] sanitize_temp_vars: raw is not array, type=' . gettype( $raw ) );
+			if ( class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
+				BizCity_JSONL_File_Logger::write( BizCity_JSONL_File_Logger::CRM_FOLDER, 'zns', 'warn', 'zns_temp_vars_invalid_type', 'ZNS temp-vars configuration was not an array.', array( 'value_type' => gettype( $raw ) ) );
+			}
 			return array();
 		}
-		error_log( '[bizcity-zns-config] sanitize_temp_vars: raw count=' . count( $raw ) . ' raw=' . wp_json_encode( $raw ) );
+		if ( class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
+			BizCity_JSONL_File_Logger::write( BizCity_JSONL_File_Logger::CRM_FOLDER, 'zns', 'debug', 'zns_temp_vars_received', 'ZNS temp-vars configuration received.', array( 'count' => count( $raw ) ) );
+		}
 		$out = array();
 		foreach ( $raw as $item ) {
 			if ( ! is_array( $item ) ) {
-				error_log( '[bizcity-zns-config] sanitize_temp_vars: item not array type=' . gettype( $item ) );
+				if ( class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
+					BizCity_JSONL_File_Logger::write( BizCity_JSONL_File_Logger::CRM_FOLDER, 'zns', 'warn', 'zns_temp_var_invalid_item', 'A ZNS temp-var item was not an array.', array( 'value_type' => gettype( $item ) ) );
+				}
 				continue;
 			}
 			$var_name = sanitize_text_field( (string) ( $item['var_name'] ?? '' ) );
-			error_log( '[bizcity-zns-config] sanitize_temp_vars: item var_name=' . $var_name . ' source=' . ( $item['source'] ?? 'n/a' ) );
+			if ( class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
+				BizCity_JSONL_File_Logger::write( BizCity_JSONL_File_Logger::CRM_FOLDER, 'zns', 'debug', 'zns_temp_var_item', 'ZNS temp-var item inspected.', array( 'var_name_present' => $var_name !== '', 'source' => (string) ( $item['source'] ?? 'n/a' ) ) );
+			}
 			if ( empty( $var_name ) ) {
 				continue;
 			}

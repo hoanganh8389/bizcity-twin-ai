@@ -1,0 +1,22 @@
+{
+  "contract": "mutation-contract",
+  "version": "1.0.0",
+  "mutation_id": "mut_12345678",
+  "trace_id": "trace_12345678",
+  "idempotency_key": "idem_12345678",
+  "action": "publish",
+  "resource": {
+    "type": "post",
+    "id": "998",
+    "scope": "tenant"
+  },
+  "actor": {
+    "user_id": 12,
+    "role": "editor"
+  },
+  "status": "applied",
+  "result": {
+    "post_id": 998
+  },
+  "occurred_at": "2026-07-30T12:00:00Z"
+}

@@ -234,7 +234,7 @@ class BizCity_Chat_Gateway {
             $lock_key = 'bizc_send_lock_' . md5( $session_id . '|' . $message );
             if ( get_transient( $lock_key ) ) {
                 $skip_user_log = true;
-                error_log( '[chat-gateway-send] Duplicate detected (stream already logged), skipping user log | session=' . $session_id );
+                $this->log_channel_gateway( 'debug', 'duplicate_send_skipped', 'Duplicate ChatGateway send was skipped.', array( 'session_hash' => substr( hash( 'sha256', $session_id ), 0, 12 ) ) );
             } else {
                 set_transient( $lock_key, true, 15 );
             }
@@ -259,7 +259,7 @@ class BizCity_Chat_Gateway {
         
         // Debug log for plugin routing
         if ($plugin_slug) {
-            error_log("[ChatGateway] Plugin routing: slug={$plugin_slug}, mode={$routing_mode}, hint={$provider_hint}");
+            $this->log_channel_gateway( 'debug', 'plugin_routing', 'ChatGateway plugin routing resolved.', array( 'plugin_slug' => $plugin_slug, 'routing_mode' => $routing_mode, 'provider_hint' => $provider_hint !== '' ) );
         }
 
         // Accept images in multiple formats
@@ -288,16 +288,13 @@ class BizCity_Chat_Gateway {
         $history_json = stripslashes($_POST['history'] ?? '[]');
 
         $post_char_id = $character_id; // preserve what JS sent
-        if (!$character_id) {
+        // [2026-08-02 Johnny Chu] PHASE-TWIN-SURFACE-ISOLATION — consumer WebChat trusts only its current channel binding, never a browser-supplied Guru or first-character fallback.
+        if ( $platform_type === 'WEBCHAT' ) {
+            $character_id = $this->get_webchat_bound_character_id();
+        } elseif (!$character_id) {
             $character_id = $this->get_default_character_id();
         }
-        error_log( sprintf(
-            '[WEBCHAT-TRACE] character resolve: POST=%d | resolved=%d | option=%s | platform=%s',
-            $post_char_id,
-            $character_id,
-            get_option( 'bizcity_webchat_default_character_id', '(unset)' ),
-            $platform_type
-        ) );
+        $this->log_channel_gateway( 'debug', 'character_resolve', 'ChatGateway character resolution completed.', array( 'posted_character_id' => $post_char_id, 'resolved_character_id' => $character_id, 'platform' => $platform_type ) );
 
         if (!$message && empty($images)) {
             wp_send_json_error(['message' => 'Tin nhắn trống']);
@@ -342,7 +339,7 @@ class BizCity_Chat_Gateway {
                 $kci_ratio = 100;
             }
         }
-        error_log( "[KCI-TRACE] load: session={$session_id}, kci={$kci_ratio}, platform={$platform_type}, role=" . ( $channel_role_data['slug'] ?? 'none' ) );
+        $this->log_channel_gateway( 'debug', 'kci_loaded', 'ChatGateway KCI context loaded.', array( 'session_hash' => substr( hash( 'sha256', $session_id ), 0, 12 ), 'kci_ratio' => $kci_ratio, 'platform' => $platform_type, 'role' => (string) ( $channel_role_data['slug'] ?? 'none' ) ) );
         
         // Store for later trace emission
         $this->current_kci_ratio = $kci_ratio;
@@ -365,10 +362,10 @@ class BizCity_Chat_Gateway {
             }
             if ( $mention_override ) {
                 $kci_ratio = 50; // Temporary balanced mode for this request
-                error_log( "[KCI-TRACE] mention_override: kci 100→50 | plugin_slug={$plugin_slug} | msg=" . mb_substr( $message, 0, 60 ) );
+                $this->log_channel_gateway( 'debug', 'kci_mention_override', 'ChatGateway mention override applied.', array( 'kci_ratio' => $kci_ratio, 'plugin_slug' => $plugin_slug, 'message_len' => mb_strlen( $message, 'UTF-8' ) ) );
             }
         }
-        error_log( "[KCI-TRACE] mention_check: override=" . ( $mention_override ? 'true' : 'false' ) . ", effective_kci={$kci_ratio}" );
+        $this->log_channel_gateway( 'debug', 'kci_mention_check', 'ChatGateway mention check completed.', array( 'override' => $mention_override, 'effective_kci' => $kci_ratio ) );
 
         // Make kci_ratio available to Mode Classifier
         if ( class_exists( 'BizCity_Mode_Classifier' ) ) {
@@ -566,7 +563,7 @@ class BizCity_Chat_Gateway {
         try {
             $reply_data = $this->get_ai_response($character_id, $message, $images, $session_id, $history_json, $user_id, $platform_type);
         } catch (Exception $e) {
-            error_log('[ChatGateway] Error: ' . $e->getMessage());
+            $this->log_channel_gateway( 'error', 'chat_exception', 'ChatGateway request threw an exception.', array( 'exception_class' => get_class( $e ) ) );
             wp_send_json_error(['message' => 'Có lỗi xảy ra: ' . $e->getMessage()]);
             exit;
         }
@@ -582,10 +579,12 @@ class BizCity_Chat_Gateway {
             } else {
                 $reason = 'Không rõ nguyên nhân. Model: ' . ( $reply_data['model'] ?: '?' ) . ', provider: ' . ( $reply_data['provider'] ?: '?' ) . '.';
             }
-            error_log( '[ChatGateway] empty reply: model=' . ( $reply_data['model'] ?? '?' )
-                . ' provider=' . ( $reply_data['provider'] ?? '?' )
-                . ' quota=' . ( empty( $reply_data['quota_exhausted'] ) ? '0' : '1' )
-                . ' error=' . $ai_error );
+            $this->log_channel_gateway( 'error', 'empty_reply', 'ChatGateway received an empty AI reply.', array(
+                'model'           => (string) ( $reply_data['model'] ?? '' ),
+                'provider'        => (string) ( $reply_data['provider'] ?? '' ),
+                'quota_exhausted' => empty( $reply_data['quota_exhausted'] ) ? false : true,
+                'error_present'   => $ai_error !== '',
+            ) );
             wp_send_json_error( [
                 'message'  => 'AI trả về phản hồi trống: ' . $reason,
                 'code'     => 'empty_reply',
@@ -1369,13 +1368,7 @@ class BizCity_Chat_Gateway {
         // Legacy character-based path only activates when Resolver class is missing.
         $__resolver_class = class_exists( 'BizCity_Twin_Context_Resolver' );
         $__resolver_disabled = defined( 'BIZCITY_TWIN_RESOLVER_ENABLED' ) && ! BIZCITY_TWIN_RESOLVER_ENABLED;
-        error_log( sprintf(
-            '[WEBCHAT-TRACE] prepare_llm_call: platform=%s | resolver_class=%s | disabled=%s | session=%s',
-            $effective_platform,
-            $__resolver_class ? 'yes' : 'no',
-            $__resolver_disabled ? 'yes' : 'no',
-            $session_id
-        ) );
+        $this->log_channel_gateway( 'debug', 'prepare_llm_call', 'ChatGateway prepared the LLM context resolver.', array( 'platform' => $effective_platform, 'resolver_loaded' => $__resolver_class, 'resolver_disabled' => $__resolver_disabled, 'session_hash' => substr( hash( 'sha256', $session_id ), 0, 12 ) ) );
         if ( $__resolver_class && ! $__resolver_disabled ) {
 
             // [2026-06-09 Johnny Chu] PHASE-D D-BUNDLE-EXTRACT — build_system_prompt() returns
@@ -1398,12 +1391,7 @@ class BizCity_Chat_Gateway {
             // [2026-06-09 Johnny Chu] PHASE-D D-BUNDLE-EXTRACT — build_system_prompt() already
             // returns a string (not array). $bundle is string; is_array() guard is a no-op safety net.
             $system_content = is_array( $bundle ) ? (string) ( $bundle['system_content'] ?? '' ) : (string) $bundle;
-            error_log( sprintf(
-                '[WEBCHAT-TRACE] system_content length=%d | has_knowledge=%s | char_id=%d',
-                mb_strlen( $system_content ),
-                ( strpos( $system_content, "---\n\n## " ) !== false ) ? 'yes' : 'no',
-                $character_id
-            ) );
+            $this->log_channel_gateway( 'debug', 'system_context_ready', 'ChatGateway system context was built.', array( 'content_len' => mb_strlen( $system_content ), 'has_knowledge' => strpos( $system_content, "---\n\n## " ) !== false, 'character_id' => $character_id ) );
 
             // Detect model + vision support
             $model_id = ( $character && ! empty( $character->model_id ) ) ? $character->model_id : '';
@@ -2021,9 +2009,9 @@ class BizCity_Chat_Gateway {
 
         // ── Step 4: Call LLM ──
         if ($character && !empty($character->model_id)) {
-            $reply_data = $this->call_openrouter($character, $openai_messages);
+            $reply_data = $this->call_openrouter($character, $openai_messages, $platform_type_hint);
         } else {
-            $reply_data = $this->call_openai($openai_messages);
+            $reply_data = $this->call_openai($openai_messages, $platform_type_hint);
         }
 
         $result['message']  = $reply_data['message'] ?? 'Xin lỗi, không nhận được phản hồi.';
@@ -2083,12 +2071,12 @@ class BizCity_Chat_Gateway {
 
         if ($platform_type === 'ADMINCHAT') {
             if (!$this->verify_nonce()) {
-                error_log('[chat-gateway-stream] Invalid nonce for ADMINCHAT | user=' . get_current_user_id() . ' | nonce_wpnonce=' . ($_POST['_wpnonce'] ?? '') . ' | nonce=' . ($_POST['nonce'] ?? ''));
+                $this->log_channel_gateway( 'warn', 'stream_nonce_invalid', 'ChatGateway stream nonce validation failed.', array( 'user_id' => get_current_user_id(), 'wpnonce_present' => ! empty( $_POST['_wpnonce'] ), 'nonce_present' => ! empty( $_POST['nonce'] ) ) );
                 $this->send_stream_error('Invalid nonce');
                 return;
             }
             if (!current_user_can('edit_posts')) {
-                error_log('[chat-gateway-stream] Permission denied | user=' . get_current_user_id());
+                $this->log_channel_gateway( 'warn', 'stream_permission_denied', 'ChatGateway stream permission was denied.', array( 'user_id' => get_current_user_id() ) );
                 $this->send_stream_error('Permission denied');
                 return;
             }
@@ -2142,7 +2130,7 @@ class BizCity_Chat_Gateway {
         if ( $selected_skill ) {
             // Frontend already resolved the skill via / dropdown
             $slash_command = $selected_skill;
-            error_log( '[chat-gateway-stream] skill_from_frontend | skill=' . $selected_skill . ' | path=' . $skill_path );
+            $this->log_channel_gateway( 'debug', 'stream_skill_selected', 'ChatGateway skill was selected by the frontend.', array( 'skill' => $selected_skill, 'skill_path_present' => $skill_path !== '' ) );
         } elseif ( ! $tool_goal && preg_match( '/^\/([a-z0-9_-]+)(?:\s+(.*))?$/si', $message, $slash_match ) ) {
             $detected_slug = strtolower( $slash_match[1] );
             $remaining_msg = trim( $slash_match[2] ?? '' );
@@ -2159,7 +2147,7 @@ class BizCity_Chat_Gateway {
                     $is_skill      = true;
                     $slash_command  = $detected_slug;
                     $message        = $remaining_msg ?: '/' . $detected_slug;
-                    error_log( '[chat-gateway-stream] slash_skill_detected | skill=' . $detected_slug . ' | message_len=' . mb_strlen( $message, 'UTF-8' ) );
+                    $this->log_channel_gateway( 'debug', 'slash_skill_detected', 'ChatGateway slash command resolved to a skill.', array( 'skill' => $detected_slug, 'message_len' => mb_strlen( $message, 'UTF-8' ) ) );
                 }
             }
 
@@ -2167,7 +2155,7 @@ class BizCity_Chat_Gateway {
             if ( ! $is_skill ) {
                 $tool_goal = $detected_slug;
                 $message   = $remaining_msg ?: '/' . $detected_slug;
-                error_log( '[chat-gateway-stream] slash_tool_detected | tool_goal=' . $tool_goal . ' | message_len=' . mb_strlen( $message, 'UTF-8' ) );
+                $this->log_channel_gateway( 'debug', 'slash_tool_detected', 'ChatGateway slash command resolved to a tool goal.', array( 'tool_goal' => $tool_goal, 'message_len' => mb_strlen( $message, 'UTF-8' ) ) );
             }
         }
 
@@ -2175,7 +2163,10 @@ class BizCity_Chat_Gateway {
             $provider_hint = BizCity_Intent_Provider_Registry::instance()->resolve_slug( $plugin_slug );
         }
         $history_json = stripslashes($_POST['history'] ?? '[]');
-        if (!$character_id) {
+        // [2026-08-02 Johnny Chu] PHASE-TWIN-SURFACE-ISOLATION — keep stream requests on the same explicit WebChat binding boundary as ajax_send().
+        if ( $platform_type === 'WEBCHAT' ) {
+            $character_id = $this->get_webchat_bound_character_id();
+        } elseif (!$character_id) {
             $character_id = $this->get_default_character_id();
         }
         if (!$message && empty($images)) {
@@ -2192,7 +2183,7 @@ class BizCity_Chat_Gateway {
             $lock_key = 'bizc_send_lock_' . md5( $session_id . '|' . $message );
             if ( get_transient( $lock_key ) ) {
                 $skip_user_log = true;
-                error_log( '[chat-gateway-stream] Duplicate request detected, skipping user log | session=' . $session_id );
+                $this->log_channel_gateway( 'debug', 'stream_duplicate_skipped', 'Duplicate ChatGateway stream request was skipped.', array( 'session_hash' => substr( hash( 'sha256', $session_id ), 0, 12 ) ) );
             } else {
                 set_transient( $lock_key, true, 15 );
             }
@@ -2421,7 +2412,7 @@ class BizCity_Chat_Gateway {
         $prepared = $this->prepare_llm_call($character_id, $message, $images, $session_id, $history_json, $user_id, $platform_type);
 
         if (isset($prepared['error'])) {
-            error_log('[chat-gateway-stream] prepare_llm_call error: ' . ($prepared['error']['message'] ?? 'unknown'));
+            $this->log_channel_gateway( 'error', 'prepare_llm_call_failed', 'ChatGateway could not prepare the LLM call.', array( 'error_present' => ! empty( $prepared['error']['message'] ), 'character_id' => $character_id ) );
             $this->send_stream_error($prepared['error']['message'] ?? 'Lỗi hệ thống');
             return;
         }
@@ -2474,8 +2465,8 @@ class BizCity_Chat_Gateway {
         if ( ! $stream_fn ) {
             // Fallback: non-streaming → single chunk
             $reply_data = ($character && !empty($character->model_id))
-                ? $this->call_openrouter($character, $openai_messages)
-                : $this->call_openai($openai_messages);
+                ? $this->call_openrouter($character, $openai_messages, $platform_type)
+                : $this->call_openai($openai_messages, $platform_type);
 
             $bot_reply = $reply_data['message'] ?? '';
             $this->send_stream_event('chunk', ['delta' => $bot_reply, 'full' => $bot_reply]);
@@ -2521,10 +2512,10 @@ class BizCity_Chat_Gateway {
         }
 
         // ── Stream via LLM Gateway ──
-        error_log('[chat-gateway-stream] Starting SSE | platform=' . $platform_type . ' | char=' . $character_id . ' | msgs=' . count($openai_messages));
+        $this->log_channel_gateway( 'info', 'sse_started', 'ChatGateway SSE stream started.', array( 'platform' => $platform_type, 'character_id' => $character_id, 'messages_count' => count( $openai_messages ) ) );
         $model_options = [
             'purpose'     => 'chat',
-            'max_tokens'  => $this->max_tokens_override ?: 3000,
+            'max_tokens'  => $this->effective_max_tokens( 3000, $platform_type ),
             'temperature' => ($character && isset($character->creativity_level))
                 ? floatval($character->creativity_level)
                 : 0.7,
@@ -2539,9 +2530,13 @@ class BizCity_Chat_Gateway {
             $model_options['model'] = $character->model_id;
         }
 
+        // [2026-08-01 Johnny Chu] PHASE-0.39 GURU-BIND — expose effective model/provider budget for channel verification.
         $this->emit_trace( 'llm_request', [
-            'model'          => $model_options['model'] ?? '',
-            'messages_count' => count( $openai_messages ),
+            'model_requested'  => $model_options['model'] ?? '',
+            'provider_requested' => $character && ! empty( $character->model_id ) ? 'model_override' : 'gateway_default',
+            'max_tokens'       => (int) $model_options['max_tokens'],
+            'platform'         => (string) $platform_type,
+            'messages_count'   => count( $openai_messages ),
         ] );
 
         $self = $this;
@@ -2563,7 +2558,7 @@ class BizCity_Chat_Gateway {
 
         $bot_reply = $stream_result['message'] ?? '';
         if (empty($stream_result['success'])) {
-            error_log('[chat-gateway-stream] Stream error: ' . ($stream_result['error'] ?? 'unknown') . ' | reply_len=' . strlen($bot_reply));
+            $this->log_channel_gateway( 'error', 'sse_failed', 'ChatGateway SSE stream failed.', array( 'error_present' => ! empty( $stream_result['error'] ), 'reply_len' => strlen( $bot_reply ), 'connection_aborted' => connection_aborted() ) );
             // If the stream failed (e.g. CURLE_WRITE_ERROR=23 from client disconnect)
             // but the LLM client recovered partial/full text, push it as a single chunk
             // so the reply is not silently lost.
@@ -2574,7 +2569,7 @@ class BizCity_Chat_Gateway {
                 ]);
             }
         } else {
-            error_log('[chat-gateway-stream] Stream OK | reply_len=' . strlen($bot_reply) . ' | model=' . ($stream_result['model'] ?? ''));
+            $this->log_channel_gateway( 'info', 'sse_completed', 'ChatGateway SSE stream completed.', array( 'reply_len' => strlen( $bot_reply ), 'model' => (string) ( $stream_result['model'] ?? '' ) ) );
         }
 
         $this->emit_trace( 'llm_stream_result', [
@@ -2584,6 +2579,8 @@ class BizCity_Chat_Gateway {
             'reply_len'       => strlen( (string) $bot_reply ),
             'model'           => $stream_result['model'] ?? '',
             'provider'        => $stream_result['provider'] ?? '',
+            'max_tokens'      => (int) $model_options['max_tokens'],
+            'platform'        => (string) $platform_type,
             'error'           => $stream_result['error'] ?? '',
         ] );
 
@@ -2671,7 +2668,7 @@ class BizCity_Chat_Gateway {
             }
             header( 'Content-Encoding: none' );
         } else {
-            error_log( '[chat-gateway-stream] Headers already sent before SSE stream.' );
+            $this->log_channel_gateway( 'warn', 'sse_headers_already_sent', 'ChatGateway SSE headers were already sent.', array() );
         }
 
         set_time_limit( 120 );
@@ -2819,8 +2816,39 @@ class BizCity_Chat_Gateway {
         }
 
         if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-            error_log( '[CHAT-GATEWAY-TRACE] ' . $stage . ' | ' . wp_json_encode( $data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) );
+            // [2026-08-01 Johnny Chu] PHASE-LOG-SPLIT — persist only scrubbed trace context in channel_gateway JSONL.
+            $this->log_channel_gateway( 'debug', 'trace_' . sanitize_key( $stage ), 'ChatGateway trace event.', $this->scrub_trace_context( $data ) );
         }
+    }
+
+    /**
+     * Keep trace logs useful without persisting request content or identifiers.
+     *
+     * @param array $data Trace context.
+     * @return array
+     */
+    private function scrub_trace_context( array $data ) {
+        // [2026-08-01 Johnny Chu] PHASE-LOG-SPLIT — redact sensitive trace values before file logging.
+        $safe = array();
+        foreach ( $data as $key => $value ) {
+            $key_string = (string) $key;
+            if ( preg_match( '/session|nonce|message|raw|body|content|prompt|query|goal|token|secret|password|authorization|phone|email/i', $key_string ) ) {
+                if ( is_string( $value ) ) {
+                    $safe[ $key_string . '_len' ] = function_exists( 'mb_strlen' ) ? mb_strlen( $value, 'UTF-8' ) : strlen( $value );
+                } else {
+                    $safe[ $key_string ] = '[redacted]';
+                }
+                continue;
+            }
+            if ( is_array( $value ) ) {
+                $safe[ $key_string ] = $this->scrub_trace_context( $value );
+            } elseif ( is_scalar( $value ) || null === $value ) {
+                $safe[ $key_string ] = $value;
+            } else {
+                $safe[ $key_string ] = '[omitted]';
+            }
+        }
+        return $safe;
     }
 
     /**
@@ -2979,8 +3007,8 @@ class BizCity_Chat_Gateway {
      * Routes through bizcity_llm_chat() which respects the configured
      * gateway mode and always logs through the LLM Router.
      * ================================================================ */
-    private function call_openai($messages) {
-        $max_tokens = $this->max_tokens_override ?: 3000;
+    private function call_openai( $messages, $platform_type = '' ) {
+        $max_tokens = $this->effective_max_tokens( 3000, $platform_type );
 
         if ( function_exists( 'bizcity_llm_chat' ) ) {
             $result = bizcity_llm_chat( $messages, [
@@ -2990,13 +3018,19 @@ class BizCity_Chat_Gateway {
             if ( ! empty( $result['success'] ) ) {
                 return $result;
             }
-            // Log but don't silently swallow the error
-            error_log( '[ChatGateway] bizcity_llm_chat error: ' . ( $result['error'] ?? 'unknown' ) );
+            // [2026-08-01 Johnny Chu] PHASE-LOG-SPLIT — keep gateway diagnostics in per-blog JSONL.
+            $this->log_channel_gateway( 'error', 'llm_chat_failed', 'ChatGateway LLM request failed.', array(
+                'provider'      => (string) ( $result['provider'] ?? 'gateway' ),
+                'model'         => (string) ( $result['model'] ?? '' ),
+                'error_present' => ! empty( $result['error'] ),
+            ) );
             return [
                 'message'  => $result['message'] ?? ( $result['error'] ?? 'Lỗi kết nối AI Gateway. Vui lòng thử lại.' ),
                 'provider' => $result['provider'] ?? 'gateway',
                 'model'    => $result['model'] ?? '',
                 'usage'    => $result['usage'] ?? [],
+                'ai_error' => $result['error'] ?? '',
+                'quota_exhausted' => ! empty( $result['quota_exhausted'] ),
             ];
         }
 
@@ -3010,8 +3044,8 @@ class BizCity_Chat_Gateway {
      * gateway mode and always logs through the LLM Router.
      * Falls back to call_openai() only when the gateway is unavailable.
      * ================================================================ */
-    private function call_openrouter($character, $messages) {
-        $max_tokens = $this->max_tokens_override ?: 3000;
+    private function call_openrouter( $character, $messages, $platform_type = '' ) {
+        $max_tokens = $this->effective_max_tokens( 3000, $platform_type );
 
         if ( function_exists( 'bizcity_llm_chat' ) ) {
             $result = bizcity_llm_chat( $messages, [
@@ -3023,8 +3057,12 @@ class BizCity_Chat_Gateway {
             if ( ! empty( $result['success'] ) ) {
                 return $result;
             }
-            // Gateway error → don't silently fallback to direct calls
-            error_log( '[ChatGateway] bizcity_llm_chat error: ' . ( $result['error'] ?? 'unknown' ) );
+            // [2026-08-01 Johnny Chu] PHASE-LOG-SPLIT — keep gateway diagnostics in per-blog JSONL.
+            $this->log_channel_gateway( 'error', 'llm_chat_failed', 'ChatGateway LLM request failed.', array(
+                'provider'      => (string) ( $result['provider'] ?? 'gateway' ),
+                'model'         => (string) ( $result['model'] ?? ( $character->model_id ?? '' ) ),
+                'error_present' => ! empty( $result['error'] ),
+            ) );
             // [2026-06-09 Johnny Chu] PHASE-D D-EMPTY-REPLY — use ?: so empty string also
             // falls through to the error message (not just null).
             $err_msg = $result['error'] ?: ( $result['message'] ?: 'Lỗi kết nối AI Gateway. Vui lòng thử lại.' );
@@ -3039,7 +3077,20 @@ class BizCity_Chat_Gateway {
         }
 
         // bizcity_llm_chat() not available → fallback to call_openai
-        return $this->call_openai( $messages );
+        return $this->call_openai( $messages, $platform_type );
+    }
+
+    /**
+     * Keep normal customer-channel chat requests below the provider budget.
+     */
+    private function effective_max_tokens( $default, $platform_type = '' ) {
+        // [2026-08-01 Johnny Chu] PHASE-0.39 GURU-BIND — cap Messenger/Zalo chat output at 4000 tokens.
+        $max_tokens = (int) ( $this->max_tokens_override ?: $default );
+        $customer_platforms = array( 'FACEBOOK', 'MESSENGER', 'FB_MESS', 'ZALO', 'ZALO_OA' );
+        if ( in_array( strtoupper( (string) $platform_type ), $customer_platforms, true ) ) {
+            $max_tokens = min( $max_tokens, 4000 );
+        }
+        return max( 1, $max_tokens );
     }
 
     /* ================================================================
@@ -3115,6 +3166,16 @@ class BizCity_Chat_Gateway {
     /**
      * Get default character ID
      */
+    // [2026-08-02 Johnny Chu] PHASE-TWIN-SURFACE-ISOLATION — resolve only an explicit WebChat channel binding; consumer traffic must not inherit legacy defaults.
+    private function get_webchat_bound_character_id() {
+        if ( ! class_exists( 'BizCity_Channel_Binding' ) ) {
+            return 0;
+        }
+
+        $binding = BizCity_Channel_Binding::resolve( 'WEBCHAT', (string) get_current_blog_id() );
+        return is_array( $binding ) ? max( 0, (int) ( $binding['character_id'] ?? 0 ) ) : 0;
+    }
+
     private function get_default_character_id() {
         // [2026-06-09 Johnny Chu] PHASE-D D-BINDING-RESOLVE — check channel binding table first.
         // If admin bound WEBCHAT → Connector via Channel tab, that binding wins over the legacy option.
@@ -3126,7 +3187,7 @@ class BizCity_Chat_Gateway {
             if ( is_array( $binding ) && ! empty( $binding['character_id'] ) ) {
                 $cid = (int) $binding['character_id'];
                 if ( $cid > 0 ) {
-                    error_log( '[ChatGateway] get_default_character_id: resolved from channel binding: character_id=' . $cid );
+                    $this->log_channel_gateway( 'info', 'default_character_resolved', 'ChatGateway resolved the default character from channel binding.', array( 'character_id' => $cid, 'platform' => 'WEBCHAT' ) );
                     return $cid;
                 }
             }
@@ -3148,6 +3209,41 @@ class BizCity_Chat_Gateway {
         }
 
         return $cid;
+    }
+
+    /**
+     * Write ChatGateway operational evidence to the per-blog Channel Gateway JSONL log.
+     *
+     * @param string $level
+     * @param string $event
+     * @param string $message
+     * @param array  $ctx
+     * @return void
+     */
+    private function log_channel_gateway( $level, $event, $message, array $ctx = array() ) {
+        // [2026-08-01 Johnny Chu] HOTFIX — load the canonical file logger lazily; an optional legacy logger must never fatal when its constant/API is absent.
+        if ( ! class_exists( 'BizCity_Channel_File_Logger' ) ) {
+            $logger_file = dirname( dirname( __DIR__ ) ) . '/channel-gateway/includes/class-channel-file-logger.php';
+            if ( is_readable( $logger_file ) ) {
+                require_once $logger_file;
+            }
+        }
+        if ( class_exists( 'BizCity_Channel_File_Logger' ) && method_exists( 'BizCity_Channel_File_Logger', 'write' ) ) {
+            BizCity_Channel_File_Logger::write( 'channel_gateway', $level, $event, $message, $ctx );
+            return;
+        }
+
+        if (
+            class_exists( 'BizCity_JSONL_File_Logger' )
+            && method_exists( 'BizCity_JSONL_File_Logger', 'write' )
+            && defined( 'BizCity_JSONL_File_Logger::CHANNEL_FOLDER' )
+        ) {
+            try {
+                BizCity_JSONL_File_Logger::write( BizCity_JSONL_File_Logger::CHANNEL_FOLDER, 'channel_gateway', $level, $event, $message, $ctx );
+            } catch ( \Throwable $e ) {
+                // Logging must not break character resolution or chat bootstrap.
+            }
+        }
     }
 
     /**

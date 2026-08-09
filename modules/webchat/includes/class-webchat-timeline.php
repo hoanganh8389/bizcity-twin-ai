@@ -251,7 +251,6 @@ class BizCity_WebChat_Timeline {
     public function get_linked_tools($task_id) {
         global $wpdb;
         $steps_table = $wpdb->prefix . 'bizcity_webchat_task_steps';
-        $tools_table = $wpdb->prefix . 'bizcity_webchat_tools';
         
         // Get tools used in task steps
         $tool_ids = $wpdb->get_col($wpdb->prepare(
@@ -265,19 +264,29 @@ class BizCity_WebChat_Timeline {
             return [];
         }
         
-        $placeholders = implode(',', array_fill(0, count($tool_ids), '%s'));
-        $tools = $wpdb->get_results($wpdb->prepare(
-            "SELECT * FROM {$tools_table} WHERE tool_id IN ({$placeholders})",
-            ...$tool_ids
-        ));
-        
-        return array_map(function($tool) {
-            return [
-                'id' => $tool->tool_id,
-                'name' => $tool->tool_name,
-                'icon' => $tool->tool_icon,
-                'type' => $tool->tool_type,
+        // [2026-07-31 Johnny Chu] PHASE-1.22-TOOL-CATALOG — read display metadata from the canonical unified registry.
+        if ( ! class_exists( 'BizCity_Tool_Registry' ) ) {
+            return [];
+        }
+
+        $tools = [];
+        foreach ( $tool_ids as $tool_id ) {
+            $tool_id = sanitize_key( $tool_id );
+            if ( $tool_id === '' ) {
+                continue;
+            }
+            $tool = BizCity_Tool_Registry::get( $tool_id );
+            if ( ! is_array( $tool ) ) {
+                continue;
+            }
+            $tools[] = [
+                'id'   => $tool_id,
+                'name' => (string) ( $tool['label'] ?? $tool_id ),
+                'icon' => (string) ( $tool['icon'] ?? '🔧' ),
+                'type' => (string) ( $tool['tool_type'] ?? 'atomic' ),
             ];
-        }, $tools);
+        }
+
+        return $tools;
     }
 }

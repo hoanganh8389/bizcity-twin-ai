@@ -1,0 +1,10 @@
+{
+  "contract": "channel-payload",
+  "version": "1.0.0",
+  "direction": "both",
+  "platform": "zalo",
+  "identity": {
+    "account_id": "bot_88"
+  },
+  "message": {}
+}

@@ -1,0 +1,211 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "catalog_id": "bizcity-twin-public-contracts",
+  "catalog_version": "1.0.0",
+  "namespace": "bizcity.twin.contracts.public.v1",
+  "semver_policy": "semver",
+  "stability": "stable",
+  "default_deprecation_policy": {
+    "grace_versions_min": 3,
+    "major_versions_supported": 1,
+    "notes": "Public contracts must keep backward compatibility for at least 3 minor releases before removal."
+  },
+  "compatibility_matrix": {
+    "framework_versions": [
+      "1.2.x",
+      "1.3.x"
+    ],
+    "contract_major_supported": [
+      "1"
+    ]
+  },
+  "contracts": [
+    {
+      "id": "event-envelope",
+      "version": "1.0.0",
+      "schema": "event-envelope.schema.json",
+      "fixtures": {
+        "valid": "fixtures/event-envelope.valid.json",
+        "invalid": "fixtures/event-envelope.invalid.json"
+      },
+      "compatibility": {
+        "producer": "1.x",
+        "consumer": "1.x"
+      },
+      "deprecation": {
+        "grace_versions": 3,
+        "status": "active"
+      }
+    },
+    {
+      "id": "tool-io-envelope",
+      "version": "1.0.0",
+      "schema": "tool-io-envelope.schema.json",
+      "fixtures": {
+        "valid": "fixtures/tool-io-envelope.valid.json",
+        "invalid": "fixtures/tool-io-envelope.invalid.json"
+      },
+      "compatibility": {
+        "producer": "1.x",
+        "consumer": "1.x"
+      },
+      "deprecation": {
+        "grace_versions": 3,
+        "status": "active"
+      }
+    },
+    {
+      "id": "mutation-contract",
+      "version": "1.0.0",
+      "schema": "mutation-contract.schema.json",
+      "fixtures": {
+        "valid": "fixtures/mutation-contract.valid.json",
+        "invalid": "fixtures/mutation-contract.invalid.json"
+      },
+      "compatibility": {
+        "producer": "1.x",
+        "consumer": "1.x"
+      },
+      "deprecation": {
+        "grace_versions": 3,
+        "status": "active"
+      }
+    },
+    {
+      "id": "citation-pack",
+      "version": "1.0.0",
+      "schema": "citation-pack.schema.json",
+      "fixtures": {
+        "valid": "fixtures/citation-pack.valid.json",
+        "invalid": "fixtures/citation-pack.invalid.json"
+      },
+      "compatibility": {
+        "producer": "1.x",
+        "consumer": "1.x"
+      },
+      "deprecation": {
+        "grace_versions": 3,
+        "status": "active"
+      }
+    },
+    {
+      "id": "error-envelope",
+      "version": "1.0.0",
+      "schema": "error-envelope.schema.json",
+      "fixtures": {
+        "valid": "fixtures/error-envelope.valid.json",
+        "invalid": "fixtures/error-envelope.invalid.json"
+      },
+      "compatibility": {
+        "producer": "1.x",
+        "consumer": "1.x"
+      },
+      "deprecation": {
+        "grace_versions": 3,
+        "status": "active"
+      }
+    },
+    {
+      "id": "sse-events",
+      "version": "1.0.0",
+      "schema": "sse-events.schema.json",
+      "fixtures": {
+        "valid": "fixtures/sse-events.valid.json",
+        "invalid": "fixtures/sse-events.invalid.json"
+      },
+      "compatibility": {
+        "producer": "1.x",
+        "consumer": "1.x"
+      },
+      "deprecation": {
+        "grace_versions": 3,
+        "status": "active"
+      }
+    },
+    {
+      "id": "permission-scopes",
+      "version": "1.0.0",
+      "schema": "permission-scopes.schema.json",
+      "fixtures": {
+        "valid": "fixtures/permission-scopes.valid.json",
+        "invalid": "fixtures/permission-scopes.invalid.json"
+      },
+      "compatibility": {
+        "producer": "1.x",
+        "consumer": "1.x"
+      },
+      "deprecation": {
+        "grace_versions": 3,
+        "status": "active"
+      }
+    },
+    {
+      "id": "workflow-json",
+      "version": "1.0.0",
+      "schema": "workflow-json.schema.json",
+      "fixtures": {
+        "valid": "fixtures/workflow-json.valid.json",
+        "invalid": "fixtures/workflow-json.invalid.json"
+      },
+      "compatibility": {
+        "producer": "1.x",
+        "consumer": "1.x"
+      },
+      "deprecation": {
+        "grace_versions": 3,
+        "status": "active"
+      }
+    },
+    {
+      "id": "kg-adapter-payload",
+      "version": "1.0.0",
+      "schema": "kg-adapter-payload.schema.json",
+      "fixtures": {
+        "valid": "fixtures/kg-adapter-payload.valid.json",
+        "invalid": "fixtures/kg-adapter-payload.invalid.json"
+      },
+      "compatibility": {
+        "producer": "1.x",
+        "consumer": "1.x"
+      },
+      "deprecation": {
+        "grace_versions": 3,
+        "status": "active"
+      }
+    },
+    {
+      "id": "channel-payload",
+      "version": "1.0.0",
+      "schema": "channel-payload.schema.json",
+      "fixtures": {
+        "valid": "fixtures/channel-payload.valid.json",
+        "invalid": "fixtures/channel-payload.invalid.json"
+      },
+      "compatibility": {
+        "producer": "1.x",
+        "consumer": "1.x"
+      },
+      "deprecation": {
+        "grace_versions": 3,
+        "status": "active"
+      }
+    },
+    {
+      "id": "runtime-execution-policy",
+      "version": "1.0.0",
+      "schema": "runtime-execution-policy.schema.json",
+      "fixtures": {
+        "valid": "fixtures/runtime-execution-policy.valid.json",
+        "invalid": "fixtures/runtime-execution-policy.invalid.json"
+      },
+      "compatibility": {
+        "producer": "1.x",
+        "consumer": "1.x"
+      },
+      "deprecation": {
+        "grace_versions": 3,
+        "status": "active"
+      }
+    }
+  ]
+}

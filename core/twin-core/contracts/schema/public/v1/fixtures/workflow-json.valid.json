@@ -1,0 +1,33 @@
+{
+  "contract": "workflow-json",
+  "version": "1.0.0",
+  "workflow": {
+    "workflow_id": "wf_12345678",
+    "name": "Daily post workflow",
+    "schema_version": "1.0.0",
+    "trigger": { "type": "cron", "schedule": "0 8 * * *" },
+    "nodes": [
+      {
+        "id": "n1",
+        "type": "trigger",
+        "data": { "blockId": "trigger.cron" },
+        "permissions": ["kg.read"],
+        "timeout_ms": 2000
+      },
+      {
+        "id": "n2",
+        "type": "action",
+        "data": { "blockId": "action.publish_fb_post" },
+        "permissions": ["content.publish"],
+        "timeout_ms": 4000
+      }
+    ],
+    "edges": [
+      {
+        "id": "e1",
+        "source": "n1",
+        "target": "n2"
+      }
+    ]
+  }
+}

@@ -42,6 +42,17 @@ class BizCity_TwinChat_Sources_Database {
 		return $wpdb->prefix . 'bizcity_webchat_source_chunks';
 	}
 
+	private function table_exists( $table_name ) {
+		// [2026-08-04 Johnny Chu] HOTFIX — fail closed for retired optional tables instead of issuing a guaranteed missing-table query.
+		if ( function_exists( 'bizcity_table_exists' ) ) {
+			return (bool) bizcity_table_exists( $table_name );
+		}
+		if ( function_exists( 'bizcity_tbl_exists' ) ) {
+			return (bool) bizcity_tbl_exists( $table_name );
+		}
+		return false;
+	}
+
 	/**
 	 * Phase 0.21 Wave 2 — canonical chunk table when "unified primary" flag ON.
 	 * Returns the table name we should READ from (and where new chunks land
@@ -285,10 +296,13 @@ class BizCity_TwinChat_Sources_Database {
 		// Hard delete from webchat_sources (no status column).
 		$wpdb->delete( $this->table_sources(), [ 'id' => $source_id ] );
 		// Delete chunks from BOTH legacy + canonical to avoid orphans across the toggle.
-		$wpdb->delete( $this->table_source_chunks(), [ 'source_id' => $source_id ] );
+		$legacy_tbl = $this->table_source_chunks();
+		if ( $this->table_exists( $legacy_tbl ) ) {
+			$wpdb->delete( $legacy_tbl, [ 'source_id' => $source_id ] );
+		}
 		if ( class_exists( 'BizCity_KG_Database' ) ) {
 			$kg_tbl = BizCity_KG_Database::instance()->tbl_source_chunks();
-			if ( $kg_tbl !== $this->table_source_chunks() ) {
+			if ( $kg_tbl !== $legacy_tbl && $this->table_exists( $kg_tbl ) ) {
 				$wpdb->delete( $kg_tbl, [ 'source_id' => $source_id ] );
 			}
 		}
@@ -315,13 +329,16 @@ class BizCity_TwinChat_Sources_Database {
 		$ids = array_map( 'intval', $ids );
 		$ph  = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
 		// Delete chunks via JOIN-friendly IN list — clean BOTH legacy and canonical.
-		$wpdb->query( $wpdb->prepare(
-			"DELETE FROM {$this->table_source_chunks()} WHERE source_id IN ({$ph})",
-			$ids
-		) );
+		$legacy_tbl = $this->table_source_chunks();
+		if ( $this->table_exists( $legacy_tbl ) ) {
+			$wpdb->query( $wpdb->prepare(
+				"DELETE FROM {$legacy_tbl} WHERE source_id IN ({$ph})",
+				$ids
+			) );
+		}
 		if ( class_exists( 'BizCity_KG_Database' ) ) {
 			$kg_tbl = BizCity_KG_Database::instance()->tbl_source_chunks();
-			if ( $kg_tbl !== $this->table_source_chunks() ) {
+			if ( $kg_tbl !== $legacy_tbl && $this->table_exists( $kg_tbl ) ) {
 				$wpdb->query( $wpdb->prepare(
 					"DELETE FROM {$kg_tbl} WHERE source_id IN ({$ph})",
 					$ids
@@ -408,10 +425,16 @@ class BizCity_TwinChat_Sources_Database {
 
 			$ok = $wpdb->insert( $kg_tbl, $row );
 			if ( ! $ok ) {
+				// [2026-08-04 Johnny Chu] HOTFIX — expose the canonical SQL failure bucket without leaking SQL or credentials.
+				$db_error = trim( preg_replace( '/\s+/', ' ', (string) $wpdb->last_error ) );
+				if ( strlen( $db_error ) > 180 ) {
+					$db_error = substr( $db_error, 0, 180 );
+				}
 				if ( class_exists( 'BizCity_Twin_Debug' ) ) {
 					BizCity_Twin_Debug::trace( 'kg', 'twinchat_unified_insert_failed', [
 						'source_id' => $source_id,
-						'error'     => $wpdb->last_error,
+						'reason'    => 'kg_chunk_sql_insert_failed',
+						'error'     => $db_error,
 					] );
 				}
 				return 0;
@@ -424,24 +447,23 @@ class BizCity_TwinChat_Sources_Database {
 				// [2026-07-24 Johnny Chu] PHASE-0.46-FILE-BODY — canonical chunk content is scrubbed only after a verified file write.
 				$file_result = BizCity_KG_Source_Body_File_Store::write_chunk( $notebook_id, $chunk_id, $content );
 				if ( is_wp_error( $file_result ) ) {
+					// [2026-08-04 Johnny Chu] HOTFIX — distinguish body filestore failure from canonical SQL failure.
+					if ( class_exists( 'BizCity_Twin_Debug' ) ) {
+						BizCity_Twin_Debug::trace( 'kg', 'twinchat_unified_insert_failed', [
+							'source_id' => $source_id,
+							'chunk_id'  => $chunk_id,
+							'reason'    => 'kg_chunk_body_file_failed',
+							'error'     => $file_result->get_error_code(),
+						] );
+					}
 					$wpdb->delete( $kg_tbl, [ 'id' => $chunk_id ] );
 					return 0;
 				}
 				$wpdb->update( $kg_tbl, [ 'content' => '' ], [ 'id' => $chunk_id ] );
 			}
 
-			// Phase 0.21 Wave 2 — push embedding to .bin file store.
-			if ( $chunk_id > 0 && $notebook_id > 0 && is_array( $emb ) && ! empty( $emb )
-				&& class_exists( 'BizCity_KG_Embedding_Writer' ) ) {
-				$vector_result = BizCity_KG_Embedding_Writer::instance()->register_chunk(
-					$notebook_id, $chunk_id, $emb, null, $source_id
-				);
-				if ( is_wp_error( $vector_result ) ) {
-					$wpdb->delete( $kg_tbl, [ 'id' => $chunk_id ] );
-					return 0;
-				}
-			}
-
+			// [2026-08-04 Johnny Chu] HOTFIX — vector registration belongs to the
+			// canonical passage promotion, not this preliminary chunk insert.
 			return $chunk_id;
 		}
 

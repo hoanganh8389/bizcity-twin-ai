@@ -266,3 +266,57 @@ if ( ! interface_exists( 'BizCity_Agent_Interface' ) ) {
 		public function run( $input, array $context = [] );
 	}
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * 6. Security capability guard contract
+ * ──────────────────────────────────────────────────────────────────────── */
+
+if ( ! interface_exists( 'BizCity_Capability_Guard_Interface' ) ) {
+
+	/**
+	 * Public contract for least-privilege permission enforcement.
+	 *
+	 * Stable since: 1.1.0
+	 */
+	interface BizCity_Capability_Guard_Interface {
+
+		/**
+		 * [2026-07-30 Johnny Chu] PHASE-1.22-SEC — permission check contract.
+		 *
+		 * @param string              $scope   e.g. `kg.read`, `content.publish`.
+		 * @param array<string,mixed> $context tenant/site/user/action context.
+		 * @return bool
+		 */
+		public function can( $scope, array $context = [] );
+
+		/**
+		 * Resolve scope level for tenant isolation checks.
+		 *
+		 * @param string $scope
+		 * @return string one of `tenant|site|user|none`.
+		 */
+		public function scope_level( $scope );
+	}
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * 7. Runtime execution policy contract
+ * ──────────────────────────────────────────────────────────────────────── */
+
+if ( ! interface_exists( 'BizCity_Runtime_Policy_Interface' ) ) {
+
+	/**
+	 * Public contract for runtime reliability policy used by tools/channels.
+	 *
+	 * Stable since: 1.1.0
+	 */
+	interface BizCity_Runtime_Policy_Interface {
+
+		/**
+		 * [2026-07-30 Johnny Chu] PHASE-1.22-RUNTIME — runtime contract provider.
+		 *
+		 * @return array<string,mixed> idempotency/retry/dlq/lock/circuit policy.
+		 */
+		public function policy();
+	}
+}

@@ -47,6 +47,19 @@ final class BizCity_MCP_Admin_REST {
 			'callback'            => array( __CLASS__, 'list_logs' ),
 			'permission_callback' => $permission,
 		) );
+		// [2026-07-30 Johnny Chu] PHASE-0.54-MCP Wave Q — admin allowlist catalog for the MCP Access settings screen.
+		register_rest_route( self::NS, '/mcp/tools', array(
+			array(
+				'methods'             => WP_REST_Server::READABLE,
+				'callback'            => array( __CLASS__, 'list_tools' ),
+				'permission_callback' => $permission,
+			),
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( __CLASS__, 'update_tools' ),
+				'permission_callback' => $permission,
+			),
+		) );
 	}
 
 	public static function can_manage() {
@@ -150,8 +163,35 @@ final class BizCity_MCP_Admin_REST {
 		if ( defined( 'BIZCITY_MCP_REPORT_TOOLS_ENABLED' ) && BIZCITY_MCP_REPORT_TOOLS_ENABLED ) {
 			$allowed[] = 'report.read';
 		}
+		// [2026-07-30 Johnny Chu] PHASE-0.54-MCP Wave R — commerce.read is read-only WooCommerce data and opt-in with the bridge wave.
+		if ( defined( 'BIZCITY_MCP_COMMERCE_TOOLS_ENABLED' ) && BIZCITY_MCP_COMMERCE_TOOLS_ENABLED ) {
+			$allowed[] = 'commerce.read';
+		}
 		$scopes  = array_values( array_unique( array_filter( array_map( 'sanitize_text_field', (array) $raw ) ) ) );
 		return array_values( array_intersect( $scopes, $allowed ) );
+	}
+
+	public static function list_tools( WP_REST_Request $request ) {
+		// [2026-07-30 Johnny Chu] PHASE-0.54-MCP Wave Q — full tool catalog + current admin policy state for the checkbox UI.
+		if ( ! class_exists( 'BizCity_MCP_Tool_Registry' ) ) {
+			return rest_ensure_response( array( 'success' => true, 'tools' => array(), '_degraded' => true ) );
+		}
+		return rest_ensure_response( array( 'success' => true, 'tools' => BizCity_MCP_Tool_Registry::catalog_for_settings() ) );
+	}
+
+	public static function update_tools( WP_REST_Request $request ) {
+		// [2026-07-30 Johnny Chu] PHASE-0.54-MCP Wave Q — persist the admin's enabled-tool selection; unknown tool names are silently dropped.
+		if ( ! class_exists( 'BizCity_MCP_Tool_Registry' ) || ! class_exists( 'BizCity_MCP_Tool_Policy' ) ) {
+			return self::error( 'module_not_loaded', 'MCP tool registry chưa sẵn sàng.', 'Kiểm tra Diagnostics → core.mcp.gateway rồi thử lại.', 'module_not_loaded', 500 );
+		}
+		$enabled = $request->get_param( 'enabled_tools' );
+		if ( ! is_array( $enabled ) ) {
+			return self::error( 'invalid_param', 'Thiếu danh sách enabled_tools.', 'Gửi mảng enabled_tools (tên các tool được bật) rồi thử lại.', 'invalid_param_generic', 400 );
+		}
+		$enabled = array_map( 'sanitize_text_field', $enabled );
+		$all     = BizCity_MCP_Tool_Registry::all_registered_tool_names();
+		$saved   = BizCity_MCP_Tool_Policy::save( $enabled, $all );
+		return rest_ensure_response( array( 'success' => true, 'tools' => BizCity_MCP_Tool_Registry::catalog_for_settings(), 'saved_count' => count( array_filter( $saved ) ) ) );
 	}
 
 	private static function present_key( $row ) {

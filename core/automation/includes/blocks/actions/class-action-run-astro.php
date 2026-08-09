@@ -87,18 +87,7 @@ final class BizCity_Automation_Action_Run_Astro extends BizCity_Automation_Block
 		/* ── 1. Resolve user_id → coachee_id ──────────────────────────── */
 		// [2026-07-17 Johnny Chu] PHASE-TWINWEB F4 — owner continuity: resolve from canonical owner chain only.
 		$user_id = $this->resolve_owner_user_id( $ctx, 0 );
-
-		// [2026-07-21 Johnny Chu] PHASE-ASTRO-WORKFLOW v1.13 — when chat_id is a Zalo Bot identity key,
-		// resolve the actual sender's wp_user_id. The owner chain carries wf.created_by (admin) when
-		// the UCL envelope arrives with wp_user_id=0 (unresolved) and enqueue_and_optionally_run fills
-		// _owner_user_id = wf.created_by as fallback. Natal/profile lookups MUST use the actual sender.
-		if ( $chat_id !== '' && strpos( $chat_id, 'zalobot_' ) === 0 && class_exists( 'BizCity_User_Resolver' ) ) {
-			$zalo_resolved_user_id = (int) BizCity_User_Resolver::instance()->resolve( $chat_id );
-			if ( $zalo_resolved_user_id > 0 && $zalo_resolved_user_id !== $user_id ) {
-				error_log( '[bizcity-automation][run_astro] chat_id_resolver: chat_id=' . $chat_id . ' owner_chain_user=' . $user_id . ' → override to zalo_resolved=' . $zalo_resolved_user_id );
-				$user_id = $zalo_resolved_user_id;
-			}
-		}
+		// [2026-08-01 Johnny Chu] PHASE-TWINWEB F4 — Astro ownership must never be overridden by chat_id identity resolution.
 
 		// [2026-07-03 Johnny Chu] PHASE-ASTRO-WORKFLOW — direct coachee lookup từ user_id.
 		// Bypass TwinBrain name-extract LLM khi đã có user_id từ Zalo link.

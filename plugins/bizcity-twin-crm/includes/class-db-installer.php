@@ -1872,6 +1872,7 @@ class BizCity_CRM_DB_Installer_V2 {
 			bizcity_tbl_invalidate( $sub );
 		}
 	}
+
 }
 
 endif; // class_exists BizCity_CRM_DB_Installer_V2

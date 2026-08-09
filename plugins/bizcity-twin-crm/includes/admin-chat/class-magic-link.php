@@ -128,6 +128,13 @@ class BizCity_CRM_Magic_Link {
 			return new WP_Error( 'bizcity_crm_magic_link_not_found', 'Link không hợp lệ.' );
 		}
 		if ( ! empty( $row['consumed_at'] ) ) {
+			// [2026-08-01 Johnny Chu] HOTFIX-ZALOBOT-LINK — make a retry by the
+			// same authenticated user idempotent after a successful consume.
+			$current_user_id = function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : 0;
+			if ( $current_user_id > 0 && (int) ( $row['user_id'] ?? 0 ) === $current_user_id ) {
+				$row['_already_consumed_by_current_user'] = true;
+				return $row;
+			}
 			return new WP_Error( 'bizcity_crm_magic_link_consumed', 'Link đã được sử dụng rồi.' );
 		}
 		if ( strtotime( $row['expires_at'] . ' UTC' ) < time() ) {

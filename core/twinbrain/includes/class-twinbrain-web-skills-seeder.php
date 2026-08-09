@@ -283,6 +283,10 @@ final class BizCity_TwinBrain_Web_Skills_Seeder {
 		}
 
 		foreach ( self::definitions() as $def ) {
+			// [2026-08-02 Johnny Chu] PHASE-SKILLS-JOURNAL — web-research
+			// prompts belong to the runtime registry, not the Journal tree.
+			$def['visibility']    = 'runtime';
+			$def['source_module'] = 'core-twinbrain-web-research';
 			$id = $db->upsert( $def );
 			if ( $id ) {
 				$result['seeded']++;

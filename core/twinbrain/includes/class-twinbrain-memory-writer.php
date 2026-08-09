@@ -72,17 +72,33 @@ final class BizCity_TwinBrain_Memory_Writer {
 		$user_id    = (int)    ( $ctx['user_id']    ?? get_current_user_id() );
 		$session_id = (string) ( $ctx['session_id'] ?? '' );
 		$enable_llm = ! isset( $ctx['enable_llm'] ) || (bool) $ctx['enable_llm'];
-		$identity_context = class_exists( 'BizCity_Identity_Hub' )
-			? BizCity_Identity_Hub::resolve_from_opts( $ctx, (int) get_current_blog_id() )
-			: null;
-		// [2026-07-28 Johnny Chu] R-CH-IDMEM — anonymous memory requires a hub-verified canonical UUID.
-		$identity_verified = is_array( $identity_context ) && ! empty( $identity_context['identity_uuid'] );
-		$identity_uuid = is_array( $identity_context )
-			? (string) ( $identity_context['identity_uuid'] ?? '' )
-			: trim( (string) ( $ctx['identity_uuid'] ?? '' ) );
-		$identity_is_stable = $user_id > 0 || ! empty( $ctx['identity_is_stable'] );
-		if ( is_array( $identity_context ) && isset( $identity_context['binding']['is_stable'] ) ) {
-			$identity_is_stable = ! empty( $identity_context['binding']['is_stable'] );
+		// [2026-08-01 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G1 — normalize the goal
+		// state once at the memory boundary so future Twin Loop persistence can
+		// consume one contract without creating a second memory owner.
+		$goal_loop = (array) ( $ctx['goal_loop'] ?? array() );
+		if ( class_exists( 'BizCity_TwinBrain_Goal_Loop_State' ) && ! empty( $goal_loop ) ) {
+			$goal_loop = BizCity_TwinBrain_Goal_Loop_State::normalize( $goal_loop );
+			$ctx['goal_loop'] = $goal_loop;
+		}
+		// [2026-08-03 Johnny Chu] R-TGL-CS — preserve case provenance on every
+		// durable memory row created during a Goal Loop turn.
+		$memory_scope = sanitize_key( (string) ( $ctx['memory_scope'] ?? $goal_loop['memory_scope'] ?? '' ) );
+		$case_id      = sanitize_text_field( (string) ( $ctx['case_id'] ?? $goal_loop['case_id'] ?? '' ) );
+		$subject_key  = sanitize_text_field( (string) ( $ctx['subject_key'] ?? $goal_loop['subject_key'] ?? '' ) );
+		$ctx['memory_scope'] = $memory_scope;
+		$ctx['case_id']      = $case_id;
+		$ctx['subject_key']  = $subject_key;
+		// [2026-08-01 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G1 — use the shared
+		// identity scope here; calling Identity_Hub::resolve_from_opts() directly
+		// bypassed the explicit guest-bind path for channel-native customers.
+		$identity_scope = class_exists( 'BizCity_Memory_Identity_Scope' )
+			? BizCity_Memory_Identity_Scope::resolve( $ctx )
+			: array();
+		$identity_verified = ! empty( $identity_scope['identity_verified'] );
+		$identity_uuid = (string) ( $identity_scope['identity_uuid'] ?? $ctx['identity_uuid'] ?? '' );
+		$identity_is_stable = ! empty( $identity_scope['identity_is_stable'] ) || $user_id > 0;
+		if ( isset( $identity_scope['user_id'] ) ) {
+			$user_id = (int) $identity_scope['user_id'];
 		}
 
 		// [2026-07-28 Johnny Chu] R-CH-IDMEM — soft anonymous sessions cannot become durable memory owners.
@@ -91,6 +107,7 @@ final class BizCity_TwinBrain_Memory_Writer {
 			do_action( 'bizcity_twinbrain_memory_no_owner', $trace_id, array(
 				'user_id'          => $user_id,
 				'session_id'       => $session_id,
+				'identity_guest_bind' => ! empty( $ctx['identity_guest_bind'] ),
 				'channel'          => (string) ( $ctx['channel'] ?? '' ),
 				'platform'         => (string) ( $ctx['platform'] ?? '' ),
 				'account_id'       => (string) ( $ctx['account_id'] ?? '' ),
@@ -140,6 +157,10 @@ final class BizCity_TwinBrain_Memory_Writer {
 						'source'   => 'twinbrain.writer.mode1',
 						'trace_id' => $trace_id,
 						'match'    => $cand['match'] ?? '',
+							'goal_loop' => $this->goal_loop_metadata( $goal_loop, $ctx ),
+							'memory_scope' => $memory_scope,
+							'case_id'      => $case_id,
+							'subject_key'  => $subject_key,
 					] ),
 				] );
 				$ops[] = [
@@ -178,6 +199,10 @@ final class BizCity_TwinBrain_Memory_Writer {
 							'source'   => 'twinbrain.writer.mode2',
 							'trace_id' => $trace_id,
 							'model'    => (string) ( $llm_out['model'] ?? '' ),
+							'goal_loop' => $this->goal_loop_metadata( $goal_loop, $ctx ),
+							'memory_scope' => $memory_scope,
+							'case_id'      => $case_id,
+							'subject_key'  => $subject_key,
 						] ),
 					] );
 					$ops[] = [
@@ -260,6 +285,30 @@ final class BizCity_TwinBrain_Memory_Writer {
 		if ( preg_match( '/\b(mục tiêu|muốn|goal|kpi|đạt|đích)\b/u', $l ) )       return 'goal';
 		if ( preg_match( '/\b(xưng|gọi|address|tone|giọng)\b/u', $l ) )            return 'preference';
 		return 'request';
+	}
+	
+	/**
+	 * Keep only the goal-loop fields useful for memory provenance.
+	 *
+	 * @param array $goal_loop Normalized goal-loop state.
+	 * @return array
+	 */
+	private function goal_loop_metadata( array $goal_loop, array $ctx = array() ): array {
+		if ( empty( $goal_loop ) ) {
+			return array();
+		}
+		return array(
+			'goal_id'          => (string) ( $goal_loop['goal_id'] ?? '' ),
+			'primary_goal'     => (string) ( $goal_loop['primary_goal'] ?? '' ),
+			'user_intent_current' => (string) ( $goal_loop['user_intent_current'] ?? '' ),
+			'status'           => (string) ( $goal_loop['status'] ?? 'clarifying' ),
+			'completion_score' => (float) ( $goal_loop['completion_score'] ?? 0 ),
+			'open_loops'       => (array) ( $goal_loop['open_loops'] ?? array() ),
+			'next_best_action' => $goal_loop['next_best_action'] ?? null,
+			'memory_scope'     => sanitize_key( (string) ( $ctx['memory_scope'] ?? $goal_loop['memory_scope'] ?? '' ) ),
+			'case_id'          => sanitize_text_field( (string) ( $ctx['case_id'] ?? $goal_loop['case_id'] ?? '' ) ),
+			'subject_key'      => sanitize_text_field( (string) ( $ctx['subject_key'] ?? $goal_loop['subject_key'] ?? '' ) ),
+		);
 	}
 
 	private function empty_result( float $t0, string $reason, string $llm_status = 'skipped' ): array {

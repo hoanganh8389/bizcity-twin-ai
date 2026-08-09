@@ -210,7 +210,9 @@ class BizCity_CF7_Response_Config {
 			if ( $new_sender !== $old_sender ) {
 				// [2026-07-17 Johnny Chu] HOTFIX — normalize invalid/unresolved sender.
 				$components['sender'] = $new_sender;
-				error_log( '[bizcity-cf7] sender_sanitized form_id=' . $form_id );
+				if ( class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
+					BizCity_JSONL_File_Logger::write( BizCity_JSONL_File_Logger::CRM_FOLDER, 'cf7', 'info', 'cf7_sender_sanitized', 'CF7 sender was sanitized.', array( 'form_id' => $form_id ) );
+				}
 			}
 		}
 
@@ -220,7 +222,9 @@ class BizCity_CF7_Response_Config {
 			if ( $new_recipient !== $old_recipient ) {
 				// [2026-07-17 Johnny Chu] HOTFIX — normalize invalid/unresolved recipient list.
 				$components['recipient'] = $new_recipient;
-				error_log( '[bizcity-cf7] recipient_sanitized form_id=' . $form_id );
+				if ( class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
+					BizCity_JSONL_File_Logger::write( BizCity_JSONL_File_Logger::CRM_FOLDER, 'cf7', 'info', 'cf7_recipient_sanitized', 'CF7 recipient was sanitized.', array( 'form_id' => $form_id ) );
+				}
 			}
 		}
 
@@ -230,7 +234,9 @@ class BizCity_CF7_Response_Config {
 			if ( $new_subject !== $old_subject ) {
 				// [2026-07-17 Johnny Chu] HOTFIX — auto-fix unresolved subject tags.
 				$components['subject'] = $new_subject;
-				error_log( '[bizcity-cf7] subject_sanitized form_id=' . $form_id . ' old=' . self::truncate_text( $old_subject, 120 ) . ' new=' . self::truncate_text( $new_subject, 120 ) );
+				if ( class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
+					BizCity_JSONL_File_Logger::write( BizCity_JSONL_File_Logger::CRM_FOLDER, 'cf7', 'info', 'cf7_subject_sanitized', 'CF7 subject was sanitized.', array( 'form_id' => $form_id, 'old_len' => strlen( $old_subject ), 'new_len' => strlen( $new_subject ) ) );
+				}
 			}
 		}
 
@@ -241,7 +247,9 @@ class BizCity_CF7_Response_Config {
 				// [2026-07-17 Johnny Chu] HOTFIX — drop unresolved header lines
 				// (e.g. Reply-To: [your-email] when field does not exist).
 				$components['additional_headers'] = $new_headers;
-				error_log( '[bizcity-cf7] headers_sanitized form_id=' . $form_id );
+				if ( class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
+					BizCity_JSONL_File_Logger::write( BizCity_JSONL_File_Logger::CRM_FOLDER, 'cf7', 'info', 'cf7_headers_sanitized', 'CF7 mail headers were sanitized.', array( 'form_id' => $form_id ) );
+				}
 			}
 		}
 
@@ -520,10 +528,14 @@ class BizCity_CF7_Response_Config {
 		}
 
 		if ( $removed > 0 ) {
-			error_log( '[bizcity-cf7] unresolved_header_removed form_id=' . (int) $form_id . ' removed=' . $removed );
+			if ( class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
+				BizCity_JSONL_File_Logger::write( BizCity_JSONL_File_Logger::CRM_FOLDER, 'cf7', 'warn', 'cf7_unresolved_header_removed', 'Unresolved CF7 mail headers were removed.', array( 'form_id' => (int) $form_id, 'removed' => $removed ) );
+			}
 		}
 		if ( $updated > 0 ) {
-			error_log( '[bizcity-cf7] header_value_sanitized form_id=' . (int) $form_id . ' updated=' . $updated );
+			if ( class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
+				BizCity_JSONL_File_Logger::write( BizCity_JSONL_File_Logger::CRM_FOLDER, 'cf7', 'info', 'cf7_header_value_sanitized', 'CF7 mail header values were sanitized.', array( 'form_id' => (int) $form_id, 'updated' => $updated ) );
+			}
 		}
 
 		return implode( "\n", $clean );

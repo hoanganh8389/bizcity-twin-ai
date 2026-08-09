@@ -71,11 +71,11 @@ add_action( 'init', function () {
         return;
     }
 
-    $sync_ctx =
-        is_admin()
-        || ( defined( 'DOING_CRON' ) && DOING_CRON )
-        || ( defined( 'WP_CLI' ) && WP_CLI )
-        || ( defined( 'REST_REQUEST' ) && REST_REQUEST );
+    // [2026-08-04 Johnny Chu] HOTFIX-MASTER-CONFIG-LATENCY — keep the periodic
+    // Hub refresh off synchronous admin and REST requests; those paths read the
+    // persisted config and can still request an explicit force refresh.
+    $sync_ctx = ( defined( 'DOING_CRON' ) && DOING_CRON )
+        || ( defined( 'WP_CLI' ) && WP_CLI );
 
     if ( ! $sync_ctx ) {
         return;
@@ -104,7 +104,7 @@ add_action( 'rest_api_init', function () {
  *   @type string $model       Override model ID.
  *   @type string $purpose     'chat'|'vision'|'code'|'fast'|'router'|'planner'|'executor' etc.
  *   @type float  $temperature Default 0.7.
- *   @type int    $max_tokens  Default 3000.
+ *   @type int    $max_tokens  Default 16000.
  *   @type int    $timeout     Timeout in seconds.
  *   @type array  $extra_body  Extra params merged into the API body.
  * }

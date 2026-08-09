@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bizcity.vn/schema/twin/contracts/v1/sse-events.schema.json",
+  "title": "BizCity Twin Streaming SSE Event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "version",
+    "stream_id",
+    "trace_id",
+    "sequence",
+    "event",
+    "created_at",
+    "data"
+  ],
+  "properties": {
+    "contract": { "const": "sse-events" },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$" },
+    "stream_id": { "type": "string", "minLength": 8, "maxLength": 120 },
+    "trace_id": { "type": "string", "minLength": 8, "maxLength": 128 },
+    "sequence": { "type": "integer", "minimum": 0 },
+    "event": { "enum": ["token", "twin_event", "progress", "tool_start", "tool_end", "citation", "complete", "error"] },
+    "created_at": { "type": "string", "format": "date-time" },
+    "data": { "type": "object" }
+  }
+}

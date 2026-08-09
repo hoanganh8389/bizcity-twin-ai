@@ -691,7 +691,7 @@ class BizCity_Trace_Store {
 	/**
 	 * Purge traces older than $days.
 	 */
-	public function purge( int $days = 90 ): int {
+	public function purge( int $days = 7 ): int { // [2026-08-01 Johnny Chu] PHASE-1.28-RETENTION-7D — keep intent trace rows for one week.
 		$this->ensure_tables();
 		global $wpdb;
 

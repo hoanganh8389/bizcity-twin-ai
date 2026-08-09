@@ -1,0 +1,26 @@
+{
+  "contract": "tool-io-envelope",
+  "version": "1.0.0",
+  "trace_id": "trace_tool_123456",
+  "tool": {
+    "id": "reference.echo",
+    "call_id": "call_12345678",
+    "permissions_requested": ["kg.read"]
+  },
+  "input": {
+    "text": "hello"
+  },
+  "output": {
+    "text": "hello"
+  },
+  "status": "success",
+  "timing": {
+    "started_at": "2026-07-30T12:00:00Z",
+    "finished_at": "2026-07-30T12:00:01Z",
+    "duration_ms": 400
+  },
+  "approval": {
+    "required": false,
+    "state": "not_required"
+  }
+}

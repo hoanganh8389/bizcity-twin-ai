@@ -147,6 +147,10 @@ final class BizCity_Automation_Action_Trending_Research extends BizCity_Automati
 		);
 		$platforms = array_values( array_intersect( $platforms, self::PLATFORM_OPTIONS ) );
 		if ( empty( $platforms ) ) { $platforms = array( 'web' ); }
+		// [2026-08-02 Johnny Chu] HOTFIX-TRENDING-RESILIENCE — TikTok is an optional enrichment source; daily reports must retain Tavily/Web results when TikTok times out.
+		if ( $scope === '1d' && count( $platforms ) > 2 && in_array( 'web', $platforms, true ) ) {
+			$platforms = array_values( array_intersect( array( 'web', 'reddit' ), $platforms ) );
+		}
 
 		// --- L0: Topic Resolution (entity detection + query expansion) -------
 		$query_plan = $this->build_query_plan( $topic, $scope, $language );
@@ -371,12 +375,13 @@ final class BizCity_Automation_Action_Trending_Research extends BizCity_Automati
 		if ( ! $client->is_ready() ) { return array(); }
 
 		$results = array();
-		// [2026-06-25 Johnny Chu] PHASE-TRENDING W1 FIX — BizCity_Search_Client::search() returns flat array, NOT ['results'=>[...]].
-		// Use the first 2 expanded queries (token-budget aware)
-		foreach ( array_slice( $plan['search_queries'], 0, 2 ) as $q ) {
-			$resp = $client->search( $q, 6, array(
+		// [2026-08-02 Johnny Chu] HOTFIX-TRENDING-DEADLINE — one focused Tavily query keeps the daily workflow inside the Zalo request budget; fallback queries are for no-hit cases only.
+		$queries = array_slice( $plan['search_queries'], 0, 1 );
+		foreach ( $queries as $q ) {
+            $resp = $client->search( $q, 6, array(
 				'include_answer' => false,
 				'topic'          => 'news',
+				'timeout'        => 12,
 			) );
 			if ( is_wp_error( $resp ) ) {
 				$this->mark_platform_error( 'web', $this->classify_wp_error_bucket( $resp ), $resp->get_error_message() );
@@ -398,6 +403,27 @@ final class BizCity_Automation_Action_Trending_Research extends BizCity_Automati
 					'engagement' => 0,   // web has no engagement signal
 					'source'     => 'web',
 				);
+			}
+		}
+		if ( empty( $results ) && ! empty( $plan['search_queries'][1] ) ) {
+			$resp = $client->search( (string) $plan['search_queries'][1], 6, array(
+				'include_answer' => false,
+				'topic'          => 'news',
+				'timeout'        => 8,
+			) );
+			if ( is_array( $resp ) ) {
+				$items = isset( $resp['results'] ) ? $resp['results'] : $resp;
+				foreach ( $items as $r ) {
+					if ( ! is_array( $r ) || empty( $r['url'] ) ) { continue; }
+					$results[] = array(
+						'url'        => (string) ( $r['url'] ?? '' ),
+						'title'      => (string) ( $r['title'] ?? '' ),
+						'snippet'    => (string) ( $r['content'] ?? $r['excerpt'] ?? '' ),
+						'score'      => (float) ( $r['score'] ?? 0.5 ),
+						'engagement' => 0,
+						'source'     => 'web',
+					);
+				}
 			}
 		}
 		if ( empty( $results ) ) {
@@ -534,8 +560,9 @@ final class BizCity_Automation_Action_Trending_Research extends BizCity_Automati
 
 		// [2026-06-25 Johnny Chu] PHASE-TRENDING W1 FIX — use flat array return + is_wp_error guard.
 		// Use Tavily web search targeting tiktok.com
-		$resp = $client->search( 'site:tiktok.com ' . $plan['search_queries'][0], 5, array(
+        $resp = $client->search( 'site:tiktok.com ' . $plan['search_queries'][0], 5, array(
 			'include_answer' => false,
+			'timeout'        => 8,
 		) );
 
 		if ( is_wp_error( $resp ) ) {

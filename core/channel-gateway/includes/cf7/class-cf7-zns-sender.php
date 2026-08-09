@@ -48,8 +48,8 @@ class BizCity_CF7_ZNS_Sender {
 	public static function dispatch( $form_id, $phone, array $mapped ) {
 		// [2026-06-25 Johnny Chu] PHASE-CG-CF7-ZNS — orchestrate
 
-		// [2026-06-25 Johnny Chu] PHASE-CG-CF7-ZNS DEBUG — verbose error_log for diagnosing send failures
-		error_log( '[bizcity-zns] dispatch() START form_id=' . $form_id . ' phone=' . self::mask_phone( (string) $phone ) . ' mapped_keys=' . implode( ',', array_keys( $mapped ) ) );
+		// [2026-07-31 Johnny Chu] PHASE-CRM-LOG-SPLIT — ZNS operational evidence belongs in CRM JSONL.
+		self::crm_log( 'zns_dispatch_start', 'info', 'ZNS dispatch started.', $form_id, array( 'phone_present' => (string) $phone !== '', 'mapped_key_count' => count( $mapped ) ) );
 
 		$result = array( 'sent' => false, 'code' => '', 'sms_id' => '', 'error' => '' );
 
@@ -57,7 +57,7 @@ class BizCity_CF7_ZNS_Sender {
 			// ── Load config ───────────────────────────────────────────────
 			$cfg = BizCity_CF7_ZNS_Config::get_form_config( $form_id );
 
-			error_log( '[bizcity-zns] config for form_id=' . $form_id . ': enabled=' . ( ! empty( $cfg['enabled'] ) ? '1' : '0' ) . ' temp_id=' . ( $cfg['temp_id'] ?? '' ) . ' oa_id=' . ( $cfg['oa_id'] ?? '' ) . ' sandbox=' . ( ! empty( $cfg['sandbox'] ) ? '1' : '0' ) . ' temp_vars_count=' . count( $cfg['temp_vars'] ?? array() ) );
+			self::crm_log( 'zns_config_loaded', 'debug', 'ZNS form configuration loaded.', $form_id, array( 'enabled' => ! empty( $cfg['enabled'] ), 'temp_id' => (string) ( $cfg['temp_id'] ?? '' ), 'oa_id_present' => ! empty( $cfg['oa_id'] ), 'sandbox' => ! empty( $cfg['sandbox'] ), 'temp_vars_count' => count( $cfg['temp_vars'] ?? array() ) ) );
 
 			if ( empty( $cfg['enabled'] ) ) {
 				self::file_log( 'zns_dispatch_skip', 'WARN', 'ZNS not enabled for form #' . $form_id, $form_id, array() );
@@ -113,7 +113,8 @@ class BizCity_CF7_ZNS_Sender {
 			}
 
 			// ── File-log TRƯỚC HTTP (R-CH-FILE-LOG) ───────────────────────
-			self::file_log( 'zns_send_attempt', 'INFO', 'Sending ZNS to ' . self::mask_phone( $phone ), $form_id, array(
+			// [2026-08-01 Johnny Chu] PHASE-CRM-LOG-SPLIT — keep recipient identity out of JSONL message text.
+			self::file_log( 'zns_send_attempt', 'INFO', 'Sending ZNS message.', $form_id, array(
 				'temp_id'    => $cfg['temp_id'],
 				'oa_id'      => $oa_id,
 				'phone'      => self::mask_phone( $phone ),
@@ -127,8 +128,8 @@ class BizCity_CF7_ZNS_Sender {
 
 			// ── Log result ─────────────────────────────────────────────────
 			if ( $result['sent'] ) {
-				error_log( '[bizcity-zns] SENT OK form_id=' . $form_id . ' sms_id=' . $result['sms_id'] . ' code=' . $result['code'] );
-				self::file_log( 'zns_send_ok', 'INFO', 'ZNS sent OK — SMSID: ' . $result['sms_id'], $form_id, array(
+				self::crm_log( 'zns_send_ok', 'info', 'ZNS sent successfully.', $form_id, array( 'sms_id' => $result['sms_id'], 'code' => $result['code'] ) );
+				self::file_log( 'zns_send_ok', 'INFO', 'ZNS sent successfully.', $form_id, array(
 					'phone'      => self::mask_phone( $phone ),
 					'sms_id'     => $result['sms_id'],
 					'code'       => $result['code'],
@@ -136,8 +137,8 @@ class BizCity_CF7_ZNS_Sender {
 					'sandbox'    => ! empty( $cfg['sandbox'] ),
 				) );
 			} else {
-				error_log( '[bizcity-zns] FAILED form_id=' . $form_id . ' code=' . $result['code'] . ' error=' . $result['error'] );
-				self::file_log( 'zns_send_failed', 'ERROR', 'ZNS send failed — code: ' . $result['code'] . ' — ' . $result['error'], $form_id, array(
+				self::crm_log( 'zns_send_failed', 'error', 'ZNS send failed.', $form_id, array( 'code' => $result['code'], 'error_present' => $result['error'] !== '' ) );
+				self::file_log( 'zns_send_failed', 'ERROR', 'ZNS send failed.', $form_id, array(
 					'phone'      => self::mask_phone( $phone ),
 					'code'       => $result['code'],
 					'error'      => $result['error'],
@@ -149,11 +150,10 @@ class BizCity_CF7_ZNS_Sender {
 			}
 		} catch ( \Exception $e ) {
 			$result['error'] = $e->getMessage();
-			error_log( '[bizcity-zns] EXCEPTION form_id=' . $form_id . ' class=' . get_class( $e ) . ' msg=' . $e->getMessage() );
-			self::file_log( 'zns_send_exception', 'ERROR', 'Exception: ' . $e->getMessage(), $form_id, array(
+			self::crm_log( 'zns_send_exception', 'error', 'ZNS dispatch raised an exception.', $form_id, array(
 				'exception_class' => get_class( $e ),
-				'exception_trace' => substr( $e->getTraceAsString(), 0, 500 ),
 			) );
+			self::file_log( 'zns_send_exception', 'ERROR', 'ZNS dispatch raised an exception.', $form_id, array( 'exception_class' => get_class( $e ) ) );
 		}
 
 		// [2026-06-25 Johnny Chu] PHASE-CG-CF7-ZNS — write ZNS send log to CRM if class available
@@ -201,7 +201,7 @@ class BizCity_CF7_ZNS_Sender {
 
 		if ( is_wp_error( $response ) ) {
 			$result['error'] = $response->get_error_message();
-			error_log( '[bizcity-zns] wp_remote_post WP_Error: ' . $result['error'] );
+			self::crm_log( 'zns_http_error', 'error', 'ZNS HTTP request returned a WordPress error.', 0, array( 'error_present' => true ) );
 			return $result;
 		}
 
@@ -209,7 +209,7 @@ class BizCity_CF7_ZNS_Sender {
 		$body      = wp_remote_retrieve_body( $response );
 		$json      = json_decode( $body, true );
 
-		error_log( '[bizcity-zns] eSMS HTTP ' . $http_code . ' raw_body=' . substr( (string) $body, 0, 300 ) );
+		self::crm_log( 'zns_http_response', 'debug', 'ZNS HTTP response received.', 0, array( 'http_code' => $http_code, 'body_len' => strlen( (string) $body ) ) );
 
 		if ( ! is_array( $json ) ) {
 			$result['error'] = 'Invalid JSON response (HTTP ' . $http_code . ')';
@@ -326,25 +326,24 @@ class BizCity_CF7_ZNS_Sender {
 	 * @param  array  $ctx      Extra context (NO credentials, NO PII raw).
 	 */
 	private static function file_log( $event, $level, $message, $form_id, array $ctx ) {
-		if ( ! class_exists( 'BizCity_Channel_File_Logger', false ) ) {
+		if ( ! class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
 			return;
 		}
-		$level_const = 'INFO' === $level ? BizCity_Channel_File_Logger::LEVEL_INFO
-			: ( 'WARN' === $level ? BizCity_Channel_File_Logger::LEVEL_WARN : BizCity_Channel_File_Logger::LEVEL_ERROR );
-
-		// [2026-06-25 Johnny Chu] PHASE-CG-CF7-ZNS — use CH_ZALO_ZNS (zalo_zns/ folder, multisite-aware)
-		// instead of CH_CF7 so ZNS events have their own log stream like facebook/zalo_oa/zalo_bot.
-		// Use class_exists() guard — defined() cannot check class constants (always false).
-		$channel = class_exists( 'BizCity_Channel_File_Logger', false )
-			? BizCity_Channel_File_Logger::CH_ZALO_ZNS
-			: 'zalo_zns';
-
-		BizCity_Channel_File_Logger::write(
-			$channel,
-			$level_const,
+		// [2026-07-31 Johnny Chu] PHASE-CRM-LOG-SPLIT — ZNS file evidence is CRM-owned.
+		BizCity_JSONL_File_Logger::write(
+			BizCity_JSONL_File_Logger::CRM_FOLDER,
+			'zns',
+			strtolower( $level ),
 			$event,
 			$message,
-			array_merge( array( 'form_id' => (int) $form_id, 'channel' => 'zalo_zns' ), $ctx )
+			array_merge( array( 'form_id' => (int) $form_id ), $ctx )
 		);
+	}
+
+	private static function crm_log( $event, $level, $message, $form_id, array $ctx = array() ) {
+		if ( ! class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
+			return;
+		}
+		BizCity_JSONL_File_Logger::write( BizCity_JSONL_File_Logger::CRM_FOLDER, 'zns', $level, $event, $message, array_merge( array( 'form_id' => (int) $form_id ), $ctx ) );
 	}
 }

@@ -49,6 +49,8 @@ require_once BIZCITY_MEMORY_DIR . 'includes/class-memory-parser.php';
 require_once BIZCITY_MEMORY_DIR . 'includes/class-memory-log.php';
 // [2026-07-28 Johnny Chu] R-CH-IDMEM — load the shared identity-scoped owner contract before every memory service.
 require_once BIZCITY_MEMORY_DIR . 'includes/class-memory-identity-scope.php';
+// [2026-07-31 Johnny Chu] PHASE-1.22-MEMORY-UNIFY — canonical channel context normalizer for all memory writers.
+require_once BIZCITY_MEMORY_DIR . 'includes/memory-writer-context.php';
 require_once BIZCITY_MEMORY_DIR . 'includes/class-memory-log-projector.php';
 require_once BIZCITY_MEMORY_DIR . 'includes/class-memory-manager.php';
 require_once BIZCITY_MEMORY_DIR . 'includes/class-memory-rest-api.php';
@@ -71,10 +73,21 @@ BizCity_Memory_Log::instance();
 if ( class_exists( 'BizCity_Memory_Log_Projector' ) ) {
 	BizCity_Memory_Log_Projector::instance();
 }
+// [2026-08-01 Johnny Chu] PHASE-1.24-LOG-RETENTION — bounded cleanup for the memory_logs projection.
+add_action( 'init', array( 'BizCity_Memory_Log', 'register_retention_cron' ), 20 );
+add_action( BizCity_Memory_Log::RETENTION_HOOK, array( 'BizCity_Memory_Log', 'gc_logs' ) );
 BizCity_Memory_Manager::instance();
 BizCity_Memory_REST_API::instance();
 BizCity_Memory_Unified_Installer::instance();
 BizCity_Memory_Unified_Writer::instance();
+
+// [2026-07-31 Johnny Chu] PHASE-1.22-MEMORY-DUAL-WRITE — load D7 only for cron so scheduled backup purge has a registered handler.
+if ( defined( 'DOING_CRON' ) && DOING_CRON ) {
+	$memory_d7_migration = BIZCITY_MEMORY_DIR . 'migrations/d7-drop-legacy.php';
+	if ( file_exists( $memory_d7_migration ) ) {
+		require_once $memory_d7_migration;
+	}
+}
 
 if ( is_admin() ) {
 	BizCity_Memory_Admin_Page::instance();

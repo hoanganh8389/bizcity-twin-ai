@@ -221,6 +221,9 @@ class BizCity_KG_Channel_Notebook_Bridge {
 		$ingest_payload = isset( $job['ingest_payload'] ) && is_array( $job['ingest_payload'] ) ? $job['ingest_payload'] : array();
 		$item_ctx       = isset( $job['item_ctx'] ) && is_array( $job['item_ctx'] ) ? $job['item_ctx'] : array();
 		$inbound        = isset( $job['inbound'] ) && is_array( $job['inbound'] ) ? $job['inbound'] : array();
+		// [2026-08-02 Johnny Chu] PHASE-SKILLS-JOURNAL — async worker must
+		// settle the Journal learning state after cron/retry completes.
+		$journal_entry_id = isset( $ingest_payload['metadata']['journal_entry_id'] ) ? (int) $ingest_payload['metadata']['journal_entry_id'] : 0;
 
 		$switched = false;
 		$started  = microtime( true );
@@ -250,6 +253,7 @@ class BizCity_KG_Channel_Notebook_Bridge {
 					'Notebook bridge async payload invalid.',
 					'notebook_bridge_async_payload_invalid'
 				);
+				$bridge->sync_journal_learning_status( $journal_entry_id, $user_id, 'failed', 'notebook_bridge_async_payload_invalid', $ingest_payload );
 				$bridge->bridge_log( 'ingest_item_failed', array_merge( $item_ctx, array(
 					'dispatch_job_id' => $job_id,
 					'dispatch_mode'   => 'async_cron',
@@ -267,6 +271,7 @@ class BizCity_KG_Channel_Notebook_Bridge {
 					(string) $res->get_error_message(),
 					$bridge->extract_error_code( $res )
 				);
+				$bridge->sync_journal_learning_status( $journal_entry_id, $user_id, 'failed', $bridge->extract_error_code( $res ), $ingest_payload );
 				$bridge->bridge_log( 'ingest_item_failed', array_merge( $item_ctx, array(
 					'dispatch_job_id' => $job_id,
 					'dispatch_mode'   => 'async_cron',
@@ -289,6 +294,12 @@ class BizCity_KG_Channel_Notebook_Bridge {
 				$capture_meta['kg_source_id'] = (int) ( $res['kg_source_id'] ?? 0 );
 				$bridge->stamp_inbound_provenance( $source_id, $inbound, $capture_meta );
 			}
+			$bridge->sync_journal_learning_status( $journal_entry_id, $user_id, 'learned', '', array_merge( $ingest_payload, array(
+				'metadata' => array_merge(
+					isset( $ingest_payload['metadata'] ) && is_array( $ingest_payload['metadata'] ) ? $ingest_payload['metadata'] : array(),
+					array( 'kg_source_id' => (int) ( $res['kg_source_id'] ?? 0 ) )
+				),
+			) ) );
 
 			$bridge->bridge_log( 'ingest_item_done', array_merge( $item_ctx, array(
 				'dispatch_job_id' => $job_id,
@@ -312,6 +323,7 @@ class BizCity_KG_Channel_Notebook_Bridge {
 				'error_class'     => get_class( $e ),
 				'duration_ms'     => (int) max( 0, round( ( microtime( true ) - $started ) * 1000 ) ),
 			) ), 'error' );
+			self::instance()->sync_journal_learning_status( $journal_entry_id, $user_id, 'failed', 'notebook_bridge_async_exception', $ingest_payload );
 		} finally {
 			// [2026-07-26 Johnny Chu] PHASE-0.46 W6 HOTFIX-4 — free staged copy only
 			// after success/duplicate so failed sources remain retryable.
@@ -322,6 +334,28 @@ class BizCity_KG_Channel_Notebook_Bridge {
 				restore_current_blog();
 			}
 		}
+	}
+
+	/**
+	 * Mirror async KG worker state to the canonical Journal Entry.
+	 */
+	private function sync_journal_learning_status( int $journal_entry_id, int $user_id, string $status, string $error_code = '', array $payload = array() ): void {
+		if ( $journal_entry_id <= 0 || $user_id <= 0 || ! class_exists( 'BizCity_Journal_Database' ) ) {
+			return;
+		}
+		BizCity_Journal_Database::maybe_install();
+		$metadata = isset( $payload['metadata'] ) && is_array( $payload['metadata'] ) ? $payload['metadata'] : array();
+		BizCity_Journal_Database::instance()->mark_learning_projection(
+			$journal_entry_id,
+			$user_id,
+			array(
+				'learning_status' => $status,
+				'learning_error'  => $error_code,
+				'notebook_id'     => (int) ( $payload['notebook_id'] ?? 0 ),
+				'kg_source_id'    => (int) ( $metadata['kg_source_id'] ?? 0 ),
+				'metadata'        => $metadata,
+			)
+		);
 	}
 
 	/**
@@ -1001,6 +1035,9 @@ class BizCity_KG_Channel_Notebook_Bridge {
 		$batch_ctx = array(
 			'channel'       => $channel,
 			'user_id'       => $user_id,
+			// [2026-08-02 Johnny Chu] PHASE-SKILLS-JOURNAL — preserve the
+			// canonical Journal authoring row through KG projection logs.
+			'journal_entry_id' => (int) ( $base_envelope['journal_entry_id'] ?? 0 ),
 			'day_key'       => $day_key,
 			'scope_type'    => (string) ( $scope['scope_type'] ?? 'private' ),
 			'scope_id'      => (string) ( $scope['scope_id'] ?? '' ),
@@ -1080,6 +1117,7 @@ class BizCity_KG_Channel_Notebook_Bridge {
 				'scope_id'      => (string) ( $scope['scope_id'] ?? '' ),
 				'chat_id'       => (string) ( $base_envelope['chat_id'] ?? '' ),
 				'message_id'    => $item_message_id,
+				'journal_entry_id' => (int) ( $base_envelope['journal_entry_id'] ?? 0 ),
 				// [2026-07-24 Johnny Chu] PHASE-0.46 W4 S4.5 — see capture() note.
 				'kind'          => $item_kind,
 				'inbound'       => $item_inbound,

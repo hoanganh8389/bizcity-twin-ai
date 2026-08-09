@@ -84,6 +84,22 @@ final class BizCity_Probe_Channel_Notebook_Bridge implements BizCity_Diagnostics
 		);
 		if ( ! $action_file_exists ) { $disk_ok = false; }
 
+		// [2026-08-02 Johnny Chu] PHASE-SKILLS-JOURNAL — verify the public
+		// capability URL handler itself, not only the downstream KG bridge.
+		$upload_handler_file = WP_PLUGIN_DIR . '/bizcity-twin-ai/plugins/bizcity-zalo-bot/includes/class-upload-link-handler.php';
+		$upload_source = file_exists( $upload_handler_file ) ? (string) file_get_contents( $upload_handler_file ) : '';
+		$upload_disk_ok = $upload_source !== ''
+			&& strpos( $upload_source, "const SLUG        = 'zalo-upload'" ) !== false
+			&& strpos( $upload_source, 'function early_route' ) !== false
+			&& strpos( $upload_source, 'function add_rewrite_rules' ) !== false
+			&& strpos( $upload_source, 'function handle_post' ) !== false;
+		$steps[] = array(
+			'label'  => 'Disk · class-upload-link-handler.php',
+			'status' => $upload_disk_ok ? 'PASS' : 'FAIL',
+			'detail' => $upload_disk_ok ? 'Public /zalo-upload/{token}/ route contract is present.' : 'Upload-link route handler contract is incomplete.',
+		);
+		if ( ! $upload_disk_ok ) { $disk_ok = false; }
+
 		/* ------------------------------------------------------------
 		 * Layer 2 — Loader
 		 * ------------------------------------------------------------ */
@@ -106,6 +122,14 @@ final class BizCity_Probe_Channel_Notebook_Bridge implements BizCity_Diagnostics
 			'detail' => $action_loaded ? 'Class loaded.' : 'Not in memory — check core/automation/bootstrap.php require_once.',
 		);
 		if ( ! $action_loaded ) { $loader_ok = false; }
+
+		$upload_handler_loaded = class_exists( 'BizCity_Zalobot_Upload_Link_Handler', false );
+		$steps[] = array(
+			'label'  => 'Loader · BizCity_Zalobot_Upload_Link_Handler',
+			'status' => $upload_handler_loaded ? 'PASS' : 'FAIL',
+			'detail' => $upload_handler_loaded ? 'Upload-link handler is loaded.' : 'Not in memory — check bizcity-zalo-bot bootstrap and public-route gate.',
+		);
+		if ( ! $upload_handler_loaded ) { $loader_ok = false; }
 
 		$registry_loaded = class_exists( 'BizCity_Automation_Block_Registry', false );
 		$steps[] = array(

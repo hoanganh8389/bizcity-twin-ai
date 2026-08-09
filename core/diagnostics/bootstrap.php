@@ -13,6 +13,7 @@
  * Public APIs:
  *   - BizCity_Diagnostics_Table_Registry::get_tables()    — all registered tables
  *   - BizCity_Diagnostics_Table_Inspector::inspect_all()  — physical status snapshot
+ *   - BizCity_Diagnostics_Table_Activity                    — sampled read/write telemetry
  *   - Filter `bizcity_diagnostics_register_tables`        — modules add their tables
  *   - Action `bizcity_diagnostics_notice`                 — modules surface soft-guard banners
  *   - REST GET /wp-json/bizcity-diagnostics/v1/tables     — JSON snapshot
@@ -40,11 +41,36 @@ define( 'BIZCITY_DIAGNOSTICS_VERSION', '0.41.0' );
 define( 'BIZCITY_DIAGNOSTICS_REST_NS', 'bizcity-diagnostics/v1' );
 
 // [2026-07-28 Johnny Chu] R-DDV — missing optional probe files must not break the diagnostics bootstrap.
+// [2026-08-09 Johnny Chu] R-PERF-LOADER-A - queue probes at bootstrap time;
+// diagnostics screen, diagnostics REST, and WP-CLI flush the queue on demand.
+if ( ! isset( $GLOBALS['bizcity_diagnostics_probe_queue'] ) ) {
+	$GLOBALS['bizcity_diagnostics_probe_queue'] = array();
+}
 if ( ! function_exists( 'bizcity_diagnostics_require_probe' ) ) {
 	function bizcity_diagnostics_require_probe( string $probe_file ): void {
-		$probe_path = BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/' . ltrim( $probe_file, '/' );
-		if ( file_exists( $probe_path ) ) {
-			require_once $probe_path;
+		$probe_file = ltrim( $probe_file, '/' );
+		if ( $probe_file === '' ) {
+			return;
+		}
+		$GLOBALS['bizcity_diagnostics_probe_queue'][ $probe_file ] = true;
+	}
+}
+if ( ! function_exists( 'bizcity_diagnostics_load_probes_once' ) ) {
+	function bizcity_diagnostics_load_probes_once(): void {
+		static $loaded = false;
+		if ( $loaded ) {
+			return;
+		}
+		$loaded = true;
+
+		$queue = isset( $GLOBALS['bizcity_diagnostics_probe_queue'] )
+			? array_keys( (array) $GLOBALS['bizcity_diagnostics_probe_queue'] )
+			: array();
+		foreach ( $queue as $probe_file ) {
+			$probe_path = BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/' . $probe_file;
+			if ( file_exists( $probe_path ) ) {
+				require_once $probe_path;
+			}
 		}
 	}
 }
@@ -64,16 +90,23 @@ require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/trait-rest-error.php';
 // Phase 0.41 L9.a — Smoke-Test Wizard runtime.
 require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/interface-diagnostics-probe.php';
 require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-smoke-runner.php';
+
+// [2026-08-09 Johnny Chu] R-PERF-LOADER-HOOK - hook telemetry is opt-in to
+// Diagnostics/REST/CLI contexts; ordinary admin pages do not retain snapshots.
+if ( function_exists( 'bizcity_diagnostics_should_load_probes' )
+	&& bizcity_diagnostics_should_load_probes() ) {
+	require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-loader-hook-panel.php';
+	BizCity_Diagnostics_Loader_Hook_Panel::init();
+}
 bizcity_diagnostics_require_probe( 'class-probe-kg-seeding.php' );
+// [2026-08-02 Johnny Chu] PHASE-SKILLS-JOURNAL — verify runtime skill rows
+// remain active while system-owned rows stay out of the Journal tree.
+bizcity_diagnostics_require_probe( 'class-probe-skills-journal-isolation.php' );
 // [2026-07-27 Johnny Chu] PHASE-0.53-MCP Wave A — MCP gateway DDV probe.
 bizcity_diagnostics_require_probe( 'class-probe-mcp-gateway.php' );
 
 // [2026-07-27 Johnny Chu] HOTFIX — load by default again; probe file itself now follows standard class_exists guard pattern.
-$bizcity_probe_notebook_multitenant_isolation = BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-notebook-multitenant-isolation.php';
-if ( file_exists( $bizcity_probe_notebook_multitenant_isolation ) ) {
-	require_once $bizcity_probe_notebook_multitenant_isolation;
-}
-unset( $bizcity_probe_notebook_multitenant_isolation );
+bizcity_diagnostics_require_probe( 'class-probe-notebook-multitenant-isolation.php' );
 
 // 2026-06-04 — R-DDV row cho Google Hub canonical 1-API. Read-only,
 // verify connect-URL builder + service catalog + status snapshot.
@@ -124,20 +157,12 @@ bizcity_diagnostics_require_probe( 'class-probe-products-source-layer.php' );
 // layers, stream chat-tone answer chỉ dùng memory_block).
 // Guard with file_exists() — newly added 2026-05-28; production may lag
 // behind before file is rsync'd up. Skip silently rather than fatal.
-$bizcity_probe_brain_auto_degrade = BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-twinbrain-brain-auto-degrade.php';
-if ( file_exists( $bizcity_probe_brain_auto_degrade ) ) {
-	require_once $bizcity_probe_brain_auto_degrade;
-}
-unset( $bizcity_probe_brain_auto_degrade );
+bizcity_diagnostics_require_probe( 'class-probe-twinbrain-brain-auto-degrade.php' );
 
 // Phase 0.36-UNIFIED TBR.W20 (2026-05-28) — Agent ReAct Runner probe.
 // Validate Agent_Runner::run() + whitelist filter + agent_loop_started/done
 // + agent_step_done event taxonomy. TỐN ~1-3 LLM call.
-$bizcity_probe_agent_react = BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-twinbrain-agent-react.php';
-if ( file_exists( $bizcity_probe_agent_react ) ) {
-	require_once $bizcity_probe_agent_react;
-}
-unset( $bizcity_probe_agent_react );
+bizcity_diagnostics_require_probe( 'class-probe-twinbrain-agent-react.php' );
 
 // Phase 0.36-UNIFIED TBR.W19 (2026-05-21) — Real-call probe cho Final Composer
 // (Layer 4.5). Gọi thật compose_stream() với synthesizer giả + perspectives
@@ -148,67 +173,35 @@ bizcity_diagnostics_require_probe( 'class-probe-final-compose.php' );
 // [2026-06-04 Johnny Chu] PHASE-A C.0b — DDV probe for BizCoach Pro Astro Transit
 // Resolver (DB-first → cron prefetch fallback). Smoke check: class loaded,
 // resolve() shape valid, CAP filter `bizcity_twin_context_artifacts` wired.
-$bizcity_probe_astro_transit = BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-astro-transit-resolver.php';
-if ( file_exists( $bizcity_probe_astro_transit ) ) {
-	require_once $bizcity_probe_astro_transit;
-}
-unset( $bizcity_probe_astro_transit );
+bizcity_diagnostics_require_probe( 'class-probe-astro-transit-resolver.php' );
 
 // [2026-06-04 Johnny Chu] PHASE-A C.3b — DDV probe for TwinBrain Astro Mode
 // pipeline. 3 layers: Disk (runtime file), Loader (class + stream_astro_mode
 // method), Runtime (CAP filter subscriber + Final_Composer available).
-$bizcity_probe_astro_mode = BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-twinbrain-astro-mode.php';
-if ( file_exists( $bizcity_probe_astro_mode ) ) {
-	require_once $bizcity_probe_astro_mode;
-}
-unset( $bizcity_probe_astro_mode );
+bizcity_diagnostics_require_probe( 'class-probe-twinbrain-astro-mode.php' );
 
 // [2026-07-05 Johnny Chu] PHASE-FAA2-TWINBRAIN — DDV probes for readiness gate
 // and automation per-day message loop wiring.
-$bizcity_probe_astro_readiness_gate = BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-astro-readiness-gate.php';
-if ( file_exists( $bizcity_probe_astro_readiness_gate ) ) {
-	require_once $bizcity_probe_astro_readiness_gate;
-}
-unset( $bizcity_probe_astro_readiness_gate );
+bizcity_diagnostics_require_probe( 'class-probe-astro-readiness-gate.php' );
 
-$bizcity_probe_astro_per_day_loop = BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-astro-per-day-loop.php';
-if ( file_exists( $bizcity_probe_astro_per_day_loop ) ) {
-	require_once $bizcity_probe_astro_per_day_loop;
-}
-unset( $bizcity_probe_astro_per_day_loop );
+bizcity_diagnostics_require_probe( 'class-probe-astro-per-day-loop.php' );
 
 // [2026-07-09 Johnny Chu] PHASE-FAA2-TWINBRAIN A16 — DDV probe for
 // astro_data_action_required runtime evidence + payload contract.
-$bizcity_probe_astro_data_action_required = BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-astro-data-action-required.php';
-if ( file_exists( $bizcity_probe_astro_data_action_required ) ) {
-	require_once $bizcity_probe_astro_data_action_required;
-}
-unset( $bizcity_probe_astro_data_action_required );
+bizcity_diagnostics_require_probe( 'class-probe-astro-data-action-required.php' );
 
 // [2026-07-04 Johnny Chu] PHASE-FAA2-DDV — DDV probe for FAA2 natal-wheel-chart
 // (url-only) pipeline. 3 layers: Disk (provider file in bizcity-llm-router),
 // Loader (class + supports + router), Runtime (live natal_wheel_chart call).
-$bizcity_probe_astro_faa2_svg = BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-astro-faa2-chart-svg.php';
-if ( file_exists( $bizcity_probe_astro_faa2_svg ) ) {
-	require_once $bizcity_probe_astro_faa2_svg;
-}
-unset( $bizcity_probe_astro_faa2_svg );
+bizcity_diagnostics_require_probe( 'class-probe-astro-faa2-chart-svg.php' );
 
 // [2026-07-09 Johnny Chu] PHASE-A5 — DDV probe for pro charts wave
 // (synastry/composite/solar_return/lunar_return) across hub+client.
-$bizcity_probe_astro_pro_charts_a5 = BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-astro-pro-charts-a5.php';
-if ( file_exists( $bizcity_probe_astro_pro_charts_a5 ) ) {
-	require_once $bizcity_probe_astro_pro_charts_a5;
-}
-unset( $bizcity_probe_astro_pro_charts_a5 );
+bizcity_diagnostics_require_probe( 'class-probe-astro-pro-charts-a5.php' );
 
 // [2026-07-09 Johnny Chu] PHASE-A5 — DDV probe for tokenized anonymous share
 // on Relations/Ephemeris/Transits Timeline (/me/tools/share + /public/tools/share).
-$bizcity_probe_astro_tool_share_a5 = BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-astro-tool-share-a5.php';
-if ( file_exists( $bizcity_probe_astro_tool_share_a5 ) ) {
-	require_once $bizcity_probe_astro_tool_share_a5;
-}
-unset( $bizcity_probe_astro_tool_share_a5 );
+bizcity_diagnostics_require_probe( 'class-probe-astro-tool-share-a5.php' );
 
 // [2026-07-10 Johnny Chu] PHASE-C-WOO-HUB — DDV probe for client plan sync
 // routes (/bizcity-client/v1/entitlement/sync + /bizcity-client/v1/me/plan).
@@ -270,6 +263,16 @@ bizcity_diagnostics_require_probe( 'class-probe-twinbrain-mood-sampler.php' );
 bizcity_diagnostics_require_probe( 'class-probe-twinbrain-retrieval-hydration.php' );
 // [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT — DDV probe for Notebook Source Layer + answer source contract.
 bizcity_diagnostics_require_probe( 'class-probe-twinbrain-notebook-source-layer.php' );
+// [2026-08-01 Johnny Chu] PHASE-TBR-CHAT-DEFAULT — DDV for default chat routing, workflow guide, and safe fuzzy suggestions.
+bizcity_diagnostics_require_probe( 'class-probe-twinbrain-chat-default.php' );
+// [2026-08-01 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G0 — deterministic state, closure, and event-contract DDV.
+bizcity_diagnostics_require_probe( 'class-probe-twinbrain-goal-loop.php' );
+// [2026-08-03 Johnny Chu] G12.7 — DDV for Goal Contract projection registration, changelog, and read-only runtime boundary.
+bizcity_diagnostics_require_probe( 'class-probe-twinbrain-goal-contracts.php' );
+// [2026-08-02 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G10 — DDV for unified channel adapters, identity ownership, and group isolation.
+bizcity_diagnostics_require_probe( 'class-probe-twinbrain-channel-unify.php' );
+// [2026-08-02 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G10 — DDV for Goal REST/UI shell and dist-only deployment policy.
+bizcity_diagnostics_require_probe( 'class-probe-twinbrain-goal-loop-ui.php' );
 // [2026-07-19 Johnny Chu] PHASE-TBR-NB-MULTIMODAL — DDV probe for default attachment/vision/file intake layer and MPR event contract.
 bizcity_diagnostics_require_probe( 'class-probe-twinbrain-multimodal-intake.php' );
 bizcity_diagnostics_require_probe( 'class-probe-twinbrain-memory-writer-explicit.php' );
@@ -290,6 +293,8 @@ bizcity_diagnostics_require_probe( 'class-probe-memory-unified-dual-write.php' )
 // Wave 2.8d TBR.MEM-D6 (2026-05-24) — Unified memory recall parity probe
 // (legacy vs unified Memory_Recall tokens overlap ≥ 95%).
 bizcity_diagnostics_require_probe( 'class-probe-memory-unified-recall-parity.php' );
+// [2026-07-31 Johnny Chu] PHASE-1.22-MEMORY-UNIFY — non-destructive W2 ZaloBot staging contract probe.
+bizcity_diagnostics_require_probe( 'class-probe-zalobot-memory-unify.php' );
 
 // Phase 0.41 L9.b — Schema Changelog Ledger + Auto-Create.
 require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-changelog-loader.php';
@@ -301,6 +306,11 @@ bizcity_diagnostics_require_probe( 'class-probe-module-registry.php' );
 
 // Phase 0.41 L9.b+ — Schema inventory meta-probe (drives Auto-Fix-All UX).
 bizcity_diagnostics_require_probe( 'class-probe-schema-inventory.php' );
+// [2026-08-01 Johnny Chu] PHASE-1.23-TABLE-ACTIVITY — DDV for runtime table activity telemetry and enriched inventory fields.
+bizcity_diagnostics_require_probe( 'class-probe-table-activity.php' );
+// [2026-08-01 Johnny Chu] PHASE-1.26-CORRELATION — read-only DDV for the shared
+// event_uuid/trace_id/parent_event_uuid contract across chat log boundaries.
+bizcity_diagnostics_require_probe( 'class-probe-chat-correlation.php' );
 
 // Phase 0.41 L9.c — Structural wiring probes (research / upload / vector).
 // NOTE: search probe lives at `class-probe-web-search-ping.php` (loaded above
@@ -470,6 +480,9 @@ bizcity_diagnostics_require_probe( 'class-probe-twinweb-attachments.php' );
 // [2026-07-19 Johnny Chu] PHASE-TWIN-GPT-AGENT-TOOLS — DDV probe for voice input/transcribe foundation.
 bizcity_diagnostics_require_probe( 'class-probe-twinweb-voice-input.php' );
 
+// [2026-08-01 Johnny Chu] PHASE-TWIN-GPT-AGENT-TOOLS AT-7 — DDV probe for durable async artifact job transitions.
+bizcity_diagnostics_require_probe( 'class-probe-twinweb-async-artifacts.php' );
+
 // [2026-07-18 Johnny Chu] PHASE-TWIN-GPT-C-ENDUSER C-4 — DDV probe for /gpt/myaccount/ account foundation.
 bizcity_diagnostics_require_probe( 'class-probe-twinweb-myaccount.php' );
 
@@ -525,6 +538,10 @@ bizcity_diagnostics_require_probe( 'class-probe-admin-router.php' );
 
 // [2026-06-05 Johnny Chu] R-ERROR-UX — Error Payload helper + legacy anti-pattern audit.
 bizcity_diagnostics_require_probe( 'class-probe-error-ux.php' );
+// [2026-07-30 Johnny Chu] PHASE-1.22-DDV — register the core security/reliability production contract probe.
+bizcity_diagnostics_require_probe( 'class-probe-framework-production-contract.php' );
+// [2026-07-31 Johnny Chu] HOTFIX — register the read-only WP_Hook callback and shard-context integrity probe.
+bizcity_diagnostics_require_probe( 'class-probe-wp-hook-callback-integrity.php' );
 
 // [2026-06-05 Johnny Chu] PHASE-MEMBERSHIP M8 — Membership entitlement + plan registry probe.
 // Covers: class load, bizcity_membership_plans, 3 tables, expiry cron, PayPal v2 wiring, for_user() merge.
@@ -603,6 +620,9 @@ bizcity_diagnostics_require_probe( 'class-probe-crm-g7-integration.php' );
 // loader.columns, runtime.rest_route (/bizcity-crm/v1/broadcasts), runtime.cron_hook.
 bizcity_diagnostics_require_probe( 'class-probe-crm-broadcast-bizcity.php' );
 
+// [2026-08-01 Johnny Chu] PHASE-CG-QR-LINK — standalone QR Link schema/loader/REST DDV.
+bizcity_diagnostics_require_probe( 'class-probe-crm-qr-link.php' );
+
 // [2026-07-10 Johnny Chu] PHASE-0.47 — Broadcast import smoke matrix probe
 // for csv/xls/xlsx/google_sheet_url REST path.
 bizcity_diagnostics_require_probe( 'class-probe-channel-broadcast-import-matrix.php' );
@@ -610,11 +630,7 @@ bizcity_diagnostics_require_probe( 'class-probe-channel-broadcast-import-matrix.
 // [2026-06-07 Johnny Chu] PHASE-0.39 — Zalo Personal & OA channel gateway DDV (order=45).
 // 7-row probe: bridge health, catalog filter, integration registry, inbound emitter,
 // schema tables (3 bảng), OA window logic, zone isolation.
-$bizcity_probe_zalo_personal = BIZCITY_DIAGNOSTICS_DIR . 'includes/probes/class-probe-zalo-personal.php';
-if ( file_exists( $bizcity_probe_zalo_personal ) ) {
-	require_once $bizcity_probe_zalo_personal;
-}
-unset( $bizcity_probe_zalo_personal );
+bizcity_diagnostics_require_probe( 'class-probe-zalo-personal.php' );
 
 // M-CRM.M4.Inbox (2026-05-28) — Broadcast + Lead Classification smoke.
 // 3-layer: tables (bizcity_crm_broadcasts, recipients), lead_score/segment cols, REST routes.
@@ -630,6 +646,21 @@ if ( is_admin() ) {
 	require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-admin-page.php';
 	BizCity_Diagnostics_Admin_Page::instance();
 	BizCity_Diagnostics_Dashboard_Widget::instance();
+}
+
+// [2026-08-09 Johnny Chu] R-PERF-LOADER-A - flush the queued probe graph only
+// for the diagnostics screen, diagnostics REST namespace, or CLI. Other admin
+// pages keep the table/REST infrastructure without the probe class graph.
+if ( function_exists( 'bizcity_diagnostics_should_load_probes' )
+	&& bizcity_diagnostics_should_load_probes() ) {
+	bizcity_diagnostics_load_probes_once();
+}
+
+if ( function_exists( 'bizcity_diagnostics_should_load_probes' )
+	&& bizcity_diagnostics_should_load_probes()
+	&& class_exists( 'BizCity_Diagnostics_Loader_Hook_Panel' )
+	&& is_admin() ) {
+	add_action( 'admin_footer', array( 'BizCity_Diagnostics_Loader_Hook_Panel', 'render' ), PHP_INT_MAX );
 }
 
 // REST + soft-guard notices always loaded (cron + AJAX paths).

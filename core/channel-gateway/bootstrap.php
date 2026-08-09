@@ -142,7 +142,9 @@ require_once $gateway_dir . 'class-channel-messages.php';
 // [2026-07-28 Johnny Chu] PHASE-0.52 W8.1 — durable customer identity hub loads before compatibility linkers.
 require_once $gateway_dir . 'class-identity-hub.php';
 require_once $gateway_dir . 'class-channel-user-linker.php';
-if ( class_exists( 'BizCity_Schema_Registry' ) ) {
+if ( class_exists( 'BizCity_Schema_Registry' )
+	&& class_exists( 'BizCity_Identity_Hub' )
+	&& class_exists( 'BizCity_Channel_User_Linker' ) ) {
 	BizCity_Schema_Registry::register(
 		'bizcity_identity_contacts',
 		'core.channel-gateway',
@@ -190,6 +192,8 @@ if ( is_dir( $_bzc_cf7_dir ) ) {
 	require_once $_bzc_cf7_dir . 'class-cf7-installer.php';
 	require_once $_bzc_cf7_dir . 'class-cf7-submissions-log.php';
 	require_once $_bzc_cf7_dir . 'class-cf7-crm-sync.php';
+	// [2026-08-04 Johnny Chu] PHASE-CG-CF7-BIGLEAD — load BigLead client before CF7 hooks.
+	require_once $_bzc_cf7_dir . 'class-cf7-biglead.php';
 	require_once $_bzc_cf7_dir . 'class-cf7-channel-listener.php';
 	require_once $_bzc_cf7_dir . 'class-cf7-rest.php';
 	// [2026-06-24 Johnny Chu] PHASE-CF7-RESP — per-form custom success message
@@ -223,16 +227,18 @@ if ( is_dir( $_bzc_cf7_dir ) ) {
 	// [2026-06-13 Johnny Chu] PHASE-CG-CF7 — defer listener init to plugins_loaded:20 so CF7
 	// (which registers at plugins_loaded:10) is guaranteed available when we check class_exists.
 	add_action( 'plugins_loaded', function () {
-		if ( class_exists( 'WPCF7' ) || class_exists( 'WPCF7_ContactForm' ) ) {
-			// [2026-07-17 Johnny Chu] HOTFIX — guard class init to avoid fatal
-			// "Class 'BizCity_C...' not found" when partial deploy/missing file.
-			if ( class_exists( 'BizCity_CF7_Channel_Listener' ) ) {
-				BizCity_CF7_Channel_Listener::init();
-			}
-			// [2026-06-24 Johnny Chu] PHASE-CF7-RESP — hook wpcf7_ajax_json_echo
-			if ( class_exists( 'BizCity_CF7_Response_Config' ) ) {
-				BizCity_CF7_Response_Config::init();
-			}
+		if ( class_exists( 'BizCity_CF7_BigLead' ) ) {
+			BizCity_CF7_BigLead::init();
+		}
+		// [2026-08-05 Johnny Chu] PHASE-CG-CF7-BIGLEAD — register CF7 hooks unconditionally after loading the class.
+		// CF7 can expose its runtime classes lazily; checking WPCF7 here can skip
+		// wpcf7_mail_sent even though the hook fires later in the request.
+		if ( class_exists( 'BizCity_CF7_Channel_Listener' ) ) {
+			BizCity_CF7_Channel_Listener::init();
+		}
+		// [2026-06-24 Johnny Chu] PHASE-CF7-RESP — hook wpcf7_ajax_json_echo
+		if ( class_exists( 'BizCity_CF7_Response_Config' ) ) {
+			BizCity_CF7_Response_Config::init();
 		}
 	}, 20 );
 	BizCity_CF7_REST::init();
@@ -343,8 +349,11 @@ require_once $gateway_dir . 'listener/class-listener-automation-bridge.php';
 add_action( 'admin_init', array( 'BizCity_Channel_Messages', 'maybe_install' ) );
 add_action( 'admin_init', array( 'BizCity_Channel_Binding',  'maybe_install' ) );
 add_action( 'admin_init', array( 'BizCity_Identity_Hub', 'maybe_install' ) );
-add_action( 'admin_init', array( 'BizCity_Channel_User_Linker', 'maybe_install' ) );
-BizCity_Channel_User_Linker::init();
+// [2026-08-02 Johnny Chu] HOTFIX — tolerate a partial deploy without crashing the entire Channel Gateway.
+if ( class_exists( 'BizCity_Channel_User_Linker' ) ) {
+	add_action( 'admin_init', array( 'BizCity_Channel_User_Linker', 'maybe_install' ) );
+	BizCity_Channel_User_Linker::init();
+}
 
 // Boot the Webhook Router (rewrite rules + parse_request intake).
 BizCity_Webhook_Router::init();

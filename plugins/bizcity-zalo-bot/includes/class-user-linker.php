@@ -103,6 +103,17 @@ class BizCity_Zalobot_User_Linker {
 	 * @return int    WP user_id, or 0 if not linked
 	 */
 	public static function resolve_wp_user( string $zalo_user_id, int $bot_id ): int {
+		// [2026-08-06 Johnny Chu] HOTFIX-ZALOBOT-LINK — Channel Gateway owns the canonical admin-channel identity lookup.
+		if ( class_exists( 'BizCity_Channel_User_Linker' ) ) {
+			$canonical = BizCity_Channel_User_Linker::resolve_wp_user(
+				BizCity_Channel_User_Linker::PLATFORM_ZALO_BOT,
+				$zalo_user_id,
+				(string) $bot_id
+			);
+			if ( $canonical > 0 ) {
+				return $canonical;
+			}
+		}
 		global $wpdb;
 
 		// Request-level cache
@@ -145,9 +156,33 @@ class BizCity_Zalobot_User_Linker {
 		object $bot,
 		string $display_name = ''
 	): bool {
-		// Already linked — no-op
+		// [2026-08-06 Johnny Chu] HOTFIX-ZALOBOT-LINK — preserve the linked-user short circuit before canonical link issuance.
 		if ( self::resolve_wp_user( $zalo_user_id, $bot_id ) > 0 ) {
 			return false;
+		}
+
+		// [2026-08-06 Johnny Chu] HOTFIX-ZALOBOT-LINK — issue the login URL through the Channel Gateway admin BE first.
+		if ( class_exists( 'BizCity_Channel_User_Linker' ) ) {
+			$canonical = BizCity_Channel_User_Linker::issue_link(
+				BizCity_Channel_User_Linker::PLATFORM_ZALO_BOT,
+				$zalo_user_id,
+				(string) $bot_id,
+				(int) get_current_blog_id(),
+				array( 'display_name' => $display_name )
+			);
+			if ( is_array( $canonical ) ) {
+				if ( ! empty( $canonical['linked'] ) || ! empty( $canonical['cooldown'] ) ) {
+					return false;
+				}
+				if ( ! empty( $canonical['url'] ) ) {
+					$message = ( $display_name ? "Xin chào {$display_name}! " : 'Xin chào! ' )
+						. "Để AI biết bạn là ai và hỗ trợ cá nhân hóa tốt hơn, vui lòng đăng nhập:\n"
+						. "🔗 {$canonical['url']}\n\nLink có hiệu lực trong 30 phút.";
+					self::send_via_bot( $bot, $zalo_user_id, $message );
+					set_transient( 'bzzalolink_cd_' . md5( $zalo_user_id . '_' . $bot_id ), 1, self::LINK_MSG_COOLDOWN );
+					return true;
+				}
+			}
 		}
 
 		// Cooldown: don't spam login links
@@ -377,10 +412,14 @@ class BizCity_Zalobot_User_Linker {
 	 * welcome/confirmation message back to the Zalo user.
 	 */
 	public static function boot_auto_login_link(): void {
+		// [2026-08-01 Johnny Chu] TWINBRAIN-EXT-VERTICAL-GUEST-CARE — keep Zalo Bot linker active.
+		// Zalo Bot still needs account linking for member identity, admin commands, grants and
+		// personalized automation. Guest-care must add an explicit channel mode/route later;
+		// it must not disable this linker globally.
 		add_action( 'bizcity_zalo_message_received', [ __CLASS__, 'maybe_auto_send_link' ], 3, 1 );
-		add_action( 'bizcity_zalobot_user_linked',    [ __CLASS__, 'send_welcome_after_link' ], 10, 3 );
 		// [2026-07-28 Johnny Chu] PHASE-0.52 W2 — only Zalo Bot memory no-owner events may use this linker.
 		add_action( 'bizcity_twinbrain_memory_no_owner', [ __CLASS__, 'maybe_send_login_link_from_memory' ], 7, 2 );
+		add_action( 'bizcity_zalobot_user_linked', [ __CLASS__, 'send_welcome_after_link' ], 10, 3 );
 	}
 
 	/**
@@ -501,6 +540,20 @@ class BizCity_Zalobot_User_Linker {
 	public static function link( string $zalo_user_id, $bot_id, int $wp_user_id ): bool {
 		if ( $zalo_user_id === '' || $wp_user_id <= 0 ) { return false; }
 		$bot_id_int = (int) $bot_id;
+		$core_bound = false;
+		if ( class_exists( 'BizCity_Channel_User_Linker' ) ) {
+			// [2026-08-06 Johnny Chu] HOTFIX-ZALOBOT-LINK — `/link` must bind through Channel Gateway before legacy compatibility storage.
+			$core_bound = BizCity_Channel_User_Linker::bind_identity(
+				BizCity_Channel_User_Linker::PLATFORM_ZALO_BOT,
+				$zalo_user_id,
+				(string) $bot_id_int,
+				$wp_user_id,
+				(int) get_current_blog_id()
+			);
+			if ( ! $core_bound ) {
+				return false;
+			}
+		}
 
 		global $wpdb;
 		$table = self::table();
@@ -538,10 +591,10 @@ class BizCity_Zalobot_User_Linker {
 			] );
 		}
 
-		if ( $ok !== false ) {
+		if ( $ok !== false && ! $core_bound ) {
 			do_action( 'bizcity_zalobot_user_linked', $bot_id_int, $zalo_user_id, $wp_user_id );
 		}
-		return $ok !== false;
+		return $ok !== false && ( ! class_exists( 'BizCity_Channel_User_Linker' ) || $core_bound );
 	}
 
 	/**

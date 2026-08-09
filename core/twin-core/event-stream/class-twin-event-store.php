@@ -67,6 +67,87 @@ class BizCity_Twin_Event_Store {
 			if ( $existing > 0 ) return $existing;
 			return 0;
 		}
+
+		// [2026-08-01 Johnny Chu] PHASE-1.25-TWIN-EVENT-JSONL — mirror only newly
+		// persisted canonical events to per-site JSONL so chat/channel traces can be
+		// inspected without querying the shard SQL table. BizCity_JSONL_File_Logger
+		// scrubs sensitive nested fields and remains best-effort/non-blocking.
+		if ( class_exists( 'BizCity_JSONL_File_Logger' ) && method_exists( 'BizCity_JSONL_File_Logger', 'write' ) ) {
+			$payload = json_decode( (string) $row['payload_json'], true );
+			BizCity_JSONL_File_Logger::write(
+				'bizcity-twin-core-logs',
+				'event-stream',
+				'info',
+				(string) $event['event_type'],
+				'Twin event persisted.',
+				array(
+					'event_uuid'        => (string) $event['event_uuid'],
+					'trace_id'          => (string) $event['trace_id'],
+					'conversation_id'   => (string) ( $event['conversation_id'] ?? '' ),
+					'session_id'        => (string) ( $event['session_id'] ?? '' ),
+					'user_id'           => (int) ( $event['user_id'] ?? 0 ),
+					'blog_id'           => (int) ( $event['blog_id'] ?? get_current_blog_id() ),
+					'event_source'      => (string) $event['event_source'],
+					'parent_event_uuid' => (string) ( $event['parent_event_uuid'] ?? '' ),
+					'payload'           => is_array( $payload ) ? $payload : array(),
+				)
+			);
+
+			if ( in_array( (string) $event['event_type'], array( 'twin_goal_opened', 'twin_goal_progressed', 'twin_goal_closed' ), true ) ) {
+				// [2026-08-02 Johnny Chu] HOTFIX — mirror canonical Goal events at the Event Store boundary so JSONL evidence is written whenever the event INSERT succeeds.
+				$goal_written = BizCity_JSONL_File_Logger::write(
+					'bizcity-twinbrain-logs',
+					'twinbrain-goal-loop',
+					'info',
+					(string) $event['event_type'],
+					'Canonical Goal Loop event persisted.',
+					array(
+						'event_uuid'   => (string) $event['event_uuid'],
+						'event_id'     => (int) $id,
+						'event_source' => (string) $event['event_source'],
+						'trace_id'     => (string) $event['trace_id'],
+						'goal_id'      => is_array( $payload ) ? (string) ( $payload['goal_id'] ?? '' ) : '',
+						'session_hash' => is_array( $payload ) && ! empty( $payload['session_id'] ) ? substr( sha1( (string) $payload['session_id'] ), 0, 12 ) : '',
+						'status'       => is_array( $payload ) ? (string) ( $payload['status'] ?? '' ) : '',
+					)
+				);
+				if ( ! $goal_written ) {
+					error_log( '[TwinBrain][goal-loop] canonical JSONL mirror failed for event ' . (string) $event['event_uuid'] );
+				}
+			}
+
+			// [2026-08-01 Johnny Chu] PHASE-1.26-CORRELATION — channel-originated
+			// events are also written to the physical channel folder with the exact
+			// Event Stream UUID. This creates a deterministic join without forcing
+			// inbound/outbound child events to reuse the same UUID.
+			$channel_hint = is_array( $payload )
+				? ( $payload['channel'] ?? $payload['platform'] ?? '' )
+				: '';
+			if ( (string) $channel_hint === '' ) {
+				$source_hint = strtolower( (string) ( $event['event_source'] ?? '' ) );
+				$generic_sources = array( 'system', 'server', 'twinbrain', 'twinchat', 'twinweb', 'automation' );
+				$channel_hint = in_array( $source_hint, $generic_sources, true ) ? '' : $source_hint;
+			}
+			if ( class_exists( 'BizCity_Channel_File_Logger' ) && class_exists( 'BizCity_Chat_Correlation' ) && (string) $channel_hint !== '' ) {
+				$channel = BizCity_Chat_Correlation::channel( $channel_hint );
+				BizCity_Channel_File_Logger::write(
+					$channel,
+					BizCity_Channel_File_Logger::LEVEL_INFO,
+					'twin_event_persisted',
+					'Twin event persisted for channel correlation.',
+					array(
+						'event_uuid'        => (string) $event['event_uuid'],
+						'trace_id'          => (string) $event['trace_id'],
+						'parent_event_uuid' => (string) ( $event['parent_event_uuid'] ?? '' ),
+						'event_type'        => (string) $event['event_type'],
+						'event_source'      => (string) $event['event_source'],
+						'conversation_id'   => (string) ( $event['conversation_id'] ?? '' ),
+						'session_id'        => (string) ( $event['session_id'] ?? '' ),
+						'platform'          => (string) $channel_hint,
+					)
+				);
+			}
+		}
 		return (int) $wpdb->insert_id;
 	}
 

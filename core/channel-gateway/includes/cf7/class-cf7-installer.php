@@ -14,8 +14,8 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 
 class BizCity_CF7_Installer {
 
-	// [2026-07-03 Johnny Chu] PHASE-0.46 FIX — bump to 1.2.0: add gift_orders_json column (store WC order IDs per submission)
-	const SCHEMA_VERSION  = '1.2.0';
+	// [2026-07-03 Johnny Chu] PHASE-0.46 FIX — bump to 1.1.0: add deleted_at column (REST queries use WHERE deleted_at IS NULL)
+	const SCHEMA_VERSION  = '1.1.0';
 	const VERSION_OPTION  = 'bizcity_cf7_channel_db_version';
 
 	public static function table(): string {
@@ -38,22 +38,21 @@ class BizCity_CF7_Installer {
 		$charset = $wpdb->get_charset_collate();
 
 		$sql = "CREATE TABLE `{$t}` (
-			id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-			form_id          BIGINT UNSIGNED NOT NULL,
-			form_title       VARCHAR(190)    NOT NULL DEFAULT '',
-			raw_data         LONGTEXT        NOT NULL,
-			mapped_data      LONGTEXT        NULL,
-			email            VARCHAR(190)    NULL,
-			phone            VARCHAR(32)     NULL,
-			crm_contact_id   BIGINT UNSIGNED NULL,
-			crm_action       VARCHAR(16)     NULL,
-			crm_error        TEXT            NULL,
-			source_url       TEXT            NULL,
-			user_agent       VARCHAR(255)    NULL,
-			ip_address       VARCHAR(45)     NULL,
-			submitted_at     DATETIME        NOT NULL,
-			deleted_at       DATETIME        NULL DEFAULT NULL,
-			gift_orders_json LONGTEXT        NULL DEFAULT NULL,
+			id             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			form_id        BIGINT UNSIGNED NOT NULL,
+			form_title     VARCHAR(190)    NOT NULL DEFAULT '',
+			raw_data       LONGTEXT        NOT NULL,
+			mapped_data    LONGTEXT        NULL,
+			email          VARCHAR(190)    NULL,
+			phone          VARCHAR(32)     NULL,
+			crm_contact_id BIGINT UNSIGNED NULL,
+			crm_action     VARCHAR(16)     NULL,
+			crm_error      TEXT            NULL,
+			source_url     TEXT            NULL,
+			user_agent     VARCHAR(255)    NULL,
+			ip_address     VARCHAR(45)     NULL,
+			submitted_at   DATETIME        NOT NULL,
+			deleted_at     DATETIME        NULL DEFAULT NULL,
 			PRIMARY KEY  (id),
 			KEY idx_form      (form_id),
 			KEY idx_email     (email),

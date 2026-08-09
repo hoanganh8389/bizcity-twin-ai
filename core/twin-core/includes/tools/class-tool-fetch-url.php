@@ -41,8 +41,14 @@ class BizCity_Tool_Fetch_Url implements BizCity_Twin_Tool {
 		if ( '' === $url ) {
 			return [ 'ok' => false, 'error' => 'url is required' ];
 		}
-		if ( ! $this->is_safe_url( $url ) ) {
-			return [ 'ok' => false, 'error' => 'URL is not allowed (must be public http/https, not private/loopback).' ];
+		$network_policy = isset( $context['network_policy'] ) && is_array( $context['network_policy'] ) ? $context['network_policy'] : array();
+		if ( class_exists( 'BizCity_Twin_Security_Policy' ) ) {
+			$url_policy = BizCity_Twin_Security_Policy::validate_url( $url, $network_policy );
+		} else {
+			$url_policy = array( 'allowed' => false, 'code' => 'security_policy_unavailable', 'message' => 'URL security policy is unavailable.' );
+		}
+		if ( empty( $url_policy['allowed'] ) ) {
+			return [ 'ok' => false, 'error' => (string) ( $url_policy['message'] ?? 'URL is not allowed by the network policy.' ), 'code' => (string) ( $url_policy['code'] ?? 'url_not_allowed' ), 'retriable' => false ];
 		}
 
 		$resp = wp_remote_get( $url, [
@@ -87,24 +93,6 @@ class BizCity_Tool_Fetch_Url implements BizCity_Twin_Tool {
 			'sources'      => [ [ 'cite_id' => $cite_id, 'url' => $url, 'snippet' => mb_substr( $text, 0, 240 ) ] ],
 			'citation_ids' => [ $cite_id ],
 		];
-	}
-
-	/** SSRF guard — block private IPs, loopback, link-local, file://, etc. */
-	private function is_safe_url( string $url ): bool {
-		$parts = wp_parse_url( $url );
-		if ( empty( $parts['scheme'] ) || empty( $parts['host'] ) ) return false;
-		if ( ! in_array( strtolower( $parts['scheme'] ), [ 'http', 'https' ], true ) ) return false;
-
-		$host = strtolower( $parts['host'] );
-		if ( in_array( $host, [ 'localhost', '127.0.0.1', '0.0.0.0', '::1' ], true ) ) return false;
-
-		$ip = filter_var( $host, FILTER_VALIDATE_IP ) ?: gethostbyname( $host );
-		if ( $ip && $ip !== $host ) {
-			if ( ! filter_var( $ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE ) ) {
-				return false;
-			}
-		}
-		return true;
 	}
 
 	private function html_to_text( string $html ): string {

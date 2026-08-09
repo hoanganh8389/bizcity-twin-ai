@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "bizcity://events/twin_goal_closed.json",
+  "title": "twin_goal_closed",
+  "description": "Terminal Twin Goal Loop transition with an explicit closure signal.",
+  "type": "object",
+  "required": ["goal_id", "session_id", "status", "completion_score", "closure_signal", "state"],
+  "properties": {
+    "goal_id": { "type": "string", "pattern": "^goal_[A-Za-z0-9_-]+$" },
+    "session_id": { "type": "string", "minLength": 1 },
+    "status": { "type": "string", "enum": ["completed", "cancelled", "abandoned", "superseded"] },
+    "completion_score": { "type": "number", "minimum": 0, "maximum": 1 },
+    "closure_signal": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["user_confirmed", "user_completed", "session_closed", "user_cancelled", "inactivity_timeout", "superseded_by_goal"]
+        },
+        "evidence": { "type": "string" },
+        "created_at": { "type": "string" }
+      }
+    },
+    "state": { "type": "object" },
+    "surface": { "type": "string" },
+    "identity_uuid": { "type": "string" }
+  },
+  "additionalProperties": true
+}

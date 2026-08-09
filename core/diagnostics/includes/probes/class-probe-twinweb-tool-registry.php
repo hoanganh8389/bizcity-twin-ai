@@ -33,6 +33,9 @@ if ( class_exists( 'BizCity_Probe_TwinWeb_Tool_Registry', false ) ) {
 
 final class BizCity_Probe_TwinWeb_Tool_Registry implements BizCity_Diagnostics_Probe {
 
+	/** @var string[] */
+	private $persisted_event_uuids = array();
+
 	public function id(): string { return 'modules.twin_gpt.tool_registry'; }
 	public function label(): string { return 'Twin GPT Tool Registry (/tools/effective)'; }
 	public function description(): string {
@@ -152,21 +155,31 @@ final class BizCity_Probe_TwinWeb_Tool_Registry implements BizCity_Diagnostics_P
 			&& ( $canva_wp_editor_src === '' || ( strpos( $canva_wp_editor_src, "params.get('src')" ) !== false && strpos( $canva_wp_editor_src, 'standaloneConfig(), imageUrl' ) !== false ) );
 		$this->emit( $ctx, $steps, $pass, 'Disk - image Canva Editor layer-1 handoff markers', $image_canva_handoff_ok, $image_canva_handoff_ok ? 'Image artifact status/start expose /canva/?imageUrl=... and TwinWeb/Canva editor preserve an explicit Editor layer-1 handoff.' : 'Missing image Canva edit_url, TwinWeb Editor action, or WPEditor imageUrl/src standalone handoff marker.' );
 
-		// [2026-07-20 Johnny Chu] PHASE-TWIN-GPT-AGENT-TOOLS — rich spec + compact owner iframe shell contract.
-		$spec_canvas_ok = strpos( $runtime_src, 'bizcity.twinweb.tool_spec.v1' ) !== false
-			&& strpos( $runtime_src, 'build_tool_spec_pack' ) !== false
-			&& strpos( $runtime_src, 'build_tool_files_ingest_summary' ) !== false
-			&& strpos( $runtime_src, 'multimodal_ingest_pack' ) !== false
-			&& strpos( $runtime_src, 'context_md' ) !== false
-			&& strpos( $adapter_src, 'build_spec_file_context_text' ) !== false
-			&& strpos( $adapter_src, "['spec_trace']" ) !== false
-			&& strpos( $runtime_src, 'visible_prompt' ) !== false
-			&& strpos( $rest_src, 'visible_prompt' ) !== false
-			&& strpos( $bzdoc_template_src, 'twinCanvas' ) !== false
-			&& strpos( $bzdoc_template_src, 'bzdoc-twin-canvas' ) !== false
-			&& strpos( $bzdoc_app_src, 'isTwinCanvasMode' ) !== false
-			&& strpos( $bzdoc_app_src, 'getFullStudioUrl' ) !== false;
-		$this->emit( $ctx, $steps, $pass, 'Disk - rich tool spec + compact Canvas shell', $spec_canvas_ok, $spec_canvas_ok ? 'Runtime builds prioritized tool_spec with multimodal intake facts and BZDoc exposes compact twin_canvas artifact shell.' : 'Missing rich tool_spec, multimodal intake handoff, or compact BZDoc Canvas shell markers.' );
+		// [2026-08-01 Johnny Chu] PHASE-TWIN-GPT-AGENT-TOOLS — report the exact missing rich-spec/Canvas marker so stale PHP deploys are diagnosable from DDV.
+		$spec_canvas_markers = array(
+			'runtime_tool_spec_schema' => strpos( $runtime_src, 'bizcity.twinweb.tool_spec.v1' ) !== false,
+			'runtime_tool_spec_builder' => strpos( $runtime_src, 'build_tool_spec_pack' ) !== false,
+			'runtime_file_ingest_summary' => strpos( $runtime_src, 'build_tool_files_ingest_summary' ) !== false,
+			'runtime_multimodal_pack' => strpos( $runtime_src, 'multimodal_ingest_pack' ) !== false,
+			'runtime_context_md' => strpos( $runtime_src, 'context_md' ) !== false,
+			'adapter_file_context' => strpos( $adapter_src, 'build_spec_file_context_text' ) !== false,
+			'adapter_spec_trace' => strpos( $adapter_src, "['spec_trace']" ) !== false,
+			'runtime_visible_prompt' => strpos( $runtime_src, 'visible_prompt' ) !== false,
+			'rest_visible_prompt' => strpos( $rest_src, 'visible_prompt' ) !== false,
+			'bzdoc_template_twin_canvas' => strpos( $bzdoc_template_src, 'twinCanvas' ) !== false,
+			'bzdoc_template_shell_class' => strpos( $bzdoc_template_src, 'bzdoc-twin-canvas' ) !== false,
+			// [2026-08-01 Johnny Chu] R-DDV-FE — Doc Studio React source is optional on production dist-only deploys; PHP shell markers remain mandatory above.
+			'bzdoc_app_canvas_mode' => $bzdoc_app_src === '' || strpos( $bzdoc_app_src, 'isTwinCanvasMode' ) !== false,
+			'bzdoc_app_studio_url' => $bzdoc_app_src === '' || strpos( $bzdoc_app_src, 'getFullStudioUrl' ) !== false,
+		);
+		$spec_canvas_missing = array();
+		foreach ( $spec_canvas_markers as $marker => $marker_ok ) {
+			if ( ! $marker_ok ) {
+				$spec_canvas_missing[] = $marker;
+			}
+		}
+		$spec_canvas_ok = empty( $spec_canvas_missing );
+		$this->emit( $ctx, $steps, $pass, 'Disk - rich tool spec + compact Canvas shell', $spec_canvas_ok, $spec_canvas_ok ? 'Runtime builds prioritized tool_spec with multimodal intake facts and BZDoc exposes compact twin_canvas artifact shell.' : 'Missing markers: ' . implode( ', ', $spec_canvas_missing ) );
 
 		// [2026-07-20 Johnny Chu] PHASE-TWIN-GPT-AGENT-TOOLS — AT-7 durable job contract markers; FE source may be absent on production deploy.
 		$at7_fe_ok = ( $artifact_api_src === '' && $pane_src === '' && $chat_src === '' )
@@ -212,12 +225,134 @@ final class BizCity_Probe_TwinWeb_Tool_Registry implements BizCity_Diagnostics_P
 				&& strpos( (string) $chat_src, 'setActiveArtifact( replayArtifact )' ) !== false );
 		$replay_ok = is_string( $rest_src ) && $rest_src !== ''
 			&& strpos( $rest_src, 'extract_artifact_from_message_meta' ) !== false
+			&& strpos( $rest_src, 'extract_artifacts_from_message_meta' ) !== false
+			&& strpos( $rest_src, "'artifacts'" ) !== false
 			&& strpos( $rest_src, 'collect_member_chat_artifact_summary' ) !== false
 			&& strpos( $rest_src, "'chat_total'" ) !== false
 			&& $chat_replay_marker_ok
 			&& ( $account_src === '' || strpos( $account_src, 'Generated artifacts' ) !== false )
 			&& ( $work_summary_src === '' || strpos( $work_summary_src, 'chat_total' ) !== false );
 		$this->emit( $ctx, $steps, $pass, 'Disk - artifact replay + MyAccount generated summary markers', $replay_ok, $replay_ok ? 'TwinWeb rehydrates Artifact Canvas from assistant history meta and includes generated chat artifacts in MyAccount work summary without opening AT-7 DDL.' : 'Missing artifact replay or MyAccount generated artifact markers.' );
+
+		// [2026-08-01 Johnny Chu] PHASE-TWIN-GPT-AGENT-TOOLS — production dist-only deploys may omit React source; keep REST replay as the required contract and treat FE source markers as optional.
+		$multi_output_fe_ok = $chat_src === ''
+			|| ( strpos( (string) $chat_src, 'SessionWorkspacePane' ) !== false
+				&& strpos( (string) $chat_src, 'sessionOutputs' ) !== false
+				&& strpos( (string) $chat_src, 'event.artifacts' ) !== false );
+		$multi_output_disk_ok = $multi_output_fe_ok
+			&& ( $rest_src === ''
+				|| ( strpos( (string) $rest_src, 'extract_artifacts_from_message_meta' ) !== false
+					&& strpos( (string) $rest_src, "'artifacts'" ) !== false ) );
+		$this->emit( $ctx, $steps, $pass, 'Disk - Session Workspace multi-output markers', $multi_output_disk_ok, $multi_output_disk_ok ? 'SessionWorkspacePane, FE output collection, tool_done artifacts[] and REST replay artifacts[] markers are present.' : 'Missing Session Workspace or artifacts[] replay markers.' );
+
+		// [2026-08-01 Johnny Chu] PHASE-TWINWEB-UNIFIED-SOURCES — verify session source CRUD reuses the canonical notebook composer and artifact events share the progress timeline.
+		$session_workspace_contract_ok = ( $chat_src === '' && $pane_src === '' )
+			|| ( strpos( (string) $pane_src, 'UnifiedSourceComposer' ) !== false
+				&& strpos( (string) $pane_src, 'projectsApi.listSources' ) !== false
+				&& strpos( (string) $pane_src, 'twinchatSourcesApi.delete' ) !== false
+				&& strpos( (string) $pane_src, 'saveInputAsSource' ) !== false
+				&& strpos( (string) $chat_src, 'sessionNotebookId' ) !== false
+				&& strpos( (string) $chat_src, 'updateArtifactTimeline' ) !== false
+				&& strpos( (string) $chat_src, 'tool_dispatch_queued' ) !== false
+				&& strpos( (string) $chat_src, 'artifact_ready' ) !== false );
+		$this->emit( $ctx, $steps, $pass, 'Disk - Session Workspace sources and unified artifact progress contract', $session_workspace_contract_ok, $session_workspace_contract_ok ? 'Workspace reuses notebook source CRUD, saves attachments into canonical sources and folds artifact events into the shared progress timeline.' : 'Missing Session Workspace source CRUD or unified artifact progress markers.' );
+
+		$multi_output_runtime_ok = false;
+		$multi_output_runtime_detail = 'TwinWeb REST replay normalizer is not loaded.';
+		if ( class_exists( 'BizCity_TwinWeb_REST' ) && method_exists( 'BizCity_TwinWeb_REST', 'instance' ) && method_exists( 'BizCity_TwinWeb_REST', 'extract_artifacts_from_message_meta' ) ) {
+			try {
+				$rest_controller = BizCity_TwinWeb_REST::instance();
+				$replay_method = new ReflectionMethod( 'BizCity_TwinWeb_REST', 'extract_artifacts_from_message_meta' );
+				$replay_method->setAccessible( true );
+				$synthetic_meta = array(
+					'result_snapshot' => array(
+						'tool_dispatch' => array(
+							'artifacts' => array(
+								array( 'artifact_id' => 'diag-art-1', 'artifact_type' => 'image', 'title' => 'Bộ tiếp khách văn phòng', 'preview_url' => 'https://example.test/diag-1.png' ),
+								array( 'artifact_id' => 'diag-art-2', 'artifact_type' => 'document', 'title' => 'Bộ chăm sóc máy in', 'preview_url' => 'https://example.test/diag-2.docx' ),
+								array( 'artifact_id' => 'diag-art-3', 'artifact_type' => 'file', 'title' => 'Bộ vệ sinh văn phòng', 'download_url' => 'https://example.test/diag-3.pdf' ),
+							),
+						),
+					),
+				);
+				$synthetic_artifacts = $replay_method->invoke( $rest_controller, $synthetic_meta );
+				$ids = array_map( static function ( $artifact ) {
+					return is_array( $artifact ) ? (string) ( $artifact['artifact_id'] ?? '' ) : '';
+				}, (array) $synthetic_artifacts );
+				$titles = array_map( static function ( $artifact ) {
+					return is_array( $artifact ) ? (string) ( $artifact['title'] ?? '' ) : '';
+				}, (array) $synthetic_artifacts );
+				$multi_output_runtime_ok = count( $synthetic_artifacts ) === 3
+					&& $ids === array( 'diag-art-1', 'diag-art-2', 'diag-art-3' )
+					&& $titles[0] === 'Bộ tiếp khách văn phòng'
+					&& $titles[2] === 'Bộ vệ sinh văn phòng';
+				$multi_output_runtime_detail = sprintf( 'count=%d; ids=%s; titles=%s', count( $synthetic_artifacts ), implode( ',', $ids ), implode( ' | ', $titles ) );
+			} catch ( Throwable $e ) {
+				$multi_output_runtime_detail = 'Exception: ' . $e->getMessage();
+			}
+		}
+		$this->emit( $ctx, $steps, $pass, 'Runtime - synthetic three-artifact replay preserves output list', $multi_output_runtime_ok, $multi_output_runtime_detail );
+
+		// [2026-08-01 Johnny Chu] PHASE-TWIN-GPT-AGENT-TOOLS — persist a synthetic assistant snapshot through Event Store, then replay it through the REST normalizer before cleanup.
+		$persisted_replay_ok = false;
+		$persisted_replay_detail = 'Canonical Event Store or event-stream table is not available; persistence replay is skipped.';
+		if ( class_exists( 'BizCity_Twin_Event_Bus' )
+			&& class_exists( 'BizCity_Twin_Event_Store' )
+			&& class_exists( 'BizCity_Twin_Event_Stream_Schema' )
+			&& $this->event_stream_table_ready()
+			&& method_exists( 'BizCity_Twin_Event_Bus', 'dispatch_v2' )
+			&& method_exists( 'BizCity_Twin_Event_Store', 'fetch_for_trace' )
+			&& class_exists( 'BizCity_TwinWeb_REST' )
+			&& method_exists( 'BizCity_TwinWeb_REST', 'instance' )
+			&& method_exists( 'BizCity_TwinWeb_REST', 'extract_artifacts_from_message_meta' ) ) {
+			$persist_trace_id = 'diag_multi_output_' . substr( md5( uniqid( '', true ) ), 0, 16 );
+			$persisted_meta = array(
+				'result_snapshot' => array(
+					'tool_dispatch' => array(
+						'artifacts' => array(
+							array( 'artifact_id' => 'persist-art-1', 'artifact_type' => 'image', 'title' => 'Persisted image', 'preview_url' => 'https://example.test/persist-1.png' ),
+							array( 'artifact_id' => 'persist-art-2', 'artifact_type' => 'xlsx', 'title' => 'Persisted sheet', 'download_url' => 'https://example.test/persist-2.xlsx' ),
+							array( 'artifact_id' => 'persist-art-3', 'artifact_type' => 'pptx', 'title' => 'Persisted deck', 'download_url' => 'https://example.test/persist-3.pptx' ),
+						),
+					),
+				),
+			);
+			try {
+				$event_uuid = BizCity_Twin_Event_Bus::dispatch_v2( 'assistant_message', array(
+					'trace_id'        => $persist_trace_id,
+					'content'         => 'Synthetic multi-output persistence replay.',
+					'result_snapshot' => $persisted_meta['result_snapshot'],
+				), array(
+					'event_source' => 'system',
+					'trace_id'     => $persist_trace_id,
+					'session_id'   => $persist_trace_id,
+					'user_id'      => 0,
+				) );
+				$this->persisted_event_uuids[] = (string) $event_uuid;
+				$rows = BizCity_Twin_Event_Store::fetch_for_trace( $persist_trace_id, array( 'event_type' => 'assistant_message' ) );
+				$replayed_meta = array();
+				foreach ( (array) $rows as $row ) {
+					if ( is_array( $row ) && isset( $row['payload'] ) && is_array( $row['payload'] ) ) {
+						$replayed_meta = $row['payload'];
+						break;
+					}
+				}
+				$rest_controller = BizCity_TwinWeb_REST::instance();
+				$replay_method = new ReflectionMethod( 'BizCity_TwinWeb_REST', 'extract_artifacts_from_message_meta' );
+				$replay_method->setAccessible( true );
+				$persisted_artifacts = $replay_method->invoke( $rest_controller, $replayed_meta );
+				$persisted_ids = array_map( static function ( $artifact ) {
+					return is_array( $artifact ) ? (string) ( $artifact['artifact_id'] ?? '' ) : '';
+				}, (array) $persisted_artifacts );
+				$persisted_replay_ok = count( $rows ) === 1
+					&& count( $persisted_artifacts ) === 3
+					&& $persisted_ids === array( 'persist-art-1', 'persist-art-2', 'persist-art-3' );
+				$persisted_replay_detail = sprintf( 'events=%d; artifacts=%d; ids=%s', count( $rows ), count( $persisted_artifacts ), implode( ',', $persisted_ids ) );
+			} catch ( \Throwable $e ) {
+				$persisted_replay_detail = 'Exception: ' . $e->getMessage();
+			}
+		}
+		$this->emit_optional( $ctx, $steps, 'Runtime - persisted assistant snapshot replays multi-output artifacts', $persisted_replay_ok, $persisted_replay_detail, $persisted_replay_detail === 'Canonical Event Store or event-stream table is not available; persistence replay is skipped.' );
 		// [2026-07-20 Johnny Chu] PHASE-TWIN-GPT-AGENT-TOOLS — accept source or built dist marker because production may deploy only assets.
 		$xlsx_src = is_readable( $xlsx_builder_file ) ? (string) file_get_contents( $xlsx_builder_file ) : '';
 		$xlsx_dist = is_readable( $xlsx_dist_file ) ? (string) file_get_contents( $xlsx_dist_file ) : '';
@@ -511,7 +646,15 @@ final class BizCity_Probe_TwinWeb_Tool_Registry implements BizCity_Diagnostics_P
 	}
 
 	public function cleanup(): void {
-		// Read-only probe; no real provider/tool execution or artifacts created.
+		// [2026-08-01 Johnny Chu] PHASE-TWIN-GPT-AGENT-TOOLS — remove only this probe run's synthetic event rows.
+		if ( empty( $this->persisted_event_uuids ) || ! class_exists( 'BizCity_Twin_Event_Stream_Schema' ) || ! $this->event_stream_table_ready() ) {
+			return;
+		}
+		global $wpdb;
+		foreach ( $this->persisted_event_uuids as $event_uuid ) {
+			$wpdb->delete( BizCity_Twin_Event_Stream_Schema::table(), array( 'event_uuid' => sanitize_text_field( (string) $event_uuid ) ), array( '%s' ) );
+		}
+		$this->persisted_event_uuids = array();
 	}
 
 	private function emit( $ctx, array &$steps, &$pass, $label, $ok, $detail ) {
@@ -525,6 +668,28 @@ final class BizCity_Probe_TwinWeb_Tool_Registry implements BizCity_Diagnostics_P
 		if ( ! $ok ) {
 			$pass = false;
 		}
+	}
+
+	private function emit_optional( $ctx, array &$steps, $label, $ok, $detail, $skipped = false ) {
+		$step = array(
+			'label'  => (string) $label,
+			'status' => $skipped ? 'skip' : ( $ok ? 'pass' : 'fail' ),
+			'detail' => (string) $detail,
+		);
+		$steps[] = $step;
+		$ctx->emit_step( $step );
+	}
+
+	private function event_stream_table_ready(): bool {
+		global $wpdb;
+		$table = BizCity_Twin_Event_Stream_Schema::table();
+		if ( function_exists( 'bizcity_tbl_exists' ) ) {
+			return (bool) bizcity_tbl_exists( $table );
+		}
+		return (bool) $wpdb->get_var( $wpdb->prepare(
+			'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+			$table
+		) );
 	}
 
 	private function find_tool_row( $items, $slug ) {

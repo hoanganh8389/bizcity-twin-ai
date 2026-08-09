@@ -142,6 +142,10 @@ class BizCity_KG_Passage_File_Store {
 	 * @return string|WP_Error  body bytes (NOT frontmatter)
 	 */
 	public function read_body( $notebook_uuid, $shard, $offset, $length ) {
+		// [2026-07-31 Johnny Chu] HOTFIX — reject stale/empty offset indexes before fread() receives a non-positive length.
+		if ( (int) $offset < 0 || (int) $length <= 0 ) {
+			return new WP_Error( 'kg_passage_invalid_index', 'invalid passage file offset or length' );
+		}
 		$path = $this->shard_path( $notebook_uuid, $shard );
 		if ( is_wp_error( $path ) ) { return $path; }
 		if ( ! file_exists( $path ) ) {

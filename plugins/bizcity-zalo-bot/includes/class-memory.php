@@ -11,6 +11,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 class BizCity_Zalo_Bot_Memory {
+
+	// [2026-07-31 Johnny Chu] PHASE-1.22-MEMORY-UNIFY — staging switch for the legacy Zalo memory table writer.
+	const LEGACY_WRITER_OPTION = 'bizcity_zalobot_legacy_memory_enabled';
 	
 	private static $instance = null;
 	
@@ -79,7 +82,7 @@ class BizCity_Zalo_Bot_Memory {
 			$params[] = (int) $args['since_id'];
 		}
 		
-		$sql = "SELECT id, bot_id, client_id, user_id, text, display_name, created_at
+		$sql = "SELECT id, bot_id, client_id, user_id, event_name, text, display_name, created_at
 		        FROM {$table_logs}
 		        {$where}
 		        ORDER BY id DESC
@@ -112,10 +115,22 @@ class BizCity_Zalo_Bot_Memory {
 				}
 				// Tag role for LLM context building
 				$r['role'] = ( $r['event_name'] === 'bot.reply' ) ? 'assistant' : 'user';
+				$user_messages[ $user_key ]['messages'][] = $r;
 		}
 		
 		// Process each user's messages
 		foreach ( $user_messages as $user_data ) {
+			// [2026-07-31 Johnny Chu] PHASE-1.22-MEMORY-UNIFY — canonical TwinBrain writer runs before the legacy table path during staging.
+			$canonical = self::write_to_twinbrain( $user_data, $args );
+			if ( $canonical['ok'] ) {
+				$inserted += (int) $canonical['inserted'];
+				$updated  += (int) $canonical['updated'];
+			}
+
+			// [2026-07-31 Johnny Chu] PHASE-1.22-MEMORY-UNIFY — retain legacy writes only while the rollback flag is enabled.
+			if ( ! self::legacy_writer_enabled() ) {
+				continue;
+			}
 			// Extract memories using LLM
 			$memories = self::extract_memories_llm( $user_data['messages'] );
 			
@@ -148,6 +163,86 @@ class BizCity_Zalo_Bot_Memory {
 			'count' => count( $rows ),
 			'inserted' => $inserted,
 			'updated' => $updated,
+			'legacy_writer_enabled' => self::legacy_writer_enabled(),
+		);
+	}
+
+	/**
+	 * Write one grouped Zalo conversation through the canonical TwinBrain writer.
+	 *
+	 * @param array $user_data Grouped Zalo log rows.
+	 * @param array $args Build options.
+	 * @return array{ok:bool,inserted:int,updated:int}
+	 */
+	private static function write_to_twinbrain( array $user_data, array $args ): array {
+		if ( ! class_exists( 'BizCity_TwinBrain_Memory_Writer' ) ) {
+			return array( 'ok' => false, 'inserted' => 0, 'updated' => 0 );
+		}
+
+		$prompt_parts = array();
+		$answer_parts = array();
+		$source_ids   = array();
+		foreach ( (array) ( $user_data['messages'] ?? array() ) as $message ) {
+			$text = trim( (string) ( $message['text'] ?? '' ) );
+			if ( $text === '' ) {
+				continue;
+			}
+			$source_ids[] = (int) ( $message['id'] ?? 0 );
+			if ( ( $message['role'] ?? 'user' ) === 'assistant' ) {
+				$answer_parts[] = $text;
+			} else {
+				$prompt_parts[] = $text;
+			}
+		}
+		if ( empty( $prompt_parts ) || empty( $source_ids ) ) {
+			return array( 'ok' => false, 'inserted' => 0, 'updated' => 0 );
+		}
+
+		$bot_id       = (int) ( $user_data['bot_id'] ?? 0 );
+		$external_uid = (string) ( $user_data['user_id'] ?? '' );
+		$wp_user_id   = 0;
+		if ( class_exists( 'BizCity_Zalobot_User_Linker' ) && $bot_id > 0 && $external_uid !== '' ) {
+			$wp_user_id = (int) BizCity_Zalobot_User_Linker::resolve_wp_user( $external_uid, $bot_id );
+		}
+
+		$payload = array(
+			'blog_id'          => (int) ( $args['blog_id'] ?? get_current_blog_id() ),
+			'user_id'          => $wp_user_id,
+			'wp_user_id'       => $wp_user_id,
+			'platform'         => 'zalo_bot',
+			'channel'          => 'zalo_bot',
+			'account_id'       => (string) $bot_id,
+			'external_user_id' => $external_uid,
+			'chat_id'          => (string) ( $user_data['client_id'] ?? '' ),
+			'identity_is_stable' => $wp_user_id > 0,
+			// [2026-08-01 Johnny Chu] PHASE-TWIN-MPR-SUBJECT-G0 — Zalo Bot is
+			// user-bound; private chat still requires the Zalo linker/wp_user_id.
+			// Group and private conversations must never guest-bind here.
+			'identity_guest_bind' => false,
+		);
+		$context = function_exists( 'bizcity_memory_writer_ctx_from_channel' )
+			? bizcity_memory_writer_ctx_from_channel( $payload )
+			: $payload;
+		$trace_id = 'zalo-memory-' . md5( $bot_id . '|' . (string) ( $user_data['client_id'] ?? '' ) . '|' . implode( ',', $source_ids ) );
+
+		$result = BizCity_TwinBrain_Memory_Writer::instance()->extract_and_persist(
+			$trace_id,
+			implode( "\n", $prompt_parts ),
+			implode( "\n", $answer_parts ),
+			$context
+		);
+
+		return array(
+			'ok'      => true,
+			'inserted' => (int) ( $result['persisted'] ?? 0 ),
+			'updated'  => 0,
+		);
+	}
+
+	private static function legacy_writer_enabled(): bool {
+		return (bool) apply_filters(
+			'bizcity_zalobot_legacy_memory_enabled',
+			get_option( self::LEGACY_WRITER_OPTION, '1' ) === '1'
 		);
 	}
 	

@@ -157,7 +157,11 @@ final class BizCity_Gateway_Admin_SPA {
 		// Strip wp-admin chrome around our mount point so React owns the canvas.
 		// When inside an iframe the admin bar is absent — use full 100vh.
 		$min_h = $this->is_spa_iframe_context() ? '100vh' : 'calc(100vh - 32px)';
-		echo '<div id="bizcity-channel-gateway-root" style="min-height:' . esc_attr( $min_h ) . ';"></div>';
+		// [2026-06-29 Johnny Chu] HOTFIX — translate="no" prevents Chrome translation
+		// extensions (e.g. aggiiclaiamajehmlfpkjmlbadmkledi) from mutating DOM nodes
+		// inside the React root. When an extension moves/wraps text nodes, React's
+		// fiber stateNode references go stale → insertBefore NotFoundError on commit.
+		echo '<div id="bizcity-channel-gateway-root" translate="no" style="min-height:' . esc_attr( $min_h ) . ';"></div>';
 	}
 
 	/* ─── Asset Enqueue ─── */

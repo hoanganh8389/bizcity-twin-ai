@@ -155,7 +155,6 @@ class BizCity_TwinChat_Sources_Service {
 		if ( $content === '' ) {
 			return $this->err_validation( 'empty_content', 'Nguồn này không đọc được nội dung nào — file có thể rỗng, bị mã hoá, hoặc ở định dạng chưa hỗ trợ.', [ 'type' => $type ] );
 		}
-
 		if ( class_exists( 'BizCity_Twin_Debug' ) ) {
 			BizCity_Twin_Debug::trace( 'kg', 'ingest_materialized', [
 				'scope_id'    => $scope_id,
@@ -168,6 +167,8 @@ class BizCity_TwinChat_Sources_Service {
 		$db   = BizCity_TwinChat_Sources_Database::instance();
 		$hash = hash( 'sha256', $content );
 		$async_placeholder_source_id = isset( $metadata['async_placeholder_source_id'] ) ? (int) $metadata['async_placeholder_source_id'] : 0;
+		$rehydrate_source_id    = 0;
+		$rehydrate_kg_source_id = 0;
 
 		// URL dedup: check bizcity_kg_sources (unified canonical table) for an
 		// existing row with the same notebook scope + URL before any DB write.
@@ -176,8 +177,8 @@ class BizCity_TwinChat_Sources_Service {
 		if ( $source_url !== '' && class_exists( 'BizCity_KG_Database' ) ) {
 			global $wpdb;
 			$_kg_tbl        = BizCity_KG_Database::instance()->tbl_sources();
-			$url_dup_origin = (int) $wpdb->get_var( $wpdb->prepare(
-				"SELECT origin_id FROM {$_kg_tbl}
+			$url_dup_row = $wpdb->get_row( $wpdb->prepare(
+				"SELECT id, origin_id FROM {$_kg_tbl}
 				  WHERE scope_type    = 'notebook'
 				    AND scope_id      = %s
 				    AND origin_plugin = 'twinchat'
@@ -185,23 +186,45 @@ class BizCity_TwinChat_Sources_Service {
 				  LIMIT 1",
 				(string) $scope_id,
 				$source_url
-			) );
+			), ARRAY_A );
+			$url_dup_origin = (int) ( $url_dup_row['origin_id'] ?? 0 );
 			if ( $url_dup_origin > 0 ) {
-				if ( class_exists( 'BizCity_Twin_Debug' ) ) {
-					BizCity_Twin_Debug::trace( 'kg', 'ingest_duplicate_url', [
-						'scope_id'  => $scope_id,
-						'source_id' => $url_dup_origin,
-						'url'       => $source_url,
-					] );
+				$existing_source  = $db->get_source( $url_dup_origin );
+				$existing_content = is_array( $existing_source ) ? trim( (string) ( $existing_source['content_text'] ?? '' ) ) : '';
+				if ( $existing_content === '' ) {
+					// [2026-08-02 Johnny Chu] R-KG-INGEST-REHYDRATE — repair
+					// URL-only rows through fresh Hub extraction.
+					$rehydrate_source_id    = $url_dup_origin;
+					$rehydrate_kg_source_id = (int) ( $url_dup_row['id'] ?? 0 );
+				} else {
+					if ( class_exists( 'BizCity_Twin_Debug' ) ) {
+						BizCity_Twin_Debug::trace( 'kg', 'ingest_duplicate_url', [
+							'scope_id'  => $scope_id,
+							'source_id' => $url_dup_origin,
+							'url'       => $source_url,
+						] );
+					}
+					return [
+						'source_id'   => $url_dup_origin,
+						'chunk_count' => 0,
+						'passage_ids' => [],
+						'duplicate'   => true,
+						'dedup_by'    => 'url',
+					];
 				}
-				return [
-					'source_id'   => $url_dup_origin,
-					'chunk_count' => 0,
-					'passage_ids' => [],
-					'duplicate'   => true,
-					'dedup_by'    => 'url',
-				];
 			}
+		}
+		if ( $rehydrate_source_id > 0 ) {
+			// [2026-08-02 Johnny Chu] R-KG-INGEST-REHYDRATE — clear stale
+			// URL-only chunks/passages before writing the fresh extracted body.
+			$this->cleanup_failed_ingest(
+				$rehydrate_source_id,
+				$rehydrate_kg_source_id,
+				$scope_id,
+				$rehydrate_kg_source_id,
+				'Rehydrate URL source with fresh gateway content.'
+			);
+			$async_placeholder_source_id = $rehydrate_source_id;
 		}
 
 		// Hash dedup: if same notebook already has a source with same hash, return it.
@@ -478,6 +501,10 @@ class BizCity_TwinChat_Sources_Service {
 			'chunk_count'  => count( $chunk_ids ),
 			'passage_ids'  => $passage_ids,
 			'duplicate'    => false,
+			// [2026-08-02 Johnny Chu] R-GW-INGEST-PREVIEW — expose a bounded
+			// Markdown preview after each URL finishes Hub extraction.
+			'markdown_preview' => mb_substr( $content, 0, 6000 ),
+			'content_length'   => mb_strlen( $content ),
 		];
 
 		/**
@@ -499,6 +526,17 @@ class BizCity_TwinChat_Sources_Service {
 		// [2026-07-24 Johnny Chu] PHASE-0.46-INGEST-ROLLBACK — remove only rows belonging to this source and synchronize both status surfaces.
 		global $wpdb;
 		$db = BizCity_TwinChat_Sources_Database::instance();
+		// [2026-08-04 Johnny Chu] HOTFIX — avoid querying missing optional tables
+		// during rollback so the original persistence error is not masked.
+		$has_table = static function ( $table_name ) {
+			if ( function_exists( 'bizcity_table_exists' ) ) {
+				return (bool) bizcity_table_exists( $table_name );
+			}
+			if ( class_exists( 'BizCity_TwinChat_Learning_Database' ) ) {
+				return BizCity_TwinChat_Learning_Database::instance()->table_exists( $table_name );
+			}
+			return false;
+		};
 		$ids = array_unique( array_filter( array_map( 'intval', [ $source_id, $kg_source_id ] ) ) );
 		if ( class_exists( 'BizCity_KG_Source_Body_File_Store' ) ) {
 			foreach ( $ids as $id ) {
@@ -515,10 +553,17 @@ class BizCity_TwinChat_Sources_Service {
 					BizCity_KG_Source_Body_File_Store::delete_chunk( (int) $scope_id, (int) $chunk_id );
 				}
 			}
-			$wpdb->delete( $db->table_source_chunks(), [ 'source_id' => $id ] );
+			if ( $has_table( $db->table_source_chunks() ) ) {
+				$wpdb->delete( $db->table_source_chunks(), [ 'source_id' => $id ] );
+			}
 			if ( class_exists( 'BizCity_KG_Database' ) ) {
-				$wpdb->delete( BizCity_KG_Database::instance()->tbl_source_chunks(), [ 'source_id' => $id ] );
-				$wpdb->delete( BizCity_KG_Database::instance()->tbl_passages(), [ 'source_id' => $id ] );
+				$kg_db = BizCity_KG_Database::instance();
+				if ( $has_table( $kg_db->tbl_source_chunks() ) ) {
+					$wpdb->delete( $kg_db->tbl_source_chunks(), [ 'source_id' => $id ] );
+				}
+				if ( $has_table( $kg_db->tbl_passages() ) ) {
+					$wpdb->delete( $kg_db->tbl_passages(), [ 'source_id' => $id ] );
+				}
 			}
 		}
 		if ( (int) $source_id > 0 ) {
@@ -806,6 +851,9 @@ class BizCity_TwinChat_Sources_Service {
 
 			case 'youtube':
 			case 'url':
+				// [2026-08-02 Johnny Chu] R-GW-INGEST-URL — URL ingestion must fetch
+				// page content through the shared Search Client (Hub → Tavily), never
+				// trust the search-result snippet sent by the browser as full content.
 				$url = isset( $payload['url'] ) ? esc_url_raw( (string) $payload['url'] ) : '';
 				if ( ! $url ) {
 					return new WP_Error( 'no_url', 'No URL provided' );
@@ -813,40 +861,49 @@ class BizCity_TwinChat_Sources_Service {
 				$source_url = $url;
 				$title      = $title !== '' ? $title : $this->derive_title_from_url( $url );
 
-				if ( ! empty( $payload['content'] ) ) {
-					// Caller pre-fetched content (e.g. browser snippet).
-					$content = (string) $payload['content'];
-				} else {
-					// Phase 0.7 / Wave E0.YT — detect YouTube URL and route through caption transcriber.
-					if ( class_exists( 'BizCity_Youtube_Transcriber' )
-					     && BizCity_Youtube_Transcriber::is_youtube_url( $url ) ) {
-						$transcriber = BizCity_Youtube_Transcriber::instance();
-						// Sprint C — prefer fetch_with_av_fallback when available so videos
-						// without captions transparently fall back to AV transcribe.
-						$method = method_exists( $transcriber, 'fetch_with_av_fallback' )
-							? 'fetch_with_av_fallback'
-							: 'fetch';
-						$yt = $transcriber->{$method}( $url, [
-							'lang'              => isset( $payload['lang'] ) ? (string) $payload['lang'] : '',
-							'allow_av_fallback' => true,
-							'user_id'           => get_current_user_id(),
-						] );
-						if ( is_wp_error( $yt ) ) {
-							return $yt;
-						}
-						$content = (string) ( $yt['text'] ?? '' );
-						if ( ! empty( $yt['title'] ) && $title === $this->derive_title_from_url( $url ) ) {
-							$title = (string) $yt['title'];
-						}
-						$mime = ( ( $yt['modality'] ?? '' ) === 'youtube_av_fallback' )
-							? 'text/youtube-av-transcript'
-							: 'text/youtube-transcript';
-					} else {
-						$content = $this->fetch_url_text( $url );
-						if ( is_wp_error( $content ) ) {
-							return $content;
-						}
+				// Phase 0.7 / Wave E0.YT — detect YouTube URL and route through caption transcriber.
+				if ( class_exists( 'BizCity_Youtube_Transcriber' )
+				     && BizCity_Youtube_Transcriber::is_youtube_url( $url ) ) {
+					$transcriber = BizCity_Youtube_Transcriber::instance();
+					// Sprint C — prefer fetch_with_av_fallback when available so videos
+					// without captions transparently fall back to AV transcribe.
+					$method = method_exists( $transcriber, 'fetch_with_av_fallback' )
+						? 'fetch_with_av_fallback'
+						: 'fetch';
+					$yt = $transcriber->{$method}( $url, [
+						'lang'              => isset( $payload['lang'] ) ? (string) $payload['lang'] : '',
+						'allow_av_fallback' => true,
+						'user_id'           => get_current_user_id(),
+					] );
+					if ( is_wp_error( $yt ) ) {
+						return $yt;
 					}
+					$content = (string) ( $yt['text'] ?? '' );
+					if ( ! empty( $yt['title'] ) && $title === $this->derive_title_from_url( $url ) ) {
+						$title = (string) $yt['title'];
+					}
+					$mime = ( ( $yt['modality'] ?? '' ) === 'youtube_av_fallback' )
+						? 'text/youtube-av-transcript'
+						: 'text/youtube-transcript';
+				} elseif ( class_exists( 'BizCity_Search_Client' )
+					&& BizCity_Search_Client::instance()->is_ready() ) {
+					$extracted = BizCity_Search_Client::instance()->extract( [ $url ] );
+					if ( is_wp_error( $extracted ) ) {
+						return new WP_Error( 'url_extract_failed', $extracted->get_error_message(), [ 'url' => $url ] );
+					}
+					$first = is_array( $extracted ) && isset( $extracted[0] ) && is_array( $extracted[0] )
+						? $extracted[0]
+						: array();
+					$content = trim( (string) ( $first['raw_content'] ?? $first['content'] ?? $first['excerpt'] ?? '' ) );
+					if ( ! empty( $first['title'] ) && $title === $this->derive_title_from_url( $url ) ) {
+						$title = (string) $first['title'];
+					}
+					$mime = 'text/html';
+					if ( $content === '' ) {
+						return new WP_Error( 'url_extract_empty', 'Gateway không trả về nội dung cho URL này.', [ 'url' => $url ] );
+					}
+				} else {
+					return new WP_Error( 'search_gateway_not_ready', 'Search gateway chưa sẵn sàng để đọc URL này.', [ 'url' => $url ] );
 				}
 				break;
 
@@ -1544,6 +1601,62 @@ class BizCity_TwinChat_Sources_Service {
 
 		$db   = BizCity_KG_Database::instance();
 		$hash = md5( (string) $args['content'] );
+		$unified = class_exists( 'BizCity_TwinChat_Sources_Database' )
+			&& BizCity_TwinChat_Sources_Database::write_target_unified();
+
+		if ( $unified && (int) ( $args['chunk_id'] ?? 0 ) > 0 ) {
+			// [2026-08-04 Johnny Chu] HOTFIX — unified ingest already inserted this
+			// canonical row; promote it in place to avoid a duplicate row and vector.
+			$passage_id = (int) $args['chunk_id'];
+			$row_exists = (int) $wpdb->get_var( $wpdb->prepare(
+				"SELECT id FROM {$db->tbl_passages()} WHERE id = %d LIMIT 1",
+				$passage_id
+			) );
+			if ( $row_exists !== $passage_id ) {
+				return 0;
+			}
+			$updated = $wpdb->update(
+				$db->tbl_passages(),
+				[
+					'chunk_id'          => $passage_id,
+					'origin'            => substr( sanitize_text_field( (string) $args['origin'] ), 0, 100 ),
+					'content_hash'      => $hash,
+					'extraction_status' => 'pending',
+					'metadata'          => wp_json_encode( $args['metadata'] ?? [] ),
+				],
+				[ 'id' => $passage_id ]
+			);
+			if ( false === $updated ) {
+				return 0;
+			}
+			if ( is_array( $args['embedding'] ) && ! empty( $args['embedding'] )
+				&& class_exists( 'BizCity_KG_Embedding_Writer' ) ) {
+				// [2026-08-04 Johnny Chu] HOTFIX — register the unified row's vector
+				// once, after the canonical row exists and before ingest completes.
+				$vector_result = BizCity_KG_Embedding_Writer::instance()->register_chunk(
+					(int) $args['notebook_id'],
+					$passage_id,
+					$args['embedding'],
+					null,
+					(int) $args['source_id']
+				);
+				if ( is_wp_error( $vector_result ) ) {
+					return 0;
+				}
+			}
+
+			if ( class_exists( 'BizCity_KG_Filestore_Dispatcher' ) ) {
+				$body_result = BizCity_KG_Filestore_Dispatcher::instance()->after_passage_insert(
+					$passage_id,
+					(int) $args['notebook_id'],
+					(string) $args['content']
+				);
+				if ( is_wp_error( $body_result ) ) {
+					return 0;
+				}
+			}
+			return $passage_id;
+		}
 
 		// Dedup by notebook + hash.
 		$exists = (int) $wpdb->get_var( $wpdb->prepare(

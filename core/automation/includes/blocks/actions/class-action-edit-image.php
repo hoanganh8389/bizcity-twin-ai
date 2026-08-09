@@ -15,7 +15,6 @@ defined( 'ABSPATH' ) || exit;
 final class BizCity_Automation_Action_Edit_Image extends BizCity_Automation_Block_Base {
 
 	const MODEL_OPTIONS = array(
-		array( 'value' => 'bytedance-seed/seedream-4.5', 'label' => 'Seedream 4.5 (ByteDance)' ),
 		array( 'value' => 'google/gemini-3-pro-image-preview', 'label' => 'Gemini 3 Pro Image' ),
 		array( 'value' => 'openai/gpt-image-1', 'label' => 'GPT Image 1' ),
 	);
@@ -43,7 +42,7 @@ final class BizCity_Automation_Action_Edit_Image extends BizCity_Automation_Bloc
 				'image_url'      => '{{consume.attachment_url}}',
 				'image_urls'     => '{{consume.attachment_urls}}',
 				'prompt'         => '{{trigger.text}}',
-				'model'          => 'bytedance-seed/seedream-4.5',
+				'model'          => 'google/gemini-3-pro-image-preview',
 				'size'           => '1024x1024',
 				'sideload_to_wp' => true,
 			),
@@ -90,7 +89,7 @@ final class BizCity_Automation_Action_Edit_Image extends BizCity_Automation_Bloc
 		if ( empty( $image_urls ) && $image_url !== '' ) { $image_urls = array( $image_url ); }
 		$prompt    = trim( (string) $this->resolve( $data['prompt'] ?? '', $ctx ) );
 		$prompt    = $this->strip_photo_editor_keywords( $prompt );
-		$model     = trim( (string) ( $data['model'] ?? 'bytedance-seed/seedream-4.5' ) );
+		$model     = trim( (string) ( $data['model'] ?? 'google/gemini-3-pro-image-preview' ) );
 		$size      = trim( (string) ( $data['size'] ?? '1024x1024' ) );
 		$sideload  = array_key_exists( 'sideload_to_wp', $data ) ? (bool) $data['sideload_to_wp'] : true;
 
@@ -105,8 +104,9 @@ final class BizCity_Automation_Action_Edit_Image extends BizCity_Automation_Bloc
 		if ( $prompt === '' ) {
 			return $this->fail( 'invalid_param', 'edit_image: prompt chỉnh sửa không được rỗng.', $content_artifact_id, $ctx );
 		}
-		if ( $model === '' ) {
-			$model = 'bytedance-seed/seedream-4.5';
+		if ( $model === '' || $model === 'bytedance-seed/seedream-4.5' ) {
+			// [2026-08-06 Johnny Chu] PHASE-IMG-GEMINI — remove Seedream from image-edit runtime; old saved workflows migrate to Gemini.
+			$model = 'google/gemini-3-pro-image-preview';
 		}
 		if ( $size === '' ) {
 			$size = '1024x1024';

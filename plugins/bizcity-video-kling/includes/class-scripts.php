@@ -314,14 +314,14 @@ class BizCity_Video_Kling_Scripts {
             return;
         }
         
-        // Get OpenAI API key
-        $api_key = get_option( 'twf_openai_api_key', '' );
-        if ( empty( $api_key ) ) {
-            $api_key = get_option( 'bizcity_video_kling_openai_api_key', '' );
+        // [2026-08-09 Johnny Chu] R-GW-8 — route script generation through the managed LLM client.
+        if ( ! class_exists( 'BizCity_LLM_Client' ) ) {
+            wp_send_json_error( array( 'message' => __( 'BizCity AI Gateway chưa sẵn sàng.', 'bizcity-video-kling' ) ) );
+            return;
         }
-        
-        if ( empty( $api_key ) ) {
-            wp_send_json_error( array( 'message' => __( 'Chưa cấu hình OpenAI API key (twf_openai_api_key)', 'bizcity-video-kling' ) ) );
+        $llm = BizCity_LLM_Client::instance();
+        if ( ! $llm->is_ready() ) {
+            wp_send_json_error( array( 'message' => __( 'Chưa cấu hình BizCity AI Gateway.', 'bizcity-video-kling' ) ) );
             return;
         }
         
@@ -382,37 +382,24 @@ TRẢ LỜI CHỈ BẰNG ĐỊNH DẠNG JSON với các trường sau:
         
         $user_prompt .= "\n\nTạo tiêu đề, mô tả nhân vật, mô tả sản phẩm, prompt tạo video, kịch bản lồng tiếng và timeline bằng định dạng JSON. Toàn bộ nội dung phải bằng tiếng Việt.";
         
-        // Call OpenAI API
-        $response = wp_remote_post( 'https://api.openai.com/v1/chat/completions', array(
-            'headers' => array(
-                'Authorization' => 'Bearer ' . $api_key,
-                'Content-Type' => 'application/json',
+        $response = $llm->chat(
+            array(
+                array( 'role' => 'system', 'content' => $system_prompt ),
+                array( 'role' => 'user', 'content' => $user_prompt ),
             ),
-            'timeout' => 60,
-            'body' => json_encode( array(
-                'model' => 'gpt-4o-mini',
-                'messages' => array(
-                    array( 'role' => 'system', 'content' => $system_prompt ),
-                    array( 'role' => 'user', 'content' => $user_prompt ),
-                ),
+            array(
+                'purpose'     => 'video_script',
                 'temperature' => 0.8,
-                'max_tokens' => 1500,
-            ) ),
-        ) );
-        
-        if ( is_wp_error( $response ) ) {
-            wp_send_json_error( array( 'message' => 'Lỗi API: ' . $response->get_error_message() ) );
+                'max_tokens'  => 1500,
+                'timeout'     => 60,
+            )
+        );
+        if ( empty( $response['success'] ) ) {
+            wp_send_json_error( array( 'message' => __( 'Không thể tạo kịch bản qua BizCity AI Gateway.', 'bizcity-video-kling' ) ) );
             return;
         }
-        
-        $body = json_decode( wp_remote_retrieve_body( $response ), true );
-        
-        if ( isset( $body['error'] ) ) {
-            wp_send_json_error( array( 'message' => 'Lỗi OpenAI: ' . ( $body['error']['message'] ?? 'Lỗi không xác định' ) ) );
-            return;
-        }
-        
-        $content = $body['choices'][0]['message']['content'] ?? '';
+
+        $content = (string) ( $response['message'] ?? '' );
         
         // Parse JSON from response (handle markdown code blocks)
         $content = preg_replace( '/^```json\s*|\s*```$/s', '', trim( $content ) );

@@ -35,6 +35,7 @@ final class BizCity_MCP_Tool_Registry {
 		self::register_content_brain_tools();
 		self::register_content_action_tools();
 		self::register_report_brain_tools();
+		self::register_commerce_tools();
 	}
 
 	public static function register( $name, array $descriptor ) {
@@ -52,12 +53,20 @@ final class BizCity_MCP_Tool_Registry {
 	}
 
 	/**
+	 * @param bool $apply_policy When true (default, used by the real `tools/list`
+	 * protocol response), tools the site admin has turned off via
+	 * BizCity_MCP_Tool_Policy are omitted. Diagnostics passes false to inspect
+	 * the full wave-level registered catalog regardless of the admin policy.
 	 * @return array Tool descriptors for the MCP `tools/list` response.
 	 */
-	public static function list_descriptors() {
+	public static function list_descriptors( $apply_policy = true ) {
 		self::boot();
 		$out = array();
 		foreach ( self::$tools as $name => $t ) {
+			// [2026-07-30 Johnny Chu] PHASE-0.54-MCP Wave Q — hide tools the admin disabled from the advertised catalog.
+			if ( $apply_policy && class_exists( 'BizCity_MCP_Tool_Policy' ) && ! BizCity_MCP_Tool_Policy::is_enabled( $name ) ) {
+				continue;
+			}
 			$out[] = array(
 				'name'        => $name,
 				'title'       => $t['title'],
@@ -74,6 +83,55 @@ final class BizCity_MCP_Tool_Registry {
 	}
 
 	/**
+	 * Full tool catalog with admin-policy metadata for the MCP Access settings
+	 * screen (Channel Gateway SPA). Unlike list_descriptors(), this always
+	 * returns every registered tool (never filtered) so the checkbox UI can
+	 * show currently-disabled tools too.
+	 *
+	 * @return array<int,array>
+	 */
+	public static function catalog_for_settings() {
+		self::boot();
+		$out = array();
+		foreach ( self::$tools as $name => $t ) {
+			$out[] = array(
+				'name'            => $name,
+				'title'           => $t['title'],
+				'description'     => $t['description'],
+				'group'           => self::group_for( $name ),
+				'layer'           => ! empty( $t['read_only'] ) ? 'brain' : 'action',
+				'required_scope'  => $t['required_scope'],
+				'default_enabled' => class_exists( 'BizCity_MCP_Tool_Policy' ) ? BizCity_MCP_Tool_Policy::default_enabled_for( $name ) : true,
+				'enabled'         => class_exists( 'BizCity_MCP_Tool_Policy' ) ? BizCity_MCP_Tool_Policy::is_enabled( $name ) : true,
+			);
+		}
+		return $out;
+	}
+
+	/**
+	 * @return string[] Every currently-registered tool name (all waves loaded on this deploy).
+	 */
+	public static function all_registered_tool_names() {
+		self::boot();
+		return array_keys( self::$tools );
+	}
+
+	private static function group_for( $name ) {
+		$prefix = strstr( $name, '.', true );
+		$prefix = $prefix ? $prefix : $name;
+		$labels = array(
+			'brain'    => 'Brain (đọc tri thức)',
+			'document' => 'Document (soạn văn bản)',
+			'page'     => 'Landing Page (PageBuilder)',
+			'business' => 'Business Metrics (KPI)',
+			'content'  => 'Content (đăng/quản lý bài viết)',
+			'report'   => 'Report (báo cáo)',
+			'commerce' => 'WooCommerce (sản phẩm/đơn hàng/khách hàng)',
+		);
+		return isset( $labels[ $prefix ] ) ? $labels[ $prefix ] : $prefix;
+	}
+
+	/**
 	 * Dispatch a `tools/call`. Always returns the BizCity_MCP_Error envelope
 	 * shape (never throws, never returns WP_Error) so the HTTP controller
 	 * can serialize it directly.
@@ -83,9 +141,18 @@ final class BizCity_MCP_Tool_Registry {
 	public static function call( $name, array $args, array $ctx ) {
 		self::boot();
 		$t0 = microtime( true );
+		// [2026-07-30 Johnny Chu] PHASE-0.54-MCP Wave Q — effective runtime access is the intersection of:
+		// (1) rollback-flag registration (tool exists in self::$tools),
+		// (2) admin capability policy (BizCity_MCP_Tool_Policy),
+		// (3) client/key scopes (BizCity_MCP_Auth::has_scope).
+		// Any failed gate must fail-closed before handler dispatch.
 
 		if ( ! isset( self::$tools[ $name ] ) ) {
 			return self::finish_call( $name, $args, $ctx, BizCity_MCP_Error::fail( $name, BizCity_MCP_Error::TOOL_NOT_FOUND, 'Tool không tồn tại trong catalog.', false, array(), array(), $ctx ), $t0 );
+		}
+		// [2026-07-30 Johnny Chu] PHASE-0.54-MCP Wave Q — admin tool allowlist gate, independent from and enforced before the scope check.
+		if ( class_exists( 'BizCity_MCP_Tool_Policy' ) && ! BizCity_MCP_Tool_Policy::is_enabled( $name, $ctx ) ) {
+			return self::finish_call( $name, $args, $ctx, BizCity_MCP_Error::fail( $name, BizCity_MCP_Error::TOOL_DISABLED, 'Tool này đã bị quản trị viên tắt trong MCP Settings.', false, array(), array(), $ctx ), $t0 );
 		}
 
 		$tool = self::$tools[ $name ];
@@ -126,7 +193,8 @@ final class BizCity_MCP_Tool_Registry {
 	 * schema/draft/content may contain confidential tenant data.
 	 */
 	private static function write_audit( $name, array $args, array $ctx, array $envelope, $duration ) {
-		global $wpdb;
+		// [2026-08-01 Johnny Chu] PHASE-1.25-LOG-JSONL — file evidence is now the
+		// canonical MCP audit store; keep SQL projection opt-in for rollback only.
 		$input_meta = array(
 			'arg_count' => count( $args ),
 			'arg_keys'  => array_slice( array_map( 'sanitize_key', array_keys( $args ) ), 0, 50 ),
@@ -156,27 +224,8 @@ final class BizCity_MCP_Tool_Registry {
 				'scores'       => $scores,
 			) );
 		}
-		if ( ! $wpdb || ! method_exists( $wpdb, 'insert' ) ) {
-			return;
-		}
-		$wpdb->insert(
-			$wpdb->prefix . 'bizcity_mcp_audit_log',
-			array(
-				'trace_id'         => isset( $envelope['meta']['trace_id'] ) ? (string) $envelope['meta']['trace_id'] : BizCity_MCP_Error::trace_id(),
-				'user_id'          => (int) ( isset( $ctx['user_id'] ) ? $ctx['user_id'] : 0 ),
-				'client_id'        => (string) ( isset( $ctx['client_id'] ) ? $ctx['client_id'] : '' ),
-				'client_name'      => (string) ( isset( $ctx['client_name'] ) ? $ctx['client_name'] : '' ),
-				// [2026-07-28 Johnny Chu] PHASE-0.53-MCP REFLECT — preserve canonical tool dot, e.g. brain.search, in audit rows.
-				'tool_name'        => preg_replace( '/[^A-Za-z0-9_.-]/', '', (string) $name ),
-				'request_hash'     => hash( 'sha256', wp_json_encode( $args ) ),
-				'status'           => ! empty( $envelope['success'] ) ? 'success' : 'error',
-				'duration_ms'      => max( 0, (int) $duration ),
-				'input_meta_json'  => wp_json_encode( $input_meta ),
-				'output_meta_json' => wp_json_encode( $output_meta ),
-				'error_code'       => $error_code,
-				'created_at'       => current_time( 'mysql' ),
-			)
-		);
+		// [2026-08-01 Johnny Chu] PHASE-1.29-LOG-ORPHAN — SQL audit INSERT
+		// path removed; the JSONL write above is the sole audit persistence path.
 	}
 
 	private static function evaluation_meta( array $envelope, $error_code ) {
@@ -573,6 +622,69 @@ final class BizCity_MCP_Tool_Registry {
 			) ),
 			'required_scope' => 'report.read',
 			'handler'        => array( $svc, 'build_dataset' ),
+		) );
+	}
+
+	/**
+	 * PHASE-0.54-MCP Wave R — read-only WooCommerce catalog/order/customer tools.
+	 */
+	private static function register_commerce_tools() {
+		// [2026-07-30 Johnny Chu] PHASE-0.54-MCP Wave R — commerce reads are opt-in and never write WooCommerce data.
+		if ( ( defined( 'BIZCITY_MCP_COMMERCE_TOOLS_ENABLED' ) && ! BIZCITY_MCP_COMMERCE_TOOLS_ENABLED ) || ! class_exists( 'BizCity_Commerce_Brain_MCP_Service' ) ) {
+			return;
+		}
+		$svc = BizCity_Commerce_Brain_MCP_Service::instance();
+		$page_schema = array(
+			'limit' => array( 'type' => 'integer', 'minimum' => 1, 'maximum' => 100, 'default' => 20 ),
+			'page'  => array( 'type' => 'integer', 'minimum' => 1, 'default' => 1 ),
+			'search'=> array( 'type' => 'string' ),
+		);
+		self::register( 'commerce.list_products', array(
+			'title'          => 'List WooCommerce products',
+			'description'    => 'Liệt kê sản phẩm WooCommerce (tên, SKU, giá, tồn kho) qua wc_get_products(), có lọc theo trạng thái/danh mục/tìm kiếm.',
+			'input_schema'   => array( 'type' => 'object', 'properties' => array_merge( $page_schema, array( 'status' => array( 'type' => 'string' ), 'category' => array( 'type' => 'string' ) ) ) ),
+			'required_scope' => 'commerce.read',
+			'handler'        => array( $svc, 'list_products' ),
+		) );
+		self::register( 'commerce.get_product', array(
+			'title'          => 'Get WooCommerce product',
+			'description'    => 'Đọc chi tiết một sản phẩm theo product_id hoặc sku qua wc_get_product().',
+			'input_schema'   => array( 'type' => 'object', 'properties' => array( 'product_id' => array( 'type' => 'integer', 'minimum' => 1 ), 'sku' => array( 'type' => 'string' ) ) ),
+			'required_scope' => 'commerce.read',
+			'handler'        => array( $svc, 'get_product' ),
+		) );
+		self::register( 'commerce.list_orders', array(
+			'title'          => 'List WooCommerce orders',
+			'description'    => 'Liệt kê đơn hàng WooCommerce qua wc_get_orders(), có lọc theo trạng thái/khách hàng/khoảng ngày.',
+			'input_schema'   => array( 'type' => 'object', 'properties' => array_merge( $page_schema, array(
+				'status'      => array( 'type' => 'string' ),
+				'customer_id' => array( 'type' => 'integer', 'minimum' => 1 ),
+				'from'        => array( 'type' => 'string', 'pattern' => '^\\d{4}-\\d{2}-\\d{2}$' ),
+				'to'          => array( 'type' => 'string', 'pattern' => '^\\d{4}-\\d{2}-\\d{2}$' ),
+			) ) ),
+			'required_scope' => 'commerce.read',
+			'handler'        => array( $svc, 'list_orders' ),
+		) );
+		self::register( 'commerce.get_order', array(
+			'title'          => 'Get WooCommerce order',
+			'description'    => 'Đọc chi tiết một đơn hàng (dòng sản phẩm, địa chỉ, ghi chú) qua wc_get_order().',
+			'input_schema'   => array( 'type' => 'object', 'required' => array( 'order_id' ), 'properties' => array( 'order_id' => array( 'type' => 'integer', 'minimum' => 1 ) ) ),
+			'required_scope' => 'commerce.read',
+			'handler'        => array( $svc, 'get_order' ),
+		) );
+		self::register( 'commerce.list_customers', array(
+			'title'          => 'List WooCommerce customers',
+			'description'    => 'Liệt kê khách hàng có tài khoản WordPress (role customer) kèm tổng số đơn và tổng chi tiêu qua WooCommerce customer helpers.',
+			'input_schema'   => array( 'type' => 'object', 'properties' => $page_schema ),
+			'required_scope' => 'commerce.read',
+			'handler'        => array( $svc, 'list_customers' ),
+		) );
+		self::register( 'commerce.get_customer', array(
+			'title'          => 'Get WooCommerce customer',
+			'description'    => 'Đọc chi tiết một khách hàng kèm 5 đơn hàng gần nhất.',
+			'input_schema'   => array( 'type' => 'object', 'required' => array( 'customer_id' ), 'properties' => array( 'customer_id' => array( 'type' => 'integer', 'minimum' => 1 ) ) ),
+			'required_scope' => 'commerce.read',
+			'handler'        => array( $svc, 'get_customer' ),
 		) );
 	}
 }

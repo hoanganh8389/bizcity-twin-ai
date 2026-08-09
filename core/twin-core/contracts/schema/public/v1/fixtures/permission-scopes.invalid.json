@@ -1,0 +1,11 @@
+{
+  "contract": "permission-scopes",
+  "version": "1.0.0",
+  "requested": [
+    {
+      "scope": "bad_scope",
+      "scope_level": "global",
+      "reason": "x"
+    }
+  ]
+}

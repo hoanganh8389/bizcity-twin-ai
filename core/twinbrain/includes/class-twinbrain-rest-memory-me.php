@@ -322,6 +322,10 @@ class BizCity_TwinBrain_REST_Memory_Me {
 		}
 
 		$fresh = $this->fetch_row( $id, $uid );
+		// [2026-07-31 Johnny Chu] PHASE-1.22-MEMORY-UNIFY — direct owner-self updates must mirror the complete persisted legacy row.
+		if ( $fresh ) {
+			do_action( 'bizcity_memory_mirror_write', 'user', (array) $fresh, 'update' );
+		}
 		return rest_ensure_response( [
 			'ok'   => true,
 			'item' => $this->format_row( $fresh ),
@@ -344,7 +348,12 @@ class BizCity_TwinBrain_REST_Memory_Me {
 		}
 
 		global $wpdb;
-		$wpdb->delete( $this->table(), [ 'id' => $id, 'user_id' => $uid ], [ '%d', '%d' ] );
+		$deleted = $wpdb->delete( $this->table(), [ 'id' => $id, 'user_id' => $uid ], [ '%d', '%d' ] );
+		if ( false === $deleted ) {
+			return $this->err_server( 'memory_me_delete_failed', 'Xoá memory thất bại.' );
+		}
+		// [2026-07-31 Johnny Chu] PHASE-1.22-MEMORY-UNIFY — owner-self delete removes the corresponding unified legacy_id row.
+		do_action( 'bizcity_memory_mirror_delete', 'user', $id, array( 'blog_id' => get_current_blog_id(), 'user_id' => $uid ) );
 
 		return rest_ensure_response( [ 'ok' => true, 'id' => $id ] );
 	}

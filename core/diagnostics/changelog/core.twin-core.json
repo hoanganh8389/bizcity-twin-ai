@@ -1,0 +1,123 @@
+{
+  "$schema": "https://bizcity.vn/schema/diagnostics-changelog-v1.json",
+  "module_id": "core.twin-core",
+  "owner": "core/twin-core",
+  "installer_id": "twin_state",
+  "current_version": "2.2.1",
+  "version_option": "bizcity_twin_state_db_ver",
+  "tables": {
+    "bizcity_twin_prompt_specs": {
+      "since": "2.0.0",
+      "purpose": "Parsed prompt specifications used by the Twin prompt parser and focus pipeline.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "prompt_spec_id": { "type": "BIGINT UNSIGNED AUTO_INCREMENT", "since": "2.0.0", "pk": true },
+        "trace_id": { "type": "VARCHAR(80) NOT NULL", "since": "2.0.0" },
+        "user_id": { "type": "BIGINT UNSIGNED NOT NULL", "since": "2.0.0" },
+        "blog_id": { "type": "BIGINT UNSIGNED NOT NULL", "since": "2.0.0" },
+        "session_id": { "type": "VARCHAR(120) NULL", "since": "2.0.0" },
+        "project_id": { "type": "BIGINT UNSIGNED NULL", "since": "2.0.0" },
+        "intent_conversation_id": { "type": "VARCHAR(120) NULL", "since": "2.0.0" },
+        "raw_prompt": { "type": "LONGTEXT NOT NULL", "since": "2.0.0" },
+        "prompt_segments_json": { "type": "LONGTEXT NULL", "since": "2.0.0" },
+        "objective_list_json": { "type": "LONGTEXT NULL", "since": "2.0.0" },
+        "primary_objective": { "type": "TEXT NULL", "since": "2.0.0" },
+        "secondary_objectives_json": { "type": "LONGTEXT NULL", "since": "2.0.0" },
+        "expected_outputs_json": { "type": "LONGTEXT NULL", "since": "2.0.0" },
+        "constraints_json": { "type": "LONGTEXT NULL", "since": "2.0.0" },
+        "ambiguity_flags_json": { "type": "LONGTEXT NULL", "since": "2.0.0" },
+        "confidence": { "type": "DECIMAL(6,4) NOT NULL DEFAULT 0.0000", "since": "2.0.0" },
+        "needs_confirmation": { "type": "TINYINT(1) NOT NULL DEFAULT 0", "since": "2.0.0" },
+        "confirmation_questions_json": { "type": "LONGTEXT NULL", "since": "2.0.0" },
+        "recommended_mode": { "type": "VARCHAR(50) NULL", "since": "2.0.0" },
+        "recommended_path": { "type": "VARCHAR(50) NULL", "since": "2.0.0" },
+        "recommended_tools_json": { "type": "LONGTEXT NULL", "since": "2.0.0" },
+        "created_at": { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "2.0.0" }
+      },
+      "indexes": {
+        "idx_trace_id": { "cols": ["trace_id"], "since": "2.0.0" },
+        "idx_user_blog_created": { "cols": ["user_id", "blog_id", "created_at"], "since": "2.0.0" },
+        "idx_created_at": { "cols": ["created_at"], "since": "2.2.0" },
+        "idx_needs_confirmation": { "cols": ["needs_confirmation"], "since": "2.0.0" }
+      }
+    },
+    "bizcity_twin_milestones": {
+      "since": "2.0.0",
+      "purpose": "Append-only milestone records emitted by the Twin event bus.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "milestone_id": { "type": "BIGINT UNSIGNED AUTO_INCREMENT", "since": "2.0.0", "pk": true },
+        "trace_id": { "type": "VARCHAR(80) NULL", "since": "2.0.0" },
+        "user_id": { "type": "BIGINT UNSIGNED NOT NULL", "since": "2.0.0" },
+        "blog_id": { "type": "BIGINT UNSIGNED NOT NULL", "since": "2.0.0" },
+        "journey_id": { "type": "BIGINT UNSIGNED NULL", "since": "2.0.0" },
+        "milestone_type": { "type": "VARCHAR(80) NOT NULL", "since": "2.0.0" },
+        "milestone_label": { "type": "VARCHAR(255) NULL", "since": "2.0.0" },
+        "milestone_score": { "type": "DECIMAL(7,4) NOT NULL DEFAULT 0.0000", "since": "2.0.0" },
+        "source_type": { "type": "VARCHAR(80) NULL", "since": "2.0.0" },
+        "source_ref_id": { "type": "VARCHAR(120) NULL", "since": "2.0.0" },
+        "payload_json": { "type": "LONGTEXT NULL", "since": "2.0.0" },
+        "occurred_at": { "type": "DATETIME NOT NULL", "since": "2.0.0" },
+        "created_at": { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "2.0.0" }
+      },
+      "indexes": {
+        "idx_user_blog_occurred": { "cols": ["user_id", "blog_id", "occurred_at"], "since": "2.0.0" },
+        "idx_trace_id": { "cols": ["trace_id"], "since": "2.0.0" },
+        "idx_milestone_type": { "cols": ["milestone_type"], "since": "2.0.0" },
+        "idx_created_at": { "cols": ["created_at"], "since": "2.2.0" }
+      }
+    },
+    "bizcity_twin_context_logs": {
+      "since": "2.0.0",
+      "purpose": "Context routing and decision evidence for Twin observability.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "log_id": { "type": "BIGINT UNSIGNED AUTO_INCREMENT", "since": "2.0.0", "pk": true },
+        "trace_id": { "type": "VARCHAR(80) NOT NULL", "since": "2.0.0" },
+        "user_id": { "type": "BIGINT UNSIGNED NOT NULL", "since": "2.0.0" },
+        "blog_id": { "type": "BIGINT UNSIGNED NOT NULL", "since": "2.0.0" },
+        "path": { "type": "VARCHAR(40) NOT NULL", "since": "2.0.0" },
+        "mode": { "type": "VARCHAR(40) NULL", "since": "2.0.0" },
+        "decision_type": { "type": "VARCHAR(60) NOT NULL", "since": "2.0.0" },
+        "decision_label": { "type": "VARCHAR(120) NULL", "since": "2.0.0" },
+        "decision_score": { "type": "DECIMAL(7,4) NULL", "since": "2.0.0" },
+        "payload_json": { "type": "LONGTEXT NULL", "since": "2.0.0" },
+        "created_at": { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "2.0.0" }
+      },
+      "indexes": {
+        "idx_trace_id": { "cols": ["trace_id"], "since": "2.0.0" },
+        "idx_user_blog_created": { "cols": ["user_id", "blog_id", "created_at"], "since": "2.0.0" },
+        "idx_created_at": { "cols": ["created_at"], "since": "2.2.0" },
+        "idx_path_mode": { "cols": ["path", "mode"], "since": "2.0.0" }
+      }
+    }
+  },
+  "history": [
+    {
+      "version": "2.2.1",
+      "date": "2026-07-31",
+      "change": "HOTFIX: normalize primary-key DDL for dbDelta and only persist the schema version after all active Twin state tables are verified on the current tenant shard."
+    },
+    {
+      "version": "2.2.0",
+      "date": "2026-07-30",
+      "change": "PHASE-1.22-RETENTION: add created_at indexes and bounded daily retention for prompt_specs, milestones and context_logs; cleanup runs through BizCity_Cron_Manager with per-run counters/events."
+    },
+    {
+      "version": "2.0.0",
+      "date": "2026-03-27",
+      "change": "Initial Twin state schema baseline with seven tables."
+    },
+    {
+      "version": "2.1.0",
+      "date": "2026-07-29",
+      "change": "[2026-07-29 Johnny Chu] PHASE-1.21-C — Retired twin_identity, twin_focus_state, twin_timeline_state, and twin_journeys after active-code audit found zero consumers. DROP is handled separately by the guarded orphan cleaner; active state tables remain prompt_specs, milestones, and context_logs."
+    }
+  ]
+}

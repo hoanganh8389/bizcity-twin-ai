@@ -90,7 +90,8 @@ class BizCity_Zalobot_Notebook_Bridge_Listener {
 	 * Register the hook. Call once from bootstrap after Command Router.
 	 */
 	public static function boot(): void {
-		add_action( 'bizcity_zalo_message_received', array( __CLASS__, 'handle' ), 4, 1 );
+		// [2026-08-09 Johnny Chu] R-CH-UNI — notebook capture consumes the canonical Zone 2 envelope.
+		add_action( 'bizcity_channel_normalized', array( __CLASS__, 'handle_normalized' ), 4, 2 );
 		// [2026-07-26 Johnny Chu] PHASE-0.46 W5 R5 — "@ghichu" is now a native
 		// alias of "@notebook" handled directly by THIS listener's session/
 		// confirm-more-files state machine (see class docblock). The legacy
@@ -104,6 +105,34 @@ class BizCity_Zalobot_Notebook_Bridge_Listener {
 		// conversation while a capture session is still open must close that
 		// stale session instead of leaving it open until TTL. See method doc.
 		add_action( 'bizcity_automation_run_enqueued', array( __CLASS__, 'maybe_close_session_on_new_trigger' ), 10, 3 );
+	}
+
+	/**
+	 * Adapt the canonical envelope and raw attachment metadata to the capture state machine.
+	 */
+	public static function handle_normalized( $envelope, $trigger_key = '' ): void {
+		if ( ! is_array( $envelope ) || (string) ( $envelope['platform'] ?? '' ) !== 'ZALO_BOT' ) {
+			return;
+		}
+
+		$raw = is_array( $envelope['raw'] ?? null ) ? $envelope['raw'] : array();
+		$payload = $envelope;
+		$payload['code']                = 'zalo_bot';
+		$payload['bot_id']              = (int) ( $envelope['account_id'] ?? 0 );
+		$payload['from_user_id']        = (string) ( $envelope['user_id'] ?? '' );
+		$payload['sender_user_id']      = (string) ( $envelope['sender_user_id'] ?? $envelope['user_id'] ?? '' );
+		$payload['message_text_clean']  = (string) ( $envelope['message_text_clean'] ?? $envelope['message'] ?? '' );
+		$payload['message_text']        = $payload['message_text_clean'];
+		$payload['text']                = $payload['message_text_clean'];
+		$payload['provider_chat_id']    = (string) ( $envelope['provider_chat_id'] ?? $raw['provider_chat_id'] ?? $envelope['chat_id'] ?? '' );
+		$payload['chat_kind']           = (string) ( $envelope['chat_kind'] ?? $raw['chat_kind'] ?? 'private' );
+		$payload['wp_user_id']          = (int) ( $envelope['wp_user_id'] ?? 0 );
+		foreach ( array( 'attachment_type', 'image_url', 'image_name', 'file_url', 'file_name', 'voice_url', 'unsupported_event' ) as $key ) {
+			if ( array_key_exists( $key, $raw ) ) {
+				$payload[ $key ] = $raw[ $key ];
+			}
+		}
+		self::handle( $payload );
 	}
 
 	/**
@@ -599,6 +628,14 @@ class BizCity_Zalobot_Notebook_Bridge_Listener {
 			return;
 		}
 
+		// [2026-08-02 Johnny Chu] PHASE-SKILLS-JOURNAL — persist the
+		// canonical Journal Entry before KG projection; replay returns the same row.
+		$journal_entry = self::create_journal_entry_from_capture( $session, $items, $provider_chat_id );
+		if ( is_wp_error( $journal_entry ) ) {
+			self::send( $bot, $provider_chat_id, '⚠️ Không thể lưu nhật ký lúc này. Vui lòng thử lại sau.' );
+			return;
+		}
+
 		$base_envelope = array(
 			'user_id'          => $user_id,
 			'channel'          => 'zalobot',
@@ -609,10 +646,21 @@ class BizCity_Zalobot_Notebook_Bridge_Listener {
 			'scope_id'         => $provider_chat_id,
 			'title_hint'       => $title_hint,
 			'inbound'          => $inbound_base,
+			'journal_entry_id' => (int) ( $journal_entry['id'] ?? 0 ),
 		);
 
 		$res = BizCity_KG_Channel_Notebook_Bridge::instance()->capture_batch( $base_envelope, $items );
 		if ( is_wp_error( $res ) ) {
+			if ( class_exists( 'BizCity_Journal_Database' ) ) {
+				BizCity_Journal_Database::instance()->mark_learning_projection(
+					(int) $journal_entry['id'],
+					$user_id,
+					array(
+						'learning_status' => 'failed',
+						'learning_error'  => $res->get_error_code(),
+					)
+				);
+			}
 			self::send( $bot, $provider_chat_id, self::format_capture_error( $res ) );
 			return;
 		}
@@ -623,6 +671,30 @@ class BizCity_Zalobot_Notebook_Bridge_Listener {
 		$queued        = (int) ( $res['queued'] ?? 0 );
 		$total         = (int) ( $res['total'] ?? 0 );
 		$created       = ! empty( $res['notebook_created'] );
+		// [2026-08-02 Johnny Chu] PHASE-SKILLS-JOURNAL — synchronous text
+		// ingest is already learned; only queued media remains asynchronous.
+		$failed_count = count( (array) ( $res['failed'] ?? array() ) );
+		$projection_status = $queued > 0
+			? 'queued'
+			: ( ( $succeeded > 0 && $failed_count === 0 ) ? 'learned' : ( $succeeded > 0 ? 'retryable' : 'failed' ) );
+		$projection_source_id = self::first_projection_source_id( $res );
+		if ( class_exists( 'BizCity_Journal_Database' ) ) {
+			BizCity_Journal_Database::maybe_install();
+			BizCity_Journal_Database::instance()->mark_learning_projection(
+				(int) $journal_entry['id'],
+				$user_id,
+				array(
+					'learning_status' => $projection_status,
+					'notebook_id'     => (int) ( $res['notebook_id'] ?? 0 ),
+					'kg_source_id'    => $projection_source_id,
+					'metadata'        => array(
+						'channel'  => 'zalobot',
+						'batch_id' => (string) ( $res['batch_id'] ?? '' ),
+						'inbound'  => $inbound_base,
+					),
+				)
+			);
+		}
 		// [2026-07-25 Johnny Chu] PHASE-0.46 W4.6 — explicit accepted file list
 		// + source-scoped learning-log share link for channel confirmations.
 		$accepted_summary = self::build_batch_accept_summary( $items, $res );
@@ -661,6 +733,79 @@ class BizCity_Zalobot_Notebook_Bridge_Listener {
 		if ( ! empty( $res['failed'] ) ) {
 			self::send( $bot, $provider_chat_id, sprintf( "⚠️ %d mục không lưu được — bạn gửi lại giúp mình nếu cần.", count( $res['failed'] ) ) );
 		}
+	}
+
+	/**
+	 * Create the canonical Journal row for a finalized Zalo capture.
+	 *
+	 * @return array|WP_Error
+	 */
+	private static function create_journal_entry_from_capture( array $session, array $items, string $provider_chat_id ) {
+		if ( ! class_exists( 'BizCity_Journal_Database' ) ) {
+			return new WP_Error( 'journal_module_not_loaded', 'Journal chưa sẵn sàng.' );
+		}
+		$user_id = (int) ( $session['user_id'] ?? 0 );
+		if ( $user_id <= 0 ) {
+			return new WP_Error( 'journal_owner_missing', 'Thiếu người sở hữu nhật ký.' );
+		}
+		$title = sanitize_text_field( (string) ( $session['title_hint'] ?? '' ) );
+		if ( $title === '' ) {
+			$title = 'Nhật ký Zalo ' . current_time( 'd/m/Y' );
+		}
+		$body = trim( (string) ( $session['content'] ?? '' ) );
+		$attachment_parts = array();
+		$key_parts = array(
+			'zalobot',
+			(string) ( $session['user_id'] ?? 0 ),
+			$provider_chat_id,
+			(string) ( $session['started_at'] ?? '' ),
+			(string) ( $session['text_message_id'] ?? '' ),
+		);
+		foreach ( $items as $item ) {
+			$attachment = is_array( $item['attachment'] ?? null ) ? $item['attachment'] : array();
+			$name = (string) ( $attachment['file_name'] ?? $attachment['name'] ?? $attachment['url'] ?? '' );
+			$kind = sanitize_key( (string) ( $item['kind'] ?? 'file' ) );
+			if ( $name !== '' ) {
+				$attachment_parts[] = '- ' . $kind . ': ' . sanitize_text_field( $name );
+			}
+			$key_parts[] = (string) ( $item['message_id'] ?? '' ) . ':' . $name . ':' . $kind;
+		}
+		if ( ! empty( $attachment_parts ) ) {
+			$body .= ( $body !== '' ? "\n\n" : '' ) . "## Tệp đính kèm\n" . implode( "\n", $attachment_parts );
+		}
+		if ( $body === '' ) {
+			$body = 'Nội dung được ghi nhận từ Zalo.';
+		}
+		$key = 'zalo_capture:' . hash( 'sha256', implode( '|', $key_parts ) );
+		BizCity_Journal_Database::maybe_install();
+		return BizCity_Journal_Database::instance()->create( array(
+			'owner_user_id'   => $user_id,
+			'workspace_id'    => 'notion',
+			'title'           => $title,
+			'body'            => $body,
+			'status'          => 'captured',
+			'source_type'     => 'zalo',
+			'source_ref'      => $provider_chat_id,
+			'idempotency_key' => $key,
+			'metadata'        => array(
+				'platform' => 'ZALOBOT',
+				'inbound'  => (array) ( $session['inbound_base'] ?? array() ),
+			),
+		) );
+	}
+
+	private static function first_projection_source_id( array $result ): int {
+		foreach ( array( 'items', 'queued_jobs' ) as $bucket ) {
+			foreach ( (array) ( $result[ $bucket ] ?? array() ) as $row ) {
+				if ( is_array( $row ) && ! empty( $row['kg_source_id'] ) ) {
+					return (int) $row['kg_source_id'];
+				}
+				if ( is_array( $row ) && ! empty( $row['source_id'] ) ) {
+					return (int) $row['source_id'];
+				}
+			}
+		}
+		return 0;
 	}
 
 	/**

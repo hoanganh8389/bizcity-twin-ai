@@ -2,7 +2,7 @@
 /**
  * Bizcity Twin AI — Table existence cache.
  *
- * Mục đích: tránh chạy `SHOW TABLES LIKE` mỗi request cho các bảng đã tồn tại
+ * Mục đích: tránh chạy metadata query mỗi request cho các bảng đã tồn tại
  * (bizcity_intent_conversations, bizcity_webchat_messages, …). Mỗi bảng chỉ
  * cần check 1 lần / blog → ghi vào option `bizcity_known_tables` (autoload=no);
  * lần sau đọc thẳng từ option, không hit DB.
@@ -65,7 +65,8 @@ if ( ! function_exists( 'bizcity_table_exists' ) ) {
 	}
 
 	/**
-	 * Cached `SHOW TABLES LIKE`. Lần đầu hit DB; nếu tồn tại → ghi cache, lần sau bỏ qua.
+	 * Cached table existence. Prefer the canonical information_schema helper when
+	 * it is available; retain an option-backed fallback for standalone load order.
 	 *
 	 * @param string $table Tên table đầy đủ (đã prefix).
 	 * @return bool
@@ -73,19 +74,22 @@ if ( ! function_exists( 'bizcity_table_exists' ) ) {
 	function bizcity_table_exists( $table ) {
 		$table = (string) $table;
 		if ( '' === $table ) return false;
+		// [2026-08-09 Johnny Chu] R-SHOW-TABLES — use the canonical blog/database-aware metadata cache.
+		if ( function_exists( 'bizcity_tbl_exists' ) ) {
+			return bizcity_tbl_exists( $table );
+		}
 		$known = &_bizcity_table_cache_ref();
-		if ( ! empty( $known[ $table ] ) ) {
-			return true;
+		if ( array_key_exists( $table, $known ) ) {
+			return (bool) $known[ $table ];
 		}
 		global $wpdb;
-		// phpcs:ignore WordPress.DB.PreparedSQL
-		$found = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) );
-		if ( $found === $table ) {
-			$known[ $table ] = true;
-			update_option( 'bizcity_known_tables', $known, false );
-			return true;
-		}
-		return false;
+		$present = (bool) $wpdb->get_var( $wpdb->prepare(
+			'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+			$table
+		) );
+		$known[ $table ] = $present;
+		update_option( 'bizcity_known_tables', $known, false );
+		return $present;
 	}
 
 	/**

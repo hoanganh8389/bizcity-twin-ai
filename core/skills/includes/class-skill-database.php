@@ -37,10 +37,13 @@ class BizCity_Skill_Database {
 	private $table;
 
 	/** @var string Schema version — bump when adding migrations.
+	 *  1.4.3 — repair dbDelta provenance COMMENT and verify columns before
+	 *           stamping the migration complete.
+	 *  1.4.2 — provenance fields isolate runtime rows from the Journal UI.
 	 *  1.4.1 — force re-create on sites where table was missing on a shard
 	 *           (dbDelta failed silently, option was already saved as 1.4.0).
 	 */
-	const SCHEMA_VERSION = '1.4.1';
+	const SCHEMA_VERSION = '1.4.3';
 
 	/** @var string wp_options key */
 	const SCHEMA_VERSION_KEY = 'bizcity_skills_db_version';
@@ -58,6 +61,14 @@ class BizCity_Skill_Database {
 		$this->maybe_create_table();
 	}
 
+	/**
+	 * Provisioner entry point for the active skills table.
+	 */
+	public static function maybe_install(): void {
+		// [2026-08-01 Johnny Chu] PHASE-1.22-ORPHAN-CLEANUP — expose the active library installer without recreating legacy skill logs.
+		self::instance();
+	}
+
 	/* ================================================================
 	 *  DDL — Table Creation & Migrations
 	 * ================================================================ */
@@ -71,6 +82,15 @@ class BizCity_Skill_Database {
 			return;
 		}
 		$this->create_table();
+		if ( ! $this->has_provenance_columns() ) {
+			// [2026-08-02 Johnny Chu] HOTFIX-SKILL-SCHEMA — do not mark a
+			// failed routed-shard DDL attempt as complete.
+			error_log( '[BizCity Skills] provenance migration not stamped: required columns are missing.' );
+			return;
+		}
+		// [2026-08-02 Johnny Chu] PHASE-SKILLS-JOURNAL — mark known machine
+		// rows as runtime without changing their active status or routing.
+		$this->backfill_runtime_provenance();
 		update_option( self::SCHEMA_VERSION_KEY, self::SCHEMA_VERSION, true );
 	}
 
@@ -101,6 +121,8 @@ class BizCity_Skill_Database {
 			priority        INT UNSIGNED    DEFAULT 50 COMMENT '0=highest, 100=lowest',
 			status          ENUM('draft','active','archived') DEFAULT 'draft',
 			version         VARCHAR(32)     DEFAULT '1.0',
+			visibility      VARCHAR(16)     NOT NULL DEFAULT 'journal' COMMENT 'Presentation boundary: journal or runtime',
+			source_module   VARCHAR(64)     NOT NULL DEFAULT '' COMMENT 'Owning runtime producer, empty for Journal-compatible content',
 			created_at      DATETIME        DEFAULT CURRENT_TIMESTAMP,
 			updated_at      DATETIME        DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 			PRIMARY KEY (id),
@@ -109,10 +131,44 @@ class BizCity_Skill_Database {
 			KEY idx_user (user_id),
 			KEY idx_category (category),
 			KEY idx_status (status),
+			KEY idx_visibility (visibility),
+			KEY idx_source_module (source_module),
 			KEY idx_priority (priority)
 		) {$charset};";
 
 		dbDelta( $sql );
+	}
+
+	private function has_provenance_columns(): bool {
+		if ( ! function_exists( 'bizcity_columns_exist' ) ) {
+			return false;
+		}
+		if ( function_exists( 'bizcity_column_invalidate' ) ) {
+			bizcity_column_invalidate( $this->table, 'visibility' );
+			bizcity_column_invalidate( $this->table, 'source_module' );
+		}
+		return bizcity_columns_exist( $this->table, array( 'visibility', 'source_module' ) );
+	}
+
+	/**
+	 * Backfill the presentation boundary for pre-1.4.2 runtime rows.
+	 *
+	 * This intentionally does not change status. The category mapping is a
+	 * one-time compatibility bridge for rows created before provenance existed.
+	 */
+	private function backfill_runtime_provenance(): void {
+		global $wpdb;
+		$wpdb->query(
+			"UPDATE {$this->table}
+			 SET visibility = 'runtime', source_module = CASE category
+				 WHEN 'tool-image' THEN 'bizcity-tool-image'
+				 WHEN 'content-creator' THEN 'bizcity-content-creator'
+				 WHEN 'web-research' THEN 'core-twinbrain-web-research'
+				 ELSE source_module
+			 END
+			 WHERE category IN ('tool-image', 'content-creator', 'web-research')
+			   AND (visibility = 'journal' OR source_module = '')"
+		);
 	}
 
 	/**
@@ -545,4 +601,16 @@ class BizCity_Skill_Database {
 		}
 		return 'general';
 	}
+}
+
+// [2026-08-02 Johnny Chu] PHASE-SKILLS-JOURNAL — central schema catalog for
+// the runtime skill registry and its provenance migration.
+if ( class_exists( 'BizCity_Schema_Registry' ) ) {
+	BizCity_Schema_Registry::register(
+		'bizcity_skills',
+		'core.skills',
+		BizCity_Skill_Database::SCHEMA_VERSION,
+		BizCity_Skill_Database::SCHEMA_VERSION_KEY,
+		array( 'BizCity_Skill_Database', 'maybe_install' )
+	);
 }

@@ -132,18 +132,7 @@ final class BizCity_Automation_Action_Run_Astro_Transit extends BizCity_Automati
 		$format      = (string) ( $data['format'] ?? 'short' );
 		// [2026-07-16 Johnny Chu] PHASE-TWINWEB F4 — canonical owner for Astro workflows; never infer from current session fallback.
 		$owner_user_id = $this->resolve_owner_user_id( $ctx );
-
-		// [2026-07-21 Johnny Chu] PHASE-ASTRO-WORKFLOW v1.13 — when chat_id is a Zalo Bot identity key,
-		// resolve the actual sender's wp_user_id to use as owner_user_id. Without this, owner_user_id
-		// stays as wf.created_by (admin=5), the ownership check then overrides coachee_id=2 back to
-		// admin's coachee (coachee_id=1), and the transit URL gets the wrong id.
-		if ( $chat_id !== '' && strpos( $chat_id, 'zalobot_' ) === 0 && class_exists( 'BizCity_User_Resolver' ) ) {
-			$_transit_zalo_resolved = (int) BizCity_User_Resolver::instance()->resolve( $chat_id );
-			if ( $_transit_zalo_resolved > 0 && $_transit_zalo_resolved !== $owner_user_id ) {
-				error_log( '[bizcity-automation][run_astro_transit] chat_id_resolver override: owner_chain=' . $owner_user_id . ' → zalo_resolved=' . $_transit_zalo_resolved . ' chat_id=' . $chat_id );
-				$owner_user_id = $_transit_zalo_resolved;
-			}
-		}
+		// [2026-08-01 Johnny Chu] PHASE-TWINWEB F4 — transit ownership must never be overridden by chat_id identity resolution.
 
 		// [2026-07-06 Johnny Chu] HOTFIX — infer flexible horizon from trigger text:
 		// supports "3 ngày tới", "5 ngày tới", "tuần tới", "ngày 07/07".

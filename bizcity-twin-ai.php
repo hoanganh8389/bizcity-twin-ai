@@ -48,12 +48,33 @@ if ( ! defined( 'BIZCITY_DB_PREFIX' ) ) {
     define( 'BIZCITY_DB_PREFIX', 'bizcity_' );
 }
 
+// [2026-08-07 Johnny Chu] R-PERF - the admin TwinChat wrapper only renders an iframe; defer runtime preloads to the iframe/REST request.
+$_bizcity_twinchat_admin_shell_request = is_admin()
+    && isset( $_GET['page'] )
+    && sanitize_key( (string) $_GET['page'] ) === 'bizcity-twinchat';
+
 // [2026-07-15 Johnny Chu] PHASE-KG-PDF-CHUNK — load optional Composer
 // dependencies (FPDI/FPDF) used for physical PDF page-window splitting.
 $bizcity_composer_autoload = __DIR__ . '/vendor/autoload.php';
-if ( file_exists( $bizcity_composer_autoload ) ) {
+// [2026-08-09 Johnny Chu] R-PERF-LOADER-COMPOSER - the TwinChat admin shell
+// renders an iframe and does not parse PDF files; keep Composer off this path.
+$bizcity_composer_context = ! $_bizcity_twinchat_admin_shell_request
+    && (
+        ( defined( 'DOING_CRON' ) && DOING_CRON )
+        || ( defined( 'WP_CLI' ) && WP_CLI )
+        || ( defined( 'REST_REQUEST' ) && REST_REQUEST )
+        || ( ! empty( $_SERVER['REQUEST_URI'] ) && (
+            false !== strpos( (string) $_SERVER['REQUEST_URI'], '/wp-json/' )
+            || false !== strpos( (string) $_SERVER['REQUEST_URI'], '/tool-' )
+            || false !== strpos( (string) $_SERVER['REQUEST_URI'], '/doc/' )
+            || false !== strpos( (string) $_SERVER['REQUEST_URI'], '/gpt/' )
+            || false !== strpos( (string) $_SERVER['REQUEST_URI'], '/twin/' )
+        ) )
+    );
+if ( $bizcity_composer_context && file_exists( $bizcity_composer_autoload ) ) {
     require_once $bizcity_composer_autoload;
 }
+unset( $bizcity_composer_autoload, $bizcity_composer_context );
 
 
 // Feature flags — Twin Core (có thể override trong wp-config.php)
@@ -93,6 +114,15 @@ require_once __DIR__ . '/includes/class-connection-gate.php';
 require_once __DIR__ . '/includes/class-admin-support-link.php';
 require_once __DIR__ . '/includes/class-admin-menu.php';
 require_once __DIR__ . '/includes/class-twin-ai.php';
+
+// [2026-08-09 Johnny Chu] R-PERF-LOADER-QM - register only Query Monitor
+// extension filters early; collector/output classes load only when QM requests them.
+if ( file_exists( __DIR__ . '/core/diagnostics/includes/class-qm-loader-integration.php' ) ) {
+    require_once __DIR__ . '/core/diagnostics/includes/class-qm-loader-integration.php';
+}
+
+// [2026-08-07 Johnny Chu] R-AUTO-MU — sync the bundled early loader before normal plugin boot after a Git pull.
+add_action( 'plugins_loaded', [ 'BizCity_Twin_AI', 'sync_compat_loader' ], -100 );
 
 // PHASE-0.41 L3 — REST_Error trait must load BEFORE any controller that
 // `use`s it (research/twinbrain/twinchat-sources). Diagnostics bootstrap
@@ -138,13 +168,34 @@ if ( ! function_exists( 'bizcity_get_charset_collate' ) ) {
 // Market đăng ký plugins_loaded @1 → phải load trước khi hook fires.
 // Framework v1 contracts (Phase 0.99.2) — opt-in interfaces + module base class.
 require_once __DIR__ . '/core/twin-core/contracts/framework-contracts.php';
+// [2026-07-29 Johnny Chu] PHASE-1.21-F — opt-in content contracts for new extensions.
+require_once __DIR__ . '/core/twin-core/contracts/content-contracts.php';
 // Phase 0.99.3 — Module registry (implements `bizcity_register_module` filter).
 require_once __DIR__ . '/core/twin-core/contracts/class-module-registry.php';
 // [2026-06-05 Johnny Chu] R-ERROR-UX — core/helper: BizCity_Error_Payload + shared helpers.
 // Must load before channel-gateway, automation, agents — so every REST controller
 // can call BizCity_Error_Payload::make() without a class_exists() guard.
-require_once __DIR__ . '/core/helper/bootstrap.php';
-require_once __DIR__ . '/core/bizcity-llm/bootstrap.php';
+if ( ! $_bizcity_twinchat_admin_shell_request ) {
+    require_once __DIR__ . '/core/helper/bootstrap.php';
+    // [2026-08-09 Johnny Chu] R-PERF — the LLM client is needed by backend/API and AI surfaces, not plain HTML.
+    $bizcity_llm_bootstrap_uri = isset( $_SERVER['REQUEST_URI'] ) ? (string) $_SERVER['REQUEST_URI'] : '';
+    $bizcity_llm_bootstrap_context = is_admin()
+        || ( defined( 'DOING_CRON' ) && DOING_CRON )
+        || ( defined( 'WP_CLI' ) && WP_CLI )
+        || false !== strpos( $bizcity_llm_bootstrap_uri, '/wp-json/' )
+        || false !== strpos( $bizcity_llm_bootstrap_uri, '/bizhook/' )
+        || false !== strpos( $bizcity_llm_bootstrap_uri, '/tool-' )
+        || false !== strpos( $bizcity_llm_bootstrap_uri, '/gpt' )
+        || false !== strpos( $bizcity_llm_bootstrap_uri, '/twin' );
+    if ( $bizcity_llm_bootstrap_context ) {
+        require_once __DIR__ . '/core/bizcity-llm/bootstrap.php';
+    }
+    unset( $bizcity_llm_bootstrap_uri, $bizcity_llm_bootstrap_context );
+}
+// [2026-08-01 Johnny Chu] PHASE-1.23-TABLE-ACTIVITY — lightweight query telemetry must load before context gates so frontend/REST/cron activity is observable.
+if ( ! $_bizcity_twinchat_admin_shell_request && file_exists( __DIR__ . '/core/diagnostics/includes/class-diagnostics-table-activity.php' ) ) {
+    require_once __DIR__ . '/core/diagnostics/includes/class-diagnostics-table-activity.php';
+}
 
 // [2026-06-29 Johnny Chu] HOTFIX — $_bizcity_admin_ctx MUST be defined BEFORE core/knowledge/bootstrap.php
 // because knowledge bootstrap uses it immediately (file-scope) to gate class-chat-gateway.php.
@@ -174,6 +225,9 @@ if ( ! isset( $_bizcity_admin_ctx ) ) {
 				|| preg_match( '#^/doc/?(\?|$)#', $_SERVER['REQUEST_URI'] )
 				|| false !== strpos( $_SERVER['REQUEST_URI'], '/kling-video' )
 				|| false !== strpos( $_SERVER['REQUEST_URI'], '/product-studio' )
+                || false !== strpos( $_SERVER['REQUEST_URI'], '/canva/' )
+                || false !== strpos( $_SERVER['REQUEST_URI'], '/profile-studio/' )
+                || false !== strpos( $_SERVER['REQUEST_URI'], '/qr-studio/' )
 				|| false !== strpos( (string) ( $_SERVER['QUERY_STRING'] ?? '' ), 'biz_fb_oauth' )
 				|| false !== strpos( (string) ( $_SERVER['QUERY_STRING'] ?? '' ), 'fb_callback=1' )
 				// [2026-07-02 Johnny Chu] HOTFIX R-PERF — CF7 old-style submission POSTs to
@@ -184,10 +238,13 @@ if ( ! isset( $_bizcity_admin_ctx ) ) {
 		);
 }
 
-require_once __DIR__ . '/core/knowledge/bootstrap.php';
+// [2026-08-09 Johnny Chu] R-PERF — Knowledge is needed by admin/REST/webhook runtime, not plain frontend HTML.
+if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_shell_request ) {
+    require_once __DIR__ . '/core/knowledge/bootstrap.php';
+}
 
 // [2026-07-14 Johnny Chu] PHASE-0.43 — shared local-document search for TwinChat, TwinWeb and future surfaces.
-if ( file_exists( __DIR__ . '/core/twinsearch/bootstrap.php' ) ) {
+if ( ! $_bizcity_twinchat_admin_shell_request && file_exists( __DIR__ . '/core/twinsearch/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/twinsearch/bootstrap.php';
 }
 
@@ -216,6 +273,10 @@ add_filter( 'cron_schedules', function ( $schedules ) {
 		'bizcity_5min'                    => array( 'interval' => 300, 'display' => 'Every 5 Minutes (Scheduler)' ),
 		'bizcity_kg_5min'                 => array( 'interval' => 300, 'display' => 'Every 5 Minutes (KG Filestore)' ),
 		'bizcity_twinchat_learning_15min' => array( 'interval' => 900, 'display' => 'Every 15 minutes (TwinChat learning sweep)' ),
+        // [2026-08-09 Johnny Chu] R-CRON-SCHEDULE-EARLY — names must exist before
+        // WP-Cron reschedules events; handlers remain surface-gated elsewhere.
+        'bizcity_twinweb_artifact_jobs_minute' => array( 'interval' => 60,  'display' => 'Every Minute (TwinWeb artifact jobs)' ),
+        'bizcity_crm_3min'                 => array( 'interval' => 180, 'display' => 'Every 3 Minutes (BizCity CRM SLA)' ),
 		// [2026-07-15 Johnny Chu] R-CRON-TIER — tier-based intervals (free 10' / pro 5' / premium 1').
 		// Registered unconditionally here so wp_reschedule_event() never hits invalid_schedule
 		// on frontend (core/cron is gated behind $_bizcity_admin_ctx). Covers the default minutes;
@@ -266,6 +327,9 @@ $_bizcity_admin_ctx =
             || preg_match( '#^/doc/?(\?|$)#', $_SERVER['REQUEST_URI'] )
             || false !== strpos( $_SERVER['REQUEST_URI'], '/kling-video' )    // bizcity-video-kling
             || false !== strpos( $_SERVER['REQUEST_URI'], '/product-studio' ) // tool-image product studio
+            || false !== strpos( $_SERVER['REQUEST_URI'], '/canva/' )        // tool-image Canva studio
+            || false !== strpos( $_SERVER['REQUEST_URI'], '/profile-studio/' ) // tool-image profile studio
+            || false !== strpos( $_SERVER['REQUEST_URI'], '/qr-studio/' )     // tool-image QR studio
             // [2026-07-28 Johnny Chu] PHASE-0.53-MCP-OAUTH — load MCP discovery and browser consent on normal frontend requests.
             || false !== strpos( $_SERVER['REQUEST_URI'], '/.well-known/oauth-' )
             || false !== strpos( $_SERVER['REQUEST_URI'], '/bizcity-mcp/v1/oauth/' )
@@ -283,17 +347,57 @@ $_bizcity_admin_ctx =
         )
     );
 
+// [2026-08-07 Johnny Chu] R-PERF - the TwinChat admin shell does not need every backend/admin module in its HTML request.
+$_bizcity_twinchat_admin_page = is_admin()
+    && isset( $_GET['page'] )
+    && in_array( sanitize_key( (string) $_GET['page'] ), array( 'bizcity-twinchat', 'bizcity-twinbrain' ), true );
+
 // Intent engine fires do_action('bizcity_intent_register_providers') at load time.
-// On plain frontend HTML pages this is wasted (intent only processes on REST/webhook/admin).
-// On REST/webhook/admin/cron: $_bizcity_admin_ctx=true → loads normally.
-if ( $_bizcity_admin_ctx ) {
+// On unrelated frontend HTML and wp-admin pages this is wasted; only Intent-owned
+// surfaces and backend dispatch contexts need the full graph.
+// [2026-08-09 Johnny Chu] R-PERF-LOADER-INTENT - the TwinChat admin shell
+// renders an iframe and must not preload the full Intent graph; its iframe/REST
+// request loads Intent through the normal backend gate when required.
+$_bizcity_intent_admin_page = is_admin()
+    && isset( $_GET['page'] )
+    && ( false !== strpos( sanitize_key( (string) $_GET['page'] ), 'bizcity-intent' )
+        || false !== strpos( sanitize_key( (string) $_GET['page'] ), 'bizcity-tool' )
+        || false !== strpos( sanitize_key( (string) $_GET['page'] ), 'bizcity-data-browser' ) );
+$_bizcity_intent_ajax_request = false;
+if ( isset( $_REQUEST['action'] ) && is_scalar( $_REQUEST['action'] ) ) {
+    $bizcity_intent_ajax_action = sanitize_key( (string) wp_unslash( $_REQUEST['action'] ) );
+    $_bizcity_intent_ajax_request = 0 === strpos( $bizcity_intent_ajax_action, 'bizcity_intent' )
+        || 0 === strpos( $bizcity_intent_ajax_action, 'bizcity_chat' )
+        || 0 === strpos( $bizcity_intent_ajax_action, 'bizcity_webchat' )
+        || 0 === strpos( $bizcity_intent_ajax_action, 'bizc_pipeline' )
+        || 0 === strpos( $bizcity_intent_ajax_action, 'bizcity_rolling_memory' )
+        || 'bizcity_project_move_conv' === $bizcity_intent_ajax_action;
+    unset( $bizcity_intent_ajax_action );
+}
+$_bizcity_intent_public_request = ! empty( $_SERVER['REQUEST_URI'] )
+    && preg_match( '#/(?:tools-map|tool-control-panel|tool-stats|tasks|chat-sessions)(?:/|\?|$)#', (string) $_SERVER['REQUEST_URI'] );
+$_bizcity_intent_runtime_request = $_bizcity_intent_public_request
+    || ( $_bizcity_admin_ctx && ( ! is_admin()
+        || $_bizcity_intent_admin_page
+        || $_bizcity_intent_ajax_request
+        || ( defined( 'DOING_CRON' ) && DOING_CRON )
+        || ( defined( 'WP_CLI' ) && WP_CLI ) ) );
+if ( $_bizcity_intent_runtime_request && ! $_bizcity_twinchat_admin_shell_request ) {
     require_once __DIR__ . '/core/intent/bootstrap.php';
 }
+unset( $_bizcity_intent_admin_page, $_bizcity_intent_ajax_request, $_bizcity_intent_public_request, $_bizcity_intent_runtime_request );
 // Phase 0.18 / Wave 0.18.0 — Persona Provider contract + registry.
-if ( file_exists( __DIR__ . '/core/persona/bootstrap.php' ) ) {
+// [2026-08-09 Johnny Chu] R-PERF — Guru runtime/bridge is not needed by unrelated frontend HTML.
+$_bizcity_persona_public_request = ! empty( $_SERVER['REQUEST_URI'] )
+    && ( preg_match( '#/gpt(?:/|\?|$)#', (string) $_SERVER['REQUEST_URI'] )
+        || preg_match( '#/twin(?:/|\?|$)#', (string) $_SERVER['REQUEST_URI'] ) );
+if ( ( $_bizcity_admin_ctx || $_bizcity_persona_public_request )
+    && ! $_bizcity_twinchat_admin_shell_request
+    && file_exists( __DIR__ . '/core/persona/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/persona/bootstrap.php';
 }
-if ( file_exists( __DIR__ . '/core/twin-core/bootstrap.php' ) ) {
+// [2026-08-09 Johnny Chu] R-PERF — defer Twin Core file graph and schema work off plain frontend HTML.
+if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_shell_request && file_exists( __DIR__ . '/core/twin-core/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/twin-core/bootstrap.php';
 }
 // [2026-06-10 Johnny Chu] HOTFIX — core/bizcity-market disabled: module not yet implemented,
@@ -323,14 +427,14 @@ unset( $_bzc_tracking_file );
 // [2026-06-09 Johnny Chu] PERF-2 — channel-gateway: webhook routing + channel admin UI.
 // Not needed on plain frontend HTML renders — twinchat has its own REST routes.
 // Still loads on: REST (/wp-json/), /bizhook/ webhooks, wp-admin, cron, WP-CLI, /tool-* pages.
-if ( $_bizcity_admin_ctx ) {
+if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_page ) {
     require_once __DIR__ . '/core/channel-gateway/bootstrap.php';
 }
 
 // [2026-07-27 Johnny Chu] PHASE-0.53-MCP Wave A — Twin Client Brain MCP gateway.
 // REST-only (bizcity-mcp/v1/mcp); no frontend HTML footprint, safe to gate
 // behind $_bizcity_admin_ctx same as channel-gateway (R-PERF).
-if ( $_bizcity_admin_ctx && file_exists( __DIR__ . '/core/mcp/bootstrap.php' ) ) {
+if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_page && file_exists( __DIR__ . '/core/mcp/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/mcp/bootstrap.php';
 }
 
@@ -348,7 +452,7 @@ if ( $_bizcity_admin_ctx && file_exists( __DIR__ . '/core/mcp/bootstrap.php' ) )
 
 // Phase AUTOMATION S0 — visual workflow builder (own SPA, own bundle).
 // Admin UI + cron runner + REST → gate; not needed on frontend HTML render.
-if ( $_bizcity_admin_ctx && file_exists( __DIR__ . '/core/automation/bootstrap.php' ) ) {
+if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_page && file_exists( __DIR__ . '/core/automation/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/automation/bootstrap.php';
 }
 // [2026-06-22 Johnny Chu] PHASE-TWINWEB — QUARANTINED: core/content-ops chưa sử dụng.
@@ -357,96 +461,136 @@ if ( $_bizcity_admin_ctx && file_exists( __DIR__ . '/core/automation/bootstrap.p
 // if ( $_bizcity_admin_ctx && file_exists( __DIR__ . '/core/content-ops/bootstrap.php' ) ) {
 //     require_once __DIR__ . '/core/content-ops/bootstrap.php';
 // }
-// [2026-06-09 Johnny Chu] R-PERF — skills registers activity bar items → must load on all requests.
-if ( file_exists( __DIR__ . '/core/skills/bootstrap.php' ) ) {
+// [2026-06-09 Johnny Chu] R-PERF — skills registers activity bar items for admin and TwinShell surfaces.
+$_bizcity_skills_public_request = ! empty( $_SERVER['REQUEST_URI'] )
+    && preg_match( '#/(?:skills|twin)(?:/|\?|$)#', (string) $_SERVER['REQUEST_URI'] );
+if ( ( $_bizcity_admin_ctx || $_bizcity_skills_public_request )
+    && ! $_bizcity_twinchat_admin_shell_request
+    && file_exists( __DIR__ . '/core/skills/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/skills/bootstrap.php';
 }
-if ( $_bizcity_admin_ctx && file_exists( __DIR__ . '/core/tools/bootstrap.php' ) ) {
+if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_page && file_exists( __DIR__ . '/core/tools/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/tools/bootstrap.php';
 }
 // Phase 1 — Unified cron registry & observability (see core/cron/PHASE-CRON.md).
 // [2026-06-09 Johnny Chu] PERF-2 — cron registry only needed on admin/REST/cron context.
 // Always-load modules (twinchat, knowledge) use wp_schedule_event() directly without BizCity_Cron_Manager.
 // WP cron fires via wp-cron.php which sets DOING_CRON=true → included in $_bizcity_admin_ctx.
-if ( $_bizcity_admin_ctx && file_exists( __DIR__ . '/core/cron/bootstrap.php' ) ) {
+if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_page && file_exists( __DIR__ . '/core/cron/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/cron/bootstrap.php';
 }
 // [2026-06-09 Johnny Chu] R-PERF — scheduler registers activity bar items → must load on all requests.
-if ( file_exists( __DIR__ . '/core/scheduler/bootstrap.php' ) ) {
+// [2026-08-09 Johnny Chu] R-PERF — scheduler runtime is needed for admin/REST/cron and its own public page only.
+$_bizcity_scheduler_public_request = ! empty( $_SERVER['REQUEST_URI'] )
+    && preg_match( '#/scheduler(?:/|\\?|$)#', (string) $_SERVER['REQUEST_URI'] );
+if ( ( $_bizcity_admin_ctx || $_bizcity_scheduler_public_request )
+    && ! $_bizcity_twinchat_admin_shell_request
+    && file_exists( __DIR__ . '/core/scheduler/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/scheduler/bootstrap.php';
 }
 // Phase 0.35 — SMTP bridge (replaces legacy mu-plugin bizcity-smtp-gmail.php).
 // No-ops unless BIZCITY_SMTP_* constants in wp-config.php OR option `bizcity_smtp_settings` is set.
-if ( file_exists( __DIR__ . '/core/smtp/bootstrap.php' ) ) {
+if ( ! $_bizcity_twinchat_admin_shell_request && file_exists( __DIR__ . '/core/smtp/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/smtp/bootstrap.php';
 }
 // Admin settings page — wp-admin/admin.php?page=bizcity-smtp-settings
 if ( is_admin() && file_exists( __DIR__ . '/core/smtp/admin.php' ) ) {
     require_once __DIR__ . '/core/smtp/admin.php';
 }
-if ( file_exists( __DIR__ . '/core/memory/bootstrap.php' ) ) {
+// [2026-08-09 Johnny Chu] R-PERF — memory services are backend/admin/REST/cron runtime, not ordinary frontend HTML.
+if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_shell_request && file_exists( __DIR__ . '/core/memory/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/memory/bootstrap.php';
 }
 // [2026-06-04 Johnny Chu] PHASE-MEMBERSHIP M1 — client-side membership plans
 // (Free/Pro/Plus). Self-written lean core; PayPal self-billing in later phases.
-if ( file_exists( __DIR__ . '/core/membership/bootstrap.php' ) ) {
+if ( ! $_bizcity_twinchat_admin_shell_request && file_exists( __DIR__ . '/core/membership/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/membership/bootstrap.php';
 }
 // Phase 0.13 / 0.15 — TwinShell Runtime (agents, runner, REST /run endpoint)
-if ( file_exists( __DIR__ . '/core/agents/bootstrap.php' ) ) {
+// [2026-08-09 Johnny Chu] R-PERF — agent runtime is needed by backend requests and the public TwinShell surface.
+$_bizcity_agent_public_request = ! empty( $_SERVER['REQUEST_URI'] )
+    && preg_match( '#/twin(?:/|\\?|$)#', (string) $_SERVER['REQUEST_URI'] );
+if ( ( $_bizcity_admin_ctx || $_bizcity_agent_public_request )
+    && ! $_bizcity_twinchat_admin_shell_request
+    && file_exists( __DIR__ . '/core/agents/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/agents/bootstrap.php';
 }
-if ( file_exists( __DIR__ . '/core/runtime/bootstrap.php' ) ) {
+// [2026-08-09 Johnny Chu] R-PERF — core runtime only serves backend/REST/cron execution.
+if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_shell_request && file_exists( __DIR__ . '/core/runtime/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/runtime/bootstrap.php';
 }
 // Phase 0.16 / Vòng 4 — Intent Shell (foundation only, not yet wired into Intent_Engine)
-if ( $_bizcity_admin_ctx && file_exists( __DIR__ . '/core/intent/shell/bootstrap.php' ) ) {
+if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_page && file_exists( __DIR__ . '/core/intent/shell/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/intent/shell/bootstrap.php';
 }
 
 // Phase 0.18.1 — Guru Research Studio (Tavily ReAct port; multi-scope: character | user)
 // REST routes only → admin_ctx (REST gate) is sufficient; not needed on HTML renders.
-if ( $_bizcity_admin_ctx && file_exists( __DIR__ . '/core/research/bootstrap.php' ) ) {
+if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_page && file_exists( __DIR__ . '/core/research/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/research/bootstrap.php';
 }
 
 // Diagnostics (PHASE-0.36) — multisite schema audit + repair + cron hygiene.
 // WP-CLI `wp bizcity diag` — only load in admin/CLI context.
-if ( ( is_admin() || ( defined( 'WP_CLI' ) && WP_CLI ) ) && file_exists( __DIR__ . '/tools/class-diagnostics.php' ) ) {
+if ( ( is_admin() || ( defined( 'WP_CLI' ) && WP_CLI ) )
+    && ! $_bizcity_twinchat_admin_shell_request
+    && file_exists( __DIR__ . '/tools/class-diagnostics.php' ) ) {
     require_once __DIR__ . '/tools/class-diagnostics.php';
 }
 
 // Diagnostics Core (PHASE-0.40) — table inventory + soft-guard notices + 81 probe classes.
 // Heaviest single module (957 KB / 101 files). Never needed on frontend HTML renders.
-if ( $_bizcity_admin_ctx && file_exists( __DIR__ . '/core/diagnostics/bootstrap.php' ) ) {
+// [2026-08-09 Johnny Chu] R-PERF — do not load the full diagnostics probe graph on unrelated REST requests.
+$_bizcity_diagnostics_ctx =
+    is_admin()
+    || ( defined( 'WP_CLI' ) && WP_CLI )
+    || ( ! empty( $_SERVER['REQUEST_URI'] ) && false !== strpos( (string) $_SERVER['REQUEST_URI'], '/bizcity-diagnostics/' ) );
+if ( $_bizcity_diagnostics_ctx && ! $_bizcity_twinchat_admin_page && file_exists( __DIR__ . '/core/diagnostics/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/diagnostics/bootstrap.php';
 }
 
 // Test pages — archived 2026-06-01, moved to tests/_archived/
 
 // ── Modules — feature modules layered on top of core ─────────────────────────
-if ( file_exists( __DIR__ . '/modules/twinchat/bootstrap.php' ) ) {
+// [2026-08-09 Johnny Chu] R-PERF — TwinChat has a public /twinchat/ route; do not load its full DB/studio/learning graph elsewhere.
+$_bizcity_twinchat_public_request = ! empty( $_SERVER['REQUEST_URI'] )
+    && preg_match( '#/twinchat(?:/|\?|$)#', (string) $_SERVER['REQUEST_URI'] );
+if ( ( $_bizcity_admin_ctx || $_bizcity_twinchat_public_request )
+    && file_exists( __DIR__ . '/modules/twinchat/bootstrap.php' ) ) {
     require_once __DIR__ . '/modules/twinchat/bootstrap.php';
 }
 // [2026-06-17 Johnny Chu] PHASE-TWINWEB Wave 1 — Public user frontend (ChatGPT-like SPA).
 // Always-load: serves /twin/ public page + bizcity-twinweb/v1 REST (needed for guests + WP REST).
-if ( file_exists( __DIR__ . '/modules/twinweb/bootstrap.php' ) ) {
+if ( ! $_bizcity_twinchat_admin_shell_request && file_exists( __DIR__ . '/modules/twinweb/bootstrap.php' ) ) {
     require_once __DIR__ . '/modules/twinweb/bootstrap.php';
 }
 // Phase 0.11 — Twin Shell (universal /twin/ ActivityBar wrapper, iframe-based).
-if ( file_exists( __DIR__ . '/modules/twinshell/bootstrap.php' ) ) {
+// [2026-08-09 Johnny Chu] R-PERF — TwinShell is required for /twin/ and backend requests, not ordinary public pages.
+$_bizcity_twinshell_public_request = ! empty( $_SERVER['REQUEST_URI'] )
+    && preg_match( '#/twin(?:/|\?|$)#', (string) $_SERVER['REQUEST_URI'] );
+if ( ( $_bizcity_admin_ctx || $_bizcity_twinshell_public_request )
+    && ! $_bizcity_twinchat_admin_shell_request
+    && file_exists( __DIR__ . '/modules/twinshell/bootstrap.php' ) ) {
     require_once __DIR__ . '/modules/twinshell/bootstrap.php';
 }
 // Phase 6.1 — Twinsource (standard source-management panel for all plugins).
 // See PHASE-6.1-TWINSOURCE-STANDARD.md
 // enqueue() is called explicitly by host pages (not via wp_enqueue_scripts hook)
 // → safe to gate: only admin/REST callers need the REST routes.
-if ( $_bizcity_admin_ctx && file_exists( __DIR__ . '/modules/twinsource/bootstrap.php' ) ) {
+if ( $_bizcity_admin_ctx
+    && ! $_bizcity_twinchat_admin_shell_request
+    && file_exists( __DIR__ . '/modules/twinsource/bootstrap.php' ) ) {
     require_once __DIR__ . '/modules/twinsource/bootstrap.php';
 }
 // Phase 0.18.1.7 — TwinSearch (Tavily research input gate, retrieval family).
 // See PHASE-0-RULE-INPUT-PROVIDER.md + PHASE-0.18.1-GURU-RESEARCH-TAVILY.md
-if ( file_exists( __DIR__ . '/modules/twinsearch/bootstrap.php' ) ) {
+// [2026-08-09 Johnny Chu] R-PERF — TwinSearch is a backend/public Twin GPT dependency, not a generic frontend dependency.
+$_bizcity_twinsearch_public_request = ! empty( $_SERVER['REQUEST_URI'] )
+    && ( preg_match( '#/gpt(?:/|\?|$)#', (string) $_SERVER['REQUEST_URI'] )
+        || preg_match( '#/twin(?:/|\?|$)#', (string) $_SERVER['REQUEST_URI'] ) );
+if ( ( $_bizcity_admin_ctx || $_bizcity_twinsearch_public_request )
+    && ! $_bizcity_twinchat_admin_shell_request
+    && file_exists( __DIR__ . '/modules/twinsearch/bootstrap.php' ) ) {
     require_once __DIR__ . '/modules/twinsearch/bootstrap.php';
 }
 
@@ -456,14 +600,18 @@ if ( file_exists( __DIR__ . '/modules/twinsearch/bootstrap.php' ) ) {
 // See PHASE-0.36-TWINBRAIN-CENTRAL-BRAIN.md
 // [2026-06-09 Johnny Chu] PERF-2 — TwinBrain is REST-only (37 files). TwinChat uses
 // class_exists() guards for BizCity_TwinBrain_* — safe to skip on frontend HTML renders.
-if ( $_bizcity_admin_ctx && file_exists( __DIR__ . '/core/twinbrain/bootstrap.php' ) ) {
+if ( $_bizcity_admin_ctx
+    && ! $_bizcity_twinchat_admin_shell_request
+    && file_exists( __DIR__ . '/core/twinbrain/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/twinbrain/bootstrap.php';
 }
 
 // ── Legacy helpers — flow functions that automation blocks depend on ──────────
 // Loaded here so bizcity-twin-ai works standalone (without mu-plugin).
 // function_exists() guards inside prevent double-loading when mu-plugin is also active.
-require_once __DIR__ . '/core/helper-legacy/bootstrap.php';
+if ( ! $_bizcity_twinchat_admin_shell_request ) {
+    require_once __DIR__ . '/core/helper-legacy/bootstrap.php';
+}
 
 // ── Must-load bundled plugins (hoạt động như mu-plugins) ─────────────────────
 // Các plugin trong plugins/ được load trực tiếp, KHÔNG cần activate thủ công.
@@ -495,8 +643,10 @@ $_bizcity_bundled_must_load = [
 ];
 // [2026-06-09 Johnny Chu] PERF-2 — Admin-only bundled plugins (no public shortcodes, no
 // public URL patterns outside /tool-* or /kling-video/ covered by $_bizcity_admin_ctx).
-// NOT listed: bizcoach-pro, bizcity-content-creator, bizcity-doc, bizcity-tool-image,
-// bizcity-pagebuilder — these register activity bar items and must load on all requests.
+// Public shortcode/legacy-route plugins remain always-load: bizcoach-pro,
+// bizcity-content-creator. Doc/Image/Page Builder are loaded on their own public
+// route, backend requests, or TwinShell only; they do not need full runtime on
+// ordinary frontend HTML.
 $_bizcity_admin_only_slugs = [
     'bizcity-admin-hook-zalo',  // Optional legacy Zalo Hotline + /bizhook/ webhook + admin.
     'bizcity-facebook-bot',     // FB Messenger webhook + admin
@@ -504,13 +654,20 @@ $_bizcity_admin_only_slugs = [
     // [2026-06-10 Johnny Chu] PHASE-0.39 — no public shortcodes; REST at /wp-json/bizcity-channel/v1/zalo-bridge/* covered by admin_ctx gate.
     'bizcity-zalo-personal',    // Zalo Personal + OA gateway — admin + /wp-json/ only
     'bizgpt-tool-google',       // Google Tools — /tool-google/ + admin REST
+    'bizcity-doc',              // /tool-doc/ and /doc/ are covered by admin_ctx
+    'bizcity-tool-image',       // /tool-image/, /canva/, /profile-studio/, /qr-studio/
+    'bizcity-pagebuilder',      // /tool-pagebuilder/ is covered by admin_ctx
 ];
 foreach ( $_bizcity_bundled_must_load as $_slug => $_guard_const ) {
     if ( defined( $_guard_const ) ) {
         continue; // Already loaded (activated as regular plugin or by mu-plugin)
     }
+    if ( $_bizcity_twinchat_admin_shell_request ) {
+        continue;
+    }
     // [2026-06-09 Johnny Chu] PERF-2 — Skip admin-only plugins on plain frontend HTML renders.
-    if ( ! $_bizcity_admin_ctx && in_array( $_slug, $_bizcity_admin_only_slugs, true ) ) {
+    if ( ( ( ! $_bizcity_admin_ctx && ! $_bizcity_agent_public_request ) || $_bizcity_twinchat_admin_page )
+        && in_array( $_slug, $_bizcity_admin_only_slugs, true ) ) {
         continue;
     }
     // Guard: only load if plugin folder exists — skip gracefully if not deployed
@@ -527,8 +684,6 @@ foreach ( $_bizcity_bundled_must_load as $_slug => $_guard_const ) {
         require_once $_bundled_file;
     }
 }
-unset( $_bizcity_bundled_must_load, $_slug, $_guard_const, $_bundled_dir, $_bundled_file, $_bizcity_admin_ctx, $_bizcity_admin_only_slugs );
-
 // Translations — load Vietnamese (and other) .po files from /languages/
 add_action( 'init', function() {
     load_plugin_textdomain( 'bizcity-twin-ai', false, dirname( plugin_basename( __FILE__ ) ) . '/languages' );
@@ -538,7 +693,11 @@ BizCity_Admin_Support_Link::init();
 BizCity_Admin_Menu::boot();
 
 // Boot at plugins_loaded priority 0 — load modules + fire loaded action
-add_action( 'plugins_loaded', [ 'BizCity_Twin_AI', 'boot' ], 0 );
+if ( ! $_bizcity_twinchat_admin_shell_request ) {
+    add_action( 'plugins_loaded', [ 'BizCity_Twin_AI', 'boot' ], 0 );
+}
+
+unset( $_bizcity_bundled_must_load, $_slug, $_guard_const, $_bundled_dir, $_bundled_file, $_bizcity_admin_ctx, $_bizcity_admin_only_slugs, $_bizcity_twinchat_admin_page, $_bizcity_twinchat_admin_shell_request, $_bizcity_diagnostics_ctx, $_bizcity_scheduler_public_request, $_bizcity_agent_public_request, $_bizcity_skills_public_request, $_bizcity_persona_public_request, $_bizcity_twinchat_public_request, $_bizcity_twinshell_public_request, $_bizcity_twinsearch_public_request );
 
 // Activation hook — install DB tables, set defaults
 register_activation_hook( __FILE__, [ 'BizCity_Twin_AI', 'activate' ] );
@@ -551,6 +710,8 @@ register_deactivation_hook( __FILE__, static function () {
 	// Wave B cleanup engine (weekly Sunday 03:00).
 	wp_clear_scheduled_hook( 'bizcity_kg_orphan_cleanup_weekly' );
 } );
+
+unset( $_bizcity_twinchat_admin_shell_request );
 
 // ── Compat Loader Check ──────────────────────────────────────────────────────
 // Cảnh báo admin nếu bizcity-twin-compat.php chưa được copy vào mu-plugins/.

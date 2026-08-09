@@ -101,8 +101,6 @@ final class BizCity_CRM_Campaign_Repository {
 			'reminder_text'                => self::nullable_text( $data['reminder_text'] ?? null ),
 			'reminder_only'                => ! empty( $data['reminder_only'] ) ? 1 : 0,
 			'imported_from_bizgpt_flow_id' => self::nullable_int( $data['imported_from_bizgpt_flow_id'] ?? null ),
-			// [2026-06-14 Johnny Chu] PHASE-0.45 QR-FIX — bind campaign to a specific FB Page (NULL = any page).
-			'fb_page_id'                   => self::sanitize_page_id( $data['fb_page_id'] ?? null ),
 
 			'notes_json'           => isset( $data['notes'] ) ? wp_json_encode( $data['notes'] ) : null,
 			'starts_at'            => self::sanitize_datetime( $data['starts_at'] ?? null ),
@@ -205,10 +203,6 @@ final class BizCity_CRM_Campaign_Repository {
 		}
 		if ( array_key_exists( 'imported_from_bizgpt_flow_id', $patch ) ) {
 			$row['imported_from_bizgpt_flow_id'] = self::nullable_int( $patch['imported_from_bizgpt_flow_id'] );
-		}
-		// [2026-06-14 Johnny Chu] PHASE-0.45 QR-FIX — allow updating the bound FB Page.
-		if ( array_key_exists( 'fb_page_id', $patch ) ) {
-			$row['fb_page_id'] = self::sanitize_page_id( $patch['fb_page_id'] );
 		}
 		if ( array_key_exists( 'notes', $patch ) ) {
 			$row['notes_json'] = $patch['notes'] !== null ? wp_json_encode( $patch['notes'] ) : null;
@@ -467,12 +461,5 @@ final class BizCity_CRM_Campaign_Repository {
 			if ( count( $clean ) >= self::MAX_SCENARIO_ATTRS ) { break; }
 		}
 		return $clean ? wp_json_encode( $clean ) : null;
-	}
-
-	// [2026-06-14 Johnny Chu] PHASE-0.45 QR-FIX — sanitize a FB page_id (numeric string or null).
-	private static function sanitize_page_id( $val ): ?string {
-		if ( $val === null || $val === '' || $val === '0' ) { return null; }
-		$s = preg_replace( '/[^0-9]/', '', (string) $val );
-		return $s !== '' ? $s : null;
 	}
 }

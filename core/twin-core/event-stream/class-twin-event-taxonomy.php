@@ -53,7 +53,8 @@ class BizCity_Twin_Event_Taxonomy {
 	// [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-1 — added 5 brain_session_* event_types (created/renamed/archived/mood_sampled/carry_forward).
 	// [2026-06-19 Johnny Chu] PHASE-TWB-WORKFLOW W1 — added 3 workflow_* event_types (started/step/completed) for BizCity_TwinBrain_Workflow_Pipeline.
 	// [2026-07-15 Johnny Chu] PHASE-TWB-PRODUCTS — added 5 product_* timeline event_types.
-	const TAXONOMY_VERSION = 8;
+	// [2026-08-01 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G0 — added event-sourced Twin Goal Loop lifecycle.
+	const TAXONOMY_VERSION = 10;
 
 	// ---- 15 canonical event types (Phase 0.12) --------------------------
 	const USER_MESSAGE              = 'user_message';
@@ -123,6 +124,13 @@ class BizCity_Twin_Event_Taxonomy {
 	const PRODUCT_REACT_STEP       = 'product_react_step';
 	const PRODUCT_SYNTHESIZE_DONE  = 'product_synthesize_done';
 
+	// ---- PHASE-TWIN-GOAL-LOOP G0 — goal responsibility lifecycle -------
+	const TWIN_GOAL_OPENED     = 'twin_goal_opened';
+	const TWIN_GOAL_PROGRESSED = 'twin_goal_progressed';
+	const TWIN_GOAL_CLOSED     = 'twin_goal_closed';
+	const CONVERSATION_ROUTE_DECIDED = 'conversation_route_decided';
+	const CONVERSATION_CONFIRM_PROMPT = 'conversation_confirm_prompt';
+
 	/**
 	 * Required payload fields per event type.
 	 * (Keep tight — extra fields go in payload freely.)
@@ -189,6 +197,13 @@ class BizCity_Twin_Event_Taxonomy {
 			self::PRODUCT_NEEDS_DECOMPOSED => [ 'trace_id', 'count', 'items' ],
 			self::PRODUCT_REACT_STEP       => [ 'trace_id', 'iter', 'action', 'action_input', 'observation_summary' ],
 			self::PRODUCT_SYNTHESIZE_DONE  => [ 'trace_id', 'matched_count', 'gap_count', 'ms' ],
+
+			// [2026-08-01 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G0 — each event carries a normalized state snapshot.
+			self::TWIN_GOAL_OPENED     => [ 'goal_id', 'session_id', 'primary_goal', 'status', 'completion_score', 'state' ],
+			self::TWIN_GOAL_PROGRESSED => [ 'goal_id', 'session_id', 'status', 'completion_score', 'state' ],
+			self::TWIN_GOAL_CLOSED     => [ 'goal_id', 'session_id', 'status', 'completion_score', 'closure_signal', 'state' ],
+			self::CONVERSATION_ROUTE_DECIDED => [ 'trace_id', 'route', 'confidence', 'needs_confirm' ],
+			self::CONVERSATION_CONFIRM_PROMPT => [ 'trace_id', 'route', 'expires_in' ],
 		];
 	}
 

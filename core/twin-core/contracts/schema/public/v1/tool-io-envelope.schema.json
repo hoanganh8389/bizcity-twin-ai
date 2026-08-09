@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bizcity.vn/schema/twin/contracts/v1/tool-io-envelope.schema.json",
+  "title": "BizCity Twin Tool Input Output Envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "version",
+    "trace_id",
+    "tool",
+    "input",
+    "status",
+    "timing"
+  ],
+  "properties": {
+    "contract": { "const": "tool-io-envelope" },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$" },
+    "trace_id": { "type": "string", "minLength": 8, "maxLength": 128 },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "call_id"],
+      "properties": {
+        "id": { "type": "string", "minLength": 3, "maxLength": 120 },
+        "call_id": { "type": "string", "minLength": 8, "maxLength": 120 },
+        "permissions_requested": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+){1,4}$" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "input": { "type": "object" },
+    "output": { "type": "object" },
+    "status": { "enum": ["queued", "success", "error"] },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "hint", "help_code"],
+      "properties": {
+        "code": { "type": "string" },
+        "message": { "type": "string", "maxLength": 120 },
+        "hint": { "type": "string", "maxLength": 240 },
+        "help_code": { "type": "string" },
+        "retriable": { "type": "boolean" }
+      }
+    },
+    "timing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["started_at", "duration_ms"],
+      "properties": {
+        "started_at": { "type": "string", "format": "date-time" },
+        "finished_at": { "type": "string", "format": "date-time" },
+        "duration_ms": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "state"],
+      "properties": {
+        "required": { "type": "boolean" },
+        "state": { "enum": ["not_required", "pending", "approved", "rejected"] },
+        "approved_by": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

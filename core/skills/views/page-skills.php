@@ -77,10 +77,10 @@ if ( $is_admin && class_exists( 'BizCity_Skill_Admin_Page' ) ) {
 /* ── Templates (for New Skill modal) ── */
 $templates = [
     [ 'id' => 'automation', 'icon' => '🔄', 'name' => 'Automation / Workflow',  'desc' => __( 'Quy trình tự động hoá nhiều bước, có trigger & tool call', $td ) ],
-    [ 'id' => 'tool',       'icon' => '🛠️', 'name' => 'Tool Integration',       'desc' => __( 'Skill gọi 1 tool cụ thể: tạo sản phẩm, gửi email, tra cứu...', $td ) ],
+    [ 'id' => 'tool',       'icon' => '🛠️', 'name' => 'Tool Integration',       'desc' => __( 'TwinNote gọi 1 tool cụ thể: tạo sản phẩm, gửi email, tra cứu...', $td ) ],
     [ 'id' => 'content',    'icon' => '✍️',  'name' => __( 'Viết nội dung', $td ),          'desc' => __( 'Viết bài bán hàng, blog, email marketing, social post...', $td ) ],
     [ 'id' => 'analysis',   'icon' => '📊', 'name' => __( 'Phân tích / Báo cáo', $td ),   'desc' => __( 'Phân tích dữ liệu, tạo báo cáo, đánh giá hiệu suất...', $td ) ],
-    [ 'id' => 'blank',      'icon' => '📝', 'name' => __( 'Skill trống', $td ),            'desc' => __( 'Bắt đầu từ đầu với cấu trúc cơ bản', $td ) ],
+    [ 'id' => 'blank',      'icon' => '📝', 'name' => __( 'TwinNote trống', $td ),          'desc' => __( 'Bắt đầu từ đầu với cấu trúc cơ bản', $td ) ],
 ];
 ?>
 <!DOCTYPE html>
@@ -88,7 +88,7 @@ $templates = [
 <head>
 <meta charset="<?php bloginfo( 'charset' ); ?>">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title><?php echo esc_html__( 'Skills – Kỹ năng AI', 'bizcity-twin-ai' ); ?></title>
+<title><?php echo esc_html__( 'TwinNote AI', 'bizcity-twin-ai' ); ?></title>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -468,7 +468,7 @@ body{
 
 <?php if ( ! $is_logged_in ) : ?>
 <div class="sk-login">
-    Vui lòng <a href="<?php echo esc_url( wp_login_url( home_url( '/skills/' ) ) ); ?>">đăng nhập</a> để sử dụng Skills.
+    Vui lòng <a href="<?php echo esc_url( wp_login_url( home_url( '/skills/' ) ) ); ?>">đăng nhập</a> để sử dụng TwinNote.
 </div>
 <?php else : ?>
 
@@ -480,7 +480,8 @@ body{
   <!-- ════ Sidebar: Tree View ════ -->
   <aside class="sk-sidebar" id="sk-sidebar">
     <div class="sk-sb-hd">
-      <span class="sk-sb-title">⚡ Skill Library</span>
+      <!-- [2026-08-02 Johnny Chu] PHASE-SKILLS-JOURNAL — public journal surface label. -->
+      <span class="sk-sb-title">📝 TwinNote</span>
       <div class="sk-sb-btns">
         <?php if ( $is_admin ) : ?>
         <button class="sk-sb-btn" id="sk-btn-addfolder" title="Tạo folder mới">+</button>
@@ -491,7 +492,7 @@ body{
     <?php if ( $is_admin ) : ?>
     <div class="sk-sb-actions">
       <button class="sk-btn" id="sk-btn-templates">📋 Mẫu</button>
-      <button class="sk-btn sk-btn--primary" id="sk-btn-newskill">+ New Skill</button>
+      <button class="sk-btn sk-btn--primary" id="sk-btn-newskill">+ New TwinNote</button>
     </div>
     <?php endif; ?>
     <div class="sk-tree-wrap" id="sk-tree-wrap">
@@ -511,15 +512,15 @@ body{
         <div class="sk-home-hero-row">
           <span class="sk-home-hero-icon">⚡</span>
           <div>
-            <h2>Skills — Kỹ năng AI</h2>
-            <p>Thư viện kỹ năng plug & play — chọn file bên trái để xem / chỉnh sửa</p>
+            <h2>TwinNote — Nhật ký AI</h2>
+              <p>Không gian ghi chú plug & play — chọn mục bên trái để xem / chỉnh sửa</p>
           </div>
         </div>
       </div>
 
       <!-- Template gallery (admin only) -->
       <?php if ( $is_admin ) : ?>
-      <div class="sk-tpl-sec">📋 Mẫu kịch bản Skill <span style="font-size:11px;font-weight:400;color:var(--sk-text3)">Nhấn để tạo skill mới từ mẫu</span></div>
+      <div class="sk-tpl-sec">📋 Mẫu TwinNote <span style="font-size:11px;font-weight:400;color:var(--sk-text3)">Nhấn để tạo TwinNote mới từ mẫu</span></div>
       <div class="sk-tpl-grid">
         <?php foreach ( $templates as $tpl ) : ?>
         <div class="sk-tpl-card" data-tpl="<?php echo esc_attr( $tpl['id'] ); ?>">
@@ -565,10 +566,10 @@ body{
         </div>
         <div class="sk-editor-btns">
           <?php if ( $is_admin ) : ?>
-          <button class="sk-tbtn sk-tbtn--ai" id="sk-btn-ai" title="Tạo nội dung skill bằng AI">✨ AI Skill</button>
-          <button class="sk-tbtn sk-tbtn--tool" id="sk-btn-tool" title="Chèn @tool vào nội dung skill">@ Tool</button>
-          <button class="sk-tbtn sk-tbtn--upload" id="sk-btn-upload" title="Tải lên file .md để nhập skill">📥 Upload</button>
-          <button class="sk-tbtn sk-tbtn--download" id="sk-btn-download" title="Tải xuống skill hiện tại dạng .md">📤 Download</button>
+          <button class="sk-tbtn sk-tbtn--ai" id="sk-btn-ai" title="Tạo nội dung TwinNote bằng AI">✨ AI TwinNote</button>
+          <button class="sk-tbtn sk-tbtn--tool" id="sk-btn-tool" title="Chèn @tool vào nội dung TwinNote">@ Tool</button>
+          <button class="sk-tbtn sk-tbtn--upload" id="sk-btn-upload" title="Tải lên file .md để nhập TwinNote">📥 Upload</button>
+          <button class="sk-tbtn sk-tbtn--download" id="sk-btn-download" title="Tải xuống TwinNote hiện tại dạng .md">📤 Download</button>
           <input type="file" accept=".md" id="sk-file-input" style="display:none">
           <button class="sk-tbtn sk-tbtn--save saved" id="sk-editor-save">✓ Saved</button>
           <button class="sk-tbtn sk-tbtn--close" id="sk-editor-close" title="Đóng">✕</button>
@@ -586,12 +587,12 @@ body{
 <!-- ════ Context Menu ════ -->
 <div class="sk-ctx" id="sk-ctx" style="display:none"></div>
 
-<!-- ════ New Skill Modal ════ -->
+<!-- ════ New TwinNote Modal ════ -->
 <?php if ( $is_admin ) : ?>
 <div class="sk-modal-overlay" id="sk-modal" style="display:none">
   <div class="sk-modal">
     <div class="sk-modal-hd">
-      <h3>✨ Tạo Skill mới</h3>
+      <h3>✨ Tạo TwinNote mới</h3>
       <button class="sk-modal-close" id="sk-modal-close">✕</button>
     </div>
     <div class="sk-modal-body">
@@ -614,29 +615,29 @@ body{
       </div>
       <div class="sk-modal-field">
         <label>Tên file (không cần .md)</label>
-        <input id="sk-modal-name" type="text" placeholder="my-skill">
+        <input id="sk-modal-name" type="text" placeholder="my-twinnote">
       </div>
       <div class="sk-modal-field">
         <label>Tiêu đề hiển thị</label>
-        <input id="sk-modal-label" type="text" placeholder="My Skill Name">
+        <input id="sk-modal-label" type="text" placeholder="Tên TwinNote">
       </div>
-      <button class="sk-modal-submit" id="sk-modal-submit">🚀 Tạo Skill</button>
+      <button class="sk-modal-submit" id="sk-modal-submit">🚀 Tạo TwinNote</button>
     </div>
   </div>
 </div>
 <?php endif; ?>
 
-<!-- ════ AI Skill Dialog ════ -->
+<!-- ════ AI TwinNote Dialog ════ -->
 <?php if ( $is_admin ) : ?>
 <div class="sk-ai-overlay" id="sk-ai-dialog" style="display:none">
   <div class="sk-ai-modal">
-    <h3>✨ Tạo Skill bằng AI</h3>
-    <p class="sk-ai-hint">Mô tả mục tiêu, vai trò, ngữ cảnh của skill — AI sẽ tạo nội dung đầy đủ để bạn chỉnh sửa.</p>
-    <textarea class="sk-ai-prompt" id="sk-ai-prompt" rows="6" placeholder="Ví dụ:&#10;&quot;Skill hỗ trợ CSKH phản hồi khiếu nại về giao hàng trễ, dùng giọng điệu thân thiện, có @lookup_order để tra cứu đơn hàng. Phản hồi ngắn gọn, luôn kết thúc bằng lời xin lỗi.&quot;"></textarea>
+    <h3>✨ Tạo TwinNote bằng AI</h3>
+    <p class="sk-ai-hint">Mô tả mục tiêu, vai trò, ngữ cảnh của TwinNote — AI sẽ tạo nội dung đầy đủ để bạn chỉnh sửa.</p>
+    <textarea class="sk-ai-prompt" id="sk-ai-prompt" rows="6" placeholder="Ví dụ:&#10;&quot;TwinNote hỗ trợ CSKH phản hồi khiếu nại về giao hàng trễ, dùng giọng điệu thân thiện, có @lookup_order để tra cứu đơn hàng. Phản hồi ngắn gọn, luôn kết thúc bằng lời xin lỗi.&quot;"></textarea>
     <p class="sk-ai-tip">Ctrl+Enter để tạo</p>
     <div class="sk-ai-actions">
       <button class="sk-ai-cancel" id="sk-ai-cancel">Hủy</button>
-      <button class="sk-ai-gen" id="sk-ai-gen">✨ Tạo Skill</button>
+      <button class="sk-ai-gen" id="sk-ai-gen">✨ Tạo TwinNote</button>
     </div>
   </div>
 </div>
@@ -844,7 +845,7 @@ function deleteItem(path, isFolder) {
 }
 
 function quickNewFile(folderPath) {
-  var name = prompt('Tên file (không cần .md):', 'new-skill');
+  var name = prompt('Tên file (không cần .md):', 'new-twinnote');
   if (!name) return;
   name = name.trim().replace(/\.md$/i, '');
   var path = folderPath.replace(/\/$/,'') + '/' + name + '.md';
@@ -956,10 +957,10 @@ if (saveBtn) {
       if (d.error) { markDirty(true); m.className='sk-save-msg err'; m.textContent='❌ '+d.error; m.style.display=''; return; }
       markDirty(false);
       if (d.db_synced === false) {
-        m.className='sk-save-msg warn'; m.textContent='⚠️ File đã lưu nhưng chưa sync vào DB (skill_id=0)'; m.style.display='';
-        toast('⚠️ Skill chưa sync DB — kiểm tra frontmatter', true);
+        m.className='sk-save-msg warn'; m.textContent='⚠️ TwinNote đã lưu nhưng chưa đồng bộ vào hệ thống'; m.style.display='';
+        toast('⚠️ TwinNote chưa sync DB — kiểm tra frontmatter', true);
       } else {
-        m.className='sk-save-msg ok'; m.textContent='✅ Đã lưu! (skill #' + (d.skill_id||'?') + ')'; m.style.display='';
+        m.className='sk-save-msg ok'; m.textContent='✅ Đã lưu TwinNote! (#' + (d.skill_id||'?') + ')'; m.style.display='';
         setTimeout(function(){ m.style.display='none'; },2000);
         toast('Đã lưu ' + currentFilePath);
       }
@@ -980,7 +981,7 @@ if (dlBtn) {
     if (!currentFilePath) return;
     var content = document.getElementById('sk-editor-content').value;
     var parts = currentFilePath.split('/').filter(Boolean);
-    var base = (parts[parts.length-1] || 'skill').replace(/\.md$/i, '');
+    var base = (parts[parts.length-1] || 'twinnote').replace(/\.md$/i, '');
     var filename = base + '.md';
     var blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
     var url = URL.createObjectURL(blob);
@@ -1017,7 +1018,7 @@ if (uploadBtn && fileInput) {
         .then(function(r){ return r.json(); })
         .then(function(d){
           if (d.error) { toast(d.error, true); return; }
-          toast('📥 Đã nhập skill "' + (d.title||file.name) + '"');
+          toast('📥 Đã nhập TwinNote "' + (d.title||file.name) + '"');
           loadTree();
         })
         .catch(function(){ toast('Lỗi nhập file', true); });
@@ -1056,7 +1057,7 @@ if (aiBtn && aiDialog) {
     fetch(REST+'/generate', { method:'POST', headers:h(), body:JSON.stringify({prompt:prompt}) })
     .then(function(r){ return r.json(); })
     .then(function(d){
-      aiGenBtn.disabled=false; aiGenBtn.textContent='✨ Tạo Skill';
+      aiGenBtn.disabled=false; aiGenBtn.textContent='✨ Tạo TwinNote';
       if (d.error || d.message) { toast(d.error||d.message, true); return; }
       var generated = d.markdown || d.raw || '';
       if (!generated) { toast('AI không trả về nội dung', true); return; }
@@ -1065,7 +1066,7 @@ if (aiBtn && aiDialog) {
       aiDialog.style.display='none';
       toast('✨ AI đã tạo nội dung — chỉnh sửa và nhấn Save');
     })
-    .catch(function(err){ aiGenBtn.disabled=false; aiGenBtn.textContent='✨ Tạo Skill'; toast('Lỗi: '+(err.message||'kết nối'), true); });
+    .catch(function(err){ aiGenBtn.disabled=false; aiGenBtn.textContent='✨ Tạo TwinNote'; toast('Lỗi: '+(err.message||'kết nối'), true); });
   };
 }
 
@@ -1246,7 +1247,7 @@ function updateFolderSelect() {
  *  Templates
  * ════════════════════════════════════════════════════════ */
 function generateTemplate(tplId, slug, label) {
-  slug = slug||'new-skill'; label = label||slug;
+  slug = slug||'new-twinnote'; label = label||slug;
   var L = label.toLowerCase();
   var tpls = {
     automation: "---\nname: "+slug+"\ntitle: \""+label+"\"\ndescription: \"\"\nversion: \"1.0\"\ntriggers:\n  - \""+L+"\"\n  - \"/"+slug+"\"\nslash_commands:\n  - /"+slug+"\nmodes:\n  - planning\n  - execution\nrelated_tools:\n  - create_workflow\nrequired_inputs:\n  - flow_name\n  - trigger\noutput_format: json_workflow\npriority: 90\nstatus: active\n---\n\n# 🎯 Mục tiêu\n\n(Mô tả mục tiêu chính)\n\n# ⚡ Khi nào dùng\n\n- Khi người dùng yêu cầu...\n\n# 📋 Quy trình\n\n1. Bước 1\n2. Bước 2\n3. Bước 3\n\n# 🛡 Guardrails\n\n- Luôn xác nhận trước khi thực thi\n\n# 💡 Ví dụ\n\nUser: \"...\"\nAI: \"...\"",
@@ -1255,6 +1256,7 @@ function generateTemplate(tplId, slug, label) {
     analysis: "---\nname: "+slug+"\ntitle: \""+label+"\"\ndescription: \"\"\nversion: \"1.0\"\ntriggers:\n  - \"phân tích "+L+"\"\n  - \"báo cáo "+L+"\"\nslash_commands:\n  - /"+slug+"\nmodes:\n  - analysis\nrelated_tools: []\nrequired_inputs:\n  - data_source\n  - metric\noutput_format: markdown_report\npriority: 75\nstatus: active\n---\n\n# 🎯 Mục tiêu\n\n(Phân tích dữ liệu)\n\n# ⚡ Khi nào dùng\n\n- Khi cần phân tích...\n\n# 📋 Quy trình\n\n1. Thu thập dữ liệu\n2. Phân tích\n3. Output báo cáo\n\n# 💡 Ví dụ\n\nUser: \"Phân tích...\"\nAI: \"...\"",
     blank: "---\nname: "+slug+"\ntitle: \""+label+"\"\ndescription: \"\"\nversion: \"1.0\"\ntriggers:\n  - \""+L+"\"\nslash_commands:\n  - /"+slug+"\nmodes:\n  - default\nrelated_tools: []\nrequired_inputs: []\noutput_format: text\npriority: 50\nstatus: active\n---\n\n# 🎯 Mục tiêu\n\n(Mô tả...)\n\n# ⚡ Khi nào dùng\n\n- ...\n\n# 📋 Quy trình\n\n1. ...\n\n# 💡 Ví dụ\n\nUser: \"...\"\nAI: \"...\""
   };
+  tpls.tool = tpls.tool.replace('Skill gọi 1 tool cụ thể', 'TwinNote gọi 1 tool cụ thể');
   return tpls[tplId] || tpls.blank;
 }
 
@@ -1310,13 +1312,13 @@ if (IS_ADMIN && modal) {
     fetch(REST+'/file', { method:'POST', headers:h(), body:JSON.stringify({path:path,raw:raw}) })
     .then(function(r){ return r.json(); })
     .then(function(d){
-      btn.disabled=false; btn.textContent='🚀 Tạo Skill';
+      btn.disabled=false; btn.textContent='🚀 Tạo TwinNote';
       if (d.error) { toast(d.error,true); return; }
       modal.style.display = 'none';
       toast('Đã tạo: ' + path);
       loadTree(function(){ openFileByPath(path); });
     })
-    .catch(function(){ btn.disabled=false; btn.textContent='🚀 Tạo Skill'; toast('Lỗi kết nối',true); });
+    .catch(function(){ btn.disabled=false; btn.textContent='🚀 Tạo TwinNote'; toast('Lỗi kết nối',true); });
   };
 }
 

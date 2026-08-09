@@ -1,0 +1,90 @@
+{
+  "$schema": "https://bizcity.vn/schema/diagnostics-changelog-v1.json",
+  "module_id": "core.skills",
+  "owner": "core/skills",
+  "installer_id": "skills",
+  "current_version": "1.5.0",
+  "version_option": "bizcity_skills_db_version",
+  "tables": {
+    "bizcity_skills": {
+      "since": "1.0.0",
+      "purpose": "Machine skill prompt and routing registry. This table is not the canonical Journal authoring store.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id": { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
+        "skill_key": { "type": "VARCHAR(128) NOT NULL", "since": "1.0.0" },
+        "user_id": { "type": "BIGINT UNSIGNED DEFAULT 0", "since": "1.0.0" },
+        "character_id": { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "1.0.0" },
+        "title": { "type": "VARCHAR(255) NOT NULL", "since": "1.0.0" },
+        "description": { "type": "TEXT DEFAULT NULL", "since": "1.0.0" },
+        "category": { "type": "VARCHAR(64) DEFAULT 'general'", "since": "1.0.0" },
+        "triggers_json": { "type": "TEXT DEFAULT NULL", "since": "1.0.0" },
+        "slash_commands": { "type": "VARCHAR(512) DEFAULT NULL", "since": "1.0.0" },
+        "modes": { "type": "VARCHAR(255) DEFAULT NULL", "since": "1.0.0" },
+        "tools_json": { "type": "TEXT DEFAULT NULL", "since": "1.0.0" },
+        "content": { "type": "LONGTEXT NOT NULL", "since": "1.0.0" },
+        "content_hash": { "type": "VARCHAR(64) DEFAULT ''", "since": "1.0.0" },
+        "pipeline_json": { "type": "LONGTEXT DEFAULT NULL", "since": "1.0.0" },
+        "priority": { "type": "INT UNSIGNED DEFAULT 50", "since": "1.0.0" },
+        "status": { "type": "ENUM('draft','active','archived') DEFAULT 'draft'", "since": "1.0.0" },
+        "version": { "type": "VARCHAR(32) DEFAULT '1.0'", "since": "1.0.0" },
+        "visibility": { "type": "VARCHAR(16) NOT NULL DEFAULT 'journal'", "since": "1.4.2", "comment": "Presentation boundary: journal or runtime." },
+        "source_module": { "type": "VARCHAR(64) NOT NULL DEFAULT ''", "since": "1.4.2", "comment": "Owning runtime producer; empty for human Journal-compatible content." },
+        "created_at": { "type": "DATETIME DEFAULT CURRENT_TIMESTAMP", "since": "1.0.0" },
+        "updated_at": { "type": "DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", "since": "1.0.0" }
+      },
+      "indexes": {
+        "uk_skill_key_user": { "cols": ["skill_key", "user_id", "character_id"], "since": "1.0.0", "unique": true },
+        "idx_character": { "cols": ["character_id"], "since": "1.0.0" },
+        "idx_user": { "cols": ["user_id"], "since": "1.0.0" },
+        "idx_category": { "cols": ["category"], "since": "1.0.0" },
+        "idx_status": { "cols": ["status"], "since": "1.0.0" },
+        "idx_visibility": { "cols": ["visibility"], "since": "1.4.2" },
+        "idx_source_module": { "cols": ["source_module"], "since": "1.4.2" },
+        "idx_priority": { "cols": ["priority"], "since": "1.0.0" }
+      }
+    },
+    "bizcity_journal_entries": {
+      "since": "1.5.0",
+      "purpose": "Canonical user/team Journal authoring entries. KG sources are derived learning projections.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id": { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.5.0", "pk": true },
+        "owner_user_id": { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "1.5.0" },
+        "workspace_id": { "type": "VARCHAR(64) NOT NULL DEFAULT 'notion'", "since": "1.5.0" },
+        "title": { "type": "VARCHAR(255) NOT NULL DEFAULT ''", "since": "1.5.0" },
+        "body": { "type": "LONGTEXT NOT NULL", "since": "1.5.0" },
+        "status": { "type": "ENUM('draft','captured','published','archived') NOT NULL DEFAULT 'draft'", "since": "1.5.0" },
+        "source_type": { "type": "VARCHAR(32) NOT NULL DEFAULT 'menu'", "since": "1.5.0" },
+        "source_ref": { "type": "VARCHAR(191) NOT NULL DEFAULT ''", "since": "1.5.0" },
+        "idempotency_key": { "type": "VARCHAR(191) NOT NULL DEFAULT ''", "since": "1.5.0" },
+        "revision": { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 1", "since": "1.5.0" },
+        "learning_status": { "type": "ENUM('not_queued','queued','processing','learned','failed','retryable') NOT NULL DEFAULT 'not_queued'", "since": "1.5.0" },
+        "learning_error": { "type": "VARCHAR(500) NOT NULL DEFAULT ''", "since": "1.5.0" },
+        "notebook_id": { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "1.5.0" },
+        "kg_source_id": { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "1.5.0" },
+        "metadata": { "type": "LONGTEXT DEFAULT NULL", "since": "1.5.0" },
+        "created_at": { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.5.0" },
+        "updated_at": { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", "since": "1.5.0" }
+      },
+      "indexes": {
+        "uniq_idempotency_key": { "cols": ["idempotency_key"], "since": "1.5.0", "unique": true },
+        "idx_owner_status": { "cols": ["owner_user_id", "status"], "since": "1.5.0" },
+        "idx_workspace_updated": { "cols": ["workspace_id", "updated_at"], "since": "1.5.0" },
+        "idx_learning_status": { "cols": ["learning_status"], "since": "1.5.0" },
+        "idx_kg_source": { "cols": ["kg_source_id"], "since": "1.5.0" }
+      }
+    }
+  },
+  "history": [
+    { "version": "1.0.0", "date": "2026-04-03", "change": "Initial machine skill registry schema." },
+    { "version": "1.4.1", "date": "2026-07-31", "change": "Force re-create on shards where the registry table was missing." },
+    { "version": "1.4.2", "date": "2026-08-02", "change": "Add visibility and source_module provenance fields to isolate runtime rows from Journal UI." },
+    { "version": "1.4.3", "date": "2026-08-02", "change": "Repair provenance dbDelta comment parsing and fail closed when required columns are not verified after routed-shard DDL." },
+    { "version": "1.5.0", "date": "2026-08-02", "change": "Add canonical Journal Entry table with ownership, revision, idempotency, and separate KG learning status." }
+  ]
+}

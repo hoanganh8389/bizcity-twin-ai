@@ -697,12 +697,72 @@ final class BizCity_Automation_REST {
 		return $rows;
 	}
 
+	private static function preflight_workflow_mutation( WP_REST_Request $req, $action, $workflow_id = 0 ) {
+		// [2026-07-30 Johnny Chu] PHASE-1.22-RUNTIME — require trace and idempotency headers before workflow side effects.
+		$trace_id = sanitize_text_field( (string) $req->get_header( 'x-trace-id' ) );
+		$idempotency_key = sanitize_text_field( (string) $req->get_header( 'x-idempotency-key' ) );
+		if ( '' === $trace_id && function_exists( 'wp_generate_uuid4' ) ) {
+			$trace_id = wp_generate_uuid4();
+		}
+		if ( '' === $idempotency_key ) {
+			return new WP_Error( 'mutation_contract_invalid', 'Thiếu x-idempotency-key cho thao tác workflow.', array(
+				'status'    => 400,
+				'hint'      => 'Gửi x-idempotency-key ổn định cho mỗi lần thao tác.',
+				'help_code' => 'mutation_contract_invalid',
+			) );
+		}
+
+		$mutation = array(
+			'contract'        => 'mutation-contract',
+			'version'         => '1.0.0',
+			'trace_id'        => $trace_id,
+			'idempotency_key' => $idempotency_key,
+			'action'          => (string) $action,
+			'resource'        => array(
+				'type'  => 'workflow',
+				'id'    => max( 0, (int) $workflow_id ),
+				'scope' => 'workflow:' . max( 0, (int) $workflow_id ),
+			),
+		);
+		$permissions = array( 'content.write' );
+		if ( current_user_can( 'manage_options' ) || ( 'delete' === (string) $action && current_user_can( 'read' ) ) ) {
+			$permissions[] = 'content.delete';
+		}
+		$approved_gates = array();
+		if ( 'delete' === (string) $action && current_user_can( 'read' ) ) {
+			// [2026-07-30 Johnny Chu] PHASE-1.22-RUNTIME — the explicit DELETE method is the endpoint approval; ownership remains mandatory below.
+			$approved_gates[] = 'delete_data';
+		}
+		$context = array(
+			'user_id'         => get_current_user_id(),
+			'permissions'     => $permissions,
+			'approved_gates'  => $approved_gates,
+		);
+		$check = BizCity_Twin_Mutation_Guard::validate( $mutation, $context );
+		if ( empty( $check['allowed'] ) ) {
+			return new WP_Error( (string) $check['code'], (string) $check['message'], array(
+				'status'    => 403,
+				'hint'      => (string) $check['hint'],
+				'help_code' => (string) $check['help_code'],
+			) );
+		}
+		return array( 'mutation' => $mutation, 'context' => $context );
+	}
+
 	public static function create_workflow( WP_REST_Request $req ) {
+		$preflight = self::preflight_workflow_mutation( $req, 'create' );
+		if ( is_wp_error( $preflight ) ) {
+			return $preflight;
+		}
 		$body = (array) $req->get_json_params();
 		// [2026-06-03 Johnny Chu] WF-AUTO GURU W3 — G2 cross-tier slash collision.
 		$collision = self::check_slash_collision( $body, 0 );
-		if ( $collision ) { return $collision; }
+		if ( $collision ) {
+			BizCity_Twin_Mutation_Guard::record( $preflight['mutation'], 'rejected', $preflight['context'] );
+			return $collision;
+		}
 		$row = BizCity_Automation_Repo_Workflows::create( $body );
+		BizCity_Twin_Mutation_Guard::record( $preflight['mutation'], is_array( $row ) ? 'success' : 'failed', $preflight['context'] );
 		// [2026-06-14 Johnny Chu] AUTOMATION-CAL — sync crm_events after create
 		if ( is_array( $row ) && class_exists( 'BizCity_Automation_Schedule_Manager' ) ) {
 			BizCity_Automation_Schedule_Manager::instance()->sync_workflow_events( $row );
@@ -727,6 +787,10 @@ final class BizCity_Automation_REST {
 
 	public static function update_workflow( WP_REST_Request $req ) {
 		$id   = (int) $req['id'];
+		$preflight = self::preflight_workflow_mutation( $req, 'update', $id );
+		if ( is_wp_error( $preflight ) ) {
+			return $preflight;
+		}
 		$body = (array) $req->get_json_params();
 		$existing = BizCity_Automation_Repo_Workflows::find( $id );
 		if ( ! $existing ) {
@@ -738,8 +802,12 @@ final class BizCity_Automation_REST {
 		}
 		// [2026-06-03 Johnny Chu] WF-AUTO GURU W3 — G2 cross-tier slash collision.
 		$collision = self::check_slash_collision( $body, $id );
-		if ( $collision ) { return $collision; }
+		if ( $collision ) {
+			BizCity_Twin_Mutation_Guard::record( $preflight['mutation'], 'rejected', $preflight['context'] );
+			return $collision;
+		}
 		$row = BizCity_Automation_Repo_Workflows::update( $id, $body );
+		BizCity_Twin_Mutation_Guard::record( $preflight['mutation'], is_array( $row ) ? 'success' : 'failed', $preflight['context'] );
 		// [2026-06-14 Johnny Chu] AUTOMATION-CAL — re-sync crm_events after update
 		if ( is_array( $row ) && class_exists( 'BizCity_Automation_Schedule_Manager' ) ) {
 			BizCity_Automation_Schedule_Manager::instance()->sync_workflow_events( $row );
@@ -818,15 +886,22 @@ final class BizCity_Automation_REST {
 		), 409 );
 	}
 
-	public static function delete_workflow( WP_REST_Request $req ): WP_REST_Response {
+	// [2026-07-30 Johnny Chu] PHASE-1.22-RUNTIME — allow mutation preflight WP_Error responses from the delete endpoint.
+	public static function delete_workflow( WP_REST_Request $req ) {
 		$id   = (int) $req['id'];
+		$preflight = self::preflight_workflow_mutation( $req, 'delete', $id );
+		if ( is_wp_error( $preflight ) ) {
+			return $preflight;
+		}
 		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — customers can delete only workflows they own, never admin must-use rows.
 		$existing = BizCity_Automation_Repo_Workflows::find( $id );
 		if ( ! $existing ) {
+			BizCity_Twin_Mutation_Guard::record( $preflight['mutation'], 'not_found', $preflight['context'] );
 			return new WP_REST_Response( array( 'ok' => false, 'code' => 'not_found', 'message' => 'Workflow không tồn tại.' ), 404 );
 		}
 		$existing = self::annotate_customer_default_workflows( array( $existing ) );
 		if ( empty( $existing[0] ) || ! self::can_edit_workflow_row( $existing[0] ) ) {
+			BizCity_Twin_Mutation_Guard::record( $preflight['mutation'], 'permission_denied', $preflight['context'] );
 			return new WP_REST_Response( array( 'ok' => false, 'code' => 'permission_denied', 'message' => 'Bạn không có quyền thao tác workflow này.' ), 403 );
 		}
 		// Default = HARD delete (user explicitly clicks Delete = expects row gone).
@@ -845,6 +920,7 @@ final class BizCity_Automation_REST {
 		if ( $ok && class_exists( 'BizCity_Automation_Schedule_Manager' ) ) {
 			BizCity_Automation_Schedule_Manager::instance()->cancel_workflow_events( $id );
 		}
+		BizCity_Twin_Mutation_Guard::record( $preflight['mutation'], $ok ? 'success' : 'failed', $preflight['context'] );
 		return new WP_REST_Response( array( 'ok' => (bool) $ok, 'mode' => $soft ? 'soft' : 'hard' ), $ok ? 200 : 500 );
 	}
 

@@ -288,39 +288,56 @@ Chỉ trích xuất những thông tin có giá trị, bỏ qua lời chào hỏ
         $now = current_time('mysql');
         
         // Try find existing by (session_id, user_id, memory_key)
-        $exists_id = (int)$wpdb->get_var($wpdb->prepare(
-            "SELECT id FROM {$table}
+        $existing = $wpdb->get_row($wpdb->prepare(
+            "SELECT id, score FROM {$table}
              WHERE session_id=%s AND user_id=%d AND memory_key=%s
              LIMIT 1",
             (string)$mem['session_id'],
             (int)$mem['user_id'],
             (string)$mem['memory_key']
-        ));
+        ), ARRAY_A);
+        $exists_id = (int)($existing['id'] ?? 0);
         
         if ($exists_id > 0) {
             // Update: increase score + times_seen, concat source_message_ids, last_seen
             $score_increment = max(1, (int)($mem['score'] / 5));
+            $new_score = min(100, (int)($existing['score'] ?? 0) + $score_increment);
             
-            $wpdb->query($wpdb->prepare(
+            $updated = $wpdb->query($wpdb->prepare(
                 "UPDATE {$table}
-                 SET score = LEAST(100, score + %d),
+                 SET score = %d,
                      times_seen = times_seen + 1,
                      last_seen = %s,
                      source_message_ids = CONCAT_WS(',', source_message_ids, %s),
                      updated_at = %s
                  WHERE id=%d",
-                $score_increment,
+                $new_score,
                 (string)$mem['last_seen'],
                 (string)$mem['source_message_ids'],
                 $now,
                 $exists_id
             ));
+
+            if ( false !== $updated ) {
+                // [2026-07-31 Johnny Chu] PHASE-1.22-MEMORY-DUAL-WRITE — mirror WebChat session updates into unified memory.
+                do_action( 'bizcity_memory_mirror_write', 'session', [
+                    'id'            => $exists_id,
+                    'blog_id'       => get_current_blog_id(),
+                    'session_id'    => (string)$mem['session_id'],
+                    'user_id'       => (int)$mem['user_id'],
+                    'memory_type'   => (string)$mem['memory_type'],
+                    'memory_key'    => (string)$mem['memory_key'],
+                    'memory_text'   => (string)$mem['memory_text'],
+                    'score'         => $new_score,
+                    'metadata'      => '',
+                ], 'update' );
+            }
             
             return 'update';
         }
         
         // Insert new memory
-        $wpdb->insert($table, [
+        $inserted = $wpdb->insert($table, [
             'session_id' => (string)$mem['session_id'],
             'user_id' => (int)$mem['user_id'],
             'client_name' => (string)$mem['client_name'],
@@ -334,6 +351,21 @@ Chỉ trích xuất những thông tin có giá trị, bỏ qua lời chào hỏ
             'created_at' => $now,
             'updated_at' => $now,
         ]);
+
+        if ( false !== $inserted ) {
+            // [2026-07-31 Johnny Chu] PHASE-1.22-MEMORY-DUAL-WRITE — mirror new WebChat session memory into unified memory.
+            do_action( 'bizcity_memory_mirror_write', 'session', [
+                'id'            => (int)$wpdb->insert_id,
+                'blog_id'       => get_current_blog_id(),
+                'session_id'    => (string)$mem['session_id'],
+                'user_id'       => (int)$mem['user_id'],
+                'memory_type'   => (string)$mem['memory_type'],
+                'memory_key'    => (string)$mem['memory_key'],
+                'memory_text'   => (string)$mem['memory_text'],
+                'score'         => (int)$mem['score'],
+                'metadata'      => '',
+            ], 'insert' );
+        }
         
         return 'insert';
     }

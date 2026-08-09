@@ -148,7 +148,10 @@ abstract class BizCity_Integration {
 				$needs_decrypt = in_array( $key, $this->private_params, true )
 				              || ( isset( $settings[ $key ]['encrypt'] ) && $settings[ $key ]['encrypt'] );
 				if ( $needs_decrypt ) {
-					$params[ $key ] = $this->decrypt_value( $value );
+					// [2026-07-30 Johnny Chu] PHASE-1.22-SEC — route encrypted channel secrets through the central provider audit boundary.
+					$params[ $key ] = class_exists( 'BizCity_Twin_Secret_Provider' )
+						? BizCity_Twin_Secret_Provider::decrypt_integration_value( $this, $value, array( 'channel' => $this->code, 'secret_key' => $key ) )
+						: $this->decrypt_value( $value );
 				}
 			}
 			$params['_encrypted'] = 0;

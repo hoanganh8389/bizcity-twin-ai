@@ -72,8 +72,33 @@ if ( ! defined( 'BIZCITY_TWINBRAIN_TOOL_AUTOSUGGEST_THRESHOLD' ) ) {
 
 // [2026-07-19 Johnny Chu] PHASE-TBR-NB-MULTIMODAL — default attachment/vision/file intake layer before Notebook retrieval.
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-multimodal-intake-layer.php';
+// [2026-08-07 Johnny Chu] V4-TRIAGE — classify no-goal conversation before Goal Parser/MPR dispatch.
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-pre-mpr-triage.php';
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-runtime.php';
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-notebook-selector.php';
+// [2026-08-01 Johnny Chu] PHASE-TBR-CHAT-DEFAULT — classify conversational fallback before full Brain dispatch.
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-conversation-router.php';
+// [2026-08-01 Johnny Chu] PHASE-TBR-CHAT-DEFAULT — shared pending confirmation for specialized route selection.
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-conversation-confirmation.php';
+// [2026-08-01 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G0 — deterministic goal lifecycle contract shared by every TwinBrain surface.
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-goal-loop-state.php';
+// [2026-08-01 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G1 — event snapshot repository and Intent compatibility boundary.
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-goal-loop-repository.php';
+// [2026-08-03 Johnny Chu] G12.3 — current Goal Contract projection and per-goal JSONL trace; provisioning remains explicit, never file-scope DDL.
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-goal-contract-store.php';
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-goal-loop-intent-adapter.php';
+// [2026-08-01 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G3 — load deterministic Goal Delta before Runtime hooks.
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-goal-loop-delta.php';
+// [2026-08-02 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G8 — load deterministic Parser and Reflector before Runtime hooks.
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-goal-loop-parser.php';
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-goal-loop-reflector.php';
+// [2026-08-02 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G9 — load the bounded deterministic continuity question engine.
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-goal-loop-question-engine.php';
+// [2026-08-02 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G10 — load identity-scoped Goal REST routes.
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-goal-loop-rest.php';
+// [2026-08-02 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G7 — load stale Goal Loop scanner and abandoned transition policy.
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-goal-loop-scheduler.php';
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-goal-loop-runtime.php';
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-tool-intent-matcher.php';
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-perspective-runner.php';
 // [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT — load Source File Deep Layer before Notebook Source Layer builds file briefs.
@@ -93,6 +118,12 @@ require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-schema.php';
 // discoverability (manager + REST + future companion-context controller).
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/sessions/class-twinbrain-sessions-manager.php';
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/sessions/class-twinbrain-sessions-rest.php';
+// [2026-08-01 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G3 — expose the shared channel boundary and dual-owner session resolver.
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-brain-session-resolver.php';
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-channel-adapter.php';
+// [2026-08-02 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G10 — load concrete channel identity policy adapters.
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-channel-adapters.php';
+BizCity_TwinBrain_Goal_Loop_Scheduler::init();
 
 // Phase 0.36-UNIFIED TBR.W8 (2026-05-21) — Seed 2 global skills cho Web
 // Research Fallback Layer vào bizcity_skills (idempotent qua UNIQUE key).
@@ -309,6 +340,7 @@ if ( file_exists( BIZCITY_TWINBRAIN_DIR . 'tools/knowledge/class-twinbrain-tool-
 
 add_action( 'rest_api_init', static function () {
 	BizCity_TwinBrain_REST::instance()->register_routes();
+	BizCity_TwinBrain_Goal_Loop_REST::instance()->register_routes();
 	BizCity_TwinBrain_REST_Memory_Me::instance()->register_routes();
 	// [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-2 — /sessions CRUD routes.
 	BizCity_TwinBrain_Sessions_REST::instance()->register_routes();

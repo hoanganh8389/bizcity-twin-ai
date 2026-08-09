@@ -66,6 +66,20 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+// [2026-08-09 Johnny Chu] R-PERF-LOADER-BUNDLE — the default TwinChat admin
+// shell renders an iframe and does not need the Zalo Bot runtime graph. Keep
+// dedicated Zalo admin pages, REST, webhook, cron and public routes enabled.
+$_bizcity_zalobot_shell_plugin = isset( $_GET['plugin'] )
+	? sanitize_key( (string) $_GET['plugin'] )
+	: '';
+if ( is_admin()
+	&& isset( $_GET['page'] )
+	&& 'bizcity-twinchat' === sanitize_key( (string) $_GET['page'] )
+	&& ( $_bizcity_zalobot_shell_plugin === '' || $_bizcity_zalobot_shell_plugin === 'twinchat' ) ) {
+	return;
+}
+unset( $_bizcity_zalobot_shell_plugin );
+
 // Define plugin constants
 define( 'BIZCITY_ZALO_BOT_VERSION', '1.0.0' );
 define( 'BIZCITY_ZALO_BOT_FILE', __FILE__ );

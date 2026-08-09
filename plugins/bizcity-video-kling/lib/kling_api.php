@@ -63,9 +63,10 @@ function waic_kling_get_api_config(array $settings = []): array {
 
     // [2026-07-27 Johnny Chu] PHASE-0.49-MASTER-CONFIG-401 — video fallback
     // reuses the canonical normalized gateway key without changing its identity.
+    // [2026-08-09 Johnny Chu] R-1API-AUTH — gateway credentials come only from the canonical client boundary.
     $gateway_key = class_exists( 'BizCity_LLM_Client' )
         ? BizCity_LLM_Client::instance()->get_api_key()
-        : get_option( 'bizcity_llm_api_key', '' );
+        : '';
     if ( empty( $gateway_key ) ) {
         $gateway_key = '';
     }

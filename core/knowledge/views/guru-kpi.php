@@ -132,14 +132,14 @@ $tbl_run_exists = (bool) $wpdb->get_var(
 );
 
 if ( $tbl_wf_exists && ! empty( $gurus ) ) {
-	// trigger_config is JSON in bizcity_automation_workflows
-	// guru_id is stored as trigger_config.guru_id (int)
+	// [2026-08-01 Johnny Chu] HOTFIX — workflow config is stored in trigger_config_json.
+	// guru_id is stored as trigger_config_json.guru_id (int)
 	$wf_rows = $wpdb->get_results(
 		"SELECT id,
-		        CAST( JSON_UNQUOTE( JSON_EXTRACT(trigger_config, '$.guru_id') ) AS UNSIGNED ) AS guru_id
+		        CAST( JSON_UNQUOTE( JSON_EXTRACT(trigger_config_json, '$.guru_id') ) AS UNSIGNED ) AS guru_id
 		 FROM {$tbl_wf}
-		 WHERE JSON_EXTRACT(trigger_config, '$.guru_id') IS NOT NULL
-		   AND CAST( JSON_UNQUOTE( JSON_EXTRACT(trigger_config, '$.guru_id') ) AS UNSIGNED ) > 0",
+		 WHERE JSON_EXTRACT(trigger_config_json, '$.guru_id') IS NOT NULL
+		   AND CAST( JSON_UNQUOTE( JSON_EXTRACT(trigger_config_json, '$.guru_id') ) AS UNSIGNED ) > 0",
 		ARRAY_A
 	);
 

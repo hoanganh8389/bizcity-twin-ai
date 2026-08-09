@@ -22,6 +22,9 @@ $code    = (string) ( $ctx['code'] ?? '' );
 $row     = isset( $ctx['row'] ) && is_array( $ctx['row'] ) ? $ctx['row'] : array();
 $token   = (string) ( $ctx['token'] ?? '' );
 
+// [2026-08-01 Johnny Chu] HOTFIX-ZALOBOT-LINK — consume only after an explicit
+// user action; GET rendering must not burn the one-time token.
+
 // Handle inline POST signon (CASE B).
 $signon_error = '';
 if ( $state === 'login' && ! empty( $_POST['bzml_signon'] ) ) {
@@ -86,6 +89,17 @@ status_header( $state === 'error' ? 410 : 200 );
 	<p class="lead"><?php echo esc_html( $message ); ?></p>
 	<p class="lead" style="font-size:12px;color:#94a3b8">Vui lòng quay lại Zalo và yêu cầu link mới từ trợ lý.</p>
 	<a class="btn" href="<?php echo esc_url( home_url( '/' ) ); ?>">Về trang chủ</a>
+
+<?php elseif ( $state === 'confirm' ) : ?>
+	<div class="icon ok">🔐</div>
+	<h1>Xác nhận liên kết Zalo</h1>
+	<p class="lead">Bạn đang đăng nhập bằng tài khoản WordPress hiện tại. Nhấn xác nhận để liên kết tài khoản Zalo này.</p>
+	<form method="post" action="">
+		<?php wp_nonce_field( 'bzml_confirm_' . substr( hash( 'sha256', $token ), 0, 16 ) ); ?>
+		<input type="hidden" name="bzml_confirm" value="1">
+		<p style="margin-top:14px;text-align:center"><button type="submit" class="btn">Xác nhận liên kết</button></p>
+	</form>
+
 <?php else : ?>
 	<div class="icon ok">🔐</div>
 	<h1>Xác thực để liên kết Zalo</h1>

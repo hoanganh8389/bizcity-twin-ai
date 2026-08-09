@@ -50,10 +50,14 @@ class BizCity_ZNS_Rules_Repo {
 		// [2026-06-27 Johnny Chu] PHASE-CG-ZNS-AUTO — information_schema dual cache (R-SHOW-TABLES)
 		static $cache = array();
 		$tbl = self::table();
-		if ( isset( $cache[ $tbl ] ) ) {
-			return $cache[ $tbl ];
+		global $wpdb;
+		$database = isset( $wpdb->dbname ) ? (string) $wpdb->dbname : '';
+		$memo_key = (int) get_current_blog_id() . ':' . $database . ':' . $tbl;
+		// [2026-08-09 Johnny Chu] R-CACHE — array_key_exists preserves cached false results.
+		if ( array_key_exists( $memo_key, $cache ) ) {
+			return $cache[ $memo_key ];
 		}
-		$ck      = 'bz_tbl_' . (int) get_current_blog_id() . '_' . crc32( $tbl );
+		$ck      = 'bz_tbl_' . md5( $memo_key );
 		$present = wp_cache_get( $ck, 'bizcity_tbl' );
 		if ( false === $present ) {
 			global $wpdb;
@@ -65,8 +69,8 @@ class BizCity_ZNS_Rules_Repo {
 			);
 			wp_cache_set( $ck, $present, 'bizcity_tbl', HOUR_IN_SECONDS );
 		}
-		$cache[ $tbl ] = (bool) $present;
-		return $cache[ $tbl ];
+		$cache[ $memo_key ] = (bool) $present;
+		return $cache[ $memo_key ];
 	}
 
 	/**

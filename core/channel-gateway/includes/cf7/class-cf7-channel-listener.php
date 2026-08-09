@@ -51,6 +51,25 @@ class BizCity_CF7_Channel_Listener {
 	 * @param string            $mail_event
 	 */
 	public static function on_submit( $cf7, string $mail_event = 'mail_sent' ): void {
+		// [2026-08-05 Johnny Chu] PHASE-CG-CF7-BIGLEAD — prove the mail hook entered the canonical listener before guards.
+		if ( class_exists( 'BizCity_Channel_File_Logger', false ) ) {
+			BizCity_Channel_File_Logger::write(
+				BizCity_Channel_File_Logger::CH_CF7,
+				BizCity_Channel_File_Logger::LEVEL_INFO,
+				'cf7_listener_entered',
+				'wpcf7 mail event entered BizCity_CF7_Channel_Listener.',
+				array( 'mail_event' => $mail_event )
+			);
+		} elseif ( class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
+			BizCity_JSONL_File_Logger::write(
+				BizCity_JSONL_File_Logger::CRM_FOLDER,
+				'cf7',
+				'info',
+				'cf7_listener_entered',
+				'wpcf7 mail event entered BizCity_CF7_Channel_Listener.',
+				array( 'mail_event' => $mail_event )
+			);
+		}
 		if ( ! class_exists( 'WPCF7_Submission' ) ) {
 			return;
 		}
@@ -89,12 +108,12 @@ class BizCity_CF7_Channel_Listener {
 		$is_rate_limited = false;
 		if ( self::is_rate_limited( $form_id ) ) {
 			$is_rate_limited = true;
-			error_log( "[BizCity_CF7] Rate limit hit for form {$form_id} — skipping CRM sync." );
-			// [2026-06-19 Johnny Chu] PHASE-CG-CF7-LOG — file-log rate limit
-			if ( class_exists( 'BizCity_Channel_File_Logger', false ) ) {
-				BizCity_Channel_File_Logger::write(
-					BizCity_Channel_File_Logger::CH_CF7,
-					BizCity_Channel_File_Logger::LEVEL_WARN,
+			// [2026-07-31 Johnny Chu] PHASE-CRM-LOG-SPLIT — CF7 operational evidence belongs in CRM JSONL.
+			if ( class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
+				BizCity_JSONL_File_Logger::write(
+					BizCity_JSONL_File_Logger::CRM_FOLDER,
+					'cf7',
+					'warn',
 					'cf7_rate_limited',
 					'Rate limit hit for form #' . $form_id,
 					array( 'form_id' => $form_id, 'form_title' => $form_title )
@@ -133,13 +152,14 @@ class BizCity_CF7_Channel_Listener {
 		}
 
 		// ── Log submission ────────────────────────────────────────────────
-		// [2026-06-19 Johnny Chu] PHASE-CG-CF7-LOG — file-log before any DB (R-CH-FILE-LOG)
-		if ( class_exists( 'BizCity_Channel_File_Logger', false ) ) {
+		// [2026-07-31 Johnny Chu] PHASE-CRM-LOG-SPLIT — persist CF7 evidence before CRM DB writes.
+		if ( class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
 			$level = $mail_event === 'mail_failed'
-				? BizCity_Channel_File_Logger::LEVEL_WARN
-				: BizCity_Channel_File_Logger::LEVEL_INFO;
-			BizCity_Channel_File_Logger::write(
-				BizCity_Channel_File_Logger::CH_CF7,
+				? 'warn'
+				: 'info';
+			BizCity_JSONL_File_Logger::write(
+				BizCity_JSONL_File_Logger::CRM_FOLDER,
+				'cf7',
 				$level,
 				'cf7_form_received',
 				'CF7 form #' . $form_id . ' submitted',
@@ -197,12 +217,13 @@ class BizCity_CF7_Channel_Listener {
 			BizCity_CF7_Submissions_Log::update_crm_result( $sub_id, $crm_result );
 		}
 
-		if ( $mail_event === 'mail_failed' && class_exists( 'BizCity_Channel_File_Logger', false ) ) {
+		if ( $mail_event === 'mail_failed' && class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
 			// [2026-07-17 Johnny Chu] PHASE-CG-CF7-MAIL-OBS — flag email failure
 			// with evidence for dashboard/statistics.
-			BizCity_Channel_File_Logger::write(
-				BizCity_Channel_File_Logger::CH_CF7,
-				BizCity_Channel_File_Logger::LEVEL_WARN,
+			BizCity_JSONL_File_Logger::write(
+				BizCity_JSONL_File_Logger::CRM_FOLDER,
+				'cf7',
+				'warn',
 				'cf7_mail_flagged',
 				'Submission accepted but email delivery failed',
 				array(
@@ -240,17 +261,26 @@ class BizCity_CF7_Channel_Listener {
 			unset( $_src_meta );
 		}
 
+		// [2026-08-04 Johnny Chu] PHASE-CG-CF7-BIGLEAD — forward the same mapped
+		// CF7 lead after local persistence; BigLead failure must not fail CF7.
+		$biglead_result = array( 'sent' => false, 'http_code' => 0, 'error' => '' );
+		if ( class_exists( 'BizCity_CF7_BigLead', false ) ) {
+			$biglead_result = BizCity_CF7_BigLead::dispatch( $form_id, $form_title, $mapped, $posted );
+		}
+
 		// ── Zalo ZNS auto-reply ───────────────────────────────────────────
 		// [2026-06-25 Johnny Chu] PHASE-CG-CF7-ZNS — dispatch ZNS after CRM sync
 		// IMPORTANT: pass $posted (raw CF7 field names like 'parent-name', 'your-phone')
 		// NOT $mapped (CRM-mapped keys like 'email', 'phone') — temp_vars config references raw CF7 field names.
 		if ( class_exists( 'BizCity_CF7_ZNS_Sender', false ) && ! empty( $phone_raw ) ) {
 			// [2026-06-25 Johnny Chu] PHASE-CG-CF7-ZNS DEBUG — log before dispatch
-			error_log( '[bizcity-zns] on_submit: dispatching ZNS for form_id=' . $form_id . ' phone=' . self::mask_phone( $phone_raw ) . ' posted_keys=' . implode( ',', array_keys( $posted ) ) );
+			BizCity_JSONL_File_Logger::write( BizCity_JSONL_File_Logger::CRM_FOLDER, 'zns', 'info', 'zns_dispatch_started', 'CF7 submission dispatched to ZNS.', array( 'form_id' => $form_id, 'phone_present' => $phone_raw !== '', 'posted_key_count' => count( $posted ) ) );
 			BizCity_CF7_ZNS_Sender::dispatch( $form_id, $phone_raw, $posted );
 		} else {
 			// [2026-06-25 Johnny Chu] PHASE-CG-CF7-ZNS DEBUG — log why ZNS skipped
-			error_log( '[bizcity-zns] on_submit: ZNS skipped — sender_loaded=' . ( class_exists( 'BizCity_CF7_ZNS_Sender', false ) ? '1' : '0' ) . ' phone_raw=' . ( ! empty( $phone_raw ) ? 'non-empty' : 'EMPTY' ) );
+			if ( class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
+				BizCity_JSONL_File_Logger::write( BizCity_JSONL_File_Logger::CRM_FOLDER, 'zns', 'info', 'zns_dispatch_skipped', 'CF7 submission did not meet ZNS dispatch prerequisites.', array( 'form_id' => $form_id, 'sender_loaded' => class_exists( 'BizCity_CF7_ZNS_Sender', false ), 'phone_present' => ! empty( $phone_raw ) ) );
+			}
 		}
 
 		// ── Emit trace to Listener Bus ────────────────────────────────────
@@ -276,6 +306,8 @@ class BizCity_CF7_Channel_Listener {
 					'crm_action' => $crm_result['action'],
 					'contact_id' => (int) $crm_result['contact_id'],
 					'sub_id'     => $sub_id,
+					'biglead_sent' => ! empty( $biglead_result['sent'] ),
+					'biglead_http_code' => (int) ( $biglead_result['http_code'] ?? 0 ),
 				),
 			) );
 		}
@@ -288,10 +320,11 @@ class BizCity_CF7_Channel_Listener {
 		$has_any_pixel = ! empty( $page_tracking['fb_pixel_id'] )
 			|| ! empty( $page_tracking['ga_id'] )
 			|| ! empty( $page_tracking['gtm_id'] );
-		if ( $has_any_pixel && class_exists( 'BizCity_Channel_File_Logger', false ) ) {
-			BizCity_Channel_File_Logger::write(
-				BizCity_Channel_File_Logger::CH_CF7,
-				BizCity_Channel_File_Logger::LEVEL_INFO,
+		if ( $has_any_pixel && class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
+			BizCity_JSONL_File_Logger::write(
+				BizCity_JSONL_File_Logger::CRM_FOLDER,
+				'cf7',
+				'info',
 				'cf7_tracking_fired',
 				'PB tracking event for form #' . $form_id,
 				array(

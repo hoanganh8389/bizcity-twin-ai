@@ -44,13 +44,18 @@ final class BizCity_TwinBrain_Memory_Recall {
 	 *
 	 * @param int    $user_id Current WP user id (0 = guest).
 	 * @param string $prompt  User prompt (used for keyword scoring).
-	 * @param array  $opts    { session_id, keyword_tokens? }
+	 * @param array  $opts    { session_id, keyword_tokens?, memory_scope?, case_id?, subject_key?, goal_id? }
 	 * @return array { block:string, citations:array, counts:array{A:int,B:int,C:int,D:int}, latency_ms:int }
 	 */
 	public function collect( int $user_id, string $prompt, array $opts = [] ): array {
 		$t0          = microtime( true );
 		$session_id  = (string) ( $opts['session_id'] ?? '' );
 		$identity_uuid = trim( (string) ( $opts['identity_uuid'] ?? '' ) );
+		// [2026-08-03 Johnny Chu] R-TGL-CS — keep Goal/Case scope explicit at the recall boundary.
+		$memory_scope = sanitize_key( (string) ( $opts['memory_scope'] ?? '' ) );
+		$case_id      = sanitize_text_field( (string) ( $opts['case_id'] ?? '' ) );
+		$subject_key  = sanitize_text_field( (string) ( $opts['subject_key'] ?? '' ) );
+		$goal_id      = sanitize_text_field( (string) ( $opts['goal_id'] ?? '' ) );
 		// [2026-07-28 Johnny Chu] R-CH-IDMEM — normalize the owner once before every memory tier is queried.
 		if ( class_exists( 'BizCity_Memory_Identity_Scope' ) ) {
 			$scope = BizCity_Memory_Identity_Scope::resolve( array_merge( $opts, array( 'user_id' => $user_id ) ) );
@@ -89,7 +94,7 @@ final class BizCity_TwinBrain_Memory_Recall {
 			&& BizCity_Memory_Unified_Installer::is_enabled()
 		) {
 			try {
-				$unified = $this->collect_from_unified( $user_id, $session_id, $identity_uuid, $tokens, $t0 );
+				$unified = $this->collect_from_unified( $user_id, $session_id, $identity_uuid, $tokens, $t0, $memory_scope, $case_id, $subject_key, $goal_id );
 				if ( is_array( $unified ) ) {
 					return $unified;
 				}
@@ -98,14 +103,14 @@ final class BizCity_TwinBrain_Memory_Recall {
 			}
 		}
 
-		return $this->collect_from_legacy( $user_id, $session_id, $identity_uuid, $tokens, $t0 );
+		return $this->collect_from_legacy( $user_id, $session_id, $identity_uuid, $tokens, $t0, $memory_scope, $case_id, $subject_key, $goal_id );
 	}
 
 	/**
 	 * Legacy 4-tier collector (pre-Wave 2.8d). Reads 3 tables:
 	 * bizcity_memory_users + bizcity_memory_episodic + bizcity_memory_rolling.
 	 */
-	private function collect_from_legacy( int $user_id, string $session_id, string $identity_uuid, array $tokens, float $t0 ): array {
+	private function collect_from_legacy( int $user_id, string $session_id, string $identity_uuid, array $tokens, float $t0, string $memory_scope = '', string $case_id = '', string $subject_key = '', string $goal_id = '' ): array {
 		$citations = [];
 		$lines_a   = [];
 		$lines_b   = [];
@@ -128,6 +133,7 @@ final class BizCity_TwinBrain_Memory_Recall {
 			'limit'       => self::TIER_A_CAP,
 			'order_by'    => 'score',
 		] );
+		$rows_a = $this->filter_scope_rows( $rows_a, $memory_scope, $case_id, $subject_key, $goal_id );
 		foreach ( $rows_a as $r ) {
 			$line = $this->format_line( $r, $tokens );
 			if ( $line === '' ) continue;
@@ -144,6 +150,7 @@ final class BizCity_TwinBrain_Memory_Recall {
 			'limit'       => 80,
 			'order_by'    => 'score',
 		] );
+		$rows_b = $this->filter_scope_rows( $rows_b, $memory_scope, $case_id, $subject_key, $goal_id );
 		$scored = [];
 		foreach ( $rows_b as $r ) {
 			$text     = (string) ( $r->memory_text ?? '' );
@@ -163,10 +170,10 @@ final class BizCity_TwinBrain_Memory_Recall {
 		}
 
 		// ── Tier C — episodic (optional table) ──
-		$lines_c = $this->collect_episodic( $user_id, $session_id, $identity_uuid, $tokens, $citations );
+		$lines_c = $this->collect_episodic( $user_id, $session_id, $identity_uuid, $tokens, $citations, $memory_scope, $case_id, $subject_key, $goal_id );
 
 		// ── Tier D — rolling summary (optional table) ──
-		$lines_d = $this->collect_rolling( $user_id, $session_id, $identity_uuid, $citations );
+		$lines_d = $this->collect_rolling( $user_id, $session_id, $identity_uuid, $citations, $memory_scope, $case_id, $subject_key, $goal_id );
 
 		// [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-4 — Tier F (Feelings).
 		// Surfaces the latest sampled mood for the session so Final_Composer
@@ -212,7 +219,54 @@ final class BizCity_TwinBrain_Memory_Recall {
 			],
 			'latency_ms' => (int) ( ( microtime( true ) - $t0 ) * 1000 ),
 			'source'     => 'legacy',
+			'memory_scope' => $memory_scope,
+			'case_id'      => $case_id,
+			'goal_id'      => $goal_id,
+			'scope_state'  => $this->scope_state( $memory_scope, $case_id, $subject_key ),
 		];
+	}
+
+	/**
+	 * Filter case-scoped rows without breaking legacy rows during migration.
+	 */
+	private function filter_scope_rows( array $rows, string $memory_scope, string $case_id, string $subject_key, string $goal_id ): array {
+		if ( $memory_scope !== 'goal_case' ) {
+			return $rows;
+		}
+		if ( $case_id === '' ) {
+			return array();
+		}
+		$filtered = array();
+		foreach ( $rows as $row ) {
+			$metadata_raw = is_object( $row ) ? ( $row->metadata ?? '' ) : ( $row['metadata'] ?? '' );
+			$metadata = json_decode( (string) $metadata_raw, true );
+			if ( ! is_array( $metadata ) ) {
+				continue;
+			}
+			$row_case = (string) ( $metadata['case_id'] ?? '' );
+			$row_subject = (string) ( $metadata['subject_key'] ?? '' );
+			$row_goal = (string) ( $metadata['goal_loop']['goal_id'] ?? '' );
+			$case_match = $row_case !== '' && hash_equals( $case_id, $row_case );
+			$subject_match = $subject_key !== '' && $row_subject !== '' && hash_equals( $subject_key, $row_subject );
+			$goal_match = $goal_id !== '' && $row_goal !== '' && hash_equals( $goal_id, $row_goal );
+			if ( $case_match || $subject_match || $goal_match ) {
+				$filtered[] = $row;
+				continue;
+			}
+			$row_scope = sanitize_key( (string) ( $metadata['memory_scope'] ?? '' ) );
+			$row_type = sanitize_key( (string) ( is_object( $row ) ? ( $row->memory_type ?? '' ) : ( $row['memory_type'] ?? '' ) ) );
+			if ( $row_scope === 'identity_global' && in_array( $row_type, array( 'preference', 'communication_style', 'language' ), true ) ) {
+				$filtered[] = $row;
+			}
+		}
+		return $filtered;
+	}
+
+	private function scope_state( string $memory_scope, string $case_id, string $subject_key ): string {
+		if ( $memory_scope !== 'goal_case' ) {
+			return $memory_scope !== '' ? 'global_or_owner' : 'unscoped_legacy';
+		}
+		return ( $case_id !== '' && $subject_key !== '' ) ? 'resolved' : 'unresolved';
 	}
 
 	/* =================================================================
@@ -260,7 +314,7 @@ final class BizCity_TwinBrain_Memory_Recall {
 		return $hits;
 	}
 
-	private function collect_episodic( int $user_id, string $session_id, string $identity_uuid, array $tokens, array &$citations ): array {
+	private function collect_episodic( int $user_id, string $session_id, string $identity_uuid, array $tokens, array &$citations, string $memory_scope = '', string $case_id = '', string $subject_key = '', string $goal_id = '' ): array {
 		global $wpdb;
 		$table = $wpdb->prefix . 'bizcity_memory_episodic';
 		if ( ! bizcity_tbl_exists( $table ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
@@ -298,6 +352,7 @@ final class BizCity_TwinBrain_Memory_Recall {
 		$sql = "SELECT * FROM {$table} WHERE " . implode( ' AND ', $where )
 			. " ORDER BY created_at DESC LIMIT %d";
 		$rows = (array) $wpdb->get_results( $wpdb->prepare( $sql, $params ) );
+		$rows = $this->filter_scope_rows( $rows, $memory_scope, $case_id, $subject_key, $goal_id );
 		if ( empty( $rows ) ) return [];
 
 		$lines = [];
@@ -322,7 +377,7 @@ final class BizCity_TwinBrain_Memory_Recall {
 		return $lines;
 	}
 
-	private function collect_rolling( int $user_id, string $session_id, string $identity_uuid, array &$citations ): array {
+	private function collect_rolling( int $user_id, string $session_id, string $identity_uuid, array &$citations, string $memory_scope = '', string $case_id = '', string $subject_key = '', string $goal_id = '' ): array {
 		global $wpdb;
 		$table = $wpdb->prefix . 'bizcity_memory_rolling';
 		if ( ! bizcity_tbl_exists( $table ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
@@ -373,6 +428,7 @@ final class BizCity_TwinBrain_Memory_Recall {
 
 		$sql  = "SELECT * FROM {$table} WHERE " . implode( ' AND ', $where ) . " ORDER BY updated_at DESC LIMIT %d";
 		$rows = (array) $wpdb->get_results( $wpdb->prepare( $sql, $params ) );
+		$rows = $this->filter_scope_rows( $rows, $memory_scope, $case_id, $subject_key, $goal_id );
 		if ( empty( $rows ) ) return [];
 
 		$lines = [];
@@ -427,7 +483,7 @@ final class BizCity_TwinBrain_Memory_Recall {
 	 *
 	 * @return array|null  Returns null when table missing so caller falls back.
 	 */
-	private function collect_from_unified( int $user_id, string $session_id, string $identity_uuid, array $tokens, float $t0 ) {
+	private function collect_from_unified( int $user_id, string $session_id, string $identity_uuid, array $tokens, float $t0, string $memory_scope = '', string $case_id = '', string $subject_key = '', string $goal_id = '' ) {
 		global $wpdb;
 		$table = BizCity_Memory_Unified_Installer::table();
 		if ( ! bizcity_tbl_exists( $table ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
@@ -460,12 +516,13 @@ final class BizCity_TwinBrain_Memory_Recall {
 		$sql = "SELECT id, legacy_id, memory_class, memory_tier, memory_type,
 		               memory_key, memory_text, score, importance,
 		               event_type, goal, goal_label, window_summary,
-		               window_turn_count, status, updated_at, created_at
+		               window_turn_count, status, metadata, updated_at, created_at
 		         FROM {$table}
 		         WHERE {$where_sql}
 		         ORDER BY score DESC, updated_at DESC
 		         LIMIT %d";
 		$rows = (array) $wpdb->get_results( $wpdb->prepare( $sql, $params ) );
+		$rows = $this->filter_scope_rows( $rows, $memory_scope, $case_id, $subject_key, $goal_id );
 
 		$citations = [];
 		$lines_a   = [];
@@ -590,6 +647,10 @@ final class BizCity_TwinBrain_Memory_Recall {
 			],
 			'latency_ms' => (int) ( ( microtime( true ) - $t0 ) * 1000 ),
 			'source'     => 'unified',
+			'memory_scope' => $memory_scope,
+			'case_id'      => $case_id,
+			'goal_id'      => $goal_id,
+			'scope_state'  => $this->scope_state( $memory_scope, $case_id, $subject_key ),
 		];
 	}
 

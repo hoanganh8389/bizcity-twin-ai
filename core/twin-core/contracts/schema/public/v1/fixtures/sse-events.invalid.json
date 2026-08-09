@@ -1,0 +1,9 @@
+{
+  "contract": "sse-events",
+  "version": "1.0.0",
+  "stream_id": "stream_12345678",
+  "trace_id": "trace_12345678",
+  "sequence": -1,
+  "event": "done",
+  "data": {}
+}

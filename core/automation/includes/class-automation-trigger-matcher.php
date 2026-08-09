@@ -46,6 +46,8 @@ final class BizCity_Automation_Trigger_Matcher {
 	const OPT_CRON_LAST        = 'bizcity_automation_cron_last_fired_';
 
 	private static $instance = null;
+	// [2026-08-02 Johnny Chu] PHASE-ZALO-VISION — deduplicate the media receipt acknowledgement across raw intake and matcher paths.
+	private static $media_ack_sent = array();
 
 	public static function instance(): self {
 		if ( null === self::$instance ) { self::$instance = new self(); }
@@ -259,11 +261,8 @@ final class BizCity_Automation_Trigger_Matcher {
 				}
 				BizCity_Automation_Pending_State::append_attachment( $chat_id, $media_attachment );
 				$pending = BizCity_Automation_Pending_State::get( $chat_id );
-				if ( function_exists( 'bizcity_channel_send' ) && count( (array) ( $pending['attachments'] ?? array() ) ) <= 1 ) {
-					bizcity_channel_send(
-						$chat_id,
-						'📎 Em đã nhận ảnh. Sếp muốn em làm gì với ảnh này? (vd: "đăng bài", "đăng FB"…) — em giữ ảnh trong 15 phút.'
-					);
+				if ( count( (array) ( $pending['attachments'] ?? array() ) ) <= 1 ) {
+					self::send_media_ack( $chat_id );
 				}
 				BizCity_Automation_Matcher_Trace::note( 'media_stash', array(
 					'platform'  => $platform,
@@ -328,12 +327,7 @@ final class BizCity_Automation_Trigger_Matcher {
 				) );
 				BizCity_Automation_Pending_State::append_attachment( $chat_id, $media_attachment );
 				$pending = BizCity_Automation_Pending_State::get( $chat_id );
-				if ( function_exists( 'bizcity_channel_send' ) ) {
-					bizcity_channel_send(
-						$chat_id,
-						'📎 Em đã nhận ảnh. Sếp muốn em làm gì với ảnh này? (vd: "đăng bài", "đăng FB"…) — em giữ ảnh trong 15 phút.'
-					);
-				}
+				self::send_media_ack( $chat_id );
 				BizCity_Automation_Matcher_Trace::note( 'media_stash', array(
 					'platform'  => $platform,
 					'chat_id'   => $chat_id,
@@ -600,7 +594,16 @@ final class BizCity_Automation_Trigger_Matcher {
 				$matched[ $idx ]['wf'] = $this->maybe_upgrade_legacy_astro_workflow( $row['wf'] );
 				$this->enqueue_and_optionally_run( $matched[ $idx ]['wf'], $run_payload, false );
 			}
-			$ids = array_map( static function ( $r ) { return (int) $r['wf']['id']; }, $matched );
+			// [2026-08-02 Johnny Chu] HOTFIX-SKILL-ROUTING — normalize matcher
+			// rows before extracting IDs; malformed workflow payloads must not
+			// reach array_column/typed ACK code and fatal the inbound request.
+			$matched = array_values( array_filter( (array) $matched, static function ( $row ) {
+				return is_array( $row ) && isset( $row['wf'] ) && is_array( $row['wf'] );
+			} ) );
+			if ( empty( $matched ) ) {
+				return;
+			}
+			$ids = array_map( static function ( $r ) { return (int) ( $r['wf']['id'] ?? 0 ); }, $matched );
 			BizCity_Automation_Matcher_Trace::note( 'matched_keyword', array(
 				'platform'     => $platform,
 				'chat_id'      => $chat_id,
@@ -651,7 +654,9 @@ final class BizCity_Automation_Trigger_Matcher {
 			// [2026-06-02 Johnny Chu] AUTOMATION ACK — gửi reply xác nhận match keyword
 			// để user biết yc đã vào đúng workflow (UX feedback ngay lập tức, không
 			// phải đợi workflow chạy xong mới thấy reply thật).
-			$this->send_match_ack( $run_payload, array_column( $matched, 'wf' ), 'keyword' );
+			$this->send_match_ack( $run_payload, array_map( static function ( $row ) {
+				return is_array( $row['wf'] ?? null ) ? $row['wf'] : array();
+			}, $matched ), 'keyword' );
 			// [2026-07-07 Johnny Chu] HOTFIX — explicit PHP-log marker for keyword match path.
 			error_log( sprintf(
 				'[automation][matcher] matched_keyword chat_id=%s trigger=%s wf_ids=%s',
@@ -677,6 +682,20 @@ final class BizCity_Automation_Trigger_Matcher {
 
 		// Không workflow nào match → fan ra fallback (theo priority desc).
 		if ( empty( $fallbacks ) ) {
+			// [2026-08-01 Johnny Chu] PHASE-TBR-CHAT-DEFAULT — suggest a near-match trigger but never auto-run a side-effect workflow.
+			if ( class_exists( 'BizCity_Automation_Workflow_Catalog' ) ) {
+				$zone = $wf_zone !== '' ? $wf_zone : 'admin';
+				$suggestion = BizCity_Automation_Workflow_Catalog::suggest_trigger( $text, $zone );
+				if ( is_array( $suggestion ) ) {
+					$run_payload['_fuzzy_suggestion'] = $suggestion;
+					BizCity_Automation_Matcher_Trace::note( 'fuzzy_trigger_suggestion', array(
+						'platform' => $platform,
+						'chat_id'  => $chat_id,
+						'text'     => $text,
+						'detail'   => 'term=' . (string) $suggestion['term'] . ' workflow_id=' . (int) $suggestion['workflow_id'],
+					) );
+				}
+			}
 			// PHASE-0-RULE-CHANNEL-UNIFY (1.2) — Built-in default reply safety net.
 			// Khi không có workflow nào match VÀ không có is_fallback workflow,
 			// chạy TwinBrain MPR Think trực tiếp + send qua channel sender.
@@ -760,6 +779,9 @@ final class BizCity_Automation_Trigger_Matcher {
 		if ( ! is_array( $envelope ) ) { return; }
 		$platform = strtoupper( (string) ( $envelope['platform'] ?? '' ) );
 		$mid      = (string)        ( $envelope['message_id'] ?? '' );
+		$media_url = (string) ( $envelope['media_url'] ?? '' );
+		$text     = (string) ( $envelope['message'] ?? $envelope['text'] ?? '' );
+		$chat_id  = (string) ( $envelope['conversation_chat_id'] ?? $envelope['chat_id'] ?? '' );
 		$dedup    = $platform . '|' . $mid;
 		if ( $mid !== '' && isset( self::$seen_mids[ $dedup ] ) ) {
 			BizCity_Automation_Matcher_Trace::note( 'dedup_skip', array(
@@ -770,6 +792,11 @@ final class BizCity_Automation_Trigger_Matcher {
 			return;
 		}
 		if ( $mid !== '' ) { self::$seen_mids[ $dedup ] = true; }
+
+		// [2026-08-02 Johnny Chu] PHASE-ZALO-VISION — acknowledge image/file receipt at the raw webhook boundary, even when Pending State or a later matcher hook is unavailable.
+		if ( $media_url !== '' && trim( $text ) === '' ) {
+			self::send_media_ack( $chat_id );
+		}
 
 		// UCL platform codes: ZALO_BOT / FB_MESS / FB_FEED / WEBCHAT / TELEGRAM
 		// → map back to what on_channel_message() expects in `platform` field.
@@ -819,6 +846,20 @@ final class BizCity_Automation_Trigger_Matcher {
 		$this->on_channel_message( $adapted );
 	}
 
+	private static function send_media_ack( $chat_id ): void {
+		// [2026-08-02 Johnny Chu] HOTFIX-SKILL-ROUTING — webhook adapters can
+		// hand over numeric/provider values; normalize before strict comparisons.
+		$chat_id = is_scalar( $chat_id ) ? (string) $chat_id : '';
+		if ( $chat_id === '' || isset( self::$media_ack_sent[ $chat_id ] ) || ! function_exists( 'bizcity_channel_send' ) ) {
+			return;
+		}
+		self::$media_ack_sent[ $chat_id ] = true;
+		bizcity_channel_send(
+			$chat_id,
+			'📎 Em đã nhận ảnh/file. Sếp muốn em làm gì với tệp này? Ví dụ: "mô tả ảnh", "đọc nội dung", "chỉnh ảnh", "đăng bài" hoặc "đăng FB". Em sẽ giữ tệp trong 15 phút.'
+		);
+	}
+
 	/** Request-scoped dedup so canonical + normalized don't double-enqueue. */
 	private static $seen_mids = array();
 
@@ -846,6 +887,8 @@ final class BizCity_Automation_Trigger_Matcher {
 
 		$bot_id  = $intake_bot && isset( $intake_bot->id ) ? (string) $intake_bot->id : '';
 		$user_id = (string) ( $message['from']['id'] ?? '' );
+		// [2026-08-02 Johnny Chu] PHASE-ZALO-VISION — raw intake may run before identity resolution; keep the optional WP owner explicit.
+		$resolved_wp_user_id = 0;
 		if ( $bot_id === '' || $user_id === '' ) { return; }
 
 		// Extract media URL.
@@ -888,6 +931,10 @@ final class BizCity_Automation_Trigger_Matcher {
 		$clean_text         = $mention_detected ? $this->strip_zalo_bot_mention( $text, $intake_bot ) : $text;
 		$chat_id = $conversation_chat_id;
 		$mid     = (string) ( $message['message_id'] ?? '' );
+		// [2026-08-02 Johnny Chu] PHASE-ZALO-VISION — acknowledge media at the raw intake boundary before CRM or legacy listeners can branch.
+		if ( $media_url !== '' && trim( $text ) === '' ) {
+			self::send_media_ack( $chat_id );
+		}
 
 		$adapted = array(
 			'platform'      => 'ZALO_BOT',

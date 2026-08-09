@@ -1,6 +1,6 @@
 <?php
 /**
- * Zone 1 channel identity linker for Facebook Messenger and Zalo OA.
+ * Channel identity linker for Facebook Messenger, Zalo OA, and Zalo Bot.
  *
  * The CRM magic-link table owns one-time login tokens. This class owns only
  * the external identity mapping, so provider credentials stay in adapters.
@@ -17,6 +17,7 @@ class BizCity_Channel_User_Linker {
 	const OPTION_VERSION       = 'bizcity_channel_user_links_schema';
 	const PLATFORM_FB_MESS     = 'FB_MESS';
 	const PLATFORM_ZALO_OA     = 'ZALO_OA';
+	const PLATFORM_ZALO_BOT    = 'ZALO_BOT'; // [2026-08-06 Johnny Chu] HOTFIX-ZALOBOT-LINK — canonical admin-channel binding.
 	const STATUS_PENDING        = 'pending';
 	const STATUS_LINKED         = 'linked';
 	const STATUS_UNLINKED       = 'unlinked';
@@ -43,7 +44,8 @@ class BizCity_Channel_User_Linker {
 	}
 
 	public static function supported_platform( string $platform ): bool {
-		return in_array( strtoupper( $platform ), array( self::PLATFORM_FB_MESS, self::PLATFORM_ZALO_OA ), true );
+		// [2026-08-06 Johnny Chu] HOTFIX-ZALOBOT-LINK — include Zalo Bot in the shared Channel Gateway identity boundary.
+		return in_array( strtoupper( $platform ), array( self::PLATFORM_FB_MESS, self::PLATFORM_ZALO_OA, self::PLATFORM_ZALO_BOT ), true );
 	}
 
 	public static function maybe_install(): void {
@@ -211,25 +213,103 @@ class BizCity_Channel_User_Linker {
 		$identity = is_array( $meta ) && ! empty( $meta['channel_identity'] ) && is_array( $meta['channel_identity'] )
 			? $meta['channel_identity'] : array();
 		$platform = strtoupper( (string) ( $identity['platform'] ?? $row['platform'] ?? '' ) );
-		$external = (string) ( $identity['external_user_id'] ?? '' );
+		// [2026-08-06 Johnny Chu] HOTFIX-ZALOBOT-LINK — normalize legacy CRM ZALO rows into the canonical ZALO_BOT platform.
+		if ( $platform === 'ZALO' || $platform === 'ZALOBOT' ) {
+			$platform = self::PLATFORM_ZALO_BOT;
+		}
+		$external = (string) ( $identity['external_user_id'] ?? $row['chat_id'] ?? '' );
 		$account   = (string) ( $identity['account_id'] ?? $row['bot_id'] ?? '' );
 		$blog_id   = (int) ( $identity['blog_id'] ?? $row['blog_id'] ?? get_current_blog_id() );
 		if ( ! self::supported_platform( $platform ) || $external === '' || $account === '' ) {
 			return;
 		}
 
-		global $wpdb;
-		$now = current_time( 'mysql', true );
-		$wpdb->query( $wpdb->prepare(
-			'UPDATE ' . self::table() . ' SET wp_user_id=%d, status=%s, link_token_hash=%s, token_expires=NULL, linked_at=%s, updated_at=%s WHERE blog_id=%d AND platform=%s AND external_user_id=%s AND account_id=%s',
-			$wp_user_id, self::STATUS_LINKED, '', $now, $now, $blog_id, $platform, $external, $account
-		) );
-		self::$resolve_cache[ $blog_id . ':' . $platform . ':' . $account . ':' . $external ] = $wp_user_id;
-		// [2026-07-28 Johnny Chu] R-CH-IDMEM — verified magic-link ownership binds the channel alias to the durable UUID hub.
-		if ( class_exists( 'BizCity_Identity_Hub' ) ) {
-			BizCity_Identity_Hub::bind( $platform, $account, $external, $wp_user_id, $blog_id, true );
+		// [2026-08-06 Johnny Chu] HOTFIX-ZALOBOT-LINK — use one canonical bind path for login-link consumption.
+		if ( ! self::bind_identity( $platform, $external, $account, $wp_user_id, $blog_id ) ) {
+			return;
 		}
 		do_action( 'bizcity_channel_user_linked', $platform, $account, $external, $wp_user_id, $blog_id );
+
+		if ( $platform === self::PLATFORM_ZALO_BOT ) {
+			self::notify_zalobot_linked( $account, $external, $wp_user_id );
+		}
+	}
+
+	/**
+	 * Persist a channel identity binding in the Channel Gateway table.
+	 *
+	 * @return bool True when the canonical row was inserted or updated.
+	 */
+	public static function bind_identity( string $platform, string $external_user_id, string $account_id, int $wp_user_id, int $blog_id = 0 ): bool {
+		// [2026-08-06 Johnny Chu] HOTFIX-ZALOBOT-LINK — expose the admin-BE bind primitive to Zalo Bot command/login flows.
+		$platform         = strtoupper( trim( $platform ) );
+		$external_user_id = trim( $external_user_id );
+		$account_id       = trim( $account_id );
+		$blog_id          = $blog_id > 0 ? $blog_id : (int) get_current_blog_id();
+		if ( ! self::supported_platform( $platform ) || $external_user_id === '' || $account_id === '' || $wp_user_id <= 0 || ! self::table_exists() ) {
+			return false;
+		}
+
+		global $wpdb;
+		$now      = current_time( 'mysql', true );
+		$existing = self::get_identity_row( $platform, $external_user_id, $account_id, $blog_id );
+		$data     = array(
+			'blog_id'          => $blog_id,
+			'platform'         => $platform,
+			'external_user_id' => $external_user_id,
+			'account_id'       => $account_id,
+			'wp_user_id'       => $wp_user_id,
+			'status'           => self::STATUS_LINKED,
+			'link_token_hash'  => '',
+			'token_expires'    => null,
+			'linked_at'        => $now,
+			'updated_at'       => $now,
+		);
+		$ok = $existing
+			? $wpdb->update( self::table(), $data, array( 'id' => (int) $existing['id'] ) )
+			: $wpdb->insert( self::table(), $data + array( 'created_at' => $now ) );
+		if ( false === $ok ) {
+			return false;
+		}
+
+		self::$resolve_cache[ $blog_id . ':' . $platform . ':' . $account_id . ':' . $external_user_id ] = $wp_user_id;
+		if ( class_exists( 'BizCity_Identity_Hub' ) ) {
+			// [2026-08-06 Johnny Chu] HOTFIX-ZALOBOT-LINK — the channel row is the binding authority; UUID enrichment must not erase a successful admin-BE bind.
+			$identity = BizCity_Identity_Hub::bind( $platform, $account_id, $external_user_id, $wp_user_id, $blog_id, true );
+		}
+		return true;
+	}
+
+	/**
+	 * Confirm a browser-consumed Zalo Bot login in the originating chat.
+	 */
+	private static function notify_zalobot_linked( string $bot_id, string $zalo_user_id, int $wp_user_id ): void {
+		// [2026-08-06 Johnny Chu] HOTFIX-ZALOBOT-LINK — send confirmation through the canonical Gateway Sender using bot + chat identity.
+		if ( $bot_id === '' || $zalo_user_id === '' || ! class_exists( 'BizCity_Gateway_Sender' ) ) {
+			return;
+		}
+		$user = get_user_by( 'id', $wp_user_id );
+		$name = $user ? (string) $user->display_name : 'tài khoản WordPress của bạn';
+		$chat_id = 'zalobot_' . $bot_id . '_' . $zalo_user_id;
+		if ( class_exists( 'BizCity_Channel_File_Logger' ) ) {
+			BizCity_Channel_File_Logger::write(
+				BizCity_Channel_File_Logger::CH_ZALO_BOT,
+				BizCity_Channel_File_Logger::LEVEL_INFO,
+				'identity_linked',
+				'Zalo Bot identity linked after magic-link consume.',
+				array(
+					'bot_id'         => (int) $bot_id,
+					'zalo_user_hash' => substr( md5( $zalo_user_id ), 0, 10 ),
+					'wp_user_id'     => $wp_user_id,
+				)
+			);
+		}
+		BizCity_Gateway_Sender::instance()->send(
+			$chat_id,
+			"✅ Đăng nhập và kết nối thành công!\nTài khoản WordPress: {$name}\nTừ bây giờ Zalo Bot sẽ nhận diện đúng danh tính của bạn.",
+			'text',
+			array( 'bot_id' => (int) $bot_id, 'source' => 'channel_user_linker' )
+		);
 	}
 
 	/**
@@ -244,6 +324,12 @@ class BizCity_Channel_User_Linker {
 		}
 		$platform = strtoupper( (string) ( $envelope['platform'] ?? '' ) );
 		if ( ! self::supported_platform( $platform ) ) {
+			return;
+		}
+		// [2026-08-01 Johnny Chu] R-CH-IDMEM — guest Zone 1 identities are
+		// sufficient for customer care. Keep issue_link() available for an
+		// explicit user request, but never auto-nudge WP login in this path.
+		if ( ! apply_filters( 'bizcity_channel_auto_login_prompt', false, $envelope, $trigger_key ) ) {
 			return;
 		}
 		if ( self::is_group_payload( $envelope ) ) {
@@ -316,16 +402,18 @@ class BizCity_Channel_User_Linker {
 
 	private static function table_exists(): bool {
 		$table = self::table();
-		$cache_key = (int) get_current_blog_id() . ':' . $table;
-		if ( isset( self::$table_exists[ $cache_key ] ) ) {
-			return self::$table_exists[ $cache_key ];
+		global $wpdb;
+		$database = isset( $wpdb->dbname ) ? (string) $wpdb->dbname : '';
+		$memo_key = (int) get_current_blog_id() . ':' . $database . ':' . $table;
+		// [2026-08-09 Johnny Chu] R-CACHE/R-MSDB — preserve false memo and isolate physical database.
+		if ( array_key_exists( $memo_key, self::$table_exists ) ) {
+			return self::$table_exists[ $memo_key ];
 		}
 		if ( function_exists( 'bizcity_tbl_exists' ) ) {
-			self::$table_exists[ $cache_key ] = (bool) bizcity_tbl_exists( $table );
-			return self::$table_exists[ $cache_key ];
+			self::$table_exists[ $memo_key ] = (bool) bizcity_tbl_exists( $table );
+			return self::$table_exists[ $memo_key ];
 		}
-		global $wpdb;
-		$wp_cache_key = 'bz_tbl_' . (int) get_current_blog_id() . '_' . crc32( $table );
+		$wp_cache_key = 'bz_tbl_' . md5( $memo_key );
 		$cached = wp_cache_get( $wp_cache_key, 'bizcity_tbl' );
 		if ( false === $cached ) {
 			$cached = (int) (bool) $wpdb->get_var( $wpdb->prepare(
@@ -334,8 +422,8 @@ class BizCity_Channel_User_Linker {
 			) );
 			wp_cache_set( $wp_cache_key, $cached, 'bizcity_tbl', HOUR_IN_SECONDS );
 		}
-		self::$table_exists[ $cache_key ] = (bool) $cached;
-		return self::$table_exists[ $cache_key ];
+		self::$table_exists[ $memo_key ] = (bool) $cached;
+		return self::$table_exists[ $memo_key ];
 	}
 
 	private static function is_group_payload( array $payload ): bool {
@@ -346,6 +434,9 @@ class BizCity_Channel_User_Linker {
 	private static function compose_chat_id( string $platform, string $account_id, string $external_user_id ): string {
 		if ( self::PLATFORM_FB_MESS === $platform ) {
 			return 'fb_' . $account_id . '_' . $external_user_id;
+		}
+		if ( self::PLATFORM_ZALO_BOT === $platform ) {
+			return 'zalobot_' . $account_id . '_' . $external_user_id;
 		}
 		return 'zalooa_' . $account_id . '_' . $external_user_id;
 	}

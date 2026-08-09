@@ -7,7 +7,7 @@
  *  - bizcity_mcp_api_keys           client credential -> scope/notebook binding
  *  - bizcity_mcp_retrieval_snapshots  immutable brain.search results (R7)
  *  - bizcity_mcp_context_packs        document.build_context_pack output (Wave E)
- *  - bizcity_mcp_audit_log            per-call audit trail (R-CRON-META-style evidence)
+ *  - bizcity_mcp_audit_log            retired legacy projection; MCP audit is JSONL-only
  *
  * R-DCL: schema is declared in core/diagnostics/changelog/core.mcp.json
  * BEFORE this file's dbDelta() calls (see that file for column-level history).
@@ -106,38 +106,57 @@ final class BizCity_MCP_Installer {
 			KEY user_created (user_id, created_at)
 		) {$charset_collate};";
 
-		$sql[] = "CREATE TABLE {$p}bizcity_mcp_audit_log (
-			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-			trace_id VARCHAR(64) NOT NULL DEFAULT '',
-			user_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
-			client_id VARCHAR(100) NOT NULL DEFAULT '',
-			client_name VARCHAR(150) NOT NULL DEFAULT '',
-			tool_name VARCHAR(100) NOT NULL DEFAULT '',
-			request_hash CHAR(64) NOT NULL DEFAULT '',
-			status VARCHAR(20) NOT NULL DEFAULT '',
-			duration_ms INT UNSIGNED NOT NULL DEFAULT 0,
-			input_meta_json LONGTEXT NULL,
-			output_meta_json LONGTEXT NULL,
-			error_code VARCHAR(60) NOT NULL DEFAULT '',
-			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			PRIMARY KEY  (id),
-			KEY tool_name (tool_name),
-			KEY client_id (client_id),
-			KEY created_at (created_at),
-			KEY trace_id (trace_id),
-			KEY user_created (user_id, created_at)
-		) {$charset_collate};";
 
 		foreach ( $sql as $statement ) {
 			dbDelta( $statement );
 		}
 	}
+
+	const AUDIT_RETENTION_HOOK  = 'bizcity_mcp_audit_log_retention';
+	const AUDIT_RETENTION_DAYS  = 7; // [2026-08-01 Johnny Chu] PHASE-1.28-RETENTION-7D — keep SQL MCP rollback window for one week.
+	const AUDIT_RETENTION_BATCH = 500;
+
+	/**
+	 * [2026-08-01 Johnny Chu] PHASE-1.24-LOG-RETENTION — register bounded audit cleanup.
+	 * Full evidence already dual-writes to JSONL via BizCity_MCP_File_Logger, so the SQL
+	 * table only needs to retain a short recent window for relational lookups.
+	 */
+	public static function register_retention_cron(): void {
+		if ( ! class_exists( 'BizCity_Cron_Manager' ) ) {
+			return;
+		}
+		BizCity_Cron_Manager::instance()->register( array(
+			'id'          => 'core.mcp.audit_log_retention',
+			'hook'        => self::AUDIT_RETENTION_HOOK,
+			'interval'    => 'daily',
+			'owner'       => 'core/mcp',
+			'description' => 'Bounded retention sweep for the MCP call audit log (full evidence remains in JSONL).',
+			'retention'   => self::AUDIT_RETENTION_DAYS,
+		) );
+	}
+
+	/**
+	 * [2026-08-01 Johnny Chu] PHASE-1.24-LOG-RETENTION — delete old rows only from the scheduled cron context.
+	 */
+	public static function gc_audit_log(): void {
+		global $wpdb;
+		$deleted = 0; // [2026-08-01 Johnny Chu] PHASE-1.29-LOG-ORPHAN — delete-only drain; no SQL writer/reader.
+		$table = $wpdb->prefix . 'bizcity_mcp_audit_log';
+		if ( $wpdb && ( ! function_exists( 'bizcity_tbl_exists' ) || bizcity_tbl_exists( $table ) ) ) {
+			$result = $wpdb->query( $wpdb->prepare( "DELETE FROM {$table} WHERE created_at < ( CURRENT_TIMESTAMP - INTERVAL %d DAY ) ORDER BY id ASC LIMIT %d", self::AUDIT_RETENTION_DAYS, self::AUDIT_RETENTION_BATCH ) );
+			$deleted = false === $result ? 0 : (int) $result;
+		}
+		if ( class_exists( 'BizCity_Cron_Manager' ) ) {
+			$cron = BizCity_Cron_Manager::instance();
+			$cron->note( array( 'counters' => array( 'mcp_audit_log_retention_deleted' => $deleted ) ) );
+			$cron->note_event( 'mcp_audit_log_retention', array( 'deleted' => $deleted, 'retention_days' => self::AUDIT_RETENTION_DAYS ) );
+		}
+	}
 }
 
-// [2026-07-27 Johnny Chu] PHASE-0.53-MCP — R-CR register-before-create, 4 tables.
+// [2026-07-27 Johnny Chu] PHASE-0.53-MCP — R-CR register-before-create, 3 active tables.
 if ( class_exists( 'BizCity_Schema_Registry' ) ) {
 	BizCity_Schema_Registry::register( 'bizcity_mcp_api_keys', 'core.mcp', BizCity_MCP_Installer::DB_VERSION, BizCity_MCP_Installer::DB_VERSION_OPTION, array( 'BizCity_MCP_Installer', 'install' ) );
 	BizCity_Schema_Registry::register( 'bizcity_mcp_retrieval_snapshots', 'core.mcp', BizCity_MCP_Installer::DB_VERSION, BizCity_MCP_Installer::DB_VERSION_OPTION, array( 'BizCity_MCP_Installer', 'install' ) );
 	BizCity_Schema_Registry::register( 'bizcity_mcp_context_packs', 'core.mcp', BizCity_MCP_Installer::DB_VERSION, BizCity_MCP_Installer::DB_VERSION_OPTION, array( 'BizCity_MCP_Installer', 'install' ) );
-	BizCity_Schema_Registry::register( 'bizcity_mcp_audit_log', 'core.mcp', BizCity_MCP_Installer::DB_VERSION, BizCity_MCP_Installer::DB_VERSION_OPTION, array( 'BizCity_MCP_Installer', 'install' ) );
 }

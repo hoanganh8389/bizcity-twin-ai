@@ -58,6 +58,8 @@ final class BizCity_Probe_MCP_Gateway implements BizCity_Diagnostics_Probe {
 			'includes/brain/class-content-brain-mcp-service.php',
 			'includes/actions/class-content-action-mcp-service.php',
 			'includes/brain/class-report-brain-mcp-service.php',
+			'includes/class-mcp-tool-policy.php',
+			'includes/brain/class-commerce-brain-mcp-service.php',
 			'rest/class-mcp-http-controller.php',
 			'includes/class-mcp-oauth.php',
 			'rest/class-mcp-admin-rest.php',
@@ -89,6 +91,8 @@ final class BizCity_Probe_MCP_Gateway implements BizCity_Diagnostics_Probe {
 			&& class_exists( 'BizCity_Content_Brain_MCP_Service' )
 			&& class_exists( 'BizCity_Content_Action_MCP_Service' )
 			&& class_exists( 'BizCity_Report_Brain_MCP_Service' )
+			&& class_exists( 'BizCity_MCP_Tool_Policy' )
+			&& class_exists( 'BizCity_Commerce_Brain_MCP_Service' )
 			&& class_exists( 'BizCity_MCP_OAuth' )
 			&& class_exists( 'BizCity_MCP_Admin_REST' );
 		$steps[]    = array(
@@ -178,10 +182,14 @@ final class BizCity_Probe_MCP_Gateway implements BizCity_Diagnostics_Probe {
 		if ( defined( 'BIZCITY_MCP_REPORT_TOOLS_ENABLED' ) && BIZCITY_MCP_REPORT_TOOLS_ENABLED ) {
 			$expected_tools = array_merge( $expected_tools, array( 'report.list_templates', 'report.build_dataset' ) );
 		}
+		if ( defined( 'BIZCITY_MCP_COMMERCE_TOOLS_ENABLED' ) && BIZCITY_MCP_COMMERCE_TOOLS_ENABLED ) {
+			$expected_tools = array_merge( $expected_tools, array( 'commerce.list_products', 'commerce.get_product', 'commerce.list_orders', 'commerce.get_order', 'commerce.list_customers', 'commerce.get_customer' ) );
+		}
 		$tool_count   = 0;
 		$tool_names   = array();
 		if ( $classes_ok ) {
-			$tools      = BizCity_MCP_Tool_Registry::list_descriptors();
+			// [2026-07-30 Johnny Chu] PHASE-0.54-MCP Wave Q — unfiltered catalog: this evidence is about wave registration, not the admin's per-tool policy toggle.
+			$tools      = BizCity_MCP_Tool_Registry::list_descriptors( false );
 			$tool_count = count( $tools );
 			$tool_names = array_map( static function ( $tool ) {
 				return isset( $tool['name'] ) ? (string) $tool['name'] : '';
@@ -232,22 +240,27 @@ final class BizCity_Probe_MCP_Gateway implements BizCity_Diagnostics_Probe {
 
 		$audit_ok = false;
 		if ( $dispatch_ok ) {
-			global $wpdb;
-			$audit_id = $wpdb->get_var(
-				$wpdb->prepare(
-					"SELECT id FROM {$wpdb->prefix}bizcity_mcp_audit_log WHERE client_id = %s AND tool_name = %s ORDER BY id DESC LIMIT 1",
-					'__diagnostics__',
-					'document.validate_draft'
-				)
-			);
-			$audit_ok = (int) $audit_id > 0;
+			// [2026-08-01 Johnny Chu] PHASE-1.24-LOG-ORPHAN-GATE — audit DDV now validates file evidence so SQL table can be retired in staged cleanup.
+			if ( class_exists( 'BizCity_MCP_File_Logger' ) ) {
+				$audit_rows = BizCity_MCP_File_Logger::read_recent( get_current_user_id(), 0, '__diagnostics__', 30 );
+				foreach ( (array) $audit_rows as $audit_row ) {
+					if ( ! is_array( $audit_row ) ) {
+						continue;
+					}
+					if ( (string) ( $audit_row['tool_name'] ?? '' ) !== 'document.validate_draft' ) {
+						continue;
+					}
+					$audit_ok = true;
+					break;
+				}
+			}
 		}
 		$steps[] = array(
 			'label'  => 'core.mcp.gateway — Runtime: audit row written',
 			'status' => ! $document_tools_enabled ? 'skip' : ( $audit_ok ? 'pass' : 'fail' ),
 			'detail' => ! $document_tools_enabled
 				? 'Audit dispatch check skipped with document tools disabled.'
-				: ( $audit_ok ? 'Dispatch audit row exists; only metadata/hash was recorded.' : 'No MCP audit row found after dispatch.' ),
+				: ( $audit_ok ? 'Dispatch audit file evidence exists; only metadata/hash was recorded.' : 'No MCP file audit evidence found after dispatch.' ),
 		);
 		if ( ! $audit_ok ) { $pass = false; }
 
@@ -421,6 +434,89 @@ final class BizCity_Probe_MCP_Gateway implements BizCity_Diagnostics_Probe {
 		);
 		if ( 'fail' === $report_dispatch_status ) { $pass = false; }
 
+		// [2026-07-30 Johnny Chu] PHASE-0.54-MCP Wave R — prove Commerce Brain dispatch is read-only and WooCommerce-absent-safe.
+		$commerce_tools_enabled = defined( 'BIZCITY_MCP_COMMERCE_TOOLS_ENABLED' ) && BIZCITY_MCP_COMMERCE_TOOLS_ENABLED;
+		$commerce_dispatch_status = 'skip';
+		$commerce_dispatch_detail = 'Commerce Brain tools are disabled by BIZCITY_MCP_COMMERCE_TOOLS_ENABLED.';
+		if ( $commerce_tools_enabled && $classes_ok && $tools_ok ) {
+			$commerce_dispatch = BizCity_MCP_Tool_Registry::call(
+				'commerce.list_products',
+				array( 'limit' => 1 ),
+				array(
+					'client_id'            => '__diagnostics__',
+					'client_name'          => 'BizCity Diagnostics',
+					'user_id'              => get_current_user_id(),
+					'scopes'               => array( '*' ),
+					'allowed_notebook_ids' => array(),
+				)
+			);
+			$commerce_dispatch_status = ! empty( $commerce_dispatch['success'] ) ? 'pass' : 'fail';
+			$commerce_dispatch_detail = $commerce_dispatch_status === 'pass'
+				? 'commerce.list_products reached wc_get_products() or returned an explicit degraded result when WooCommerce is absent.'
+				: 'Commerce Brain dispatch failed before returning a safe result.';
+		}
+		$steps[] = array(
+			'label'  => 'core.mcp.gateway — Runtime: Commerce Brain read-only boundary',
+			'status' => $commerce_dispatch_status,
+			'detail' => $commerce_dispatch_detail,
+		);
+		if ( 'fail' === $commerce_dispatch_status ) { $pass = false; }
+
+		// [2026-07-30 Johnny Chu] PHASE-0.54-MCP Wave Q — policy-filtered catalog must exactly match BizCity_MCP_Tool_Policy::is_enabled() per tool (works whether the admin left the built-in defaults or explicitly toggled tools on this site).
+		$policy_filter_status = 'skip';
+		$policy_filter_detail = 'Tool policy class is not loaded in this runtime.';
+		if ( $classes_ok && class_exists( 'BizCity_MCP_Tool_Policy' ) ) {
+			$filtered_names = array_map( static function ( $tool ) {
+				return isset( $tool['name'] ) ? (string) $tool['name'] : '';
+			}, BizCity_MCP_Tool_Registry::list_descriptors( true ) );
+			$expected_visible = array_values( array_filter( $tool_names, static function ( $n ) {
+				return BizCity_MCP_Tool_Policy::is_enabled( $n );
+			} ) );
+			$mismatch_extra   = array_values( array_diff( $filtered_names, $expected_visible ) );
+			$mismatch_missing = array_values( array_diff( $expected_visible, $filtered_names ) );
+			$policy_filter_status = ( empty( $mismatch_extra ) && empty( $mismatch_missing ) ) ? 'pass' : 'fail';
+			$policy_filter_detail = $policy_filter_status === 'pass'
+				? sprintf( 'Policy-filtered tools/list (%d/%d tool(s)) exactly matches BizCity_MCP_Tool_Policy::is_enabled() per tool.', count( $filtered_names ), count( $tool_names ) )
+				: sprintf( 'Policy filter mismatch — unexpected: [%s], missing: [%s].', implode( ', ', $mismatch_extra ), implode( ', ', $mismatch_missing ) );
+		}
+		$steps[] = array(
+			'label'  => 'core.mcp.gateway — Runtime: default tool policy hides opt-in domains',
+			'status' => $policy_filter_status,
+			'detail' => $policy_filter_detail,
+		);
+		if ( 'fail' === $policy_filter_status ) { $pass = false; }
+
+		// [2026-07-30 Johnny Chu] PHASE-0.54-MCP Wave Q — a real (non-diagnostics) client must be blocked by the policy gate whenever the admin has NOT enabled the tool, even with a wildcard scope, proving enforcement is not scope-based only. Compares dispatch outcome against the site's own current BizCity_MCP_Tool_Policy state so this stays correct whether business.* is left at its off-by-default state or an admin has explicitly turned it on.
+		$policy_enforce_status = 'skip';
+		$policy_enforce_detail = 'Business Brain tools are disabled, so the policy-gate probe has nothing opt-in to test against.';
+		if ( $business_tools_enabled && $classes_ok && $tools_ok && class_exists( 'BizCity_MCP_Tool_Policy' ) ) {
+			$currently_enabled = BizCity_MCP_Tool_Policy::is_enabled( 'business.get_sales_metrics' );
+			$policy_enforce = BizCity_MCP_Tool_Registry::call(
+				'business.get_sales_metrics',
+				array(),
+				array(
+					'client_id'            => 'diagnostics-policy-check',
+					'client_name'          => 'BizCity Diagnostics (policy probe)',
+					'user_id'              => get_current_user_id(),
+					'scopes'               => array( '*' ),
+					'allowed_notebook_ids' => array(),
+				)
+			);
+			$policy_enforce_code = isset( $policy_enforce['error']['code'] ) ? (string) $policy_enforce['error']['code'] : '';
+			$got_tool_disabled   = $policy_enforce_code === BizCity_MCP_Error::TOOL_DISABLED;
+			// Enforcement is correct in both directions: OFF must yield TOOL_DISABLED; ON must NOT yield TOOL_DISABLED.
+			$policy_enforce_status = ( $currently_enabled !== $got_tool_disabled ) ? 'pass' : 'fail';
+			$policy_enforce_detail = $policy_enforce_status === 'pass'
+				? sprintf( 'business.get_sales_metrics dispatch outcome matches current admin policy state (enabled=%s, blocked_by_policy=%s).', $currently_enabled ? 'true' : 'false', $got_tool_disabled ? 'true' : 'false' )
+				: sprintf( 'Dispatch outcome disagreed with BizCity_MCP_Tool_Policy::is_enabled() (enabled=%s, blocked_by_policy=%s, code=%s).', $currently_enabled ? 'true' : 'false', $got_tool_disabled ? 'true' : 'false', $policy_enforce_code !== '' ? $policy_enforce_code : '(none)' );
+		}
+		$steps[] = array(
+			'label'  => 'core.mcp.gateway — Runtime: admin tool policy enforcement',
+			'status' => $policy_enforce_status,
+			'detail' => $policy_enforce_detail,
+		);
+		if ( 'fail' === $policy_enforce_status ) { $pass = false; }
+
 		// [2026-07-28 Johnny Chu] PHASE-0.53-MCP — verify bounded session constants without opening credential state.
 		$session_contract_ok = class_exists( 'BizCity_MCP_Session_Store' )
 			&& defined( 'BizCity_MCP_Session_Store::TTL' )
@@ -515,6 +611,40 @@ final class BizCity_Probe_MCP_Gateway implements BizCity_Diagnostics_Probe {
 		);
 		if ( ! $twinweb_route_ok ) { $pass = false; }
 
+		// [2026-07-30 Johnny Chu] PHASE-0.54-MCP Wave Q — customer contract must be read-only for capability policy; scope selection is subset-only (never broaden).
+		$twinweb_policy_contract_status = 'skip';
+		$twinweb_policy_contract_detail = 'TwinWeb MCP policy runtime contract was not evaluated.';
+		if ( $twinweb_route_ok && function_exists( 'rest_do_request' ) ) {
+			$current_user_id = (int) get_current_user_id();
+			if ( $current_user_id <= 0 ) {
+				$twinweb_policy_contract_status = 'skip';
+				$twinweb_policy_contract_detail = 'No authenticated user in this probe context; skipped customer policy runtime assertion.';
+			} else {
+				$tw_req  = new WP_REST_Request( 'GET', '/bizcity-twinweb/v1/mcp/policy' );
+				$tw_resp = rest_do_request( $tw_req );
+				$tw_data = ( $tw_resp instanceof WP_REST_Response ) ? $tw_resp->get_data() : null;
+				$policy  = ( is_array( $tw_data ) && isset( $tw_data['policy'] ) && is_array( $tw_data['policy'] ) ) ? $tw_data['policy'] : array();
+
+				$success_shape = is_array( $tw_data ) && ! empty( $tw_data['success'] );
+				$read_only_policy = isset( $policy['customer_can_configure_capability_policy'] )
+					? empty( $policy['customer_can_configure_capability_policy'] )
+					: ( isset( $policy['customer_can_configure'] ) ? empty( $policy['customer_can_configure'] ) : false );
+				$subset_only_scope = isset( $policy['customer_scope_mode'] ) && 'subset_only_never_broaden' === (string) $policy['customer_scope_mode'];
+				$supported_scopes_shape = isset( $policy['supported_scopes'] ) && is_array( $policy['supported_scopes'] );
+
+				$twinweb_policy_contract_status = ( $success_shape && $read_only_policy && $subset_only_scope && $supported_scopes_shape ) ? 'pass' : 'fail';
+				$twinweb_policy_contract_detail = $twinweb_policy_contract_status === 'pass'
+					? 'TwinWeb policy confirms admin-only capability control and subset-only customer scope selection.'
+					: 'TwinWeb policy contract mismatch: expected read-only capability policy + subset_only_never_broaden + supported_scopes[] payload.';
+			}
+		}
+		$steps[] = array(
+			'label'  => 'core.mcp.gateway — Runtime: TwinWeb customer scope contract',
+			'status' => $twinweb_policy_contract_status,
+			'detail' => $twinweb_policy_contract_detail,
+		);
+		if ( 'fail' === $twinweb_policy_contract_status ) { $pass = false; }
+
 		$score_contract_ok = is_readable( $base . 'includes/class-brain-mcp-service.php' ) && is_readable( $base . '../knowledge/kg-hub/includes/class-kg-retriever.php' );
 		$steps[] = array(
 			'label'  => 'core.mcp.gateway — Disk: canonical score contract',
@@ -534,6 +664,7 @@ final class BizCity_Probe_MCP_Gateway implements BizCity_Diagnostics_Probe {
 		$optional_labels = array();
 		if ( defined( 'BIZCITY_MCP_PAGE_TOOLS_ENABLED' ) && BIZCITY_MCP_PAGE_TOOLS_ENABLED ) { $optional_labels[] = 'Page Action'; }
 		if ( defined( 'BIZCITY_MCP_BUSINESS_TOOLS_ENABLED' ) && BIZCITY_MCP_BUSINESS_TOOLS_ENABLED ) { $optional_labels[] = 'Business Brain'; }
+		if ( defined( 'BIZCITY_MCP_COMMERCE_TOOLS_ENABLED' ) && BIZCITY_MCP_COMMERCE_TOOLS_ENABLED ) { $optional_labels[] = 'Commerce Brain'; }
 		$catalog_label = empty( $optional_labels )
 			? 'MCP gateway + 8-tool catalog sẵn sàng.'
 			: 'MCP gateway + Brain/Document catalog + ' . implode( ' + ', $optional_labels ) . ' sẵn sàng.';

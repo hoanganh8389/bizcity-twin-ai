@@ -30,6 +30,8 @@ class BizCity_KG_Cleanup_Service {
 	const HOOK_AD_HOC  = 'bizcity_kg_orphan_cleanup_now';
 	const GRACE_DAYS   = 30;
 	const BATCH_SIZE   = 500;
+	const AUDIT_RETENTION_DAYS = 7; // [2026-08-01 Johnny Chu] PHASE-1.28-RETENTION-7D — keep cleanup audit for one week.
+	const AUDIT_RETENTION_BATCH = 500;
 	const SCAN_TIME_S  = 25;
 	const LOCK_KEY     = 'bizcity_kg_cleanup_running';
 	const LOCK_TTL_S   = 60;
@@ -148,10 +150,12 @@ class BizCity_KG_Cleanup_Service {
 		$detected = [ 'queue' => 0, 'relations' => 0, 'entities' => 0 ];
 		$reaped   = [ 'relations' => 0, 'entities' => 0 ];
 		$errors   = 0;
+		$audit_deleted = 0;
 
 		try {
 			$detected = $this->detect_orphans( $run_id, $trigger, $by );
 			$reaped   = $this->reap_expired( $run_id, $trigger, $by );
+			$audit_deleted = $this->purge_old_audit_rows();
 		} catch ( \Throwable $e ) {
 			$errors = 1;
 			$this->log( $run_id, $trigger, $by, 'detect', '_run_', 0, 'skip', 'exception:' . substr( $e->getMessage(), 0, 80 ) );
@@ -168,9 +172,21 @@ class BizCity_KG_Cleanup_Service {
 			'ts'           => time(),
 			'detected'     => $detected,
 			'reaped'       => $reaped,
+			'audit_deleted' => $audit_deleted,
 			'errors'       => $errors,
 			'duration_ms'  => $duration_ms,
 		];
+		if ( class_exists( 'BizCity_Cron_Manager' ) ) {
+			$cron = BizCity_Cron_Manager::instance();
+			$cron->note( array( 'counters' => array( 'kg_cleanup_audit_deleted' => $audit_deleted ) ) );
+			$cron->note_event( 'kg_cleanup_completed', array(
+				'detected'      => $detected,
+				'reaped'        => $reaped,
+				'audit_deleted' => $audit_deleted,
+				'audit_retention_days' => self::AUDIT_RETENTION_DAYS,
+				'errors'        => $errors,
+			) );
+		}
 		update_option( self::OPT_LAST_RUN, $summary, false );
 		return $summary;
 	}
@@ -223,6 +239,21 @@ class BizCity_KG_Cleanup_Service {
 		$params[] = $limit;
 		$params[] = $offset;
 		return $wpdb->get_results( $wpdb->prepare( $sql, $params ), ARRAY_A );
+	}
+
+	/** Delete old cleanup evidence in bounded batches. */
+	private function purge_old_audit_rows(): int {
+		global $wpdb;
+		$table = $this->table_log();
+		if ( function_exists( 'bizcity_tbl_exists' ) && ! bizcity_tbl_exists( $table ) ) {
+			return 0;
+		}
+		$deleted = $wpdb->query( $wpdb->prepare(
+			"DELETE FROM {$table} WHERE run_at < ( CURRENT_TIMESTAMP - INTERVAL %d DAY ) ORDER BY id ASC LIMIT %d",
+			self::AUDIT_RETENTION_DAYS,
+			self::AUDIT_RETENTION_BATCH
+		) );
+		return false === $deleted ? 0 : (int) $deleted;
 	}
 
 	// ── Schema preflight (HOTFIX 2026-05-10) ──────────────────────────

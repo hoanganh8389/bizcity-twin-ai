@@ -63,6 +63,39 @@ final class BizCity_Probe_TwinBrain_Memory_Hub_Rest implements BizCity_Diagnosti
 	public function run( $ctx ): array {
 		$this->cleanup();
 
+		// [2026-07-31 Johnny Chu] PHASE-1.22-MEMORY-UNIFY — verify REST/Notes mirror hooks before planting the CRUD sentinel.
+		$plugin_root = dirname( __DIR__, 4 );
+		// [2026-07-31 Johnny Chu] PHASE-1.22-MEMORY-UNIFY — point static checks at the active core module paths.
+		$rest_file   = $plugin_root . '/core/twinbrain/includes/class-twinbrain-rest-memory-me.php';
+		$writer_file = $plugin_root . '/core/memory/includes/class-memory-unified-writer.php';
+		$notes_file  = $plugin_root . '/modules/twinchat/notebooklm/includes/class-twinchat-notes-service.php';
+		$user_memory_file = $plugin_root . '/core/knowledge/includes/class-user-memory.php';
+		$admin_menu_file  = $plugin_root . '/core/knowledge/includes/class-admin-menu.php';
+		$rest_src    = is_readable( $rest_file ) ? (string) file_get_contents( $rest_file ) : '';
+		$writer_src  = is_readable( $writer_file ) ? (string) file_get_contents( $writer_file ) : '';
+		$notes_src   = is_readable( $notes_file ) ? (string) file_get_contents( $notes_file ) : '';
+		$user_memory_src = is_readable( $user_memory_file ) ? (string) file_get_contents( $user_memory_file ) : '';
+		$admin_menu_src  = is_readable( $admin_menu_file ) ? (string) file_get_contents( $admin_menu_file ) : '';
+		$mirror_contract_ok = strpos( $rest_src, "bizcity_memory_mirror_write', 'user'" ) !== false
+			&& strpos( $rest_src, "bizcity_memory_mirror_delete', 'user'" ) !== false
+			&& strpos( $writer_src, "add_action( 'bizcity_memory_mirror_delete'" ) !== false
+			&& strpos( $writer_src, 'function on_mirror_delete' ) !== false
+			&& strpos( $notes_src, "bizcity_memory_mirror_delete', 'note'" ) !== false
+			&& strpos( $user_memory_src, "bizcity_memory_mirror_delete', 'user'" ) !== false
+			&& strpos( $admin_menu_src, "bizcity_memory_mirror_delete', 'user'" ) !== false;
+		$ctx->emit_step( [
+			'label'  => 'Mirror contract · REST update/delete + Notes delete',
+			'status' => $mirror_contract_ok ? 'pass' : 'fail',
+			'detail' => $mirror_contract_ok ? 'Owner-self and Notes delete/update hooks are wired before the CRUD runtime check.' : 'One or more unified mirror hooks are missing.',
+		] );
+		if ( ! $mirror_contract_ok ) {
+			return [
+				'status'  => 'fail',
+				'error'   => 'Unified mirror contract is incomplete.',
+				'fix_hint' => 'Check class-memory-unified-writer.php, class-twinbrain-rest-memory-me.php, and class-twinchat-notes-service.php.',
+			];
+		}
+
 		// Step 1 — POST create.
 		$req = new WP_REST_Request( 'POST', '/' . self::NS . '/memory/me' );
 		$req->set_param( 'memory_text', 'Test hub-rest: ' . self::SENTINEL . ' codename diagnostics' );

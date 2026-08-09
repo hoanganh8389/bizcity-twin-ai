@@ -3,9 +3,44 @@
   "module_id": "core.twinbrain",
   "owner": "core/twinbrain",
   "installer_id": "twinbrain",
-  "current_version": "1.1.0",
+  "current_version": "1.2.0",
   "version_option": "bizcity_twinbrain_schema_version",
   "tables": {
+    "bizcity_twin_goal_contracts": {
+      "since": "1.2.0",
+      "purpose": "Current-state projection of Goal Contract fields for indexed runtime and Diagnostics reads. Source of truth remains bizcity_twin_event_stream.",
+      "note": "Projection only. Rebuild from bizcity_twin_event_stream; do not use as an event source or append-only history.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":                 { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.2.0", "pk": true },
+        "blog_id":            { "type": "BIGINT UNSIGNED NOT NULL", "since": "1.2.0" },
+        "goal_id":            { "type": "VARCHAR(64) NOT NULL", "since": "1.2.0" },
+        "identity_uuid":      { "type": "VARCHAR(64) NOT NULL", "since": "1.2.0" },
+        "session_id":         { "type": "VARCHAR(128) NOT NULL", "since": "1.2.0" },
+        "current_turn_id":    { "type": "VARCHAR(64) NOT NULL", "since": "1.2.0" },
+        "scoreboard_version": { "type": "VARCHAR(16) NOT NULL DEFAULT 'v1'", "since": "1.2.0" },
+        "conversation_goal":  { "type": "LONGTEXT NOT NULL", "since": "1.2.0" },
+        "obligations_json":   { "type": "LONGTEXT NOT NULL", "since": "1.2.0" },
+        "scoreboard_json":    { "type": "LONGTEXT NULL", "since": "1.2.0" },
+        "contract_status":    { "type": "VARCHAR(16) NOT NULL DEFAULT 'active'", "since": "1.2.0" },
+        "retrieve_round":     { "type": "TINYINT UNSIGNED NOT NULL DEFAULT 0", "since": "1.2.0" },
+        "turn_count":         { "type": "SMALLINT UNSIGNED NOT NULL DEFAULT 1", "since": "1.2.0" },
+        "event_stream_id":    { "type": "BIGINT UNSIGNED NULL", "since": "1.2.0" },
+        "source_event_uuid":  { "type": "VARCHAR(36) NOT NULL DEFAULT ''", "since": "1.2.0" },
+        "event_seq":          { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "1.2.0" },
+        "jsonl_path":         { "type": "VARCHAR(500) NULL", "since": "1.2.0" },
+        "created_at":         { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.2.0" },
+        "updated_at":         { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", "since": "1.2.0" }
+      },
+      "indexes": {
+        "idx_goal_id":       { "cols": ["blog_id", "goal_id"], "since": "1.2.0", "unique": true },
+        "idx_identity":      { "cols": ["blog_id", "identity_uuid", "session_id"], "since": "1.2.0" },
+        "idx_status_updated": { "cols": ["blog_id", "contract_status", "updated_at"], "since": "1.2.0" },
+        "idx_event_seq":     { "cols": ["blog_id", "goal_id", "event_seq"], "since": "1.2.0" }
+      }
+    },
     "bizcity_twin_event_stream": {
       "since": "1.0.0",
       "purpose": "Canonical event bus store for all TwinBrain + TwinCore events (R-EVT-1). One row per event_type emission; immutable append-only log.",
@@ -67,6 +102,11 @@
       "version": "1.1.0",
       "date": "2026-06-19",
       "change": "[2026-06-19 Johnny Chu] PHASE-TWB-WORKFLOW W1 — Added 3 new event_types to taxonomy: workflow_started, workflow_step, workflow_completed. Bump TAXONOMY_VERSION 6 → 7. New files: class-twinbrain-workflow-pipeline.php, core/twin-core/includes/class-twin-artifact-normalizer.php. JSON schemas: core/twin-core/event-stream/schemas/events/workflow_{started,step,completed}.json. 'twinbrain' added to allowed_sources in class-twin-event-taxonomy.php."
+    },
+    {
+      "version": "1.2.0",
+      "date": "2026-08-03",
+      "change": "[2026-08-03 Johnny Chu] G12 — Added bizcity_twin_goal_contracts as a rebuildable current-state projection for Goal Contract runtime/Diagnostics reads. Fine-grained history remains in per-goal JSONL and canonical Goal State remains in bizcity_twin_event_stream."
     }
   ]
 }

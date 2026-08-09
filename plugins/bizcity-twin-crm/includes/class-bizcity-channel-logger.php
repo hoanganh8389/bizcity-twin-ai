@@ -61,6 +61,11 @@ class BizCity_Channel_File_Logger {
 	 */
 	public static function write( $channel, $level, $event, $message, array $ctx = array() ) {
 		try {
+			// [2026-08-01 Johnny Chu] PHASE-1.26-CORRELATION — standalone CRM
+			// deployments must emit the same event_uuid/trace_id contract.
+			if ( class_exists( 'BizCity_Chat_Correlation' ) ) {
+				$ctx = BizCity_Chat_Correlation::ensure( $ctx, $event );
+			}
 			$dir = self::get_log_dir( $channel );
 			if ( $dir === '' ) { return false; }
 
@@ -73,6 +78,9 @@ class BizCity_Channel_File_Logger {
 				'channel' => (string) $channel,
 				'level'   => (string) $level,
 				'event'   => (string) $event,
+				'event_uuid' => (string) ( $ctx['event_uuid'] ?? '' ),
+				'trace_id' => (string) ( $ctx['trace_id'] ?? '' ),
+				'parent_event_uuid' => (string) ( $ctx['parent_event_uuid'] ?? '' ),
 				'msg'     => substr( (string) $message, 0, 500 ),
 				'ctx'     => $ctx,
 			);

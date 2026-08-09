@@ -106,6 +106,64 @@ class BizCity_CRM_Repository {
 		return $rows ?: array();
 	}
 
+	/** Determine whether an inbox is explicitly marked as diagnostic/test data. */
+	public static function is_test_inbox( array $inbox ): bool {
+		// [2026-08-04 Johnny Chu] PHASE-0.48-INBOX-CLEANUP — keep destructive cleanup limited to named test fixtures.
+		$label = strtolower( (string) ( $inbox['name'] ?? '' ) . ' ' . ( $inbox['channel_ref_id'] ?? '' ) );
+		return false !== strpos( $label, '__diag' )
+			|| (bool) preg_match( '/(^|[^a-z])(diag(?:_page)?|healthtest)([^a-z]|$)/i', $label );
+	}
+
+	/** Delete a marked test inbox and only data owned by that inbox. */
+	public static function delete_inbox( int $inbox_id ): bool {
+		// [2026-08-04 Johnny Chu] PHASE-0.48-INBOX-CLEANUP — transactional purge for diagnostic inbox fixtures.
+		if ( $inbox_id <= 0 ) { return false; }
+		$inbox = self::get_inbox( $inbox_id );
+		if ( ! $inbox || ! self::is_test_inbox( $inbox ) ) { return false; }
+
+		global $wpdb;
+		$tbl_ibx  = BizCity_CRM_DB_Installer_V2::tbl_inboxes();
+		$tbl_ci   = BizCity_CRM_DB_Installer_V2::tbl_contact_inboxes();
+		$tbl_conv = BizCity_CRM_DB_Installer_V2::tbl_conversations();
+		$tbl_msg  = BizCity_CRM_DB_Installer_V2::tbl_messages();
+		$tbl_att  = BizCity_CRM_DB_Installer_V2::tbl_attachments();
+		$tbl_cl   = BizCity_CRM_DB_Installer_V2::tbl_conversation_labels();
+		$tbl_sla  = BizCity_CRM_DB_Installer_V2::tbl_applied_slas();
+		$tbl_wh   = BizCity_CRM_DB_Installer_V2::tbl_working_hours();
+		$tbl_rule = BizCity_CRM_DB_Installer_V2::tbl_automation_rules();
+
+		$conv_ids = $wpdb->get_col( $wpdb->prepare( "SELECT id FROM {$tbl_conv} WHERE inbox_id = %d", $inbox_id ) );
+		$conv_ids = array_values( array_filter( array_map( 'intval', (array) $conv_ids ) ) );
+		$conv_sql = $conv_ids ? implode( ',', $conv_ids ) : '0';
+
+		$wpdb->query( 'START TRANSACTION' );
+		try {
+			$queries = array(
+				"DELETE FROM {$tbl_att} WHERE message_id IN (SELECT id FROM {$tbl_msg} WHERE conversation_id IN ({$conv_sql}))",
+				"DELETE FROM {$tbl_msg} WHERE conversation_id IN ({$conv_sql})",
+				"DELETE FROM {$tbl_sla} WHERE conversation_id IN ({$conv_sql})",
+				"DELETE FROM {$tbl_cl} WHERE conversation_id IN ({$conv_sql})",
+				"DELETE FROM {$tbl_conv} WHERE inbox_id = " . (int) $inbox_id,
+				"DELETE FROM {$tbl_ci} WHERE inbox_id = " . (int) $inbox_id,
+				"DELETE FROM {$tbl_wh} WHERE inbox_id = " . (int) $inbox_id,
+				"UPDATE {$tbl_rule} SET inbox_id = NULL WHERE inbox_id = " . (int) $inbox_id,
+				"DELETE FROM {$tbl_ibx} WHERE id = " . (int) $inbox_id,
+			);
+			foreach ( $queries as $query ) {
+				if ( false === $wpdb->query( $query ) ) {
+					throw new \RuntimeException( 'inbox_delete_query_failed' );
+				}
+			}
+			$wpdb->query( 'COMMIT' );
+		} catch ( \Throwable $e ) {
+			$wpdb->query( 'ROLLBACK' );
+			return false;
+		}
+
+		BizCity_CRM_Event_Emitter::emit( 'crm_inbox_deleted', array( 'inbox_id' => $inbox_id ) );
+		return true;
+	}
+
 	/* ============================================================
 	 * CONTACT + CONTACT_INBOX
 	 * ============================================================ */
@@ -140,7 +198,9 @@ class BizCity_CRM_Repository {
 				if ( ! empty( $contact_data['name'] ) && $old_is_stub && $contact_data['name'] !== $old_name ) {
 					$update['name'] = $contact_data['name'];
 				}
-				if ( ! empty( $contact_data['avatar_url'] ) && empty( $existing_contact['avatar_url'] ) ) {
+				// [2026-08-04 Johnny Chu] HOTFIX — persist a refreshed Facebook CDN avatar when the signed URL rotates.
+				if ( ! empty( $contact_data['avatar_url'] )
+					&& ( empty( $existing_contact['avatar_url'] ) || (string) $existing_contact['avatar_url'] !== (string) $contact_data['avatar_url'] ) ) {
 					$update['avatar_url'] = $contact_data['avatar_url'];
 				}
 				// PHASE 0.35 M-CRM.M8.W3 — opportunistic Woo user link.
@@ -369,6 +429,9 @@ class BizCity_CRM_Repository {
 			$where[]  = 'c.assignee_id = %d';
 			$params[] = (int) $args['assignee_id'];
 		}
+		if ( ! empty( $args['unassigned'] ) ) {
+			$where[] = '(c.assignee_id IS NULL OR c.assignee_id = 0)';
+		}
 		if ( ! empty( $args['q'] ) ) {
 			$like     = '%' . $wpdb->esc_like( (string) $args['q'] ) . '%';
 			$where[]  = '(ct.name LIKE %s OR ct.email LIKE %s OR ct.phone LIKE %s)';
@@ -451,15 +514,87 @@ class BizCity_CRM_Repository {
 		if ( ! $prev ) {
 			return false;
 		}
+		// [2026-08-04 Johnny Chu] PHASE-0.48-H2 — retain the previous status for causal events.
+		$previous_status = (string) ( $prev['status'] ?? '' );
 		$ok = (bool) $wpdb->update( $tbl, array(
 			'status'     => $status,
 			'updated_at' => current_time( 'mysql' ),
 		), array( 'id' => $conv_id ) );
 
-		if ( $ok && $status === 'resolved' ) {
+		if ( $ok && $previous_status !== $status ) {
+			$actor_id = $by_user_id ?: get_current_user_id();
+			BizCity_CRM_Event_Emitter::emit( 'crm_status_changed', array(
+				'conversation_id' => $conv_id,
+				'from_status'     => $previous_status,
+				'to_status'       => $status,
+				'by_user_id'      => $actor_id,
+			) );
+		}
+		if ( $ok && $status === 'resolved' && $previous_status !== 'resolved' ) {
 			BizCity_CRM_Event_Emitter::emit( 'crm_conversation_resolved', array(
 				'conversation_id' => $conv_id,
 				'by_user_id'      => $by_user_id ?: get_current_user_id(),
+			) );
+		}
+		if ( $ok && $status === 'open' && $previous_status === 'resolved' ) {
+			BizCity_CRM_Event_Emitter::emit( 'crm_conversation_reopened', array(
+				'conversation_id' => $conv_id,
+				'by_user_id'      => $by_user_id ?: get_current_user_id(),
+			) );
+		}
+		return $ok;
+	}
+
+	// [2026-08-04 Johnny Chu] PHASE-0.48-H2 — persist assignment through the CRM write gate.
+	public static function set_conversation_assignee( int $conv_id, ?int $assignee_id, int $by_user_id = 0 ): bool {
+		// [2026-08-04 Johnny Chu] PHASE-0.48-H2 — emit assignment only after a real state change.
+		global $wpdb;
+		$tbl  = BizCity_CRM_DB_Installer_V2::tbl_conversations();
+		$prev = self::get_conversation( $conv_id );
+		if ( ! $prev ) { return false; }
+		$previous_id = ! empty( $prev['assignee_id'] ) ? (int) $prev['assignee_id'] : null;
+		$next_id     = $assignee_id && $assignee_id > 0 ? (int) $assignee_id : null;
+		if ( $previous_id === $next_id ) { return true; }
+		$ok = (bool) $wpdb->update(
+			$tbl,
+			array( 'assignee_id' => $next_id, 'updated_at' => current_time( 'mysql' ) ),
+			array( 'id' => $conv_id ),
+			array( $next_id === null ? '%s' : '%d', '%s' ),
+			array( '%d' )
+		);
+		if ( $ok ) {
+			BizCity_CRM_Event_Emitter::emit( 'crm_conversation_assigned', array(
+				'conversation_id'      => $conv_id,
+				'previous_assignee_id' => $previous_id,
+				'assignee_id'          => $next_id,
+				'by_user_id'           => $by_user_id ?: get_current_user_id(),
+			) );
+		}
+		return $ok;
+	}
+
+	// [2026-08-04 Johnny Chu] PHASE-0.48-H2 — persist priority through the CRM write gate.
+	public static function set_conversation_priority( int $conv_id, int $priority, int $by_user_id = 0 ): bool {
+		// [2026-08-04 Johnny Chu] PHASE-0.48-H2 — emit priority only after a real state change.
+		global $wpdb;
+		$tbl  = BizCity_CRM_DB_Installer_V2::tbl_conversations();
+		$prev = self::get_conversation( $conv_id );
+		if ( ! $prev || $priority < 0 || $priority > 3 ) { return false; }
+		$previous_priority = (int) ( $prev['priority'] ?? 0 );
+		if ( $previous_priority === $priority ) { return true; }
+		$ok = (bool) $wpdb->update(
+			$tbl,
+			array( 'priority' => $priority, 'updated_at' => current_time( 'mysql' ) ),
+			array( 'id' => $conv_id ),
+			array( '%d', '%s' ),
+			array( '%d' )
+		);
+		if ( $ok ) {
+			BizCity_CRM_Event_Emitter::emit( 'crm_conversation_priority_changed', array(
+				'conversation_id'   => $conv_id,
+				'previous_priority' => $previous_priority,
+				'priority'          => $priority,
+				'by_user_id'        => $by_user_id ?: get_current_user_id(),
 			) );
 		}
 		return $ok;
@@ -578,6 +713,52 @@ class BizCity_CRM_Repository {
 		$tbl = BizCity_CRM_DB_Installer_V2::tbl_messages();
 		$row = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$tbl} WHERE id = %d", $id ), ARRAY_A );
 		return $row ?: null;
+	}
+
+	/** Save a bounded, classified outbound delivery result in payload_json. */
+	public static function update_message_delivery( int $message_id, array $result ): bool {
+		// [2026-08-04 Johnny Chu] PHASE-0.48-INBOX-ERROR-UX — preserve provider reason for failed-send tooltip without new columns.
+		if ( $message_id <= 0 ) { return false; }
+		global $wpdb;
+		$tbl = BizCity_CRM_DB_Installer_V2::tbl_messages();
+		$row = self::get_message( $message_id );
+		if ( ! $row ) { return false; }
+		$payload = ! empty( $row['payload_json'] ) ? json_decode( (string) $row['payload_json'], true ) : array();
+		if ( ! is_array( $payload ) ) { $payload = array(); }
+		$error = (string) ( $result['error'] ?? '' );
+		$error = function_exists( 'wp_strip_all_tags' ) ? wp_strip_all_tags( $error ) : strip_tags( $error );
+		if ( function_exists( 'mb_substr' ) ) {
+			$error = mb_substr( $error, 0, 500 );
+		} else {
+			$error = substr( $error, 0, 500 );
+		}
+		$lower = strtolower( $error );
+		$reason_code = 'provider_error';
+		if ( preg_match( '/24\s*[- ]?hour|outside.{0,20}window|messaging.{0,20}window|customer.{0,20}initiated/i', $lower ) ) {
+			$reason_code = 'outside_24h_window';
+		} elseif ( strpos( $lower, 'permission' ) !== false || strpos( $lower, 'not authorized' ) !== false || strpos( $lower, '(#10)' ) !== false ) {
+			$reason_code = 'permission_denied';
+		} elseif ( strpos( $lower, 'token' ) !== false || strpos( $lower, 'oauth' ) !== false || strpos( $lower, '(#190)' ) !== false ) {
+			$reason_code = 'token_invalid';
+		} elseif ( strpos( $lower, 'rate' ) !== false || strpos( $lower, 'throttl' ) !== false ) {
+			$reason_code = 'rate_limited';
+		} elseif ( $error === '' ) {
+			$reason_code = 'unknown';
+		}
+		$payload['delivery'] = array(
+			'sent'        => ! empty( $result['sent'] ),
+			'platform'    => (string) ( $result['platform'] ?? '' ),
+			'error'       => $error,
+			'reason_code' => $reason_code,
+			'updated_at'  => current_time( 'mysql' ),
+		);
+		return false !== $wpdb->update(
+			$tbl,
+			array( 'payload_json' => wp_json_encode( $payload ) ),
+			array( 'id' => $message_id ),
+			array( '%s' ),
+			array( '%d' )
+		);
 	}
 
 	/**

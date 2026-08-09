@@ -50,6 +50,14 @@ if ( ! defined( 'BIZCITY_TWIN_CORE_VERSION' ) ) {
 /* ── Autoload Classes ──────────────────────────────────────────── */
 // Skip if already loaded by legacy mu-plugin
 if ( class_exists( 'BizCity_Twin_Trace' ) ) {
+    // [2026-07-30 Johnny Chu] PHASE-1.22-RUNTIME — keep production boundaries available when legacy trace bootstraps first.
+    $legacy_twin_includes = __DIR__ . '/includes';
+    require_once $legacy_twin_includes . '/class-twin-runtime-audit.php';
+    require_once $legacy_twin_includes . '/class-twin-secret-provider.php';
+    require_once $legacy_twin_includes . '/class-twin-slo-store.php';
+    require_once $legacy_twin_includes . '/class-twin-runtime-reliability.php';
+    require_once $legacy_twin_includes . '/class-twin-reliable-http.php';
+    require_once $legacy_twin_includes . '/class-twin-mutation-guard.php';
     return;
 }
 $twin_includes = BIZCITY_TWIN_CORE_DIR . '/includes';
@@ -71,6 +79,9 @@ require_once $twin_includes . '/class-twin-data-contract.php';
 
 // Phase 2 Priority 3–5 — State Schema (7 state tables DDL + migration)
 require_once $twin_includes . '/class-twin-state-schema.php';
+
+// [2026-07-30 Johnny Chu] PHASE-1.22-RETENTION — register bounded trace cleanup through the central cron manager.
+add_action( 'init', [ 'BizCity_Twin_State_Schema', 'register_retention_cron' ], 20 );
 
 // [2026-06-19 Johnny Chu] PHASE-TWB-WORKFLOW W1 — Artifact Normalizer.
 // Stateless utility; convert block execute() output → standardized artifact pool entry.
@@ -145,6 +156,24 @@ require_once $twin_includes . '/class-twin-context-resolver.php';
 /* ── Sprint 4.7 — TWIN AGENT CORE (RULE CAO NHẤT) ─────────────── */
 // See PHASE-0-RULE-AGENTIC-CORE.md. Mọi main LLM call PHẢI qua BizCity_Twin_Agent::run().
 require_once $twin_includes . '/interface-twin-tool.php';
+// [2026-07-30 Johnny Chu] PHASE-1.22-SEC — load shared tool security boundary.
+require_once $twin_includes . '/class-twin-runtime-audit.php';
+// [2026-07-30 Johnny Chu] PHASE-1.22-SEC — load the central secret resolution boundary before channel integrations.
+require_once $twin_includes . '/class-twin-secret-provider.php';
+// [2026-07-30 Johnny Chu] PHASE-1.22-RUNTIME — load the persistent metadata-only SLO evidence sink.
+require_once $twin_includes . '/class-twin-slo-store.php';
+require_once $twin_includes . '/class-twin-capability-guard.php';
+// [2026-07-30 Johnny Chu] PHASE-1.22-SEC — load persistent extension consent before authorization.
+require_once $twin_includes . '/class-twin-capability-consent.php';
+BizCity_Twin_Capability_Consent::boot();
+// [2026-07-30 Johnny Chu] PHASE-1.22-SEC — load shared SSRF and upload policy enforcement.
+require_once $twin_includes . '/class-twin-security-policy.php';
+require_once $twin_includes . '/class-twin-mutation-guard.php';
+// [2026-07-30 Johnny Chu] PHASE-1.22-RUNTIME — load the shared reliability policy before guarded execution.
+require_once $twin_includes . '/class-twin-runtime-reliability.php';
+// [2026-07-30 Johnny Chu] PHASE-1.22-RUNTIME — expose the shared outbound HTTP reliability adapter.
+require_once $twin_includes . '/class-twin-reliable-http.php';
+require_once $twin_includes . '/class-twin-content-registry.php';
 require_once $twin_includes . '/class-twin-tool-registry.php';
 require_once $twin_includes . '/class-twin-citation-id-generator.php';
 require_once $twin_includes . '/class-twin-citation-validator.php';
@@ -175,8 +204,16 @@ BizChat_Menu::boot();
 if ( is_admin() || ( defined( 'WP_CLI' ) && WP_CLI ) ) {
     BizCity_Memory_Table_Migration::maybe_migrate();
 }
-BizCity_Twin_State_Schema::ensure_tables();  // Phase 2 — 7 state tables
-BizCity_Twin_Event_Stream_Schema::ensure_table();  // Phase 0.12 Wave A — canonical event stream
+// [2026-07-31 Johnny Chu] R-PERF/R-MSDB — defer tenant DDL to an explicit repair-capable context.
+$bizcity_twin_schema_context = is_admin()
+    || ( defined( 'REST_REQUEST' ) && REST_REQUEST )
+    || ( ! empty( $_SERVER['REQUEST_URI'] ) && false !== strpos( (string) $_SERVER['REQUEST_URI'], '/wp-json/' ) )
+    || ( defined( 'DOING_CRON' ) && DOING_CRON )
+    || ( defined( 'WP_CLI' ) && WP_CLI );
+if ( $bizcity_twin_schema_context ) {
+    BizCity_Twin_State_Schema::ensure_tables();  // Phase 2 — active state tables
+    BizCity_Twin_Event_Stream_Schema::ensure_table();  // Phase 0.12 Wave A — canonical event stream
+}
 
 // NOTE 2026-05-06: Maturity Dashboard + Calculator subsystem removed entirely
 // (admin menu, /maturity/ frontend route, daily/hourly cron, 11 AJAX endpoints,

@@ -42,6 +42,8 @@ class BizCity_Memory_Unified_Writer {
 
 	private function __construct() {
 		add_action( 'bizcity_memory_mirror_write', [ $this, 'on_mirror_write' ], 20, 3 );
+		// [2026-07-31 Johnny Chu] PHASE-1.22-MEMORY-UNIFY — consume canonical delete events so unified rows cannot outlive legacy owners.
+		add_action( 'bizcity_memory_mirror_delete', [ $this, 'on_mirror_delete' ], 20, 3 );
 	}
 
 	/**
@@ -77,6 +79,40 @@ class BizCity_Memory_Unified_Writer {
 			}
 		} catch ( \Throwable $e ) {
 			error_log( '[BizCity_Memory_Unified_Writer] mirror ' . $class . ' failed: ' . $e->getMessage() );
+		}
+	}
+
+	/**
+	 * Delete one mirrored legacy row by class and legacy id.
+	 *
+	 * @param string     $class  Memory class.
+	 * @param int        $id     Legacy row id.
+	 * @param array|null $scope  Optional blog/identity scope.
+	 */
+	public function on_mirror_delete( $class, $id, $scope = null ): void {
+		if ( ! BizCity_Memory_Unified_Installer::is_enabled() ) {
+			return;
+		}
+		$class = sanitize_key( (string) $class );
+		$id    = (int) $id;
+		if ( $class === '' || $id <= 0 ) {
+			return;
+		}
+
+		try {
+			global $wpdb;
+			$table   = BizCity_Memory_Unified_Installer::table();
+			$blog_id = is_array( $scope ) && isset( $scope['blog_id'] )
+				? (int) $scope['blog_id']
+				: (int) get_current_blog_id();
+			$wpdb->query( $wpdb->prepare(
+				"DELETE FROM {$table} WHERE blog_id = %d AND memory_class = %s AND legacy_id = %d",
+				$blog_id,
+				$class,
+				$id
+			) );
+		} catch ( \Throwable $e ) {
+			error_log( '[BizCity_Memory_Unified_Writer] delete ' . $class . ' failed: ' . $e->getMessage() );
 		}
 	}
 

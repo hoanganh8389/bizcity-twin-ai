@@ -2,8 +2,7 @@
 /**
  * BizCity Personal — Zalo Bot Task/Event Listener (W2)
  *
- * Listens on `bizcity_zalo_message_received` (Zone 2 only) at priority 2,
- * BEFORE the Guru Bridge at priority 5. Detects Vietnamese quick-command
+	 * Listens on `bizcity_channel_normalized` (Zone 2 only) after UCL. Detects Vietnamese quick-command
  * prefixes and creates tasks / calendar events directly via Scheduler.
  *
  * Supported prefixes (case-insensitive, colon required):
@@ -66,46 +65,53 @@ class BizCity_Personal_Zalo_Listener {
 	}
 
 	private function __construct() {
-		// [2026-06-24 Johnny Chu] PHASE-HOME W2 — priority 2: before guru (5), linker (3)
-		add_action( 'bizcity_zalo_message_received', array( $this, 'on_message' ), 2, 1 );
+		// [2026-07-30 Johnny Chu] R-CH-UNI — consume the canonical envelope after UCL persistence and identity resolution.
+		add_action( 'bizcity_channel_normalized', array( $this, 'on_message' ), 2, 2 );
 	}
 
 	/**
 	 * Main handler for Zalo Bot messages.
 	 *
-	 * @param array $msg  Message payload from bizcity_zalo_message_received.
+	 * @param array  $msg  Canonical envelope from bizcity_channel_normalized.
+	 * @param string $trigger_key
 	 */
-	public function on_message( $msg ) {
-		// [2026-06-24 Johnny Chu] PHASE-HOME W2 — R-ZONE bail: Zone 1 customer channels
+	public function on_message( $msg, $trigger_key = '' ) {
+		// [2026-07-30 Johnny Chu] R-CH-UNI — accept only the Zone 2 Zalo Bot envelope; raw channel hooks are adapter-owned.
 		if ( ! is_array( $msg ) || empty( $msg ) ) {
 			return;
 		}
-		$code = (string) ( isset( $msg['code'] ) ? $msg['code'] : '' );
-		if ( $code === 'zalo_oa' || $code === 'zalo_personal' ) {
+		if ( (string) ( $msg['platform'] ?? '' ) !== 'ZALO_BOT' ) {
 			return;
 		}
 
-		$text    = trim( (string) ( isset( $msg['message_text'] ) ? $msg['message_text'] : '' ) );
-		$user_z  = (string) ( isset( $msg['from_user_id'] )   ? $msg['from_user_id']   : '' );
-		$bot_id  = (int)    ( isset( $msg['bot_id'] )          ? $msg['bot_id']          : 0 );
+		$text    = trim( (string) ( $msg['message'] ?? $msg['message_text_clean'] ?? '' ) );
+		$user_z  = (string) ( $msg['user_id'] ?? '' );
+		$chat_id = trim( (string) ( $msg['chat_id'] ?? '' ) );
+		$account_id = trim( (string) ( $msg['account_id'] ?? '' ) );
+		$message_id = trim( (string) ( $msg['message_id'] ?? $msg['mid'] ?? '' ) );
 
-		if ( $text === '' || $user_z === '' ) {
+		// [2026-07-30 Johnny Chu] R-CH-IDMEM — require the complete channel identity tuple before side effects.
+		if ( $text === '' || $user_z === '' || $chat_id === '' || $account_id === '' || $message_id === '' ) {
 			return;
 		}
 
-		// [2026-06-24 Johnny Chu] PHASE-HOME W2 — resolve linked WP user
-		$wp_user_id = 0;
-		if ( class_exists( 'BizCity_Zalobot_User_Linker' ) ) {
-			$wp_user_id = (int) BizCity_Zalobot_User_Linker::resolve_wp_user( $user_z, $bot_id );
-		}
+		// [2026-07-30 Johnny Chu] R-CH-IDMEM — reuse UCL's resolved owner; do not re-resolve identity or reconstruct chat_id.
+		$wp_user_id = (int) ( $msg['wp_user_id'] ?? 0 );
 
 		if ( $wp_user_id <= 0 ) {
 			// User not linked — let the linker handle the login prompt
 			return;
 		}
-
-		// Build chat_id for reply (format from class-webhook-handler.php line 457)
-		$chat_id = 'zalobot_' . $bot_id . '_' . $user_z;
+		$inbound_context = array(
+			'platform'   => 'ZALO_BOT',
+			'account_id' => $account_id,
+			'user_id'    => $user_z,
+			'wp_user_id' => $wp_user_id,
+			'chat_id'    => $chat_id,
+			'message_id' => $message_id,
+			'raw_text'   => $text,
+			'trace_id'   => (string) ( $msg['trace_id'] ?? '' ),
+		);
 
 		// [2026-06-24 Johnny Chu] PHASE-HOME W2 — try to match command prefix
 		$lower_text = mb_strtolower( $text );
@@ -122,7 +128,7 @@ class BizCity_Personal_Zalo_Listener {
 					$handled = true;
 					break;
 				}
-				$handled = $this->handle_scheduler_command( $chat_id, $wp_user_id, $title, $event_type, $text );
+				$handled = $this->handle_scheduler_command( $chat_id, $wp_user_id, $title, $event_type, $text, $inbound_context );
 				break;
 			}
 		}
@@ -132,7 +138,7 @@ class BizCity_Personal_Zalo_Listener {
 			foreach ( self::FINANCE_PREFIXES as $prefix => $kind ) {
 				if ( strpos( $lower_text, $prefix ) === 0 ) {
 					$rest = trim( substr( $text, strlen( $prefix ) ) );
-					$handled = $this->handle_finance_command( $chat_id, $wp_user_id, $rest, $kind );
+					$handled = $this->handle_finance_command( $chat_id, $wp_user_id, $rest, $kind, $inbound_context );
 					break;
 				}
 			}
@@ -155,15 +161,23 @@ class BizCity_Personal_Zalo_Listener {
 	 * @param string $title
 	 * @param string $event_type  'task', 'meeting', 'reminder'
 	 * @param string $raw_text    Original message (for metadata logging)
+	 * @param array  $inbound_context Canonical inbound identity and correlation data.
 	 * @return bool  true = handled, false = error
 	 */
-	private function handle_scheduler_command( $chat_id, $wp_user_id, $title, $event_type, $raw_text ) {
+	private function handle_scheduler_command( $chat_id, $wp_user_id, $title, $event_type, $raw_text, array $inbound_context = array() ) {
 		// [2026-06-24 Johnny Chu] PHASE-HOME W2 — parse optional time from title
 		$parsed  = $this->parse_time_from_title( $title );
 		$clean   = $parsed['title'];
 		$start   = $parsed['start_at'];
+		$inbound = $this->build_inbound_metadata( $inbound_context, $event_type );
+		$preflight = $this->preflight_mutation( 'create', 'scheduler_event', 0, 'scheduler_user:' . $wp_user_id, $inbound_context );
+		if ( ! is_array( $inbound ) || is_wp_error( $preflight ) ) {
+			$this->reply( $chat_id, '❌ Không thể xác thực yêu cầu scheduler.' );
+			return true;
+		}
 
 		if ( ! class_exists( 'BizCity_Scheduler_Manager' ) ) {
+			BizCity_Twin_Mutation_Guard::record( $preflight['mutation'], 'rejected', $preflight['context'] );
 			$this->reply( $chat_id, '❌ Scheduler chưa sẵn sàng.' );
 			return true;
 		}
@@ -178,22 +192,20 @@ class BizCity_Personal_Zalo_Listener {
 			'source'      => 'zalo_bot',
 			'start_at'    => $start,
 			'reminder_min' => ( $event_type === 'reminder' ) ? 0 : 30,
-			'metadata'    => wp_json_encode( array(
-				'inbound' => array(
-					'platform'  => 'ZALO_BOT',
-					'chat_id'   => $chat_id,
-					'raw_text'  => $raw_text,
-					'intent_tag' => $event_type,
-				),
-			) ),
+			'metadata'    => wp_json_encode( array( 'inbound' => $inbound ) ),
 		);
 
+		$this->log_mutation_attempt( 'scheduler_event_create', $preflight['mutation'] );
 		$result = $mgr->create_event( $event_data );
 
 		if ( is_wp_error( $result ) ) {
+			BizCity_Twin_Mutation_Guard::record( $preflight['mutation'], 'failed', $preflight['context'] );
 			$this->reply( $chat_id, '❌ Không thể tạo: ' . $result->get_error_message() );
 			return true;
 		}
+		$preflight['mutation']['resource']['id']    = (int) $result;
+		$preflight['mutation']['resource']['scope'] = 'scheduler_event:' . (int) $result;
+		BizCity_Twin_Mutation_Guard::record( $preflight['mutation'], 'success', $preflight['context'] );
 
 		// [2026-06-24 Johnny Chu] PHASE-HOME W2 — success reply with emoji by type
 		$emojis = array(
@@ -220,9 +232,10 @@ class BizCity_Personal_Zalo_Listener {
 	 * @param int    $wp_user_id
 	 * @param string $rest   Text after prefix (e.g. "50k ăn sáng")
 	 * @param string $kind   'income' or 'expense'
+	 * @param array  $inbound_context Canonical inbound identity and correlation data.
 	 * @return bool
 	 */
-	private function handle_finance_command( $chat_id, $wp_user_id, $rest, $kind ) {
+	private function handle_finance_command( $chat_id, $wp_user_id, $rest, $kind, array $inbound_context = array() ) {
 		if ( $rest === '' ) {
 			$this->reply( $chat_id, '⚠️ Nhập số tiền và mô tả (vd: chi: 50k ăn sáng).' );
 			return true;
@@ -245,14 +258,21 @@ class BizCity_Personal_Zalo_Listener {
 
 		global $wpdb;
 		$tbl = $wpdb->prefix . 'bizcity_personal_finance_entries';
+		$preflight = $this->preflight_mutation( 'create', 'finance_entry', 0, 'finance_user:' . $wp_user_id, $inbound_context );
+		if ( is_wp_error( $preflight ) ) {
+			$this->reply( $chat_id, '❌ Không thể xác thực giao dịch.' );
+			return true;
+		}
 
 		// Check table exists (dual-cache pattern, R-SHOW-TABLES)
 		if ( ! $this->table_exists( $tbl ) ) {
+			BizCity_Twin_Mutation_Guard::record( $preflight['mutation'], 'rejected', $preflight['context'] );
 			$this->reply( $chat_id, '⚠️ Bảng ngân sách chưa sẵn sàng. Hãy mở Personal Assistant một lần để khởi tạo.' );
 			return true;
 		}
 
-		$wpdb->insert(
+		$this->log_mutation_attempt( 'finance_entry_create', $preflight['mutation'] );
+		$inserted = $wpdb->insert(
 			$tbl,
 			array(
 				'user_id'    => $wp_user_id,
@@ -266,15 +286,87 @@ class BizCity_Personal_Zalo_Listener {
 		);
 
 		$id = (int) $wpdb->insert_id;
-		if ( ! $id ) {
+		if ( ! $inserted || ! $id ) {
+			BizCity_Twin_Mutation_Guard::record( $preflight['mutation'], 'failed', $preflight['context'] );
 			$this->reply( $chat_id, '❌ Không thể lưu giao dịch.' );
 			return true;
 		}
+		$preflight['mutation']['resource']['id']    = $id;
+		$preflight['mutation']['resource']['scope'] = 'finance_entry:' . $id;
+		BizCity_Twin_Mutation_Guard::record( $preflight['mutation'], 'success', $preflight['context'] );
 
 		$emoji = ( $kind === 'income' ) ? '💰' : '💸';
 		$amt   = number_format( $amount, 0, '.', ',' );
 		$this->reply( $chat_id, $emoji . ' Đã ghi: ' . $title . ' · ' . $amt . ' ₫' );
 		return true;
+	}
+
+	private function preflight_mutation( $action, $resource_type, $resource_id, $resource_scope, array $inbound_context ) {
+		// [2026-07-30 Johnny Chu] PHASE-1.22-RUNTIME — enforce mutation contract before Personal side effects.
+		if ( ! class_exists( 'BizCity_Twin_Mutation_Guard' ) ) {
+			return new WP_Error( 'module_not_loaded', 'Mutation guard chưa được tải.' );
+		}
+		$trace_id = sanitize_text_field( (string) ( $inbound_context['trace_id'] ?? '' ) );
+		if ( $trace_id === '' ) {
+			$trace_id = function_exists( 'wp_generate_uuid4' ) ? wp_generate_uuid4() : sha1( uniqid( '', true ) );
+		}
+		$message_id = sanitize_text_field( (string) ( $inbound_context['message_id'] ?? '' ) );
+		$idempotency_key = 'personal_zalo_' . substr( hash( 'sha256', $message_id . '|' . $action . '|' . $resource_scope ), 0, 40 );
+		$mutation = array(
+			'contract'        => 'mutation-contract',
+			'version'         => '1.0.0',
+			'trace_id'        => $trace_id,
+			'idempotency_key' => $idempotency_key,
+			'action'          => (string) $action,
+			'resource'        => array(
+				'type'  => (string) $resource_type,
+				'id'    => max( 0, (int) $resource_id ),
+				'scope' => (string) $resource_scope,
+			),
+		);
+		$permission = 'finance_entry' === (string) $resource_type ? 'finance.write' : 'content.write';
+		$context = array(
+			'user_id'     => (int) ( $inbound_context['wp_user_id'] ?? 0 ),
+			'permissions' => array( $permission ),
+		);
+		$check = BizCity_Twin_Mutation_Guard::validate( $mutation, $context );
+		if ( empty( $check['allowed'] ) ) {
+			return new WP_Error( (string) $check['code'], (string) $check['message'] );
+		}
+		return array( 'mutation' => $mutation, 'context' => $context );
+	}
+
+	private function build_inbound_metadata( array $inbound_context, $intent_tag ) {
+		if ( ! class_exists( 'BizCity_Scheduler_Inbound_Provenance' ) ) {
+			return new WP_Error( 'module_not_loaded', 'Scheduler provenance helper chưa được tải.' );
+		}
+		return BizCity_Scheduler_Inbound_Provenance::from_channel_payload(
+			array(
+				'platform'    => $inbound_context['platform'] ?? 'ZALO_BOT',
+				'chat_id'     => $inbound_context['chat_id'] ?? '',
+				'sender_id'   => $inbound_context['user_id'] ?? '',
+				'account_id'  => (int) ( $inbound_context['account_id'] ?? 0 ),
+				'message_id'  => $inbound_context['message_id'] ?? '',
+				'text'        => $inbound_context['raw_text'] ?? '',
+			),
+			$intent_tag
+		);
+	}
+
+	private function log_mutation_attempt( $event, array $mutation ) {
+		if ( class_exists( 'BizCity_Channel_File_Logger' ) ) {
+			BizCity_Channel_File_Logger::write(
+				BizCity_Channel_File_Logger::CH_ZALO_BOT,
+				BizCity_Channel_File_Logger::LEVEL_INFO,
+				'mutation_attempt',
+				'Personal command mutation started.',
+				array(
+					'event'           => (string) $event,
+					'trace_id'        => (string) ( $mutation['trace_id'] ?? '' ),
+					'idempotency_key' => (string) ( $mutation['idempotency_key'] ?? '' ),
+				)
+			);
+		}
 	}
 
 	/**

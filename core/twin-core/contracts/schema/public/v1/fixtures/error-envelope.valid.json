@@ -1,0 +1,12 @@
+{
+  "contract": "error-envelope",
+  "version": "1.0.0",
+  "code": "token_invalid",
+  "message": "Facebook Page Token het han.",
+  "hint": "Vao Cai dat va cap quyen lai.",
+  "help_code": "fb_token_expired",
+  "status": 401,
+  "retriable": false,
+  "trace_id": "trace_12345678",
+  "reason_bucket": "token_invalid"
+}

@@ -198,7 +198,29 @@ class BizCity_Facebook_Central_Webhook {
 
             if ( $route ) {
                 $target_blog_id = (int) $route->blog_id;
-                $this->log_info( "Routing page {$page_id} to blog {$target_blog_id}" );
+                // [2026-08-01 Johnny Chu] R-MSDB/R-FB-ROUTE — make the global
+                // page→tenant decision explicit before switching DB context.
+                error_log( sprintf(
+                    '[BizCity FB Route] ingress_blog=%d configured_hub_blog=%d page_id=%s target_blog=%d target_site=%s route_status=%s',
+                    (int) get_current_blog_id(),
+                    self::get_hub_blog_id(),
+                    $page_id,
+                    $target_blog_id,
+                    $target_blog_id > 0 ? get_site_url( $target_blog_id ) : '(invalid)',
+                    (string) ( $route->status ?? '' )
+                ) );
+                $this->log_info( sprintf(
+                    'Routing page %s to blog %d site=%s route_status=%s current_blog=%d',
+                    $page_id,
+                    $target_blog_id,
+                    $target_blog_id > 0 ? get_site_url( $target_blog_id ) : '(invalid)',
+                    (string) ( $route->status ?? '' ),
+                    (int) get_current_blog_id()
+                ) );
+                if ( $target_blog_id <= 0 || ! get_blog_details( $target_blog_id ) ) {
+                    $this->log_error( "Refusing page {$page_id}: route target blog {$target_blog_id} is invalid" );
+                    continue;
+                }
 
                 // Switch to target blog and process
                 if ( is_multisite() && $target_blog_id !== get_current_blog_id() ) {

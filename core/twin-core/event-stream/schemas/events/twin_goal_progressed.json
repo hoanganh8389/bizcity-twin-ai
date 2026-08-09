@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "bizcity://events/twin_goal_progressed.json",
+  "title": "twin_goal_progressed",
+  "description": "Normalized Twin Goal Loop snapshot after intent, evidence, DoD, or next-action evaluation.",
+  "type": "object",
+  "required": ["goal_id", "session_id", "status", "completion_score", "state"],
+  "properties": {
+    "goal_id": { "type": "string", "pattern": "^goal_[A-Za-z0-9_-]+$" },
+    "session_id": { "type": "string", "minLength": 1 },
+    "status": { "type": "string", "enum": ["clarifying", "planning", "executing", "verifying", "paused", "blocked"] },
+    "completion_score": { "type": "number", "minimum": 0, "maximum": 1 },
+    "state": { "type": "object" },
+    "changed_fields": { "type": "array", "items": { "type": "string" } },
+    "surface": { "type": "string" },
+    "identity_uuid": { "type": "string" }
+  },
+  "additionalProperties": true
+}

@@ -22,8 +22,13 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 class BizCity_TwinBrain_Runtime {
 
 	const SURFACE = 'twinbrain';
+	const MPR_GATE_STAGE_VERSION = 'mpr_gate.v1'; // [2026-08-04 Johnny Chu] V3.5 — canonical version for decision.stage checkpoint payloads.
 	// [2026-07-05 Johnny Chu] PHASE-FAA2-TWINBRAIN — G5 checklist freshness threshold before compose.
 	const ASTRO_CHECKLIST_FRESH_HOURS = 36;
+	// [2026-08-06 Johnny Chu] V4-DEPTH — default answer_depth tier when caller omits it; MUST stay 'high' (current V3 canonical behaviour) so existing callers see zero behaviour change.
+	const ANSWER_DEPTH_DEFAULT = 'high';
+	// [2026-08-06 Johnny Chu] V4-DEPTH — 'deep' tier bounded Retrieve round ceiling (chuyên sâu).
+	const DEEP_RETRIEVE_ROUNDS = 3;
 
 	/** @var self|null */
 	private static $instance = null;
@@ -37,6 +42,88 @@ class BizCity_TwinBrain_Runtime {
 	 * @var string
 	 */
 	private $current_session_id = '';
+
+	/**
+	 * [2026-08-01 Johnny Chu] PHASE-1.25-TWINBRAIN-LOG — persist runtime failures
+	 * in per-site JSONL while retaining the existing PHP error log for server ops.
+	 */
+	private static function write_runtime_log( $level, $event, $message, array $context = array() ): void {
+		if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) || ! method_exists( 'BizCity_JSONL_File_Logger', 'write' ) ) {
+			return;
+		}
+		BizCity_JSONL_File_Logger::write(
+			'bizcity-twinbrain-logs',
+			'runtime',
+			(string) $level,
+			(string) $event,
+			(string) $message,
+			$context
+		);
+	}
+
+	/**
+	 * [2026-08-07 Johnny Chu] V4-TRIAGE — emit a compact pre-MPR route event.
+	 */
+	private function emit_pre_mpr_triage_event( string $event_key, string $trace_id, array $triage, $sse = null ): void {
+		$payload = array(
+			'trace_id'       => $trace_id,
+			'route'          => (string) ( $triage['route'] ?? 'mpr' ),
+			'conversation_kind' => (string) ( $triage['conversation_kind'] ?? 'unclear' ),
+			'confidence'     => (float) ( $triage['confidence'] ?? 0 ),
+			'reason_code'    => (string) ( $triage['reason_code'] ?? '' ),
+			'mpr_dispatched' => $event_key === 'conversation_triage_done' ? ( $triage['route'] ?? 'mpr' ) === 'mpr' : null,
+			'triage_model'   => (string) ( $triage['triage_model'] ?? ( class_exists( 'BizCity_TwinBrain_Pre_MPR_Triage' ) ? BizCity_TwinBrain_Pre_MPR_Triage::MODEL : 'unavailable' ) ),
+			'triage_reasoning' => (string) ( $triage['triage_reasoning'] ?? ( class_exists( 'BizCity_TwinBrain_Pre_MPR_Triage' ) ? BizCity_TwinBrain_Pre_MPR_Triage::REASONING_EFFORT : 'low' ) ),
+		);
+		if ( is_object( $sse ) && method_exists( $sse, 'emit' ) ) {
+			$sse->emit( $event_key, $payload );
+		}
+		$this->emit_event( $event_key, $payload );
+	}
+
+	private function build_ambiguous_opening( array $triage ): string {
+		$hint = trim( (string) ( $triage['user_intent_hint'] ?? '' ) );
+		return $hint !== ''
+			? 'Mình nghe bạn. Bạn muốn mình giúp gì cụ thể với việc này?'
+			: 'Chào bạn, mình đây. Bạn muốn mình giúp việc gì: tìm thông tin, phân tích, làm tài liệu hay xử lý một mục tiêu cụ thể?';
+	}
+
+	private function stream_ambiguous_response( string $trace_id, string $prompt, array $triage, $sse = null, float $wall_t0 = 0.0 ): array {
+		$text = $this->build_ambiguous_opening( $triage );
+		$payload = array( 'trace_id' => $trace_id, 'route' => 'ambiguous', 'goal_loop_created' => false, 'mpr_dispatched' => false );
+		// [2026-08-07 Johnny Chu] V4-TRIAGE — persist the no-goal terminal branch in the canonical Event Bus as well as SSE.
+		$this->emit_event( 'ambiguous_completed', $payload );
+		// [2026-08-07 Johnny Chu] V4-TRIAGE — persist the quick opening as the canonical assistant turn for replay/history consumers.
+		$this->emit_event( 'assistant_message', array(
+			'trace_id'           => $trace_id,
+			'surface'            => self::SURFACE,
+			'text'               => $text,
+			'synthesis_metadata' => array(
+				'fallback'         => 'ambiguous_no_goal',
+				'route'             => 'ambiguous',
+				'goal_loop_created' => false,
+				'mpr_dispatched'    => false,
+			),
+		) );
+		if ( is_object( $sse ) && method_exists( $sse, 'emit' ) ) {
+			$sse->emit( 'ambiguous_completed', $payload );
+			$sse->emit( 'final_started', array( 'trace_id' => $trace_id, 'route' => 'ambiguous' ) );
+			$sse->emit( 'final_token', array( 'trace_id' => $trace_id, 'seq' => 1, 'delta' => $text, 'len' => mb_strlen( $text ) ) );
+			$sse->emit( 'final_done', array( 'trace_id' => $trace_id, 'answer_md' => $text, 'tokens' => 0, 'model' => '', 'ms' => 0, 'chunks' => 1, 'fallback' => 'ambiguous_no_goal', 'success' => true, 'route' => 'ambiguous' ) );
+		}
+		return array(
+			'ok' => true,
+			'trace_id' => $trace_id,
+			'route' => 'ambiguous',
+			'synthesis' => array( 'answer_md' => $text, 'fallback' => 'ambiguous_no_goal' ),
+			'answers' => array(),
+			'cited_entity_ids' => array(),
+			'cited_passages' => array(),
+			'final_gate' => array( 'status' => 'skipped_ambiguous', 'ready_for_final' => true, 'route' => 'ambiguous' ),
+			'ambiguous_completed' => true,
+			'duration_ms' => $wall_t0 > 0 ? (int) ( ( microtime( true ) - $wall_t0 ) * 1000 ) : 0,
+		);
+	}
 
 	public static function instance(): self {
 		if ( null === self::$instance ) {
@@ -73,7 +160,21 @@ class BizCity_TwinBrain_Runtime {
 	 * Resolve the durable customer identity before subject, memory, KG, or tools.
 	 */
 	private function resolve_identity_context( array $opts, int $actor_user_id ): array {
-		// [2026-07-28 Johnny Chu] R-CH-IDMEM — one runtime boundary resolves identity for every TwinBrain surface.
+		// [2026-08-01 Johnny Chu] PHASE-TWIN-MPR-SUBJECT-G0 — use the shared
+		// memory identity boundary so MPR, recall, profile and writer agree on
+		// guest-channel versus WP-user ownership.
+		if ( class_exists( 'BizCity_Memory_Identity_Scope' ) ) {
+			$scope = BizCity_Memory_Identity_Scope::resolve( array_merge( $opts, array(
+				'user_id'    => $actor_user_id,
+				'wp_user_id' => $actor_user_id,
+			) ) );
+			if ( ! empty( $scope['identity_uuid'] ) ) {
+				$opts['identity_uuid']      = (string) $scope['identity_uuid'];
+				$opts['identity_is_stable'] = ! empty( $scope['identity_is_stable'] );
+				$opts['identity_state']     = ! empty( $scope['identity_verified'] ) ? 'stable' : 'unknown';
+			}
+			return $opts;
+		}
 		if ( ! class_exists( 'BizCity_Identity_Hub' ) ) {
 			return $opts;
 		}
@@ -191,6 +292,12 @@ class BizCity_TwinBrain_Runtime {
 			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 				error_log( '[TwinBrain][subject_profile_layer] trace=' . $trace_id . ' ' . $e->getMessage() );
 			}
+			self::write_runtime_log( 'error', 'subject_profile_exception', $e->getMessage(), array(
+				'trace_id' => $trace_id,
+				'surface'  => self::SURFACE,
+				'channel'  => (string) ( $opts['channel'] ?? '' ),
+				'exception_class' => get_class( $e ),
+			) );
 		}
 
 		// [2026-07-27 Johnny Chu] PHASE-0.52 W3 — mark profile resolution complete so later stages do not re-read user meta.
@@ -255,6 +362,13 @@ class BizCity_TwinBrain_Runtime {
 			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 				error_log( '[TwinBrain][multimodal_intake] trace=' . $trace_id . ' ' . $e->getMessage() );
 			}
+			self::write_runtime_log( 'error', 'multimodal_intake_exception', $e->getMessage(), array(
+				'trace_id' => $trace_id,
+				'surface'  => self::SURFACE,
+				'channel'  => (string) ( $opts['channel'] ?? '' ),
+				'attachment_count' => count( (array) ( $opts['attachments'] ?? array() ) ),
+				'exception_class' => get_class( $e ),
+			) );
 			return $opts;
 		}
 	}
@@ -267,12 +381,122 @@ class BizCity_TwinBrain_Runtime {
 	 * @return array { ok, trace_id, sse_url, candidates, tool_candidates }
 	 */
 	public function start_turn( string $prompt, array $opts = [] ): array {
-		$trace_id = $this->new_trace_id();
+		// [2026-08-01 Johnny Chu] PHASE-1.26-CORRELATION — continue the inbound
+		// channel trace when the current request already has a pending root;
+		// standalone TwinBrain turns still get a fresh trace as before.
+		$trace_id = trim( (string) ( $opts['trace_id'] ?? '' ) );
+		if ( $trace_id === '' && class_exists( 'BizCity_Chat_Correlation' ) ) {
+			$trace_id = BizCity_Chat_Correlation::pending_trace_id();
+		}
+		if ( $trace_id === '' ) {
+			$trace_id = $this->new_trace_id();
+		}
 		$actor_user_id = isset( $opts['user_id'] ) ? (int) $opts['user_id'] : get_current_user_id();
 		$subject_id    = $this->resolve_subject_id( $actor_user_id, $opts );
 		$opts['subject_id'] = $subject_id;
 		$user_id       = $actor_user_id;
 		$opts = $this->resolve_identity_context( $opts, $actor_user_id );
+		// [2026-08-01 Johnny Chu] PHASE-TWIN-MPR-SUBJECT-G0 — resolve channel
+		// subject before profile, memory, notebook, or MPR perspective work.
+		$subject_contract = class_exists( 'BizCity_Memory_Identity_Scope' )
+			? BizCity_Memory_Identity_Scope::resolve_subject( $opts )
+			: array();
+		$opts['subject_contract'] = $subject_contract;
+		if ( ! empty( $subject_contract['identity_uuid'] ) ) {
+			$opts['identity_uuid'] = (string) $subject_contract['identity_uuid'];
+		}
+		if ( ! empty( $subject_contract['wp_user_id'] ) ) {
+			$opts['subject_id'] = (int) $subject_contract['wp_user_id'];
+			$subject_id = (int) $subject_contract['wp_user_id'];
+		}
+		// [2026-08-01 Johnny Chu] PHASE-TWIN-MPR-SUBJECT-G0 — session context
+		// must be attached before the subject milestone enters the timeline.
+		$this->current_session_id = (string) ( $opts['session_id'] ?? '' );
+		$this->emit_event( 'decision', array(
+			'trace_id'  => $trace_id,
+			'stage'     => 'subject_resolved',
+			'subject'   => $subject_contract,
+			'channel'   => (string) ( $subject_contract['channel'] ?? '' ),
+			'identity'  => (string) ( $subject_contract['identity_uuid'] ?? '' ),
+		) );
+		// [2026-08-07 Johnny Chu] V4-TRIAGE — resolve the global depth config before the lightweight route decision so every branch carries one normalized tier.
+		$answer_depth_cfg = $this->resolve_answer_depth_config( $opts );
+		$opts['_answer_depth_cfg'] = $answer_depth_cfg;
+		$this->emit_event( 'decision', array(
+			'trace_id'            => $trace_id,
+			'stage'               => 'answer_depth_resolved',
+			'stage_version'       => self::MPR_GATE_STAGE_VERSION,
+			'depth'               => $answer_depth_cfg['depth'],
+			'skip_goal_parser'    => $answer_depth_cfg['skip_goal_parser'],
+			'skip_reflection'     => $answer_depth_cfg['skip_reflection'],
+			'max_retrieve_rounds' => $answer_depth_cfg['max_retrieve_rounds'],
+		) );
+		// [2026-08-07 Johnny Chu] V4-TRIAGE — classify no-goal conversation after identity/command parsing prerequisites but before Goal Parser/MPR work.
+		$this->emit_pre_mpr_triage_event( 'conversation_triage_started', $trace_id, array(
+			'route' => 'mpr',
+			'conversation_kind' => 'unknown',
+			'triage_model' => class_exists( 'BizCity_TwinBrain_Pre_MPR_Triage' ) ? BizCity_TwinBrain_Pre_MPR_Triage::MODEL : 'unavailable',
+			'triage_reasoning' => class_exists( 'BizCity_TwinBrain_Pre_MPR_Triage' ) ? BizCity_TwinBrain_Pre_MPR_Triage::REASONING_EFFORT : 'low',
+		), null );
+		$triage = class_exists( 'BizCity_TwinBrain_Pre_MPR_Triage' )
+			? BizCity_TwinBrain_Pre_MPR_Triage::classify( $prompt, $opts )
+			: array( 'route' => 'mpr', 'reason_code' => 'triage_class_missing', 'confidence' => 0.0, 'conversation_kind' => 'unclear' );
+		$opts['pre_mpr_triage'] = $triage;
+		$this->emit_pre_mpr_triage_event( 'conversation_triage_done', $trace_id, $triage );
+		if ( (string) ( $triage['route'] ?? 'mpr' ) === 'ambiguous' ) {
+			$opts['ambiguous_no_goal'] = true;
+			// [2026-08-07 Johnny Chu] V4-TRIAGE — preserve the inbound prompt before terminating the no-goal branch early.
+			$this->emit_event( 'user_message', array(
+				'trace_id' => $trace_id,
+				'user_id'  => $user_id,
+				'surface'  => self::SURFACE,
+				'text'     => $prompt_eff,
+				'guru_id'  => $guru_id,
+			) );
+			return array(
+				'ok' => true,
+				'trace_id' => $trace_id,
+				'route' => 'ambiguous',
+				'pre_mpr_triage' => $triage,
+				'goal_loop_state' => array(),
+				'goal_contract' => array(),
+				'answer_depth' => (string) ( $answer_depth_cfg['depth'] ?? self::ANSWER_DEPTH_DEFAULT ),
+				'goal_loop_pre_turn_completed' => false,
+				'candidates' => array(),
+				'tool_candidates' => array(),
+				'keyword_tokens' => array(),
+			);
+		}
+		// [2026-08-07 Johnny Chu] V4-TRIAGE — mark MPR dispatch before Goal Parser and all optional memory work.
+		$this->emit_pre_mpr_triage_event( 'mpr_started', $trace_id, $triage, null );
+		if ( ! $answer_depth_cfg['skip_goal_parser'] && class_exists( 'BizCity_TwinBrain_Goal_Loop_Runtime' ) ) {
+			// [2026-08-01 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G2 — inject compact Goal Brief before notebook/vertical selection.
+			try {
+				$opts = BizCity_TwinBrain_Goal_Loop_Runtime::pre_turn( $prompt, $opts );
+			} catch ( \Throwable $e ) {
+				error_log( '[TwinBrain][goal-loop] pre_turn skipped: ' . get_class( $e ) . ' ' . $e->getMessage() );
+			}
+		}
+		// [2026-08-01 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G1 — expose one normalized
+		// goal state to every downstream TwinBrain layer and memory writer.
+		if ( class_exists( 'BizCity_TwinBrain_Goal_Loop_State' ) && ! empty( $opts['goal_loop'] ) ) {
+			$opts['goal_loop'] = BizCity_TwinBrain_Goal_Loop_State::normalize( (array) $opts['goal_loop'] );
+			// [2026-08-03 Johnny Chu] R-MPR-GOALBOARD — expose the frozen contract to every MPR layer without creating a second state store.
+			$opts['goal_contract'] = array(
+				'conversation_goal' => $opts['goal_loop']['conversation_goal'] ?? null,
+				'answer_obligations' => (array) ( $opts['goal_loop']['answer_obligations'] ?? array() ),
+				'resolution_scoreboard' => $opts['goal_loop']['resolution_scoreboard'] ?? null,
+			);
+			$this->emit_event( 'decision', array(
+				'trace_id'            => $trace_id,
+				'stage'               => 'goal_contract_ready',
+				'goal_id'             => (string) ( $opts['goal_loop']['goal_id'] ?? '' ),
+				'scoreboard_version'  => (string) ( $opts['goal_loop']['resolution_scoreboard']['scoreboard_version'] ?? 'v1' ),
+				'obligation_count'    => count( (array) ( $opts['goal_loop']['answer_obligations'] ?? array() ) ),
+				'conversation_mode'   => (string) ( $opts['goal_loop']['conversation_goal']['conversation_mode'] ?? '' ),
+				'contract'            => $opts['goal_contract'],
+			) );
+		}
 		// [2026-06-04 Johnny Chu] BS-12 — bind session for durable turn persist.
 		$this->current_session_id = (string) ( $opts['session_id'] ?? '' );
 		// [2026-07-27 Johnny Chu] PHASE-0.52 W3 — resolve subject profile before notebook selection and memory recall.
@@ -482,6 +706,12 @@ class BizCity_TwinBrain_Runtime {
 		$memory_block      = '';
 		$memory_recall_evt = [];
 		$memory_citations  = [];
+		// [2026-08-03 Johnny Chu] R-TGL-CS — carry the active Goal/Case boundary into Layer 0.5; legacy goals without case_id remain observable but are not silently relabeled as scoped.
+		$goal_loop_state = is_array( $opts['goal_loop_state'] ?? null ) ? $opts['goal_loop_state'] : ( is_array( $opts['goal_loop'] ?? null ) ? $opts['goal_loop'] : array() );
+		$memory_scope    = sanitize_key( (string) ( $opts['memory_scope'] ?? $goal_loop_state['memory_scope'] ?? '' ) );
+		$case_id         = sanitize_text_field( (string) ( $opts['case_id'] ?? $goal_loop_state['case_id'] ?? '' ) );
+		$subject_key     = sanitize_text_field( (string) ( $opts['subject_key'] ?? $goal_loop_state['subject_key'] ?? '' ) );
+		$goal_id         = sanitize_text_field( (string) ( $opts['goal_id'] ?? $goal_loop_state['goal_id'] ?? '' ) );
 		if ( class_exists( 'BizCity_TwinBrain_Memory_Recall' ) ) {
 			try {
 				$mem_res = BizCity_TwinBrain_Memory_Recall::instance()->collect( $subject_id, $prompt_eff, [
@@ -489,12 +719,17 @@ class BizCity_TwinBrain_Runtime {
 					// [2026-07-28 Johnny Chu] R-CH-IDMEM — preserve the active turn session through Layer 0.5 recall.
 					'session_id'     => (string) ( $opts['session_id'] ?? '' ),
 					'identity_uuid'  => (string) ( $opts['identity_uuid'] ?? '' ),
+					'identity_guest_bind' => ! empty( $opts['identity_guest_bind'] ),
 					// [2026-07-28 Johnny Chu] PHASE-0.52 W2 — preserve channel identity for no-owner link UX on agent turns.
 					'platform'          => (string) ( $opts['platform'] ?? $opts['channel'] ?? '' ),
 					'channel'           => (string) ( $opts['channel'] ?? '' ),
 					'account_id'        => (string) ( $opts['account_id'] ?? '' ),
 					'external_user_id'  => (string) ( $opts['external_user_id'] ?? '' ),
 					'chat_id'           => (string) ( $opts['chat_id'] ?? '' ),
+					'memory_scope'      => $memory_scope,
+					'case_id'           => $case_id,
+					'subject_key'       => $subject_key,
+					'goal_id'           => $goal_id,
 				] );
 				$memory_block     = (string) ( $mem_res['block']     ?? '' );
 				$memory_citations = (array)  ( $mem_res['citations'] ?? [] );
@@ -505,12 +740,24 @@ class BizCity_TwinBrain_Runtime {
 					'citations'  => $memory_citations,
 					'block_len'  => mb_strlen( $memory_block ),
 					'latency_ms' => (int) ( $mem_res['latency_ms'] ?? 0 ),
+					'memory_scope' => (string) ( $mem_res['memory_scope'] ?? $memory_scope ),
+					'case_id'      => (string) ( $mem_res['case_id'] ?? $case_id ),
+					'goal_id'      => (string) ( $mem_res['goal_id'] ?? $goal_id ),
+					'scope_state'  => (string) ( $mem_res['scope_state'] ?? ( $case_id !== '' ? 'resolved' : 'unresolved' ) ),
 				];
-				$this->emit_event( 'memory_recall', $memory_recall_evt );
+				// [2026-08-03 Johnny Chu] P2 — emit the taxonomy-registered memory recall audit event.
+				$this->emit_event( BizCity_Twin_Event_Taxonomy::MEMORY_RECALL, $memory_recall_evt );
 			} catch ( \Throwable $e ) {
 				if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 					error_log( '[TwinBrain][memory_recall][error] ' . $e->getMessage() );
 				}
+				self::write_runtime_log( 'error', 'memory_recall_exception', $e->getMessage(), array(
+					'trace_id' => $trace_id,
+					'surface'  => self::SURFACE,
+					'channel'  => (string) ( $opts['channel'] ?? '' ),
+					'notebook_id' => (int) ( $opts['notebook_id'] ?? 0 ),
+					'exception_class' => get_class( $e ),
+				) );
 			}
 		}
 
@@ -536,6 +783,19 @@ class BizCity_TwinBrain_Runtime {
 			'subject_context_md'    => (string) ( $opts['subject_context_md'] ?? '' ),
 			'subject_context_label' => (string) ( $opts['subject_context_label'] ?? '' ),
 			'subject_id'            => $subject_id,
+			'subject_contract'      => (array) ( $opts['subject_contract'] ?? array() ),
+			'identity_uuid'         => (string) ( $opts['identity_uuid'] ?? '' ),
+			'identity_state'        => (string) ( $opts['identity_state'] ?? 'unknown' ),
+			'goal_loop_state'       => (array) ( $opts['goal_loop_state'] ?? array() ),
+			'goal_contract'         => (array) ( $opts['goal_contract'] ?? array() ), // [2026-08-05 Johnny Chu] V3.1 — preserve frozen Goal Contract for streaming callers.
+			'goal_loop_brief'       => (string) ( $opts['goal_loop_brief'] ?? '' ),
+			'answer_depth'          => (string) ( $answer_depth_cfg['depth'] ?? self::ANSWER_DEPTH_DEFAULT ), // [2026-08-06 Johnny Chu] V4-DEPTH — echo resolved depth tier so REST/stream callers forward the same value into complete_turn_stream().
+			'pre_mpr_triage'        => (array) ( $opts['pre_mpr_triage'] ?? array() ), // [2026-08-07 Johnny Chu] V4-TRIAGE — preserve the pre-MPR branch decision for completion callers.
+			'ambiguous_no_goal'     => ! empty( $opts['ambiguous_no_goal'] ),
+			'goal_loop_pre_turn_completed' => ! $answer_depth_cfg['skip_goal_parser'], // [2026-08-07 Johnny Chu] V4-DEPTH — prevent synchronous completion from parsing the same turn twice.
+			'memory_scope'          => $memory_scope,
+			'case_id'               => $case_id,
+			'subject_key'           => $subject_key,
 			'_subject_profile_resolved' => ! empty( $opts['_subject_profile_resolved'] ),
 		];
 	}
@@ -549,6 +809,36 @@ class BizCity_TwinBrain_Runtime {
 		// [2026-06-04 Johnny Chu] BS-12 — bind session for durable turn persist.
 		$this->current_session_id = (string) ( $opts['session_id'] ?? '' );
 		$opts = $this->resolve_identity_context( $opts, (int) ( $opts['user_id'] ?? get_current_user_id() ) );
+		// [2026-08-03 Johnny Chu] R-TGL-CS — Brain Chat is the canonical full-MPR
+		// path. Legacy web_mode=chat requests normalize to off; only an internal
+		// casual_fast_path may set companion_mode explicitly.
+		if ( strtolower( (string) ( $opts['web_mode'] ?? 'off' ) ) === 'chat' ) {
+			$opts['web_mode'] = 'off';
+		}
+		if ( ! empty( $opts['pre_mpr_triage']['route'] ) && (string) $opts['pre_mpr_triage']['route'] === 'ambiguous' ) {
+			// [2026-08-07 Johnny Chu] V4-TRIAGE — no-goal prompts never enter synchronous Goal/MPR execution.
+			return $this->stream_ambiguous_response( $trace_id, $prompt, (array) $opts['pre_mpr_triage'], null, 0.0 );
+		}
+		// [2026-08-07 Johnny Chu] V4-DEPTH — completion must honor the same
+		// resolved tier as start_turn(); otherwise fast mode would run Goal Parser
+		// here after correctly skipping it at the entrypoint. A frozen contract
+		// from start_turn() is authoritative and must not be parsed twice.
+		$answer_depth_cfg_complete = isset( $opts['_answer_depth_cfg'] ) && is_array( $opts['_answer_depth_cfg'] )
+			? $opts['_answer_depth_cfg']
+			: $this->resolve_answer_depth_config( $opts );
+		$has_frozen_goal_contract = ! empty( $opts['goal_contract']['answer_obligations'] )
+			|| ! empty( $opts['goal_loop']['answer_obligations'] );
+		$goal_parser_already_ran = ! empty( $opts['goal_loop_pre_turn_completed'] );
+		if ( ! $answer_depth_cfg_complete['skip_goal_parser']
+			&& ! $goal_parser_already_ran
+			&& ! $has_frozen_goal_contract
+			&& class_exists( 'BizCity_TwinBrain_Goal_Loop_Runtime' ) ) {
+			try {
+				$opts = BizCity_TwinBrain_Goal_Loop_Runtime::pre_turn( $prompt, $opts );
+			} catch ( \Throwable $e ) {
+				error_log( '[TwinBrain][goal-loop] complete pre_turn skipped: ' . get_class( $e ) . ' ' . $e->getMessage() );
+			}
+		}
 		$runner       = BizCity_TwinBrain_Perspective_Runner::instance();
 		$answers      = $runner->run( $trace_id, $prompt, $candidates, $opts );
 
@@ -615,6 +905,13 @@ class BizCity_TwinBrain_Runtime {
 				if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 					error_log( '[TwinBrain][notebook_source_layer][nonstream][error] trace=' . $trace_id . ' ' . $e->getMessage() );
 				}
+				self::write_runtime_log( 'error', 'notebook_source_layer_exception', $e->getMessage(), array(
+					'trace_id' => $trace_id,
+					'surface'  => self::SURFACE,
+					'channel'  => (string) ( $opts['channel'] ?? '' ),
+					'notebook_id' => (int) ( $opts['notebook_id'] ?? 0 ),
+					'exception_class' => get_class( $e ),
+				) );
 			}
 		}
 
@@ -654,6 +951,8 @@ class BizCity_TwinBrain_Runtime {
 			$opts['day_scope_summary'] = $this->is_day_notebook_summary_query( $prompt );
 		}
 		$synthesis = $synth->synthesize( $trace_id, $prompt, $answers, $tool_results, $opts );
+		// [2026-07-31 Johnny Chu] PHASE-TWINWEB-UNIFIED-SOURCES — queue MPR web citations for canonical notebook persistence without blocking the answer.
+		do_action( 'bizcity_twinbrain_citations_ready', $trace_id, (string) ( $opts['session_id'] ?? '' ), (array) ( $synthesis['citations'] ?? array() ), $opts );
 		if ( class_exists( 'BizCity_TwinBrain_Notebook_Source_Layer' ) && ! empty( $opts['notebook_source_map'] ) && ! empty( $opts['notebook_source_block_md'] ) ) {
 			$nonstream_answer = trim( (string) ( $synthesis['answer_md'] ?? '' ) );
 			if ( $nonstream_answer !== '' && strpos( $nonstream_answer, '### Nguồn từ Notebook' ) === false ) {
@@ -676,6 +975,44 @@ class BizCity_TwinBrain_Runtime {
 		// that aren't echoed in the citations array).
 		$inline_pids = $this->extract_inline_passage_refs( (string) ( $synthesis['answer_md'] ?? '' ) );
 		$cited_passages = $this->resolve_cited_passages( $synthesis['citations'] ?? [], $inline_pids );
+		// [2026-08-04 Johnny Chu] R-MPR-GOALBOARD — non-stream channel adapters must receive the same pre-final gate evidence as SSE callers.
+		$final_gate = $this->finalize_with_gate( $trace_id, $prompt, array(
+			'answer_md'      => (string) ( $synthesis['answer_md'] ?? '' ),
+			'synthesis'      => $synthesis,
+			'citations'      => (array) ( $synthesis['citations'] ?? array() ),
+			'cited_passages' => $cited_passages,
+			'tool_dispatch'  => $dispatch,
+		), $opts, null );
+		// [2026-08-06 Johnny Chu] V4-DEPTH — bounded loop instead of a single `if`; 'high' (default) still runs exactly one round (unchanged), 'deep' can run up to DEEP_RETRIEVE_ROUNDS.
+		$answer_depth_cfg_ct = isset( $opts['_answer_depth_cfg'] ) && is_array( $opts['_answer_depth_cfg'] ) ? $opts['_answer_depth_cfg'] : $this->resolve_answer_depth_config( $opts );
+		$max_retrieve_rounds_ct = (int) ( $answer_depth_cfg_ct['max_retrieve_rounds'] ?? 0 );
+		$retrieve_round_num_ct = 0;
+		while ( empty( $final_gate['ready_for_final'] ) && $this->has_retrieve_route( $final_gate ) && $retrieve_round_num_ct < $max_retrieve_rounds_ct ) {
+			$retrieve_round_num_ct++;
+			$opts['retrieve_exclude_ids'] = $candidates;
+			$retrieve = $this->run_bounded_retrieve_round( $trace_id, $prompt, $final_gate, $opts, $tool_results, null, $retrieve_round_num_ct );
+			if ( ! empty( $retrieve['ok'] ) ) {
+				$candidates = array_merge( $candidates, (array) $retrieve['candidates'] );
+				$answers = array_merge( $answers, (array) $retrieve['answers'] );
+				$opts = (array) $retrieve['opts'];
+				$synthesis = (array) $retrieve['synthesis'];
+				$inline_pids = $this->extract_inline_passage_refs( (string) ( $synthesis['answer_md'] ?? '' ) );
+				$cited_entity_ids = $this->resolve_cited_entity_ids( $synthesis['citations'] ?? array() );
+				$cited_passages = $this->resolve_cited_passages( $synthesis['citations'] ?? array(), $inline_pids );
+				$opts['retrieve_round'] = $retrieve_round_num_ct;
+				$final_gate = $this->finalize_with_gate( $trace_id, $prompt, array(
+					'answer_md'      => (string) ( $synthesis['answer_md'] ?? '' ),
+					'synthesis'      => $synthesis,
+					'citations'      => (array) ( $synthesis['citations'] ?? array() ),
+					'cited_passages' => $cited_passages,
+					'tool_dispatch'  => $dispatch,
+				), $opts, null );
+			} else {
+				$final_gate['retrieve_round'] = $retrieve_round_num_ct;
+				$final_gate['gate_reason'] = (string) ( $retrieve['reason'] ?? 'retrieve_round_failed' );
+				break;
+			}
+		}
 
 		// Stage 4 telemetry — emit granular brain_synthesize before the
 		// final assistant_message so admin replay can show timing & model.
@@ -720,11 +1057,13 @@ class BizCity_TwinBrain_Runtime {
 				'tokens'            => (int)    ( $synthesis['tokens'] ?? 0 ),
 				'ms'                => $synth_ms,
 				'fallback'          => (string) ( $synthesis['fallback'] ?? '' ),
+				'final_gate'        => $final_gate,
 			],
 		] );
 
-		return [
+		$result = [
 			'ok'                => true,
+			'trace_id'          => $trace_id,
 			'synthesis'         => $synthesis,
 			'answers'           => $answers,
 			'notebook_source'   => array(
@@ -739,7 +1078,16 @@ class BizCity_TwinBrain_Runtime {
 			),
 			'cited_entity_ids'  => $cited_entity_ids,
 			'cited_passages'    => $cited_passages,
+			'final_gate'        => $final_gate,
 		];
+		if ( class_exists( 'BizCity_TwinBrain_Goal_Loop_Runtime' ) ) {
+			try {
+				$result = BizCity_TwinBrain_Goal_Loop_Runtime::post_turn( $prompt, $result, $opts );
+			} catch ( \Throwable $e ) {
+				error_log( '[TwinBrain][goal-loop] complete post_turn skipped: ' . get_class( $e ) . ' ' . $e->getMessage() );
+			}
+		}
+		return $result;
 	}
 
 	/**
@@ -775,6 +1123,23 @@ class BizCity_TwinBrain_Runtime {
 		// (covers agent / astro / degrade sub-stream modes delegated below).
 		$this->current_session_id = (string) ( $opts['session_id'] ?? '' );
 		$opts = $this->resolve_identity_context( $opts, (int) ( $opts['user_id'] ?? get_current_user_id() ) );
+		if ( ! empty( $opts['pre_mpr_triage']['route'] ) && (string) $opts['pre_mpr_triage']['route'] === 'ambiguous' ) {
+			// [2026-08-07 Johnny Chu] V4-TRIAGE — short conversational branch emits terminal SSE without dispatching MPR.
+			return $this->stream_ambiguous_response( $trace_id, $prompt, (array) $opts['pre_mpr_triage'], $sse, $wall_t0 );
+		}
+		if ( ! empty( $opts['goal_contract']['answer_obligations'] ) ) {
+			// [2026-08-03 Johnny Chu] R-MPR-GOALBOARD — expose the frozen contract on the live MPR timeline before any perspective/final phase.
+			$contract = (array) $opts['goal_contract'];
+			$scoreboard = is_array( $contract['resolution_scoreboard'] ?? null ) ? $contract['resolution_scoreboard'] : array();
+			$sse->emit( 'goal_contract_ready', array(
+				'trace_id'           => $trace_id,
+				'goal_id'            => (string) ( $opts['goal_loop']['goal_id'] ?? '' ),
+				'scoreboard_version' => (string) ( $scoreboard['scoreboard_version'] ?? 'v1' ),
+				'obligation_count'   => count( (array) $contract['answer_obligations'] ),
+				'conversation_mode'  => (string) ( $contract['conversation_goal']['conversation_mode'] ?? '' ),
+				'answer_obligations' => (array) $contract['answer_obligations'],
+			) );
+		}
 
 		// [2026-07-18 Johnny Chu] PHASE-TWIN-GPT-C-ENDUSER — apply server-owned TwinWeb runtime preset caps before any mode dispatch.
 		if ( isset( $opts['twinweb_runtime_budget'] ) && is_array( $opts['twinweb_runtime_budget'] ) ) {
@@ -799,14 +1164,9 @@ class BizCity_TwinBrain_Runtime {
 			return $this->stream_agent_react( $trace_id, $prompt, $sse, $opts, $wall_t0 );
 		}
 
-		/* [2026-06-03 Johnny Chu] HOTFIX — Companion "chat" mode.
-		 * Khi FE chọn pill `Chat` (web_mode='chat') → bỏ qua toàn bộ MPR
-		 * pipeline (perspectives / web / tool / synthesizer), chỉ chạy
-		 * stream_auto_degrade_chat với companion system prompt (đồng cảm,
-		 * tâm sự, chỉ dùng memory_block). Khác với auto-degrade tự động
-		 * (vốn yêu cầu K=0 + memory ≥ MIN bytes), chat mode là chủ đích
-		 * của user nên FORCE bypass mọi điều kiện. */
-		if ( strtolower( (string) ( $opts['web_mode'] ?? 'off' ) ) === 'chat' ) {
+		/* [2026-08-03 Johnny Chu] R-TGL-CS — companion is an internal
+		 * casual_fast_path optimization; Brain Chat never bypasses full MPR. */
+		if ( ! empty( $opts['companion_mode'] ) ) {
 			$opts['companion_mode'] = true;
 			return $this->stream_auto_degrade_chat( $trace_id, $prompt, $sse, $opts, $wall_t0 );
 		}
@@ -853,6 +1213,7 @@ class BizCity_TwinBrain_Runtime {
 			empty( $candidates )
 			&& empty( $tool_candidates )
 			&& $auto_degrade_web_mode === 'off'
+			&& empty( $opts['disable_auto_degrade'] )
 			&& strlen( $auto_degrade_block ) >= $auto_degrade_min
 		);
 		$auto_degrade_eligible = (bool) apply_filters(
@@ -1026,6 +1387,13 @@ class BizCity_TwinBrain_Runtime {
 				if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 					error_log( '[TwinBrain][notebook_source_layer][error] trace=' . $trace_id . ' ' . $e->getMessage() );
 				}
+				self::write_runtime_log( 'error', 'notebook_source_layer_stream_exception', $e->getMessage(), array(
+					'trace_id' => $trace_id,
+					'surface'  => self::SURFACE,
+					'channel'  => (string) ( $opts['channel'] ?? '' ),
+					'notebook_id' => (int) ( $opts['notebook_id'] ?? 0 ),
+					'exception_class' => get_class( $e ),
+				) );
 			}
 		}
 
@@ -1120,6 +1488,8 @@ class BizCity_TwinBrain_Runtime {
 		}
 		$synthesis = $synth->synthesize( $trace_id, $prompt_for_reasoning, $answers, $tool_results, $opts );
 		$synth_ms  = (int) ( ( microtime( true ) - $synth_t0 ) * 1000 );
+		// [2026-07-31 Johnny Chu] PHASE-TWINWEB-UNIFIED-SOURCES — queue streaming-turn MPR citations for the same notebook source ledger.
+		do_action( 'bizcity_twinbrain_citations_ready', $trace_id, (string) ( $opts['session_id'] ?? '' ), (array) ( $synthesis['citations'] ?? array() ), $opts );
 
 		$sse->emit( 'synthesis_done', [
 			'trace_id'        => $trace_id,
@@ -1133,6 +1503,45 @@ class BizCity_TwinBrain_Runtime {
 			'ms'              => $synth_ms,
 			'fallback'        => (string) ( $synthesis['fallback']       ?? '' ),
 		] );
+
+		// [2026-08-04 Johnny Chu] R-MPR-GOALBOARD — create and reflect on the
+		// internal Draft before opening the user-visible Final Composer stream.
+		$draft_result = array(
+			'answer_md'      => (string) ( $synthesis['answer_md'] ?? '' ),
+			'synthesis'      => $synthesis,
+			'citations'      => (array) ( $synthesis['citations'] ?? array() ),
+			'cited_passages' => (array) ( $opts['cited_passages'] ?? array() ),
+			'tool_dispatch'  => $dispatch,
+		);
+		$final_gate = $this->finalize_with_gate( $trace_id, $prompt, $draft_result, $opts, $sse );
+		// [2026-08-06 Johnny Chu] V4-DEPTH — bounded loop instead of a single `if`; 'high' (default) still runs exactly one round (unchanged), 'deep' can run up to DEEP_RETRIEVE_ROUNDS.
+		$answer_depth_cfg_stream = isset( $opts['_answer_depth_cfg'] ) && is_array( $opts['_answer_depth_cfg'] ) ? $opts['_answer_depth_cfg'] : $this->resolve_answer_depth_config( $opts );
+		$max_retrieve_rounds_stream = (int) ( $answer_depth_cfg_stream['max_retrieve_rounds'] ?? 0 );
+		$retrieve_round_num_stream = 0;
+		while ( empty( $final_gate['ready_for_final'] ) && $this->has_retrieve_route( $final_gate ) && $retrieve_round_num_stream < $max_retrieve_rounds_stream ) {
+			$retrieve_round_num_stream++;
+			$opts['retrieve_exclude_ids'] = $candidates;
+			$retrieve = $this->run_bounded_retrieve_round( $trace_id, $prompt, $final_gate, $opts, $tool_results, $sse, $retrieve_round_num_stream );
+			if ( ! empty( $retrieve['ok'] ) ) {
+				$candidates = array_merge( $candidates, (array) $retrieve['candidates'] );
+				$answers = array_merge( $answers, (array) $retrieve['answers'] );
+				$persp_snapshot = $answers;
+				$opts = (array) $retrieve['opts'];
+				$synthesis = (array) $retrieve['synthesis'];
+				$opts['retrieve_round'] = $retrieve_round_num_stream;
+				$final_gate = $this->finalize_with_gate( $trace_id, $prompt, array(
+					'answer_md'      => (string) ( $synthesis['answer_md'] ?? '' ),
+					'synthesis'      => $synthesis,
+					'citations'      => (array) ( $synthesis['citations'] ?? array() ),
+					'cited_passages' => (array) ( $opts['cited_passages'] ?? array() ),
+					'tool_dispatch'  => $dispatch,
+				), $opts, $sse );
+			} else {
+				$final_gate['retrieve_round'] = $retrieve_round_num_stream;
+				$final_gate['gate_reason'] = (string) ( $retrieve['reason'] ?? 'retrieve_round_failed' );
+				break;
+			}
+		}
 
 		/* PHASE 0.36-UNIFIED TBR.W17 (2026-05-21) — Layer 4.5 Final Compose.
 		 * Stream final user-facing answer AFTER synthesis_done, BEFORE
@@ -1183,13 +1592,23 @@ class BizCity_TwinBrain_Runtime {
 				if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 					error_log( '[TwinBrain][astro_recall] trace=' . $trace_id . ' ' . $e->getMessage() );
 				}
+				self::write_runtime_log( 'error', 'astro_recall_exception', $e->getMessage(), array(
+					'trace_id' => $trace_id,
+					'surface'  => self::SURFACE,
+					'channel'  => (string) ( $opts['channel'] ?? '' ),
+					'mode'    => 'astro',
+					'exception_class' => get_class( $e ),
+				) );
 			}
 		}
 
 		$final_t0   = microtime( true );
 		$final_seq  = 0;
 		$final_keepalive_seq = 0;
-		$sse->emit( 'final_started', [ 'trace_id' => $trace_id ] );
+		$sse->emit( 'final_started', array(
+			'trace_id'  => $trace_id,
+			'final_gate' => $final_gate,
+		) );
 
 		$composer = BizCity_TwinBrain_Final_Composer::instance();
 		// [2026-07-07 Johnny Chu] HOTFIX — emit periodic keepalive evidence so
@@ -1205,6 +1624,12 @@ class BizCity_TwinBrain_Runtime {
 				$sse->maybe_heartbeat();
 			},
 		) );
+		// [2026-08-04 Johnny Chu] R-MPR-GOALBOARD — Final Composer receives the resolved scoreboard so PASS/PATCH obligations affect the final prompt.
+		$final_opts['final_gate'] = $final_gate;
+		$final_opts['goal_contract'] = array_merge(
+			(array) ( $opts['goal_contract'] ?? array() ),
+			array( 'resolution_scoreboard' => (array) ( $final_gate['scoreboard'] ?? array() ) )
+		);
 		// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MULTIMODAL — visible prompt compiler checkpoint before final model/tool call.
 		$prompt_compiler_tool_slug = '';
 		if ( isset( $tool_decision['tool'] ) && is_array( $tool_decision['tool'] ) ) {
@@ -1300,6 +1725,11 @@ class BizCity_TwinBrain_Runtime {
 			'source_file_counts'       => (array) ( $opts['source_file_counts'] ?? array() ),
 			'notebook_source_block_md' => (string) ( $opts['notebook_source_block_md'] ?? '' ),
 			'invalid_notebook_citations_stripped' => (int) ( $final['invalid_notebook_citations_stripped'] ?? 0 ),
+			'final_gate' => $final_gate,
+			'skeleton_id' => (string) ( $final['skeleton_id'] ?? '' ),
+			'required_sections' => (array) ( $final['required_sections'] ?? array() ),
+			'skeleton_quality' => (string) ( $final['skeleton_quality'] ?? '' ),
+			'skeleton_violations' => (array) ( $final['skeleton_violations'] ?? array() ),
 		] );
 
 		if ( $defer_artifact_dispatch ) {
@@ -1357,6 +1787,10 @@ class BizCity_TwinBrain_Runtime {
 						'skipped'    => (int) $tool_disp['skipped'],
 						'errors'     => (array) $tool_disp['errors'],
 						'latency_ms' => (int) $tool_disp['latency_ms'],
+						'goal_loop'         => (array) ( $opts['goal_loop'] ?? array() ),
+						'memory_scope'      => (string) ( $opts['memory_scope'] ?? '' ),
+						'case_id'           => (string) ( $opts['case_id'] ?? '' ),
+						'subject_key'       => (string) ( $opts['subject_key'] ?? '' ),
 					] );
 					// Promote rewritten text as canonical final answer.
 					$rewritten = (string) $tool_disp['rewritten_text'];
@@ -1369,6 +1803,12 @@ class BizCity_TwinBrain_Runtime {
 				if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 					error_log( '[TwinBrain][memory_tool_dispatcher][error] trace=' . $trace_id . ' ' . $e->getMessage() );
 				}
+				self::write_runtime_log( 'error', 'memory_tool_dispatcher_exception', $e->getMessage(), array(
+					'trace_id' => $trace_id,
+					'surface'  => self::SURFACE,
+					'channel'  => (string) ( $opts['channel'] ?? '' ),
+					'exception_class' => get_class( $e ),
+				) );
 			}
 		}
 
@@ -1388,6 +1828,7 @@ class BizCity_TwinBrain_Runtime {
 						'identity_uuid' => (string) ( $opts['identity_uuid'] ?? '' ),
 						// [2026-07-28 Johnny Chu] R-CH-IDMEM — preserve stable UUID ownership on the primary writer path.
 						'identity_is_stable' => ! empty( $opts['identity_is_stable'] ),
+						'goal_loop'         => (array) ( $opts['goal_loop'] ?? array() ),
 						// [2026-07-27 Johnny Chu] PHASE-0.52 W2 — preserve channel context for no-owner UX only.
 						'platform'   => (string) ( $opts['platform'] ?? $opts['channel'] ?? '' ),
 						'channel'    => (string) ( $opts['channel'] ?? '' ),
@@ -1409,6 +1850,12 @@ class BizCity_TwinBrain_Runtime {
 				if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 					error_log( '[TwinBrain][memory_write][error] ' . $e->getMessage() );
 				}
+				self::write_runtime_log( 'error', 'memory_write_exception', $e->getMessage(), array(
+					'trace_id' => $trace_id,
+					'surface'  => self::SURFACE,
+					'channel'  => (string) ( $opts['channel'] ?? '' ),
+					'exception_class' => get_class( $e ),
+				) );
 			}
 
 			// [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-4 — empathic mood
@@ -1442,6 +1889,12 @@ class BizCity_TwinBrain_Runtime {
 					if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 						error_log( '[TwinBrain][mood_sampled][error] ' . $e->getMessage() );
 					}
+					self::write_runtime_log( 'error', 'mood_sampled_exception', $e->getMessage(), array(
+						'trace_id' => $trace_id,
+						'surface'  => self::SURFACE,
+						'channel'  => (string) ( $opts['channel'] ?? '' ),
+						'exception_class' => get_class( $e ),
+					) );
 				}
 			}
 		}
@@ -1578,6 +2031,7 @@ class BizCity_TwinBrain_Runtime {
 				),
 				'web_research'    => $web_row,
 				'tool_dispatch'   => $tool_done_payload,
+				'final_gate'      => $final_gate,
 				'cited_entity_ids'=> $cited_entity_ids,
 				'cited_passages'  => $cited_passages,
 				'duration_ms'     => (int) ( ( microtime( true ) - $wall_t0 ) * 1000 ),
@@ -1586,14 +2040,24 @@ class BizCity_TwinBrain_Runtime {
 
 		$wall_ms = (int) ( ( microtime( true ) - $wall_t0 ) * 1000 );
 
-		return [
+		$result = [
 			'ok'                => true,
+			'trace_id'          => $trace_id,
 			'synthesis'         => $synthesis,
 			'answers'           => $answers,
 			'cited_entity_ids'  => $cited_entity_ids,
 			'cited_passages'    => $cited_passages,
+			'final_gate'        => $final_gate,
 			'duration_ms'       => $wall_ms,
 		];
+		if ( class_exists( 'BizCity_TwinBrain_Goal_Loop_Runtime' ) ) {
+			try {
+				$result = BizCity_TwinBrain_Goal_Loop_Runtime::post_turn( $prompt, $result, $opts );
+			} catch ( \Throwable $e ) {
+				error_log( '[TwinBrain][goal-loop] stream post_turn skipped: ' . get_class( $e ) . ' ' . $e->getMessage() );
+			}
+		}
+		return $result;
 	}
 
 	/**
@@ -1610,9 +2074,281 @@ class BizCity_TwinBrain_Runtime {
 	 * @param array  $parts
 	 * @return array
 	 */
+	/**
+	 * V4-DEPTH — resolve the 4-tier answer-depth knob onto concrete MPR
+	 * pipeline gates. This is the single source of truth for how
+	 * `answer_depth` (fast|balanced|high|deep) changes Goal Parser,
+	 * Reflection, and the bounded Retrieve loop.
+	 *
+	 * - fast:     skip Goal Parser + Reflection entirely (single-pass answer).
+	 * - balanced: run Goal Parser + Reflection, but never loop a Retrieve round
+	 *             (bounded_fallback is accepted as final when evidence is short).
+	 * - high:     current V3 canonical default — Goal Parser + Reflection +
+	 *             up to 1 bounded Retrieve round when the scoreboard has an
+	 *             open RETRIEVE route.
+	 * - deep:     Goal Parser + Reflection + up to self::DEEP_RETRIEVE_ROUNDS
+	 *             bounded Retrieve rounds, re-checking the scoreboard between
+	 *             each round so it stops as soon as obligations are resolved.
+	 *
+	 * @return array{depth:string,skip_goal_parser:bool,skip_reflection:bool,max_retrieve_rounds:int}
+	 */
+	private function resolve_answer_depth_config( array $opts ): array {
+		$depth = sanitize_key( (string) ( $opts['answer_depth'] ?? self::ANSWER_DEPTH_DEFAULT ) );
+		$map = array(
+			'fast'     => array( 'skip_goal_parser' => true,  'skip_reflection' => true,  'max_retrieve_rounds' => 0 ),
+			'balanced' => array( 'skip_goal_parser' => false, 'skip_reflection' => false, 'max_retrieve_rounds' => 0 ),
+			'high'     => array( 'skip_goal_parser' => false, 'skip_reflection' => false, 'max_retrieve_rounds' => 1 ),
+			'deep'     => array( 'skip_goal_parser' => false, 'skip_reflection' => false, 'max_retrieve_rounds' => self::DEEP_RETRIEVE_ROUNDS ),
+		);
+		if ( ! isset( $map[ $depth ] ) ) {
+			$depth = self::ANSWER_DEPTH_DEFAULT;
+		}
+		$cfg = $map[ $depth ];
+		$cfg['depth'] = $depth;
+		return (array) apply_filters( 'bizcity_twinbrain_answer_depth_config', $cfg, $depth, $opts );
+	}
+
+	private function has_retrieve_route( array $final_gate ): bool {
+		foreach ( (array) ( $final_gate['scoreboard']['rows'] ?? array() ) as $row ) {
+			if ( is_array( $row ) && strtoupper( (string) ( $row['route'] ?? '' ) ) === 'RETRIEVE' ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private function build_retrieve_prompt( string $prompt, array $final_gate, array $opts, int $round_number = 1 ): string {
+		$obligations = array();
+		foreach ( (array) ( $opts['goal_contract']['answer_obligations'] ?? $opts['goal_loop']['answer_obligations'] ?? array() ) as $item ) {
+			if ( ! is_array( $item ) || empty( $item['id'] ) ) {
+				continue;
+			}
+			foreach ( (array) ( $final_gate['scoreboard']['rows'] ?? array() ) as $row ) {
+				if ( is_array( $row ) && (string) ( $row['obligation_id'] ?? '' ) === (string) $item['id'] && strtoupper( (string) ( $row['route'] ?? '' ) ) === 'RETRIEVE' ) {
+					$obligations[] = (string) ( $item['question'] ?? $row['gap'] ?? '' );
+					break;
+				}
+			}
+		}
+		$obligations = array_values( array_filter( array_unique( $obligations ) ) );
+		$gap_text = ! empty( $obligations ) ? implode( '; ', array_slice( $obligations, 0, 5 ) ) : 'bổ sung bằng chứng cho các nghĩa vụ trả lời còn thiếu';
+		return trim( $prompt . "\n\n[Retrieve round {$round_number}]\nTìm thêm evidence cụ thể để giải quyết: " . $gap_text );
+	}
+
+	/**
+	 * [2026-08-06 Johnny Chu] V4-DEPTH — accepts an explicit $round_number so
+	 * this method can be called multiple times in a bounded loop for the
+	 * 'deep' answer_depth tier, while 'high' (default) still calls it exactly
+	 * once with round_number=1 — unchanged behaviour.
+	 */
+	private function run_bounded_retrieve_round( string $trace_id, string $prompt, array $final_gate, array $opts, array $tool_results, $sse, int $round_number = 1 ): array {
+		// [2026-08-04 Johnny Chu] R-MPR-GOALBOARD — run one bounded evidence round through the existing selector, perspective, source, and synthesizer layers.
+		$finish_failure = function ( string $reason ) use ( $trace_id, $sse, $round_number ) {
+			$payload = array(
+				'trace_id' => $trace_id,
+				'round'    => $round_number,
+				'status'   => 'failed',
+				'reason'   => $reason,
+			);
+			if ( is_object( $sse ) && method_exists( $sse, 'emit' ) ) {
+				$sse->emit( 'retrieve_round_done', $payload );
+			}
+			$this->emit_event( 'decision', array_merge( array( 'surface' => self::SURFACE, 'stage' => 'retrieve_round_done' ), $payload ) );
+			return array( 'ok' => false, 'reason' => $reason );
+		};
+		$retrieve_prompt = $this->build_retrieve_prompt( $prompt, $final_gate, $opts, $round_number );
+		$round_payload = array(
+			'trace_id' => $trace_id,
+			'round'    => $round_number,
+			'query'    => $retrieve_prompt,
+			'reason'   => 'resolution_scoreboard_retrieve',
+		);
+		if ( is_object( $sse ) && method_exists( $sse, 'emit' ) ) {
+			$sse->emit( 'retrieve_round_started', $round_payload );
+		}
+		$this->emit_event( 'decision', array_merge( array( 'surface' => self::SURFACE, 'stage' => 'retrieve_round_started', 'stage_version' => self::MPR_GATE_STAGE_VERSION ), $round_payload ) );
+
+		if ( ! class_exists( 'BizCity_TwinBrain_Notebook_Selector' ) || ! class_exists( 'BizCity_TwinBrain_Perspective_Runner' ) || ! class_exists( 'BizCity_TwinBrain_Synthesizer' ) ) {
+			return $finish_failure( 'retrieve_runtime_unavailable' );
+		}
+		$user_id = (int) ( $opts['user_id'] ?? get_current_user_id() );
+		$k = max( 3, min( BIZCITY_TWINBRAIN_K_MAX, (int) ( $opts['k'] ?? BIZCITY_TWINBRAIN_K_DEFAULT ) ) );
+		$selector = BizCity_TwinBrain_Notebook_Selector::instance();
+		$round_candidates = $selector->select( $retrieve_prompt, $user_id, $k, array(
+			'guru_id' => (int) ( $opts['guru_id'] ?? 0 ),
+		) );
+		if ( empty( $round_candidates ) ) {
+			return $finish_failure( 'retrieve_no_candidates' );
+		}
+		$existing_ids = array();
+		foreach ( (array) ( $opts['retrieve_exclude_ids'] ?? $opts['candidates'] ?? array() ) as $candidate ) {
+			if ( is_array( $candidate ) ) {
+				$existing_ids[] = (int) ( $candidate['notebook_id'] ?? 0 );
+			}
+		}
+		$round_candidates = array_values( array_filter( $round_candidates, static function ( $candidate ) use ( $existing_ids ) {
+			return is_array( $candidate ) && ! in_array( (int) ( $candidate['notebook_id'] ?? 0 ), $existing_ids, true );
+		} ) );
+		if ( empty( $round_candidates ) ) {
+			return $finish_failure( 'retrieve_candidates_already_used' );
+		}
+
+		$round_opts = $opts;
+		$round_opts['retrieve_round'] = $round_number;
+		$round_opts['notebook_search_context_query'] = $retrieve_prompt;
+		$round_answers = BizCity_TwinBrain_Perspective_Runner::instance()->run( $trace_id, $retrieve_prompt, $round_candidates, $round_opts );
+		if ( class_exists( 'BizCity_TwinBrain_Notebook_Source_Layer' ) ) {
+			try {
+				$source_payload = BizCity_TwinBrain_Notebook_Source_Layer::instance()->build_from_turn( $round_candidates, $round_answers, $round_opts );
+				foreach ( array( 'notebook_source_map', 'notebook_source_block_md', 'notebook_source_counts', 'source_file_briefs', 'source_file_counts', 'search_context', 'search_context_results', 'search_context_total', 'cross_notebook_links', 'graph_vector_rerank_pack', 'graph_entities', 'retrieval_candidates', 'final_context_chunks', 'retrieval_candidate_count', 'final_context_count', 'rerank_method', 'rerank_degraded', 'rerank_error', 'vector_status', 'vector_candidate_count', 'vector_degraded_reason', 'graph_candidate_count', 'selector_hardening_applied', 'selector_hardening_reason', 'selector_hardening_count', 'selector_hardening_scope', 'training_gap_report', 'product_entities', 'product_entity_count', 'product_name_entity_count' ) as $key ) {
+					if ( array_key_exists( $key, $source_payload ) ) {
+						$round_opts[ $key ] = $source_payload[ $key ];
+					}
+				}
+			} catch ( \Throwable $e ) {
+				return $finish_failure( 'retrieve_source_layer_exception' );
+			}
+		}
+		$round_synthesis = BizCity_TwinBrain_Synthesizer::instance()->synthesize( $trace_id, $retrieve_prompt, $round_answers, $tool_results, $round_opts );
+		$retrieve_synthesis_payload = array_merge( $round_payload, array(
+			'answer_chars'  => mb_strlen( (string) ( $round_synthesis['answer_md'] ?? '' ) ),
+			'citation_count' => count( (array) ( $round_synthesis['citations'] ?? array() ) ),
+		) );
+		if ( is_object( $sse ) && method_exists( $sse, 'emit' ) ) {
+			$sse->emit( 'retrieve_synthesis_done', $retrieve_synthesis_payload );
+		}
+		$this->emit_event( 'decision', array_merge( array( 'surface' => self::SURFACE, 'stage' => 'retrieve_synthesis_done', 'stage_version' => self::MPR_GATE_STAGE_VERSION ), $retrieve_synthesis_payload ) );
+		$round_done = array_merge( $round_payload, array(
+			'candidate_count' => count( $round_candidates ),
+			'answer_count'    => count( $round_answers ),
+			'citation_count'  => count( (array) ( $round_synthesis['citations'] ?? array() ) ),
+		) );
+		if ( is_object( $sse ) && method_exists( $sse, 'emit' ) ) {
+			$sse->emit( 'retrieve_round_done', $round_done );
+		}
+		$this->emit_event( 'decision', array_merge( array( 'surface' => self::SURFACE, 'stage' => 'retrieve_round_done', 'stage_version' => self::MPR_GATE_STAGE_VERSION ), $round_done ) );
+		return array(
+			'ok'         => true,
+			'prompt'     => $retrieve_prompt,
+			'candidates' => $round_candidates,
+			'answers'    => $round_answers,
+			'opts'       => $round_opts,
+			'synthesis'  => $round_synthesis,
+		);
+	}
+
+	public function finalize_with_gate( string $trace_id, string $prompt, array $draft, array $opts, $sse ): array {
+		// [2026-08-04 Johnny Chu] V3.2 — centralize Draft/Reflection/Retrieve gate decisions before every final branch.
+		// [2026-08-06 Johnny Chu] V4-DEPTH — 'fast' tier skips Reflection entirely regardless of obligations.
+		$answer_depth_cfg = isset( $opts['_answer_depth_cfg'] ) && is_array( $opts['_answer_depth_cfg'] )
+			? $opts['_answer_depth_cfg']
+			: $this->resolve_answer_depth_config( $opts );
+		$contract = is_array( $opts['goal_contract'] ?? null ) ? $opts['goal_contract'] : array();
+		$obligations = (array) ( $contract['answer_obligations'] ?? $opts['goal_loop']['answer_obligations'] ?? array() );
+		$emit_checkpoint = function ( string $event, array $payload ) use ( $sse ) {
+			if ( is_object( $sse ) && method_exists( $sse, 'emit' ) ) {
+				$sse->emit( $event, $payload );
+			}
+		};
+
+		$draft_payload = array(
+			'trace_id'         => $trace_id,
+			'answer_chars'     => mb_strlen( (string) ( $draft['answer_md'] ?? '' ) ),
+			'obligation_count' => count( $obligations ),
+			'citation_count'   => count( (array) ( $draft['citations'] ?? array() ) ),
+			'evidence_count'   => count( (array) ( $draft['cited_passages'] ?? array() ) ),
+		);
+		$emit_checkpoint( 'draft_ready', $draft_payload );
+		$this->emit_event( 'decision', array_merge( array( 'surface' => self::SURFACE, 'stage' => 'draft_ready', 'stage_version' => self::MPR_GATE_STAGE_VERSION ), $draft_payload ) );
+
+		$reflection = array();
+		$reflection_error = '';
+		if ( $answer_depth_cfg['skip_reflection'] ) {
+			// [2026-08-06 Johnny Chu] V4-DEPTH — 'fast' mode: single-pass answer, no Reflector call, no bounded_fallback.
+			$reflection_error = '';
+		} elseif ( ! empty( $obligations ) && class_exists( 'BizCity_TwinBrain_Goal_Loop_Reflector' ) ) {
+			try {
+				$goal = is_array( $opts['goal_loop'] ?? null ) ? $opts['goal_loop'] : array();
+				$reflection = BizCity_TwinBrain_Goal_Loop_Reflector::reflect( $goal, $prompt, $draft, $opts );
+			} catch ( \Throwable $e ) {
+				$reflection_error = 'reflector_exception';
+				self::write_runtime_log( 'error', 'goal_reflection_exception', $e->getMessage(), array(
+					'trace_id' => $trace_id,
+					'surface'  => self::SURFACE,
+					'exception_class' => get_class( $e ),
+				) );
+			}
+		} elseif ( ! empty( $obligations ) ) {
+			$reflection_error = 'reflector_unavailable';
+		}
+
+		$scoreboard = is_array( $reflection['resolution_scoreboard'] ?? null )
+			? $reflection['resolution_scoreboard']
+			: array();
+		$ready = empty( $obligations ) || $answer_depth_cfg['skip_reflection'] || ( ! empty( $scoreboard ) && ! empty( $scoreboard['overall_ready_for_final'] ) );
+		$retrieve_round = max( 0, (int) ( $scoreboard['retrieve_round'] ?? 0 ), (int) ( $opts['retrieve_round'] ?? 0 ) );
+		$scoreboard['retrieve_round'] = $retrieve_round;
+		$gate_reason = $reflection_error;
+		if ( ! $ready && $gate_reason === '' ) {
+			$gate_reason = $retrieve_round > 0 ? 'retrieve_round_exhausted' : 'retrieve_required';
+		}
+		$final_gate = array(
+			'status'            => empty( $obligations ) ? 'skipped_no_contract' : ( $answer_depth_cfg['skip_reflection'] ? 'skipped_fast_mode' : ( $ready ? 'open' : 'bounded_fallback' ) ),
+			'terminal'          => true,
+			'ready_for_final'   => $ready,
+			'fallback_applied'  => ! $ready,
+			'gate_reason'       => $gate_reason,
+			'fallback_policy'   => ! $ready ? 'answer_with_limit_notice' : 'normal_answer',
+			'requires_review'   => ! $ready,
+			'scoreboard_version' => (string) ( $scoreboard['scoreboard_version'] ?? 'v1' ),
+			'scoreboard'        => $scoreboard,
+			'retrieve_round'    => $retrieve_round,
+			'reflection_method' => (string) ( $reflection['reflection']['method'] ?? 'none' ),
+			'completion_score'  => (float) ( $reflection['completion_score'] ?? 0 ),
+			'gaps'              => (array) ( $reflection['gaps'] ?? array() ),
+			'answer_depth'      => (string) $answer_depth_cfg['depth'], // [2026-08-06 Johnny Chu] V4-DEPTH — expose resolved depth tier in gate output for replay/CRM trace.
+			'max_retrieve_rounds' => (int) $answer_depth_cfg['max_retrieve_rounds'],
+		);
+		$reflection_payload = array(
+			'trace_id'          => $trace_id,
+			'status'            => $final_gate['status'],
+			'skipped'           => ! empty( $answer_depth_cfg['skip_reflection'] ), // [2026-08-07 Johnny Chu] V4-DEPTH — keep the timeline truthful when fast mode omits Reflection.
+			'skip_reason'       => ! empty( $answer_depth_cfg['skip_reflection'] ) ? 'answer_depth_fast' : '',
+			'ready_for_final'   => $ready,
+			'scoreboard_version' => $final_gate['scoreboard_version'],
+			'scoreboard'        => $scoreboard,
+			'retrieve_round'   => $retrieve_round,
+			'method'            => $final_gate['reflection_method'],
+			'completion_score'  => $final_gate['completion_score'],
+			'gaps'             => $final_gate['gaps'],
+			'error'            => $reflection_error,
+		);
+		$emit_checkpoint( 'reflection_done', $reflection_payload );
+		$this->emit_event( 'decision', array_merge( array( 'surface' => self::SURFACE, 'stage' => 'reflection_done', 'stage_version' => self::MPR_GATE_STAGE_VERSION ), $reflection_payload ) );
+		$decision_payload = array(
+			'trace_id'         => $trace_id,
+			'status'           => $final_gate['status'],
+			'answer_depth'     => (string) ( $final_gate['answer_depth'] ?? self::ANSWER_DEPTH_DEFAULT ), // [2026-08-07 Johnny Chu] V4-DEPTH — expose global prompt tier directly on the terminal gate event.
+			'max_retrieve_rounds' => (int) ( $final_gate['max_retrieve_rounds'] ?? 0 ),
+			'terminal'         => true,
+			'ready_for_final'  => $ready,
+			'fallback_applied' => ! $ready,
+			'gate_reason'      => $gate_reason,
+			'fallback_policy'  => $final_gate['fallback_policy'],
+			'requires_review'  => $final_gate['requires_review'],
+			'retrieve_round'   => $retrieve_round,
+			'scoreboard_version' => $final_gate['scoreboard_version'],
+		);
+		$emit_checkpoint( 'final_gate_decision', $decision_payload );
+		$this->emit_event( 'decision', array_merge( array( 'surface' => self::SURFACE, 'stage' => 'final_gate_decision', 'stage_version' => self::MPR_GATE_STAGE_VERSION ), $decision_payload ) );
+
+		return $final_gate;
+	}
+
 	private function build_turn_snapshot( string $trace_id, array $opts, array $parts ): array {
 		$snap = array(
 			'trace_id'        => $trace_id,
+			'answer_depth'    => (string) ( $parts['answer_depth'] ?? $opts['answer_depth'] ?? ( $parts['final_gate']['answer_depth'] ?? self::ANSWER_DEPTH_DEFAULT ) ), // [2026-08-07 Johnny Chu] V4-DEPTH — make the global prompt tier first-class in replay snapshots.
 			'candidates'      => array_values( (array) ( $parts['candidates'] ?? array() ) ),
 			'tool_candidates' => array_values( (array) ( $parts['tool_candidates'] ?? array() ) ),
 			'keyword_tokens'  => array_values( (array) ( $opts['keyword_tokens'] ?? array() ) ),
@@ -1624,6 +2360,7 @@ class BizCity_TwinBrain_Runtime {
 			'final'           => array(),
 			'web_research'    => array(),
 			'tool_dispatch'   => array(),
+			'final_gate'      => (array) ( $parts['final_gate'] ?? array() ),
 			'agent'           => array(),
 			'cited_entity_ids'=> array_values( (array) ( $parts['cited_entity_ids'] ?? array() ) ),
 			'cited_passages'  => array_values( (array) ( $parts['cited_passages'] ?? array() ) ),
@@ -1791,9 +2528,13 @@ class BizCity_TwinBrain_Runtime {
 			'ms'             => 0,
 			'fallback'       => 'agent_mode',
 		] );
+		$final_gate = $this->finalize_with_gate( $trace_id, $prompt, array(
+			'answer_md' => $final_text,
+			'citations' => (array) ( $agent_res['citations'] ?? array() ),
+		), $opts, $sse );
 
 		/* Stream final as single chunk (no token-level for ReAct). */
-		$sse->emit( 'final_started', [ 'trace_id' => $trace_id, 'mode' => 'agent' ] );
+		$sse->emit( 'final_started', [ 'trace_id' => $trace_id, 'mode' => 'agent', 'final_gate' => $final_gate ] );
 		if ( $final_text !== '' ) {
 			$sse->emit( 'final_token', [
 				'trace_id' => $trace_id,
@@ -1812,6 +2553,7 @@ class BizCity_TwinBrain_Runtime {
 			'fallback'  => ! empty( $agent_res['forced_final'] ) ? 'agent_forced_final:' . ( $agent_res['reason'] ?? '' ) : '',
 			'success'   => $final_text !== '',
 			'mode'      => 'agent',
+			'final_gate' => $final_gate,
 		] );
 
 		/* Memory tool dispatcher — agent answer may contain inline memory tool blocks. */
@@ -1852,6 +2594,13 @@ class BizCity_TwinBrain_Runtime {
 				if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 					error_log( '[TwinBrain][agent][memory_tool_dispatcher][error] trace=' . $trace_id . ' ' . $e->getMessage() );
 				}
+				self::write_runtime_log( 'error', 'agent_memory_tool_dispatcher_exception', $e->getMessage(), array(
+					'trace_id' => $trace_id,
+					'surface'  => self::SURFACE,
+					'mode'     => 'agent',
+					'channel'  => (string) ( $opts['channel'] ?? '' ),
+					'exception_class' => get_class( $e ),
+				) );
 			}
 		}
 
@@ -1868,6 +2617,10 @@ class BizCity_TwinBrain_Runtime {
 						// [2026-07-28 Johnny Chu] R-CH-IDMEM — keep UUID ownership on the agent memory-writer path.
 						'identity_uuid' => (string) ( $opts['identity_uuid'] ?? '' ),
 						'identity_is_stable' => ! empty( $opts['identity_is_stable'] ),
+						'goal_loop'    => (array) ( $opts['goal_loop'] ?? array() ),
+						'memory_scope' => (string) ( $opts['memory_scope'] ?? '' ),
+						'case_id'      => (string) ( $opts['case_id'] ?? '' ),
+						'subject_key'  => (string) ( $opts['subject_key'] ?? '' ),
 					]
 				);
 				$write_payload = [
@@ -1883,6 +2636,13 @@ class BizCity_TwinBrain_Runtime {
 				if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 					error_log( '[TwinBrain][agent][memory_write][error] ' . $e->getMessage() );
 				}
+				self::write_runtime_log( 'error', 'agent_memory_write_exception', $e->getMessage(), array(
+					'trace_id' => $trace_id,
+					'surface'  => self::SURFACE,
+					'mode'     => 'agent',
+					'channel'  => (string) ( $opts['channel'] ?? '' ),
+					'exception_class' => get_class( $e ),
+				) );
 			}
 
 			// [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-4 — mood sampler (agent path).
@@ -1912,6 +2672,13 @@ class BizCity_TwinBrain_Runtime {
 					if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 						error_log( '[TwinBrain][agent][mood_sampled][error] ' . $e->getMessage() );
 					}
+					self::write_runtime_log( 'error', 'agent_mood_sampled_exception', $e->getMessage(), array(
+						'trace_id' => $trace_id,
+						'surface'  => self::SURFACE,
+						'mode'     => 'agent',
+						'channel'  => (string) ( $opts['channel'] ?? '' ),
+						'exception_class' => get_class( $e ),
+					) );
 				}
 			}
 		}
@@ -1976,6 +2743,7 @@ class BizCity_TwinBrain_Runtime {
 			'result_snapshot'      => $this->build_turn_snapshot( $trace_id, $opts, array(
 				'web_mode' => 'off',
 				'mode'     => 'agent',
+				'final_gate' => $final_gate,
 				'final'    => array(
 					'answer_md' => $final_text,
 					'chunks'    => $final_text !== '' ? 1 : 0,
@@ -2010,6 +2778,7 @@ class BizCity_TwinBrain_Runtime {
 			'answers'           => [],
 			'cited_entity_ids'  => [],
 			'cited_passages'    => [],
+			'final_gate'        => $final_gate,
 			'duration_ms'       => $wall_ms,
 			'mode'              => 'agent',
 			'agent'             => [
@@ -2051,6 +2820,12 @@ class BizCity_TwinBrain_Runtime {
 				? wp_json_encode( $payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES )
 				: json_encode( $payload );
 			error_log( '[ASTRO-DEBUG][' . $step . '] trace=' . $trace_id . ' ' . $json );
+			self::write_runtime_log( 'debug', 'astro_step', 'Astro pipeline step.', array(
+				'trace_id' => $trace_id,
+				'mode'     => 'astro',
+				'step'     => sanitize_key( (string) $step ),
+				'payload_keys' => is_array( $payload ) ? array_keys( $payload ) : array(),
+			) );
 		};
 		$astro_log( 'enter', array(
 			'user_id'        => $user_id,
@@ -2127,6 +2902,12 @@ class BizCity_TwinBrain_Runtime {
 				if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 					error_log( '[TwinBrain][astro_mode][cap_filter][legacy_fallback_error] trace=' . $trace_id . ' ' . $e->getMessage() );
 				}
+				self::write_runtime_log( 'error', 'astro_cap_filter_exception', $e->getMessage(), array(
+					'trace_id' => $trace_id,
+					'surface'  => self::SURFACE,
+					'mode'     => 'astro',
+					'exception_class' => get_class( $e ),
+				) );
 			}
 		}
 
@@ -2648,6 +3429,10 @@ class BizCity_TwinBrain_Runtime {
 				'source'     => 'astro_mode_engine',
 			) );
 		}
+		$final_gate = $this->finalize_with_gate( $trace_id, $prompt, array(
+			'answer_md' => $final_text,
+			'citations' => (array) ( $astro_row['citations'] ?? array() ),
+		), $opts, $sse );
 
 		/* --- Layer 4.5 Final Composer (stream) --- */
 		$final_t0  = microtime( true );
@@ -2657,6 +3442,7 @@ class BizCity_TwinBrain_Runtime {
 			'trace_id' => $trace_id,
 			'mode'     => 'astro',
 			'degraded' => ( $degraded !== '' ),
+			'final_gate' => $final_gate,
 		] );
 
 		$composer = BizCity_TwinBrain_Final_Composer::instance();
@@ -2868,6 +3654,7 @@ class BizCity_TwinBrain_Runtime {
 			'success'   => ! empty( $final['success'] ),
 			'mode'      => 'astro',
 			'degraded'  => ( $degraded !== '' ),
+			'final_gate' => $final_gate,
 		] );
 
 		/* --- L4.7 Memory_Writer --- */
@@ -2883,6 +3670,10 @@ class BizCity_TwinBrain_Runtime {
 						'identity_uuid' => (string) ( $opts['identity_uuid'] ?? '' ),
 						// [2026-07-28 Johnny Chu] R-CH-IDMEM — preserve stable UUID ownership on the Astro writer path.
 						'identity_is_stable' => ! empty( $opts['identity_is_stable'] ),
+						'goal_loop'         => (array) ( $opts['goal_loop'] ?? array() ),
+						'memory_scope'      => (string) ( $opts['memory_scope'] ?? '' ),
+						'case_id'           => (string) ( $opts['case_id'] ?? '' ),
+						'subject_key'       => (string) ( $opts['subject_key'] ?? '' ),
 						// [2026-07-28 Johnny Chu] PHASE-0.52 W2 — preserve channel identity for no-owner link UX on Astro turns.
 						'platform'   => (string) ( $opts['platform'] ?? $opts['channel'] ?? '' ),
 						'channel'    => (string) ( $opts['channel'] ?? '' ),
@@ -2904,6 +3695,13 @@ class BizCity_TwinBrain_Runtime {
 				if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 					error_log( '[TwinBrain][astro_mode][memory_write][error] ' . $e->getMessage() );
 				}
+				self::write_runtime_log( 'error', 'astro_memory_write_exception', $e->getMessage(), array(
+					'trace_id' => $trace_id,
+					'surface'  => self::SURFACE,
+					'mode'     => 'astro',
+					'channel'  => (string) ( $opts['channel'] ?? '' ),
+					'exception_class' => get_class( $e ),
+				) );
 			}
 		}
 
@@ -2951,6 +3749,12 @@ class BizCity_TwinBrain_Runtime {
 				if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 					error_log( '[TwinBrain][astro_mode][mode_memory][error] ' . $e->getMessage() );
 				}
+				self::write_runtime_log( 'error', 'astro_mode_memory_exception', $e->getMessage(), array(
+					'trace_id' => $trace_id,
+					'surface'  => self::SURFACE,
+					'mode'     => 'astro',
+					'exception_class' => get_class( $e ),
+				) );
 			}
 		}
 
@@ -3029,6 +3833,7 @@ class BizCity_TwinBrain_Runtime {
 					'success'   => ! empty( $final['success'] ),
 				),
 				'cited_passages' => $passages,
+				'final_gate'     => $final_gate,
 				'duration_ms'    => (int) ( ( microtime( true ) - $wall_t0 ) * 1000 ),
 			) ),
 		] );
@@ -3042,6 +3847,7 @@ class BizCity_TwinBrain_Runtime {
 			'cited_entity_ids' => [],
 			'cited_passages'   => [],
 			'duration_ms'      => $wall_ms,
+			'final_gate'       => $final_gate,
 			'mode'             => 'astro',
 			'cap_source'       => $cap_source,
 			'_degraded'        => $degraded !== '' ? $degraded : false,
@@ -3122,6 +3928,12 @@ class BizCity_TwinBrain_Runtime {
 				if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 					error_log( '[TwinBrain][astro_relation][assessment][error] ' . $e->getMessage() );
 				}
+				self::write_runtime_log( 'error', 'astro_relation_assessment_exception', $e->getMessage(), array(
+					'trace_id' => $trace_id,
+					'surface'  => self::SURFACE,
+					'mode'     => 'astro_relation',
+					'exception_class' => get_class( $e ),
+				) );
 			}
 		} else {
 			$assessment = array(
@@ -3157,6 +3969,12 @@ class BizCity_TwinBrain_Runtime {
 				if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 					error_log( '[TwinBrain][astro_relation][compose][error] ' . $e->getMessage() );
 				}
+				self::write_runtime_log( 'error', 'astro_relation_compose_exception', $e->getMessage(), array(
+					'trace_id' => $trace_id,
+					'surface'  => self::SURFACE,
+					'mode'     => 'astro_relation',
+					'exception_class' => get_class( $e ),
+				) );
 			}
 		} elseif ( ! empty( $assessment['success'] ) ) {
 			$composed = array(
@@ -3272,12 +4090,17 @@ class BizCity_TwinBrain_Runtime {
 			'ms' => 0,
 			'mode' => 'astro_relation',
 		) );
+		$final_gate = $this->finalize_with_gate( $trace_id, $prompt, array(
+			'answer_md' => $final_text,
+			'citations' => (array) ( $composed['citations'] ?? array() ),
+		), $opts, $sse );
 
 		$final_t0 = microtime( true );
 		$sse->emit( 'final_started', array(
 			'trace_id' => $trace_id,
 			'mode' => 'astro_relation',
 			'degraded' => ( $relation_degraded !== '' ),
+			'final_gate' => $final_gate,
 		) );
 		$final_seq = 1;
 		$sse->emit( 'final_token', array(
@@ -3298,6 +4121,7 @@ class BizCity_TwinBrain_Runtime {
 			'success' => true,
 			'mode' => 'astro_relation',
 			'degraded' => ( $relation_degraded !== '' ),
+			'final_gate' => $final_gate,
 		) );
 
 		if ( class_exists( 'BizCity_TwinBrain_Memory_Writer' ) && $final_text !== '' ) {
@@ -3313,6 +4137,10 @@ class BizCity_TwinBrain_Runtime {
 						'identity_uuid' => (string) ( $opts['identity_uuid'] ?? '' ),
 						// [2026-07-28 Johnny Chu] R-CH-IDMEM — preserve stable UUID ownership on the relation writer path.
 						'identity_is_stable' => ! empty( $opts['identity_is_stable'] ),
+						'goal_loop' => (array) ( $opts['goal_loop'] ?? array() ),
+						'memory_scope' => (string) ( $opts['memory_scope'] ?? '' ),
+						'case_id'      => (string) ( $opts['case_id'] ?? '' ),
+						'subject_key'  => (string) ( $opts['subject_key'] ?? '' ),
 						// [2026-07-28 Johnny Chu] PHASE-0.52 W2 — preserve channel identity for no-owner link UX on relation turns.
 						'platform' => (string) ( $opts['platform'] ?? $opts['channel'] ?? '' ),
 						'channel' => (string) ( $opts['channel'] ?? '' ),
@@ -3334,6 +4162,12 @@ class BizCity_TwinBrain_Runtime {
 				if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 					error_log( '[TwinBrain][astro_relation][memory_write][error] ' . $e->getMessage() );
 				}
+				self::write_runtime_log( 'error', 'astro_relation_memory_write_exception', $e->getMessage(), array(
+					'trace_id' => $trace_id,
+					'surface'  => self::SURFACE,
+					'mode'     => 'astro_relation',
+					'exception_class' => get_class( $e ),
+				) );
 			}
 		}
 
@@ -3391,6 +4225,7 @@ class BizCity_TwinBrain_Runtime {
 			'result_snapshot' => $this->build_turn_snapshot( $trace_id, $opts, array(
 				'web_mode' => 'astro',
 				'mode' => 'astro_relation',
+				'final_gate' => $final_gate,
 				'synthesis' => array(
 					'answer_md' => (string) $final_text,
 					'consensus' => $synth_fake['consensus'],
@@ -3425,6 +4260,7 @@ class BizCity_TwinBrain_Runtime {
 			'cited_entity_ids' => array(),
 			'cited_passages' => array(),
 			'duration_ms' => $wall_ms,
+			'final_gate' => $final_gate,
 			'mode' => 'astro_relation',
 			'cap_source' => $cap_source,
 			'_degraded' => $relation_degraded !== '' ? $relation_degraded : false,
@@ -3514,6 +4350,12 @@ class BizCity_TwinBrain_Runtime {
 				if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 					error_log( '[TwinBrain][astro][subject][error] ' . $e->getMessage() );
 				}
+				self::write_runtime_log( 'error', 'astro_subject_lookup_exception', $e->getMessage(), array(
+					'surface' => self::SURFACE,
+					'mode' => 'astro',
+					'user_id' => $user_id,
+					'exception_class' => get_class( $e ),
+				) );
 			}
 		} else {
 			$degraded = 'astro_provider_not_registered';
@@ -5407,12 +6249,16 @@ class BizCity_TwinBrain_Runtime {
 			'ms'             => 0,
 			'fallback'       => 'auto_degraded',
 		] );
+		$final_gate = $this->finalize_with_gate( $trace_id, $prompt, array(
+			'answer_md' => '',
+			'citations' => array(),
+		), $opts, $sse );
 
 		/* Layer 4.5 — Final Composer (chat variant). */
 		$final_t0  = microtime( true );
 		$final_seq = 0;
 		$final_keepalive_seq = 0;
-		$sse->emit( 'final_started', [ 'trace_id' => $trace_id, 'degraded' => true ] );
+		$sse->emit( 'final_started', [ 'trace_id' => $trace_id, 'degraded' => true, 'final_gate' => $final_gate ] );
 
 		$composer = BizCity_TwinBrain_Final_Composer::instance();
 		// [2026-07-07 Johnny Chu] HOTFIX — keepalive evidence while chat composer waits.
@@ -5455,6 +6301,7 @@ class BizCity_TwinBrain_Runtime {
 			'fallback'  => (string) ( $final['fallback'] ?? '' ),
 			'success'   => ! empty( $final['success'] ),
 			'degraded'  => true,
+			'final_gate' => $final_gate,
 		] );
 
 		/* Memory tool dispatcher — same as main path. */
@@ -5496,6 +6343,12 @@ class BizCity_TwinBrain_Runtime {
 				if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 					error_log( '[TwinBrain][auto-degrade][memory_tool_dispatcher][error] trace=' . $trace_id . ' ' . $e->getMessage() );
 				}
+				self::write_runtime_log( 'error', 'auto_degrade_memory_tool_dispatcher_exception', $e->getMessage(), array(
+					'trace_id' => $trace_id,
+					'surface' => self::SURFACE,
+					'mode' => 'auto_degrade',
+					'exception_class' => get_class( $e ),
+				) );
 			}
 		}
 
@@ -5512,6 +6365,10 @@ class BizCity_TwinBrain_Runtime {
 						// [2026-07-28 Johnny Chu] R-CH-IDMEM — keep UUID ownership on the auto-degrade memory-writer path.
 						'identity_uuid' => (string) ( $opts['identity_uuid'] ?? '' ),
 						'identity_is_stable' => ! empty( $opts['identity_is_stable'] ),
+						'goal_loop'    => (array) ( $opts['goal_loop'] ?? array() ),
+						'memory_scope' => (string) ( $opts['memory_scope'] ?? '' ),
+						'case_id'      => (string) ( $opts['case_id'] ?? '' ),
+						'subject_key'  => (string) ( $opts['subject_key'] ?? '' ),
 					]
 				);
 				$write_payload = [
@@ -5527,6 +6384,12 @@ class BizCity_TwinBrain_Runtime {
 				if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 					error_log( '[TwinBrain][auto-degrade][memory_write][error] ' . $e->getMessage() );
 				}
+				self::write_runtime_log( 'error', 'auto_degrade_memory_write_exception', $e->getMessage(), array(
+					'trace_id' => $trace_id,
+					'surface' => self::SURFACE,
+					'mode' => 'auto_degrade',
+					'exception_class' => get_class( $e ),
+				) );
 			}
 
 			// [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-4 — mood sampler (auto-degrade path).
@@ -5556,6 +6419,12 @@ class BizCity_TwinBrain_Runtime {
 					if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 						error_log( '[TwinBrain][auto-degrade][mood_sampled][error] ' . $e->getMessage() );
 					}
+					self::write_runtime_log( 'error', 'auto_degrade_mood_sampled_exception', $e->getMessage(), array(
+						'trace_id' => $trace_id,
+						'surface' => self::SURFACE,
+						'mode' => 'auto_degrade',
+						'exception_class' => get_class( $e ),
+					) );
 				}
 			}
 		}
@@ -5619,6 +6488,7 @@ class BizCity_TwinBrain_Runtime {
 				$this->build_turn_snapshot( $trace_id, $opts, array(
 					'web_mode' => 'off',
 					'mode'     => 'brain',
+					'final_gate' => $final_gate,
 					'final'    => array(
 						'answer_md' => $final_text,
 						'chunks'    => $final_seq,
@@ -5643,6 +6513,7 @@ class BizCity_TwinBrain_Runtime {
 			'cited_entity_ids'  => [],
 			'cited_passages'    => [],
 			'duration_ms'       => $wall_ms,
+			'final_gate'        => $final_gate,
 			'auto_degraded'     => true,
 		];
 	}
@@ -6285,6 +7156,7 @@ class BizCity_TwinBrain_Runtime {
 			'job'          => null,
 			'artifact_created' => null,
 			'artifact_ready'   => null,
+			'artifacts'        => array(), // [2026-07-31 Johnny Chu] PHASE-TWIN-GPT-AGENT-TOOLS — preserve producer collections for Session Workspace replay.
 		);
 
 		if ( empty( $decision['tool'] ) || ( $decision['decision'] ?? '' ) !== 'await_dispatch' ) {
@@ -6421,6 +7293,10 @@ class BizCity_TwinBrain_Runtime {
 		}
 		if ( isset( $ret['artifact_ready'] ) && is_array( $ret['artifact_ready'] ) ) {
 			$base['artifact_ready'] = $ret['artifact_ready'];
+		}
+		if ( isset( $ret['artifacts'] ) && is_array( $ret['artifacts'] ) ) {
+			// [2026-07-31 Johnny Chu] PHASE-TWIN-GPT-AGENT-TOOLS — forward typed artifact collection without replacing legacy artifact_created/ready.
+			$base['artifacts'] = array_values( array_filter( $ret['artifacts'], 'is_array' ) );
 		}
 		// [2026-07-20 Johnny Chu] PHASE-TWIN-GPT-AGENT-TOOLS — persist AT-7 durable job and attach job_id to Canvas events.
 		$base = $this->attach_artifact_job_state( $trace_id, $base, $ret, $args, $ctx );
@@ -6885,6 +7761,7 @@ class BizCity_TwinBrain_Runtime {
 			'job'             => $dispatch['job'],
 			'artifact_created'=> $dispatch['artifact_created'],
 			'artifact_ready'  => $dispatch['artifact_ready'],
+			'artifacts'       => isset( $dispatch['artifacts'] ) && is_array( $dispatch['artifacts'] ) ? $dispatch['artifacts'] : array(), // [2026-07-31 Johnny Chu] PHASE-TWIN-GPT-AGENT-TOOLS — expose multi-output collection to SSE/history.
 			'args_status'     => (string) ( $dispatch['args_status'] ?? '' ),
 			'decision_reason' => (string) ( $decision['reason'] ?? '' ),
 		);
@@ -6922,6 +7799,12 @@ class BizCity_TwinBrain_Runtime {
 				);
 			} catch ( \Throwable $e ) {
 				error_log( '[TwinBrain] turn persist failed: ' . $event_key . ' — ' . $e->getMessage() );
+				self::write_runtime_log( 'error', 'turn_persist_exception', $e->getMessage(), array(
+					'trace_id' => (string) ( $payload['trace_id'] ?? '' ),
+					'surface'  => self::SURFACE,
+					'event_key' => (string) $event_key,
+					'exception_class' => get_class( $e ),
+				) );
 			}
 		}
 
@@ -6933,8 +7816,19 @@ class BizCity_TwinBrain_Runtime {
 				// Schema validation may throw for new event_types until taxonomy is updated;
 				// surface but don't block Wave 0.
 				error_log( '[TwinBrain] event dispatch failed: ' . $event_key . ' — ' . $e->getMessage() );
+				self::write_runtime_log( 'error', 'event_dispatch_exception', $e->getMessage(), array(
+					'trace_id' => (string) ( $payload['trace_id'] ?? '' ),
+					'surface'  => self::SURFACE,
+					'event_key' => (string) $event_key,
+					'exception_class' => get_class( $e ),
+				) );
 			}
 		}
+		self::write_runtime_log( 'warn', 'noop_bus', 'Twin Event Bus unavailable.', array(
+			'trace_id' => (string) ( $payload['trace_id'] ?? '' ),
+			'surface'  => self::SURFACE,
+			'event_key' => (string) $event_key,
+		) );
 		error_log( '[TwinBrain][noop-bus] ' . $event_key . ' ' . wp_json_encode( $payload, JSON_UNESCAPED_UNICODE ) );
 	}
 }

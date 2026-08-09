@@ -46,6 +46,18 @@ if ( ! defined( 'BIZCITY_TWINCHAT_REST_NS' ) ) {
 	define( 'BIZCITY_TWINCHAT_REST_NS', 'bizcity-twinchat/v1' );
 }
 
+// [2026-08-07 Johnny Chu] R-PERF - the wp-admin TwinChat page renders only a TwinShell iframe; defer the full backend stack to REST/iframe requests.
+$_bizcity_twinchat_admin_shell_only = is_admin()
+	&& isset( $_GET['page'] )
+	&& in_array( sanitize_key( (string) $_GET['page'] ), array( 'bizcity-twinchat', 'bizcity-twinbrain' ), true );
+if ( $_bizcity_twinchat_admin_shell_only ) {
+	require_once BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-admin-menu.php';
+	add_action( 'admin_menu', static function () {
+		BizCity_TwinChat_Admin_Menu::instance()->register();
+	}, 20 );
+	return;
+}
+
 // ── Includes ──────────────────────────────────────────────────────────────
 require_once BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-database.php';
 require_once BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-sources-database.php';

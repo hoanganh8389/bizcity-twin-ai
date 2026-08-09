@@ -13,6 +13,19 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+// [2026-08-09 Johnny Chu] R-PERF-LOADER-BUNDLE — protect alternate direct
+// bootstrap loads from preloading Facebook runtime on the TwinChat shell.
+$_bizcity_facebook_shell_plugin = isset( $_GET['plugin'] )
+	? sanitize_key( (string) $_GET['plugin'] )
+	: '';
+if ( is_admin()
+	&& isset( $_GET['page'] )
+	&& 'bizcity-twinchat' === sanitize_key( (string) $_GET['page'] )
+	&& ( $_bizcity_facebook_shell_plugin === '' || $_bizcity_facebook_shell_plugin === 'twinchat' ) ) {
+	return;
+}
+unset( $_bizcity_facebook_shell_plugin );
+
 // Define plugin constants
 if ( ! defined( 'BIZCITY_FACEBOOK_BOT_FILE' ) ) {
 	define( 'BIZCITY_FACEBOOK_BOT_FILE', __FILE__ );

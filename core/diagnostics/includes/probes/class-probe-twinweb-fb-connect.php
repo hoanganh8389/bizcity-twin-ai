@@ -67,6 +67,7 @@ final class BizCity_Probe_TwinWeb_FB_Connect implements BizCity_Diagnostics_Prob
 		$zalo_rest_file = $plugin_root . '/plugins/bizcity-zalo-bot/includes/class-rest-api.php';
 		$zalo_linker_file = $plugin_root . '/plugins/bizcity-zalo-bot/includes/class-user-linker.php';
 		$zalo_router_file = $plugin_root . '/plugins/bizcity-zalo-bot/includes/class-command-router.php';
+		$channel_linker_file = $plugin_root . '/core/channel-gateway/includes/class-channel-user-linker.php';
 
 		/* Layer 1 — Disk */
 		$disk_adapter_ok = is_readable( $adapter_file );
@@ -99,13 +100,14 @@ final class BizCity_Probe_TwinWeb_FB_Connect implements BizCity_Diagnostics_Prob
 			$pass = false;
 		}
 
-		$disk_zalo_linker_ok = is_readable( $zalo_linker_file ) && is_readable( $zalo_router_file );
+		// [2026-08-06 Johnny Chu] HOTFIX-ZALOBOT-LINK — DDV must cover the canonical Channel Gateway linker used by login and /link.
+		$disk_zalo_linker_ok = is_readable( $zalo_linker_file ) && is_readable( $zalo_router_file ) && is_readable( $channel_linker_file );
 		$ctx->emit_step( array(
 			'label'  => 'Disk · Zalo linker/router files',
 			'status' => $disk_zalo_linker_ok ? 'pass' : 'fail',
 			'detail' => $disk_zalo_linker_ok
-				? 'class-user-linker.php + class-command-router.php readable'
-				: 'missing/unreadable class-user-linker.php or class-command-router.php',
+				? 'Zalo linker + command router + Channel Gateway linker readable'
+				: 'missing/unreadable Zalo linker, command router, or Channel Gateway linker',
 		) );
 		if ( ! $disk_zalo_linker_ok ) {
 			$pass = false;
@@ -152,6 +154,7 @@ final class BizCity_Probe_TwinWeb_FB_Connect implements BizCity_Diagnostics_Prob
 			$zalo_rest_src   = (string) file_get_contents( $zalo_rest_file );
 			$zalo_linker_src = (string) file_get_contents( $zalo_linker_file );
 			$zalo_router_src = (string) file_get_contents( $zalo_router_file );
+			$channel_linker_src = (string) file_get_contents( $channel_linker_file );
 			$zalo_markers = array(
 				"'/twin-gpt/zalo-bot/link'",
 				'function member_create_deep_link',
@@ -159,6 +162,9 @@ final class BizCity_Probe_TwinWeb_FB_Connect implements BizCity_Diagnostics_Prob
 				'consume_twin_gpt_link_nonce',
 				'extract_link_nonce',
 				'handle_link_nonce',
+				'add_action( \'bizcity_zalo_message_received\'',
+				'BizCity_Channel_User_Linker::PLATFORM_ZALO_BOT',
+				'BizCity_Channel_User_Linker::bind_identity',
 			);
 			$missing_zalo = array();
 			foreach ( $zalo_markers as $marker ) {
@@ -170,6 +176,9 @@ final class BizCity_Probe_TwinWeb_FB_Connect implements BizCity_Diagnostics_Prob
 					$has = true;
 				}
 				if ( ! $has && strpos( $zalo_router_src, $marker ) !== false ) {
+					$has = true;
+				}
+				if ( ! $has && strpos( $channel_linker_src, $marker ) !== false ) {
 					$has = true;
 				}
 				if ( ! $has ) {

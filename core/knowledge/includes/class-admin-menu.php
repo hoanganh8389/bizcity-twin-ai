@@ -2656,6 +2656,10 @@ class BizCity_Knowledge_Admin_Menu {
 
         global $wpdb;
         $deleted = $wpdb->delete( BizCity_User_Memory::table(), [ 'id' => $memory_id ] );
+        if ( $deleted ) {
+            // [2026-07-31 Johnny Chu] PHASE-1.22-MEMORY-UNIFY — Memory Hub admin delete must remove the matching unified user row.
+            do_action( 'bizcity_memory_mirror_delete', 'user', $memory_id, array( 'blog_id' => get_current_blog_id() ) );
+        }
         wp_send_json_success( [ 'deleted' => (bool) $deleted ] );
     }
 

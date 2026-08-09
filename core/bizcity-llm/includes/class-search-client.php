@@ -40,7 +40,10 @@ class BizCity_Search_Client {
      * Gateway base URL (same as LLM: bizcity.vn or bizcity.ai).
      */
     public function get_gateway_url(): string {
-        // [2026-06-10 Johnny Chu] HOTFIX — per-site option
+        // [2026-08-02 Johnny Chu] R-GW-API-CATALOG — use the canonical LLM client gateway getter so Search cannot drift to another host.
+        if ( class_exists( 'BizCity_LLM_Client' ) ) {
+            return BizCity_LLM_Client::instance()->get_gateway_url();
+        }
         return rtrim( (string) get_option( 'bizcity_llm_gateway_url', 'https://bizcity.vn' ), '/' );
     }
 
@@ -48,7 +51,10 @@ class BizCity_Search_Client {
      * BizCity API key (same key for LLM + Search + all services).
      */
     public function get_api_key(): string {
-        // [2026-06-10 Johnny Chu] HOTFIX — per-site option
+        // [2026-08-02 Johnny Chu] R-1API-AUTH — use the canonical LLM client credential getter for Search calls.
+        if ( class_exists( 'BizCity_LLM_Client' ) ) {
+            return BizCity_LLM_Client::instance()->get_api_key();
+        }
         // [2026-06-24 Johnny Chu] HOTFIX-MULTISITE — fallback to main site when sub-site key is empty
         $key = trim( (string) get_option( 'bizcity_llm_api_key', '' ) );
         if ( $key === '' && is_multisite() && get_current_blog_id() !== get_main_site_id() ) {
@@ -132,8 +138,12 @@ class BizCity_Search_Client {
             'query'               => $query,
             'max_results'         => min( max( $max_results, 1 ), 20 ),
             'search_depth'        => sanitize_text_field( $options['search_depth'] ?? 'basic' ),
+            // [2026-08-02 Johnny Chu] HOTFIX-TRENDING-DEADLINE — carry the bounded timeout through the same-origin client proxy to the Tavily Hub.
+            'timeout'             => isset( $options['timeout'] ) ? max( 3, min( 90, (int) $options['timeout'] ) ) : self::TIMEOUT_SEC,
             'include_raw_content' => $options['include_raw_content'] ?? true,
             'include_answer'      => $options['include_answer'] ?? false,
+            'site_url'            => esc_url_raw( home_url( '/' ) ),
+            'plugin_name'         => 'bizcity-twin-ai',
         ];
 
         if ( ! empty( $options['topic'] ) ) {
@@ -152,14 +162,48 @@ class BizCity_Search_Client {
             'depth' => $body['search_depth'],
         ] );
 
-        $response = wp_remote_post( $endpoint, [
-            'timeout' => self::TIMEOUT_SEC,
+        // [2026-07-30 Johnny Chu] PHASE-1.22-RUNTIME — use the shared outbound reliability adapter for search calls.
+        // [2026-08-02 Johnny Chu] HOTFIX-TRENDING-TIMEOUT — honor the caller budget; Quick/Trending use a shorter bounded search timeout.
+        $request_timeout = isset( $options['timeout'] )
+            ? max( 3, min( 90, (int) $options['timeout'] ) )
+            : self::TIMEOUT_SEC;
+        // [2026-08-02 Johnny Chu] HOTFIX-TRENDING-DEADLINE — pass the same deadline to the shared reliability adapter so its 20s default cannot silently override a caller budget.
+        $deadline_at = microtime( true ) + $request_timeout;
+        $request_args = [
+            // [2026-08-02 Johnny Chu] HOTFIX-SEARCH-POST-METHOD — Reliable HTTP
+            // delegates to wp_remote_request(), whose default is GET. The Hub
+            // search route is POST-only; omitting this turned the JSON body into
+            // a GET query-string and produced 404 + http_build_query warnings.
+            'method'  => 'POST',
+            'timeout' => $request_timeout,
             'headers' => [
                 'Content-Type'  => 'application/json',
                 'Authorization' => 'Bearer ' . $this->get_api_key(),
             ],
             'body' => wp_json_encode( $body ),
-        ] );
+        ];
+        $route_used = 'query';
+        $response = class_exists( 'BizCity_Twin_Reliable_HTTP' )
+            ? BizCity_Twin_Reliable_HTTP::request( 'gateway.search', $endpoint, $request_args, [ 'user_id' => get_current_user_id(), 'deadline_at' => $deadline_at ] )
+            : wp_remote_post( $endpoint, [
+                'timeout' => $request_args['timeout'],
+                'headers' => $request_args['headers'],
+                'body'    => $request_args['body'],
+            ] );
+
+        // [2026-08-02 Johnny Chu] R-GW-API-CATALOG — bridge old deployed
+        // clients that still expose the legacy /search route name.
+        if ( ! is_wp_error( $response ) && 404 === (int) wp_remote_retrieve_response_code( $response ) ) {
+            $legacy_endpoint = $this->get_gateway_url() . '/wp-json/search/router/v1/search';
+            $route_used = 'search';
+            $response = class_exists( 'BizCity_Twin_Reliable_HTTP' )
+                ? BizCity_Twin_Reliable_HTTP::request( 'gateway.search.legacy', $legacy_endpoint, $request_args, [ 'user_id' => get_current_user_id(), 'deadline_at' => $deadline_at ] )
+                : wp_remote_post( $legacy_endpoint, [
+                    'timeout' => $request_args['timeout'],
+                    'headers' => $request_args['headers'],
+                    'body'    => $request_args['body'],
+                ] );
+        }
 
         $ms = intval( ( microtime( true ) - $start ) * 1000 );
 
@@ -192,7 +236,12 @@ class BizCity_Search_Client {
             $msg = $data['error'] ?? "Search gateway HTTP {$code}";
             $this->debug_log( 'search() FAIL', [ 'code' => $code, 'error' => $msg, 'ms' => $ms ] );
             $this->record_usage( 'search', false, $ms, $msg );
-            return new WP_Error( 'search_error', $msg );
+            return new WP_Error( 'search_error', $msg, [
+                'status'    => $code,
+                'route'     => $route_used,
+                'gateway'   => $this->get_gateway_url(),
+                'has_body'  => $raw_body !== '',
+            ] );
         }
 
         // Normalize to match BCN_Tavily_Client format for backward compatibility
@@ -274,7 +323,20 @@ class BizCity_Search_Client {
         $this->debug_log( 'extract() OK', [ 'results' => count( $data['results'] ?? [] ), 'ms' => $ms ] );
         $this->record_usage( 'extract', true, $ms );
 
-        return $data['results'] ?? [];
+        $results = [];
+        foreach ( (array) ( $data['results'] ?? [] ) as $item ) {
+            if ( ! is_array( $item ) ) {
+                continue;
+            }
+            $raw_content = (string) ( $item['raw_content'] ?? $item['content'] ?? $item['excerpt'] ?? '' );
+            $results[] = [
+                'url'         => (string) ( $item['url'] ?? '' ),
+                'title'       => (string) ( $item['title'] ?? $item['url'] ?? '' ),
+                'raw_content' => $raw_content,
+                'content'     => $raw_content,
+            ];
+        }
+        return $results;
     }
 
     /* ================================================================

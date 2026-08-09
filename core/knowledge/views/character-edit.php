@@ -1393,6 +1393,7 @@ if ($id) {
                 </p>
                 <?php
                 // [2026-06-24 Johnny Chu] GURU-KPI — query workflows bound to this guru
+                // [2026-08-01 Johnny Chu] HOTFIX — workflow config is stored in trigger_config_json.
                 $guru_id_val = (int) ( $character->id ?? 0 );
                 $bound_workflows = array();
                 if ( $guru_id_val > 0 ) {
@@ -1415,7 +1416,7 @@ if ($id) {
                                         (SELECT COUNT(*) FROM {$tbl_run2} r WHERE r.workflow_id = w.id AND r.status = 2) AS run_ok,
                                         (SELECT COUNT(*) FROM {$tbl_run2} r WHERE r.workflow_id = w.id AND r.status = 3) AS run_fail
                                  FROM {$tbl_wf2} w
-                                 WHERE CAST( JSON_UNQUOTE( JSON_EXTRACT(trigger_config, '$.guru_id') ) AS UNSIGNED ) = %d
+                                 WHERE CAST( JSON_UNQUOTE( JSON_EXTRACT(trigger_config_json, '$.guru_id') ) AS UNSIGNED ) = %d
                                  ORDER BY id DESC",
                                 $guru_id_val
                             ),

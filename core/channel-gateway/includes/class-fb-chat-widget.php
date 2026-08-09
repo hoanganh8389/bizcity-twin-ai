@@ -27,12 +27,23 @@
 
 defined( 'ABSPATH' ) || exit;
 
+/**
+ * Cache Contract
+ * @group  bizcity_fb_widget
+ * @keys   any_enabled_{blog_db_hash}
+ * @ttl    300 seconds
+ * @flush  REST save of any widget settings
+ */
 class BizCity_FB_Chat_Widget {
 
 	const OPT_PREFIX = 'bizcity_cg_fb_widget_';
+	const ACTIVE_PAGE_OPTION = 'bizcity_cg_fb_widget_active_page';
 	const NS         = 'bizcity-channel/v1';
+	const CACHE_GROUP = 'bizcity_fb_widget';
+	const CACHE_TTL   = 300;
 
 	private static $instance = null;
+	private static $any_enabled_memo = array();
 
 	public static function instance(): self {
 		if ( is_null( self::$instance ) ) {
@@ -265,6 +276,14 @@ class BizCity_FB_Chat_Widget {
 
 		$patch = $this->sanitize_settings( $body, $current );
 		update_option( self::OPT_PREFIX . $page_id, $patch, false );
+		// [2026-08-09 Johnny Chu] R-CACHE — keep a canonical exact-key pointer so frontend reads use get_option(), not a wildcard scan.
+		if ( ! empty( $patch['enabled'] ) ) {
+			update_option( self::ACTIVE_PAGE_OPTION, $page_id, true );
+		} elseif ( (string) get_option( self::ACTIVE_PAGE_OPTION, '' ) === $page_id ) {
+			delete_option( self::ACTIVE_PAGE_OPTION );
+		}
+		// [2026-08-09 Johnny Chu] R-CACHE — invalidate the sitewide widget lookup after settings mutation.
+		$this->invalidate_any_enabled_cache();
 
 		// Return saved value + confirmation so FE can verify.
 		return rest_ensure_response( array_merge( $patch, array( '_saved' => true ) ) );
@@ -422,7 +441,42 @@ class BizCity_FB_Chat_Widget {
 	 * Find first enabled widget config across all pages.
 	 */
 	public function get_any_enabled(): ?array {
+		// [2026-08-09 Johnny Chu] R-CACHE — cache the option-prefix scan; this runs from wp_footer on every public page.
 		global $wpdb;
+		$database = isset( $wpdb->dbname ) ? (string) $wpdb->dbname : '';
+		$memo_key = (int) get_current_blog_id() . ':' . $database;
+		if ( array_key_exists( $memo_key, self::$any_enabled_memo ) ) {
+			return self::$any_enabled_memo[ $memo_key ];
+		}
+
+		$cache_key      = 'any_enabled_' . md5( $memo_key );
+		$transient_key  = 'bizcity_fb_widget_' . md5( $memo_key );
+		$cached         = wp_cache_get( $cache_key, self::CACHE_GROUP );
+		if ( false === $cached ) {
+			$cached = get_transient( $transient_key );
+			if ( false !== $cached ) {
+				wp_cache_set( $cache_key, $cached, self::CACHE_GROUP, self::CACHE_TTL );
+			}
+		}
+		if ( false !== $cached ) {
+			self::$any_enabled_memo[ $memo_key ] = is_array( $cached ) && ! empty( $cached ) ? $cached : null;
+			return self::$any_enabled_memo[ $memo_key ];
+		}
+
+		// [2026-08-09 Johnny Chu] R-PERF — normal frontend path reads one exact autoloaded option.
+		$active_page_id = sanitize_text_field( (string) get_option( self::ACTIVE_PAGE_OPTION, '' ) );
+		if ( $active_page_id !== '' ) {
+			$settings = $this->get_settings( $active_page_id );
+			if ( ! empty( $settings['enabled'] ) ) {
+				wp_cache_set( $cache_key, $settings, self::CACHE_GROUP, self::CACHE_TTL );
+				set_transient( $transient_key, $settings, self::CACHE_TTL );
+				self::$any_enabled_memo[ $memo_key ] = $settings;
+				return $settings;
+			}
+		}
+
+		// [2026-08-09 Johnny Chu] R-CACHE — migration fallback for sites saved before the exact-key index existed.
+
 		$prefix = self::OPT_PREFIX;
 		$like   = $wpdb->esc_like( $prefix ) . '%';
 		$rows   = $wpdb->get_results(
@@ -432,10 +486,29 @@ class BizCity_FB_Chat_Widget {
 		foreach ( (array) $rows as $row ) {
 			$data = maybe_unserialize( $row['option_value'] );
 			if ( is_array( $data ) && ! empty( $data['enabled'] ) && ! empty( $data['page_id'] ) ) {
+				update_option( self::ACTIVE_PAGE_OPTION, (string) $data['page_id'], true );
+				wp_cache_set( $cache_key, $data, self::CACHE_GROUP, self::CACHE_TTL );
+				set_transient( $transient_key, $data, self::CACHE_TTL );
+				self::$any_enabled_memo[ $memo_key ] = $data;
 				return $data;
 			}
 		}
+		// Store an empty array, not false, so "no enabled widget" is cached too.
+		wp_cache_set( $cache_key, array(), self::CACHE_GROUP, self::CACHE_TTL );
+		set_transient( $transient_key, array(), self::CACHE_TTL );
+		self::$any_enabled_memo[ $memo_key ] = null;
 		return null;
+	}
+
+	private function invalidate_any_enabled_cache(): void {
+		global $wpdb;
+		$database = isset( $wpdb->dbname ) ? (string) $wpdb->dbname : '';
+		$memo_key = (int) get_current_blog_id() . ':' . $database;
+		$cache_key = 'any_enabled_' . md5( $memo_key );
+		$transient_key = 'bizcity_fb_widget_' . md5( $memo_key );
+		unset( self::$any_enabled_memo[ $memo_key ] );
+		wp_cache_delete( $cache_key, self::CACHE_GROUP );
+		delete_transient( $transient_key );
 	}
 
 	/**
@@ -467,3 +540,9 @@ class BizCity_FB_Chat_Widget {
 }
 
 BizCity_FB_Chat_Widget::init();
+
+if ( class_exists( 'BizCity_Cache_Registry' ) ) {
+	BizCity_Cache_Registry::register( BizCity_FB_Chat_Widget::CACHE_GROUP, 'core.channel-gateway', array(
+		'any_enabled_{blog_db_hash}' => array( 'ttl' => BizCity_FB_Chat_Widget::CACHE_TTL, 'desc' => 'First enabled Facebook chat widget config' ),
+	) );
+}

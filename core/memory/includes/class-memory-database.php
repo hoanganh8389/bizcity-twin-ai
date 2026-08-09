@@ -130,25 +130,8 @@ class BizCity_Memory_Database {
 
 		dbDelta( $sql_specs );
 
-		// ── bizcity_memory_logs ──
-		// FIX BUG #2: column renamed diff_json→detail_json to match BizCity_Memory_Log::record()
-		// FIX BUG #9: removed IF NOT EXISTS (Principle 1.1.8)
-		$sql_logs = "CREATE TABLE {$this->table_logs} (
-			id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-			memory_id   BIGINT UNSIGNED NOT NULL,
-			user_id     BIGINT UNSIGNED DEFAULT 0,
-			action      VARCHAR(30)     NOT NULL,
-			step_name   VARCHAR(100)    DEFAULT NULL,
-			detail_json LONGTEXT        DEFAULT NULL,
-			created_at  DATETIME        DEFAULT CURRENT_TIMESTAMP,
-			PRIMARY KEY (id),
-			KEY idx_memory (memory_id),
-			KEY idx_action (action),
-			KEY idx_user (user_id),
-			KEY idx_created (created_at)
-		) {$charset};";
-
-		dbDelta( $sql_logs );
+		// [2026-08-01 Johnny Chu] PHASE-1.29-LOG-ORPHAN — memory mutation
+		// audit is owned by Twin Event Stream + JSONL; do not provision SQL logs.
 	}
 
 	/* ================================================================
@@ -473,7 +456,8 @@ class BizCity_Memory_Database {
 	 */
 	public function delete( $id ) {
 		global $wpdb;
-		$wpdb->delete( $this->table_logs, array( 'memory_id' => (int) $id ) );
+		// [2026-08-01 Johnny Chu] PHASE-1.29-LOG-ORPHAN — memory audit is
+		// JSONL/event-owned; do not touch the retired SQL log table.
 		return (bool) $wpdb->delete( $this->table, array( 'id' => (int) $id ) );
 	}
 

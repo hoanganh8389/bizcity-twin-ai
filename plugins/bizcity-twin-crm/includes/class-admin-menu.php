@@ -49,8 +49,10 @@ class BizCity_CRM_Admin_Menu {
 		$dir = BIZCITY_CRM_DIR . '/assets/dist/';
 		$url = BIZCITY_CRM_URL . '/assets/dist/';
 
-		// Prefer Vite-built bundle if present.
-		$has_built = is_dir( $dir ) && file_exists( $dir . 'inbox-app.js' );
+		// [2026-08-04 Johnny Chu] PHASE-0.48-HOTFIX — built mode requires both assets; never silently load JS without CSS.
+		$has_built = is_dir( $dir )
+			&& is_readable( $dir . 'inbox-app.js' )
+			&& is_readable( $dir . 'inbox-app.css' );
 
 		if ( $has_built ) {
 			$css_path = $dir . 'inbox-app.css';
@@ -59,14 +61,14 @@ class BizCity_CRM_Admin_Menu {
 					'bizcity-crm-inbox-app',
 					$url . 'inbox-app.css',
 					 array(),
-					 (string) ( @filemtime( $css_path ) ?: time() )
+					self::asset_version( $css_path )
 				);
 			}
 			wp_enqueue_script(
 				'bizcity-crm-inbox-app',
 				$url . 'inbox-app.js',
 				array( 'wp-element' ),
-				(string) ( @filemtime( $dir . 'inbox-app.js' ) ?: time() ),
+				self::asset_version( $dir . 'inbox-app.js' ),
 				true
 			);
 		} else {
@@ -77,13 +79,13 @@ class BizCity_CRM_Admin_Menu {
 				'bizcity-crm-inbox-fallback',
 				BIZCITY_CRM_URL . '/frontend/fallback/inbox.css',
 				array(),
-				(string) ( @filemtime( $fb_css ) ?: time() )
+				self::asset_version( $fb_css )
 			);
 			wp_enqueue_script(
 				'bizcity-crm-inbox-fallback',
 				BIZCITY_CRM_URL . '/frontend/fallback/inbox.js',
 				array( 'wp-element', 'wp-api-fetch', 'wp-i18n' ),
-				(string) ( @filemtime( $fb_js ) ?: time() ),
+				self::asset_version( $fb_js ),
 				true
 			);
 		}
@@ -105,6 +107,7 @@ class BizCity_CRM_Admin_Menu {
 			// [2026-07-05 Johnny Chu] PHASE-0.46 M1 — expose current user ID so FE can resolve 'me' filter without extra fetch
 			'currentUserId'    => get_current_user_id(),
 			'isManager'        => ( current_user_can( 'manage_options' ) || current_user_can( 'bizcity_manager' ) ),
+			'canManageInboxes' => current_user_can( 'manage_options' ), // [2026-08-04 Johnny Chu] PHASE-0.48-INBOX-CLEANUP — match DELETE inbox permission in the rail.
 			'i18n'             => array(
 				'title'           => __( 'BizCity CRM Inbox', 'bizcity-twin-crm' ),
 				'noChannels'      => __( 'Chưa có inbox nào — hãy kết nối Facebook Page hoặc Zalo OA.', 'bizcity-twin-crm' ),
@@ -119,13 +122,31 @@ class BizCity_CRM_Admin_Menu {
 			'before'
 		);
 
-		// Remove WP admin `.wrap` margin so the CRM shell fills the content area flush.
+		// [2026-08-04 Johnny Chu] PHASE-0.48-HOTFIX — keep CRM shell height chain stable in wp-admin iframe/top-level context.
+		// Remove default wrap margin only on CRM page and force full-height inheritance to avoid Inbox pane compression.
 		$style_handle = $has_built ? 'bizcity-crm-inbox-app' : 'bizcity-crm-inbox-fallback';
-		wp_add_inline_style( $style_handle, '.wrap{margin:0 !important}' );
+		wp_add_inline_style(
+			$style_handle,
+			'body.toplevel_page_bizcity-crm .wrap{margin:0 !important;height:calc(100vh - 32px);min-height:620px;}'
+			. 'body.toplevel_page_bizcity-crm #wpbody-content{padding-bottom:0;}'
+			. 'body.toplevel_page_bizcity-crm #bizcity-crm-inbox-root{height:100%;min-height:0;}'
+		);
 
 		// [2026-06-19 Johnny Chu] PHASE-CG-CF7 — enqueue WP Media Library so window.wp.media
 		// is available in the CRM SPA (needed for PDF/ebook attachment picker in Email rules).
 		wp_enqueue_media();
+	}
+
+	/**
+	 * Use asset mtime for deploy cache busting, with a stable plugin-version fallback.
+	 */
+	private static function asset_version( string $path ): string {
+		// [2026-08-04 Johnny Chu] PHASE-0.48-HOTFIX — time() fallback caused a new asset URL on every request.
+		$mtime = @filemtime( $path );
+		if ( false !== $mtime && $mtime > 0 ) {
+			return (string) $mtime;
+		}
+		return defined( 'BIZCITY_CRM_VERSION' ) ? BIZCITY_CRM_VERSION : '0.0.0';
 	}
 
 	/* ------- pages ------- */

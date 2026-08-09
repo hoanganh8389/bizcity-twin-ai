@@ -30,8 +30,8 @@ class BizCity_Zalo_Bot_Gateway_Bridge {
 	}
 
 	public function __construct() {
-		// Bridge: bizcity_zalo_message_received → gateway
-		add_action( 'bizcity_zalo_message_received', array( $this, 'bridge_to_gateway' ), 10, 1 );
+		// [2026-08-09 Johnny Chu] R-CH-UNI — consume the canonical Zone 2 envelope.
+		add_action( 'bizcity_channel_normalized', array( $this, 'bridge_normalized_to_gateway' ), 10, 2 );
 
 		// Bridge: bizcity_zalo_bot_webhook_event → gateway (for all event types)
 		add_action( 'bizcity_zalo_bot_webhook_event', array( $this, 'bridge_generic_event_to_gateway' ), 10, 3 );
@@ -39,6 +39,24 @@ class BizCity_Zalo_Bot_Gateway_Bridge {
 		// Override: send message for zalobot_ prefix
 		add_filter( 'twf_send_message_override', array( $this, 'override_send_for_zalobot' ), 7, 5 );
 		add_filter( 'twf_telegram_send_photo_override', array( $this, 'override_send_photo_for_zalobot' ), 7, 5 );
+	}
+
+	/**
+	 * Adapt the canonical Zone 2 envelope to the bridge's internal payload shape.
+	 */
+	public function bridge_normalized_to_gateway( $envelope, $trigger_key = '' ) {
+		if ( ! is_array( $envelope ) || (string) ( $envelope['platform'] ?? '' ) !== 'ZALO_BOT' ) {
+			return;
+		}
+
+		$payload = $envelope;
+		$payload['bot_id']              = (int) ( $envelope['account_id'] ?? 0 );
+		$payload['from_user_id']       = (string) ( $envelope['user_id'] ?? '' );
+		$payload['message_text']       = (string) ( $envelope['message_text_clean'] ?? $envelope['message'] ?? '' );
+		$payload['message_text_clean'] = (string) ( $envelope['message_text_clean'] ?? $envelope['message'] ?? '' );
+		$payload['conversation_chat_id'] = (string) ( $envelope['conversation_chat_id'] ?? $envelope['chat_id'] ?? '' );
+		$payload['code']               = 'zalo_bot';
+		$this->bridge_to_gateway( $payload );
 	}
 
 	/* ═══════════════════════════════════════════════════════════
@@ -94,6 +112,10 @@ class BizCity_Zalo_Bot_Gateway_Bridge {
 			// Fallback: bot-owner assignment (pre-linker behavior)
 			$wp_user_id = $this->resolve_wp_user( $bot_id );
 		}
+		if ( $chat_kind === 'group' ) {
+			// [2026-08-01 Johnny Chu] R-CH-IDMEM — group conversations must never inherit the bot owner's private identity.
+			$wp_user_id = 0;
+		}
 
 		$display_name = isset( $message_data['from_user_name'] ) ? $message_data['from_user_name'] : '';
 
@@ -121,7 +143,10 @@ class BizCity_Zalo_Bot_Gateway_Bridge {
 				'raw_text'    => $text,
 				'message_text_clean' => $clean_text,
 				'message_id'  => $msg_id,
-				'attachments' => [],
+				// [2026-08-02 Johnny Chu] PHASE-ZALO-VISION — keep media in the
+				// canonical Gateway attachment envelope; CRM and legacy dispatchers
+				// must not lose image_url between the Zalo webhook and WP event.
+				'attachments' => $img_url !== '' ? [ [ 'type' => 'image', 'url' => $img_url ] ] : [],
 				'event_type'  => 'message',
 				'bot_id'      => (string) $bot_id,
 				'bot_name'    => $bot_name,

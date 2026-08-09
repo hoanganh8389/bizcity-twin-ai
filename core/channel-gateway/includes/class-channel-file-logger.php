@@ -99,7 +99,7 @@ class BizCity_Channel_File_Logger {
 	/**
 	 * Write one log entry to the channel's JSONL file.
 	 *
-	 * NEVER throws. On any failure returns false and falls back to error_log().
+	* NEVER throws. On any failure returns false without writing to the shared PHP diagnostic stream.
 	 *
 	 * @param string $channel  One of CH_* constants or any lowercase_slug.
 	 * @param string $level    One of LEVEL_* constants.
@@ -111,18 +111,30 @@ class BizCity_Channel_File_Logger {
 	 */
 	public static function write( $channel, $level, $event, $message, array $ctx = array() ) {
 		try {
+			// [2026-08-01 Johnny Chu] PHASE-1.26-CORRELATION — every channel row
+			// gets event_uuid/trace_id/parent_event_uuid, even when a legacy emitter
+			// omitted them. Callers that already know the Twin event UUID preserve it.
+			if ( class_exists( 'BizCity_Chat_Correlation' ) ) {
+				$ctx = BizCity_Chat_Correlation::ensure( $ctx, $event );
+			}
 			$dir = self::get_log_dir( $channel );
 			if ( $dir === '' ) { return false; }
 
 			$ts   = function_exists( 'wp_date' ) ? wp_date( 'Y-m-d\TH:i:s' ) : gmdate( 'Y-m-d\TH:i:s' );
 			$date = substr( $ts, 0, 10 );
 
+			// [2026-08-01 Johnny Chu] R-CH-FILE-LOG — enforce redaction at the
+			// channel boundary instead of trusting every caller to sanitize ctx.
+			$ctx = self::scrub_context( $ctx );
 			$entry = array(
 				'ts'      => $ts,
 				'blog_id' => (int) get_current_blog_id(),
 				'channel' => (string) $channel,
 				'level'   => (string) $level,
 				'event'   => (string) $event,
+				'event_uuid' => (string) ( $ctx['event_uuid'] ?? '' ),
+				'trace_id' => (string) ( $ctx['trace_id'] ?? '' ),
+				'parent_event_uuid' => (string) ( $ctx['parent_event_uuid'] ?? '' ),
 				'msg'     => substr( (string) $message, 0, 500 ),
 				'ctx'     => $ctx,
 			);
@@ -133,11 +145,10 @@ class BizCity_Channel_File_Logger {
 
 			$file = rtrim( $dir, '/\\' ) . DIRECTORY_SEPARATOR . $date . '.jsonl';
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
-			file_put_contents( $file, $line, FILE_APPEND | LOCK_EX );
-			return true;
+			// [2026-08-01 Johnny Chu] PHASE-LOG-SPLIT — file logger failures must not pollute the shared PHP error log.
+			return false !== @file_put_contents( $file, $line, FILE_APPEND | LOCK_EX );
 		} catch ( \Throwable $e ) {
-			// Logger MUST NEVER THROW. Fall back to error_log as last resort.
-			error_log( '[bizcity-channel-logger] write() failed: ' . $e->getMessage() );
+			// Logger MUST NEVER THROW or emit a secondary PHP error-log entry.
 			return false;
 		}
 	}
@@ -231,6 +242,37 @@ class BizCity_Channel_File_Logger {
 		}
 	}
 
+	/** Delete whole date files older than the channel retention window. */
+	public static function purge_older_than( $channel, $days ): int {
+		// [2026-08-01 Johnny Chu] PHASE-1.27-CHANNEL-RETENTION — keep channel
+		// evidence bounded without deleting individual append-only JSONL rows.
+		try {
+			$dir = self::get_log_dir( $channel );
+			if ( $dir === '' ) {
+				return 0;
+			}
+			$cutoff_ts = time() - ( max( 1, (int) $days ) * DAY_IN_SECONDS );
+			$files = glob( rtrim( $dir, '/\\' ) . DIRECTORY_SEPARATOR . '*.jsonl' );
+			if ( ! is_array( $files ) ) {
+				return 0;
+			}
+			$deleted = 0;
+			foreach ( $files as $file ) {
+				$date = basename( $file, '.jsonl' );
+				if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $date ) ) {
+					continue;
+				}
+				$file_ts = strtotime( $date . ' 00:00:00 UTC' );
+				if ( false !== $file_ts && $file_ts < $cutoff_ts && @unlink( $file ) ) {
+					$deleted++;
+				}
+			}
+			return $deleted;
+		} catch ( \Throwable $e ) {
+			return 0;
+		}
+	}
+
 	// ──────────────────────────────────────────────────────────────────
 	// Internal helpers
 	// ──────────────────────────────────────────────────────────────────
@@ -281,5 +323,30 @@ class BizCity_Channel_File_Logger {
 
 		self::$dir_cache[ $cache_key ] = $dir;
 		return $dir;
+	}
+
+	private static function scrub_context( $value, $depth = 0 ) {
+		if ( $depth > 5 ) {
+			return '[depth-cap]';
+		}
+		if ( is_array( $value ) ) {
+			$out = array();
+			foreach ( $value as $key => $item ) {
+				$key_string = (string) $key;
+				if ( preg_match( '/token|secret|password|authorization|api[_-]?key|raw|body|message|phone|email/i', $key_string ) ) {
+					$out[ $key_string ] = '[redacted]';
+				} else {
+					$out[ $key_string ] = self::scrub_context( $item, $depth + 1 );
+				}
+			}
+			return $out;
+		}
+		if ( is_object( $value ) ) {
+			return '[object:' . get_class( $value ) . ']';
+		}
+		if ( is_string( $value ) ) {
+			return substr( $value, 0, 300 );
+		}
+		return $value;
 	}
 }

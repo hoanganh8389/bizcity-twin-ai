@@ -13,6 +13,20 @@
 
 defined( 'ABSPATH' ) || exit;
 
+// [2026-08-09 Johnny Chu] R-PERF-LOADER-BUNDLE - the default TwinChat admin
+// shell renders its own iframe and does not need the CRM runtime graph. Keep
+// CRM surface requests (plugin=crm), REST, webhooks, cron and public /crm/ alive.
+$_bizcity_crm_shell_plugin = isset( $_GET['plugin'] )
+	? sanitize_key( (string) $_GET['plugin'] )
+	: '';
+if ( is_admin()
+	&& isset( $_GET['page'] )
+	&& 'bizcity-twinchat' === sanitize_key( (string) $_GET['page'] )
+	&& ( $_bizcity_crm_shell_plugin === '' || $_bizcity_crm_shell_plugin === 'twinchat' ) ) {
+	return;
+}
+unset( $_bizcity_crm_shell_plugin );
+
 /* ------------------------------------------------------------------
  * Constants
  * ------------------------------------------------------------------ */
@@ -21,7 +35,7 @@ if ( ! defined( 'BIZCITY_CRM_FILE' ) )       { define( 'BIZCITY_CRM_FILE', __FIL
 if ( ! defined( 'BIZCITY_CRM_DIR' ) )        { define( 'BIZCITY_CRM_DIR', __DIR__ ); }
 if ( ! defined( 'BIZCITY_CRM_URL' ) )        { define( 'BIZCITY_CRM_URL', plugins_url( '', __FILE__ ) ); }
 if ( ! defined( 'BIZCITY_CRM_REST_NS' ) )    { define( 'BIZCITY_CRM_REST_NS', 'bizcity-crm/v1' ); }
-if ( ! defined( 'BIZCITY_CRM_DB_VERSION' ) ) { define( 'BIZCITY_CRM_DB_VERSION', '1.25.0' ); } // [2026-07-05 Johnny Chu] R-UNIFY GAP-B — v1.25.0 add platform/platform_uid/source to contacts; platform/channel_thread_id/chat_id/contact_id/account_id/blog_id to conversations; platform/platform_msg_id/body/payload_json to messages
+if ( ! defined( 'BIZCITY_CRM_DB_VERSION' ) ) { define( 'BIZCITY_CRM_DB_VERSION', '1.25.0' ); } // [2026-08-01 Johnny Chu] PHASE-CG-QR-LINK — QR Links use a per-blog option; no schema migration
 
 require_once __DIR__ . '/bootstrap.php';
 

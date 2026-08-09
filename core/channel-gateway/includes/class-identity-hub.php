@@ -440,13 +440,16 @@ class BizCity_Identity_Hub {
 
 	private static function table_exists( string $table ): bool {
 		// [2026-07-28 Johnny Chu] R-SHOW-TABLES — use information_schema with static and persistent cache, never metadata scans.
-		if ( isset( self::$table_exists[ $table ] ) ) {
-			return self::$table_exists[ $table ];
+		global $wpdb;
+		$database = isset( $wpdb->dbname ) ? (string) $wpdb->dbname : '';
+		$memo_key = (int) get_current_blog_id() . ':' . $database . ':' . $table;
+		// [2026-08-09 Johnny Chu] R-MSDB/R-CACHE — isolate static memo by blog and physical database.
+		if ( array_key_exists( $memo_key, self::$table_exists ) ) {
+			return self::$table_exists[ $memo_key ];
 		}
-		$cache_key = 'bz_tbl_identity_' . crc32( $table );
+		$cache_key = 'bz_tbl_identity_' . md5( $memo_key );
 		$cached = function_exists( 'wp_cache_get' ) ? wp_cache_get( $cache_key, 'bizcity_tbl' ) : false;
 		if ( false === $cached ) {
-			global $wpdb;
 			$cached = (int) (bool) $wpdb->get_var( $wpdb->prepare(
 				'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
 				$table
@@ -455,8 +458,8 @@ class BizCity_Identity_Hub {
 				wp_cache_set( $cache_key, $cached, 'bizcity_tbl', HOUR_IN_SECONDS );
 			}
 		}
-		self::$table_exists[ $table ] = (bool) $cached;
-		return self::$table_exists[ $table ];
+		self::$table_exists[ $memo_key ] = (bool) $cached;
+		return self::$table_exists[ $memo_key ];
 	}
 
 	private static function is_group_meta( array $meta ): bool {

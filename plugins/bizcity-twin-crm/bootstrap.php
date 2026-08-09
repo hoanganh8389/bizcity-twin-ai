@@ -167,10 +167,38 @@ final class BizCity_CRM_Plugin {
 	private function includes(): void {
 		$inc = BIZCITY_CRM_DIR . '/includes/';
 
+		// [2026-08-01 Johnny Chu] R-CH-FILE-LOG — load the canonical logger before
+		// CRM listeners so webhook evidence does not depend on Channel Gateway load order.
+		$channel_logger = dirname( dirname( BIZCITY_CRM_DIR ) ) . '/core/channel-gateway/includes/class-channel-file-logger.php';
+		if ( ! class_exists( 'BizCity_Channel_File_Logger', false ) && is_readable( $channel_logger ) ) {
+			require_once $channel_logger;
+		}
+		if ( ! class_exists( 'BizCity_Channel_File_Logger', false ) ) {
+			require_once $inc . 'class-bizcity-channel-logger.php';
+		}
+
+		// [2026-08-01 Johnny Chu] PHASE-0.39 GURU-BIND — the compatibility
+		// mu-plugin can load BizCity_Knowledge_Database first, causing the full
+		// knowledge bootstrap to return before loading Chat Gateway. CRM webhook
+		// replies still need the shared character/system-prompt runtime.
+		$knowledge_dir = dirname( dirname( BIZCITY_CRM_DIR ) ) . '/core/knowledge/';
+		$knowledge_runtime = array(
+			'lib/class-context-api.php',
+			'includes/class-chat-gateway.php',
+		);
+		foreach ( $knowledge_runtime as $runtime_file ) {
+			$runtime_path = $knowledge_dir . $runtime_file;
+			if ( is_readable( $runtime_path ) ) {
+				require_once $runtime_path;
+			}
+		}
+
 		require_once $inc . 'class-db-installer.php';
 		require_once $inc . 'class-capabilities.php';
 		require_once $inc . 'class-event-emitter.php';
 		require_once $inc . 'class-repository.php';
+		// [2026-08-04 Johnny Chu] PHASE-0.48-H6 — load the whitelist CSV export helper before REST routes.
+		require_once $inc . 'class-crm-export.php';
 		// M-CRM.M1.W3 — Audit log (v1.17.0)
 		require_once $inc . 'audit/class-audit-log.php';
 		require_once $inc . 'audit/class-audit-repository.php';// [2026-06-07 Johnny Chu] PHASE-3.5-WC — Admin-chat audit log (v1.22.0)
@@ -306,6 +334,8 @@ require_once $inc . 'audit/class-admin-chat-audit.php';		// 2026-05-19 R-INBOX-R
 		require_once $inc . 'email-automation/class-gmail-smtp-repo.php';
 		require_once $inc . 'email-automation/class-email-event-registry.php';
 		require_once $inc . 'email-automation/class-email-rules-repo.php';
+		// [2026-08-03 Johnny Chu] HOTFIX — load send-log evidence before dispatcher callbacks can write it.
+		require_once $inc . 'email-automation/class-email-send-log.php';
 		require_once $inc . 'email-automation/class-email-dispatcher.php';
 		BizCity_CRM_Email_Dispatcher::register();
 
@@ -322,6 +352,8 @@ require_once $inc . 'audit/class-admin-chat-audit.php';		// 2026-05-19 R-INBOX-R
 		// PHASE 0.35 M6 — Campaigns (W1 schema + repository + REST, W2 QR + UTM,
 		// W3 visit tracker, W4 conversion linker + loyalty bridge shortcodes).
 		require_once $inc . 'campaigns/class-campaign-repository.php';
+		// [2026-08-01 Johnny Chu] PHASE-CG-QR-LINK — standalone URL/Page QR Link repository.
+		require_once $inc . 'campaigns/class-qr-link-repository.php';
 		require_once $inc . 'campaigns/class-campaign-ref-codec.php';   // M6.W10
 		require_once $inc . 'campaigns/class-qr-generator.php';
 		require_once $inc . 'campaigns/class-campaign-tracker.php';

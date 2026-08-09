@@ -10,9 +10,9 @@
  * Side effects:
  *   - When eligible, suppresses the legacy reply by returning true on the
  *     `bizcity_facebook_workflow_handle_message` filter.
- *   - Lays a 30-second transient lock per conversation to avoid replying to
- *     the same inbound twice (CRM emits the event AFTER insert, so the lock
- *     guards re-entrancy from rapid-fire inbound or fan-out listeners).
+ *   - Lays a 30-second transient lock per inbound message to avoid replying
+ *     to the same event twice. A conversation-wide lock would incorrectly
+ *     drop a newer customer message while an older reply is still running.
  *   - Emits dense `error_log()` lines tagged `[bizcity-crm-autoreply]` so the
  *     pipeline is debuggable without extra tooling.
  *
@@ -32,6 +32,9 @@ class BizCity_CRM_AI_Autoreply_Listener {
 
 	const LOCK_TTL = 30; // seconds
 
+	/** @var string Channel currently being handled in this request. */
+	private static $current_channel = '';
+
 	public static function register(): void {
 		// CRM event emitted by Repository::insert_message after every insert.
 		add_action( 'bizcity_crm_event_crm_message_received', array( __CLASS__, 'on_message_received' ), 10, 1 );
@@ -47,7 +50,12 @@ class BizCity_CRM_AI_Autoreply_Listener {
 	public static function on_message_received( $payload ): void {
 		try {
 			// [2026-06-21 Johnny Chu] PHASE-0.39 GURU-BIND — P11: trace autoreply entry.
-			error_log( '[bizcity-crm-trace] P11 autoreply_listener sender_type=' . ( $payload['sender_type'] ?? '?' ) . ' conv=' . ( $payload['conversation_id'] ?? 0 ) . ' inbox=' . ( $payload['inbox_id'] ?? '?' ) );
+			$p11_msg = 'P11 autoreply_listener sender_type=' . ( $payload['sender_type'] ?? '?' ) . ' conv=' . ( $payload['conversation_id'] ?? 0 ) . ' inbox=' . ( $payload['inbox_id'] ?? '?' );
+			error_log( '[bizcity-crm-trace] ' . $p11_msg );
+			// [2026-08-01 Johnny Chu] R-CH-FILE-LOG — channel not resolved yet at this step; use shared gateway bucket.
+			if ( class_exists( 'BizCity_Channel_File_Logger' ) ) {
+				BizCity_Channel_File_Logger::write( BizCity_Channel_File_Logger::CH_CHANNEL_GATEWAY, BizCity_Channel_File_Logger::LEVEL_DEBUG, 'crm_trace_p11', $p11_msg, array( 'conv_id' => (int) ( $payload['conversation_id'] ?? 0 ) ) );
+			}
 			if ( ! is_array( $payload ) ) { return; }
 			if ( ( $payload['sender_type'] ?? '' ) !== 'contact' ) {
 				self::log( 'skip: sender_type is not contact', $payload );
@@ -58,6 +66,24 @@ class BizCity_CRM_AI_Autoreply_Listener {
 			if ( ! $conv_id ) {
 				self::log( 'skip: missing conversation_id' );
 				return;
+			}
+			// [2026-08-02 Johnny Chu] PHASE-ZALO-VISION — media-only CRM rows have no text prompt; leave them to the automation/pending-vision pipeline.
+			if ( $msg_id > 0 ) {
+				$current_message = BizCity_CRM_Repository::get_message( $msg_id );
+				$current_content = trim( (string) ( $current_message['content'] ?? '' ) );
+				$current_type    = strtolower( (string) ( $current_message['content_type'] ?? '' ) );
+				$current_attachments = $current_message['attachments'] ?? '';
+				if ( is_string( $current_attachments ) ) {
+					$current_attachments = json_decode( $current_attachments, true );
+				}
+				$has_attachment = is_array( $current_attachments ) && ! empty( $current_attachments );
+				// [2026-08-02 Johnny Chu] PHASE-ZALO-VISION — never invoke a text
+				// replier for an attachment-only CRM row, even if an older adapter
+				// stored content_type=text.
+				if ( $current_content === '' && ( $has_attachment || in_array( $current_type, array( 'image', 'file', 'audio', 'voice' ), true ) ) ) {
+					self::log( sprintf( 'skip conv#%d msg#%d: media_only content_type=%s — handled by attachment/vision pipeline', $conv_id, $msg_id, $current_type ) );
+					return;
+				}
 			}
 
 			if ( ! self::is_globally_enabled() ) {
@@ -72,14 +98,50 @@ class BizCity_CRM_AI_Autoreply_Listener {
 			}
 
 			$inbox = BizCity_CRM_Repository::get_inbox( (int) $conv['inbox_id'] );
+			self::$current_channel = (string) ( $inbox['channel_type'] ?? '' );
 
 			// [2026-06-21 Johnny Chu] PHASE-0.39 GURU-BIND — P11b: trace inbox channel_type + ref_id for Resolver debug.
-			error_log( '[bizcity-crm-trace] P11b inbox_channel_type=' . ( $inbox['channel_type'] ?? 'NULL' ) . ' channel_ref_id=' . ( $inbox['channel_ref_id'] ?? 'NULL' ) );
+			$p11b_channel_type = (string) ( $inbox['channel_type'] ?? '' );
+			error_log( '[bizcity-crm-trace] P11b inbox_channel_type=' . ( $p11b_channel_type !== '' ? $p11b_channel_type : 'NULL' ) . ' channel_ref_id=' . ( $inbox['channel_ref_id'] ?? 'NULL' ) );
+			// [2026-08-02 Johnny Chu] R-ZONE — Zalo Bot/Telegram/TwinChat are Zone 2 command surfaces; workflow matcher owns their reply and CRM AI must not run a parallel TwinBrain response.
+			if ( in_array( strtolower( $p11b_channel_type ), array( 'zalo', 'zalo_bot', 'telegram', 'twinchat_be' ), true ) ) {
+				self::log( sprintf( 'skip conv#%d msg#%d: zone2_channel=%s — automation workflow owns reply', $conv_id, $msg_id, $p11b_channel_type ) );
+				return;
+			}
+			// [2026-08-01 Johnny Chu] R-CH-FILE-LOG — channel now known; route into the matching per-channel JSONL file.
+			if ( class_exists( 'BizCity_Channel_File_Logger' ) ) {
+				BizCity_Channel_File_Logger::write(
+					self::map_channel_type( $p11b_channel_type ),
+					BizCity_Channel_File_Logger::LEVEL_DEBUG,
+					'crm_trace_p11b',
+					'inbox_channel_type=' . ( $p11b_channel_type !== '' ? $p11b_channel_type : 'NULL' ) . ' channel_ref_id=' . ( $inbox['channel_ref_id'] ?? 'NULL' ),
+					array( 'conv_id' => $conv_id, 'channel_ref_id' => (string) ( $inbox['channel_ref_id'] ?? '' ) )
+				);
+			}
+
+			$inbox_settings = $inbox && $inbox['settings_json']
+				? ( json_decode( (string) $inbox['settings_json'], true ) ?: array() )
+				: array();
 
 			// Twin Guru on Duty: resolve character + attached notebooks from binding.
 			$guru_ctx = ( $inbox && class_exists( 'BizCity_CRM_Guru_Resolver' ) )
 				? BizCity_CRM_Guru_Resolver::resolve_for_inbox( $inbox )
 				: array( 'character_id' => 0, 'guru_uuid' => '', 'notebooks' => array() );
+			// [2026-08-01 Johnny Chu] PHASE-0.39 GURU-BIND — keep CRM on the
+			// Chat Gateway path when binding is absent; never fall into legacy flow tables.
+			$resolved_character_id = (int) ( $guru_ctx['character_id'] ?? 0 );
+			if ( $resolved_character_id <= 0 ) {
+				$resolved_character_id = (int) ( $inbox_settings['default_character_id'] ?? 0 );
+			}
+			if ( $resolved_character_id <= 0 ) {
+				$resolved_character_id = (int) ( $conv['character_id'] ?? 0 );
+			}
+			if ( $resolved_character_id <= 0 && in_array( strtolower( (string) ( $inbox['channel_type'] ?? '' ) ), array( 'facebook', 'messenger', 'zalo_oa' ), true ) ) {
+				$resolved_character_id = self::resolve_default_character_id();
+			}
+			if ( $resolved_character_id > 0 ) {
+				$guru_ctx['character_id'] = $resolved_character_id;
+			}
 
 			$notebook_id = (int) ( $conv['notebook_id']
 				?? $inbox['default_notebook_id']
@@ -128,9 +190,6 @@ class BizCity_CRM_AI_Autoreply_Listener {
 				}
 			}
 
-			$inbox_settings = $inbox && $inbox['settings_json']
-				? ( json_decode( (string) $inbox['settings_json'], true ) ?: array() )
-				: array();
 			$autoreply_inbox = isset( $inbox_settings['ai_autoreply'] )
 				? (bool) $inbox_settings['ai_autoreply']
 				: true; // default ON when notebook attached
@@ -140,10 +199,24 @@ class BizCity_CRM_AI_Autoreply_Listener {
 				// MUST reply even without a notebook. Notebook makes answers richer (KG retrieval)
 				// but is NOT required when character_id > 0 has system_prompt configured.
 				// Skip ONLY when neither notebook NOR character is resolved.
-				$has_character = ( (int) ( $guru_ctx['character_id'] ?? 0 ) ) > 0;
+				// [2026-08-01 Johnny Chu] PHASE-0.39 GURU-BIND — honor the same
+				// inbox/conversation character fallback used by AI_Replier.
+				$effective_character_id = (int) ( $guru_ctx['character_id'] ?? 0 );
+				if ( $effective_character_id <= 0 ) {
+					$effective_character_id = (int) ( $inbox_settings['default_character_id'] ?? 0 );
+				}
+				if ( $effective_character_id <= 0 ) {
+					$effective_character_id = (int) ( $conv['character_id'] ?? 0 );
+				}
+				if ( $effective_character_id > 0 && (int) ( $guru_ctx['character_id'] ?? 0 ) <= 0 ) {
+					// [2026-08-01 Johnny Chu] PHASE-0.39 GURU-BIND — forward the
+					// fallback into the shared context passed to AI_Replier.
+					$guru_ctx['character_id'] = $effective_character_id;
+				}
+				$has_character = $effective_character_id > 0;
 				if ( ! $has_character ) {
 					self::log( sprintf(
-						'skip conv#%d: no_notebook (conv.notebook_id=%s, inbox.default_notebook_id=%s, guru_char#%d guru_uuid=%s, kg_notebooks.character_id rows=[%s], attachments rows=[%s])',
+						'no_notebook_no_character conv#%d: use default Chat Gateway (conv.notebook_id=%s, inbox.default_notebook_id=%s, guru_char#%d guru_uuid=%s, kg_notebooks.character_id rows=[%s], attachments rows=[%s])',
 						$conv_id,
 						$conv['notebook_id'] ?? 'NULL',
 						$inbox['default_notebook_id'] ?? 'NULL',
@@ -152,11 +225,10 @@ class BizCity_CRM_AI_Autoreply_Listener {
 						implode( ',', $guru_ctx['trace']['notebooks_by_character_id'] ?? array() ),
 						implode( ',', $guru_ctx['trace']['notebooks_by_guru_uuid']    ?? array() )
 					) );
-					return;
 				}
 				self::log( sprintf(
 					'no_notebook_but_character: conv#%d char#%d — reply with system_prompt only (no KG retrieval)',
-					$conv_id, (int) $guru_ctx['character_id']
+					$conv_id, $effective_character_id
 				) );
 			}
 			if ( ! $autoreply_inbox ) {
@@ -239,10 +311,18 @@ class BizCity_CRM_AI_Autoreply_Listener {
 				}
 			}
 
-			// De-dupe lock — same conversation re-entered within 30s = drop.
-			$lock_key = 'bz_crm_ai_lock_' . $conv_id;
+			// [2026-08-02 Johnny Chu] HOTFIX — dedupe the exact inbound message,
+			// not the whole conversation, so a newer customer message is not
+			// discarded while an older LLM request is still running.
+			$lock_key = 'bz_crm_ai_lock_' . $conv_id . '_' . ( $msg_id > 0 ? $msg_id : 'latest' );
 			if ( get_transient( $lock_key ) ) {
-				self::log( "skip conv#{$conv_id}: lock_held (recent reply within {self::LOCK_TTL}s)" );
+				self::log( "skip conv#{$conv_id} msg#{$msg_id}: lock_held (duplicate inbound within " . self::LOCK_TTL . 's)' );
+				self::write_lifecycle_log( 'ai_replier_lock_held', array(
+					'conversation_id' => $conv_id,
+					'message_id'      => $msg_id,
+					'channel'         => (string) ( $inbox['channel_type'] ?? '' ),
+					'reason'          => 'duplicate_inbound',
+				) );
 				return;
 			}
 			set_transient( $lock_key, $msg_id ?: 1, self::LOCK_TTL );
@@ -255,17 +335,28 @@ class BizCity_CRM_AI_Autoreply_Listener {
 				(string) ( $inbox['channel_type'] ?? '' ),
 				(int) ( $guru_ctx['character_id'] ?? 0 )
 			) );
+			self::write_lifecycle_log( 'ai_replier_started', array(
+				'conversation_id' => $conv_id,
+				'message_id'      => $msg_id,
+				'channel'         => (string) ( $inbox['channel_type'] ?? '' ),
+				'notebook_id'     => $notebook_id,
+				'character_id'    => (int) ( $guru_ctx['character_id'] ?? 0 ),
+			) );
 
 			$t0 = microtime( true );
-			$result = BizCity_CRM_AI_Replier::reply( $conv_id, array(
-				'notebook_id'  => $notebook_id,
-				'character_id' => (int) ( $guru_ctx['character_id'] ?? 0 ) ?: null,
-			) );
+			// [2026-08-02 Johnny Chu] HOTFIX — bind the reply prompt to the exact CRM event message; never reread a stale conversation message.
+			try {
+				$result = BizCity_CRM_AI_Replier::reply( $conv_id, array(
+					'notebook_id'  => $notebook_id,
+					'character_id' => (int) ( $guru_ctx['character_id'] ?? 0 ) ?: null,
+					'message_id'   => $msg_id,
+				) );
+			} finally {
+				// [2026-08-02 Johnny Chu] HOTFIX — an exception must not leave the
+				// inbound lock behind and block subsequent customer messages.
+				delete_transient( $lock_key );
+			}
 			$ms = (int) round( ( microtime( true ) - $t0 ) * 1000 );
-
-			// [2026-06-21 Johnny Chu] PHASE-0.39 GURU-BIND — Release lock after reply completes
-			// so the user can send the next message without waiting 30s.
-			delete_transient( $lock_key );
 
 			self::log( sprintf(
 				'done conv#%d trace=%s reply_chars=%d sent=%s platform=%s err=%s lat=%dms',
@@ -277,10 +368,41 @@ class BizCity_CRM_AI_Autoreply_Listener {
 				(string) ( $result['dispatch']['error']    ?? '' ),
 				$ms
 			) );
+			self::write_lifecycle_log( 'ai_replier_completed', array(
+				'conversation_id' => $conv_id,
+				'message_id'      => $msg_id,
+				'channel'         => (string) ( $inbox['channel_type'] ?? '' ),
+				'trace_uuid'      => (string) ( $result['trace_uuid'] ?? '' ),
+				'sent'            => ! empty( $result['dispatch']['sent'] ),
+				'duration_ms'     => $ms,
+				'error_bucket'    => (string) ( $result['dispatch']['error'] ?? '' ) !== '' ? 'dispatch_failed' : '',
+			) );
 		} catch ( \Throwable $e ) {
 			self::log( 'EXCEPTION: ' . get_class( $e ) . ' — ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine() );
 			self::log( 'TRACE: ' . str_replace( "\n", ' | ', $e->getTraceAsString() ) );
+			self::write_lifecycle_log( 'ai_replier_exception', array(
+				'conversation_id' => (int) ( $payload['conversation_id'] ?? 0 ),
+				'message_id'      => (int) ( $payload['message_id'] ?? 0 ),
+				'channel'         => self::$current_channel,
+				'exception_class' => get_class( $e ),
+				'error_bucket'    => 'replier_exception',
+			) );
 		}
+	}
+
+	private static function write_lifecycle_log( string $event, array $context ): void {
+		// [2026-08-02 Johnny Chu] HOTFIX — record structured CRM reply lifecycle evidence without prompt or credential data.
+		if ( ! class_exists( 'BizCity_Channel_File_Logger' ) ) {
+			return;
+		}
+		$channel = self::map_channel_type( (string) ( $context['channel'] ?? self::$current_channel ) );
+		BizCity_Channel_File_Logger::write(
+			$channel,
+			BizCity_Channel_File_Logger::LEVEL_INFO,
+			$event,
+			'CRM AI replier lifecycle event.',
+			$context
+		);
 	}
 
 	/**
@@ -303,6 +425,7 @@ class BizCity_CRM_AI_Autoreply_Listener {
 			if ( ! self::is_globally_enabled() ) { return $handled; }
 			$page_id = (string) ( $trigger_data['page_id'] ?? '' );
 			if ( $page_id === '' ) { return $handled; }
+			self::$current_channel = 'facebook';
 
 			global $wpdb;
 			$tbl = BizCity_CRM_DB_Installer_V2::tbl_inboxes();
@@ -315,6 +438,9 @@ class BizCity_CRM_AI_Autoreply_Listener {
 				self::log( "legacy-passthrough: no_inbox for fb page={$page_id}" );
 				return $handled;
 			}
+			// [2026-08-01 Johnny Chu] PHASE-0.39 GURU-BIND — read inbox character
+			// before deciding whether the legacy flow may handle a no-notebook turn.
+			$settings = $row['settings_json'] ? ( json_decode( (string) $row['settings_json'], true ) ?: array() ) : array();
 			$nb = (int) ( $row['default_notebook_id'] ?? 0 );
 			// Fallback to Guru-on-Duty's attached notebooks when inbox has no default.
 			if ( $nb <= 0 && class_exists( 'BizCity_CRM_Guru_Resolver' ) ) {
@@ -339,8 +465,16 @@ class BizCity_CRM_AI_Autoreply_Listener {
 				// legacy reply even without a notebook. Check if a Guru character is bound.
 				$guru_char = isset( $guru ) ? (int) ( $guru['character_id'] ?? 0 ) : 0;
 				if ( $guru_char <= 0 ) {
-					self::log( "legacy-passthrough: inbox#{$row['id']} fb page={$page_id} has no default_notebook_id and no Guru-on-Duty notebooks or character" );
-					return $handled;
+					$guru_char = (int) ( $settings['default_character_id'] ?? 0 );
+				}
+				if ( $guru_char <= 0 ) {
+					$guru_char = self::resolve_default_character_id();
+				}
+				if ( $guru_char <= 0 ) {
+					// [2026-08-01 Johnny Chu] PHASE-0.39 GURU-BIND — CRM now owns
+					// the generic Gateway fallback; do not enter legacy flow tables.
+					self::log( "suppress legacy: inbox#{$row['id']} fb page={$page_id} has no notebook/character; CRM default Chat Gateway will handle" );
+					$nb = 0;
 				}
 				self::log( sprintf(
 					'suppress legacy (char-only): inbox#%d fb page=%s char#%d — system_prompt only (no KG)',
@@ -348,7 +482,6 @@ class BizCity_CRM_AI_Autoreply_Listener {
 				) );
 				$nb = -1; // sentinel: character bound but no notebook — allow through
 			}
-			$settings = $row['settings_json'] ? ( json_decode( (string) $row['settings_json'], true ) ?: array() ) : array();
 			if ( isset( $settings['ai_autoreply'] ) && ! $settings['ai_autoreply'] ) {
 				self::log( "legacy-passthrough: inbox#{$row['id']} ai_autoreply=false" );
 				return $handled;
@@ -366,12 +499,62 @@ class BizCity_CRM_AI_Autoreply_Listener {
 		return (bool) apply_filters( 'bizcity_crm_ai_autoreply_enabled', $enabled );
 	}
 
+	/**
+	 * [2026-08-01 Johnny Chu] R-CH-FILE-LOG — dual-write autoreply decisions into
+	 * the correct per-channel JSONL evidence file, using `channel` in $ctx when the
+	 * caller knows the inbox channel_type; falls back to the shared channel_gateway
+	 * bucket for early-pipeline steps where the channel isn't resolved yet.
+	 */
 	private static function log( string $msg, array $ctx = array() ): void {
 		$line = '[bizcity-crm-autoreply] ' . $msg;
 		if ( $ctx ) {
 			$line .= ' ' . wp_json_encode( $ctx, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
 		}
 		error_log( $line );
+
+		if ( ! class_exists( 'BizCity_Channel_File_Logger' ) ) {
+			return;
+		}
+		$channel = self::map_channel_type( (string) ( $ctx['channel'] ?? self::$current_channel ) );
+		BizCity_Channel_File_Logger::write( $channel, BizCity_Channel_File_Logger::LEVEL_INFO, 'autoreply_decision', $msg, $ctx );
+	}
+
+	/**
+	 * Resolve the active character used by the existing Chat Gateway fallbacks.
+	 */
+	private static function resolve_default_character_id(): int {
+		$character_id = (int) get_option( 'bizcity_webchat_default_character_id', 0 );
+		if ( $character_id <= 0 ) {
+			$bot_options = get_option( 'pmfacebook_options', array() );
+			$character_id = (int) ( $bot_options['default_character_id'] ?? 0 );
+		}
+		if ( $character_id <= 0 && class_exists( 'BizCity_Knowledge_Database' ) ) {
+			$characters = BizCity_Knowledge_Database::instance()->get_characters( array( 'status' => 'active', 'limit' => 1 ) );
+			if ( ! empty( $characters ) ) {
+				$character_id = (int) ( $characters[0]->id ?? 0 );
+			}
+		}
+		return max( 0, $character_id );
+	}
+
+	/**
+	 * Map a CRM inbox `channel_type` (facebook|messenger|zalo_oa|zalo|zalo_bot|webchat)
+	 * to the canonical BizCity_Channel_File_Logger::CH_* folder constant.
+	 */
+	private static function map_channel_type( string $channel_type ): string {
+		$t = strtolower( $channel_type );
+		if ( $t === '' ) {
+			return BizCity_Channel_File_Logger::CH_CHANNEL_GATEWAY;
+		}
+		if ( strpos( $t, 'messenger' ) !== false ) { return BizCity_Channel_File_Logger::CH_MESSENGER; }
+		if ( strpos( $t, 'zalo_oa' ) !== false )   { return BizCity_Channel_File_Logger::CH_ZALO_OA; }
+		if ( strpos( $t, 'zalo' ) !== false )      { return BizCity_Channel_File_Logger::CH_ZALO_BOT; }
+		if ( strpos( $t, 'telegram' ) !== false )  { return BizCity_Channel_File_Logger::CH_TELEGRAM; }
+		if ( strpos( $t, 'web' ) !== false )       { return BizCity_Channel_File_Logger::CH_WEBCHAT; }
+		// [2026-08-01 Johnny Chu] R-CH-FILE-LOG — CRM's facebook inbox is the
+		// customer Messenger surface; transport-level FB webhook logs stay in facebook/.
+		if ( strpos( $t, 'facebook' ) !== false )  { return BizCity_Channel_File_Logger::CH_MESSENGER; }
+		return BizCity_Channel_File_Logger::CH_CHANNEL_GATEWAY;
 	}
 
 	/**

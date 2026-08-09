@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bizcity.vn/schema/twin/contracts/v1/citation-pack.schema.json",
+  "title": "BizCity Twin Citation Pack",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "version", "coverage", "citations"],
+  "properties": {
+    "contract": { "const": "citation-pack" },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$" },
+    "coverage": { "type": "number", "minimum": 0, "maximum": 1 },
+    "citations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "kind", "source", "confidence"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "kind": { "enum": ["notebook", "web", "document", "channel", "tool"] },
+          "source": { "type": "string", "minLength": 1, "maxLength": 300 },
+          "title": { "type": "string", "maxLength": 240 },
+          "locator": { "type": "string", "maxLength": 200 },
+          "snippet": { "type": "string", "maxLength": 500 },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+          "checksum": { "type": "string", "maxLength": 80 }
+        }
+      }
+    },
+    "unresolved_claims": {
+      "type": "array",
+      "items": { "type": "string", "maxLength": 280 }
+    }
+  }
+}

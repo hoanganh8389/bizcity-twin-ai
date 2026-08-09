@@ -27,6 +27,9 @@ final class BizCity_Guru_Citation_Formatter {
     /** Legacy / draft forms we coerce → canonical. */
     const RX_LEGACY = '/\[N(\d+)P(\d+)\]/';
 
+    /** Internal citation variants that must not leak to external channels. */
+    const RX_INTERNAL = '/\[(?:src:[A-Za-z0-9_-]+(?:#p|p)\d+|nb:[A-Za-z0-9_-]+\/p\d+|N\d+P\d+)\]/i';
+
     /**
      * Normalise tags in $text and return both the rewritten body and the
      * citations[] payload (intersection of tags found in text × passages
@@ -92,6 +95,8 @@ final class BizCity_Guru_Citation_Formatter {
      * e.g. SMS). The footer builder is responsible for surfacing sources.
      */
     public static function strip( string $text ): string {
-        return (string) preg_replace( self::RX_CANON, '', $text );
+        // [2026-08-01 Johnny Chu] PHASE-0.39 GURU-BIND — strip all known internal citation forms before external delivery.
+        $text = preg_replace( self::RX_INTERNAL, '', $text );
+        return is_string( $text ) ? $text : '';
     }
 }

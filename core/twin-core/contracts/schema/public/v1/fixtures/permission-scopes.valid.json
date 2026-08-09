@@ -1,0 +1,20 @@
+{
+  "contract": "permission-scopes",
+  "version": "1.0.0",
+  "requested": [
+    {
+      "scope": "kg.read",
+      "scope_level": "tenant",
+      "reason": "Read notebook context"
+    },
+    {
+      "scope": "content.publish",
+      "scope_level": "user",
+      "reason": "Publish generated post",
+      "effect": "allow"
+    }
+  ],
+  "approval_required": true,
+  "approved": ["kg.read"],
+  "denied": []
+}

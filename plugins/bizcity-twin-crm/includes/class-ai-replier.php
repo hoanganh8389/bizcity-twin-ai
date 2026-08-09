@@ -33,6 +33,9 @@ defined( 'ABSPATH' ) || exit;
 
 class BizCity_CRM_AI_Replier {
 
+	/** @var string Channel currently being handled in this request. */
+	private static $current_channel = '';
+
 	/**
 	 * Generate + send an AI reply for the most recent inbound user message
 	 * in the given conversation. Returns trace + dispatch result.
@@ -40,6 +43,7 @@ class BizCity_CRM_AI_Replier {
 	 * @param int   $conv_id
 	 * @param array $opts {
 	 *     @type string  prompt        Override the latest inbound text.
+	 *     @type int     message_id    Exact inbound CRM message to answer.
 	 *     @type bool    dispatch      Default true. False = dry-run (no outbound).
 	 *     @type int     notebook_id   Override notebook resolution.
 	 *     @type int     character_id  Override character (LLM persona).
@@ -66,6 +70,7 @@ class BizCity_CRM_AI_Replier {
 
 		$inbox = BizCity_CRM_Repository::get_inbox( (int) $conv['inbox_id'] );
 		if ( ! $inbox ) { throw new \RuntimeException( 'inbox_not_found' ); }
+		self::$current_channel = (string) ( $inbox['channel_type'] ?? '' );
 
 		$inbox_settings = $inbox['settings_json']
 			? ( json_decode( (string) $inbox['settings_json'], true ) ?: array() )
@@ -77,6 +82,23 @@ class BizCity_CRM_AI_Replier {
 			: null;
 		$llm_session_id     = (string) ( $identity_ctx['llm_session_id'] ?? ( 'crm_' . $conv_id ) );
 		$platform_type_hint = (string) ( $identity_ctx['platform_type_hint'] ?? 'crm' );
+		$resolved_wp_user_id = 0;
+		// [2026-08-03 Johnny Chu] R-TGL-CS — CRM has no canonical child profile
+		// yet, so use the conversation/contact-inbox anchor as a provisional case
+		// boundary; never derive identity from age/weight/clinical text.
+		$crm_case_id = 'crm_case_' . (int) $conv_id;
+		$crm_subject_key = 'crm_contact_inbox_' . (int) ( $conv['contact_inbox_id'] ?? 0 );
+		if ( is_array( $identity_ctx ) && class_exists( 'BizCity_Identity_Hub' ) ) {
+			$channel_identity = BizCity_Identity_Hub::resolve_from_opts( array(
+				'platform'          => $platform_type_hint,
+				'account_id'        => (string) ( $identity_ctx['account_id'] ?? '' ),
+				'external_user_id'  => (string) ( $identity_ctx['client_id'] ?? '' ),
+				'chat_id'           => (string) ( $identity_ctx['canonical_chat_id'] ?? '' ),
+			), get_current_blog_id() );
+			if ( is_array( $channel_identity ) ) {
+				$resolved_wp_user_id = (int) ( $channel_identity['primary_wp_user_id'] ?? $channel_identity['wp_user_id'] ?? 0 );
+			}
+		}
 
 		// ── Guru-on-Duty resolution: inbox(channel) → binding → character → notebooks.
 		// This is the **primary** source of truth: the Twin Guru on Duty wired in
@@ -99,12 +121,24 @@ class BizCity_CRM_AI_Replier {
 		// Replying without KG retrieval is degraded but valid; only hard-fail when
 		// neither notebook NOR character is available.
 		if ( $notebook_id <= 0 && $character_id <= 0 ) {
-			throw new \RuntimeException( 'no_notebook_attached' );
+			// [2026-08-01 Johnny Chu] PHASE-0.39 GURU-BIND — normal customer
+			// chat may use the Gateway's default assistant without KG or Guru.
+			self::log( 'no_notebook_attached: continue with default Chat Gateway assistant' );
 		}
 
 		// Latest inbound message → prompt.
-		$prompt = isset( $opts['prompt'] ) ? trim( (string) $opts['prompt'] ) : '';
-		if ( $prompt === '' ) {
+		$prompt     = isset( $opts['prompt'] ) ? trim( (string) $opts['prompt'] ) : '';
+		$message_id = (int) ( $opts['message_id'] ?? 0 );
+		if ( $prompt === '' && $message_id > 0 ) {
+			// [2026-08-02 Johnny Chu] HOTFIX — answer the exact CRM event message; a stale conversation scan must never replace the current prompt.
+			$current_message = BizCity_CRM_Repository::get_message( $message_id );
+			if ( $current_message
+				&& (int) ( $current_message['conversation_id'] ?? 0 ) === $conv_id
+				&& (string) ( $current_message['message_type'] ?? '' ) === 'incoming' ) {
+				$prompt = trim( (string) ( $current_message['content'] ?? '' ) );
+			}
+		}
+		if ( $prompt === '' && $message_id <= 0 ) {
 			$prompt = self::latest_inbound_text( $conv_id );
 		}
 		if ( $prompt === '' ) {
@@ -151,6 +185,7 @@ class BizCity_CRM_AI_Replier {
 				),
 			),
 		);
+		$notebook_mode = $notebook_id > 0 ? 'enabled' : 'skipped_no_notebook';
 		self::log( sprintf(
 			'→ resolve_context session=%s platform=%s notebook#%d (src=%s, eligible=[%s]) char=%d guru_uuid=%s svc_template=%s (role=%s, max=%dch/%dtok, src=%s) prompt=%s',
 			$llm_session_id,
@@ -234,6 +269,7 @@ class BizCity_CRM_AI_Replier {
 			'name'   => 'kg_retrieval',
 			'ms'     => self::ms_since( $s2 ),
 			'detail' => array(
+				'notebook_mode' => $notebook_mode,
 				'passages'      => count( $passages ),
 				'mode'          => (string) ( $rag['retrieval_mode'] ?? 'graph_rag' ),
 				'kg_steps'      => is_array( $rag['steps'] ?? null ) ? $rag['steps'] : array(),
@@ -260,6 +296,15 @@ class BizCity_CRM_AI_Replier {
 		$model    = (string) ( get_option( BizCity_KG_Retriever::ANSWER_MODEL_OPTION, BizCity_KG_Retriever::DEFAULT_ANSWER_MODEL ) );
 		$usage    = array();
 		$llm_note = 'kg-rag-direct';
+		$goal_loop_trace = array(
+			'canonical_path_active' => false,
+			'legacy_path_active'    => false,
+			'notebook_mode'         => $notebook_mode,
+			'memory_scope'          => 'goal_case',
+			'case_id'               => $crm_case_id,
+			'subject_key'           => $crm_subject_key,
+			'error'                 => '',
+		);
 
 		// [2026-06-29 Johnny Chu] HOTFIX diag — log whether BizCity_Chat_Gateway is loaded
 		self::log( sprintf( '→ gateway_check char=%d gateway=%s passages=%d kg_answer_len=%d',
@@ -269,7 +314,91 @@ class BizCity_CRM_AI_Replier {
 			mb_strlen( $kg_answer )
 		) );
 
-		if ( $character_id && class_exists( 'BizCity_Chat_Gateway' )
+		// [2026-08-03 Johnny Chu] R-TGL-CS — Messenger/Zalo OA use the canonical
+		// TwinBrain path by default when the channel adapter is loaded; other CRM
+		// channels remain opt-in until they have a concrete canonical adapter.
+		$canonical_channel = in_array( strtoupper( $platform_type_hint ), array( 'FB_MESS', 'ZALO_OA' ), true )
+			&& $notebook_id > 0
+			&& class_exists( 'BizCity_TwinBrain_Channel_Adapter' );
+		if ( ! $canonical_channel && in_array( strtoupper( $platform_type_hint ), array( 'FB_MESS', 'ZALO_OA' ), true ) && $notebook_id <= 0 ) {
+			// [2026-08-04 Johnny Chu] R-TGL-CS — keep character/FAQ-only CRM replies out of MPR when no notebook can produce perspectives.
+			self::log( 'canonical_path_blocked: notebook_id=0; use character/FAQ fallback for customer channel' );
+		}
+		$use_twinbrain = (bool) apply_filters( 'bizcity_crm_ai_replier_use_twinbrain', $canonical_channel, $conv_id, $inbox, $identity_ctx );
+		if ( $notebook_id <= 0 && in_array( strtoupper( $platform_type_hint ), array( 'FB_MESS', 'ZALO_OA' ), true ) ) {
+			// [2026-08-04 Johnny Chu] R-TGL-CS — rollout filters cannot force MPR without a notebook/perspective source.
+			$use_twinbrain = false;
+		}
+		if ( $use_twinbrain && class_exists( 'BizCity_TwinBrain_Channel_Adapter' ) ) {
+			$brain_envelope = array(
+				'platform'          => $platform_type_hint,
+				'channel'           => $platform_type_hint,
+				'account_id'        => (string) ( $identity_ctx['account_id'] ?? '' ),
+				'external_user_id'  => (string) ( $identity_ctx['client_id'] ?? '' ),
+				'chat_id'           => (string) ( $identity_ctx['canonical_chat_id'] ?? $llm_session_id ),
+				'text'              => $prompt,
+				'wp_user_id'        => $resolved_wp_user_id,
+				'channel_class'     => 'guest_channel',
+				'identity_is_stable'=> true,
+				'identity_guest_bind'=> true,
+				'k'                 => 3,
+				'guru_id'           => $character_id,
+				'force_notebooks'   => $notebook_id > 0 ? array( $notebook_id ) : array(),
+				'memory_scope'     => 'goal_case',
+				'case_id'          => $crm_case_id,
+				'subject_key'      => $crm_subject_key,
+				'surface'           => 'crm_customer_care',
+			);
+			$adapter_class = 'ZALO_OA' === strtoupper( $platform_type_hint )
+				? 'BizCity_TwinBrain_Adapter_ZaloOA'
+				: 'BizCity_TwinBrain_Adapter_Messenger';
+			$brain_res = class_exists( $adapter_class )
+				? ( new $adapter_class() )->handle( $brain_envelope )
+				: array( 'ok' => false, 'error' => 'channel_adapter_unavailable' );
+			$goal_loop_trace = array(
+				'canonical_path_active' => false,
+				'legacy_path_active'    => false,
+				'notebook_mode'         => $notebook_mode,
+				'memory_scope'          => 'goal_case',
+				'case_id'               => $crm_case_id,
+				'subject_key'           => $crm_subject_key,
+				'error'                 => '',
+			);
+			$brain_answer = (string) ( $brain_res['answer'] ?? '' );
+			$internal_no_perspectives = strpos( $brain_answer, 'no_perspectives' ) !== false
+				|| strpos( $brain_answer, 'Không có lăng kính nào' ) !== false;
+			if ( ! empty( $brain_res['ok'] ) && $brain_answer !== '' && ! $internal_no_perspectives ) {
+				$reply = $brain_answer;
+				$llm_note = 'twinbrain-channel-adapter';
+				$provider = 'twinbrain';
+				$model = 'twinbrain-runtime';
+				$usage = array();
+				$goal_loop_trace = array_merge( $goal_loop_trace, array(
+					'canonical_path_active' => true,
+					'goal_id'              => (string) ( $brain_res['goal_loop']['goal_id'] ?? $brain_res['goal_loop_state']['goal_id'] ?? '' ),
+					'goal_state'           => (array) ( $brain_res['goal_loop']['goal_state'] ?? $brain_res['goal_loop_state'] ?? array() ),
+					'final_gate'           => (array) ( $brain_res['goal_loop']['final_gate'] ?? $brain_res['final_gate'] ?? array() ),
+					'next_best_action'     => $brain_res['goal_loop']['next_best_action'] ?? null,
+					'memory_recall'        => (array) ( $brain_res['memory_recall'] ?? array() ),
+				) );
+			} else {
+				$goal_loop_trace['error'] = $internal_no_perspectives
+					? 'no_perspectives'
+					: (string) ( $brain_res['error'] ?? 'twinbrain_adapter_failed' );
+				self::log( 'twinbrain_adapter_failed: canonical_path_active=false; falling back to legacy Chat Gateway for availability' );
+				$use_twinbrain = false;
+			}
+		}
+		if ( ! $use_twinbrain ) {
+			$goal_loop_trace = array_merge( $goal_loop_trace, array(
+				'canonical_path_active' => false,
+				'legacy_path_active'    => true,
+				'legacy_reason'         => $notebook_id <= 0
+					? 'notebook_skipped_character_fallback'
+					: ( empty( $goal_loop_trace['error'] ) ? 'feature_flag_or_adapter_unavailable' : $goal_loop_trace['error'] ),
+			) );
+		}
+		if ( ! $use_twinbrain && self::ensure_chat_gateway_runtime()
 			&& method_exists( 'BizCity_Chat_Gateway', 'instance' ) ) {
 			try {
 				// Build a context-augmented prompt: prepend the K passages
@@ -353,12 +482,29 @@ class BizCity_CRM_AI_Replier {
 					array(),                        // images
 					$llm_session_id,
 					'[]',                           // history (Gateway will hydrate by session_id)
-					(int) get_current_user_id(),
+					// [2026-08-01 Johnny Chu] R-CH-IDMEM — webhook identity must not use the HTTP actor as the customer owner.
+					$resolved_wp_user_id,
 					$platform_type_hint
 				);
 				unset( $GLOBALS['_bizcity_skill_match_raw_message'] );
 				unset( $GLOBALS['_bizcity_knowledge_query_override'] );
-				if ( is_array( $gw_res ) && ! empty( $gw_res['message'] ) ) {
+				if ( is_array( $gw_res ) && ( ! empty( $gw_res['quota_exhausted'] ) || ! empty( $gw_res['ai_error'] ) ) ) {
+					$provider = (string) ( $gw_res['provider'] ?? '' );
+					$model    = (string) ( $gw_res['model'] ?? $model );
+					$usage    = is_array( $gw_res['usage'] ?? null ) ? $gw_res['usage'] : array();
+					$llm_note = ! empty( $gw_res['quota_exhausted'] ) ? 'chat-gateway-quota-exhausted' : 'chat-gateway-error';
+					self::log( sprintf(
+						'→ llm_generate FAILED platform=%s provider=%s model=%s reason=%s key_id=%d quota_source=%s master_level=%s',
+						self::$current_channel,
+						$provider !== '' ? $provider : 'gateway',
+						$model !== '' ? $model : 'unknown',
+						$llm_note,
+						(int) ( $gw_res['authenticated_key_id'] ?? 0 ),
+						(string) ( $gw_res['quota_source'] ?? '' ),
+						(string) ( $gw_res['resolved_master_level'] ?? '' )
+					) );
+					$reply = '';
+				} elseif ( is_array( $gw_res ) && ! empty( $gw_res['message'] ) ) {
 					$reply    = (string) $gw_res['message'];
 					$provider = (string) ( $gw_res['provider'] ?? '' );
 					$model    = (string) ( $gw_res['model']    ?? $model );
@@ -381,8 +527,16 @@ class BizCity_CRM_AI_Replier {
 		}
 
 		if ( $reply === '' ) {
-			$reply = '⚠️ Không có dữ liệu trong notebook để trả lời câu hỏi này.';
-			$llm_note .= ' [empty-fallback]';
+			// [2026-08-01 Johnny Chu] R-ERROR-UX — do not expose raw gateway
+			// quota/provider errors to customers; retain the reason in JSONL trace.
+			$reply = 'Xin lỗi, trợ lý đang tạm thời quá tải. Vui lòng thử lại sau ít phút.';
+			$llm_note .= ' [customer-fallback]';
+		}
+		if ( self::is_internal_quality_failure( $reply ) ) {
+			// [2026-08-04 Johnny Chu] R-ERROR-UX — never persist or dispatch an internal MPR failure string as a customer answer.
+			self::log( 'internal_answer_blocked: no_perspectives fallback replaced before CRM insert/dispatch' );
+			$reply = 'Xin lỗi, em chưa tìm được đủ thông tin để trả lời chắc chắn câu hỏi này. Anh cho em xin thêm chi tiết để em kiểm tra lại nhé.';
+			$llm_note .= ' [internal-answer-blocked]';
 		}
 
 		// Enforce template length budget (post-LLM hard trim).
@@ -426,6 +580,11 @@ class BizCity_CRM_AI_Replier {
 			'steps'        => $steps,           // will append dispatch step before save
 			'sources'      => $sources,
 			'prompt'       => $prompt,
+			// [2026-08-04 Johnny Chu] R-MPRT-17 — persist an operator-readable answer mode so character-only fallback is not counted as MPR success.
+			'answer_quality' => self::answer_quality( $notebook_id, $passages, $goal_loop_trace, $llm_note ),
+			// [2026-08-03 Johnny Chu] R-TGL-CS — expose canonical/legacy path and
+			// scoped Goal Loop evidence to the CRM Inbox projection.
+			'goal_loop'    => $goal_loop_trace,
 		);
 
 		// Push responder context = auto + character so downstream stamping
@@ -434,7 +593,8 @@ class BizCity_CRM_AI_Replier {
 			BizCity_Responder_Stamper::push( array(
 				'kind'         => 'auto',
 				'character_id' => $character_id ?: null,
-				'user_id'      => (int) get_current_user_id() ?: null,
+				// [2026-08-01 Johnny Chu] R-CH-IDMEM — stamp the resolved channel owner, not the webhook actor.
+				'user_id'      => $resolved_wp_user_id ?: null,
 				'source'       => 'crm-ai-replier',
 			) );
 		}
@@ -509,6 +669,83 @@ class BizCity_CRM_AI_Replier {
 		);
 	}
 
+	private static function is_internal_quality_failure( string $reply ): bool {
+		return strpos( $reply, 'no_perspectives' ) !== false
+			|| strpos( $reply, 'Không có lăng kính nào' ) !== false;
+	}
+
+	private static function answer_quality( int $notebook_id, array $passages, array $goal_loop_trace, string $llm_note ): array {
+		$gate_fields = self::answer_quality_gate_fields( $goal_loop_trace );
+		if ( strpos( $llm_note, 'customer-fallback' ) !== false || strpos( $llm_note, 'internal-answer-blocked' ) !== false ) {
+			return array_merge( array(
+				'mode' => 'customer_fallback',
+				'status' => 'degraded',
+				'notebook_mode' => $notebook_id > 0 ? 'enabled' : 'skipped_no_notebook',
+				'canonical_path_active' => ! empty( $goal_loop_trace['canonical_path_active'] ),
+				'reason' => 'answer_generation_fallback',
+			), $gate_fields );
+		}
+		if ( ! empty( $goal_loop_trace['canonical_path_active'] ) ) {
+			return array_merge( array(
+				'mode' => 'mpr_canonical',
+				'status' => 'ok',
+				'notebook_mode' => 'enabled',
+				'canonical_path_active' => true,
+				'perspective_source_count' => count( $passages ),
+			), $gate_fields );
+		}
+		if ( $notebook_id > 0 && ! empty( $passages ) ) {
+			return array_merge( array(
+				'mode' => 'notebook_grounded_legacy',
+				'status' => 'degraded',
+				'notebook_mode' => 'enabled',
+				'canonical_path_active' => false,
+				'perspective_source_count' => count( $passages ),
+				'reason' => (string) ( $goal_loop_trace['legacy_reason'] ?? 'canonical_path_inactive' ),
+			), $gate_fields );
+		}
+		return array_merge( array(
+			'mode' => 'character_only',
+			'status' => 'valid_fallback',
+			'notebook_mode' => 'skipped_no_notebook',
+			'canonical_path_active' => false,
+			'perspective_source_count' => 0,
+			'reason' => 'notebook_skipped_character_fallback',
+		), $gate_fields );
+	}
+
+	private static function answer_quality_gate_fields( array $goal_loop_trace ): array {
+		// [2026-08-04 Johnny Chu] R-MPR-GOALBOARD — flatten terminal gate status into CRM answer_quality for operator filtering.
+		$gate = is_array( $goal_loop_trace['final_gate'] ?? null ) ? $goal_loop_trace['final_gate'] : array();
+		return array(
+			'final_gate_status'   => sanitize_key( (string) ( $gate['status'] ?? '' ) ),
+			'final_gate_reason'   => sanitize_key( (string) ( $gate['gate_reason'] ?? '' ) ),
+			'fallback_policy'     => sanitize_key( (string) ( $gate['fallback_policy'] ?? '' ) ),
+			'final_gate_terminal' => ! empty( $gate['terminal'] ),
+			'requires_review'     => ! empty( $gate['requires_review'] ),
+			'retrieve_round'      => max( 0, (int) ( $gate['retrieve_round'] ?? 0 ) ),
+		);
+	}
+
+	/**
+	 * Ensure CRM webhook requests have the shared Chat Gateway runtime.
+	 */
+	private static function ensure_chat_gateway_runtime(): bool {
+		if ( class_exists( 'BizCity_Chat_Gateway', false ) ) {
+			return true;
+		}
+		$gateway_file = dirname( dirname( BIZCITY_CRM_DIR ) ) . '/core/knowledge/includes/class-chat-gateway.php';
+		if ( is_readable( $gateway_file ) ) {
+			require_once $gateway_file;
+		}
+		if ( ! class_exists( 'BizCity_Chat_Gateway', false ) ) {
+			self::log( 'gateway_runtime_unavailable: Chat Gateway class could not be loaded' );
+			return false;
+		}
+		self::log( 'gateway_runtime_loaded: Chat Gateway loaded for CRM reply' );
+		return true;
+	}
+
 	/* ─────────── helpers ─────────── */
 
 	private static function latest_inbound_text( int $conv_id ): string {
@@ -539,6 +776,21 @@ class BizCity_CRM_AI_Replier {
 		);
 		$size = $defaults[ strtolower( $platform ) ] ?? 1800;
 		return (int) apply_filters( 'bizcity_crm_ai_chunk_size', $size, $platform );
+	}
+
+	/**
+	 * Remove internal KG citation markers from customer-channel output only.
+	 * The original reply remains available in CRM metadata and trace data.
+	 */
+	private static function prepare_external_reply( string $content, string $channel ): string {
+		// [2026-08-01 Johnny Chu] PHASE-0.39 GURU-BIND — keep internal citations out of Messenger/Zalo delivery.
+		if ( ! in_array( strtolower( $channel ), array( 'facebook', 'zalo', 'zalo_oa', 'zalo_bot' ), true ) ) {
+			return $content;
+		}
+		if ( class_exists( 'BizCity_Guru_Citation_Formatter' ) ) {
+			return trim( BizCity_Guru_Citation_Formatter::strip( $content ) );
+		}
+		return trim( preg_replace( '/\[(?:src:[A-Za-z0-9_-]+(?:#p|p)\d+|nb:[A-Za-z0-9_-]+\/p\d+|N\d+P\d+)\]/i', '', $content ) );
 	}
 
 	/**
@@ -662,7 +914,8 @@ class BizCity_CRM_AI_Replier {
 		$max = $chunk_max_override > 0
 			? $chunk_max_override
 			: self::platform_chunk_size( $code );
-		$chunks = self::chunk_text( $content, $max );
+		$content_for_channel = self::prepare_external_reply( $content, $code );
+		$chunks = self::chunk_text( $content_for_channel, $max );
 		if ( empty( $chunks ) ) {
 			return array( 'sent' => false, 'platform' => $code, 'error' => 'empty_content' );
 		}
@@ -784,7 +1037,71 @@ class BizCity_CRM_AI_Replier {
 		return (int) round( ( microtime( true ) - $t0 ) * 1000 );
 	}
 
+	/**
+	 * [2026-08-01 Johnny Chu] R-CH-FILE-LOG — dual-write every replier step into
+	 * the correct per-channel JSONL evidence file (facebook/messenger/zalo_oa/
+	 * zalo_bot/webchat), instead of only the plain PHP error log. Channel is
+	 * derived from the `platform=` token already embedded in most step messages;
+	 * `model=`/`conv#` tokens are extracted into structured ctx for trace/analysis.
+	 */
 	private static function log( string $msg ): void {
 		error_log( '[bizcity-crm-replier] ' . $msg );
+
+		if ( ! class_exists( 'BizCity_Channel_File_Logger' ) ) {
+			return;
+		}
+
+		$channel = BizCity_Channel_File_Logger::CH_CHANNEL_GATEWAY;
+		if ( preg_match( '/platform=([A-Za-z_]+)/', $msg, $m ) ) {
+			$p = strtolower( $m[1] );
+			if ( strpos( $p, 'mess' ) !== false ) {
+				$channel = BizCity_Channel_File_Logger::CH_MESSENGER;
+			} elseif ( strpos( $p, 'zalo_oa' ) !== false ) {
+				$channel = BizCity_Channel_File_Logger::CH_ZALO_OA;
+			} elseif ( strpos( $p, 'zalo' ) !== false ) {
+				$channel = BizCity_Channel_File_Logger::CH_ZALO_BOT;
+			} elseif ( strpos( $p, 'telegram' ) !== false ) {
+				$channel = BizCity_Channel_File_Logger::CH_TELEGRAM;
+			} elseif ( strpos( $p, 'web' ) !== false ) {
+				$channel = BizCity_Channel_File_Logger::CH_WEBCHAT;
+			} elseif ( strpos( $p, 'fb' ) !== false || strpos( $p, 'facebook' ) !== false ) {
+				$channel = BizCity_Channel_File_Logger::CH_FACEBOOK;
+			}
+		}
+		if ( $channel === BizCity_Channel_File_Logger::CH_CHANNEL_GATEWAY && self::$current_channel !== '' ) {
+			$channel = self::map_channel_type( self::$current_channel );
+		}
+
+		$level = ( strpos( $msg, 'FAILED' ) !== false || strpos( $msg, 'THREW' ) !== false
+			|| strpos( $msg, 'FATAL' ) !== false || strpos( $msg, 'exception' ) !== false )
+			? BizCity_Channel_File_Logger::LEVEL_WARN
+			: BizCity_Channel_File_Logger::LEVEL_INFO;
+
+		$ctx = array();
+		if ( preg_match( '/trace=([A-Za-z0-9._:-]+)/', $msg, $m0 ) ) {
+			$ctx['trace_id'] = $m0[1];
+		}
+		if ( preg_match( '/conv#(\d+)/', $msg, $m2 ) ) {
+			$ctx['conv_id'] = (int) $m2[1];
+		}
+		if ( preg_match( '/model=([^\s]+)/', $msg, $m3 ) ) {
+			$ctx['model'] = $m3[1];
+		}
+
+		BizCity_Channel_File_Logger::write( $channel, $level, 'ai_replier_step', $msg, $ctx );
+	}
+
+	/** Map CRM channel_type to the canonical JSONL channel folder. */
+	private static function map_channel_type( string $channel_type ): string {
+		$t = strtolower( $channel_type );
+		if ( strpos( $t, 'messenger' ) !== false ) { return BizCity_Channel_File_Logger::CH_MESSENGER; }
+		if ( strpos( $t, 'zalo_oa' ) !== false ) { return BizCity_Channel_File_Logger::CH_ZALO_OA; }
+		if ( strpos( $t, 'zalo' ) !== false ) { return BizCity_Channel_File_Logger::CH_ZALO_BOT; }
+		// [2026-08-01 Johnny Chu] R-CH-FILE-LOG — CRM facebook inbox events are
+		// Messenger customer events; raw transport evidence remains in facebook/.
+		if ( strpos( $t, 'facebook' ) !== false ) { return BizCity_Channel_File_Logger::CH_MESSENGER; }
+		if ( strpos( $t, 'telegram' ) !== false ) { return BizCity_Channel_File_Logger::CH_TELEGRAM; }
+		if ( strpos( $t, 'web' ) !== false ) { return BizCity_Channel_File_Logger::CH_WEBCHAT; }
+		return BizCity_Channel_File_Logger::CH_CHANNEL_GATEWAY;
 	}
 }

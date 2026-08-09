@@ -61,7 +61,7 @@ class BizCoach_Pro_Coach_Builder {
 	}
 	public static function maybe_flush_rewrite() {
 		// [2026-06-09 Johnny Chu] HOTFIX — use BCPRO_REWRITE_VERSION (stable '0.3.23') instead of
-		// BCPRO_VERSION which contains time() → guard NEVER matched → flush on every request.
+		// Keep the rewrite guard version stable so it only flushes after a real change.
 		// update_option() set BEFORE flush_rewrite_rules() so guard persists even if flush throws.
 		$cur = '1.' . ( defined( 'BCPRO_REWRITE_VERSION' ) ? BCPRO_REWRITE_VERSION : '0.3.23' );
 		if ( get_option( self::FLUSH_FLAG ) === $cur ) { return; }
@@ -240,10 +240,13 @@ class BizCoach_Pro_Coach_Builder {
 			}
 		}
 
-		if ( ! class_exists( 'BizCity_Router_Proxy' ) || ! BizCity_Router_Proxy::is_ready() ) {
+		if ( ! class_exists( 'BizCity_LLM_Client' ) ) {
 			return new WP_REST_Response( array( 'error' => 'llm_router_unavailable' ), 503 );
 		}
-
+		$llm = BizCity_LLM_Client::instance();
+		if ( ! $llm->is_ready() ) {
+			return new WP_REST_Response( array( 'error' => 'llm_router_no_key' ), 503 );
+		}
 		// Load answers.
 		$ans_row = $wpdb->get_row( $wpdb->prepare(
 			"SELECT answers FROM {$t['answers']} WHERE coachee_id=%d ORDER BY id DESC LIMIT 1",
@@ -307,12 +310,10 @@ class BizCoach_Pro_Coach_Builder {
 
 		// JSON-mode: use Haiku (follows schema reliably) or per-generator override.
 		// Markdown-mode: use the site-configured chat model.
-		if ( $is_json_mode ) {
-			$model = (string) ( $gen_def['model'] ?? self::JSON_GEN_MODEL );
-		} else {
-			$model = BizCity_Router_Models::get_model( 'chat' );
-		}
-		$resp  = BizCity_Router_Proxy::chat( $model, $messages, array(
+		$model = (string) ( $gen_def['model'] ?? self::JSON_GEN_MODEL );
+		$resp  = $llm->chat( $messages, array(
+			'model'       => $model,
+			'purpose'     => 'chat',
 			'temperature' => $is_json_mode ? 0.3 : 0.6,
 			'max_tokens'  => $is_json_mode ? self::JSON_GEN_MAX_TOKENS : 2200,
 			'timeout'     => 90,
@@ -551,10 +552,12 @@ class BizCoach_Pro_Coach_Builder {
 		if ( $coach_type === '' ) {
 			return new WP_REST_Response( array( 'error' => 'missing_coach_type' ), 400 );
 		}
-		if ( ! class_exists( 'BizCity_Router_Proxy' ) || ! class_exists( 'BizCity_Router_Models' ) ) {
+		// [2026-08-09 Johnny Chu] R-GW-8 — route AI fill through the shared client boundary.
+		if ( ! class_exists( 'BizCity_LLM_Client' ) ) {
 			return new WP_REST_Response( array( 'error' => 'llm_router_unavailable' ), 503 );
 		}
-		if ( ! BizCity_Router_Proxy::is_ready() ) {
+		$llm = BizCity_LLM_Client::instance();
+		if ( ! $llm->is_ready() ) {
 			return new WP_REST_Response( array( 'error' => 'llm_router_no_key' ), 503 );
 		}
 
@@ -604,7 +607,9 @@ class BizCoach_Pro_Coach_Builder {
 			array( 'role' => 'user',   'content' => wp_json_encode( $user_payload, JSON_UNESCAPED_UNICODE ) ),
 		);
 
-		$resp = BizCity_Router_Proxy::chat( $model, $messages, array(
+		$resp = $llm->chat( $messages, array(
+			'model'       => $model,
+			'purpose'     => 'chat',
 			'temperature' => 0.4,
 			'max_tokens'  => 4096,
 			'timeout'     => 90,

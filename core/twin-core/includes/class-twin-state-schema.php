@@ -9,12 +9,11 @@
  */
 
 /**
- * BizCity Twin State Schema — DDL for 4 core + 3 support state tables.
+ * BizCity Twin State Schema — DDL for the three active Twin state tables.
  *
  * Phase 2 Priority 3 + 4 + 5: Create the Twin state backbone.
  *
  * Tables:
- *   CORE:    twin_identity, twin_focus_state, twin_timeline_state, twin_journeys
  *   SUPPORT: twin_prompt_specs, twin_milestones, twin_context_logs
  *
  * Uses WordPress dbDelta() for safe migration.
@@ -28,8 +27,13 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 
 class BizCity_Twin_State_Schema {
 
-	const DB_VERSION        = '2.0';
+	const DB_VERSION        = '2.2.1'; // [2026-07-31 Johnny Chu] HOTFIX — rerun state DDL after dbDelta primary-key parser repair.
 	const DB_VERSION_OPTION = 'bizcity_twin_state_db_ver';
+	const RETENTION_HOOK    = 'bizcity_twin_state_retention';
+	const RETENTION_BATCH   = 500;
+	const PROMPT_RETENTION_DAYS = 7; // [2026-08-01 Johnny Chu] PHASE-1.28-RETENTION-7D — keep prompt state for one week.
+	const MILESTONE_RETENTION_DAYS = 7; // [2026-08-01 Johnny Chu] PHASE-1.28-RETENTION-7D — keep milestones for one week.
+	const CONTEXT_RETENTION_DAYS = 7; // [2026-08-01 Johnny Chu] PHASE-1.28-RETENTION-7D — keep context decisions for one week.
 
 	/* ================================================================
 	 * TABLE NAMES
@@ -40,20 +44,77 @@ class BizCity_Twin_State_Schema {
 		return $wpdb->prefix . 'bizcity_' . $name;
 	}
 
-	public static function identity_table(): string       { return self::t( 'twin_identity' ); }
-	public static function focus_table(): string          { return self::t( 'twin_focus_state' ); }
-	public static function timeline_table(): string       { return self::t( 'twin_timeline_state' ); }
-	public static function journeys_table(): string       { return self::t( 'twin_journeys' ); }
 	public static function prompt_specs_table(): string   { return self::t( 'twin_prompt_specs' ); }
 	public static function milestones_table(): string     { return self::t( 'twin_milestones' ); }
 	public static function context_logs_table(): string   { return self::t( 'twin_context_logs' ); }
+
+	public static function register_retention_cron(): void {
+		if ( ! class_exists( 'BizCity_Cron_Manager' ) ) {
+			return;
+		}
+		BizCity_Cron_Manager::instance()->register( array(
+			'id'          => 'core.twin_state.retention',
+			'hook'        => self::RETENTION_HOOK,
+			'interval'    => 'daily',
+			'owner'       => 'core/twin-core',
+			'description' => 'Bounded retention sweep for Twin prompt, milestone and context traces.',
+			'retention'   => 7, // [2026-08-01 Johnny Chu] PHASE-1.28-RETENTION-7D — keep cron evidence for one week.
+		) );
+	}
+
+	public static function gc_retention(): void {
+		global $wpdb;
+		if ( ! $wpdb ) {
+			return;
+		}
+
+		$targets = array(
+			array( self::prompt_specs_table(), self::PROMPT_RETENTION_DAYS, 'prompt_spec_id' ),
+			array( self::milestones_table(), self::MILESTONE_RETENTION_DAYS, 'milestone_id' ),
+			array( self::context_logs_table(), self::CONTEXT_RETENTION_DAYS, 'log_id' ),
+		);
+		$deleted = array();
+		$failed  = array();
+		foreach ( $targets as $target ) {
+			$table = $target[0];
+			if ( function_exists( 'bizcity_tbl_exists' ) && ! bizcity_tbl_exists( $table ) ) {
+				continue;
+			}
+			$removed = self::delete_old_rows( $table, (int) $target[1], (string) $target[2] );
+			if ( false === $removed ) {
+				$failed[] = $table;
+				continue;
+			}
+			$deleted[ $table ] = $removed;
+		}
+
+		if ( class_exists( 'BizCity_Cron_Manager' ) ) {
+			$cron = BizCity_Cron_Manager::instance();
+			$cron->note( array( 'counters' => array( 'twin_state_retention_deleted' => array_sum( $deleted ) ) ) );
+			foreach ( $deleted as $table => $count ) {
+				$cron->note_event( 'twin_state_retention_table', array( 'table' => $table, 'deleted' => (int) $count ) );
+			}
+			foreach ( $failed as $table ) {
+				$cron->note_event( 'twin_state_retention_failed', array( 'table' => $table, 'reason' => 'delete_failed' ) );
+			}
+		}
+	}
+
+	private static function delete_old_rows( string $table, int $retention_days, string $primary_key ) {
+		global $wpdb;
+		return $wpdb->query( $wpdb->prepare(
+			"DELETE FROM {$table} WHERE created_at < (CURRENT_TIMESTAMP - INTERVAL %d DAY) ORDER BY {$primary_key} ASC LIMIT %d",
+			max( 1, $retention_days ),
+			self::RETENTION_BATCH
+		) );
+	}
 
 	/* ================================================================
 	 * MIGRATION
 	 * ================================================================ */
 
 	/**
-	 * Create or update all 7 tables. Safe to call on every page load.
+	 * Create or update the active state tables. Safe to call on every page load.
 	 */
 	public static function ensure_tables(): void {
 		if ( get_option( self::DB_VERSION_OPTION ) === self::DB_VERSION ) {
@@ -65,115 +126,23 @@ class BizCity_Twin_State_Schema {
 		global $wpdb;
 		$charset = function_exists( 'bizcity_get_charset_collate' ) ? bizcity_get_charset_collate() : $wpdb->get_charset_collate();
 
-		self::create_identity_table( $charset );
-		self::create_focus_table( $charset );
-		self::create_timeline_table( $charset );
-		self::create_journeys_table( $charset );
+		// [2026-07-29 Johnny Chu] PHASE-1.21-C — keep only state tables with active consumers.
 		self::create_prompt_specs_table( $charset );
 		self::create_milestones_table( $charset );
 		self::create_context_logs_table( $charset );
 
-		update_option( self::DB_VERSION_OPTION, self::DB_VERSION );
+		$tables = self::check_tables();
+		if ( ! empty( $tables['ok'] ) ) {
+			update_option( self::DB_VERSION_OPTION, self::DB_VERSION );
+		}
 	}
 
-	/* ----------------------------------------------------------------
-	 * 1) CORE: bizcity_twin_identity
-	 * ---------------------------------------------------------------- */
-	private static function create_identity_table( string $charset ): void {
-		$table = self::identity_table();
-		dbDelta( "CREATE TABLE {$table} (
-			id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-			user_id BIGINT UNSIGNED NOT NULL,
-			blog_id BIGINT UNSIGNED NOT NULL,
-			support_style VARCHAR(60) NULL,
-			relationship_mode VARCHAR(60) NULL,
-			communication_preferences_json LONGTEXT NULL,
-			domain_strengths_json LONGTEXT NULL,
-			life_goal_hypotheses_json LONGTEXT NULL,
-			identity_confidence DECIMAL(6,4) NOT NULL DEFAULT 0.0000,
-			source_evidence_json LONGTEXT NULL,
-			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-			UNIQUE KEY uniq_user_blog (user_id, blog_id),
-			KEY idx_updated_at (updated_at)
-		) {$charset};" );
-	}
-
-	/* ----------------------------------------------------------------
-	 * 2) CORE: bizcity_twin_focus_state
-	 * ---------------------------------------------------------------- */
-	private static function create_focus_table( string $charset ): void {
-		$table = self::focus_table();
-		dbDelta( "CREATE TABLE {$table} (
-			id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-			user_id BIGINT UNSIGNED NOT NULL,
-			blog_id BIGINT UNSIGNED NOT NULL,
-			trace_id VARCHAR(80) NULL,
-			current_focus_type VARCHAR(80) NULL,
-			current_focus_ref_id VARCHAR(120) NULL,
-			current_focus_label VARCHAR(255) NULL,
-			focus_score DECIMAL(7,4) NOT NULL DEFAULT 0.0000,
-			focus_confidence DECIMAL(6,4) NOT NULL DEFAULT 0.0000,
-			open_loops_json LONGTEXT NULL,
-			suppression_list_json LONGTEXT NULL,
-			next_best_actions_json LONGTEXT NULL,
-			last_prompt_spec_id BIGINT UNSIGNED NULL,
-			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-			UNIQUE KEY uniq_user_blog (user_id, blog_id),
-			KEY idx_trace_id (trace_id),
-			KEY idx_focus_type (current_focus_type)
-		) {$charset};" );
-	}
-
-	/* ----------------------------------------------------------------
-	 * 3) CORE: bizcity_twin_timeline_state
-	 * ---------------------------------------------------------------- */
-	private static function create_timeline_table( string $charset ): void {
-		$table = self::timeline_table();
-		dbDelta( "CREATE TABLE {$table} (
-			id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-			user_id BIGINT UNSIGNED NOT NULL,
-			blog_id BIGINT UNSIGNED NOT NULL,
-			as_of_date DATE NOT NULL,
-			today_context_json LONGTEXT NULL,
-			recent_events_json LONGTEXT NULL,
-			active_threads_json LONGTEXT NULL,
-			tool_events_json LONGTEXT NULL,
-			goal_events_json LONGTEXT NULL,
-			memory_events_json LONGTEXT NULL,
-			note_events_json LONGTEXT NULL,
-			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-			UNIQUE KEY uniq_user_blog_date (user_id, blog_id, as_of_date),
-			KEY idx_as_of_date (as_of_date)
-		) {$charset};" );
-	}
-
-	/* ----------------------------------------------------------------
-	 * 4) CORE: bizcity_twin_journeys
-	 * ---------------------------------------------------------------- */
-	private static function create_journeys_table( string $charset ): void {
-		$table = self::journeys_table();
-		dbDelta( "CREATE TABLE {$table} (
-			journey_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-			user_id BIGINT UNSIGNED NOT NULL,
-			blog_id BIGINT UNSIGNED NOT NULL,
-			journey_type VARCHAR(80) NOT NULL,
-			journey_label VARCHAR(255) NOT NULL,
-			stage VARCHAR(80) NULL,
-			progress_score DECIMAL(7,4) NOT NULL DEFAULT 0.0000,
-			milestones_json LONGTEXT NULL,
-			pain_points_json LONGTEXT NULL,
-			linked_goals_json LONGTEXT NULL,
-			linked_notes_json LONGTEXT NULL,
-			status VARCHAR(40) NOT NULL DEFAULT 'active',
-			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-			KEY idx_user_blog (user_id, blog_id),
-			KEY idx_status (status),
-			KEY idx_updated_at (updated_at)
-		) {$charset};" );
+	/**
+	 * Installer-registry compatibility entry point.
+	 */
+	public static function maybe_install(): void {
+		// [2026-07-29 Johnny Chu] PHASE-1.21-C — keep Diagnostics self-heal wired to the schema owner.
+		self::ensure_tables();
 	}
 
 	/* ----------------------------------------------------------------
@@ -181,8 +150,10 @@ class BizCity_Twin_State_Schema {
 	 * ---------------------------------------------------------------- */
 	private static function create_prompt_specs_table( string $charset ): void {
 		$table = self::prompt_specs_table();
+		// [2026-07-30 Johnny Chu] PHASE-1.22-RETENTION — add an age index for bounded cleanup.
 		dbDelta( "CREATE TABLE {$table} (
-			prompt_spec_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+			prompt_spec_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			PRIMARY KEY (prompt_spec_id),
 			trace_id VARCHAR(80) NOT NULL,
 			user_id BIGINT UNSIGNED NOT NULL,
 			blog_id BIGINT UNSIGNED NOT NULL,
@@ -206,6 +177,7 @@ class BizCity_Twin_State_Schema {
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			KEY idx_trace_id (trace_id),
 			KEY idx_user_blog_created (user_id, blog_id, created_at),
+			KEY idx_created_at (created_at),
 			KEY idx_needs_confirmation (needs_confirmation)
 		) {$charset};" );
 	}
@@ -215,8 +187,10 @@ class BizCity_Twin_State_Schema {
 	 * ---------------------------------------------------------------- */
 	private static function create_milestones_table( string $charset ): void {
 		$table = self::milestones_table();
+		// [2026-07-30 Johnny Chu] PHASE-1.22-RETENTION — add an age index for bounded cleanup.
 		dbDelta( "CREATE TABLE {$table} (
-			milestone_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+			milestone_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			PRIMARY KEY (milestone_id),
 			trace_id VARCHAR(80) NULL,
 			user_id BIGINT UNSIGNED NOT NULL,
 			blog_id BIGINT UNSIGNED NOT NULL,
@@ -231,7 +205,8 @@ class BizCity_Twin_State_Schema {
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			KEY idx_user_blog_occurred (user_id, blog_id, occurred_at),
 			KEY idx_trace_id (trace_id),
-			KEY idx_milestone_type (milestone_type)
+			KEY idx_milestone_type (milestone_type),
+			KEY idx_created_at (created_at)
 		) {$charset};" );
 	}
 
@@ -240,8 +215,10 @@ class BizCity_Twin_State_Schema {
 	 * ---------------------------------------------------------------- */
 	private static function create_context_logs_table( string $charset ): void {
 		$table = self::context_logs_table();
+		// [2026-07-30 Johnny Chu] PHASE-1.22-RETENTION — add an age index for bounded cleanup.
 		dbDelta( "CREATE TABLE {$table} (
-			log_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+			log_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			PRIMARY KEY (log_id),
 			trace_id VARCHAR(80) NOT NULL,
 			user_id BIGINT UNSIGNED NOT NULL,
 			blog_id BIGINT UNSIGNED NOT NULL,
@@ -254,6 +231,7 @@ class BizCity_Twin_State_Schema {
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			KEY idx_trace_id (trace_id),
 			KEY idx_user_blog_created (user_id, blog_id, created_at),
+			KEY idx_created_at (created_at),
 			KEY idx_path_mode (path, mode)
 		) {$charset};" );
 	}
@@ -263,16 +241,12 @@ class BizCity_Twin_State_Schema {
 	 * ================================================================ */
 
 	/**
-	 * Check if all 7 tables exist.
+	 * Check if all active state tables exist.
 	 *
 	 * @return array{ok: bool, missing: string[]}
 	 */
 	public static function check_tables(): array {
 		$tables = [
-			'twin_identity',
-			'twin_focus_state',
-			'twin_timeline_state',
-			'twin_journeys',
 			'twin_prompt_specs',
 			'twin_milestones',
 			'twin_context_logs',
@@ -290,4 +264,29 @@ class BizCity_Twin_State_Schema {
 			'missing' => $missing,
 		];
 	}
+}
+
+// [2026-07-29 Johnny Chu] PHASE-1.21-C — central registry ownership for the active state schema.
+if ( class_exists( 'BizCity_Schema_Registry' ) ) {
+	BizCity_Schema_Registry::register(
+		'bizcity_twin_prompt_specs',
+		'core.twin-core',
+		BizCity_Twin_State_Schema::DB_VERSION,
+		BizCity_Twin_State_Schema::DB_VERSION_OPTION,
+		array( 'BizCity_Twin_State_Schema', 'maybe_install' )
+	);
+	BizCity_Schema_Registry::register(
+		'bizcity_twin_milestones',
+		'core.twin-core',
+		BizCity_Twin_State_Schema::DB_VERSION,
+		BizCity_Twin_State_Schema::DB_VERSION_OPTION,
+		array( 'BizCity_Twin_State_Schema', 'maybe_install' )
+	);
+	BizCity_Schema_Registry::register(
+		'bizcity_twin_context_logs',
+		'core.twin-core',
+		BizCity_Twin_State_Schema::DB_VERSION,
+		BizCity_Twin_State_Schema::DB_VERSION_OPTION,
+		array( 'BizCity_Twin_State_Schema', 'maybe_install' )
+	);
 }

@@ -359,7 +359,7 @@ class BizCity_LLM_Usage_File_Log {
     /**
      * Purge old daily files.
      */
-    public static function purge( int $days = 90 ): int {
+    public static function purge( int $days = 7 ): int { // [2026-08-01 Johnny Chu] PHASE-1.28-RETENTION-7D — keep client usage files for one week.
         $days = max( 1, $days );
         $dir  = self::get_base_log_dir();
         if ( $dir === '' || ! is_dir( $dir ) ) {
@@ -440,7 +440,7 @@ class BizCity_LLM_Usage_File_Log {
             $table_legacy  = $wpdb->prefix . 'bizcity_llm_usage';
 
             $wpdb->query( "DROP TABLE IF EXISTS `{$table_clients}`" );
-            $wpdb->query( "DROP TABLE IF EXISTS `{$table_legacy}`" );
+            // [2026-07-31 Johnny Chu] PHASE-1.22-QUARANTINE — keep legacy usage storage while Membership reports still read it; deprecated_tables tracks it until reader migration sign-off.
 
             delete_option( 'bizcity_llm_usage_clients_db_ver' );
             delete_option( 'bizcity_llm_usage_clients_last_table_check' );
@@ -813,7 +813,7 @@ class BizCity_LLM_Usage_Clients {
         return BizCity_LLM_Usage_File_Log::get_top_models( $limit, $period );
     }
 
-    public static function purge( int $days = 90 ): int {
+    public static function purge( int $days = 7 ): int { // [2026-08-01 Johnny Chu] PHASE-1.28-RETENTION-7D — keep compatibility usage files for one week.
         return BizCity_LLM_Usage_File_Log::purge( $days );
     }
 }
@@ -888,7 +888,7 @@ class BizCity_LLM_Usage_Log {
         return array_slice( $out, 0, $limit );
     }
 
-    public static function purge( int $days = 90 ): int {
+    public static function purge( int $days = 7 ): int { // [2026-08-01 Johnny Chu] PHASE-1.28-RETENTION-7D — keep legacy usage files for one week.
         return BizCity_LLM_Usage_File_Log::purge( $days );
     }
 }

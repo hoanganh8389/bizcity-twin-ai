@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "conversation_confirm_prompt",
+  "description": "TwinBrain request for user confirmation before specialized notebook or vertical routing.",
+  "type": "object",
+  "required": ["trace_id", "message", "route"],
+  "properties": {
+    "trace_id": { "type": "string" },
+    "message": { "type": "string" },
+    "route": { "type": "string", "enum": ["notebook", "vertical"] },
+    "candidate_notebook_ids": { "type": "array", "items": { "type": "integer", "minimum": 1 } },
+    "candidate_vertical": { "type": "string" },
+    "expires_in": { "type": "integer", "minimum": 60 }
+  }
+}

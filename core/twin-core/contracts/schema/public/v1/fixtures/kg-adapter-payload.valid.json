@@ -1,0 +1,25 @@
+{
+  "contract": "kg-adapter-payload",
+  "version": "1.0.0",
+  "adapter_id": "reference.source",
+  "operation": "fetch",
+  "source": {
+    "source_type": "url",
+    "source_id": "https://example.org/post"
+  },
+  "request": {
+    "limit": 10
+  },
+  "response": {
+    "passages": [
+      {
+        "passage_id": "psg_1",
+        "text": "Sample passage text",
+        "metadata": { "lang": "en" },
+        "citations": ["source:1"]
+      }
+    ],
+    "count": 1
+  },
+  "status": "success"
+}

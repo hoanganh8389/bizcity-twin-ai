@@ -12,7 +12,8 @@
  * BizCity Intent — Pipeline Logger
  *
  * Structured logging for every step of the intent pipeline.
- * Stores logs in the `bizcity_intent_logs` table for monitoring and debugging.
+ * Stores pipeline evidence in JSONL for monitoring and debugging. The legacy
+ * `bizcity_intent_logs` table is retired and drained only for old rows.
  *
  * Each pipeline run produces a "trace" — a sequence of log entries
  * for a single turn (classify → plan → execute → respond).
@@ -53,6 +54,10 @@ class BizCity_Intent_Logger {
         return self::$instance;
     }
 
+    const RETENTION_HOOK  = 'bizcity_intent_logs_retention';
+    const RETENTION_DAYS  = 7; // [2026-08-01 Johnny Chu] PHASE-1.28-RETENTION-7D — keep intent step logs for one week.
+    const RETENTION_BATCH = 500;
+
     public function __construct() {
         global $wpdb;
         $this->wpdb  = $wpdb;
@@ -61,6 +66,41 @@ class BizCity_Intent_Logger {
         // Allow disabling via constant
         if ( defined( 'BIZCITY_INTENT_LOG_DISABLED' ) && BIZCITY_INTENT_LOG_DISABLED ) {
             $this->enabled = false;
+        }
+    }
+
+    /**
+     * [2026-08-01 Johnny Chu] PHASE-1.24-LOG-RETENTION — register bounded pipeline-log cleanup.
+     */
+    public static function register_retention_cron(): void {
+        if ( ! class_exists( 'BizCity_Cron_Manager' ) ) {
+            return;
+        }
+        BizCity_Cron_Manager::instance()->register( array(
+            'id'          => 'core.intent.logs_retention',
+            'hook'        => self::RETENTION_HOOK,
+            'interval'    => 'daily',
+            'owner'       => 'core/intent',
+            'description' => 'Bounded retention sweep for the intent pipeline step trace log.',
+            'retention'   => self::RETENTION_DAYS,
+        ) );
+    }
+
+    /**
+     * [2026-08-01 Johnny Chu] PHASE-1.24-LOG-RETENTION — delete old rows only from the scheduled cron context.
+     */
+    public static function gc_logs(): void {
+        global $wpdb;
+        $deleted = 0; // [2026-08-01 Johnny Chu] PHASE-1.29-LOG-ORPHAN — delete-only drain; no SQL writer/reader.
+        $table = $wpdb->prefix . 'bizcity_intent_logs';
+        if ( $wpdb && ( ! function_exists( 'bizcity_tbl_exists' ) || bizcity_tbl_exists( $table ) ) ) {
+            $result = $wpdb->query( $wpdb->prepare( "DELETE FROM {$table} WHERE created_at < ( CURRENT_TIMESTAMP - INTERVAL %d DAY ) ORDER BY id ASC LIMIT %d", self::RETENTION_DAYS, self::RETENTION_BATCH ) );
+            $deleted = false === $result ? 0 : (int) $result;
+        }
+        if ( class_exists( 'BizCity_Cron_Manager' ) ) {
+            $cron = BizCity_Cron_Manager::instance();
+            $cron->note( array( 'counters' => array( 'intent_logs_retention_deleted' => $deleted ) ) );
+            $cron->note_event( 'intent_logs_retention', array( 'deleted' => $deleted, 'retention_days' => self::RETENTION_DAYS ) );
         }
     }
 
@@ -189,18 +229,29 @@ class BizCity_Intent_Logger {
             $elapsed_ms = round( ( microtime( true ) - $this->trace_start ) * 1000, 2 );
         }
 
-        $this->wpdb->insert( $this->table, [
-            'trace_id'        => $trace_id,
-            'conversation_id' => $conversation_id,
-            'turn_index'      => $turn_index,
-            'step'            => $step,
-            'step_index'      => $this->step_index,
-            'data_json'       => wp_json_encode( $data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ),
-            'duration_ms'     => $elapsed_ms,
-            'level'           => $level,
-            'user_id'         => $user_id,
-            'channel'         => $channel,
-        ] );
+        // [2026-08-01 Johnny Chu] PHASE-1.29-LOG-ORPHAN — SQL trace INSERT
+        // path removed; JSONL is the only pipeline evidence store.
+
+        // [2026-08-01 Johnny Chu] PHASE-1.24-LOG-JSONL — Phase A dual-write mirror; best-effort, never blocks the pipeline.
+        if ( class_exists( 'BizCity_JSONL_File_Logger' ) && method_exists( 'BizCity_JSONL_File_Logger', 'write' ) ) {
+            BizCity_JSONL_File_Logger::write(
+                'bizcity-intent-logs',
+                'pipeline-trace',
+                $level,
+                $step,
+                'Intent pipeline step: ' . $step,
+                array(
+                    'trace_id'        => $trace_id,
+                    'conversation_id' => $conversation_id,
+                    'turn_index'      => $turn_index,
+                    'step_index'      => $this->step_index,
+                    'duration_ms'     => $elapsed_ms,
+                    'user_id'         => $user_id,
+                    'channel'         => $channel,
+                    'data'            => $data,
+                )
+            );
+        }
 
         // Forward pipeline log to SSE stream (if active)
         do_action( 'bizcity_intent_pipeline_log', $step, $data, $level, $elapsed_ms );
@@ -231,6 +282,9 @@ class BizCity_Intent_Logger {
      * @return array
      */
     public function get_trace( $trace_id ) {
+        if ( ! $this->sql_log_available() ) {
+            return $this->get_jsonl_rows( array( 'trace_id' => (string) $trace_id ), 1000 );
+        }
         return $this->wpdb->get_results( $this->wpdb->prepare(
             "SELECT * FROM {$this->table}
              WHERE trace_id = %s
@@ -247,6 +301,29 @@ class BizCity_Intent_Logger {
      * @return array
      */
     public function get_traces_for_conversation( $conversation_id, $limit = 50 ) {
+        if ( ! $this->sql_log_available() ) {
+            $rows = $this->get_jsonl_rows( array( 'conversation_id' => (string) $conversation_id ), 10000 );
+            $traces = array();
+            foreach ( $rows as $row ) {
+                $trace_id = (string) ( $row['trace_id'] ?? '' );
+                if ( $trace_id === '' ) { continue; }
+                if ( ! isset( $traces[ $trace_id ] ) ) {
+                    $traces[ $trace_id ] = array(
+                        'trace_id' => $trace_id,
+                        'started_at' => (string) ( $row['created_at'] ?? '' ),
+                        'ended_at' => (string) ( $row['created_at'] ?? '' ),
+                        'step_count' => 0,
+                        'total_ms' => 0,
+                        'steps' => array(),
+                    );
+                }
+                $traces[ $trace_id ]['step_count']++;
+                $traces[ $trace_id ]['ended_at'] = (string) ( $row['created_at'] ?? '' );
+                $traces[ $trace_id ]['total_ms'] = max( $traces[ $trace_id ]['total_ms'], (float) ( $row['duration_ms'] ?? 0 ) );
+                $traces[ $trace_id ]['steps'][] = (string) ( $row['step'] ?? '' );
+            }
+            return array_slice( array_values( $traces ), 0, max( 1, (int) $limit ) );
+        }
         return $this->wpdb->get_results( $this->wpdb->prepare(
             "SELECT trace_id, 
                     MIN(created_at) AS started_at,
@@ -272,6 +349,9 @@ class BizCity_Intent_Logger {
      * @return array
      */
     public function get_recent( array $filters = [], $limit = 100, $offset = 0 ) {
+        if ( ! $this->sql_log_available() ) {
+            return array_slice( $this->get_jsonl_rows( $filters, min( 10000, max( 1, (int) $limit + (int) $offset ) ) ), (int) $offset, (int) $limit );
+        }
         $where_parts = [];
         $params      = [];
 
@@ -320,6 +400,37 @@ class BizCity_Intent_Logger {
      * @return array
      */
     public function get_stats( $days = 7 ) {
+        if ( ! $this->sql_log_available() ) {
+            $rows = $this->get_jsonl_rows( array(), 10000 );
+            $per_day = array();
+            $step_dist = array();
+            $errors = 0;
+            $total_duration = 0;
+            foreach ( $rows as $row ) {
+                $day = substr( (string) ( $row['created_at'] ?? '' ), 0, 10 );
+                $step = (string) ( $row['step'] ?? '' );
+                if ( $day !== '' ) { $per_day[ $day ] = ( $per_day[ $day ] ?? 0 ) + 1; }
+                if ( $step !== '' ) { $step_dist[ $step ] = ( $step_dist[ $step ] ?? 0 ) + 1; }
+                if ( (string) ( $row['level'] ?? '' ) === 'error' ) { $errors++; }
+                $total_duration += (float) ( $row['duration_ms'] ?? 0 );
+            }
+            arsort( $step_dist );
+            krsort( $per_day );
+            $step_rows = array();
+            foreach ( $step_dist as $step => $count ) { $step_rows[] = array( 'step' => $step, 'cnt' => $count ); }
+            $day_rows = array();
+            foreach ( $per_day as $day => $count ) { $day_rows[] = array( 'day' => $day, 'traces' => $count ); }
+            return array(
+                'period_days'     => (int) $days,
+                'total_traces'    => count( $rows ),
+                'per_day'         => $day_rows,
+                'step_dist'       => $step_rows,
+                'avg_duration_ms' => count( $rows ) > 0 ? round( $total_duration / count( $rows ), 2 ) : 0,
+                'errors'          => $errors,
+                'top_goals'       => array(),
+                'top_tools'       => array(),
+            );
+        }
         $since = gmdate( 'Y-m-d H:i:s', strtotime( "-{$days} days" ) );
 
         // Total traces
@@ -444,16 +555,60 @@ class BizCity_Intent_Logger {
         return $rows;
     }
 
+    private function sql_log_available(): bool {
+        // [2026-08-01 Johnny Chu] PHASE-1.29-LOG-ORPHAN — legacy Monitor
+        // methods no longer read the deprecated table; Data Browser/JSONL is canonical.
+        return false;
+    }
+
+    private function get_jsonl_rows( array $filters = array(), $limit = 1000 ): array {
+        if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) || ! method_exists( 'BizCity_JSONL_File_Logger', 'query' ) ) {
+            return array();
+        }
+        $rows = BizCity_JSONL_File_Logger::query( 'bizcity-intent-logs', 'pipeline-trace', array(
+            'days' => 7,
+            'limit' => min( 10000, max( 1, (int) $limit ) ),
+            'filter' => function ( $raw ) use ( $filters ) {
+                $ctx = is_array( $raw['ctx'] ?? null ) ? $raw['ctx'] : array();
+                foreach ( array( 'trace_id', 'conversation_id', 'user_id', 'channel', 'level', 'step' ) as $key ) {
+                    if ( ! isset( $filters[ $key ] ) || $filters[ $key ] === '' ) { continue; }
+                    $actual = $key === 'level' || $key === 'step' ? (string) ( $raw[ $key === 'step' ? 'event' : 'level' ] ?? '' ) : (string) ( $ctx[ $key ] ?? '' );
+                    if ( (string) $filters[ $key ] !== $actual ) { return false; }
+                }
+                return true;
+            },
+        ) );
+        $out = array();
+        foreach ( (array) $rows as $raw ) {
+            $ctx = is_array( $raw['ctx'] ?? null ) ? $raw['ctx'] : array();
+            $key = (string) ( $raw['ts'] ?? '' ) . '|' . (string) ( $ctx['trace_id'] ?? '' ) . '|' . (string) ( $raw['event'] ?? '' );
+            $out[] = array_merge( array(
+                'id' => absint( crc32( $key ) ),
+                'trace_id' => (string) ( $ctx['trace_id'] ?? '' ),
+                'conversation_id' => (string) ( $ctx['conversation_id'] ?? '' ),
+                'turn_index' => (int) ( $ctx['turn_index'] ?? 0 ),
+                'step' => (string) ( $raw['event'] ?? '' ),
+                'step_index' => (int) ( $ctx['step_index'] ?? 0 ),
+                'duration_ms' => (float) ( $ctx['duration_ms'] ?? 0 ),
+                'level' => (string) ( $raw['level'] ?? 'info' ),
+                'user_id' => (int) ( $ctx['user_id'] ?? 0 ),
+                'channel' => (string) ( $ctx['channel'] ?? '' ),
+                'created_at' => (string) ( $raw['ts'] ?? '' ),
+                'data_json' => wp_json_encode( $ctx['data'] ?? array() ),
+            ), $ctx );
+        }
+        return $out;
+    }
+
     /**
      * Clean up old logs.
      *
      * @param int $days  Delete logs older than this many days.
      * @return int Rows deleted.
      */
-    public function cleanup( $days = 30 ) {
-        return (int) $this->wpdb->query( $this->wpdb->prepare(
-            "DELETE FROM {$this->table} WHERE created_at < DATE_SUB(NOW(), INTERVAL %d DAY)",
-            $days
-        ) );
+    public function cleanup( $days = 7 ) {
+        unset( $days );
+        // [2026-08-01 Johnny Chu] PHASE-1.29-LOG-ORPHAN — JSONL retention owns cleanup.
+        return 0;
     }
 }

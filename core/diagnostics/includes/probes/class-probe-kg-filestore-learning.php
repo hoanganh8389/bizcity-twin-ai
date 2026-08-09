@@ -3,12 +3,12 @@
  * BizCity Diagnostics — kg.filestore.learning probe (Phase 0.7 Wave F4.1c).
  *
  * "Learning tab" for the Health Check Wizard — surfaces the health of the
- * 15 KG-Hub SQL tables that drive the source → embed → triplet learning loop,
+ * 14 active KG-Hub SQL tables that drive the source → embed → triplet learning loop,
  * and validates that the 3-day housekeeping cron is keeping the filestore
  * (`wp-content/uploads/bizcity-kg/notebooks/*`) authoritative.
  *
  * Sub-steps emitted (read-only, bounded ≤25s):
- *   1. Schema inventory — all 15 KG SQL tables exist on this blog (R-VFS §2).
+ *   1. Schema inventory — all 14 active KG SQL tables exist on this blog (R-VFS §2).
  *   2. Filestore root reachable + dual-write flag.
  *   3. storage_ver=1 backlog (3 fat-payload tables).
  *   4. NULL embedding backlog (entities/relations).
@@ -39,7 +39,8 @@ final class BizCity_Probe_KG_Filestore_Learning implements BizCity_Diagnostics_P
 
 	/**
 	 * [2026-07-27 Johnny Chu] PHASE-0.49-KG-PROGRESS-FILELOG — source progress
-	 * telemetry moved to uploads JSONL, so SQL inventory now tracks 15 tables.
+	 * telemetry moved to uploads JSONL and the orphan mentions table was retired,
+	 * so SQL inventory now tracks 14 active tables.
 	 */
 	private const KG_TABLES = [
 		'bizcity_kg_notebooks',
@@ -53,7 +54,6 @@ final class BizCity_Probe_KG_Filestore_Learning implements BizCity_Diagnostics_P
 		'bizcity_kg_provenance',
 		'bizcity_kg_scope_links',
 		'bizcity_kg_sources',
-		'bizcity_kg_mentions',
 		'bizcity_kg_xref',
 		'bizcity_kg_passage_identities',
 		'bizcity_kg_usage_log',
@@ -62,7 +62,7 @@ final class BizCity_Probe_KG_Filestore_Learning implements BizCity_Diagnostics_P
 	public function id(): string          { return 'kg.filestore.learning'; }
 	public function label(): string       { return 'KG Filestore Learning (3-day housekeeping)'; }
 	public function description(): string {
-		return 'Audit 15 bảng KG-Hub SQL + progress file-log: schema, filestore root, backlog storage_ver=1, NULL embeddings, parity sha256, lịch cron 3 ngày. Mọi backlog drainable bằng Tools → BizCity KG Filestore → Housekeeping.';
+		return 'Audit 14 bảng KG-Hub SQL + progress file-log: schema, filestore root, backlog storage_ver=1, NULL embeddings, parity sha256, lịch cron 3 ngày. Mọi backlog drainable bằng Tools → BizCity KG Filestore → Housekeeping.';
 	}
 	public function severity(): string    { return 'warning'; } // not blocking ingest; backlog drains async
 	public function order(): int          { return 85; }        // late — after schema (50) + vector-graph (80)
@@ -97,13 +97,13 @@ final class BizCity_Probe_KG_Filestore_Learning implements BizCity_Diagnostics_P
 		if ( $missing ) {
 			$has_fail = true;
 			$ctx->emit_step( [
-				'label'  => sprintf( 'Schema inventory · 15 KG tables (%d missing)', count( $missing ) ),
+				'label'  => sprintf( 'Schema inventory · 14 active KG tables (%d missing)', count( $missing ) ),
 				'status' => 'fail',
 				'detail' => 'Missing: ' . implode( ', ', $missing ) . '. Vào Diagnostics → Repair Hub → Auto-fix.',
 			] );
 		} else {
 			$ctx->emit_step( [
-				'label'  => 'Schema inventory · 15 KG tables present',
+				'label'  => 'Schema inventory · 14 active KG tables present',
 				'status' => 'pass',
 				'detail' => implode( ', ', self::KG_TABLES ),
 			] );
@@ -261,7 +261,7 @@ final class BizCity_Probe_KG_Filestore_Learning implements BizCity_Diagnostics_P
 		return [
 			'status'    => $has_fail ? 'fail' : 'pass',
 			'summary'   => sprintf(
-				'KG learning · 15 tables · %s · parity %d/%d',
+				'KG learning · 14 active tables · %s · parity %d/%d',
 				implode( ' · ', $summary_bits ),
 				$parity['matched'], $parity['sampled']
 			),

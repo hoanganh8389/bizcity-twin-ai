@@ -2544,14 +2544,28 @@ class BizCity_KG_Bin_Diagnostic {
 			return;
 		}
 
-		$reset = $wpdb->query( $wpdb->prepare(
-			"UPDATE {$psg_tbl} SET embed_status = 'pending' WHERE notebook_id = %d AND source_id = %d",
-			$notebook_id, $source_id
-		) );
-		echo '<p>Reset <strong>' . esc_html( (string) (int) $reset ) . '</strong> / ' . $existing . ' chunks to <code>pending</code>.</p>';
+		if ( ! class_exists( 'BizCity_KG_Vector_File_Store' ) ) {
+			echo '<div class="notice notice-error"><p>BizCity_KG_Vector_File_Store not loaded.</p></div>';
+			return;
+		}
 
-		// Now run the existing pipeline.
-		$this->run_reembed_pending( $notebook_id, $source_id, $limit );
+		// [2026-08-04 Johnny Chu] HOTFIX — rebuild the complete notebook bundle
+		// from canonical rows; append-only re-embed would duplicate existing rows
+		// and cannot repair a bundle marked .rebuild-required.
+		$res = BizCity_KG_Vector_File_Store::instance()->rebuild_from_scope( 'notebook', $notebook_id );
+		if ( is_wp_error( $res ) ) {
+			echo '<div class="notice notice-error"><p>Bundle rebuild failed: <code>'
+				. esc_html( $res->get_error_code() ) . '</code> — '
+				. esc_html( $res->get_error_message() ) . '</p></div>';
+			return;
+		}
+		$wpdb->query( $wpdb->prepare(
+			"UPDATE {$psg_tbl} SET embed_status = 'ready' WHERE notebook_id = %d",
+			$notebook_id
+		) );
+		echo '<div class="notice notice-success"><p>Rebuilt the complete notebook bundle: '
+			. esc_html( (string) ( $res['count'] ?? 0 ) ) . ' vectors. '
+			. 'Source #' . esc_html( (string) $source_id ) . ' was included.</p></div>';
 	}
 
 	/**

@@ -27,6 +27,8 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 
 class BizCity_Intent_Database {
 
+    const LOG_READER = 'jsonl'; // [2026-08-01 Johnny Chu] PHASE-1.29-LOG-ORPHAN — deprecated SQL log tables are no longer readable.
+
     /** @var self|null */
     private static $instance = null;
 
@@ -95,6 +97,45 @@ class BizCity_Intent_Database {
      */
     public function todos_table() {
         return $this->table_todos;
+    }
+
+    const PROMPT_LOGS_RETENTION_HOOK  = 'bizcity_intent_prompt_logs_retention';
+    const PROMPT_LOGS_RETENTION_DAYS  = 7; // [2026-08-01 Johnny Chu] PHASE-1.28-RETENTION-7D — keep prompt telemetry for one week.
+    const PROMPT_LOGS_RETENTION_BATCH = 500;
+
+    /**
+     * [2026-08-01 Johnny Chu] PHASE-1.24-LOG-RETENTION — register bounded per-request telemetry cleanup.
+     */
+    public static function register_retention_cron(): void {
+        if ( ! class_exists( 'BizCity_Cron_Manager' ) ) {
+            return;
+        }
+        BizCity_Cron_Manager::instance()->register( array(
+            'id'          => 'core.intent.prompt_logs_retention',
+            'hook'        => self::PROMPT_LOGS_RETENTION_HOOK,
+            'interval'    => 'daily',
+            'owner'       => 'core/intent',
+            'description' => 'Bounded retention sweep for the intent per-request prompt telemetry log.',
+            'retention'   => self::PROMPT_LOGS_RETENTION_DAYS,
+        ) );
+    }
+
+    /**
+     * [2026-08-01 Johnny Chu] PHASE-1.24-LOG-RETENTION — delete old rows only from the scheduled cron context.
+     */
+    public static function gc_prompt_logs(): void {
+        global $wpdb;
+        $deleted = 0; // [2026-08-01 Johnny Chu] PHASE-1.29-LOG-ORPHAN — delete-only drain; no SQL writer/reader.
+        $table = $wpdb->prefix . 'bizcity_intent_prompt_logs';
+        if ( $wpdb && ( ! function_exists( 'bizcity_tbl_exists' ) || bizcity_tbl_exists( $table ) ) ) {
+            $result = $wpdb->query( $wpdb->prepare( "DELETE FROM {$table} WHERE created_at < ( CURRENT_TIMESTAMP - INTERVAL %d DAY ) ORDER BY id ASC LIMIT %d", self::PROMPT_LOGS_RETENTION_DAYS, self::PROMPT_LOGS_RETENTION_BATCH ) );
+            $deleted = false === $result ? 0 : (int) $result;
+        }
+        if ( class_exists( 'BizCity_Cron_Manager' ) ) {
+            $cron = BizCity_Cron_Manager::instance();
+            $cron->note( array( 'counters' => array( 'intent_prompt_logs_retention_deleted' => $deleted ) ) );
+            $cron->note_event( 'intent_prompt_logs_retention', array( 'deleted' => $deleted, 'retention_days' => self::PROMPT_LOGS_RETENTION_DAYS ) );
+        }
     }
 
     /**
@@ -238,7 +279,8 @@ class BizCity_Intent_Database {
             KEY idx_conv (conversation_id)
         ) {$charset};";
 
-        $this->wpdb->query( $sql_prompt_logs );
+        // [2026-08-01 Johnny Chu] PHASE-1.29-LOG-ORPHAN — prompt-log SQL
+        // definition is retained only for historical schema context; never provision it.
 
         // ── ToDos table (pipeline step tracking) ──
         $sql_todos = "CREATE TABLE IF NOT EXISTS {$this->table_todos} (
@@ -280,10 +322,8 @@ class BizCity_Intent_Database {
             $this->wpdb->query( "ALTER TABLE {$this->table_conversations} ADD KEY idx_project (user_id, project_id)" );
         }
 
-        // ── v3.8.0: Widen mode_method VARCHAR(100) → VARCHAR(255) for composite method strings ──
-        if ( version_compare( $current, '3.8.0', '<' ) ) {
-            $this->wpdb->query( "ALTER TABLE {$this->table_prompt_logs} MODIFY COLUMN mode_method VARCHAR(255) DEFAULT ''" );
-        }
+        // [2026-08-01 Johnny Chu] PHASE-1.29-LOG-ORPHAN — no ALTER is run
+        // against the retired prompt-log table.
 
         // ── v3.9.1: Add todo_id to conversations + skeleton columns to todos ──
         if ( version_compare( $current, '3.9.1', '<' ) ) {
@@ -346,10 +386,8 @@ class BizCity_Intent_Database {
             BizCity_Intent_Classify_Cache::instance()->maybe_create_table();
         }
 
-        // ── Logs table (pipeline telemetry) ──
-        if ( class_exists( 'BizCity_Intent_Logger' ) ) {
-            BizCity_Intent_Logger::instance()->maybe_create_table();
-        }
+        // [2026-08-01 Johnny Chu] PHASE-1.29-LOG-ORPHAN — pipeline SQL log
+        // provisioning retired; evidence is written to JSONL only.
 
         update_option( $option_key, BIZCITY_INTENT_VERSION );
     }
@@ -815,36 +853,45 @@ class BizCity_Intent_Database {
      * @return int|false  Log entry ID or false.
      */
     public function insert_prompt_log( array $data ) {
-        $inserted = $this->wpdb->insert( $this->table_prompt_logs, [
-            'session_id'         => $data['session_id']         ?? '',
-            'conversation_id'    => $data['conversation_id']    ?? '',
-            'user_id'            => intval( $data['user_id']    ?? 0 ),
-            'channel'            => $data['channel']            ?? 'webchat',
-            'character_id'       => intval( $data['character_id'] ?? 0 ),
-            'blog_id'            => intval( $data['blog_id']    ?? get_current_blog_id() ),
-            'message'            => $data['message']            ?? '',
-            'images_count'       => intval( $data['images_count'] ?? 0 ),
-            'detected_mode'      => $data['detected_mode']      ?? '',
-            'mode_confidence'    => floatval( $data['mode_confidence'] ?? 0 ),
-            'mode_method'        => $data['mode_method']        ?? '',
-            'intent_key'         => $data['intent_key']         ?? '',
-            'goal'               => $data['goal']               ?? '',
-            'goal_label'         => $data['goal_label']         ?? '',
-            'slots_json'         => wp_json_encode( $data['slots'] ?? new stdClass() ),
-            'context_summary'    => $data['context_summary']    ?? '',
-            'context_layers_json' => wp_json_encode( $data['context_layers'] ?? [] ),
-            'pipeline_class'     => $data['pipeline_class']     ?? '',
-            'pipeline_action'    => $data['pipeline_action']    ?? '',
-            'tool_calls_json'    => wp_json_encode( $data['tool_calls'] ?? [] ),
-            'provider_used'      => $data['provider_used']      ?? '',
-            'executor_trace_id'  => $data['executor_trace_id']  ?? '',
-            'planner_plan_id'    => $data['planner_plan_id']    ?? '',
-            'response_summary'   => $data['response_summary']   ?? '',
-            'response_action'    => $data['response_action']    ?? '',
-            'duration_ms'        => floatval( $data['duration_ms'] ?? 0 ),
-        ] );
+        $written = false;
+        // [2026-08-01 Johnny Chu] PHASE-1.29-LOG-ORPHAN — SQL prompt-log
+        // INSERT path removed; JSONL is the only prompt telemetry store.
 
-        return $inserted ? $this->wpdb->insert_id : false;
+        // [2026-08-01 Johnny Chu] PHASE-1.24-LOG-JSONL — Phase A dual-write mirror; best-effort, never blocks the caller.
+        if ( class_exists( 'BizCity_JSONL_File_Logger' ) && method_exists( 'BizCity_JSONL_File_Logger', 'write' ) ) {
+            $written = BizCity_JSONL_File_Logger::write(
+                'bizcity-intent-logs',
+                'prompt-log',
+                'info',
+                'prompt_log_recorded',
+                'Per-turn prompt telemetry recorded.',
+                array(
+                    'session_id'      => $data['session_id']      ?? '',
+                    'conversation_id' => $data['conversation_id'] ?? '',
+                    'user_id'         => intval( $data['user_id']  ?? 0 ),
+                    'channel'         => $data['channel']          ?? 'webchat',
+                    'character_id'    => intval( $data['character_id'] ?? 0 ),
+                    'blog_id'         => intval( $data['blog_id'] ?? get_current_blog_id() ),
+                    'images_count'    => intval( $data['images_count'] ?? 0 ),
+                    'detected_mode'   => $data['detected_mode']    ?? '',
+                    'mode_confidence' => floatval( $data['mode_confidence'] ?? 0 ),
+                    'mode_method'     => $data['mode_method']      ?? '',
+                    'intent_key'      => $data['intent_key']       ?? '',
+                    'goal'            => $data['goal']             ?? '',
+                    'goal_label'      => $data['goal_label']       ?? '',
+                    'pipeline_class'  => $data['pipeline_class']   ?? '',
+                    'pipeline_action' => $data['pipeline_action']  ?? '',
+                    'provider_used'   => $data['provider_used']    ?? '',
+                    'model'          => $data['model']             ?? '',
+                    'executor_trace_id' => $data['executor_trace_id'] ?? '',
+                    'planner_plan_id' => $data['planner_plan_id']  ?? '',
+                    'response_action' => $data['response_action']  ?? '',
+                    'duration_ms'     => floatval( $data['duration_ms'] ?? 0 ),
+                )
+            );
+        }
+
+        return $written ? 1 : false;
     }
 
     /**
@@ -856,6 +903,13 @@ class BizCity_Intent_Database {
      * @return array
      */
     public function get_prompt_logs( array $filters = [], $limit = 100, $offset = 0 ) {
+        // [2026-08-01 Johnny Chu] PHASE-1.24-INTENT-JSONL — move both rows and
+        // overview stats to the same JSONL source when the operator enables the
+        // reader flag; SQL remains the default during parity observation.
+        if ( self::LOG_READER === 'jsonl' ) {
+            return $this->get_prompt_logs_from_jsonl( $filters, $limit, $offset );
+        }
+
         $where_parts = [];
         $params      = [];
 
@@ -903,6 +957,12 @@ class BizCity_Intent_Database {
      * @return array
      */
     public function get_prompt_log_stats( $days = 7 ) {
+        // [2026-08-01 Johnny Chu] PHASE-1.24-INTENT-JSONL — replace SQL
+        // COUNT/GROUP BY/AVG with bounded in-memory aggregation over JSONL.
+        if ( self::LOG_READER === 'jsonl' ) {
+            return $this->get_prompt_log_stats_from_jsonl( $days );
+        }
+
         $since = gmdate( 'Y-m-d H:i:s', strtotime( "-{$days} days" ) );
 
         $total = (int) $this->wpdb->get_var( $this->wpdb->prepare(
@@ -946,5 +1006,114 @@ class BizCity_Intent_Database {
             'avg_duration' => $avg_duration,
             'per_day'      => $per_day,
         ];
+    }
+
+    /** Read prompt-log rows from the shared JSONL store. */
+    private function get_prompt_logs_from_jsonl( array $filters, $limit, $offset, $days = 0 ) {
+        if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) || ! method_exists( 'BizCity_JSONL_File_Logger', 'query' ) ) {
+            return array();
+        }
+
+        $limit  = min( 1000, max( 1, absint( $limit ) ) );
+        $offset = max( 0, absint( $offset ) );
+        $days   = $days > 0
+            ? max( 1, min( 90, absint( $days ) ) )
+            : 7;
+        $rows   = BizCity_JSONL_File_Logger::query( 'bizcity-intent-logs', 'prompt-log', array(
+            'days'   => $days,
+            'limit'  => 10000,
+            'filter' => function ( $raw ) use ( $filters ) {
+                $ctx = is_array( $raw['ctx'] ?? null ) ? $raw['ctx'] : array();
+                foreach ( array( 'mode' => 'detected_mode', 'intent_key' => 'intent_key', 'channel' => 'channel', 'user_id' => 'user_id' ) as $filter_key => $field ) {
+                    if ( empty( $filters[ $filter_key ] ) ) {
+                        continue;
+                    }
+                    if ( (string) ( $ctx[ $field ] ?? '' ) !== (string) $filters[ $filter_key ] ) {
+                        return false;
+                    }
+                }
+                $row_day = substr( (string) ( $raw['ts'] ?? '' ), 0, 10 );
+                if ( ! empty( $filters['date_from'] ) && $row_day < substr( (string) $filters['date_from'], 0, 10 ) ) {
+                    return false;
+                }
+                if ( ! empty( $filters['date_to'] ) && $row_day > substr( (string) $filters['date_to'], 0, 10 ) ) {
+                    return false;
+                }
+                if ( ! empty( $filters['search'] ) && strpos( strtolower( wp_json_encode( $ctx ) ), strtolower( (string) $filters['search'] ) ) === false ) {
+                    return false;
+                }
+                return true;
+            },
+        ) );
+
+        $normalized = array();
+        foreach ( (array) $rows as $raw ) {
+            $ctx = is_array( $raw['ctx'] ?? null ) ? $raw['ctx'] : array();
+            $key = (string) ( $raw['ts'] ?? '' ) . '|' . (string) ( $ctx['conversation_id'] ?? '' ) . '|' . (string) ( $raw['event'] ?? '' );
+            $normalized[] = array_merge( array(
+                'id'                => absint( crc32( $key ) ),
+                'session_id'        => (string) ( $ctx['session_id'] ?? '' ),
+                'conversation_id'   => (string) ( $ctx['conversation_id'] ?? '' ),
+                'user_id'           => (int) ( $ctx['user_id'] ?? 0 ),
+                'channel'           => (string) ( $ctx['channel'] ?? '' ),
+                'character_id'      => (int) ( $ctx['character_id'] ?? 0 ),
+                'blog_id'           => (int) ( $ctx['blog_id'] ?? get_current_blog_id() ),
+                'detected_mode'     => (string) ( $ctx['detected_mode'] ?? '' ),
+                'mode_confidence'   => (float) ( $ctx['mode_confidence'] ?? 0 ),
+                'intent_key'        => (string) ( $ctx['intent_key'] ?? '' ),
+                'goal'              => (string) ( $ctx['goal'] ?? '' ),
+                'goal_label'        => (string) ( $ctx['goal_label'] ?? '' ),
+                'pipeline_class'    => (string) ( $ctx['pipeline_class'] ?? '' ),
+                'pipeline_action'   => (string) ( $ctx['pipeline_action'] ?? '' ),
+                'provider_used'     => (string) ( $ctx['provider_used'] ?? '' ),
+                'model'             => (string) ( $ctx['model'] ?? '' ),
+                'executor_trace_id' => (string) ( $ctx['executor_trace_id'] ?? '' ),
+                'planner_plan_id'   => (string) ( $ctx['planner_plan_id'] ?? '' ),
+                'duration_ms'       => (float) ( $ctx['duration_ms'] ?? 0 ),
+                'created_at'        => (string) ( $raw['ts'] ?? '' ),
+            ), $ctx );
+        }
+        return array_slice( $normalized, $offset, $limit );
+    }
+
+    /** Aggregate prompt-log overview data from JSONL without SQL aggregates. */
+    private function get_prompt_log_stats_from_jsonl( $days = 7 ) {
+        $rows = $this->get_prompt_logs_from_jsonl( array(), 10000, 0, $days );
+        $by_mode = array();
+        $by_intent = array();
+        $per_day = array();
+        $duration_total = 0.0;
+        foreach ( $rows as $row ) {
+            $mode = (string) ( $row['detected_mode'] ?? '' );
+            $intent = (string) ( $row['intent_key'] ?? '' );
+            $day = substr( (string) ( $row['created_at'] ?? '' ), 0, 10 );
+            if ( ! isset( $by_mode[ $mode ] ) ) { $by_mode[ $mode ] = 0; }
+            $by_mode[ $mode ]++;
+            if ( $intent !== '' ) {
+                if ( ! isset( $by_intent[ $intent ] ) ) { $by_intent[ $intent ] = 0; }
+                $by_intent[ $intent ]++;
+            }
+            if ( $day !== '' ) {
+                if ( ! isset( $per_day[ $day ] ) ) { $per_day[ $day ] = 0; }
+                $per_day[ $day ]++;
+            }
+            $duration_total += (float) ( $row['duration_ms'] ?? 0 );
+        }
+        arsort( $by_mode );
+        arsort( $by_intent );
+        krsort( $per_day );
+        $mode_rows = array();
+        foreach ( $by_mode as $mode => $count ) { $mode_rows[] = array( 'mode' => $mode, 'cnt' => $count ); }
+        $intent_rows = array();
+        foreach ( array_slice( $by_intent, 0, 20, true ) as $intent => $count ) { $intent_rows[] = array( 'intent_key' => $intent, 'cnt' => $count ); }
+        $day_rows = array();
+        foreach ( $per_day as $day => $count ) { $day_rows[] = array( 'day' => $day, 'cnt' => $count ); }
+        return array(
+            'total'        => count( $rows ),
+            'by_mode'      => $mode_rows,
+            'by_intent'    => $intent_rows,
+            'avg_duration' => count( $rows ) > 0 ? round( $duration_total / count( $rows ), 2 ) : 0,
+            'per_day'      => $day_rows,
+        );
     }
 }

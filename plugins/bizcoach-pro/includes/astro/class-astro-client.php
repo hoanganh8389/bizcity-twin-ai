@@ -387,7 +387,8 @@ final class BizCoach_Pro_Astro_Client {
 
 	/** True when the gateway is reachable in-process (router plugin active). */
 	public static function is_in_process_ready(): bool {
-		return class_exists( 'BizCity_Astrology_REST' ) && class_exists( 'BizCity_Router_Auth' );
+		// [2026-08-09 Johnny Chu] R-GW-8 — detect the REST transport without depending on Router-internal auth classes.
+		return class_exists( 'BizCity_Astrology_REST' ) && function_exists( 'rest_do_request' );
 	}
 
 	/**

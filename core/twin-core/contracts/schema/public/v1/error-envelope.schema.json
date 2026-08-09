@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bizcity.vn/schema/twin/contracts/v1/error-envelope.schema.json",
+  "title": "BizCity Twin Error Envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "version",
+    "code",
+    "message",
+    "hint",
+    "help_code"
+  ],
+  "properties": {
+    "contract": { "const": "error-envelope" },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$" },
+    "code": { "type": "string", "pattern": "^[a-z][a-z0-9_]{2,80}$" },
+    "message": { "type": "string", "maxLength": 120 },
+    "hint": { "type": "string", "maxLength": 240 },
+    "help_code": { "type": "string", "pattern": "^[a-z][a-z0-9_]{2,80}$" },
+    "status": { "type": "integer", "minimum": 100, "maximum": 599 },
+    "retriable": { "type": "boolean" },
+    "trace_id": { "type": "string", "minLength": 8, "maxLength": 128 },
+    "reason_bucket": { "type": "string", "maxLength": 80 },
+    "details": { "type": "object" }
+  }
+}

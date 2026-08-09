@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "bizcity://events/conversation_confirm_prompt.json",
+  "title": "conversation_confirm_prompt",
+  "description": "Canonical prompt requesting confirmation before specialized notebook or vertical routing.",
+  "type": "object",
+  "required": ["trace_id", "route", "expires_in"],
+  "properties": {
+    "trace_id": { "type": "string" },
+    "message": { "type": "string" },
+    "route": { "type": "string", "enum": ["notebook", "vertical"] },
+    "expires_in": { "type": "integer", "minimum": 60 }
+  },
+  "additionalProperties": true
+}

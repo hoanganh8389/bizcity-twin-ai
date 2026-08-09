@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bizcity.vn/schema/twin/contracts/v1/mutation-contract.schema.json",
+  "title": "BizCity Twin Server to Client Mutation Contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "version",
+    "mutation_id",
+    "trace_id",
+    "idempotency_key",
+    "action",
+    "resource",
+    "status",
+    "occurred_at"
+  ],
+  "properties": {
+    "contract": { "const": "mutation-contract" },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$" },
+    "mutation_id": { "type": "string", "minLength": 8, "maxLength": 120 },
+    "trace_id": { "type": "string", "minLength": 8, "maxLength": 128 },
+    "idempotency_key": { "type": "string", "minLength": 8, "maxLength": 200 },
+    "action": { "enum": ["create", "update", "delete", "publish", "send", "pay", "execute"] },
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id", "scope"],
+      "properties": {
+        "type": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "id": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "scope": { "enum": ["tenant", "site", "user"] }
+      }
+    },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["user_id"],
+      "properties": {
+        "user_id": { "type": "integer", "minimum": 0 },
+        "role": { "type": "string", "maxLength": 80 }
+      }
+    },
+    "status": { "enum": ["accepted", "applied", "rejected", "replayed", "deferred"] },
+    "patch": { "type": "object" },
+    "result": { "type": "object" },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "hint", "help_code"],
+      "properties": {
+        "code": { "type": "string" },
+        "message": { "type": "string", "maxLength": 120 },
+        "hint": { "type": "string", "maxLength": 240 },
+        "help_code": { "type": "string" }
+      }
+    },
+    "occurred_at": { "type": "string", "format": "date-time" }
+  }
+}

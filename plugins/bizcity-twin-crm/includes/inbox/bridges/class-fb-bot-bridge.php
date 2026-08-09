@@ -72,7 +72,8 @@ final class BizCity_CRM_Bridge_FB {
 	 * Strategy:
 	 *  1) get_bot_by_page_id (canonical)
 	 *  2) get_bots_by_user(current_user_id) → match page_id (NOT the non-existent get_bots())
-	 *  3) legacy option `fbm_page_access_token_{page_id}`
+	 *  3) Channel Gateway encrypted facebook_page account
+	 *  4) legacy option `fbm_page_access_token_{page_id}`
 	 */
 	public static function lookup_page_access_token( string $page_id ): string {
 		if ( self::is_available() ) {
@@ -130,6 +131,36 @@ final class BizCity_CRM_Bridge_FB {
 				}
 			} catch ( \Throwable $e ) {
 				// fall through to option
+			}
+		}
+
+		// [2026-08-03 Johnny Chu] HOTFIX — CRM outbound must share the canonical
+		// Channel Gateway encrypted Page account resolver; do not report a token
+		// missing when the Facebook Bot table is empty but Gateway OAuth is valid.
+		if ( class_exists( 'BizCity_Integration_Registry' ) ) {
+			try {
+				$registry = BizCity_Integration_Registry::instance();
+				$accounts = method_exists( $registry, 'list_channel_accounts' )
+					? (array) $registry->list_channel_accounts( 'facebook_page', false )
+					: array();
+				foreach ( $accounts as $account ) {
+					$account = is_array( $account ) ? $account : (array) $account;
+					if ( (string) ( $account['page_id'] ?? '' ) !== $page_id ) {
+						continue;
+					}
+					$integration = $registry->get( 'facebook_page' );
+					if ( ! $integration || ! method_exists( $integration, 'set_account' ) || ! method_exists( $integration, 'get_decrypted_param' ) ) {
+						continue;
+					}
+					$clone = clone $integration;
+					$clone->set_account( $account );
+					$token = (string) $clone->get_decrypted_param( 'page_access_token' );
+					if ( $token !== '' ) {
+						return $token;
+					}
+				}
+			} catch ( \Throwable $e ) {
+				// Keep the legacy fallback chain fail-graceful.
 			}
 		}
 
@@ -223,9 +254,15 @@ final class BizCity_CRM_Bridge_FB {
 			return array( 'success' => false, 'external_source_id' => null, 'error' => $res->get_error_message() );
 		}
 		$mid = '';
+		$success = true;
+		$error = null;
 		if ( is_array( $res ) ) {
-			$mid = (string) ( $res['message_id'] ?? '' );
+			$mid     = (string) ( $res['message_id'] ?? $res['mid'] ?? '' );
+			$success = array_key_exists( 'success', $res )
+				? (bool) $res['success']
+				: ( array_key_exists( 'sent', $res ) ? (bool) $res['sent'] : true );
+			$error   = isset( $res['error'] ) ? (string) $res['error'] : ( isset( $res['message'] ) && ! $success ? (string) $res['message'] : null );
 		}
-		return array( 'success' => true, 'external_source_id' => $mid, 'error' => null );
+		return array( 'success' => $success, 'external_source_id' => $mid, 'error' => $error );
 	}
 }

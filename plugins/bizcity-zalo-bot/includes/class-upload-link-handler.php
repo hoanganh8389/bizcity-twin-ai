@@ -112,7 +112,13 @@ class BizCity_Zalobot_Upload_Link_Handler {
 			return;
 		}
 		if ( ! class_exists( 'BizCity_KG_Channel_Upload_Link_Service' ) ) {
-			self::render_message_page( 'Dịch vụ tải lên chưa sẵn sàng trên site này.', array() );
+			self::render_message_page( 'Dịch vụ TwinNote chưa sẵn sàng trên site này.', array() );
+			exit;
+		}
+		if ( ! class_exists( 'BizCity_KG_Channel_Notebook_Bridge' ) ) {
+			// [2026-08-02 Johnny Chu] PHASE-SKILLS-JOURNAL — fail closed
+			// instead of calling the session bridge when its loader is unavailable.
+			self::render_message_page( 'Kết nối TwinNote chưa sẵn sàng trên site này.', array(), true );
 			exit;
 		}
 
@@ -346,17 +352,17 @@ class BizCity_Zalobot_Upload_Link_Handler {
 
 		if ( $mode === 'session' && ! $had_session_fallback ) {
 			$text = sprintf(
-				"✅ Đã nhận %d file bạn vừa tải lên qua link — em đã gắn vào ghi chú đang mở.\nSếp gửi tiếp file khác, hoặc nhắn \"không\"/\"xong\" để em lưu lại.",
+				"✅ Đã nhận %d file bạn vừa tải lên qua link — em đã gắn vào TwinNote đang mở.\nSếp gửi tiếp file khác, hoặc nhắn \"không\"/\"xong\" để em lưu lại.",
 				$count
 			);
 		} elseif ( $mode === 'session' && $had_session_fallback ) {
 			$text = sprintf(
-				"✅ Đã nhận %d file bạn vừa tải lên qua link.\nPhiên ghi chú trước đó đã hết hạn nên em chuyển file vào hàng đợi mới. Sếp nhắn \"@ghichu <tiêu đề>\" để lưu tiếp nhé.",
+				"✅ Đã nhận %d file bạn vừa tải lên qua link.\nPhiên TwinNote trước đó đã hết hạn nên em chuyển file vào hàng đợi mới. Sếp nhắn \"@ghichu <tiêu đề>\" để lưu tiếp nhé.",
 				$count
 			);
 		} else {
 			$text = sprintf(
-				"✅ Đã nhận %d file bạn vừa tải lên qua link.\nSếp nhắn \"@ghichu <tiêu đề>\" (hoặc \"@notebook <tiêu đề>\") để em lưu vào não Twin GPT nhé.",
+				"✅ Đã nhận %d file bạn vừa tải lên qua link.\nSếp nhắn \"@ghichu <tiêu đề>\" (hoặc \"@notebook <tiêu đề>\") để em lưu vào TwinNote nhé.",
 				$count
 			);
 		}
@@ -432,8 +438,8 @@ class BizCity_Zalobot_Upload_Link_Handler {
 
 	private static function render_message_page( string $message, array $extra = array(), bool $is_error = false, string $retry_token = '' ): void {
 		$icon = $is_error ? '⚠️' : 'ℹ️';
-		$body = '<h1>' . $icon . ' Twin GPT</h1><p>' . esc_html( $message ) . '</p>';
-		self::page_shell( 'Twin GPT — Tải lên', $body );
+		$body = '<h1>' . $icon . ' TwinNote</h1><p>' . esc_html( $message ) . '</p>';
+		self::page_shell( 'TwinNote — Tải lên', $body );
 	}
 
 	private static function render_upload_form( string $token, array $record ): void {
@@ -448,12 +454,12 @@ class BizCity_Zalobot_Upload_Link_Handler {
 		}, $allow_exts ) );
 		$allow_csv  = implode( ',', $allow_exts );
 		$mode_note  = ( ( $record['mode'] ?? 'pending' ) === 'session' )
-			? 'File sẽ được gắn trực tiếp vào ghi chú bạn đang mở.'
-			: 'Sau khi tải lên, nhắn "@ghichu &lt;tiêu đề&gt;" trong Zalo để lưu vào não Twin GPT.';
+			? 'File sẽ được gắn trực tiếp vào TwinNote bạn đang mở.'
+			: 'Sau khi tải lên, nhắn "@ghichu &lt;tiêu đề&gt;" trong Zalo để lưu vào TwinNote.';
 
 		ob_start();
 		?>
-		<h1>📎 Tải file lên Twin GPT</h1>
+		<h1>📎 Tải file lên TwinNote</h1>
 		<p><?php echo esc_html( $mode_note ); ?></p>
 		<form method="post" enctype="multipart/form-data" action="<?php echo $action; ?>" id="bzform">
 			<input type="hidden" name="bizcity_zalo_upload_nonce" value="<?php echo esc_attr( $nonce ); ?>">
@@ -606,7 +612,7 @@ class BizCity_Zalobot_Upload_Link_Handler {
 		</script>
 		<?php
 		$body = ob_get_clean();
-		self::page_shell( 'Twin GPT — Tải lên', $body );
+		self::page_shell( 'TwinNote — Tải lên', $body );
 	}
 
 	/**
@@ -676,8 +682,8 @@ class BizCity_Zalobot_Upload_Link_Handler {
 			$body .= '</div>';
 		}
 
-		$body .= '<p>Bạn có thể quay lại Zalo để tiếp tục — Twin GPT đã báo xác nhận trong đoạn chat.</p>';
-		self::page_shell( 'Twin GPT — Đã tải lên', $body );
+		$body .= '<p>Bạn có thể quay lại Zalo để tiếp tục — TwinNote đã báo xác nhận trong đoạn chat.</p>';
+		self::page_shell( 'TwinNote — Đã tải lên', $body );
 	}
 
 	/**
@@ -688,7 +694,7 @@ class BizCity_Zalobot_Upload_Link_Handler {
 	private static function mount_mode_label( string $mode ): string {
 		$mode = sanitize_key( $mode );
 		if ( $mode === 'session' ) {
-			return 'session (ghi chú đang mở)';
+			return 'session (TwinNote đang mở)';
 		}
 		if ( $mode === 'pending_fallback' ) {
 			return 'pending_fallback (phiên đã hết hạn)';

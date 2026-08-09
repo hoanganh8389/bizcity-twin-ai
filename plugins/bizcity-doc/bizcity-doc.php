@@ -49,6 +49,20 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+// [2026-08-09 Johnny Chu] R-PERF-LOADER-BUNDLE — default TwinChat admin
+// shell renders an iframe and does not need the Doc Studio runtime graph.
+// Keep /doc, /tool-doc, REST, cron, CLI and dedicated Doc admin surfaces.
+$_bizcity_doc_shell_plugin = isset( $_GET['plugin'] )
+	? sanitize_key( (string) $_GET['plugin'] )
+	: '';
+if ( is_admin()
+	&& isset( $_GET['page'] )
+	&& 'bizcity-twinchat' === sanitize_key( (string) $_GET['page'] )
+	&& ( $_bizcity_doc_shell_plugin === '' || $_bizcity_doc_shell_plugin === 'twinchat' ) ) {
+	return;
+}
+unset( $_bizcity_doc_shell_plugin );
+
 /* ── Guard: require bizcity-twin-ai host plugin ── */
 if ( ! defined( 'BIZCITY_TWIN_AI_VERSION' ) ) {
 	add_action( 'admin_notices', function () {
@@ -95,10 +109,21 @@ require_once BZDOC_DIR . 'includes/agents/register-doc-agent.php';
 require_once BZDOC_DIR . 'includes/mindmap/register-mindmap-agent.php';
 
 /* ── Self-healing: table creation ── */
-if ( class_exists( 'BZDoc_Installer' ) ) {
+// [2026-08-09 Johnny Chu] R-PERF/R-DCL — defer tenant schema checks away from frontend HTML.
+if ( ( is_admin()
+		|| ( defined( 'REST_REQUEST' ) && REST_REQUEST )
+		|| ( defined( 'DOING_CRON' ) && DOING_CRON )
+		|| ( defined( 'WP_CLI' ) && WP_CLI )
+		|| ( ! empty( $_SERVER['REQUEST_URI'] ) && false !== strpos( (string) $_SERVER['REQUEST_URI'], '/wp-json/' ) )
+	) && class_exists( 'BZDoc_Installer' ) ) {
 	BZDoc_Installer::maybe_create_tables();
 }
-if ( class_exists( 'BZDoc_Image_Prompts_Database' ) ) {
+if ( ( is_admin()
+		|| ( defined( 'REST_REQUEST' ) && REST_REQUEST )
+		|| ( defined( 'DOING_CRON' ) && DOING_CRON )
+		|| ( defined( 'WP_CLI' ) && WP_CLI )
+		|| ( ! empty( $_SERVER['REQUEST_URI'] ) && false !== strpos( (string) $_SERVER['REQUEST_URI'], '/wp-json/' ) )
+	) && class_exists( 'BZDoc_Image_Prompts_Database' ) ) {
 	BZDoc_Image_Prompts_Database::maybe_create_tables();
 }
 
@@ -316,4 +341,17 @@ add_action( 'template_redirect', function () {
 
 /* ── Flush rewrite rules once ── */
 // [2026-06-09 Johnny Chu] R-CR — migrated to Central Rewrite Flush Registry.
-BizCity_Rewrite_Flush_Registry::register( 'bizcity-doc', BZDOC_VERSION );
+// [2026-08-09 Johnny Chu] R-PERF-LOADER-ORDER — bundled Doc can be loaded by
+// an alternate/regular plugin path before the host runtime registry. Require the
+// canonical class when available; never fatal if the optional host is incomplete.
+if ( ! class_exists( 'BizCity_Rewrite_Flush_Registry', false )
+	&& defined( 'BIZCITY_TWIN_AI_DIR' ) ) {
+	$bizcity_doc_rewrite_registry = BIZCITY_TWIN_AI_DIR . 'core/runtime/class-rewrite-flush-registry.php';
+	if ( file_exists( $bizcity_doc_rewrite_registry ) ) {
+		require_once $bizcity_doc_rewrite_registry;
+	}
+	unset( $bizcity_doc_rewrite_registry );
+}
+if ( class_exists( 'BizCity_Rewrite_Flush_Registry', false ) ) {
+	BizCity_Rewrite_Flush_Registry::register( 'bizcity-doc', BZDOC_VERSION );
+}

@@ -19,6 +19,13 @@
 
 defined( 'ABSPATH' ) || exit;
 
+// [2026-08-09 Johnny Chu] HOTFIX — guard Doc Agent against lazy-load order.
+// The bundled plugin can be included before core/agents/bootstrap.php, especially
+// when TwinChat admin-shell optimization defers the agent runtime.
+if ( ! class_exists( 'BizCity_TwinShell_Tool', false ) || ! class_exists( 'BizCity_TwinShell_Agent', false ) ) {
+	return;
+}
+
 /* ─────────────────────────────────────────────────────────────
  * Internal helper — call BZDoc REST handler in-process (no HTTP).
  * Sets BZDoc_Rest_API::$force_direct_llm = true to avoid

@@ -42,6 +42,11 @@ final class BizCity_Diagnostics_Smoke_Runner {
 		if ( self::$catalog !== null ) {
 			return self::$catalog;
 		}
+		// [2026-08-09 Johnny Chu] R-PERF-LOADER-A - flush queued probes only
+		// when the Smoke Runner is actually asked for its catalog.
+		if ( function_exists( 'bizcity_diagnostics_load_probes_once' ) ) {
+			bizcity_diagnostics_load_probes_once();
+		}
 
 		$raw = apply_filters( 'bizcity_diagnostics_register_probes', [] );
 		$out = [];
@@ -254,6 +259,8 @@ final class BizCity_Diagnostics_Smoke_Runner {
 		if ( ! isset( $res['status'] ) ) {
 			$res['status'] = 'fail';
 		}
+		// [2026-08-02 Johnny Chu] HOTFIX — canonicalize probe status at the runner boundary so admin, REST, and persisted results count PASS consistently.
+		$res['status'] = strtolower( trim( (string) $res['status'] ) );
 
 		// Phase 0.41 L9.f — persist per-probe last result (lightweight).
 		self::record_last_result( $id, $res );

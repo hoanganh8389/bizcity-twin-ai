@@ -1,0 +1,9 @@
+{
+  "contract": "tool-io-envelope",
+  "version": "1.0.0",
+  "trace_id": "trace_tool_123456",
+  "tool": {
+    "id": "reference.echo"
+  },
+  "status": "ok"
+}

@@ -3,7 +3,7 @@
   "module_id": "modules.twinweb",
   "owner": "modules/twinweb",
   "installer_id": "twinweb",
-  "current_version": "1.1.0",
+  "current_version": "1.2.4",
   "version_option": "bizcity_twinweb_db_version",
   "tables": {
     "bizcity_twinweb_threads": {
@@ -16,6 +16,7 @@
         "id":         { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
         "user_id":    { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",      "since": "1.0.0" },
         "project_id": { "type": "VARCHAR(50) NOT NULL DEFAULT ''",         "since": "1.0.2" },
+        "notebook_id": { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",     "since": "1.2.0" },
         "guest_sid":  { "type": "VARCHAR(64) NOT NULL DEFAULT ''",         "since": "1.0.0" },
         "app_type":   { "type": "VARCHAR(30) NOT NULL DEFAULT 'chat'",     "since": "1.0.0" },
         "title":      { "type": "VARCHAR(255) NOT NULL DEFAULT ''",        "since": "1.0.0" },
@@ -28,6 +29,7 @@
       "indexes": {
         "idx_user":    { "cols": ["user_id"],       "since": "1.0.0" },
         "idx_project": { "cols": ["project_id"],    "since": "1.0.2" },
+        "idx_notebook": { "cols": ["notebook_id"],  "since": "1.2.0" },
         "idx_guest":   { "cols": ["guest_sid(32)"], "since": "1.0.0" },
         "idx_app":     { "cols": ["app_type"],      "since": "1.0.0" },
         "idx_last":    { "cols": ["last_at"],       "since": "1.0.0" }
@@ -83,6 +85,12 @@
   "history": [
     { "version": "1.0.0", "date": "2026-06-17", "change": "PHASE-TWINWEB Wave 1 — create bizcity_twinweb_threads for per-user/guest Twin GPT thread list." },
     { "version": "1.0.2", "date": "2026-06-22", "change": "PHASE-TWINWEB — add project_id column and idx_project to bizcity_twinweb_threads for project grouping." },
-    { "version": "1.1.0", "date": "2026-07-20", "change": "PHASE-TWIN-GPT-AGENT-TOOLS AT-7 — declare bizcity_twinweb_artifact_jobs for durable async Agent Tool progress, owner polling, and Artifact Canvas replay." }
+    { "version": "1.1.0", "date": "2026-07-20", "change": "PHASE-TWIN-GPT-AGENT-TOOLS AT-7 — declare bizcity_twinweb_artifact_jobs for durable async Agent Tool progress, owner polling, and Artifact Canvas replay." },
+    { "version": "1.1.1", "date": "2026-07-30", "change": "PHASE-TWINWEB-UNIFIED-SOURCES — repair the project_id column/index drift so existing installations can move threads into projects without a database fatal." },
+    { "version": "1.2.0", "date": "2026-07-30", "change": "PHASE-TWINWEB-UNIFIED-SOURCES — add notebook_id and idx_notebook so the canonical KG notebook becomes the Twin GPT Project identity while legacy project_id remains available for migration." }
+    ,{ "version": "1.2.1", "date": "2026-07-31", "change": "HOTFIX — normalize dbDelta index syntax and rerun TwinWeb provisioning after malformed empty ALTER statements were observed on tenant shards." }
+    ,{ "version": "1.2.2", "date": "2026-07-31", "change": "HOTFIX — normalize idx_notebook syntax; dbDelta previously emitted empty ADD clauses while repairing existing TwinWeb thread tables." }
+    ,{ "version": "1.2.3", "date": "2026-07-31", "change": "HOTFIX — skip dbDelta ALTER diff for existing TwinWeb thread/artifact tables; use explicit information_schema-gated repairs to prevent malformed empty ADD clauses." }
+    ,{ "version": "1.2.4", "date": "2026-07-31", "change": "HOTFIX — replace TwinWeb dbDelta with guarded CREATE TABLE IF NOT EXISTS for missing tables; no TwinWeb path can emit malformed ALTER ADD clauses." }
   ]
 }

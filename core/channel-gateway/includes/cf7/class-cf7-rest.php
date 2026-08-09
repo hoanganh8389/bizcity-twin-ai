@@ -174,6 +174,43 @@ class BizCity_CF7_REST {
 			),
 		) );
 
+		// [2026-08-04 Johnny Chu] PHASE-CG-CF7-BIGLEAD — SPA settings endpoints.
+		register_rest_route( self::NS, '/cf7/biglead-settings', array(
+			array(
+				'methods'             => 'GET',
+				'callback'            => array( __CLASS__, 'get_biglead_settings' ),
+				'permission_callback' => array( __CLASS__, 'admin_only' ),
+			),
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( __CLASS__, 'save_biglead_settings' ),
+				'permission_callback' => array( __CLASS__, 'admin_only' ),
+			)
+		) );
+		register_rest_route( self::NS, '/cf7/biglead-ping', array(
+			'methods'             => 'POST',
+			'callback'            => array( __CLASS__, 'ping_biglead' ),
+			'permission_callback' => array( __CLASS__, 'admin_only' ),
+		) );
+		// [2026-08-04 Johnny Chu] PHASE-CG-CF7-BIGLEAD — explicit real-customer test with provider JSON response.
+		register_rest_route( self::NS, '/cf7/biglead-test', array(
+			'methods'             => 'POST',
+			'callback'            => array( __CLASS__, 'test_biglead' ),
+			'permission_callback' => array( __CLASS__, 'admin_only' ),
+		) );
+		// [2026-08-05 Johnny Chu] PHASE-CG-CF7-BIGLEAD — exact-form admin playground routes.
+		register_rest_route( self::NS, '/cf7/forms/(?P<id>\d+)/playground-schema', array(
+			'methods'             => 'GET',
+			'callback'            => array( __CLASS__, 'playground_schema' ),
+			'permission_callback' => array( __CLASS__, 'admin_only' ),
+			'args'                => array( 'id' => array( 'type' => 'integer' ) ),
+		) );
+		register_rest_route( self::NS, '/cf7/biglead-playground', array(
+			'methods'             => 'POST',
+			'callback'            => array( __CLASS__, 'biglead_playground' ),
+			'permission_callback' => array( __CLASS__, 'admin_only' ),
+		) );
+
 		// [2026-06-25 Johnny Chu] PHASE-CRM-SUBMISSIONS — Export all rows (JSON → FE converts CSV)
 		register_rest_route( self::NS, '/cf7/submissions/export', array(
 			'methods'             => 'GET',
@@ -340,6 +377,131 @@ class BizCity_CF7_REST {
 		return current_user_can( 'manage_options' );
 	}
 
+	/**
+	 * GET /cf7/biglead-settings.
+	 */
+	public static function get_biglead_settings( \WP_REST_Request $req ): \WP_REST_Response {
+		// [2026-08-04 Johnny Chu] PHASE-CG-CF7-BIGLEAD — return masked SPA settings.
+		return new \WP_REST_Response( array( 'success' => true, 'data' => BizCity_CF7_BigLead::get_settings_safe() ), 200 );
+	}
+
+	/**
+	 * POST /cf7/biglead-settings.
+	 */
+	public static function save_biglead_settings( \WP_REST_Request $req ): \WP_REST_Response {
+		// [2026-08-04 Johnny Chu] PHASE-CG-CF7-BIGLEAD — save SPA settings without returning token.
+		$body = $req->get_json_params();
+		BizCity_CF7_BigLead::save_settings( is_array( $body ) ? $body : array() );
+		return new \WP_REST_Response( array( 'success' => true, 'data' => BizCity_CF7_BigLead::get_settings_safe() ), 200 );
+	}
+
+	/**
+	 * POST /cf7/biglead-ping. Uses HEAD upstream; never creates a customer.
+	 */
+	public static function ping_biglead( \WP_REST_Request $req ): \WP_REST_Response {
+		// [2026-08-04 Johnny Chu] PHASE-CG-CF7-BIGLEAD — expose non-mutating ping diagnostics.
+		return new \WP_REST_Response( array( 'success' => true, 'data' => BizCity_CF7_BigLead::ping() ), 200 );
+	}
+
+	/**
+	 * POST /cf7/biglead-test. Creates or updates a real BigLead customer.
+	 */
+	public static function test_biglead( \WP_REST_Request $req ): \WP_REST_Response {
+		// [2026-08-04 Johnny Chu] PHASE-CG-CF7-BIGLEAD — expose admin-only real POST test and safe JSON response.
+		$body = $req->get_json_params();
+		$result = BizCity_CF7_BigLead::test( is_array( $body ) ? $body : array() );
+		return new \WP_REST_Response( array( 'success' => true, 'data' => $result ), 200 );
+	}
+
+	/**
+	 * GET /cf7/forms/{id}/playground-schema.
+	 */
+	public static function playground_schema( \WP_REST_Request $req ): \WP_REST_Response {
+		// [2026-08-05 Johnny Chu] PHASE-CG-CF7-BIGLEAD — expose the selected CF7 form's real tag schema.
+		$form_id = (int) $req->get_param( 'id' );
+		if ( ! class_exists( 'WPCF7_ContactForm' ) ) {
+			return new \WP_REST_Response( array( 'success' => false, 'data' => array(), 'error' => 'Contact Form 7 chưa được bật.' ), 200 );
+		}
+		$form = WPCF7_ContactForm::get_instance( $form_id );
+		if ( ! $form ) {
+			return new \WP_REST_Response( array( 'success' => false, 'data' => array(), 'error' => 'Không tìm thấy form CF7.' ), 200 );
+		}
+
+		$fields = array();
+		foreach ( (array) $form->scan_form_tags() as $tag ) {
+			$name = isset( $tag->name ) ? sanitize_key( (string) $tag->name ) : '';
+			if ( $name === '' ) {
+				continue;
+			}
+			$base_type = isset( $tag->basetype ) ? sanitize_key( (string) $tag->basetype ) : 'text';
+			$options = array();
+			foreach ( (array) ( $tag->values ?? array() ) as $option ) {
+				$option = sanitize_text_field( (string) $option );
+				if ( $option !== '' ) {
+					$options[] = $option;
+				}
+			}
+			$fields[] = array(
+				'name'     => $name,
+				'type'     => $base_type,
+				'required' => in_array( 'req', (array) ( $tag->options ?? array() ), true ),
+				'options'  => array_values( array_unique( $options ) ),
+			);
+		}
+
+		return new \WP_REST_Response( array(
+			'success' => true,
+			'data'    => array(
+				'form_id'    => $form_id,
+				'form_title' => (string) $form->title(),
+				'fields'     => $fields,
+			),
+		), 200 );
+	}
+
+	/**
+	 * POST /cf7/biglead-playground.
+	 * Body: { form_id: int, fields: {}, mode: preview|send }
+	 */
+	public static function biglead_playground( \WP_REST_Request $req ): \WP_REST_Response {
+		// [2026-08-05 Johnny Chu] PHASE-CG-CF7-BIGLEAD — execute the selected CF7 form through its real mapping path.
+		$body    = $req->get_json_params();
+		$body    = is_array( $body ) ? $body : array();
+		$form_id = (int) ( $body['form_id'] ?? 0 );
+		$fields  = is_array( $body['fields'] ?? null ) ? $body['fields'] : array();
+		$mode    = sanitize_key( (string) ( $body['mode'] ?? 'preview' ) );
+
+		if ( $form_id < 1 ) {
+			return new \WP_REST_Response( array( 'success' => false, 'data' => array(), 'error' => 'Chọn form trước khi chạy playground.' ), 200 );
+		}
+		if ( ! class_exists( 'WPCF7_ContactForm' ) || ! class_exists( 'BizCity_CF7_Channel_Listener' ) || ! class_exists( 'BizCity_CF7_BigLead' ) ) {
+			return new \WP_REST_Response( array( 'success' => false, 'data' => array(), 'error' => 'CF7 BigLead playground chưa sẵn sàng.' ), 200 );
+		}
+
+		$form = WPCF7_ContactForm::get_instance( $form_id );
+		if ( ! $form ) {
+			return new \WP_REST_Response( array( 'success' => false, 'data' => array(), 'error' => 'Không tìm thấy form CF7 đã chọn.' ), 200 );
+		}
+		$mapping = BizCity_CF7_Channel_Listener::get_form_mapping( $form_id );
+		$mapped  = BizCity_CF7_Channel_Listener::apply_mapping( $fields, $mapping['field_map'] ?? array() );
+		$run     = BizCity_CF7_BigLead::playground( $form_id, (string) $form->title(), $mapped, $fields, 'send' === $mode );
+
+		return new \WP_REST_Response( array(
+			'success' => true,
+			'data'    => array(
+				'form_id'    => $form_id,
+				'form_title' => (string) $form->title(),
+				'fields'     => $fields,
+				'field_map'  => $mapping['field_map'] ?? array(),
+				'mapped'     => $mapped,
+				'mode'       => $run['mode'],
+				'gate'       => $run['gate'],
+				'payload'    => $run['payload'],
+				'result'     => $run['result'],
+			),
+		), 200 );
+	}
+
 	// ── Formatter ─────────────────────────────────────────────────────────
 
 	private static function format_submission( $row ): array {
@@ -439,14 +601,18 @@ class BizCity_CF7_REST {
 		$json    = $req->get_json_params();
 		$body    = is_array( $json ) ? $json : array();
 
-		// [2026-06-25 Johnny Chu] DEBUG — log incoming body to PHP error_log
-		error_log( '[bizcity-zns-config] save form_id=' . $form_id . ' body=' . wp_json_encode( $body ) );
+		// [2026-07-31 Johnny Chu] PHASE-CRM-LOG-SPLIT — keep ZNS config evidence in CRM JSONL without raw body data.
+		if ( class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
+			BizCity_JSONL_File_Logger::write( BizCity_JSONL_File_Logger::CRM_FOLDER, 'zns', 'info', 'zns_config_save', 'ZNS form configuration save requested.', array( 'form_id' => $form_id, 'field_count' => count( $body ) ) );
+		}
 
 		BizCity_CF7_ZNS_Config::save_form_config( $form_id, $body );
 
-		// [2026-06-25 Johnny Chu] DEBUG — log what was actually saved
+		// [2026-07-31 Johnny Chu] PHASE-CRM-LOG-SPLIT — record saved ZNS config shape, never its values.
 		$saved = BizCity_CF7_ZNS_Config::get_form_config( $form_id );
-		error_log( '[bizcity-zns-config] after_save form_id=' . $form_id . ' temp_vars=' . wp_json_encode( $saved['temp_vars'] ?? null ) );
+		if ( class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
+			BizCity_JSONL_File_Logger::write( BizCity_JSONL_File_Logger::CRM_FOLDER, 'zns', 'info', 'zns_config_saved', 'ZNS form configuration saved.', array( 'form_id' => $form_id, 'temp_vars_count' => count( $saved['temp_vars'] ?? array() ) ) );
+		}
 
 		return new \WP_REST_Response( array( 'success' => true, 'data' => $saved ), 200 );
 	}
@@ -513,18 +679,19 @@ class BizCity_CF7_REST {
 		$force_sandbox_param = $body['force_sandbox'] ?? true;
 		$use_sandbox = ( $force_sandbox_param === false ) ? ! empty( $cfg['sandbox'] ) : true;
 
-		if ( class_exists( 'BizCity_Channel_File_Logger', false ) ) {
-			BizCity_Channel_File_Logger::write(
-				BizCity_Channel_File_Logger::CH_ZALO_ZNS,
-				BizCity_Channel_File_Logger::LEVEL_INFO,
+		if ( class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
+			BizCity_JSONL_File_Logger::write(
+				BizCity_JSONL_File_Logger::CRM_FOLDER,
+				'zns',
+				'info',
 				'zns_test_send_attempt',
-				'Test send ZNS form #' . $form_id . ' to ' . BizCity_CF7_ZNS_Sender::mask_phone( $phone ),
+				'Test ZNS send started.',
 				array(
 					'form_id'    => $form_id,
 					'temp_id'    => $cfg['temp_id'],
 					'oa_id'      => $oa_id,
-					'phone'      => BizCity_CF7_ZNS_Sender::mask_phone( $phone ),
-					'temp_data'  => $temp_data,
+					'phone_present' => $phone !== '',
+					'temp_data_count' => count( $temp_data ),
 					'sandbox'    => $use_sandbox,
 				)
 			);
@@ -548,18 +715,20 @@ class BizCity_CF7_REST {
 		$result = BizCity_CF7_ZNS_Sender::send( $request_args );
 
 		// File-log result
-		if ( class_exists( 'BizCity_Channel_File_Logger', false ) ) {
-			$level = $result['sent'] ? BizCity_Channel_File_Logger::LEVEL_INFO : BizCity_Channel_File_Logger::LEVEL_ERROR;
-			BizCity_Channel_File_Logger::write(
-				BizCity_Channel_File_Logger::CH_ZALO_ZNS,
+		if ( class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
+			$level = $result['sent'] ? 'info' : 'error';
+			BizCity_JSONL_File_Logger::write(
+				BizCity_JSONL_File_Logger::CRM_FOLDER,
+				'zns',
 				$level,
 				$result['sent'] ? 'zns_test_send_ok' : 'zns_test_send_failed',
-				'Test result form #' . $form_id . ' — code: ' . $result['code'],
+				$result['sent'] ? 'Test ZNS send succeeded.' : 'Test ZNS send failed.',
 				array(
-					'phone'  => BizCity_CF7_ZNS_Sender::mask_phone( $phone ),
+					'form_id' => $form_id,
+					'phone_present' => $phone !== '',
 					'code'   => $result['code'],
 					'sms_id' => $result['sms_id'],
-					'error'  => $result['error'],
+					'error_present' => $result['error'] !== '',
 				)
 			);
 		}
@@ -702,17 +871,18 @@ class BizCity_CF7_REST {
 		if ( ! is_array( $temp_data_raw ) ) { $temp_data_raw = array(); }
 
 		// File-log TRƯỚC HTTP (R-CH-FILE-LOG)
-		if ( class_exists( 'BizCity_Channel_File_Logger', false ) ) {
-			BizCity_Channel_File_Logger::write(
-				BizCity_Channel_File_Logger::CH_ZALO_ZNS,
-				BizCity_Channel_File_Logger::LEVEL_INFO,
+		if ( class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
+			BizCity_JSONL_File_Logger::write(
+				BizCity_JSONL_File_Logger::CRM_FOLDER,
+				'zns',
+				'info',
 				'zns_direct_test_attempt',
-				'Direct test ZNS to ' . BizCity_CF7_ZNS_Sender::mask_phone( $phone ),
+				'Direct test ZNS send started.',
 				array(
 					'temp_id'   => $temp_id,
 					'oa_id'     => $oa_id,
-					'phone'     => BizCity_CF7_ZNS_Sender::mask_phone( $phone ),
-					'temp_data' => $temp_data_raw,
+					'phone_present' => $phone !== '',
+					'temp_data_count' => count( $temp_data_raw ),
 					'sandbox'   => true,
 				)
 			);
@@ -733,18 +903,20 @@ class BizCity_CF7_REST {
 		$result = BizCity_CF7_ZNS_Sender::send( $request_args );
 
 		// File-log result
-		if ( class_exists( 'BizCity_Channel_File_Logger', false ) ) {
-			$level = $result['sent'] ? BizCity_Channel_File_Logger::LEVEL_INFO : BizCity_Channel_File_Logger::LEVEL_ERROR;
-			BizCity_Channel_File_Logger::write(
-				BizCity_Channel_File_Logger::CH_ZALO_ZNS,
+		if ( class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
+			$level = $result['sent'] ? 'info' : 'error';
+			BizCity_JSONL_File_Logger::write(
+				BizCity_JSONL_File_Logger::CRM_FOLDER,
+				'zns',
 				$level,
 				$result['sent'] ? 'zns_direct_test_ok' : 'zns_direct_test_failed',
-				'Direct test result — code: ' . $result['code'],
+				$result['sent'] ? 'Direct test ZNS send succeeded.' : 'Direct test ZNS send failed.',
 				array(
-					'phone'  => BizCity_CF7_ZNS_Sender::mask_phone( $phone ),
+					'form_id' => $form_id,
+					'phone_present' => $phone !== '',
 					'code'   => $result['code'],
 					'sms_id' => $result['sms_id'],
-					'error'  => $result['error'],
+					'error_present' => $result['error'] !== '',
 				)
 			);
 		}
@@ -807,7 +979,8 @@ class BizCity_CF7_REST {
 			) );
 		}
 
-		if ( ! class_exists( 'BizCity_Channel_File_Logger', false ) ) {
+		// [2026-08-01 Johnny Chu] PHASE-CRM-LOG-SPLIT — read mail health from CRM-owned CF7 logs.
+		if ( ! class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
 			return new \WP_REST_Response( array(
 				'success' => true,
 				'_degraded' => true,
@@ -899,7 +1072,8 @@ class BizCity_CF7_REST {
 	 */
 	private static function collect_mail_failed_from_logs( int $days, int $form_id, int $recent_limit ): array {
 		$cutoff = gmdate( 'Y-m-d', strtotime( '-' . max( 0, $days - 1 ) . ' days' ) );
-		$dates  = BizCity_Channel_File_Logger::list_dates( BizCity_Channel_File_Logger::CH_CF7, max( 30, $days + 10 ) );
+		// [2026-08-01 Johnny Chu] PHASE-CRM-LOG-SPLIT — enumerate the new per-blog CF7 log path.
+		$dates  = BizCity_JSONL_File_Logger::list_dates( BizCity_JSONL_File_Logger::CRM_FOLDER, 'cf7', max( 30, $days + 10 ) );
 
 		$by_date         = array();
 		$reasons         = array();
@@ -913,7 +1087,8 @@ class BizCity_CF7_REST {
 				break;
 			}
 
-			$rows = BizCity_Channel_File_Logger::read( BizCity_Channel_File_Logger::CH_CF7, $date, 2000 );
+			// [2026-08-01 Johnny Chu] PHASE-CRM-LOG-SPLIT — consume cf7_mail_flagged from CRM JSONL.
+			$rows = BizCity_JSONL_File_Logger::read( BizCity_JSONL_File_Logger::CRM_FOLDER, 'cf7', $date, 2000 );
 			foreach ( (array) $rows as $entry ) {
 				if ( ! is_array( $entry ) ) {
 					continue;

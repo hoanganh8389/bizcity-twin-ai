@@ -1,0 +1,132 @@
+{
+  "audit_id": "framework-contract-audit-2026-07-30",
+  "repository": "bizcity-twin-ai",
+  "audit_date": "2026-07-30",
+  "scope": {
+    "included": ["docs/", "core/", "plugins/"],
+    "excluded": ["**/_archived/**", "**/_library/**", "**/node_modules/**", "**/vendor/**", "**/dist/**", "**/build/**", "**/.vite/**"],
+    "method": "read-only inventory, targeted source reads, active-callsite searches, and existing contract test evidence"
+  },
+  "overall": {
+    "status": "not_production_ready",
+    "framework_baseline": "partial_pass",
+    "plugin_ecosystem": "partial_pass_with_release_blockers",
+    "release_blockers": [
+      "channel_bypass",
+      "credential_boundary_bypass",
+      "error_envelope_migration",
+      "plugin_ddl_governance_evidence",
+      "system_wide_runtime_reliability_migration",
+      "plugin_manifest_adoption"
+    ]
+  },
+  "hybrid_test_model": {
+    "status": "adopted",
+    "ci_owned": {
+      "description": "Deterministic contract checks that do not depend on WordPress runtime lifecycle.",
+      "gates": [
+        "core/twin-core/contracts/tests/run-contract-tests.mjs",
+        "bin/framework-contract-audit.mjs",
+        "bin/validate-plugin-contract-registry.mjs",
+        "bin/validate-sdk-release.mjs",
+        ".github/workflows/ci.yml"
+      ]
+    },
+    "probe_owned": {
+      "description": "Runtime fail-closed, loader order, plugin wiring, and checks requiring multisite/options/hooks context.",
+      "canonical_probe": "core/diagnostics/includes/probes/class-probe-framework-production-contract.php"
+    },
+    "ownership_rule": "Deterministic invariant checks remain CI-owned; runtime lifecycle and environment checks remain diagnostics-probe-owned."
+  },
+  "plugin_contract_scoring_model": {
+    "status": "adopted",
+    "scope": "framework contract compliance for active plugins/modules",
+    "weights": {
+      "ci_deterministic_gates": 0.4,
+      "runtime_probe_evidence": 0.3,
+      "security_boundary_compliance": 0.2,
+      "required_surfaces_adoption": 0.1
+    },
+    "thresholds": {
+      "pass": "score >= 85 and no release-blocker violation",
+      "partial": "score between 60 and 84 or missing runtime evidence without blocker",
+      "fail": "score < 60 or any release-blocker violation",
+      "review": "insufficient evidence to score"
+    },
+    "blocker_override": "A package cannot be treated as compliant when any release-blocker class remains active, regardless of weighted score."
+  },
+  "public_contracts": [
+    {"id":"event-envelope","status":"partial","framework_evidence":["core/twin-core/contracts/schema/public/v1/event-envelope.schema.json","core/twin-core/contracts/tests/run-contract-tests.mjs"],"adoption_note":"Plugin-wide producer/consumer inventory is incomplete."},
+    {"id":"tool-io-envelope","status":"partial_adoption","framework_evidence":["core/twin-core/includes/class-twin-tool-registry.php","core/twin-core/includes/interface-twin-tool.php","examples/bizcity-reference-plugin"],"adoption_note":"Reference extension is proven; most feature plugins have no validated public manifest/tool contract."},
+    {"id":"mutation-contract","status":"partial","framework_evidence":["core/twin-core/includes/class-twin-mutation-guard.php","core/automation/includes/class-automation-rest.php"],"adoption_note":"Workflow CRUD migrated; other mutation controllers remain."},
+    {"id":"citation-pack","status":"partial","framework_evidence":["core/twin-core/includes/class-twin-citation-validator.php","core/diagnostics/includes/probes/class-probe-twinweb-citation-continuity.php"],"adoption_note":"Not all plugin output paths prove provenance."},
+    {"id":"error-envelope","status":"partial_release_blocker","framework_evidence":["core/helper/includes/class-bizcity-error-payload.php","core/diagnostics/includes/probes/class-probe-error-ux.php"],"adoption_note":"Many active REST/AJAX callers still return raw strings or message-only arrays."},
+    {"id":"sse-events","status":"partial_adoption","framework_evidence":["core/twin-core/includes/class-twin-sse-writer.php","core/twin-core/contracts/schema/public/v1/sse-events.schema.json"],"adoption_note":"Core/Twin UI coverage exists; plugin-wide consumer proof is incomplete."},
+    {"id":"permission-scopes","status":"partial_adoption","framework_evidence":["core/twin-core/contracts/schema/manifest.schema.json","core/twin-core/includes/class-twin-capability-consent.php","core/twin-core/includes/class-twin-capability-guard.php"],"adoption_note":"Reference manifest is validated; bundled plugin manifests are not consistently present."},
+    {"id":"workflow-json","status":"partial_adoption","framework_evidence":["core/automation/templates","core/automation/includes/class-automation-templates-seeder.php"],"adoption_note":"Lifecycle exists; per-plugin template evidence varies."},
+    {"id":"kg-adapter-payload","status":"partial","framework_evidence":["core/twin-core/contracts/schema/public/v1/kg-adapter-payload.schema.json","core/diagnostics/includes/probes/class-probe-kg-skeleton.php"],"adoption_note":"Not all external/plugin adapters are proven against the schema."},
+    {"id":"channel-payload","status":"partial_release_blocker","framework_evidence":["core/channel-gateway/includes/class-universal-channel-listener.php","docs/rules/PHASE-0-RULE-CHANNEL-UNIFY.md"],"adoption_note":"Raw business listeners and legacy WAIC bridges remain active."},
+    {"id":"runtime-execution-policy","status":"partial_release_blocker","framework_evidence":["core/twin-core/includes/class-twin-runtime-reliability.php","core/twin-core/includes/class-twin-reliable-http.php","core/twin-core/includes/class-twin-slo-store.php"],"adoption_note":"Tool boundary and selected HTTP/search paths are covered; scheduler/channel/legacy migrations remain."}
+  ],
+  "rules": [
+    {"id":"R-CH-UNI","status":"fail","evidence":["docs/rules/PHASE-0-RULE-CHANNEL-UNIFY.md","plugins/bizcity-personal/includes/class-personal-zalo-listener.php","plugins/bizcity-zalo-bot/includes/class-guru-bridge.php","plugins/bizcity-facebook-bot/includes/class-webhook-handler.php"]},
+    {"id":"R-CH-NS","status":"pass_with_evidence_gap","evidence":["core/channel-gateway/bootstrap.php","core/channel-gateway/includes/class-webhook-inspector.php"],"note":"Add automated full route namespace scanner."},
+    {"id":"R-CH-IDMEM","status":"partial","evidence":["plugins/bizcity-twin-crm/includes/class-conversation-identity-resolver.php","core/diagnostics/includes/probes/class-probe-channel-identity-memory.php"]},
+    {"id":"R-ZONE","status":"partial","evidence":["docs/rules/PHASE-0-RULE-ZONE-CHANNEL.md","plugins/bizcity-twin-crm/bootstrap.php","plugins/bizcity-personal/includes/class-personal-zalo-listener.php"]},
+    {"id":"R-CH-FILE-LOG","status":"pass_baseline_partial_coverage","evidence":["core/channel-gateway/includes/class-channel-file-logger.php","core/channel-gateway/bootstrap.php"]},
+    {"id":"R-SCH-REPLY","status":"pass","evidence":["core/scheduler/includes/class-scheduler-inbound-provenance.php","core/automation/includes/blocks/actions/class-action-create-crm-event.php"]},
+    {"id":"R-GW-8","status":"fail_for_affected_callers","evidence":["plugins/bizcity-video-kling/includes/class-scripts.php","core/bizcity-llm/includes/class-search-client.php"],"note":"PageBuilder image generation migrated to BizCity_LLM_Client; remaining legacy video/direct-provider paths block full pass."},
+    {"id":"R-1API-AUTH","status":"fail_for_affected_callers","evidence":["core/bizcity-market/includes/class-remote-catalog.php","plugins/bizcity-video-kling/lib/kling_api.php"],"note":"PageBuilder, BZDoc, and Astro settings now use the canonical client boundary; remaining legacy callers still fail the ecosystem gate."},
+    {"id":"R-CACHE","status":"partial","evidence":["core/helper/class-bizcity-cache.php","core/helper/class-bizcity-cache-registry.php","plugins/bizcity-content-creator/includes/class-template-manager.php"]},
+    {"id":"R-CR","status":"partial","evidence":["core/runtime/class-schema-registry.php","core/runtime/class-rewrite-flush-registry.php","plugins/bizcity-doc/includes/class-installer.php"]},
+    {"id":"R-DCL","status":"partial","evidence":["core/diagnostics/changelog/","core/diagnostics/validate-schema-changelog.php","plugins/bizcity-tool-image/includes/install.php"]},
+    {"id":"R-DDV","status":"partial","evidence":["core/diagnostics/includes/probes/","bin/framework-smoke.php","core/diagnostics/includes/probes/class-probe-error-ux.php"]},
+    {"id":"R-CRON-META","status":"partial","evidence":["core/cron/includes/class-cron-manager.php","core/knowledge/bootstrap.php","core/intent/bootstrap.php","core/automation/bootstrap.php"]},
+    {"id":"R-ERROR-UX","status":"fail_for_ecosystem","evidence":["core/helper/includes/class-bizcity-error-payload.php","core/diagnostics/includes/probes/class-probe-error-ux.php","core/knowledge/includes/class-admin-menu.php","plugins/bizcity-pagebuilder/includes/class-rest-api.php"]},
+    {"id":"R-MSDB","status":"not_applicable_to_standalone_client","evidence":["docs/rules/PHASE-0-RULE-MULTISITE-MULTISHARD-DB.md"],"note":"Tenant DDL and prefix ownership still require review per active plugin."},
+    {"id":"R-PERF","status":"partial","evidence":["core/twin-core/bootstrap.php","plugins/bizcity-twin-ai.php"]}
+  ],
+  "plugin_matrix": [
+    {"package":"plugins/bizcity-twin-crm","status":"partial","primary_gaps":["raw_compatibility_paths","incomplete_end_to_end_identity_probe"]},
+    {"package":"plugins/bizcity-personal","status":"partial","primary_gaps":["error_envelope_migration","scheduler_runtime_probe"]},
+    {"package":"plugins/bizcity-zalo-bot","status":"fail","primary_gaps":["raw_business_listeners","legacy_waic_dispatch"]},
+    {"package":"plugins/bizcity-facebook-bot","status":"fail","primary_gaps":["legacy_waic_dispatch","direct_graph_legacy_paths"]},
+    {"package":"plugins/bizcity-pagebuilder","status":"partial","primary_gaps":["error_envelope_migration","runtime_probe"]},
+    {"package":"plugins/bizcity-video-kling","status":"fail","primary_gaps":["direct_openai_call","raw_gateway_option","message_only_errors"]},
+    {"package":"plugins/bizcity-tool-image","status":"partial","primary_gaps":["direct_external_http","message_only_errors","qr_probe"]},
+    {"package":"plugins/bizcity-doc","status":"partial","primary_gaps":["external_fetch_policy_evidence","message_only_errors"]},
+    {"package":"plugins/bizcoach-pro","status":"partial","primary_gaps":["legacy_ajax_errors","credential_scope_evidence"]},
+    {"package":"plugins/bizcity-zalo-bizcity","status":"partial","primary_gaps":["legacy_bridge","installer_governance_evidence"]},
+    {"package":"plugins/bizgpt-tool-google","status":"review","primary_gaps":["manifest_evidence","ddl_registry_evidence","probe_evidence"]},
+    {"package":"plugins/bizcity-content-creator","status":"partial","primary_gaps":["ajax_error_migration","installer_governance_evidence"]},
+    {"package":"examples/bizcity-reference-plugin","status":"pass_reference_only","primary_gaps":[]}
+  ],
+  "module_matrix": [
+    {"package":"modules/twinchat","status":"partial","primary_gaps":["manifest_adoption","runtime_probe_evidence","gateway_boundary_coverage"]},
+    {"package":"modules/twinweb","status":"partial","primary_gaps":["manifest_adoption","ownership_runtime_probe","same_origin_proxy_evidence"]},
+    {"package":"modules/webchat","status":"partial","primary_gaps":["error_envelope_adoption","runtime_probe_evidence","channel_identity_continuity"]},
+    {"package":"modules/twinsearch","status":"review","primary_gaps":["wrapper_contract_evidence","reliable_http_probe","runtime_surface_inventory"]},
+    {"package":"modules/twinshell","status":"partial","primary_gaps":["capability_manifest","runtime_probe_evidence","error_envelope_adoption"]},
+    {"package":"modules/twinsource","status":"review","primary_gaps":["source_contract_evidence","ownership_probe","cache_contract_evidence"]}
+  ],
+  "extension_summary": {
+    "registry_packages": 19,
+    "plugins": 13,
+    "modules": 6,
+    "status_counts": {
+      "plugins": {"reference_only": 1, "partial": 7, "fail": 4, "review": 1},
+      "modules": {"partial": 4, "review": 2}
+    },
+    "interpretation": "Registry presence proves discoverability and declared required surfaces only; PASS requires CI gates, runtime probe evidence, security compliance, and no release blocker."
+  },
+  "validated_commands": [
+    {"command":"node core/twin-core/contracts/tests/run-contract-tests.mjs","result":"CONTRACT TESTS PASS (11 contracts)"},
+    {"command":"node bin/framework-contract-audit.mjs","result":"PASS (14 known debt, 0 new findings)"},
+    {"command":"node bin/validate-plugin-contract-registry.mjs","result":"PLUGIN CONTRACT REGISTRY PASS (19 packages: 13 plugins, 6 modules)"},
+    {"command":"node bin/validate-sdk-release.mjs --check-build","result":"SDK RELEASE VALIDATION PASS"},
+    {"command":"npx --yes -p typescript@5.7.2 tsc --project packages/twin-ui-sdk/tsconfig.json --pretty false","result":"pass"},
+    {"command":"get_errors on audited PHP/Markdown/workflow files","result":"no errors found"},
+    {"command":"WordPress framework smoke","result":"not_run_local_php_and_wp_cli_unavailable"}
+  ],
+  "next_gate": "Migrate P0 channel, credential, and error bypasses; add per-plugin manifest/DDL/probe records; run WordPress CI matrix before claiming production-ready."
+}

@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bizcity.vn/schema/twin/contracts/v1/channel-payload.schema.json",
+  "title": "BizCity Twin Channel Inbound Outbound Payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "version", "direction", "platform", "identity", "message"],
+  "properties": {
+    "contract": { "const": "channel-payload" },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$" },
+    "direction": { "enum": ["inbound", "outbound"] },
+    "platform": { "enum": ["facebook", "messenger", "zalo_oa", "zalo_bot", "telegram", "webchat", "email", "twinchat_be", "custom"] },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["account_id", "user_id", "chat_id"],
+      "properties": {
+        "account_id": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "user_id": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "chat_id": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "message_id": { "type": "string", "maxLength": 120 }
+      }
+    },
+    "message": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timestamp"],
+      "properties": {
+        "text": { "type": "string", "maxLength": 4000 },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "attachments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type", "url"],
+            "properties": {
+              "type": { "type": "string", "maxLength": 80 },
+              "url": { "type": "string", "maxLength": 1200 },
+              "mime": { "type": "string", "maxLength": 120 }
+            }
+          }
+        }
+      }
+    },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "verified"],
+      "properties": {
+        "algorithm": { "enum": ["hmac-sha256", "hmac-sha512", "ed25519", "none"] },
+        "header": { "type": "string", "maxLength": 120 },
+        "verified": { "type": "boolean" }
+      }
+    },
+    "delivery": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": { "enum": ["queued", "sent", "failed", "retrying"] },
+        "provider_message_id": { "type": "string", "maxLength": 120 },
+        "attempt": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

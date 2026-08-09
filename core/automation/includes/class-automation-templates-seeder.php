@@ -46,11 +46,11 @@ final class BizCity_Automation_Templates_Seeder {
 	// [2026-07-21 Johnny Chu] PHASE-FB-GLOBAL-TPL — add customer global Facebook posting templates.
 	// [2026-07-21 Johnny Chu] PHASE-ATH — add global marketing script templates with deep research + ZaloBot.
 	// [2026-07-21 Johnny Chu] PHASE-ATH — add global short-video and morning Facebook content templates.
-	// [2026-07-21 Johnny Chu] PHASE-SEEDREAM-45 — add global ZaloBot photo editor templates.
+	// [2026-08-06 Johnny Chu] PHASE-IMG-GEMINI — migrate global ZaloBot photo editor to Gemini 3 Pro and skip ownerless draft tracking.
 	// [2026-07-22 Johnny Chu] PHASE-3-TWIN-GPT — add global BTnet daily-session chat workflow.
 	// [2026-07-25 Johnny Chu] PHASE-0.46 W2 — add builtin template using action.capture_to_notebook.
 	// [2026-07-25 Johnny Chu] PHASE-0.48-LEARNING-LOG-SHARE-LINK — wire action.learning_share_link into the @ghichu capture-to-notebook template reply.
-	const SEED_VERSION    = '1.62.0'; // [2026-07-25 Johnny Chu] PHASE-ATH — reseed notebook bridge template with accepted file list + source-scoped share-link binding.
+	const SEED_VERSION    = '1.63.0'; // [2026-08-06 Johnny Chu] PHASE-IMG-GEMINI — reseed Gemini photo editor template and ownerless draft branch.
 	const VERSION_OPTION  = 'bizcity_automation_templates_seed_version';
 	const HASH_OPTION     = 'bizcity_automation_templates_seed_hash';
 

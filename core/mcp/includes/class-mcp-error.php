@@ -61,6 +61,8 @@ final class BizCity_MCP_Error {
 	// protocol dispatch layer (tools/call with an unknown tool name), not a
 	// tool-level business error.
 	const TOOL_NOT_FOUND = 'MCP_TOOL_NOT_FOUND';
+	// [2026-07-30 Johnny Chu] PHASE-0.54-MCP Wave Q — admin per-tool allowlist gate (BizCity_MCP_Tool_Policy), distinct from TOOL_NOT_FOUND (registered but turned off vs. never existed).
+	const TOOL_DISABLED  = 'MCP_TOOL_DISABLED';
 
 	/**
 	 * @return string e.g. "trc_5f2c..."
@@ -145,6 +147,7 @@ final class BizCity_MCP_Error {
 			self::CONTEXT_PACK_EXPIRED, self::DRAFT_INVALID, self::RENDER_BLOCKED,
 			self::RENDERER_UNAVAILABLE, self::RENDER_FAILED, self::RATE_LIMITED,
 			self::ACTION_CONFIRMATION_REQUIRED, self::INTERNAL_ERROR, self::NOT_FOUND, self::TOOL_NOT_FOUND, // [2026-07-28 Johnny Chu] PHASE-0.53-MCP-TWINWEB — whitelist admin/customer not_found envelope.
+			self::TOOL_DISABLED, // [2026-07-30 Johnny Chu] PHASE-0.54-MCP Wave Q — whitelist admin tool allowlist envelope.
 		), true );
 	}
 
@@ -161,6 +164,9 @@ final class BizCity_MCP_Error {
 		}
 		if ( $code === self::ACTION_CONFIRMATION_REQUIRED ) {
 			return array( 'hint' => 'Xem lại bản preview rồi xác nhận lại thao tác trước khi xuất bản.', 'help_code' => 'action_confirmation_required' );
+		}
+		if ( $code === self::TOOL_DISABLED ) {
+			return array( 'hint' => 'Vào Channel Gateway → MCP Access → Cấu hình tools để admin bật lại tool này cho client.', 'help_code' => 'module_not_loaded' );
 		}
 		if ( in_array( $code, array( self::QUERY_INVALID, self::CITATION_INVALID, self::DRAFT_INVALID ), true ) ) {
 			return array( 'hint' => 'Kiểm tra lại input, citation và schema rồi gửi lại.', 'help_code' => 'invalid_param_generic' );

@@ -1,0 +1,100 @@
+{
+  "schema_version": "1.0",
+  "id": "bizcity.reference",
+  "name": "BizCity Reference Extension",
+  "version": "1.0.0",
+  "requires": {
+    "framework": ">=1.1.0",
+    "php": ">=7.4",
+    "wp": ">=6.0"
+  },
+  "permissions": [
+    "kg.read",
+    "kg.write",
+    "memory.read",
+    "content.publish",
+    "channel.zalo.send",
+    "woocommerce.order.create"
+  ],
+  "scope_bindings": [
+    { "permission": "kg.read", "scope_level": "tenant" },
+    { "permission": "kg.write", "scope_level": "tenant" },
+    { "permission": "memory.read", "scope_level": "user" },
+    { "permission": "content.publish", "scope_level": "user" },
+    { "permission": "channel.zalo.send", "scope_level": "user" },
+    { "permission": "woocommerce.order.create", "scope_level": "user" }
+  ],
+  "approval_gates": [
+    "publish_content",
+    "send_message",
+    "create_order"
+  ],
+  "security": {
+    "webhook_signature": {
+      "required": true,
+      "algorithm": "hmac-sha256",
+      "header": "x-bizcity-signature"
+    },
+    "secret_refs": [
+      "BIZCITY_CHANNEL_ZALO_SECRET",
+      "BIZCITY_WOO_COMMERCE_SECRET"
+    ],
+    "network_policy": {
+      "allow_hosts": [
+        "api.zalo.me",
+        "api.bizcity.vn"
+      ],
+      "block_private_ranges": true
+    },
+    "upload_policy": {
+      "allowed_mime": [
+        "image/png",
+        "image/jpeg",
+        "application/pdf"
+      ],
+      "max_bytes": 5242880,
+      "scan_required": true
+    }
+  },
+  "capabilities": {
+    "tools": [
+      {
+        "id": "reference.echo",
+        "label": "Echo input",
+        "description": "Returns a sanitized input for contract testing.",
+        "class": "BizCity_Reference_Echo_Tool",
+        "primary": true,
+        "schema": {
+          "description": "Echo input",
+          "input_fields": {
+            "text": { "type": "string", "required": true }
+          },
+          "output_fields": {
+            "text": { "type": "string" }
+          }
+        }
+      }
+    ],
+    "skills": [
+      { "id": "reference.skill", "label": "Reference skill", "class": "BizCity_Reference_Skill" }
+    ],
+    "agents": [
+      { "id": "reference.agent", "label": "Reference agent", "class": "BizCity_Reference_Agent" }
+    ],
+    "channels": [
+      { "id": "reference.channel", "label": "Reference channel", "class": "BizCity_Reference_Channel", "zone": "admin" }
+    ],
+    "kg_source_adapters": [
+      { "id": "reference.source", "label": "Reference source", "class": "BizCity_Reference_Source_Adapter" }
+    ],
+    "workflow_blocks": [
+      { "id": "reference.echo", "label": "Reference workflow block", "class": "BizCity_Reference_Workflow_Block" }
+    ],
+    "personas": [
+      { "id": "reference.persona", "label": "Reference persona", "class": "BizCity_Reference_Persona" }
+    ],
+    "output_renderers": [
+      { "id": "reference.text", "label": "Reference text renderer", "class": "BizCity_Reference_Text_Renderer", "artifact_type": "text" }
+    ]
+  }
+}

@@ -113,19 +113,20 @@ class BizCity_TwinChat_Entitlement_Proxy {
 	 * spamming the route.
 	 */
 	private function synthetic_payload( int $user_id, string $code, string $message, int $upstream_status = 0 ): array {
-		// [2026-06-12 Johnny Chu] R-KG-FILE-TYPES — merge local membership even on gateway fail.
-		$mem = $this->local_membership_fields( $user_id );
+		// [2026-08-05 Johnny Chu] R-LLM-KEY-ONLY — TwinChat is an admin/BE
+		// surface. Never substitute the local /gpt/ membership plan when the
+		// exact Hub API-key entitlement cannot be resolved.
 		return [
 			'user_id'              => $user_id,
 			'tier'                 => 'free',
 			'generated_at'         => gmdate( 'c' ),
 			'balance_usd'          => 0.0,
 			'features'             => (object) [],
-			'plan_label'           => $mem['plan_label'],
-			'kg_max_file_size_mb'  => $mem['kg_max_file_size_mb'],
-			'accepted_file_types'  => $mem['accepted_file_types'],
-			'membership_plan_slug' => $mem['plan_slug'],
-			'master_plan_level'    => $mem['master_plan_level'],
+			'plan_label'           => 'Hub unavailable',
+			'kg_max_file_size_mb'  => 0,
+			'accepted_file_types'  => array(),
+			'membership_plan_slug' => '',
+			'master_plan_level'    => '',
 			'bypass'               => true,
 			'cached'               => false,
 			'_degraded'            => [
@@ -146,99 +147,32 @@ class BizCity_TwinChat_Entitlement_Proxy {
 			$raw['features'] = (object) [];
 		}
 
-		// [2026-06-12 Johnny Chu] R-KG-FILE-TYPES — merge local membership plan limits so
-		// FE badge knows kg_max_file_size_mb + accepted_file_types + plan_label from
-		// the CLIENT-side membership system (hub knows nothing about these).
-		$mem = $this->local_membership_fields( $user_id );
-		// Only override plan_label if hub didn't provide one (hub label = LLM API tier).
-		if ( empty( $raw['plan_label'] ) ) {
-			$raw['plan_label'] = $mem['plan_label'];
-		}
-		$raw['kg_max_file_size_mb']  = $mem['kg_max_file_size_mb'];
-		$raw['accepted_file_types']  = $mem['accepted_file_types'];
-		$raw['membership_plan_slug'] = $mem['plan_slug'];
-		// [2026-06-12 Johnny Chu] R-KG-FILE-TYPES — hub level slug (e.g. 'master_premium').
-		$raw['master_plan_level']    = $mem['master_plan_level'];
-
-		return $raw;
-	}
-
-	/**
-	 * [2026-06-12 Johnny Chu] R-KG-FILE-TYPES — fetch local membership fields for the FE payload.
-	 *
-	 * @param int $user_id
-	 * @return array{ plan_label: string, plan_slug: string, master_plan_level: string, kg_max_file_size_mb: int, accepted_file_types: string[] }
-	 */
-	private function local_membership_fields( int $user_id ): array {
-		// [2026-06-22 Johnny Chu] R-PERF — use BizCity_User_Meta_Cache (heavy key, direct SQL, no meta prime)
-		$mc = class_exists( 'BizCity_User_Meta_Cache' );
-		// _bizcity_master_level is set by bizcity-wallet on plan activation (hub level slug).
-		$master_level = $mc
-			? (string) BizCity_User_Meta_Cache::get( $user_id, '_bizcity_master_level', '' )
-			: (string) get_user_meta( $user_id, '_bizcity_master_level', true );
-		// [2026-06-13 Johnny Chu] R-KG-FILE-TYPES — fallback to hub API key level stored
-		// by get_plan_config() (called from TwinChat settings page). This covers sites
-		// where _bizcity_master_level user meta was never written by wallet plan activation
-		// but the settings page has been visited (option bizcity_hub_master_level is fresh).
-		if ( $master_level === '' ) {
-			$master_level = (string) get_option( 'bizcity_hub_master_level', '' );
-		}
-		if ( $master_level === '' ) {
-			$master_level = 'free';
-		}
-
-		$defaults = array(
-			'plan_label'          => 'Free',
-			'plan_slug'           => 'free',
-			'master_plan_level'   => $master_level,
-			'kg_max_file_size_mb' => 5,
-			'accepted_file_types' => array( 'txt', 'md', 'csv', 'html', 'rtf' ),
-		);
-
-		if ( ! class_exists( 'BizCity_Membership_Entitlement' ) ) {
-			return $defaults;
-		}
-
-		$ent = BizCity_Membership_Entitlement::instance()->for_user( $user_id );
-		if ( ! is_array( $ent ) ) {
-			return $defaults;
-		}
-
-		// for_user() returns 'user_plan' as the slug (e.g. 'free', 'pro', 'plus').
-		$slug  = isset( $ent['user_plan'] ) && (string) $ent['user_plan'] !== ''
-			? (string) $ent['user_plan']
-			: 'free';
-		// Derive human label from the plan registry if available.
-		$label = ucfirst( $slug );
-		if ( class_exists( 'BizCity_Membership_Plan_Registry' ) ) {
-			$plan_def = BizCity_Membership_Plan_Registry::instance()->get( $slug );
-			if ( ! empty( $plan_def['label'] ) ) {
-				$label = (string) $plan_def['label'];
+		// [2026-08-05 Johnny Chu] R-LLM-KEY-ONLY — the authenticated Hub
+		// master_level is the only TwinChat plan identity. Local Membership belongs
+		// to the public /gpt/ surface and must not fill missing Hub fields here.
+		$hub_level = sanitize_key( (string) ( $raw['master_level'] ?? '' ) );
+		if ( $hub_level !== '' ) {
+			$raw['master_plan_level'] = $hub_level;
+			if ( in_array( $hub_level, array( 'master_premium', 'premium' ), true ) ) {
+				$raw['plan_label'] = 'Master Premium';
+			} elseif ( in_array( $hub_level, array( 'master_pro', 'pro' ), true ) ) {
+				$raw['plan_label'] = 'Master Pro';
+			} elseif ( $hub_level === 'free' || $hub_level === 'master_free' ) {
+				$raw['plan_label'] = 'Free';
 			}
 		}
-
-		// [2026-06-22 Johnny Chu] R-PERF — reuse same BizCity_User_Meta_Cache call (static cache hit, 0 DB)
-		$master_level = $mc
-			? (string) BizCity_User_Meta_Cache::get( $user_id, '_bizcity_master_level', '' )
-			: (string) get_user_meta( $user_id, '_bizcity_master_level', true );
-		if ( $master_level === '' ) {
-			$master_level = (string) get_option( 'bizcity_hub_master_level', '' );
+		$raw['kg_max_file_size_mb'] = isset( $raw['kg_max_file_size_mb'] )
+			? max( 0, (int) $raw['kg_max_file_size_mb'] )
+			: 0;
+		$raw['accepted_file_types'] = isset( $raw['accepted_file_types'] ) && is_array( $raw['accepted_file_types'] )
+			? array_values( $raw['accepted_file_types'] )
+			: array();
+		$raw['membership_plan_slug'] = '';
+		if ( empty( $raw['master_plan_level'] ) ) {
+			$raw['master_plan_level'] = $hub_level;
 		}
-		if ( $master_level === '' ) {
-			$master_level = 'free';
-		}
 
-		return array(
-			'plan_label'          => $label,
-			'plan_slug'           => $slug,
-			'master_plan_level'   => $master_level,
-			'kg_max_file_size_mb' => isset( $ent['kg_max_file_size_mb'] ) && (int) $ent['kg_max_file_size_mb'] > 0
-				? (int) $ent['kg_max_file_size_mb']
-				: $defaults['kg_max_file_size_mb'],
-			'accepted_file_types' => isset( $ent['accepted_file_types'] ) && is_array( $ent['accepted_file_types'] )
-				? $ent['accepted_file_types']
-				: $defaults['accepted_file_types'],
-		);
+		return $raw;
 	}
 
 	/**

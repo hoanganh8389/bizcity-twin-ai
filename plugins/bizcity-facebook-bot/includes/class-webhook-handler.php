@@ -200,6 +200,10 @@ class BizCity_Facebook_Bot_Webhook_Handler {
 		$timestamp    = $messaging['timestamp'] ?? '';
 		$referral     = $messaging['referral'] ?? array();
 		$message_id   = $message['mid'] ?? '';
+		if ( function_exists( 'bizcity_fb_claim_inbound_event' ) && ! bizcity_fb_claim_inbound_event( $page_id, $messaging ) ) {
+			$this->log_info( 'Skipping - duplicate cross-handler message', array( 'message_id' => $message_id ) );
+			return;
+		}
 		
 		$this->log_info( 'Processing messenger message', array(
 			'page_id'    => $page_id,

@@ -1190,13 +1190,13 @@
   },
   {
     "slug": "tpl_zalobot_seedream_photo_edit_v1",
-    "name": "[global] Thợ ảnh · Sửa ảnh bằng Seedream 4.5 (@thợ ảnh / sửa ảnh)",
-  "description": "Keyword '@thợ ảnh' hoặc 'sửa ảnh' → lấy ảnh Zalo đã gửi từ pending slot → sideload ảnh gốc vào WP Media → chỉnh ảnh bằng bytedance-seed/seedream-4.5 → tạo WP draft lưu prompt + ảnh gốc/ảnh đã sửa để xem lại → gửi link ảnh qua Zalo Bot.",
+    "name": "[global] Thợ ảnh · Sửa ảnh bằng Gemini 3 Pro (@thợ ảnh / sửa ảnh)",
+  "description": "Keyword '@thợ ảnh' hoặc 'sửa ảnh' → lấy ảnh Zalo đã gửi từ pending slot → sideload ảnh gốc vào WP Media → chỉnh ảnh bằng Gemini 3 Pro → tạo WP draft nếu resolve được owner → gửi link ảnh qua Zalo Bot.",
     "category": "automation",
     "source": "builtin",
     "trigger_type": "zalo_inbound",
     "icon": "ImageUp",
-    "tags": "global,zalo,zalo-bot,image-edit,photo-editor,seedream,bytedance,wpmedia,wp-draft",
+    "tags": "global,zalo,zalo-bot,image-edit,photo-editor,gemini,wpmedia,wp-draft",
     "plan": "free",
     "trigger_config": {
       "keywords": [
@@ -1252,12 +1252,22 @@
           "position": { "x": 640, "y": 80 },
           "data": {
             "blockId": "action.edit_image",
-            "label": "Seedream 4.5 · chỉnh ảnh",
+            "label": "Gemini 3 Pro · chỉnh ảnh",
             "image_url": "{{consume.attachment_url}}",
             "prompt": "{{trigger.text}}",
-            "model": "bytedance-seed/seedream-4.5",
+            "model": "google/gemini-3-pro-image-preview",
             "size": "1024x1024",
             "sideload_to_wp": true
+          }
+        },
+        {
+          "id": "owner_check",
+          "type": "condition",
+          "position": { "x": 800, "y": 80 },
+          "data": {
+            "blockId": "logic.condition",
+            "label": "Có owner để tạo draft?",
+            "expression": "_owner_user_id > 0 || trigger.wp_user_id > 0"
           }
         },
         {
@@ -1268,11 +1278,11 @@
             "blockId": "action.publish_wp_post",
             "label": "WP draft · track ảnh đã sửa",
             "title": "Thợ ảnh AI · {{trigger.text}}",
-            "content": "Yêu cầu chỉnh ảnh:\n{{trigger.text}}\n\nẢnh gốc đã lưu WP Media:\n{{consume.attachment_url}}\n\nẢnh sau khi chỉnh bằng Seedream 4.5:\n{{edit.image_url}}\n\nModel: {{edit.model_used}} · Thời gian: {{edit.ms}}ms",
+            "content": "Yêu cầu chỉnh ảnh:\n{{trigger.text}}\n\nẢnh gốc đã lưu WP Media:\n{{consume.attachment_url}}\n\nẢnh sau khi chỉnh bằng Gemini 3 Pro:\n{{edit.image_url}}\n\nModel: {{edit.model_used}} · Thời gian: {{edit.ms}}ms",
             "image_url": "{{edit.image_url}}",
             "status": "draft",
             "category": "",
-            "tags": "ai-photo-editor,seedream,zalo",
+            "tags": "ai-photo-editor,gemini,zalo",
             "author_id": 0
           }
         },
@@ -1285,17 +1295,29 @@
             "label": "Gửi link ảnh",
             "text": "✅ Thợ ảnh đã chỉnh xong!\n\n🖼️ Link ảnh đã sửa:\n{{edit.image_url}}\n\nModel: {{edit.model_used}} · {{edit.ms}}ms"
           }
+        },
+        {
+          "id": "reply_no_draft",
+          "type": "action",
+          "position": { "x": 1280, "y": 240 },
+          "data": {
+            "blockId": "action.reply_zalo",
+            "label": "Gửi link ảnh (bỏ qua draft)",
+            "text": "✅ Thợ ảnh đã chỉnh xong!\n\n🖼️ Link ảnh đã sửa:\n{{edit.image_url}}\n\nModel: {{edit.model_used}} · {{edit.ms}}ms\n\nℹ️ Không tạo WP draft vì chưa xác định được owner tài khoản."
+          }
         }
       ],
       "edges": [
         { "id": "e_t1_consume", "source": "t1", "target": "consume" },
         { "id": "e_consume_edit", "source": "consume", "target": "edit" },
-        { "id": "e_edit_track", "source": "edit", "target": "track" },
+        { "id": "e_edit_owner_check", "source": "edit", "target": "owner_check" },
+        { "id": "e_owner_track", "source": "owner_check", "target": "track", "sourceHandle": "true" },
+        { "id": "e_owner_reply_no_draft", "source": "owner_check", "target": "reply_no_draft", "sourceHandle": "false" },
         { "id": "e_track_reply", "source": "track", "target": "reply" }
       ]
     },
     "template_uuid": "3f1a9f3b-3b3e-7b07-83af-d7f84d78e201",
-    "template_version": "1.0.0",
+    "template_version": "1.1.0",
     "visibility": "global"
   }
 ]

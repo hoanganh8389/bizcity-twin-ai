@@ -310,8 +310,23 @@ final class BizCity_Automation_Calendar_REST {
 	}
 
 	private static function table_exists( string $table ) {
+		// [2026-08-09 Johnny Chu] R-SHOW-TABLES — use the canonical blog/database-aware metadata cache.
+		if ( function_exists( 'bizcity_tbl_exists' ) ) {
+			return bizcity_tbl_exists( $table );
+		}
+		static $cache = array();
 		global $wpdb;
-		return (bool) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) );
+		$database = isset( $wpdb->dbname ) ? (string) $wpdb->dbname : '';
+		$cache_key = (int) get_current_blog_id() . ':' . $database . ':' . $table;
+		if ( array_key_exists( $cache_key, $cache ) ) {
+			return $cache[ $cache_key ];
+		}
+		$present = (bool) $wpdb->get_var( $wpdb->prepare(
+			'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+			$table
+		) );
+		$cache[ $cache_key ] = $present;
+		return $present;
 	}
 
 	/**

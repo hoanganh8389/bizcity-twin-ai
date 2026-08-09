@@ -311,7 +311,7 @@ class BizCity_WebChat_API {
 		
 		$db           = BizCity_WebChat_Database::instance();
 		$conversation = $db->get_conversation_by_session( $session_id );
-		$messages     = $db->get_conversation_history( $session_id, 100 );
+		$messages     = $db->get_conversation_history( $session_id, 100, 0, 'WEBCHAT' );
 		
 		if ( ! $conversation ) {
 			return new WP_Error( 'not_found', 'Conversation not found', array( 'status' => 404 ) );
@@ -429,7 +429,7 @@ class BizCity_WebChat_API {
 	 */
 	public function get_inbox( $session_id, $limit = 50, $offset = 0 ) {
 		$db       = BizCity_WebChat_Database::instance();
-		$messages = $db->get_conversation_history( $session_id, $limit, $offset );
+		$messages = $db->get_conversation_history( $session_id, $limit, $offset, 'WEBCHAT' );
 		$total    = $db->count_messages( $session_id );
 		
 		return array(

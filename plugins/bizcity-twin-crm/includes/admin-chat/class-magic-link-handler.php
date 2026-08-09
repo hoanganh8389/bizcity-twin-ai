@@ -58,6 +58,16 @@ class BizCity_CRM_Magic_Link_Handler {
 		if ( $token === '' ) {
 			return;
 		}
+		// [2026-08-01 Johnny Chu] HOTFIX-ZALOBOT-LINK — the init:1 landing
+		// handler must not exit before the anonymous login form can process its
+		// POST. Let the same handler run again at template_redirect, where the
+		// landing template owns the sign-on form and token consume.
+		if ( ! is_user_logged_in()
+			&& 'POST' === strtoupper( (string) ( $_SERVER['REQUEST_METHOD'] ?? '' ) )
+			&& ! empty( $_POST['bzml_signon'] )
+			&& did_action( 'template_redirect' ) === 0 ) {
+			return;
+		}
 
 		$handled = true;
 		nocache_headers();
@@ -80,15 +90,44 @@ class BizCity_CRM_Magic_Link_Handler {
 			$switched = true;
 		}
 
-		// CASE A: already logged in → consume and redirect.
-		if ( is_user_logged_in() ) {
-			$user_id = get_current_user_id();
-			BizCity_CRM_Magic_Link::consume( (int) $result['id'], $user_id );
+		// [2026-08-01 Johnny Chu] HOTFIX-ZALOBOT-LINK — a browser retry after
+		// this user already consumed the token is safe and idempotent. Do not
+		// turn a successful bind into a misleading "already used" error page.
+		if ( ! empty( $result['_already_consumed_by_current_user'] ) ) {
 			if ( $switched ) {
 				restore_current_blog();
 			}
-			$redirect = self::success_redirect_url( $result, $user_id );
-			wp_safe_redirect( $redirect );
+			wp_safe_redirect( self::success_redirect_url( $result, get_current_user_id() ) );
+			exit;
+		}
+
+		// [2026-08-01 Johnny Chu] HOTFIX-ZALOBOT-LINK — only an explicit POST
+		// confirmation may consume a token. A GET must remain read-only so browser
+		// prefetch/scanners cannot burn a valid Zalo linker before the user acts.
+		if ( is_user_logged_in() ) {
+			$user_id = get_current_user_id();
+			if ( ! empty( $_POST['bzml_confirm'] ) ) {
+				check_admin_referer( 'bzml_confirm_' . substr( hash( 'sha256', $token ), 0, 16 ) );
+				$consumed = BizCity_CRM_Magic_Link::consume( (int) $result['id'], $user_id );
+				if ( $switched ) {
+					restore_current_blog();
+				}
+				if ( $consumed ) {
+					wp_safe_redirect( self::success_redirect_url( $result, $user_id ) );
+					exit;
+				}
+				self::render_landing( array(
+					'state'   => 'error',
+					'code'    => 'bizcity_crm_magic_link_consume_failed',
+					'message' => 'Không thể xác nhận liên kết. Vui lòng yêu cầu link mới.',
+				) );
+				exit;
+			}
+			self::render_landing( array(
+				'state' => 'confirm',
+				'row'   => $result,
+				'token' => $token,
+			) );
 			exit;
 		}
 
@@ -121,10 +160,16 @@ class BizCity_CRM_Magic_Link_Handler {
 			&& class_exists( 'BizCity_Zalobot_User_Linker' )
 			&& method_exists( 'BizCity_Zalobot_User_Linker', 'link' )
 		) {
+			// [2026-08-06 Johnny Chu] HOTFIX-ZALOBOT-LINK — use channel_identity metadata so legacy compatibility never stores the composed chat_id as the Zalo user id.
+			$meta     = ! empty( $row['meta_json'] ) ? json_decode( (string) $row['meta_json'], true ) : array();
+			$identity = is_array( $meta ) && ! empty( $meta['channel_identity'] ) && is_array( $meta['channel_identity'] )
+				? $meta['channel_identity'] : array();
+			$legacy_chat_id = (string) ( $identity['external_user_id'] ?? $row['chat_id'] ?? '' );
+			$legacy_bot_id  = (string) ( $identity['account_id'] ?? $row['bot_id'] ?? '' );
 			try {
 				BizCity_Zalobot_User_Linker::link(
-					(string) $row['chat_id'],
-					(string) ( $row['bot_id'] ?? '' ),
+					$legacy_chat_id,
+					$legacy_bot_id,
 					(int) $user_id
 				);
 			} catch ( Throwable $e ) {

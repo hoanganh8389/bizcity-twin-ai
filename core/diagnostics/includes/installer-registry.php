@@ -106,6 +106,17 @@ if ( ! function_exists( 'bizcity_default_installers_filter' ) ) {
 			];
 		}
 
+		// [2026-08-04 Johnny Chu] G12.2 — provision the rebuildable Goal Contract projection only through Site Provisioner; never from init/chat requests.
+		if ( class_exists( 'BizCity_TwinBrain_Goal_Contract_Store' ) ) {
+			$list[] = [
+				'id'           => 'twinbrain_goal_contracts',
+				'label'        => 'TwinBrain (Goal Contract projection)',
+				'callback'     => [ 'BizCity_TwinBrain_Goal_Contract_Store', 'ensure_schema' ],
+				'version_opt'  => BizCity_TwinBrain_Goal_Contract_Store::DB_VERSION_OPTION,
+				'expected_ver' => BizCity_TwinBrain_Goal_Contract_Store::DB_VERSION,
+			];
+		}
+
 		// ── Scheduler ─────────────────────────────────────────────────
 		// Scheduler::ensure_schema() is an instance method → closure wrapper.
 		if ( class_exists( 'BizCity_Scheduler_Manager' ) ) {
@@ -150,8 +161,8 @@ if ( ! function_exists( 'bizcity_default_installers_filter' ) ) {
 		if ( class_exists( 'BizCity_Skill_Database' ) ) {
 			$list[] = [
 				'id'           => 'skills',
-				'label'        => 'Skills (library/logs)',
-				'callback'     => [ 'BizCity_Skill_Database', 'maybe_create_tables' ],
+				'label'        => 'Skills (library)',
+				'callback'     => [ 'BizCity_Skill_Database', 'maybe_install' ],
 				'version_opt'  => BizCity_Skill_Database::SCHEMA_VERSION_KEY,
 			];
 		}

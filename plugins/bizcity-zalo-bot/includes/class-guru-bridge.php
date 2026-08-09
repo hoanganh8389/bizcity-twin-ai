@@ -42,8 +42,25 @@ class BizCity_Zalo_Bot_Guru_Bridge {
     }
 
     private function __construct() {
-        // Priority 5 — runs BEFORE BizCity_Zalo_Bot_Gateway_Bridge::bridge_to_gateway() at 10.
-        add_action( 'bizcity_zalo_message_received', [ $this, 'maybe_handle' ], 5, 1 );
+        // [2026-08-09 Johnny Chu] R-CH-UNI — consume the canonical Zone 2 envelope before Gateway Bridge.
+        add_action( 'bizcity_channel_normalized', [ $this, 'handle_normalized' ], 5, 2 );
+    }
+
+    /**
+     * Adapt the canonical envelope to the existing Guru runtime payload shape.
+     */
+    public function handle_normalized( $envelope, $trigger_key = '' ): void {
+        if ( ! is_array( $envelope ) || (string) ( $envelope['platform'] ?? '' ) !== 'ZALO_BOT' ) {
+            return;
+        }
+
+        $payload = $envelope;
+        $payload['code']             = 'zalo_bot';
+        $payload['bot_id']           = (int) ( $envelope['account_id'] ?? 0 );
+        $payload['from_user_id']     = (string) ( $envelope['user_id'] ?? '' );
+        $payload['message_text']     = (string) ( $envelope['message_text_clean'] ?? $envelope['message'] ?? '' );
+        $payload['message_id']       = (string) ( $envelope['message_id'] ?? '' );
+        $this->maybe_handle( $payload );
     }
 
     /**
@@ -65,7 +82,7 @@ class BizCity_Zalo_Bot_Guru_Bridge {
         if ( (int) get_option( 'bizcity_zalo_guru_enabled', 0 ) !== 1 ) { return; }
 
         // Runtime + formatter must be present.
-        if ( ! class_exists( 'BizCity_Guru_Runtime' ) || ! class_exists( 'BizCity_Channel_Formatter' ) ) {
+        if ( ! class_exists( 'BizCity_Channel_Formatter' ) ) {
             return;
         }
 
@@ -116,7 +133,57 @@ class BizCity_Zalo_Bot_Guru_Bridge {
             $wp_user_id = (int) BizCity_Zalobot_User_Linker::resolve_wp_user( $user_z, $bot_id );
         }
 
-        $envelope = [
+        // [2026-08-01 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G3 — opt linked Zalo Bot turns into the canonical TwinBrain pipeline.
+        $use_twinbrain = (bool) apply_filters( 'bizcity_zalo_guru_bridge_use_twinbrain', false, $bot_id, $user_z, $message_data, $wp_user_id );
+        if ( $use_twinbrain ) {
+            if ( $wp_user_id <= 0 ) {
+                error_log( '[Zalo Guru Bridge] TwinBrain path requires a linked WordPress user' );
+                return;
+            }
+            if ( ! class_exists( 'BizCity_TwinBrain_Adapter_ZaloBot' ) || ! class_exists( 'BizCity_Guru_Reply_DTO' ) ) {
+                error_log( '[Zalo Guru Bridge] TwinBrain adapter unavailable' );
+                return;
+            }
+            $brain_envelope = array(
+                'platform'           => 'ZALO_BOT',
+                'channel'            => 'ZALO_BOT',
+                'account_id'         => (string) $bot_id,
+                'external_user_id'   => $user_z,
+                'chat_id'            => 'zalobot_' . $bot_id . '_' . $user_z,
+                'text'               => $text,
+                'wp_user_id'         => $wp_user_id,
+                'channel_class'      => 'user_bound',
+                'identity_is_stable' => true,
+                'identity_guest_bind'=> false,
+                'guru_id'            => $char_id,
+                'notebook_id'        => (int) apply_filters( 'bizcity_zalo_guru_notebook_id', 0, $bot_id, $char_id, $message_data ),
+                'surface'            => 'zalo_bot',
+            );
+            $brain_res = ( new BizCity_TwinBrain_Adapter_ZaloBot() )->handle( $brain_envelope );
+            if ( empty( $brain_res['ok'] ) || (string) ( $brain_res['answer'] ?? '' ) === '' ) {
+                error_log( '[Zalo Guru Bridge] TwinBrain adapter returned no answer' );
+                return;
+            }
+            $dto = BizCity_Guru_Reply_DTO::from_array( array(
+                'trace_id'     => (string) ( $brain_res['trace_id'] ?? '' ),
+                'runtime'      => BizCity_Guru_Reply_DTO::RUNTIME_TWINBRAIN,
+                'text'         => (string) $brain_res['answer'],
+                'character_id' => $char_id,
+                'channel'      => 'zalo',
+                'meta'         => array(
+                    'wp_user_id'    => $wp_user_id,
+                    'identity_uuid' => (string) ( $brain_res['identity_uuid'] ?? '' ),
+                    'session_id'    => (string) ( $brain_res['session_id'] ?? '' ),
+                ),
+            ) );
+        }
+
+        if ( ! $use_twinbrain ) {
+            // Legacy Guru execution remains the rollback path until channel DDV passes.
+            if ( ! class_exists( 'BizCity_Guru_Runtime' ) ) {
+                return;
+            }
+            $envelope = [
             'character_id' => $char_id,
             'notebook_id'  => (int) apply_filters( 'bizcity_zalo_guru_notebook_id', 0, $bot_id, $char_id, $message_data ),
             'channel'      => 'zalo',
@@ -128,13 +195,14 @@ class BizCity_Zalo_Bot_Guru_Bridge {
                 'zalo_user_id' => $user_z,
                 'message_id'   => $msg_id,
             ],
-        ];
+            ];
 
-        $dto = BizCity_Guru_Runtime::instance()->reply( $envelope );
+            $dto = BizCity_Guru_Runtime::instance()->reply( $envelope );
 
-        if ( is_wp_error( $dto ) ) {
-            error_log( '[Zalo Guru Bridge] runtime error: ' . $dto->get_error_message() );
-            return; // Fall through to legacy bridge.
+            if ( is_wp_error( $dto ) ) {
+                error_log( '[Zalo Guru Bridge] runtime error: ' . $dto->get_error_message() );
+                return; // Fall through to legacy bridge.
+            }
         }
 
         $formatter = BizCity_Channel_Formatter::for_channel( 'zalo' );
@@ -148,6 +216,13 @@ class BizCity_Zalo_Bot_Guru_Bridge {
             'bot_id'        => $bot_id,
             'zalo_user_id'  => $user_z,
         ] );
+
+        // [2026-08-01 Johnny Chu] PHASE-0.39 GURU-BIND — remove internal citations before direct Zalo Bot delivery.
+        if ( class_exists( 'BizCity_Guru_Citation_Formatter' ) ) {
+            $send->text = trim( BizCity_Guru_Citation_Formatter::strip( (string) $send->text ) );
+        } else {
+            $send->text = trim( preg_replace( '/\[(?:src:[A-Za-z0-9_-]+(?:#p|p)\d+|nb:[A-Za-z0-9_-]+\/p\d+|N\d+P\d+)\]/i', '', (string) $send->text ) );
+        }
 
         $sent = $this->dispatch_zalo( $bot_id, $user_z, $send );
 
@@ -183,7 +258,8 @@ class BizCity_Zalo_Bot_Guru_Bridge {
     private function suppress_legacy_bridge(): void {
         if ( class_exists( 'BizCity_Zalo_Bot_Gateway_Bridge' ) ) {
             $bridge = BizCity_Zalo_Bot_Gateway_Bridge::instance();
-            remove_action( 'bizcity_zalo_message_received', [ $bridge, 'bridge_to_gateway' ], 10 );
+            // [2026-08-09 Johnny Chu] R-CH-UNI — suppress the normalized Gateway Bridge callback for this turn.
+            remove_action( 'bizcity_channel_normalized', [ $bridge, 'bridge_normalized_to_gateway' ], 10 );
         }
     }
 }

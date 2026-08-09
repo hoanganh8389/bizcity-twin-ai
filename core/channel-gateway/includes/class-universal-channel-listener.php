@@ -161,7 +161,7 @@ class BizCity_Universal_Channel_Listener {
 				'external_ref' => $external_user_id,
 			), (int) get_current_blog_id() )
 			: null;
-		if ( ! is_array( $identity_context ) && class_exists( 'BizCity_Identity_Hub' ) ) {
+		if ( ! is_array( $identity_context ) && class_exists( 'BizCity_Identity_Hub' ) && method_exists( 'BizCity_Identity_Hub', 'bind' ) ) {
 			$identity_context = BizCity_Identity_Hub::bind(
 				'FB_MESS',
 				$account_id,
@@ -283,8 +283,22 @@ class BizCity_Universal_Channel_Listener {
 			$wp_user_id = (int) BizCity_User_Resolver::instance()->resolve( $chat_id, (int) get_current_blog_id() );
 		}
 		$identity_context = null;
+		$subject_contract = class_exists( 'BizCity_Memory_Identity_Scope' )
+			? BizCity_Memory_Identity_Scope::subject_contract( array(
+				'platform'           => $platform,
+				'user_id'            => $wp_user_id,
+				'chat_kind'          => (string) ( $payload['chat_kind'] ?? '' ),
+				'provider_chat_type'  => (string) ( $payload['provider_chat_type'] ?? '' ),
+				'identity_is_stable'  => ! empty( $payload['identity_is_stable'] ),
+			) )
+			: array();
 		// [2026-07-28 Johnny Chu] R-CH-IDMEM — create/refresh the canonical identity before downstream subject, memory, KG, or automation consumers run.
-		if ( class_exists( 'BizCity_Identity_Hub' ) ) {
+		if ( class_exists( 'BizCity_Identity_Hub' )
+			&& method_exists( 'BizCity_Identity_Hub', 'bind' )
+			&& ( 'guest_channel' === ( $subject_contract['channel_class'] ?? '' )
+				|| $wp_user_id > 0 )
+			&& empty( $subject_contract['identity_temporary'] )
+			&& ! self::is_group_payload( $payload ) ) {
 			$identity_is_stable = $platform !== 'WEBCHAT' || ! empty( $payload['identity_is_stable'] );
 			$identity_context   = BizCity_Identity_Hub::bind(
 				$platform,
@@ -302,7 +316,7 @@ class BizCity_Universal_Channel_Listener {
 				$identity_context = null;
 			}
 		}
-		$identity_link_required = self::is_zone1_platform( $platform ) && $wp_user_id <= 0;
+		$identity_link_required = ( 'user_bound' === ( $subject_contract['channel_class'] ?? '' ) ) && $wp_user_id <= 0;
 		// [2026-07-21 Johnny Chu] PHASE-ZALOBOT-GROUP W6 — preserve explicit private/group ZaloBot conversation targets.
 		if ( $platform === 'ZALO_BOT' ) {
 			$explicit_chat_id = (string) ( $payload['conversation_chat_id'] ?? $payload['chat_id'] ?? '' );
@@ -388,6 +402,15 @@ class BizCity_Universal_Channel_Listener {
 			'identity_state'     => is_array( $identity_context ) ? ( $identity_is_stable ? 'stable' : 'soft' ) : 'unknown',
 			'identity_is_stable' => is_array( $identity_context ) ? (bool) $identity_is_stable : false,
 			'identity_link_required' => $identity_link_required,
+			'identity_guest_bind' => ( 'guest_channel' === ( $subject_contract['channel_class'] ?? '' ) )
+				&& empty( $subject_contract['identity_temporary'] )
+				&& ! self::is_group_payload( $payload ),
+			'identity_temporary' => ! empty( $subject_contract['identity_temporary'] ),
+			'channel_class'      => (string) ( $subject_contract['channel_class'] ?? 'unknown' ),
+			'subject_kind'       => (string) ( $subject_contract['subject_kind'] ?? 'unresolved' ),
+			'subject_source'     => (string) ( $subject_contract['subject_source'] ?? 'none' ),
+			'wp_user_required'   => ! empty( $subject_contract['wp_user_required'] ),
+			'identity_first'     => ! empty( $subject_contract['identity_first'] ),
 			'chat_id'            => $chat_id,
 			// [2026-07-21 Johnny Chu] PHASE-ZALOBOT-GROUP W6 — downstream automation/test UI needs sender vs conversation split.
 			'conversation_chat_id' => (string) ( $payload['conversation_chat_id'] ?? $chat_id ),
@@ -453,6 +476,17 @@ class BizCity_Universal_Channel_Listener {
 			default:
 				return strtolower( $platform ) . '_' . $account_id . '_' . $user_id;
 		}
+	}
+
+	// [2026-08-02 Johnny Chu] R-ZONE-6 — avoid personal identity binding for explicitly grouped channel payloads.
+	private static function is_group_payload( array $payload ): bool {
+		$chat_kind = strtolower( trim( (string) ( $payload['chat_kind'] ?? '' ) ) );
+		if ( $chat_kind === 'group' ) {
+			return true;
+		}
+
+		$provider_chat_type = strtolower( trim( (string) ( $payload['provider_chat_type'] ?? '' ) ) );
+		return in_array( $provider_chat_type, array( 'group', 'supergroup', 'channel' ), true );
 	}
 
 	private static function is_zone1_platform( string $platform ): bool {

@@ -9,8 +9,8 @@
  */
 
 /**
- * BizCity_Memory_Log_Projector — materializes `bizcity_memory_logs` from the
- * Twin Event Stream backbone (R-EVT-1).
+ * BizCity_Memory_Log_Projector — mirrors memory mutation events to JSONL from
+ * the Twin Event Stream backbone (R-EVT-1). The legacy SQL projection is retired.
  *
  * Sprint 5.0+ housekeeping: the legacy `bizcity_memory_logs` table is no
  * longer a write source — it is a *projection* of every `memory_mutation`
@@ -99,8 +99,26 @@ class BizCity_Memory_Log_Projector {
 			'detail_json' => wp_json_encode( $details, JSON_UNESCAPED_UNICODE ),
 			'created_at'  => current_time( 'mysql' ),
 		);
-		$formats = array( '%d', '%s', '%s', '%d', '%s', '%s' );
+		// [2026-08-01 Johnny Chu] PHASE-1.29-LOG-ORPHAN — SQL projection INSERT
+		// path removed; memory mutation evidence is written to JSONL below.
 
-		$wpdb->insert( $this->table, $data, $formats );
+		// [2026-08-01 Johnny Chu] PHASE-1.24-LOG-JSONL — JSONL remains the canonical
+		// new-write evidence whether SQL projection is enabled or in rollback mode.
+		if ( class_exists( 'BizCity_JSONL_File_Logger' ) && method_exists( 'BizCity_JSONL_File_Logger', 'write' ) ) {
+			BizCity_JSONL_File_Logger::write(
+				BizCity_JSONL_File_Logger::MEMORY_FOLDER,
+				'mutation-audit',
+				'info',
+				(string) $action,
+				'Memory mutation audit row projected.',
+				array(
+					'memory_id' => $memory_id,
+					'action'    => $action,
+					'step_name' => $data['step_name'],
+					'user_id'   => $data['user_id'],
+					'details'   => $details,
+				)
+			);
+		}
 	}
 }

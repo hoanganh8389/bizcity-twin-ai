@@ -74,6 +74,17 @@ class BizCity_Skill_Pipeline_Bridge {
 	public function queue_pipeline_generation( array $skill, array $args ): void {
 		$skill_path  = $skill['path'] ?? 'unknown';
 		$skill_title = $skill['frontmatter']['title'] ?? basename( $skill_path, '.md' );
+		$skill_tools = array_values( array_unique( array_filter( array_merge(
+			(array) ( $skill['frontmatter']['tools'] ?? array() ),
+			(array) ( $skill['frontmatter']['related_tools'] ?? array() ),
+			(array) ( $skill['body_tool_refs'] ?? array() )
+		) ) ) );
+		// [2026-08-02 Johnny Chu] HOTFIX-TRENDING-READONLY — web search is already executed by the canonical research path; never create a draft Scenario Generator pipeline for a read-only search skill.
+		$readonly_search_tools = array_diff( $skill_tools, array( 'search_web', 'llm_chat' ) );
+		if ( empty( $readonly_search_tools ) && in_array( 'search_web', $skill_tools, true ) ) {
+			error_log( self::LOG_PREFIX . ' [QUEUE] Read-only web search skill handled by research path; skip Scenario Generator: ' . $skill_title );
+			return;
+		}
 
 		error_log( self::LOG_PREFIX . ' [QUEUE] Archetype C skill matched: ' . $skill_title . ' (' . $skill_path . ')' );
 		error_log( self::LOG_PREFIX . ' [QUEUE] Score: ' . ( $skill['score'] ?? 0 ) . ' | Reasons: ' . implode( '+', $skill['reasons'] ?? [] ) );
@@ -84,11 +95,7 @@ class BizCity_Skill_Pipeline_Bridge {
 		$payload = [
 			'skill_path'    => $skill_path,
 			'skill_title'   => $skill_title,
-			'skill_tools'   => array_merge(
-				(array) ( $skill['frontmatter']['tools'] ?? [] ),
-				(array) ( $skill['frontmatter']['related_tools'] ?? [] ),
-				(array) ( $skill['body_tool_refs'] ?? [] )
-			),
+			'skill_tools'   => $skill_tools,
 			'skill_content'    => $skill['content'] ?? '',
 			'archetype'        => $skill['archetype'] ?? 'C',
 			'steps'            => ! empty( $skill['frontmatter']['steps'] )

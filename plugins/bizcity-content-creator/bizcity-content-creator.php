@@ -17,6 +17,20 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+// [2026-08-09 Johnny Chu] R-PERF-LOADER-BUNDLE — default TwinChat admin
+// shell renders an iframe and does not need Content Creator runtime. Keep
+// /tool-content-creator, REST/AJAX, cron, CLI and dedicated admin surfaces.
+$_bzcc_shell_plugin = isset( $_GET['plugin'] )
+	? sanitize_key( (string) $_GET['plugin'] )
+	: '';
+if ( is_admin()
+	&& isset( $_GET['page'] )
+	&& 'bizcity-twinchat' === sanitize_key( (string) $_GET['page'] )
+	&& ( $_bzcc_shell_plugin === '' || $_bzcc_shell_plugin === 'twinchat' ) ) {
+	return;
+}
+unset( $_bzcc_shell_plugin );
+
 /* ── Guard: require bizcity-twin-ai host plugin ── */
 if ( ! defined( 'BIZCITY_TWIN_AI_VERSION' ) ) {
 	return;
@@ -73,7 +87,15 @@ add_filter( 'bizcity_persona_tool_providers', function ( array $providers ): arr
 register_activation_hook( __FILE__, [ 'BZCC_Installer', 'activate' ] );
 
 /* ── Self-healing: table creation for marketplace/AJAX activation ── */
-BZCC_Installer::maybe_create_tables();
+// [2026-08-09 Johnny Chu] R-PERF/R-DCL — schema repair is not part of frontend HTML bootstrap.
+if ( is_admin()
+	|| ( defined( 'REST_REQUEST' ) && REST_REQUEST )
+	|| ( defined( 'DOING_CRON' ) && DOING_CRON )
+	|| ( defined( 'WP_CLI' ) && WP_CLI )
+	|| ( ! empty( $_SERVER['REQUEST_URI'] ) && false !== strpos( (string) $_SERVER['REQUEST_URI'], '/wp-json/' ) )
+) {
+	BZCC_Installer::maybe_create_tables();
+}
 
 /* ── Auto-seed shipped JSON templates on version bump (per-site) ── */
 BZCC_Template_Seeder::init();
@@ -290,6 +312,9 @@ function bzcc_sync_template_skills(): void {
 			'title'          => $tpl->title ?? $slug,
 			'description'    => $desc,
 			'category'       => 'content-creator',
+			// [2026-08-02 Johnny Chu] PHASE-SKILLS-JOURNAL — keep machine rows out of Journal UI.
+			'visibility'     => 'runtime',
+			'source_module'  => 'bizcity-content-creator',
 			'triggers_json'  => $tags,
 			'slash_commands' => [ $slug ],
 			'modes'          => [ 'content' ],

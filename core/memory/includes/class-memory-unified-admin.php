@@ -131,7 +131,7 @@ class BizCity_Memory_Unified_Admin {
 			<h1>🧬 <?php esc_html_e( 'Memory Unified — Wave 2.8d D6.7', 'bizcity-twin-ai' ); ?></h1>
 
 			<?php if ( $saved === 'on' ) : ?>
-				<div class="notice notice-success is-dismissible"><p><strong>✅ Flag turned ON.</strong> Unified table installed if missing. Dual-write + unified recall now active.</p></div>
+				<div class="notice notice-success is-dismissible"><p><strong>✅ Flag turned ON.</strong> Unified table installed if missing. Dual-write and unified recall are enabled for supported writers; keep legacy tables until D7 write-cutover gates pass.</p></div>
 			<?php elseif ( $saved === 'off' ) : ?>
 				<div class="notice notice-warning is-dismissible"><p><strong>⚠️ Flag turned OFF.</strong> Reverted to legacy memory tables. Staging timer reset on next enable.</p></div>
 			<?php endif; ?>
@@ -150,7 +150,7 @@ class BizCity_Memory_Unified_Admin {
 					<p>Bật flag để kích hoạt:</p>
 					<ul style="list-style: disc; margin-left: 20px;">
 						<li><strong>Installer:</strong> tạo bảng <code><?php echo esc_html( $unified_tbl ); ?></code> nếu chưa có.</li>
-						<li><strong>Dual-write:</strong> mọi <code>upsert_public()</code> + Notes mirror ghi đồng thời sang bảng unified.</li>
+						<li><strong>Dual-write:</strong> legacy writers ghi đồng thời sang bảng unified; đây là staging, chưa được phép đổi tên bảng legacy.</li>
 						<li><strong>Read cutover:</strong> <code>BizCity_Smart_Gateway::collect_context()</code> route qua <code>BizCity_TwinBrain_Memory_Recall</code> thay vì 3 legacy classes (D6.5 patches).</li>
 					</ul>
 					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
@@ -172,7 +172,7 @@ class BizCity_Memory_Unified_Admin {
 								<?php esc_html_e( 'ago', 'bizcity-twin-ai' ); ?>
 								(<?php echo (int) $staging_days; ?> days)
 								<?php if ( $staging_ready ) : ?>
-									<span style="color:#46b450; font-weight:600;">✅ ≥ 1 sprint — D7 OK</span>
+									<span style="color:#46b450; font-weight:600;">✅ ≥ 1 sprint — staging duration gate OK</span>
 								<?php else : ?>
 									<span style="color:#ffb900; font-weight:600;">⏳ Cần thêm <?php echo (int) ( 7 - $staging_days ); ?>d trước D7</span>
 								<?php endif; ?>
@@ -207,7 +207,7 @@ class BizCity_Memory_Unified_Admin {
 						</tbody>
 					</table>
 					<p style="margin-top:12px; color:#666;">
-						Sau khi flag ON ≥ 1 sprint + 2 probes PASS, founder ký xác nhận → run D7 migration để drop 5 bảng legacy.
+						Sau khi flag ON ≥ 1 sprint + 2 probes PASS + write cutover, founder ký xác nhận → run D7 migration để rename 5 bảng legacy thành backup recoverable.
 					</p>
 				</div>
 
@@ -220,8 +220,9 @@ class BizCity_Memory_Unified_Admin {
 						<li><?php echo $staging_ready ? '✅' : '⏳'; ?> Flag ON ≥ 1 sprint (7 days) — current <?php echo (int) $staging_days; ?>d</li>
 						<li>⏳ Probe <code>core.memory.unified.dual-write-parity</code> PASS — <a href="<?php echo esc_url( $diagnostics_url ); ?>">mở Diagnostics ↗</a></li>
 						<li>⏳ Probe <code>core.memory.unified.recall-parity</code> PASS (overlap ≥ 95%)</li>
+						<li>⏳ Unified write cutover marker <code>bizcity_memory_unified_write_cutover=1</code> (legacy writers no longer require old tables)</li>
 						<li>⏳ Founder sign-off explicitly (chat / commit message)</li>
-						<li>⏳ D7 dry-run script reviewed (chưa ship)</li>
+						<li>⏳ D7 dry-run script reviewed; execute path only renames to <code>_d7backup</code></li>
 					</ul>
 				</div>
 

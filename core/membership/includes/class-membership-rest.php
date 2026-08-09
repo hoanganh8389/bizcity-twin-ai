@@ -1068,9 +1068,11 @@ class BizCity_Membership_REST {
 			'kg_quota_per_user' => (int)    get_option( 'bizcity_hub_kg_quota_per_user', 100 ),
 			'plugins_enabled'   => json_decode( (string) get_option( 'bizcity_hub_plugins_enabled', '[]' ), true ),
 		);
-		// Fetch fresh from hub if stale (no master_level cached or request param refresh=1).
+		// [2026-08-04 Johnny Chu] HOTFIX-MASTER-CONFIG-LATENCY — `free` is a
+		// valid cached plan, not a stale marker. Keep normal REST reads local;
+		// background cron and explicit refresh own the upstream synchronization.
 		$refresh = (bool) $request->get_param( 'refresh' );
-		if ( $refresh || $hub_plan['master_level'] === 'free' ) {
+		if ( $refresh ) {
 			if ( class_exists( 'BizCity_LLM_Client' ) ) {
 				$llm = BizCity_LLM_Client::instance();
 				if ( $llm->is_ready() ) {

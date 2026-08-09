@@ -50,6 +50,7 @@ final class BizCity_Probe_TwinWeb_Owner_Continuity implements BizCity_Diagnostic
 			'trigger_zalo'   => $root . '/core/automation/includes/blocks/triggers/class-trigger-zalo.php',
 			'run_astro'      => $root . '/core/automation/includes/blocks/actions/class-action-run-astro.php',
 			'relation'       => $root . '/core/automation/includes/blocks/actions/class-action-run-astro-relation-assessment.php',
+			'transit'        => $root . '/core/automation/includes/blocks/actions/class-action-run-astro-transit.php',
 			'base_block'     => $root . '/core/automation/includes/blocks/abstract-block.php',
 			'matcher'        => $root . '/core/automation/includes/class-automation-trigger-matcher.php',
 			'repo_runs'      => $root . '/core/automation/includes/class-automation-repo-runs.php',
@@ -102,12 +103,16 @@ final class BizCity_Probe_TwinWeb_Owner_Continuity implements BizCity_Diagnostic
 
 		$run_astro = $this->source( $files['run_astro'] );
 		$relation  = $this->source( $files['relation'] );
+		$transit   = $this->source( $files['transit'] );
 		$astro_markers = array(
 			'run_astro_owner_chain'       => strpos( $run_astro, '$this->resolve_owner_user_id( $ctx, 0 )' ) !== false,
 			'run_astro_self_coachee'      => strpos( $run_astro, 'resolve_self_coachee_row( $user_id )' ) !== false,
 			'run_astro_no_chat_resolver'  => strpos( $run_astro, 'BizCity_User_Resolver::instance()->resolve' ) === false,
 			'relation_owner_chain'        => strpos( $relation, '$this->resolve_owner_user_id( $ctx, 0 )' ) !== false,
 			'relation_no_chat_resolver'   => strpos( $relation, 'BizCity_User_Resolver::instance()->resolve' ) === false,
+			'transit_owner_chain'         => strpos( $transit, '$this->resolve_owner_user_id( $ctx )' ) !== false,
+			'transit_self_coachee'        => strpos( $transit, 'resolve_self_coachee_id( $owner_user_id )' ) !== false,
+			'transit_no_chat_resolver'    => strpos( $transit, 'BizCity_User_Resolver::instance()->resolve' ) === false,
 		);
 		$ok = $this->all_true( $astro_markers );
 		$steps[] = $step = $this->step(
@@ -148,6 +153,7 @@ final class BizCity_Probe_TwinWeb_Owner_Continuity implements BizCity_Diagnostic
 			'schedule_event',
 			'run_astro',
 			'relation',
+			'transit',
 		);
 		$current_user_hits = array();
 		foreach ( $cron_owner_files as $key ) {

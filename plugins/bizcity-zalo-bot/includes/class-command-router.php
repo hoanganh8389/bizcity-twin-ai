@@ -5,7 +5,7 @@
  * Parses inbound Zalo Bot messages for known trigger keywords and
  * dispatches the appropriate action BEFORE Guru AI Bridge (priority 5).
  *
- * Hook priority on `bizcity_zalo_message_received`:
+ * Hook priority on `bizcity_channel_normalized`:
  *   3 — User Linker: auto-send login link for unlinked users
  *   4 — Command Router (this class): explicit command triggers ← HERE
  *   5 — Guru Bridge: AI reply
@@ -54,6 +54,9 @@ if ( class_exists( 'BizCity_Zalobot_Command_Router', false ) ) {
 }
 
 class BizCity_Zalobot_Command_Router {
+
+	/** @var array<string,bool> */
+	private static $handled_message_ids = array();
 
 	/**
 	 * [2026-07-24 Johnny Chu] HOTFIX — max trimmed message length (chars)
@@ -117,8 +120,38 @@ class BizCity_Zalobot_Command_Router {
 	 * Register the hook. Call once from bootstrap after User Linker.
 	 */
 	public static function boot(): void {
-		// [2026-06-19 Johnny Chu] ADMIN-GUIDE — explicit command trigger layer
-		add_action( 'bizcity_zalo_message_received', [ __CLASS__, 'handle' ], 4, 1 );
+		// [2026-07-30 Johnny Chu] R-CH-UNI — command routing consumes the canonical envelope after UCL.
+		add_action( 'bizcity_channel_normalized', [ __CLASS__, 'handle_normalized' ], 4, 2 );
+	}
+
+	/**
+	 * Adapt the canonical envelope to the legacy handler shape internally.
+	 * No business consumer subscribes to the raw channel hook anymore.
+	 *
+	 * @param mixed  $msg
+	 * @param string $trigger_key
+	 */
+	public static function handle_normalized( $msg, $trigger_key = '' ): void {
+		// [2026-07-30 Johnny Chu] R-CH-UNI — enforce Zone 2 and identity completeness at the adapter boundary.
+		if ( ! is_array( $msg ) || (string) ( $msg['platform'] ?? '' ) !== 'ZALO_BOT' ) {
+			return;
+		}
+		$bot_id     = (int) ( $msg['account_id'] ?? 0 );
+		$zalo_uid   = (string) ( $msg['user_id'] ?? $msg['sender_user_id'] ?? '' );
+		$text       = trim( (string) ( $msg['message'] ?? $msg['message_text_clean'] ?? $msg['raw_text'] ?? '' ) );
+		$message_id = trim( (string) ( $msg['message_id'] ?? '' ) );
+		$chat_id    = trim( (string) ( $msg['chat_id'] ?? '' ) );
+		if ( $bot_id <= 0 || $zalo_uid === '' || $text === '' || $message_id === '' || $chat_id === '' ) {
+			return;
+		}
+		self::handle( array(
+			'code'           => 'zalo_bot',
+			'bot_id'         => $bot_id,
+			'from_user_id'   => $zalo_uid,
+			'from_user_name' => (string) ( $msg['display_name'] ?? '' ),
+			'message_text'   => $text,
+			'message_id'     => $message_id,
+		) );
 	}
 
 	/* ── Main handler ───────────────────────────────────────────────── */
@@ -175,6 +208,13 @@ class BizCity_Zalobot_Command_Router {
 		// [2026-07-21 Johnny Chu] PHASE-TWINWEB W3 — parse /link before generic command detection; otherwise /link is treated as unknown and no confirmation is sent.
 		$link_nonce = self::extract_link_nonce( $text );
 		if ( $link_nonce !== '' ) {
+			// [2026-08-06 Johnny Chu] HOTFIX-ZALOBOT-LINK — prevent a direct-hook plus normalized-hook replay from consuming the nonce twice.
+			if ( $message_id !== '' && isset( self::$handled_message_ids[ $message_id ] ) ) {
+				return;
+			}
+			if ( $message_id !== '' ) {
+				self::$handled_message_ids[ $message_id ] = true;
+			}
 			self::trace( 'link_command_detected', array(
 				'bot_id'         => $bot_id,
 				'zalo_user_hash' => substr( md5( $zalo_uid ), 0, 10 ),
@@ -187,6 +227,13 @@ class BizCity_Zalobot_Command_Router {
 
 		$cmd = self::detect_command( $text );
 		if ( $cmd === '' ) { return; } // not a known command — let AI handle it
+		// [2026-08-06 Johnny Chu] HOTFIX-ZALOBOT-LINK — dedupe generic identity commands across direct and normalized delivery.
+		if ( $message_id !== '' && isset( self::$handled_message_ids[ $message_id ] ) ) {
+			return;
+		}
+		if ( $message_id !== '' ) {
+			self::$handled_message_ids[ $message_id ] = true;
+		}
 
 		$wp_user_id = class_exists( 'BizCity_Zalobot_User_Linker' )
 			? BizCity_Zalobot_User_Linker::resolve_wp_user( $zalo_uid, $bot_id )

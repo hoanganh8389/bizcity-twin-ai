@@ -31,7 +31,8 @@ class BizCity_Twin_Data_Contract {
 
 	// 1.1 (2026-05-10, Phase 0.36 TBR.1): added user_message, assistant_message,
 	// brain_perspective_selected, brain_perspective_answer, brain_tool_intent, system_diagnostic.
-	const CONTRACT_VERSION = '1.1';
+	// [2026-08-01 Johnny Chu] PHASE-TBR-CHAT-DEFAULT — register conversation route decisions in the canonical Event Bus contract.
+	const CONTRACT_VERSION = '1.3'; // [2026-08-05 Johnny Chu] EVENT-TELEMETRY — register Runtime telemetry events before legacy Event Bus validation.
 
 	/* ================================================================
 	 * §1 — SOURCE REGISTRY
@@ -174,6 +175,7 @@ class BizCity_Twin_Data_Contract {
 	// Phase 0.35 / F7.C4.1 — Devlog parity events (mirror twinchat surface).
 	const EVT_GURU_LOOKUP                = 'guru_lookup';
 	const EVT_GURU_LAYER                 = 'guru_layer';
+	const EVT_CONVERSATION_ROUTE_DECIDED = 'conversation_route_decided';
 
 	/**
 	 * Full event taxonomy.
@@ -298,6 +300,65 @@ class BizCity_Twin_Data_Contract {
 				'payload_keys' => [ 'trace_id', 'character_id' ],
 				'state_impact' => [],
 			],
+			// [2026-08-01 Johnny Chu] PHASE-TBR-CHAT-DEFAULT — Layer 0.9 route metadata is observable but state-neutral.
+			self::EVT_CONVERSATION_ROUTE_DECIDED => [
+				'trigger'      => 'twinbrain conversation router / before runtime dispatch',
+				'payload_keys' => [ 'trace_id', 'route', 'confidence', 'needs_confirm' ],
+				'state_impact' => [],
+			],
+			'conversation_triage_started' => [
+				'trigger'      => 'twinbrain pre-MPR conversational triage',
+				'payload_keys' => [ 'trace_id' ],
+				'state_impact' => [],
+			],
+			'conversation_triage_done' => [
+				'trigger'      => 'twinbrain pre-MPR conversational triage',
+				'payload_keys' => [ 'trace_id', 'route', 'confidence' ],
+				'state_impact' => [],
+			],
+			'ambiguous_completed' => [
+				'trigger'      => 'twinbrain no-goal conversational branch',
+				'payload_keys' => [ 'trace_id', 'route', 'mpr_dispatched' ],
+				'state_impact' => [],
+			],
+			'mpr_started' => [
+				'trigger'      => 'twinbrain MPR execution branch',
+				'payload_keys' => [ 'trace_id' ],
+				'state_impact' => [],
+			],
+
+			// [2026-08-05 Johnny Chu] EVENT-TELEMETRY — these Runtime events are
+			// legacy telemetry/SSE mirrors, not new persisted v2 event types. They
+			// still need a trace contract so the compatibility Event Bus stays quiet.
+			'decision' => [
+				'trigger'      => 'twinbrain MPR/runtime decision checkpoint',
+				'payload_keys' => [ 'trace_id', 'stage' ],
+				'state_impact' => [],
+			],
+			'subject_profile_resolving' => [ 'trigger' => 'twinbrain subject profile telemetry', 'payload_keys' => [ 'trace_id' ], 'state_impact' => [] ],
+			'subject_profile_resolved'  => [ 'trigger' => 'twinbrain subject profile telemetry', 'payload_keys' => [ 'trace_id' ], 'state_impact' => [] ],
+			'subject_profile_degraded'  => [ 'trigger' => 'twinbrain subject profile telemetry', 'payload_keys' => [ 'trace_id' ], 'state_impact' => [] ],
+			'multimodal_ingest_degraded' => [ 'trigger' => 'twinbrain multimodal telemetry', 'payload_keys' => [ 'trace_id' ], 'state_impact' => [] ],
+			'brain_keywords' => [ 'trigger' => 'twinbrain keyword extraction telemetry', 'payload_keys' => [ 'trace_id' ], 'state_impact' => [] ],
+			'notebook_source_layer_ready' => [ 'trigger' => 'twinbrain notebook source layer telemetry', 'payload_keys' => [ 'trace_id' ], 'state_impact' => [] ],
+			'artifact_created' => [ 'trigger' => 'twinbrain artifact telemetry', 'payload_keys' => [ 'trace_id' ], 'state_impact' => [] ],
+			'artifact_ready' => [ 'trigger' => 'twinbrain artifact telemetry', 'payload_keys' => [ 'trace_id' ], 'state_impact' => [] ],
+			'rerank_done' => [ 'trigger' => 'twinbrain retrieval telemetry', 'payload_keys' => [ 'trace_id' ], 'state_impact' => [] ],
+			'tool_dispatch_deferred' => [ 'trigger' => 'twinbrain tool telemetry', 'payload_keys' => [ 'trace_id' ], 'state_impact' => [] ],
+			'prompt_compiler_ready' => [ 'trigger' => 'twinbrain prompt compiler telemetry', 'payload_keys' => [ 'trace_id' ], 'state_impact' => [] ],
+			'tool_dispatch_deferred_start' => [ 'trigger' => 'twinbrain tool telemetry', 'payload_keys' => [ 'trace_id' ], 'state_impact' => [] ],
+			'memory_write' => [ 'trigger' => 'twinbrain memory telemetry', 'payload_keys' => [ 'trace_id' ], 'state_impact' => [] ],
+			'agent_loop_done' => [ 'trigger' => 'twinbrain agent telemetry', 'payload_keys' => [ 'trace_id' ], 'state_impact' => [] ],
+			'astro_refetch_dispatched' => [ 'trigger' => 'twinbrain astro telemetry', 'payload_keys' => [ 'trace_id' ], 'state_impact' => [] ],
+			'astro_data_action_required' => [ 'trigger' => 'twinbrain astro telemetry', 'payload_keys' => [ 'trace_id' ], 'state_impact' => [] ],
+			'astro_day_metrics_explain' => [ 'trigger' => 'twinbrain astro telemetry', 'payload_keys' => [ 'trace_id' ], 'state_impact' => [] ],
+			'astro_day_evaluated' => [ 'trigger' => 'twinbrain astro telemetry', 'payload_keys' => [ 'trace_id' ], 'state_impact' => [] ],
+			'astro_debug_trace' => [ 'trigger' => 'twinbrain astro telemetry', 'payload_keys' => [ 'trace_id' ], 'state_impact' => [] ],
+			'astro_day_ranked' => [ 'trigger' => 'twinbrain astro telemetry', 'payload_keys' => [ 'trace_id' ], 'state_impact' => [] ],
+			'astro_final_recommendation' => [ 'trigger' => 'twinbrain astro telemetry', 'payload_keys' => [ 'trace_id' ], 'state_impact' => [] ],
+			'astro_relation_intent_detected' => [ 'trigger' => 'twinbrain astro telemetry', 'payload_keys' => [ 'trace_id' ], 'state_impact' => [] ],
+			'mode_memory_persisted' => [ 'trigger' => 'twinbrain mode memory telemetry', 'payload_keys' => [ 'trace_id' ], 'state_impact' => [] ],
+			'pipeline_auto_degraded' => [ 'trigger' => 'twinbrain fallback telemetry', 'payload_keys' => [ 'trace_id' ], 'state_impact' => [] ],
 		];
 	}
 

@@ -30,6 +30,23 @@ final class BizCity_TwinBrain_Source_File_Deep_Layer {
 	}
 
 	/**
+	 * @param mixed $value
+	 * @return string
+	 */
+	private function normalize_source_url( $value ) {
+		// [2026-08-01 Johnny Chu] HOTFIX — keep source-file briefs free of malformed origin URLs.
+		$value = is_string( $value ) ? trim( $value ) : '';
+		if ( '' === $value || preg_match( '/^(none|null|undefined|false|nan)$/i', $value ) ) {
+			return '';
+		}
+		$parts = wp_parse_url( $value );
+		if ( ! is_array( $parts ) || empty( $parts['scheme'] ) || ! in_array( strtolower( (string) $parts['scheme'] ), array( 'http', 'https' ), true ) ) {
+			return '';
+		}
+		return esc_url_raw( $value );
+	}
+
+	/**
 	 * Build file-level briefs from notebook source-map rows.
 	 *
 	 * @param array<int,array<string,mixed>> $source_map
@@ -96,7 +113,7 @@ final class BizCity_TwinBrain_Source_File_Deep_Layer {
 				'source_id'           => (int) $source_id,
 				'source_title'        => $this->first_non_empty( array( (string) ( $source['title'] ?? '' ), (string) ( $group['source_title'] ?? '' ), 'Source #' . (int) $source_id ) ),
 				'source_type'         => $this->first_non_empty( array( (string) ( $source['origin_kind'] ?? '' ), (string) ( $group['source_type'] ?? '' ), 'source' ) ),
-				'origin_url'          => (string) ( $source['origin_url'] ?? '' ),
+				'origin_url'          => $this->normalize_source_url( $source['origin_url'] ?? '' ),
 				'passage_count_total' => $total_passages,
 				'passage_count_used'  => $used_passages,
 				'coverage'            => $coverage,

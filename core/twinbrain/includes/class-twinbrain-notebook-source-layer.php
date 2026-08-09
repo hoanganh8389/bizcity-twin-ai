@@ -30,6 +30,23 @@ final class BizCity_TwinBrain_Notebook_Source_Layer {
 	}
 
 	/**
+	 * @param mixed $value
+	 * @return string
+	 */
+	private function normalize_source_url( $value ) {
+		// [2026-08-01 Johnny Chu] HOTFIX — reject malformed notebook origin URLs before they enter SSE citations.
+		$value = is_string( $value ) ? trim( $value ) : '';
+		if ( '' === $value || preg_match( '/^(none|null|undefined|false|nan)$/i', $value ) ) {
+			return '';
+		}
+		$parts = wp_parse_url( $value );
+		if ( ! is_array( $parts ) || empty( $parts['scheme'] ) || ! in_array( strtolower( (string) $parts['scheme'] ), array( 'http', 'https' ), true ) ) {
+			return '';
+		}
+		return esc_url_raw( $value );
+	}
+
+	/**
 	 * Build source-map payload from selected notebooks and perspective rows.
 	 *
 	 * @param array<int,array<string,mixed>> $candidates
@@ -1459,7 +1476,7 @@ final class BizCity_TwinBrain_Notebook_Source_Layer {
 			'source_id'        => $source_id,
 			'source_title'     => (string) ( $hit['source_title'] ?? $hit['title'] ?? '' ),
 			'origin_kind'      => (string) ( $hit['origin_kind'] ?? '' ),
-			'origin_url'       => (string) ( $hit['origin_url'] ?? '' ),
+			'origin_url'       => $this->normalize_source_url( $hit['origin_url'] ?? '' ),
 			'first_passage_id' => (int) ( $hit['first_passage_id'] ?? 0 ),
 			'citation'         => (string) ( $hit['citation'] ?? '' ),
 			'match_count'      => (int) ( $hit['match_count'] ?? 0 ),

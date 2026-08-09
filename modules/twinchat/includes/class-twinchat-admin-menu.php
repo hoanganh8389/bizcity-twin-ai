@@ -338,6 +338,10 @@ class BizCity_TwinChat_Admin_Menu {
 			'webchatNonce'   => wp_create_nonce( 'bizcity_webchat' ),
 			// [2026-06-10 Johnny Chu] R-GW-API-CATALOG — nonce for bizcity_llm_* AJAX in SetupApiKeyDialog inline save.
 			'llmNonce'       => wp_create_nonce( 'bizcity_llm_admin' ),
+			// [2026-08-02 Johnny Chu] HOTFIX-WEBCHAT-POLL — capability only;
+			// never expose the API key to the React bundle.
+			'apiKeyConfigured' => class_exists( 'BizCity_LLM_Client' )
+				&& BizCity_LLM_Client::instance()->is_ready(),
 			// Admin URL used by FilesWorkspace and other deep-link helpers.
 			'adminUrl'       => esc_url_raw( admin_url( 'admin.php' ) ),
 			'siteUrl'        => esc_url_raw( home_url( '/' ) ),

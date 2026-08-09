@@ -195,7 +195,9 @@ class BizCity_CF7_CRM_Sync {
 		} catch ( Exception $e ) {
 			$action = 'error';
 			$error  = $e->getMessage();
-			error_log( '[BizCity_CF7_CRM_Sync] Exception: ' . $error );
+			if ( class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
+				BizCity_JSONL_File_Logger::write( BizCity_JSONL_File_Logger::CRM_FOLDER, 'cf7', 'error', 'cf7_crm_sync_exception', 'CF7 CRM synchronization raised an exception.', array( 'exception_class' => get_class( $e ), 'error_present' => $error !== '' ) );
+			}
 		}
 
 		return array(

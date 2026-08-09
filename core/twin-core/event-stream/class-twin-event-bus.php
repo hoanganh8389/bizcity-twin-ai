@@ -404,6 +404,7 @@ class BizCity_Twin_Event_Bus {
 	 * @throws BizCity_Event_Validation_Exception on invalid type/source/payload.
 	 */
 	public static function dispatch_v2( string $event_type, array $payload, array $opts = [] ): string {
+		// [2026-07-30 Johnny Chu] PHASE-1.22-CONTRACT — emit stable event envelope metadata.
 		// 1) Validate taxonomy
 		BizCity_Twin_Event_Taxonomy::assert_valid_type( $event_type );
 
@@ -446,6 +447,13 @@ class BizCity_Twin_Event_Bus {
 	 * @throws BizCity_Event_Validation_Exception on invalid payload.
 	 */
 	public static function ingest_remote( array $event ): string {
+		// [2026-07-30 Johnny Chu] PHASE-1.22-CONTRACT — validate remote public envelope when present.
+		if ( isset( $event['contract'] ) && 'event-envelope' !== (string) $event['contract'] ) {
+			throw new BizCity_Event_Validation_Exception( 'ingest_remote: unsupported event contract' );
+		}
+		if ( isset( $event['version'] ) && ! preg_match( '/^1\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$/', (string) $event['version'] ) ) {
+			throw new BizCity_Event_Validation_Exception( 'ingest_remote: invalid event contract version' );
+		}
 		if ( empty( $event['event_uuid'] ) || ! Bizcity_Uuid::is_valid( $event['event_uuid'] ) ) {
 			throw new BizCity_Event_Validation_Exception( 'ingest_remote: missing or invalid event_uuid' );
 		}
@@ -514,6 +522,13 @@ class BizCity_Twin_Event_Bus {
 			// Stream MUST always have a trace_id; synthesize one from event_uuid as last resort.
 			$trace_id = 'trace-' . substr( str_replace( '-', '', $event_uuid ), 0, 16 );
 		}
+		$parent_event_uuid = $opts['parent_event_uuid'] ?? null;
+		if ( empty( $parent_event_uuid ) && class_exists( 'BizCity_Chat_Correlation' ) ) {
+			$pending_root = BizCity_Chat_Correlation::consume_pending_root( $trace_id );
+			$parent_event_uuid = ! empty( $pending_root['event_uuid'] )
+				? (string) $pending_root['event_uuid']
+				: null;
+		}
 
 		$user_id = isset( $opts['user_id'] )
 			? (int) $opts['user_id']
@@ -538,6 +553,21 @@ class BizCity_Twin_Event_Bus {
 		);
 
 		return [
+			// [2026-07-30 Johnny Chu] PHASE-1.22-CONTRACT — public aliases coexist with legacy stream keys.
+			'contract'           => 'event-envelope',
+			'version'            => '1.0.0',
+			'event_id'           => $event_uuid,
+			'event_type'         => $event_type,
+			'producer'           => [
+				'module'  => 'core.twin-core',
+				'version' => defined( 'BIZCITY_TWIN_CORE_VERSION' ) ? BIZCITY_TWIN_CORE_VERSION : '2.0.0',
+			],
+			'tenant'             => [
+				'site_id'  => $blog_id,
+				'blog_id'  => $blog_id,
+				'user_id'  => $user_id,
+				'scope'    => 'tenant',
+			],
 			'event_uuid'        => $event_uuid,
 			'trace_id'          => $trace_id,
 			'conversation_id'   => isset( $opts['conversation_id'] ) ? (int) $opts['conversation_id'] : null,
@@ -546,12 +576,15 @@ class BizCity_Twin_Event_Bus {
 			'blog_id'           => $blog_id,
 			'event_type'        => $event_type,
 			'event_source'      => $event_source,
-			'parent_event_uuid' => $opts['parent_event_uuid'] ?? null,
+			// [2026-08-01 Johnny Chu] PHASE-1.26-CORRELATION — preserve the
+			// inbound channel root as causal parent without reusing its UUID.
+			'parent_event_uuid' => $parent_event_uuid,
 			'parent_event_id'   => null, // Resolved by Event_Store on persist
 			'payload'           => $payload,
 			'payload_json'      => wp_json_encode( $payload ),
 			'schema_version'    => (int) ( $opts['schema_version'] ?? 1 ),
 			'created_at'        => $created_at_dt,
+			'occurred_at'       => gmdate( 'c', (int) ( $now_ms / 1000 ) ),
 			'created_epoch_ms'  => $now_ms,
 		];
 	}

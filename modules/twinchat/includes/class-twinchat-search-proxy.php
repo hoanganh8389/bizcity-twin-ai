@@ -101,9 +101,15 @@ class BizCity_TwinChat_Search_Proxy {
 		$result = $client->search( $query, $max_results, $options );
 
 		if ( is_wp_error( $result ) ) {
-			$status = (int) ( $result->get_error_data()['status'] ?? 0 );
+			// [2026-08-02 Johnny Chu] R-GW-API-CATALOG — preserve the selected
+			// Hub route/status so a 404 can be distinguished from a proxy failure.
+			$error_data = $result->get_error_data();
+			$status     = (int) ( is_array( $error_data ) ? ( $error_data['status'] ?? 0 ) : 0 );
+			$context    = is_array( $error_data )
+				? array_intersect_key( $error_data, array_flip( [ 'route', 'gateway', 'has_body' ] ) )
+				: [];
 			return new WP_REST_Response(
-				$this->fail( $query, $result->get_error_code(), $result->get_error_message(), $status ),
+				$this->fail( $query, $result->get_error_code(), $result->get_error_message(), $status, $context ),
 				200
 			);
 		}
@@ -169,18 +175,26 @@ class BizCity_TwinChat_Search_Proxy {
 		], 200 );
 	}
 
-	private function fail( string $query, string $code, string $message, int $upstream_status = 0 ): array {
+	private function fail( string $query, string $code, string $message, int $upstream_status = 0, array $context = [] ): array {
+		$degraded = [
+				'code'            => $code,
+				'message'         => $message,
+				'upstream_status' => $upstream_status,
+				'reason'          => 'gateway_unreachable_or_unauthorized',
+			];
+		if ( isset( $context['route'] ) ) {
+			$degraded['route'] = sanitize_key( (string) $context['route'] );
+		}
+		if ( isset( $context['has_body'] ) ) {
+			$degraded['has_body'] = (bool) $context['has_body'];
+		}
+
 		return [
 			'success'   => false,
 			'results'   => [],
 			'query'     => $query,
 			'error'     => $message,
-			'_degraded' => [
-				'code'            => $code,
-				'message'         => $message,
-				'upstream_status' => $upstream_status,
-				'reason'          => 'gateway_unreachable_or_unauthorized',
-			],
+			'_degraded' => $degraded,
 		];
 	}
 }

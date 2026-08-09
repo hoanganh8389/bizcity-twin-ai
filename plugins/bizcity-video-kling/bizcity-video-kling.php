@@ -47,6 +47,20 @@
 
 defined( 'ABSPATH' ) or die( 'OOPS...' );
 
+// [2026-08-09 Johnny Chu] R-PERF-LOADER-BUNDLE — default TwinChat admin
+// shell renders an iframe and does not need Video Kling libraries/handlers.
+// Keep /kling-video, /video-editor, REST/AJAX, cron, CLI and admin pages.
+$_bizcity_video_shell_plugin = isset( $_GET['plugin'] )
+    ? sanitize_key( (string) $_GET['plugin'] )
+    : '';
+if ( is_admin()
+    && isset( $_GET['page'] )
+    && 'bizcity-twinchat' === sanitize_key( (string) $_GET['page'] )
+    && ( $_bizcity_video_shell_plugin === '' || $_bizcity_video_shell_plugin === 'twinchat' ) ) {
+    return;
+}
+unset( $_bizcity_video_shell_plugin );
+
 /* ── Twin AI Core Dependency ── */
 if ( ! defined( 'BIZCITY_TWIN_AI_VERSION' ) ) {
     add_action( 'admin_notices', function() {

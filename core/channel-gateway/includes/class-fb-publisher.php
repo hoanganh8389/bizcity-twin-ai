@@ -587,7 +587,10 @@ class BizCity_FB_Publisher {
 		if ( ! $allowed ) {
 			return false;
 		}
-		$settings = get_user_meta( $owner_user_id, 'bizcity_twinweb_mychannels', true );
+		// [2026-07-27 Johnny Chu] R-PERF — read My Channels once through direct-SQL user-meta cache.
+		$settings = class_exists( 'BizCity_User_Meta_Cache' )
+			? BizCity_User_Meta_Cache::get( $owner_user_id, 'bizcity_twinweb_mychannels', array() )
+			: get_user_meta( $owner_user_id, 'bizcity_twinweb_mychannels', true );
 		$selected = is_array( $settings ) ? trim( (string) ( $settings['selected_fb_page_id'] ?? '' ) ) : '';
 		return $selected === '' || $selected === $page_id;
 	}

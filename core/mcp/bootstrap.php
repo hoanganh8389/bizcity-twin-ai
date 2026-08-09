@@ -58,6 +58,10 @@ if ( ! defined( 'BIZCITY_MCP_CONTENT_ACTION_TOOLS_ENABLED' ) ) {
 if ( ! defined( 'BIZCITY_MCP_REPORT_TOOLS_ENABLED' ) ) {
 	define( 'BIZCITY_MCP_REPORT_TOOLS_ENABLED', true );
 }
+// [2026-07-30 Johnny Chu] PHASE-0.54-MCP Wave R — enable the read-only WooCommerce catalog/order/customer bridge by default; wp-config.php can still override this constant before plugin load. Real exposure to MCP clients still requires the admin to opt in per-tool via BizCity_MCP_Tool_Policy (Wave Q), which defaults commerce.* to OFF.
+if ( ! defined( 'BIZCITY_MCP_COMMERCE_TOOLS_ENABLED' ) ) {
+	define( 'BIZCITY_MCP_COMMERCE_TOOLS_ENABLED', true );
+}
 
 if ( ! BIZCITY_MCP_ENABLED ) {
 	return;
@@ -68,6 +72,8 @@ require_once BIZCITY_MCP_DIR . 'includes/class-mcp-file-logger.php';
 require_once BIZCITY_MCP_DIR . 'includes/class-mcp-citation.php';
 require_once BIZCITY_MCP_DIR . 'includes/class-mcp-installer.php';
 require_once BIZCITY_MCP_DIR . 'includes/class-mcp-auth.php';
+// [2026-07-30 Johnny Chu] PHASE-0.54-MCP Wave Q — load the admin tool allowlist before the tool registry enforces it.
+require_once BIZCITY_MCP_DIR . 'includes/class-mcp-tool-policy.php';
 // [2026-07-28 Johnny Chu] PHASE-0.54-MCP — load the shared Action confirmation boundary before Action services.
 require_once BIZCITY_MCP_DIR . 'includes/class-mcp-action-confirmation.php';
 // [2026-07-28 Johnny Chu] PHASE-0.53-MCP-OAUTH — load OAuth discovery, PKCE consent, and token exchange before transport auth resolves tokens.
@@ -89,12 +95,17 @@ require_once BIZCITY_MCP_DIR . 'includes/brain/class-content-brain-mcp-service.p
 require_once BIZCITY_MCP_DIR . 'includes/actions/class-content-action-mcp-service.php';
 // [2026-07-28 Johnny Chu] PHASE-0.54-MCP — load read-only report dataset bridge.
 require_once BIZCITY_MCP_DIR . 'includes/brain/class-report-brain-mcp-service.php';
+// [2026-07-30 Johnny Chu] PHASE-0.54-MCP Wave R — load read-only WooCommerce catalog/order/customer bridge.
+require_once BIZCITY_MCP_DIR . 'includes/brain/class-commerce-brain-mcp-service.php';
 require_once BIZCITY_MCP_DIR . 'rest/class-mcp-http-controller.php';
 require_once BIZCITY_MCP_DIR . 'rest/class-mcp-admin-rest.php';
 
 // R-PERF: dbDelta() only actually runs once per DB_VERSION change (Installer::ensure()
 // short-circuits via the stored option compare) — safe to hook on every admin/REST load.
 add_action( 'plugins_loaded', array( 'BizCity_MCP_Installer', 'ensure' ), 20 );
+// [2026-08-01 Johnny Chu] PHASE-1.24-LOG-RETENTION — bounded cleanup for the MCP audit log (full evidence stays in JSONL).
+add_action( 'init', array( 'BizCity_MCP_Installer', 'register_retention_cron' ), 20 );
+add_action( BizCity_MCP_Installer::AUDIT_RETENTION_HOOK, array( 'BizCity_MCP_Installer', 'gc_audit_log' ) );
 
 // [2026-07-28 Johnny Chu] HOTFIX P0 — fail-graceful boot: a transient deploy-time parse/load
 // failure in one MCP class (e.g. mid-deploy file overwrite) must degrade only the MCP module,

@@ -1,0 +1,8 @@
+{
+  "contract": "error-envelope",
+  "version": "1.0.0",
+  "code": "Invalid",
+  "message": "This is too long for the rule because it intentionally exceeds one hundred and twenty characters by repeating words words words words words words words.",
+  "hint": "fix",
+  "help_code": "x"
+}

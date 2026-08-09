@@ -872,6 +872,8 @@ class BizCity_Scenario_Generator {
         // Check table exists
         // [2026-06-21 Johnny Chu] R-SHOW-TABLES
         if ( ! bizcity_tbl_exists( $table ) ) {
+            // [2026-08-02 Johnny Chu] HOTFIX-TRENDING-DIAGNOSTICS — expose the missing task table without leaking SQL to users.
+            error_log( '[bizcity-scenario] save_draft_task refused: table_missing table=' . $table );
             return false;
         }
 
@@ -904,7 +906,13 @@ class BizCity_Scenario_Generator {
             'steps'   => count( $scenario['nodes'] ) - 1, // exclude trigger node
         ] );
 
-        return $inserted ? (int) $wpdb->insert_id : false;
+        if ( ! $inserted ) {
+            // [2026-08-02 Johnny Chu] HOTFIX-TRENDING-DIAGNOSTICS — preserve the DB reason for the admin log while keeping the user message generic.
+            error_log( '[bizcity-scenario] save_draft_task insert_failed table=' . $table . ' error=' . (string) $wpdb->last_error );
+            return false;
+        }
+
+        return (int) $wpdb->insert_id;
     }
 
     /**

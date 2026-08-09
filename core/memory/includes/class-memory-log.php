@@ -118,31 +118,17 @@ class BizCity_Memory_Log {
 	 * @return array Array of log objects ordered by created_at DESC.
 	 */
 	public function get_logs( $memory_id, $limit = 50, $offset = 0 ) {
-		global $wpdb;
-
 		$memory_id = absint( $memory_id );
 		$limit     = absint( $limit );
 		$offset    = absint( $offset );
-
-		$query = $wpdb->prepare(
-			"SELECT * FROM {$this->table}
-			 WHERE memory_id = %d
-			 ORDER BY created_at DESC
-			 LIMIT %d OFFSET %d",
-			$memory_id,
-			$limit,
-			$offset
-		);
-
-		$rows = $wpdb->get_results( $query );
-		if ( is_array( $rows ) ) {
-			foreach ( $rows as &$row ) {
-				$row->detail_json = json_decode( $row->detail_json, true );
-			}
-			unset( $row );
+		if ( $memory_id <= 0 || $limit <= 0 ) {
+			return array();
 		}
 
-		return is_array( $rows ) ? $rows : array();
+		// [2026-08-01 Johnny Chu] PHASE-1.24-MEMORY-READER — read the canonical
+		// JSONL projection first, then merge frozen/legacy SQL rows during migration.
+		$rows = $this->read_merged_logs( $memory_id, max( 200, $limit + $offset ) );
+		return array_slice( $rows, $offset, $limit );
 	}
 
 	/**
@@ -163,12 +149,13 @@ class BizCity_Memory_Log {
 	 * @return int
 	 */
 	public function count_logs( $memory_id ) {
-		global $wpdb;
-
-		return (int) $wpdb->get_var( $wpdb->prepare(
-			"SELECT COUNT(*) FROM {$this->table} WHERE memory_id = %d",
-			absint( $memory_id )
-		) );
+		$memory_id = absint( $memory_id );
+		if ( $memory_id <= 0 ) {
+			return 0;
+		}
+		// [2026-08-01 Johnny Chu] PHASE-1.24-MEMORY-READER — count merged rows so
+		// the API remains correct after SQL projection writes are disabled.
+		return count( $this->read_merged_logs( $memory_id, 10000 ) );
 	}
 
 	/**
@@ -180,27 +167,57 @@ class BizCity_Memory_Log {
 	 * @return array
 	 */
 	public function get_logs_by_action( $memory_id, $action, $limit = 20 ) {
-		global $wpdb;
-
-		$query = $wpdb->prepare(
-			"SELECT * FROM {$this->table}
-			 WHERE memory_id = %d AND action = %s
-			 ORDER BY created_at DESC
-			 LIMIT %d",
-			absint( $memory_id ),
-			sanitize_text_field( $action ),
-			absint( $limit )
-		);
-
-		$rows = $wpdb->get_results( $query );
-		if ( is_array( $rows ) ) {
-			foreach ( $rows as &$row ) {
-				$row->detail_json = json_decode( $row->detail_json, true );
-			}
-			unset( $row );
+		$action = sanitize_text_field( $action );
+		$limit  = absint( $limit );
+		if ( $action === '' || $limit <= 0 ) {
+			return array();
 		}
+		$rows = array_filter( $this->read_merged_logs( absint( $memory_id ), 10000 ), static function ( $row ) use ( $action ) {
+			return is_object( $row ) && (string) ( $row->action ?? '' ) === $action;
+		} );
+		return array_slice( array_values( $rows ), 0, $limit );
+	}
 
-		return is_array( $rows ) ? $rows : array();
+	const RETENTION_HOOK  = 'bizcity_memory_logs_retention';
+	const RETENTION_DAYS  = 7; // [2026-08-01 Johnny Chu] PHASE-1.28-RETENTION-7D — keep memory audit projection for one week.
+	const RETENTION_BATCH = 500;
+
+	/**
+	 * [2026-08-01 Johnny Chu] PHASE-1.24-LOG-RETENTION — register bounded cleanup for the
+	 * memory_mutation projection table (BizCity_Memory_Log_Projector materializes it from
+	 * the event bus; this class never writes rows directly, but the projection still needs
+	 * a bounded window since it has an active reader via the memory REST API).
+	 */
+	public static function register_retention_cron(): void {
+		if ( ! class_exists( 'BizCity_Cron_Manager' ) ) {
+			return;
+		}
+		BizCity_Cron_Manager::instance()->register( array(
+			'id'          => 'core.memory.logs_retention',
+			'hook'        => self::RETENTION_HOOK,
+			'interval'    => 'daily',
+			'owner'       => 'core/memory',
+			'description' => 'Bounded retention sweep for the memory mutation audit projection.',
+			'retention'   => self::RETENTION_DAYS,
+		) );
+	}
+
+	/**
+	 * [2026-08-01 Johnny Chu] PHASE-1.24-LOG-RETENTION — delete old rows only from the scheduled cron context.
+	 */
+	public static function gc_logs(): void {
+		global $wpdb;
+		$deleted = 0; // [2026-08-01 Johnny Chu] PHASE-1.29-LOG-ORPHAN — delete-only drain; no SQL writer/reader.
+		$table = $wpdb->prefix . 'bizcity_memory_logs';
+		if ( $wpdb && ( ! function_exists( 'bizcity_tbl_exists' ) || bizcity_tbl_exists( $table ) ) ) {
+			$result = $wpdb->query( $wpdb->prepare( "DELETE FROM {$table} WHERE created_at < ( CURRENT_TIMESTAMP - INTERVAL %d DAY ) ORDER BY id ASC LIMIT %d", self::RETENTION_DAYS, self::RETENTION_BATCH ) );
+			$deleted = false === $result ? 0 : (int) $result;
+		}
+		if ( class_exists( 'BizCity_Cron_Manager' ) ) {
+			$cron = BizCity_Cron_Manager::instance();
+			$cron->note( array( 'counters' => array( 'memory_logs_retention_deleted' => $deleted ) ) );
+			$cron->note_event( 'memory_logs_retention', array( 'deleted' => $deleted, 'retention_days' => self::RETENTION_DAYS ) );
+		}
 	}
 
 	/**
@@ -211,26 +228,66 @@ class BizCity_Memory_Log {
 	 * @return array Logs with non-empty step_name, ordered by created_at ASC.
 	 */
 	public function get_step_trail( $memory_id, $limit = 100 ) {
-		global $wpdb;
+		$limit = absint( $limit );
+		if ( $limit <= 0 ) {
+			return array();
+		}
+		$rows = array_filter( $this->read_merged_logs( absint( $memory_id ), 10000 ), static function ( $row ) {
+			return is_object( $row ) && (string) ( $row->step_name ?? '' ) !== '';
+		} );
+		usort( $rows, static function ( $left, $right ) {
+			return strcmp( (string) ( $left->created_at ?? '' ), (string) ( $right->created_at ?? '' ) );
+		} );
+		return array_slice( array_values( $rows ), 0, $limit );
+	}
 
-		$query = $wpdb->prepare(
-			"SELECT * FROM {$this->table}
-			 WHERE memory_id = %d AND step_name != ''
-			 ORDER BY created_at ASC
-			 LIMIT %d",
-			absint( $memory_id ),
-			absint( $limit )
-		);
+	/**
+	 * Read and merge JSONL rows with the legacy SQL projection.
+	 *
+	 * @param int $memory_id Memory spec ID.
+	 * @param int $limit     Maximum rows to inspect from each source.
+	 * @return array<int,object>
+	 */
+	private function read_merged_logs( $memory_id, $limit = 10000 ) {
+		$memory_id = absint( $memory_id );
+		$limit     = max( 1, min( 10000, absint( $limit ) ) );
+		$rows      = array();
 
-		$rows = $wpdb->get_results( $query );
-		if ( is_array( $rows ) ) {
-			foreach ( $rows as &$row ) {
-				$row->detail_json = json_decode( $row->detail_json, true );
+		if ( class_exists( 'BizCity_JSONL_File_Logger' ) && method_exists( 'BizCity_JSONL_File_Logger', 'query' ) ) {
+			$json_rows = BizCity_JSONL_File_Logger::query(
+				BizCity_JSONL_File_Logger::MEMORY_FOLDER,
+				'mutation-audit',
+				array(
+					'days'   => self::RETENTION_DAYS,
+					'limit'  => $limit,
+					'filter' => static function ( $row ) use ( $memory_id ) {
+						$ctx = is_array( $row['ctx'] ?? null ) ? $row['ctx'] : array();
+						return (int) ( $ctx['memory_id'] ?? 0 ) === $memory_id;
+					},
+				)
+			);
+			foreach ( (array) $json_rows as $row ) {
+				$ctx     = is_array( $row['ctx'] ?? null ) ? $row['ctx'] : array();
+				$details = is_array( $ctx['details'] ?? null ) ? $ctx['details'] : array();
+				$event_uuid = (string) ( $details['_event_uuid'] ?? '' );
+				$rows[ $event_uuid !== '' ? 'event:' . $event_uuid : 'json:' . md5( wp_json_encode( $row ) ) ] = (object) array(
+					'id'          => 0,
+					'memory_id'   => $memory_id,
+					'action'      => (string) ( $ctx['action'] ?? $row['event'] ?? '' ),
+					'step_name'   => (string) ( $ctx['step_name'] ?? '' ),
+					'user_id'     => (int) ( $ctx['user_id'] ?? 0 ),
+					'detail_json' => $details,
+					'created_at'  => (string) ( $row['ts'] ?? '' ),
+					'event_uuid'  => $event_uuid,
+				);
 			}
-			unset( $row );
 		}
 
-		return is_array( $rows ) ? $rows : array();
+		$rows = array_values( $rows );
+		usort( $rows, static function ( $left, $right ) {
+			return strcmp( (string) ( $right->created_at ?? '' ), (string) ( $left->created_at ?? '' ) );
+		} );
+		return $rows;
 	}
 
 	/* ================================================================
@@ -243,16 +300,13 @@ class BizCity_Memory_Log {
 	 * @param int $days Delete logs older than this many days (default 90).
 	 * @return int Number of deleted rows.
 	 */
-	public function purge_old( $days = 90 ) {
+	public function purge_old( $days = 7 ) {
 		global $wpdb;
-
 		$days = max( 1, absint( $days ) );
-
-		$deleted = $wpdb->query( $wpdb->prepare(
-			"DELETE FROM {$this->table} WHERE created_at < DATE_SUB(NOW(), INTERVAL %d DAY)",
-			$days
-		) );
-
-		return is_int( $deleted ) ? $deleted : 0;
+		if ( ! $wpdb || ( function_exists( 'bizcity_tbl_exists' ) && ! bizcity_tbl_exists( $this->table ) ) ) {
+			return 0;
+		}
+		$result = $wpdb->query( $wpdb->prepare( "DELETE FROM {$this->table} WHERE created_at < DATE_SUB( NOW(), INTERVAL %d DAY )", $days ) );
+		return false === $result ? 0 : (int) $result;
 	}
 }

@@ -1,31 +1,43 @@
 {
+    "$schema": "https://bizcity.vn/schema/diagnostics-changelog-v1.json",
     "module_id": "modules.zns-automation",
+    "owner": "core/channel-gateway/includes/zns",
+    "installer_id": "zns_rules",
     "current_version": "1.0.0",
-    "tables": [
-        {
-            "name": "bizcity_zns_event_rules",
+    "version_option": "bizcity_zns_rules_schema_ver",
+    "tables": {
+        "bizcity_zns_event_rules": {
             "since": "1.0.0",
-            "columns": [
-                { "name": "id",             "type": "bigint unsigned", "since": "1.0.0" },
-                { "name": "name",           "type": "varchar(190)",    "since": "1.0.0" },
-                { "name": "event_key",      "type": "varchar(100)",    "since": "1.0.0" },
-                { "name": "oa_id",          "type": "varchar(64)",     "since": "1.0.0" },
-                { "name": "temp_id",        "type": "varchar(64)",     "since": "1.0.0" },
-                { "name": "temp_vars_json", "type": "longtext",        "since": "1.0.0" },
-                { "name": "sandbox",        "type": "tinyint(1)",      "since": "1.0.0" },
-                { "name": "campaign_id",    "type": "varchar(254)",    "since": "1.0.0" },
-                { "name": "enabled",        "type": "tinyint(1)",      "since": "1.0.0" },
-                { "name": "sort_order",     "type": "int",             "since": "1.0.0" },
-                { "name": "last_fired_at",  "type": "datetime",        "since": "1.0.0" },
-                { "name": "fire_count",     "type": "int unsigned",    "since": "1.0.0" },
-                { "name": "last_error",     "type": "text",            "since": "1.0.0" },
-                { "name": "created_at",     "type": "datetime",        "since": "1.0.0" },
-                { "name": "updated_at",     "type": "datetime",        "since": "1.0.0" },
-                { "name": "deleted_at",     "type": "datetime",        "since": "1.0.0" }
-            ]
+            "purpose": "ZNS event-driven automation rules and delivery state.",
+            "engine": "InnoDB",
+            "charset": "utf8mb4",
+            "collate": "utf8mb4_unicode_ci",
+            "columns": {
+                "id": { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
+                "name": { "type": "VARCHAR(190) NOT NULL DEFAULT ''", "since": "1.0.0" },
+                "event_key": { "type": "VARCHAR(100) NOT NULL DEFAULT ''", "since": "1.0.0" },
+                "oa_id": { "type": "VARCHAR(64) NOT NULL DEFAULT ''", "since": "1.0.0" },
+                "temp_id": { "type": "VARCHAR(64) NOT NULL DEFAULT ''", "since": "1.0.0" },
+                "temp_vars_json": { "type": "LONGTEXT NULL", "since": "1.0.0" },
+                "sandbox": { "type": "TINYINT(1) NOT NULL DEFAULT 0", "since": "1.0.0" },
+                "campaign_id": { "type": "VARCHAR(254) NOT NULL DEFAULT ''", "since": "1.0.0" },
+                "enabled": { "type": "TINYINT(1) NOT NULL DEFAULT 1", "since": "1.0.0" },
+                "sort_order": { "type": "INT NOT NULL DEFAULT 0", "since": "1.0.0" },
+                "last_fired_at": { "type": "DATETIME NULL", "since": "1.0.0" },
+                "fire_count": { "type": "INT UNSIGNED NOT NULL DEFAULT 0", "since": "1.0.0" },
+                "last_error": { "type": "TEXT NULL", "since": "1.0.0" },
+                "created_at": { "type": "DATETIME NOT NULL", "since": "1.0.0" },
+                "updated_at": { "type": "DATETIME NOT NULL", "since": "1.0.0" },
+                "deleted_at": { "type": "DATETIME NULL", "since": "1.0.0" }
+            },
+            "indexes": {
+                "idx_event": { "cols": ["event_key"], "since": "1.0.0" },
+                "idx_enabled": { "cols": ["enabled"], "since": "1.0.0" },
+                "idx_deleted": { "cols": ["deleted_at"], "since": "1.0.0" }
+            }
         }
-    ],
+    },
     "history": [
-        { "version": "1.0.0", "date": "2026-06-27", "change": "Initial table bizcity_zns_event_rules — ZNS Automation Hub event-driven rules" }
+        { "version": "1.0.0", "date": "2026-06-27", "change": "Initial table bizcity_zns_event_rules — ZNS Automation Hub event-driven rules." }
     ]
 }

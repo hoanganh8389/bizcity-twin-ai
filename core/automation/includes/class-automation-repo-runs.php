@@ -17,6 +17,8 @@ final class BizCity_Automation_Repo_Runs {
 
 	const TABLE_RUNS = 'bizcity_automation_runs';
 	const TABLE_LOGS = 'bizcity_automation_logs';
+	const LOG_RETENTION_DAYS = 7; // [2026-08-01 Johnny Chu] PHASE-1.28-RETENTION-7D — keep automation step logs for one week.
+	const LOG_RETENTION_BATCH = 500;
 
 	const STATUS_QUEUED    = 0;
 	const STATUS_RUNNING   = 1;
@@ -43,6 +45,20 @@ final class BizCity_Automation_Repo_Runs {
 		BizCity_Automation_Installer::ensure();
 
 		$run_id = 'run_' . wp_generate_password( 12, false, false );
+		// [2026-08-01 Johnny Chu] PHASE-1.26-CORRELATION — persist correlation
+		// metadata inside the DB queue payload so cron/async workers keep the
+		// inbound trace and causal parent after the request ends.
+		if ( class_exists( 'BizCity_Chat_Correlation' ) ) {
+			if ( is_string( $payload ) && $payload !== '' ) {
+				$decoded_payload = json_decode( $payload, true );
+				if ( is_array( $decoded_payload ) ) {
+					$decoded_payload['correlation'] = BizCity_Chat_Correlation::export_async( $decoded_payload, 'automation_run' );
+					$payload = wp_json_encode( $decoded_payload );
+				}
+			} elseif ( is_array( $payload ) ) {
+				$payload['correlation'] = BizCity_Chat_Correlation::export_async( $payload, 'automation_run' );
+			}
+		}
 		// [2026-07-17 Johnny Chu] PHASE-TWINWEB F4 — derive canonical owner from payload/extra/workflow fallback.
 		$owner_user_id = 0;
 		if ( is_array( $payload ) ) {
@@ -222,6 +238,23 @@ final class BizCity_Automation_Repo_Runs {
 		global $wpdb;
 		if ( $log_id <= 0 ) { return false; }
 		return $wpdb->update( self::table_logs(), $patch, array( 'id' => $log_id ) ) !== false;
+	}
+
+	/** Purge completed automation step logs outside the seven-day window. */
+	public static function gc_logs(): int {
+		global $wpdb;
+		$table = self::table_logs();
+		if ( function_exists( 'bizcity_tbl_exists' ) && ! bizcity_tbl_exists( $table ) ) {
+			return 0;
+		}
+		$deleted = $wpdb->query( $wpdb->prepare(
+			"DELETE FROM {$table}
+			 WHERE COALESCE( ended_at, started_at ) < ( CURRENT_TIMESTAMP - INTERVAL %d DAY )
+			 ORDER BY id ASC LIMIT %d",
+			self::LOG_RETENTION_DAYS,
+			self::LOG_RETENTION_BATCH
+		) );
+		return false === $deleted ? 0 : (int) $deleted;
 	}
 
 	/**

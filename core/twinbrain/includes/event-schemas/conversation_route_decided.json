@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "conversation_route_decided",
+  "description": "TwinBrain lightweight pre-runtime conversation routing decision.",
+  "type": "object",
+  "required": ["trace_id", "route", "confidence", "needs_confirm"],
+  "properties": {
+    "trace_id": { "type": "string" },
+    "route": {
+      "type": "string",
+      "enum": ["casual", "notebook", "vertical", "automation_help"]
+    },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "needs_confirm": { "type": "boolean" },
+    "candidate_notebook_ids": {
+      "type": "array",
+      "items": { "type": "integer", "minimum": 1 }
+    },
+    "candidate_vertical": { "type": "string" },
+    "web_mode": { "type": "string" },
+    "reason": { "type": "string" }
+  }
+}

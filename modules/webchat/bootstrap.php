@@ -594,6 +594,14 @@ class BizCity_WebChat_Bot {
      * Luôn kiểm tra page tồn tại — tự khôi phục nếu bị xóa/trash.
      */
     public function ensure_chat_page_exists() {
+        // [2026-08-09 Johnny Chu] R-PERF — page maintenance is not part of a public HTML render.
+        if ( ! is_admin()
+            && ! ( defined( 'DOING_CRON' ) && DOING_CRON )
+            && ! ( defined( 'WP_CLI' ) && WP_CLI )
+        ) {
+            return;
+        }
+
         // [2026-06-11 Johnny Chu] R-PERF — option guard, tránh 2x get_page_by_path() DB query mỗi request
         if ( get_option( 'bizcity_webchat_pages_ensured', '' ) === '1' ) {
             return;
@@ -796,6 +804,13 @@ class BizCity_WebChat_Bot {
         // Bot setup từ pmfacebook_options (tương thích với bizgpt-agent)
         $bot_setup = wp_parse_args(get_option('pmfacebook_options', []));
         $using_ai = isset($bot_setup['using_ai']) ? (bool) $bot_setup['using_ai'] : true;
+
+        // [2026-08-02 Johnny Chu] HOTFIX-WEBCHAT-POLL — polling is useful only
+        // when the canonical gateway client has a configured key. Never expose
+        // the key to JS; pass a boolean capability instead.
+        $llm_ready = class_exists('BizCity_LLM_Client')
+            && BizCity_LLM_Client::instance()->is_ready();
+        $enable_polling = $using_ai && $llm_ready;
         
         // Get default character_id
         $character_id = intval(get_option('bizcity_webchat_default_character_id', 0));
@@ -815,7 +830,8 @@ class BizCity_WebChat_Bot {
             'avatar_user' => $this->get_user_avatar(),
             'welcome_message' => $this->get_welcome_message(),
             'alert_sound_url' => content_url('uploads/alert.mp3'),
-            'enable_polling' => $using_ai,
+            'enable_polling' => $enable_polling,
+            'llm_ready' => $llm_ready,
             'poll_interval' => 4000,
         ]);
         
@@ -1172,6 +1188,22 @@ class BizCity_WebChat_Bot {
      * Ensure tables exist + run migrations on schema version bump.
      */
     public function ensure_tables_exist() {
+        // [2026-08-09 Johnny Chu] R-PERF — schema checks must not run on every frontend request.
+        $request_uri = isset( $_SERVER['REQUEST_URI'] ) ? (string) $_SERVER['REQUEST_URI'] : '';
+        $query_string = isset( $_SERVER['QUERY_STRING'] ) ? (string) $_SERVER['QUERY_STRING'] : '';
+        $maintenance_context = is_admin()
+            || ( defined( 'REST_REQUEST' ) && REST_REQUEST )
+            || ( defined( 'DOING_CRON' ) && DOING_CRON )
+            || ( defined( 'WP_CLI' ) && WP_CLI )
+            || false !== strpos( $request_uri, '/wp-json/' )
+            || false !== strpos( $request_uri, '/bizhook/' )
+            || false !== strpos( $request_uri, '/zalohook/' )
+            || false !== strpos( $request_uri, '/bizfbhook' )
+            || false !== strpos( $query_string, 'fbhook=1' );
+        if ( ! $maintenance_context ) {
+            return;
+        }
+
         if ( ! class_exists( 'BizCity_WebChat_Database' ) ) {
             return; // Class not loaded yet — skip silently
         }
@@ -1182,7 +1214,7 @@ class BizCity_WebChat_Bot {
         if ( empty( $current_version ) ) {
             global $wpdb;
             $table = $wpdb->prefix . 'bizcity_webchat_messages';
-            if ( $wpdb->get_var( "SHOW TABLES LIKE '$table'" ) !== $table ) {
+            if ( ! bizcity_webchat_table_exists( $table ) ) {
                 $db->create_tables();
             } else {
                 // Tables exist but no version tracked — run migration + set version
@@ -1297,6 +1329,18 @@ BizCity_WebChat_Bot::instance();
  */
 add_action('wp_ajax_bizcity_webchat_pull', 'bizcity_webchat_ajax_pull');
 add_action('wp_ajax_nopriv_bizcity_webchat_pull', 'bizcity_webchat_ajax_pull');
+if ( ! function_exists( 'bizcity_webchat_table_exists' ) ) {
+    // [2026-08-09 Johnny Chu] R-SHOW-TABLES — use the shared blog/database-aware metadata cache.
+    function bizcity_webchat_table_exists( $table ) {
+        if ( function_exists( 'bizcity_tbl_exists' ) ) {
+            return bizcity_tbl_exists( $table );
+        }
+        if ( function_exists( 'bizcity_table_exists' ) ) {
+            return bizcity_table_exists( $table );
+        }
+        return false;
+    }
+}
 if ( ! function_exists( 'bizcity_webchat_ajax_pull' ) ) {
 function bizcity_webchat_ajax_pull() {
     check_ajax_referer('bizcity_webchat');
@@ -1310,10 +1354,10 @@ function bizcity_webchat_ajax_pull() {
     $table = $wpdb->prefix . 'bizcity_webchat_messages';
     
     // Check if table exists
-    if ($wpdb->get_var("SHOW TABLES LIKE '$table'") !== $table) {
+    if ( ! bizcity_webchat_table_exists( $table ) ) {
         // Fallback to bizgpt table if our table doesn't exist
         $table = $wpdb->prefix . 'bizgpt_chat_history';
-        if ($wpdb->get_var("SHOW TABLES LIKE '$table'") !== $table) {
+        if ( ! bizcity_webchat_table_exists( $table ) ) {
             wp_send_json_success([]);
             return;
         }
@@ -1367,7 +1411,7 @@ function bizcity_webchat_ajax_clear() {
     
     // Clear from our table
     $table = $wpdb->prefix . 'bizcity_webchat_messages';
-    if ($wpdb->get_var("SHOW TABLES LIKE '$table'") === $table) {
+    if ( bizcity_webchat_table_exists( $table ) ) {
         if ($user_id) {
             $wpdb->delete($table, ['user_id' => $user_id]);
         } elseif ($session_id) {
@@ -1377,7 +1421,7 @@ function bizcity_webchat_ajax_clear() {
     
     // Also clear from bizgpt table if exists
     $bizgpt_table = $wpdb->prefix . 'bizgpt_chat_history';
-    if ($wpdb->get_var("SHOW TABLES LIKE '$bizgpt_table'") === $bizgpt_table) {
+    if ( bizcity_webchat_table_exists( $bizgpt_table ) ) {
         if ($user_id) {
             $wpdb->delete($bizgpt_table, ['user_id' => $user_id]);
         } elseif ($session_id) {
@@ -1776,10 +1820,10 @@ function bizcity_webchat_rest_pull(WP_REST_Request $request) {
     $table = $wpdb->prefix . 'bizcity_webchat_messages';
     
     // Check if our table exists
-    if ($wpdb->get_var("SHOW TABLES LIKE '$table'") !== $table) {
+    if ( ! bizcity_webchat_table_exists( $table ) ) {
         // Fallback to bizgpt table
         $table = $wpdb->prefix . 'bizgpt_chat_history';
-        if ($wpdb->get_var("SHOW TABLES LIKE '$table'") !== $table) {
+        if ( ! bizcity_webchat_table_exists( $table ) ) {
             return new WP_REST_Response(['success' => true, 'data' => ['messages' => []]]);
         }
         

@@ -9,7 +9,7 @@
  */
 
 /**
- * BizCity Focus Router — 6-Mode Focus Profile Resolver
+ * BizCity Focus Router — 6 internal Focus Profile Resolver
  *
  * Determines which context layers should be injected based on:
  *   - Classified mode (emotion/reflection/knowledge/planning/execution/studio)
@@ -51,7 +51,8 @@ class BizCity_Focus_Router {
         $platform = $params['platform_type'] ?? 'ADMINCHAT';
         $meta     = $params['meta'] ?? [];
 
-        // Start with mode defaults (6 modes)
+        // [2026-07-30 Johnny Chu] PHASE-0-CANON — six internal profiles sit beneath SINGLE/MULTI dispatch.
+        // Start with focus-profile defaults; dispatch mode remains SINGLE/MULTI.
         $profile = self::get_mode_defaults( $mode );
 
         // Store original message in profile for downstream topic matching

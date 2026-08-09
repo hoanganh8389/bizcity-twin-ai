@@ -48,7 +48,7 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 class BizCity_Twin_Event_Taxonomy {
 
 	// Bumped 2026-04-30 (Sprint 5.0b) — added 5 NotebookLM-parity event types.
-	const TAXONOMY_VERSION = 2;
+	const TAXONOMY_VERSION = 3; // [2026-08-03 Johnny Chu] P2 — register runtime memory_recall audit event.
 
 	// ---- 15 canonical event types (Phase 0.12) --------------------------
 	const USER_MESSAGE              = 'user_message';
@@ -75,6 +75,7 @@ class BizCity_Twin_Event_Taxonomy {
 	const WELCOME_JOB         = 'welcome_job';          // status field: started|completed|failed
 	const RESEARCH_JOB        = 'research_job';         // status field: started|tavily_returned|imported|failed
 	const NOTE_PINNED         = 'note_pinned';          // user pins assistant message as note
+	const MEMORY_RECALL              = 'memory_recall';        // Layer 0.5 memory context audit event
 
 	/**
 	 * Required payload fields per event type.
@@ -106,6 +107,7 @@ class BizCity_Twin_Event_Taxonomy {
 			self::WELCOME_JOB               => [ 'job_id', 'status' ],
 			self::RESEARCH_JOB              => [ 'job_id', 'status' ],
 			self::NOTE_PINNED               => [ 'note_id', 'message_id' ],
+			self::MEMORY_RECALL             => [ 'trace_id', 'surface', 'counts', 'citations', 'block_len', 'latency_ms' ],
 		];
 	}
 

@@ -26,6 +26,8 @@ if ( class_exists( 'BizCoach_Astro_Checklist', false ) ) { return; }
 
 class BizCoach_Astro_Checklist {
 
+	private static $table_exists_cache = array();
+
 	// [2026-07-04 Johnny Chu] PHASE-VEDIC-FAA2 — all canonical data keys
 	const KEY_WESTERN_PLANETS     = 'western_planets';
 	const KEY_WESTERN_HOUSES      = 'western_houses';
@@ -89,8 +91,12 @@ class BizCoach_Astro_Checklist {
 	}
 
 	public static function maybe_install(): void {
-		// [2026-07-21 Johnny Chu] PHASE-FAA2-CHECKLIST — option can be stale across multisite/multishard; verify physical table too.
-		if ( get_option( self::VERSION_OPTION, '' ) !== self::SCHEMA_VERSION || ! self::table_exists() ) {
+		// [2026-08-09 Johnny Chu] R-METADATA-CACHE — a current schema stamp is the hot-path fast path; physical verification belongs to repair/diagnostics.
+		if ( get_option( self::VERSION_OPTION, '' ) !== self::SCHEMA_VERSION && ! self::table_exists() ) {
+			self::install();
+			return;
+		}
+		if ( get_option( self::VERSION_OPTION, '' ) !== self::SCHEMA_VERSION ) {
 			self::install();
 		}
 	}
@@ -337,11 +343,30 @@ class BizCoach_Astro_Checklist {
 	}
 
 	private static function table_name_exists( string $table_name ): bool {
+		// [2026-08-09 Johnny Chu] R-CACHE/R-SHOW-TABLES — fallback cache for early-load contexts without core/helper.
 		global $wpdb;
-		return (bool) $wpdb->get_var( $wpdb->prepare(
+		$database = isset( $wpdb->dbname ) ? (string) $wpdb->dbname : '';
+		$memo_key = (int) get_current_blog_id() . ':' . $database . ':' . $table_name;
+		if ( array_key_exists( $memo_key, self::$table_exists_cache ) ) {
+			return self::$table_exists_cache[ $memo_key ];
+		}
+		if ( function_exists( 'bizcity_tbl_exists' ) ) {
+			self::$table_exists_cache[ $memo_key ] = (bool) bizcity_tbl_exists( $table_name );
+			return self::$table_exists_cache[ $memo_key ];
+		}
+		$cache_key = 'bz_tbl_bcpro_' . md5( $memo_key );
+		$cached = wp_cache_get( $cache_key, 'bizcity_tbl' );
+		if ( false !== $cached ) {
+			self::$table_exists_cache[ $memo_key ] = (bool) $cached;
+			return self::$table_exists_cache[ $memo_key ];
+		}
+		$present = (bool) $wpdb->get_var( $wpdb->prepare(
 			'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
 			$table_name
 		) );
+		wp_cache_set( $cache_key, $present ? 1 : 0, 'bizcity_tbl', HOUR_IN_SECONDS );
+		self::$table_exists_cache[ $memo_key ] = $present;
+		return $present;
 	}
 
 	private static function decode_json_array( string $json ): array {

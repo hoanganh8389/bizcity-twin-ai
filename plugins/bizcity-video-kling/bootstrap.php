@@ -12,6 +12,19 @@
 
 defined('ABSPATH') or die('OOPS...');
 
+// [2026-08-09 Johnny Chu] R-PERF-LOADER-BUNDLE — protect direct bootstrap
+// loads from preloading Video Kling on the TwinChat admin shell.
+$_bizcity_video_shell_plugin = isset( $_GET['plugin'] )
+    ? sanitize_key( (string) $_GET['plugin'] )
+    : '';
+if ( is_admin()
+    && isset( $_GET['page'] )
+    && 'bizcity-twinchat' === sanitize_key( (string) $_GET['page'] )
+    && ( $_bizcity_video_shell_plugin === '' || $_bizcity_video_shell_plugin === 'twinchat' ) ) {
+    return;
+}
+unset( $_bizcity_video_shell_plugin );
+
 // Asset version for cache busting
 define('BIZCITY_VIDEO_KLING_ASSETS_VERSION', '2.20.0');
 

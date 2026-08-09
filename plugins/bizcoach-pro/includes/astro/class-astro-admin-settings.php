@@ -43,21 +43,15 @@ final class BizCoach_Pro_Astro_Admin_Settings {
 	}
 
 	/**
-	 * Legacy save handler — kept for backward compatibility; writes to the
-	 * legacy options. New admins should use the unified TwinChat settings page.
+	 * Legacy save handler — kept for backward compatibility without accepting
+	 * or persisting credentials outside the canonical TwinChat settings page.
 	 */
 	public static function handle_save(): void {
+		// [2026-07-30 Johnny Chu] R-1API-AUTH — legacy endpoint must not write raw gateway credentials.
 		if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'forbidden', 403 ); }
 		check_admin_referer( 'bcpro_astro_save_gateway' );
-
-		$key  = isset( $_POST['bcpro_gateway_api_key'] )  ? trim( wp_unslash( $_POST['bcpro_gateway_api_key'] ) )  : '';
-		$base = isset( $_POST['bcpro_gateway_base_url'] ) ? esc_url_raw( wp_unslash( $_POST['bcpro_gateway_base_url'] ) ) : '';
-
-		// [2026-07-27 Johnny Chu] R-MSDB — keep Astro gateway settings in the current blog context.
-		update_option( BizCoach_Pro_Astro_Client::OPT_API_KEY,      $key );
-		update_option( BizCoach_Pro_Astro_Client::OPT_GATEWAY_BASE, $base );
-
-		wp_safe_redirect( self::canonical_url() );
+		$redirect = add_query_arg( array( 'bcpro_legacy_settings' => 'deprecated' ), self::canonical_url() );
+		wp_safe_redirect( $redirect );
 		exit;
 	}
 
@@ -81,10 +75,9 @@ final class BizCoach_Pro_Astro_Admin_Settings {
 	public static function render(): void {
 		if ( ! current_user_can( 'manage_options' ) ) { return; }
 
-		$canon      = self::canonical_url();
-		$legacy_key = (string) get_option( BizCoach_Pro_Astro_Client::OPT_API_KEY, '' );
-		// [2026-06-10 Johnny Chu] HOTFIX — per-site option
-		$canon_key  = (string) get_option( 'bizcity_llm_api_key', '' );
+		$canon = self::canonical_url();
+		// [2026-07-30 Johnny Chu] R-1API-AUTH — deprecated settings page reads readiness only through the canonical client boundary.
+		$canon_ready = class_exists( 'BizCity_LLM_Client' ) && BizCity_LLM_Client::instance()->is_ready();
 
 		?>
 		<div class="wrap">
@@ -114,17 +107,13 @@ final class BizCoach_Pro_Astro_Admin_Settings {
 				<tbody>
 					<tr>
 						<td><code>bizcity_llm_api_key</code> <small>(canonical R-1API-2)</small></td>
-						<td><?php echo $canon_key !== '' ? '✅ ' . esc_html__( 'đã cấu hình', 'bizcoach-pro' ) : '<span style="color:#d63638;">❌ ' . esc_html__( 'trống', 'bizcoach-pro' ) . '</span>'; ?></td>
-					</tr>
-					<tr>
-						<td><code>bcpro_gateway_api_key</code> <small>(legacy fallback)</small></td>
-						<td><?php echo $legacy_key !== '' ? '⚠️ ' . esc_html__( 'còn giá trị cũ — sẽ được dùng khi canonical trống', 'bizcoach-pro' ) : esc_html__( 'trống', 'bizcoach-pro' ); ?></td>
+						<td><?php echo $canon_ready ? '✅ ' . esc_html__( 'đã cấu hình', 'bizcoach-pro' ) : '<span style="color:#d63638;">❌ ' . esc_html__( 'trống', 'bizcoach-pro' ) . '</span>'; ?></td>
 					</tr>
 				</tbody>
 			</table>
 
 			<p class="description" style="margin-top:16px;max-width:720px;">
-				<?php esc_html_e( 'BizCoach_Pro_Astro_Client hiện đọc key theo thứ tự: legacy bcpro_gateway_api_key → canonical bizcity_llm_api_key. Sau khi bạn cấu hình ở trang mới, có thể xoá legacy option để tránh nhầm lẫn.', 'bizcoach-pro' ); ?>
+				<?php esc_html_e( 'Trạng thái được đọc qua BizCity LLM Client; cấu hình gateway nằm tập trung tại trang TwinChat Settings.', 'bizcoach-pro' ); ?>
 			</p>
 		</div>
 		<?php

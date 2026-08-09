@@ -77,6 +77,10 @@ class BizCity_CRM_Adapter_Facebook extends BizCity_CRM_Adapter_Base {
 		if ( $cust ) {
 			$contact_name   = (string) ( $cust['name'] ?? '' );
 			$contact_avatar = $cust['profile_pic'] ?? null;
+			// [2026-08-04 Johnny Chu] HOTFIX — Facebook profile_pic is a signed CDN URL; force Graph refresh after its ext timestamp.
+			if ( self::is_expired_profile_picture( (string) $contact_avatar ) ) {
+				$contact_avatar = null;
+			}
 		}
 
 		// Graph API fallback — fetch profile directly if bot DB has no name.
@@ -158,12 +162,43 @@ class BizCity_CRM_Adapter_Facebook extends BizCity_CRM_Adapter_Base {
 			return array( 'success' => false, 'external_source_id' => null, 'error' => 'cannot resolve PSID' );
 		}
 
+		$text = (string) ( $message['content'] ?? '' );
+
+		// [2026-08-03 Johnny Chu] HOTFIX — CRM Facebook DM must use the
+		// canonical Channel Gateway account when available; this avoids a
+		// false missing-token result from the legacy Facebook Bot lookup chain.
+		if ( ! $is_comment_inbox && self::has_gateway_page_account( $page_id ) && class_exists( 'BizCity_Gateway_Sender' ) ) {
+			$content_type = (string) ( $message['content_type'] ?? 'text' );
+			$attachments  = is_array( $message['attachments'] ?? null ) ? $message['attachments'] : array();
+			$first_att    = $attachments[0] ?? array();
+			$att_url      = is_array( $first_att ) ? (string) ( $first_att['data_url'] ?? '' ) : '';
+			$result = BizCity_Gateway_Sender::instance()->send_envelope( array(
+				'platform'    => 'FACEBOOK',
+				'instance_id' => $page_id,
+				'recipient'   => $psid,
+				'message'     => $text,
+				'type'        => $att_url !== '' ? $content_type : 'text',
+				'meta'        => array(
+					'source'      => 'crm.ai_replier',
+					'image_url'   => $content_type === 'image' ? $att_url : '',
+					'file_url'    => $content_type === 'file' ? $att_url : '',
+					'attachments' => $att_url !== '' ? array( array( 'type' => $content_type, 'url' => $att_url ) ) : array(),
+				),
+			) );
+			if ( is_wp_error( $result ) ) {
+				return array( 'success' => false, 'external_source_id' => null, 'error' => $result->get_error_message() );
+			}
+			return array(
+				'success'            => ! empty( $result['sent'] ),
+				'external_source_id' => (string) ( $result['mid'] ?? $result['message_id'] ?? '' ),
+				'error'              => (string) ( $result['error'] ?? '' ),
+			);
+		}
+
 		$token = BizCity_CRM_Bridge_FB::lookup_page_access_token( $page_id );
 		if ( $token === '' ) {
 			return array( 'success' => false, 'external_source_id' => null, 'error' => 'no page access token for ' . $page_id );
 		}
-
-		$text = (string) ( $message['content'] ?? '' );
 
 		// Branch: reply to a comment via /{comment_id}/comments instead of DM.
 		if ( $is_comment_inbox ) {
@@ -205,6 +240,27 @@ class BizCity_CRM_Adapter_Facebook extends BizCity_CRM_Adapter_Base {
 		}
 
 		return BizCity_CRM_Bridge_FB::send_text( $page_id, $token, $psid, $text );
+	}
+
+	private static function has_gateway_page_account( string $page_id ): bool {
+		if ( $page_id === '' || ! class_exists( 'BizCity_Integration_Registry' ) ) {
+			return false;
+		}
+		try {
+			$registry = BizCity_Integration_Registry::instance();
+			if ( ! method_exists( $registry, 'list_channel_accounts' ) ) {
+				return false;
+			}
+			foreach ( (array) $registry->list_channel_accounts( 'facebook_page', false ) as $account ) {
+				$account = is_array( $account ) ? $account : (array) $account;
+				if ( (string) ( $account['page_id'] ?? '' ) === $page_id ) {
+					return true;
+				}
+			}
+		} catch ( \Throwable $e ) {
+			return false;
+		}
+		return false;
 	}
 
 	public function mark_seen( array $conversation, string $external_source_id ): void {
@@ -318,6 +374,17 @@ class BizCity_CRM_Adapter_Facebook extends BizCity_CRM_Adapter_Base {
 	 * Fetch Facebook profile (first/last name + avatar) directly from Graph for a PSID.
 	 * Used as fallback when the bot's customer table hasn't enriched the row yet.
 	 */
+	private static function is_expired_profile_picture( string $url ): bool {
+		// [2026-08-04 Johnny Chu] HOTFIX — inspect only the public expiry marker; never log or transform the signed URL.
+		if ( $url === '' ) { return false; }
+		$parts = wp_parse_url( $url );
+		$query = is_array( $parts ) ? (string) ( $parts['query'] ?? '' ) : '';
+		if ( $query === '' ) { return false; }
+		parse_str( $query, $params );
+		$expires = isset( $params['ext'] ) ? (int) $params['ext'] : 0;
+		return $expires > 0 && $expires <= ( time() + 60 );
+	}
+
 	private function fetch_profile_from_graph( string $page_id, string $psid ): ?array {
 		$token = $this->lookup_page_access_token( $page_id );
 		if ( $token === '' ) { return null; }

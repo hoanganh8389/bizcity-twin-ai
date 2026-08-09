@@ -11,19 +11,33 @@ Text Domain: bizcoach-pro
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
+// [2026-08-09 Johnny Chu] R-PERF-LOADER-BUNDLE - the default TwinChat admin
+// shell renders an iframe and does not need BizCoach's producer runtime graph.
+// Dedicated BizCoach/admin/REST/public/cron surfaces continue to load normally.
+$_bizcity_bcpro_shell_plugin = isset( $_GET['plugin'] )
+	? sanitize_key( (string) $_GET['plugin'] )
+	: '';
+if ( is_admin()
+	&& isset( $_GET['page'] )
+	&& 'bizcity-twinchat' === sanitize_key( (string) $_GET['page'] )
+	&& ( $_bizcity_bcpro_shell_plugin === '' || $_bizcity_bcpro_shell_plugin === 'twinchat' ) ) {
+	return;
+}
+unset( $_bizcity_bcpro_shell_plugin );
+
 /* ----------------------------------------------------
  * CONSTANTS
  * -------------------------------------------------- */
 define( 'BCPRO_DIR', plugin_dir_path( __FILE__ ) );
 define( 'BCPRO_URL', plugin_dir_url( __FILE__ ) );
-// [2026-06-06 Johnny Chu] HOTFIX — append time() in dev so rewrite/asset cache busts every request
-define( 'BCPRO_VERSION', '0.3.23.' . time() );
+// [2026-08-09 Johnny Chu] R-CR/R-PERF — version guards must remain stable across requests.
+define( 'BCPRO_VERSION', '0.3.23' );
 define( 'BCPRO_DB_VERSION', '1.0.1' );
 // [2026-07-06 Johnny Chu] HOTFIX — Transit writer unification: disable legacy prefetch scheduler.
 if ( ! defined( 'BCPRO_LEGACY_TRANSIT_PREFETCH_ENABLED' ) ) {
 	define( 'BCPRO_LEGACY_TRANSIT_PREFETCH_ENABLED', false );
 }
-// [2026-06-09 Johnny Chu] HOTFIX — stable version for rewrite flush guard (BCPRO_VERSION has time())
+// [2026-08-09 Johnny Chu] R-CR — stable version for rewrite flush guard.
 define( 'BCPRO_REWRITE_VERSION', '0.3.23' );
 define( 'BCPRO_TEMPLATE_DIR', BCPRO_DIR . 'data/coach-templates/' );
 
@@ -96,7 +110,8 @@ if ( class_exists( 'BizCoach_Pro_Transit_Cron' ) ) {
 
 // [2026-07-06 Johnny Chu] HOTFIX — remove queued legacy prefetch jobs so only do_transit_fetch writes snapshots.
 if ( ! BCPRO_LEGACY_TRANSIT_PREFETCH_ENABLED ) {
-	add_action( 'init', function () {
+	// [2026-08-09 Johnny Chu] R-PERF — legacy cron cleanup must not query wp_options on frontend init.
+	add_action( 'admin_init', function () {
 		if ( function_exists( 'wp_clear_scheduled_hook' ) ) {
 			wp_clear_scheduled_hook( 'bccm_transit_prefetch_cron' );
 		}
@@ -120,7 +135,7 @@ if ( class_exists( 'BizCoach_Pro_SVG_MIME_Fix' ) ) {
 	BizCoach_Pro_SVG_MIME_Fix::init();
 }
 // [2026-06-09 Johnny Chu] R-CR — migrated to Central Rewrite Flush Registry.
-// BCPRO_REWRITE_VERSION (stable '0.3.23') — NEVER use BCPRO_VERSION (has time()).
+// BCPRO_REWRITE_VERSION (stable '0.3.23') — keep rewrite version independent.
 BizCity_Rewrite_Flush_Registry::register( 'bizcoach-pro', BCPRO_REWRITE_VERSION );
 
 /* ----------------------------------------------------
@@ -138,7 +153,15 @@ require_once BCPRO_DIR . 'includes/astro/class-astro-log.php';
 require_once BCPRO_DIR . 'includes/astro/class-astro-transit-resolver.php';
 // [2026-07-04 Johnny Chu] PHASE-VEDIC-FAA2 — Astro data fetch checklist table + service.
 require_once BCPRO_DIR . 'includes/astro/class-astro-checklist.php';
-BizCoach_Astro_Checklist::maybe_install();
+// [2026-08-09 Johnny Chu] R-PERF/R-DCL — checklist schema repair is not frontend HTML work.
+if ( is_admin()
+	|| ( defined( 'REST_REQUEST' ) && REST_REQUEST )
+	|| ( defined( 'DOING_CRON' ) && DOING_CRON )
+	|| ( defined( 'WP_CLI' ) && WP_CLI )
+	|| ( ! empty( $_SERVER['REQUEST_URI'] ) && false !== strpos( (string) $_SERVER['REQUEST_URI'], '/wp-json/' ) )
+) {
+	BizCoach_Astro_Checklist::maybe_install();
+}
 
 // R-1API-9 / R-1API-10 (2026-05-17): register this plugin as a canonical-key
 // consumer so it shows up in the unified TwinChat settings page consumer table.

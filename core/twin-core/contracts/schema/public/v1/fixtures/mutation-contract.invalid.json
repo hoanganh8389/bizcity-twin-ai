@@ -1,0 +1,8 @@
+{
+  "contract": "mutation-contract",
+  "version": "1.0.0",
+  "mutation_id": "mut_12345678",
+  "trace_id": "trace_12345678",
+  "action": "unknown",
+  "status": "done"
+}

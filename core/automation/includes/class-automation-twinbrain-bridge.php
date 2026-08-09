@@ -194,14 +194,49 @@ final class BizCity_Automation_TwinBrain_Bridge {
 		add_action( 'bizcity_twin_event', $listener, 1, 2 );
 
 		try {
-			$runtime = BizCity_TwinBrain_Runtime::instance();
-			$start   = $runtime->start_turn( $prompt, $opts );
-			$result  = $start;
-			if ( ! empty( $context['complete'] ) && is_array( $start ) && ! empty( $start['trace_id'] ) ) {
+			$adapter_class = (string) ( $opts['_channel_adapter_class'] ?? '' );
+			$use_channel_adapter = $adapter_class !== ''
+				&& class_exists( $adapter_class )
+				&& class_exists( 'BizCity_TwinBrain_Channel_Adapter' )
+				&& is_subclass_of( $adapter_class, 'BizCity_TwinBrain_Channel_Adapter' );
+			if ( $use_channel_adapter ) {
+				// [2026-08-02 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G11 — keep Automation Default Reply on the canonical channel boundary.
+				$envelope = array(
+					'platform'           => (string) ( $opts['platform'] ?? $opts['channel'] ?? '' ),
+					'channel'            => (string) ( $opts['channel'] ?? $opts['platform'] ?? '' ),
+					'account_id'         => (string) ( $opts['account_id'] ?? '' ),
+					'external_user_id'   => (string) ( $opts['external_user_id'] ?? '' ),
+					'chat_id'            => (string) ( $opts['chat_id'] ?? $context['chat_id'] ?? '' ),
+					'text'               => $prompt,
+					'wp_user_id'         => (int) ( $opts['wp_user_id'] ?? $opts['user_id'] ?? 0 ),
+					'channel_class'      => (string) ( $opts['channel_class'] ?? '' ),
+					'chat_kind'          => (string) ( $opts['chat_kind'] ?? 'private' ),
+					'is_group'           => (string) ( $opts['chat_kind'] ?? '' ) === 'group',
+					'provider_chat_type' => (string) ( $opts['provider_chat_type'] ?? '' ),
+					'identity_guest_bind'=> ! empty( $opts['identity_guest_bind'] ),
+					'identity_is_stable' => true,
+					'surface'            => (string) ( $opts['surface'] ?? 'automation_default_reply' ),
+				);
+				$result = ( new $adapter_class() )->handle( $envelope, $opts );
+				if ( is_array( $result ) && empty( $result['final_text'] ) && ! empty( $result['answer'] ) ) {
+					$result['final_text'] = (string) $result['answer'];
+				}
+			} else {
+				$runtime = BizCity_TwinBrain_Runtime::instance();
+				$start   = $runtime->start_turn( $prompt, $opts );
+				$result  = $start;
+			}
+			if ( ! $use_channel_adapter && ! empty( $context['complete'] ) && is_array( $start ) && ! empty( $start['trace_id'] ) ) {
 				// [2026-07-27 Johnny Chu] PHASE-0.52 W4 — Default_Reply must complete the same non-stream pipeline as TwinChat/Twin GPT before sending a channel response.
 				$complete_opts = array_merge( $opts, array(
 					'memory_block'              => (string) ( $start['memory_block'] ?? '' ),
 					'keyword_tokens'            => (array) ( $start['keyword_tokens'] ?? array() ),
+					'goal_contract'             => (array) ( $start['goal_contract'] ?? array() ),
+					'goal_loop_state'           => (array) ( $start['goal_loop_state'] ?? array() ),
+					'goal_loop'                 => (array) ( $start['goal_loop_state'] ?? array() ),
+					'goal_loop_brief'           => (string) ( $start['goal_loop_brief'] ?? '' ),
+					'answer_depth'              => (string) ( $start['answer_depth'] ?? $opts['answer_depth'] ?? 'high' ), // [2026-08-07 Johnny Chu] V4-DEPTH — preserve resolved MPR tier for automation completion.
+					'goal_loop_pre_turn_completed' => ! empty( $start['goal_loop_pre_turn_completed'] ), // [2026-08-07 Johnny Chu] V4-DEPTH — prevent duplicate Goal Parser invocation.
 					'subject_context_md'        => (string) ( $start['subject_context_md'] ?? '' ),
 					'subject_context_label'     => (string) ( $start['subject_context_label'] ?? '' ),
 					'subject_id'                => (int) ( $start['subject_id'] ?? ( $opts['user_id'] ?? 0 ) ),

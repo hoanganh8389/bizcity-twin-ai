@@ -39,6 +39,13 @@ if ( ! defined( 'BIZCITY_SKILLS_LIBRARY' ) ) {
 /* ── Includes ─────────────────────────────────────────────────────── */
 require_once BIZCITY_SKILLS_DIR . 'includes/class-skill-manager.php';
 require_once BIZCITY_SKILLS_DIR . 'includes/class-skill-database.php';
+require_once BIZCITY_SKILLS_DIR . 'includes/class-journal-database.php';
+require_once BIZCITY_SKILLS_DIR . 'includes/class-journal-rest-api.php';
+
+// [2026-07-31 Johnny Chu] HOTFIX — do not register a dead retention callback when the legacy knowledge class wins load order.
+if ( is_callable( array( 'BizCity_Skill_Database', 'register_retention_cron' ) ) ) {
+    add_action( 'init', array( 'BizCity_Skill_Database', 'register_retention_cron' ), 20 );
+}
 require_once BIZCITY_SKILLS_DIR . 'includes/class-skill-tool-map.php';
 require_once BIZCITY_SKILLS_DIR . 'includes/class-skill-rest-api.php';
 require_once BIZCITY_SKILLS_DIR . 'includes/class-skill-recipe-parser.php';
@@ -53,6 +60,7 @@ BizCity_Skill_Manager::instance();
 if ( class_exists( 'BizCity_Skill_Database' ) ) {
     BizCity_Skill_Database::instance();
 }
+BizCity_Journal_REST_API::instance();
 BizCity_Skill_Tool_Map::instance();
 BizCity_Skill_Tool_Map::register_hooks(); // Phase 1.9 S2.7: auto-extract @mentions on skill save
 BizCity_Skill_REST_API::instance();

@@ -31,6 +31,9 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 class BizCity_Skill_REST_API {
 
 	const API_NAMESPACE = 'bizcity/skill/v1';
+	// [2026-08-02 Johnny Chu] PHASE-SKILLS-JOURNAL — temporary compatibility
+	// fallback until runtime provenance is available on every active row.
+	private const SYSTEM_SKILL_CATEGORIES = array( 'tool-image', 'content-creator', 'web-research' );
 
 	private static $instance = null;
 
@@ -361,6 +364,11 @@ class BizCity_Skill_REST_API {
 			}
 
 			foreach ( $all_db as $skill ) {
+				// [2026-08-02 Johnny Chu] PHASE-SKILLS-JOURNAL — keep machine
+				// registry rows active for runtime, but never render them as Journal files.
+				if ( $this->is_system_owned_skill( $skill ) ) {
+					continue;
+				}
 				$category   = $skill['category'] ?: 'root';
 				$skill_key  = $skill['skill_key'];
 				$vpath      = "/{$category}/{$skill_key}.md";
@@ -954,6 +962,9 @@ SYSTEM;
 		$skills  = [];
 
 		foreach ( $rows as $row ) {
+			if ( $this->is_system_owned_skill( $row ) ) {
+				continue;
+			}
 			$skill          = $this->db_row_to_skill_array( $row );
 			$skills[]       = $skill;
 			$cat            = $skill['category'] ?: 'general';
@@ -980,6 +991,11 @@ SYSTEM;
 		$row = $db->get( $id );
 		if ( ! $row ) {
 			return new \WP_REST_Response( [ 'error' => 'Skill not found' ], 404 );
+		}
+		// [2026-08-02 Johnny Chu] PHASE-SKILLS-JOURNAL — system rows are
+		// runtime infrastructure, not editable Journal content.
+		if ( $this->is_system_owned_skill( $row ) ) {
+			return new \WP_REST_Response( [ 'error' => 'Journal entry not found' ], 404 );
 		}
 		$fm  = $this->db_row_to_frontmatter( $row );
 		$raw = $this->reconstruct_md( $fm, $row['content'] ?? '' );
@@ -1008,6 +1024,13 @@ SYSTEM;
 		if ( ! class_exists( 'BizCity_Skill_Database' ) ) {
 			return new \WP_REST_Response( [ 'error' => 'DB class not found' ], 500 );
 		}
+		$db  = BizCity_Skill_Database::instance();
+		$row = $db->get( $id );
+		if ( ! $row || $this->is_system_owned_skill( $row ) ) {
+			// [2026-08-02 Johnny Chu] PHASE-SKILLS-JOURNAL — do not allow
+			// the Journal editor to mutate machine-owned registry rows.
+			return new \WP_REST_Response( [ 'error' => 'Journal entry not found' ], 404 );
+		}
 
 		// Strip script tags from content
 		$raw  = preg_replace( '/<script\b[^>]*>.*?<\/script>/is', '', $raw );
@@ -1024,7 +1047,6 @@ SYSTEM;
 		);
 		$all_tools = array_unique( array_merge( $mentioned_tools, $frontmatter_tools ) );
 
-		$db        = BizCity_Skill_Database::instance();
 		$skill_key = $fm['name'] ?? '';
 
 		// [2026-06-03 Johnny Chu] WF-AUTO GURU W3 — G2 cross-tier slash collision.
@@ -1093,6 +1115,13 @@ SYSTEM;
 		if ( ! class_exists( 'BizCity_Skill_Database' ) ) {
 			return new \WP_REST_Response( [ 'error' => 'DB class not found' ], 500 );
 		}
+		$db  = BizCity_Skill_Database::instance();
+		$row = $db->get( $id );
+		if ( ! $row || $this->is_system_owned_skill( $row ) ) {
+			// [2026-08-02 Johnny Chu] PHASE-SKILLS-JOURNAL — deletion is
+			// reserved for Journal content; runtime seeders own their rows.
+			return new \WP_REST_Response( [ 'error' => 'Journal entry not found' ], 404 );
+		}
 		global $wpdb;
 		$table   = $wpdb->prefix . 'bizcity_skills';
 		$deleted = $wpdb->delete( $table, [ 'id' => $id ] );
@@ -1128,6 +1157,9 @@ SYSTEM;
 
 		$skills = [];
 		foreach ( $rows as $row ) {
+			if ( $this->is_system_owned_skill( $row ) ) {
+				continue;
+			}
 			$skills[] = $this->db_row_to_skill_array( $row );
 		}
 
@@ -1178,6 +1210,36 @@ SYSTEM;
 	}
 
 	/* ── Private helpers ──────────────────────────────────────────── */
+
+	/**
+	 * Determine whether a DB row belongs to the machine runtime registry.
+	 *
+	 * Provenance fields are preferred when a newer schema supplies them. The
+	 * category fallback keeps existing installations safe until that schema
+	 * migration is completed; it must not be copied into runtime matchers.
+	 */
+	private function is_system_owned_skill( array $row ): bool {
+		if ( array_key_exists( 'journal_visible', $row ) && ! (bool) $row['journal_visible'] ) {
+			return true;
+		}
+
+		$visibility = sanitize_key( (string) ( $row['visibility'] ?? '' ) );
+		if ( in_array( $visibility, array( 'runtime', 'system', 'hidden' ), true ) ) {
+			return true;
+		}
+
+		$owner_type = sanitize_key( (string) ( $row['owner_type'] ?? '' ) );
+		if ( $owner_type === 'system' ) {
+			return true;
+		}
+
+		$source_module = sanitize_key( (string) ( $row['source_module'] ?? '' ) );
+		if ( $source_module !== '' ) {
+			return true;
+		}
+
+		return in_array( sanitize_key( (string) ( $row['category'] ?? '' ) ), self::SYSTEM_SKILL_CATEGORIES, true );
+	}
 
 	/** Convert DB row to frontmatter array */
 	private function db_row_to_frontmatter( array $row ): array {

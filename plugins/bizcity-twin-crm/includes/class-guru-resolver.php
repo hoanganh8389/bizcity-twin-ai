@@ -67,9 +67,8 @@ class BizCity_CRM_Guru_Resolver {
 			$platform_aliases[] = 'FB_MESS';
 		} elseif ( $platform === 'FB_MESS' ) {
 			$platform_aliases[] = 'FACEBOOK';
-		} elseif ( $platform === 'ZALO_OA' ) {
-			$platform_aliases[] = 'ZALO_BOT';
 		}
+		// [2026-08-01 Johnny Chu] R-ZONE — keep ZALO_OA bindings isolated from ZALO_BOT.
 		$placeholders = implode( ',', array_fill( 0, count( $platform_aliases ), '%s' ) );
 
 		// Step 1 — bind (platform, account_id) → character_id.

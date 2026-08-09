@@ -146,12 +146,33 @@ class BizCity_Cron_Manager {
 		if ( ! class_exists( 'BizCity_Diagnostics_Auto_Create' ) ) {
 			return; // diagnostics not loaded — soft-skip; will heal next pageload.
 		}
-		BizCity_Diagnostics_Auto_Create::run( self::TABLE_REGISTRY );
-		BizCity_Diagnostics_Auto_Create::run( self::TABLE_RUNS );
-		BizCity_Diagnostics_Auto_Create::run( self::TABLE_RETRIES );
+		$results = array(
+			BizCity_Diagnostics_Auto_Create::run( self::TABLE_REGISTRY ),
+			BizCity_Diagnostics_Auto_Create::run( self::TABLE_RUNS ),
+			BizCity_Diagnostics_Auto_Create::run( self::TABLE_RETRIES ),
+		);
 		// [2026-07-26 Johnny Chu] CRON-LOCK-PHASE-A — provision lock table.
-		BizCity_Diagnostics_Auto_Create::run( self::TABLE_LOCKS );
-		update_option( self::DB_VERSION_OPTION, self::DB_VERSION, false );
+		$results[] = BizCity_Diagnostics_Auto_Create::run( self::TABLE_LOCKS );
+
+		$schema_changed = false;
+		foreach ( $results as $result ) {
+			$action = is_array( $result ) ? (string) ( $result['action'] ?? '' ) : '';
+			if ( in_array( $action, array( 'created', 'altered', 'partial' ), true ) ) {
+				$schema_changed = true;
+				break;
+			}
+		}
+
+		// [2026-07-30 Johnny Chu] R-PERF — do not rewrite options or invalidate
+		// registry fingerprints after a steady-state noop provisioning pass.
+		$current_version = (string) get_option( self::DB_VERSION_OPTION, '' );
+		if ( $current_version !== self::DB_VERSION ) {
+			update_option( self::DB_VERSION_OPTION, self::DB_VERSION, false );
+		}
+		if ( ! $schema_changed ) {
+			return;
+		}
+
 		// [2026-06-09 Johnny Chu] CRON-PERF-1 — invalidate fp khi bảng vừa được tạo lại để force re-seed.
 		delete_option( self::REGISTRY_FP_OPTION );
 		update_option( self::REGISTRY_GENERATION_OPTION, microtime( true ), false );

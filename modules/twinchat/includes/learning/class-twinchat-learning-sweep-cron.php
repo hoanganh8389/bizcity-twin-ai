@@ -79,7 +79,21 @@ class BizCity_TwinChat_Learning_Sweep_Cron {
 	public static function bind() {
 		add_filter( 'cron_schedules', [ __CLASS__, 'register_schedule' ] );
 		add_action( self::HOOK, [ __CLASS__, 'tick' ] );
-		add_action( 'init', [ __CLASS__, 'maybe_schedule' ], 20 );
+		if ( defined( 'DOING_CRON' ) && DOING_CRON ) {
+			add_action( 'init', [ __CLASS__, 'maybe_schedule' ], 20 );
+		} elseif ( is_admin() ) {
+			add_action( 'current_screen', [ __CLASS__, 'maybe_schedule_admin_screen' ], 20 );
+		}
+	}
+
+	// [2026-07-30 Johnny Chu] PHASE-1.22-RUNTIME — avoid cron-array reads/writes on unrelated admin screens.
+	public static function maybe_schedule_admin_screen( $screen ) {
+		$page      = isset( $_GET['page'] ) ? sanitize_key( wp_unslash( $_GET['page'] ) ) : '';
+		$screen_id = $screen && isset( $screen->id ) ? (string) $screen->id : '';
+		if ( strpos( $page, 'bizcity-twinchat' ) === false && strpos( $screen_id, 'bizcity-kg' ) === false ) {
+			return;
+		}
+		self::maybe_schedule();
 	}
 
 	public static function register_schedule( $schedules ) {

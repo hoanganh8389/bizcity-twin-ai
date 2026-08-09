@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bizcity.vn/schema/twin-extension-manifest-v1.json",
+  "title": "BizCity Twin Extension Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "id", "name", "version", "capabilities"],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0" },
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{2,63}$" },
+    "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "requires": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "framework": { "type": "string" },
+        "php": { "type": "string" },
+        "wp": { "type": "string" }
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tools": { "type": "array", "items": { "$ref": "#/$defs/capability" } },
+        "skills": { "type": "array", "items": { "$ref": "#/$defs/capability" } },
+        "agents": { "type": "array", "items": { "$ref": "#/$defs/capability" } },
+        "channels": { "type": "array", "items": { "$ref": "#/$defs/capability" } },
+        "kg_source_adapters": { "type": "array", "items": { "$ref": "#/$defs/capability" } },
+        "workflow_blocks": { "type": "array", "items": { "$ref": "#/$defs/capability" } },
+        "personas": { "type": "array", "items": { "$ref": "#/$defs/capability" } },
+        "output_renderers": { "type": "array", "items": { "$ref": "#/$defs/capability" } }
+      }
+    },
+    "permissions": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+){1,4}$"
+      }
+    },
+    "scope_bindings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["permission", "scope_level"],
+        "properties": {
+          "permission": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+){1,4}$"
+          },
+          "scope_level": { "enum": ["tenant", "site", "user"] }
+        }
+      }
+    },
+    "approval_gates": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": ["send_message", "publish_content", "create_order", "delete_data", "execute_payment"]
+      }
+    },
+    "security": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "webhook_signature": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["required", "algorithm"],
+          "properties": {
+            "required": { "type": "boolean" },
+            "algorithm": { "enum": ["hmac-sha256", "hmac-sha512", "ed25519"] },
+            "header": { "type": "string", "maxLength": 120 }
+          }
+        },
+        "secret_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]{2,64}$"
+          }
+        },
+        "network_policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "allow_hosts": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string", "minLength": 1, "maxLength": 255 }
+            },
+            "block_private_ranges": { "type": "boolean" }
+          }
+        },
+        "upload_policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "allowed_mime": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string", "minLength": 1, "maxLength": 120 }
+            },
+            "max_bytes": { "type": "integer", "minimum": 1 },
+            "scan_required": { "type": "boolean" }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{1,63}$" },
+        "label": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "description": { "type": "string", "maxLength": 500 },
+        "class": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_\\\\]*$" },
+        "schema": { "type": "object" },
+        "primary": { "type": "boolean" },
+        "zone": { "enum": ["customer", "admin"] },
+        "artifact_type": { "type": "string" },
+        "side_effects": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

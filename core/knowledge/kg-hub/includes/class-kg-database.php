@@ -69,7 +69,7 @@ class BizCity_KG_Database {
 	//                   Backward-compatible: nullable, default storage_ver=1 so
 	//                   legacy code continues reading from MySQL columns. Wave F1
 	//                   dual-writer flips to 2 only after file flush + sha256 verify.
-	const SCHEMA_VERSION = '0.30.1'; // [2026-07-29 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — persist VIEW repair state and verify filestore columns before version bump.
+	const SCHEMA_VERSION = '0.30.2'; // [2026-07-30 Johnny Chu] PHASE-0.6-KG-CLEANUP — align runtime version with the kg_mentions retirement changelog.
 	const OPTION_VERSION = 'bizcity_kg_db_version';
 	const SCHEMA_MEMORY_OPTION = 'bizcity_kg_schema_memory';
 	const SCHEMA_RETRY_SECONDS = 3600;
@@ -123,6 +123,16 @@ class BizCity_KG_Database {
 		}
 
 		$database->create_tables();
+		// [2026-07-30 Johnny Chu] PHASE-1.22-RUNTIME — re-read physical schema after additive KG DDL.
+		if ( function_exists( 'bizcity_columns_invalidate' ) ) {
+			bizcity_columns_invalidate( $database->tbl_passages(), [ 'storage_ver', 'file_shard', 'file_offset', 'file_length' ] );
+			bizcity_columns_invalidate( $wpdb->prefix . 'bizcity_kg_source_chunks', [ 'storage_ver', 'file_shard', 'file_offset', 'file_length', 'character_uuid' ] );
+		}
+		// [2026-07-30 Johnny Chu] R-PERF — invalidate cached TABLE_TYPE after KG DDL/VIEW repair.
+		if ( function_exists( 'bizcity_table_type_invalidate' ) ) {
+			bizcity_table_type_invalidate( $database->tbl_passages() );
+			bizcity_table_type_invalidate( $wpdb->prefix . 'bizcity_kg_source_chunks' );
+		}
 		if ( $database->is_filestore_schema_ready() ) {
 			update_option( self::OPTION_VERSION, self::SCHEMA_VERSION, false );
 			self::remember_schema_migration_state( [
@@ -163,29 +173,44 @@ class BizCity_KG_Database {
 	private function is_filestore_schema_ready() {
 		global $wpdb;
 		$passages = $this->tbl_passages();
-		$type     = $wpdb->get_var( $wpdb->prepare(
-			'SELECT TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
-			$passages
-		) );
+		// [2026-08-04 Johnny Chu] HOTFIX — require the complete unified chunk write contract before trusting the schema version.
+		$chunk_columns = [
+			'source_id', 'blog_id', 'project_id', 'plugin_name', 'notebook_id',
+			'chunk_index', 'content', 'content_hash', 'token_count', 'embedding',
+			'embed_model', 'embed_status', 'origin', 'scope_type', 'scope_id',
+			'created_at', 'storage_ver', 'file_shard', 'file_offset', 'file_length',
+		];
+		$type     = function_exists( 'bizcity_table_type' )
+			? bizcity_table_type( $passages )
+			: $wpdb->get_var( $wpdb->prepare(
+				'SELECT TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+				$passages
+			) );
 		if ( 'BASE TABLE' === $type ) {
-			return $this->has_schema_columns( $passages, [ 'storage_ver', 'file_shard', 'file_offset', 'file_length' ] );
+			return $this->has_schema_columns( $passages, $chunk_columns );
 		}
 		if ( 'VIEW' !== $type ) {
 			return false;
 		}
 
 		$source_chunks = $wpdb->prefix . 'bizcity_kg_source_chunks';
-		$source_type   = $wpdb->get_var( $wpdb->prepare(
-			'SELECT TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
-			$source_chunks
-		) );
+		$source_type   = function_exists( 'bizcity_table_type' )
+			? bizcity_table_type( $source_chunks )
+			: $wpdb->get_var( $wpdb->prepare(
+				'SELECT TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+				$source_chunks
+			) );
 		return 'BASE TABLE' === $source_type
 			&& $this->has_schema_columns( $source_chunks, [ 'storage_ver', 'file_shard', 'file_offset', 'file_length', 'character_uuid' ] )
-			&& $this->has_schema_columns( $passages, [ 'storage_ver', 'file_shard', 'file_offset', 'file_length', 'character_uuid' ] );
+			&& $this->has_schema_columns( $passages, array_merge( $chunk_columns, [ 'character_uuid' ] ) );
 	}
 
 	private function has_schema_columns( $table, array $columns ) {
 		global $wpdb;
+		// [2026-07-30 Johnny Chu] PHASE-1.22-RUNTIME — collapse storage_ver/file_* checks into one cached metadata query.
+		if ( function_exists( 'bizcity_columns_exist' ) ) {
+			return bizcity_columns_exist( $table, $columns );
+		}
 		foreach ( $columns as $column ) {
 			$exists = $wpdb->get_var( $wpdb->prepare(
 				'SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = %s LIMIT 1',
@@ -213,7 +238,6 @@ class BizCity_KG_Database {
 	public function tbl_scope_links()         { global $wpdb; return $wpdb->prefix . 'bizcity_kg_scope_links'; }
 	// Phase 0.6 — new central tables.
 	public function tbl_sources()             { global $wpdb; return $wpdb->prefix . 'bizcity_kg_sources'; }
-	public function tbl_mentions()            { global $wpdb; return $wpdb->prefix . 'bizcity_kg_mentions'; }
 	public function tbl_xref()                { global $wpdb; return $wpdb->prefix . 'bizcity_kg_xref'; }
 	// Phase 0.6.5 — unified source chunks table.
 	// HOTFIX 2026-05-06: Phase 0.6.5 RENAME (kg_passages → kg_source_chunks) was rolled back on prod (blog 1258).
@@ -624,7 +648,8 @@ class BizCity_KG_Database {
 			BizCity_KG_Cost_Guard::instance()->ensure_table();
 		}
 
-		// 13. Phase 0.6 — unified source layer: kg_sources, kg_mentions, kg_xref.
+		// [2026-07-30 Johnny Chu] PHASE-0.6-KG-CLEANUP — keep retired kg_mentions out of future DDL.
+		// 13. Phase 0.6 — unified source layer: kg_sources and kg_xref.
 		dbDelta( "CREATE TABLE IF NOT EXISTS {$this->tbl_sources()} (
 			id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 			uuid            CHAR(36) NOT NULL,
@@ -648,19 +673,6 @@ class BizCity_KG_Database {
 			KEY idx_scope (scope_type, scope_id),
 			KEY idx_blog_origin (blog_id, origin_plugin),
 			KEY idx_status (status)
-		) {$cs};" );
-
-		dbDelta( "CREATE TABLE IF NOT EXISTS {$this->tbl_mentions()} (
-			id         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-			passage_id BIGINT UNSIGNED NOT NULL,
-			entity_id  BIGINT UNSIGNED NOT NULL,
-			span_start INT UNSIGNED DEFAULT NULL,
-			span_end   INT UNSIGNED DEFAULT NULL,
-			span_text  VARCHAR(255) DEFAULT NULL,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-			PRIMARY KEY  (id),
-			KEY idx_passage (passage_id),
-			KEY idx_entity (entity_id)
 		) {$cs};" );
 
 		dbDelta( "CREATE TABLE IF NOT EXISTS {$this->tbl_xref()} (

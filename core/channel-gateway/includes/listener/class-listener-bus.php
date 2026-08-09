@@ -146,6 +146,8 @@ class BizCity_Listener_Bus {
 			'character_id' => isset( $envelope['character_id'] ) ? (int) $envelope['character_id'] : null,
 			'meta'         => array(
 				'trigger_key'        => (string) $trigger_key,
+				// [2026-08-06 Johnny Chu] ZALO-BIND-DIALOG — expose resolver state to Run Trace without exposing provider credentials.
+				'wp_user_id'         => (int) ( $envelope['wp_user_id'] ?? 0 ),
 				// [2026-07-22 Johnny Chu] PHASE-ZALOBOT-GROUP-TRACE — keep group/private target fields for Automation Test Listen replay.
 				'conversation_chat_id' => (string) ( $envelope['conversation_chat_id'] ?? $envelope['chat_id'] ?? '' ),
 				'provider_chat_id'   => (string) ( $envelope['provider_chat_id'] ?? '' ),

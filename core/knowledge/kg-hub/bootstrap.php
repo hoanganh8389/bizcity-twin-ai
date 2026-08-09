@@ -208,12 +208,27 @@ add_action( 'bizcity_kg_legacy_chunks_persisted', [ 'BizCity_KG', 'on_legacy_chu
 
 // ─── Init ──────────────────────────────────────────────────────────────────
 add_action( 'init', static function () {
-	// Trigger DB migration on every page load (cheap, version-gated).
-	BizCity_KG_Database::instance();
+	// [2026-07-30 Johnny Chu] PHASE-1.22-RUNTIME — do not run KG schema migration on unrelated web requests.
+	$runtime_context = ( defined( 'REST_REQUEST' ) && REST_REQUEST )
+		|| ( defined( 'DOING_CRON' ) && DOING_CRON )
+		|| ( defined( 'WP_CLI' ) && WP_CLI );
+	if ( $runtime_context ) {
+		BizCity_KG_Database::instance();
+	}
 	// Phase 0.5 Sprint 2 — hook studio output → KG adapter.
 	BizCity_KG_Source_Adapter_Studio::instance()->boot();
 	// Phase 0.5 Sprint 4.5g — auto-promote chat messages to KG passages.
 	BizCity_KG_Auto_Promoter::instance()->boot();
+}, 5 );
+
+// [2026-07-30 Johnny Chu] PHASE-1.22-RUNTIME — admin KG migration is deferred to relevant screens only.
+add_action( 'current_screen', static function ( $screen ) {
+	$page = isset( $_GET['page'] ) ? sanitize_key( wp_unslash( $_GET['page'] ) ) : '';
+	$screen_id = $screen && isset( $screen->id ) ? (string) $screen->id : '';
+	if ( strpos( $page, 'bizcity-twinchat' ) === false && strpos( $screen_id, 'bizcity-kg' ) === false ) {
+		return;
+	}
+	BizCity_KG_Database::instance();
 }, 5 );
 
 add_action( 'rest_api_init', static function () {

@@ -3285,6 +3285,8 @@ body { margin:0; font-family: "Segoe UI", Arial, sans-serif; background: linear-
 		if ( ! empty( $res['busy'] ) ) {
 			if ( ! empty( $res['paused'] ) ) {
 				$reason = 'paused_quota';
+			} elseif ( ! empty( $res['reason_code'] ) && (string) $res['reason_code'] === 'learning_worker_capacity' ) {
+				$reason = 'worker_capacity';
 			} elseif ( ! empty( $res['phase'] ) && $res['phase'] === 'approving' ) {
 				$reason = 'approving';
 			} elseif ( isset( $res['job']['lease_owner'] ) && (string) $res['job']['lease_owner'] !== '' && (string) $res['job']['lease_owner'] !== $owner ) {

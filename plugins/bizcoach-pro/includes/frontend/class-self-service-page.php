@@ -227,7 +227,7 @@ html { margin-top: 0 !important; }
 	/* ------------------------------------------------------------------ *
 	 * One-shot flush — runs at admin_init priority 99, once per BCPRO_REWRITE_VERSION
 	 * [2026-06-09 Johnny Chu] HOTFIX — use BCPRO_REWRITE_VERSION (stable '0.3.23') instead of
-	 * BCPRO_VERSION which contains time() → guard NEVER matched → flush on every request.
+	 * Rewrite version must remain stable so the guard only flushes after a real change.
 	 * update_option() set BEFORE flush_on_activation() so guard persists even if flush throws.
 	 * ------------------------------------------------------------------ */
 	public static function maybe_flush() {

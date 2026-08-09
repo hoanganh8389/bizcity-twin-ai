@@ -5,7 +5,7 @@
  * Unified table-installer orchestrator. Solves the multisite "new blog has
  * MISSING tables" problem by running every module's installer callback at
  * `wp_initialize_site` (new blog created) and `admin_init` (self-heal on
- * existing blog admin pageload, throttled).
+ * the Diagnostics page, throttled).
  *
  * Modules register via filter `bizcity_register_installers`:
  *
@@ -55,7 +55,7 @@ class BizCity_Site_Provisioner {
 		// New blog in multisite → install for that blog.
 		add_action( 'wp_initialize_site', [ __CLASS__, 'on_new_site' ], 99, 1 );
 
-		// Self-heal on admin pageload (throttled, capability-gated).
+		// Self-heal on the Diagnostics page (throttled, capability-gated).
 		add_action( 'admin_init', [ __CLASS__, 'maybe_self_heal' ], 5 );
 	}
 
@@ -103,9 +103,9 @@ class BizCity_Site_Provisioner {
 	}
 
 	/**
-	 * Self-heal: run installers once per blog every SELF_HEAL_TTL when admin
-	 * loads /wp-admin/. Each installer is internally idempotent (db_version
-	 * gate), so this is cheap on the steady state.
+	 * Self-heal: run installers once per blog every SELF_HEAL_TTL when the
+	 * Diagnostics page loads. Explicit `?bizcity_provision=1` remains available
+	 * from any admin page for an operator-triggered repair.
 	 */
 	public static function maybe_self_heal(): void {
 		// Only on admin context, only for admins.
@@ -115,6 +115,18 @@ class BizCity_Site_Provisioner {
 
 		// Manual force via ?bizcity_provision=1 — bypass throttle.
 		$force = ! empty( $_GET[ self::FORCE_QUERY_ARG ] );
+		if ( ! $force ) {
+			// [2026-07-30 Johnny Chu] R-PERF — do not run every registered
+			// installer on unrelated admin pages; Diagnostics is the repair UI.
+			$page      = isset( $_GET['page'] ) ? sanitize_key( (string) $_GET['page'] ) : '';
+			$screen    = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+			$screen_id = $screen && isset( $screen->id ) ? (string) $screen->id : '';
+			$is_diag   = $page === 'bizcity-diagnostics'
+				|| false !== strpos( $screen_id, 'bizcity-diagnostics' );
+			if ( ! $is_diag ) {
+				return;
+			}
+		}
 
 		// NEVER run self-heal during AJAX / REST / cron — those hit admin_init
 		// too. A single missed transient on a busy KG-building AJAX request

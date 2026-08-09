@@ -20,6 +20,59 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class BizCity_Zalo_Bot_Channel_Adapter implements BizCity_Channel_Adapter {
 
+	/** @var array<string,bool> */
+	private static $normalized_message_ids = array();
+
+	/**
+	 * Register the Zone 2 normalized envelope producer.
+	 */
+	public static function init_normalized_bridge(): void {
+		// [2026-08-09 Johnny Chu] R-CH-UNI — publish Zalo Bot Zone 2 envelopes without entering CRM/UCL.
+		add_action( 'bizcity_zalo_message_received', array( __CLASS__, 'emit_normalized' ), 1, 1 );
+	}
+
+	/**
+	 * Convert the verified webhook payload into the canonical Zone 2 envelope.
+	 */
+	public static function emit_normalized( $message_data ): void {
+		if ( ! is_array( $message_data ) || (string) ( $message_data['platform'] ?? '' ) !== 'ZALO_BOT' ) {
+			return;
+		}
+
+		$bot_id       = (int) ( $message_data['bot_id'] ?? $message_data['account_id'] ?? 0 );
+		$user_id      = trim( (string) ( $message_data['from_user_id'] ?? '' ) );
+		$message_id   = trim( (string) ( $message_data['message_id'] ?? '' ) );
+		$message      = (string) ( $message_data['message_text'] ?? '' );
+		$conversation = trim( (string) ( $message_data['conversation_chat_id'] ?? $message_data['chat_id'] ?? '' ) );
+		if ( $bot_id <= 0 || $user_id === '' || $message_id === '' || $conversation === '' ) {
+			return;
+		}
+		if ( isset( self::$normalized_message_ids[ $message_id ] ) ) {
+			return;
+		}
+		self::$normalized_message_ids[ $message_id ] = true;
+
+		$chat_id = ( strpos( $conversation, 'zalobot_' ) === 0 )
+			? $conversation
+			: 'zalobot_' . $bot_id . '_' . $user_id;
+		$envelope = array(
+			'platform'           => 'ZALO_BOT',
+			'code'               => 'zalo_bot',
+			'account_id'         => (string) $bot_id,
+			'user_id'            => $user_id,
+			'sender_user_id'     => $user_id,
+			'chat_id'            => $chat_id,
+			'conversation_chat_id' => $chat_id,
+			'message_id'         => $message_id,
+			'message'            => $message,
+			'raw_text'           => $message,
+			'message_text_clean' => $message,
+			'event_type'         => (string) ( $message_data['message_type'] ?? 'message' ),
+			'raw'                => $message_data,
+		);
+		do_action( 'bizcity_channel_normalized', $envelope, 'zalo_bot' );
+	}
+
 	public function get_platform(): string {
 		return 'ZALO_BOT';
 	}

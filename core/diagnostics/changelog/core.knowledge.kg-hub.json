@@ -3,7 +3,7 @@
   "module_id": "core.knowledge.kg-hub",
   "owner": "core/knowledge/kg-hub",
   "installer_id": "kg_hub",
-  "current_version": "0.30.1",
+  "current_version": "0.30.2",
   "version_option": "bizcity_kg_db_version",
   "tables": {
     "bizcity_kg_notebooks": {
@@ -165,6 +165,7 @@
     }
   },
   "history": [
+    { "version": "0.30.2", "date": "2026-07-30", "change": "PHASE-0.6-KG-CLEANUP: retire bizcity_kg_mentions after the active-code audit found no INSERT/SELECT consumer; remove it from active DDL and diagnostics inventory, and route existing non-empty tables through guarded orphan cleanup." },
     { "version": "0.30.1", "date": "2026-07-29", "change": "PHASE-0.45-KG-FILE-GRAPH: persist per-blog schema repair state, do not mark the KG version complete after a failed VIEW/column repair, and verify the physical source table plus compatibility VIEW before advancing the version." },
     { "version": "0.6.0",  "date": "2026-04-01", "change": "Initial declaration of kg-hub unified source layer (kg_sources + kg_passages). Other 14 kg-hub tables to be added incrementally." },
     { "version": "0.24.0", "date": "2026-05-20", "change": "Wave 0.7 LEARN-VECTOR-FILE F0: add storage_ver/file_shard/file_offset/file_length + idx_storage_ver to bizcity_kg_passages. Gating bit per-row for inline→filestore migration (R-LEARN §1). Idempotent ADD-only; storage_ver defaults to 1 so legacy rows remain readable from MySQL." },

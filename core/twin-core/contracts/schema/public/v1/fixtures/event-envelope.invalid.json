@@ -1,0 +1,6 @@
+{
+  "contract": "event-envelope",
+  "version": "1.0",
+  "trace_id": "short",
+  "event_type": "x"
+}

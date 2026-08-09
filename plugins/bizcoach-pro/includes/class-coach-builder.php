@@ -56,7 +56,7 @@ class BizCoach_Pro_Coach_Builder {
 	}
 	public static function maybe_flush_rewrite() {
 		// [2026-06-09 Johnny Chu] HOTFIX — use BCPRO_REWRITE_VERSION (stable '0.3.23') instead of
-		// BCPRO_VERSION which contains time() → guard NEVER matched → flush on every request.
+		// Keep the rewrite guard version stable so it only flushes after a real change.
 		$cur = '1.' . ( defined( 'BCPRO_REWRITE_VERSION' ) ? BCPRO_REWRITE_VERSION : '0.3.23' );
 		if ( get_option( self::FLUSH_FLAG ) === $cur ) { return; }
 		update_option( self::FLUSH_FLAG, $cur ); // set guard BEFORE flush (stop retry even if flush throws)
@@ -222,8 +222,13 @@ class BizCoach_Pro_Coach_Builder {
 			}
 		}
 
-		if ( ! class_exists( 'BizCity_Router_Proxy' ) || ! BizCity_Router_Proxy::is_ready() ) {
+		// [2026-08-09 Johnny Chu] R-GW-8 — route legacy coach generation through the shared client boundary.
+		if ( ! class_exists( 'BizCity_LLM_Client' ) ) {
 			return new WP_REST_Response( array( 'error' => 'llm_router_unavailable' ), 503 );
+		}
+		$llm = BizCity_LLM_Client::instance();
+		if ( ! $llm->is_ready() ) {
+			return new WP_REST_Response( array( 'error' => 'llm_router_no_key' ), 503 );
 		}
 
 		// Load answers.
@@ -276,8 +281,10 @@ class BizCoach_Pro_Coach_Builder {
 			array( 'role' => 'user',   'content' => wp_json_encode( $user_payload, JSON_UNESCAPED_UNICODE ) ),
 		);
 
-		$model = BizCity_Router_Models::get_model( 'chat' );
-		$resp  = BizCity_Router_Proxy::chat( $model, $messages, array(
+		$model = $llm->get_model( 'chat' );
+		$resp  = $llm->chat( $messages, array(
+			'model'       => $model,
+			'purpose'     => 'chat',
 			'temperature' => 0.6,
 			'max_tokens'  => 2200,
 		) );
@@ -418,10 +425,12 @@ class BizCoach_Pro_Coach_Builder {
 		if ( $coach_type === '' ) {
 			return new WP_REST_Response( array( 'error' => 'missing_coach_type' ), 400 );
 		}
-		if ( ! class_exists( 'BizCity_Router_Proxy' ) || ! class_exists( 'BizCity_Router_Models' ) ) {
+		// [2026-08-09 Johnny Chu] R-GW-8 — route legacy AI fill through the shared client boundary.
+		if ( ! class_exists( 'BizCity_LLM_Client' ) ) {
 			return new WP_REST_Response( array( 'error' => 'llm_router_unavailable' ), 503 );
 		}
-		if ( ! BizCity_Router_Proxy::is_ready() ) {
+		$llm = BizCity_LLM_Client::instance();
+		if ( ! $llm->is_ready() ) {
 			return new WP_REST_Response( array( 'error' => 'llm_router_no_key' ), 503 );
 		}
 
@@ -453,7 +462,7 @@ class BizCoach_Pro_Coach_Builder {
 			$summary_clean[ $key ] = mb_substr( (string) wp_strip_all_tags( (string) $v ), 0, $cap );
 		}
 
-		$model = BizCity_Router_Models::get_model( 'chat' );
+		$model = $llm->get_model( 'chat' );
 		$sys   = 'Bạn là Coach AI. Dựa trên thông tin tóm tắt người dùng cung cấp, ' .
 			'hãy trả lời từng câu hỏi (tối đa 2-3 câu / câu hỏi, súc tích, đúng văn phong cá nhân, ' .
 			'tiếng Việt tự nhiên, không markdown). Trả về NGHIÊM NGẶT JSON object dạng ' .
@@ -471,7 +480,9 @@ class BizCoach_Pro_Coach_Builder {
 			array( 'role' => 'user',   'content' => wp_json_encode( $user_payload, JSON_UNESCAPED_UNICODE ) ),
 		);
 
-		$resp = BizCity_Router_Proxy::chat( $model, $messages, array(
+		$resp = $llm->chat( $messages, array(
+			'model'       => $model,
+			'purpose'     => 'chat',
 			'temperature' => 0.4,
 			'max_tokens'  => 3500,
 			'extra_body'  => array( 'response_format' => array( 'type' => 'json_object' ) ),

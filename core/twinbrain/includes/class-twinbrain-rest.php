@@ -51,6 +51,8 @@ class BizCity_TwinBrain_REST {
 				'force_tools'      => [ 'type' => 'array',   'required' => false ],
 				'skip_tool_intent' => [ 'type' => 'boolean', 'required' => false ],
 				'auto_complete'    => [ 'type' => 'boolean', 'required' => false, 'default' => true ],
+				// [2026-08-07 Johnny Chu] V4-DEPTH — expose the MPR reasoning tier; absent means canonical high.
+				'answer_depth'     => [ 'type' => 'string', 'required' => false, 'enum' => [ 'fast', 'balanced', 'high', 'deep' ], 'default' => 'high' ],
 				// [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-2 — thread session_id.
 				'session_id'       => [ 'type' => 'string',  'required' => false ],
 			],
@@ -71,17 +73,18 @@ class BizCity_TwinBrain_REST {
 				// 'deep' (W7), 'social' (W14), 'company' (W15), 'med' (W17), 'scholar'
 				// (W17), 'nutri' (W17), 'law' (W17), 'tax' (W17), 'gov' (W17),
 				// 'products' (PHASE-TWB-PRODUCTS).
-				// [2026-06-03 Johnny Chu] HOTFIX — companion 'chat' mode: skip MPR
-				// perspectives + web research, dùng memory_block + companion system
-				// prompt (tâm sự / đồng hành / cảm xúc).
+				// [2026-08-03 Johnny Chu] R-TGL-CS — public Brain Chat uses `off`
+				// and full MPR; internal casual optimization uses companion_mode.
 				// [2026-06-04 Johnny Chu] PHASE-A C.3b — 'astro' mode: bypass MPR,
 				// inject transit passages qua CAP filter, compose final với astro context.
 				// [2026-07-15 Johnny Chu] PHASE-TWB-PRODUCTS — add products mode enum.
-				'web_mode'         => [ 'type' => 'string',  'required' => false, 'enum' => [ 'off', 'chat', 'astro', 'quick', 'deep', 'social', 'company', 'med', 'scholar', 'nutri', 'law', 'tax', 'gov', 'products' ] ],
+				'web_mode'         => [ 'type' => 'string',  'required' => false, 'enum' => [ 'off', 'astro', 'quick', 'deep', 'social', 'company', 'med', 'scholar', 'nutri', 'law', 'tax', 'gov', 'products' ] ],
 				// TBR.W20 (2026-05-28) — Agent mode toggle. 'brain' (default) =
 				// full MPR pipeline (perspectives + synthesis); 'agent' = bypass
 				// perspectives, run ReAct loop over Tool_Registry instead.
 				'mode'             => [ 'type' => 'string',  'required' => false, 'enum' => [ 'brain', 'agent' ] ],
+				// [2026-08-07 Johnny Chu] V4-DEPTH — same contract for streaming turns.
+				'answer_depth'     => [ 'type' => 'string', 'required' => false, 'enum' => [ 'fast', 'balanced', 'high', 'deep' ], 'default' => 'high' ],
 				// [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-2 — thread session_id.
 				// Auto-mint on first turn when omitted; FE picks up session_id from
 				// the streamed `started` SSE frame.
@@ -121,12 +124,13 @@ class BizCity_TwinBrain_REST {
 	 */
 	private function sanitize_web_mode( $raw ): string {
 		$v = strtolower( trim( (string) $raw ) );
-		// [2026-06-03 Johnny Chu] HOTFIX — accept 'chat' (companion mode).
+		// [2026-08-03 Johnny Chu] R-TGL-CS — legacy 'chat' requests normalize to
+		// off so Brain Chat uses the canonical full-MPR path.
 		// [2026-06-04 Johnny Chu] PHASE-A C.3b — accept 'astro' (transit mode).
 		// [2026-07-15 Johnny Chu] PHASE-TWB-PRODUCTS — accept 'products' vertical mode.
 		// MISSING from whitelist trước đây → astro request bị fallback 'off' →
 		// chạy full MPR pipeline (notebook perspectives) thay vì stream_astro_mode.
-		return in_array( $v, [ 'chat', 'astro', 'quick', 'deep', 'social', 'company', 'med', 'scholar', 'nutri', 'law', 'tax', 'gov', 'products' ], true ) ? $v : 'off';
+		return in_array( $v, [ 'astro', 'quick', 'deep', 'social', 'company', 'med', 'scholar', 'nutri', 'law', 'tax', 'gov', 'products' ], true ) ? $v : 'off';
 	}
 
 	/**
@@ -137,6 +141,15 @@ class BizCity_TwinBrain_REST {
 	private function sanitize_mode( $raw ): string {
 		$v = strtolower( trim( (string) $raw ) );
 		return $v === 'agent' ? 'agent' : 'brain';
+	}
+
+	/**
+	 * [2026-08-07 Johnny Chu] V4-DEPTH — normalize the user-selected MPR tier
+	 * at the REST boundary; unknown values fail closed to canonical high.
+	 */
+	private function sanitize_answer_depth( $raw ): string {
+		$value = strtolower( trim( (string) $raw ) );
+		return in_array( $value, array( 'fast', 'balanced', 'high', 'deep' ), true ) ? $value : 'high';
 	}
 
 	/**
@@ -177,6 +190,7 @@ class BizCity_TwinBrain_REST {
 			'force_notebooks'  => (array) $req->get_param( 'force_notebooks' ),
 			'force_tools'      => (array) $req->get_param( 'force_tools' ),
 			'skip_tool_intent' => (bool)  $req->get_param( 'skip_tool_intent' ),
+			'answer_depth'     => $this->sanitize_answer_depth( $req->get_param( 'answer_depth' ) ),
 			'session_id'       => $session_id,
 		];
 
@@ -199,6 +213,18 @@ class BizCity_TwinBrain_REST {
 					'_subject_profile_resolved' => ! empty( $start['_subject_profile_resolved'] ),
 					'user_id'                   => (int)    ( $opts['user_id'] ?? 0 ),
 					'session_id'                => (string) ( $opts['session_id'] ?? '' ),
+					'identity_uuid'             => (string) ( $start['identity_uuid'] ?? '' ),
+					'identity_state'            => (string) ( $start['identity_state'] ?? 'unknown' ),
+					'subject_contract'          => (array)  ( $start['subject_contract'] ?? array() ),
+					'goal_loop_state'            => (array)  ( $start['goal_loop_state'] ?? array() ),
+					'goal_loop'                 => (array)  ( $start['goal_loop_state'] ?? array() ),
+					'goal_contract'              => (array)  ( $start['goal_contract'] ?? array() ),
+					// [2026-08-01 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G2 — preserve the active goal brief for Final Composer.
+					'goal_loop_brief'           => (string) ( $start['goal_loop_brief'] ?? '' ),
+					'answer_depth'               => (string) ( $start['answer_depth'] ?? $opts['answer_depth'] ?? 'high' ), // [2026-08-07 Johnny Chu] V4-DEPTH — preserve resolved tier for synchronous completion.
+					'goal_loop_pre_turn_completed' => ! empty( $start['goal_loop_pre_turn_completed'] ), // [2026-08-07 Johnny Chu] V4-DEPTH — preserve parser lifecycle marker.
+					'pre_mpr_triage'             => (array) ( $start['pre_mpr_triage'] ?? array() ), // [2026-08-07 Johnny Chu] V4-TRIAGE — preserve ambiguous/MPR branch.
+					'ambiguous_no_goal'          => ! empty( $start['ambiguous_no_goal'] ),
 				)
 			);
 			return rest_ensure_response( array_merge( $start, $done, [ 'session_id' => $session_id ] ) );
@@ -228,6 +254,7 @@ class BizCity_TwinBrain_REST {
 			'force_notebooks'  => (array) $req->get_param( 'force_notebooks' ),
 			'force_tools'      => (array) $req->get_param( 'force_tools' ),
 			'skip_tool_intent' => (bool)  $req->get_param( 'skip_tool_intent' ),
+			'answer_depth'     => $this->sanitize_answer_depth( $req->get_param( 'answer_depth' ) ),
 			// TBR.W9 (2026-05-21) — propagate web_mode to runtime so Stage 2.5
 			// engines (Web_Quick / Web_Deep) fire after notebook perspectives.
 			'web_mode'         => $this->sanitize_web_mode( $req->get_param( 'web_mode' ) ),
@@ -236,13 +263,122 @@ class BizCity_TwinBrain_REST {
 			// [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-2 — resolve / mint session.
 			'session_id'       => $this->resolve_session_id( $req, get_current_user_id() ),
 		];
+		$conversation_route = array();
+		// [2026-08-01 Johnny Chu] R-CH-IDMEM — scope pending confirmation by blog, user, and session.
+		$confirm_key = 'twinchat:' . (int) get_current_blog_id() . ':' . (int) ( $opts['user_id'] ?? 0 ) . ':' . (string) ( $opts['session_id'] ?? '' );
+		$skill = trim( (string) $req->get_param( 'skill' ) );
+		$confirmation_result = array( 'status' => 'none' );
+		if ( class_exists( 'BizCity_TwinBrain_Conversation_Confirmation' )
+			&& class_exists( 'BizCity_TwinBrain_Conversation_Router' )
+			&& BizCity_TwinBrain_Conversation_Router::SPECIALIZED_ROUTING_ENABLED ) {
+			// [2026-08-01 Johnny Chu] PHASE-TBR-CHAT-DEFAULT — pending confirmation takes precedence over stale sticky Skill UI state.
+			$confirmation_result = BizCity_TwinBrain_Conversation_Confirmation::consume( $confirm_key, $prompt );
+			if ( in_array( (string) ( $confirmation_result['status'] ?? '' ), array( 'confirmed', 'invalid' ), true ) ) {
+				// [2026-08-01 Johnny Chu] PHASE-TBR-CHAT-DEFAULT — a confirmation reply is conversational, never a workflow skill invocation.
+				$skill = '';
+			}
+			if ( ( $confirmation_result['status'] ?? '' ) === 'confirmed' ) {
+				$prompt = (string) ( $confirmation_result['prompt'] ?? $prompt );
+				$conversation_route = (array) ( $confirmation_result['decision'] ?? array() );
+			}
+		}
+		// [2026-08-01 Johnny Chu] PHASE-TBR-CHAT-DEFAULT — route the default TwinChat Brain surface through the shared Layer 0.9 classifier.
+		if ( class_exists( 'BizCity_TwinBrain_Conversation_Router' )
+			&& BizCity_TwinBrain_Conversation_Router::SPECIALIZED_ROUTING_ENABLED
+			&& '' === trim( (string) $req->get_param( 'skill' ) )
+			&& 'off' === (string) $opts['web_mode']
+			&& ( $confirmation_result['status'] ?? '' ) !== 'confirmed'
+			&& class_exists( 'BizCity_TwinBrain_Conversation_Router' ) ) {
+			try {
+				$conversation_route = BizCity_TwinBrain_Conversation_Router::route(
+					$prompt,
+					(int) $opts['user_id'],
+					array(
+						'surface' => 'twinchat',
+						'session_id' => (string) ( $opts['session_id'] ?? '' ),
+						'trace_id' => (string) ( $opts['trace_id'] ?? '' ),
+					)
+				);
+				if ( empty( $conversation_route['needs_confirm'] ) ) {
+					if ( ! empty( $conversation_route['web_mode'] ) && 'off' !== $conversation_route['web_mode'] ) {
+						$opts['web_mode'] = sanitize_key( (string) $conversation_route['web_mode'] );
+					} elseif ( 'casual' === (string) ( $conversation_route['route'] ?? '' )
+						&& 'casual_fast_path' === (string) ( $conversation_route['reason'] ?? '' ) ) {
+						// [2026-08-02 Johnny Chu] PHASE-TWIN-GOAL-LOOP-MPR — only true greeting/small-talk may use companion chat; long natural prompts must retain Notebook/MPR search.
+						$opts['companion_mode'] = true;
+						$opts['web_mode'] = 'off';
+					}
+					if ( ! empty( $conversation_route['force_notebooks'] ) ) {
+						$opts['force_notebooks'] = array_map( 'intval', (array) $conversation_route['force_notebooks'] );
+					}
+				}
+			} catch ( \Throwable $e ) {
+				$conversation_route = array( 'route' => 'casual', 'reason' => 'router_error' );
+			}
+		}
 
 		$sse = new BizCity_Twin_SSE_Writer( true );
 
 		// [2026-06-19 Johnny Chu] PHASE-TWB-WORKFLOW W1 — route /skill → Workflow Pipeline.
 		// When AskBrainPanel sends `skill` param, bypass normal MPR pipeline and
 		// run the workflow-driven pipeline instead. Fail-OPEN if class missing.
-		$skill = trim( (string) $req->get_param( 'skill' ) );
+		if ( $skill === '' && class_exists( 'BizCity_TwinBrain_Conversation_Confirmation' ) ) {
+			$confirmed = $confirmation_result;
+			if ( ( $confirmed['status'] ?? '' ) === 'confirmed' ) {
+				if ( ! empty( $conversation_route['web_mode'] ) && 'off' !== $conversation_route['web_mode'] ) {
+					$opts['web_mode'] = sanitize_key( (string) $conversation_route['web_mode'] );
+				} elseif ( 'casual' === (string) ( $conversation_route['route'] ?? '' )
+					&& 'casual_fast_path' === (string) ( $conversation_route['reason'] ?? '' ) ) {
+					// [2026-08-02 Johnny Chu] PHASE-TWIN-GOAL-LOOP-MPR — preserve Notebook/MPR for goal-bearing natural chat after confirmation handoff.
+					$opts['companion_mode'] = true;
+					$opts['web_mode'] = 'off';
+				}
+				if ( ! empty( $conversation_route['force_notebooks'] ) ) {
+					$opts['force_notebooks'] = array_map( 'intval', (array) $conversation_route['force_notebooks'] );
+				}
+			} elseif ( ( $confirmed['status'] ?? '' ) === 'invalid' ) {
+				$trace_id = 'tb_' . wp_generate_uuid4();
+				$sse->emit( 'started', array( 'trace_id' => $trace_id, 'session_id' => (string) $opts['session_id'] ) );
+				$sse->emit( 'conversation_confirm_prompt', array(
+					'trace_id' => $trace_id,
+					'message'  => 'Sếp trả lời "Có" để dùng nguồn chuyên gia, hoặc "Không" để em trả lời chung nhé.',
+					'route'    => 'notebook',
+					'expires_in' => BizCity_TwinBrain_Conversation_Confirmation::TTL,
+				) );
+				BizCity_TwinBrain_Conversation_Confirmation::dispatch_prompt(
+					array( 'trace_id' => $trace_id, 'message' => 'Sếp trả lời "Có" để dùng nguồn chuyên gia, hoặc "Không" để em trả lời chung nhé.', 'route' => 'notebook', 'expires_in' => BizCity_TwinBrain_Conversation_Confirmation::TTL ),
+					array( 'event_source' => 'twinbrain', 'session_id' => (string) $opts['session_id'], 'user_id' => (int) $opts['user_id'] )
+				);
+				$sse->close( array() );
+				exit;
+			}
+			if ( ! empty( $conversation_route['needs_confirm'] ) && in_array( (string) ( $conversation_route['route'] ?? '' ), array( 'notebook', 'vertical' ), true ) ) {
+				$label = '';
+				if ( ! empty( $conversation_route['candidate_vertical'] ) ) {
+					$label = (string) ( BizCity_TwinBrain_Conversation_Router::VERTICAL_CATALOG[ $conversation_route['candidate_vertical'] ]['label'] ?? $conversation_route['candidate_vertical'] );
+				} elseif ( ! empty( $conversation_route['candidate_notebook_titles'][0] ) ) {
+					$label = 'Notebook "' . (string) $conversation_route['candidate_notebook_titles'][0] . '"';
+				}
+				if ( $label !== '' && BizCity_TwinBrain_Conversation_Confirmation::begin( $confirm_key, $prompt, $conversation_route ) ) {
+					$trace_id = 'tb_' . wp_generate_uuid4();
+					$sse->emit( 'started', array( 'trace_id' => $trace_id, 'session_id' => (string) $opts['session_id'] ) );
+					$sse->emit( 'conversation_confirm_prompt', array(
+						'trace_id' => $trace_id,
+						'message'  => 'Câu hỏi này có vẻ liên quan tới ' . $label . '. Sếp muốn em dùng nguồn đó để trả lời không?',
+						'route'    => (string) $conversation_route['route'],
+						'candidate_notebook_ids' => array_values( array_map( 'intval', (array) ( $conversation_route['candidate_notebook_ids'] ?? array() ) ) ),
+						'candidate_vertical' => (string) ( $conversation_route['candidate_vertical'] ?? '' ),
+						'expires_in' => BizCity_TwinBrain_Conversation_Confirmation::TTL,
+					) );
+					BizCity_TwinBrain_Conversation_Confirmation::dispatch_prompt(
+						array( 'trace_id' => $trace_id, 'message' => 'Câu hỏi này có vẻ liên quan tới ' . $label . '. Sếp muốn em dùng nguồn đó để trả lời không?', 'route' => (string) $conversation_route['route'], 'expires_in' => BizCity_TwinBrain_Conversation_Confirmation::TTL ),
+						array( 'event_source' => 'twinbrain', 'session_id' => (string) $opts['session_id'], 'user_id' => (int) $opts['user_id'] )
+					);
+					$sse->close( array() );
+					exit;
+				}
+			}
+		}
 		if ( $skill !== '' && class_exists( 'BizCity_TwinBrain_Workflow_Pipeline' ) ) {
 			$pipeline = BizCity_TwinBrain_Workflow_Pipeline::instance();
 			// Inject SSE emitter that mirrors BizCity_Twin_SSE_Writer->emit().
@@ -268,8 +404,9 @@ class BizCity_TwinBrain_REST {
 				) );
 				$sse->close( array() );
 			} catch ( \Throwable $e ) {
-				error_log( '[TwinBrain][twinbrain-rest] workflow pipeline threw: ' . $e->getMessage() );
-				$sse->error( $e->getMessage(), 'twin_agent_exception' );
+				// [2026-08-01 Johnny Chu] R-ERROR-UX — keep exception detail in server logs and return a safe retry contract.
+				error_log( '[TwinBrain][twinbrain-rest] workflow pipeline threw: ' . get_class( $e ) . ' ' . $e->getMessage() );
+				$sse->error( 'Skill pipeline không thể hoàn tất.', 'twin_agent_exception' );
 			}
 			exit;
 		}
@@ -280,6 +417,38 @@ class BizCity_TwinBrain_REST {
 			$sse->emit( 'started', [ 'prompt' => $prompt, 'session_id' => (string) ( $opts['session_id'] ?? '' ) ] );
 			$start = $runtime->start_turn( $prompt, $opts );
 			$trace_id = (string) ( $start['trace_id'] ?? '' );
+			// [2026-08-07 Johnny Chu] V4-TRIAGE — project provider-first route metadata onto native SSE.
+			$triage_sse = (array) ( $start['pre_mpr_triage'] ?? array() );
+			$sse->emit( 'conversation_triage_started', array(
+				'trace_id'         => $trace_id,
+				'triage_model'     => (string) ( $triage_sse['triage_model'] ?? 'openai/gpt-5.6-luna' ),
+				'triage_reasoning' => (string) ( $triage_sse['triage_reasoning'] ?? 'low' ),
+			) );
+			$sse->emit( 'conversation_triage_done', array(
+				'trace_id'          => $trace_id,
+				'route'             => (string) ( $triage_sse['route'] ?? 'mpr' ),
+				'conversation_kind' => (string) ( $triage_sse['conversation_kind'] ?? 'unclear' ),
+				'confidence'        => (float) ( $triage_sse['confidence'] ?? 0 ),
+				'reason_code'       => (string) ( $triage_sse['reason_code'] ?? '' ),
+				'mpr_dispatched'    => ( (string) ( $triage_sse['route'] ?? 'mpr' ) === 'mpr' ),
+			) );
+			if ( ! empty( $conversation_route ) ) {
+				$sse->emit( 'twin_event', array(
+					'event_uuid' => wp_generate_uuid4(),
+					'event_type' => 'conversation_route_decided',
+					'event_source' => 'twinbrain',
+					'trace_id' => $trace_id,
+					'payload' => array(
+						'route' => (string) ( $conversation_route['route'] ?? 'casual' ),
+						'confidence' => (float) ( $conversation_route['confidence'] ?? 0 ),
+						'needs_confirm' => ! empty( $conversation_route['needs_confirm'] ),
+						'candidate_notebook_ids' => array_values( array_map( 'intval', (array) ( $conversation_route['candidate_notebook_ids'] ?? array() ) ) ),
+						'candidate_vertical' => (string) ( $conversation_route['candidate_vertical'] ?? '' ),
+						'web_mode' => (string) ( $conversation_route['web_mode'] ?? 'off' ),
+						'reason' => (string) ( $conversation_route['reason'] ?? '' ),
+					),
+				) );
+			}
 
 			/* PHASE-0.35 / F7.C4.1 — Re-emit Layer 0/1 events as native SSE so
 			 * the FE BrainThinkingTimeline reducer can render guru search +
@@ -320,6 +489,17 @@ class BizCity_TwinBrain_REST {
 					'subject_context_label'     => (string) ( $start['subject_context_label'] ?? '' ),
 					'subject_id'                => (int)    ( $start['subject_id'] ?? 0 ),
 					'_subject_profile_resolved' => ! empty( $start['_subject_profile_resolved'] ),
+					'identity_uuid'             => (string) ( $start['identity_uuid'] ?? '' ),
+					'identity_state'            => (string) ( $start['identity_state'] ?? 'unknown' ),
+					'subject_contract'          => (array)  ( $start['subject_contract'] ?? array() ),
+					'goal_loop_state'            => (array)  ( $start['goal_loop_state'] ?? array() ),
+					'goal_loop'                 => (array)  ( $start['goal_loop_state'] ?? array() ),
+					// [2026-08-01 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G2 — preserve the active goal brief for Final Composer.
+					'goal_loop_brief'           => (string) ( $start['goal_loop_brief'] ?? '' ),
+					'goal_contract'              => (array)  ( $start['goal_contract'] ?? array() ),
+					'answer_depth'               => (string) ( $start['answer_depth'] ?? $opts['answer_depth'] ?? 'high' ), // [2026-08-07 Johnny Chu] V4-DEPTH — preserve resolved tier for streaming completion.
+					'pre_mpr_triage'             => (array) ( $start['pre_mpr_triage'] ?? array() ), // [2026-08-07 Johnny Chu] V4-TRIAGE — preserve ambiguous/MPR branch.
+					'ambiguous_no_goal'          => ! empty( $start['ambiguous_no_goal'] ),
 					// TBR.W9 — Stage 2.5 toggle propagated from REST opts.
 					'web_mode'       => (string) ( $opts['web_mode']    ?? 'off' ),
 					// TBR.W20 — Agent mode toggle (brain | agent).

@@ -197,6 +197,29 @@ class BizCity_KG_Vector_File_Store {
 	 * @return true|WP_Error
 	 */
 	public function write( $path, array $vectors, array $idx_rows, array $meta = [] ) {
+		$abs = $this->resolve_path( $path );
+		if ( is_wp_error( $abs ) ) { return $abs; }
+		// [2026-08-04 Johnny Chu] HOTFIX — serialize full bundle rebuilds with
+		// appends so an atomic rebuild cannot be overwritten by a stale append.
+		$dir = dirname( $abs );
+		if ( ! is_dir( $dir ) && ! wp_mkdir_p( $dir ) ) {
+			return new WP_Error( 'kg_bin_mkdir_failed', 'Cannot create vector bundle directory.' );
+		}
+		$lock_path = $abs . '.lock';
+		$lock      = @fopen( $lock_path, 'c' );
+		if ( ! $lock || ! @flock( $lock, LOCK_EX ) ) {
+			if ( is_resource( $lock ) ) { @fclose( $lock ); }
+			return new WP_Error( 'kg_bin_lock_failed', 'Could not acquire vector bundle lock.' );
+		}
+		try {
+			return $this->write_locked( $abs, $vectors, $idx_rows, $meta );
+		} finally {
+			@flock( $lock, LOCK_UN );
+			@fclose( $lock );
+		}
+	}
+
+	private function write_locked( $path, array $vectors, array $idx_rows, array $meta = [] ) {
 		$dim      = isset( $meta['dim'] ) ? (int) $meta['dim'] : self::DEFAULT_DIM;
 		$model_id = isset( $meta['model_id'] ) ? (string) $meta['model_id'] : self::DEFAULT_MODEL;
 		$count    = count( $vectors );
@@ -290,31 +313,78 @@ class BizCity_KG_Vector_File_Store {
 	public function append( $path, array $vectors, array $idx_rows, array $meta = [] ) {
 		$abs = $this->resolve_path( $path );
 		if ( is_wp_error( $abs ) ) { return $abs; }
+		// [2026-08-04 Johnny Chu] HOTFIX — serialize bin and idx replacement
+		// across concurrent async workers targeting the same notebook bundle.
+		$dir = dirname( $abs );
+		if ( ! is_dir( $dir ) && ! wp_mkdir_p( $dir ) ) {
+			return new WP_Error( 'kg_bin_mkdir_failed', 'Cannot create vector bundle directory.' );
+		}
+		$lock_path = $abs . '.lock';
+		$lock      = @fopen( $lock_path, 'c' );
+		if ( ! $lock || ! @flock( $lock, LOCK_EX ) ) {
+			if ( is_resource( $lock ) ) { @fclose( $lock ); }
+			return new WP_Error( 'kg_bin_lock_failed', 'Could not acquire vector bundle lock.' );
+		}
+		try {
+			return $this->append_locked( $abs, $vectors, $idx_rows, $meta );
+		} finally {
+			@flock( $lock, LOCK_UN );
+			@fclose( $lock );
+		}
+	}
+
+	private function append_locked( $abs, array $vectors, array $idx_rows, array $meta = [] ) {
 
 		if ( ! file_exists( $abs ) ) {
-			return $this->write( $path, $vectors, $idx_rows, $meta );
+			return $this->write_locked( $abs, $vectors, $idx_rows, $meta );
 		}
 		if ( count( $vectors ) !== count( $idx_rows ) ) {
 			return new WP_Error( 'kg_bin_idx_mismatch', 'idx_rows count != vectors count' );
 		}
 		if ( empty( $vectors ) ) { return true; }
 
+		// [2026-08-01 Johnny Chu] PHASE-KG-FILE-REPAIR — a marked corrupt bundle
+		// must be rebuilt from canonical rows before any further append is allowed.
+		$rebuild_marker = $abs . '.rebuild-required';
+		if ( file_exists( $rebuild_marker ) ) {
+			return new WP_Error( 'kg_bin_rebuild_required', 'Vector bundle is marked for rebuild.' );
+		}
+
 		$hdr = $this->header_validate( $abs );
-		if ( is_wp_error( $hdr ) ) { return $hdr; }
+		if ( is_wp_error( $hdr ) ) {
+			if ( 'kg_bin_size_mismatch' === $hdr->get_error_code() ) {
+				// [2026-08-01 Johnny Chu] PHASE-KG-FILE-REPAIR — persist a marker
+				// instead of appending to a physically inconsistent file on every retry.
+				@file_put_contents( $rebuild_marker, wp_json_encode( array( 'code' => $hdr->get_error_code(), 'created' => gmdate( 'c' ) ) ) );
+				return new WP_Error( 'kg_bin_rebuild_required', 'Vector bundle size is inconsistent; rebuild required.' );
+			}
+			return $hdr;
+		}
 		$dim = $hdr['dim'];
 
-		$fh = fopen( $abs, 'r+b' );
-		if ( ! $fh ) { return new WP_Error( 'kg_bin_open_rw', 'fopen r+b failed' ); }
+		// [2026-08-01 Johnny Chu] PHASE-KG-FILE-REPAIR — write the complete
+		// append to a sibling temp file, then replace the original atomically.
+		$tmp = $abs . '.tmp-append-' . wp_generate_password( 8, false, false );
+		if ( ! @copy( $abs, $tmp ) ) {
+			return new WP_Error( 'kg_bin_tmp_copy', 'Could not copy vector bundle to append temp file.' );
+		}
+		$fh = fopen( $tmp, 'r+b' );
+		if ( ! $fh ) {
+			@unlink( $tmp );
+			return new WP_Error( 'kg_bin_open_rw', 'fopen r+b failed' );
+		}
 		// Seek to EOF and append rows.
 		fseek( $fh, 0, SEEK_END );
 		foreach ( $vectors as $i => $vec ) {
 			$packed = $this->pack_vector( $vec, $dim );
 			if ( is_wp_error( $packed ) ) {
 				fclose( $fh );
+				@unlink( $tmp );
 				return new WP_Error( $packed->get_error_code(), 'append row ' . $i . ': ' . $packed->get_error_message() );
 			}
 			if ( fwrite( $fh, $packed ) !== ( $dim * self::FLOAT_SIZE ) ) {
 				fclose( $fh );
+				@unlink( $tmp );
 				return new WP_Error( 'kg_bin_write_short', 'short append at row ' . $i );
 			}
 		}
@@ -324,6 +394,10 @@ class BizCity_KG_Vector_File_Store {
 		fwrite( $fh, pack( 'P', $new_count ) );
 		fflush( $fh );
 		fclose( $fh );
+		if ( ! @rename( $tmp, $abs ) ) {
+			@unlink( $tmp );
+			return new WP_Error( 'kg_bin_rename', 'Could not replace vector bundle after append.' );
+		}
 
 		// Update idx.json.
 		$idx_abs = $this->idx_path( $abs );
@@ -928,15 +1002,17 @@ class BizCity_KG_Vector_File_Store {
 
 		$db    = BizCity_KG_Database::instance();
 		$table = $db->tbl_source_chunks();
+		// [2026-08-04 Johnny Chu] HOTFIX — rebuild from canonical body filestore
+		// when embedding JSON is NULL under the filestore-only contract.
 		if ( 'character' === $scope_type ) {
 			$rows = $wpdb->get_results( $wpdb->prepare(
-				"SELECT id, source_id, embedding FROM {$table} WHERE character_uuid = %s AND embedding IS NOT NULL ORDER BY id ASC",
+				"SELECT id, source_id, content, embedding FROM {$table} WHERE character_uuid = %s ORDER BY id ASC",
 				$uuid
 			), ARRAY_A );
 			$bin_kind = 'gurus';
 		} else {
 			$rows = $wpdb->get_results( $wpdb->prepare(
-				"SELECT id, source_id, embedding FROM {$table} WHERE notebook_id = %d AND character_uuid IS NULL AND embedding IS NOT NULL ORDER BY id ASC",
+				"SELECT id, source_id, content, embedding FROM {$table} WHERE notebook_id = %d AND (character_uuid IS NULL OR character_uuid = '') ORDER BY id ASC",
 				(int) $scope_id
 			), ARRAY_A );
 			$bin_kind = 'notebooks';
@@ -946,24 +1022,60 @@ class BizCity_KG_Vector_File_Store {
 			return new WP_Error( 'kg_bin_no_rows', 'no rows with embedding for ' . $scope_type . ':' . $scope_id );
 		}
 
+		$prepared = [];
+		$reembed  = [];
+		foreach ( $rows as $r ) {
+			$vec = ! empty( $r['embedding'] ) ? json_decode( $r['embedding'], true ) : null;
+			if ( is_array( $vec ) && ! empty( $vec ) ) {
+				$prepared[] = [ 'row' => $r, 'vector' => array_map( 'floatval', $vec ) ];
+				continue;
+			}
+
+			$content = trim( (string) ( $r['content'] ?? '' ) );
+			if ( $content === '' && class_exists( 'BizCity_KG_Source_Body_File_Store' ) ) {
+				$content = BizCity_KG_Source_Body_File_Store::read_chunk( (int) $scope_id, (int) $r['id'] );
+				if ( is_wp_error( $content ) ) {
+					return new WP_Error( 'kg_bin_body_missing', 'Cannot rebuild chunk ' . (int) $r['id'] . ': body unavailable.' );
+				}
+			}
+			if ( $content === '' ) {
+				return new WP_Error( 'kg_bin_body_missing', 'Cannot rebuild chunk ' . (int) $r['id'] . ': body is empty.' );
+			}
+			$reembed[] = count( $prepared );
+			$prepared[] = [ 'row' => $r, 'content' => $content ];
+		}
+
+		if ( ! empty( $reembed ) ) {
+			if ( ! class_exists( 'BizCity_KG_Vector_Index' ) ) {
+				return new WP_Error( 'kg_bin_no_embedder', 'Embedding service unavailable for bundle rebuild.' );
+			}
+			$embedder = BizCity_KG_Vector_Index::instance();
+			foreach ( $reembed as $prepared_index ) {
+				$vec = $embedder->embed( $prepared[ $prepared_index ]['content'] );
+				if ( is_wp_error( $vec ) || ! is_array( $vec ) || empty( $vec ) ) {
+					return new WP_Error( 'kg_bin_reembed_failed', 'Cannot rebuild chunk ' . (int) $prepared[ $prepared_index ]['row']['id'] . ': embedding failed.' );
+				}
+				$prepared[ $prepared_index ]['vector'] = array_map( 'floatval', $vec );
+			}
+		}
+
 		$vectors = [];
 		$idx     = [];
 		$dim     = 0;
-		foreach ( $rows as $r ) {
-			$vec = json_decode( $r['embedding'], true );
-			if ( ! is_array( $vec ) || empty( $vec ) ) { continue; }
+		foreach ( $prepared as $item ) {
+			$vec = $item['vector'];
 			if ( $dim === 0 ) { $dim = count( $vec ); }
 			if ( count( $vec ) !== $dim ) {
-				return new WP_Error( 'kg_bin_dim_mixed', 'mixed dims in DB rows for ' . $scope_type . ':' . $scope_id );
+				return new WP_Error( 'kg_bin_dim_mixed', 'mixed dims in bundle rows for ' . $scope_type . ':' . $scope_id );
 			}
-			$vectors[] = array_map( 'floatval', $vec );
+			$vectors[] = $vec;
 			$idx[]     = [
-				'chunk_id'  => (int) $r['id'],
-				'source_id' => isset( $r['source_id'] ) ? (int) $r['source_id'] : null,
+				'chunk_id'  => (int) $item['row']['id'],
+				'source_id' => isset( $item['row']['source_id'] ) ? (int) $item['row']['source_id'] : null,
 			];
 		}
 		if ( empty( $vectors ) ) {
-			return new WP_Error( 'kg_bin_no_vectors', 'all embeddings unparseable for ' . $scope_type . ':' . $scope_id );
+			return new WP_Error( 'kg_bin_no_vectors', 'no rebuildable vectors for ' . $scope_type . ':' . $scope_id );
 		}
 
 		$abs = bizcity_kg_vector_bin_path( $bin_kind, $uuid );
@@ -972,6 +1084,7 @@ class BizCity_KG_Vector_File_Store {
 		}
 		$res = $this->write( $abs, $vectors, $idx, [ 'dim' => $dim, 'model_id' => self::DEFAULT_MODEL ] );
 		if ( is_wp_error( $res ) ) { return $res; }
+		@unlink( $abs . '.rebuild-required' );
 
 		return [
 			'count'      => count( $vectors ),

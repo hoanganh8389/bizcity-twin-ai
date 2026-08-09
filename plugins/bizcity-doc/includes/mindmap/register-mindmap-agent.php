@@ -24,6 +24,13 @@
 
 defined( 'ABSPATH' ) || exit;
 
+// [2026-08-09 Johnny Chu] HOTFIX — guard Mindmap Agent against lazy-load order.
+// TwinChat admin-shell optimization may defer core/agents/bootstrap.php while
+// the bundled Doc plugin is still included at file scope.
+if ( ! class_exists( 'BizCity_TwinShell_Tool', false ) || ! class_exists( 'BizCity_TwinShell_Agent', false ) ) {
+	return;
+}
+
 /**
  * Tool: build_mindmap
  *

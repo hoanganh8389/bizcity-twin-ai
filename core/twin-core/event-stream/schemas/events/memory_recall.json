@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Twin Event Stream: memory_recall",
+  "type": "object",
+  "required": ["trace_id", "surface", "counts", "citations", "block_len", "latency_ms"],
+  "properties": {
+    "trace_id": { "type": "string", "minLength": 1 },
+    "surface": { "type": "string", "minLength": 1 },
+    "counts": {
+      "type": "object",
+      "additionalProperties": { "type": "integer", "minimum": 0 }
+    },
+    "citations": { "type": "array" },
+    "block_len": { "type": "integer", "minimum": 0 },
+    "latency_ms": { "type": "integer", "minimum": 0 }
+  },
+  "additionalProperties": true
+}

@@ -1026,11 +1026,11 @@ class BizCity_TwinChat_REST_Controller {
 						}
 						// Fallback: stitch from chunk rows if content_text was never set.
 						if ( $content_text === '' ) {
-							$chunks_table = $db_tc->table_source_chunks();
-							$texts        = $wpdb->get_col( $wpdb->prepare(
-								"SELECT content FROM {$chunks_table} WHERE source_id = %d ORDER BY chunk_index ASC",
-								$legacy_id
-							) );
+							// [2026-08-04 Johnny Chu] HOTFIX — read through canonical chunk storage; legacy table may not exist on the shard.
+							$chunk_rows = $db_tc->list_chunks( $legacy_id );
+							$texts      = array_filter( array_map( static function ( $chunk ) {
+								return (string) ( $chunk['content'] ?? '' );
+							}, (array) $chunk_rows ) );
 							if ( $texts ) $content_text = implode( "\n\n", $texts );
 						}
 					}
@@ -1085,12 +1085,12 @@ class BizCity_TwinChat_REST_Controller {
 			if ( empty( $row['content_text'] ) ) {
 				global $wpdb;
 				$db           = BizCity_TwinChat_Sources_Database::instance();
-				$chunks_table = $db->table_source_chunks();
 				$chunk_source_id = isset( $row['__legacy_source_id'] ) ? (int) $row['__legacy_source_id'] : $source_id;
-				$texts        = $wpdb->get_col( $wpdb->prepare(
-					"SELECT content FROM {$chunks_table} WHERE source_id = %d ORDER BY chunk_index ASC",
-					$chunk_source_id
-				) );
+				// [2026-08-04 Johnny Chu] HOTFIX — keep source-detail reads on the canonical chunk resolver.
+				$chunk_rows = $db->list_chunks( $chunk_source_id );
+				$texts      = array_filter( array_map( static function ( $chunk ) {
+					return (string) ( $chunk['content'] ?? '' );
+				}, (array) $chunk_rows ) );
 				if ( $texts ) {
 					$row['content_text'] = implode( "\n\n", $texts );
 				}
@@ -1693,6 +1693,10 @@ class BizCity_TwinChat_REST_Controller {
 			'async ingest file missing'           => 'async_file_missing',
 			'Đã vượt quá số lần thử xử lý file'   => 'async_max_attempts_exceeded',
 			'Không thể xếp lịch xử lý file nền'   => 'async_ingest_schedule_failed',
+			'Chunk persistence failed'             => 'chunk_persist_failed',
+			'Passage persistence failed'          => 'passage_persist_failed',
+			'Không lưu đủ các đoạn nội dung'      => 'chunk_persist_failed',
+			'Không lưu đủ dữ liệu tìm kiếm'       => 'passage_persist_failed',
 		];
 		foreach ( $patterns as $needle => $code ) {
 			if ( mb_stripos( $message, $needle ) !== false ) {

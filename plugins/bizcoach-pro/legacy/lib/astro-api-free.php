@@ -87,8 +87,8 @@ function bccm_astro_api_call($endpoint, $payload, $timeout = 30) {
      * BizCity_Astro_Client::natal() which returns the normalized envelope.
      * ──────────────────────────────────────────────────────────────── */
 
-    $gateway_ready = class_exists( 'BizCity_Astro_Quota_Guard' )
-                  && class_exists( 'BizCity_Router_Auth' );
+    // [2026-08-09 Johnny Chu] R-GW-8 — legacy provider remains fail-closed without Router-internal detection.
+    $gateway_ready = class_exists( 'BizCity_Astro_Quota_Guard' );
 
     if ( $gateway_ready ) {
         return _bccm_astro_api_call_via_gateway( $endpoint, $payload, $timeout );

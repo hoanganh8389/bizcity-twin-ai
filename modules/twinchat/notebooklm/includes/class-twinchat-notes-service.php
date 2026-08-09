@@ -25,6 +25,9 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 class BizCity_TwinChat_Notes_Service {
 
 	const TABLE_SUFFIX = 'bizcity_memory_notes';
+	// [2026-07-31 Johnny Chu] R-DCL — keep the installer and Schema Registry on the changelog version contract.
+	const DB_VERSION = '1.0.0';
+	const DB_VERSION_OPTION = 'bizcity_memory_notes_db_ver';
 	const ALLOWED_TYPES = [ 'manual', 'chat_pinned', 'auto_pinned', 'studio_generated', 'research_auto' ];
 
 	/** @return string fully-qualified table name */
@@ -35,7 +38,7 @@ class BizCity_TwinChat_Notes_Service {
 
 	/**
 	 * Ensure the canonical table exists. Safe to call frequently — gated by a
-	 * static cache so we only run `SHOW TABLES LIKE` once per request.
+	 * static cache and the canonical metadata helper.
 	 */
 	public static function ensure_table(): bool {
 		static $checked = null;
@@ -43,8 +46,12 @@ class BizCity_TwinChat_Notes_Service {
 
 		global $wpdb;
 		$table = self::table();
-		$exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) );
+		// [2026-07-31 Johnny Chu] R-SHOW-TABLES — use the cached information_schema helper for runtime existence checks.
+		$exists = bizcity_tbl_exists( $table );
 		if ( $exists ) {
+			if ( get_option( self::DB_VERSION_OPTION, '' ) !== self::DB_VERSION ) {
+				update_option( self::DB_VERSION_OPTION, self::DB_VERSION );
+			}
 			$checked = true;
 			return true;
 		}
@@ -80,8 +87,14 @@ class BizCity_TwinChat_Notes_Service {
 
 		dbDelta( $sql );
 
-		$exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) );
-		$checked = (bool) $exists;
+		// [2026-07-31 Johnny Chu] R-METADATA-CACHE — invalidate only after the DDL path changes schema state.
+		if ( function_exists( 'bizcity_tbl_invalidate' ) ) {
+			bizcity_tbl_invalidate( $table );
+		}
+		$checked = bizcity_tbl_exists( $table );
+		if ( $checked ) {
+			update_option( self::DB_VERSION_OPTION, self::DB_VERSION );
+		}
 		return $checked;
 	}
 
@@ -154,9 +167,18 @@ class BizCity_TwinChat_Notes_Service {
 		] );
 
 		if ( $result ) {
-			$project_id = $data['project_id'] ?? $this->get_project_id( (int) $id );
+			// [2026-07-31 Johnny Chu] PHASE-1.22-MEMORY-DUAL-WRITE — mirror the complete persisted row so partial updates do not blank unified fields.
+			$persisted = $wpdb->get_row( $wpdb->prepare(
+				"SELECT * FROM " . self::table() . " WHERE id = %d AND user_id = %d LIMIT 1",
+				(int) $id,
+				get_current_user_id()
+			) );
+			$project_id = $data['project_id'] ?? ( $persisted ? $persisted->project_id : $this->get_project_id( (int) $id ) );
 			if ( $project_id ) {
 				do_action( 'bcn_note_updated', (int) $id, $project_id );
+			}
+			if ( $persisted ) {
+				do_action( 'bizcity_memory_mirror_write', 'note', (array) $persisted, 'update' );
 			}
 		}
 
@@ -176,6 +198,10 @@ class BizCity_TwinChat_Notes_Service {
 
 		if ( $result && $project_id ) {
 			do_action( 'bcn_note_deleted', (int) $id, $project_id );
+		}
+		if ( $result ) {
+			// [2026-07-31 Johnny Chu] PHASE-1.22-MEMORY-UNIFY — remove the mirrored note row after the owner delete succeeds.
+			do_action( 'bizcity_memory_mirror_delete', 'note', (int) $id, array( 'blog_id' => get_current_blog_id(), 'user_id' => get_current_user_id() ) );
 		}
 
 		return $result;
@@ -233,4 +259,15 @@ class BizCity_TwinChat_Notes_Service {
 			$note_id
 		) );
 	}
+}
+
+// [2026-07-31 Johnny Chu] R-CR — register Notes schema before ensure_table() can call dbDelta().
+if ( class_exists( 'BizCity_Schema_Registry' ) ) {
+	BizCity_Schema_Registry::register(
+		BizCity_TwinChat_Notes_Service::TABLE_SUFFIX,
+		'modules.twinchat.memory.notes',
+		BizCity_TwinChat_Notes_Service::DB_VERSION,
+		BizCity_TwinChat_Notes_Service::DB_VERSION_OPTION,
+		[ 'BizCity_TwinChat_Notes_Service', 'ensure_table' ]
+	);
 }

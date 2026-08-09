@@ -85,7 +85,17 @@ class BizCity_CRM_ZNS_Send_Log {
 		);
 		$ok = $wpdb->insert( $tbl, $row );
 		if ( false === $ok ) {
-			error_log( '[bizcity-crm] zns_send_log insert failed: ' . (string) $wpdb->last_error );
+			// [2026-08-01 Johnny Chu] PHASE-CRM-LOG-SPLIT — keep ZNS log-write failures in CRM JSONL.
+			if ( class_exists( 'BizCity_JSONL_File_Logger', false ) ) {
+				BizCity_JSONL_File_Logger::write(
+					BizCity_JSONL_File_Logger::CRM_FOLDER,
+					'zns',
+					'error',
+					'zns_send_log_insert_failed',
+					'ZNS send-log database write failed.',
+					array( 'error_present' => (string) $wpdb->last_error !== '' )
+				);
+			}
 			return 0;
 		}
 		return (int) $wpdb->insert_id;

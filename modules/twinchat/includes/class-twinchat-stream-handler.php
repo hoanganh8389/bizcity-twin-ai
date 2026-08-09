@@ -23,6 +23,13 @@
 
 defined( 'ABSPATH' ) or die( 'OOPS...' );
 
+if ( ! class_exists( 'BizCity_TwinChat_Runtime_SSE_Writer', false ) ) {
+	$runtime_writer_file = __DIR__ . '/class-twinchat-runtime-sse-writer.php';
+	if ( is_readable( $runtime_writer_file ) ) {
+		require_once $runtime_writer_file;
+	}
+}
+
 class BizCity_TwinChat_Stream_Handler {
 
 	private static $instance = null;
@@ -67,6 +74,9 @@ class BizCity_TwinChat_Stream_Handler {
 	 */
 	private $heartbeat_ts = 0.0;
 
+	/** @var bool Whether the terminal SSE frame was already flushed. */
+	private $terminal_sse_sent = false;
+
 	/**
 	 * `bizcity_intent_pipeline_log` hook registered during open_sse_stream().
 	 * Stored so we can remove_action precisely in close_sse_stream().
@@ -102,6 +112,8 @@ class BizCity_TwinChat_Stream_Handler {
 	 * @return void
 	 */
 	public function handle( array $args ) {
+		// [2026-08-03 Johnny Chu] HOTFIX — the handler is a singleton; reset terminal state for every new chat request.
+		$this->terminal_sse_sent = false;
 		$args = array_merge( [
 			'notebook_id'     => 0,
 			'session_id'      => '',
@@ -120,6 +132,18 @@ class BizCity_TwinChat_Stream_Handler {
 		if ( $session_id === '' ) {
 			$session_id = wp_generate_uuid4();
 		}
+		// [2026-08-05 Johnny Chu] V3.1-MVP — resolve canonical Runtime availability before Twin Agent delegation so the MVP cannot be bypassed.
+		$use_twinbrain_runtime = (bool) apply_filters(
+			'bizcity_twinchat_use_twinbrain_runtime',
+			get_option( 'bizcity_twinchat_use_twinbrain_runtime', '1' ) !== '0',
+			$args,
+			$user_id,
+			$notebook_id,
+			$session_id
+		);
+		$runtime_mvp_available = $use_twinbrain_runtime
+			&& class_exists( 'BizCity_TwinBrain_Runtime' )
+			&& class_exists( 'BizCity_TwinChat_Runtime_SSE_Writer' );
 
 		// Sprint 4.7e — Twin Agent delegation (opt-in, feature-flagged).
 		// Khi flag bật + Twin_Agent có sẵn, bypass legacy pre-retrieve pipeline
@@ -128,7 +152,7 @@ class BizCity_TwinChat_Stream_Handler {
 			|| ( get_option( 'bizcity_twinchat_use_twin_agent', false ) === '1' )
 			|| apply_filters( 'bizcity_twinchat_use_twin_agent', false, $args );
 
-		if ( $use_twin_agent && class_exists( 'BizCity_Twin_Agent' ) ) {
+		if ( $use_twin_agent && ! $runtime_mvp_available && class_exists( 'BizCity_Twin_Agent' ) ) {
 			// Phase 0.12 Wave B+ — prepare turn (forwarder + trace_id) BEFORE
 			// SSE opens; turn_start is dispatched from inside handle_via_twin_agent
 			// AFTER BizCity_Twin_SSE_Writer flushes headers.
@@ -176,6 +200,20 @@ class BizCity_TwinChat_Stream_Handler {
 			return;
 		}
 		$this->begin_event_stream_turn( $user_id, $notebook_id, $session_id, $args );
+		if ( $runtime_mvp_available ) {
+			try {
+				$this->run_v3_runtime_pipeline( $args, $user_id, $notebook_id, $session_id );
+				$this->event_stream_turn['success'] = true;
+			} catch ( \Throwable $e ) {
+				error_log( '[TwinChat] canonical Runtime stream error: ' . $e->getMessage() );
+				$this->emit( 'error', array( 'message' => $e->getMessage(), 'code' => 'twinbrain_runtime_error' ) );
+				$this->event_stream_turn['success'] = false;
+			} finally {
+				$this->end_event_stream_turn();
+			}
+			$this->close_sse_stream();
+			return;
+		}
 
 		try {
 			$this->run_pipeline( $args, $user_id, $notebook_id, $session_id );
@@ -198,6 +236,73 @@ class BizCity_TwinChat_Stream_Handler {
 		}
 
 		$this->close_sse_stream();
+	}
+
+	private function run_v3_runtime_pipeline( array $args, int $user_id, int $notebook_id, string $session_id ): void {
+		// [2026-08-04 Johnny Chu] V3.1 — route the opt-in TwinChat stream through the canonical Runtime while preserving SSE framing.
+		$runtime = BizCity_TwinBrain_Runtime::instance();
+		$prompt = trim( (string) ( $args['user_message'] ?? '' ) );
+		$runtime_opts = array(
+			'user_id'          => $user_id,
+			'subject_id'       => $user_id,
+			'session_id'       => $session_id,
+			'identity_uuid'    => (string) ( $args['identity_uuid'] ?? '' ),
+			'surface'          => 'twinchat',
+			'channel'          => 'TWINCHAT',
+			'platform'         => 'TWINCHAT',
+			'web_mode'         => 'off',
+			'force_notebooks'  => $notebook_id > 0 ? array( $notebook_id ) : array(),
+			'k'                => 3,
+			'goal_signal'      => 'request',
+			'answer_depth'     => isset( $args['answer_depth'] ) && in_array( $args['answer_depth'], array( 'fast', 'balanced', 'high', 'deep' ), true ) ? (string) $args['answer_depth'] : 'high', // [2026-08-07 Johnny Chu] V4-DEPTH — forward selected MPR tier.
+		);
+		$start = $runtime->start_turn( $prompt, $runtime_opts );
+		if ( empty( $start['trace_id'] ) ) {
+			throw new \RuntimeException( 'twinbrain_start_failed' );
+		}
+		$runtime_opts = array_merge( $runtime_opts, array(
+			'guru_id'            => (int) ( $start['guru_id'] ?? 0 ),
+			'tool_force'         => (string) ( $start['tool_force'] ?? '' ),
+			'goal_loop_state'    => (array) ( $start['goal_loop_state'] ?? array() ),
+			'goal_loop'          => (array) ( $start['goal_loop_state'] ?? array() ),
+			'goal_contract'      => (array) ( $start['goal_contract'] ?? array() ), // [2026-08-05 Johnny Chu] V3.1 — forward frozen contract into Runtime stream.
+			'answer_depth'       => (string) ( $start['answer_depth'] ?? $runtime_opts['answer_depth'] ?? 'high' ), // [2026-08-07 Johnny Chu] V4-DEPTH — preserve resolved tier across completion.
+			'pre_mpr_triage'     => (array) ( $start['pre_mpr_triage'] ?? array() ), // [2026-08-07 Johnny Chu] V4-TRIAGE — preserve ambiguous/MPR branch.
+			'ambiguous_no_goal'  => ! empty( $start['ambiguous_no_goal'] ),
+			'goal_loop_brief'    => (string) ( $start['goal_loop_brief'] ?? '' ),
+			'subject_contract'   => (array) ( $start['subject_contract'] ?? array() ),
+			'identity_uuid'      => (string) ( $start['identity_uuid'] ?? $runtime_opts['identity_uuid'] ?? '' ),
+		) );
+		$writer = new BizCity_TwinChat_Runtime_SSE_Writer( function ( $event, $payload ) {
+			if ( $event === '__heartbeat' ) {
+				$this->maybe_heartbeat();
+				return;
+			}
+			$this->emit( (string) $event, (array) $payload );
+		} );
+		// [2026-08-07 Johnny Chu] V4-TRIAGE — expose provider-first branch metadata before stream completion.
+		$triage_sse = (array) ( $start['pre_mpr_triage'] ?? array() );
+		$this->emit( 'conversation_triage_started', array(
+			'trace_id'         => (string) $start['trace_id'],
+			'triage_model'     => (string) ( $triage_sse['triage_model'] ?? 'openai/gpt-5.6-luna' ),
+			'triage_reasoning' => (string) ( $triage_sse['triage_reasoning'] ?? 'low' ),
+		) );
+		$this->emit( 'conversation_triage_done', array(
+			'trace_id'          => (string) $start['trace_id'],
+			'route'             => (string) ( $triage_sse['route'] ?? 'mpr' ),
+			'conversation_kind' => (string) ( $triage_sse['conversation_kind'] ?? 'unclear' ),
+			'confidence'        => (float) ( $triage_sse['confidence'] ?? 0 ),
+			'reason_code'       => (string) ( $triage_sse['reason_code'] ?? '' ),
+			'mpr_dispatched'    => ( (string) ( $triage_sse['route'] ?? 'mpr' ) === 'mpr' ),
+		) );
+		$runtime->complete_turn_stream(
+			(string) $start['trace_id'],
+			$prompt,
+			(array) ( $start['candidates'] ?? array() ),
+			(array) ( $start['tool_candidates'] ?? array() ),
+			$writer,
+			$runtime_opts
+		);
 	}
 
 	private function run_pipeline( array $args, $user_id, $notebook_id, $session_id ) {
@@ -302,6 +407,8 @@ class BizCity_TwinChat_Stream_Handler {
 				}
 				$counts = (array) ( $mem_res['counts'] ?? [ 'A' => 0, 'B' => 0, 'C' => 0, 'D' => 0 ] );
 				$mem_recall_payload = [
+					// [2026-08-03 Johnny Chu] P2 — satisfy the canonical event payload contract.
+					'trace_id'    => (string) ( $this->event_stream_turn['trace_id'] ?? '' ),
 					'surface'     => 'twinchat-notebook',
 					'notebook_id' => (int) $notebook_id,
 					'counts'      => $counts,
@@ -313,7 +420,7 @@ class BizCity_TwinChat_Stream_Handler {
 				// hiển thị violet step trong timeline.
 				$this->emit( 'memory_recall', $mem_recall_payload );
 				// Mirror vào `bizcity_twin_event_stream` (R-EVT-2) cho forensics.
-				$this->dispatch_turn_event( 'memory_recall', $mem_recall_payload );
+				$this->dispatch_turn_event( BizCity_Twin_Event_Taxonomy::MEMORY_RECALL, $mem_recall_payload );
 			} catch ( \Throwable $e ) {
 				if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 					error_log( '[TwinChat][memory_recall][error] ' . $e->getMessage() );
@@ -767,6 +874,8 @@ class BizCity_TwinChat_Stream_Handler {
 			'citations'        => $citation_labels,
 			'citations_meta'   => $citations_meta,
 		] );
+		// [2026-08-03 Johnny Chu] HOTFIX — finish the client-visible stream before synchronous memory/shadow post-processing can hold the composer in a running state.
+		$this->emit_terminal_sse_frame();
 
 		/* Wave 2.8b TBR.MEM-N3 (2026-05-23) — Layer 4.7 Memory Writer parity.
 		 * Sau khi notebook chat phát final answer, dispatch Memory_Writer tích hợp
@@ -2048,6 +2157,8 @@ class BizCity_TwinChat_Stream_Handler {
 							: $mem_prefix;
 					}
 					$mem_recall_payload = [
+						// [2026-08-03 Johnny Chu] P2 — satisfy the canonical event payload contract in agent mode.
+						'trace_id'    => (string) ( $this->event_stream_turn['trace_id'] ?? '' ),
 						'surface'     => 'twinchat-notebook-agent',
 						'notebook_id' => (int) $notebook_id,
 						'counts'      => (array) ( $mem_res['counts'] ?? [ 'A' => 0, 'B' => 0, 'C' => 0, 'D' => 0 ] ),
@@ -2071,7 +2182,7 @@ class BizCity_TwinChat_Stream_Handler {
 						mb_strlen( $extra_system )
 					) );
 					$sse->emit( 'memory_recall', $mem_recall_payload );
-					$this->dispatch_turn_event( 'memory_recall', $mem_recall_payload );
+					$this->dispatch_turn_event( BizCity_Twin_Event_Taxonomy::MEMORY_RECALL, $mem_recall_payload );
 					// Wave 2.8d D6.9f — completion event for the timeline layer.
 					$this->dispatch_turn_event( 'decision', [
 						'stage'           => 'twin_memory_resolved',
@@ -2635,7 +2746,7 @@ class BizCity_TwinChat_Stream_Handler {
 	}
 
 	private function emit( $event, array $payload ) {
-		if ( connection_aborted() ) {
+		if ( $this->terminal_sse_sent || connection_aborted() ) {
 			return;
 		}
 		$json = wp_json_encode( $payload );
@@ -2682,7 +2793,17 @@ class BizCity_TwinChat_Stream_Handler {
 			$this->heartbeat_hook = null;
 		}
 		$this->heartbeat_ts = 0.0;
+		$this->emit_terminal_sse_frame();
+	}
+
+	private function emit_terminal_sse_frame(): void {
+		if ( $this->terminal_sse_sent ) {
+			return;
+		}
+		// [2026-08-03 Johnny Chu] HOTFIX — send one terminal frame and stop forwarding late post-processing events to the client.
+		$this->terminal_sse_sent = true;
 		echo "event: end\ndata: {}\n\n";
+		$this->detach_event_stream_forwarder();
 		@flush();
 	}
 

@@ -5,11 +5,6 @@
   "installer_id": "twin_crm",
   "current_version": "1.25.0",
   "version_option": "bizcity_crm_db_ver",
-  "history": [
-    { "version": "1.25.0", "date": "2026-07-05", "change": "R-UNIFY GAP-B: ADD platform/platform_uid/source to bizcity_crm_contacts; ADD platform/channel_thread_id/chat_id/contact_id/account_id/blog_id to bizcity_crm_conversations; ADD platform/platform_msg_id/body/payload_json to bizcity_crm_messages. Fix: Unknown column 'platform' in INSERT/WHERE." },
-    { "version": "1.24.0", "date": "2026-07-03", "change": "PHASE-0.46 M1: ADD bizcity_crm_activities + bizcity_crm_submissions tables." },
-    { "version": "1.23.0", "date": "2026-06-25", "change": "ADD action_flags_json + delay_sec to bizcity_crm_broadcasts; ADD scheduled_send_at + idx_scheduled_send to bizcity_crm_broadcast_recipients." }
-  ],
   "tables": {
     "bizcity_crm_broadcasts": {
       "since": "1.18.0",
@@ -708,6 +703,9 @@
     }
   },
   "history": [
+    { "version": "1.25.0", "date": "2026-07-05", "change": "R-UNIFY GAP-B: ADD platform/platform_uid/source to bizcity_crm_contacts; ADD platform/channel_thread_id/chat_id/contact_id/account_id/blog_id to bizcity_crm_conversations; ADD platform/platform_msg_id/body/payload_json to bizcity_crm_messages. Fix: Unknown column 'platform' in INSERT/WHERE." },
+    { "version": "1.24.0", "date": "2026-07-03", "change": "PHASE-0.46 M1: ADD bizcity_crm_activities + bizcity_crm_submissions tables." },
+    { "version": "1.23.0", "date": "2026-06-25", "change": "ADD action_flags_json + delay_sec to bizcity_crm_broadcasts; ADD scheduled_send_at + idx_scheduled_send to bizcity_crm_broadcast_recipients." },
     { "version": "1.0.0",  "date": "2026-03-01", "change": "Baseline declaration of bizcity_crm_leads + bizcity_crm_opportunities. Existing schema as shipped in M-CRM.M1 (class-db-installer.php). Declared retroactively to satisfy R-DCL when v1.16.0 added Customer Source adapter columns." },
     { "version": "1.16.0", "date": "2026-05-25", "change": "Add Customer Source adapter columns + UNIQUE upsert keys. Bizcity_CRM_Pipeline_Sync now upserts opportunities (and back-fills leads) from 3 sources via the new `bizcity_crm_register_customer_sources` filter: (1) inbox Messenger conversations (FB) → stage=prospecting; (2) bizgpt-dino-tichdiem `wp_dino_users`; (3) user-points `wp_user_points`. New cols: opportunities.{source, source_ref, source_synced_at} + UNIQUE(source, source_ref); leads.{source_ref} + UNIQUE(source, source_ref). Auto-promotion: when contact.phone gets captured (or external row already has phone), the opp jumps prospecting → qualification (probability 10 → 25) without overwriting downstream stages (proposal/negotiation/closed_*). Migration: `migrate_phase_042()` ADD-only — safe via BizCity_Diagnostics_Auto_Create." },
     { "version": "1.17.0", "date": "2026-05-28", "change": "Add bizcity_crm_audit_log table (M-CRM.M1.W3). Captures create/update/delete actions on CRM entities (leads, opportunities, contracts, contacts) with before/after JSON diffs. New class BizCity_CRM_Audit_Log::log() + BizCity_CRM_Audit_Repository::find_by_entity(). REST GET /audit exposed for FE AuditTimeline component (replaces MOCK_AUDIT in SalesTab). Migration: migrate_phase_043() ADD-only." },

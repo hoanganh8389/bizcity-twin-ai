@@ -111,6 +111,12 @@ class BizCity_CRM_Facebook_Ingestor {
 		$bot_id  = (string) ( $t['bot_id'] ?? '' );
 		$uid     = (string) ( $t['user_id'] ?? '' );
 		$text    = (string) ( $t['text'] ?? '' );
+		// [2026-08-02 Johnny Chu] PHASE-ZALO-VISION — preserve the canonical
+		// attachment URL forwarded by Gateway_Bridge; attachment_url is only a
+		// legacy alias and was causing image-only rows to be stored as text.
+		$attachment_type = sanitize_key( (string) ( $t['attachment_type'] ?? '' ) );
+		$image_url       = (string) ( $t['image_url'] ?? $t['attachment_url'] ?? '' );
+		$file_url        = (string) ( $t['file_url'] ?? '' );
 		if ( $bot_id === '' || $uid === '' ) { return; }
 		$payload = array(
 			'conversation_id' => $bot_id,                                  // → inbox_ref
@@ -119,7 +125,9 @@ class BizCity_CRM_Facebook_Ingestor {
 			'from_user_name'  => (string) ( $t['display_name'] ?? '' ),
 			'message_text'    => $text,
 			'message_id'      => (string) ( $t['message_id'] ?? '' ),
-			'image_url'       => ( ( $t['attachment_type'] ?? '' ) === 'image' ) ? (string) ( $t['attachment_url'] ?? '' ) : '',
+			'image_url'       => ( $attachment_type === 'image' || $image_url !== '' ) ? $image_url : '',
+			'file_url'        => ( $attachment_type === 'file' || $file_url !== '' ) ? $file_url : '',
+			'file_name'       => (string) ( $t['file_name'] ?? '' ),
 			'message_time'    => '',
 		);
 		try {

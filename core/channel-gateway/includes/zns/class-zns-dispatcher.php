@@ -75,10 +75,11 @@ class BizCity_ZNS_Dispatcher {
 		try {
 			$event_key = (string) ( $event_def['key'] ?? '' );
 
-			// Step 1: file-log hook triggered (R-CH-FILE-LOG)
-			BizCity_Channel_File_Logger::write(
-				BizCity_Channel_File_Logger::CH_ZALO_OA,
-				BizCity_Channel_File_Logger::LEVEL_INFO,
+			// [2026-07-31 Johnny Chu] PHASE-CRM-LOG-SPLIT — ZNS rule evidence is CRM-owned.
+			BizCity_JSONL_File_Logger::write(
+				BizCity_JSONL_File_Logger::CRM_FOLDER,
+				'zns',
+				'info',
 				'zns_hook_triggered',
 				'Event triggered: ' . $event_key,
 				array( 'event_key' => $event_key )
@@ -97,9 +98,10 @@ class BizCity_ZNS_Dispatcher {
 			// Step 3: guard phone
 			$phone = self::extract_phone( $ctx, (string) ( $event_def['phone_path'] ?? 'phone' ) );
 			if ( empty( $phone ) ) {
-				BizCity_Channel_File_Logger::write(
-					BizCity_Channel_File_Logger::CH_ZALO_OA,
-					BizCity_Channel_File_Logger::LEVEL_WARN,
+				BizCity_JSONL_File_Logger::write(
+					BizCity_JSONL_File_Logger::CRM_FOLDER,
+					'zns',
+					'warn',
 					'zns_skip_no_phone',
 					'No phone for event: ' . $event_key,
 					array( 'event_key' => $event_key )
@@ -133,18 +135,17 @@ class BizCity_ZNS_Dispatcher {
 			}
 
 		} catch ( \Exception $e ) {
-			BizCity_Channel_File_Logger::write(
-				BizCity_Channel_File_Logger::CH_ZALO_OA,
-				BizCity_Channel_File_Logger::LEVEL_ERROR,
+			BizCity_JSONL_File_Logger::write(
+				BizCity_JSONL_File_Logger::CRM_FOLDER,
+				'zns',
+				'error',
 				'zns_dispatch_exception',
-				'Exception: ' . $e->getMessage(),
+				'ZNS rule dispatch raised an exception.',
 				array(
 					'event_key'       => $event_def['key'] ?? '',
 					'exception_class' => get_class( $e ),
-					'exception_trace' => substr( $e->getTraceAsString(), 0, 500 ),
 				)
 			);
-			error_log( '[bizcity-zns] dispatch exception (' . ( $event_def['key'] ?? '' ) . '): ' . $e->getMessage() );
 		}
 	}
 

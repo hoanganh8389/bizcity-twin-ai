@@ -71,6 +71,10 @@ class BizCity_LLM_Client {
             $url = trim( (string) get_option( 'bizcity_llm_gateway_url', '' ) );
             restore_current_blog();
         }
+        // [2026-08-02 Johnny Chu] R-GW-API-CATALOG — gateway setting is a base
+        // URL; strip an accidentally pasted REST path before clients append
+        // their canonical `/wp-json/...` endpoint.
+        $url = preg_replace( '#/wp-json(?:/.*)?$#i', '', $url );
         return rtrim( $url ?: 'https://bizcity.vn', '/' );
     }
 
@@ -176,6 +180,10 @@ class BizCity_LLM_Client {
      */
     public function get_model( string $purpose = 'chat' ): string {
         $stored = $this->get_setting( 'model_' . $purpose, '' );
+        // [2026-08-01 Johnny Chu] R-GW-API-CATALOG — migrate the former built-in chat default without overwriting custom model choices.
+        if ( 'chat' === $purpose && 'google/gemini-2.5-flash' === $stored ) {
+            return BizCity_LLM_Models::DEFAULTS['chat'];
+        }
         if ( ! empty( $stored ) ) {
             return $stored;
         }
@@ -495,6 +503,14 @@ class BizCity_LLM_Client {
         if ( $api_key === '' ) {
             return new WP_Error( 'no_api_key', 'BizCity API key not configured.', [ 'status' => 503 ] );
         }
+        // [2026-08-01 Johnny Chu] R-LLM-KEY-ONLY — trace only a one-way
+        // fingerprint so runtime key scope can be compared with Hub key_id safely.
+        error_log( sprintf(
+            '[BizCity LLM Client] account_info key_hash_prefix=%s blog_id=%d site=%s',
+            substr( hash( 'sha256', $api_key ), 0, 12 ),
+            (int) get_current_blog_id(),
+            home_url()
+        ) );
         $timeout = isset( $options['timeout'] ) ? max( 2, (int) $options['timeout'] ) : 8;
         $url     = $this->get_gateway_url() . '/wp-json/bizcity/v1/account/info';
 
@@ -1228,7 +1244,10 @@ class BizCity_LLM_Client {
 
         // ── Client-side fallback: retry with fallback model on failure ──
         $no_fallback    = ! empty( $options['no_fallback'] ) || ! empty( $options['_is_fallback'] );
-        $should_retry   = ! $result['success'] && ! $no_fallback;
+        // [2026-08-01 Johnny Chu] R-ERROR-UX — streaming must obey the same
+        // hard quota stop as blocking chat; do not retry another model on 402/429 quota.
+        $quota_exhausted = ! empty( $result['quota_exhausted'] );
+        $should_retry   = ! $result['success'] && ! $no_fallback && ! $quota_exhausted;
         if ( $should_retry ) {
             $fallback_model = $this->get_fallback_model( $purpose );
             if ( $fallback_model && $fallback_model !== $model ) {
@@ -1269,7 +1288,8 @@ class BizCity_LLM_Client {
         $result = $this->chat( $messages, [
             'model'       => $character->model_id       ?? '',
             'temperature' => floatval( $character->creativity_level ?? 0.7 ),
-            'max_tokens'  => intval( $character->max_tokens ?? 3000 ),
+            // [2026-08-01 Johnny Chu] R-GW-API-CATALOG — raise the default chat output budget.
+            'max_tokens'  => intval( $character->max_tokens ?? 16000 ),
         ] );
 
         if ( class_exists( 'BizCity_User_Memory' ) ) {
@@ -1295,7 +1315,8 @@ class BizCity_LLM_Client {
         return $this->chat_stream( $messages, [
             'model'       => $character->model_id       ?? '',
             'temperature' => floatval( $character->creativity_level ?? 0.7 ),
-            'max_tokens'  => intval( $character->max_tokens ?? 3000 ),
+            // [2026-08-01 Johnny Chu] R-GW-API-CATALOG — raise the default streaming chat output budget.
+            'max_tokens'  => intval( $character->max_tokens ?? 16000 ),
         ], $on_chunk );
     }
 
@@ -1335,7 +1356,8 @@ class BizCity_LLM_Client {
             'model'       => $model,
             'messages'    => $messages,
             'temperature' => floatval( $options['temperature'] ?? 0.7 ),
-            'max_tokens'  => intval( $options['max_tokens']  ?? 3000 ),
+            // [2026-08-01 Johnny Chu] R-GW-API-CATALOG — raise the default gateway output budget.
+            'max_tokens'  => intval( $options['max_tokens']  ?? 16000 ),
             'purpose'     => $purpose,
             'site_url'    => home_url(),
         ];
@@ -1355,10 +1377,23 @@ class BizCity_LLM_Client {
         // [2026-03-25] Unified API namespace: migrate llm/router/v1/chat → bizcity/v1/llm/chat
         // $endpoint = $this->get_gateway_url() . '/wp-json/llm/router/v1/chat';
         $endpoint = $this->get_gateway_url() . '/wp-json/bizcity/v1/llm/chat';
+        // [2026-08-01 Johnny Chu] R-LLM-KEY-ONLY — this boundary trace is
+        // unconditional so production can prove which opaque key scope is sent.
+        error_log( sprintf(
+            '[BizCity LLM Client] chat_gateway key_hash_prefix=%s blog_id=%d site=%s model=%s purpose=%s',
+            substr( hash( 'sha256', $api_key ), 0, 12 ),
+            (int) get_current_blog_id(),
+            home_url(),
+            $model,
+            $purpose
+        ) );
 
         $this->debug_log( 'chat_gateway() POST', [
             'endpoint' => $endpoint, 'model' => $model, 'purpose' => $purpose,
-            'timeout' => $timeout, 'key_prefix' => substr( $api_key, 0, 8 ) . '…',
+            'timeout' => $timeout,
+            'key_hash_prefix' => substr( hash( 'sha256', $api_key ), 0, 12 ),
+            'blog_id' => (int) get_current_blog_id(),
+            'site_url' => home_url(),
         ] );
 
         $response = wp_remote_post( $endpoint, [
@@ -1385,9 +1420,26 @@ class BizCity_LLM_Client {
         }
         $raw_body = trim( $raw_body );
         $decoded  = json_decode( $raw_body, true );
+        if ( is_array( $decoded ) && ( ! empty( $decoded['quota'] ) || ! empty( $decoded['quota_source'] ) ) ) {
+            // [2026-08-01 Johnny Chu] R-LLM-KEY-ONLY — preserve Hub quota evidence
+            // through the client boundary without logging or exposing the Bearer key.
+            $this->debug_log( 'chat_gateway() QUOTA RESPONSE', array(
+                'key_hash_prefix'       => substr( hash( 'sha256', $api_key ), 0, 12 ),
+                'blog_id'               => (int) get_current_blog_id(),
+                'authenticated_key_id'  => (int) ( $decoded['authenticated_key_id'] ?? 0 ),
+                'resolved_master_level' => (string) ( $decoded['resolved_master_level'] ?? '' ),
+                'quota_source'          => (string) ( $decoded['quota_source'] ?? '' ),
+                'error_code'            => (string) ( $decoded['code'] ?? $decoded['error_code'] ?? '' ),
+            ) );
+        }
 
         if ( $code === 402 ) {
-            $base['error'] = $decoded['message'] ?? 'Hết credit. Vui lòng nạp thêm tại bizcity.vn';
+            // [2026-08-01 Johnny Chu] R-ERROR-UX — HTTP 402 is a hard
+            // gateway credit/quota failure; never retry another model on it.
+            $base['error']           = $decoded['message'] ?? $decoded['error'] ?? 'Hết credit. Vui lòng nạp thêm tại bizcity.vn';
+            $base['quota_exhausted'] = true;
+            $base['quota_layer']     = 'hub';
+            $base['error_code']      = 'quota_exhausted';
             return $base;
         }
 
@@ -1418,11 +1470,21 @@ class BizCity_LLM_Client {
             if ( $is_quota ) {
                 $cap_r = is_array( $decoded ) ? (int)   ( $decoded['cap_requests_day'] ?? 0 ) : 0;
                 $cap_u = is_array( $decoded ) ? (float) ( $decoded['cap_usd'] ?? 0 )          : 0.0;
-                if ( $cap_r <= 0 && $cap_u <= 0 ) {
+                if ( $cap_r <= 0 && $cap_u <= 0 && stripos( $err_msg, 'monthly quota' ) === false ) {
                     $is_quota = false;
                 }
             }
             $base['quota_exhausted'] = $is_quota;
+            // [2026-08-01 Johnny Chu] R-LLM-KEY-ONLY — preserve Hub quota
+            // identity through the HTTP 429 client boundary for CRM diagnostics.
+            foreach ( array( 'quota_source', 'authenticated_key_id', 'resolved_master_level', 'resolved_tier' ) as $quota_field ) {
+                if ( array_key_exists( $quota_field, (array) $decoded ) ) {
+                    $base[ $quota_field ] = $decoded[ $quota_field ];
+                }
+            }
+            if ( isset( $decoded['code'] ) && ! isset( $base['error_code'] ) ) {
+                $base['error_code'] = sanitize_key( (string) $decoded['code'] );
+            }
             // [2026-06-09 Johnny Chu] PHASE-D D-BE-QUOTA — label layer=hub (Layer 1 master)
             // so callers and SSE emitters can distinguish from Layer 2 (local membership).
             if ( $is_quota ) {
@@ -1513,6 +1575,25 @@ class BizCity_LLM_Client {
         // [2026-06-17 Johnny Chu] R-ERROR-UX — structured error with provider details
         $error_msg = $decoded['error'] ?? $decoded['message'] ?? "HTTP {$code}";
         $base['error'] = $error_msg;
+        foreach ( array( 'quota_source', 'authenticated_key_id', 'resolved_master_level', 'resolved_tier' ) as $quota_field ) {
+            if ( array_key_exists( $quota_field, (array) $decoded ) ) {
+                $base[ $quota_field ] = $decoded[ $quota_field ];
+            }
+        }
+        // [2026-08-01 Johnny Chu] R-ERROR-UX — the router may return HTTP 200
+        // with success=false and provider_code=402; classify the payload itself.
+        $provider_error_message = is_array( $decoded['provider_error'] ?? null )
+            ? (string) ( $decoded['provider_error']['message'] ?? '' )
+            : '';
+        $quota_text = strtolower( $error_msg . ' ' . $provider_error_message );
+        if ( strpos( $quota_text, 'quota' ) !== false
+            || strpos( $quota_text, 'monthly' ) !== false
+            || strpos( $quota_text, 'requires more credits' ) !== false
+            || strpos( $quota_text, 'insufficient credit' ) !== false ) {
+            $base['quota_exhausted'] = true;
+            $base['quota_layer'] = 'hub';
+            $base['error_code'] = 'quota_exhausted';
+        }
 
         // Forward provider_error block from hub for transparency
         if ( ! empty( $decoded['provider_error'] ) && is_array( $decoded['provider_error'] ) ) {
@@ -1674,7 +1755,8 @@ class BizCity_LLM_Client {
             'model'       => $model,
             'messages'    => $messages,
             'temperature' => floatval( $options['temperature'] ?? 0.7 ),
-            'max_tokens'  => intval( $options['max_tokens']  ?? 3000 ),
+            // [2026-08-01 Johnny Chu] R-GW-API-CATALOG — raise the default streaming gateway output budget.
+            'max_tokens'  => intval( $options['max_tokens']  ?? 16000 ),
             'purpose'     => $purpose,
             'stream'      => true,
             'site_url'    => home_url(),
@@ -1855,7 +1937,7 @@ class BizCity_LLM_Client {
             }
             $base['stream_ms']       = $stream_ms;
             $base['stream_fallback'] = false;
-            if ( $http_code === 429 ) {
+            if ( $http_code === 402 || $http_code === 429 ) {
                 $retry_after = '';
                 // Parse Retry-After from buffered response headers if available
                 if ( preg_match( '/retry-after:\s*(\S+)/i', $raw_response, $m ) ) { $retry_after = $m[1]; }
@@ -1867,7 +1949,8 @@ class BizCity_LLM_Client {
                     $base['error'] = $real_err;
                 }
                 // [2026-06-10 Johnny Chu] R-QUOTA-KEY — use enriched quota fields from 429 response.
-                $is_quota = ! empty( $decoded_err['quota'] )
+                $is_quota = $http_code === 402
+                         || ! empty( $decoded_err['quota'] )
                          || stripos( $base['error'], 'quota' ) !== false
                          || stripos( $base['error'], 'monthly' ) !== false
                          || stripos( $base['error'], 'daily' ) !== false
@@ -1879,7 +1962,7 @@ class BizCity_LLM_Client {
                 if ( $is_quota ) {
                     $cap_r = is_array( $decoded_err ) ? (int)   ( $decoded_err['cap_requests_day'] ?? 0 ) : 0;
                     $cap_u = is_array( $decoded_err ) ? (float) ( $decoded_err['cap_usd'] ?? 0 )          : 0.0;
-                    if ( $cap_r <= 0 && $cap_u <= 0 ) {
+                    if ( $cap_r <= 0 && $cap_u <= 0 && stripos( $base['error'], 'monthly quota' ) === false && $http_code !== 402 ) {
                         $is_quota = false;
                     }
                 }
@@ -2129,7 +2212,8 @@ class BizCity_LLM_Client {
                 'model'       => $model_id,
                 'messages'    => $messages,
                 'temperature' => floatval( $options['temperature'] ?? 0.7 ),
-                'max_tokens'  => intval( $options['max_tokens']  ?? 3000 ),
+                // [2026-08-01 Johnny Chu] R-GW-API-CATALOG — raise the default direct output budget.
+                'max_tokens'  => intval( $options['max_tokens']  ?? 16000 ),
             ],
             $options['extra_body'] ?? []
         );
@@ -2235,7 +2319,8 @@ class BizCity_LLM_Client {
                 'model'       => $model,
                 'messages'    => $messages,
                 'temperature' => floatval( $options['temperature'] ?? 0.7 ),
-                'max_tokens'  => intval( $options['max_tokens']  ?? 3000 ),
+                // [2026-08-01 Johnny Chu] R-GW-API-CATALOG — raise the default direct streaming output budget.
+                'max_tokens'  => intval( $options['max_tokens']  ?? 16000 ),
                 'stream'      => true,
             ],
             $options['extra_body'] ?? []

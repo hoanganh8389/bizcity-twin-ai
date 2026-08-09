@@ -1,0 +1,27 @@
+{
+  "contract": "channel-payload",
+  "version": "1.0.0",
+  "direction": "outbound",
+  "platform": "zalo_bot",
+  "identity": {
+    "account_id": "bot_88",
+    "user_id": "user_991",
+    "chat_id": "zalobot_88_user_991",
+    "message_id": "msg_123"
+  },
+  "message": {
+    "text": "Hello from Twin",
+    "timestamp": "2026-07-30T12:00:00Z",
+    "attachments": []
+  },
+  "signature": {
+    "algorithm": "hmac-sha256",
+    "header": "x-bizcity-signature",
+    "verified": true
+  },
+  "delivery": {
+    "status": "sent",
+    "provider_message_id": "zalo_abc_1",
+    "attempt": 1
+  }
+}
