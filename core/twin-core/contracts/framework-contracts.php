@@ -132,7 +132,25 @@ if ( ! class_exists( 'BizCity_Module_Base' ) ) {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
- * 3. LLM Client contract (server-side, R-GW-8)
+ * 3. Shared identity helper contracts
+ * ──────────────────────────────────────────────────────────────────────── */
+
+if ( ! interface_exists( 'BizCity_Phone_Normalizer_Interface' ) ) {
+
+	/**
+	 * Canonical phone identity contract used by CRM, Woo, loyalty and channels.
+	 * Implementations MUST return a leading-zero digit string or '';
+	 * callers MUST NOT introduce a second normalization policy.
+	 *
+	 * @since 1.1.0 (PHASE-CRM-CONTACTS-UNIFY-WOO-USERPOINTS)
+	 */
+	interface BizCity_Phone_Normalizer_Interface {
+		public static function normalize_vn( string $raw ): string;
+	}
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * 4. LLM Client contract (server-side, R-GW-8)
  * ──────────────────────────────────────────────────────────────────────── */
 
 if ( ! interface_exists( 'BizCity_LLM_Client_Interface' ) ) {
@@ -318,5 +336,82 @@ if ( ! interface_exists( 'BizCity_Runtime_Policy_Interface' ) ) {
 		 * @return array<string,mixed> idempotency/retry/dlq/lock/circuit policy.
 		 */
 		public function policy();
+	}
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * 8. Admin navigation contract (opt-in)
+ * ──────────────────────────────────────────────────────────────────────── */
+
+if ( ! interface_exists( 'BizCity_Admin_Navigation_Provider_Interface' ) ) {
+
+	/**
+	 * Opt-in metadata provider for the central admin navigation registry.
+	 *
+	 * Providers describe navigation only. They MUST NOT register WordPress menu
+	 * pages directly, query DB/Redis, repair schema or load heavy renderers.
+	 *
+	 * Stable since: 1.2.0
+	 */
+	interface BizCity_Admin_Navigation_Provider_Interface {
+
+		/** @return string Stable provider id. */
+		public function navigation_id();
+
+		/** @return array<int,array<string,mixed>> Contract-shaped navigation items. */
+		public function navigation_items();
+	}
+}
+
+if ( ! class_exists( 'BizCity_Admin_Navigation_Item' ) ) {
+
+	/**
+	 * Small DTO that keeps navigation metadata separate from page renderers.
+	 *
+	 * Stable since: 1.2.0
+	 */
+	final class BizCity_Admin_Navigation_Item {
+
+		/** @var array<string,mixed> */
+		private $data;
+
+		/**
+		 * [2026-08-11 Johnny Chu] PHASE-1.26-CONTRACT — normalize one opt-in navigation item without executing registration.
+		 *
+		 * @param array<string,mixed> $data
+		 */
+		public function __construct( array $data ) {
+			$this->data = $data;
+		}
+
+		/** @return array<string,mixed> */
+		public function to_array(): array {
+			return $this->data;
+		}
+
+		/** @return string */
+		public function id(): string {
+			return isset( $this->data['id'] ) ? (string) $this->data['id'] : '';
+		}
+
+		/** @return string */
+		public function slug(): string {
+			return isset( $this->data['slug'] ) ? (string) $this->data['slug'] : '';
+		}
+
+		/** @return string */
+		public function parent(): string {
+			return isset( $this->data['parent'] ) ? (string) $this->data['parent'] : '';
+		}
+
+		/** @return string */
+		public function slot(): string {
+			return isset( $this->data['slot'] ) ? (string) $this->data['slot'] : '';
+		}
+
+		/** @return string */
+		public function origin(): string {
+			return isset( $this->data['origin'] ) ? (string) $this->data['origin'] : 'extension';
+		}
 	}
 }

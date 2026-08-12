@@ -97,8 +97,8 @@ final class BizCity_CRM_Loyalty_Bridge {
 		$code = 'evt_' . substr( preg_replace( '/[^A-Za-z0-9_-]/', '', $event_uuid ), 0, 60 );
 
 		// Ledger may not exist (user-points plugin disabled). Bail gracefully.
-		$tbl_exists = (string) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl ) );
-		if ( $tbl_exists !== $tbl ) {
+		// [2026-08-11 Johnny Chu] R-SHOW-TABLES/R-METADATA-CACHE — use canonical cached table existence check.
+		if ( ! self::table_exists( $tbl ) ) {
 			return array( 'ok' => false, 'status' => 'ledger_table_missing', 'ledger_id' => 0, 'balance_after' => 0 );
 		}
 
@@ -248,7 +248,8 @@ final class BizCity_CRM_Loyalty_Bridge {
 		) );
 		// Exchange table may not exist on installs that never used the redeem feature.
 		$debits = 0;
-		if ( (string) $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $tbl_d ) ) === $tbl_d ) {
+		// [2026-08-11 Johnny Chu] R-SHOW-TABLES/R-METADATA-CACHE — avoid live metadata scan on every balance read.
+		if ( self::table_exists( $tbl_d ) ) {
 			$debits = (int) $wpdb->get_var( $wpdb->prepare(
 				"SELECT COALESCE(SUM(points),0) FROM {$tbl_d} WHERE phone = %s",
 				$phone
@@ -261,7 +262,11 @@ final class BizCity_CRM_Loyalty_Bridge {
 		global $wpdb;
 		$ct = BizCity_CRM_DB_Installer_V2::tbl_contacts();
 		// Column was added in PHASE 0.35 M1.W1 migrate_phase_035; guarded for older DBs.
-		if ( ! BizCity_CRM_DB_Installer_V2::column_exists( $ct, 'points_balance_cache' ) ) {
+		// [2026-08-11 Johnny Chu] R-METADATA-CACHE — avoid legacy installer metadata query in the hot balance refresh path.
+		$column_exists = function_exists( 'bizcity_column_exists' )
+			? bizcity_column_exists( $ct, 'points_balance_cache' )
+			: self::column_exists( $ct, 'points_balance_cache' );
+		if ( ! $column_exists ) {
 			return;
 		}
 		$wpdb->update(
@@ -289,13 +294,43 @@ final class BizCity_CRM_Loyalty_Bridge {
 	}
 
 	private static function sanitize_phone( string $phone ): string {
+		// [2026-08-11 Johnny Chu] PHASE-CRM-CONTACTS-UNIFY-WOO-USERPOINTS — use canonical phone identity when the shared helper is loaded.
+		if ( class_exists( 'BizCity_Phone_Normalizer' ) ) {
+			return BizCity_Phone_Normalizer::normalize_vn( $phone );
+		}
 		$p = preg_replace( '/[^\d+]/', '', $phone );
 		return (string) $p;
 	}
 
 	private static function column_exists( string $table, string $column ): bool {
+		// [2026-08-11 Johnny Chu] R-SHOW-TABLES/R-METADATA-CACHE — delegate to the shared dual-cache column helper.
+		if ( function_exists( 'bizcity_column_exists' ) ) {
+			return (bool) bizcity_column_exists( $table, $column );
+		}
 		global $wpdb;
-		$row = $wpdb->get_row( $wpdb->prepare( "SHOW COLUMNS FROM `{$table}` LIKE %s", $column ) );
-		return (bool) $row;
+		static $memo = array();
+		$key = (int) get_current_blog_id() . ':' . $table . ':' . $column;
+		if ( array_key_exists( $key, $memo ) ) { return $memo[ $key ]; }
+		$memo[ $key ] = (bool) $wpdb->get_var( $wpdb->prepare(
+			'SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = %s LIMIT 1',
+			$table,
+			$column
+		) );
+		return $memo[ $key ];
+	}
+
+	private static function table_exists( string $table ): bool {
+		if ( function_exists( 'bizcity_tbl_exists' ) ) {
+			return (bool) bizcity_tbl_exists( $table );
+		}
+		global $wpdb;
+		static $memo = array();
+		$key = (int) get_current_blog_id() . ':' . $table;
+		if ( array_key_exists( $key, $memo ) ) { return $memo[ $key ]; }
+		$memo[ $key ] = (bool) $wpdb->get_var( $wpdb->prepare(
+			'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+			$table
+		) );
+		return $memo[ $key ];
 	}
 }

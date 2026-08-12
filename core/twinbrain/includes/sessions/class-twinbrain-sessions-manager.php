@@ -413,6 +413,25 @@ class BizCity_TwinBrain_Sessions_Manager {
 				return (string) $dec['title'];
 			}
 		}
+		// [2026-08-10 Johnny Chu] SESSION-ROUTING-1 — derive a stable readable title from the first user prompt when no explicit title event exists.
+		$row = $wpdb->get_var( $wpdb->prepare(
+			"SELECT payload_json FROM {$tbl}
+			 WHERE session_id = %s AND event_type = 'user_message'
+			 ORDER BY id ASC LIMIT 1",
+			$session_id
+		) );
+		$wpdb->suppress_errors( $prev );
+		if ( $row ) {
+			$dec = json_decode( $row, true );
+			if ( is_array( $dec ) ) {
+				foreach ( array( 'text', 'content', 'message' ) as $key ) {
+					$title = trim( (string) ( $dec[ $key ] ?? '' ) );
+					if ( $title !== '' ) {
+						return function_exists( 'mb_substr' ) ? mb_substr( $title, 0, 80 ) : substr( $title, 0, 80 );
+					}
+				}
+			}
+		}
 		return '';
 	}
 
@@ -460,7 +479,8 @@ class BizCity_TwinBrain_Sessions_Manager {
 		}
 
 		$like  = '%' . $wpdb->esc_like( $q ) . '%';
-		$event_types = [ 'user_message', 'assistant_message', 'brain_session_renamed', 'brain_session_created' ];
+		// [2026-08-10 Johnny Chu] GOAL-SESSION-SEARCH-1 — include Goal Loop snapshots so Chat Session search can find terms stored in primary_goal/gaps/next_best_action.
+		$event_types = [ 'user_message', 'assistant_message', 'brain_session_renamed', 'brain_session_created', 'twin_goal_opened', 'twin_goal_progressed', 'twin_goal_closed' ];
 		$ph_evt = implode( ',', array_fill( 0, count( $event_types ), '%s' ) );
 
 		$sql_candidates = $wpdb->prepare(
@@ -533,7 +553,7 @@ class BizCity_TwinBrain_Sessions_Manager {
 
 	/**
 	 * [2026-06-03 Johnny Chu] BS-11 — return latest event matching $q in the
-	 * given session, restricted to user/assistant message bodies. Returns
+	 * given session, restricted to user/assistant and Goal Loop payloads. Returns
 	 * a centred snippet (≤240 chars) with ellipsis flanks.
 	 */
 	private function find_match_snippet( string $session_id, string $q, int $user_id ): array {
@@ -544,7 +564,7 @@ class BizCity_TwinBrain_Sessions_Manager {
 		$row  = $wpdb->get_row( $wpdb->prepare(
 			"SELECT event_type, payload_json, created_at FROM {$tbl}
 			 WHERE session_id = %s AND user_id = %d
-			   AND event_type IN ('user_message','assistant_message')
+			   AND event_type IN ('user_message','assistant_message','twin_goal_opened','twin_goal_progressed','twin_goal_closed')
 			   AND payload_json LIKE %s
 			 ORDER BY id DESC LIMIT 1",
 			$session_id, $user_id, $like
@@ -560,6 +580,23 @@ class BizCity_TwinBrain_Sessions_Manager {
 				if ( isset( $dec[ $k ] ) && is_string( $dec[ $k ] ) && $dec[ $k ] !== '' ) {
 					$text = (string) $dec[ $k ];
 					break;
+				}
+			}
+			if ( $text === '' && in_array( (string) $row['event_type'], [ 'twin_goal_opened', 'twin_goal_progressed', 'twin_goal_closed' ], true ) ) {
+				$state = isset( $dec['state'] ) && is_array( $dec['state'] ) ? $dec['state'] : $dec;
+				foreach ( [ 'primary_goal', 'goal_id' ] as $k ) {
+					if ( isset( $state[ $k ] ) && is_string( $state[ $k ] ) && $state[ $k ] !== '' ) {
+						$text = $state[ $k ];
+						break;
+					}
+				}
+				if ( $text === '' && ! empty( $state['next_best_action'] ) ) {
+					$action = is_array( $state['next_best_action'] ) ? $state['next_best_action'] : array();
+					$text = (string) ( $action['question_text'] ?? $action['label'] ?? '' );
+				}
+				if ( $text === '' && ! empty( $state['gaps'] ) && is_array( $state['gaps'] ) ) {
+					$gap = reset( $state['gaps'] );
+					$text = is_array( $gap ) ? (string) ( $gap['label'] ?? '' ) : '';
 				}
 			}
 		}

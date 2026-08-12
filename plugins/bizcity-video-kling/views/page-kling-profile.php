@@ -52,8 +52,8 @@ $allowed_tabs = [ 'create', 'faceswap', 'canva', 'editor', 'monitor', 'chat', 's
 if ( ! in_array( $active_tab, $allowed_tabs, true ) ) $active_tab = 'create';
 
 // Load current settings (for Settings tab)
-$cfg_api_key  = get_option( 'bizcity_video_kling_api_key', '' );
-$cfg_endpoint = get_option( 'bizcity_video_kling_endpoint', 'https://api.piapi.ai/api/v1' );
+// [2026-08-10 Johnny Chu] PHASE-1.24-VIDEO-KLING — display managed gateway readiness without exposing provider settings.
+$cfg_gateway_ready = class_exists( 'BizCity_Video_Client' ) && BizCity_Video_Client::instance()->is_ready();
 $cfg_model    = get_option( 'bizcity_video_kling_default_model', '2.6|pro' );
 $cfg_duration = get_option( 'bizcity_video_kling_default_duration', 5 );
 $cfg_ratio    = get_option( 'bizcity_video_kling_default_aspect_ratio', '9:16' );

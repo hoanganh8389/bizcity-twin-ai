@@ -519,11 +519,11 @@ class BizCity_REST_API_Editor_Assets {
 
     public static function upload_user_image( $request ) {
         if ( ! is_user_logged_in() ) {
-            return new \WP_Error( 'rest_forbidden', 'Login required.', array( 'status' => 401 ) );
+            return new \WP_REST_Response( BizCity_Error_Payload::make( 'auth_required', 'Bạn cần đăng nhập để tải ảnh lên.', 'Đăng nhập rồi thử lại.', 'login_required' ), 200 );
         }
         $files = $request->get_file_params();
         if ( empty( $files['file'] ) ) {
-            return new \WP_Error( 'no_file', 'No file uploaded.', array( 'status' => 400 ) );
+            return new \WP_REST_Response( BizCity_Error_Payload::make( 'invalid_param', 'Chưa nhận được file ảnh.', 'Chọn file ảnh rồi thử lại.', 'image_upload_required' ), 200 );
         }
 
         require_once ABSPATH . 'wp-admin/includes/image.php';
@@ -532,7 +532,7 @@ class BizCity_REST_API_Editor_Assets {
 
         $attachment_id = media_handle_upload( 'file', 0 );
         if ( is_wp_error( $attachment_id ) ) {
-            return new \WP_Error( 'upload_failed', $attachment_id->get_error_message(), array( 'status' => 500 ) );
+            return new \WP_REST_Response( BizCity_Error_Payload::make( 'upload_rejected', 'Không thể tải ảnh lên Media Library.', 'Kiểm tra file rồi thử lại.', 'image_upload_retry', array( 'wp_error_code' => $attachment_id->get_error_code() ) ), 200 );
         }
 
         update_post_meta( $attachment_id, '_bztimg_editor_upload', '1' );
@@ -562,14 +562,14 @@ class BizCity_REST_API_Editor_Assets {
 
     public static function remove_user_image( $request ) {
         if ( ! is_user_logged_in() ) {
-            return new \WP_Error( 'rest_forbidden', 'Login required.', array( 'status' => 401 ) );
+            return new \WP_REST_Response( BizCity_Error_Payload::make( 'auth_required', 'Bạn cần đăng nhập để xóa ảnh.', 'Đăng nhập rồi thử lại.', 'login_required' ), 200 );
         }
         $id      = (int) $request['id'];
         $user_id = get_current_user_id();
         $post    = get_post( $id );
 
         if ( ! $post || (int) $post->post_author !== $user_id ) {
-            return new \WP_Error( 'not_found', 'Image not found.', array( 'status' => 404 ) );
+            return new \WP_REST_Response( BizCity_Error_Payload::make( 'permission_denied', 'Không tìm thấy ảnh thuộc tài khoản này.', 'Chọn lại ảnh của tài khoản hiện tại.', 'image_owner_required' ), 200 );
         }
 
         wp_delete_attachment( $id, true );
@@ -585,7 +585,7 @@ class BizCity_REST_API_Editor_Assets {
 
         $row = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE id = %d", $id ) );
         if ( ! $row ) {
-            return new \WP_Error( 'not_found', 'Template not found.', array( 'status' => 404 ) );
+            return new \WP_REST_Response( BizCity_Error_Payload::make( 'not_found', 'Không tìm thấy template.', 'Tải lại danh sách template rồi thử lại.', 'template_not_found' ), 200 );
         }
 
         return new \WP_REST_Response( array(
@@ -609,7 +609,7 @@ class BizCity_REST_API_Editor_Assets {
 
         $row = $wpdb->get_row( $wpdb->prepare( "SELECT id FROM {$table} WHERE id = %d", $id ) );
         if ( ! $row ) {
-            return new \WP_Error( 'not_found', 'Template not found.', array( 'status' => 404 ) );
+            return new \WP_REST_Response( BizCity_Error_Payload::make( 'not_found', 'Không tìm thấy template.', 'Tải lại danh sách template rồi thử lại.', 'template_not_found' ), 200 );
         }
 
         $update = array();
@@ -654,7 +654,7 @@ class BizCity_REST_API_Editor_Assets {
         }
 
         if ( empty( $update ) ) {
-            return new \WP_Error( 'no_data', 'Nothing to update.', array( 'status' => 400 ) );
+            return new \WP_REST_Response( BizCity_Error_Payload::make( 'invalid_param', 'Không có dữ liệu cần cập nhật.', 'Thay đổi ít nhất một trường rồi thử lại.', 'invalid_param_generic' ), 200 );
         }
 
         $wpdb->update( $table, $update, array( 'id' => $id ), $format, array( '%d' ) );
@@ -669,7 +669,7 @@ class BizCity_REST_API_Editor_Assets {
 
         $row = $wpdb->get_row( $wpdb->prepare( "SELECT id FROM {$table} WHERE id = %d", $id ) );
         if ( ! $row ) {
-            return new \WP_Error( 'not_found', 'Template not found.', array( 'status' => 404 ) );
+            return new \WP_REST_Response( BizCity_Error_Payload::make( 'not_found', 'Không tìm thấy template.', 'Tải lại danh sách template rồi thử lại.', 'template_not_found' ), 200 );
         }
 
         $wpdb->delete( $table, array( 'id' => $id ), array( '%d' ) );
@@ -680,7 +680,7 @@ class BizCity_REST_API_Editor_Assets {
 
     public static function seed_from_mock_api( $request ) {
         if ( ! function_exists( 'bztimg_seed_all_editor_assets' ) ) {
-            return new \WP_Error( 'missing_function', 'Seed function not available.', array( 'status' => 500 ) );
+            return new \WP_REST_Response( BizCity_Error_Payload::module_not_loaded( 'Editor asset seeder' ), 200 );
         }
 
         // Increase limits for batch media upload
@@ -703,11 +703,11 @@ class BizCity_REST_API_Editor_Assets {
         $json = $request->get_param( 'data' );
 
         if ( ! in_array( $type, array( 'shapes', 'frames', 'fonts', 'texts', 'templates' ), true ) ) {
-            return new \WP_Error( 'invalid_type', 'Type must be: shapes, frames, fonts, texts, templates', array( 'status' => 400 ) );
+            return new \WP_REST_Response( BizCity_Error_Payload::make( 'invalid_param', 'Loại asset không hợp lệ.', 'Chọn shapes, frames, fonts, texts hoặc templates.', 'invalid_param_generic' ), 200 );
         }
 
         if ( ! is_array( $json ) ) {
-            return new \WP_Error( 'invalid_data', 'data must be an array', array( 'status' => 400 ) );
+            return new \WP_REST_Response( BizCity_Error_Payload::make( 'invalid_param', 'Dữ liệu asset không hợp lệ.', 'Gửi dữ liệu dạng danh sách rồi thử lại.', 'invalid_param_generic' ), 200 );
         }
 
         $imported = 0;
@@ -1267,7 +1267,7 @@ class BizCity_REST_API_Editor_Assets {
         );
 
         if ( ! isset( $map[ $type ] ) ) {
-            return new \WP_Error( 'invalid_type', 'Type must be: shapes, frames, fonts, texts, templates', array( 'status' => 400 ) );
+            return new \WP_REST_Response( BizCity_Error_Payload::make( 'invalid_param', 'Loại asset không hợp lệ.', 'Chọn loại asset được hỗ trợ rồi thử lại.', 'invalid_param_generic' ), 200 );
         }
 
         $table   = $wpdb->prefix . $map[ $type ];
@@ -1304,11 +1304,11 @@ class BizCity_REST_API_Editor_Assets {
         );
 
         if ( ! isset( $map[ $type ] ) ) {
-            return new \WP_Error( 'invalid_type', 'Type must be: shapes, frames, texts, templates', array( 'status' => 400 ) );
+            return new \WP_REST_Response( BizCity_Error_Payload::make( 'invalid_param', 'Loại asset không hợp lệ.', 'Chọn loại asset được hỗ trợ rồi thử lại.', 'invalid_param_generic' ), 200 );
         }
 
         if ( ! is_array( $attachments ) || empty( $attachments ) ) {
-            return new \WP_Error( 'invalid_data', 'attachments must be a non-empty array', array( 'status' => 400 ) );
+            return new \WP_REST_Response( BizCity_Error_Payload::make( 'invalid_param', 'Danh sách attachment không hợp lệ.', 'Gửi ít nhất một attachment rồi thử lại.', 'invalid_param_generic' ), 200 );
         }
 
         $table = $wpdb->prefix . $map[ $type ];
@@ -1349,20 +1349,20 @@ class BizCity_REST_API_Editor_Assets {
     public static function proxy_image( $request ) {
         $url = $request->get_param( 'url' );
         if ( empty( $url ) ) {
-            return new \WP_Error( 'missing_url', 'URL parameter is required.', array( 'status' => 400 ) );
+            return new \WP_REST_Response( BizCity_Error_Payload::make( 'invalid_param', 'Thiếu URL ảnh.', 'Chọn ảnh rồi thử lại.', 'image_url_invalid' ), 200 );
         }
 
         // Security: only allow our media CDN domain
         $host = wp_parse_url( $url, PHP_URL_HOST );
         $allowed_hosts = array( 'media.bizcity.vn' );
         if ( ! in_array( $host, $allowed_hosts, true ) ) {
-            return new \WP_Error( 'forbidden_host', 'Only media CDN URLs are allowed.', array( 'status' => 403 ) );
+            return new \WP_REST_Response( BizCity_Error_Payload::make( 'permission_denied', 'Nguồn ảnh không được phép.', 'Chọn ảnh từ thư viện Media BizCity rồi thử lại.', 'image_policy_blocked' ), 200 );
         }
 
         // Security: only allow image paths
         $path = wp_parse_url( $url, PHP_URL_PATH );
         if ( ! preg_match( '/\.(jpe?g|png|gif|webp|svg|bmp|ico)$/i', $path ) ) {
-            return new \WP_Error( 'invalid_type', 'Only image files are allowed.', array( 'status' => 400 ) );
+            return new \WP_REST_Response( BizCity_Error_Payload::make( 'invalid_param', 'URL không trỏ tới file ảnh.', 'Chọn file ảnh rồi thử lại.', 'image_format_supported' ), 200 );
         }
 
         $response = wp_remote_get( $url, array(
@@ -1371,12 +1371,12 @@ class BizCity_REST_API_Editor_Assets {
         ) );
 
         if ( is_wp_error( $response ) ) {
-            return new \WP_Error( 'fetch_failed', 'Failed to fetch image.', array( 'status' => 502 ) );
+            return new \WP_REST_Response( BizCity_Error_Payload::make( 'gateway_degraded', 'Không thể tải ảnh từ Media CDN.', 'Thử lại sau vài phút.', 'image_fetch_retry' ), 200 );
         }
 
         $code = (int) wp_remote_retrieve_response_code( $response );
         if ( $code < 200 || $code >= 300 ) {
-            return new \WP_Error( 'upstream_error', 'Upstream returned ' . $code, array( 'status' => $code ) );
+            return new \WP_REST_Response( BizCity_Error_Payload::make( 'gateway_degraded', 'Media CDN không trả được ảnh.', 'Thử lại sau vài phút.', 'image_fetch_retry' ), 200 );
         }
 
         $body         = wp_remote_retrieve_body( $response );
@@ -1405,7 +1405,7 @@ class BizCity_REST_API_Editor_Assets {
         // URL-safe base64: replace -_ back to +/
         $url = base64_decode( strtr( $b64, '-_', '+/' ) );
         if ( empty( $url ) || ! filter_var( $url, FILTER_VALIDATE_URL ) ) {
-            return new \WP_Error( 'invalid_url', 'Invalid encoded URL.', array( 'status' => 400 ) );
+            return new \WP_REST_Response( BizCity_Error_Payload::make( 'invalid_param', 'URL ảnh mã hóa không hợp lệ.', 'Tải lại ảnh rồi thử lại.', 'image_url_invalid' ), 200 );
         }
 
         // Reuse the existing proxy logic by injecting url param
@@ -1478,18 +1478,18 @@ class BizCity_REST_API_Editor_Assets {
         $filename = sanitize_file_name( $request->get_param( 'filename' ) ?: 'design-export.png' );
 
         if ( empty( $data_url ) || strpos( $data_url, 'data:image/' ) !== 0 ) {
-            return new \WP_Error( 'invalid_data', 'dataUrl must be a valid image data URL.', array( 'status' => 400 ) );
+            return new \WP_REST_Response( BizCity_Error_Payload::make( 'invalid_param', 'Dữ liệu ảnh không hợp lệ.', 'Xuất lại ảnh rồi thử lại.', 'image_upload_required' ), 200 );
         }
 
         // Parse data URL: data:image/png;base64,iVBOR...
         if ( ! preg_match( '#^data:image/(\w+);base64,(.+)$#s', $data_url, $matches ) ) {
-            return new \WP_Error( 'invalid_format', 'Could not parse data URL.', array( 'status' => 400 ) );
+            return new \WP_REST_Response( BizCity_Error_Payload::make( 'invalid_param', 'Không đọc được định dạng ảnh.', 'Xuất ảnh PNG, JPG hoặc WebP rồi thử lại.', 'image_format_supported' ), 200 );
         }
 
         $ext  = $matches[1] === 'jpeg' ? 'jpg' : $matches[1];
         $data = base64_decode( $matches[2] );
         if ( $data === false || strlen( $data ) < 100 ) {
-            return new \WP_Error( 'decode_failed', 'Base64 decode failed.', array( 'status' => 400 ) );
+            return new \WP_REST_Response( BizCity_Error_Payload::make( 'invalid_param', 'Không giải mã được dữ liệu ảnh.', 'Xuất lại ảnh rồi thử lại.', 'image_upload_retry' ), 200 );
         }
 
         // Ensure correct extension
@@ -1499,7 +1499,7 @@ class BizCity_REST_API_Editor_Assets {
 
         $upload = wp_upload_bits( $filename, null, $data );
         if ( ! empty( $upload['error'] ) ) {
-            return new \WP_Error( 'upload_failed', $upload['error'], array( 'status' => 500 ) );
+            return new \WP_REST_Response( BizCity_Error_Payload::make( 'upload_rejected', 'Không thể lưu ảnh vào Media Library.', 'Kiểm tra dung lượng ảnh rồi thử lại.', 'image_upload_retry' ), 200 );
         }
 
         require_once ABSPATH . 'wp-admin/includes/image.php';
@@ -1511,7 +1511,7 @@ class BizCity_REST_API_Editor_Assets {
         );
         $attach_id = wp_insert_attachment( $attachment, $upload['file'] );
         if ( is_wp_error( $attach_id ) ) {
-            return new \WP_Error( 'attach_failed', $attach_id->get_error_message(), array( 'status' => 500 ) );
+            return new \WP_REST_Response( BizCity_Error_Payload::make( 'upload_rejected', 'Không thể tạo attachment ảnh.', 'Thử tải ảnh lại sau vài phút.', 'image_upload_retry', array( 'wp_error_code' => $attach_id->get_error_code() ) ), 200 );
         }
 
         $metadata = wp_generate_attachment_metadata( $attach_id, $upload['file'] );
@@ -1534,12 +1534,12 @@ class BizCity_REST_API_Editor_Assets {
 
         // Accept base64 data URI or URL.
         if ( empty( $image_url ) ) {
-            return new WP_REST_Response( array( 'error' => 'image_url is required (URL or base64 data URI).' ), 400 );
+            return new WP_REST_Response( BizCity_Error_Payload::make( 'invalid_param', 'Thiếu ảnh đầu vào.', 'Chọn URL ảnh hoặc tải ảnh lên rồi thử lại.', 'image_input_required' ), 200 );
         }
 
         // Validate URL format (allow data: and https:).
         if ( ! preg_match( '#^(https?://|data:image/)#i', $image_url ) ) {
-            return new WP_REST_Response( array( 'error' => 'Invalid image_url format.' ), 400 );
+            return new WP_REST_Response( BizCity_Error_Payload::make( 'invalid_input_image', 'Định dạng ảnh đầu vào không hợp lệ.', 'Chọn ảnh HTTPS hoặc file ảnh hợp lệ rồi thử lại.', 'image_url_invalid' ), 200 );
         }
 
         $options = array(
@@ -1584,7 +1584,7 @@ class BizCity_REST_API_Editor_Assets {
         }
 
         if ( ! $skeleton ) {
-            return new WP_REST_Response( array( 'error' => 'skeleton_id or skeleton data is required.' ), 400 );
+            return new WP_REST_Response( BizCity_Error_Payload::make( 'invalid_param', 'Thiếu skeleton template.', 'Chọn skeleton hoặc gửi dữ liệu template rồi thử lại.', 'invalid_param_generic' ), 200 );
         }
 
         $prompt = sanitize_textarea_field( $body['prompt'] ?? 'Create diverse variations' );
@@ -1631,7 +1631,7 @@ class BizCity_REST_API_Editor_Assets {
         $body = $request->get_json_params();
 
         if ( empty( $body['template'] ) || ! is_array( $body['template'] ) ) {
-            return new WP_REST_Response( array( 'error' => 'template data is required.' ), 400 );
+            return new WP_REST_Response( BizCity_Error_Payload::make( 'invalid_param', 'Thiếu dữ liệu template.', 'Tạo template rồi thử lưu lại.', 'invalid_param_generic' ), 200 );
         }
 
         $description = sanitize_text_field( $body['description'] ?? 'AI Generated Template' );
@@ -1640,7 +1640,7 @@ class BizCity_REST_API_Editor_Assets {
         $insert_id = BizCity_AI_Template_Generator::save_template( $body['template'], $description, $source );
 
         if ( ! $insert_id ) {
-            return new WP_REST_Response( array( 'error' => 'Failed to save template.' ), 500 );
+            return new WP_REST_Response( BizCity_Error_Payload::make( 'storage_error', 'Không thể lưu template.', 'Thử lại sau; nếu lỗi kéo dài, liên hệ quản trị viên.', 'template_save_failed' ), 200 );
         }
 
         return new WP_REST_Response( array( 'success' => true, 'id' => $insert_id ), 201 );
@@ -1651,44 +1651,43 @@ class BizCity_REST_API_Editor_Assets {
         $image_url = esc_url_raw( $body['image_url'] ?? '' );
 
         if ( empty( $image_url ) ) {
-            return new WP_REST_Response( array( 'error' => 'image_url is required.' ), 400 );
+            return new WP_REST_Response( BizCity_Error_Payload::make( 'invalid_param', 'Thiếu ảnh nguồn.', 'Tải ảnh lên rồi thử lại.', 'image_input_required' ), 200 );
         }
 
-        if ( empty( get_site_option( 'bizcity_piapi_api_key' ) ) ) {
-            return new WP_REST_Response( array( 'error' => 'PiAPI key is not configured.' ), 500 );
+        if ( ! class_exists( 'BizCity_PiAPI_Client' ) ) {
+            return new WP_REST_Response( BizCity_Error_Payload::module_not_loaded( 'PiAPI Client' ), 200 );
         }
 
-        $result = self::ai_piapi_request(
-            'POST',
-            '/api/v1/task',
+        $idempotency_key = sanitize_text_field( (string) ( $body['idempotency_key'] ?? '' ) );
+        if ( $idempotency_key === '' ) {
+            $idempotency_key = 'remove_bg_' . md5( get_current_user_id() . '|' . $image_url );
+        }
+        $result = BizCity_PiAPI_Client::instance()->submit_image_task(
+            'remove_background',
+            array( 'image_url' => $image_url ),
             array(
-                'model'     => 'Qubico/image-toolkit',
-                'task_type' => 'background-remove',
-                'input'     => array(
-                    'image'      => $image_url,
-                    'rmbg_model' => 'RMBG-2.0',
-                ),
+                'rmbg_model'      => 'RMBG-2.0',
+                'idempotency_key' => $idempotency_key,
+                'trace_id'        => sanitize_text_field( (string) ( $body['trace_id'] ?? '' ) ),
             )
         );
 
-        if ( is_wp_error( $result ) ) {
-            return new WP_REST_Response(
-                array( 'error' => $result->get_error_message() ),
-                (int) ( $result->get_error_data()['status'] ?? 500 )
-            );
+        if ( empty( $result['success'] ) ) {
+            return new WP_REST_Response( $result, 200 );
         }
 
-        $task_id = $result['data']['task_id'] ?? '';
+        $task_id = (string) ( $result['task_id'] ?? '' );
 
         if ( empty( $task_id ) ) {
-            return new WP_REST_Response( array( 'error' => 'PiAPI did not return a task_id.' ), 502 );
+            return new WP_REST_Response( BizCity_Error_Payload::make( 'provider_error', 'PiAPI chưa tạo được tác vụ ảnh.', 'Đợi một lúc rồi thử lại.', 'image_task_failed' ), 200 );
         }
 
         return new WP_REST_Response(
             array(
                 'success' => true,
                 'task_id' => $task_id,
-                'status'  => 'pending',
+                'status'  => sanitize_text_field( (string) ( $result['status'] ?? 'pending' ) ),
+                'trace_id'=> sanitize_text_field( (string) ( $result['trace_id'] ?? '' ) ),
             ),
             200
         );
@@ -1698,23 +1697,19 @@ class BizCity_REST_API_Editor_Assets {
         $task_id = sanitize_text_field( $request['task_id'] ?? '' );
 
         if ( empty( $task_id ) ) {
-            return new WP_REST_Response( array( 'error' => 'task_id is required.' ), 400 );
+            return new WP_REST_Response( BizCity_Error_Payload::make( 'invalid_param', 'Thiếu mã tác vụ ảnh.', 'Kiểm tra mã tác vụ rồi thử lại.', 'image_task_not_found' ), 200 );
         }
 
-        if ( empty( get_site_option( 'bizcity_piapi_api_key' ) ) ) {
-            return new WP_REST_Response( array( 'error' => 'PiAPI key is not configured.' ), 500 );
+        if ( ! class_exists( 'BizCity_PiAPI_Client' ) ) {
+            return new WP_REST_Response( BizCity_Error_Payload::module_not_loaded( 'PiAPI Client' ), 200 );
         }
 
-        $result = self::ai_piapi_request( 'GET', '/api/v1/task/' . rawurlencode( $task_id ) );
-
-        if ( is_wp_error( $result ) ) {
-            return new WP_REST_Response(
-                array( 'error' => $result->get_error_message() ),
-                (int) ( $result->get_error_data()['status'] ?? 500 )
-            );
+        $result = BizCity_PiAPI_Client::instance()->get_task( $task_id );
+        if ( empty( $result['success'] ) ) {
+            return new WP_REST_Response( $result, 200 );
         }
 
-        $data = $result['data'] ?? array();
+        $data   = is_array( $result['result'] ?? null ) ? $result['result'] : $result;
         $output = $data['output'] ?? array();
         $image_url = '';
 
@@ -1734,7 +1729,7 @@ class BizCity_REST_API_Editor_Assets {
                 'task_id'   => $task_id,
                 'status'    => sanitize_text_field( $data['status'] ?? 'pending' ),
                 'image_url' => $image_url,
-                'error'     => sanitize_text_field( $data['error']['message'] ?? $data['message'] ?? '' ),
+                'trace_id'  => sanitize_text_field( (string) ( $result['trace_id'] ?? '' ) ),
             ),
             200
         );
@@ -1748,11 +1743,11 @@ class BizCity_REST_API_Editor_Assets {
         $count = max( 3, min( 8, (int) ( $body['count'] ?? 5 ) ) );
 
         if ( empty( $current_text ) ) {
-            return new WP_REST_Response( array( 'error' => 'current_text is required.' ), 400 );
+            return new WP_REST_Response( BizCity_Error_Payload::make( 'invalid_param', 'Thiếu nội dung cần gợi ý.', 'Nhập đoạn text rồi thử lại.', 'invalid_param_generic' ), 200 );
         }
 
         if ( ! function_exists( 'bizcity_llm_chat' ) ) {
-            return new WP_REST_Response( array( 'error' => 'LLM service is unavailable.' ), 500 );
+            return new WP_REST_Response( BizCity_Error_Payload::gateway_degraded(), 200 );
         }
 
         $messages = array(
@@ -1789,7 +1784,7 @@ class BizCity_REST_API_Editor_Assets {
         $suggestions = self::ai_parse_text_suggestions( (string) ( $result['message'] ?? '' ), $count );
 
         if ( empty( $suggestions ) ) {
-            return new WP_REST_Response( array( 'error' => 'Unable to parse AI suggestions.' ), 422 );
+            return new WP_REST_Response( BizCity_Error_Payload::make( 'llm_error', 'AI không tạo được gợi ý text.', 'Thử lại với nội dung ngắn hơn.', 'llm_response_invalid' ), 200 );
         }
 
         return new WP_REST_Response(
@@ -1799,57 +1794,6 @@ class BizCity_REST_API_Editor_Assets {
             ),
             200
         );
-    }
-
-    /**
-     * Low-level PiAPI HTTP wrapper.
-     *
-     * @todo R-1API-MIGRATION (2026-06-02): Replace với `BizCity_Video_Client::piapi_task()`
-     *       khi server bizcity-llm-router thêm proxy endpoint
-     *       `bizcity/v1/piapi/{task,task/{id}}`. Tham khảo roadmap:
-     *       `docs/roadmap/R-1API-CONSOLIDATION-2026-06-02.md`.
-     *       Site option `bizcity_piapi_api_key` hiện vẫn được đọc trực tiếp — vi phạm
-     *       R-GW-1 (provider key trên client) nhưng giữ tạm để background-remove
-     *       không bị down trong giai đoạn migration.
-     */
-    private static function ai_piapi_request( $method, $path, $body = null ) {
-        $api_key = trim( (string) get_site_option( 'bizcity_piapi_api_key' ) );
-
-        if ( empty( $api_key ) ) {
-            return new WP_Error( 'piapi_key_missing', 'PiAPI key is not configured.', array( 'status' => 500 ) );
-        }
-
-        $args = array(
-            'method'  => strtoupper( $method ),
-            'timeout' => 60,
-            'headers' => array(
-                'Content-Type' => 'application/json',
-                'X-API-Key'    => $api_key,
-            ),
-        );
-
-        if ( null !== $body ) {
-            $args['body'] = wp_json_encode( $body );
-        }
-
-        $response = wp_remote_request( 'https://api.piapi.ai' . $path, $args );
-
-        if ( is_wp_error( $response ) ) {
-            return $response;
-        }
-
-        $status = wp_remote_retrieve_response_code( $response );
-        $raw_body = wp_remote_retrieve_body( $response );
-        $data = json_decode( $raw_body, true );
-
-        if ( $status >= 400 ) {
-            $message = is_array( $data )
-                ? ( $data['message'] ?? $data['error'] ?? 'PiAPI request failed.' )
-                : 'PiAPI request failed.';
-            return new WP_Error( 'piapi_http_error', $message, array( 'status' => $status ) );
-        }
-
-        return is_array( $data ) ? $data : array();
     }
 
     private static function ai_parse_text_suggestions( $content, $count ) {

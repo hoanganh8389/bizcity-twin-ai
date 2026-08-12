@@ -189,6 +189,9 @@ class BizCoach_Pro_Rest {
 	 * Wraps Persona Provider tool_create_coach_map() for direct FE submit.
 	 */
 	public static function create_coach_map( $request ) {
+		if ( function_exists( 'bcpro_load_persona_provider_classes' ) ) {
+			bcpro_load_persona_provider_classes();
+		}
 		if ( ! class_exists( 'BizCoach_Pro_Persona_Provider' ) ) {
 			return new WP_Error( 'bcpro_persona_missing', 'Persona provider not loaded', [ 'status' => 500 ] );
 		}
@@ -216,6 +219,9 @@ class BizCoach_Pro_Rest {
 	 * Permission: logged-in; non-admin can only see their own artifact.
 	 */
 	public static function get_passages( $request ) {
+		if ( function_exists( 'bcpro_load_persona_provider_classes' ) ) {
+			bcpro_load_persona_provider_classes();
+		}
 		$id = (int) $request['id'];
 		if ( ! class_exists( 'BizCoach_Pro_Artifact_Service' ) ) {
 			return new WP_Error( 'bcpro_service_missing', 'Artifact service not loaded', [ 'status' => 500 ] );

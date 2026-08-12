@@ -38,6 +38,12 @@ class BizCity_Twin_Trace {
     /** @var bool Whether trace is enabled */
     private static $enabled = true;
 
+    /** @var array<string,array<string,mixed>> Bounded runtime span stack. */
+    private static $runtime_spans = [];
+
+    /** @var int Maximum semantic runtime events retained in one request. */
+    private static $runtime_event_limit = 200;
+
     /**
      * Initialize trace timer. Called once at bootstrap.
      */
@@ -237,6 +243,131 @@ class BizCity_Twin_Trace {
     public static function reset(): void {
         self::$entries    = [];
         self::$start_time = microtime( true );
+        self::$runtime_spans = [];
+    }
+
+    /**
+     * Start a bounded semantic runtime span.
+     *
+     * This is in-memory only. It does not write the event stream, database,
+     * cache or provider payloads, and is intended for W4 observe-only tracing.
+     *
+     * @param string $feature Feature boundary, e.g. twincore or memory.
+     * @param string $operation Operation name.
+     * @param array  $context Safe scalar metadata only.
+     * @return string Span event ID, or an empty string when disabled.
+     */
+    public static function runtime_enter( string $feature, string $operation, array $context = [] ): string {
+        if ( ! self::$enabled || count( self::$entries ) >= self::$runtime_event_limit ) {
+            return '';
+        }
+        // [2026-08-10 Johnny Chu] PHASE-1.23-CANONICAL-W4 - bounded parent-child
+        // runtime trace; no raw prompt, user-meta, SQL or provider payloads.
+        $event_id = function_exists( 'wp_generate_uuid4' )
+            ? 'rt_' . wp_generate_uuid4()
+            : 'rt_' . uniqid( '', true );
+        $parent_id = '';
+        if ( ! empty( self::$runtime_spans ) ) {
+            $parent = end( self::$runtime_spans );
+            $parent_id = isset( $parent['event_id'] ) ? (string) $parent['event_id'] : '';
+        }
+        self::$runtime_spans[ $event_id ] = [
+            'event_id'   => $event_id,
+            'parent_id'  => $parent_id,
+            'feature'    => self::safe_label( $feature ),
+            'operation'  => self::safe_label( $operation ),
+            'started_at' => microtime( true ),
+        ];
+        self::runtime_log( 'enter', self::$runtime_spans[ $event_id ], self::safe_context( $context ) );
+        return $event_id;
+    }
+
+    /**
+     * Finish a semantic runtime span.
+     *
+     * @param string $event_id Span ID from runtime_enter().
+     * @param string $result pass|fail|degraded.
+     * @param array  $data Safe scalar metadata only.
+     * @return void
+     */
+    public static function runtime_exit( string $event_id, string $result = 'pass', array $data = [] ): void {
+        if ( $event_id === '' || ! isset( self::$runtime_spans[ $event_id ] ) ) {
+            return;
+        }
+        $span = self::$runtime_spans[ $event_id ];
+        unset( self::$runtime_spans[ $event_id ] );
+        $result = in_array( $result, [ 'pass', 'fail', 'degraded' ], true ) ? $result : 'fail';
+        $data['elapsed_ms'] = round( ( microtime( true ) - (float) $span['started_at'] ) * 1000, 2 );
+        $data['result'] = $result;
+        self::runtime_log( 'exit', $span, self::safe_context( $data ) );
+    }
+
+    /**
+     * Return only semantic runtime entries for Diagnostics/probes.
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    public static function runtime_entries(): array {
+        return array_values( array_filter( self::$entries, static function ( $entry ) {
+            return isset( $entry['step'] ) && $entry['step'] === 'twin:runtime';
+        } ) );
+    }
+
+    /**
+     * Return bounded metadata for spans that have not exited yet.
+     *
+     * @return array<int,array<string,string>>
+     */
+    public static function runtime_open_spans(): array {
+        $open = [];
+        foreach ( self::$runtime_spans as $span ) {
+            $open[] = [
+                'event_id'        => (string) ( $span['event_id'] ?? '' ),
+                'parent_event_id' => (string) ( $span['parent_id'] ?? '' ),
+                'feature'         => (string) ( $span['feature'] ?? '' ),
+                'operation'       => (string) ( $span['operation'] ?? '' ),
+            ];
+        }
+        return $open;
+    }
+
+    private static function runtime_log( string $phase, array $span, array $data = [] ): void {
+        if ( count( self::$entries ) >= self::$runtime_event_limit ) {
+            return;
+        }
+        self::$entries[] = [
+            'step'  => 'twin:runtime',
+            'data'  => array_merge(
+                [
+                    'phase'            => $phase,
+                    'event_id'         => (string) ( $span['event_id'] ?? '' ),
+                    'parent_event_id'  => (string) ( $span['parent_id'] ?? '' ),
+                    'feature'          => (string) ( $span['feature'] ?? '' ),
+                    'operation'        => (string) ( $span['operation'] ?? '' ),
+                ],
+                $data
+            ),
+            'level' => ( isset( $data['result'] ) && $data['result'] === 'fail' ) ? 'error' : 'info',
+            'ms'    => self::elapsed(),
+        ];
+    }
+
+    private static function safe_label( string $value ): string {
+        return substr( preg_replace( '/[^A-Za-z0-9_.:-]/', '', $value ), 0, 120 );
+    }
+
+    private static function safe_context( array $data ): array {
+        $safe = [];
+        foreach ( $data as $key => $value ) {
+            if ( is_scalar( $value ) || $value === null ) {
+                $safe[ self::safe_label( (string) $key ) ] = is_string( $value )
+                    ? substr( $value, 0, 120 )
+                    : $value;
+            } elseif ( is_array( $value ) ) {
+                $safe[ self::safe_label( (string) $key ) . '_count' ] = count( $value );
+            }
+        }
+        return $safe;
     }
 
     /* ================================================================

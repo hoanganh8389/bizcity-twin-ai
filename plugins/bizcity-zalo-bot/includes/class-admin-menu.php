@@ -47,6 +47,10 @@ class BizCity_Zalo_Bot_Admin_Menu {
 	 * Add admin menu
 	 */
 	public function add_menu() {
+		if ( class_exists( 'BizCity_Admin_Menu', false ) ) {
+			return;
+		}
+		// [2026-08-11 Johnny Chu] PHASE-1.26 — bundled Zalo pages are owned by the unified Workspace registry.
 		add_menu_page(
 			'Bots - Zalo',
 			'Bots - Zalo',
@@ -1689,10 +1693,9 @@ class BizCity_Zalo_Bot_Admin_Menu {
 		$bot_id = isset( $_POST['bot_id'] ) ? intval( $_POST['bot_id'] ) : 0;
 		$limit = isset( $_POST['limit'] ) ? intval( $_POST['limit'] ) : 100;
 		
-		// Check OpenAI API key
-		$api_key = get_option( 'twf_openai_api_key' );
-		if ( empty( $api_key ) ) {
-			wp_send_json_error( array( 'message' => 'Chưa cấu hình OpenAI API key (twf_openai_api_key)' ) );
+		// [2026-08-09 Johnny Chu] R-1API-AUTH — memory extraction owns the canonical LLM client boundary.
+		if ( ! class_exists( 'BizCity_LLM_Client' ) || ! BizCity_LLM_Client::instance()->is_ready() ) {
+			wp_send_json_error( array( 'message' => 'Chưa cấu hình BizCity AI Gateway.' ) );
 		}
 		
 		$memory = BizCity_Zalo_Bot_Memory::instance();

@@ -42,11 +42,33 @@ if ( ! function_exists( 'bizcity_qm_loader_probe_enabled' ) ) {
 if ( empty( $GLOBALS['bizcity_qm_loader_early_baseline'] )
 	&& bizcity_qm_loader_probe_enabled( false ) ) {
 	$GLOBALS['bizcity_qm_loader_early_baseline'] = array(
-		'memory'  => memory_get_usage( true ),
+		// [2026-08-10 Johnny Chu] PHASE-1.23-CANONICAL-W1 - keep early
+		// baseline on the same used-memory basis as lifecycle snapshots.
+		'memory'  => memory_get_usage( false ),
 		'files'   => array_fill_keys( get_included_files(), true ),
 		'classes' => array_fill_keys( get_declared_classes(), true ),
 	);
 }
+
+// [2026-08-10 Johnny Chu] PHASE-1.23-CANONICAL-W5 - user-meta filters are
+// forensic-only; ordinary admin/frontend requests do not pay their overhead.
+$bizcity_user_meta_trace_request = defined( 'BIZCITY_TWIN_USER_META_TRACE' ) && BIZCITY_TWIN_USER_META_TRACE;
+$bizcity_user_meta_trace_request = $bizcity_user_meta_trace_request
+	|| ( ! empty( $_GET['bizcity_qm_probe'] ) && '1' === (string) $_GET['bizcity_qm_probe'] );
+$bizcity_user_meta_trace_request = $bizcity_user_meta_trace_request
+	|| ( ! empty( $_SERVER['REQUEST_URI'] ) && false !== strpos( (string) $_SERVER['REQUEST_URI'], '/bizcity-diagnostics/' ) );
+$bizcity_user_meta_trace_request = $bizcity_user_meta_trace_request
+	|| ( function_exists( 'is_admin' ) && is_admin() && isset( $_GET['page'] ) && 'bizcity-diagnostics' === sanitize_key( (string) $_GET['page'] ) );
+if ( $bizcity_user_meta_trace_request ) {
+	$bizcity_user_meta_trace_file = __DIR__ . '/class-diagnostics-user-meta-trace.php';
+	if ( file_exists( $bizcity_user_meta_trace_file ) ) {
+		require_once $bizcity_user_meta_trace_file;
+		if ( class_exists( 'BizCity_Diagnostics_User_Meta_Trace', false ) ) {
+			BizCity_Diagnostics_User_Meta_Trace::init();
+		}
+	}
+}
+unset( $bizcity_user_meta_trace_request, $bizcity_user_meta_trace_file );
 
 if ( ! function_exists( 'bizcity_qm_loader_probe_stage' ) ) {
 	/**
@@ -127,6 +149,7 @@ if ( ! function_exists( 'bizcity_qm_loader_export_jsonl' ) ) {
 				'event'            => 'qm_loader_snapshot',
 				'request_uri'      => isset( $_SERVER['REQUEST_URI'] ) ? (string) wp_parse_url( (string) $_SERVER['REQUEST_URI'], PHP_URL_PATH ) : '',
 				'peak_memory_mb'   => round( memory_get_peak_usage( true ) / 1048576, 2 ),
+				'peak_memory_used_mb' => round( memory_get_peak_usage( false ) / 1048576, 2 ),
 				'included_files'   => count( get_included_files() ),
 				'declared_classes' => count( get_declared_classes() ),
 				'snapshots'        => $snapshots,

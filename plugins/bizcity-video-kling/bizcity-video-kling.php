@@ -275,13 +275,8 @@ add_action( 'template_redirect', function() {
  * Activation hook
  */
 register_activation_hook( __FILE__, function() {
-    // Set default options
-    if ( ! get_option( 'bizcity_video_kling_api_key' ) ) {
-        add_option( 'bizcity_video_kling_api_key', '' );
-    }
-    if ( ! get_option( 'bizcity_video_kling_endpoint' ) ) {
-        add_option( 'bizcity_video_kling_endpoint', 'https://api.piapi.ai/api/v1' );
-    }
+    // [2026-08-10 Johnny Chu] PHASE-1.24-VIDEO-KLING — provider credentials and endpoints are Hub-owned.
+    // Set only non-secret local defaults.
     if ( ! get_option( 'bizcity_video_kling_default_model' ) ) {
         add_option( 'bizcity_video_kling_default_model', '2.6|pro' );
     }

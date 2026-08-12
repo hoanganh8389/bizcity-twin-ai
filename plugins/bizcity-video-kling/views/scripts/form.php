@@ -74,12 +74,12 @@ if ( ! defined( 'ABSPATH' ) ) {
                             <?php _e( 'AI is thinking...', 'bizcity-video-kling' ); ?>
                         </span>
                         <?php 
-                        $has_openai_key = ! empty( get_option( 'twf_openai_api_key', '' ) ) || ! empty( get_option( 'bizcity_video_kling_openai_api_key', '' ) );
+                        $has_openai_key = class_exists( 'BizCity_Video_Kling_OpenAI_TTS' ) && BizCity_Video_Kling_OpenAI_TTS::is_configured();
                         if ( ! $has_openai_key ): 
                         ?>
                             <p class="description" style="color: #d63638; margin-top: 10px;">
                                 <span class="dashicons dashicons-warning"></span>
-                                <?php _e( 'OpenAI API key not configured. Please set twf_openai_api_key option.', 'bizcity-video-kling' ); ?>
+                                <?php _e( 'TTS chưa được kết nối qua BizCity Gateway.', 'bizcity-video-kling' ); ?>
                             </p>
                         <?php endif; ?>
                     </td>
@@ -238,7 +238,7 @@ if ( ! defined( 'ABSPATH' ) ) {
                         $tts_configured = class_exists( 'BizCity_Video_Kling_OpenAI_TTS' ) && BizCity_Video_Kling_OpenAI_TTS::is_configured();
                         if ( ! $tts_configured ): 
                         ?>
-                            <p class="description" style="color: #d63638;"><strong><?php _e( 'Warning:', 'bizcity-video-kling' ); ?></strong> <?php _e( 'TTS API key not configured (twf_openai_api_key).', 'bizcity-video-kling' ); ?></p>
+                            <p class="description" style="color: #d63638;"><strong><?php _e( 'Lưu ý:', 'bizcity-video-kling' ); ?></strong> <?php _e( 'TTS sẽ khả dụng khi capability TTS được bật trên BizCity Gateway.', 'bizcity-video-kling' ); ?></p>
                         <?php endif; ?>
                     </td>
                 </tr>

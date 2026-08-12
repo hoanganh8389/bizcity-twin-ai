@@ -51,6 +51,16 @@ final class BizCity_TwinBrain_Memory_Recall {
 		$t0          = microtime( true );
 		$session_id  = (string) ( $opts['session_id'] ?? '' );
 		$identity_uuid = trim( (string) ( $opts['identity_uuid'] ?? '' ) );
+		// [2026-08-10 Johnny Chu] PHASE-1.23-CANONICAL-W5 - trace one recall
+		// operation and its unified/legacy child path without memory text or prompt data.
+		$runtime_span_id = class_exists( 'BizCity_Twin_Trace' )
+			&& method_exists( 'BizCity_Twin_Trace', 'runtime_enter' )
+			? BizCity_Twin_Trace::runtime_enter( 'memory', 'recall', array(
+				'user_scope_hash' => self::trace_scope_hash( $user_id, $session_id, $identity_uuid ),
+				'option_keys'     => array_keys( $opts ),
+				'prompt_length'   => strlen( $prompt ),
+			) )
+			: '';
 		// [2026-08-03 Johnny Chu] R-TGL-CS — keep Goal/Case scope explicit at the recall boundary.
 		$memory_scope = sanitize_key( (string) ( $opts['memory_scope'] ?? '' ) );
 		$case_id      = sanitize_text_field( (string) ( $opts['case_id'] ?? '' ) );
@@ -77,7 +87,14 @@ final class BizCity_TwinBrain_Memory_Recall {
 		}
 		// [2026-07-28 Johnny Chu] R-CH-IDMEM — do not recall durable memory for an anonymous soft session.
 		if ( $user_id <= 0 && ( $identity_uuid === '' || ! $identity_verified ) ) {
-			return $this->empty_result( $t0 );
+			$result = $this->empty_result( $t0 );
+			if ( $runtime_span_id !== '' ) {
+				BizCity_Twin_Trace::runtime_exit( $runtime_span_id, 'degraded', array(
+					'reason' => 'anonymous_identity_unverified',
+					'counts' => 0,
+				) );
+			}
+			return $result;
 		}
 		$tokens      = (array)  ( $opts['keyword_tokens'] ?? [] );
 		if ( empty( $tokens ) && class_exists( 'BizCity_TwinBrain_Notebook_Selector' ) ) {
@@ -93,17 +110,71 @@ final class BizCity_TwinBrain_Memory_Recall {
 			class_exists( 'BizCity_Memory_Unified_Installer' )
 			&& BizCity_Memory_Unified_Installer::is_enabled()
 		) {
+			$unified_span_id = class_exists( 'BizCity_Twin_Trace' )
+				&& method_exists( 'BizCity_Twin_Trace', 'runtime_enter' )
+				? BizCity_Twin_Trace::runtime_enter( 'memory', 'recall_unified', array(
+					'user_scope_hash' => self::trace_scope_hash( $user_id, $session_id, $identity_uuid ),
+					'memory_scope'   => $memory_scope,
+				) )
+				: '';
 			try {
 				$unified = $this->collect_from_unified( $user_id, $session_id, $identity_uuid, $tokens, $t0, $memory_scope, $case_id, $subject_key, $goal_id );
 				if ( is_array( $unified ) ) {
+					if ( $unified_span_id !== '' ) {
+						BizCity_Twin_Trace::runtime_exit( $unified_span_id, 'pass', array(
+							'counts'      => is_array( $unified['counts'] ?? null ) ? array_sum( $unified['counts'] ) : 0,
+							'citations'   => is_array( $unified['citations'] ?? null ) ? count( $unified['citations'] ) : 0,
+							'path'        => 'unified',
+						) );
+					}
+					if ( $runtime_span_id !== '' ) {
+						BizCity_Twin_Trace::runtime_exit( $runtime_span_id, 'pass', array(
+							'path'      => 'unified',
+							'counts'    => is_array( $unified['counts'] ?? null ) ? array_sum( $unified['counts'] ) : 0,
+							'citations' => is_array( $unified['citations'] ?? null ) ? count( $unified['citations'] ) : 0,
+						) );
+					}
 					return $unified;
 				}
 			} catch ( \Throwable $e ) {
+				if ( $unified_span_id !== '' ) {
+					BizCity_Twin_Trace::runtime_exit( $unified_span_id, 'fail', array( 'path' => 'unified', 'fallback' => true ) );
+				}
 				error_log( '[BizCity_TwinBrain_Memory_Recall][unified] read failed — falling back to legacy: ' . $e->getMessage() );
+			}
+			if ( $unified_span_id !== '' && ! isset( $unified ) ) {
+				BizCity_Twin_Trace::runtime_exit( $unified_span_id, 'degraded', array( 'path' => 'unified', 'fallback' => true, 'reason' => 'unified_returned_null' ) );
 			}
 		}
 
-		return $this->collect_from_legacy( $user_id, $session_id, $identity_uuid, $tokens, $t0, $memory_scope, $case_id, $subject_key, $goal_id );
+		$legacy_span_id = class_exists( 'BizCity_Twin_Trace' )
+			&& method_exists( 'BizCity_Twin_Trace', 'runtime_enter' )
+			? BizCity_Twin_Trace::runtime_enter( 'memory', 'recall_legacy', array(
+				'user_scope_hash' => self::trace_scope_hash( $user_id, $session_id, $identity_uuid ),
+				'memory_scope'   => $memory_scope,
+			) )
+			: '';
+		$result = $this->collect_from_legacy( $user_id, $session_id, $identity_uuid, $tokens, $t0, $memory_scope, $case_id, $subject_key, $goal_id );
+		if ( $legacy_span_id !== '' ) {
+			BizCity_Twin_Trace::runtime_exit( $legacy_span_id, 'pass', array(
+				'path'      => 'legacy',
+				'counts'    => is_array( $result['counts'] ?? null ) ? array_sum( $result['counts'] ) : 0,
+				'citations' => is_array( $result['citations'] ?? null ) ? count( $result['citations'] ) : 0,
+			) );
+		}
+		if ( $runtime_span_id !== '' ) {
+			BizCity_Twin_Trace::runtime_exit( $runtime_span_id, 'pass', array(
+				'path'      => 'legacy',
+				'counts'    => is_array( $result['counts'] ?? null ) ? array_sum( $result['counts'] ) : 0,
+				'citations' => is_array( $result['citations'] ?? null ) ? count( $result['citations'] ) : 0,
+			) );
+		}
+		return $result;
+	}
+
+	private static function trace_scope_hash( int $user_id, string $session_id, string $identity_uuid ): string {
+		$blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+		return substr( hash( 'sha256', $blog_id . '|' . $user_id . '|' . $session_id . '|' . $identity_uuid ), 0, 16 );
 	}
 
 	/**

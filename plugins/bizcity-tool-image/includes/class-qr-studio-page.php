@@ -477,11 +477,12 @@ class BizCity_QR_Studio_Page {
         check_ajax_referer( 'bztimg_nonce', 'nonce' );
 
         if ( ! is_user_logged_in() ) {
-            wp_send_json_error( [ 'message' => 'Yêu cầu đăng nhập.' ] );
+            // [2026-08-10 Johnny Chu] R-ERROR-UX — standardize QR upload auth failure.
+            wp_send_json_error( BizCity_Error_Payload::make( 'auth_required', 'Bạn cần đăng nhập để tải ảnh QR lên.', 'Đăng nhập rồi thử lại.', 'login_required' ) );
         }
 
         if ( empty( $_FILES['file'] ) || (int) $_FILES['file']['error'] !== UPLOAD_ERR_OK ) {
-            wp_send_json_error( [ 'message' => 'Tải file thất bại.' ] );
+            wp_send_json_error( BizCity_Error_Payload::make( 'upload_rejected', 'Không thể nhận file QR.', 'Chọn lại file rồi thử lại.', 'image_upload_retry' ) );
         }
 
         /* Validate MIME via finfo (not just extension) */
@@ -490,7 +491,7 @@ class BizCity_QR_Studio_Page {
         $mime    = $finfo->file( $_FILES['file']['tmp_name'] );
 
         if ( ! in_array( $mime, $allowed, true ) ) {
-            wp_send_json_error( [ 'message' => 'Chỉ chấp nhận JPG, PNG, WebP.' ] );
+            wp_send_json_error( BizCity_Error_Payload::make( 'invalid_param', 'Định dạng ảnh QR không được hỗ trợ.', 'Chọn file JPG, PNG hoặc WebP.', 'image_format_supported' ) );
         }
 
         require_once ABSPATH . 'wp-admin/includes/image.php';
@@ -499,7 +500,7 @@ class BizCity_QR_Studio_Page {
 
         $attachment_id = media_handle_upload( 'file', 0 );
         if ( is_wp_error( $attachment_id ) ) {
-            wp_send_json_error( [ 'message' => $attachment_id->get_error_message() ] );
+            wp_send_json_error( BizCity_Error_Payload::make( 'upload_rejected', 'Không thể lưu ảnh QR vào Media Library.', 'Kiểm tra file rồi thử lại.', 'image_upload_retry', array( 'wp_error_code' => $attachment_id->get_error_code() ) ) );
         }
 
         wp_send_json_success( [

@@ -37,6 +37,10 @@ class BizCity_WebChat_Admin_Menu {
 	 * Add admin menu
 	 */
 	public function add_menu() {
+		if ( class_exists( 'BizCity_Admin_Menu', false ) ) {
+			return;
+		}
+		// [2026-08-11 Johnny Chu] PHASE-1.26 — WebChat settings are owned by the Settings group registry.
 		$td = 'bizcity-webchat';
 
 		add_menu_page(

@@ -20,6 +20,22 @@ class BizCity_Video_Kling_Scripts {
         add_action( 'wp_ajax_bizcity_kling_generate_video', array( __CLASS__, 'ajax_generate_video' ) );
         add_action( 'wp_ajax_bizcity_kling_ai_suggest', array( __CLASS__, 'ajax_ai_suggest' ) );
     }
+
+    private static function send_error( $code, $message, $hint, $help_code, $status = 400, $context = array() ) {
+        // [2026-08-10 Johnny Chu] PHASE-1.24-VIDEO-KLING — centralize script AJAX error envelopes.
+        $payload = class_exists( 'BizCity_Error_Payload' )
+            ? BizCity_Error_Payload::make( $code, $message, $hint, $help_code, $context )
+            : array(
+                'success'   => false,
+                '_degraded' => true,
+                'code'      => (string) $code,
+                'message'   => (string) $message,
+                'hint'      => (string) $hint,
+                'help_code' => (string) $help_code,
+                'context'   => (array) $context,
+            );
+        wp_send_json_error( $payload, (int) $status );
+    }
     
     /**
      * Render scripts list page
@@ -150,7 +166,7 @@ class BizCity_Video_Kling_Scripts {
         check_ajax_referer( 'bizcity_kling_nonce', 'nonce' );
         
         if ( ! current_user_can( 'manage_options' ) ) {
-            wp_send_json_error( array( 'message' => __( 'Permission denied', 'bizcity-video-kling' ) ) );
+            self::send_error( 'permission_denied', __( 'Bạn không có quyền quản lý kịch bản.', 'bizcity-video-kling' ), 'Đăng nhập bằng tài khoản quản trị rồi thử lại.', 'permission_required', 403 );
             return;
         }
         
@@ -215,12 +231,12 @@ class BizCity_Video_Kling_Scripts {
         }
         
         if ( empty( $title ) ) {
-            wp_send_json_error( array( 'message' => __( 'Title is required', 'bizcity-video-kling' ) ) );
+            self::send_error( 'invalid_param', __( 'Tiêu đề kịch bản là bắt buộc.', 'bizcity-video-kling' ), 'Nhập tiêu đề rồi thử lại.', 'invalid_param_generic' );
             return;
         }
         
         if ( empty( $content ) ) {
-            wp_send_json_error( array( 'message' => __( 'Prompt/Content is required', 'bizcity-video-kling' ) ) );
+            self::send_error( 'invalid_param', __( 'Nội dung kịch bản là bắt buộc.', 'bizcity-video-kling' ), 'Nhập nội dung rồi thử lại.', 'invalid_param_generic' );
             return;
         }
         
@@ -283,7 +299,7 @@ class BizCity_Video_Kling_Scripts {
         }
         
         if ( ! $result ) {
-            wp_send_json_error( array( 'message' => __( 'Failed to save script', 'bizcity-video-kling' ) ) );
+            self::send_error( 'automation_run_failed', __( 'Không thể lưu kịch bản.', 'bizcity-video-kling' ), 'Thử lại sau vài phút.', 'gateway_degraded', 500 );
             return;
         }
         
@@ -300,7 +316,7 @@ class BizCity_Video_Kling_Scripts {
         check_ajax_referer( 'bizcity_kling_nonce', 'nonce' );
         
         if ( ! current_user_can( 'manage_options' ) ) {
-            wp_send_json_error( array( 'message' => __( 'Permission denied', 'bizcity-video-kling' ) ) );
+            self::send_error( 'permission_denied', __( 'Bạn không có quyền tạo kịch bản AI.', 'bizcity-video-kling' ), 'Đăng nhập bằng tài khoản quản trị rồi thử lại.', 'permission_required', 403 );
             return;
         }
         
@@ -310,18 +326,18 @@ class BizCity_Video_Kling_Scripts {
         $image_url = esc_url_raw( $_POST['image_url'] ?? '' );
         
         if ( empty( $idea ) ) {
-            wp_send_json_error( array( 'message' => __( 'Vui lòng nhập ý tưởng video', 'bizcity-video-kling' ) ) );
+            self::send_error( 'invalid_param', __( 'Vui lòng nhập ý tưởng video.', 'bizcity-video-kling' ), 'Nhập ý tưởng rồi thử lại.', 'invalid_param_generic' );
             return;
         }
         
         // [2026-08-09 Johnny Chu] R-GW-8 — route script generation through the managed LLM client.
         if ( ! class_exists( 'BizCity_LLM_Client' ) ) {
-            wp_send_json_error( array( 'message' => __( 'BizCity AI Gateway chưa sẵn sàng.', 'bizcity-video-kling' ) ) );
+            self::send_error( 'module_not_loaded', __( 'BizCity AI Gateway chưa sẵn sàng.', 'bizcity-video-kling' ), 'Kiểm tra module LLM rồi thử lại.', 'module_not_loaded', 503 );
             return;
         }
         $llm = BizCity_LLM_Client::instance();
         if ( ! $llm->is_ready() ) {
-            wp_send_json_error( array( 'message' => __( 'Chưa cấu hình BizCity AI Gateway.', 'bizcity-video-kling' ) ) );
+            self::send_error( 'gateway_degraded', __( 'BizCity AI Gateway chưa được cấu hình.', 'bizcity-video-kling' ), 'Kiểm tra API key Gateway rồi thử lại.', 'gateway_degraded', 503 );
             return;
         }
         
@@ -395,7 +411,7 @@ TRẢ LỜI CHỈ BẰNG ĐỊNH DẠNG JSON với các trường sau:
             )
         );
         if ( empty( $response['success'] ) ) {
-            wp_send_json_error( array( 'message' => __( 'Không thể tạo kịch bản qua BizCity AI Gateway.', 'bizcity-video-kling' ) ) );
+            self::send_error( 'llm_error', __( 'Không thể tạo kịch bản qua BizCity AI Gateway.', 'bizcity-video-kling' ), 'Thử lại sau vài phút.', 'gateway_degraded', 502 );
             return;
         }
 
@@ -407,10 +423,7 @@ TRẢ LỜI CHỈ BẰNG ĐỊNH DẠNG JSON với các trường sau:
         
         if ( ! $result || ! isset( $result['title'] ) ) {
             // Try to extract from non-JSON response
-            wp_send_json_error( array( 
-                'message' => __( 'Không thể parse kết quả từ AI', 'bizcity-video-kling' ),
-                'raw' => $content,
-            ) );
+            self::send_error( 'llm_error', __( 'Kết quả AI không đúng định dạng.', 'bizcity-video-kling' ), 'Thử tạo kịch bản lại.', 'gateway_degraded', 502 );
             return;
         }
         
@@ -466,21 +479,21 @@ TRẢ LỜI CHỈ BẰNG ĐỊNH DẠNG JSON với các trường sau:
         check_ajax_referer( 'bizcity_kling_nonce', 'nonce' );
         
         if ( ! current_user_can( 'manage_options' ) ) {
-            wp_send_json_error( array( 'message' => __( 'Permission denied', 'bizcity-video-kling' ) ) );
+            self::send_error( 'permission_denied', __( 'Bạn không có quyền xóa kịch bản.', 'bizcity-video-kling' ), 'Đăng nhập bằng tài khoản quản trị rồi thử lại.', 'permission_required', 403 );
             return;
         }
         
         $script_id = intval( $_POST['script_id'] ?? 0 );
         
         if ( ! $script_id ) {
-            wp_send_json_error( array( 'message' => __( 'Invalid script ID', 'bizcity-video-kling' ) ) );
+            self::send_error( 'invalid_param', __( 'Mã kịch bản không hợp lệ.', 'bizcity-video-kling' ), 'Kiểm tra mã kịch bản rồi thử lại.', 'invalid_param_generic' );
             return;
         }
         
         $result = BizCity_Video_Kling_Database::delete_script( $script_id );
         
         if ( ! $result ) {
-            wp_send_json_error( array( 'message' => __( 'Failed to delete script', 'bizcity-video-kling' ) ) );
+            self::send_error( 'automation_run_failed', __( 'Không thể xóa kịch bản.', 'bizcity-video-kling' ), 'Thử lại sau vài phút.', 'gateway_degraded', 500 );
             return;
         }
         
@@ -494,32 +507,25 @@ TRẢ LỜI CHỈ BẰNG ĐỊNH DẠNG JSON với các trường sau:
         check_ajax_referer( 'bizcity_kling_nonce', 'nonce' );
         
         if ( ! current_user_can( 'manage_options' ) ) {
-            wp_send_json_error( array( 'message' => __( 'Permission denied', 'bizcity-video-kling' ) ) );
+            self::send_error( 'permission_denied', __( 'Bạn không có quyền tạo video.', 'bizcity-video-kling' ), 'Đăng nhập bằng tài khoản quản trị rồi thử lại.', 'permission_required', 403 );
             return;
         }
         
         $script_id = intval( $_POST['script_id'] ?? 0 );
         
         if ( ! $script_id ) {
-            wp_send_json_error( array( 'message' => __( 'Invalid script ID', 'bizcity-video-kling' ) ) );
+            self::send_error( 'invalid_param', __( 'Mã kịch bản không hợp lệ.', 'bizcity-video-kling' ), 'Kiểm tra mã kịch bản rồi thử lại.', 'invalid_param_generic' );
             return;
         }
         
         $script = BizCity_Video_Kling_Database::get_script( $script_id );
         
         if ( ! $script ) {
-            wp_send_json_error( array( 'message' => __( 'Script not found', 'bizcity-video-kling' ) ) );
+            self::send_error( 'not_found', __( 'Không tìm thấy kịch bản.', 'bizcity-video-kling' ), 'Chọn lại kịch bản rồi thử lại.', 'not_found', 404 );
             return;
         }
         
-        // Get API settings
-        $api_key = get_option( 'bizcity_video_kling_api_key', '' );
-        $endpoint = get_option( 'bizcity_video_kling_endpoint', 'https://api.piapi.ai/api/v1' );
-        
-        if ( empty( $api_key ) ) {
-            wp_send_json_error( array( 'message' => __( 'API key not configured. Please set it in Settings.', 'bizcity-video-kling' ) ) );
-            return;
-        }
+        // [2026-08-10 Johnny Chu] PHASE-1.24-VIDEO-KLING — script submission uses managed gateway readiness.
         
         $metadata = json_decode( $script->metadata ?? '{}', true );
         $image_url = $metadata['image_url'] ?? '';
@@ -578,7 +584,7 @@ TRẢ LỜI CHỈ BẰNG ĐỊNH DẠNG JSON với các trường sau:
         ) );
         
         if ( ! $job_id ) {
-            wp_send_json_error( array( 'message' => __( 'Failed to create job', 'bizcity-video-kling' ) ) );
+            self::send_error( 'automation_run_failed', __( 'Không thể tạo job video.', 'bizcity-video-kling' ), 'Thử lại sau vài phút.', 'gateway_degraded', 500 );
             return;
         }
         
@@ -633,7 +639,7 @@ TRẢ LỜI CHỈ BẰNG ĐỊNH DẠNG JSON với các trường sau:
                 'error_message' => $result['error'] ?? __( 'Failed to create video task', 'bizcity-video-kling' ),
             ) );
             
-            wp_send_json_error( array( 'message' => $result['error'] ?? __( 'Failed to create video task', 'bizcity-video-kling' ) ) );
+            self::send_error( 'gateway_degraded', __( 'Không thể tạo tác vụ video.', 'bizcity-video-kling' ), 'Thử lại sau vài phút.', 'gateway_degraded', 502 );
             return;
         }
         
@@ -649,7 +655,7 @@ TRẢ LỜI CHỈ BẰNG ĐỊNH DẠNG JSON với các trường sau:
                 'error_message' => __( 'Missing task_id in API response', 'bizcity-video-kling' ),
             ) );
             
-            wp_send_json_error( array( 'message' => __( 'Missing task_id in API response', 'bizcity-video-kling' ) ) );
+            self::send_error( 'gateway_degraded', __( 'Gateway không trả về mã tác vụ video.', 'bizcity-video-kling' ), 'Thử tạo lại tác vụ sau vài phút.', 'gateway_degraded', 502 );
             return;
         }
         

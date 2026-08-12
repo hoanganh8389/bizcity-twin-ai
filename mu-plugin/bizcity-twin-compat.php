@@ -111,8 +111,13 @@ add_filter( 'doing_it_wrong_trigger_error', function ( $trigger, $function_name,
 // ── Constants + Connection Gate (other components depend on these) ────────────
 // BIZCITY_TWIN_AI_VERSION must be defined early so bundled plugins don't show
 // "requires Bizcity Twin AI" warnings. Connection Gate is needed by Market.
+// [2026-08-11 Johnny Chu] PHASE-1.23-VERSION-AUTH - keep the early compat
+// contract aligned with the main plugin release and expose its source.
 if ( ! defined( 'BIZCITY_TWIN_AI_VERSION' ) ) {
-    define( 'BIZCITY_TWIN_AI_VERSION', '1.0.1' );
+    define( 'BIZCITY_TWIN_AI_VERSION', '1.3.7' );
+}
+if ( ! defined( 'BIZCITY_TWIN_AI_VERSION_SOURCE' ) ) {
+    define( 'BIZCITY_TWIN_AI_VERSION_SOURCE', 'compat_constant' );
 }
 if ( ! defined( 'BIZCITY_TWIN_AI_DIR' ) ) {
     define( 'BIZCITY_TWIN_AI_DIR', WP_PLUGIN_DIR . '/' . BIZCITY_TWIN_AI_SLUG . '/' );
@@ -120,6 +125,14 @@ if ( ! defined( 'BIZCITY_TWIN_AI_DIR' ) ) {
 if ( ! defined( 'BIZCITY_TWIN_AI_URL' ) ) {
     define( 'BIZCITY_TWIN_AI_URL', plugins_url( '/', WP_PLUGIN_DIR . '/' . BIZCITY_TWIN_AI_SLUG . '/bizcity-twin-ai.php' ) );
 }
+
+// [2026-08-10 Johnny Chu] PHASE-1.23-CANONICAL-W2 - share the lightweight
+// observe-only ownership registry with the main plugin loader.
+$_bc_loader_registry = BIZCITY_TWIN_AI_DIR . 'core/runtime/class-loader-ownership-registry.php';
+if ( file_exists( $_bc_loader_registry ) && ! class_exists( 'BizCity_Loader_Ownership_Registry', false ) ) {
+    require_once $_bc_loader_registry;
+}
+unset( $_bc_loader_registry );
 
 // [2026-08-09 Johnny Chu] R-PERF-LOADER-QM - register Query Monitor loader
 // filters from the early compat boundary so stale plugin boot order cannot hide
@@ -182,8 +195,16 @@ $_bc_llm_context = is_admin()
     || false !== strpos( $_bc_llm_uri, '/tool-' )
     || false !== strpos( $_bc_llm_uri, '/gpt' )
     || false !== strpos( $_bc_llm_uri, '/twin' );
-if ( $_bc_llm_context && ! $_bc_twinchat_admin_shell_request && file_exists( $_bc_llm ) && ! class_exists( 'BizCity_LLM_Client', false ) ) {
-    require_once $_bc_llm;
+if ( $_bc_llm_context && ! $_bc_twinchat_admin_shell_request && file_exists( $_bc_llm ) ) {
+    if ( class_exists( 'BizCity_Loader_Ownership_Registry', false ) ) {
+        BizCity_Loader_Ownership_Registry::claim( 'llm_client', 'compat_source', $_bc_llm, defined( 'BIZCITY_TWIN_AI_VERSION' ) ? BIZCITY_TWIN_AI_VERSION : '', 'early_loader', 'pre_plugins_loaded' );
+    }
+    if ( ! class_exists( 'BizCity_LLM_Client', false ) ) {
+        require_once $_bc_llm;
+        if ( class_exists( 'BizCity_Loader_Ownership_Registry', false ) ) {
+            BizCity_Loader_Ownership_Registry::transition( 'llm_client', BizCity_Loader_Ownership_Registry::STATE_CONTRACT_READY, 'compat_source', 'pre_plugins_loaded' );
+        }
+    }
 }
 unset( $_bc_llm, $_bc_llm_uri, $_bc_llm_context );
 
@@ -252,8 +273,16 @@ if ( ! isset( $_bizcity_admin_ctx ) ) {
 }
 $_bc_knowledge = BIZCITY_TWIN_AI_DIR . 'core/knowledge/bootstrap.php';
 // [2026-08-09 Johnny Chu] R-PERF — do not preload Knowledge on plain frontend HTML.
-if ( $_bizcity_admin_ctx && ! $_bc_twinchat_admin_shell_request && file_exists( $_bc_knowledge ) && ! class_exists( 'BizCity_Knowledge', false ) ) {
-    require_once $_bc_knowledge;
+if ( $_bizcity_admin_ctx && ! $_bc_twinchat_admin_shell_request && file_exists( $_bc_knowledge ) ) {
+    if ( class_exists( 'BizCity_Loader_Ownership_Registry', false ) ) {
+        BizCity_Loader_Ownership_Registry::claim( 'knowledge', 'compat_source', $_bc_knowledge, defined( 'BIZCITY_TWIN_AI_VERSION' ) ? BIZCITY_TWIN_AI_VERSION : '', 'early_loader', 'pre_plugins_loaded' );
+    }
+    if ( ! class_exists( 'BizCity_Knowledge', false ) ) {
+        require_once $_bc_knowledge;
+        if ( class_exists( 'BizCity_Loader_Ownership_Registry', false ) ) {
+            BizCity_Loader_Ownership_Registry::transition( 'knowledge', BizCity_Loader_Ownership_Registry::STATE_CONTRACT_READY, 'compat_source', 'pre_plugins_loaded' );
+        }
+    }
 }
 unset( $_bc_knowledge );
 
@@ -285,16 +314,32 @@ $_bc_intent_runtime_request = $_bc_intent_public_request
         || $_bc_intent_ajax_request
         || ( defined( 'DOING_CRON' ) && DOING_CRON )
         || ( defined( 'WP_CLI' ) && WP_CLI ) ) );
-if ( $_bc_intent_runtime_request && ! $_bc_twinchat_admin_shell_request && file_exists( $_bc_intent ) && ! class_exists( 'BizCity_Intent_Engine', false ) ) {
-    require_once $_bc_intent;
+if ( $_bc_intent_runtime_request && ! $_bc_twinchat_admin_shell_request && file_exists( $_bc_intent ) ) {
+    if ( class_exists( 'BizCity_Loader_Ownership_Registry', false ) ) {
+        BizCity_Loader_Ownership_Registry::claim( 'intent', 'compat_source', $_bc_intent, defined( 'BIZCITY_TWIN_AI_VERSION' ) ? BIZCITY_TWIN_AI_VERSION : '', 'early_loader', 'pre_plugins_loaded' );
+    }
+    if ( ! class_exists( 'BizCity_Intent_Engine', false ) ) {
+        require_once $_bc_intent;
+        if ( class_exists( 'BizCity_Loader_Ownership_Registry', false ) ) {
+            BizCity_Loader_Ownership_Registry::transition( 'intent', BizCity_Loader_Ownership_Registry::STATE_CONTRACT_READY, 'compat_source', 'pre_plugins_loaded' );
+        }
+    }
 }
 unset( $_bc_intent, $_bc_intent_admin_page, $_bc_intent_ajax_request, $_bc_intent_public_request, $_bc_intent_runtime_request );
 
 // ── Twin Core (Focus Router + Context Resolver — phải load trước prepare_llm_call) ──
 $_bc_twin_core = BIZCITY_TWIN_AI_DIR . 'core/twin-core/bootstrap.php';
 // [2026-08-09 Johnny Chu] R-PERF — defer Twin Core preload and schema work off plain frontend HTML.
-if ( $_bizcity_admin_ctx && ! $_bc_twinchat_admin_shell_request && file_exists( $_bc_twin_core ) && ! class_exists( 'BizCity_Twin_Context_Resolver', false ) ) {
-    require_once $_bc_twin_core;
+if ( $_bizcity_admin_ctx && ! $_bc_twinchat_admin_shell_request && file_exists( $_bc_twin_core ) ) {
+    if ( class_exists( 'BizCity_Loader_Ownership_Registry', false ) ) {
+        BizCity_Loader_Ownership_Registry::claim( 'twin_core', 'compat_source', $_bc_twin_core, defined( 'BIZCITY_TWIN_AI_VERSION' ) ? BIZCITY_TWIN_AI_VERSION : '', 'early_loader', 'pre_plugins_loaded' );
+    }
+    if ( ! class_exists( 'BizCity_Twin_Context_Resolver', false ) ) {
+        require_once $_bc_twin_core;
+        if ( class_exists( 'BizCity_Loader_Ownership_Registry', false ) ) {
+            BizCity_Loader_Ownership_Registry::transition( 'twin_core', BizCity_Loader_Ownership_Registry::STATE_CONTRACT_READY, 'compat_source', 'pre_plugins_loaded' );
+        }
+    }
 }
 unset( $_bc_twin_core );
 

@@ -52,6 +52,22 @@ class BizCity_Video_Kling_Ajax {
         add_action( 'wp_ajax_bvk_auto_fetch_batch', [ __CLASS__, 'handle_auto_fetch_batch' ] );
     }
 
+    private static function send_error( $code, $message, $hint, $help_code, $status = 400, $context = array() ) {
+        // [2026-08-10 Johnny Chu] PHASE-1.24-VIDEO-KLING — centralize profile AJAX error envelopes.
+        $payload = class_exists( 'BizCity_Error_Payload' )
+            ? BizCity_Error_Payload::make( $code, $message, $hint, $help_code, $context )
+            : array(
+                'success'   => false,
+                '_degraded' => true,
+                'code'      => (string) $code,
+                'message'   => (string) $message,
+                'hint'      => (string) $hint,
+                'help_code' => (string) $help_code,
+                'context'   => (array) $context,
+            );
+        wp_send_json_error( $payload, (int) $status );
+    }
+
     /* ═════════════════════════════════════════════════════════
      *  Upload Photo → WP Media Library → return URL
      * ═════════════════════════════════════════════════════════ */
@@ -59,11 +75,11 @@ class BizCity_Video_Kling_Ajax {
         check_ajax_referer( 'bvk_nonce', 'nonce' );
 
         if ( ! is_user_logged_in() ) {
-            wp_send_json_error( [ 'message' => 'Vui lòng đăng nhập.' ] );
+            self::send_error( 'auth_required', 'Bạn cần đăng nhập để tiếp tục.', 'Đăng nhập rồi thử lại.', 'login_required', 401 );
         }
 
         if ( empty( $_FILES['photo'] ) ) {
-            wp_send_json_error( [ 'message' => 'Không nhận được file ảnh.' ] );
+            self::send_error( 'invalid_param', 'Không nhận được file ảnh.', 'Chọn ảnh rồi thử lại.', 'image_upload_required' );
         }
 
         require_once ABSPATH . 'wp-admin/includes/image.php';
@@ -73,7 +89,7 @@ class BizCity_Video_Kling_Ajax {
         $attach_id = media_handle_upload( 'photo', 0 );
 
         if ( is_wp_error( $attach_id ) ) {
-            wp_send_json_error( [ 'message' => $attach_id->get_error_message() ] );
+            self::send_error( 'upload_rejected', 'Không thể lưu ảnh vào thư viện media.', 'Kiểm tra file và quyền upload rồi thử lại.', 'image_upload_retry', 500 );
         }
 
         wp_send_json_success( [
@@ -90,7 +106,7 @@ class BizCity_Video_Kling_Ajax {
 
         $user_id = get_current_user_id();
         if ( ! $user_id ) {
-            wp_send_json_error( [ 'message' => 'Vui lòng đăng nhập.' ] );
+            self::send_error( 'auth_required', 'Bạn cần đăng nhập để tạo video.', 'Đăng nhập rồi thử lại.', 'login_required', 401 );
         }
 
         $slots = [
@@ -142,7 +158,7 @@ class BizCity_Video_Kling_Ajax {
         if ( ! empty( $result['success'] ) ) {
             wp_send_json_success( $result );
         } else {
-            wp_send_json_error( $result );
+            self::send_error( (string) ( $result['code'] ?? 'automation_run_failed' ), 'Không thể bắt đầu tạo video.', 'Thử lại sau vài phút.', 'gateway_degraded', 502 );
         }
     }
 
@@ -153,17 +169,12 @@ class BizCity_Video_Kling_Ajax {
         check_ajax_referer( 'bvk_nonce', 'nonce' );
 
         if ( ! is_user_logged_in() ) {
-            wp_send_json_error( [ 'message' => 'Vui lòng đăng nhập.' ] );
+            self::send_error( 'auth_required', 'Bạn cần đăng nhập để lưu cài đặt.', 'Đăng nhập rồi thử lại.', 'login_required', 401 );
         }
 
         // API fields — admin only
         if ( current_user_can( 'manage_options' ) ) {
-            if ( isset( $_POST['api_key'] ) ) {
-                update_option( 'bizcity_video_kling_api_key', sanitize_text_field( wp_unslash( $_POST['api_key'] ) ) );
-            }
-            if ( isset( $_POST['endpoint'] ) ) {
-                update_option( 'bizcity_video_kling_endpoint', esc_url_raw( wp_unslash( $_POST['endpoint'] ) ) );
-            }
+            // [2026-08-10 Johnny Chu] PHASE-1.24-VIDEO-KLING — ignore legacy provider credential fields.
         }
 
         // Default tool settings — any logged-in user
@@ -193,7 +204,7 @@ class BizCity_Video_Kling_Ajax {
 
         $user_id = get_current_user_id();
         if ( ! $user_id ) {
-            wp_send_json_error( [ 'message' => 'Vui lòng đăng nhập.' ] );
+            self::send_error( 'auth_required', 'Bạn cần đăng nhập để xem job.', 'Đăng nhập rồi thử lại.', 'login_required', 401 );
         }
 
         global $wpdb;
@@ -289,17 +300,17 @@ class BizCity_Video_Kling_Ajax {
 
         $user_id = get_current_user_id();
         if ( ! $user_id ) {
-            wp_send_json_error( [ 'message' => 'Vui lòng đăng nhập.' ] );
+            self::send_error( 'auth_required', 'Bạn cần đăng nhập để tải audio.', 'Đăng nhập rồi thử lại.', 'login_required', 401 );
         }
 
         $job_id = intval( $_POST['job_id'] ?? 0 );
         if ( ! $job_id ) {
-            wp_send_json_error( [ 'message' => 'Missing job_id.' ] );
+            self::send_error( 'invalid_param', 'Thiếu mã job.', 'Chọn job rồi thử lại.', 'invalid_param_generic' );
         }
 
         $job = BizCity_Video_Kling_Database::get_job( $job_id );
         if ( ! $job || (int) $job->created_by !== $user_id ) {
-            wp_send_json_error( [ 'message' => 'Job không tồn tại hoặc không có quyền.' ] );
+            self::send_error( 'permission_denied', 'Job không tồn tại hoặc bạn không có quyền xem.', 'Chọn job thuộc tài khoản hiện tại rồi thử lại.', 'permission_required', 403 );
         }
 
         // Already uploaded? Return existing URL
@@ -318,7 +329,7 @@ class BizCity_Video_Kling_Ajax {
         // Need a source video_url
         $video_url = $job->video_url;
         if ( empty( $video_url ) ) {
-            wp_send_json_error( [ 'message' => 'Job chưa có video URL từ API.' ] );
+            self::send_error( 'not_found', 'Job chưa có video kết quả.', 'Đợi tác vụ hoàn tất rồi thử lại.', 'retry_later', 409 );
         }
 
         // Download to WordPress Media Library
@@ -329,7 +340,7 @@ class BizCity_Video_Kling_Ajax {
         $result = waic_kling_download_video_to_media( $video_url, "kling-video-{$job_id}.mp4" );
 
         if ( empty( $result['ok'] ) ) {
-            wp_send_json_error( [ 'message' => 'Lỗi tải video: ' . ( $result['error'] ?? 'Unknown' ) ] );
+            self::send_error( 'upload_rejected', 'Không thể tải video vào thư viện media.', 'Kiểm tra video rồi thử lại.', 'image_upload_retry', 502 );
         }
 
         // Update job record
@@ -352,7 +363,7 @@ class BizCity_Video_Kling_Ajax {
      * ═════════════════════════════════════════════════════════ */
     public static function handle_get_media_videos() {
         if ( ! is_user_logged_in() ) {
-            wp_send_json_error( [ 'message' => 'Unauthorized' ] );
+            self::send_error( 'permission_denied', 'Bạn không có quyền xem video.', 'Đăng nhập đúng tài khoản rồi thử lại.', 'permission_required', 403 );
         }
 
         $args = [
@@ -402,7 +413,7 @@ class BizCity_Video_Kling_Ajax {
      * ═════════════════════════════════════════════════════════ */
     public static function handle_get_media_audios() {
         if ( ! is_user_logged_in() ) {
-            wp_send_json_error( [ 'message' => 'Unauthorized' ] );
+            self::send_error( 'permission_denied', 'Bạn không có quyền xem video.', 'Đăng nhập đúng tài khoản rồi thử lại.', 'permission_required', 403 );
         }
 
         $args = [
@@ -437,11 +448,11 @@ class BizCity_Video_Kling_Ajax {
         check_ajax_referer( 'bvk_nonce', 'nonce' );
 
         if ( ! is_user_logged_in() ) {
-            wp_send_json_error( [ 'message' => 'Vui lòng đăng nhập.' ] );
+            self::send_error( 'auth_required', 'Bạn cần đăng nhập để tải audio.', 'Đăng nhập rồi thử lại.', 'login_required', 401 );
         }
 
         if ( empty( $_FILES['audio'] ) ) {
-            wp_send_json_error( [ 'message' => 'Không nhận được file audio.' ] );
+            self::send_error( 'invalid_param', 'Không nhận được file audio.', 'Chọn file audio rồi thử lại.', 'image_upload_required' );
         }
 
         // Validate MIME type — only allow audio files
@@ -450,7 +461,7 @@ class BizCity_Video_Kling_Ajax {
         $mime    = finfo_file( $finfo, $_FILES['audio']['tmp_name'] );
         finfo_close( $finfo );
         if ( ! in_array( $mime, $allowed, true ) ) {
-            wp_send_json_error( [ 'message' => 'Chỉ chấp nhận file audio (mp3, wav, ogg, aac, m4a, flac).' ] );
+            self::send_error( 'invalid_param', 'Định dạng audio chưa được hỗ trợ.', 'Chọn MP3, WAV, OGG, AAC, M4A hoặc FLAC rồi thử lại.', 'image_format_supported' );
         }
 
         require_once ABSPATH . 'wp-admin/includes/image.php';
@@ -460,7 +471,7 @@ class BizCity_Video_Kling_Ajax {
         $attach_id = media_handle_upload( 'audio', 0 );
 
         if ( is_wp_error( $attach_id ) ) {
-            wp_send_json_error( [ 'message' => $attach_id->get_error_message() ] );
+            self::send_error( 'upload_rejected', 'Không thể lưu audio vào thư viện media.', 'Kiểm tra file và quyền upload rồi thử lại.', 'image_upload_retry', 500 );
         }
 
         $meta = wp_get_attachment_metadata( $attach_id );
@@ -476,13 +487,13 @@ class BizCity_Video_Kling_Ajax {
         check_ajax_referer( 'bvk_nonce', 'nonce' );
 
         if ( ! is_user_logged_in() ) {
-            wp_send_json_error( [ 'message' => 'Vui lòng đăng nhập.' ] );
+            self::send_error( 'auth_required', 'Bạn cần đăng nhập để tối ưu prompt.', 'Đăng nhập rồi thử lại.', 'login_required', 401 );
         }
 
         $prompt = sanitize_textarea_field( wp_unslash( $_POST['prompt'] ?? '' ) );
 
         if ( ! class_exists( 'BizCity_LLM_Client' ) ) {
-            wp_send_json_error( [ 'message' => 'LLM client không khả dụng.' ] );
+            self::send_error( 'module_not_loaded', 'LLM client chưa sẵn sàng.', 'Kiểm tra BizCity Twin AI rồi thử lại.', 'module_not_loaded', 503 );
         }
 
         $llm = BizCity_LLM_Client::instance();
@@ -498,7 +509,7 @@ class BizCity_Video_Kling_Ajax {
         ], [ 'purpose' => 'chat', 'max_tokens' => 400 ] );
 
         if ( empty( $result['success'] ) ) {
-            wp_send_json_error( [ 'message' => $result['error'] ?? 'Lỗi LLM.' ] );
+            self::send_error( 'llm_error', 'Không thể tối ưu prompt lúc này.', 'Thử lại sau vài phút.', 'gateway_degraded', 502 );
         }
 
         $optimized = trim( $result['content'] ?? '' );
@@ -512,7 +523,7 @@ class BizCity_Video_Kling_Ajax {
         check_ajax_referer( 'bvk_nonce', 'nonce' );
 
         if ( ! is_user_logged_in() ) {
-            wp_send_json_error( [ 'message' => 'Vui lòng đăng nhập.' ] );
+            self::send_error( 'auth_required', 'Bạn cần đăng nhập để kiểm tra FFmpeg.', 'Đăng nhập rồi thử lại.', 'login_required', 401 );
         }
 
         $check = BizCity_Video_Kling_FFmpeg_Presets::check_availability();
@@ -533,13 +544,13 @@ class BizCity_Video_Kling_Ajax {
         check_ajax_referer( 'bvk_nonce', 'nonce' );
 
         if ( ! is_user_logged_in() ) {
-            wp_send_json_error( [ 'message' => 'Vui lòng đăng nhập.' ] );
+            self::send_error( 'auth_required', 'Bạn cần đăng nhập để xuất video.', 'Đăng nhập rồi thử lại.', 'login_required', 401 );
         }
 
         // Check FFmpeg first
         $ffcheck = BizCity_Video_Kling_FFmpeg_Presets::check_availability();
         if ( empty( $ffcheck['available'] ) ) {
-            wp_send_json_error( [ 'message' => 'FFmpeg không khả dụng trên server: ' . ( $ffcheck['error'] ?? 'unknown' ) ] );
+            self::send_error( 'module_not_loaded', 'FFmpeg chưa sẵn sàng trên máy chủ.', 'Liên hệ quản trị viên để bật FFmpeg.', 'module_not_loaded', 503 );
         }
 
         // Parse input
@@ -563,12 +574,12 @@ class BizCity_Video_Kling_Ajax {
         $transition = $body['transition'] ?? null; // { type, duration, direction }
 
         if ( empty( $videos ) ) {
-            wp_send_json_error( [ 'message' => 'Không có video nào để xuất.' ] );
+            self::send_error( 'invalid_param', 'Chưa có video để xuất.', 'Thêm video rồi thử lại.', 'invalid_param_generic' );
         }
 
         // Limit inputs to prevent abuse
         if ( count( $videos ) > 50 || count( $audios ) > 20 ) {
-            wp_send_json_error( [ 'message' => 'Quá nhiều file. Tối đa 50 video + 20 audio.' ] );
+            self::send_error( 'invalid_param', 'Số lượng file vượt giới hạn.', 'Giảm còn tối đa 50 video và 20 audio.', 'invalid_param_generic' );
         }
 
         // Detect overlay mode: new payload has displayFrom field
@@ -577,7 +588,7 @@ class BizCity_Video_Kling_Ajax {
         // Create temp working directory
         $tmp_dir = sys_get_temp_dir() . '/bvk_export_' . get_current_user_id() . '_' . uniqid();
         if ( ! wp_mkdir_p( $tmp_dir ) ) {
-            wp_send_json_error( [ 'message' => 'Không tạo được thư mục tạm.' ] );
+            self::send_error( 'automation_run_failed', 'Không tạo được vùng xử lý tạm.', 'Thử lại sau hoặc liên hệ quản trị viên.', 'gateway_degraded', 500 );
         }
 
         $downloaded_videos = [];
@@ -732,7 +743,7 @@ class BizCity_Video_Kling_Ajax {
 
         } catch ( \Exception $e ) {
             self::cleanup_dir( $tmp_dir );
-            wp_send_json_error( [ 'message' => $e->getMessage() ] );
+            self::send_error( 'automation_run_failed', 'Không thể xuất video.', 'Kiểm tra file đầu vào rồi thử lại.', 'gateway_degraded', 500 );
         }
     }
 
@@ -748,11 +759,11 @@ class BizCity_Video_Kling_Ajax {
         check_ajax_referer( 'bvk_nonce', 'nonce' );
 
         if ( ! is_user_logged_in() ) {
-            wp_send_json_error( [ 'message' => 'Vui lòng đăng nhập.' ] );
+            self::send_error( 'auth_required', 'Bạn cần đăng nhập để tạo ảnh.', 'Đăng nhập rồi thử lại.', 'login_required', 401 );
         }
 
         if ( ! class_exists( 'BizCity_Tool_Image' ) ) {
-            wp_send_json_error( [ 'message' => 'Plugin Tool-Image chưa được kích hoạt.' ] );
+            self::send_error( 'module_not_loaded', 'Công cụ tạo ảnh chưa được bật.', 'Kích hoạt module Tool Image rồi thử lại.', 'module_not_loaded', 503 );
         }
 
         $prompt = sanitize_textarea_field( wp_unslash( $_POST['prompt'] ?? '' ) );
@@ -760,7 +771,7 @@ class BizCity_Video_Kling_Ajax {
         $size   = sanitize_text_field( $_POST['size'] ?? '1024x1024' );
 
         if ( empty( $prompt ) ) {
-            wp_send_json_error( [ 'message' => 'Vui lòng nhập mô tả hình ảnh.' ] );
+            self::send_error( 'invalid_param', 'Thiếu mô tả hình ảnh.', 'Nhập prompt rồi thử lại.', 'invalid_param_generic' );
         }
 
         $result = BizCity_Tool_Image::generate_image( [
@@ -780,9 +791,7 @@ class BizCity_Video_Kling_Ajax {
                 'prompt'        => $prompt,
             ] );
         } else {
-            wp_send_json_error( [
-                'message' => $result['message'] ?? 'Tạo ảnh thất bại.',
-            ] );
+            self::send_error( 'llm_error', 'Không thể tạo ảnh lúc này.', 'Thử lại sau vài phút.', 'gateway_degraded', 502 );
         }
     }
 
@@ -1342,21 +1351,21 @@ class BizCity_Video_Kling_Ajax {
 
         $user_id = get_current_user_id();
         if ( ! $user_id ) {
-            wp_send_json_error( [ 'message' => 'Vui lòng đăng nhập.' ] );
+            self::send_error( 'auth_required', 'Bạn cần đăng nhập để tải video.', 'Đăng nhập rồi thử lại.', 'login_required', 401 );
         }
 
         $job_id = intval( $_POST['job_id'] ?? 0 );
         if ( ! $job_id ) {
-            wp_send_json_error( [ 'message' => 'Missing job_id.' ] );
+            self::send_error( 'invalid_param', 'Thiếu mã job.', 'Chọn job rồi thử lại.', 'invalid_param_generic' );
         }
 
         $job = BizCity_Video_Kling_Database::get_job( $job_id );
         if ( ! $job || (int) $job->created_by !== $user_id ) {
-            wp_send_json_error( [ 'message' => 'Job không tồn tại hoặc không có quyền.' ] );
+            self::send_error( 'permission_denied', 'Job không tồn tại hoặc bạn không có quyền xem.', 'Chọn job thuộc tài khoản hiện tại rồi thử lại.', 'permission_required', 403 );
         }
 
         if ( $job->status !== 'completed' || empty( $job->video_url ) ) {
-            wp_send_json_error( [ 'message' => 'Job chưa hoàn thành hoặc chưa có video URL.' ] );
+            self::send_error( 'invalid_param', 'Job chưa hoàn thành hoặc chưa có video URL.', 'Đợi job hoàn tất rồi thử lại.', 'retry_later', 409 );
         }
 
         // Already uploaded?
@@ -1380,7 +1389,7 @@ class BizCity_Video_Kling_Ajax {
         $result = waic_kling_download_video_to_media( $job->video_url, "kling-video-{$job_id}{$chain_label}.mp4" );
 
         if ( empty( $result['ok'] ) ) {
-            wp_send_json_error( [ 'message' => 'Lỗi tải video: ' . ( $result['error'] ?? 'Unknown' ) ] );
+            self::send_error( 'upload_rejected', 'Không thể tải video vào thư viện media.', 'Kiểm tra video rồi thử lại.', 'image_upload_retry', 502 );
         }
 
         // Update job record

@@ -3,6 +3,7 @@
 > **Rule:** [PHASE-0-RULE-EVENT-STREAM.md](../../../PHASE-0-RULE-EVENT-STREAM.md) (R-EVT-1..7)
 > **Spec:** [PHASE-0.12-TWIN-EVENT-STREAM-UNIFICATION.md](../../../PHASE-0.12-TWIN-EVENT-STREAM-UNIFICATION.md)
 > **Folder consolidated:** 2026-04-30 (Sprint 5.0+)
+> **Goal Loop companion:** [R-TGL-CS](../../../docs/rules/PHASE-0-RULE-TWIN-GOAL-LOOP-CASE-SCOPE.md). Goal/case/memory-scope evidence uses this same event stream and `twin_event` SSE path; JSONL is projection only.
 
 This folder is the **single backbone** for every observable side-effect in BizCity Twin AI: LLM calls, tool calls, decisions, classifications, focus changes, milestones, message lifecycles, suggestions, notes, jobs… ALL flow through `BizCity_Twin_Event_Bus::dispatch_v2()` and persist to ONE table `bizcity_twin_event_stream`.
 
@@ -21,6 +22,15 @@ This folder is the **single backbone** for every observable side-effect in BizCi
 | `class-router-event-ingester.php` | `BizCity_Router_Event_Ingester` | Parses `_twin_events[]` from `bizcity-llm-router` HTTP responses → `Event_Bus::ingest_remote()` (R-EVT-5) |
 | `class-twin-event-stream-rest.php` | `BizCity_Twin_Event_Stream_REST` | Read-only `GET /wp-json/bizcity-twin/v1/events` (Inspector) + `GET /wp-json/bizcity-twin/v1/events/my_activity` (user timeline, surface-filtered) |
 | `class-twin-event-inspector-page.php` | `BizCity_Twin_Event_Inspector_Page` | Admin UI (debug / replay / search) — admin-only |
+
+## Goal Loop / case scope observability
+
+For a canonical Goal Loop turn, the event payload may include `goal_id`,
+`case_id`, `memory_scope`, `subject_key` and scrubbed recall counters. The event
+stream remains the authority for Goal state and causal replay. A client/date
+JSONL file may be generated for operational tailing, but it is not a second
+event store and must never replace `dispatch_v2()` or become the state
+reconstruction source.
 
 ## `schemas/events/`
 

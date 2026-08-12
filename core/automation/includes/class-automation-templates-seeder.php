@@ -50,7 +50,7 @@ final class BizCity_Automation_Templates_Seeder {
 	// [2026-07-22 Johnny Chu] PHASE-3-TWIN-GPT — add global BTnet daily-session chat workflow.
 	// [2026-07-25 Johnny Chu] PHASE-0.46 W2 — add builtin template using action.capture_to_notebook.
 	// [2026-07-25 Johnny Chu] PHASE-0.48-LEARNING-LOG-SHARE-LINK — wire action.learning_share_link into the @ghichu capture-to-notebook template reply.
-	const SEED_VERSION    = '1.63.0'; // [2026-08-06 Johnny Chu] PHASE-IMG-GEMINI — reseed Gemini photo editor template and ownerless draft branch.
+	const SEED_VERSION    = '1.64.0'; // [2026-08-11 Johnny Chu] PHASE-TBR-NOTE-THUKY-ZALO — seed @note and @thuky Notebook/MPR workflows.
 	const VERSION_OPTION  = 'bizcity_automation_templates_seed_version';
 	const HASH_OPTION     = 'bizcity_automation_templates_seed_hash';
 

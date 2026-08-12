@@ -21,6 +21,9 @@ define( 'BIZCITY_TWIN_RUNTIME_LOADED', true );
 
 // [2026-06-09 Johnny Chu] R-CR — Central registries: load FIRST so all classes below
 // (and all satellite plugins loaded after) can call ::register() at file-load time.
+// [2026-08-10 Johnny Chu] PHASE-1.23-CANONICAL-W2 - load the observe-only
+// feature ownership registry before runtime classes; it performs no DB/cache work.
+require_once __DIR__ . '/class-loader-ownership-registry.php';
 require_once __DIR__ . '/class-rewrite-flush-registry.php';
 require_once __DIR__ . '/class-schema-registry.php';
 

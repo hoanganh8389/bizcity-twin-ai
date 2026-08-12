@@ -90,6 +90,7 @@ class BizCity_TwinBrain_Final_Composer {
 		// [2026-08-05 Johnny Chu] V4.1/V4.2 — resolve a deterministic answer skeleton before composing prose.
 		$answer_skeleton = $this->resolve_answer_skeleton( $prompt, $answer_intent, $opts );
 		$opts['answer_skeleton'] = $answer_skeleton;
+		$followup_contract = $this->resolve_followup_contract( $opts );
 		$opts['named_evidence_candidates'] = $this->extract_named_evidence_candidates( $opts );
 		// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MOAT W0.15 — extract concrete product entities from evidence excerpts before composing.
 		$opts['product_entities'] = isset( $opts['product_entities'] ) && is_array( $opts['product_entities'] )
@@ -130,6 +131,8 @@ class BizCity_TwinBrain_Final_Composer {
 				'safety_gate' => (string) $skeleton_validation['safety_gate'],
 				'entity_gate' => (string) $skeleton_validation['entity_gate'],
 				'next_action_gate' => (string) $skeleton_validation['next_action_gate'],
+				'followup_gate' => (string) ( $skeleton_validation['followup_gate'] ?? 'not_required' ),
+				'followup_contract' => (array) ( $skeleton_validation['followup_contract'] ?? $followup_contract ),
 				'named_evidence_count' => count( (array) ( $opts['named_evidence_candidates'] ?? array() ) ),
 				'product_entity_count' => count( (array) ( $opts['product_entities'] ?? array() ) ),
 				'product_name_entity_count' => count( $this->filter_product_name_entities( (array) ( $opts['product_entities'] ?? array() ) ) ),
@@ -225,6 +228,9 @@ class BizCity_TwinBrain_Final_Composer {
 			if ( is_callable( $on_token ) && $fallback_text !== '' && $delta_n === 0 ) {
 				// FE never received any deltas — emit synth as a single chunk.
 				call_user_func( $on_token, $fallback_text, $fallback_text );
+			} elseif ( is_callable( $on_token ) && ! empty( $skeleton_validation['followup_contract']['rendered'] ) ) {
+				// [2026-08-10 Johnny Chu] GOAL-FOLLOWUP-1 — relay deterministic follow-up repair after streamed model text.
+				call_user_func( $on_token, "\n\n**Một câu hỏi để mình tiếp tục:** " . (string) $skeleton_validation['followup_contract']['question'], $fallback_text );
 			}
 			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 				error_log( '[TwinBrain][final-compose] trace=' . $trace_id
@@ -264,6 +270,8 @@ class BizCity_TwinBrain_Final_Composer {
 				'safety_gate' => (string) $skeleton_validation['safety_gate'],
 				'entity_gate' => (string) $skeleton_validation['entity_gate'],
 				'next_action_gate' => (string) $skeleton_validation['next_action_gate'],
+				'followup_gate' => (string) ( $skeleton_validation['followup_gate'] ?? 'not_required' ),
+				'followup_contract' => (array) ( $skeleton_validation['followup_contract'] ?? $followup_contract ),
 				'named_evidence_count' => count( (array) ( $opts['named_evidence_candidates'] ?? array() ) ),
 				'product_entity_count' => count( (array) ( $opts['product_entities'] ?? array() ) ),
 				'product_name_entity_count' => count( $this->filter_product_name_entities( (array) ( $opts['product_entities'] ?? array() ) ) ),
@@ -277,6 +285,10 @@ class BizCity_TwinBrain_Final_Composer {
 		$source_contract = $this->apply_notebook_source_contract( $final_text, $opts );
 		$skeleton_validation = $this->validate_answer_skeleton( (string) $source_contract['answer_md'], $answer_skeleton, $opts );
 		$final_text = (string) $skeleton_validation['answer_md'];
+		if ( is_callable( $on_token ) && ! empty( $skeleton_validation['followup_contract']['rendered'] ) ) {
+			// [2026-08-10 Johnny Chu] GOAL-FOLLOWUP-1 — relay deterministic follow-up repair after streamed model text.
+			call_user_func( $on_token, "\n\n**Một câu hỏi để mình tiếp tục:** " . (string) $skeleton_validation['followup_contract']['question'], $final_text );
+		}
 
 		return [
 			'success'         => true,
@@ -299,6 +311,8 @@ class BizCity_TwinBrain_Final_Composer {
 			'safety_gate' => (string) $skeleton_validation['safety_gate'],
 			'entity_gate' => (string) $skeleton_validation['entity_gate'],
 			'next_action_gate' => (string) $skeleton_validation['next_action_gate'],
+			'followup_gate' => (string) ( $skeleton_validation['followup_gate'] ?? 'not_required' ),
+			'followup_contract' => (array) ( $skeleton_validation['followup_contract'] ?? $followup_contract ),
 			'named_evidence_count' => count( (array) ( $opts['named_evidence_candidates'] ?? array() ) ),
 			'product_entity_count' => count( (array) ( $opts['product_entities'] ?? array() ) ),
 			'product_name_entity_count' => count( $this->filter_product_name_entities( (array) ( $opts['product_entities'] ?? array() ) ) ),
@@ -553,6 +567,15 @@ class BizCity_TwinBrain_Final_Composer {
 		if ( $structure_gate === 'degraded' ) {
 			$violations[] = 'required_sections_missing';
 		}
+		$followup = $this->resolve_followup_contract( $opts );
+		if ( ! empty( $followup['required'] ) && ! empty( $followup['question'] ) ) {
+			$question = (string) $followup['question'];
+			if ( false === stripos( $text, $question ) ) {
+				$text .= "\n\n**Một câu hỏi để mình tiếp tục:** " . $question;
+				$followup['rendered'] = true;
+				$followup['gate'] = 'repaired';
+			}
+		}
 		$quality = empty( $violations ) ? 'ok' : 'bounded_fallback';
 		return array(
 			'answer_md' => trim( $text ),
@@ -562,7 +585,67 @@ class BizCity_TwinBrain_Final_Composer {
 			'safety_gate' => $safety_gate,
 			'entity_gate' => $entity_gate,
 			'next_action_gate' => $next_action_gate,
+			'followup_gate' => (string) ( $followup['gate'] ?? 'not_required' ),
+			'followup_contract' => $followup,
 		);
+	}
+
+	/**
+	 * Resolve one contextual follow-up from the canonical Goal Loop state.
+	 *
+	 * @return array{required:bool,source:string,goal_id:string,question:string,question_kind:string,target_ref:string,rendered:bool,gate:string}
+	 */
+	private function resolve_followup_contract( array $opts ): array {
+		$goal = is_array( $opts['goal_loop_state'] ?? null )
+			? $opts['goal_loop_state']
+			: ( is_array( $opts['goal_loop'] ?? null ) ? $opts['goal_loop'] : array() );
+		$goal_id = sanitize_text_field( (string) ( $goal['goal_id'] ?? '' ) );
+		if ( $goal_id === '' ) {
+			return array(
+				'required' => true,
+				'source' => 'triage',
+				'goal_id' => '',
+				'question' => 'Bạn muốn mình tiếp tục hỗ trợ mục tiêu cụ thể nào?',
+				'question_kind' => 'next_goal',
+				'target_ref' => '',
+				'rendered' => false,
+				'gate' => 'pending',
+			);
+		}
+		$action = is_array( $goal['next_best_action'] ?? null ) ? $goal['next_best_action'] : array();
+		$question = trim( (string) ( $action['question_text'] ?? '' ) );
+		if ( $question === '' ) {
+			$question = trim( (string) ( $action['label'] ?? '' ) );
+		}
+		if ( $question === '' ) {
+			$primary_goal = trim( (string) ( $goal['primary_goal'] ?? '' ) );
+			$question = $primary_goal !== ''
+				? 'Bạn muốn mình cùng bạn chốt bước tiếp theo nào cho mục tiêu này?'
+				: 'Bạn muốn mình tiếp tục hỗ trợ mục tiêu nào?';
+		}
+		return array(
+			'required' => true,
+			'source' => 'goal_loop',
+			'goal_id' => $goal_id,
+			'question' => sanitize_text_field( $question ),
+			'question_kind' => sanitize_key( (string) ( $action['kind'] ?? $action['type'] ?? 'next_goal' ) ),
+			'target_ref' => sanitize_text_field( (string) ( $action['ref'] ?? $action['target_field'] ?? '' ) ),
+			'rendered' => false,
+			'gate' => 'pending',
+		);
+	}
+
+	private function append_followup_contract( string $answer, array $opts ): array {
+		$contract = $this->resolve_followup_contract( $opts );
+		if ( empty( $contract['required'] ) || $contract['question'] === '' ) {
+			return array( 'answer_md' => $answer, 'contract' => $contract );
+		}
+		if ( false === stripos( $answer, (string) $contract['question'] ) ) {
+			$answer = trim( $answer ) . "\n\n**Một câu hỏi để mình tiếp tục:** " . $contract['question'];
+			$contract['rendered'] = true;
+		}
+		$contract['gate'] = 'pass';
+		return array( 'answer_md' => $answer, 'contract' => $contract );
 	}
 
 	/**
@@ -1855,11 +1938,17 @@ SYS;
 		$t0 = microtime( true );
 
 		$memory_block = trim( (string) ( $opts['memory_block'] ?? '' ) );
+		$followup_contract = $this->resolve_followup_contract( $opts );
 
 		if ( ! $this->gateway_ready() ) {
 			$msg = $memory_block !== ''
 				? "Mình đã ghi nhớ một số thông tin về bạn nhưng hiện chưa kết nối được hệ thống LLM. Vui lòng thử lại sau."
 				: '';
+			if ( $msg !== '' ) {
+				$repaired = $this->append_followup_contract( $msg, $opts );
+				$msg = (string) $repaired['answer_md'];
+				$followup_contract = (array) $repaired['contract'];
+			}
 			if ( is_callable( $on_token ) && $msg !== '' ) {
 				call_user_func( $on_token, $msg, $msg );
 			}
@@ -1911,6 +2000,13 @@ NGUYÊN TẮC:
 4. KHÔNG dùng heading lớn / bullet list trừ khi câu trả lời thực sự là enumerate. Ưu tiên 1-3 đoạn văn ngắn.
 5. KHÔNG xuất JSON, KHÔNG ```fence.{$persona_hint}
 SYS;
+		}
+		if ( ! empty( $followup_contract['required'] ) && $followup_contract['question'] !== '' ) {
+			// [2026-08-10 Johnny Chu] GOAL-FOLLOWUP-1 — chat/companion path must preserve the active Goal Loop question.
+			$system .= "\n\n## GOAL LOOP FOLLOW-UP CONTRACT\n"
+				. "Sau câu trả lời, luôn kết thúc bằng đúng một câu hỏi thúc đẩy goal sau đây: "
+				. $followup_contract['question'] . "\n"
+				. "Không thay bằng câu hỏi chung chung và không hỏi lại dữ kiện đã có.\n";
 		}
 
 		// Memory tool schema (opt-in) — same filter as compose_stream.
@@ -1990,11 +2086,25 @@ SYS;
 
 		$elapsed    = (int) ( ( microtime( true ) - $t0 ) * 1000 );
 		$final_text = trim( (string) ( $result['message'] ?? $accumulated ) );
+		$followup_result = array( 'answer_md' => $final_text, 'contract' => $followup_contract );
+		if ( $final_text !== '' ) {
+			$followup_result = $this->append_followup_contract( $final_text, $opts );
+			$final_text = (string) $followup_result['answer_md'];
+			if ( is_callable( $on_token ) && ! empty( $followup_result['contract']['rendered'] ) ) {
+				// [2026-08-10 Johnny Chu] GOAL-FOLLOWUP-1 — relay deterministic question repair after chat stream completion.
+				call_user_func( $on_token, "\n\n**Một câu hỏi để mình tiếp tục:** " . (string) $followup_result['contract']['question'], $final_text );
+			}
+		}
 
 		if ( empty( $result['success'] ) || $final_text === '' ) {
 			$fallback_text = $memory_block !== ''
 				? "Mình chưa tổng hợp được câu trả lời đầy đủ, nhưng có ghi nhớ một số thông tin liên quan. Bạn có thể hỏi lại với context cụ thể hơn không?"
 				: '';
+			if ( $fallback_text !== '' ) {
+				$fallback_result = $this->append_followup_contract( $fallback_text, $opts );
+				$fallback_text = (string) $fallback_result['answer_md'];
+				$followup_result = $fallback_result;
+			}
 			if ( is_callable( $on_token ) && $fallback_text !== '' && $delta_n === 0 ) {
 				call_user_func( $on_token, $fallback_text, $fallback_text );
 			}
@@ -2016,6 +2126,8 @@ SYS;
 				'quota_exhausted' => ! empty( $result['quota_exhausted'] ),
 				'quota_layer'     => isset( $result['quota_layer'] ) ? (string) $result['quota_layer'] : '',
 				'tier'            => isset( $result['tier'] ) ? (string) $result['tier'] : '',
+				'followup_gate'   => (string) ( $followup_result['contract']['gate'] ?? 'not_required' ),
+				'followup_contract' => (array) ( $followup_result['contract'] ?? $followup_contract ),
 			];
 		}
 
@@ -2030,6 +2142,8 @@ SYS;
 			'quota_exhausted' => false,
 			'quota_layer'     => '',
 			'tier'            => '',
+			'followup_gate'   => (string) ( $followup_result['contract']['gate'] ?? 'not_required' ),
+			'followup_contract' => (array) ( $followup_result['contract'] ?? $followup_contract ),
 		];
 	}
 

@@ -360,6 +360,9 @@ class BizCoach_Pro_Sprint_Diagnostic {
 	 * F.4 — Persona / Intent providers
 	 * ============================================================ */
 	public static function compute_f4_tasks(): array {
+		if ( function_exists( 'bcpro_load_persona_provider_classes' ) ) {
+			bcpro_load_persona_provider_classes();
+		}
 		$out = array();
 
 		if ( ! class_exists( 'BizCoach_Pro_Persona_Provider' ) ) {
@@ -485,6 +488,9 @@ class BizCoach_Pro_Sprint_Diagnostic {
 	 * F.6 — R-NO-CONFLICT (vs legacy bizcoach-map)
 	 * ============================================================ */
 	public static function compute_f6_tasks(): array {
+		if ( function_exists( 'bcpro_load_persona_provider_classes' ) ) {
+			bcpro_load_persona_provider_classes();
+		}
 		$out = array();
 		$bccm_loaded = defined( 'BCCM_VERSION' ) || class_exists( 'BCCM_Installer' );
 
@@ -1265,6 +1271,9 @@ class BizCoach_Pro_Sprint_Diagnostic {
 	 * to grep the FE console + wp-json index + DB by hand.
 	 * ============================================================ */
 	public static function compute_f14_tasks(): array {
+		if ( function_exists( 'bcpro_load_persona_provider_classes' ) ) {
+			bcpro_load_persona_provider_classes();
+		}
 		global $wpdb, $wp_filter;
 		$out = array();
 

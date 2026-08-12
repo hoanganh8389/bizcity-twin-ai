@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "catalog_id": "bizcity-twin-public-contracts",
-  "catalog_version": "1.0.0",
+  "catalog_version": "1.1.0",
   "namespace": "bizcity.twin.contracts.public.v1",
   "semver_policy": "semver",
   "stability": "stable",
@@ -197,6 +197,23 @@
       "fixtures": {
         "valid": "fixtures/runtime-execution-policy.valid.json",
         "invalid": "fixtures/runtime-execution-policy.invalid.json"
+      },
+      "compatibility": {
+        "producer": "1.x",
+        "consumer": "1.x"
+      },
+      "deprecation": {
+        "grace_versions": 3,
+        "status": "active"
+      }
+    },
+    {
+      "id": "admin-navigation",
+      "version": "1.0.0",
+      "schema": "admin-navigation.schema.json",
+      "fixtures": {
+        "valid": "fixtures/admin-navigation.valid.json",
+        "invalid": "fixtures/admin-navigation.invalid.json"
       },
       "compatibility": {
         "producer": "1.x",

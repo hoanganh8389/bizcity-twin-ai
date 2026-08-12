@@ -27,6 +27,9 @@ $_helper_includes = __DIR__ . '/includes/';
 // [2026-06-05 Johnny Chu] R-ERROR-UX — canonical error payload builder
 require_once $_helper_includes . 'class-bizcity-error-payload.php';
 
+// [2026-08-11 Johnny Chu] PHASE-CRM-CONTACTS-UNIFY-WOO-USERPOINTS — canonical phone identity normalizer.
+require_once $_helper_includes . 'class-bizcity-phone-normalizer.php';
+
 // [2026-08-01 Johnny Chu] PHASE-LOG-SPLIT — per-blog JSONL logs for CRM and memory.
 require_once __DIR__ . '/class-bizcity-jsonl-file-logger.php';
 // [2026-08-01 Johnny Chu] PHASE-1.28-RETENTION-7D — register one bounded

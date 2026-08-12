@@ -83,7 +83,7 @@
       "id": "bizcity.zalo-bot",
       "path": "plugins/bizcity-zalo-bot",
       "kind": "framework_integrated",
-      "status": "fail",
+      "status": "partial",
       "manifest": null,
       "bootstrap": "plugins/bizcity-zalo-bot/bootstrap.php",
       "required_surfaces": ["channel_normalized", "zone_isolation", "canonical_sender", "file_log", "error_envelope"]
@@ -92,7 +92,7 @@
       "id": "bizcity.facebook-bot",
       "path": "plugins/bizcity-facebook-bot",
       "kind": "framework_integrated",
-      "status": "fail",
+      "status": "partial",
       "manifest": null,
       "bootstrap": "plugins/bizcity-facebook-bot/bootstrap.php",
       "required_surfaces": ["channel_normalized", "comment_context", "canonical_sender", "file_log", "error_envelope"]
@@ -101,7 +101,7 @@
       "id": "bizcity.pagebuilder",
       "path": "plugins/bizcity-pagebuilder",
       "kind": "framework_integrated",
-      "status": "fail",
+      "status": "partial",
       "manifest": null,
       "bootstrap": "plugins/bizcity-pagebuilder/bizcity-pagebuilder.php",
       "required_surfaces": ["gateway_client", "secret_boundary", "reliable_http", "mutation_guard", "error_envelope"]
@@ -110,7 +110,7 @@
       "id": "bizcity.video-kling",
       "path": "plugins/bizcity-video-kling",
       "kind": "framework_integrated",
-      "status": "fail",
+      "status": "partial",
       "manifest": null,
       "bootstrap": "plugins/bizcity-video-kling/bootstrap.php",
       "required_surfaces": ["gateway_client", "secret_boundary", "reliable_http", "idempotency", "error_envelope"]

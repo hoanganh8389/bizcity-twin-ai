@@ -98,8 +98,24 @@ class BizCity_TwitCanva_Ajax {
     private static function verify() {
         check_ajax_referer( 'bvk_nonce', 'nonce' );
         if ( ! is_user_logged_in() ) {
-            wp_send_json_error( [ 'message' => 'Đăng nhập để tiếp tục.' ] );
+            self::send_error( 'auth_required', 'Bạn cần đăng nhập để tiếp tục.', 'Đăng nhập rồi thử lại.', 'login_required', 401 );
         }
+    }
+
+    private static function send_error( $code, $message, $hint, $help_code, $status = 400, $context = array() ) {
+        // [2026-08-10 Johnny Chu] PHASE-1.24-VIDEO-KLING — centralize TwitCanva AJAX error envelopes.
+        $payload = class_exists( 'BizCity_Error_Payload' )
+            ? BizCity_Error_Payload::make( $code, $message, $hint, $help_code, $context )
+            : array(
+                'success'   => false,
+                '_degraded' => true,
+                'code'      => (string) $code,
+                'message'   => (string) $message,
+                'hint'      => (string) $hint,
+                'help_code' => (string) $help_code,
+                'context'   => (array) $context,
+            );
+        wp_send_json_error( $payload, (int) $status );
     }
 
     private static function payload(): array {
@@ -272,7 +288,7 @@ class BizCity_TwitCanva_Ajax {
         $node_id    = sanitize_text_field( $p['nodeId'] ?? '' );
 
         if ( empty( $prompt ) ) {
-            wp_send_json_error( [ 'message' => 'Prompt is required.' ] );
+            self::send_error( 'invalid_param', 'Thiếu prompt tạo ảnh.', 'Nhập prompt rồi thử lại.', 'invalid_param_generic' );
         }
 
         // For Gemini / OpenAI models → use bizcity-tool-image's generate_image
@@ -344,7 +360,7 @@ class BizCity_TwitCanva_Ajax {
             if ( ! empty( $result['success'] ) && ! empty( $result['data']['url'] ) ) {
                 wp_send_json_success( [ 'resultUrl' => $result['data']['url'] ] );
             }
-            wp_send_json_error( [ 'message' => $result['message'] ?? 'Image generation failed.' ] );
+            self::send_error( 'llm_error', 'Không thể tạo ảnh lúc này.', 'Thử lại sau vài phút.', 'gateway_degraded', 502 );
         }
 
         // Fallback: direct Gemini call via LLM
@@ -355,10 +371,10 @@ class BizCity_TwitCanva_Ajax {
 
         if ( $result['success'] ) {
             // LLM returns text — for actual image gen we need the image tool
-            wp_send_json_error( [ 'message' => 'Image model not available. Install bizcity-tool-image plugin.' ] );
+            self::send_error( 'module_not_loaded', 'Công cụ tạo ảnh chưa được bật.', 'Kích hoạt module Tool Image rồi thử lại.', 'module_not_loaded', 503 );
         }
 
-        wp_send_json_error( [ 'message' => $result['error'] ?? 'Generation failed.' ] );
+        self::send_error( 'llm_error', 'Không thể tạo ảnh qua Gateway.', 'Thử lại sau vài phút.', 'gateway_degraded', 502 );
     }
 
     /* ════════════════════════════════════════════════════════════
@@ -376,7 +392,7 @@ class BizCity_TwitCanva_Ajax {
         $node_id     = sanitize_text_field( $p['nodeId'] ?? '' );
 
         if ( empty( $prompt ) ) {
-            wp_send_json_error( [ 'message' => 'Prompt is required.' ] );
+            self::send_error( 'invalid_param', 'Thiếu mô tả video.', 'Nhập prompt rồi thử lại.', 'invalid_param_generic' );
         }
 
         // Handle start frame image
@@ -451,7 +467,7 @@ class BizCity_TwitCanva_Ajax {
             ] );
         }
 
-        wp_send_json_error( [ 'message' => $result['message'] ?? 'Video generation failed.' ] );
+        self::send_error( 'automation_run_failed', 'Không thể bắt đầu tạo video.', 'Thử lại sau vài phút.', 'gateway_degraded', 502 );
     }
 
     /* ════════════════════════════════════════════════════════════
@@ -749,7 +765,7 @@ class BizCity_TwitCanva_Ajax {
         if ( ! empty( $p['publicOnly'] ) ) {
             $wf = self::load_public_workflow( $id );
             if ( ! $wf ) {
-                wp_send_json_error( [ 'message' => 'Public workflow not found.' ] );
+                self::send_error( 'not_found', 'Không tìm thấy workflow công khai.', 'Chọn workflow khác rồi thử lại.', 'not_found', 404 );
             }
             wp_send_json_success( $wf );
         }
@@ -757,7 +773,7 @@ class BizCity_TwitCanva_Ajax {
         $workflows = self::get_workflows();
 
         if ( ! isset( $workflows[ $id ] ) ) {
-            wp_send_json_error( [ 'message' => 'Workflow not found.' ] );
+            self::send_error( 'not_found', 'Không tìm thấy workflow.', 'Chọn lại workflow rồi thử lại.', 'not_found', 404 );
         }
 
         wp_send_json_success( $workflows[ $id ] );
@@ -813,7 +829,7 @@ class BizCity_TwitCanva_Ajax {
         $result = self::upload_base64_to_media( $data_url, $name );
 
         if ( ! empty( $result['error'] ) ) {
-            wp_send_json_error( [ 'message' => $result['error'] ] );
+            self::send_error( 'upload_rejected', 'Không thể lưu tài sản media.', 'Kiểm tra file rồi thử lại.', 'image_upload_retry', 500 );
         }
 
         // Save metadata as post_excerpt
@@ -886,11 +902,11 @@ class BizCity_TwitCanva_Ajax {
     public static function handle_tc_upload_file() {
         check_ajax_referer( 'bvk_nonce', 'nonce' );
         if ( ! is_user_logged_in() ) {
-            wp_send_json_error( [ 'message' => 'Đăng nhập để tiếp tục.' ] );
+            self::send_error( 'auth_required', 'Bạn cần đăng nhập để tải file.', 'Đăng nhập rồi thử lại.', 'login_required', 401 );
         }
 
         if ( empty( $_FILES['file'] ) ) {
-            wp_send_json_error( [ 'message' => 'No file uploaded.' ] );
+            self::send_error( 'invalid_param', 'Chưa nhận được file tải lên.', 'Chọn file rồi thử lại.', 'image_upload_required' );
         }
 
         require_once ABSPATH . 'wp-admin/includes/file.php';
@@ -930,7 +946,7 @@ class BizCity_TwitCanva_Ajax {
         $ext = strtolower( pathinfo( $file['name'], PATHINFO_EXTENSION ) );
         $allowed_ext = [ 'jpg', 'jpeg', 'png', 'webp', 'gif', 'mp4', 'webm', 'mov', 'mp3', 'm4a', 'aac', 'ogg', 'wav' ];
         if ( ! in_array( $file['type'], $allowed, true ) && ! in_array( $ext, $allowed_ext, true ) ) {
-            wp_send_json_error( [ 'message' => 'File type not allowed: ' . $file['type'] ] );
+            self::send_error( 'invalid_param', 'Định dạng file chưa được hỗ trợ.', 'Chọn file ảnh, video hoặc audio hợp lệ rồi thử lại.', 'image_format_supported' );
         }
 
         // Prefix filename for easy identification
@@ -941,7 +957,7 @@ class BizCity_TwitCanva_Ajax {
         $upload = wp_handle_upload( $file, [ 'test_form' => false ] );
 
         if ( ! empty( $upload['error'] ) ) {
-            wp_send_json_error( [ 'message' => $upload['error'] ] );
+            self::send_error( 'upload_rejected', 'Không thể lưu file vào thư viện media.', 'Kiểm tra file và quyền upload rồi thử lại.', 'image_upload_retry', 500 );
         }
 
         $attach_id = wp_insert_attachment( [
@@ -951,7 +967,7 @@ class BizCity_TwitCanva_Ajax {
         ], $upload['file'] );
 
         if ( is_wp_error( $attach_id ) ) {
-            wp_send_json_error( [ 'message' => $attach_id->get_error_message() ] );
+            self::send_error( 'upload_rejected', 'Không thể tạo media cho file.', 'Kiểm tra quyền media rồi thử lại.', 'image_upload_retry', 500 );
         }
 
         wp_update_attachment_metadata( $attach_id, wp_generate_attachment_metadata( $attach_id, $upload['file'] ) );
@@ -1035,7 +1051,7 @@ class BizCity_TwitCanva_Ajax {
         $url = esc_url_raw( wp_unslash( $_POST['url'] ?? '' ) );
 
         if ( empty( $url ) ) {
-            wp_send_json_error( [ 'message' => 'Missing URL' ] );
+            self::send_error( 'invalid_param', 'Thiếu URL media.', 'Chọn URL hợp lệ rồi thử lại.', 'invalid_param_generic' );
         }
 
         if ( self::is_local_url( $url ) ) {
@@ -1045,7 +1061,7 @@ class BizCity_TwitCanva_Ajax {
         $local_url = self::download_external_to_media( $url );
 
         if ( $local_url === $url ) {
-            wp_send_json_error( [ 'message' => 'Failed to download to media library' ] );
+            self::send_error( 'upload_rejected', 'Không thể tải media vào thư viện.', 'Kiểm tra URL rồi thử lại.', 'image_upload_retry', 502 );
         }
 
         // Optionally update the jobs table if nodeId is provided
@@ -1135,7 +1151,7 @@ class BizCity_TwitCanva_Ajax {
         $chars       = $p['characterDescriptions'] ?? [];
 
         if ( empty( $story ) ) {
-            wp_send_json_error( [ 'message' => 'Story is required.' ] );
+            self::send_error( 'invalid_param', 'Thiếu nội dung câu chuyện.', 'Nhập câu chuyện rồi thử lại.', 'invalid_param_generic' );
         }
 
         // Build character context
@@ -1159,7 +1175,7 @@ class BizCity_TwitCanva_Ajax {
         ], [ 'temperature' => 0.8 ] );
 
         if ( ! $result['success'] ) {
-            wp_send_json_error( [ 'message' => $result['error'] ?? 'Script generation failed.' ] );
+            self::send_error( 'llm_error', 'Không thể tạo storyboard lúc này.', 'Thử lại sau vài phút.', 'gateway_degraded', 502 );
         }
 
         // Parse JSON from response
@@ -1176,7 +1192,7 @@ class BizCity_TwitCanva_Ajax {
         }
 
         if ( ! $data || empty( $data['scripts'] ) ) {
-            wp_send_json_error( [ 'message' => 'Could not parse script response.' ] );
+            self::send_error( 'llm_error', 'Kết quả storyboard không hợp lệ.', 'Thử tạo storyboard lại.', 'gateway_degraded', 502 );
         }
 
         wp_send_json_success( $data );
@@ -1206,7 +1222,7 @@ class BizCity_TwitCanva_Ajax {
         ], [ 'temperature' => 0.9 ] );
 
         if ( ! $result['success'] ) {
-            wp_send_json_error( [ 'message' => $result['error'] ?? 'Brainstorm failed.' ] );
+            self::send_error( 'llm_error', 'Không thể phát triển ý tưởng câu chuyện.', 'Thử lại sau vài phút.', 'gateway_degraded', 502 );
         }
 
         wp_send_json_success( [ 'story' => trim( $result['message'] ) ] );
@@ -1218,7 +1234,7 @@ class BizCity_TwitCanva_Ajax {
         $story = sanitize_textarea_field( $p['story'] ?? '' );
 
         if ( empty( $story ) ) {
-            wp_send_json_error( [ 'message' => 'Story is required.' ] );
+            self::send_error( 'invalid_param', 'Thiếu nội dung câu chuyện.', 'Nhập câu chuyện rồi thử lại.', 'invalid_param_generic' );
         }
 
         $result = self::gemini_chat( [
@@ -1227,7 +1243,7 @@ class BizCity_TwitCanva_Ajax {
         ], [ 'temperature' => 0.7 ] );
 
         if ( ! $result['success'] ) {
-            wp_send_json_error( [ 'message' => $result['error'] ?? 'Optimization failed.' ] );
+            self::send_error( 'llm_error', 'Không thể tối ưu câu chuyện.', 'Thử lại sau vài phút.', 'gateway_degraded', 502 );
         }
 
         wp_send_json_success( [ 'story' => trim( $result['message'] ) ] );
@@ -1239,7 +1255,7 @@ class BizCity_TwitCanva_Ajax {
 
         $prompt = sanitize_textarea_field( $p['prompt'] ?? '' );
         if ( empty( $prompt ) ) {
-            wp_send_json_error( [ 'message' => 'Prompt is required.' ] );
+            self::send_error( 'invalid_param', 'Thiếu prompt tạo ảnh.', 'Nhập prompt rồi thử lại.', 'invalid_param_generic' );
         }
 
         // Use image generation tool
@@ -1264,7 +1280,7 @@ class BizCity_TwitCanva_Ajax {
             }
         }
 
-        wp_send_json_error( [ 'message' => 'Composite generation failed.' ] );
+        self::send_error( 'llm_error', 'Không thể tạo ảnh composite.', 'Thử lại sau vài phút.', 'gateway_degraded', 502 );
     }
 
     /* ════════════════════════════════════════════════════════════
@@ -1277,7 +1293,7 @@ class BizCity_TwitCanva_Ajax {
         $b64 = $p['imageBase64'] ?? '';
 
         if ( empty( $b64 ) ) {
-            wp_send_json_error( [ 'message' => 'Image data required.' ] );
+            self::send_error( 'invalid_param', 'Thiếu dữ liệu ảnh.', 'Chọn ảnh rồi thử lại.', 'image_upload_required' );
         }
 
         // Build multimodal message (OpenAI format with image_url)
@@ -1291,7 +1307,7 @@ class BizCity_TwitCanva_Ajax {
         ], [ 'model' => 'google/gemini-2.0-flash-001', 'purpose' => 'vision' ] );
 
         if ( ! $result['success'] ) {
-            wp_send_json_error( [ 'message' => $result['error'] ?? 'Description failed.' ] );
+            self::send_error( 'llm_error', 'Không thể phân tích ảnh.', 'Thử lại sau vài phút.', 'gateway_degraded', 502 );
         }
 
         wp_send_json_success( [ 'description' => trim( $result['message'] ) ] );
@@ -1304,7 +1320,7 @@ class BizCity_TwitCanva_Ajax {
         $target = sanitize_text_field( $p['targetModel'] ?? '' );
 
         if ( empty( $prompt ) ) {
-            wp_send_json_error( [ 'message' => 'Prompt is required.' ] );
+            self::send_error( 'invalid_param', 'Thiếu prompt cần tối ưu.', 'Nhập prompt rồi thử lại.', 'invalid_param_generic' );
         }
 
         $system = "You are an expert at writing prompts for AI video generation models. "
@@ -1317,7 +1333,7 @@ class BizCity_TwitCanva_Ajax {
         ], [ 'temperature' => 0.6 ] );
 
         if ( ! $result['success'] ) {
-            wp_send_json_error( [ 'message' => $result['error'] ?? 'Optimization failed.' ] );
+            self::send_error( 'llm_error', 'Không thể tối ưu prompt.', 'Thử lại sau vài phút.', 'gateway_degraded', 502 );
         }
 
         wp_send_json_success( [ 'optimizedPrompt' => trim( $result['message'] ) ] );
@@ -1336,13 +1352,13 @@ class BizCity_TwitCanva_Ajax {
         $end_time   = floatval( $p['endTime'] ?? 0 );
 
         if ( empty( $video_url ) || $end_time <= $start_time ) {
-            wp_send_json_error( [ 'message' => 'Invalid trim parameters.' ] );
+            self::send_error( 'invalid_param', 'Thông số cắt video không hợp lệ.', 'Kiểm tra thời điểm bắt đầu và kết thúc rồi thử lại.', 'invalid_param_generic' );
         }
 
         // Check FFmpeg availability
         $ffmpeg = trim( shell_exec( 'which ffmpeg 2>/dev/null' ) ?: shell_exec( 'where ffmpeg 2>nul' ) ?: '' );
         if ( empty( $ffmpeg ) ) {
-            wp_send_json_error( [ 'message' => 'FFmpeg not available on server.' ] );
+            self::send_error( 'module_not_loaded', 'FFmpeg chưa sẵn sàng trên máy chủ.', 'Liên hệ quản trị viên để bật FFmpeg.', 'module_not_loaded', 503 );
         }
 
         // Download video to temp
@@ -1351,7 +1367,7 @@ class BizCity_TwitCanva_Ajax {
 
         if ( is_wp_error( $response ) ) {
             @unlink( $tmp_input );
-            wp_send_json_error( [ 'message' => 'Failed to download video: ' . $response->get_error_message() ] );
+            self::send_error( 'gateway_degraded', 'Không thể tải video nguồn.', 'Kiểm tra URL video rồi thử lại.', 'gateway_degraded', 502 );
         }
 
         // Output path
@@ -1378,7 +1394,7 @@ class BizCity_TwitCanva_Ajax {
         @unlink( $tmp_input );
 
         if ( $code !== 0 || ! file_exists( $out_path ) ) {
-            wp_send_json_error( [ 'message' => 'FFmpeg trim failed.' ] );
+            self::send_error( 'automation_run_failed', 'Không thể cắt video.', 'Kiểm tra file nguồn rồi thử lại.', 'gateway_degraded', 500 );
         }
 
         // Insert into media library
@@ -1420,10 +1436,10 @@ class BizCity_TwitCanva_Ajax {
         $text_overlays = $p['textOverlays'] ?? [];
 
         if ( empty( $clips ) || ! is_array( $clips ) ) {
-            wp_send_json_error( [ 'message' => 'Không có video clip nào.' ] );
+            self::send_error( 'invalid_param', 'Chưa có video clip để ghép.', 'Thêm ít nhất một clip rồi thử lại.', 'invalid_param_generic' );
         }
         if ( count( $clips ) > 20 ) {
-            wp_send_json_error( [ 'message' => 'Tối đa 20 clip.' ] );
+            self::send_error( 'invalid_param', 'Chỉ được ghép tối đa 20 clip.', 'Giảm số clip rồi thử lại.', 'invalid_param_generic' );
         }
 
         // Resolve output dimensions
@@ -1444,14 +1460,14 @@ class BizCity_TwitCanva_Ajax {
         }
         $ffcheck = BizCity_Video_Kling_FFmpeg_Presets::check_availability();
         if ( empty( $ffcheck['available'] ) ) {
-            wp_send_json_error( [ 'message' => 'FFmpeg không khả dụng trên server.' ] );
+            self::send_error( 'module_not_loaded', 'FFmpeg chưa sẵn sàng trên máy chủ.', 'Liên hệ quản trị viên để bật FFmpeg.', 'module_not_loaded', 503 );
         }
         $ffmpeg = BizCity_Video_Kling_FFmpeg_Presets::get_ffmpeg_path();
 
         // Temp dir
         $tmp_dir = sys_get_temp_dir() . '/bvk_compose_' . get_current_user_id() . '_' . uniqid();
         if ( ! wp_mkdir_p( $tmp_dir ) ) {
-            wp_send_json_error( [ 'message' => 'Không tạo được thư mục tạm.' ] );
+            self::send_error( 'automation_run_failed', 'Không tạo được vùng xử lý tạm.', 'Thử lại sau hoặc liên hệ quản trị viên.', 'gateway_degraded', 500 );
         }
 
         try {
@@ -1667,7 +1683,7 @@ class BizCity_TwitCanva_Ajax {
 
         } catch ( \Exception $e ) {
             self::compose_cleanup( $tmp_dir );
-            wp_send_json_error( [ 'message' => $e->getMessage() ] );
+            self::send_error( 'automation_run_failed', 'Không thể ghép video.', 'Kiểm tra clip đầu vào rồi thử lại.', 'gateway_degraded', 500 );
         }
     }
 
@@ -1779,7 +1795,7 @@ class BizCity_TwitCanva_Ajax {
 
         $mode = sanitize_text_field( $p['mode'] ?? 'image' );
         if ( ! in_array( $mode, [ 'image', 'video' ], true ) ) {
-            wp_send_json_error( [ 'message' => 'Invalid faceswap mode.' ] );
+            self::send_error( 'invalid_param', 'Chế độ faceswap không hợp lệ.', 'Chọn chế độ image hoặc video rồi thử lại.', 'invalid_param_generic' );
         }
 
         // Handle swap_image (face source)
@@ -1793,12 +1809,12 @@ class BizCity_TwitCanva_Ajax {
         }
 
         if ( empty( $swap_image ) ) {
-            wp_send_json_error( [ 'message' => 'swap_image (face source) is required.' ] );
+            self::send_error( 'invalid_param', 'Thiếu ảnh khuôn mặt nguồn.', 'Tải ảnh khuôn mặt lên rồi thử lại.', 'image_upload_required' );
         }
 
         // Load BizCity_Video_API
         if ( ! class_exists( 'BizCity_Video_API' ) ) {
-            wp_send_json_error( [ 'message' => 'Video API not available.' ] );
+            self::send_error( 'module_not_loaded', 'Video Gateway chưa sẵn sàng.', 'Kiểm tra module Video rồi thử lại.', 'module_not_loaded', 503 );
         }
 
         if ( $mode === 'image' ) {
@@ -1813,7 +1829,7 @@ class BizCity_TwitCanva_Ajax {
             }
 
             if ( empty( $target_image ) ) {
-                wp_send_json_error( [ 'message' => 'target_image is required for image faceswap.' ] );
+                self::send_error( 'invalid_param', 'Thiếu ảnh đích cho faceswap.', 'Tải ảnh đích lên rồi thử lại.', 'image_upload_required' );
             }
 
             $result = BizCity_Video_API::faceswap_image( $swap_image, $target_image );
@@ -1821,7 +1837,7 @@ class BizCity_TwitCanva_Ajax {
             // Video faceswap
             $target_video = esc_url_raw( $p['target_video'] ?? '' );
             if ( empty( $target_video ) || ! filter_var( $target_video, FILTER_VALIDATE_URL ) ) {
-                wp_send_json_error( [ 'message' => 'target_video URL is required for video faceswap.' ] );
+                self::send_error( 'invalid_param', 'Thiếu URL video đích cho faceswap.', 'Chọn video đích hợp lệ rồi thử lại.', 'invalid_param_generic' );
             }
 
             $options = [];
@@ -1842,7 +1858,7 @@ class BizCity_TwitCanva_Ajax {
                 'mode'   => $mode,
             ] );
         } else {
-            wp_send_json_error( [ 'message' => $result['error'] ?? 'Faceswap failed.' ] );
+            self::send_error( 'automation_run_failed', 'Không thể tạo tác vụ faceswap.', 'Thử lại sau vài phút.', 'gateway_degraded', 502 );
         }
     }
 
@@ -1856,11 +1872,11 @@ class BizCity_TwitCanva_Ajax {
 
         $task_id = sanitize_text_field( $p['taskId'] ?? '' );
         if ( empty( $task_id ) ) {
-            wp_send_json_error( [ 'message' => 'taskId is required.' ] );
+            self::send_error( 'invalid_param', 'Thiếu mã tác vụ faceswap.', 'Kiểm tra task ID rồi thử lại.', 'invalid_param_generic' );
         }
 
         if ( ! class_exists( 'BizCity_Video_API' ) ) {
-            wp_send_json_error( [ 'message' => 'Video API not available.' ] );
+            self::send_error( 'module_not_loaded', 'Video Gateway chưa sẵn sàng.', 'Kiểm tra module Video rồi thử lại.', 'module_not_loaded', 503 );
         }
 
         $result = BizCity_Video_API::faceswap_status( $task_id );
@@ -1878,10 +1894,7 @@ class BizCity_TwitCanva_Ajax {
             }
             wp_send_json_success( $resp );
         } else {
-            wp_send_json_error( [
-                'message' => $result['error'] ?? 'Failed to get faceswap status.',
-                'status'  => $result['status'] ?? 'failed',
-            ] );
+            self::send_error( 'automation_run_failed', 'Không thể kiểm tra trạng thái faceswap.', 'Thử lại sau vài phút.', 'gateway_degraded', 502, array( 'status' => $result['status'] ?? 'failed' ) );
         }
     }
 
@@ -1899,11 +1912,11 @@ class BizCity_TwitCanva_Ajax {
         $model = sanitize_text_field( $p['model'] ?? 'tts-1' );
 
         if ( empty( trim( $text ) ) ) {
-            wp_send_json_error( [ 'message' => 'Text is required.' ] );
+            self::send_error( 'invalid_param', 'Thiếu nội dung TTS.', 'Nhập nội dung rồi thử lại.', 'invalid_param_generic' );
         }
 
         if ( ! class_exists( 'BizCity_Video_Kling_OpenAI_TTS' ) ) {
-            wp_send_json_error( [ 'message' => 'TTS library not available.' ] );
+            self::send_error( 'module_not_loaded', 'TTS module chưa sẵn sàng.', 'Kiểm tra module TTS rồi thử lại.', 'module_not_loaded', 503 );
         }
 
         $result = BizCity_Video_Kling_OpenAI_TTS::generate_and_save( $text, '', [
@@ -1914,7 +1927,7 @@ class BizCity_TwitCanva_Ajax {
         ] );
 
         if ( empty( $result['success'] ) ) {
-            wp_send_json_error( [ 'message' => $result['error'] ?? 'TTS generation failed.' ] );
+            self::send_error( 'unsupported_operation', 'TTS chưa được kết nối qua BizCity Gateway.', 'Tắt TTS hoặc chờ capability TTS được bật.', 'video_tts_unavailable', 422 );
         }
 
         // Rewrite URL for CDN if needed
@@ -1995,14 +2008,14 @@ class BizCity_TwitCanva_Ajax {
         // Validate JSON
         $decoded = json_decode( $data_raw, true );
         if ( json_last_error() !== JSON_ERROR_NONE ) {
-            wp_send_json_error( [ 'message' => 'Invalid JSON data.' ] );
+            self::send_error( 'invalid_param', 'Dữ liệu project không hợp lệ.', 'Tải lại project rồi thử lại.', 'invalid_param_generic' );
         }
 
         // If updating, verify ownership
         if ( $project_id ) {
             $existing = BizCity_Video_Kling_Database::get_project( $project_id );
             if ( ! $existing || (int) $existing->user_id !== $user_id ) {
-                wp_send_json_error( [ 'message' => 'Project not found.' ] );
+                self::send_error( 'not_found', 'Không tìm thấy project.', 'Chọn lại project rồi thử lại.', 'not_found', 404 );
             }
         }
 
@@ -2020,7 +2033,7 @@ class BizCity_TwitCanva_Ajax {
         $id = BizCity_Video_Kling_Database::save_project( $save_data );
 
         if ( ! $id ) {
-            wp_send_json_error( [ 'message' => 'Failed to save project.' ] );
+            self::send_error( 'automation_run_failed', 'Không thể lưu project video.', 'Thử lại sau vài phút.', 'gateway_degraded', 500 );
         }
 
         wp_send_json_success( [
@@ -2041,12 +2054,12 @@ class BizCity_TwitCanva_Ajax {
         $project_id = absint( $_POST['project_id'] ?? 0 );
 
         if ( ! $project_id ) {
-            wp_send_json_error( [ 'message' => 'Missing project_id.' ] );
+            self::send_error( 'invalid_param', 'Thiếu mã project.', 'Chọn project rồi thử lại.', 'invalid_param_generic' );
         }
 
         $project = BizCity_Video_Kling_Database::get_project( $project_id );
         if ( ! $project || (int) $project->user_id !== $user_id ) {
-            wp_send_json_error( [ 'message' => 'Project not found.' ] );
+            self::send_error( 'not_found', 'Không tìm thấy project.', 'Chọn lại project rồi thử lại.', 'not_found', 404 );
         }
 
         wp_send_json_success( [
@@ -2107,19 +2120,22 @@ class BizCity_TwitCanva_Ajax {
         $duration  = absint( $p['duration'] ?? 10 );
 
         if ( empty( $image_url ) || ! filter_var( $image_url, FILTER_VALIDATE_URL ) ) {
-            wp_send_json_error( [ 'message' => 'image_url (ảnh chân dung) là bắt buộc.' ] );
+            self::send_error( 'invalid_param', 'Thiếu URL ảnh chân dung.', 'Chọn ảnh chân dung hợp lệ rồi thử lại.', 'image_upload_required' );
         }
         if ( empty( $audio_url ) || ! filter_var( $audio_url, FILTER_VALIDATE_URL ) ) {
-            wp_send_json_error( [ 'message' => 'audio_url là bắt buộc.' ] );
+            self::send_error( 'invalid_param', 'Thiếu URL audio cho avatar.', 'Chọn file audio hợp lệ rồi thử lại.', 'invalid_param_generic' );
         }
 
+        // [2026-08-10 Johnny Chu] PHASE-1.24-VIDEO-KLING — avatar provider task is fail-closed until a managed gateway capability exists.
+        self::send_error( 'unsupported_operation', 'Avatar LipSync chưa được kết nối qua BizCity Gateway.', 'Chờ capability Avatar được bật trên Gateway.', 'video_avatar_unavailable', 422 );
+
         if ( ! function_exists( 'waic_kling_get_api_config' ) || ! function_exists( 'waic_kling_http_post' ) ) {
-            wp_send_json_error( [ 'message' => 'PiAPI library not loaded.' ] );
+            self::send_error( 'module_not_loaded', 'Video module chưa sẵn sàng.', 'Kiểm tra module Video rồi thử lại.', 'module_not_loaded', 503 );
         }
 
         $cfg = waic_kling_get_api_config( [] );
         if ( empty( $cfg['api_key'] ) ) {
-            wp_send_json_error( [ 'message' => 'Missing PiAPI key.' ] );
+            self::send_error( 'gateway_degraded', 'BizCity Gateway chưa sẵn sàng.', 'Kiểm tra cấu hình Gateway rồi thử lại.', 'gateway_degraded', 503 );
         }
 
         // Build PiAPI payload based on model
@@ -2195,7 +2211,7 @@ class BizCity_TwitCanva_Ajax {
                 ?? $result['error']
                 ?? $result['data']['data']['message']
                 ?? 'Avatar creation failed.';
-            wp_send_json_error( [ 'message' => $err ] );
+            self::send_error( 'unsupported_operation', 'Avatar LipSync chưa được kết nối qua BizCity Gateway.', 'Chờ capability Avatar được bật trên Gateway.', 'video_avatar_unavailable', 422 );
         }
     }
 
@@ -2209,16 +2225,19 @@ class BizCity_TwitCanva_Ajax {
 
         $task_id = sanitize_text_field( $p['taskId'] ?? '' );
         if ( empty( $task_id ) ) {
-            wp_send_json_error( [ 'message' => 'taskId is required.' ] );
+            self::send_error( 'invalid_param', 'Thiếu mã tác vụ avatar.', 'Kiểm tra task ID rồi thử lại.', 'invalid_param_generic' );
         }
 
+        // [2026-08-10 Johnny Chu] PHASE-1.24-VIDEO-KLING — avatar polling stays fail-closed until Hub ownership/polling is approved.
+        self::send_error( 'unsupported_operation', 'Avatar LipSync chưa được kết nối qua BizCity Gateway.', 'Chờ capability Avatar được bật trên Gateway.', 'video_avatar_unavailable', 422 );
+
         if ( ! function_exists( 'waic_kling_get_api_config' ) || ! function_exists( 'waic_kling_http_get' ) ) {
-            wp_send_json_error( [ 'message' => 'PiAPI library not loaded.' ] );
+            self::send_error( 'module_not_loaded', 'Video module chưa sẵn sàng.', 'Kiểm tra module Video rồi thử lại.', 'module_not_loaded', 503 );
         }
 
         $cfg = waic_kling_get_api_config( [] );
         if ( empty( $cfg['api_key'] ) ) {
-            wp_send_json_error( [ 'message' => 'Missing PiAPI key.' ] );
+            self::send_error( 'gateway_degraded', 'BizCity Gateway chưa sẵn sàng.', 'Kiểm tra cấu hình Gateway rồi thử lại.', 'gateway_degraded', 503 );
         }
 
         // Build URL and headers based on mode
@@ -2273,10 +2292,7 @@ class BizCity_TwitCanva_Ajax {
                 'resultUrl' => $video_url,
             ] );
         } elseif ( $norm_status === 'failed' ) {
-            wp_send_json_error( [
-                'status'  => 'failed',
-                'message' => $data['error'] ?? $data['message'] ?? 'Avatar task failed.',
-            ] );
+            self::send_error( 'automation_run_failed', 'Tác vụ Avatar thất bại.', 'Thử lại sau vài phút.', 'gateway_degraded', 502, array( 'status' => 'failed' ) );
         } else {
             wp_send_json_success( [
                 'status'   => $norm_status,
@@ -2297,11 +2313,11 @@ class BizCity_TwitCanva_Ajax {
         $voice = sanitize_text_field( $p['voice'] ?? 'nova' );
 
         if ( empty( trim( $text ) ) ) {
-            wp_send_json_error( [ 'message' => 'Text is required.' ] );
+            self::send_error( 'invalid_param', 'Thiếu nội dung TTS.', 'Nhập nội dung rồi thử lại.', 'invalid_param_generic' );
         }
 
         if ( ! class_exists( 'BizCity_Video_Kling_OpenAI_TTS' ) ) {
-            wp_send_json_error( [ 'message' => 'TTS library not available.' ] );
+            self::send_error( 'module_not_loaded', 'TTS module chưa sẵn sàng.', 'Kiểm tra module TTS rồi thử lại.', 'module_not_loaded', 503 );
         }
 
         $result = BizCity_Video_Kling_OpenAI_TTS::generate_and_save( $text, '', [
@@ -2312,7 +2328,7 @@ class BizCity_TwitCanva_Ajax {
         ] );
 
         if ( empty( $result['success'] ) ) {
-            wp_send_json_error( [ 'message' => $result['error'] ?? 'TTS failed.' ] );
+            self::send_error( 'unsupported_operation', 'TTS chưa được kết nối qua BizCity Gateway.', 'Tắt TTS hoặc chờ capability TTS được bật.', 'video_tts_unavailable', 422 );
         }
 
         $url = $result['url'] ?? '';

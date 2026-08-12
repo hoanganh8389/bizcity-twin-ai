@@ -110,6 +110,14 @@ final class BizCity_Automation_Block_Registry {
 		if ( class_exists( 'BizCity_Automation_Action_Run_Products_Solution' ) ) {
 			$this->register( new BizCity_Automation_Action_Run_Products_Solution() );
 		}
+		// [2026-08-11 Johnny Chu] PHASE-TWB-WOO-BIZOPS — register admin-gated Woo BizOps query block.
+		if ( class_exists( 'BizCity_Automation_Action_Run_Woo_Bizops' ) ) {
+			$this->register( new BizCity_Automation_Action_Run_Woo_Bizops() );
+		}
+		// [2026-08-11 Johnny Chu] PHASE-TWB-WOO-BIZOPS — register executive digest action.
+		if ( class_exists( 'BizCity_Automation_Action_Run_Woo_Bizops_Digest' ) ) {
+			$this->register( new BizCity_Automation_Action_Run_Woo_Bizops_Digest() );
+		}
 		// [2026-07-05 Johnny Chu] PHASE-FAA2-TWINBRAIN — action.pick_best_day_for_intent.
 		if ( class_exists( 'BizCity_Automation_Action_Pick_Best_Day_For_Intent' ) ) {
 			$this->register( new BizCity_Automation_Action_Pick_Best_Day_For_Intent() );

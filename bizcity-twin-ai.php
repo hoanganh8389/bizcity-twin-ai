@@ -38,6 +38,11 @@ define( 'BIZCITY_TWIN_AI_MAIN_LOADED', true );
 if ( ! defined( 'BIZCITY_TWIN_AI_VERSION' ) ) {
     define( 'BIZCITY_TWIN_AI_VERSION', '1.3.7' );
 }
+if ( ! defined( 'BIZCITY_TWIN_AI_VERSION_SOURCE' ) ) {
+    // [2026-08-11 Johnny Chu] PHASE-1.23-VERSION-AUTH - identify the main
+    // entrypoint when it owns the canonical version definition.
+    define( 'BIZCITY_TWIN_AI_VERSION_SOURCE', 'main_constant' );
+}
 if ( ! defined( 'BIZCITY_TWIN_AI_DIR' ) ) {
     define( 'BIZCITY_TWIN_AI_DIR', plugin_dir_path( __FILE__ ) );
 }
@@ -163,6 +168,14 @@ if ( ! function_exists( 'bizcity_get_charset_collate' ) ) {
     }
 }
 
+// [2026-08-10 Johnny Chu] PHASE-1.23-CANONICAL-W2 - load the observe-only
+// ownership registry before the first core feature claim.
+$_bizcity_loader_registry_file = __DIR__ . '/core/runtime/class-loader-ownership-registry.php';
+if ( file_exists( $_bizcity_loader_registry_file ) && ! class_exists( 'BizCity_Loader_Ownership_Registry', false ) ) {
+    require_once $_bizcity_loader_registry_file;
+}
+unset( $_bizcity_loader_registry_file );
+
 // ── Core components — load at file scope (trước khi regular plugins load) ────
 // Tool plugins extend BizCity_Intent_Provider ở file scope → class phải tồn tại sớm.
 // Market đăng ký plugins_loaded @1 → phải load trước khi hook fires.
@@ -170,6 +183,8 @@ if ( ! function_exists( 'bizcity_get_charset_collate' ) ) {
 require_once __DIR__ . '/core/twin-core/contracts/framework-contracts.php';
 // [2026-07-29 Johnny Chu] PHASE-1.21-F — opt-in content contracts for new extensions.
 require_once __DIR__ . '/core/twin-core/contracts/content-contracts.php';
+// [2026-08-12 Johnny Chu] PHASE-1.26-CONTRACT — opt-in navigation metadata registry; WordPress registration remains central.
+require_once __DIR__ . '/core/twin-core/contracts/class-admin-navigation-registry.php';
 // Phase 0.99.3 — Module registry (implements `bizcity_register_module` filter).
 require_once __DIR__ . '/core/twin-core/contracts/class-module-registry.php';
 // [2026-06-05 Johnny Chu] R-ERROR-UX — core/helper: BizCity_Error_Payload + shared helpers.
@@ -188,7 +203,13 @@ if ( ! $_bizcity_twinchat_admin_shell_request ) {
         || false !== strpos( $bizcity_llm_bootstrap_uri, '/gpt' )
         || false !== strpos( $bizcity_llm_bootstrap_uri, '/twin' );
     if ( $bizcity_llm_bootstrap_context ) {
+            if ( class_exists( 'BizCity_Loader_Ownership_Registry', false ) ) {
+                BizCity_Loader_Ownership_Registry::claim( 'llm_client', 'main_plugin', __DIR__ . '/core/bizcity-llm/bootstrap.php', defined( 'BIZCITY_TWIN_AI_VERSION' ) ? BIZCITY_TWIN_AI_VERSION : '', 'early_loader', 'pre_plugins_loaded' );
+            }
         require_once __DIR__ . '/core/bizcity-llm/bootstrap.php';
+            if ( class_exists( 'BizCity_Loader_Ownership_Registry', false ) ) {
+                BizCity_Loader_Ownership_Registry::transition( 'llm_client', BizCity_Loader_Ownership_Registry::STATE_CONTRACT_READY, 'main_plugin', 'pre_plugins_loaded' );
+            }
     }
     unset( $bizcity_llm_bootstrap_uri, $bizcity_llm_bootstrap_context );
 }
@@ -240,7 +261,13 @@ if ( ! isset( $_bizcity_admin_ctx ) ) {
 
 // [2026-08-09 Johnny Chu] R-PERF — Knowledge is needed by admin/REST/webhook runtime, not plain frontend HTML.
 if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_shell_request ) {
+    if ( class_exists( 'BizCity_Loader_Ownership_Registry', false ) ) {
+        BizCity_Loader_Ownership_Registry::claim( 'knowledge', 'main_plugin', __DIR__ . '/core/knowledge/bootstrap.php', defined( 'BIZCITY_TWIN_AI_VERSION' ) ? BIZCITY_TWIN_AI_VERSION : '', 'early_loader', 'pre_plugins_loaded' );
+    }
     require_once __DIR__ . '/core/knowledge/bootstrap.php';
+    if ( class_exists( 'BizCity_Loader_Ownership_Registry', false ) ) {
+        BizCity_Loader_Ownership_Registry::transition( 'knowledge', BizCity_Loader_Ownership_Registry::STATE_CONTRACT_READY, 'main_plugin', 'pre_plugins_loaded' );
+    }
 }
 
 // [2026-07-14 Johnny Chu] PHASE-0.43 — shared local-document search for TwinChat, TwinWeb and future surfaces.
@@ -383,7 +410,13 @@ $_bizcity_intent_runtime_request = $_bizcity_intent_public_request
         || ( defined( 'DOING_CRON' ) && DOING_CRON )
         || ( defined( 'WP_CLI' ) && WP_CLI ) ) );
 if ( $_bizcity_intent_runtime_request && ! $_bizcity_twinchat_admin_shell_request ) {
+    if ( class_exists( 'BizCity_Loader_Ownership_Registry', false ) ) {
+        BizCity_Loader_Ownership_Registry::claim( 'intent', 'main_plugin', __DIR__ . '/core/intent/bootstrap.php', defined( 'BIZCITY_TWIN_AI_VERSION' ) ? BIZCITY_TWIN_AI_VERSION : '', 'early_loader', 'pre_plugins_loaded' );
+    }
     require_once __DIR__ . '/core/intent/bootstrap.php';
+    if ( class_exists( 'BizCity_Loader_Ownership_Registry', false ) ) {
+        BizCity_Loader_Ownership_Registry::transition( 'intent', BizCity_Loader_Ownership_Registry::STATE_CONTRACT_READY, 'main_plugin', 'pre_plugins_loaded' );
+    }
 }
 unset( $_bizcity_intent_admin_page, $_bizcity_intent_ajax_request, $_bizcity_intent_public_request, $_bizcity_intent_runtime_request );
 // Phase 0.18 / Wave 0.18.0 — Persona Provider contract + registry.
@@ -398,7 +431,13 @@ if ( ( $_bizcity_admin_ctx || $_bizcity_persona_public_request )
 }
 // [2026-08-09 Johnny Chu] R-PERF — defer Twin Core file graph and schema work off plain frontend HTML.
 if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_shell_request && file_exists( __DIR__ . '/core/twin-core/bootstrap.php' ) ) {
+    if ( class_exists( 'BizCity_Loader_Ownership_Registry', false ) ) {
+        BizCity_Loader_Ownership_Registry::claim( 'twin_core', 'main_plugin', __DIR__ . '/core/twin-core/bootstrap.php', defined( 'BIZCITY_TWIN_AI_VERSION' ) ? BIZCITY_TWIN_AI_VERSION : '', 'early_loader', 'pre_plugins_loaded' );
+    }
     require_once __DIR__ . '/core/twin-core/bootstrap.php';
+    if ( class_exists( 'BizCity_Loader_Ownership_Registry', false ) ) {
+        BizCity_Loader_Ownership_Registry::transition( 'twin_core', BizCity_Loader_Ownership_Registry::STATE_CONTRACT_READY, 'main_plugin', 'pre_plugins_loaded' );
+    }
 }
 // [2026-06-10 Johnny Chu] HOTFIX — core/bizcity-market disabled: module not yet implemented,
 // creates 5 unused DB tables on every client install (performance + DB clutter).
@@ -452,9 +491,28 @@ if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_page && file_exists( __DI
 
 // Phase AUTOMATION S0 — visual workflow builder (own SPA, own bundle).
 // Admin UI + cron runner + REST → gate; not needed on frontend HTML render.
-if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_page && file_exists( __DIR__ . '/core/automation/bootstrap.php' ) ) {
+// [2026-08-11 Johnny Chu] PHASE-1.23-AUTOMATION-SURFACE - resolve Automation
+// by its own page/REST/public/webhook/cron surface instead of all admin pages.
+$_bizcity_automation_uri = isset( $_SERVER['REQUEST_URI'] ) ? (string) $_SERVER['REQUEST_URI'] : '';
+$_bizcity_automation_page = is_admin()
+    && isset( $_GET['page'] )
+    && 'bizcity-automation' === sanitize_key( (string) $_GET['page'] );
+$_bizcity_automation_runtime_request =
+    $_bizcity_automation_page
+    || ( defined( 'DOING_CRON' ) && DOING_CRON )
+    || ( defined( 'WP_CLI' ) && WP_CLI )
+    || false !== strpos( $_bizcity_automation_uri, '/wp-json/bizcity-automation/' )
+    || preg_match( '#^/flow(?:/|\?|$)#', $_bizcity_automation_uri )
+    || false !== strpos( $_bizcity_automation_uri, '/bizhook/' )
+    || false !== strpos( $_bizcity_automation_uri, '/bizfbhook' )
+    || false !== strpos( $_bizcity_automation_uri, '/zalohook/' )
+    || false !== strpos( (string) ( $_SERVER['QUERY_STRING'] ?? '' ), 'fbhook=1' );
+if ( $_bizcity_automation_runtime_request
+    && ! $_bizcity_twinchat_admin_page
+    && file_exists( __DIR__ . '/core/automation/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/automation/bootstrap.php';
 }
+unset( $_bizcity_automation_uri, $_bizcity_automation_page, $_bizcity_automation_runtime_request );
 // [2026-06-22 Johnny Chu] PHASE-TWINWEB — QUARANTINED: core/content-ops chưa sử dụng.
 // Uncomment khi sẵn sàng ship Content-Ops SPA (page=bizcity-content-ops).
 // Phase CO-1 — Content Ops (Layer 2: AI content + schedule + cross-channel publish)

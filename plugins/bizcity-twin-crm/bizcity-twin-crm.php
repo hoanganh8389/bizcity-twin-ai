@@ -35,7 +35,7 @@ if ( ! defined( 'BIZCITY_CRM_FILE' ) )       { define( 'BIZCITY_CRM_FILE', __FIL
 if ( ! defined( 'BIZCITY_CRM_DIR' ) )        { define( 'BIZCITY_CRM_DIR', __DIR__ ); }
 if ( ! defined( 'BIZCITY_CRM_URL' ) )        { define( 'BIZCITY_CRM_URL', plugins_url( '', __FILE__ ) ); }
 if ( ! defined( 'BIZCITY_CRM_REST_NS' ) )    { define( 'BIZCITY_CRM_REST_NS', 'bizcity-crm/v1' ); }
-if ( ! defined( 'BIZCITY_CRM_DB_VERSION' ) ) { define( 'BIZCITY_CRM_DB_VERSION', '1.25.0' ); } // [2026-08-01 Johnny Chu] PHASE-CG-QR-LINK — QR Links use a per-blog option; no schema migration
+if ( ! defined( 'BIZCITY_CRM_DB_VERSION' ) ) { define( 'BIZCITY_CRM_DB_VERSION', '1.28.0' ); } // [2026-08-12 Johnny Chu] PHASE-CRM-CONTACTS-UNIFY-V2 — queue audit history schema
 
 require_once __DIR__ . '/bootstrap.php';
 

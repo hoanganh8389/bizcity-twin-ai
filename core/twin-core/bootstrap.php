@@ -169,6 +169,8 @@ BizCity_Twin_Capability_Consent::boot();
 // [2026-07-30 Johnny Chu] PHASE-1.22-SEC — load shared SSRF and upload policy enforcement.
 require_once $twin_includes . '/class-twin-security-policy.php';
 require_once $twin_includes . '/class-twin-mutation-guard.php';
+// [2026-08-10 Johnny Chu] PHASE-1.24-RUNTIME — load bounded mutation replay store before framework mutation consumers.
+require_once $twin_includes . '/class-twin-mutation-store.php';
 // [2026-07-30 Johnny Chu] PHASE-1.22-RUNTIME — load the shared reliability policy before guarded execution.
 require_once $twin_includes . '/class-twin-runtime-reliability.php';
 // [2026-07-30 Johnny Chu] PHASE-1.22-RUNTIME — expose the shared outbound HTTP reliability adapter.

@@ -3,7 +3,7 @@
   "module_id": "core.twin-core",
   "owner": "core/twin-core",
   "installer_id": "twin_state",
-  "current_version": "2.2.1",
+  "current_version": "2.3.0",
   "version_option": "bizcity_twin_state_db_ver",
   "tables": {
     "bizcity_twin_prompt_specs": {
@@ -99,6 +99,11 @@
     }
   },
   "history": [
+    {
+      "version": "2.3.0",
+      "date": "2026-08-11",
+      "change": "PHASE-TWB-WOO-BIZOPS: add admin-scoped Woo BizOps domain, intent, query and composed event taxonomy contracts."
+    },
     {
       "version": "2.2.1",
       "date": "2026-07-31",

@@ -29,30 +29,18 @@ class BizCity_Twin_Event_Inspector_Page {
 	}
 
 	public static function register_menu(): void {
-		// Sit under Intent Monitor when present, fallback to top-level.
-		$parent = class_exists( 'BizCity_Intent_Monitor', false )
-			? 'bizcity-intent-monitor'
-			: null;
-		if ( $parent ) {
-			add_submenu_page(
-				$parent,
-				'Twin Event Inspector',
-				'Event Inspector',
-				'manage_options',
-				self::SLUG,
-				[ __CLASS__, 'render' ]
-			);
-		} else {
-			add_menu_page(
-				'Twin Event Inspector',
-				'Event Inspector',
-				'manage_options',
-				self::SLUG,
-				[ __CLASS__, 'render' ],
-				'dashicons-chart-line',
-				73
-			);
+		if ( class_exists( 'BizCity_Admin_Menu', false ) ) {
+			return;
 		}
+		// [2026-08-11 Johnny Chu] PHASE-1.26 — central Diagnostics registry owns this page in the bundled runtime.
+		add_submenu_page(
+			'bizcity-twin-diagnostics',
+			'Twin Event Inspector',
+			'Event Inspector',
+			'manage_options',
+			self::SLUG,
+			[ __CLASS__, 'render' ]
+		);
 	}
 
 	public static function render(): void {

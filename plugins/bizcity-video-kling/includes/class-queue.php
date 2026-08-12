@@ -10,6 +10,14 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 class BizCity_Video_Kling_Queue {
+
+    private static function send_error( $code, $message, $hint, $help_code, $status = 400 ) {
+        // [2026-08-10 Johnny Chu] R-ERROR-UX — normalize queue admin AJAX failures.
+        $payload = class_exists( 'BizCity_Error_Payload' )
+            ? BizCity_Error_Payload::make( $code, $message, $hint, $help_code )
+            : array( 'success' => false, 'code' => (string) $code, 'message' => (string) $message, 'hint' => (string) $hint, 'help_code' => (string) $help_code );
+        wp_send_json_error( $payload, (int) $status );
+    }
     
     /**
      * Debug mode
@@ -750,9 +758,8 @@ class BizCity_Video_Kling_Queue {
         
         // Check status for each active job
         if ( ! empty( $active_jobs ) && ( $force || count( $active_jobs ) > 0 ) ) {
-            $api_key = get_option( 'bizcity_video_kling_api_key', '' );
-            $endpoint = get_option( 'bizcity_video_kling_endpoint', 'https://api.piapi.ai/api/v1' );
-            $settings = array( 'api_key' => $api_key, 'endpoint' => $endpoint );
+            // [2026-08-10 Johnny Chu] PHASE-1.24-VIDEO-KLING — queue status uses the managed client adapter.
+            $settings = array( 'timeout' => 60 );
             
             foreach ( $active_jobs as $job ) {
                 // Check status with API
@@ -843,7 +850,7 @@ class BizCity_Video_Kling_Queue {
         $job_id = intval( $_POST['job_id'] ?? 0 );
         
         if ( ! $job_id ) {
-            wp_send_json_error( array( 'message' => __( 'Invalid job ID', 'bizcity-video-kling' ) ) );
+            self::send_error( 'invalid_param', __( 'Mã job không hợp lệ.', 'bizcity-video-kling' ), 'Kiểm tra mã job rồi thử lại.', 'invalid_param_generic' );
             return;
         }
         
@@ -864,19 +871,19 @@ class BizCity_Video_Kling_Queue {
         $job_id = intval( $_POST['job_id'] ?? 0 );
         
         if ( ! $job_id ) {
-            wp_send_json_error( array( 'message' => __( 'Invalid job ID', 'bizcity-video-kling' ) ) );
+            self::send_error( 'invalid_param', __( 'Mã job không hợp lệ.', 'bizcity-video-kling' ), 'Kiểm tra mã job rồi thử lại.', 'invalid_param_generic' );
             return;
         }
         
         $job = BizCity_Video_Kling_Database::get_job( $job_id );
         
         if ( ! $job ) {
-            wp_send_json_error( array( 'message' => __( 'Job not found', 'bizcity-video-kling' ) ) );
+            self::send_error( 'not_found', __( 'Không tìm thấy job video.', 'bizcity-video-kling' ), 'Kiểm tra mã job hoặc tải lại danh sách.', 'not_found', 404 );
             return;
         }
         
         if ( ! in_array( $job->status, array( 'queued', 'processing' ) ) ) {
-            wp_send_json_error( array( 'message' => __( 'Job cannot be cancelled', 'bizcity-video-kling' ) ) );
+            self::send_error( 'invalid_param', __( 'Job video không thể huỷ ở trạng thái hiện tại.', 'bizcity-video-kling' ), 'Chỉ huỷ job đang chờ hoặc đang xử lý.', 'invalid_param_generic', 409 );
             return;
         }
         

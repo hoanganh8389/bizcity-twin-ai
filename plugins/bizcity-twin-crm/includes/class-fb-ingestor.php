@@ -60,7 +60,35 @@ class BizCity_CRM_Facebook_Ingestor {
 	}
 
 	private function __construct() {
-		add_action( 'waic_twf_process_flow', array( $this, 'on_workflow_trigger' ), 9, 2 );
+		// [2026-08-09 Johnny Chu] R-CH-UNI — CRM consumes normalized Facebook envelopes.
+		add_action( 'bizcity_channel_normalized', array( $this, 'on_normalized' ), 10, 2 );
+	}
+
+	/**
+	 * Ingest FB_MESS/FB_FEED after the universal channel listener resolves identity.
+	 */
+	public function on_normalized( $envelope, $trigger_key = '' ): void {
+		if ( ! is_array( $envelope ) ) { return; }
+		$platform = (string) ( $envelope['platform'] ?? '' );
+		if ( $platform !== 'FB_MESS' && $platform !== 'FB_FEED' ) { return; }
+
+		$raw = is_array( $envelope['raw'] ?? null ) ? $envelope['raw'] : array();
+		$raw['page_id'] = (string) ( $raw['page_id'] ?? $envelope['account_id'] ?? '' );
+		$raw['user_id'] = (string) ( $raw['user_id'] ?? $envelope['user_id'] ?? $raw['from_id'] ?? '' );
+		$raw['message'] = (string) ( $raw['message'] ?? $envelope['message'] ?? $envelope['raw_text'] ?? '' );
+		if ( $platform === 'FB_FEED' ) {
+			$raw['user_id'] = (string) ( $raw['from_id'] ?? $envelope['user_id'] ?? '' );
+		}
+		$adapter = BizCity_CRM_Channel_Registry::get( 'facebook' );
+		if ( ! $adapter ) { return; }
+		try {
+			$norm = $adapter->normalize_inbound( $raw );
+			if ( $norm ) { $this->ingest( $adapter, $norm ); }
+		} catch ( \Throwable $e ) {
+			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+				error_log( '[bizcity-crm] normalized Facebook ingest failed: ' . $e->getMessage() );
+			}
+		}
 	}
 
 	/**

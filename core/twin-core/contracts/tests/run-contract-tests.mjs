@@ -219,7 +219,50 @@ function run() {
     if (invalidErrors.length === 0) {
       throw new Error(`${contract.id}: invalid fixture unexpectedly passed`);
     }
+
+    if (contract.id === 'admin-navigation') {
+      assert.equal(validFixture.top_level_groups.length, 3,
+        'admin-navigation must define exactly three top-level groups');
+      assert.deepEqual(
+        validFixture.top_level_groups.map((group) => group.id).sort(),
+        ['diagnostics', 'settings', 'workspace'],
+        'admin-navigation top-level groups must be settings, workspace and diagnostics'
+      );
+      const pairKeys = new Set();
+      for (const item of validFixture.items) {
+        const pairKey = `${item.parent}:${item.slug}`;
+        assert.ok(!pairKeys.has(pairKey), `admin-navigation duplicate parent/slug: ${pairKey}`);
+        pairKeys.add(pairKey);
+        assert.ok(['settings', 'workspace', 'diagnostics'].includes(item.group),
+          `admin-navigation item has invalid group: ${item.id}`);
+        assert.ok(item.slot.startsWith(`${item.group}.`),
+          `admin-navigation item slot must belong to group: ${item.id}`);
+        assert.ok(['core', 'bundle', 'extension'].includes(item.origin),
+          `admin-navigation item has invalid origin: ${item.id}`);
+      }
+    }
   }
+
+  const frameworkContractsPath = path.join(__dirname, '..', 'framework-contracts.php');
+  const phoneNormalizerPath = path.resolve(__dirname, '../../../helper/includes/class-bizcity-phone-normalizer.php');
+  const frameworkSource = fs.readFileSync(frameworkContractsPath, 'utf8');
+  const phoneNormalizerSource = fs.readFileSync(phoneNormalizerPath, 'utf8');
+  assert.match(frameworkSource, /interface\s+BizCity_Phone_Normalizer_Interface/,
+    'phone normalizer public framework contract is missing');
+  assert.match(phoneNormalizerSource, /implements\s+BizCity_Phone_Normalizer_Interface/,
+    'canonical phone normalizer does not implement its public contract');
+  assert.match(phoneNormalizerSource, /function\s+normalize_vn\s*\(/,
+    'canonical phone normalizer method is missing');
+  assert.match(frameworkSource, /interface\s+BizCity_Admin_Navigation_Provider_Interface/,
+    'admin navigation provider contract is missing');
+  assert.match(frameworkSource, /class\s+BizCity_Admin_Navigation_Item/,
+    'admin navigation DTO is missing');
+  const navigationRegistryPath = path.join(__dirname, '..', 'class-admin-navigation-registry.php');
+  const navigationRegistrySource = fs.readFileSync(navigationRegistryPath, 'utf8');
+  assert.match(navigationRegistrySource, /class\s+BizCity_Admin_Navigation_Registry/,
+    'admin navigation registry is missing');
+  assert.match(navigationRegistrySource, /register_provider\s*\(/,
+    'admin navigation registry provider entry point is missing');
 
   console.log(`CONTRACT TESTS PASS (${catalog.contracts.length} contracts)`);
 }

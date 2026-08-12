@@ -1,9 +1,9 @@
 <?php
 /**
- * OpenAI TTS (Text-to-Speech) API Client
- * 
- * Uses OpenAI's TTS API to generate audio from text
- * API Key from: get_option('twf_openai_api_key')
+ * Video Kling TTS capability placeholder.
+ *
+ * Direct provider TTS is quarantined until an approved BizCity gateway wrapper
+ * exists. No provider key or provider URL is read from the client plugin.
  * 
  * @package BizCity_Video_Kling
  * @since 1.1.0
@@ -14,11 +14,6 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 class BizCity_Video_Kling_OpenAI_TTS {
-    
-    /**
-     * OpenAI TTS API endpoint
-     */
-    const API_ENDPOINT = 'https://api.openai.com/v1/audio/speech';
     
     /**
      * Available TTS models
@@ -65,15 +60,8 @@ class BizCity_Video_Kling_OpenAI_TTS {
      * @return string API key
      */
     public static function get_api_key() {
-        // First check plugin-specific option
-        $key = get_option( 'bizcity_video_kling_openai_api_key', '' );
-        
-        if ( empty( $key ) ) {
-            // Fallback to global OpenAI key
-            $key = get_option( 'twf_openai_api_key', '' );
-        }
-        
-        return $key;
+        // [2026-08-10 Johnny Chu] PHASE-1.24-VIDEO-KLING — provider TTS credentials are quarantined on the client.
+        return '';
     }
     
     /**
@@ -102,85 +90,22 @@ class BizCity_Video_Kling_OpenAI_TTS {
         
         // Validate
         if ( empty( $text ) ) {
-            return array( 'success' => false, 'error' => 'Text is required' );
+            return class_exists( 'BizCity_Error_Payload' )
+                ? BizCity_Error_Payload::make( 'invalid_param', 'Thiếu nội dung cần đọc thành tiếng.', 'Nhập nội dung rồi thử lại.', 'invalid_param_generic' )
+                : array( 'success' => false, 'code' => 'invalid_param', 'message' => 'Thiếu nội dung cần đọc thành tiếng.', 'hint' => 'Nhập nội dung rồi thử lại.', 'help_code' => 'invalid_param_generic' );
         }
         
-        $api_key = self::get_api_key();
-        if ( empty( $api_key ) ) {
-            return array( 'success' => false, 'error' => 'OpenAI API key not configured (twf_openai_api_key)' );
-        }
+        // [2026-08-10 Johnny Chu] PHASE-1.24-VIDEO-KLING — fail closed until a managed TTS capability is approved.
+        return class_exists( 'BizCity_Error_Payload' )
+            ? BizCity_Error_Payload::make( 'unsupported_operation', 'TTS video chưa được kết nối qua BizCity Gateway.', 'Tắt TTS hoặc chờ capability TTS được bật trên Gateway.', 'video_tts_unavailable' )
+            : array(
+                'success'   => false,
+                'code'      => 'unsupported_operation',
+                'message'   => 'TTS video chưa được kết nối qua BizCity Gateway.',
+                'hint'      => 'Tắt TTS hoặc chờ capability TTS được bật trên Gateway.',
+                'help_code' => 'video_tts_unavailable',
+            );
         
-        // Validate voice
-        if ( ! array_key_exists( $opts['voice'], self::VOICES ) ) {
-            $opts['voice'] = 'nova';
-        }
-        
-        // Validate speed
-        $opts['speed'] = max( 0.25, min( 4.0, (float) $opts['speed'] ) );
-        
-        // Build request body
-        $body = array(
-            'model'           => $opts['model'],
-            'input'           => $text,
-            'voice'           => $opts['voice'],
-            'speed'           => $opts['speed'],
-            'response_format' => $opts['response_format'],
-        );
-        
-        // Log request
-        self::log( 'TTS request', array(
-            'text_length' => strlen( $text ),
-            'voice'       => $opts['voice'],
-            'model'       => $opts['model'],
-        ) );
-        
-        // Call API
-        $response = wp_remote_post( self::API_ENDPOINT, array(
-            'headers' => array(
-                'Authorization' => 'Bearer ' . $api_key,
-                'Content-Type'  => 'application/json',
-            ),
-            'body'    => wp_json_encode( $body ),
-            'timeout' => 120, // TTS can take time for long text
-        ) );
-        
-        if ( is_wp_error( $response ) ) {
-            self::log( 'TTS API error', array( 'error' => $response->get_error_message() ) );
-            return array( 'success' => false, 'error' => $response->get_error_message() );
-        }
-        
-        $code = wp_remote_retrieve_response_code( $response );
-        $audio_content = wp_remote_retrieve_body( $response );
-        
-        // Check for error response (JSON)
-        if ( $code !== 200 ) {
-            $error_data = json_decode( $audio_content, true );
-            $error_msg = $error_data['error']['message'] ?? "HTTP $code error";
-            self::log( 'TTS API error', array( 'code' => $code, 'error' => $error_msg ) );
-            return array( 'success' => false, 'error' => $error_msg );
-        }
-        
-        // Validate audio content
-        if ( empty( $audio_content ) || strlen( $audio_content ) < 100 ) {
-            return array( 'success' => false, 'error' => 'Empty or invalid audio response' );
-        }
-        
-        self::log( 'TTS success', array( 'audio_size' => strlen( $audio_content ) ) );
-        
-        $result = array(
-            'success'       => true,
-            'audio_content' => $audio_content,
-            'size'          => strlen( $audio_content ),
-            'format'        => $opts['response_format'],
-        );
-        
-        // Save to file if path provided
-        if ( ! empty( $opts['save_path'] ) ) {
-            $save_result = self::save_audio( $audio_content, $opts['save_path'] );
-            $result = array_merge( $result, $save_result );
-        }
-        
-        return $result;
     }
     
     /**

@@ -26,6 +26,10 @@ class BizCity_CRM_Admin_Menu {
 	}
 
 	public function register(): void {
+		if ( class_exists( 'BizCity_Admin_Menu', false ) ) {
+			return;
+		}
+		// [2026-08-11 Johnny Chu] PHASE-1.26 — bundled CRM is owned by the unified Workspace registry.
 		add_menu_page(
 			'BizCity CRM',
 			'BizCity CRM',
@@ -39,6 +43,8 @@ class BizCity_CRM_Admin_Menu {
 		add_submenu_page( self::SLUG, 'Channels', 'Channels', 'manage_options', self::SLUG . '-channels', array( $this, 'render_channels_page' ) );
 		add_submenu_page( self::SLUG, 'Add Inbox', 'Add Inbox', 'manage_options', self::SLUG . '-add-inbox', array( $this, 'render_add_inbox_wizard' ) );
 		add_submenu_page( self::SLUG, 'Settings', 'Settings', 'manage_options', self::SLUG . '-settings', array( $this, 'render_settings_page' ) );
+		// [2026-08-11 Johnny Chu] PHASE-CRM-CONTACTS-UNIFY-V2 — identity conflict review and maintenance backfill page.
+		add_submenu_page( self::SLUG, 'Identity Queue', 'Identity Queue', 'bizcity_crm_manage_rules', self::SLUG . '-identity-queue', array( $this, 'render_identity_queue_page' ) );
 	}
 
 	public function enqueue( $hook ): void {
@@ -198,6 +204,68 @@ class BizCity_CRM_Admin_Menu {
 			echo '</tbody></table>';
 		}
 		echo '</div>';
+	}
+
+	public function render_identity_queue_page(): void {
+		$rest_root = esc_url_raw( rest_url( BIZCITY_CRM_REST_NS . '/' ) );
+		$nonce = wp_create_nonce( 'wp_rest' );
+		?>
+		<div class="wrap">
+			<h1><?php esc_html_e( 'BizCity CRM — Identity Conflict Queue', 'bizcity-twin-crm' ); ?></h1>
+			<p class="description"><?php esc_html_e( 'Review identity conflicts without auto-merging Contacts. Backfill runs one bounded batch at a time.', 'bizcity-twin-crm' ); ?></p>
+			<div id="bizcity-crm-identity-queue" data-rest="<?php echo esc_attr( $rest_root ); ?>" data-nonce="<?php echo esc_attr( $nonce ); ?>">
+				<p><?php esc_html_e( 'Loading queue…', 'bizcity-twin-crm' ); ?></p>
+			</div>
+		</div>
+		<style>
+			#bizcity-crm-identity-queue .bci-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:16px 0}
+			#bizcity-crm-identity-queue .bci-card{background:#fff;border:1px solid #ccd0d4;padding:14px;margin:12px 0}
+			#bizcity-crm-identity-queue .bci-muted{color:#646970}
+			#bizcity-crm-identity-queue .bci-error{border-left:4px solid #d63638;padding:10px;background:#fcf0f1}
+			#bizcity-crm-identity-queue table{margin-top:12px}
+			#bizcity-crm-identity-queue code{font-size:11px}
+		</style>
+		<script>
+		(function(){
+			var root=document.getElementById('bizcity-crm-identity-queue'); if(!root)return;
+			var rest=root.dataset.rest, nonce=root.dataset.nonce;
+			function api(path, method, body){
+				return fetch(rest+path.replace(/^\//,''),{method:method||'GET',credentials:'same-origin',headers:{'Content-Type':'application/json','X-WP-Nonce':nonce},body:body?JSON.stringify(body):undefined}).then(function(r){return r.json();});
+			}
+			function esc(value){var el=document.createElement('span');el.textContent=value==null?'':String(value);return el.innerHTML;}
+			function message(text, cls){return '<p class="'+(cls||'bci-muted')+'">'+esc(text)+'</p>';}
+			var state={page:1,perPage:25,status:'',source:'',reason:'',search:''};
+			function query(){var p=new URLSearchParams({page:state.page,per_page:state.perPage});if(state.status)p.set('status',state.status);if(state.source)p.set('source_type',state.source);if(state.reason)p.set('reason',state.reason);if(state.search)p.set('search',state.search);return '/identity-conflicts?'+p.toString();}
+			function load(){
+				root.innerHTML=message('Loading…');
+				Promise.all([api(query()),api('/identity-backfill/status')]).then(function(res){
+					var q=res[0], b=res[1]; if(q.code||b.code){root.innerHTML=message((q.message||b.message||'Request failed'), 'bci-error');return;}
+					var payload=q.data||q, rows=payload.items||[], cp=((b.data||b).checkpoints)||{};
+					var html='<div class="bci-toolbar"><button class="button button-primary" data-action="claim">Claim next</button><button class="button" data-action="refresh">Refresh</button><span class="bci-muted">Showing '+rows.length+' of '+esc(payload.total||0)+' · page '+esc(payload.page||1)+'/'+esc(payload.total_pages||0)+'</span></div>';
+					html+='<div class="bci-card"><h2>Filters</h2><div class="bci-toolbar"><select id="bci-status"><option value="">All statuses</option><option value="open">Open</option><option value="claimed">Claimed</option><option value="resolved">Resolved</option><option value="rejected">Rejected</option><option value="ignored">Ignored</option></select><input id="bci-source" type="text" placeholder="Source: woo_user" /><input id="bci-reason" type="text" placeholder="Reason code" /><input id="bci-search" type="search" placeholder="ID / source ID / user ID" /><select id="bci-per-page"><option value="25">25</option><option value="50">50</option><option value="100">100</option></select><button class="button" data-action="filter">Apply filters</button></div></div>';
+					html+='<div class="bci-card"><h2>Historical backfill</h2><p class="bci-muted">Checkpoints: user_points='+esc(cp.user_points||0)+' · exchange='+esc(cp.user_points_exchange||0)+' · Woo page='+esc(cp.woo_orders||1)+'</p><div class="bci-toolbar"><select id="bci-kind"><option value="user_points">User points credit</option><option value="user_points_exchange">User points debit</option><option value="woo_orders">Woo orders</option></select><input id="bci-batch" type="number" min="10" max="500" value="100" /><label><input id="bci-dry" type="checkbox" checked /> Dry run</label><button class="button" data-action="backfill">Run one batch</button><button class="button" data-action="fixtures">Run V2 safety fixtures</button></div><div id="bci-result"></div></div>';
+					if(!rows.length){html+=message('No open identity conflicts.');}else{html+='<table class="widefat striped"><thead><tr><th>ID</th><th>Source</th><th>Reason</th><th>Candidates</th><th>Status</th><th>Retry</th><th>Action</th></tr></thead><tbody>';
+						rows.forEach(function(row){html+='<tr><td>'+esc(row.id)+'</td><td>'+esc(row.source_type)+' #'+esc(row.source_id)+'</td><td><code>'+esc(row.reason_code)+'</code></td><td>'+esc((row.contact_ids||[]).join(', '))+'</td><td>'+esc(row.status)+'</td><td>'+esc(row.retry_count||0)+'</td><td><button class="button-link" data-detail="'+esc(row.id)+'">History</button> '+(row.contact_ids||[]).map(function(cid){return '<button class="button-link" data-resolve="'+esc(row.id)+'" data-contact="'+esc(cid)+'">Resolve '+esc(cid)+'</button>';}).join(' ')+' <button class="button-link" data-reject="'+esc(row.id)+'">Reject</button> <button class="button-link" data-retry="'+esc(row.id)+'">Retry</button></td></tr>';});
+						html+='</tbody></table><div class="bci-toolbar"><button class="button" data-page="prev">Previous</button><button class="button" data-page="next">Next</button></div><div id="bci-history"></div>';}
+					root.innerHTML=html;
+					root.querySelector('#bci-status').value=state.status;root.querySelector('#bci-source').value=state.source;root.querySelector('#bci-reason').value=state.reason;root.querySelector('#bci-search').value=state.search;root.querySelector('#bci-per-page').value=String(state.perPage);
+					root.querySelectorAll('[data-action="refresh"]').forEach(function(el){el.onclick=load;});
+					root.querySelectorAll('[data-action="filter"]').forEach(function(el){el.onclick=function(){state.page=1;state.status=root.querySelector('#bci-status').value;state.source=root.querySelector('#bci-source').value.trim();state.reason=root.querySelector('#bci-reason').value.trim();state.search=root.querySelector('#bci-search').value.trim();state.perPage=Number(root.querySelector('#bci-per-page').value);load();};});
+					root.querySelectorAll('[data-page="prev"]').forEach(function(el){el.onclick=function(){if(state.page>1){state.page--;load();}};});
+					root.querySelectorAll('[data-page="next"]').forEach(function(el){el.onclick=function(){if(state.page<(payload.total_pages||1)){state.page++;load();}};});
+					root.querySelectorAll('[data-action="claim"]').forEach(function(el){el.onclick=function(){api('/identity-conflicts/claim','POST',{}).then(load);};});
+					root.querySelectorAll('[data-detail]').forEach(function(el){el.onclick=function(){api('/identity-conflicts/'+el.dataset.detail).then(function(data){var item=data.data||data, box=root.querySelector('#bci-history');box.innerHTML='<div class="bci-card"><h3>Conflict #'+esc(item.id)+' audit history</h3>'+(item.audit_history||[]).map(function(a){return '<p><strong>'+esc(a.event_type)+'</strong> · '+esc(a.from_status||'')+' → '+esc(a.to_status||'')+' · actor '+esc(a.actor_user_id||0)+' · '+esc(a.created_at)+'<br><span class="bci-muted">'+esc(a.reason||'')+'</span></p>';}).join('')+'</div>';});};});
+					root.querySelectorAll('[data-resolve]').forEach(function(el){el.onclick=function(){var reason=window.prompt('Resolution reason','verified_contact');if(!reason)return;api('/identity-conflicts/'+el.dataset.resolve+'/resolve','POST',{contact_id:Number(el.dataset.contact),resolution_reason:reason}).then(load);};});
+					root.querySelectorAll('[data-reject]').forEach(function(el){el.onclick=function(){var reason=window.prompt('Reject reason','not_same_person');if(!reason)return;api('/identity-conflicts/'+el.dataset.reject+'/reject','POST',{resolution_reason:reason}).then(load);};});
+					root.querySelectorAll('[data-retry]').forEach(function(el){el.onclick=function(){api('/identity-conflicts/'+el.dataset.retry+'/retry','POST',{error:'manual_retry'}).then(load);};});
+					var backfill=root.querySelector('[data-action="backfill"]'); if(backfill)backfill.onclick=function(){var result=root.querySelector('#bci-result');result.innerHTML=message('Running one bounded batch…');api('/identity-backfill/run','POST',{kind:root.querySelector('#bci-kind').value,batch:Number(root.querySelector('#bci-batch').value||100),dry_run:root.querySelector('#bci-dry').checked,reset:false}).then(function(data){var payload=data.data||data;result.innerHTML='<pre>'+esc(JSON.stringify(payload,null,2))+'</pre>';});};
+					var fixtures=root.querySelector('[data-action="fixtures"]'); if(fixtures)fixtures.onclick=function(){var result=root.querySelector('#bci-result');if(!window.confirm('Fixtures run inside transactions and rollback. Continue?'))return;result.innerHTML=message('Running V2 fixtures…');api('/identity-fixtures/run','POST',{confirm:'V2'}).then(function(data){var payload=data.data||data;result.innerHTML='<pre>'+esc(JSON.stringify(payload,null,2))+'</pre>';});};
+				}).catch(function(error){root.innerHTML=message(error.message||'Request failed','bci-error');});
+			}
+			load();
+		})();
+		</script>
+		<?php
 	}
 
 	/**

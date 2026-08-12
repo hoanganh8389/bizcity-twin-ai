@@ -1423,7 +1423,7 @@ class BizCity_TwinBrain_Runtime {
 		);
 
 		// [2026-07-15 Johnny Chu] PHASE-TWB-PRODUCTS - include products in Stage 2.5 web dispatch list.
-		if ( $web_mode === 'quick' || $web_mode === 'deep' || $web_mode === 'social' || $web_mode === 'company' || $web_mode === 'med' || $web_mode === 'scholar' || $web_mode === 'nutri' || $web_mode === 'law' || $web_mode === 'tax' || $web_mode === 'gov' || $web_mode === 'products' ) {
+		if ( $web_mode === 'quick' || $web_mode === 'deep' || $web_mode === 'social' || $web_mode === 'company' || $web_mode === 'med' || $web_mode === 'scholar' || $web_mode === 'nutri' || $web_mode === 'law' || $web_mode === 'tax' || $web_mode === 'gov' || $web_mode === 'products' || $web_mode === 'woo_bizops' ) {
 			$web_row = $this->dispatch_web_research( $trace_id, $prompt_for_reasoning, $web_mode, $sse, $opts );
 			if ( ! empty( $web_row ) ) {
 				// Append as an extra perspective row so synthesizer sees it
@@ -1977,6 +1977,9 @@ class BizCity_TwinBrain_Runtime {
 					'named_evidence_count' => (int) ( $final['named_evidence_count'] ?? 0 ),
 					'product_entity_count' => (int) ( $final['product_entity_count'] ?? $opts['product_entity_count'] ?? 0 ),
 					'product_name_entity_count' => (int) ( $final['product_name_entity_count'] ?? $opts['product_name_entity_count'] ?? 0 ),
+					// [2026-08-10 Johnny Chu] GOAL-FOLLOWUP-1 — persist continuity question metadata for session replay.
+					'followup_gate' => (string) ( $final['followup_gate'] ?? 'not_required' ),
+					'followup_contract' => (array) ( $final['followup_contract'] ?? array() ),
 				],
 			],
 			// [2026-06-04 Johnny Chu] BS-12 — persist full turn result_snapshot
@@ -2028,6 +2031,8 @@ class BizCity_TwinBrain_Runtime {
 					'named_evidence_count' => (int) ( $final['named_evidence_count'] ?? 0 ),
 					'product_entity_count' => (int) ( $final['product_entity_count'] ?? $opts['product_entity_count'] ?? 0 ),
 					'product_name_entity_count' => (int) ( $final['product_name_entity_count'] ?? $opts['product_name_entity_count'] ?? 0 ),
+					'followup_gate' => (string) ( $final['followup_gate'] ?? 'not_required' ),
+					'followup_contract' => (array) ( $final['followup_contract'] ?? array() ),
 				),
 				'web_research'    => $web_row,
 				'tool_dispatch'   => $tool_done_payload,
@@ -3812,6 +3817,8 @@ class BizCity_TwinBrain_Runtime {
 					'chunks'   => $final_seq,
 					'fallback' => (string) ( $final['fallback'] ?? '' ),
 					'success'  => ! empty( $final['success'] ),
+					'followup_gate' => (string) ( $final['followup_gate'] ?? 'not_required' ),
+					'followup_contract' => (array) ( $final['followup_contract'] ?? array() ),
 				],
 			],
 			// [2026-06-04 Johnny Chu] BS-12 — astro turn replay snapshot.
@@ -6497,6 +6504,8 @@ class BizCity_TwinBrain_Runtime {
 						'ms'        => $final_ms,
 						'fallback'  => (string) ( $final['fallback'] ?? '' ),
 						'success'   => ! empty( $final['success'] ),
+						'followup_gate' => (string) ( $final['followup_gate'] ?? 'not_required' ),
+						'followup_contract' => (array) ( $final['followup_contract'] ?? array() ),
 					),
 					'duration_ms' => (int) ( ( microtime( true ) - $wall_t0 ) * 1000 ),
 				) ),
@@ -6555,6 +6564,10 @@ class BizCity_TwinBrain_Runtime {
 			'product_needs_decomposed',
 			'product_react_step',
 			'product_synthesize_done',
+			'woo_bizops_domain_gate',
+			'woo_bizops_intent_detected',
+			'woo_bizops_query_executed',
+			'woo_bizops_composed',
 		];
 		$web_events_lookup = array_flip( $web_events );
 
@@ -6570,6 +6583,14 @@ class BizCity_TwinBrain_Runtime {
 			$sse->maybe_heartbeat();
 		};
 		add_action( 'bizcity_twin_event', $bridge, 10, 2 );
+		// [2026-08-11 Johnny Chu] PHASE-TWB-WOO-BIZOPS — bridge canonical TwinCore v2 envelopes to the live MPR SSE timeline.
+		$bridge_v2 = static function ( $event ) use ( $bridge ) {
+			if ( ! is_array( $event ) ) { return; }
+			$event_key = (string) ( $event['event_type'] ?? '' );
+			$payload   = isset( $event['payload'] ) && is_array( $event['payload'] ) ? $event['payload'] : $event;
+			$bridge( $event_key, $payload );
+		};
+		add_action( 'bizcity_twin_event_v2', $bridge_v2, 10, 1 );
 
 		$row = [];
 		try {
@@ -6708,6 +6729,16 @@ class BizCity_TwinBrain_Runtime {
 						'source_marker'    => (string) ( $opts['source_marker'] ?? 'twinbrain_chat' ),
 					] );
 				}
+			} elseif ( $mode === 'woo_bizops' ) {
+				if ( ! class_exists( 'BizCity_TwinBrain_Web_Woo_Bizops' ) ) {
+					$sse->emit( 'web_research_error', array( 'trace_id' => $trace_id, 'mode' => 'woo_bizops', 'error' => 'engine_missing' ) );
+				} else {
+					// [2026-08-11 Johnny Chu] PHASE-TWB-WOO-BIZOPS — admin capability is rechecked inside the resolver for every turn.
+					$row = BizCity_TwinBrain_Web_Woo_Bizops::instance()->run( $trace_id, $prompt, array(
+						'user_id' => (int) ( $opts['user_id'] ?? 0 ),
+						'surface' => (string) ( $opts['surface'] ?? 'twinchat' ),
+					) );
+				}
 			}
 		} catch ( \Throwable $e ) {
 			$sse->emit( 'web_research_error', [
@@ -6717,6 +6748,7 @@ class BizCity_TwinBrain_Runtime {
 			] );
 		} finally {
 			remove_action( 'bizcity_twin_event', $bridge, 10 );
+			remove_action( 'bizcity_twin_event_v2', $bridge_v2, 10 );
 		}
 
 		return is_array( $row ) ? $row : [];

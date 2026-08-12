@@ -196,33 +196,8 @@ if ( ! function_exists( 'handle_messenger_image' ) ) {
 		$reply_text = 'Dạ. Bạn vừa gửi 1 hình ảnh. ';
 		fb_messenger_reply( $page_id, $client_id, 'AI: ' . $reply_text );
 
-		// Process with GPT Vision if available
-		$api_key = get_option( 'twf_openai_api_key' );
-
-		if ( function_exists( 'send_chatbot_chatgpt_upload_files' ) && function_exists( 'chatbot_chatgpt_custom_gpt_call_api' ) && ! empty( $api_key ) ) {
-			$facebook_access_token = esc_attr( get_option( 'twf_facebook_access_token', '' ) );
-			$facebook_page_id      = esc_attr( get_option( 'twf_facebook_page_id', '' ) );
-
-			$img_response = send_chatbot_chatgpt_upload_files( $img_url, $api_key, $facebook_page_id, $facebook_access_token );
-			$file_id      = $img_response['id'] ?? '';
-			$file_type    = 'vision';
-			$file_ids     = array();
-			$file_ids[]   = $file_id;
-			$file_ids[ $file_id ] = $file_type;
-
-			$assistant_id   = 'asst_O85cidOL5HdRvUaSOETinlEE';
-			$message        = 'Ảnh gì đây: ' . $file_id;
-			$client_context = '';
-			$thread_id      = '';
-			$session_id     = '';
-			$user_id        = 0;
-
-			$response = chatbot_chatgpt_custom_gpt_call_api( $api_key, $client_context . $message, $assistant_id, $thread_id, $session_id, $user_id, $page_id, $file_ids );
-
-			if ( ! empty( $response ) ) {
-				fb_messenger_reply( $page_id, $client_id, 'AI: ' . $response );
-			}
-		}
+		// [2026-08-09 Johnny Chu] R-GW-8 — legacy image helper keeps only the
+		// acknowledgment; canonical UCL/CRM owns image understanding and reply.
 	}
 }
 
@@ -388,7 +363,6 @@ if ( ! function_exists( 'bizgpt_replace_placeholders' ) ) {
  */
 if ( ! function_exists( 'bizgpt_router_comment_flow' ) ) {
 	function bizgpt_router_comment_flow( $message_text, $post_caption, $page_id, $client_id = '', $from_name = '' ) {
-		$api_key      = get_option( 'twf_openai_api_key' );
 		$router       = bizgpt_parse_comment_flow( $message_text );
 		$placeholders = array(
 			'customer_name' => $from_name ?: 'bạn',
@@ -429,8 +403,13 @@ if ( ! function_exists( 'bizgpt_router_comment_flow' ) ) {
 
 			default:
 				$reply = '';
-				if ( function_exists( 'chatbot_chatgpt_simple_prompt_for_comment' ) ) {
-					$reply = chatbot_chatgpt_simple_prompt_for_comment( $api_key, $prompt );
+				// [2026-08-09 Johnny Chu] R-1API-AUTH — use the canonical client for comment fallback replies.
+				if ( class_exists( 'BizCity_LLM_Client' ) && BizCity_LLM_Client::instance()->is_ready() ) {
+					$response = BizCity_LLM_Client::instance()->chat(
+						array( array( 'role' => 'user', 'content' => $prompt ) ),
+						array( 'purpose' => 'comment_reply', 'temperature' => 0.4, 'max_tokens' => 300 )
+					);
+					$reply = (string) ( $response['message'] ?? '' );
 				}
 				break;
 		}

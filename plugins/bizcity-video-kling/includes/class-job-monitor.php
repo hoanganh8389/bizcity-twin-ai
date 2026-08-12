@@ -26,6 +26,22 @@ class BizCity_Video_Kling_Job_Monitor {
         add_action( 'wp_ajax_bizcity_kling_resume_job', array( __CLASS__, 'ajax_resume_job' ) );
         add_action( 'wp_ajax_bizcity_kling_check_ffmpeg', array( __CLASS__, 'ajax_check_ffmpeg' ) );
     }
+
+    private static function send_error( $code, $message, $hint, $help_code, $status = 400, $context = array() ) {
+        // [2026-08-10 Johnny Chu] PHASE-1.24-VIDEO-KLING — centralize Job Monitor AJAX error envelopes.
+        $payload = class_exists( 'BizCity_Error_Payload' )
+            ? BizCity_Error_Payload::make( $code, $message, $hint, $help_code, $context )
+            : array(
+                'success'   => false,
+                '_degraded' => true,
+                'code'      => (string) $code,
+                'message'   => (string) $message,
+                'hint'      => (string) $hint,
+                'help_code' => (string) $help_code,
+                'context'   => (array) $context,
+            );
+        wp_send_json_error( $payload, (int) $status );
+    }
     
     /**
      * Add log entry
@@ -99,14 +115,14 @@ class BizCity_Video_Kling_Job_Monitor {
         $since_timestamp = intval( $_POST['since_timestamp'] ?? 0 );
         
         if ( ! $job_id ) {
-            wp_send_json_error( array( 'message' => __( 'Invalid job ID', 'bizcity-video-kling' ) ) );
+            self::send_error( 'invalid_param', __( 'Mã job không hợp lệ.', 'bizcity-video-kling' ), 'Kiểm tra mã job rồi thử lại.', 'invalid_param_generic' );
             return;
         }
         
         $job = BizCity_Video_Kling_Database::get_job( $job_id );
         
         if ( ! $job ) {
-            wp_send_json_error( array( 'message' => __( 'Job not found', 'bizcity-video-kling' ) ) );
+            self::send_error( 'not_found', __( 'Không tìm thấy job video.', 'bizcity-video-kling' ), 'Chọn lại job rồi thử lại.', 'not_found', 404 );
             return;
         }
         
@@ -138,14 +154,14 @@ class BizCity_Video_Kling_Job_Monitor {
         $job_id = intval( $_POST['job_id'] ?? 0 );
         
         if ( ! $job_id ) {
-            wp_send_json_error( array( 'message' => __( 'Invalid job ID', 'bizcity-video-kling' ) ) );
+            self::send_error( 'invalid_param', __( 'Mã job không hợp lệ.', 'bizcity-video-kling' ), 'Kiểm tra mã job rồi thử lại.', 'invalid_param_generic' );
             return;
         }
         
         $job = BizCity_Video_Kling_Database::get_job( $job_id );
         
         if ( ! $job ) {
-            wp_send_json_error( array( 'message' => __( 'Job not found', 'bizcity-video-kling' ) ) );
+            self::send_error( 'not_found', __( 'Không tìm thấy job video.', 'bizcity-video-kling' ), 'Chọn lại job rồi thử lại.', 'not_found', 404 );
             return;
         }
         
@@ -165,34 +181,21 @@ class BizCity_Video_Kling_Job_Monitor {
         
         if ( empty( $job->task_id ) ) {
             self::add_log( $job_id, 'Missing task_id', 'error' );
-            wp_send_json_error( array( 'message' => __( 'Missing task_id', 'bizcity-video-kling' ) ) );
+            self::send_error( 'invalid_param', __( 'Job chưa có mã tác vụ.', 'bizcity-video-kling' ), 'Đợi job được tạo tác vụ rồi thử lại.', 'invalid_param_generic' );
             return;
         }
         
         // Log start
         self::add_log( $job_id, sprintf( 'Checking status for task_id=%s', $job->task_id ), 'info' );
         
-        // Get API settings
-        $api_key = get_option( 'bizcity_video_kling_api_key', '' );
-        $endpoint = get_option( 'bizcity_video_kling_endpoint', 'https://api.piapi.ai/api/v1' );
-        
-        if ( empty( $api_key ) ) {
-            self::add_log( $job_id, 'API key not configured', 'error' );
-            wp_send_json_error( array( 'message' => __( 'API key not configured', 'bizcity-video-kling' ) ) );
-            return;
-        }
-        
-        // Call API to get task status
-        $settings = array(
-            'api_key' => $api_key,
-            'endpoint' => $endpoint,
-        );
+        // [2026-08-10 Johnny Chu] PHASE-1.24-VIDEO-KLING — polling resolves credentials inside BizCity_Video_Client.
+        $settings = array( 'timeout' => 60 );
         
         $result = waic_kling_get_task( $settings, $job->task_id );
         
         if ( ! $result['ok'] ) {
             self::add_log( $job_id, sprintf( 'API error: %s', $result['error'] ?? 'Unknown' ), 'error' );
-            wp_send_json_error( array( 'message' => $result['error'] ?? __( 'API error', 'bizcity-video-kling' ) ) );
+            wp_send_json_error( BizCity_Error_Payload::make( (string) ( $result['code'] ?? 'gateway_degraded' ), 'Không thể kiểm tra tác vụ video.', 'Thử lại sau vài phút.', 'gateway_degraded' ) );
             return;
         }
         
@@ -362,13 +365,7 @@ class BizCity_Video_Kling_Job_Monitor {
      * @return array Result
      */
     private static function create_new_segment_job( $parent_job, $segment_index ) {
-        // Get API settings
-        $api_key = get_option( 'bizcity_video_kling_api_key', '' );
-        $endpoint = get_option( 'bizcity_video_kling_endpoint', 'https://api.piapi.ai/api/v1' );
-        
-        if ( empty( $api_key ) ) {
-            return array( 'success' => false, 'message' => 'API key not configured' );
-        }
+        // [2026-08-10 Johnny Chu] PHASE-1.24-VIDEO-KLING — segment submission uses managed gateway credentials.
         
         $total_segments = (int) $parent_job->total_segments;
         $is_final = ( $segment_index >= $total_segments );
@@ -436,8 +433,6 @@ class BizCity_Video_Kling_Job_Monitor {
         
         // Prepare API settings for NEW video generation (not extend)
         $settings = array(
-            'api_key' => $api_key,
-            'endpoint' => $endpoint,
             'model' => $parent_job->model,
         );
         
@@ -525,14 +520,14 @@ class BizCity_Video_Kling_Job_Monitor {
         $job_id = intval( $_POST['job_id'] ?? 0 );
         
         if ( ! $job_id ) {
-            wp_send_json_error( array( 'message' => __( 'Invalid job ID', 'bizcity-video-kling' ) ) );
+            self::send_error( 'invalid_param', __( 'Mã job không hợp lệ.', 'bizcity-video-kling' ), 'Kiểm tra mã job rồi thử lại.', 'invalid_param_generic' );
             return;
         }
         
         $job = BizCity_Video_Kling_Database::get_job( $job_id );
         
         if ( ! $job ) {
-            wp_send_json_error( array( 'message' => __( 'Job not found', 'bizcity-video-kling' ) ) );
+            self::send_error( 'not_found', __( 'Không tìm thấy job video.', 'bizcity-video-kling' ), 'Chọn lại job rồi thử lại.', 'not_found', 404 );
             return;
         }
         
@@ -551,13 +546,8 @@ class BizCity_Video_Kling_Job_Monitor {
         if ( empty( $job->video_url ) && ! empty( $job->task_id ) ) {
             self::add_log( $job_id, 'No video URL in database, querying API...', 'info' );
             
-            $api_key = get_option( 'bizcity_video_kling_api_key', '' );
-            $endpoint = get_option( 'bizcity_video_kling_endpoint', 'https://api.piapi.ai/api/v1' );
-            
-            $settings = array(
-                'api_key' => $api_key,
-                'endpoint' => $endpoint,
-            );
+            // [2026-08-10 Johnny Chu] PHASE-1.24-VIDEO-KLING — media fetch polling uses the managed client adapter.
+            $settings = array( 'timeout' => 60 );
             
             $result = waic_kling_get_task( $settings, $job->task_id );
             
@@ -580,7 +570,7 @@ class BizCity_Video_Kling_Job_Monitor {
             $notify_msg .= "📋 Danh sách kịch bản:\n" . $urls['list'];
             self::notify_zalo_admins_video_status( $job, $notify_msg );
 
-            wp_send_json_error( array( 'message' => __( 'No video URL available', 'bizcity-video-kling' ), 'still_processing' => true ) );
+            self::send_error( 'gateway_degraded', __( 'Video chưa có URL kết quả.', 'bizcity-video-kling' ), 'Đợi tác vụ hoàn tất rồi kiểm tra lại.', 'retry_later', 409, array( 'still_processing' => true ) );
             return;
         }
         
@@ -591,7 +581,7 @@ class BizCity_Video_Kling_Job_Monitor {
         
         if ( ! $result['success'] ) {
             self::add_log( $job_id, sprintf( 'Upload failed: %s', $result['message'] ), 'error' );
-            wp_send_json_error( array( 'message' => $result['message'] ) );
+            self::send_error( 'automation_run_failed', 'Không thể tải video vào thư viện media.', 'Kiểm tra trạng thái tác vụ rồi thử lại.', 'gateway_degraded', 502 );
             return;
         }
         
@@ -627,7 +617,7 @@ class BizCity_Video_Kling_Job_Monitor {
         $chain_id = sanitize_text_field( $_POST['chain_id'] ?? '' );
         
         if ( empty( $chain_id ) ) {
-            wp_send_json_error( array( 'message' => __( 'Invalid chain ID', 'bizcity-video-kling' ) ) );
+            self::send_error( 'invalid_param', __( 'Mã chain không hợp lệ.', 'bizcity-video-kling' ), 'Kiểm tra mã chain rồi thử lại.', 'invalid_param_generic' );
             return;
         }
         
@@ -635,14 +625,13 @@ class BizCity_Video_Kling_Job_Monitor {
         $jobs = BizCity_Video_Kling_Database::get_jobs_by_chain( $chain_id );
         
         if ( empty( $jobs ) ) {
-            wp_send_json_error( array( 'message' => __( 'No jobs found for this chain', 'bizcity-video-kling' ) ) );
+            self::send_error( 'not_found', __( 'Không tìm thấy job trong chain.', 'bizcity-video-kling' ), 'Chọn lại chain rồi thử lại.', 'not_found', 404 );
             return;
         }
         
         $results = array();
-        $api_key = get_option( 'bizcity_video_kling_api_key', '' );
-        $endpoint = get_option( 'bizcity_video_kling_endpoint', 'https://api.piapi.ai/api/v1' );
-        $settings = array( 'api_key' => $api_key, 'endpoint' => $endpoint );
+        // [2026-08-10 Johnny Chu] PHASE-1.24-VIDEO-KLING — chain status uses the managed client adapter.
+        $settings = array( 'timeout' => 60 );
         
         foreach ( $jobs as $job ) {
             // Skip if already has attachment
@@ -766,7 +755,7 @@ class BizCity_Video_Kling_Job_Monitor {
         $ffmpeg_preset = sanitize_text_field( $_POST['ffmpeg_preset'] ?? '' );
         
         if ( empty( $chain_id ) ) {
-            wp_send_json_error( array( 'message' => __( 'Invalid chain ID', 'bizcity-video-kling' ) ) );
+            self::send_error( 'invalid_param', __( 'Mã chain không hợp lệ.', 'bizcity-video-kling' ), 'Kiểm tra mã chain rồi thử lại.', 'invalid_param_generic' );
             return;
         }
         
@@ -774,7 +763,7 @@ class BizCity_Video_Kling_Job_Monitor {
         $jobs = BizCity_Video_Kling_Database::get_jobs_by_chain( $chain_id );
         
         if ( empty( $jobs ) ) {
-            wp_send_json_error( array( 'message' => __( 'No jobs found for this chain', 'bizcity-video-kling' ) ) );
+            self::send_error( 'not_found', __( 'Không tìm thấy job trong chain.', 'bizcity-video-kling' ), 'Chọn lại chain rồi thử lại.', 'not_found', 404 );
             return;
         }
         
@@ -800,14 +789,14 @@ class BizCity_Video_Kling_Job_Monitor {
         
         // Check FFmpeg availability
         if ( ! class_exists( 'BizCity_Video_Kling_FFmpeg_Presets' ) ) {
-            wp_send_json_error( array( 'message' => 'FFmpeg Presets class not available' ) );
+            self::send_error( 'module_not_loaded', 'Bộ xử lý video chưa sẵn sàng.', 'Kiểm tra module FFmpeg rồi thử lại.', 'module_not_loaded', 503 );
             return;
         }
         
         $ffmpeg_status = BizCity_Video_Kling_FFmpeg_Presets::check_availability();
         if ( ! $ffmpeg_status['available'] ) {
             self::add_log( $log_job_id, 'FFmpeg not available: ' . ( $ffmpeg_status['error'] ?? 'Unknown' ), 'error' );
-            wp_send_json_error( array( 'message' => 'FFmpeg not available' ) );
+            self::send_error( 'module_not_loaded', 'FFmpeg chưa sẵn sàng trên máy chủ.', 'Liên hệ quản trị viên để bật FFmpeg.', 'module_not_loaded', 503 );
             return;
         }
         
@@ -821,9 +810,8 @@ class BizCity_Video_Kling_Job_Monitor {
         }
         
         // Step 1: Download all segment videos
-        $api_key = get_option( 'bizcity_video_kling_api_key', '' );
-        $endpoint = get_option( 'bizcity_video_kling_endpoint', 'https://api.piapi.ai/api/v1' );
-        $settings = array( 'api_key' => $api_key, 'endpoint' => $endpoint );
+        // [2026-08-10 Johnny Chu] PHASE-1.24-VIDEO-KLING — chain media download polling uses the managed client adapter.
+        $settings = array( 'timeout' => 60 );
         
         $video_paths = array();
         $prompt_text = '';
@@ -938,7 +926,7 @@ class BizCity_Video_Kling_Job_Monitor {
         }
         
         if ( count( $video_paths ) < 1 ) {
-            wp_send_json_error( array( 'message' => 'No valid video segments to concat' ) );
+            self::send_error( 'automation_run_failed', 'Không có đoạn video hợp lệ để ghép.', 'Kiểm tra các segment rồi thử lại.', 'gateway_degraded', 422 );
             return;
         }
         
@@ -971,7 +959,7 @@ class BizCity_Video_Kling_Job_Monitor {
         
         if ( ! $concat_result['success'] || ! file_exists( $concat_output ) ) {
             self::add_log( $log_job_id, 'FFmpeg concat failed: ' . ( $concat_result['error'] ?? 'Unknown' ), 'error' );
-            wp_send_json_error( array( 'message' => 'FFmpeg concat failed: ' . ( $concat_result['error'] ?? 'Unknown' ) ) );
+            self::send_error( 'automation_run_failed', 'Không thể ghép các đoạn video.', 'Kiểm tra FFmpeg rồi thử lại.', 'gateway_degraded', 500 );
             return;
         }
         
@@ -1081,7 +1069,7 @@ class BizCity_Video_Kling_Job_Monitor {
         }
         
         if ( empty( $final_content ) ) {
-            wp_send_json_error( array( 'message' => 'Final video is empty' ) );
+            self::send_error( 'automation_run_failed', 'Video cuối bị rỗng.', 'Chạy lại tác vụ video rồi thử lại.', 'gateway_degraded', 500 );
             return;
         }
         
@@ -1092,7 +1080,7 @@ class BizCity_Video_Kling_Job_Monitor {
         
         if ( $upload['error'] ) {
             self::add_log( $log_job_id, 'Upload failed: ' . $upload['error'], 'error' );
-            wp_send_json_error( array( 'message' => $upload['error'] ) );
+            self::send_error( 'upload_rejected', 'Không thể lưu video vào thư viện media.', 'Kiểm tra dung lượng và quyền upload rồi thử lại.', 'gateway_degraded', 500 );
             return;
         }
         
@@ -1117,7 +1105,7 @@ class BizCity_Video_Kling_Job_Monitor {
         $attachment_id = wp_insert_attachment( $attachment, $upload['file'] );
         
         if ( is_wp_error( $attachment_id ) ) {
-            wp_send_json_error( array( 'message' => $attachment_id->get_error_message() ) );
+            self::send_error( 'upload_rejected', 'Không thể tạo media cho video.', 'Kiểm tra quyền media rồi thử lại.', 'gateway_degraded', 500 );
             return;
         }
         
@@ -1304,14 +1292,14 @@ class BizCity_Video_Kling_Job_Monitor {
         $custom_text = sanitize_textarea_field( $_POST['custom_text'] ?? '' );
         
         if ( ! $job_id ) {
-            wp_send_json_error( array( 'message' => __( 'Invalid job ID', 'bizcity-video-kling' ) ) );
+            self::send_error( 'invalid_param', __( 'Mã job không hợp lệ.', 'bizcity-video-kling' ), 'Kiểm tra mã job rồi thử lại.', 'invalid_param_generic' );
             return;
         }
         
         $job = BizCity_Video_Kling_Database::get_job( $job_id );
         
         if ( ! $job ) {
-            wp_send_json_error( array( 'message' => __( 'Job not found', 'bizcity-video-kling' ) ) );
+            self::send_error( 'not_found', __( 'Không tìm thấy job video.', 'bizcity-video-kling' ), 'Chọn lại job rồi thử lại.', 'not_found', 404 );
             return;
         }
         
@@ -1330,10 +1318,8 @@ class BizCity_Video_Kling_Job_Monitor {
         if ( empty( $job->video_url ) && ! empty( $job->task_id ) ) {
             self::add_log( $job_id, 'No video URL in database, querying API...', 'info' );
             
-            $api_key = get_option( 'bizcity_video_kling_api_key', '' );
-            $endpoint = get_option( 'bizcity_video_kling_endpoint', 'https://api.piapi.ai/api/v1' );
-            
-            $settings = array( 'api_key' => $api_key, 'endpoint' => $endpoint );
+            // [2026-08-10 Johnny Chu] PHASE-1.24-VIDEO-KLING — completed-job URL recovery uses the managed client adapter.
+            $settings = array( 'timeout' => 60 );
             $result = waic_kling_get_task( $settings, $job->task_id );
             
             if ( $result['ok'] ) {
@@ -1354,7 +1340,7 @@ class BizCity_Video_Kling_Job_Monitor {
             $notify_msg .= "📋 Danh sách kịch bản:\n" . $urls['list'];
             self::notify_zalo_admins_video_status( $job, $notify_msg );
 
-            wp_send_json_error( array( 'message' => __( 'No video URL available', 'bizcity-video-kling' ), 'still_processing' => true ) );
+            self::send_error( 'gateway_degraded', __( 'Video chưa có URL kết quả.', 'bizcity-video-kling' ), 'Đợi tác vụ hoàn tất rồi kiểm tra lại.', 'retry_later', 409, array( 'still_processing' => true ) );
             return;
         }
         
@@ -1370,7 +1356,7 @@ class BizCity_Video_Kling_Job_Monitor {
         
         if ( ! $result['success'] ) {
             self::add_log( $job_id, sprintf( 'Processing failed: %s', $result['message'] ), 'error' );
-            wp_send_json_error( array( 'message' => $result['message'] ) );
+            self::send_error( 'automation_run_failed', 'Không thể xử lý video và TTS.', 'Kiểm tra trạng thái tác vụ rồi thử lại.', 'gateway_degraded', 502 );
             return;
         }
         
@@ -1532,7 +1518,7 @@ class BizCity_Video_Kling_Job_Monitor {
         if ( $options['enable_tts'] && class_exists( 'BizCity_Video_Kling_OpenAI_TTS' ) ) {
             if ( ! BizCity_Video_Kling_Database::has_checkpoint( $job_id, 'tts_generated' ) ) {
                 if ( ! BizCity_Video_Kling_OpenAI_TTS::is_configured() ) {
-                    self::add_log( $job_id, 'TTS API key not configured (twf_openai_api_key), skipping TTS', 'warning' );
+                    self::add_log( $job_id, 'Managed TTS capability unavailable, skipping TTS', 'warning' );
                 } else {
                     // Use custom text or job prompt
                     $tts_text = ! empty( $options['custom_text'] ) ? $options['custom_text'] : $job->prompt;
@@ -1898,7 +1884,7 @@ class BizCity_Video_Kling_Job_Monitor {
         check_ajax_referer( 'bizcity_kling_nonce', 'nonce' );
         
         if ( ! class_exists( 'BizCity_Video_Kling_FFmpeg_Presets' ) ) {
-            wp_send_json_error( array( 'message' => 'FFmpeg Presets class not loaded' ) );
+            self::send_error( 'module_not_loaded', 'Bộ xử lý video chưa sẵn sàng.', 'Kiểm tra module FFmpeg rồi thử lại.', 'module_not_loaded', 503 );
             return;
         }
         
@@ -1921,11 +1907,7 @@ class BizCity_Video_Kling_Job_Monitor {
                     : false,
             ) );
         } else {
-            wp_send_json_error( array(
-                'available' => false,
-                'error' => $status['error'] ?? 'FFmpeg not found',
-                'path' => $status['path'],
-            ) );
+            self::send_error( 'module_not_loaded', 'FFmpeg chưa sẵn sàng trên máy chủ.', 'Liên hệ quản trị viên để bật FFmpeg.', 'module_not_loaded', 503 );
         }
     }
     
@@ -1955,33 +1937,22 @@ class BizCity_Video_Kling_Job_Monitor {
         $job_id = intval( $_POST['job_id'] ?? 0 );
         
         if ( ! $job_id ) {
-            wp_send_json_error( array( 'message' => __( 'Invalid job ID', 'bizcity-video-kling' ) ) );
+            self::send_error( 'invalid_param', __( 'Mã job không hợp lệ.', 'bizcity-video-kling' ), 'Kiểm tra mã job rồi thử lại.', 'invalid_param_generic' );
             return;
         }
         
         $job = BizCity_Video_Kling_Database::get_job( $job_id );
         
         if ( ! $job ) {
-            wp_send_json_error( array( 'message' => __( 'Job not found', 'bizcity-video-kling' ) ) );
+            self::send_error( 'not_found', __( 'Không tìm thấy job video.', 'bizcity-video-kling' ), 'Chọn lại job rồi thử lại.', 'not_found', 404 );
             return;
         }
         
         self::add_log( $job_id, 'Retrying job...', 'info' );
         self::clear_logs( $job_id );
         
-        // Get API settings
-        $api_key = get_option( 'bizcity_video_kling_api_key', '' );
-        $endpoint = get_option( 'bizcity_video_kling_endpoint', 'https://api.piapi.ai/api/v1' );
-        
-        if ( empty( $api_key ) ) {
-            wp_send_json_error( array( 'message' => __( 'API key not configured', 'bizcity-video-kling' ) ) );
-            return;
-        }
-        
-        // Create new task
+        // [2026-08-10 Johnny Chu] PHASE-1.24-VIDEO-KLING — retry creates a new task through the managed client.
         $settings = array(
-            'api_key' => $api_key,
-            'endpoint' => $endpoint,
             'model' => $job->model ?? 'kling-v1',
             'task_type' => 'image_to_video',
         );
@@ -2002,7 +1973,7 @@ class BizCity_Video_Kling_Job_Monitor {
         
         if ( ! $result['ok'] ) {
             self::add_log( $job_id, sprintf( 'Failed: %s', $result['error'] ?? 'Unknown error' ), 'error' );
-            wp_send_json_error( array( 'message' => $result['error'] ?? __( 'Failed to create task', 'bizcity-video-kling' ) ) );
+            self::send_error( 'gateway_degraded', 'Không thể tạo lại tác vụ video.', 'Thử lại sau vài phút.', 'gateway_degraded', 502 );
             return;
         }
         
@@ -2012,7 +1983,7 @@ class BizCity_Video_Kling_Job_Monitor {
         
         if ( ! $task_id ) {
             self::add_log( $job_id, 'Missing task_id in response', 'error' );
-            wp_send_json_error( array( 'message' => __( 'Missing task_id in response', 'bizcity-video-kling' ) ) );
+            self::send_error( 'gateway_degraded', 'Gateway không trả về mã tác vụ video.', 'Thử tạo lại tác vụ sau vài phút.', 'gateway_degraded', 502 );
             return;
         }
         
@@ -2053,14 +2024,14 @@ class BizCity_Video_Kling_Job_Monitor {
         $resume_step = sanitize_text_field( $_POST['resume_step'] ?? '' );
         
         if ( ! $job_id ) {
-            wp_send_json_error( array( 'message' => __( 'Invalid job ID', 'bizcity-video-kling' ) ) );
+            self::send_error( 'invalid_param', __( 'Mã job không hợp lệ.', 'bizcity-video-kling' ), 'Kiểm tra mã job rồi thử lại.', 'invalid_param_generic' );
             return;
         }
         
         $job = BizCity_Video_Kling_Database::get_job( $job_id );
         
         if ( ! $job ) {
-            wp_send_json_error( array( 'message' => __( 'Job not found', 'bizcity-video-kling' ) ) );
+            self::send_error( 'not_found', __( 'Không tìm thấy job video.', 'bizcity-video-kling' ), 'Chọn lại job rồi thử lại.', 'not_found', 404 );
             return;
         }
         
@@ -2096,8 +2067,7 @@ class BizCity_Video_Kling_Job_Monitor {
                 
                 if ( ! $result['success'] ) {
                     self::add_log( $job_id, sprintf( 'Resume failed at %s: %s', $resume_point['step'], $result['message'] ?? 'Unknown' ), 'error' );
-                    wp_send_json_error( array( 
-                        'message' => $result['message'] ?? 'Resume failed',
+                    self::send_error( 'automation_run_failed', 'Không thể tiếp tục xử lý video.', 'Chạy lại job hoặc thử Resume sau.', 'gateway_degraded', 502, array(
                         'step' => $resume_point['step'],
                         'can_resume' => $result['can_resume'] ?? false,
                     ) );
@@ -2154,10 +2124,7 @@ class BizCity_Video_Kling_Job_Monitor {
                 
             default:
                 // Need to start from scratch - use retry instead
-                wp_send_json_error( array( 
-                    'message' => __( 'Cannot resume from this point. Please use Retry instead.', 'bizcity-video-kling' ),
-                    'step' => $resume_point['step'],
-                ) );
+                self::send_error( 'invalid_param', __( 'Không thể Resume từ trạng thái hiện tại.', 'bizcity-video-kling' ), 'Dùng Retry để tạo lại tác vụ.', 'invalid_param_generic', 409, array( 'step' => $resume_point['step'] ) );
                 break;
         }
     }

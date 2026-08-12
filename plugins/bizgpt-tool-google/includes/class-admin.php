@@ -11,7 +11,11 @@ class BZGoogle_Admin {
     public static function init() {
         if ( ! is_admin() ) return;
 
-        // Menu registration moved to BizCity_Admin_Menu (centralized).
+        // [2026-08-12 Johnny Chu] PHASE-1.26-CONTRACT — declare site navigation metadata; central menu remains the WordPress registration adapter.
+        if ( class_exists( 'BizCity_Admin_Navigation_Registry' ) && class_exists( 'BizCity_Google_Admin_Navigation_Provider' ) ) {
+            BizCity_Admin_Navigation_Registry::register_provider( new BizCity_Google_Admin_Navigation_Provider() );
+        }
+
         add_action( 'admin_init', [ __CLASS__, 'register_settings' ] );
         add_action( 'admin_enqueue_scripts', [ __CLASS__, 'enqueue_assets' ] );
 
@@ -27,6 +31,10 @@ class BZGoogle_Admin {
     }
 
     public static function register_menu() {
+        if ( class_exists( 'BizCity_Admin_Menu', false ) ) {
+            return;
+        }
+        // [2026-08-11 Johnny Chu] PHASE-1.26 — site-level Google Tools is owned by the unified Settings/Workspace registry.
         add_menu_page(
             'Google Tools',
             'Google Tools',
@@ -330,5 +338,36 @@ class BZGoogle_Admin {
 
         wp_safe_redirect( network_admin_url( 'settings.php?page=bzgoogle-network&updated=1' ) );
         exit;
+    }
+}
+
+if ( ! class_exists( 'BizCity_Google_Admin_Navigation_Provider' ) && interface_exists( 'BizCity_Admin_Navigation_Provider_Interface' ) ) {
+
+    final class BizCity_Google_Admin_Navigation_Provider implements BizCity_Admin_Navigation_Provider_Interface {
+
+        public function navigation_id() {
+            return 'plugins.bizgpt-tool-google';
+        }
+
+        public function navigation_items() {
+            return array(
+                array(
+                    'id'         => 'plugins.bizgpt-tool-google.settings',
+                    'slug'       => BZGoogle_Admin::MENU_SLUG,
+                    'label'      => 'Google Tools',
+                    'group'      => 'settings',
+                    'slot'       => 'settings.integrations',
+                    'parent'     => 'bizcity-ai',
+                    'capability' => 'read',
+                    'position'   => 60,
+                    'scope'      => 'site',
+                    'surface'    => 'admin_page',
+                    'renderer'   => 'plugins.bizgpt-tool-google.settings',
+                    'visible'    => true,
+                    'origin'     => 'bundle',
+                    'aliases'    => array( 'bzgoogle-settings' ),
+                ),
+            );
+        }
     }
 }

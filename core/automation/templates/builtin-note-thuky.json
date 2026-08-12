@@ -1,0 +1,176 @@
+[
+  {
+    "slug": "tpl_zalo_note_notebook_v1",
+    "name": "Notebook · @note hỏi và tổng hợp qua Zalo",
+    "description": "@note qua Zalo Bot → TwinBrain Goal Loop + Notebook/MPR → trả lời có nguồn và ghi audit.",
+    "category": "mpr",
+    "source": "builtin",
+    "trigger_type": "zalo_inbound",
+    "icon": "BookOpen",
+    "tags": "zalo,note,notebook,twinbrain,mpr,citation",
+    "plan": "free",
+    "trigger_config": {
+      "instance_id": "",
+      "filter": "@note",
+      "is_fallback": false,
+      "priority": 16,
+      "exclusive": true,
+      "visibility": "private"
+    },
+    "graph": {
+      "meta": {
+        "template": "tpl_zalo_note_notebook_v1",
+        "template_uuid": "0198b2c1-6f43-7b8e-9a61-2d4f0a73c501",
+        "template_version": "1.0.0",
+        "visibility": "private"
+      },
+      "nodes": [
+        {
+          "id": "t1",
+          "type": "trigger",
+          "position": { "x": 0, "y": 80 },
+          "data": {
+            "blockId": "trigger.zalo_inbound",
+            "label": "Zalo Bot · @note",
+            "instance_id": "",
+            "filter": "@note"
+          }
+        },
+        {
+          "id": "brain",
+          "type": "llm",
+          "position": { "x": 360, "y": 80 },
+          "data": {
+            "blockId": "llm.mpr_think",
+            "label": "TwinBrain Notebook · @note",
+            "prompt": "{{trigger.text}}",
+            "command": "note",
+            "answer_depth": "balanced",
+            "goal_case": "notebook_question",
+            "guru_id": 0,
+            "tool_force": "",
+            "k": 8
+          }
+        },
+        {
+          "id": "reply",
+          "type": "action",
+          "position": { "x": 760, "y": 80 },
+          "data": {
+            "blockId": "action.reply_zalo",
+            "label": "Trả lời @note",
+            "text": "{{brain.answer_md}}"
+          }
+        },
+        {
+          "id": "audit",
+          "type": "action",
+          "position": { "x": 760, "y": 240 },
+          "data": {
+            "blockId": "action.create_crm_event",
+            "label": "Audit · notebook query",
+            "event_type": "task",
+            "title": "Notebook @note · {{trigger.text}}",
+            "description": "kind=notebook_query\nCommand: @note\nTrace: {{brain.trace_id}}\nGoal: {{brain.raw.goal_id}}\nLayers: {{brain.layers_count}}",
+            "start_at": "+0 minutes"
+          }
+        }
+      ],
+      "edges": [
+        { "id": "e_t1_brain", "source": "t1", "target": "brain" },
+        { "id": "e_brain_reply", "source": "brain", "target": "reply" },
+        { "id": "e_brain_audit", "source": "brain", "target": "audit" }
+      ]
+    },
+    "template_uuid": "0198b2c1-6f43-7b8e-9a61-2d4f0a73c501",
+    "template_version": "1.0.0",
+    "visibility": "private"
+  },
+  {
+    "slug": "tpl_zalo_thuky_notebook_v1",
+    "name": "Notebook · @thuky thư ký nghiên cứu qua Zalo",
+    "description": "@thuky qua Zalo Bot → giữ Goal Loop, tổng hợp Notebook/MPR, nêu việc còn mở và trả lời có nguồn.",
+    "category": "mpr",
+    "source": "builtin",
+    "trigger_type": "zalo_inbound",
+    "icon": "BrainCircuit",
+    "tags": "zalo,thuky,secretary,goal-loop,notebook,twinbrain,mpr",
+    "plan": "free",
+    "trigger_config": {
+      "instance_id": "",
+      "filter": "@thuky",
+      "is_fallback": false,
+      "priority": 17,
+      "exclusive": true,
+      "visibility": "private"
+    },
+    "graph": {
+      "meta": {
+        "template": "tpl_zalo_thuky_notebook_v1",
+        "template_uuid": "0198b2c1-6f43-7b8e-9a61-2d4f0a73c502",
+        "template_version": "1.0.0",
+        "visibility": "private"
+      },
+      "nodes": [
+        {
+          "id": "t1",
+          "type": "trigger",
+          "position": { "x": 0, "y": 80 },
+          "data": {
+            "blockId": "trigger.zalo_inbound",
+            "label": "Zalo Bot · @thuky",
+            "instance_id": "",
+            "filter": "@thuky"
+          }
+        },
+        {
+          "id": "brain",
+          "type": "llm",
+          "position": { "x": 360, "y": 80 },
+          "data": {
+            "blockId": "llm.mpr_think",
+            "label": "TwinBrain Goal Loop · @thuky",
+            "prompt": "{{trigger.text}}",
+            "command": "thuky",
+            "answer_depth": "high",
+            "goal_case": "notebook_secretary",
+            "guru_id": 0,
+            "tool_force": "",
+            "k": 8
+          }
+        },
+        {
+          "id": "reply",
+          "type": "action",
+          "position": { "x": 760, "y": 80 },
+          "data": {
+            "blockId": "action.reply_zalo",
+            "label": "Trả lời @thuky",
+            "text": "{{brain.answer_md}}"
+          }
+        },
+        {
+          "id": "audit",
+          "type": "action",
+          "position": { "x": 760, "y": 240 },
+          "data": {
+            "blockId": "action.create_crm_event",
+            "label": "Audit · secretary turn",
+            "event_type": "task",
+            "title": "Notebook @thuky · {{trigger.text}}",
+            "description": "kind=notebook_secretary_turn\nCommand: @thuky\nTrace: {{brain.trace_id}}\nGoal: {{brain.raw.goal_id}}\nNext action: {{brain.raw.next_best_action}}",
+            "start_at": "+0 minutes"
+          }
+        }
+      ],
+      "edges": [
+        { "id": "e_t1_brain", "source": "t1", "target": "brain" },
+        { "id": "e_brain_reply", "source": "brain", "target": "reply" },
+        { "id": "e_brain_audit", "source": "brain", "target": "audit" }
+      ]
+    },
+    "template_uuid": "0198b2c1-6f43-7b8e-9a61-2d4f0a73c502",
+    "template_version": "1.0.0",
+    "visibility": "private"
+  }
+]

@@ -182,6 +182,9 @@ require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-product-composer.
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-product-source-layer.php';
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-product-resolver-service.php';
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-web-products.php';
+// [2026-08-11 Johnny Chu] PHASE-TWB-WOO-BIZOPS — load the admin-gated Woo BizOps resolver and web-mode engine.
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-woo-bizops-resolver-service.php';
+require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-web-woo-bizops.php';
 
 // [2026-06-19 Johnny Chu] PHASE-TWB-WORKFLOW W1 — Workflow-Driven Brain Pipeline.
 // Generic engine: chạy bất kỳ automation workflow nào AS brain pipeline khi

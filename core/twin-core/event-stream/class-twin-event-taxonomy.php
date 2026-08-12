@@ -124,6 +124,12 @@ class BizCity_Twin_Event_Taxonomy {
 	const PRODUCT_REACT_STEP       = 'product_react_step';
 	const PRODUCT_SYNTHESIZE_DONE  = 'product_synthesize_done';
 
+	// ---- PHASE-TWB-WOO-BIZOPS (2026-08-11) — admin commerce telemetry ---
+	const WOO_BIZOPS_DOMAIN_GATE      = 'woo_bizops_domain_gate';
+	const WOO_BIZOPS_INTENT_DETECTED  = 'woo_bizops_intent_detected';
+	const WOO_BIZOPS_QUERY_EXECUTED   = 'woo_bizops_query_executed';
+	const WOO_BIZOPS_COMPOSED         = 'woo_bizops_composed';
+
 	// ---- PHASE-TWIN-GOAL-LOOP G0 — goal responsibility lifecycle -------
 	const TWIN_GOAL_OPENED     = 'twin_goal_opened';
 	const TWIN_GOAL_PROGRESSED = 'twin_goal_progressed';
@@ -197,6 +203,12 @@ class BizCity_Twin_Event_Taxonomy {
 			self::PRODUCT_NEEDS_DECOMPOSED => [ 'trace_id', 'count', 'items' ],
 			self::PRODUCT_REACT_STEP       => [ 'trace_id', 'iter', 'action', 'action_input', 'observation_summary' ],
 			self::PRODUCT_SYNTHESIZE_DONE  => [ 'trace_id', 'matched_count', 'gap_count', 'ms' ],
+
+			// [2026-08-11 Johnny Chu] PHASE-TWB-WOO-BIZOPS — keep admin commerce timeline payloads compact and PII-free.
+			self::WOO_BIZOPS_DOMAIN_GATE     => [ 'trace_id', 'allowed' ],
+			self::WOO_BIZOPS_INTENT_DETECTED => [ 'trace_id', 'intent_group' ],
+			self::WOO_BIZOPS_QUERY_EXECUTED  => [ 'trace_id', 'intent_group', 'date_from', 'date_to' ],
+			self::WOO_BIZOPS_COMPOSED        => [ 'trace_id', 'intent_group', 'citation_count' ],
 
 			// [2026-08-01 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G0 — each event carries a normalized state snapshot.
 			self::TWIN_GOAL_OPENED     => [ 'goal_id', 'session_id', 'primary_goal', 'status', 'completion_score', 'state' ],

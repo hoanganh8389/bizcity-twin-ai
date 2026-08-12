@@ -1,7 +1,7 @@
 {
   "_note": "Catalog metadata cho 59 builtin blueprints. Graph đầy đủ vẫn nằm trong PHP seeder. File này dùng để Hub sync, admin browse, và diagnostic.",
-  "_seed_version": "1.27.0",
-  "_generated": "2026-06-28",
+  "_seed_version": "1.28.0",
+  "_generated": "2026-08-11",
   "templates": [
     { "slug": "tpl_zalo_cskh_v1",                   "name": "Zalo CSKH — Hỏi & đáp tự động",                          "category": "cskh",       "trigger_type": "zalo_inbound",           "icon": "MessageCircle", "tags": "zalo,cskh,kg,llm",                               "source": "builtin" },
     { "slug": "tpl_fb_lead_capture_v1",              "name": "Facebook Lead — Capture & notify",                        "category": "lead",       "trigger_type": "fb_comment",             "icon": "Zap",           "tags": "facebook,lead,crm,email",                        "source": "builtin" },
@@ -21,6 +21,8 @@
     { "slug": "tpl_test_smoke_manual_v1",            "name": "Test · Smoke (manual trigger, 3 nodes)",                   "category": "general",    "trigger_type": "manual",                 "icon": "FlaskConical",  "tags": "smoke-test,manual,debug",                        "source": "builtin" },
     { "slug": "tpl_test_smoke_branch_v1",            "name": "Test · Smoke với branch điều kiện",                        "category": "general",    "trigger_type": "manual",                 "icon": "GitBranch",     "tags": "smoke-test,manual,condition,debug",              "source": "builtin" },
     { "slug": "tpl_knowledge_router_v1",             "name": "Knowledge Router (@hỏi → TwinBrain MPR)",                 "category": "mpr",        "trigger_type": "zalo_inbound",           "icon": "BookSearch",    "tags": "zalo,knowledge,mpr,twinbrain,kg,web",            "source": "builtin", "trigger_config": { "filter": "@hỏi" } },
+    { "slug": "tpl_zalo_note_notebook_v1",            "name": "Notebook · @note hỏi và tổng hợp qua Zalo",              "category": "mpr",        "trigger_type": "zalo_inbound",           "icon": "BookOpen",      "tags": "zalo,note,notebook,twinbrain,mpr,citation",        "source": "builtin", "trigger_config": { "filter": "@note", "priority": 16 } },
+    { "slug": "tpl_zalo_thuky_notebook_v1",           "name": "Notebook · @thuky thư ký nghiên cứu qua Zalo",           "category": "mpr",        "trigger_type": "zalo_inbound",           "icon": "BrainCircuit",  "tags": "zalo,thuky,secretary,goal-loop,notebook,mpr",      "source": "builtin", "trigger_config": { "filter": "@thuky", "priority": 17 } },
     { "slug": "tpl_remember_this_v1",                "name": "Remember This (@nhớ → CRM memory note)",                  "category": "mpr",        "trigger_type": "zalo_inbound",           "icon": "BrainCircuit",  "tags": "zalo,memory,crm,note,extract",                   "source": "builtin", "trigger_config": { "filter": "@nhớ" } },
     { "slug": "tpl_slash_kg_query_v1",               "name": "/kg → KG search → LLM → reply Zalo",                      "category": "mpr",        "trigger_type": "slash_command",          "icon": "Search",        "tags": "slash,kg,search,llm,zalo",                       "source": "builtin" },
     { "slug": "tpl_skill_intent_invoke_v1",          "name": "Skill Intent → invoke_skill → log",                       "category": "mpr",        "trigger_type": "skill_intent",           "icon": "Cpu",           "tags": "skill,intent,invoke,log",                        "source": "builtin" },

@@ -43,6 +43,10 @@ class BizCity_Facebook_Bot_Admin_Menu {
 	 * Add admin menu
 	 */
 	public function add_menu() {
+		if ( class_exists( 'BizCity_Admin_Menu', false ) ) {
+			return;
+		}
+		// [2026-08-11 Johnny Chu] PHASE-1.26 — bundled Facebook pages are owned by the unified Workspace registry.
 		add_menu_page(
 			'CSKH - Facebook',
 			'CSKH - Facebook',

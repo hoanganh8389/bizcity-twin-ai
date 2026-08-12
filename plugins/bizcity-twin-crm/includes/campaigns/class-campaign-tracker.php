@@ -78,17 +78,25 @@ final class BizCity_CRM_Campaign_Tracker {
 		// Mode 2 — shortcode pixel for SEO-cleaned landing pages.
 		add_shortcode( 'bizcity_campaign_track', array( __CLASS__, 'shortcode_pixel' ) );
 
-		// Mode 3 — FB Messenger referral via waic_twf_process_flow (text msg with referral embedded in event).
-		// Hook EARLIER than the ingestor
-		// (which sits at priority 9 — see BizCity_CRM_Facebook_Ingestor::__construct)
-		// so we record the visit before the ingestor starts spawning conversation rows.
-		add_action( 'waic_twf_process_flow', array( __CLASS__, 'maybe_track_fb_referral' ), 8, 2 );
+		// [2026-08-09 Johnny Chu] R-CH-UNI — track FB referrals before normalized CRM ingestion.
+		add_action( 'bizcity_channel_normalized', array( __CLASS__, 'maybe_track_fb_referral_normalized' ), 8, 2 );
 
 		// Mode 3b — FB Messenger referral-ONLY event (no text message).
 		// bizcity-facebook-bot fires `bizcity_facebook_referral_received` when messaging_referral
 		// arrives without a text body (first-time m.me link open). This is NOT passed through
 		// waic_twf_process_flow, so we need a dedicated listener.
 		add_action( 'bizcity_facebook_referral_received', array( __CLASS__, 'on_fb_referral_received' ), 8, 1 );
+	}
+
+	/**
+	 * Adapt normalized FB envelopes to the existing referral tracker contract.
+	 */
+	public static function maybe_track_fb_referral_normalized( $envelope, $trigger_key = '' ): void {
+		if ( ! is_array( $envelope ) ) { return; }
+		$platform = (string) ( $envelope['platform'] ?? '' );
+		if ( $platform !== 'FB_MESS' ) { return; }
+		$raw = is_array( $envelope['raw'] ?? null ) ? $envelope['raw'] : array();
+		self::maybe_track_fb_referral( 'bizcity_facebook_message_received', $raw );
 	}
 
 	/* ============================================================

@@ -157,6 +157,58 @@ foreach ( $capabilities as $kind => $items ) {
 	}
 }
 
+// [2026-08-11 Johnny Chu] PHASE-1.26-CONTRACT — validate optional admin navigation metadata without registering WordPress menus.
+$navigation = isset( $manifest['navigation'] ) && is_array( $manifest['navigation'] )
+	? $manifest['navigation']
+	: array();
+$navigation_pairs = array();
+foreach ( $navigation as $index => $item ) {
+	if ( ! is_array( $item ) ) {
+		$errors[] = "navigation[{$index}] must be an object";
+		continue;
+	}
+	foreach ( array( 'id', 'slug', 'label', 'group', 'slot', 'parent', 'capability', 'position', 'scope', 'surface', 'renderer', 'visible', 'origin' ) as $key ) {
+		if ( ! array_key_exists( $key, $item ) || ( is_string( $item[ $key ] ) && '' === $item[ $key ] ) ) {
+			$errors[] = "navigation[{$index}] missing {$key}";
+		}
+	}
+	if ( isset( $item['group'] ) && ! in_array( $item['group'], array( 'settings', 'workspace', 'diagnostics' ), true ) ) {
+		$errors[] = "navigation[{$index}].group must be settings/workspace/diagnostics";
+	}
+	$slot_map = array(
+		'settings'    => array( 'settings.api', 'settings.chatbot', 'settings.templates', 'settings.sync', 'settings.integrations' ),
+		'workspace'   => array( 'workspace.chat', 'workspace.profile', 'workspace.knowledge', 'workspace.crm', 'workspace.channels', 'workspace.automation', 'workspace.studio', 'workspace.account', 'workspace.extensions' ),
+		'diagnostics' => array( 'diagnostics.runtime', 'diagnostics.logs', 'diagnostics.schema', 'diagnostics.probes', 'diagnostics.extensions' ),
+	);
+	if ( isset( $item['group'], $item['slot'] ) && isset( $slot_map[ $item['group'] ] ) && ! in_array( $item['slot'], $slot_map[ $item['group'] ], true ) ) {
+		$errors[] = "navigation[{$index}].slot does not belong to group {$item['group']}";
+	}
+	if ( isset( $item['scope'] ) && ! in_array( $item['scope'], array( 'site', 'network', 'both' ), true ) ) {
+		$errors[] = "navigation[{$index}].scope must be site/network/both";
+	}
+	if ( isset( $item['surface'] ) && ! in_array( $item['surface'], array( 'admin_shell', 'admin_page', 'diagnostics' ), true ) ) {
+		$errors[] = "navigation[{$index}].surface is invalid";
+	}
+	if ( isset( $item['origin'] ) && ! in_array( $item['origin'], array( 'core', 'bundle', 'extension' ), true ) ) {
+		$errors[] = "navigation[{$index}].origin must be core/bundle/extension";
+	}
+	if ( isset( $item['position'] ) && ( ! is_int( $item['position'] ) || $item['position'] < 0 ) ) {
+		$errors[] = "navigation[{$index}].position must be a non-negative integer";
+	}
+	if ( isset( $item['parent'], $item['slug'] ) ) {
+		$pair = (string) $item['parent'] . ':' . (string) $item['slug'];
+		if ( isset( $navigation_pairs[ $pair ] ) ) {
+			$errors[] = "navigation duplicate parent/slug {$pair}";
+		}
+		$navigation_pairs[ $pair ] = true;
+	}
+	foreach ( array( 'aliases', 'legacy_parents' ) as $list_key ) {
+		if ( isset( $item[ $list_key ] ) && ! is_array( $item[ $list_key ] ) ) {
+			$errors[] = "navigation[{$index}].{$list_key} must be an array";
+		}
+	}
+}
+
 if ( ! empty( $errors ) ) {
 	foreach ( $errors as $error ) {
 		fwrite( STDERR, "FAIL {$error}\n" );

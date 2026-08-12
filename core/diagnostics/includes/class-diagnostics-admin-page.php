@@ -615,9 +615,10 @@ final class BizCity_Diagnostics_Admin_Page {
 				<tr>
 					<th style="width:18%"><?php esc_html_e( 'Probe', 'bizcity-twin-ai' ); ?></th>
 					<th><?php esc_html_e( 'Description', 'bizcity-twin-ai' ); ?></th>
-					<th><?php esc_html_e( 'Severity', 'bizcity-twin-ai' ); ?></th>
+					<?php // [2026-08-11 Johnny Chu] PHASE-1.23-MONITOR-UX - separate failure risk from current runtime result. ?>
+					<th><?php esc_html_e( 'Risk severity', 'bizcity-twin-ai' ); ?></th>
 					<th style="text-align:right"><?php esc_html_e( 'Est.', 'bizcity-twin-ai' ); ?></th>
-					<th><?php esc_html_e( 'Last result', 'bizcity-twin-ai' ); ?></th>
+					<th><?php esc_html_e( 'Last runtime result', 'bizcity-twin-ai' ); ?></th>
 					<th><?php esc_html_e( 'Action', 'bizcity-twin-ai' ); ?></th>
 				</tr>
 			</thead>

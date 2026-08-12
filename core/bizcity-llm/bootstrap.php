@@ -54,6 +54,13 @@ require_once BIZCITY_LLM_DIR . '/includes/class-google-hub.php';
 require_once BIZCITY_LLM_DIR . '/includes/class-usage-proxy-rest.php';
 // [2026-06-14 Johnny Chu] PHASE-0.41 VIDEO-VEO3 — BizCity_Video_Client (R-GW-8 standalone)
 require_once BIZCITY_LLM_DIR . '/includes/class-video-client.php';
+// [2026-08-10 Johnny Chu] PHASE-1.25-PIAPI — gateway-only PiAPI image-task client.
+// [2026-08-10 Johnny Chu] PHASE-1.24-LOADER — prevent a partial deploy from fatalling the entire LLM bootstrap; PiAPI DDV reports the missing artifact.
+$bizcity_piapi_client_file = BIZCITY_LLM_DIR . '/includes/class-piapi-client.php';
+if ( is_readable( $bizcity_piapi_client_file ) ) {
+    require_once $bizcity_piapi_client_file;
+}
+unset( $bizcity_piapi_client_file );
 
 /* ── Boot ── */
 add_action( 'plugins_loaded', function () {

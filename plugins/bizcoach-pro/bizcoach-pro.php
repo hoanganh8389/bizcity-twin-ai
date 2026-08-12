@@ -11,6 +11,24 @@ Text Domain: bizcoach-pro
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
+// [2026-08-10 Johnny Chu] PHASE-1.23-CANONICAL-A5 - observe BizCoach bundled
+// ownership before the shell guard; this does not block or alter loading.
+$_bcpro_loader_registry_file = __DIR__ . '/../../core/runtime/class-loader-ownership-registry.php';
+if ( file_exists( $_bcpro_loader_registry_file ) && ! class_exists( 'BizCity_Loader_Ownership_Registry', false ) ) {
+	require_once $_bcpro_loader_registry_file;
+}
+if ( class_exists( 'BizCity_Loader_Ownership_Registry', false ) ) {
+	BizCity_Loader_Ownership_Registry::claim(
+		'bizcoach',
+		'bundled_entrypoint',
+		__FILE__,
+		'',
+		function_exists( 'is_admin' ) && is_admin() ? 'admin_page' : 'public_html',
+		'pre_plugins_loaded'
+	);
+}
+unset( $_bcpro_loader_registry_file );
+
 // [2026-08-09 Johnny Chu] R-PERF-LOADER-BUNDLE - the default TwinChat admin
 // shell renders an iframe and does not need BizCoach's producer runtime graph.
 // Dedicated BizCoach/admin/REST/public/cron surfaces continue to load normally.
@@ -40,6 +58,42 @@ if ( ! defined( 'BCPRO_LEGACY_TRANSIT_PREFETCH_ENABLED' ) ) {
 // [2026-08-09 Johnny Chu] R-CR — stable version for rewrite flush guard.
 define( 'BCPRO_REWRITE_VERSION', '0.3.23' );
 define( 'BCPRO_TEMPLATE_DIR', BCPRO_DIR . 'data/coach-templates/' );
+
+if ( ! function_exists( 'bcpro_load_persona_provider_classes' ) ) {
+	/**
+	 * Load BizCoach persona providers only when a provider consumer needs them.
+	 *
+	 * @return bool
+	 */
+	function bcpro_load_persona_provider_classes() {
+		// [2026-08-10 Johnny Chu] PHASE-1.23-CANONICAL-A5 - keep provider
+		// contracts lazy while preserving REST/diagnostic direct consumers.
+		if ( ! class_exists( 'BizCity_Persona_Tool_Provider' ) ) {
+			return false;
+		}
+		$persona_file = BCPRO_DIR . 'includes/coaching/class-persona-provider.php';
+		$astro_file   = BCPRO_DIR . 'includes/astro/class-astro-provider.php';
+		if ( file_exists( $persona_file ) && ! class_exists( 'BizCoach_Pro_Persona_Provider', false ) ) {
+			require_once $persona_file;
+		}
+		if ( file_exists( $astro_file ) && ! class_exists( 'BizCoach_Pro_Astro_Provider', false ) ) {
+			require_once $astro_file;
+		}
+		return class_exists( 'BizCoach_Pro_Persona_Provider', false )
+			&& class_exists( 'BizCoach_Pro_Astro_Provider', false );
+	}
+}
+
+if ( class_exists( 'BizCity_Loader_Ownership_Registry', false ) ) {
+	// [2026-08-10 Johnny Chu] PHASE-1.23-CANONICAL-A5 - contract constants and
+	// stable paths are ready; runtime graph remains observe-only.
+	BizCity_Loader_Ownership_Registry::transition(
+		'bizcoach',
+		BizCity_Loader_Ownership_Registry::STATE_CONTRACT_READY,
+		'bundled_entrypoint',
+		'pre_plugins_loaded'
+	);
+}
 
 /* ----------------------------------------------------
  * INCLUDES — organised by domain (2026-05-15 reorg):
@@ -175,17 +229,49 @@ add_filter( 'bizcity_llm_consumer_plugins', static function ( $list ) {
 	return $list;
 } );
 
-if ( is_admin() ) {
-	require_once BCPRO_DIR . 'includes/astro/class-astro-admin-settings.php';
-	if ( class_exists( 'BizCoach_Pro_Astro_Admin_Settings' ) ) {
+if ( ! function_exists( 'bcpro_load_astro_admin_settings' ) ) {
+	function bcpro_load_astro_admin_settings( $register_menu = true ) {
+		// [2026-08-10 Johnny Chu] PHASE-1.23-CANONICAL-A5 - defer the deprecated
+		// Astro settings class to its admin menu or legacy POST lifecycle.
+		$file = BCPRO_DIR . 'includes/astro/class-astro-admin-settings.php';
+		if ( file_exists( $file ) && ! class_exists( 'BizCoach_Pro_Astro_Admin_Settings', false ) ) {
+			require_once $file;
+		}
+		if ( ! class_exists( 'BizCoach_Pro_Astro_Admin_Settings', false ) ) {
+			return;
+		}
+		if ( $register_menu ) {
+			BizCoach_Pro_Astro_Admin_Settings::register_menu();
+			return;
+		}
 		BizCoach_Pro_Astro_Admin_Settings::init();
-	}
+	} // [2026-08-10 Johnny Chu] PHASE-1.23-CANONICAL-A5 - close deferred loader guard.
+}
 
-	// [2026-07-03 Johnny Chu] PHASE-ASTRO-MIGRATE — Astro Log Reader admin page
-	require_once BCPRO_DIR . 'includes/admin/class-astro-log-admin.php';
-	if ( class_exists( 'BizCoach_Pro_Astro_Log_Admin', false ) ) {
+if ( ! function_exists( 'bcpro_load_astro_log_admin' ) ) {
+	function bcpro_load_astro_log_admin( $register_menu = true ) {
+		// [2026-08-10 Johnny Chu] PHASE-1.23-CANONICAL-A5 - defer Astro log
+		// admin code until menu registration or its dedicated AJAX request.
+		$file = BCPRO_DIR . 'includes/admin/class-astro-log-admin.php';
+		if ( file_exists( $file ) && ! class_exists( 'BizCoach_Pro_Astro_Log_Admin', false ) ) {
+			require_once $file;
+		}
+		if ( ! class_exists( 'BizCoach_Pro_Astro_Log_Admin', false ) ) {
+			return;
+		}
+		if ( $register_menu ) {
+			BizCoach_Pro_Astro_Log_Admin::register_menu();
+			return;
+		}
 		BizCoach_Pro_Astro_Log_Admin::init();
 	}
+}
+
+if ( is_admin() ) {
+	add_action( 'admin_menu', 'bcpro_load_astro_admin_settings', 29 );
+	add_action( 'admin_menu', 'bcpro_load_astro_log_admin', 29 );
+
+	// [2026-07-03 Johnny Chu] PHASE-ASTRO-MIGRATE — Astro Log Reader admin page
 	// R-1API-9 (2026-05-17): Nudge admin to the unified TwinChat settings
 	// page when no BizCity API key is configured (canonical or legacy).
 	// Notice is suppressed ON the canonical settings page itself + on the
@@ -221,7 +307,8 @@ if ( is_admin() ) {
 	// BizCoach_Pro_Astro_Admin_List::init();
 
 	// PHASE-0.3 H.3 — Dual-tab add/edit form (choose-or-create).
-	require_once BCPRO_DIR . 'includes/admin/class-astro-admin-form.php';
+	// [2026-08-10 Johnny Chu] PHASE-1.23-CANONICAL-A5 — Astro admin form is
+	// loaded by the exact add-new screen, not every admin request.
 }
 
 // PHASE-0.3 H.2 — User picker: load + register REST OUTSIDE is_admin() so the
@@ -233,9 +320,20 @@ if ( class_exists( 'BizCoach_Pro_User_Picker' ) ) {
 }
 
 if ( is_admin() ) {
-	require_once BCPRO_DIR . 'includes/class-admin-coachees.php';
-	if ( class_exists( 'BizCoach_Pro_Admin_Coachees' ) ) {
-		BizCoach_Pro_Admin_Coachees::init();
+	add_action( 'admin_menu', 'bcpro_load_admin_coachees', 29 );
+}
+
+if ( ! function_exists( 'bcpro_load_admin_coachees' ) ) {
+	function bcpro_load_admin_coachees() {
+		// [2026-08-10 Johnny Chu] PHASE-1.23-CANONICAL-A5 - defer the admin-only
+		// coachee list until WordPress is registering admin menus.
+		$file = BCPRO_DIR . 'includes/class-admin-coachees.php';
+		if ( file_exists( $file ) && ! class_exists( 'BizCoach_Pro_Admin_Coachees', false ) ) {
+			require_once $file;
+		}
+		if ( class_exists( 'BizCoach_Pro_Admin_Coachees', false ) ) {
+			BizCoach_Pro_Admin_Coachees::register_menu();
+		}
 	}
 }
 
@@ -272,9 +370,10 @@ add_action( 'plugins_loaded', [ 'BizCoach_Pro_Template_Loader', 'boot' ], 9 );
  *   - bizcoach_astro  → includes/astro/class-astro-provider.php
  * -------------------------------------------------- */
 if ( class_exists( 'BizCity_Persona_Tool_Provider' ) ) {
-	require_once BCPRO_DIR . 'includes/coaching/class-persona-provider.php';
-	require_once BCPRO_DIR . 'includes/astro/class-astro-provider.php';
 	add_filter( 'bizcity_persona_tool_providers', function ( array $providers ) {
+		if ( ! bcpro_load_persona_provider_classes() ) {
+			return $providers;
+		}
 		$providers[] = new BizCoach_Pro_Persona_Provider();
 		// Legacy bundled provider kept for back-compat (id=bizcoach_astro).
 		$providers[] = new BizCoach_Pro_Astro_Provider();
@@ -291,13 +390,9 @@ if ( class_exists( 'BizCity_Persona_Tool_Provider' ) ) {
 	// the legacy `bizcity-bizcoach/v1` namespace from the deleted bizcoach-map
 	// plugin so the FE keeps working unchanged. See PROVIDER-CANON.md §8.
 	//
-	// Defensive: invalidate opcache for this single file before requiring, so
-	// any past bytecode that lacked the trailing `::init();` call gets refreshed
-	// on next request (validate_timestamps=0 production servers cache forever).
+	// [2026-08-10 Johnny Chu] PHASE-1.23-CANONICAL-A5 — do not invalidate
+	// OPcache on every request; deploy/maintenance must refresh stale bytecode.
 	$bcpro_astro_rest = BCPRO_DIR . 'includes/astro/class-astro-rest.php';
-	if ( function_exists( 'opcache_invalidate' ) ) {
-		@opcache_invalidate( $bcpro_astro_rest, true );
-	}
 	require_once $bcpro_astro_rest;
 	// Belt-and-suspenders: don't rely on file-scope `::init()` at the bottom
 	// of class-astro-rest.php (stale opcache may have cached a version without
@@ -681,6 +776,22 @@ if ( class_exists( 'BizCity_Intent_Provider' ) ) {
 		}
 	} );
 }
+
+$_bcpro_legacy_settings_action = isset( $_REQUEST['action'] )
+	? sanitize_key( (string) $_REQUEST['action'] )
+	: '';
+if ( in_array( $_bcpro_legacy_settings_action, array( 'bcpro_astro_save_gateway', 'bcpro_astro_test_gateway' ), true ) ) {
+	bcpro_load_astro_admin_settings( false );
+}
+unset( $_bcpro_legacy_settings_action );
+
+$_bcpro_astro_log_action = isset( $_REQUEST['action'] )
+	? sanitize_key( (string) $_REQUEST['action'] )
+	: '';
+if ( defined( 'DOING_AJAX' ) && DOING_AJAX && 'bcpro_astro_logs_fetch' === $_bcpro_astro_log_action ) {
+	bcpro_load_astro_log_admin( false );
+}
+unset( $_bcpro_astro_log_action );
 
 /* ----------------------------------------------------
  * REST routes — list templates, create artifact (Sprint I extends)

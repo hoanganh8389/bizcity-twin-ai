@@ -104,6 +104,10 @@ final class BizCity_CRM_Source_Inbox_Messenger implements BizCity_CRM_Customer_S
 
 	/** Best-effort Vietnamese phone normalizer. Returns '' if not phone-like. */
 	private static function norm_phone( string $raw ): string {
+		// [2026-08-11 Johnny Chu] PHASE-CRM-CONTACTS-UNIFY-WOO-USERPOINTS — delegate channel phone identity to the shared helper.
+		if ( class_exists( 'BizCity_Phone_Normalizer' ) ) {
+			return BizCity_Phone_Normalizer::normalize_vn( $raw );
+		}
 		$digits = preg_replace( '/\D+/', '', $raw );
 		if ( ! is_string( $digits ) ) {
 			return '';

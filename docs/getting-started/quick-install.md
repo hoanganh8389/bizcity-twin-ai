@@ -1,7 +1,7 @@
 # Cài đặt nhanh — 5 phút
 
 > Dành cho **developer** đã có server WordPress đang chạy.
-> Người dùng không rành kỹ thuật → xem [Hướng dẫn chi tiết](install-user-guide.md).
+> Người dùng không rành kỹ thuật → xem [Hướng dẫn chi tiết](../INSTALL-USER-GUIDE-VI.md).
 
 ---
 
@@ -28,19 +28,23 @@ Hoặc upload ZIP qua **WP Admin → Plugins → Add New → Upload Plugin** →
 
 ## 2. Cấu hình API Key
 
-```php
-// wp-config.php
-define( 'BIZCITY_LLM_GATEWAY_URL', 'https://bizcity.vn' );
-define( 'BIZCITY_LLM_API_KEY',     'biz-xxxxxxxxxxxxxxxxxxxxxxxx' );
-```
+Vào **WP Admin → BizCity Twin AI → Settings → Gateway** và lưu:
 
-Hoặc: **WP Admin → BizCity → Settings → Gateway**.
+- Gateway URL: `https://bizcity.vn`;
+- BizCity API key: dạng `biz-xxx`.
+
+Runtime chỉ dùng hai option `bizcity_llm_gateway_url` và
+`bizcity_llm_api_key`. Không nhập provider key OpenAI, Anthropic, Tavily, Kling
+hoặc PiAPI trên client.
 
 ---
 
 ## 3. Kiểm tra
 
 **WP Admin → Tools → BizCity Diagnostics** → Probe `gateway.health` → **PASS** ✅
+
+Sau khi gateway pass, chạy probe `core.piapi.image_task` nếu site dùng Tool Image
+background removal.
 
 ---
 

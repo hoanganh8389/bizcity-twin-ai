@@ -90,6 +90,10 @@ require_once __DIR__ . '/includes/blocks/actions/class-action-run-astro-relation
 // [2026-07-15 Johnny Chu] PHASE-TWB-PRODUCTS — action.run_products + action.run_products_solution.
 require_once __DIR__ . '/includes/blocks/actions/class-action-run-products.php';
 require_once __DIR__ . '/includes/blocks/actions/class-action-run-products-solution.php';
+// [2026-08-11 Johnny Chu] PHASE-TWB-WOO-BIZOPS — admin-gated Woo BizOps query action.
+require_once __DIR__ . '/includes/blocks/actions/class-action-run-woo-bizops.php';
+// [2026-08-11 Johnny Chu] PHASE-TWB-WOO-BIZOPS — cron-safe executive digest action.
+require_once __DIR__ . '/includes/blocks/actions/class-action-run-woo-bizops-digest.php';
 // [2026-07-05 Johnny Chu] PHASE-FAA2-TWINBRAIN — deterministic best-day selector.
 require_once __DIR__ . '/includes/blocks/actions/class-action-pick-best-day-for-intent.php';
 // [2026-07-04 Johnny Chu] HOTFIX — missing require_once for blocks that existed but were never loaded.

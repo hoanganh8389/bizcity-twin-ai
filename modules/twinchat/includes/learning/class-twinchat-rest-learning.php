@@ -3283,7 +3283,9 @@ body { margin:0; font-family: "Segoe UI", Arial, sans-serif; background: linear-
 		// reason wins.
 		$reason = '';
 		if ( ! empty( $res['busy'] ) ) {
-			if ( ! empty( $res['paused'] ) ) {
+			if ( ! empty( $res['busy_reason'] ) ) {
+				$reason = (string) $res['busy_reason'];
+			} elseif ( ! empty( $res['paused'] ) ) {
 				$reason = 'paused_quota';
 			} elseif ( ! empty( $res['reason_code'] ) && (string) $res['reason_code'] === 'learning_worker_capacity' ) {
 				$reason = 'worker_capacity';
@@ -3304,11 +3306,15 @@ body { margin:0; font-family: "Segoe UI", Arial, sans-serif; background: linear-
 				'error'       => (bool) $res['error'],
 				'phase'       => (string) $res['phase'],
 				'reason'      => $reason,
+				'busy_reason' => isset( $res['busy_reason'] ) ? (string) $res['busy_reason'] : $reason,
 				'paused'      => ! empty( $res['paused'] ),
 				'retry_after' => isset( $res['retry_after'] ) ? (int) $res['retry_after'] : 0,
 				'lease_owner' => isset( $res['job']['lease_owner'] ) ? (string) $res['job']['lease_owner'] : '',
 				'reason_code' => isset( $res['reason_code'] ) ? (string) $res['reason_code'] : '',
 				'reason_msg'  => isset( $res['reason_msg'] )  ? (string) $res['reason_msg']  : '',
+				'active_workers' => isset( $res['active_workers'] ) ? (int) $res['active_workers'] : 0,
+				'worker_cap'  => isset( $res['worker_cap'] ) ? (int) $res['worker_cap'] : 0,
+				'oldest_processing_at' => isset( $res['oldest_processing_at'] ) ? (string) $res['oldest_processing_at'] : '',
 				'diag'        => isset( $res['diag'] ) && is_array( $res['diag'] ) ? $res['diag'] : null,
 				'job'         => $res['job'],
 			],
@@ -3541,6 +3547,29 @@ body { margin:0; font-family: "Segoe UI", Arial, sans-serif; background: linear-
 				$final_status !== '' ? $final_status : '?',
 				$result->get_error_message()
 			) );
+			if ( 'quota_exhausted' === $result->get_error_code()
+				&& class_exists( 'BizCity_TwinChat_Learning_Pipeline' )
+				&& method_exists( 'BizCity_TwinChat_Learning_Pipeline', 'pause_from_worker' ) ) {
+				// [2026-08-10 Johnny Chu] PHASE-0.49-LEARNING-OBSERVABILITY - worker quota failures pause the whole job.
+				BizCity_TwinChat_Learning_Pipeline::pause_from_worker( $job_id, $nb, $job_owner, $result );
+			}
+			if ( function_exists( 'bizcity_tc_learning_audit_log' ) ) {
+				// [2026-08-10 Johnny Chu] PHASE-0.49-LEARNING-OBSERVABILITY - record worker status transition and decision.
+				bizcity_tc_learning_audit_log( 'passage_failed', array(
+					'trace_id'       => sprintf( 'tc-%d-j%d-p%d', (int) get_current_blog_id(), $job_id, $passage_id ),
+					'blog_id'        => (int) get_current_blog_id(),
+					'notebook_id'    => $nb,
+					'job_id'         => $job_id,
+					'passage_id'     => $passage_id,
+					'lane'           => $lane,
+					'phase'          => 'extracting',
+					'status_before'  => 'processing',
+					'status_after'   => $final_status !== '' ? $final_status : 'unknown',
+					'error_code'     => (string) $result->get_error_code(),
+					'normalized_code' => (string) $result->get_error_code(),
+					'decision'       => 'quota_exhausted' === $result->get_error_code() ? 'pause_job' : 'retry_or_error',
+				) );
+			}
 
 			// Passage was flipped back to pending (transient) or error/skipped by extract_passage()
 			// — nothing to increment. Just push an event so the hub stream shows it.

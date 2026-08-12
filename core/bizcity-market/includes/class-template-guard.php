@@ -168,15 +168,14 @@ class BizCity_Market_Template_Guard {
         // Store plugin info for the render callback
         self::$admin_guard_info = $plugin_info;
 
-        // Register a temporary admin page so WordPress doesn't 403
-        add_menu_page(
+        // [2026-08-11 Johnny Chu] PHASE-1.26 — temporary inactive-plugin guard belongs under Diagnostics.
+        add_submenu_page(
+            'bizcity-twin-diagnostics',
             $plugin_info['name'],
             $plugin_info['name'],
             'manage_options',
             $page,
-            [ __CLASS__, 'render_admin_guard_page' ],
-            'dashicons-warning',
-            999
+            [ __CLASS__, 'render_admin_guard_page' ]
         );
     }
 

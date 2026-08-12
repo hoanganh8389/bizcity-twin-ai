@@ -15,6 +15,18 @@ class BizCity_REST_API_Templates {
         add_action( 'rest_api_init', array( __CLASS__, 'register_routes' ) );
     }
 
+    private static function error_response( $error_code, $message, $hint, $help_code ) {
+        $code = (string) $error_code;
+        if ( in_array( $code, array( 'not_found' ), true ) ) {
+            $public_code = 'not_found';
+        } elseif ( in_array( $code, array( 'db_error', 'tool_unavailable', 'generation_failed' ), true ) ) {
+            $public_code = 'gateway_degraded';
+        } else {
+            $public_code = 'invalid_param';
+        }
+        return new \WP_REST_Response( BizCity_Error_Payload::make( $public_code, $message, $hint, $help_code ), 200 );
+    }
+
     public static function register_routes() {
 
         /* ── Templates ── */
@@ -164,7 +176,7 @@ class BizCity_REST_API_Templates {
     public static function get_template( $request ) {
         $tpl = BizCity_Template_Manager::get_by_id( $request['id'] );
         if ( ! $tpl ) {
-            return new \WP_Error( 'not_found', 'Template not found.', array( 'status' => 404 ) );
+            return self::error_response( 'not_found', 'Không tìm thấy template.', 'Tải lại danh sách template rồi thử lại.', 'template_not_found' );
         }
         return new \WP_REST_Response( $tpl, 200 );
     }
@@ -174,7 +186,7 @@ class BizCity_REST_API_Templates {
         $result = BizCity_Template_Manager::insert( $data );
 
         if ( is_wp_error( $result ) ) {
-            return new \WP_Error( $result->get_error_code(), $result->get_error_message(), array( 'status' => 400 ) );
+            return self::error_response( $result->get_error_code(), 'Không thể tạo template.', 'Kiểm tra dữ liệu template rồi thử lại.', 'template_save_failed' );
         }
 
         return new \WP_REST_Response( array(
@@ -188,7 +200,7 @@ class BizCity_REST_API_Templates {
         $result = BizCity_Template_Manager::update( $request['id'], $data );
 
         if ( is_wp_error( $result ) ) {
-            return new \WP_Error( $result->get_error_code(), $result->get_error_message(), array( 'status' => 400 ) );
+            return self::error_response( $result->get_error_code(), 'Không thể cập nhật template.', 'Kiểm tra dữ liệu template rồi thử lại.', 'template_save_failed' );
         }
 
         return new \WP_REST_Response( array( 'message' => 'Template updated.' ), 200 );
@@ -203,7 +215,7 @@ class BizCity_REST_API_Templates {
         $result = BizCity_Template_Manager::duplicate( $request['id'] );
 
         if ( is_wp_error( $result ) ) {
-            return new \WP_Error( $result->get_error_code(), $result->get_error_message(), array( 'status' => 400 ) );
+            return self::error_response( $result->get_error_code(), 'Không thể sao chép template.', 'Thử lại sau vài phút.', 'template_save_failed' );
         }
 
         return new \WP_REST_Response( array(
@@ -224,22 +236,18 @@ class BizCity_REST_API_Templates {
 
         $slots = BizCity_Template_Manager::resolve_slots( (int) $request['id'], $form_data, array_filter( $overrides ) );
         if ( is_wp_error( $slots ) ) {
-            return new \WP_Error( $slots->get_error_code(), $slots->get_error_message(), array( 'status' => 400 ) );
+            return self::error_response( $slots->get_error_code(), 'Dữ liệu template không thể tạo ảnh.', 'Kiểm tra các trường đầu vào rồi thử lại.', 'template_generation_failed' );
         }
 
         // Delegate to the existing generation tool
         if ( ! class_exists( 'BizCity_Tool_Image' ) ) {
-            return new \WP_Error( 'tool_unavailable', 'Image generation tool not available.', array( 'status' => 500 ) );
+            return self::error_response( 'tool_unavailable', 'Dịch vụ tạo ảnh chưa sẵn sàng.', 'Kiểm tra module tạo ảnh rồi thử lại.', 'module_not_loaded' );
         }
 
         $result = BizCity_Tool_Image::generate_image( $slots );
 
         if ( empty( $result['success'] ) ) {
-            return new \WP_Error(
-                'generation_failed',
-                $result['message'] ?? 'Unknown error',
-                array( 'status' => 400 )
-            );
+            return self::error_response( 'generation_failed', 'Không thể tạo ảnh từ template.', 'Thử lại sau vài phút.', 'template_generation_failed' );
         }
 
         return new \WP_REST_Response( $result['data'] ?? $result, 200 );
@@ -255,7 +263,7 @@ class BizCity_REST_API_Templates {
         $result = BizCity_Template_Manager::import( $data, $force );
 
         if ( is_wp_error( $result ) ) {
-            return new \WP_Error( $result->get_error_code(), $result->get_error_message(), array( 'status' => 400 ) );
+            return self::error_response( $result->get_error_code(), 'Không thể nhập template.', 'Kiểm tra dữ liệu import rồi thử lại.', 'template_import_failed' );
         }
 
         return new \WP_REST_Response( array(
@@ -286,7 +294,7 @@ class BizCity_REST_API_Templates {
         $result = BizCity_Template_Category_Manager::insert( $data );
 
         if ( is_wp_error( $result ) ) {
-            return new \WP_Error( $result->get_error_code(), $result->get_error_message(), array( 'status' => 400 ) );
+            return self::error_response( $result->get_error_code(), 'Không thể tạo category.', 'Kiểm tra tên category rồi thử lại.', 'category_save_failed' );
         }
 
         return new \WP_REST_Response( array(
@@ -300,7 +308,7 @@ class BizCity_REST_API_Templates {
         $result = BizCity_Template_Category_Manager::update( $request['id'], $data );
 
         if ( is_wp_error( $result ) ) {
-            return new \WP_Error( $result->get_error_code(), $result->get_error_message(), array( 'status' => 400 ) );
+            return self::error_response( $result->get_error_code(), 'Không thể cập nhật category.', 'Kiểm tra dữ liệu category rồi thử lại.', 'category_save_failed' );
         }
 
         return new \WP_REST_Response( array( 'message' => 'Category updated.' ), 200 );
@@ -316,7 +324,7 @@ class BizCity_REST_API_Templates {
         $ids  = $data['ordered_ids'] ?? array();
 
         if ( ! is_array( $ids ) || empty( $ids ) ) {
-            return new \WP_Error( 'invalid_data', 'ordered_ids array is required.', array( 'status' => 400 ) );
+            return self::error_response( 'invalid_data', 'Thiếu danh sách thứ tự category.', 'Gửi danh sách category rồi thử lại.', 'invalid_param_generic' );
         }
 
         $ids = array_map( 'absint', $ids );

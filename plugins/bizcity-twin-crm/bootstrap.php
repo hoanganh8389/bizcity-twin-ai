@@ -36,6 +36,10 @@ final class BizCity_CRM_Plugin {
 		$this->booted = true;
 
 		$this->includes();
+		// [2026-08-11 Johnny Chu] PHASE-CRM-CONTACTS-UNIFY-V2 — persist Woo/user identity conflicts after runtime guards.
+		if ( class_exists( 'BizCity_CRM_Identity_Conflict_Queue' ) ) {
+			BizCity_CRM_Identity_Conflict_Queue::register();
+		}
 
 		// Install / upgrade DB on admin pages.
 		add_action( 'admin_init', array( 'BizCity_CRM_DB_Installer_V2', 'maybe_upgrade' ) );
@@ -194,6 +198,12 @@ final class BizCity_CRM_Plugin {
 		}
 
 		require_once $inc . 'class-db-installer.php';
+		// [2026-08-11 Johnny Chu] PHASE-CRM-CONTACTS-UNIFY-V2 — load durable identity conflict queue before CRM hooks register.
+		require_once $inc . 'woo/class-identity-conflict-queue.php';
+		// [2026-08-11 Johnny Chu] PHASE-CRM-CONTACTS-UNIFY-V2 — load opt-in tenant fixtures without executing them.
+		require_once $inc . 'woo/class-identity-fixtures.php';
+		// [2026-08-11 Johnny Chu] PHASE-CRM-CONTACTS-UNIFY-V2 — load maintenance backfill service without running it.
+		require_once $inc . 'woo/migrations/class-contacts-unify-backfill.php';
 		require_once $inc . 'class-capabilities.php';
 		require_once $inc . 'class-event-emitter.php';
 		require_once $inc . 'class-repository.php';
@@ -360,6 +370,8 @@ require_once $inc . 'audit/class-admin-chat-audit.php';		// 2026-05-19 R-INBOX-R
 		require_once $inc . 'campaigns/class-conversion-linker.php';
 		require_once $inc . 'campaigns/class-loyalty-shortcodes.php';
 		require_once $inc . 'campaigns/class-loyalty-bridge.php';      // M6.W5
+		// [2026-08-11 Johnny Chu] PHASE-CRM-CONTACTS-UNIFY-WOO-USERPOINTS — link legacy points ledger events to canonical CRM Contacts.
+		require_once $inc . 'campaigns/class-user-points-contact-bridge.php';
 		require_once $inc . 'campaigns/class-flow-importer.php';        // M6.W6
 		require_once $inc . 'campaigns/class-conversion-bridge.php';    // M6.W9
 		require_once $inc . 'campaigns/class-campaign-scenario-dispatcher.php'; // M6.W13+W14
@@ -448,6 +460,7 @@ require_once $inc . 'audit/class-admin-chat-audit.php';		// 2026-05-19 R-INBOX-R
 		BizCity_CRM_Campaign_Conversion_Linker::register();
 		BizCity_CRM_Loyalty_Shortcodes::register();
 		BizCity_CRM_Loyalty_Bridge::register();                  // M6.W5 — awards on conversion @ prio 25
+		BizCity_CRM_UserPoints_Contact_Bridge::register();       // [2026-08-11 Johnny Chu] PHASE-CRM-CONTACTS-UNIFY-WOO-USERPOINTS
 		BizCity_CRM_Campaign_Conversion_Bridge::register();      // M6.W9 — character + notebook + welcome @ prio 30
 		BizCity_CRM_Campaign_Scenario_Dispatcher::register();    // M6.W13+W14 — scenario branches + reminder reaper
 

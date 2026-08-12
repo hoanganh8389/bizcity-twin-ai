@@ -43,6 +43,8 @@ final class BizCity_CRM_Woo_Customer_Bridge {
 		add_action( 'user_register',                array( __CLASS__, 'on_user_register' ),  20, 1 );
 		add_action( 'profile_update',               array( __CLASS__, 'on_profile_update' ), 20, 2 );
 		add_action( 'woocommerce_update_customer',  array( __CLASS__, 'on_woo_customer_updated' ), 20, 1 );
+		// [2026-08-11 Johnny Chu] PHASE-CRM-CONTACTS-UNIFY-WOO-USERPOINTS — sync guest checkout billing identity into canonical Contacts.
+		add_action( 'woocommerce_checkout_order_processed', array( __CLASS__, 'on_checkout_order_processed' ), 20, 3 );
 
 		// PUSH: CRM contact save → mirror to wp_usermeta. Custom event the
 		// repository will fire (added in W3).
@@ -70,6 +72,17 @@ final class BizCity_CRM_Woo_Customer_Bridge {
 		self::sync_from_user( $user_id );
 	}
 
+	public static function on_checkout_order_processed( $order_id, $posted_data = array(), $order = null ): void {
+		// [2026-08-11 Johnny Chu] PHASE-CRM-CONTACTS-UNIFY-WOO-USERPOINTS — bridge checkout order identity into Contacts.
+		if ( self::$in_flight ) { return; }
+		if ( ! is_object( $order ) && function_exists( 'wc_get_order' ) ) {
+			$order = wc_get_order( (int) $order_id );
+		}
+		if ( is_object( $order ) ) {
+			self::sync_from_order( $order );
+		}
+	}
+
 	/**
 	 * Upsert a CRM contact row from a WP user. Match precedence:
 	 *   1. existing contact with same `wp_user_id`
@@ -93,17 +106,36 @@ final class BizCity_CRM_Woo_Customer_Bridge {
 		$billing_phone = (string) get_user_meta( $user_id, 'billing_phone', true );
 
 		$display_name = trim( ( $billing_first . ' ' . $billing_last ) ) ?: ( $user->display_name ?: $user->user_login );
-		$email        = $billing_email ?: $user->user_email;
-		$phone        = $billing_phone;
+		// [2026-08-11 Johnny Chu] PHASE-CRM-CONTACTS-UNIFY-V2 — canonicalize account email before identity lookup/write.
+		$email        = strtolower( trim( $billing_email ?: $user->user_email ) );
+		// [2026-08-11 Johnny Chu] PHASE-CRM-CONTACTS-UNIFY-WOO-USERPOINTS — normalize account phone before lookup/write.
+		$phone        = class_exists( 'BizCity_Phone_Normalizer' )
+			? BizCity_Phone_Normalizer::normalize_vn( $billing_phone )
+			: $billing_phone;
 
-		// Lookup
-		$id = (int) $wpdb->get_var( $wpdb->prepare( "SELECT id FROM `{$tbl}` WHERE wp_user_id=%d LIMIT 1", $user_id ) );
-		if ( ! $id && $email !== '' ) {
-			$id = (int) $wpdb->get_var( $wpdb->prepare( "SELECT id FROM `{$tbl}` WHERE email=%s AND (wp_user_id IS NULL OR wp_user_id=0) LIMIT 1", $email ) );
+		// [2026-08-11 Johnny Chu] PHASE-CRM-CONTACTS-UNIFY-V2 — collect every identity candidate before choosing a Contact.
+		$user_contact_ids = (array) $wpdb->get_col( $wpdb->prepare( "SELECT id FROM `{$tbl}` WHERE wp_user_id=%d AND deleted_at IS NULL ORDER BY id ASC", $user_id ) );
+		$email_contact_ids = $email !== ''
+			? (array) $wpdb->get_col( $wpdb->prepare( "SELECT id FROM `{$tbl}` WHERE email=%s AND deleted_at IS NULL ORDER BY id ASC", $email ) )
+			: array();
+		$phone_contact_ids = $phone !== ''
+			? (array) $wpdb->get_col( $wpdb->prepare( "SELECT id FROM `{$tbl}` WHERE phone=%s AND deleted_at IS NULL ORDER BY id ASC", $phone ) )
+			: array();
+		$candidate_ids = array_values( array_unique( array_map( 'intval', array_merge( $user_contact_ids, $email_contact_ids, $phone_contact_ids ) ) ) );
+		if ( count( $candidate_ids ) > 1 ) {
+			// [2026-08-11 Johnny Chu] PHASE-CRM-CONTACTS-UNIFY-V2 — account identity mismatch must not overwrite an existing Contact.
+			do_action( 'bizcity_crm_contact_identity_conflict', array(
+				'source'           => 'woo_user',
+				'wp_user_id'       => $user_id,
+				'contact_ids'      => $candidate_ids,
+				'user_contact_ids' => array_map( 'intval', $user_contact_ids ),
+				'email_contact_ids'=> array_map( 'intval', $email_contact_ids ),
+				'phone_contact_ids'=> array_map( 'intval', $phone_contact_ids ),
+				'reason'           => 'identity_candidate_mismatch',
+			) );
+			return 0;
 		}
-		if ( ! $id && $phone !== '' ) {
-			$id = (int) $wpdb->get_var( $wpdb->prepare( "SELECT id FROM `{$tbl}` WHERE phone=%s AND (wp_user_id IS NULL OR wp_user_id=0) LIMIT 1", $phone ) );
-		}
+		$id = (int) ( $candidate_ids[0] ?? 0 );
 
 		// Build a billing snapshot we stash inside additional_attributes.billing
 		$billing = self::collect_meta( $user_id, 'billing_' );
@@ -147,6 +179,121 @@ final class BizCity_CRM_Woo_Customer_Bridge {
 			'wp_user_id'  => $user_id,
 		) );
 
+		return $id;
+	}
+
+	/**
+	 * Upsert a Woo order billing identity, including guest checkout customers.
+	 *
+	 * @param object $order WC_Order-compatible object.
+	 * @return int contact_id (0 on failure).
+	 */
+	public static function sync_from_order( $order ): int {
+		// [2026-08-11 Johnny Chu] PHASE-CRM-CONTACTS-UNIFY-WOO-USERPOINTS — upsert account/guest order identity through one path.
+		if ( self::$in_flight || ! is_object( $order ) || ! method_exists( $order, 'get_billing_email' ) ) {
+			return 0;
+		}
+
+		$order_id = method_exists( $order, 'get_id' ) ? (int) $order->get_id() : 0;
+		$user_id  = method_exists( $order, 'get_customer_id' ) ? (int) $order->get_customer_id() : 0;
+		if ( $user_id > 0 ) {
+			$id = self::sync_from_user( $user_id );
+			if ( $id > 0 ) {
+				do_action( 'bizcity_crm_contact_synced_from_woo_order', array( 'order_id' => $order_id, 'contact_id' => $id, 'match_method' => 'user_id' ) );
+				return $id;
+			}
+		}
+
+		global $wpdb;
+		$tbl       = BizCity_CRM_DB_Installer_V2::tbl_contacts();
+		$email     = strtolower( trim( (string) $order->get_billing_email() ) );
+		$raw_phone = method_exists( $order, 'get_billing_phone' ) ? (string) $order->get_billing_phone() : '';
+		$phone     = class_exists( 'BizCity_Phone_Normalizer' )
+			? BizCity_Phone_Normalizer::normalize_vn( $raw_phone )
+			: $raw_phone;
+		$first     = method_exists( $order, 'get_billing_first_name' ) ? trim( (string) $order->get_billing_first_name() ) : '';
+		$last      = method_exists( $order, 'get_billing_last_name' ) ? trim( (string) $order->get_billing_last_name() ) : '';
+		$name      = trim( $first . ' ' . $last );
+		if ( $email === '' && $phone === '' ) { return 0; }
+
+		$id = 0;
+		$match_method = '';
+		$email_id = 0;
+		$phone_id = 0;
+		if ( $email !== '' ) {
+			$email_id = (int) $wpdb->get_var( $wpdb->prepare( "SELECT id FROM `{$tbl}` WHERE email=%s ORDER BY (wp_user_id IS NULL), id ASC LIMIT 1", $email ) );
+		}
+		if ( $phone !== '' ) {
+			$phone_id = (int) $wpdb->get_var( $wpdb->prepare( "SELECT id FROM `{$tbl}` WHERE phone=%s ORDER BY (wp_user_id IS NULL), id ASC LIMIT 1", $phone ) );
+		}
+		// [2026-08-11 Johnny Chu] R-UNIFY — refuse ambiguous guest identity instead of silently merging email and phone matches.
+		if ( $email_id > 0 && $phone_id > 0 && $email_id !== $phone_id ) {
+			do_action( 'bizcity_crm_contact_identity_conflict', array(
+				'source'           => 'woo_order',
+				'order_id'         => $order_id,
+				'email_contact_id' => $email_id,
+				'phone_contact_id'  => $phone_id,
+				'reason'           => 'email_phone_contact_mismatch',
+			) );
+			return 0;
+		}
+		if ( $email_id > 0 ) {
+			$id = $email_id;
+			$match_method = 'email';
+		} elseif ( $phone_id > 0 ) {
+			$id = $phone_id;
+			$match_method = 'phone';
+		}
+
+		$now = current_time( 'mysql' );
+		$attrs = array(
+			'woo' => array(
+				'latest_order_id' => $order_id,
+				'last_seen_at'    => $now,
+			),
+		);
+		self::$in_flight = true;
+		try {
+			if ( $id > 0 ) {
+				$existing = $wpdb->get_row( $wpdb->prepare( "SELECT name, additional_attributes FROM `{$tbl}` WHERE id=%d", $id ), ARRAY_A );
+				$existing_attrs = (array) json_decode( (string) ( $existing['additional_attributes'] ?? '' ), true );
+				$existing_attrs['woo'] = array_merge( (array) ( $existing_attrs['woo'] ?? array() ), $attrs['woo'] );
+				$update = array(
+					'additional_attributes' => wp_json_encode( $existing_attrs ),
+					'updated_at'            => $now,
+				);
+				if ( $user_id > 0 ) { $update['wp_user_id'] = $user_id; }
+				if ( $email !== '' ) { $update['email'] = $email; }
+				if ( $phone !== '' ) { $update['phone'] = $phone; }
+				if ( $name !== '' && empty( $existing['name'] ) ) { $update['name'] = $name; }
+				$wpdb->update( $tbl, $update, array( 'id' => $id ) );
+			} else {
+				$wpdb->insert( $tbl, array(
+					'wp_user_id'            => $user_id > 0 ? $user_id : null,
+					'name'                  => $name,
+					'email'                 => $email !== '' ? $email : null,
+					'phone'                 => $phone !== '' ? $phone : null,
+					'acquisition_source'    => 'woo_order',
+					'acquisition_meta_json' => wp_json_encode( array( 'order_id' => $order_id ) ),
+					'additional_attributes' => wp_json_encode( $attrs ),
+					'created_at'            => $now,
+					'updated_at'            => $now,
+				) );
+				$id = (int) $wpdb->insert_id;
+				$match_method = 'insert';
+			}
+		} finally {
+			self::$in_flight = false;
+		}
+
+		if ( $id > 0 ) {
+			do_action( 'bizcity_crm_contact_synced_from_woo_order', array(
+				'order_id' => $order_id,
+				'contact_id' => $id,
+				'match_method' => $match_method,
+				'wp_user_id' => $user_id,
+			) );
+		}
 		return $id;
 	}
 
@@ -214,42 +361,7 @@ final class BizCity_CRM_Woo_Customer_Bridge {
 	 * @return int contact_id (0 if no match — caller may insert a guest contact).
 	 */
 	public static function resolve_contact_for_order( $order ): int {
-		if ( ! is_object( $order ) || ! method_exists( $order, 'get_customer_id' ) ) { return 0; }
-		global $wpdb;
-		$tbl = BizCity_CRM_DB_Installer_V2::tbl_contacts();
-
-		$user_id = (int) $order->get_customer_id();
-		if ( $user_id > 0 ) {
-			$id = (int) $wpdb->get_var( $wpdb->prepare( "SELECT id FROM `{$tbl}` WHERE wp_user_id=%d LIMIT 1", $user_id ) );
-			if ( $id ) {
-				do_action( 'bizcity_crm_contact_woo_link_resolved', array( 'order_id' => $order->get_id(), 'contact_id' => $id, 'match_method' => 'user_id' ) );
-				return $id;
-			}
-			// Auto-create from user.
-			$id = self::sync_from_user( $user_id );
-			if ( $id ) {
-				do_action( 'bizcity_crm_contact_woo_link_resolved', array( 'order_id' => $order->get_id(), 'contact_id' => $id, 'match_method' => 'user_id_synced' ) );
-				return $id;
-			}
-		}
-
-		$email = (string) $order->get_billing_email();
-		if ( $email !== '' ) {
-			$id = (int) $wpdb->get_var( $wpdb->prepare( "SELECT id FROM `{$tbl}` WHERE email=%s LIMIT 1", $email ) );
-			if ( $id ) {
-				do_action( 'bizcity_crm_contact_woo_link_resolved', array( 'order_id' => $order->get_id(), 'contact_id' => $id, 'match_method' => 'email' ) );
-				return $id;
-			}
-		}
-		$phone = (string) $order->get_billing_phone();
-		if ( $phone !== '' ) {
-			$id = (int) $wpdb->get_var( $wpdb->prepare( "SELECT id FROM `{$tbl}` WHERE phone=%s LIMIT 1", $phone ) );
-			if ( $id ) {
-				do_action( 'bizcity_crm_contact_woo_link_resolved', array( 'order_id' => $order->get_id(), 'contact_id' => $id, 'match_method' => 'phone' ) );
-				return $id;
-			}
-		}
-
-		return 0;
+		// [2026-08-11 Johnny Chu] PHASE-CRM-CONTACTS-UNIFY-WOO-USERPOINTS — use the same normalized order upsert for lookup and guest creation.
+		return self::sync_from_order( $order );
 	}
 }

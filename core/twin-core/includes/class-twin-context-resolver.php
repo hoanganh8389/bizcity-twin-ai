@@ -47,6 +47,17 @@ class BizCity_Twin_Context_Resolver {
     public static function build_prompt_bundle( string $mode, array $ctx = [] ): array {
         $mode = $mode ?: 'chat';
 
+        // [2026-08-10 Johnny Chu] PHASE-1.23-CANONICAL-W4 - trace the real
+        // TwinCore boundary with safe metadata; prompt content stays excluded.
+        $runtime_span_id = class_exists( 'BizCity_Twin_Trace' )
+            ? BizCity_Twin_Trace::runtime_enter( 'twincore', 'build_prompt_bundle', array(
+                'mode'            => $mode,
+                'platform_type'   => (string) ( $ctx['platform_type'] ?? '' ),
+                'engine_result_keys' => is_array( $ctx['engine_result'] ?? null ) ? array_keys( $ctx['engine_result'] ) : [],
+                'image_count'     => is_array( $ctx['images'] ?? null ) ? count( $ctx['images'] ) : 0,
+            ) )
+            : '';
+
         $user_id        = (int) ( $ctx['user_id'] ?? 0 );
         $session_id     = (string) ( $ctx['session_id'] ?? '' );
         $message        = (string) ( $ctx['message'] ?? '' );
@@ -192,6 +203,14 @@ class BizCity_Twin_Context_Resolver {
         // Bootstrap hook (bizcity_system_prompt_built @10) already handles it.
         // Duplicate call was no-op (safe) but confusing.
 
+        if ( $runtime_span_id !== '' && class_exists( 'BizCity_Twin_Trace' ) ) {
+            BizCity_Twin_Trace::runtime_exit( $runtime_span_id, 'pass', array(
+                'profile_context'   => $profile_context !== '',
+                'transit_context'   => $transit_context !== '',
+                'knowledge_context' => $knowledge_context !== '',
+                'system_length'     => strlen( $system_content ),
+            ) );
+        }
         return $bundle;
     }
 

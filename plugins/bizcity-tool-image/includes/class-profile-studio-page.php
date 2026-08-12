@@ -241,10 +241,12 @@ class BizCity_Profile_Studio_Page {
         $prompt        = isset( $_POST['prompt'] )         ? sanitize_textarea_field( $_POST['prompt'] ) : '';
 
         if ( empty( $source_url ) ) {
-            wp_send_json_error( array( 'message' => 'Vui lòng tải lên ảnh của bạn.' ) );
+            // [2026-08-10 Johnny Chu] R-ERROR-UX — standardize profile source-image validation.
+            wp_send_json_error( BizCity_Error_Payload::make( 'invalid_param', 'Thiếu ảnh nguồn.', 'Tải ảnh của bạn lên rồi thử lại.', 'image_upload_required' ) );
         }
         if ( empty( $reference_url ) && $tool !== 'free-prompt' ) {
-            wp_send_json_error( array( 'message' => 'Vui lòng chọn ảnh phong cách mẫu.' ) );
+            // [2026-08-10 Johnny Chu] R-ERROR-UX — standardize profile reference-image validation.
+            wp_send_json_error( BizCity_Error_Payload::make( 'invalid_param', 'Thiếu ảnh phong cách mẫu.', 'Chọn ảnh mẫu rồi thử lại.', 'image_reference_required' ) );
         }
         if ( $count < 1 || $count > 4 ) {
             $count = 1;
@@ -265,7 +267,8 @@ class BizCity_Profile_Studio_Page {
         $result = self::dispatch_generation( $params );
 
         if ( is_wp_error( $result ) ) {
-            wp_send_json_error( array( 'message' => $result->get_error_message() ) );
+            // [2026-08-10 Johnny Chu] R-ERROR-UX — hide dispatch/provider internals from profile users.
+            wp_send_json_error( BizCity_Error_Payload::make( 'gateway_degraded', 'Dịch vụ xử lý ảnh tạm thời không khả dụng.', 'Thử lại sau vài phút.', 'gateway_degraded' ) );
         }
 
         wp_send_json_success( $result );
@@ -328,7 +331,7 @@ class BizCity_Profile_Studio_Page {
         check_ajax_referer( 'bztimg_nonce', 'nonce' );
 
         if ( empty( $_FILES['image'] ) ) {
-            wp_send_json_error( array( 'message' => 'No file uploaded.' ) );
+            wp_send_json_error( BizCity_Error_Payload::make( 'invalid_param', 'Chưa nhận được file ảnh.', 'Chọn một file ảnh rồi thử lại.', 'image_upload_required' ) );
         }
 
         require_once ABSPATH . 'wp-admin/includes/image.php';
@@ -338,7 +341,7 @@ class BizCity_Profile_Studio_Page {
         $attachment_id = media_handle_upload( 'image', 0 );
 
         if ( is_wp_error( $attachment_id ) ) {
-            wp_send_json_error( array( 'message' => $attachment_id->get_error_message() ) );
+            wp_send_json_error( BizCity_Error_Payload::make( 'upload_rejected', 'Không thể tải ảnh lên thư viện Media.', 'Kiểm tra định dạng và dung lượng ảnh rồi thử lại.', 'image_upload_retry', array( 'wp_error_code' => $attachment_id->get_error_code() ) ) );
         }
 
         $url = wp_get_attachment_url( $attachment_id );
@@ -390,13 +393,13 @@ class BizCity_Profile_Studio_Page {
         $raw_ids = isset( $_GET['job_ids'] ) ? sanitize_text_field( $_GET['job_ids'] ) : '';
 
         if ( empty( $raw_ids ) ) {
-            wp_send_json_error( array( 'message' => 'No job IDs provided.' ) );
+            wp_send_json_error( BizCity_Error_Payload::make( 'invalid_param', 'Thiếu mã tác vụ ảnh.', 'Chọn tác vụ rồi thử lại.', 'image_job_not_found' ) );
         }
 
         // Parse and validate IDs
         $ids = array_filter( array_map( 'absint', explode( ',', $raw_ids ) ) );
         if ( empty( $ids ) ) {
-            wp_send_json_error( array( 'message' => 'Invalid job IDs.' ) );
+            wp_send_json_error( BizCity_Error_Payload::make( 'invalid_param', 'Mã tác vụ ảnh không hợp lệ.', 'Tải lại danh sách tác vụ rồi thử lại.', 'image_job_not_found' ) );
         }
 
         global $wpdb;
@@ -578,7 +581,7 @@ class BizCity_Profile_Studio_Page {
         $job_id  = isset( $_POST['job_id'] ) ? absint( $_POST['job_id'] ) : 0;
 
         if ( ! $job_id ) {
-            wp_send_json_error( array( 'message' => 'Invalid job ID.' ) );
+            wp_send_json_error( BizCity_Error_Payload::make( 'invalid_param', 'Mã tác vụ ảnh không hợp lệ.', 'Chọn lại tác vụ rồi thử lại.', 'image_job_not_found' ) );
         }
 
         global $wpdb;
@@ -591,11 +594,11 @@ class BizCity_Profile_Studio_Page {
         ), ARRAY_A );
 
         if ( ! $job ) {
-            wp_send_json_error( array( 'message' => 'Job không tồn tại hoặc không thuộc về bạn.' ) );
+            wp_send_json_error( BizCity_Error_Payload::make( 'permission_denied', 'Tác vụ không tồn tại hoặc không thuộc về bạn.', 'Chọn tác vụ thuộc tài khoản hiện tại rồi thử lại.', 'image_owner_required' ) );
         }
 
         if ( $job['status'] === 'completed' ) {
-            wp_send_json_error( array( 'message' => 'Job đã hoàn tất, không cần retry.' ) );
+            wp_send_json_error( BizCity_Error_Payload::make( 'invalid_state', 'Tác vụ đã hoàn tất nên không cần thử lại.', 'Mở kết quả đã tạo hoặc tạo một tác vụ mới.', 'image_job_already_complete' ) );
         }
 
         // Reset job to pending

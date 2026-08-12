@@ -4,7 +4,13 @@
  *
  * Aggregates revenue / orders / customers from WooCommerce so the CRM
  * dashboard can show real numbers instead of demo placeholders. Output
- * is cached in transients (5 min default) to keep dashboard widgets cheap.
+ * is cached for 5 minutes to keep dashboard widgets cheap.
+ *
+ * Cache Contract (R-CACHE):
+ *   group: bzcrw
+ *   keys: report_revenue_{args_hash}, report_campaign_{args_hash},
+ *         report_top_customers_{args_hash}, report_trend_{blog_id}_{months}
+ *   invalidations: Woo order create/status/refund flushes the group.
  *
  * All methods are no-ops (return zeros) when WooCommerce is not active —
  * callers must NOT special-case absence; just render the zero-state.
@@ -21,6 +27,7 @@ final class BizCity_CRM_Woo_Reports_Bridge {
 
 	const CACHE_TTL    = 300; // 5 min.
 	const CACHE_PREFIX = 'bizcity_crm_reports_woo_v1_';
+	const CACHE_GROUP  = 'bzcrw';
 
 	/** Statuses considered "revenue-bearing" for gross calculations. */
 	const PAID_STATUSES = array( 'wc-processing', 'wc-completed', 'wc-on-hold' );
@@ -33,9 +40,10 @@ final class BizCity_CRM_Woo_Reports_Bridge {
 	}
 
 	public static function flush_cache(): void {
-		// Cheap approach: bump the prefix version via option. For now we just
-		// rely on TTL (5 min) and skip the bump to avoid a global wpdb scan.
-		// Hook left in place for future targeted invalidation.
+		// [2026-08-11 Johnny Chu] R-CACHE — invalidate all Woo report reads after order mutations.
+		if ( class_exists( 'BizCity_Cache' ) ) {
+			BizCity_Cache::flush_group( self::CACHE_GROUP );
+		}
 		do_action( 'bizcity_crm_reports_cache_refreshed', array(
 			'bucket'      => 'woo',
 			'duration_ms' => 0,
@@ -56,7 +64,7 @@ final class BizCity_CRM_Woo_Reports_Bridge {
 	public static function get_revenue_summary( $from, $to ): array {
 		$range = self::normalize_range( $from, $to );
 		$key   = self::cache_key( 'revenue', $range );
-		$hit   = get_transient( $key );
+		$hit   = self::cache_get( $key );
 		if ( is_array( $hit ) ) { return $hit; }
 
 		$started = microtime( true );
@@ -73,7 +81,7 @@ final class BizCity_CRM_Woo_Reports_Bridge {
 		);
 
 		if ( ! self::woo_ready() ) {
-			set_transient( $key, $out, self::CACHE_TTL );
+			self::cache_set( $key, $out );
 			return $out;
 		}
 
@@ -99,7 +107,7 @@ final class BizCity_CRM_Woo_Reports_Bridge {
 		$out['net'] = max( 0.0, $out['gross'] - $out['refunds'] );
 		$out['aov'] = $out['order_count'] > 0 ? round( $out['net'] / $out['order_count'], 2 ) : 0.0;
 
-		set_transient( $key, $out, self::CACHE_TTL );
+		self::cache_set( $key, $out );
 
 		do_action( 'bizcity_crm_reports_cache_refreshed', array(
 			'bucket'      => 'revenue',
@@ -118,12 +126,12 @@ final class BizCity_CRM_Woo_Reports_Bridge {
 	public static function get_revenue_by_campaign( $from, $to ): array {
 		$range = self::normalize_range( $from, $to );
 		$key   = self::cache_key( 'campaign', $range );
-		$hit   = get_transient( $key );
+		$hit   = self::cache_get( $key );
 		if ( is_array( $hit ) ) { return $hit; }
 
 		$out = array();
 		if ( ! self::woo_ready() ) {
-			set_transient( $key, $out, self::CACHE_TTL );
+			self::cache_set( $key, $out );
 			return $out;
 		}
 
@@ -159,7 +167,7 @@ final class BizCity_CRM_Woo_Reports_Bridge {
 		usort( $buckets, static fn( $a, $b ) => $b['net'] <=> $a['net'] );
 		$out = array_values( $buckets );
 
-		set_transient( $key, $out, self::CACHE_TTL );
+		self::cache_set( $key, $out );
 		return $out;
 	}
 
@@ -173,12 +181,12 @@ final class BizCity_CRM_Woo_Reports_Bridge {
 		$limit = max( 1, min( 100, $limit ) );
 		$range = self::normalize_range( $from, $to );
 		$key   = self::cache_key( 'top_customers_' . $limit, $range );
-		$hit   = get_transient( $key );
+		$hit   = self::cache_get( $key );
 		if ( is_array( $hit ) ) { return $hit; }
 
 		$out = array();
 		if ( ! self::woo_ready() ) {
-			set_transient( $key, $out, self::CACHE_TTL );
+			self::cache_set( $key, $out );
 			return $out;
 		}
 
@@ -240,7 +248,7 @@ final class BizCity_CRM_Woo_Reports_Bridge {
 		}
 		unset( $r );
 
-		set_transient( $key, $rows, self::CACHE_TTL );
+		self::cache_set( $key, $rows );
 		return $rows;
 	}
 
@@ -255,8 +263,9 @@ final class BizCity_CRM_Woo_Reports_Bridge {
 	 */
 	public static function get_revenue_trend( int $months = 6 ): array {
 		$months = max( 1, min( 24, $months ) );
-		$key    = self::CACHE_PREFIX . 'trend_' . $months;
-		$hit    = get_transient( $key );
+		$blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+		$key    = 'report_trend_' . $blog_id . '_' . $months;
+		$hit    = self::cache_get( $key );
 		if ( is_array( $hit ) ) { return $hit; }
 
 		$currency = function_exists( 'get_woocommerce_currency' ) ? get_woocommerce_currency() : 'VND';
@@ -271,7 +280,7 @@ final class BizCity_CRM_Woo_Reports_Bridge {
 		$out = array( 'months' => array_values( $buckets ), 'currency' => $currency );
 
 		if ( ! self::woo_ready() ) {
-			set_transient( $key, $out, self::CACHE_TTL );
+			self::cache_set( $key, $out );
 			return $out;
 		}
 
@@ -295,8 +304,25 @@ final class BizCity_CRM_Woo_Reports_Bridge {
 		}
 
 		$out['months'] = array_values( $buckets );
-		set_transient( $key, $out, self::CACHE_TTL );
+		self::cache_set( $key, $out );
 		return $out;
+	}
+
+	private static function cache_get( string $key ) {
+		// [2026-08-11 Johnny Chu] R-CACHE — use the canonical object-cache group, with standalone transient fallback.
+		if ( class_exists( 'BizCity_Cache' ) ) {
+			return BizCity_Cache::get( self::CACHE_GROUP, $key );
+		}
+		return get_transient( self::CACHE_PREFIX . $key );
+	}
+
+	private static function cache_set( string $key, $value ): void {
+		// [2026-08-11 Johnny Chu] R-CACHE — keep the fallback isolated when the shared helper is unavailable.
+		if ( class_exists( 'BizCity_Cache' ) ) {
+			BizCity_Cache::set( self::CACHE_GROUP, $key, $value, self::CACHE_TTL );
+			return;
+		}
+		set_transient( self::CACHE_PREFIX . $key, $value, self::CACHE_TTL );
 	}
 
 	private static function woo_ready(): bool {
@@ -319,6 +345,16 @@ final class BizCity_CRM_Woo_Reports_Bridge {
 	}
 
 	private static function cache_key( string $bucket, array $range ): string {
-		return self::CACHE_PREFIX . md5( $bucket . '|' . $range['from_ts'] . '|' . $range['to_ts'] );
+		$blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+		return 'report_' . sanitize_key( $bucket ) . '_' . md5( $blog_id . '|' . $bucket . '|' . $range['from_ts'] . '|' . $range['to_ts'] );
 	}
+}
+
+if ( class_exists( 'BizCity_Cache_Registry' ) ) {
+	BizCity_Cache_Registry::register( 'bzcrw', 'modules.twin-crm', array(
+		'report_revenue_{args_hash}'       => array( 'ttl' => BizCity_Cache::TTL_MEDIUM, 'desc' => 'Woo revenue summary by blog and date range' ),
+		'report_campaign_{args_hash}'      => array( 'ttl' => BizCity_Cache::TTL_MEDIUM, 'desc' => 'Woo campaign revenue by blog and date range' ),
+		'report_top_customers_{args_hash}' => array( 'ttl' => BizCity_Cache::TTL_MEDIUM, 'desc' => 'Woo top customers by blog, date range and limit' ),
+		'report_trend_{blog_id}_{months}'  => array( 'ttl' => BizCity_Cache::TTL_MEDIUM, 'desc' => 'Woo monthly revenue trend by blog' ),
+	) );
 }

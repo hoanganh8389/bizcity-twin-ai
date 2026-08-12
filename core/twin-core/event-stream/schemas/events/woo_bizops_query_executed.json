@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "bizcity://events/woo_bizops_query_executed.json",
+  "title": "woo_bizops_query_executed",
+  "description": "Woo BizOps query execution range and intent evidence.",
+  "type": "object",
+  "required": ["trace_id", "intent_group", "date_from", "date_to"],
+  "properties": {
+    "trace_id": { "type": "string" },
+    "intent_group": { "type": "string" },
+    "date_from": { "type": "string" },
+    "date_to": { "type": "string" }
+  },
+  "additionalProperties": true
+}

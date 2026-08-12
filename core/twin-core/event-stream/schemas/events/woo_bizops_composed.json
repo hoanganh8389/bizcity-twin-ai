@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "bizcity://events/woo_bizops_composed.json",
+  "title": "woo_bizops_composed",
+  "description": "Woo BizOps answer composition completed.",
+  "type": "object",
+  "required": ["trace_id", "intent_group", "citation_count"],
+  "properties": {
+    "trace_id": { "type": "string" },
+    "intent_group": { "type": "string" },
+    "citation_count": { "type": "integer", "minimum": 0 }
+  },
+  "additionalProperties": true
+}

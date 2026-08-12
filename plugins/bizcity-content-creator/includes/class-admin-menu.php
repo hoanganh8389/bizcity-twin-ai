@@ -21,6 +21,10 @@ class BZCC_Admin_Menu {
 	/* ── Menu ── */
 
 	public static function register_menu(): void {
+		if ( class_exists( 'BizCity_Admin_Menu', false ) ) {
+			return;
+		}
+		// [2026-08-11 Johnny Chu] PHASE-1.26 — Content Creator pages are owned by Workspace/Settings central registration.
 		add_menu_page(
 			'Dạy AI làm nội dung sáng tạo',
 			'Dạy AI làm nội dung',

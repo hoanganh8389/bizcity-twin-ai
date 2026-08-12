@@ -17,6 +17,7 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 class BizCity_TwinChat_Admin_Menu {
 
 	const PAGE_SLUG = 'bizcity-twinchat';
+	const PARENT_SLUG = 'bizcity-twin-workspace';
 
 	private static $instance = null;
 
@@ -34,23 +35,9 @@ class BizCity_TwinChat_Admin_Menu {
 	}
 
 	public function register() {
-		// 2026-06-10 — Renamed 'Twin' → 'Twin Chat' for brandname alignment.
-		add_menu_page(
-			'Twin Chat',
-			'Twin Chat',
-			'read',
-			self::PAGE_SLUG,
-			[ $this, 'render_page' ],
-			'dashicons-format-chat',
-			2
-		);
-
-		// 2026-05-06 — FIX: ensure parent's clickable URL = admin.php?page=bizcity-twinchat.
-		// WordPress auto-promotes the FIRST submenu's URL to be the parent's <a href> when
-		// the parent slug is not itself in the submenu list. Without this, the parent link
-		// inherited the slug of whichever submodule registered first.
+		// [2026-08-11 Johnny Chu] PHASE-1.26 — TwinChat is a Workspace child, not a fourth top-level group.
 		add_submenu_page(
-			self::PAGE_SLUG,
+			self::PARENT_SLUG,
 			'Twin Chat',
 			'Twin Chat',
 			'read',

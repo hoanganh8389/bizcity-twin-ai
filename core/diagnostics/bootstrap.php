@@ -98,6 +98,24 @@ if ( function_exists( 'bizcity_diagnostics_should_load_probes' )
 	require_once BIZCITY_DIAGNOSTICS_DIR . 'includes/class-diagnostics-loader-hook-panel.php';
 	BizCity_Diagnostics_Loader_Hook_Panel::init();
 }
+// [2026-08-10 Johnny Chu] PHASE-1.23-CANONICAL-W3 - queue the observe-only
+// loader trace completeness probe; it is loaded only on Diagnostics/REST/CLI.
+bizcity_diagnostics_require_probe( 'class-probe-loader-trace-completeness.php' );
+// [2026-08-10 Johnny Chu] PHASE-1.23-CANONICAL-W3 - queue the observe-only
+// canonical owner audit beside trace completeness; no loader is blocked.
+bizcity_diagnostics_require_probe( 'class-probe-loader-ownership.php' );
+// [2026-08-10 Johnny Chu] PHASE-1.23-CANONICAL-W3 - queue hook/route/cron
+// registration integrity checks; REST is skipped when no REST server exists.
+bizcity_diagnostics_require_probe( 'class-probe-loader-registration-integrity.php' );
+// [2026-08-10 Johnny Chu] PHASE-1.23-CANONICAL-W4 - queue the read-only
+// TwinCore semantic span continuity probe.
+bizcity_diagnostics_require_probe( 'class-probe-runtime-flow-continuity.php' );
+// [2026-08-10 Johnny Chu] PHASE-1.23-CANONICAL-W5 - queue opt-in cache
+// semantic trace assertion; normal requests do not emit cache spans.
+bizcity_diagnostics_require_probe( 'class-probe-cache-trace-integrity.php' );
+// [2026-08-10 Johnny Chu] PHASE-1.23-CANONICAL-W5 - queue forensic user-meta
+// trace assertion; normal requests do not register metadata filters.
+bizcity_diagnostics_require_probe( 'class-probe-user-meta-trace-integrity.php' );
 bizcity_diagnostics_require_probe( 'class-probe-kg-seeding.php' );
 // [2026-08-02 Johnny Chu] PHASE-SKILLS-JOURNAL — verify runtime skill rows
 // remain active while system-owned rows stay out of the Journal tree.
@@ -150,6 +168,10 @@ bizcity_diagnostics_require_probe( 'class-probe-twinbrain-products.php' );
 // [2026-07-16 Johnny Chu] PHASE-TWB-PRODUCTS-SOURCE-LAYER — DDV probe for
 // Layer 4.2 source-of-truth links contract (links + counters + source block).
 bizcity_diagnostics_require_probe( 'class-probe-products-source-layer.php' );
+
+// [2026-08-11 Johnny Chu] PHASE-TWB-WOO-BIZOPS — DDV for phone identity, Woo
+// BizOps REST/Engine/Action wiring and user-points contact projection.
+bizcity_diagnostics_require_probe( 'class-probe-twinbrain-woo-bizops.php' );
 
 // Phase 0.36-UNIFIED TBR.W18 (2026-05-28) — Brain Auto-Degrade Chat probe.
 // Validate compose_chat_stream() + eligibility filters cho luồng chat tự
@@ -540,6 +562,12 @@ bizcity_diagnostics_require_probe( 'class-probe-admin-router.php' );
 bizcity_diagnostics_require_probe( 'class-probe-error-ux.php' );
 // [2026-07-30 Johnny Chu] PHASE-1.22-DDV — register the core security/reliability production contract probe.
 bizcity_diagnostics_require_probe( 'class-probe-framework-production-contract.php' );
+// [2026-08-11 Johnny Chu] PHASE-1.26-CONTRACT — register the unified admin navigation contract probe.
+bizcity_diagnostics_require_probe( 'class-probe-admin-navigation.php' );
+// [2026-08-10 Johnny Chu] PHASE-1.25-PIAPI-DDV — mock submit/poll/header contract.
+bizcity_diagnostics_require_probe( 'class-probe-piapi-image-task.php' );
+// [2026-08-10 Johnny Chu] PHASE-1.24-DDV — queue PageBuilder/Video Kling package adoption probe lazily.
+bizcity_diagnostics_require_probe( 'class-probe-framework-package-adoption.php' );
 // [2026-07-31 Johnny Chu] HOTFIX — register the read-only WP_Hook callback and shard-context integrity probe.
 bizcity_diagnostics_require_probe( 'class-probe-wp-hook-callback-integrity.php' );
 

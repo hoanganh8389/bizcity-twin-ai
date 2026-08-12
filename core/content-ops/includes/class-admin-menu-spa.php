@@ -32,31 +32,23 @@ final class BizCity_Content_Admin_SPA {
 	}
 
 	public function register_menu(): void {
-		// 2026-05-22 — Consolidated under TwinChat parent (`bizcity-twinchat`) for
-		// standalone deployments. Falls back to top-level if parent not present.
 		global $submenu;
-		$parent = ( is_array( $submenu ) && isset( $submenu['bizcity-twinchat'] ) ) ? 'bizcity-twinchat' : '';
-
-		if ( $parent ) {
-			add_submenu_page(
-				$parent,
-				__( 'Content Ops', 'bizcity-twin-ai' ),
-				__( 'Content Ops', 'bizcity-twin-ai' ),
-				'manage_options',
-				self::MENU_SLUG,
-				array( $this, 'render_page' )
-			);
-			return;
+		$parent = 'bizcity-twin-workspace';
+		// [2026-08-11 Johnny Chu] PHASE-1.26 — Content Ops is a Workspace child, never a standalone top-level menu.
+		if ( isset( $submenu[ $parent ] ) && is_array( $submenu[ $parent ] ) ) {
+			foreach ( $submenu[ $parent ] as $item ) {
+				if ( isset( $item[2] ) && $item[2] === self::MENU_SLUG ) {
+					return;
+				}
+			}
 		}
-
-		add_menu_page(
+		add_submenu_page(
+			$parent,
 			__( 'Content Ops', 'bizcity-twin-ai' ),
 			__( 'Content Ops', 'bizcity-twin-ai' ),
 			'manage_options',
 			self::MENU_SLUG,
-			array( $this, 'render_page' ),
-			'dashicons-megaphone',
-			32
+			array( $this, 'render_page' )
 		);
 	}
 

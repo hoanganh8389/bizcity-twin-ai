@@ -173,6 +173,10 @@ class BizCity_CRM_Repository {
 	 * Returns assoc array {contact_id, contact_inbox_id}.
 	 */
 	public static function upsert_contact( int $inbox_id, string $source_id, array $contact_data = array() ): array {
+		// [2026-08-11 Johnny Chu] PHASE-CRM-CONTACTS-UNIFY-WOO-USERPOINTS — normalize phone at the canonical Contacts write boundary.
+		if ( array_key_exists( 'phone', $contact_data ) && class_exists( 'BizCity_Phone_Normalizer' ) ) {
+			$contact_data['phone'] = BizCity_Phone_Normalizer::normalize_vn( (string) $contact_data['phone'] );
+		}
 		global $wpdb;
 		$ci_tbl  = BizCity_CRM_DB_Installer_V2::tbl_contact_inboxes();
 		$ct_tbl  = BizCity_CRM_DB_Installer_V2::tbl_contacts();
@@ -293,7 +297,10 @@ class BizCity_CRM_Repository {
 	public static function resolve_wp_user_id( string $email, string $phone ): int {
 		global $wpdb;
 		$email = trim( $email );
-		$phone = trim( $phone );
+		// [2026-08-11 Johnny Chu] PHASE-CRM-CONTACTS-UNIFY-WOO-USERPOINTS — normalize phone before WP billing lookup.
+		$phone = class_exists( 'BizCity_Phone_Normalizer' )
+			? BizCity_Phone_Normalizer::normalize_vn( $phone )
+			: trim( $phone );
 
 		if ( $email !== '' ) {
 			$user = get_user_by( 'email', $email );

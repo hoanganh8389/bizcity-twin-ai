@@ -1130,6 +1130,18 @@ class BizCity_LLM_Client {
         $purpose = $options['purpose'] ?? 'chat';
         $model   = $options['model'] ?? $this->get_model( $purpose );
         $start   = microtime( true );
+        // [2026-08-10 Johnny Chu] PHASE-1.23-CANONICAL-W4 - trace one LLM
+        // operation and its gateway attempts without prompt/key/provider payloads.
+        $runtime_span_id = class_exists( 'BizCity_Twin_Trace' )
+            && method_exists( 'BizCity_Twin_Trace', 'runtime_enter' )
+            ? BizCity_Twin_Trace::runtime_enter( 'llm_client', 'chat', array(
+                'mode'          => (string) $mode,
+                'purpose'       => (string) $purpose,
+                'model'         => (string) $model,
+                'message_count' => count( $messages ),
+                'option_keys'   => array_keys( $options ),
+            ) )
+            : '';
 
         $this->debug_log( 'chat() START', [
             'mode' => $mode, 'purpose' => $purpose, 'model' => $model,
@@ -1148,7 +1160,22 @@ class BizCity_LLM_Client {
             ] )
             : 0;
 
+        $gateway_span_id = class_exists( 'BizCity_Twin_Trace' )
+            && method_exists( 'BizCity_Twin_Trace', 'runtime_enter' )
+            ? BizCity_Twin_Trace::runtime_enter( 'llm_client', 'chat_gateway', array(
+                'model'   => (string) $model,
+                'purpose' => (string) $purpose,
+                'attempt' => 'primary',
+            ) )
+            : '';
         $result = $this->chat_gateway( $messages, $options );
+        if ( $gateway_span_id !== '' ) {
+            BizCity_Twin_Trace::runtime_exit( $gateway_span_id, ! empty( $result['success'] ) ? 'pass' : 'fail', array(
+                'attempt'       => 'primary',
+                'success'       => ! empty( $result['success'] ),
+                'quota_exhausted' => ! empty( $result['quota_exhausted'] ),
+            ) );
+        }
 
         // ── Client-side fallback: retry with fallback model on failure ──
         $no_fallback    = ! empty( $options['no_fallback'] ) || ! empty( $options['_is_fallback'] );
@@ -1177,7 +1204,21 @@ class BizCity_LLM_Client {
                 $fallback_options                = $options;
                 $fallback_options['model']       = $fallback_model;
                 $fallback_options['_is_fallback'] = true;
+                $fallback_span_id = class_exists( 'BizCity_Twin_Trace' )
+                    && method_exists( 'BizCity_Twin_Trace', 'runtime_enter' )
+                    ? BizCity_Twin_Trace::runtime_enter( 'llm_client', 'chat_gateway', array(
+                        'model'   => (string) $fallback_model,
+                        'purpose' => (string) $purpose,
+                        'attempt' => 'fallback',
+                    ) )
+                    : '';
                 $fallback_result = $this->chat_gateway( $messages, $fallback_options );
+                if ( $fallback_span_id !== '' ) {
+                    BizCity_Twin_Trace::runtime_exit( $fallback_span_id, ! empty( $fallback_result['success'] ) ? 'pass' : 'fail', array(
+                        'attempt' => 'fallback',
+                        'success' => ! empty( $fallback_result['success'] ),
+                    ) );
+                }
 
                 if ( ! empty( $fallback_result['success'] ) ) {
                     $fallback_result['fallback_used'] = true;
@@ -1207,6 +1248,15 @@ class BizCity_LLM_Client {
 
         $this->log_usage( $result, $options, 'chat', $model, $ms, $_llm_pending_id );
 
+        if ( $runtime_span_id !== '' ) {
+            BizCity_Twin_Trace::runtime_exit( $runtime_span_id, ! empty( $result['success'] ) ? 'pass' : 'fail', array(
+                'success'       => ! empty( $result['success'] ),
+                'fallback_used' => ! empty( $result['fallback_used'] ),
+                'provider'      => (string) ( $result['provider'] ?? '' ),
+                'elapsed_ms'    => $ms,
+            ) );
+        }
+
         return $result;
     }
 
@@ -1223,6 +1273,18 @@ class BizCity_LLM_Client {
         $purpose = $options['purpose'] ?? 'chat';
         $model   = $options['model'] ?? $this->get_model( $purpose );
         $start   = microtime( true );
+        // [2026-08-10 Johnny Chu] PHASE-1.23-CANONICAL-W4 - mirror blocking
+        // chat trace for stream primary/fallback attempts without payload logging.
+        $runtime_span_id = class_exists( 'BizCity_Twin_Trace' )
+            && method_exists( 'BizCity_Twin_Trace', 'runtime_enter' )
+            ? BizCity_Twin_Trace::runtime_enter( 'llm_client', 'chat_stream', array(
+                'mode'          => (string) $mode,
+                'purpose'       => (string) $purpose,
+                'model'         => (string) $model,
+                'message_count' => count( $messages ),
+                'option_keys'   => array_keys( $options ),
+            ) )
+            : '';
 
         $this->debug_log( 'chat_stream() START', [
             'mode' => $mode, 'purpose' => $purpose, 'model' => $model,
@@ -1240,7 +1302,22 @@ class BizCity_LLM_Client {
             ] )
             : 0;
 
+        $gateway_span_id = class_exists( 'BizCity_Twin_Trace' )
+            && method_exists( 'BizCity_Twin_Trace', 'runtime_enter' )
+            ? BizCity_Twin_Trace::runtime_enter( 'llm_client', 'chat_stream_gateway', array(
+                'model'   => (string) $model,
+                'purpose' => (string) $purpose,
+                'attempt' => 'primary',
+            ) )
+            : '';
         $result = $this->chat_stream_gateway( $messages, $options, $on_chunk );
+        if ( $gateway_span_id !== '' ) {
+            BizCity_Twin_Trace::runtime_exit( $gateway_span_id, ! empty( $result['success'] ) ? 'pass' : 'fail', array(
+                'attempt'         => 'primary',
+                'success'         => ! empty( $result['success'] ),
+                'quota_exhausted' => ! empty( $result['quota_exhausted'] ),
+            ) );
+        }
 
         // ── Client-side fallback: retry with fallback model on failure ──
         $no_fallback    = ! empty( $options['no_fallback'] ) || ! empty( $options['_is_fallback'] );
@@ -1259,7 +1336,21 @@ class BizCity_LLM_Client {
                 $fallback_options                = $options;
                 $fallback_options['model']       = $fallback_model;
                 $fallback_options['_is_fallback'] = true;
+                $fallback_span_id = class_exists( 'BizCity_Twin_Trace' )
+                    && method_exists( 'BizCity_Twin_Trace', 'runtime_enter' )
+                    ? BizCity_Twin_Trace::runtime_enter( 'llm_client', 'chat_stream_gateway', array(
+                        'model'   => (string) $fallback_model,
+                        'purpose' => (string) $purpose,
+                        'attempt' => 'fallback',
+                    ) )
+                    : '';
                 $fallback_result = $this->chat_stream_gateway( $messages, $fallback_options, $on_chunk );
+                if ( $fallback_span_id !== '' ) {
+                    BizCity_Twin_Trace::runtime_exit( $fallback_span_id, ! empty( $fallback_result['success'] ) ? 'pass' : 'fail', array(
+                        'attempt' => 'fallback',
+                        'success' => ! empty( $fallback_result['success'] ),
+                    ) );
+                }
 
                 if ( ! empty( $fallback_result['success'] ) ) {
                     $fallback_result['fallback_used'] = true;
@@ -1276,6 +1367,15 @@ class BizCity_LLM_Client {
         ] );
 
         $this->log_usage( $result, $options, 'stream', $model, $ms, $_llm_pending_id );
+
+        if ( $runtime_span_id !== '' ) {
+            BizCity_Twin_Trace::runtime_exit( $runtime_span_id, ! empty( $result['success'] ) ? 'pass' : 'fail', array(
+                'success'       => ! empty( $result['success'] ),
+                'fallback_used' => ! empty( $result['fallback_used'] ),
+                'provider'      => (string) ( $result['provider'] ?? '' ),
+                'elapsed_ms'    => $ms,
+            ) );
+        }
 
         return $result;
     }

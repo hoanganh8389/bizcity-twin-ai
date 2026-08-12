@@ -35,16 +35,6 @@ class WaicAction_kl_poll_status extends WaicAction {
                 'label' => __('Tên Node', 'bizcity-video-kling'),
                 'default' => 'Poll Status Kling',
             ],
-            'api_key' => [
-                'type' => 'input',
-                'label' => __('API Key', 'bizcity-video-kling'),
-                'default' => '',
-            ],
-            'endpoint' => [
-                'type' => 'input',
-                'label' => __('API Endpoint', 'bizcity-video-kling'),
-                'default' => 'https://api.piapi.ai/api/v1',
-            ],
             'job_id' => [
                 'type' => 'input',
                 'label' => __('Job ID', 'bizcity-video-kling'),
@@ -97,16 +87,6 @@ class WaicAction_kl_poll_status extends WaicAction {
 
     public function getResults($taskId, $variables, $step = 0) {
         // Get settings with variable replacement
-        $api_key = trim($this->replaceVariables($this->getParam('api_key'), $variables));
-        if (empty($api_key)) {
-            $api_key = get_option('bizcity_video_kling_api_key', '');
-        }
-        
-        $endpoint = trim($this->replaceVariables($this->getParam('endpoint'), $variables));
-        if (empty($endpoint)) {
-            $endpoint = get_option('bizcity_video_kling_endpoint', 'https://api.piapi.ai/api/v1');
-        }
-
         $job_id = trim($this->replaceVariables($this->getParam('job_id'), $variables));
         
         if (empty($job_id)) {
@@ -122,8 +102,6 @@ class WaicAction_kl_poll_status extends WaicAction {
         $max_wait = max(60, (int)$this->getParam('max_wait_seconds', 900));
 
         $s = array(
-            'api_key'  => $api_key,
-            'endpoint' => $endpoint,
             'timeout'  => 60,
         );
 

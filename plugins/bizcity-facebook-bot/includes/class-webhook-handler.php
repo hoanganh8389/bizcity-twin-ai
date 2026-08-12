@@ -357,6 +357,7 @@ class BizCity_Facebook_Bot_Webhook_Handler {
 			'timestamp' => time() * 1000,
 			'page_id'   => $page_id,
 			'event'     => $input_data,
+			'mid'       => $message_id,
 			// [2026-07-16 Johnny Chu] PHASE-TWINWEB W6 R-ZONE — Zone 1 discriminator on FB inbound emitter.
 			'platform'  => 'MESSENGER',
 			'code'      => 'messenger',
@@ -367,8 +368,10 @@ class BizCity_Facebook_Bot_Webhook_Handler {
 		// Filter cho phép workflow báo hiệu đã xử lý message
 		$workflow_handled = apply_filters( 'bizcity_facebook_workflow_handle_message', false, $trigger_data, $input_data );
 		
-		do_action( 'waic_twf_process_flow', 'bizcity_facebook_message_received', $trigger_data );
-		$this->log_info( 'Fired waic_twf_process_flow trigger: bizcity_facebook_message_received' );
+		// [2026-08-09 Johnny Chu] R-CH-UNI — emit directly through the canonical UCL adapter.
+		if ( class_exists( 'BizCity_Universal_Channel_Listener' ) ) {
+			BizCity_Universal_Channel_Listener::on_trigger( 'bizcity_facebook_message_received', $trigger_data );
+		}
 		
 		// 2. Nếu workflow đã xử lý, không cần gọi bizgpt_chatbot_run_guest_flows
 		if ( $workflow_handled ) {
@@ -466,48 +469,9 @@ class BizCity_Facebook_Bot_Webhook_Handler {
            // 'platform_type'  => 'FB_MESS',
 		) );
 		
-		// Process with GPT Vision if functions exist
-		$api_key = get_option( 'twf_openai_api_key' );
-		
-		if ( function_exists( 'send_chatbot_chatgpt_upload_files' ) && function_exists( 'chatbot_chatgpt_custom_gpt_call_api' ) && ! empty( $api_key ) ) {
-			$this->log_info( 'Processing image with GPT Vision' );
-			
-			$blog_info = get_blog_details( get_current_blog_id() );
-			$facebook_access_token = esc_attr( get_option( 'twf_facebook_access_token', '' ) );
-			$facebook_page_id = esc_attr( get_option( 'twf_facebook_page_id', '' ) );
-			
-			$img_response = send_chatbot_chatgpt_upload_files( $img_url, $api_key, $facebook_page_id, $facebook_access_token );
-			$file_id = $img_response['id'] ?? '';
-			$file_type = 'vision';
-			$file_ids = array();
-			$file_ids[] = $file_id;
-			$file_ids[ $file_id ] = $file_type;
-			
-			$assistant_id = 'asst_O85cidOL5HdRvUaSOETinlEE';
-			$message = 'Ảnh gì đây: ' . $file_id;
-			$client_context = '';
-			$thread_id = '';
-			$session_id = '';
-			$user_id = 0;
-			
-			$response = chatbot_chatgpt_custom_gpt_call_api( $api_key, $client_context . $message, $assistant_id, $thread_id, $session_id, $user_id, $page_id, $file_ids );
-			
-			if ( ! empty( $response ) ) {
-				fb_messenger_reply( $page_id, $client_id, 'AI: ' . $response );
-				
-				// Save GPT Vision reply to inbox
-				$db->save_inbox_message( array(
-					'bot_id'       => $bot_id,
-					'client_id'    => $client_id,
-					'client_name'  => '',
-					'page_id'      => $page_id,
-					'message_id'   => '',
-					'message_text' => 'AI: ' . $response,
-					'message_type' => 'text',
-					'sender_type'  => 'bot',
-				) );
-			}
-		}
+		// [2026-08-09 Johnny Chu] R-GW-8 — the image event now flows through
+		// the canonical UCL/CRM pipeline; remove the legacy raw-key GPT Vision
+		// branch to prevent a second unscoped AI reply.
 		
 		// Fire workflow trigger for automation
 		$bot_id = $this->get_bot_id_by_page( $page_id );
@@ -524,8 +488,10 @@ class BizCity_Facebook_Bot_Webhook_Handler {
 			'event_subtype' => 'messenger',
 			'legacy_platform' => 'FB_MESS',
 		);
-		do_action( 'waic_twf_process_flow', 'bizcity_facebook_image_received', $trigger_data );
-		$this->log_info( 'Fired waic_twf_process_flow trigger: bizcity_facebook_image_received' );
+		// [2026-08-09 Johnny Chu] R-CH-UNI — emit image events through the canonical UCL adapter.
+		if ( class_exists( 'BizCity_Universal_Channel_Listener' ) ) {
+			BizCity_Universal_Channel_Listener::on_trigger( 'bizcity_facebook_image_received', $trigger_data );
+		}
 		
 		$this->log_info( '=== HANDLE IMAGE END ===' );
 	}
@@ -768,8 +734,10 @@ class BizCity_Facebook_Bot_Webhook_Handler {
 			'event_subtype' => 'feed',
 			'legacy_platform' => 'FB_FEED',
 		);
-		do_action( 'waic_twf_process_flow', 'bizcity_facebook_comment_received', $trigger_data );
-		$this->log_info( 'Fired waic_twf_process_flow trigger: bizcity_facebook_comment_received' );
+		// [2026-08-09 Johnny Chu] R-CH-UNI — emit comment events through the canonical UCL adapter.
+		if ( class_exists( 'BizCity_Universal_Channel_Listener' ) ) {
+			BizCity_Universal_Channel_Listener::on_trigger( 'bizcity_facebook_comment_received', $trigger_data );
+		}
 		
 		$this->log_info( '=== HANDLE COMMENT END ===' );
 	}

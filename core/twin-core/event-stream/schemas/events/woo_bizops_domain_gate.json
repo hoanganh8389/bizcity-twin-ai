@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "bizcity://events/woo_bizops_domain_gate.json",
+  "title": "woo_bizops_domain_gate",
+  "description": "Admin capability/domain gate result for Woo BizOps.",
+  "type": "object",
+  "required": ["trace_id", "allowed"],
+  "properties": {
+    "trace_id": { "type": "string" },
+    "allowed": { "type": "boolean" }
+  },
+  "additionalProperties": true
+}

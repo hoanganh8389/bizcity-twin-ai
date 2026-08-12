@@ -1,7 +1,7 @@
 <?php
 /**
  * Kling API Helper Functions
- * Support: PiAPI Gateway (https://piapi.ai)
+ * Transport: BizCity_Video_Client only
  * 
  * Provides:
  * - Create video generation task
@@ -38,143 +38,27 @@ function waic_kling_log($msg, $data = null) {
  * @return array Config array with 'mode' = 'direct' | 'gateway'
  */
 function waic_kling_get_api_config(array $settings = []): array {
-    $api_key = ! empty( $settings['api_key'] )
-        ? trim( $settings['api_key'] )
-        : get_option( 'bizcity_video_kling_api_key', '' );
-
-    // Fallback to constant
-    if ( empty( $api_key ) && defined( 'BIZCITY_KLING_API_KEY' ) ) {
-        $api_key = BIZCITY_KLING_API_KEY;
-    }
-
-    // Direct PiAPI mode
-    if ( ! empty( $api_key ) ) {
-        $endpoint = ! empty( $settings['endpoint'] )
-            ? trim( $settings['endpoint'] )
-            : get_option( 'bizcity_video_kling_endpoint', 'https://api.piapi.ai/api/v1' );
-
-        return apply_filters( 'waic_kling_api_config', [
-            'mode'     => 'direct',
-            'endpoint' => untrailingslashit( $endpoint ),
-            'api_key'  => $api_key,
-            'timeout'  => ! empty( $settings['timeout'] ) ? (int) $settings['timeout'] : 60,
-        ], $settings );
-    }
-
-    // [2026-07-27 Johnny Chu] PHASE-0.49-MASTER-CONFIG-401 — video fallback
-    // reuses the canonical normalized gateway key without changing its identity.
-    // [2026-08-09 Johnny Chu] R-1API-AUTH — gateway credentials come only from the canonical client boundary.
-    $gateway_key = class_exists( 'BizCity_LLM_Client' )
-        ? BizCity_LLM_Client::instance()->get_api_key()
-        : '';
-    if ( empty( $gateway_key ) ) {
-        $gateway_key = '';
-    }
-    $gateway_url = get_option( 'bizcity_llm_gateway_url', '' );
-    if ( empty( $gateway_url ) ) {
-        $gateway_url = '';
-    }
-
-    // Use Hub namespace (bizcity/llmhub/v1) — always available via mu-plugin bizcity-openrouter.
-    // video/router/v1 requires bizcity-llm-router plugin active, which may not be the case.
-    if ( empty( $gateway_url ) ) {
-        $gateway_url = 'https://bizcity.vn/wp-json/bizcity/llmhub/v1/video';
-    } else {
-        $gateway_url = untrailingslashit( $gateway_url );
-        // Strip any existing REST namespace suffix to get the base URL
-        $gateway_url = preg_replace( '#/wp-json/.*$#', '', $gateway_url );
-        // If it's a bare domain, just use it
-        $gateway_url = untrailingslashit( $gateway_url );
-        $gateway_url = $gateway_url . '/wp-json/bizcity/llmhub/v1/video';
-    }
-
-    return apply_filters( 'waic_kling_api_config', [
-        'mode'     => 'gateway',
-        'endpoint' => untrailingslashit( $gateway_url ),
-        'api_key'  => $gateway_key,
-        'timeout'  => ! empty( $settings['timeout'] ) ? (int) $settings['timeout'] : 60,
-    ], $settings );
+    // [2026-08-10 Johnny Chu] PHASE-1.24-VIDEO-KLING — local provider options are quarantined; wrapper owns URL/key resolution.
+    return apply_filters( 'waic_kling_api_config', array(
+        'mode'    => 'gateway',
+        'timeout' => ! empty( $settings['timeout'] ) ? (int) $settings['timeout'] : 60,
+    ), $settings );
 }
 
 /**
  * HTTP POST helper
  */
 function waic_kling_http_post(string $url, array $headers, array $body, int $timeout = 60): array {
-    // Log chỉ metadata — bỏ qua image_url / prompt dài để tránh log file phình to.
-    $log_body = $body;
-    if ( isset( $log_body['image_url'] ) )      $log_body['image_url']      = '[' . strlen( (string) $log_body['image_url'] ) . ' chars]';
-    if ( isset( $log_body['input']['image_url'] ) ) $log_body['input']['image_url'] = '[truncated]';
-    if ( isset( $log_body['input']['image'] ) )     $log_body['input']['image']     = '[truncated]';
-    waic_kling_log('http_post', ['url' => $url, 'body' => $log_body]);
-    
-    $t_start = microtime(true);
-    $res = wp_remote_post($url, [
-        'timeout' => $timeout,
-        'headers' => $headers,
-        'body'    => wp_json_encode($body),
-    ]);
-    $elapsed_ms = intval((microtime(true) - $t_start) * 1000);
-
-    if (is_wp_error($res)) {
-        $err_msg  = $res->get_error_message();
-        $err_code = $res->get_error_code();
-        waic_kling_log('http_post.wp_error', [
-            'url'        => $url,
-            'code'       => $err_code,
-            'message'    => $err_msg,
-            'elapsed_ms' => $elapsed_ms,
-            'timeout'    => $timeout,
-        ]);
-        return ['ok' => false, 'error' => $err_msg, 'wp_error_code' => $err_code, 'elapsed_ms' => $elapsed_ms];
-    }
-    
-    $code = wp_remote_retrieve_response_code($res);
-    $raw_body = wp_remote_retrieve_body($res);
-    $json = json_decode($raw_body, true);
-
-    // If response is non-JSON (e.g. upstream proxy 502 HTML page), surface a snippet
-    // of the raw body in the log so we can distinguish "empty body" from
-    // "JSON parse failure" / "HTML error page".
-    $log_response = ['code' => $code, 'body' => $json];
-    if ($json === null && $raw_body !== '' && $raw_body !== null) {
-        $log_response['raw_excerpt'] = substr(preg_replace('/\s+/', ' ', strip_tags($raw_body)), 0, 500);
-        $log_response['raw_len']     = strlen($raw_body);
-    }
-    waic_kling_log('http_post.response', $log_response);
-
-    if ($code < 200 || $code >= 300) {
-        return [
-            'ok' => false,
-            'error' => 'HTTP ' . $code,
-            'raw' => $json,
-            'raw_body' => $raw_body
-        ];
-    }
-
-    return ['ok' => true, 'data' => $json];
+    // [2026-08-10 Johnny Chu] PHASE-1.24-VIDEO-KLING — retire direct provider transport during gateway migration.
+    return array( 'ok' => false, 'error' => 'legacy_transport_retired', 'code' => 'gateway_degraded' );
 }
 
 /**
  * HTTP GET helper
  */
 function waic_kling_http_get(string $url, array $headers, int $timeout = 60): array {
-    $res = wp_remote_get($url, [
-        'timeout' => $timeout,
-        'headers' => $headers,
-    ]);
-
-    if (is_wp_error($res)) {
-        return ['ok' => false, 'error' => $res->get_error_message()];
-    }
-    
-    $code = wp_remote_retrieve_response_code($res);
-    $json = json_decode(wp_remote_retrieve_body($res), true);
-    
-    if ($code < 200 || $code >= 300) {
-        return ['ok' => false, 'error' => 'HTTP ' . $code, 'raw' => $json];
-    }
-    
-    return ['ok' => true, 'data' => $json];
+    // [2026-08-10 Johnny Chu] PHASE-1.24-VIDEO-KLING — retire direct provider polling during gateway migration.
+    return array( 'ok' => false, 'error' => 'legacy_transport_retired', 'code' => 'gateway_degraded' );
 }
 
 /**
@@ -304,36 +188,49 @@ function waic_kling_parse_model(string $model_str): array {
  * @return array Result with task_id
  */
 function waic_kling_create_task(array $settings, array $input): array {
-    $cfg = waic_kling_get_api_config($settings);
-
-    error_log('[BVK create_task] mode=' . ($cfg['mode'] ?? '?') . ' | endpoint=' . ($cfg['endpoint'] ?? '?') . ' | has_key=' . (empty($cfg['api_key']) ? 'NO' : 'yes(' . strlen($cfg['api_key']) . ')'));
-    
-    if (empty($cfg['api_key'])) {
-        return ['ok' => false, 'error' => 'Missing API key. Configure PiAPI key or BizCity API key.'];
+    // [2026-08-10 Johnny Chu] PHASE-1.24-VIDEO-KLING — all submits use BizCity_Video_Client.
+    if ( ! class_exists( 'BizCity_Video_Client' ) ) {
+        return array( 'ok' => false, 'error' => 'Video gateway client chưa được load.', 'code' => 'module_not_loaded' );
     }
 
-    $model_str = !empty($settings['model']) ? $settings['model'] : '2.6|pro';
-
-    // ── Gateway mode: call BizCity Router ──
-    if (($cfg['mode'] ?? 'direct') === 'gateway') {
-        return waic_kling_create_task_via_gateway($cfg, $model_str, $input);
+    $model_str = ! empty( $settings['model'] ) ? (string) $settings['model'] : '2.6|pro';
+    $hub_model = waic_kling_map_model_to_hub( $model_str );
+    if ( ! empty( $input['image_url'] ) ) {
+        $hub_model = waic_kling_ensure_i2v_model( $hub_model );
     }
 
-    // ── Direct PiAPI mode ──
-    $url = $cfg['endpoint'] . '/task';
-    $headers = [
-        'Content-Type' => 'application/json',
-        'X-API-Key'    => $cfg['api_key'],
-    ];
+    $options = array(
+        'model'           => $hub_model,
+        'duration'        => (int) ( $input['duration'] ?? 5 ),
+        'aspect_ratio'    => (string) ( $input['aspect_ratio'] ?? '9:16' ),
+        'negative_prompt' => (string) ( $input['negative_prompt'] ?? '' ),
+        'with_audio'      => ! empty( $input['with_audio'] ),
+        'image_url'       => (string) ( $input['image_url'] ?? '' ),
+        'trace_id'        => (string) ( $settings['trace_id'] ?? '' ),
+        'idempotency_key' => (string) ( $settings['idempotency_key'] ?? ( $input['idempotency_key'] ?? '' ) ),
+    );
 
-    $parsed = waic_kling_parse_model($model_str);
-    $engine = $parsed['engine'] ?? 'kling';
+    $result = BizCity_Video_Client::instance()->submit( (string) ( $input['prompt'] ?? '' ), $options );
+    if ( empty( $result['success'] ) ) {
+        return array(
+            'ok'            => false,
+            'error'         => (string) ( $result['message'] ?? 'Không thể tạo tác vụ video.' ),
+            'code'          => (string) ( $result['code'] ?? 'gateway_degraded' ),
+            'error_payload' => $result,
+            'trace_id'      => (string) ( $result['trace_id'] ?? '' ),
+        );
+    }
 
-    $payload = waic_kling_build_engine_payload($engine, $parsed, $input);
-
-    waic_kling_log('create_task', ['mode' => 'direct', 'engine' => $engine, 'model' => $model_str, 'payload' => $payload]);
-
-    return waic_kling_http_post($url, $headers, $payload, $cfg['timeout']);
+    return array(
+        'ok'        => true,
+        'data'      => array( 'data' => array(
+            'task_id' => (string) ( $result['task_id'] ?? '' ),
+            'status'  => (string) ( $result['status'] ?? 'pending' ),
+        ) ),
+        'via'       => 'bizcity_video_client',
+        'trace_id'  => (string) ( $result['trace_id'] ?? '' ),
+        'cost_usd'  => (float) ( $result['cost_usd'] ?? 0 ),
+    );
 }
 
 /**
@@ -654,50 +551,35 @@ function waic_kling_calculate_segments(int $total_duration, int $segment_duratio
  * @return array Task status data
  */
 function waic_kling_get_task(array $settings, string $task_id): array {
-    $cfg = waic_kling_get_api_config($settings);
-    
-    if (empty($cfg['api_key'])) {
-        return ['ok' => false, 'error' => 'Missing API key'];
+    // [2026-08-10 Johnny Chu] PHASE-1.24-VIDEO-KLING — all polling uses BizCity_Video_Client.
+    if ( ! class_exists( 'BizCity_Video_Client' ) ) {
+        return array( 'ok' => false, 'error' => 'Video gateway client chưa được load.', 'code' => 'module_not_loaded' );
     }
 
-    // ── Gateway mode ──
-    if (($cfg['mode'] ?? 'direct') === 'gateway') {
-        $url = $cfg['endpoint'] . '/status?task_id=' . rawurlencode($task_id);
-        $headers = [
-            'Authorization' => 'Bearer ' . $cfg['api_key'],
-        ];
-
-        $result = waic_kling_http_get($url, $headers, $cfg['timeout']);
-
-        // Normalize gateway response to match PiAPI format
-        if (($result['ok'] ?? false) && isset($result['data']['status'])) {
-            return [
-                'ok'   => true,
-                'data' => [
-                    'data' => [
-                        'task_id'   => $task_id,
-                        'status'    => $result['data']['status'],
-                        'progress'  => $result['data']['progress'] ?? 0,
-                        'video_url' => $result['data']['video_url'] ?? '',
-                        'output'    => [
-                            'video_url' => $result['data']['video_url'] ?? '',
-                        ],
-                    ],
-                ],
-                'via' => 'bizcity_gateway',
-            ];
-        }
-
-        return $result;
+    $result = BizCity_Video_Client::instance()->get_status( $task_id );
+    if ( empty( $result['success'] ) ) {
+        return array(
+            'ok'            => false,
+            'error'         => (string) ( $result['message'] ?? 'Không thể kiểm tra tác vụ video.' ),
+            'code'          => (string) ( $result['code'] ?? 'gateway_degraded' ),
+            'error_payload' => $result,
+            'trace_id'      => (string) ( $result['trace_id'] ?? '' ),
+        );
     }
 
-    // ── Direct PiAPI mode ──
-    $url = $cfg['endpoint'] . '/task/' . rawurlencode($task_id);
-    $headers = [
-        'X-API-Key' => $cfg['api_key'],
-    ];
-
-    return waic_kling_http_get($url, $headers, $cfg['timeout']);
+    $video_url = (string) ( $result['result_url'] ?? '' );
+    return array(
+        'ok'   => true,
+        'data' => array( 'data' => array(
+            'task_id'   => $task_id,
+            'status'    => (string) ( $result['status'] ?? 'pending' ),
+            'progress'  => (int) ( $result['progress'] ?? 0 ),
+            'video_url' => $video_url,
+            'output'    => array( 'video_url' => $video_url ),
+        ) ),
+        'via'      => 'bizcity_video_client',
+        'trace_id' => (string) ( $result['trace_id'] ?? '' ),
+    );
 }
 
 /**

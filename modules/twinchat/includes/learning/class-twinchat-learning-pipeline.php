@@ -77,6 +77,65 @@ if ( ! function_exists( 'bizcity_tc_learning_debug_log' ) ) {
 		$line = sprintf( "[%s UTC] [TC-Learning] %s\n", gmdate( 'd-M-Y H:i:s' ), (string) $msg );
 		@file_put_contents( bizcity_tc_learning_debug_log_path( '', true ), $line, FILE_APPEND | LOCK_EX );
 	}
+
+	/**
+	 * Append a structured, tenant-scoped audit event beside the readable log.
+	 *
+	 * @param string $event
+	 * @param array  $context
+	 * @return void
+	 */
+	function bizcity_tc_learning_audit_log( $event, array $context = array() ) {
+		static $request_id = '';
+		if ( $request_id === '' ) {
+			$header_request_id = isset( $_SERVER['HTTP_X_REQUEST_ID'] ) ? sanitize_key( (string) $_SERVER['HTTP_X_REQUEST_ID'] ) : '';
+			$request_id = $header_request_id !== ''
+				? substr( $header_request_id, 0, 80 )
+				: ( function_exists( 'wp_generate_uuid4' ) ? wp_generate_uuid4() : uniqid( 'req-', true ) );
+		}
+		$uploads = function_exists( 'wp_upload_dir' ) ? wp_upload_dir( null, true, false ) : array();
+		$base_dir = is_array( $uploads ) && ! empty( $uploads['basedir'] )
+			? (string) $uploads['basedir']
+			: ( defined( 'WP_CONTENT_DIR' ) ? WP_CONTENT_DIR . '/uploads' : '' );
+		if ( $base_dir === '' ) {
+			error_log( '[TC-Learning] event=audit_write_failed reason=missing_upload_dir event_name=' . sanitize_key( (string) $event ) );
+			return;
+		}
+
+		$dir = trailingslashit( wp_normalize_path( $base_dir ) ) . 'bizcity_learning_logs/audit';
+		if ( ! is_dir( $dir ) ) {
+			@wp_mkdir_p( $dir );
+			@file_put_contents( trailingslashit( $dir ) . '.htaccess', "Require all denied\nDeny from all\n" );
+			@file_put_contents( trailingslashit( $dir ) . 'index.php', "<?php // Silence is golden.\n" );
+		}
+		if ( ! is_dir( $dir ) || ! is_writable( $dir ) ) {
+			error_log( '[TC-Learning] event=audit_write_failed reason=directory_not_writable event_name=' . sanitize_key( (string) $event ) );
+			return;
+		}
+
+		$job_id = isset( $context['job_id'] ) ? (int) $context['job_id'] : 0;
+		$passage_id = isset( $context['passage_id'] ) ? (int) $context['passage_id'] : 0;
+		$blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+		$record = array_merge(
+			array(
+				'ts'             => gmdate( 'c' ),
+				'event_id'       => function_exists( 'wp_generate_uuid4' ) ? wp_generate_uuid4() : uniqid( 'tc-', true ),
+				'request_id'     => $request_id,
+				'trace_id'       => $job_id > 0 ? sprintf( 'tc-%d-j%d%s', $blog_id, $job_id, $passage_id > 0 ? '-p' . $passage_id : '' ) : $request_id,
+				'blog_id'        => $blog_id,
+				'event'          => sanitize_key( (string) $event ),
+				'schema_version' => '1.0',
+			),
+			$context
+		);
+		$line = wp_json_encode( $record, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
+		if ( is_string( $line ) ) {
+			$written = @file_put_contents( trailingslashit( $dir ) . gmdate( 'Y-m-d' ) . '.jsonl', $line . PHP_EOL, FILE_APPEND | LOCK_EX );
+			if ( false === $written ) {
+				error_log( '[TC-Learning] event=audit_write_failed reason=file_append_failed event_name=' . sanitize_key( (string) $event ) . ' request_id=' . $request_id );
+			}
+		}
+	}
 }
 
 class BizCity_TwinChat_Learning_Pipeline {
@@ -270,7 +329,30 @@ class BizCity_TwinChat_Learning_Pipeline {
 		}
 
 		if ( ! $queue->acquire_lease( $job_id, $owner, self::LEASE_TTL_S ) ) {
-			return [ 'done' => false, 'busy' => true, 'error' => false, 'phase' => $job['phase'], 'job' => $job ];
+			$held_job = $queue->get_job( $job_id );
+			$lease_until = isset( $held_job['lease_until'] ) ? (string) $held_job['lease_until'] : '';
+			$retry_after = $lease_until !== '' ? strtotime( $lease_until . ' UTC' ) : time() + self::LEASE_TTL_S;
+			// [2026-08-10 Johnny Chu] PHASE-0.49-LEARNING-OBSERVABILITY - expose lease reason and audit context.
+			bizcity_tc_learning_audit_log( 'tick_busy', array(
+				'busy_reason' => 'lease',
+				'blog_id'     => function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0,
+				'notebook_id' => (int) $job['notebook_id'],
+				'job_id'      => $job_id,
+				'lane'        => strpos( (string) $owner, 'ajax' ) === 0 ? 'ajax' : 'cron',
+				'owner'       => (string) $owner,
+				'lease_owner' => isset( $held_job['lease_owner'] ) ? (string) $held_job['lease_owner'] : '',
+				'lease_until' => $lease_until,
+				'retry_after' => $retry_after,
+			) );
+			return [
+				'done'        => false,
+				'busy'        => true,
+				'error'       => false,
+				'phase'       => $job['phase'],
+				'busy_reason'  => 'lease',
+				'retry_after' => $retry_after,
+				'job'         => $held_job ?: $job,
+			];
 		}
 
 		// Re-read after lease.
@@ -403,6 +485,7 @@ class BizCity_TwinChat_Learning_Pipeline {
 					'busy'        => true,
 					'error'       => false,
 					'paused'      => true,
+					'busy_reason'  => 'quota_pause',
 					'phase'       => 'extracting',
 					'job'         => $queue->get_job( $job_id ),
 					'retry_after' => $paused['retry_after'] ?? ( time() + 900 ),
@@ -542,12 +625,29 @@ class BizCity_TwinChat_Learning_Pipeline {
 				$global_reclaimed
 			) );
 		}
-		$active_workers = (int) $wpdb->get_var(
-			"SELECT COUNT(*) FROM {$db->tbl_passages()} WHERE extraction_status = 'processing'"
+		$worker_snapshot = $wpdb->get_row(
+			"SELECT COUNT(*) AS active_workers, MIN(updated_at) AS oldest_processing_at
+			 FROM {$db->tbl_passages()} WHERE extraction_status = 'processing'",
+			ARRAY_A
 		);
+		$active_workers = (int) ( $worker_snapshot['active_workers'] ?? 0 );
+		$oldest_processing_at = (string) ( $worker_snapshot['oldest_processing_at'] ?? '' );
 		$worker_capacity = self::MAX_ACTIVE_WORKERS - $active_workers;
 		if ( $worker_capacity <= 0 ) {
 			$retry_after = time() + 15;
+			// [2026-08-10 Johnny Chu] PHASE-0.49-LEARNING-OBSERVABILITY - audit blog-wide worker capacity.
+			bizcity_tc_learning_audit_log( 'tick_busy', array(
+				'busy_reason'          => 'worker_capacity',
+				'blog_id'              => function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0,
+				'notebook_id'          => $nb,
+				'job_id'               => $job_id,
+				'lane'                 => strpos( (string) $owner, 'ajax' ) === 0 ? 'ajax' : 'cron',
+				'owner'                => (string) $owner,
+				'active_workers'       => $active_workers,
+				'worker_cap'           => self::MAX_ACTIVE_WORKERS,
+				'oldest_processing_at' => $oldest_processing_at,
+				'retry_after'          => $retry_after,
+			) );
 			bizcity_tc_learning_debug_log( sprintf(
 				'tick_extract job=%d → worker capacity full active=%d cap=%d retry_after=%d',
 				$job_id, $active_workers, self::MAX_ACTIVE_WORKERS, $retry_after
@@ -558,6 +658,10 @@ class BizCity_TwinChat_Learning_Pipeline {
 				'busy'        => true,
 				'error'       => false,
 				'phase'       => 'extracting',
+				'busy_reason'  => 'worker_capacity',
+				'active_workers' => $active_workers,
+				'worker_cap'  => self::MAX_ACTIVE_WORKERS,
+				'oldest_processing_at' => $oldest_processing_at,
 				'reason_code' => 'learning_worker_capacity',
 				'retry_after' => $retry_after,
 				'job'         => $job,
@@ -885,17 +989,36 @@ class BizCity_TwinChat_Learning_Pipeline {
 		$reason = $err->get_error_message();
 		$diag   = (array) $err->get_error_data();
 		$queue  = BizCity_TwinChat_Learning_Job_Queue::instance();
+		$current_job = $queue->get_job( (int) $job_id );
+		$already_paused = $current_job && ! empty( $current_job['restartable_at'] )
+			&& strtotime( (string) $current_job['restartable_at'] . ' UTC' ) > time();
 
 		$payload = null;
 		if ( class_exists( 'BizCity_TwinChat_Learning_Quota_Cooldown' ) ) {
 			$existing = BizCity_TwinChat_Learning_Quota_Cooldown::get_block( (int) $user_id );
 			if ( $existing && ! empty( $existing['retry_after'] ) && (int) $existing['retry_after'] > time() ) {
-				// Already blocked — no re-emit, just propagate.
-				return $existing;
+				// [2026-08-10 Johnny Chu] PHASE-0.49-LEARNING-OBSERVABILITY - reuse the user cooldown but still stamp this job.
+				$payload = $existing;
 			}
-			$payload = BizCity_TwinChat_Learning_Quota_Cooldown::apply_block( (int) $user_id, (string) $code, (string) $reason );
+			if ( ! $payload ) {
+				$payload = BizCity_TwinChat_Learning_Quota_Cooldown::apply_block( (int) $user_id, (string) $code, (string) $reason );
+			}
 		}
 		$retry_after = isset( $payload['retry_after'] ) ? (int) $payload['retry_after'] : ( time() + 3600 );
+		// [2026-08-10 Johnny Chu] PHASE-0.49-LEARNING-OBSERVABILITY - audit job-wide quota pause.
+		bizcity_tc_learning_audit_log( 'job_paused', array(
+			'reason_code'     => (string) $code,
+			'error_class'     => 'resource_job_wide',
+			'blog_id'         => function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0,
+			'notebook_id'     => (int) $nb,
+			'job_id'          => (int) $job_id,
+			'user_id'         => (int) $user_id,
+			'retry_after'     => $retry_after,
+			'restartable_at'  => gmdate( 'c', $retry_after ),
+			'decision'        => 'pause_job',
+			'raw_error_code'  => (string) $code,
+			'normalized_code' => (string) $code,
+		) );
 
 		// Stamp the job so all tick lanes (cron + ajax) short-circuit cheaply.
 		$queue->update( $job_id, [
@@ -913,7 +1036,7 @@ class BizCity_TwinChat_Learning_Pipeline {
 		$admin_url   = isset( $diag['admin_url'] )  ? (string) $diag['admin_url']  : admin_url( 'admin.php?page=bizcity-kg-hub-settings' );
 
 		// Emit ONE structured event for FE banner.
-		if ( $events ) {
+		if ( $events && ! $already_paused ) {
 			$events->push( $nb, 'log', [
 				'level'       => 'warn',
 				'msg'         => sprintf(
@@ -963,6 +1086,26 @@ class BizCity_TwinChat_Learning_Pipeline {
 			'reason'      => $reason,
 			'retry_after' => $retry_after,
 		];
+	}
+
+	/**
+	 * Bridge an asynchronous worker quota failure into the canonical job pause.
+	 *
+	 * @param int      $job_id
+	 * @param int      $nb
+	 * @param int      $user_id
+	 * @param WP_Error $err
+	 * @return array
+	 */
+	public static function pause_from_worker( $job_id, $nb, $user_id, $err ) {
+		// [2026-08-10 Johnny Chu] PHASE-0.49-LEARNING-OBSERVABILITY - unify loopback and cron quota policy.
+		return self::pause_for_quota(
+			(int) $job_id,
+			(int) $nb,
+			(int) $user_id,
+			$err,
+			class_exists( 'BizCity_TwinChat_Learning_Events' ) ? BizCity_TwinChat_Learning_Events::instance() : null
+		);
 	}
 
 	/**
@@ -1033,7 +1176,7 @@ class BizCity_TwinChat_Learning_Pipeline {
 				// if quota tripped mid-loop (e.g. another tab burned the last
 				// slot), stop now — don't iterate remaining passages.
 				$code = $result->get_error_code();
-				if ( $code === 'quota_exceeded' || $code === 'cap_exceeded' ) {
+				if ( in_array( $code, array( 'quota_exceeded', 'quota_exhausted', 'cap_exceeded' ), true ) ) {
 					self::pause_for_quota( $job_id, $nb, $user_id, $result, $events );
 					break;
 				}

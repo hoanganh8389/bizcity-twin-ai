@@ -8,18 +8,19 @@
 if ( ! defined( 'ABSPATH' ) ) exit;
 
 add_action( 'admin_menu', function() {
-    add_menu_page(
+    $parent = 'bizcity-twin-workspace';
+    // [2026-08-11 Johnny Chu] PHASE-1.26 — Image Studio is a Workspace child, not a standalone top-level menu.
+    add_submenu_page(
+        $parent,
         'Image AI',
         'Image AI',
         'manage_options',
         'bztimg-dashboard',
-        'bztimg_admin_dashboard',
-        'dashicons-format-image',
-        58
+        'bztimg_admin_dashboard'
     );
 
     add_submenu_page(
-        'bztimg-dashboard',
+        $parent,
         'Image Editor',
         'Editor',
         'edit_posts',
@@ -28,7 +29,7 @@ add_action( 'admin_menu', function() {
     );
 
     add_submenu_page(
-        'bztimg-dashboard',
+        $parent,
         'Image Templates',
         'Templates',
         'manage_options',
@@ -37,7 +38,7 @@ add_action( 'admin_menu', function() {
     );
 
     add_submenu_page(
-        'bztimg-dashboard',
+        $parent,
         'Template Categories',
         'Categories',
         'manage_options',
@@ -47,7 +48,7 @@ add_action( 'admin_menu', function() {
 
     /* Phase 3.4 — Character Studio submenu */
     add_submenu_page(
-        'bztimg-dashboard',
+        $parent,
         'Character Studio',
         '🧑 Nhân Vật AI',
         'manage_options',
@@ -60,7 +61,7 @@ add_action( 'admin_menu', function() {
 
     /* Editor Assets — Import shapes, frames, fonts, text presets */
     add_submenu_page(
-        'bztimg-dashboard',
+        $parent,
         'Editor Assets',
         '📦 Editor Assets',
         'manage_options',
@@ -70,7 +71,7 @@ add_action( 'admin_menu', function() {
 
     /* Editor Templates — CRUD management for canva-editor templates */
     add_submenu_page(
-        'bztimg-dashboard',
+        $parent,
         'Editor Templates',
         '🎨 Editor Templates',
         'manage_options',
@@ -80,7 +81,7 @@ add_action( 'admin_menu', function() {
 
     /* Phase 3.6 — AI Template Generator */
     add_submenu_page(
-        'bztimg-dashboard',
+        $parent,
         'AI Templates',
         '🤖 AI Templates',
         'manage_options',
@@ -90,7 +91,7 @@ add_action( 'admin_menu', function() {
 
     /* Phase 3.8 — Profile Studio Templates */
     add_submenu_page(
-        'bztimg-dashboard',
+        $parent,
         'Profile Templates',
         '🎨 Profile Templates',
         'manage_options',
@@ -100,7 +101,7 @@ add_action( 'admin_menu', function() {
 
     /* Phase QR — QR Studio (FE page link + admin info) */
     add_submenu_page(
-        'bztimg-dashboard',
+        $parent,
         'QR Studio',
         '🔳 QR Studio',
         'manage_options',
@@ -528,12 +529,13 @@ add_action( 'admin_enqueue_scripts', function( $hook ) {
 add_action( 'wp_ajax_bztimg_import', function() {
     check_ajax_referer( 'bztimg_import', 'nonce' );
     if ( ! current_user_can( 'manage_options' ) ) {
-        wp_send_json_error( array( 'message' => 'Unauthorized' ), 403 );
+        // [2026-08-10 Johnny Chu] R-ERROR-UX — standardize template import permission failure.
+        wp_send_json_error( BizCity_Error_Payload::make( 'permission_denied', 'Bạn không có quyền nhập template.', 'Đăng nhập bằng tài khoản quản trị rồi thử lại.', 'permission_required' ) );
     }
     $json_text = wp_unslash( $_POST['json_data'] ?? '' );
     $data = json_decode( $json_text, true );
     if ( ! is_array( $data ) || empty( $data ) ) {
-        wp_send_json_error( array( 'message' => 'JSON không hợp lệ' ), 400 );
+        wp_send_json_error( BizCity_Error_Payload::make( 'invalid_param', 'Dữ liệu JSON không hợp lệ.', 'Kiểm tra file template rồi nhập lại.', 'invalid_param_generic' ) );
     }
     // bztimg_template single-schema → import directly (not wrapped in array)
     if ( isset( $data['_meta']['schema'] ) && $data['_meta']['schema'] === 'bztimg_template' ) {
@@ -546,7 +548,7 @@ add_action( 'wp_ajax_bztimg_import', function() {
         $result = BizCity_Template_Manager::import( $data );
     }
     if ( is_wp_error( $result ) ) {
-        wp_send_json_error( array( 'message' => $result->get_error_message() ), 400 );
+        wp_send_json_error( BizCity_Error_Payload::make( 'invalid_param', 'Không thể nhập template.', 'Kiểm tra schema template rồi thử lại.', 'template_import_failed', array( 'wp_error_code' => $result->get_error_code() ) ) );
     }
     wp_send_json_success( array( 'imported' => $result ) );
 } );

@@ -21,16 +21,17 @@ final class BizCity_QM_Loader_Header_Output extends QM_Output_Headers {
 		$snapshots = isset( $data->snapshots ) && is_array( $data->snapshots )
 			? $data->snapshots
 			: array();
-		$phase_delta = array();
+		$capture_overhead = array();
 		foreach ( $snapshots as $phase => $snapshot ) {
-			$phase_delta[] = (string) $phase . ':' . (float) ( $snapshot['memory_delta_kb'] ?? 0 ) . 'KB';
+			$capture_overhead[] = (string) $phase . ':' . (float) ( $snapshot['capture_overhead_delta_kb'] ?? 0 ) . 'KB';
 		}
 
 		return array(
-			'peak-memory-mb' => (float) ( $data->peak_memory_mb ?? 0 ),
+			'peak-memory-mb' => (float) ( $data->bizcity_peak_memory_allocated_mb ?? $data->peak_memory_mb ?? 0 ),
+			'peak-memory-used-mb' => (float) ( $data->bizcity_peak_memory_used_mb ?? $data->peak_memory_used_mb ?? 0 ),
 			'included-files' => (int) ( $data->included_files ?? 0 ),
 			'declared-classes' => (int) ( $data->declared_classes ?? 0 ),
-			'phase-memory-delta' => implode( ',', $phase_delta ),
+			'capture-overhead' => implode( ',', $capture_overhead ),
 		);
 	}
 }

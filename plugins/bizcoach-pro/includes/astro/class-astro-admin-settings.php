@@ -2,8 +2,6 @@
 /**
  * BizCoach Pro — Astro Gateway Admin Settings (DEPRECATED 2026-05-17)
  *
- * R-1API-9 (Single canonical settings page) supersedes this page.
- * All BizCity API / gateway configuration now lives at:
  *
  *     admin.php?page=bizcity-twinchat-settings
  *

@@ -162,6 +162,200 @@ final class BizCity_TwinBrain_Goal_Loop_Repository {
 		return $latest;
 	}
 
+	/**
+	 * Search goal snapshots for one tenant and canonical memory identity.
+	 *
+	 * Goal state remains event-sourced in twin_event_stream. The newest event
+	 * for each goal wins, while matching is performed against the serialized
+	 * state so primary_goal, gaps and next_best_action are searchable.
+	 *
+	 * @return array{items:array<int,array<string,mixed>>,total:int,q:string}
+	 */
+	public static function search_for_identity( int $blog_id, string $identity_uuid, string $query, int $limit = 30 ): array {
+		// [2026-08-10 Johnny Chu] GOAL-SESSION-SEARCH-1 — search canonical Goal Loop events without creating a parallel session store.
+		$blog_id = max( 0, $blog_id );
+		$identity_uuid = strtolower( trim( $identity_uuid ) );
+		$query = trim( $query );
+		$limit = max( 1, min( 50, $limit ) );
+		$q_len = function_exists( 'mb_strlen' ) ? mb_strlen( $query ) : strlen( $query );
+		if ( $blog_id <= 0 || $identity_uuid === '' || $q_len < 2 ) {
+			return array( 'items' => array(), 'total' => 0, 'q' => $query );
+		}
+
+		global $wpdb;
+		$table = BizCity_Twin_Event_Stream_Schema::table();
+		$event_types = array( 'twin_goal_opened', 'twin_goal_progressed', 'twin_goal_closed' );
+		$placeholders = implode( ', ', array_fill( 0, count( $event_types ), '%s' ) );
+		$like = '%' . $wpdb->esc_like( $query ) . '%';
+		$identity_like = '%"identity_uuid":"' . $wpdb->esc_like( $identity_uuid ) . '"%';
+		$rows = $wpdb->get_results( $wpdb->prepare(
+			"SELECT id, event_uuid, event_type, session_id, payload_json, created_at
+			 FROM {$table}
+			 WHERE blog_id = %d
+			   AND event_type IN ({$placeholders})
+			   AND payload_json LIKE %s
+			   AND payload_json LIKE %s
+			 ORDER BY id DESC
+			 LIMIT %d",
+			array_merge( array( $blog_id ), $event_types, array( $like, $identity_like, min( 500, $limit * 20 ) ) )
+		), ARRAY_A );
+
+		$latest_by_goal = array();
+		foreach ( is_array( $rows ) ? $rows : array() as $row ) {
+			$payload = json_decode( (string) ( $row['payload_json'] ?? '' ), true );
+			if ( ! is_array( $payload ) || strtolower( trim( (string) ( $payload['identity_uuid'] ?? '' ) ) ) !== $identity_uuid ) {
+				continue;
+			}
+			$state = isset( $payload['state'] ) && is_array( $payload['state'] ) ? $payload['state'] : $payload;
+			$state['identity_uuid'] = $identity_uuid;
+			$state['blog_id'] = $blog_id;
+			$state['session_id'] = (string) ( $row['session_id'] ?? $state['session_id'] ?? '' );
+			$normalized = class_exists( 'BizCity_TwinBrain_Goal_Loop_State' )
+				? BizCity_TwinBrain_Goal_Loop_State::normalize( $state )
+				: $state;
+			$goal_id = (string) ( $normalized['goal_id'] ?? $payload['goal_id'] ?? '' );
+			if ( $goal_id === '' || isset( $latest_by_goal[ $goal_id ] ) ) {
+				continue;
+			}
+			$matched_field = self::goal_search_match_field( $normalized, $query );
+			if ( $matched_field === '' && false === stripos( (string) ( $payload['goal_id'] ?? '' ), $query ) ) {
+				continue;
+			}
+			$latest_by_goal[ $goal_id ] = array(
+				'goal_id'            => $goal_id,
+				'primary_goal'       => (string) ( $normalized['primary_goal'] ?? $payload['primary_goal'] ?? '' ),
+				'status'             => (string) ( $normalized['status'] ?? '' ),
+				'completion_score'   => (float) ( $normalized['completion_score'] ?? 0 ),
+				'session_id'         => (string) ( $normalized['session_id'] ?? '' ),
+				'root_session_id'    => (string) ( $normalized['root_session_id'] ?? '' ),
+				'last_activity_at'   => (string) ( $row['created_at'] ?? '' ),
+				'gap_count'          => count( (array) ( $normalized['gaps'] ?? array() ) ),
+				'next_best_action'   => $normalized['next_best_action'] ?? null,
+				'matched_field'      => $matched_field !== '' ? $matched_field : 'goal_id',
+				'matched_event_type' => (string) ( $row['event_type'] ?? '' ),
+				'snippet'            => self::goal_search_snippet( $normalized, $query ),
+			);
+			if ( count( $latest_by_goal ) >= $limit ) {
+				break;
+			}
+		}
+
+		$items = array_values( $latest_by_goal );
+		return array( 'items' => $items, 'total' => count( $items ), 'q' => $query );
+	}
+
+	/**
+	 * Return one goal and its event-sourced timeline for an identity.
+	 *
+	 * @return array{goal:array<string,mixed>,timeline:array<int,array<string,mixed>>,related_sessions:array<int,string>}
+	 */
+	public static function detail_for_identity( int $blog_id, string $identity_uuid, string $goal_id, int $limit = 200 ): array {
+		// [2026-08-10 Johnny Chu] GOAL-SESSION-DETAIL-1 — expose an identity-scoped Goal Session timeline without introducing a second persistence layer.
+		$blog_id = max( 0, $blog_id );
+		$identity_uuid = strtolower( trim( $identity_uuid ) );
+		$goal_id = sanitize_text_field( trim( $goal_id ) );
+		$limit = max( 1, min( 500, $limit ) );
+		if ( $blog_id <= 0 || $identity_uuid === '' || $goal_id === '' ) {
+			return array( 'goal' => array(), 'timeline' => array(), 'related_sessions' => array() );
+		}
+
+		global $wpdb;
+		$table = BizCity_Twin_Event_Stream_Schema::table();
+		$event_types = array( 'twin_goal_opened', 'twin_goal_progressed', 'twin_goal_closed' );
+		$placeholders = implode( ', ', array_fill( 0, count( $event_types ), '%s' ) );
+		$identity_like = '%"identity_uuid":"' . $wpdb->esc_like( $identity_uuid ) . '"%';
+		$goal_like = '%"goal_id":"' . $wpdb->esc_like( $goal_id ) . '"%';
+		$rows = $wpdb->get_results( $wpdb->prepare(
+			"SELECT id, event_uuid, event_type, session_id, trace_id, payload_json, created_at
+			 FROM {$table}
+			 WHERE blog_id = %d
+			   AND event_type IN ({$placeholders})
+			   AND payload_json LIKE %s
+			   AND payload_json LIKE %s
+			 ORDER BY id DESC
+			 LIMIT %d",
+			array_merge( array( $blog_id ), $event_types, array( $identity_like, $goal_like, $limit ) )
+		), ARRAY_A );
+
+		$latest = array();
+		$timeline = array();
+		$related_sessions = array();
+		foreach ( is_array( $rows ) ? $rows : array() as $row ) {
+			$payload = json_decode( (string) ( $row['payload_json'] ?? '' ), true );
+			if ( ! is_array( $payload ) ) {
+				continue;
+			}
+			if ( strtolower( trim( (string) ( $payload['identity_uuid'] ?? '' ) ) ) !== $identity_uuid
+				|| (string) ( $payload['goal_id'] ?? '' ) !== $goal_id ) {
+				continue;
+			}
+			$state = isset( $payload['state'] ) && is_array( $payload['state'] ) ? $payload['state'] : $payload;
+			$state['identity_uuid'] = $identity_uuid;
+			$state['blog_id'] = $blog_id;
+			$state['session_id'] = (string) ( $row['session_id'] ?? $state['session_id'] ?? '' );
+			$normalized = class_exists( 'BizCity_TwinBrain_Goal_Loop_State' )
+				? BizCity_TwinBrain_Goal_Loop_State::normalize( $state )
+				: $state;
+			if ( empty( $latest ) ) {
+				$latest = $normalized;
+			}
+			$session_id = (string) ( $row['session_id'] ?? $normalized['session_id'] ?? '' );
+			if ( $session_id !== '' && ! in_array( $session_id, $related_sessions, true ) ) {
+				$related_sessions[] = $session_id;
+			}
+			$timeline[] = array(
+				'event_id'        => (int) ( $row['id'] ?? 0 ),
+				'event_uuid'      => sanitize_text_field( (string) ( $row['event_uuid'] ?? '' ) ),
+				'event_type'      => sanitize_key( (string) ( $row['event_type'] ?? '' ) ),
+				'session_id'      => $session_id,
+				'trace_id'        => sanitize_text_field( (string) ( $row['trace_id'] ?? '' ) ),
+				'created_at'      => (string) ( $row['created_at'] ?? '' ),
+				'status'          => (string) ( $normalized['status'] ?? '' ),
+				'completion_score'=> (float) ( $normalized['completion_score'] ?? 0 ),
+				'next_best_action'=> $normalized['next_best_action'] ?? null,
+			);
+		}
+
+		return array(
+			'goal' => $latest,
+			'timeline' => array_reverse( $timeline ),
+			'related_sessions' => $related_sessions,
+		);
+	}
+
+	private static function goal_search_match_field( array $state, string $query ): string {
+		$fields = array(
+			'primary_goal' => (string) ( $state['primary_goal'] ?? '' ),
+			'conversation_goal' => wp_json_encode( $state['conversation_goal'] ?? array() ),
+			'goal_draft' => wp_json_encode( $state['goal_draft'] ?? array() ),
+			'gaps' => wp_json_encode( $state['gaps'] ?? array() ),
+			'next_best_action' => wp_json_encode( $state['next_best_action'] ?? array() ),
+		);
+		foreach ( $fields as $field => $value ) {
+			if ( $value !== '' && false !== stripos( $value, $query ) ) {
+				return $field;
+			}
+		}
+		return '';
+	}
+
+	private static function goal_search_snippet( array $state, string $query ): string {
+		$field = self::goal_search_match_field( $state, $query );
+		if ( $field === 'primary_goal' ) {
+			return (string) ( $state['primary_goal'] ?? '' );
+		}
+		if ( $field === 'next_best_action' ) {
+			$action = (array) ( $state['next_best_action'] ?? array() );
+			return (string) ( $action['question_text'] ?? $action['label'] ?? '' );
+		}
+		foreach ( (array) ( $state['gaps'] ?? array() ) as $gap ) {
+			if ( is_array( $gap ) && false !== stripos( (string) ( $gap['label'] ?? '' ), $query ) ) {
+				return (string) $gap['label'];
+			}
+		}
+		return (string) ( $state['primary_goal'] ?? '' );
+	}
+
 	public static function invalidate( int $blog_id, string $identity_uuid, string $session_id ): void {
 		// [2026-08-01 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G1 — clear snapshot cache after a new goal event.
 		if ( class_exists( 'BizCity_Cache' ) ) {

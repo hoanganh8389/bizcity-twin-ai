@@ -4,7 +4,7 @@
  *
  * Canonical admin Settings surface for R-1API ("One API Key for All Services").
  * URL: admin.php?page=bizcity-twinchat-settings
- * Parent menu: bizcity-twinchat (TwinChat).
+ * Parent menu: bizcity-ai (Cài đặt Twin AI).
  *
  * Stores ONLY the canonical site options defined by R-1API-2:
  *   - bizcity_llm_api_key        (Bearer token "biz-…")
@@ -23,7 +23,7 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 class BizCity_TwinChat_Settings_Page {
 
 	const PAGE_SLUG       = 'bizcity-twinchat-settings';
-	const PARENT_SLUG     = 'bizcity-twinchat';
+	const PARENT_SLUG     = 'bizcity-ai'; // [2026-08-11 Johnny Chu] PHASE-1.26 — API settings belong to the Settings group.
 	const OPT_API_KEY     = 'bizcity_llm_api_key';
 	const OPT_GATEWAY_URL = 'bizcity_llm_gateway_url';
 	const DEFAULT_GATEWAY = 'https://bizcity.vn';

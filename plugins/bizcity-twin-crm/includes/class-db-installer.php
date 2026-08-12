@@ -75,6 +75,10 @@ class BizCity_CRM_DB_Installer_V2 {
 
 	/* ── PHASE 0.35 M-CRM.M8.W2 — Contact unification (legacy biz_contacts → contacts) ── */
 	public static function tbl_contact_id_map(): string     { global $wpdb; return $wpdb->prefix . 'bizcity_crm_contact_id_map'; }
+	// [2026-08-11 Johnny Chu] PHASE-CRM-CONTACTS-UNIFY-V2 — durable identity conflict queue table helper.
+	public static function tbl_identity_conflicts(): string { global $wpdb; return $wpdb->prefix . 'bizcity_crm_identity_conflicts'; }
+	// [2026-08-12 Johnny Chu] PHASE-CRM-CONTACTS-UNIFY-V2 — append-only conflict audit table helper.
+	public static function tbl_identity_conflict_audit(): string { global $wpdb; return $wpdb->prefix . 'bizcity_crm_identity_conflict_audit'; }
 
 	/* ── PHASE 3.5 Wave A — Admin Chat magic links ── */
 	public static function tbl_chat_magic_links(): string   { global $wpdb; return $wpdb->prefix . 'bizcity_crm_chat_magic_links'; }
@@ -145,6 +149,8 @@ class BizCity_CRM_DB_Installer_V2 {
 			'gmail_smtp_accounts'           => self::tbl_gmail_smtp_accounts(),
 			'email_event_rules'             => self::tbl_email_event_rules(),
 			'contact_id_map'                => self::tbl_contact_id_map(),
+			'identity_conflicts'            => self::tbl_identity_conflicts(),
+			'identity_conflict_audit'       => self::tbl_identity_conflict_audit(),
 			'chat_magic_links'              => self::tbl_chat_magic_links(),
 			'admin_chat_grants'             => self::tbl_admin_chat_grants(),
 			'crm_audit_log'                 => self::tbl_crm_audit_log(),
@@ -1196,6 +1202,12 @@ class BizCity_CRM_DB_Installer_V2 {
 		self::migrate_phase_048();
 		// [2026-07-03 Johnny Chu] PHASE-0.46 M1 — v1.24.0 bizcity_crm_activities table + bizcity_crm_submissions table.
 		self::migrate_phase_049();
+		// [2026-08-11 Johnny Chu] PHASE-CRM-CONTACTS-UNIFY-V2 — v1.26.0 identity conflict queue.
+		self::migrate_phase_050();
+		// [2026-08-11 Johnny Chu] PHASE-CRM-CONTACTS-UNIFY-V2 — v1.27.0 queue lease/backoff fields.
+		self::migrate_phase_051();
+		// [2026-08-12 Johnny Chu] PHASE-CRM-CONTACTS-UNIFY-V2 — v1.28.0 append-only conflict audit history.
+		self::migrate_phase_052();
 
 		update_option( self::DB_VERSION_OPTION, BIZCITY_CRM_DB_VERSION );
 	}
@@ -1873,9 +1885,120 @@ class BizCity_CRM_DB_Installer_V2 {
 		}
 	}
 
+	/**
+	 * [2026-08-11 Johnny Chu] PHASE-CRM-CONTACTS-UNIFY-V2 — durable identity conflict queue.
+	 * ADD-only and idempotent; queue stores internal IDs/hashes, never raw PII.
+	 */
+	public static function migrate_phase_050(): void {
+		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+		global $wpdb;
+		$charset = $wpdb->get_charset_collate();
+		$table = self::tbl_identity_conflicts();
+		dbDelta( "CREATE TABLE `{$table}` (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			source_type VARCHAR(32) NOT NULL DEFAULT '',
+			source_id BIGINT UNSIGNED NULL,
+			wp_user_id BIGINT UNSIGNED NULL,
+			blog_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+			reason_code VARCHAR(64) NOT NULL DEFAULT '',
+			contact_ids_json LONGTEXT NULL,
+			dedupe_key CHAR(64) NOT NULL,
+			payload_hash CHAR(64) NULL,
+			status VARCHAR(16) NOT NULL DEFAULT 'open',
+			retry_count SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+			last_error VARCHAR(255) NULL,
+			claimed_by BIGINT UNSIGNED NULL,
+			claimed_at DATETIME NULL,
+			retry_after DATETIME NULL,
+			resolution_contact_id BIGINT UNSIGNED NULL,
+			resolution_reason VARCHAR(255) NULL,
+			actor_user_id BIGINT UNSIGNED NULL,
+			created_at DATETIME NOT NULL,
+			updated_at DATETIME NOT NULL,
+			resolved_at DATETIME NULL,
+			PRIMARY KEY (id),
+			UNIQUE KEY uniq_dedupe (dedupe_key),
+			KEY idx_status_created (status, created_at),
+			KEY idx_source (source_type, source_id),
+			KEY idx_blog_status (blog_id, status, created_at),
+			KEY idx_claimed (status, claimed_at, retry_after),
+			KEY idx_contact_audit (resolution_contact_id)
+		) {$charset};" );
+		if ( function_exists( 'bizcity_tbl_invalidate' ) ) {
+			bizcity_tbl_invalidate( $table );
+		}
+	}
+
+	/**
+	 * [2026-08-11 Johnny Chu] PHASE-CRM-CONTACTS-UNIFY-V2 — ADD-only queue lease/backoff migration.
+	 */
+	public static function migrate_phase_051(): void {
+		global $wpdb;
+		$table = self::tbl_identity_conflicts();
+		if ( ! self::table_exists( $table ) ) { return; }
+		$columns = array(
+			'claimed_by'  => 'BIGINT UNSIGNED NULL',
+			'claimed_at'  => 'DATETIME NULL',
+			'retry_after' => 'DATETIME NULL',
+		);
+		foreach ( $columns as $column => $definition ) {
+			if ( ! self::column_exists( $table, $column ) ) {
+				$wpdb->query( "ALTER TABLE `{$table}` ADD COLUMN {$column} {$definition}" );
+			}
+		}
+		if ( ! self::index_exists( $table, 'idx_claimed' ) ) {
+			$wpdb->query( "ALTER TABLE `{$table}` ADD KEY idx_claimed (status, claimed_at, retry_after)" );
+		}
+	}
+
+	/**
+	 * [2026-08-12 Johnny Chu] PHASE-CRM-CONTACTS-UNIFY-V2 — append-only conflict audit history.
+	 */
+	public static function migrate_phase_052(): void {
+		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+		global $wpdb;
+		$charset = $wpdb->get_charset_collate();
+		$table = self::tbl_identity_conflict_audit();
+		dbDelta( "CREATE TABLE `{$table}` (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			conflict_id BIGINT UNSIGNED NOT NULL,
+			blog_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+			event_type VARCHAR(32) NOT NULL DEFAULT '',
+			from_status VARCHAR(16) NULL,
+			to_status VARCHAR(16) NULL,
+			actor_user_id BIGINT UNSIGNED NULL,
+			reason VARCHAR(255) NULL,
+			meta_json LONGTEXT NULL,
+			created_at DATETIME NOT NULL,
+			PRIMARY KEY (id),
+			KEY idx_conflict_created (conflict_id, created_at),
+			KEY idx_blog_created (blog_id, created_at),
+			KEY idx_event (event_type, created_at)
+		) {$charset};" );
+		if ( function_exists( 'bizcity_tbl_invalidate' ) ) { bizcity_tbl_invalidate( $table ); }
+	}
+
 }
 
 endif; // class_exists BizCity_CRM_DB_Installer_V2
+
+// [2026-08-11 Johnny Chu] R-CR.2 — register queue schema before any installer dbDelta call.
+if ( class_exists( 'BizCity_Schema_Registry' ) ) {
+	BizCity_Schema_Registry::register(
+		'bizcity_crm_identity_conflicts',
+		'modules.twin-crm',
+		BIZCITY_CRM_DB_VERSION,
+		BizCity_CRM_DB_Installer_V2::DB_VERSION_OPTION,
+		array( 'BizCity_CRM_DB_Installer_V2', 'install' )
+		);
+	BizCity_Schema_Registry::register(
+		'bizcity_crm_identity_conflict_audit',
+		'modules.twin-crm',
+		BIZCITY_CRM_DB_VERSION,
+		BizCity_CRM_DB_Installer_V2::DB_VERSION_OPTION,
+		array( 'BizCity_CRM_DB_Installer_V2', 'install' )
+		);
+}
 
 // Backward-compat alias — code cũ vẫn gọi BizCity_CRM_DB_Installer.
 if ( class_exists( 'BizCity_CRM_DB_Installer_V2' ) && ! class_exists( 'BizCity_CRM_DB_Installer', false ) ) {

@@ -3,7 +3,7 @@
   "module_id": "modules.twin-crm",
   "owner": "plugins/bizcity-twin-crm",
   "installer_id": "twin_crm",
-  "current_version": "1.25.0",
+  "current_version": "1.28.0",
   "version_option": "bizcity_crm_db_ver",
   "tables": {
     "bizcity_crm_broadcasts": {
@@ -700,9 +700,70 @@
         "idx_action_status": { "cols": ["action",   "status"],     "since": "1.22.0" },
         "idx_guru":          { "cols": ["guru_id"],                "since": "1.22.0" }
       }
+    },
+    "bizcity_crm_identity_conflicts": {
+      "since": "1.26.0",
+      "purpose": "V2 identity conflict queue for Woo/user-points/contact matching. Durable, deduplicated and reviewable; stores internal IDs and hashes, not raw PII.",
+      "engine": "InnoDB", "charset": "utf8mb4", "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":                    { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.26.0", "pk": true },
+        "source_type":           { "type": "VARCHAR(32) NOT NULL DEFAULT ''",         "since": "1.26.0", "comment": "woo_order | woo_user | user_points | cf7_lead" },
+        "source_id":             { "type": "BIGINT UNSIGNED NULL",                    "since": "1.26.0" },
+        "wp_user_id":            { "type": "BIGINT UNSIGNED NULL",                    "since": "1.26.0" },
+        "blog_id":               { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",      "since": "1.26.0" },
+        "reason_code":           { "type": "VARCHAR(64) NOT NULL DEFAULT ''",         "since": "1.26.0" },
+        "contact_ids_json":      { "type": "LONGTEXT NULL",                           "since": "1.26.0", "comment": "Internal candidate IDs only." },
+        "dedupe_key":            { "type": "CHAR(64) NOT NULL",                       "since": "1.26.0" },
+        "payload_hash":          { "type": "CHAR(64) NULL",                           "since": "1.26.0", "comment": "Hash of sanitized conflict envelope." },
+        "status":                { "type": "VARCHAR(16) NOT NULL DEFAULT 'open'",    "since": "1.26.0", "comment": "open | claimed | resolved | rejected | ignored" },
+        "retry_count":           { "type": "SMALLINT UNSIGNED NOT NULL DEFAULT 0",    "since": "1.26.0" },
+        "last_error":            { "type": "VARCHAR(255) NULL",                       "since": "1.26.0" },
+        "claimed_by":            { "type": "BIGINT UNSIGNED NULL",                    "since": "1.27.0" },
+        "claimed_at":            { "type": "DATETIME NULL",                           "since": "1.27.0" },
+        "retry_after":           { "type": "DATETIME NULL",                           "since": "1.27.0" },
+        "resolution_contact_id": { "type": "BIGINT UNSIGNED NULL",                    "since": "1.26.0" },
+        "resolution_reason":     { "type": "VARCHAR(255) NULL",                       "since": "1.26.0" },
+        "actor_user_id":         { "type": "BIGINT UNSIGNED NULL",                    "since": "1.26.0" },
+        "created_at":            { "type": "DATETIME NOT NULL",                       "since": "1.26.0" },
+        "updated_at":            { "type": "DATETIME NOT NULL",                       "since": "1.26.0" },
+        "resolved_at":           { "type": "DATETIME NULL",                           "since": "1.26.0" }
+      },
+      "indexes": {
+        "uniq_dedupe":       { "cols": ["dedupe_key"],                    "since": "1.26.0", "unique": true },
+        "idx_status_created":{ "cols": ["status", "created_at"],         "since": "1.26.0" },
+        "idx_source":        { "cols": ["source_type", "source_id"],     "since": "1.26.0" },
+        "idx_blog_status":   { "cols": ["blog_id", "status", "created_at"], "since": "1.26.0" },
+        "idx_claimed":       { "cols": ["status", "claimed_at", "retry_after"], "since": "1.27.0" },
+        "idx_contact_audit": { "cols": ["resolution_contact_id"],         "since": "1.26.0" }
+      }
+    },
+    "bizcity_crm_identity_conflict_audit": {
+      "since": "1.28.0",
+      "purpose": "Append-only audit history for identity conflict queue capture, claim, retry, resolve and reject transitions. No raw PII.",
+      "engine": "InnoDB", "charset": "utf8mb4", "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":          { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.28.0", "pk": true },
+        "conflict_id": { "type": "BIGINT UNSIGNED NOT NULL",               "since": "1.28.0" },
+        "blog_id":    { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",      "since": "1.28.0" },
+        "event_type": { "type": "VARCHAR(32) NOT NULL DEFAULT ''",         "since": "1.28.0", "comment": "captured | claimed | retried | resolved | rejected" },
+        "from_status":{ "type": "VARCHAR(16) NULL",                         "since": "1.28.0" },
+        "to_status":  { "type": "VARCHAR(16) NULL",                         "since": "1.28.0" },
+        "actor_user_id": { "type": "BIGINT UNSIGNED NULL",                  "since": "1.28.0" },
+        "reason":     { "type": "VARCHAR(255) NULL",                        "since": "1.28.0" },
+        "meta_json":  { "type": "LONGTEXT NULL",                            "since": "1.28.0", "comment": "Sanitized IDs/counts only; no raw PII." },
+        "created_at": { "type": "DATETIME NOT NULL",                        "since": "1.28.0" }
+      },
+      "indexes": {
+        "idx_conflict_created": { "cols": ["conflict_id", "created_at"], "since": "1.28.0" },
+        "idx_blog_created":     { "cols": ["blog_id", "created_at"],     "since": "1.28.0" },
+        "idx_event":             { "cols": ["event_type", "created_at"],   "since": "1.28.0" }
+      }
     }
   },
   "history": [
+    { "version": "1.28.0", "date": "2026-08-12", "change": "PHASE-CRM-CONTACTS-UNIFY-V2: Add append-only identity conflict audit history and paginated/filterable review contract." },
+    { "version": "1.27.0", "date": "2026-08-11", "change": "PHASE-CRM-CONTACTS-UNIFY-V2 W1: Add conflict queue lease/backoff fields claimed_by, claimed_at and retry_after for maintenance retry/claim workflow." },
+    { "version": "1.26.0", "date": "2026-08-11", "change": "PHASE-CRM-CONTACTS-UNIFY-V2 W1: Add tenant-scoped bizcity_crm_identity_conflicts durable queue for Woo/user-points identity mismatches. Stores internal candidate IDs, dedupe/payload hashes, status, retry and resolution audit; no raw PII." },
     { "version": "1.25.0", "date": "2026-07-05", "change": "R-UNIFY GAP-B: ADD platform/platform_uid/source to bizcity_crm_contacts; ADD platform/channel_thread_id/chat_id/contact_id/account_id/blog_id to bizcity_crm_conversations; ADD platform/platform_msg_id/body/payload_json to bizcity_crm_messages. Fix: Unknown column 'platform' in INSERT/WHERE." },
     { "version": "1.24.0", "date": "2026-07-03", "change": "PHASE-0.46 M1: ADD bizcity_crm_activities + bizcity_crm_submissions tables." },
     { "version": "1.23.0", "date": "2026-06-25", "change": "ADD action_flags_json + delay_sec to bizcity_crm_broadcasts; ADD scheduled_send_at + idx_scheduled_send to bizcity_crm_broadcast_recipients." },

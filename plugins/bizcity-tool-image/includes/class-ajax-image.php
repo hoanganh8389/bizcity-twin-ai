@@ -57,11 +57,13 @@ class BizCity_Tool_Image_Ajax {
         check_ajax_referer( 'bztimg_nonce', 'nonce' );
 
         if ( ! is_user_logged_in() ) {
-            wp_send_json_error( [ 'message' => 'Vui lòng đăng nhập.' ] );
+            // [2026-08-10 Johnny Chu] R-ERROR-UX — standardize image upload auth failure.
+            wp_send_json_error( BizCity_Error_Payload::make( 'auth_required', 'Bạn cần đăng nhập để tải ảnh lên.', 'Đăng nhập rồi thử lại.', 'login_required' ) );
         }
 
         if ( empty( $_FILES['photo'] ) ) {
-            wp_send_json_error( [ 'message' => 'Không nhận được file ảnh.' ] );
+            // [2026-08-10 Johnny Chu] R-ERROR-UX — standardize missing image input.
+            wp_send_json_error( BizCity_Error_Payload::make( 'invalid_param', 'Chưa nhận được file ảnh.', 'Chọn một file ảnh rồi thử lại.', 'image_upload_required' ) );
         }
 
         require_once ABSPATH . 'wp-admin/includes/image.php';
@@ -71,7 +73,8 @@ class BizCity_Tool_Image_Ajax {
         $attach_id = media_handle_upload( 'photo', 0 );
 
         if ( is_wp_error( $attach_id ) ) {
-            wp_send_json_error( [ 'message' => $attach_id->get_error_message() ] );
+            // [2026-08-10 Johnny Chu] R-ERROR-UX — keep media internals out of the user payload.
+            wp_send_json_error( BizCity_Error_Payload::make( 'upload_rejected', 'Không thể tải ảnh lên thư viện Media.', 'Kiểm tra định dạng và dung lượng ảnh rồi thử lại.', 'image_upload_retry', array( 'wp_error_code' => $attach_id->get_error_code() ) ) );
         }
 
         wp_send_json_success( [
@@ -88,7 +91,8 @@ class BizCity_Tool_Image_Ajax {
 
         $user_id = get_current_user_id();
         if ( ! $user_id ) {
-            wp_send_json_error( [ 'message' => 'Vui lòng đăng nhập.' ] );
+            // [2026-08-10 Johnny Chu] R-ERROR-UX — standardize image generation auth failure.
+            wp_send_json_error( BizCity_Error_Payload::make( 'auth_required', 'Bạn cần đăng nhập để tạo ảnh.', 'Đăng nhập rồi thử lại.', 'login_required' ) );
         }
 
         $slots = [
@@ -108,7 +112,8 @@ class BizCity_Tool_Image_Ajax {
         if ( ! empty( $result['success'] ) ) {
             wp_send_json_success( $result );
         } else {
-            wp_send_json_error( $result );
+            // [2026-08-10 Johnny Chu] R-ERROR-UX — normalize tool failures without exposing provider details.
+            wp_send_json_error( BizCity_Error_Payload::make( 'gateway_degraded', 'Dịch vụ tạo ảnh tạm thời không khả dụng.', 'Thử lại sau vài phút.', 'gateway_degraded' ) );
         }
     }
 
@@ -120,7 +125,7 @@ class BizCity_Tool_Image_Ajax {
 
         $user_id = get_current_user_id();
         if ( ! $user_id ) {
-            wp_send_json_error( [ 'message' => 'Vui lòng đăng nhập.' ] );
+            wp_send_json_error( BizCity_Error_Payload::make( 'auth_required', 'Bạn cần đăng nhập để xem tác vụ ảnh.', 'Đăng nhập rồi thử lại.', 'login_required' ) );
         }
 
         global $wpdb;
@@ -154,7 +159,7 @@ class BizCity_Tool_Image_Ajax {
         check_ajax_referer( 'bztimg_nonce', 'nonce' );
 
         if ( ! is_user_logged_in() ) {
-            wp_send_json_error( [ 'message' => 'Vui lòng đăng nhập.' ] );
+            wp_send_json_error( BizCity_Error_Payload::make( 'auth_required', 'Bạn cần đăng nhập để lưu cài đặt.', 'Đăng nhập rồi thử lại.', 'login_required' ) );
         }
 
         // Admin-only fields
@@ -194,20 +199,20 @@ class BizCity_Tool_Image_Ajax {
         check_ajax_referer( 'bztimg_nonce', 'nonce' );
 
         if ( ! is_user_logged_in() ) {
-            wp_send_json_error( [ 'message' => 'Vui lòng đăng nhập.' ] );
+            wp_send_json_error( BizCity_Error_Payload::make( 'auth_required', 'Bạn cần đăng nhập để lưu ảnh.', 'Đăng nhập rồi thử lại.', 'login_required' ) );
         }
 
         $job_id    = intval( $_POST['job_id'] ?? 0 );
         $image_url = esc_url_raw( $_POST['image_url'] ?? '' );
 
         if ( empty( $image_url ) ) {
-            wp_send_json_error( [ 'message' => 'URL ảnh trống.' ] );
+            wp_send_json_error( BizCity_Error_Payload::make( 'invalid_param', 'Thiếu URL ảnh.', 'Chọn ảnh rồi thử lại.', 'image_url_invalid' ) );
         }
 
         $att_id = BizCity_Tool_Image::save_to_media( $image_url, 'AI Image #' . $job_id );
 
         if ( ! $att_id ) {
-            wp_send_json_error( [ 'message' => 'Lỗi lưu ảnh vào Media Library.' ] );
+            wp_send_json_error( BizCity_Error_Payload::make( 'upload_rejected', 'Không thể lưu ảnh vào Media Library.', 'Kiểm tra URL ảnh rồi thử lại.', 'image_upload_retry' ) );
         }
 
         // Update job record
@@ -236,7 +241,7 @@ class BizCity_Tool_Image_Ajax {
         $job_id  = intval( $_POST['job_id'] ?? 0 );
 
         if ( ! $user_id || ! $job_id ) {
-            wp_send_json_error( [ 'message' => 'Thiếu dữ liệu.' ] );
+            wp_send_json_error( BizCity_Error_Payload::make( $user_id ? 'invalid_param' : 'auth_required', 'Thiếu thông tin tác vụ ảnh.', 'Kiểm tra tác vụ rồi thử lại.', $user_id ? 'invalid_param_generic' : 'login_required' ) );
         }
 
         global $wpdb;
@@ -255,7 +260,7 @@ class BizCity_Tool_Image_Ajax {
 
         $user_id = get_current_user_id();
         if ( ! $user_id ) {
-            wp_send_json_error( [ 'message' => 'Vui lòng đăng nhập.' ] );
+            wp_send_json_error( BizCity_Error_Payload::make( 'auth_required', 'Bạn cần đăng nhập để xem template.', 'Đăng nhập rồi thử lại.', 'login_required' ) );
         }
 
         $templates = self::load_templates( $user_id );
@@ -276,7 +281,7 @@ class BizCity_Tool_Image_Ajax {
 
         $user_id = get_current_user_id();
         if ( ! $user_id ) {
-            wp_send_json_error( [ 'message' => 'Vui lòng đăng nhập.' ] );
+            wp_send_json_error( BizCity_Error_Payload::make( 'auth_required', 'Bạn cần đăng nhập để lưu template.', 'Đăng nhập rồi thử lại.', 'login_required' ) );
         }
 
         $name   = sanitize_text_field( wp_unslash( $_POST['name'] ?? 'Untitled' ) );
@@ -287,7 +292,7 @@ class BizCity_Tool_Image_Ajax {
         // Validate JSON
         $decoded = json_decode( $json, true );
         if ( ! $decoded ) {
-            wp_send_json_error( [ 'message' => 'Dữ liệu template không hợp lệ.' ] );
+            wp_send_json_error( BizCity_Error_Payload::make( 'invalid_param', 'Dữ liệu template không hợp lệ.', 'Tải lại canvas rồi lưu lại template.', 'invalid_param_generic' ) );
         }
 
         $templates = self::load_templates( $user_id );
@@ -316,12 +321,12 @@ class BizCity_Tool_Image_Ajax {
 
         $user_id = get_current_user_id();
         if ( ! $user_id ) {
-            wp_send_json_error( [ 'message' => 'Vui lòng đăng nhập.' ] );
+            wp_send_json_error( BizCity_Error_Payload::make( 'auth_required', 'Bạn cần đăng nhập để xóa template.', 'Đăng nhập rồi thử lại.', 'login_required' ) );
         }
 
         $template_id = sanitize_text_field( $_POST['template_id'] ?? '' );
         if ( ! $template_id ) {
-            wp_send_json_error( [ 'message' => 'Thiếu template ID.' ] );
+            wp_send_json_error( BizCity_Error_Payload::make( 'invalid_param', 'Thiếu mã template.', 'Chọn template rồi thử lại.', 'invalid_param_generic' ) );
         }
 
         $templates = self::load_templates( $user_id );

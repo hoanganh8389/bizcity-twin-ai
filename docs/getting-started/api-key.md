@@ -15,16 +15,15 @@
 
 ## Cấu hình trên WordPress
 
-### Cách 1: `wp-config.php` (khuyến cáo — an toàn hơn)
+### Cấu hình qua WP Admin UI
 
-```php
-define( 'BIZCITY_LLM_GATEWAY_URL', 'https://bizcity.vn' );
-define( 'BIZCITY_LLM_API_KEY',     'biz-xxxxxxxxxxxxxxxxxxxxxxxx' );
-```
+**WP Admin → BizCity Twin AI → Settings** → tab **Gateway** → nhập gateway URL
+và dán key → Lưu.
 
-### Cách 2: WP Admin UI
-
-**WP Admin → BizCity → Settings** → tab **Gateway** → dán key → Lưu.
+Runtime dùng hai option canonical `bizcity_llm_gateway_url` và
+`bizcity_llm_api_key`. Hai constant `BIZCITY_LLM_GATEWAY_URL` và
+`BIZCITY_LLM_API_KEY` không phải contract runtime của plugin hiện tại; không dùng
+chúng thay cho Settings UI nếu deployment chưa có lớp ánh xạ riêng.
 
 ---
 
@@ -34,6 +33,9 @@ define( 'BIZCITY_LLM_API_KEY',     'biz-xxxxxxxxxxxxxxxxxxxxxxxx' );
 
 - ✅ **PASS** — Key hợp lệ, kết nối OK
 - ❌ **FAIL** — Kiểm tra key có đúng format `biz-xxx` không; kiểm tra mạng internet
+
+Nếu dùng Tool Image background removal, chạy thêm probe
+`core.piapi.image_task` để kiểm tra wrapper, trace, idempotency và gateway mock.
 
 ---
 

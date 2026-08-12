@@ -213,5 +213,3 @@ class BizCoach_Pro_Admin_Coachees {
 		<?php
 	}
 }
-
-BizCoach_Pro_Admin_Coachees::init();

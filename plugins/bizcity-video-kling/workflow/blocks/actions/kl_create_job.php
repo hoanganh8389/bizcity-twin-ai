@@ -39,18 +39,6 @@ class WaicAction_kl_create_job extends WaicAction {
                 'default' => 'Tạo Video Kling',
             ],
             
-            // API Settings
-            'api_key' => [
-                'type' => 'input',
-                'label' => __('API Key PiAPI', 'bizcity-video-kling'),
-                'default' => '',
-                'desc' => __('Để trống để dùng API key từ Settings', 'bizcity-video-kling'),
-            ],
-            'endpoint' => [
-                'type' => 'input',
-                'label' => __('API Endpoint', 'bizcity-video-kling'),
-                'default' => 'https://api.piapi.ai/api/v1',
-            ],
             'model' => [
                 'type' => 'select',
                 'label' => __('Model', 'bizcity-video-kling'),
@@ -133,19 +121,7 @@ class WaicAction_kl_create_job extends WaicAction {
 
     public function getResults($taskId, $variables, $step = 0) {
         // Get settings with variable replacement
-        $api_key = trim($this->replaceVariables($this->getParam('api_key'), $variables));
-        if (empty($api_key)) {
-            $api_key = get_option('bizcity_video_kling_api_key', '');
-        }
-        
-        $endpoint = trim($this->replaceVariables($this->getParam('endpoint'), $variables));
-        if (empty($endpoint)) {
-            $endpoint = get_option('bizcity_video_kling_endpoint', 'https://api.piapi.ai/api/v1');
-        }
-
         $s = array(
-            'api_key'      => $api_key,
-            'endpoint'     => $endpoint,
             'model'        => $this->getParam('model', 'kling-v1'),
             'task_type'    => $this->getParam('task_type', 'image_to_video'),
             'image_url'    => $this->replaceVariables($this->getParam('image_url'), $variables),

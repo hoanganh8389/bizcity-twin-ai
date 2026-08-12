@@ -53,6 +53,8 @@ class BizCity_TwinBrain_REST {
 				'auto_complete'    => [ 'type' => 'boolean', 'required' => false, 'default' => true ],
 				// [2026-08-07 Johnny Chu] V4-DEPTH — expose the MPR reasoning tier; absent means canonical high.
 				'answer_depth'     => [ 'type' => 'string', 'required' => false, 'enum' => [ 'fast', 'balanced', 'high', 'deep' ], 'default' => 'high' ],
+				// [2026-08-11 Johnny Chu] PHASE-TWB-WOO-BIZOPS — keep synchronous REST mode parity with stream.
+				'web_mode'         => [ 'type' => 'string', 'required' => false, 'enum' => [ 'off', 'astro', 'quick', 'deep', 'social', 'company', 'med', 'scholar', 'nutri', 'law', 'tax', 'gov', 'products', 'woo_bizops' ] ],
 				// [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-2 — thread session_id.
 				'session_id'       => [ 'type' => 'string',  'required' => false ],
 			],
@@ -78,7 +80,7 @@ class BizCity_TwinBrain_REST {
 				// [2026-06-04 Johnny Chu] PHASE-A C.3b — 'astro' mode: bypass MPR,
 				// inject transit passages qua CAP filter, compose final với astro context.
 				// [2026-07-15 Johnny Chu] PHASE-TWB-PRODUCTS — add products mode enum.
-				'web_mode'         => [ 'type' => 'string',  'required' => false, 'enum' => [ 'off', 'astro', 'quick', 'deep', 'social', 'company', 'med', 'scholar', 'nutri', 'law', 'tax', 'gov', 'products' ] ],
+				'web_mode'         => [ 'type' => 'string',  'required' => false, 'enum' => [ 'off', 'astro', 'quick', 'deep', 'social', 'company', 'med', 'scholar', 'nutri', 'law', 'tax', 'gov', 'products', 'woo_bizops' ] ],
 				// TBR.W20 (2026-05-28) — Agent mode toggle. 'brain' (default) =
 				// full MPR pipeline (perspectives + synthesis); 'agent' = bypass
 				// perspectives, run ReAct loop over Tool_Registry instead.
@@ -130,7 +132,8 @@ class BizCity_TwinBrain_REST {
 		// [2026-07-15 Johnny Chu] PHASE-TWB-PRODUCTS — accept 'products' vertical mode.
 		// MISSING from whitelist trước đây → astro request bị fallback 'off' →
 		// chạy full MPR pipeline (notebook perspectives) thay vì stream_astro_mode.
-		return in_array( $v, [ 'astro', 'quick', 'deep', 'social', 'company', 'med', 'scholar', 'nutri', 'law', 'tax', 'gov', 'products' ], true ) ? $v : 'off';
+		// [2026-08-11 Johnny Chu] PHASE-TWB-WOO-BIZOPS — accept mode; resolver enforces admin capability before data access.
+		return in_array( $v, [ 'astro', 'quick', 'deep', 'social', 'company', 'med', 'scholar', 'nutri', 'law', 'tax', 'gov', 'products', 'woo_bizops' ], true ) ? $v : 'off';
 	}
 
 	/**
@@ -191,6 +194,8 @@ class BizCity_TwinBrain_REST {
 			'force_tools'      => (array) $req->get_param( 'force_tools' ),
 			'skip_tool_intent' => (bool)  $req->get_param( 'skip_tool_intent' ),
 			'answer_depth'     => $this->sanitize_answer_depth( $req->get_param( 'answer_depth' ) ),
+			// [2026-08-11 Johnny Chu] PHASE-TWB-WOO-BIZOPS — propagate synchronous vertical mode to runtime.
+			'web_mode'         => $this->sanitize_web_mode( $req->get_param( 'web_mode' ) ),
 			'session_id'       => $session_id,
 		];
 
@@ -225,6 +230,8 @@ class BizCity_TwinBrain_REST {
 					'goal_loop_pre_turn_completed' => ! empty( $start['goal_loop_pre_turn_completed'] ), // [2026-08-07 Johnny Chu] V4-DEPTH — preserve parser lifecycle marker.
 					'pre_mpr_triage'             => (array) ( $start['pre_mpr_triage'] ?? array() ), // [2026-08-07 Johnny Chu] V4-TRIAGE — preserve ambiguous/MPR branch.
 					'ambiguous_no_goal'          => ! empty( $start['ambiguous_no_goal'] ),
+					// [2026-08-11 Johnny Chu] PHASE-TWB-WOO-BIZOPS — preserve vertical mode during synchronous completion.
+					'web_mode'                   => (string) ( $opts['web_mode'] ?? 'off' ),
 				)
 			);
 			return rest_ensure_response( array_merge( $start, $done, [ 'session_id' => $session_id ] ) );

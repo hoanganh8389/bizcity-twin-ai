@@ -20,16 +20,6 @@ class BizCity_TwitCanva_Integration {
     /** WP option prefix for TwitCanva keys */
     const OPT_PREFIX = 'bzvideo_twitcanva_';
 
-    /** Map: WP option suffix → TwitCanva key name (used in push payload) */
-    const KEY_MAP = [
-        'gemini_key'       => 'gemini_key',
-        'kling_access_key' => 'kling_access_key',
-        'kling_secret_key' => 'kling_secret_key',
-        'hailuo_key'       => 'hailuo_key',
-        'openai_key'       => 'openai_key',
-        'fal_key'          => 'fal_key',
-    ];
-
     public static function init() {
         add_action( 'admin_menu', [ __CLASS__, 'register_menu' ] );
         add_action( 'rest_api_init', [ __CLASS__, 'register_rest_routes' ] );
@@ -38,6 +28,30 @@ class BizCity_TwitCanva_Integration {
         add_action( 'wp_ajax_bvk_save_twitcanva_config', [ __CLASS__, 'ajax_save_config' ] );
         add_action( 'wp_ajax_bvk_load_twitcanva_config', [ __CLASS__, 'ajax_load_config' ] );
         add_action( 'wp_ajax_bvk_push_twitcanva_config', [ __CLASS__, 'ajax_push_config' ] );
+    }
+
+    private static function send_error( $code, $message, $hint, $help_code, $status = 400, $context = array() ) {
+        // [2026-08-10 Johnny Chu] PHASE-1.24-VIDEO-KLING — centralize TwitCanva integration AJAX errors.
+        $payload = class_exists( 'BizCity_Error_Payload' )
+            ? BizCity_Error_Payload::make( $code, $message, $hint, $help_code, $context )
+            : array(
+                'success'   => false,
+                '_degraded' => true,
+                'code'      => (string) $code,
+                'message'   => (string) $message,
+                'hint'      => (string) $hint,
+                'help_code' => (string) $help_code,
+                'context'   => (array) $context,
+            );
+        wp_send_json_error( $payload, (int) $status );
+    }
+
+    private static function rest_error_response( $code, $message, $hint, $help_code, $status = 502 ) {
+        // [2026-08-10 Johnny Chu] R-ERROR-UX — normalize TwitCanva REST sidecar failures.
+        $payload = class_exists( 'BizCity_Error_Payload' )
+            ? BizCity_Error_Payload::make( $code, $message, $hint, $help_code )
+            : array( 'success' => false, 'code' => (string) $code, 'message' => (string) $message, 'hint' => (string) $hint, 'help_code' => (string) $help_code );
+        return new WP_REST_Response( $payload, (int) $status );
     }
 
     /* ═══════════════════════════════════════════════════════════
@@ -63,12 +77,7 @@ class BizCity_TwitCanva_Integration {
         $backend_url = self::get_backend_url();
         $is_admin    = current_user_can( 'manage_options' );
 
-        // Load saved keys (masked for display)
-        $keys = [];
-        foreach ( self::KEY_MAP as $suffix => $_ ) {
-            $val = get_option( self::OPT_PREFIX . $suffix, '' );
-            $keys[ $suffix ] = $val;
-        }
+        // [2026-08-10 Johnny Chu] R-1API-AUTH — never read local provider keys for display.
         $twitcanva_url = get_option( self::OPT_PREFIX . 'url', '' );
         ?>
         <style>
@@ -122,49 +131,11 @@ class BizCity_TwitCanva_Integration {
         <?php if ( $is_admin ) : ?>
         <button id="twitcanva-settings-toggle" type="button">⚙ API Config</button>
         <div id="twitcanva-settings-panel">
-            <h3>🔑 TwitCanva API Keys</h3>
-            <p style="color:#646970;font-size:12px;margin:0 0 10px;">Lưu key ở WP → push sang Docker runtime (không cần restart container).</p>
+            <h3>Video Workflow Gateway</h3>
+            <p style="color:#646970;font-size:12px;margin:0 0 10px;">Provider credential được quản lý ở BizCity Gateway. Plugin này không lưu hoặc đẩy key cục bộ.</p>
 
             <label>Docker Backend URL</label>
             <input type="text" id="tc-url" value="<?php echo esc_attr( $twitcanva_url ); ?>" placeholder="http://localhost:3001">
-
-            <div class="tc-divider"></div>
-
-            <label>Gemini API Key</label>
-            <div class="tc-key-row">
-                <input type="password" id="tc-gemini_key" value="<?php echo esc_attr( $keys['gemini_key'] ); ?>">
-                <span class="tc-eye" data-target="tc-gemini_key">👁</span>
-            </div>
-
-            <label>Kling Access Key</label>
-            <div class="tc-key-row">
-                <input type="password" id="tc-kling_access_key" value="<?php echo esc_attr( $keys['kling_access_key'] ); ?>">
-                <span class="tc-eye" data-target="tc-kling_access_key">👁</span>
-            </div>
-
-            <label>Kling Secret Key</label>
-            <div class="tc-key-row">
-                <input type="password" id="tc-kling_secret_key" value="<?php echo esc_attr( $keys['kling_secret_key'] ); ?>">
-                <span class="tc-eye" data-target="tc-kling_secret_key">👁</span>
-            </div>
-
-            <label>Hailuo API Key</label>
-            <div class="tc-key-row">
-                <input type="password" id="tc-hailuo_key" value="<?php echo esc_attr( $keys['hailuo_key'] ); ?>">
-                <span class="tc-eye" data-target="tc-hailuo_key">👁</span>
-            </div>
-
-            <label>OpenAI API Key</label>
-            <div class="tc-key-row">
-                <input type="password" id="tc-openai_key" value="<?php echo esc_attr( $keys['openai_key'] ); ?>">
-                <span class="tc-eye" data-target="tc-openai_key">👁</span>
-            </div>
-
-            <label>FAL.ai API Key</label>
-            <div class="tc-key-row">
-                <input type="password" id="tc-fal_key" value="<?php echo esc_attr( $keys['fal_key'] ); ?>">
-                <span class="tc-eye" data-target="tc-fal_key">👁</span>
-            </div>
 
             <div class="tc-divider"></div>
 
@@ -186,37 +157,24 @@ class BizCity_TwitCanva_Integration {
 
             toggle.addEventListener('click', () => panel.classList.toggle('open'));
 
-            // Toggle password visibility
-            document.querySelectorAll('.tc-eye').forEach(el => {
-                el.addEventListener('click', () => {
-                    const inp = document.getElementById(el.dataset.target);
-                    inp.type = inp.type === 'password' ? 'text' : 'password';
-                });
-            });
-
             function showMsg(text, ok) {
                 msg.textContent = text;
                 msg.className = 'tc-status ' + (ok ? 'ok' : 'err');
                 setTimeout(() => { msg.style.display = 'none'; msg.className = 'tc-status'; }, 5000);
             }
 
-            const keyIds = ['gemini_key','kling_access_key','kling_secret_key','hailuo_key','openai_key','fal_key'];
-
-            // Save & Push
+            // Save backend URL only; provider credentials stay in the managed Hub.
             document.getElementById('tc-save-btn').addEventListener('click', () => {
                 const data = new FormData();
                 data.append('action', 'bvk_save_twitcanva_config');
                 data.append('nonce', '<?php echo wp_create_nonce( 'bvk_nonce' ); ?>');
                 data.append('url', document.getElementById('tc-url').value);
-                keyIds.forEach(k => data.append(k, document.getElementById('tc-' + k).value));
 
                 fetch(ajaxurl, { method: 'POST', body: data })
                     .then(r => r.json())
                     .then(r => {
                         if (r.success) {
-                            let txt = r.data.message;
-                            if (r.data.push) txt += ' | Push: ' + (r.data.push.ok ? '✅ ' + r.data.push.updated.join(', ') : '❌ ' + r.data.push.error);
-                            showMsg(txt, true);
+                            showMsg(r.data.message, true);
                         } else {
                             showMsg(r.data.message || 'Lỗi', false);
                         }
@@ -327,36 +285,17 @@ class BizCity_TwitCanva_Integration {
         check_ajax_referer( 'bvk_nonce', 'nonce' );
 
         if ( ! current_user_can( 'manage_options' ) ) {
-            wp_send_json_error( [ 'message' => 'Không có quyền.' ] );
+            self::send_error( 'permission_denied', 'Bạn không có quyền cấu hình Video Workflow.', 'Đăng nhập bằng tài khoản quản trị rồi thử lại.', 'permission_required', 403 );
         }
 
-        // Save backend URL
+        // [2026-08-10 Johnny Chu] R-1API-AUTH — backend URL is non-secret; provider fields are intentionally ignored.
         if ( isset( $_POST['url'] ) ) {
             $url = esc_url_raw( wp_unslash( $_POST['url'] ) );
             update_option( self::OPT_PREFIX . 'url', $url );
         }
 
-        // Save each API key
-        $payload = [];
-        foreach ( self::KEY_MAP as $suffix => $push_key ) {
-            if ( isset( $_POST[ $suffix ] ) ) {
-                $val = sanitize_text_field( wp_unslash( $_POST[ $suffix ] ) );
-                update_option( self::OPT_PREFIX . $suffix, $val );
-                if ( $val !== '' ) {
-                    $payload[ $push_key ] = $val;
-                }
-            }
-        }
-
-        // Auto-push to Docker runtime
-        $push_result = null;
-        if ( ! empty( $payload ) ) {
-            $push_result = self::push_config_to_docker( $payload );
-        }
-
         wp_send_json_success( [
-            'message' => 'Đã lưu cấu hình.',
-            'push'    => $push_result,
+            'message' => 'Đã lưu địa chỉ backend. Provider credential vẫn do BizCity Gateway quản lý.',
         ] );
     }
 
@@ -368,16 +307,13 @@ class BizCity_TwitCanva_Integration {
         check_ajax_referer( 'bvk_nonce', 'nonce' );
 
         if ( ! current_user_can( 'manage_options' ) ) {
-            wp_send_json_error( [ 'message' => 'Không có quyền.' ] );
+            self::send_error( 'permission_denied', 'Bạn không có quyền xem cấu hình Video Workflow.', 'Đăng nhập bằng tài khoản quản trị rồi thử lại.', 'permission_required', 403 );
         }
 
-        $keys = [];
-        foreach ( self::KEY_MAP as $suffix => $_ ) {
-            $keys[ $suffix ] = get_option( self::OPT_PREFIX . $suffix, '' );
-        }
-        $keys['url'] = get_option( self::OPT_PREFIX . 'url', '' );
-
-        wp_send_json_success( $keys );
+        wp_send_json_success( array(
+            'url'     => get_option( self::OPT_PREFIX . 'url', '' ),
+            'managed' => true,
+        ) );
     }
 
     /* ═══════════════════════════════════════════════════════════
@@ -388,7 +324,7 @@ class BizCity_TwitCanva_Integration {
         check_ajax_referer( 'bvk_nonce', 'nonce' );
 
         if ( ! current_user_can( 'manage_options' ) ) {
-            wp_send_json_error( [ 'message' => 'Không có quyền.' ] );
+            self::send_error( 'permission_denied', 'Bạn không có quyền đồng bộ Video Workflow.', 'Đăng nhập bằng tài khoản quản trị rồi thử lại.', 'permission_required', 403 );
         }
 
         $status_only = ! empty( $_POST['status_only'] );
@@ -398,55 +334,13 @@ class BizCity_TwitCanva_Integration {
             if ( $result && ! isset( $result['error'] ) ) {
                 wp_send_json_success( [ 'status' => $result ] );
             } else {
-                wp_send_json_error( [ 'error' => $result['error'] ?? 'Không kết nối được' ] );
+                self::send_error( 'gateway_degraded', 'Không kết nối được Video Workflow backend.', 'Kiểm tra backend rồi thử lại.', 'gateway_degraded', 502 );
             }
             return;
         }
 
-        // Push all saved keys
-        $payload = [];
-        foreach ( self::KEY_MAP as $suffix => $push_key ) {
-            $val = get_option( self::OPT_PREFIX . $suffix, '' );
-            if ( $val !== '' ) {
-                $payload[ $push_key ] = $val;
-            }
-        }
-
-        $result = self::push_config_to_docker( $payload );
-        if ( $result && ! empty( $result['ok'] ) ) {
-            wp_send_json_success( $result );
-        } else {
-            wp_send_json_error( $result );
-        }
-    }
-
-    /* ═══════════════════════════════════════════════════════════
-     *  Push API keys to running Docker container
-     * ═══════════════════════════════════════════════════════════ */
-
-    private static function push_config_to_docker( array $payload ) {
-        $url    = self::get_backend_url() . '/api/wp-config';
-        $secret = self::get_config_secret();
-
-        if ( empty( $secret ) ) {
-            return [ 'ok' => false, 'error' => 'TWITCANVA_CONFIG_SECRET chưa được đặt trong wp-config.php' ];
-        }
-
-        $response = wp_remote_post( $url, [
-            'timeout' => 10,
-            'headers' => [
-                'Content-Type'       => 'application/json',
-                'X-WP-Config-Token'  => $secret,
-            ],
-            'body' => wp_json_encode( $payload ),
-        ] );
-
-        if ( is_wp_error( $response ) ) {
-            return [ 'ok' => false, 'error' => $response->get_error_message() ];
-        }
-
-        $body = json_decode( wp_remote_retrieve_body( $response ), true );
-        return $body ?: [ 'ok' => false, 'error' => 'Invalid response' ];
+        // [2026-08-10 Johnny Chu] R-1API-AUTH — local provider-key push is permanently disabled.
+        self::send_error( 'unsupported_operation', 'Đồng bộ provider credential cục bộ đã bị tắt.', 'Dùng BizCity Gateway để cấu hình provider rồi thử lại.', 'gateway_degraded', 422 );
     }
 
     /**
@@ -516,14 +410,16 @@ class BizCity_TwitCanva_Integration {
         $response = wp_remote_request( $target_url, $args );
 
         if ( is_wp_error( $response ) ) {
-            return new WP_REST_Response( [
-                'error' => $response->get_error_message(),
-            ], 502 );
+            return self::rest_error_response( 'gateway_degraded', 'Video Workflow backend tạm thời không khả dụng.', 'Kiểm tra backend rồi thử lại sau ít phút.', 'gateway_degraded' );
         }
 
         $code = wp_remote_retrieve_response_code( $response );
         $body = wp_remote_retrieve_body( $response );
         $data = json_decode( $body, true );
+
+        if ( $code >= 400 ) {
+            return self::rest_error_response( 'gateway_degraded', 'Video Workflow backend trả về lỗi.', 'Kiểm tra backend rồi thử lại sau ít phút.', 'gateway_degraded', 502 );
+        }
 
         return new WP_REST_Response( $data ?: $body, $code );
     }
@@ -533,11 +429,7 @@ class BizCity_TwitCanva_Integration {
         $response = wp_remote_get( $url, [ 'timeout' => 5 ] );
 
         if ( is_wp_error( $response ) ) {
-            return new WP_REST_Response( [
-                'status'  => 'offline',
-                'error'   => $response->get_error_message(),
-                'url'     => self::get_backend_url(),
-            ], 503 );
+            return self::rest_error_response( 'gateway_degraded', 'Video Workflow backend đang ngoại tuyến.', 'Khởi động backend rồi thử lại.', 'gateway_degraded', 503 );
         }
 
         return new WP_REST_Response( [

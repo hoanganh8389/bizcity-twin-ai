@@ -97,43 +97,29 @@ final class BizCity_Automation_Admin_SPA {
 		if ( $this->is_iframe_context() ) {
 			// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — central admin menu may have registered this slug earlier with manage_options; clear WP's nopriv marker for the iframe-only read surface.
 			unset( $_wp_menu_nopriv[ self::MENU_SLUG ] );
-			foreach ( [ 'bizcity-twinchat', 'bizchat-gateway', 'bizcity-twin-ai' ] as $nopriv_parent ) {
+			foreach ( [ 'bizcity-twin-workspace', 'bizcity-ai' ] as $nopriv_parent ) {
 				if ( isset( $_wp_submenu_nopriv[ $nopriv_parent ][ self::MENU_SLUG ] ) ) {
 					unset( $_wp_submenu_nopriv[ $nopriv_parent ][ self::MENU_SLUG ] );
 				}
 			}
 		}
 
-		// Prefer the standard TwinChat parent; fall back to a top-level entry.
-		$parent_candidates = [ 'bizcity-twinchat', 'bizchat-gateway', 'bizcity-twin-ai' ];
-		$parent            = '';
-		foreach ( $parent_candidates as $cand ) {
-			if ( isset( $submenu[ $cand ] ) ) {
-				$parent = $cand;
-				break;
+		$parent = 'bizcity-twin-workspace';
+		// [2026-08-11 Johnny Chu] PHASE-1.26 — Automation belongs to Workspace and must never fall back to a top-level menu.
+		if ( isset( $submenu[ $parent ] ) && is_array( $submenu[ $parent ] ) ) {
+			foreach ( $submenu[ $parent ] as $item ) {
+				if ( isset( $item[2] ) && $item[2] === self::MENU_SLUG ) {
+					return;
+				}
 			}
 		}
-
-		if ( $parent ) {
-			add_submenu_page(
-				$parent,
-				__( 'Twin Workflow', 'bizcity-twin-ai' ),
-				__( 'Twin Workflow', 'bizcity-twin-ai' ),
-				$page_cap,
-				self::MENU_SLUG,
-				[ $this, 'render_page' ]
-			);
-			return;
-		}
-
-		add_menu_page(
+		add_submenu_page(
+			$parent,
 			__( 'Twin Workflow', 'bizcity-twin-ai' ),
 			__( 'Twin Workflow', 'bizcity-twin-ai' ),
 			$page_cap,
 			self::MENU_SLUG,
-			[ $this, 'render_page' ],
-			'dashicons-randomize',
-			32
+			[ $this, 'render_page' ]
 		);
 	}
 

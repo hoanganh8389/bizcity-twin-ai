@@ -1,0 +1,67 @@
+{
+  "contract": "admin-navigation",
+  "version": "1.0.0",
+  "top_level_groups": [
+    {
+      "id": "settings",
+      "slug": "bizcity-ai",
+      "label": "Cài đặt Twin AI",
+      "position": 4,
+      "scope": "site",
+      "surface": "admin_shell"
+    },
+    {
+      "id": "workspace",
+      "slug": "bizcity-twin-workspace",
+      "label": "Twin AI Workspace",
+      "position": 5,
+      "scope": "site",
+      "surface": "admin_shell"
+    },
+    {
+      "id": "diagnostics",
+      "slug": "bizcity-twin-diagnostics",
+      "label": "Twin Diagnostics",
+      "position": 6,
+      "scope": "site",
+      "surface": "admin_shell"
+    }
+  ],
+  "items": [
+    {
+      "id": "modules.twinchat.admin",
+      "slug": "bizcity-twinchat",
+      "label": "Twin Chat",
+      "group": "workspace",
+      "slot": "workspace.chat",
+      "parent": "bizcity-twin-workspace",
+      "capability": "read",
+      "position": 10,
+      "scope": "site",
+      "surface": "admin_page",
+      "renderer": "modules.twinchat.admin_page",
+      "visible": true,
+      "origin": "core",
+      "zone": "customer",
+      "aliases": ["bizcity-twinchat"],
+      "legacy_parents": ["bizcity-twinchat"]
+    },
+    {
+      "id": "core.admin-menu.diagnostics",
+      "slug": "bizcity-twin-event-inspector",
+      "label": "Event Stream",
+      "group": "diagnostics",
+      "slot": "diagnostics.logs",
+      "parent": "bizcity-twin-diagnostics",
+      "capability": "manage_options",
+      "position": 20,
+      "scope": "site",
+      "surface": "diagnostics",
+      "renderer": "core.twin-event-inspector",
+      "visible": true,
+      "origin": "core",
+      "zone": "system",
+      "aliases": ["bizcity-twin-event-inspector"]
+    }
+  ]
+}

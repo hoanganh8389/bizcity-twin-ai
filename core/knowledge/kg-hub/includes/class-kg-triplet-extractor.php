@@ -101,7 +101,8 @@ class BizCity_KG_Triplet_Extractor {
 				// 'truncated': JSON was cut at max_tokens and nothing salvageable —
 				// also transient (will retry; larger passages may succeed with higher
 				// max_tokens or when the model is less verbose).
-				$is_transient = in_array( $result->get_error_code(), [ 'rate_limited', 'truncated' ], true );
+				// [2026-08-10 Johnny Chu] PHASE-0.49-LEARNING-OBSERVABILITY - quota is job-wide, not a passage-local retry.
+				$is_transient = in_array( $result->get_error_code(), [ 'rate_limited', 'quota_exhausted', 'truncated' ], true );
 				$wpdb->update( $db->tbl_passages(), [
 					'extraction_status' => $is_transient ? 'pending' : 'error',
 					'extraction_error'  => $result->get_error_message(),
@@ -290,7 +291,8 @@ class BizCity_KG_Triplet_Extractor {
 			$ppt0 = microtime( true );
 			$res = $this->extract_passage( (int) $pid );
 			if ( is_wp_error( $res ) ) {
-				$is_transient = ( $res->get_error_code() === 'rate_limited' );
+				// [2026-08-10 Johnny Chu] PHASE-0.49-LEARNING-OBSERVABILITY - preserve quota as a job-wide throttle.
+				$is_transient = in_array( $res->get_error_code(), [ 'rate_limited', 'quota_exhausted' ], true );
 				if ( $is_transient ) {
 					$throttled++;
 					$consec_throttle++;
@@ -500,11 +502,13 @@ class BizCity_KG_Triplet_Extractor {
 
 			if ( $is_rate ) {
 				return new WP_Error(
-					'rate_limited',
+					// [2026-08-10 Johnny Chu] PHASE-0.49-LEARNING-OBSERVABILITY - preserve quota identity for scheduler policy.
+					$is_quota ? 'quota_exhausted' : 'rate_limited',
 					'Router ' . ( $is_quota ? 'quota_exhausted' : 'rate_limited' ) . ' — ' . mb_substr( $err_msg, 0, 160 ),
 					[
 						'transport'       => 'router_gateway',
 						'quota_exhausted' => $is_quota,
+						'normalized_code' => $is_quota ? 'quota_exhausted' : 'rate_limited',
 					]
 				);
 			}

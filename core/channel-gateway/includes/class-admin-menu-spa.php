@@ -92,43 +92,24 @@ final class BizCity_Gateway_Admin_SPA {
 	/* ─── Menu Registration ─── */
 
 	public function register_menu(): void {
-		// Prefer adding under `bizchat-gateway` parent if it exists.
-		global $menu, $submenu;
-		$parent = $this->resolve_parent();
-
-		if ( $parent ) {
-			add_submenu_page(
-				$parent,
-				__( 'Channels', 'bizcity-twin-ai' ),
-				__( 'Channels', 'bizcity-twin-ai' ),
-				'manage_options',
-				self::MENU_SLUG,
-				[ $this, 'render_page' ]
-			);
-			return;
+		global $submenu;
+		$parent = 'bizcity-twin-workspace';
+		// [2026-08-11 Johnny Chu] PHASE-1.26 — central registration owns the visible parent and slug.
+		if ( isset( $submenu[ $parent ] ) && is_array( $submenu[ $parent ] ) ) {
+			foreach ( $submenu[ $parent ] as $item ) {
+				if ( isset( $item[2] ) && $item[2] === self::MENU_SLUG ) {
+					return;
+				}
+			}
 		}
-
-		// Fallback: top-level entry.
-		add_menu_page(
-			__( 'BizChat Channels', 'bizcity-twin-ai' ),
+		add_submenu_page(
+			$parent,
+			__( 'Channels', 'bizcity-twin-ai' ),
 			__( 'Channels', 'bizcity-twin-ai' ),
 			'manage_options',
 			self::MENU_SLUG,
-			[ $this, 'render_page' ],
-			'dashicons-share-alt2',
-			31
+			[ $this, 'render_page' ]
 		);
-	}
-
-	private function resolve_parent(): string {
-		// 2026-05-22 — Prefer `bizcity-twinchat` parent first for standalone deploys.
-		global $submenu;
-		foreach ( [ 'bizcity-twinchat', 'bizchat-gateway', 'bizchat-menu', 'bizcity-twin-ai' ] as $candidate ) {
-			if ( isset( $submenu[ $candidate ] ) || ( is_array( $submenu ) && array_key_exists( $candidate, (array) $submenu ) ) ) {
-				return $candidate;
-			}
-		}
-		return 'bizcity-twinchat'; // assume TwinChat parent will be registered later
 	}
 
 	/* ─── Render ─── */

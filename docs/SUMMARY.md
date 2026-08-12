@@ -3,13 +3,14 @@
 ## Giới thiệu
 
 * [Tổng quan BizCity Twin AI](README.md)
+* [Framework Guide v1 — Ownership, Contracts & Development Rules](framework/FRAMEWORK-GUIDE-v1.md)
 
 ## 🚀 Bắt đầu
 
 * [Cài đặt nhanh (5 phút)](getting-started/quick-install.md)
-* [Cài đặt chi tiết — Người dùng không cần lập trình](getting-started/install-user-guide.md)
+* [Cài đặt chi tiết — Người dùng không cần lập trình](INSTALL-USER-GUIDE-VI.md)
 * [Kết nối BizCity API Key](getting-started/api-key.md)
-* [Kiểm tra hoạt động lần đầu](getting-started/verify.md)
+* [Kiểm tra hoạt động lần đầu](diagnostics/overview.md)
 
 ## 🤖 TwinBrain — Trợ lý AI Cá nhân
 
@@ -130,6 +131,12 @@
 * [R-GW-8: Client Standalone (quan trọng)](developer/rules/gateway-standalone.md)
 * [PHP 7.4 Compatibility](developer/rules/php74-compat.md)
 * [Conventions & Coding Rules](developer/rules/overview.md)
+
+## 🧭 Framework Roadmaps & Audits
+
+* [Phase 1.24 — Framework Adoption and Release Readiness](roadmaps/PHASE-1.24-FRAMEWORK-ADOPTION-RELEASE-READINESS.md)
+* [Phase 1.24 — PageBuilder & Video Kling Framework Audit](roadmaps/PHASE-1.24-FRAMEWORK-AUDIT.md)
+* [Phase 1.25 — PiAPI Image Gateway & Plugin Framework Audit](roadmaps/PHASE-1.25-PIAPI-IMAGE-GATEWAY-PLUGIN-FRAMEWORK-AUDIT.md)
 
 ## ❓ FAQ & Hỗ Trợ
 

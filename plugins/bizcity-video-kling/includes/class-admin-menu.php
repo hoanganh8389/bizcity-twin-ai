@@ -6,6 +6,14 @@
 if (!defined('ABSPATH')) exit;
 
 class BizCity_Video_Kling_Admin_Menu {
+
+    private static function send_error( $code, $message, $hint, $help_code, $status = 400 ) {
+        // [2026-08-10 Johnny Chu] R-GW-8/R-ERROR-UX — admin API test uses managed Video client and canonical errors.
+        $payload = class_exists( 'BizCity_Error_Payload' )
+            ? BizCity_Error_Payload::make( $code, $message, $hint, $help_code )
+            : array( 'success' => false, 'code' => (string) $code, 'message' => (string) $message, 'hint' => (string) $hint, 'help_code' => (string) $help_code );
+        wp_send_json_error( $payload, (int) $status );
+    }
     
     private static $instance = null;
     
@@ -98,22 +106,12 @@ class BizCity_Video_Kling_Admin_Menu {
     }
     
     public function add_menu() {
-        // Main menu
-        add_menu_page(
-            __('Video Kling', 'bizcity-video-kling'),
-            __('Video Kling', 'bizcity-video-kling'),
-            'manage_options',
-            'bizcity-kling',
-            [$this, 'render_dashboard_page'],
-            'dashicons-video-alt3',
-            56
-        );
-        
-        // Dashboard (default)
+        $parent = 'bizcity-twin-workspace';
+        // [2026-08-11 Johnny Chu] PHASE-1.26 — Video Studio is a Workspace child, never a standalone top-level menu.
         add_submenu_page(
-            'bizcity-kling',
-            __('Dashboard', 'bizcity-video-kling'),
-            __('Dashboard', 'bizcity-video-kling'),
+            $parent,
+            __('Video Kling', 'bizcity-video-kling'),
+            __('Video Kling', 'bizcity-video-kling'),
             'manage_options',
             'bizcity-kling',
             [$this, 'render_dashboard_page']
@@ -121,7 +119,7 @@ class BizCity_Video_Kling_Admin_Menu {
         
         // Scripts
         add_submenu_page(
-            'bizcity-kling',
+            $parent,
             __('Scripts', 'bizcity-video-kling'),
             __('Scripts', 'bizcity-video-kling'),
             'manage_options',
@@ -131,7 +129,7 @@ class BizCity_Video_Kling_Admin_Menu {
         
         // Video Shots
         add_submenu_page(
-            'bizcity-kling',
+            $parent,
             __('Video Shots', 'bizcity-video-kling'),
             __('Video Shots', 'bizcity-video-kling'),
             'manage_options',
@@ -141,7 +139,7 @@ class BizCity_Video_Kling_Admin_Menu {
         
         // Monitor
         add_submenu_page(
-            'bizcity-kling',
+            $parent,
             __('Monitor', 'bizcity-video-kling'),
             __('Monitor', 'bizcity-video-kling'),
             'manage_options',
@@ -151,7 +149,7 @@ class BizCity_Video_Kling_Admin_Menu {
         
         // Video Effects (templates)
         add_submenu_page(
-            'bizcity-kling',
+            $parent,
             __('Video Effects', 'bizcity-video-kling'),
             __('Video Effects', 'bizcity-video-kling'),
             'manage_options',
@@ -161,7 +159,7 @@ class BizCity_Video_Kling_Admin_Menu {
 
         // Settings
         add_submenu_page(
-            'bizcity-kling',
+            $parent,
             __('Settings', 'bizcity-video-kling'),
             __('Settings', 'bizcity-video-kling'),
             'manage_options',
@@ -293,8 +291,7 @@ class BizCity_Video_Kling_Admin_Menu {
     }
     
     public function register_settings() {
-        register_setting('bizcity_video_kling', 'bizcity_video_kling_api_key');
-        register_setting('bizcity_video_kling', 'bizcity_video_kling_endpoint');
+        // [2026-08-10 Johnny Chu] PHASE-1.24-VIDEO-KLING — local provider key and endpoint settings are quarantined.
         register_setting('bizcity_video_kling', 'bizcity_video_kling_default_model');
         register_setting('bizcity_video_kling', 'bizcity_video_kling_default_duration');
         register_setting('bizcity_video_kling', 'bizcity_video_kling_default_aspect_ratio');
@@ -308,8 +305,7 @@ class BizCity_Video_Kling_Admin_Menu {
         
         // Save settings
         if (isset($_POST['bizcity_kling_save_settings']) && check_admin_referer('bizcity_kling_settings')) {
-            update_option('bizcity_video_kling_api_key', sanitize_text_field($_POST['api_key'] ?? ''));
-            update_option('bizcity_video_kling_endpoint', esc_url_raw($_POST['endpoint'] ?? ''));
+            // [2026-08-10 Johnny Chu] PHASE-1.24-VIDEO-KLING — never persist provider credentials on the client.
             update_option('bizcity_video_kling_default_model', sanitize_text_field($_POST['default_model'] ?? ''));
             update_option('bizcity_video_kling_default_duration', (int)($_POST['default_duration'] ?? 30));
             update_option('bizcity_video_kling_default_aspect_ratio', sanitize_text_field($_POST['default_aspect_ratio'] ?? '9:16'));
@@ -318,8 +314,6 @@ class BizCity_Video_Kling_Admin_Menu {
             echo '<div class="notice notice-success"><p>' . __('Đã lưu cấu hình!', 'bizcity-video-kling') . '</p></div>';
         }
         
-        $api_key = get_option('bizcity_video_kling_api_key', '');
-        $endpoint = get_option('bizcity_video_kling_endpoint', 'https://api.piapi.ai/api/v1');
         $default_model = get_option('bizcity_video_kling_default_model', '2.6|pro');
         $default_duration = get_option('bizcity_video_kling_default_duration', 30);
         $default_aspect_ratio = get_option('bizcity_video_kling_default_aspect_ratio', '9:16');
@@ -337,32 +331,9 @@ class BizCity_Video_Kling_Admin_Menu {
                     
                     <table class="form-table">
                         <tr>
-                            <th scope="row">
-                                <label for="api_key"><?php _e('API Key PiAPI', 'bizcity-video-kling'); ?></label>
-                            </th>
+                            <th scope="row"><?php _e('BizCity AI Gateway', 'bizcity-video-kling'); ?></th>
                             <td>
-                                <input type="password" id="api_key" name="api_key" 
-                                       value="<?php echo esc_attr($api_key); ?>" 
-                                       class="regular-text" 
-                                       placeholder="sk-xxx...">
-                                <p class="description">
-                                    <?php _e('Lấy API key tại', 'bizcity-video-kling'); ?>
-                                    <a href="https://piapi.ai" target="_blank">PiAPI.ai</a>
-                                </p>
-                            </td>
-                        </tr>
-                        
-                        <tr>
-                            <th scope="row">
-                                <label for="endpoint"><?php _e('API Endpoint', 'bizcity-video-kling'); ?></label>
-                            </th>
-                            <td>
-                                <input type="url" id="endpoint" name="endpoint" 
-                                       value="<?php echo esc_attr($endpoint); ?>" 
-                                       class="regular-text">
-                                <p class="description">
-                                    <?php _e('Mặc định: https://api.piapi.ai/api/v1', 'bizcity-video-kling'); ?>
-                                </p>
+                                <p><?php _e('Video Kling sử dụng API key và provider do BizCity Gateway quản lý. Không nhập PiAPI key trên site này.', 'bizcity-video-kling'); ?></p>
                             </td>
                         </tr>
                     </table>
@@ -651,40 +622,28 @@ class BizCity_Video_Kling_Admin_Menu {
         check_ajax_referer('bizcity_kling_test_api');
         
         if (!current_user_can('manage_options')) {
-            wp_send_json_error(['message' => 'Unauthorized']);
+            self::send_error( 'permission_denied', 'Bạn không có quyền kiểm tra Gateway video.', 'Đăng nhập bằng tài khoản quản trị rồi thử lại.', 'permission_required', 403 );
         }
         
-        require_once BIZCITY_VIDEO_KLING_DIR . 'lib/kling_api.php';
-        
-        $api_key = sanitize_text_field($_POST['api_key'] ?? '');
-        $endpoint = esc_url_raw($_POST['endpoint'] ?? '');
-        
-        if (!$api_key) {
-            wp_send_json_error(['message' => 'Missing API key']);
+        if ( ! class_exists( 'BizCity_Video_Client' ) ) {
+            self::send_error( 'module_not_loaded', 'Video Gateway client chưa được load.', 'Kiểm tra module BizCity rồi thử lại.', 'module_not_loaded', 503 );
         }
+
+        $result = BizCity_Video_Client::instance()->list_models();
         
-        // Test với một request đơn giản
-        $settings = [
-            'api_key' => $api_key,
-            'endpoint' => $endpoint,
-        ];
-        
-        // Gọi API list models hoặc test endpoint
-        $url = untrailingslashit($endpoint) . '/models'; // hoặc endpoint test khác
-        $result = waic_kling_http_get($url, [
-            'X-API-Key' => $api_key,
-        ], 30);
-        
-        if ($result['ok']) {
+        if ( ! empty( $result['success'] ) ) {
             wp_send_json_success([
-                'message' => 'API connection successful',
-                'data' => $result['data'],
+                'message' => 'Kết nối Video Gateway thành công.',
+                'data' => array( 'models' => (array) ( $result['models'] ?? array() ) ),
             ]);
         } else {
-            wp_send_json_error([
-                'message' => $result['error'] ?? 'Unknown error',
-                'raw' => $result['raw'] ?? null,
-            ]);
+            self::send_error(
+                (string) ( $result['code'] ?? 'gateway_degraded' ),
+                'Không thể kết nối Video Gateway.',
+                'Kiểm tra API Key BizCity rồi thử lại.',
+                (string) ( $result['help_code'] ?? 'gateway_degraded' ),
+                502
+            );
         }
     }
 

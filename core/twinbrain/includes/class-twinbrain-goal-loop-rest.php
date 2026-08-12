@@ -21,6 +21,27 @@ final class BizCity_TwinBrain_Goal_Loop_REST {
 	}
 
 	public function register_routes(): void {
+		register_rest_route( BIZCITY_TWINBRAIN_REST_NS, '/goals/search', array(
+			'methods'             => 'GET',
+			// [2026-08-10 Johnny Chu] GOAL-SESSION-SEARCH-1 — resolve identity inside the handler so guest and member scopes share one boundary.
+			'permission_callback' => '__return_true',
+			'args'                => array(
+				'q'     => array( 'type' => 'string', 'required' => true ),
+				'limit' => array( 'type' => 'integer', 'required' => false, 'default' => 30 ),
+			),
+			'callback'            => array( $this, 'handle_search' ),
+		) );
+
+		register_rest_route( BIZCITY_TWINBRAIN_REST_NS, '/goals/(?P<goal_id>[\w\-]+)', array(
+			'methods'             => 'GET',
+			'permission_callback' => '__return_true',
+			'args'                => array(
+				'goal_id' => array( 'type' => 'string', 'required' => true ),
+				'limit'   => array( 'type' => 'integer', 'required' => false, 'default' => 200 ),
+			),
+			'callback'            => array( $this, 'handle_get' ),
+		) );
+
 		register_rest_route( BIZCITY_TWINBRAIN_REST_NS, '/goal/active', array(
 			'methods'             => 'GET',
 			// [2026-08-02 Johnny Chu] PHASE-TWIN-GOAL-LOOP-P0 — let the handler resolve canonical identity and fail closed for unresolved guests instead of blocking the public Twin GPT route with a generic 403.
@@ -96,6 +117,50 @@ final class BizCity_TwinBrain_Goal_Loop_REST {
 			'same_session'      => false,
 			'resume_available'  => false,
 			'needs_user_choice' => false,
+		) );
+	}
+
+	public function handle_search( WP_REST_Request $request ) {
+		// [2026-08-10 Johnny Chu] GOAL-SESSION-SEARCH-1 — read only canonical Goal Loop snapshots within the resolved identity scope.
+		$identity = $this->identity();
+		if ( $identity['uuid'] === '' ) {
+			return $this->error_response( 'auth_required', 'Không xác định được danh tính phiên chat.', 'Đăng nhập lại rồi thử lại.', 'auth_required', 401 );
+		}
+		$query = trim( (string) $request->get_param( 'q' ) );
+		$result = BizCity_TwinBrain_Goal_Loop_Repository::search_for_identity(
+			$identity['blog_id'],
+			$identity['uuid'],
+			$query,
+			(int) ( $request->get_param( 'limit' ) ?: 30 )
+		);
+		return rest_ensure_response( array(
+			'ok'    => true,
+			'q'     => (string) ( $result['q'] ?? $query ),
+			'items' => (array) ( $result['items'] ?? array() ),
+			'total' => (int) ( $result['total'] ?? 0 ),
+		) );
+	}
+
+	public function handle_get( WP_REST_Request $request ) {
+		// [2026-08-10 Johnny Chu] GOAL-SESSION-DETAIL-1 — return only the current identity's goal timeline and related sessions.
+		$identity = $this->identity();
+		if ( $identity['uuid'] === '' ) {
+			return $this->error_response( 'auth_required', 'Không xác định được danh tính phiên chat.', 'Đăng nhập lại rồi thử lại.', 'auth_required', 401 );
+		}
+		$result = BizCity_TwinBrain_Goal_Loop_Repository::detail_for_identity(
+			$identity['blog_id'],
+			$identity['uuid'],
+			(string) $request['goal_id'],
+			(int) ( $request->get_param( 'limit' ) ?: 200 )
+		);
+		if ( empty( $result['goal'] ) ) {
+			return $this->error_response( 'not_found', 'Không tìm thấy Goal Session.', 'Kiểm tra goal_id hoặc mở đúng tài khoản.', 'not_found', 404 );
+		}
+		return rest_ensure_response( array(
+			'ok' => true,
+			'goal' => $result['goal'],
+			'timeline' => (array) ( $result['timeline'] ?? array() ),
+			'related_sessions' => (array) ( $result['related_sessions'] ?? array() ),
 		) );
 	}
 

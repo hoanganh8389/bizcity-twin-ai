@@ -1,6 +1,6 @@
 # BizCity Twin Public Contracts v1
 
-Status: Stable
+Status: Stable (catalog 1.1.0)
 Catalog source: core/twin-core/contracts/schema/public/v1/contract-catalog.json
 SemVer policy: semver
 
@@ -19,6 +19,7 @@ The following contracts are stable public API for plugin ecosystem integrations.
 9. kg-adapter-payload
 10. channel-payload
 11. runtime-execution-policy
+12. admin-navigation
 
 Each contract has:
 
@@ -44,6 +45,7 @@ Each contract has:
 | kg-adapter-payload | 1.0.0 | 1.x | 1.x | 3 minors |
 | channel-payload | 1.0.0 | 1.x | 1.x | 3 minors |
 | runtime-execution-policy | 1.0.0 | 1.x | 1.x | 3 minors |
+| admin-navigation | 1.0.0 | 1.x | 1.x | 3 minors |
 
 ## Deprecation Policy
 
@@ -60,8 +62,10 @@ Stable API:
 
 - JSON contract schemas under core/twin-core/contracts/schema/public/v1.
 - SDK interfaces in core/twin-core/contracts/framework-contracts.php.
+- `BizCity_Phone_Normalizer_Interface::normalize_vn()` — canonical phone identity contract for CRM/Woo/loyalty/channel sources.
 - SDK interfaces in core/twin-core/contracts/content-contracts.php.
 - Manifest schema in core/twin-core/contracts/schema/manifest.schema.json.
+- Admin navigation schema in core/twin-core/contracts/schema/public/v1/admin-navigation.schema.json.
 
 Internal API (no compatibility guarantee):
 
@@ -78,4 +82,4 @@ Run:
 
 Expected output:
 
-- CONTRACT TESTS PASS (11 contracts)
+- CONTRACT TESTS PASS (12 contracts)

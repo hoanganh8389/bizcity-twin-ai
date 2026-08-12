@@ -216,6 +216,12 @@ final class BizCoach_Pro_Astro_Admin_List {
 	 * ============================================================ */
 	public static function render_add_new( string $system ): void {
 		$def = self::systems()[ $system ];
+		// [2026-08-10 Johnny Chu] PHASE-1.23-CANONICAL-A5 — load the H.3
+		// renderer only when the add-new screen is actually requested.
+		$form_file = dirname( __DIR__ ) . '/admin/class-astro-admin-form.php';
+		if ( file_exists( $form_file ) && ! class_exists( 'BizCoach_Pro_Astro_Admin_Form', false ) ) {
+			require_once $form_file;
+		}
 		if ( class_exists( 'BizCoach_Pro_Astro_Admin_Form' ) ) {
 			BizCoach_Pro_Astro_Admin_Form::render( $system, $def );
 			return;

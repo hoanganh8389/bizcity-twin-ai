@@ -107,8 +107,6 @@ class BizCity_Tool_Kling {
 
         // ── Submit first segment to Kling API ──
         $api_settings = [
-            'api_key'  => get_option( 'bizcity_video_kling_api_key', '' ),
-            'endpoint' => get_option( 'bizcity_video_kling_endpoint', 'https://api.piapi.ai/api/v1' ),
             'model'    => $model,
         ];
 

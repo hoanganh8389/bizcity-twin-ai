@@ -33,6 +33,10 @@
         "output_renderers": { "type": "array", "items": { "$ref": "#/$defs/capability" } }
       }
     },
+    "navigation": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/navigationItem" }
+    },
     "permissions": {
       "type": "array",
       "uniqueItems": true,
@@ -128,6 +132,59 @@
         "zone": { "enum": ["customer", "admin"] },
         "artifact_type": { "type": "string" },
         "side_effects": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "navigationItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "slug", "label", "group", "slot", "parent", "capability", "position", "scope", "surface", "renderer", "visible", "origin"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{2,80}$" },
+        "slug": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{2,100}$" },
+        "label": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "group": { "enum": ["settings", "workspace", "diagnostics"] },
+        "slot": {
+          "enum": [
+            "settings.api",
+            "settings.chatbot",
+            "settings.templates",
+            "settings.sync",
+            "settings.integrations",
+            "workspace.chat",
+            "workspace.profile",
+            "workspace.knowledge",
+            "workspace.crm",
+            "workspace.channels",
+            "workspace.automation",
+            "workspace.studio",
+            "workspace.account",
+            "workspace.extensions",
+            "diagnostics.runtime",
+            "diagnostics.logs",
+            "diagnostics.schema",
+            "diagnostics.probes",
+            "diagnostics.extensions"
+          ]
+        },
+        "parent": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{2,100}$" },
+        "capability": { "type": "string", "pattern": "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+){0,4}$" },
+        "position": { "type": "integer", "minimum": 0, "maximum": 9999 },
+        "scope": { "enum": ["site", "network", "both"] },
+        "surface": { "enum": ["admin_shell", "admin_page", "diagnostics"] },
+        "renderer": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{2,100}$" },
+        "visible": { "type": "boolean" },
+        "origin": { "enum": ["core", "bundle", "extension"] },
+        "zone": { "enum": ["customer", "admin", "system"] },
+        "aliases": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{2,100}$" }
+        },
+        "legacy_parents": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9._-]{2,100}$" }
+        }
       }
     }
   }

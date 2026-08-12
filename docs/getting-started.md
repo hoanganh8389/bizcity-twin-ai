@@ -4,6 +4,10 @@
 > WordPress. Sau hướng dẫn này bạn có 1 site WP chạy được TwinChat + tự build
 > được 1 sub-plugin hello-world.
 
+> **Định hướng kiến trúc:** đọc [FRAMEWORK-GUIDE-v1.md](framework/FRAMEWORK-GUIDE-v1.md)
+> trước khi mở rộng framework. Guide này chỉ đường tới ownership, gateway,
+> contract, security, error, storage, loader và release rules.
+
 ---
 
 ## 1. Yêu cầu
@@ -46,15 +50,18 @@ composer install            # dev (kèm phpunit, phpcs)
 
 ## 3. Cấu hình API key
 
-```php
-// wp-config.php (recommended)
-define( 'BIZCITY_LLM_GATEWAY_URL', 'https://bizcity.vn' );
-define( 'BIZCITY_LLM_API_KEY',     'biz-xxxxxxxxxxxxxxxxxxxxxxxx' );
-```
+Client runtime dùng đúng hai site option canonical:
 
-Hoặc qua WP Admin: **Settings → BizCity Twin AI → Gateway**.
+- `bizcity_llm_gateway_url` — mặc định `https://bizcity.vn`;
+- `bizcity_llm_api_key` — key opaque dạng `biz-xxx`.
 
-Verify: vào **Tools → BizCity Diagnostics** → chạy probe `gateway.health` → kỳ vọng badge **PASS**.
+> Cấu hình khuyến nghị: vào **WP Admin → BizCity Twin AI → Settings → Gateway**,
+> dán key và lưu. Không tự thêm provider key OpenAI, Anthropic, Tavily, Kling hoặc
+> PiAPI trên client.
+
+Kiểm tra: vào **Tools → BizCity Diagnostics** → chạy probe `gateway.health` →
+kỳ vọng badge **PASS**. Với PiAPI image task, chạy thêm probe
+`core.piapi.image_task` khi Diagnostics đã load nhóm gateway.
 
 ---
 

@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "bizcity://events/woo_bizops_intent_detected.json",
+  "title": "woo_bizops_intent_detected",
+  "description": "Woo BizOps query intent group resolved without raw PII.",
+  "type": "object",
+  "required": ["trace_id", "intent_group"],
+  "properties": {
+    "trace_id": { "type": "string" },
+    "intent_group": { "type": "string" }
+  },
+  "additionalProperties": true
+}

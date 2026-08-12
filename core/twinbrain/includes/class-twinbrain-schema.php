@@ -32,7 +32,7 @@ class BizCity_TwinBrain_Schema {
 	// Aggregates bizcity_twin_event_stream by envelope.session_id (already
 	// shipped in event-stream-schema v0.12.1, no ALTER needed). Spec:
 	// core/twinbrain/docs/TWINBRAIN-FEATURE-BRAIN-SESSIONS.md §5.2.
-	const SESSIONS_VIEW_VERSION        = '1.0.0';
+	const SESSIONS_VIEW_VERSION        = '1.1.0'; // [2026-08-10 Johnny Chu] SESSION-ROUTING-1 — Brain Sessions view must exclude Notebook/Twin GPT session namespaces.
 	const SESSIONS_VIEW_VERSION_OPTION = 'bizcity_twinbrain_sessions_view_ver';
 
 	public static function view_name(): string {
@@ -155,7 +155,7 @@ class BizCity_TwinBrain_Schema {
 				MAX(CASE WHEN event_type = 'brain_session_mood_sampled'  THEN 1 ELSE 0 END)        AS has_mood,
 				MAX(CASE WHEN event_type = 'brain_session_carry_forward' THEN 1 ELSE 0 END)        AS has_carry_forward
 			FROM {$evt}
-			WHERE session_id IS NOT NULL AND session_id <> ''
+			WHERE session_id LIKE 'brain\\_sess\\_%'
 			GROUP BY session_id";
 
 		$ok  = $wpdb->query( $sql );

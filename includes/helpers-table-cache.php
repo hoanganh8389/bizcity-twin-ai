@@ -83,12 +83,18 @@ if ( ! function_exists( 'bizcity_table_exists' ) ) {
 			return (bool) $known[ $table ];
 		}
 		global $wpdb;
+		$database  = isset( $wpdb->dbname ) ? (string) $wpdb->dbname : '';
+		$cache_key = 'bz_tbl_' . (int) get_current_blog_id() . '_' . md5( $database . '|' . $table );
+		$cached    = wp_cache_get( $cache_key, 'bizcity_tbl' );
+		if ( false !== $cached ) {
+			return (bool) $cached;
+		}
 		$present = (bool) $wpdb->get_var( $wpdb->prepare(
 			'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
 			$table
 		) );
 		$known[ $table ] = $present;
-		update_option( 'bizcity_known_tables', $known, false );
+		wp_cache_set( $cache_key, $present ? 1 : 0, 'bizcity_tbl', HOUR_IN_SECONDS );
 		return $present;
 	}
 

@@ -10,6 +10,14 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 class BizCity_Video_Kling_Shots {
+
+    private static function send_error( $code, $message, $hint, $help_code, $status = 400 ) {
+        // [2026-08-10 Johnny Chu] R-ERROR-UX — normalize shots admin AJAX failures.
+        $payload = class_exists( 'BizCity_Error_Payload' )
+            ? BizCity_Error_Payload::make( $code, $message, $hint, $help_code )
+            : array( 'success' => false, 'code' => (string) $code, 'message' => (string) $message, 'hint' => (string) $hint, 'help_code' => (string) $help_code );
+        wp_send_json_error( $payload, (int) $status );
+    }
     
     /**
      * Initialize hooks
@@ -337,14 +345,14 @@ class BizCity_Video_Kling_Shots {
         check_ajax_referer( 'bizcity_kling_nonce', 'nonce' );
         
         if ( ! current_user_can( 'manage_options' ) ) {
-            wp_send_json_error( array( 'message' => __( 'Permission denied', 'bizcity-video-kling' ) ) );
+            self::send_error( 'permission_denied', __( 'Bạn không có quyền xoá video.', 'bizcity-video-kling' ), 'Đăng nhập bằng tài khoản quản trị rồi thử lại.', 'permission_required', 403 );
             return;
         }
         
         $shot_id = intval( $_POST['shot_id'] ?? 0 );
         
         if ( ! $shot_id ) {
-            wp_send_json_error( array( 'message' => __( 'Invalid shot ID', 'bizcity-video-kling' ) ) );
+            self::send_error( 'invalid_param', __( 'Mã video không hợp lệ.', 'bizcity-video-kling' ), 'Chọn video hợp lệ rồi thử lại.', 'invalid_param_generic' );
             return;
         }
         
@@ -353,7 +361,7 @@ class BizCity_Video_Kling_Shots {
         if ( $result ) {
             wp_send_json_success( array( 'message' => __( 'Shot deleted', 'bizcity-video-kling' ) ) );
         } else {
-            wp_send_json_error( array( 'message' => __( 'Failed to delete shot', 'bizcity-video-kling' ) ) );
+            self::send_error( 'gateway_degraded', __( 'Không thể xoá video.', 'bizcity-video-kling' ), 'Tải lại danh sách rồi thử lại.', 'gateway_degraded', 500 );
         }
     }
     

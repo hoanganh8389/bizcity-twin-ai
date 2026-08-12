@@ -1975,6 +1975,81 @@ class BizCity_CRM_REST_Controller {
 			'permission_callback' => array( __CLASS__, 'can_write' ),
 		) );
 
+		// [2026-08-11 Johnny Chu] PHASE-CRM-CONTACTS-UNIFY-V2 — admin-only identity conflict queue review API.
+		register_rest_route( $ns, '/identity-conflicts', array(
+			'methods'             => WP_REST_Server::READABLE,
+			'callback'            => array( __CLASS__, 'get_identity_conflicts' ),
+			'permission_callback' => array( __CLASS__, 'can_manage_rules' ),
+			'args'                => array(
+				'page'        => array( 'type' => 'integer', 'default' => 1, 'minimum' => 1 ),
+				'per_page'    => array( 'type' => 'integer', 'default' => 25, 'minimum' => 10, 'maximum' => 100 ),
+				'limit'       => array( 'type' => 'integer', 'default' => 25, 'minimum' => 10, 'maximum' => 100 ),
+				'status'      => array( 'type' => 'string' ),
+				'source_type' => array( 'type' => 'string' ),
+				'reason'      => array( 'type' => 'string' ),
+				'search'      => array( 'type' => 'string' ),
+			),
+		) );
+		register_rest_route( $ns, '/identity-conflicts/(?P<id>\d+)', array(
+			'methods'             => WP_REST_Server::READABLE,
+			'callback'            => array( __CLASS__, 'get_identity_conflict_detail' ),
+			'permission_callback' => array( __CLASS__, 'can_manage_rules' ),
+		) );
+		register_rest_route( $ns, '/identity-conflicts/(?P<id>\d+)/resolve', array(
+			'methods'             => WP_REST_Server::CREATABLE,
+			'callback'            => array( __CLASS__, 'resolve_identity_conflict' ),
+			'permission_callback' => array( __CLASS__, 'can_manage_rules' ),
+			'args'                => array(
+				'contact_id'       => array( 'type' => 'integer', 'required' => true, 'minimum' => 1 ),
+				'resolution_reason'=> array( 'type' => 'string', 'required' => true, 'minLength' => 3, 'maxLength' => 255 ),
+			),
+		) );
+		register_rest_route( $ns, '/identity-conflicts/(?P<id>\d+)/reject', array(
+			'methods'             => WP_REST_Server::CREATABLE,
+			'callback'            => array( __CLASS__, 'reject_identity_conflict' ),
+			'permission_callback' => array( __CLASS__, 'can_manage_rules' ),
+			'args'                => array(
+				'resolution_reason'=> array( 'type' => 'string', 'required' => true, 'minLength' => 3, 'maxLength' => 255 ),
+			),
+		) );
+		register_rest_route( $ns, '/identity-conflicts/claim', array(
+			'methods'             => WP_REST_Server::CREATABLE,
+			'callback'            => array( __CLASS__, 'claim_identity_conflict' ),
+			'permission_callback' => array( __CLASS__, 'can_manage_rules' ),
+		) );
+		register_rest_route( $ns, '/identity-conflicts/(?P<id>\d+)/retry', array(
+			'methods'             => WP_REST_Server::CREATABLE,
+			'callback'            => array( __CLASS__, 'retry_identity_conflict' ),
+			'permission_callback' => array( __CLASS__, 'can_manage_rules' ),
+			'args'                => array(
+				'error' => array( 'type' => 'string', 'required' => true, 'minLength' => 3, 'maxLength' => 255 ),
+			),
+		) );
+		register_rest_route( $ns, '/identity-backfill/run', array(
+			'methods'             => WP_REST_Server::CREATABLE,
+			'callback'            => array( __CLASS__, 'run_identity_backfill' ),
+			'permission_callback' => array( __CLASS__, 'can_manage_rules' ),
+			'args'                => array(
+				'kind'    => array( 'type' => 'string', 'default' => 'user_points', 'enum' => array( 'user_points', 'user_points_exchange', 'woo_orders' ) ),
+				'batch'   => array( 'type' => 'integer', 'default' => 100, 'minimum' => 10, 'maximum' => 500 ),
+				'dry_run' => array( 'type' => 'boolean', 'default' => true ),
+				'reset'   => array( 'type' => 'boolean', 'default' => false ),
+			),
+		) );
+		register_rest_route( $ns, '/identity-backfill/status', array(
+			'methods'             => WP_REST_Server::READABLE,
+			'callback'            => array( __CLASS__, 'get_identity_backfill_status' ),
+			'permission_callback' => array( __CLASS__, 'can_manage_rules' ),
+		) );
+		register_rest_route( $ns, '/identity-fixtures/run', array(
+			'methods'             => WP_REST_Server::CREATABLE,
+			'callback'            => array( __CLASS__, 'run_identity_fixtures' ),
+			'permission_callback' => array( __CLASS__, 'can_manage_rules' ),
+			'args'                => array(
+				'confirm' => array( 'type' => 'string', 'required' => true, 'enum' => array( 'V2' ) ),
+			),
+		) );
+
 	} // end register_routes()
 
 	/* ------- permissions ------- */
@@ -2001,6 +2076,96 @@ class BizCity_CRM_REST_Controller {
 			? BizCity_CRM_Capabilities::CAP_VIEW_REPORTS
 			: 'bizcity_crm_view_reports';
 		return current_user_can( $cap ) || current_user_can( 'manage_options' );
+	}
+
+	public static function get_identity_conflicts( WP_REST_Request $req ) {
+		if ( ! class_exists( 'BizCity_CRM_Identity_Conflict_Queue' ) ) {
+			return new WP_Error( 'module_not_loaded', 'Identity conflict queue chưa được nạp.', array( 'status' => 503 ) );
+		}
+		$per_page = (int) ( $req->get_param( 'per_page' ) ?: $req->get_param( 'limit' ) ?: 25 );
+		return BizCity_CRM_Identity_Conflict_Queue::list_paginated( array(
+			'page'        => (int) ( $req->get_param( 'page' ) ?: 1 ),
+			'per_page'    => $per_page,
+			'status'      => (string) $req->get_param( 'status' ),
+			'source_type' => (string) $req->get_param( 'source_type' ),
+			'reason'      => (string) $req->get_param( 'reason' ),
+			'search'      => (string) $req->get_param( 'search' ),
+		) );
+	}
+
+	public static function get_identity_conflict_detail( WP_REST_Request $req ) {
+		if ( ! class_exists( 'BizCity_CRM_Identity_Conflict_Queue' ) ) { return new WP_Error( 'module_not_loaded', 'Identity conflict queue chưa được nạp.', array( 'status' => 503 ) ); }
+		$id = (int) $req['id'];
+		$row = BizCity_CRM_Identity_Conflict_Queue::get( $id );
+		if ( ! $row ) { return new WP_Error( 'identity_conflict_not_found', 'Không tìm thấy identity conflict.', array( 'status' => 404 ) ); }
+		$row['audit_history'] = BizCity_CRM_Identity_Conflict_Queue::audit_history( $id );
+		return $row;
+	}
+
+	public static function resolve_identity_conflict( WP_REST_Request $req ) {
+		if ( ! class_exists( 'BizCity_CRM_Identity_Conflict_Queue' ) ) {
+			return new WP_Error( 'module_not_loaded', 'Identity conflict queue chưa được nạp.', array( 'status' => 503 ) );
+		}
+		$id = (int) $req['id'];
+		$contact_id = (int) $req->get_param( 'contact_id' );
+		$reason = sanitize_text_field( (string) $req->get_param( 'resolution_reason' ) );
+		if ( ! BizCity_CRM_Identity_Conflict_Queue::resolve( $id, $contact_id, $reason ) ) {
+			return new WP_Error( 'identity_conflict_resolve_failed', 'Không thể xử lý conflict hoặc Contact không nằm trong candidate list.', array( 'status' => 409 ) );
+		}
+		return array( 'resolved' => true, 'id' => $id, 'contact_id' => $contact_id );
+	}
+
+	public static function reject_identity_conflict( WP_REST_Request $req ) {
+		if ( ! class_exists( 'BizCity_CRM_Identity_Conflict_Queue' ) ) {
+			return new WP_Error( 'module_not_loaded', 'Identity conflict queue chưa được nạp.', array( 'status' => 503 ) );
+		}
+		$id = (int) $req['id'];
+		$reason = sanitize_text_field( (string) $req->get_param( 'resolution_reason' ) );
+		if ( ! BizCity_CRM_Identity_Conflict_Queue::reject( $id, $reason ) ) {
+			return new WP_Error( 'identity_conflict_reject_failed', 'Không thể đóng identity conflict.', array( 'status' => 409 ) );
+		}
+		return array( 'rejected' => true, 'id' => $id );
+	}
+
+	public static function claim_identity_conflict( WP_REST_Request $req ) {
+		if ( ! class_exists( 'BizCity_CRM_Identity_Conflict_Queue' ) ) { return new WP_Error( 'module_not_loaded', 'Identity conflict queue chưa được nạp.', array( 'status' => 503 ) ); }
+		$row = BizCity_CRM_Identity_Conflict_Queue::claim_next( get_current_user_id() );
+		return array( 'claimed' => (bool) $row, 'conflict' => $row );
+	}
+
+	public static function retry_identity_conflict( WP_REST_Request $req ) {
+		if ( ! class_exists( 'BizCity_CRM_Identity_Conflict_Queue' ) ) { return new WP_Error( 'module_not_loaded', 'Identity conflict queue chưa được nạp.', array( 'status' => 503 ) ); }
+		$id = (int) $req['id'];
+		$error = sanitize_text_field( (string) $req->get_param( 'error' ) );
+		if ( ! BizCity_CRM_Identity_Conflict_Queue::retry( $id, $error ) ) { return new WP_Error( 'identity_conflict_retry_failed', 'Không thể đưa conflict về hàng đợi retry.', array( 'status' => 409 ) ); }
+		return array( 'queued' => true, 'id' => $id );
+	}
+
+	public static function run_identity_backfill( WP_REST_Request $req ) {
+		if ( ! class_exists( 'BizCity_CRM_Contacts_Unify_Backfill' ) ) { return new WP_Error( 'module_not_loaded', 'Backfill service chưa được nạp.', array( 'status' => 503 ) ); }
+		$kind = sanitize_key( (string) ( $req->get_param( 'kind' ) ?: 'user_points' ) );
+		$opts = array(
+			'batch'   => (int) ( $req->get_param( 'batch' ) ?: 100 ),
+			'dry_run' => (bool) $req->get_param( 'dry_run' ),
+			'reset'   => (bool) $req->get_param( 'reset' ),
+		);
+		if ( 'woo_orders' === $kind ) { return BizCity_CRM_Contacts_Unify_Backfill::run_woo_orders( $opts ); }
+		$opts['source'] = $kind;
+		return BizCity_CRM_Contacts_Unify_Backfill::run_user_points( $opts );
+	}
+
+	public static function get_identity_backfill_status( WP_REST_Request $req ) {
+		if ( ! class_exists( 'BizCity_CRM_Contacts_Unify_Backfill' ) ) { return new WP_Error( 'module_not_loaded', 'Backfill service chưa được nạp.', array( 'status' => 503 ) ); }
+		return array( 'checkpoints' => array(
+			'user_points'          => BizCity_CRM_Contacts_Unify_Backfill::checkpoint( 'user_points' ),
+			'user_points_exchange' => BizCity_CRM_Contacts_Unify_Backfill::checkpoint( 'user_points_exchange' ),
+			'woo_orders'           => BizCity_CRM_Contacts_Unify_Backfill::checkpoint( 'woo_orders' ),
+		) );
+	}
+
+	public static function run_identity_fixtures( WP_REST_Request $req ) {
+		if ( ! class_exists( 'BizCity_CRM_Identity_Fixtures' ) ) { return new WP_Error( 'module_not_loaded', 'Identity fixture service chưa được nạp.', array( 'status' => 503 ) ); }
+		return BizCity_CRM_Identity_Fixtures::run( (string) $req->get_param( 'confirm' ) );
 	}
 
 	/* ------- handlers ------- */

@@ -1,0 +1,38 @@
+{
+  "contract": "admin-navigation",
+  "version": "1.0.0",
+  "top_level_groups": [
+    {
+      "id": "settings",
+      "slug": "bizcity-ai",
+      "label": "Cài đặt Twin AI",
+      "position": 4,
+      "scope": "site",
+      "surface": "admin_shell"
+    },
+    {
+      "id": "workspace",
+      "slug": "bizcity-twin-workspace",
+      "label": "Twin AI Workspace",
+      "position": 5,
+      "scope": "site",
+      "surface": "admin_shell"
+    }
+  ],
+  "items": [
+    {
+      "id": "invalid.navigation.item",
+      "slug": "broken-item",
+      "label": "Broken Item",
+      "group": "unknown",
+      "slot": "workspace.extensions",
+      "parent": "bizcity-twin-workspace",
+      "capability": "manage_options",
+      "position": 10,
+      "scope": "site",
+      "surface": "admin_page",
+      "renderer": "broken.renderer",
+      "visible": "yes"
+    }
+  ]
+}

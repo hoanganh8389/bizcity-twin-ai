@@ -76,7 +76,9 @@ final class BizCity_Cache {
 	 * @return mixed  Cached value or false if not found.
 	 */
 	public static function get( $group, $key ) {
-		return wp_cache_get( $key, $group );
+		$value = wp_cache_get( $key, $group );
+		self::trace_cache( 'get', $group, $key, array( 'hit' => false !== $value ) );
+		return $value;
 	}
 
 	/**
@@ -103,7 +105,11 @@ final class BizCity_Cache {
 	 * @param int    $ttl    Time-to-live in seconds. Defaults to TTL_MEDIUM.
 	 */
 	public static function set( $group, $key, $value, $ttl = self::TTL_MEDIUM ) {
-		wp_cache_set( $key, $value, $group, $ttl );
+		$result = wp_cache_set( $key, $value, $group, $ttl );
+		self::trace_cache( 'set', $group, $key, array(
+			'ttl_bucket' => self::ttl_bucket( $ttl ),
+			'success'    => (bool) $result,
+		) );
 	}
 
 	/**
@@ -127,7 +133,8 @@ final class BizCity_Cache {
 	 * @param string $key    Cache key.
 	 */
 	public static function delete( $group, $key ) {
-		wp_cache_delete( $key, $group );
+		$result = wp_cache_delete( $key, $group );
+		self::trace_cache( 'delete', $group, $key, array( 'success' => (bool) $result ) );
 	}
 
 	/**
@@ -157,6 +164,7 @@ final class BizCity_Cache {
 	 * @param string $group  Cache group to flush.
 	 */
 	public static function flush_group( $group ) {
+		self::trace_cache( 'flush_group', $group, '', array() );
 		// Object cache group flush (WP 6.1+ supports group flush natively).
 		if ( function_exists( 'wp_cache_flush_group' ) ) {
 			wp_cache_flush_group( $group );
@@ -181,6 +189,57 @@ final class BizCity_Cache {
 
 	/** @var array<string, string[]> group => list of transient keys */
 	private static $group_transient_keys = array();
+
+	/**
+	 * Emit opt-in semantic cache evidence without logging raw keys or values.
+	 *
+	 * @param string $operation Cache operation.
+	 * @param string $group Cache group.
+	 * @param string $key Cache key, hashed before trace emission.
+	 * @param array  $data Safe scalar metadata.
+	 * @return void
+	 */
+	private static function trace_cache( $operation, $group, $key, array $data = array() ) {
+		// [2026-08-10 Johnny Chu] PHASE-1.23-CANONICAL-W5 - cache tracing is
+		// forensic opt-in to avoid adding a span to every normal cache hit.
+		if ( ! class_exists( 'BizCity_Twin_Trace' ) || ! method_exists( 'BizCity_Twin_Trace', 'runtime_enter' ) ) {
+			return;
+		}
+		if ( ! self::cache_trace_enabled() ) {
+			return;
+		}
+		$blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+		$span_id = BizCity_Twin_Trace::runtime_enter( 'cache', (string) $operation, array(
+			'cache_group'    => (string) $group,
+			'key_signature'  => substr( hash( 'sha256', $blog_id . '|' . (string) $group . '|' . (string) $key ), 0, 16 ),
+			'blog_id'        => $blog_id,
+		) );
+		if ( $span_id !== '' ) {
+			BizCity_Twin_Trace::runtime_exit( $span_id, 'pass', $data );
+		}
+	}
+
+	private static function cache_trace_enabled() {
+		if ( defined( 'BIZCITY_TWIN_CACHE_TRACE' ) && BIZCITY_TWIN_CACHE_TRACE ) {
+			return true;
+		}
+		if ( ! empty( $_GET['bizcity_qm_probe'] ) && '1' === (string) $_GET['bizcity_qm_probe'] ) {
+			return true;
+		}
+		$uri = isset( $_SERVER['REQUEST_URI'] ) ? (string) $_SERVER['REQUEST_URI'] : '';
+		return false !== strpos( $uri, '/bizcity-diagnostics/' );
+	}
+
+	private static function ttl_bucket( $ttl ) {
+		$ttl = (int) $ttl;
+		if ( $ttl <= self::TTL_SHORT ) {
+			return 'short';
+		}
+		if ( $ttl <= self::TTL_MEDIUM ) {
+			return 'medium';
+		}
+		return 'long';
+	}
 
 	/**
 	 * Register a transient key for group-level flush tracking.

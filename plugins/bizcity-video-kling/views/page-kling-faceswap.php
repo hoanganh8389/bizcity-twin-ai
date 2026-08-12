@@ -177,8 +177,11 @@ if ( ! defined( 'ABSPATH' ) ) exit;
     var pollTimer  = null;
     var isSubmitting = false;
 
-    /* ── BVK config (inherited from profile page) ── */
-    /* BVK.ajax_url and BVK.nonce are set in the parent script block */
+    /* ── AJAX config (injected directly — runs before parent BVK block) ── */
+    var BVK = window.BVK || {
+        ajax_url: '<?php echo esc_js( admin_url( "admin-ajax.php" ) ); ?>',
+        nonce:    '<?php echo esc_js( wp_create_nonce( "bvk_nonce" ) ); ?>'
+    };
 
     /* ── Validate button state ── */
     function updateSubmitBtn() {
