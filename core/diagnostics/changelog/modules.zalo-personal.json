@@ -1,5 +1,6 @@
 {
   "module_id": "modules.zalo-personal",
+  "owner": "plugins/zalo-personal",
   "description": "Zalo Personal + OA Channel Gateway — mapping & account tables (PHASE-0.39)",
   "current_version": "1.0.0",
   "history": [
@@ -14,7 +15,7 @@
       "since": "1.0.0",
       "description": "Zalo account registry (personal QR-login or OA OAuth) — links bridge sidecar account to CRM inbox",
       "columns": {
-        "id":                 { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0" },
+        "id":                 { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
         "kind":               { "type": "VARCHAR(16) NOT NULL DEFAULT 'personal'",  "since": "1.0.0", "note": "personal|oa" },
         "label":              { "type": "VARCHAR(190) NOT NULL DEFAULT ''",          "since": "1.0.0" },
         "bridge_account_id":  { "type": "VARCHAR(64) NOT NULL DEFAULT ''",           "since": "1.0.0", "note": "account id on sidecar" },
@@ -26,16 +27,16 @@
         "updated_at":         { "type": "DATETIME NOT NULL",                         "since": "1.0.0" }
       },
       "indexes": {
-        "PRIMARY":             { "columns": ["id"],                      "since": "1.0.0" },
-        "uniq_kind_bridge_id": { "columns": ["kind", "bridge_account_id"], "unique": true, "since": "1.0.0" },
-        "idx_status":          { "columns": ["status"],                  "since": "1.0.0" }
+        "PRIMARY":             { "cols": ["id"],                        "since": "1.0.0" },
+        "uniq_kind_bridge_id": { "cols": ["kind", "bridge_account_id"], "unique": true, "since": "1.0.0" },
+        "idx_status":          { "cols": ["status"],                    "since": "1.0.0" }
       }
     },
     "bizcity_zalo_message_map": {
       "since": "1.0.0",
       "description": "Idempotency mapping between Zalo message IDs and CRM message IDs, plus quote source for reply threading",
       "columns": {
-        "id":             { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0" },
+        "id":             { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
         "account_id":     { "type": "BIGINT UNSIGNED NOT NULL",                "since": "1.0.0", "note": "FK bizcity_zalo_accounts.id" },
         "zalo_msg_id":    { "type": "VARCHAR(190) NOT NULL DEFAULT ''",        "since": "1.0.0", "note": "Zalo message ID" },
         "zalo_thread_id": { "type": "VARCHAR(190) NOT NULL DEFAULT ''",        "since": "1.0.0", "note": "Zalo user/group/oa-user thread ID" },
@@ -46,16 +47,16 @@
         "created_at":     { "type": "DATETIME NOT NULL",                       "since": "1.0.0" }
       },
       "indexes": {
-        "PRIMARY":            { "columns": ["id"],                        "since": "1.0.0" },
-        "uniq_account_msg":   { "columns": ["account_id", "zalo_msg_id"], "unique": true, "since": "1.0.0" },
-        "idx_crm_message":    { "columns": ["crm_message_id"],           "since": "1.0.0" }
+        "PRIMARY":            { "cols": ["id"],                         "since": "1.0.0" },
+        "uniq_account_msg":   { "cols": ["account_id", "zalo_msg_id"], "unique": true, "since": "1.0.0" },
+        "idx_crm_message":    { "cols": ["crm_message_id"],            "since": "1.0.0" }
       }
     },
     "bizcity_zalo_oa_window": {
       "since": "1.0.0",
       "description": "OA CSKH 7-day reply window tracking — Zalo code -230 prevention",
       "columns": {
-        "id":              { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0" },
+        "id":              { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
         "account_id":      { "type": "BIGINT UNSIGNED NOT NULL",                "since": "1.0.0", "note": "FK bizcity_zalo_accounts.id (oa kind)" },
         "zalo_uid":        { "type": "VARCHAR(64) NOT NULL DEFAULT ''",         "since": "1.0.0", "note": "OA follower uid" },
         "last_inbound_at": { "type": "DATETIME NULL DEFAULT NULL",              "since": "1.0.0", "note": "reset 7-day window on each inbound" },
@@ -63,8 +64,8 @@
         "created_at":      { "type": "DATETIME NOT NULL",                       "since": "1.0.0" }
       },
       "indexes": {
-        "PRIMARY":           { "columns": ["id"],                       "since": "1.0.0" },
-        "uniq_account_uid":  { "columns": ["account_id", "zalo_uid"],  "unique": true, "since": "1.0.0" }
+        "PRIMARY":           { "cols": ["id"],                       "since": "1.0.0" },
+        "uniq_account_uid":  { "cols": ["account_id", "zalo_uid"],  "unique": true, "since": "1.0.0" }
       }
     }
   }
