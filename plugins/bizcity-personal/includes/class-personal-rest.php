@@ -449,18 +449,6 @@ class BizCity_Personal_REST {
 			'priority_tasks' => array_map( $map_ev, (array) $prio_tasks ),
 			'next_event'     => null,
 			'next_reminder'  => null,
-		) ); array(
-			'success'        => true,
-			'_degraded'      => false,
-			'today'          => $today,
-			'greeting'       => $greeting,
-			'day_label'      => $day_label,
-			'tasks'          => $tasks,
-			'next_event'     => $next_event,
-			'finance'        => $finance,
-			'next_reminder'  => $next_reminder,
-			'today_events'   => array_slice( $today_events, 0, 8 ),
-			'priority_tasks' => array_slice( $priority_tasks, 0, 5 ),
 		) );
 	}
 
