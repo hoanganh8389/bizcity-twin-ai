@@ -33,7 +33,7 @@
       "indexes": {
         "idx_action_type":    { "cols": ["action_type"],              "since": "1.0.0" },
         "idx_reminder":       { "cols": ["reminder_delay"],           "since": "1.0.0" },
-        "idx_message_kd":     { "cols": ["message_khong_dau(64)"],    "since": "1.0.0" }
+        "idx_message_kd":     { "cols": ["message_khong_dau"],    "since": "1.0.0" }
       }
     }
   },

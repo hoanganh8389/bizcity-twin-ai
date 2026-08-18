@@ -30,7 +30,7 @@
         "idx_user":    { "cols": ["user_id"],       "since": "1.0.0" },
         "idx_project": { "cols": ["project_id"],    "since": "1.0.2" },
         "idx_notebook": { "cols": ["notebook_id"],  "since": "1.2.0" },
-        "idx_guest":   { "cols": ["guest_sid(32)"], "since": "1.0.0" },
+        "idx_guest":   { "cols": ["guest_sid"], "since": "1.0.0" },
         "idx_app":     { "cols": ["app_type"],      "since": "1.0.0" },
         "idx_last":    { "cols": ["last_at"],       "since": "1.0.0" }
       }
@@ -74,7 +74,7 @@
       "indexes": {
         "uniq_job_id":      { "cols": ["job_id"],                               "since": "1.1.0", "unique": true },
         "idx_owner_status": { "cols": ["owner_user_id", "status", "updated_at"], "since": "1.1.0" },
-        "idx_guest_status": { "cols": ["guest_sid(32)", "status", "updated_at"], "since": "1.1.0" },
+        "idx_guest_status": { "cols": ["guest_sid", "status", "updated_at"], "since": "1.1.0" },
         "idx_thread":       { "cols": ["thread_id", "created_at"],              "since": "1.1.0" },
         "idx_tool_status":  { "cols": ["tool_slug", "status"],                  "since": "1.1.0" },
         "idx_next_poll":    { "cols": ["status", "next_poll_at"],               "since": "1.1.0" },

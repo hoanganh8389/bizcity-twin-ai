@@ -33,12 +33,12 @@
         "updated_at":             { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", "since": "0.1.0" }
       },
       "indexes": {
-        "PRIMARY":      { "columns": ["id"],                  "since": "0.1.0" },
-        "idx_user":     { "columns": ["user_id"],             "since": "0.1.0" },
-        "idx_template": { "columns": ["template_id"],         "since": "0.1.0" },
-        "idx_notebook": { "columns": ["notebook_id"],         "since": "0.1.38" },
-        "idx_project":  { "columns": ["project_id"],          "since": "0.1.0" },
-        "idx_status":   { "columns": ["status"],              "since": "0.1.0" }
+        "PRIMARY":      { "cols": ["id"],                  "since": "0.1.0" },
+        "idx_user":     { "cols": ["user_id"],             "since": "0.1.0" },
+        "idx_template": { "cols": ["template_id"],         "since": "0.1.0" },
+        "idx_notebook": { "cols": ["notebook_id"],         "since": "0.1.38" },
+        "idx_project":  { "cols": ["project_id"],          "since": "0.1.0" },
+        "idx_status":   { "cols": ["status"],              "since": "0.1.0" }
       }
     },
     "bizcity_creator_templates": {
