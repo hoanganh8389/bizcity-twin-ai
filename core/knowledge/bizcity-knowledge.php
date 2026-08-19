@@ -16,9 +16,6 @@
  * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
  * @license    GPL-2.0-or-later
  */
- * 
- * @package BizCity_Knowledge
- */
 
 defined('ABSPATH') or die('OOPS...');
 
