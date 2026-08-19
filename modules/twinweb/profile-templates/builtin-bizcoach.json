@@ -1,0 +1,29 @@
+{
+  "schema": "bizcity.twin.profile_template.v1",
+  "slug": "bizcoach",
+  "version": "1.0.0",
+  "label": "Business Coach",
+  "description": "Hồ sơ kinh doanh để AI trả lời theo mô hình, khách hàng và mục tiêu tăng trưởng của customer.",
+  "vertical": "bizcoach",
+  "domain": "business",
+  "format": "assessment",
+  "expert_role": "business_coach",
+  "risk_level": "standard",
+  "status": "active",
+  "order": 40,
+  "max_questions": 10,
+  "question_limit_policy": "reject_over_10",
+  "wp_user_meta_allowlist": ["first_name", "billing_company", "billing_city"],
+  "questions": [
+    { "key": "business_type", "label": "Doanh nghiệp/dự án của bạn thuộc lĩnh vực nào?", "type": "text", "required": true, "max_length": 160 },
+    { "key": "target_customer", "label": "Khách hàng mục tiêu là ai?", "type": "textarea", "required": true, "max_length": 500 },
+    { "key": "main_offer", "label": "Sản phẩm/dịch vụ chính của bạn?", "type": "textarea", "required": false, "max_length": 500 },
+    { "key": "growth_goal", "label": "Mục tiêu tăng trưởng 6-12 tháng?", "type": "textarea", "required": false, "max_length": 500 },
+    { "key": "current_bottleneck", "label": "Nút thắt kinh doanh lớn nhất hiện nay?", "type": "textarea", "required": false, "max_length": 500 }
+  ],
+  "grounding": {
+    "context_title": "HỒ SƠ BUSINESS COACH CỦA CUSTOMER",
+    "composer_rule": "Gắn kiến thức Notebook của doanh nghiệp với ngành, khách hàng và mục tiêu tăng trưởng của customer.",
+    "missing_profile_hint": "Hoàn tất hồ sơ Business Coach để nhận tư vấn gần với business của bạn hơn."
+  }
+}

@@ -13,6 +13,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### TwinChat Woo BizOps direct vertical path — 2026-08-16
+
+| Area | Change | Status |
+|---|---|---|
+| TwinBrain runtime | `web_mode=woo_bizops` now skips generic Notebook Selector and Tool Intent stages; Woo is treated as a direct Vertical Plugin and still uses Final Composer for presentation. | Fixed locally; tenant rerun required |
+| Woo order list | Added bounded `order_list` intent using HPOS-aware `wc_get_orders()` with structured `orders[]`, date range, status, total and citations. | Fixed locally; tenant rerun required |
+| TwinChat timeline | Added visible Woo domain/query/composed stages and order count handling for `woo_bizops_*` SSE events. | TwinChat build PASS |
+| Automation picker | `#` overlay now says Automation Workflow, mutually exclusive picker overlays close on a new prefix, and Builder exposes `command_invokable` for workflow listing. | Automation/TwinChat builds PASS |
+
+### Guru versus Vertical Plugin terminology — 2026-08-16
+
+| Area | Change | Status |
+|---|---|---|
+| Product vocabulary | Canonical split is now explicit: Guru = notebook/knowledge scope; `/vertical_slug` = Vertical Brain Mode / Plugin capability. `guru_id` and `BizCity_TwinBrain_Guru_Policy` remain compatibility identifiers only. | Documentation and user-facing error text updated |
+| Woo BizOps policy messages | Replaced user-facing wording that implied Guru owns Woo BizOps access with `scope notebook` and `Vertical Plugin capability` wording. | Updated locally |
+
+### Automation Diagnostics runtime evidence — 2026-08-16
+
+| Area | Root cause / change | Status | Prevention |
+|---|---|---|---|
+| Automation loader | Diagnostics loads the Automation surface before probe execution; Ask Guru uses the active `blocks/actions/` path. | Fixed locally; runtime evidence updated | Run `core.automation` on the canonical Diagnostics page after deploy and verify every required class, including Templates Seeder. |
+| `automation.matcher` probe | Fixture carries linked owner identity, preserves top-level `raw_text` for `@` command tests, and invokes `extract_ref_uuid()` with its current `(payload, platform)` signature. | **Runtime PASS confirmed** | Synthetic channel payloads must satisfy R-ZONE/R-CH-IDMEM identity and normalized/raw text contracts. |
+| `automation.crm_path` probe | CRM instantiate assertion unwraps canonical REST `{ ok, row }` response; Zalo OA/Bot fixtures include owner identity. | **Runtime PASS confirmed** | Probe assertions must consume the public REST DTO rather than assuming a flat row. |
+| `twinbrain.notebook_depth` | Source map, W0.20 graph/retrieval/rerank pack, citation guard and depth profile contract pass on the tenant. | **Runtime PASS confirmed** | Keep notebook source-layer and final-composer profile expectations versioned together. |
+| Templates Seeder visibility | Seeder remains intentionally lazy; the core Automation probe loads it only while that Diagnostics probe runs. | Fixed locally; rerun required | Do not load template seeding on unrelated admin, frontend or channel requests. |
+| BE-7 builtin catalog count | The core Automation probe now runs an explicit idempotent `force_reseed()` before comparing builtin slugs, and reports failed slugs instead of accepting a partial catalog. | Fixed locally; rerun required | A partial builtin catalog must be repaired and measured before `core.automation` can PASS. |
+| CCG-1 explicit command smoke | Extended the existing `core.automation` probe with an exact `#workflow_slug` + args resolve assertion in `zone=admin`, using a disposable command-invokable workflow and existing cleanup. | Fixed locally; rerun required | Keep explicit command DDV inside the tenant-visible core probe when the standalone command-zone probe is not exposed. |
+
+### TwinChat Woo BizOps vertical dispatch — 2026-08-16
+
+| Area | Root cause / change | Status | Prevention |
+|---|---|---|---|
+| `/woo_bizops` dispatch | The generic `bizcity_twinbrain_web_mode_effective` Guru web-fallback gate converted `woo_bizops` to `off` before `dispatch_web_research()`, so TwinChat stayed in Notebook/MPR and never emitted `woo_bizops_*` events. Woo BizOps now passes that generic gate and is checked by its dedicated `BizCity_TwinBrain_Guru_Policy::CAP_WOO_BIZOPS` boundary. | Fixed locally; tenant rerun required | Do not apply the generic web-fallback flag to sensitive built-in verticals with their own capability policy. |
+
+### BizCoach Pro F.9 diagnostics contract — 2026-08-16
+
+| Area | Root cause / change | Status | Prevention |
+|---|---|---|---|
+| `T-BCPRO.F9.a` Intent Provider class | The Diagnostics admin page is outside the normal Intent loader gate, so the read-only BizCoach matrix could evaluate `class_exists( 'BizCoach_Pro_Intent_Provider' )` before its base contract was available. The BizCoach probe now loads the Intent bootstrap/contract only during its precondition, then loads the lazy BizCoach provider. | **Runtime PASS confirmed** — F.9: 4 PASS · 0 FAIL · 0 WARN · 0 SKIP; matrix: 48 PASS · 12 WARN | Keep Diagnostics probes self-contained for the contracts they inspect; do not widen the global Intent preload gate for unrelated admin pages. |
+
 ### Diagnostics command-zone probe interface fatal — 2026-08-16
 
 | Area | Root cause / change | Status | Prevention |

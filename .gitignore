@@ -8,7 +8,6 @@ vendor/
 /docs/rules/
 /docs/extension/
 /docs/diagnostics/
-/docs/api/
 /plugins/_achived/
 /plugins/bizcity-pagebuilder/
 /plugins/bizcity-chatgpt-knowledge/
@@ -24,7 +23,7 @@ vendor/
 /plugins/bizcity-tool-pdf/
 /plugins/bizcity-agent-calo/
 /plugins/bizcity-tarot/
-
+/plugins/___bizcity-video-kling_/
 # bizcoach-pro — Producer hub flagship (PHASE-0.36 / R-PROD-HUB) — in-house, do NOT publish
 
 
@@ -34,7 +33,6 @@ vendor/
 /core/intent/includes/backup-legacy/
 /core/intent/logs/
 
-/modules/twinweb/
 /modules/twinsource/
 # Env
 .env

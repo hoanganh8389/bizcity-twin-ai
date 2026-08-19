@@ -710,7 +710,8 @@ $_bizcity_bundled_must_load = [
     // this only loads when the folder is deployed. Gitignored on public repo — safe to list here.
     'bizcity-twin-crm'            => 'BIZCITY_CRM_VERSION',        // PROPRIETARY (PHASE-0.98) — gitignored, commercial-only. Loads when deployed under plugins/bizcity-twin-crm/.
     'bizcoach-pro'                => 'BCPRO_VERSION',              // BizCoach Pro — Producer hub flagship (PHASE-0.36 / R-PROD-HUB) — gitignored, in-house only
-    'bizcity-video-kling'         => 'BIZCITY_VIDEO_KLING_VERSION', // B-roll Video — Kling/Sora/Veo3/SeeDance image-to-video via PiAPI
+    // [2026-08-19 Johnny Chu] HOTFIX — không bundle Video Kling; chỉ menu /gpt/video/ khi plugin được cài và active riêng.
+    // 'bizcity-video-kling'         => 'BIZCITY_VIDEO_KLING_VERSION', // B-roll Video — Kling/Sora/Veo3/SeeDance image-to-video via PiAPI
     'bizcity-pagebuilder'         => 'BZPB_VERSION',               // Page Builder — AI tạo website drag-and-drop, 19 block types, export HTML
     // [2026-06-24 Johnny Chu] PHASE-HOME — Personal Assistant (Trợ lý cá nhân) — scheduler, budget, KG, journal
     'bizcity-personal'            => 'BIZCITY_PERSONAL_VERSION',    // Personal Assistant — calendar, tasks, budget, journal at /personal/

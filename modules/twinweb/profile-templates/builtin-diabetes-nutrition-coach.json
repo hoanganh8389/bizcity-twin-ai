@@ -1,0 +1,31 @@
+{
+  "schema": "bizcity.twin.profile_template.v1",
+  "slug": "diabetes_nutrition_coach",
+  "version": "1.0.0",
+  "label": "Diabetes Nutrition Coach",
+  "description": "Hồ sơ dinh dưỡng cho người có đường huyết cao/tiểu đường để cá nhân hóa gợi ý theo Notebook chuyên gia, không thay thế phác đồ điều trị.",
+  "vertical": "health",
+  "domain": "clinical_nutrition",
+  "format": "casefile",
+  "expert_role": "clinical_nutrition_coach",
+  "risk_level": "sensitive",
+  "status": "active",
+  "order": 102,
+  "max_questions": 10,
+  "question_limit_policy": "reject_over_10",
+  "wp_user_meta_allowlist": ["first_name", "billing_city", "billing_country"],
+  "questions": [
+    { "key": "diabetes_status", "label": "Tình trạng của bạn thuộc nhóm nào?", "type": "select", "required": true, "choices": { "type1": "Tiểu đường type 1", "type2": "Tiểu đường type 2", "prediabetes": "Tiền tiểu đường", "gestational": "Tiểu đường thai kỳ", "high_glucose": "Đường huyết cao/chưa chẩn đoán", "caregiver": "Người chăm sóc hỏi thay" } },
+    { "key": "latest_numbers", "label": "Chỉ số gần đây nếu có: HbA1c, đường huyết đói, sau ăn, cân nặng", "type": "textarea", "required": false, "max_length": 700 },
+    { "key": "medication_plan", "label": "Thuốc/insulin/phác đồ bác sĩ đang chỉ định cần tôn trọng", "type": "textarea", "required": false, "max_length": 600 },
+    { "key": "current_meals", "label": "Một ngày bạn thường ăn/uống những gì và giờ nào?", "type": "textarea", "required": true, "max_length": 700 },
+    { "key": "main_challenge", "label": "Khó khăn lớn nhất khi kiểm soát đường huyết?", "type": "select", "required": false, "choices": { "carb": "Không biết chọn carb", "snacking": "Ăn vặt/thèm ngọt", "schedule": "Giờ giấc thất thường", "eating_out": "Ăn ngoài", "hypo": "Sợ hạ đường huyết", "weight": "Cân nặng" } },
+    { "key": "activity_context", "label": "Vận động, công việc, giấc ngủ và stress hiện tại", "type": "textarea", "required": false, "max_length": 600 },
+    { "key": "red_flags", "label": "Biến chứng, bệnh thận/tim mạch, mang thai, hạ đường huyết hoặc lưu ý y khoa khác", "type": "textarea", "required": false, "max_length": 700 }
+  ],
+  "grounding": {
+    "context_title": "HỒ SƠ DIABETES NUTRITION CỦA CUSTOMER",
+    "composer_rule": "Cá nhân hóa gợi ý dinh dưỡng theo đường huyết, thuốc và Notebook chuyên gia; không thay đổi thuốc/phác đồ; với chỉ số nguy cơ hoặc triệu chứng bất thường, khuyên liên hệ bác sĩ.",
+    "missing_profile_hint": "Hoàn tất hồ sơ Diabetes Nutrition Coach để gợi ý bữa ăn và thói quen phù hợp tình trạng đường huyết hơn."
+  }
+}

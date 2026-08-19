@@ -171,7 +171,7 @@
     ]
   },
   "index.html": {
-    "file": "assets/index-1k13V2c0.js",
+    "file": "assets/index-BcubW1_5.js",
     "name": "index",
     "src": "index.html",
     "isEntry": true,
@@ -593,7 +593,7 @@
     ]
   },
   "src/components/KGGraphViewNexus.tsx": {
-    "file": "assets/KGGraphViewNexus-CPDyuDmQ.js",
+    "file": "assets/KGGraphViewNexus-lHeTpVcp.js",
     "name": "KGGraphViewNexus",
     "src": "src/components/KGGraphViewNexus.tsx",
     "isDynamicEntry": true,

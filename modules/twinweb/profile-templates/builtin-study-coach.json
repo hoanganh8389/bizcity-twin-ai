@@ -1,0 +1,28 @@
+{
+  "schema": "bizcity.twin.profile_template.v1",
+  "slug": "study_coach",
+  "version": "1.0.0",
+  "label": "Study Coach",
+  "description": "Hồ sơ học tập để Twin GPT cá nhân hóa cách giải thích, lộ trình và bài tập.",
+  "vertical": "study",
+  "domain": "education",
+  "format": "checklist",
+  "expert_role": "study_coach",
+  "risk_level": "low",
+  "status": "active",
+  "order": 60,
+  "max_questions": 10,
+  "question_limit_policy": "reject_over_10",
+  "wp_user_meta_allowlist": ["first_name", "nickname"],
+  "questions": [
+    { "key": "learning_goal", "label": "Bạn đang muốn học điều gì?", "type": "textarea", "required": true, "max_length": 500 },
+    { "key": "current_level", "label": "Trình độ hiện tại?", "type": "select", "required": false, "choices": { "beginner": "Mới bắt đầu", "basic": "Có nền tảng", "intermediate": "Trung cấp", "advanced": "Nâng cao" } },
+    { "key": "learning_style", "label": "Bạn học tốt nhất theo cách nào?", "type": "multiselect", "required": false, "choices": { "examples": "Ví dụ", "steps": "Từng bước", "practice": "Bài tập", "visual": "Hình ảnh", "summary": "Tóm tắt" } },
+    { "key": "time_budget", "label": "Mỗi tuần bạn có thể dành bao nhiêu thời gian?", "type": "text", "required": false, "max_length": 80 }
+  ],
+  "grounding": {
+    "context_title": "HỒ SƠ STUDY COACH CỦA CUSTOMER",
+    "composer_rule": "Giải thích theo mục tiêu, trình độ và phong cách học của customer; ưu tiên kiến thức Notebook đã đào tạo.",
+    "missing_profile_hint": "Hoàn tất hồ sơ Study Coach để lộ trình học phù hợp hơn."
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "schema": "bizcity.twin.profile_template.v1",
+  "slug": "baby_weight_gain_coach",
+  "version": "1.0.0",
+  "label": "Baby Coach - Tăng cân",
+  "description": "Hồ sơ dinh dưỡng cho trẻ cần tăng cân lành mạnh, dùng cho chuyên gia dinh dưỡng cá nhân hóa từ Notebook đào tạo.",
+  "vertical": "health",
+  "domain": "baby_nutrition",
+  "format": "casefile",
+  "expert_role": "pediatric_nutrition_coach",
+  "risk_level": "sensitive",
+  "status": "active",
+  "order": 90,
+  "max_questions": 10,
+  "question_limit_policy": "reject_over_10",
+  "wp_user_meta_allowlist": ["first_name", "billing_city", "billing_country"],
+  "questions": [
+    { "key": "child_age", "label": "Bé bao nhiêu tháng/tuổi?", "type": "text", "required": true, "max_length": 80 },
+    { "key": "current_weight_height", "label": "Cân nặng, chiều cao hiện tại và mốc đo gần nhất?", "type": "textarea", "required": true, "max_length": 400 },
+    { "key": "weight_goal", "label": "Mục tiêu tăng cân hoặc mong muốn của gia đình là gì?", "type": "textarea", "required": true, "max_length": 500 },
+    { "key": "feeding_pattern", "label": "Bé đang ăn/uống sữa như thế nào trong 1 ngày?", "type": "textarea", "required": false, "max_length": 700 },
+    { "key": "digestion_sleep", "label": "Tiêu hóa, giấc ngủ và vận động của bé hiện tại ra sao?", "type": "textarea", "required": false, "max_length": 600 },
+    { "key": "doctor_note", "label": "Có chẩn đoán/khuyến nghị bác sĩ hoặc xét nghiệm nào cần tôn trọng không?", "type": "textarea", "required": false, "max_length": 600 },
+    { "key": "constraints", "label": "Dị ứng, kiêng cữ, ngân sách hoặc thực phẩm gia đình không dùng?", "type": "textarea", "required": false, "max_length": 500 }
+  ],
+  "grounding": {
+    "context_title": "HỒ SƠ BABY TĂNG CÂN CỦA CUSTOMER",
+    "composer_rule": "Cá nhân hóa gợi ý dinh dưỡng trẻ em theo tuổi, cân nặng, thói quen ăn và Notebook của chuyên gia; không chẩn đoán bệnh; với dấu hiệu nguy cơ, khuyên khám bác sĩ nhi/dinh dưỡng.",
+    "missing_profile_hint": "Hoàn tất hồ sơ Baby Tăng cân để gợi ý phù hợp với tuổi, cân nặng và thói quen ăn của bé hơn."
+  }
+}

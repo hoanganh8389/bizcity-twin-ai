@@ -1,0 +1,28 @@
+{
+  "schema": "bizcity.twin.profile_template.v1",
+  "slug": "product_advisor",
+  "version": "1.0.0",
+  "label": "Product Advisor",
+  "description": "Hồ sơ nhu cầu mua hàng/sử dụng sản phẩm để AI tư vấn dựa trên Notebook sản phẩm của doanh nghiệp.",
+  "vertical": "products",
+  "domain": "commerce",
+  "format": "product_advisor",
+  "expert_role": "product_consultant",
+  "risk_level": "low",
+  "status": "active",
+  "order": 70,
+  "max_questions": 10,
+  "question_limit_policy": "reject_over_10",
+  "wp_user_meta_allowlist": ["first_name", "billing_city", "billing_country"],
+  "questions": [
+    { "key": "use_case", "label": "Bạn cần sản phẩm/dịch vụ cho tình huống nào?", "type": "textarea", "required": true, "max_length": 500 },
+    { "key": "budget_range", "label": "Ngân sách dự kiến?", "type": "text", "required": false, "max_length": 120 },
+    { "key": "priority", "label": "Ưu tiên lớn nhất của bạn?", "type": "select", "required": false, "choices": { "price": "Giá", "quality": "Chất lượng", "speed": "Nhanh", "safety": "An toàn", "support": "Hỗ trợ sau bán" } },
+    { "key": "constraints", "label": "Ràng buộc cần lưu ý?", "type": "textarea", "required": false, "max_length": 500 }
+  ],
+  "grounding": {
+    "context_title": "HỒ SƠ PRODUCT ADVISOR CỦA CUSTOMER",
+    "composer_rule": "Tư vấn theo nhu cầu customer nhưng ưu tiên sự thật từ Notebook/source sản phẩm; nếu source không nói, phải nói rõ là suy luận.",
+    "missing_profile_hint": "Hoàn tất hồ sơ Product Advisor để đề xuất sản phẩm đúng nhu cầu hơn."
+  }
+}

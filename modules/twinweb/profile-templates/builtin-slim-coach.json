@@ -1,0 +1,31 @@
+{
+  "schema": "bizcity.twin.profile_template.v1",
+  "slug": "slim_coach",
+  "version": "1.0.0",
+  "label": "Slim Coach",
+  "description": "Hồ sơ giảm cân/ăn kiêng để cá nhân hóa thực đơn, thói quen và chiến lược duy trì theo Notebook chuyên gia.",
+  "vertical": "health",
+  "domain": "weight_management",
+  "format": "assessment",
+  "expert_role": "weight_loss_nutrition_coach",
+  "risk_level": "sensitive",
+  "status": "active",
+  "order": 100,
+  "max_questions": 10,
+  "question_limit_policy": "reject_over_10",
+  "wp_user_meta_allowlist": ["first_name", "billing_city", "billing_country"],
+  "questions": [
+    { "key": "body_profile", "label": "Chiều cao, cân nặng hiện tại và mục tiêu cân nặng của bạn?", "type": "textarea", "required": true, "max_length": 400 },
+    { "key": "diet_goal", "label": "Mục tiêu chính của bạn là gì?", "type": "select", "required": true, "choices": { "fat_loss": "Giảm mỡ", "weight_loss": "Giảm cân", "maintain": "Duy trì", "shape": "Siết form", "health": "Cải thiện sức khỏe" } },
+    { "key": "current_meals", "label": "Một ngày bạn thường ăn/uống những gì?", "type": "textarea", "required": true, "max_length": 700 },
+    { "key": "activity_level", "label": "Mức vận động/tập luyện hiện tại", "type": "select", "required": false, "choices": { "sedentary": "Ít vận động", "light": "Nhẹ", "moderate": "Vừa", "active": "Nhiều", "athlete": "Tập nặng/cường độ cao" } },
+    { "key": "diet_history", "label": "Bạn từng ăn kiêng/giảm cân bằng cách nào và kết quả ra sao?", "type": "textarea", "required": false, "max_length": 600 },
+    { "key": "medical_constraints", "label": "Bệnh lý, thuốc đang dùng, rối loạn ăn uống, mang thai/cho con bú cần lưu ý?", "type": "textarea", "required": false, "max_length": 600 },
+    { "key": "preferences", "label": "Món thích/không thích, giờ giấc, ngân sách, kiểu ăn muốn theo", "type": "textarea", "required": false, "max_length": 600 }
+  ],
+  "grounding": {
+    "context_title": "HỒ SƠ SLIM COACH CỦA CUSTOMER",
+    "composer_rule": "Cá nhân hóa giảm cân/ăn kiêng theo mục tiêu, thói quen, vận động và ràng buộc; không đưa phác đồ y khoa; nếu có bệnh lý/rối loạn ăn uống, khuyên tham vấn chuyên gia.",
+    "missing_profile_hint": "Hoàn tất hồ sơ Slim Coach để gợi ý giảm cân/ăn kiêng thực tế và an toàn hơn."
+  }
+}

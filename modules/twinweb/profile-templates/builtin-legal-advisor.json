@@ -1,0 +1,30 @@
+{
+  "schema": "bizcity.twin.profile_template.v1",
+  "slug": "legal_advisor",
+  "version": "1.0.0",
+  "label": "Legal Advisor",
+  "description": "Hồ sơ vụ việc pháp lý sơ bộ để Twin GPT cá nhân hóa câu trả lời từ Notebook văn phòng/chuyên gia mà không thay thế tư vấn luật sư.",
+  "vertical": "legal",
+  "domain": "legal",
+  "format": "casefile",
+  "expert_role": "legal_consultant",
+  "risk_level": "sensitive",
+  "status": "active",
+  "order": 80,
+  "max_questions": 10,
+  "question_limit_policy": "reject_over_10",
+  "wp_user_meta_allowlist": ["first_name", "billing_city", "billing_country"],
+  "questions": [
+    { "key": "case_type", "label": "Vấn đề pháp lý của bạn thuộc nhóm nào?", "type": "select", "required": true, "choices": { "contract": "Hợp đồng", "business": "Doanh nghiệp", "labor": "Lao động", "family": "Gia đình", "property": "Tài sản", "other": "Khác" } },
+    { "key": "case_summary", "label": "Tóm tắt sự việc và bối cảnh chính", "type": "textarea", "required": true, "max_length": 700 },
+    { "key": "jurisdiction", "label": "Tỉnh/thành/quốc gia áp dụng nếu biết", "type": "text", "required": false, "max_length": 120 },
+    { "key": "desired_outcome", "label": "Kết quả bạn mong muốn là gì?", "type": "textarea", "required": false, "max_length": 500 },
+    { "key": "deadline", "label": "Có mốc thời gian/hạn xử lý nào không?", "type": "text", "required": false, "max_length": 160 },
+    { "key": "has_documents", "label": "Bạn có tài liệu liên quan cần đối chiếu không?", "type": "boolean", "required": false }
+  ],
+  "grounding": {
+    "context_title": "HỒ SƠ LEGAL ADVISOR CỦA CUSTOMER",
+    "composer_rule": "Cá nhân hóa theo bối cảnh vụ việc nhưng không đưa kết luận pháp lý chung thẩm; nếu cần hành động pháp lý, khuyên customer tham vấn luật sư được cấp phép.",
+    "missing_profile_hint": "Hoàn tất hồ sơ Legal Advisor để câu trả lời bám sát bối cảnh vụ việc hơn."
+  }
+}

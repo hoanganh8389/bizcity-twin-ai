@@ -1,0 +1,31 @@
+{
+  "schema": "bizcity.twin.profile_template.v1",
+  "slug": "baby_malnutrition_coach",
+  "version": "1.0.0",
+  "label": "Baby Coach - Suy dinh dưỡng",
+  "description": "Hồ sơ nguy cơ suy dinh dưỡng/thiếu chất cho trẻ để chuyên gia theo dõi cá nhân hóa, không thay thế chẩn đoán y khoa.",
+  "vertical": "health",
+  "domain": "baby_nutrition",
+  "format": "casefile",
+  "expert_role": "pediatric_nutrition_coach",
+  "risk_level": "sensitive",
+  "status": "active",
+  "order": 92,
+  "max_questions": 10,
+  "question_limit_policy": "reject_over_10",
+  "wp_user_meta_allowlist": ["first_name", "billing_city", "billing_country"],
+  "questions": [
+    { "key": "child_age", "label": "Bé bao nhiêu tháng/tuổi?", "type": "text", "required": true, "max_length": 80 },
+    { "key": "diagnosis_status", "label": "Đã được bác sĩ/chuyên gia đánh giá suy dinh dưỡng hay thiếu chất chưa?", "type": "select", "required": true, "choices": { "doctor_confirmed": "Đã có kết luận", "suspected": "Gia đình nghi ngờ", "tracking": "Đang theo dõi", "unknown": "Chưa rõ" } },
+    { "key": "growth_data", "label": "Cân nặng, chiều cao, vòng đầu và biểu đồ tăng trưởng nếu có", "type": "textarea", "required": true, "max_length": 700 },
+    { "key": "current_intake", "label": "Khẩu phần/sữa/bữa phụ hiện tại trong 1 ngày", "type": "textarea", "required": true, "max_length": 700 },
+    { "key": "symptoms", "label": "Các dấu hiệu kèm theo: mệt mỏi, tiêu chảy, táo bón, nhiễm trùng lặp lại, rụng tóc...?", "type": "textarea", "required": false, "max_length": 600 },
+    { "key": "lab_or_doctor_note", "label": "Xét nghiệm, đơn thuốc, thực phẩm bổ sung hoặc khuyến nghị cần tôn trọng", "type": "textarea", "required": false, "max_length": 700 },
+    { "key": "care_context", "label": "Người chăm sóc, điều kiện bữa ăn và ràng buộc thực phẩm/ngân sách", "type": "textarea", "required": false, "max_length": 600 }
+  ],
+  "grounding": {
+    "context_title": "HỒ SƠ BABY SUY DINH DƯỠNG CỦA CUSTOMER",
+    "composer_rule": "Cá nhân hóa theo dữ liệu tăng trưởng và khuyến nghị chuyên gia đã có; không tự chẩn đoán suy dinh dưỡng; nếu có dấu hiệu nguy cơ, ưu tiên khuyên khám bác sĩ.",
+    "missing_profile_hint": "Hoàn tất hồ sơ Baby Suy dinh dưỡng để câu trả lời bám sát dữ liệu tăng trưởng và khẩu phần của bé hơn."
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "schema": "bizcity.twin.profile_template.v1",
+  "slug": "baby_picky_eating_coach",
+  "version": "1.0.0",
+  "label": "Baby Coach - Biếng ăn",
+  "description": "Hồ sơ biếng ăn/khó ăn cho trẻ để chuyên gia dinh dưỡng cá nhân hóa chiến lược bữa ăn và hành vi ăn uống.",
+  "vertical": "health",
+  "domain": "baby_nutrition",
+  "format": "assessment",
+  "expert_role": "pediatric_nutrition_coach",
+  "risk_level": "sensitive",
+  "status": "active",
+  "order": 91,
+  "max_questions": 10,
+  "question_limit_policy": "reject_over_10",
+  "wp_user_meta_allowlist": ["first_name", "billing_city", "billing_country"],
+  "questions": [
+    { "key": "child_age", "label": "Bé bao nhiêu tháng/tuổi?", "type": "text", "required": true, "max_length": 80 },
+    { "key": "picky_pattern", "label": "Bé biếng ăn theo kiểu nào?", "type": "select", "required": true, "choices": { "refuse_meal": "Từ chối bữa ăn", "few_foods": "Chỉ ăn vài món", "slow_eating": "Ăn rất chậm", "milk_only": "Ưu tiên sữa/không chịu ăn", "texture": "Sợ kết cấu/mùi vị", "other": "Khác" } },
+    { "key": "daily_menu", "label": "Một ngày bé thường ăn/uống những gì?", "type": "textarea", "required": true, "max_length": 700 },
+    { "key": "meal_context", "label": "Bữa ăn diễn ra như thế nào: thời gian, người cho ăn, màn hình, ép ăn?", "type": "textarea", "required": false, "max_length": 600 },
+    { "key": "growth_status", "label": "Cân nặng/chiều cao gần đây và tốc độ tăng trưởng nếu biết", "type": "textarea", "required": false, "max_length": 400 },
+    { "key": "medical_flags", "label": "Bé có nôn trớ, táo bón, dị ứng, đau bụng, ốm vặt hay tiền sử bệnh lý nào không?", "type": "textarea", "required": false, "max_length": 600 },
+    { "key": "family_goal", "label": "Gia đình muốn ưu tiên điều gì trong 2-4 tuần tới?", "type": "textarea", "required": false, "max_length": 500 }
+  ],
+  "grounding": {
+    "context_title": "HỒ SƠ BABY BIẾNG ĂN CỦA CUSTOMER",
+    "composer_rule": "Cá nhân hóa gợi ý theo hành vi ăn, lịch bữa và bối cảnh gia đình; không quy kết trẻ có bệnh nếu thiếu dữ liệu; dấu hiệu cảnh báo phải khuyên khám chuyên gia.",
+    "missing_profile_hint": "Hoàn tất hồ sơ Baby Biếng ăn để AI gợi ý chiến lược bữa ăn sát với tình huống của bé hơn."
+  }
+}

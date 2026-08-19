@@ -1,0 +1,31 @@
+{
+  "schema": "bizcity.twin.profile_template.v1",
+  "slug": "gout_nutrition_coach",
+  "version": "1.0.0",
+  "label": "Gout Nutrition Coach",
+  "description": "Hồ sơ dinh dưỡng cho gout/acid uric cao để cá nhân hóa gợi ý ăn uống và thói quen theo Notebook chuyên gia.",
+  "vertical": "health",
+  "domain": "clinical_nutrition",
+  "format": "casefile",
+  "expert_role": "clinical_nutrition_coach",
+  "risk_level": "sensitive",
+  "status": "active",
+  "order": 103,
+  "max_questions": 10,
+  "question_limit_policy": "reject_over_10",
+  "wp_user_meta_allowlist": ["first_name", "billing_city", "billing_country"],
+  "questions": [
+    { "key": "gout_status", "label": "Tình trạng của bạn hiện tại?", "type": "select", "required": true, "choices": { "diagnosed": "Đã được chẩn đoán gout", "high_uric": "Acid uric cao", "flare": "Đang/gần đây có cơn đau", "prevention": "Phòng tái phát", "caregiver": "Hỏi thay người thân" } },
+    { "key": "latest_numbers", "label": "Chỉ số acid uric, cân nặng, chức năng thận hoặc xét nghiệm gần đây nếu có", "type": "textarea", "required": false, "max_length": 700 },
+    { "key": "flare_pattern", "label": "Tần suất cơn đau, vị trí đau và yếu tố kích hoạt nghi ngờ", "type": "textarea", "required": false, "max_length": 600 },
+    { "key": "current_meals", "label": "Một ngày bạn thường ăn/uống gì, đặc biệt hải sản, nội tạng, bia/rượu, thịt đỏ?", "type": "textarea", "required": true, "max_length": 700 },
+    { "key": "medication_note", "label": "Thuốc bác sĩ đang cho hoặc lưu ý điều trị cần tôn trọng", "type": "textarea", "required": false, "max_length": 600 },
+    { "key": "comorbidities", "label": "Có tiểu đường, tăng huyết áp, bệnh thận, mỡ máu, béo phì hoặc bệnh lý khác không?", "type": "textarea", "required": false, "max_length": 600 },
+    { "key": "goal", "label": "Mục tiêu ưu tiên: giảm cơn đau, giảm acid uric, giảm cân, thực đơn dễ theo?", "type": "textarea", "required": false, "max_length": 500 }
+  ],
+  "grounding": {
+    "context_title": "HỒ SƠ GOUT NUTRITION CỦA CUSTOMER",
+    "composer_rule": "Cá nhân hóa gợi ý ăn uống theo acid uric, thực phẩm kích hoạt và Notebook chuyên gia; không thay đổi thuốc; nếu đang cơn đau cấp/nặng, khuyên liên hệ bác sĩ.",
+    "missing_profile_hint": "Hoàn tất hồ sơ Gout Nutrition Coach để gợi ý ăn uống và phòng tái phát sát tình trạng hơn."
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "schema": "bizcity.twin.profile_template.v1",
+  "slug": "mindcoach",
+  "version": "1.0.0",
+  "label": "Mind Coach",
+  "description": "Hồ sơ tư duy, cảm xúc và thói quen để Twin GPT trả lời ấm áp và đúng ngữ cảnh hơn.",
+  "vertical": "mindcoach",
+  "domain": "mindset",
+  "format": "followup",
+  "expert_role": "mind_coach",
+  "risk_level": "sensitive",
+  "status": "active",
+  "order": 30,
+  "max_questions": 10,
+  "question_limit_policy": "reject_over_10",
+  "wp_user_meta_allowlist": ["first_name", "nickname"],
+  "questions": [
+    { "key": "current_state", "label": "Trạng thái tinh thần hiện tại của bạn?", "type": "textarea", "required": true, "max_length": 500 },
+    { "key": "support_style", "label": "Bạn thích AI hỗ trợ theo cách nào?", "type": "select", "required": false, "choices": { "gentle": "Nhẹ nhàng", "direct": "Thẳng thắn", "structured": "Có cấu trúc", "reflective": "Gợi mở suy ngẫm" } },
+    { "key": "stressors", "label": "Các tác nhân gây căng thẳng chính?", "type": "textarea", "required": false, "max_length": 500 },
+    { "key": "habits_to_build", "label": "Thói quen bạn muốn xây dựng?", "type": "textarea", "required": false, "max_length": 500 },
+    { "key": "boundaries", "label": "Chủ đề nào AI nên tránh hoặc xử lý cẩn thận?", "type": "textarea", "required": false, "max_length": 500 }
+  ],
+  "grounding": {
+    "context_title": "HỒ SƠ MIND COACH CỦA CUSTOMER",
+    "composer_rule": "Trả lời theo trạng thái, phong cách hỗ trợ và ranh giới của customer; không tự nhận là chuyên gia điều trị.",
+    "missing_profile_hint": "Hoàn tất hồ sơ Mind Coach để Twin GPT đồng hành đúng phong cách của bạn hơn."
+  }
+}

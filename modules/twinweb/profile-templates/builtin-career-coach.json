@@ -1,0 +1,29 @@
+{
+  "schema": "bizcity.twin.profile_template.v1",
+  "slug": "career_coach",
+  "version": "1.0.0",
+  "label": "Career Coach",
+  "description": "Hồ sơ nghề nghiệp để Twin GPT cá nhân hóa câu trả lời từ Notebook đào tạo.",
+  "vertical": "career",
+  "domain": "career",
+  "format": "assessment",
+  "expert_role": "career_coach",
+  "risk_level": "standard",
+  "status": "active",
+  "order": 10,
+  "max_questions": 10,
+  "question_limit_policy": "reject_over_10",
+  "wp_user_meta_allowlist": ["first_name", "last_name", "nickname"],
+  "questions": [
+    { "key": "current_role", "label": "Vai trò hiện tại của bạn là gì?", "type": "text", "required": true, "max_length": 120 },
+    { "key": "career_goal", "label": "Mục tiêu nghề nghiệp 12 tháng tới là gì?", "type": "textarea", "required": true, "max_length": 500 },
+    { "key": "biggest_blocker", "label": "Điều đang cản bạn nhiều nhất là gì?", "type": "textarea", "required": false, "max_length": 500 },
+    { "key": "preferred_work_style", "label": "Phong cách làm việc bạn thấy hợp nhất?", "type": "select", "required": false, "choices": { "solo": "Độc lập", "team": "Làm việc nhóm", "lead": "Dẫn dắt", "hybrid": "Kết hợp" } },
+    { "key": "strengths", "label": "3 thế mạnh bạn muốn AI ưu tiên khi tư vấn", "type": "textarea", "required": false, "max_length": 500 }
+  ],
+  "grounding": {
+    "context_title": "HỒ SƠ CAREER COACH CỦA CUSTOMER",
+    "composer_rule": "Trả lời theo vai trò, mục tiêu và rào cản nghề nghiệp của customer; dùng Notebook như kiến thức doanh nghiệp đã đào tạo.",
+    "missing_profile_hint": "Hoàn tất hồ sơ Career Coach để câu trả lời sát với lộ trình nghề nghiệp của bạn hơn."
+  }
+}

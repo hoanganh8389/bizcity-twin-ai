@@ -1,0 +1,28 @@
+{
+  "schema": "bizcity.twin.profile_template.v1",
+  "slug": "relationship_coach",
+  "version": "1.0.0",
+  "label": "Relationship Coach",
+  "description": "Hồ sơ quan hệ để cá nhân hóa lời khuyên giao tiếp, gia đình và đồng hành.",
+  "vertical": "relationship",
+  "domain": "relationship",
+  "format": "casefile",
+  "expert_role": "relationship_coach",
+  "risk_level": "sensitive",
+  "status": "active",
+  "order": 50,
+  "max_questions": 10,
+  "question_limit_policy": "reject_over_10",
+  "wp_user_meta_allowlist": ["first_name", "nickname"],
+  "questions": [
+    { "key": "relationship_context", "label": "Ngữ cảnh mối quan hệ bạn muốn hỏi?", "type": "select", "required": true, "choices": { "partner": "Tình cảm", "family": "Gia đình", "work": "Đồng nghiệp", "friend": "Bạn bè", "self": "Quan hệ với bản thân" } },
+    { "key": "desired_outcome", "label": "Kết quả bạn mong muốn là gì?", "type": "textarea", "required": true, "max_length": 500 },
+    { "key": "communication_style", "label": "Phong cách giao tiếp của bạn?", "type": "textarea", "required": false, "max_length": 500 },
+    { "key": "main_conflict", "label": "Mâu thuẫn hoặc điểm khó hiện tại?", "type": "textarea", "required": false, "max_length": 500 }
+  ],
+  "grounding": {
+    "context_title": "HỒ SƠ RELATIONSHIP COACH CỦA CUSTOMER",
+    "composer_rule": "Trả lời theo mục tiêu quan hệ và phong cách giao tiếp của customer; không kết luận thay người trong cuộc.",
+    "missing_profile_hint": "Hoàn tất hồ sơ Relationship Coach để lời khuyên gần với tình huống của bạn hơn."
+  }
+}

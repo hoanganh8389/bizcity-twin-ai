@@ -1,0 +1,29 @@
+{
+  "schema": "bizcity.twin.profile_template.v1",
+  "slug": "health_coach",
+  "version": "1.0.0",
+  "label": "Health Coach",
+  "description": "Hồ sơ sức khỏe tổng quát để cá nhân hóa khuyến nghị wellness, không thay thế chẩn đoán y khoa.",
+  "vertical": "health",
+  "domain": "health_wellness",
+  "format": "casefile",
+  "expert_role": "health_coach",
+  "risk_level": "sensitive",
+  "status": "active",
+  "order": 20,
+  "max_questions": 10,
+  "question_limit_policy": "reject_over_10",
+  "wp_user_meta_allowlist": ["first_name", "nickname"],
+  "questions": [
+    { "key": "health_goal", "label": "Mục tiêu sức khỏe/wellness hiện tại của bạn là gì?", "type": "textarea", "required": true, "max_length": 500 },
+    { "key": "current_routine", "label": "Thói quen ăn, ngủ, vận động hiện tại?", "type": "textarea", "required": false, "max_length": 600 },
+    { "key": "main_concern", "label": "Vấn đề bạn quan tâm nhất?", "type": "select", "required": false, "choices": { "energy": "Năng lượng", "sleep": "Giấc ngủ", "stress": "Căng thẳng", "nutrition": "Dinh dưỡng", "fitness": "Vận động" } },
+    { "key": "constraints", "label": "Ràng buộc cần lưu ý khi gợi ý?", "type": "textarea", "required": false, "max_length": 500 },
+    { "key": "doctor_note", "label": "Có lưu ý từ bác sĩ/chuyên gia cần AI tôn trọng không?", "type": "textarea", "required": false, "max_length": 500 }
+  ],
+  "grounding": {
+    "context_title": "HỒ SƠ HEALTH COACH CỦA CUSTOMER",
+    "composer_rule": "Cá nhân hóa wellness theo mục tiêu và ràng buộc của customer; không đưa chẩn đoán y khoa; nếu cần, khuyên hỏi chuyên gia.",
+    "missing_profile_hint": "Hoàn tất hồ sơ Health Coach để gợi ý wellness phù hợp hơn."
+  }
+}
