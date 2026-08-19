@@ -71,15 +71,6 @@
       "required_surfaces": ["channel_normalized", "outbound_logging", "identity_scoping", "error_envelope", "runtime_probe"]
     },
     {
-      "id": "bizcity.personal",
-      "path": "plugins/bizcity-personal",
-      "kind": "framework_integrated",
-      "status": "partial",
-      "manifest": null,
-      "bootstrap": "plugins/bizcity-personal/bootstrap.php",
-      "required_surfaces": ["channel_normalized", "scheduler_metadata", "inbound_provenance", "mutation_guard", "file_log", "canonical_sender", "error_envelope"]
-    },
-    {
       "id": "bizcity.zalo-bot",
       "path": "plugins/bizcity-zalo-bot",
       "kind": "framework_integrated",
@@ -105,15 +96,6 @@
       "manifest": null,
       "bootstrap": "plugins/bizcity-pagebuilder/bizcity-pagebuilder.php",
       "required_surfaces": ["gateway_client", "secret_boundary", "reliable_http", "mutation_guard", "error_envelope"]
-    },
-    {
-      "id": "bizcity.video-kling",
-      "path": "plugins/bizcity-video-kling",
-      "kind": "framework_integrated",
-      "status": "partial",
-      "manifest": null,
-      "bootstrap": "plugins/bizcity-video-kling/bootstrap.php",
-      "required_surfaces": ["gateway_client", "secret_boundary", "reliable_http", "idempotency", "error_envelope"]
     },
     {
       "id": "bizcity.tool-image",
