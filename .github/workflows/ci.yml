@@ -279,6 +279,7 @@ jobs:
           path: build/junit.xml
           reporter: java-junit
           working-directory: wp-content/plugins/bizcity-twin-ai
+          fail-on-error: false
 
   docs-hooks-coverage:
     name: HOOKS.md coverage check

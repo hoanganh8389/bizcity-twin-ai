@@ -615,6 +615,7 @@ class BizCity_Zalo_Bot_Webhook_Handler {
 				) ) );
 				
 				// Fire workflow trigger (prefer gateway if available)
+				// [2026-08-19 Johnny Chu] R-CH-UNI - canonical gateway dispatch is the only active workflow path.
 				if ( function_exists( 'bizcity_gateway_fire_trigger' ) ) {
 					bizcity_gateway_fire_trigger( $trigger, $data );
 				}
