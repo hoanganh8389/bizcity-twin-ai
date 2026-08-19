@@ -1,0 +1,78 @@
+name: SDK Release
+
+on:
+  push:
+    tags:
+      - 'twin-ui-v*.*.*'
+      - 'twin-framework-v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  ui:
+    if: startsWith(github.ref_name, 'twin-ui-v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+      - name: Validate SDK release metadata
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          node bin/validate-sdk-release.mjs --check-tag
+          package_version="$(node -p "require('./packages/twin-ui-sdk/package.json').version")"
+          echo "version=$package_version" >> "$GITHUB_OUTPUT"
+      - name: Install and build package
+        working-directory: packages/twin-ui-sdk
+        run: npm install --no-package-lock --ignore-scripts
+      - name: Build package
+        working-directory: packages/twin-ui-sdk
+        run: npm run build
+      - name: Validate built release metadata
+        run: node bin/validate-sdk-release.mjs --check-build --check-tag
+      - name: Verify package contents
+        working-directory: packages/twin-ui-sdk
+        run: npm pack --dry-run
+      - name: Publish package
+        working-directory: packages/twin-ui-sdk
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Twin UI SDK v${{ steps.version.outputs.version }}
+          generate_release_notes: true
+
+  php:
+    if: startsWith(github.ref_name, 'twin-framework-v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          tools: composer:v2
+      - name: Validate SDK release metadata
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          node bin/validate-sdk-release.mjs --check-tag
+          package_version="$(node -p "require('./packages/bizcity-framework-sdk/composer.json').version")"
+          echo "version=$package_version" >> "$GITHUB_OUTPUT"
+      - name: Validate package metadata
+        working-directory: packages/bizcity-framework-sdk
+        run: composer validate --strict --no-check-lock
+      - name: Validate release metadata again
+        run: node bin/validate-sdk-release.mjs --check-tag
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: BizCity Framework SDK v${{ steps.version.outputs.version }}
+          generate_release_notes: true

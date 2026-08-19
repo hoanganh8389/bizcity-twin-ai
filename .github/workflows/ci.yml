@@ -8,6 +8,53 @@ on:
 
 jobs:
 
+  public-contracts:
+    name: Public Contracts & SDK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Validate contract JSON
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+          const roots = [
+            'core/twin-core/contracts/schema/public/v1',
+            'core/twin-core/contracts/schema/public/v1/fixtures',
+          ];
+          for (const root of roots) {
+            for (const file of fs.readdirSync(root).filter((name) => name.endsWith('.json'))) {
+              JSON.parse(fs.readFileSync(path.join(root, file), 'utf8'));
+            }
+          }
+          JSON.parse(fs.readFileSync('core/twin-core/contracts/schema/manifest.schema.json', 'utf8'));
+          console.log('JSON CONTRACT FILES PASS');
+          NODE
+
+      - name: Run contract fixtures
+        run: node core/twin-core/contracts/tests/run-contract-tests.mjs
+
+      - name: Build TypeScript SDK
+        run: |
+          npx --yes -p typescript@5.7.2 tsc --project packages/twin-ui-sdk/tsconfig.json
+
+      - name: Validate SDK release metadata
+        run: node bin/validate-sdk-release.mjs --check-build
+
+      - name: Validate plugin contract registry
+        run: node bin/validate-plugin-contract-registry.mjs
+
+      - name: Reject new active contract bypasses
+        run: node bin/framework-contract-audit.mjs
+
   lint-php:
     name: PHP Lint & Compat
     runs-on: ubuntu-latest
@@ -40,9 +87,23 @@ jobs:
 
       - name: PHP syntax check
         run: |
-          set -e
-          ! find core modules plugins includes mu-plugin bin -name '*.php' -print0 \
-            | xargs -0 -n1 -P4 php -l 2>&1 | grep -v 'No syntax errors detected'
+          set -euo pipefail
+          status=0
+          while IFS= read -r -d '' file; do
+            if ! output=$(php -l "$file" 2>&1); then
+              printf '%s\n' "$output"
+              status=1
+            fi
+          done < <(
+            find core modules plugins includes mu-plugin bin \
+              -type f -name '*.php' \
+              ! -path '*/_archived/*' \
+              -print0
+          )
+          exit "$status"
+
+      - name: Validate reference extension manifest
+        run: php bin/bizcity-manifest-validate.php --plugin=examples/bizcity-reference-plugin
 
       - name: PHP 7.4 compatibility grep guards
         run: |
@@ -148,6 +209,9 @@ jobs:
           BIZCITY_WP_ROOT: ${{ github.workspace }}
         run: php bin/diagnostics-run.php --skip-network --junit=build/junit.xml --filter='*'
 
+      - name: Run framework production smoke
+        run: wp --user=1 eval-file wp-content/plugins/bizcity-twin-ai/bin/framework-smoke.php
+
       - name: Upload JUnit
         if: always()
         uses: actions/upload-artifact@v4
@@ -186,13 +250,23 @@ jobs:
             fi
           done
 
-  fe-build:
-    name: FE bundle smoke (TS/JS)
+  sdk-package-build:
+    name: Twin UI SDK package smoke
     runs-on: ubuntu-latest
-    if: false  # enable once package.json scripts stabilize
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: '18', cache: 'npm' }
-      - run: npm ci
-      - run: npm run build
+        with:
+          node-version: '20'
+      - name: Install SDK package dependencies
+        working-directory: packages/twin-ui-sdk
+        run: npm install --no-package-lock --ignore-scripts
+      - name: Build SDK package
+        working-directory: packages/twin-ui-sdk
+        run: npm run build
+      - name: Validate package contents
+        working-directory: packages/twin-ui-sdk
+        run: npm pack --dry-run
+
+      - name: Validate SDK release metadata
+        run: node bin/validate-sdk-release.mjs --check-build
