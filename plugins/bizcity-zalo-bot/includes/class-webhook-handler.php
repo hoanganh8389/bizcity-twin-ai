@@ -546,10 +546,9 @@ class BizCity_Zalo_Bot_Webhook_Handler {
 				) ) );
 				
 				// Fire workflow trigger (prefer gateway if available)
+				// [2026-08-09 Johnny Chu] R-CH-UNI — raw fallback dispatch is no longer needed; the canonical Zone 2 envelope and automation intake already handled this event.
 				if ( function_exists( 'bizcity_gateway_fire_trigger' ) ) {
 					bizcity_gateway_fire_trigger( $trigger, $data );
-				} else {
-					do_action( 'waic_twf_process_flow', $trigger, $data );
 				}
 				
 				$this->log_zalohook_info( 'Text message processed', array(
@@ -618,8 +617,6 @@ class BizCity_Zalo_Bot_Webhook_Handler {
 				// Fire workflow trigger (prefer gateway if available)
 				if ( function_exists( 'bizcity_gateway_fire_trigger' ) ) {
 					bizcity_gateway_fire_trigger( $trigger, $data );
-				} else {
-					do_action( 'waic_twf_process_flow', $trigger, $data );
 				}
 				
 				$this->log_zalohook_info( 'Image message processed', array(
@@ -699,8 +696,6 @@ class BizCity_Zalo_Bot_Webhook_Handler {
 				// Fire workflow trigger (prefer gateway if available)
 				if ( function_exists( 'bizcity_gateway_fire_trigger' ) ) {
 					bizcity_gateway_fire_trigger( $trigger, $data );
-				} else {
-					do_action( 'waic_twf_process_flow', $trigger, $data );
 				}
 				
 				$this->log_zalohook_info( 'File message processed', array(
@@ -771,8 +766,6 @@ class BizCity_Zalo_Bot_Webhook_Handler {
 				// Fire workflow trigger (prefer gateway if available)
 				if ( function_exists( 'bizcity_gateway_fire_trigger' ) ) {
 					bizcity_gateway_fire_trigger( $trigger, $data );
-				} else {
-					do_action( 'waic_twf_process_flow', $trigger, $data );
 				}
 				
 				$this->log_zalohook_info( 'Voice message processed', array(
@@ -823,8 +816,6 @@ class BizCity_Zalo_Bot_Webhook_Handler {
 
 					if ( function_exists( 'bizcity_gateway_fire_trigger' ) ) {
 						bizcity_gateway_fire_trigger( $fallback, $data );
-					} else {
-						do_action( 'waic_twf_process_flow', $fallback, $data );
 					}
 
 					$this->log_zalohook_info( 'Unknown message event fallback processed', array(
